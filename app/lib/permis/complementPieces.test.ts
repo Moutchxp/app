@@ -18,6 +18,15 @@ describe('problemeDateDeclaration — bornes d’une relance déclarée', () => 
   it('même jour que le dernier message → accepté (borne basse inclusive)', () => {
     expect(problemeDateDeclaration('2026-08-28', '2026-08-30', '2026-08-28T14:39:59+02:00')).toBeNull();
   });
+
+  // 🔴 RÉGRESSION : le vrai appelant fournit un objet Date (colonne timestamptz lue par pg), PAS une chaîne. Avant FIX-1,
+  // `.slice(0,10)` sur un Date jetait un TypeError → 503 « déclaration impossible ». La fonction DOIT accepter un Date.
+  it('dernierMessageLe en objet Date (vrai type runtime) → ne plante pas, compare au grain jour', () => {
+    const dernier = new Date('2026-08-28T14:39:59+02:00'); // = 2026-08-28T12:39:59Z → jour UTC 2026-08-28
+    expect(problemeDateDeclaration('2026-08-28', '2026-08-31', dernier)).toBeNull(); // même jour → accepté
+    expect(problemeDateDeclaration('2026-08-29', '2026-08-31', dernier)).toBeNull(); // postérieure → accepté
+    expect(problemeDateDeclaration('2026-08-27', '2026-08-31', dernier)).toMatch(/précéder le dernier message/); // antérieure → refus
+  });
 });
 
 describe('problemeTexteComplement — validation du texte (y compris modifié à la main)', () => {

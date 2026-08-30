@@ -18,6 +18,14 @@ interface Etat { numDau: string | null; destinataire: string | null; repliable: 
 const muted: React.CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
 const styleChamp: React.CSSProperties = { width: '100%', padding: '.4rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, boxSizing: 'border-box' };
 
+/** Libellé lisible d'une réponse d'erreur. La barrière d'accès émet 401 (session expirée, via le proxy) OU 403 (compte
+ * révoqué / non-admin / changement de mot de passe requis, via la garde de route) : les DEUX doivent inviter à se reconnecter,
+ * JAMAIS afficher le code machine brut (« INTERDIT », « ACCES_REVOQUE »…). Tout autre statut → message métier de la route, sinon repli. */
+function libelleErreur(status: number, erreur: string | undefined, repli: string): string {
+  if (status === 401 || status === 403) return 'Session expirée ou accès non autorisé : reconnectez-vous, puis recommencez.';
+  return erreur ?? repli;
+}
+
 export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId: number; famillesManquantes: FamillePlan[] }) {
   const [coches, setCoches] = useState<Set<FamillePlan>>(() => new Set(famillesManquantes));
   const [etat, setEtat] = useState<Etat | null>(null);
@@ -83,7 +91,7 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; destinataire?: string; erreur?: string };
       if (res.ok && d.ok) { setMessage(`Demande envoyée à ${d.destinataire}.`); setMode('cases'); await chargerEtat(); }
-      else setMessage(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'envoi impossible'));
+      else setMessage(libelleErreur(res.status, d.erreur, 'envoi impossible'));
     } catch { setMessage('envoi impossible'); } finally { setEnvoi(false); }
   }, [dossierId, coches, objet, corps, chargerEtat]);
 
@@ -101,7 +109,7 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
       if (res.ok && d.ok) { setMessageDecl('Relance déclarée (aucun e-mail envoyé).'); await chargerEtat(); }
-      else setMessageDecl(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'déclaration impossible'));
+      else setMessageDecl(libelleErreur(res.status, d.erreur, 'déclaration impossible'));
     } catch { setMessageDecl('déclaration impossible'); } finally { setEnCoursDecl(false); }
   }, [dossierId, cochesDecl, dateDecl, chargerEtat]);
 

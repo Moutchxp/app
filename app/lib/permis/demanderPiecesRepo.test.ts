@@ -160,6 +160,26 @@ describe('declarerRelanceComplement — constat sans envoi', () => {
     expect((await declarerRelanceComplement(makeDepsDecl(), argD({ familles: [] }))).ok).toBe(false);
     expect((await declarerRelanceComplement(makeDepsDecl({ lireContexte: vi.fn(async () => null) }), argD())).ok).toBe(false);
   });
+
+  // 🔴 RÉGRESSION FIX-1 — le mock injectait une CHAÎNE (tests verts) là où le VRAI `lireContexteDeclaration` renvoie un objet Date
+  // (colonne timestamptz). `.slice()` sur un Date jetait → 503 « déclaration impossible » : geste cassé pour TOUS. Ce test injecte le
+  // VRAI type (Date) et REJOUE le cas réel d'Arno (demande 154 / dossier 7424, 28/08, « Plans d'étages » + « Formulaire Cerfa »).
+  it('dernierMessageLe en objet Date (vrai type runtime) → la déclaration RÉUSSIT (cas réel demande 154)', async () => {
+    const ctxDate = { demandeId: 154, destinataire: 'lauriane.pangui@mairie-aubervilliers.fr', dernierMessageLe: new Date('2026-08-28T15:04:00+02:00') };
+    let trace: TraceDeclaration | null = null;
+    let marque: { demandeId: number; familles: readonly string[] } | null = null;
+    const deps = makeDepsDecl({
+      lireContexte: vi.fn(async () => ctxDate),          // ← objet Date, comme la vraie base
+      aujourdhui: () => '2026-08-31',                    // date d'Arno = 28/08, aujourd'hui = 31/08
+      journaliserDeclaration: async (_d, t) => { trace = t; },
+      marquerPartiel: async (demandeId, familles) => { marque = { demandeId, familles }; },
+    });
+    const r = await declarerRelanceComplement(deps, argD({ dossierId: 7424, familles: ['etage', 'cerfa'], dateRelance: '2026-08-28' }));
+    expect(r.ok).toBe(true); // AVANT FIX-1 : throw → jamais atteint
+    expect(trace!.dateRelance).toBe('2026-08-28');
+    expect(trace!.familles).toEqual(['etage', 'cerfa']);
+    expect(marque!.demandeId).toBe(154); // CASC-1 : marqueur « dossier partiel » posé
+  });
 });
 
 // ── FIL-B — RÉPONSE LIBRE à un message choisi ────────────────────────────────────────────────────────────────────────────────

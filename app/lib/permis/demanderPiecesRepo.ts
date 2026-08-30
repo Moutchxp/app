@@ -117,7 +117,7 @@ export async function lireCibleComplementReel(dossierId: number): Promise<CibleC
  * message reçu (borne basse). N'importe RIEN du module e-mail (pas de compte SMTP) — le chemin déclaration ne peut structurellement
  * pas envoyer. `null` si aucun message de mairie.
  */
-export async function lireContexteDeclaration(dossierId: number): Promise<{ demandeId: number; destinataire: string; dernierMessageLe: string } | null> {
+export async function lireContexteDeclaration(dossierId: number): Promise<{ demandeId: number; destinataire: string; dernierMessageLe: Date } | null> {
   const { rows: dRows } = await query<{ demande_id: number }>(
     `SELECT dd.demande_id
        FROM demande_dossier dd
@@ -126,7 +126,9 @@ export async function lireContexteDeclaration(dossierId: number): Promise<{ dema
       LIMIT 1`, [dossierId]);
   const d = dRows[0];
   if (!d) return null;
-  const { rows: mRows } = await query<{ de_adresse: string; recu_le: string }>(
+  // `recu_le` est un timestamptz → le driver `pg` le renvoie en objet Date (aucun setTypeParser). `problemeDateDeclaration`
+  // normalise Date|string au grain JOUR : NE PAS présumer une chaîne ici (c'était l'origine du 503 « déclaration impossible »).
+  const { rows: mRows } = await query<{ de_adresse: string; recu_le: Date }>(
     `SELECT de_adresse, recu_le FROM demande_reponse WHERE demande_id = $1 AND nature <> 'rebond' ORDER BY recu_le DESC LIMIT 1`, [d.demande_id]);
   const m = mRows[0];
   if (!m) return null;
@@ -177,7 +179,7 @@ export const MOTIF_DECLARATION_PREFIXE = 'relance de complément déclarée';
 export interface TraceDeclaration { dateRelance: string; familles: FamillePlan[]; destinataire: string }
 
 export interface DepsDeclaration {
-  lireContexte(dossierId: number): Promise<{ demandeId: number; destinataire: string; dernierMessageLe: string } | null>;
+  lireContexte(dossierId: number): Promise<{ demandeId: number; destinataire: string; dernierMessageLe: string | Date } | null>; // Date au runtime (timestamptz), string en mock
   journaliserDeclaration(demandeId: number, trace: TraceDeclaration, auteur: string): Promise<void>;
   marquerPartiel(demandeId: number, familles: readonly FamillePlan[]): Promise<void>; // CASC-1 : marqueur « dossier partiel » (origine 'declaree')
   aujourdhui(): string; // 'YYYY-MM-DD' — injecté (pureté de la borne « pas dans le futur »)
