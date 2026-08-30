@@ -56,3 +56,18 @@ export async function lireCompletude(dossierId: number): Promise<CompletudeLue |
     return { diagnostic, calculeLe: r.calcule_le instanceof Date ? r.calcule_le.toISOString() : new Date(r.calcule_le).toISOString(), perime };
   } catch { return null; } // 174 absente / lecture impossible → pas de diagnostic (affichage proposera de lancer l'analyse)
 }
+
+/**
+ * PERF-2 — RECALCUL de la SEULE complétude (typologie par contenu), pour l'actualisation AUTOMATIQUE quand la GED a changé. RELIT les
+ * PDF PAR CONTENU (`lireGedPermis`, parse texte LOCAL) puis reclasse + mémorise — MÊME règle de calcul que la relance, MÊME fonction
+ * `enregistrerCompletude`. Ne fait RIEN d'autre : ni extraction de caractéristiques, ni écriture de champs, ni géométrie/bâti, et
+ * SURTOUT AUCUNE VISION (l'appel IA payant de « Relancer l'analyse » reste réservé au geste délibéré). Renvoie le diagnostic à jour
+ * (`perime` retombe à faux), ou `null` si indisponible (174 absente / dossier illisible). Import DYNAMIQUE de lectureGed pour garder
+ * léger le chemin de LECTURE (`lireCompletude`).
+ */
+export async function recalculerCompletude(dossierId: number, calculePar: string): Promise<CompletudeLue | null> {
+  const { lireGedPermis, depsReellesLectureGed } = await import('./lectureGed');
+  const ged = await lireGedPermis(dossierId, depsReellesLectureGed()); // parse PDF LOCAL, aucune IA
+  await enregistrerCompletude(dossierId, ged, calculePar);
+  return lireCompletude(dossierId);
+}

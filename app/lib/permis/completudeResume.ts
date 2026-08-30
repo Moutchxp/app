@@ -16,3 +16,13 @@ export function resumeCompletude(completude: DiagnosticLu | null): ResumeComplet
   const manquantes = completude.diagnostic.lignes.filter((l) => !l.presente).length;
   return { statut: manquantes > 0 ? 'incomplet' : 'complet', manquantes };
 }
+
+/**
+ * PERF-2 — faut-il relancer AUTOMATIQUEMENT le diagnostic ? OUI si un diagnostic EXISTE et qu'il est PÉRIMÉ (la GED a changé depuis),
+ * et SEULEMENT si on ne l'a pas DÉJÀ lancé pour cette ouverture de fiche (`dejaLance`). Cette garde vaut ANTI-BOUCLE : `dejaLance`
+ * reste vrai même si le recalcul échoue ou si la péremption persiste → jamais de relance en boucle. Jamais analysé (`null`) → NON
+ * (on n'invente pas un premier calcul en tâche de fond ; la mention reste neutre).
+ */
+export function doitRecalculerAuto(completude: { perime: boolean } | null, dejaLance: boolean): boolean {
+  return !dejaLance && completude !== null && completude.perime === true;
+}

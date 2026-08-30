@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { BlocDemandePieces } from './BlocDemandePieces';
 import { BlocRepliable } from './BlocRepliable';
-import { resumeCompletude } from '../../../../lib/permis/completudeResume';
+import { resumeCompletude, doitRecalculerAuto } from '../../../../lib/permis/completudeResume';
 
 /**
  * PART-2 / PERF-1 — DIAGNOSTIC DE COMPLÉTUDE des pièces (+ demande de pièces + déclaration de relance), en tête de la ligne dépliée
@@ -31,6 +31,9 @@ const muted: React.CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted
 
 export function BlocCompletude({ dossierId }: { dossierId: number }) {
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
+  const [recalcEnCours, setRecalcEnCours] = useState(false); // PERF-2 — recalcul auto (GED changée) en tâche de fond
+  const [recalcEchoue, setRecalcEchoue] = useState(false);   // PERF-2 — l'auto-recalcul a échoué : on le DIT, on ne montre pas un faux bilan
+  const dejaLance = useRef(false);                           // PERF-2 — ANTI-BOUCLE : une seule tentative auto par ouverture de fiche
 
   useEffect(() => {
     let annule = false;
@@ -38,24 +41,41 @@ export function BlocCompletude({ dossierId }: { dossierId: number }) {
       try {
         const res = await fetch(`/api/admin/permis/completude?dossierId=${dossierId}`, { cache: 'no-store' }); // lecture mémoire : bilan du titre
         if (annule) return;
-        if (res.ok) setEtat({ statut: 'ok', completude: ((await res.json()) as { completude: Completude | null }).completude });
-        else setEtat({ statut: 'erreur' });
+        if (!res.ok) { setEtat({ statut: 'erreur' }); return; }
+        const completude = ((await res.json()) as { completude: Completude | null }).completude;
+        setEtat({ statut: 'ok', completude });
+        // PERF-2 — ÉCART GED détecté (perime) → RECALCUL AUTO, NON BLOQUANT (la fiche est déjà rendue), UNE SEULE FOIS. Le recalcul
+        //   relit les PDF par contenu (parse local, AUCUNE vision/IA payante). L'échec ne relance pas (dejaLance reste vrai).
+        if (doitRecalculerAuto(completude, dejaLance.current)) {
+          dejaLance.current = true;
+          setRecalcEnCours(true);
+          try {
+            const r = await fetch('/api/admin/permis/completude', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dossierId }) });
+            if (annule) return;
+            if (r.ok) setEtat({ statut: 'ok', completude: ((await r.json()) as { completude: Completude | null }).completude });
+            else setRecalcEchoue(true);
+          } catch { if (!annule) setRecalcEchoue(true); }
+          finally { if (!annule) setRecalcEnCours(false); }
+        }
       } catch { if (!annule) setEtat({ statut: 'erreur' }); }
     })();
     return () => { annule = true; };
   }, [dossierId]);
 
   return (
-    <BlocRepliable titre={<TitreBilan etat={etat} />}>
-      {() => <CorpsCompletude etat={etat} dossierId={dossierId} />}
+    <BlocRepliable titre={<TitreBilan etat={etat} recalcEnCours={recalcEnCours} recalcEchoue={recalcEchoue} />}>
+      {() => <CorpsCompletude etat={etat} dossierId={dossierId} recalcEnCours={recalcEnCours} recalcEchoue={recalcEchoue} />}
     </BlocRepliable>
   );
 }
 
 /** Ligne de titre : nom du bloc + BILAN léger (incomplet + nombre / complet / jamais calculé), texte porteur, couleur en appui. */
-function TitreBilan({ etat }: { etat: Etat }) {
+function TitreBilan({ etat, recalcEnCours, recalcEchoue }: { etat: Etat; recalcEnCours: boolean; recalcEchoue: boolean }) {
   let bilan: React.ReactNode;
-  if (etat.statut === 'chargement') bilan = <span style={{ fontWeight: 400, ...muted }}> — analyse en cours…</span>;
+  // PERF-2 : pendant/après l'auto-recalcul, on ne présente JAMAIS un bilan périmé comme actuel, et JAMAIS « incomplet » par défaut.
+  if (recalcEnCours) bilan = <span style={{ fontWeight: 400, ...muted }}> — actualisation du diagnostic en cours…</span>;
+  else if (recalcEchoue) bilan = <span style={{ fontWeight: 400, ...muted }}> — actualisation automatique en échec (utilisez « Relancer l’analyse »)</span>;
+  else if (etat.statut === 'chargement') bilan = <span style={{ fontWeight: 400, ...muted }}> — analyse en cours…</span>;
   else if (etat.statut === 'erreur') bilan = <span style={{ fontWeight: 400, ...muted }}> — bilan indisponible</span>;
   else {
     const r = resumeCompletude(etat.completude);
@@ -67,15 +87,17 @@ function TitreBilan({ etat }: { etat: Etat }) {
 }
 
 /** Corps DÉTAILLÉ (monté seulement au dépliage) : lignes par famille, désaccords, non classées, et la demande de pièces manquantes. */
-function CorpsCompletude({ etat, dossierId }: { etat: Etat; dossierId: number }) {
+function CorpsCompletude({ etat, dossierId, recalcEnCours, recalcEchoue }: { etat: Etat; dossierId: number; recalcEnCours: boolean; recalcEchoue: boolean }) {
   return (
     <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
-      {etat.statut === 'chargement' && <span style={muted} aria-live="polite">Analyse des pièces…</span>}
-      {etat.statut === 'erreur' && <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Diagnostic indisponible.</span>}
-      {etat.statut === 'ok' && etat.completude === null && (
+      {recalcEnCours && <span style={muted} aria-live="polite">Actualisation du diagnostic (lecture des pièces)…</span>}
+      {!recalcEnCours && recalcEchoue && <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>L’actualisation automatique a échoué — cliquez « Relancer l’analyse » ci-dessus.</span>}
+      {!recalcEnCours && !recalcEchoue && etat.statut === 'chargement' && <span style={muted} aria-live="polite">Analyse des pièces…</span>}
+      {!recalcEnCours && !recalcEchoue && etat.statut === 'erreur' && <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Diagnostic indisponible.</span>}
+      {!recalcEnCours && !recalcEchoue && etat.statut === 'ok' && etat.completude === null && (
         <span style={muted}>Diagnostic non calculé pour ce permis — cliquez « Relancer l’analyse » ci-dessus pour l’établir.</span>
       )}
-      {etat.statut === 'ok' && etat.completude !== null && <Contenu c={etat.completude} dossierId={dossierId} />}
+      {!recalcEnCours && !recalcEchoue && etat.statut === 'ok' && etat.completude !== null && <Contenu c={etat.completude} dossierId={dossierId} />}
     </div>
   );
 }

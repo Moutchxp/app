@@ -54,3 +54,16 @@ describe('PERF-1 — BlocCompletude : titre renommé + bilan + détail au dépli
     expect(COMPLETUDE).toContain('() => <CorpsCompletude');
   });
 });
+
+describe('PERF-2 — BlocCompletude : recalcul auto non bloquant sur écart GED', () => {
+  it('déclenche via doitRecalculerAuto, sous garde anti-boucle dejaLance, par un POST', () => {
+    expect(COMPLETUDE).toContain('doitRecalculerAuto');
+    expect(COMPLETUDE).toContain('dejaLance');
+    expect(COMPLETUDE).toContain("method: 'POST'");
+  });
+  it('ne présente jamais un bilan périmé pendant le recalcul (recalcEnCours prioritaire dans le titre)', () => {
+    // Le garde d'ordre : recalcEnCours est testé AVANT le calcul du résumé (resumeCompletude) dans TitreBilan.
+    expect(COMPLETUDE.indexOf('if (recalcEnCours)')).toBeGreaterThan(-1);
+    expect(COMPLETUDE.indexOf('if (recalcEnCours)')).toBeLessThan(COMPLETUDE.indexOf('resumeCompletude(etat.completude)'));
+  });
+});
