@@ -174,6 +174,16 @@ describe('T6-A/2 — demandeADuRetour + partitionnerReponses : filtre local + EX
     expect(partitionnerReponses([partielle, sansRetour], true).affichees).toEqual([partielle]);
   });
 
+  it('PART-A — une demande « dossier partiel » (suspension active) est ÉCARTÉE de « Réponses » (foyer En cours), MÊME avec un retour', () => {
+    // MÊME retour que la « partielle » ci-dessus, mais suspension ACTIVE → demandeADuRetour renvoie false (foyer En cours) et
+    //   partitionnerReponses ne la met JAMAIS dans « affichees » (invariant : un permis n'est jamais dans les deux onglets).
+    const suspendue = { ...dem({ nbReponsesReelles: 1, dossiersActifs: 2, dossiersSatisfaits: 1 }), suspension: { le: '2026-08-30', familles: ['CERFA'], origine: 'outil' as const } };
+    const sansSuspension = { ...suspendue, suspension: null };
+    expect(demandeADuRetour(sansSuspension)).toBe(true);  // sans suspension : le retour la mettrait dans Réponses
+    expect(demandeADuRetour(suspendue)).toBe(false);      // dossier partiel : foyer En cours, jamais Réponses
+    expect(partitionnerReponses([suspendue], true).affichees).toEqual([]); // écartée de Réponses (même en « afficher tout »)
+  });
+
   it('lot 4 — EXCLUSIVITÉ : un permis EN CASCADE (relance vivante/préparée, aucun retour mairie) reste « En cours », JAMAIS dans « Réponses »', () => {
     // demandeADuRetour ne regarde QUE le retour de la MAIRIE (nbReponsesReelles / satisfait / triage) — jamais « a une relance vivante ».
     //   Un permis en pleine cascade sans vrai retour = nbReponsesReelles 0, aucun dossier satisfait/trié → hors Réponses.

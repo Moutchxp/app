@@ -192,11 +192,19 @@ export function partitionnerAnnulationMasse<T extends { statut: string }>(demand
 }
 
 /**
- * FOYER UNIQUE du critère « la mairie a un RETOUR » (⇒ la demande vit dans l'onglet Réponses, pas En cours). DÉPLACÉ ici depuis
- * ReponsesRendu (re-exporté là-bas pour compat) afin d'être appelable AUSSI côté serveur (route de comptage du commutateur) —
- * même règle des DEUX côtés, jamais recopiée. Réutilisé par SuiviDemandes, comptesActions et le compteur du commutateur.
+ * FOYER UNIQUE du critère « la demande vit dans l'onglet Réponses, pas En cours ». DÉPLACÉ ici depuis ReponsesRendu (re-exporté
+ * là-bas pour compat) afin d'être appelable AUSSI côté serveur (route de comptage du commutateur) — même règle des DEUX côtés,
+ * jamais recopiée. Réutilisé par SuiviDemandes (exclusion En cours), partitionnerReponses (inclusion Réponses), comptesActions et
+ * le compteur du commutateur.
+ *
+ * PART-A — un « dossier partiel » (suspension ACTIVE) a pour foyer « En cours » (avec son statut de suspension), MÊME s'il a un
+ * retour de mairie : la relance ordinaire est suspendue et l'internaute doit l'y voir (règle du fondateur du 29/08). On l'écarte
+ * donc de Réponses AU FOYER (un seul point) → l'exclusion d'affichage En cours, l'inclusion Réponses et le compteur du commutateur
+ * restent cohérents sans règle recopiée (invariant : un permis n'est jamais dans deux onglets). `suspension` non nul = marqueur
+ * actif (porté par chargerDemandesSuivi ; null / absent = pas suspendu).
  */
-export function demandeADuRetour(d: { nbReponsesReelles: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[] }): boolean {
+export function demandeADuRetour(d: { nbReponsesReelles: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[]; suspension?: unknown }): boolean {
+  if (d.suspension != null) return false; // PART-A : dossier partiel → foyer « En cours », jamais Réponses (même avec un retour)
   return d.nbReponsesReelles > 0 || d.dossiersSatisfaits > 0 || d.dossiers.some((x) => x.triage !== null);
 }
 
@@ -208,6 +216,7 @@ export interface DemandeEnCoursAffichable {
   dossiersSatisfaits: number;
   nbReponsesReelles: number;
   dossiers: { triage: string | null }[];
+  suspension?: unknown; // PART-A : marqueur « dossier partiel » actif (non nul) → foyer En cours même avec retour (lu par demandeADuRetour)
 }
 
 /**

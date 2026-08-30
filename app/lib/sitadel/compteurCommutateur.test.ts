@@ -60,6 +60,16 @@ describe('D2-fix — le compteur du commutateur suit le MÊME périmètre que l�
     expect(estEnCoursAffichee(d({ statut: 'close' }))).toBe(false);                          // pas envoyee
   });
 
+  it('PART-A — une demande « dossier partiel » (suspension active) RESTE En cours et EST comptée, MÊME avec un retour', () => {
+    const suspendue = d({ nbReponsesReelles: 1, dossiersActifs: 2, dossiersSatisfaits: 1, suspension: { le: '2026-08-30', familles: [], origine: 'outil' } });
+    // Sans suspension, ce même retour la ferait basculer en Réponses (exclue En cours) ; avec la suspension, le foyer est En cours.
+    expect(estEnCoursAffichee({ ...suspendue, suspension: undefined })).toBe(false); // à retour → Réponses
+    expect(estEnCoursAffichee(suspendue)).toBe(true);                                 // dossier partiel → En cours, comptée
+    // Le compteur du commutateur suit : la suspendue est comptée dans son process, comme l'onglet l'affiche.
+    expect(compterEnCoursParProcess([suspendue]).formulaire).toBe(1);
+    expect(decompteOngletEnCours([suspendue], 'formulaire')).toBe(1);
+  });
+
   it('le courrier (hors process) n’est jamais compté', () => {
     expect(compterEnCoursParProcess([d({ canal: 'courrier' })])).toEqual({ email: 0, formulaire: 0 });
   });

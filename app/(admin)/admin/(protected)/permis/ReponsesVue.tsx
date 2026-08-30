@@ -151,6 +151,11 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
   //   sans dossier actif, qui ONT un retour). Rien en silence : soldées/sans-dossier = révélables (mention + bouton) ; sans-retour =
   //   EXCLUES (mention `exclus`, sans bouton, « suivies dans En cours »). Jamais dans `chargerDemandesSuivi` → « En cours » les garde.
   const { affichees: demAffichees, soldees, sansDossier, sansRetour } = partitionnerReponses(demandes, afficherSoldees);
+  // PART-A — les demandes « dossier partiel » (suspension active) ont pour foyer « En cours » : demandeADuRetour les écarte déjà de
+  //   `affichees`, mais elles restent dans le décompte `sansRetour` (= length − avecRetour). On les ISOLE pour une mention EXACTE
+  //   (« en dossier partiel », pas « sans retour ») et un `sansRetour` PUR — un compte qui ne ment pas (précédent 18/08).
+  const nbSuspendues = demandes.filter((x) => x.suspension != null).length;
+  const sansRetourPur = sansRetour - nbSuspendues;
   const mortsMasquage = afficherSoldees ? [] : [
     { statut: 'soldée', n: soldees },
     { statut: 'sans dossier actif', n: sansDossier },
@@ -207,7 +212,9 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
         ) : (
           <>
             {demAffichees.length === 0 ? (
-              <PhraseVide>{messageReponsesVide({ soldees, sansDossier, sansRetour })}</PhraseVide>
+              <PhraseVide>{soldees + sansDossier + sansRetourPur === 0 && nbSuspendues > 0
+                ? 'Les demandes en « dossier partiel » sont suivies dans l’onglet « En cours ».' // PART-A : état vide dû aux seules suspendues
+                : messageReponsesVide({ soldees, sansDossier, sansRetour: sansRetourPur })}</PhraseVide>
             ) : (
               <>
             <div style={{ overflowX: 'auto' }}>
@@ -298,7 +305,10 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
             {/* T2 — le masquage n'est JAMAIS silencieux (réutilise MentionMasquage de Q6b : « N soldée(s) masquée(s) — les afficher »). */}
             {/* T6-A/2 — soldées / sans dossier actif = révélables (bouton) ; sans-retour = EXCLUES (motif `exclus`, sans bouton, « suivies dans En cours »). Toujours affiché, même en « afficher tout ». */}
             <MentionMasquage morts={mortsMasquage} onAfficherTout={() => setAfficherSoldees(true)}
-              exclus={sansRetour > 0 ? [{ n: sansRetour, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' }] : []} />
+              exclus={[
+                ...(sansRetourPur > 0 ? [{ n: sansRetourPur, libelle: 'sans retour de la mairie — suivies dans l’onglet En cours' }] : []),
+                ...(nbSuspendues > 0 ? [{ n: nbSuspendues, libelle: 'en « dossier partiel » — suivies dans l’onglet En cours' }] : []), // PART-A
+              ]} />
           </>
         )}
       </section>
