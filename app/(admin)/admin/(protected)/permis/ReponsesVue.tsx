@@ -12,6 +12,13 @@ import {
   BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, BlocLiens, BlocLiensATelecharger, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, formaterDate, trierOptionsDemandes, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
 import { MessageRetour, MentionMasquage } from './DemandesRendu';
+// UNIF-2 — même encart de familles qu'« En cours » (socle UNIF-0/1) + les 4 blocs PER-PERMIS d'« Analyse » (chargés au dépliage).
+import { EncartFamilles, SousSectionsPermis } from './EncartFamilles';
+import { LIBELLE_FAMILLE } from '../../../../lib/permis/encartFamilles';
+import { BlocCompletude } from './BlocCompletude';
+import { CaracteristiquesBloc } from './CaracteristiquesBloc';
+import { BlocTraceEmprise } from './BlocTraceEmprise';
+import { BlocPiecesPermis } from './BlocPiecesPermis';
 import { partitionnerParDus } from '../../../../lib/sitadel/demandesListe'; // T4 : définition unique de « soldée » (réutilisée telle quelle)
 
 /**
@@ -136,6 +143,15 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
     else setRetour({ cle: `piece-${reponseId}`, texte: await erreurServeur(res, 'Lien indisponible.'), ok: false });
   }, []);
 
+  // UNIF-2 — ouverture d'une pièce À LA PAGE (visionneur) pour les familles per-permis (Caractéristiques / Pièces du permis). MÊME
+  //   signeur unique `url_piece` (inline) qu'« Analyse » / « En cours » ; la clé ne transite jamais. Silencieux si indisponible.
+  const ouvrirPiece = useCallback(async (pieceId: number, source: 'reponse' | 'dossier', page?: number): Promise<void> => {
+    try {
+      const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'url_piece', pieceId, source, inline: true }) });
+      if (res.ok) { const { url } = (await res.json()) as { url: string }; window.open(page ? `${url}#page=${page}` : url, '_blank', 'noopener,noreferrer'); }
+    } catch { /* lien indisponible : silencieux */ }
+  }, []);
+
   if (erreur) return <p role="alert" style={{ color: 'var(--color-svv-red)' }}>Suivi indisponible.</p>;
   if (!data) return <p style={{ color: 'var(--color-svv-muted)' }} aria-live="polite">Chargement du suivi…</p>;
 
@@ -242,6 +258,14 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
                       ouvert ? (
                         <tr key={`${d.demandeId}-detail`} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
                           <td colSpan={8} style={{ padding: '0 .5rem .5rem' }}>
+                            {/* UNIF-2 — MÊME encart de familles qu'« En cours ». « Réponses » n'a NI suspension NI cascade NI réf. mairie
+                                dans son détail (spécifiques En cours) : « Suivi & actions » = statuer dossiers + rappel obtenus + clôture.
+                                Les 4 familles per-permis (si non vides) réutilisent SousSectionsPermis (contenu chargé au dépliage). */}
+                            <EncartFamilles onglet="reponses" familles={[
+                              {
+                                cle: 'suivi_actions', nonVide: true, titre: LIBELLE_FAMILLE.suivi_actions,
+                                contenu: () => (
+                                <>
                             {/* T2 — les dossiers obtenus sont partis en Archives : on le DIT, on ne les fait pas disparaître en silence. */}
                             <RappelObtenusArchives n={d.dossiersSatisfaits} />
                             {(d.dossiers.length > 0 || d.dossiersSatisfaits === 0 || d.dossiersRetires.length > 0) && (
@@ -266,9 +290,22 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
                               onReattachConfirmer={(demandeId, dossierId) => { setReattach(null); void reattacher(demandeId, dossierId); }}
                               onReattachAnnuler={() => setReattach(null)} />
                             )}
-                            {/* FUS — cas ③ : les messages « autre » appelant une réponse (marquer répondu / reclasser) suivent la
-                                demande dans son foyer « Réponses ». MÊME route /reponses (via `agir`), auteur journalisé — un seul
-                                chemin d'écriture, identique à celui du détail « En cours ». */}
+                            <div style={{ marginTop: '.5rem' }}>
+                              <ActionsCloture demandeId={d.demandeId} statut={d.statut} dossiersDus={d.dossiersActifs - d.dossiersSatisfaits}
+                                motif={motifCloture[d.demandeId]} retour={retour}
+                                onMotif={(demandeId, v) => setMotifCloture((s) => ({ ...s, [demandeId]: v }))}
+                                onCloturer={(demandeId) => void agir({ action: 'cloturer', demandeId, motif: motifCloture[demandeId] ?? '' }, `cloturer-${demandeId}`, 'Demande clôturée.')}
+                                onRouvrir={(demandeId) => void agir({ action: 'rouvrir', demandeId }, `rouvrir-${demandeId}`, 'Demande rouverte.')} />
+                            </div>
+                                </>
+                                ),
+                              },
+                              {
+                                cle: 'historique', titre: LIBELLE_FAMILLE.historique,
+                                nonVide: d.messagesAutre.length > 0 || d.liens.length > 0 || d.piecesReponses.length > 0 || d.alertesGed.length > 0,
+                                contenu: () => (
+                                <>
+                            {/* FUS — cas ③ : messages « autre » (répondu / reclasser). MÊME route /reponses (via `agir`) que le détail « En cours ». */}
                             <BlocMessagesAutre messages={d.messagesAutre} retour={retour} compteReleve={data.reglages.adresseReleve}
                               onRepondu={(reponseId) => void agir({ action: 'repondu', reponseId }, `repondu-${reponseId}`, 'Message marqué « répondu ».')}
                               onAnnulerRepondu={(reponseId) => void agir({ action: 'annuler_repondu', reponseId }, `repondu-${reponseId}`, '« Répondu » annulé.')}
@@ -279,13 +316,19 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
                             <BlocPiecesReponses groupes={d.piecesReponses} onTelecharger={(pieceId) => void telecharger(d.demandeId, pieceId)} />
                             {/* G1 — alertes « à classer/télécharger en GED » déjà envoyées (retard rendu visible). */}
                             <BlocAlertesGed alertes={d.alertesGed} />
-                            <div style={{ marginTop: '.5rem' }}>
-                              <ActionsCloture demandeId={d.demandeId} statut={d.statut} dossiersDus={d.dossiersActifs - d.dossiersSatisfaits}
-                                motif={motifCloture[d.demandeId]} retour={retour}
-                                onMotif={(demandeId, v) => setMotifCloture((s) => ({ ...s, [demandeId]: v }))}
-                                onCloturer={(demandeId) => void agir({ action: 'cloturer', demandeId, motif: motifCloture[demandeId] ?? '' }, `cloturer-${demandeId}`, 'Demande clôturée.')}
-                                onRouvrir={(demandeId) => void agir({ action: 'rouvrir', demandeId }, `rouvrir-${demandeId}`, 'Demande rouverte.')} />
-                            </div>
+                                </>
+                                ),
+                              },
+                              // UNIF-2 — familles PER-PERMIS (si non vides), sous-sections par permis, contenu chargé AU DÉPLIAGE (paresse).
+                              { cle: 'completude', titre: LIBELLE_FAMILLE.completude, nonVide: d.completudeNonVide,
+                                contenu: () => <SousSectionsPermis dossiers={d.dossiers} rendre={(id) => <BlocCompletude key={id} dossierId={id} />} /> },
+                              { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: d.caracteristiquesNonVide,
+                                contenu: () => <SousSectionsPermis dossiers={d.dossiers} rendre={(id) => <CaracteristiquesBloc key={id} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+                              { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: d.batimentsNonVide,
+                                contenu: () => <SousSectionsPermis dossiers={d.dossiers} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} />} /> },
+                              { cle: 'pieces', titre: LIBELLE_FAMILLE.pieces, nonVide: d.piecesNonVide,
+                                contenu: () => <SousSectionsPermis dossiers={d.dossiers} rendre={(id) => <BlocPiecesPermis key={id} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+                            ]} />
                           </td>
                         </tr>
                       ) : null,
