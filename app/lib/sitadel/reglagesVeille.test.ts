@@ -3,6 +3,7 @@ import {
   parserBornesCheck, parserListeCheck, parserListeArrayCheck, validerReglages, bandeauIdentite, colonneDepuisProbleme,
   PARAMS_VEILLE, PARAMS_DEMANDES, COLONNES_PARAMS_DEMANDES, CHAMPS_IDENTITE,
   COLONNES_THEME_PREPARATION, COLONNES_THEME_CADA, PARAMS_THEME_TELESERVICE,
+  COLONNES_THEME_ENVOI, COLONNES_THEME_REPONSES, COLONNES_THEME_ALERTES, COLONNES_THEME_RATTACHEMENT, COLONNES_THEME_TELESERVICE,
 } from './reglagesVeille';
 
 describe('N7-E — parserListeCheck : liste fermée depuis le CHECK', () => {
@@ -410,5 +411,30 @@ describe('Q1 — paramètre VESTIGIAL : l’API refuse toute modification (le gr
     const res = validerReglages({ veille: { permis_par_commune_par_mois: 8 } }, BORNES);
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.veille.permis_par_commune_par_mois).toBe(8);
+  });
+});
+
+describe('CASC-2b — GARDE-FOU : toute colonne d’un thème a un ParamVeille (sinon paramsDuTheme casse TOUTE l’interface admin au chargement)', () => {
+  // Régression réelle : une colonne listée dans un COLONNES_THEME_* sans définition ParamVeille fait LEVER paramsDuTheme au chargement
+  //   du module → /admin/permis (et tous les écrans qui l'importent) ne rendent plus. Ce test nomme le défaut au lieu d'un crash obscur.
+  const NOMS_PARAMS = new Set(PARAMS_VEILLE.map((p) => p.colonne));
+  const THEMES: [string, readonly string[]][] = [
+    ['PREPARATION', COLONNES_THEME_PREPARATION], ['ENVOI', COLONNES_THEME_ENVOI], ['REPONSES', COLONNES_THEME_REPONSES],
+    ['ALERTES', COLONNES_THEME_ALERTES], ['CADA', COLONNES_THEME_CADA], ['RATTACHEMENT', COLONNES_THEME_RATTACHEMENT],
+    ['TELESERVICE', COLONNES_THEME_TELESERVICE], ['PARAMS_DEMANDES (union)', COLONNES_PARAMS_DEMANDES],
+  ];
+  for (const [nom, cols] of THEMES) {
+    it(`chaque colonne du thème ${nom} a une définition ParamVeille`, () => {
+      const manquantes = cols.filter((c) => !NOMS_PARAMS.has(c));
+      expect(manquantes, `colonnes sans ParamVeille dans ${nom} : ${manquantes.join(', ')}`).toEqual([]);
+    });
+  }
+
+  it('CASC-2 : cada_partiel_delai_* NE sont PAS exposées tant que la migration 178 n’est pas appliquée (état cohérent : commentées des DEUX côtés)', () => {
+    // Cohérence stricte : ni dans le thème CADA, ni comme ParamVeille. À décommenter EN MÊME TEMPS que la 178 (bornes = CHECK live).
+    expect(COLONNES_THEME_CADA).not.toContain('cada_partiel_delai_mois');
+    expect(COLONNES_THEME_CADA).not.toContain('cada_partiel_delai_jours');
+    expect(NOMS_PARAMS.has('cada_partiel_delai_mois')).toBe(false);
+    expect(NOMS_PARAMS.has('cada_partiel_delai_jours')).toBe(false);
   });
 });
