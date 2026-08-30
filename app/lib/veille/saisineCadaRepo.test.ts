@@ -51,7 +51,7 @@ const CONF_ENT: ConfigDemandeur = { raisonSociale: 'Criterimmo', formeJuridique:
 
 const CAND = (over: Partial<CandidatSaisine> = {}): CandidatSaisine => ({ demandeId: 1, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnières-sur-Seine', profil: 'entreprise', envoyeLe: ENVOI, dossiersActifs: 2, dossiersDus: 1, refusExpres: [], numeros: ['PC0920042500001'], ...over });
 function depsElig(over: Partial<DepsSaisissables> = {}): DepsSaisissables {
-  return { lireCandidats: async () => [CAND()], derniereReleveOkLe: async () => RELEVE_FRAICHE, fraicheurHeures: async () => 48, saisineDelaiJours: async () => 4, maintenant: () => DANS_FENETRE, ...over };
+  return { lireCandidats: async () => [CAND()], derniereReleveOkLe: async () => RELEVE_FRAICHE, fraicheurHeures: async () => 48, saisineDelaiJours: async () => 4, butoirsPartiel: async () => new Map(), maintenant: () => DANS_FENETRE, ...over };
 }
 function depsCreer(over: Partial<DepsCreerSaisine> = {}): DepsCreerSaisine {
   return {
@@ -87,6 +87,24 @@ describe('A (lot 5) — la saisine TACITE n’est possible qu’à échéance + 
   it('creerSaisineCada REFUSE avant le dépôt annoncé (motif nommant la date)', async () => {
     await expect(creerSaisineCada(1, 'a', depsCreer({ maintenant: () => veille, derniereReleveOkLe: fresh(veille) })))
       .rejects.toThrow(/date de dépôt annoncée non atteinte/);
+  });
+});
+
+describe('CASC-2 — dossier partiel : le point de départ CADA est REPOUSSÉ (jamais suspendu)', () => {
+  it('butoir prolongé FUTUR → pas encore proposable (exclu des saisissables)', async () => {
+    const butoirFutur = new Date('2026-06-01T00:00:00Z'); // > DANS_FENETRE (2026-05-10)
+    const r = await lireSaisinesEligibles(depsElig({ butoirsPartiel: async () => new Map([[1, butoirFutur]]) }));
+    expect(r.saisissables).toHaveLength(0);
+    expect(r.indeterminees).toHaveLength(0);
+  });
+  it('butoir prolongé PASSÉ → éligibilité ORDINAIRE reprend (proposable si la fenêtre est ouverte)', async () => {
+    const butoirPasse = new Date('2026-05-01T00:00:00Z'); // < DANS_FENETRE
+    const r = await lireSaisinesEligibles(depsElig({ butoirsPartiel: async () => new Map([[1, butoirPasse]]) }));
+    expect(r.saisissables).toHaveLength(1);
+  });
+  it('NON-RÉGRESSION : aucune demande partielle (map vide) → éligibilité ordinaire inchangée', async () => {
+    const r = await lireSaisinesEligibles(depsElig()); // butoirsPartiel = new Map() par défaut
+    expect(r.saisissables).toHaveLength(1);
   });
 });
 

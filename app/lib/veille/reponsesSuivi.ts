@@ -292,7 +292,7 @@ export async function chargerCumulsRuns(maintenant: Date): Promise<CumulsRuns> {
  * ici, sinon les demandes sans message disparaîtraient AUSSI d'« En cours ». Un SEUL chargeur → un seul calcul d'échéance
  * (via etatEcheance, en aval), jamais deux (défaut B2). LECTURE SEULE.
  */
-export interface SuiviDemandesData { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos }
+export interface SuiviDemandesData { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number } }
 export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   const cfg = await chargerConfigVeille();
   const reglages: ReglagesReleve = {
@@ -510,7 +510,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     provenancesContenu: parProvenances.get(r.id) ?? [],
     suspension: suspensions.get(r.id) ?? null, // CASC-1
   }));
-  return { demandes, derniereOkLe, reglages, cascade, envoi };
+  return { demandes, derniereOkLe, reglages, cascade, envoi, partielDelai: { mois: cfg.cadaPartielDelaiMois, jours: cfg.cadaPartielDelaiJours } }; // CASC-2 : délai partiel pour l'affichage « délai prolongé au … »
 }
 
 /** Charge tout le nécessaire de l'écran « Réponses » en une passe. LECTURE SEULE. */

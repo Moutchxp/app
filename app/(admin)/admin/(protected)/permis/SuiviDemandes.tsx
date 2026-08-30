@@ -11,7 +11,7 @@ import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetai
 import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, demandeADuRetour, formaterDate, type RetourCible } from './ReponsesRendu';
 import { etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
 import { statutCascade, prochaineEtape, type EnvoiAutoInfos } from '../../../../lib/veille/statutCascade';
-import { libelleSuspension } from '../../../../lib/permis/dossierPartiel'; // CASC-1 : phrase de suspension (raison + date) affichée dans le statut de cascade
+import { libelleSuspension, dateButoirPartiel, libelleDelaiProlonge } from '../../../../lib/permis/dossierPartiel'; // CASC-1/CASC-2 : suspension + délai CADA prolongé (dossier partiel)
 import { RefMairieCellule } from './RefMairieCellule';
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 import type { ReglagesCascade } from '../../../../lib/veille/cascadeRelance';
@@ -84,7 +84,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   //   rebours (etatEcheance INTOUCHÉ), la colonne « Retour mairie » et les 7 actions du détail. `retourReponse` (cle-based) est le
   //   retour des actions /reponses, DISTINCT de `retour` (zone-based) des actions /demandes. RIEN de ceci n'existe pour « À demander ».
   const enCours = perimetre === 'en_cours';
-  const [suivi, setSuivi] = useState<{ parId: Map<number, DemandeSuivi>; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos } | null>(null);
+  const [suivi, setSuivi] = useState<{ parId: Map<number, DemandeSuivi>; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number } } | null>(null);
   const [maintenant, setMaintenant] = useState<Date>(() => new Date());
   const [versionSuivi, setVersionSuivi] = useState(0);
   const [retourReponse, setRetourReponse] = useState<RetourCible>(null);
@@ -117,8 +117,8 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
       try {
         const res = await fetch('/api/admin/permis/en-cours', { cache: 'no-store' });
         if (!annule && res.ok) {
-          const d = (await res.json()) as { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos };
-          setSuivi({ parId: new Map(d.demandes.map((x) => [x.demandeId, x])), derniereOkLe: d.derniereOkLe, reglages: d.reglages, cascade: d.cascade, envoi: d.envoi });
+          const d = (await res.json()) as { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number } };
+          setSuivi({ parId: new Map(d.demandes.map((x) => [x.demandeId, x])), derniereOkLe: d.derniereOkLe, reglages: d.reglages, cascade: d.cascade, envoi: d.envoi, partielDelai: d.partielDelai ?? { mois: 1, jours: 4 } });
           setMaintenant(new Date());
         }
       } catch { /* suivi indisponible : le tableau reste, sans compte à rebours (jamais un écran vide) */ }
@@ -150,9 +150,9 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
         dernierEnvoiRelance: d.dernierEnvoiRelance, relancePreparee: d.relancePreparee, saisineCadaEnvoyeeLe: d.saisineCadaEnvoyeeLe,
       };
       // CASC-1 — SUSPENSION VISIBLE : si « dossier partiel » actif, le libellé de cascade DIT la suspension (raison + date) et il n'y a
-      //   pas de prochaine étape ordinaire. Jamais un silence : la réclamation ciblée reste possible ailleurs (bloc complétude).
+      //   pas de prochaine étape ordinaire. CASC-2 — EN PLUS (jamais à la place), la date butoir CADA prolongée (partiel_le + 1 mois + 4 j).
       m.set(d.demandeId, d.suspension
-        ? { libelle: libelleSuspension(d.suspension), prochaine: '' }
+        ? { libelle: `${libelleSuspension(d.suspension)} ${libelleDelaiProlonge(dateButoirPartiel(new Date(d.suspension.le), suivi.partielDelai.mois, suivi.partielDelai.jours))}`, prochaine: '' }
         : { libelle: statutCascade(entree, maintenant, suivi.cascade, suivi.envoi), prochaine: prochaineEtape(entree, maintenant, suivi.cascade) });
     }
     return m;
@@ -618,6 +618,8 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                 {richDetail.suspension && (
                   <div className="svv-card" role="note" style={{ borderColor: 'var(--color-svv-red)', fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
                     <span>{libelleSuspension(richDetail.suspension)}</span>
+                    {/* CASC-2 — EN PLUS de la suspension : date butoir CADA prolongée (partiel_le + 1 mois + 4 j). */}
+                    {suivi && <span>{libelleDelaiProlonge(dateButoirPartiel(new Date(richDetail.suspension.le), suivi.partielDelai.mois, suivi.partielDelai.jours))}</span>}
                     <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem' }} onClick={() => void leverSuspension(detail.id)}>Lever la suspension</button>
                   </div>
                 )}

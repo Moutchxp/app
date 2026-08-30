@@ -73,6 +73,8 @@ export interface ConfigVeille {
   relanceRappelJoursAvant: number;   // Cascade lot 2 : jours avant l'échéance où le RAPPEL (J-10) est préparé — borné 1..30, défaut 10
   relanceAvisJoursAvant: number;     // Cascade lot 2 : jours avant l'échéance où l'AVIS (J-3, possibilité CADA) est préparé — borné 1..30, défaut 3
   relanceSaisineDelaiJours: number;  // Cascade lot 2 : délai (jours) après l'échéance au terme duquel la SAISINE CADA sera déposée — borné 1..30, défaut 4
+  cadaPartielDelaiMois: number;      // CASC-2 : mois calendaires avant saisine CADA sur DOSSIER PARTIEL, depuis partiel_le — 0..12, défaut 1
+  cadaPartielDelaiJours: number;     // CASC-2 : jours ajoutés après les mois (défaut 4) → défaut global = 1 mois + 4 jours (dossier partiel UNIQUEMENT)
   saisineCadaAutoActive: boolean;    // Cascade lot 2 : envoyer la saisine CADA SANS relecture ? Sans effet tant que cadaEmail est vide — défaut false
   rattachementSuiviAutoActive: boolean; // RATT-AUTO : rejouer automatiquement le suivi des permis « en attente de bâti » à chaque tick ? (opt-in, défaut false)
   attenteBatiAlerteActive: boolean;     // ATT-BATI : envoyer un rappel e-mail quand un permis attend le bâti au-delà du seuil ? (opt-in, défaut false)
@@ -143,6 +145,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   natureAccuseMotifs: '',       // FUS-4 : repli ultime = aucun motif → comportement d'AVANT ce lot (la 125 pose 'accusé de réception')
   relanceAutoActive: false, relanceJoursAvantEcheance: 10, // = DEFAULT de la migration 128 (LOT B : opt-out d'envoi auto, préparation à J-10)
   relanceRappelJoursAvant: 10, relanceAvisJoursAvant: 3, relanceSaisineDelaiJours: 4, saisineCadaAutoActive: false, // = DEFAULT de la migration 136 (cascade lot 2)
+  cadaPartielDelaiMois: 1, cadaPartielDelaiJours: 4, // = DEFAULT de la migration 178 (CASC-2 : 1 mois + 4 jours sur dossier partiel)
   rattachementSuiviAutoActive: false, // = DEFAULT de la migration 154 (RATT-AUTO : opt-in, comme tous les interrupteurs d'automatisation)
   attenteBatiAlerteActive: false, attenteBatiAlerteJours: 365, // = DEFAULT de la migration 155 (ATT-BATI : opt-in ; seuil 1 an, bas de la fenêtre IGN 1-3 ans)
   obstacleDisparuAlerteActive: false, // = DEFAULT de la migration 157 (ALERTE obstacle disparu : opt-in)
@@ -494,6 +497,19 @@ async function lireRelanceCascadeReglages(): Promise<Pick<ConfigVeille, 'relance
   } catch { return def; } // 136 pas encore appliquée → défauts
 }
 
+// CASC-2 — lecture ISOLÉE du délai avant saisine CADA sur DOSSIER PARTIEL (résiliente à l'ordre d'application de la 178, livrée NON
+//   APPLIQUÉE) : tant que les colonnes n'existent pas, cette lecture échoue SEULE et retombe sur (1 mois, 4 jours), SANS dégrader le reste.
+async function lireCadaPartielDelai(): Promise<Pick<ConfigVeille, 'cadaPartielDelaiMois' | 'cadaPartielDelaiJours'>> {
+  const def = { cadaPartielDelaiMois: 1, cadaPartielDelaiJours: 4 };
+  try {
+    const { rows } = await query<{ cada_partiel_delai_mois: number; cada_partiel_delai_jours: number }>(
+      `SELECT cada_partiel_delai_mois, cada_partiel_delai_jours FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return def;
+    return { cadaPartielDelaiMois: r.cada_partiel_delai_mois, cadaPartielDelaiJours: r.cada_partiel_delai_jours };
+  } catch { return def; } // 178 pas encore appliquée → défauts (1 mois + 4 jours)
+}
+
 // RATT-AUTO — lecture ISOLÉE de l'interrupteur du rejeu automatique du suivi (résiliente à l'ordre d'application de la 154, livrée
 //   NON APPLIQUÉE) : tant que la colonne n'existe pas, cette lecture échoue SEULE et retombe sur false (OFF), SANS dégrader le reste.
 async function lireRattachementSuiviAuto(): Promise<Pick<ConfigVeille, 'rattachementSuiviAutoActive'>> {
@@ -673,6 +689,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireNatureAccuseMotifs()),             // FUS-4 : motifs d'objet « accusé », lecture isolée (résiliente à la 125)
       ...(await lireRelanceReglages()),                // LOT B : réglages de relance, lecture isolée (résiliente à la 128)
       ...(await lireRelanceCascadeReglages()),          // Cascade lot 2 : 3 délais + auto-saisine CADA, lecture isolée (résiliente à la 136)
+      ...(await lireCadaPartielDelai()),                 // CASC-2 : délai CADA sur dossier partiel (1 mois + 4 jours), lecture isolée (résiliente à la 178)
       ...(await lireRattachementSuiviAuto()),           // RATT-AUTO : interrupteur du rejeu automatique du suivi, lecture isolée (résiliente à la 154)
       ...(await lireAttenteBatiAlerte()),               // ATT-BATI : interrupteur + seuil du rappel « en attente de bâti », lecture isolée (résiliente à la 155)
       ...(await lireObstacleDisparuAlerte()),           // ALERTE obstacle disparu : interrupteur, lecture isolée (résiliente à la 157)

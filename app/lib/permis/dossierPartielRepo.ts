@@ -6,7 +6,7 @@
  * écriture est un NO-OP propre (code 42703 toléré). AUCUNE exception propagée : COMPORTEMENT ACTUEL PRÉSERVÉ, jamais un plantage.
  */
 import { query } from '../db/client';
-import { doitLeverAuto, type EtatPartiel, type OriginePartiel } from './dossierPartiel';
+import { doitLeverAuto, dateButoirPartiel, type EtatPartiel, type OriginePartiel } from './dossierPartiel';
 
 const estColonneAbsente = (e: unknown): boolean => typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703';
 
@@ -56,6 +56,20 @@ export async function lireDemandesSuspendues(demandeIds: readonly number[]): Pro
 /** true si LA demande est suspendue (garde unitaire de la cascade). false si 177 absente. */
 export async function estDemandeSuspendue(demandeId: number): Promise<boolean> {
   return (await lireDemandesSuspendues([demandeId])).has(demandeId);
+}
+
+/**
+ * CASC-2 — DATE BUTOIR prolongée avant saisine CADA, par demande à marqueur ACTIF : partiel_le + délai (mois + jours). Le calcul part
+ * de partiel_le (la PREMIÈRE réclamation) via `dateButoirPartiel`. Map VIDE si 177 absente → aucune prolongation → éligibilité ordinaire.
+ */
+export async function lireButoirsPartiel(delaiMois: number, delaiJours: number): Promise<Map<number, Date>> {
+  const m = new Map<number, Date>();
+  try {
+    const { rows } = await query<{ id: number; partiel_le: Date }>(
+      `SELECT id, partiel_le FROM demande WHERE partiel_le IS NOT NULL AND partiel_leve_le IS NULL`);
+    for (const r of rows) m.set(r.id, dateButoirPartiel(new Date(r.partiel_le), delaiMois, delaiJours));
+    return m;
+  } catch (e) { if (!estColonneAbsente(e)) throw e; return m; } // 177 absente → aucune prolongation
 }
 
 /** État du marqueur ACTIF pour un lot de demandes (affichage « En cours »). Map VIDE si 177 absente → aucune suspension montrée. */

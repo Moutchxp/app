@@ -51,6 +51,7 @@ export interface DepsSaisissables {
   derniereReleveOkLe(): Promise<Date | null>;
   fraicheurHeures(): Promise<number>;
   saisineDelaiJours(): Promise<number>; // A (lot 5) — délai de dépôt (config_veille.relance_saisine_delai_jours) : la saisine tacite n'est possible qu'à échéance + ce délai
+  butoirsPartiel(): Promise<Map<number, Date>>; // CASC-2 — par demande à « dossier partiel » actif : butoir prolongé (partiel_le + 1 mois + 4 j). Map vide = aucune prolongation
   maintenant(): Date;
 }
 
@@ -85,6 +86,11 @@ export function depsReellesSaisissables(): DepsSaisissables {
       const { rows } = await query<{ id: number; reference: string; commune_nom: string | null; profil: string; envoye_le: Date; dossiers_actifs: number; dossiers_dus: number; refus_expres: Date[]; dus_nums: string[] }>(SQL_CANDIDATS);
       return rows.map((r) => ({ demandeId: r.id, reference: r.reference, communeNom: r.commune_nom, profil: profilValide(r.profil), envoyeLe: r.envoye_le, dossiersActifs: r.dossiers_actifs, dossiersDus: r.dossiers_dus, refusExpres: r.refus_expres ?? [], numeros: r.dus_nums ?? [] }));
     },
+    butoirsPartiel: async () => {
+      const cfg = await chargerConfigVeille(); // CASC-2 — délai (mois + jours) piloté par config_veille (repli 1 mois + 4 j si 178 absente)
+      const { lireButoirsPartiel } = await import('../permis/dossierPartielRepo');
+      return lireButoirsPartiel(cfg.cadaPartielDelaiMois, cfg.cadaPartielDelaiJours);
+    },
     derniereReleveOkLe: async () => {
       const { rows } = await query<{ t: Date | null }>(`SELECT max(termine_le) AS t FROM releve_run WHERE resultat = 'ok'`);
       return rows[0]?.t ?? null;
@@ -101,12 +107,17 @@ export function depsReellesSaisissables(): DepsSaisissables {
  * → écartée. Fenêtre ouverte MAIS relève non fraîche → INDÉTERMINÉE (pas saisissable).
  */
 export async function lireSaisinesEligibles(deps: DepsSaisissables = depsReellesSaisissables()): Promise<SaisiesEligibles> {
-  const [candidats, derniereOk, fraicheur, saisineDelai] = await Promise.all([deps.lireCandidats(), deps.derniereReleveOkLe(), deps.fraicheurHeures(), deps.saisineDelaiJours()]);
+  const [candidats, derniereOk, fraicheur, saisineDelai, butoirsPartiel] = await Promise.all([deps.lireCandidats(), deps.derniereReleveOkLe(), deps.fraicheurHeures(), deps.saisineDelaiJours(), deps.butoirsPartiel()]);
   const maintenant = deps.maintenant();
   const fraiche = releveEstFraiche(derniereOk, maintenant, fraicheur);
   const saisissables: DemandeSaisissable[] = [];
   const indeterminees: DemandeSaisissable[] = [];
   for (const c of candidats) {
+    // CASC-2 — DOSSIER PARTIEL : l'éligibilité N'EST PAS suspendue, seul son POINT DE DÉPART est REPOUSSÉ. Tant que le butoir prolongé
+    //   (partiel_le + 1 mois + 4 j, calculé sur la PREMIÈRE réclamation) n'est pas atteint, la saisine n'est pas encore proposable —
+    //   même gate « pas encore déposable » que la saisine tacite. Marqueur levé → aucun butoir → éligibilité ordinaire (rien ici).
+    const butoir = butoirsPartiel.get(c.demandeId);
+    if (butoir !== undefined && maintenant.getTime() < butoir.getTime()) continue;
     // T1/Correction 1 — ancre = refus le plus PRÉCOCE déjà acquis (tacite OU exprès), jamais fenetreCada(envoyeLe) seule.
     const { fenetre: f, voie } = fenetreCadaEffective(c.envoyeLe, c.refusExpres, maintenant);
     if (f.etat !== 'ouverte' || voie === null) continue; // aucun refus acquis (pas_ouverte) ou forclos → jamais saisissable
