@@ -10,6 +10,7 @@
 import { query } from '../db/client';
 import { problemeTexteComplement, problemeDateDeclaration, estNoReply, entetesFil } from './complementPieces';
 import type { FamillePlan } from './planMasse';
+import { marquerDossierPartiel } from './dossierPartielRepo'; // CASC-1 : pose le marqueur « dossier partiel » (suspend la relance ordinaire)
 
 /** La cible du geste : le dernier message répondable de la mairie + de quoi répondre dans le fil. */
 export interface CibleComplement {
@@ -40,6 +41,7 @@ export interface DepsDemandePieces {
   lireCible(dossierId: number): Promise<CibleComplement | null>;
   envoyer(cible: CibleComplement, objet: string, corps: string): Promise<{ messageId: string }>;
   journaliser(demandeId: number, trace: TraceEnvoi, auteur: string): Promise<void>;
+  marquerPartiel(demandeId: number, familles: readonly FamillePlan[]): Promise<void>; // CASC-1 : marqueur « dossier partiel » (origine 'outil')
 }
 
 /**
@@ -60,6 +62,7 @@ export async function executerDemandePieces(deps: DepsDemandePieces, arg: { doss
   // ENVOI VERBATIM : exactement l'objet et le corps reçus (ce qui est affiché est ce qui part).
   const { messageId } = await deps.envoyer(cible, arg.objet, arg.corps); // AVANT le journal
   await deps.journaliser(cible.demandeId, { objet: arg.objet, corps: arg.corps, familles, destinataire: cible.destinataire, messageId }, arg.auteur);
+  await deps.marquerPartiel(cible.demandeId, familles); // CASC-1 : pose auto le marqueur → suspend la relance ordinaire (sans geste d'Arno)
   return { ok: true, destinataire: cible.destinataire, familles, messageId };
 }
 
@@ -160,6 +163,7 @@ export function depsReellesDemandePieces(): DepsDemandePieces {
         } else throw e;
       }
     },
+    marquerPartiel: async (demandeId, familles) => { await marquerDossierPartiel(demandeId, familles, 'outil'); },
   };
 }
 
@@ -175,6 +179,7 @@ export interface TraceDeclaration { dateRelance: string; familles: FamillePlan[]
 export interface DepsDeclaration {
   lireContexte(dossierId: number): Promise<{ demandeId: number; destinataire: string; dernierMessageLe: string } | null>;
   journaliserDeclaration(demandeId: number, trace: TraceDeclaration, auteur: string): Promise<void>;
+  marquerPartiel(demandeId: number, familles: readonly FamillePlan[]): Promise<void>; // CASC-1 : marqueur « dossier partiel » (origine 'declaree')
   aujourdhui(): string; // 'YYYY-MM-DD' — injecté (pureté de la borne « pas dans le futur »)
 }
 
@@ -191,6 +196,7 @@ export async function declarerRelanceComplement(deps: DepsDeclaration, arg: { do
   const pb = problemeDateDeclaration(arg.dateRelance, deps.aujourdhui(), ctx.dernierMessageLe);
   if (pb !== null) return { ok: false, motif: pb };
   await deps.journaliserDeclaration(ctx.demandeId, { dateRelance: arg.dateRelance.slice(0, 10), familles, destinataire: ctx.destinataire }, arg.auteur);
+  await deps.marquerPartiel(ctx.demandeId, familles); // CASC-1 : même effet qu'un envoi — pose auto le marqueur → suspend la relance ordinaire
   return { ok: true, destinataire: ctx.destinataire, familles };
 }
 
@@ -208,6 +214,7 @@ export function depsReellesDeclaration(): DepsDeclaration {
         } else throw e;
       }
     },
+    marquerPartiel: async (demandeId, familles) => { await marquerDossierPartiel(demandeId, familles, 'declaree'); },
     aujourdhui: () => new Date().toISOString().slice(0, 10),
   };
 }

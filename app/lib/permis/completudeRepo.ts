@@ -25,6 +25,9 @@ export async function enregistrerCompletude(dossierId: number, ged: ResultatLect
          SET classements = EXCLUDED.classements, nb_pieces = EXCLUDED.nb_pieces, calcule_le = EXCLUDED.calcule_le, calcule_par = EXCLUDED.calcule_par`,
       [dossierId, JSON.stringify(classements), ged.pieces.length, calculePar]);
   } catch { /* 174 non appliquée → pas de mémoire ; l'affichage proposera de lancer l'analyse */ }
+  // CASC-1 — LEVÉE AUTO du marqueur « dossier partiel » : c'est ICI, au (re)calcul du diagnostic (recalcul auto PERF-2 OU « Relancer
+  //   l'analyse »), que la complétude peut passer à « complet ». Best-effort, import dynamique (aucun cycle statique), jamais bloquant.
+  try { await (await import('./dossierPartielRepo')).evaluerLeveeAutoPartiel(dossierId); } catch { /* levée best-effort : n'impacte jamais la mémorisation */ }
 }
 
 export interface CompletudeLue {

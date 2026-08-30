@@ -12,6 +12,7 @@ import { libelleNatureProjet } from '../sitadel/priorite'; // GED-1 : nature des
 import { fenetreDepuis } from './releveReponses'; // P1 : MÊME source que la relève pour « on relève depuis le … » (jamais une 2e vérité)
 import type { ReglagesCascade } from './cascadeRelance'; // cascade lot 4 : seuils exposés à l'affichage (type-only → erasé côté client)
 import type { EnvoiAutoInfos } from './statutCascade'; // lot « dire quand ça part » : interrupteur + fenêtre d'envoi (réglages existants)
+import type { EtatPartiel } from '../permis/dossierPartiel'; // CASC-1 : marqueur « dossier partiel » (type-only → erasé côté client)
 
 /** Réglages de relève/échéance en vigueur (lecture seule ; édités dans l'onglet Réglages). */
 export interface ReglagesReleve {
@@ -164,6 +165,7 @@ export interface DemandeSuivi {
   messagesAutre: MessageAutreAffiche[]; // T7-B : messages `autre` ancrés (cas ③) — la ligne est signalée tant qu'il en reste ≥1 non répondu
   piecesReponses: ReponsePieces[]; // T5 : pièces des réponses rattachées (groupées par réponse), consultables/téléchargeables
   provenancesContenu: ProvenanceContenu[]; // FUS : messages porteurs de CONTENU (lien fort OU pièce), le PLUS RÉCENT d'abord — provenance affichée sur la ligne (date+heure + expéditeur), les autres au déplié
+  suspension: EtatPartiel | null; // CASC-1 : marqueur « dossier partiel » ACTIF (raison + date) → relance ordinaire suspendue ; null = non suspendue / 177 absente
 }
 // T6-A/2 — le critère d'inclusion « Réponses » (demandeADuRetour) + la partition d'affichage (partitionnerReponses) vivent dans
 //   ReponsesRendu.tsx (module PUR client-safe), PAS ici : ce module importe db/client (pg), qu'on ne veut jamais dans le bundle client.
@@ -484,6 +486,10 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
       .push({ recuLe: r.recu_le, deAdresse: r.de_adresse, aLien: r.a_lien, aPiece: r.a_piece });
   }
 
+  // CASC-1 — marqueur « dossier partiel » (suspension), lu À PART et RÉSILIENT : 177 absente → Map vide → aucune suspension montrée,
+  //   la liste En cours reste intacte. JAMAIS couplé à la requête centrale `dem` (des colonnes manquantes la casseraient tout entière).
+  const suspensions = await (await import('../permis/dossierPartielRepo')).lireEtatsPartiel(dem.rows.map((r) => r.id));
+
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut, canal: r.canal,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
@@ -502,6 +508,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     messagesAutre: parMsgAutre.get(r.id) ?? [],
     piecesReponses: parPiecesReponses.get(r.id) ?? [],
     provenancesContenu: parProvenances.get(r.id) ?? [],
+    suspension: suspensions.get(r.id) ?? null, // CASC-1
   }));
   return { demandes, derniereOkLe, reglages, cascade, envoi };
 }

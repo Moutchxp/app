@@ -57,6 +57,7 @@ export interface DepsRelanceAuto {
   lireContexte(): Promise<ContexteRelance>;
   derniereReleveOkLe(): Promise<Date | null>;
   lireDemandesEnvoyees(profil: ProfilDemandeur): Promise<DemandeEnvoyeeRelance[]>;
+  estSuspendue(demandeId: number): Promise<boolean>;                    // CASC-1 : « dossier partiel » actif → aucune relance ordinaire (false si migration 177 absente)
   lireVivante(demandeId: number): Promise<RelanceVivante | null>;       // C : la relance vivante + sa variante (null si aucune)
   relanceExiste(demandeId: number): Promise<boolean>; // R5c : TOUTE relance (même abandonnée) bloque l'auto → un abandon est respecté
   dossiersSatisfaitsDepuisRelance(demandeId: number): Promise<boolean>; // R6c : une relance vivante existe ET des dossiers ont été satisfaits après elle
@@ -91,6 +92,9 @@ export async function executerRelanceAuto(deps: DepsRelanceAuto): Promise<BilanR
 
   let examinees = 0, creees = 0, ignorees = 0, erreurs = 0, signalees = 0;
   for (const d of demandes) {
+    // CASC-1 — SUSPENSION : la mairie a répondu partiellement et Arno a réclamé les pièces manquantes → « dossier partiel » actif.
+    //   AUCUNE relance ordinaire n'est préparée tant que le marqueur est là (la réclamation ciblée, elle, reste possible ailleurs).
+    if (await deps.estSuspendue(d.demandeId)) { ignorees += 1; continue; }
     const envoyeLe = d.envoyeLe;
     // B — QUALIFICATION : délivrée (acheminement 'envoye', jamais rebond/échec), envoi connu, relève FRAÎCHE (sinon le silence
     //   n'est pas vérifié → aucune étape n'est visée).
@@ -238,6 +242,7 @@ export async function dossiersSatisfaitsDepuisRelance(demandeId: number): Promis
 export function depsReellesRelance(): DepsRelanceAuto {
   return {
     maintenant: () => new Date(),
+    estSuspendue: async (demandeId) => (await import('../permis/dossierPartielRepo')).estDemandeSuspendue(demandeId), // CASC-1, résilient (177 absente → false)
     lireContexte: () => chargerContexteRelance(),
     derniereReleveOkLe: async () => {
       const { rows } = await query<{ t: Date | null }>(`SELECT max(termine_le) AS t FROM releve_run WHERE resultat = 'ok'`);

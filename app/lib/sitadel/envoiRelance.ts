@@ -212,7 +212,12 @@ export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: stri
   };
   const comptesPresents: Record<string, boolean> = { entreprise: comptes.entreprise !== null, personne: comptes.personne !== null };
 
-  const candidats = await lireCandidatsRelance();
+  const candidatsBruts = await lireCandidatsRelance();
+  // CASC-1 — SUSPENSION : ne JAMAIS envoyer un brouillon ordinaire préparé AVANT que la demande passe en « dossier partiel »
+  //   (réclamation ciblée en cours). Filtre EN AVAL de la sélection (on ne réécrit pas son WHERE) ; résilient : 177 absente → ensemble
+  //   vide → aucune exclusion → comportement inchangé.
+  const suspendues = await (await import('../permis/dossierPartielRepo')).lireDemandesSuspendues(candidatsBruts.map((c) => c.demandeId));
+  const candidats = candidatsBruts.filter((c) => !suspendues.has(c.demandeId));
   // Garde-fou « brouillon obsolète » : dossiersSatisfaitsDepuisRelance (booléen, RÉUTILISÉ) décide ; on nomme les dossiers pour le refus.
   const obsoletes = new Map<number, string[]>();
   for (const r of candidats) {

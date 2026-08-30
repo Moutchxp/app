@@ -19,6 +19,7 @@ function makeDeps(over: Partial<DepsDemandePieces> = {}): DepsDemandePieces {
     lireCible: vi.fn(async () => cible()),
     envoyer: vi.fn(async (_c: CibleComplement, _o: string, _co: string) => { void _c; void _o; void _co; return { messageId: '<envoye@svav.com>' }; }),
     journaliser: vi.fn(async (_d: number, _t: TraceEnvoi, _a: string) => { void _d; void _t; void _a; }),
+    marquerPartiel: vi.fn(async () => {}), // CASC-1
     ...over,
   };
 }
@@ -92,6 +93,14 @@ describe('executerDemandePieces', () => {
     expect(ordre).toEqual(['envoyer', 'journal']);
     expect(cibleEnvoyee!.messageId).toBe('<abc@mairie-aubervilliers.fr>');
   });
+
+  it('CASC-1 — pose le marqueur « dossier partiel » (avec les familles) après le journal', async () => {
+    let marque: { demandeId: number; familles: readonly string[] } | null = null;
+    const deps = makeDeps({ marquerPartiel: async (demandeId, familles) => { marque = { demandeId, familles }; } });
+    const r = await executerDemandePieces(deps, arg({ familles: ['cerfa', 'masse'] }));
+    expect(r.ok).toBe(true);
+    expect(marque!.familles).toEqual(['cerfa', 'masse']); // origine 'outil' figée dans depsReelles
+  });
 });
 
 // ── PART-3e — DÉCLARER une relance faite hors outil (AUCUN envoi) ─────────────────────────────────────────────────────────────
@@ -100,6 +109,7 @@ function makeDepsDecl(over: Partial<DepsDeclaration> = {}): DepsDeclaration {
   return {
     lireContexte: vi.fn(async () => ctx),
     journaliserDeclaration: vi.fn(async (_d: number, _t: TraceDeclaration, _a: string) => { void _d; void _t; void _a; }),
+    marquerPartiel: vi.fn(async () => {}), // CASC-1
     aujourdhui: () => '2026-08-30',
     ...over,
   };
@@ -121,6 +131,15 @@ describe('declarerRelanceComplement — constat sans envoi', () => {
     expect(trace!.dateRelance).toBe('2026-08-29');
     expect(trace!.familles).toEqual(['cerfa', 'etage']);
     expect(trace!.destinataire).toBe('lauriane.pangui@mairie-aubervilliers.fr');
+  });
+
+  it('CASC-1 — la déclaration pose AUSSI le marqueur « dossier partiel » (même effet qu’un envoi)', async () => {
+    let marque: { demandeId: number; familles: readonly string[] } | null = null;
+    const deps = makeDepsDecl({ marquerPartiel: async (demandeId, familles) => { marque = { demandeId, familles }; } });
+    const r = await declarerRelanceComplement(deps, argD({ familles: ['coupe'] }));
+    expect(r.ok).toBe(true);
+    expect(marque!.demandeId).toBe(154);
+    expect(marque!.familles).toEqual(['coupe']); // origine 'declaree' figée dans depsReelles
   });
 
   it('date dans le FUTUR → refus, rien journalisé', async () => {

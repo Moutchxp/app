@@ -45,6 +45,7 @@ function makeDeps(over: Partial<DepsRelanceAuto> = {}): DepsRelanceAuto {
     lireContexte: vi.fn(async () => CONTEXTE),
     derniereReleveOkLe: vi.fn(async () => new Date('2026-04-20T06:00:00Z')),   // relève fraîche (6 h)
     lireDemandesEnvoyees: vi.fn(async () => [DEMANDE]),
+    estSuspendue: vi.fn(async () => false), // CASC-1 : non suspendue par défaut (cascade inchangée)
     lireVivante: vi.fn(async () => null),
     relanceExiste: vi.fn(async () => false),
     dossiersSatisfaitsDepuisRelance: vi.fn(async () => false),
@@ -118,6 +119,20 @@ describe('lot 3 — qualification (B) : aucune génération hors conditions', ()
     }));
     expect(bilan).toMatchObject({ examinees: 1, creees: 0, ignorees: 1 });
     expect(enregistrerRelance).not.toHaveBeenCalled();
+  });
+
+  it('CASC-1 — demande SUSPENDUE (dossier partiel) → AUCUNE relance ordinaire préparée (ni examinée)', async () => {
+    const enregistrerRelance = vi.fn(async () => 1);
+    const bilan = await executerRelanceAuto(makeDeps({ estSuspendue: vi.fn(async () => true), enregistrerRelance }));
+    expect(bilan).toMatchObject({ examinees: 0, creees: 0, ignorees: 1 });
+    expect(enregistrerRelance).not.toHaveBeenCalled();
+  });
+
+  it('CASC-1 — NON-RÉGRESSION : demande NON suspendue → cascade inchangée (l’étape cible est bien créée)', async () => {
+    const enregistrerRelance = vi.fn(async () => 1);
+    const bilan = await executerRelanceAuto(makeDeps({ estSuspendue: vi.fn(async () => false), enregistrerRelance }));
+    expect(bilan).toMatchObject({ examinees: 1, creees: 1, ignorees: 0 });
+    expect(enregistrerRelance).toHaveBeenCalledTimes(1);
   });
 });
 

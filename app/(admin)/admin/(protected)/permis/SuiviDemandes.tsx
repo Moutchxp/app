@@ -11,6 +11,7 @@ import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetai
 import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, demandeADuRetour, formaterDate, type RetourCible } from './ReponsesRendu';
 import { etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
 import { statutCascade, prochaineEtape, type EnvoiAutoInfos } from '../../../../lib/veille/statutCascade';
+import { libelleSuspension } from '../../../../lib/permis/dossierPartiel'; // CASC-1 : phrase de suspension (raison + date) affichée dans le statut de cascade
 import { RefMairieCellule } from './RefMairieCellule';
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 import type { ReglagesCascade } from '../../../../lib/veille/cascadeRelance';
@@ -148,7 +149,11 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
         dossiersDus: d.dossiersActifs - d.dossiersSatisfaits,
         dernierEnvoiRelance: d.dernierEnvoiRelance, relancePreparee: d.relancePreparee, saisineCadaEnvoyeeLe: d.saisineCadaEnvoyeeLe,
       };
-      m.set(d.demandeId, { libelle: statutCascade(entree, maintenant, suivi.cascade, suivi.envoi), prochaine: prochaineEtape(entree, maintenant, suivi.cascade) });
+      // CASC-1 — SUSPENSION VISIBLE : si « dossier partiel » actif, le libellé de cascade DIT la suspension (raison + date) et il n'y a
+      //   pas de prochaine étape ordinaire. Jamais un silence : la réclamation ciblée reste possible ailleurs (bloc complétude).
+      m.set(d.demandeId, d.suspension
+        ? { libelle: libelleSuspension(d.suspension), prochaine: '' }
+        : { libelle: statutCascade(entree, maintenant, suivi.cascade, suivi.envoi), prochaine: prochaineEtape(entree, maintenant, suivi.cascade) });
     }
     return m;
   }, [suivi, maintenant]);
@@ -401,6 +406,13 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
       );
     },
   } : undefined;
+  // CASC-1 — LEVÉE MANUELLE du marqueur « dossier partiel » (recours d'Arno). Aucun envoi ; reprend simplement la relance ordinaire.
+  async function leverSuspension(demandeId: number): Promise<void> {
+    const res = await fetch('/api/admin/permis/demandes/lever-suspension', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ demandeId }) });
+    if (res.ok) { annoncer('Suspension levée — la relance ordinaire reprend.', true, 'detail'); rafraichirSuivi(); if (detail) void ouvrir(detail.id, true); }
+    else annoncer(await erreurServeur(res, 'Levée impossible.'), false, 'detail');
+  }
+
   // T6-A — donnée riche de la demande OUVERTE (détail « En cours ») : dossiers + statut + compteurs pour DetailDossiers/ActionsCloture.
   const richDetail = enCours && detail && suivi ? suivi.parId.get(detail.id) ?? null : null;
 
@@ -602,6 +614,13 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
             // T6-A — En cours : les 7 actions (DetailDossiers + ActionsCloture) via la MÊME route POST /reponses. À demander : slots absents → détail inchangé.
             slotDossiers={richDetail ? (
               <>
+                {/* CASC-1 — SUSPENSION visible (raison + date) + levée manuelle. Jamais un silence : la réclamation ciblée reste possible (bloc complétude). */}
+                {richDetail.suspension && (
+                  <div className="svv-card" role="note" style={{ borderColor: 'var(--color-svv-red)', fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+                    <span>{libelleSuspension(richDetail.suspension)}</span>
+                    <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem' }} onClick={() => void leverSuspension(detail.id)}>Lever la suspension</button>
+                  </div>
+                )}
                 <RappelObtenusArchives n={richDetail.dossiersSatisfaits} />
                 <DetailDossiers demandeId={detail.id} statut={richDetail.statut} dossiers={richDetail.dossiers} retour={retourReponse}
                   aujourdhui={aujourdhui} prefillRefus={richDetail.derniereReponseLe ? formaterDate(richDetail.derniereReponseLe) : aujourdhui}
