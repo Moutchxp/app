@@ -13,7 +13,9 @@ const { appels, etat, queryMock } = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: async () => undefined, pool: {}, closePool: async () => undefined }));
 
-import { planifierRelances, octetsDe, emettreUneRelance, lireCandidatsRelance, motifDesalignement, type RelanceAEnvoyer } from './envoiRelance';
+import { planifierRelances, octetsDe, emettreUneRelance, lireCandidatsRelance, motifDesalignement, exclureSuspendues, type RelanceAEnvoyer } from './envoiRelance';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { compterEmisAujourdhui } from './envoiDemande';
 import type { Requete } from './mairieContact';
 
@@ -216,5 +218,21 @@ describe('W1 — budget PARTAGÉ : compterEmisAujourdhui compte TOUTES les émis
     expect(s).toContain("statut = 'envoye'");
     expect(s).toContain('CURRENT_DATE');
     expect(s).not.toContain('relance_id'); // ne distingue pas → un jour chargé en demandes réduit le budget des relances
+  });
+});
+
+describe('CASC-4 — exclusion des demandes en régime PARTIEL de la salve d’envoi ordinaire', () => {
+  const cand = (demandeId: number): RelanceAEnvoyer => ({ ...R, demandeId });
+  it('une demande suspendue (dossier partiel) est RETIRÉE de la salve → aucun envoi ordinaire', () => {
+    const restants = exclureSuspendues([cand(1), cand(2), cand(3)], new Set([2]));
+    expect(restants.map((c) => c.demandeId)).toEqual([1, 3]); // la 2 (partielle) ne part pas
+  });
+  it('aucune demande suspendue → salve inchangée (non-régression cascade du 22/08)', () => {
+    expect(exclureSuspendues([cand(1), cand(2)], new Set()).map((c) => c.demandeId)).toEqual([1, 2]);
+  });
+  it('CÂBLAGE : envoyerRelances filtre bien via lireDemandesSuspendues → exclureSuspendues (garde non contournable)', () => {
+    const src = readFileSync(fileURLToPath(new URL('./envoiRelance.ts', import.meta.url)), 'utf8');
+    expect(src).toContain('lireDemandesSuspendues');
+    expect(src).toContain('exclureSuspendues(candidatsBruts, suspendues)');
   });
 });

@@ -187,7 +187,17 @@ export function depsReellesEnvoiSaisine(): DepsEnvoiSaisine {
     cadaEmail: async () => (await chargerConfigVeille()).cadaEmail,
     cadaUrlFormulaire: async () => (await chargerConfigVeille()).cadaUrlFormulaire,
     caps: async () => { const c = await chargerConfigVeille(); return { capParRun: c.envoisMaxParRun, capParJour: c.envoisMaxParJour }; },
-    candidats: () => lireCandidatsSaisine(),
+    // CASC-4 — RÉGIME UNIQUE : une demande PARTIELLE (marqueur CASC-1) dont le butoir CASC-2 n'est pas atteint n'est JAMAIS envoyée en
+    //   saisine. Filet AU NIVEAU DE LA SÉLECTION D'ENVOI (en plus de la garde autoritaire de creerSaisineCada — un tel brouillon ne peut
+    //   déjà plus être créé). Résilient : 177/178 absente → aucun butoir → aucune exclusion → comportement inchangé.
+    candidats: async () => {
+      const bruts = await lireCandidatsSaisine();
+      const cfg = await chargerConfigVeille();
+      const { lireButoirsPartiel } = await import('../permis/dossierPartielRepo');
+      const butoirs = await lireButoirsPartiel(cfg.cadaPartielDelaiMois, cfg.cadaPartielDelaiJours);
+      const now = Date.now();
+      return bruts.filter((c) => { const b = butoirs.get(c.demandeId); return b === undefined || now >= b.getTime(); });
+    },
     adresses: () => lireAdressesExpedition(),
     comptes: () => ({ entreprise: lireCompteSmtp(INFIXE_SMTP.entreprise), personne: lireCompteSmtp(INFIXE_SMTP.personne) }),
     emisAujourdhui: () => compterEmisAujourdhui(),

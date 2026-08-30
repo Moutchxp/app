@@ -7,11 +7,12 @@ import type { CibleComplement } from '../permis/demanderPiecesRepo';
  * On vérifie : envoi AVANT journal, refus vide, refus sans message mairie, étape/rang relayés au journal.
  */
 const cible = (over: Partial<CibleComplement> = {}): CibleComplement => ({
-  demandeId: 154, destinataire: 'urba@mairie-aubervilliers.fr', messageId: '<m@mairie>', referencesBrut: null,
+  demandeId: 154, numDau: 'PC0930012500081', destinataire: 'urba@mairie-aubervilliers.fr', deNom: null, messageId: '<m@mairie>', referencesBrut: null,
   from: 'contact@sansvisavis.com', profil: 'entreprise', recuLe: '2026-05-01T09:00:00Z', motifIndisponible: null, ...over,
 });
 function deps(over: Partial<DepsRelancePartielle> = {}): DepsRelancePartielle {
   return {
+    regimePartiel: async () => true, // CASC-4 : demande partielle par défaut (régime cascade partielle)
     lireCible: async () => cible(),
     envoyer: async () => ({ messageId: '<out@svav>' }),
     journaliser: async () => {},
@@ -47,6 +48,14 @@ describe('CASC-3 — executerRelancePartielle (injection, aucun e-mail réel)', 
     const d = deps({ envoyer: async () => { envoye = true; return { messageId: 'x' }; } });
     expect((await executerRelancePartielle(d, arg({ corps: '   ' }))).ok).toBe(false);
     expect((await executerRelancePartielle(d, arg({ objet: '' }))).ok).toBe(false);
+    expect(envoye).toBe(false);
+  });
+
+  it('CASC-4 — demande NON marquée partielle (régime ordinaire) → refus, AUCUN envoi (garde serveur)', async () => {
+    let envoye = false;
+    const r = await executerRelancePartielle(deps({ regimePartiel: async () => false, envoyer: async () => { envoye = true; return { messageId: 'x' }; } }), arg());
+    expect(r.ok).toBe(false);
+    expect(r.motif).toMatch(/dossier partiel/i);
     expect(envoye).toBe(false);
   });
 

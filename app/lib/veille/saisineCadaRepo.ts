@@ -146,6 +146,7 @@ export interface DepsCreerSaisine {
   chargerContexte(profil: ProfilDemandeur): Promise<ContexteRelance>;
   chargerLot(demandeId: number): Promise<LotRelance | null>;
   derniereReleveOkLe(): Promise<Date | null>;
+  butoirPartiel(demandeId: number): Promise<Date | null>; // CASC-4 : butoir CASC-2 si la demande est PARTIELLE (marqueur actif), sinon null
   maintenant(): Date;
 }
 
@@ -170,6 +171,11 @@ export function depsReellesCreerSaisine(): DepsCreerSaisine {
       const { rows } = await query<{ t: Date | null }>(`SELECT max(termine_le) AS t FROM releve_run WHERE resultat = 'ok'`);
       return rows[0]?.t ?? null;
     },
+    butoirPartiel: async (demandeId) => {
+      const cfg = await chargerConfigVeille(); // CASC-4 — butoir CASC-2 (repli 1 mois + 4 j si 178 absente) ; null si demande non partielle
+      const { butoirPartielActif } = await import('../permis/dossierPartielRepo');
+      return butoirPartielActif(demandeId, cfg.cadaPartielDelaiMois, cfg.cadaPartielDelaiJours);
+    },
     maintenant: () => new Date(),
   };
 }
@@ -190,6 +196,13 @@ export async function creerSaisineCada(demandeId: number, auteur: string | null,
 
   const ctx = await deps.chargerContexte(meta.profil);
   const maintenant = deps.maintenant();
+  // CASC-4 — RÉGIME UNIQUE : une demande est soit ORDINAIRE, soit PARTIELLE, jamais les deux. Sur une demande PARTIELLE (marqueur
+  //   CASC-1 actif), la saisine CADA n'est proposable qu'au BUTOIR CASC-2 (partiel_le + 1 mois + 4 j). On garde ICI, à la CRÉATION
+  //   (pas seulement à la proposition lireSaisinesEligibles) : refus explicite motivé, jamais un échec silencieux.
+  const butoirPartiel = await deps.butoirPartiel(demandeId);
+  if (butoirPartiel !== null && maintenant.getTime() < butoirPartiel.getTime()) {
+    throw new SaisineCadaError(`dossier partiel : la saisine CADA ne sera proposable qu'au ${dateEnFrancais(butoirPartiel.toISOString().slice(0, 10))} (délai prolongé depuis la 1re réclamation de pièces)`);
+  }
   // T1/Correction 1 — ANCRE EFFECTIVE (refus le plus précoce déjà acquis, tacite OU exprès), jamais fenetreCada(envoyeLe) seule.
   const refusExpres = meta.dusRefus.map((x) => x.refusLe).filter((d): d is Date => d !== null);
   const { fenetre: f, voie } = fenetreCadaEffective(envoyeLe, refusExpres, maintenant);

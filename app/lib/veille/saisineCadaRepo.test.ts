@@ -59,6 +59,7 @@ function depsCreer(over: Partial<DepsCreerSaisine> = {}): DepsCreerSaisine {
     chargerContexte: async () => ({ reglages: { echeanceAlerteJours: 7, releveFraicheurHeures: 48 }, cascade: { rappelJoursAvant: 10, avisJoursAvant: 3, saisineDelaiJours: 4 }, profil: 'entreprise', config: CONF_ENT, pieces: PIECES, adresseReponse: 'a.jorel@sansvisavis.com' }),
     chargerLot: async () => ({ lot: LOT, satisfaitsIds: [] }),
     derniereReleveOkLe: async () => RELEVE_FRAICHE,
+    butoirPartiel: async () => null, // CASC-4 : demande non partielle par défaut (aucun butoir → régime ordinaire)
     maintenant: () => DANS_FENETRE,
     ...over,
   };
@@ -174,6 +175,17 @@ describe('X2 — depsReellesSaisissables : SQL des candidats (fragments sémanti
 });
 
 describe('X2 — creerSaisineCada : garde-fous + création brouillon + 23505', () => {
+  it('CASC-4 — dossier PARTIEL avant le butoir CASC-2 → REFUS explicite (motif nommant la date), AUCUNE création', async () => {
+    const butoirFutur = new Date(DANS_FENETRE.getTime() + 5 * 86_400_000); // butoir postérieur à « maintenant »
+    await expect(creerSaisineCada(42, 'admin', depsCreer({ butoirPartiel: async () => butoirFutur })))
+      .rejects.toThrow(/dossier partiel|proposable qu/i);
+  });
+  it('CASC-4 — dossier partiel dont le butoir est ATTEINT → création normale (régime redevenu saisissable)', async () => {
+    const butoirPasse = new Date(DANS_FENETRE.getTime() - 86_400_000);
+    const id = await creerSaisineCada(42, 'admin', depsCreer({ butoirPartiel: async () => butoirPasse }));
+    expect(id).toBe(99);
+  });
+
   it('happy path → INSERT type=saisine_cada / statut=brouillon (objet+corps figés, profil lié) + journal, renvoie l’id', async () => {
     const id = await creerSaisineCada(42, 'admin', depsCreer());
     expect(id).toBe(99);

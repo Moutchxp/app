@@ -93,6 +93,7 @@ function dateSaisineProposable(premiereReclamation: Date, cfg: { cascadePartielR
 
 // ── PRÉPARATION (envoi MANUEL verbatim, comme PART-3c) — pur par injection ────────────────────────────────────────────────────────
 export interface DepsRelancePartielle {
+  regimePartiel(demandeId: number): Promise<boolean>; // CASC-4 : la demande est-elle en régime PARTIEL (marqueur CASC-1 actif) ?
   lireCible(demandeId: number): Promise<CibleComplement | null>;
   envoyer(cible: CibleComplement, objet: string, corps: string): Promise<{ messageId: string }>;
   journaliser(demandeId: number, etape: 'relance' | 'annonce', rang: number | null, trace: { objet: string; corps: string; destinataire: string; messageId: string }, auteur: string): Promise<void>;
@@ -105,6 +106,9 @@ export interface ResultatRelancePartielle { ok: boolean; motif?: string; destina
  */
 export async function executerRelancePartielle(deps: DepsRelancePartielle, arg: { demandeId: number; etape: 'relance' | 'annonce'; rang: number | null; objet: string; corps: string; auteur: string }): Promise<ResultatRelancePartielle> {
   if (arg.objet.trim() === '' || arg.corps.trim() === '') return { ok: false, motif: 'objet et corps requis' };
+  // CASC-4 — RÉGIME UNIQUE : la cascade PARTIELLE n'agit QUE sur une demande marquée « dossier partiel » (CASC-1). Garde côté serveur
+  //   (pas seulement l'UI) : sur une demande en régime ORDINAIRE, refus explicite motivé — jamais d'envoi partiel hors régime.
+  if (!(await deps.regimePartiel(arg.demandeId))) return { ok: false, motif: 'demande non marquée « dossier partiel » : elle relève du régime de relance ordinaire' };
   const cible = await deps.lireCible(arg.demandeId);
   if (cible === null) return { ok: false, motif: 'aucun message de mairie auquel répondre pour cette demande' };
   if (cible.motifIndisponible !== null) return { ok: false, motif: cible.motifIndisponible };
@@ -116,6 +120,7 @@ export async function executerRelancePartielle(deps: DepsRelancePartielle, arg: 
 // ── Implémentation RÉELLE ─────────────────────────────────────────────────────
 export function depsReellesRelancePartielle(): DepsRelancePartielle {
   return {
+    regimePartiel: async (demandeId) => (await lireEtatPartiel(demandeId)) !== null, // CASC-4 : marqueur CASC-1 actif ? (false si 177 absente)
     lireCible: async (demandeId) => {
       // Cible = fil du dernier message mairie de la demande. On réutilise lireCibleComplementReel via un dossier ACTIF de la demande
       //   (il résout dossier→demande→dernier message répondable) — aucune 2e implémentation d'envoi.

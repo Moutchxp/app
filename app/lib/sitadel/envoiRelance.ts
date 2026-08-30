@@ -154,6 +154,14 @@ const SENTINELLE_DRYRUN = new Error('__DRY_RUN_ROLLBACK__');
 /** Candidats à la relance : brouillons vivants dont la DEMANDE est envoyée + adressable par e-mail. Le WHERE écarte une
  *  demande close (d.statut≠'envoyee') et une relance non-'brouillon' (déjà envoyée / abandonnée) → jamais candidates.
  *  EXPORTÉ pour tester ce filtre de sélection (garde-fous close / non-brouillon). */
+/**
+ * CASC-4 — RÉGIME UNIQUE : retire de la salve d'envoi ORDINAIRE toute demande passée en « dossier partiel » (CASC-1). Une demande est
+ * soit ORDINAIRE, soit PARTIELLE, jamais les deux : un brouillon ordinaire préparé avant la bascule ne doit JAMAIS partir. PUR (testé).
+ */
+export function exclureSuspendues<T extends { demandeId: number }>(candidats: readonly T[], suspendues: ReadonlySet<number>): T[] {
+  return candidats.filter((c) => !suspendues.has(c.demandeId));
+}
+
 export async function lireCandidatsRelance(): Promise<RelanceAEnvoyer[]> {
   const { rows } = await query<{ relance_id: number; demande_id: number; reference: string; commune_nom: string | null; dest_email: string; objet: string | null; corps: string | null; profil: string; variante: string; envoye_le: Date | null; dus_nums: string[] | null }>(
     `SELECT dr.id::int AS relance_id, dr.demande_id::int AS demande_id, d.reference, c.nom AS commune_nom,
@@ -217,7 +225,7 @@ export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: stri
   //   (réclamation ciblée en cours). Filtre EN AVAL de la sélection (on ne réécrit pas son WHERE) ; résilient : 177 absente → ensemble
   //   vide → aucune exclusion → comportement inchangé.
   const suspendues = await (await import('../permis/dossierPartielRepo')).lireDemandesSuspendues(candidatsBruts.map((c) => c.demandeId));
-  const candidats = candidatsBruts.filter((c) => !suspendues.has(c.demandeId));
+  const candidats = exclureSuspendues(candidatsBruts, suspendues);
   // Garde-fou « brouillon obsolète » : dossiersSatisfaitsDepuisRelance (booléen, RÉUTILISÉ) décide ; on nomme les dossiers pour le refus.
   const obsoletes = new Map<number, string[]>();
   for (const r of candidats) {

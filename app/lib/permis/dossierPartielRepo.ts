@@ -72,6 +72,11 @@ export async function lireButoirsPartiel(delaiMois: number, delaiJours: number):
   } catch (e) { if (!estColonneAbsente(e)) throw e; return m; } // 177 absente → aucune prolongation
 }
 
+/** CASC-4 — butoir CASC-2 d'UNE demande SI son marqueur « dossier partiel » est actif, sinon null (régime ordinaire / 177 absente). */
+export async function butoirPartielActif(demandeId: number, delaiMois: number, delaiJours: number): Promise<Date | null> {
+  return (await lireButoirsPartiel(delaiMois, delaiJours)).get(demandeId) ?? null;
+}
+
 /** État du marqueur ACTIF pour un lot de demandes (affichage « En cours »). Map VIDE si 177 absente → aucune suspension montrée. */
 export async function lireEtatsPartiel(demandeIds: readonly number[]): Promise<Map<number, EtatPartiel>> {
   const m = new Map<number, EtatPartiel>();
