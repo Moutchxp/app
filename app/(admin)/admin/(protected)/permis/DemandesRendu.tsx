@@ -802,7 +802,7 @@ const PROFILS_DEMANDE: ProfilDemandeur[] = ['entreprise', 'personne'];
  * (le panneau a seulement CHANGÉ D'EMPLACEMENT). La bascule/les transitions ne sont offertes qu'en brouillon (garde inchangée).
  */
 export function PanneauDetailDemande({
-  detail, corps, retour, onCorps, onFermer, onSauverCorps, onAjouterRef, onModifierRef, onSupprimerRef, onBascule, onTransition, slotDossiers, slotActions,
+  detail, corps, retour, onCorps, onFermer, onSauverCorps, onAjouterRef, onModifierRef, onSupprimerRef, onBascule, onTransition, slotDossiers, slotActions, masquerRefMairie = false,
 }: {
   detail: DemandeDetail; corps: string; retour: RetourAction;
   onCorps: (v: string) => void;
@@ -815,6 +815,9 @@ export function PanneauDetailDemande({
   // T6-A — slots pour « En cours » : `slotDossiers` REMPLACE le détail brut des dossiers par DetailDossiers (actions T1) ;
   //   `slotActions` ajoute ActionsCloture (clôturer/rouvrir). ABSENTS pour « À demander » → rendu STRICTEMENT inchangé.
   slotDossiers?: ReactNode; slotActions?: ReactNode;
+  // UNIF-1 — quand l'appelant range LUI-MÊME l'éditeur de référence mairie dans son encart (famille « Suivi & actions »), il
+  //   masque ICI le bloc réf. mairie du panneau pour ne pas le dupliquer. DÉFAUT false → « À demander » et l'existant inchangés.
+  masquerRefMairie?: boolean;
 }) {
   const brouillon = detail.statut === 'brouillon';
   return (
@@ -845,6 +848,8 @@ export function PanneauDetailDemande({
         style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }} />
       {/* T6-A — « En cours » injecte DetailDossiers (actions T1) ; sinon, détail brut des dossiers (À demander, inchangé). */}
       {slotDossiers ?? <BlocDossiersDetail dossiers={detail.dossiers} retires={detail.dossiersRetires} />}
+      {/* UNIF-1 — masqué quand l'appelant range l'éditeur dans son encart (famille « Suivi & actions ») ; sinon rendu ici (À demander). */}
+      {!masquerRefMairie && (
       <div style={{ fontSize: 12 }}>
         <span style={{ color: 'var(--color-svv-muted)' }}>Références mairie : </span>
         {detail.referencesMairieIndisponible
@@ -854,6 +859,7 @@ export function PanneauDetailDemande({
               <EditeurReferenceMairie references={detail.referencesMairie.map((rf) => rf.reference)} onAjouter={onAjouterRef} onModifier={onModifierRef} onSupprimer={onSupprimerRef} />
             </div>}
       </div>
+      )}
       {slotActions /* T6-A — En cours : ActionsCloture (clôturer + motif / rouvrir) */}
       {brouillon && (
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>

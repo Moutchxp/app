@@ -12,7 +12,14 @@ import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, Blo
 import { etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
 import { statutCascade, prochaineEtape, type EnvoiAutoInfos } from '../../../../lib/veille/statutCascade';
 import { libelleSuspension, dateButoirPartiel, libelleDelaiProlonge } from '../../../../lib/permis/dossierPartiel'; // CASC-1/CASC-2 : suspension + délai CADA prolongé (dossier partiel)
-import { RefMairieCellule } from './RefMairieCellule';
+import { RefMairieCellule, EditeurReferenceMairie } from './RefMairieCellule';
+// UNIF-1 — encart de familles (socle UNIF-0) + les 4 blocs PER-PERMIS réutilisés depuis « Analyse » (chargés paresseusement au dépliage).
+import { EncartFamilles, SousSectionsPermis } from './EncartFamilles';
+import { LIBELLE_FAMILLE } from '../../../../lib/permis/encartFamilles';
+import { BlocCompletude } from './BlocCompletude';
+import { CaracteristiquesBloc } from './CaracteristiquesBloc';
+import { BlocTraceEmprise } from './BlocTraceEmprise';
+import { BlocPiecesPermis } from './BlocPiecesPermis';
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 import type { ReglagesCascade } from '../../../../lib/veille/cascadeRelance';
 
@@ -379,6 +386,15 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
     else setRetourReponse({ cle: `piece-${pieceId}`, texte: await erreurServeur(res, 'Lien indisponible.'), ok: false });
   }
 
+  // UNIF-1 — ouverture d'une pièce À LA PAGE (visionneur) pour les familles per-permis (Caractéristiques / Pièces du permis). MÊME
+  //   signeur unique `url_piece` (inline) que « Analyse et projection » ; la clé ne transite jamais. Silencieux si indisponible.
+  const ouvrirPiece = useCallback(async (pieceId: number, source: 'reponse' | 'dossier', page?: number): Promise<void> => {
+    try {
+      const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'url_piece', pieceId, source, inline: true }) });
+      if (res.ok) { const { url } = (await res.json()) as { url: string }; window.open(page ? `${url}#page=${page}` : url, '_blank', 'noopener,noreferrer'); }
+    } catch { /* lien indisponible : silencieux */ }
+  }, []);
+
   const selProfil = (id: string) => id as ProfilDemandeur;
   const zonesRetour = repartirRetour(retour, detail !== null);
   const aujourdhui = formaterDate(maintenant.toISOString()); // borne « refus le » (max) — la route reste l'autorité
@@ -650,8 +666,18 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
             onBascule={(p) => setConfBascule({ ids: [detail.id], profil: p })}
             onTransition={(statut) => void transition([detail.id], statut, 'detail')}
             // T6-A — En cours : les 7 actions (DetailDossiers + ActionsCloture) via la MÊME route POST /reponses. À demander : slots absents → détail inchangé.
+            // UNIF-1 — le détail « En cours » adopte le format « Analyse » : un ENCART de familles repliées (EncartFamilles), règle
+            //   d'affichage unique (familleAffichee). « Suivi & actions » (remplissable) réunit TOUS les gestes de pilotage ; les 4
+            //   familles per-permis (Complétude/Caractéristiques/Bâtiments/Pièces) s'affichent SI non vides (signal batché), en
+            //   sous-sections par permis chargées PARESSEUSEMENT (SousSectionsPermis). Aucun geste perdu (mêmes composants/handlers).
+            masquerRefMairie
+            slotActions={undefined}
             slotDossiers={richDetail ? (
-              <>
+              <EncartFamilles onglet="en_cours" familles={[
+                {
+                  cle: 'suivi_actions', nonVide: true, titre: LIBELLE_FAMILLE.suivi_actions,
+                  contenu: () => (
+                  <>
                 {/* CASC-1 — SUSPENSION visible (raison + date) + levée manuelle. Jamais un silence : la réclamation ciblée reste possible (bloc complétude). */}
                 {richDetail.suspension && (
                   <div className="svv-card" role="note" style={{ borderColor: 'var(--color-svv-red)', fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
@@ -712,26 +738,54 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   onReattachOuvrir={(dossierId) => setReattach({ demandeId: detail.id, dossierId })}
                   onReattachConfirmer={(demandeId, dossierId) => { setReattach(null); void reattacher(demandeId, dossierId); }}
                   onReattachAnnuler={() => setReattach(null)} />
-                {/* L1 — MÊME BlocLiens que « Réponses », injecté par slot avec les liens DÉJÀ chargés (richDetail.liens) : un
-                    accusé porteur d'un lien reste hors de « Réponses » (T3) mais son lien doit rester visible ICI, dans « En cours ». */}
-                <BlocLiens liens={richDetail.liens} maintenant={new Date()} />
-                {/* T5 — pièces des réponses rattachées, consultables/téléchargeables ici aussi (une demande porteuse de documents peut être en « En cours »). */}
-                <BlocPiecesReponses groupes={richDetail.piecesReponses} onTelecharger={(pieceId) => void telechargerPiece(pieceId)} />
-                {/* G1 — alertes « à classer/télécharger en GED » envoyées pour cette demande (retard rendu visible). */}
-                <BlocAlertesGed alertes={richDetail.alertesGed} />
-                {/* T7-B (cas ③) — messages « autre » appelant une réponse : bouton « répondu » MANUEL et RÉVERSIBLE par message. */}
+                {/* UNIF-1 — réf. mairie rangée DANS « Suivi & actions » (masquée dans le panneau via masquerRefMairie) — MÊME éditeur/handlers que la table. */}
+                <div style={{ fontSize: 12 }}>
+                  <span style={{ color: 'var(--color-svv-muted)' }}>Références mairie : </span>
+                  <div style={{ marginTop: '.3rem' }}>
+                    <EditeurReferenceMairie references={richDetail.referencesMairie}
+                      onAjouter={async (r) => { const e = await ajouterRefTable(detail.id, r); if (!e) await ouvrir(detail.id, true); return e; }}
+                      onModifier={async (a, n) => { const e = await modifierRefTable(detail.id, a, n); if (!e) await ouvrir(detail.id, true); return e; }}
+                      onSupprimer={async (r) => { const e = await supprimerRefTable(detail.id, r); if (!e) await ouvrir(detail.id, true); return e; }} />
+                  </div>
+                </div>
+                {/* Clôturer / rouvrir (était slotActions) — désormais rangé dans « Suivi & actions ». */}
+                <ActionsCloture demandeId={detail.id} statut={richDetail.statut} dossiersDus={richDetail.dossiersActifs - richDetail.dossiersSatisfaits}
+                  motif={motifCloture[detail.id]} retour={retourReponse}
+                  onMotif={(demandeId, v) => setMotifCloture((s) => ({ ...s, [demandeId]: v }))}
+                  onCloturer={(demandeId) => void agirReponse({ action: 'cloturer', demandeId, motif: motifCloture[demandeId] ?? '' }, `cloturer-${demandeId}`, 'Demande clôturée.')}
+                  onRouvrir={(demandeId) => void agirReponse({ action: 'rouvrir', demandeId }, `rouvrir-${demandeId}`, 'Demande rouverte.')} />
+                  </>
+                  ),
+                },
+                {
+                  cle: 'historique', titre: LIBELLE_FAMILLE.historique,
+                  nonVide: richDetail.messagesAutre.length > 0 || richDetail.liens.length > 0 || richDetail.piecesReponses.length > 0 || richDetail.alertesGed.length > 0,
+                  contenu: () => (
+                  <>
+                {/* T7-B (cas ③) — messages « autre » : bouton « répondu » MANUEL et RÉVERSIBLE par message. */}
                 <BlocMessagesAutre messages={richDetail.messagesAutre} retour={retourReponse} compteReleve={suivi?.reglages.adresseReleve}
                   onRepondu={(reponseId) => void agirReponse({ action: 'repondu', reponseId }, `repondu-${reponseId}`, 'Message marqué « répondu ».')}
                   onAnnulerRepondu={(reponseId) => void agirReponse({ action: 'annuler_repondu', reponseId }, `repondu-${reponseId}`, '« Répondu » annulé.')}
                   onReclasser={(reponseId, nature) => void agirReponse({ action: 'reclasser', reponseId, nature }, `repondu-${reponseId}`, `Message reclassé « ${nature} ».`)} />
-              </>
-            ) : undefined}
-            slotActions={richDetail ? (
-              <ActionsCloture demandeId={detail.id} statut={richDetail.statut} dossiersDus={richDetail.dossiersActifs - richDetail.dossiersSatisfaits}
-                motif={motifCloture[detail.id]} retour={retourReponse}
-                onMotif={(demandeId, v) => setMotifCloture((s) => ({ ...s, [demandeId]: v }))}
-                onCloturer={(demandeId) => void agirReponse({ action: 'cloturer', demandeId, motif: motifCloture[demandeId] ?? '' }, `cloturer-${demandeId}`, 'Demande clôturée.')}
-                onRouvrir={(demandeId) => void agirReponse({ action: 'rouvrir', demandeId }, `rouvrir-${demandeId}`, 'Demande rouverte.')} />
+                {/* L1 — liens captés (un accusé porteur d'un lien reste hors de « Réponses » mais visible ici). */}
+                <BlocLiens liens={richDetail.liens} maintenant={new Date()} />
+                {/* T5 — pièces des réponses rattachées, consultables/téléchargeables. */}
+                <BlocPiecesReponses groupes={richDetail.piecesReponses} onTelecharger={(pieceId) => void telechargerPiece(pieceId)} />
+                {/* G1 — alertes « à classer/télécharger en GED » envoyées pour cette demande (retard rendu visible). */}
+                <BlocAlertesGed alertes={richDetail.alertesGed} />
+                  </>
+                  ),
+                },
+                // UNIF-1 — familles PER-PERMIS (si non vides) : sous-sections par permis, contenu chargé AU DÉPLIAGE (SousSectionsPermis) → jamais N appels lourds d'un coup.
+                { cle: 'completude', titre: LIBELLE_FAMILLE.completude, nonVide: richDetail.completudeNonVide,
+                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiers} rendre={(id) => <BlocCompletude key={id} dossierId={id} />} /> },
+                { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: richDetail.caracteristiquesNonVide,
+                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiers} rendre={(id) => <CaracteristiquesBloc key={id} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+                { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: richDetail.batimentsNonVide,
+                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiers} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} />} /> },
+                { cle: 'pieces', titre: LIBELLE_FAMILLE.pieces, nonVide: richDetail.piecesNonVide,
+                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiers} rendre={(id) => <BlocPiecesPermis key={id} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+              ]} />
             ) : undefined}
           />
         ) : null}

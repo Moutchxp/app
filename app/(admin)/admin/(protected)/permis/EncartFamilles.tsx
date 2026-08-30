@@ -22,6 +22,30 @@ export interface FamilleRendu {
   defautOuvert?: boolean;      // rare : bloc ouvert d'emblée (ex. bilan de complétude visible sans déplier) — sinon replié
 }
 
+/**
+ * UNIF-1 — SOUS-SECTIONS PAR PERMIS d'une famille per-dossier (Complétude / Caractéristiques / Bâtiments / Pièces), pour une demande
+ * qui couvre plusieurs permis. PARESSE en DEUX temps : cette fonction est appelée dans la render-prop de la famille (donc au dépliage
+ * de la famille) ; pour N permis, elle ne rend que N titres repliés (`rendre` n'est appelé qu'au dépliage de CHAQUE permis) → déplier
+ * la famille ne déclenche AUCUN appel lourd, chaque permis charge le sien à son ouverture. Pour 1 seul permis : pas de pli superflu,
+ * on rend directement son contenu (une seule requête). PUR (aucune I/O).
+ */
+export function SousSectionsPermis({ dossiers, rendre }: {
+  dossiers: readonly { dossierId: number; numDau: string }[];
+  rendre: (dossierId: number) => ReactNode;
+}) {
+  if (dossiers.length === 0) return null;
+  if (dossiers.length === 1) return rendre(dossiers[0].dossierId); // 1 permis → contenu direct, aucun pli inutile
+  return (
+    <div className="flex flex-col gap-2">
+      {dossiers.map((d) => (
+        <BlocRepliable key={d.dossierId} titre={<span style={{ fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12 }}>Permis {d.numDau}</span>}>
+          {() => rendre(d.dossierId)}
+        </BlocRepliable>
+      ))}
+    </div>
+  );
+}
+
 export function EncartFamilles({ onglet, familles }: { onglet: OngletEncart; familles: readonly FamilleRendu[] }) {
   const parCle = new Map(familles.map((f) => [f.cle, f]));
   // On ne rend QUE les familles fournies par l'appelant ET retenues par la règle d'affichage, dans l'ordre canonique.

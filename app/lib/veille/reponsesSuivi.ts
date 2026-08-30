@@ -172,12 +172,14 @@ export interface DemandeSuivi {
   lienEnAttente: boolean;        // PART-D : ≥ 1 lien fort reçu ET un dossier à GED vide → contenu pas encore récupéré (bascule dossier partiel vers Réponses)
   lienEnAttenteLe: string | null; // PART-D : recu_le (ISO) du PLUS ANCIEN lien fort en attente → tri par urgence dans Réponses ; null = aucun
   // UNIF-0 — SIGNAUX « non vide » (comptes batchés, jamais le contenu) : pilotent l'affichage des familles de l'encart de détail
-  //   (règle familleAffichee). Le CONTENU de chaque famille reste chargé PARESSEUSEMENT au dépliage (PERF-1). « Pièces du permis »
-  //   n'a pas son propre drapeau : elle réutilise `dossiersEnGed > 0`. « Suivi et actions » est toujours remplissable (pas de signal).
-  completudeNonVide: boolean;       // un diagnostic de complétude existe (permis_completude) pour ≥ 1 dossier actif
-  historiqueNonVide: boolean;       // un ÉCHANGE existe : la mairie a répondu (hors rebond) OU un suivi sortant (relance déclarée / complément / réponse libre / sortant hors outil)
-  caracteristiquesNonVide: boolean; // ≥ 1 caractéristique saisie/extraite OU ≥ 1 corps de bâtiment déclaré
-  batimentsNonVide: boolean;        // ≥ 1 corps de bâtiment déclaré (le tracé/emprise ~9 s reste, lui, chargé au dépliage)
+  //   (règle familleAffichee). Le CONTENU de chaque famille reste chargé PARESSEUSEMENT au dépliage (PERF-1). « Suivi et actions »
+  //   est toujours remplissable (pas de signal). UNIF-1 : les 4 familles PER-PERMIS sont scopées aux dossiers DUS (satisfait_le NULL)
+  //   — MÊME ensemble que `dossiers` rendus dans le détail En cours/Réponses ; un dossier obtenu vit en Archives, pas ici.
+  completudeNonVide: boolean;       // ≥ 1 dossier DÛ a un diagnostic de complétude (permis_completude)
+  historiqueNonVide: boolean;       // un ÉCHANGE existe (niveau DEMANDE) : la mairie a répondu (hors rebond) OU un suivi sortant (relance déclarée / complément / réponse libre / sortant hors outil)
+  caracteristiquesNonVide: boolean; // ≥ 1 dossier DÛ a une caractéristique saisie/extraite OU un corps de bâtiment
+  batimentsNonVide: boolean;        // ≥ 1 dossier DÛ a un corps de bâtiment déclaré (le tracé/emprise ~9 s reste chargé au dépliage)
+  piecesNonVide: boolean;           // ≥ 1 dossier DÛ a une pièce en GED (dossier_document)
 }
 // T6-A/2 — le critère d'inclusion « Réponses » (demandeADuRetour) + la partition d'affichage (partitionnerReponses) vivent dans
 //   ReponsesRendu.tsx (module PUR client-safe), PAS ici : ce module importe db/client (pg), qu'on ne veut jamais dans le bundle client.
@@ -533,21 +535,24 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     try { const { rows } = await query<{ demande_id: number }>(sql, params); return new Set(rows.map((x) => x.demande_id)); }
     catch { return new Set(); } // migration/table absente → aucune famille signalée non vide (sûr)
   };
-  const [completudeSet, historiqueSet, caracteristiquesSet, batimentsSet] = ids.length === 0
-    ? [new Set<number>(), new Set<number>(), new Set<number>(), new Set<number>()]
+  const [completudeSet, historiqueSet, caracteristiquesSet, batimentsSet, piecesSet] = ids.length === 0
+    ? [new Set<number>(), new Set<number>(), new Set<number>(), new Set<number>(), new Set<number>()]
     : await Promise.all([
         setDepuis(`SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
-                     JOIN permis_completude pc ON pc.dossier_id = dd.dossier_id WHERE dd.demande_id = ANY($1) AND dd.actif`),
+                     JOIN permis_completude pc ON pc.dossier_id = dd.dossier_id WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL`),
         setDepuis(`SELECT d.id::int AS demande_id FROM demande d WHERE d.id = ANY($1) AND (
                      EXISTS (SELECT 1 FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature <> 'rebond')
                      OR EXISTS (SELECT 1 FROM demande_sortant_hors_outil s WHERE s.demande_id = d.id)
                      OR EXISTS (SELECT 1 FROM demande_journal j WHERE j.demande_id = d.id AND j.motif LIKE ANY (ARRAY[$2, $3, $4])))`,
                   [ids, `${MOTIF_COMPLEMENT_PREFIXE}%`, `${MOTIF_DECLARATION_PREFIXE}%`, `${MOTIF_REPONSE_LIBRE_PREFIXE}%`]),
-        setDepuis(`SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd WHERE dd.demande_id = ANY($1) AND dd.actif AND (
+        setDepuis(`SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL AND (
                      EXISTS (SELECT 1 FROM permis_caracteristique pc WHERE pc.dossier_id = dd.dossier_id)
                      OR EXISTS (SELECT 1 FROM permis_corps_batiment b WHERE b.dossier_id = dd.dossier_id))`),
         setDepuis(`SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
-                     JOIN permis_corps_batiment b ON b.dossier_id = dd.dossier_id WHERE dd.demande_id = ANY($1) AND dd.actif`),
+                     JOIN permis_corps_batiment b ON b.dossier_id = dd.dossier_id WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL`),
+        setDepuis(`SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
+                     WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL
+                       AND EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = dd.dossier_id)`),
       ]);
 
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
@@ -576,6 +581,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     historiqueNonVide: historiqueSet.has(r.id),
     caracteristiquesNonVide: caracteristiquesSet.has(r.id),
     batimentsNonVide: batimentsSet.has(r.id),
+    piecesNonVide: piecesSet.has(r.id), // UNIF-1 : ≥ 1 dossier dû a une pièce en GED
   }));
   return { demandes, derniereOkLe, reglages, cascade, envoi, partielDelai: { mois: cfg.cadaPartielDelaiMois, jours: cfg.cadaPartielDelaiJours } }; // CASC-2 : délai partiel pour l'affichage « délai prolongé au … »
 }
