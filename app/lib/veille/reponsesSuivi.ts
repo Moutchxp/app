@@ -13,6 +13,7 @@ import { fenetreDepuis } from './releveReponses'; // P1 : MÊME source que la re
 import type { ReglagesCascade } from './cascadeRelance'; // cascade lot 4 : seuils exposés à l'affichage (type-only → erasé côté client)
 import type { EnvoiAutoInfos } from './statutCascade'; // lot « dire quand ça part » : interrupteur + fenêtre d'envoi (réglages existants)
 import type { EtatPartiel } from '../permis/dossierPartiel'; // CASC-1 : marqueur « dossier partiel » (type-only → erasé côté client)
+import { chargerCascadePartielle, type EtatCascadePartielle } from './cascadePartielleRepo'; // CASC-3 : étape de cascade + brouillon
 
 /** Réglages de relève/échéance en vigueur (lecture seule ; édités dans l'onglet Réglages). */
 export interface ReglagesReleve {
@@ -166,6 +167,7 @@ export interface DemandeSuivi {
   piecesReponses: ReponsePieces[]; // T5 : pièces des réponses rattachées (groupées par réponse), consultables/téléchargeables
   provenancesContenu: ProvenanceContenu[]; // FUS : messages porteurs de CONTENU (lien fort OU pièce), le PLUS RÉCENT d'abord — provenance affichée sur la ligne (date+heure + expéditeur), les autres au déplié
   suspension: EtatPartiel | null; // CASC-1 : marqueur « dossier partiel » ACTIF (raison + date) → relance ordinaire suspendue ; null = non suspendue / 177 absente
+  cascade: EtatCascadePartielle | null; // CASC-3 : étape de cascade partielle + brouillon (null = non partielle / complète / 179 absente)
 }
 // T6-A/2 — le critère d'inclusion « Réponses » (demandeADuRetour) + la partition d'affichage (partitionnerReponses) vivent dans
 //   ReponsesRendu.tsx (module PUR client-safe), PAS ici : ce module importe db/client (pg), qu'on ne veut jamais dans le bundle client.
@@ -489,6 +491,12 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   // CASC-1 — marqueur « dossier partiel » (suspension), lu À PART et RÉSILIENT : 177 absente → Map vide → aucune suspension montrée,
   //   la liste En cours reste intacte. JAMAIS couplé à la requête centrale `dem` (des colonnes manquantes la casseraient tout entière).
   const suspensions = await (await import('../permis/dossierPartielRepo')).lireEtatsPartiel(dem.rows.map((r) => r.id));
+  // CASC-3 — étape de cascade partielle : SEULEMENT pour les demandes suspendues (petit sous-ensemble), résilient par demande (179
+  //   absente / dossier redevenu complet → null). Jamais couplé à la requête centrale.
+  const cascades = new Map<number, EtatCascadePartielle>();
+  for (const id of suspensions.keys()) {
+    try { const c = await chargerCascadePartielle(id); if (c) cascades.set(id, c); } catch { /* résilient : n'impacte pas la liste */ }
+  }
 
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut, canal: r.canal,
@@ -509,6 +517,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     piecesReponses: parPiecesReponses.get(r.id) ?? [],
     provenancesContenu: parProvenances.get(r.id) ?? [],
     suspension: suspensions.get(r.id) ?? null, // CASC-1
+    cascade: cascades.get(r.id) ?? null, // CASC-3
   }));
   return { demandes, derniereOkLe, reglages, cascade, envoi, partielDelai: { mois: cfg.cadaPartielDelaiMois, jours: cfg.cadaPartielDelaiJours } }; // CASC-2 : délai partiel pour l'affichage « délai prolongé au … »
 }

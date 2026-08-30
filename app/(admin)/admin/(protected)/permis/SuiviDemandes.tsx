@@ -413,6 +413,19 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
     else annoncer(await erreurServeur(res, 'Levée impossible.'), false, 'detail');
   }
 
+  // CASC-3 — PRÉPARATION (2 temps) d'une relance/annonce de cascade partielle : brouillon pré-rempli, relu/modifié, envoyé au clic.
+  const [cascadeEd, setCascadeEd] = useState<{ objet: string; corps: string } | null>(null);
+  const [cascadeEnvoi, setCascadeEnvoi] = useState(false);
+  async function envoyerCascade(demandeId: number, etape: 'relance' | 'annonce', rang: number | null): Promise<void> {
+    if (cascadeEd === null || cascadeEnvoi) return;
+    setCascadeEnvoi(true);
+    try {
+      const res = await fetch('/api/admin/permis/cascade-partielle', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ demandeId, etape, rang, objet: cascadeEd.objet, corps: cascadeEd.corps }) });
+      if (res.ok) { annoncer(etape === 'annonce' ? 'Annonce envoyée — étape enregistrée.' : 'Relance envoyée — étape enregistrée.', true, 'detail'); setCascadeEd(null); rafraichirSuivi(); if (detail) void ouvrir(detail.id, true); }
+      else annoncer(await erreurServeur(res, 'Envoi impossible.'), false, 'detail');
+    } catch { annoncer('Envoi impossible.', false, 'detail'); } finally { setCascadeEnvoi(false); }
+  }
+
   // T6-A — donnée riche de la demande OUVERTE (détail « En cours ») : dossiers + statut + compteurs pour DetailDossiers/ActionsCloture.
   const richDetail = enCours && detail && suivi ? suivi.parId.get(detail.id) ?? null : null;
 
@@ -621,6 +634,36 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                     {/* CASC-2 — EN PLUS de la suspension : date butoir CADA prolongée (partiel_le + 1 mois + 4 j). */}
                     {suivi && <span>{libelleDelaiProlonge(dateButoirPartiel(new Date(richDetail.suspension.le), suivi.partielDelai.mois, suivi.partielDelai.jours))}</span>}
                     <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem' }} onClick={() => void leverSuspension(detail.id)}>Lever la suspension</button>
+                    {/* CASC-3 — cascade de relances partielles : étape en cours + prochaine date, EN PLUS de CASC-1/CASC-2. Préparation en 2 temps (relu/modifié), envoi au clic. */}
+                    {richDetail.cascade && (() => {
+                      const c = richDetail.cascade!;
+                      const d = (iso: string | null) => (iso ? formaterDate(iso) : '—');
+                      const libelle = c.etape === 'relance' ? `Cascade partielle : relance ${c.rang} à envoyer (due le ${d(c.dateDue)})`
+                        : c.etape === 'annonce' ? `Cascade partielle : annonce CADA à envoyer (due le ${d(c.dateDue)})`
+                        : c.etape === 'saisine_proposable' ? `Cascade partielle : saisine CADA proposable depuis le ${d(c.dateDue)}`
+                        : `Cascade partielle : prochaine étape le ${d(c.prochaineDate)}`;
+                      return (
+                        <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+                          <span>{libelle}</span>
+                          {c.brouillon && cascadeEd === null && (
+                            <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.3rem .7rem' }} onClick={() => setCascadeEd({ objet: c.brouillon!.objet, corps: c.brouillon!.corps })}>
+                              {c.etape === 'annonce' ? 'Préparer l’annonce CADA' : `Préparer la relance ${c.rang}`}
+                            </button>
+                          )}
+                          {c.brouillon && cascadeEd !== null && (c.etape === 'relance' || c.etape === 'annonce') && (
+                            <div className="flex flex-col gap-2" style={{ padding: '.4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }}>
+                              <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Brouillon pré-rempli — relisez et modifiez. Le texte envoyé sera EXACTEMENT ce qui est affiché, dans le fil du dernier message de la mairie.</span>
+                              <input type="text" value={cascadeEd.objet} onChange={(e) => setCascadeEd({ ...cascadeEd, objet: e.target.value })} aria-label="Objet" style={{ width: '100%', padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, boxSizing: 'border-box' }} />
+                              <textarea value={cascadeEd.corps} onChange={(e) => setCascadeEd({ ...cascadeEd, corps: e.target.value })} rows={9} aria-label="Message" style={{ width: '100%', padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'inherit', lineHeight: 1.4, resize: 'vertical', boxSizing: 'border-box' }} />
+                              <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+                                <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.3rem .7rem' }} disabled={cascadeEnvoi || cascadeEd.objet.trim() === '' || cascadeEd.corps.trim() === ''} onClick={() => void envoyerCascade(detail.id, c.etape as 'relance' | 'annonce', c.rang)}>{cascadeEnvoi ? 'Envoi…' : 'Envoyer'}</button>
+                                <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem' }} onClick={() => setCascadeEd(null)}>Abandonner</button>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </div>
                 )}
                 <RappelObtenusArchives n={richDetail.dossiersSatisfaits} />

@@ -237,6 +237,10 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Quand une mairie a répondu mais qu’il MANQUE des pièces et que vous les avez réclamées, vous gardez le droit de saisir la CADA — mais on repousse la date à partir de laquelle la saisine redevient proposable. Ce nombre de MOIS (plus les jours ci-dessous) est ajouté à la date de la PREMIÈRE réclamation de pièces (jamais la dernière). Ne concerne QUE les dossiers partiels ; la relance des demandes restées sans réponse est inchangée.' },
   { colonne: 'cada_partiel_delai_jours', cle: 'cadaPartielDelaiJours', libelle: 'Saisine CADA (dossier partiel) — jours ajoutés en plus des mois', unite: 'jours', type: 'entier',
     aide: 'Jours ajoutés APRÈS les mois ci-dessus pour fixer la date à partir de laquelle la saisine CADA redevient proposable sur un dossier partiel. Défaut : 1 mois + 4 jours. Compté depuis la première réclamation de pièces.' },
+  // CASC-3 — les 4 réglages de la cascade partielle (cascade_partiel_relance_jours/annonce_jours/saisine_jours/nb_relances, migration 179)
+  //   seront exposés ICI (thème CADA) EN MÊME TEMPS que l'application de la 179 : l'invariant Réglages exige un CHECK EN BASE par
+  //   paramètre entier (bornes tirées des contraintes live), impossible tant que les colonnes n'existent pas. D'ici là, ces délais
+  //   restent pilotés par config_veille + repli runtime (10/10/4/2). Voir cascadePartielle.etapeCascadePartielle et veilleConfig.lireCascadePartielle.
   // RELANCE — fenêtre HORAIRE d'envoi automatique (matin, jours ouvrés). Un rappel expédié un dimanche soir « fait robot » ; en semaine le matin, il « fait une personne ».
   { colonne: 'envoi_heure_debut', cle: 'envoiHeureDebut', libelle: 'Envoi automatique — heure de début', unite: 'heure locale', type: 'entier', rail: 'email',
     aide: 'Les relances automatiques ne partent qu’entre cette heure et l’heure de fin ci-dessous, du lundi au vendredi. Les jours fériés ne sont pas pris en compte. Un brouillon préparé un week-end attend le lundi matin. (L’envoi que VOUS déclenchez à la main n’est jamais bridé.)' },
@@ -435,6 +439,8 @@ export const COLONNES_THEME_CADA: readonly string[] = [
   'proposition_cada_active', 'cada_email', 'cada_url_formulaire',
   'saisine_cada_auto_active', // Cascade lot 2 — auto-saisine (sans effet tant que cada_email vide)
   'cada_partiel_delai_mois', 'cada_partiel_delai_jours', // CASC-2 — délai prolongé avant saisine sur dossier partiel (migration 178, bornes = CHECK live)
+  // CASC-3 : 'cascade_partiel_relance_jours', 'cascade_partiel_annonce_jours', 'cascade_partiel_saisine_jours', 'cascade_partiel_nb_relances'
+  //   à AJOUTER ICI EN MÊME TEMPS que l'application de la migration 179 (bornes = CHECK live). D'ici là : pilotés par config_veille + repli.
 ];
 // RATT-AUTO + ATT-BATI — thème PROPRE (ni demande, ni envoi) : automatisation du rattachement des permis à leur futur bâti.
 export const COLONNES_THEME_RATTACHEMENT: readonly string[] = [
