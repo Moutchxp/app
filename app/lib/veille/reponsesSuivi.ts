@@ -161,6 +161,10 @@ export interface DemandeSuivi {
   relancePreparee: { variante: string } | null;                        // cascade lot 4 : brouillon vivant NON envoyé (« prêt, non envoyé »)
   saisineCadaEnvoyeeLe: string | null;                                 // cascade lot 4 : saisine CADA (type='saisine_cada') envoyée
   dossiers: DossierSuivi[];
+  // FIX-3 — dossiers dont le CONTENU per-permis (Complétude/Caractéristiques/Bâtiments/Pièces) est montré dans l'encart : les DÛS
+  //   (= `dossiers`) PLUS les SATISFAITS d'une demande en PARTIEL ACTIF (incomplet mais revenu → « garde tout sous la main », UNIF-1).
+  //   Isolé de `dossiers` exprès : DetailDossiers/Réponses/Archives et l'invariant « un dossier jamais dans deux onglets » inchangés.
+  dossiersEncart: { dossierId: number; numDau: string }[];
   dossiersRetires: { dossierId: number; numDau: string; adresse: string | null }[]; // T1 : dossiers RETIRÉS (actif=false) — sous-liste du détail (réversibilité de « retirer » via reattacher). N'affecte NI le périmètre NI demandeADuRetour.
   liens: LienAffiche[];         // L1 : liens de téléchargement captés dans les réponses rattachées (forts d'abord)
   alertesGed: AlerteGedAffiche[]; // G1 : alertes « à classer/télécharger en GED » déjà envoyées (retard visible)
@@ -173,13 +177,13 @@ export interface DemandeSuivi {
   lienEnAttenteLe: string | null; // PART-D : recu_le (ISO) du PLUS ANCIEN lien fort en attente → tri par urgence dans Réponses ; null = aucun
   // UNIF-0 — SIGNAUX « non vide » (comptes batchés, jamais le contenu) : pilotent l'affichage des familles de l'encart de détail
   //   (règle familleAffichee). Le CONTENU de chaque famille reste chargé PARESSEUSEMENT au dépliage (PERF-1). « Suivi et actions »
-  //   est toujours remplissable (pas de signal). UNIF-1 : les 4 familles PER-PERMIS sont scopées aux dossiers DUS (satisfait_le NULL)
-  //   — MÊME ensemble que `dossiers` rendus dans le détail En cours/Réponses ; un dossier obtenu vit en Archives, pas ici.
-  completudeNonVide: boolean;       // ≥ 1 dossier DÛ a un diagnostic de complétude (permis_completude)
+  //   est toujours remplissable (pas de signal). FIX-3 : les 4 familles PER-PERMIS sont scopées aux dossiers de `dossiersEncart`
+  //   (= dûs + satisfaits d'une demande en partiel actif), MÊME ensemble que ce que rend l'encart ; un dossier obtenu non-partiel vit en Archives.
+  completudeNonVide: boolean;       // ≥ 1 dossier d'encart a un diagnostic de complétude (permis_completude)
   historiqueNonVide: boolean;       // un ÉCHANGE existe (niveau DEMANDE) : la mairie a répondu (hors rebond) OU un suivi sortant (relance déclarée / complément / réponse libre / sortant hors outil)
-  caracteristiquesNonVide: boolean; // ≥ 1 dossier DÛ a une caractéristique saisie/extraite OU un corps de bâtiment
-  batimentsNonVide: boolean;        // ≥ 1 dossier DÛ a un corps de bâtiment déclaré (le tracé/emprise ~9 s reste chargé au dépliage)
-  piecesNonVide: boolean;           // ≥ 1 dossier DÛ a une pièce en GED (dossier_document)
+  caracteristiquesNonVide: boolean; // ≥ 1 dossier d'encart a une caractéristique saisie/extraite OU un corps de bâtiment
+  batimentsNonVide: boolean;        // ≥ 1 dossier d'encart a un corps de bâtiment déclaré (le tracé/emprise ~9 s reste chargé au dépliage)
+  piecesNonVide: boolean;           // ≥ 1 dossier d'encart a une pièce en GED (dossier_document)
 }
 // T6-A/2 — le critère d'inclusion « Réponses » (demandeADuRetour) + la partition d'affichage (partitionnerReponses) vivent dans
 //   ReponsesRendu.tsx (module PUR client-safe), PAS ici : ce module importe db/client (pg), qu'on ne veut jamais dans le bundle client.
@@ -535,25 +539,71 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     try { const { rows } = await query<{ demande_id: number }>(sql, params); return new Set(rows.map((x) => x.demande_id)); }
     catch { return new Set(); } // migration/table absente → aucune famille signalée non vide (sûr)
   };
+  // FIX-3 — PORTÉE de l'encart per-permis : un dossier DÛ (satisfait_le NULL) OU un dossier d'une demande en PARTIEL ACTIF (satisfait
+  //   mais incomplet, revenu → « garde tout sous la main », UNIF-1). Requiert le JOIN `demande dp`. `setEncart` tente la forme étendue,
+  //   RETOMBE sur la forme DÛS seule si `partiel_*` manque (177 non appliquée, code 42703) — jamais un set vide par méconnaissance.
+  const PORTEE_ENCART = `(dd.satisfait_le IS NULL OR (dp.partiel_le IS NOT NULL AND dp.partiel_leve_le IS NULL))`;
+  const setEncart = async (etendu: string, dus: string): Promise<Set<number>> => {
+    try { const { rows } = await query<{ demande_id: number }>(etendu, [ids]); return new Set(rows.map((x) => x.demande_id)); }
+    catch (e) {
+      if (typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703') { // 177 absente → forme historique (dûs)
+        try { const { rows } = await query<{ demande_id: number }>(dus, [ids]); return new Set(rows.map((x) => x.demande_id)); } catch { return new Set(); }
+      }
+      return new Set(); // autre table absente → dégradation sûre (famille masquée)
+    }
+  };
   const [completudeSet, historiqueSet, caracteristiquesSet, batimentsSet, piecesSet] = ids.length === 0
     ? [new Set<number>(), new Set<number>(), new Set<number>(), new Set<number>(), new Set<number>()]
     : await Promise.all([
-        setDepuis(`SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
-                     JOIN permis_completude pc ON pc.dossier_id = dd.dossier_id WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL`),
+        setEncart(
+          `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
+             JOIN permis_completude pc ON pc.dossier_id = dd.dossier_id JOIN demande dp ON dp.id = dd.demande_id
+            WHERE dd.demande_id = ANY($1) AND dd.actif AND ${PORTEE_ENCART}`,
+          `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
+             JOIN permis_completude pc ON pc.dossier_id = dd.dossier_id WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL`),
         setDepuis(`SELECT d.id::int AS demande_id FROM demande d WHERE d.id = ANY($1) AND (
                      EXISTS (SELECT 1 FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature <> 'rebond')
                      OR EXISTS (SELECT 1 FROM demande_sortant_hors_outil s WHERE s.demande_id = d.id)
                      OR EXISTS (SELECT 1 FROM demande_journal j WHERE j.demande_id = d.id AND j.motif LIKE ANY (ARRAY[$2, $3, $4])))`,
                   [ids, `${MOTIF_COMPLEMENT_PREFIXE}%`, `${MOTIF_DECLARATION_PREFIXE}%`, `${MOTIF_REPONSE_LIBRE_PREFIXE}%`]),
-        setDepuis(`SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL AND (
-                     EXISTS (SELECT 1 FROM permis_caracteristique pc WHERE pc.dossier_id = dd.dossier_id)
-                     OR EXISTS (SELECT 1 FROM permis_corps_batiment b WHERE b.dossier_id = dd.dossier_id))`),
-        setDepuis(`SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
-                     JOIN permis_corps_batiment b ON b.dossier_id = dd.dossier_id WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL`),
-        setDepuis(`SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
-                     WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL
-                       AND EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = dd.dossier_id)`),
+        setEncart(
+          `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd JOIN demande dp ON dp.id = dd.demande_id
+            WHERE dd.demande_id = ANY($1) AND dd.actif AND ${PORTEE_ENCART} AND (
+              EXISTS (SELECT 1 FROM permis_caracteristique pc WHERE pc.dossier_id = dd.dossier_id)
+              OR EXISTS (SELECT 1 FROM permis_corps_batiment b WHERE b.dossier_id = dd.dossier_id))`,
+          `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL AND (
+              EXISTS (SELECT 1 FROM permis_caracteristique pc WHERE pc.dossier_id = dd.dossier_id)
+              OR EXISTS (SELECT 1 FROM permis_corps_batiment b WHERE b.dossier_id = dd.dossier_id))`),
+        setEncart(
+          `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
+             JOIN permis_corps_batiment b ON b.dossier_id = dd.dossier_id JOIN demande dp ON dp.id = dd.demande_id
+            WHERE dd.demande_id = ANY($1) AND dd.actif AND ${PORTEE_ENCART}`,
+          `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
+             JOIN permis_corps_batiment b ON b.dossier_id = dd.dossier_id WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL`),
+        setEncart(
+          `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd JOIN demande dp ON dp.id = dd.demande_id
+            WHERE dd.demande_id = ANY($1) AND dd.actif AND ${PORTEE_ENCART}
+              AND EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = dd.dossier_id)`,
+          `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
+             WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL
+               AND EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = dd.dossier_id)`),
       ]);
+
+  // FIX-3 — dossiers SATISFAITS d'une demande en PARTIEL ACTIF : à FUSIONNER aux dûs pour le CONTENU per-permis de l'encart
+  //   (`dossiersEncart`), SANS toucher `dossiers` (DetailDossiers/Réponses/Archives et l'invariant « un dossier jamais dans deux
+  //   onglets » inchangés). Requête ISOLÉE + résiliente (177 absente → Map vide → encart = dûs seuls, comportement d'avant).
+  const parDemandePartielDoss = new Map<number, { dossierId: number; numDau: string }[]>();
+  if (ids.length > 0) {
+    try {
+      const { rows } = await query<{ demande_id: number; dossier_id: number; num_dau: string }>(
+        `SELECT dd.demande_id::int AS demande_id, dd.dossier_id::int AS dossier_id, s.num_dau
+           FROM demande_dossier dd JOIN sitadel_dossier s ON s.id = dd.dossier_id JOIN demande d ON d.id = dd.demande_id
+          WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NOT NULL
+            AND d.partiel_le IS NOT NULL AND d.partiel_leve_le IS NULL
+          ORDER BY dd.demande_id, s.num_dau`, [ids]);
+      for (const r of rows) (parDemandePartielDoss.get(r.demande_id) ?? parDemandePartielDoss.set(r.demande_id, []).get(r.demande_id)!).push({ dossierId: r.dossier_id, numDau: r.num_dau });
+    } catch { /* 177 absente → aucun dossier partiel-satisfait ; encart = dûs seuls (comportement d'avant) */ }
+  }
 
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut, canal: r.canal,
@@ -567,6 +617,11 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     saisineCadaEnvoyeeLe: r.saisine_cada_envoyee_le,
 
     dossiers: parDemande.get(r.id) ?? [],
+    // FIX-3 — dossiers du CONTENU per-permis de l'encart : dûs + satisfaits-d'une-demande-en-partiel-actif (disjoints par satisfait_le).
+    dossiersEncart: [
+      ...(parDemande.get(r.id) ?? []).map((d) => ({ dossierId: d.dossierId, numDau: d.numDau })),
+      ...(parDemandePartielDoss.get(r.id) ?? []),
+    ],
     dossiersRetires: parDemandeRetires.get(r.id) ?? [],
     liens: parLiens.get(r.id) ?? [],
     alertesGed: parAlertes.get(r.id) ?? [],
