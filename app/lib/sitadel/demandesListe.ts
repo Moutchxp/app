@@ -56,13 +56,25 @@ export interface LigneDemande {
  *  - sansDossier : plus aucun dossier attaché (tous retirés) → masquées.
  * Repli SÛR : `dossiersDus` absent → on suppose tout dû (jamais masquer par méconnaissance).
  */
-export function partitionnerParDus<T extends { nbDossiers: number; dossiersDus?: number }>(demandes: T[]): { vivantes: T[]; soldees: T[]; sansDossier: T[] } {
+/**
+ * FIX-2 — SEULE définition de la « vivacité » d'une demande dans « En cours ». Vivante si elle a AU MOINS UN dossier DÛ (actif ET non
+ * satisfait), OU si un marqueur « dossier partiel » est ACTIF (`suspension` non nul : réclamation de pièces en cours) — ce dernier cas
+ * la garde dans « En cours » MÊME à 0 dû (dossier marqué reçu mais incomplet), au lieu de la classer soldée. Lue À LA FOIS par la LISTE
+ * (`partitionnerParDus` → `visiblesEnCours`) et par le COMPTEUR (`estEnCoursAffichee`) : UN SEUL foyer, jamais deux décomptes qui
+ * divergent (leçon du 18/08). Symétrique de l'exclusion « Analyse » (`projectionFileRepo`) : même signal, un permis dans UN seul onglet.
+ * Repli sûr : `dossiersDus` absent → tout dû (jamais masquer par méconnaissance). PUR.
+ */
+export function estVivanteEnCours(d: { nbDossiers?: number; dossiersDus?: number; suspension?: unknown }): boolean {
+  if (d.suspension != null) return true;                 // partiel actif → vivant même à 0 dû (FIX-2)
+  return (d.dossiersDus ?? d.nbDossiers ?? 0) > 0;
+}
+
+export function partitionnerParDus<T extends { nbDossiers: number; dossiersDus?: number; suspension?: unknown }>(demandes: T[]): { vivantes: T[]; soldees: T[]; sansDossier: T[] } {
   const vivantes: T[] = [], soldees: T[] = [], sansDossier: T[] = [];
   for (const d of demandes) {
-    const dus = d.dossiersDus ?? d.nbDossiers; // repli sûr : sans info de dus → tout dû → jamais masqué à tort
-    if (dus > 0) vivantes.push(d);
-    else if (d.nbDossiers > 0) soldees.push(d); // tous marqués reçus (T8 : jamais « obtenu »)
-    else sansDossier.push(d);                    // 0 dossier attaché (tous retirés)
+    if (estVivanteEnCours(d)) vivantes.push(d);   // ≥ 1 dossier dû OU marqueur partiel actif (foyer unique FIX-2)
+    else if (d.nbDossiers > 0) soldees.push(d);   // tous marqués reçus (T8 : jamais « obtenu »)
+    else sansDossier.push(d);                     // 0 dossier attaché (tous retirés)
   }
   return { vivantes, soldees, sansDossier };
 }
@@ -251,8 +263,11 @@ export interface DemandeEnCoursAffichable {
  * d'en-tête doit suivre le MÊME périmètre que le tableau (leçon du 18/08 : `dansVue` ≠ `dansVueAffiche`).
  */
 export function estEnCoursAffichee(d: DemandeEnCoursAffichable): boolean {
-  const dus = d.dossiersActifs - d.dossiersSatisfaits;
-  return d.statut === 'envoyee' && dus > 0 && !demandeADuRetour(d);
+  // FIX-2 — « vivante » via le foyer UNIQUE estVivanteEnCours (≥ 1 dossier dû OU marqueur partiel actif) : un partiel sur un dossier
+  //   satisfait mais incomplet (dus=0) reste dans « En cours » au lieu de tomber en soldée. MÊME définition que la liste (pas de décompte qui ment).
+  return d.statut === 'envoyee'
+    && estVivanteEnCours({ nbDossiers: d.dossiersActifs, dossiersDus: d.dossiersActifs - d.dossiersSatisfaits, suspension: d.suspension })
+    && !demandeADuRetour(d);
 }
 
 /** D2-fix — compte les demandes RÉELLEMENT en cours (estEnCoursAffichee) PAR PROCESS. Foyer unique du compteur du commutateur. */

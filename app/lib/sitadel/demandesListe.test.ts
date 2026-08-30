@@ -4,7 +4,7 @@ import {
   correspondReference,
   dansPerimetre, statutsDuPerimetre, STATUTS_A_DEMANDER, STATUTS_EN_COURS,
   statutsVivants, statutsMorts, statutsAffiches, CHOIX_STATUT_DEFAUT, partitionnerParDus, visiblesEnCours,
-  categorieEnCours, CATEGORIE_EN_COURS_LIBELLE,
+  categorieEnCours, CATEGORIE_EN_COURS_LIBELLE, estVivanteEnCours, estEnCoursAffichee,
   type Tri, type LigneDemande,
 } from './demandesListe';
 
@@ -54,6 +54,41 @@ describe('T8 — visiblesEnCours : les soldées sont TOUJOURS exclues (non rév�
   it('une demande PARTIELLEMENT satisfaite (≥ 1 dossier dû) reste dans « En cours »', () => {
     expect(visiblesEnCours([vivante], true).map((d) => d.id)).toEqual([1]);
     expect(visiblesEnCours([vivante], false).map((d) => d.id)).toEqual([1]);
+  });
+});
+
+// 🔴 FIX-2 — un « dossier partiel » ACTIF garde le permis dans « En cours » MÊME à 0 dossier dû (dossier satisfait mais incomplet, la
+//   réclamation court). Foyer UNIQUE estVivanteEnCours : liste (partitionnerParDus/visiblesEnCours) ET compteur (estEnCoursAffichee).
+describe('FIX-2 — le marqueur « dossier partiel » actif garde la demande dans « En cours » à 0 dossier dû', () => {
+  const suspension = { le: '2026-08-31T00:23:55Z', familles: ['etage', 'cerfa'], origine: 'declaree' as const };
+
+  it('estVivanteEnCours : suspension active → vivant même à 0 dû ; sans suspension + 0 dû → non vivant', () => {
+    expect(estVivanteEnCours({ nbDossiers: 1, dossiersDus: 0, suspension })).toBe(true);   // partiel actif
+    expect(estVivanteEnCours({ nbDossiers: 1, dossiersDus: 0 })).toBe(false);               // soldée ordinaire
+    expect(estVivanteEnCours({ nbDossiers: 2, dossiersDus: 1 })).toBe(true);                // ≥ 1 dû
+  });
+
+  it('partitionnerParDus : la partielle à 0 dû est VIVANTE (plus soldée) quand le marqueur est attaché', () => {
+    const partielle = D({ id: 154, nbDossiers: 1, dossiersDus: 0, suspension } as Partial<LigneDemande>);
+    const { vivantes, soldees } = partitionnerParDus([partielle]);
+    expect(vivantes.map((d) => d.id)).toEqual([154]);
+    expect(soldees).toHaveLength(0);
+    // sans le marqueur, la MÊME demande (dus=0) reste soldée : le marqueur est le seul discriminant.
+    expect(partitionnerParDus([D({ id: 154, nbDossiers: 1, dossiersDus: 0 })]).soldees.map((d) => d.id)).toEqual([154]);
+  });
+
+  it('visiblesEnCours : la partielle à 0 dû apparaît (défaut ET filtre explicite)', () => {
+    const partielle = D({ id: 154, nbDossiers: 1, dossiersDus: 0, suspension } as Partial<LigneDemande>);
+    expect(visiblesEnCours([partielle], true).map((d) => d.id)).toEqual([154]);
+    expect(visiblesEnCours([partielle], false).map((d) => d.id)).toEqual([154]);
+  });
+
+  // Cas RÉEL demande 154 : statut envoyée, 1 dossier actif satisfait (dus=0), partiel 'declaree' actif, aucun lien en attente.
+  it('cas réel 154 : estEnCoursAffichee = true et catégorie « En relance »', () => {
+    const d154 = { statut: 'envoyee', dossiersActifs: 1, dossiersSatisfaits: 1, nbReponsesReelles: 3, dossiers: [{ triage: 'documents' }], suspension, lienEnAttente: false };
+    expect(estEnCoursAffichee(d154)).toBe(true); // AVANT FIX-2 : dus=0 → false (permis piégé hors En cours)
+    expect(categorieEnCours(d154)).toBe('relance');
+    expect(CATEGORIE_EN_COURS_LIBELLE.relance).toBe('En relance');
   });
 });
 

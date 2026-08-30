@@ -81,4 +81,14 @@ describe('GED-1 — listerFileProjection : entrée en Analyse sur la GED (dossie
     expect(sql).toContain('EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = s.id)'); // « documents en GED »
     expect(sql).not.toContain('dd.satisfait_le IS NOT NULL'); // le « marqué reçu » n’est plus le déclencheur d’entrée
   });
+
+  // 🔴 FIX-2 — EXCLUSIVITÉ des univers d'onglets : un dossier dont la demande porte un marqueur « dossier partiel » ACTIF quitte
+  //   « Analyse » (il vit dans « En cours » tant que la réclamation court). Fragment SÉMANTIQUE (whitespace-normalisé), pas la forme exacte.
+  it('exclut les dossiers dont la demande a un marqueur « dossier partiel » ACTIF (partiel_le posé, non levé)', async () => {
+    await listerFileProjection({} as unknown as Parameters<typeof listerFileProjection>[0]);
+    const sql = ins(/FROM demande_dossier dd/i)[0].sql.replace(/\s+/g, ' ');
+    expect(sql).toContain('NOT EXISTS');
+    expect(sql).toContain('dmp.partiel_le IS NOT NULL AND dmp.partiel_leve_le IS NULL'); // marqueur ACTIF
+    expect(sql).toContain('ddp.dossier_id = s.id AND ddp.actif'); // rattaché au dossier de la file, sur une demande active
+  });
 });

@@ -38,8 +38,21 @@ function estTableAbsente(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { code?: string }).code === '42P01';
 }
 
-async function requeteFile(cfg: ConfigVeille, avecJalon: boolean): Promise<LigneProjection[]> {
+/** Colonne absente (migration 177 « dossier partiel » pas encore appliquée : partiel_le/partiel_leve_le) ? Code Postgres 42703. */
+function estColonneAbsente(e: unknown): boolean {
+  return typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703';
+}
+
+async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: boolean): Promise<LigneProjection[]> {
   const jalon = avecJalon ? `AND NOT EXISTS (SELECT 1 FROM permis_projection pp WHERE pp.dossier_id = s.id)` : '';
+  // FIX-2 — EXCLUSIVITÉ des univers d'onglets : un dossier dont la demande porte un marqueur « dossier partiel » ACTIF (réclamation
+  //   de pièces EN COURS) N'EST PAS prêt à être analysé/projeté → il QUITTE « Analyse » et vit dans « En cours » (symétrique de
+  //   estVivanteEnCours, MÊME signal `partiel_le actif`). Il y revient TOUT SEUL à la levée auto du marqueur (evaluerLeveeAutoPartiel,
+  //   dossier redevenu complet) : la règle « pièces jointes reçues → GED → Analyse » reste vraie tant qu'aucun partiel n'est actif.
+  const partiel = avecPartiel
+    ? `AND NOT EXISTS (SELECT 1 FROM demande_dossier ddp JOIN demande dmp ON dmp.id = ddp.demande_id
+                        WHERE ddp.dossier_id = s.id AND ddp.actif AND dmp.partiel_le IS NOT NULL AND dmp.partiel_leve_le IS NULL)`
+    : '';
   const { rows } = await query<{
     dossier_id: number; num_dau: string; commune_nom: string | null; type: 'PC' | 'PD';
     nature_projet_completee: string | null; i_extension: boolean | null; i_surelevation: boolean | null;
@@ -54,7 +67,7 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean): Promise<Ligne
        FROM demande_dossier dd
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
        LEFT JOIN commune c ON c.code_insee = s.code_insee
-      WHERE EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = s.id) AND ${CONCERNE_SQL} ${jalon}
+      WHERE EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = s.id) AND ${CONCERNE_SQL} ${jalon} ${partiel}
       GROUP BY s.id, s.num_dau, c.nom, s.type, s.nature_projet_completee, s.i_extension, s.i_surelevation, s.nb_lgt_tot_crees, s.surf_creee
       ORDER BY max(dd.satisfait_le) DESC, s.num_dau`,
   );
@@ -65,10 +78,22 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean): Promise<Ligne
   });
 }
 
-/** File « Projection » : permis éligibles NON encore validés. Résilient : si permis_projection (151) n'existe pas → jalon ignoré (tous éligibles). */
+/** File « Projection » : permis éligibles NON encore validés. Résilience INDÉPENDANTE à deux migrations : permis_projection (151 →
+ *  jalon d'exclusion des validées) et partiel_* (177 → exclusion FIX-2 des dossiers en réclamation). Table absente (42P01) → sans
+ *  jalon ; colonne absente (42703) → sans l'exclusion partiel ; comportement historique préservé si l'une manque, les deux présentes en prod. */
 export async function listerFileProjection(cfg: ConfigVeille): Promise<LigneProjection[]> {
-  try { return await requeteFile(cfg, true); }
-  catch (e) { if (estTableAbsente(e)) return requeteFile(cfg, false); throw e; }
+  try { return await requeteFile(cfg, true, true); }
+  catch (e) {
+    if (estColonneAbsente(e)) { // 177 absente → sans l'exclusion partiel (en re-gérant l'absence éventuelle de 151)
+      try { return await requeteFile(cfg, true, false); }
+      catch (e2) { if (estTableAbsente(e2)) return requeteFile(cfg, false, false); throw e2; }
+    }
+    if (estTableAbsente(e)) { // 151 absente → sans jalon (en re-gérant l'absence éventuelle de 177)
+      try { return await requeteFile(cfg, false, true); }
+      catch (e2) { if (estColonneAbsente(e2)) return requeteFile(cfg, false, false); throw e2; }
+    }
+    throw e;
+  }
 }
 
 /** Compteur de la file (pastille). Même critère que la liste. `0` si les tables amont manquent. */

@@ -179,10 +179,18 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   //   sort de la liste PAR DÉFAUT. Choisir un statut explicite (≠ défaut) désactive ce masquage → elle reste accessible via le
   //   filtre Statut existant. `À demander` n'est PAS concerné (ses brouillons/prêtes n'ont pas de dossiers retirés/satisfaits).
   const enCoursDefaut = perimetre === 'en_cours' && choixStatut === CHOIX_STATUT_DEFAUT;
-  const partDus = useMemo(() => partitionnerParDus(dansVueStatut), [dansVueStatut]);
+  // FIX-2 — un « dossier partiel » ACTIF garde la demande dans « En cours » MÊME à 0 dossier dû (dossier satisfait mais incomplet, la
+  //   réclamation court). Le tableau (DemandeListe) ne porte pas le marqueur : on l'attache depuis la donnée riche (suivi.parId, source
+  //   unique) pour que partitionnerParDus/visiblesEnCours le voient via estVivanteEnCours — le compteur du commutateur applique déjà
+  //   ce même foyer sur suivi.demandes. Symétrique de l'exclusion « Analyse » : le permis quitte Analyse et réapparaît ici.
+  const dansVueSusp = useMemo(
+    () => (suivi ? dansVueStatut.map((d) => (suivi.parId.get(d.id)?.suspension != null ? { ...d, suspension: true } : d)) : dansVueStatut),
+    [dansVueStatut, suivi],
+  );
+  const partDus = useMemo(() => partitionnerParDus(dansVueSusp), [dansVueSusp]);
   // T8 — « En cours » : les SOLDÉES (tous dossiers actifs marqués reçus) sont TOUJOURS exclues, sous TOUT filtre (non révélable,
   //   foyer Archives : un permis n'est jamais dans deux onglets). Les sansDossier gardent le masquage révélable de défaut (T2-C).
-  const dansVue = perimetre === 'en_cours' ? visiblesEnCours(dansVueStatut, enCoursDefaut) : dansVueStatut;
+  const dansVue = perimetre === 'en_cours' ? visiblesEnCours(dansVueSusp, enCoursDefaut) : dansVueStatut;
   // FUS — FOYER UNIQUE, « Réponses prime » : une demande à RETOUR (demandeADuRetour, MÊME règle que l'onglet Réponses, réutilisée
   //   telle quelle — un seul foyer) quitte l'AFFICHAGE « En cours ». Son échéance/compte à rebours reste sous les yeux dans
   //   Réponses (colonnes Échéance/État, etatEcheance INTOUCHÉ). Exclusion NON RÉVÉLABLE (comme les soldées). FILTRE D'AFFICHAGE
