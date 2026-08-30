@@ -534,6 +534,26 @@ describe('RELANCE lot 6 — executerVeille : envoi automatique branché (§1deci
     expect(ordre).toEqual(['precochage', 'envoiauto']);
   });
 
+  it('FIL-C — la capture des sortants hors outil tourne APRÈS le pré-cochage et AVANT l’envoi auto (§1nonies → bis → §1decies)', async () => {
+    const ordre: string[] = [];
+    const preCochageRepondu = vi.fn(async () => { ordre.push('precochage'); });
+    const captureSortants = vi.fn(async () => { ordre.push('capture'); });
+    const envoiAuto = vi.fn(async () => { ordre.push('envoiauto'); });
+    const deps = makeDeps({ preCochageRepondu, captureSortants, envoiAuto });
+
+    await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(ordre).toEqual(['precochage', 'capture', 'envoiauto']);
+  });
+
+  it('FIL-C — une capture qui ÉCHOUE (throw) n’empêche pas la veille de finaliser en « succes »', async () => {
+    const captureSortants = vi.fn(async () => { throw new Error('IMAP KO'); });
+    const deps = makeDeps({ captureSortants });
+    const r = await executerVeille({ declencheur: 'manuel' }, deps);
+    expect(captureSortants).toHaveBeenCalledTimes(1);
+    expect(r.statut).toBe('succes'); // isolation : un échec de capture ne fait jamais échouer la veille
+  });
+
   it('verrou déjà pris → l’envoi auto n’est PAS tenté (sortie avant le corps)', async () => {
     const envoiAuto = vi.fn(async () => {});
     const deps = makeDeps({ acquerirVerrou: vi.fn(async () => false), envoiAuto });
@@ -641,7 +661,7 @@ describe('RATT-AUTO — executerVeille : rejeu automatique du suivi branché, IS
 
 describe('H1 — GARDE PAR FAMILLE (sûreté : une passe « donnees » n’envoie JAMAIS de courrier mairie)', () => {
   // Étapes (A) mairies/permis — dont envoiAuto (§1decies), le SEUL envoi vers des tiers.
-  const A = ['releveAuto', 'echeanceApprofondie', 'relanceEcheance', 'alerteQuotidienne', 'propositionCada', 'alerteGed', 'alerteAttenteBati', 'alerteAction', 'preCochageRepondu', 'envoiAuto'] as const;
+  const A = ['releveAuto', 'echeanceApprofondie', 'relanceEcheance', 'alerteQuotidienne', 'propositionCada', 'alerteGed', 'alerteAttenteBati', 'alerteAction', 'preCochageRepondu', 'captureSortants', 'envoiAuto'] as const;
   // Étapes (B) sources de données — dont RATT-AUTO (rejeu du suivi APRÈS l'ingestion, famille « donnees »).
   const B = ['detecterEditions', 'ingestionAuto', 'suiviRattachementAuto', 'alerteMisesAJour', 'alerteObstacleDisparu'] as const;
 

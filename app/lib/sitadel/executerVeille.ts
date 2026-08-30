@@ -31,6 +31,7 @@ import { executerPropositionAuto, depsReellesProposition } from '../veille/propo
 import { executerAlerteGedAuto, depsReellesAlerteGed } from '../veille/alerteGedAuto';
 import { executerAlerteActionAuto, depsReellesAlerteAction } from '../veille/alerteActionAuto';
 import { executerPreCochageAuto, depsReellesPreCochage } from '../veille/preCochageReponduAuto';
+import { executerCaptureSortantsAuto, depsReellesCaptureSortants } from '../veille/captureSortantsAuto';
 import { executerEnvoiAuto, depsReellesEnvoiAuto } from '../veille/envoiAuto';
 import { executerDetection } from '../veille/detectionSources';
 import { depsReellesDetection } from '../veille/detectionRepo';
@@ -126,6 +127,10 @@ export interface DepsVeille {
   // T7-C — PRÉ-COCHAGE automatique de « répondu » (après l'alerte action, §1nonies). OPTIONNEL et ISOLÉ. LECTURE STRICTE du
   //   dossier envoyés (en-têtes seuls) ; ancre anti-résurrection repondu_auto_le. N'écrit jamais demande.statut.
   preCochageRepondu?(): Promise<unknown>;
+  // FIL-C — CAPTURE des réponses envoyées HORS OUTIL (après le pré-cochage, §1nonies-bis). OPTIONNELLE et ISOLÉE. Passe sœur de
+  //   T7-C ; dérogation « en-têtes seuls » bornée aux sortants appariés ; stocke dans demande_sortant_hors_outil (dédié). Repli
+  //   propre si migration 176 absente. N'écrit jamais demande.statut ni dans demande_reponse.
+  captureSortants?(): Promise<unknown>;
   // RELANCE lot 6 — ENVOI AUTOMATIQUE aux mairies / à la CADA (après le pré-cochage, §1decies). OPTIONNEL et ISOLÉ. ⚠️ SEUL
   //   point où l'ordonnanceur écrit à un TIERS, et UNIQUEMENT sous interrupteur explicite (relance_auto_active /
   //   saisine_cada_auto_active, défauts false). Désactivés → rien ne part à un tiers. APPELLE envoyerRelances/envoyerSaisinesCada
@@ -253,6 +258,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   (repondu_auto_le). MÊME ISOLATION : un échec n'impacte rien. Ne remplace jamais le bouton manuel ; jamais demande.statut.
     if (faitMairies && deps.preCochageRepondu) {
       try { await deps.preCochageRepondu(); } catch { /* pré-cochage isolé : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1nonies-bis) CAPTURE des réponses envoyées HORS OUTIL (FIL-C) — passe SŒUR de T7-C, MÊME verrou, JUSTE APRÈS. Lit le dossier
+    //   ENVOYÉS (⚠️ dérogation assumée : CORPS des sortants APPARIÉS à un fil suivi) et stocke les réponses d'Arno dans la table
+    //   DÉDIÉE demande_sortant_hors_outil, pour compléter le fil. NE MODIFIE PAS le pré-cochage. MÊME ISOLATION : un échec n'impacte
+    //   rien. Migration 176 absente OU aucun fil → aucune connexion IMAP (repli propre).
+    if (faitMairies && deps.captureSortants) {
+      try { await deps.captureSortants(); } catch { /* capture isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     // 1decies) ENVOI AUTOMATIQUE aux mairies / à la CADA (RELANCE lot 6) — DERNIÈRE étape auto, APRÈS que la cascade a préparé
@@ -481,6 +494,8 @@ function depsReelles(): DepsVeille {
     alerteAction: () => executerAlerteActionAuto(depsReellesAlerteAction()),
     // T7-C — pré-cochage « répondu » réel : dossier envoyés (en-têtes seuls) + match fil/destinataire + ancre repondu_auto_le, dans preCochageReponduAuto.ts.
     preCochageRepondu: () => executerPreCochageAuto(depsReellesPreCochage()),
+    // FIL-C — capture des réponses hors outil : dossier envoyés (CORPS des sortants appariés) → demande_sortant_hors_outil, dans captureSortantsAuto.ts.
+    captureSortants: () => executerCaptureSortantsAuto(depsReellesCaptureSortants()),
     // RELANCE lot 6 — envoi automatique réel : DEUX interrupteurs + plafond auto + appels envoyerRelances/envoyerSaisinesCada (gardes intactes) + compte rendu interne, dans envoiAuto.ts.
     envoiAuto: () => executerEnvoiAuto(depsReellesEnvoiAuto()),
     // FRAÎCHEUR lot 2 — détection des nouvelles publications (métadonnées seules), interrupteur + cadence + activation par source dans executerDetection.

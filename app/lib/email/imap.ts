@@ -13,6 +13,7 @@ import type { ClientApprofondi } from '../veille/releveApprofondie';
 import type { MessageEntrant } from '../veille/rattachementReponse';
 import type { PartieRapport } from '../veille/rapportRejet';
 import type { SortantEntete } from '../veille/preCochageRepondu';
+import type { SortantComplet } from '../veille/captureSortants';
 
 // Exporté pour le test de non-régression DSN : on prouve, sur un rapport de non-remise RÉEL (multipart/report à 3 parties), que
 // les en-têtes construits ici (`entetes`) ne proviennent QUE du message RACINE — jamais de la partie message/rfc822 embarquée —,
@@ -134,6 +135,7 @@ export interface ClientEnvoyes {
   ouvrir(): Promise<void>;
   aBoiteEnvoyes(): boolean;                                                                  // false = pas de \Sent → repli sûr (aucun scan)
   lireEntetesReponses(messageIds: string[], depuis: Date): Promise<SortantEntete[]>;         // SEARCH par en-tête + fetch EN-TÊTES seuls
+  lireSortantsComplets(messageIds: string[], depuis: Date): Promise<SortantComplet[]>;       // FIL-C : SEARCH par en-tête + fetch CORPS (dérogation)
   fermer(): Promise<void>;
 }
 
@@ -193,6 +195,44 @@ export function creerClientEnvoyes(compte: CompteImap): ClientEnvoyes {
         const destinataires = [...(env?.to ?? []), ...(env?.cc ?? [])].map((a) => a.address ?? '').filter((a) => a !== '');
         const references = msg.headers ? extraireReferences(msg.headers.toString()) : [];
         sortants.push({ inReplyTo: env?.inReplyTo ?? null, references, destinataires });
+      }
+      return sortants;
+    },
+    async lireSortantsComplets(messageIds: string[], depuis: Date): Promise<SortantComplet[]> {
+      // ⚠️ DÉROGATION ASSUMÉE (FIL-C) À LA RÈGLE « EN-TÊTES SEULS » de T7-C. Ici — et NULLE PART AILLEURS — on télécharge la SOURCE
+      //   (donc le corps) des sortants, pour rendre le fil d'échanges complet. C'est borné aux sortants APPARIÉS à un fil suivi
+      //   (SEARCH par les Message-ID du fil, puis appariement strict côté appelant). La boîte reste ouverte en `readOnly` (EXAMINE) :
+      //   aucun flag posé, rien de déplacé ni supprimé. NE PAS étendre cette dérogation à `lireEntetesReponses` (pré-cochage).
+      if (cheminEnvoyes === null) return []; // pas de dossier envoyés → rien (jamais de scan à l'aveugle)
+      const coeurs = [...new Set(messageIds.map(coeurMessageId).filter((m) => m !== ''))];
+      if (coeurs.length === 0) return [];
+
+      const uids = new Set<number>();
+      for (let i = 0; i < coeurs.length; i += TAILLE_LOT) {
+        const lot = coeurs.slice(i, i + TAILLE_LOT);
+        const or: { header: Record<string, string> }[] = lot.flatMap((mid): { header: Record<string, string> }[] => [{ header: { 'in-reply-to': mid } }, { header: { references: mid } }]);
+        const res = await client.search({ since: depuis, or }, { uid: true });
+        if (res !== false) for (const u of res) uids.add(u);
+      }
+      if (uids.size === 0) return [];
+
+      // fetch SOURCE (dérogation) → parse mailparser : en-têtes de fil + destinataires + objet + CORPS texte + date.
+      const sortants: SortantComplet[] = [];
+      for await (const msg of client.fetch([...uids].join(','), { source: true }, { uid: true })) {
+        if (!msg.source) continue;
+        const parsed = await simpleParser(msg.source);
+        const dest = [...(parsed.to ? [parsed.to].flat() : []), ...(parsed.cc ? [parsed.cc].flat() : [])]
+          .flatMap((a) => a.value).map((a) => a.address ?? '').filter((a) => a !== '');
+        const references = Array.isArray(parsed.references) ? parsed.references : parsed.references ? [parsed.references] : [];
+        sortants.push({
+          messageId: (parsed.messageId ?? '').trim(),
+          inReplyTo: parsed.inReplyTo ?? null,
+          references,
+          destinataires: dest,
+          objet: parsed.subject ?? null,
+          corpsTexte: parsed.text ?? null,
+          envoyeLe: parsed.date ? parsed.date.toISOString() : null,
+        });
       }
       return sortants;
     },

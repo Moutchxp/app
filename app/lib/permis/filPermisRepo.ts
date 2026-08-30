@@ -60,6 +60,17 @@ export function depsReellesFil(): DepsFil {
         if (!(typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703')) throw e; // autre erreur → propage ; 42703 (details absente) → toléré
       }
 
+      // 5) FIL-C — RÉPONSES ENVOYÉES HORS OUTIL (capturées dans le \Sent, table DÉDIÉE) : entrées 'envoye' MARQUÉES `horsOutil`.
+      //    Résilient : table absente (migration 176 non appliquée) → 42P01 toléré (le fil garde les 4 autres sources, inchangé).
+      try {
+        const { rows: hors } = await query<{ le: string; interlocuteur: string | null; objet: string | null; corps: string | null }>(
+          `SELECT to_char(coalesce(envoye_le, capture_le) AT TIME ZONE 'UTC', ${ISO_UTC}) AS le, destinataire AS interlocuteur, objet, corps_texte AS corps
+             FROM demande_sortant_hors_outil WHERE demande_id = ANY($1)`, [demandeIds]);
+        for (const r of hors) entrees.push({ le: r.le, sens: 'envoye', interlocuteur: r.interlocuteur, objet: r.objet, corps: r.corps, corpsConnu: true, horsOutil: true });
+      } catch (e) {
+        if (!(typeof e === 'object' && e !== null && (e as { code?: string }).code === '42P01')) throw e; // autre erreur → propage ; 42P01 (table absente) → toléré
+      }
+
       return entrees;
     },
   };

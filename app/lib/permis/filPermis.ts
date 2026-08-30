@@ -16,6 +16,7 @@ export interface FilEntree {
   corpsConnu: boolean;          // false pour une déclaration : contenu NON connu du système (jamais un corps fabriqué)
   reponseId?: number | null;    // FIL-B — id du message REÇU (pour y répondre) ; absent/null pour un envoi ou une déclaration
   repliable?: boolean;          // FIL-B — le message reçu est-il répondable (expéditeur non no-reply) ? faux hors « recu »
+  horsOutil?: boolean;          // FIL-C — envoi capturé DEPUIS LA BOÎTE (hors outil), pas passé par l'outil ; faux/absent sinon
 }
 
 export type ResultatFil =

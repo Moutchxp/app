@@ -47,4 +47,25 @@ describe('lireFil', () => {
     expect(r.statut).toBe('ok');
     if (r.statut === 'ok') { expect(r.entrees[0].corps).toBeNull(); expect(r.entrees[0].corpsConnu).toBe(false); }
   });
+
+  it('FIL-C — un sortant hors outil (envoye, horsOutil) s’ordonne correctement parmi les autres entrées', async () => {
+    const entrees = vi.fn(async () => [
+      e('2026-08-04T21:21:00Z', 'envoye'),
+      e('2026-08-20T10:00:00Z', 'envoye', { horsOutil: true, objet: 'Re: complément' }),
+      e('2026-08-28T15:04:00Z', 'recu'),
+    ]);
+    const r = await lireFil(deps({ entreesDesDemandes: entrees }), 154);
+    expect(r.statut).toBe('ok');
+    if (r.statut === 'ok') {
+      expect(r.entrees.map((x) => x.le)).toEqual(['2026-08-28T15:04:00Z', '2026-08-20T10:00:00Z', '2026-08-04T21:21:00Z']);
+      expect(r.entrees[1]).toMatchObject({ sens: 'envoye', horsOutil: true }); // capturé, mêlé chronologiquement
+    }
+  });
+
+  it('FIL-C — demande MULTI-dossiers → aucun fil, donc AUCUN sortant hors outil affiché (garde entière)', async () => {
+    const entreesDesDemandes = vi.fn(async () => [e('2026-08-20T10:00:00Z', 'envoye', { horsOutil: true })]);
+    const r = await lireFil(deps({ demandesDuDossier: vi.fn(async () => [{ demandeId: 154, nbDossiers: 2 }]), entreesDesDemandes }), 154);
+    expect(r.statut).toBe('multi');
+    expect(entreesDesDemandes).not.toHaveBeenCalled();
+  });
 });

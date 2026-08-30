@@ -9,7 +9,7 @@ import { objetReponse, problemeTexteComplement } from '../../../../lib/permis/co
  * au plus ancien. Filtre tout/reçus/envoyés (masque, ne réordonne pas). « Répondre » uniquement sur un message REÇU répondable ;
  * le mail part dans le fil DE CE message, verbatim. 🔒 Demande multi-dossiers → aucun fil, aucun bouton (garde stricte).
  */
-interface FilEntree { le: string; sens: 'recu' | 'envoye' | 'declare'; interlocuteur: string | null; objet: string | null; corps: string | null; corpsConnu: boolean; reponseId?: number | null; repliable?: boolean }
+interface FilEntree { le: string; sens: 'recu' | 'envoye' | 'declare'; interlocuteur: string | null; objet: string | null; corps: string | null; corpsConnu: boolean; reponseId?: number | null; repliable?: boolean; horsOutil?: boolean }
 type Fil = { statut: 'multi' } | { statut: 'vide' } | { statut: 'ok'; entrees: FilEntree[] };
 type Filtre = 'tout' | 'recus' | 'envoyes';
 
@@ -92,7 +92,7 @@ export function BlocFilEchanges({ dossierId }: { dossierId: number }) {
             <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
               {affichees.map((x, i) => (
                 <li key={x.reponseId ?? `x-${i}`} style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem' }}>
-                  <div style={{ fontSize: 12 }}><strong>{dateHeure(x.le)}</strong> · {SENS[x.sens]}{x.interlocuteur ? ` · ${x.interlocuteur}` : ''}</div>
+                  <div style={{ fontSize: 12 }}><strong>{dateHeure(x.le)}</strong> · {SENS[x.sens]}{x.horsOutil ? ' (depuis la boîte, hors outil)' : ''}{x.interlocuteur ? ` · ${x.interlocuteur}` : ''}</div>
                   {x.objet && <div style={{ fontSize: 13, fontWeight: 600 }}>{x.objet}</div>}
                   {x.corpsConnu
                     ? (x.corps && x.corps.trim() !== ''
