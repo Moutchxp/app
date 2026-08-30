@@ -117,6 +117,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     expect(PARAMS_THEME_REPONSES.map((p) => p.colonne)).toEqual([
       'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',
       'vague_calme_minutes', // PART-C — calme d'une vague de pièces avant diagnostic
+      'lien_validite_presumee_jours', 'lien_alerte_avant_jours', // PART-D — péremption présumée des liens + délai d'alerte
       'recherche_references_max', 'piece_taille_max_mo', 'echeance_alerte_jours',
       'depot_adresses_connues', // N1-A — versement automatique en GED
       'nature_accuse_motifs',   // FUS-4 — motifs d'objet « accusé de réception »
@@ -132,8 +133,8 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
   it('les thèmes « demandes » partitionnent les clés (disjoints, couvrants, sans perte ni doublon) — D4 : + thème Téléservice', () => {
     const themes = [PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA, PARAMS_THEME_TELESERVICE];
     const clesThemes = themes.flatMap((t) => t.map((p) => p.colonne));
-    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length + PARAMS_THEME_TELESERVICE.length).toBe(53);
-    expect(new Set(clesThemes).size).toBe(53); // disjoints ; CASC-2c : +2 délais CADA ; CASC-3b : +4 réglages cascade partielle (CADA) ; PART-C : +1 calme de vague (Réponses)
+    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length + PARAMS_THEME_TELESERVICE.length).toBe(55);
+    expect(new Set(clesThemes).size).toBe(55); // disjoints ; CASC-2c +2 (CADA) ; CASC-3b +4 (CADA) ; PART-C +1 (Réponses) ; PART-D +2 (Réponses)
     // liste LITTÉRALE figée des clés « demandes » — comparée en ENSEMBLE à la concaténation des thèmes ET à COLONNES_PARAMS_DEMANDES.
     const CLES_DEMANDES = [
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
@@ -141,6 +142,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'cada_email', 'cada_url_formulaire', 'releve_active', 'releve_intervalle_minutes', 'releve_profil',
       'echeance_alerte_jours', 'releve_fraicheur_heures', 'alerte_active', 'alerte_email', 'alerte_heure_locale',
       'vague_calme_minutes', // PART-C — calme d'une vague de pièces (thème Réponses)
+      'lien_validite_presumee_jours', 'lien_alerte_avant_jours', // PART-D — péremption présumée des liens (thème Réponses)
       'obstacle_disparu_alerte_active', // ALERTE obstacle disparu — thème « Alertes par e-mail »
       'proposition_cada_active', 'piece_taille_max_mo', 'recherche_references_max', 'pieces_demandees', 'profil_demandeur_defaut',
       'depot_adresses_connues', // N1-A
@@ -171,9 +173,9 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       ...PARAMS_MENTIONS, ...PARAMS_SOURCES,
     ].map((p) => p.colonne);
     // Snapshot : 50 + PHASE-1 (2 délais) + SURV-1 (2 réglages) + SURV-2 (1 interrupteur) + PART-1 (2 exclusions, thème Réponses) = 57 clés
-    //   distinctes ; + PART-C (vague_calme_minutes, thème Réponses) = 68.
-    expect(CLES_RENDUES_REGLAGES).toHaveLength(68);
-    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(68);
+    //   distinctes ; + PART-C (vague_calme_minutes) = 68 ; + PART-D (validité + délai d'alerte des liens, thème Réponses) = 70.
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(70);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(70);
     // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
     const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
     expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));

@@ -60,6 +60,9 @@ const DEFS_BASE = [
   'CHECK (((releve_fraicheur_heures >= 1) AND (releve_fraicheur_heures <= 720)))',
   // PART-C — calme d'une vague de pièces (migration 180) : BETWEEN 0 AND 1440 → forme `>= AND <=`
   'CHECK (((vague_calme_minutes >= 0) AND (vague_calme_minutes <= 1440)))',
+  // PART-D — péremption présumée des liens (migration 181) : validité [1;90], délai d'alerte [0;30]
+  'CHECK (((lien_validite_presumee_jours >= 1) AND (lien_validite_presumee_jours <= 90)))',
+  'CHECK (((lien_alerte_avant_jours >= 0) AND (lien_alerte_avant_jours <= 30)))',
   // R8 — heure d'envoi des alertes (migration 078)
   'CHECK (((alerte_heure_locale >= 0) AND (alerte_heure_locale <= 23)))',
   // R4 — borne de taille des pièces entrantes (migration 079)
@@ -453,5 +456,12 @@ describe('CASC-2b — GARDE-FOU : toute colonne d’un thème a un ParamVeille (
     //   (bornes = CHECK live 180). Le garde-fou paramsDuTheme ci-dessus casserait l'écran si l'un des deux manquait.
     expect(COLONNES_THEME_REPONSES).toContain('vague_calme_minutes');
     expect(NOMS_PARAMS.has('vague_calme_minutes')).toBe(true);
+  });
+
+  it('PART-D : lien_validite_presumee_jours + lien_alerte_avant_jours câblés des DEUX côtés (thème RÉPONSES + ParamVeille), migration 181 appliquée', () => {
+    expect(COLONNES_THEME_REPONSES).toContain('lien_validite_presumee_jours');
+    expect(COLONNES_THEME_REPONSES).toContain('lien_alerte_avant_jours');
+    expect(NOMS_PARAMS.has('lien_validite_presumee_jours')).toBe(true);
+    expect(NOMS_PARAMS.has('lien_alerte_avant_jours')).toBe(true);
   });
 });

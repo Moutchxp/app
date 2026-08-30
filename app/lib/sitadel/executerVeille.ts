@@ -30,6 +30,7 @@ import { executerDiagnosticsVague, depsReellesDiagnosticsVague } from '../veille
 import { executerAlerteAuto, depsReellesAlerte } from '../veille/alerteAuto';
 import { executerPropositionAuto, depsReellesProposition } from '../veille/propositionAuto';
 import { executerAlerteGedAuto, depsReellesAlerteGed } from '../veille/alerteGedAuto';
+import { executerAlerteLienPeremption, depsReellesAlerteLienPeremption } from '../veille/alerteLienPeremptionAuto';
 import { executerAlerteActionAuto, depsReellesAlerteAction } from '../veille/alerteActionAuto';
 import { executerPreCochageAuto, depsReellesPreCochage } from '../veille/preCochageReponduAuto';
 import { executerCaptureSortantsAuto, depsReellesCaptureSortants } from '../veille/captureSortantsAuto';
@@ -125,6 +126,9 @@ export interface DepsVeille {
   // G1 — ALERTES « contenu à classer/télécharger en GED » (après les propositions, §1septies). OPTIONNELLE et ISOLÉE : un
   //   échec n'impacte jamais la veille ni la relève. E-mail interne à l'exploitant ; on ne suit JAMAIS un lien de mairie.
   alerteGed?(): Promise<unknown>;
+  // PART-D — ALERTE « lien de téléchargement bientôt périmé » à Arno (après l'alerte GED, §1septies-lien). OPTIONNELLE et ISOLÉE.
+  //   E-mail groupé, une seule fois par lien, fenêtre ouvrée ; jamais vers une mairie, aucun interrupteur de relance.
+  alerteLienPeremption?(): Promise<unknown>;
   // T7-B — ALERTES « ce message de mairie appelle une réponse » (cas ③, après les alertes GED, §1octies). OPTIONNELLE et
   //   ISOLÉE. Grain message (nature=autre, ancre nature_classee_le) ; idempotence par alerte_action_le. E-mail interne.
   alerteAction?(): Promise<unknown>;
@@ -247,6 +251,13 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   mairie forwardé à l'exploitant. Idempotence par (réponse × permis × type). MÊME ISOLATION : un échec n'impacte rien.
     if (faitMairies && deps.alerteGed) {
       try { await deps.alerteGed(); } catch { /* alerte GED isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1septies-lien) ALERTE « lien de téléchargement bientôt périmé » (PART-D) — pour chaque lien fort en attente (GED vide) ayant
+    //   atteint le seuil : UN e-mail groupé à Arno (jamais à une mairie ; aucun interrupteur de relance), une seule fois par lien,
+    //   dans la fenêtre d'envoi ouvrée. MÊME ISOLATION : un échec n'impacte jamais la veille ni la relève.
+    if (faitMairies && deps.alerteLienPeremption) {
+      try { await deps.alerteLienPeremption(); } catch { /* alerte lien isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     // 1septies-bis) RAPPEL « un permis attend le bâti depuis trop longtemps » (ATT-BATI) — un simple FILET, INDÉPENDANT de
@@ -504,6 +515,8 @@ function depsReelles(): DepsVeille {
     propositionCada: () => executerPropositionAuto(depsReellesProposition()),
     // G1 — alertes GED réelles : candidats (réponse × permis non classé) + compte à rebours J-3/24 h + forward SMTP + journal, dans alerteGedAuto.ts.
     alerteGed: () => executerAlerteGedAuto(depsReellesAlerteGed()),
+    // PART-D — alerte réelle « lien bientôt périmé » : liens forts en attente au seuil → e-mail groupé à Arno, idempotent, fenêtre ouvrée.
+    alerteLienPeremption: () => executerAlerteLienPeremption(depsReellesAlerteLienPeremption()),
     // T7-B — alertes « ce message appelle une réponse » réelles (cas ③) : candidats `autre` ancrés + forward SMTP + idempotence, dans alerteActionAuto.ts.
     alerteAction: () => executerAlerteActionAuto(depsReellesAlerteAction()),
     // T7-C — pré-cochage « répondu » réel : dossier envoyés (en-têtes seuls) + match fil/destinataire + ancre repondu_auto_le, dans preCochageReponduAuto.ts.

@@ -203,8 +203,12 @@ export function partitionnerAnnulationMasse<T extends { statut: string }>(demand
  * restent cohérents sans règle recopiée (invariant : un permis n'est jamais dans deux onglets). `suspension` non nul = marqueur
  * actif (porté par chargerDemandesSuivi ; null / absent = pas suspendu).
  */
-export function demandeADuRetour(d: { nbReponsesReelles: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[]; suspension?: unknown }): boolean {
-  if (d.suspension != null) return false; // PART-A : dossier partiel → foyer « En cours », jamais Réponses (même avec un retour)
+export function demandeADuRetour(d: { nbReponsesReelles: number; dossiersSatisfaits: number; dossiers: { triage: string | null }[]; suspension?: unknown; lienEnAttente?: boolean }): boolean {
+  // PART-A / PART-D — un « dossier partiel » (suspension active) reste dans « En cours »… SAUF s'il a un LIEN de téléchargement EN
+  //   ATTENTE (lien fort reçu, contenu pas encore en GED) : il passe alors dans « Réponses » pour qu'Arno récupère le lien à la main
+  //   (règle ① PART-D). Dès que le contenu est en GED (Arno l'a versé), lienEnAttente retombe → la demande revient en « En cours ».
+  //   (Le cas « pièces jointes » n'a jamais de lien en attente : versées en GED → Analyse, hors de ce foyer.)
+  if (d.suspension != null) return d.lienEnAttente === true;
   return d.nbReponsesReelles > 0 || d.dossiersSatisfaits > 0 || d.dossiers.some((x) => x.triage !== null);
 }
 
@@ -237,6 +241,7 @@ export interface DemandeEnCoursAffichable {
   nbReponsesReelles: number;
   dossiers: { triage: string | null }[];
   suspension?: unknown; // PART-A : marqueur « dossier partiel » actif (non nul) → foyer En cours même avec retour (lu par demandeADuRetour)
+  lienEnAttente?: boolean; // PART-D : dossier partiel AVEC lien fort en attente (GED vide) → bascule vers Réponses (lu par demandeADuRetour)
 }
 
 /**

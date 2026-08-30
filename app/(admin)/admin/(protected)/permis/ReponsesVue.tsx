@@ -8,7 +8,7 @@ import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import { dansProcess } from '../../../../lib/sitadel/process';
 import {
   BlocEtatReleve, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
-  partitionnerReponses, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
+  partitionnerReponses, comparerUrgenceReponse, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
   BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, BlocLiens, BlocLiensATelecharger, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, formaterDate, trierOptionsDemandes, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
 import { MessageRetour, MentionMasquage } from './DemandesRendu';
@@ -90,12 +90,7 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
       const envoye = d.envoyeLe ? new Date(d.envoyeLe) : null;
       const r = etatEcheance({ envoyeLe: envoye, statutAcheminement: d.statutAcheminement, dossiersActifs: d.dossiersActifs, dossiersSatisfaits: d.dossiersSatisfaits, derniereReleveOkLe: derniere }, maintenant, reg);
       return { ...d, etat: r.etat as EtatEcheance, motif: r.motif, echeanceLe: envoye ? echeanceDe(envoye) : null };
-    }).sort((a, b) => {
-      if (!a.echeanceLe && !b.echeanceLe) return 0;
-      if (!a.echeanceLe) return 1;
-      if (!b.echeanceLe) return -1;
-      return a.echeanceLe.getTime() - b.echeanceLe.getTime();
-    });
+    }).sort(comparerUrgenceReponse); // PART-D : lien en attente (plus ancien d'abord), puis échéance CADA la plus proche.
   }, [data, maintenant, process]);
 
   // Options du sélecteur de rattachement : les demandes envoyée/close (référence + commune + date, jamais un id brut). T4 : les

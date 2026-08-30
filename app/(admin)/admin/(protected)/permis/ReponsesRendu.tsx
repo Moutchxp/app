@@ -5,6 +5,7 @@ import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../l
 import { MessageRetour, BlocRepliable, type RetourAction } from './DemandesRendu';
 import { demandeADuRetour } from '../../../../lib/sitadel/demandesListe'; // D2-fix : FOYER UNIQUE (partagé serveur/client)
 import { mentionEnvoiAutoRelance, type EnvoiAutoInfos } from '../../../../lib/veille/statutCascade'; // « dire quand ça part » : mention d'envoi auto (réglages)
+import { ilYaEnJours } from '../../../../lib/veille/lienPeremption'; // PART-D : « reçu il y a N jours » (fait mesuré, module pur sans I/O)
 import type { NatureReclassable } from '../../../../lib/veille/demandeReponseRepo'; // FUS-4 : type SEUL (erasé) — 3 cibles du reclassement
 
 /**
@@ -437,6 +438,27 @@ export function partitionnerReponses<T extends { nbReponsesReelles: number; doss
 }
 
 /**
+ * PART-D — TRI par URGENCE de « Réponses ». (1) les permis avec un LIEN EN ATTENTE d'abord, du PLUS ANCIEN au plus récent (le plus
+ * vieux lien est le plus proche de sa péremption présumée = le plus urgent) ; (2) puis par échéance CADA la plus proche
+ * (`echeanceLe` croissant, nulles en dernier) ; (3) départage stable par `demandeId`. PUR → testable en node.
+ */
+export function comparerUrgenceReponse(
+  a: { lienEnAttenteLe: string | null; echeanceLe: Date | null; demandeId: number },
+  b: { lienEnAttenteLe: string | null; echeanceLe: Date | null; demandeId: number },
+): number {
+  // (1) LIEN EN ATTENTE prime ; entre deux, le PLUS ANCIEN (chaîne ISO comparable lexicographiquement) d'abord.
+  if (a.lienEnAttenteLe && b.lienEnAttenteLe) { if (a.lienEnAttenteLe !== b.lienEnAttenteLe) return a.lienEnAttenteLe < b.lienEnAttenteLe ? -1 : 1; }
+  else if (a.lienEnAttenteLe) return -1;
+  else if (b.lienEnAttenteLe) return 1;
+  // (2) échéance CADA la plus PROCHE (croissant) ; une échéance connue passe avant une inconnue.
+  if (a.echeanceLe && b.echeanceLe) { const d = a.echeanceLe.getTime() - b.echeanceLe.getTime(); if (d !== 0) return d; }
+  else if (a.echeanceLe) return -1;
+  else if (b.echeanceLe) return 1;
+  // (3) départage stable.
+  return a.demandeId - b.demandeId;
+}
+
+/**
  * T6-A/2 — message d'état VIDE de « Réponses » quand des demandes existent mais AUCUNE n'est affichée (`affichees` vide). Trois cas
  * — et pas un quatrième (si rien n'est affiché, `masquées + sans-retour > 0`) : que des SOLDÉES/sans dossier dû (révélables) ; que
  * des SANS-RETOUR (exclues, foyer « En cours ») ; MÉLANGE des deux. Une phrase fausse à l'écran reste fausse même corrigée par la
@@ -742,7 +764,9 @@ export function BlocLiensATelecharger({ liens, maintenant }: { liens: LienATelec
                 <span style={styleMuted}> · {l.communeNom ?? ''} · {l.natureLibelle}{l.adresse ? ` · ${l.adresse}` : ''}</span>
               </div>
               <div style={styleMuted}>
-                reçu le {jjmm(l.recuLe)} — <strong style={{ color: 'var(--color-svv-red)' }}>lien de téléchargement disponible</strong>
+                {/* PART-D — FAIT MESURÉ d'abord : « reçu il y a N jours ». La péremption présumée (réglage) n'est JAMAIS affichée comme un fait. */}
+                {maintenant ? `reçu ${ilYaEnJours(new Date(l.recuLe), maintenant)}` : `reçu le ${jjmm(l.recuLe)}`} — <strong style={{ color: 'var(--color-svv-red)' }}>lien de téléchargement disponible</strong>
+                {/* Une expiration EXPLICITE écrite par la mairie EST un fait (on la garde) ; sinon on n'invente rien. */}
                 {l.expireLe
                   ? ` — ${depasse ? '⚠ EXPIRÉ le' : 'expire le'} ${jjmm(l.expireLe)}${l.expirationIndice ? ` (${l.expirationIndice})` : ''}`
                   : ' — durée de validité non précisée'}

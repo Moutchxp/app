@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns, BlocEtatReleve,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
-  EtatDemande, RappelObtenusArchives, partitionnerDemandes, partitionnerReponses, demandeADuRetour, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
+  EtatDemande, RappelObtenusArchives, partitionnerDemandes, partitionnerReponses, comparerUrgenceReponse, demandeADuRetour, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
   BlocLiens, BlocLiensATelecharger, mentionExpiration, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, tronquerObjet,
   trierOptionsDemandes, marqueurOption,
   type OptionDemande, type RetourCible,
@@ -184,6 +184,16 @@ describe('T6-A/2 — demandeADuRetour + partitionnerReponses : filtre local + EX
     expect(partitionnerReponses([suspendue], true).affichees).toEqual([]); // écartée de Réponses (même en « afficher tout »)
   });
 
+  it('PART-D — un dossier partiel avec un LIEN EN ATTENTE bascule vers « Réponses » ; sans lien il RESTE « En cours »', () => {
+    const base = { ...dem({ nbReponsesReelles: 1, dossiersActifs: 2, dossiersSatisfaits: 1 }), suspension: { le: '2026-08-30', familles: [], origine: 'outil' as const } };
+    const avecLien = { ...base, lienEnAttente: true };   // lien fort reçu, contenu pas encore en GED
+    const sansLien = { ...base, lienEnAttente: false };
+    expect(demandeADuRetour(sansLien)).toBe(false);       // partiel sans lien → reste En cours (PART-A/PART-B)
+    expect(demandeADuRetour(avecLien)).toBe(true);        // partiel + lien en attente → Réponses (règle ① PART-D)
+    expect(partitionnerReponses([avecLien], true).affichees).toEqual([avecLien]); // présent dans Réponses…
+    expect(partitionnerReponses([sansLien], true).affichees).toEqual([]);          // …jamais l'autre (foyer unique, jamais deux onglets)
+  });
+
   it('lot 4 — EXCLUSIVITÉ : un permis EN CASCADE (relance vivante/préparée, aucun retour mairie) reste « En cours », JAMAIS dans « Réponses »', () => {
     // demandeADuRetour ne regarde QUE le retour de la MAIRIE (nbReponsesReelles / satisfait / triage) — jamais « a une relance vivante ».
     //   Un permis en pleine cascade sans vrai retour = nbReponsesReelles 0, aucun dossier satisfait/trié → hors Réponses.
@@ -222,6 +232,27 @@ describe('T6-A/2 — demandeADuRetour + partitionnerReponses : filtre local + EX
     expect(m3).toContain('soldées ou sans dossier dû');
     expect(m3).toContain('sans retour de la mairie');
     expect(m3).toContain('En cours');
+  });
+});
+
+describe('PART-D — comparerUrgenceReponse : lien en attente (plus ancien d’abord), puis échéance CADA la plus proche', () => {
+  const L = (over: Partial<{ lienEnAttenteLe: string | null; echeanceLe: Date | null; demandeId: number }>) =>
+    ({ lienEnAttenteLe: null, echeanceLe: null, demandeId: 0, ...over });
+  it('les liens en attente passent AVANT les demandes sans lien', () => {
+    const avecLien = L({ demandeId: 1, lienEnAttenteLe: '2026-08-25T10:00:00Z' });
+    const echeanceProche = L({ demandeId: 2, echeanceLe: new Date('2026-08-31T00:00:00Z') });
+    expect([echeanceProche, avecLien].sort(comparerUrgenceReponse).map((x) => x.demandeId)).toEqual([1, 2]);
+  });
+  it('entre deux liens, le PLUS ANCIEN d’abord', () => {
+    const vieux = L({ demandeId: 1, lienEnAttenteLe: '2026-08-20T10:00:00Z' });
+    const recent = L({ demandeId: 2, lienEnAttenteLe: '2026-08-28T10:00:00Z' });
+    expect([recent, vieux].sort(comparerUrgenceReponse).map((x) => x.demandeId)).toEqual([1, 2]);
+  });
+  it('sans lien : échéance CADA la plus proche d’abord, nulles en dernier, départage stable par id', () => {
+    const proche = L({ demandeId: 1, echeanceLe: new Date('2026-09-01T00:00:00Z') });
+    const loin = L({ demandeId: 2, echeanceLe: new Date('2026-10-01T00:00:00Z') });
+    const sansEcheance = L({ demandeId: 3, echeanceLe: null });
+    expect([loin, sansEcheance, proche].sort(comparerUrgenceReponse).map((x) => x.demandeId)).toEqual([1, 2, 3]);
   });
 });
 

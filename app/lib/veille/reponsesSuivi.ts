@@ -168,6 +168,8 @@ export interface DemandeSuivi {
   provenancesContenu: ProvenanceContenu[]; // FUS : messages porteurs de CONTENU (lien fort OU pièce), le PLUS RÉCENT d'abord — provenance affichée sur la ligne (date+heure + expéditeur), les autres au déplié
   suspension: EtatPartiel | null; // CASC-1 : marqueur « dossier partiel » ACTIF (raison + date) → relance ordinaire suspendue ; null = non suspendue / 177 absente
   cascade: EtatCascadePartielle | null; // CASC-3 : étape de cascade partielle + brouillon (null = non partielle / complète / 179 absente)
+  lienEnAttente: boolean;        // PART-D : ≥ 1 lien fort reçu ET un dossier à GED vide → contenu pas encore récupéré (bascule dossier partiel vers Réponses)
+  lienEnAttenteLe: string | null; // PART-D : recu_le (ISO) du PLUS ANCIEN lien fort en attente → tri par urgence dans Réponses ; null = aucun
 }
 // T6-A/2 — le critère d'inclusion « Réponses » (demandeADuRetour) + la partition d'affichage (partitionnerReponses) vivent dans
 //   ReponsesRendu.tsx (module PUR client-safe), PAS ici : ce module importe db/client (pg), qu'on ne veut jamais dans le bundle client.
@@ -498,6 +500,23 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     try { const c = await chargerCascadePartielle(id); if (c) cascades.set(id, c); } catch { /* résilient : n'impacte pas la liste */ }
   }
 
+  // PART-D — LIEN EN ATTENTE : plus ANCIENNE date de réception (envoi du mail) d'un lien FORT dont le CONTENU n'est pas encore en GED
+  //   (≥ 1 dossier actif de la demande a une GED vide). SELECT ajouté EN LECTURE, JAMAIS un WHERE sur la source partagée `dem`.
+  //   Pilote (i) la bascule d'un dossier partiel vers Réponses (demandeADuRetour) et (ii) le tri par urgence dans Réponses.
+  const liensEnAttente = new Map<number, string>();
+  {
+    const { rows } = await query<{ demande_id: number; le: string }>(
+      `SELECT r.demande_id::int AS demande_id, min(r.recu_le)::text AS le
+         FROM demande_reponse r
+         JOIN demande_reponse_lien l ON l.reponse_id = r.id AND l.fort
+         JOIN demande d2 ON d2.id = r.demande_id
+        WHERE r.demande_id IS NOT NULL AND r.nature <> 'rebond' AND d2.statut IN ('envoyee', 'close')
+          AND EXISTS (SELECT 1 FROM demande_dossier dd WHERE dd.demande_id = d2.id AND dd.actif
+                        AND NOT EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = dd.dossier_id))
+        GROUP BY r.demande_id`);
+    for (const r of rows) liensEnAttente.set(r.demande_id, r.le);
+  }
+
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut, canal: r.canal,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
@@ -518,6 +537,8 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     provenancesContenu: parProvenances.get(r.id) ?? [],
     suspension: suspensions.get(r.id) ?? null, // CASC-1
     cascade: cascades.get(r.id) ?? null, // CASC-3
+    lienEnAttente: liensEnAttente.has(r.id), // PART-D : lien fort en attente (GED vide) → bascule partiel vers Réponses
+    lienEnAttenteLe: liensEnAttente.get(r.id) ?? null, // PART-D : plus ancien lien en attente → tri par urgence
   }));
   return { demandes, derniereOkLe, reglages, cascade, envoi, partielDelai: { mois: cfg.cadaPartielDelaiMois, jours: cfg.cadaPartielDelaiJours } }; // CASC-2 : délai partiel pour l'affichage « délai prolongé au … »
 }
