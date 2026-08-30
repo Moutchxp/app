@@ -60,7 +60,9 @@ export async function lireDemandesSuspendues(demandeIds: readonly number[]): Pro
   if (demandeIds.length === 0) return new Set();
   try {
     const { rows } = await query<{ id: number }>(
-      `SELECT id FROM demande WHERE id = ANY($1) AND partiel_le IS NOT NULL AND partiel_leve_le IS NULL`, [[...demandeIds]]);
+      // id::int — `demande.id` est bigint : sans cast, le driver pg renvoie une CHAÎNE, et le Set (clés string) ne matcherait
+      //   jamais un `.has(number)` → estDemandeSuspendue toujours false (garde cascade + levée auto silencieusement défaites).
+      `SELECT id::int AS id FROM demande WHERE id = ANY($1) AND partiel_le IS NOT NULL AND partiel_leve_le IS NULL`, [[...demandeIds]]);
     return new Set(rows.map((r) => r.id));
   } catch (e) { if (!estColonneAbsente(e)) throw e; return new Set(); }
 }
@@ -78,7 +80,8 @@ export async function lireButoirsPartiel(delaiMois: number, delaiJours: number):
   const m = new Map<number, Date>();
   try {
     const { rows } = await query<{ id: number; partiel_le: Date }>(
-      `SELECT id, partiel_le FROM demande WHERE partiel_le IS NOT NULL AND partiel_leve_le IS NULL`);
+      // id::int : bigint → CHAÎNE sinon (cf. lireDemandesSuspendues) → Map clés string → `.get(number)` en miss → butoir CADA ignoré.
+      `SELECT id::int AS id, partiel_le FROM demande WHERE partiel_le IS NOT NULL AND partiel_leve_le IS NULL`);
     for (const r of rows) m.set(r.id, dateButoirPartiel(new Date(r.partiel_le), delaiMois, delaiJours));
     return m;
   } catch (e) { if (!estColonneAbsente(e)) throw e; return m; } // 177 absente → aucune prolongation
@@ -95,7 +98,9 @@ export async function lireEtatsPartiel(demandeIds: readonly number[]): Promise<M
   if (demandeIds.length === 0) return m;
   try {
     const { rows } = await query<{ id: number; le: string; familles: string[] | null; origine: OriginePartiel | null }>(
-      `SELECT id, to_char(partiel_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS le, partiel_familles AS familles, partiel_origine AS origine
+      // id::int : bigint → CHAÎNE sinon → Map clés string, or `chargerDemandesSuivi` fait `suspensions.get(d.id::int)` (nombre) →
+      //   suspension null pour TOUT dossier partiel (En cours « En relance » invisible, permis piégé). C'est le défaut de FIX-2b.
+      `SELECT id::int AS id, to_char(partiel_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS le, partiel_familles AS familles, partiel_origine AS origine
          FROM demande WHERE id = ANY($1) AND partiel_le IS NOT NULL AND partiel_leve_le IS NULL`, [[...demandeIds]]);
     for (const r of rows) m.set(r.id, { le: r.le, familles: r.familles ?? [], origine: r.origine ?? 'outil' });
     return m;
