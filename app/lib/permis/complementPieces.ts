@@ -15,7 +15,7 @@ const DEMANDE_FAMILLE: Record<FamillePlan, string> = {
   masse: 'le plan de masse (PC2)',
   coupe: 'le plan de coupe (PC3)',
   etage: 'les plans des différents niveaux (plans d’étages)',
-  cerfa: 'le formulaire Cerfa de demande de permis de construire',
+  cerfa: 'le formulaire Cerfa de demande de permis de construire et son annexe si besoin pour obtenir la liste intégrale des parcelles cadastrales concernées par ce permis',
 };
 
 /** Ordre stable des familles dans le corps (masse, coupe, étages, Cerfa). */

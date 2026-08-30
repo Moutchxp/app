@@ -54,6 +54,11 @@ describe('composerComplementPieces', () => {
     expect(r.corps).not.toContain('plan de coupe');
   });
 
+  it('la famille Cerfa réclame AUSSI l’annexe pour la liste intégrale des parcelles cadastrales (PART-3d)', () => {
+    const r = composerComplementPieces('0930012500081', ['cerfa'])!;
+    expect(r.corps).toContain('le formulaire Cerfa de demande de permis de construire et son annexe si besoin pour obtenir la liste intégrale des parcelles cadastrales concernées par ce permis');
+  });
+
   it('rappelle le NUMÉRO DE PERMIS (pas la référence interne) dans l’objet et le corps, et remercie pour les pièces déjà transmises', () => {
     const r = composerComplementPieces('0930012500081', ['cerfa', 'etage'])!;
     expect(r.objet).toContain('0930012500081');
@@ -67,7 +72,7 @@ describe('composerComplementPieces', () => {
     const r = composerComplementPieces('0930012500081', ['cerfa', 'masse', 'coupe', 'etage'])!;
     const c = r.corps.toLowerCase();
     expect(c).not.toContain('refus tacite');
-    expect(c).not.toContain('cada');
+    expect(c).not.toMatch(/\bcada\b/); // le SIGLE CADA — « cadastrales » (PART-3d) ne doit pas déclencher un faux positif
     expect(c).not.toContain('commission d’accès');
     expect(c).not.toContain('commission d\'accès');
     expect(c).not.toContain('délai');
