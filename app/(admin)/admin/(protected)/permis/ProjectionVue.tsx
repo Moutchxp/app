@@ -6,6 +6,7 @@ import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { BlocPiecesPermis } from './BlocPiecesPermis';
 import { BoutonRelancerAnalyse } from './BoutonRelancerAnalyse';
 import { BlocCompletude } from './BlocCompletude';
+import { BlocFilEchanges } from './BlocFilEchanges';
 import { TableProjection, BoutonValiderProjection, AIDE_PROJECTION, type LigneProjectionAffichee } from './ProjectionRendu';
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { recompterSiSucces } from './comptesActions';
@@ -72,6 +73,8 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
       {/* PART-2 — DIAGNOSTIC DE COMPLÉTUDE (présent/manquant par famille, par contenu). Lit la mémoire (aucune relecture PDF au rendu) ;
           se remonte après « Relancer l'analyse » (key liée à vAnalyse) pour relire le diagnostic fraîchement recalculé. */}
       {ouvert !== null && <BlocCompletude key={`completude-${ouvert}-${vAnalyse}`} dossierId={ouvert} />}
+      {/* FIL-A — historique des échanges e-mail du permis, en lecture seule (replié par défaut). */}
+      {ouvert !== null && <BlocFilEchanges key={`fil-${ouvert}-${vAnalyse}`} dossierId={ouvert} />}
       {/* PROJ-3b — INSTRUCTION d'abord (caractéristiques + « + ajouter un bâtiment » = ce qui fait naître les corps), TRACÉ ensuite. */}
       {/* Clés PRÉFIXÉES PAR RÔLE : deux frères remontés sur le même (ouvert, vAnalyse) ne doivent PAS partager la même clé (sinon
           React en duplique/omet un — cf. correctif PART-2b). Le suffixe vAnalyse est conservé : chacun se remonte après « Relancer l'analyse ». */}

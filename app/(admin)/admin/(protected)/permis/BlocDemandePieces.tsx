@@ -186,7 +186,8 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
                   </label>
                 ))}
               </fieldset>
-              <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem', marginTop: '.3rem' }}
+              {/* POLISH (Arno) : fond PLEIN dès qu'une date valide rend le geste cliquable ; fond clair tant qu'il est inactif. Libellé inchangé. */}
+              <button type="button" className={`svv-btn ${peutDeclarer ? 'svv-btn-primary' : 'svv-btn-outline'}`} style={{ width: 'auto', padding: '.3rem .7rem', marginTop: '.3rem' }}
                 disabled={!peutDeclarer} onClick={() => void declarer()}>{enCoursDecl ? 'Enregistrement…' : 'Déclarer cette relance'}</button>
               {dateDecl.trim() === '' && <span style={{ ...muted, display: 'block', marginTop: '.2rem' }}>Indiquez la date de la relance.</span>}
               {messageDecl && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-ink)', marginTop: '.2rem' }}>{messageDecl}</div>}
