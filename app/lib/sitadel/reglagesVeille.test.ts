@@ -58,6 +58,8 @@ const DEFS_BASE = [
   // R6 — échéance + fraîcheur (migration 075)
   'CHECK (((echeance_alerte_jours >= 1) AND (echeance_alerte_jours <= 30)))',
   'CHECK (((releve_fraicheur_heures >= 1) AND (releve_fraicheur_heures <= 720)))',
+  // PART-C — calme d'une vague de pièces (migration 180) : BETWEEN 0 AND 1440 → forme `>= AND <=`
+  'CHECK (((vague_calme_minutes >= 0) AND (vague_calme_minutes <= 1440)))',
   // R8 — heure d'envoi des alertes (migration 078)
   'CHECK (((alerte_heure_locale >= 0) AND (alerte_heure_locale <= 23)))',
   // R4 — borne de taille des pièces entrantes (migration 079)
@@ -444,5 +446,12 @@ describe('CASC-2b — GARDE-FOU : toute colonne d’un thème a un ParamVeille (
     expect(COLONNES_THEME_CADA).toContain('cada_partiel_delai_jours');
     expect(NOMS_PARAMS.has('cada_partiel_delai_mois')).toBe(true);
     expect(NOMS_PARAMS.has('cada_partiel_delai_jours')).toBe(true);
+  });
+
+  it('PART-C : vague_calme_minutes est câblée des DEUX côtés (thème RÉPONSES + ParamVeille), migration 180 appliquée', () => {
+    // Câblage complet : rangée dans le thème REPONSES (à côté des réglages de réception/complétude) ET définie comme ParamVeille
+    //   (bornes = CHECK live 180). Le garde-fou paramsDuTheme ci-dessus casserait l'écran si l'un des deux manquait.
+    expect(COLONNES_THEME_REPONSES).toContain('vague_calme_minutes');
+    expect(NOMS_PARAMS.has('vague_calme_minutes')).toBe(true);
   });
 });

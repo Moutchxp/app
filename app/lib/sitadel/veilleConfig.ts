@@ -67,6 +67,7 @@ export interface ConfigVeille {
   familleAttendueMasse: boolean;    // PART-2 : attendre un plan de masse (PC2) ? (défaut true)
   familleAttendueCoupe: boolean;    // PART-2 : attendre un plan de coupe (PC3) ? (défaut true)
   familleAttendueEtage: boolean;    // PART-2 : attendre des plans d'étages ? (défaut true)
+  vagueCalmeMinutes: number;        // PART-C : minutes de calme (dernier mail) avant de lancer le diagnostic d'une vague de pièces (défaut 10)
   natureAccuseMotifs: string;       // FUS-4 : motifs d'objet reconnaissant un accusé (liste virgules/retours) — pilotage sans code
   relanceAutoActive: boolean;       // LOT B : envoyer les relances automatiquement ? STOCKÉ/AFFICHÉ, LU PAR AUCUN CODE D'ENVOI dans ce lot
   relanceJoursAvantEcheance: number; // LOT B (VESTIGIAL, cascade lot 2) : remplacé par relanceRappelJoursAvant — conservé, non éditable
@@ -146,6 +147,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   liensHotesNonFort: 'googleusercontent.com,sansvisavis.com', // = DEFAULT de la migration 173 (PART-1 : hôtes jamais « fort »)
   piecesHachagesExclus: 'e03ddb3adb387cd05867a7bf35fc731acc9a5a31075b3bf5cef1e9f5719b88e9', // = DEFAULT 173 (logo de signature Auber-Rouge.png)
   familleAttendueCerfa: true, familleAttendueMasse: true, familleAttendueCoupe: true, familleAttendueEtage: true, // = DEFAULT 174 (PART-2 : 4 familles attendues)
+  vagueCalmeMinutes: 10, // = DEFAULT 180 (PART-C : calme de vague avant diagnostic)
   natureAccuseMotifs: '',       // FUS-4 : repli ultime = aucun motif → comportement d'AVANT ce lot (la 125 pose 'accusé de réception')
   relanceAutoActive: false, relanceJoursAvantEcheance: 10, // = DEFAULT de la migration 128 (LOT B : opt-out d'envoi auto, préparation à J-10)
   relanceRappelJoursAvant: 10, relanceAvisJoursAvant: 3, relanceSaisineDelaiJours: 4, saisineCadaAutoActive: false, // = DEFAULT de la migration 136 (cascade lot 2)
@@ -460,6 +462,17 @@ async function lireFamillesAttendues(): Promise<Pick<ConfigVeille, 'familleAtten
   } catch { return def; } // 174 pas encore appliquée → les 4 attendues
 }
 
+// PART-C — délai de CALME d'une vague de pièces (minutes). Lecture ISOLÉE (résiliente à l'ordre d'application de la 180) :
+//   colonne absente → défaut 10 (sans dégrader le reste de la config).
+async function lireVagueCalme(): Promise<Pick<ConfigVeille, 'vagueCalmeMinutes'>> {
+  try {
+    const { rows } = await query<{ vague_calme_minutes: number | null }>(`SELECT vague_calme_minutes FROM config_veille WHERE id = 1`);
+    return { vagueCalmeMinutes: rows[0]?.vague_calme_minutes ?? 10 };
+  } catch {
+    return { vagueCalmeMinutes: 10 }; // 180 pas encore appliquée → défaut 10
+  }
+}
+
 // FUS-4 — motifs d'objet « accusé de réception ». Lecture ISOLÉE (résiliente à l'ordre d'application de la 125) : '' si la
 //   colonne n'existe pas encore → aucun motif → nature inchangée (comme avant ce lot).
 async function lireNatureAccuseMotifs(): Promise<Pick<ConfigVeille, 'natureAccuseMotifs'>> {
@@ -704,6 +717,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireDepotAdresses()),                  // N1-A : adresses connues du versement auto, lecture isolée (résiliente à la 102)
       ...(await lireExclusionsSignature()),            // PART-1 : liens jamais fort + hachages de signature exclus, lecture isolée (résiliente à la 173)
       ...(await lireFamillesAttendues()),              // PART-2 : 4 familles attendues (diagnostic de complétude), lecture isolée (résiliente à la 174)
+      ...(await lireVagueCalme()),                      // PART-C : calme de vague avant diagnostic, lecture isolée (résiliente à la 180)
       ...(await lireNatureAccuseMotifs()),             // FUS-4 : motifs d'objet « accusé », lecture isolée (résiliente à la 125)
       ...(await lireRelanceReglages()),                // LOT B : réglages de relance, lecture isolée (résiliente à la 128)
       ...(await lireRelanceCascadeReglages()),          // Cascade lot 2 : 3 délais + auto-saisine CADA, lecture isolée (résiliente à la 136)

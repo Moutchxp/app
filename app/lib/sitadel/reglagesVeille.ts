@@ -272,6 +272,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Combien de jours avant la fin du délai d’un mois une demande est signalée « proche de l’échéance ». Le silence gardé un mois après l’envoi vaut refus tacite (voie CADA) : ce réglage sert à anticiper cette date, pas à la modifier.' },
   { colonne: 'releve_fraicheur_heures', cle: 'releveFraicheurHeures', libelle: 'Fraîcheur exigée de la relève', unite: 'heures', type: 'entier',
     aide: 'Si la dernière relève réussie de la boîte est plus ancienne que cette durée, l’échéance reste « indéterminée » : on n’affirme jamais qu’une mairie n’a pas répondu sans avoir regardé récemment. Plus court = exigence de vérification plus stricte.' },
+  // PART-C — CALME avant de vérifier les pièces reçues, quand une mairie répond en PLUSIEURS envois. Bornes lues du CHECK (migration 180).
+  { colonne: 'vague_calme_minutes', cle: 'vagueCalmeMinutes', libelle: 'Délai de calme avant de vérifier les pièces reçues', unite: 'minutes', type: 'entier',
+    aide: 'Quand une mairie envoie les documents en PLUSIEURS mails d’affilée, l’application attend que le dernier mail reçu ait au moins cet âge avant de vérifier si le dossier est complet — pour ne pas réclamer une pièce qui arrive quelques minutes plus tard. Le compte se fait sur l’heure d’ENVOI du mail, pas sur l’heure de la relève : comme la relève passe toutes les quelques heures, le plus souvent le calme est déjà écoulé et la vérification est immédiate. Quand VOUS relevez la boîte à la main, la vérification se fait tout de suite, sans attendre. Défaut 10 minutes ; 0 = vérifier immédiatement.' },
   // R8 — ALERTES e-mail : un seul récapitulatif par jour, envoyé uniquement s'il y a quelque chose à dire. Opt-in.
   { colonne: 'alerte_active', cle: 'alerteActive', libelle: 'Alertes par e-mail', unite: '', type: 'booleen',
     aide: 'Quand c’est activé, vous recevez UN récapitulatif par jour — et seulement s’il y a du nouveau (réponses reçues, rebonds, échéances proches ou dépassées). Jamais un e-mail par événement. Désactivé, aucune alerte n’est envoyée.' },
@@ -431,6 +434,7 @@ export const COLONNES_THEME_ENVOI: readonly string[] = [
 ];
 export const COLONNES_THEME_REPONSES: readonly string[] = [
   'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',
+  'vague_calme_minutes', // PART-C — calme d'une vague de pièces avant le diagnostic de complétude (migration 180, bornes = CHECK live)
   'recherche_references_max', 'piece_taille_max_mo', 'echeance_alerte_jours',
   'depot_adresses_connues', // N1-A — versement automatique en GED (adresses reconnues)
   'nature_accuse_motifs',   // FUS-4 — motifs d'objet reconnaissant un accusé de réception

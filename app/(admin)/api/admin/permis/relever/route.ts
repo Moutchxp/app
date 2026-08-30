@@ -1,6 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { executerReleveManuelle, depsReellesReleveAuto, type IssueReleveManuelle } from '../../../../../lib/veille/releveAuto';
+import { executerDiagnosticsVague, depsReellesDiagnosticsVague } from '../../../../../lib/veille/diagnosticsVague';
 
 /**
  * /api/admin/permis/relever (chantier R1) — DÉCLENCHEUR MANUEL de la relève de la boîte, réservé ADMINISTRATEUR
@@ -45,6 +46,12 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const issue = await executerReleveManuelle(depsReellesReleveAuto());
     if (issue.resultat === 'erreur') console.error('[permis/relever] relève en échec :', issue.raison);
+    // PART-C — relève MANUELLE : diagnostic de vague IMMÉDIAT (Arno considère que tout est arrivé), sans attendre le calme. ISOLÉ :
+    //   un échec du diagnostic n'altère jamais la réponse de la relève. AUCUN envoi (le diagnostic ne réclame rien).
+    if (issue.resultat === 'ok') {
+      try { await executerDiagnosticsVague('manuel', depsReellesDiagnosticsVague()); }
+      catch (e) { console.error('[permis/relever] diagnostics de vague (manuel) en échec — relève OK conservée', e); }
+    }
     return reponse(issue);
   } catch (e) {
     // Échec AVANT/AUTOUR de la relève elle-même (config, création du client, base indisponible). Jamais silencieux (P2).
