@@ -10,11 +10,23 @@ import { doitLeverAuto, dateButoirPartiel, type EtatPartiel, type OriginePartiel
 
 const estColonneAbsente = (e: unknown): boolean => typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703';
 
-/** POSE / RÉ-ARME le marqueur (les deux chemins de réclamation). Ré-arme même s'il avait été levé (partiel_leve_le → NULL). NO-OP si 177 absente. */
+/**
+ * POSE le marqueur « dossier partiel », ou RAFRAÎCHIT les pièces manquantes s'il est DÉJÀ actif. NO-OP si 177 absente.
+ *
+ * 🔴 PART-F ① — BUTOIR FIXE : `partiel_le` (l'ancre de la PREMIÈRE réclamation, d'où dérive le butoir CADA CASC-2) NE BOUGE PLUS tant
+ * que le marqueur est actif. Une 2e réclamation de pièces (nouvelle vague, relance PART-E, re-clic « demander pièces ») rafraîchit
+ * SEULEMENT la liste des familles manquantes — jamais `partiel_le` — sinon la mairie repousserait l'échéance indéfiniment en envoyant
+ * une pièce de temps en temps, et la saisine n'arriverait jamais. Seul un RÉ-ARMEMENT après une LEVÉE (dossier redevenu complet puis
+ * de nouveau incomplet = nouveau cycle) repose une nouvelle ancre. Le CASE fait exactement cela, atomiquement.
+ */
 export async function marquerDossierPartiel(demandeId: number, familles: readonly string[], origine: OriginePartiel): Promise<void> {
   try {
     await query(
-      `UPDATE demande SET partiel_le = now(), partiel_familles = $2, partiel_origine = $3, partiel_leve_le = NULL, partiel_leve_par = NULL, maj_le = now()
+      `UPDATE demande SET
+         partiel_le      = CASE WHEN partiel_le IS NOT NULL AND partiel_leve_le IS NULL THEN partiel_le ELSE now() END,
+         partiel_familles = $2,
+         partiel_origine = CASE WHEN partiel_le IS NOT NULL AND partiel_leve_le IS NULL THEN partiel_origine ELSE $3 END,
+         partiel_leve_le = NULL, partiel_leve_par = NULL, maj_le = now()
         WHERE id = $1`,
       [demandeId, [...familles], origine]);
   } catch (e) { if (!estColonneAbsente(e)) throw e; } // 177 absente → pas de marqueur (comportement actuel)

@@ -30,6 +30,7 @@ import { executerDiagnosticsVague, depsReellesDiagnosticsVague } from '../veille
 import { executerRelanceReponsePartielle, depsReellesRelanceReponsePartielle } from '../veille/relanceReponsePartielleAuto';
 import { executerAlerteAuto, depsReellesAlerte } from '../veille/alerteAuto';
 import { executerPropositionAuto, depsReellesProposition } from '../veille/propositionAuto';
+import { executerPreparationSaisinePartielle, depsReellesPreparationSaisinePartielle } from '../veille/preparerSaisinePartielleAuto';
 import { executerAlerteGedAuto, depsReellesAlerteGed } from '../veille/alerteGedAuto';
 import { executerAlerteLienPeremption, depsReellesAlerteLienPeremption } from '../veille/alerteLienPeremptionAuto';
 import { executerAlerteActionAuto, depsReellesAlerteAction } from '../veille/alerteActionAuto';
@@ -127,6 +128,9 @@ export interface DepsVeille {
   //   touche jamais la veille ni la relève. E-mail INTERNE uniquement (jamais la mairie ni la CADA) : la proposition demande un
   //   avis AVANT toute saisine ; l'envoi à un tiers, lui, passe par l'étape d'envoi automatique (§1decies), sous interrupteur.
   propositionCada?(): Promise<unknown>;
+  // PART-F — PRÉPARATION AUTO de la saisine CADA sur dossier partiel (avant la proposition X5, §1sexies-part). OPTIONNELLE et
+  //   ISOLÉE : prépare le BROUILLON (creerSaisineCada 'auto') quand le butoir est atteint. AUCUN envoi (saisine_cada_auto_active gère l'envoi).
+  preparerSaisinePartielle?(): Promise<unknown>;
   // G1 — ALERTES « contenu à classer/télécharger en GED » (après les propositions, §1septies). OPTIONNELLE et ISOLÉE : un
   //   échec n'impacte jamais la veille ni la relève. E-mail interne à l'exploitant ; on ne suit JAMAIS un lien de mairie.
   alerteGed?(): Promise<unknown>;
@@ -248,6 +252,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   quelque chose à dire. MÊME ISOLATION : un échec d'envoi n'impacte jamais la veille ni la relève.
     if (faitMairies && deps.alerteQuotidienne) {
       try { await deps.alerteQuotidienne(); } catch { /* alerte isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1sexies-part) PRÉPARATION AUTO de la saisine CADA sur DOSSIER PARTIEL (PART-F) — AVANT la proposition X5 : pour une demande
+    //   partielle dont le butoir CASC-2 est ATTEINT, on PRÉPARE la saisine en BROUILLON (jamais d'envoi ; l'envoi reste sous
+    //   saisine_cada_auto_active). Le brouillon crée une saisine vivante → la demande n'est plus « saisissable » → la proposition X5
+    //   ci-dessous ne la double pas ; elle est signalée par la pastille « Saisines CADA ». MÊME ISOLATION : un échec n'impacte rien.
+    if (faitMairies && deps.preparerSaisinePartielle) {
+      try { await deps.preparerSaisinePartielle(); } catch { /* préparation isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     // 1sexies) PROPOSITIONS de saisine CADA (X5) — DERNIÈRE étape auto, APRÈS l'alerte : pour chaque demande devenue
@@ -526,6 +538,8 @@ function depsReelles(): DepsVeille {
     // R8 — alerte quotidienne réelle : conditions + composition + envoi SMTP + journal, dans alerteAuto.ts.
     alerteQuotidienne: () => executerAlerteAuto(depsReellesAlerte()),
     // X5 — propositions de saisine CADA réelles : conditions + composition + envoi SMTP interne + trace, dans propositionAuto.ts.
+    // PART-F — préparation réelle de la saisine partielle (brouillon 'auto' quand le butoir est atteint), dans preparerSaisinePartielleAuto.ts.
+    preparerSaisinePartielle: () => executerPreparationSaisinePartielle(depsReellesPreparationSaisinePartielle()),
     propositionCada: () => executerPropositionAuto(depsReellesProposition()),
     // G1 — alertes GED réelles : candidats (réponse × permis non classé) + compte à rebours J-3/24 h + forward SMTP + journal, dans alerteGedAuto.ts.
     alerteGed: () => executerAlerteGedAuto(depsReellesAlerteGed()),
