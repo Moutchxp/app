@@ -21,6 +21,7 @@ import { expressionRangSql, classer, libelleNatureProjet, type CleCategorie } fr
 import type { SourceFichePermis } from '../pdf/fichePermisPdf'; // N1-B : type SEUL (le générateur PDF pdfkit n'entre jamais dans le graphe statique)
 import { MARQUEUR_FICHE_SYNTHESE, PREFIXE_NOTE_VERSEMENT_AUTO } from '../permis/gedConstantes'; // N1-B/N4/N6-F : sentinelle fiche + préfixe versement auto (source unique)
 import { lignesDepuisClassements, famillesAttenduesDepuisConfig, type ClassementPiece } from '../permis/diagnosticCompletude'; // POLISH-1 : MÊME logique de complétude que BlocCompletude (jamais recopiée)
+import { MOTIF_COMPLEMENT_PREFIXE, MOTIF_DECLARATION_PREFIXE, MOTIF_REPONSE_LIBRE_PREFIXE } from '../permis/demanderPiecesRepo'; // UNIF-3 : mêmes préfixes que le fil (signal « historique non vide »)
 import { agregerStock, moisDePeriode, type LigneStock, type DossierStock } from './stock'; // Q2b : agrégat PUR du stock (réutilise estCandidatEligible via agregerStock)
 import { lireClePiece } from '../veille/demandeReponseRepo'; // A1b : réutilisé par le dispatcher unique de lecture de clé (pas de 2e implémentation)
 import { resoudreDepotPresume } from '../veille/depotPresume'; // LOT B1 : résout la présomption de dépôt téléservice au geste terminal (dépôt/annulation)
@@ -347,6 +348,12 @@ export interface LigneArchive {
   pieces: PieceArchive[];
   sourcesNonResolues: string[];  // N10-J : noms de pièces SOURCES du journal non résolus (homonymes → ambigu, ou absents de la GED) → RIEN épinglé, mais RENDU VISIBLE (jamais deviné)
   completudeIncomplete: boolean; // POLISH-1 : le diagnostic de complétude est CONNU et INCOMPLET (une famille attendue manque) → ligne rouge « incomplet ». false = complet OU jamais diagnostiqué (inchangé).
+  // UNIF-3 — SIGNAUX « non vide » de l'encart de familles (comptes batchés, JAMAIS le contenu → paresse PERF-1 préservée). Décident
+  //   de l'affichage des familles « si non vide » du détail (Complétude / Historique / Bâtiments). Pièces + Caractéristiques sont
+  //   REMPLISSABLES dans Archives → toujours affichées, sans signal.
+  completudeNonVide: boolean;    // un diagnostic de complétude EXISTE (ligne permis_completude) — complet OU incomplet
+  historiqueNonVide: boolean;    // un échange existe : la mairie a répondu (hors rebond) OU un suivi sortant (relance déclarée / complément / réponse libre / sortant hors outil)
+  batimentsNonVide: boolean;     // un corps de bâtiment est déclaré (permis_corps_batiment) — le tracé/emprise (~9 s) reste chargé au dépliage
 }
 
 // N1-B / N4 — sentinelle de la fiche générée : source unique dans le module-feuille PROPRE `permis/gedConstantes` (importable
@@ -410,17 +417,40 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
   //   (ligne permis_completude) dont une famille attendue MANQUE ; recomposé avec la MÊME logique que BlocCompletude (jamais recopiée).
   //   SELECT ajouté EN LECTURE (jamais un WHERE sur la requête centrale). RÉSILIENT : 174 absente → aucun incomplet (rien en rouge).
   const incompletParDossier = new Map<number, boolean>();
+  // UNIF-3 — SIGNAUX « non vide » de l'encart (Complétude / Historique / Bâtiments), batchés PAR SIGNAL (EXISTS/agrégat, jamais N×),
+  //   EN LECTURE. Chacun résilient (table/migration absente → set vide → famille masquée, dégradation sûre). Le CONTENU n'est JAMAIS
+  //   tiré ici : seul le compte décide de l'affichage (PERF-1). La complétude réutilise le MÊME `comp` que POLISH-1 (aucune requête en plus).
+  const completudeConnue = new Set<number>();
+  const batimentsNonVideSet = new Set<number>();
+  const historiqueNonVideSet = new Set<number>();
   if (rows.length > 0) {
+    const ids = rows.map((r) => r.dossier_id);
     try {
       const famillesAttendues = famillesAttenduesDepuisConfig({ cerfa: cfg.familleAttendueCerfa, masse: cfg.familleAttendueMasse, coupe: cfg.familleAttendueCoupe, etage: cfg.familleAttendueEtage });
       const { rows: comp } = await query<{ dossier_id: number; classements: ClassementPiece[] | null }>(
         `SELECT dossier_id::int AS dossier_id, classements FROM permis_completude WHERE dossier_id = ANY($1::bigint[])`,
-        [rows.map((r) => r.dossier_id)]);
+        [ids]);
       for (const c of comp) {
+        completudeConnue.add(c.dossier_id); // UNIF-3 : un diagnostic EXISTE (complet OU incomplet) → famille « Complétude » affichée
         const diag = lignesDepuisClassements(c.classements ?? [], famillesAttendues);
         incompletParDossier.set(c.dossier_id, diag.lignes.some((l) => !l.presente)); // une famille attendue absente → incomplet
       }
     } catch { /* 174 absente / lecture impossible → aucun diagnostic connu → aucune ligne rouge (comportement inchangé) */ }
+    try {
+      const { rows: bat } = await query<{ dossier_id: number }>(
+        `SELECT DISTINCT dossier_id::int AS dossier_id FROM permis_corps_batiment WHERE dossier_id = ANY($1::bigint[])`, [ids]);
+      for (const b of bat) batimentsNonVideSet.add(b.dossier_id);
+    } catch { /* table absente → aucun bâtiment signalé (famille masquée) */ }
+    try {
+      // Historique non vide : la mairie a répondu (hors rebond) OU un suivi sortant existe (relance déclarée / complément / réponse libre / sortant hors outil).
+      const { rows: hist } = await query<{ dossier_id: number }>(
+        `SELECT DISTINCT dd.dossier_id::int AS dossier_id FROM demande_dossier dd WHERE dd.dossier_id = ANY($1::bigint[]) AND (
+           EXISTS (SELECT 1 FROM demande_reponse r WHERE r.demande_id = dd.demande_id AND r.nature <> 'rebond')
+           OR EXISTS (SELECT 1 FROM demande_sortant_hors_outil s WHERE s.demande_id = dd.demande_id)
+           OR EXISTS (SELECT 1 FROM demande_journal j WHERE j.demande_id = dd.demande_id AND j.motif LIKE ANY (ARRAY[$2, $3, $4])))`,
+        [ids, `${MOTIF_COMPLEMENT_PREFIXE}%`, `${MOTIF_DECLARATION_PREFIXE}%`, `${MOTIF_REPONSE_LIBRE_PREFIXE}%`]);
+      for (const h of hist) historiqueNonVideSet.add(h.dossier_id);
+    } catch { /* table absente → aucun historique signalé (famille masquée) */ }
   }
   return rows.map((r) => {
     const marque = marquerSources([...(r.pieces ?? []), ...(manuels.get(r.dossier_id) ?? [])], sources.get(r.dossier_id) ?? new Map());
@@ -439,6 +469,9 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
       pieces: marque.pieces,
       sourcesNonResolues: marque.sourcesNonResolues,
       completudeIncomplete: incompletParDossier.get(r.dossier_id) ?? false, // POLISH-1 : rouge « incomplet » seulement si diagnostic connu ET une famille manque
+      completudeNonVide: completudeConnue.has(r.dossier_id),  // UNIF-3 : diagnostic présent (complet OU incomplet)
+      historiqueNonVide: historiqueNonVideSet.has(r.dossier_id),
+      batimentsNonVide: batimentsNonVideSet.has(r.dossier_id),
     };
   });
 }

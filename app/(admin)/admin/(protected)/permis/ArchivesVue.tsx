@@ -5,6 +5,10 @@ import type { LigneArchive } from '../../../../lib/sitadel/demandeRepo';
 import { TableArchives } from './ArchivesRendu';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { BoutonRelancerAnalyse } from './BoutonRelancerAnalyse';
+// UNIF-3 — familles « si non vide » du détail Archives (mêmes composants per-permis qu'« Analyse et projection »).
+import { BlocCompletude } from './BlocCompletude';
+import { BlocFilEchanges } from './BlocFilEchanges';
+import { BlocTraceEmprise } from './BlocTraceEmprise';
 
 /**
  * A1a/A1b — onglet ARCHIVES : les permis renseignés par les mairies + leurs pièces (reçues par e-mail OU ajoutées à la main).
@@ -117,7 +121,11 @@ export function ArchivesVue() {
             <BoutonRelancerAnalyse dossierId={dossierId} onFini={() => setVersion((v) => v + 1)} />
             <CaracteristiquesBloc key={`${dossierId}-${version}`} dossierId={dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />
           </div>
-        )} />
+        )}
+        // UNIF-3 — familles « si non vide » (chargées AU DÉPLIAGE de leur bloc). Ré-clés sur `version` → « Relancer l'analyse » les rafraîchit.
+        slotCompletude={(dossierId) => <BlocCompletude key={`comp-${dossierId}-${version}`} dossierId={dossierId} />}
+        slotHistorique={(dossierId) => <BlocFilEchanges key={`fil-${dossierId}-${version}`} dossierId={dossierId} />}
+        slotBatiments={(dossierId) => <BlocTraceEmprise key={`bat-${dossierId}-${version}`} dossierId={dossierId} />} />
 
       {nbPages > 1 && (
         <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>

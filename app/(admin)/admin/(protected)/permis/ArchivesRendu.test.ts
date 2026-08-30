@@ -17,7 +17,9 @@ const ligne = (over: Partial<LigneArchive> = {}): LigneArchive => ({
   categorie: 'immeuble_neuf', libelleCategorie: 'Immeuble neuf', dateAutorisation: '2026-05-01',
   satisfaitLe: '2026-07-01', satisfaitPar: 'automatique', demandeReference: 'SVAV-DEM-2026-000042',
   recuLe: '2026-07-01', expireLeCapte: null, aLienFort: false,
-  pieces: [emailDeposee], sourcesNonResolues: [], completudeIncomplete: false, ...over,
+  pieces: [emailDeposee], sourcesNonResolues: [], completudeIncomplete: false,
+  completudeNonVide: false, historiqueNonVide: false, batimentsNonVide: false, // UNIF-3 : signaux « non vide » (défaut vide → familles si-non-vide absentes)
+  ...over,
 });
 // N1-C — par défaut on rend la 1ʳᵉ ligne DÉPLOYÉE (dossierOuvert = son id) : les pièces vivent désormais dans le panneau déplié,
 // donc les tests de CONTRAT des pièces (T5, sécurité, origines) doivent ouvrir la ligne pour les voir. `dossierOuvert=null` teste le repli.

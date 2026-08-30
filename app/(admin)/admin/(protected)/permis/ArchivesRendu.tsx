@@ -4,6 +4,8 @@ import { jjmm, tronquerObjet } from './ReponsesRendu'; // T5 : mêmes helpers d'
 import { formaterDateJour } from '../../../../lib/sitadel/priorite';
 import { expirationEffective, SEUIL_ARCHIVE_GRIS_MOIS } from '../../../../lib/veille/alerteGed'; // G2 : on IMPORTE les définitions G1 (délai), on ne les recopie pas
 import { BLEU_SOURCE } from './CaracteristiquesRendu'; // N10 : MÊME bleu que les liens de provenance (source unique = « même sens »)
+import { EncartFamilles, type FamilleRendu } from './EncartFamilles'; // UNIF-3 : le détail Archives adopte l'encart de familles (socle UNIF-0)
+import { LIBELLE_FAMILLE } from '../../../../lib/permis/encartFamilles';
 import type { LigneArchive, PieceArchive } from '../../../../lib/sitadel/demandeRepo';
 
 /**
@@ -249,7 +251,7 @@ export const EXPLICATION_VIDE_ARCHIVES =
  * les pièces condensées + l'ajout à la main. Accordéon à UN volet (état `dossierOuvert` levé dans la Vue). Conteneur défilant
  * a11y (mobile). État vide EXPLICITE. Aucune animation → prefers-reduced-motion sans objet. Tri (satisfaction ↓) côté serveur.
  */
-export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, onTelecharger, onSupprimer, onFichier, uploadEnCours, slotCaracteristiques }: {
+export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, onTelecharger, onSupprimer, onFichier, uploadEnCours, slotCaracteristiques, slotCompletude, slotHistorique, slotBatiments }: {
   lignes: LigneArchive[];
   maintenant: Date; // G2 : « aujourd'hui » (fourni par la Vue) — pilote les 2 mois et le « délai dépassé ». Injecté → rendu déterministe/testable.
   dossierOuvert?: number | null; // N1-C : le dossierId de l'UNIQUE ligne dépliée (null = toutes repliées). État levé dans la Vue.
@@ -258,7 +260,11 @@ export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, on
   onSupprimer?: (documentId: number) => void;
   onFichier?: (dossierId: number, fichier: File) => void;
   uploadEnCours?: number | null;
-  slotCaracteristiques?: (dossierId: number) => ReactNode; // N3-C : bloc « Caractéristiques » injecté par la Vue APRÈS pièces + ajout (facultatif → tests inchangés)
+  slotCaracteristiques?: (dossierId: number) => ReactNode; // N3-C : bloc « Caractéristiques » (BoutonRelancerAnalyse + CaracteristiquesBloc) injecté par la Vue (facultatif → tests inchangés)
+  // UNIF-3 — familles « si non vide » du détail, injectées par la Vue (composants clients avec fetch, chargés AU DÉPLIAGE de leur bloc).
+  slotCompletude?: (dossierId: number) => ReactNode; // BlocCompletude
+  slotHistorique?: (dossierId: number) => ReactNode; // BlocFilEchanges
+  slotBatiments?: (dossierId: number) => ReactNode;  // BlocTraceEmprise
 }) {
   if (lignes.length === 0) {
     return (
@@ -312,15 +318,27 @@ export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, on
                 </tr>
                 {ouvert && (
                   <tr>
-                    {/* Panneau condensé : pièces (une par ligne compacte, actions alignées — CellulePieces) + ajout à la main. */}
+                    {/* UNIF-3 — le détail adopte l'ENCART DE FAMILLES (socle UNIF-0, onglet « archives »). Familles REMPLISSABLES ici :
+                        Caractéristiques + Pièces (ouvertes d'emblée — Archives sert à CONSULTER, on ne masque pas ce qu'on vient voir) ;
+                        « si non vide » : Complétude / Historique / Bâtiments (signaux batchés). Suivi & actions = ABSENTE (Archives est
+                        post-satisfaction : ni statuer-dossier, ni clôture, ni réf mairie/suspension/cascade). Chaque contenu = render-prop
+                        montée au dépliage (paresse PERF-1). Pièces = CellulePieces + AjoutDocument (geste PROPRE à Archives : ajout à la
+                        main, pièces e-mail non supprimables). */}
                     <td id={ancrePieces(l.dossierId)} colSpan={NB_COLONNES_ARCHIVES}
                       style={{ padding: '.6rem .8rem', borderBottom: '1px solid var(--color-svv-line)', background: 'var(--color-svv-field)', whiteSpace: 'normal' }}>
-                      {/* N3-D — le bloc « Caractéristiques du bâtiment » (contenu MÉTIER) passe EN PREMIER ; les documents se consultent ensuite. Slot facultatif. */}
-                      {slotCaracteristiques ? slotCaracteristiques(l.dossierId) : null}
-                      <div style={{ marginTop: slotCaracteristiques ? '.6rem' : 0 }}>
-                        <CellulePieces pieces={l.pieces} sourcesNonResolues={l.sourcesNonResolues} onTelecharger={onTelecharger} onSupprimer={onSupprimer} />
-                      </div>
-                      <div style={{ marginTop: '.5rem' }}><AjoutDocument dossierId={l.dossierId} onFichier={onFichier} enCours={uploadEnCours === l.dossierId} /></div>
+                      <EncartFamilles onglet="archives" familles={([
+                        slotCompletude ? { cle: 'completude', titre: LIBELLE_FAMILLE.completude, nonVide: l.completudeNonVide, contenu: () => slotCompletude(l.dossierId) } : null,
+                        slotHistorique ? { cle: 'historique', titre: LIBELLE_FAMILLE.historique, nonVide: l.historiqueNonVide, contenu: () => slotHistorique(l.dossierId) } : null,
+                        // N3-D — contenu MÉTIER d'abord : Caractéristiques passe avant les Pièces (ordre canonique ORDRE_FAMILLES). Ouverte d'emblée.
+                        slotCaracteristiques ? { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: true, defautOuvert: true, contenu: () => slotCaracteristiques(l.dossierId) } : null,
+                        slotBatiments ? { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: l.batimentsNonVide, contenu: () => slotBatiments(l.dossierId) } : null,
+                        { cle: 'pieces', titre: LIBELLE_FAMILLE.pieces, nonVide: true, defautOuvert: true, contenu: () => (
+                          <>
+                            <CellulePieces pieces={l.pieces} sourcesNonResolues={l.sourcesNonResolues} onTelecharger={onTelecharger} onSupprimer={onSupprimer} />
+                            <div style={{ marginTop: '.5rem' }}><AjoutDocument dossierId={l.dossierId} onFichier={onFichier} enCours={uploadEnCours === l.dossierId} /></div>
+                          </>
+                        ) },
+                      ].filter(Boolean) as FamilleRendu[])} />
                     </td>
                   </tr>
                 )}
