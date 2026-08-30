@@ -46,18 +46,25 @@ describe('A1a — TableArchives : colonnes orientées PERMIS', () => {
     expect(h).toContain('automatique');
   });
 
-  it('conteneur défilant a11y (mobile) + contrôle d’ajout de document par ligne', () => {
+  it('conteneur défilant a11y (mobile)', () => {
     const h = rendu([ligne()]);
     expect(h).toContain('role="region"');
     expect(h).toContain('tabindex="0"');
-    expect(h).toContain('type="file"');          // A1b : ajout à la main disponible sur la ligne
+  });
+
+  // UNIF-3b — l'ajout de document vit dans la famille « Pièces » du détail, REPLIÉE par défaut (uniformité stricte) : son contenu
+  //   est lazy (monté au dépliage). Le geste se teste donc sur le composant, pas via le HTML de la ligne repliée.
+  it('contrôle d’ajout de document par permis (composant AjoutDocument)', () => {
+    const h = renderToStaticMarkup(createElement(AjoutDocument, { dossierId: 1, onFichier: () => {} }));
+    expect(h).toContain('type="file"');          // A1b : ajout à la main disponible
     expect(h).toContain('ajouter un document');
   });
 });
 
 describe('A1b — pièces : origine visible, e-mail non supprimable, manuel supprimable', () => {
-  it('les DEUX origines s’affichent DISTINCTEMENT sur une même ligne', () => {
-    const h = rendu([ligne({ pieces: [emailDeposee, manuel] })]);
+  // UNIF-3b — contenu des pièces = famille repliée (lazy). Le contrat des DEUX origines se teste sur CellulePieces (le composant rendu au dépliage).
+  it('les DEUX origines s’affichent DISTINCTEMENT (CellulePieces)', () => {
+    const h = renderToStaticMarkup(createElement(CellulePieces, { pieces: [emailDeposee, manuel], onTelecharger: () => {}, onSupprimer: () => {} }));
     expect(h).toContain('reçue par e-mail');
     expect(h).toContain('ajoutée à la main');
     expect(h).toContain('plan-de-masse.pdf');
@@ -87,10 +94,12 @@ describe('A1b — pièces : origine visible, e-mail non supprimable, manuel supp
     expect(h).not.toContain('↓');
   });
 
-  it('permis renseigné SANS pièce → « aucun document attaché » (jamais une archive vide muette ; le dossier apparaît quand même)', () => {
-    const h = rendu([ligne({ pieces: [] })]);
-    expect(h).toContain('PC0750560001');
-    expect(h).toContain('aucun document attaché');
+  it('permis renseigné SANS pièce → la ligne apparaît quand même (le dossier n’est jamais masqué)', () => {
+    expect(rendu([ligne({ pieces: [] })])).toContain('PC0750560001');
+  });
+  // UNIF-3b — « aucun document attaché » est le vide de la famille Pièces (lazy) → testé sur CellulePieces, jamais une archive muette.
+  it('permis SANS pièce → CellulePieces dit « aucun document attaché » (jamais muet)', () => {
+    expect(renderToStaticMarkup(createElement(CellulePieces, { pieces: [], onTelecharger: () => {}, onSupprimer: () => {} }))).toContain('aucun document attaché');
   });
 
   it('la CLÉ de stockage est ABSENTE du HTML (données = booléen + id, jamais la clé)', () => {
@@ -100,28 +109,32 @@ describe('A1b — pièces : origine visible, e-mail non supprimable, manuel supp
   });
 });
 
-describe('N3-C — slot « Caractéristiques » dans le panneau déplié (facultatif)', () => {
-  it('slot ABSENT → rendu inchangé (aucune régression)', () => {
+describe('N3-C / UNIF-3b — famille « Caractéristiques » dans l’encart déplié (facultative, repliée)', () => {
+  it('slot ABSENT → la famille Caractéristiques n’apparaît pas ; la famille Pièces (remplissable) reste là', () => {
     const h = rendu([ligne()]); // pas de slotCaracteristiques
-    expect(h).toContain('plan-de-masse.pdf'); // pièces toujours là
-    expect(h).not.toContain('data-caract'); // rien d'injecté
+    expect(h).toContain('Pièces du permis');            // famille remplissable toujours présente (titre replié)
+    expect(h).not.toContain('Caractéristiques du permis'); // slot absent → aucune famille Caractéristiques
+    expect(h).not.toContain('data-caract'); // rien d'injecté (et de toute façon lazy)
   });
-  it('N3-D — slot FOURNI + ligne DÉPLIÉE → le bloc est injecté AVANT les pièces (contenu métier d’abord)', () => {
+  it('N3-D — slot FOURNI + ligne DÉPLIÉE → la famille Caractéristiques précède la famille Pièces (contenu métier d’abord)', () => {
     const h = renderToStaticMarkup(createElement(TableArchives, {
       lignes: [ligne()], maintenant: MAINTENANT, dossierOuvert: 1,
       onDeplier: () => {}, onTelecharger: () => {}, onSupprimer: () => {}, onFichier: () => {},
       slotCaracteristiques: (id: number) => createElement('span', { 'data-caract': id }, `caract-${id}`),
     }));
-    expect(h).toContain('caract-1');
-    expect(h.indexOf('caract-1')).toBeLessThan(h.indexOf('plan-de-masse.pdf')); // AVANT les pièces
+    // UNIF-3b — les deux familles sont REPLIÉES : on prouve l'ORDRE canonique (Caractéristiques avant Pièces), pas le contenu (lazy).
+    expect(h).toContain('Caractéristiques du permis');
+    expect(h.indexOf('Caractéristiques du permis')).toBeLessThan(h.indexOf('Pièces du permis'));
+    expect(h).not.toContain('data-caract'); // contenu monté seulement au dépliage de la famille
   });
-  it('slot FOURNI mais ligne REPLIÉE → pas injecté (le panneau n’est pas rendu)', () => {
+  it('slot FOURNI mais ligne REPLIÉE → aucune famille rendue (le panneau n’est pas rendu du tout)', () => {
     const h = renderToStaticMarkup(createElement(TableArchives, {
       lignes: [ligne()], maintenant: MAINTENANT, dossierOuvert: null,
       onDeplier: () => {}, onTelecharger: () => {}, onSupprimer: () => {}, onFichier: () => {},
       slotCaracteristiques: (id: number) => createElement('span', { 'data-caract': id }, `caract-${id}`),
     }));
     expect(h).not.toContain('caract-1');
+    expect(h).not.toContain('Caractéristiques du permis'); // panneau non rendu → aucun titre de famille
   });
 });
 
@@ -223,8 +236,8 @@ describe('N6-F — pièce VERSÉE AUTOMATIQUEMENT (origine « auto »)', () => {
     expect(h).toContain('↓'); // téléchargeable aussi
   });
 
-  it('les trois origines dossier_document COEXISTENT dans le panneau (fiche en tête, auto et manuel distinctes)', () => {
-    const h = rendu([ligne({ pieces: [fiche, auto, manuel] })]);
+  it('les trois origines dossier_document COEXISTENT (fiche en tête, auto et manuel distinctes) — CellulePieces', () => {
+    const h = renderToStaticMarkup(createElement(CellulePieces, { pieces: [fiche, auto, manuel], onTelecharger: () => {}, onSupprimer: () => {} }));
     expect(h).toContain('fiche de synthèse');
     expect(h).toContain('versée automatiquement');
     expect(h).toContain('ajoutée à la main');
@@ -241,8 +254,8 @@ describe('N6-F — pièce VERSÉE AUTOMATIQUEMENT (origine « auto »)', () => {
 });
 
 describe('N1-B — fiche de synthèse générée (origine « genere »)', () => {
-  it('affichée EN PREMIER dans les pièces, AVANT les pièces reçues par e-mail', () => {
-    const h = rendu([ligne({ pieces: [emailDeposee, fiche] })]);
+  it('affichée EN PREMIER dans les pièces, AVANT les pièces reçues par e-mail (CellulePieces)', () => {
+    const h = renderToStaticMarkup(createElement(CellulePieces, { pieces: [emailDeposee, fiche], onTelecharger: () => {}, onSupprimer: () => {} }));
     expect(h).toContain('Fiche de synthèse du permis.pdf');
     expect(h).toContain('fiche de synthèse');                     // pastille distinctive
     // la fiche apparaît avant la pièce e-mail dans le HTML (rendue en tête)
@@ -295,15 +308,16 @@ describe('N1-C — repli des pièces par permis (disclosure natif)', () => {
     expect(h).not.toContain('type="file"');       // l'ajout de document est dans le panneau → masqué aussi
   });
 
-  it('ligne DÉPLOYÉE : panneau <td id> ciblé par aria-controls, pièces + ajout présents, bouton « Fermer »', () => {
+  it('ligne DÉPLOYÉE : panneau <td id> ciblé par aria-controls, encart de familles présent, bouton « Fermer »', () => {
     const h = rendu([ligne({ pieces: [emailDeposee, manuel] })], MAINTENANT, 1);
     expect(h).toContain('aria-expanded="true"');
     expect(h).toContain('aria-controls="archive-pieces-1"');
     expect(h).toContain('id="archive-pieces-1"');
     expect(h).toContain('Fermer');
-    expect(h).toContain('plan-de-masse.pdf');
-    expect(h).toContain('note-interne.pdf');
-    expect(h).toContain('type="file"');           // ajout à la main dans le panneau déployé
+    // UNIF-3b — l'encart est là (famille Pièces remplissable, titre replié) ; le contenu (pièces + ajout) est lazy → monté au dépliage de la famille.
+    expect(h).toContain('Pièces du permis');
+    expect(h).not.toContain('plan-de-masse.pdf'); // contenu de la famille non rendu tant que la famille n'est pas dépliée
+    expect(h).not.toContain('type="file"');
   });
 
   it('G2 — la couleur d’état de la ligne reste présente, REPLIÉE comme DÉPLOYÉE', () => {
@@ -419,7 +433,7 @@ describe('T5 — CellulePieces : pièces e-mail groupées par réponse (étiquet
       { id: 500, nomFichier: 'plan.pdf', typeMime: 'application/pdf', tailleOctets: 1000, deposee: true, motifNonStocke: null, origine: 'email', recuLe: '2026-08-12', objet: 'Envoi des pièces' },
       { id: 490, nomFichier: 'arrete.pdf', typeMime: 'application/pdf', tailleOctets: 2000, deposee: true, motifNonStocke: null, origine: 'email', recuLe: '2026-08-05', objet: 'Première réponse' },
     ];
-    const h = rendu([ligne({ pieces })]);
+    const h = renderToStaticMarkup(createElement(CellulePieces, { pieces, onTelecharger: () => {}, onSupprimer: () => {} }));
     expect(h).toContain('reçues le 12/08 — Envoi des pièces');
     expect(h).toContain('reçues le 05/08 — Première réponse');
     expect(h).toContain('plan.pdf');
@@ -427,7 +441,7 @@ describe('T5 — CellulePieces : pièces e-mail groupées par réponse (étiquet
   });
 
   it('pièce e-mail NON déposée → motif, aucun bouton (non-régression du contrat) ; pièce déposée → bouton (non-régression auto)', () => {
-    const h = rendu([ligne({ pieces: [emailDeposee, emailNonDeposee] })]);
+    const h = renderToStaticMarkup(createElement(CellulePieces, { pieces: [emailDeposee, emailNonDeposee], onTelecharger: () => {}, onSupprimer: () => {} }));
     expect(h).toContain('plan-de-masse.pdf');            // déposée → téléchargeable (non-régression)
     expect(h).toContain('coupe.pdf');
     expect(h).toContain('non déposée : dépôt S3 non configuré'); // motif rendu

@@ -17,12 +17,12 @@ describe('UNIF-3 — le détail « Archives » consomme l’encart de familles (
   it('la coquille utilise EncartFamilles pour l’onglet « archives »', () => {
     expect(RENDU).toContain('<EncartFamilles onglet="archives"');
   });
-  it('répartition Archives : Caractéristiques + Pièces REMPLISSABLES (ouvertes d’emblée) ; Complétude/Historique/Bâtiments si non vides', () => {
+  it('répartition Archives : 5 familles (Caractéristiques + Pièces remplissables ; Complétude/Historique/Bâtiments si non vides)', () => {
     for (const cle of ['completude', 'historique', 'caracteristiques', 'batiments', 'pieces']) {
       expect(RENDU).toContain(`cle: '${cle}'`);
     }
-    // Pièces + Caractéristiques ouvertes d’emblée (Archives sert à CONSULTER) ; les 2 seules `defautOuvert: true`.
-    expect((RENDU.match(/defautOuvert: true/g) ?? []).length).toBe(2);
+    // UNIF-3b — alignement STRICT avec les autres onglets : TOUT REPLIÉ, aucune famille ouverte d'emblée.
+    expect(RENDU).not.toContain('defautOuvert');
     // Les signaux « non vide » per-dossier pilotent les familles si-non-vide (jamais le contenu → paresse).
     for (const sig of ['l.completudeNonVide', 'l.historiqueNonVide', 'l.batimentsNonVide']) {
       expect(RENDU).toContain(sig);

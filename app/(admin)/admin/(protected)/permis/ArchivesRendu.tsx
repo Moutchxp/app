@@ -318,21 +318,22 @@ export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, on
                 </tr>
                 {ouvert && (
                   <tr>
-                    {/* UNIF-3 — le détail adopte l'ENCART DE FAMILLES (socle UNIF-0, onglet « archives »). Familles REMPLISSABLES ici :
-                        Caractéristiques + Pièces (ouvertes d'emblée — Archives sert à CONSULTER, on ne masque pas ce qu'on vient voir) ;
-                        « si non vide » : Complétude / Historique / Bâtiments (signaux batchés). Suivi & actions = ABSENTE (Archives est
-                        post-satisfaction : ni statuer-dossier, ni clôture, ni réf mairie/suspension/cascade). Chaque contenu = render-prop
-                        montée au dépliage (paresse PERF-1). Pièces = CellulePieces + AjoutDocument (geste PROPRE à Archives : ajout à la
-                        main, pièces e-mail non supprimables). */}
+                    {/* UNIF-3 — le détail adopte l'ENCART DE FAMILLES (socle UNIF-0, onglet « archives »). Familles REMPLISSABLES :
+                        Caractéristiques + Pièces (toujours affichées). « si non vide » : Complétude / Historique / Bâtiments (signaux
+                        batchés). Suivi & actions = ABSENTE (Archives est post-satisfaction : ni statuer-dossier, ni clôture, ni réf
+                        mairie/suspension/cascade). UNIF-3b — TOUT REPLIÉ (uniformité stricte avec les autres onglets) : la ligne du
+                        tableau porte déjà nombre de pièces + statut de complétude, donc l'info de 1er niveau est là sans déplier ;
+                        chaque contenu est une render-prop montée AU DÉPLIAGE (paresse PERF-1). Pièces = CellulePieces + AjoutDocument
+                        (geste PROPRE à Archives : ajout à la main, pièces e-mail non supprimables). */}
                     <td id={ancrePieces(l.dossierId)} colSpan={NB_COLONNES_ARCHIVES}
                       style={{ padding: '.6rem .8rem', borderBottom: '1px solid var(--color-svv-line)', background: 'var(--color-svv-field)', whiteSpace: 'normal' }}>
                       <EncartFamilles onglet="archives" familles={([
                         slotCompletude ? { cle: 'completude', titre: LIBELLE_FAMILLE.completude, nonVide: l.completudeNonVide, contenu: () => slotCompletude(l.dossierId) } : null,
                         slotHistorique ? { cle: 'historique', titre: LIBELLE_FAMILLE.historique, nonVide: l.historiqueNonVide, contenu: () => slotHistorique(l.dossierId) } : null,
-                        // N3-D — contenu MÉTIER d'abord : Caractéristiques passe avant les Pièces (ordre canonique ORDRE_FAMILLES). Ouverte d'emblée.
-                        slotCaracteristiques ? { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: true, defautOuvert: true, contenu: () => slotCaracteristiques(l.dossierId) } : null,
+                        // N3-D — contenu MÉTIER d'abord : Caractéristiques passe avant les Pièces (ordre canonique ORDRE_FAMILLES).
+                        slotCaracteristiques ? { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: true, contenu: () => slotCaracteristiques(l.dossierId) } : null,
                         slotBatiments ? { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: l.batimentsNonVide, contenu: () => slotBatiments(l.dossierId) } : null,
-                        { cle: 'pieces', titre: LIBELLE_FAMILLE.pieces, nonVide: true, defautOuvert: true, contenu: () => (
+                        { cle: 'pieces', titre: LIBELLE_FAMILLE.pieces, nonVide: true, contenu: () => (
                           <>
                             <CellulePieces pieces={l.pieces} sourcesNonResolues={l.sourcesNonResolues} onTelecharger={onTelecharger} onSupprimer={onSupprimer} />
                             <div style={{ marginTop: '.5rem' }}><AjoutDocument dossierId={l.dossierId} onFichier={onFichier} enCours={uploadEnCours === l.dossierId} /></div>
