@@ -77,6 +77,11 @@ const DEFS_BASE = [
   // CASC-2 — délai avant saisine CADA sur dossier partiel (migration 178) : mois [0;12], jours [0;90]
   'CHECK (((cada_partiel_delai_mois >= 0) AND (cada_partiel_delai_mois <= 12)))',
   'CHECK (((cada_partiel_delai_jours >= 0) AND (cada_partiel_delai_jours <= 90)))',
+  // CASC-3 — rythme de la cascade partielle (migration 179) : relance/annonce [1;90], saisine [0;90], nb_relances [1;10]
+  'CHECK (((cascade_partiel_relance_jours >= 1) AND (cascade_partiel_relance_jours <= 90)))',
+  'CHECK (((cascade_partiel_annonce_jours >= 1) AND (cascade_partiel_annonce_jours <= 90)))',
+  'CHECK (((cascade_partiel_saisine_jours >= 0) AND (cascade_partiel_saisine_jours <= 90)))',
+  'CHECK (((cascade_partiel_nb_relances >= 1) AND (cascade_partiel_nb_relances <= 10)))',
   // RELANCE — fenêtre horaire d'envoi automatique (migration 140) : BETWEEN 0 AND 23 → forme `>= AND <=`
   'CHECK (((envoi_heure_debut >= 0) AND (envoi_heure_debut <= 23)))',
   'CHECK (((envoi_heure_fin >= 0) AND (envoi_heure_fin <= 23)))',
