@@ -8,6 +8,7 @@ import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { bornesFenetres, type FenetreCumul } from './fenetresCumul';
 import { apparierPropositions, type CibleDepot } from './propositionDepot';
 import { normaliserNumeroDossier } from './satisfactionDossier'; // source UNIQUE de la normalisation d'un n° Sitadel (garde les lettres)
+import { MOTIF_COMPLEMENT_PREFIXE, MOTIF_DECLARATION_PREFIXE, MOTIF_REPONSE_LIBRE_PREFIXE } from '../permis/demanderPiecesRepo'; // UNIF-0 : mêmes préfixes que le fil (historique non vide)
 import { libelleNatureProjet } from '../sitadel/priorite'; // GED-1 : nature des travaux en clair (jamais le code nu)
 import { fenetreDepuis } from './releveReponses'; // P1 : MÊME source que la relève pour « on relève depuis le … » (jamais une 2e vérité)
 import type { ReglagesCascade } from './cascadeRelance'; // cascade lot 4 : seuils exposés à l'affichage (type-only → erasé côté client)
@@ -170,6 +171,13 @@ export interface DemandeSuivi {
   cascade: EtatCascadePartielle | null; // CASC-3 : étape de cascade partielle + brouillon (null = non partielle / complète / 179 absente)
   lienEnAttente: boolean;        // PART-D : ≥ 1 lien fort reçu ET un dossier à GED vide → contenu pas encore récupéré (bascule dossier partiel vers Réponses)
   lienEnAttenteLe: string | null; // PART-D : recu_le (ISO) du PLUS ANCIEN lien fort en attente → tri par urgence dans Réponses ; null = aucun
+  // UNIF-0 — SIGNAUX « non vide » (comptes batchés, jamais le contenu) : pilotent l'affichage des familles de l'encart de détail
+  //   (règle familleAffichee). Le CONTENU de chaque famille reste chargé PARESSEUSEMENT au dépliage (PERF-1). « Pièces du permis »
+  //   n'a pas son propre drapeau : elle réutilise `dossiersEnGed > 0`. « Suivi et actions » est toujours remplissable (pas de signal).
+  completudeNonVide: boolean;       // un diagnostic de complétude existe (permis_completude) pour ≥ 1 dossier actif
+  historiqueNonVide: boolean;       // un ÉCHANGE existe : la mairie a répondu (hors rebond) OU un suivi sortant (relance déclarée / complément / réponse libre / sortant hors outil)
+  caracteristiquesNonVide: boolean; // ≥ 1 caractéristique saisie/extraite OU ≥ 1 corps de bâtiment déclaré
+  batimentsNonVide: boolean;        // ≥ 1 corps de bâtiment déclaré (le tracé/emprise ~9 s reste, lui, chargé au dépliage)
 }
 // T6-A/2 — le critère d'inclusion « Réponses » (demandeADuRetour) + la partition d'affichage (partitionnerReponses) vivent dans
 //   ReponsesRendu.tsx (module PUR client-safe), PAS ici : ce module importe db/client (pg), qu'on ne veut jamais dans le bundle client.
@@ -517,6 +525,31 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     for (const r of rows) liensEnAttente.set(r.demande_id, r.le);
   }
 
+  // UNIF-0 — SIGNAUX « non vide » de l'encart de familles : UN SELECT batché PAR SIGNAL (EXISTS/agrégat, jamais N×), EN LECTURE —
+  //   aucun WHERE ajouté à la requête centrale `dem` (source partagée En cours ↔ Réponses). Chacun résilient (table absente → set
+  //   vide → famille masquée, dégradation sûre). Le CONTENU n'est JAMAIS tiré ici : seul le compte décide de l'affichage (PERF-1).
+  const ids = dem.rows.map((r) => r.id);
+  const setDepuis = async (sql: string, params: unknown[] = [ids]): Promise<Set<number>> => {
+    try { const { rows } = await query<{ demande_id: number }>(sql, params); return new Set(rows.map((x) => x.demande_id)); }
+    catch { return new Set(); } // migration/table absente → aucune famille signalée non vide (sûr)
+  };
+  const [completudeSet, historiqueSet, caracteristiquesSet, batimentsSet] = ids.length === 0
+    ? [new Set<number>(), new Set<number>(), new Set<number>(), new Set<number>()]
+    : await Promise.all([
+        setDepuis(`SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
+                     JOIN permis_completude pc ON pc.dossier_id = dd.dossier_id WHERE dd.demande_id = ANY($1) AND dd.actif`),
+        setDepuis(`SELECT d.id::int AS demande_id FROM demande d WHERE d.id = ANY($1) AND (
+                     EXISTS (SELECT 1 FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature <> 'rebond')
+                     OR EXISTS (SELECT 1 FROM demande_sortant_hors_outil s WHERE s.demande_id = d.id)
+                     OR EXISTS (SELECT 1 FROM demande_journal j WHERE j.demande_id = d.id AND j.motif LIKE ANY (ARRAY[$2, $3, $4])))`,
+                  [ids, `${MOTIF_COMPLEMENT_PREFIXE}%`, `${MOTIF_DECLARATION_PREFIXE}%`, `${MOTIF_REPONSE_LIBRE_PREFIXE}%`]),
+        setDepuis(`SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd WHERE dd.demande_id = ANY($1) AND dd.actif AND (
+                     EXISTS (SELECT 1 FROM permis_caracteristique pc WHERE pc.dossier_id = dd.dossier_id)
+                     OR EXISTS (SELECT 1 FROM permis_corps_batiment b WHERE b.dossier_id = dd.dossier_id))`),
+        setDepuis(`SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
+                     JOIN permis_corps_batiment b ON b.dossier_id = dd.dossier_id WHERE dd.demande_id = ANY($1) AND dd.actif`),
+      ]);
+
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut, canal: r.canal,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
@@ -539,6 +572,10 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     cascade: cascades.get(r.id) ?? null, // CASC-3
     lienEnAttente: liensEnAttente.has(r.id), // PART-D : lien fort en attente (GED vide) → bascule partiel vers Réponses
     lienEnAttenteLe: liensEnAttente.get(r.id) ?? null, // PART-D : plus ancien lien en attente → tri par urgence
+    completudeNonVide: completudeSet.has(r.id), // UNIF-0 : signaux « non vide » de l'encart (comptes batchés, jamais le contenu)
+    historiqueNonVide: historiqueSet.has(r.id),
+    caracteristiquesNonVide: caracteristiquesSet.has(r.id),
+    batimentsNonVide: batimentsSet.has(r.id),
   }));
   return { demandes, derniereOkLe, reglages, cascade, envoi, partielDelai: { mois: cfg.cadaPartielDelaiMois, jours: cfg.cadaPartielDelaiJours } }; // CASC-2 : délai partiel pour l'affichage « délai prolongé au … »
 }
