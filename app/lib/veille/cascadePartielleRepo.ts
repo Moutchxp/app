@@ -29,8 +29,9 @@ export interface EtatCascadePartielle {
   brouillon: TexteRelance | null;  // pré-rempli quand une étape 'relance'/'annonce' est due (à relire/modifier avant envoi)
 }
 
-/** Pièces ENCORE manquantes d'une demande = union des familles absentes de CHAQUE dossier actif (diagnostic mémorisé, jamais les PDF). */
-async function famillesManquantesDemande(demandeId: number): Promise<{ manquantes: FamillePlan[]; diagnostiquees: number }> {
+/** Pièces ENCORE manquantes d'une demande = union des familles absentes de CHAQUE dossier actif (diagnostic mémorisé, jamais les PDF).
+ *  EXPORTÉ : réutilisé par la boucle PART-E (relance sur réponse partielle) — un seul calcul du « manquant restant », jamais deux. */
+export async function famillesManquantesDemande(demandeId: number): Promise<{ manquantes: FamillePlan[]; diagnostiquees: number }> {
   const { rows } = await query<{ dossier_id: number }>(`SELECT dossier_id FROM demande_dossier WHERE demande_id = $1 AND actif`, [demandeId]);
   const { lireCompletude } = await import('../permis/completudeRepo');
   const set = new Set<FamillePlan>();

@@ -4,6 +4,7 @@ import { chargerSuiviReponses } from '../../../../../lib/veille/reponsesSuivi';
 import { chargerSuiviSaisines } from '../../../../../lib/veille/saisinesSuivi';
 import { listerSuivi } from '../../../../../lib/permis/rattachementSuiviRepo';
 import { compterFileProjection } from '../../../../../lib/permis/projectionFileRepo';
+import { compterRelancesReponseDue } from '../../../../../lib/veille/relanceReponsePartielleAuto';
 import { compterSurveillanceDossiers } from '../../../../../lib/veille/surveillancePolygonesAuto';
 import { chargerConfigVeille } from '../../../../../lib/sitadel/veilleConfig';
 import { compterReponses, compterSaisines, compterRattachement, assemblerComptes, type DemandeComptable } from '../../../../admin/(protected)/permis/comptesActions';
@@ -21,9 +22,13 @@ export async function GET(request: Request): Promise<Response> {
   if ('refus' in garde) return garde.refus;
   try {
     const config = await chargerConfigVeille();
-    const [reponsesData, saisinesData, suivi, projection, surveillance] = await Promise.all([
-      chargerSuiviReponses(), chargerSuiviSaisines(), listerSuivi(), compterFileProjection(config), compterSurveillanceDossiers(),
+    const [reponsesData, saisinesData, suivi, fileProjection, relancesReponseDue, surveillance] = await Promise.all([
+      chargerSuiviReponses(), chargerSuiviSaisines(), listerSuivi(), compterFileProjection(config),
+      compterRelancesReponseDue(config.relanceAutoActive), // PART-E : relances « réponse partielle » à envoyer À LA MAIN (0 en mode auto)
+      compterSurveillanceDossiers(),
     ]);
+    // PART-E — la pastille « Analyse » additionne la file d'instruction (GED reçue) ET les relances sur réponse dues en mode manuel.
+    const projection = fileProjection + relancesReponseDue;
     const reponses = compterReponses({
       demandes: reponsesData.demandes as unknown as DemandeComptable[],
       aRattacher: reponsesData.aRattacher, propositions: reponsesData.propositions,

@@ -27,6 +27,7 @@ import { executerReleveAuto, depsReellesReleveAuto } from '../veille/releveAuto'
 import { executerApprofondieAuto, depsReellesApprofondie } from '../veille/releveApprofondie';
 import { executerRelanceAuto, depsReellesRelance } from '../veille/relanceAuto';
 import { executerDiagnosticsVague, depsReellesDiagnosticsVague } from '../veille/diagnosticsVague';
+import { executerRelanceReponsePartielle, depsReellesRelanceReponsePartielle } from '../veille/relanceReponsePartielleAuto';
 import { executerAlerteAuto, depsReellesAlerte } from '../veille/alerteAuto';
 import { executerPropositionAuto, depsReellesProposition } from '../veille/propositionAuto';
 import { executerAlerteGedAuto, depsReellesAlerteGed } from '../veille/alerteGedAuto';
@@ -113,6 +114,9 @@ export interface DepsVeille {
   // PART-C — DIAGNOSTICS DE VAGUE (après les relèves, §1ter-bis). OPTIONNEL et ISOLÉ : pour un dossier partiel dont la GED a
   //   changé et dont la vague est close (relève AUTO → calme du dernier mail), lance UN diagnostic de complétude. Aucun envoi.
   diagnosticVague?(): Promise<unknown>;
+  // PART-E — BOUCLE de relance « réponse partielle » (après le diagnostic de vague, §1ter-ter). OPTIONNELLE et ISOLÉE. Mode AUTO
+  //   (relance_auto_active) → envoie la relance adaptée sous calme + fenêtre + cap par run ; mode MANUEL → rien (pastille Analyse).
+  relanceReponsePartielle?(): Promise<unknown>;
   // R6b — génération des BROUILLONS de relance pour les demandes à l'échéance dépassée (après l'approfondie). OPTIONNELLE et
   //   ISOLÉE (§1quater) : aucun envoi, un échec ne touche jamais la veille Sitadel.
   relanceEcheance?(): Promise<unknown>;
@@ -223,6 +227,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   MÊME ISOLATION à double filet : un échec n'impacte jamais la veille Sitadel. AUCUN envoi (le diagnostic ne réclame rien).
     if (faitMairies && deps.diagnosticVague) {
       try { await deps.diagnosticVague(); } catch { /* diagnostics de vague isolés : n'impactent jamais la veille Sitadel */ }
+    }
+
+    // 1ter-ter) BOUCLE DE RELANCE « la mairie a répondu partiellement » (PART-E) — APRÈS le diagnostic de vague (complétude à jour) :
+    //   pour chaque dossier partiel encore INCOMPLET dont la mairie a répondu depuis le dernier sortant, envoie (mode AUTO,
+    //   relance_auto_active) la relance adaptée, sous délai de calme (vagueCloseeEnvoi), fenêtre ouvrée et cap par run ; mode MANUEL →
+    //   rien ici (pastille Analyse). Échange de suivi : PAS de plafond quotidien. MÊME ISOLATION : un échec n'impacte jamais la veille.
+    if (faitMairies && deps.relanceReponsePartielle) {
+      try { await deps.relanceReponsePartielle(); } catch { /* boucle partielle isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     // 1quater) BROUILLONS DE RELANCE (R6b) — APRÈS l'approfondie (qui vient de regarder au mieux) : pour les demandes dont
@@ -507,6 +519,8 @@ function depsReelles(): DepsVeille {
     echeanceApprofondie: () => executerApprofondieAuto(depsReellesApprofondie()),
     // PART-C — diagnostics de vague réels (relève AUTO) : dossiers partiels à GED changée + vague close → 1 diagnostic, dans diagnosticsVague.ts.
     diagnosticVague: () => executerDiagnosticsVague('auto', depsReellesDiagnosticsVague()),
+    // PART-E — boucle réelle : relance auto « réponse partielle » (mode auto), gardes calme/fenêtre/cap/régime, dans relanceReponsePartielleAuto.ts.
+    relanceReponsePartielle: () => executerRelanceReponsePartielle(depsReellesRelanceReponsePartielle()),
     // R6b — brouillons de relance réels : sélection 'depassee' + garde relance vivante + journal, dans relanceAuto.ts.
     relanceEcheance: () => executerRelanceAuto(depsReellesRelance()),
     // R8 — alerte quotidienne réelle : conditions + composition + envoi SMTP + journal, dans alerteAuto.ts.
