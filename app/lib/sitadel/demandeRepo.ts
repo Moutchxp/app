@@ -20,6 +20,7 @@ import { resoudreDestination, type ContactCommune } from './destinataire';
 import { expressionRangSql, classer, libelleNatureProjet, type CleCategorie } from './priorite'; // D2 : expressionRangSql réutilisé (pur) ; Q2b : classer = source unique de catégorie ; N1-B : libelleNatureProjet traduit le code nature
 import type { SourceFichePermis } from '../pdf/fichePermisPdf'; // N1-B : type SEUL (le générateur PDF pdfkit n'entre jamais dans le graphe statique)
 import { MARQUEUR_FICHE_SYNTHESE, PREFIXE_NOTE_VERSEMENT_AUTO } from '../permis/gedConstantes'; // N1-B/N4/N6-F : sentinelle fiche + préfixe versement auto (source unique)
+import { lignesDepuisClassements, famillesAttenduesDepuisConfig, type ClassementPiece } from '../permis/diagnosticCompletude'; // POLISH-1 : MÊME logique de complétude que BlocCompletude (jamais recopiée)
 import { agregerStock, moisDePeriode, type LigneStock, type DossierStock } from './stock'; // Q2b : agrégat PUR du stock (réutilise estCandidatEligible via agregerStock)
 import { lireClePiece } from '../veille/demandeReponseRepo'; // A1b : réutilisé par le dispatcher unique de lecture de clé (pas de 2e implémentation)
 import { resoudreDepotPresume } from '../veille/depotPresume'; // LOT B1 : résout la présomption de dépôt téléservice au geste terminal (dépôt/annulation)
@@ -345,6 +346,7 @@ export interface LigneArchive {
   aLienFort: boolean;            // G2 : la réponse porte un lien fort (contenu périssable non classé) — signal de contenu au même titre qu'une pièce e-mail
   pieces: PieceArchive[];
   sourcesNonResolues: string[];  // N10-J : noms de pièces SOURCES du journal non résolus (homonymes → ambigu, ou absents de la GED) → RIEN épinglé, mais RENDU VISIBLE (jamais deviné)
+  completudeIncomplete: boolean; // POLISH-1 : le diagnostic de complétude est CONNU et INCOMPLET (une famille attendue manque) → ligne rouge « incomplet ». false = complet OU jamais diagnostiqué (inchangé).
 }
 
 // N1-B / N4 — sentinelle de la fiche générée : source unique dans le module-feuille PROPRE `permis/gedConstantes` (importable
@@ -404,6 +406,22 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
   // table n'existe pas encore (089 non appliquée), on JOURNALISE et on dégrade en « aucun document manuel » (pièces e-mail conservées).
   const manuels = await lireDocumentsManuels();
   const sources = await lirePiecesSources(); // N10-J : par dossier, nom de pièce source → nb de champs remplis (retenue OU candidate 'plan')
+  // POLISH-1 — DIAGNOSTIC DE COMPLÉTUDE (par contenu) des permis archivés, en UNE lecture batchée. `incomplet` = diagnostic CONNU
+  //   (ligne permis_completude) dont une famille attendue MANQUE ; recomposé avec la MÊME logique que BlocCompletude (jamais recopiée).
+  //   SELECT ajouté EN LECTURE (jamais un WHERE sur la requête centrale). RÉSILIENT : 174 absente → aucun incomplet (rien en rouge).
+  const incompletParDossier = new Map<number, boolean>();
+  if (rows.length > 0) {
+    try {
+      const famillesAttendues = famillesAttenduesDepuisConfig({ cerfa: cfg.familleAttendueCerfa, masse: cfg.familleAttendueMasse, coupe: cfg.familleAttendueCoupe, etage: cfg.familleAttendueEtage });
+      const { rows: comp } = await query<{ dossier_id: number; classements: ClassementPiece[] | null }>(
+        `SELECT dossier_id::int AS dossier_id, classements FROM permis_completude WHERE dossier_id = ANY($1::bigint[])`,
+        [rows.map((r) => r.dossier_id)]);
+      for (const c of comp) {
+        const diag = lignesDepuisClassements(c.classements ?? [], famillesAttendues);
+        incompletParDossier.set(c.dossier_id, diag.lignes.some((l) => !l.presente)); // une famille attendue absente → incomplet
+      }
+    } catch { /* 174 absente / lecture impossible → aucun diagnostic connu → aucune ligne rouge (comportement inchangé) */ }
+  }
   return rows.map((r) => {
     const marque = marquerSources([...(r.pieces ?? []), ...(manuels.get(r.dossier_id) ?? [])], sources.get(r.dossier_id) ?? new Map());
     const cl = classer(
@@ -420,6 +438,7 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
       // N10-J : chaque pièce porte `estSource`/`nbChampsSource` (source résolue sans ambiguïté) ; les sources non résolues sont remontées à part.
       pieces: marque.pieces,
       sourcesNonResolues: marque.sourcesNonResolues,
+      completudeIncomplete: incompletParDossier.get(r.dossier_id) ?? false, // POLISH-1 : rouge « incomplet » seulement si diagnostic connu ET une famille manque
     };
   });
 }

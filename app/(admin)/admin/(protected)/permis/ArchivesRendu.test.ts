@@ -17,7 +17,7 @@ const ligne = (over: Partial<LigneArchive> = {}): LigneArchive => ({
   categorie: 'immeuble_neuf', libelleCategorie: 'Immeuble neuf', dateAutorisation: '2026-05-01',
   satisfaitLe: '2026-07-01', satisfaitPar: 'automatique', demandeReference: 'SVAV-DEM-2026-000042',
   recuLe: '2026-07-01', expireLeCapte: null, aLienFort: false,
-  pieces: [emailDeposee], sourcesNonResolues: [], ...over,
+  pieces: [emailDeposee], sourcesNonResolues: [], completudeIncomplete: false, ...over,
 });
 // N1-C — par défaut on rend la 1ʳᵉ ligne DÉPLOYÉE (dossierOuvert = son id) : les pièces vivent désormais dans le panneau déplié,
 // donc les tests de CONTRAT des pièces (T5, sécurité, origines) doivent ouvrir la ligne pour les voir. `dossierOuvert=null` teste le repli.
@@ -378,6 +378,23 @@ describe('G2 — etatArchive : 5 états (mot + couleur), 2 mois, exception « ve
   it('> 2 mois SANS documents mais contenu reçu → ligne NEUTRE, colonne Pièces ROUGE « versement oublié »', () => {
     const e = etatArchive(ligne({ pieces: [emailDeposee] }), VIEUX);
     expect(e).toMatchObject({ cle: 'versement_oublie', mot: 'versement oublié', couleurLigne: null, couleurPieces: 'var(--color-svv-red)' });
+  });
+
+  it('POLISH-1 — INCOMPLET (diagnostic connu) : toute la ligne ROUGE + mot « incomplet » (prime sur « obtenu »)', () => {
+    const e = etatArchive(ligne({ pieces: [manuel], completudeIncomplete: true }), RECENT);
+    expect(e).toMatchObject({ cle: 'incomplet', mot: 'incomplet', couleurLigne: 'var(--color-svv-red)', couleurPieces: 'var(--color-svv-red)' });
+    expect(e.couleurLigne).toBe('var(--color-svv-red)'); // MÊME rouge que BlocCompletude (var(--color-svv-red)), aucune nouvelle teinte
+  });
+  it('POLISH-1 — incomplet PRIME même au-delà de 2 mois (rouge, pas neutre)', () => {
+    const e = etatArchive(ligne({ pieces: [manuel], completudeIncomplete: true }), VIEUX);
+    expect(e.cle).toBe('incomplet'); expect(e.couleurLigne).toBe('var(--color-svv-red)');
+  });
+  it('POLISH-1 — non diagnostiqué (completudeIncomplete=false) → inchangé (« obtenu » vert), jamais « incomplet »', () => {
+    expect(etatArchive(ligne({ pieces: [manuel], completudeIncomplete: false }), RECENT).cle).toBe('obtenu');
+  });
+  it('POLISH-1 — a11y : le MOT « incomplet » est rendu dans le tableau (info portée par le texte, pas la seule couleur)', () => {
+    const h = rendu([ligne({ pieces: [manuel], completudeIncomplete: true })]);
+    expect(h).toContain('incomplet');
   });
 });
 

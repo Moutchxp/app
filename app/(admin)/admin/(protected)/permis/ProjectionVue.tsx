@@ -91,17 +91,22 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
           {() => <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
         </BlocRepliable>
         {/* PERF-1 — BÂTIMENTS/PROJECTION (verdict) : la requête la PLUS coûteuse (≈ 9 s sur 7424). Différée au dépliage ; onOuvertChange
-            débloque le bouton « Valider ». */}
+            débloque le bouton « Valider ». POLISH-1 — le bouton « Valider la projection » et ses phrases sont ENFERMÉS dans ce bloc :
+            ils n'apparaissent qu'une fois DÉPLIÉ (cohérence avec les autres blocs repliés) ; repli → cachés, aucun /emprise relancé. */}
         <BlocRepliable key={`w-bat-${ouvert}`} titre="Bâtiments et projection (emprise)" onOuvertChange={setBatimentsOuvert}>
-          {() => <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} rafraichir={vInstruction} />}
+          {() => (
+            <div className="flex flex-col gap-2">
+              <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} rafraichir={vInstruction} />
+              <BoutonValiderProjection
+                peutValider={ev.peutValider}
+                aucunBatiment={ev.aucunBatiment}
+                libelle={ev.libelle}
+                enCours={enCours}
+                onValider={() => { void valider(ouvert); }} />
+              {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
+            </div>
+          )}
         </BlocRepliable>
-        <BoutonValiderProjection
-          peutValider={ev.peutValider}
-          aucunBatiment={ev.aucunBatiment}
-          libelle={ev.libelle}
-          enCours={enCours}
-          onValider={() => { void valider(ouvert); }} />
-        {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
         {/* EXT-1 (point 5) — PIÈCES DU PERMIS en DERNIÈRE POSITION : référence en regard de la saisie. Chargées au dépliage (PERF-1). */}
         <BlocRepliable key={`w-pieces-${ouvert}`} titre="Pièces du permis">
           {() => <BlocPiecesPermis key={`pieces-${ouvert}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />}

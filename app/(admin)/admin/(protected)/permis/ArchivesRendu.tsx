@@ -26,7 +26,7 @@ const ORANGE = '#8a5a00';                        // convention existante des bad
 const VERT = 'var(--color-svv-green-ink)';
 const ROUGE = 'var(--color-svv-red)';
 
-export type EtatArchiveCle = 'obtenu' | 'attente' | 'depasse' | 'sans_contenu' | 'versement_oublie';
+export type EtatArchiveCle = 'obtenu' | 'attente' | 'depasse' | 'sans_contenu' | 'versement_oublie' | 'incomplet';
 export interface EtatArchive {
   cle: EtatArchiveCle;
   mot: string;                  // TOUJOURS rendu (la couleur ne porte jamais seule l'info — lisible en noir et blanc)
@@ -54,7 +54,12 @@ function apresMoisCalendaires(satisfaitLe: string, maintenant: Date, mois: numbe
  * sans contenu reçu (NEUTRE : ni pièce en GED, ni contenu reçu → rien à classer, JAMAIS rouge). Après 2 mois (satisfait_le) : la
  * LIGNE repasse en neutre. EXCEPTION : un contenu reçu jamais classé (aContenu sans enGed) garde la colonne Pièces en ROUGE « versement oublié ».
  */
-export function etatArchive(l: Pick<LigneArchive, 'satisfaitLe' | 'recuLe' | 'expireLeCapte' | 'aLienFort' | 'pieces'>, maintenant: Date): EtatArchive {
+export function etatArchive(l: Pick<LigneArchive, 'satisfaitLe' | 'recuLe' | 'expireLeCapte' | 'aLienFort' | 'pieces' | 'completudeIncomplete'>, maintenant: Date): EtatArchive {
+  // POLISH-1 — le diagnostic « dossier INCOMPLET » (par contenu) PRIME sur tout : toute la ligne en ROUGE, mot « incomplet ». Le
+  //   ROUGE réutilisé = var(--color-svv-red), IDENTIQUE à BlocCompletude (aucune nouvelle teinte). a11y : le MOT porte l'info, jamais
+  //   la seule couleur. `completudeIncomplete` = false quand le permis n'a PAS de diagnostic connu → « pas encore diagnostiqué »
+  //   n'est JAMAIS « incomplet » (comportement inchangé, ligne neutre).
+  if (l.completudeIncomplete) return { cle: 'incomplet', mot: 'incomplet', couleurLigne: ROUGE, couleurPieces: ROUGE };
   const enGed = l.pieces.some((p) => p.origine === 'manuel' || p.origine === 'auto'); // ∃ dossier_document REÇU = obtenu (T8) ; 'genere'/'email' exclus
   const aContenu = l.pieces.some((p) => p.origine === 'email') || l.aLienFort;
 

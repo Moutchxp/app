@@ -19,11 +19,21 @@ const REPLIABLE = lire('./BlocRepliable.tsx');
 const COMPLETUDE = lire('./BlocCompletude.tsx');
 
 describe('PERF-1 — blocs coûteux montés au dépliage (render-prop)', () => {
-  for (const bloc of ['BlocFilEchanges', 'CaracteristiquesBloc', 'BlocTraceEmprise', 'BlocPiecesPermis']) {
+  for (const bloc of ['BlocFilEchanges', 'CaracteristiquesBloc', 'BlocPiecesPermis']) {
     it(`${bloc} est monté via une render-prop () => <…> (chargé au dépliage, pas au rendu de la fiche)`, () => {
       expect(PROJ).toContain(`() => <${bloc}`);
     });
   }
+
+  // POLISH-1 — BlocTraceEmprise reste chargé AU DÉPLIAGE, mais sa render-prop retourne désormais un fragment : le bloc « Bâtiments
+  //   et projection » enferme AUSSI le bouton « Valider la projection » (il n'apparaît plus hors du bloc replié). La requête /emprise
+  //   ne part donc toujours qu'au dépliage. On vérifie que trace ET bouton vivent dans la MÊME render-prop lazy.
+  it('BlocTraceEmprise + BoutonValiderProjection sont enfermés dans la render-prop lazy du bloc « Bâtiments et projection » (POLISH-1)', () => {
+    const bat = PROJ.slice(PROJ.indexOf('onOuvertChange={setBatimentsOuvert}'));
+    expect(bat).toContain('{() => ('); // render-prop (lazy) — /emprise seulement au dépliage
+    expect(bat.indexOf('<BlocTraceEmprise')).toBeGreaterThan(-1);
+    expect(bat.indexOf('<BoutonValiderProjection')).toBeGreaterThan(bat.indexOf('<BlocTraceEmprise')); // bouton ENFERMÉ après la trace, dans le même bloc
+  });
 
   it('les 4 blocs coûteux sont enveloppés dans BlocRepliable (4 wrappers)', () => {
     expect((PROJ.match(/<BlocRepliable/g) ?? []).length).toBe(4);
