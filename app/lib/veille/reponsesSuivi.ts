@@ -707,14 +707,15 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     } catch { /* journal/details absents → historique sans les relances partielles (dégradation sûre) */ }
   }
 
-  // LOT 17 (C) — MENTION « N échanges — dernier le … » du titre de « Historique des échanges » (VISIBLE REPLIÉE). Compte + date du DERNIER,
-  //   MÊME périmètre que le fil (BlocFilEchanges/filPermisRepo) : reçus (hors rebond) + envois (acheminement 'envoye') + suivi journal
-  //   (compléments/déclarations/réponses libres) + hors-outil. UNE requête batchée SÉPARÉE par demande_id (JAMAIS un WHERE sur `dem`) ;
-  //   on ne charge PAS le fil paresseux pour ce compte. Résiliente : table/colonne absente → aucune mention (la famille reste pilotée par historiqueSet).
+  // LOT 17/19 (C) — MENTION « N échanges — dernier le … » du titre de « Historique des échanges » (VISIBLE REPLIÉE). Compte + date du
+  //   DERNIER MAIL RÉELLEMENT ÉCHANGÉ avec la mairie (LOT 19, point 5) : envoyé par nous (acheminement 'envoye' + compléments/réponses
+  //   libres du journal + sortant hors-outil) OU reçu d'elle (demande_reponse hors rebond). 🔴 Les DÉCLARATIONS (journal MOTIF_DECLARATION)
+  //   SONT EXCLUES : ce sont des événements INTERNES (Arno déclare une relance), pas des mails — leur horodatage n'est pas une date d'échange
+  //   (LOT 19 point 4/6). UNE requête batchée SÉPARÉE par demande_id (JAMAIS un WHERE sur `dem`) ; on ne charge PAS le fil paresseux.
   const echangesParId = new Map<number, { n: number; dernierLe: string | null }>();
   if (ids.length > 0) {
     try {
-      const motifsMsg = [`${MOTIF_COMPLEMENT_PREFIXE}%`, `${MOTIF_DECLARATION_PREFIXE}%`, `${MOTIF_REPONSE_LIBRE_PREFIXE}%`];
+      const motifsMsg = [`${MOTIF_COMPLEMENT_PREFIXE}%`, `${MOTIF_REPONSE_LIBRE_PREFIXE}%`]; // LOT 19 : compléments + réponses libres = mails réels ; DÉCLARATIONS exclues
       const { rows } = await query<{ demande_id: number; n: number; dernier: string | null }>(
         `SELECT d.id::int AS demande_id,
                 ((SELECT count(*) FROM demande_acheminement a WHERE a.demande_id = d.id AND a.statut = 'envoye')

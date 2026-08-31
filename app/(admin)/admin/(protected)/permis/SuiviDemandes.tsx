@@ -698,6 +698,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   const evenements = suivi ? projeterParcours({
                     envoyeLe: richDetail.envoyeLe, envois: richDetail.historiqueEnvois, suspension: richDetail.suspension,
                     saisineCadaEnvoyeeLe: richDetail.saisineCadaEnvoyeeLe, annonceCadaEnvoyeeLe: richDetail.annonceCadaEnvoyeeLe,
+                    destinataireCourant: richDetail.contactMairie.destinataire, // LOT 19 : dest_email figé de la demande → adresse des envois à venir
                     reglages: { ordinaire: suivi.cascade, partiel: suivi.reglagesPartiel, cadaPartielMois: suivi.partielDelai.mois, cadaPartielJours: suivi.partielDelai.jours },
                   }) : [];
                   const c = richDetail.cascade;

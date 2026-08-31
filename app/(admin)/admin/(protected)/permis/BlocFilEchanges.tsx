@@ -78,11 +78,10 @@ export function BlocFilEchanges({ dossierId }: { dossierId: number }) {
       {fil?.statut === 'vide' && <span style={muted}>Aucun échange enregistré pour ce permis.</span>}
       {fil?.statut === 'ok' && (() => {
         const affichees = fil.entrees.filter((e) => gardeFiltre(e, filtre));
+        // LOT 19 (A) — la chronologie s'affiche DIRECTEMENT au dépli de la famille (un seul clic) : plus de sous-ligne « N échanges —
+        //   dernier le … » (elle doublait la mention du titre, LOT 17) ni de 2e pli. Le compte + la date vivent désormais dans le titre.
         return (
-          <details>
-            <summary style={{ cursor: 'pointer', fontSize: 13 }}>
-              {fil.entrees.length} échange{fil.entrees.length > 1 ? 's' : ''} — dernier le {dateHeure(fil.entrees[0].le)}
-            </summary>
+          <>
             <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', margin: '.4rem 0 .2rem' }}>
               {([['tout', 'Tout'], ['recus', 'Reçus de la mairie'], ['envoyes', 'Envoyés par nous']] as [Filtre, string][]).map(([v, lib]) => (
                 <button key={v} type="button" className={`svv-btn ${filtre === v ? 'svv-btn-primary' : 'svv-btn-outline'}`} style={{ width: 'auto', padding: '.15rem .5rem', fontSize: 12 }} aria-pressed={filtre === v} onClick={() => setFiltre(v)}>{lib}</button>
@@ -123,7 +122,7 @@ export function BlocFilEchanges({ dossierId }: { dossierId: number }) {
               ))}
             </ul>
             {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-ink)', marginTop: '.3rem' }}>{message}</div>}
-          </details>
+          </>
         );
       })()}
     </div>

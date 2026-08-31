@@ -43,6 +43,7 @@ export interface EntreeParcours {
   suspension: EtatPartiel | null;        // bifurcation : la 1re réclamation de pièces (partiel_le) → régime PARTIEL
   saisineCadaEnvoyeeLe: string | null;   // dépôt CADA réellement parti (→ « Dépôt de saisine CADA » effectué)
   annonceCadaEnvoyeeLe: string | null;   // annonce CADA réellement partie (→ « Information saisine CADA » effectuée, régime partiel)
+  destinataireCourant: string | null;    // LOT 19 : destinataire ACTUEL de la demande (dest_email, figé par demande) → adresse des étapes d'envoi À VENIR (ordinaires)
   reglages: ReglagesParcours;
 }
 
@@ -50,13 +51,23 @@ const MS_JOUR = 86_400_000;
 const iso = (d: string): string => new Date(d).toISOString();                                   // NORMALISE tout format (pg `::text` ou ISO) en ISO comparable
 const ajoute = (isoDate: string, jours: number): string => new Date(new Date(isoDate).getTime() + jours * MS_JOUR).toISOString();
 const detailOrdinaire = (grade: string): string => (grade === 'Rappel' ? 'rappel courtois' : grade === 'Avis d’échéance' ? 'avis d’échéance' : grade.toLowerCase());
+// LOT 19 (point 11) — une relance PARTIELLE à venir part In-Reply-To du dernier message mairie : l'adresse peut changer → jamais une adresse figée trompeuse.
+const INTERLOCUTEUR_FUTUR = 'au dernier interlocuteur de la mairie';
 
-/** Une étape ordinaire (rappel/avis) : effectuée si l'envoi de ce grade existe (date réelle), sinon programmée (date projetée). */
-function etapeOrdinaire(ordRealise: Map<string, string>, grade: string, dateProjetee: string, detail: string): EvenementFrise {
+/** LOT 19 (points 9/12) — ligne de détail grise d'une étape d'ENVOI : l'adresse (« à … ») puis, le cas échéant, la nature. UNE seule ligne. */
+function detailEnvoi(adresse: string | null, nature: string | null): string | null {
+  const parts: string[] = [];
+  if (adresse) parts.push(`à ${adresse}`);
+  if (nature) parts.push(nature);
+  return parts.length > 0 ? parts.join(' · ') : null;
+}
+
+/** Une étape ordinaire (rappel/avis) : effectuée (date + adresse RÉELLES) si l'envoi de ce grade existe, sinon programmée (date + adresse courante). */
+function etapeOrdinaire(ordRealise: Map<string, { le: string; dest: string | null }>, grade: string, dateProjetee: string, nature: string, destCourant: string | null): EvenementFrise {
   const reel = ordRealise.get(grade);
   return reel
-    ? { le: reel, quand: 'passe', libelle: 'Relance effectuée', detail }
-    : { le: dateProjetee, quand: 'avenir', libelle: 'Relance programmée', detail };
+    ? { le: reel.le, quand: 'passe', libelle: 'Relance effectuée', detail: detailEnvoi(reel.dest, nature) }
+    : { le: dateProjetee, quand: 'avenir', libelle: 'Relance programmée', detail: detailEnvoi(destCourant, nature) };
 }
 
 /**
@@ -68,20 +79,20 @@ export function projeterParcours(e: EntreeParcours): EvenementFrise[] {
   if (!e.envoyeLe) return [];
   const evs: EvenementFrise[] = [];
 
-  // Étape 1 — DEMANDE INITIALE (toujours un fait).
+  // Étape 1 — DEMANDE INITIALE (toujours un fait) : adresse RÉELLEMENT utilisée (destinataire de l'envoi), à défaut le destinataire courant.
   const envoiInitial = e.envois.find((x) => x.nature === 'initiale');
-  evs.push({ le: iso(e.envoyeLe), quand: 'passe', libelle: 'Demande initiale de communication', detail: envoiInitial?.destinataire ? `à ${envoiInitial.destinataire}` : null });
+  evs.push({ le: iso(e.envoyeLe), quand: 'passe', libelle: 'Demande initiale de communication', detail: detailEnvoi(envoiInitial?.destinataire ?? e.destinataireCourant, null) });
 
-  // Faits RÉELS indexés : relances ordinaires par GRADE, relances partielles par ordre chronologique (= ordre de rang).
-  const ordRealise = new Map<string, string>();
-  for (const x of e.envois) if (x.nature === 'relance_ordinaire' && x.grade) ordRealise.set(x.grade, iso(x.le));
-  const partielsRealises = e.envois.filter((x) => x.nature === 'relance_partielle').map((x) => iso(x.le)).sort();
+  // Faits RÉELS indexés (date + ADRESSE réelle) : relances ordinaires par GRADE, relances partielles par ordre chronologique (= ordre de rang).
+  const ordRealise = new Map<string, { le: string; dest: string | null }>();
+  for (const x of e.envois) if (x.nature === 'relance_ordinaire' && x.grade) ordRealise.set(x.grade, { le: iso(x.le), dest: x.destinataire });
+  const partielsRealises = e.envois.filter((x) => x.nature === 'relance_partielle').map((x) => ({ le: iso(x.le), dest: x.destinataire })).sort((a, b) => (a.le < b.le ? -1 : a.le > b.le ? 1 : 0));
 
   if (e.suspension) {
     // ── RÉGIME PARTIEL (après bifurcation) ──
     const J = iso(e.suspension.le);
     // Relances ordinaires réalisées AVANT la bifurcation → font partie de l'HISTOIRE (les non survenues, elles, disparaissent).
-    for (const [grade, le] of ordRealise) if (le < J) evs.push({ le, quand: 'passe', libelle: 'Relance effectuée', detail: detailOrdinaire(grade) });
+    for (const [grade, v] of ordRealise) if (v.le < J) evs.push({ le: v.le, quand: 'passe', libelle: 'Relance effectuée', detail: detailEnvoi(v.dest, detailOrdinaire(grade)) });
     // BIFURCATION — « Relance pièces complémentaires » (fait, badge rouge cerclé).
     const origine = e.suspension.origine === 'declaree' ? 'relance de complément déclarée hors outil' : 'complément de pièces réclamé par l’outil';
     evs.push({ le: J, quand: 'passe', libelle: 'Relance pièces complémentaires', detail: origine, bifurcation: true });
@@ -89,15 +100,17 @@ export function projeterParcours(e: EntreeParcours): EvenementFrise[] {
     const rp = e.reglages.partiel;
     for (let k = 1; k <= rp.nbRelancesAvantAnnonce; k++) {
       const reel = partielsRealises[k - 1];
+      const nature = `${ordinalRelance(k)} relance`;
       evs.push(reel
-        ? { le: reel, quand: 'passe', libelle: 'Relance effectuée', detail: `${ordinalRelance(k)} relance` }
-        : { le: ajoute(J, k * rp.relanceJours), quand: 'avenir', libelle: 'Relance programmée', detail: `${ordinalRelance(k)} relance` });
+        ? { le: reel.le, quand: 'passe', libelle: 'Relance effectuée', detail: detailEnvoi(reel.dest, nature) }
+        // À venir : relance partielle envoyée In-Reply-To → adresse non figée (point 11), on l'annonce sans afficher une adresse trompeuse.
+        : { le: ajoute(J, k * rp.relanceJours), quand: 'avenir', libelle: 'Relance programmée', detail: `${nature} · ${INTERLOCUTEUR_FUTUR}` });
     }
-    // INFORMATION SAISINE CADA (l'annonce) — effectuée sur envoi réel de l'annonce, sinon programmée.
+    // INFORMATION SAISINE CADA (l'annonce, In-Reply-To) — effectuée sur envoi réel (adresse non conservée), sinon programmée « au dernier interlocuteur ».
     const dateAnnonce = ajoute(J, rp.nbRelancesAvantAnnonce * rp.relanceJours + rp.annonceJours);
     evs.push(e.annonceCadaEnvoyeeLe
       ? { le: iso(e.annonceCadaEnvoyeeLe), quand: 'passe', libelle: 'Information saisine CADA', detail: null }
-      : { le: dateAnnonce, quand: 'avenir', libelle: 'Information saisine CADA', detail: null });
+      : { le: dateAnnonce, quand: 'avenir', libelle: 'Information saisine CADA', detail: INTERLOCUTEUR_FUTUR });
     // DÉPÔT DE SAISINE CADA — date la PLUS TARDIVE de (annonce + saisineJours) et du butoir CASC-2 (autorité) ; effectué sur dépôt réel.
     const butoir = dateButoirPartiel(new Date(iso(e.suspension.le)), e.reglages.cadaPartielMois, e.reglages.cadaPartielJours).toISOString();
     const dateCascade = ajoute(dateAnnonce, rp.saisineJours);
@@ -109,13 +122,13 @@ export function projeterParcours(e: EntreeParcours): EvenementFrise[] {
     // ── RÉGIME ORDINAIRE ──
     const ech = echeanceDe(new Date(iso(e.envoyeLe))).toISOString();
     const o = e.reglages.ordinaire;
-    evs.push(etapeOrdinaire(ordRealise, 'Rappel', ajoute(ech, -o.rappelJoursAvant), 'rappel courtois'));       // J-10
-    evs.push(etapeOrdinaire(ordRealise, 'Avis d’échéance', ajoute(ech, -o.avisJoursAvant), 'avis d’échéance')); // J-3
-    // INFORMATION SAISINE CADA — la relance « saisine » (celle qui annonce le recours) ; effectuée si partie, sinon programmée à l'échéance.
+    evs.push(etapeOrdinaire(ordRealise, 'Rappel', ajoute(ech, -o.rappelJoursAvant), 'rappel courtois', e.destinataireCourant));       // J-10
+    evs.push(etapeOrdinaire(ordRealise, 'Avis d’échéance', ajoute(ech, -o.avisJoursAvant), 'avis d’échéance', e.destinataireCourant)); // J-3
+    // INFORMATION SAISINE CADA — la relance « saisine » (celle qui annonce le recours), au destinataire de la demande ; effectuée si partie, sinon programmée.
     const saisineReel = ordRealise.get('Saisine');
     evs.push(saisineReel
-      ? { le: saisineReel, quand: 'passe', libelle: 'Information saisine CADA', detail: null }
-      : { le: ech, quand: 'avenir', libelle: 'Information saisine CADA', detail: null });
+      ? { le: saisineReel.le, quand: 'passe', libelle: 'Information saisine CADA', detail: detailEnvoi(saisineReel.dest, null) }
+      : { le: ech, quand: 'avenir', libelle: 'Information saisine CADA', detail: detailEnvoi(e.destinataireCourant, null) });
     // DÉPÔT DE SAISINE CADA — échéance + saisineDelaiJours ; effectué sur dépôt réel.
     evs.push(e.saisineCadaEnvoyeeLe
       ? { le: iso(e.saisineCadaEnvoyeeLe), quand: 'passe', libelle: 'Dépôt de saisine CADA', detail: null }

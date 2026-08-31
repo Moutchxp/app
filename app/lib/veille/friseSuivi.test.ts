@@ -16,10 +16,10 @@ const REGLAGES: ReglagesParcours = {
 };
 const INITIAL = '2026-08-04T21:00:00Z'; // échéance ordinaire = 04/09 ; rappel 25/08, avis 01/09, info 04/09, dépôt 08/09
 const initiale = (destinataire: string | null = 'mairie@ex.fr'): EnvoiHistorique => ({ le: INITIAL, nature: 'initiale', grade: null, libelle: 'Demande initiale de communication', destinataire });
-const relanceOrd = (le: string, grade: string): EnvoiHistorique => ({ le, nature: 'relance_ordinaire', grade, libelle: `Relance — ${grade}`, destinataire: null });
+const relanceOrd = (le: string, grade: string, destinataire: string | null = 'mairie@ex.fr'): EnvoiHistorique => ({ le, nature: 'relance_ordinaire', grade, libelle: `Relance — ${grade}`, destinataire });
 const relancePart = (le: string): EnvoiHistorique => ({ le, nature: 'relance_partielle', grade: '1re relance', libelle: 'Relance partielle — 1re relance', destinataire: null });
 const suspension = (le: string): EtatPartiel => ({ le, familles: ['cerfa'], origine: 'declaree' });
-const base = { envoyeLe: INITIAL, envois: [initiale()], suspension: null, saisineCadaEnvoyeeLe: null, annonceCadaEnvoyeeLe: null, reglages: REGLAGES };
+const base = { envoyeLe: INITIAL, envois: [initiale()], suspension: null, saisineCadaEnvoyeeLe: null, annonceCadaEnvoyeeLe: null, destinataireCourant: 'urba@mairie.fr', reglages: REGLAGES };
 const jours = (ev: EvenementFrise[]) => ev.map((e) => ({ l: e.libelle, q: e.quand, d: e.le.slice(0, 10) }));
 
 describe('projeterParcours — régime ORDINAIRE', () => {
@@ -91,6 +91,31 @@ describe('projeterParcours — BIFURCATION (ordinaire → partiel)', () => {
   it('annonce CADA réellement envoyée → « Information saisine CADA » effectuée', () => {
     const p = projeterParcours({ ...bif, annonceCadaEnvoyeeLe: '2026-09-27T09:00:00Z' });
     expect(p.find((e) => e.libelle === 'Information saisine CADA')).toMatchObject({ quand: 'passe' });
+  });
+});
+
+describe('LOT 19 (C) — DESTINATAIRE sur chaque étape d’envoi', () => {
+  it('étape FAITE → l’adresse RÉELLEMENT utilisée (destinataire de l’envoi) ; étape À VENIR ordinaire → le destinataire courant', () => {
+    const p = projeterParcours({ ...base, envois: [initiale('mairie@ex.fr'), relanceOrd('2026-08-25T10:00:00Z', 'Rappel')] });
+    const initialeEv = p.find((e) => e.libelle === 'Demande initiale de communication')!;
+    expect(initialeEv.detail).toBe('à mairie@ex.fr');                              // faite : adresse réelle de l'envoi
+    const rappel = p.find((e) => e.le.startsWith('2026-08-25'))!;
+    expect(rappel.detail).toBe('à mairie@ex.fr · rappel courtois');               // faite : adresse réelle + nature
+    const avis = p.find((e) => e.detail?.includes('avis'))!;
+    expect(avis.detail).toBe('à urba@mairie.fr · avis d’échéance');               // à venir : destinataire courant + nature
+  });
+
+  it('étape À VENIR partielle (In-Reply-To) → PAS d’adresse figée trompeuse, mais « au dernier interlocuteur »', () => {
+    const p = projeterParcours({ ...base, suspension: suspension('2026-08-28T12:00:00Z') });
+    const r1 = p.find((e) => e.detail?.startsWith('1re relance'))!;
+    expect(r1.detail).toBe('1re relance · au dernier interlocuteur de la mairie');
+    const info = p.find((e) => e.libelle === 'Information saisine CADA')!;
+    expect(info.detail).toBe('au dernier interlocuteur de la mairie');
+  });
+
+  it('étape qui n’est PAS un envoi (Dépôt de saisine CADA) → AUCUNE adresse', () => {
+    const p = projeterParcours({ ...base, suspension: suspension('2026-08-28T12:00:00Z') });
+    expect(p.find((e) => e.libelle === 'Dépôt de saisine CADA')!.detail).toBeNull();
   });
 });
 
