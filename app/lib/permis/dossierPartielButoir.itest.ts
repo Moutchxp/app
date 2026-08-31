@@ -166,3 +166,55 @@ describe('FIX-3 — encart « En cours » : un dossier satisfait-mais-partiel ga
     expect(affichees).toContain('pieces');
   });
 });
+
+/**
+ * 🔴 LOT-1 / CASC-2 — ANCRAGE DE LA DATE DÉCLARÉE. Une relance déclarée hors outil (PART-3e) doit ancrer `partiel_le` sur la date
+ * d'ENVOI RÉELLEMENT affirmée par Arno, posée à **12:00 Europe/Paris**, et NON sur l'instant du clic. Sinon le butoir CADA part du jour
+ * de saisie dans l'outil (cas 154 : déclaré le 31/08 pour un envoi du 28/08 → butoir 05/10 au lieu de 02/10 — 3 jours indûment gagnés,
+ * et une date juridique fausse). Le choix de 12:00 (jamais minuit) évite le glissement d'un jour entre le calcul UTC de `dateButoirPartiel`
+ * et l'affichage Europe/Paris. Itest : VRAIE base (vrai `AT TIME ZONE`, vrai driver pg) — le seul format qui prouve le calendrier réel ;
+ * un test pur ne verrait ni le fuseau ni le stockage. Sans le correctif (`ELSE now()`), `partiel_le` = l'instant du test → l'assertion
+ * d'ancre échoue et le butoir dérive → ces cas ROUGISSENT (vérifié par revert temporaire avant commit).
+ */
+function jourParis(d: Date): string {
+  return new Intl.DateTimeFormat('fr-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+}
+async function ancreEst12hParis(id: number, jour: string): Promise<boolean> {
+  // Compare partiel_le à la RÉ-évaluation de la même expression → équivalence d'instant (déterministe, DST géré par AT TIME ZONE).
+  const { rows } = await query<{ ok: boolean }>(
+    `SELECT (partiel_le = (($2::date + interval '12 hours') AT TIME ZONE 'Europe/Paris')) AS ok FROM demande WHERE id = $1`, [id, jour]);
+  return rows[0]?.ok ?? false;
+}
+
+describe('CASC-2 / LOT-1 — ancre du butoir = date d’envoi déclarée (12:00 Europe/Paris), pas l’instant du clic', () => {
+  it('déclaration au 28/08 → partiel_le = 28/08 12:00 Paris, butoir = 02/10/2026 (cas réel 154)', async () => {
+    const id = await creerDemande();
+    await marquerDossierPartiel(id, ['cerfa', 'etage'], 'declaree', '2026-08-28');
+    expect(await ancreEst12hParis(id, '2026-08-28'), 'partiel_le ancré à 12:00 Europe/Paris de la date déclarée').toBe(true);
+
+    const butoir = await butoirPartielActif(id, 1, 4);
+    expect(butoir).toBeInstanceOf(Date);
+    // 28/08 + 1 mois (28/09) + 4 jours = 02/10. AVANT LE CORRECTIF : ancre = clic du test → butoir dérive (≈05/10 dans le cas 154).
+    expect(jourParis(butoir!), 'butoir = 28/08 + 1 mois + 4 jours').toBe('2026-10-02');
+  });
+
+  it('cas de bord fin de mois : déclaration au 31/01 → clamp 28/02 (2026 non bissextile) + 4 j = 04/03/2026', async () => {
+    const id = await creerDemande();
+    await marquerDossierPartiel(id, ['masse'], 'declaree', '2026-01-31');
+    expect(await ancreEst12hParis(id, '2026-01-31'), 'ancre 31/01 12:00 Paris (CET/hiver)').toBe(true);
+
+    const butoir = await butoirPartielActif(id, 1, 4);
+    expect(jourParis(butoir!), '31/01 + 1 mois → clamp 28/02 + 4 j = 04/03 (le clamp fin-de-mois de dateButoirPartiel est verrouillé)').toBe('2026-03-04');
+  });
+
+  it('sans ancre (chemin envoi outil / autres appelants) → partiel_le = now(), comportement historique INCHANGÉ', async () => {
+    const id = await creerDemande();
+    const avant = new Date();
+    await marquerDossierPartiel(id, ['cerfa'], 'outil'); // 4e arg absent → COALESCE retombe sur now()
+    const apres = new Date();
+    const { rows } = await query<{ t: Date }>(`SELECT partiel_le AS t FROM demande WHERE id = $1`, [id]);
+    const t = new Date(rows[0].t).getTime();
+    expect(t).toBeGreaterThanOrEqual(avant.getTime() - 1000); // marge d'horloge, l'ancre est bien « maintenant » et non une date civile
+    expect(t).toBeLessThanOrEqual(apres.getTime() + 1000);
+  });
+});

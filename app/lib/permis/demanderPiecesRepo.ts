@@ -181,7 +181,7 @@ export interface TraceDeclaration { dateRelance: string; familles: FamillePlan[]
 export interface DepsDeclaration {
   lireContexte(dossierId: number): Promise<{ demandeId: number; destinataire: string; dernierMessageLe: string | Date } | null>; // Date au runtime (timestamptz), string en mock
   journaliserDeclaration(demandeId: number, trace: TraceDeclaration, auteur: string): Promise<void>;
-  marquerPartiel(demandeId: number, familles: readonly FamillePlan[]): Promise<void>; // CASC-1 : marqueur « dossier partiel » (origine 'declaree')
+  marquerPartiel(demandeId: number, familles: readonly FamillePlan[], ancreCivile: string): Promise<void>; // CASC-1 : marqueur « dossier partiel » (origine 'declaree') ; CASC-2 : ancre = date d'envoi déclarée ('YYYY-MM-DD', posée à 12:00 Paris)
   aujourdhui(): string; // 'YYYY-MM-DD' — injecté (pureté de la borne « pas dans le futur »)
 }
 
@@ -197,8 +197,11 @@ export async function declarerRelanceComplement(deps: DepsDeclaration, arg: { do
   if (ctx === null) return { ok: false, motif: 'aucun message de mairie pour ce permis' };
   const pb = problemeDateDeclaration(arg.dateRelance, deps.aujourdhui(), ctx.dernierMessageLe);
   if (pb !== null) return { ok: false, motif: pb };
-  await deps.journaliserDeclaration(ctx.demandeId, { dateRelance: arg.dateRelance.slice(0, 10), familles, destinataire: ctx.destinataire }, arg.auteur);
-  await deps.marquerPartiel(ctx.demandeId, familles); // CASC-1 : même effet qu'un envoi — pose auto le marqueur → suspend la relance ordinaire
+  const jourDeclare = arg.dateRelance.slice(0, 10); // grain JOUR (déjà validé au format 'YYYY-MM-DD' par problemeDateDeclaration)
+  await deps.journaliserDeclaration(ctx.demandeId, { dateRelance: jourDeclare, familles, destinataire: ctx.destinataire }, arg.auteur);
+  // CASC-1 : même effet qu'un envoi — pose auto le marqueur → suspend la relance ordinaire. CASC-2 : l'ancre du butoir CADA est la date
+  //   d'envoi RÉELLEMENT déclarée (jourDeclare), pas l'instant du clic (cas 154 : déclaré le 31/08 pour un envoi du 28/08 → sinon 3 j gagnés).
+  await deps.marquerPartiel(ctx.demandeId, familles, jourDeclare);
   return { ok: true, destinataire: ctx.destinataire, familles };
 }
 
@@ -216,7 +219,7 @@ export function depsReellesDeclaration(): DepsDeclaration {
         } else throw e;
       }
     },
-    marquerPartiel: async (demandeId, familles) => { await marquerDossierPartiel(demandeId, familles, 'declaree'); },
+    marquerPartiel: async (demandeId, familles, ancreCivile) => { await marquerDossierPartiel(demandeId, familles, 'declaree', ancreCivile); },
     aujourdhui: () => new Date().toISOString().slice(0, 10),
   };
 }

@@ -18,17 +18,26 @@ const estColonneAbsente = (e: unknown): boolean => typeof e === 'object' && e !=
  * SEULEMENT la liste des familles manquantes — jamais `partiel_le` — sinon la mairie repousserait l'échéance indéfiniment en envoyant
  * une pièce de temps en temps, et la saisine n'arriverait jamais. Seul un RÉ-ARMEMENT après une LEVÉE (dossier redevenu complet puis
  * de nouveau incomplet = nouveau cycle) repose une nouvelle ancre. Le CASE fait exactement cela, atomiquement.
+ *
+ * 🔴 CASC-2 — ANCRE CIVILE (`ancreCivile`, 'YYYY-MM-DD', optionnelle) : quand une relance est DÉCLARÉE hors outil (PART-3e), le butoir
+ * CADA doit partir de la date d'envoi RÉELLE affirmée par Arno, pas de l'instant du clic. On ancre cette date civile à **12:00
+ * Europe/Paris** — jamais minuit, jamais un `toISOString()` nu. Motif : `dateButoirPartiel` calcule en UTC et l'affichage est en
+ * Europe/Paris ; une ancre en début/fin de journée glisse d'un jour selon le sens du décalage (c'est ce qui affichait le 05/10 au lieu
+ * du 04/10). Midi est à plus de 2 h de toute frontière de jour dans les deux fuseaux, été comme hiver → le jour affiché = le jour saisi.
+ * `AT TIME ZONE 'Europe/Paris'` gère le DST (CET/CEST). Absente (envoi outil / autres appelants) → `COALESCE` retombe sur `now()`,
+ * comportement historique INCHANGÉ.
  */
-export async function marquerDossierPartiel(demandeId: number, familles: readonly string[], origine: OriginePartiel): Promise<void> {
+export async function marquerDossierPartiel(demandeId: number, familles: readonly string[], origine: OriginePartiel, ancreCivile?: string | null): Promise<void> {
   try {
     await query(
       `UPDATE demande SET
-         partiel_le      = CASE WHEN partiel_le IS NOT NULL AND partiel_leve_le IS NULL THEN partiel_le ELSE now() END,
+         partiel_le      = CASE WHEN partiel_le IS NOT NULL AND partiel_leve_le IS NULL THEN partiel_le
+                                ELSE COALESCE(($4::date + interval '12 hours') AT TIME ZONE 'Europe/Paris', now()) END,
          partiel_familles = $2,
          partiel_origine = CASE WHEN partiel_le IS NOT NULL AND partiel_leve_le IS NULL THEN partiel_origine ELSE $3 END,
          partiel_leve_le = NULL, partiel_leve_par = NULL, maj_le = now()
         WHERE id = $1`,
-      [demandeId, [...familles], origine]);
+      [demandeId, [...familles], origine, ancreCivile ?? null]);
   } catch (e) { if (!estColonneAbsente(e)) throw e; } // 177 absente → pas de marqueur (comportement actuel)
 }
 

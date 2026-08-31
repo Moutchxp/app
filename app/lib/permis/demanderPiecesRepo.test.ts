@@ -167,18 +167,19 @@ describe('declarerRelanceComplement — constat sans envoi', () => {
   it('dernierMessageLe en objet Date (vrai type runtime) → la déclaration RÉUSSIT (cas réel demande 154)', async () => {
     const ctxDate = { demandeId: 154, destinataire: 'lauriane.pangui@mairie-aubervilliers.fr', dernierMessageLe: new Date('2026-08-28T15:04:00+02:00') };
     let trace: TraceDeclaration | null = null;
-    let marque: { demandeId: number; familles: readonly string[] } | null = null;
+    let marque: { demandeId: number; familles: readonly string[]; ancre: string } | null = null;
     const deps = makeDepsDecl({
       lireContexte: vi.fn(async () => ctxDate),          // ← objet Date, comme la vraie base
       aujourdhui: () => '2026-08-31',                    // date d'Arno = 28/08, aujourd'hui = 31/08
       journaliserDeclaration: async (_d, t) => { trace = t; },
-      marquerPartiel: async (demandeId, familles) => { marque = { demandeId, familles }; },
+      marquerPartiel: async (demandeId, familles, ancreCivile) => { marque = { demandeId, familles, ancre: ancreCivile }; },
     });
     const r = await declarerRelanceComplement(deps, argD({ dossierId: 7424, familles: ['etage', 'cerfa'], dateRelance: '2026-08-28' }));
     expect(r.ok).toBe(true); // AVANT FIX-1 : throw → jamais atteint
     expect(trace!.dateRelance).toBe('2026-08-28');
     expect(trace!.familles).toEqual(['etage', 'cerfa']);
     expect(marque!.demandeId).toBe(154); // CASC-1 : marqueur « dossier partiel » posé
+    expect(marque!.ancre).toBe('2026-08-28'); // 🔴 CASC-2 : l'ancre du butoir = la date d'envoi DÉCLARÉE (28/08), pas l'instant du clic (31/08)
   });
 });
 
