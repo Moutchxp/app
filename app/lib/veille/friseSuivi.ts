@@ -31,9 +31,10 @@ export interface EntreesFrise {
 
 /** CASC-3 → { date, libellé } de la prochaine étape, ou null si rien de daté à annoncer. PUR. */
 function etapeCascade(c: EtatCascadePartielle): { le: string; libelle: string } | null {
-  if (c.etape === 'relance' && c.dateDue) return { le: c.dateDue, libelle: `Cascade partielle — relance ${c.rang} à envoyer` };
-  if (c.etape === 'annonce' && c.dateDue) return { le: c.dateDue, libelle: 'Cascade partielle — annonce CADA à envoyer' };
-  if (c.etape === 'saisine_proposable' && c.dateDue) return { le: c.dateDue, libelle: 'Cascade partielle — saisine CADA proposable' };
+  // LOT 17 (B, point 6) — « cascade partielle » est un terme INTERNE : on le retire de l'affichage (même esprit que « Relance programmée »).
+  if (c.etape === 'relance' && c.dateDue) return { le: c.dateDue, libelle: `Relance ${c.rang} à envoyer` };
+  if (c.etape === 'annonce' && c.dateDue) return { le: c.dateDue, libelle: 'Annonce CADA à envoyer' };
+  if (c.etape === 'saisine_proposable' && c.dateDue) return { le: c.dateDue, libelle: 'Saisine CADA proposable' };
   if (c.prochaineDate) return { le: c.prochaineDate, libelle: 'Relance programmée' }; // LOT 16 (point 3) — ex « Cascade partielle — prochaine étape »
   return null;
 }

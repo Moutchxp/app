@@ -63,6 +63,7 @@ export function libelleSuspension(etat: EtatPartiel): string {
   const origine = etat.origine === 'outil' ? 'réclamation de pièces envoyée' : 'relance de complément déclarée';
   const lisible = (f: string): string => (LIBELLE_FAMILLE as Record<string, string | undefined>)[f] ?? f; // code → libellé, repli = code brut
   const familles = etat.familles.length > 0 ? ` (pièces : ${etat.familles.map(lisible).join(', ')})` : '';
-  // PART-B — date en JJ/MM/AAAA Europe/Paris (comme le reste de l'interface).
-  return `Relance ordinaire arrêtée depuis le ${jourFrParis(etat.le)} — ${origine}${familles}. La réclamation ciblée reste possible.`;
+  // PART-B — date en JJ/MM/AAAA Europe/Paris (comme le reste de l'interface). LOT 17 (B) : « Relance pièces complémentaires » (aligné sur
+  //   la frise) — on dit ce qu'on FAIT (bascule vers le process « document partiel »), pas « arrêt ». MÊME vocabulaire que la frise et la colonne.
+  return `Relance pièces complémentaires depuis le ${jourFrParis(etat.le)} — ${origine}${familles}. La réclamation ciblée reste possible.`;
 }

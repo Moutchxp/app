@@ -23,7 +23,7 @@ import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { BlocTraceEmprise } from './BlocTraceEmprise';
 import { BlocPiecesPermis } from './BlocPiecesPermis';
 import { LiseusePieces } from './LiseusePieces';
-import { MentionFamillesManquantes, FriseSuivi } from './FriseSuiviRendu'; // LOT 13 A (compteur « Complétude ») + LOT 15 (frise unifiée « Suivi et actions »)
+import { MentionFamillesManquantes, MentionEchanges, FriseSuivi } from './FriseSuiviRendu'; // LOT 13 A / LOT 15 frise / LOT 17-C mention échanges
 import { construireFriseSuivi } from '../../../../lib/veille/friseSuivi'; // LOT 15 : fusion pure envois + cascade en une frise chronologique
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 import type { ReglagesCascade } from '../../../../lib/veille/cascadeRelance';
@@ -166,9 +166,10 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
       // CASC-1 — SUSPENSION VISIBLE : si « dossier partiel » actif, le libellé de cascade DIT la suspension (raison + date) et il n'y a
       //   pas de prochaine étape ordinaire. CASC-2 — EN PLUS (jamais à la place), la date butoir CADA prolongée (partiel_le + 1 mois + 4 j).
       m.set(d.demandeId, d.suspension
-        // LOT-8 (C) — cascade PARTIELLE : le GRADE ordinal (« 1re relance », « 2e relance »…) prime sur « Arrêtée » ; date du dernier
-        //   mail envoyé dans l'infobulle (jamais dans la cellule). Grade = nbReclamationsComplement (marqueur + relances partielles).
-        ? { libelle: `${libelleSuspension(d.suspension)} ${libelleDelaiProlonge(dateButoirPartiel(new Date(d.suspension.le), suivi.partielDelai.mois, suivi.partielDelai.jours))}${d.dernierEnvoiRelance ? ` Dernier mail envoyé le ${formaterDate(d.dernierEnvoiRelance.envoyeLe)}.` : ''}`, prochaine: '', court: d.nbReclamationsComplement >= 1 ? `${ordinalRelance(d.nbReclamationsComplement)} relance` : 'Arrêtée' }
+        // LOT-8 (C) — cascade PARTIELLE : le GRADE ordinal (« 1re relance », « 2e relance »…) prime ; date du dernier mail envoyé dans
+        //   l'infobulle (jamais dans la cellule). Grade = nbReclamationsComplement (marqueur + relances partielles). LOT 17 (B, point 5) :
+        //   forme courte repli « Relance pièces » (2 mots, nowrap, aligné sur le vocabulaire de la frise), l'infobulle porte le texte complet.
+        ? { libelle: `${libelleSuspension(d.suspension)} ${libelleDelaiProlonge(dateButoirPartiel(new Date(d.suspension.le), suivi.partielDelai.mois, suivi.partielDelai.jours))}${d.dernierEnvoiRelance ? ` Dernier mail envoyé le ${formaterDate(d.dernierEnvoiRelance.envoyeLe)}.` : ''}`, prochaine: '', court: d.nbReclamationsComplement >= 1 ? `${ordinalRelance(d.nbReclamationsComplement)} relance` : 'Relance pièces' }
         : { libelle: statutCascade(entree, maintenant, suivi.cascade, suivi.envoi), prochaine: prochaineEtape(entree, maintenant, suivi.cascade), court: libelleCourtCascade(entree, maintenant, suivi.cascade) });
     }
     return m;
@@ -754,7 +755,10 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   ),
                 },
                 {
-                  cle: 'historique', titre: LIBELLE_FAMILLE.historique,
+                  cle: 'historique',
+                  // LOT 17-C — mention NEUTRE « N échanges — dernier le … » dans le prolongement du titre, visible REPLIÉE (compte + date
+                  //   batchés hors `dem`, périmètre du fil). Rien si 0.
+                  titre: <>{LIBELLE_FAMILLE.historique}<MentionEchanges nbEchanges={richDetail.nbEchanges} dernierLe={richDetail.dernierEchangeLe} /></>,
                   // LOT-4 — signal = « ≥ 1 entrée de fil » (historiqueNonVide, batché à part, hors `dem`), pas les liens/pièces : la
                   //   famille reflète le FIL (mêmes messages qu'en Analyse). Comme historiqueNonVide inclut les reçus, elle est vraie
                   //   dès qu'un artefact (lien/pièce/message/alerte) existe → aucun geste ci-dessous n'est jamais caché.

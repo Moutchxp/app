@@ -58,8 +58,9 @@ describe('CASC-1 — libelleSuspension (raison + date, jamais un silence, pur)',
     expect(s).not.toContain('2026-08-30'); // l'ancien format ISO a disparu
     expect(s).toContain('réclamation de pièces envoyée');
     expect(s).toContain('Formulaire Cerfa, Plans d’étages'); // codes cerfa/etage → libellés lisibles (LIBELLE_FAMILLE), plus les codes bruts
-    // 🔴 LOT-2 : « arrêtée », jamais « suspendue » ; aucune promesse de reprise du cycle ordinaire (inatteignable, règle porteur).
-    expect(s).toContain('arrêtée');
+    // LOT 17 (B) : vocabulaire « Relance pièces complémentaires » (aligné sur la frise) — on dit ce qu'on FAIT (bascule de process), plus
+    //   « arrêtée ». L'esprit LOT-2 reste : AUCUNE promesse de reprise du cycle ordinaire (« suspendue »/« reprendra »/« cycle ordinaire » bannis).
+    expect(s).toContain('Relance pièces complémentaires');
     expect(s.toLowerCase()).not.toContain('suspendue');
     expect(s).not.toContain('reprendra');
     expect(s).not.toContain('cycle ordinaire');

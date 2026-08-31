@@ -194,6 +194,8 @@ export interface DemandeSuivi {
   completudeManquantes: number;     // LOT 13-A : nombre de familles de documents MANQUANTES (somme sur les dossiers d'encart) → compteur rouge du titre de famille ; 0 = rien à signaler
   historiqueEnvois: EnvoiHistorique[]; // LOT 13-B : NOS envois à la mairie (demande initiale puis relances), ordonnés — acheminement (initial/ordinaire) + journal (partiel), fusionnés
   historiqueNonVide: boolean;       // ≥ 1 entrée de FIL (niveau DEMANDE, = les 5 sources de BlocFilEchanges) : un ENVOI (initial/relance) OU la mairie a répondu (hors rebond) OU un suivi sortant (complément / déclaration / réponse libre / sortant hors outil)
+  nbEchanges: number;               // LOT 17-C : NOMBRE d'échanges du fil (même périmètre que BlocFilEchanges) → mention du titre « Historique des échanges » ; 0 = pas de mention
+  dernierEchangeLe: string | null;  // LOT 17-C : date ISO (UTC) du DERNIER échange → « dernier le JJ/MM/AAAA à HHhMM » (format frise) ; null si aucun
   caracteristiquesNonVide: boolean; // ≥ 1 dossier d'encart a une caractéristique saisie/extraite OU un corps de bâtiment
   batimentsNonVide: boolean;        // ≥ 1 dossier d'encart a un corps de bâtiment déclaré (le tracé/emprise ~9 s reste chargé au dépliage)
   piecesNonVide: boolean;           // ≥ 1 dossier d'encart a une pièce en GED (dossier_document)
@@ -703,6 +705,31 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     } catch { /* journal/details absents → historique sans les relances partielles (dégradation sûre) */ }
   }
 
+  // LOT 17 (C) — MENTION « N échanges — dernier le … » du titre de « Historique des échanges » (VISIBLE REPLIÉE). Compte + date du DERNIER,
+  //   MÊME périmètre que le fil (BlocFilEchanges/filPermisRepo) : reçus (hors rebond) + envois (acheminement 'envoye') + suivi journal
+  //   (compléments/déclarations/réponses libres) + hors-outil. UNE requête batchée SÉPARÉE par demande_id (JAMAIS un WHERE sur `dem`) ;
+  //   on ne charge PAS le fil paresseux pour ce compte. Résiliente : table/colonne absente → aucune mention (la famille reste pilotée par historiqueSet).
+  const echangesParId = new Map<number, { n: number; dernierLe: string | null }>();
+  if (ids.length > 0) {
+    try {
+      const motifsMsg = [`${MOTIF_COMPLEMENT_PREFIXE}%`, `${MOTIF_DECLARATION_PREFIXE}%`, `${MOTIF_REPONSE_LIBRE_PREFIXE}%`];
+      const { rows } = await query<{ demande_id: number; n: number; dernier: string | null }>(
+        `SELECT d.id::int AS demande_id,
+                ((SELECT count(*) FROM demande_acheminement a WHERE a.demande_id = d.id AND a.statut = 'envoye')
+                 + (SELECT count(*) FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature <> 'rebond')
+                 + (SELECT count(*) FROM demande_sortant_hors_outil s WHERE s.demande_id = d.id)
+                 + (SELECT count(*) FROM demande_journal j WHERE j.demande_id = d.id AND j.motif LIKE ANY($2::text[])))::int AS n,
+                to_char(GREATEST(
+                  (SELECT max(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id AND a.statut = 'envoye'),
+                  (SELECT max(r.recu_le) FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature <> 'rebond'),
+                  (SELECT max(coalesce(s.envoye_le, s.capture_le)) FROM demande_sortant_hors_outil s WHERE s.demande_id = d.id),
+                  (SELECT max(j.horodatage) FROM demande_journal j WHERE j.demande_id = d.id AND j.motif LIKE ANY($2::text[]))
+                ) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS dernier
+           FROM demande d WHERE d.id = ANY($1)`, [ids, motifsMsg]);
+      for (const r of rows) echangesParId.set(r.demande_id, { n: r.n, dernierLe: r.dernier });
+    } catch { /* demande_sortant_hors_outil / details absents → aucune mention (dégradation sûre) */ }
+  }
+
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut, canal: r.canal,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
@@ -738,6 +765,8 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     completudeManquantes: (encartDossiersParDemande.get(r.id) ?? []).reduce((n, id) => n + (manquantesParDoss.get(id) ?? 0), 0), // LOT 13-A
     historiqueEnvois: ordonnerHistoriqueEnvois(brutsEnvois.get(r.id) ?? []), // LOT 13-B : tri + grades (pur)
     historiqueNonVide: historiqueSet.has(r.id),
+    nbEchanges: echangesParId.get(r.id)?.n ?? 0, // LOT 17-C
+    dernierEchangeLe: echangesParId.get(r.id)?.dernierLe ?? null, // LOT 17-C
     caracteristiquesNonVide: caracteristiquesSet.has(r.id),
     batimentsNonVide: batimentsSet.has(r.id),
     piecesNonVide: piecesSet.has(r.id), // UNIF-1 : ≥ 1 dossier dû a une pièce en GED

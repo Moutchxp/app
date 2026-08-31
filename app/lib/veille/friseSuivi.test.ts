@@ -25,7 +25,7 @@ describe('construireFriseSuivi — fusion, ordre, faits vs échéances', () => {
       'Demande initiale de communication',   // 04/08
       'Relance — Rappel',                     // 26/08
       'Relance pièces complémentaires',       // 28/08 (fait, LOT 16 : bascule de process)
-      'Cascade partielle — relance 2 à envoyer', // 07/09 (échéance)
+      'Relance 2 à envoyer',                  // 07/09 (échéance, LOT 17 : sans « Cascade partielle »)
       'Délai avant saisine CADA prolongé',    // 02/10 (échéance)
     ]);
   });
@@ -44,7 +44,7 @@ describe('construireFriseSuivi — fusion, ordre, faits vs échéances', () => {
     expect(parLibelle['Demande initiale de communication']).toBe('passe');
     expect(parLibelle['Relance pièces complémentaires']).toBe('passe');
     expect(parLibelle['Délai avant saisine CADA prolongé']).toBe('avenir');
-    expect(parLibelle['Cascade partielle — relance 2 à envoyer']).toBe('avenir');
+    expect(parLibelle['Relance 2 à envoyer']).toBe('avenir');
   });
 
   it('origine « déclarée » vs « outil » dans le détail de l’arrêt', () => {
@@ -55,8 +55,13 @@ describe('construireFriseSuivi — fusion, ordre, faits vs échéances', () => {
   });
 
   it('CASC-3 selon l’étape : annonce, saisine proposable, ou prochaine échéance (rien dû)', () => {
-    expect(construireFriseSuivi({ envois: [], suspension: null, butoirIso: null, cascade: cascade({ etape: 'annonce', dateDue: '2026-09-20T00:00:00Z' }) })[0].libelle).toBe('Cascade partielle — annonce CADA à envoyer');
-    expect(construireFriseSuivi({ envois: [], suspension: null, butoirIso: null, cascade: cascade({ etape: 'saisine_proposable', dateDue: '2026-09-20T00:00:00Z' }) })[0].libelle).toBe('Cascade partielle — saisine CADA proposable');
+    expect(construireFriseSuivi({ envois: [], suspension: null, butoirIso: null, cascade: cascade({ etape: 'annonce', dateDue: '2026-09-20T00:00:00Z' }) })[0].libelle).toBe('Annonce CADA à envoyer');
+    expect(construireFriseSuivi({ envois: [], suspension: null, butoirIso: null, cascade: cascade({ etape: 'saisine_proposable', dateDue: '2026-09-20T00:00:00Z' }) })[0].libelle).toBe('Saisine CADA proposable');
+    // LOT 17 (point 6) — le terme INTERNE « cascade partielle » n'apparaît dans AUCUN libellé d'affichage.
+    for (const etape of ['relance', 'annonce', 'saisine_proposable', 'aucune'] as const) {
+      const l = construireFriseSuivi({ envois: [], suspension: null, butoirIso: null, cascade: cascade({ etape, dateDue: '2026-09-20T00:00:00Z', prochaineDate: '2026-09-25T00:00:00Z' }) })[0]?.libelle ?? '';
+      expect(l.toLowerCase()).not.toContain('cascade partielle');
+    }
     expect(construireFriseSuivi({ envois: [], suspension: null, butoirIso: null, cascade: cascade({ etape: 'aucune', dateDue: null, prochaineDate: '2026-09-25T00:00:00Z' }) })[0].libelle).toBe('Relance programmée'); // LOT 16 (point 3)
     // rien de daté → aucun événement de cascade
     expect(construireFriseSuivi({ envois: [], suspension: null, butoirIso: null, cascade: cascade({ etape: 'aucune', dateDue: null, prochaineDate: null }) })).toEqual([]);

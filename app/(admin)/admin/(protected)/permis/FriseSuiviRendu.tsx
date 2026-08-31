@@ -21,6 +21,17 @@ export function MentionFamillesManquantes({ manquantes }: { manquantes: number }
   return <span style={{ fontWeight: 700, color: 'var(--color-svv-red)' }}> — {libelleFamillesManquantes(manquantes)}</span>;
 }
 
+/**
+ * LOT 17-C — mention du titre « Historique des échanges » : « — N échanges — dernier le JJ/MM/AAAA à HHhMM » (visible REPLIÉE). Même
+ * facture que MentionFamillesManquantes, mais NEUTRE (ce n'est pas une alerte : ton gris, jamais rouge). Rien si aucun échange (point 11).
+ * Réutilise `formaterEnvoiLe` (format de la frise) ; la date peut manquer (compte > 0 mais dernier inconnu) → on n'affiche alors que le compte.
+ */
+export function MentionEchanges({ nbEchanges, dernierLe }: { nbEchanges: number; dernierLe: string | null }) {
+  if (nbEchanges <= 0) return null;
+  const pluriel = nbEchanges > 1 ? 's' : '';
+  return <span style={muted}> — {nbEchanges} échange{pluriel}{dernierLe ? ` — dernier le ${formaterEnvoiLe(dernierLe)}` : ''}</span>;
+}
+
 /** Date + heure d'un fait, en heure de Paris (« 04/08/2026 à 21h21 »). PUR (déterministe pour une ISO donnée). */
 export function formaterEnvoiLe(iso: string): string {
   const d = new Date(iso);
@@ -64,8 +75,9 @@ export function FriseSuivi({ evenements, actionAvenir = null }: { evenements: Ev
   const titre: CSSProperties = { fontSize: 12, fontWeight: 700 };
   const ul: CSSProperties = { margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.25rem', fontSize: 12 };
   if (evenements.length === 0) {
+    // LOT 17 (A) — fond BLANC (svv-card), comme les corps des autres familles (le corps ne s'affiche plus sur la trame grise de l'encart).
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+      <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
         <span style={titre}>Suivi et actions de la demande</span>
         <span style={muted}>Aucun événement enregistré pour cette demande.</span>
         {actionAvenir}
@@ -74,7 +86,7 @@ export function FriseSuivi({ evenements, actionAvenir = null }: { evenements: Ev
   }
   const { passeVisible, passeReplie, avenir } = partitionnerFrise(evenements);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+    <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
       <span style={titre}>Suivi et actions de la demande</span>
       {/* Chronologie : le 1er fait (ancre), puis — si la liste s'allonge — les faits anciens repliés (un seul clic, <details> natif,
           aucun BlocRepliable imbriqué), puis les faits récents, enfin les ÉCHÉANCES à venir (toujours visibles) et leur geste. */}

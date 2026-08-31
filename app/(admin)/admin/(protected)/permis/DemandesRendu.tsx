@@ -968,7 +968,7 @@ export function PanneauDetailDemande({
       <BlocLignePli titre={titrePli} defautOuvert={brouillon}>
         {() => (
           <textarea value={corps} onChange={(e) => onCorps(e.target.value)} rows={16} readOnly={!brouillon}
-            style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', boxSizing: 'border-box' }} />
+            style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', boxSizing: 'border-box', background: '#fff' }} />
         )}
       </BlocLignePli>
       {/* T6-A — « En cours » injecte DetailDossiers (actions T1) ; sinon, détail brut des dossiers (À demander, inchangé). */}

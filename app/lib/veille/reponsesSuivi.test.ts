@@ -126,6 +126,28 @@ describe('T6-A — chargerDemandesSuivi : SOURCE UNIQUE (échéance + retour + d
     expect(DEM.test(compl!.sql)).toBe(false); // jamais la requête centrale `dem`
   });
 
+  it('LOT 17-C — mention « N échanges — dernier le … » : compte + date batchés (périmètre du fil), SÉPARÉS de `dem`', async () => {
+    const ECH = /to_char\(GREATEST\(/; // ma requête compte+date (fragment UNIQUE)
+    etat.dispatch = [
+      { re: DEM, rows: [{ id: 154, reference: 'R', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 1, dossiers_satisfaits: 0, dossiers_en_ged: 0, nb_reponses: 0, nb_reponses_reelles: 0, derniere_reponse_le: null }] },
+      { re: ECH, rows: [{ demande_id: 154, n: 8, dernier: '2026-08-30T22:23:55Z' }] },
+    ];
+    const { demandes } = await chargerDemandesSuivi();
+    expect(demandes[0].nbEchanges).toBe(8);
+    expect(demandes[0].dernierEchangeLe).toBe('2026-08-30T22:23:55Z');
+    const ech = appels.find((a) => ECH.test(a.sql))!;
+    const s = norm(ech.sql);
+    // périmètre = les 4 sources du fil (reçus + envois + hors-outil + journal-messages) ; motifs LIÉS en tableau, pas concaténés.
+    expect(s).toContain("demande_acheminement a WHERE a.demande_id = d.id AND a.statut = 'envoye'");
+    expect(s).toContain("demande_reponse r WHERE r.demande_id = d.id AND r.nature <> 'rebond'");
+    expect(s).toContain('demande_sortant_hors_outil s WHERE s.demande_id = d.id');
+    expect(s).toContain('j.motif LIKE ANY($2::text[])');
+    expect(Array.isArray(ech.params[1]) && (ech.params[1] as string[]).length).toBe(3); // 3 préfixes de motifs de messages
+    // 🔴 requête SÉPARÉE, jamais `dem`
+    expect(DEM.test(ech.sql)).toBe(false);
+    expect(norm(appels.find((a) => DEM.test(a.sql))!.sql)).not.toContain('to_char(GREATEST(');
+  });
+
   it('LOT-9 C — CONTACT MAIRIE : interlocuteurs (dernier message, tri récence) + destinataire, par requêtes SÉPARÉES de `dem`', async () => {
     const EXP = /max\(r\.recu_le\)::text AS dernier/; // fragment UNIQUE de la requête des interlocuteurs
     etat.dispatch = [

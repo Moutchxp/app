@@ -1303,13 +1303,13 @@ describe('Q4 — stock : libellé de fenêtre DYNAMIQUE (plus de « 6 » figé)'
  * dicte plus ni la largeur ni la hauteur de la table. On rend la cellule dans table/tbody/tr (évite le warning « <td> hors <tr> »).
  */
 describe('LOT-7 (A) — CelluleStatut : libellé court + infobulle (texte complet), plus de pavé qui étire la ligne', () => {
-  const LONG = 'Relance ordinaire arrêtée depuis le 31/08/2026 — relance de complément déclarée (pièces : Formulaire Cerfa, Plans d’étages). La réclamation ciblée reste possible.';
+  const LONG = 'Relance pièces complémentaires depuis le 31/08/2026 — relance de complément déclarée (pièces : Formulaire Cerfa, Plans d’étages). La réclamation ciblée reste possible.';
   const rendre = (d: unknown) => renderToStaticMarkup(createElement('table', null, createElement('tbody', null, createElement('tr', null, createElement(CelluleStatut, { d: d as DemandeAffichee })))));
-  it('cascade LONGUE → seul le libellé court « Arrêtée » est affiché, le texte intégral est dans l’infobulle (title + role=tooltip), cellule en nowrap', () => {
-    const h = rendre({ id: 154, cascade: { court: 'Arrêtée', libelle: LONG, prochaine: '' }, statut: 'envoyee', envoyeLe: null });
-    expect(h).toContain('>Arrêtée<');                 // libellé COURT visible (l'état)
+  it('cascade LONGUE → seul le libellé court « Relance pièces » est affiché, le texte intégral est dans l’infobulle (title + role=tooltip), cellule en nowrap', () => {
+    const h = rendre({ id: 154, cascade: { court: 'Relance pièces', libelle: LONG, prochaine: '' }, statut: 'envoyee', envoyeLe: null });
+    expect(h).toContain('>Relance pièces<');          // libellé COURT visible (l'état), LOT 17 (B, point 5)
     expect(h).toContain('role="tooltip"');            // bulle présente
-    expect(h).toContain('Relance ordinaire arrêtée depuis le 31/08/2026'); // texte COMPLET dans la bulle…
+    expect(h).toContain('Relance pièces complémentaires depuis le 31/08/2026'); // texte COMPLET dans la bulle…
     expect(h).toContain(`title="${LONG}"`);           // …ET en repli `title` natif (mobile/sans CSS)
     expect(h).toContain('white-space:nowrap');        // 🔴 une seule ligne : plus de pavé mot-à-mot
     expect(h).not.toContain('word-break');            // jamais de coupure mot à mot

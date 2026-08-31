@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { MentionFamillesManquantes, FriseSuivi, formaterEnvoiLe, formaterEcheanceLe } from './FriseSuiviRendu';
+import { MentionFamillesManquantes, MentionEchanges, FriseSuivi, formaterEnvoiLe, formaterEcheanceLe } from './FriseSuiviRendu';
 import type { EvenementFrise } from '../../../../lib/veille/friseSuivi';
 
 /**
@@ -9,7 +9,7 @@ import type { EvenementFrise } from '../../../../lib/veille/friseSuivi';
  * en tête (ancre + récents, anciens repliés), échéances À VENIR visuellement distinctes et toujours visibles, geste sous la frise.
  */
 const fait = (over: Partial<EvenementFrise> = {}): EvenementFrise => ({ le: '2026-08-04T19:21:00Z', quand: 'passe', libelle: 'Demande initiale de communication', detail: null, ...over });
-const echeance = (over: Partial<EvenementFrise> = {}): EvenementFrise => ({ le: '2026-09-07T00:00:00Z', quand: 'avenir', libelle: 'Cascade partielle — prochaine étape', detail: null, ...over });
+const echeance = (over: Partial<EvenementFrise> = {}): EvenementFrise => ({ le: '2026-09-07T00:00:00Z', quand: 'avenir', libelle: 'Relance programmée', detail: null, ...over });
 
 describe('LOT 13-A — MentionFamillesManquantes (compteur rouge du titre de famille)', () => {
   it('affiche « dossier incomplet (2 familles manquantes) » en rouge quand 2 manquent', () => {
@@ -30,11 +30,16 @@ describe('LOT 15 — FriseSuivi (frise unifiée : faits + échéances)', () => {
     expect(renderToStaticMarkup(h(FriseSuivi, { evenements: [] }))).toContain('Aucun événement enregistré');
   });
 
+  it('LOT 17 (A) — le corps de la frise a un FOND BLANC (svv-card), comme les autres familles (vide comme rempli)', () => {
+    expect(renderToStaticMarkup(h(FriseSuivi, { evenements: [] }))).toContain('class="svv-card"');
+    expect(renderToStaticMarkup(h(FriseSuivi, { evenements: [fait()] }))).toContain('class="svv-card"');
+  });
+
   it('rend les faits puis les échéances À VENIR, distinctes et jamais présentées comme des faits', () => {
     const evenements: EvenementFrise[] = [
       fait({ le: '2026-08-04T19:21:00Z', libelle: 'Demande initiale de communication' }),
       fait({ le: '2026-08-26T07:09:00Z', libelle: 'Relance — Rappel', detail: 'à mairie@ex.fr' }),
-      echeance({ le: '2026-09-07T00:00:00Z', libelle: 'Cascade partielle — prochaine étape' }),
+      echeance({ le: '2026-09-07T00:00:00Z', libelle: 'Relance programmée' }),
       echeance({ le: '2026-10-02T00:00:00Z', libelle: 'Délai avant saisine CADA prolongé', detail: 'dossier partiel' }),
     ];
     const html = renderToStaticMarkup(h(FriseSuivi, { evenements }));
@@ -43,11 +48,11 @@ describe('LOT 15 — FriseSuivi (frise unifiée : faits + échéances)', () => {
     expect(html).toContain('à mairie@ex.fr');
     // l'échéance est explicitement marquée « à venir » (le mot, pas juste l'opacité) et n'affiche PAS d'heure
     expect(html.toLowerCase()).toContain('à venir');
-    expect(html).toContain('Cascade partielle — prochaine étape');
+    expect(html).toContain('Relance programmée');
     expect(html).toContain('07/09/2026');
     expect(html).not.toContain('07/09/2026 à'); // échéance = date seule, jamais « à HHhMM » (pas un fait horodaté)
     // ordre : le fait initial avant l'échéance
-    expect(html.indexOf('Demande initiale')).toBeLessThan(html.indexOf('Cascade partielle'));
+    expect(html.indexOf('Demande initiale')).toBeLessThan(html.indexOf('Relance programmée'));
   });
 
   it('beaucoup de FAITS → repli natif des anciens (un clic), les échéances restent visibles', () => {
@@ -57,7 +62,7 @@ describe('LOT 15 — FriseSuivi (frise unifiée : faits + échéances)', () => {
     expect(html).toContain('<details');
     expect(html).toContain('voir les 2 entrées plus anciennes'); // 6 faits : ancre + 3 récents visibles → 2 repliés
     expect(html).not.toContain('BlocRepliable');
-    expect(html).toContain('Cascade partielle — prochaine étape'); // échéance JAMAIS repliée
+    expect(html).toContain('Relance programmée'); // échéance JAMAIS repliée
   });
 
   it('le geste « à venir » (préparer un brouillon) est rendu sous la frise', () => {
@@ -77,6 +82,26 @@ describe('LOT 15 — FriseSuivi (frise unifiée : faits + échéances)', () => {
     expect(html).not.toContain('background:var(--color-svv-red)'); // jamais un fond plein
     // une seule occurrence de liseré (la bascule uniquement)
     expect((html.match(/border-left:\s*2px solid var\(--color-svv-red\)/g) ?? []).length).toBe(1);
+  });
+});
+
+describe('LOT 17-C — MentionEchanges (titre « Historique des échanges », neutre)', () => {
+  it('« N échanges — dernier le JJ/MM/AAAA à HHhMM » (format frise), ton NEUTRE (jamais rouge)', () => {
+    const html = renderToStaticMarkup(h(MentionEchanges, { nbEchanges: 8, dernierLe: '2026-08-30T22:23:55Z' }));
+    expect(html).toContain('8 échanges');
+    expect(html).toContain('dernier le 31/08/2026 à 00h23'); // Europe/Paris + format de la frise
+    expect(html).not.toContain('var(--color-svv-red)'); // pas une alerte
+  });
+  it('singulier « 1 échange »', () => {
+    expect(renderToStaticMarkup(h(MentionEchanges, { nbEchanges: 1, dernierLe: '2026-08-30T22:23:55Z' }))).toContain('1 échange —');
+  });
+  it('compte sans date connue → seulement le compte (jamais « dernier le … »)', () => {
+    const html = renderToStaticMarkup(h(MentionEchanges, { nbEchanges: 3, dernierLe: null }));
+    expect(html).toContain('3 échanges');
+    expect(html).not.toContain('dernier le');
+  });
+  it('aucun échange → ABSENTE (point 11)', () => {
+    expect(renderToStaticMarkup(h(MentionEchanges, { nbEchanges: 0, dernierLe: null }))).toBe('');
   });
 });
 
