@@ -24,17 +24,25 @@ describe('construireFriseSuivi — fusion, ordre, faits vs échéances', () => {
     expect(frise.map((e) => e.libelle)).toEqual([
       'Demande initiale de communication',   // 04/08
       'Relance — Rappel',                     // 26/08
-      'Relance ordinaire arrêtée',            // 28/08 (fait)
+      'Relance pièces complémentaires',       // 28/08 (fait, LOT 16 : bascule de process)
       'Cascade partielle — relance 2 à envoyer', // 07/09 (échéance)
       'Délai avant saisine CADA prolongé',    // 02/10 (échéance)
     ]);
+  });
+
+  it('LOT 16 — la bascule de process (« Relance pièces complémentaires ») porte le drapeau `bascule`, elle SEULE', () => {
+    const frise = construireFriseSuivi({
+      envois: [envoi('2026-08-04T21:00:00Z', 'Demande initiale de communication')],
+      suspension: suspension('2026-08-28T12:00:00Z'), butoirIso: '2026-10-02T00:00:00Z', cascade: cascade(),
+    });
+    expect(frise.filter((e) => e.bascule).map((e) => e.libelle)).toEqual(['Relance pièces complémentaires']);
   });
 
   it('les faits sont « passe », les échéances (butoir, prochaine étape) sont « avenir »', () => {
     const frise = construireFriseSuivi({ envois: [envoi('2026-08-04T21:00:00Z', 'Demande initiale de communication')], suspension: suspension('2026-08-28T12:00:00Z'), butoirIso: '2026-10-02T00:00:00Z', cascade: cascade() });
     const parLibelle = Object.fromEntries(frise.map((e) => [e.libelle, e.quand]));
     expect(parLibelle['Demande initiale de communication']).toBe('passe');
-    expect(parLibelle['Relance ordinaire arrêtée']).toBe('passe');
+    expect(parLibelle['Relance pièces complémentaires']).toBe('passe');
     expect(parLibelle['Délai avant saisine CADA prolongé']).toBe('avenir');
     expect(parLibelle['Cascade partielle — relance 2 à envoyer']).toBe('avenir');
   });
@@ -49,7 +57,7 @@ describe('construireFriseSuivi — fusion, ordre, faits vs échéances', () => {
   it('CASC-3 selon l’étape : annonce, saisine proposable, ou prochaine échéance (rien dû)', () => {
     expect(construireFriseSuivi({ envois: [], suspension: null, butoirIso: null, cascade: cascade({ etape: 'annonce', dateDue: '2026-09-20T00:00:00Z' }) })[0].libelle).toBe('Cascade partielle — annonce CADA à envoyer');
     expect(construireFriseSuivi({ envois: [], suspension: null, butoirIso: null, cascade: cascade({ etape: 'saisine_proposable', dateDue: '2026-09-20T00:00:00Z' }) })[0].libelle).toBe('Cascade partielle — saisine CADA proposable');
-    expect(construireFriseSuivi({ envois: [], suspension: null, butoirIso: null, cascade: cascade({ etape: 'aucune', dateDue: null, prochaineDate: '2026-09-25T00:00:00Z' }) })[0].libelle).toBe('Cascade partielle — prochaine étape');
+    expect(construireFriseSuivi({ envois: [], suspension: null, butoirIso: null, cascade: cascade({ etape: 'aucune', dateDue: null, prochaineDate: '2026-09-25T00:00:00Z' }) })[0].libelle).toBe('Relance programmée'); // LOT 16 (point 3)
     // rien de daté → aucun événement de cascade
     expect(construireFriseSuivi({ envois: [], suspension: null, butoirIso: null, cascade: cascade({ etape: 'aucune', dateDue: null, prochaineDate: null }) })).toEqual([]);
   });

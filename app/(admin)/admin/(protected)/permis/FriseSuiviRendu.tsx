@@ -41,8 +41,10 @@ export function formaterEcheanceLe(iso: string): string {
 
 function LigneFrise({ e }: { e: EvenementFrise }) {
   const avenir = e.quand === 'avenir';
+  // LOT 16 (point 2) — BASCULE DE PROCESS : liseré rouge DISCRET (une bordure fine à gauche, jamais un bandeau plein ni un fond). Rouge de la charte.
+  const lisereBascule: CSSProperties = e.bascule ? { borderLeft: '2px solid var(--color-svv-red)', paddingLeft: '.5rem', marginLeft: '-.15rem' } : {};
   return (
-    <li style={{ display: 'flex', flexDirection: 'column', gap: '.05rem', opacity: avenir ? 0.75 : 1 }}>
+    <li style={{ display: 'flex', flexDirection: 'column', gap: '.05rem', opacity: avenir ? 0.75 : 1, ...lisereBascule }}>
       <span>
         <span style={{ ...muted, fontVariantNumeric: 'tabular-nums' }}>{avenir ? formaterEcheanceLe(e.le) : formaterEnvoiLe(e.le)}</span>{' — '}
         {/* Le MOT porte la nature ; « À venir » écrit distingue l'échéance du fait (jamais la couleur/opacité seule). */}

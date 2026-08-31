@@ -18,6 +18,7 @@ export interface EvenementFrise {
   quand: QuandFrise;
   libelle: string;         // nature, en gras à l'affichage
   detail: string | null;   // précision grise sous la ligne (destinataire, motif…) ou null
+  bascule?: boolean;       // LOT 16 : marque la BASCULE DE PROCESS (passage au process « document partiel ») → liseré rouge discret à l'affichage
 }
 
 /** Entrées de la frise — toutes DÉJÀ chargées ailleurs (LOT 13 pour les envois, richDetail pour la cascade) : aucune lecture ici. */
@@ -33,7 +34,7 @@ function etapeCascade(c: EtatCascadePartielle): { le: string; libelle: string } 
   if (c.etape === 'relance' && c.dateDue) return { le: c.dateDue, libelle: `Cascade partielle — relance ${c.rang} à envoyer` };
   if (c.etape === 'annonce' && c.dateDue) return { le: c.dateDue, libelle: 'Cascade partielle — annonce CADA à envoyer' };
   if (c.etape === 'saisine_proposable' && c.dateDue) return { le: c.dateDue, libelle: 'Cascade partielle — saisine CADA proposable' };
-  if (c.prochaineDate) return { le: c.prochaineDate, libelle: 'Cascade partielle — prochaine étape' };
+  if (c.prochaineDate) return { le: c.prochaineDate, libelle: 'Relance programmée' }; // LOT 16 (point 3) — ex « Cascade partielle — prochaine étape »
   return null;
 }
 
@@ -42,10 +43,11 @@ export function construireFriseSuivi(e: EntreesFrise): EvenementFrise[] {
   const evs: EvenementFrise[] = [];
   // FAITS — nos envois (déjà mis en forme au LOT 13 : « Demande initiale… », « Relance — Rappel », « Relance partielle — 1re relance »).
   for (const env of e.envois) evs.push({ le: env.le, quand: 'passe', libelle: env.libelle, detail: env.destinataire ? `à ${env.destinataire}` : null });
-  // CASC-1 — arrêt de la relance ordinaire : un FAIT daté (à la 1re réclamation/déclaration).
+  // CASC-1 — BASCULE DE PROCESS vers « document partiel » : un FAIT daté (à la 1re réclamation/déclaration). LOT 16 (point 1) : le libellé
+  //   dit ce qu'on FAIT (« Relance pièces complémentaires »), pas ce qu'on cesse ; il porte le drapeau `bascule` (liseré rouge à l'affichage).
   if (e.suspension) {
     const origine = e.suspension.origine === 'declaree' ? 'relance de complément déclarée hors outil' : 'complément de pièces réclamé par l’outil';
-    evs.push({ le: e.suspension.le, quand: 'passe', libelle: 'Relance ordinaire arrêtée', detail: `${origine} — la réclamation ciblée reste possible` });
+    evs.push({ le: e.suspension.le, quand: 'passe', libelle: 'Relance pièces complémentaires', detail: `${origine} — la réclamation ciblée reste possible`, bascule: true });
     // CASC-2 — butoir CADA prolongé : une ÉCHÉANCE à venir (jamais un fait).
     if (e.butoirIso) evs.push({ le: e.butoirIso, quand: 'avenir', libelle: 'Délai avant saisine CADA prolongé', detail: 'dossier partiel' });
   }

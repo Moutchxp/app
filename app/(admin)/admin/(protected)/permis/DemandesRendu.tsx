@@ -6,7 +6,7 @@ import type { CleCategorie } from '../../../../lib/sitadel/priorite';
 import { PERIODES_STOCK, type LigneStock } from '../../../../lib/sitadel/stock';
 import { EditeurReferenceMairie } from './RefMairieCellule'; // FUS — éditeur PARTAGÉ de la référence mairie (cellule tableau ET détail : un seul comportement)
 import { BoutonCopier } from './BoutonCopier'; // DEPOT-1 — pastille de copie PARTAGÉE (texte + numéro de permis), même apparence
-import { SousBlocRepliable } from './SousBlocRepliable'; // LOT-7 (B) — corps de lettre derrière un pli léger (1 clic), réutilise le composant du LOT 5
+import { BlocRepliable as BlocLignePli } from './BlocRepliable'; // LOT 16 (B) — le pli « Texte de la demande » adopte la MÊME ligne repliable que les familles de l'encart (facture unique)
 import type { Decompte } from '../../../../lib/veille/decompteButoir'; // LOT-8 (B) — décompte en jours avant le butoir qui fait foi
 import type { ContactMairie } from '../../../../lib/veille/reponsesSuivi'; // LOT-9 (C) — carnet d'adresses « Contact mairie »
 import type { PermisDetail, DemandeDetail } from '../../../../lib/sitadel/demandeRepo';
@@ -534,6 +534,14 @@ export function formaterDateHeureLocale(iso: string | null): string {
   return new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(d);
 }
 
+/** LOT 16 — JOUR seul (JJ/MM/AAAA, Europe/Paris), pour le titre du pli « Texte de la demande … envoyée le … ». '' / invalide → '—'. */
+export function formaterJourLocale(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return new Intl.DateTimeFormat('fr-FR', { timeZone: 'Europe/Paris', day: '2-digit', month: '2-digit', year: 'numeric' }).format(d);
+}
+
 // Cellule des tableaux de demandes : contenu CENTRÉ (horizontal + vertical). Scopé à ce fichier (TableDemandes + Cellule*), pas
 //   à TableStock ni au panneau détail (styles propres). Le `<tr>` d'en-tête passe aussi en textAlign center (cf. thead).
 const styleTdD: CSSProperties = { padding: '.4rem .5rem', textAlign: 'center', verticalAlign: 'middle' };
@@ -891,7 +899,7 @@ const PROFILS_DEMANDE: ProfilDemandeur[] = ['entreprise', 'personne'];
  * (le panneau a seulement CHANGÉ D'EMPLACEMENT). La bascule/les transitions ne sont offertes qu'en brouillon (garde inchangée).
  */
 export function PanneauDetailDemande({
-  detail, corps, retour, onCorps, onFermer, onSauverCorps, onAjouterRef, onModifierRef, onSupprimerRef, onBascule, onTransition, slotDossiers, slotActions, masquerRefMairie = false,
+  detail, corps, retour, onCorps, onFermer, onSauverCorps, onAjouterRef, onModifierRef, onSupprimerRef, onBascule, onTransition, slotDossiers, slotActions, masquerRefMairie = false, dateInitialeEnvoi = null,
 }: {
   detail: DemandeDetail; corps: string; retour: RetourAction;
   onCorps: (v: string) => void;
@@ -907,8 +915,16 @@ export function PanneauDetailDemande({
   // UNIF-1 — quand l'appelant range LUI-MÊME l'éditeur de référence mairie dans son encart (famille « Suivi & actions »), il
   //   masque ICI le bloc réf. mairie du panneau pour ne pas le dupliquer. DÉFAUT false → « À demander » et l'existant inchangés.
   masquerRefMairie?: boolean;
+  // LOT 16 (B, point 8) — date (ISO) de l'ENVOI INITIAL, pour le titre dynamique du pli « Texte de la demande ». 🔴 MÊME DONNÉE que la
+  //   1re entrée de la frise : l'appelant passe `richDetail.historiqueEnvois` de nature 'initiale' (pas un 2e calcul). null = brouillon / non envoyée.
+  dateInitialeEnvoi?: string | null;
 }) {
   const brouillon = detail.statut === 'brouillon';
+  // LOT 16 (B, points 8/9) — titre DYNAMIQUE du pli. Date présente → « … initiale envoyée le JJ/MM/AAAA » ; brouillon (pas encore envoyée)
+  //   → « Texte de la demande » (aucune date inventée) ; envoyée mais date absente (cas limite) → « Texte de la demande envoyée ».
+  const titrePli = dateInitialeEnvoi
+    ? `Texte de la demande initiale envoyée le ${formaterJourLocale(dateInitialeEnvoi)}`
+    : brouillon ? 'Texte de la demande' : 'Texte de la demande envoyée';
   // LOT-11 (B/6) — libellé du profil : mapping 'entreprise'→'Société' / 'personne'→'Personne physique' ; repli propre sur un profil
   //   inattendu ou absent (valeur brute, sinon « — ») → jamais un vide muet ni un « undefined » à l'écran.
   const libelleProfil = ETIQUETTE_PROFIL[detail.profil as ProfilDemandeur] ?? (detail.profil?.trim() ? detail.profil : '—');
@@ -945,13 +961,16 @@ export function PanneauDetailDemande({
       </div>
       </>
       )}
-      {/* LOT-7 (B) — corps de la lettre DERRIÈRE UN PLI (1 clic, pas de BlocRepliable imbriqué). Jamais supprimé : seule trace visible de
-           ce qui a été RÉELLEMENT envoyé à la mairie (précédent 18/08). OUVERT en BROUILLON (on le relit/édite avant envoi), FERMÉ une
-           fois envoyée (encart léger). Le bouton « Enregistrer le texte » (brouillon) reste hors du pli, toujours visible. */}
-      <SousBlocRepliable titre={`Texte de la demande${brouillon ? '' : ' envoyée'}`} defautOuvert={brouillon}>
-        <textarea value={corps} onChange={(e) => onCorps(e.target.value)} rows={16} readOnly={!brouillon}
-          style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }} />
-      </SousBlocRepliable>
+      {/* LOT-7 / LOT 16 (B) — corps de la lettre derrière UN PLI (1 clic). Seule trace visible de ce qui a été RÉELLEMENT envoyé (précédent
+           18/08). LOT 16 : adopte la MÊME ligne repliable que les familles de l'encart (BlocLignePli : chevron, bordure, typo, espacement
+           identiques) + titre DYNAMIQUE. OUVERT en BROUILLON (relu/édité avant envoi), FERMÉ une fois envoyée. Le bouton « Enregistrer le
+           texte » (brouillon) reste hors du pli, toujours visible. Render-prop : le textarea est monté à la 1re ouverture, jamais démonté. */}
+      <BlocLignePli titre={titrePli} defautOuvert={brouillon}>
+        {() => (
+          <textarea value={corps} onChange={(e) => onCorps(e.target.value)} rows={16} readOnly={!brouillon}
+            style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', boxSizing: 'border-box' }} />
+        )}
+      </BlocLignePli>
       {/* T6-A — « En cours » injecte DetailDossiers (actions T1) ; sinon, détail brut des dossiers (À demander, inchangé). */}
       {slotDossiers ?? <BlocDossiersDetail dossiers={detail.dossiers} retires={detail.dossiersRetires} />}
       {/* UNIF-1 — masqué quand l'appelant range l'éditeur dans son encart (famille « Suivi & actions ») ; sinon rendu ici (À demander). */}

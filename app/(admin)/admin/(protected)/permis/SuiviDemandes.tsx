@@ -664,6 +664,9 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
         panneau={detail ? (
           <PanneauDetailDemande
             detail={detail} corps={corps} retour={zonesRetour.detail}
+            /* LOT 16 (B, point 8) — titre du pli daté par la MÊME donnée que la 1re entrée de la frise : l'envoi 'initiale' de historiqueEnvois
+               (pas un 2e calcul). null hors « En cours » (richDetail absent) ou tant qu'aucun envoi initial → titre brouillon/sans date. */
+            dateInitialeEnvoi={richDetail ? (richDetail.historiqueEnvois.find((e) => e.nature === 'initiale')?.le ?? null) : null}
             onCorps={setCorps}
             onFermer={() => setDetail(null)}
             onSauverCorps={() => void sauverCorps()}

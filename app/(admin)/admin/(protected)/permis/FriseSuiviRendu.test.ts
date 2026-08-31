@@ -64,6 +64,20 @@ describe('LOT 15 — FriseSuivi (frise unifiée : faits + échéances)', () => {
     const html = renderToStaticMarkup(h(FriseSuivi, { evenements: [echeance()], actionAvenir: h('button', {}, 'Préparer la relance 2') }));
     expect(html).toContain('Préparer la relance 2');
   });
+
+  it('LOT 16 (point 2) — la bascule de process porte un LISERÉ ROUGE (bordure fine), et elle SEULE', () => {
+    const evenements: EvenementFrise[] = [
+      fait({ libelle: 'Demande initiale de communication' }),
+      fait({ le: '2026-08-28T12:00:00Z', libelle: 'Relance pièces complémentaires', bascule: true }),
+    ];
+    const html = renderToStaticMarkup(h(FriseSuivi, { evenements }));
+    expect(html).toContain('Relance pièces complémentaires');
+    // liseré = bordure gauche rouge de la charte (discret : pas un fond plein)
+    expect(html).toMatch(/border-left:\s*2px solid var\(--color-svv-red\)/);
+    expect(html).not.toContain('background:var(--color-svv-red)'); // jamais un fond plein
+    // une seule occurrence de liseré (la bascule uniquement)
+    expect((html.match(/border-left:\s*2px solid var\(--color-svv-red\)/g) ?? []).length).toBe(1);
+  });
 });
 
 describe('formaterEnvoiLe / formaterEcheanceLe', () => {

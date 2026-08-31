@@ -766,6 +766,28 @@ describe('U7 — PanneauDetailDemande : contenu + actions du détail (déplacé 
     expect(h).not.toContain('Enregistrer le texte');
   });
 
+  it('LOT 16 (B, point 8) — titre DYNAMIQUE daté par la MÊME donnée que la 1re entrée de la frise (envoyée le JJ/MM/AAAA)', () => {
+    const h = renderToStaticMarkup(createElement(PanneauDetailDemande, { detail: DETAIL({ statut: 'envoyee' }), corps: 'CORPS DEMANDE', retour: null as RetourAction, ...cbs, dateInitialeEnvoi: '2026-08-04T19:21:00Z' }));
+    expect(h).toContain('Texte de la demande initiale envoyée le 04/08/2026'); // Europe/Paris, date seule
+  });
+  it('LOT 16 (B, point 9) — brouillon (pas encore envoyée) → « Texte de la demande » SANS date, OUVERT par défaut', () => {
+    const h = rendu({ statut: 'brouillon' }); // aucune dateInitialeEnvoi
+    expect(h).toContain('Texte de la demande');
+    expect(h).not.toContain('envoyée le'); // jamais une date inventée
+    expect(h).toContain('CORPS DEMANDE');  // ouvert d'emblée en brouillon
+  });
+  it('LOT 16 (B, point 9) — envoyée mais date absente → « Texte de la demande envoyée » (cas limite), FERMÉ par défaut', () => {
+    const h = rendu({ statut: 'envoyee' }); // dateInitialeEnvoi null
+    expect(h).toContain('Texte de la demande envoyée');
+    expect(h).not.toContain('envoyée le');
+    expect(h).not.toContain('CORPS DEMANDE'); // fermé → non monté (1 clic pour ouvrir)
+  });
+  it('LOT 16 (B, points 6/7) — le pli adopte la ligne repliable des familles : vrai bouton aria-expanded (1 clic) + chevron', () => {
+    const h = rendu({ statut: 'envoyee' });
+    expect(h).toContain('aria-expanded');
+    expect(h).toMatch(/[▸▾]/);
+  });
+
   it('LOT-11 (B) — le TITRE porte le profil en CAPSULE ROUGE (« profil Société » / « profil Personne physique »), repli propre si inconnu/absent', () => {
     expect(rendu({ statut: 'envoyee', profil: 'entreprise' })).toContain('profil Société');
     const rouge = rendu({ statut: 'envoyee', profil: 'entreprise' });
