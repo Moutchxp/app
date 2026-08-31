@@ -7,6 +7,7 @@ import { PERIODES_STOCK, type LigneStock } from '../../../../lib/sitadel/stock';
 import { EditeurReferenceMairie } from './RefMairieCellule'; // FUS — éditeur PARTAGÉ de la référence mairie (cellule tableau ET détail : un seul comportement)
 import { BoutonCopier } from './BoutonCopier'; // DEPOT-1 — pastille de copie PARTAGÉE (texte + numéro de permis), même apparence
 import { SousBlocRepliable } from './SousBlocRepliable'; // LOT-7 (B) — corps de lettre derrière un pli léger (1 clic), réutilise le composant du LOT 5
+import type { Decompte } from '../../../../lib/veille/decompteButoir'; // LOT-8 (B) — décompte en jours avant le butoir qui fait foi
 import type { PermisDetail, DemandeDetail } from '../../../../lib/sitadel/demandeRepo';
 
 /**
@@ -728,21 +729,43 @@ export function CelluleStatut({ d }: { d: DemandeAffichee }) {
   );
 }
 
+/**
+ * LOT-8 (B) — colonne DÉLAI = un vrai DÉCOMPTE en jours avant le butoir qui fait foi (« J-32 » / « dépassé de N j » / « aujourd'hui »),
+ * la DATE en infobulle. Cas « obtenu / indéterminé / non délivrée / pas encore envoyée » dits lisiblement (jamais un vide muet). Une
+ * ligne, nowrap. Le butoir (ordinaire ou PARTIEL prolongé) est décidé en amont par `decompteButoirCada` (source unique).
+ */
+export function DecompteDelai({ d, id }: { d: Decompte; id: number }) {
+  const muted: CSSProperties = { color: 'var(--color-svv-muted)' };
+  if (d.etat === 'non_delivree') return <span style={muted} title="Rebond ou échec d’acheminement : aucun délai ne court.">non délivrée</span>;
+  if (d.etat === 'non_envoyee') return <span style={muted}>—</span>;
+  if (d.etat === 'obtenu') return <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }} title="Tous les documents ont été obtenus.">obtenu</span>;
+  if (d.etat === 'indetermine') return <span style={muted} title="Relève trop ancienne : silence non vérifié.">indéterminé</span>;
+  const j = d.jours ?? 0;
+  const libelle = j < 0 ? `dépassé de ${-j} j` : j === 0 ? 'aujourd’hui' : `J-${j}`;
+  const couleur = j <= 7 ? 'var(--color-svv-red)' : 'var(--color-svv-ink)'; // urgence/dépassé en rouge, sinon encre
+  const dateFr = d.butoir ? new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Europe/Paris' }).format(new Date(d.butoir)) : '';
+  const complet = `Échéance ${d.source === 'partiel' ? 'CADA (dossier partiel, délai prolongé)' : 'du délai d’un mois'} le ${dateFr}`;
+  return <AvecInfobulle idTip={`delai-${id}`} complet={complet} title={complet} visible={<span style={{ color: couleur, fontWeight: 600 }}>{libelle}</span>} style={{ whiteSpace: 'nowrap' }} />;
+}
+
 export function TableDemandes({
-  visibles, categories, tri, sel, toutCoche, messageVide, avecSelection = true, demandeOuverte = null, panneau, colonnesSuivi, onTrier, onToutSelectionner, onBasculer, onOuvrir,
+  visibles, categories, tri, sel, toutCoche, messageVide, avecSelection = true, demandeOuverte = null, panneau, colonnesSuivi, masquerOrigineDest = false, onTrier, onToutSelectionner, onBasculer, onOuvrir,
 }: {
   visibles: DemandeAffichee[]; categories: { libelle: string; rang: number }[];
   tri: Tri; sel: ReadonlySet<number>; toutCoche: boolean; messageVide: string; avecSelection?: boolean;
   // U7 — accordéon À UN SEUL VOLET : `demandeOuverte` = l'unique demande dépliée (jamais un Set → jamais deux détails). `panneau` = son
   //   détail (bâti par la Vue), rendu dans une 2ᵉ `<tr><td colSpan>` JUSTE SOUS sa ligne. Motif de TableStock (disclosure natif au niveau ligne).
   demandeOuverte?: number | null; panneau?: ReactNode;
-  // T6-A — colonnes SUPPLÉMENTAIRES (« En cours » : Délai + Retour mairie), injectées APRÈS la colonne Statut. ABSENTES ailleurs →
+  // T6-A — colonnes SUPPLÉMENTAIRES (« En cours » : Délai + Réf. mairie), injectées APRÈS la colonne Statut. ABSENTES ailleurs →
   //   « À demander » rigoureusement inchangé (aucune colonne, aucun champ riche à null). `largeur` = nb de colonnes (pour le colSpan).
   colonnesSuivi?: { entetes: ReactNode; largeur: number; cellule: (d: DemandeAffichee) => ReactNode };
+  // LOT-8 (A) — en « En cours », Origine (constante = le rail sélectionné) et Destinataire (repris dans l'en-tête du détail) sont
+  //   MASQUÉES pour gagner de la place. Ailleurs (« À demander »), elles restent (aucun rail sélectionné en tête, avant envoi).
+  masquerOrigineDest?: boolean;
   onTrier?: (c: TriColonne) => void; onToutSelectionner?: () => void; onBasculer?: (id: number) => void; onOuvrir?: (id: number) => void;
 }) {
   const nowrap: CSSProperties = { ...styleTdD, whiteSpace: 'nowrap' };
-  const nCols = (avecSelection ? 11 : 10) + (colonnesSuivi?.largeur ?? 0); // T6-B : +1 pour « N° permis ». colSpan du panneau et de la ligne « vide »
+  const nCols = (avecSelection ? 11 : 10) - (masquerOrigineDest ? 2 : 0) + (colonnesSuivi?.largeur ?? 0); // T6-B : +1 pour « N° permis ». colSpan du panneau et de la ligne « vide »
   return (
     <ConteneurTableDefilant ariaLabel="Tableau des demandes, défilement horizontal">
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
@@ -754,8 +777,8 @@ export function TableDemandes({
             <th style={nowrap}>Type</th>
             <EnteteTriable libelle="Commune" colonne="commune" tri={tri} onTrier={onTrier} />
             <th style={styleTdD}>Profil</th>
-            <th style={nowrap}>Origine</th>
-            <th style={{ ...styleTdD, minWidth: 160 }}>Destinataire</th>
+            {!masquerOrigineDest && <th style={nowrap}>Origine</th>}
+            {!masquerOrigineDest && <th style={{ ...styleTdD, minWidth: 160 }}>Destinataire</th>}
             <EnteteTriable libelle="Dossiers" colonne="dossiers" tri={tri} onTrier={onTrier} />
             <EnteteTriable libelle="Statut" colonne="statut" tri={tri} onTrier={onTrier} />
             {colonnesSuivi?.entetes /* T6-A — Délai + Retour mairie (En cours) */}
@@ -774,8 +797,8 @@ export function TableDemandes({
                   <CelluleType rangs={d.rangs} categories={categories} />
                   <td style={styleTdD}>{d.communeNom ?? d.codeInsee}</td>
                   <td style={styleTdD}>{ETIQUETTE_PROFIL[d.profil as ProfilDemandeur] ?? d.profil}</td>
-                  <td style={nowrap}>{libelleOrigine(d.canal)}</td>
-                  <td style={styleTdD}><OrigineDest origine={d.destOrigine} nom={d.destNom} /></td>
+                  {!masquerOrigineDest && <td style={nowrap}>{libelleOrigine(d.canal)}</td>}
+                  {!masquerOrigineDest && <td style={styleTdD}><OrigineDest origine={d.destOrigine} nom={d.destNom} /></td>}
                   <td style={styleTdD}>{d.nbDossiers}</td>
                   {/* FUS — Statut + DATE/HEURE effective d'envoi. Lot 4 (« En cours ») — le STATUT DÉRIVÉ de la cascade (libellé + prochaine
                        étape) prime : il reflète le dernier envoi RÉEL. La colonne « Retour mairie » (à côté) reste réservée à la MAIRIE.

@@ -5,11 +5,11 @@ import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
 import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, partitionnerAnnulationMasse, CHOIX_STATUT_DEFAUT, categorieEnCours, CATEGORIE_EN_COURS_LIBELLE } from '../../../../lib/sitadel/demandesListe';
 import { dansProcess, horsProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
-import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, RetourMairie, etatRetourMairie, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
+import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, RetourMairie, etatRetourMairie, DecompteDelai, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
-import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, demandeADuRetour, formaterDate, type RetourCible } from './ReponsesRendu';
-import { etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
+import { DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, demandeADuRetour, formaterDate, type RetourCible } from './ReponsesRendu';
+import { decompteButoirCada, ordinalRelance, type Decompte } from '../../../../lib/veille/decompteButoir'; // LOT-8 B/C : décompte butoir + grade cascade partielle
 import { statutCascade, prochaineEtape, libelleCourtCascade, type EnvoiAutoInfos } from '../../../../lib/veille/statutCascade';
 import { libelleSuspension, dateButoirPartiel, libelleDelaiProlonge } from '../../../../lib/permis/dossierPartiel'; // CASC-1/CASC-2 : suspension + délai CADA prolongé (dossier partiel)
 import { RefMairieCellule, EditeurReferenceMairie } from './RefMairieCellule';
@@ -135,15 +135,17 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
     return () => { annule = true; };
   }, [enCours, version, versionSuivi, signalRafraichir]);
 
-  // T6-A — état d'échéance par demande, calculé UNE FOIS par etatEcheance (INTOUCHÉ) sur la donnée de la source unique. Instant `maintenant` figé au chargement.
-  const etatParId = useMemo(() => {
-    const m = new Map<number, { etat: EtatEcheance; motif: string }>();
+  // LOT-8 (B) — DÉCOMPTE en jours par demande, calculé UNE FOIS. `decompteButoirCada` choisit la date qui FAIT FOI (butoir PARTIEL
+  //   prolongé si marqueur actif, sinon butoir ORDINAIRE via etatEcheance) et remonte `joursRestants` (jamais recalculé ailleurs).
+  const decompteParId = useMemo(() => {
+    const m = new Map<number, Decompte>();
     if (!suivi) return m;
     const reg = { echeanceAlerteJours: suivi.reglages.alerteJours, releveFraicheurHeures: suivi.reglages.fraicheurHeures };
     const derniere = suivi.derniereOkLe ? new Date(suivi.derniereOkLe) : null;
     for (const d of suivi.parId.values()) {
-      const r = etatEcheance({ envoyeLe: d.envoyeLe ? new Date(d.envoyeLe) : null, statutAcheminement: d.statutAcheminement, dossiersActifs: d.dossiersActifs, dossiersSatisfaits: d.dossiersSatisfaits, derniereReleveOkLe: derniere }, maintenant, reg);
-      m.set(d.demandeId, { etat: r.etat, motif: r.motif });
+      const entree = { envoyeLe: d.envoyeLe ? new Date(d.envoyeLe) : null, statutAcheminement: d.statutAcheminement, dossiersActifs: d.dossiersActifs, dossiersSatisfaits: d.dossiersSatisfaits, derniereReleveOkLe: derniere };
+      const partiel = { actif: d.suspension !== null, le: d.suspension?.le ?? null, delaiMois: suivi.partielDelai.mois, delaiJours: suivi.partielDelai.jours };
+      m.set(d.demandeId, decompteButoirCada(entree, maintenant, reg, partiel));
     }
     return m;
   }, [suivi, maintenant]);
@@ -161,7 +163,9 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
       // CASC-1 — SUSPENSION VISIBLE : si « dossier partiel » actif, le libellé de cascade DIT la suspension (raison + date) et il n'y a
       //   pas de prochaine étape ordinaire. CASC-2 — EN PLUS (jamais à la place), la date butoir CADA prolongée (partiel_le + 1 mois + 4 j).
       m.set(d.demandeId, d.suspension
-        ? { libelle: `${libelleSuspension(d.suspension)} ${libelleDelaiProlonge(dateButoirPartiel(new Date(d.suspension.le), suivi.partielDelai.mois, suivi.partielDelai.jours))}`, prochaine: '', court: 'Arrêtée' } // LOT-7 : colonne = « Arrêtée » (un mot), phrase complète en infobulle
+        // LOT-8 (C) — cascade PARTIELLE : le GRADE ordinal (« 1re relance », « 2e relance »…) prime sur « Arrêtée » ; date du dernier
+        //   mail envoyé dans l'infobulle (jamais dans la cellule). Grade = nbReclamationsComplement (marqueur + relances partielles).
+        ? { libelle: `${libelleSuspension(d.suspension)} ${libelleDelaiProlonge(dateButoirPartiel(new Date(d.suspension.le), suivi.partielDelai.mois, suivi.partielDelai.jours))}${d.dernierEnvoiRelance ? ` Dernier mail envoyé le ${formaterDate(d.dernierEnvoiRelance.envoyeLe)}.` : ''}`, prochaine: '', court: d.nbReclamationsComplement >= 1 ? `${ordinalRelance(d.nbReclamationsComplement)} relance` : 'Arrêtée' }
         : { libelle: statutCascade(entree, maintenant, suivi.cascade, suivi.envoi), prochaine: prochaineEtape(entree, maintenant, suivi.cascade), court: libelleCourtCascade(entree, maintenant, suivi.cascade) });
     }
     return m;
@@ -408,39 +412,24 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   const selProfil = (id: string) => id as ProfilDemandeur;
   const zonesRetour = repartirRetour(retour, detail !== null);
   const aujourdhui = formaterDate(maintenant.toISOString()); // borne « refus le » (max) — la route reste l'autorité
-  // T6-A — colonnes « Délai » (compte à rebours) + « Retour mairie », injectées dans TableDemandes UNIQUEMENT en « En cours ».
+  // LOT-8 — colonnes injectées en « En cours » : DÉLAI (décompte en jours, DecompteDelai) + Réf. mairie. Retirées : Catégorie
+  //   (redondante avec « Arrêtée » du Statut ; le résumé « Dont N en relance » reste en tête) et Retour mairie (passée en tête d'encart).
   const colonnesSuivi = enCours && suivi ? {
-    largeur: 4,
+    largeur: 2,
     entetes: (
       <>
-        {/* PART-B — CATÉGORIE : 1re demande vs en relance (dossier partiel), juste après Statut. */}
-        <th style={{ padding: '.4rem .5rem', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>Catégorie</th>
-        <th style={{ padding: '.4rem .5rem', textAlign: 'center' as const, whiteSpace: 'nowrap' as const, minWidth: 150 }}>Délai</th>
-        <th style={{ padding: '.4rem .5rem', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>Retour mairie</th>
+        <th style={{ padding: '.4rem .5rem', textAlign: 'center' as const, whiteSpace: 'nowrap' as const, minWidth: 90 }}>Délai</th>
         <th style={{ padding: '.4rem .5rem', textAlign: 'center' as const, whiteSpace: 'nowrap' as const }}>Réf. mairie</th>
       </>
     ),
     cellule: (d: { id: number }) => {
       const rich = suivi.parId.get(d.id);
-      const e = etatParId.get(d.id);
-      const cat = categorieEnCours(rich ?? {}); // PART-B : 'relance' si suspension active, sinon 'premiere'
+      const dec = decompteParId.get(d.id);
       return (
         <>
-          {/* PART-B — badge de catégorie (a11y : l'info est portée par le TEXTE, la couleur seule ne suffit pas). */}
+          {/* LOT-8 (B) — DÉLAI = décompte en jours (J-N / dépassé / obtenu / indéterminé), date en infobulle. */}
           <td style={{ padding: '.4rem .5rem', textAlign: 'center' as const, verticalAlign: 'middle' as const }}>
-            {rich
-              ? <span className="svv-pill" style={cat === 'relance'
-                  ? { background: '#fdecec', color: 'var(--color-svv-red)', padding: '.2rem .55rem', borderRadius: 999 }
-                  : { background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)', padding: '.2rem .55rem', borderRadius: 999 }}>{CATEGORIE_EN_COURS_LIBELLE[cat]}</span>
-              : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
-          </td>
-          <td style={{ padding: '.4rem .5rem', textAlign: 'center' as const, verticalAlign: 'middle' as const }}>
-            {rich && e ? <EtatDemande statut={rich.statut} dossiersActifs={rich.dossiersActifs} etat={e.etat} motif={e.motif} /> : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
-          </td>
-          <td style={{ padding: '.4rem .5rem', textAlign: 'center' as const, verticalAlign: 'middle' as const }}>
-            {rich ? (
-              <RetourMairie etat={etatRetourMairie(rich)} nbReponses={rich.nbReponsesReelles} derniereReponseLe={rich.derniereReponseLe} provenances={rich.provenancesContenu} />
-            ) : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
+            {dec ? <DecompteDelai d={dec} id={d.id} /> : <span style={{ color: 'var(--color-svv-muted)' }}>—</span>}
           </td>
           {/* FUS-4 — Réf. mairie éditable (ajouter/modifier/effacer) via la MÊME route que le détail. « accusé reçu » DÉRIVÉ (aAccuse). */}
           {rich
@@ -657,8 +646,10 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
           : TEXTES[perimetre].vide)}
         // U7 — accordéon À UN SEUL VOLET : `detail` est UN objet (jamais un Set) → au plus une ligne dépliée ; le panneau se rend SOUS sa ligne.
         demandeOuverte={detail?.id ?? null}
-        // T6-A — colonnes Délai + Retour mairie (En cours seulement ; undefined → « À demander » inchangé).
+        // LOT-8 — colonnes Délai + Réf. mairie (En cours seulement ; undefined → « À demander » inchangé).
         colonnesSuivi={colonnesSuivi}
+        // LOT-8 (A) — En cours : Origine (= le rail sélectionné) et Destinataire (dans l'en-tête du détail) masquées pour gagner de la place.
+        masquerOrigineDest={enCours}
         panneau={detail ? (
           <PanneauDetailDemande
             detail={detail} corps={corps} retour={zonesRetour.detail}
@@ -679,6 +670,14 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
             masquerRefMairie
             slotActions={undefined}
             slotDossiers={richDetail ? (
+              <>
+              {/* LOT-8 (D) — SYNTHÈSE « Retour mairie » en TÊTE de l'encart, AVANT les familles : où en est l'échange (documents obtenus / à
+                   classer en GED / message reçu (N) / accusé / aucun), d'un coup d'œil. Le FIL détaillé des messages reste dans la famille
+                   « Historique » (LOT 4) juste en dessous — ici, la SYNTHÈSE d'état, pas la liste. */}
+              <div className="svv-card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.5rem', fontSize: 13 }}>
+                <span style={{ fontWeight: 700, color: 'var(--color-svv-muted)' }}>Retour mairie :</span>
+                <RetourMairie etat={etatRetourMairie(richDetail)} nbReponses={richDetail.nbReponsesReelles} derniereReponseLe={richDetail.derniereReponseLe} provenances={richDetail.provenancesContenu} />
+              </div>
               <EncartFamilles onglet="en_cours" familles={[
                 {
                   cle: 'suivi_actions', nonVide: true, titre: LIBELLE_FAMILLE.suivi_actions,
@@ -801,6 +800,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                 { cle: 'pieces', titre: LIBELLE_FAMILLE.pieces, nonVide: richDetail.piecesNonVide,
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocPiecesPermis key={id} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
               ]} />
+              </>
             ) : undefined}
           />
         ) : null}

@@ -14,7 +14,7 @@ import { fenetreDepuis } from './releveReponses'; // P1 : MÊME source que la re
 import type { ReglagesCascade } from './cascadeRelance'; // cascade lot 4 : seuils exposés à l'affichage (type-only → erasé côté client)
 import type { EnvoiAutoInfos } from './statutCascade'; // lot « dire quand ça part » : interrupteur + fenêtre d'envoi (réglages existants)
 import type { EtatPartiel } from '../permis/dossierPartiel'; // CASC-1 : marqueur « dossier partiel » (type-only → erasé côté client)
-import { chargerCascadePartielle, type EtatCascadePartielle } from './cascadePartielleRepo'; // CASC-3 : étape de cascade + brouillon
+import { chargerCascadePartielle, MOTIF_RELANCE_PARTIELLE_PREFIXE, type EtatCascadePartielle } from './cascadePartielleRepo'; // CASC-3 : étape de cascade + brouillon ; LOT-8 C : préfixe des relances partielles (grade)
 
 /** Réglages de relève/échéance en vigueur (lecture seule ; édités dans l'onglet Réglages). */
 export interface ReglagesReleve {
@@ -172,6 +172,7 @@ export interface DemandeSuivi {
   piecesReponses: ReponsePieces[]; // T5 : pièces des réponses rattachées (groupées par réponse), consultables/téléchargeables
   provenancesContenu: ProvenanceContenu[]; // FUS : messages porteurs de CONTENU (lien fort OU pièce), le PLUS RÉCENT d'abord — provenance affichée sur la ligne (date+heure + expéditeur), les autres au déplié
   suspension: EtatPartiel | null; // CASC-1 : marqueur « dossier partiel » ACTIF (raison + date) → relance ordinaire suspendue ; null = non suspendue / 177 absente
+  nbReclamationsComplement: number; // LOT-8 C : rang de la cascade PARTIELLE (1 = réclamation d'origine + relances partielles envoyées) ; 0 si non suspendue
   cascade: EtatCascadePartielle | null; // CASC-3 : étape de cascade partielle + brouillon (null = non partielle / complète / 179 absente)
   lienEnAttente: boolean;        // PART-D : ≥ 1 lien fort reçu ET un dossier à GED vide → contenu pas encore récupéré (bascule dossier partiel vers Réponses)
   lienEnAttenteLe: string | null; // PART-D : recu_le (ISO) du PLUS ANCIEN lien fort en attente → tri par urgence dans Réponses ; null = aucun
@@ -513,6 +514,19 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   for (const id of suspensions.keys()) {
     try { const c = await chargerCascadePartielle(id); if (c) cascades.set(id, c); } catch { /* résilient : n'impacte pas la liste */ }
   }
+  // LOT-8 (C) — GRADE de la cascade PARTIELLE : rang = 1 (la réclamation qui a POSÉ le marqueur, `suspension.le`) + les relances
+  //   partielles DÉJÀ envoyées (`demande_journal`, motif RELANCE_PARTIELLE — jamais `demande_acheminement`, qui porte les relances
+  //   ORDINAIRES). Requête SÉPARÉE, batchée sur les seules demandes suspendues (petit sous-ensemble), JAMAIS un WHERE sur `dem`.
+  const relancesPartielles = new Map<number, number>();
+  if (suspensions.size > 0) {
+    try {
+      const { rows } = await query<{ demande_id: number; n: number }>(
+        `SELECT demande_id::int AS demande_id, count(*)::int AS n FROM demande_journal
+          WHERE demande_id = ANY($1) AND motif LIKE $2 || '%' GROUP BY demande_id`,
+        [[...suspensions.keys()], MOTIF_RELANCE_PARTIELLE_PREFIXE]);
+      for (const r of rows) relancesPartielles.set(r.demande_id, r.n);
+    } catch { /* résilient : table/colonne absente → grade retombe sur « 1re relance » (marqueur seul) */ }
+  }
 
   // PART-D — LIEN EN ATTENTE : plus ANCIENNE date de réception (envoi du mail) d'un lien FORT dont le CONTENU n'est pas encore en GED
   //   (≥ 1 dossier actif de la demande a une GED vide). SELECT ajouté EN LECTURE, JAMAIS un WHERE sur la source partagée `dem`.
@@ -633,6 +647,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     piecesReponses: parPiecesReponses.get(r.id) ?? [],
     provenancesContenu: parProvenances.get(r.id) ?? [],
     suspension: suspensions.get(r.id) ?? null, // CASC-1
+    nbReclamationsComplement: suspensions.has(r.id) ? 1 + (relancesPartielles.get(r.id) ?? 0) : 0, // LOT-8 C : grade (1 = réclamation d'origine)
     cascade: cascades.get(r.id) ?? null, // CASC-3
     lienEnAttente: liensEnAttente.has(r.id), // PART-D : lien fort en attente (GED vide) → bascule partiel vers Réponses
     lienEnAttenteLe: liensEnAttente.get(r.id) ?? null, // PART-D : plus ancien lien en attente → tri par urgence

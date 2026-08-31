@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, CelluleStatut, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, CellulePermis, CelluleReference, sequenceReference, formaterDateHeureLocale, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, CelluleStatut, DecompteDelai, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, CellulePermis, CelluleReference, sequenceReference, formaterDateHeureLocale, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 import { BlocLiens } from './ReponsesRendu';
@@ -1280,5 +1280,49 @@ describe('LOT-7 (A) — CelluleStatut : libellé court + infobulle (texte comple
     const h = rendre({ id: 3, cascade: null, statut: 'envoyee', envoyeLe: '2026-07-01T10:00:00Z' });
     expect(h).toContain('white-space:nowrap');
     expect(h).not.toContain('word-break');
+  });
+});
+
+/**
+ * 🔴 LOT-8 (A) — en « En cours » (masquerOrigineDest), les colonnes Origine (= le rail sélectionné) et Destinataire (reprise dans
+ * l'en-tête du détail) sont MASQUÉES ; ailleurs elles restent. (B) — la colonne Délai est un vrai DÉCOMPTE (DecompteDelai).
+ */
+describe('LOT-8 (A) — TableDemandes : Origine + Destinataire masquées en « En cours »', () => {
+  const rendu = (over?: Partial<Parameters<typeof TableDemandes>[0]>) => renderToStaticMarkup(createElement(TableDemandes, {
+    visibles: [DEM({ rangs: [1] })], categories: CATS_D3, tri: TRI_COMMUNE, sel: new Set<number>(), toutCoche: false, messageVide: '—', ...over,
+  }));
+  it('par défaut (À demander) → Origine et Destinataire PRÉSENTES', () => {
+    const h = rendu();
+    expect(h).toContain('>Origine<');
+    expect(h).toContain('>Destinataire<');
+  });
+  it('masquerOrigineDest (En cours) → Origine et Destinataire ABSENTES', () => {
+    const h = rendu({ masquerOrigineDest: true });
+    expect(h).not.toContain('>Origine<');
+    expect(h).not.toContain('>Destinataire<');
+    expect(h).toContain('>Profil<'); // les autres colonnes restent
+    expect(h).toContain('>Dossiers<');
+  });
+});
+
+describe('LOT-8 (B) — DecompteDelai : jours restants + date en infobulle, cas dépassé/obtenu/indéterminé', () => {
+  it('futur → « J-N » + date du butoir PARTIEL dans l’infobulle', () => {
+    const h = renderToStaticMarkup(createElement(DecompteDelai, { id: 154, d: { jours: 32, butoir: '2026-10-02T10:00:00Z', source: 'partiel', etat: 'compte' } }));
+    expect(h).toContain('J-32');
+    expect(h).toContain('02/10/2026');        // date en bulle
+    expect(h).toContain('dossier partiel');   // le butoir prolongé est nommé
+  });
+  it('dépassé → « dépassé de N j »', () => {
+    const h = renderToStaticMarkup(createElement(DecompteDelai, { id: 7, d: { jours: -5, butoir: '2026-09-04T00:00:00Z', source: 'ordinaire', etat: 'compte' } }));
+    expect(h).toContain('dépassé de 5 j');
+  });
+  it('documents obtenus (non partiel) → « obtenu », aucun décompte', () => {
+    const h = renderToStaticMarkup(createElement(DecompteDelai, { id: 7, d: { jours: null, butoir: null, source: 'ordinaire', etat: 'obtenu' } }));
+    expect(h).toContain('obtenu');
+    expect(h).not.toContain('J-');
+  });
+  it('relève trop ancienne → « indéterminé »', () => {
+    const h = renderToStaticMarkup(createElement(DecompteDelai, { id: 7, d: { jours: null, butoir: null, source: 'ordinaire', etat: 'indetermine' } }));
+    expect(h).toContain('indéterminé');
   });
 });

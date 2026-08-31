@@ -258,3 +258,29 @@ describe('LEVÉE AUTO — evaluerLeveeAutoPartiel lève le marqueur quand le dos
     expect(await lireEtatPartiel(demandeId), 'plus de marqueur actif').toBeNull();
   });
 });
+
+/**
+ * 🔴 LOT-8 (C) — GRADE de la cascade PARTIELLE (« 1re relance », « 2e relance »…). `nbReclamationsComplement` = 1 (la réclamation qui a
+ * POSÉ le marqueur) + les relances partielles DÉJÀ envoyées (demande_journal, motif « relance partielle envoyée » — JAMAIS
+ * demande_acheminement, qui porte les relances ORDINAIRES). Vraie base : seed + assert via chargerDemandesSuivi.
+ */
+describe('LOT-8 C — nbReclamationsComplement (grade, source journal + marqueur)', () => {
+  it('suspendue sans relance partielle → 1 (réclamation d’origine)', async () => {
+    const id = await creerDemande('envoyee');
+    await marquerDossierPartiel(id, ['cerfa'], 'declaree');
+    const rich = (await chargerDemandesSuivi()).demandes.find((d) => d.demandeId === id);
+    expect(rich?.nbReclamationsComplement).toBe(1);
+  });
+  it('+1 relance partielle au journal → 2', async () => {
+    const id = await creerDemande('envoyee');
+    await marquerDossierPartiel(id, ['cerfa'], 'declaree');
+    await query(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, 'relance partielle envoyée #1 à mairie', 'itest')`, [id]);
+    const rich = (await chargerDemandesSuivi()).demandes.find((d) => d.demandeId === id);
+    expect(rich?.nbReclamationsComplement).toBe(2);
+  });
+  it('NON suspendue → 0 (aucun grade)', async () => {
+    const id = await creerDemande('envoyee');
+    const rich = (await chargerDemandesSuivi()).demandes.find((d) => d.demandeId === id);
+    expect(rich?.nbReclamationsComplement).toBe(0);
+  });
+});
