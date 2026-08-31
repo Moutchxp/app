@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { ordonnerHistoriqueEnvois, partitionnerHistorique, type EnvoiBrut, type EnvoiHistorique } from './historiqueEnvois';
+import { ordonnerHistoriqueEnvois, type EnvoiBrut } from './historiqueEnvois';
 
 /**
  * LOT 13-B — cœur PUR de l'historique de nos envois. On prouve : la demande INITIALE en tête, l'ordre chronologique, la FUSION des
@@ -43,17 +43,4 @@ describe('ordonnerHistoriqueEnvois — ordre, fusion, grades', () => {
     expect(ordonnerHistoriqueEnvois([])).toEqual([]);
   });
 });
-
-describe('partitionnerHistorique — repli des plus anciennes (point 10)', () => {
-  const env = (i: number): EnvoiHistorique => ({ le: `2026-01-${String(i + 1).padStart(2, '0')}T00:00:00Z`, nature: 'relance_ordinaire', grade: 'Rappel', libelle: 'Relance — Rappel', destinataire: null });
-  it('≤ 4 envois → tout visible, rien de replié', () => {
-    const envois = [0, 1, 2, 3].map(env);
-    expect(partitionnerHistorique(envois)).toEqual({ visibles: envois, repliees: [] });
-  });
-  it('> 4 → initiale (ancre) + 3 plus récents visibles, le milieu replié, ordre préservé', () => {
-    const envois = [0, 1, 2, 3, 4, 5].map(env); // 6 entrées
-    const { visibles, repliees } = partitionnerHistorique(envois);
-    expect(visibles).toEqual([envois[0], envois[3], envois[4], envois[5]]);
-    expect(repliees).toEqual([envois[1], envois[2]]);
-  });
-});
+// LOT 15 — le repli des anciennes est désormais testé dans friseSuivi.test.ts (partitionnerFrise), sur la frise unifiée.

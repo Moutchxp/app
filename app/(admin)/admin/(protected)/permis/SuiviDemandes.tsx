@@ -8,11 +8,11 @@ import { dansProcess, horsProcess, PROCESS_META, type Process } from '../../../.
 import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, etatRetourMairie, libelleRetourMairie, BlocContactMairie, DecompteDelai, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
-import { DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, demandeADuRetour, formaterDate, type RetourCible } from './ReponsesRendu';
+import { DetailDossiers, ActionsCloture, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, demandeADuRetour, formaterDate, type RetourCible } from './ReponsesRendu';
 import { decompteButoirCada, ordinalRelance, type Decompte } from '../../../../lib/veille/decompteButoir'; // LOT-8 B/C : décompte butoir + grade cascade partielle
 import { statutCascade, prochaineEtape, libelleCourtCascade, type EnvoiAutoInfos } from '../../../../lib/veille/statutCascade';
 import { libelleSuspension, dateButoirPartiel, libelleDelaiProlonge } from '../../../../lib/permis/dossierPartiel'; // CASC-1/CASC-2 : suspension + délai CADA prolongé (dossier partiel)
-import { RefMairieCellule, EditeurReferenceMairie } from './RefMairieCellule';
+import { RefMairieCellule } from './RefMairieCellule';
 // UNIF-1 — encart de familles (socle UNIF-0) + les 4 blocs PER-PERMIS réutilisés depuis « Analyse » (chargés paresseusement au dépliage).
 import { EncartFamilles, SousSectionsPermis } from './EncartFamilles';
 import { BlocFilEchanges } from './BlocFilEchanges'; // LOT-4 — même fil d'échanges mail qu'en Analyse/Archives
@@ -23,7 +23,8 @@ import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { BlocTraceEmprise } from './BlocTraceEmprise';
 import { BlocPiecesPermis } from './BlocPiecesPermis';
 import { LiseusePieces } from './LiseusePieces';
-import { MentionFamillesManquantes, HistoriqueEnvois } from './HistoriqueEnvoisRendu'; // LOT 13 : A = compteur rouge du titre « Complétude » ; B = historique de nos envois
+import { MentionFamillesManquantes, FriseSuivi } from './FriseSuiviRendu'; // LOT 13 A (compteur « Complétude ») + LOT 15 (frise unifiée « Suivi et actions »)
+import { construireFriseSuivi } from '../../../../lib/veille/friseSuivi'; // LOT 15 : fusion pure envois + cascade en une frise chronologique
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 import type { ReglagesCascade } from '../../../../lib/veille/cascadeRelance';
 
@@ -685,48 +686,36 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   cle: 'suivi_actions', nonVide: true, titre: LIBELLE_FAMILLE.suivi_actions,
                   contenu: () => (
                   <>
-                {/* CASC-1 — ARRÊT de la relance ordinaire visible (raison + date). Jamais un silence : la réclamation ciblée reste possible (bloc complétude). Aucune levée manuelle (règle porteur : pas de retour au cycle ordinaire). */}
-                {richDetail.suspension && (
-                  <div className="svv-card" role="note" style={{ borderColor: 'var(--color-svv-red)', fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-                    <span>{libelleSuspension(richDetail.suspension)}</span>
-                    {/* CASC-2 — EN PLUS de l'arrêt : date butoir CADA prolongée (partiel_le + 1 mois + 4 j). */}
-                    {suivi && <span>{libelleDelaiProlonge(dateButoirPartiel(new Date(richDetail.suspension.le), suivi.partielDelai.mois, suivi.partielDelai.jours))}</span>}
-                    {/* CASC-3 — cascade de relances partielles : étape en cours + prochaine date, EN PLUS de CASC-1/CASC-2. Préparation en 2 temps (relu/modifié), envoi au clic. */}
-                    {richDetail.cascade && (() => {
-                      const c = richDetail.cascade!;
-                      const d = (iso: string | null) => (iso ? formaterDate(iso) : '—');
-                      const libelle = c.etape === 'relance' ? `Cascade partielle : relance ${c.rang} à envoyer (due le ${d(c.dateDue)})`
-                        : c.etape === 'annonce' ? `Cascade partielle : annonce CADA à envoyer (due le ${d(c.dateDue)})`
-                        : c.etape === 'saisine_proposable' ? `Cascade partielle : saisine CADA proposable depuis le ${d(c.dateDue)}`
-                        : `Cascade partielle : prochaine étape le ${d(c.prochaineDate)}`;
-                      return (
-                        <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-                          <span>{libelle}</span>
-                          {c.brouillon && cascadeEd === null && (
-                            <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.3rem .7rem' }} onClick={() => setCascadeEd({ objet: c.brouillon!.objet, corps: c.brouillon!.corps })}>
-                              {c.etape === 'annonce' ? 'Préparer l’annonce CADA' : `Préparer la relance ${c.rang}`}
-                            </button>
-                          )}
-                          {c.brouillon && cascadeEd !== null && (c.etape === 'relance' || c.etape === 'annonce') && (
-                            <div className="flex flex-col gap-2" style={{ padding: '.4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }}>
-                              <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Brouillon pré-rempli — relisez et modifiez. Le texte envoyé sera EXACTEMENT ce qui est affiché, dans le fil du dernier message de la mairie.</span>
-                              <input type="text" value={cascadeEd.objet} onChange={(e) => setCascadeEd({ ...cascadeEd, objet: e.target.value })} aria-label="Objet" style={{ width: '100%', padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, boxSizing: 'border-box' }} />
-                              <textarea value={cascadeEd.corps} onChange={(e) => setCascadeEd({ ...cascadeEd, corps: e.target.value })} rows={9} aria-label="Message" style={{ width: '100%', padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'inherit', lineHeight: 1.4, resize: 'vertical', boxSizing: 'border-box' }} />
-                              <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-                                <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.3rem .7rem' }} disabled={cascadeEnvoi || cascadeEd.objet.trim() === '' || cascadeEd.corps.trim() === ''} onClick={() => void envoyerCascade(detail.id, c.etape as 'relance' | 'annonce', c.rang)}>{cascadeEnvoi ? 'Envoi…' : 'Envoyer'}</button>
-                                <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem' }} onClick={() => setCascadeEd(null)}>Abandonner</button>
-                              </div>
-                            </div>
-                          )}
+                {/* LOT 15 — FRISE UNIQUE : nos envois (LOT 13) + l'état de cascade (CASC-1 arrêt / CASC-2 butoir / CASC-3 prochaine étape)
+                    fondus en une seule liste chronologique, à la même forme. Faits passés vs échéances à venir distingués (jamais une
+                    échéance présentée comme un fait). Données DÉJÀ chargées (aucune lecture ajoutée). Le GESTE de la prochaine étape
+                    (préparer un brouillon de relance/annonce) est CONSERVÉ, rendu sous la frise (actionAvenir). */}
+                {(() => {
+                  const butoirIso = richDetail.suspension && suivi ? dateButoirPartiel(new Date(richDetail.suspension.le), suivi.partielDelai.mois, suivi.partielDelai.jours).toISOString() : null;
+                  const evenements = construireFriseSuivi({ envois: richDetail.historiqueEnvois, suspension: richDetail.suspension, butoirIso, cascade: richDetail.cascade });
+                  const c = richDetail.cascade;
+                  const actionCascade = c && c.brouillon ? (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+                      {cascadeEd === null && (
+                        <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.3rem .7rem' }} onClick={() => setCascadeEd({ objet: c.brouillon!.objet, corps: c.brouillon!.corps })}>
+                          {c.etape === 'annonce' ? 'Préparer l’annonce CADA' : `Préparer la relance ${c.rang}`}
+                        </button>
+                      )}
+                      {cascadeEd !== null && (c.etape === 'relance' || c.etape === 'annonce') && (
+                        <div className="flex flex-col gap-2" style={{ padding: '.4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }}>
+                          <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Brouillon pré-rempli — relisez et modifiez. Le texte envoyé sera EXACTEMENT ce qui est affiché, dans le fil du dernier message de la mairie.</span>
+                          <input type="text" value={cascadeEd.objet} onChange={(e) => setCascadeEd({ ...cascadeEd, objet: e.target.value })} aria-label="Objet" style={{ width: '100%', padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, boxSizing: 'border-box' }} />
+                          <textarea value={cascadeEd.corps} onChange={(e) => setCascadeEd({ ...cascadeEd, corps: e.target.value })} rows={9} aria-label="Message" style={{ width: '100%', padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'inherit', lineHeight: 1.4, resize: 'vertical', boxSizing: 'border-box' }} />
+                          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+                            <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.3rem .7rem' }} disabled={cascadeEnvoi || cascadeEd.objet.trim() === '' || cascadeEd.corps.trim() === ''} onClick={() => void envoyerCascade(detail.id, c.etape as 'relance' | 'annonce', c.rang)}>{cascadeEnvoi ? 'Envoi…' : 'Envoyer'}</button>
+                            <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem' }} onClick={() => setCascadeEd(null)}>Abandonner</button>
+                          </div>
                         </div>
-                      );
-                    })()}
-                  </div>
-                )}
-                {/* LOT 13-B — HISTORIQUE de NOS envois à la mairie (demande initiale puis relances, ordre chronologique). S'AJOUTE à
-                    l'état de cascade ci-dessus (CASC-1/2/3), jamais à sa place ; repli des plus anciennes si la liste s'allonge (point 10). */}
-                <HistoriqueEnvois envois={richDetail.historiqueEnvois} />
-                <RappelObtenusArchives n={richDetail.dossiersSatisfaits} />
+                      )}
+                    </div>
+                  ) : null;
+                  return <FriseSuivi evenements={evenements} actionAvenir={actionCascade} />;
+                })()}
                 <DetailDossiers demandeId={detail.id} statut={richDetail.statut} dossiers={richDetail.dossiers} nbSatisfaits={richDetail.dossiersSatisfaits} retour={retourReponse}
                   aujourdhui={aujourdhui} prefillRefus={richDetail.derniereReponseLe ? formaterDate(richDetail.derniereReponseLe) : aujourdhui}
                   onMarquer={(demandeId, dossierId, satisfait) => void agirReponse({ action: 'marquer_dossier', demandeId, dossierId, satisfait }, `dossier-${demandeId}-${dossierId}`, satisfait ? 'Marqué reçu.' : 'Satisfaction annulée.')}
@@ -747,22 +736,17 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   onReattachOuvrir={(dossierId) => setReattach({ demandeId: detail.id, dossierId })}
                   onReattachConfirmer={(demandeId, dossierId) => { setReattach(null); void reattacher(demandeId, dossierId); }}
                   onReattachAnnuler={() => setReattach(null)} />
-                {/* UNIF-1 — réf. mairie rangée DANS « Suivi & actions » (masquée dans le panneau via masquerRefMairie) — MÊME éditeur/handlers que la table. */}
-                <div style={{ fontSize: 12 }}>
-                  <span style={{ color: 'var(--color-svv-muted)' }}>Références mairie : </span>
-                  <div style={{ marginTop: '.3rem' }}>
-                    <EditeurReferenceMairie references={richDetail.referencesMairie}
-                      onAjouter={async (r) => { const e = await ajouterRefTable(detail.id, r); if (!e) await ouvrir(detail.id, true); return e; }}
-                      onModifier={async (a, n) => { const e = await modifierRefTable(detail.id, a, n); if (!e) await ouvrir(detail.id, true); return e; }}
-                      onSupprimer={async (r) => { const e = await supprimerRefTable(detail.id, r); if (!e) await ouvrir(detail.id, true); return e; }} />
-                  </div>
+                {/* LOT 15 (point 8) — le bloc « Références mairie » de l'encart est RETIRÉ : DOUBLON de la colonne « Réf. mairie » du
+                    tableau (RefMairieCellule), qui écrit la MÊME donnée par le MÊME chemin (ajouterRefTable(detail.id) → POST /demandes/reference,
+                    portée PAR DEMANDE). Le geste reste pleinement accessible via cette colonne. */}
+                {/* LOT 15 (point 9) — Clôturer : seul geste d'ARRÊT DÉFINITIF, CONSERVÉ, placé proprement en bas de la famille (séparateur). */}
+                <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.5rem', marginTop: '.2rem' }}>
+                  <ActionsCloture demandeId={detail.id} statut={richDetail.statut} dossiersDus={richDetail.dossiersActifs - richDetail.dossiersSatisfaits}
+                    motif={motifCloture[detail.id]} retour={retourReponse}
+                    onMotif={(demandeId, v) => setMotifCloture((s) => ({ ...s, [demandeId]: v }))}
+                    onCloturer={(demandeId) => void agirReponse({ action: 'cloturer', demandeId, motif: motifCloture[demandeId] ?? '' }, `cloturer-${demandeId}`, 'Demande clôturée.')}
+                    onRouvrir={(demandeId) => void agirReponse({ action: 'rouvrir', demandeId }, `rouvrir-${demandeId}`, 'Demande rouverte.')} />
                 </div>
-                {/* Clôturer / rouvrir (était slotActions) — désormais rangé dans « Suivi & actions ». */}
-                <ActionsCloture demandeId={detail.id} statut={richDetail.statut} dossiersDus={richDetail.dossiersActifs - richDetail.dossiersSatisfaits}
-                  motif={motifCloture[detail.id]} retour={retourReponse}
-                  onMotif={(demandeId, v) => setMotifCloture((s) => ({ ...s, [demandeId]: v }))}
-                  onCloturer={(demandeId) => void agirReponse({ action: 'cloturer', demandeId, motif: motifCloture[demandeId] ?? '' }, `cloturer-${demandeId}`, 'Demande clôturée.')}
-                  onRouvrir={(demandeId) => void agirReponse({ action: 'rouvrir', demandeId }, `rouvrir-${demandeId}`, 'Demande rouverte.')} />
                   </>
                   ),
                 },

@@ -18,9 +18,16 @@ describe('UNIF-1 — le détail « En cours » consomme l’encart de familles (
       expect(SRC).toContain(`cle: '${cle}'`);
     }
   });
-  it('la réf. mairie est rangée dans la famille (masquée dans le panneau) — pas dupliquée', () => {
-    expect(SRC).toContain('masquerRefMairie');
-    expect(SRC).toContain('<EditeurReferenceMairie references={richDetail.referencesMairie}');
+  it('LOT 15 (point 8) — la réf. mairie n’est PLUS dupliquée dans l’encart : retirée de la famille, le geste vit dans la colonne du tableau', () => {
+    expect(SRC).toContain('masquerRefMairie');                    // le panneau ne la montre pas
+    expect(SRC).not.toContain('EditeurReferenceMairie');          // ...et l'encart non plus (doublon retiré)
+    expect(SRC).toContain('<RefMairieCellule references={rich.referencesMairie}'); // seule place : la colonne du tableau (même route, portée par demande)
+  });
+  it('LOT 15 — la famille « Suivi et actions » rend la FRISE unifiée (envois + cascade fondus), sans l’ancien bloc ni le rappel « obtenus »', () => {
+    expect(SRC).toContain('construireFriseSuivi({ envois: richDetail.historiqueEnvois');
+    expect(SRC).toContain('<FriseSuivi evenements={evenements}');
+    expect(SRC).not.toContain('<HistoriqueEnvois ');             // l'ancien bloc LOT 13 est absorbé par la frise
+    expect(SRC).not.toContain('<RappelObtenusArchives');         // point 7 : info portée par le titre « Contact mairie » (LOT 9)
   });
   it('les familles à sous-plis lazy passent par SousSectionsPermis (4 per-permis + le fil de l’historique)', () => {
     expect((SRC.match(/<SousSectionsPermis /g) ?? []).length).toBe(5); // LOT-4 : +1 pour le fil des échanges (BlocFilEchanges)
@@ -37,11 +44,12 @@ describe('UNIF-1 — NE RIEN PERDRE : les 9 gestes du détail « En cours » sur
     ['— action « marquer reçu »/« non fourni »/« annuler »', "action: 'marquer_dossier'"],
     ['— action « refus mairie »', "action: 'dossier_refus_mairie'"],
     ['— action « retirer » / « réattacher »', "action: 'retirer_dossier'"],
-    ['éditeur de cascade partielle', 'void envoyerCascade(detail.id'],
+    ['éditeur de cascade partielle (préparer/envoyer le brouillon)', 'void envoyerCascade(detail.id'],
     ['fil des échanges mail (comme Analyse/Archives)', '<BlocFilEchanges key={id} dossierId={id}'],
-    ['référence mairie (ajouter/modifier/effacer)', '<EditeurReferenceMairie references={richDetail.referencesMairie}'],
+    // LOT 15 (point 8) — le geste réf. mairie SURVIT : il vit désormais dans la colonne du tableau (RefMairieCellule → ajouterRefTable), plus dans l'encart.
+    ['référence mairie (ajouter/modifier/effacer) — colonne du tableau', 'ajouterRefTable(d.id, r)'],
     ['clôturer / rouvrir', "action: 'cloturer'"],
-    ['rappel « obtenus → Archives »', '<RappelObtenusArchives n={richDetail.dossiersSatisfaits}'],
+    // LOT 15 (point 7) — « rappel obtenus → Archives » RETIRÉ de l'encart (info portée par le titre « Contact mairie ») : ce n'est pas un geste, aucune action perdue.
     ['messages « autre » (répondu/reclasser)', '<BlocMessagesAutre messages={richDetail.messagesAutre}'],
     ['liens de téléchargement', '<BlocLiens liens={richDetail.liens}'],
     ['pièces des réponses', '<BlocPiecesReponses groupes={richDetail.piecesReponses}'],

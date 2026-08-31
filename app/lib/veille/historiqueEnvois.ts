@@ -48,13 +48,5 @@ export function ordonnerHistoriqueEnvois(bruts: readonly EnvoiBrut[]): EnvoiHist
       return { le: e.le, nature: 'relance_partielle', grade, libelle: `Relance partielle — ${grade}`, destinataire: e.destinataire };
     });
 }
-
-/**
- * Point 10 — quand l'historique s'allonge, on REPLIE les entrées ANCIENNES (jamais un pavé qui repousse les gestes hors de l'écran).
- * Règle : ≤ 4 envois → tout visible ; au-delà → la demande INITIALE (ancre) et les 3 PLUS RÉCENTS restent visibles, le MILIEU
- * (plus anciennes relances) part derrière un repli. PUR (l'ordre chronologique est préservé : initiale, [repliées], récentes).
- */
-export function partitionnerHistorique(envois: readonly EnvoiHistorique[]): { visibles: EnvoiHistorique[]; repliees: EnvoiHistorique[] } {
-  if (envois.length <= 4) return { visibles: [...envois], repliees: [] };
-  return { visibles: [envois[0], ...envois.slice(-3)], repliees: envois.slice(1, envois.length - 3) };
-}
+// LOT 15 — le repli des entrées anciennes vit désormais dans `partitionnerFrise` (friseSuivi.ts) : la frise unifie envois ET cascade,
+//   le repli s'applique aux seuls FAITS passés (les échéances restent visibles). L'ancien `partitionnerHistorique` (LOT 13) est absorbé.
