@@ -8,10 +8,13 @@ import {
   SelecteurPiecePlan, BandePlans, NavPieceLibre, ZoomPdf,
   type PiecePlan, type Plan,
 } from './TraceEmpriseRendu';
-import { MAX_DOCS_CACHE, voisinsAPrecharger, rangerEtEvincer } from './prechargeLiseuse';
+import { MAX_DOCS_CACHE, MAX_BITMAPS_RENDU, voisinsAPrecharger, rangerEtEvincer } from './prechargeLiseuse';
 
 /** LOT 23 — un document pdf.js en cache + comment il y est entré (`precharge` = chargé en tâche de fond, pas encore affiché) + octets réellement transférés. */
 type EntreeCache = { doc: PDFDocumentProxy; precharge: boolean; octets: number };
+
+/** LOT 25 — artefact de RENDU mis en cache : un ImageBitmap (immuable, léger) quand disponible, sinon le canvas hors écran (repli). Les deux sont drawImage-ables. */
+type RenduBitmap = (ImageBitmap | HTMLCanvasElement) & { width: number; height: number };
 
 /** LOT 23 — planifie une tâche de fond quand le thread principal est OISIF (`requestIdleCallback`), repli `setTimeout` là où l'API manque (Safari, tests node). */
 type IdleHandle = { type: 'idle'; id: number } | { type: 'timeout'; id: ReturnType<typeof setTimeout> };
@@ -24,6 +27,23 @@ function annulerIdle(h: IdleHandle): void {
   const w = typeof window !== 'undefined' ? (window as Window & { cancelIdleCallback?: (id: number) => void }) : undefined;
   if (h.type === 'idle') w?.cancelIdleCallback?.(h.id);
   else clearTimeout(h.id);
+}
+
+/** LOT 25 — fige le résultat peint HORS écran en artefact réutilisable : ImageBitmap (immuable, léger) si l'API existe, sinon le canvas lui-même (repli). */
+async function creerBitmap(off: HTMLCanvasElement): Promise<RenduBitmap> {
+  if (typeof createImageBitmap === 'function') return (await createImageBitmap(off)) as RenduBitmap;
+  return off as RenduBitmap; // repli sans createImageBitmap : le canvas hors écran sert d'artefact drawImage-able
+}
+/** Libère un rendu en cache : `close()` pour un ImageBitmap (le canvas de repli est laissé au GC). */
+function fermerBitmap(b: RenduBitmap): void {
+  if (typeof ImageBitmap !== 'undefined' && b instanceof ImageBitmap) b.close();
+}
+/** LOT 25 — peint le rendu déjà figé sur le canvas VISIBLE en un seul drawImage → apparition d'un coup (aucun tracé progressif). */
+function peindreBitmap(canvas: HTMLCanvasElement, bmp: RenduBitmap): void {
+  canvas.width = bmp.width; canvas.height = bmp.height;
+  canvas.style.width = '100%'; canvas.style.height = 'auto';
+  const ctx = canvas.getContext('2d'); if (!ctx) return;
+  ctx.drawImage(bmp, 0, 0);
 }
 
 /**
@@ -52,10 +72,11 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const [pleinListe, setPleinListe] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const [occupe, setOccupe] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   // LOT 23 — RETOUR VISUEL d'un téléchargement réseau NON préchargé : « Chargement… N % » (pct null tant qu'on n'a pas de total). null = rien à afficher.
   const [chargeReseau, setChargeReseau] = useState<{ pct: number | null } | null>(null);
+  // LOT 25 — RETOUR VISUEL du CALCUL de rendu (pdf.js → canvas), DISTINCT du réseau : « Rendu… ». Couvre le canvas pendant qu'on peint HORS écran → apparition d'un coup.
+  const [enRendu, setEnRendu] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pdfContainerRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ x0: number; y0: number; panX: number; panY: number } | null>(null);
@@ -64,6 +85,9 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   // LOT 23 — CACHE LRU des documents parsés (≤ MAX_DOCS_CACHE) : le changement de PAGE ne recharge rien, et un aller-retour best-of
   //   A→B→A retrouve A EN CACHE (fini le re-téléchargement du LOT 22 mono-case). `Map` = ordre d'insertion = fraîcheur LRU.
   const cacheRef = useRef<Map<number, EntreeCache>>(new Map());
+  // LOT 25 — CACHE LRU des RENDUS peints (≤ MAX_BITMAPS_RENDU), clé « pièce:page:échelle(px) ». Un retour sur une page déjà peinte à la
+  //   même échelle est INSTANTANÉ (drawImage du bitmap), sans nouvel appel à render(). Le zoom (CSS) ne change pas la clé.
+  const renduCacheRef = useRef<Map<string, RenduBitmap>>(new Map());
   // Chargements EN COURS (par pièce) : dédup affichage ⇄ préchargement — jamais deux `getDocument` pour la même pièce en parallèle.
   const enCoursRef = useRef<Map<number, Promise<PDFDocumentProxy | null>>>(new Map());
   // Génération de cache : incrémentée à la purge (changement de dossier / démontage) → un chargement en vol devenu obsolète est détruit, jamais rangé (aucune fuite).
@@ -115,7 +139,20 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const purgerCache = useCallback(() => {
     genRef.current++; // invalide tout chargement en vol : à sa résolution il sera détruit, jamais rangé
     for (const e of cacheRef.current.values()) void e.doc.destroy();
-    cacheRef.current.clear(); enCoursRef.current.clear();
+    for (const b of renduCacheRef.current.values()) fermerBitmap(b); // LOT 25 — libère aussi les rendus peints
+    cacheRef.current.clear(); enCoursRef.current.clear(); renduCacheRef.current.clear();
+  }, []);
+
+  // LOT 25 — CACHE LRU des RENDUS (mêmes helpers que les documents, clés string). Éviction déléguée à `rangerEtEvincer` (règle pure testée).
+  const toucherRendu = useCallback((cle: string) => {
+    const b = renduCacheRef.current.get(cle);
+    if (!b) return;
+    renduCacheRef.current.delete(cle); renduCacheRef.current.set(cle, b);
+  }, []);
+  const rangerRendu = useCallback((cle: string, bmp: RenduBitmap) => {
+    const { evincees } = rangerEtEvincer([...renduCacheRef.current.keys()], cle, MAX_BITMAPS_RENDU);
+    for (const k of evincees) { const b = renduCacheRef.current.get(k); if (b) fermerBitmap(b); renduCacheRef.current.delete(k); } // libère les bitmaps évincés
+    renduCacheRef.current.delete(cle); renduCacheRef.current.set(cle, bmp);
   }, []);
 
   // LOT 23 — OBTENIR le document d'une pièce : cache → réseau (URL signée + `getDocument`), avec DÉDUP des chargements en cours (affichage ⇄
@@ -177,14 +214,14 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       }
       if (!estCourant()) return;                                  // rendu superséedé → le nouveau rendu (et son overlay) prend le relais
       if (!doc) { setMessage('pièce indisponible'); return; }      // échec du chargement → message lisible (le finally efface l'overlay, jamais de gris à l'infini)
-      setChargeReseau(null);                                       // octets reçus → on quitte « Chargement… » pour la phase « Rendu de la page… »
+      setChargeReseau(null);                                       // octets reçus → on quitte « Chargement… » (réseau) pour, si besoin, « Rendu… » (calcul)
       const octets = cacheRef.current.get(pieceId)?.octets ?? 0;
       const tDoc = (typeof performance !== 'undefined' ? performance.now() : 0);
-      setOccupe(true);
       const pdf = doc;
       setNbPagesPiece(pdf.numPages);
       const p = Math.min(Math.max(1, page), pdf.numPages);
       const pageObj = await pdf.getPage(p);
+      if (!estCourant()) return;
       const canvas = canvasRef.current; if (!canvas) return;
       const largeurCss = canvas.parentElement?.clientWidth || 480;
       const base = pageObj.getViewport({ scale: 1 });
@@ -194,18 +231,37 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       const dprEff = Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2);
       const scale = Math.min((largeurCss / base.width) * dprEff, MAX_PX / base.width);
       const viewport = pageObj.getViewport({ scale });
-      canvas.width = Math.floor(viewport.width); canvas.height = Math.floor(viewport.height);
-      canvas.style.width = '100%'; canvas.style.height = 'auto';
-      const ctx = canvas.getContext('2d'); if (!ctx) return;
-      await pageObj.render({ canvasContext: ctx, viewport }).promise;
+      const w = Math.floor(viewport.width), hgt = Math.floor(viewport.height);
+      // LOT 25 — CLÉ DE RENDU = pièce:page:échelle(px). Le zoom (CSS) NE change PAS la clé ; un resize (nouvelle largeur → nouveau w) crée une NOUVELLE clé et garde l'ancienne.
+      const cle = `${pieceId}:${p}:${w}`;
+      const tRender0 = (typeof performance !== 'undefined' ? performance.now() : 0);
+      let origineRendu: 'peint' | 'cache-rendu';
+      const enCacheRendu = renduCacheRef.current.get(cle);
+      if (enCacheRendu) {
+        // CACHE DE RENDU — retour instantané : on repeint le bitmap déjà figé, AUCUN appel à render().
+        toucherRendu(cle);
+        peindreBitmap(canvas, enCacheRendu);
+        origineRendu = 'cache-rendu';
+      } else {
+        // MISS — on peint HORS ÉCRAN (overlay « Rendu… » couvre le canvas) puis on ne montre le résultat qu'une fois TERMINÉ : apparition d'un coup.
+        setEnRendu(true);
+        const off = (typeof document !== 'undefined' ? document.createElement('canvas') : canvas);
+        off.width = w; off.height = hgt;
+        const octx = off.getContext('2d'); if (!octx) return;
+        await pageObj.render({ canvasContext: octx, viewport }).promise;
+        const bmp = await creerBitmap(off);
+        if (!estCourant()) { fermerBitmap(bmp); return; } // superséedé pendant le calcul → on jette le rendu, on ne peint pas
+        rangerRendu(cle, bmp);
+        peindreBitmap(canvas, bmp);
+        origineRendu = 'peint';
+      }
       setPage(p);
-      // INSTRUMENTATION (point 6) — console.INFO (visible par défaut ; console.debug était masqué en niveau Verbose) préfixée [Liseuse],
-      //   avec les OCTETS téléchargés et l'ORIGINE (réseau / cache / préchargé) pour VOIR d'où vient chaque page.
-      if (typeof performance !== 'undefined') console.info(`[Liseuse] pièce ${pieceId} p${p} — ${origine} · ${octets} o · document ${Math.round(tDoc - t0)}ms · rendu ${Math.round(performance.now() - tDoc)}ms (canvas ${canvas.width}×${canvas.height})`);
+      // INSTRUMENTATION — console.INFO [Liseuse] : ORIGINE du document (réseau/cache/préchargé) + octets, ET phase RENDU avec son origine (peint / cache-rendu) et sa durée.
+      if (typeof performance !== 'undefined') console.info(`[Liseuse] pièce ${pieceId} p${p} — ${origine} · ${octets} o · document ${Math.round(tDoc - t0)}ms · rendu ${origineRendu} ${Math.round(performance.now() - tRender0)}ms (canvas ${w}×${hgt})`);
     } catch { if (estCourant()) setMessage('impossible d’afficher la page (PDF illisible)'); }
-    // LOT 24 — SORTIE : dans TOUS les cas (succès, erreur, pièce indisponible), on quitte « Chargement… » et « Rendu… ». Jamais d'écran gris figé.
-    finally { if (estCourant()) { setOccupe(false); setChargeReseau(null); } }
-  }, [pieceId, page, obtenirDoc, toucherCache]);
+    // LOT 24/25 — SORTIE : dans TOUS les cas (succès, erreur, pièce indisponible), on quitte « Chargement… » ET « Rendu… ». Jamais d'écran figé.
+    finally { if (estCourant()) { setChargeReseau(null); setEnRendu(false); } }
+  }, [pieceId, page, obtenirDoc, toucherCache, toucherRendu, rangerRendu]);
 
   // LOT 23 — PRÉCHARGEMENT en tâche de fond des pièces VOISINES du best-of (suivante puis précédente), SÉQUENTIEL, jamais en parallèle
   //   du chargement courant (déclenché en `requestIdleCallback` = quand le thread est oisif). Annulation propre au changement de plan/
@@ -303,15 +359,17 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
             <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: 'auto' }} />
           </div>
-          {/* LOT 23 — RETOUR VISUEL : recouvre le document (inset:0) pendant un téléchargement réseau, le conteneur garde sa hauteur → aucun saut de mise en page.
-              Texte seul (mobile-first, lisible en portrait) : aucune animation → prefers-reduced-motion respecté d'office. */}
-          {chargeReseau && (
+          {/* RETOUR VISUEL : recouvre le document (inset:0) — le conteneur garde sa hauteur → aucun saut de mise en page. Texte seul (mobile-first,
+              lisible en portrait) : aucune animation → prefers-reduced-motion respecté d'office. DEUX phases DISTINCTES, jamais confondues :
+              « Chargement… » = RÉSEAU (LOT 23) ; « Rendu… » = CALCUL pdf.js hors écran (LOT 25) → l'écran ne ment pas sur ce qui se passe. */}
+          {(chargeReseau || enRendu) && (
             <div aria-live="polite" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', textAlign: 'center', background: 'var(--color-svv-field)' }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-svv-ink)' }}>Chargement…{chargeReseau.pct !== null ? ` ${chargeReseau.pct} %` : ''}</span>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-svv-ink)' }}>
+                {chargeReseau ? `Chargement…${chargeReseau.pct !== null ? ` ${chargeReseau.pct} %` : ''}` : 'Rendu…'}
+              </span>
             </div>
           )}
         </div>
-        {occupe && <p style={{ fontSize: 11, color: 'var(--color-svv-muted)', margin: '.3rem 0 0' }}>Rendu de la page…</p>}
         {message && <p style={{ fontSize: 11, color: 'var(--color-svv-red)', margin: '.3rem 0 0' }}>{message}</p>}
       </div>
     </div>
