@@ -1,11 +1,11 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns, BlocEtatReleve,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
   EtatDemande, RappelObtenusArchives, partitionnerDemandes, partitionnerReponses, comparerUrgenceReponse, demandeADuRetour, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
-  BlocLiens, BlocLiensATelecharger, mentionExpiration, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, tronquerObjet,
+  BlocLiens, BlocLiensATelecharger, mentionExpiration, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, tronquerObjet, dedupLiensParUrl,
   trierOptionsDemandes, marqueurOption,
   type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
@@ -1281,5 +1281,46 @@ describe('GED-1 — BlocLiensATelecharger : lien à télécharger visible, sans 
   });
   it('liste vide → ne rend RIEN (aucune section)', () => {
     expect(renderToStaticMarkup(createElement(BlocLiensATelecharger, { liens: [] }))).toBe('');
+  });
+});
+
+/**
+ * 🔴 LOT-5 — un même lien reçu dans PLUSIEURS messages ne doit produire qu'UNE ligne (dédup par URL), sans collision de clé React
+ * (cas réel 154 : 3 URLs fortes reçues 2 fois chacune → 6 lignes, clé `l.url` en doublon → 10 warnings console). Rendu PUR.
+ */
+describe('LOT-5 — dedupLiensParUrl (regroupe par URL, garde la réception la plus ancienne, compte les citations)', () => {
+  const lien = (url: string, recuLe: string, fort = true) => ({ url, fort, recuLe, deAdresse: 'mairie@ex.fr', expireLe: null, expirationSource: null, expirationIndice: null });
+  it('même URL dans 2 messages → 1 groupe, citations=2, réception la PLUS ANCIENNE conservée', () => {
+    const out = dedupLiensParUrl([
+      lien('https://a/x', '2026-08-28T15:04:30+02:00'),
+      lien('https://a/x', '2026-08-28T14:39:59+02:00'), // plus ancien
+      lien('https://b/y', '2026-08-28T15:04:30+02:00'),
+    ]);
+    expect(out).toHaveLength(2);
+    const a = out.find((g) => g.lien.url === 'https://a/x')!;
+    expect(a.citations).toBe(2);
+    expect(a.lien.recuLe).toBe('2026-08-28T14:39:59+02:00'); // la plus ancienne
+    expect(out.find((g) => g.lien.url === 'https://b/y')!.citations).toBe(1);
+  });
+});
+
+describe('LOT-5 — BlocLiens : plus AUCUNE clé React dupliquée + « reçu dans N messages »', () => {
+  const lien = (url: string, recuLe: string, fort: boolean) => ({ url, fort, recuLe, deAdresse: 'mairie@ex.fr', expireLe: null, expirationSource: null, expirationIndice: null });
+  it('deux fois la même URL → une seule ligne, aucun warning « same key », mention des citations', () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const liens = [
+      lien('https://forte/x', '2026-08-28T15:04:30+02:00', true),
+      lien('https://forte/x', '2026-08-28T14:39:59+02:00', true), // même URL, 2e message
+      lien('https://faible/y', '2026-08-28T15:04:30+02:00', false),
+      lien('https://faible/y', '2026-08-28T14:39:59+02:00', false),
+    ];
+    const h = renderToStaticMarkup(createElement(BlocLiens, { liens }));
+    // 🔴 aucune collision de clé (avant : React logge « Encountered two children with the same key »).
+    const collisions = spy.mock.calls.filter((c) => String(c[0]).includes('same key'));
+    expect(collisions, 'aucun warning de clé dupliquée').toHaveLength(0);
+    spy.mockRestore();
+    // une seule occurrence de l'URL forte dans le TEXTE de la ligne (href + libellé = 2 fois par ligne → 2, pas 4).
+    expect((h.match(/https:\/\/forte\/x/g) ?? []).length).toBe(2);
+    expect(h).toContain('reçu dans 2 messages'); // le lien est cité par 2 messages
   });
 });

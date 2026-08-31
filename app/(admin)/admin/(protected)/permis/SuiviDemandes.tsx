@@ -16,6 +16,7 @@ import { RefMairieCellule, EditeurReferenceMairie } from './RefMairieCellule';
 // UNIF-1 — encart de familles (socle UNIF-0) + les 4 blocs PER-PERMIS réutilisés depuis « Analyse » (chargés paresseusement au dépliage).
 import { EncartFamilles, SousSectionsPermis } from './EncartFamilles';
 import { BlocFilEchanges } from './BlocFilEchanges'; // LOT-4 — même fil d'échanges mail qu'en Analyse/Archives
+import { SousBlocRepliable } from './SousBlocRepliable'; // LOT-5 — repli léger (1 clic) du sous-bloc artefacts, sans BlocRepliable imbriqué
 import { LIBELLE_FAMILLE } from '../../../../lib/permis/encartFamilles';
 import { BlocCompletude } from './BlocCompletude';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
@@ -771,10 +772,9 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   <>
                 {/* LOT-4 — LE FIL des échanges mail (mêmes messages qu'en Analyse), par permis via SousSectionsPermis, comme Archives. */}
                 <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocFilEchanges key={id} dossierId={id} />} />
-                {/* Artefacts de réponses (liens/pièces/messages « autre »/alertes GED) : GESTES conservés, sous un sous-titre DISTINCT du fil. */}
+                {/* Artefacts de réponses (liens/pièces/messages « autre »/alertes GED) : REPLIÉS par défaut (le fil ci-dessus est le contenu principal), 1 clic pour ouvrir, GESTES conservés derrière le pli. */}
                 {(richDetail.messagesAutre.length > 0 || richDetail.liens.length > 0 || richDetail.piecesReponses.length > 0 || richDetail.alertesGed.length > 0) && (
-                <div className="flex flex-col gap-1" style={{ marginTop: '.5rem', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.5rem' }}>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-muted)' }}>Liens, pièces et messages des réponses</span>
+                <SousBlocRepliable titre={`Liens, pièces et messages des réponses (${richDetail.messagesAutre.length + new Set(richDetail.liens.map((l) => l.url)).size + richDetail.piecesReponses.reduce((n, g) => n + g.pieces.length, 0) + richDetail.alertesGed.length})`}>
                 {/* T7-B (cas ③) — messages « autre » : bouton « répondu » MANUEL et RÉVERSIBLE par message. */}
                 <BlocMessagesAutre messages={richDetail.messagesAutre} retour={retourReponse} compteReleve={suivi?.reglages.adresseReleve}
                   onRepondu={(reponseId) => void agirReponse({ action: 'repondu', reponseId }, `repondu-${reponseId}`, 'Message marqué « répondu ».')}
@@ -786,7 +786,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                 <BlocPiecesReponses groupes={richDetail.piecesReponses} onTelecharger={(pieceId) => void telechargerPiece(pieceId)} />
                 {/* G1 — alertes « à classer/télécharger en GED » envoyées pour cette demande (retard rendu visible). */}
                 <BlocAlertesGed alertes={richDetail.alertesGed} />
-                </div>
+                </SousBlocRepliable>
                 )}
                   </>
                   ),

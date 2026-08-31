@@ -729,7 +729,7 @@ export function mentionExpiration(lien: { recuLe: string; expireLe: string | nul
 
 /** Une ligne de lien : URL cliquable (le clic HUMAIN est le geste attendu ; jamais de suivi automatique) + mention datée.
  *  G1 : si `maintenant` est fourni et que le lien FORT a une expiration DÉPASSÉE → avertissement « délai dépassé » (fenêtre manquée). */
-function LigneLien({ lien, maintenant }: { lien: LienAffiche; maintenant?: Date }) {
+function LigneLien({ lien, maintenant, citations }: { lien: LienAffiche; maintenant?: Date; citations?: number }) {
   const depasse = lien.fort && lien.expireLe !== null && maintenant !== undefined && new Date(lien.expireLe).getTime() < maintenant.getTime();
   return (
     <div style={{ minWidth: 0 }}>
@@ -741,8 +741,26 @@ function LigneLien({ lien, maintenant }: { lien: LienAffiche; maintenant?: Date 
       </div>
       {/* FUS — expéditeur du message porteur (adresse COMPLÈTE, non tronquée) : clé de recherche « retrouver ce mail dans Gmail ». */}
       <div style={{ ...styleMuted, fontSize: 11, wordBreak: 'break-all' }}>de {lien.deAdresse}</div>
+      {/* L1 — même lien reçu dans plusieurs messages : une seule ligne, mais on dit combien de messages le citent (pas un silence). */}
+      {citations !== undefined && citations > 1 && <div style={{ ...styleMuted, fontSize: 11 }}>reçu dans {citations} messages</div>}
     </div>
   );
+}
+
+/**
+ * L1 — DÉDOUBLONNE des liens par URL : un même lien peut être reçu dans PLUSIEURS messages (chaque message crée une ligne
+ * `demande_reponse_lien`) → sans regroupement, 3 URLs vues 2 fois = 6 lignes et une COLLISION de clé React. On garde la réception la
+ * PLUS ANCIENNE et on compte les messages distincts qui le citent (par date de réception, seule info disponible côté affichage). PUR.
+ */
+export function dedupLiensParUrl(liens: LienAffiche[]): { lien: LienAffiche; citations: number }[] {
+  const parUrl = new Map<string, { lien: LienAffiche; recus: Set<string> }>();
+  for (const l of liens) {
+    const g = parUrl.get(l.url);
+    if (g === undefined) { parUrl.set(l.url, { lien: l, recus: new Set([l.recuLe]) }); continue; }
+    g.recus.add(l.recuLe);
+    if (new Date(l.recuLe).getTime() < new Date(g.lien.recuLe).getTime()) g.lien = l; // conserve la réception la PLUS ANCIENNE
+  }
+  return [...parUrl.values()].map((g) => ({ lien: g.lien, citations: g.recus.size }));
 }
 
 /**
@@ -798,15 +816,16 @@ export function BlocLiensATelecharger({ liens, maintenant }: { liens: LienATelec
  */
 export function BlocLiens({ liens, maintenant }: { liens: LienAffiche[]; maintenant?: Date }) {
   if (liens.length === 0) return null;
-  const forts = liens.filter((l) => l.fort);
-  const faibles = liens.filter((l) => !l.fort);
+  // L1 — un même lien dans plusieurs messages = UNE seule ligne (dédup par URL), plus de collision de clé React (§ item 4).
+  const forts = dedupLiensParUrl(liens.filter((l) => l.fort));
+  const faibles = dedupLiensParUrl(liens.filter((l) => !l.fort));
   return (
     <div className="svv-card" style={{ marginTop: '.5rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
       <strong style={{ fontSize: 13 }}>Lien(s) de téléchargement reçus</strong>
       {forts.length === 0
         ? <PhraseVide>Aucun lien « sérieux » (chemin à jeton) repéré — vérifiez les liens ci-dessous à la main.</PhraseVide>
         : <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-            {forts.map((l) => <li key={l.url}><LigneLien lien={l} maintenant={maintenant} /></li>)}
+            {forts.map((g, i) => <li key={`fort-${i}-${g.lien.url}`}><LigneLien lien={g.lien} maintenant={maintenant} citations={g.citations} /></li>)}
           </ul>}
       {forts.length > 1 && (
         <p role="note" style={{ ...styleMuted, color: 'var(--color-svv-red)', margin: 0 }}>
@@ -817,7 +836,7 @@ export function BlocLiens({ liens, maintenant }: { liens: LienAffiche[]; mainten
         <details>
           <summary style={{ cursor: 'pointer', ...styleMuted }}>{faibles.length} autre{faibles.length > 1 ? 's' : ''} lien{faibles.length > 1 ? 's' : ''} (pied de page, peu probables)</summary>
           <ul style={{ margin: '.3rem 0 0', paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-            {faibles.map((l) => <li key={l.url}><LigneLien lien={l} maintenant={maintenant} /></li>)}
+            {faibles.map((g, i) => <li key={`faible-${i}-${g.lien.url}`}><LigneLien lien={g.lien} maintenant={maintenant} citations={g.citations} /></li>)}
           </ul>
         </details>
       )}
