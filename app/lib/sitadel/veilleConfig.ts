@@ -82,7 +82,7 @@ export interface ConfigVeille {
   cascadePartielAnnonceJours: number; // CASC-3 : délai (jours) dernière relance → annonce CADA — 1..90, défaut 10
   cascadePartielSaisineJours: number; // CASC-3 : délai (jours) annonce → saisine (harmonisé au butoir CASC-2) — 0..90, défaut 4
   cascadePartielNbRelances: number;   // CASC-3 : nombre de relances courtoises avant l'annonce — 1..10, défaut 2
-  relanceMultiAdresseActive: boolean;      // LOT 20 : envoyer les N dernières relances à TOUTES les adresses connues de la commune (défaut false, opt-in strict)
+  relanceMultiAdresseActive: boolean;      // LOT 20/27 : envoyer les N dernières relances à TOUTES les adresses connues de la commune (LOT 27 : défaut TRUE = norme ; drapeau = arrêt d'urgence)
   relanceMultiAdresseNbDernieres: number;  // LOT 20 : nombre des DERNIÈRES relances servies en multi-adresse (défaut 2) — 0..10
   saisineCadaAutoActive: boolean;    // Cascade lot 2 : envoyer la saisine CADA SANS relecture ? Sans effet tant que cadaEmail est vide — défaut false
   rattachementSuiviAutoActive: boolean; // RATT-AUTO : rejouer automatiquement le suivi des permis « en attente de bâti » à chaque tick ? (opt-in, défaut false)
@@ -158,7 +158,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   relanceRappelJoursAvant: 10, relanceAvisJoursAvant: 3, relanceSaisineDelaiJours: 4, saisineCadaAutoActive: false, // = DEFAULT de la migration 136 (cascade lot 2)
   cadaPartielDelaiMois: 1, cadaPartielDelaiJours: 4, // = DEFAULT de la migration 178 (CASC-2 : 1 mois + 4 jours sur dossier partiel)
   cascadePartielRelanceJours: 10, cascadePartielAnnonceJours: 10, cascadePartielSaisineJours: 4, cascadePartielNbRelances: 2, // = DEFAULT migration 179 (CASC-3)
-  relanceMultiAdresseActive: false, relanceMultiAdresseNbDernieres: 2, // = DEFAULT migration 182 (LOT 20 : opt-in strict, ne change rien au déploiement)
+  relanceMultiAdresseActive: true, relanceMultiAdresseNbDernieres: 2, // = DEFAULT migration 183 (LOT 27 : multi-adresse des 2 dernières = NORME ; drapeau = arrêt d'urgence)
   rattachementSuiviAutoActive: false, // = DEFAULT de la migration 154 (RATT-AUTO : opt-in, comme tous les interrupteurs d'automatisation)
   attenteBatiAlerteActive: false, attenteBatiAlerteJours: 365, // = DEFAULT de la migration 155 (ATT-BATI : opt-in ; seuil 1 an, bas de la fenêtre IGN 1-3 ans)
   obstacleDisparuAlerteActive: false, // = DEFAULT de la migration 157 (ALERTE obstacle disparu : opt-in)
@@ -564,7 +564,7 @@ async function lireCascadePartielle(): Promise<Pick<ConfigVeille, 'cascadePartie
 
 // LOT 20 — lecture ISOLÉE du multi-adresse (résiliente à l'ordre d'application de la 182, livrée NON APPLIQUÉE) : colonnes absentes → OFF + 2.
 async function lireRelanceMultiAdresse(): Promise<Pick<ConfigVeille, 'relanceMultiAdresseActive' | 'relanceMultiAdresseNbDernieres'>> {
-  const def = { relanceMultiAdresseActive: false, relanceMultiAdresseNbDernieres: 2 };
+  const def = { relanceMultiAdresseActive: true, relanceMultiAdresseNbDernieres: 2 }; // LOT 27 : défaut TRUE (norme) ; colonnes absentes → multi-adresse actif
   try {
     const { rows } = await query<{ relance_multi_adresse_active: boolean; relance_multi_adresse_nb_dernieres: number }>(
       `SELECT relance_multi_adresse_active, relance_multi_adresse_nb_dernieres FROM config_veille WHERE id = 1`);

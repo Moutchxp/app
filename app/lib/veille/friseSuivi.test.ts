@@ -13,6 +13,7 @@ const REGLAGES: ReglagesParcours = {
   ordinaire: { rappelJoursAvant: 10, avisJoursAvant: 3, saisineDelaiJours: 4 },
   partiel: { relanceJours: 10, nbRelancesAvantAnnonce: 2, annonceJours: 10, saisineJours: 4 },
   cadaPartielMois: 1, cadaPartielJours: 4,
+  multiAdresse: { active: false, nbDernieres: 2 }, // par défaut inactif dans ces cas de base (les cas Règle B sont testés à part, LOT 27)
 };
 const INITIAL = '2026-08-04T21:00:00Z'; // échéance ordinaire = 04/09 ; rappel 25/08, avis 01/09, info 04/09, dépôt 08/09
 const initiale = (destinataire: string | null = 'mairie@ex.fr'): EnvoiHistorique => ({ le: INITIAL, nature: 'initiale', grade: null, libelle: 'Demande initiale de communication', destinataire });
@@ -147,6 +148,32 @@ describe('LOT 19 (C) — DESTINATAIRE sur chaque étape d’envoi', () => {
 describe('projeterParcours — bornes', () => {
   it('demande en brouillon (pas d’envoi initial) → parcours VIDE', () => {
     expect(projeterParcours({ ...base, envoyeLe: null })).toEqual([]);
+  });
+});
+
+describe('LOT 27 — Règle B : les 2 dernières étapes À VENIR de chaque cascade annoncent « à toutes les adresses » (la frise ne ment pas)', () => {
+  const MULTI: ReglagesParcours = { ...REGLAGES, multiAdresse: { active: true, nbDernieres: 2 } };
+  it('ORDINAIRE : rappel (rang 1) = destinataire courant ; avis (2) + information saisine CADA (3) = toutes les adresses', () => {
+    const p = projeterParcours({ ...base, reglages: MULTI });
+    const rappel = p.find((e) => e.detail?.includes('rappel'))!;
+    expect(rappel.detail).toBe('à urba@mairie.fr · rappel courtois');                                   // rang 1 : PAS multi → Règle A (destinataire courant)
+    const avis = p.find((e) => e.detail?.includes('avis'))!;
+    expect(avis.detail).toBe('à toutes les adresses de la mairie ayant participé · avis d’échéance');   // rang 2 : multi
+    const info = p.find((e) => e.libelle === 'Information saisine CADA')!;
+    expect(info.detail).toBe('à toutes les adresses de la mairie ayant participé');                     // rang 3 : multi
+  });
+  it('ORDINAIRE, drapeau INACTIF : avis reste au destinataire courant (arrêt d’urgence → Règle B off)', () => {
+    const p = projeterParcours({ ...base, reglages: { ...MULTI, multiAdresse: { active: false, nbDernieres: 2 } } });
+    expect(p.find((e) => e.detail?.includes('avis'))!.detail).toBe('à urba@mairie.fr · avis d’échéance');
+  });
+  it('PARTIEL : 1re relance (rang 1) = interlocuteur ; 2e relance (rang 2) + annonce CADA (rang 3) = toutes les adresses', () => {
+    const p = projeterParcours({ ...base, suspension: suspension('2026-08-28T12:00:00Z'), reglages: MULTI });
+    const r1 = p.find((e) => e.detail?.startsWith('1re relance'))!;
+    expect(r1.detail).toBe('1re relance · au dernier interlocuteur de la mairie');                       // rang 1 sur 3 : PAS multi
+    const r2 = p.find((e) => e.detail?.startsWith('2e relance'))!;
+    expect(r2.detail).toBe('2e relance · à toutes les adresses de la mairie ayant participé');           // rang 2 : multi
+    const info = p.find((e) => e.libelle === 'Information saisine CADA')!;
+    expect(info.detail).toBe('à toutes les adresses de la mairie ayant participé');                      // annonce (rang 3) : multi
   });
 });
 

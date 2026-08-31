@@ -1,5 +1,24 @@
-import { describe, it, expect } from 'vitest';
-import { composerDestinatairesCommune, type SourcesAdressesCommune } from './destinatairesCommune';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+// Mock DB routé par fragment de SQL (LECTURE SEULE) — pour tester lireDestinataireParDefaut (Règle A) sans base.
+const { appels, reponses, queryMock } = vi.hoisted(() => {
+  const appels: { sql: string; params: unknown[] }[] = [];
+  const reponses = { repondant: [] as { a: string }[], contact: [] as { a: string }[], prada: [] as { a: string }[], dest: [] as { a: string }[] };
+  const queryMock = async (sql: string, params?: unknown[]) => {
+    appels.push({ sql, params: params ?? [] });
+    if (/demande_reponse/i.test(sql) && /de_adresse AS a/i.test(sql)) return { rows: reponses.repondant };
+    if (/mairie_contact/i.test(sql)) return { rows: reponses.contact };
+    if (/mairie_prada/i.test(sql)) return { rows: reponses.prada };
+    if (/dest_email AS a/i.test(sql)) return { rows: reponses.dest };
+    return { rows: [] };
+  };
+  return { appels, reponses, queryMock };
+});
+vi.mock('../db/client', () => ({ query: queryMock, withTransaction: async () => undefined, pool: {}, closePool: async () => undefined }));
+
+import { composerDestinatairesCommune, choisirDestinataireParDefaut, resoudreDestinatairesRelance, lireDestinataireParDefaut, type SourcesAdressesCommune } from './destinatairesCommune';
+
+const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
+beforeEach(() => { appels.length = 0; reponses.repondant = []; reponses.contact = []; reponses.prada = []; reponses.dest = []; });
 
 /**
  * LOT 20 — cœur PUR de la composition des destinataires (sans réseau, point 11). On prouve : dest_email toujours en tête, dédup
@@ -48,5 +67,73 @@ describe('composerDestinatairesCommune', () => {
   it('ordre des sources : dest_email → contacts confirmés → prada → répondants', () => {
     const l = composerDestinatairesCommune(src({ destEmail: 'd@m.fr', contactsConfirmes: ['c@m.fr'], prada: ['p@m.fr'], repondants: ['r@m.fr'] }));
     expect(l).toEqual(['d@m.fr', 'c@m.fr', 'p@m.fr', 'r@m.fr']);
+  });
+});
+
+describe('LOT 27 — RÈGLE A : choisirDestinataireParDefaut (dernier répondant, repli chaîne)', () => {
+  const s = (o: Partial<Parameters<typeof choisirDestinataireParDefaut>[0]> = {}) => ({ dernierRepondant: null, destEmail: null, contactsConfirmes: [], prada: [], ...o });
+  it('un répondant → c’est LUI le défaut (prioritaire sur la chaîne de repli)', () => {
+    expect(choisirDestinataireParDefaut(s({ dernierRepondant: 'rep@m.fr', destEmail: 'urba@m.fr' }))).toBe('rep@m.fr');
+  });
+  it('deux adresses dont une jamais répondante : le défaut = le RÉPONDANT, jamais la non-répondante (dest_email)', () => {
+    expect(choisirDestinataireParDefaut(s({ dernierRepondant: 'rep@m.fr', destEmail: 'jamais-repondu@m.fr' }))).toBe('rep@m.fr');
+  });
+  it('AUCUN répondant → repli dest_email, puis contact confirmé, puis prada (dans cet ordre)', () => {
+    expect(choisirDestinataireParDefaut(s({ destEmail: 'urba@m.fr', contactsConfirmes: ['c@m.fr'] }))).toBe('urba@m.fr');
+    expect(choisirDestinataireParDefaut(s({ contactsConfirmes: ['c@m.fr'], prada: ['p@m.fr'] }))).toBe('c@m.fr');
+    expect(choisirDestinataireParDefaut(s({ prada: ['p@m.fr'] }))).toBe('p@m.fr');
+  });
+  it('rien d’exploitable → null ; un répondant no-reply/non-adresse est SAUTÉ au profit du repli', () => {
+    expect(choisirDestinataireParDefaut(s())).toBeNull();
+    expect(choisirDestinataireParDefaut(s({ dernierRepondant: 'noreply@m.fr', destEmail: 'urba@m.fr' }))).toBe('urba@m.fr');
+    expect(choisirDestinataireParDefaut(s({ dernierRepondant: 'https://teleservice/urba', destEmail: 'urba@m.fr' }))).toBe('urba@m.fr');
+  });
+});
+
+describe('LOT 27 — RÈGLE B : resoudreDestinatairesRelance (multi-adresse des 2 dernières, sinon défaut unique)', () => {
+  const b = (o: Partial<Parameters<typeof resoudreDestinatairesRelance>[0]> = {}) => ({ defautRegleA: 'rep@m.fr', destEmailFige: 'urba@m.fr', listeLarge: ['urba@m.fr', 'rep@m.fr', 'prada@m.fr'], rang: 3, total: 3, multiActive: true, nbDernieres: 2, ...o });
+  it('ORDINAIRE — étapes 2 (avis) et 3 (saisine) → multi-adresse ; étape 1 (rappel) → défaut unique', () => {
+    expect(resoudreDestinatairesRelance(b({ rang: 3 }))).toEqual(['urba@m.fr', 'rep@m.fr', 'prada@m.fr']); // saisine
+    expect(resoudreDestinatairesRelance(b({ rang: 2 }))).toEqual(['urba@m.fr', 'rep@m.fr', 'prada@m.fr']); // avis
+    expect(resoudreDestinatairesRelance(b({ rang: 1 }))).toEqual(['rep@m.fr']);                            // rappel → Règle A seule
+  });
+  it('PARTIEL (total N+1=3) — relance 2 et annonce 3 → multi ; relance 1 → défaut unique', () => {
+    expect(resoudreDestinatairesRelance(b({ rang: 1, total: 3 }))).toEqual(['rep@m.fr']);
+    expect(resoudreDestinatairesRelance(b({ rang: 2, total: 3 }))).toEqual(['urba@m.fr', 'rep@m.fr', 'prada@m.fr']);
+    expect(resoudreDestinatairesRelance(b({ rang: 3, total: 3 }))).toEqual(['urba@m.fr', 'rep@m.fr', 'prada@m.fr']);
+  });
+  it('drapeau INACTIF (arrêt d’urgence) → même la dernière étape part au SEUL défaut (Règle A)', () => {
+    expect(resoudreDestinatairesRelance(b({ rang: 3, multiActive: false }))).toEqual(['rep@m.fr']);
+  });
+  it('une SEULE adresse connue (liste ≤ 1) → défaut unique, même sur une étape multi', () => {
+    expect(resoudreDestinatairesRelance(b({ rang: 3, listeLarge: ['urba@m.fr'] }))).toEqual(['rep@m.fr']);
+  });
+  it('le défaut Règle A est TOUJOURS dans la liste multi (préfixé s’il en est absent)', () => {
+    expect(resoudreDestinatairesRelance(b({ rang: 3, defautRegleA: 'nouveau@m.fr', listeLarge: ['urba@m.fr', 'prada@m.fr'] })))
+      .toEqual(['nouveau@m.fr', 'urba@m.fr', 'prada@m.fr']);
+  });
+  it('aucun défaut Règle A → repli sur le dest_email figé', () => {
+    expect(resoudreDestinatairesRelance(b({ rang: 1, defautRegleA: null }))).toEqual(['urba@m.fr']);
+  });
+});
+
+describe('LOT 27 — lireDestinataireParDefaut : lit le dernier répondant (hors rebond), exclut les presume (statut confirmé)', () => {
+  it('un répondant réel → défaut = ce répondant ; SQL trié par récence, rebonds exclus', async () => {
+    reponses.repondant = [{ a: 'lauriane@mairie.fr' }];
+    reponses.dest = [{ a: 'urba@mairie.fr' }];
+    expect(await lireDestinataireParDefaut(42, '93001')).toBe('lauriane@mairie.fr');
+    const q = appels.find((a) => /demande_reponse/i.test(a.sql) && /de_adresse AS a/i.test(a.sql))!;
+    const s = norm(q.sql);
+    expect(s).toContain("nature <> 'rebond'");       // les rebonds ne comptent pas comme des réponses
+    expect(s).toContain('ORDER BY recu_le DESC');     // le PLUS RÉCENT d'abord
+    expect(q.params).toEqual([42]);                   // paramètre LIÉ (demandeId)
+  });
+  it('AUCUN répondant → repli sur dest_email ; les contacts « presume » sont EXCLUS (query filtre statut confirmé)', async () => {
+    reponses.repondant = [];                 // pas de réponse
+    reponses.dest = [{ a: 'urba@mairie.fr' }];
+    reponses.contact = [];                   // la query ne renvoie QUE les confirmés → un presume n'y est pas
+    expect(await lireDestinataireParDefaut(7, '93001')).toBe('urba@mairie.fr');
+    const c = appels.find((a) => /mairie_contact/i.test(a.sql))!;
+    expect(norm(c.sql)).toContain("statut = 'confirme'"); // garantit l'exclusion des 'presume'
   });
 });

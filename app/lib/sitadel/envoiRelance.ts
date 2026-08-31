@@ -25,7 +25,7 @@ import {
 } from './envoiDemande';
 import { dossiersSatisfaitsDepuisRelance } from '../veille/relanceAuto';
 import { etapeCible, rangVariante, type ReglagesCascade, type VarianteEnBase } from '../veille/cascadeRelance';
-import { composerDestinatairesDemande, estParmiDernieres } from '../veille/destinatairesCommune'; // LOT 20 : multi-adresse des 2 dernières relances
+import { composerDestinatairesDemande, lireDestinataireParDefaut, resoudreDestinatairesRelance } from '../veille/destinatairesCommune'; // LOT 20/27 : Règle A (défaut) + Règle B (multi-adresse des 2 dernières)
 import { momentPrevuRelance, etatFiltreHoraire, type FiltreHoraire } from '../veille/envoiOuvre';
 import type { VarianteRelance } from '../veille/relance';
 
@@ -191,17 +191,21 @@ export async function lireCandidatsRelance(): Promise<RelanceAEnvoyer[]> {
   const base: RelanceAEnvoyer[] = rows.map((r) => ({
     relanceId: r.relance_id, demandeId: r.demande_id, reference: r.reference, communeNom: r.commune_nom,
     destEmail: r.dest_email, codeInsee: r.code_insee, objet: r.objet ?? '', corps: r.corps ?? '', profil: profilValide(r.profil),
-    variante: r.variante, envoyeLe: r.envoye_le, numeros: r.dus_nums ?? [], destinataires: [r.dest_email], // défaut : seul le destinataire figé
+    variante: r.variante, envoyeLe: r.envoye_le, numeros: r.dus_nums ?? [], destinataires: [r.dest_email], // remplacé ci-dessous par la Règle A (défaut) / B (multi-adresse)
   }));
-  // LOT 20 — MULTI-ADRESSE (opt-in) : pour les `nbDernieres` DERNIÈRES relances ordinaires (chaîne rappel→avis→saisine, total 3),
-  //   servir toutes les adresses connues de la commune. INACTIF par défaut → `base` renvoyé tel quel (comportement STRICTEMENT
-  //   inchangé). Aucun envoi ici : on ne fait que COMPOSER la liste (la même en simulation et en réel).
+  // LOT 27 — DESTINATAIRES : RÈGLE A (toujours) = le DERNIER répondant de la demande, repli dest_email figé → contact confirmé → prada.
+  //   RÈGLE B (les `nbDernieres` DERNIÈRES relances, chaîne rappel→avis→saisine total 3) = TOUTES les adresses connues, gated par le drapeau
+  //   `relance_multi_adresse_active` (désormais TRUE par défaut, arrêt d'urgence). Aucun envoi ici : on COMPOSE la liste (identique en simulation et réel).
   const cfg = await chargerConfigVeille();
-  if (!cfg.relanceMultiAdresseActive || cfg.relanceMultiAdresseNbDernieres <= 0) return base;
+  const multiActive = cfg.relanceMultiAdresseActive && cfg.relanceMultiAdresseNbDernieres > 0;
   return Promise.all(base.map(async (r) => {
-    if (!estParmiDernieres(rangVariante(r.variante as VarianteEnBase), 3, cfg.relanceMultiAdresseNbDernieres)) return r;
-    const liste = await composerDestinatairesDemande(r.demandeId, r.codeInsee);
-    return liste.length > 1 ? { ...r, destinataires: liste } : r; // 1 seule adresse connue → inchangé (le destinataire figé)
+    const defautRegleA = await lireDestinataireParDefaut(r.demandeId, r.codeInsee);                    // Règle A
+    const listeLarge = multiActive ? await composerDestinatairesDemande(r.demandeId, r.codeInsee) : []; // Règle B (seulement si active)
+    const destinataires = resoudreDestinatairesRelance({
+      defautRegleA, destEmailFige: r.destEmail, listeLarge,
+      rang: rangVariante(r.variante as VarianteEnBase), total: 3, multiActive, nbDernieres: cfg.relanceMultiAdresseNbDernieres,
+    });
+    return { ...r, destinataires };
   }));
 }
 

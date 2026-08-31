@@ -97,7 +97,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   //   rebours (etatEcheance INTOUCHÉ), la colonne « Retour mairie » et les 7 actions du détail. `retourReponse` (cle-based) est le
   //   retour des actions /reponses, DISTINCT de `retour` (zone-based) des actions /demandes. RIEN de ceci n'existe pour « À demander ».
   const enCours = perimetre === 'en_cours';
-  const [suivi, setSuivi] = useState<{ parId: Map<number, DemandeSuivi>; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number }; reglagesPartiel: ReglagesCascadePartielle } | null>(null);
+  const [suivi, setSuivi] = useState<{ parId: Map<number, DemandeSuivi>; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number }; reglagesPartiel: ReglagesCascadePartielle; multiAdresse: { active: boolean; nbDernieres: number } } | null>(null);
   const [maintenant, setMaintenant] = useState<Date>(() => new Date());
   const [versionSuivi, setVersionSuivi] = useState(0);
   const [retourReponse, setRetourReponse] = useState<RetourCible>(null);
@@ -130,8 +130,8 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
       try {
         const res = await fetch('/api/admin/permis/en-cours', { cache: 'no-store' });
         if (!annule && res.ok) {
-          const d = (await res.json()) as { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number }; reglagesPartiel: ReglagesCascadePartielle };
-          setSuivi({ parId: new Map(d.demandes.map((x) => [x.demandeId, x])), derniereOkLe: d.derniereOkLe, reglages: d.reglages, cascade: d.cascade, envoi: d.envoi, partielDelai: d.partielDelai ?? { mois: 1, jours: 4 }, reglagesPartiel: d.reglagesPartiel ?? { relanceJours: 10, nbRelancesAvantAnnonce: 2, annonceJours: 10, saisineJours: 4 } });
+          const d = (await res.json()) as { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number }; reglagesPartiel: ReglagesCascadePartielle; multiAdresse: { active: boolean; nbDernieres: number } };
+          setSuivi({ parId: new Map(d.demandes.map((x) => [x.demandeId, x])), derniereOkLe: d.derniereOkLe, reglages: d.reglages, cascade: d.cascade, envoi: d.envoi, partielDelai: d.partielDelai ?? { mois: 1, jours: 4 }, reglagesPartiel: d.reglagesPartiel ?? { relanceJours: 10, nbRelancesAvantAnnonce: 2, annonceJours: 10, saisineJours: 4 }, multiAdresse: d.multiAdresse ?? { active: true, nbDernieres: 2 } });
           setMaintenant(new Date());
         }
       } catch { /* suivi indisponible : le tableau reste, sans compte à rebours (jamais un écran vide) */ }
@@ -698,9 +698,10 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   const evenements = suivi ? projeterParcours({
                     envoyeLe: richDetail.envoyeLe, envois: richDetail.historiqueEnvois, suspension: richDetail.suspension,
                     saisineCadaEnvoyeeLe: richDetail.saisineCadaEnvoyeeLe, annonceCadaEnvoyeeLe: richDetail.annonceCadaEnvoyeeLe,
-                    destinataireCourant: richDetail.contactMairie.destinataire, // LOT 19 : dest_email figé de la demande → adresse des envois à venir
+                    // LOT 27 — Règle A : les envois à venir partent au DERNIER répondant de la mairie (interlocuteur le plus récent), à défaut le dest_email figé. La frise ne ment pas sur le destinataire.
+                    destinataireCourant: richDetail.contactMairie.interlocuteurs[0]?.adresse ?? richDetail.contactMairie.destinataire,
                     bifurcationDestinataire: richDetail.bifurcationDestinataire, annonceCadaDestinataire: richDetail.annonceCadaDestinataire, // LOT 21 : adresse de la réclamation + de l'annonce
-                    reglages: { ordinaire: suivi.cascade, partiel: suivi.reglagesPartiel, cadaPartielMois: suivi.partielDelai.mois, cadaPartielJours: suivi.partielDelai.jours },
+                    reglages: { ordinaire: suivi.cascade, partiel: suivi.reglagesPartiel, cadaPartielMois: suivi.partielDelai.mois, cadaPartielJours: suivi.partielDelai.jours, multiAdresse: suivi.multiAdresse },
                   }) : [];
                   const c = richDetail.cascade;
                   const actionCascade = c && c.brouillon ? (
