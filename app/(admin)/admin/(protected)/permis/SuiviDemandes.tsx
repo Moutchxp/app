@@ -23,6 +23,7 @@ import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { BlocTraceEmprise } from './BlocTraceEmprise';
 import { BlocPiecesPermis } from './BlocPiecesPermis';
 import { LiseusePieces } from './LiseusePieces';
+import { MentionFamillesManquantes, HistoriqueEnvois } from './HistoriqueEnvoisRendu'; // LOT 13 : A = compteur rouge du titre « Complétude » ; B = historique de nos envois
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 import type { ReglagesCascade } from '../../../../lib/veille/cascadeRelance';
 
@@ -722,6 +723,9 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                     })()}
                   </div>
                 )}
+                {/* LOT 13-B — HISTORIQUE de NOS envois à la mairie (demande initiale puis relances, ordre chronologique). S'AJOUTE à
+                    l'état de cascade ci-dessus (CASC-1/2/3), jamais à sa place ; repli des plus anciennes si la liste s'allonge (point 10). */}
+                <HistoriqueEnvois envois={richDetail.historiqueEnvois} />
                 <RappelObtenusArchives n={richDetail.dossiersSatisfaits} />
                 <DetailDossiers demandeId={detail.id} statut={richDetail.statut} dossiers={richDetail.dossiers} nbSatisfaits={richDetail.dossiersSatisfaits} retour={retourReponse}
                   aujourdhui={aujourdhui} prefillRefus={richDetail.derniereReponseLe ? formaterDate(richDetail.derniereReponseLe) : aujourdhui}
@@ -800,7 +804,11 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   contenu: () => <BlocContactMairie contact={richDetail.contactMairie} />,
                 },
                 // UNIF-1 — familles PER-PERMIS (si non vides) : sous-sections par permis, contenu chargé AU DÉPLIAGE (SousSectionsPermis) → jamais N appels lourds d'un coup.
-                { cle: 'completude', titre: LIBELLE_FAMILLE.completude, nonVide: richDetail.completudeNonVide,
+                { cle: 'completude',
+                  // LOT 13-A — le compteur ROUGE de familles manquantes est posé DANS le titre de famille (visible replié : c'est tout
+                  //   l'intérêt). Rien si 0 (point 4). MÊME formulation que le bilan de « Analyse et projection » (source unique).
+                  titre: <>{LIBELLE_FAMILLE.completude}<MentionFamillesManquantes manquantes={richDetail.completudeManquantes} /></>,
+                  nonVide: richDetail.completudeNonVide,
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} sansPli />} /> },
                 { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: richDetail.caracteristiquesNonVide,
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={id} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },

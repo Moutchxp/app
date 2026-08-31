@@ -15,6 +15,8 @@ import type { ReglagesCascade } from './cascadeRelance'; // cascade lot 4 : seui
 import type { EnvoiAutoInfos } from './statutCascade'; // lot « dire quand ça part » : interrupteur + fenêtre d'envoi (réglages existants)
 import type { EtatPartiel } from '../permis/dossierPartiel'; // CASC-1 : marqueur « dossier partiel » (type-only → erasé côté client)
 import { chargerCascadePartielle, MOTIF_RELANCE_PARTIELLE_PREFIXE, type EtatCascadePartielle } from './cascadePartielleRepo'; // CASC-3 : étape de cascade + brouillon ; LOT-8 C : préfixe des relances partielles (grade)
+import { manquantesParDossier } from '../permis/completudeRepo'; // LOT 13-A : compteur de familles manquantes par dossier (titre de famille)
+import { ordonnerHistoriqueEnvois, type EnvoiBrut, type EnvoiHistorique } from './historiqueEnvois'; // LOT 13-B : historique de nos envois (initiale + relances)
 
 /** Réglages de relève/échéance en vigueur (lecture seule ; édités dans l'onglet Réglages). */
 export interface ReglagesReleve {
@@ -189,6 +191,8 @@ export interface DemandeSuivi {
   //   est toujours remplissable (pas de signal). FIX-3 : les 4 familles PER-PERMIS sont scopées aux dossiers de `dossiersEncart`
   //   (= dûs + satisfaits d'une demande en partiel actif), MÊME ensemble que ce que rend l'encart ; un dossier obtenu non-partiel vit en Archives.
   completudeNonVide: boolean;       // ≥ 1 dossier d'encart a un diagnostic de complétude (permis_completude)
+  completudeManquantes: number;     // LOT 13-A : nombre de familles de documents MANQUANTES (somme sur les dossiers d'encart) → compteur rouge du titre de famille ; 0 = rien à signaler
+  historiqueEnvois: EnvoiHistorique[]; // LOT 13-B : NOS envois à la mairie (demande initiale puis relances), ordonnés — acheminement (initial/ordinaire) + journal (partiel), fusionnés
   historiqueNonVide: boolean;       // ≥ 1 entrée de FIL (niveau DEMANDE, = les 5 sources de BlocFilEchanges) : un ENVOI (initial/relance) OU la mairie a répondu (hors rebond) OU un suivi sortant (complément / déclaration / réponse libre / sortant hors outil)
   caracteristiquesNonVide: boolean; // ≥ 1 dossier d'encart a une caractéristique saisie/extraite OU un corps de bâtiment
   batimentsNonVide: boolean;        // ≥ 1 dossier d'encart a un corps de bâtiment déclaré (le tracé/emprise ~9 s reste chargé au dépliage)
@@ -659,6 +663,46 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     } catch { /* 177 absente → aucun dossier partiel-satisfait ; encart = dûs seuls (comportement d'avant) */ }
   }
 
+  // LOT 13-A — COMPTEUR de familles manquantes par demande (titre de la famille « Complétude des pièces », visible replié). Portée =
+  //   MÊMES dossiers d'encart que `completudeNonVide` (dûs + partiels-actifs) ; une SEULE lecture batchée `permis_completude` (par
+  //   dossier), MÊME règle que le bilan de titre (resumeCompletude). Somme sur les dossiers d'encart de la demande (résumé unique par
+  //   permis). JAMAIS un WHERE sur `dem` ; résilient (Map vide → 0 partout).
+  const encartDossiersParDemande = new Map<number, number[]>();
+  for (const r of dem.rows) {
+    const dus = (parDemande.get(r.id) ?? []).map((d) => d.dossierId);
+    const part = (parDemandePartielDoss.get(r.id) ?? []).map((d) => d.dossierId);
+    encartDossiersParDemande.set(r.id, [...dus, ...part]);
+  }
+  const manquantesParDoss = await manquantesParDossier([...new Set([...encartDossiersParDemande.values()].flat())]);
+
+  // LOT 13-B — HISTORIQUE de NOS envois par demande (demande initiale + relances). DEUX sources FUSIONNÉES (piège du LOT 8) :
+  //   (1) `demande_acheminement` (statut='envoye') : relance_id NULL = ENVOI INITIAL, NOT NULL = relance ORDINAIRE (grade = variante) ;
+  //   (2) `demande_journal` motif « relance partielle envoyée #N » (executerRelancePartielle) : relances PARTIELLES (grade = rang),
+  //       qui n'écrivent PAS d'acheminement. Deux requêtes SÉPARÉES batchées par demande_id, JAMAIS un WHERE sur `dem`. Chacune
+  //       résiliente (table/colonne absente → source ignorée, l'autre survit). Le tri/format final est PUR (ordonnerHistoriqueEnvois).
+  const brutsEnvois = new Map<number, EnvoiBrut[]>();
+  if (ids.length > 0) {
+    const pousser = (id: number, e: EnvoiBrut) => (brutsEnvois.get(id) ?? brutsEnvois.set(id, []).get(id)!).push(e);
+    try {
+      const { rows } = await query<{ demande_id: number; le: string; relance_id: number | null; variante: string | null; destinataire: string | null }>(
+        `SELECT a.demande_id::int AS demande_id, a.envoye_le::text AS le, a.relance_id::int AS relance_id, rl.variante,
+                coalesce(nullif(d.dest_nom, ''), d.dest_email) AS destinataire
+           FROM demande_acheminement a JOIN demande d ON d.id = a.demande_id
+           LEFT JOIN demande_relance rl ON rl.id = a.relance_id
+          WHERE a.demande_id = ANY($1) AND a.statut = 'envoye'`, [ids]);
+      for (const r of rows) pousser(r.demande_id, { le: r.le, categorie: r.relance_id === null ? 'initiale' : 'ordinaire', variante: r.variante, rang: null, destinataire: r.destinataire });
+    } catch { /* acheminement illisible → historique sans les envois réels (dégradation sûre) */ }
+    try {
+      const { rows } = await query<{ demande_id: number; le: string; rang: number | null; destinataire: string | null }>(
+        `SELECT j.demande_id::int AS demande_id, j.horodatage::text AS le,
+                coalesce((j.details->>'rang')::int, nullif(substring(j.motif from '#(\\d+)'), '')::int) AS rang,
+                coalesce(j.details->>'destinataire', nullif(d.dest_nom, ''), d.dest_email) AS destinataire
+           FROM demande_journal j JOIN demande d ON d.id = j.demande_id
+          WHERE j.demande_id = ANY($1) AND j.motif LIKE $2 || '%'`, [ids, MOTIF_RELANCE_PARTIELLE_PREFIXE]);
+      for (const r of rows) pousser(r.demande_id, { le: r.le, categorie: 'partielle', variante: null, rang: r.rang, destinataire: r.destinataire });
+    } catch { /* journal/details absents → historique sans les relances partielles (dégradation sûre) */ }
+  }
+
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut, canal: r.canal,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
@@ -691,6 +735,8 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     lienEnAttente: liensEnAttente.has(r.id), // PART-D : lien fort en attente (GED vide) → bascule partiel vers Réponses
     lienEnAttenteLe: liensEnAttente.get(r.id) ?? null, // PART-D : plus ancien lien en attente → tri par urgence
     completudeNonVide: completudeSet.has(r.id), // UNIF-0 : signaux « non vide » de l'encart (comptes batchés, jamais le contenu)
+    completudeManquantes: (encartDossiersParDemande.get(r.id) ?? []).reduce((n, id) => n + (manquantesParDoss.get(id) ?? 0), 0), // LOT 13-A
+    historiqueEnvois: ordonnerHistoriqueEnvois(brutsEnvois.get(r.id) ?? []), // LOT 13-B : tri + grades (pur)
     historiqueNonVide: historiqueSet.has(r.id),
     caracteristiquesNonVide: caracteristiquesSet.has(r.id),
     batimentsNonVide: batimentsSet.has(r.id),

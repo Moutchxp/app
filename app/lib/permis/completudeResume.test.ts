@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resumeCompletude, doitRecalculerAuto } from './completudeResume';
+import { resumeCompletude, doitRecalculerAuto, libelleFamillesManquantes } from './completudeResume';
 
 const diag = (presences: boolean[]) => ({ diagnostic: { lignes: presences.map((presente) => ({ presente })) } });
 
@@ -36,5 +36,15 @@ describe('PERF-2 — doitRecalculerAuto (déclenchement + anti-boucle, pur)', ()
 
   it('jamais analysé (null) → NON (on n’invente pas un 1er calcul en arrière-plan)', () => {
     expect(doitRecalculerAuto(null, false)).toBe(false);
+  });
+});
+
+describe('LOT 13-A — libelleFamillesManquantes (formulation UNIQUE, partagée titre bloc ↔ titre de famille)', () => {
+  it('pluriel au-delà de 1', () => {
+    expect(libelleFamillesManquantes(2)).toBe('dossier incomplet (2 familles manquantes)');
+    expect(libelleFamillesManquantes(3)).toBe('dossier incomplet (3 familles manquantes)');
+  });
+  it('singulier pour 1', () => {
+    expect(libelleFamillesManquantes(1)).toBe('dossier incomplet (1 famille manquante)');
   });
 });

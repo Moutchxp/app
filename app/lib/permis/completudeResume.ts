@@ -18,6 +18,17 @@ export function resumeCompletude(completude: DiagnosticLu | null): ResumeComplet
 }
 
 /**
+ * LOT 13-A — FORMULATION UNIQUE du bilan « incomplet » (« dossier incomplet (N famille(s) manquante(s)) »), portée à la fois par la
+ * ligne de titre du bloc autonome (BlocCompletude, « Analyse et projection ») ET par le TITRE de la famille « Complétude des pièces »
+ * de l'encart (En cours) — même mot, une seule source, aucune divergence possible. PUR. N'appelez qu'avec `manquantes ≥ 1` (le zéro
+ * ne s'affiche jamais, cf. `resumeCompletude`).
+ */
+export function libelleFamillesManquantes(manquantes: number): string {
+  const s = manquantes > 1 ? 's' : '';
+  return `dossier incomplet (${manquantes} famille${s} manquante${s})`;
+}
+
+/**
  * PERF-2 — faut-il relancer AUTOMATIQUEMENT le diagnostic ? OUI si un diagnostic EXISTE et qu'il est PÉRIMÉ (la GED a changé depuis),
  * et SEULEMENT si on ne l'a pas DÉJÀ lancé pour cette ouverture de fiche (`dejaLance`). Cette garde vaut ANTI-BOUCLE : `dejaLance`
  * reste vrai même si le recalcul échoue ou si la péremption persiste → jamais de relance en boucle. Jamais analysé (`null`) → NON

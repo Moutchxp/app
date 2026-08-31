@@ -88,6 +88,44 @@ describe('T6-A — chargerDemandesSuivi : SOURCE UNIQUE (échéance + retour + d
     expect(norm(dem.sql)).not.toContain('demande_sortant_hors_outil');
   });
 
+  it('LOT 13-B — historique de NOS envois : acheminement (initial/ordinaire) + journal (partiel) FUSIONNÉS, ordonnés, SÉPARÉS de `dem`', async () => {
+    const ACHEM = /a\.envoye_le::text AS le, a\.relance_id::int/;  // ma requête acheminement (fragment UNIQUE)
+    const JOURNAL = /coalesce\(\(j\.details->>'rang'\)::int/;      // ma requête journal partiel (fragment UNIQUE)
+    etat.dispatch = [
+      { re: DEM, rows: [{ id: 154, reference: 'R', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 1, dossiers_satisfaits: 0, dossiers_en_ged: 0, nb_reponses: 0, nb_reponses_reelles: 0, derniere_reponse_le: null }] },
+      { re: ACHEM, rows: [
+        { demande_id: 154, le: '2026-08-04T21:00:00Z', relance_id: null, variante: null, destinataire: 'mairie@ex.fr' }, // envoi initial (relance_id NULL)
+        { demande_id: 154, le: '2026-08-26T09:00:00Z', relance_id: 8, variante: 'rappel', destinataire: 'mairie@ex.fr' }, // relance ORDINAIRE
+      ] },
+      { re: JOURNAL, rows: [{ demande_id: 154, le: '2026-09-10T08:00:00Z', rang: 1, destinataire: 'mairie@ex.fr' }] }, // relance PARTIELLE (journal)
+    ];
+    const { demandes } = await chargerDemandesSuivi();
+    const hist = demandes[0].historiqueEnvois;
+    // FUSION + ORDRE : demande initiale en tête, puis relance ordinaire, puis partielle ; grades NON fusionnés (Rappel vs « 1re relance »).
+    expect(hist.map((e) => e.nature)).toEqual(['initiale', 'relance_ordinaire', 'relance_partielle']);
+    expect(hist.map((e) => e.grade)).toEqual([null, 'Rappel', '1re relance']);
+    // 🔴 DEUX requêtes SÉPARÉES, jamais la requête centrale `dem` ; le préfixe de motif partiel est LIÉ (paramètre), pas concaténé.
+    const achem = appels.find((a) => ACHEM.test(a.sql))!;
+    expect(DEM.test(achem.sql)).toBe(false);
+    const journal = appels.find((a) => JOURNAL.test(a.sql))!;
+    expect(norm(journal.sql)).toContain("j.motif LIKE $2 || '%'");
+    expect(journal.params[1]).toBe('relance partielle envoyée'); // MOTIF_RELANCE_PARTIELLE_PREFIXE lié
+    const dem = appels.find((a) => DEM.test(a.sql))!;
+    expect(norm(dem.sql)).not.toContain('a.envoye_le::text AS le'); // `dem` INCHANGÉE (aucun fragment de l'historique)
+  });
+
+  it('LOT 13-A — compteur de familles manquantes : lecture `permis_completude` batchée par dossier, SÉPARÉE de `dem`', async () => {
+    const COMPL = /FROM permis_completude WHERE dossier_id = ANY/; // ma lecture du compteur (fragment UNIQUE ; ≠ du signal completudeNonVide qui JOIN permis_completude)
+    etat.dispatch = [
+      { re: DEM, rows: [{ id: 154, reference: 'R', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 1, dossiers_satisfaits: 0, dossiers_en_ged: 0, nb_reponses: 0, nb_reponses_reelles: 0, derniere_reponse_le: null }] },
+      { re: DOSS, rows: [{ demande_id: 154, dossier_id: 5, num_dau: 'PC0930011', adresse: null, satisfait: false, satisfait_par: null, triage: null, refus_le: null }] },
+    ];
+    await chargerDemandesSuivi();
+    const compl = appels.find((a) => COMPL.test(a.sql));
+    expect(compl, 'la lecture du compteur (permis_completude par dossier) doit être émise').toBeDefined();
+    expect(DEM.test(compl!.sql)).toBe(false); // jamais la requête centrale `dem`
+  });
+
   it('LOT-9 C — CONTACT MAIRIE : interlocuteurs (dernier message, tri récence) + destinataire, par requêtes SÉPARÉES de `dem`', async () => {
     const EXP = /max\(r\.recu_le\)::text AS dernier/; // fragment UNIQUE de la requête des interlocuteurs
     etat.dispatch = [

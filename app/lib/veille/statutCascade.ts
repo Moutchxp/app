@@ -61,6 +61,10 @@ export interface EntreeStatutCascade {
 
 const LIBELLE_RELANCE: Record<string, string> = { rappel: 'Rappel', avis: 'Avis d’échéance', saisine: 'Saisine', formelle: 'Saisine' };
 
+/** Libellé humain d'une variante de relance ORDINAIRE (« Rappel » / « Avis d'échéance » / « Saisine »). SOURCE UNIQUE — vocabulaire
+ *  NON fusionné avec la cascade PARTIELLE (ordinaux « 1re relance »…, décision LOT 8). PUR. Repli « Relance » pour une variante inconnue. */
+export function libelleVarianteRelance(variante: string): string { return LIBELLE_RELANCE[variante] ?? 'Relance'; }
+
 /**
  * Libellé de la colonne STATUT, par ORDRE de priorité (du plus avancé au moins avancé) :
  *   Saisine CADA envoyée → Saisine CADA à lancer → dernier envoi RÉEL de relance (rappel/avis/saisine annoncée) → brouillon

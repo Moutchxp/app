@@ -103,3 +103,29 @@ export async function dossiersIncompletsParmi(dossierIds: readonly number[]): Pr
     return incomplets;
   } catch { return new Set(); } // 174 absente / config illisible → aucun signal (jamais un faux « incomplet »)
 }
+
+/**
+ * LOT 13-A — comme `dossiersIncompletsParmi`, mais renvoie le NOMBRE de familles manquantes PAR dossier (pour le compteur rouge du
+ * TITRE de la famille « Complétude des pièces » de l'encart, visible replié). MÊME lecture batchée (une requête), MÊME règle
+ * (`lignesDepuisClassements` + `resumeCompletude`) — aucune 2e vérité. Un dossier sans diagnostic mémorisé n'apparaît pas (donc 0
+ * pour l'appelant). NO-OP résilient : 174 absente / config illisible → Map vide (jamais un faux compteur).
+ */
+export async function manquantesParDossier(dossierIds: readonly number[]): Promise<Map<number, number>> {
+  if (dossierIds.length === 0) return new Map();
+  try {
+    const { rows } = await query<{ dossier_id: number | string; classements: ClassementPiece[] }>(
+      `SELECT dossier_id, classements FROM permis_completude WHERE dossier_id = ANY($1::int[])`, [dossierIds]);
+    if (rows.length === 0) return new Map();
+    const { chargerConfigVeille } = await import('../sitadel/veilleConfig');
+    const cfg = await chargerConfigVeille();
+    const familles = famillesAttenduesDepuisConfig({
+      cerfa: cfg.familleAttendueCerfa, masse: cfg.familleAttendueMasse, coupe: cfg.familleAttendueCoupe, etage: cfg.familleAttendueEtage,
+    });
+    const parDossier = new Map<number, number>();
+    for (const r of rows) {
+      const diagnostic = lignesDepuisClassements(r.classements ?? [], familles);
+      parDossier.set(Number(r.dossier_id), resumeCompletude({ diagnostic }).manquantes);
+    }
+    return parDossier;
+  } catch { return new Map(); } // 174 absente / config illisible → aucun compteur (dégradation sûre)
+}

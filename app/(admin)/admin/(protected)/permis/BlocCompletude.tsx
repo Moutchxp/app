@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BlocDemandePieces } from './BlocDemandePieces';
 import { BlocRepliable } from './BlocRepliable';
-import { resumeCompletude, doitRecalculerAuto } from '../../../../lib/permis/completudeResume';
+import { resumeCompletude, doitRecalculerAuto, libelleFamillesManquantes } from '../../../../lib/permis/completudeResume';
 
 /**
  * PART-2 / PERF-1 — DIAGNOSTIC DE COMPLÉTUDE des pièces (+ demande de pièces + déclaration de relance), en tête de la ligne dépliée
@@ -90,7 +90,7 @@ function TitreBilan({ etat, recalcEnCours, recalcEchoue }: { etat: Etat; recalcE
   else {
     const r = resumeCompletude(etat.completude);
     if (r.statut === 'jamais') bilan = <span style={{ fontWeight: 400, ...muted }}> — diagnostic non calculé (lancez l’analyse)</span>;
-    else if (r.statut === 'incomplet') bilan = <span style={{ fontWeight: 700, color: 'var(--color-svv-red)' }}> — dossier incomplet ({r.manquantes} famille{r.manquantes > 1 ? 's' : ''} manquante{r.manquantes > 1 ? 's' : ''})</span>;
+    else if (r.statut === 'incomplet') bilan = <span style={{ fontWeight: 700, color: 'var(--color-svv-red)' }}> — {libelleFamillesManquantes(r.manquantes)}</span>; // LOT 13-A : formulation UNIQUE (partagée avec le titre de famille de l'encart)
     else bilan = <span style={{ fontWeight: 700, color: 'var(--color-svv-green-ink)' }}> — dossier complet</span>;
   }
   return <span>{TITRE}{bilan}</span>;
