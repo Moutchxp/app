@@ -109,7 +109,9 @@ export function projeterParcours(e: EntreeParcours): EvenementFrise[] {
   // Faits RÉELS indexés (date + ADRESSE réelle) : relances ordinaires par GRADE, relances partielles par ordre chronologique (= ordre de rang).
   const ordRealise = new Map<string, { le: string; dest: string | null }>();
   for (const x of e.envois) if (x.nature === 'relance_ordinaire' && x.grade) ordRealise.set(x.grade, { le: iso(x.le), dest: x.destinataire });
-  const partielsRealises = e.envois.filter((x) => x.nature === 'relance_partielle').map((x) => ({ le: iso(x.le), dest: x.destinataire })).sort((a, b) => (a.le < b.le ? -1 : a.le > b.le ? 1 : 0));
+  const partielsRealises = e.envois.filter((x) => x.nature === 'relance_partielle').map((x) => ({ le: iso(x.le), dest: x.destinataire, manuel: x.manuel === true })).sort((a, b) => (a.le < b.le ? -1 : a.le > b.le ? 1 : 0));
+  // LOT 30 (③) — envois manuels SUPPLÉMENTAIRES (non comptés) : des faits dans la chronologie, qui ne consomment aucun créneau à venir.
+  const extras = e.envois.filter((x) => x.nature === 'complement_extra').map((x) => ({ le: iso(x.le), dest: x.destinataire }));
 
   if (e.suspension) {
     // ── RÉGIME PARTIEL (après bifurcation) ──
@@ -132,10 +134,13 @@ export function projeterParcours(e: EntreeParcours): EvenementFrise[] {
       const nature = `${ordinalRelance(k)} relance`;
       const futur = estMultiAdresseFutur(e.reglages.multiAdresse, k, totalPartiel) ? TOUTES_ADRESSES_FUTUR : INTERLOCUTEUR_FUTUR;
       evs.push(reel
-        ? { le: reel.le, quand: 'passe', libelle: 'Relance effectuée', detail: detailEnvoi(reel.dest, nature) }
+        // LOT 30 (③) — une relance COMPTÉE faite à la main porte la mention « fait à la main » (au lieu de partie tout seul). L'écran ne ment pas.
+        ? { le: reel.le, quand: 'passe', libelle: 'Relance effectuée', detail: detailEnvoi(reel.dest, reel.manuel ? `${nature} · fait à la main` : nature) }
         // À venir : relance partielle envoyée In-Reply-To → adresse non figée (point 11) ; Règle B → toutes les adresses. Jamais d'adresse trompeuse.
         : { le: ajoute(J, k * rp.relanceJours), quand: 'avenir', libelle: 'Relance programmée', detail: `${nature} · ${futur}` });
     }
+    // LOT 30 (③) — envois SUPPLÉMENTAIRES (non comptés) : chronologie sans consommer de créneau (le futur à venir reste inchangé).
+    for (const ex of extras) evs.push({ le: ex.le, quand: 'passe', libelle: 'Envoi supplémentaire', detail: detailEnvoi(ex.dest, 'relance manuelle, hors calendrier') });
     // INFORMATION SAISINE CADA (l'annonce, In-Reply-To) — effectuée sur envoi réel (adresse non conservée), sinon programmée (Règle B → toutes les adresses).
     const dateAnnonce = ajoute(J, rp.nbRelancesAvantAnnonce * rp.relanceJours + rp.annonceJours);
     const futurAnnonce = estMultiAdresseFutur(e.reglages.multiAdresse, totalPartiel, totalPartiel) ? TOUTES_ADRESSES_FUTUR : INTERLOCUTEUR_FUTUR;

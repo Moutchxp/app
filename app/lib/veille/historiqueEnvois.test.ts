@@ -42,5 +42,14 @@ describe('ordonnerHistoriqueEnvois — ordre, fusion, grades', () => {
   it('aucun envoi → liste vide', () => {
     expect(ordonnerHistoriqueEnvois([])).toEqual([]);
   });
+
+  it('LOT 30 (③) — « extra » (envoi supplémentaire non compté) → nature complement_extra, libellé « Envoi supplémentaire »', () => {
+    const brut: EnvoiBrut = { le: '2026-09-06T09:00:00Z', categorie: 'extra', variante: null, rang: null, destinataire: 'urba@m.fr' };
+    expect(ordonnerHistoriqueEnvois([brut])[0]).toMatchObject({ nature: 'complement_extra', grade: null, libelle: 'Envoi supplémentaire', destinataire: 'urba@m.fr' });
+  });
+  it('LOT 30 (③) — relance partielle COMPTÉE à la main : le drapeau manuel est conservé', () => {
+    const brut: EnvoiBrut = { le: '2026-09-05T09:00:00Z', categorie: 'partielle', variante: null, rang: 2, destinataire: 'urba@m.fr', manuel: true };
+    expect(ordonnerHistoriqueEnvois([brut])[0]).toMatchObject({ nature: 'relance_partielle', grade: '2e relance', manuel: true });
+  });
 });
 // LOT 15 — le repli des anciennes est désormais testé dans friseSuivi.test.ts (partitionnerFrise), sur la frise unifiée.

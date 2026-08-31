@@ -34,14 +34,18 @@ export interface ResultatDemandePieces {
   messageId?: string;
 }
 
-/** Ce que le journal doit conserver (trace opposable) : l'objet + le corps RÉELLEMENT ENVOYÉS, + le contexte. */
-export interface TraceEnvoi { objet: string; corps: string; familles: FamillePlan[]; destinataire: string; messageId: string }
+/** Ce que le journal doit conserver (trace opposable) : l'objet + le corps RÉELLEMENT ENVOYÉS, + le contexte.
+ *  LOT 30 (②) : `compte` = cet envoi consomme-t-il le créneau automatique suivant ? `creneau`/`rang` = lequel (pour le compteur + la frise). */
+export interface TraceEnvoi { objet: string; corps: string; familles: FamillePlan[]; destinataire: string; messageId: string; compte: boolean; creneau: string | null; rang: number | null }
 
 export interface DepsDemandePieces {
   lireCible(dossierId: number): Promise<CibleComplement | null>;
   envoyer(cible: CibleComplement, objet: string, corps: string): Promise<{ messageId: string }>;
   journaliser(demandeId: number, trace: TraceEnvoi, auteur: string): Promise<void>;
   marquerPartiel(demandeId: number, familles: readonly FamillePlan[]): Promise<void>; // CASC-1 : marqueur « dossier partiel » (origine 'outil')
+  // LOT 30 (②) — si l'utilisateur demande que cet envoi COMPTE comme la relance suivante : réserve le prochain créneau (verrou LOT 30bis).
+  //   Réservé → compte ; déjà pris par l'automatique → ne compte pas. Appelé UNIQUEMENT quand `compteCommeRelance` est vrai.
+  reserverCreneauSiCompte(demandeId: number, auteur: string): Promise<{ compte: boolean; creneau: string | null; rang: number | null }>;
 }
 
 /**
@@ -49,7 +53,7 @@ export interface DepsDemandePieces {
  * et envoyé VERBATIM, jamais recomposé ici). Refuse (sans envoyer) si : aucune famille, objet/corps vide, entité HTML dans le texte,
  * aucun message de mairie, adresse non répondable / expédition indisponible. L'ENVOI précède le JOURNAL. PUR par injection.
  */
-export async function executerDemandePieces(deps: DepsDemandePieces, arg: { dossierId: number; familles: readonly FamillePlan[]; objet: string; corps: string; auteur: string }): Promise<ResultatDemandePieces> {
+export async function executerDemandePieces(deps: DepsDemandePieces, arg: { dossierId: number; familles: readonly FamillePlan[]; objet: string; corps: string; auteur: string; compteCommeRelance?: boolean }): Promise<ResultatDemandePieces> {
   const familles = [...new Set(arg.familles)];
   if (familles.length === 0) return { ok: false, motif: 'aucune famille sélectionnée' };
   const problemeTexte = problemeTexteComplement(arg.objet, arg.corps);
@@ -61,7 +65,9 @@ export async function executerDemandePieces(deps: DepsDemandePieces, arg: { doss
 
   // ENVOI VERBATIM : exactement l'objet et le corps reçus (ce qui est affiché est ce qui part).
   const { messageId } = await deps.envoyer(cible, arg.objet, arg.corps); // AVANT le journal
-  await deps.journaliser(cible.demandeId, { objet: arg.objet, corps: arg.corps, familles, destinataire: cible.destinataire, messageId }, arg.auteur);
+  // LOT 30 (②) — COMPTER cet envoi comme la relance suivante ? Réservation du prochain créneau (verrou), sinon envoi supplémentaire.
+  const c = arg.compteCommeRelance ? await deps.reserverCreneauSiCompte(cible.demandeId, arg.auteur) : { compte: false, creneau: null, rang: null };
+  await deps.journaliser(cible.demandeId, { objet: arg.objet, corps: arg.corps, familles, destinataire: cible.destinataire, messageId, compte: c.compte, creneau: c.creneau, rang: c.rang }, arg.auteur);
   await deps.marquerPartiel(cible.demandeId, familles); // CASC-1 : pose auto le marqueur → suspend la relance ordinaire (sans geste d'Arno)
   return { ok: true, destinataire: cible.destinataire, familles, messageId };
 }
@@ -152,7 +158,7 @@ export function depsReellesDemandePieces(): DepsDemandePieces {
     journaliser: async (demandeId, trace, auteur) => {
       const motif = `${MOTIF_COMPLEMENT_PREFIXE} à ${trace.destinataire} (familles : ${trace.familles.join(', ')} ; messageId ${trace.messageId})`;
       // type/mode/dateRelance : ÉTAT UNIFIÉ avec une relance déclarée (PART-3e) — la future cascade lit un seul champ, sans deux chemins.
-      const details = JSON.stringify({ type: 'complement_pieces', mode: 'envoye', dateRelance: new Date().toISOString().slice(0, 10), objet: trace.objet, corps: trace.corps, familles: trace.familles, destinataire: trace.destinataire, messageId: trace.messageId });
+      const details = JSON.stringify({ type: 'complement_pieces', mode: 'envoye', dateRelance: new Date().toISOString().slice(0, 10), objet: trace.objet, corps: trace.corps, familles: trace.familles, destinataire: trace.destinataire, messageId: trace.messageId, compte: trace.compte, creneau: trace.creneau, rang: trace.rang });
       try {
         await query(
           `INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur, details) VALUES ($1, NULL, NULL, $2, $3, $4::jsonb)`,
@@ -166,6 +172,7 @@ export function depsReellesDemandePieces(): DepsDemandePieces {
       }
     },
     marquerPartiel: async (demandeId, familles) => { await marquerDossierPartiel(demandeId, familles, 'outil'); },
+    reserverCreneauSiCompte: async (demandeId, auteur) => { const { reserverProchainCreneauPartiel } = await import('../veille/cascadePartielleRepo'); return reserverProchainCreneauPartiel(demandeId, auteur); },
   };
 }
 
@@ -176,13 +183,14 @@ export const MOTIF_DECLARATION_PREFIXE = 'relance de complément déclarée';
 
 // ── PART-3e — DÉCLARER une relance déjà effectuée HORS de l'outil (aucun envoi) ───────────────────────────────────────────────────
 /** Trace d'une relance DÉCLARÉE : date affirmée + familles. Le CONTENU n'est PAS connu du système (on ne fabrique aucun faux corps). */
-export interface TraceDeclaration { dateRelance: string; familles: FamillePlan[]; destinataire: string }
+export interface TraceDeclaration { dateRelance: string; familles: FamillePlan[]; destinataire: string; compte: boolean; creneau: string | null; rang: number | null }
 
 export interface DepsDeclaration {
   lireContexte(dossierId: number): Promise<{ demandeId: number; destinataire: string; dernierMessageLe: string | Date } | null>; // Date au runtime (timestamptz), string en mock
   journaliserDeclaration(demandeId: number, trace: TraceDeclaration, auteur: string): Promise<void>;
   marquerPartiel(demandeId: number, familles: readonly FamillePlan[], ancreCivile: string): Promise<void>; // CASC-1 : marqueur « dossier partiel » (origine 'declaree') ; CASC-2 : ancre = date d'envoi déclarée ('YYYY-MM-DD', posée à 12:00 Paris)
   aujourdhui(): string; // 'YYYY-MM-DD' — injecté (pureté de la borne « pas dans le futur »)
+  reserverCreneauSiCompte(demandeId: number, auteur: string): Promise<{ compte: boolean; creneau: string | null; rang: number | null }>; // LOT 30 (②) — cf. DepsDemandePieces
 }
 
 /**
@@ -190,7 +198,7 @@ export interface DepsDeclaration {
  * PAS envoyer d'e-mail. Refuse si : aucune famille, aucun message de mairie, date dans le futur ou antérieure au dernier message reçu.
  * Le journal enregistre mode='declare' (contenu non connu), même ÉTAT qu'un envoi pour la suite (type + dateRelance + familles). PUR par injection.
  */
-export async function declarerRelanceComplement(deps: DepsDeclaration, arg: { dossierId: number; familles: readonly FamillePlan[]; dateRelance: string; auteur: string }): Promise<ResultatDemandePieces> {
+export async function declarerRelanceComplement(deps: DepsDeclaration, arg: { dossierId: number; familles: readonly FamillePlan[]; dateRelance: string; auteur: string; compteCommeRelance?: boolean }): Promise<ResultatDemandePieces> {
   const familles = [...new Set(arg.familles)];
   if (familles.length === 0) return { ok: false, motif: 'aucune famille sélectionnée' };
   const ctx = await deps.lireContexte(arg.dossierId);
@@ -198,7 +206,9 @@ export async function declarerRelanceComplement(deps: DepsDeclaration, arg: { do
   const pb = problemeDateDeclaration(arg.dateRelance, deps.aujourdhui(), ctx.dernierMessageLe);
   if (pb !== null) return { ok: false, motif: pb };
   const jourDeclare = arg.dateRelance.slice(0, 10); // grain JOUR (déjà validé au format 'YYYY-MM-DD' par problemeDateDeclaration)
-  await deps.journaliserDeclaration(ctx.demandeId, { dateRelance: jourDeclare, familles, destinataire: ctx.destinataire }, arg.auteur);
+  // LOT 30 (②) — COMPTER cette relance déclarée comme la relance suivante ? Réservation du prochain créneau (verrou), sinon envoi supplémentaire.
+  const c = arg.compteCommeRelance ? await deps.reserverCreneauSiCompte(ctx.demandeId, arg.auteur) : { compte: false, creneau: null, rang: null };
+  await deps.journaliserDeclaration(ctx.demandeId, { dateRelance: jourDeclare, familles, destinataire: ctx.destinataire, compte: c.compte, creneau: c.creneau, rang: c.rang }, arg.auteur);
   // CASC-1 : même effet qu'un envoi — pose auto le marqueur → suspend la relance ordinaire. CASC-2 : l'ancre du butoir CADA est la date
   //   d'envoi RÉELLEMENT déclarée (jourDeclare), pas l'instant du clic (cas 154 : déclaré le 31/08 pour un envoi du 28/08 → sinon 3 j gagnés).
   await deps.marquerPartiel(ctx.demandeId, familles, jourDeclare);
@@ -210,7 +220,7 @@ export function depsReellesDeclaration(): DepsDeclaration {
     lireContexte: lireContexteDeclaration, // n'importe RIEN de ../email → aucun envoi possible sur ce chemin
     journaliserDeclaration: async (demandeId, trace, auteur) => {
       const motif = `${MOTIF_DECLARATION_PREFIXE} le ${trace.dateRelance} (familles : ${trace.familles.join(', ')} ; destinataire ${trace.destinataire} ; contenu non connu du système)`;
-      const details = JSON.stringify({ type: 'complement_pieces', mode: 'declare', dateRelance: trace.dateRelance, familles: trace.familles, destinataire: trace.destinataire });
+      const details = JSON.stringify({ type: 'complement_pieces', mode: 'declare', dateRelance: trace.dateRelance, familles: trace.familles, destinataire: trace.destinataire, compte: trace.compte, creneau: trace.creneau, rang: trace.rang });
       try {
         await query(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur, details) VALUES ($1, NULL, NULL, $2, $3, $4::jsonb)`, [demandeId, motif, auteur, details]);
       } catch (e) {
@@ -221,6 +231,7 @@ export function depsReellesDeclaration(): DepsDeclaration {
     },
     marquerPartiel: async (demandeId, familles, ancreCivile) => { await marquerDossierPartiel(demandeId, familles, 'declaree', ancreCivile); },
     aujourdhui: () => new Date().toISOString().slice(0, 10),
+    reserverCreneauSiCompte: async (demandeId, auteur) => { const { reserverProchainCreneauPartiel } = await import('../veille/cascadePartielleRepo'); return reserverProchainCreneauPartiel(demandeId, auteur); },
   };
 }
 

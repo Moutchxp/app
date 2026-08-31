@@ -2,7 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { EncartFamilles, SousSectionsPermis, type FamilleRendu } from './EncartFamilles';
-import type { FamilleEncart, OngletEncart } from '../../../../lib/permis/encartFamilles';
+import { LIBELLE_FAMILLE, type FamilleEncart, type OngletEncart } from '../../../../lib/permis/encartFamilles';
+
+describe('LOT 30 (①) — titre de famille renommé', () => {
+  it('« Complétude des pièces & relance mail » (libellé FIXE, source canonique unique)', () => {
+    expect(LIBELLE_FAMILLE.completude).toBe('Complétude des pièces & relance mail');
+  });
+});
 
 /** Famille de test : titre reconnaissable + contenu marqué (pour prouver la PARESSE : le contenu ne doit PAS être rendu replié). */
 const fam = (cle: FamilleEncart, nonVide: boolean): FamilleRendu => ({

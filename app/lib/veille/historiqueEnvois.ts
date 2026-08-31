@@ -9,24 +9,26 @@ import { ordinalRelance } from './decompteButoir';
  * ⚠️ VOCABULAIRES NON FUSIONNÉS (décision LOT 8) : la cascade ORDINAIRE porte des noms propres (Rappel / Avis d'échéance / Saisine),
  *    la cascade PARTIELLE des ordinaux (« 1re relance », « 2e relance »…). On ne mélange jamais les deux échelles.
  */
-export type NatureEnvoi = 'initiale' | 'relance_ordinaire' | 'relance_partielle';
+export type NatureEnvoi = 'initiale' | 'relance_ordinaire' | 'relance_partielle' | 'complement_extra';
 
 /** Un envoi BRUT (avant mise en forme), tel que sorti d'une des deux sources. La `categorie` dit d'où il vient et quel grade lire. */
 export interface EnvoiBrut {
-  le: string;                                          // ISO de l'envoi (envoye_le d'acheminement OU horodatage du journal)
-  categorie: 'initiale' | 'ordinaire' | 'partielle';  // initiale = 1er envoi (acheminement relance_id NULL) ; ordinaire = acheminement relance_id NOT NULL ; partielle = journal
-  variante: string | null;                            // ordinaire : rappel/avis/saisine ; sinon null
-  rang: number | null;                                // partielle : 1, 2, … ; sinon null
-  destinataire: string | null;                        // si connu (dest_nom/dest_email, ou details du journal)
+  le: string;                                                    // ISO de l'envoi (envoye_le d'acheminement OU horodatage du journal)
+  categorie: 'initiale' | 'ordinaire' | 'partielle' | 'extra';  // …+ « extra » (LOT 30 ③) = envoi manuel supplémentaire NON compté (ne consomme aucun créneau)
+  variante: string | null;                                      // ordinaire : rappel/avis/saisine ; sinon null
+  rang: number | null;                                          // partielle : 1, 2, … ; sinon null
+  destinataire: string | null;                                  // si connu (dest_nom/dest_email, ou details du journal)
+  manuel?: boolean;                                             // LOT 30 (③) : relance partielle COMPTÉE faite À LA MAIN (au lieu de partie tout seul)
 }
 
 /** Un envoi MIS EN FORME pour l'affichage : sa nature, son grade lisible, un libellé complet, la date/heure et le destinataire. */
 export interface EnvoiHistorique {
   le: string;                    // ISO
   nature: NatureEnvoi;
-  grade: string | null;         // ordinaire : « Rappel »/« Avis d'échéance »/« Saisine » ; partielle : « 1re relance »… ; initiale : null
-  libelle: string;              // texte lisible complet (« Demande initiale de communication », « Relance — Rappel », « Relance partielle — 2e relance »)
+  grade: string | null;         // ordinaire : « Rappel »/« Avis d'échéance »/« Saisine » ; partielle : « 1re relance »… ; initiale/extra : null
+  libelle: string;              // texte lisible complet
   destinataire: string | null;
+  manuel?: boolean;             // LOT 30 (③) : relance partielle COMPTÉE mais faite à la main
 }
 
 /**
@@ -44,8 +46,11 @@ export function ordonnerHistoriqueEnvois(bruts: readonly EnvoiBrut[]): EnvoiHist
         const grade = libelleVarianteRelance(e.variante ?? ''); // vocab ORDINAIRE (source unique statutCascade)
         return { le: e.le, nature: 'relance_ordinaire', grade, libelle: `Relance — ${grade}`, destinataire: e.destinataire };
       }
+      if (e.categorie === 'extra') { // LOT 30 (③) — envoi manuel supplémentaire (NON compté) : n'a pas de rang de cascade.
+        return { le: e.le, nature: 'complement_extra', grade: null, libelle: 'Envoi supplémentaire', destinataire: e.destinataire };
+      }
       const grade = `${ordinalRelance(e.rang ?? 1)} relance`; // vocab PARTIEL (ordinaux) — jamais fusionné avec l'ordinaire
-      return { le: e.le, nature: 'relance_partielle', grade, libelle: `Relance partielle — ${grade}`, destinataire: e.destinataire };
+      return { le: e.le, nature: 'relance_partielle', grade, libelle: `Relance partielle — ${grade}`, destinataire: e.destinataire, manuel: e.manuel };
     });
 }
 // LOT 15 — le repli des entrées anciennes vit désormais dans `partitionnerFrise` (friseSuivi.ts) : la frise unifie envois ET cascade,

@@ -46,14 +46,40 @@ export async function famillesManquantesDemande(demandeId: number): Promise<{ ma
   return { manquantes: [...set], diagnostiquees };
 }
 
-/** Combien de relances partielles / annonces ont DÉJÀ été envoyées (comptées au journal, source unique de la progression). */
+/**
+ * Combien de relances partielles / annonces ont DÉJÀ été envoyées (comptées au journal, source unique de la progression).
+ * LOT 30 (②) : un envoi manuel « COMPTÉ » (details.compte='true') fait AVANCER la cascade — imputé au créneau qu'il a consommé
+ *   (details.creneau : « relance-N » → une relance de plus ; « annonce » → l'annonce faite). Un envoi NON compté n'entre pas ici.
+ */
 async function compterEtapesEnvoyees(demandeId: number): Promise<{ relances: number; annonce: boolean }> {
   const { rows } = await query<{ n_relances: number; n_annonce: number }>(
-    `SELECT count(*) FILTER (WHERE motif LIKE $2 || '%')::int AS n_relances,
-            count(*) FILTER (WHERE motif LIKE $3 || '%')::int AS n_annonce
+    `SELECT count(*) FILTER (WHERE motif LIKE $2 || '%'
+              OR (details->>'compte' = 'true' AND details->>'creneau' LIKE 'relance-%'))::int AS n_relances,
+            count(*) FILTER (WHERE motif LIKE $3 || '%'
+              OR (details->>'compte' = 'true' AND details->>'creneau' = 'annonce'))::int AS n_annonce
        FROM demande_journal WHERE demande_id = $1`,
     [demandeId, MOTIF_RELANCE_PARTIELLE_PREFIXE, MOTIF_ANNONCE_CADA_PREFIXE]);
   return { relances: rows[0]?.n_relances ?? 0, annonce: (rows[0]?.n_annonce ?? 0) > 0 };
+}
+
+/**
+ * LOT 30 (②) — un envoi manuel « hors calendrier » demandé COMPTÉ : réserve le PROCHAIN créneau de la cascade (celui que
+ * l'automatique aurait servi) via le verrou `cascade_partiel_creneau` (LOT 30bis). Réservé → il COMPTE (la cascade avancera, et
+ * l'automatique ne repartira pas dessus, verrou pris) ; déjà pris (l'auto vient de l'envoyer) → il NE compte PAS (envoi supplémentaire).
+ * Ne DÉCALE JAMAIS le butoir CADA (ancré à partiel_le). `creneau`/`rang` servent l'imputation (compteur) et la frise.
+ */
+export async function reserverProchainCreneauPartiel(demandeId: number, auteur: string): Promise<{ compte: boolean; creneau: string | null; rang: number | null }> {
+  const cfg = await chargerConfigVeille();
+  const { relances, annonce } = await compterEtapesEnvoyees(demandeId);
+  let creneau: string, rang: number | null;
+  if (relances < cfg.cascadePartielNbRelances) { rang = relances + 1; creneau = `relance-${rang}`; }
+  else if (!annonce) { rang = null; creneau = 'annonce'; }
+  else return { compte: false, creneau: null, rang: null }; // stade saisine : plus aucun créneau de relance à consommer
+  try {
+    const { rows } = await query<{ demande_id: number }>(
+      `INSERT INTO cascade_partiel_creneau (demande_id, cle, auteur) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING demande_id`, [demandeId, creneau, auteur]);
+    return { compte: rows.length > 0, creneau, rang };
+  } catch { return { compte: false, creneau, rang }; } // table absente → pas de garde → NE compte pas (jamais de double avance)
 }
 
 export async function chargerCascadePartielle(demandeId: number): Promise<EtatCascadePartielle | null> {

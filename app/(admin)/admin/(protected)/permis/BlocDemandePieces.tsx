@@ -28,6 +28,27 @@ export function jourCivilLocal(d: Date): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
 
+/**
+ * LOT 30 (②) — OPTION « cet envoi manuel compte-t-il comme la relance automatique suivante ? ». Vocabulaire pour un non-développeur :
+ *   on dit la CONSÉQUENCE, jamais le mécanisme de cascade. Défaut décoché (« ne compte pas » = statu quo : l'automatique part quand même).
+ *   Mobile-first (case + texte qui se replient), sans animation → prefers-reduced-motion respecté d'office.
+ */
+function OptionCompteRelance({ id, checked, onChange }: { id: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <div style={{ marginTop: '.3rem', fontSize: 12 }}>
+      <label htmlFor={id} style={{ display: 'flex', gap: '.4rem', alignItems: 'flex-start', cursor: 'pointer' }}>
+        <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} style={{ marginTop: '.15rem' }} />
+        <span>Compter cet envoi comme la relance automatique suivante</span>
+      </label>
+      <p style={{ ...muted, margin: '.15rem 0 0 1.4rem' }}>
+        {checked
+          ? 'La prochaine relance automatique ne partira pas : celle-ci prend sa place, puis la cascade reprend normalement.'
+          : 'Envoi supplémentaire : la relance automatique partira quand même à sa date.'}
+      </p>
+    </div>
+  );
+}
+
 /** Libellé lisible d'une réponse d'erreur. La barrière d'accès émet 401 (session expirée, via le proxy) OU 403 (compte
  * révoqué / non-admin / changement de mot de passe requis, via la garde de route) : les DEUX doivent inviter à se reconnecter,
  * JAMAIS afficher le code machine brut (« INTERDIT », « ACCES_REVOQUE »…). Tout autre statut → message métier de la route, sinon repli. */
@@ -46,8 +67,10 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
   const [envoi, setEnvoi] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   // PART-3e — DÉCLARATION d'une relance faite hors outil (aucun envoi) : sélection + date propres au constat.
+  const [compteEnvoi, setCompteEnvoi] = useState(false); // LOT 30 (②) — cet envoi compte-t-il comme la relance auto suivante ? Défaut « non » (statu quo).
   const [cochesDecl, setCochesDecl] = useState<Set<FamillePlan>>(() => new Set(famillesManquantes));
   const [dateDecl, setDateDecl] = useState('');
+  const [compteDecl, setCompteDecl] = useState(false); // LOT 30 (②) — idem pour une relance DÉCLARÉE hors outil.
   const [enCoursDecl, setEnCoursDecl] = useState(false);
   const [messageDecl, setMessageDecl] = useState<string | null>(null);
 
@@ -97,13 +120,13 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
     try {
       const res = await fetch('/api/admin/permis/demander-pieces', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dossierId, familles: [...coches], objet, corps }),
+        body: JSON.stringify({ dossierId, familles: [...coches], objet, corps, compteCommeRelance: compteEnvoi }),
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; destinataire?: string; erreur?: string };
       if (res.ok && d.ok) { setMessage(`Demande envoyée à ${d.destinataire}.`); setMode('cases'); await chargerEtat(); }
       else setMessage(libelleErreur(res.status, d.erreur, 'envoi impossible'));
     } catch { setMessage('envoi impossible'); } finally { setEnvoi(false); }
-  }, [dossierId, coches, objet, corps, chargerEtat]);
+  }, [dossierId, coches, objet, corps, compteEnvoi, chargerEtat]);
 
   const peutEnvoyer = repliable && objet.trim() !== '' && corps.trim() !== '' && !envoi;
 
@@ -115,13 +138,13 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
     try {
       const res = await fetch('/api/admin/permis/demander-pieces', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'declarer', dossierId, familles: [...cochesDecl], dateRelance: dateDecl }),
+        body: JSON.stringify({ action: 'declarer', dossierId, familles: [...cochesDecl], dateRelance: dateDecl, compteCommeRelance: compteDecl }),
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
       if (res.ok && d.ok) { setMessageDecl('Relance déclarée (aucun e-mail envoyé).'); await chargerEtat(); }
       else setMessageDecl(libelleErreur(res.status, d.erreur, 'déclaration impossible'));
     } catch { setMessageDecl('déclaration impossible'); } finally { setEnCoursDecl(false); }
-  }, [dossierId, cochesDecl, dateDecl, chargerEtat]);
+  }, [dossierId, cochesDecl, dateDecl, compteDecl, chargerEtat]);
 
   // ANNULER une relance déclarée (réversibilité).
   const annulerDecl = useCallback(async (journalId: number) => {
@@ -175,6 +198,7 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
                   <span style={muted}>Corps du message</span>
                   <textarea value={corps} onChange={(e) => setCorps(e.target.value)} rows={14} style={{ ...styleChamp, resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.4 }} aria-label="Corps du message" />
                 </label>
+                <OptionCompteRelance id="compte-envoi" checked={compteEnvoi} onChange={setCompteEnvoi} />
                 <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
                   <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.3rem .7rem' }} disabled={!peutEnvoyer} onClick={() => void envoyer()}>
                     {envoi ? 'Envoi…' : 'Envoyer à la mairie'}
@@ -209,6 +233,7 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
                   </label>
                 ))}
               </fieldset>
+              <OptionCompteRelance id="compte-decl" checked={compteDecl} onChange={setCompteDecl} />
               {/* POLISH (Arno) : fond PLEIN dès qu'une date valide rend le geste cliquable ; fond clair tant qu'il est inactif. Libellé inchangé. */}
               <button type="button" className={`svv-btn ${peutDeclarer ? 'svv-btn-primary' : 'svv-btn-outline'}`} style={{ width: 'auto', padding: '.3rem .7rem', marginTop: '.3rem' }}
                 disabled={!peutDeclarer} onClick={() => void declarer()}>{enCoursDecl ? 'Enregistrement…' : 'Déclarer cette relance'}</button>

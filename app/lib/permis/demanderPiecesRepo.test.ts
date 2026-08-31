@@ -20,6 +20,7 @@ function makeDeps(over: Partial<DepsDemandePieces> = {}): DepsDemandePieces {
     envoyer: vi.fn(async (_c: CibleComplement, _o: string, _co: string) => { void _c; void _o; void _co; return { messageId: '<envoye@svav.com>' }; }),
     journaliser: vi.fn(async (_d: number, _t: TraceEnvoi, _a: string) => { void _d; void _t; void _a; }),
     marquerPartiel: vi.fn(async () => {}), // CASC-1
+    reserverCreneauSiCompte: vi.fn(async () => ({ compte: true, creneau: 'relance-1', rang: 1 })), // LOT 30 (②) : créneau libre par défaut → compte
     ...over,
   };
 }
@@ -111,6 +112,7 @@ function makeDepsDecl(over: Partial<DepsDeclaration> = {}): DepsDeclaration {
     journaliserDeclaration: vi.fn(async (_d: number, _t: TraceDeclaration, _a: string) => { void _d; void _t; void _a; }),
     marquerPartiel: vi.fn(async () => {}), // CASC-1
     aujourdhui: () => '2026-08-30',
+    reserverCreneauSiCompte: vi.fn(async () => ({ compte: true, creneau: 'relance-1', rang: 1 })), // LOT 30 (②)
     ...over,
   };
 }
@@ -245,5 +247,34 @@ describe('executerReponseLibre', () => {
     expect(ordre).toEqual(['envoyer', 'journal']);
     expect(journalObjet).toBe('Re: X');
     expect(enReponseA).toBe('<msg-17@mairie-aubervilliers.fr>');
+  });
+});
+
+describe('LOT 30 (②) — option « compter cet envoi comme la relance suivante »', () => {
+  it('DÉFAUT (compteCommeRelance absent) → NE compte pas : réservation JAMAIS appelée, journal compte=false', async () => {
+    let trace: TraceEnvoi | null = null;
+    const reserver = vi.fn(async () => ({ compte: true, creneau: 'relance-1', rang: 1 }));
+    const deps = makeDeps({ reserverCreneauSiCompte: reserver, journaliser: async (_d, t) => { trace = t; } });
+    await executerDemandePieces(deps, arg());
+    expect(reserver).not.toHaveBeenCalled();
+    expect(trace!).toMatchObject({ compte: false, creneau: null, rang: null });
+  });
+  it('COMPTE (créneau libre → réservé) → journal compte=true + créneau/rang du créneau consommé', async () => {
+    let trace: TraceEnvoi | null = null;
+    const deps = makeDeps({ reserverCreneauSiCompte: async () => ({ compte: true, creneau: 'relance-2', rang: 2 }), journaliser: async (_d, t) => { trace = t; } });
+    await executerDemandePieces(deps, { ...arg(), compteCommeRelance: true });
+    expect(trace!).toMatchObject({ compte: true, creneau: 'relance-2', rang: 2 });
+  });
+  it('COMPTE demandé mais créneau DÉJÀ pris par l’automatique → journal compte=false (envoi supplémentaire, jamais de double avance)', async () => {
+    let trace: TraceEnvoi | null = null;
+    const deps = makeDeps({ reserverCreneauSiCompte: async () => ({ compte: false, creneau: 'relance-1', rang: 1 }), journaliser: async (_d, t) => { trace = t; } });
+    await executerDemandePieces(deps, { ...arg(), compteCommeRelance: true });
+    expect(trace!.compte).toBe(false);
+  });
+  it('DÉCLARER : même option (compteCommeRelance) portée dans la trace', async () => {
+    let trace: TraceDeclaration | null = null;
+    const deps = makeDepsDecl({ reserverCreneauSiCompte: async () => ({ compte: true, creneau: 'relance-1', rang: 1 }), journaliserDeclaration: async (_d, t) => { trace = t; } });
+    await declarerRelanceComplement(deps, { ...argD(), compteCommeRelance: true });
+    expect(trace!).toMatchObject({ compte: true, creneau: 'relance-1', rang: 1 });
   });
 });

@@ -756,6 +756,24 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
           WHERE j.demande_id = ANY($1) AND j.motif LIKE $2 || '%'`, [ids, MOTIF_RELANCE_PARTIELLE_PREFIXE]);
       for (const r of rows) pousser(r.demande_id, { le: r.le, categorie: 'partielle', variante: null, rang: r.rang, destinataire: r.destinataire });
     } catch { /* journal/details absents → historique sans les relances partielles (dégradation sûre) */ }
+    // LOT 30 (③) — compléments manuels HORS CALENDRIER dans la frise. On EXCLUT le PREMIER complément par demande (= la bifurcation, déjà
+    //   montrée « Relance pièces complémentaires »). Les suivants : COMPTÉ (details.compte='true') → relance À LA MAIN (consomme le créneau) ;
+    //   NON compté → « Envoi supplémentaire » (ne consomme rien). Dérivé de la config au rendu (le rang compté vient du créneau réservé).
+    try {
+      const { rows } = await query<{ demande_id: number; le: string; compte: boolean; rang: number | null; destinataire: string | null }>(
+        `SELECT j.demande_id::int AS demande_id, j.horodatage::text AS le,
+                (j.details->>'compte') = 'true' AS compte, (j.details->>'rang')::int AS rang,
+                coalesce(j.details->>'destinataire', nullif(d.dest_nom, ''), d.dest_email) AS destinataire
+           FROM demande_journal j JOIN demande d ON d.id = j.demande_id
+          WHERE j.demande_id = ANY($1) AND (j.motif LIKE $2 || '%' OR j.motif LIKE $3 || '%')
+          ORDER BY j.demande_id, j.horodatage ASC`, [ids, MOTIF_COMPLEMENT_PREFIXE, MOTIF_DECLARATION_PREFIXE]);
+      const vus = new Set<number>();
+      for (const r of rows) {
+        if (!vus.has(r.demande_id)) { vus.add(r.demande_id); continue; } // 1er complément = bifurcation → jamais re-listé
+        if (r.compte) pousser(r.demande_id, { le: r.le, categorie: 'partielle', variante: null, rang: r.rang, destinataire: r.destinataire, manuel: true });
+        else pousser(r.demande_id, { le: r.le, categorie: 'extra', variante: null, rang: null, destinataire: r.destinataire });
+      }
+    } catch { /* details absents (175 non appliquée) → pas de compléments hors calendrier dans la frise (dégradation sûre) */ }
   }
 
   // LOT 17/19 (C) — MENTION « N échanges — dernier le … » du titre de « Historique des échanges » (VISIBLE REPLIÉE). Compte + date du

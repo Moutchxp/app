@@ -21,7 +21,7 @@ export const ORDRE_FAMILLES: readonly FamilleEncart[] = ['contact', 'suivi_actio
 /** Titres COURTS (une seule vérité, réutilisée par les 3 onglets → aucune divergence de libellé). */
 export const LIBELLE_FAMILLE: Record<FamilleEncart, string> = {
   suivi_actions: 'Suivi et actions de la demande',
-  completude: 'Complétude des pièces',
+  completude: 'Complétude des pièces & relance mail',
   historique: 'Historique des échanges',
   contact: 'Contact mairie', // LOT-9 C — carnet d'adresses : qui nous a écrit + où nous avons écrit
   caracteristiques: 'Caractéristiques du permis',
