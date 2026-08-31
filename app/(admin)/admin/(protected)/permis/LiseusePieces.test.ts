@@ -125,8 +125,10 @@ describe('LOT 23 — préchargement des voisins + cache LRU borné + retour visu
   });
   it('ANNULATION propre au changement de plan/dossier et au démontage (cleanup de l’effet + purge au changement de dossier)', () => {
     expect(SRC).toMatch(/return \(\) => \{ ctrl\.annule = true; annulerIdle\(handle\); \};/); // cleanup de l'effet de préchargement
-    expect(SRC).toMatch(/if \(ctrl\.annule \|\| !monteRef\.current\) return;/);               // la boucle s'arrête net si annulée / démontée
+    expect(SRC).toMatch(/if \(ctrl\.annule\) return;/);                                       // la boucle s'arrête net si annulée (cleanup a posé ctrl.annule)
     expect(SRC).toMatch(/useEffect\(\(\) => \(\) => purgerCache\(\), \[dossierId, purgerCache\]\)/); // purge (destroy) au changement de DOSSIER + démontage
+    // LOT 24 — le garde de cycle de vie n'est plus un flag « collant » : plus AUCUN usage de monteRef.current (remplacé par un garde de FRAÎCHEUR live).
+    expect(SRC).not.toMatch(/monteRef\.current/);
   });
   it('cache LRU BORNÉ : éviction via la règle pure, destroy() des documents évincés, jamais illimité', () => {
     expect(SRC).toContain('rangerEtEvincer');                    // décision d'éviction déléguée à la fonction pure testée

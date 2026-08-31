@@ -68,8 +68,10 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const enCoursRef = useRef<Map<number, Promise<PDFDocumentProxy | null>>>(new Map());
   // Génération de cache : incrémentée à la purge (changement de dossier / démontage) → un chargement en vol devenu obsolète est détruit, jamais rangé (aucune fuite).
   const genRef = useRef(0);
-  const monteRef = useRef(true); // false au démontage → aucun setState après démontage
-  const pieceIdRef = useRef<number | null>(pieceId); // pièce courante « live » : détecte un changement de pièce PENDANT un téléchargement (rendu abandonné)
+  // LOT 24 — pièce courante « live », tenue à jour à CHAQUE montage/changement (ref recréée au remontage) : c'est LE garde de cycle de vie.
+  //   Il remplace l'ancien flag `monteRef` du LOT 23 qui, mis false au démontage et jamais remis true au remontage (StrictMode / repli-dépli
+  //   de la famille), gelait l'affichage sur un écran « Chargement… » figé. `pieceIdRef` ne peut pas rester « bloqué » : il reflète toujours le pieceId réel.
+  const pieceIdRef = useRef<number | null>(pieceId);
 
   // CHARGEMENT PARESSEUX : cet effet ne part qu'À LA MONTÉE — or le composant n'est monté qu'à l'OUVERTURE de la famille (le `contenu`
   //   de BlocRepliable est un thunk appelé au dépli). Donc rien tant que la famille est repliée, et jamais au rendu de la liste des demandes.
@@ -150,6 +152,10 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   //   LOT 23 : cache LRU multi-pièces (via obtenirDoc) + retour visuel « Chargement… N % » pendant un téléchargement réseau non préchargé.
   const afficherPage = useCallback(async () => {
     if (pieceId === null) return;
+    // LOT 24 — CE rendu est-il toujours d'actualité ? (pièce inchangée depuis le démarrage de l'invocation). Immunisé au nombre de montages
+    //   (StrictMode / repli-dépli) : sur le montage réel, pieceIdRef.current === pieceId → le plan COURANT s'affiche TOUJOURS. Un rendu superséedé
+    //   (l'utilisateur a changé de plan) laisse le nouveau rendu piloter l'UI — il ne touche plus ni l'overlay ni le message.
+    const estCourant = () => pieceIdRef.current === pieceId;
     setMessage(null); setZoom(1); setPan({ x: 0, y: 0 });
     const t0 = (typeof performance !== 'undefined' ? performance.now() : 0);
     try {
@@ -166,12 +172,12 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
         origine = 'réseau';
         setChargeReseau({ pct: null }); // à la place du document, sans faire sauter la mise en page (le conteneur garde sa hauteur)
         doc = await obtenirDoc(pieceId, { precharge: false, onProgress: (loaded, total) => {
-          if (monteRef.current) setChargeReseau({ pct: total > 0 ? Math.min(100, Math.max(0, Math.round((loaded / total) * 100))) : null });
+          if (estCourant()) setChargeReseau({ pct: total > 0 ? Math.min(100, Math.max(0, Math.round((loaded / total) * 100))) : null });
         } });
-        if (monteRef.current) setChargeReseau(null);
       }
-      if (!doc) { if (monteRef.current) setMessage('pièce indisponible'); return; }
-      if (!monteRef.current || pieceId !== pieceIdRef.current) return; // pièce changée pendant le téléchargement → ce rendu est périmé, on l'abandonne
+      if (!estCourant()) return;                                  // rendu superséedé → le nouveau rendu (et son overlay) prend le relais
+      if (!doc) { setMessage('pièce indisponible'); return; }      // échec du chargement → message lisible (le finally efface l'overlay, jamais de gris à l'infini)
+      setChargeReseau(null);                                       // octets reçus → on quitte « Chargement… » pour la phase « Rendu de la page… »
       const octets = cacheRef.current.get(pieceId)?.octets ?? 0;
       const tDoc = (typeof performance !== 'undefined' ? performance.now() : 0);
       setOccupe(true);
@@ -196,8 +202,9 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       // INSTRUMENTATION (point 6) — console.INFO (visible par défaut ; console.debug était masqué en niveau Verbose) préfixée [Liseuse],
       //   avec les OCTETS téléchargés et l'ORIGINE (réseau / cache / préchargé) pour VOIR d'où vient chaque page.
       if (typeof performance !== 'undefined') console.info(`[Liseuse] pièce ${pieceId} p${p} — ${origine} · ${octets} o · document ${Math.round(tDoc - t0)}ms · rendu ${Math.round(performance.now() - tDoc)}ms (canvas ${canvas.width}×${canvas.height})`);
-    } catch { if (monteRef.current) setMessage('impossible d’afficher la page (PDF illisible)'); }
-    finally { if (monteRef.current) { setOccupe(false); setChargeReseau(null); } }
+    } catch { if (estCourant()) setMessage('impossible d’afficher la page (PDF illisible)'); }
+    // LOT 24 — SORTIE : dans TOUS les cas (succès, erreur, pièce indisponible), on quitte « Chargement… » et « Rendu… ». Jamais d'écran gris figé.
+    finally { if (estCourant()) { setOccupe(false); setChargeReseau(null); } }
   }, [pieceId, page, obtenirDoc, toucherCache]);
 
   // LOT 23 — PRÉCHARGEMENT en tâche de fond des pièces VOISINES du best-of (suivante puis précédente), SÉQUENTIEL, jamais en parallèle
@@ -210,7 +217,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
     const ctrl = { annule: false };
     const handle = planifierIdle(async () => {
       for (const id of voisins) {
-        if (ctrl.annule || !monteRef.current) return; // annulation : changement de plan/dossier ou démontage → on arrête net
+        if (ctrl.annule) return; // annulation propre : changement de plan/dossier ou démontage → le cleanup de l'effet a posé ctrl.annule, on arrête net
         if (cacheRef.current.has(id) || enCoursRef.current.has(id)) continue; // déjà en cache / déjà en vol → rien à faire
         try {
           await obtenirDoc(id, { precharge: true }); // SÉQUENTIEL : le voisin précédent n'est chargé qu'après la suivante
@@ -222,10 +229,10 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
     return () => { ctrl.annule = true; annulerIdle(handle); };
   }, [etat, nav, planIndex, bande, obtenirDoc]);
 
-  // LOT 23 — cache LRU : PURGE (destroy de tous les documents) au CHANGEMENT DE DOSSIER et au DÉMONTAGE (rien ne fuit). Le démontage
-  //   coupe aussi les setState (monteRef) et, via genRef bumpé dans purgerCache, invalide les chargements encore en vol.
+  // LOT 23/24 — cache LRU : PURGE (destroy de tous les documents) au CHANGEMENT DE DOSSIER et au DÉMONTAGE (rien ne fuit ; genRef bumpé
+  //   dans purgerCache invalide les chargements encore en vol). Idempotent sous StrictMode : la re-exécution recharge simplement depuis le
+  //   réseau (le garde de cycle de vie n'est plus un flag « collant » — cf. pieceIdRef).
   useEffect(() => () => purgerCache(), [dossierId, purgerCache]);
-  useEffect(() => () => { monteRef.current = false; }, []);
 
   // Auto-affichage de la page courante au chargement (etat→ok) et à chaque changement de (pièce, page). Ref stable : ne pas se lier à afficherPage.
   const afficherPageRef = useRef(afficherPage);
