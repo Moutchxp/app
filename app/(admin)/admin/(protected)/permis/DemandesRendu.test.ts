@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, CelluleStatut, DecompteDelai, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, CellulePermis, CelluleReference, sequenceReference, formaterDateHeureLocale, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, CelluleStatut, DecompteDelai, BlocContactMairie, libelleRetourMairie, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, CellulePermis, CelluleReference, sequenceReference, formaterDateHeureLocale, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 import { BlocLiens } from './ReponsesRendu';
@@ -1324,5 +1326,75 @@ describe('LOT-8 (B) — DecompteDelai : jours restants + date en infobulle, cas 
   it('relève trop ancienne → « indéterminé »', () => {
     const h = renderToStaticMarkup(createElement(DecompteDelai, { id: 7, d: { jours: null, butoir: null, source: 'ordinaire', etat: 'indetermine' } }));
     expect(h).toContain('indéterminé');
+  });
+});
+
+/**
+ * 🔴 LOT-9 (B) — la LIGNE entière ouvre le détail (role=button, focus clavier, curseur pointeur) ; les contrôles internes stoppent la
+ * propagation (env node = pas de simulation de clic → attributs de markup + scan de source pour les handlers stopPropagation).
+ */
+const SRC_TABLE = readFileSync(fileURLToPath(new URL('./DemandesRendu.tsx', import.meta.url)), 'utf8');
+const SRC_REF = readFileSync(fileURLToPath(new URL('./RefMairieCellule.tsx', import.meta.url)), 'utf8');
+describe('LOT-9 (B) — ligne cliquable + protection des contrôles internes', () => {
+  const rendu = () => renderToStaticMarkup(createElement(TableDemandes, {
+    visibles: [DEM({ rangs: [1] })], categories: CATS_D3, tri: TRI_COMMUNE, sel: new Set<number>(),
+    toutCoche: false, messageVide: '—', onOuvrir: () => {},
+  }));
+  it('la <tr> est un bouton focusable (role=button, tabindex 0, aria-expanded, curseur pointeur)', () => {
+    const h = rendu();
+    expect(h).toContain('role="button"');
+    expect(h).toContain('tabindex="0"');
+    expect(h).toContain('aria-expanded="false"');
+    expect(h).toContain('cursor:pointer');
+  });
+  it('sans onOuvrir → aucune ligne cliquable (pas de role/tabindex parasites)', () => {
+    const h = renderToStaticMarkup(createElement(TableDemandes, { visibles: [DEM({ rangs: [1] })], categories: CATS_D3, tri: TRI_COMMUNE, sel: new Set<number>(), toutCoche: false, messageVide: '—' }));
+    expect(h).not.toContain('role="button"');
+  });
+  it('Entrée/Espace ouvrent la ligne (onKeyDown) et le bouton « ouvrir » + la case stoppent la propagation', () => {
+    expect(SRC_TABLE).toContain('onKeyDown');
+    expect(SRC_TABLE).toContain("e.key === 'Enter'");
+    expect(SRC_TABLE).toContain('e.stopPropagation(); onOuvrir?.(d.id)'); // le bouno « ouvrir » ne double pas le toggle
+    expect(SRC_TABLE).toContain('onClick={(e) => e.stopPropagation()}');   // la case à cocher
+  });
+  it('l’éditeur de référence mairie stoppe la propagation (n’ouvre pas la ligne)', () => {
+    expect(SRC_REF).toContain('onClick={(e) => e.stopPropagation()}');
+  });
+});
+
+/**
+ * 🔴 LOT-9 (C) — famille « Contact mairie » (carnet d'adresses). BlocContactMairie rend les interlocuteurs DANS L'ORDRE fourni (trié par
+ * récence côté SQL), l'expéditeur distinct du destinataire, et une phrase claire quand aucun contact. libelleRetourMairie = bilan de titre.
+ */
+describe('LOT-9 (C) — BlocContactMairie + libelleRetourMairie', () => {
+  const CONTACT_154 = {
+    interlocuteurs: [
+      { adresse: 'lauriane.pangui@mairie-aubervilliers.fr', nom: 'Lauriane Pangui', dernierLe: '2026-08-28T15:04:00Z' },
+    ],
+    destinataire: 'urba-reglementaire@mairie-aubervilliers.fr',
+  };
+  it('cas 154 : l’expéditeur (qui NOUS a écrit) et le destinataire (où NOUS avons écrit) apparaissent DISTINCTEMENT', () => {
+    const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: CONTACT_154 }));
+    expect(h).toContain('lauriane.pangui@mairie-aubervilliers.fr');     // interlocuteur
+    expect(h).toContain('Nous ont écrit');
+    expect(h).toContain('urba-reglementaire@mairie-aubervilliers.fr');  // destinataire
+    expect(h).toContain('Nous avons écrit à');
+  });
+  it('plusieurs interlocuteurs → rendus dans l’ORDRE fourni (récence : le plus récent d’abord)', () => {
+    const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: { destinataire: 'x@m.fr', interlocuteurs: [
+      { adresse: 'recent@m.fr', nom: null, dernierLe: '2026-08-28T15:00:00Z' },
+      { adresse: 'ancien@m.fr', nom: null, dernierLe: '2026-08-01T09:00:00Z' },
+    ] } }));
+    expect(h.indexOf('recent@m.fr')).toBeLessThan(h.indexOf('ancien@m.fr')); // ordre préservé
+  });
+  it('aucun contact (ni interlocuteur ni destinataire) → phrase claire, jamais un vide muet', () => {
+    const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: { interlocuteurs: [], destinataire: null } }));
+    expect(h).toContain('Aucun contact mairie connu');
+  });
+  it('libelleRetourMairie : un bilan court par état', () => {
+    expect(libelleRetourMairie('obtenus', 0)).toBe('documents obtenus');
+    expect(libelleRetourMairie('message', 3)).toBe('message reçu (3)');
+    expect(libelleRetourMairie('accuse', 0)).toBe('accusé reçu');
+    expect(libelleRetourMairie('aucun', 0)).toBe('aucun retour');
   });
 });

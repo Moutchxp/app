@@ -86,6 +86,11 @@ export interface ReponsePieces {
 }
 
 /** FUS — provenance d'un message porteur de CONTENU (lien FORT OU pièce) : clé de recherche « retrouver ce mail dans Gmail ». */
+/** LOT-9 C — une personne de la mairie qui NOUS a écrit : son adresse, son nom (si connu), la date+heure de SON dernier message. */
+export interface Interlocuteur { adresse: string; nom: string | null; dernierLe: string }
+/** LOT-9 C — carnet d'adresses d'une demande : interlocuteurs (triés par récence, plus récent d'abord) + destinataire d'origine (où NOUS avons écrit). */
+export interface ContactMairie { interlocuteurs: Interlocuteur[]; destinataire: string | null }
+
 export interface ProvenanceContenu {
   recuLe: string;      // ISO — date+heure d'arrivée (affichée en heure locale Europe/Paris)
   deAdresse: string;   // adresse COMPLÈTE de l'expéditeur (jamais tronquée)
@@ -171,6 +176,8 @@ export interface DemandeSuivi {
   messagesAutre: MessageAutreAffiche[]; // T7-B : messages `autre` ancrés (cas ③) — la ligne est signalée tant qu'il en reste ≥1 non répondu
   piecesReponses: ReponsePieces[]; // T5 : pièces des réponses rattachées (groupées par réponse), consultables/téléchargeables
   provenancesContenu: ProvenanceContenu[]; // FUS : messages porteurs de CONTENU (lien fort OU pièce), le PLUS RÉCENT d'abord — provenance affichée sur la ligne (date+heure + expéditeur), les autres au déplié
+  contactMairie: ContactMairie; // LOT-9 C : carnet d'adresses (interlocuteurs reçus, triés par récence, + destinataire d'origine)
+  contactNonVide: boolean;       // LOT-9 C : ≥ 1 contact connu (interlocuteur OU destinataire) → famille « Contact mairie » affichée
   suspension: EtatPartiel | null; // CASC-1 : marqueur « dossier partiel » ACTIF (raison + date) → relance ordinaire suspendue ; null = non suspendue / 177 absente
   nbReclamationsComplement: number; // LOT-8 C : rang de la cascade PARTIELLE (1 = réclamation d'origine + relances partielles envoyées) ; 0 si non suspendue
   cascade: EtatCascadePartielle | null; // CASC-3 : étape de cascade partielle + brouillon (null = non partielle / complète / 179 absente)
@@ -607,6 +614,24 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
                AND EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = dd.dossier_id)`),
       ]);
 
+  // LOT-9 (C) — CONTACT MAIRIE (carnet d'adresses) : par demande, les INTERLOCUTEURS = expéditeurs RÉELS des messages reçus (une ligne
+  //   par adresse, avec la date du DERNIER message d'elle), + le DESTINATAIRE d'origine (où NOUS avons écrit). Deux requêtes SÉPARÉES,
+  //   dans le MÊME périmètre de statut (aucun WHERE sur la source partagée `dem`, précédent B2). L'appelant trie par récence (dernierLe).
+  const contactsParId = new Map<number, ContactMairie>();
+  if (ids.length > 0) {
+    const contactDe = (id: number): ContactMairie => contactsParId.get(id) ?? contactsParId.set(id, { interlocuteurs: [], destinataire: null }).get(id)!;
+    const { rows: exps } = await query<{ demande_id: number; adresse: string; nom: string | null; dernier: string }>(
+      `SELECT r.demande_id::int AS demande_id, r.de_adresse AS adresse, max(nullif(r.de_nom, '')) AS nom, max(r.recu_le)::text AS dernier
+         FROM demande_reponse r JOIN demande d ON d.id = r.demande_id
+        WHERE d.statut IN ('envoyee', 'close') AND r.demande_id IS NOT NULL AND r.nature <> 'rebond' AND coalesce(r.de_adresse, '') <> ''
+        GROUP BY r.demande_id, r.de_adresse
+        ORDER BY r.demande_id, max(r.recu_le) DESC`); // TRI par récence : le plus récent d'abord (l'appelant conserve cet ordre)
+    for (const e of exps) contactDe(e.demande_id).interlocuteurs.push({ adresse: e.adresse, nom: e.nom, dernierLe: e.dernier });
+    const { rows: dests } = await query<{ demande_id: number; dest: string | null }>(
+      `SELECT id::int AS demande_id, nullif(dest_email, '') AS dest FROM demande WHERE id = ANY($1)`, [ids]);
+    for (const dr of dests) contactDe(dr.demande_id).destinataire = dr.dest;
+  }
+
   // FIX-3 — dossiers SATISFAITS d'une demande en PARTIEL ACTIF : à FUSIONNER aux dûs pour le CONTENU per-permis de l'encart
   //   (`dossiersEncart`), SANS toucher `dossiers` (DetailDossiers/Réponses/Archives et l'invariant « un dossier jamais dans deux
   //   onglets » inchangés). Requête ISOLÉE + résiliente (177 absente → Map vide → encart = dûs seuls, comportement d'avant).
@@ -646,6 +671,8 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     messagesAutre: parMsgAutre.get(r.id) ?? [],
     piecesReponses: parPiecesReponses.get(r.id) ?? [],
     provenancesContenu: parProvenances.get(r.id) ?? [],
+    contactMairie: contactsParId.get(r.id) ?? { interlocuteurs: [], destinataire: null }, // LOT-9 C
+    contactNonVide: (() => { const c = contactsParId.get(r.id); return c !== undefined && (c.interlocuteurs.length > 0 || c.destinataire !== null); })(), // LOT-9 C : ≥ 1 contact
     suspension: suspensions.get(r.id) ?? null, // CASC-1
     nbReclamationsComplement: suspensions.has(r.id) ? 1 + (relancesPartielles.get(r.id) ?? 0) : 0, // LOT-8 C : grade (1 = réclamation d'origine)
     cascade: cascades.get(r.id) ?? null, // CASC-3

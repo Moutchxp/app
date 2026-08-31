@@ -5,7 +5,7 @@ import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
 import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, partitionnerAnnulationMasse, CHOIX_STATUT_DEFAUT, categorieEnCours, CATEGORIE_EN_COURS_LIBELLE } from '../../../../lib/sitadel/demandesListe';
 import { dansProcess, horsProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
-import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, RetourMairie, etatRetourMairie, DecompteDelai, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
+import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, etatRetourMairie, libelleRetourMairie, BlocContactMairie, DecompteDelai, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
 import { DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, demandeADuRetour, formaterDate, type RetourCible } from './ReponsesRendu';
@@ -670,14 +670,6 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
             masquerRefMairie
             slotActions={undefined}
             slotDossiers={richDetail ? (
-              <>
-              {/* LOT-8 (D) — SYNTHÈSE « Retour mairie » en TÊTE de l'encart, AVANT les familles : où en est l'échange (documents obtenus / à
-                   classer en GED / message reçu (N) / accusé / aucun), d'un coup d'œil. Le FIL détaillé des messages reste dans la famille
-                   « Historique » (LOT 4) juste en dessous — ici, la SYNTHÈSE d'état, pas la liste. */}
-              <div className="svv-card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.5rem', fontSize: 13 }}>
-                <span style={{ fontWeight: 700, color: 'var(--color-svv-muted)' }}>Retour mairie :</span>
-                <RetourMairie etat={etatRetourMairie(richDetail)} nbReponses={richDetail.nbReponsesReelles} derniereReponseLe={richDetail.derniereReponseLe} provenances={richDetail.provenancesContenu} />
-              </div>
               <EncartFamilles onglet="en_cours" familles={[
                 {
                   cle: 'suivi_actions', nonVide: true, titre: LIBELLE_FAMILLE.suivi_actions,
@@ -790,6 +782,14 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   </>
                   ),
                 },
+                {
+                  // LOT-9 (C) — CONTACT MAIRIE : carnet d'adresses (interlocuteurs + destinataire), 1 clic, homogène aux autres familles.
+                  //   Le BILAN d'état (LOT 8 : documents obtenus / à classer en GED / message reçu (N) / accusé / aucun) est CONSERVÉ,
+                  //   déplacé du bandeau vers le TITRE de cette famille (visible replié) ; le contenu ne porte QUE le carnet (pas le fil).
+                  cle: 'contact', nonVide: richDetail.contactNonVide,
+                  titre: `${LIBELLE_FAMILLE.contact} — ${libelleRetourMairie(etatRetourMairie(richDetail), richDetail.nbReponsesReelles)}`,
+                  contenu: () => <BlocContactMairie contact={richDetail.contactMairie} />,
+                },
                 // UNIF-1 — familles PER-PERMIS (si non vides) : sous-sections par permis, contenu chargé AU DÉPLIAGE (SousSectionsPermis) → jamais N appels lourds d'un coup.
                 { cle: 'completude', titre: LIBELLE_FAMILLE.completude, nonVide: richDetail.completudeNonVide,
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} sansPli />} /> },
@@ -800,7 +800,6 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                 { cle: 'pieces', titre: LIBELLE_FAMILLE.pieces, nonVide: richDetail.piecesNonVide,
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocPiecesPermis key={id} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
               ]} />
-              </>
             ) : undefined}
           />
         ) : null}

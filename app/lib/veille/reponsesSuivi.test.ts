@@ -88,6 +88,28 @@ describe('T6-A — chargerDemandesSuivi : SOURCE UNIQUE (échéance + retour + d
     expect(norm(dem.sql)).not.toContain('demande_sortant_hors_outil');
   });
 
+  it('LOT-9 C — CONTACT MAIRIE : interlocuteurs (dernier message, tri récence) + destinataire, par requêtes SÉPARÉES de `dem`', async () => {
+    const EXP = /max\(r\.recu_le\)::text AS dernier/; // fragment UNIQUE de la requête des interlocuteurs
+    etat.dispatch = [
+      { re: DEM, rows: [{ id: 154, reference: 'R', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 1, dossiers_satisfaits: 0, dossiers_en_ged: 0, nb_reponses: 0, nb_reponses_reelles: 0, derniere_reponse_le: null }] },
+    ];
+    await chargerDemandesSuivi();
+    const exp = appels.find((a) => EXP.test(a.sql));
+    expect(exp, 'la requête des interlocuteurs doit être émise').toBeDefined();
+    const s = norm(exp!.sql);
+    expect(s).toContain('FROM demande_reponse r');
+    expect(s).toContain("nature <> 'rebond'");                       // vrais messages reçus
+    expect(s).toContain('GROUP BY r.demande_id, r.de_adresse');      // une ligne par (demande, adresse)
+    expect(s).toContain('ORDER BY r.demande_id, max(r.recu_le) DESC'); // TRI par récence
+    // destinataire d'origine, requête séparée
+    const dest = appels.find((a) => /nullif\(dest_email, ''\) AS dest/.test(a.sql));
+    expect(dest, 'la requête du destinataire doit être émise').toBeDefined();
+    // 🔴 `dem` inchangé : le critère « contact » ne s'invite pas dans la requête centrale
+    const dem = appels.find((a) => DEM.test(a.sql))!;
+    expect(norm(dem.sql)).toContain("WHERE d.statut IN ('envoyee', 'close')");
+    expect(norm(dem.sql)).not.toContain('GROUP BY r.demande_id, r.de_adresse'); // le regroupement « contact » ne s'invite pas dans dem
+  });
+
   it('T1 — dossiers RETIRÉS exposés par une requête SÉPARÉE (NOT dd.actif) ; le PÉRIMÈTRE de `dem` reste INCHANGÉ', async () => {
     const RETIRES = /NOT dd\.actif/; // requête dédiée aux dossiers retirés (distincte des DUS : dd.actif AND satisfait_le IS NULL)
     etat.dispatch = [

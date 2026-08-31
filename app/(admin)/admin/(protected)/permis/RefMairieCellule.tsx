@@ -34,7 +34,9 @@ export function EditeurReferenceMairie({ references, onAjouter, onModifier, onSu
     return err;
   };
 
-  const inputStyle = { padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'var(--font-svv-mono, monospace)', maxWidth: 140 } as const;
+  // LOT-9 (A) — champ pleine largeur de son conteneur (le placeholder « ajouter une référence » tient en entier) ; le bouton s'aligne
+  //   sur la même largeur (couple visuel). Borné à 180px, DANS la cellule (minWidth 190) → aucune largeur de table ajoutée (LOT 8).
+  const inputStyle = { padding: '.2rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'var(--font-svv-mono, monospace)', width: '100%', boxSizing: 'border-box' } as const;
   const aReference = references.length > 0;
 
   return (
@@ -60,11 +62,12 @@ export function EditeurReferenceMairie({ references, onAjouter, onModifier, onSu
         </div>
       ))}
 
-      {/* RÈGLE : champ + « ajouter » rendus UNIQUEMENT quand il n'y a AUCUNE référence (jamais grisés — absents). */}
+      {/* RÈGLE : champ + « ajouter » rendus UNIQUEMENT quand il n'y a AUCUNE référence (jamais grisés — absents). Empilés en COUPLE
+          (même largeur), le champ tient son placeholder en entier (LOT-9 A). */}
       {!aReference && (
-        <div style={{ display: 'flex', gap: '.3rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem', maxWidth: 180, margin: '0 auto' }}>
           <input value={saisie} onChange={(e) => setSaisie(e.target.value)} placeholder="ajouter une référence" aria-label="Ajouter une référence mairie" style={inputStyle} />
-          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.15rem .5rem' }} disabled={occupe || saisie.trim() === ''}
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.2rem .5rem', width: '100%', boxSizing: 'border-box' }} disabled={occupe || saisie.trim() === ''}
             onClick={() => void (async () => { const err = await lancer(onAjouter(saisie.trim())); if (!err) setSaisie(''); })()}>ajouter</button>
         </div>
       )}
@@ -76,8 +79,10 @@ export function EditeurReferenceMairie({ references, onAjouter, onModifier, onSu
 
 /** FUS-4 — cellule « Réf. mairie » du tableau « En cours » : l'éditeur PARTAGÉ dans une cellule centrée. */
 export function RefMairieCellule(props: Parameters<typeof EditeurReferenceMairie>[0]) {
+  // LOT-9 (B) — la LIGNE entière ouvre le détail ; l'éditeur de référence est un CONTRÔLE interne → ses clics ne doivent PAS bulle
+  //   jusqu'au <tr> (sinon éditer une réf. ouvrirait/fermerait le détail). stopPropagation sur toute la cellule (input + boutons).
   return (
-    <td style={{ padding: '.4rem .5rem', textAlign: 'center', verticalAlign: 'middle', minWidth: 190 }}>
+    <td style={{ padding: '.4rem .5rem', textAlign: 'center', verticalAlign: 'middle', minWidth: 190 }} onClick={(e) => e.stopPropagation()}>
       <EditeurReferenceMairie {...props} />
     </td>
   );

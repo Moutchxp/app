@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { statutFamille, familleAffichee, famillesAffichees, ORDRE_FAMILLES, LIBELLE_FAMILLE, type FamilleEncart } from './encartFamilles';
 
-const TOUTES: FamilleEncart[] = ['suivi_actions', 'completude', 'historique', 'caracteristiques', 'batiments', 'pieces'];
+const TOUTES: FamilleEncart[] = ['suivi_actions', 'completude', 'historique', 'contact', 'caracteristiques', 'batiments', 'pieces'];
 
 describe('UNIF-0 — statutFamille : table (onglet × famille)', () => {
   it('Analyse : contenu remplissable, pas de suivi/actions (absente)', () => {
@@ -24,6 +24,12 @@ describe('UNIF-0 — statutFamille : table (onglet × famille)', () => {
     for (const f of ['suivi_actions', 'completude', 'historique', 'batiments'] as FamilleEncart[]) {
       expect(statutFamille('archives', f)).toBe('si_non_vide');
     }
+  });
+  it('LOT-9 — « Contact mairie » : si_non_vide en En cours/Réponses, absente en Analyse/Archives', () => {
+    expect(statutFamille('en_cours', 'contact')).toBe('si_non_vide');
+    expect(statutFamille('reponses', 'contact')).toBe('si_non_vide');
+    expect(statutFamille('analyse', 'contact')).toBe('absente');
+    expect(statutFamille('archives', 'contact')).toBe('absente');
   });
 });
 

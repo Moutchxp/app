@@ -6,20 +6,21 @@
  * REMPLIR (statut 'remplissable'). Elle est COMPLÈTEMENT ABSENTE (ni grisée, ni « (vide) ») si les deux sont faux — c.-à-d.
  * statut 'si_non_vide' ET vide, ou statut 'absente' (la famille n'a pas de sens dans cet onglet).
  */
-export type FamilleEncart = 'suivi_actions' | 'completude' | 'historique' | 'caracteristiques' | 'batiments' | 'pieces';
+export type FamilleEncart = 'suivi_actions' | 'completude' | 'historique' | 'contact' | 'caracteristiques' | 'batiments' | 'pieces';
 export type OngletEncart = 'en_cours' | 'reponses' | 'archives' | 'analyse';
 
 /** 'remplissable' = toujours affichée (l'onglet sert à la remplir) ; 'si_non_vide' = affichée seulement si elle contient des infos ; 'absente' = hors sujet dans cet onglet. */
 export type StatutFamille = 'remplissable' | 'si_non_vide' | 'absente';
 
 /** Ordre d'affichage canonique des familles dans l'encart (identique à « Analyse et projection » : gestes/complétude d'abord). */
-export const ORDRE_FAMILLES: readonly FamilleEncart[] = ['suivi_actions', 'completude', 'historique', 'caracteristiques', 'batiments', 'pieces'];
+export const ORDRE_FAMILLES: readonly FamilleEncart[] = ['suivi_actions', 'completude', 'historique', 'contact', 'caracteristiques', 'batiments', 'pieces'];
 
 /** Titres COURTS (une seule vérité, réutilisée par les 3 onglets → aucune divergence de libellé). */
 export const LIBELLE_FAMILLE: Record<FamilleEncart, string> = {
   suivi_actions: 'Suivi et actions de la demande',
   completude: 'Complétude des pièces',
   historique: 'Historique des échanges',
+  contact: 'Contact mairie', // LOT-9 C — carnet d'adresses : qui nous a écrit + où nous avons écrit
   caracteristiques: 'Caractéristiques du permis',
   batiments: 'Bâtiments et projection',
   pieces: 'Pièces du permis',
@@ -31,10 +32,10 @@ export const LIBELLE_FAMILLE: Record<FamilleEncart, string> = {
  * s'il contient des infos (un dossier incomplet qui revient garde tout sous la main) ; « Archives » remplit Pièces + Caractéristiques.
  */
 const STATUTS: Record<OngletEncart, Record<FamilleEncart, StatutFamille>> = {
-  analyse: { suivi_actions: 'absente', completude: 'remplissable', historique: 'remplissable', caracteristiques: 'remplissable', batiments: 'remplissable', pieces: 'remplissable' },
-  en_cours: { suivi_actions: 'remplissable', completude: 'si_non_vide', historique: 'si_non_vide', caracteristiques: 'si_non_vide', batiments: 'si_non_vide', pieces: 'si_non_vide' },
-  reponses: { suivi_actions: 'remplissable', completude: 'si_non_vide', historique: 'si_non_vide', caracteristiques: 'si_non_vide', batiments: 'si_non_vide', pieces: 'si_non_vide' },
-  archives: { suivi_actions: 'si_non_vide', completude: 'si_non_vide', historique: 'si_non_vide', caracteristiques: 'remplissable', batiments: 'si_non_vide', pieces: 'remplissable' },
+  analyse: { suivi_actions: 'absente', completude: 'remplissable', historique: 'remplissable', contact: 'absente', caracteristiques: 'remplissable', batiments: 'remplissable', pieces: 'remplissable' },
+  en_cours: { suivi_actions: 'remplissable', completude: 'si_non_vide', historique: 'si_non_vide', contact: 'si_non_vide', caracteristiques: 'si_non_vide', batiments: 'si_non_vide', pieces: 'si_non_vide' },
+  reponses: { suivi_actions: 'remplissable', completude: 'si_non_vide', historique: 'si_non_vide', contact: 'si_non_vide', caracteristiques: 'si_non_vide', batiments: 'si_non_vide', pieces: 'si_non_vide' },
+  archives: { suivi_actions: 'si_non_vide', completude: 'si_non_vide', historique: 'si_non_vide', contact: 'absente', caracteristiques: 'remplissable', batiments: 'si_non_vide', pieces: 'remplissable' },
 };
 
 /** Statut (remplissable / si_non_vide / absente) d'une famille dans un onglet. PUR. */

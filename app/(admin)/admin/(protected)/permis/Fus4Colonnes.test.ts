@@ -60,3 +60,16 @@ describe('FUS — RefMairieCellule / EditeurReferenceMairie : RÈGLE « une seul
     expect(pleine).not.toContain('Ajouter une référence mairie');
   });
 });
+
+/**
+ * LOT-9 (A) — le champ « ajouter une référence » et le bouton forment un COUPLE aligné (même largeur), le placeholder tient en entier.
+ */
+describe('LOT-9 (A) — EditeurReferenceMairie : champ + bouton alignés (couple)', () => {
+  const noop = async () => null;
+  it('aucune référence → champ pleine largeur + bouton même largeur, placeholder complet', () => {
+    const h = renderToStaticMarkup(createElement(EditeurReferenceMairie, { references: [], onAjouter: noop, onModifier: noop, onSupprimer: noop }));
+    expect(h).toContain('placeholder="ajouter une référence"'); // placeholder complet (plus tronqué)
+    expect(h).toContain('flex-direction:column');               // empilés en couple
+    expect((h.match(/width:100%/g) ?? []).length).toBeGreaterThanOrEqual(2); // champ ET bouton à 100% (alignés)
+  });
+});

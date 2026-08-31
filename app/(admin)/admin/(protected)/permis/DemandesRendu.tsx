@@ -8,6 +8,7 @@ import { EditeurReferenceMairie } from './RefMairieCellule'; // FUS — éditeur
 import { BoutonCopier } from './BoutonCopier'; // DEPOT-1 — pastille de copie PARTAGÉE (texte + numéro de permis), même apparence
 import { SousBlocRepliable } from './SousBlocRepliable'; // LOT-7 (B) — corps de lettre derrière un pli léger (1 clic), réutilise le composant du LOT 5
 import type { Decompte } from '../../../../lib/veille/decompteButoir'; // LOT-8 (B) — décompte en jours avant le butoir qui fait foi
+import type { ContactMairie } from '../../../../lib/veille/reponsesSuivi'; // LOT-9 (C) — carnet d'adresses « Contact mairie »
 import type { PermisDetail, DemandeDetail } from '../../../../lib/sitadel/demandeRepo';
 
 /**
@@ -697,6 +698,48 @@ export function RetourMairie({ etat, nbReponses, derniereReponseLe, provenances 
   return <div>{libelle}{provBloc}</div>;
 }
 
+/** LOT-9 (C) — libellé COURT de l'état « retour mairie » (pour le bilan de titre de la famille « Contact mairie »). PUR. */
+export function libelleRetourMairie(etat: EtatRetourMairie, nbReponses: number): string {
+  return etat === 'obtenus' ? 'documents obtenus'
+    : etat === 'recu_a_classer' ? 'reçu, à classer en GED'
+    : etat === 'message' ? `message reçu (${nbReponses})`
+    : etat === 'accuse' ? 'accusé reçu'
+    : 'aucun retour';
+}
+
+/**
+ * LOT-9 (C) — CARNET D'ADRESSES « Contact mairie » (contenu de la famille). Ce n'est PAS l'état de synthèse (bilan de titre) ni le fil
+ * (famille « Historique ») : uniquement les INTERLOCUTEURS (qui NOUS a écrit + date/heure de leur dernier message, du plus récent au
+ * plus ancien) et le DESTINATAIRE d'origine (où NOUS avons écrit). PUR.
+ */
+export function BlocContactMairie({ contact }: { contact: ContactMairie }) {
+  if (contact.interlocuteurs.length === 0 && !contact.destinataire) {
+    return <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Aucun contact mairie connu pour l’instant.</span>;
+  }
+  return (
+    <div className="svv-card flex flex-col gap-2" style={{ fontSize: 13, minWidth: 0 }}>
+      {contact.interlocuteurs.length > 0 && (
+        <div>
+          <strong style={{ fontSize: 12 }}>Nous ont écrit (du plus récent au plus ancien)</strong>
+          <ul style={{ margin: '.2rem 0 0', paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+            {contact.interlocuteurs.map((it, i) => (
+              <li key={`${it.adresse}-${i}`}>
+                <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', wordBreak: 'break-all' }}>{it.adresse}</span>{it.nom ? ` — ${it.nom}` : ''}
+                <span style={{ color: 'var(--color-svv-muted)' }}> · dernier message le {formaterDateHeureLocale(it.dernierLe)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {contact.destinataire && (
+        <div style={{ fontSize: 12, color: 'var(--color-svv-muted)', borderTop: contact.interlocuteurs.length > 0 ? '1px solid var(--color-svv-line)' : undefined, paddingTop: contact.interlocuteurs.length > 0 ? '.4rem' : undefined }}>
+          Nous avons écrit à <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', wordBreak: 'break-all', color: 'var(--color-svv-ink)' }}>{contact.destinataire}</span>.
+        </div>
+      )}
+    </div>
+  );
+}
+
 /**
  * D3/T6-B — tableau des demandes PUR. Colonnes : [sélection] · **N° permis** · Référence (réduite) · Type · Commune · Profil · Canal · Destinataire ·
  * Dossiers · Statut · [ouvrir]. Le TYPE est en 2e position DONNÉE (juste après Référence), aligné en-tête ↔ ligne par le même
@@ -790,8 +833,15 @@ export function TableDemandes({
             const ouvert = demandeOuverte === d.id; // U7 — un seul volet : au plus une ligne satisfait ceci
             return (
               <Fragment key={d.id}>
-                <tr style={{ borderBottom: ouvert ? 'none' : '1px solid var(--color-svv-line)' }}>
-                  {avecSelection && <td style={styleTdD}><input type="checkbox" checked={sel.has(d.id)} onChange={() => onBasculer?.(d.id)} aria-label={`Sélectionner ${d.reference}`} /></td>}
+                {/* LOT-9 (B) — TOUTE la ligne ouvre/ferme le détail (clic + Entrée/Espace, role=button, curseur pointeur). Les contrôles
+                     internes (case à cocher, éditeur de réf. mairie, bouton « ouvrir ») stoppent la propagation pour garder leur geste. */}
+                <tr
+                  role={onOuvrir ? 'button' : undefined} tabIndex={onOuvrir ? 0 : undefined} aria-expanded={onOuvrir ? ouvert : undefined} aria-controls={onOuvrir ? ancreDetail(d.id) : undefined}
+                  onClick={onOuvrir ? () => onOuvrir(d.id) : undefined}
+                  onKeyDown={onOuvrir ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOuvrir(d.id); } } : undefined}
+                  style={{ borderBottom: ouvert ? 'none' : '1px solid var(--color-svv-line)', cursor: onOuvrir ? 'pointer' : undefined }}
+                >
+                  {avecSelection && <td style={styleTdD} onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel.has(d.id)} onChange={() => onBasculer?.(d.id)} aria-label={`Sélectionner ${d.reference}`} /></td>}
                   <CellulePermis numeros={d.numeros} demandeId={d.id} />
                   <CelluleReference reference={d.reference} />
                   <CelluleType rangs={d.rangs} categories={categories} />
@@ -806,8 +856,9 @@ export function TableDemandes({
                   <CelluleStatut d={d} />
                   {colonnesSuivi?.cellule(d) /* T6-A — Délai + Retour mairie (En cours) */}
                   <td style={styleTdD}>
+                    {/* LOT-9 (B) — le bouton reste le repère visuel de l'action ; stopPropagation pour ne pas DOUBLER le toggle avec le clic de ligne. */}
                     <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }}
-                      aria-expanded={ouvert} aria-controls={ancreDetail(d.id)} onClick={() => onOuvrir?.(d.id)}>
+                      aria-expanded={ouvert} aria-controls={ancreDetail(d.id)} onClick={(e) => { e.stopPropagation(); onOuvrir?.(d.id); }}>
                       {ouvert ? 'refermer' : 'ouvrir'}
                     </button>
                   </td>
