@@ -8,6 +8,23 @@ import {
   SelecteurPiecePlan, BandePlans, NavPieceLibre, ZoomPdf,
   type PiecePlan, type Plan,
 } from './TraceEmpriseRendu';
+import { MAX_DOCS_CACHE, voisinsAPrecharger, rangerEtEvincer } from './prechargeLiseuse';
+
+/** LOT 23 — un document pdf.js en cache + comment il y est entré (`precharge` = chargé en tâche de fond, pas encore affiché) + octets réellement transférés. */
+type EntreeCache = { doc: PDFDocumentProxy; precharge: boolean; octets: number };
+
+/** LOT 23 — planifie une tâche de fond quand le thread principal est OISIF (`requestIdleCallback`), repli `setTimeout` là où l'API manque (Safari, tests node). */
+type IdleHandle = { type: 'idle'; id: number } | { type: 'timeout'; id: ReturnType<typeof setTimeout> };
+function planifierIdle(cb: () => void): IdleHandle {
+  const w = typeof window !== 'undefined' ? (window as Window & { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }) : undefined;
+  if (w?.requestIdleCallback) return { type: 'idle', id: w.requestIdleCallback(cb, { timeout: 2000 }) };
+  return { type: 'timeout', id: setTimeout(cb, 200) };
+}
+function annulerIdle(h: IdleHandle): void {
+  const w = typeof window !== 'undefined' ? (window as Window & { cancelIdleCallback?: (id: number) => void }) : undefined;
+  if (h.type === 'idle') w?.cancelIdleCallback?.(h.id);
+  else clearTimeout(h.id);
+}
 
 /**
  * LOT 14b — LISEUSE DE PIÈCES (LECTURE SEULE) : sélecteur best-of + aperçu PDF, monté en tête de la famille « Pièces du permis »
@@ -37,13 +54,22 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [occupe, setOccupe] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  // LOT 23 — RETOUR VISUEL d'un téléchargement réseau NON préchargé : « Chargement… N % » (pct null tant qu'on n'a pas de total). null = rien à afficher.
+  const [chargeReseau, setChargeReseau] = useState<{ pct: number | null } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pdfContainerRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ x0: number; y0: number; panX: number; panY: number } | null>(null);
-  // LOT 22 (C) — CACHES pour ne pas « recomposer » à chaque page : le module pdf.js (chargé UNE fois) et le DOCUMENT parsé (par pièce).
-  //   Le changement de PAGE ne re-télécharge/re-parse plus le PDF ; seul un changement de PIÈCE recharge le document.
+  // LOT 22 (C) — le module pdf.js est chargé UNE fois (mémorisé), plus à chaque page.
   const pdfjsRef = useRef<typeof import('pdfjs-dist') | null>(null);
-  const docRef = useRef<{ pieceId: number; doc: PDFDocumentProxy } | null>(null);
+  // LOT 23 — CACHE LRU des documents parsés (≤ MAX_DOCS_CACHE) : le changement de PAGE ne recharge rien, et un aller-retour best-of
+  //   A→B→A retrouve A EN CACHE (fini le re-téléchargement du LOT 22 mono-case). `Map` = ordre d'insertion = fraîcheur LRU.
+  const cacheRef = useRef<Map<number, EntreeCache>>(new Map());
+  // Chargements EN COURS (par pièce) : dédup affichage ⇄ préchargement — jamais deux `getDocument` pour la même pièce en parallèle.
+  const enCoursRef = useRef<Map<number, Promise<PDFDocumentProxy | null>>>(new Map());
+  // Génération de cache : incrémentée à la purge (changement de dossier / démontage) → un chargement en vol devenu obsolète est détruit, jamais rangé (aucune fuite).
+  const genRef = useRef(0);
+  const monteRef = useRef(true); // false au démontage → aucun setState après démontage
+  const pieceIdRef = useRef<number | null>(pieceId); // pièce courante « live » : détecte un changement de pièce PENDANT un téléchargement (rendu abandonné)
 
   // CHARGEMENT PARESSEUX : cet effet ne part qu'À LA MONTÉE — or le composant n'est monté qu'à l'OUVERTURE de la famille (le `contenu`
   //   de BlocRepliable est un thunk appelé au dépli). Donc rien tant que la famille est repliée, et jamais au rendu de la liste des demandes.
@@ -71,38 +97,93 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
     return () => { vivant = false; };
   }, [dossierId]);
 
-  // RENDU PDF — NEUF (jumeau assumé de BlocTraceEmprise). pdf.js est importé DYNAMIQUEMENT (jamais au top du module) → réellement paresseux.
-  //   Pur affichage : AUCUNE conversion écran→PDF, aucun overlay de tracé. On lit la pièce (URL signée) et on peint la page dans le canvas.
-  const afficherPage = useCallback(async () => {
-    if (pieceId === null) return;
-    setOccupe(true); setMessage(null); setZoom(1); setPan({ x: 0, y: 0 });
-    const t0 = (typeof performance !== 'undefined' ? performance.now() : 0);
-    try {
-      // 1) MODULE pdf.js — importé DYNAMIQUEMENT (paresseux) mais UNE SEULE fois (mémorisé), plus à chaque page.
+  useEffect(() => { pieceIdRef.current = pieceId; }, [pieceId]);
+
+  // LOT 23 — CACHE LRU (helpers stables, refs pures). L'éviction délègue sa DÉCISION à `rangerEtEvincer` (module pur testé) : une seule vérité.
+  const toucherCache = useCallback((id: number) => {
+    const e = cacheRef.current.get(id); // remonte l'entrée en position la plus fraîche (réinsertion = fin d'ordre du Map)
+    if (!e) return;
+    cacheRef.current.delete(id); cacheRef.current.set(id, e);
+  }, []);
+  const rangerCache = useCallback((id: number, entree: EntreeCache) => {
+    const { evincees } = rangerEtEvincer([...cacheRef.current.keys()], id, MAX_DOCS_CACHE);
+    for (const k of evincees) { void cacheRef.current.get(k)?.doc.destroy(); cacheRef.current.delete(k); } // libère le worker pdf.js des évincés
+    cacheRef.current.delete(id); cacheRef.current.set(id, entree); // (ré)insère en position la plus fraîche
+  }, []);
+  const purgerCache = useCallback(() => {
+    genRef.current++; // invalide tout chargement en vol : à sa résolution il sera détruit, jamais rangé
+    for (const e of cacheRef.current.values()) void e.doc.destroy();
+    cacheRef.current.clear(); enCoursRef.current.clear();
+  }, []);
+
+  // LOT 23 — OBTENIR le document d'une pièce : cache → réseau (URL signée + `getDocument`), avec DÉDUP des chargements en cours (affichage ⇄
+  //   préchargement). `precharge` marque une entrée chargée en tâche de fond (origine « préchargé » au 1er affichage). pdf.js importé
+  //   DYNAMIQUEMENT (paresseux), module mémorisé UNE fois. Un chargement devenu obsolète (dossier changé) est détruit, jamais rangé.
+  const obtenirDoc = useCallback(async (idCible: number, opts: { precharge: boolean; onProgress?: (loaded: number, total: number) => void }): Promise<PDFDocumentProxy | null> => {
+    const deja = cacheRef.current.get(idCible);
+    if (deja) { toucherCache(idCible); return deja.doc; }
+    const enCours = enCoursRef.current.get(idCible);
+    if (enCours) return enCours; // un chargement (affichage ou préchargement) est déjà en vol pour cette pièce → on l'attend, pas de 2e téléchargement
+    const gen = genRef.current;
+    const p = (async (): Promise<PDFDocumentProxy | null> => {
       if (!pdfjsRef.current) {
         const m = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as typeof import('pdfjs-dist');
         m.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
         pdfjsRef.current = m;
       }
-      const tModule = (typeof performance !== 'undefined' ? performance.now() : 0);
-      // 2) DOCUMENT — téléchargé + parsé UNE FOIS PAR PIÈCE. Un changement de PAGE réutilise le document en cache (aucun re-téléchargement).
-      if (docRef.current?.pieceId !== pieceId) {
-        const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'signer_piece', pieceId }) });
-        if (!res.ok) { setMessage('pièce indisponible'); return; }
-        const { url } = await res.json() as { url: string };
-        void docRef.current?.doc.destroy(); // libère le document précédent (worker pdf.js)
-        docRef.current = { pieceId, doc: await pdfjsRef.current.getDocument(url).promise };
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'signer_piece', pieceId: idCible }) });
+      if (!res.ok) return null;
+      const { url } = await res.json() as { url: string };
+      const task = pdfjsRef.current.getDocument(url);
+      let octets = 0;
+      task.onProgress = ({ loaded, total }: { loaded: number; total: number }) => { octets = loaded; opts.onProgress?.(loaded, total); };
+      const doc = await task.promise;
+      if (gen !== genRef.current) { void doc.destroy(); return null; } // dossier changé / démonté pendant le chargement → on ne cache pas
+      rangerCache(idCible, { doc, precharge: opts.precharge, octets });
+      return doc;
+    })();
+    enCoursRef.current.set(idCible, p);
+    try { return await p; } finally { enCoursRef.current.delete(idCible); }
+  }, [toucherCache, rangerCache]);
+
+  // RENDU PDF — NEUF (jumeau assumé de BlocTraceEmprise). Pur affichage : AUCUNE conversion écran→PDF, aucun overlay de tracé.
+  //   LOT 23 : cache LRU multi-pièces (via obtenirDoc) + retour visuel « Chargement… N % » pendant un téléchargement réseau non préchargé.
+  const afficherPage = useCallback(async () => {
+    if (pieceId === null) return;
+    setMessage(null); setZoom(1); setPan({ x: 0, y: 0 });
+    const t0 = (typeof performance !== 'undefined' ? performance.now() : 0);
+    try {
+      // DOCUMENT — cache LRU par pièce. En cache → aucun réseau (origine « cache » ou « préchargé ») ; absent → téléchargement avec « Chargement… N % ».
+      const enCache = cacheRef.current.get(pieceId);
+      let origine: 'réseau' | 'cache' | 'préchargé';
+      let doc: PDFDocumentProxy | null;
+      if (enCache) {
+        origine = enCache.precharge ? 'préchargé' : 'cache';
+        enCache.precharge = false; // consommé : les affichages suivants de cette pièce seront « cache »
+        toucherCache(pieceId);
+        doc = enCache.doc;
+      } else {
+        origine = 'réseau';
+        setChargeReseau({ pct: null }); // à la place du document, sans faire sauter la mise en page (le conteneur garde sa hauteur)
+        doc = await obtenirDoc(pieceId, { precharge: false, onProgress: (loaded, total) => {
+          if (monteRef.current) setChargeReseau({ pct: total > 0 ? Math.min(100, Math.max(0, Math.round((loaded / total) * 100))) : null });
+        } });
+        if (monteRef.current) setChargeReseau(null);
       }
+      if (!doc) { if (monteRef.current) setMessage('pièce indisponible'); return; }
+      if (!monteRef.current || pieceId !== pieceIdRef.current) return; // pièce changée pendant le téléchargement → ce rendu est périmé, on l'abandonne
+      const octets = cacheRef.current.get(pieceId)?.octets ?? 0;
       const tDoc = (typeof performance !== 'undefined' ? performance.now() : 0);
-      const pdf = docRef.current.doc;
+      setOccupe(true);
+      const pdf = doc;
       setNbPagesPiece(pdf.numPages);
       const p = Math.min(Math.max(1, page), pdf.numPages);
       const pageObj = await pdf.getPage(p);
       const canvas = canvasRef.current; if (!canvas) return;
       const largeurCss = canvas.parentElement?.clientWidth || 480;
       const base = pageObj.getViewport({ scale: 1 });
-      // 3) ÉCHELLE ADAPTÉE À L'AFFICHAGE (point 8) : largeur affichée × densité écran, densité BORNÉE à 2 et largeur du canvas PLAFONNÉE
-      //   (≤ MAX_PX) pour ne jamais peindre un canvas démesuré. Rendu de la SEULE page visible (pas de couche texte/annotations : lecture seule).
+      // ÉCHELLE ADAPTÉE À L'AFFICHAGE : largeur affichée × densité écran, densité BORNÉE à 2 et largeur du canvas PLAFONNÉE (≤ MAX_PX)
+      //   pour ne jamais peindre un canvas démesuré. Rendu de la SEULE page visible (pas de couche texte/annotations : lecture seule).
       const MAX_PX = 2400;
       const dprEff = Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2);
       const scale = Math.min((largeurCss / base.width) * dprEff, MAX_PX / base.width);
@@ -112,13 +193,39 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       const ctx = canvas.getContext('2d'); if (!ctx) return;
       await pageObj.render({ canvasContext: ctx, viewport }).promise;
       setPage(p);
-      // INSTRUMENTATION (point 6) — durées par phase, lisibles dans la console du navigateur (module chargé 1×, doc mis en cache par pièce).
-      if (typeof performance !== 'undefined') console.debug(`[Liseuse] pièce ${pieceId} p${p} — module ${Math.round(tModule - t0)}ms · document ${Math.round(tDoc - tModule)}ms · rendu ${Math.round(performance.now() - tDoc)}ms (canvas ${canvas.width}×${canvas.height})`);
-    } catch { setMessage('impossible d’afficher la page (PDF illisible)'); } finally { setOccupe(false); }
-  }, [pieceId, page]);
+      // INSTRUMENTATION (point 6) — console.INFO (visible par défaut ; console.debug était masqué en niveau Verbose) préfixée [Liseuse],
+      //   avec les OCTETS téléchargés et l'ORIGINE (réseau / cache / préchargé) pour VOIR d'où vient chaque page.
+      if (typeof performance !== 'undefined') console.info(`[Liseuse] pièce ${pieceId} p${p} — ${origine} · ${octets} o · document ${Math.round(tDoc - t0)}ms · rendu ${Math.round(performance.now() - tDoc)}ms (canvas ${canvas.width}×${canvas.height})`);
+    } catch { if (monteRef.current) setMessage('impossible d’afficher la page (PDF illisible)'); }
+    finally { if (monteRef.current) { setOccupe(false); setChargeReseau(null); } }
+  }, [pieceId, page, obtenirDoc, toucherCache]);
 
-  // LOT 22 (C) — au démontage (famille repliée / fiche fermée) : libère le document pdf.js en cache (worker) pour ne rien laisser fuir.
-  useEffect(() => () => { void docRef.current?.doc.destroy(); docRef.current = null; }, []);
+  // LOT 23 — PRÉCHARGEMENT en tâche de fond des pièces VOISINES du best-of (suivante puis précédente), SÉQUENTIEL, jamais en parallèle
+  //   du chargement courant (déclenché en `requestIdleCallback` = quand le thread est oisif). Annulation propre au changement de plan/
+  //   dossier et au démontage (ctrl.annule + annulerIdle). Nourrit le CACHE LRU → « suivant › » devient instantané.
+  useEffect(() => {
+    if (etat !== 'ok' || nav !== 'bestof' || bande.length === 0) return;
+    const voisins = voisinsAPrecharger(bande.map((pl) => pl.pieceId), planIndex);
+    if (voisins.length === 0) return;
+    const ctrl = { annule: false };
+    const handle = planifierIdle(async () => {
+      for (const id of voisins) {
+        if (ctrl.annule || !monteRef.current) return; // annulation : changement de plan/dossier ou démontage → on arrête net
+        if (cacheRef.current.has(id) || enCoursRef.current.has(id)) continue; // déjà en cache / déjà en vol → rien à faire
+        try {
+          await obtenirDoc(id, { precharge: true }); // SÉQUENTIEL : le voisin précédent n'est chargé qu'après la suivante
+          const o = cacheRef.current.get(id)?.octets ?? 0;
+          if (!ctrl.annule) console.info(`[Liseuse] préchargé pièce ${id} — ${o} o (tâche de fond)`);
+        } catch { /* préchargement best-effort : jamais bloquant, aucune erreur remontée à l'utilisateur */ }
+      }
+    });
+    return () => { ctrl.annule = true; annulerIdle(handle); };
+  }, [etat, nav, planIndex, bande, obtenirDoc]);
+
+  // LOT 23 — cache LRU : PURGE (destroy de tous les documents) au CHANGEMENT DE DOSSIER et au DÉMONTAGE (rien ne fuit). Le démontage
+  //   coupe aussi les setState (monteRef) et, via genRef bumpé dans purgerCache, invalide les chargements encore en vol.
+  useEffect(() => () => purgerCache(), [dossierId, purgerCache]);
+  useEffect(() => () => { monteRef.current = false; }, []);
 
   // Auto-affichage de la page courante au chargement (etat→ok) et à chaque changement de (pièce, page). Ref stable : ne pas se lier à afficherPage.
   const afficherPageRef = useRef(afficherPage);
@@ -185,10 +292,17 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       </div>
       <div style={{ flex: '2 1 300px', minWidth: 0 }}>
         <div ref={pdfContainerRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
-          style={{ position: 'relative', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', background: 'var(--color-svv-field)', touchAction: zoom > 1 ? 'none' : 'auto', cursor: zoom > 1 ? 'grab' : 'default' }}>
+          style={{ position: 'relative', minHeight: '8rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', background: 'var(--color-svv-field)', touchAction: zoom > 1 ? 'none' : 'auto', cursor: zoom > 1 ? 'grab' : 'default' }}>
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
             <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: 'auto' }} />
           </div>
+          {/* LOT 23 — RETOUR VISUEL : recouvre le document (inset:0) pendant un téléchargement réseau, le conteneur garde sa hauteur → aucun saut de mise en page.
+              Texte seul (mobile-first, lisible en portrait) : aucune animation → prefers-reduced-motion respecté d'office. */}
+          {chargeReseau && (
+            <div aria-live="polite" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', textAlign: 'center', background: 'var(--color-svv-field)' }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--color-svv-ink)' }}>Chargement…{chargeReseau.pct !== null ? ` ${chargeReseau.pct} %` : ''}</span>
+            </div>
+          )}
         </div>
         {occupe && <p style={{ fontSize: 11, color: 'var(--color-svv-muted)', margin: '.3rem 0 0' }}>Rendu de la page…</p>}
         {message && <p style={{ fontSize: 11, color: 'var(--color-svv-red)', margin: '.3rem 0 0' }}>{message}</p>}

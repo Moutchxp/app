@@ -86,11 +86,12 @@ describe('LOT 14b — montée paresseuse, indépendance du tracé', () => {
   });
 });
 
-describe('LOT 22 (C) — liseuse rapide : cache document, une seule page, aucun re-rendu sans changement d’état', () => {
+describe('LOT 22/23 — liseuse rapide : cache LRU par pièce, une seule page, aucun re-rendu sans changement d’état', () => {
   it('le DOCUMENT pdf.js est mis en CACHE par pièce → un changement de PAGE ne re-télécharge pas', () => {
-    expect(SRC).toContain('docRef');
-    expect(SRC).toMatch(/docRef\.current\?\.pieceId !== pieceId/); // ne (re)charge le document que si la PIÈCE change
-    expect(SRC).toMatch(/getDocument\(url\)/);                     // téléchargement/parse UNIQUEMENT dans ce garde
+    expect(SRC).toContain('cacheRef');                            // LOT 23 : cache LRU (Map par pièce) remplace la case unique docRef
+    expect(SRC).not.toContain('docRef');                          // l'ancienne case unique n'existe plus
+    expect(SRC).toMatch(/cacheRef\.current\.get\(pieceId\)/);     // l'affichage lit d'abord le cache (aucun réseau si présent)
+    expect(SRC).toMatch(/getDocument\(url\)/);                    // téléchargement/parse UNIQUEMENT sur miss de cache (dans obtenirDoc)
   });
   it('le MODULE pdf.js est mémorisé (chargé une seule fois, pas à chaque page)', () => {
     expect(SRC).toContain('pdfjsRef');
@@ -108,5 +109,40 @@ describe('LOT 22 (C) — liseuse rapide : cache document, une seule page, aucun 
     for (const inutile of ['textLayer', 'TextLayer', 'getTextContent', 'annotationLayer', 'AnnotationLayer']) {
       expect(SRC, `la liseuse ne doit pas activer « ${inutile} »`).not.toContain(inutile);
     }
+  });
+});
+
+describe('LOT 23 — préchargement des voisins + cache LRU borné + retour visuel (assertions de COMPORTEMENT, pas de forme)', () => {
+  it('précharge les pièces VOISINES du best-of en tâche de fond (requestIdleCallback), séquentiel, importé sans le recopier', () => {
+    // La RÈGLE de sélection des voisins est la fonction PURE partagée (testée à part), IMPORTÉE — jamais réimplémentée dans le composant.
+    expect(SRC).toMatch(/import\s*\{[\s\S]*voisinsAPrecharger[\s\S]*\}\s*from\s*'\.\/prechargeLiseuse'/);
+    expect(SRC).not.toMatch(/function\s+voisinsAPrecharger/);
+    expect(SRC).toContain('voisinsAPrecharger(bande.map');       // dérive les voisins de la bande best-of + plan courant
+    expect(SRC).toContain('requestIdleCallback');                // tâche de fond quand le thread est oisif
+    expect(SRC).toMatch(/precharge:\s*true/);                    // les voisins sont marqués « préchargé »
+    // SÉQUENTIEL : une boucle for-of qui AWAIT chaque voisin (le suivant n'est chargé qu'après le précédent).
+    expect(SRC).toMatch(/for \(const id of voisins\)[\s\S]*await obtenirDoc\(id/);
+  });
+  it('ANNULATION propre au changement de plan/dossier et au démontage (cleanup de l’effet + purge au changement de dossier)', () => {
+    expect(SRC).toMatch(/return \(\) => \{ ctrl\.annule = true; annulerIdle\(handle\); \};/); // cleanup de l'effet de préchargement
+    expect(SRC).toMatch(/if \(ctrl\.annule \|\| !monteRef\.current\) return;/);               // la boucle s'arrête net si annulée / démontée
+    expect(SRC).toMatch(/useEffect\(\(\) => \(\) => purgerCache\(\), \[dossierId, purgerCache\]\)/); // purge (destroy) au changement de DOSSIER + démontage
+  });
+  it('cache LRU BORNÉ : éviction via la règle pure, destroy() des documents évincés, jamais illimité', () => {
+    expect(SRC).toContain('rangerEtEvincer');                    // décision d'éviction déléguée à la fonction pure testée
+    expect(SRC).toContain('MAX_DOCS_CACHE');                     // borne centralisée (pas un nombre magique dispersé)
+    expect(SRC).toMatch(/for \(const k of evincees\)[\s\S]*\.doc\.destroy\(\)/); // les évincés sont bien détruits (worker libéré)
+  });
+  it('MESURES VISIBLES : console.info (jamais console.debug masqué), préfixe [Liseuse], octets + origine', () => {
+    expect(SRC).not.toMatch(/console\.debug\(/);                 // console.debug (Verbose, masqué par défaut) banni du code
+    expect(SRC).toMatch(/console\.info\(`\[Liseuse\]/);
+    expect(SRC).toContain('${origine} · ${octets} o');          // chaque ligne d'affichage porte l'ORIGINE (réseau/cache/préchargé) et les OCTETS
+    expect(SRC).toContain('préchargé pièce ${id} — ${o} o');    // ligne de préchargement en tâche de fond
+  });
+  it('RETOUR VISUEL : « Chargement… N % » alimenté par onProgress, sans faire sauter la mise en page', () => {
+    expect(SRC).toContain('Chargement…');
+    expect(SRC).toMatch(/onProgress:\s*\(loaded,\s*total\)/);    // pourcentage dérivé de loaded/total de pdf.js
+    expect(SRC).toMatch(/setChargeReseau\(\{ pct:/);
+    expect(SRC).toContain("position: 'absolute', inset: 0");     // overlay qui recouvre sans déplacer (le conteneur garde sa hauteur)
   });
 });
