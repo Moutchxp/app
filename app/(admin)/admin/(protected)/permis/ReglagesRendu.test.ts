@@ -110,6 +110,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     ]);
     expect(PARAMS_THEME_ENVOI.map((p) => p.colonne)).toEqual([
       'adresse_reponse', 'envois_max_par_run', 'envois_max_par_jour',
+      'envois_auto_max_par_demande_run', // PLAFOND ANTI-CUMUL — 1 e-mail auto/demande/passage (adjacent aux caps d'envoi)
       'relance_jours_avant_echeance', 'relance_auto_active', // LOT B — duo « relances » (à partir de quand + part-il tout seul)
       'cascade_partiel_auto_active', // AUTO-PARTIEL — interrupteur de la cascade partielle (adjacent à relance_auto_active)
       'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours', // cascade lot 2 — 3 délais (rappel/avis/saisine)
@@ -135,12 +136,12 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
   it('les thèmes « demandes » partitionnent les clés (disjoints, couvrants, sans perte ni doublon) — D4 : + thème Téléservice', () => {
     const themes = [PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA, PARAMS_THEME_TELESERVICE];
     const clesThemes = themes.flatMap((t) => t.map((p) => p.colonne));
-    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length + PARAMS_THEME_TELESERVICE.length).toBe(58);
-    expect(new Set(clesThemes).size).toBe(58); // disjoints ; +1 AUTO-PARTIEL (cascade_partiel_auto_active, thème Envoi)
+    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length + PARAMS_THEME_TELESERVICE.length).toBe(59);
+    expect(new Set(clesThemes).size).toBe(59); // disjoints ; +1 PLAFOND ANTI-CUMUL (envois_auto_max_par_demande_run, thème Envoi)
     // liste LITTÉRALE figée des clés « demandes » — comparée en ENSEMBLE à la concaténation des thèmes ET à COLONNES_PARAMS_DEMANDES.
     const CLES_DEMANDES = [
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
-      'nb_candidats_examines', 'tri_candidats', 'envois_max_par_run', 'envois_max_par_jour', 'adresse_reponse',
+      'nb_candidats_examines', 'tri_candidats', 'envois_max_par_run', 'envois_max_par_jour', 'envois_auto_max_par_demande_run', 'adresse_reponse',
       'cada_email', 'cada_url_formulaire', 'releve_active', 'releve_intervalle_minutes', 'releve_profil',
       'echeance_alerte_jours', 'releve_fraicheur_heures', 'alerte_active', 'alerte_email', 'alerte_heure_locale',
       'vague_calme_minutes', // PART-C — calme d'une vague de pièces (thème Réponses)
@@ -178,8 +179,8 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     ].map((p) => p.colonne);
     // Snapshot : 50 + PHASE-1 (2 délais) + SURV-1 (2 réglages) + SURV-2 (1 interrupteur) + PART-1 (2 exclusions, thème Réponses) = 57 clés
     //   distinctes ; + PART-C (vague_calme_minutes) = 68 ; + PART-D (validité + délai d'alerte des liens, thème Réponses) = 70.
-    expect(CLES_RENDUES_REGLAGES).toHaveLength(73);
-    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(73);
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(74);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(74);
     // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
     const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
     expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));

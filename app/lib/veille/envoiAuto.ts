@@ -20,6 +20,7 @@ import { query } from '../db/client';
 import { envoyerRelances, type RapportEnvoiRelance } from '../sitadel/envoiRelance';
 import { envoyerSaisinesCada, type RapportEnvoiSaisine } from '../sitadel/envoiSaisineCada';
 import { fenetreEnvoiOuverte, type FiltreHoraire } from './envoiOuvre';
+import type { BudgetEnvoiRun } from './plafondEnvoiRun';
 
 // ── Types du compte rendu (purs) ─────────────────────────────────────────────
 export interface LigneEmis { reference: string; commune: string | null; numeros: string[]; etape: string }
@@ -182,14 +183,16 @@ async function envoyerCompteRenduReel(destinataire: string, sujet: string, corps
   await obtenirTransporteur(cfg).sendMail({ from: cfg.from, to: destinataire, subject: sujet, text: corps });
 }
 
-export function depsReellesEnvoiAuto(): DepsEnvoiAuto {
+export function depsReellesEnvoiAuto(budget?: BudgetEnvoiRun): DepsEnvoiAuto {
   return {
     lireConfig: async () => {
       const c = await chargerConfigVeille();
       return { relanceActive: c.relanceAutoActive === true, saisineActive: c.saisineCadaAutoActive === true, plafondAuto: c.envoisAutoMaxParRun, alerteEmail: c.alerteEmail, envoiHeureDebut: c.envoiHeureDebut, envoiHeureFin: c.envoiHeureFin };
     },
-    envoyerRelances: (plafondAuto, filtreHoraire) => envoyerRelances({ appliquer: true, auteur: 'auto', plafondAuto, filtreHoraire }),
-    envoyerSaisines: (plafondAuto, filtreHoraire) => envoyerSaisinesCada({ appliquer: true, auteur: 'auto', plafondAuto, filtreHoraire }),
+    // PLAFOND ANTI-CUMUL — le MÊME budget est passé aux relances PUIS aux saisines : une demande qui vient de recevoir sa relance auto
+    //   ne recevra pas AUSSI sa saisine CADA dans le même run (relances envoyées d'abord dans executerEnvoiAuto → budget noté).
+    envoyerRelances: (plafondAuto, filtreHoraire) => envoyerRelances({ appliquer: true, auteur: 'auto', plafondAuto, filtreHoraire, budget }),
+    envoyerSaisines: (plafondAuto, filtreHoraire) => envoyerSaisinesCada({ appliquer: true, auteur: 'auto', plafondAuto, filtreHoraire, budget }),
     envoyerCompteRendu: envoyerCompteRenduReel,
     journaliser: async (demandeIds, motif) => {
       // Ancré sur CHAQUE demande concernée (append-only, statut_avant/apres NULL, jamais demande.statut). Best-effort : une

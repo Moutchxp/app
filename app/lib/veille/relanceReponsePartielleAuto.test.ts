@@ -5,6 +5,7 @@ import {
 } from './relanceReponsePartielleAuto';
 import { MOTIF_RELANCE_PARTIELLE_PREFIXE, MOTIF_ANNONCE_CADA_PREFIXE } from './cascadePartielleRepo';
 import type { FamillePlan } from '../permis/planMasse';
+import { creerBudgetRun, type BudgetEnvoiRun } from './plafondEnvoiRun';
 
 const D = (iso: string | null) => (iso ? new Date(iso) : null);
 
@@ -42,15 +43,19 @@ const cand = (demandeId: number, dernierMailLe: string, rang = 1): CandidatRelan
 
 function deps(over: {
   candidats: CandidatRelanceReponse[]; relanceActive?: boolean; calme?: number; now?: Date; debut?: number; fin?: number; cap?: number; erreurSur?: number[];
-}): { deps: DepsRelanceReponsePartielle; envois: { demandeId: number; rang: number; objet: string }[] } {
+  budget?: BudgetEnvoiRun;
+}): { deps: DepsRelanceReponsePartielle; envois: { demandeId: number; rang: number; objet: string }[]; reports: number[] } {
   const envois: { demandeId: number; rang: number; objet: string }[] = [];
+  const reports: number[] = [];
   return {
-    envois,
+    envois, reports,
     deps: {
       maintenant: () => over.now ?? JEUDI_10H,
       lireConfig: async () => ({ relanceActive: over.relanceActive ?? true, calmeMinutes: over.calme ?? 10, envoiHeureDebut: over.debut ?? 9, envoiHeureFin: over.fin ?? 11, capParRun: over.cap ?? 5 }),
       candidats: async () => over.candidats,
       envoyer: async (demandeId, rang, objet) => { if (over.erreurSur?.includes(demandeId)) throw new Error('envoi KO'); envois.push({ demandeId, rang, objet }); },
+      budget: over.budget,
+      journaliserReport: async (demandeId) => { reports.push(demandeId); },
     },
   };
 }
@@ -95,5 +100,28 @@ describe('PART-E — executerRelanceReponsePartielle (mode auto)', () => {
     const bilan = await executerRelanceReponsePartielle(d.deps);
     expect(bilan.envoyes).toBe(1); expect(bilan.erreurs).toBe(1);
     expect(d.envois.map((e) => e.demandeId)).toEqual([2]);
+  });
+});
+
+describe('PART-E — PLAFOND ANTI-CUMUL (la cascade partielle a la priorité dans le run)', () => {
+  it('demande déjà servie ce run (p. ex. par la cascade, prioritaire) → PART-E REPORTÉ : rien envoyé, différé, trace émise', async () => {
+    const budget = creerBudgetRun(1);
+    budget.noterEnvoi(9); // la cascade partielle a déjà relancé la demande 9 EN AMONT dans le même run
+    const d = deps({ candidats: [cand(9, '2026-08-20T10:00:00Z')], now: JEUDI_10H, budget });
+    const bilan = await executerRelanceReponsePartielle(d.deps);
+    expect(bilan.envoyes).toBe(0);
+    expect(bilan.differes).toBe(1);
+    expect(d.envois).toEqual([]);      // rien ne part → une seule relance à la mairie (celle de la cascade)
+    expect(d.reports).toEqual([9]);    // jamais silencieux
+    expect(budget.compteur(9)).toBe(1); // le refus ne re-consomme pas le budget
+  });
+
+  it('demande NON encore servie ce run → PART-E part normalement et NOTE le budget', async () => {
+    const budget = creerBudgetRun(1);
+    const d = deps({ candidats: [cand(5, '2026-08-20T10:00:00Z')], now: JEUDI_10H, budget });
+    const bilan = await executerRelanceReponsePartielle(d.deps);
+    expect(bilan.envoyes).toBe(1);
+    expect(d.envois.map((e) => e.demandeId)).toEqual([5]);
+    expect(budget.compteur(5)).toBe(1);
   });
 });

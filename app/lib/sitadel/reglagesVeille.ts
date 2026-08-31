@@ -202,6 +202,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Nombre maximum d’e-mails envoyés aux mairies en UNE seule action d’envoi. C’est le rempart de sécurité : même en cas d’erreur, jamais plus que ce nombre ne part d’un coup. L’augmenter accélère la campagne mais accroît le risque qu’un envoi accidentel touche beaucoup de mairies à la fois.' },
   { colonne: 'envois_max_par_jour', cle: 'envoisMaxParJour', libelle: 'Envois maximum par jour', unite: 'e-mails / jour', type: 'entier', rail: 'email',
     aide: 'Nombre maximum d’e-mails envoyés aux mairies sur une journée entière (toutes actions cumulées). L’augmenter raccourcit la durée de la campagne ; le garder bas protège contre un envoi de masse involontaire et évite d’être classé indésirable par la messagerie.' },
+  // PLAFOND ANTI-CUMUL — au plus N e-mails AUTO par demande et par PASSAGE, tous émetteurs confondus (rempart contre deux relances à la même mairie dans un même run). Défaut 1.
+  { colonne: 'envois_auto_max_par_demande_run', cle: 'envoisAutoMaxParDemandeRun', libelle: 'Envois automatiques maximum par demande et par passage', unite: 'e-mails', type: 'entier', rail: 'email',
+    aide: 'Nombre maximum d’e-mails AUTOMATIQUES qu’une même demande peut recevoir en UN seul passage de la veille (toutes les 15 min), tous types confondus : relance ordinaire, relance de dossier partiel, relance sur réponse, saisine CADA. Le défaut 1 garantit qu’une mairie ne reçoit jamais deux relances automatiques d’un coup. Ce n’est PAS une limite par jour : à chaque passage suivant, le compte repart à zéro (une nouvelle réponse d’une mairie peut donc toujours être relancée). L’envoi que VOUS déclenchez à la main n’est jamais bridé.' },
   // S38 — adresse de réponse (reply-to). Sans valeur par défaut : tant qu'elle est vide, l'envoi refuse de s'exécuter.
   // D4-ter (R2) — TRANSVERSE (ni rail, ni partagé). ⚠️ Ce N'EST PAS le Reply-To technique : depuis S43, le from/reply-to réel est
   //   l'e-mail du PROFIL de la demande (config_demandeur.email_contact, société/personne — envoiDemande.ts:84,187). Ce réglage-ci
@@ -437,6 +440,7 @@ export const COLONNES_THEME_PREPARATION: readonly string[] = [
 ];
 export const COLONNES_THEME_ENVOI: readonly string[] = [
   'adresse_reponse', 'envois_max_par_run', 'envois_max_par_jour',
+  'envois_auto_max_par_demande_run', // PLAFOND ANTI-CUMUL — 1 e-mail auto/demande/passage (rempart anti-cumul, adjacent aux caps d'envoi)
   // LOT B — duo « relances » : à partir de quand un rappel est préparé, puis part-il tout seul (adjacents, sans sous-titre :
   //   l'écran Réglages ne rend pas de sous-groupe dans un thème — non inventé pour ce lot).
   'relance_jours_avant_echeance', 'relance_auto_active',

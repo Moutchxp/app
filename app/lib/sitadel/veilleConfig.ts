@@ -35,6 +35,7 @@ export interface ConfigVeille {
   envoisMaxParRun: number;  // S37 : cap d'envoi — e-mails aux mairies par action d'envoi (rempart anti-salve)
   envoisMaxParJour: number; // S37 : cap d'envoi — e-mails aux mairies par jour (runs cumulés)
   envoisAutoMaxParRun: number; // LOT 6 : plafond SPÉCIFIQUE à l'envoi AUTOMATIQUE (relances + saisines) — EN PLUS des caps manuels, jamais à leur place ; borne l'accident (1..50, défaut 5)
+  envoisAutoMaxParDemandeRun: number; // PLAFOND ANTI-CUMUL : au plus N e-mails AUTO par DEMANDE et par RUN, tous émetteurs confondus (1..10, défaut 1) — ferme le trou d'audit du 31/08
   recomptageHeureLocale: number; // PASTILLES : heure locale (0..23) du recomptage quotidien des compteurs « actions en attente » — ne lit pas la boîte mail (défaut 8)
   envoiHeureDebut: number; // RELANCE : début (0..23) de la fenêtre d'envoi automatique (jours ouvrés) — défaut 9
   envoiHeureFin: number;   // RELANCE : fin (0..23, exclue) de la fenêtre d'envoi automatique — défaut 11 ; doit être > début (sinon rien ne part)
@@ -134,6 +135,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   envoisMaxParRun: 10,   // = DEFAULT de la migration 070 (défaut prudent)
   envoisMaxParJour: 25,  // = DEFAULT de la migration 070 (défaut prudent)
   envoisAutoMaxParRun: 5, // = DEFAULT de la migration 137 (plafond d'envoi automatique)
+  envoisAutoMaxParDemandeRun: 1, // = DEFAULT de la migration 185 (plafond anti-cumul par demande et par run)
   recomptageHeureLocale: 8, // = DEFAULT de la migration 139 (recomptage quotidien des pastilles)
   envoiHeureDebut: 9, envoiHeureFin: 11, // = DEFAULT de la migration 140 (fenêtre d'envoi automatique, jours ouvrés)
   adresseReponse: '',    // = DEFAULT de la migration 071 (non configurée → le send refuse)
@@ -268,6 +270,21 @@ async function lireEnvoiAutoPlafond(): Promise<Pick<ConfigVeille, 'envoisAutoMax
     return { envoisAutoMaxParRun: rows[0]?.envois_auto_max_par_run ?? CONFIG_VEILLE_DEFAUT.envoisAutoMaxParRun };
   } catch {
     return { envoisAutoMaxParRun: CONFIG_VEILLE_DEFAUT.envoisAutoMaxParRun }; // 137 pas encore appliquée → défaut
+  }
+}
+
+/**
+ * PLAFOND ANTI-CUMUL — lecture BEST-EFFORT du plafond « e-mails auto par demande et par run », ISOLÉE (même motif que
+ * `lireEnvoiAutoPlafond`) : tant que la migration 185 n'est pas passée, la colonne n'existe pas → cette lecture échoue SEULE et
+ * retombe sur le défaut sûr 1, sans dégrader le reste de la config. Après 185 : renvoie la valeur en base (fait foi).
+ */
+async function lireEnvoiPlafondDemande(): Promise<Pick<ConfigVeille, 'envoisAutoMaxParDemandeRun'>> {
+  try {
+    const { rows } = await query<{ envois_auto_max_par_demande_run: number }>(
+      `SELECT envois_auto_max_par_demande_run FROM config_veille WHERE id = 1`);
+    return { envoisAutoMaxParDemandeRun: rows[0]?.envois_auto_max_par_demande_run ?? CONFIG_VEILLE_DEFAUT.envoisAutoMaxParDemandeRun };
+  } catch {
+    return { envoisAutoMaxParDemandeRun: CONFIG_VEILLE_DEFAUT.envoisAutoMaxParDemandeRun }; // 185 pas encore appliquée → défaut 1
   }
 }
 
@@ -748,6 +765,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       dilaUrl: await lireDilaUrl(), // S30 : lecture isolée (résiliente à l'ordre d'application de la 069)
       ...(await lireCapsEnvoi()),   // S37 : caps d'envoi, lecture isolée (résiliente à l'ordre d'application de la 070)
       ...(await lireEnvoiAutoPlafond()), // LOT 6 : plafond d'envoi automatique, lecture isolée (résiliente à la 137)
+      ...(await lireEnvoiPlafondDemande()), // PLAFOND ANTI-CUMUL : au plus N e-mails auto par demande et par run, lecture isolée (résiliente à la 185)
       ...(await lireRecomptageHeure()),  // PASTILLES : heure de recomptage quotidien, lecture isolée (résiliente à la 139)
       ...(await lireFenetreEnvoi()),     // RELANCE : fenêtre horaire d'envoi automatique, lecture isolée (résiliente à la 140)
       adresseReponse: await lireAdresseReponse(), // S38 : lecture isolée (résiliente à l'ordre d'application de la 071)

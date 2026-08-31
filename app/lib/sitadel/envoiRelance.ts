@@ -28,6 +28,7 @@ import { etapeCible, rangVariante, type ReglagesCascade, type VarianteEnBase } f
 import { composerDestinatairesDemande, lireDestinataireParDefaut, resoudreDestinatairesRelance } from '../veille/destinatairesCommune'; // LOT 20/27 : Règle A (défaut) + Règle B (multi-adresse des 2 dernières)
 import { momentPrevuRelance, etatFiltreHoraire, type FiltreHoraire } from '../veille/envoiOuvre';
 import type { VarianteRelance } from '../veille/relance';
+import type { BudgetEnvoiRun } from '../veille/plafondEnvoiRun';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface RelanceAEnvoyer {
@@ -227,7 +228,7 @@ async function nommerDossiersSatisfaitsDepuis(demandeId: number): Promise<string
  * transaction ROLLBACK (rien persisté). `appliquer:true` = envoi RÉEL : chaque relance dans SA transaction (tout-ou-rien),
  * via le compte SMTP de SON profil. AUCUN branchement dans executerVeille : ce point d'entrée est manuel (CLI).
  */
-export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: string | null; plafondAuto?: number; filtreHoraire?: FiltreHoraire } = {}): Promise<RapportEnvoiRelance> {
+export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: string | null; plafondAuto?: number; filtreHoraire?: FiltreHoraire; budget?: BudgetEnvoiRun } = {}): Promise<RapportEnvoiRelance> {
   const appliquer = opts.appliquer === true;
   const auteur = opts.auteur ?? null;
   // ENVOI OUVRÉ (envoi AUTOMATIQUE seulement) : `filtreHoraire` ABSENT = envoi MANUEL → jamais bridé. Présent = auto : la fenêtre
@@ -278,7 +279,15 @@ export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: stri
   // ENVOI OUVRÉ — porte horaire de l'envoi AUTOMATIQUE : hors fenêtre (jour/heure) ou config incohérente → on N'ENVOIE RIEN et
   // on reporte chaque envoyable, avec la date d'envoi PRÉVUE (variante → sens du décalage). Manuel (filtre absent) → passe tout droit.
   const { envoie } = etatFiltreHoraire(filtre);
-  const aTraiter = envoie ? aTraiterBudget : [];
+  const aTraiterHoraire = envoie ? aTraiterBudget : [];
+  // PLAFOND ANTI-CUMUL — au plus N envois auto/demande/run, tous émetteurs confondus. Ne concerne QUE l'envoi AUTOMATIQUE (le budget
+  //   est passé par la boucle de veille) : un appel MANUEL/CLI ne passe AUCUN budget → jamais bridé. Refus AVANT émission → la relance
+  //   reste 'brouillon', reportée au prochain run, aucune donnée perdue ; le butoir CADA n'est jamais touché.
+  const reportesPlafond: RelanceAEnvoyer[] = [];
+  const aTraiter = aTraiterHoraire.filter((r) => {
+    if (opts.budget && !opts.budget.peutEnvoyer(r.demandeId)) { reportesPlafond.push(r); return false; }
+    return true;
+  });
   const reportesHoraire = (!envoie && filtre ? aTraiterBudget : []).map((r) => ({
     reference: r.reference, commune: r.communeNom, numeros: r.numeros,
     motif: filtre!.coherente
@@ -290,9 +299,14 @@ export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: stri
       : null,
   }));
 
+  // Les relances écartées par le PLAFOND ANTI-CUMUL rejoignent `reportes` (visibles au compte rendu, motif dédié) → jamais silencieux.
+  const reportesTous = [...reportes, ...reportesPlafond.map((r) => ({
+    reference: r.reference, commune: r.communeNom, numeros: r.numeros,
+    motif: 'plafond « un envoi automatique par demande et par passage » atteint — reportée au prochain passage (aucune donnée perdue)',
+  }))];
   const base = {
     candidats: candidats.length, emisAujourdhui, capParRun: config.envoisMaxParRun, capParJour: config.envoisMaxParJour, budget,
-    bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte, bloqueesObsoletes: plan.bloqueesObsoletes, reportes, reportesHoraire,
+    bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte, bloqueesObsoletes: plan.bloqueesObsoletes, reportes: reportesTous, reportesHoraire,
     destinataires: aTraiter.map((r) => ({ relanceId: r.relanceId, demandeId: r.demandeId, reference: r.reference, commune: r.communeNom, email: r.destinataires.join(', '), expediteur: r.expediteur, apercuCorps: apercu(r.corps), variante: r.variante, numeros: r.numeros })),
   };
   const resultats: ResultatRelance[] = [];
@@ -312,7 +326,9 @@ export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: stri
 
   for (const r of aTraiter) {
     const t = obtenirTransporteur(comptes[r.profil]!) as unknown as Transport; // non-null : planifierSalve a écarté les profils sans compte
-    resultats.push(await withTransaction(async (tx) => emettreUneRelance(t, brancher(tx), r, { from: r.expediteur, replyTo: r.expediteur, auteur })));
+    const res = await withTransaction(async (tx) => emettreUneRelance(t, brancher(tx), r, { from: r.expediteur, replyTo: r.expediteur, auteur }));
+    if (res.issue === 'envoye') opts.budget?.noterEnvoi(r.demandeId); // PLAFOND ANTI-CUMUL : ne consomme le budget que sur un envoi CONFIRMÉ
+    resultats.push(res);
   }
   return { mode: 'applique', ...base, resultats, octetsPartis: octets() };
 }

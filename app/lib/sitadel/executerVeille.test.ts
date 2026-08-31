@@ -46,6 +46,20 @@ describe('S11a-FIX — executerVeille : verrou concurrent', () => {
   });
 });
 
+describe('PLAFOND ANTI-CUMUL — ordre des émetteurs partiels : la cascade passe AVANT PART-E (priorité + dédoublonnage)', () => {
+  it('la cascade partielle est exécutée AVANT la relance sur réponse (PART-E) dans le même run', async () => {
+    const ordre: string[] = [];
+    const deps = makeDeps({
+      cascadePartielleAuto: vi.fn(async () => { ordre.push('cascade'); }),
+      relanceReponsePartielle: vi.fn(async () => { ordre.push('part-e'); }),
+    });
+
+    await executerVeille({ declencheur: 'manuel' }, deps);
+
+    expect(ordre).toEqual(['cascade', 'part-e']); // cascade GAGNE : elle réserve/note son envoi avant que PART-E ne s'exécute
+  });
+});
+
 describe('S11a-FIX — executerVeille : millésime distant DIFFÉRENT', () => {
   it('ingère le millésime DÉTECTÉ (2026-07) une fois, purge les ANTÉRIEURS sans jamais le courant', async () => {
     const ingerer = vi.fn(async () => COMPTEURS);

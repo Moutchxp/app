@@ -29,6 +29,7 @@ import { genererCopieDemandePdf } from '../pdf/copieDemandePdf';
 import { creerSaisineCada } from '../veille/saisineCadaRepo';
 import { sujetAlerteSaisine, corpsAlerteSaisine, type InfoAlerteSaisine } from '../veille/alerteSaisineContenu'; // C (lot 5b)
 import { prochainCreneauEnvoi, etatFiltreHoraire, type FiltreHoraire } from '../veille/envoiOuvre'; // ENVOI OUVRÉ : même fenêtre horaire, SANS décalage de jour
+import type { BudgetEnvoiRun } from '../veille/plafondEnvoiRun';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 export interface SaisineAEnvoyer {
@@ -212,7 +213,7 @@ export function depsReellesEnvoiSaisine(): DepsEnvoiSaisine {
  * renseigné ; sinon canal FORMULAIRE : aucune émission, aucune ligne d'acheminement, la file « à déposer » est renvoyée.
  * AUCUN branchement dans executerVeille.
  */
-export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: string | null; plafondAuto?: number; filtreHoraire?: FiltreHoraire } = {}, deps: DepsEnvoiSaisine = depsReellesEnvoiSaisine()): Promise<RapportEnvoiSaisine> {
+export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: string | null; plafondAuto?: number; filtreHoraire?: FiltreHoraire; budget?: BudgetEnvoiRun } = {}, deps: DepsEnvoiSaisine = depsReellesEnvoiSaisine()): Promise<RapportEnvoiSaisine> {
   const appliquer = opts.appliquer === true;
   const auteur = opts.auteur ?? null;
   // LOT 6 : plafond d'envoi AUTOMATIQUE (EN PLUS des caps, jamais à leur place). Absent (appel manuel) → aucune borne ajoutée.
@@ -249,7 +250,12 @@ export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: 
   // 4 j). Hors fenêtre ou config incohérente (auto seulement ; manuel = filtre absent) → on n'envoie rien, on reporte.
   const filtre = opts.filtreHoraire;
   const { envoie } = etatFiltreHoraire(filtre);
-  const aTraiter = envoie ? aTraiterBudget : [];
+  const aTraiterHoraire = envoie ? aTraiterBudget : [];
+  // PLAFOND ANTI-CUMUL — au plus N envois auto/demande/run, tous émetteurs confondus. La saisine passe APRÈS la relance ordinaire dans
+  //   le même run (envoiAuto) : si la demande a déjà reçu sa relance auto ce run, sa saisine est REPORTÉE. Budget absent (appel manuel/
+  //   CLI) → jamais bridé. Refus AVANT émission → la saisine reste candidate, aucun effet sur le butoir CADA.
+  const reportesPlafond = aTraiterHoraire.filter((s) => opts.budget && !opts.budget.peutEnvoyer(s.demandeId));
+  const aTraiter = aTraiterHoraire.filter((s) => !(opts.budget && !opts.budget.peutEnvoyer(s.demandeId)));
   const reportesHoraire = (!envoie && filtre ? aTraiterBudget : []).map((s) => ({
     reference: s.reference, commune: s.communeNom, numeros: s.numeros,
     motif: filtre!.coherente
@@ -268,9 +274,14 @@ export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: 
 
   const resultats: ResultatSaisine[] = [];
   const octets = (): number => octetsDe(prets.filter((s) => resultats.find((x) => x.saisineId === s.saisineId)?.issue === 'envoye'), appliquer);
+  // Les saisines écartées par le PLAFOND ANTI-CUMUL rejoignent `reportes` (visibles au compte rendu, motif dédié) → jamais silencieux.
+  const reportesTous = [...reportes, ...reportesPlafond.map((s) => ({
+    reference: s.reference, commune: s.communeNom, numeros: s.numeros,
+    motif: 'plafond « un envoi automatique par demande et par passage » atteint — saisine reportée au prochain passage (aucune donnée perdue)',
+  }))];
   const base = {
     canal: 'email' as const, candidats: candidats.length, emisAujourdhui, capParRun: caps.capParRun, capParJour: caps.capParJour, budget,
-    bloqueesForclusion: forcloses, bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte, bloqueesPiece, reportes, reportesHoraire,
+    bloqueesForclusion: forcloses, bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte, bloqueesPiece, reportes: reportesTous, reportesHoraire,
     destinataires: prets.map((s) => ({ saisineId: s.saisineId, demandeId: s.demandeId, reference: s.reference, commune: s.communeNom, email: cadaEmail, expediteur: s.expediteur, apercuCorps: apercu(s.corps), numeros: s.numeros })),
     fileADeposer: [] as LigneFile[],
   };
@@ -289,7 +300,9 @@ export async function envoyerSaisinesCada(opts: { appliquer?: boolean; auteur?: 
 
   for (const s of prets) {
     const t = obtenirTransporteur(comptes[s.profil]!) as unknown as Transport; // non-null : planifierSalve a écarté les profils sans compte
-    resultats.push(await withTransaction(async (tx) => emettreUneSaisine(t, brancher(tx), s, { from: s.expediteur, replyTo: s.expediteur, to: cadaEmail, piece: s.piece, auteur })));
+    const res = await withTransaction(async (tx) => emettreUneSaisine(t, brancher(tx), s, { from: s.expediteur, replyTo: s.expediteur, to: cadaEmail, piece: s.piece, auteur }));
+    if (res.issue === 'envoye') opts.budget?.noterEnvoi(s.demandeId); // PLAFOND ANTI-CUMUL : ne consomme le budget que sur un envoi CONFIRMÉ
+    resultats.push(res);
   }
   // C (lot 5b) — ALERTE « saisine partie » APRÈS chaque envoi CONFIRMÉ (apply seulement, jamais en simulation). Une par saisine :
   //   une fois envoyée elle passe 'envoyee' → n'est plus candidate. ISOLÉE : un échec n'annule ni ne masque la saisine.

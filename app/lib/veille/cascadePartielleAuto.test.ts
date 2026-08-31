@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { executerCascadePartielleAuto, type DepsCascadePartielleAuto, type CandidatCascadePartielle } from './cascadePartielleAuto';
+import { creerBudgetRun } from './plafondEnvoiRun';
 
 /**
  * AUTO-PARTIEL — exécuteur de la cascade partielle. Testé PAR INJECTION (aucun e-mail réel). On prouve : une étape échue part sans
@@ -68,5 +69,58 @@ describe('executerCascadePartielleAuto', () => {
     }));
     expect(b.erreurs).toBe(1);
     expect(b.envoyes).toBe(1);
+  });
+});
+
+describe('executerCascadePartielleAuto — PLAFOND ANTI-CUMUL (budget partagé du run)', () => {
+  it('un envoi NOTE le budget de la demande (compteur → 1)', async () => {
+    const budget = creerBudgetRun(1);
+    await executerCascadePartielleAuto(deps({ budget }));
+    expect(budget.compteur(1)).toBe(1);
+  });
+
+  it('demande déjà servie ce run (budget plein) → REPORTÉE : aucun envoi, reportesPlafond=1, trace émise', async () => {
+    const budget = creerBudgetRun(1);
+    budget.noterEnvoi(1); // un émetteur antérieur (p. ex. ordinaire) a déjà servi la demande 1 ce run
+    const traces: number[] = [];
+    const b = await executerCascadePartielleAuto(deps({ budget, journaliserReport: async (id) => { traces.push(id); } }));
+    expect(b.envoyes).toBe(0);
+    expect(b.reportesPlafond).toBe(1);
+    expect(traces).toEqual([1]); // jamais silencieux
+  });
+
+  it('sur refus par plafond, deps.envoyer n’est JAMAIS appelé → aucune réservation de créneau, butoir CADA intact', async () => {
+    const budget = creerBudgetRun(1);
+    budget.noterEnvoi(1);
+    let envoyerAppele = false;
+    await executerCascadePartielleAuto(deps({ budget, envoyer: async () => { envoyerAppele = true; return 'envoye'; } }));
+    expect(envoyerAppele).toBe(false);
+  });
+
+  it('deux demandes DIFFÉRENTES partent toutes deux (le plafond est PAR DEMANDE, pas global)', async () => {
+    const budget = creerBudgetRun(1);
+    const b = await executerCascadePartielleAuto(deps({ budget, candidats: async () => [cand(1), cand(2)] }));
+    expect(b.envoyes).toBe(2);
+    expect(b.reportesPlafond).toBe(0);
+  });
+
+  it('plafond porté à 2 : une demande déjà servie une fois ce run repart (budget lu au runtime)', async () => {
+    const budget = creerBudgetRun(2);
+    budget.noterEnvoi(1); // 1 envoi déjà fait ce run
+    const b = await executerCascadePartielleAuto(deps({ budget }));
+    expect(b.envoyes).toBe(1);
+    expect(budget.compteur(1)).toBe(2);
+  });
+
+  it('un envoi en ÉCHEC ne consomme PAS le budget (retentable au prochain run)', async () => {
+    const budget = creerBudgetRun(1);
+    await executerCascadePartielleAuto(deps({ budget, envoyer: async () => { throw new Error('SMTP'); } }));
+    expect(budget.compteur(1)).toBe(0);
+  });
+
+  it('un « déjà servi » (ignore, créneau consommé) ne consomme PAS le budget', async () => {
+    const budget = creerBudgetRun(1);
+    await executerCascadePartielleAuto(deps({ budget, envoyer: async () => 'ignore' }));
+    expect(budget.compteur(1)).toBe(0);
   });
 });

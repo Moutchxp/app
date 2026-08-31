@@ -23,6 +23,8 @@ import { MOTIF_COMPLEMENT_PREFIXE, MOTIF_DECLARATION_PREFIXE } from '../permis/d
 import { vagueCloseeEnvoi } from './vaguePieces';
 import { fenetreEnvoiOuverte } from './envoiOuvre';
 import type { FamillePlan } from '../permis/planMasse';
+import type { BudgetEnvoiRun } from './plafondEnvoiRun';
+import { tracerReportPlafond } from './plafondEnvoiTrace';
 
 /** Préfixe de journal DISTINCT (cohabitation CASC-3 : jamais confondu avec « relance partielle envoyée » ni « complément demandé »). */
 export const MOTIF_RELANCE_REPONSE_PREFIXE = 'relance sur réponse partielle envoyée';
@@ -50,6 +52,11 @@ export interface DepsRelanceReponsePartielle {
   lireConfig(): Promise<{ relanceActive: boolean; calmeMinutes: number; envoiHeureDebut: number; envoiHeureFin: number; capParRun: number }>;
   candidats(): Promise<CandidatRelanceReponse[]>;
   envoyer(demandeId: number, rang: number, objet: string, corps: string): Promise<void>; // envoie (fil) + journalise le préfixe PART-E
+  // PLAFOND ANTI-CUMUL — budget PARTAGÉ du run (tous émetteurs auto). PART-E passe APRÈS la cascade partielle : si la cascade a déjà
+  //   relancé la demande ce run, PART-E est REPORTÉ (sa propre idempotence le supersède déjà en pratique ; ceci est le filet explicite).
+  //   Absent (tests / appel isolé) → aucune limite.
+  budget?: BudgetEnvoiRun;
+  journaliserReport?(demandeId: number): Promise<void>; // trace d'un report par plafond (jamais silencieux)
 }
 
 export interface BilanRelanceReponse { candidats: number; envoyes: number; differes: number; erreurs: number; reporte: boolean; raison: string }
@@ -71,11 +78,14 @@ export async function executerRelanceReponsePartielle(deps: DepsRelanceReponsePa
   let envoyes = 0, differes = 0, erreurs = 0;
   for (const c of candidats) {
     if (envoyes >= cfg.capParRun) { differes += 1; continue; } // cap PAR RUN (anti-emballement), JAMAIS un plafond quotidien
+    // PLAFOND ANTI-CUMUL — la demande a déjà reçu son envoi auto ce run (typiquement la relance de cascade, prioritaire) → on REPORTE
+    //   au prochain run (comptée en 'différée', tracée). Refus AVANT l'envoi → aucun effet sur le fil ni sur le butoir CADA.
+    if (deps.budget && !deps.budget.peutEnvoyer(c.demandeId)) { differes += 1; await deps.journaliserReport?.(c.demandeId); continue; }
     // GARDE #1 — le délai de calme s'applique TOUJOURS à l'envoi auto (même après une relève manuelle) : ne pas réclamer une pièce
     //   qui arrive cinq minutes plus tard.
     if (!vagueCloseeEnvoi({ dernierMailLe: c.dernierMailLe, maintenant, calmeMinutes: cfg.calmeMinutes })) { differes += 1; continue; }
     const { objet, corps } = texteRelancePartielle(c.rang, c.famillesManquantes);
-    try { await deps.envoyer(c.demandeId, c.rang, objet, corps); envoyes += 1; }
+    try { await deps.envoyer(c.demandeId, c.rang, objet, corps); envoyes += 1; deps.budget?.noterEnvoi(c.demandeId); }
     catch { erreurs += 1; } // isolation : un envoi en échec n'arrête pas les suivants
   }
   return { candidats: candidats.length, envoyes, differes, erreurs, reporte: false, raison: `envoyées=${envoyes}, différées=${differes}, erreurs=${erreurs}` };
@@ -124,9 +134,11 @@ export async function compterRelancesReponseDue(relanceActive: boolean): Promise
   try { return (await candidatsRelanceReponseReels()).length; } catch { return 0; }
 }
 
-export function depsReellesRelanceReponsePartielle(): DepsRelanceReponsePartielle {
+export function depsReellesRelanceReponsePartielle(budget?: BudgetEnvoiRun): DepsRelanceReponsePartielle {
   return {
     maintenant: () => new Date(),
+    budget,
+    journaliserReport: async (demandeId) => { await tracerReportPlafond(demandeId, 'relance sur réponse (PART-E)'); },
     lireConfig: async () => {
       const c = await chargerConfigVeille();
       // Cap PAR RUN de sécurité = plafond d'envoi automatique par run (réutilisé) ; JAMAIS un plafond quotidien (échange de suivi).

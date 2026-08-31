@@ -15,6 +15,8 @@
 import { fenetreEnvoiOuverte } from './envoiOuvre';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { chargerCascadePartielle, lireDemandesPartiellesActives, executerRelancePartielle, depsReellesRelancePartielle } from './cascadePartielleRepo';
+import type { BudgetEnvoiRun } from './plafondEnvoiRun';
+import { tracerReportPlafond } from './plafondEnvoiTrace';
 
 /** Une étape partielle DUE prête à partir (texte dérivé de la config à jour). */
 export interface CandidatCascadePartielle { demandeId: number; etape: 'relance' | 'annonce'; rang: number | null; objet: string; corps: string }
@@ -25,36 +27,47 @@ export interface DepsCascadePartielleAuto {
   candidats(): Promise<CandidatCascadePartielle[]>;
   /** Envoie UN candidat via le chemin partagé (réservation de créneau incluse). 'ignore' = créneau déjà servi / rien à envoyer (aucun doublon) ; lève sur erreur RÉELLE (SMTP). */
   envoyer(c: CandidatCascadePartielle): Promise<'envoye' | 'ignore'>;
+  // PLAFOND ANTI-CUMUL — budget PARTAGÉ du run (tous émetteurs auto). La cascade tourne EN PREMIER (priorité : elle porte l'échéance
+  //   légale) : son budget est donc toujours libre en pratique, mais on NOTE ses envois pour que PART-E / la saisine, plus tard dans le
+  //   run, ne redoublent pas la même demande. Absent (tests / appel isolé) → aucune limite.
+  budget?: BudgetEnvoiRun;
+  // Trace d'un envoi REFUSÉ par le plafond (jamais silencieux). Optionnel : sans lui, le refus n'est compté que dans le bilan.
+  journaliserReport?(demandeId: number): Promise<void>;
 }
 
-export interface BilanCascadePartielle { candidats: number; envoyes: number; ignores: number; erreurs: number; reporte: boolean; raison: string }
+export interface BilanCascadePartielle { candidats: number; envoyes: number; ignores: number; erreurs: number; reportesPlafond: number; reporte: boolean; raison: string }
 
 /**
  * Une passe. Gated par l'interrupteur (OFF → rien, l'envoi manuel reste possible) ; fenêtre ouvrée ; cap par run ; un échec est ISOLÉ
- * (compté, on continue). AUCUN doublon possible (réservation de créneau dans `envoyer`). PUR par injection.
+ * (compté, on continue). AUCUN doublon possible (réservation de créneau dans `envoyer` + plafond par demande et par run). PUR par injection.
  */
 export async function executerCascadePartielleAuto(deps: DepsCascadePartielleAuto): Promise<BilanCascadePartielle> {
   const cfg = await deps.lireConfig();
-  if (!cfg.actif) return { candidats: 0, envoyes: 0, ignores: 0, erreurs: 0, reporte: false, raison: 'envoi auto de la cascade partielle désactivé (arrêt d’urgence)' };
+  if (!cfg.actif) return { candidats: 0, envoyes: 0, ignores: 0, erreurs: 0, reportesPlafond: 0, reporte: false, raison: 'envoi auto de la cascade partielle désactivé (arrêt d’urgence)' };
   const fen = fenetreEnvoiOuverte(deps.maintenant(), cfg.envoiHeureDebut, cfg.envoiHeureFin);
-  if (!fen.ouverte) return { candidats: 0, envoyes: 0, ignores: 0, erreurs: 0, reporte: true, raison: fen.coherente ? 'hors fenêtre d’envoi (jour/heure ouvrés) — reporté' : 'fenêtre d’envoi mal réglée — reporté' };
+  if (!fen.ouverte) return { candidats: 0, envoyes: 0, ignores: 0, erreurs: 0, reportesPlafond: 0, reporte: true, raison: fen.coherente ? 'hors fenêtre d’envoi (jour/heure ouvrés) — reporté' : 'fenêtre d’envoi mal réglée — reporté' };
 
   const candidats = await deps.candidats();
-  let envoyes = 0, ignores = 0, erreurs = 0;
+  let envoyes = 0, ignores = 0, erreurs = 0, reportesPlafond = 0;
   for (const c of candidats) {
     if (envoyes >= cfg.capParRun) break; // cap PAR RUN (anti-emballement), JAMAIS un plafond quotidien (échange de suivi)
+    // PLAFOND ANTI-CUMUL — au plus N envois auto/demande/run, tous émetteurs confondus. Refus AVANT toute réservation de créneau →
+    //   l'étape reste DUE au prochain run, le créneau reste libre, le butoir CADA n'est pas touché.
+    if (deps.budget && !deps.budget.peutEnvoyer(c.demandeId)) { reportesPlafond += 1; await deps.journaliserReport?.(c.demandeId); continue; }
     try {
       const issue = await deps.envoyer(c);
-      if (issue === 'envoye') envoyes += 1; else ignores += 1;
+      if (issue === 'envoye') { envoyes += 1; deps.budget?.noterEnvoi(c.demandeId); } else ignores += 1;
     } catch { erreurs += 1; } // isolation : un envoi en échec (SMTP) n'arrête pas les suivants ; le créneau est relâché → retentable
   }
-  return { candidats: candidats.length, envoyes, ignores, erreurs, reporte: false, raison: `envoyées=${envoyes}, ignorées=${ignores}, erreurs=${erreurs}` };
+  return { candidats: candidats.length, envoyes, ignores, erreurs, reportesPlafond, reporte: false, raison: `envoyées=${envoyes}, ignorées=${ignores}, erreurs=${erreurs}, plafond=${reportesPlafond}` };
 }
 
 // ── Accès données (production) ─────────────────────────────────────────────────
-export function depsReellesCascadePartielleAuto(): DepsCascadePartielleAuto {
+export function depsReellesCascadePartielleAuto(budget?: BudgetEnvoiRun): DepsCascadePartielleAuto {
   return {
     maintenant: () => new Date(),
+    budget,
+    journaliserReport: async (demandeId) => { await tracerReportPlafond(demandeId, 'cascade partielle'); },
     lireConfig: async () => {
       const c = await chargerConfigVeille();
       return { actif: c.cascadePartielAutoActive === true, envoiHeureDebut: c.envoiHeureDebut, envoiHeureFin: c.envoiHeureFin, capParRun: c.envoisAutoMaxParRun };

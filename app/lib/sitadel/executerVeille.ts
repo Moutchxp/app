@@ -47,6 +47,7 @@ import { executerAlerteAttenteBati, depsReellesAlerteAttenteBati } from '../veil
 import { executerAlerteObstacleDisparu, depsReellesAlerteObstacleDisparu } from '../veille/alerteObstacleDisparuAuto';
 import { executerSurveillancePolygones, depsReellesSurveillancePolygones } from '../veille/surveillancePolygonesAuto';
 import { executerVersementRattache, depsReellesVersementRattache } from './versementRattacheRepo';
+import { creerBudgetRun, type BudgetEnvoiRun } from '../veille/plafondEnvoiRun';
 import { executerAlerteMisesAJour } from '../veille/alerteMisesAJour';
 import { depsReellesAlerteMisesAJour } from '../veille/alerteMisesAJourRepo';
 import { ingererMillesime, millesimeDistantDido, DiDoIndisponibleError, DOSSIER_LOCAL, type CompteursIngestion, type MillesimeDistant } from './ingestionMillesime';
@@ -237,18 +238,21 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
       try { await deps.diagnosticVague(); } catch { /* diagnostics de vague isolés : n'impactent jamais la veille Sitadel */ }
     }
 
-    // 1ter-ter) BOUCLE DE RELANCE « la mairie a répondu partiellement » (PART-E) — APRÈS le diagnostic de vague (complétude à jour) :
-    //   pour chaque dossier partiel encore INCOMPLET dont la mairie a répondu depuis le dernier sortant, envoie (mode AUTO,
-    //   relance_auto_active) la relance adaptée, sous délai de calme (vagueCloseeEnvoi), fenêtre ouvrée et cap par run ; mode MANUEL →
-    //   rien ici (pastille Analyse). Échange de suivi : PAS de plafond quotidien. MÊME ISOLATION : un échec n'impacte jamais la veille.
-    if (faitMairies && deps.relanceReponsePartielle) {
-      try { await deps.relanceReponsePartielle(); } catch { /* boucle partielle isolée : n'impacte jamais la veille Sitadel */ }
-    }
-
     // 1ter-bis) AUTO-PARTIEL — ENVOI AUTOMATIQUE de la cascade PARTIELLE (relances 1..N, annonce CADA) aux dates dérivées de partiel_le.
-    //   APRÈS PART-E, MÊME ISOLATION. Anti-doublon par réservation de créneau (auto ⇄ manuel) ; gated par cascade_partiel_auto_active.
+    //   ⚠️ ORDRE VOLONTAIRE — la cascade passe AVANT PART-E (§1ter-ter) : décision Arno du 31/08, la cascade GAGNE en cas de conflit
+    //   (elle porte l'échéance légale et le rang). Son envoi journalise un sortant → l'idempotence propre de PART-E le supersède ensuite
+    //   pour la même réponse (une seule relance à la mairie) ; le PLAFOND ANTI-CUMUL (budget partagé du run, cf. depsReelles) est le filet
+    //   EXPLICITE. Anti-doublon par réservation de créneau (auto ⇄ manuel) ; gated par cascade_partiel_auto_active. MÊME ISOLATION.
     if (faitMairies && deps.cascadePartielleAuto) {
       try { await deps.cascadePartielleAuto(); } catch { /* cascade partielle auto isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1ter-ter) BOUCLE DE RELANCE « la mairie a répondu partiellement » (PART-E) — APRÈS la cascade partielle (ordre ci-dessus) :
+    //   pour chaque dossier partiel encore INCOMPLET dont la mairie a répondu depuis le dernier sortant, envoie (mode AUTO,
+    //   relance_auto_active) la relance adaptée, sous délai de calme (vagueCloseeEnvoi), fenêtre ouvrée, cap par run ET plafond
+    //   anti-cumul par demande/run ; mode MANUEL → rien ici (pastille Analyse). Échange de suivi : PAS de plafond quotidien. MÊME ISOLATION.
+    if (faitMairies && deps.relanceReponsePartielle) {
+      try { await deps.relanceReponsePartielle(); } catch { /* boucle partielle isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     // 1quater) BROUILLONS DE RELANCE (R6b) — APRÈS l'approfondie (qui vient de regarder au mieux) : pour les demandes dont
@@ -469,6 +473,14 @@ function depsReelles(): DepsVeille {
   // Le verrou consultatif est SESSION-scoped : il doit être pris ET rendu sur la MÊME connexion → client dédié tenu
   // pendant tout le run (les autres requêtes passent par le pool).
   let clientVerrou: PoolClient | null = null;
+  // PLAFOND ANTI-CUMUL — UN SEUL budget par RUN, PARTAGÉ par tous les émetteurs auto (cascade partielle, PART-E, ordinaire, saisine).
+  //   Créé PARESSEUSEMENT au 1er émetteur (une seule lecture config), donc PER-RUN : `depsReelles()` est évalué une fois par run
+  //   (défaut du paramètre `deps` d'executerVeille). C'est le « point d'étranglement unique », sans exclusion croisée entre exécuteurs.
+  let budgetEnvoi: BudgetEnvoiRun | null = null;
+  const obtenirBudgetEnvoi = async (): Promise<BudgetEnvoiRun> => {
+    if (budgetEnvoi === null) budgetEnvoi = creerBudgetRun((await chargerConfigVeille()).envoisAutoMaxParDemandeRun);
+    return budgetEnvoi;
+  };
   return {
     maintenant: () => new Date(),
     chargerConfig: async () => {
@@ -541,9 +553,9 @@ function depsReelles(): DepsVeille {
     echeanceApprofondie: () => executerApprofondieAuto(depsReellesApprofondie()),
     // PART-C — diagnostics de vague réels (relève AUTO) : dossiers partiels à GED changée + vague close → 1 diagnostic, dans diagnosticsVague.ts.
     diagnosticVague: () => executerDiagnosticsVague('auto', depsReellesDiagnosticsVague()),
-    // PART-E — boucle réelle : relance auto « réponse partielle » (mode auto), gardes calme/fenêtre/cap/régime, dans relanceReponsePartielleAuto.ts.
-    relanceReponsePartielle: () => executerRelanceReponsePartielle(depsReellesRelanceReponsePartielle()),
-    cascadePartielleAuto: () => executerCascadePartielleAuto(depsReellesCascadePartielleAuto()),
+    // PART-E — boucle réelle : relance auto « réponse partielle » (mode auto), gardes calme/fenêtre/cap/régime + PLAFOND ANTI-CUMUL (budget partagé).
+    relanceReponsePartielle: async () => executerRelanceReponsePartielle(depsReellesRelanceReponsePartielle(await obtenirBudgetEnvoi())),
+    cascadePartielleAuto: async () => executerCascadePartielleAuto(depsReellesCascadePartielleAuto(await obtenirBudgetEnvoi())),
     // R6b — brouillons de relance réels : sélection 'depassee' + garde relance vivante + journal, dans relanceAuto.ts.
     relanceEcheance: () => executerRelanceAuto(depsReellesRelance()),
     // R8 — alerte quotidienne réelle : conditions + composition + envoi SMTP + journal, dans alerteAuto.ts.
@@ -562,8 +574,8 @@ function depsReelles(): DepsVeille {
     preCochageRepondu: () => executerPreCochageAuto(depsReellesPreCochage()),
     // FIL-C — capture des réponses hors outil : dossier envoyés (CORPS des sortants appariés) → demande_sortant_hors_outil, dans captureSortantsAuto.ts.
     captureSortants: () => executerCaptureSortantsAuto(depsReellesCaptureSortants()),
-    // RELANCE lot 6 — envoi automatique réel : DEUX interrupteurs + plafond auto + appels envoyerRelances/envoyerSaisinesCada (gardes intactes) + compte rendu interne, dans envoiAuto.ts.
-    envoiAuto: () => executerEnvoiAuto(depsReellesEnvoiAuto()),
+    // RELANCE lot 6 — envoi automatique réel : DEUX interrupteurs + plafond auto + PLAFOND ANTI-CUMUL (budget partagé) + appels envoyerRelances/envoyerSaisinesCada (gardes intactes) + compte rendu interne, dans envoiAuto.ts.
+    envoiAuto: async () => executerEnvoiAuto(depsReellesEnvoiAuto(await obtenirBudgetEnvoi())),
     // FRAÎCHEUR lot 2 — détection des nouvelles publications (métadonnées seules), interrupteur + cadence + activation par source dans executerDetection.
     detecterEditions: () => executerDetection(depsReellesDetection()),
     // FRAÎCHEUR lot 6 — ingestion automatique nocturne : interrupteurs par source (défaut false), fenêtre nocturne, garde-fou disque, une par tick/nuit.

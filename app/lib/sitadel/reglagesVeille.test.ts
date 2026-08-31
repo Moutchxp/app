@@ -53,6 +53,7 @@ const DEFS_BASE = [
   // S37 — caps d'envoi (migration 070)
   'CHECK (((envois_max_par_run >= 1) AND (envois_max_par_run <= 200)))',
   'CHECK (((envois_max_par_jour >= 1) AND (envois_max_par_jour <= 500)))',
+  'CHECK (((envois_auto_max_par_demande_run >= 1) AND (envois_auto_max_par_demande_run <= 10)))',
   // R7 — relève automatique (migration 074) : Postgres rend `BETWEEN 15 AND 1440` sous cette forme `>= AND <=`
   'CHECK (((releve_intervalle_minutes >= 15) AND (releve_intervalle_minutes <= 1440)))',
   // R6 — échéance + fraîcheur (migration 075)
