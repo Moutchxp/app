@@ -1,6 +1,6 @@
 import { describe, it, expect, afterAll } from 'vitest';
 import { query } from '../db/client';
-import { marquerDossierPartiel, leverDossierPartiel, lireEtatPartiel, lireEtatsPartiel, estDemandeSuspendue, butoirPartielActif } from './dossierPartielRepo';
+import { marquerDossierPartiel, leverDossierPartiel, lireEtatPartiel, lireEtatsPartiel, estDemandeSuspendue, butoirPartielActif, evaluerLeveeAutoPartiel } from './dossierPartielRepo';
 import { chargerDemandesSuivi } from '../veille/reponsesSuivi';
 import { partitionnerParDus } from '../sitadel/demandesListe';
 import { famillesAffichees } from './encartFamilles';
@@ -216,5 +216,45 @@ describe('CASC-2 / LOT-1 — ancre du butoir = date d’envoi déclarée (12:00 
     const t = new Date(rows[0].t).getTime();
     expect(t).toBeGreaterThanOrEqual(avant.getTime() - 1000); // marge d'horloge, l'ancre est bien « maintenant » et non une date civile
     expect(t).toBeLessThanOrEqual(apres.getTime() + 1000);
+  });
+});
+
+/**
+ * 🔴 LEVÉE AUTO — CORRECTIF DU BIGINT (classe FIX-2b, 4e occurrence). `evaluerLeveeAutoPartiel` lisait `demande_id` (bigint) SANS
+ * `::int` → le driver pg le rendait en CHAÎNE → `estDemandeSuspendue('1794')` interrogeait un Set<number> → miss silencieux → la
+ * fonction concluait « pas suspendue » et SORTAIT avant toute levée : la sortie automatique n'a JAMAIS fonctionné, le permis restait
+ * coincé en « En cours ». Ce test — le test d'intégration ABSENT qui a laissé passer le défaut — le prouve sur vraie base : un dossier
+ * en partiel actif qui redevient COMPLET → `partiel_leve_le` renseigné → le permis quitte « En cours ». Sans le `::int`, il ROUGIT.
+ */
+async function creerDossierComplet(): Promise<number> {
+  const suffixe = String(900001 + dossierIds.length);
+  const { rows } = await query<{ id: number }>(
+    `INSERT INTO sitadel_dossier (type, num_dau, code_insee, departement, vu_le_premier_millesime, vu_le_dernier_millesime)
+       VALUES ('PC', $1, '99999', '99', '2099-01', '2099-01') RETURNING id::int AS id`, [`TESTDOSS${suffixe}`]);
+  const id = rows[0].id;
+  dossierIds.push(id);
+  // classements couvrant les 4 familles → quelles que soient les familles ATTENDUES (config), toutes sont présentes → resumeCompletude = 'complet'.
+  const classements = ['masse', 'coupe', 'etage', 'cerfa'].map((f) => ({ nomFichier: `${f}.pdf`, famille: f, parContenu: f, parNom: null, desaccord: false }));
+  await query(`INSERT INTO permis_completude (dossier_id, classements, nb_pieces) VALUES ($1, $2::jsonb, 0)`, [id, JSON.stringify(classements)]);
+  return id;
+}
+
+describe('LEVÉE AUTO — evaluerLeveeAutoPartiel lève le marqueur quand le dossier redevient complet (bigint::int, classe FIX-2b)', () => {
+  it('dossier complet → partiel_leve_le renseigné, marqueur inactif → le permis quitte « En cours »', async () => {
+    const demandeId = await creerDemande('envoyee');
+    const dossierId = await creerDossierComplet();
+    await query(`INSERT INTO demande_dossier (demande_id, dossier_id, actif, satisfait_le) VALUES ($1, $2, true, now())`, [demandeId, dossierId]);
+    await marquerDossierPartiel(demandeId, ['cerfa', 'etage'], 'declaree', '2026-08-28');
+    expect(await lireEtatPartiel(demandeId), 'marqueur ACTIF avant la levée auto').not.toBeNull();
+
+    await evaluerLeveeAutoPartiel(dossierId); // chemin de SORTIE (appelé en prod par enregistrerCompletude au recalcul de complétude)
+
+    // Preuve directe en base : partiel_leve_le est renseigné (le marqueur EST levé), avec l'auteur automatique.
+    const { rows } = await query<{ leve_le: Date | null; par: string | null }>(
+      `SELECT partiel_leve_le AS leve_le, partiel_leve_par AS par FROM demande WHERE id = $1`, [demandeId]);
+    expect(rows[0].leve_le, 'partiel_leve_le renseigné = marqueur levé automatiquement').not.toBeNull();
+    expect(rows[0].par, 'auteur de la levée automatique').toBe('auto:complet');
+    // Corollaire d'affichage : plus de marqueur actif → le permis repart vers « Analyse et projection ».
+    expect(await lireEtatPartiel(demandeId), 'plus de marqueur actif').toBeNull();
   });
 });

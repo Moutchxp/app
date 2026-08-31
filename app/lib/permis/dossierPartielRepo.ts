@@ -123,8 +123,11 @@ export async function lireEtatsPartiel(demandeIds: readonly number[]): Promise<M
  */
 export async function evaluerLeveeAutoPartiel(dossierId: number): Promise<void> {
   try {
+    // demande_id::int — `demande.id` (donc `demande_dossier.demande_id`) est bigint : sans cast, le driver pg renvoie une CHAÎNE, et
+    //   estDemandeSuspendue interroge un Set<number> (id::int) → `.has('1794')` MANQUE → « pas suspendue » à tort → la levée auto ne
+    //   partait JAMAIS (permis coincé en « En cours »). 4e occurrence de la classe FIX-2b, restée latente faute de test d'intégration.
     const { rows: dem } = await query<{ demande_id: number }>(
-      `SELECT demande_id FROM demande_dossier WHERE dossier_id = $1 AND actif LIMIT 1`, [dossierId]);
+      `SELECT demande_id::int AS demande_id FROM demande_dossier WHERE dossier_id = $1 AND actif LIMIT 1`, [dossierId]);
     const demandeId = dem[0]?.demande_id;
     if (demandeId === undefined) return;                 // dossier sans demande active → rien
     if (!(await estDemandeSuspendue(demandeId))) return; // pas suspendue → rien à lever (et on évite les lectures coûteuses)
