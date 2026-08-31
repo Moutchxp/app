@@ -926,8 +926,8 @@ describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours »
     expect(avec).toContain('SLOT-DOSSIERS-RICHE');
     expect(avec).toContain('SLOT-CLOTURE');
     expect(avec).not.toContain('PC-DOSSIER-BRUT'); // remplacé par le slot riche
-    // LOT 22 (A2) — En cours : l'ENCART (slotDossiers, Contact mairie en tête) est rendu AVANT le pli « Texte de la demande ».
-    expect(avec.indexOf('SLOT-DOSSIERS-RICHE')).toBeLessThan(avec.indexOf('Texte de la demande'));
+    // LOT 26 (②) — REVIREMENT du LOT 22 : le pli « Texte de la demande » repasse AVANT l'encart (slotDossiers, Contact mairie en tête).
+    expect(avec.indexOf('Texte de la demande')).toBeLessThan(avec.indexOf('SLOT-DOSSIERS-RICHE'));
     // À demander (sans slot) : le pli reste AVANT le détail brut des dossiers (ordre inchangé pour cet onglet).
     expect(sans.indexOf('Texte de la demande')).toBeLessThan(sans.indexOf('PC-DOSSIER-BRUT'));
   });
@@ -1435,6 +1435,27 @@ describe('LOT-9 (C) — BlocContactMairie + libelleRetourMairie', () => {
   it('aucun contact (ni interlocuteur ni destinataire) → phrase claire, jamais un vide muet', () => {
     const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: { interlocuteurs: [], destinataire: null } }));
     expect(h).toContain('Aucun contact mairie connu');
+  });
+  it('LOT 26 (①) — gabarit UNIFORME : plus aucune puce/indentation (pas de <ul>/<li>) ; le destinataire (sans date) est la DERNIÈRE ligne', () => {
+    const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: CONTACT_154 }));
+    expect(h).not.toContain('<ul');                                                                    // ni liste à puces
+    expect(h).not.toContain('<li');
+    // le destinataire (adresse seule, sans date) vient APRÈS l'interlocuteur daté → en fin de liste
+    expect(h.indexOf('lauriane.pangui@mairie-aubervilliers.fr')).toBeLessThan(h.indexOf('urba-reglementaire@mairie-aubervilliers.fr'));
+  });
+  it('LOT 26 (①) — nom/date ABSENTS → l’adresse s’affiche seule (aucun « — » ni « · dernier message » parasite), même gabarit', () => {
+    const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: { interlocuteurs: [
+      { adresse: 'sansmeta@m.fr', nom: null, dernierLe: '2026-08-10T09:00:00Z' },
+    ], destinataire: null } }));
+    expect(h).toContain('sansmeta@m.fr');
+    expect(h).toContain('dernier message le');     // la date existe → affichée
+    expect(h).not.toContain('sansmeta@m.fr —');    // nom absent → pas de « — » accolé à l'adresse
+  });
+  it('LOT 26 (①) — le destinataire ÉGAL à un interlocuteur (casse ignorée) n’est PAS dupliqué en 2e ligne', () => {
+    const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: { interlocuteurs: [
+      { adresse: 'AGENT@m.fr', nom: 'Agent', dernierLe: '2026-08-10T09:00:00Z' },
+    ], destinataire: 'agent@m.fr' } }));
+    expect(h.match(/agent@m\.fr/gi)?.length).toBe(1); // une seule occurrence (dédup insensible à la casse)
   });
   it('libelleRetourMairie : un bilan court par état', () => {
     expect(libelleRetourMairie('obtenus', 0)).toBe('documents obtenus');

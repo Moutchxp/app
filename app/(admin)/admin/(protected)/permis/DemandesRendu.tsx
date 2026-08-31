@@ -724,27 +724,25 @@ export function BlocContactMairie({ contact }: { contact: ContactMairie }) {
   if (contact.interlocuteurs.length === 0 && !contact.destinataire) {
     return <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Aucun contact mairie connu pour l’instant.</span>;
   }
+  // LOT 26 (①) — UNE seule liste au gabarit UNIFORME : les interlocuteurs (adresse + nom + date, du plus récent au plus ancien) puis, EN FIN de
+  //   liste (aucune date connue), le destinataire d'origine s'il n'est pas déjà un interlocuteur (dédup insensible à la casse). Toutes les lignes
+  //   partagent le MÊME alignement (flush, sans puce) et la même graisse ; le nom et la date ne s'affichent QUE s'ils existent → l'adresse seule
+  //   ne décale jamais la ligne. Séparateur : un filet UNIFORME entre chaque ligne (jamais de hiérarchie factice). Mobile : l'adresse casse (word-break).
+  const lignes: { adresse: string; nom: string | null; dernierLe: string | null }[] = contact.interlocuteurs.map((it) => ({ adresse: it.adresse, nom: it.nom, dernierLe: it.dernierLe }));
+  if (contact.destinataire && !lignes.some((l) => l.adresse.toLowerCase() === contact.destinataire!.toLowerCase())) {
+    lignes.push({ adresse: contact.destinataire, nom: null, dernierLe: null }); // adresse sans date connue → en fin de liste
+  }
   return (
     <div className="svv-card flex flex-col gap-2" style={{ fontSize: 13, minWidth: 0 }}>
-      {contact.interlocuteurs.length > 0 && (
-        <div>
-          <strong style={{ fontSize: 12 }}>Nous ont écrit (du plus récent au plus ancien)</strong>
-          <ul style={{ margin: '.2rem 0 0', paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
-            {contact.interlocuteurs.map((it, i) => (
-              <li key={`${it.adresse}-${i}`}>
-                <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', wordBreak: 'break-all' }}>{it.adresse}</span>{it.nom ? ` — ${it.nom}` : ''}
-                <span style={{ color: 'var(--color-svv-muted)' }}> · dernier message le {formaterDateHeureLocale(it.dernierLe)}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-      {contact.destinataire && (
-        // LOT 22 (A3) — « Nous avons écrit à » retiré : l'adresse suffit, le contexte (destinataire de la demande) est évident.
-        <div style={{ fontSize: 12, borderTop: contact.interlocuteurs.length > 0 ? '1px solid var(--color-svv-line)' : undefined, paddingTop: contact.interlocuteurs.length > 0 ? '.4rem' : undefined }}>
-          <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', wordBreak: 'break-all', color: 'var(--color-svv-ink)' }}>{contact.destinataire}</span>
-        </div>
-      )}
+      {contact.interlocuteurs.length > 0 && <strong style={{ fontSize: 12 }}>Nous ont écrit (du plus récent au plus ancien)</strong>}
+      <div style={{ display: 'flex', flexDirection: 'column' }}>
+        {lignes.map((l, i) => (
+          <div key={`${l.adresse}-${i}`} style={{ fontSize: 13, marginTop: i > 0 ? '.35rem' : undefined, paddingTop: i > 0 ? '.35rem' : undefined, borderTop: i > 0 ? '1px solid var(--color-svv-line)' : undefined }}>
+            <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', wordBreak: 'break-all' }}>{l.adresse}</span>{l.nom ? ` — ${l.nom}` : ''}
+            {l.dernierLe ? <span style={{ color: 'var(--color-svv-muted)' }}> · dernier message le {formaterDateHeureLocale(l.dernierLe)}</span> : null}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -962,10 +960,9 @@ export function PanneauDetailDemande({
       </div>
       </>
       )}
-      {/* LOT 22 (A2) — En cours : l'ENCART de familles (Contact mairie en tête) est la PREMIÈRE ligne sous le titre, AVANT le pli « Texte de
-           la demande ». `slotDossiers` n'est fourni QU'en « En cours » → en « À demander » rien ne se rend ici (le détail brut vient plus bas).
-           Précédent 18/08 : le pli (seule trace de ce qui a été RÉELLEMENT envoyé) reste présent, juste déplacé sous l'encart. */}
-      {slotDossiers}
+      {/* LOT 26 (②) — REVIREMENT assumé du LOT 22 (A2) : le pli « Texte de la demande initiale envoyée le … » repasse en PREMIÈRE position,
+           AVANT l'encart de familles (Contact mairie en tête). `slotDossiers` n'est fourni QU'en « En cours » (richDetail) → en « À demander »
+           rien ne se rend ici et l'ordre visible est INCHANGÉ (le pli restait déjà avant le détail brut, qui vient plus bas). */}
       {/* LOT-7 / LOT 16 (B) — corps de la lettre derrière UN PLI (1 clic). LOT 16 : même ligne repliable que les familles (BlocLignePli). */}
       <BlocLignePli titre={titrePli} defautOuvert={brouillon}>
         {() => (
@@ -973,6 +970,7 @@ export function PanneauDetailDemande({
             style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', boxSizing: 'border-box', background: '#fff' }} />
         )}
       </BlocLignePli>
+      {slotDossiers}
       {/* À demander (pas d'encart) : détail brut des dossiers, APRÈS le pli — ordre inchangé pour cet onglet. */}
       {!slotDossiers && <BlocDossiersDetail dossiers={detail.dossiers} retires={detail.dossiersRetires} />}
       {/* UNIF-1 — masqué quand l'appelant range l'éditeur dans son encart (famille « Suivi & actions ») ; sinon rendu ici (À demander). */}
