@@ -22,6 +22,7 @@ import { BlocCompletude } from './BlocCompletude';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { BlocTraceEmprise } from './BlocTraceEmprise';
 import { BlocPiecesPermis } from './BlocPiecesPermis';
+import { LiseusePieces } from './LiseusePieces';
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 import type { ReglagesCascade } from '../../../../lib/veille/cascadeRelance';
 
@@ -806,7 +807,14 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                 { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: richDetail.batimentsNonVide,
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} />} /> },
                 { cle: 'pieces', titre: LIBELLE_FAMILLE.pieces, nonVide: richDetail.piecesNonVide,
-                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocPiecesPermis key={id} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+                  // LOT 14b — la LISEUSE (best-of + aperçu, lecture seule) est EN HAUT ; la liste des pièces avec ses téléchargements reste EN DESSOUS
+                  //   (précédent 18/08). Un seul dépli (celui de la famille) : la liseuse ne s'enveloppe d'aucun BlocRepliable. Montée paresseuse (thunk `contenu`).
+                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => (
+                    <div key={id} style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+                      <LiseusePieces dossierId={id} />
+                      <BlocPiecesPermis dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />
+                    </div>
+                  )} /> },
               ]} />
             ) : undefined}
           />
