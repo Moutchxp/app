@@ -16,7 +16,7 @@ const { appels, reponses, queryMock } = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: async () => undefined, pool: {}, closePool: async () => undefined }));
 
-import { composerDestinatairesCommune, choisirDestinataireParDefaut, resoudreDestinatairesRelance, lireDestinataireParDefaut, composerOptionsDestinataire, type SourcesAdressesCommune } from './destinatairesCommune';
+import { composerDestinatairesCommune, choisirDestinataireParDefaut, resoudreDestinatairesRelance, lireDestinataireParDefaut, composerOptionsDestinataire, normaliserDestinatairesManuels, type SourcesAdressesCommune } from './destinatairesCommune';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 beforeEach(() => { appels.length = 0; reponses.repondant = []; reponses.contact = []; reponses.prada = []; reponses.dest = []; reponses.ajouts = []; });
@@ -175,5 +175,38 @@ describe('LOT 29 — composerOptionsDestinataire : options ordonnées + provenan
   it('une même adresse dans plusieurs sources → une seule option, provenance de PLUS HAUTE priorité (répondant l’emporte)', () => {
     const o = composerOptionsDestinataire(src({ destEmail: 'x@m.fr', repondants: ['x@m.fr'] }), 'x@m.fr');
     expect(o).toEqual([{ adresse: 'x@m.fr', provenance: 'repondant' }]); // dédupliquée, répondant > ecrit
+  });
+});
+
+// ── LOT 32 — normalisation d'une LISTE de destinataires manuels (envoi manuel multiple) ──────────────────────────────────────────
+describe('LOT 32 — normaliserDestinatairesManuels : dédup casse, au moins un, tous servables', () => {
+  it('trois adresses distinctes → conservées dans l’ordre', () => {
+    expect(normaliserDestinatairesManuels(['a@m.fr', 'b@m.fr', 'c@m.fr'])).toEqual({ to: ['a@m.fr', 'b@m.fr', 'c@m.fr'], refus: null });
+  });
+  it('DOUBLON de casse → une seule adresse (1re occurrence conservée)', () => {
+    expect(normaliserDestinatairesManuels(['Urba@M.fr', 'urba@m.fr'])).toEqual({ to: ['Urba@M.fr'], refus: null });
+  });
+  it('les vides sont ignorés ; s’il ne reste rien → refus « au moins un »', () => {
+    expect(normaliserDestinatairesManuels(['', '   ']).refus).toContain('au moins un');
+    expect(normaliserDestinatairesManuels([]).refus).toContain('au moins un');
+  });
+  it('une adresse NON servable (format invalide / no-reply) → refus explicite, jamais un envoi silencieux', () => {
+    expect(normaliserDestinatairesManuels(['bon@m.fr', 'pas-une-adresse']).refus).toBe('adresse de destinataire invalide');
+    expect(normaliserDestinatairesManuels(['noreply@m.fr']).refus).toBe('adresse de destinataire invalide');
+  });
+});
+
+// 🔒 LOT 32 — GARDE : l'envoi manuel MULTIPLE (normaliserDestinatairesManuels) est INDÉPENDANT de la règle B automatique
+//   (resoudreDestinatairesRelance / estParmiDernieres). La cascade auto n'est pas touchée par ce lot ; on le prouve en rejouant les
+//   scénarios règle B et en constatant qu'ils sont inchangés (rang/nbDernieres pilotent toujours, la normalisation manuelle non).
+describe('LOT 32 — cascade auto (règle B) STRICTEMENT inchangée par l’envoi manuel multiple', () => {
+  const b = (o: Partial<Parameters<typeof resoudreDestinatairesRelance>[0]> = {}) => ({ defautRegleA: 'rep@m.fr', destEmailFige: 'urba@m.fr', listeLarge: ['urba@m.fr', 'rep@m.fr', 'prada@m.fr'], rang: 3, total: 3, multiActive: true, nbDernieres: 2, ...o });
+  it('règle B : rappel (rang 1) → défaut unique ; avis/saisine (2/3) → multi — comportement d’avant', () => {
+    expect(resoudreDestinatairesRelance(b({ rang: 1 }))).toEqual(['rep@m.fr']);
+    expect(resoudreDestinatairesRelance(b({ rang: 2 }))).toEqual(['urba@m.fr', 'rep@m.fr', 'prada@m.fr']);
+    expect(resoudreDestinatairesRelance(b({ rang: 3 }))).toEqual(['urba@m.fr', 'rep@m.fr', 'prada@m.fr']);
+  });
+  it('normalisation manuelle : ne dépend NI du rang NI de nbDernieres (envoie EXACTEMENT la liste cochée)', () => {
+    expect(normaliserDestinatairesManuels(['urba@m.fr', 'rep@m.fr']).to).toEqual(['urba@m.fr', 'rep@m.fr']); // aucune notion d'étape/rang
   });
 });

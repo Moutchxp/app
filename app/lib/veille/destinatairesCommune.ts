@@ -141,6 +141,25 @@ export async function lireSourcesAdressesCommune(demandeId: number, codeInsee: s
 }
 
 /**
+ * LOT 32 — NORMALISE une liste de destinataires CHOISIS À LA MAIN pour un envoi manuel MULTIPLE. PUR. Dédoublonne insensible à la
+ * casse (ordre préservé, 1re occurrence gardée), écarte les vides, et REFUSE (jamais un envoi silencieux) si une adresse n'est pas
+ * servable ou si, au final, la liste est vide (« au moins un destinataire »). Réutilise `estAdresseServable` (source d'exclusion unique).
+ */
+export function normaliserDestinatairesManuels(choisis: readonly string[]): { to: string[]; refus: string | null } {
+  const vus = new Set<string>();
+  const to: string[] = [];
+  for (const brut of choisis) {
+    const a = (brut ?? '').trim();
+    if (a === '') continue;
+    if (!estAdresseServable(a)) return { to: [], refus: 'adresse de destinataire invalide' };
+    if (vus.has(a.toLowerCase())) continue;                 // dédoublonnage insensible à la casse
+    vus.add(a.toLowerCase()); to.push(a);
+  }
+  if (to.length === 0) return { to: [], refus: 'au moins un destinataire est requis' };
+  return { to, refus: null };
+}
+
+/**
  * LOT 29 — OPTIONS + DÉFAUT du sélecteur de destinataire pour UNE demande (LECTURE SEULE). Options = jeu règle B ORDONNÉ avec
  * provenance ; défaut = règle A (dernier répondant, repli chaîne). Réutilise `lireDestinataireParDefaut` — aucune règle réécrite.
  */

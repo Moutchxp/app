@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 // Générateur + validateur PURS (aucun import serveur) → utilisables dans le bundle client pour l'aperçu et le pré-contrôle.
 import { composerComplementPieces, problemeTexteComplement } from '../../../../lib/permis/complementPieces';
 import type { FamillePlan } from '../../../../lib/permis/planMasse';
@@ -53,42 +53,45 @@ function OptionCompteRelance({ id, checked, onChange }: { id: string; checked: b
 }
 
 /**
- * LOT 29 — SÉLECTEUR DE DESTINATAIRE, COMPOSANT PARTAGÉ (même comportement dans « demander les pièces » ET « déclarer une relance »).
- *   • TOUTES les adresses connues de la commune (jeu règle B : répondants + adresse d'envoi + contacts confirmés + PRADA + ajouts main),
- *     visibles et choisissables, chacune avec sa PROVENANCE (l'écran ne laisse pas croire que toutes ont répondu).
+ * LOT 29/32 — SÉLECTEUR DE DESTINATAIRE(S), COMPOSANT PARTAGÉ (même comportement dans « demander les pièces » ET « déclarer une relance »).
+ *   • LOT 32 — MULTI-SÉLECTION : des CASES À COCHER (pas de liste déroulante native multiple, illisible sur mobile). TOUTES les adresses
+ *     connues de la commune (jeu règle B : répondants + adresse d'envoi + contacts confirmés + PRADA + ajouts main), chacune avec sa
+ *     PROVENANCE (l'écran ne laisse pas croire que toutes ont répondu). Tous les cochés partent en To (jamais Cci, décision Arno LOT 32).
  *   • AJOUT d'une adresse absente : format validé (FORME_EMAIL, miroir du CHECK base), dédoublonné insensible à la casse ; si déjà
- *     présente → simple sélection ; sinon ajoutée à la liste de session (marquée 'ajout') et signalée au serveur pour enregistrement.
- *   • Ne bloque JAMAIS : sans aucune adresse connue, la saisie reste possible et l'écran le dit. Mobile-first, sans hover, sans animation.
+ *     présente → simplement cochée ; sinon ajoutée à la liste de session (marquée 'ajout') ET pré-cochée (Arno vient de la saisir).
+ *   • Ne bloque JAMAIS l'ajout : sans aucune adresse connue, la saisie reste possible et l'écran le dit. Au moins un coché est exigé
+ *     (garde côté parent). Mobile-first, sans hover, sans animation.
  */
-function SelecteurDestinataire({ idBase, options, ajoutees, valeur, disabled, onChoisir, onAjouter }: {
-  idBase: string;
+function SelecteurDestinataire({ options, ajoutees, valeurs, disabled, onBasculer, onAjouter }: {
   options: OptionDestinataire[];      // du serveur (jeu règle B, défaut règle A en tête)
   ajoutees: OptionDestinataire[];     // ajoutées à la main pendant la session (avant le prochain rechargement serveur)
-  valeur: string;                     // adresse sélectionnée
+  valeurs: string[];                  // adresses COCHÉES (multi)
   disabled?: boolean;
-  onChoisir: (adresse: string) => void;
-  onAjouter: (adresse: string) => void; // nouvelle adresse (absente) : à mémoriser côté parent (provenance 'ajout') + sélectionner
+  onBasculer: (adresse: string) => void; // coche/décoche une adresse
+  onAjouter: (adresse: string) => void;   // nouvelle adresse (absente) : à mémoriser côté parent (provenance 'ajout') + pré-cocher
 }) {
   const [saisie, setSaisie] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const toutes = fusionnerOptions(options, ajoutees);
+  const estCochee = (a: string) => valeurs.some((v) => v.toLowerCase() === a.toLowerCase());
   const ajouter = () => {
     const a = saisie.trim();
     if (!FORME_EMAIL.test(a)) { setErr('Adresse e-mail invalide.'); return; }
     const existe = toutes.some((o) => o.adresse.toLowerCase() === a.toLowerCase());
-    if (existe) onChoisir(a); else onAjouter(a); // déjà connue → simple sélection (pas de doublon) ; sinon ajout
+    if (existe) { if (!estCochee(a)) onBasculer(a); } else onAjouter(a); // déjà présente → cocher si besoin ; sinon ajout (pré-coché)
     setSaisie(''); setErr(null);
   };
   return (
     <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
-      <legend style={{ ...muted, padding: 0 }}>Destinataire</legend>
+      <legend style={{ ...muted, padding: 0 }}>Destinataires (cochez une ou plusieurs adresses)</legend>
       {toutes.length === 0 && <span style={muted}>Aucune adresse connue de cette mairie — saisissez-en une ci-dessous.</span>}
       {toutes.map((o) => (
         <label key={o.adresse} style={{ display: 'flex', gap: '.4rem', alignItems: 'baseline', fontSize: 13, minWidth: 0 }}>
-          <input type="radio" name={idBase} checked={valeur.toLowerCase() === o.adresse.toLowerCase()} onChange={() => onChoisir(o.adresse)} disabled={disabled} style={{ flex: '0 0 auto' }} />
+          <input type="checkbox" checked={estCochee(o.adresse)} onChange={() => onBasculer(o.adresse)} disabled={disabled} style={{ flex: '0 0 auto' }} />
           <span style={{ minWidth: 0, wordBreak: 'break-all' }}>{o.adresse} <span style={muted}>({LABEL_PROVENANCE[o.provenance]})</span></span>
         </label>
       ))}
+      {toutes.length > 0 && valeurs.length === 0 && <span style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Cochez au moins un destinataire.</span>}
       <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '.15rem' }}>
         <input type="email" inputMode="email" value={saisie} onChange={(e) => { setSaisie(e.target.value); if (err) setErr(null); }}
           placeholder="ajouter une autre adresse…" aria-label="Ajouter une adresse de destinataire" disabled={disabled}
@@ -128,16 +131,17 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
   const [messageDecl, setMessageDecl] = useState<string | null>(null);
   // LOT 29 — destinataire choisi pour l'ENVOI et pour la DÉCLARATION (états séparés, MÊME sélecteur) + adresses ajoutées à la main
   //   pendant la session (partagées par les deux sélecteurs ; le prochain rechargement serveur les fera revenir de la base).
-  const [selDestEnvoi, setSelDestEnvoi] = useState('');
-  const [selDestDecl, setSelDestDecl] = useState('');
+  const [selDestEnvoi, setSelDestEnvoi] = useState<string[]>([]); // LOT 32 : multi-sélection (liste d'adresses cochées)
+  const [selDestDecl, setSelDestDecl] = useState<string[]>([]);
   const [ajoutees, setAjoutees] = useState<OptionDestinataire[]>([]);
 
   // Applique l'état reçu + PRÉSÉLECTION (règle A) des deux sélecteurs s'ils sont encore vierges (jamais d'écrasement d'un choix déjà
   //   fait par l'utilisateur). Appelé APRÈS un await (résolution du fetch) → pas de setState synchrone dans un corps d'effet.
   const appliquerEtat = useCallback((e: Etat) => {
     setEtat(e);
+    // LOT 32 — PRÉSÉLECTION = la SEULE adresse par défaut (règle A) ; le multiple reste un choix délibéré. Jamais d'écrasement d'un choix déjà fait.
     const d = e.destinataireDefaut ?? e.destinataire ?? '';
-    if (d) { setSelDestEnvoi((p) => p || d); setSelDestDecl((p) => p || d); }
+    if (d) { setSelDestEnvoi((p) => p.length ? p : [d]); setSelDestDecl((p) => p.length ? p : [d]); }
   }, []);
   useEffect(() => {
     let annule = false;
@@ -150,7 +154,15 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
     return () => { annule = true; };
   }, [dossierId, appliquerEtat]);
   const memoriserAjout = useCallback((a: string) => setAjoutees((prev) => prev.some((o) => o.adresse.toLowerCase() === a.toLowerCase()) ? prev : [...prev, { adresse: a, provenance: 'ajout' }]), []);
-  const estAjoutee = useCallback((a: string) => ajoutees.some((o) => o.adresse.toLowerCase() === a.trim().toLowerCase()), [ajoutees]);
+  // LOT 32 — bascule (coche/décoche) une adresse dans une liste de sélection ; ajout d'une adresse à la main = mémoriser + pré-cocher.
+  const basculer = useCallback((setter: Dispatch<SetStateAction<string[]>>) => (a: string) =>
+    setter((prev) => prev.some((x) => x.toLowerCase() === a.toLowerCase()) ? prev.filter((x) => x.toLowerCase() !== a.toLowerCase()) : [...prev, a]), []);
+  const ajouterDest = useCallback((setter: Dispatch<SetStateAction<string[]>>) => (a: string) => {
+    memoriserAjout(a);
+    setter((prev) => prev.some((x) => x.toLowerCase() === a.toLowerCase()) ? prev : [...prev, a]);
+  }, [memoriserAjout]);
+  // Sous-liste des adresses SÉLECTIONNÉES qui ont été ajoutées à la main (à enregistrer au carnet commune côté serveur).
+  const ajoutesParmi = useCallback((sel: string[]) => sel.filter((a) => ajoutees.some((o) => o.adresse.toLowerCase() === a.toLowerCase())), [ajoutees]);
   const chargerEtat = useCallback(async () => {
     try {
       const res = await fetch(`/api/admin/permis/demander-pieces?dossierId=${dossierId}`, { cache: 'no-store' });
@@ -187,15 +199,15 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
     try {
       const res = await fetch('/api/admin/permis/demander-pieces', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dossierId, familles: [...coches], objet, corps, compteCommeRelance: compteEnvoi, destinataire: selDestEnvoi, destinataireAjoute: estAjoutee(selDestEnvoi) }),
+        body: JSON.stringify({ dossierId, familles: [...coches], objet, corps, compteCommeRelance: compteEnvoi, destinataires: selDestEnvoi, destinatairesAjoutes: ajoutesParmi(selDestEnvoi) }),
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; destinataire?: string; erreur?: string };
       if (res.ok && d.ok) { setMessage(`Demande envoyée à ${d.destinataire}.`); setMode('cases'); await chargerEtat(); }
       else setMessage(libelleErreur(res.status, d.erreur, 'envoi impossible'));
     } catch { setMessage('envoi impossible'); } finally { setEnvoi(false); }
-  }, [dossierId, coches, objet, corps, compteEnvoi, selDestEnvoi, estAjoutee, chargerEtat]);
+  }, [dossierId, coches, objet, corps, compteEnvoi, selDestEnvoi, ajoutesParmi, chargerEtat]);
 
-  const peutEnvoyer = repliable && objet.trim() !== '' && corps.trim() !== '' && !envoi;
+  const peutEnvoyer = repliable && objet.trim() !== '' && corps.trim() !== '' && selDestEnvoi.length > 0 && !envoi; // LOT 32 : au moins un destinataire
 
   const basculerCaseDecl = (f: FamillePlan) => setCochesDecl((s) => { const n = new Set(s); if (n.has(f)) n.delete(f); else n.add(f); return n; });
 
@@ -205,13 +217,13 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
     try {
       const res = await fetch('/api/admin/permis/demander-pieces', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'declarer', dossierId, familles: [...cochesDecl], dateRelance: dateDecl, compteCommeRelance: compteDecl, destinataire: selDestDecl, destinataireAjoute: estAjoutee(selDestDecl) }),
+        body: JSON.stringify({ action: 'declarer', dossierId, familles: [...cochesDecl], dateRelance: dateDecl, compteCommeRelance: compteDecl, destinataires: selDestDecl, destinatairesAjoutes: ajoutesParmi(selDestDecl) }),
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
       if (res.ok && d.ok) { setMessageDecl('Relance déclarée (aucun e-mail envoyé).'); await chargerEtat(); }
       else setMessageDecl(libelleErreur(res.status, d.erreur, 'déclaration impossible'));
     } catch { setMessageDecl('déclaration impossible'); } finally { setEnCoursDecl(false); }
-  }, [dossierId, cochesDecl, dateDecl, compteDecl, selDestDecl, estAjoutee, chargerEtat]);
+  }, [dossierId, cochesDecl, dateDecl, compteDecl, selDestDecl, ajoutesParmi, chargerEtat]);
 
   // ANNULER une relance déclarée (réversibilité).
   const annulerDecl = useCallback(async (journalId: number) => {
@@ -224,7 +236,7 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
     } catch { setMessageDecl('annulation impossible'); }
   }, [chargerEtat]);
 
-  const peutDeclarer = dateDecl.trim() !== '' && cochesDecl.size > 0 && !enCoursDecl;
+  const peutDeclarer = dateDecl.trim() !== '' && cochesDecl.size > 0 && selDestDecl.length > 0 && !enCoursDecl; // LOT 32 : au moins un destinataire
 
   return (
     <div className="flex flex-col gap-2" style={{ minWidth: 0, marginTop: '.4rem', paddingTop: '.4rem', borderTop: '1px solid var(--color-svv-line)' }}>
@@ -234,7 +246,7 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
         : (
           <>
             {/* LOT 29 — l'annonce reflète le destinataire RÉELLEMENT sélectionné (règle A par défaut), et se met à jour au changement. */}
-            {repliable && (selDestEnvoi || etat.destinataire) && <span style={muted}>Sera envoyé dans le fil du dernier message, à {selDestEnvoi || etat.destinataire}.</span>}
+            {repliable && selDestEnvoi.length > 0 && <span style={muted}>Sera envoyé dans le fil du dernier message, à {selDestEnvoi.join(', ')}.</span>}
             {!repliable && <p role="note" style={{ margin: 0, fontSize: 12, color: 'var(--color-svv-red)' }}>Envoi impossible : {etat.motif ?? 'destinataire non répondable'}.</p>}
 
             <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
@@ -258,9 +270,9 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
             {mode === 'apercu' && (
               <div className="flex flex-col gap-2">
                 <span style={muted}>Relisez et modifiez si besoin. Le message envoyé sera EXACTEMENT ce texte.</span>
-                {/* LOT 29 — sélecteur de destinataire AU-DESSUS de l'objet. Désactivé si l'envoi est impossible (non répondable). */}
-                <SelecteurDestinataire idBase="dest-envoi" options={etat.adresses} ajoutees={ajoutees} valeur={selDestEnvoi} disabled={!repliable}
-                  onChoisir={setSelDestEnvoi} onAjouter={(a) => { memoriserAjout(a); setSelDestEnvoi(a); }} />
+                {/* LOT 29/32 — sélecteur MULTI de destinataires AU-DESSUS de l'objet. Désactivé si l'envoi est impossible (non répondable). */}
+                <SelecteurDestinataire options={etat.adresses} ajoutees={ajoutees} valeurs={selDestEnvoi} disabled={!repliable}
+                  onBasculer={basculer(setSelDestEnvoi)} onAjouter={ajouterDest(setSelDestEnvoi)} />
                 <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', fontSize: 12 }}>
                   <span style={muted}>Objet</span>
                   <input type="text" value={objet} onChange={(e) => setObjet(e.target.value)} style={styleChamp} aria-label="Objet du message" />
@@ -304,11 +316,11 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
                   </label>
                 ))}
               </fieldset>
-              {/* LOT 29 — MÊME sélecteur : à qui la relance a été envoyée (constat). Non bloqué par « répondable » (aucun envoi ici). */}
+              {/* LOT 29/32 — MÊME sélecteur MULTI : à qui la relance a été envoyée (constat). Non bloqué par « répondable » (aucun envoi ici). */}
               <div style={{ marginTop: '.3rem' }}>
-                <SelecteurDestinataire idBase="dest-decl" options={etat.adresses} ajoutees={ajoutees} valeur={selDestDecl}
-                  onChoisir={setSelDestDecl} onAjouter={(a) => { memoriserAjout(a); setSelDestDecl(a); }} />
-                {selDestDecl && <span style={{ ...muted, display: 'block', marginTop: '.15rem' }}>Relance déclarée comme envoyée à {selDestDecl}.</span>}
+                <SelecteurDestinataire options={etat.adresses} ajoutees={ajoutees} valeurs={selDestDecl}
+                  onBasculer={basculer(setSelDestDecl)} onAjouter={ajouterDest(setSelDestDecl)} />
+                {selDestDecl.length > 0 && <span style={{ ...muted, display: 'block', marginTop: '.15rem' }}>Relance déclarée comme envoyée à {selDestDecl.join(', ')}.</span>}
               </div>
               <OptionCompteRelance id="compte-decl" checked={compteDecl} onChange={setCompteDecl} />
               {/* POLISH (Arno) : fond PLEIN dès qu'une date valide rend le geste cliquable ; fond clair tant qu'il est inactif. Libellé inchangé. */}
