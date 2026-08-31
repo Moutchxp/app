@@ -331,7 +331,7 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
                               },
                               // UNIF-2 — familles PER-PERMIS (si non vides), sous-sections par permis, contenu chargé AU DÉPLIAGE (paresse).
                               { cle: 'completude', titre: LIBELLE_FAMILLE.completude, nonVide: d.completudeNonVide,
-                                contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} />} /> },
+                                contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} sansPli />} /> },
                               { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: d.caracteristiquesNonVide,
                                 contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={id} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
                               { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: d.batimentsNonVide,

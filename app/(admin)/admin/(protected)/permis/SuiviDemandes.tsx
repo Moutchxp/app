@@ -793,7 +793,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                 },
                 // UNIF-1 — familles PER-PERMIS (si non vides) : sous-sections par permis, contenu chargé AU DÉPLIAGE (SousSectionsPermis) → jamais N appels lourds d'un coup.
                 { cle: 'completude', titre: LIBELLE_FAMILLE.completude, nonVide: richDetail.completudeNonVide,
-                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} />} /> },
+                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} sansPli />} /> },
                 { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: richDetail.caracteristiquesNonVide,
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={id} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
                 { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: richDetail.batimentsNonVide,

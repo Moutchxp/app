@@ -61,7 +61,10 @@ describe('PERF-1 — BlocCompletude : titre renommé + bilan + détail au dépli
   });
   it('bilan dérivé du diagnostic mémorisé (resumeCompletude) et détail derrière une render-prop', () => {
     expect(COMPLETUDE).toContain('resumeCompletude');
-    expect(COMPLETUDE).toContain('() => <CorpsCompletude');
+    // Q4 — le détail (CorpsCompletude) reste monté PARESSEUSEMENT via la render-prop de BlocRepliable dans le chemin AUTONOME (Analyse) :
+    //   `corps` = l'élément CorpsCompletude, rendu par `{() => corps}` (comportement PERF-1 inchangé) ; en `sansPli` il est rendu direct (encart).
+    expect(COMPLETUDE).toContain('<CorpsCompletude etat={etat}');
+    expect(COMPLETUDE).toContain('{() => corps}');
   });
 });
 

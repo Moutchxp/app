@@ -702,6 +702,30 @@ export function RetourMairie({ etat, nbReponses, derniereReponseLe, provenances 
  * `avecSelection` (défaut vrai) masque la colonne de cases à cocher là où il n'y a aucune action groupée (Q6 : onglet « en
  * cours ») — pas de contrôle inerte à l'écran.
  */
+/**
+ * Q3 — CELLULE STATUT : le libellé de cascade partielle (« Relance ordinaire arrêtée depuis… », ~200 caractères) ne doit PLUS dicter
+ * la largeur de la table. On CIBLE cette seule cellule (jamais le `nowrap` partagé par dates/références) : largeur MAX + retour à la
+ * ligne (`whiteSpace:'normal'` + `wordBreak`), aligné en haut/à gauche pour un paragraphe lisible. Mobile-first : la colonne reste bornée.
+ */
+const STYLE_CELLULE_STATUT: CSSProperties = { ...styleTdD, maxWidth: 280, whiteSpace: 'normal', wordBreak: 'break-word', textAlign: 'left', verticalAlign: 'top' };
+export function CelluleStatut({ d }: { d: DemandeAffichee }) {
+  return (
+    <td style={STYLE_CELLULE_STATUT}>
+      {d.cascade ? (
+        <>
+          <div>{d.cascade.libelle}</div>
+          <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{d.cascade.prochaine}</div>
+        </>
+      ) : (
+        <>
+          <div>{STATUT_LIBELLE[d.statut] ?? d.statut}</div>
+          {d.envoyeLe ? <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{formaterDateHeureLocale(d.envoyeLe)}</div> : null}
+        </>
+      )}
+    </td>
+  );
+}
+
 export function TableDemandes({
   visibles, categories, tri, sel, toutCoche, messageVide, avecSelection = true, demandeOuverte = null, panneau, colonnesSuivi, onTrier, onToutSelectionner, onBasculer, onOuvrir,
 }: {
@@ -752,20 +776,9 @@ export function TableDemandes({
                   <td style={styleTdD}><OrigineDest origine={d.destOrigine} nom={d.destNom} /></td>
                   <td style={styleTdD}>{d.nbDossiers}</td>
                   {/* FUS — Statut + DATE/HEURE effective d'envoi. Lot 4 (« En cours ») — le STATUT DÉRIVÉ de la cascade (libellé + prochaine
-                       étape) prime : il reflète le dernier envoi RÉEL. La colonne « Retour mairie » (à côté) reste réservée à la MAIRIE. */}
-                  <td style={nowrap}>
-                    {d.cascade ? (
-                      <>
-                        <div>{d.cascade.libelle}</div>
-                        <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{d.cascade.prochaine}</div>
-                      </>
-                    ) : (
-                      <>
-                        <div>{STATUT_LIBELLE[d.statut] ?? d.statut}</div>
-                        {d.envoyeLe ? <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{formaterDateHeureLocale(d.envoyeLe)}</div> : null}
-                      </>
-                    )}
-                  </td>
+                       étape) prime : il reflète le dernier envoi RÉEL. La colonne « Retour mairie » (à côté) reste réservée à la MAIRIE.
+                       Q3 — cellule BORNÉE (largeur max + retour à la ligne) : le long libellé ne dicte plus la largeur de la table. */}
+                  <CelluleStatut d={d} />
                   {colonnesSuivi?.cellule(d) /* T6-A — Délai + Retour mairie (En cours) */}
                   <td style={styleTdD}>
                     <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }}

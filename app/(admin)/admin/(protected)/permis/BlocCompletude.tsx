@@ -29,7 +29,13 @@ type Etat = { statut: 'chargement' } | { statut: 'erreur' } | { statut: 'ok'; co
 
 const muted: React.CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
 
-export function BlocCompletude({ dossierId }: { dossierId: number }) {
+/**
+ * `sansPli` (Q4) : quand ce bloc est rendu SOUS le pli de FAMILLE « Complétude des pièces » de l'encart (En cours / Réponses), il ne
+ * doit PAS s'envelopper dans son propre `BlocRepliable` — sinon deux plis emboîtés = 2 clics pour voir le contenu (défaut « Complétude »).
+ * On rend alors le CORPS directement, sans 2e en-tête (qui ferait doublon avec le titre de famille). En « Analyse et projection », le
+ * bloc est AUTONOME (`sansPli` absent) → son pli propre RESTE. Le fetch au montage (bilan) est INCHANGÉ dans les deux cas.
+ */
+export function BlocCompletude({ dossierId, sansPli = false }: { dossierId: number; sansPli?: boolean }) {
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
   const [recalcEnCours, setRecalcEnCours] = useState(false); // PERF-2 — recalcul auto (GED changée) en tâche de fond
   const [recalcEchoue, setRecalcEchoue] = useState(false);   // PERF-2 — l'auto-recalcul a échoué : on le DIT, on ne montre pas un faux bilan
@@ -62,9 +68,13 @@ export function BlocCompletude({ dossierId }: { dossierId: number }) {
     return () => { annule = true; };
   }, [dossierId]);
 
+  const corps = <CorpsCompletude etat={etat} dossierId={dossierId} recalcEnCours={recalcEnCours} recalcEchoue={recalcEchoue} />;
+  // Q4 — sous le pli de FAMILLE de l'encart : corps DIRECT, aucun 2e pli (1 seul geste), aucun titre en doublon.
+  if (sansPli) return corps;
+  // Analyse et projection : bloc autonome → son pli propre (titre + bilan léger, corps monté au dépliage) est CONSERVÉ.
   return (
     <BlocRepliable titre={<TitreBilan etat={etat} recalcEnCours={recalcEnCours} recalcEchoue={recalcEchoue} />}>
-      {() => <CorpsCompletude etat={etat} dossierId={dossierId} recalcEnCours={recalcEnCours} recalcEchoue={recalcEchoue} />}
+      {() => corps}
     </BlocRepliable>
   );
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, CellulePermis, CelluleReference, sequenceReference, formaterDateHeureLocale, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
+import { OrigineDest, EncartArbitrages, BlocRepliable, BlocInjoignables, libelleInjoignables, CarteAmbiguite, CarteInjoignable, CarteDepot, BoutonAnnulerDepot, CartePropositions, EnteteTriable, FiltreTypes, CelluleType, CelluleStatut, ConteneurTableDefilant, TableDemandes, PanneauDetailDemande, RetourMairie, etatRetourMairie, CellulePermis, CelluleReference, sequenceReference, formaterDateHeureLocale, BlocStock, TableStock, PanneauDetailStock, libelleStock, BandeauReglages, retirerCommune, repartirRetour, MessageRetour, MentionMasquage, BlocDossiersDetail, STATUT_LIBELLE, type RetourAction, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche, type DepotAffiche, type LotAffiche, type DemandeAffichee } from './DemandesRendu';
 import type { Tri } from '../../../../lib/sitadel/demandesListe';
 import { genererTexte, piecesDepuisConfig, type Lot, type ConfigDemandeur, type CandidatDossier } from '../../../../lib/sitadel/demande';
 import { BlocLiens } from './ReponsesRendu';
@@ -1247,5 +1247,27 @@ describe('Q4 — stock : libellé de fenêtre DYNAMIQUE (plus de « 6 » figé)'
       table: createElement('span', {}, 'TABLE'),
     }));
     expect(h).toContain('18 derniers mois');
+  });
+});
+
+/**
+ * Q3 — la cellule STATUT ne doit plus dicter la largeur de la table : largeur MAX + retour à la ligne (pas le `nowrap` partagé). Le
+ * long libellé de cascade partielle (~200 caractères) reste ENTIÈREMENT lisible, mais borné. On rend la cellule dans un table/tbody/tr
+ * (évite le warning « <td> hors <tr> »).
+ */
+describe('Q3 — CelluleStatut : bornée (max-width + wrap), plus de nowrap qui étire la table', () => {
+  const LONG = 'Relance ordinaire arrêtée depuis le 31/08/2026 — relance de complément déclarée (pièces : Formulaire Cerfa, Plans d’étages). La réclamation ciblée reste possible.';
+  const rendre = (d: unknown) => renderToStaticMarkup(createElement('table', null, createElement('tbody', null, createElement('tr', null, createElement(CelluleStatut, { d: d as DemandeAffichee })))));
+  it('cascade longue → libellé entier présent, cellule à max-width et SANS white-space:nowrap', () => {
+    const h = rendre({ cascade: { libelle: LONG, prochaine: '' }, statut: 'envoyee', envoyeLe: null });
+    expect(h).toContain('Relance ordinaire arrêtée depuis le 31/08/2026'); // texte complet, jamais tronqué en dur
+    expect(h).toContain('max-width:280px');       // la colonne est BORNÉE
+    expect(h).toContain('white-space:normal');    // retour à la ligne autorisé
+    expect(h).not.toContain('white-space:nowrap'); // 🔴 plus de nowrap sur CETTE cellule
+  });
+  it('statut simple (sans cascade) → libellé + date, même cellule bornée', () => {
+    const h = rendre({ cascade: null, statut: 'envoyee', envoyeLe: '2026-07-01T10:00:00Z' });
+    expect(h).toContain('max-width:280px');
+    expect(h).not.toContain('white-space:nowrap');
   });
 });

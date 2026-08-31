@@ -18,6 +18,16 @@ interface Etat { numDau: string | null; destinataire: string | null; repliable: 
 const muted: React.CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
 const styleChamp: React.CSSProperties = { width: '100%', padding: '.4rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, boxSizing: 'border-box' };
 
+/**
+ * Q9 — jour civil 'YYYY-MM-DD' en heure LOCALE, JAMAIS `toISOString().slice(0,10)` : le soir, l'instant UTC bascule d'un jour et le
+ * champ afficherait la veille/le lendemain (exactement le piège du butoir corrigé au LOT 1). Composition depuis les champs LOCAUX de
+ * la Date (getFullYear/getMonth/getDate), déterministe et sans dépendance de locale. Le back ancre ensuite à 12:00 Europe/Paris (LOT 1).
+ */
+export function jourCivilLocal(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 /** Libellé lisible d'une réponse d'erreur. La barrière d'accès émet 401 (session expirée, via le proxy) OU 403 (compte
  * révoqué / non-admin / changement de mot de passe requis, via la garde de route) : les DEUX doivent inviter à se reconnecter,
  * JAMAIS afficher le code machine brut (« INTERDIT », « ACCES_REVOQUE »…). Tout autre statut → message métier de la route, sinon repli. */
@@ -181,10 +191,15 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
             <div style={{ marginTop: '.5rem', padding: '.5rem', border: '1px dashed var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)' }}>
               <strong style={{ fontSize: 12 }}>Déclarer une relance déjà envoyée (hors outil)</strong>
               <p style={{ ...muted, margin: '.15rem 0' }}>Constat, pas un envoi : aucun e-mail ne part. Enregistre une relance que vous avez faite vous-même depuis votre boîte.</p>
-              <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', fontSize: 12, maxWidth: 220 }}>
-                <span style={muted}>Date de la relance</span>
-                <input type="date" value={dateDecl} onChange={(e) => setDateDecl(e.target.value)} style={styleChamp} aria-label="Date de la relance déjà envoyée" />
-              </label>
+              <div style={{ display: 'flex', gap: '.4rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', fontSize: 12, maxWidth: 220 }}>
+                  <span style={muted}>Date de la relance</span>
+                  <input type="date" value={dateDecl} onChange={(e) => setDateDecl(e.target.value)} style={styleChamp} aria-label="Date de la relance déjà envoyée" />
+                </label>
+                {/* Q9 — raccourci « Aujourd'hui » : remplit le champ au jour LOCAL (jamais UTC). N'a aucun autre effet (peutDeclarer suit dateDecl). */}
+                <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.35rem .7rem', whiteSpace: 'nowrap' }}
+                  onClick={() => setDateDecl(jourCivilLocal(new Date()))}>Aujourd’hui</button>
+              </div>
               <fieldset style={{ border: 0, margin: '.3rem 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
                 <legend style={{ ...muted, padding: 0 }}>Pièces alors demandées :</legend>
                 {famillesManquantes.map((f) => (
