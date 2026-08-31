@@ -10,7 +10,7 @@ import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetai
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
 import { EtatDemande, DetailDossiers, ActionsCloture, RappelObtenusArchives, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, demandeADuRetour, formaterDate, type RetourCible } from './ReponsesRendu';
 import { etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
-import { statutCascade, prochaineEtape, type EnvoiAutoInfos } from '../../../../lib/veille/statutCascade';
+import { statutCascade, prochaineEtape, libelleCourtCascade, type EnvoiAutoInfos } from '../../../../lib/veille/statutCascade';
 import { libelleSuspension, dateButoirPartiel, libelleDelaiProlonge } from '../../../../lib/permis/dossierPartiel'; // CASC-1/CASC-2 : suspension + délai CADA prolongé (dossier partiel)
 import { RefMairieCellule, EditeurReferenceMairie } from './RefMairieCellule';
 // UNIF-1 — encart de familles (socle UNIF-0) + les 4 blocs PER-PERMIS réutilisés depuis « Analyse » (chargés paresseusement au dépliage).
@@ -150,7 +150,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
 
   // Lot 4 — STATUT DÉRIVÉ de la cascade (libellé + prochaine étape), calculé À LA LECTURE, jamais stocké. Colonne STATUT.
   const cascadeParId = useMemo(() => {
-    const m = new Map<number, { libelle: string; prochaine: string }>();
+    const m = new Map<number, { libelle: string; prochaine: string; court: string }>();
     if (!suivi) return m;
     for (const d of suivi.parId.values()) {
       const entree = {
@@ -161,8 +161,8 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
       // CASC-1 — SUSPENSION VISIBLE : si « dossier partiel » actif, le libellé de cascade DIT la suspension (raison + date) et il n'y a
       //   pas de prochaine étape ordinaire. CASC-2 — EN PLUS (jamais à la place), la date butoir CADA prolongée (partiel_le + 1 mois + 4 j).
       m.set(d.demandeId, d.suspension
-        ? { libelle: `${libelleSuspension(d.suspension)} ${libelleDelaiProlonge(dateButoirPartiel(new Date(d.suspension.le), suivi.partielDelai.mois, suivi.partielDelai.jours))}`, prochaine: '' }
-        : { libelle: statutCascade(entree, maintenant, suivi.cascade, suivi.envoi), prochaine: prochaineEtape(entree, maintenant, suivi.cascade) });
+        ? { libelle: `${libelleSuspension(d.suspension)} ${libelleDelaiProlonge(dateButoirPartiel(new Date(d.suspension.le), suivi.partielDelai.mois, suivi.partielDelai.jours))}`, prochaine: '', court: 'Arrêtée' } // LOT-7 : colonne = « Arrêtée » (un mot), phrase complète en infobulle
+        : { libelle: statutCascade(entree, maintenant, suivi.cascade, suivi.envoi), prochaine: prochaineEtape(entree, maintenant, suivi.cascade), court: libelleCourtCascade(entree, maintenant, suivi.cascade) });
     }
     return m;
   }, [suivi, maintenant]);

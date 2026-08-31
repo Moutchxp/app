@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { statutCascade, prochaineEtape, statutSaisine, type EntreeStatutCascade, type EntreeStatutSaisine } from './statutCascade';
+import { statutCascade, prochaineEtape, libelleCourtCascade, statutSaisine, type EntreeStatutCascade, type EntreeStatutSaisine } from './statutCascade';
 import type { ReglagesCascade } from './cascadeRelance';
 
 /**
@@ -113,5 +113,31 @@ describe('lot 5b (B) — statutSaisine : un libellé lisible par état, e-mail v
   });
   it('préparée mais pas envoyée, adresse CADA configurée → « Saisine préparée, non envoyée »', () => {
     expect(statutSaisine(s({ statut: 'brouillon', cadaEmailVide: false }))).toBe('Saisine préparée, non envoyée');
+  });
+});
+
+/**
+ * LOT-7 (A) — libelleCourtCascade : un ÉTAT court (une ligne), MÊME priorité que statutCascade. Sert la colonne « Statut » (texte
+ * complet en infobulle). La suspension (« Arrêtée ») est décidée en amont, hors de cette fonction.
+ */
+describe('LOT-7 — libelleCourtCascade : état compact, jamais une phrase', () => {
+  const maint = j('2026-04-20T12:00:00Z'); // après tous les jalons (échéance 14/04, CADA 18/04)
+  it('saisine CADA envoyée → « Saisine CADA envoyée »', () => {
+    expect(libelleCourtCascade(e({ saisineCadaEnvoyeeLe: '2026-04-19T00:00:00Z' }), maint, REG)).toBe('Saisine CADA envoyée');
+  });
+  it('délai CADA atteint + dossiers dus → « Saisine CADA à lancer »', () => {
+    expect(libelleCourtCascade(e({ dossiersDus: 1 }), maint, REG)).toBe('Saisine CADA à lancer');
+  });
+  it('dernier envoi réel : rappel / avis / saisine annoncée → libellés courts', () => {
+    expect(libelleCourtCascade(e({ dernierEnvoiRelance: { variante: 'rappel', envoyeLe: ENVOI } }), j('2026-04-05T12:00:00Z'), REG)).toBe('Rappel envoyé');
+    expect(libelleCourtCascade(e({ dernierEnvoiRelance: { variante: 'avis', envoyeLe: ENVOI } }), j('2026-04-12T12:00:00Z'), REG)).toBe('Avis d’échéance envoyé');
+    expect(libelleCourtCascade(e({ dernierEnvoiRelance: { variante: 'saisine', envoyeLe: ENVOI } }), j('2026-04-15T12:00:00Z'), REG)).toBe('Saisine annoncée');
+  });
+  it('relance PRÉPARÉE non envoyée → « <nom> prêt » (jamais la longue phrase d’envoi auto)', () => {
+    expect(libelleCourtCascade(e({ relancePreparee: { variante: 'rappel' } }), j('2026-04-01T12:00:00Z'), REG)).toBe('Rappel prêt');
+  });
+  it('clôturée → « Clôturée » ; sinon → « Envoyée »', () => {
+    expect(libelleCourtCascade(e({ statut: 'close', dossiersDus: 0 }), maint, REG)).toBe('Clôturée');
+    expect(libelleCourtCascade(e({ envoyeLe: null, statutAcheminement: 'en_attente' }), j('2026-03-01T12:00:00Z'), REG)).toBe('Envoyée');
   });
 });

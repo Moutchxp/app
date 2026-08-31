@@ -6,6 +6,7 @@ import type { CleCategorie } from '../../../../lib/sitadel/priorite';
 import { PERIODES_STOCK, type LigneStock } from '../../../../lib/sitadel/stock';
 import { EditeurReferenceMairie } from './RefMairieCellule'; // FUS — éditeur PARTAGÉ de la référence mairie (cellule tableau ET détail : un seul comportement)
 import { BoutonCopier } from './BoutonCopier'; // DEPOT-1 — pastille de copie PARTAGÉE (texte + numéro de permis), même apparence
+import { SousBlocRepliable } from './SousBlocRepliable'; // LOT-7 (B) — corps de lettre derrière un pli léger (1 clic), réutilise le composant du LOT 5
 import type { PermisDetail, DemandeDetail } from '../../../../lib/sitadel/demandeRepo';
 
 /**
@@ -571,7 +572,7 @@ export interface DemandeAffichee {
   nbDossiers: number; statut: string; rangs?: number[];
   numeros?: string[]; // T6-B — num_dau des dossiers ACTIFS (colonne « N° permis »)
   envoyeLe?: string | null; // FUS — date/heure effective d'envoi (min demande_acheminement.envoye_le), affichée sous le statut ; absente hors « En cours »
-  cascade?: { libelle: string; prochaine: string } | null; // lot 4 — statut DÉRIVÉ de la cascade (colonne Statut, « En cours ») : libellé + prochaine étape. Absent ailleurs.
+  cascade?: { libelle: string; prochaine: string; court: string } | null; // lot 4 — statut DÉRIVÉ de la cascade (colonne Statut, « En cours ») : libellé complet (infobulle) + prochaine étape + libellé COURT affiché (LOT-7). Absent ailleurs.
 }
 
 /** T6-B — n° de SÉQUENCE d'une référence SVAV-DEM-AAAA-NNNNNN (dernier segment « NNNNNN »). Repli : la référence entière si le format diffère. PUR. */
@@ -587,10 +588,11 @@ const styleMono: CSSProperties = { fontFamily: 'var(--font-svv-mono, monospace)'
  * visible au SURVOL ET au FOCUS CLAVIER — cf. globals.css:62-66), aucun 2ᵉ mécanisme. Déclencheur = `<span tabIndex={0}>` (focusable
  * → `:focus-within` révèle l'infobulle au clavier). `idTip` doit être unique dans la page.
  */
-function AvecInfobulle({ visible, complet, idTip, style }: { visible: ReactNode; complet: string; idTip: string; style?: CSSProperties }) {
+function AvecInfobulle({ visible, complet, idTip, style, title }: { visible: ReactNode; complet: string; idTip: string; style?: CSSProperties; title?: string }) {
   return (
     <span className="svv-tip-wrap">
-      <span tabIndex={0} aria-describedby={idTip} style={{ cursor: 'help', ...style }}>{visible}</span>
+      {/* tabIndex=0 → bulle au FOCUS clavier (:focus-within) autant qu'au survol ; `title` natif = repli mobile/sans CSS (item 3). */}
+      <span tabIndex={0} aria-describedby={idTip} title={title} style={{ cursor: 'help', ...style }}>{visible}</span>
       <span role="tooltip" id={idTip} className="svv-tip">{complet}</span>
     </span>
   );
@@ -703,25 +705,25 @@ export function RetourMairie({ etat, nbReponses, derniereReponseLe, provenances 
  * cours ») — pas de contrôle inerte à l'écran.
  */
 /**
- * Q3 — CELLULE STATUT : le libellé de cascade partielle (« Relance ordinaire arrêtée depuis… », ~200 caractères) ne doit PLUS dicter
- * la largeur de la table. On CIBLE cette seule cellule (jamais le `nowrap` partagé par dates/références) : largeur MAX + retour à la
- * ligne (`whiteSpace:'normal'` + `wordBreak`), aligné en haut/à gauche pour un paragraphe lisible. Mobile-first : la colonne reste bornée.
+ * LOT-7 (A) — CELLULE STATUT : le libellé de cascade (jusqu'à ~200 caractères pour une suspension) NE DOIT PLUS dicter la largeur ni la
+ * hauteur de la table. On n'affiche qu'un LIBELLÉ COURT (l'état : « Arrêtée », « Envoyée », « Rappel envoyé »…), sur UNE ligne (nowrap,
+ * jamais de word-break), et le TEXTE COMPLET va dans une infobulle (survol + focus clavier + `title` natif en repli mobile). Le `nowrap`
+ * partagé (`styleTdD`) des autres colonnes n'est pas touché : style DÉDIÉ à cette cellule.
  */
-const STYLE_CELLULE_STATUT: CSSProperties = { ...styleTdD, maxWidth: 280, whiteSpace: 'normal', wordBreak: 'break-word', textAlign: 'left', verticalAlign: 'top' };
+const STYLE_CELLULE_STATUT: CSSProperties = { ...styleTdD, whiteSpace: 'nowrap', maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis' };
 export function CelluleStatut({ d }: { d: DemandeAffichee }) {
+  if (d.cascade) {
+    const complet = [d.cascade.libelle, d.cascade.prochaine].filter((s) => s && s.trim() !== '').join(' · ');
+    return (
+      <td style={STYLE_CELLULE_STATUT}>
+        <AvecInfobulle idTip={`statut-${d.id}`} complet={complet} title={complet} visible={d.cascade.court} style={{ whiteSpace: 'nowrap' }} />
+      </td>
+    );
+  }
   return (
     <td style={STYLE_CELLULE_STATUT}>
-      {d.cascade ? (
-        <>
-          <div>{d.cascade.libelle}</div>
-          <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{d.cascade.prochaine}</div>
-        </>
-      ) : (
-        <>
-          <div>{STATUT_LIBELLE[d.statut] ?? d.statut}</div>
-          {d.envoyeLe ? <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{formaterDateHeureLocale(d.envoyeLe)}</div> : null}
-        </>
-      )}
+      <div>{STATUT_LIBELLE[d.statut] ?? d.statut}</div>
+      {d.envoyeLe ? <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{formaterDateHeureLocale(d.envoyeLe)}</div> : null}
     </td>
   );
 }
@@ -857,8 +859,13 @@ export function PanneauDetailDemande({
         })}
         {!brouillon && <span style={{ color: 'var(--color-svv-muted)' }}>bascule impossible : la demande n&rsquo;est plus en brouillon.</span>}
       </div>
-      <textarea value={corps} onChange={(e) => onCorps(e.target.value)} rows={16} readOnly={!brouillon}
-        style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }} />
+      {/* LOT-7 (B) — corps de la lettre DERRIÈRE UN PLI (1 clic, pas de BlocRepliable imbriqué). Jamais supprimé : seule trace visible de
+           ce qui a été RÉELLEMENT envoyé à la mairie (précédent 18/08). OUVERT en BROUILLON (on le relit/édite avant envoi), FERMÉ une
+           fois envoyée (encart léger). Le bouton « Enregistrer le texte » (brouillon) reste hors du pli, toujours visible. */}
+      <SousBlocRepliable titre={`Texte de la demande${brouillon ? '' : ' envoyée'}`} defautOuvert={brouillon}>
+        <textarea value={corps} onChange={(e) => onCorps(e.target.value)} rows={16} readOnly={!brouillon}
+          style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }} />
+      </SousBlocRepliable>
       {/* T6-A — « En cours » injecte DetailDossiers (actions T1) ; sinon, détail brut des dossiers (À demander, inchangé). */}
       {slotDossiers ?? <BlocDossiersDetail dossiers={detail.dossiers} retires={detail.dossiersRetires} />}
       {/* UNIF-1 — masqué quand l'appelant range l'éditeur dans son encart (famille « Suivi & actions ») ; sinon rendu ici (À demander). */}

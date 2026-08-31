@@ -593,9 +593,9 @@ describe('D3 — TableDemandes : colonne « Type » en 2e position + conteneur d
   });
 
   it('lot 4 — colonne Statut « En cours » : le statut DÉRIVÉ de la cascade (libellé + prochaine étape) PRIME sur « envoyée + date »', () => {
-    const h = rendu({ visibles: [DEM({ statut: 'envoyee', envoyeLe: '2026-08-18T08:38:00Z', cascade: { libelle: 'Rappel envoyé le 25 août 2026 à 10:00', prochaine: 'Avis d’échéance prévu le 1 septembre 2026' } })] });
-    expect(h).toContain('Rappel envoyé le 25 août 2026 à 10:00'); // libellé de cascade dans la colonne Statut
-    expect(h).toContain('Avis d’échéance prévu le 1 septembre 2026'); // prochaine étape en information secondaire
+    const h = rendu({ visibles: [DEM({ statut: 'envoyee', envoyeLe: '2026-08-18T08:38:00Z', cascade: { court: 'Rappel envoyé', libelle: 'Rappel envoyé le 25 août 2026 à 10:00', prochaine: 'Avis d’échéance prévu le 1 septembre 2026' } })] });
+    expect(h).toContain('Rappel envoyé'); // LOT-7 : libellé COURT dans la colonne Statut
+    expect(h).toContain('Rappel envoyé le 25 août 2026 à 10:00 · Avis d’échéance prévu le 1 septembre 2026'); // texte complet (libellé + prochaine) dans l'infobulle
     expect(h).not.toContain('18/08/2026 10:38'); // la date brute d'envoi ne s'affiche plus quand la cascade prend la main
   });
 
@@ -736,18 +736,22 @@ describe('U7 — PanneauDetailDemande : contenu + actions du détail (déplacé 
     expect(pleine).not.toContain('Ajouter une référence mairie'); // champ NON rendu tant qu'une référence existe
   });
 
-  it('brouillon → corps ÉDITABLE + « Enregistrer le texte » / « Marquer prête » / « Annuler la demande »', () => {
+  it('brouillon → corps ÉDITABLE, pli OUVERT par défaut (on relit avant envoi) + « Enregistrer » / « Marquer prête » / « Annuler »', () => {
     const h = rendu({ statut: 'brouillon' });
+    expect(h).toContain('Texte de la demande'); // LOT-7 (B) : titre du pli
+    expect(h).toContain('CORPS DEMANDE');        // pli OUVERT en brouillon → corps monté et éditable
     expect(h).toContain('Enregistrer le texte');
     expect(h).toContain('Marquer prête');
     expect(h).toContain('Annuler la demande');
-    expect(h).not.toContain('readOnly');       // textarea éditable (aucun attribut readOnly)
+    expect(h).not.toContain('readOnly');         // textarea éditable (aucun attribut readOnly)
     expect(h).not.toContain('bascule impossible');
   });
 
-  it('non brouillon (prête) → textarea LECTURE SEULE, « bascule impossible », AUCUN bouton de transition', () => {
+  it('non brouillon (prête) → corps derrière un pli FERMÉ (« Texte de la demande envoyée », non monté), « bascule impossible », AUCUN bouton de transition', () => {
     const h = rendu({ statut: 'prete' });
-    expect(h).toContain('readOnly');           // textarea non éditable hors brouillon
+    expect(h).toContain('Texte de la demande envoyée'); // LOT-7 (B) : titre du pli, FERMÉ par défaut hors brouillon
+    expect(h).not.toContain('CORPS DEMANDE');           // corps NON monté tant que le pli est fermé (1 clic pour l'ouvrir)
+    expect(h).not.toContain('readOnly');                // textarea pas encore montée
     expect(h).toContain('bascule impossible');
     expect(h).not.toContain('Marquer prête');
     expect(h).not.toContain('Enregistrer le texte');
@@ -1251,23 +1255,30 @@ describe('Q4 — stock : libellé de fenêtre DYNAMIQUE (plus de « 6 » figé)'
 });
 
 /**
- * Q3 — la cellule STATUT ne doit plus dicter la largeur de la table : largeur MAX + retour à la ligne (pas le `nowrap` partagé). Le
- * long libellé de cascade partielle (~200 caractères) reste ENTIÈREMENT lisible, mais borné. On rend la cellule dans un table/tbody/tr
- * (évite le warning « <td> hors <tr> »).
+ * LOT-7 (A) — la cellule STATUT n'affiche qu'un LIBELLÉ COURT (l'état) sur UNE ligne (nowrap, jamais de word-break) ; le TEXTE COMPLET
+ * va dans une infobulle (survol + focus clavier + `title` natif de repli). Le long libellé de cascade partielle (~200 caractères) ne
+ * dicte plus ni la largeur ni la hauteur de la table. On rend la cellule dans table/tbody/tr (évite le warning « <td> hors <tr> »).
  */
-describe('Q3 — CelluleStatut : bornée (max-width + wrap), plus de nowrap qui étire la table', () => {
+describe('LOT-7 (A) — CelluleStatut : libellé court + infobulle (texte complet), plus de pavé qui étire la ligne', () => {
   const LONG = 'Relance ordinaire arrêtée depuis le 31/08/2026 — relance de complément déclarée (pièces : Formulaire Cerfa, Plans d’étages). La réclamation ciblée reste possible.';
   const rendre = (d: unknown) => renderToStaticMarkup(createElement('table', null, createElement('tbody', null, createElement('tr', null, createElement(CelluleStatut, { d: d as DemandeAffichee })))));
-  it('cascade longue → libellé entier présent, cellule à max-width et SANS white-space:nowrap', () => {
-    const h = rendre({ cascade: { libelle: LONG, prochaine: '' }, statut: 'envoyee', envoyeLe: null });
-    expect(h).toContain('Relance ordinaire arrêtée depuis le 31/08/2026'); // texte complet, jamais tronqué en dur
-    expect(h).toContain('max-width:280px');       // la colonne est BORNÉE
-    expect(h).toContain('white-space:normal');    // retour à la ligne autorisé
-    expect(h).not.toContain('white-space:nowrap'); // 🔴 plus de nowrap sur CETTE cellule
+  it('cascade LONGUE → seul le libellé court « Arrêtée » est affiché, le texte intégral est dans l’infobulle (title + role=tooltip), cellule en nowrap', () => {
+    const h = rendre({ id: 154, cascade: { court: 'Arrêtée', libelle: LONG, prochaine: '' }, statut: 'envoyee', envoyeLe: null });
+    expect(h).toContain('>Arrêtée<');                 // libellé COURT visible (l'état)
+    expect(h).toContain('role="tooltip"');            // bulle présente
+    expect(h).toContain('Relance ordinaire arrêtée depuis le 31/08/2026'); // texte COMPLET dans la bulle…
+    expect(h).toContain(`title="${LONG}"`);           // …ET en repli `title` natif (mobile/sans CSS)
+    expect(h).toContain('white-space:nowrap');        // 🔴 une seule ligne : plus de pavé mot-à-mot
+    expect(h).not.toContain('word-break');            // jamais de coupure mot à mot
   });
-  it('statut simple (sans cascade) → libellé + date, même cellule bornée', () => {
-    const h = rendre({ cascade: null, statut: 'envoyee', envoyeLe: '2026-07-01T10:00:00Z' });
-    expect(h).toContain('max-width:280px');
-    expect(h).not.toContain('white-space:nowrap');
+  it('cascade COURTE → libellé court affiché tel quel + infobulle', () => {
+    const h = rendre({ id: 7, cascade: { court: 'Envoyée', libelle: 'Envoyée le 1 juillet 2026 à 12:00', prochaine: 'Rappel prévu le 20 août 2026' }, statut: 'envoyee', envoyeLe: null });
+    expect(h).toContain('>Envoyée<');
+    expect(h).toContain('Envoyée le 1 juillet 2026 à 12:00 · Rappel prévu le 20 août 2026'); // libellé + prochaine, joints, dans la bulle
+  });
+  it('statut simple (sans cascade) → libellé court + date, même cellule nowrap', () => {
+    const h = rendre({ id: 3, cascade: null, statut: 'envoyee', envoyeLe: '2026-07-01T10:00:00Z' });
+    expect(h).toContain('white-space:nowrap');
+    expect(h).not.toContain('word-break');
   });
 });

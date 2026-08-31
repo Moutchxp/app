@@ -94,6 +94,29 @@ export function statutCascade(e: EntreeStatutCascade, maintenant: Date, reglages
 }
 
 /**
+ * LOT-7 (A) — LIBELLÉ COURT de la colonne STATUT : un ÉTAT (un mot), jamais la phrase, DÉRIVÉ de l'état réel — MÊMES branches et MÊME
+ * priorité que `statutCascade`, mais compact et sur UNE ligne (le texte complet va dans l'infobulle). La suspension (« Arrêtée ») est
+ * décidée en amont (elle ne passe pas par `EntreeStatutCascade`). Jamais une troncature de chaîne : chaque libellé est nommé.
+ */
+export function libelleCourtCascade(e: EntreeStatutCascade, maintenant: Date, reglages: ReglagesCascade): string {
+  if (e.saisineCadaEnvoyeeLe) return 'Saisine CADA envoyée';
+  if (e.dossiersDus > 0 && e.envoyeLe !== null && e.statutAcheminement === 'envoye') {
+    const saisineLe = saisineLeDe(new Date(e.envoyeLe), reglages.saisineDelaiJours);
+    if (maintenant.getTime() >= saisineLe.getTime()) return 'Saisine CADA à lancer';
+  }
+  if (e.dernierEnvoiRelance) {
+    switch (e.dernierEnvoiRelance.variante) {
+      case 'rappel': return 'Rappel envoyé';
+      case 'avis': return 'Avis d’échéance envoyé';
+      default: return 'Saisine annoncée';
+    }
+  }
+  if (e.relancePreparee) return `${LIBELLE_RELANCE[e.relancePreparee.variante] ?? 'Relance'} prêt`;
+  if (e.statut === 'close') return 'Clôturée';
+  return 'Envoyée';
+}
+
+/**
  * PROCHAINE ÉTAPE de la cascade + sa date prévue (« Avis d'échéance prévu le 1 septembre 2026 »). Calculée par les jalons de la
  * fenêtre (lot 3). Si AUCUNE étape n'est prévue, le DIT explicitement (clôturée / non délivrée / tous dossiers obtenus / saisine
  * déjà partie / plus d'étape ultérieure) — jamais vide.
