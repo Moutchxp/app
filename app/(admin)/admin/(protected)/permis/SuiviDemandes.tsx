@@ -449,12 +449,8 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
       );
     },
   } : undefined;
-  // CASC-1 — LEVÉE MANUELLE du marqueur « dossier partiel » (recours d'Arno). Aucun envoi ; reprend simplement la relance ordinaire.
-  async function leverSuspension(demandeId: number): Promise<void> {
-    const res = await fetch('/api/admin/permis/demandes/lever-suspension', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ demandeId }) });
-    if (res.ok) { annoncer('Suspension levée — la relance ordinaire reprend.', true, 'detail'); rafraichirSuivi(); if (detail) void ouvrir(detail.id, true); }
-    else annoncer(await erreurServeur(res, 'Levée impossible.'), false, 'detail');
-  }
+  // CASC-1 — pas de levée MANUELLE : une fois en cascade partielle, on ne revient pas dans la cascade ordinaire (règle porteur). La SEULE
+  //   sortie est automatique (`evaluerLeveeAutoPartiel`) quand toutes les pièces sont arrivées → le permis passe en « Analyse et projection ».
 
   // CASC-3 — PRÉPARATION (2 temps) d'une relance/annonce de cascade partielle : brouillon pré-rempli, relu/modifié, envoyé au clic.
   const [cascadeEd, setCascadeEd] = useState<{ objet: string; corps: string } | null>(null);
@@ -686,13 +682,12 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   cle: 'suivi_actions', nonVide: true, titre: LIBELLE_FAMILLE.suivi_actions,
                   contenu: () => (
                   <>
-                {/* CASC-1 — SUSPENSION visible (raison + date) + levée manuelle. Jamais un silence : la réclamation ciblée reste possible (bloc complétude). */}
+                {/* CASC-1 — ARRÊT de la relance ordinaire visible (raison + date). Jamais un silence : la réclamation ciblée reste possible (bloc complétude). Aucune levée manuelle (règle porteur : pas de retour au cycle ordinaire). */}
                 {richDetail.suspension && (
                   <div className="svv-card" role="note" style={{ borderColor: 'var(--color-svv-red)', fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
                     <span>{libelleSuspension(richDetail.suspension)}</span>
-                    {/* CASC-2 — EN PLUS de la suspension : date butoir CADA prolongée (partiel_le + 1 mois + 4 j). */}
+                    {/* CASC-2 — EN PLUS de l'arrêt : date butoir CADA prolongée (partiel_le + 1 mois + 4 j). */}
                     {suivi && <span>{libelleDelaiProlonge(dateButoirPartiel(new Date(richDetail.suspension.le), suivi.partielDelai.mois, suivi.partielDelai.jours))}</span>}
-                    <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem' }} onClick={() => void leverSuspension(detail.id)}>Lever la suspension</button>
                     {/* CASC-3 — cascade de relances partielles : étape en cours + prochaine date, EN PLUS de CASC-1/CASC-2. Préparation en 2 temps (relu/modifié), envoi au clic. */}
                     {richDetail.cascade && (() => {
                       const c = richDetail.cascade!;

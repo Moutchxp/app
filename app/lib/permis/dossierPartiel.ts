@@ -2,6 +2,7 @@
  * CASC-1 — logique PURE du marqueur « dossier partiel » (la mairie a répondu PARTIELLEMENT ; Arno a réclamé les pièces manquantes).
  * Aucune I/O. La DONNÉE (date, familles, origine) est portée par la demande ; ici, seules les DÉCISIONS pures.
  */
+import { LIBELLE_FAMILLE } from './diagnosticCompletude'; // libellés lisibles des pièces (Plan de masse, Formulaire Cerfa…) — source unique
 export type OriginePartiel = 'outil' | 'declaree'; // réclamation ENVOYÉE par l'outil (PART-3a/3c) ou DÉCLARÉE hors outil (PART-3e)
 
 /** Instantané du marqueur ACTIF, pour l'affichage (raison + date, jamais un silence). */
@@ -48,10 +49,20 @@ export function libelleDelaiProlonge(butoir: Date): string {
   return `Délai avant saisine CADA prolongé au ${jourFrParis(butoir)} (dossier partiel).`; // PART-B : JJ/MM/AAAA Europe/Paris (formateur unique)
 }
 
-/** Phrase de suspension affichée à l'écran (raison + date + origine) — jamais un silence inexpliqué. */
+/**
+ * Phrase affichée à l'écran (raison + date + origine) — jamais un silence inexpliqué.
+ *
+ * 🔴 « ARRÊTÉE », PAS « suspendue » : une fois dans la cascade partielle, ON NE REVIENT PAS dans la cascade ordinaire (règle porteur).
+ * Le retour au « cycle ordinaire » n'est ni voulu ni atteignable — la garde « 0 dossier dû » (relanceAuto) exclut définitivement la
+ * demande. On ne promet donc AUCUNE reprise : « suspendue » (qui laisse entendre une reprise) et « le cycle reprendra quand… »
+ * (comportement inatteignable) sont bannis. Ce qui se passera vraiment : quand toutes les pièces seront là, la levée automatique
+ * (`evaluerLeveeAutoPartiel`) fait passer le permis dans « Analyse et projection » — non promis ici pour garder le libellé COURT
+ * (cellule de tableau). Pièces en libellés LISIBLES (LIBELLE_FAMILLE), plus les codes bruts.
+ */
 export function libelleSuspension(etat: EtatPartiel): string {
-  const origine = etat.origine === 'outil' ? 'réclamation envoyée' : 'relance déclarée';
-  const familles = etat.familles.length > 0 ? ` (pièces : ${etat.familles.join(', ')})` : '';
-  // PART-B — date en JJ/MM/AAAA Europe/Paris (comme le reste de l'interface), plus l'ISO d'avant.
-  return `Relance ordinaire suspendue depuis le ${jourFrParis(etat.le)} — ${origine}${familles}. La réclamation ciblée reste possible ; le cycle ordinaire reprendra quand le dossier sera complet.`;
+  const origine = etat.origine === 'outil' ? 'réclamation de pièces envoyée' : 'relance de complément déclarée';
+  const lisible = (f: string): string => (LIBELLE_FAMILLE as Record<string, string | undefined>)[f] ?? f; // code → libellé, repli = code brut
+  const familles = etat.familles.length > 0 ? ` (pièces : ${etat.familles.map(lisible).join(', ')})` : '';
+  // PART-B — date en JJ/MM/AAAA Europe/Paris (comme le reste de l'interface).
+  return `Relance ordinaire arrêtée depuis le ${jourFrParis(etat.le)} — ${origine}${familles}. La réclamation ciblée reste possible.`;
 }

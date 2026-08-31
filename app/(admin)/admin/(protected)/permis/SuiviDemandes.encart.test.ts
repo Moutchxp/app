@@ -37,7 +37,6 @@ describe('UNIF-1 — NE RIEN PERDRE : les 9 gestes du détail « En cours » sur
     ['— action « marquer reçu »/« non fourni »/« annuler »', "action: 'marquer_dossier'"],
     ['— action « refus mairie »', "action: 'dossier_refus_mairie'"],
     ['— action « retirer » / « réattacher »', "action: 'retirer_dossier'"],
-    ['lever la suspension', 'void leverSuspension(detail.id)'],
     ['éditeur de cascade partielle', 'void envoyerCascade(detail.id'],
     ['référence mairie (ajouter/modifier/effacer)', '<EditeurReferenceMairie references={richDetail.referencesMairie}'],
     ['clôturer / rouvrir', "action: 'cloturer'"],

@@ -52,20 +52,24 @@ describe('CASC-1 — doitLeverAuto (levée auto = tous les permis complets, pur)
 
 describe('CASC-1 — libelleSuspension (raison + date, jamais un silence, pur)', () => {
   const etat = (over: Partial<EtatPartiel> = {}): EtatPartiel => ({ le: '2026-08-30T10:00:00Z', familles: ['cerfa', 'etage'], origine: 'outil', ...over });
-  it('porte la DATE (JJ/MM/AAAA Europe/Paris, PART-B), l’origine « réclamation envoyée » et les familles', () => {
+  it('porte la DATE (JJ/MM/AAAA Europe/Paris, PART-B), l’origine « réclamation de pièces envoyée » et les familles en libellés lisibles', () => {
     const s = libelleSuspension(etat());
-    expect(s).toContain('30/08/2026'); // PART-B : format JJ/MM/AAAA Europe/Paris (le '2026-08-30T10:00:00Z' → 30/08/2026 à Paris), plus l'ISO
+    expect(s).toContain('30/08/2026'); // PART-B : format JJ/MM/AAAA Europe/Paris (le '2026-08-30T10:00:00Z' → 30/08/2026 à Paris)
     expect(s).not.toContain('2026-08-30'); // l'ancien format ISO a disparu
-    expect(s).toContain('réclamation envoyée');
-    expect(s).toContain('cerfa, etage');
-    expect(s.toLowerCase()).toContain('suspendue');
+    expect(s).toContain('réclamation de pièces envoyée');
+    expect(s).toContain('Formulaire Cerfa, Plans d’étages'); // codes cerfa/etage → libellés lisibles (LIBELLE_FAMILLE), plus les codes bruts
+    // 🔴 LOT-2 : « arrêtée », jamais « suspendue » ; aucune promesse de reprise du cycle ordinaire (inatteignable, règle porteur).
+    expect(s).toContain('arrêtée');
+    expect(s.toLowerCase()).not.toContain('suspendue');
+    expect(s).not.toContain('reprendra');
+    expect(s).not.toContain('cycle ordinaire');
   });
-  it('origine déclarée → « relance déclarée »', () => {
-    expect(libelleSuspension(etat({ origine: 'declaree' }))).toContain('relance déclarée');
+  it('origine déclarée → « relance de complément déclarée »', () => {
+    expect(libelleSuspension(etat({ origine: 'declaree' }))).toContain('relance de complément déclarée');
   });
   it('sans familles → pas de parenthèse de pièces, mais toujours la raison', () => {
     const s = libelleSuspension(etat({ familles: [] }));
-    expect(s).toContain('réclamation envoyée');
+    expect(s).toContain('réclamation de pièces envoyée');
     expect(s).not.toContain('pièces :');
   });
   it('PART-B — la date est en heure Europe/Paris (bascule de jour), jamais en UTC', () => {
