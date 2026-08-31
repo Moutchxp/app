@@ -909,12 +909,23 @@ export function PanneauDetailDemande({
   masquerRefMairie?: boolean;
 }) {
   const brouillon = detail.statut === 'brouillon';
+  // LOT-11 (B/6) — libellé du profil : mapping 'entreprise'→'Société' / 'personne'→'Personne physique' ; repli propre sur un profil
+  //   inattendu ou absent (valeur brute, sinon « — ») → jamais un vide muet ni un « undefined » à l'écran.
+  const libelleProfil = ETIQUETTE_PROFIL[detail.profil as ProfilDemandeur] ?? (detail.profil?.trim() ? detail.profil : '—');
   return (
     <div className="flex flex-col gap-2" style={{ padding: '.6rem .5rem' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-        <strong>{detail.reference} — {detail.communeNom ?? detail.codeInsee} — {STATUT_LIBELLE[detail.statut] ?? detail.statut} — {ETIQUETTE_PROFIL[detail.profil as ProfilDemandeur] ?? detail.profil}</strong>
+        {/* LOT-11 (B) — profil dans le TITRE, en CAPSULE ROUGE (repérable d'un coup d'œil) : « … — envoyée — profil Société ». Le reste du titre garde son style. */}
+        <strong style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+          <span>{detail.reference} — {detail.communeNom ?? detail.codeInsee} — {STATUT_LIBELLE[detail.statut] ?? detail.statut} —</span>
+          <span style={{ background: 'var(--color-svv-red)', color: '#fff', fontWeight: 700, fontSize: 12, padding: '.1rem .5rem', borderRadius: 999, whiteSpace: 'nowrap' }}>profil {libelleProfil}</span>
+        </strong>
         <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .4rem' }} onClick={() => onFermer()}>fermer</button>
       </div>
+      {/* LOT-11 (A) — en BROUILLON uniquement : destinataire (où ça PARTIRA) + sélecteur de profil (le SEUL endroit où on le choisit avant
+           envoi). Sur une demande déjà envoyée, ces éléments sont RETIRÉS (geste inerte, info portée par le titre + la famille « Contact mairie »). */}
+      {brouillon && (
+      <>
       <div style={{ fontSize: 12, color: 'var(--color-svv-muted)', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <span>Destinataire figé : {detail.canal}{detail.destEmail ? ` · ${detail.destEmail}` : ''}{detail.destAdressePostale ? ` · ${detail.destAdressePostale}` : ''}{detail.destUrlFormulaire ? ` · ${detail.destUrlFormulaire}` : ''}</span>
         <OrigineDest origine={detail.destOrigine} nom={detail.destNom} />
@@ -926,13 +937,14 @@ export function PanneauDetailDemande({
           return (
             <button key={p} type="button"
               className={`svv-btn ${actif ? 'svv-btn-primary' : 'svv-btn-outline'}`}
-              style={{ padding: '.25rem .7rem', opacity: brouillon || actif ? 1 : 0.5, cursor: brouillon && !actif ? 'pointer' : 'default' }}
-              disabled={actif || !brouillon}
+              style={{ padding: '.25rem .7rem', cursor: !actif ? 'pointer' : 'default' }}
+              disabled={actif}
               onClick={() => onBascule(p)}>{ETIQUETTE_PROFIL[p]}</button>
           );
         })}
-        {!brouillon && <span style={{ color: 'var(--color-svv-muted)' }}>bascule impossible : la demande n&rsquo;est plus en brouillon.</span>}
       </div>
+      </>
+      )}
       {/* LOT-7 (B) — corps de la lettre DERRIÈRE UN PLI (1 clic, pas de BlocRepliable imbriqué). Jamais supprimé : seule trace visible de
            ce qui a été RÉELLEMENT envoyé à la mairie (précédent 18/08). OUVERT en BROUILLON (on le relit/édite avant envoi), FERMÉ une
            fois envoyée (encart léger). Le bouton « Enregistrer le texte » (brouillon) reste hors du pli, toujours visible. */}

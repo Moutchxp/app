@@ -738,7 +738,7 @@ describe('U7 — PanneauDetailDemande : contenu + actions du détail (déplacé 
     expect(pleine).not.toContain('Ajouter une référence mairie'); // champ NON rendu tant qu'une référence existe
   });
 
-  it('brouillon → corps ÉDITABLE, pli OUVERT par défaut (on relit avant envoi) + « Enregistrer » / « Marquer prête » / « Annuler »', () => {
+  it('brouillon → corps ÉDITABLE + en-tête complet (destinataire + SÉLECTEUR de profil, le geste avant envoi) + transitions', () => {
     const h = rendu({ statut: 'brouillon' });
     expect(h).toContain('Texte de la demande'); // LOT-7 (B) : titre du pli
     expect(h).toContain('CORPS DEMANDE');        // pli OUVERT en brouillon → corps monté et éditable
@@ -746,17 +746,36 @@ describe('U7 — PanneauDetailDemande : contenu + actions du détail (déplacé 
     expect(h).toContain('Marquer prête');
     expect(h).toContain('Annuler la demande');
     expect(h).not.toContain('readOnly');         // textarea éditable (aucun attribut readOnly)
+    // LOT-11 (A/2) — en BROUILLON, le SÉLECTEUR de profil est présent (seul endroit où on le choisit) + le destinataire figé.
+    expect(h).toContain('Destinataire figé');
+    expect(h).toContain('Profil :');             // libellé du sélecteur
+    expect(h).toContain('Personne physique');    // les deux boutons du sélecteur (Société via le titre + ici)
     expect(h).not.toContain('bascule impossible');
   });
 
-  it('non brouillon (prête) → corps derrière un pli FERMÉ (« Texte de la demande envoyée », non monté), « bascule impossible », AUCUN bouton de transition', () => {
-    const h = rendu({ statut: 'prete' });
+  it('LOT-11 (A) — non brouillon (envoyée) : en-tête ALLÉGÉ (ni destinataire figé, ni sélecteur, ni « bascule impossible »)', () => {
+    const h = rendu({ statut: 'envoyee' });
     expect(h).toContain('Texte de la demande envoyée'); // LOT-7 (B) : titre du pli, FERMÉ par défaut hors brouillon
     expect(h).not.toContain('CORPS DEMANDE');           // corps NON monté tant que le pli est fermé (1 clic pour l'ouvrir)
     expect(h).not.toContain('readOnly');                // textarea pas encore montée
-    expect(h).toContain('bascule impossible');
+    // 🔴 LOT-11 (A) — les 3 éléments décoratifs/inertes sont RETIRÉS sur une demande envoyée.
+    expect(h).not.toContain('bascule impossible');
+    expect(h).not.toContain('Destinataire figé');
+    expect(h).not.toContain('Profil :'); // le sélecteur (geste inerte) n'est plus rendu
     expect(h).not.toContain('Marquer prête');
     expect(h).not.toContain('Enregistrer le texte');
+  });
+
+  it('LOT-11 (B) — le TITRE porte le profil en CAPSULE ROUGE (« profil Société » / « profil Personne physique »), repli propre si inconnu/absent', () => {
+    expect(rendu({ statut: 'envoyee', profil: 'entreprise' })).toContain('profil Société');
+    const rouge = rendu({ statut: 'envoyee', profil: 'entreprise' });
+    expect(rouge).toContain('var(--color-svv-red)'); // capsule = rouge de la charte
+    expect(rouge).toContain('color:#fff');            // contraste texte/fond
+    expect(rendu({ statut: 'envoyee', profil: 'personne' })).toContain('profil Personne physique');
+    const inconnu = rendu({ statut: 'envoyee', profil: 'xyz' });
+    expect(inconnu).toContain('profil xyz');   // repli sur la valeur brute
+    expect(inconnu).not.toContain('undefined'); // jamais « undefined » à l'écran
+    expect(rendu({ statut: 'envoyee', profil: '' })).toContain('profil —'); // absent → tiret
   });
 
   it('références mairie : champ d’ajout si vide ; référence listée si présente ; « indisponibles » (sans éditeur) si lecture en erreur', () => {
