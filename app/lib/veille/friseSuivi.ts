@@ -44,6 +44,8 @@ export interface EntreeParcours {
   saisineCadaEnvoyeeLe: string | null;   // dépôt CADA réellement parti (→ « Dépôt de saisine CADA » effectué)
   annonceCadaEnvoyeeLe: string | null;   // annonce CADA réellement partie (→ « Information saisine CADA » effectuée, régime partiel)
   destinataireCourant: string | null;    // LOT 19 : destinataire ACTUEL de la demande (dest_email, figé par demande) → adresse des étapes d'envoi À VENIR (ordinaires)
+  bifurcationDestinataire: string | null; // LOT 21 : adresse servie de la RÉCLAMATION (bifurcation) — lue du journal ; PRÉSUMÉE si origine déclarée (envoi manuel non capté)
+  annonceCadaDestinataire: string | null; // LOT 21 : adresse servie de l'ANNONCE CADA effectuée (captée par l'outil, certaine)
   reglages: ReglagesParcours;
 }
 
@@ -54,10 +56,14 @@ const detailOrdinaire = (grade: string): string => (grade === 'Rappel' ? 'rappel
 // LOT 19 (point 11) — une relance PARTIELLE à venir part In-Reply-To du dernier message mairie : l'adresse peut changer → jamais une adresse figée trompeuse.
 const INTERLOCUTEUR_FUTUR = 'au dernier interlocuteur de la mairie';
 
-/** LOT 19 (points 9/12) — ligne de détail grise d'une étape d'ENVOI : l'adresse (« à … ») puis, le cas échéant, la nature. UNE seule ligne. */
-function detailEnvoi(adresse: string | null, nature: string | null): string | null {
+/**
+ * LOT 19/21 — ligne de détail grise d'une étape d'ENVOI : l'adresse (« à … ») puis, le cas échéant, la nature, séparées par un point
+ * médian (point 7). UNE seule ligne. `presume` (LOT 21, point 3) : marque une adresse dont on ne sait pas à qui le mail est RÉELLEMENT
+ * parti (envoi déclaré hors outil, ou repli sur le destinataire connu) → « à … (présumé) », jamais présentée comme certaine.
+ */
+function detailEnvoi(adresse: string | null, nature: string | null, presume = false): string | null {
   const parts: string[] = [];
-  if (adresse) parts.push(`à ${adresse}`);
+  if (adresse) parts.push(`à ${adresse}${presume ? ' (présumé)' : ''}`);
   if (nature) parts.push(nature);
   return parts.length > 0 ? parts.join(' · ') : null;
 }
@@ -93,9 +99,13 @@ export function projeterParcours(e: EntreeParcours): EvenementFrise[] {
     const J = iso(e.suspension.le);
     // Relances ordinaires réalisées AVANT la bifurcation → font partie de l'HISTOIRE (les non survenues, elles, disparaissent).
     for (const [grade, v] of ordRealise) if (v.le < J) evs.push({ le: v.le, quand: 'passe', libelle: 'Relance effectuée', detail: detailEnvoi(v.dest, detailOrdinaire(grade)) });
-    // BIFURCATION — « Relance pièces complémentaires » (fait, badge rouge cerclé).
+    // BIFURCATION — « Relance pièces complémentaires » (fait, badge rouge cerclé). LOT 21 : c'est un ENVOI → il porte une adresse.
+    //   Source : le destinataire STOCKÉ par la réclamation (journal) ; à défaut, le destinataire connu de la demande. PRÉSUMÉ si l'envoi
+    //   a été déclaré hors outil (adresse non captée) ou si aucune adresse n'est stockée — on ne présente jamais une adresse comme certaine à tort.
     const origine = e.suspension.origine === 'declaree' ? 'relance de complément déclarée hors outil' : 'complément de pièces réclamé par l’outil';
-    evs.push({ le: J, quand: 'passe', libelle: 'Relance pièces complémentaires', detail: origine, bifurcation: true });
+    const adresseBif = e.bifurcationDestinataire ?? e.destinataireCourant;
+    const presumeBif = e.suspension.origine === 'declaree' || e.bifurcationDestinataire === null; // déclarée (manuel) OU repli sur le destinataire connu
+    evs.push({ le: J, quand: 'passe', libelle: 'Relance pièces complémentaires', detail: detailEnvoi(adresseBif, origine, presumeBif), bifurcation: true });
     // Relances partielles (programmées → effectuées sur envoi réel).
     const rp = e.reglages.partiel;
     for (let k = 1; k <= rp.nbRelancesAvantAnnonce; k++) {
@@ -109,7 +119,8 @@ export function projeterParcours(e: EntreeParcours): EvenementFrise[] {
     // INFORMATION SAISINE CADA (l'annonce, In-Reply-To) — effectuée sur envoi réel (adresse non conservée), sinon programmée « au dernier interlocuteur ».
     const dateAnnonce = ajoute(J, rp.nbRelancesAvantAnnonce * rp.relanceJours + rp.annonceJours);
     evs.push(e.annonceCadaEnvoyeeLe
-      ? { le: iso(e.annonceCadaEnvoyeeLe), quand: 'passe', libelle: 'Information saisine CADA', detail: null }
+      // LOT 21 — annonce effectuée : adresse RÉELLEMENT servie (captée par l'outil, certaine) ; à défaut (colonne absente), rien.
+      ? { le: iso(e.annonceCadaEnvoyeeLe), quand: 'passe', libelle: 'Information saisine CADA', detail: detailEnvoi(e.annonceCadaDestinataire, null) }
       : { le: dateAnnonce, quand: 'avenir', libelle: 'Information saisine CADA', detail: INTERLOCUTEUR_FUTUR });
     // DÉPÔT DE SAISINE CADA — date la PLUS TARDIVE de (annonce + saisineJours) et du butoir CASC-2 (autorité) ; effectué sur dépôt réel.
     const butoir = dateButoirPartiel(new Date(iso(e.suspension.le)), e.reglages.cadaPartielMois, e.reglages.cadaPartielJours).toISOString();

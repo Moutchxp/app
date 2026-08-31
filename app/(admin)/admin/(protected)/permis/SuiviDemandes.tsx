@@ -699,6 +699,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                     envoyeLe: richDetail.envoyeLe, envois: richDetail.historiqueEnvois, suspension: richDetail.suspension,
                     saisineCadaEnvoyeeLe: richDetail.saisineCadaEnvoyeeLe, annonceCadaEnvoyeeLe: richDetail.annonceCadaEnvoyeeLe,
                     destinataireCourant: richDetail.contactMairie.destinataire, // LOT 19 : dest_email figé de la demande → adresse des envois à venir
+                    bifurcationDestinataire: richDetail.bifurcationDestinataire, annonceCadaDestinataire: richDetail.annonceCadaDestinataire, // LOT 21 : adresse de la réclamation + de l'annonce
                     reglages: { ordinaire: suivi.cascade, partiel: suivi.reglagesPartiel, cadaPartielMois: suivi.partielDelai.mois, cadaPartielJours: suivi.partielDelai.jours },
                   }) : [];
                   const c = richDetail.cascade;

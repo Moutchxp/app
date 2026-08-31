@@ -19,7 +19,7 @@ const initiale = (destinataire: string | null = 'mairie@ex.fr'): EnvoiHistorique
 const relanceOrd = (le: string, grade: string, destinataire: string | null = 'mairie@ex.fr'): EnvoiHistorique => ({ le, nature: 'relance_ordinaire', grade, libelle: `Relance — ${grade}`, destinataire });
 const relancePart = (le: string): EnvoiHistorique => ({ le, nature: 'relance_partielle', grade: '1re relance', libelle: 'Relance partielle — 1re relance', destinataire: null });
 const suspension = (le: string): EtatPartiel => ({ le, familles: ['cerfa'], origine: 'declaree' });
-const base = { envoyeLe: INITIAL, envois: [initiale()], suspension: null, saisineCadaEnvoyeeLe: null, annonceCadaEnvoyeeLe: null, destinataireCourant: 'urba@mairie.fr', reglages: REGLAGES };
+const base = { envoyeLe: INITIAL, envois: [initiale()], suspension: null, saisineCadaEnvoyeeLe: null, annonceCadaEnvoyeeLe: null, destinataireCourant: 'urba@mairie.fr', bifurcationDestinataire: null, annonceCadaDestinataire: null, reglages: REGLAGES };
 const jours = (ev: EvenementFrise[]) => ev.map((e) => ({ l: e.libelle, q: e.quand, d: e.le.slice(0, 10) }));
 
 describe('projeterParcours — régime ORDINAIRE', () => {
@@ -116,6 +116,31 @@ describe('LOT 19 (C) — DESTINATAIRE sur chaque étape d’envoi', () => {
   it('étape qui n’est PAS un envoi (Dépôt de saisine CADA) → AUCUNE adresse', () => {
     const p = projeterParcours({ ...base, suspension: suspension('2026-08-28T12:00:00Z') });
     expect(p.find((e) => e.libelle === 'Dépôt de saisine CADA')!.detail).toBeNull();
+  });
+
+  it('LOT 21 — la BIFURCATION porte l’adresse stockée par la réclamation, PRÉSUMÉE si déclarée hors outil', () => {
+    const p = projeterParcours({ ...base, suspension: suspension('2026-08-28T12:00:00Z'), bifurcationDestinataire: 'lauriane.pangui@mairie.fr' });
+    const bif = p.find((e) => e.bifurcation)!;
+    // adresse stockée + origine 'declaree' (fixture suspension) → présumé, puis la nature, séparés par « · »
+    expect(bif.detail).toBe('à lauriane.pangui@mairie.fr (présumé) · relance de complément déclarée hors outil');
+  });
+
+  it('LOT 21 — bifurcation via l’OUTIL (origine « outil ») + adresse stockée → adresse CERTAINE (pas de « présumé »)', () => {
+    const p = projeterParcours({ ...base, suspension: { le: '2026-08-28T12:00:00Z', familles: ['cerfa'], origine: 'outil' }, bifurcationDestinataire: 'urba@mairie.fr' });
+    const bif = p.find((e) => e.bifurcation)!;
+    expect(bif.detail).toBe('à urba@mairie.fr · complément de pièces réclamé par l’outil');
+  });
+
+  it('LOT 21 — AUCUNE adresse stockée pour la bifurcation → repli sur le destinataire connu, marqué PRÉSUMÉ (jamais sans adresse)', () => {
+    const p = projeterParcours({ ...base, suspension: { le: '2026-08-28T12:00:00Z', familles: ['cerfa'], origine: 'outil' }, bifurcationDestinataire: null, destinataireCourant: 'urba@mairie.fr' });
+    const bif = p.find((e) => e.bifurcation)!;
+    expect(bif.detail).toBe('à urba@mairie.fr (présumé) · complément de pièces réclamé par l’outil');
+  });
+
+  it('LOT 21 — annonce CADA effectuée → adresse RÉELLEMENT servie (captée, certaine)', () => {
+    const p = projeterParcours({ ...base, suspension: suspension('2026-08-28T12:00:00Z'), annonceCadaEnvoyeeLe: '2026-09-27T09:00:00Z', annonceCadaDestinataire: 'lauriane.pangui@mairie.fr' });
+    const info = p.find((e) => e.libelle === 'Information saisine CADA')!;
+    expect(info).toMatchObject({ quand: 'passe', detail: 'à lauriane.pangui@mairie.fr' });
   });
 });
 

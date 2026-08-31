@@ -169,6 +169,8 @@ export interface DemandeSuivi {
   relancePreparee: { variante: string } | null;                        // cascade lot 4 : brouillon vivant NON envoyé (« prêt, non envoyé »)
   saisineCadaEnvoyeeLe: string | null;                                 // cascade lot 4 : saisine CADA (type='saisine_cada') envoyée
   annonceCadaEnvoyeeLe: string | null;                                 // LOT 18 : annonce CADA (journal MOTIF_ANNONCE_CADA) réellement partie → « Information saisine CADA » effectuée (parcours partiel)
+  annonceCadaDestinataire: string | null;                              // LOT 21 : adresse servie de l'annonce CADA (captée par l'outil) → affichée sur l'étape « Information saisine CADA » effectuée
+  bifurcationDestinataire: string | null;                              // LOT 21 : adresse de la réclamation qui a fait basculer en dossier partiel (journal) → « Relance pièces complémentaires » n'est plus sans adresse
   dossiers: DossierSuivi[];
   // FIX-3 — dossiers dont le CONTENU per-permis (Complétude/Caractéristiques/Bâtiments/Pièces) est montré dans l'encart : les DÛS
   //   (= `dossiers`) PLUS les SATISFAITS d'une demande en PARTIEL ACTIF (incomplet mais revenu → « garde tout sous la main », UNIF-1).
@@ -738,16 +740,29 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     } catch { /* demande_sortant_hors_outil / details absents → aucune mention (dégradation sûre) */ }
   }
 
-  // LOT 18 — ANNONCE CADA réellement envoyée (journal MOTIF_ANNONCE_CADA) par demande : date du DERNIER → « Information saisine CADA »
-  //   effectuée dans la projection du parcours partiel. Lecture batchée SÉPARÉE (jamais un WHERE sur `dem`), résiliente (colonne/motif absents → aucun).
-  const annonceCadaParId = new Map<number, string>();
+  // LOT 18/21 — ANNONCE CADA réellement envoyée (journal MOTIF_ANNONCE_CADA) : DATE + DESTINATAIRE du DERNIER → « Information saisine CADA »
+  //   effectuée (date + adresse) dans la projection. Lecture batchée SÉPARÉE (jamais un WHERE sur `dem`), résiliente.
+  const annonceCadaParId = new Map<number, { le: string; destinataire: string | null }>();
+  // LOT 21 — DESTINATAIRE de la RÉCLAMATION qui a fait basculer en dossier partiel (bifurcation) : le journal (complément outil OU
+  //   déclaration hors outil) STOCKE l'adresse dans `details.destinataire`. On la lit pour que l'étape « Relance pièces complémentaires »
+  //   ne reste JAMAIS sans adresse. Le caractère certain/présumé est décidé à l'affichage selon l'origine (outil = capté, déclarée = présumé).
+  const reclamationDestParId = new Map<number, string>();
   if (ids.length > 0) {
     try {
-      const { rows } = await query<{ demande_id: number; le: string }>(
-        `SELECT demande_id::int AS demande_id, to_char(max(horodatage) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS le
-           FROM demande_journal WHERE demande_id = ANY($1) AND motif LIKE $2 || '%' GROUP BY demande_id`, [ids, MOTIF_ANNONCE_CADA_PREFIXE]);
-      for (const r of rows) annonceCadaParId.set(r.demande_id, r.le);
+      const { rows } = await query<{ demande_id: number; le: string; destinataire: string | null }>(
+        `SELECT DISTINCT ON (demande_id) demande_id::int AS demande_id,
+                to_char(horodatage AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS le, details->>'destinataire' AS destinataire
+           FROM demande_journal WHERE demande_id = ANY($1) AND motif LIKE $2 || '%'
+          ORDER BY demande_id, horodatage DESC`, [ids, MOTIF_ANNONCE_CADA_PREFIXE]);
+      for (const r of rows) annonceCadaParId.set(r.demande_id, { le: r.le, destinataire: r.destinataire });
     } catch { /* journal absent → aucune annonce datée (dégradation sûre : l'étape reste « programmée ») */ }
+    try {
+      const { rows } = await query<{ demande_id: number; destinataire: string }>(
+        `SELECT DISTINCT ON (demande_id) demande_id::int AS demande_id, details->>'destinataire' AS destinataire
+           FROM demande_journal WHERE demande_id = ANY($1) AND (motif LIKE $2 || '%' OR motif LIKE $3 || '%') AND details ? 'destinataire'
+          ORDER BY demande_id, horodatage DESC`, [ids, MOTIF_COMPLEMENT_PREFIXE, MOTIF_DECLARATION_PREFIXE]);
+      for (const r of rows) if (r.destinataire) reclamationDestParId.set(r.demande_id, r.destinataire);
+    } catch { /* details absent (175) → pas d'adresse de réclamation ; l'affichage retombera sur le destinataire connu, présumé */ }
   }
 
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
@@ -760,7 +775,9 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     dernierEnvoiRelance: r.dernier_relance_variante !== null && r.dernier_relance_envoye_le !== null ? { variante: r.dernier_relance_variante, envoyeLe: r.dernier_relance_envoye_le } : null,
     relancePreparee: r.relance_preparee_variante !== null ? { variante: r.relance_preparee_variante } : null,
     saisineCadaEnvoyeeLe: r.saisine_cada_envoyee_le,
-    annonceCadaEnvoyeeLe: annonceCadaParId.get(r.id) ?? null, // LOT 18
+    annonceCadaEnvoyeeLe: annonceCadaParId.get(r.id)?.le ?? null, // LOT 18
+    annonceCadaDestinataire: annonceCadaParId.get(r.id)?.destinataire ?? null, // LOT 21
+    bifurcationDestinataire: reclamationDestParId.get(r.id) ?? null, // LOT 21
 
     dossiers: parDemande.get(r.id) ?? [],
     // FIX-3 — dossiers du CONTENU per-permis de l'encart : dûs + satisfaits-d'une-demande-en-partiel-actif (disjoints par satisfait_le).

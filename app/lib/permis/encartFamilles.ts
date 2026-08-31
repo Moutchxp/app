@@ -13,7 +13,10 @@ export type OngletEncart = 'en_cours' | 'reponses' | 'archives' | 'analyse';
 export type StatutFamille = 'remplissable' | 'si_non_vide' | 'absente';
 
 /** Ordre d'affichage canonique des familles dans l'encart (identique à « Analyse et projection » : gestes/complétude d'abord). */
-export const ORDRE_FAMILLES: readonly FamilleEncart[] = ['suivi_actions', 'completude', 'historique', 'contact', 'caracteristiques', 'batiments', 'pieces'];
+// LOT 21 (B) — « Contact mairie » en PREMIÈRE position (juste sous le titre de l'encart), avant « Texte de la demande » et « Suivi et
+//   actions ». Ordre PARTAGÉ par tous les onglets (socle UNIF-0) : effet réel en En cours ET Réponses (où contact est 'si_non_vide') ;
+//   AUCUN effet visible en Analyse et Archives (contact y est 'absente' → filtré, l'ordre relatif des autres familles est inchangé).
+export const ORDRE_FAMILLES: readonly FamilleEncart[] = ['contact', 'suivi_actions', 'completude', 'historique', 'caracteristiques', 'batiments', 'pieces'];
 
 /** Titres COURTS (une seule vérité, réutilisée par les 3 onglets → aucune divergence de libellé). */
 export const LIBELLE_FAMILLE: Record<FamilleEncart, string> = {

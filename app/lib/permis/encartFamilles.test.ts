@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { statutFamille, familleAffichee, famillesAffichees, ORDRE_FAMILLES, LIBELLE_FAMILLE, type FamilleEncart } from './encartFamilles';
 
-const TOUTES: FamilleEncart[] = ['suivi_actions', 'completude', 'historique', 'contact', 'caracteristiques', 'batiments', 'pieces'];
+const TOUTES: FamilleEncart[] = ['contact', 'suivi_actions', 'completude', 'historique', 'caracteristiques', 'batiments', 'pieces']; // LOT 21 : contact en tête
 
 describe('UNIF-0 — statutFamille : table (onglet × famille)', () => {
   it('Analyse : contenu remplissable, pas de suivi/actions (absente)', () => {
