@@ -254,6 +254,7 @@ export interface DemandeEnCoursAffichable {
   dossiers: { triage: string | null }[];
   suspension?: unknown; // PART-A : marqueur « dossier partiel » actif (non nul) → foyer En cours même avec retour (lu par demandeADuRetour)
   lienEnAttente?: boolean; // PART-D : dossier partiel AVEC lien fort en attente (GED vide) → bascule vers Réponses (lu par demandeADuRetour)
+  saisissable?: boolean; // LOT-10 : saisine CADA possible (foyer lireSaisinesEligibles, porté par chargerDemandesSuivi) → quitte En cours pour Saisines CADA
 }
 
 /**
@@ -265,9 +266,12 @@ export interface DemandeEnCoursAffichable {
 export function estEnCoursAffichee(d: DemandeEnCoursAffichable): boolean {
   // FIX-2 — « vivante » via le foyer UNIQUE estVivanteEnCours (≥ 1 dossier dû OU marqueur partiel actif) : un partiel sur un dossier
   //   satisfait mais incomplet (dus=0) reste dans « En cours » au lieu de tomber en soldée. MÊME définition que la liste (pas de décompte qui ment).
+  // LOT-10 — une demande SAISISSABLE (saisine CADA possible) quitte « En cours » pour « Saisines CADA » (invariant « jamais dans deux
+  //   onglets »). Dérivé au runtime (jamais écrit) → dès que l'éligibilité retombe, `saisissable` redevient false et la demande revient.
   return d.statut === 'envoyee'
     && estVivanteEnCours({ nbDossiers: d.dossiersActifs, dossiersDus: d.dossiersActifs - d.dossiersSatisfaits, suspension: d.suspension })
-    && !demandeADuRetour(d);
+    && !demandeADuRetour(d)
+    && d.saisissable !== true;
 }
 
 /** D2-fix — compte les demandes RÉELLEMENT en cours (estEnCoursAffichee) PAR PROCESS. Foyer unique du compteur du commutateur. */

@@ -205,7 +205,13 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
     if (perimetre !== 'en_cours' || !suivi) return new Set<number>();
     return new Set(dansVue.filter((d) => { const rich = suivi.parId.get(d.id); return rich !== undefined && demandeADuRetour(rich); }).map((d) => d.id));
   }, [perimetre, suivi, dansVue]);
-  const dansVueAffiche = aRetourIds.size > 0 ? dansVue.filter((d) => !aRetourIds.has(d.id)) : dansVue;
+  // LOT-10 — SAISISSABLES : quittent « En cours » pour « Saisines CADA » (même flag `rich.saisissable` dérivé de lireSaisinesEligibles que
+  //   le compteur ; foyer unique). Une demande à retour ET saisissable est déjà hors En cours par le retour → on la compte côté Saisines.
+  const saisissablesIds = useMemo(() => {
+    if (perimetre !== 'en_cours' || !suivi) return new Set<number>();
+    return new Set(dansVue.filter((d) => { const rich = suivi.parId.get(d.id); return rich !== undefined && rich.saisissable && !aRetourIds.has(d.id); }).map((d) => d.id));
+  }, [perimetre, suivi, dansVue, aRetourIds]);
+  const dansVueAffiche = (aRetourIds.size > 0 || saisissablesIds.size > 0) ? dansVue.filter((d) => !aRetourIds.has(d.id) && !saisissablesIds.has(d.id)) : dansVue;
   const filtrees = useMemo(
     () => trierDemandes(filtrerDemandes(dansVueAffiche, { statut: '', profil: fProfil, commune: fCommune, types: [...fTypes], reference: fReference }), tri),
     [dansVueAffiche, fCommune, fProfil, fTypes, fReference, tri],
@@ -230,7 +236,9 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   const exclusSoldees = perimetre === 'en_cours' && partDus.soldees.length > 0 ? { n: partDus.soldees.length, libelle: 'soldée(s) — voir l’onglet Archives' } : undefined;
   // FUS — 2e registre NON RÉVÉLABLE : demandes à retour, foyer désormais « Réponses ». Même traitement visuel que les soldées.
   const exclusReponses = perimetre === 'en_cours' && aRetourIds.size > 0 ? { n: aRetourIds.size, libelle: 'suivie(s) dans l’onglet Réponses' } : undefined;
-  const exclus = [exclusSoldees, exclusReponses].filter((x): x is { n: number; libelle: string } => x !== undefined);
+  // LOT-10 — mention NON RÉVÉLABLE : les saisissables sont désormais dans « Saisines CADA » (invariant « jamais dans deux onglets »).
+  const exclusSaisines = perimetre === 'en_cours' && saisissablesIds.size > 0 ? { n: saisissablesIds.size, libelle: 'à saisir devant la CADA — voir l’onglet Saisines CADA' } : undefined;
+  const exclus = [exclusSoldees, exclusReponses, exclusSaisines].filter((x): x is { n: number; libelle: string } => x !== undefined);
   // PART-B — décompte par CATÉGORIE de CE QUI EST AFFICHÉ (En cours seulement). Exhaustif ET exclusif (categorieEnCours) → la somme
   //   vaut TOUJOURS dansVueAffiche.length : compteur exact, chaque permis dans une seule catégorie (précédent 18/08). La catégorie
   //   vient de la donnée riche (suspension) ; défaut 'premiere' si la riche manque (chargement). Hors En cours → aucun décompte.

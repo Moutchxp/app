@@ -4,7 +4,7 @@ import {
   correspondReference,
   dansPerimetre, statutsDuPerimetre, STATUTS_A_DEMANDER, STATUTS_EN_COURS,
   statutsVivants, statutsMorts, statutsAffiches, CHOIX_STATUT_DEFAUT, partitionnerParDus, visiblesEnCours,
-  categorieEnCours, CATEGORIE_EN_COURS_LIBELLE, estVivanteEnCours, estEnCoursAffichee,
+  categorieEnCours, CATEGORIE_EN_COURS_LIBELLE, estVivanteEnCours, estEnCoursAffichee, compterEnCoursParProcess,
   type Tri, type LigneDemande,
 } from './demandesListe';
 
@@ -89,6 +89,19 @@ describe('FIX-2 — le marqueur « dossier partiel » actif garde la demande dan
     expect(estEnCoursAffichee(d154)).toBe(true); // AVANT FIX-2 : dus=0 → false (permis piégé hors En cours)
     expect(categorieEnCours(d154)).toBe('relance');
     expect(CATEGORIE_EN_COURS_LIBELLE.relance).toBe('En relance');
+  });
+
+  // LOT-10 — une demande SAISISSABLE (saisine CADA possible) quitte « En cours » pour « Saisines CADA » (invariant « jamais dans deux
+  //   onglets »). Le flag est DÉRIVÉ → réversible : dès qu'il retombe, la demande revient. MÊME prédicat pour la liste ET le compteur.
+  const enCoursBase = { statut: 'envoyee', canal: 'email', dossiersActifs: 1, dossiersSatisfaits: 0, nbReponsesReelles: 0, dossiers: [{ triage: null }] };
+  it('LOT-10 — saisissable → hors En cours ; flag retombé → de retour (réversible)', () => {
+    expect(estEnCoursAffichee({ ...enCoursBase }), 'non saisissable → en En cours').toBe(true);
+    expect(estEnCoursAffichee({ ...enCoursBase, saisissable: true }), 'saisissable → hors En cours').toBe(false);
+    expect(estEnCoursAffichee({ ...enCoursBase, saisissable: false }), 'flag retombé → de retour').toBe(true);
+  });
+  it('LOT-10 — compterEnCoursParProcess : le compteur SUIT la liste (les saisissables ne comptent plus)', () => {
+    const compte = compterEnCoursParProcess([{ ...enCoursBase }, { ...enCoursBase, saisissable: true }]);
+    expect(compte.email, 'seule la non-saisissable reste en En cours').toBe(1);
   });
 });
 

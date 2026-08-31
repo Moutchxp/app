@@ -176,6 +176,7 @@ export interface DemandeSuivi {
   messagesAutre: MessageAutreAffiche[]; // T7-B : messages `autre` ancrés (cas ③) — la ligne est signalée tant qu'il en reste ≥1 non répondu
   piecesReponses: ReponsePieces[]; // T5 : pièces des réponses rattachées (groupées par réponse), consultables/téléchargeables
   provenancesContenu: ProvenanceContenu[]; // FUS : messages porteurs de CONTENU (lien fort OU pièce), le PLUS RÉCENT d'abord — provenance affichée sur la ligne (date+heure + expéditeur), les autres au déplié
+  saisissable: boolean;          // LOT-10 : saisine CADA POSSIBLE (foyer lireSaisinesEligibles) → quitte « En cours » pour « Saisines CADA » ; dérivé, réversible
   contactMairie: ContactMairie; // LOT-9 C : carnet d'adresses (interlocuteurs reçus, triés par récence, + destinataire d'origine)
   contactNonVide: boolean;       // LOT-9 C : ≥ 1 contact connu (interlocuteur OU destinataire) → famille « Contact mairie » affichée
   suspension: EtatPartiel | null; // CASC-1 : marqueur « dossier partiel » ACTIF (raison + date) → relance ordinaire suspendue ; null = non suspendue / 177 absente
@@ -632,6 +633,16 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     for (const dr of dests) contactDe(dr.demande_id).destinataire = dr.dest;
   }
 
+  // LOT-10 — SAISISSABLE : une demande dont la saisine CADA est POSSIBLE (foyer UNIQUE `lireSaisinesEligibles.saisissables`, le MÊME que
+  //   la liste Saisines et le compteur `compterSaisines`) QUITTE « En cours » pour « Saisines CADA » (invariant « jamais dans deux
+  //   onglets »). DÉRIVÉ au runtime, jamais écrit en base → RÉVERSIBLE : dès que l'éligibilité retombe (pièce arrivée, marqueur partiel
+  //   levé, fenêtre CADA refermée), la demande n'est plus saisissable et RÉAPPARAÎT en En cours. Lecture SÉPARÉE (jamais un WHERE sur `dem`).
+  let saisissablesIds = new Set<number>();
+  try {
+    const { lireSaisinesEligibles } = await import('./saisineCadaRepo');
+    saisissablesIds = new Set((await lireSaisinesEligibles()).saisissables.map((s) => s.demandeId));
+  } catch { /* résilient : lecture indisponible → aucune exclusion (comportement d'avant), jamais un permis coincé */ }
+
   // FIX-3 — dossiers SATISFAITS d'une demande en PARTIEL ACTIF : à FUSIONNER aux dûs pour le CONTENU per-permis de l'encart
   //   (`dossiersEncart`), SANS toucher `dossiers` (DetailDossiers/Réponses/Archives et l'invariant « un dossier jamais dans deux
   //   onglets » inchangés). Requête ISOLÉE + résiliente (177 absente → Map vide → encart = dûs seuls, comportement d'avant).
@@ -671,6 +682,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     messagesAutre: parMsgAutre.get(r.id) ?? [],
     piecesReponses: parPiecesReponses.get(r.id) ?? [],
     provenancesContenu: parProvenances.get(r.id) ?? [],
+    saisissable: saisissablesIds.has(r.id), // LOT-10 : quitte En cours pour Saisines CADA (foyer lireSaisinesEligibles)
     contactMairie: contactsParId.get(r.id) ?? { interlocuteurs: [], destinataire: null }, // LOT-9 C
     contactNonVide: (() => { const c = contactsParId.get(r.id); return c !== undefined && (c.interlocuteurs.length > 0 || c.destinataire !== null); })(), // LOT-9 C : ≥ 1 contact
     suspension: suspensions.get(r.id) ?? null, // CASC-1
