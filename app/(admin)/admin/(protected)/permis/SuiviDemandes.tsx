@@ -5,7 +5,7 @@ import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
 import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, partitionnerAnnulationMasse, CHOIX_STATUT_DEFAUT, categorieEnCours, CATEGORIE_EN_COURS_LIBELLE } from '../../../../lib/sitadel/demandesListe';
 import { dansProcess, horsProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
-import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, etatRetourMairie, libelleRetourMairie, BlocContactMairie, DecompteDelai, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
+import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, BlocContactMairie, DecompteDelai, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
 import { DetailDossiers, ActionsCloture, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, demandeADuRetour, formaterDate, type RetourCible } from './ReponsesRendu';
@@ -796,7 +796,10 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   //   Le BILAN d'état (LOT 8 : documents obtenus / à classer en GED / message reçu (N) / accusé / aucun) est CONSERVÉ,
                   //   déplacé du bandeau vers le TITRE de cette famille (visible replié) ; le contenu ne porte QUE le carnet (pas le fil).
                   cle: 'contact', nonVide: richDetail.contactNonVide,
-                  titre: `${LIBELLE_FAMILLE.contact} — ${libelleRetourMairie(etatRetourMairie(richDetail), richDetail.nbReponsesReelles)}`,
+                  // LOT 22 (A1) — titre « Contact mairie » tout court : la synthèse « — documents obtenus / message reçu … » (LOT 9) est
+                  //   retirée. L'info reste lisible ailleurs : « obtenus/reçu » dans la famille « Pièces du permis » (GED) + DetailDossiers ;
+                  //   « la mairie a écrit » dans la mention de « Historique des échanges » (N échanges — dernier le …). Aucune info nécessaire perdue.
+                  titre: LIBELLE_FAMILLE.contact,
                   contenu: () => <BlocContactMairie contact={richDetail.contactMairie} />,
                 },
                 // UNIF-1 — familles PER-PERMIS (si non vides) : sous-sections par permis, contenu chargé AU DÉPLIAGE (SousSectionsPermis) → jamais N appels lourds d'un coup.

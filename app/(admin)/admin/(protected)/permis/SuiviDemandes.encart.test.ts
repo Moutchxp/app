@@ -29,6 +29,10 @@ describe('UNIF-1 — le détail « En cours » consomme l’encart de familles (
     expect(SRC).not.toContain('<HistoriqueEnvois ');             // l'ancien bloc LOT 13 est absorbé par la frise
     expect(SRC).not.toContain('<RappelObtenusArchives');         // point 7 : info portée par le titre « Contact mairie » (LOT 9)
   });
+  it('LOT 22 (A1) — le titre de « Contact mairie » est le libellé SEUL (suffixe « — documents obtenus … » retiré)', () => {
+    expect(SRC).toContain('titre: LIBELLE_FAMILLE.contact,');       // titre = libellé seul
+    expect(SRC).not.toContain('libelleRetourMairie(etatRetourMairie'); // la synthèse de titre (LOT 9) est retirée
+  });
   it('les familles à sous-plis lazy passent par SousSectionsPermis (4 per-permis + le fil de l’historique)', () => {
     expect((SRC.match(/<SousSectionsPermis /g) ?? []).length).toBe(5); // LOT-4 : +1 pour le fil des échanges (BlocFilEchanges)
     for (const bloc of ['BlocCompletude', 'CaracteristiquesBloc', 'BlocTraceEmprise', 'BlocPiecesPermis', 'BlocFilEchanges']) {

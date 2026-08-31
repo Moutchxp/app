@@ -740,8 +740,9 @@ export function BlocContactMairie({ contact }: { contact: ContactMairie }) {
         </div>
       )}
       {contact.destinataire && (
-        <div style={{ fontSize: 12, color: 'var(--color-svv-muted)', borderTop: contact.interlocuteurs.length > 0 ? '1px solid var(--color-svv-line)' : undefined, paddingTop: contact.interlocuteurs.length > 0 ? '.4rem' : undefined }}>
-          Nous avons écrit à <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', wordBreak: 'break-all', color: 'var(--color-svv-ink)' }}>{contact.destinataire}</span>.
+        // LOT 22 (A3) — « Nous avons écrit à » retiré : l'adresse suffit, le contexte (destinataire de la demande) est évident.
+        <div style={{ fontSize: 12, borderTop: contact.interlocuteurs.length > 0 ? '1px solid var(--color-svv-line)' : undefined, paddingTop: contact.interlocuteurs.length > 0 ? '.4rem' : undefined }}>
+          <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', wordBreak: 'break-all', color: 'var(--color-svv-ink)' }}>{contact.destinataire}</span>
         </div>
       )}
     </div>
@@ -961,18 +962,19 @@ export function PanneauDetailDemande({
       </div>
       </>
       )}
-      {/* LOT-7 / LOT 16 (B) — corps de la lettre derrière UN PLI (1 clic). Seule trace visible de ce qui a été RÉELLEMENT envoyé (précédent
-           18/08). LOT 16 : adopte la MÊME ligne repliable que les familles de l'encart (BlocLignePli : chevron, bordure, typo, espacement
-           identiques) + titre DYNAMIQUE. OUVERT en BROUILLON (relu/édité avant envoi), FERMÉ une fois envoyée. Le bouton « Enregistrer le
-           texte » (brouillon) reste hors du pli, toujours visible. Render-prop : le textarea est monté à la 1re ouverture, jamais démonté. */}
+      {/* LOT 22 (A2) — En cours : l'ENCART de familles (Contact mairie en tête) est la PREMIÈRE ligne sous le titre, AVANT le pli « Texte de
+           la demande ». `slotDossiers` n'est fourni QU'en « En cours » → en « À demander » rien ne se rend ici (le détail brut vient plus bas).
+           Précédent 18/08 : le pli (seule trace de ce qui a été RÉELLEMENT envoyé) reste présent, juste déplacé sous l'encart. */}
+      {slotDossiers}
+      {/* LOT-7 / LOT 16 (B) — corps de la lettre derrière UN PLI (1 clic). LOT 16 : même ligne repliable que les familles (BlocLignePli). */}
       <BlocLignePli titre={titrePli} defautOuvert={brouillon}>
         {() => (
           <textarea value={corps} onChange={(e) => onCorps(e.target.value)} rows={16} readOnly={!brouillon}
             style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', boxSizing: 'border-box', background: '#fff' }} />
         )}
       </BlocLignePli>
-      {/* T6-A — « En cours » injecte DetailDossiers (actions T1) ; sinon, détail brut des dossiers (À demander, inchangé). */}
-      {slotDossiers ?? <BlocDossiersDetail dossiers={detail.dossiers} retires={detail.dossiersRetires} />}
+      {/* À demander (pas d'encart) : détail brut des dossiers, APRÈS le pli — ordre inchangé pour cet onglet. */}
+      {!slotDossiers && <BlocDossiersDetail dossiers={detail.dossiers} retires={detail.dossiersRetires} />}
       {/* UNIF-1 — masqué quand l'appelant range l'éditeur dans son encart (famille « Suivi & actions ») ; sinon rendu ici (À demander). */}
       {!masquerRefMairie && (
       <div style={{ fontSize: 12 }}>

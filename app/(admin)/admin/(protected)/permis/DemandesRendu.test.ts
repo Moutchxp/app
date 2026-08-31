@@ -926,6 +926,10 @@ describe('T6-A — Retour mairie (dérivation + rendu) + colonnes « En cours »
     expect(avec).toContain('SLOT-DOSSIERS-RICHE');
     expect(avec).toContain('SLOT-CLOTURE');
     expect(avec).not.toContain('PC-DOSSIER-BRUT'); // remplacé par le slot riche
+    // LOT 22 (A2) — En cours : l'ENCART (slotDossiers, Contact mairie en tête) est rendu AVANT le pli « Texte de la demande ».
+    expect(avec.indexOf('SLOT-DOSSIERS-RICHE')).toBeLessThan(avec.indexOf('Texte de la demande'));
+    // À demander (sans slot) : le pli reste AVANT le détail brut des dossiers (ordre inchangé pour cet onglet).
+    expect(sans.indexOf('Texte de la demande')).toBeLessThan(sans.indexOf('PC-DOSSIER-BRUT'));
   });
 
   it('L1 — En cours : un accusé porteur d’un lien (hors « Réponses ») affiche ce lien dans le détail, via le MÊME BlocLiens, avec sa mention datée', () => {
@@ -1418,8 +1422,8 @@ describe('LOT-9 (C) — BlocContactMairie + libelleRetourMairie', () => {
     const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: CONTACT_154 }));
     expect(h).toContain('lauriane.pangui@mairie-aubervilliers.fr');     // interlocuteur
     expect(h).toContain('Nous ont écrit');
-    expect(h).toContain('urba-reglementaire@mairie-aubervilliers.fr');  // destinataire
-    expect(h).toContain('Nous avons écrit à');
+    expect(h).toContain('urba-reglementaire@mairie-aubervilliers.fr');  // destinataire (adresse seule)
+    expect(h).not.toContain('Nous avons écrit à'); // LOT 22 (A3) — mention retirée : l'adresse suffit, le contexte est évident
   });
   it('plusieurs interlocuteurs → rendus dans l’ORDRE fourni (récence : le plus récent d’abord)', () => {
     const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: { destinataire: 'x@m.fr', interlocuteurs: [

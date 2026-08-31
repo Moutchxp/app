@@ -99,12 +99,12 @@ export function projeterParcours(e: EntreeParcours): EvenementFrise[] {
     const J = iso(e.suspension.le);
     // Relances ordinaires réalisées AVANT la bifurcation → font partie de l'HISTOIRE (les non survenues, elles, disparaissent).
     for (const [grade, v] of ordRealise) if (v.le < J) evs.push({ le: v.le, quand: 'passe', libelle: 'Relance effectuée', detail: detailEnvoi(v.dest, detailOrdinaire(grade)) });
-    // BIFURCATION — « Relance pièces complémentaires » (fait, badge rouge cerclé). LOT 21 : c'est un ENVOI → il porte une adresse.
-    //   Source : le destinataire STOCKÉ par la réclamation (journal) ; à défaut, le destinataire connu de la demande. PRÉSUMÉ si l'envoi
-    //   a été déclaré hors outil (adresse non captée) ou si aucune adresse n'est stockée — on ne présente jamais une adresse comme certaine à tort.
+    // BIFURCATION — « Relance pièces complémentaires » (fait, badge rouge cerclé). LOT 21/22 : c'est un ENVOI → il porte une adresse.
+    //   L'adresse STOCKÉE par la réclamation (journal, y compris une déclaration hors outil) est CERTAINE : on l'affiche telle quelle.
+    //   Le marquage « présumé » (LOT 22, point 5) ne sert QUE lorsqu'AUCUNE adresse n'est stockée → repli sur le destinataire connu.
     const origine = e.suspension.origine === 'declaree' ? 'relance de complément déclarée hors outil' : 'complément de pièces réclamé par l’outil';
     const adresseBif = e.bifurcationDestinataire ?? e.destinataireCourant;
-    const presumeBif = e.suspension.origine === 'declaree' || e.bifurcationDestinataire === null; // déclarée (manuel) OU repli sur le destinataire connu
+    const presumeBif = e.bifurcationDestinataire === null; // adresse stockée → certaine ; repli sur le destinataire connu → présumé
     evs.push({ le: J, quand: 'passe', libelle: 'Relance pièces complémentaires', detail: detailEnvoi(adresseBif, origine, presumeBif), bifurcation: true });
     // Relances partielles (programmées → effectuées sur envoi réel).
     const rp = e.reglages.partiel;

@@ -60,7 +60,9 @@ describe('LOT 14b — zéro duplication des RÈGLES, rendu neuf isolé', () => {
 
   it('charge pdf.js DYNAMIQUEMENT (paresseux) — jamais en import de tête de module', () => {
     expect(SRC).toContain("await import('pdfjs-dist/legacy/build/pdf.mjs')");
-    expect(SRC).not.toMatch(/^import[\s\S]*from\s*'pdfjs-dist/m);
+    // LOT 22 : le RUNTIME pdf.js reste importé dynamiquement ; le seul import de tête est un `import type` (erasé au runtime, aucun coût).
+    const importsPdfjs = SRC.split('\n').filter((l) => /from\s*'pdfjs-dist/.test(l) && l.trimStart().startsWith('import'));
+    expect(importsPdfjs.every((l) => l.trimStart().startsWith('import type'))).toBe(true);
   });
 
   it('AUCUN outil de tracé/adoption/verdict dans la liseuse (lecture seule stricte)', () => {
@@ -81,5 +83,30 @@ describe('LOT 14b — montée paresseuse, indépendance du tracé', () => {
   it('BlocTraceEmprise.tsx et TraceEmpriseRendu.tsx n’ont AUCUNE dépendance sur la liseuse (tracé indépendant)', () => {
     expect(TRACE).not.toContain('LiseusePieces');
     expect(RENDU).not.toContain('LiseusePieces');
+  });
+});
+
+describe('LOT 22 (C) — liseuse rapide : cache document, une seule page, aucun re-rendu sans changement d’état', () => {
+  it('le DOCUMENT pdf.js est mis en CACHE par pièce → un changement de PAGE ne re-télécharge pas', () => {
+    expect(SRC).toContain('docRef');
+    expect(SRC).toMatch(/docRef\.current\?\.pieceId !== pieceId/); // ne (re)charge le document que si la PIÈCE change
+    expect(SRC).toMatch(/getDocument\(url\)/);                     // téléchargement/parse UNIQUEMENT dans ce garde
+  });
+  it('le MODULE pdf.js est mémorisé (chargé une seule fois, pas à chaque page)', () => {
+    expect(SRC).toContain('pdfjsRef');
+    expect(SRC).toMatch(/if \(!pdfjsRef\.current\)/);
+  });
+  it('UNE SEULE page rendue : un seul getPage + un seul render, aucune boucle sur numPages pour peindre', () => {
+    expect((SRC.match(/pageObj\.render\(/g) ?? []).length).toBe(1);
+    expect((SRC.match(/\.getPage\(/g) ?? []).length).toBe(1);
+    expect(SRC).not.toMatch(/for\s*\([^)]*numPages/); // jamais une boucle de rendu sur toutes les pages
+  });
+  it('le rendu ne se recalcule qu’au changement de PIÈCE / PAGE (jamais à chaque re-render React) : deps [pieceId, page, etat]', () => {
+    expect(SRC).toMatch(/void afficherPageRef\.current\(\)[\s\S]*\}, \[pieceId, page, etat\]\)/);
+  });
+  it('LECTURE SEULE : aucune couche texte ni annotations pdf.js (inutile, coûteuse)', () => {
+    for (const inutile of ['textLayer', 'TextLayer', 'getTextContent', 'annotationLayer', 'AnnotationLayer']) {
+      expect(SRC, `la liseuse ne doit pas activer « ${inutile} »`).not.toContain(inutile);
+    }
   });
 });

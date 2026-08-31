@@ -118,11 +118,11 @@ describe('LOT 19 (C) — DESTINATAIRE sur chaque étape d’envoi', () => {
     expect(p.find((e) => e.libelle === 'Dépôt de saisine CADA')!.detail).toBeNull();
   });
 
-  it('LOT 21 — la BIFURCATION porte l’adresse stockée par la réclamation, PRÉSUMÉE si déclarée hors outil', () => {
+  it('LOT 22 — la BIFURCATION porte l’adresse STOCKÉE par la réclamation → CERTAINE, même déclarée hors outil (point 5)', () => {
     const p = projeterParcours({ ...base, suspension: suspension('2026-08-28T12:00:00Z'), bifurcationDestinataire: 'lauriane.pangui@mairie.fr' });
     const bif = p.find((e) => e.bifurcation)!;
-    // adresse stockée + origine 'declaree' (fixture suspension) → présumé, puis la nature, séparés par « · »
-    expect(bif.detail).toBe('à lauriane.pangui@mairie.fr (présumé) · relance de complément déclarée hors outil');
+    // adresse STOCKÉE (même origine 'declaree') → CERTAINE (pas de « présumé »), puis la nature, séparés par « · »
+    expect(bif.detail).toBe('à lauriane.pangui@mairie.fr · relance de complément déclarée hors outil');
   });
 
   it('LOT 21 — bifurcation via l’OUTIL (origine « outil ») + adresse stockée → adresse CERTAINE (pas de « présumé »)', () => {

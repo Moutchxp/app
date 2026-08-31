@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { PDFDocumentProxy } from 'pdfjs-dist'; // type SEUL (erasé au runtime) : pdf.js reste importé DYNAMIQUEMENT dans afficherPage
 import {
   construireBandePlans, cibleBestOf, bornerPage,
   SelecteurPiecePlan, BandePlans, NavPieceLibre, ZoomPdf,
@@ -39,6 +40,10 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pdfContainerRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ x0: number; y0: number; panX: number; panY: number } | null>(null);
+  // LOT 22 (C) — CACHES pour ne pas « recomposer » à chaque page : le module pdf.js (chargé UNE fois) et le DOCUMENT parsé (par pièce).
+  //   Le changement de PAGE ne re-télécharge/re-parse plus le PDF ; seul un changement de PIÈCE recharge le document.
+  const pdfjsRef = useRef<typeof import('pdfjs-dist') | null>(null);
+  const docRef = useRef<{ pieceId: number; doc: PDFDocumentProxy } | null>(null);
 
   // CHARGEMENT PARESSEUX : cet effet ne part qu'À LA MONTÉE — or le composant n'est monté qu'à l'OUVERTURE de la famille (le `contenu`
   //   de BlocRepliable est un thunk appelé au dépli). Donc rien tant que la famille est repliée, et jamais au rendu de la liste des demandes.
@@ -71,28 +76,49 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const afficherPage = useCallback(async () => {
     if (pieceId === null) return;
     setOccupe(true); setMessage(null); setZoom(1); setPan({ x: 0, y: 0 });
+    const t0 = (typeof performance !== 'undefined' ? performance.now() : 0);
     try {
-      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'signer_piece', pieceId }) });
-      if (!res.ok) { setMessage('pièce indisponible'); return; }
-      const { url } = await res.json() as { url: string };
-      const pdfjs = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as typeof import('pdfjs-dist');
-      pdfjs.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
-      const pdf = await pdfjs.getDocument(url).promise;
+      // 1) MODULE pdf.js — importé DYNAMIQUEMENT (paresseux) mais UNE SEULE fois (mémorisé), plus à chaque page.
+      if (!pdfjsRef.current) {
+        const m = (await import('pdfjs-dist/legacy/build/pdf.mjs')) as unknown as typeof import('pdfjs-dist');
+        m.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.mjs';
+        pdfjsRef.current = m;
+      }
+      const tModule = (typeof performance !== 'undefined' ? performance.now() : 0);
+      // 2) DOCUMENT — téléchargé + parsé UNE FOIS PAR PIÈCE. Un changement de PAGE réutilise le document en cache (aucun re-téléchargement).
+      if (docRef.current?.pieceId !== pieceId) {
+        const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'signer_piece', pieceId }) });
+        if (!res.ok) { setMessage('pièce indisponible'); return; }
+        const { url } = await res.json() as { url: string };
+        void docRef.current?.doc.destroy(); // libère le document précédent (worker pdf.js)
+        docRef.current = { pieceId, doc: await pdfjsRef.current.getDocument(url).promise };
+      }
+      const tDoc = (typeof performance !== 'undefined' ? performance.now() : 0);
+      const pdf = docRef.current.doc;
       setNbPagesPiece(pdf.numPages);
       const p = Math.min(Math.max(1, page), pdf.numPages);
       const pageObj = await pdf.getPage(p);
       const canvas = canvasRef.current; if (!canvas) return;
       const largeurCss = canvas.parentElement?.clientWidth || 480;
       const base = pageObj.getViewport({ scale: 1 });
-      const dpr = window.devicePixelRatio || 1;
-      const viewport = pageObj.getViewport({ scale: (largeurCss / base.width) * dpr });
+      // 3) ÉCHELLE ADAPTÉE À L'AFFICHAGE (point 8) : largeur affichée × densité écran, densité BORNÉE à 2 et largeur du canvas PLAFONNÉE
+      //   (≤ MAX_PX) pour ne jamais peindre un canvas démesuré. Rendu de la SEULE page visible (pas de couche texte/annotations : lecture seule).
+      const MAX_PX = 2400;
+      const dprEff = Math.min(typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1, 2);
+      const scale = Math.min((largeurCss / base.width) * dprEff, MAX_PX / base.width);
+      const viewport = pageObj.getViewport({ scale });
       canvas.width = Math.floor(viewport.width); canvas.height = Math.floor(viewport.height);
       canvas.style.width = '100%'; canvas.style.height = 'auto';
       const ctx = canvas.getContext('2d'); if (!ctx) return;
       await pageObj.render({ canvasContext: ctx, viewport }).promise;
       setPage(p);
+      // INSTRUMENTATION (point 6) — durées par phase, lisibles dans la console du navigateur (module chargé 1×, doc mis en cache par pièce).
+      if (typeof performance !== 'undefined') console.debug(`[Liseuse] pièce ${pieceId} p${p} — module ${Math.round(tModule - t0)}ms · document ${Math.round(tDoc - tModule)}ms · rendu ${Math.round(performance.now() - tDoc)}ms (canvas ${canvas.width}×${canvas.height})`);
     } catch { setMessage('impossible d’afficher la page (PDF illisible)'); } finally { setOccupe(false); }
   }, [pieceId, page]);
+
+  // LOT 22 (C) — au démontage (famille repliée / fiche fermée) : libère le document pdf.js en cache (worker) pour ne rien laisser fuir.
+  useEffect(() => () => { void docRef.current?.doc.destroy(); docRef.current = null; }, []);
 
   // Auto-affichage de la page courante au chargement (etat→ok) et à chaque changement de (pièce, page). Ref stable : ne pas se lier à afficherPage.
   const afficherPageRef = useRef(afficherPage);
