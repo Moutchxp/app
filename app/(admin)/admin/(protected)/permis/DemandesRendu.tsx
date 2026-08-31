@@ -9,6 +9,7 @@ import { BoutonCopier } from './BoutonCopier'; // DEPOT-1 — pastille de copie 
 import { BlocRepliable as BlocLignePli } from './BlocRepliable'; // LOT 16 (B) — le pli « Texte de la demande » adopte la MÊME ligne repliable que les familles de l'encart (facture unique)
 import type { Decompte } from '../../../../lib/veille/decompteButoir'; // LOT-8 (B) — décompte en jours avant le butoir qui fait foi
 import type { ContactMairie } from '../../../../lib/veille/reponsesSuivi'; // LOT-9 (C) — carnet d'adresses « Contact mairie »
+import type { TelephoneQualifie } from '../../../../lib/veille/telephoneSignature'; // LOT 28 — téléphone d'un interlocuteur (signature / annuaire)
 import type { PermisDetail, DemandeDetail } from '../../../../lib/sitadel/demandeRepo';
 
 /**
@@ -728,9 +729,9 @@ export function BlocContactMairie({ contact }: { contact: ContactMairie }) {
   //   liste (aucune date connue), le destinataire d'origine s'il n'est pas déjà un interlocuteur (dédup insensible à la casse). Toutes les lignes
   //   partagent le MÊME alignement (flush, sans puce) et la même graisse ; le nom et la date ne s'affichent QUE s'ils existent → l'adresse seule
   //   ne décale jamais la ligne. Séparateur : un filet UNIFORME entre chaque ligne (jamais de hiérarchie factice). Mobile : l'adresse casse (word-break).
-  const lignes: { adresse: string; nom: string | null; dernierLe: string | null }[] = contact.interlocuteurs.map((it) => ({ adresse: it.adresse, nom: it.nom, dernierLe: it.dernierLe }));
+  const lignes: { adresse: string; nom: string | null; dernierLe: string | null; telephones: TelephoneQualifie[] }[] = contact.interlocuteurs.map((it) => ({ adresse: it.adresse, nom: it.nom, dernierLe: it.dernierLe, telephones: it.telephones ?? [] }));
   if (contact.destinataire && !lignes.some((l) => l.adresse.toLowerCase() === contact.destinataire!.toLowerCase())) {
-    lignes.push({ adresse: contact.destinataire, nom: null, dernierLe: null }); // adresse sans date connue → en fin de liste
+    lignes.push({ adresse: contact.destinataire, nom: null, dernierLe: null, telephones: [] }); // adresse sans date connue → en fin de liste
   }
   return (
     <div className="svv-card flex flex-col gap-2" style={{ fontSize: 13, minWidth: 0 }}>
@@ -740,11 +741,29 @@ export function BlocContactMairie({ contact }: { contact: ContactMairie }) {
           <div key={`${l.adresse}-${i}`} style={{ fontSize: 13, marginTop: i > 0 ? '.35rem' : undefined, paddingTop: i > 0 ? '.35rem' : undefined, borderTop: i > 0 ? '1px solid var(--color-svv-line)' : undefined }}>
             <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', wordBreak: 'break-all' }}>{l.adresse}</span>{l.nom ? ` — ${l.nom}` : ''}
             {l.dernierLe ? <span style={{ color: 'var(--color-svv-muted)' }}> · dernier message le {formaterDateHeureLocale(l.dernierLe)}</span> : null}
+            {/* LOT 28 — TÉLÉPHONE(S) dans la CONTINUITÉ de la ligne (même gabarit) : « · tél. NN NN NN NN NN (ligne directe / standard[, annuaire]) ».
+                Passe à la ligne proprement en portrait (aligné à gauche, sous l'adresse). Affiché UNIQUEMENT s'il existe → aucune ligne vide. */}
+            {l.telephones.map((t, j) => (
+              <span key={`${t.numero}-${j}`}>
+                <span style={{ color: 'var(--color-svv-muted)' }}> · tél. </span>
+                <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', whiteSpace: 'nowrap' }}>{t.numero}</span>
+                {libelleTelephone(t) && <span style={{ color: 'var(--color-svv-muted)' }}> {libelleTelephone(t)}</span>}
+              </span>
+            ))}
           </div>
         ))}
       </div>
     </div>
   );
+}
+
+/** LOT 28 — qualificatif LISIBLE d'un téléphone (jamais deviné : uniquement ce qui est établi). Source « annuaire » rendue visible (§2.5). PUR. */
+function libelleTelephone(t: TelephoneQualifie): string {
+  const q: string[] = [];
+  if (t.label === 'direct') q.push('ligne directe');
+  else if (t.label === 'standard') q.push('standard');
+  if (t.source === 'annuaire') q.push('annuaire');
+  return q.length > 0 ? `(${q.join(', ')})` : '';
 }
 
 /**

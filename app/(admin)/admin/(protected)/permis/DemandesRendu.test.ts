@@ -1414,7 +1414,7 @@ describe('LOT-9 (B) — ligne cliquable + protection des contrôles internes', (
 describe('LOT-9 (C) — BlocContactMairie + libelleRetourMairie', () => {
   const CONTACT_154 = {
     interlocuteurs: [
-      { adresse: 'lauriane.pangui@mairie-aubervilliers.fr', nom: 'Lauriane Pangui', dernierLe: '2026-08-28T15:04:00Z' },
+      { adresse: 'lauriane.pangui@mairie-aubervilliers.fr', nom: 'Lauriane Pangui', dernierLe: '2026-08-28T15:04:00Z', telephones: [] },
     ],
     destinataire: 'urba-reglementaire@mairie-aubervilliers.fr',
   };
@@ -1427,8 +1427,8 @@ describe('LOT-9 (C) — BlocContactMairie + libelleRetourMairie', () => {
   });
   it('plusieurs interlocuteurs → rendus dans l’ORDRE fourni (récence : le plus récent d’abord)', () => {
     const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: { destinataire: 'x@m.fr', interlocuteurs: [
-      { adresse: 'recent@m.fr', nom: null, dernierLe: '2026-08-28T15:00:00Z' },
-      { adresse: 'ancien@m.fr', nom: null, dernierLe: '2026-08-01T09:00:00Z' },
+      { adresse: 'recent@m.fr', nom: null, dernierLe: '2026-08-28T15:00:00Z', telephones: [] },
+      { adresse: 'ancien@m.fr', nom: null, dernierLe: '2026-08-01T09:00:00Z', telephones: [] },
     ] } }));
     expect(h.indexOf('recent@m.fr')).toBeLessThan(h.indexOf('ancien@m.fr')); // ordre préservé
   });
@@ -1445,7 +1445,7 @@ describe('LOT-9 (C) — BlocContactMairie + libelleRetourMairie', () => {
   });
   it('LOT 26 (①) — nom/date ABSENTS → l’adresse s’affiche seule (aucun « — » ni « · dernier message » parasite), même gabarit', () => {
     const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: { interlocuteurs: [
-      { adresse: 'sansmeta@m.fr', nom: null, dernierLe: '2026-08-10T09:00:00Z' },
+      { adresse: 'sansmeta@m.fr', nom: null, dernierLe: '2026-08-10T09:00:00Z', telephones: [] },
     ], destinataire: null } }));
     expect(h).toContain('sansmeta@m.fr');
     expect(h).toContain('dernier message le');     // la date existe → affichée
@@ -1453,9 +1453,42 @@ describe('LOT-9 (C) — BlocContactMairie + libelleRetourMairie', () => {
   });
   it('LOT 26 (①) — le destinataire ÉGAL à un interlocuteur (casse ignorée) n’est PAS dupliqué en 2e ligne', () => {
     const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: { interlocuteurs: [
-      { adresse: 'AGENT@m.fr', nom: 'Agent', dernierLe: '2026-08-10T09:00:00Z' },
+      { adresse: 'AGENT@m.fr', nom: 'Agent', dernierLe: '2026-08-10T09:00:00Z', telephones: [] },
     ], destinataire: 'agent@m.fr' } }));
     expect(h.match(/agent@m\.fr/gi)?.length).toBe(1); // une seule occurrence (dédup insensible à la casse)
+  });
+  it('LOT 28 — TÉLÉPHONE de la signature affiché dans la continuité de la ligne, étiquette « ligne directe » (cas Aubervilliers)', () => {
+    const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: { destinataire: null, interlocuteurs: [
+      { adresse: 'lauriane.pangui@mairie-aubervilliers.fr', nom: 'Lauriane Pangui', dernierLe: '2026-08-28T15:04:00Z', telephones: [{ numero: '01 48 39 51 81', label: 'direct', source: 'signature' }] },
+    ] } }));
+    expect(h).toContain('01 48 39 51 81');
+    expect(h).toContain('ligne directe');
+    // le numéro suit l'adresse/nom sur la MÊME ligne (après le nom)
+    expect(h.indexOf('Lauriane Pangui')).toBeLessThan(h.indexOf('01 48 39 51 81'));
+  });
+  it('LOT 28 — deux numéros (direct + standard) affichés tous les deux avec leur étiquette', () => {
+    const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: { destinataire: null, interlocuteurs: [
+      { adresse: 'jean@m.fr', nom: 'Jean', dernierLe: '2026-08-10T09:00:00Z', telephones: [
+        { numero: '01 11 11 11 11', label: 'direct', source: 'signature' },
+        { numero: '01 22 22 22 22', label: 'standard', source: 'signature' },
+      ] },
+    ] } }));
+    expect(h).toContain('01 11 11 11 11'); expect(h).toContain('ligne directe');
+    expect(h).toContain('01 22 22 22 22'); expect(h).toContain('standard');
+  });
+  it('LOT 28 — SOURCE annuaire rendue VISIBLE (le numéro ne vient pas de la signature)', () => {
+    const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: { destinataire: null, interlocuteurs: [
+      { adresse: 'agent@m.fr', nom: null, dernierLe: '2026-08-10T09:00:00Z', telephones: [{ numero: '01 48 39 52 80', label: 'standard', source: 'annuaire' }] },
+    ] } }));
+    expect(h).toContain('01 48 39 52 80');
+    expect(h).toContain('annuaire');
+  });
+  it('LOT 28 — aucun numéro (telephones vide) → la ligne reste inchangée, aucun « tél. » parasite', () => {
+    const h = renderToStaticMarkup(createElement(BlocContactMairie, { contact: { destinataire: null, interlocuteurs: [
+      { adresse: 'muet@m.fr', nom: 'Muet', dernierLe: '2026-08-10T09:00:00Z', telephones: [] },
+    ] } }));
+    expect(h).toContain('muet@m.fr');
+    expect(h).not.toContain('tél.');
   });
   it('libelleRetourMairie : un bilan court par état', () => {
     expect(libelleRetourMairie('obtenus', 0)).toBe('documents obtenus');

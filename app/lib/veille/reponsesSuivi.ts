@@ -10,6 +10,7 @@ import { apparierPropositions, type CibleDepot } from './propositionDepot';
 import { normaliserNumeroDossier } from './satisfactionDossier'; // source UNIQUE de la normalisation d'un n° Sitadel (garde les lettres)
 import { MOTIF_COMPLEMENT_PREFIXE, MOTIF_DECLARATION_PREFIXE, MOTIF_REPONSE_LIBRE_PREFIXE } from '../permis/demanderPiecesRepo'; // UNIF-0 : mêmes préfixes que le fil (historique non vide)
 import { libelleNatureProjet } from '../sitadel/priorite'; // GED-1 : nature des travaux en clair (jamais le code nu)
+import { extraireTelephonesSignature, qualifierTelephones, normaliserTelephoneFr, type TelephoneQualifie } from './telephoneSignature'; // LOT 28 : téléphone des interlocuteurs (signature)
 import { fenetreDepuis } from './releveReponses'; // P1 : MÊME source que la relève pour « on relève depuis le … » (jamais une 2e vérité)
 import type { ReglagesCascade } from './cascadeRelance'; // cascade lot 4 : seuils exposés à l'affichage (type-only → erasé côté client)
 import type { EnvoiAutoInfos } from './statutCascade'; // lot « dire quand ça part » : interrupteur + fenêtre d'envoi (réglages existants)
@@ -89,8 +90,9 @@ export interface ReponsePieces {
 }
 
 /** FUS — provenance d'un message porteur de CONTENU (lien FORT OU pièce) : clé de recherche « retrouver ce mail dans Gmail ». */
-/** LOT-9 C — une personne de la mairie qui NOUS a écrit : son adresse, son nom (si connu), la date+heure de SON dernier message. */
-export interface Interlocuteur { adresse: string; nom: string | null; dernierLe: string }
+/** LOT-9 C — une personne de la mairie qui NOUS a écrit : son adresse, son nom (si connu), la date+heure de SON dernier message.
+ *  LOT 28 : + son ou ses téléphones (dérivés de SA signature ; repli annuaire commune). Liste vide = aucun numéro connu (rien à afficher). */
+export interface Interlocuteur { adresse: string; nom: string | null; dernierLe: string; telephones: TelephoneQualifie[] }
 /** LOT-9 C — carnet d'adresses d'une demande : interlocuteurs (triés par récence, plus récent d'abord) + destinataire d'origine (où NOUS avons écrit). */
 export interface ContactMairie { interlocuteurs: Interlocuteur[]; destinataire: string | null }
 
@@ -637,10 +639,52 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
         WHERE d.statut IN ('envoyee', 'close') AND r.demande_id IS NOT NULL AND r.nature <> 'rebond' AND coalesce(r.de_adresse, '') <> ''
         GROUP BY r.demande_id, r.de_adresse
         ORDER BY r.demande_id, max(r.recu_le) DESC`); // TRI par récence : le plus récent d'abord (l'appelant conserve cet ordre)
-    for (const e of exps) contactDe(e.demande_id).interlocuteurs.push({ adresse: e.adresse, nom: e.nom, dernierLe: e.dernier });
+    for (const e of exps) contactDe(e.demande_id).interlocuteurs.push({ adresse: e.adresse, nom: e.nom, dernierLe: e.dernier, telephones: [] });
     const { rows: dests } = await query<{ demande_id: number; dest: string | null }>(
       `SELECT id::int AS demande_id, nullif(dest_email, '') AS dest FROM demande WHERE id = ANY($1)`, [ids]);
     for (const dr of dests) contactDe(dr.demande_id).destinataire = dr.dest;
+    // LOT 28 — TÉLÉPHONE de chaque interlocuteur : DÉRIVÉ de SA signature (source persistée = corps des messages, le plus récent qui en
+    //   porte un l'emporte), à défaut le STANDARD commune (mairie_contact.telephone_standard, source « annuaire »). Aucun stockage ajouté.
+    //   Résilient : toute erreur → interlocuteurs sans numéro (comportement d'avant). Rattaché à l'INTERLOCUTEUR (adresse), pas à la commune.
+    try {
+      const { rows: corps } = await query<{ demande_id: number; de_adresse: string; corps_texte: string }>(
+        `SELECT demande_id, de_adresse, corps_texte FROM (
+           SELECT r.demande_id::int AS demande_id, r.de_adresse, r.corps_texte,
+                  row_number() OVER (PARTITION BY r.demande_id, lower(r.de_adresse) ORDER BY r.recu_le DESC) AS rn
+             FROM demande_reponse r JOIN demande d ON d.id = r.demande_id
+            WHERE d.statut IN ('envoyee', 'close') AND r.demande_id = ANY($1) AND r.nature <> 'rebond'
+              AND coalesce(btrim(r.de_adresse), '') <> '' AND coalesce(btrim(r.corps_texte), '') <> ''
+         ) s WHERE rn <= 12 ORDER BY demande_id, de_adresse, rn`, [ids]);
+      const { rows: comm } = await query<{ id: number; code_insee: string }>(`SELECT id::int AS id, code_insee FROM demande WHERE id = ANY($1)`, [ids]);
+      const inseeParDemande = new Map(comm.map((r) => [r.id, r.code_insee]));
+      const insees = [...new Set(comm.map((r) => r.code_insee).filter((v): v is string => !!v))];
+      const stdParInsee = new Map<string, string>();
+      if (insees.length > 0) {
+        const { rows: std } = await query<{ code_insee: string; tel: string }>(
+          `SELECT code_insee, telephone_standard AS tel FROM mairie_contact WHERE code_insee = ANY($1) AND coalesce(btrim(telephone_standard), '') <> ''`, [insees]);
+        for (const r of std) if (!stdParInsee.has(r.code_insee)) stdParInsee.set(r.code_insee, r.tel);
+      }
+      const corpsParCle = new Map<string, string[]>(); // « demandeId|adresse(min.) » → corps du plus récent au plus ancien
+      for (const r of corps) {
+        const cle = `${r.demande_id}|${r.de_adresse.toLowerCase()}`;
+        (corpsParCle.get(cle) ?? corpsParCle.set(cle, []).get(cle)!).push(r.corps_texte);
+      }
+      for (const [demandeId, contact] of contactsParId) {
+        const stdBrut = stdParInsee.get(inseeParDemande.get(demandeId) ?? '') ?? null;
+        for (const it of contact.interlocuteurs) {
+          let tels: TelephoneQualifie[] = [];
+          for (const corpsTexte of corpsParCle.get(`${demandeId}|${it.adresse.toLowerCase()}`) ?? []) {
+            const ex = extraireTelephonesSignature(corpsTexte);
+            if (ex.length > 0) { tels = qualifierTelephones(ex, { nomConnu: !!it.nom, standardCommune: stdBrut }); break; } // 1er message (récence) qui donne un numéro
+          }
+          if (tels.length === 0) { // repli annuaire : le standard commune connu, source explicitement « annuaire » (jamais présenté comme la signature)
+            const std = stdBrut ? normaliserTelephoneFr(stdBrut) : null;
+            if (std) tels = [{ numero: std, label: 'standard', source: 'annuaire' }];
+          }
+          it.telephones = tels;
+        }
+      }
+    } catch { /* extraction indisponible → interlocuteurs sans numéro (comportement d'avant) */ }
   }
 
   // LOT-10 — SAISISSABLE : une demande dont la saisine CADA est POSSIBLE (foyer UNIQUE `lireSaisinesEligibles.saisissables`, le MÊME que
