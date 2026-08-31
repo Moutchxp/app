@@ -29,8 +29,11 @@ export async function GET(request: Request): Promise<Response> {
 export async function POST(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
-  const body = (await request.json().catch(() => ({}))) as { action?: unknown; dossierId?: unknown; familles?: unknown; objet?: unknown; corps?: unknown; dateRelance?: unknown; journalId?: unknown; compteCommeRelance?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { action?: unknown; dossierId?: unknown; familles?: unknown; objet?: unknown; corps?: unknown; dateRelance?: unknown; journalId?: unknown; compteCommeRelance?: unknown; destinataire?: unknown; destinataireAjoute?: unknown };
   const compteCommeRelance = body.compteCommeRelance === true; // LOT 30 (②) — défaut « ne compte pas » (statu quo)
+  // LOT 29 — destinataire CHOISI (facultatif) + drapeau « saisi à la main » (→ enregistrement au carnet commune). Validés dans l'orchestrateur.
+  const destinataire = typeof body.destinataire === 'string' ? body.destinataire : undefined;
+  const destinataireAjoute = body.destinataireAjoute === true;
   const action = typeof body.action === 'string' ? body.action : 'envoyer';
 
   // PART-3e — ANNULER une relance déclarée (réversibilité). Garde repo : ne supprime que des déclarations.
@@ -52,7 +55,7 @@ export async function POST(request: Request): Promise<Response> {
   if (action === 'declarer') {
     const dateRelance = typeof body.dateRelance === 'string' ? body.dateRelance : '';
     try {
-      const r = await declarerRelanceComplement(depsReellesDeclaration(), { dossierId, familles: fams, dateRelance, auteur: 'admin:decision', compteCommeRelance });
+      const r = await declarerRelanceComplement(depsReellesDeclaration(), { dossierId, familles: fams, dateRelance, auteur: 'admin:decision', compteCommeRelance, destinataire, destinataireAjoute });
       return r.ok ? Response.json(r) : Response.json({ erreur: r.motif ?? 'déclaration impossible' }, { status: 422 });
     } catch (e) { console.error('[permis/demander-pieces] declarer échec', e); return Response.json({ erreur: 'déclaration impossible' }, { status: 503 }); }
   }
@@ -61,7 +64,7 @@ export async function POST(request: Request): Promise<Response> {
   const objet = typeof body.objet === 'string' ? body.objet : '';
   const corps = typeof body.corps === 'string' ? body.corps : '';
   try {
-    const r = await executerDemandePieces(depsReellesDemandePieces(), { dossierId, familles: fams, objet, corps, auteur: 'admin:decision', compteCommeRelance });
+    const r = await executerDemandePieces(depsReellesDemandePieces(), { dossierId, familles: fams, objet, corps, auteur: 'admin:decision', compteCommeRelance, destinataire, destinataireAjoute });
     return r.ok ? Response.json(r) : Response.json({ erreur: r.motif ?? 'envoi impossible' }, { status: 422 });
   } catch (e) {
     console.error('[permis/demander-pieces] POST échec', e);

@@ -11,6 +11,8 @@ import { query } from '../db/client';
 import { problemeTexteComplement, problemeDateDeclaration, estNoReply, entetesFil } from './complementPieces';
 import type { FamillePlan } from './planMasse';
 import { marquerDossierPartiel } from './dossierPartielRepo'; // CASC-1 : pose le marqueur « dossier partiel » (suspend la relance ordinaire)
+import { estAdresseServable, lireOptionsDestinataire, enregistrerAdresseAjoutee } from '../veille/destinatairesCommune'; // LOT 29 : sélecteur de destinataire
+import type { OptionDestinataire } from '../veille/optionsDestinataire';
 
 /** La cible du geste : le dernier message répondable de la mairie + de quoi répondre dans le fil. */
 export interface CibleComplement {
@@ -46,6 +48,9 @@ export interface DepsDemandePieces {
   // LOT 30 (②) — si l'utilisateur demande que cet envoi COMPTE comme la relance suivante : réserve le prochain créneau (verrou LOT 30bis).
   //   Réservé → compte ; déjà pris par l'automatique → ne compte pas. Appelé UNIQUEMENT quand `compteCommeRelance` est vrai.
   reserverCreneauSiCompte(demandeId: number, auteur: string): Promise<{ compte: boolean; creneau: string | null; rang: number | null }>;
+  // LOT 29 — enregistre une adresse AJOUTÉE À LA MAIN dans le carnet de la commune (mairie_contact_email, confirmé), si nouvelle.
+  //   Appelé UNIQUEMENT quand l'utilisateur a saisi une adresse hors liste. Optionnel (les mocks de test l'omettent).
+  enregistrerAdresse?(demandeId: number, email: string, auteur: string): Promise<void>;
 }
 
 /**
@@ -53,23 +58,33 @@ export interface DepsDemandePieces {
  * et envoyé VERBATIM, jamais recomposé ici). Refuse (sans envoyer) si : aucune famille, objet/corps vide, entité HTML dans le texte,
  * aucun message de mairie, adresse non répondable / expédition indisponible. L'ENVOI précède le JOURNAL. PUR par injection.
  */
-export async function executerDemandePieces(deps: DepsDemandePieces, arg: { dossierId: number; familles: readonly FamillePlan[]; objet: string; corps: string; auteur: string; compteCommeRelance?: boolean }): Promise<ResultatDemandePieces> {
+export async function executerDemandePieces(deps: DepsDemandePieces, arg: { dossierId: number; familles: readonly FamillePlan[]; objet: string; corps: string; auteur: string; compteCommeRelance?: boolean; destinataire?: string; destinataireAjoute?: boolean }): Promise<ResultatDemandePieces> {
   const familles = [...new Set(arg.familles)];
   if (familles.length === 0) return { ok: false, motif: 'aucune famille sélectionnée' };
   const problemeTexte = problemeTexteComplement(arg.objet, arg.corps);
   if (problemeTexte !== null) return { ok: false, motif: problemeTexte };
+  // LOT 29 — DESTINATAIRE CHOISI (facultatif). S'il est fourni, il doit être une adresse servable ; sinon refus explicite (jamais un
+  //   repli silencieux sur le dernier répondant). Vide/absent → comportement historique (destinataire = dernier message reçu).
+  const choisi = (arg.destinataire ?? '').trim();
+  if (choisi !== '' && !estAdresseServable(choisi)) return { ok: false, motif: 'adresse de destinataire invalide' };
 
   const cible = await deps.lireCible(arg.dossierId);
   if (cible === null) return { ok: false, motif: 'aucun message de mairie auquel répondre pour ce permis' };
   if (cible.motifIndisponible !== null) return { ok: false, motif: cible.motifIndisponible };
 
+  // LOT 29 — le destinataire choisi remplace le `to`, mais JAMAIS le fil : `envoyer` garde In-Reply-To/References du dernier message
+  //   (entetesFil, indépendants du `to`) → l'envoi reste dans le thread, la réponse se rattache toujours par identifiant.
+  const cibleEff: CibleComplement = choisi !== '' ? { ...cible, destinataire: choisi } : cible;
+  // Adresse AJOUTÉE À LA MAIN → on l'enregistre dans le carnet de la commune (si nouvelle) pour enrichir la liste. Non bloquant.
+  if (choisi !== '' && arg.destinataireAjoute) await deps.enregistrerAdresse?.(cible.demandeId, choisi, arg.auteur);
+
   // ENVOI VERBATIM : exactement l'objet et le corps reçus (ce qui est affiché est ce qui part).
-  const { messageId } = await deps.envoyer(cible, arg.objet, arg.corps); // AVANT le journal
+  const { messageId } = await deps.envoyer(cibleEff, arg.objet, arg.corps); // AVANT le journal
   // LOT 30 (②) — COMPTER cet envoi comme la relance suivante ? Réservation du prochain créneau (verrou), sinon envoi supplémentaire.
-  const c = arg.compteCommeRelance ? await deps.reserverCreneauSiCompte(cible.demandeId, arg.auteur) : { compte: false, creneau: null, rang: null };
-  await deps.journaliser(cible.demandeId, { objet: arg.objet, corps: arg.corps, familles, destinataire: cible.destinataire, messageId, compte: c.compte, creneau: c.creneau, rang: c.rang }, arg.auteur);
-  await deps.marquerPartiel(cible.demandeId, familles); // CASC-1 : pose auto le marqueur → suspend la relance ordinaire (sans geste d'Arno)
-  return { ok: true, destinataire: cible.destinataire, familles, messageId };
+  const c = arg.compteCommeRelance ? await deps.reserverCreneauSiCompte(cibleEff.demandeId, arg.auteur) : { compte: false, creneau: null, rang: null };
+  await deps.journaliser(cibleEff.demandeId, { objet: arg.objet, corps: arg.corps, familles, destinataire: cibleEff.destinataire, messageId, compte: c.compte, creneau: c.creneau, rang: c.rang }, arg.auteur);
+  await deps.marquerPartiel(cibleEff.demandeId, familles); // CASC-1 : pose auto le marqueur → suspend la relance ordinaire (sans geste d'Arno)
+  return { ok: true, destinataire: cibleEff.destinataire, familles, messageId };
 }
 
 // ── Implémentation RÉELLE ─────────────────────────────────────────────────────
@@ -173,7 +188,16 @@ export function depsReellesDemandePieces(): DepsDemandePieces {
     },
     marquerPartiel: async (demandeId, familles) => { await marquerDossierPartiel(demandeId, familles, 'outil'); },
     reserverCreneauSiCompte: async (demandeId, auteur) => { const { reserverProchainCreneauPartiel } = await import('../veille/cascadePartielleRepo'); return reserverProchainCreneauPartiel(demandeId, auteur); },
+    enregistrerAdresse: async (demandeId, email, auteur) => { await enregistrerAdresseCommuneReelle(demandeId, email, auteur); }, // LOT 29 : ajout manuel → carnet commune (si nouvelle)
   };
+}
+
+/** LOT 29 — helper RÉEL : résout le code INSEE de la demande puis enregistre l'adresse ajoutée (si nouvelle). Résilient (demande introuvable → NO-OP). */
+async function enregistrerAdresseCommuneReelle(demandeId: number, email: string, auteur: string): Promise<void> {
+  const { rows } = await query<{ code_insee: string }>(`SELECT code_insee FROM demande WHERE id = $1`, [demandeId]);
+  const codeInsee = rows[0]?.code_insee;
+  if (!codeInsee) return;
+  await enregistrerAdresseAjoutee(demandeId, codeInsee, email, auteur);
 }
 
 /** Préfixe des lignes de journal d'un complément ENVOYÉ par l'outil (source unique). */
@@ -191,6 +215,7 @@ export interface DepsDeclaration {
   marquerPartiel(demandeId: number, familles: readonly FamillePlan[], ancreCivile: string): Promise<void>; // CASC-1 : marqueur « dossier partiel » (origine 'declaree') ; CASC-2 : ancre = date d'envoi déclarée ('YYYY-MM-DD', posée à 12:00 Paris)
   aujourdhui(): string; // 'YYYY-MM-DD' — injecté (pureté de la borne « pas dans le futur »)
   reserverCreneauSiCompte(demandeId: number, auteur: string): Promise<{ compte: boolean; creneau: string | null; rang: number | null }>; // LOT 30 (②) — cf. DepsDemandePieces
+  enregistrerAdresse?(demandeId: number, email: string, auteur: string): Promise<void>; // LOT 29 — cf. DepsDemandePieces (ajout manuel → carnet commune)
 }
 
 /**
@@ -198,21 +223,26 @@ export interface DepsDeclaration {
  * PAS envoyer d'e-mail. Refuse si : aucune famille, aucun message de mairie, date dans le futur ou antérieure au dernier message reçu.
  * Le journal enregistre mode='declare' (contenu non connu), même ÉTAT qu'un envoi pour la suite (type + dateRelance + familles). PUR par injection.
  */
-export async function declarerRelanceComplement(deps: DepsDeclaration, arg: { dossierId: number; familles: readonly FamillePlan[]; dateRelance: string; auteur: string; compteCommeRelance?: boolean }): Promise<ResultatDemandePieces> {
+export async function declarerRelanceComplement(deps: DepsDeclaration, arg: { dossierId: number; familles: readonly FamillePlan[]; dateRelance: string; auteur: string; compteCommeRelance?: boolean; destinataire?: string; destinataireAjoute?: boolean }): Promise<ResultatDemandePieces> {
   const familles = [...new Set(arg.familles)];
   if (familles.length === 0) return { ok: false, motif: 'aucune famille sélectionnée' };
+  // LOT 29 — DESTINATAIRE CHOISI (facultatif) : à qui la relance a été envoyée (constat). Servable exigé si fourni ; vide → destinataire d'origine.
+  const choisi = (arg.destinataire ?? '').trim();
+  if (choisi !== '' && !estAdresseServable(choisi)) return { ok: false, motif: 'adresse de destinataire invalide' };
   const ctx = await deps.lireContexte(arg.dossierId);
   if (ctx === null) return { ok: false, motif: 'aucun message de mairie pour ce permis' };
   const pb = problemeDateDeclaration(arg.dateRelance, deps.aujourdhui(), ctx.dernierMessageLe);
   if (pb !== null) return { ok: false, motif: pb };
+  const destinataire = choisi !== '' ? choisi : ctx.destinataire; // LOT 29 : constat = à qui la relance a réellement été adressée
+  if (choisi !== '' && arg.destinataireAjoute) await deps.enregistrerAdresse?.(ctx.demandeId, choisi, arg.auteur); // ajout manuel → carnet commune (si nouvelle)
   const jourDeclare = arg.dateRelance.slice(0, 10); // grain JOUR (déjà validé au format 'YYYY-MM-DD' par problemeDateDeclaration)
   // LOT 30 (②) — COMPTER cette relance déclarée comme la relance suivante ? Réservation du prochain créneau (verrou), sinon envoi supplémentaire.
   const c = arg.compteCommeRelance ? await deps.reserverCreneauSiCompte(ctx.demandeId, arg.auteur) : { compte: false, creneau: null, rang: null };
-  await deps.journaliserDeclaration(ctx.demandeId, { dateRelance: jourDeclare, familles, destinataire: ctx.destinataire, compte: c.compte, creneau: c.creneau, rang: c.rang }, arg.auteur);
+  await deps.journaliserDeclaration(ctx.demandeId, { dateRelance: jourDeclare, familles, destinataire, compte: c.compte, creneau: c.creneau, rang: c.rang }, arg.auteur);
   // CASC-1 : même effet qu'un envoi — pose auto le marqueur → suspend la relance ordinaire. CASC-2 : l'ancre du butoir CADA est la date
   //   d'envoi RÉELLEMENT déclarée (jourDeclare), pas l'instant du clic (cas 154 : déclaré le 31/08 pour un envoi du 28/08 → sinon 3 j gagnés).
   await deps.marquerPartiel(ctx.demandeId, familles, jourDeclare);
-  return { ok: true, destinataire: ctx.destinataire, familles };
+  return { ok: true, destinataire, familles };
 }
 
 export function depsReellesDeclaration(): DepsDeclaration {
@@ -232,6 +262,7 @@ export function depsReellesDeclaration(): DepsDeclaration {
     marquerPartiel: async (demandeId, familles, ancreCivile) => { await marquerDossierPartiel(demandeId, familles, 'declaree', ancreCivile); },
     aujourdhui: () => new Date().toISOString().slice(0, 10),
     reserverCreneauSiCompte: async (demandeId, auteur) => { const { reserverProchainCreneauPartiel } = await import('../veille/cascadePartielleRepo'); return reserverProchainCreneauPartiel(demandeId, auteur); },
+    enregistrerAdresse: async (demandeId, email, auteur) => { await enregistrerAdresseCommuneReelle(demandeId, email, auteur); }, // LOT 29 : ajout manuel → carnet commune (si nouvelle)
   };
 }
 
@@ -353,12 +384,14 @@ export interface LigneHistoriqueComplement {
   familles: string[];
 }
 
-/** État pour l'écran : cible (numDau, destinataire, répondable, motif) + historique unifié (envoyé / déclaré). */
+/** État pour l'écran : cible (numDau, destinataire, répondable, motif) + carnet d'adresses (options + défaut règle A) + historique unifié. */
 export interface EtatDemandePieces {
   numDau: string | null;
-  destinataire: string | null;
+  destinataire: string | null;      // destinataire d'origine (dernier message reçu) — conservé pour compat
   repliable: boolean;
   motif: string | null;
+  adresses: OptionDestinataire[];    // LOT 29 : options du sélecteur (jeu règle B ordonné + provenance)
+  destinataireDefaut: string | null; // LOT 29 : présélection (règle A — dernier répondant, repli chaîne)
   historique: LigneHistoriqueComplement[];
 }
 
@@ -389,13 +422,20 @@ async function lireHistoriqueComplement(demandeId: number): Promise<LigneHistori
 export async function lireEtatDemandePieces(dossierId: number): Promise<EtatDemandePieces> {
   const cible = await lireCibleComplementReel(dossierId);
   if (cible === null) {
-    return { numDau: null, destinataire: null, repliable: false, motif: 'aucun message de mairie auquel répondre pour ce permis', historique: [] };
+    return { numDau: null, destinataire: null, repliable: false, motif: 'aucun message de mairie auquel répondre pour ce permis', adresses: [], destinataireDefaut: null, historique: [] };
   }
+  // LOT 29 — carnet d'adresses de la commune pour le sélecteur (options règle B ordonnées + défaut règle A). Résilient : code INSEE
+  //   introuvable / table 186 absente → liste vide + défaut = destinataire d'origine (le sélecteur ne bloque pas, la saisie reste possible).
+  const { rows } = await query<{ code_insee: string }>(`SELECT code_insee FROM demande WHERE id = $1`, [cible.demandeId]);
+  const codeInsee = rows[0]?.code_insee ?? null;
+  const carnet = codeInsee ? await lireOptionsDestinataire(cible.demandeId, codeInsee) : { options: [] as OptionDestinataire[], defaut: null };
   return {
     numDau: cible.numDau,
     destinataire: cible.destinataire,
     repliable: cible.motifIndisponible === null,
     motif: cible.motifIndisponible,
+    adresses: carnet.options,
+    destinataireDefaut: carnet.defaut ?? cible.destinataire,
     historique: await lireHistoriqueComplement(cible.demandeId),
   };
 }

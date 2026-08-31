@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 // Mock DB routé par fragment de SQL (LECTURE SEULE) — pour tester lireDestinataireParDefaut (Règle A) sans base.
 const { appels, reponses, queryMock } = vi.hoisted(() => {
   const appels: { sql: string; params: unknown[] }[] = [];
-  const reponses = { repondant: [] as { a: string }[], contact: [] as { a: string }[], prada: [] as { a: string }[], dest: [] as { a: string }[] };
+  const reponses = { repondant: [] as { a: string }[], contact: [] as { a: string }[], prada: [] as { a: string }[], dest: [] as { a: string }[], ajouts: [] as { a: string }[] };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
     if (/demande_reponse/i.test(sql) && /de_adresse AS a/i.test(sql)) return { rows: reponses.repondant };
+    if (/mairie_contact_email/i.test(sql)) return { rows: reponses.ajouts }; // LOT 29 — AVANT mairie_contact (qui matcherait aussi)
     if (/mairie_contact/i.test(sql)) return { rows: reponses.contact };
     if (/mairie_prada/i.test(sql)) return { rows: reponses.prada };
     if (/dest_email AS a/i.test(sql)) return { rows: reponses.dest };
@@ -15,16 +16,16 @@ const { appels, reponses, queryMock } = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: queryMock, withTransaction: async () => undefined, pool: {}, closePool: async () => undefined }));
 
-import { composerDestinatairesCommune, choisirDestinataireParDefaut, resoudreDestinatairesRelance, lireDestinataireParDefaut, type SourcesAdressesCommune } from './destinatairesCommune';
+import { composerDestinatairesCommune, choisirDestinataireParDefaut, resoudreDestinatairesRelance, lireDestinataireParDefaut, composerOptionsDestinataire, type SourcesAdressesCommune } from './destinatairesCommune';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
-beforeEach(() => { appels.length = 0; reponses.repondant = []; reponses.contact = []; reponses.prada = []; reponses.dest = []; });
+beforeEach(() => { appels.length = 0; reponses.repondant = []; reponses.contact = []; reponses.prada = []; reponses.dest = []; reponses.ajouts = []; });
 
 /**
  * LOT 20 — cœur PUR de la composition des destinataires (sans réseau, point 11). On prouve : dest_email toujours en tête, dédup
  * insensible à la casse, exclusion des no-reply / mailer-daemon / postmaster / non-adresses. AUCUN envoi.
  */
-const src = (over: Partial<SourcesAdressesCommune> = {}): SourcesAdressesCommune => ({ destEmail: null, contactsConfirmes: [], prada: [], repondants: [], ...over });
+const src = (over: Partial<SourcesAdressesCommune> = {}): SourcesAdressesCommune => ({ destEmail: null, contactsConfirmes: [], prada: [], repondants: [], ajouts: [], ...over });
 
 describe('composerDestinatairesCommune', () => {
   it('cas Aubervilliers : dest_email + répondant réel = 2 adresses, dest_email en tête', () => {
@@ -135,5 +136,44 @@ describe('LOT 27 — lireDestinataireParDefaut : lit le dernier répondant (hors
     expect(await lireDestinataireParDefaut(7, '93001')).toBe('urba@mairie.fr');
     const c = appels.find((a) => /mairie_contact/i.test(a.sql))!;
     expect(norm(c.sql)).toContain("statut = 'confirme'"); // garantit l'exclusion des 'presume'
+  });
+});
+
+// ── LOT 29 — carnet multi-adresses (mairie_contact_email) + options du sélecteur ─────────────────────────────────────────────────
+describe('LOT 29 — composerDestinatairesCommune : les ajouts manuels rejoignent le jeu règle B', () => {
+  it('une adresse ajoutée à la main entre dans la liste (après le dest_email, dédupliquée)', () => {
+    const l = composerDestinatairesCommune(src({ destEmail: 'urba@m.fr', ajouts: ['ajout@m.fr', 'URBA@m.fr'] }));
+    expect(l).toEqual(['urba@m.fr', 'ajout@m.fr']); // dest en tête, ajout inclus, doublon insensible à la casse écarté
+  });
+
+  it('🔒 RÈGLE B INCHANGÉE pour une commune SANS ajout manuel : liste identique à avant (ajouts=[])', () => {
+    const sansAjout = src({ destEmail: 'd@m.fr', contactsConfirmes: ['c@m.fr'], prada: ['p@m.fr'], repondants: ['r@m.fr'] });
+    // même sources, ajouts vides → EXACTEMENT la liste historique (dest, contact, prada, répondant), rien de plus
+    expect(composerDestinatairesCommune(sansAjout)).toEqual(['d@m.fr', 'c@m.fr', 'p@m.fr', 'r@m.fr']);
+    // et le jeu des 2 dernières relances (règle B) part de cette même liste → comportement multi-adresse inchangé
+    const b = resoudreDestinatairesRelance({ defautRegleA: 'r@m.fr', destEmailFige: 'd@m.fr', listeLarge: composerDestinatairesCommune(sansAjout), rang: 3, total: 3, multiActive: true, nbDernieres: 2 });
+    expect(b).toEqual(['d@m.fr', 'c@m.fr', 'p@m.fr', 'r@m.fr']);
+  });
+});
+
+describe('LOT 29 — composerOptionsDestinataire : options ordonnées + provenance + défaut en tête', () => {
+  it('une seule adresse connue → une seule option', () => {
+    expect(composerOptionsDestinataire(src({ destEmail: 'urba@m.fr' }), 'urba@m.fr')).toEqual([{ adresse: 'urba@m.fr', provenance: 'ecrit' }]);
+  });
+
+  it('plusieurs adresses, un répondant récent = défaut → il est EN TÊTE, chaque option porte sa provenance', () => {
+    const o = composerOptionsDestinataire(src({ destEmail: 'urba@m.fr', repondants: ['lauriane@m.fr'], prada: ['prada@m.fr'], ajouts: ['ajout@m.fr'] }), 'lauriane@m.fr');
+    expect(o[0]).toEqual({ adresse: 'lauriane@m.fr', provenance: 'repondant' }); // défaut règle A en tête
+    const par = Object.fromEntries(o.map((x) => [x.adresse, x.provenance]));
+    expect(par).toEqual({ 'lauriane@m.fr': 'repondant', 'urba@m.fr': 'ecrit', 'ajout@m.fr': 'ajout', 'prada@m.fr': 'prada' });
+  });
+
+  it('aucune adresse connue → aucune option (le sélecteur ne bloque pas : la saisie manuelle prend le relais côté écran)', () => {
+    expect(composerOptionsDestinataire(src(), null)).toEqual([]);
+  });
+
+  it('une même adresse dans plusieurs sources → une seule option, provenance de PLUS HAUTE priorité (répondant l’emporte)', () => {
+    const o = composerOptionsDestinataire(src({ destEmail: 'x@m.fr', repondants: ['x@m.fr'] }), 'x@m.fr');
+    expect(o).toEqual([{ adresse: 'x@m.fr', provenance: 'repondant' }]); // dédupliquée, répondant > ecrit
   });
 });

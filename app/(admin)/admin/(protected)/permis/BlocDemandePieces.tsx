@@ -4,6 +4,9 @@ import { useCallback, useEffect, useState } from 'react';
 // Générateur + validateur PURS (aucun import serveur) → utilisables dans le bundle client pour l'aperçu et le pré-contrôle.
 import { composerComplementPieces, problemeTexteComplement } from '../../../../lib/permis/complementPieces';
 import type { FamillePlan } from '../../../../lib/permis/planMasse';
+// LOT 29 — sélecteur de destinataire : types CLIENT-SAFE (aucun import serveur) + regex e-mail partagée avec la validation base (CHECK).
+import { LABEL_PROVENANCE, fusionnerOptions, type OptionDestinataire } from '../../../../lib/veille/optionsDestinataire';
+import { FORME_EMAIL } from '../../../../lib/sitadel/reglagesVeille';
 
 /**
  * PART-3a/3c — DEMANDER À LA MAIRIE LES PIÈCES MANQUANTES, en DEUX TEMPS : (1) cocher les familles → « Préparer » AFFICHE l'objet et
@@ -14,7 +17,7 @@ import type { FamillePlan } from '../../../../lib/permis/planMasse';
 const LIBELLE: Record<FamillePlan, string> = { masse: 'Plan de masse', coupe: 'Plan de coupe', etage: 'Plans d’étages', cerfa: 'Formulaire Cerfa' };
 
 interface LigneHisto { id: number; le: string; mode: 'envoye' | 'declare'; dateRelance: string | null; objet: string | null; familles: string[] }
-interface Etat { numDau: string | null; destinataire: string | null; repliable: boolean; motif: string | null; historique: LigneHisto[] }
+interface Etat { numDau: string | null; destinataire: string | null; repliable: boolean; motif: string | null; adresses: OptionDestinataire[]; destinataireDefaut: string | null; historique: LigneHisto[] }
 const muted: React.CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
 const styleChamp: React.CSSProperties = { width: '100%', padding: '.4rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, boxSizing: 'border-box' };
 
@@ -49,6 +52,56 @@ function OptionCompteRelance({ id, checked, onChange }: { id: string; checked: b
   );
 }
 
+/**
+ * LOT 29 — SÉLECTEUR DE DESTINATAIRE, COMPOSANT PARTAGÉ (même comportement dans « demander les pièces » ET « déclarer une relance »).
+ *   • TOUTES les adresses connues de la commune (jeu règle B : répondants + adresse d'envoi + contacts confirmés + PRADA + ajouts main),
+ *     visibles et choisissables, chacune avec sa PROVENANCE (l'écran ne laisse pas croire que toutes ont répondu).
+ *   • AJOUT d'une adresse absente : format validé (FORME_EMAIL, miroir du CHECK base), dédoublonné insensible à la casse ; si déjà
+ *     présente → simple sélection ; sinon ajoutée à la liste de session (marquée 'ajout') et signalée au serveur pour enregistrement.
+ *   • Ne bloque JAMAIS : sans aucune adresse connue, la saisie reste possible et l'écran le dit. Mobile-first, sans hover, sans animation.
+ */
+function SelecteurDestinataire({ idBase, options, ajoutees, valeur, disabled, onChoisir, onAjouter }: {
+  idBase: string;
+  options: OptionDestinataire[];      // du serveur (jeu règle B, défaut règle A en tête)
+  ajoutees: OptionDestinataire[];     // ajoutées à la main pendant la session (avant le prochain rechargement serveur)
+  valeur: string;                     // adresse sélectionnée
+  disabled?: boolean;
+  onChoisir: (adresse: string) => void;
+  onAjouter: (adresse: string) => void; // nouvelle adresse (absente) : à mémoriser côté parent (provenance 'ajout') + sélectionner
+}) {
+  const [saisie, setSaisie] = useState('');
+  const [err, setErr] = useState<string | null>(null);
+  const toutes = fusionnerOptions(options, ajoutees);
+  const ajouter = () => {
+    const a = saisie.trim();
+    if (!FORME_EMAIL.test(a)) { setErr('Adresse e-mail invalide.'); return; }
+    const existe = toutes.some((o) => o.adresse.toLowerCase() === a.toLowerCase());
+    if (existe) onChoisir(a); else onAjouter(a); // déjà connue → simple sélection (pas de doublon) ; sinon ajout
+    setSaisie(''); setErr(null);
+  };
+  return (
+    <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+      <legend style={{ ...muted, padding: 0 }}>Destinataire</legend>
+      {toutes.length === 0 && <span style={muted}>Aucune adresse connue de cette mairie — saisissez-en une ci-dessous.</span>}
+      {toutes.map((o) => (
+        <label key={o.adresse} style={{ display: 'flex', gap: '.4rem', alignItems: 'baseline', fontSize: 13, minWidth: 0 }}>
+          <input type="radio" name={idBase} checked={valeur.toLowerCase() === o.adresse.toLowerCase()} onChange={() => onChoisir(o.adresse)} disabled={disabled} style={{ flex: '0 0 auto' }} />
+          <span style={{ minWidth: 0, wordBreak: 'break-all' }}>{o.adresse} <span style={muted}>({LABEL_PROVENANCE[o.provenance]})</span></span>
+        </label>
+      ))}
+      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '.15rem' }}>
+        <input type="email" inputMode="email" value={saisie} onChange={(e) => { setSaisie(e.target.value); if (err) setErr(null); }}
+          placeholder="ajouter une autre adresse…" aria-label="Ajouter une adresse de destinataire" disabled={disabled}
+          style={{ ...styleChamp, width: 'auto', flex: '1 1 12rem', minWidth: 0 }}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); ajouter(); } }} />
+        <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem', whiteSpace: 'nowrap' }}
+          disabled={disabled || saisie.trim() === ''} onClick={ajouter}>Ajouter</button>
+      </div>
+      {err && <span style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{err}</span>}
+    </fieldset>
+  );
+}
+
 /** Libellé lisible d'une réponse d'erreur. La barrière d'accès émet 401 (session expirée, via le proxy) OU 403 (compte
  * révoqué / non-admin / changement de mot de passe requis, via la garde de route) : les DEUX doivent inviter à se reconnecter,
  * JAMAIS afficher le code machine brut (« INTERDIT », « ACCES_REVOQUE »…). Tout autre statut → message métier de la route, sinon repli. */
@@ -73,23 +126,37 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
   const [compteDecl, setCompteDecl] = useState(false); // LOT 30 (②) — idem pour une relance DÉCLARÉE hors outil.
   const [enCoursDecl, setEnCoursDecl] = useState(false);
   const [messageDecl, setMessageDecl] = useState<string | null>(null);
+  // LOT 29 — destinataire choisi pour l'ENVOI et pour la DÉCLARATION (états séparés, MÊME sélecteur) + adresses ajoutées à la main
+  //   pendant la session (partagées par les deux sélecteurs ; le prochain rechargement serveur les fera revenir de la base).
+  const [selDestEnvoi, setSelDestEnvoi] = useState('');
+  const [selDestDecl, setSelDestDecl] = useState('');
+  const [ajoutees, setAjoutees] = useState<OptionDestinataire[]>([]);
 
+  // Applique l'état reçu + PRÉSÉLECTION (règle A) des deux sélecteurs s'ils sont encore vierges (jamais d'écrasement d'un choix déjà
+  //   fait par l'utilisateur). Appelé APRÈS un await (résolution du fetch) → pas de setState synchrone dans un corps d'effet.
+  const appliquerEtat = useCallback((e: Etat) => {
+    setEtat(e);
+    const d = e.destinataireDefaut ?? e.destinataire ?? '';
+    if (d) { setSelDestEnvoi((p) => p || d); setSelDestDecl((p) => p || d); }
+  }, []);
   useEffect(() => {
     let annule = false;
     (async () => {
       try {
         const res = await fetch(`/api/admin/permis/demander-pieces?dossierId=${dossierId}`, { cache: 'no-store' });
-        if (!annule && res.ok) setEtat((await res.json()) as Etat);
+        if (!annule && res.ok) appliquerEtat((await res.json()) as Etat);
       } catch { /* état indisponible : le bloc reste affiché, l'envoi dira le motif */ }
     })();
     return () => { annule = true; };
-  }, [dossierId]);
+  }, [dossierId, appliquerEtat]);
+  const memoriserAjout = useCallback((a: string) => setAjoutees((prev) => prev.some((o) => o.adresse.toLowerCase() === a.toLowerCase()) ? prev : [...prev, { adresse: a, provenance: 'ajout' }]), []);
+  const estAjoutee = useCallback((a: string) => ajoutees.some((o) => o.adresse.toLowerCase() === a.trim().toLowerCase()), [ajoutees]);
   const chargerEtat = useCallback(async () => {
     try {
       const res = await fetch(`/api/admin/permis/demander-pieces?dossierId=${dossierId}`, { cache: 'no-store' });
-      if (res.ok) setEtat((await res.json()) as Etat);
+      if (res.ok) appliquerEtat((await res.json()) as Etat);
     } catch { /* refetch best-effort */ }
-  }, [dossierId]);
+  }, [dossierId, appliquerEtat]);
 
   const numDau = etat?.numDau ?? '';
   const repliable = etat?.repliable ?? false;
@@ -120,13 +187,13 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
     try {
       const res = await fetch('/api/admin/permis/demander-pieces', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dossierId, familles: [...coches], objet, corps, compteCommeRelance: compteEnvoi }),
+        body: JSON.stringify({ dossierId, familles: [...coches], objet, corps, compteCommeRelance: compteEnvoi, destinataire: selDestEnvoi, destinataireAjoute: estAjoutee(selDestEnvoi) }),
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; destinataire?: string; erreur?: string };
       if (res.ok && d.ok) { setMessage(`Demande envoyée à ${d.destinataire}.`); setMode('cases'); await chargerEtat(); }
       else setMessage(libelleErreur(res.status, d.erreur, 'envoi impossible'));
     } catch { setMessage('envoi impossible'); } finally { setEnvoi(false); }
-  }, [dossierId, coches, objet, corps, compteEnvoi, chargerEtat]);
+  }, [dossierId, coches, objet, corps, compteEnvoi, selDestEnvoi, estAjoutee, chargerEtat]);
 
   const peutEnvoyer = repliable && objet.trim() !== '' && corps.trim() !== '' && !envoi;
 
@@ -138,13 +205,13 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
     try {
       const res = await fetch('/api/admin/permis/demander-pieces', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'declarer', dossierId, familles: [...cochesDecl], dateRelance: dateDecl, compteCommeRelance: compteDecl }),
+        body: JSON.stringify({ action: 'declarer', dossierId, familles: [...cochesDecl], dateRelance: dateDecl, compteCommeRelance: compteDecl, destinataire: selDestDecl, destinataireAjoute: estAjoutee(selDestDecl) }),
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
       if (res.ok && d.ok) { setMessageDecl('Relance déclarée (aucun e-mail envoyé).'); await chargerEtat(); }
       else setMessageDecl(libelleErreur(res.status, d.erreur, 'déclaration impossible'));
     } catch { setMessageDecl('déclaration impossible'); } finally { setEnCoursDecl(false); }
-  }, [dossierId, cochesDecl, dateDecl, compteDecl, chargerEtat]);
+  }, [dossierId, cochesDecl, dateDecl, compteDecl, selDestDecl, estAjoutee, chargerEtat]);
 
   // ANNULER une relance déclarée (réversibilité).
   const annulerDecl = useCallback(async (journalId: number) => {
@@ -166,7 +233,8 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
         ? <span style={muted} aria-live="polite">Chargement…</span>
         : (
           <>
-            {etat.destinataire && repliable && <span style={muted}>Sera envoyé dans le fil du dernier message, à {etat.destinataire}.</span>}
+            {/* LOT 29 — l'annonce reflète le destinataire RÉELLEMENT sélectionné (règle A par défaut), et se met à jour au changement. */}
+            {repliable && (selDestEnvoi || etat.destinataire) && <span style={muted}>Sera envoyé dans le fil du dernier message, à {selDestEnvoi || etat.destinataire}.</span>}
             {!repliable && <p role="note" style={{ margin: 0, fontSize: 12, color: 'var(--color-svv-red)' }}>Envoi impossible : {etat.motif ?? 'destinataire non répondable'}.</p>}
 
             <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
@@ -190,6 +258,9 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
             {mode === 'apercu' && (
               <div className="flex flex-col gap-2">
                 <span style={muted}>Relisez et modifiez si besoin. Le message envoyé sera EXACTEMENT ce texte.</span>
+                {/* LOT 29 — sélecteur de destinataire AU-DESSUS de l'objet. Désactivé si l'envoi est impossible (non répondable). */}
+                <SelecteurDestinataire idBase="dest-envoi" options={etat.adresses} ajoutees={ajoutees} valeur={selDestEnvoi} disabled={!repliable}
+                  onChoisir={setSelDestEnvoi} onAjouter={(a) => { memoriserAjout(a); setSelDestEnvoi(a); }} />
                 <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', fontSize: 12 }}>
                   <span style={muted}>Objet</span>
                   <input type="text" value={objet} onChange={(e) => setObjet(e.target.value)} style={styleChamp} aria-label="Objet du message" />
@@ -233,6 +304,12 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
                   </label>
                 ))}
               </fieldset>
+              {/* LOT 29 — MÊME sélecteur : à qui la relance a été envoyée (constat). Non bloqué par « répondable » (aucun envoi ici). */}
+              <div style={{ marginTop: '.3rem' }}>
+                <SelecteurDestinataire idBase="dest-decl" options={etat.adresses} ajoutees={ajoutees} valeur={selDestDecl}
+                  onChoisir={setSelDestDecl} onAjouter={(a) => { memoriserAjout(a); setSelDestDecl(a); }} />
+                {selDestDecl && <span style={{ ...muted, display: 'block', marginTop: '.15rem' }}>Relance déclarée comme envoyée à {selDestDecl}.</span>}
+              </div>
               <OptionCompteRelance id="compte-decl" checked={compteDecl} onChange={setCompteDecl} />
               {/* POLISH (Arno) : fond PLEIN dès qu'une date valide rend le geste cliquable ; fond clair tant qu'il est inactif. Libellé inchangé. */}
               <button type="button" className={`svv-btn ${peutDeclarer ? 'svv-btn-primary' : 'svv-btn-outline'}`} style={{ width: 'auto', padding: '.3rem .7rem', marginTop: '.3rem' }}

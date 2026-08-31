@@ -24,7 +24,7 @@ function makeDeps(over: Partial<DepsDemandePieces> = {}): DepsDemandePieces {
     ...over,
   };
 }
-const arg = (over: Partial<{ dossierId: number; familles: ('cerfa'|'masse'|'coupe'|'etage')[]; objet: string; corps: string; auteur: string }> = {}) =>
+const arg = (over: Partial<{ dossierId: number; familles: ('cerfa'|'masse'|'coupe'|'etage')[]; objet: string; corps: string; auteur: string; destinataire: string; destinataireAjoute: boolean }> = {}) =>
   ({ dossierId: 7424, familles: ['cerfa'] as ('cerfa'|'masse'|'coupe'|'etage')[], objet: OBJET, corps: CORPS, auteur: 'admin:decision', ...over });
 
 describe('executerDemandePieces', () => {
@@ -104,6 +104,46 @@ describe('executerDemandePieces', () => {
   });
 });
 
+describe('executerDemandePieces — LOT 29 : destinataire choisi + ajout au carnet', () => {
+  it('destinataire choisi → le « to » est SURCHARGÉ mais le FIL est conservé (In-Reply-To/References inchangés) ; journal + retour = choisi', async () => {
+    let cibleEnvoyee: CibleComplement | null = null;
+    let trace: TraceEnvoi | null = null;
+    const deps = makeDeps({ envoyer: async (c) => { cibleEnvoyee = c; return { messageId: '<m@svav.com>' }; }, journaliser: async (_d, t) => { trace = t; } });
+    const r = await executerDemandePieces(deps, arg({ destinataire: 'urba@mairie-aubervilliers.fr' }));
+    expect(r.ok).toBe(true);
+    expect(r.destinataire).toBe('urba@mairie-aubervilliers.fr');
+    expect(cibleEnvoyee!.destinataire).toBe('urba@mairie-aubervilliers.fr'); // to surchargé
+    expect(cibleEnvoyee!.messageId).toBe('<abc@mairie-aubervilliers.fr>');   // FIL INCHANGÉ (In-Reply-To)
+    expect(cibleEnvoyee!.referencesBrut).toBe('<x@svav.com>');               // FIL INCHANGÉ (References)
+    expect(trace!.destinataire).toBe('urba@mairie-aubervilliers.fr');
+  });
+
+  it('sans destinataire choisi → comportement historique (dernier message reçu)', async () => {
+    let cibleEnvoyee: CibleComplement | null = null;
+    await executerDemandePieces(makeDeps({ envoyer: async (c) => { cibleEnvoyee = c; return { messageId: '<m@svav.com>' }; } }), arg());
+    expect(cibleEnvoyee!.destinataire).toBe('lauriane.pangui@mairie-aubervilliers.fr');
+  });
+
+  it('destinataire INVALIDE → refus, aucun envoi', async () => {
+    const envoyer = vi.fn(async () => ({ messageId: '<m@svav.com>' }));
+    const r = await executerDemandePieces(makeDeps({ envoyer }), arg({ destinataire: 'pas-une-adresse' }));
+    expect(r.ok).toBe(false);
+    expect(envoyer).not.toHaveBeenCalled();
+  });
+
+  it('adresse AJOUTÉE à la main → enregistrée au carnet de la commune', async () => {
+    const enregistrerAdresse = vi.fn(async () => {});
+    await executerDemandePieces(makeDeps({ enregistrerAdresse }), arg({ destinataire: 'nouvelle@mairie-aubervilliers.fr', destinataireAjoute: true }));
+    expect(enregistrerAdresse).toHaveBeenCalledWith(154, 'nouvelle@mairie-aubervilliers.fr', 'admin:decision');
+  });
+
+  it('adresse choisie dans la LISTE (pas ajoutée) → aucun enregistrement', async () => {
+    const enregistrerAdresse = vi.fn(async () => {});
+    await executerDemandePieces(makeDeps({ enregistrerAdresse }), arg({ destinataire: 'urba@mairie-aubervilliers.fr', destinataireAjoute: false }));
+    expect(enregistrerAdresse).not.toHaveBeenCalled();
+  });
+});
+
 // ── PART-3e — DÉCLARER une relance faite hors outil (AUCUN envoi) ─────────────────────────────────────────────────────────────
 const ctx = { demandeId: 154, destinataire: 'lauriane.pangui@mairie-aubervilliers.fr', dernierMessageLe: '2026-08-28T14:39:59+02:00' };
 function makeDepsDecl(over: Partial<DepsDeclaration> = {}): DepsDeclaration {
@@ -116,7 +156,7 @@ function makeDepsDecl(over: Partial<DepsDeclaration> = {}): DepsDeclaration {
     ...over,
   };
 }
-const argD = (over: Partial<{ dossierId: number; familles: ('cerfa'|'masse'|'coupe'|'etage')[]; dateRelance: string; auteur: string }> = {}) =>
+const argD = (over: Partial<{ dossierId: number; familles: ('cerfa'|'masse'|'coupe'|'etage')[]; dateRelance: string; auteur: string; destinataire: string; destinataireAjoute: boolean }> = {}) =>
   ({ dossierId: 7424, familles: ['cerfa'] as ('cerfa'|'masse'|'coupe'|'etage')[], dateRelance: '2026-08-29', auteur: 'admin:decision', ...over });
 
 describe('declarerRelanceComplement — constat sans envoi', () => {
@@ -182,6 +222,21 @@ describe('declarerRelanceComplement — constat sans envoi', () => {
     expect(trace!.familles).toEqual(['etage', 'cerfa']);
     expect(marque!.demandeId).toBe(154); // CASC-1 : marqueur « dossier partiel » posé
     expect(marque!.ancre).toBe('2026-08-28'); // 🔴 CASC-2 : l'ancre du butoir = la date d'envoi DÉCLARÉE (28/08), pas l'instant du clic (31/08)
+  });
+
+  it('LOT 29 — destinataire choisi → journalisé comme destinataire de la déclaration (constat à qui elle a été envoyée)', async () => {
+    let trace: TraceDeclaration | null = null;
+    const r = await declarerRelanceComplement(makeDepsDecl({ journaliserDeclaration: async (_d, t) => { trace = t; } }), argD({ destinataire: 'autre@mairie-aubervilliers.fr' }));
+    expect(r.ok).toBe(true);
+    expect(r.destinataire).toBe('autre@mairie-aubervilliers.fr');
+    expect(trace!.destinataire).toBe('autre@mairie-aubervilliers.fr');
+  });
+
+  it('LOT 29 — ajout à la main en déclaration → enregistré au carnet ; destinataire invalide → refus', async () => {
+    const enregistrerAdresse = vi.fn(async () => {});
+    await declarerRelanceComplement(makeDepsDecl({ enregistrerAdresse }), argD({ destinataire: 'new@mairie-aubervilliers.fr', destinataireAjoute: true }));
+    expect(enregistrerAdresse).toHaveBeenCalledWith(154, 'new@mairie-aubervilliers.fr', 'admin:decision');
+    expect((await declarerRelanceComplement(makeDepsDecl(), argD({ destinataire: 'pas-une-adresse' }))).ok).toBe(false);
   });
 });
 

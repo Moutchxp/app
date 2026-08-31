@@ -2,6 +2,7 @@ import { query } from '../db/client';
 import { estNoReply } from '../permis/complementPieces';
 import { FORME_EMAIL } from '../sitadel/reglagesVeille';
 import { estParmiDernieres } from './rangDernieres';
+import type { OptionDestinataire, ProvenanceAdresse } from './optionsDestinataire';
 
 // LOT 27 — RÉEXPORT : `estParmiDernieres` vit dans un module PUR sans import (client-safe, cf. rangDernieres.ts) ; on le réexporte
 //   ici pour ne rien casser des importeurs serveur historiques (cascadePartielleRepo, LOT 20).
@@ -22,6 +23,7 @@ export interface SourcesAdressesCommune {
   contactsConfirmes: string[];   // mairie_contact : canal='email' ET statut='confirme' (les 'presume' EXCLUS)
   prada: string[];               // mairie_prada.courriel (non vide)
   repondants: string[];          // demande_reponse.de_adresse (nature<>'rebond') sur TOUTE la commune — interlocuteurs réels connus
+  ajouts: string[];              // LOT 29 : mairie_contact_email (adresses CONFIRMÉES ajoutées à la main) — table additive, presume sans objet
 }
 
 /** Une adresse est-elle SERVABLE (vraie adresse, ni no-reply, ni expéditeur système de rebond) ? PUR — source d'exclusion UNIQUE (composer + Règle A). */
@@ -46,9 +48,39 @@ export function composerDestinatairesCommune(s: SourcesAdressesCommune): string[
   };
   ajouter(s.destEmail);                       // TOUJOURS le destinataire figé, en premier
   for (const c of s.contactsConfirmes) ajouter(c);
+  for (const c of s.ajouts) ajouter(c);       // LOT 29 : adresses confirmées ajoutées à la main (règle B) — vide pour une commune sans ajout → liste inchangée
   for (const c of s.prada) ajouter(c);
   for (const c of s.repondants) ajouter(c);
   return out;
+}
+
+/**
+ * LOT 29 — OPTIONS ORDONNÉES du sélecteur de destinataire (PUR). Même exclusions/dédoublonnage que `composerDestinatairesCommune`
+ * (dédup insensible à la casse, non-adresses/no-reply écartés), mais chaque option porte SA PROVENANCE (l'écran ne doit pas laisser
+ * croire que toutes ont répondu) et le DÉFAUT (règle A) est remonté EN TÊTE (c'est la présélection). Priorité d'attribution de la
+ * provenance quand une adresse est dans plusieurs sources : répondant > adresse d'envoi > ajout manuel > contact confirmé > PRADA.
+ */
+export function composerOptionsDestinataire(s: SourcesAdressesCommune, defaut: string | null): OptionDestinataire[] {
+  const vus = new Map<string, OptionDestinataire>();
+  const ajouter = (brut: string | null | undefined, provenance: ProvenanceAdresse): void => {
+    const a = (brut ?? '').trim();
+    if (a === '' || vus.has(a.toLowerCase()) || !estAdresseServable(a)) return; // 1re (plus haute priorité) gagne
+    vus.set(a.toLowerCase(), { adresse: a, provenance });
+  };
+  for (const r of s.repondants) ajouter(r, 'repondant');   // priorité haute : ceux qui nous ont réellement écrit
+  ajouter(s.destEmail, 'ecrit');
+  for (const c of s.ajouts) ajouter(c, 'ajout');
+  for (const c of s.contactsConfirmes) ajouter(c, 'confirme');
+  for (const c of s.prada) ajouter(c, 'prada');
+  const options = [...vus.values()];
+  // DÉFAUT (règle A) EN TÊTE : c'est la présélection. Présent dans les sources → on le remonte ; sinon (défensif) on l'ajoute.
+  if (estAdresseServable(defaut)) {
+    const k = (defaut as string).toLowerCase();
+    const idx = options.findIndex((o) => o.adresse.toLowerCase() === k);
+    if (idx > 0) options.unshift(options.splice(idx, 1)[0]);
+    else if (idx === -1) options.unshift({ adresse: (defaut as string).trim(), provenance: 'repondant' });
+  }
+  return options;
 }
 
 /**
@@ -95,15 +127,46 @@ export async function lireSourcesAdressesCommune(demandeId: number, codeInsee: s
     try { const { rows } = await query<{ a: string }>(sql, params); return rows.map((r) => r.a).filter((a) => a && a.trim() !== ''); }
     catch { return []; }
   };
-  const [dest, contactsConfirmes, prada, repondants] = await Promise.all([
+  const [dest, contactsConfirmes, prada, repondants, ajouts] = await Promise.all([
     un(`SELECT dest_email AS a FROM demande WHERE id = $1`, [demandeId]),
     un(`SELECT email AS a FROM mairie_contact WHERE code_insee = $1 AND canal = 'email' AND statut = 'confirme' AND coalesce(btrim(email), '') <> ''`, [codeInsee]),
     un(`SELECT courriel AS a FROM mairie_prada WHERE code_insee = $1 AND coalesce(btrim(courriel), '') <> ''`, [codeInsee]),
     // Répondants réels connus de la COMMUNE (toutes ses demandes), pas seulement de la demande courante — « toutes les adresses connues de la commune ».
     un(`SELECT DISTINCT r.de_adresse AS a FROM demande_reponse r JOIN demande d ON d.id = r.demande_id
          WHERE d.code_insee = $1 AND r.nature <> 'rebond' AND coalesce(btrim(r.de_adresse), '') <> ''`, [codeInsee]),
+    // LOT 29 : adresses CONFIRMÉES ajoutées à la main (mairie_contact_email). Résilient : table absente (186 non appliquée) → [] → règle B inchangée.
+    un(`SELECT email AS a FROM mairie_contact_email WHERE code_insee = $1 AND statut = 'confirme' AND coalesce(btrim(email), '') <> ''`, [codeInsee]),
   ]);
-  return { destEmail: dest[0] ?? null, contactsConfirmes, prada, repondants };
+  return { destEmail: dest[0] ?? null, contactsConfirmes, prada, repondants, ajouts };
+}
+
+/**
+ * LOT 29 — OPTIONS + DÉFAUT du sélecteur de destinataire pour UNE demande (LECTURE SEULE). Options = jeu règle B ORDONNÉ avec
+ * provenance ; défaut = règle A (dernier répondant, repli chaîne). Réutilise `lireDestinataireParDefaut` — aucune règle réécrite.
+ */
+export async function lireOptionsDestinataire(demandeId: number, codeInsee: string): Promise<{ options: OptionDestinataire[]; defaut: string | null }> {
+  const [sources, defaut] = await Promise.all([
+    lireSourcesAdressesCommune(demandeId, codeInsee),
+    lireDestinataireParDefaut(demandeId, codeInsee),
+  ]);
+  return { options: composerOptionsDestinataire(sources, defaut), defaut };
+}
+
+/**
+ * LOT 29 — ENREGISTRE une adresse ajoutée à la main dans le carnet de la commune (mairie_contact_email, statut 'confirme'), SI elle
+ * n'est pas DÉJÀ connue (répondant, dest_email, contact confirmé, prada, ajout). Insensible à la casse, dédoublonné en base par
+ * l'index UNIQUE (ON CONFLICT DO NOTHING). Résilient : table absente / adresse non servable → NO-OP propre. LECTURE PUIS écriture.
+ */
+export async function enregistrerAdresseAjoutee(demandeId: number, codeInsee: string, email: string, ajoutePar: string | null): Promise<void> {
+  const a = (email ?? '').trim();
+  if (!estAdresseServable(a)) return;                                   // format validé aussi côté client ; défense serveur
+  const connues = await composerDestinatairesDemande(demandeId, codeInsee);
+  if (connues.some((x) => x.toLowerCase() === a.toLowerCase())) return; // déjà dans le jeu connu → rien à ajouter (pas de doublon)
+  try {
+    await query(
+      `INSERT INTO mairie_contact_email (code_insee, email, source, statut, ajoute_par) VALUES ($1, $2, 'saisie_manuelle', 'confirme', $3)
+         ON CONFLICT (code_insee, lower(email)) DO NOTHING`, [codeInsee, a, ajoutePar]);
+  } catch { /* table absente (186 non appliquée) ou erreur d'écriture : l'adresse sert quand même à cet envoi (non bloquant) */ }
 }
 
 /** Liste finale des destinataires (toutes adresses connues) pour une demande. LECTURE SEULE, aucun envoi. */
