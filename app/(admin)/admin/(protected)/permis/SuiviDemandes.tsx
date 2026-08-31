@@ -15,6 +15,7 @@ import { libelleSuspension, dateButoirPartiel, libelleDelaiProlonge } from '../.
 import { RefMairieCellule, EditeurReferenceMairie } from './RefMairieCellule';
 // UNIF-1 — encart de familles (socle UNIF-0) + les 4 blocs PER-PERMIS réutilisés depuis « Analyse » (chargés paresseusement au dépliage).
 import { EncartFamilles, SousSectionsPermis } from './EncartFamilles';
+import { BlocFilEchanges } from './BlocFilEchanges'; // LOT-4 — même fil d'échanges mail qu'en Analyse/Archives
 import { LIBELLE_FAMILLE } from '../../../../lib/permis/encartFamilles';
 import { BlocCompletude } from './BlocCompletude';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
@@ -762,9 +763,18 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                 },
                 {
                   cle: 'historique', titre: LIBELLE_FAMILLE.historique,
-                  nonVide: richDetail.messagesAutre.length > 0 || richDetail.liens.length > 0 || richDetail.piecesReponses.length > 0 || richDetail.alertesGed.length > 0,
+                  // LOT-4 — signal = « ≥ 1 entrée de fil » (historiqueNonVide, batché à part, hors `dem`), pas les liens/pièces : la
+                  //   famille reflète le FIL (mêmes messages qu'en Analyse). Comme historiqueNonVide inclut les reçus, elle est vraie
+                  //   dès qu'un artefact (lien/pièce/message/alerte) existe → aucun geste ci-dessous n'est jamais caché.
+                  nonVide: richDetail.historiqueNonVide,
                   contenu: () => (
                   <>
+                {/* LOT-4 — LE FIL des échanges mail (mêmes messages qu'en Analyse), par permis via SousSectionsPermis, comme Archives. */}
+                <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocFilEchanges key={id} dossierId={id} />} />
+                {/* Artefacts de réponses (liens/pièces/messages « autre »/alertes GED) : GESTES conservés, sous un sous-titre DISTINCT du fil. */}
+                {(richDetail.messagesAutre.length > 0 || richDetail.liens.length > 0 || richDetail.piecesReponses.length > 0 || richDetail.alertesGed.length > 0) && (
+                <div className="flex flex-col gap-1" style={{ marginTop: '.5rem', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.5rem' }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-muted)' }}>Liens, pièces et messages des réponses</span>
                 {/* T7-B (cas ③) — messages « autre » : bouton « répondu » MANUEL et RÉVERSIBLE par message. */}
                 <BlocMessagesAutre messages={richDetail.messagesAutre} retour={retourReponse} compteReleve={suivi?.reglages.adresseReleve}
                   onRepondu={(reponseId) => void agirReponse({ action: 'repondu', reponseId }, `repondu-${reponseId}`, 'Message marqué « répondu ».')}
@@ -776,6 +786,8 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                 <BlocPiecesReponses groupes={richDetail.piecesReponses} onTelecharger={(pieceId) => void telechargerPiece(pieceId)} />
                 {/* G1 — alertes « à classer/télécharger en GED » envoyées pour cette demande (retard rendu visible). */}
                 <BlocAlertesGed alertes={richDetail.alertesGed} />
+                </div>
+                )}
                   </>
                   ),
                 },

@@ -22,9 +22,9 @@ describe('UNIF-1 — le détail « En cours » consomme l’encart de familles (
     expect(SRC).toContain('masquerRefMairie');
     expect(SRC).toContain('<EditeurReferenceMairie references={richDetail.referencesMairie}');
   });
-  it('les 4 familles per-permis passent par SousSectionsPermis (sous-plis lazy)', () => {
-    expect((SRC.match(/<SousSectionsPermis /g) ?? []).length).toBe(4);
-    for (const bloc of ['BlocCompletude', 'CaracteristiquesBloc', 'BlocTraceEmprise', 'BlocPiecesPermis']) {
+  it('les familles à sous-plis lazy passent par SousSectionsPermis (4 per-permis + le fil de l’historique)', () => {
+    expect((SRC.match(/<SousSectionsPermis /g) ?? []).length).toBe(5); // LOT-4 : +1 pour le fil des échanges (BlocFilEchanges)
+    for (const bloc of ['BlocCompletude', 'CaracteristiquesBloc', 'BlocTraceEmprise', 'BlocPiecesPermis', 'BlocFilEchanges']) {
       expect(SRC).toContain(bloc);
     }
   });
@@ -38,6 +38,7 @@ describe('UNIF-1 — NE RIEN PERDRE : les 9 gestes du détail « En cours » sur
     ['— action « refus mairie »', "action: 'dossier_refus_mairie'"],
     ['— action « retirer » / « réattacher »', "action: 'retirer_dossier'"],
     ['éditeur de cascade partielle', 'void envoyerCascade(detail.id'],
+    ['fil des échanges mail (comme Analyse/Archives)', '<BlocFilEchanges key={id} dossierId={id}'],
     ['référence mairie (ajouter/modifier/effacer)', '<EditeurReferenceMairie references={richDetail.referencesMairie}'],
     ['clôturer / rouvrir', "action: 'cloturer'"],
     ['rappel « obtenus → Archives »', '<RappelObtenusArchives n={richDetail.dossiersSatisfaits}'],

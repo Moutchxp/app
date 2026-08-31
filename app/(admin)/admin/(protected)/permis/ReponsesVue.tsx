@@ -14,6 +14,7 @@ import {
 import { MessageRetour, MentionMasquage } from './DemandesRendu';
 // UNIF-2 — même encart de familles qu'« En cours » (socle UNIF-0/1) + les 4 blocs PER-PERMIS d'« Analyse » (chargés au dépliage).
 import { EncartFamilles, SousSectionsPermis } from './EncartFamilles';
+import { BlocFilEchanges } from './BlocFilEchanges'; // LOT-4 — même fil d'échanges mail qu'en Analyse/Archives
 import { LIBELLE_FAMILLE } from '../../../../lib/permis/encartFamilles';
 import { BlocCompletude } from './BlocCompletude';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
@@ -301,9 +302,17 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
                               },
                               {
                                 cle: 'historique', titre: LIBELLE_FAMILLE.historique,
-                                nonVide: d.messagesAutre.length > 0 || d.liens.length > 0 || d.piecesReponses.length > 0 || d.alertesGed.length > 0,
+                                // LOT-4 — signal = « ≥ 1 entrée de fil » (historiqueNonVide, batché hors `dem`) ; historiqueNonVide inclut les reçus
+                                //   → vraie dès qu'un artefact existe, aucun geste ci-dessous n'est jamais caché.
+                                nonVide: d.historiqueNonVide,
                                 contenu: () => (
                                 <>
+                            {/* LOT-4 — LE FIL des échanges mail (mêmes messages qu'en Analyse), par permis via SousSectionsPermis, comme Archives. */}
+                            <SousSectionsPermis dossiers={d.dossiersEncart} rendre={(id) => <BlocFilEchanges key={id} dossierId={id} />} />
+                            {/* Artefacts de réponses (liens/pièces/messages « autre »/alertes GED) : GESTES conservés, sous un sous-titre DISTINCT du fil. */}
+                            {(d.messagesAutre.length > 0 || d.liens.length > 0 || d.piecesReponses.length > 0 || d.alertesGed.length > 0) && (
+                            <div className="flex flex-col gap-1" style={{ marginTop: '.5rem', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.5rem' }}>
+                              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-muted)' }}>Liens, pièces et messages des réponses</span>
                             {/* FUS — cas ③ : messages « autre » (répondu / reclasser). MÊME route /reponses (via `agir`) que le détail « En cours ». */}
                             <BlocMessagesAutre messages={d.messagesAutre} retour={retour} compteReleve={data.reglages.adresseReleve}
                               onRepondu={(reponseId) => void agir({ action: 'repondu', reponseId }, `repondu-${reponseId}`, 'Message marqué « répondu ».')}
@@ -315,6 +324,8 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
                             <BlocPiecesReponses groupes={d.piecesReponses} onTelecharger={(pieceId) => void telecharger(d.demandeId, pieceId)} />
                             {/* G1 — alertes « à classer/télécharger en GED » déjà envoyées (retard rendu visible). */}
                             <BlocAlertesGed alertes={d.alertesGed} />
+                            </div>
+                            )}
                                 </>
                                 ),
                               },

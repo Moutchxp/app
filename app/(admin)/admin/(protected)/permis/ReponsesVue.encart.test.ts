@@ -19,9 +19,9 @@ describe('UNIF-2 — le détail « Réponses » consomme l’encart de familles 
       expect(SRC).toContain(`cle: '${cle}'`);
     }
   });
-  it('les 4 familles per-permis passent par SousSectionsPermis (sous-plis lazy)', () => {
-    expect((SRC.match(/<SousSectionsPermis /g) ?? []).length).toBe(4);
-    for (const bloc of ['BlocCompletude', 'CaracteristiquesBloc', 'BlocTraceEmprise', 'BlocPiecesPermis']) {
+  it('les familles à sous-plis lazy passent par SousSectionsPermis (4 per-permis + le fil de l’historique)', () => {
+    expect((SRC.match(/<SousSectionsPermis /g) ?? []).length).toBe(5); // LOT-4 : +1 pour le fil des échanges (BlocFilEchanges)
+    for (const bloc of ['BlocCompletude', 'CaracteristiquesBloc', 'BlocTraceEmprise', 'BlocPiecesPermis', 'BlocFilEchanges']) {
       expect(SRC).toContain(bloc);
     }
   });
@@ -42,6 +42,7 @@ describe('UNIF-2 — NE RIEN PERDRE : les gestes du détail « Réponses » surv
     ['liens de téléchargement', '<BlocLiens liens={d.liens}'],
     ['pièces des réponses', '<BlocPiecesReponses groupes={d.piecesReponses}'],
     ['alertes GED', '<BlocAlertesGed alertes={d.alertesGed}'],
+    ['fil des échanges mail (comme Analyse/Archives)', '<BlocFilEchanges key={id} dossierId={id}'],
   ];
   for (const [geste, preuve] of GESTES) {
     it(`geste toujours joignable : ${geste}`, () => {

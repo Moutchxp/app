@@ -66,6 +66,28 @@ describe('T6-A — chargerDemandesSuivi : SOURCE UNIQUE (échéance + retour + d
     expect(norm(dem.sql)).toContain('AS dossiers_en_ged');
   });
 
+  it('LOT-4 — historiqueNonVide reflète le FIL (5 sources dont les ENVOIS), par requête SÉPARÉE de `dem`', async () => {
+    const HIST = /demande_sortant_hors_outil s/; // fragment UNIQUE au signal historique (absent de `dem`)
+    etat.dispatch = [
+      { re: DEM, rows: [{ id: 154, reference: 'R', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 1, dossiers_satisfaits: 0, dossiers_en_ged: 0, nb_reponses: 0, nb_reponses_reelles: 0, derniere_reponse_le: null }] },
+    ];
+    await chargerDemandesSuivi();
+    const hist = appels.find((a) => HIST.test(a.sql));
+    expect(hist, 'la requête du signal « historique » doit être émise').toBeDefined();
+    const s = norm(hist!.sql);
+    // les 5 sources du fil (BlocFilEchanges) : ENVOIS + reçus + hors-outil + journal (compl/decl/réponse libre).
+    expect(s).toContain('demande_acheminement a');        // LOT-4 : les ENVOIS entrent dans le signal (sinon famille cachée à tort)
+    expect(s).toContain("a.statut = 'envoye'");
+    expect(s).toContain("nature <> 'rebond'");             // reçus
+    expect(s).toContain('demande_sortant_hors_outil s');   // hors-outil (FIL-C)
+    expect(s).toContain('demande_journal j');              // journal (préfixes de messages)
+    // 🔴 requête SÉPARÉE : ce n'est PAS la requête centrale `dem`, et le critère « fil » ne s'y invite pas.
+    expect(DEM.test(hist!.sql)).toBe(false);
+    const dem = appels.find((a) => DEM.test(a.sql))!;
+    expect(norm(dem.sql)).toContain("WHERE d.statut IN ('envoyee', 'close')");
+    expect(norm(dem.sql)).not.toContain('demande_sortant_hors_outil');
+  });
+
   it('T1 — dossiers RETIRÉS exposés par une requête SÉPARÉE (NOT dd.actif) ; le PÉRIMÈTRE de `dem` reste INCHANGÉ', async () => {
     const RETIRES = /NOT dd\.actif/; // requête dédiée aux dossiers retirés (distincte des DUS : dd.actif AND satisfait_le IS NULL)
     etat.dispatch = [

@@ -180,7 +180,7 @@ export interface DemandeSuivi {
   //   est toujours remplissable (pas de signal). FIX-3 : les 4 familles PER-PERMIS sont scopées aux dossiers de `dossiersEncart`
   //   (= dûs + satisfaits d'une demande en partiel actif), MÊME ensemble que ce que rend l'encart ; un dossier obtenu non-partiel vit en Archives.
   completudeNonVide: boolean;       // ≥ 1 dossier d'encart a un diagnostic de complétude (permis_completude)
-  historiqueNonVide: boolean;       // un ÉCHANGE existe (niveau DEMANDE) : la mairie a répondu (hors rebond) OU un suivi sortant (relance déclarée / complément / réponse libre / sortant hors outil)
+  historiqueNonVide: boolean;       // ≥ 1 entrée de FIL (niveau DEMANDE, = les 5 sources de BlocFilEchanges) : un ENVOI (initial/relance) OU la mairie a répondu (hors rebond) OU un suivi sortant (complément / déclaration / réponse libre / sortant hors outil)
   caracteristiquesNonVide: boolean; // ≥ 1 dossier d'encart a une caractéristique saisie/extraite OU un corps de bâtiment
   batimentsNonVide: boolean;        // ≥ 1 dossier d'encart a un corps de bâtiment déclaré (le tracé/emprise ~9 s reste chargé au dépliage)
   piecesNonVide: boolean;           // ≥ 1 dossier d'encart a une pièce en GED (dossier_document)
@@ -561,8 +561,12 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
             WHERE dd.demande_id = ANY($1) AND dd.actif AND ${PORTEE_ENCART}`,
           `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
              JOIN permis_completude pc ON pc.dossier_id = dd.dossier_id WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL`),
+        // LOT-4 — historiqueNonVide = « ≥ 1 entrée de FIL » : les MÊMES 5 sources que BlocFilEchanges (filPermisRepo). On AJOUTE les
+        //   ENVOIS (demande_acheminement 'envoye') aux reçus / hors-outil / journal-messages, sinon une demande envoyée sans réponse
+        //   (fil = le seul envoi) cacherait la famille à tort. Requête SÉPARÉE par id de demande (jamais un WHERE sur `dem`).
         setDepuis(`SELECT d.id::int AS demande_id FROM demande d WHERE d.id = ANY($1) AND (
-                     EXISTS (SELECT 1 FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature <> 'rebond')
+                     EXISTS (SELECT 1 FROM demande_acheminement a WHERE a.demande_id = d.id AND a.statut = 'envoye')
+                     OR EXISTS (SELECT 1 FROM demande_reponse r WHERE r.demande_id = d.id AND r.nature <> 'rebond')
                      OR EXISTS (SELECT 1 FROM demande_sortant_hors_outil s WHERE s.demande_id = d.id)
                      OR EXISTS (SELECT 1 FROM demande_journal j WHERE j.demande_id = d.id AND j.motif LIKE ANY (ARRAY[$2, $3, $4])))`,
                   [ids, `${MOTIF_COMPLEMENT_PREFIXE}%`, `${MOTIF_DECLARATION_PREFIXE}%`, `${MOTIF_REPONSE_LIBRE_PREFIXE}%`]),
