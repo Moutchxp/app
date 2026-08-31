@@ -563,13 +563,13 @@ export function BadgeReponseSansDocuments({ demandeId }: { demandeId: number }) 
  * jamais un « êtes-vous sûr ? » générique : l'avertissement dit ce qui se passe.
  */
 export function DetailDossiers({
-  demandeId, statut, dossiers, retour, aujourdhui, prefillRefus,
+  demandeId, statut, dossiers, nbSatisfaits, retour, aujourdhui, prefillRefus,
   onMarquer, onNonFourni, onAnnulerTriage,
   refusOuvertDossierId, refusDate, onRefusOuvrir, onRefusDateChange, onRefusConfirmer, onRefusAnnuler,
   retirerOuvertDossierId, onRetirerOuvrir, onRetirerConfirmer, onRetirerAnnuler,
   dossiersRetires, reattachOuvertDossierId, onReattachOuvrir, onReattachConfirmer, onReattachAnnuler,
 }: {
-  demandeId: number; statut: string; dossiers: DossierSuivi[]; retour?: RetourCible; aujourdhui?: string; prefillRefus?: string;
+  demandeId: number; statut: string; dossiers: DossierSuivi[]; nbSatisfaits?: number; retour?: RetourCible; aujourdhui?: string; prefillRefus?: string;
   onMarquer?: (demandeId: number, dossierId: number, satisfait: boolean) => void;
   onNonFourni?: (demandeId: number, dossierId: number) => void;
   onAnnulerTriage?: (demandeId: number, dossierId: number) => void;
@@ -624,7 +624,13 @@ export function DetailDossiers({
     </div>
   ) : null;
 
-  if (dossiers.length === 0) return <><PhraseVide>Aucun dossier rattaché à cette demande.</PhraseVide>{blocRetires}</>;
+  if (dossiers.length === 0) {
+    // LOT-3 — « Aucun dossier rattaché » MENT dès qu'un dossier existe (satisfait → parti en Archives, ou retiré). On ne l'affiche donc
+    //   QUE si RIEN n'est rattaché : ni dû, ni satisfait, ni retiré. Sinon les satisfaits sont dits par RappelObtenusArchives (au-dessus)
+    //   et les retirés par blocRetires — jamais une 2e phrase contredisant la 1re (cas 154 : « 1 marqué reçu » + « Aucun rattaché »).
+    const rienDeRattache = (nbSatisfaits ?? 0) === 0 && retires.length === 0;
+    return <>{rienDeRattache && <PhraseVide>Aucun dossier rattaché à cette demande.</PhraseVide>}{blocRetires}</>;
+  }
   // R5b — garde-fou : demande close → aucune action sur les dossiers (message explicite, jamais un bouton inerte).
   const close = statut === 'close';
   const actif = !close && onMarquer !== undefined;

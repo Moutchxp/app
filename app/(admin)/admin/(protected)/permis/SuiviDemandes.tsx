@@ -721,7 +721,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   </div>
                 )}
                 <RappelObtenusArchives n={richDetail.dossiersSatisfaits} />
-                <DetailDossiers demandeId={detail.id} statut={richDetail.statut} dossiers={richDetail.dossiers} retour={retourReponse}
+                <DetailDossiers demandeId={detail.id} statut={richDetail.statut} dossiers={richDetail.dossiers} nbSatisfaits={richDetail.dossiersSatisfaits} retour={retourReponse}
                   aujourdhui={aujourdhui} prefillRefus={richDetail.derniereReponseLe ? formaterDate(richDetail.derniereReponseLe) : aujourdhui}
                   onMarquer={(demandeId, dossierId, satisfait) => void agirReponse({ action: 'marquer_dossier', demandeId, dossierId, satisfait }, `dossier-${demandeId}-${dossierId}`, satisfait ? 'Marqué reçu.' : 'Satisfaction annulée.')}
                   onNonFourni={(demandeId, dossierId) => void agirReponse({ action: 'dossier_non_fourni', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Marqué « non fourni » — le dossier reste dû.')}

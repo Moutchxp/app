@@ -822,11 +822,55 @@ describe('T1 — DetailDossiers : sous-liste des dossiers RETIRÉS + « annuler 
     expect(h).toContain('>confirmer<');
   });
 
-  it('TOUS les dossiers retirés (0 dû) → la sous-liste reste rendue MALGRÉ « Aucun dossier rattaché » (repli n’avale pas les retirés)', () => {
+  it('TOUS les dossiers retirés (0 dû) → la sous-liste des retirés reste rendue, SANS la phrase « Aucun dossier rattaché » (LOT-3 : un retiré EST rattaché)', () => {
     const h = renderToStaticMarkup(createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers: [], dossiersRetires: [RET], ...cbs }));
-    expect(h).toContain('Aucun dossier rattaché');
+    expect(h).not.toContain('Aucun dossier rattaché'); // LOT-3 : des retirés existent → la phrase mentirait ; le bloc « retiré » dit déjà le vrai
     expect(h).toContain('1 dossier retiré de la demande');
     expect(h).toContain('annuler le retrait');
+  });
+});
+
+/**
+ * 🔴 LOT-3 — LES DEUX PHRASES CONTRADICTOIRES. Dans le détail d'une demande, RappelObtenusArchives (« N dossier marqué reçu — voir
+ * Archives ») et DetailDossiers (repli « Aucun dossier rattaché à cette demande ») étaient rendus l'un sous l'autre. Quand tous les
+ * dossiers sont satisfaits (0 dû, ex. demande 154), les DEUX s'affichaient et se contredisaient. Correctif de RENDU : la phrase
+ * « Aucun dossier rattaché » ne sort QUE si RIEN n'est rattaché (ni dû, ni satisfait, ni retiré). On rend ICI les DEUX briques
+ * ensemble, pour les 4 configurations, et on prouve qu'elles ne peuvent plus coexister.
+ */
+describe('LOT-3 — RappelObtenusArchives + DetailDossiers : jamais deux phrases contradictoires', () => {
+  const DU: DossierSuivi = { dossierId: 2, numDau: 'PC-DU', adresse: null, satisfait: false, satisfaitPar: null, triage: null, refusLe: null };
+  const rendre = (nbSatisfaits: number, dossiers: DossierSuivi[]) =>
+    renderToStaticMarkup(createElement('div', null,
+      createElement(RappelObtenusArchives, { n: nbSatisfaits }),
+      createElement(DetailDossiers, { demandeId: 7, statut: 'envoyee', dossiers, nbSatisfaits })));
+  const contredit = (h: string) => h.includes('marqué') && h.includes('Aucun dossier rattaché'); // les 2 phrases ensemble = mensonge
+
+  it('config 1 — AUCUN dossier du tout → « Aucun dossier rattaché » seule (vrai), aucun « marqué reçu »', () => {
+    const h = rendre(0, []);
+    expect(h).toContain('Aucun dossier rattaché');
+    expect(h).not.toContain('marqué');
+    expect(contredit(h)).toBe(false);
+  });
+  it('config 2 — QUE des dûs → la liste des dûs, ni « Aucun dossier rattaché » ni « marqué reçu »', () => {
+    const h = rendre(0, [DU]);
+    expect(h).toContain('PC-DU');
+    expect(h).not.toContain('Aucun dossier rattaché');
+    expect(h).not.toContain('marqué');
+    expect(contredit(h)).toBe(false);
+  });
+  it('config 3 — QUE des satisfaits (cas 154) → UNE seule ligne « 1 dossier marqué reçu — voir Archives », PAS « Aucun dossier rattaché »', () => {
+    const h = rendre(1, []);
+    expect(h).toContain('1 dossier marqué reçu');
+    expect(h).toContain('voir Archives'); // le renvoi vers Archives est conservé
+    expect(h).not.toContain('Aucun dossier rattaché');
+    expect(contredit(h)).toBe(false);
+  });
+  it('config 4 — MÉLANGE dûs + satisfaits → liste des dûs + « marqué reçu », jamais « Aucun dossier rattaché »', () => {
+    const h = rendre(1, [DU]);
+    expect(h).toContain('PC-DU');
+    expect(h).toContain('1 dossier marqué reçu');
+    expect(h).not.toContain('Aucun dossier rattaché');
+    expect(contredit(h)).toBe(false);
   });
 });
 

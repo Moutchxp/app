@@ -268,8 +268,8 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
                                 <>
                             {/* T2 — les dossiers obtenus sont partis en Archives : on le DIT, on ne les fait pas disparaître en silence. */}
                             <RappelObtenusArchives n={d.dossiersSatisfaits} />
-                            {(d.dossiers.length > 0 || d.dossiersSatisfaits === 0 || d.dossiersRetires.length > 0) && (
-                            <DetailDossiers demandeId={d.demandeId} statut={d.statut} dossiers={d.dossiers} retour={retour}
+                            {/* LOT-3 — plus de garde au site d'appel : DetailDossiers est l'autorité UNIQUE de l'état vide (via nbSatisfaits), même règle qu'En cours. */}
+                            <DetailDossiers demandeId={d.demandeId} statut={d.statut} dossiers={d.dossiers} nbSatisfaits={d.dossiersSatisfaits} retour={retour}
                               aujourdhui={aujourdhui} prefillRefus={d.derniereReponseLe ? formaterDate(d.derniereReponseLe) : aujourdhui}
                               onMarquer={(demandeId, dossierId, satisfait) => void agir({ action: 'marquer_dossier', demandeId, dossierId, satisfait }, `dossier-${demandeId}-${dossierId}`, satisfait ? 'Marqué reçu.' : 'Satisfaction annulée.')}
                               onNonFourni={(demandeId, dossierId) => void agir({ action: 'dossier_non_fourni', demandeId, dossierId }, `dossier-${demandeId}-${dossierId}`, 'Marqué « non fourni » — le dossier reste dû.')}
@@ -289,7 +289,6 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
                               onReattachOuvrir={(dossierId) => setReattach({ demandeId: d.demandeId, dossierId })}
                               onReattachConfirmer={(demandeId, dossierId) => { setReattach(null); void reattacher(demandeId, dossierId); }}
                               onReattachAnnuler={() => setReattach(null)} />
-                            )}
                             <div style={{ marginTop: '.5rem' }}>
                               <ActionsCloture demandeId={d.demandeId} statut={d.statut} dossiersDus={d.dossiersActifs - d.dossiersSatisfaits}
                                 motif={motifCloture[d.demandeId]} retour={retour}
