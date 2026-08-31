@@ -70,18 +70,27 @@ describe('LOT 15 — FriseSuivi (frise unifiée : faits + échéances)', () => {
     expect(html).toContain('Préparer la relance 2');
   });
 
-  it('LOT 16 (point 2) — la bascule de process porte un LISERÉ ROUGE (bordure fine), et elle SEULE', () => {
+  it('LOT 18 (point 4) — la POSITION COURANTE porte un LISERÉ ROUGE (bordure gauche fine), et elle SEULE', () => {
     const evenements: EvenementFrise[] = [
       fait({ libelle: 'Demande initiale de communication' }),
-      fait({ le: '2026-08-28T12:00:00Z', libelle: 'Relance pièces complémentaires', bascule: true }),
+      fait({ le: '2026-08-28T12:00:00Z', libelle: 'Relance effectuée', courant: true }),
+    ];
+    const html = renderToStaticMarkup(h(FriseSuivi, { evenements }));
+    expect(html).toMatch(/border-left:\s*2px solid var\(--color-svv-red\)/);
+    expect(html).not.toContain('background:var(--color-svv-red)'); // jamais un fond plein
+    expect((html.match(/border-left:\s*2px solid var\(--color-svv-red\)/g) ?? []).length).toBe(1); // une seule (l'étape courante)
+  });
+
+  it('LOT 18 (point 6) — la BIFURCATION encapsule son libellé dans un BADGE rouge cerclé (bordure + texte rouge, pas de fond plein)', () => {
+    const evenements: EvenementFrise[] = [
+      fait({ libelle: 'Demande initiale de communication' }),
+      fait({ le: '2026-08-28T12:00:00Z', libelle: 'Relance pièces complémentaires', bifurcation: true, courant: true }),
     ];
     const html = renderToStaticMarkup(h(FriseSuivi, { evenements }));
     expect(html).toContain('Relance pièces complémentaires');
-    // liseré = bordure gauche rouge de la charte (discret : pas un fond plein)
-    expect(html).toMatch(/border-left:\s*2px solid var\(--color-svv-red\)/);
-    expect(html).not.toContain('background:var(--color-svv-red)'); // jamais un fond plein
-    // une seule occurrence de liseré (la bascule uniquement)
-    expect((html.match(/border-left:\s*2px solid var\(--color-svv-red\)/g) ?? []).length).toBe(1);
+    expect(html).toMatch(/border-radius:\s*999px/);          // badge cerclé
+    expect(html).toContain('1px solid var(--color-svv-red)'); // bordure rouge
+    expect(html).not.toContain('background:var(--color-svv-red)'); // discret : pas un fond plein
   });
 });
 

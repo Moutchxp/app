@@ -52,15 +52,17 @@ export function formaterEcheanceLe(iso: string): string {
 
 function LigneFrise({ e }: { e: EvenementFrise }) {
   const avenir = e.quand === 'avenir';
-  // LOT 16 (point 2) — BASCULE DE PROCESS : liseré rouge DISCRET (une bordure fine à gauche, jamais un bandeau plein ni un fond). Rouge de la charte.
-  const lisereBascule: CSSProperties = e.bascule ? { borderLeft: '2px solid var(--color-svv-red)', paddingLeft: '.5rem', marginLeft: '-.15rem' } : {};
+  // LOT 18 (point 4) — POSITION COURANTE : liseré rouge DISCRET (bordure fine à gauche, jamais un fond plein), sur la dernière étape franchie.
+  const lisereCourant: CSSProperties = e.courant ? { borderLeft: '2px solid var(--color-svv-red)', paddingLeft: '.5rem', marginLeft: '-.15rem' } : {};
+  // LOT 18 (point 6) — BIFURCATION : le libellé est ENCAPSULÉ dans un badge rouge cerclé (net mais discret : bordure + texte rouge, pas de fond plein).
+  const badgeBifurcation: CSSProperties = { display: 'inline-block', border: '1px solid var(--color-svv-red)', color: 'var(--color-svv-red)', borderRadius: '999px', padding: '.05rem .5rem', fontWeight: 700, fontSize: 11 };
   return (
-    <li style={{ display: 'flex', flexDirection: 'column', gap: '.05rem', opacity: avenir ? 0.75 : 1, ...lisereBascule }}>
+    <li style={{ display: 'flex', flexDirection: 'column', gap: '.05rem', opacity: avenir ? 0.75 : 1, ...lisereCourant }}>
       <span>
         <span style={{ ...muted, fontVariantNumeric: 'tabular-nums' }}>{avenir ? formaterEcheanceLe(e.le) : formaterEnvoiLe(e.le)}</span>{' — '}
         {/* Le MOT porte la nature ; « À venir » écrit distingue l'échéance du fait (jamais la couleur/opacité seule). */}
         {avenir && <span style={{ ...muted, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em' }}>à venir · </span>}
-        <strong>{e.libelle}</strong>
+        {e.bifurcation ? <span style={badgeBifurcation}>{e.libelle}</span> : <strong>{e.libelle}</strong>}
       </span>
       {e.detail && <span style={muted}>{e.detail}</span>}
     </li>

@@ -14,7 +14,8 @@ import { fenetreDepuis } from './releveReponses'; // P1 : MÊME source que la re
 import type { ReglagesCascade } from './cascadeRelance'; // cascade lot 4 : seuils exposés à l'affichage (type-only → erasé côté client)
 import type { EnvoiAutoInfos } from './statutCascade'; // lot « dire quand ça part » : interrupteur + fenêtre d'envoi (réglages existants)
 import type { EtatPartiel } from '../permis/dossierPartiel'; // CASC-1 : marqueur « dossier partiel » (type-only → erasé côté client)
-import { chargerCascadePartielle, MOTIF_RELANCE_PARTIELLE_PREFIXE, type EtatCascadePartielle } from './cascadePartielleRepo'; // CASC-3 : étape de cascade + brouillon ; LOT-8 C : préfixe des relances partielles (grade)
+import { chargerCascadePartielle, MOTIF_RELANCE_PARTIELLE_PREFIXE, MOTIF_ANNONCE_CADA_PREFIXE, type EtatCascadePartielle } from './cascadePartielleRepo'; // CASC-3 ; LOT-8 C préfixe relances partielles ; LOT 18 préfixe annonce CADA
+import type { ReglagesCascadePartielle } from './cascadePartielle'; // LOT 18 : réglages de projection du parcours partiel (config, jamais en dur)
 import { manquantesParDossier } from '../permis/completudeRepo'; // LOT 13-A : compteur de familles manquantes par dossier (titre de famille)
 import { ordonnerHistoriqueEnvois, type EnvoiBrut, type EnvoiHistorique } from './historiqueEnvois'; // LOT 13-B : historique de nos envois (initiale + relances)
 
@@ -167,6 +168,7 @@ export interface DemandeSuivi {
   dernierEnvoiRelance: { variante: string; envoyeLe: string } | null; // cascade lot 4 : dernière relance RÉELLEMENT envoyée (pilote le statut)
   relancePreparee: { variante: string } | null;                        // cascade lot 4 : brouillon vivant NON envoyé (« prêt, non envoyé »)
   saisineCadaEnvoyeeLe: string | null;                                 // cascade lot 4 : saisine CADA (type='saisine_cada') envoyée
+  annonceCadaEnvoyeeLe: string | null;                                 // LOT 18 : annonce CADA (journal MOTIF_ANNONCE_CADA) réellement partie → « Information saisine CADA » effectuée (parcours partiel)
   dossiers: DossierSuivi[];
   // FIX-3 — dossiers dont le CONTENU per-permis (Complétude/Caractéristiques/Bâtiments/Pièces) est montré dans l'encart : les DÛS
   //   (= `dossiers`) PLUS les SATISFAITS d'une demande en PARTIEL ACTIF (incomplet mais revenu → « garde tout sous la main », UNIF-1).
@@ -325,7 +327,7 @@ export async function chargerCumulsRuns(maintenant: Date): Promise<CumulsRuns> {
  * ici, sinon les demandes sans message disparaîtraient AUSSI d'« En cours ». Un SEUL chargeur → un seul calcul d'échéance
  * (via etatEcheance, en aval), jamais deux (défaut B2). LECTURE SEULE.
  */
-export interface SuiviDemandesData { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number } }
+export interface SuiviDemandesData { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number }; reglagesPartiel: ReglagesCascadePartielle }
 export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
   const cfg = await chargerConfigVeille();
   const reglages: ReglagesReleve = {
@@ -730,6 +732,18 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     } catch { /* demande_sortant_hors_outil / details absents → aucune mention (dégradation sûre) */ }
   }
 
+  // LOT 18 — ANNONCE CADA réellement envoyée (journal MOTIF_ANNONCE_CADA) par demande : date du DERNIER → « Information saisine CADA »
+  //   effectuée dans la projection du parcours partiel. Lecture batchée SÉPARÉE (jamais un WHERE sur `dem`), résiliente (colonne/motif absents → aucun).
+  const annonceCadaParId = new Map<number, string>();
+  if (ids.length > 0) {
+    try {
+      const { rows } = await query<{ demande_id: number; le: string }>(
+        `SELECT demande_id::int AS demande_id, to_char(max(horodatage) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS le
+           FROM demande_journal WHERE demande_id = ANY($1) AND motif LIKE $2 || '%' GROUP BY demande_id`, [ids, MOTIF_ANNONCE_CADA_PREFIXE]);
+      for (const r of rows) annonceCadaParId.set(r.demande_id, r.le);
+    } catch { /* journal absent → aucune annonce datée (dégradation sûre : l'étape reste « programmée ») */ }
+  }
+
   const demandes: DemandeSuivi[] = dem.rows.map((r) => ({
     demandeId: r.id, reference: r.reference, codeInsee: r.code_insee, communeNom: r.commune_nom, statut: r.statut, canal: r.canal,
     envoyeLe: r.envoye_le, statutAcheminement: r.statut_acheminement,
@@ -740,6 +754,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     dernierEnvoiRelance: r.dernier_relance_variante !== null && r.dernier_relance_envoye_le !== null ? { variante: r.dernier_relance_variante, envoyeLe: r.dernier_relance_envoye_le } : null,
     relancePreparee: r.relance_preparee_variante !== null ? { variante: r.relance_preparee_variante } : null,
     saisineCadaEnvoyeeLe: r.saisine_cada_envoyee_le,
+    annonceCadaEnvoyeeLe: annonceCadaParId.get(r.id) ?? null, // LOT 18
 
     dossiers: parDemande.get(r.id) ?? [],
     // FIX-3 — dossiers du CONTENU per-permis de l'encart : dûs + satisfaits-d'une-demande-en-partiel-actif (disjoints par satisfait_le).
@@ -771,7 +786,10 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     batimentsNonVide: batimentsSet.has(r.id),
     piecesNonVide: piecesSet.has(r.id), // UNIF-1 : ≥ 1 dossier dû a une pièce en GED
   }));
-  return { demandes, derniereOkLe, reglages, cascade, envoi, partielDelai: { mois: cfg.cadaPartielDelaiMois, jours: cfg.cadaPartielDelaiJours } }; // CASC-2 : délai partiel pour l'affichage « délai prolongé au … »
+  return { demandes, derniereOkLe, reglages, cascade, envoi,
+    partielDelai: { mois: cfg.cadaPartielDelaiMois, jours: cfg.cadaPartielDelaiJours }, // CASC-2 : délai partiel pour l'affichage « délai prolongé au … »
+    // LOT 18 — réglages de la cascade PARTIELLE (config_veille, PILOTAGE SANS CODE) pour projeter le parcours complet à venir.
+    reglagesPartiel: { relanceJours: cfg.cascadePartielRelanceJours, nbRelancesAvantAnnonce: cfg.cascadePartielNbRelances, annonceJours: cfg.cascadePartielAnnonceJours, saisineJours: cfg.cascadePartielSaisineJours } };
 }
 
 /** Charge tout le nécessaire de l'écran « Réponses » en une passe. LECTURE SEULE. */

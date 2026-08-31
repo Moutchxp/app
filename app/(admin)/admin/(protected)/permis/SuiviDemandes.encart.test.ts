@@ -24,7 +24,7 @@ describe('UNIF-1 — le détail « En cours » consomme l’encart de familles (
     expect(SRC).toContain('<RefMairieCellule references={rich.referencesMairie}'); // seule place : la colonne du tableau (même route, portée par demande)
   });
   it('LOT 15 — la famille « Suivi et actions » rend la FRISE unifiée (envois + cascade fondus), sans l’ancien bloc ni le rappel « obtenus »', () => {
-    expect(SRC).toContain('construireFriseSuivi({ envois: richDetail.historiqueEnvois');
+    expect(SRC).toContain('projeterParcours({'); // LOT 18 : projection du parcours complet (remplace construireFriseSuivi)
     expect(SRC).toContain('<FriseSuivi evenements={evenements}');
     expect(SRC).not.toContain('<HistoriqueEnvois ');             // l'ancien bloc LOT 13 est absorbé par la frise
     expect(SRC).not.toContain('<RappelObtenusArchives');         // point 7 : info portée par le titre « Contact mairie » (LOT 9)

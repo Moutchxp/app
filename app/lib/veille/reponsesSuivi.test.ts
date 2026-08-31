@@ -148,6 +148,22 @@ describe('T6-A — chargerDemandesSuivi : SOURCE UNIQUE (échéance + retour + d
     expect(norm(appels.find((a) => DEM.test(a.sql))!.sql)).not.toContain('to_char(GREATEST(');
   });
 
+  it('LOT 18 — annonce CADA (journal) batchée SÉPARÉE de `dem` ; réglages de cascade partielle exposés (config, projection du parcours)', async () => {
+    const ANN = /to_char\(max\(horodatage\) AT TIME ZONE/; // ma requête annonce CADA (fragment UNIQUE ; ≠ echanges qui enveloppe dans GREATEST)
+    etat.dispatch = [
+      { re: DEM, rows: [{ id: 154, reference: 'R', code_insee: '93001', commune_nom: 'Aubervilliers', statut: 'envoyee', envoye_le: '2026-07-01T10:00:00Z', statut_acheminement: 'envoye', dossiers_actifs: 1, dossiers_satisfaits: 0, dossiers_en_ged: 0, nb_reponses: 0, nb_reponses_reelles: 0, derniere_reponse_le: null }] },
+      { re: ANN, rows: [{ demande_id: 154, le: '2026-09-27T07:00:00Z' }] },
+    ];
+    const data = await chargerDemandesSuivi();
+    expect(data.demandes[0].annonceCadaEnvoyeeLe).toBe('2026-09-27T07:00:00Z');
+    // réglages partiels exposés pour la projection (issus de config, jamais en dur)
+    expect(data.reglagesPartiel).toEqual(expect.objectContaining({ relanceJours: expect.any(Number), nbRelancesAvantAnnonce: expect.any(Number), annonceJours: expect.any(Number), saisineJours: expect.any(Number) }));
+    const ann = appels.find((a) => ANN.test(a.sql))!;
+    expect(norm(ann.sql)).toContain("motif LIKE $2 || '%'"); // motif LIÉ (préfixe annonce CADA)
+    expect(ann.params[1]).toBe('annonce CADA envoyée');
+    expect(DEM.test(ann.sql)).toBe(false); // requête SÉPARÉE
+  });
+
   it('LOT-9 C — CONTACT MAIRIE : interlocuteurs (dernier message, tri récence) + destinataire, par requêtes SÉPARÉES de `dem`', async () => {
     const EXP = /max\(r\.recu_le\)::text AS dernier/; // fragment UNIQUE de la requête des interlocuteurs
     etat.dispatch = [

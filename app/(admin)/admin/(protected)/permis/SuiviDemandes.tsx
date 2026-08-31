@@ -24,7 +24,8 @@ import { BlocTraceEmprise } from './BlocTraceEmprise';
 import { BlocPiecesPermis } from './BlocPiecesPermis';
 import { LiseusePieces } from './LiseusePieces';
 import { MentionFamillesManquantes, MentionEchanges, FriseSuivi } from './FriseSuiviRendu'; // LOT 13 A / LOT 15 frise / LOT 17-C mention échanges
-import { construireFriseSuivi } from '../../../../lib/veille/friseSuivi'; // LOT 15 : fusion pure envois + cascade en une frise chronologique
+import { projeterParcours } from '../../../../lib/veille/friseSuivi'; // LOT 18 : projection pure du parcours complet (faits + étapes à venir datées)
+import type { ReglagesCascadePartielle } from '../../../../lib/veille/cascadePartielle';
 import type { DemandeSuivi, ReglagesReleve } from '../../../../lib/veille/reponsesSuivi';
 import type { ReglagesCascade } from '../../../../lib/veille/cascadeRelance';
 
@@ -96,7 +97,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   //   rebours (etatEcheance INTOUCHÉ), la colonne « Retour mairie » et les 7 actions du détail. `retourReponse` (cle-based) est le
   //   retour des actions /reponses, DISTINCT de `retour` (zone-based) des actions /demandes. RIEN de ceci n'existe pour « À demander ».
   const enCours = perimetre === 'en_cours';
-  const [suivi, setSuivi] = useState<{ parId: Map<number, DemandeSuivi>; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number } } | null>(null);
+  const [suivi, setSuivi] = useState<{ parId: Map<number, DemandeSuivi>; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number }; reglagesPartiel: ReglagesCascadePartielle } | null>(null);
   const [maintenant, setMaintenant] = useState<Date>(() => new Date());
   const [versionSuivi, setVersionSuivi] = useState(0);
   const [retourReponse, setRetourReponse] = useState<RetourCible>(null);
@@ -129,8 +130,8 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
       try {
         const res = await fetch('/api/admin/permis/en-cours', { cache: 'no-store' });
         if (!annule && res.ok) {
-          const d = (await res.json()) as { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number } };
-          setSuivi({ parId: new Map(d.demandes.map((x) => [x.demandeId, x])), derniereOkLe: d.derniereOkLe, reglages: d.reglages, cascade: d.cascade, envoi: d.envoi, partielDelai: d.partielDelai ?? { mois: 1, jours: 4 } });
+          const d = (await res.json()) as { demandes: DemandeSuivi[]; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number }; reglagesPartiel: ReglagesCascadePartielle };
+          setSuivi({ parId: new Map(d.demandes.map((x) => [x.demandeId, x])), derniereOkLe: d.derniereOkLe, reglages: d.reglages, cascade: d.cascade, envoi: d.envoi, partielDelai: d.partielDelai ?? { mois: 1, jours: 4 }, reglagesPartiel: d.reglagesPartiel ?? { relanceJours: 10, nbRelancesAvantAnnonce: 2, annonceJours: 10, saisineJours: 4 } });
           setMaintenant(new Date());
         }
       } catch { /* suivi indisponible : le tableau reste, sans compte à rebours (jamais un écran vide) */ }
@@ -690,13 +691,15 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   cle: 'suivi_actions', nonVide: true, titre: LIBELLE_FAMILLE.suivi_actions,
                   contenu: () => (
                   <>
-                {/* LOT 15 — FRISE UNIQUE : nos envois (LOT 13) + l'état de cascade (CASC-1 arrêt / CASC-2 butoir / CASC-3 prochaine étape)
-                    fondus en une seule liste chronologique, à la même forme. Faits passés vs échéances à venir distingués (jamais une
-                    échéance présentée comme un fait). Données DÉJÀ chargées (aucune lecture ajoutée). Le GESTE de la prochaine étape
-                    (préparer un brouillon de relance/annonce) est CONSERVÉ, rendu sous la frise (actionAvenir). */}
+                {/* LOT 18 — PARCOURS COMPLET : projeterParcours DÉRIVE à chaque rendu les faits ET les étapes à venir datées, depuis l'état
+                    courant (envoi initial, envois réels, bifurcation, annonce/saisine CADA) + les réglages de config (ordinaire + partiel).
+                    Aucune lecture ajoutée ici (tout est déjà dans richDetail/suivi). Le GESTE « préparer le brouillon » est CONSERVÉ, sous la frise. */}
                 {(() => {
-                  const butoirIso = richDetail.suspension && suivi ? dateButoirPartiel(new Date(richDetail.suspension.le), suivi.partielDelai.mois, suivi.partielDelai.jours).toISOString() : null;
-                  const evenements = construireFriseSuivi({ envois: richDetail.historiqueEnvois, suspension: richDetail.suspension, butoirIso, cascade: richDetail.cascade });
+                  const evenements = suivi ? projeterParcours({
+                    envoyeLe: richDetail.envoyeLe, envois: richDetail.historiqueEnvois, suspension: richDetail.suspension,
+                    saisineCadaEnvoyeeLe: richDetail.saisineCadaEnvoyeeLe, annonceCadaEnvoyeeLe: richDetail.annonceCadaEnvoyeeLe,
+                    reglages: { ordinaire: suivi.cascade, partiel: suivi.reglagesPartiel, cadaPartielMois: suivi.partielDelai.mois, cadaPartielJours: suivi.partielDelai.jours },
+                  }) : [];
                   const c = richDetail.cascade;
                   const actionCascade = c && c.brouillon ? (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
