@@ -28,6 +28,7 @@ import { executerApprofondieAuto, depsReellesApprofondie } from '../veille/relev
 import { executerRelanceAuto, depsReellesRelance } from '../veille/relanceAuto';
 import { executerDiagnosticsVague, depsReellesDiagnosticsVague } from '../veille/diagnosticsVague';
 import { executerRelanceReponsePartielle, depsReellesRelanceReponsePartielle } from '../veille/relanceReponsePartielleAuto';
+import { executerCascadePartielleAuto, depsReellesCascadePartielleAuto } from '../veille/cascadePartielleAuto';
 import { executerAlerteAuto, depsReellesAlerte } from '../veille/alerteAuto';
 import { executerPropositionAuto, depsReellesProposition } from '../veille/propositionAuto';
 import { executerPreparationSaisinePartielle, depsReellesPreparationSaisinePartielle } from '../veille/preparerSaisinePartielleAuto';
@@ -118,6 +119,9 @@ export interface DepsVeille {
   // PART-E — BOUCLE de relance « réponse partielle » (après le diagnostic de vague, §1ter-ter). OPTIONNELLE et ISOLÉE. Mode AUTO
   //   (relance_auto_active) → envoie la relance adaptée sous calme + fenêtre + cap par run ; mode MANUEL → rien (pastille Analyse).
   relanceReponsePartielle?(): Promise<unknown>;
+  // AUTO-PARTIEL — ENVOI AUTOMATIQUE de la cascade PARTIELLE (CASC-3 : relances 1..N, annonce CADA) aux dates dérivées de partiel_le.
+  //   OPTIONNELLE et ISOLÉE, comme PART-E. Gated par cascade_partiel_auto_active (défaut ON). Anti-doublon par réservation de créneau.
+  cascadePartielleAuto?(): Promise<unknown>;
   // R6b — génération des BROUILLONS de relance pour les demandes à l'échéance dépassée (après l'approfondie). OPTIONNELLE et
   //   ISOLÉE (§1quater) : aucun envoi, un échec ne touche jamais la veille Sitadel.
   relanceEcheance?(): Promise<unknown>;
@@ -239,6 +243,12 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   rien ici (pastille Analyse). Échange de suivi : PAS de plafond quotidien. MÊME ISOLATION : un échec n'impacte jamais la veille.
     if (faitMairies && deps.relanceReponsePartielle) {
       try { await deps.relanceReponsePartielle(); } catch { /* boucle partielle isolée : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1ter-bis) AUTO-PARTIEL — ENVOI AUTOMATIQUE de la cascade PARTIELLE (relances 1..N, annonce CADA) aux dates dérivées de partiel_le.
+    //   APRÈS PART-E, MÊME ISOLATION. Anti-doublon par réservation de créneau (auto ⇄ manuel) ; gated par cascade_partiel_auto_active.
+    if (faitMairies && deps.cascadePartielleAuto) {
+      try { await deps.cascadePartielleAuto(); } catch { /* cascade partielle auto isolée : n'impacte jamais la veille Sitadel */ }
     }
 
     // 1quater) BROUILLONS DE RELANCE (R6b) — APRÈS l'approfondie (qui vient de regarder au mieux) : pour les demandes dont
@@ -533,6 +543,7 @@ function depsReelles(): DepsVeille {
     diagnosticVague: () => executerDiagnosticsVague('auto', depsReellesDiagnosticsVague()),
     // PART-E — boucle réelle : relance auto « réponse partielle » (mode auto), gardes calme/fenêtre/cap/régime, dans relanceReponsePartielleAuto.ts.
     relanceReponsePartielle: () => executerRelanceReponsePartielle(depsReellesRelanceReponsePartielle()),
+    cascadePartielleAuto: () => executerCascadePartielleAuto(depsReellesCascadePartielleAuto()),
     // R6b — brouillons de relance réels : sélection 'depassee' + garde relance vivante + journal, dans relanceAuto.ts.
     relanceEcheance: () => executerRelanceAuto(depsReellesRelance()),
     // R8 — alerte quotidienne réelle : conditions + composition + envoi SMTP + journal, dans alerteAuto.ts.

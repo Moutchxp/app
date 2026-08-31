@@ -13,6 +13,8 @@ const cible = (over: Partial<CibleComplement> = {}): CibleComplement => ({
 function deps(over: Partial<DepsRelancePartielle> = {}): DepsRelancePartielle {
   return {
     regimePartiel: async () => true, // CASC-4 : demande partielle par défaut (régime cascade partielle)
+    reserverCreneau: async () => true, // AUTO-PARTIEL : créneau libre par défaut (anti-doublon inactif dans ces cas)
+    libererCreneau: async () => {},
     lireCible: async () => cible(),
     destinataires: async (_d, fige) => [fige], // LOT 20 : par défaut, seul le destinataire figé (multi-adresse inactif)
     envoyer: async () => ({ messageId: '<out@svav>' }),
@@ -72,5 +74,61 @@ describe('CASC-3 — executerRelancePartielle (injection, aucun e-mail réel)', 
     const r = await executerRelancePartielle(deps({ lireCible: async () => cible({ motifIndisponible: 'expéditeur non répondable' }), envoyer: async () => { envoye = true; return { messageId: 'x' }; } }), arg());
     expect(r.ok).toBe(false);
     expect(envoye).toBe(false);
+  });
+});
+
+describe('AUTO-PARTIEL — RÉSERVATION de créneau : jamais deux fois la même relance (auto ⇄ manuel)', () => {
+  // Verrou simulé = un Set partagé, exactement comme le PK de cascade_partiel_creneau : le 1er réserve, les suivants échouent.
+  function verrouPartage() {
+    const pris = new Set<string>();
+    return {
+      reserverCreneau: async (demandeId: number, cle: string) => { const k = `${demandeId}|${cle}`; if (pris.has(k)) return false; pris.add(k); return true; },
+      libererCreneau: async (demandeId: number, cle: string) => { pris.delete(`${demandeId}|${cle}`); },
+    };
+  }
+
+  it('créneau DÉJÀ réservé → refus AVANT envoi (aucun e-mail, aucun journal)', async () => {
+    let envoye = false, journalise = false;
+    const r = await executerRelancePartielle(deps({
+      reserverCreneau: async () => false,
+      envoyer: async () => { envoye = true; return { messageId: 'x' }; },
+      journaliser: async () => { journalise = true; },
+    }), arg());
+    expect(r.ok).toBe(false);
+    expect(r.motif).toMatch(/déjà partie|déjà servi/i);
+    expect(envoye).toBe(false);
+    expect(journalise).toBe(false);
+  });
+
+  it('MÊME créneau visé par l’auto ET le manuel → UN SEUL envoi, l’autre neutralisé', async () => {
+    const v = verrouPartage();
+    let envois = 0;
+    const d = deps({ ...v, envoyer: async () => { envois += 1; return { messageId: `<m${envois}>` }; } });
+    const r1 = await executerRelancePartielle(d, arg({ auteur: 'auto' }));          // l'auto passe en premier
+    const r2 = await executerRelancePartielle(d, arg({ auteur: 'admin:decision' })); // le manuel vise le MÊME créneau
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(false); // neutralisé par la réservation
+    expect(envois).toBe(1);    // UN SEUL e-mail parti — jamais de doublon
+  });
+
+  it('un créneau différent (autre étape) N’EST PAS bloqué', async () => {
+    const v = verrouPartage();
+    const d = deps(v);
+    const r1 = await executerRelancePartielle(d, arg({ etape: 'relance', rang: 1 }));
+    const r2 = await executerRelancePartielle(d, arg({ etape: 'annonce', rang: null }));
+    expect(r1.ok).toBe(true);
+    expect(r2.ok).toBe(true); // « relance-1 » et « annonce » sont deux créneaux distincts
+  });
+
+  it('l’envoi n’a PAS eu lieu (cible absente) → le créneau est LIBÉRÉ (retentable au prochain run)', async () => {
+    const v = verrouPartage();
+    let liberations = 0;
+    const d = deps({ ...v, lireCible: async () => null, libererCreneau: async (dm, cle) => { liberations += 1; await v.libererCreneau(dm, cle); } });
+    const r1 = await executerRelancePartielle(d, arg());
+    expect(r1.ok).toBe(false);
+    expect(liberations).toBe(1);
+    // libéré → une nouvelle tentative peut re-réserver (cible désormais disponible)
+    const r2 = await executerRelancePartielle(deps({ ...v }), arg());
+    expect(r2.ok).toBe(true);
   });
 });

@@ -21,6 +21,19 @@ describe('CASC-3 — etapeCascadePartielle (moteur pur)', () => {
     expect(r.prochaineDate?.toISOString().slice(0, 10)).toBe('2026-05-11');
   });
 
+  it('AUTO-PARTIEL — le BUTOIR CADA (annonce + saisine) est ANCRÉ à partiel_le : INCHANGÉ quel que soit le nombre de relances envoyées', () => {
+    // annonce : sa date ne dépend QUE de partiel_le + config (jamais du compteur de relances) — over-count compris.
+    const annonce2 = etapeCascadePartielle(base({ relancesEnvoyees: 2, aujourdhui: jour('2026-06-30') }));
+    const annonce9 = etapeCascadePartielle(base({ relancesEnvoyees: 9, aujourdhui: jour('2026-06-30') }));
+    expect(annonce2.etape).toBe('annonce');
+    expect(annonce9.dateDue?.toISOString()).toBe(annonce2.dateDue?.toISOString()); // même date d'annonce
+    // saisine proposable (relances faites + annonce envoyée) : max(annonce+saisineJours, butoir CASC-2) — identique quel que soit le sur-comptage.
+    const sai2 = etapeCascadePartielle(base({ relancesEnvoyees: 2, annonceEnvoyee: true, aujourdhui: jour('2026-12-31') }));
+    const sai7 = etapeCascadePartielle(base({ relancesEnvoyees: 7, annonceEnvoyee: true, aujourdhui: jour('2026-12-31') }));
+    expect(sai2.etape).toBe('saisine_proposable');
+    expect(sai7.dateDue?.toISOString()).toBe(sai2.dateDue?.toISOString()); // butoir CADA identique
+  });
+
   it('J+20 avec relance 1 déjà envoyée → relance 2 due', () => {
     const r = etapeCascadePartielle(base({ relancesEnvoyees: 1, aujourdhui: jour('2026-05-21') }));
     expect(r).toMatchObject({ etape: 'relance', rang: 2 });

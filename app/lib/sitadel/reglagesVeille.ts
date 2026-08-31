@@ -219,6 +219,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'À partir de ce nombre de jours avant l’échéance, un rappel est préparé pour les demandes restées sans réponse. La préparation a toujours lieu et n’envoie rien.' },
   { colonne: 'relance_auto_active', cle: 'relanceAutoActive', libelle: 'Envoyer les relances automatiquement', unite: '', type: 'booleen', rail: 'email',
     aide: 'Si cette case est cochée, les relances partiront vers les mairies sans relecture. Tant qu’elle est décochée, rien ne part sans un clic.' },
+  // AUTO-PARTIEL — interrupteur d'arrêt d'urgence de la cascade PARTIELLE (relances de dossier incomplet + annonce CADA). Modèle relance_auto_active.
+  { colonne: 'cascade_partiel_auto_active', cle: 'cascadePartielAutoActive', libelle: 'Envoyer la cascade partielle automatiquement', unite: '', type: 'booleen', rail: 'email',
+    aide: 'Si cette case est cochée, les relances de dossier incomplet (relances, annonce CADA) partent seules aux dates de la cascade, sans clic. Décochée, rien ne part sans un clic (arrêt d’urgence). Le délai de saisine CADA n’est jamais modifié par ce réglage.' },
   // Cascade lot 2 — les 3 délais de la cascade, dans l’ordre chronologique (rappel J-10, avis J-3, saisine J+délai). Bornes 1..30
   //   lues au runtime depuis les CHECK (migration 136). Aides en conséquences concrètes : ce qui part, quand.
   // D4-ter (R1) — RAIL E-MAIL : ces 3 délais DÉTERMINENT quand une relance/saisine part TOUTE SEULE, ce qui n'existe QU'en e-mail
@@ -437,6 +440,8 @@ export const COLONNES_THEME_ENVOI: readonly string[] = [
   // LOT B — duo « relances » : à partir de quand un rappel est préparé, puis part-il tout seul (adjacents, sans sous-titre :
   //   l'écran Réglages ne rend pas de sous-groupe dans un thème — non inventé pour ce lot).
   'relance_jours_avant_echeance', 'relance_auto_active',
+  // AUTO-PARTIEL — l'interrupteur de la cascade partielle, adjacent à celui des relances ordinaires (même thème « Envoi aux mairies »).
+  'cascade_partiel_auto_active',
   // Cascade lot 2 — les 3 délais, à la suite du réglage de relance existant, dans l'ordre chronologique (rappel → avis → saisine).
   'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours',
   // RELANCE — fenêtre horaire d'envoi automatique (matin, jours ouvrés).

@@ -86,6 +86,15 @@ export async function chargerCascadePartielle(demandeId: number): Promise<EtatCa
   };
 }
 
+/** AUTO-PARTIEL — demandes en régime PARTIEL ACTIF (marqueur posé, non levé), candidates à l'envoi automatique de la cascade. LECTURE SEULE, résiliente. */
+export async function lireDemandesPartiellesActives(): Promise<number[]> {
+  try {
+    const { rows } = await query<{ id: number }>(
+      `SELECT id::int AS id FROM demande WHERE partiel_le IS NOT NULL AND partiel_leve_le IS NULL AND statut IN ('envoyee', 'close') ORDER BY id`);
+    return rows.map((r) => r.id);
+  } catch { return []; } // colonnes partiel_* absentes (177 non appliquée) → aucun candidat
+}
+
 /** Date effective où la saisine devient proposable (annonce + saisineJours, jamais avant le butoir CASC-2) — pour le texte d'annonce. */
 function dateSaisineProposable(premiereReclamation: Date, cfg: { cascadePartielRelanceJours: number; cascadePartielNbRelances: number; cascadePartielAnnonceJours: number; cascadePartielSaisineJours: number }, butoirCasc2: Date): number {
   const annonce = premiereReclamation.getTime() + (cfg.cascadePartielNbRelances * cfg.cascadePartielRelanceJours + cfg.cascadePartielAnnonceJours) * 86_400_000;
@@ -94,8 +103,17 @@ function dateSaisineProposable(premiereReclamation: Date, cfg: { cascadePartielR
 }
 
 // ── PRÉPARATION (envoi MANUEL verbatim, comme PART-3c) — pur par injection ────────────────────────────────────────────────────────
+/** AUTO-PARTIEL — clé de CRÉNEAU d'une étape partielle (verrou anti-doublon) : « relance-1 », …, « annonce ». PUR. */
+export function cleCreneauPartiel(etape: 'relance' | 'annonce', rang: number | null): string {
+  return etape === 'annonce' ? 'annonce' : `relance-${rang ?? 0}`;
+}
+
 export interface DepsRelancePartielle {
   regimePartiel(demandeId: number): Promise<boolean>; // CASC-4 : la demande est-elle en régime PARTIEL (marqueur CASC-1 actif) ?
+  // AUTO-PARTIEL — VERROU ANTI-DOUBLON : réserve le créneau (demande, étape) AVANT l'envoi. `false` = déjà réservé (auto OU manuel) → on n'envoie pas.
+  //   C'est CE point qui garantit « jamais deux fois la même relance » : auto et manuel réservent le MÊME créneau, un seul gagne.
+  reserverCreneau(demandeId: number, cle: string, auteur: string): Promise<boolean>;
+  libererCreneau(demandeId: number, cle: string): Promise<void>; // libère si l'envoi n'a finalement PAS eu lieu (cible absente / erreur) → retentable.
   lireCible(demandeId: number): Promise<CibleComplement | null>;
   // LOT 20 — liste des destinataires RÉELLEMENT servis. Par défaut [destinataire figé] ; pour la DERNIÈRE relance + l'annonce, si le
   //   multi-adresse est actif, toutes les adresses connues de la commune. L'envoi ne fait que servir cette liste (In-Reply-To conservé).
@@ -114,20 +132,39 @@ export async function executerRelancePartielle(deps: DepsRelancePartielle, arg: 
   // CASC-4 — RÉGIME UNIQUE : la cascade PARTIELLE n'agit QUE sur une demande marquée « dossier partiel » (CASC-1). Garde côté serveur
   //   (pas seulement l'UI) : sur une demande en régime ORDINAIRE, refus explicite motivé — jamais d'envoi partiel hors régime.
   if (!(await deps.regimePartiel(arg.demandeId))) return { ok: false, motif: 'demande non marquée « dossier partiel » : elle relève du régime de relance ordinaire' };
-  const cible = await deps.lireCible(arg.demandeId);
-  if (cible === null) return { ok: false, motif: 'aucun message de mairie auquel répondre pour cette demande' };
-  if (cible.motifIndisponible !== null) return { ok: false, motif: cible.motifIndisponible };
-  // LOT 20 — destinataires réellement servis (multi-adresse pour la dernière relance + l'annonce, sinon le seul destinataire figé).
-  const to = await deps.destinataires(arg.demandeId, cible.destinataire, arg.etape, arg.rang);
-  const { messageId } = await deps.envoyer(cible, arg.objet, arg.corps, to);
-  await deps.journaliser(arg.demandeId, arg.etape, arg.rang, { objet: arg.objet, corps: arg.corps, adresses: to, messageId }, arg.auteur);
-  return { ok: true, destinataire: to.join(', '), messageId };
+  // AUTO-PARTIEL — RÉSERVATION du créneau AVANT tout envoi : garantit qu'une étape ne part qu'UNE fois (auto ⇄ manuel, même course).
+  const cle = cleCreneauPartiel(arg.etape, arg.rang);
+  if (!(await deps.reserverCreneau(arg.demandeId, cle, arg.auteur))) return { ok: false, motif: 'cette étape est déjà partie (créneau déjà servi) — aucun doublon' };
+  let envoye = false;
+  try {
+    const cible = await deps.lireCible(arg.demandeId);
+    if (cible === null) return { ok: false, motif: 'aucun message de mairie auquel répondre pour cette demande' };
+    if (cible.motifIndisponible !== null) return { ok: false, motif: cible.motifIndisponible };
+    // LOT 20/27 — destinataires réellement servis (Règle A par défaut ; multi-adresse Règle B pour la dernière relance + l'annonce).
+    const to = await deps.destinataires(arg.demandeId, cible.destinataire, arg.etape, arg.rang);
+    const { messageId } = await deps.envoyer(cible, arg.objet, arg.corps, to);
+    await deps.journaliser(arg.demandeId, arg.etape, arg.rang, { objet: arg.objet, corps: arg.corps, adresses: to, messageId }, arg.auteur);
+    envoye = true;
+    return { ok: true, destinataire: to.join(', '), messageId };
+  } finally {
+    if (!envoye) await deps.libererCreneau(arg.demandeId, cle); // rien n'est parti (cible absente / erreur) → on relâche le créneau (retentable)
+  }
 }
 
 // ── Implémentation RÉELLE ─────────────────────────────────────────────────────
 export function depsReellesRelancePartielle(): DepsRelancePartielle {
   return {
     regimePartiel: async (demandeId) => (await lireEtatPartiel(demandeId)) !== null, // CASC-4 : marqueur CASC-1 actif ? (false si 177 absente)
+    // AUTO-PARTIEL — RÉSERVATION atomique du créneau (PK demande_id+cle). `INSERT … ON CONFLICT DO NOTHING` : le 1er gagne, les suivants
+    //   voient 0 ligne → false → n'envoient pas. Table absente (184 non appliquée) → true (pas de garde ; comportement d'avant, aucun auto de toute façon).
+    reserverCreneau: async (demandeId, cle, auteur) => {
+      try {
+        const { rows } = await query<{ demande_id: number }>(
+          `INSERT INTO cascade_partiel_creneau (demande_id, cle, auteur) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING RETURNING demande_id`, [demandeId, cle, auteur]);
+        return rows.length > 0;
+      } catch { return true; }
+    },
+    libererCreneau: async (demandeId, cle) => { try { await query(`DELETE FROM cascade_partiel_creneau WHERE demande_id = $1 AND cle = $2`, [demandeId, cle]); } catch { /* table absente / erreur : rien à libérer */ } },
     lireCible: async (demandeId) => {
       // Cible = fil du dernier message mairie de la demande. On réutilise lireCibleComplementReel via un dossier ACTIF de la demande
       //   (il résout dossier→demande→dernier message répondable) — aucune 2e implémentation d'envoi.

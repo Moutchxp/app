@@ -14,7 +14,7 @@ const EMAIL = [
   // préparation PROPRE au rail e-mail
   'dossiers_par_demande', 'permis_par_commune_par_mois', 'profil_demandeur_defaut',
   // envoi & relances (e-mail seul)
-  'envois_max_par_run', 'envois_max_par_jour', 'relance_auto_active', 'envoi_heure_debut', 'envoi_heure_fin',
+  'envois_max_par_run', 'envois_max_par_jour', 'relance_auto_active', 'cascade_partiel_auto_active', 'envoi_heure_debut', 'envoi_heure_fin',
   'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours',
   'relance_multi_adresse_active', 'relance_multi_adresse_nb_dernieres', // LOT 20 — multi-adresse (rail e-mail)
 ];

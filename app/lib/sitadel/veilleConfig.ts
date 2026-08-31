@@ -82,6 +82,7 @@ export interface ConfigVeille {
   cascadePartielAnnonceJours: number; // CASC-3 : délai (jours) dernière relance → annonce CADA — 1..90, défaut 10
   cascadePartielSaisineJours: number; // CASC-3 : délai (jours) annonce → saisine (harmonisé au butoir CASC-2) — 0..90, défaut 4
   cascadePartielNbRelances: number;   // CASC-3 : nombre de relances courtoises avant l'annonce — 1..10, défaut 2
+  cascadePartielAutoActive: boolean;  // AUTO-PARTIEL : les étapes CASC-3 partent SEULES aux dates de la cascade (défaut TRUE) — interrupteur d'arrêt d'urgence
   relanceMultiAdresseActive: boolean;      // LOT 20/27 : envoyer les N dernières relances à TOUTES les adresses connues de la commune (LOT 27 : défaut TRUE = norme ; drapeau = arrêt d'urgence)
   relanceMultiAdresseNbDernieres: number;  // LOT 20 : nombre des DERNIÈRES relances servies en multi-adresse (défaut 2) — 0..10
   saisineCadaAutoActive: boolean;    // Cascade lot 2 : envoyer la saisine CADA SANS relecture ? Sans effet tant que cadaEmail est vide — défaut false
@@ -158,6 +159,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   relanceRappelJoursAvant: 10, relanceAvisJoursAvant: 3, relanceSaisineDelaiJours: 4, saisineCadaAutoActive: false, // = DEFAULT de la migration 136 (cascade lot 2)
   cadaPartielDelaiMois: 1, cadaPartielDelaiJours: 4, // = DEFAULT de la migration 178 (CASC-2 : 1 mois + 4 jours sur dossier partiel)
   cascadePartielRelanceJours: 10, cascadePartielAnnonceJours: 10, cascadePartielSaisineJours: 4, cascadePartielNbRelances: 2, // = DEFAULT migration 179 (CASC-3)
+  cascadePartielAutoActive: true, // = DEFAULT migration 184 (AUTO-PARTIEL : la cascade partielle part toute seule, comme l'ordinaire ; défaut ACTIF)
   relanceMultiAdresseActive: true, relanceMultiAdresseNbDernieres: 2, // = DEFAULT migration 183 (LOT 27 : multi-adresse des 2 dernières = NORME ; drapeau = arrêt d'urgence)
   rattachementSuiviAutoActive: false, // = DEFAULT de la migration 154 (RATT-AUTO : opt-in, comme tous les interrupteurs d'automatisation)
   attenteBatiAlerteActive: false, attenteBatiAlerteJours: 365, // = DEFAULT de la migration 155 (ATT-BATI : opt-in ; seuil 1 an, bas de la fenêtre IGN 1-3 ans)
@@ -562,6 +564,17 @@ async function lireCascadePartielle(): Promise<Pick<ConfigVeille, 'cascadePartie
   } catch { return def; } // 179 pas encore appliquée → défauts (10, 10, 4, 2)
 }
 
+// AUTO-PARTIEL — interrupteur de l'envoi automatique de la cascade partielle. Lecture ISOLÉE (résiliente à la 184, livrée NON APPLIQUÉE) :
+//   colonne absente → défaut TRUE (intention d'Arno), SANS dégrader le reste de la config.
+async function lireCascadePartielAuto(): Promise<Pick<ConfigVeille, 'cascadePartielAutoActive'>> {
+  try {
+    const { rows } = await query<{ cascade_partiel_auto_active: boolean }>(`SELECT cascade_partiel_auto_active FROM config_veille WHERE id = 1`);
+    const r = rows[0];
+    if (!r) return { cascadePartielAutoActive: true };
+    return { cascadePartielAutoActive: r.cascade_partiel_auto_active === true };
+  } catch { return { cascadePartielAutoActive: true }; } // 184 pas encore appliquée → défaut ACTIF
+}
+
 // LOT 20 — lecture ISOLÉE du multi-adresse (résiliente à l'ordre d'application de la 182, livrée NON APPLIQUÉE) : colonnes absentes → OFF + 2.
 async function lireRelanceMultiAdresse(): Promise<Pick<ConfigVeille, 'relanceMultiAdresseActive' | 'relanceMultiAdresseNbDernieres'>> {
   const def = { relanceMultiAdresseActive: true, relanceMultiAdresseNbDernieres: 2 }; // LOT 27 : défaut TRUE (norme) ; colonnes absentes → multi-adresse actif
@@ -757,6 +770,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireRelanceCascadeReglages()),          // Cascade lot 2 : 3 délais + auto-saisine CADA, lecture isolée (résiliente à la 136)
       ...(await lireCadaPartielDelai()),                 // CASC-2 : délai CADA sur dossier partiel (1 mois + 4 jours), lecture isolée (résiliente à la 178)
       ...(await lireCascadePartielle()),                 // CASC-3 : délais de la cascade partielle (10/10/4/2), lecture isolée (résiliente à la 179)
+      ...(await lireCascadePartielAuto()),               // AUTO-PARTIEL : interrupteur d'envoi auto de la cascade partielle (défaut TRUE), lecture isolée (résiliente à la 184)
       ...(await lireRelanceMultiAdresse()),              // LOT 20 : multi-adresse des 2 dernières relances, lecture isolée (résiliente à la 182)
       ...(await lireRattachementSuiviAuto()),           // RATT-AUTO : interrupteur du rejeu automatique du suivi, lecture isolée (résiliente à la 154)
       ...(await lireAttenteBatiAlerte()),               // ATT-BATI : interrupteur + seuil du rappel « en attente de bâti », lecture isolée (résiliente à la 155)
