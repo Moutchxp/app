@@ -16,6 +16,7 @@ const EMAIL = [
   // envoi & relances (e-mail seul)
   'envois_max_par_run', 'envois_max_par_jour', 'relance_auto_active', 'envoi_heure_debut', 'envoi_heure_fin',
   'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours',
+  'relance_multi_adresse_active', 'relance_multi_adresse_nb_dernieres', // LOT 20 — multi-adresse (rail e-mail)
 ];
 const TELESERVICE = [
   'teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', 'teleservice_profil_demandeur_defaut',

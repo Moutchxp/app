@@ -690,7 +690,12 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     try {
       const { rows } = await query<{ demande_id: number; le: string; relance_id: number | null; variante: string | null; destinataire: string | null }>(
         `SELECT a.demande_id::int AS demande_id, a.envoye_le::text AS le, a.relance_id::int AS relance_id, rl.variante,
-                coalesce(nullif(d.dest_nom, ''), d.dest_email) AS destinataire
+                -- LOT 20 : si cette relance a été servie en MULTI-ADRESSE (journal 'relance_multi_adresse'), la frise montre TOUTES les adresses ; sinon le destinataire figé.
+                coalesce(
+                  (SELECT j.details->>'destinataire' FROM demande_journal j
+                    WHERE j.demande_id = a.demande_id AND j.details->>'type' = 'relance_multi_adresse' AND j.details->>'relanceId' = a.relance_id::text
+                    ORDER BY j.horodatage DESC LIMIT 1),
+                  nullif(d.dest_nom, ''), d.dest_email) AS destinataire
            FROM demande_acheminement a JOIN demande d ON d.id = a.demande_id
            LEFT JOIN demande_relance rl ON rl.id = a.relance_id
           WHERE a.demande_id = ANY($1) AND a.statut = 'envoye'`, [ids]);

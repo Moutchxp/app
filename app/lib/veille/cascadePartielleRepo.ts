@@ -11,6 +11,7 @@
 import { query } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import { etapeCascadePartielle, texteRelancePartielle, texteAnnonceCada, type EtapePartielle, type TexteRelance } from './cascadePartielle';
+import { composerDestinatairesDemande, estParmiDernieres } from './destinatairesCommune'; // LOT 20 : multi-adresse (dernière relance + annonce)
 import { lireEtatPartiel } from '../permis/dossierPartielRepo';
 import { dateButoirPartiel, type EtatPartiel } from '../permis/dossierPartiel';
 import type { FamillePlan } from '../permis/planMasse';
@@ -96,8 +97,11 @@ function dateSaisineProposable(premiereReclamation: Date, cfg: { cascadePartielR
 export interface DepsRelancePartielle {
   regimePartiel(demandeId: number): Promise<boolean>; // CASC-4 : la demande est-elle en régime PARTIEL (marqueur CASC-1 actif) ?
   lireCible(demandeId: number): Promise<CibleComplement | null>;
-  envoyer(cible: CibleComplement, objet: string, corps: string): Promise<{ messageId: string }>;
-  journaliser(demandeId: number, etape: 'relance' | 'annonce', rang: number | null, trace: { objet: string; corps: string; destinataire: string; messageId: string }, auteur: string): Promise<void>;
+  // LOT 20 — liste des destinataires RÉELLEMENT servis. Par défaut [destinataire figé] ; pour la DERNIÈRE relance + l'annonce, si le
+  //   multi-adresse est actif, toutes les adresses connues de la commune. L'envoi ne fait que servir cette liste (In-Reply-To conservé).
+  destinataires(demandeId: number, destinataireFige: string, etape: 'relance' | 'annonce', rang: number | null): Promise<string[]>;
+  envoyer(cible: CibleComplement, objet: string, corps: string, to: readonly string[]): Promise<{ messageId: string }>;
+  journaliser(demandeId: number, etape: 'relance' | 'annonce', rang: number | null, trace: { objet: string; corps: string; adresses: readonly string[]; messageId: string }, auteur: string): Promise<void>;
 }
 export interface ResultatRelancePartielle { ok: boolean; motif?: string; destinataire?: string; messageId?: string }
 
@@ -113,9 +117,11 @@ export async function executerRelancePartielle(deps: DepsRelancePartielle, arg: 
   const cible = await deps.lireCible(arg.demandeId);
   if (cible === null) return { ok: false, motif: 'aucun message de mairie auquel répondre pour cette demande' };
   if (cible.motifIndisponible !== null) return { ok: false, motif: cible.motifIndisponible };
-  const { messageId } = await deps.envoyer(cible, arg.objet, arg.corps);
-  await deps.journaliser(arg.demandeId, arg.etape, arg.rang, { objet: arg.objet, corps: arg.corps, destinataire: cible.destinataire, messageId }, arg.auteur);
-  return { ok: true, destinataire: cible.destinataire, messageId };
+  // LOT 20 — destinataires réellement servis (multi-adresse pour la dernière relance + l'annonce, sinon le seul destinataire figé).
+  const to = await deps.destinataires(arg.demandeId, cible.destinataire, arg.etape, arg.rang);
+  const { messageId } = await deps.envoyer(cible, arg.objet, arg.corps, to);
+  await deps.journaliser(arg.demandeId, arg.etape, arg.rang, { objet: arg.objet, corps: arg.corps, adresses: to, messageId }, arg.auteur);
+  return { ok: true, destinataire: to.join(', '), messageId };
 }
 
 // ── Implémentation RÉELLE ─────────────────────────────────────────────────────
@@ -131,22 +137,42 @@ export function depsReellesRelancePartielle(): DepsRelancePartielle {
       const { lireCibleComplementReel } = await import('../permis/demanderPiecesRepo');
       return lireCibleComplementReel(dossierId);
     },
-    envoyer: async (cible, objet, corps) => {
+    // LOT 20 — destinataires servis pour cette étape : [destinataire figé] par défaut ; pour la DERNIÈRE relance + l'annonce, si le
+    //   multi-adresse est ACTIF, toutes les adresses connues de la commune (le destinataire figé = interlocuteur In-Reply-To toujours inclus).
+    destinataires: async (demandeId, destinataireFige, etape, rang) => {
+      const cfg = await chargerConfigVeille();
+      if (!cfg.relanceMultiAdresseActive || cfg.relanceMultiAdresseNbDernieres <= 0) return [destinataireFige];
+      const total = cfg.cascadePartielNbRelances + 1;                     // relances 1..N puis annonce (rang N+1)
+      const rangEtape = etape === 'annonce' ? total : (rang ?? 0);
+      if (!estParmiDernieres(rangEtape, total, cfg.relanceMultiAdresseNbDernieres)) return [destinataireFige];
+      const { rows } = await query<{ code_insee: string }>(`SELECT code_insee FROM demande WHERE id = $1`, [demandeId]);
+      const codeInsee = rows[0]?.code_insee;
+      if (!codeInsee) return [destinataireFige];
+      const liste = await composerDestinatairesDemande(demandeId, codeInsee);
+      if (liste.length <= 1) return [destinataireFige];                   // 1 seule adresse connue → inchangé
+      // Le destinataire figé (interlocuteur du fil) DOIT rester dans la liste, même s'il n'est pas dans les sources.
+      return liste.some((a) => a.toLowerCase() === destinataireFige.toLowerCase()) ? liste : [destinataireFige, ...liste];
+    },
+    envoyer: async (cible, objet, corps, to) => {
       const { obtenirTransporteur, lireCompteSmtp, envoyerComplementPieces } = await import('../email');
       const { INFIXE_SMTP } = await import('../sitadel/envoiDemande');
       const { entetesFil } = await import('../permis/complementPieces');
       const compte = lireCompteSmtp(INFIXE_SMTP[cible.profil as 'entreprise' | 'personne'] ?? '');
       if (compte === null) throw new Error('compte SMTP non configuré');
       const { inReplyTo, references } = entetesFil(cible.messageId, cible.referencesBrut);
-      const emission = await envoyerComplementPieces(obtenirTransporteur(compte), cible.from, { to: cible.destinataire, replyTo: cible.from, objet, corps, inReplyTo, references });
+      // LOT 20 — sert TOUS les destinataires (In-Reply-To conservé → le fil reste correct). `to` = [destinataire figé] hors multi-adresse.
+      const emission = await envoyerComplementPieces(obtenirTransporteur(compte), cible.from, { to: to.join(', '), replyTo: cible.from, objet, corps, inReplyTo, references });
       return { messageId: emission.messageId };
     },
     journaliser: async (demandeId, etape, rang, trace, auteur) => {
       const prefixe = etape === 'annonce' ? MOTIF_ANNONCE_CADA_PREFIXE : MOTIF_RELANCE_PARTIELLE_PREFIXE;
+      const adresses = [...trace.adresses];
+      const cible = adresses.length > 1 ? `${adresses.length} adresses` : (adresses[0] ?? '?'); // LOT 20 : trace TOUTES les adresses servies
       const motif = etape === 'annonce'
-        ? `${MOTIF_ANNONCE_CADA_PREFIXE} à ${trace.destinataire} (messageId ${trace.messageId})`
-        : `${MOTIF_RELANCE_PARTIELLE_PREFIXE} #${rang ?? '?'} à ${trace.destinataire} (messageId ${trace.messageId})`;
-      const details = JSON.stringify({ type: etape === 'annonce' ? 'annonce_cada' : 'relance_partielle', rang, objet: trace.objet, corps: trace.corps, destinataire: trace.destinataire, messageId: trace.messageId });
+        ? `${MOTIF_ANNONCE_CADA_PREFIXE} à ${cible} (messageId ${trace.messageId})`
+        : `${MOTIF_RELANCE_PARTIELLE_PREFIXE} #${rang ?? '?'} à ${cible} (messageId ${trace.messageId})`;
+      // `destinataire` conservé (joint) pour les lecteurs existants (frise/historique) + `adresses` (liste) pour le détail complet.
+      const details = JSON.stringify({ type: etape === 'annonce' ? 'annonce_cada' : 'relance_partielle', rang, objet: trace.objet, corps: trace.corps, destinataire: adresses.join(', '), adresses, messageId: trace.messageId });
       try {
         await query(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur, details) VALUES ($1, NULL, NULL, $2, $3, $4::jsonb)`, [demandeId, motif, auteur, details]);
       } catch (e) {

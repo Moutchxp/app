@@ -36,9 +36,10 @@ const transport = {
 };
 const R: RelanceAEnvoyer = {
   relanceId: 7, demandeId: 42, reference: 'SVAV-DEM-2026-000042', communeNom: 'Asnieres',
-  destEmail: 'urba@asnieres.fr', objet: 'Relance', corps: 'Corps de relance propre', profil: 'entreprise',
+  destEmail: 'urba@asnieres.fr', codeInsee: '92004', objet: 'Relance', corps: 'Corps de relance propre', profil: 'entreprise',
   variante: 'saisine', envoyeLe: new Date('2026-03-14T10:00:00Z'), // H — étape enregistrée + ancre d'échéance
   numeros: ['PC0920042500001'], // LOT 6 — permis dus (compte rendu d'envoi auto)
+  destinataires: ['urba@asnieres.fr'], // LOT 20 — par défaut, seul le destinataire figé (multi-adresse inactif)
 };
 const OPTS = { from: 'a.jorel@sansvisavis.com', replyTo: 'a.jorel@sansvisavis.com', auteur: 'admin' };
 

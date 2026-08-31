@@ -14,6 +14,7 @@ function deps(over: Partial<DepsRelancePartielle> = {}): DepsRelancePartielle {
   return {
     regimePartiel: async () => true, // CASC-4 : demande partielle par défaut (régime cascade partielle)
     lireCible: async () => cible(),
+    destinataires: async (_d, fige) => [fige], // LOT 20 : par défaut, seul le destinataire figé (multi-adresse inactif)
     envoyer: async () => ({ messageId: '<out@svav>' }),
     journaliser: async () => {},
     ...over,

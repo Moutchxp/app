@@ -87,6 +87,8 @@ const DEFS_BASE = [
   'CHECK (((cascade_partiel_annonce_jours >= 1) AND (cascade_partiel_annonce_jours <= 90)))',
   'CHECK (((cascade_partiel_saisine_jours >= 0) AND (cascade_partiel_saisine_jours <= 90)))',
   'CHECK (((cascade_partiel_nb_relances >= 1) AND (cascade_partiel_nb_relances <= 10)))',
+  // LOT 20 — multi-adresse (migration 182) : BETWEEN 0 AND 10 → forme `>= AND <=`
+  'CHECK (((relance_multi_adresse_nb_dernieres >= 0) AND (relance_multi_adresse_nb_dernieres <= 10)))',
   // RELANCE — fenêtre horaire d'envoi automatique (migration 140) : BETWEEN 0 AND 23 → forme `>= AND <=`
   'CHECK (((envoi_heure_debut >= 0) AND (envoi_heure_debut <= 23)))',
   'CHECK (((envoi_heure_fin >= 0) AND (envoi_heure_fin <= 23)))',

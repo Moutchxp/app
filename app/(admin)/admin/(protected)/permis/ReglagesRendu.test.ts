@@ -113,6 +113,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'relance_jours_avant_echeance', 'relance_auto_active', // LOT B — duo « relances » (à partir de quand + part-il tout seul)
       'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours', // cascade lot 2 — 3 délais (rappel/avis/saisine)
       'envoi_heure_debut', 'envoi_heure_fin', // ENVOI OUVRÉ — fenêtre horaire d'envoi automatique
+      'relance_multi_adresse_active', 'relance_multi_adresse_nb_dernieres', // LOT 20 — multi-adresse des 2 dernières relances (opt-in)
     ]);
     expect(PARAMS_THEME_REPONSES.map((p) => p.colonne)).toEqual([
       'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',
@@ -133,8 +134,8 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
   it('les thèmes « demandes » partitionnent les clés (disjoints, couvrants, sans perte ni doublon) — D4 : + thème Téléservice', () => {
     const themes = [PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA, PARAMS_THEME_TELESERVICE];
     const clesThemes = themes.flatMap((t) => t.map((p) => p.colonne));
-    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length + PARAMS_THEME_TELESERVICE.length).toBe(55);
-    expect(new Set(clesThemes).size).toBe(55); // disjoints ; CASC-2c +2 (CADA) ; CASC-3b +4 (CADA) ; PART-C +1 (Réponses) ; PART-D +2 (Réponses)
+    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length + PARAMS_THEME_TELESERVICE.length).toBe(57);
+    expect(new Set(clesThemes).size).toBe(57); // disjoints ; CASC-2c +2 (CADA) ; CASC-3b +4 (CADA) ; PART-C +1 (Réponses) ; PART-D +2 (Réponses)
     // liste LITTÉRALE figée des clés « demandes » — comparée en ENSEMBLE à la concaténation des thèmes ET à COLONNES_PARAMS_DEMANDES.
     const CLES_DEMANDES = [
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
@@ -152,6 +153,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'relance_jours_avant_echeance', 'relance_auto_active', // LOT B — duo « relances » rangé dans « Envoi aux mairies »
       'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours', // cascade lot 2 — 3 délais (Envoi)
       'envoi_heure_debut', 'envoi_heure_fin', // ENVOI OUVRÉ — fenêtre horaire (Envoi)
+      'relance_multi_adresse_active', 'relance_multi_adresse_nb_dernieres', // LOT 20 — multi-adresse (Envoi)
       'saisine_cada_auto_active', // cascade lot 2 — auto-saisine (CADA)
       'cada_partiel_delai_mois', 'cada_partiel_delai_jours', // CASC-2c — délai CADA prolongé sur dossier partiel (thème CADA)
       'cascade_partiel_relance_jours', 'cascade_partiel_annonce_jours', 'cascade_partiel_saisine_jours', 'cascade_partiel_nb_relances', // CASC-3b — rythme de la cascade partielle (thème CADA)
@@ -174,8 +176,8 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
     ].map((p) => p.colonne);
     // Snapshot : 50 + PHASE-1 (2 délais) + SURV-1 (2 réglages) + SURV-2 (1 interrupteur) + PART-1 (2 exclusions, thème Réponses) = 57 clés
     //   distinctes ; + PART-C (vague_calme_minutes) = 68 ; + PART-D (validité + délai d'alerte des liens, thème Réponses) = 70.
-    expect(CLES_RENDUES_REGLAGES).toHaveLength(70);
-    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(70);
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(72);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(72);
     // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
     const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
     expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));

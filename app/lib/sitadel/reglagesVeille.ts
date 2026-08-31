@@ -231,6 +231,11 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Combien de jours AVANT l’échéance l’AVIS est préparé. Il prévient la mairie que l’échéance approche et qu’à défaut de réponse vous pourrez saisir la CADA — sans encore la saisir. Une réponse de sa part rend la démarche sans objet. C’est un délai LÉGAL (CRPA), pas une préférence d’envoi ; il n’agit aujourd’hui que sur le rail e-mail, seul à envoyer des relances automatiquement.' },
   { colonne: 'relance_saisine_delai_jours', cle: 'relanceSaisineDelaiJours', libelle: 'Saisine CADA — délai après l’échéance', unite: 'jours', type: 'entier', rail: 'email',
     aide: 'Combien de jours APRÈS l’échéance la saisine de la CADA sera déposée. Le jour de l’échéance, un message l’annonce à la mairie ; ce délai lui laisse une dernière chance de transmettre les pièces avant le dépôt. C’est un délai LÉGAL (CRPA), pas une préférence d’envoi ; il n’agit aujourd’hui que sur le rail e-mail, seul à envoyer des relances automatiquement.' },
+  // LOT 20 — MULTI-ADRESSE des 2 dernières relances (opt-in strict, décoché par défaut → le déploiement ne change rien). Rail e-mail (n'agit que sur les relances auto e-mail).
+  { colonne: 'relance_multi_adresse_active', cle: 'relanceMultiAdresseActive', libelle: 'Adresser les 2 dernières relances à toutes les adresses connues de la commune', unite: '', type: 'booleen', rail: 'email',
+    aide: 'Si cette case est cochée, les DEUX DERNIÈRES relances d’un parcours (ordinaire : avis d’échéance + saisine ; dossier partiel : dernière relance + annonce CADA) partent vers TOUTES les adresses connues de la mairie — destinataire figé, contact confirmé, PRADA, et interlocuteurs ayant déjà répondu — au lieu du seul destinataire. Les relances antérieures restent adressées au seul destinataire. Décochée par défaut : rien ne change.' },
+  { colonne: 'relance_multi_adresse_nb_dernieres', cle: 'relanceMultiAdresseNbDernieres', libelle: 'Multi-adresse — nombre des dernières relances concernées', unite: 'relances', type: 'entier', rail: 'email',
+    aide: 'Combien des DERNIÈRES relances d’un parcours partent à toutes les adresses connues (2 par défaut). 0 désactive. N’a d’effet que si la case ci-dessus est cochée.' },
   // CASC-2 — délai avant saisine CADA sur DOSSIER PARTIEL (mairie a répondu, pièces manquantes) : compté depuis la 1re réclamation.
   //   Bornes tirées des CHECK de la base (migration 178), jamais écrites en dur — comme tous les autres paramètres entiers.
   { colonne: 'cada_partiel_delai_mois', cle: 'cadaPartielDelaiMois', libelle: 'Saisine CADA (dossier partiel) — mois avant qu’elle redevienne possible', unite: 'mois', type: 'entier',
@@ -436,6 +441,8 @@ export const COLONNES_THEME_ENVOI: readonly string[] = [
   'relance_rappel_jours_avant', 'relance_avis_jours_avant', 'relance_saisine_delai_jours',
   // RELANCE — fenêtre horaire d'envoi automatique (matin, jours ouvrés).
   'envoi_heure_debut', 'envoi_heure_fin',
+  // LOT 20 — multi-adresse des 2 dernières relances (opt-in, défaut décoché) + nombre concerné.
+  'relance_multi_adresse_active', 'relance_multi_adresse_nb_dernieres',
 ];
 export const COLONNES_THEME_REPONSES: readonly string[] = [
   'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',

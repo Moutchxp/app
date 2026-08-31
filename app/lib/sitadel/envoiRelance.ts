@@ -25,6 +25,7 @@ import {
 } from './envoiDemande';
 import { dossiersSatisfaitsDepuisRelance } from '../veille/relanceAuto';
 import { etapeCible, rangVariante, type ReglagesCascade, type VarianteEnBase } from '../veille/cascadeRelance';
+import { composerDestinatairesDemande, estParmiDernieres } from '../veille/destinatairesCommune'; // LOT 20 : multi-adresse des 2 dernières relances
 import { momentPrevuRelance, etatFiltreHoraire, type FiltreHoraire } from '../veille/envoiOuvre';
 import type { VarianteRelance } from '../veille/relance';
 
@@ -35,12 +36,16 @@ export interface RelanceAEnvoyer {
   reference: string;         // référence de la DEMANDE (rapport + journal)
   communeNom: string | null;
   destEmail: string;         // dest_email FIGÉ de la demande (le destinataire de la relance)
+  codeInsee: string;         // LOT 20 : commune de la demande — pour composer les adresses connues (multi-adresse des 2 dernières relances)
   objet: string;             // demande_relance.objet figé (édité à la main = fait foi)
   corps: string;             // demande_relance.corps figé (jamais régénéré à l'envoi)
   profil: ProfilDemandeur;   // profil PORTÉ PAR LA RELANCE → choisit le compte SMTP + l'adresse d'expédition
   variante: string;          // H : étape ENREGISTRÉE (rappel/avis/saisine/formelle) — re-dérivée à l'envoi
   envoyeLe: Date | null;     // H : envoi RÉEL de la demande (ancre d'échéance) — pour recalculer la fenêtre du jour
   numeros: string[];         // LOT 6 : num_dau des dossiers dus (permis) — pour NOMMER la demande dans le compte rendu d'envoi auto
+  // LOT 20 — DESTINATAIRES RÉELLEMENT SERVIS : [destEmail] par défaut ; pour les 2 dernières relances quand le multi-adresse est ACTIF,
+  //   toutes les adresses connues de la commune. Composé À LA SÉLECTION (gated par config) → l'envoi ne fait que servir la liste.
+  destinataires: string[];
 }
 
 /**
@@ -114,12 +119,18 @@ export async function emettreUneRelance(
   const gab = problemeCorpsDemande(r.objet, r.corps);
   if (gab !== null) return { relanceId: r.relanceId, reference: r.reference, issue: 'gabarit', motif: gab };
   try {
-    const emission = await envoyerDemande(transport as never, opts.from, { to: r.destEmail, replyTo: opts.replyTo, objet: r.objet, corps: r.corps });
+    // LOT 20 — servir TOUS les destinataires (nodemailer accepte la liste séparée par des virgules). `destinataires` = [destEmail] par
+    //   défaut (comportement inchangé), ou toutes les adresses connues pour les 2 dernières relances quand le multi-adresse est actif.
+    const emission = await envoyerDemande(transport as never, opts.from, { to: r.destinataires.join(', '), replyTo: opts.replyTo, objet: r.objet, corps: r.corps });
     await q(SQL_INSERT_ACHEMINEMENT_RELANCE, [r.demandeId, 'envoye', new Date(), emission.messageId, emission.retourFournisseur, null, null, null, r.relanceId]);
     // Statut de la RELANCE uniquement (jamais demande.statut). Garde AND statut='brouillon' → jamais réémise deux fois.
     await q(`UPDATE demande_relance SET statut = 'envoyee', envoyee_le = now() WHERE id = $1 AND statut = 'brouillon'`, [r.relanceId]);
-    await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur) VALUES ($1, NULL, NULL, $2, $3)`,
-      [r.demandeId, `relance ${r.relanceId} envoyée (messageId ${emission.messageId})`, opts.auteur]);
+    // LOT 20 (trace, point 8) — journal append-only. Quand PLUSIEURS adresses ont été servies, on les enregistre TOUTES dans `details`
+    //   (jsonb) — `demande_acheminement` n'ayant pas de colonne d'adresse — pour que l'historique ne mente pas sur ce qui a été fait.
+    const multi = r.destinataires.length > 1;
+    await q(`INSERT INTO demande_journal (demande_id, statut_avant, statut_apres, motif, auteur, details) VALUES ($1, NULL, NULL, $2, $3, $4)`,
+      [r.demandeId, `relance ${r.relanceId} envoyée (messageId ${emission.messageId})${multi ? ` à ${r.destinataires.length} adresses` : ''}`, opts.auteur,
+       multi ? JSON.stringify({ type: 'relance_multi_adresse', relanceId: r.relanceId, adresses: r.destinataires, destinataire: r.destinataires.join(', ') }) : null]);
     return { relanceId: r.relanceId, reference: r.reference, issue: 'envoye', messageId: emission.messageId };
   } catch (err) {
     const issue = classerErreurSmtp(err);
@@ -163,9 +174,9 @@ export function exclureSuspendues<T extends { demandeId: number }>(candidats: re
 }
 
 export async function lireCandidatsRelance(): Promise<RelanceAEnvoyer[]> {
-  const { rows } = await query<{ relance_id: number; demande_id: number; reference: string; commune_nom: string | null; dest_email: string; objet: string | null; corps: string | null; profil: string; variante: string; envoye_le: Date | null; dus_nums: string[] | null }>(
+  const { rows } = await query<{ relance_id: number; demande_id: number; reference: string; commune_nom: string | null; dest_email: string; code_insee: string; objet: string | null; corps: string | null; profil: string; variante: string; envoye_le: Date | null; dus_nums: string[] | null }>(
     `SELECT dr.id::int AS relance_id, dr.demande_id::int AS demande_id, d.reference, c.nom AS commune_nom,
-            d.dest_email, dr.objet, dr.corps, dr.profil_demandeur AS profil, dr.variante,
+            d.dest_email, d.code_insee, dr.objet, dr.corps, dr.profil_demandeur AS profil, dr.variante,
             -- H : ancre d'échéance (envoi RÉEL) pour re-dériver la fenêtre à l'envoi ; agnostique au canal (formulaire compris).
             (SELECT min(a.envoye_le) FROM demande_acheminement a WHERE a.demande_id = d.id) AS envoye_le,
             -- LOT 6 : num_dau des dossiers DUS (permis), pour nommer la demande dans le compte rendu d'envoi automatique.
@@ -177,10 +188,20 @@ export async function lireCandidatsRelance(): Promise<RelanceAEnvoyer[]> {
       WHERE dr.statut = 'brouillon' AND dr.type = 'relance'
         AND d.statut = 'envoyee' AND d.dest_canal = 'email' AND coalesce(btrim(d.dest_email), '') <> ''
       ORDER BY dr.generee_le ASC`);
-  return rows.map((r) => ({
+  const base: RelanceAEnvoyer[] = rows.map((r) => ({
     relanceId: r.relance_id, demandeId: r.demande_id, reference: r.reference, communeNom: r.commune_nom,
-    destEmail: r.dest_email, objet: r.objet ?? '', corps: r.corps ?? '', profil: profilValide(r.profil),
-    variante: r.variante, envoyeLe: r.envoye_le, numeros: r.dus_nums ?? [],
+    destEmail: r.dest_email, codeInsee: r.code_insee, objet: r.objet ?? '', corps: r.corps ?? '', profil: profilValide(r.profil),
+    variante: r.variante, envoyeLe: r.envoye_le, numeros: r.dus_nums ?? [], destinataires: [r.dest_email], // défaut : seul le destinataire figé
+  }));
+  // LOT 20 — MULTI-ADRESSE (opt-in) : pour les `nbDernieres` DERNIÈRES relances ordinaires (chaîne rappel→avis→saisine, total 3),
+  //   servir toutes les adresses connues de la commune. INACTIF par défaut → `base` renvoyé tel quel (comportement STRICTEMENT
+  //   inchangé). Aucun envoi ici : on ne fait que COMPOSER la liste (la même en simulation et en réel).
+  const cfg = await chargerConfigVeille();
+  if (!cfg.relanceMultiAdresseActive || cfg.relanceMultiAdresseNbDernieres <= 0) return base;
+  return Promise.all(base.map(async (r) => {
+    if (!estParmiDernieres(rangVariante(r.variante as VarianteEnBase), 3, cfg.relanceMultiAdresseNbDernieres)) return r;
+    const liste = await composerDestinatairesDemande(r.demandeId, r.codeInsee);
+    return liste.length > 1 ? { ...r, destinataires: liste } : r; // 1 seule adresse connue → inchangé (le destinataire figé)
   }));
 }
 
@@ -268,7 +289,7 @@ export async function envoyerRelances(opts: { appliquer?: boolean; auteur?: stri
   const base = {
     candidats: candidats.length, emisAujourdhui, capParRun: config.envoisMaxParRun, capParJour: config.envoisMaxParJour, budget,
     bloqueesCorps: plan.bloqueesCorps, bloqueesCompte: plan.bloqueesCompte, bloqueesObsoletes: plan.bloqueesObsoletes, reportes, reportesHoraire,
-    destinataires: aTraiter.map((r) => ({ relanceId: r.relanceId, demandeId: r.demandeId, reference: r.reference, commune: r.communeNom, email: r.destEmail, expediteur: r.expediteur, apercuCorps: apercu(r.corps), variante: r.variante, numeros: r.numeros })),
+    destinataires: aTraiter.map((r) => ({ relanceId: r.relanceId, demandeId: r.demandeId, reference: r.reference, commune: r.communeNom, email: r.destinataires.join(', '), expediteur: r.expediteur, apercuCorps: apercu(r.corps), variante: r.variante, numeros: r.numeros })),
   };
   const resultats: ResultatRelance[] = [];
   const octets = (): number => octetsDe(aTraiter.filter((r) => resultats.find((x) => x.relanceId === r.relanceId)?.issue === 'envoye'), appliquer);
