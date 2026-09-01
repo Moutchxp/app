@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { PROCESS_META, PROCESS_ORDRE, type Process } from '../../../../lib/sitadel/process';
 
 /**
@@ -13,6 +13,15 @@ export interface CompteursProcess {
   email: { communes: number; demandesEnCours: number };
   formulaire: { communes: number; demandesEnCours: number };
   hors: { communesSansAdresse: number; courrierDemandes: number; communes: { codeInsee: string; nom: string | null }[]; courrier: { reference: string; communeNom: string | null }[] };
+}
+
+/**
+ * LOT 36 — style de la mention « N demande(s) en cours » d'UN bouton : ROUGE + GRAS dès que le compteur est strictement > 0 (attire
+ * l'œil), sinon l'apparence muette par défaut. La couleur N'EST PAS le seul signal (gras aussi → daltonisme). Rouge = la valeur
+ * d'alerte DÉJÀ employée (« familles manquantes » : var(--color-svv-red) + fontWeight 700), aucun rouge de plus. Par bouton, indépendant.
+ */
+export function styleMentionEnCours(demandesEnCours: number): CSSProperties | undefined {
+  return demandesEnCours > 0 ? { color: 'var(--color-svv-red)', fontWeight: 700 } : undefined;
 }
 
 export function CommutateurProcess({ actif, onChoisir, compteurs }: { actif: Process; onChoisir: (p: Process) => void; compteurs: CompteursProcess | null }) {
@@ -39,7 +48,13 @@ export function CommutateurProcess({ actif, onChoisir, compteurs }: { actif: Pro
                 <span aria-hidden="true">{estActif ? '● ' : '○ '}</span>{PROCESS_META[p].titre}{estActif ? ' — actif' : ''}
               </span>
               <span style={{ fontSize: '.76rem', color: 'var(--color-svv-muted)' }}>
-                {c ? `${c.communes} commune(s) · ${c.demandesEnCours} demande(s) en cours` : '…'}
+                {c ? (
+                  <>
+                    {c.communes} commune(s) ·{' '}
+                    {/* LOT 36 — seule cette mention rougit (gras) quand des demandes sont en cours ; « commune(s) » et le titre restent inchangés. */}
+                    <span style={styleMentionEnCours(c.demandesEnCours)}>{c.demandesEnCours} demande(s) en cours</span>
+                  </>
+                ) : '…'}
               </span>
             </button>
           );
