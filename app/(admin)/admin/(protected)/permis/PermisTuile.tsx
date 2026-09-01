@@ -105,12 +105,13 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
           rattachement: comptes.rattachement + comptes.surveillance, // SURV-1 — la surveillance à vérifier remonte sur l'onglet Rattachement
           projection: comptes.projection,
         } : undefined} />
-      {/* D2 — le commutateur de process coiffe les 4 onglets « Demandes » et les scope (email / téléservice) + 3e groupe. */}
+      {/* D2 — le commutateur de process coiffe les 3 onglets « Demandes » et les scope (email / téléservice) + 3e groupe « Hors process ». */}
       {ONGLETS_DEMANDES.includes(onglet) && (
         <>
           <CommutateurProcess actif={processActif} onChoisir={setProcessActif} compteurs={compteursProcess} />
-          {/* D5 — basculer une commune de rail, atteignable depuis le commutateur. Réutilise annuler-lot (D1) + PATCH /contact. */}
-          <BasculeRail onBascule={apresAction} />
+          {/* LOT 33 — « Basculer une commune de rail » est un OUTIL DE PRÉPARATION : réservé à « À demander ». Non monté ailleurs
+              (pas de requête, aucune action déclenchable dans « En cours » / « Réponses »). Le commutateur + « Hors process » restent, eux, sur les 3 onglets. */}
+          {onglet === 'a_demander' && <BasculeRail onBascule={apresAction} />}
         </>
       )}
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} qInitial={qInitial} />}
