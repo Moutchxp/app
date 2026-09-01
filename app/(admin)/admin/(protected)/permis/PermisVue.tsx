@@ -199,7 +199,7 @@ export function PermisVue({ depuisParDefaut, categories, qInitial }: Props) {
             placeholder="ex. Nanterre ou 92050" style={styleChamp}
           />
           {suggestions.length > 0 && (
-            <ul style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, margin: 0, padding: 0, listStyle: 'none', background: '#fff', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', maxHeight: 220, overflowY: 'auto' }}>
+            <ul style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 20, margin: 0, padding: 0, listStyle: 'none', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', maxHeight: 220, overflowY: 'auto' }}>
               {suggestions.map((c) => (
                 <li key={c.code}>
                   <button type="button" onClick={() => { basculerCommune(c.code); setRechCommune(''); }}

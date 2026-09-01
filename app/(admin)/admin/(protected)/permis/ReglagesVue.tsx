@@ -241,7 +241,7 @@ export function ReglagesVue() {
   const styleOnglet = (actif: boolean): CSSProperties => ({
     padding: '.4rem .8rem', borderRadius: '.5rem', fontSize: 14, fontWeight: 700, cursor: 'pointer',
     border: '1px solid var(--color-svv-line)', whiteSpace: 'nowrap',
-    background: actif ? 'var(--color-svv-ink)' : '#fff', color: actif ? '#fff' : 'var(--color-svv-ink)',
+    background: actif ? 'var(--color-svv-ink)' : 'var(--color-svv-surface)', color: actif ? 'var(--color-svv-surface)' : 'var(--color-svv-ink)',
   });
 
   return (

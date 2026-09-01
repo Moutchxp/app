@@ -25,7 +25,7 @@ function styleOnglet(actif: boolean): CSSProperties {
   return {
     padding: '.4rem .9rem', border: '1px solid var(--color-svv-line)',
     borderBottom: actif ? '2px solid var(--color-svv-red)' : '1px solid var(--color-svv-line)',
-    background: actif ? '#fff' : 'var(--color-svv-field)', fontWeight: actif ? 700 : 400,
+    background: actif ? 'var(--color-svv-surface)' : 'var(--color-svv-field)', color: 'var(--color-svv-ink)', fontWeight: actif ? 700 : 400,
     cursor: 'pointer', borderRadius: '.4rem .4rem 0 0',
   };
 }

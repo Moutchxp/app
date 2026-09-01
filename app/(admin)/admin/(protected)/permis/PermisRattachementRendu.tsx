@@ -58,8 +58,8 @@ export function CompteursRattachement({ comptes, actif, onFiltre }: {
   const chip = (valeur: EtatRattachement | null): CSSProperties => ({
     padding: '.3rem .7rem', minHeight: '2.1rem', borderRadius: '.4rem', fontSize: 12, cursor: 'pointer',
     border: '1px solid var(--color-svv-line)',
-    background: actif === valeur ? 'var(--color-svv-ink)' : '#fff',
-    color: actif === valeur ? '#fff' : 'var(--color-svv-ink)',
+    background: actif === valeur ? 'var(--color-svv-ink)' : 'var(--color-svv-surface)',
+    color: actif === valeur ? 'var(--color-svv-surface)' : 'var(--color-svv-ink)',
     fontWeight: actif === valeur ? 700 : 400,
   });
   return (

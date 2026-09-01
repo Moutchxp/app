@@ -10,7 +10,7 @@ import { bandeauIdentite, type Bornes, type ParamVeille } from '../../../../lib/
  */
 export function CarteSection({ titre, icone, children }: { titre: string; icone?: string; children?: ReactNode }) {
   return (
-    <section style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.7rem', overflow: 'hidden', background: '#fff' }}>
+    <section style={{ border: '1px solid var(--color-svv-line)', borderRadius: '.7rem', overflow: 'hidden', background: 'var(--color-svv-surface)' }}>
       <div style={{
         position: 'sticky', top: 0, zIndex: 2,
         display: 'flex', alignItems: 'center', gap: '.5rem',

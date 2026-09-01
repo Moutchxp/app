@@ -986,7 +986,7 @@ export function PanneauDetailDemande({
       <BlocLignePli titre={titrePli} defautOuvert={brouillon}>
         {() => (
           <textarea value={corps} onChange={(e) => onCorps(e.target.value)} rows={16} readOnly={!brouillon}
-            style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', boxSizing: 'border-box', background: '#fff' }} />
+            style={{ width: '100%', fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12, padding: '.5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', boxSizing: 'border-box', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)' }} />
         )}
       </BlocLignePli>
       {slotDossiers}
