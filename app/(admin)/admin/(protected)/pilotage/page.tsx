@@ -680,7 +680,7 @@ const CSS = `
 
 .svv-pil-repli{display:flex;gap:.55rem;align-items:flex-start;padding:.7rem .85rem;border-radius:.7rem;margin:.75rem 0;font-size:.88rem;line-height:1.45}
 .svv-pil-repli--actif{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
-.svv-pil-repli--repli{background:#fdecec;color:var(--color-svv-red-dark);border:1px solid #f3c9c9}
+.svv-pil-repli--repli{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark);border:1px solid #f3c9c9}
 .svv-pil-repli-pastille{flex:0 0 auto;width:10px;height:10px;border-radius:999px;margin-top:.3rem;background:currentColor}
 .svv-pil-repli-raisons{margin:.35rem 0 0;padding-left:1.1rem}
 
@@ -734,7 +734,7 @@ const CSS = `
 .svv-pil-statut{flex:0 0 auto;font-size:.68rem;font-weight:700;border-radius:999px;padding:.12rem .5rem;white-space:nowrap;line-height:1.3}
 .svv-pil-statut--vive{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 .svv-pil-statut--vestigiale{background:#eceef1;color:var(--color-svv-muted)}
-.svv-pil-statut--de-garde{background:#fff4e0;color:#8a5a00}
+.svv-pil-statut--de-garde{background:var(--color-svv-amber-soft);color:var(--color-svv-amber)}
 .svv-pil-statut--miroir{background:#e6eefb;color:#2c4d84}
 .svv-pil-statut--technique{background:var(--color-svv-field);color:var(--color-svv-gray)}
 

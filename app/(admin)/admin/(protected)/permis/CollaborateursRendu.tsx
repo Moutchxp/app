@@ -23,7 +23,7 @@ export function BandeauEligibilite({ eligibilite }: { eligibilite: Eligibilite }
   const complet = eligibilite.inaptes.length === 0;
   const style: CSSProperties = complet
     ? { ...carte, background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)' }
-    : { ...carte, background: '#fff4e0', color: '#8a5a00' };
+    : { ...carte, background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)' };
   return (
     <div role="status" style={style}>
       <strong>{eligibilite.nbEligibles} collaborateur(s) éligible(s)</strong> au tourniquet (sur {eligibilite.nbTotal}).

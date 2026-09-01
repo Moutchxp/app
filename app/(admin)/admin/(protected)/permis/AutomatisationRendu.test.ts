@@ -66,7 +66,7 @@ describe('S11c — alarmes de santé (présence + gravité)', () => {
     expect(renderToStaticMarkup(createElement(AlerteMillesimeFige, { alerte: false, phrase: 'x' }))).toBe('');
     const h = renderToStaticMarkup(createElement(AlerteMillesimeFige, { alerte: true, phrase: 'aucun nouveau millésime depuis 40 j … vérifie la source.' }));
     expect(h).toContain('40 j');
-    expect(h).toContain('#8a5a00');                    // orange
+    expect(h).toContain('var(--color-svv-amber)');     // ambre (LOT 39 — famille tokenisée, clair #8a5a00)
     expect(h).not.toContain('var(--color-svv-red)');   // surtout pas rouge (ce n'est pas une panne)
   });
 

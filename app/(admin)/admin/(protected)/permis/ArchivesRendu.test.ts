@@ -366,7 +366,7 @@ describe('G2 — etatArchive : 5 états (mot + couleur), 2 mois, exception « ve
 
   it('EN ATTENTE (orange) : contenu e-mail non classé, délai NON dépassé', () => {
     const e = etatArchive(ligne({ pieces: [emailDeposee] }), AVANT_DELAI);
-    expect(e).toMatchObject({ cle: 'attente', mot: 'en attente', couleurLigne: '#8a5a00' });
+    expect(e).toMatchObject({ cle: 'attente', mot: 'en attente', couleurLigne: 'var(--color-svv-amber)' });
   });
 
   it('DÉLAI DÉPASSÉ (rouge) : contenu non classé, délai G1 (recu + 7 j) passé, < 2 mois', () => {

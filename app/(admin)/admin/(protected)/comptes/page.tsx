@@ -458,7 +458,7 @@ const CSS = `
 .cpt-btn--primary{background:var(--color-svv-red);color:#fff;border-color:var(--color-svv-red)}
 .cpt-btn--primary:hover{background:var(--color-svv-red-dark);border-color:var(--color-svv-red-dark)}
 .cpt-btn--secondary{background:#fff;color:var(--color-svv-red);border-color:var(--color-svv-red)}
-.cpt-btn--secondary:hover{background:#fbeceb}
+.cpt-btn--secondary:hover{background:var(--color-svv-red-soft)}
 .cpt-btn--neutral{background:#fff;color:var(--color-svv-gray);border-color:var(--color-svv-line)}
 .cpt-btn--neutral:hover{border-color:var(--color-svv-muted)}
 .cpt-btn:disabled{opacity:.55;cursor:not-allowed}

@@ -62,7 +62,7 @@ export function BandeauIdentite({ problemes }: { problemes: string[] }) {
   const { complete, message } = bandeauIdentite(problemes);
   const style: CSSProperties = complete
     ? { ...styleBase, background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)' }
-    : { ...styleBase, background: '#fdecec', color: 'var(--color-svv-red)', fontWeight: 600 };
+    : { ...styleBase, background: 'var(--color-svv-red-soft)', color: 'var(--color-svv-red)', fontWeight: 600 };
   return <div role="status" aria-live="polite" style={style}>{message}</div>;
 }
 

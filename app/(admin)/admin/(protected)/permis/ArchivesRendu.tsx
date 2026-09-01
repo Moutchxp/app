@@ -24,7 +24,7 @@ export function libelleOrigineSatisfaction(satisfaitPar: string | null): string 
 }
 
 // ── G2 : état visuel d'une ligne d'archive (couleur de ligne + mot, exception « versement oublié » au-delà de 2 mois) ────────
-const ORANGE = '#8a5a00';                        // convention existante des badges d'échéance (aucun jeton orange dans le thème)
+const ORANGE = 'var(--color-svv-amber)';         // LOT 39 — famille AMBRE désormais tokenisée (clair #8a5a00, sombre #f2b23c)
 const VERT = 'var(--color-svv-green-ink)';
 const ROUGE = 'var(--color-svv-red)';
 
@@ -94,8 +94,8 @@ export function BadgeEtatArchive({ etat }: { etat: EtatArchive }) {
 /** Pastille d'ORIGINE d'une pièce : reçue par e-mail · ajoutée à la main · N1-B fiche générée · N6-F versée automatiquement. Texte porteur, couleur en appui. */
 function PastilleOrigine({ origine }: { origine: PieceArchive['origine'] }) {
   const base: CSSProperties = { fontSize: 10, fontWeight: 700, padding: '.03rem .3rem', borderRadius: '.3rem', whiteSpace: 'nowrap' };
-  if (origine === 'genere') return <span style={{ ...base, background: '#fdecec', color: 'var(--color-svv-red)' }}>fiche de synthèse</span>;
-  if (origine === 'auto') return <span style={{ ...base, background: '#fdf1dd', color: '#8a5a00' }}>versée automatiquement</span>;
+  if (origine === 'genere') return <span style={{ ...base, background: 'var(--color-svv-red-soft)', color: 'var(--color-svv-red)' }}>fiche de synthèse</span>;
+  if (origine === 'auto') return <span style={{ ...base, background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)' }}>versée automatiquement</span>;
   if (origine === 'manuel') return <span style={{ ...base, background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)' }}>ajoutée à la main</span>;
   return <span style={{ ...base, background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)' }}>reçue par e-mail</span>;
 }

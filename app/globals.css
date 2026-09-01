@@ -35,6 +35,7 @@
   --color-svv-tip-bg: #16202c;               /* fond de l'infobulle .svv-tip (ex-var(--color-svv-ink), texte blanc) */
   --color-svv-amber: #8a5a00;                /* famille AMBRE (avertissement) — texte/accent ; usage étendu en lot 2/3 */
   --color-svv-amber-soft: #fff4e0;           /* fond de pastille ambre (texte = --color-svv-amber) */
+  --color-svv-blue: #1a4d8f;                 /* LOT 39 — famille BLEU (information : « accusé reçu ») ; texte/accent */
 }
 
 @layer components {
@@ -128,6 +129,7 @@
   --color-svv-green-ink: #7ee2a4;
   --color-svv-amber: #f2b23c;
   --color-svv-amber-soft: #382a0e;
+  --color-svv-blue: #7ab0f5;
 }
 /* 'system' → suit le réglage du système d'exploitation (mêmes valeurs quand l'OS est sombre). */
 @media (prefers-color-scheme: dark) {
@@ -151,6 +153,7 @@
     --color-svv-green-ink: #7ee2a4;
     --color-svv-amber: #f2b23c;
     --color-svv-amber-soft: #382a0e;
+    --color-svv-blue: #7ab0f5;
   }
 }
 

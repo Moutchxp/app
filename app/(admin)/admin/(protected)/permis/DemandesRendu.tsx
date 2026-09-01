@@ -131,7 +131,7 @@ export function EncartArbitrages({ arbitrages, ouvert, onToggle }: { arbitrages:
   if (arbitrages.length === 0) return null; // décompte nul → rien du tout
   const n = arbitrages.length;
   return (
-    <section role="group" aria-label="Arbitrages PRADA à rendre" className="svv-card" style={{ background: '#fff4e0', color: '#8a5a00' }}>
+    <section role="group" aria-label="Arbitrages PRADA à rendre" className="svv-card" style={{ background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)' }}>
       <button type="button" aria-expanded={ouvert} aria-controls={ID_CONTENU_ARBITRAGES} onClick={() => onToggle?.()}
         style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit', display: 'flex', gap: '.4rem', alignItems: 'baseline', width: '100%', textAlign: 'left' }}>
         <span aria-hidden="true">{ouvert ? '▾' : '▸'}</span>
@@ -699,10 +699,10 @@ export function RetourMairie({ etat, nbReponses, derniereReponseLe, provenances 
   //   date. Les états dossier (obtenus / reçu-à-classer) n'affichent pas cette date, mais gardent la PROVENANCE si contenu.
   const dateRetour = derniereReponseLe ? <div style={{ fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{formaterDateHeureLocale(derniereReponseLe)}</div> : null;
   const libelle = etat === 'obtenus' ? <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>documents obtenus</span>
-    : etat === 'recu_a_classer' ? <span style={{ color: '#8a5a00', fontWeight: 600 }}>reçu, à classer en GED</span>
+    : etat === 'recu_a_classer' ? <span style={{ color: 'var(--color-svv-amber)', fontWeight: 600 }}>reçu, à classer en GED</span>
     : etat === 'message' ? <><span>message reçu ({nbReponses})</span>{dateRetour}</>
     // FUS-4 — accusé reçu (dérivé). Texte porteur (a11y), pas seulement une couleur. Un accusé n'est pas une réponse : le statut ne bouge pas.
-    : etat === 'accuse' ? <><span style={{ color: '#1a4d8f', fontWeight: 600 }}>accusé reçu</span>{dateRetour}</>
+    : etat === 'accuse' ? <><span style={{ color: 'var(--color-svv-blue)', fontWeight: 600 }}>accusé reçu</span>{dateRetour}</>
     : <span style={{ color: 'var(--color-svv-muted)' }}>aucun retour</span>;
   return <div>{libelle}{provBloc}</div>;
 }

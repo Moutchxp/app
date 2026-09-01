@@ -66,7 +66,7 @@ export function JoursForclusion({ jours, forclusionLe }: { jours: number; forclu
   return (
     <span role={proche ? 'alert' : undefined}
       style={{ fontSize: 12, fontWeight: proche ? 700 : 500, color: proche ? 'var(--color-svv-red)' : 'var(--color-svv-ink)',
-        background: proche ? '#fdecec' : 'var(--color-svv-field)', padding: '.15rem .5rem', borderRadius: '.35rem', alignSelf: 'flex-start' }}>
+        background: proche ? 'var(--color-svv-red-soft)' : 'var(--color-svv-field)', padding: '.15rem .5rem', borderRadius: '.35rem', alignSelf: 'flex-start' }}>
       {txt}
     </span>
   );

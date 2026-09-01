@@ -6,7 +6,7 @@
 export function CapsuleCompte({ aUnCompte }: { aUnCompte: boolean }) {
   const couleurs = aUnCompte
     ? { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)' }
-    : { background: '#eef0f3', color: 'var(--color-svv-muted)' };
+    : { background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)' };
   return (
     <span
       style={{

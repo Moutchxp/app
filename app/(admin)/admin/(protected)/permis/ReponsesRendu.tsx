@@ -90,7 +90,7 @@ export function IndicateurReleve({ active, derniereOkLe, fraicheurHeures, mainte
   active: boolean; derniereOkLe: string | null; fraicheurHeures: number; maintenant: Date;
 }) {
   const base: CSSProperties = { ...styleCarte, borderLeft: '4px solid', padding: '.6rem .8rem', borderRadius: '.5rem' };
-  const alerte: CSSProperties = { ...base, background: '#fdecec', borderLeftColor: 'var(--color-svv-red)', color: 'var(--color-svv-red)', fontWeight: 600 };
+  const alerte: CSSProperties = { ...base, background: 'var(--color-svv-red-soft)', borderLeftColor: 'var(--color-svv-red)', color: 'var(--color-svv-red)', fontWeight: 600 };
   const neutre: CSSProperties = { ...base, background: 'var(--color-svv-field)', borderLeftColor: 'var(--color-svv-muted)', color: 'var(--color-svv-ink)' };
   const ok: CSSProperties = { ...base, background: 'var(--color-svv-green-soft)', borderLeftColor: 'var(--color-svv-green-ink)', color: 'var(--color-svv-green-ink)' };
 
@@ -338,10 +338,10 @@ export function BlocEtatReleve({ reglages, derniereOkLe, releveDepuisLe, releveP
 export const ETAT_LABELS: Record<EtatEcheance, { libelle: string; fond: string; couleur: string }> = {
   non_delivree: { libelle: 'Non délivrée', fond: 'var(--color-svv-field)', couleur: 'var(--color-svv-muted)' },
   repondue: { libelle: 'Répondue', fond: 'var(--color-svv-green-soft)', couleur: 'var(--color-svv-green-ink)' },
-  repondue_partiellement: { libelle: 'Partiellement répondue', fond: '#fff4e0', couleur: '#8a5a00' },
-  indeterminee: { libelle: 'Indéterminée', fond: '#fff4e0', couleur: '#8a5a00' },
-  depassee: { libelle: 'Échéance dépassée', fond: '#fdecec', couleur: 'var(--color-svv-red)' },
-  proche: { libelle: 'Échéance proche', fond: '#fff4e0', couleur: '#8a5a00' },
+  repondue_partiellement: { libelle: 'Partiellement répondue', fond: 'var(--color-svv-amber-soft)', couleur: 'var(--color-svv-amber)' },
+  indeterminee: { libelle: 'Indéterminée', fond: 'var(--color-svv-amber-soft)', couleur: 'var(--color-svv-amber)' },
+  depassee: { libelle: 'Échéance dépassée', fond: 'var(--color-svv-red-soft)', couleur: 'var(--color-svv-red)' },
+  proche: { libelle: 'Échéance proche', fond: 'var(--color-svv-amber-soft)', couleur: 'var(--color-svv-amber)' },
   en_cours: { libelle: 'Délai en cours', fond: 'var(--color-svv-field)', couleur: 'var(--color-svv-ink)' },
 };
 
@@ -548,7 +548,7 @@ export function BadgeReponseSansDocuments({ demandeId }: { demandeId: number }) 
   const id = `tip-reponse-sans-doc-${demandeId}`;
   return (
     <span className="svv-tip-wrap" style={{ alignSelf: 'flex-start' }}>
-      <span tabIndex={0} aria-describedby={id} style={{ fontSize: 11, fontWeight: 700, padding: '.1rem .45rem', borderRadius: '.35rem', background: '#fff1d6', color: '#8a5a00', border: '1px solid #e0a94f', whiteSpace: 'nowrap', cursor: 'help' }}>réponse sans documents</span>
+      <span tabIndex={0} aria-describedby={id} style={{ fontSize: 11, fontWeight: 700, padding: '.1rem .45rem', borderRadius: '.35rem', background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)', border: '1px solid var(--color-svv-amber)', whiteSpace: 'nowrap', cursor: 'help' }}>réponse sans documents</span>
       <span role="tooltip" id={id} className="svv-tip">{PHRASE_ACTION.non_fourni}</span>
     </span>
   );

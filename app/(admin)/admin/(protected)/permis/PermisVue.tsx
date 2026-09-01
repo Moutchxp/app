@@ -289,10 +289,10 @@ export function PermisVue({ depuisParDefaut, categories, qInitial }: Props) {
         ))}
         {data && (
           <>
-            <span className="svv-pill" style={{ background: '#fff4e0', color: '#8a5a00', padding: '.2rem .55rem', borderRadius: 999 }} title="Permis annulés (jamais sollicités)">
+            <span className="svv-pill" style={{ background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)', padding: '.2rem .55rem', borderRadius: 999 }} title="Permis annulés (jamais sollicités)">
               Annulés : {fmtNb(data.compteursEtat?.annules ?? 0)}
             </span>
-            <span className="svv-pill" style={{ background: '#fdecec', color: 'var(--color-svv-red)', padding: '.2rem .55rem', borderRadius: 999 }} title="Dossiers retirés du dernier millésime Sitadel">
+            <span className="svv-pill" style={{ background: 'var(--color-svv-red-soft)', color: 'var(--color-svv-red)', padding: '.2rem .55rem', borderRadius: 999 }} title="Dossiers retirés du dernier millésime Sitadel">
               Absents du dernier millésime : {fmtNb(data.compteursEtat?.absents ?? 0)}
             </span>
             <span className="svv-pill" style={{ background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)', padding: '.2rem .55rem', borderRadius: 999 }} title="Dossiers dont les lignes portaient des états divergents (état affiché = agrégat ; restent proposables)">
@@ -392,7 +392,7 @@ export function PermisVue({ depuisParDefaut, categories, qInitial }: Props) {
                 <tr key={`${d.type}-${d.id}`} style={{ borderBottom: '1px solid var(--color-svv-line)' }}>
                   <td style={{ padding: '.4rem .5rem', fontWeight: 600, whiteSpace: 'nowrap' }}>{d.libelleCategorie}</td>
                   <td style={{ padding: '.4rem .5rem' }}><BadgeRattachement etat={d.etatRattachement} reference={d.demandeReference} statut={d.demandeStatut} /></td>
-                  <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap', color: d.etatDau === '4' ? '#8a5a00' : !d.vuAuDernier ? 'var(--color-svv-red)' : 'inherit' }}>
+                  <td style={{ padding: '.4rem .5rem', whiteSpace: 'nowrap', color: d.etatDau === '4' ? 'var(--color-svv-amber)' : !d.vuAuDernier ? 'var(--color-svv-red)' : 'inherit' }}>
                     {libelleEtat(d.etatDau)}{!d.vuAuDernier ? ' · retiré' : ''}
                     {d.etatAmbigu && <span style={{ color: 'var(--color-svv-muted)', fontSize: 11 }} title="Les lignes du dossier portaient des états divergents ; l’état affiché est l’agrégat. Reste proposable."> · ambigu</span>}
                   </td>

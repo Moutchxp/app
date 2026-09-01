@@ -163,7 +163,7 @@ function fondTon(ton: TonBadge): CSSProperties {
     case 'urgence': return { background: 'var(--color-svv-red)', color: '#fff' };
     case 'attente': return { background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' };
     case 'valide': return { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)' };
-    case 'manuel': return { background: '#fff', color: 'var(--color-svv-ink)', border: '1px solid var(--color-svv-line)' }; // neutre encadré, jamais l'urgence rouge
+    case 'manuel': return { background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)', border: '1px solid var(--color-svv-line)' }; // neutre encadré, jamais l'urgence rouge
     default: return { background: 'transparent', color: 'var(--color-svv-muted)' };
   }
 }

@@ -514,7 +514,7 @@ const CSS = `
 .svv-ca-btn:disabled{opacity:.55;cursor:not-allowed}
 .svv-ca-btn--danger{background:#fff;color:var(--color-svv-red)}
 .svv-ca-btn--ghost{background:#fff;color:var(--color-svv-gray);border-color:var(--color-svv-line)}
-.svv-ca-confirm{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.4rem;background:#fdecec;border:1px solid #f3c9c9;border-radius:.5rem;padding:.35rem .5rem}
+.svv-ca-confirm{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.4rem;background:var(--color-svv-red-soft);border:1px solid #f3c9c9;border-radius:.5rem;padding:.35rem .5rem}
 .svv-ca-confirm-txt{font-size:.8rem;font-weight:700;color:var(--color-svv-red-dark)}
 .svv-ca-succes{color:var(--color-svv-green-ink);font-weight:700;font-size:.8rem}
 .svv-ca-note{margin:.5rem 0 0;font-size:.78rem;color:var(--color-svv-muted);line-height:1.4}

@@ -55,7 +55,7 @@ export function SelecteurEmailType({ emailType, onEmailType }: { emailType: stri
           {EMAIL_TYPES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </select>
       </label>
-      {emailType === 'accueil' && <span style={{ ...styleAide, color: '#8a5a00' }}>{MENTION_ACCUEIL}</span>}
+      {emailType === 'accueil' && <span style={{ ...styleAide, color: 'var(--color-svv-amber)' }}>{MENTION_ACCUEIL}</span>}
     </div>
   );
 }

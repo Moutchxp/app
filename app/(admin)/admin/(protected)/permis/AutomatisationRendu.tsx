@@ -32,7 +32,7 @@ export function BandeauEtat({ autoActive, dernierRun, prochainPhrase, millesimeB
 export function AvertissementOrdonnanceur({ suspect, message }: { suspect: boolean; message: string }) {
   if (!suspect) return null;
   return (
-    <div role="alert" style={{ ...carte, background: '#fdecec', color: 'var(--color-svv-red)', fontWeight: 600 }}>
+    <div role="alert" style={{ ...carte, background: 'var(--color-svv-red-soft)', color: 'var(--color-svv-red)', fontWeight: 600 }}>
       ⚠ {message} Consultez <code>ops/README.md</code> pour l’installer.
     </div>
   );
@@ -42,7 +42,7 @@ export function AvertissementOrdonnanceur({ suspect, message }: { suspect: boole
 export function AlerteEchecs({ alerte, phrase }: { alerte: boolean; phrase: string }) {
   if (!alerte) return null;
   return (
-    <div role="alert" style={{ ...carte, background: '#fdecec', color: 'var(--color-svv-red)', fontWeight: 600 }}>
+    <div role="alert" style={{ ...carte, background: 'var(--color-svv-red-soft)', color: 'var(--color-svv-red)', fontWeight: 600 }}>
       ⛔ {phrase} L’ingestion échoue à répétition — vérifie l’identifiant du jeu de données ou l’endpoint DiDo.
     </div>
   );
@@ -52,7 +52,7 @@ export function AlerteEchecs({ alerte, phrase }: { alerte: boolean; phrase: stri
 export function AlerteMillesimeFige({ alerte, phrase }: { alerte: boolean; phrase: string }) {
   if (!alerte) return null;
   return (
-    <div role="status" style={{ ...carte, background: '#fff4e0', color: '#8a5a00', fontWeight: 600 }}>
+    <div role="status" style={{ ...carte, background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)', fontWeight: 600 }}>
       ⓘ {phrase}
     </div>
   );

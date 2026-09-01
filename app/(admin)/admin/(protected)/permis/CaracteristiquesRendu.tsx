@@ -27,7 +27,7 @@ export type LienPiece = (nomFichier: string, page?: number | null) => (() => voi
 export function PastilleOrigineValeur({ origine }: { origine: OrigineValeur | null }) {
   const base: CSSProperties = { fontSize: 10, fontWeight: 700, padding: '.03rem .3rem', borderRadius: '.3rem', whiteSpace: 'nowrap' };
   if (origine === 'saisie') return <span style={{ ...base, background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)' }}>saisie à la main</span>;
-  if (origine === 'extraite') return <span style={{ ...base, background: '#fdf1dd', color: '#8a5a00' }}>extraite d’une pièce</span>;
+  if (origine === 'extraite') return <span style={{ ...base, background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)' }}>extraite d’une pièce</span>;
   return <span style={{ ...base, background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)' }}>non renseignée</span>;
 }
 

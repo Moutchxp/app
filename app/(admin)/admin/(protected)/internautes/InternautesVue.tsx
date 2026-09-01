@@ -1339,7 +1339,7 @@ function Champ({ label, valeur }: { label: string; valeur: unknown }) {
 function CapsuleResidence({ rp }: { rp: boolean | null }) {
   const couleurs = rp === true
     ? { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)' } // vert de CapsuleCompte
-    : { background: '#eef0f3', color: 'var(--color-svv-muted)' }; //                       gris du cartouche « One-shot »
+    : { background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)' }; //           gris du cartouche « One-shot » (tokenisé LOT 39)
   const label = rp === true ? 'Résidence principale' : rp === false ? 'Autre bien' : 'Non renseigné';
   return (
     <span style={{ display: 'inline-block', padding: '2px 8px', borderRadius: 999, fontSize: '.68rem', fontWeight: 800, lineHeight: 1.4, whiteSpace: 'nowrap', ...couleurs }}>

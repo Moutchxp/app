@@ -2162,7 +2162,7 @@ const CSS = `
 
 .svv-cur-toast{padding:.55rem .75rem;border-radius:.55rem;font-size:.85rem;font-weight:600}
 .svv-cur-toast--ok{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
-.svv-cur-toast--erreur{background:#fdecec;color:var(--color-svv-red-dark);border:1px solid #f3c9c9}
+.svv-cur-toast--erreur{background:var(--color-svv-red-soft);color:var(--color-svv-red-dark);border:1px solid #f3c9c9}
 
 .svv-cur{display:flex;flex-direction:column;gap:.6rem;height:calc(100dvh - 210px);min-height:520px}
 /* Zone droite = carte + journal empilés (colonne). Reprend le rôle flex de l'ex-.svv-cur-map. */
@@ -2302,7 +2302,7 @@ const CSS = `
 .svv-cur-renommer input{flex:1;min-width:0;box-sizing:border-box;padding:.4rem .5rem;border:1px solid var(--color-svv-line);border-radius:.5rem;background:#fff;color:var(--color-svv-ink);font-size:.85rem;font-family:inherit;min-height:36px}
 .svv-cur-item-meta{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem}
 .svv-cur-badge{display:inline-block;font-size:.68rem;font-weight:700;border-radius:999px;padding:.1rem .45rem;background:var(--color-svv-field);color:var(--color-svv-gray);white-space:nowrap}
-.svv-cur-badge--warn{background:#fff4e0;color:#8a5a00}
+.svv-cur-badge--warn{background:var(--color-svv-amber-soft);color:var(--color-svv-amber)}
 .svv-cur-badge--info{background:#e6eefb;color:#2c4d84}
 .svv-cur-badge--ok{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
 
