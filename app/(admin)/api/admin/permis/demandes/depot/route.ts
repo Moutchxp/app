@@ -2,6 +2,7 @@ import 'server-only';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
 import { listerADeposer, marquerDeposee, DepotInterditError } from '../../../../../../lib/sitadel/demandeRepo';
 import { retenterRattachementParReference } from '../../../../../../lib/veille/demandeReponseRepo'; // FUS-4 ② : re-rattachement différé, second appelant
+import { chargerConfigVeille } from '../../../../../../lib/sitadel/veilleConfig'; // LOT 34 : délai de relève déclenchée (pilotage sans code)
 
 /**
  * /api/admin/permis/demandes/depot (chantier S16). GET = demandes en canal 'formulaire' encore à déposer à la main sur le
@@ -14,7 +15,9 @@ export async function GET(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    return Response.json({ demandes: await listerADeposer() });
+    // LOT 34 — on joint le délai (config, résilient) : le client programme la relève déclenchée après ce délai au clic « copier ».
+    const [demandes, cfg] = await Promise.all([listerADeposer(), chargerConfigVeille()]);
+    return Response.json({ demandes, releveDelaiSecondes: cfg.depotReleveDelaiSecondes });
   } catch {
     return Response.json({ erreur: 'liste indisponible' }, { status: 503 });
   }

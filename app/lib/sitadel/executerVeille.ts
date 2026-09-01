@@ -48,6 +48,7 @@ import { executerAlerteObstacleDisparu, depsReellesAlerteObstacleDisparu } from 
 import { executerSurveillancePolygones, depsReellesSurveillancePolygones } from '../veille/surveillancePolygonesAuto';
 import { executerVersementRattache, depsReellesVersementRattache } from './versementRattacheRepo';
 import { creerBudgetRun, type BudgetEnvoiRun } from '../veille/plafondEnvoiRun';
+import { CLE_VERROU_VEILLE } from '../veille/verrouVeille';
 import { executerAlerteMisesAJour } from '../veille/alerteMisesAJour';
 import { depsReellesAlerteMisesAJour } from '../veille/alerteMisesAJourRepo';
 import { ingererMillesime, millesimeDistantDido, DiDoIndisponibleError, DOSSIER_LOCAL, type CompteursIngestion, type MillesimeDistant } from './ingestionMillesime';
@@ -56,8 +57,9 @@ import {
   type Declencheur, type StatutRun, type ConfigAuto, type RunVeille, type FichierCsv,
 } from './planification';
 
-/** Clé du verrou consultatif dédié à la veille Sitadel (constante fixe : un seul run à la fois, tous déclencheurs confondus). */
-const CLE_VERROU = 776_920_011;
+/** Clé du verrou consultatif dédié à la veille Sitadel (constante fixe : un seul run à la fois, tous déclencheurs confondus).
+ *  SOURCE UNIQUE dans `verrouVeille.ts` — réutilisée par la relève déclenchée du dépôt téléservice (LOT 34), même verrou. */
+const CLE_VERROU = CLE_VERROU_VEILLE;
 
 /**
  * FAMILLE de veille (H1) — deux métiers dans le même moteur : « mairies » (permis / relances / saisines / relève / échéances +

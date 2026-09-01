@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { CarteDepot, BoutonAnnulerDepot, type DepotAffiche } from './DemandesRendu';
+import { creerPlanificateurReleve, type PlanificateurReleve } from './planifieReleveDepot'; // LOT 34 : relève déclenchée par le clic « copier »
 
 /**
  * File « À déposer à la main » de l'onglet Demandes (S16) : les demandes en canal 'formulaire' (téléservice). Trois gestes par
@@ -28,13 +29,50 @@ export function BlocDepot({ signalRafraichir, onChangement }: { signalRafraichir
   const [refs, setRefs] = useState<Record<number, string>>({}); // P1 — référence mairie saisie par carte (facultative)
   const [annulerOuverts, setAnnulerOuverts] = useState<Set<number>>(new Set()); // U3 — confirmations « Annuler cette demande » ouvertes
   const [retourAnnul, setRetourAnnul] = useState('');                            // U3 — retour de niveau SECTION (la carte annulée disparaît → retour visible ailleurs)
+  // LOT 34 — RELÈVE DÉCLENCHÉE par le clic « copier » : délai (config), retour d'écran, planificateur dédupliqué (une seule relève).
+  const [releveMsg, setReleveMsg] = useState<string | null>(null);
+  const delaiSecRef = useRef(60);          // délai courant (config), lu au clic → jamais figé
+  const planifRef = useRef<PlanificateurReleve | null>(null);
+  const onChangementRef = useRef(onChangement); // dernière valeur du callback, sans recréer le planificateur
+  useEffect(() => { onChangementRef.current = onChangement; }, [onChangement]);
+
+  // Planificateur créé UNE fois au montage (refs lues seulement ici, jamais pendant le rendu). Cleanup = annule un timer en attente.
+  useEffect(() => {
+    const planif = creerPlanificateurReleve({
+      delaiMs: () => Math.max(1, delaiSecRef.current) * 1000,          // délai FRAIS à chaque clic → suit la config
+      programmer: (cb, ms) => setTimeout(cb, ms),
+      annuler: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
+      avantAttente: () => setReleveMsg(`La boîte sera relevée dans ~${delaiSecRef.current}s (lecture seule, sans envoi)…`),
+      executer: () => {
+        setReleveMsg('Relève de la boîte en cours…');
+        void (async () => {
+          try {
+            const res = await fetch('/api/admin/permis/relever-depot', { method: 'POST' }); // LECTURE SEULE côté serveur
+            const d = (await res.json().catch(() => ({}))) as { resultat?: string; message?: string; compteurs?: { retenus?: number; referencesCaptees?: number; rattaches?: number } };
+            if (d.resultat === 'ok' && d.compteurs) {
+              const c = d.compteurs;
+              setReleveMsg(`Boîte relevée : ${c.retenus ?? 0} message(s) retenu(s), ${c.referencesCaptees ?? 0} référence(s) mairie captée(s), ${c.rattaches ?? 0} rattaché(s).`);
+              onChangementRef.current(); // une référence captée peut faire évoluer l'état (file + vues sœurs)
+            } else setReleveMsg(d.message ?? 'Relève terminée.');
+          } catch { setReleveMsg('Relève impossible (réseau) — la relève ordinaire prendra le relais.'); }
+        })();
+      },
+    });
+    planifRef.current = planif;
+    return () => { planif.annuler(); planifRef.current = null; }; // démontage : pas de relève fantôme
+  }, []);
+  const programmerReleve = (): void => planifRef.current?.demander(); // DÉDUP interne : deux clics rapprochés → une seule relève
 
   useEffect(() => {
     let annule = false;
     void (async () => {
       try {
         const res = await fetch('/api/admin/permis/demandes/depot', { cache: 'no-store' });
-        if (!annule && res.ok) { const d = (await res.json()) as { demandes: DepotAffiche[] }; setDemandes(d.demandes ?? []); }
+        if (!annule && res.ok) {
+          const d = (await res.json()) as { demandes: DepotAffiche[]; releveDelaiSecondes?: number };
+          setDemandes(d.demandes ?? []);
+          if (typeof d.releveDelaiSecondes === 'number') delaiSecRef.current = d.releveDelaiSecondes; // LOT 34 : délai piloté par config
+        }
       } catch { /* file de dépôt indisponible : le reste de l'écran reste utilisable */ }
     })();
     return () => { annule = true; };
@@ -88,10 +126,12 @@ export function BlocDepot({ signalRafraichir, onChangement }: { signalRafraichir
       </div>
       {/* U3 — retour de l'annulation : la carte concernée a disparu de la file, le retour reste visible au niveau de la section. */}
       {retourAnnul && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourAnnul}</div>}
+      {/* LOT 34 — état de la relève déclenchée par « copier » : « relevée dans un instant » puis résultat. Jamais silencieux. */}
+      {releveMsg && <div role="status" aria-live="polite" style={{ fontSize: 12, color: 'var(--color-svv-ink)' }}>{releveMsg}</div>}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '.6rem' }}>
         {demandes.map((d) => (
           <CarteDepot key={d.id} d={d}
-            onCopieTexte={() => signalerDepot(d.id, 'texte')} onCopieRef={() => signalerDepot(d.id, 'ref')}>
+            onCopieTexte={() => { signalerDepot(d.id, 'texte'); programmerReleve(); }} onCopieRef={() => { signalerDepot(d.id, 'ref'); programmerReleve(); }}>
             {/* P1 — référence renvoyée par la mairie (accusé de réception). Facultative : ne bloque jamais le dépôt. */}
             <label style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', fontSize: 12, color: 'var(--color-svv-muted)' }}>
               Référence mairie (accusé de réception) — facultatif

@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { executerReleveAuto, executerReleveManuelle, type DepsReleveAuto } from './releveAuto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { executerReleveAuto, executerReleveManuelle, executerReleveDemandee, type DepsReleveAuto, type DepsReleveDemandee, type IssueReleveManuelle } from './releveAuto';
 import type { ClientBoite, RapportReleve } from './releveReponses';
 
 /**
@@ -179,5 +181,58 @@ describe('R1 — executerReleveManuelle : FORCE la relève (aucune garde opt-in/
     expect(issue.raison).toContain('IMAP timeout');
     expect(issue.rapport).toBeNull();
     expect(finaliserRun).toHaveBeenCalledWith(7, expect.objectContaining({ resultat: 'erreur', erreur: 'IMAP timeout' }));
+  });
+});
+
+// ── LOT 34 — RELÈVE DÉCLENCHÉE (dépôt téléservice) : verrou consultatif + LECTURE SEULE (aucun envoi) ───────────────────────────
+const OK: IssueReleveManuelle = { resultat: 'ok', raison: '2 retenu(s)', runId: 1, rapport: rapport({ retenus: 2, referencesCaptees: 1 }) };
+function depsDemandee(over: Partial<DepsReleveDemandee> = {}): DepsReleveDemandee {
+  return { acquerirVerrou: vi.fn(async () => true), libererVerrou: vi.fn(async () => {}), relever: vi.fn(async () => OK), ...over };
+}
+
+describe('LOT 34 — executerReleveDemandee : verrou réutilisé + aucun envoi', () => {
+  it('verrou LIBRE → relève exécutée UNE fois, verrou relâché', async () => {
+    const d = depsDemandee();
+    const r = await executerReleveDemandee(d);
+    expect(r.resultat).toBe('ok');
+    expect(d.relever).toHaveBeenCalledTimes(1);
+    expect(d.libererVerrou).toHaveBeenCalledTimes(1);
+  });
+
+  it('verrou DÉJÀ PRIS (run/relève ordinaire en cours) → « occupe », relève JAMAIS exécutée (pas de double exécution)', async () => {
+    const relever = vi.fn(async () => OK);
+    const libererVerrou = vi.fn(async () => {});
+    const r = await executerReleveDemandee(depsDemandee({ acquerirVerrou: vi.fn(async () => false), relever, libererVerrou }));
+    expect(r.resultat).toBe('occupe');
+    expect(relever).not.toHaveBeenCalled();      // aucune superposition à une relève en cours
+    expect(libererVerrou).not.toHaveBeenCalled(); // rien à relâcher : le verrou n'a pas été pris
+  });
+
+  it('le verrou est TOUJOURS relâché, même si la relève lève', async () => {
+    const libererVerrou = vi.fn(async () => {});
+    await expect(executerReleveDemandee(depsDemandee({ relever: vi.fn(async () => { throw new Error('IMAP KO'); }), libererVerrou }))).rejects.toThrow('IMAP KO');
+    expect(libererVerrou).toHaveBeenCalledTimes(1);
+  });
+
+  it('AUCUN ENVOI possible : le contrat n’expose QUE verrou + relever (lecture) — aucun émetteur atteignable', async () => {
+    const d = depsDemandee();
+    await executerReleveDemandee(d);
+    // Preuve STRUCTURELLE : il n'existe aucune dépendance « envoyer » ; le seul geste métier est deps.relever (= releverBoite, lecture IMAP).
+    expect(Object.keys(d).sort()).toEqual(['acquerirVerrou', 'libererVerrou', 'relever']);
+    expect(d.relever).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('LOT 34 — GARDE D’IMPORTS : la relève déclenchée n’atteint aucun module d’émission', () => {
+  const RACINE = process.cwd();
+  const lire = (rel: string): string => readFileSync(join(RACINE, rel), 'utf8');
+  const MODULES_ENVOI = /envoiRelance|envoiSaisineCada|envoiAuto|cascadePartielleRepo|nodemailer|obtenirTransporteur|executerVeille/;
+
+  it('la route /relever-depot n’importe AUCUN module d’émission ni executerVeille', () => {
+    const src = lire('app/(admin)/api/admin/permis/relever-depot/route.ts');
+    // On ne regarde QUE les lignes `import` (les commentaires peuvent citer « executerVeille » pour dire qu'on ne l'appelle pas).
+    const imports = src.split('\n').filter((l) => /^\s*import\b/.test(l)).join('\n');
+    expect(imports).toMatch(/executerReleveDemandee/);      // elle passe bien par le chemin LECTURE SEULE
+    expect(imports).not.toMatch(MODULES_ENVOI);             // et par AUCUN émetteur (ni executerVeille)
   });
 });

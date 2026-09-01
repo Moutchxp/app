@@ -49,6 +49,7 @@ export interface ConfigVeille {
   releveActive: boolean;            // R7 : relève automatique des réponses activée ? (opt-in, défaut false)
   releveIntervalleMinutes: number;  // R7 : intervalle minimum entre deux relèves automatiques (minutes)
   releveProfil: string;             // R7 : profil de boîte relevé automatiquement ('entreprise' | 'personne')
+  depotReleveDelaiSecondes: number; // LOT 34 : délai (s) avant la relève DÉCLENCHÉE par le clic « copier » d'un dépôt téléservice (5..3600, défaut 60)
   echeanceAlerteJours: number;      // R6 : jours avant l'échéance d'un mois à partir desquels elle est « proche »
   releveFraicheurHeures: number;    // R6 : au-delà, la dernière relève est trop vieille → état d'échéance « indéterminé »
   alerteActive: boolean;            // R8 : alertes e-mail activées ? (opt-in, défaut false)
@@ -143,6 +144,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   mentionDelaiActive: false, mentionDelaiTexte: '',     // = DEFAULT de la migration 072 (désactivée, vide)
   mentionSourcesActive: true, mentionSourcesTexte: MENTION_SOURCES_TEXTE_DEFAUT, // = DEFAULT de la migration 148 (actif, texte pré-rédigé)
   releveActive: false, releveIntervalleMinutes: 60, releveProfil: 'entreprise', // = DEFAULT de la migration 074 (opt-in)
+  depotReleveDelaiSecondes: 60, // = DEFAULT de la migration 187 (LOT 34 : relève déclenchée par le clic « copier », alignée sur echeance_detection_le)
   echeanceAlerteJours: 7, releveFraicheurHeures: 48, // = DEFAULT de la migration 075
   alerteActive: false, alerteEmail: '', alerteHeureLocale: 8, // = DEFAULT de la migration 078 (opt-in)
   pieceTailleMaxMo: 50, // = DEFAULT de la migration 079
@@ -332,6 +334,18 @@ async function lireReleve(): Promise<Pick<ConfigVeille, 'releveActive' | 'releve
     if (!r) return def;
     return { releveActive: r.releve_active, releveIntervalleMinutes: r.releve_intervalle_minutes, releveProfil: r.releve_profil };
   } catch { return def; } // 074 pas encore appliquée → défauts
+}
+
+/**
+ * LOT 34 — Lecture BEST-EFFORT du DÉLAI de relève déclenchée (dépôt téléservice), ISOLÉE (migration 187 distincte de la 074) :
+ * colonne absente → repli sûr 60 s, sans dégrader le reste de la config.
+ */
+async function lireDepotReleveDelai(): Promise<Pick<ConfigVeille, 'depotReleveDelaiSecondes'>> {
+  try {
+    const { rows } = await query<{ depot_releve_delai_secondes: number }>(
+      `SELECT depot_releve_delai_secondes FROM config_veille WHERE id = 1`);
+    return { depotReleveDelaiSecondes: rows[0]?.depot_releve_delai_secondes ?? CONFIG_VEILLE_DEFAUT.depotReleveDelaiSecondes };
+  } catch { return { depotReleveDelaiSecondes: CONFIG_VEILLE_DEFAUT.depotReleveDelaiSecondes }; } // 187 pas encore appliquée → défaut 60
 }
 
 /**
@@ -771,6 +785,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       adresseReponse: await lireAdresseReponse(), // S38 : lecture isolée (résiliente à l'ordre d'application de la 071)
       ...(await lireMentions()),                   // S40 : mentions de courrier, lecture isolée (résiliente à la 072)
       ...(await lireReleve()),                      // R7 : relève automatique, lecture isolée (résiliente à la 074)
+      ...(await lireDepotReleveDelai()),            // LOT 34 : délai de relève déclenchée (dépôt téléservice), lecture isolée (résiliente à la 187)
       ...(await lireEcheance()),                     // R6 : échéance/fraîcheur, lecture isolée (résiliente à la 075)
       ...(await lireAlerte()),                        // R8 : alertes e-mail, lecture isolée (résiliente à la 078)
       ...(await lirePieceTaille()),                    // R4 : borne de taille des pièces, lecture isolée (résiliente à la 079)

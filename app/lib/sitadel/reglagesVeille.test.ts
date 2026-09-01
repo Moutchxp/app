@@ -56,6 +56,7 @@ const DEFS_BASE = [
   'CHECK (((envois_auto_max_par_demande_run >= 1) AND (envois_auto_max_par_demande_run <= 10)))',
   // R7 — relève automatique (migration 074) : Postgres rend `BETWEEN 15 AND 1440` sous cette forme `>= AND <=`
   'CHECK (((releve_intervalle_minutes >= 15) AND (releve_intervalle_minutes <= 1440)))',
+  'CHECK (((depot_releve_delai_secondes >= 5) AND (depot_releve_delai_secondes <= 3600)))',
   // R6 — échéance + fraîcheur (migration 075)
   'CHECK (((echeance_alerte_jours >= 1) AND (echeance_alerte_jours <= 30)))',
   'CHECK (((releve_fraicheur_heures >= 1) AND (releve_fraicheur_heures <= 720)))',

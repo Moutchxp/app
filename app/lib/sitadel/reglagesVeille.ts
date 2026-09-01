@@ -276,6 +276,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Quand c’est activé, l’application relève seule la boîte de réponse à intervalle régulier, enregistre les réponses des mairies et les rattache aux demandes. Désactivé, rien n’est relevé tout seul : il faut lancer la relève à la main. La boîte est TOUJOURS lue sans jamais être modifiée.' },
   { colonne: 'releve_intervalle_minutes', cle: 'releveIntervalleMinutes', libelle: 'Intervalle de relève', unite: 'minutes', type: 'entier',
     aide: 'Durée minimale entre deux relèves automatiques : une relève n’est tentée que si la précédente réussie est plus ancienne que cette durée. Plus court = réponses vues plus vite ; plus long = moins de connexions à la boîte.' },
+  // LOT 34 — délai avant la relève DÉCLENCHÉE par le clic « copier » d'un dépôt téléservice (lecture seule, aucun envoi). Transverse (une seule boîte).
+  { colonne: 'depot_releve_delai_secondes', cle: 'depotReleveDelaiSecondes', libelle: 'Délai avant relève après un dépôt téléservice', unite: 'secondes', type: 'entier',
+    aide: 'Quand vous cliquez « copier » sur une carte de dépôt téléservice, la boîte est relevée après ce délai (le temps que l’accusé de réception de la mairie arrive), sans attendre la relève ordinaire. Cette relève ne fait que LIRE la boîte : elle n’envoie jamais rien. Défaut 60 s.' },
   { colonne: 'releve_profil', cle: 'releveProfil', libelle: 'Boîte relevée automatiquement', unite: '', type: 'enum', optionsEnum: ['entreprise', 'personne'],
     aide: 'Quel compte de messagerie est relevé automatiquement : celui de la société ou celui de la personne physique. La relève à la main peut toujours viser l’un ou l’autre indépendamment.' },
   // R6 — ÉCHÉANCE d'un mois : quand une demande est « proche » de l'échéance, et fraîcheur exigée pour se prononcer.
@@ -454,7 +457,7 @@ export const COLONNES_THEME_ENVOI: readonly string[] = [
   'relance_multi_adresse_active', 'relance_multi_adresse_nb_dernieres',
 ];
 export const COLONNES_THEME_REPONSES: readonly string[] = [
-  'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'releve_fraicheur_heures',
+  'releve_active', 'releve_profil', 'releve_intervalle_minutes', 'depot_releve_delai_secondes', 'releve_fraicheur_heures',
   'vague_calme_minutes', // PART-C — calme d'une vague de pièces avant le diagnostic de complétude (migration 180, bornes = CHECK live)
   'lien_validite_presumee_jours', 'lien_alerte_avant_jours', // PART-D — péremption présumée des liens + délai d'alerte (migration 181, bornes = CHECK live)
   'recherche_references_max', 'piece_taille_max_mo', 'echeance_alerte_jours',

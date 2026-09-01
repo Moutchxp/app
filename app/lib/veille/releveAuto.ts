@@ -13,10 +13,12 @@
  * (executerVeille) l'enveloppe EN PLUS d'un try/catch qui avale : double filet. Boîte en LECTURE STRICTE (voir imap.ts) ;
  * appelle `releverBoite` avec `appliquer=true` ; n'écrit JAMAIS demande.statut ('close' reste sans écrivain, cf. R5).
  */
-import { query } from '../db/client';
+import type { PoolClient } from 'pg';
+import { query, pool } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import type { ProfilBoite } from './demandeReponseRepo';
 import { releverBoite, type ClientBoite, type RapportReleve } from './releveReponses';
+import { CLE_VERROU_VEILLE } from './verrouVeille';
 
 export type ResultatReleveAuto = 'ok' | 'erreur' | 'ignore';
 
@@ -115,6 +117,32 @@ export async function executerReleveManuelle(deps: DepsReleveAuto): Promise<Issu
   }
 }
 
+/**
+ * LOT 34 — RELÈVE DÉCLENCHÉE À LA DEMANDE (clic « copier » d'un dépôt téléservice), SOUS LE VERROU CONSULTATIF de la veille
+ * (`CLE_VERROU_VEILLE`, le MÊME qu'executerVeille) : elle ne se SUPERPOSE JAMAIS à un run ordinaire ni à une autre relève déclenchée
+ * (verrou déjà pris → 'occupe', on ne relève pas — pas de double exécution).
+ *
+ * 🔴 GARDE DE SÛRETÉ (identique au bouton R1) : le cœur est `deps.relever()` = `executerReleveManuelle` = `releverBoite` (LECTURE
+ * IMAP stricte). AUCUN chemin d'envoi n'est atteignable : ni relance, ni cascade, ni saisine (ces étapes vivent dans executerVeille,
+ * JAMAIS ici). On n'appelle PAS executerVeille. PUR par injection (le verrou et la relève sont des deps) → testable sans base ni IMAP.
+ */
+export type IssueReleveDemandee = IssueReleveManuelle | { resultat: 'occupe'; raison: string; runId: null; rapport: null };
+export interface DepsReleveDemandee {
+  acquerirVerrou(): Promise<boolean>; // pg_try_advisory_lock(CLE_VERROU_VEILLE) — false = un run/relève est déjà en cours
+  libererVerrou(): Promise<void>;
+  relever(): Promise<IssueReleveManuelle>; // = executerReleveManuelle(depsReellesReleveAuto()) : LECTURE SEULE, aucun envoi
+}
+export async function executerReleveDemandee(deps: DepsReleveDemandee): Promise<IssueReleveDemandee> {
+  if (!(await deps.acquerirVerrou())) {
+    return { resultat: 'occupe', raison: 'une relève ou un run de veille est déjà en cours — réessayez dans un instant', runId: null, rapport: null };
+  }
+  try {
+    return await deps.relever(); // JAMAIS d'envoi : deps.relever n'a structurellement aucun émetteur (executerReleveManuelle)
+  } finally {
+    await deps.libererVerrou(); // le verrou est TOUJOURS relâché, même sur erreur
+  }
+}
+
 // ── Implémentations RÉELLES (production) ──────────────────────────────────────
 /** Infixe des variables d'environnement par profil (même convention que la CLI `demandes:relever` et `demandes:envoyer`). */
 const INFIXE: Record<ProfilBoite, string> = { entreprise: '', personne: 'PERSONNE_' };
@@ -174,5 +202,28 @@ export function depsReellesReleveAuto(): DepsReleveAuto {
         if ((e as { code?: string }).code !== '42703') throw e; // toute AUTRE erreur remonte (jamais de swallow muet, leçon P2)
       }
     },
+  };
+}
+
+/**
+ * LOT 34 — I/O RÉELLES de la relève déclenchée : le verrou consultatif est SESSION-scoped (pris ET rendu sur la MÊME connexion) →
+ * client dédié tenu le temps de la relève (même schéma qu'executerVeille). `relever` délègue au foyer unique EN LECTURE SEULE.
+ */
+export function depsReellesReleveDemandee(): DepsReleveDemandee {
+  let clientVerrou: PoolClient | null = null;
+  return {
+    acquerirVerrou: async () => {
+      clientVerrou = await pool.connect();
+      const { rows } = await clientVerrou.query<{ ok: boolean }>('SELECT pg_try_advisory_lock($1) AS ok', [CLE_VERROU_VEILLE]);
+      if (!rows[0]?.ok) { clientVerrou.release(); clientVerrou = null; return false; }
+      return true;
+    },
+    libererVerrou: async () => {
+      if (clientVerrou === null) return;
+      try { await clientVerrou.query('SELECT pg_advisory_unlock($1)', [CLE_VERROU_VEILLE]); }
+      finally { clientVerrou.release(); clientVerrou = null; }
+    },
+    // LECTURE SEULE : executerReleveManuelle n'appelle que releverBoite (IMAP) + le journal releve_run. Aucun émetteur dans son graphe.
+    relever: () => executerReleveManuelle(depsReellesReleveAuto()),
   };
 }
