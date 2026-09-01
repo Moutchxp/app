@@ -170,6 +170,18 @@ export function extraireReferenceMairie(objet: string | null | undefined, corps:
   const dansCorps = MOTIF_REFERENCE.exec(corps ?? '');
   return dansCorps ? dansCorps[0] : null;
 }
+
+/**
+ * LOT 35 — RÉFÉRENCE mairie (SLC…) portée par UN message reçu (l'accusé), lue depuis SON objet + SON corps. Sert à la confirmation
+ * de dépôt (T4) : la référence est extraite du MESSAGE qui a déclenché la proposition, donc INDÉPENDANTE de l'ordre des clics
+ * (dépôt avant ou après l'accusé). `null` si le message est introuvable ou ne porte aucune référence. LECTURE SEULE.
+ */
+export async function lireReferenceMairieDeReponse(reponseId: number): Promise<string | null> {
+  const { rows } = await query<{ objet: string | null; corps_texte: string | null }>(
+    `SELECT objet, corps_texte FROM demande_reponse WHERE id = $1`, [reponseId]);
+  const r = rows[0];
+  return r ? extraireReferenceMairie(r.objet, r.corps_texte) : null;
+}
 function objetPertinent(objet: string | undefined): boolean {
   return objet ? normaliserObjet(objet).includes(FRAGMENT_OBJET) : false;
 }

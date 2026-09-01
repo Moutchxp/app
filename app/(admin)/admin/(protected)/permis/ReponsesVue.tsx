@@ -139,6 +139,23 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
     recompterSiSucces(res.ok, onRecompter); // pastille : recompter après un ré-attachement réussi
   }, [rafraichir, onRecompter]);
 
+  // LOT 35 — CONFIRMER un dépôt : la réponse porte `referenceCaptee` (référence mairie attribuée depuis l'accusé). VÉRITÉ D'ÉCRAN :
+  //   on dit si la référence a été enregistrée (elle apparaîtra dans « Réf. mairie » après rafraîchissement) ou, sinon, on invite à
+  //   la saisir à la main — jamais un champ vide silencieux alors que la donnée existait.
+  const confirmerDepotUI = useCallback(async (reponseId: number, demandeId: number, date: string): Promise<void> => {
+    const cle = `proposition-${reponseId}`;
+    const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'confirmer_depot', reponseId, demandeId, envoyeLe: date }) });
+    if (res.ok) {
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; referenceCaptee?: string | null };
+      const suffixe = d.referenceCaptee
+        ? ` Référence mairie ${d.referenceCaptee} enregistrée.`
+        : ' Aucune référence détectée dans l’accusé — saisissez-la à la main dans la colonne « Réf. mairie ».';
+      setRetour({ cle, texte: `Dépôt confirmé — demande passée « envoyée », message rattaché.${suffixe}`, ok: true });
+      rafraichir();
+    } else setRetour({ cle, texte: await erreurServeur(res, 'Action impossible.'), ok: false });
+    recompterSiSucces(res.ok, onRecompter);
+  }, [rafraichir, onRecompter]);
+
   const telecharger = useCallback(async (reponseId: number, pieceId: number): Promise<void> => {
     const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'url_piece', pieceId }) });
     if (res.ok) { const { url } = (await res.json()) as { url: string }; window.open(url, '_blank', 'noopener,noreferrer'); }
@@ -383,7 +400,7 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
           dateOuverteId={propDate?.reponseId ?? null} dateValeur={propDate?.date ?? ''}
           onOuvrir={(reponseId) => setPropDate({ reponseId, date: '' })}
           onDateChange={(v) => setPropDate((s) => (s ? { ...s, date: v } : s))}
-          onConfirmer={(reponseId, demandeId, date) => { setPropDate(null); void agir({ action: 'confirmer_depot', reponseId, demandeId, envoyeLe: date }, `proposition-${reponseId}`, 'Dépôt confirmé — demande passée « envoyée », message rattaché.'); }}
+          onConfirmer={(reponseId, demandeId, date) => { setPropDate(null); void confirmerDepotUI(reponseId, demandeId, date); }}
           onFermer={() => setPropDate(null)}
           onIgnorer={(reponseId) => { setPropDate(null); void agir({ action: 'ignorer_proposition', reponseId }, `proposition-${reponseId}`, 'Proposition ignorée.'); }}
         />

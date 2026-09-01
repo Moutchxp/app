@@ -29,6 +29,8 @@ vi.mock('../../../../../lib/veille/demandeRelanceRepo', () => ({
   majRelance: vi.fn(), abandonnerRelance: vi.fn(), regenererRelance: vi.fn(),
   RelanceActionError: class RelanceActionError extends Error { raison: string; constructor(r: string) { super(r); this.raison = r; } },
 }));
+// LOT 35 — la confirmation de dépôt lit la référence mairie de l'accusé (releveReponses). Mocké : le confirmer_depot doit fournir une valeur.
+vi.mock('../../../../../lib/veille/releveReponses', () => ({ lireReferenceMairieDeReponse: vi.fn() }));
 vi.mock('../../../../../lib/stockage', () => ({ urlSignee: vi.fn(async () => 'https://signed/url') })); // N10-B : capter les options de signature
 
 import { POST } from './route';
@@ -39,6 +41,7 @@ import {
   reclasserNatureReponse, marquerRepondu, annulerRepondu, RattachementNonEnvoyeeError,
 } from '../../../../../lib/veille/demandeReponseRepo';
 import { marquerDeposee, DepotInterditError, lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
+import { lireReferenceMairieDeReponse } from '../../../../../lib/veille/releveReponses';
 import { urlSignee } from '../../../../../lib/stockage';
 
 const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
@@ -55,6 +58,7 @@ const repondu = marquerRepondu as unknown as ReturnType<typeof vi.fn>;
 const annulerRep = annulerRepondu as unknown as ReturnType<typeof vi.fn>;
 const recuLe = lireRecuLeReponse as unknown as ReturnType<typeof vi.fn>;
 const deposer = marquerDeposee as unknown as ReturnType<typeof vi.fn>;
+const lireRef = lireReferenceMairieDeReponse as unknown as ReturnType<typeof vi.fn>;
 const cleTel = lireCleTelechargeable as unknown as ReturnType<typeof vi.fn>;
 const signee = urlSignee as unknown as ReturnType<typeof vi.fn>;
 
@@ -64,6 +68,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   garde.mockResolvedValue({ auteurId: 5 }); // administrateur par défaut → auteur '5'
   statut.mockResolvedValue('envoyee');       // demande ouverte par défaut
+  lireRef.mockResolvedValue(null);           // LOT 35 : par défaut, aucun accusé exploitable (les tests qui l'exigent surchargent)
 });
 
 describe('T1 — garde « demande close » (jamais un statut de dossier sur une demande close)', () => {
@@ -157,15 +162,26 @@ describe('T1 — actions simples : transmission au repo + garde-fous', () => {
 });
 
 describe('T4 — confirmer_depot : la date RÉELLE de dépôt est OBLIGATOIRE et bornée (ni future, ni postérieure au message)', () => {
-  it('date valide (≤ message, non future) → 200 ; bascule par le chemin EXISTANT (marquerDeposee avec la date saisie) PUIS rattache', async () => {
+  it('LOT 35 — date valide + accusé porteur d’une réf. → 200, référence ÉCRITE (marquerDeposee la reçoit), rattache, referenceCaptee remonté', async () => {
     recuLe.mockResolvedValueOnce('2020-02-01'); // le message est arrivé après le dépôt
+    lireRef.mockResolvedValueOnce('SLC260901542604'); // l'accusé déclencheur porte la référence mairie
     deposer.mockResolvedValueOnce(undefined); rattacher.mockResolvedValueOnce(true);
     const res = await post({ action: 'confirmer_depot', reponseId: 7, demandeId: 42, envoyeLe: '2020-01-01' });
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ ok: true });
-    // AUCUN nouvel écrivain : la date saisie devient l'ancre d'échéance (4e argument), puis le message est rattaché.
-    expect(deposer).toHaveBeenCalledWith(42, '5', null, '2020-01-01');
+    expect(await res.json()).toMatchObject({ ok: true, referenceCaptee: 'SLC260901542604' }); // vérité d'écran : la réf. est remontée
+    // 🔴 LE BUG CORRIGÉ : marquerDeposee reçoit la RÉFÉRENCE (avant : null) → demande_reference_externe écrite. Puis rattachement.
+    expect(deposer).toHaveBeenCalledWith(42, '5', 'SLC260901542604', '2020-01-01');
     expect(rattacher).toHaveBeenCalledWith(7, 42, '5');
+  });
+
+  it('LOT 35 — accusé SANS référence exploitable → 200 mais referenceCaptee=null (l’écran invitera à saisir à la main)', async () => {
+    recuLe.mockResolvedValueOnce('2020-02-01');
+    lireRef.mockResolvedValueOnce(null);
+    deposer.mockResolvedValueOnce(undefined); rattacher.mockResolvedValueOnce(true);
+    const res = await post({ action: 'confirmer_depot', reponseId: 7, demandeId: 42, envoyeLe: '2020-01-01' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, referenceCaptee: null });
+    expect(deposer).toHaveBeenCalledWith(42, '5', null, '2020-01-01'); // dépôt confirmé quand même, sans référence
   });
 
   it('date ABSENTE → 400, aucune bascule (champ vide et obligatoire)', async () => {

@@ -5,6 +5,8 @@ import { rattacherAMain, marquerTraitee, marquerDossierSatisfait, demarquerDossi
   marquerDossierNonFourni, marquerDossierRefusMairie, annulerTriageDossier, retirerDossierDemande, reattacherDossierDemande,
   lireRecuLeReponse, reclasserNatureReponse, estNatureReclassable, marquerRepondu, annulerRepondu, RattachementNonEnvoyeeError } from '../../../../../lib/veille/demandeReponseRepo';
 import { cloturerDemande, rouvrirDemande, TransitionInterditeError, lireCleTelechargeable, marquerDeposee, DepotInterditError } from '../../../../../lib/sitadel/demandeRepo';
+import { confirmerDepot } from '../../../../../lib/veille/confirmerDepot'; // LOT 35 : confirmation de dépôt + attribution de la référence mairie
+import { lireReferenceMairieDeReponse } from '../../../../../lib/veille/releveReponses'; // LOT 35 : référence (SLC…) portée par l'accusé déclencheur
 import { majRelance, abandonnerRelance, regenererRelance, RelanceActionError } from '../../../../../lib/veille/demandeRelanceRepo';
 
 /**
@@ -79,15 +81,21 @@ export async function POST(request: Request): Promise<Response> {
       const recuLe = await lireRecuLeReponse(corps.reponseId);
       if (recuLe === null) return Response.json({ erreur: 'message introuvable' }, { status: 404 });
       if (corps.envoyeLe > recuLe) return Response.json({ erreur: 'la date de dépôt ne peut pas être postérieure au message reçu' }, { status: 400 });
+      const dateDepot = corps.envoyeLe;
       try {
-        await marquerDeposee(corps.demandeId, auteur, null, corps.envoyeLe);      // chemin existant : statut envoyée + acheminement (envoye_le = saisie)
-        await rattacherAMain(corps.reponseId, corps.demandeId, auteur);           // la demande est maintenant envoyée → rattachement autorisé
+        // LOT 35 — la confirmation ATTRIBUE aussi la référence mairie portée par l'accusé déclencheur (le geste qui manquait) :
+        //   statut envoyée + acheminement + réf. mairie (si extraite) + rattachement, en un seul orchestrateur testable.
+        const { referenceCaptee } = await confirmerDepot({
+          lireReference: lireReferenceMairieDeReponse,
+          marquerDeposee: (demandeId, reference, envoyeLe) => marquerDeposee(demandeId, auteur, reference, envoyeLe),
+          rattacher: (reponseId, demandeId) => rattacherAMain(reponseId, demandeId, auteur).then(() => undefined),
+        }, { reponseId: corps.reponseId, demandeId: corps.demandeId, envoyeLe: dateDepot });
+        return Response.json({ ok: true, referenceCaptee }); // referenceCaptee = null → l'écran invite à saisir à la main
       } catch (e) {
         if (e instanceof DepotInterditError) return Response.json({ erreur: e.raison }, { status: 409 });
         if (e instanceof RattachementNonEnvoyeeError) return Response.json({ erreur: e.message }, { status: 409 });
         throw e;
       }
-      return Response.json({ ok: true });
     }
 
     // T4 — IGNORER une proposition : marque le message traité (traite_le) → il ne réapparaît plus (ni proposition, ni « à rattacher »).
