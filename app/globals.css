@@ -25,19 +25,29 @@
   --color-svv-green-ink: #1e7a3d;
   --color-svv-line: #e6e8ec;
   --color-svv-field: #f3f4f6;
+  /* LOT 37 — tokens de SURFACE + sens ajoutés pour le thème sombre. Valeurs CLAIRES ici = état actuel exact (aucun changement en
+     clair) ; le bloc `[data-theme='dark']` plus bas (scopé à .svv-adm-root) les bascule. */
+  --color-svv-surface: #ffffff;              /* fond des cartes/panneaux/boutons clairs (ex-#fff en dur) */
+  --color-svv-bg: #ffffff;                   /* fond de page de l'admin */
+  --color-svv-line-strong: #d7dbe1;          /* bordure de .svv-btn-outline (ex-#d7dbe1) */
+  --color-svv-line-strong-hover: #b7bcc6;    /* survol de la bordure ci-dessus (ex-#b7bcc6) */
+  --color-svv-label: #8a929e;                /* couleur de .svv-label (ex-#8a929e) */
+  --color-svv-tip-bg: #16202c;               /* fond de l'infobulle .svv-tip (ex-var(--color-svv-ink), texte blanc) */
+  --color-svv-amber: #8a5a00;                /* famille AMBRE (avertissement) — texte/accent ; usage étendu en lot 2/3 */
+  --color-svv-amber-soft: #fff4e0;           /* fond de pastille ambre (texte = --color-svv-amber) */
 }
 
 @layer components {
   .svv-btn{display:flex;width:100%;align-items:center;justify-content:center;gap:.55rem;border:0;border-radius:.85rem;padding:1rem;font-weight:700;font-size:1rem;line-height:1;cursor:pointer;transition:background-color .15s ease,border-color .15s ease}
   .svv-btn-primary{background:var(--color-svv-red);color:#fff;box-shadow:0 10px 22px rgba(166,0,0,.18)}
   .svv-btn-primary:hover{background:var(--color-svv-red-dark)}
-  .svv-btn-outline{background:#fff;color:var(--color-svv-ink);border:1px solid #d7dbe1}
-  .svv-btn-outline:hover{border-color:#b7bcc6}
+  .svv-btn-outline{background:var(--color-svv-surface);color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong)}
+  .svv-btn-outline:hover{border-color:var(--color-svv-line-strong-hover)}
   .svv-link{display:flex;width:100%;align-items:center;justify-content:center;gap:.4rem;background:none;border:0;color:var(--color-svv-muted);font-weight:600;font-size:.875rem;cursor:pointer;padding:.85rem 0 .15rem}
   .svv-link:hover{color:var(--color-svv-ink)}
-  .svv-card{background:#fff;border:1px solid var(--color-svv-line);border-radius:14px;padding:14px 16px}
+  .svv-card{background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:14px;padding:14px 16px}
   .svv-pill{display:inline-block;background:var(--color-svv-green-soft);color:var(--color-svv-green-ink);font-weight:700;font-size:12px;border-radius:999px;padding:7px 12px}
-  .svv-label{font-size:11px;font-weight:700;letter-spacing:.02em;color:#8a929e}
+  .svv-label{font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--color-svv-label)}
   /* Espace client — ligne d'analyse dépliable (accordéon) + choix de document. Tokens de charte uniquement. */
   /* Carte d'analyse : fond gris léger + bordure existante = relief (le blanc pur manquait de contraste sur la page). */
   .svv-card-analyse{background:var(--color-svv-field)}
@@ -46,13 +56,13 @@
   .svv-chevron[data-open="true"]{transform:rotate(180deg)}
   /* Intérieur BLANC (fond clair habituel de l'app, cf. .svv-card / champs du tunnel) : surface claire + bordure sur la carte
      grise = trois éléments cliquables distincts. #fff = convention de surface établie, aucun token de surface ajouté. */
-  .svv-doc{display:flex;flex-direction:column;gap:2px;min-height:44px;justify-content:center;background:#fff;border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px;transition:border-color .15s ease}
+  .svv-doc{display:flex;flex-direction:column;gap:2px;min-height:44px;justify-content:center;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px;transition:border-color .15s ease}
   .svv-doc:hover{border-color:var(--color-svv-red)}
   .svv-doc-label{font-size:.9rem;font-weight:700;color:var(--color-svv-ink)}
   .svv-doc-desc{font-size:.78rem;line-height:1.35;color:var(--color-svv-muted)}
   /* Entrée du menu burger = carte blanche sur fond gris. MÊME geste « cerclage rouge » que .svv-doc (bordure 1px line→red,
      transition border-color .15s ease, texte inchangé), ÉTENDU à focus-visible (clavier) et active (appui tactile). */
-  .svv-menu-entree{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-height:56px;background:#fff;border:1px solid var(--color-svv-line);border-radius:12px;padding:12px 16px;font-size:1rem;font-weight:600;color:var(--color-svv-ink);transition:border-color .15s ease}
+  .svv-menu-entree{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-height:56px;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:12px;padding:12px 16px;font-size:1rem;font-weight:600;color:var(--color-svv-ink);transition:border-color .15s ease}
   .svv-menu-entree:hover,.svv-menu-entree:focus-visible,.svv-menu-entree:active{border-color:var(--color-svv-red)}
   @media (prefers-reduced-motion: reduce){.svv-chevron,.svv-doc,.svv-menu-entree{transition:none}}
   /* U1 — infobulle CSS des boutons d'action de l'onglet Réponses (statut d'un dossier). PAS de `title` natif (invisible au
@@ -60,7 +70,7 @@
      display:none ni visibility:hidden) → lue par aria-describedby au focus ; elle n'APPARAÎT visuellement qu'au survol ou au
      focus clavier (:focus-within). Sur tactile (pas de survol), le dépliant « À quoi servent ces boutons ? » prend le relais. */
   .svv-tip-wrap{position:relative;display:inline-flex}
-  .svv-tip{position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);z-index:30;width:max-content;max-width:16rem;background:var(--color-svv-ink);color:#fff;font-size:12px;font-weight:500;line-height:1.35;text-align:left;padding:.4rem .55rem;border-radius:.4rem;box-shadow:0 6px 18px rgba(0,0,0,.18);opacity:0;pointer-events:none}
+  .svv-tip{position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);z-index:30;width:max-content;max-width:16rem;background:var(--color-svv-tip-bg);color:#fff;font-size:12px;font-weight:500;line-height:1.35;text-align:left;padding:.4rem .55rem;border-radius:.4rem;box-shadow:0 6px 18px rgba(0,0,0,.18);opacity:0;pointer-events:none}
   .svv-tip-wrap:hover .svv-tip,.svv-tip-wrap:focus-within .svv-tip{opacity:1}
   /* Apparition douce UNIQUEMENT si l'utilisateur ne demande pas la réduction de mouvement (sinon bascule instantanée). */
   @media (prefers-reduced-motion: no-preference){.svv-tip{transition:opacity .12s ease}}
@@ -77,6 +87,71 @@
   .svv-verif{font-family:var(--font-svv-text),system-ui,Arial,Helvetica,sans-serif}
   .svv-verif-title{font-family:var(--font-svv-title),"Space Grotesk",system-ui,sans-serif}
   .svv-verif-mono{font-family:var(--font-svv-mono),ui-monospace,"IBM Plex Mono",monospace}
+}
+
+/* ==========================================================================
+   LOT 37 — THÈME SOMBRE DE L'ADMIN (fondation, lot 1/3)
+   SCOPÉ à `.svv-adm-root` (racine posée par app/(admin)/layout.tsx) : on ne
+   touche JAMAIS `:root` → le tunnel public ET le PDF du certificat restent clairs.
+   L'attribut data-theme porte le choix : 'light' | 'dark' | 'system'. 'system'
+   suit la media query `prefers-color-scheme` (défaut). Les tokens basculés sont
+   des SURFACES/textes/bordures + les couleurs de SENS (rouge d'alerte, ambre,
+   vert, rouge-soft) recalculées pour un contraste ≥ 4,5:1 sur la surface sombre
+   #1b232f (ratios mesurés en commit). Le premier obstacle réel du label n'est pas
+   concerné : cette bascule est 100 % cosmétique.
+   ========================================================================== */
+.svv-adm-root { background: var(--color-svv-bg); color: var(--color-svv-ink); min-height: 100dvh; }
+
+/* Aucune transition de COULEUR au changement de thème : le sélecteur pose brièvement
+   cette classe le temps de la bascule (évite tout fondu des fonds/bordures), puis la retire
+   (les transitions de survol .15s reprennent normalement). Couvre aussi prefers-reduced-motion. */
+.svv-adm-root.svv-no-transition, .svv-adm-root.svv-no-transition * { transition: none !important; }
+
+/* --- Palette sombre (valeurs mesurées, cf. message de commit) --- */
+.svv-adm-root[data-theme='dark'] {
+  --color-svv-surface: #1b232f;
+  --color-svv-bg: #10151c;
+  --color-svv-ink: #e8ebef;
+  --color-svv-muted: #9aa5b3;
+  --color-svv-gray: #c2c9d2;
+  --color-svv-line: #313c4c;
+  --color-svv-line-strong: #384454;
+  --color-svv-line-strong-hover: #4a5a6e;
+  --color-svv-field: #242e3c;
+  --color-svv-label: #9aa5b3;
+  --color-svv-tip-bg: #313c4c;
+  --color-svv-red: #ff6b6b;
+  --color-svv-red-dark: #ff8a8a;
+  --color-svv-red-soft: #3a1e21;
+  --color-svv-green: #4ade80;
+  --color-svv-green-soft: #16301f;
+  --color-svv-green-ink: #7ee2a4;
+  --color-svv-amber: #f2b23c;
+  --color-svv-amber-soft: #382a0e;
+}
+/* 'system' → suit le réglage du système d'exploitation (mêmes valeurs quand l'OS est sombre). */
+@media (prefers-color-scheme: dark) {
+  .svv-adm-root[data-theme='system'] {
+    --color-svv-surface: #1b232f;
+    --color-svv-bg: #10151c;
+    --color-svv-ink: #e8ebef;
+    --color-svv-muted: #9aa5b3;
+    --color-svv-gray: #c2c9d2;
+    --color-svv-line: #313c4c;
+    --color-svv-line-strong: #384454;
+    --color-svv-line-strong-hover: #4a5a6e;
+    --color-svv-field: #242e3c;
+    --color-svv-label: #9aa5b3;
+    --color-svv-tip-bg: #313c4c;
+    --color-svv-red: #ff6b6b;
+    --color-svv-red-dark: #ff8a8a;
+    --color-svv-red-soft: #3a1e21;
+    --color-svv-green: #4ade80;
+    --color-svv-green-soft: #16301f;
+    --color-svv-green-ink: #7ee2a4;
+    --color-svv-amber: #f2b23c;
+    --color-svv-amber-soft: #382a0e;
+  }
 }
 
 body {

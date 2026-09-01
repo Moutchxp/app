@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { liensVisibles, ordonner } from './menuAdmin';
+import { SelecteurTheme } from './SelecteurTheme';
 import type { Perms, RoleAdmin } from '../../../lib/admin/session';
 
 export function Sidebar({ role, perms, ordreModules }: { role: RoleAdmin; perms: Perms; ordreModules?: unknown }) {
@@ -63,6 +64,12 @@ export function Sidebar({ role, perms, ordreModules }: { role: RoleAdmin; perms:
           <button type="button" className="svv-adm-logout" onClick={deconnexion}>
             Déconnexion
           </button>
+
+          {/* LOT 37 — bascule de thème (Clair/Sombre/Système). Dans la nav : sur mobile elle vit dans le menu burger, sur desktop en pied de sidebar. */}
+          <div className="svv-adm-theme">
+            <span className="svv-adm-theme-lbl">Thème</span>
+            <SelecteurTheme />
+          </div>
         </nav>
       </aside>
     </>
@@ -75,11 +82,11 @@ const CSS = `
 .svv-adm-bandeau{border-bottom:1px solid var(--color-svv-line);padding:.6rem 1rem;font-size:.8rem;color:var(--color-svv-muted);background:var(--color-svv-field)}
 .svv-adm-main{flex:1;padding:1.25rem;min-width:0}
 
-.svv-adm-sidebar{background:#fff;border-bottom:1px solid var(--color-svv-line)}
+.svv-adm-sidebar{background:var(--color-svv-surface);border-bottom:1px solid var(--color-svv-line)}
 .svv-adm-brand-row{display:flex;align-items:center;justify-content:space-between;padding:.6rem 1rem;min-height:56px}
 .svv-adm-brand{display:inline-flex;align-items:center;gap:.4rem;font-weight:800;color:var(--color-svv-ink);text-decoration:none;font-size:1rem}
 .svv-adm-brand-mark{color:var(--color-svv-red)}
-.svv-adm-burger{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;border:1px solid var(--color-svv-line);border-radius:.6rem;background:#fff;color:var(--color-svv-ink);cursor:pointer}
+.svv-adm-burger{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;border:1px solid var(--color-svv-line);border-radius:.6rem;background:var(--color-svv-surface);color:var(--color-svv-ink);cursor:pointer}
 .svv-adm-burger-bars{font-size:1.4rem;line-height:1}
 
 .svv-adm-nav{display:none;flex-direction:column;gap:.25rem;padding:.25rem .75rem 1rem}
@@ -87,8 +94,10 @@ const CSS = `
 .svv-adm-link{display:flex;align-items:center;min-height:44px;padding:.5rem .75rem;border-radius:.6rem;color:var(--color-svv-gray);text-decoration:none;font-weight:600;font-size:.95rem}
 .svv-adm-link:hover{background:var(--color-svv-field)}
 .svv-adm-link[data-actif="true"]{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
-.svv-adm-logout{display:flex;align-items:center;min-height:44px;margin-top:.5rem;padding:.5rem .75rem;border:1px solid var(--color-svv-line);border-radius:.6rem;background:#fff;color:var(--color-svv-red);font-weight:700;font-size:.95rem;cursor:pointer;text-align:left}
+.svv-adm-logout{display:flex;align-items:center;min-height:44px;margin-top:.5rem;padding:.5rem .75rem;border:1px solid var(--color-svv-line);border-radius:.6rem;background:var(--color-svv-surface);color:var(--color-svv-red);font-weight:700;font-size:.95rem;cursor:pointer;text-align:left}
 .svv-adm-logout:hover{background:var(--color-svv-field)}
+.svv-adm-theme{margin-top:.75rem;padding-top:.75rem;border-top:1px solid var(--color-svv-line)}
+.svv-adm-theme-lbl{display:block;font-size:.7rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;color:var(--color-svv-muted);margin-bottom:.35rem}
 
 @media (min-width:768px){
   .svv-adm-shell{flex-direction:row}
