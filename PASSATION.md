@@ -1,4 +1,4 @@
-> Passation générée le 31/08/2026 à 23h21
+> Passation générée le 01/09/2026 à 17h06
 
 # PASSATION — Application « Sans Vis-à-Vis® » (module Veille Permis)
 
@@ -12,13 +12,13 @@
 - **Repo** : github.com/Moutchxp/app · branche `main`. **Stack** : Next.js 16.2.9, React 19, TypeScript 5,
   Tailwind v4, **PostgreSQL 17 + PostGIS en LOCAL** (driver `pg` sur `DATABASE_URL`, pas de Supabase).
 - **Base LOCALE** : `postgresql://localhost:5432/sansvisavis`. Les migrations vivent dans `db/migrations/NNN_*.sql`,
-  **livrées NON APPLIQUÉES** puis appliquées à la main par Arno (`psql -v ON_ERROR_STOP=1 -f …`). Dernière = **184**
-  (LOT 30bis), **appliquée** en local ; **183** (LOT 27) a fait passer `relance_multi_adresse_active` à **TRUE** (multi-adresse
-  = norme), **184** a ajouté `cascade_partiel_auto_active` (défaut TRUE) + la table `cascade_partiel_creneau`.
+  **livrées NON APPLIQUÉES** puis appliquées à la main par Arno (`psql -v ON_ERROR_STOP=1 -f …`). Dernière = **187**
+  (LOT 34), **appliquée** en local ; **185, 186 et 187 APPLIQUÉES** : 185 (LOT 31) plafond anti-cumul d'envoi auto,
+  186 (LOT 29) table `mairie_contact_email` (ajouts manuels de destinataires), 187 (LOT 34) relève différée du dépôt.
 
 ## 2. Règles de collaboration (impératives)
 - **Un chantier = un prompt = un commit.** Recon **LECTURE SEULE** avant tout write sur fichier sensible.
-- **CONTRÔLE DE FIN OBLIGATOIRE, dans l'ordre** : `npm test` COMPLET (= `vitest run`, **447 fichiers / ~5867 tests**)
+- **CONTRÔLE DE FIN OBLIGATOIRE, dans l'ordre** : `npm test` COMPLET (= `vitest run`, **458 fichiers / 5967 tests**)
   · `npm run test:integration` (23 fichiers, vraie base) · `npx tsc --noEmit` · delta eslint · `npm run build`.
   Les suites filtrées par chemin sont des contrôles RAPIDES, **jamais** le contrôle de fin (précédent
   `curation.test.ts` rouge 14/07→03/08, invisible aux filtrés). **INTERDIT : `npm run veille:run`** (envoi réel).
@@ -94,7 +94,7 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
   `ORDRE_FAMILLES` + règle `familleAffichee(onglet, famille, nonVide)`. Familles : contact, suivi_actions,
   completude, historique, caracteristiques, batiments, pieces. Rendu paresseux (`BlocRepliable`, render-prop).
 
-### LOTS de CETTE session (13 → 30, tous committés, working tree propre)
+### LOTS de CETTE session (13 → 39, tous committés, working tree propre)
 - **13** — Compteur de familles manquantes (rouge) dans le titre « Complétude des pièces » + historique de nos
   envois. `historiqueEnvois.ts` (pur), `completudeRepo.manquantesParDossier`.
 - **14b** — **Liseuse de pièces** (`LiseusePieces.tsx`, lecture seule, best-of + aperçu PDF pdf.js) montée en tête
@@ -160,24 +160,57 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
   `partiel_le`). **Migration 184.**
 - **30** (`2fcaab9`) — Titre **« Complétude des pièces & relance mail »** + option **« compte / ne compte pas »** sur
   une relance manuelle + **traçabilité de ce choix dans la frise**.
+- **29** (`f32987a`) — **Sélecteur de destinataire** pour la relance manuelle : **jeu large** (`dest_email` ∪ contact
+  confirmé ∪ prada ∪ répondants de la commune ∪ **ajouts manuels**), **provenance affichée** par option, présélection =
+  **dernier répondant**, ajout manuel **persisté en statut 'confirme'** (**migration 186**, table `mairie_contact_email`).
+  Composant **partagé** avec « Déclarer cette relance ». Le rattachement reste **par identifiants**, prouvé **insensible
+  au destinataire**.
+- **31** (`a150d40`) — **PLAFOND ANTI-CUMUL** : **1 envoi auto par demande et par run**, tous émetteurs confondus
+  (**migration 185**). Ferme un trou **PROUVÉ par audit** : PART-E et la cascade partielle pouvaient émettre **DEUX
+  relances quasi identiques** à la même mairie dans le même run. **Réordonnancement cascade→PART-E** (la cascade gagne,
+  PART-E est supersédé pour cette réponse et repart sur toute nouvelle réponse).
+- **32** (`494e691`) — Sélecteur **MULTIPLE** : envoi manuel à **plusieurs adresses**, **tous en To**, **au moins un
+  obligatoire**.
+- **33** (`35c9ebe`) — « **Basculer une commune de rail** » réservé à l'onglet « À demander ».
+- **34** (`458a1af`) — le clic « **copier** » **DÉCLENCHE** une relève **différée** (~60 s, **migration 187**). Il ne
+  déclenchait **rien** auparavant : le lot de câblage n'avait **jamais été fait**. Relève en **lecture seule stricte**,
+  sans aucun émetteur atteignable.
+- **35** (`c473941`) — **CORRECTIF PROUVÉ EN RÉEL** : la confirmation « Oui, déposée » passait **null** en 3e argument
+  de `marquerDeposee`, donc la **référence mairie n'était JAMAIS écrite**. Corrigé : la confirmation **lit la référence
+  du message déclencheur et l'écrit**, quel que soit l'ordre des clics.
+- **36** (`62dddbee`) — mention « **N demande(s) en cours** » en **rouge + gras** quand > 0, **par bouton**,
+  indépendamment.
+- **37** (`9d0df2a`), **38** (`a9422b9`), **39** (`f10b544`) — **CHANTIER THÈME SOMBRE de l'admin**, terminé en **3 lots** :
+  **mécanisme** `data-theme` (Clair/Sombre/Système, **défaut système**, persisté, **anti-flash**), **tokenisation**,
+  **SECONDE PALETTE obligatoire** pour les couleurs de sens (le rouge `#a30402` tombait à **1,2:1** sur fond sombre),
+  **balayage des fonds**, **familles ambre et bleu** nouvellement tokenisées. **Tous ratios ≥ 4,5:1** dans les deux
+  thèmes. **Hex en dur : 235 → 181**, les restants justifiés. **Zones qui restent CLAIRES par décision** : canvas
+  liseuse, tracé d'emprise, cartes, PDF. Bascule dans la **sidebar sous « Déconnexion »**.
 
 ## 6. État courant & prochaine action
-- **Working tree PROPRE** (rien de non committé). Dernier commit : **`2fcaab9` (LOT 30)**, tout **poussé**
-  (`main` == `origin/main`). **Migrations 183 ET 184 APPLIQUÉES en local** : 183 a fait passer
-  `relance_multi_adresse_active` à **TRUE** (multi-adresse des 2 dernières relances = NORME, LOT 27) ; 184 a ajouté
-  `cascade_partiel_auto_active` (défaut TRUE) + la table `cascade_partiel_creneau` (LOT 30bis). **Les DEUX cascades —
-  ordinaire ET partielle — partent désormais en AUTO** (LaunchAgent /15 min) ; l'envoi manuel n'est plus qu'une option
-  hors calendrier.
+- **Working tree PROPRE** (rien de non committé). Dernier commit : **`f10b544` (LOT 39)**, **TOUT POUSSÉ** (vérifié,
+  `main` == `origin/main`). **Migrations 185, 186 ET 187 APPLIQUÉES en local** (en plus de 183/184 déjà en place) :
+  185 = plafond anti-cumul (LOT 31), 186 = table `mairie_contact_email` (LOT 29), 187 = relève différée du dépôt
+  (LOT 34). **Les DEUX cascades — ordinaire ET partielle — partent en AUTO** (LaunchAgent /15 min) ; l'envoi manuel
+  n'est plus qu'une option hors calendrier.
 - **Aucun chantier en cours** : Arno enchaîne des « LOT N » séquentiels ; attendre le prochain.
-- **PREMIER PASSAGE À OBSERVER EN RÉEL** : la demande **154 (Aubervilliers, `partiel_le` au 28/08/2026)** est le
-  **SEUL dossier en régime partiel**. Sa **première relance partielle AUTOMATIQUE** est attendue **vers le 7 septembre
-  2026** — c'est le **premier tir réel de la cascade partielle auto** (LOT 30bis) à surveiller.
+- **ÉVÉNEMENT MARQUANT DU 01/09/2026 — PREMIER DÉPÔT TÉLÉSERVICE PARIS RÉEL de bout en bout** (demande **161**) : la
+  **relève déclenchée** (LOT 34) a marché, l'**accusé a été détecté**, la référence **`SLC260901542604` extraite** — mais
+  **l'écriture a échoué** (défaut corrigé au **LOT 35**). **Leçon à consigner** : **DEUX maillons marqués « ça devrait
+  marcher » sans avoir jamais tourné en réel ont échoué au premier passage** (le câblage de la relève au clic « copier »,
+  jamais fait → LOT 34 ; l'écriture de la référence mairie, `null` silencieux → LOT 35). Corollaire : **exercer chaque
+  maillon EN RÉEL avant de le déclarer acquis**.
+- **3e MAILLON JAMAIS EXERCÉ, À OBSERVER** : la demande **154 (Aubervilliers, `partiel_le` au 28/08/2026)** est le
+  **SEUL dossier en régime partiel**. Sa **première relance partielle AUTOMATIQUE** (cascade partielle auto, LOT 30bis)
+  est attendue **vers le 7 septembre 2026** — **premier tir réel** de ce maillon, **à observer ce jour-là**.
 - **Pistes ouvertes signalées à Arno** (à sa main) : (a) harmoniser l'affichage horaire du fil `BlocFilEchanges`
   (**UTC**) avec la mention (Paris) — divergence pré-existante ; (b) **réduire l'échelle de base du PREMIER rendu de la
   liseuse** (rendu à 1× + remontée en résolution au zoom, arbitrage sur le critère du flou) — ancienne piste « LOT 26
   possible », le n° 26 ayant servi à autre chose ; le cache de rendu (LOT 25) rend le RETOUR instantané mais n'accélère
   PAS le premier rendu d'un plan jamais vu. **Chiffres mesurés** : plan A0 le plus dense d'Aubervilliers (dossier 7424,
-  pièce 314, **3370×2384 pt, 21 Mo**) → render **~3,5 s à froid** (polices incluses), **~0,65 s à chaud**.
+  pièce 314, **3370×2384 pt, 21 Mo**) → render **~3,5 s à froid** (polices incluses), **~0,65 s à chaud** ; (c) **thème
+  sombre — parcourir l'admin ÉCRAN PAR ÉCRAN en sombre** pour repérer ce qu'**aucun grep ne voit** (contrastes vécus,
+  fonds oubliés hors des motifs balayés) : **Statistiques, Pilotage Moteur, Curation, Banc de test, Audit, Administratif**.
 - **Prochaine action immédiate** : recevoir et exécuter le prochain « LOT » d'Arno (recon lecture seule → implémente
   → contrôles de fin dans l'ordre → commit).
 
