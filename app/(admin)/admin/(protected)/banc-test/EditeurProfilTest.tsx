@@ -184,7 +184,7 @@ function ChampScalaire({
         <select
           value={String(valeur)}
           onChange={(e) => onEdit(e.target.value)}
-          className="rounded-lg border border-svv-line bg-white px-2 py-1 text-sm text-svv-ink focus:border-svv-red focus:outline-none"
+          className="rounded-lg border border-svv-line bg-svv-surface px-2 py-1 text-sm text-svv-ink focus:border-svv-red focus:outline-none"
           style={modifie ? { borderColor: "var(--color-svv-red)", boxShadow: "0 0 0 1px var(--color-svv-red)" } : undefined}
         >
           {(meta.optionsEnum ?? []).map((o) => (
@@ -199,7 +199,7 @@ function ChampScalaire({
           max={meta.max}
           step={meta.pas ?? "any"}
           onChange={(e) => onEdit(e.target.value)}
-          className="rounded-lg border border-svv-line bg-white px-2 py-1 text-sm text-svv-ink focus:border-svv-red focus:outline-none"
+          className="rounded-lg border border-svv-line bg-svv-surface px-2 py-1 text-sm text-svv-ink focus:border-svv-red focus:outline-none"
           style={{ width: 110, ...(modifie ? { borderColor: "var(--color-svv-red)", boxShadow: "0 0 0 1px var(--color-svv-red)" } : {}) }}
         />
       )}
@@ -221,7 +221,7 @@ function CarteLigne({
   onSupprimer: () => void;
 }) {
   const nb = (v: string): number | null => (v.trim() === "" ? null : Number(v));
-  const champStyle = "rounded-lg border border-svv-line bg-white px-2 py-1 text-sm text-svv-ink focus:border-svv-red focus:outline-none";
+  const champStyle = "rounded-lg border border-svv-line bg-svv-surface px-2 py-1 text-sm text-svv-ink focus:border-svv-red focus:outline-none";
   return (
     <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, borderTop: "1px dashed var(--color-svv-line)", paddingTop: 8 }}>
       <span style={{ fontSize: ".72rem", color: "var(--color-svv-muted)" }}>Année</span>

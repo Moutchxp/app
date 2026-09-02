@@ -77,13 +77,13 @@ const champ: CSSProperties = {
   padding: '0 10px',
   borderRadius: 8,
   border: '1px solid var(--color-svv-line)',
-  background: '#fff',
+  background: 'var(--color-svv-surface)',
   color: 'var(--color-svv-ink)',
   fontSize: '.85rem',
   width: '100%',
 };
 const btnRouge: CSSProperties = { padding: '0 14px', borderRadius: 10, border: 0, background: 'var(--color-svv-red)', color: '#fff', fontWeight: 700, fontSize: '.85rem', cursor: 'pointer' };
-const btnOutline: CSSProperties = { padding: '0 14px', borderRadius: 10, border: '1px solid var(--color-svv-line)', background: '#fff', color: 'var(--color-svv-ink)', fontWeight: 700, fontSize: '.85rem', cursor: 'pointer' };
+const btnOutline: CSSProperties = { padding: '0 14px', borderRadius: 10, border: '1px solid var(--color-svv-line)', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)', fontWeight: 700, fontSize: '.85rem', cursor: 'pointer' };
 
 /** Référence géo d'une commune présente en base F1 (endpoint /communes, DYNAMIQUE). */
 type CommuneRef = { insee: string; nom: string; dept: string; deptNom: string };
@@ -206,7 +206,7 @@ function SelecteurGeo({ communes, selection, onValider }: {
     border: `1px solid ${actif ? 'var(--color-svv-red)' : 'transparent'}`, background: actif ? 'var(--color-svv-field)' : 'transparent',
   });
   const coche = (actif: boolean) => (
-    <span aria-hidden style={{ flex: '0 0 auto', width: 16, height: 16, borderRadius: 4, border: `1px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`, background: actif ? 'var(--color-svv-red)' : '#fff', color: '#fff', fontSize: 12, lineHeight: '14px', textAlign: 'center' }}>{actif ? '✓' : ''}</span>
+    <span aria-hidden style={{ flex: '0 0 auto', width: 16, height: 16, borderRadius: 4, border: `1px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`, background: actif ? 'var(--color-svv-red)' : 'var(--color-svv-surface)', color: '#fff', fontSize: 12, lineHeight: '14px', textAlign: 'center' }}>{actif ? '✓' : ''}</span>
   );
 
   return (
@@ -843,7 +843,7 @@ export function InternautesVue() {
                     fontWeight: 700,
                     fontSize: '.85rem',
                     border: `1px solid ${coche ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
-                    background: coche ? 'var(--color-svv-red)' : '#fff',
+                    background: coche ? 'var(--color-svv-red)' : 'var(--color-svv-surface)',
                     color: coche ? '#fff' : 'var(--color-svv-ink)',
                   }}
                 >
@@ -865,7 +865,7 @@ export function InternautesVue() {
                 height: 44,
                 borderRadius: 999,
                 border: `1px solid ${infoOuvert ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
-                background: '#fff',
+                background: 'var(--color-svv-surface)',
                 color: infoOuvert ? 'var(--color-svv-red)' : 'var(--color-svv-ink)',
                 fontWeight: 800,
                 fontStyle: 'italic',
@@ -936,7 +936,7 @@ export function InternautesVue() {
                     fontWeight: 700,
                     fontSize: '.8rem',
                     border: `2px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
-                    background: '#fff',
+                    background: 'var(--color-svv-surface)',
                     color: actif ? 'var(--color-svv-red)' : 'var(--color-svv-ink)',
                   }}
                 >
@@ -1146,7 +1146,7 @@ export function InternautesVue() {
                     fontWeight: 700,
                     fontSize: '.8rem',
                     border: `2px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
-                    background: '#fff',
+                    background: 'var(--color-svv-surface)',
                     color: actif ? 'var(--color-svv-red)' : 'var(--color-svv-ink)',
                   }}
                 >
@@ -1587,7 +1587,7 @@ function FicheDetail({ detail, actions, actionsProjet, soumettreRetrait, retrait
                       <button
                         type="button"
                         aria-label={infoRetrait}
-                        style={{ width: 15, height: 15, minHeight: 0, padding: 0, border: '1px solid var(--color-svv-red)', borderRadius: 999, background: '#fff', color: 'var(--color-svv-red)', fontStyle: 'italic', fontWeight: 700, fontSize: '.64rem', lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'help', flexShrink: 0 }}
+                        style={{ width: 15, height: 15, minHeight: 0, padding: 0, border: '1px solid var(--color-svv-red)', borderRadius: 999, background: 'var(--color-svv-surface)', color: 'var(--color-svv-red)', fontStyle: 'italic', fontWeight: 700, fontSize: '.64rem', lineHeight: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', cursor: 'help', flexShrink: 0 }}
                       >
                         i
                       </button>

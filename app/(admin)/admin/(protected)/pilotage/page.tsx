@@ -723,7 +723,7 @@ const CSS = `
 .svv-pil-note{margin:.5rem 0 0;font-size:.78rem;color:var(--color-svv-muted);line-height:1.35}
 
 .svv-pil-edit{display:flex;flex-direction:column;gap:.2rem;flex:1 1 100%;min-width:0}
-.svv-pil-input,.svv-pil-select{width:100%;box-sizing:border-box;padding:.4rem .5rem;border:1px solid var(--color-svv-line);border-radius:.45rem;background:#fff;color:var(--color-svv-ink);font-size:.95rem;font-family:inherit}
+.svv-pil-input,.svv-pil-select{width:100%;box-sizing:border-box;padding:.4rem .5rem;border:1px solid var(--color-svv-line);border-radius:.45rem;background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:.95rem;font-family:inherit}
 .svv-pil-input:focus,.svv-pil-select:focus{outline:2px solid var(--color-svv-red);outline-offset:0}
 .svv-pil-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:.55rem}
 .svv-pil-btn{appearance:none;border:1px solid var(--color-svv-red);background:var(--color-svv-red);color:#fff;font-weight:700;font-size:.82rem;padding:.4rem .8rem;border-radius:.5rem;cursor:pointer;line-height:1.2}

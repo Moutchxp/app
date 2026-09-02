@@ -38,7 +38,7 @@ const puce = (actif: boolean): CSSProperties => ({
   padding: '0 12px',
   borderRadius: 10,
   border: `1px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
-  background: actif ? 'var(--color-svv-red)' : '#fff',
+  background: actif ? 'var(--color-svv-red)' : 'var(--color-svv-surface)',
   color: actif ? '#fff' : 'var(--color-svv-ink)',
   fontWeight: 700,
   fontSize: '.82rem',

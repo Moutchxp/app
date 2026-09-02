@@ -403,7 +403,7 @@ export default function BancSaisie() {
             }
           }}
           placeholder="ou coordonnées GPS : 48.9044, 2.2701"
-          className="w-full rounded-xl border border-svv-line bg-white p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
+          className="w-full rounded-xl border border-svv-line bg-svv-surface p-3 text-base text-svv-ink placeholder:text-svv-muted focus:border-svv-red focus:outline-none"
           style={{ flex: 1 }}
         />
         <button
@@ -419,7 +419,7 @@ export default function BancSaisie() {
 
       {/* 3. Étage + Hauteur sous plafond — sur une seule ligne (BE-35/36) */}
       <div style={{ marginTop: 18, display: "flex", gap: 20, flexWrap: "wrap" }}>
-        <div style={{ flex: "1 1 200px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "8px 12px", background: "#fff" }}>
+        <div style={{ flex: "1 1 200px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "8px 12px", background: "var(--color-svv-surface)" }}>
           <span className="svv-label">Étage</span>
           <Stepper
             value={String(etage)}
@@ -428,7 +428,7 @@ export default function BancSaisie() {
             minusDisabled={etage <= 0}
           />
         </div>
-        <div style={{ flex: "1 1 240px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "8px 12px", background: "#fff" }}>
+        <div style={{ flex: "1 1 240px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, border: "1px solid var(--color-svv-line)", borderRadius: 10, padding: "8px 12px", background: "var(--color-svv-surface)" }}>
           <span className="svv-label">Hauteur sous plafond</span>
           <Stepper
             value={`${hauteurSousPlafondM.toFixed(2).replace(".", ",")} m`}
@@ -547,7 +547,7 @@ export default function BancSaisie() {
             max={359}
             value={Math.round(azimut)}
             onChange={(e) => setAzimut(norm360(Number(e.target.value) || 0))}
-            className="rounded-lg border border-svv-line bg-white px-2 py-1 text-base text-svv-ink focus:border-svv-red focus:outline-none"
+            className="rounded-lg border border-svv-line bg-svv-surface px-2 py-1 text-base text-svv-ink focus:border-svv-red focus:outline-none"
             style={{ width: 90 }}
           />
           <span style={{ color: "var(--color-svv-muted)", fontSize: ".85rem" }}>°</span>
@@ -810,7 +810,7 @@ function Stepper({
       height: 40,
       borderRadius: 10,
       border: "1px solid var(--color-svv-line)",
-      background: disabled ? "var(--color-svv-field)" : "#fff",
+      background: disabled ? "var(--color-svv-field)" : "var(--color-svv-surface)",
       color: disabled ? "var(--color-svv-muted)" : "var(--color-svv-ink)",
       fontSize: "1.2rem",
       lineHeight: 1,

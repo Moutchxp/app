@@ -2216,7 +2216,7 @@ const CSS = `
 .svv-cur-panneau-filtres{display:flex;flex-direction:column;gap:.4rem}
 .svv-cur-form{display:flex;flex-direction:column;gap:.45rem;border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.6rem;background:var(--color-svv-field)}
 .svv-cur-form-champ{display:flex;flex-direction:column;gap:.2rem;font-size:.8rem;font-weight:600;color:var(--color-svv-ink)}
-.svv-cur-form-champ select,.svv-cur-form-champ input{width:100%;box-sizing:border-box;padding:.45rem .55rem;border:1px solid var(--color-svv-line);border-radius:.5rem;background:#fff;color:var(--color-svv-ink);font-size:.9rem;font-family:inherit;font-weight:500;min-height:44px}
+.svv-cur-form-champ select,.svv-cur-form-champ input{width:100%;box-sizing:border-box;padding:.45rem .55rem;border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:.9rem;font-family:inherit;font-weight:500;min-height:44px}
 .svv-cur-form-actions{display:flex;gap:.4rem}
 .svv-cur-compo{display:flex;flex-direction:column;gap:.4rem;border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.6rem;background:var(--color-svv-field)}
 .svv-cur-compo-tete{display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
@@ -2228,7 +2228,7 @@ const CSS = `
 .svv-cur-compo-cleabs{display:flex;align-items:center;gap:.4rem;padding:.2rem .1rem;border-bottom:1px solid var(--color-svv-line)}
 .svv-cur-compo-cleabs code{font-size:.75rem}
 .svv-cur-compo-mere{font-size:.7rem;font-weight:700;color:var(--color-svv-green-ink);white-space:nowrap}
-.svv-cur-compo-x{margin-left:auto;appearance:none;border:1px solid var(--color-svv-line);background:#fff;color:var(--color-svv-red-dark);font-size:.8rem;line-height:1;width:24px;height:24px;border-radius:.4rem;cursor:pointer}
+.svv-cur-compo-x{margin-left:auto;appearance:none;border:1px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-red-dark);font-size:.8rem;line-height:1;width:24px;height:24px;border-radius:.4rem;cursor:pointer}
 .svv-cur-compo-x:disabled{opacity:.5;cursor:default}
 .svv-cur-form-cible{margin:0;font-size:.78rem;line-height:1.35;color:var(--color-svv-green-ink);background:var(--color-svv-green-soft);border-radius:.45rem;padding:.4rem .5rem}
 .svv-cur-filtres{border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.5rem .6rem;margin:0;display:flex;flex-wrap:wrap;gap:.35rem .7rem;background:var(--color-svv-field)}
@@ -2278,7 +2278,7 @@ const CSS = `
 .svv-cur-dot{display:inline-block;width:11px;height:11px;border-radius:999px;flex:0 0 auto;border:1px solid rgba(0,0,0,.15)}
 .svv-cur-dot--rouge{background:#fff;border:3px solid #a30402;box-sizing:border-box;width:13px;height:13px}
 
-.svv-cur-recherche input{width:100%;box-sizing:border-box;padding:.5rem .6rem;border:1px solid var(--color-svv-line);border-radius:.5rem;background:#fff;color:var(--color-svv-ink);font-size:.95rem;font-family:inherit;min-height:44px}
+.svv-cur-recherche input{width:100%;box-sizing:border-box;padding:.5rem .6rem;border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:.95rem;font-family:inherit;min-height:44px}
 .svv-cur-recherche input:focus{outline:2px solid var(--color-svv-red);outline-offset:0}
 .svv-cur-sr{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
@@ -2299,7 +2299,7 @@ const CSS = `
 .svv-cur-star{color:#e0a400;margin-right:.25rem}
 .svv-cur-edition-manuel{display:flex;flex-direction:column;gap:.4rem;border:1px solid var(--color-svv-line);border-radius:.5rem;padding:.5rem;background:var(--color-svv-field)}
 .svv-cur-renommer{display:flex;gap:.35rem;align-items:center}
-.svv-cur-renommer input{flex:1;min-width:0;box-sizing:border-box;padding:.4rem .5rem;border:1px solid var(--color-svv-line);border-radius:.5rem;background:#fff;color:var(--color-svv-ink);font-size:.85rem;font-family:inherit;min-height:36px}
+.svv-cur-renommer input{flex:1;min-width:0;box-sizing:border-box;padding:.4rem .5rem;border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:.85rem;font-family:inherit;min-height:36px}
 .svv-cur-item-meta{display:flex;flex-wrap:wrap;align-items:center;gap:.3rem}
 .svv-cur-badge{display:inline-block;font-size:.68rem;font-weight:700;border-radius:999px;padding:.1rem .45rem;background:var(--color-svv-field);color:var(--color-svv-gray);white-space:nowrap}
 .svv-cur-badge--warn{background:var(--color-svv-amber-soft);color:var(--color-svv-amber)}
@@ -2322,7 +2322,7 @@ const CSS = `
 .svv-cur-btn{appearance:none;border:1px solid var(--color-svv-red);background:var(--color-svv-red);color:#fff;font-weight:700;font-size:.8rem;padding:.4rem .7rem;border-radius:.5rem;cursor:pointer;line-height:1.2;min-height:36px}
 .svv-cur-btn:disabled{opacity:.6;cursor:progress}
 .svv-cur-btn--mini{padding:.3rem .55rem;font-size:.75rem;min-height:34px}
-.svv-cur-btn--outline{background:#fff;color:var(--color-svv-ink);border-color:#d7dbe1}
+.svv-cur-btn--outline{background:var(--color-svv-surface);color:var(--color-svv-ink);border-color:#d7dbe1}
 .svv-cur-btn--danger{background:var(--color-svv-red);border-color:var(--color-svv-red);color:#fff}
 
 .svv-cur-pin{background:transparent;border:0}

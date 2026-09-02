@@ -430,7 +430,7 @@ export default function ComptesPage() {
 const CSS = `
 .cpt-h2{font-size:1rem;font-weight:700;color:var(--color-svv-ink);margin:0 0 12px}
 .cpt-form{display:flex;flex-direction:column;gap:10px}
-.cpt-champ{min-height:44px;padding:.6rem;font-size:1rem;border:1px solid var(--color-svv-line);border-radius:.6rem;background:#fff;color:var(--color-svv-ink)}
+.cpt-champ{min-height:44px;padding:.6rem;font-size:1rem;border:1px solid var(--color-svv-line);border-radius:.6rem;background:var(--color-svv-surface);color:var(--color-svv-ink)}
 .cpt-champ:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
 .cpt-err{color:var(--color-svv-red);font-size:.9rem;margin:0 0 12px}
 .cpt-liste{display:flex;flex-direction:column;gap:10px}
@@ -454,17 +454,17 @@ const CSS = `
 .cpt-perms-titre{font-size:.8rem;color:var(--color-svv-muted)}
 .cpt-perms{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:2px 0}
 /* Boutons — hiérarchie stricte, palette du site (aucun bleu), focus rouge visible, cibles >= 44px. */
-.cpt-btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;min-height:44px;padding:.6rem 1rem;font-weight:700;font-size:.95rem;line-height:1.1;border-radius:.7rem;border:1.5px solid transparent;background:#fff;color:var(--color-svv-ink);cursor:pointer;transition:background-color .15s ease,border-color .15s ease}
+.cpt-btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;min-height:44px;padding:.6rem 1rem;font-weight:700;font-size:.95rem;line-height:1.1;border-radius:.7rem;border:1.5px solid transparent;background:var(--color-svv-surface);color:var(--color-svv-ink);cursor:pointer;transition:background-color .15s ease,border-color .15s ease}
 .cpt-btn--primary{background:var(--color-svv-red);color:#fff;border-color:var(--color-svv-red)}
 .cpt-btn--primary:hover{background:var(--color-svv-red-dark);border-color:var(--color-svv-red-dark)}
-.cpt-btn--secondary{background:#fff;color:var(--color-svv-red);border-color:var(--color-svv-red)}
+.cpt-btn--secondary{background:var(--color-svv-surface);color:var(--color-svv-red);border-color:var(--color-svv-red)}
 .cpt-btn--secondary:hover{background:var(--color-svv-red-soft)}
-.cpt-btn--neutral{background:#fff;color:var(--color-svv-gray);border-color:var(--color-svv-line)}
+.cpt-btn--neutral{background:var(--color-svv-surface);color:var(--color-svv-gray);border-color:var(--color-svv-line)}
 .cpt-btn--neutral:hover{border-color:var(--color-svv-muted)}
 .cpt-btn:disabled{opacity:.55;cursor:not-allowed}
 .cpt-btn:focus-visible,.cpt-btn--focus:focus-visible,.cpt-chip:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 /* Pastilles de permission (chips) — état par forme (indicateur ✓/□) + fond, pas la seule couleur. */
-.cpt-chip{display:flex;align-items:center;gap:.5rem;min-height:44px;padding:.5rem .75rem;border-radius:.7rem;border:1.5px solid var(--color-svv-line);background:#fff;color:var(--color-svv-ink);font-size:.9rem;font-weight:600;cursor:pointer;text-align:left;width:100%}
+.cpt-chip{display:flex;align-items:center;gap:.5rem;min-height:44px;padding:.5rem .75rem;border-radius:.7rem;border:1.5px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:.9rem;font-weight:600;cursor:pointer;text-align:left;width:100%}
 .cpt-chip[aria-pressed="true"]{background:var(--color-svv-green-soft);border-color:var(--color-svv-green-ink);color:var(--color-svv-green-ink)}
 .cpt-chip:disabled{cursor:not-allowed;opacity:.85}
 .cpt-chip__ind{width:20px;height:20px;flex-shrink:0;border:1.5px solid currentColor;border-radius:.35rem;display:inline-flex;align-items:center;justify-content:center;font-size:.8rem;font-weight:800}

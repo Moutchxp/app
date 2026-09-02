@@ -505,15 +505,15 @@ const CSS = `
 .svv-ca-champ{display:flex;flex-direction:column;gap:.2rem;min-width:0}
 .svv-ca-label{font-size:.68rem;font-weight:700;letter-spacing:.02em;text-transform:uppercase;color:var(--color-svv-muted)}
 .svv-ca-borne{display:flex;gap:.3rem;min-width:0}
-.svv-ca-select{flex:0 0 auto;min-height:44px;padding:.4rem .4rem;border:1px solid var(--color-svv-line);border-radius:.45rem;background:#fff;color:var(--color-svv-ink);font-size:.95rem;font-family:inherit}
-.svv-ca-input{width:100%;min-width:0;box-sizing:border-box;min-height:44px;padding:.4rem .5rem;border:1px solid var(--color-svv-line);border-radius:.45rem;background:#fff;color:var(--color-svv-ink);font-size:.95rem;font-family:inherit}
+.svv-ca-select{flex:0 0 auto;min-height:44px;padding:.4rem .4rem;border:1px solid var(--color-svv-line);border-radius:.45rem;background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:.95rem;font-family:inherit}
+.svv-ca-input{width:100%;min-width:0;box-sizing:border-box;min-height:44px;padding:.4rem .5rem;border:1px solid var(--color-svv-line);border-radius:.45rem;background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:.95rem;font-family:inherit}
 .svv-ca-select:focus,.svv-ca-input:focus{outline:2px solid var(--color-svv-red);outline-offset:0}
 
 .svv-ca-actions{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin-top:.7rem}
 .svv-ca-btn{appearance:none;min-height:44px;border:1px solid var(--color-svv-red);background:var(--color-svv-red);color:#fff;font-weight:700;font-size:.85rem;padding:.4rem .9rem;border-radius:.5rem;cursor:pointer;line-height:1.2}
 .svv-ca-btn:disabled{opacity:.55;cursor:not-allowed}
-.svv-ca-btn--danger{background:#fff;color:var(--color-svv-red)}
-.svv-ca-btn--ghost{background:#fff;color:var(--color-svv-gray);border-color:var(--color-svv-line)}
+.svv-ca-btn--danger{background:var(--color-svv-surface);color:var(--color-svv-red)}
+.svv-ca-btn--ghost{background:var(--color-svv-surface);color:var(--color-svv-gray);border-color:var(--color-svv-line)}
 .svv-ca-confirm{display:inline-flex;flex-wrap:wrap;align-items:center;gap:.4rem;background:var(--color-svv-red-soft);border:1px solid #f3c9c9;border-radius:.5rem;padding:.35rem .5rem}
 .svv-ca-confirm-txt{font-size:.8rem;font-weight:700;color:var(--color-svv-red-dark)}
 .svv-ca-succes{color:var(--color-svv-green-ink);font-weight:700;font-size:.8rem}

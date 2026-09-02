@@ -375,7 +375,7 @@ export function SerieTemporelle({ serie }: { serie: Statistiques['serie'] }) {
                 fontSize: '.76rem',
                 fontWeight: 700,
                 border: `1px solid ${on ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
-                background: '#fff',
+                background: 'var(--color-svv-surface)',
                 color: on ? 'var(--color-svv-red)' : 'var(--color-svv-muted)',
               }}
             >
@@ -534,7 +534,7 @@ function ChipFiltre({ actif, onClick, children }: { actif: boolean; onClick: () 
   );
 }
 
-const styleSelect: CSSProperties = { minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-line)', background: '#fff', color: 'var(--color-svv-ink)', fontSize: '.82rem' };
+const styleSelect: CSSProperties = { minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-line)', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)', fontSize: '.82rem' };
 
 /**
  * MENU DÉROULANT MULTI-SÉLECTION de communes (PRÉSENTATION SEULE).
@@ -646,7 +646,7 @@ function MenuCommunes({
                       color: 'var(--color-svv-ink)',
                     }}
                   >
-                    <span aria-hidden style={{ flex: '0 0 auto', width: 16, height: 16, borderRadius: 4, border: `1px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`, background: actif ? 'var(--color-svv-red)' : '#fff', color: '#fff', fontSize: 12, lineHeight: '14px', textAlign: 'center' }}>{actif ? '✓' : ''}</span>
+                    <span aria-hidden style={{ flex: '0 0 auto', width: 16, height: 16, borderRadius: 4, border: `1px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`, background: actif ? 'var(--color-svv-red)' : 'var(--color-svv-surface)', color: '#fff', fontSize: 12, lineHeight: '14px', textAlign: 'center' }}>{actif ? '✓' : ''}</span>
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{nomDe(x.commune_insee)}</span>
                   </button>
                 );
@@ -658,14 +658,14 @@ function MenuCommunes({
               type="button"
               onClick={onClear}
               disabled={selection.length === 0}
-              style={{ minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-red)', background: '#fff', color: 'var(--color-svv-red)', fontSize: '.72rem', fontWeight: 700, cursor: selection.length === 0 ? 'default' : 'pointer', opacity: selection.length === 0 ? 0.5 : 1 }}
+              style={{ minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-red)', background: 'var(--color-svv-surface)', color: 'var(--color-svv-red)', fontSize: '.72rem', fontWeight: 700, cursor: selection.length === 0 ? 'default' : 'pointer', opacity: selection.length === 0 ? 0.5 : 1 }}
             >
               Tout désélectionner
             </button>
             <button
               type="button"
               onClick={() => setOuvert(false)}
-              style={{ minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-line)', background: '#fff', color: 'var(--color-svv-ink)', fontSize: '.72rem', fontWeight: 700, cursor: 'pointer' }}
+              style={{ minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-line)', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)', fontSize: '.72rem', fontWeight: 700, cursor: 'pointer' }}
             >
               Fermer
             </button>
@@ -857,7 +857,7 @@ const stylePuce = (actif: boolean): CSSProperties => ({
   minHeight: 44,
   borderRadius: 10,
   border: `1px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`,
-  background: actif ? 'var(--color-svv-red)' : '#fff',
+  background: actif ? 'var(--color-svv-red)' : 'var(--color-svv-surface)',
   color: actif ? '#fff' : 'var(--color-svv-ink)',
   fontWeight: 700,
   fontSize: '.82rem',
@@ -873,7 +873,7 @@ export function SelecteurFenetre({
   onChange: (f: Fenetre) => void;
   presetFn: (nom: '7j' | '30j' | '90j', grain: Grain) => Fenetre;
 }) {
-  const styleDate: CSSProperties = { minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-line)', background: '#fff', color: 'var(--color-svv-ink)', fontSize: '.85rem' };
+  const styleDate: CSSProperties = { minHeight: 44, padding: '0 10px', borderRadius: 10, border: '1px solid var(--color-svv-line)', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)', fontSize: '.85rem' };
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }} role="group" aria-label="Période rapide">
