@@ -5,7 +5,6 @@ import { recompterSiSucces } from './comptesActions';
 import { echeanceDe, etatEcheance, type EtatEcheance } from '../../../../lib/veille/echeance';
 import type { ReponsesData } from '../../../../lib/veille/reponsesSuivi';
 import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
-import { dansProcess } from '../../../../lib/sitadel/process';
 import {
   BlocEtatReleve, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
   partitionnerReponses, comparerUrgenceReponse, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
@@ -52,7 +51,7 @@ function Pagination({ page, nbPages, total, onPage }: { page: number; nbPages: n
   );
 }
 
-export function ReponsesVue({ process, onRecompter }: { process: import('../../../../lib/sitadel/process').Process; onRecompter?: () => void }) {
+export function ReponsesVue({ onRecompter }: { onRecompter?: () => void }) {
   const [data, setData] = useState<ReponsesData | null>(null);
   const [maintenant, setMaintenant] = useState<Date>(() => new Date());
   const [erreur, setErreur] = useState(false);
@@ -93,14 +92,14 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
     if (!data) return [];
     const reg = { echeanceAlerteJours: data.reglages.alerteJours, releveFraicheurHeures: data.reglages.fraicheurHeures };
     const derniere = data.derniereOkLe ? new Date(data.derniereOkLe) : null;
-    // D2 — SCOPE PROCESS du suivi des demandes envoyées (filtre d'affichage sur le canal figé). Le rattachement des messages
-    //   orphelins (optionsDemandes ci-dessous) reste NON filtré : une réponse peut concerner une demande de l'autre process.
-    return data.demandes.filter((d) => dansProcess(d.canal, process)).map((d) => {
+    // LOT 40 — « Réponses » n'est PLUS scopé par process : la liste affiche TOUS les rails (e-mail ET téléservice). Le
+    //   commutateur (compteurs « en cours », réponses exclues) a été retiré de cet onglet car il contredisait ce contenu.
+    return data.demandes.map((d) => {
       const envoye = d.envoyeLe ? new Date(d.envoyeLe) : null;
       const r = etatEcheance({ envoyeLe: envoye, statutAcheminement: d.statutAcheminement, dossiersActifs: d.dossiersActifs, dossiersSatisfaits: d.dossiersSatisfaits, derniereReleveOkLe: derniere }, maintenant, reg);
       return { ...d, etat: r.etat as EtatEcheance, motif: r.motif, echeanceLe: envoye ? echeanceDe(envoye) : null };
     }).sort(comparerUrgenceReponse); // PART-D : lien en attente (plus ancien d'abord), puis échéance CADA la plus proche.
-  }, [data, maintenant, process]);
+  }, [data, maintenant]);
 
   // Options du sélecteur de rattachement : les demandes envoyée/close (référence + commune + date, jamais un id brut). T4 : les
   //   SOLDÉES et CLOSE sont DÉMOTÉES (candidates moins probables) mais restent présentes et sélectionnables (filtrer, pas amputer).
@@ -391,8 +390,8 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
         <Pagination page={pRat} nbPages={nbPagesRat} total={data.aRattacher.length} onPage={setPageRat} />
       </section>
 
-      {/* ── Bloc T4 : dépôts à confirmer — nature TÉLÉSERVICE (formulaire) → visible au process Téléservice seul (D2). ── */}
-      {process === 'formulaire' && (
+      {/* ── Bloc T4 : dépôts à confirmer — nature TÉLÉSERVICE. LOT 40 : plus de scope process dans « Réponses » → toujours rendu
+             (data.propositions vaut [] hors téléservice, donc rien ne s'affiche à tort). ── */}
       <section className="flex flex-col gap-2">
         <h2 style={styleH2}>Dépôts à confirmer</h2>
         <BlocPropositions
@@ -406,10 +405,9 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
         />
         <Pagination page={pProp} nbPages={nbPagesProp} total={data.propositions.length} onPage={setPageProp} />
       </section>
-      )}
 
-      {/* ── Bloc 4 : relances préparées — nature E-MAIL AUTO → visible au process E-mail seul (D2). ── */}
-      {process === 'email' && (
+      {/* ── Bloc 4 : relances préparées — nature E-MAIL AUTO. LOT 40 : plus de scope process → toujours rendu
+             (état vide « Aucune relance préparée » si aucune). ── */}
       <section className="flex flex-col gap-2">
         <h2 style={styleH2}>Relances préparées</h2>
         {data.relances.length === 0 ? (
@@ -437,7 +435,6 @@ export function ReponsesVue({ process, onRecompter }: { process: import('../../.
           </>
         )}
       </section>
-      )}
     </div>
   );
 }
