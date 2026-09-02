@@ -85,7 +85,7 @@ export function RevocationWatcher() {
 const CSS = `
 .svv-revoque-overlay{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;
   padding:1.5rem;background:rgba(20,20,20,.55)}
-.svv-revoque-carte{width:100%;max-width:360px;background:#fff;border:1px solid var(--color-svv-line);
+.svv-revoque-carte{width:100%;max-width:360px;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);
   border-radius:.9rem;padding:1.25rem;box-shadow:0 8px 30px rgba(0,0,0,.18)}
 .svv-revoque-titre{margin:0 0 6px;font-size:1.05rem;font-weight:800;color:var(--color-svv-ink)}
 .svv-revoque-texte{margin:0 0 16px;font-size:.9rem;color:var(--color-svv-muted)}

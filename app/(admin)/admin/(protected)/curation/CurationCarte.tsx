@@ -2170,7 +2170,7 @@ const CSS = `
 .svv-cur-map{flex:1 1 auto;min-height:0;border:1px solid var(--color-svv-line);border-radius:.7rem;overflow:hidden;background:var(--color-svv-field)}
 .svv-cur-map-canvas{width:100%;height:100%}
 /* Journal empilé sous la carte (volet A / B). */
-.svv-cur-journal{flex:0 0 45%;min-height:0;display:flex;flex-direction:column;border:1px solid var(--color-svv-line);border-radius:.7rem;overflow:hidden;background:#fff;transition:opacity .15s ease}
+.svv-cur-journal{flex:0 0 45%;min-height:0;display:flex;flex-direction:column;border:1px solid var(--color-svv-line);border-radius:.7rem;overflow:hidden;background:var(--color-svv-surface);transition:opacity .15s ease}
 @media (prefers-reduced-motion: reduce){.svv-cur-journal{transition:none}}
 .svv-cur-journal-tete{display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.4rem .55rem;border-bottom:1px solid var(--color-svv-line);background:var(--color-svv-field)}
 .svv-cur-journal-titre{font-size:.85rem;font-weight:800;color:var(--color-svv-ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -2287,10 +2287,10 @@ const CSS = `
 .svv-cur-legende-liste{margin:0;font-size:.75rem;color:var(--color-svv-muted);font-weight:600}
 
 .svv-cur-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.3rem}
-.svv-cur-item{border:1px solid var(--color-svv-line);border-radius:.55rem;background:#fff;overflow:hidden}
+.svv-cur-item{border:1px solid var(--color-svv-line);border-radius:.55rem;background:var(--color-svv-surface);overflow:hidden}
 .svv-cur-item[data-selection="true"]{border-color:var(--color-svv-red);box-shadow:0 0 0 1px var(--color-svv-red)}
 .svv-cur-item--flash{animation:svv-cur-flash 1.2s ease-out}
-@keyframes svv-cur-flash{from{background:var(--color-svv-green-soft)}to{background:#fff}}
+@keyframes svv-cur-flash{from{background:var(--color-svv-green-soft)}to{background:var(--color-svv-surface)}}
 .svv-cur-item-btn{display:flex;align-items:flex-start;gap:.5rem;width:100%;text-align:left;background:none;border:0;padding:.55rem .6rem;cursor:pointer;min-height:44px}
 .svv-cur-item-btn:hover{background:var(--color-svv-field)}
 .svv-cur-item-btn .svv-cur-dot{margin-top:.2rem}
@@ -2311,7 +2311,7 @@ const CSS = `
 .svv-cur-footer{display:flex;flex-wrap:wrap;gap:.4rem;align-items:center;border-top:1px solid var(--color-svv-line);padding-top:.5rem;margin-top:.1rem}
 .svv-cur-detail-titre{margin:0;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;color:var(--color-svv-muted)}
 .svv-cur-liaisons{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.35rem}
-.svv-cur-liaison{border:1px solid var(--color-svv-line);border-radius:.5rem;background:#fff;padding:.4rem .5rem;display:flex;flex-direction:column;gap:.35rem}
+.svv-cur-liaison{border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-surface);padding:.4rem .5rem;display:flex;flex-direction:column;gap:.35rem}
 .svv-cur-liaison[data-detache="true"]{opacity:.7}
 .svv-cur-liaison-tete{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.3rem}
 .svv-cur-cleabs{font-size:.72rem}

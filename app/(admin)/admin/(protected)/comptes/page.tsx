@@ -471,7 +471,7 @@ const CSS = `
 .cpt-desactives{border-style:dashed}
 .cpt-repli{width:100%;display:flex;align-items:center;justify-content:space-between;min-height:44px;background:none;border:0;cursor:pointer;padding:0;color:var(--color-svv-ink)}
 .cpt-overlay{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center;padding:1.5rem;background:rgba(20,20,20,.55)}
-.cpt-modale{width:100%;max-width:420px;background:#fff;border:1px solid var(--color-svv-line);border-radius:.9rem;padding:1.25rem}
+.cpt-modale{width:100%;max-width:420px;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:.9rem;padding:1.25rem}
 .cpt-titre{margin:0 0 6px;font-size:1.05rem;font-weight:800;color:var(--color-svv-ink)}
 .cpt-sous{margin:0 0 12px;font-size:.85rem;color:var(--color-svv-muted)}
 .cpt-mdp{display:flex;align-items:center;gap:8px;margin-bottom:12px}

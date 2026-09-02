@@ -41,13 +41,14 @@ export const ORDRE_AFFICHAGE_ETATS: readonly EtatSuivi[] = ['arbitrage_demande',
 const styleAide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)', lineHeight: 1.4 };
 
 /**
- * L7 — panneau de détail inséré dans le flux de la liste : TRAME GRISE (fond gris clair + hachures 45° discrètes) pour contraster
- * nettement avec les lignes de permis (blanches). Les cartes internes du détail (`svv-card`) restent blanches → la trame encadre et
- * délimite visiblement où commence/finit le détail. Thème clair, aucune icône, rien d'animé.
+ * L7 — panneau de détail inséré dans le flux de la liste : TRAME (fond var(--color-svv-field) + hachures 45° discrètes, accent
+ * décoratif du thème clair) pour contraster avec les lignes de permis (fond de surface). Les cartes internes du détail
+ * (`svv-card`, surface) tranchent sur la trame (field, teinte voisine distincte) → la trame encadre et délimite où commence/finit
+ * le détail. Tokenisé (clair ET sombre), aucune icône, rien d'animé.
  */
 const styleTrameDetail: CSSProperties = {
   listStyle: 'none', padding: '.5rem', marginTop: '.1rem', borderRadius: '.4rem', border: '1px solid var(--color-svv-line)',
-  backgroundColor: '#f4f4f5', backgroundImage: 'repeating-linear-gradient(45deg, rgba(0,0,0,.05) 0 1px, transparent 1px 7px)',
+  backgroundColor: 'var(--color-svv-field)', backgroundImage: 'repeating-linear-gradient(45deg, rgba(0,0,0,.05) 0 1px, transparent 1px 7px)',
 };
 
 /**

@@ -689,13 +689,13 @@ const CSS = `
 .svv-pil-famille-titre::-webkit-details-marker{display:none}
 .svv-pil-famille-titre::before{content:"▸";color:var(--color-svv-muted);transition:transform .15s ease}
 .svv-pil-famille[open] .svv-pil-famille-titre::before{transform:rotate(90deg)}
-.svv-pil-famille-compte{margin-left:auto;font-weight:600;font-size:.78rem;color:var(--color-svv-muted);background:#fff;border:1px solid var(--color-svv-line);border-radius:999px;padding:.1rem .5rem}
+.svv-pil-famille-compte{margin-left:auto;font-weight:600;font-size:.78rem;color:var(--color-svv-muted);background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:999px;padding:.1rem .5rem}
 
 .svv-pil-cartes{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:.6rem;padding:.7rem .9rem .9rem}
 .svv-pil-legende{grid-column:1/-1;margin:0 0 .3rem;font-size:.8rem;color:var(--color-svv-muted);line-height:1.4}
-.svv-pil-carte{border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.6rem .7rem;background:#fff;min-width:0}
+.svv-pil-carte{border:1px solid var(--color-svv-line);border-radius:.6rem;padding:.6rem .7rem;background:var(--color-svv-surface);min-width:0}
 .svv-pil-carte[data-vestigiale="true"],.svv-pil-carte[data-lecture="true"]{opacity:.6;background:var(--color-svv-field)}
-.svv-pil-carte--orientation{grid-column:1/-1;opacity:1;background:#fff}
+.svv-pil-carte--orientation{grid-column:1/-1;opacity:1;background:var(--color-svv-surface)}
 .svv-pil-carte-tete{display:flex;gap:.4rem;align-items:flex-start;justify-content:space-between}
 .svv-pil-tete-gauche{display:flex;align-items:flex-start;gap:.15rem;min-width:0}
 .svv-pil-libelle{font-weight:700;color:var(--color-svv-ink);font-size:.88rem;line-height:1.3;min-width:0}
@@ -733,7 +733,7 @@ const CSS = `
 
 .svv-pil-statut{flex:0 0 auto;font-size:.68rem;font-weight:700;border-radius:999px;padding:.12rem .5rem;white-space:nowrap;line-height:1.3}
 .svv-pil-statut--vive{background:var(--color-svv-green-soft);color:var(--color-svv-green-ink)}
-.svv-pil-statut--vestigiale{background:#eceef1;color:var(--color-svv-muted)}
+.svv-pil-statut--vestigiale{background:var(--color-svv-field);color:var(--color-svv-muted)}
 .svv-pil-statut--de-garde{background:var(--color-svv-amber-soft);color:var(--color-svv-amber)}
 .svv-pil-statut--miroir{background:#e6eefb;color:#2c4d84}
 .svv-pil-statut--technique{background:var(--color-svv-field);color:var(--color-svv-gray)}

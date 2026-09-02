@@ -19,11 +19,11 @@ import { CapsuleCompte } from './CapsuleCompte';
 const CSS = `
 .svv-int :is(button,input,select,a):focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .svv-int :is(button,input,select,a){min-height:44px}
-/* DÉTAIL déplié du bloc Vérification : fond BLANC (#fff — aucun token « blanc » n'existe ; c'est le blanc déjà employé
-   par champ/btnOutline) pour le DÉTACHER nettement des lignes grises (fond --color-svv-field). Les boutons du détail
-   (Voir/Masquer/Tester, en btnOutline BLANC) passent en GRIS CLAIR (--color-svv-field) via !important — nécessaire pour
-   battre le style INLINE de btnOutline — afin de CONTRASTER avec ce fond blanc ; leur bordure grise (--color-svv-line) reste. */
-.svv-detail-verif{background:#fff}
+/* DÉTAIL déplié du bloc Vérification : fond var(--color-svv-surface) pour le DÉTACHER des lignes de la liste
+   (fond --color-svv-field). Les boutons du détail (Voir/Masquer/Tester, en btnOutline) passent en --color-svv-field
+   via !important — nécessaire pour battre le style INLINE de btnOutline — afin de CONTRASTER avec ce fond de surface ;
+   leur bordure (--color-svv-line) reste. Tokenisé : surface (fond) et field (boutons) basculent clair ET sombre. */
+.svv-detail-verif{background:var(--color-svv-surface)}
 .svv-detail-verif :is(button){background:var(--color-svv-field)!important}
 /* Champ « Rechercher par nom ou prénom » : placeholder atténué mais LISIBLE (texte secondaire --color-svv-muted) sur le
    fond gris ; opacity:1 pour contrer l'atténuation par défaut de certains navigateurs. Le fond gris + le texte encre sont
@@ -228,7 +228,7 @@ function SelecteurGeo({ communes, selection, onValider }: {
           aria-label="Sélection de la zone géographique"
           style={{
             position: 'absolute', zIndex: 40, top: 'calc(100% + 4px)', left: 0, minWidth: 260, width: 'max-content', maxWidth: 'min(360px, 90vw)',
-            background: '#fff', border: '1px solid var(--color-svv-line)', borderRadius: 10, boxShadow: '0 6px 20px rgba(0,0,0,.18)',
+            background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: 10, boxShadow: '0 6px 20px rgba(0,0,0,.18)',
             display: 'flex', flexDirection: 'column', overflow: 'hidden', // la hauteur est gouvernée par la liste (≈5 lignes) + les sections fixes
           }}
         >
@@ -1096,7 +1096,7 @@ export function InternautesVue() {
       {/* MOTEUR DE RECHERCHE (LOT A-2) — boutons F MIROIR (reflet À SENS UNIQUE de la sélection source ; CLIQUABLES,
           pilotent la LISTE ci-dessous ; aucune remontée vers la source) + champ recherche nom/prénom (serveur,
           debounce 250 ms, ≥2 car, insensible aux accents). Charte : liseré ROUGE = actif / GRIS = inactif, fond blanc. */}
-      <div style={{ border: '1px solid var(--color-svv-line)', borderRadius: 12, padding: 12, background: '#fff', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ border: '1px solid var(--color-svv-line)', borderRadius: 12, padding: 12, background: 'var(--color-svv-surface)', display: 'flex', flexDirection: 'column', gap: 8 }}>
         <span style={{ fontSize: '.82rem', fontWeight: 800, color: 'var(--color-svv-ink)' }}>Moteur de recherche</span>
         <div role="group" aria-label="Statuts filtrant la liste (miroir)" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {STATUTS_EXPORT.map((s) => {
@@ -1115,7 +1115,7 @@ export function InternautesVue() {
                   fontWeight: 700,
                   fontSize: '.85rem',
                   border: `2px solid ${actif ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}`, // liseré rouge (actif) / gris (inactif)
-                  background: '#fff', //                                                             fond blanc, aucune trame
+                  background: 'var(--color-svv-surface)', //                                          fond de surface, aucune trame
                   color: actif ? 'var(--color-svv-red)' : 'var(--color-svv-ink)',
                 }}
               >
