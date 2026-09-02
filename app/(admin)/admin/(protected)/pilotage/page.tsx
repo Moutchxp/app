@@ -709,7 +709,7 @@ const CSS = `
 .svv-pil-ib-pastille{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:999px;border:1px solid currentColor;font-size:.7rem;font-weight:800;font-style:italic;line-height:1;font-family:Georgia,serif}
 .svv-pil-ib-btn:hover .svv-pil-ib-pastille,.svv-pil-ib-btn[aria-expanded="true"] .svv-pil-ib-pastille{color:var(--color-svv-red)}
 .svv-pil-ib-btn:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px;border-radius:999px}
-.svv-pil-ib-bulle{position:absolute;top:calc(100% + 4px);left:0;z-index:20;display:flex;gap:.35rem;align-items:flex-start;width:max-content;max-width:min(280px,calc(100vw - 40px));padding:.55rem .65rem;background:var(--color-svv-ink);color:#fff;border-radius:.5rem;box-shadow:0 6px 20px rgba(0,0,0,.22);font-size:.78rem;line-height:1.4;font-weight:400;white-space:normal;word-break:break-word;animation:svv-ib-in .12s ease}
+.svv-pil-ib-bulle{position:absolute;top:calc(100% + 4px);left:0;z-index:20;display:flex;gap:.35rem;align-items:flex-start;width:max-content;max-width:min(280px,calc(100vw - 40px));padding:.55rem .65rem;background:var(--color-svv-tip-bg);color:#fff;border-radius:.5rem;box-shadow:0 6px 20px rgba(0,0,0,.22);font-size:.78rem;line-height:1.4;font-weight:400;white-space:normal;word-break:break-word;animation:svv-ib-in .12s ease}
 .svv-pil-ib-texte{min-width:0}
 .svv-pil-ib-fermer{appearance:none;flex:0 0 auto;background:none;border:0;color:#fff;font-size:1rem;line-height:1;cursor:pointer;min-width:24px;min-height:24px;padding:0;opacity:.85}
 .svv-pil-ib-fermer:hover{opacity:1}

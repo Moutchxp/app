@@ -41,7 +41,7 @@ const CSS = `
    souris, pas seulement au hover). Fond encre + texte blanc (tokens établis). L'apparition passe par opacity/visibility ;
    la règle prefers-reduced-motion ci-dessus neutralise déjà la transition. Le picto lui-même est stylé inline (rond rouge). */
 .svv-info{position:relative;display:inline-flex}
-.svv-bulle{position:absolute;bottom:calc(100% + 6px);right:0;z-index:30;width:max-content;max-width:240px;padding:8px 10px;border-radius:8px;background:var(--color-svv-ink);color:#fff;font-size:.72rem;font-weight:500;line-height:1.35;text-align:left;white-space:normal;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s ease}
+.svv-bulle{position:absolute;bottom:calc(100% + 6px);right:0;z-index:30;width:max-content;max-width:240px;padding:8px 10px;border-radius:8px;background:var(--color-svv-tip-bg);color:#fff;font-size:.72rem;font-weight:500;line-height:1.35;text-align:left;white-space:normal;opacity:0;visibility:hidden;pointer-events:none;transition:opacity .12s ease}
 .svv-info:hover .svv-bulle,.svv-info:focus-within .svv-bulle{opacity:1;visibility:visible}
 `;
 

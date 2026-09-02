@@ -474,7 +474,7 @@ export function SerieTemporelle({ serie }: { serie: Statistiques['serie'] }) {
                       top: `${topPct}%`,
                       transform: `translate(${ancreDroite ? '-100%' : '0'}, ${ancreBas ? '10px' : 'calc(-100% - 10px)'})`,
                       maxWidth: 200,
-                      background: 'var(--color-svv-ink)',
+                      background: 'var(--color-svv-tip-bg)',
                       color: '#fff',
                       borderRadius: 8,
                       padding: '6px 8px',

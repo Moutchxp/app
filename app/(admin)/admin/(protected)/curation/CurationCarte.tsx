@@ -2322,7 +2322,7 @@ const CSS = `
 .svv-cur-btn{appearance:none;border:1px solid var(--color-svv-red);background:var(--color-svv-red);color:#fff;font-weight:700;font-size:.8rem;padding:.4rem .7rem;border-radius:.5rem;cursor:pointer;line-height:1.2;min-height:36px}
 .svv-cur-btn:disabled{opacity:.6;cursor:progress}
 .svv-cur-btn--mini{padding:.3rem .55rem;font-size:.75rem;min-height:34px}
-.svv-cur-btn--outline{background:var(--color-svv-surface);color:var(--color-svv-ink);border-color:#d7dbe1}
+.svv-cur-btn--outline{background:var(--color-svv-surface);color:var(--color-svv-ink);border-color:var(--color-svv-line-strong)}
 .svv-cur-btn--danger{background:var(--color-svv-red);border-color:var(--color-svv-red);color:#fff}
 
 .svv-cur-pin{background:transparent;border:0}
