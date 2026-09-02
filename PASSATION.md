@@ -1,4 +1,4 @@
-> Passation générée le 01/09/2026 à 17h06
+> Passation générée le 02/09/2026 à 22h01
 
 # PASSATION — Application « Sans Vis-à-Vis® » (module Veille Permis)
 
@@ -8,32 +8,35 @@
   français, tutoiement, direct.
 - **Claude** = architecte / relecteur / exécutant. Dans CETTE session, Claude Code travaille **directement
   dans le repo** (recon → implémente → lance les contrôles → **committe lui-même**, sans push). Pour la
-  passation vers une conversation web, garder le format relais (cartouches).
+  passation vers une conversation web, garder le format relais (cartouches, §7).
 - **Repo** : github.com/Moutchxp/app · branche `main`. **Stack** : Next.js 16.2.9, React 19, TypeScript 5,
   Tailwind v4, **PostgreSQL 17 + PostGIS en LOCAL** (driver `pg` sur `DATABASE_URL`, pas de Supabase).
 - **Base LOCALE** : `postgresql://localhost:5432/sansvisavis`. Les migrations vivent dans `db/migrations/NNN_*.sql`,
   **livrées NON APPLIQUÉES** puis appliquées à la main par Arno (`psql -v ON_ERROR_STOP=1 -f …`). Dernière = **187**
-  (LOT 34), **appliquée** en local ; **185, 186 et 187 APPLIQUÉES** : 185 (LOT 31) plafond anti-cumul d'envoi auto,
+  (LOT 34), **appliquée** en local ; **185, 186 ET 187 APPLIQUÉES** : 185 (LOT 31) plafond anti-cumul d'envoi auto,
   186 (LOT 29) table `mairie_contact_email` (ajouts manuels de destinataires), 187 (LOT 34) relève différée du dépôt.
 
 ## 2. Règles de collaboration (impératives)
 - **Un chantier = un prompt = un commit.** Recon **LECTURE SEULE** avant tout write sur fichier sensible.
-- **CONTRÔLE DE FIN OBLIGATOIRE, dans l'ordre** : `npm test` COMPLET (= `vitest run`, **458 fichiers / 5967 tests**)
+- **CONTRÔLE DE FIN OBLIGATOIRE, dans l'ordre** : `npm test` COMPLET (= `vitest run`, **459 fichiers / 5970 tests**)
   · `npm run test:integration` (23 fichiers, vraie base) · `npx tsc --noEmit` · delta eslint · `npm run build`.
   Les suites filtrées par chemin sont des contrôles RAPIDES, **jamais** le contrôle de fin (précédent
   `curation.test.ts` rouge 14/07→03/08, invisible aux filtrés). **INTERDIT : `npm run veille:run`** (envoi réel).
-- **`jsdom`** est désormais en **devDependency**, utilisé par les SEULS tests qui exigent un montage React réel
+- **`jsdom`** est en **devDependency**, utilisé par les SEULS tests qui exigent un montage React réel
   (cycle de vie / StrictMode), via l'en-tête `// @vitest-environment jsdom` en tête de fichier ; le RESTE de la
   suite reste en environnement **node** (tests purs / `renderToStaticMarkup`).
 - **Tests** : ne jamais figer la FORME exacte d'un SQL émis (regex sur le WHERE) → asserter le COMPORTEMENT
   (réponse, **paramètres LIÉS**) + le SQL par **FRAGMENTS sémantiques** sur chaîne whitespace-normalisée
-  (`sql.replace(/\s+/g,' ')` + `toContain`). Modèle : `curation.test.ts` (« entité supprimée »).
+  (`sql.replace(/\s+/g,' ')` + `toContain`). Modèle : `curation.test.ts` (« entité supprimée »). Pour les tests de
+  RENDU par onglet non montables unitairement, garde par **lecture de source** (`readFileSync` + assertions) —
+  modèle `archivesGlobal.test.ts` (et `commutateurReponses.test.ts`, `themeSombreLot2/3.test.ts`).
 - **KNN spatial** : un `<->` ne lit JAMAIS son point d'un CTE multi-référencé (matérialisé → perd l'index en
   silence) → inliner l'expression dans l'`ORDER BY`. Les JOIN `ST_Intersects`/`ST_DWithin` NE sont PAS concernés.
 - **Flakes connus** : renvoyer au registre `docs/FLAKES_CONNUS.md` (une entrée / flake, preuve explicite) — ne
   jamais présenter une hypothèse comme cause. `certificatPdf.test.ts` : cause **NON ÉTABLIE**, l'ancien
-  diagnostic « octets non déterministes / timestamp » est **RÉFUTÉ** (générateur prouvé déterministe). Observé
-  cette session : `gelRepo.test` échoue parfois en run parallèle (scan de fichiers), passe en isolé + en run complet.
+  diagnostic « octets non déterministes / timestamp » est **RÉFUTÉ** (générateur prouvé déterministe). Observés :
+  `gelRepo.test` (scan de fichiers en run parallèle) et un flake **transitoire de `test:integration`** (vu au LOT 40,
+  vert au re-run, aucun code DB touché) — re-lancer avant de diagnostiquer.
 - **Commits (cette session)** : `git add` des SEULS fichiers du lot · `git commit` · **PAS de push** · **AUCUNE
   ligne Co-Authored-By** · message via **fichier** (`git commit -F …`) car les backticks du message sont
   interprétés par zsh (bug rencontré au LOT 16).
@@ -41,15 +44,16 @@
 - **prefers-reduced-motion** respecté ; **exigence transverse mobile-first** (tout écran d'admin pleinement
   utilisable sur smartphone portrait). Un seul clic pour déplier ; **pas de `BlocRepliable` imbriqué**.
 - Proposer les vrais choix (design/ressenti) AVANT d'implémenter ; sinon décider et le dire. Ne jamais conseiller
-  de faire une pause. **Recon qui contredit une prémisse → la recon gagne** (précédents LOT 2 bigint, LOT 14 arrêt).
+  de faire une pause. **Recon qui contredit une prémisse → la recon gagne** (précédents LOT 2 bigint, LOT 14 arrêt,
+  LOT 40 : la prop `process` conditionnait le contenu de « Réponses », dit AVANT d'implémenter).
 
 ## 3. Objectif
 - **Global** : transformer « sans vis-à-vis » en une norme mesurable/certifiable (verdict géométrique ≥ 40 m +
   score de qualité de vue /100), avec à terme une **interface d'administration pilotable sans code** par Arno.
 - **Chantier en cours** : le **module admin « Veille Permis »** — suivi automatisé de la boucle CRPA (demandes de
   communication aux mairies → relances → saisine CADA), écrans **« À demander » / « En cours » / « Réponses » /
-  « Archives » / « Analyse »**, avec relance/saisine **automatiques par e-mail** (LaunchAgent /15 min).
-  Les LOTS 13→22 de cette session ont porté sur l'encart de détail « En cours » (frise, familles) et l'envoi.
+  « Analyse et projection » / « Archives » / « Saisines CADA »**, avec relance/saisine **automatiques par e-mail**
+  (LaunchAgent /15 min). **Aucun chantier ouvert** au moment de la passation : Arno enchaîne des « LOT N » séquentiels.
 
 ## 4. Invariants verrouillés (garde-fous permanents — cf. `docs/INVARIANTS_SVAV.md`)
 - **Golden Asnières = `29.107259068449615`** (note Couche 1 /80, scellé `pipeline.itest.ts:42`). Toute modif du
@@ -67,13 +71,16 @@
   suivent ce principe. Toute colonne d'un `COLONNES_THEME_*` (reglagesVeille) DOIT avoir son `ParamVeille` +
   sa borne CHECK (garde-fou testé). **Aucune constante métier en dur dispersée.**
 - Lire **`docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md`** AVANT tout chantier données/verdict/certificat/permis
-  (corpus figé 25-26/07/2026 : fraîcheur LiDAR/BD TOPO, contrôle mixte & ses 2 régimes, sources externes de
-  hauteur du bâti neuf, cadre juridique des permis, chiffrage Sitadel, conformité/licences).
+  (résumé en §5).
 - **IDEMPOTENCE StrictMode (leçon LOT 24)** : tout effet de la liseuse DOIT être idempotent sous le StrictMode de
   React (montage → démontage → REMONTAGE même-fibre, où les refs PERSISTENT mais les effets rejouent — ON par défaut
   en dev Next 16). **Ne JAMAIS s'appuyer sur un flag de cycle de vie mis à `false` au démontage sans être remis à
   `true` au remontage** (piège `monteRef` : reste `false` sur le montage réel → UI gelée). Dériver la « fraîcheur »
   d'une donnée live (ex. `pieceIdRef`), jamais d'un flag collant.
+- **THÈME SOMBRE (chantier 37-39 terminé)** : `data-theme` scopé à `.svv-adm-root` (jamais `:root` → public + PDF
+  restent clairs), tokens de charte `--color-svv-*` avec **seconde palette sombre mesurée** (tous ratios ≥ 4,5:1).
+  **Règle** : un fond et sa couleur de texte basculent TOUJOURS ENSEMBLE. **Zones qui restent CLAIRES par décision** :
+  canvas liseuse, tracé d'emprise, cartes de localisation, PDF du certificat.
 
 ## 5. Historique — ce que fait déjà la Veille Permis (synthèse)
 Moteur pur + repos + écrans admin autour de l'entité **demande** (statuts `brouillon/prete/envoyee/close`) et de
@@ -82,135 +89,104 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
   dépôt CADA (échéance + 4 j). Réglages en `config_veille` (`relance_rappel/avis_jours_avant`, `relance_saisine_delai_jours`).
 - **Cascade partielle** (mairie a répondu, pièces manquantes → marqueur `demande.partiel_*`, CASC-1) : relances
   1..N (J+10/J+20), annonce CADA (J+30), saisine ≥ butoir CASC-2 (`partiel_le + 1 mois + 4 j`). Réglages
-  `cascade_partiel_*` (migration 179). **Les DEUX cascades partent en AUTO** (ordinaire `relance_auto_active`,
-  partielle `cascade_partiel_auto_active` — voir LOT 30bis ; tous deux défaut TRUE) ; l'envoi manuel reste possible
-  (relance hors calendrier). ⚠️ **L'ancienne mention « relance partielle = envoi MANUEL » est PÉRIMÉE.**
+  `cascade_partiel_*`. **Les DEUX cascades partent en AUTO** (ordinaire `relance_auto_active`, partielle
+  `cascade_partiel_auto_active` ; tous deux défaut TRUE) ; l'envoi manuel reste possible (hors calendrier).
 - **Rattachement des réponses** (`rattachementReponse.ts`) : 100 % par IDENTIFIANTS (In-Reply-To/References ∩
   Message-ID émis, réf. SVAV, n° dossier Sitadel, réf. mairie) — **jamais** par l'adresse d'expéditeur. Relève IMAP
   par domaine.
 - **Sources d'adresse d'une commune** : `demande.dest_email` (figé), `mairie_contact.email` (canal='email',
-  statut 'confirme' vs 'presume'), `mairie_prada.courriel`, `demande_reponse.de_adresse` (répondants).
+  statut 'confirme' vs 'presume'), `mairie_prada.courriel`, `demande_reponse.de_adresse` (répondants),
+  `mairie_contact_email` (ajouts manuels, LOT 29).
 - **Encart de familles** (`encartFamilles.ts`, socle UNIF-0, partagé En cours/Réponses/Analyse/Archives) :
-  `ORDRE_FAMILLES` + règle `familleAffichee(onglet, famille, nonVide)`. Familles : contact, suivi_actions,
-  completude, historique, caracteristiques, batiments, pieces. Rendu paresseux (`BlocRepliable`, render-prop).
+  `ORDRE_FAMILLES` + règle `familleAffichee(onglet, famille, nonVide)`. Rendu paresseux (`BlocRepliable`, render-prop).
+- **Deux process d'envoi** (D2) : **e-mail (automatique)** et **téléservice (dépôt manuel)**, choisis par un
+  **commutateur** en tête des onglets Demandes. Le canal est figé par demande (`dest_canal`).
 
-### LOTS de CETTE session (13 → 39, tous committés, working tree propre)
-- **13** — Compteur de familles manquantes (rouge) dans le titre « Complétude des pièces » + historique de nos
-  envois. `historiqueEnvois.ts` (pur), `completudeRepo.manquantesParDossier`.
-- **14b** — **Liseuse de pièces** (`LiseusePieces.tsx`, lecture seule, best-of + aperçu PDF pdf.js) montée en tête
-  de « Pièces du permis ». Duplication assumée du rendu pdf.js (le tracé `BlocTraceEmprise` reste indépendant,
-  bit-à-bit inchangé) ; règles best-of IMPORTÉES de `TraceEmpriseRendu.tsx`.
-- **15** — Famille « Suivi et actions » = **une seule frise chronologique** (fond de l'état de cascade dans la frise).
-- **16** — Libellés de la frise + pli « Texte de la demande » uniformisé sur la ligne des familles (`BlocLignePli`).
-- **17** — Fonds blancs des corps · vocabulaire aligné (« Relance pièces complémentaires », plus « Cascade
-  partielle ») · mention « N échanges — dernier le … » sur « Historique des échanges ».
-- **18** — **Parcours complet projeté** (`friseSuivi.projeterParcours`, pur) : étapes faites ET à venir datées,
-  dérivées à chaque rendu de la config (pilotage sans code) ; **position courante** = liseré rouge sur la dernière
-  étape franchie ; bifurcation ordinaire→partiel (badge, futur ordinaire non survenu disparaît).
-- **19** — « Historique » : ouverture directe (retrait du 2e pli) · mention corrigée = **dernier mail RÉEL**
-  (déclarations exclues ; ⚠️ le fil `BlocFilEchanges` affiche encore les heures en **UTC**, la mention en Paris —
-  divergence pré-existante à harmoniser un jour) · destinataire sur chaque étape d'envoi.
-- **20** — **Multi-adresse des 2 dernières relances** (opt-in `relance_multi_adresse_active` défaut FALSE, migration
-  182). Fonction pure `composerDestinatairesCommune` ; règle = dest_email ∪ mairie_contact **confirmé** ∪ prada ∪
-  répondants (presume EXCLUS) ; TOUT en To ; injection gated dans `envoiRelance` (avis+saisine) et
-  `cascadePartielleRepo` (dernière relance+annonce) ; trace dans `demande_journal.details`. **55/137 communes ≥ 2
-  adresses.** Rattachement inchangé (par identifiant).
-- **21** — Adresse sur TOUTE étape d'envoi (la bifurcation lit `details.destinataire` du journal réclamation) ·
-  « Contact mairie » remontée en tête de `ORDRE_FAMILLES`.
-- **22** — « Contact mairie » titre seul (suffixe LOT 9 retiré) · encart AVANT le pli « Texte de la demande » ·
-  « Nous avons écrit à » retiré · **adresse stockée = CERTAINE** (« présumé » seulement si aucune adresse stockée) ·
-  **liseuse plus rapide** : document pdf.js mis en cache par pièce (plus de re-téléchargement au changement de page),
-  module mémorisé, échelle bornée, instrumentation `console.debug` par phase. Tracé bit-à-bit inchangé (prouvé).
-- **23** (`6346366`) — **Préchargement des plans voisins + cache LRU de DOCUMENTS** (borné à 4). Précharge en tâche de
-  fond (requestIdleCallback) le document suivant puis précédent du best-of → « suivant › » instantané. Recon : les
-  octets sont servis par **URL signée MinIO** (pdf.js télécharge en direct, pas de proxy Next), **Range supporté** ;
-  tailles médiane ~0,6–1 MB, max 21 MB, ~100 MB/dossier (d'où la borne LRU). Tracé bit-à-bit inchangé (prouvé).
-- **24** (`ad67372`) — **CORRECTIF d'une régression du 23** : le flag `monteRef`, mis `false` au démontage et **jamais
-  remis `true` au remontage**, restait `false` sur le montage réel sous le **StrictMode de React** (double-invoke
-  même-fibre, **ON par défaut en dev Next 16**) → overlay « Chargement… » figé, plus aucun plan affiché. Remplacé par
-  un **garde de fraîcheur « live »** sur `pieceIdRef` (immunisé au nombre de montages) ; overlay effacé dans **TOUS**
-  les cas de sortie via `finally`. Test de non-régression `LiseusePieces.strictmode.test.ts` (jsdom).
-- **25** (`d72595a`) — **Cache LRU des RENDUS peints** (ImageBitmap, clé `pièce:page:échelle`, borné à 6 = un best-of
-  complet) → retour sur une page déjà peinte = drawImage immédiat, aucun `render()`. **Apparition d'un coup** : rendu
-  HORS écran, montré seulement une fois terminé, indicateur **« Rendu… » DISTINCT de « Chargement… »** (calcul vs
-  réseau). Le zoom (CSS) ne change pas la clé. Test `LiseusePieces.renducache.test.ts` (jsdom). Tracé inchangé.
-- **26** (`523f635`) — « Contact mairie » : **gabarit UNIFORME des lignes** (fini le `<ul>/<li>` à puces, **filet
-  uniforme** ; nom et date affichés **seulement s'ils existent** ; destinataire sans date **rejeté en fin de liste**).
-  Pli « Texte de la demande » **remonté en 1re position**, périmètre « En cours » seul — **revirement assumé du
-  LOT 22** (qui l'avait placé après l'encart « Contact mairie »).
-- **27** (`43901b8`) — **Destinataires des relances, deux règles.** **A (défaut général)** : toute relance part vers
-  la **dernière adresse qui nous a répondu** (`demande_reponse.de_adresse` le plus récent), repli `dest_email` figé →
-  `mairie_contact` confirmé → prada (`choisirDestinataireParDefaut`, branché sur la cascade ordinaire ; la partielle
-  était déjà conforme via In-Reply-To). **B (les 2 dernières relances)** : les 2 dernières étapes de CHAQUE cascade
-  (ordinaire avis+saisine ; partielle dernière relance+annonce CADA) partent à **TOUTES les adresses ayant participé**
-  (`dest_email` ∪ contact confirmé ∪ prada ∪ répondants ; les 'presume' EXCLUS). **La multi-adresse devient la NORME** :
-  `relance_multi_adresse_active` passe à TRUE par défaut (**migration 183**) ; le drapeau reste comme arrêt d'urgence
-  (FALSE désactive B, A vit dans le code). `resoudreDestinatairesRelance` (A+B) ; `estParmiDernieres` extrait dans un
-  module PUR `rangDernieres.ts` (utilisable côté CLIENT, frise, sans tirer `pg`). Frise véridique (« à toutes les
-  adresses ayant participé » vs dernier répondant). Golden Asnières inchangé (aucun envoi).
-- **28** (`04028fb`) — « Contact mairie » : **téléphone des interlocuteurs depuis leur signature de mail** (module PUR
-  `telephoneSignature.ts`, fil cité coupé, qualification **directe/standard SANS déduction**, repli sur le standard
-  commune avec source **« annuaire » visible**). **Aucune migration** : numéros dérivés au runtime. Couverture
-  mesurée : **1/1 interlocuteur réel du corpus**.
-- **30bis** (`cdf8f80`) — ⚠️ **LA CASCADE PARTIELLE EST DEVENUE AUTOMATIQUE.** Elle était 100 % manuelle **non par
-  choix** mais parce que **CASC-3, livré en « préparation-only », n'avait jamais été câblé à la boucle de veille**.
-  `executerCascadePartielleAuto` câblé dans `executerVeille` ; interrupteur `cascade_partiel_auto_active` (**défaut
-  TRUE**) ; garde-fou anti-doublon par **réservation de créneau** (table `cascade_partiel_creneau`) — auto et manuel
-  réservent le MÊME créneau, le **premier gagne** (exactement-une-fois). **Butoir CADA prouvé inchangé** (ancré à
-  `partiel_le`). **Migration 184.**
-- **30** (`2fcaab9`) — Titre **« Complétude des pièces & relance mail »** + option **« compte / ne compte pas »** sur
-  une relance manuelle + **traçabilité de ce choix dans la frise**.
-- **29** (`f32987a`) — **Sélecteur de destinataire** pour la relance manuelle : **jeu large** (`dest_email` ∪ contact
-  confirmé ∪ prada ∪ répondants de la commune ∪ **ajouts manuels**), **provenance affichée** par option, présélection =
-  **dernier répondant**, ajout manuel **persisté en statut 'confirme'** (**migration 186**, table `mairie_contact_email`).
-  Composant **partagé** avec « Déclarer cette relance ». Le rattachement reste **par identifiants**, prouvé **insensible
-  au destinataire**.
-- **31** (`a150d40`) — **PLAFOND ANTI-CUMUL** : **1 envoi auto par demande et par run**, tous émetteurs confondus
-  (**migration 185**). Ferme un trou **PROUVÉ par audit** : PART-E et la cascade partielle pouvaient émettre **DEUX
-  relances quasi identiques** à la même mairie dans le même run. **Réordonnancement cascade→PART-E** (la cascade gagne,
-  PART-E est supersédé pour cette réponse et repart sur toute nouvelle réponse).
-- **32** (`494e691`) — Sélecteur **MULTIPLE** : envoi manuel à **plusieurs adresses**, **tous en To**, **au moins un
-  obligatoire**.
-- **33** (`35c9ebe`) — « **Basculer une commune de rail** » réservé à l'onglet « À demander ».
-- **34** (`458a1af`) — le clic « **copier** » **DÉCLENCHE** une relève **différée** (~60 s, **migration 187**). Il ne
-  déclenchait **rien** auparavant : le lot de câblage n'avait **jamais été fait**. Relève en **lecture seule stricte**,
-  sans aucun émetteur atteignable.
-- **35** (`c473941`) — **CORRECTIF PROUVÉ EN RÉEL** : la confirmation « Oui, déposée » passait **null** en 3e argument
-  de `marquerDeposee`, donc la **référence mairie n'était JAMAIS écrite**. Corrigé : la confirmation **lit la référence
-  du message déclencheur et l'écrit**, quel que soit l'ordre des clics.
-- **36** (`62dddbee`) — mention « **N demande(s) en cours** » en **rouge + gras** quand > 0, **par bouton**,
-  indépendamment.
-- **37** (`9d0df2a`), **38** (`a9422b9`), **39** (`f10b544`) — **CHANTIER THÈME SOMBRE de l'admin**, terminé en **3 lots** :
-  **mécanisme** `data-theme` (Clair/Sombre/Système, **défaut système**, persisté, **anti-flash**), **tokenisation**,
-  **SECONDE PALETTE obligatoire** pour les couleurs de sens (le rouge `#a30402` tombait à **1,2:1** sur fond sombre),
-  **balayage des fonds**, **familles ambre et bleu** nouvellement tokenisées. **Tous ratios ≥ 4,5:1** dans les deux
-  thèmes. **Hex en dur : 235 → 181**, les restants justifiés. **Zones qui restent CLAIRES par décision** : canvas
-  liseuse, tracé d'emprise, cartes, PDF. Bascule dans la **sidebar sous « Déconnexion »**.
+### LOTS de CETTE session (13 → 40, tous committés, working tree propre)
+- **13 → 25** — Complétude/historique des envois · **liseuse de pièces** (best-of + aperçu PDF pdf.js, lecture seule) ·
+  frise chronologique du suivi · **parcours complet projeté** (pilotage sans code) · perfs liseuse (préchargement +
+  cache LRU documents + **cache de rendu peint**) · correctif StrictMode (LOT 24). Tracé d'emprise bit-à-bit inchangé.
+- **26** (`523f635`) — « Contact mairie » : gabarit uniforme des lignes · pli « Texte de la demande » remonté en 1re
+  position (revirement assumé du LOT 22).
+- **27** (`43901b8`) — Destinataires des relances, deux règles : **A** défaut = **dernier répondant** ; **B** les 2
+  dernières relances de chaque cascade partent à **toutes les adresses ayant participé**. Multi-adresse = NORME
+  (migration 183). `resoudreDestinatairesRelance` + module PUR `rangDernieres.ts`.
+- **28** (`04028fb`) — « Contact mairie » : téléphone des interlocuteurs depuis leur signature de mail (module PUR
+  `telephoneSignature.ts`), sans migration.
+- **30bis** (`cdf8f80`) — **LA CASCADE PARTIELLE EST DEVENUE AUTOMATIQUE** (CASC-3 jamais câblé auparavant) ;
+  interrupteur `cascade_partiel_auto_active` (défaut TRUE) ; anti-doublon par réservation de créneau
+  (`cascade_partiel_creneau`, migration 184). Butoir CADA prouvé inchangé.
+- **30** (`2fcaab9`) — Titre « Complétude des pièces & relance mail » + option « compte / ne compte pas » sur une
+  relance manuelle + traçabilité dans la frise.
+- **29** (`f32987a`) — **Sélecteur de destinataire** pour la relance manuelle : jeu large (`dest_email` ∪ contact
+  confirmé ∪ prada ∪ répondants ∪ ajouts manuels), provenance affichée, présélection = dernier répondant, ajout
+  manuel persisté en 'confirme' (**migration 186**, table `mairie_contact_email`). Composant partagé avec « Déclarer
+  cette relance ». Rattachement prouvé insensible au destinataire.
+- **31** (`a150d40`) — **PLAFOND ANTI-CUMUL** : 1 envoi auto par demande et par run, tous émetteurs confondus
+  (**migration 185**). Ferme un trou PROUVÉ (PART-E + cascade partielle → deux relances quasi identiques). Réordonnancement
+  cascade→PART-E (la cascade gagne).
+- **32** (`494e691`) — Sélecteur **MULTIPLE** : envoi manuel à plusieurs adresses, tous en To, ≥ 1 obligatoire.
+- **33** (`35c9ebe`) — « Basculer une commune de rail » réservé à l'onglet « À demander ».
+- **34** (`458a1af`) — le clic « copier » **DÉCLENCHE** une relève différée (~60 s, **migration 187**) ; il ne
+  déclenchait rien auparavant (câblage jamais fait). Relève en lecture seule stricte.
+- **35** (`c473941`) — **CORRECTIF PROUVÉ EN RÉEL** : la confirmation « Oui, déposée » passait `null` en 3e argument
+  de `marquerDeposee` → la référence mairie n'était JAMAIS écrite. Corrigé : lit la référence du message déclencheur.
+- **36** (`62dddbe`) — mention « N demande(s) en cours » en rouge + gras quand > 0, par bouton, indépendamment.
+- **37/38/39** (`9d0df2a`, `a9422b9`, `f10b544`) — **CHANTIER THÈME SOMBRE terminé en 3 lots** : mécanisme `data-theme`
+  (Clair/Sombre/Système, défaut système, persisté, anti-flash, bascule dans la sidebar sous « Déconnexion »),
+  tokenisation, **seconde palette sombre mesurée** (le rouge `#a30402` tombait à 1,2:1 sur fond sombre), balayage des
+  fonds, familles **ambre** et **bleu** nouvellement tokenisées. Tous ratios ≥ 4,5:1. **Hex en dur : 235 → 181**, les
+  restants justifiés (blancs texte-sur-rouge, plan/tracé hors diff, marqueurs de carte, data-viz catégorielle).
+- **40** (`080a067`) — **Retrait du commutateur de process de l'onglet « Réponses »**. Ses compteurs comptent la
+  population « EN COURS » (réponses EXCLUES, cf. docstring `process-compteurs`) → ils contredisaient le contenu (« 0
+  demande en cours » à côté de permis téléservice ayant répondu). `ONGLETS_DEMANDES` = `['a_demander','en_cours']`
+  (plus 'reponses'). **Effet de bord traité** : la prop `process` filtrait le CONTENU de « Réponses »
+  (`dansProcess` sur la liste + 2 sous-blocs rail-spécifiques) → `ReponsesVue` ne prend plus `process` : la liste
+  affiche TOUS les rails, les 2 sous-blocs sont rendus inconditionnellement (états vides gérés).
+
+### Prochain GROS chantier + fraîcheur/contrôle mixte (résumé de `docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md`)
+> **À LIRE avant tout chantier données/verdict/certificat/permis.** Corpus figé 25-26/07/2026.
+- **Énoncé du porteur** : mettre à jour en continu la base des maps pour tenir compte des **nouveaux permis de
+  construire**, et en déduire, polygone par polygone, si l'on **garde le LiDAR** ou si on le **remplace** le temps
+  d'un nouveau vol.
+- **Règle de contrôle mixte** : détecter tout polygone dont l'emprise et/ou la hauteur change entre deux éditions
+  BD TOPO. Hauteur inchangée → **on conserve le LiDAR**. Hauteur changée → l'altitude maximale de toit BD TOPO
+  devient la **valeur de contrôle** du verdict pour CE polygone → certificat marqué **CONTRÔLE MIXTE**. L'invariant
+  « toit = MNS LiDAR direct » n'est PAS modifié : BD TOPO = **détecteur de changement**, jamais source de mesure.
+- **Le fait dur — deux régimes** : brancher la règle sur la **PRÉSENCE DU CHAMP** (`altitude_maximale_toit IS NOT
+  NULL`), **jamais sur un seuil de date** (remplissage non monotone). **Régime 1** (polygones modifiés récents) :
+  `altitude_maximale_toit` bien remplie (≥ 86 % post-2023) → la règle marche. **Régime 2** (bâti réellement NEUF,
+  `date_creation ≥ 2024`) : `altitude_maximale_toit` **7-8 %** seulement → BD TOPO ne connaît PAS structurellement la
+  hauteur d'un immeuble sorti après le vol LiDAR — **le cas le plus dangereux** (c'est justement l'obstacle qui
+  invalide un certificat). **Décision Régime 2** : ne PAS substituer une valeur plus faible ; **MARQUER le certificat
+  « à revérifier »** (un polygone neuf plus proche que la distance certifiée est un signal suffisant, fonde une
+  re-certification).
+- **Prérequis techniques identifiés** : index sur `batiment.cleabs` (absent) ; historiser une 2ᵉ édition BD TOPO
+  (table séparée ≈ +426 Mo, lecteurs inchangés) ; **capturer le `cleabs` de l'obstacle du verdict dans le snapshot**
+  (absent : `obstaclesParBalayage` renvoie `{distanceM, altitudeSommetM, source}` sans `cleabs`) ; aucun seuil
+  « vrai changement vs re-numérisation » calibrable avant une **2ᵉ édition réelle**.
+- **Permis de construire** = recours d'arbitrage / borne réglementaire (PLU), **pas une source de mesure** ;
+  chiffrage Sitadel documenté (ordre de grandeur du volume à traiter). Voir aussi `docs/SOURCES_DATA.md` (licences).
 
 ## 6. État courant & prochaine action
-- **Working tree PROPRE** (rien de non committé). Dernier commit : **`f10b544` (LOT 39)**, **TOUT POUSSÉ** (vérifié,
-  `main` == `origin/main`). **Migrations 185, 186 ET 187 APPLIQUÉES en local** (en plus de 183/184 déjà en place) :
-  185 = plafond anti-cumul (LOT 31), 186 = table `mairie_contact_email` (LOT 29), 187 = relève différée du dépôt
-  (LOT 34). **Les DEUX cascades — ordinaire ET partielle — partent en AUTO** (LaunchAgent /15 min) ; l'envoi manuel
-  n'est plus qu'une option hors calendrier.
+- **Working tree PROPRE** (rien de non committé). Dernier commit : **`080a067` (LOT 40)**, **tout poussé**
+  (`main` == `origin/main`). **Migrations 185, 186 ET 187 APPLIQUÉES en local** (en plus de 183/184 déjà en place).
+  Les DEUX cascades — ordinaire ET partielle — partent en AUTO (LaunchAgent /15 min) ; l'envoi manuel = option hors calendrier.
 - **Aucun chantier en cours** : Arno enchaîne des « LOT N » séquentiels ; attendre le prochain.
 - **ÉVÉNEMENT MARQUANT DU 01/09/2026 — PREMIER DÉPÔT TÉLÉSERVICE PARIS RÉEL de bout en bout** (demande **161**) : la
-  **relève déclenchée** (LOT 34) a marché, l'**accusé a été détecté**, la référence **`SLC260901542604` extraite** — mais
-  **l'écriture a échoué** (défaut corrigé au **LOT 35**). **Leçon à consigner** : **DEUX maillons marqués « ça devrait
-  marcher » sans avoir jamais tourné en réel ont échoué au premier passage** (le câblage de la relève au clic « copier »,
-  jamais fait → LOT 34 ; l'écriture de la référence mairie, `null` silencieux → LOT 35). Corollaire : **exercer chaque
-  maillon EN RÉEL avant de le déclarer acquis**.
+  relève déclenchée (LOT 34) a marché, l'accusé a été détecté, la référence **`SLC260901542604` extraite** — mais
+  l'écriture a échoué (défaut corrigé au **LOT 35**). **Leçon** : DEUX maillons marqués « ça devrait marcher » sans
+  avoir jamais tourné en réel ont échoué au premier passage (câblage relève au clic, LOT 34 ; écriture référence,
+  LOT 35). **Corollaire : exercer chaque maillon EN RÉEL avant de le déclarer acquis.**
 - **3e MAILLON JAMAIS EXERCÉ, À OBSERVER** : la demande **154 (Aubervilliers, `partiel_le` au 28/08/2026)** est le
-  **SEUL dossier en régime partiel**. Sa **première relance partielle AUTOMATIQUE** (cascade partielle auto, LOT 30bis)
-  est attendue **vers le 7 septembre 2026** — **premier tir réel** de ce maillon, **à observer ce jour-là**.
+  SEUL dossier en régime partiel. Sa **première relance partielle AUTOMATIQUE** (cascade partielle auto, LOT 30bis)
+  est attendue **vers le 7 septembre 2026** — premier tir réel de ce maillon, **à observer ce jour-là**.
 - **Pistes ouvertes signalées à Arno** (à sa main) : (a) harmoniser l'affichage horaire du fil `BlocFilEchanges`
   (**UTC**) avec la mention (Paris) — divergence pré-existante ; (b) **réduire l'échelle de base du PREMIER rendu de la
-  liseuse** (rendu à 1× + remontée en résolution au zoom, arbitrage sur le critère du flou) — ancienne piste « LOT 26
-  possible », le n° 26 ayant servi à autre chose ; le cache de rendu (LOT 25) rend le RETOUR instantané mais n'accélère
-  PAS le premier rendu d'un plan jamais vu. **Chiffres mesurés** : plan A0 le plus dense d'Aubervilliers (dossier 7424,
-  pièce 314, **3370×2384 pt, 21 Mo**) → render **~3,5 s à froid** (polices incluses), **~0,65 s à chaud** ; (c) **thème
-  sombre — parcourir l'admin ÉCRAN PAR ÉCRAN en sombre** pour repérer ce qu'**aucun grep ne voit** (contrastes vécus,
-  fonds oubliés hors des motifs balayés) : **Statistiques, Pilotage Moteur, Curation, Banc de test, Audit, Administratif**.
+  liseuse** (rendu à 1× + remontée au zoom) — le cache de rendu (LOT 25) rend le RETOUR instantané mais n'accélère PAS
+  le premier rendu d'un plan jamais vu (plan A0 le plus dense d'Aubervilliers : ~3,5 s à froid, ~0,65 s à chaud) ;
+  (c) **thème sombre — parcourir l'admin ÉCRAN PAR ÉCRAN en sombre** pour repérer ce qu'aucun grep ne voit
+  (Statistiques, Pilotage Moteur, Curation, Banc de test, Audit, Administratif).
 - **Prochaine action immédiate** : recevoir et exécuter le prochain « LOT » d'Arno (recon lecture seule → implémente
   → contrôles de fin dans l'ordre → commit).
 
