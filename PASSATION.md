@@ -114,7 +114,7 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
 - **Deux process d'envoi** (D2) : **e-mail (automatique)** et **téléservice (dépôt manuel)**, choisis par un
   **commutateur** en tête des onglets Demandes. Le canal est figé par demande (`dest_canal`).
 
-### LOTS de CETTE session (13 → 45, tous committés, working tree propre ; L41→L45 non poussés)
+### LOTS de CETTE session (13 → 45, tous committés et poussés au fil de l'eau, working tree propre)
 - **13 → 25** — Complétude/historique des envois · **liseuse de pièces** (best-of + aperçu PDF pdf.js, lecture seule) ·
   frise chronologique du suivi · **parcours complet projeté** (pilotage sans code) · perfs liseuse (préchargement +
   cache LRU documents + **cache de rendu peint**) · correctif StrictMode (LOT 24). Tracé d'emprise bit-à-bit inchangé.
@@ -200,11 +200,13 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
   chiffrage Sitadel documenté (ordre de grandeur du volume à traiter). Voir aussi `docs/SOURCES_DATA.md` (licences).
 
 ## 6. État courant & prochaine action
-- **Working tree PROPRE** (rien de non committé). Dernier commit : **`8c2e9d8` (LOT 45)**. **6 commits d'AVANCE sur
-  `origin/main`, NON poussés** (le push est le geste d'Arno depuis VS Code) : `075453b` (docs passation), `c050206` (L41),
-  `fe77536` (L42), `63e15cd` (L43), `ccfcd12` (L44), `8c2e9d8` (L45). **Migrations INCHANGÉES** (jusqu'à 187 appliquées
-  en local ; 183/184 déjà en place) — le chantier 41-45 est 100 % front, aucune migration. Les DEUX cascades —
-  ordinaire ET partielle — partent en AUTO (LaunchAgent /15 min) ; l'envoi manuel = option hors calendrier.
+- **Working tree PROPRE** (rien de non committé). Dernier commit : **`6e6a9fd` (docs)**. **`origin/main` == HEAD, 0
+  commit en avance, TOUT poussé** (vérifié `git ls-remote`). Le push est le geste d'Arno depuis VS Code, fait **au fil
+  de l'eau** — ne pas raisonner en « compteur d'avance » (vrai une minute, faux la suivante). Chaîne des commits de la
+  fin de session, dans l'ordre : `c050206` (L41), `fe77536` (L42), `63e15cd` (L43), `ccfcd12` (L44), `8c2e9d8` (L45),
+  puis les 2 commits docs `6e6a9fd` (chantier thème sombre — fonds) et ce présent commit §6. **Migrations INCHANGÉES**
+  (jusqu'à 187 appliquées en local ; 183/184 déjà en place) — le chantier 41-45 est 100 % front, aucune migration. Les
+  DEUX cascades — ordinaire ET partielle — partent en AUTO (LaunchAgent /15 min) ; l'envoi manuel = option hors calendrier.
 - **Aucun chantier en cours** : Arno enchaîne des « LOT N » séquentiels ; attendre le prochain.
 - **ÉVÉNEMENT MARQUANT DU 01/09/2026 — PREMIER DÉPÔT TÉLÉSERVICE PARIS RÉEL de bout en bout** (demande **161**) : la
   relève déclenchée (LOT 34) a marché, l'accusé a été détecté, la référence **`SLC260901542604` extraite** — mais
