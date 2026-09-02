@@ -46,6 +46,11 @@
 - Proposer les vrais choix (design/ressenti) AVANT d'implémenter ; sinon décider et le dire. Ne jamais conseiller
   de faire une pause. **Recon qui contredit une prémisse → la recon gagne** (précédents LOT 2 bigint, LOT 14 arrêt,
   LOT 40 : la prop `process` conditionnait le contenu de « Réponses », dit AVANT d'implémenter).
+- **Dette TRANSVERSE → découper les lots PAR MOTIF racine, jamais par écran.** Leçon des lots 41→45 (thème sombre) :
+  attaquer par motif (toggle inactif, champ, surface, `ink`-comme-fond, bordure) + grep global + recon lecture seule
+  fait remonter les occurrences qu'aucun balayage écran par écran ne verrait — p. ex. un toggle d'`InternautesVue`
+  masqué par des commentaires inline (échappé au `replace_all`, L41) et **4 infobulles** dispersées (L45). Un écran
+  « a l'air fini » cache toujours des jumeaux du même bug ailleurs ; le motif est le bon axe de coupe et de contrôle.
 
 ## 3. Objectif
 - **Global** : transformer « sans vis-à-vis » en une norme mesurable/certifiable (verdict géométrique ≥ 40 m +
@@ -77,10 +82,17 @@
   en dev Next 16). **Ne JAMAIS s'appuyer sur un flag de cycle de vie mis à `false` au démontage sans être remis à
   `true` au remontage** (piège `monteRef` : reste `false` sur le montage réel → UI gelée). Dériver la « fraîcheur »
   d'une donnée live (ex. `pieceIdRef`), jamais d'un flag collant.
-- **THÈME SOMBRE (chantier 37-39 terminé)** : `data-theme` scopé à `.svv-adm-root` (jamais `:root` → public + PDF
-  restent clairs), tokens de charte `--color-svv-*` avec **seconde palette sombre mesurée** (tous ratios ≥ 4,5:1).
-  **Règle** : un fond et sa couleur de texte basculent TOUJOURS ENSEMBLE. **Zones qui restent CLAIRES par décision** :
-  canvas liseuse, tracé d'emprise, cartes de localisation, PDF du certificat.
+- **THÈME SOMBRE (chantiers 37-39 mécanisme+palette, 41-45 fonds — terminés)** : `data-theme` scopé à `.svv-adm-root`
+  (jamais `:root` → public + PDF restent clairs), tokens de charte `--color-svv-*` avec **seconde palette sombre
+  mesurée** (tous ratios ≥ 4,5:1). **Règle** : un fond et sa couleur de texte basculent TOUJOURS ENSEMBLE. Deux
+  corollaires : (1) **jamais de `#fff`/`bg-white` en dur** sous un texte en token (il ne bascule pas → texte pâle sur
+  blanc en sombre ; corrigé L41-44 par `var(--color-svv-surface)`, = `#ffffff` exact en clair) ; (2) **jamais un token
+  de TEXTE (`--color-svv-ink`) employé comme FOND avec un texte `#fff` en dur** (il s'inverse mal : `ink` devient clair
+  en sombre → blanc sur clair ; corrigé L45). Bon patron d'inversion : fond `ink` + texte `--color-svv-surface`/`-bg`
+  (toggles `ReglagesVue`/`PermisRattachementRendu`, figés par `themeSombreLot2.test`) ; infobulles → `--color-svv-tip-bg`
+  (reste sombre dans les DEUX thèmes). **Zones qui restent CLAIRES par décision (liste stabilisée)** : canvas liseuse,
+  tracé d'emprise, cartes de localisation + marqueurs Leaflet, data-viz catégorielle (dont trame « hors parcelle » du
+  schéma des bâtiments), PDF du certificat.
 
 ## 5. Historique — ce que fait déjà la Veille Permis (synthèse)
 Moteur pur + repos + écrans admin autour de l'entité **demande** (statuts `brouillon/prete/envoyee/close`) et de
@@ -102,7 +114,7 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
 - **Deux process d'envoi** (D2) : **e-mail (automatique)** et **téléservice (dépôt manuel)**, choisis par un
   **commutateur** en tête des onglets Demandes. Le canal est figé par demande (`dest_canal`).
 
-### LOTS de CETTE session (13 → 40, tous committés, working tree propre)
+### LOTS de CETTE session (13 → 45, tous committés, working tree propre ; L41→L45 non poussés)
 - **13 → 25** — Complétude/historique des envois · **liseuse de pièces** (best-of + aperçu PDF pdf.js, lecture seule) ·
   frise chronologique du suivi · **parcours complet projeté** (pilotage sans code) · perfs liseuse (préchargement +
   cache LRU documents + **cache de rendu peint**) · correctif StrictMode (LOT 24). Tracé d'emprise bit-à-bit inchangé.
@@ -143,6 +155,25 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
   (plus 'reponses'). **Effet de bord traité** : la prop `process` filtrait le CONTENU de « Réponses »
   (`dansProcess` sur la liste + 2 sous-blocs rail-spécifiques) → `ReponsesVue` ne prend plus `process` : la liste
   affiche TOUS les rails, les 2 sous-blocs sont rendus inconditionnellement (états vides gérés).
+- **41 → 45** (`c050206`, `fe77536`, `63e15cd`, `ccfcd12`, `8c2e9d8`) — **CHANTIER « THÈME SOMBRE — FONDS »**, découpé
+  PAR MOTIF (pas par écran). **Motif racine** : collision fond-dur / texte-token — un fond blanc codé en dur (`#fff`,
+  `bg-white`) qui NE bascule pas, sous un texte en token de charte qui bascule → texte pâle sur fond blanc en sombre.
+  **Correctif uniforme** : blanc en dur → `var(--color-svv-surface)` (= `#ffffff` EXACT en clair → **zéro changement
+  de rendu clair**, invariant vérifié lot par lot). Découpage : **L41** toggles inactifs + champs de saisie (+ 2 écrans
+  pré-auth login/mot-de-passe) ; **L42** surfaces cartes/panneaux/modales + conteneurs clairs verrouillés (motif E →
+  `var(--color-svv-field)`) ; **L43** canvas du graphique d'activité + schéma des bâtiments (2 tests-gardes figeant
+  `fill="#fff"` sur l'empreinte → migrés vers `var(--color-svv-surface)`) ; **L44** 2 stragglers motif C de `tuiles.tsx`
+  (note de compaction, panneau du sélecteur de communes) ; **L45** motif INVERSE — un token de TEXTE (`ink`) employé
+  comme FOND s'inverse mal en sombre : info-btn survol/focus → texte `var(--color-svv-bg)` ; **4 infobulles** ink →
+  `var(--color-svv-tip-bg)` (reste sombre dans les 2 thèmes) ; bordure `#d7dbe1` → `var(--color-svv-line-strong)`.
+  **Non-bugs laissés** (ink-fond mais texte `surface` → s'inverse bien) : `ReglagesVue`, `PermisRattachementRendu`
+  (figés par `themeSombreLot2.test`). **Convergences claires assumées** (tolérance ΔRGB ≤ 10 actée au L39) :
+  `#f4f4f5`→field (Δ≤1), `#eceef1`→field (Δ≤7) ; `#d7dbe1`→line-strong (Δ=0). **NON-corrections décidées** : hachure
+  `rgba(0,0,0,.05)` de `styleTrameDetail` (texture décorative, rien d'illisible) ; trame « hors parcelle » du schéma
+  laissée CLAIRE (texture catégorielle ; l'intérieur de parcelle bascule comme un panneau) ; **pas de lot « bordures »**
+  — les hex restants (marqueurs Leaflet, liserés décoratifs `#f3c9c9` du L39, badges data-viz, légende du tracé
+  d'emprise) sont des faux positifs du §3 sans token équivalent. **Hex en dur non-test (admin)** : 235 (recon) → 181
+  (L39) → 143 (L41) → 125 (L42) → 114 (L43) → 112 (L44) → **107** (L45). Golden Asnières hors diff sur tout le chantier.
 
 ### Prochain GROS chantier + fraîcheur/contrôle mixte (résumé de `docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md`)
 > **À LIRE avant tout chantier données/verdict/certificat/permis.** Corpus figé 25-26/07/2026.
@@ -169,9 +200,11 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
   chiffrage Sitadel documenté (ordre de grandeur du volume à traiter). Voir aussi `docs/SOURCES_DATA.md` (licences).
 
 ## 6. État courant & prochaine action
-- **Working tree PROPRE** (rien de non committé). Dernier commit : **`080a067` (LOT 40)**, **tout poussé**
-  (`main` == `origin/main`). **Migrations 185, 186 ET 187 APPLIQUÉES en local** (en plus de 183/184 déjà en place).
-  Les DEUX cascades — ordinaire ET partielle — partent en AUTO (LaunchAgent /15 min) ; l'envoi manuel = option hors calendrier.
+- **Working tree PROPRE** (rien de non committé). Dernier commit : **`8c2e9d8` (LOT 45)**. **6 commits d'AVANCE sur
+  `origin/main`, NON poussés** (le push est le geste d'Arno depuis VS Code) : `075453b` (docs passation), `c050206` (L41),
+  `fe77536` (L42), `63e15cd` (L43), `ccfcd12` (L44), `8c2e9d8` (L45). **Migrations INCHANGÉES** (jusqu'à 187 appliquées
+  en local ; 183/184 déjà en place) — le chantier 41-45 est 100 % front, aucune migration. Les DEUX cascades —
+  ordinaire ET partielle — partent en AUTO (LaunchAgent /15 min) ; l'envoi manuel = option hors calendrier.
 - **Aucun chantier en cours** : Arno enchaîne des « LOT N » séquentiels ; attendre le prochain.
 - **ÉVÉNEMENT MARQUANT DU 01/09/2026 — PREMIER DÉPÔT TÉLÉSERVICE PARIS RÉEL de bout en bout** (demande **161**) : la
   relève déclenchée (LOT 34) a marché, l'accusé a été détecté, la référence **`SLC260901542604` extraite** — mais
@@ -185,8 +218,9 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
   (**UTC**) avec la mention (Paris) — divergence pré-existante ; (b) **réduire l'échelle de base du PREMIER rendu de la
   liseuse** (rendu à 1× + remontée au zoom) — le cache de rendu (LOT 25) rend le RETOUR instantané mais n'accélère PAS
   le premier rendu d'un plan jamais vu (plan A0 le plus dense d'Aubervilliers : ~3,5 s à froid, ~0,65 s à chaud) ;
-  (c) **thème sombre — parcourir l'admin ÉCRAN PAR ÉCRAN en sombre** pour repérer ce qu'aucun grep ne voit
-  (Statistiques, Pilotage Moteur, Curation, Banc de test, Audit, Administratif).
+  (c) **thème sombre — les FONDS sont traités** (chantier 41-45, grep par motif) ; ce qui RESTE = un parcours VISUEL
+  écran par écran en sombre, pour ce qu'aucun grep ne voit (contrastes réels perçus, superpositions, survols) —
+  Statistiques, Pilotage Moteur, Curation, Banc de test, Audit, Administratif.
 - **Prochaine action immédiate** : recevoir et exécuter le prochain « LOT » d'Arno (recon lecture seule → implémente
   → contrôles de fin dans l'ordre → commit).
 
