@@ -74,7 +74,7 @@ export function Carte({
         <>
           <p
             role="note"
-            style={{ margin: 0, fontSize: '.72rem', color: 'var(--color-svv-muted)', fontStyle: 'italic', background: '#fff', border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: '6px 8px' }}
+            style={{ margin: 0, fontSize: '.72rem', color: 'var(--color-svv-muted)', fontStyle: 'italic', background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: 8, padding: '6px 8px' }}
           >
             {voile}
           </p>
@@ -607,7 +607,7 @@ function MenuCommunes({
         <div
           style={{
             position: 'absolute', zIndex: 30, top: 'calc(100% + 4px)', left: 0, right: 0, minWidth: 220,
-            background: '#fff', border: '1px solid var(--color-svv-line)', borderRadius: 10,
+            background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: 10,
             boxShadow: '0 6px 20px rgba(0,0,0,.18)', display: 'flex', flexDirection: 'column', maxHeight: 320, overflow: 'hidden',
           }}
         >
