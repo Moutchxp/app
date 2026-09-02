@@ -748,8 +748,8 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
   const remplirLargeur = agrandi || grand;
   const dims = remplirLargeur ? { width: '100%' as const } : { width: schema.largeur, height: schema.hauteur };
   const styleSvg: CSSProperties = remplirLargeur
-    ? { width: '100%', height: 'auto', maxHeight: agrandi ? '72vh' : '68vh', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' }
-    : { maxWidth: '100%', height: 'auto', border: '1px solid var(--color-svv-line)', background: '#fff', borderRadius: '.4rem' };
+    ? { width: '100%', height: 'auto', maxHeight: agrandi ? '72vh' : '68vh', border: '1px solid var(--color-svv-line)', background: 'var(--color-svv-surface)', borderRadius: '.4rem' }
+    : { maxWidth: '100%', height: 'auto', border: '1px solid var(--color-svv-line)', background: 'var(--color-svv-surface)', borderRadius: '.4rem' };
   // 🔴 M7-bis — ANTI-SAUT : dès qu'un champ a le focus, la HAUTEUR du conteneur du schéma est RÉSERVÉE (minHeight) → le grossissement
   //   ne réagence pas la page. La colonne des champs (à GAUCHE en desktop, colonnes indépendantes top-alignées ; AU-DESSUS en mobile,
   //   le schéma grandissant vers le BAS) ne bouge donc pas entre deux clics.
@@ -782,7 +782,7 @@ export function SchemaEmpreinteSvg({ schema, corps, agrandi = false, rougeCleabs
         </defs>
         <rect x={0} y={0} width={schema.largeur} height={schema.hauteur} fill={`url(#${trameId})`} />
         {/* ② parcelle : blanc plein par-dessus la trame → son contour se détache */}
-        {schema.empreintePath && <path d={schema.empreintePath} fill="#fff" stroke="var(--color-svv-ink)" strokeWidth={1.5} />}
+        {schema.empreintePath && <path d={schema.empreintePath} fill="var(--color-svv-surface)" stroke="var(--color-svv-ink)" strokeWidth={1.5} />}
         {/* ③ TOUS les polygones (le futur bâti n'est JAMAIS retiré) : couleur par repère ; affecté = contour vert ; hors = tireté */}
         {schema.polygones.map((p) => {
           const affecte = !!corpsDuPolygone(corps, p.cleabs);
@@ -895,8 +895,8 @@ export function LegendeAffectation({ avecRouge = false }: { avecRouge?: boolean 
       </span>
       {/* L5 — clé du rouge (uniquement sur « Nouvelle configuration ») : le rouge n'est jamais seul porteur, la légende le dit. */}
       {avecRouge && <span style={item}><span aria-hidden="true" style={chip('var(--color-svv-red)', '1px solid var(--color-svv-ink)')} />nouveau ou modifié depuis l’origine (rouge)</span>}
-      <span style={item}><span aria-hidden="true" style={chip('#fff', '2.5px solid var(--color-svv-green-ink)')} />affecté à un corps (contour vert)</span>
-      <span style={item}><span aria-hidden="true" style={chip('#fff', '1px dashed var(--color-svv-ink)')} />déborde de la parcelle (contour tireté)</span>
+      <span style={item}><span aria-hidden="true" style={chip('var(--color-svv-surface)', '2.5px solid var(--color-svv-green-ink)')} />affecté à un corps (contour vert)</span>
+      <span style={item}><span aria-hidden="true" style={chip('var(--color-svv-surface)', '1px dashed var(--color-svv-ink)')} />déborde de la parcelle (contour tireté)</span>
       <span style={item}><span aria-hidden="true" style={{ ...puceBase, backgroundImage: 'repeating-linear-gradient(45deg, #c9ccd1 0 1.2px, #f4f4f5 1.2px 6px)', border: '1px solid var(--color-svv-line)' }} />hors parcelle (trame grise)</span>
     </div>
   );
@@ -1063,7 +1063,7 @@ export function LegendeRepetesComplete({ schema, corps, rougeCleabs, afficherFut
       {/* L12 — clé du FUTUR BÂTI : la puce HACHURÉE (croisillon) + ce qu'elle signifie + le COMPTE (utile hors du dessin). Non colorée. */}
       {nbFutur > 0 && (
         <div role="note" style={{ ...styleAide, display: 'flex', alignItems: 'baseline', gap: '.3rem' }}>
-          <span aria-hidden="true" style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, flexShrink: 0, background: '#fff', backgroundImage: 'repeating-linear-gradient(45deg, var(--color-svv-ink) 0 .7px, transparent .7px 4px), repeating-linear-gradient(-45deg, var(--color-svv-ink) 0 .7px, transparent .7px 4px)', border: '1px solid var(--color-svv-line)' }} />
+          <span aria-hidden="true" style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, flexShrink: 0, background: 'var(--color-svv-surface)', backgroundImage: 'repeating-linear-gradient(45deg, var(--color-svv-ink) 0 .7px, transparent .7px 4px), repeating-linear-gradient(-45deg, var(--color-svv-ink) 0 .7px, transparent .7px 4px)', border: '1px solid var(--color-svv-line)' }} />
           <span><strong>Hachuré = futur bâti (en projet)</strong> — {nbFutur} polygone{nbFutur > 1 ? 's' : ''} que le permis va faire sortir de terre (pas l’existant déjà construit).</span>
         </div>
       )}
@@ -1077,7 +1077,7 @@ export function LegendeRepetesComplete({ schema, corps, rougeCleabs, afficherFut
       {/* ②/④ — clé du débordement : la puce AVEC son contour tireté (pas seulement le mot) + POURQUOI ça compte, dit UNE fois. */}
       {deborde && (
         <div role="note" style={{ ...styleAide, display: 'flex', alignItems: 'baseline', gap: '.3rem' }}>
-          <span aria-hidden="true" style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, flexShrink: 0, background: '#fff', border: '1px dashed var(--color-svv-ink)' }} />
+          <span aria-hidden="true" style={{ display: 'inline-block', width: 14, height: 14, borderRadius: 3, flexShrink: 0, background: 'var(--color-svv-surface)', border: '1px dashed var(--color-svv-ink)' }} />
           <span><strong>Contour tireté = déborde de la parcelle</strong> — bâtiment probablement mitoyen ou voisin : à vérifier avant de l’affecter au permis.</span>
         </div>
       )}
@@ -1129,8 +1129,8 @@ export function DialoguePleinEcran({ titre, onFermer, children }: { titre: strin
 
   return (
     <div ref={dialogueRef} role="dialog" aria-modal="true" aria-labelledby={titreId}
-      style={{ position: 'fixed', inset: 0, zIndex: 50, background: '#fff', display: 'flex', flexDirection: 'column', gap: '.5rem', padding: '.75rem', overflow: 'auto' }}>
-      <div style={{ position: 'sticky', top: 0, background: '#fff', display: 'flex', alignItems: 'center', gap: '.5rem', paddingBottom: '.25rem', borderBottom: '1px solid var(--color-svv-line)', zIndex: 2 }}>
+      style={{ position: 'fixed', inset: 0, zIndex: 50, background: 'var(--color-svv-surface)', display: 'flex', flexDirection: 'column', gap: '.5rem', padding: '.75rem', overflow: 'auto' }}>
+      <div style={{ position: 'sticky', top: 0, background: 'var(--color-svv-surface)', display: 'flex', alignItems: 'center', gap: '.5rem', paddingBottom: '.25rem', borderBottom: '1px solid var(--color-svv-line)', zIndex: 2 }}>
         <h2 id={titreId} style={{ fontSize: 14, fontWeight: 800, margin: 0 }}>{titre}</h2>
         <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', marginLeft: 'auto' }} onClick={onFermer}>Fermer ✕</button>
       </div>

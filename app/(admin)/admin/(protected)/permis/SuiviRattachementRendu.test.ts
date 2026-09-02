@@ -466,7 +466,7 @@ describe('L2 — lisibilité du schéma (trame hors parcelle, parcelle blanche, 
     expect(h).toContain('<pattern');                       // motif de trame défini
     expect(h).toContain('patternTransform="rotate(45)"');  // hachures à 45°
     expect(h).toMatch(/fill="url\(#trame-[^"]+\)"/);        // fond hors parcelle rempli par la trame
-    expect(h).toContain('d="M10,10 L300,10 L300,230 L10,230 Z" fill="#fff"'); // parcelle blanche par-dessus
+    expect(h).toContain('d="M10,10 L300,10 L300,230 L10,230 Z" fill="var(--color-svv-surface)"'); // parcelle (surface : blanche en clair) par-dessus
   });
 
   it('③ les 16 polygones (cas 07512024V0037) reçoivent 16 couleurs de palette DISTINCTES, aucune blanche', () => {
@@ -474,7 +474,7 @@ describe('L2 — lisibilité du schéma (trame hors parcelle, parcelle blanche, 
     const attendues = Array.from({ length: 16 }, (_, i) => couleurRepere(i));
     for (const c of attendues) expect(h).toContain(`fill="${c}"`); // chaque repère A..P a SA couleur
     expect(new Set(attendues).size).toBe(16);                       // et elles sont toutes distinctes
-    expect(h).not.toContain('fill="#ffffff"');                     // aucun polygone blanc (la parcelle utilise #fff, pas #ffffff)
+    expect(h).not.toContain('fill="#ffffff"');                     // aucun polygone blanc (la parcelle utilise var(--color-svv-surface))
     for (const c of PALETTE_REPERE) { const hex = c.toLowerCase(); expect(hex).not.toBe('#fff'); expect(hex).not.toBe('#ffffff'); }
   });
 
@@ -1102,7 +1102,7 @@ describe('L10 — cleabs dans la légende + interrupteur des repères', () => {
     const h = renderToStaticMarkup(createElement(SchemaEmpreinteSvg, { schema: schemaAB(), corps: [], afficherReperes: false }));
     expect(h).not.toContain('<text');            // aucune lettre
     expect(h).not.toContain('paint-order');       // aucun halo
-    expect(h).toContain('d="M10,10 L100,10 L100,100 Z" fill="#fff"'); // la parcelle blanche reste
+    expect(h).toContain('d="M10,10 L100,10 L100,100 Z" fill="var(--color-svv-surface)"'); // la parcelle (surface) reste
     expect(h).toContain(`fill="${couleurRepere(0)}"`); // A garde sa couleur
     expect(h).toContain(`fill="${couleurRepere(1)}"`); // B garde sa couleur
     expect(h).toContain('d="M20,20 L40,20 L40,40 Z"'); // les formes des polygones restent

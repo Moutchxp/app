@@ -395,10 +395,10 @@ export function SerieTemporelle({ serie }: { serie: Statistiques['serie'] }) {
               width="100%"
               role="img"
               aria-label={`Série temporelle : ${groupesActifs.map((g) => g.libelle).join(', ') || 'aucune courbe'}`}
-              style={{ display: 'block', background: '#fff', borderRadius: 8, height: 'auto' }}
+              style={{ display: 'block', background: 'var(--color-svv-surface)', borderRadius: 8, height: 'auto' }}
             >
               {/* Fond cliquable : un tap « ailleurs » (hors point) ferme l'infobulle sur mobile. */}
-              <rect x={0} y={0} width={SVG_W} height={SVG_H} fill="#fff" onClick={() => setActif(null)} />
+              <rect x={0} y={0} width={SVG_W} height={SVG_H} fill="var(--color-svv-surface)" onClick={() => setActif(null)} />
               {/* Axe Y : graduations chiffrées « rondes » + lignes de repère. Recalculées avec les courbes actives. */}
               <g transform={`translate(${AXE_W},${SVG_PAD})`}>
                 {paliers.map((v) => {
