@@ -20,6 +20,8 @@ const initiale = (destinataire: string | null = 'mairie@ex.fr'): EnvoiHistorique
 const relanceOrd = (le: string, grade: string, destinataire: string | null = 'mairie@ex.fr'): EnvoiHistorique => ({ le, nature: 'relance_ordinaire', grade, libelle: `Relance — ${grade}`, destinataire });
 const relancePart = (le: string): EnvoiHistorique => ({ le, nature: 'relance_partielle', grade: '1re relance', libelle: 'Relance partielle — 1re relance', destinataire: null });
 const suspension = (le: string): EtatPartiel => ({ le, familles: ['cerfa'], origine: 'declaree' });
+// LOT 48 — relance sur réponse partielle (mécanisme DISTINCT de la cascade) : étape à part entière.
+const relanceReponse = (le: string): EnvoiHistorique => ({ le, nature: 'relance_reponse', grade: '1re relance', libelle: 'Relance après réponse partielle', destinataire: 'lauriane.pangui@mairie.fr' });
 const base = { envoyeLe: INITIAL, envois: [initiale()], suspension: null, saisineCadaEnvoyeeLe: null, annonceCadaEnvoyeeLe: null, destinataireCourant: 'urba@mairie.fr', bifurcationDestinataire: null, annonceCadaDestinataire: null, reglages: REGLAGES };
 const jours = (ev: EvenementFrise[]) => ev.map((e) => ({ l: e.libelle, q: e.quand, d: e.le.slice(0, 10) }));
 
@@ -206,5 +208,35 @@ describe('partitionnerFrise — repli des faits anciens, étapes à venir toujou
     expect(passeVisible).toEqual([faits[0], faits[3], faits[4], faits[5]]);
     expect(passeReplie).toEqual([faits[1], faits[2]]);
     expect(avenir).toEqual([a]);
+  });
+});
+
+describe('LOT 48 — relance sur réponse partielle : étape à part dans la frise', () => {
+  const J = '2026-08-28T12:00:00Z';
+  const bif = { ...base, envois: [initiale()], suspension: suspension(J) };
+
+  it('apparaît comme ÉTAPE FRANCHIE « Relance après réponse partielle » à sa date, sans jargon interne', () => {
+    const p = projeterParcours({ ...bif, envois: [...bif.envois, relanceReponse('2026-09-03T09:16:00Z')] });
+    const et = p.find((e) => e.libelle === 'Relance après réponse partielle');
+    expect(et).toBeDefined();
+    expect(et!.quand).toBe('passe');
+    expect(et!.le.slice(0, 10)).toBe('2026-09-03');
+    // aucun code interne à l'écran
+    expect(JSON.stringify(p)).not.toMatch(/PART-E|CASC-3|relance_reponse|MOTIF_/);
+  });
+
+  it('déplace le LISERÉ (courant) sur elle quand c’est la dernière étape franchie (symptôme d’origine)', () => {
+    const p = projeterParcours({ ...bif, envois: [...bif.envois, relanceReponse('2026-09-03T09:16:00Z')] });
+    const courant = p.find((e) => e.courant);
+    expect(courant?.libelle).toBe('Relance après réponse partielle');
+  });
+
+  it('N’ALTÈRE PAS le calendrier de la cascade : la 1re relance programmée reste à venir à sa date (bif + 10 j)', () => {
+    const sans = projeterParcours(bif);
+    const avec = projeterParcours({ ...bif, envois: [...bif.envois, relanceReponse('2026-09-03T09:16:00Z')] });
+    const relanceProg = (p: EvenementFrise[]) => p.find((e) => e.quand === 'avenir' && e.libelle === 'Relance programmée');
+    // la relance sur réponse n'est PAS slottée dans la cascade → la 1re relance cascade demeure « à venir » à la même date.
+    expect(relanceProg(avec)?.le).toBe(relanceProg(sans)?.le);
+    expect(relanceProg(avec)?.le?.slice(0, 10)).toBe('2026-09-07'); // 28/08 + 10 j
   });
 });

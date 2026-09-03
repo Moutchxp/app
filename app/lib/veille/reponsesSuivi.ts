@@ -800,6 +800,18 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
         else pousser(r.demande_id, { le: r.le, categorie: 'extra', variante: null, rang: null, destinataire: r.destinataire });
       }
     } catch { /* details absents (175 non appliquée) → pas de compléments hors calendrier dans la frise (dégradation sûre) */ }
+    // LOT 48 — 4e source : RELANCES SUR RÉPONSE PARTIELLE (journal MOTIF_RELANCE_REPONSE, mécanisme DISTINCT de la cascade partielle).
+    //   Elles n'écrivent pas d'acheminement ; on les rend VISIBLES dans la frise comme étape à part (categorie 'reponse', rang = details.rang).
+    //   ADDITIF : ne touche NI aux échéances de cascade NI au butoir CADA. Le fil les montre déjà via demande_sortant_hors_outil (FIL-C) →
+    //   aucun doublon ici (source de la FRISE, pas du fil). Résilient : table/colonne absente → source ignorée (dégradation sûre).
+    try {
+      const { rows } = await query<{ demande_id: number; le: string; rang: number | null; destinataire: string | null }>(
+        `SELECT j.demande_id::int AS demande_id, j.horodatage::text AS le, (j.details->>'rang')::int AS rang,
+                coalesce(j.details->>'destinataire', nullif(d.dest_nom, ''), d.dest_email) AS destinataire
+           FROM demande_journal j JOIN demande d ON d.id = j.demande_id
+          WHERE j.demande_id = ANY($1) AND j.motif LIKE $2 || '%'`, [ids, MOTIF_RELANCE_REPONSE_PREFIXE]);
+      for (const r of rows) pousser(r.demande_id, { le: r.le, categorie: 'reponse', variante: null, rang: r.rang, destinataire: r.destinataire });
+    } catch { /* journal/details absents → historique sans les relances sur réponse (dégradation sûre) */ }
   }
 
   // LOT 17/19 (C) — MENTION « N échanges — dernier le … » du titre de « Historique des échanges » (VISIBLE REPLIÉE). Compte + date du

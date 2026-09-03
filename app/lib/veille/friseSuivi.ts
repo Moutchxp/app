@@ -141,6 +141,12 @@ export function projeterParcours(e: EntreeParcours): EvenementFrise[] {
     }
     // LOT 30 (③) — envois SUPPLÉMENTAIRES (non comptés) : chronologie sans consommer de créneau (le futur à venir reste inchangé).
     for (const ex of extras) evs.push({ le: ex.le, quand: 'passe', libelle: 'Envoi supplémentaire', detail: detailEnvoi(ex.dest, 'relance manuelle, hors calendrier') });
+    // LOT 48 — RELANCES SUR RÉPONSE PARTIELLE (la mairie a répondu partiellement → on relance pour les pièces encore manquantes).
+    //   Mécanisme DISTINCT de la cascade : étapes À PART ENTIÈRE dans la chronologie, JAMAIS fusionnées avec les créneaux de cascade
+    //   (qui restent inchangés — décision « coexistence »). Toujours des FAITS (envoi réel). Le tri final (evs.sort) les place à leur
+    //   date ; le liseré « courant » (dernier 'passe') se replace donc de lui-même sur la dernière relance réellement partie.
+    for (const rr of e.envois.filter((x) => x.nature === 'relance_reponse'))
+      evs.push({ le: iso(rr.le), quand: 'passe', libelle: 'Relance après réponse partielle', detail: detailEnvoi(rr.destinataire, 'pièces encore manquantes') });
     // INFORMATION SAISINE CADA (l'annonce, In-Reply-To) — effectuée sur envoi réel (adresse non conservée), sinon programmée (Règle B → toutes les adresses).
     const dateAnnonce = ajoute(J, rp.nbRelancesAvantAnnonce * rp.relanceJours + rp.annonceJours);
     const futurAnnonce = estMultiAdresseFutur(e.reglages.multiAdresse, totalPartiel, totalPartiel) ? TOUTES_ADRESSES_FUTUR : INTERLOCUTEUR_FUTUR;

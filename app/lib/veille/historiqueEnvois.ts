@@ -9,12 +9,12 @@ import { ordinalRelance } from './decompteButoir';
  * ⚠️ VOCABULAIRES NON FUSIONNÉS (décision LOT 8) : la cascade ORDINAIRE porte des noms propres (Rappel / Avis d'échéance / Saisine),
  *    la cascade PARTIELLE des ordinaux (« 1re relance », « 2e relance »…). On ne mélange jamais les deux échelles.
  */
-export type NatureEnvoi = 'initiale' | 'relance_ordinaire' | 'relance_partielle' | 'complement_extra';
+export type NatureEnvoi = 'initiale' | 'relance_ordinaire' | 'relance_partielle' | 'complement_extra' | 'relance_reponse';
 
 /** Un envoi BRUT (avant mise en forme), tel que sorti d'une des deux sources. La `categorie` dit d'où il vient et quel grade lire. */
 export interface EnvoiBrut {
   le: string;                                                    // ISO de l'envoi (envoye_le d'acheminement OU horodatage du journal)
-  categorie: 'initiale' | 'ordinaire' | 'partielle' | 'extra';  // …+ « extra » (LOT 30 ③) = envoi manuel supplémentaire NON compté (ne consomme aucun créneau)
+  categorie: 'initiale' | 'ordinaire' | 'partielle' | 'extra' | 'reponse';  // …+ « extra » (LOT 30 ③) = envoi manuel supplémentaire NON compté ; « reponse » (LOT 48) = relance sur réponse partielle (mécanisme distinct de la cascade)
   variante: string | null;                                      // ordinaire : rappel/avis/saisine ; sinon null
   rang: number | null;                                          // partielle : 1, 2, … ; sinon null
   destinataire: string | null;                                  // si connu (dest_nom/dest_email, ou details du journal)
@@ -48,6 +48,10 @@ export function ordonnerHistoriqueEnvois(bruts: readonly EnvoiBrut[]): EnvoiHist
       }
       if (e.categorie === 'extra') { // LOT 30 (③) — envoi manuel supplémentaire (NON compté) : n'a pas de rang de cascade.
         return { le: e.le, nature: 'complement_extra', grade: null, libelle: 'Envoi supplémentaire', destinataire: e.destinataire };
+      }
+      if (e.categorie === 'reponse') { // LOT 48 — relance sur réponse partielle : ÉTAPE À PART (mécanisme distinct de la cascade partielle, jamais fusionnée).
+        const grade = `${ordinalRelance(e.rang ?? 1)} relance`;
+        return { le: e.le, nature: 'relance_reponse', grade, libelle: 'Relance après réponse partielle', destinataire: e.destinataire };
       }
       const grade = `${ordinalRelance(e.rang ?? 1)} relance`; // vocab PARTIEL (ordinaux) — jamais fusionné avec l'ordinaire
       return { le: e.le, nature: 'relance_partielle', grade, libelle: `Relance partielle — ${grade}`, destinataire: e.destinataire, manuel: e.manuel };
