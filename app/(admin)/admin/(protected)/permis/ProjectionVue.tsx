@@ -109,7 +109,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         {/* EXT-1 (étape 2) — RELANCER L'ANALYSE : SEUL moyen de forcer un recalcul (inchangé). Toujours visible, en tête du détail. */}
         <BoutonRelancerAnalyse dossierId={ouvert} onFini={() => { setVAnalyse((v) => v + 1); setVInstruction((v) => v + 1); }} />
         {/* LOT 51-B — ce permis est ici en TEST (dossier incomplet ouvert depuis « En cours »). S'il n'a pas permis de tout renseigner et
-            qu'on ne veut PAS relancer la mairie maintenant, « Remettre dans En cours » lève le marqueur : aucun e-mail, échéances intactes. */}
+            qu'on ne veut PAS relancer la mairie maintenant, « Renvoyer ce permis dans l'onglet En cours » lève le marqueur : aucun e-mail, échéances intactes. */}
         {row?.testeEnAnalyse && (() => {
           // LOT 51-C — carte de TEST : deux issues. (A) SORTIE DÉFINITIVE vers Rattachement, gardée par la DOUBLE condition (empreinte
           //   validée ET toutes les altitudes de sommet NGF renseignées) — l'écran DIT laquelle manque, jamais un bouton grisé muet.
@@ -138,7 +138,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
               {/* (B) RETOUR SANS ENVOI */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.5rem' }}>
                 <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Ou, si l’examen n’a rien permis de conclure et que vous ne voulez pas relancer la mairie maintenant :</span>
-                <button type="button" className="svv-btn svv-btn-primary" disabled={enCours} onClick={() => { void retourEnCours(ouvert); }}>Remettre dans En cours</button>
+                <button type="button" className="svv-btn svv-btn-primary" disabled={enCours} onClick={() => { void retourEnCours(ouvert); }}>Renvoyer ce permis dans l’onglet « En cours »</button>
               </div>
             </div>
           );
@@ -184,7 +184,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     );
   };
 
-  // LOT 52 (point 3) — CATÉGORIE DYNAMIQUE « Dossiers en test » en PREMIÈRE POSITION : retrouver immédiatement un dossier qu'on vient
+  // LOT 52 (point 3) — CATÉGORIE DYNAMIQUE « Test Permis » (renommée au LOT 53) en PREMIÈRE POSITION : retrouver immédiatement un dossier qu'on vient
   //   d'envoyer en test (marqueur `dossier_test_analyse`, porté par `testeEnAnalyse`). N'apparaît que si NON VIDE. Réutilise le socle
   //   existant (BlocRepliable + TableProjection), aucun socle partagé modifié. `renderDetail` lit le `file` complet → le détail marche
   //   dans les deux tables (l'ouverture est un état unique `ouvert`). Le reste de la file est rendu dessous, sans le testé (pas de doublon).
@@ -194,10 +194,10 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     <div className="flex flex-col gap-3">
       <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>{AIDE_PROJECTION}</p>
       {enTest.length > 0 && (
-        <BlocRepliable defautOuvert titre={<span style={{ fontWeight: 700 }}>Dossiers en test ({enTest.length})</span>}>
+        <BlocRepliable defautOuvert titre={<span style={{ fontWeight: 700 }}>Test Permis ({enTest.length})</span>}>
           {() => (
             <div className="flex flex-col gap-2">
-              <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>Ouverts depuis « En cours » pour être examinés ici — les relances à la mairie continuent en fond. « Remettre dans En cours » (dans le détail) les fait ressortir de cette liste.</p>
+              <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>Ouverts depuis « En cours » pour être examinés ici — les relances à la mairie continuent en fond. Le bouton de retour (dans le détail) les fait ressortir de cette liste.</p>
               <TableProjection file={enTest} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} />
             </div>
           )}

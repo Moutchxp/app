@@ -29,7 +29,7 @@ export interface LigneProjection {
   satisfaitLe: string | null;
   nbCorpsSansAltitude: number;  // RATT-1 — bâtiments déclarés sans altitude de sommet (permis_corps_batiment.altitude_sommet_ngf NULL) → titre « Caractéristiques »
   projectionValidee: boolean;   // RATT-1 — la file EXCLUT par construction les projections validées (jalon NOT EXISTS permis_projection) → TOUJOURS false ici ; champ exposé pour un titre de famille générique et honnête
-  testeEnAnalyse: boolean;      // LOT 51 — le dossier est présent en Analyse via le marqueur « testé » (partiel actif tenu ouvert) → l'UI propose « Remettre dans En cours » ; false pour un dossier arrivé normalement
+  testeEnAnalyse: boolean;      // LOT 51 — le dossier est présent en Analyse via le marqueur « testé » (partiel actif tenu ouvert) → l'UI propose « Renvoyer ce permis dans l'onglet En cours » ; false pour un dossier arrivé normalement
 }
 
 // Prédicat SQL de nature CONCERNÉE (miroir EXACT de concerneProjectionEmprise : immeuble neuf/construction neuve = nature '1',

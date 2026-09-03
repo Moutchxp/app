@@ -75,7 +75,7 @@ describe('LOT 51 — câblage (source) : porte FIX-2, données, routes, deux ret
     expect(lire('app/(admin)/api/admin/permis/projection/route.ts')).toContain("body.action === 'retour_en_cours'");
     const dp = lire('app/(admin)/api/admin/permis/demander-pieces/route.ts');
     expect((dp.match(/retirerTestAnalyse\(dossierId\)/g) ?? []).length).toBe(2); // après executerDemandePieces (envoi) ET declarerRelanceComplement (déclaration)
-    expect(lire('app/(admin)/admin/(protected)/permis/ProjectionVue.tsx')).toContain('Remettre dans En cours');
+    expect(lire('app/(admin)/admin/(protected)/permis/ProjectionVue.tsx')).toContain('Renvoyer ce permis dans l’onglet « En cours »');
   });
   it('51 — PREUVE « aucun changement de statut, aucune relance arrêtée » : le marqueur n’écrit QUE dossier_test_analyse', () => {
     const s = lire('app/lib/permis/testAnalyseRepo.ts');

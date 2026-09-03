@@ -5,7 +5,7 @@
  * marqueur partiel — les relances à la mairie CONTINUENT (le suivi ne s'interrompt pas). Aller-retour RÉVERSIBLE, PAS un changement
  * de statut : ce module N'ÉCRIT NI `demande.statut` NI `partiel_leve_le` (la sortie DÉFINITIVE = LOT 51-C, distinct).
  *   • POSE (marquer)   ← bouton « Tester le dossier en analyse » depuis « En cours ».
- *   • RETRAIT (retirer) ← bouton « Remettre dans En cours » depuis Analyse, OU relance envoyée depuis la famille Complétude.
+ *   • RETRAIT (retirer) ← bouton « Renvoyer ce permis dans l'onglet En cours » depuis Analyse, OU relance envoyée depuis la famille Complétude.
  *
  * RÉSILIENCE : table 189 non appliquée (42P01) → lecture = ∅, écritures = no-op silencieux (jamais une erreur remontée à l'UI).
  */

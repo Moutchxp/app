@@ -541,10 +541,10 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
 
   // LOT 51 — « Tester le dossier en analyse » : rend le(s) dossier(s) de la demande disponible(s) dans « Analyse et projection » SANS lever
   //   le marqueur partiel (les relances continuent). La demande QUITTE alors « En cours » (exclusivité) → on ferme le détail et on rafraîchit
-  //   liste + suivi + pastilles d'onglet. AUCUN changement de statut, AUCUN envoi. Réversible depuis Analyse (« Remettre dans En cours ») ou par une relance.
+  //   liste + suivi + pastilles d'onglet. AUCUN changement de statut, AUCUN envoi. Réversible depuis Analyse (« Renvoyer ce permis dans l'onglet En cours ») ou par une relance.
   const testerEnAnalyse = async (demandeId: number): Promise<void> => {
     const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'tester_en_analyse', demandeId }) });
-    if (res.ok) { setDetail(null); rafraichirSuivi(); rafraichir(); onRecompter?.(); annoncer('Dossier envoyé en test dans « Analyse et projection » — les relances continuent. Vous pourrez le remettre dans « En cours » depuis Analyse.', true); }
+    if (res.ok) { setDetail(null); rafraichirSuivi(); rafraichir(); onRecompter?.(); annoncer('Dossier envoyé en test dans « Analyse et projection » — les relances continuent. Vous pourrez le renvoyer dans l’onglet « En cours » depuis Analyse.', true); }
     else annoncer(await erreurServeur(res, 'Action impossible.'), false);
   };
 

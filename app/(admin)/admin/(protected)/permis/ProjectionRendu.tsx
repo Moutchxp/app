@@ -15,7 +15,7 @@ export interface LigneProjectionAffichee {
   satisfaitLe: string | null;
   nbCorpsSansAltitude: number;  // RATT-1 — bâtiments déclarés sans altitude de sommet (titre « Caractéristiques du permis »)
   projectionValidee: boolean;   // RATT-1 — projection validée ? (titre « Bâtiments et projection ») — false par construction dans cette file
-  testeEnAnalyse: boolean;      // LOT 51 — présent via le marqueur « testé en analyse » (partiel tenu ouvert) → l'UI propose « Remettre dans En cours »
+  testeEnAnalyse: boolean;      // LOT 51 — présent via le marqueur « testé en analyse » (partiel tenu ouvert) → l'UI propose « Renvoyer ce permis dans l'onglet En cours »
 }
 
 /**
