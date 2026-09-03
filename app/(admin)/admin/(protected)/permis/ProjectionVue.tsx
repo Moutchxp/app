@@ -184,24 +184,19 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     );
   };
 
-  // LOT 52 (point 3) — CATÉGORIE DYNAMIQUE « Test Permis » (renommée au LOT 53) en PREMIÈRE POSITION : retrouver immédiatement un dossier qu'on vient
-  //   d'envoyer en test (marqueur `dossier_test_analyse`, porté par `testeEnAnalyse`). N'apparaît que si NON VIDE. Réutilise le socle
-  //   existant (BlocRepliable + TableProjection), aucun socle partagé modifié. `renderDetail` lit le `file` complet → le détail marche
-  //   dans les deux tables (l'ouverture est un état unique `ouvert`). Le reste de la file est rendu dessous, sans le testé (pas de doublon).
+  // LOT 54 — les dossiers TESTÉS (marqueur `dossier_test_analyse`, porté par `testeEnAnalyse`) sont rendus EN PREMIER, au-dessus du
+  //   reste de la file, pour retrouver immédiatement un dossier qu'on vient d'envoyer en test. AUCUN habillage de groupe (le LOT 52
+  //   ajoutait un pli + un titre + un sous-titre au-dessus d'une seule ligne, retirés ici) : le SEUL signal qui distingue les deux
+  //   blocs est l'EN-TÊTE DE COLONNE de leur tableau — « Test permis "En cours" » au lieu de « Permis ». `renderDetail` lit le `file`
+  //   complet → le détail marche dans les deux tables (l'ouverture est un état unique `ouvert`). Le reste est rendu dessous, sans le
+  //   testé (pas de doublon).
   const enTest = file.filter((f) => f.testeEnAnalyse);
   const reste = file.filter((f) => !f.testeEnAnalyse);
   return (
     <div className="flex flex-col gap-3">
       <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>{AIDE_PROJECTION}</p>
       {enTest.length > 0 && (
-        <BlocRepliable defautOuvert titre={<span style={{ fontWeight: 700 }}>Test Permis ({enTest.length})</span>}>
-          {() => (
-            <div className="flex flex-col gap-2">
-              <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>Ouverts depuis « En cours » pour être examinés ici — les relances à la mairie continuent en fond. Le bouton de retour (dans le détail) les fait ressortir de cette liste.</p>
-              <TableProjection file={enTest} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} />
-            </div>
-          )}
-        </BlocRepliable>
+        <TableProjection file={enTest} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} libellePermis={'Test permis « En cours »'} />
       )}
       {/* Reste de la file (hors test). Masqué si tout est en test (sinon « La file est vide » mentirait) ; toujours rendu si la file entière est vide (message normal). */}
       {(reste.length > 0 || file.length === 0) && (

@@ -36,11 +36,14 @@ const muted: CSSProperties = { color: 'var(--color-svv-muted)', fontSize: 12 };
 /** Phrase d'aide : la file « Projection » et son rôle (intervalle entre réception des pièces et apparition du bâti). */
 export const AIDE_PROJECTION = 'Onglet « Analyse et projection » : à la réception des pièces, on INSTRUIT le permis (caractéristiques, bâtiments déclarés) PUIS on reconstitue l’emprise au sol des futurs bâtiments (neuve / extension) avant que BD TOPO ne les voie. Une reconstitution, jamais une mesure ; elle n’alimente ni le verdict ni l’altitude.';
 
-export function TableProjection({ file, ouvert, onOuvrir, renderDetail }: {
+export function TableProjection({ file, ouvert, onOuvrir, renderDetail, libellePermis = 'Permis' }: {
   file: LigneProjectionAffichee[];
   ouvert: number | null;
   onOuvrir: (dossierId: number) => void;
   renderDetail: () => ReactNode;
+  // LOT 54 — en-tête de la 1re colonne. Défaut « Permis » (file normale). Le tableau des dossiers EN TEST reçoit
+  //   « Test permis "En cours" » → c'est le SEUL signal qui distingue les deux blocs (plus de groupe/pli au-dessus).
+  libellePermis?: string;
 }) {
   if (file.length === 0) return <p style={muted}>Aucun permis en attente de projection. La file est vide.</p>;
   return (
@@ -48,7 +51,7 @@ export function TableProjection({ file, ouvert, onOuvrir, renderDetail }: {
       <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
           <tr>
-            <th style={{ ...cell, ...muted, fontWeight: 700 }}>Permis</th>
+            <th style={{ ...cell, ...muted, fontWeight: 700 }}>{libellePermis}</th>
             <th style={{ ...cell, ...muted, fontWeight: 700 }}>Commune</th>
             <th style={{ ...cell, ...muted, fontWeight: 700 }}>Nature</th>
             <th style={{ ...cell, ...muted, fontWeight: 700 }}>Bâtiments</th>

@@ -35,11 +35,12 @@ describe('PERF-1 — blocs coûteux montés au dépliage (render-prop)', () => {
     expect(bat.indexOf('<BoutonValiderProjection')).toBeGreaterThan(bat.indexOf('<BlocTraceEmprise')); // bouton ENFERMÉ après la trace, dans le même bloc
   });
 
-  it('les 4 blocs coûteux du détail sont enveloppés dans BlocRepliable + le groupe « Test Permis » (LOT 52) = 5 wrappers', () => {
-    // 4 render-props lazy du DÉTAIL (fil / caractéristiques / bâtiments+projection / pièces) — /emprise & co au seul dépliage —
-    //   PLUS le groupe de tête « Test Permis » (LOT 52, `defautOuvert`, contenu LÉGER : une TableProjection, pas une requête coûteuse).
-    expect((PROJ.match(/<BlocRepliable/g) ?? []).length).toBe(5);
-    expect(PROJ).toContain('Test Permis');
+  it('les 4 blocs coûteux du détail sont enveloppés dans BlocRepliable = 4 wrappers (LOT 54 : plus de groupe de tête)', () => {
+    // 4 render-props lazy du DÉTAIL (fil / caractéristiques / bâtiments+projection / pièces) — /emprise & co au seul dépliage.
+    //   Le groupe de tête « Test Permis » du LOT 52 a été RETIRÉ au LOT 54 : les dossiers en test se signalent par leur en-tête de
+    //   colonne, pas par un pli. Il ne reste donc que les 4 wrappers du détail.
+    expect((PROJ.match(/<BlocRepliable/g) ?? []).length).toBe(4);
+    expect(PROJ).not.toContain('Test Permis');
   });
 
   it('BlocCompletude est monté DIRECTEMENT (bilan léger visible sans déplier), jamais derrière une render-prop', () => {

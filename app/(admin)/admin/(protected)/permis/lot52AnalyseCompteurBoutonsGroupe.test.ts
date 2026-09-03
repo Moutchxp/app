@@ -10,7 +10,9 @@ import { join } from 'node:path';
  *      double-compte d'un dossier « testé »).
  *  (2) boutons « Tester le dossier en analyse » et « Renvoyer ce permis dans l’onglet En cours » = action PRINCIPALE : pleine largeur + fond rouge
  *      tokenisé (`svv-btn-primary`), plus d'override `width:'auto'`.
- *  (3) groupe dynamique « Test Permis » en PREMIÈRE POSITION dans l'onglet Analyse (socle réutilisé, non modifié).
+ *  (3) dossiers testés en PREMIÈRE POSITION dans l'onglet Analyse. LOT 54 : le groupe/pli « Test Permis » de tête est RETIRÉ —
+ *      la partition (testés d'abord) est conservée, mais le seul signal distinctif est désormais l'EN-TÊTE DE COLONNE du tableau
+ *      des testés (« Test permis "En cours" » au lieu de « Permis »).
  * Prédicats/DB non montables unitairement → gardes par LECTURE DE SOURCE (patron `archivesGlobal.test.ts`).
  */
 const lire = (p: string): string => readFileSync(join(process.cwd(), p), 'utf8');
@@ -53,18 +55,19 @@ describe('LOT 52 (point 2) — visibilité des deux boutons (pleine largeur, fon
   });
 });
 
-describe('LOT 52 (point 3) — groupe « Test Permis » en tête d’Analyse (dynamique, socle réutilisé)', () => {
+describe('LOT 54 (ex-point 3 du LOT 52) — dossiers testés EN PREMIER, signalés par leur EN-TÊTE DE COLONNE (plus de groupe)', () => {
   const s = lire('app/(admin)/admin/(protected)/permis/ProjectionVue.tsx');
-  it('partitionne la file sur testeEnAnalyse et rend le groupe AVANT le reste', () => {
+  it('partitionne la file sur testeEnAnalyse et rend les testés AVANT le reste', () => {
     expect(s).toContain('file.filter((f) => f.testeEnAnalyse)');       // enTest
     expect(s).toContain('file.filter((f) => !f.testeEnAnalyse)');      // reste
-    expect(s.indexOf('Test Permis')).toBeLessThan(s.lastIndexOf('file={reste}')); // groupe rendu avant le reste
+    expect(s.indexOf('file={enTest}')).toBeLessThan(s.indexOf('file={reste}')); // testés rendus avant le reste
   });
-  it('n’apparaît que si NON VIDE (garde enTest.length > 0) et réutilise BlocRepliable (socle non modifié)', () => {
+  it('AUCUN groupe/pli de tête : le titre « Test Permis » a disparu, le signal est l’en-tête de colonne', () => {
+    expect(s).not.toContain('Test Permis');                                    // l'en-tête de groupe est retiré
+    expect(s).toContain("libellePermis={'Test permis « En cours »'}");         // en-tête de colonne discriminant
+  });
+  it('les testés n’apparaissent que si NON VIDE et ne font pas mentir « La file est vide »', () => {
     expect(s).toContain('enTest.length > 0 &&');
-    expect(s).toContain('<BlocRepliable defautOuvert');
-  });
-  it('ne fait pas mentir « La file est vide » quand tout est en test', () => {
     expect(s).toContain('reste.length > 0 || file.length === 0');
   });
 });

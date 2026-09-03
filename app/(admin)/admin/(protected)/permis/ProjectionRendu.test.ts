@@ -17,6 +17,17 @@ describe('PROJ-2c — rendu de la file Projection', () => {
     expect(html).toContain('Paris 15e');
   });
 
+  it('TableProjection : en-tête de 1re colonne = « Permis » par défaut, « Test permis "En cours" » via libellePermis (LOT 54)', () => {
+    const parDefaut = renderToStaticMarkup(h(TableProjection, { file: [ligne()], ouvert: null, onOuvrir: () => {}, renderDetail: () => null }));
+    expect(parDefaut).toContain('>Permis<');
+    expect(parDefaut).not.toContain('Test permis');
+    const enTest = renderToStaticMarkup(h(TableProjection, { file: [ligne()], ouvert: null, onOuvrir: () => {}, renderDetail: () => null, libellePermis: 'Test permis « En cours »' }));
+    expect(enTest).toContain('Test permis « En cours »');
+    // les autres en-têtes ne bougent pas
+    expect(enTest).toContain('Commune');
+    expect(enTest).toContain('Pièces reçues');
+  });
+
   it('TableProjection : ligne ouverte rend le détail (renderDetail) et masque les colonnes', () => {
     const html = renderToStaticMarkup(h(TableProjection, { file: [ligne()], ouvert: 11434, onOuvrir: () => {}, renderDetail: () => h('span', {}, 'DÉTAIL-ICI') }));
     expect(html).toContain('DÉTAIL-ICI');
