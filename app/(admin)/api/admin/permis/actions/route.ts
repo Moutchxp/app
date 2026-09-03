@@ -4,7 +4,6 @@ import { chargerSuiviReponses } from '../../../../../lib/veille/reponsesSuivi';
 import { chargerSuiviSaisines } from '../../../../../lib/veille/saisinesSuivi';
 import { listerSuivi } from '../../../../../lib/permis/rattachementSuiviRepo';
 import { compterFileProjection } from '../../../../../lib/permis/projectionFileRepo';
-import { compterRelancesReponseDue } from '../../../../../lib/veille/relanceReponsePartielleAuto';
 import { compterSurveillanceDossiers } from '../../../../../lib/veille/surveillancePolygonesAuto';
 import { chargerConfigVeille } from '../../../../../lib/sitadel/veilleConfig';
 import { compterReponses, compterSaisines, compterRattachement, compterEnCoursASignaler, assemblerComptes, type DemandeComptable } from '../../../../admin/(protected)/permis/comptesActions';
@@ -23,13 +22,18 @@ export async function GET(request: Request): Promise<Response> {
   if ('refus' in garde) return garde.refus;
   try {
     const config = await chargerConfigVeille();
-    const [reponsesData, saisinesData, suivi, fileProjection, relancesReponseDue, surveillance] = await Promise.all([
+    const [reponsesData, saisinesData, suivi, fileProjection, surveillance] = await Promise.all([
       chargerSuiviReponses(), chargerSuiviSaisines(), listerSuivi(), compterFileProjection(config),
-      compterRelancesReponseDue(config.relanceAutoActive), // PART-E : relances « réponse partielle » à envoyer À LA MAIN (0 en mode auto)
       compterSurveillanceDossiers(),
     ]);
-    // PART-E — la pastille « Analyse » additionne la file d'instruction (GED reçue) ET les relances sur réponse dues en mode manuel.
-    const projection = fileProjection + relancesReponseDue;
+    // LOT 52 (point 1) — INVARIANT « pastille d'onglet == nombre de LIGNES affichées » (patron LOT 46/47) : la pastille « Analyse »
+    //   vaut EXACTEMENT `compterFileProjection` = `listerFileProjection().length`, c.-à-d. les lignes rendues par l'onglet.
+    //   ANTÉRIEUR au LOT 51 : on ajoutait ici `relancesReponseDue` (relances sur réponse partielle PART-E dues en mode manuel) —
+    //   or ces dossiers sont partiel-actifs, EXCLUS de la file (FIX-2), donc SANS ligne dans l'onglet → la pastille gonflait déjà
+    //   sans test en cours. Le LOT 51 l'a rendu visible en ajoutant un DOUBLE-compte (un dossier partiel-actif « testé » tombait
+    //   dans les deux termes). Décision porteur : le signal « N relances à envoyer à la main » relève de « En cours » (là où l'action
+    //   se fait), pas d'« Analyse » — retiré de cet agrégat (le mécanisme PART-E d'envoi/auto est INCHANGÉ).
+    const projection = fileProjection;
     const reponses = compterReponses({
       demandes: reponsesData.demandes as unknown as DemandeComptable[],
       aRattacher: reponsesData.aRattacher, propositions: reponsesData.propositions,

@@ -908,9 +908,10 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                       {/* LOT 51 — sur un dossier INCOMPLET, ouvrir la porte de « Analyse et projection » pour l'examiner tout de suite, SANS
                           interrompre les relances (aller-retour réversible ; aucun changement de statut). Absent si rien ne manque. */}
                       {richDetail.completudeManquantes > 0 && (
-                        <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.6rem', fontSize: 13 }}>
-                          <span style={{ flex: '1 1 16rem', minWidth: 0 }}>Dossier incomplet. Vous pouvez l’examiner dès maintenant dans « Analyse et projection » <strong>sans interrompre les relances</strong> — il quitte « En cours » et pourra y revenir.</span>
-                          <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem', whiteSpace: 'nowrap' }} onClick={() => void testerEnAnalyse(detail.id)}>Tester le dossier en analyse</button>
+                        // LOT 52 (point 2) — action PRINCIPALE, rendue visible : pleine largeur + fond rouge tokenisé (svv-btn-primary), comme les autres CTA de la charte. La phrase explicative reste au-dessus.
+                        <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem', fontSize: 13 }}>
+                          <span>Dossier incomplet. Vous pouvez l’examiner dès maintenant dans « Analyse et projection » <strong>sans interrompre les relances</strong> — il quitte « En cours » et pourra y revenir.</span>
+                          <button type="button" className="svv-btn svv-btn-primary" onClick={() => void testerEnAnalyse(detail.id)}>Tester le dossier en analyse</button>
                         </div>
                       )}
                     </div>

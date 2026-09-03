@@ -98,9 +98,10 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         {/* LOT 51-B — ce permis est ici en TEST (dossier incomplet ouvert depuis « En cours »). S'il n'a pas permis de tout renseigner et
             qu'on ne veut PAS relancer la mairie maintenant, « Remettre dans En cours » lève le marqueur : aucun e-mail, échéances intactes. */}
         {row?.testeEnAnalyse && (
-          <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.6rem', fontSize: 13 }}>
-            <span style={{ flex: '1 1 16rem', minWidth: 0 }}>Dossier <strong>en test</strong> (ouvert depuis « En cours »). Les relances continuent en fond. Si l’examen n’a rien permis de conclure et que vous ne voulez pas relancer la mairie maintenant, remettez-le dans « En cours ».</span>
-            <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem', whiteSpace: 'nowrap' }} disabled={enCours} onClick={() => { void retourEnCours(ouvert); }}>Remettre dans En cours</button>
+          // LOT 52 (point 2) — même défaut de visibilité que le bouton « Tester » : action rendue pleine largeur + fond rouge tokenisé (svv-btn-primary). Phrase explicative au-dessus.
+          <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem', fontSize: 13 }}>
+            <span>Dossier <strong>en test</strong> (ouvert depuis « En cours »). Les relances continuent en fond. Si l’examen n’a rien permis de conclure et que vous ne voulez pas relancer la mairie maintenant, remettez-le dans « En cours ».</span>
+            <button type="button" className="svv-btn svv-btn-primary" disabled={enCours} onClick={() => { void retourEnCours(ouvert); }}>Remettre dans En cours</button>
           </div>
         )}
         {/* PART-2 / PERF-1 — COMPLÉTUDE + relances : bilan (lecture mémoire) dans la ligne de titre ; détail au dépliage. Se remonte
@@ -140,10 +141,29 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     );
   };
 
+  // LOT 52 (point 3) — CATÉGORIE DYNAMIQUE « Dossiers en test » en PREMIÈRE POSITION : retrouver immédiatement un dossier qu'on vient
+  //   d'envoyer en test (marqueur `dossier_test_analyse`, porté par `testeEnAnalyse`). N'apparaît que si NON VIDE. Réutilise le socle
+  //   existant (BlocRepliable + TableProjection), aucun socle partagé modifié. `renderDetail` lit le `file` complet → le détail marche
+  //   dans les deux tables (l'ouverture est un état unique `ouvert`). Le reste de la file est rendu dessous, sans le testé (pas de doublon).
+  const enTest = file.filter((f) => f.testeEnAnalyse);
+  const reste = file.filter((f) => !f.testeEnAnalyse);
   return (
     <div className="flex flex-col gap-3">
       <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>{AIDE_PROJECTION}</p>
-      <TableProjection file={file} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} />
+      {enTest.length > 0 && (
+        <BlocRepliable defautOuvert titre={<span style={{ fontWeight: 700 }}>Dossiers en test ({enTest.length})</span>}>
+          {() => (
+            <div className="flex flex-col gap-2">
+              <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>Ouverts depuis « En cours » pour être examinés ici — les relances à la mairie continuent en fond. « Remettre dans En cours » (dans le détail) les fait ressortir de cette liste.</p>
+              <TableProjection file={enTest} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} />
+            </div>
+          )}
+        </BlocRepliable>
+      )}
+      {/* Reste de la file (hors test). Masqué si tout est en test (sinon « La file est vide » mentirait) ; toujours rendu si la file entière est vide (message normal). */}
+      {(reste.length > 0 || file.length === 0) && (
+        <TableProjection file={reste} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} />
+      )}
     </div>
   );
 }

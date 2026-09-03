@@ -35,8 +35,11 @@ describe('PERF-1 — blocs coûteux montés au dépliage (render-prop)', () => {
     expect(bat.indexOf('<BoutonValiderProjection')).toBeGreaterThan(bat.indexOf('<BlocTraceEmprise')); // bouton ENFERMÉ après la trace, dans le même bloc
   });
 
-  it('les 4 blocs coûteux sont enveloppés dans BlocRepliable (4 wrappers)', () => {
-    expect((PROJ.match(/<BlocRepliable/g) ?? []).length).toBe(4);
+  it('les 4 blocs coûteux du détail sont enveloppés dans BlocRepliable + le groupe « Dossiers en test » (LOT 52) = 5 wrappers', () => {
+    // 4 render-props lazy du DÉTAIL (fil / caractéristiques / bâtiments+projection / pièces) — /emprise & co au seul dépliage —
+    //   PLUS le groupe de tête « Dossiers en test » (LOT 52, `defautOuvert`, contenu LÉGER : une TableProjection, pas une requête coûteuse).
+    expect((PROJ.match(/<BlocRepliable/g) ?? []).length).toBe(5);
+    expect(PROJ).toContain('Dossiers en test');
   });
 
   it('BlocCompletude est monté DIRECTEMENT (bilan léger visible sans déplier), jamais derrière une render-prop', () => {

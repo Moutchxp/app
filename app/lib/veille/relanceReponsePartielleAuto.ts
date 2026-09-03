@@ -127,8 +127,11 @@ export async function candidatsRelanceReponseReels(): Promise<CandidatRelanceRep
   return candidats;
 }
 
-/** PART-E — nombre de relances sur réponse DUES, pour la PASTILLE « Analyse ». 0 en mode AUTO (elles partent seules → aucune action
- *  manuelle attendue) ; en mode MANUEL, chaque due est une action d'Arno (envoyer via BlocDemandePieces). RÉSILIENT (→ 0). */
+/** PART-E — nombre de relances sur réponse DUES. 0 en mode AUTO (elles partent seules → aucune action manuelle attendue) ; en mode
+ *  MANUEL, chaque due est une action d'Arno (envoyer via BlocDemandePieces, depuis « En cours »). RÉSILIENT (→ 0).
+ *  ⚠️ LOT 52 — N'ALIMENTE PLUS la pastille « Analyse » (elle violait l'invariant « pastille == lignes affichées » : ces dossiers
+ *  partiel-actifs sont exclus de la file par FIX-2, donc sans ligne). Helper CONSERVÉ pour un éventuel placement dédié (« En cours »)
+ *  décidé plus tard ; actuellement NON CÂBLÉ à une pastille. */
 export async function compterRelancesReponseDue(relanceActive: boolean): Promise<number> {
   if (relanceActive) return 0;
   try { return (await candidatsRelanceReponseReels()).length; } catch { return 0; }
