@@ -18,8 +18,8 @@
 
 ## 2. Règles de collaboration (impératives)
 - **Un chantier = un prompt = un commit.** Recon **LECTURE SEULE** avant tout write sur fichier sensible.
-- **CONTRÔLE DE FIN OBLIGATOIRE, dans l'ordre** : `npm test` COMPLET (= `vitest run`, **459 fichiers / 5970 tests**)
-  · `npm run test:integration` (23 fichiers, vraie base) · `npx tsc --noEmit` · delta eslint · `npm run build`.
+- **CONTRÔLE DE FIN OBLIGATOIRE, dans l'ordre** : `npm test` COMPLET (= `vitest run`, **463 fichiers / 6017 tests**)
+  · `npm run test:integration` (23 fichiers / 110 tests, vraie base) · `npx tsc --noEmit` · delta eslint · `npm run build`.
   Les suites filtrées par chemin sont des contrôles RAPIDES, **jamais** le contrôle de fin (précédent
   `curation.test.ts` rouge 14/07→03/08, invisible aux filtrés). **INTERDIT : `npm run veille:run`** (envoi réel).
 - **`jsdom`** est en **devDependency**, utilisé par les SEULS tests qui exigent un montage React réel
@@ -46,6 +46,11 @@
 - Proposer les vrais choix (design/ressenti) AVANT d'implémenter ; sinon décider et le dire. Ne jamais conseiller
   de faire une pause. **Recon qui contredit une prémisse → la recon gagne** (précédents LOT 2 bigint, LOT 14 arrêt,
   LOT 40 : la prop `process` conditionnait le contenu de « Réponses », dit AVANT d'implémenter).
+- **Une SPEC que J'ÉCRIS peut être le défaut** (leçon LOT 47-bis) : ma spec « la relance manuelle OU automatique
+  acquitte le signal » ignorait que la relance sur réponse partielle (PART-E) est déclenchée PAR l'arrivée des pièces
+  — donc TOUJOURS postérieure — → le signal s'auto-annulait avant lecture. La règle « **exercer chaque maillon EN
+  RÉEL** » vaut AUSSI contre les spécifications, pas seulement contre le câblage : dérouler le scénario réel (qui
+  écrit quoi, dans quel ordre temporel) AVANT de figer une règle. Le défaut peut être en amont du code.
 - **Dette TRANSVERSE → découper les lots PAR MOTIF racine, jamais par écran.** Leçon des lots 41→45 (thème sombre) :
   attaquer par motif (toggle inactif, champ, surface, `ink`-comme-fond, bordure) + grep global + recon lecture seule
   fait remonter les occurrences qu'aucun balayage écran par écran ne verrait — p. ex. un toggle d'`InternautesVue`
@@ -175,6 +180,35 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
   d'emprise) sont des faux positifs du §3 sans token équivalent. **Hex en dur non-test (admin)** : 235 (recon) → 181
   (L39) → 143 (L41) → 125 (L42) → 114 (L43) → 112 (L44) → **107** (L45). Golden Asnières hors diff sur tout le chantier.
 
+### SÉRIE 46 → 51 (session courante) — « En cours » affiné · fil lisible · tester en analyse (tous committés)
+- **46** — « En cours » scindé en DEUX familles (`categorieEnCours`, exhaustif/exclusif : *1re réponse* / *à relancer*)
+  + pastilles de LIGNE (rouge « incomplet (N) ») et d'ONGLET, pilotées par un **PRÉDICAT PUR PARTAGÉ serveur/client**
+  (`demandeEnCoursIncomplete`, `demandesListe.ts`) → invariant **compteur d'onglet == somme des pastilles de ligne**
+  (une ligne = 1, jamais 2) FIGÉ par test.
+- **47 + 47-bis** — signal « **nouvelles pièces reçues** » (ÉVÉNEMENT `demandeADeNouvellesPieces`, badge BLEU + bouton
+  « vu »), **migration 188** `dossier_pieces_acquittement`. **LEÇON 47-bis** : ma spec « relance manuelle OU automatique
+  acquitte » ignorait que la relance sur réponse partielle (PART-E) est déclenchée PAR l'arrivée des pièces → toujours
+  postérieure → le signal s'**auto-annulait avant lecture** (vu en réel sur la 154). Corrigé : **seuls les gestes de
+  l'utilisateur acquittent** (`j.auteur IS DISTINCT FROM 'auto'` + **date DÉCLARÉE prime** sur l'horodatage), figé par test.
+- **48** — la relance sur réponse partielle (PART-E) apparaît dans la FRISE (`friseSuivi`/`historiqueEnvois`, categorie
+  'reponse'). **Décision métier COEXISTENCE ASSUMÉE** : deux systèmes de relance INDÉPENDANTS (cascade partielle ≠
+  PART-E), on NE réconcilie PAS ; échéances de cascade et **butoir CADA intacts** (PART-E n'incrémente pas le compteur
+  de cascade — cf. §6 LOT 51-C).
+- **49** — horodatages en **Europe/Paris** (`horodatageParis.ts` : `formaterHorodatageParis`/`jourParisISO`/`jourFrParis`),
+  **5 surfaces** touchées. Discriminant = **présence d'un `T`** : instant UTC (« …T09:16Z ») → converti ; date CIVILE
+  (sans T, ancrée **12:00 Europe/Paris** au LOT-1) → **JAMAIS re-convertie** (la convertir la décalerait d'un jour).
+- **50** — libellés du fil (`BlocFilEchanges`/`MentionEchanges`) : « **N e-mails échangés** » (mails réels seuls) vs
+  « **M affichés · dont K relance(s) déclarée(s) (hors e-mail)** » → lève la fausse contradiction « 9 » vs « 10 ».
+- **51-A/B** (`51283cb`) — **TESTER un dossier incomplet EN ANALYSE**, **migration 189** `dossier_test_analyse` (marqueur
+  RÉVERSIBLE par dossier, `testAnalyseRepo.ts`). Ouvre la porte FIX-2 (`OR s.id = ANY($1)`, `projectionFileRepo`) SANS
+  lever le partiel → **les relances continuent**. **Décision (a) = OPTION B** : pendant le test le dossier **DISPARAÎT de
+  « En cours »** (exclu de `estEnCoursAffichee` + `ligneEnCoursASignaler` + affichage `SuiviDemandes`), exclusivité
+  préservée, compté une seule fois (invariant RE-figé par test). **DEUX retours** : (1) une relance **envoyée OU déclarée**
+  depuis Analyse (`/demander-pieces`) efface le marqueur ; (2) bouton manuel « **Remettre dans En cours** »
+  (`/projection {retour_en_cours}`, SANS envoi). Échéances/cascade JAMAIS touchées (le marqueur n'écrit QUE
+  `dossier_test_analyse`, PROUVÉ par test). **Décision (2)** : l'altitude n'entre PAS dans `peutValider` normal. **Hors
+  périmètre = 51-C** (voir §6).
+
 ### Prochain GROS chantier + fraîcheur/contrôle mixte (résumé de `docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md`)
 > **À LIRE avant tout chantier données/verdict/certificat/permis.** Corpus figé 25-26/07/2026.
 - **Énoncé du porteur** : mettre à jour en continu la base des maps pour tenir compte des **nouveaux permis de
@@ -200,13 +234,14 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
   chiffrage Sitadel documenté (ordre de grandeur du volume à traiter). Voir aussi `docs/SOURCES_DATA.md` (licences).
 
 ## 6. État courant & prochaine action
-- **Working tree PROPRE** (rien de non committé). Dernier commit : **`6e6a9fd` (docs)**. **`origin/main` == HEAD, 0
-  commit en avance, TOUT poussé** (vérifié `git ls-remote`). Le push est le geste d'Arno depuis VS Code, fait **au fil
-  de l'eau** — ne pas raisonner en « compteur d'avance » (vrai une minute, faux la suivante). Chaîne des commits de la
-  fin de session, dans l'ordre : `c050206` (L41), `fe77536` (L42), `63e15cd` (L43), `ccfcd12` (L44), `8c2e9d8` (L45),
-  puis les 2 commits docs `6e6a9fd` (chantier thème sombre — fonds) et ce présent commit §6. **Migrations INCHANGÉES**
-  (jusqu'à 187 appliquées en local ; 183/184 déjà en place) — le chantier 41-45 est 100 % front, aucune migration. Les
-  DEUX cascades — ordinaire ET partielle — partent en AUTO (LaunchAgent /15 min) ; l'envoi manuel = option hors calendrier.
+- **Working tree PROPRE** (rien de non committé). Dernier commit : **`51283cb` (LOT 51-A+B)** + ce présent commit docs
+  §6. Le push est le geste d'Arno depuis VS Code, **au fil de l'eau** — ne pas raisonner en « compteur d'avance » (vrai
+  une minute, faux la suivante). Chaîne de la session courante : LOTs **46 → 50** puis **`51283cb`** (LOT 51-A/B).
+- **Migrations** : livrées jusqu'à **189** — **188** (LOT 47, `dossier_pieces_acquittement`) et **189** (LOT 51,
+  `dossier_test_analyse`) ; Arno les applique au fil de l'eau. **Code RÉSILIENT** si une migration n'est pas encore
+  passée (`42P01`/`42703` → comportement d'avant — vérifié : `test:integration` VERT avec 189 non appliquée). Contrôle de
+  fin courant : `npm test` **463 fichiers / 6017 tests** · `test:integration` **23 / 110**. Les DEUX cascades —
+  ordinaire ET partielle — partent en AUTO (LaunchAgent /15 min) ; l'envoi manuel = option hors calendrier.
 - **Aucun chantier en cours** : Arno enchaîne des « LOT N » séquentiels ; attendre le prochain.
 - **ÉVÉNEMENT MARQUANT DU 01/09/2026 — PREMIER DÉPÔT TÉLÉSERVICE PARIS RÉEL de bout en bout** (demande **161**) : la
   relève déclenchée (LOT 34) a marché, l'accusé a été détecté, la référence **`SLC260901542604` extraite** — mais
@@ -216,15 +251,28 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
 - **3e MAILLON JAMAIS EXERCÉ, À OBSERVER** : la demande **154 (Aubervilliers, `partiel_le` au 28/08/2026)** est le
   SEUL dossier en régime partiel. Sa **première relance partielle AUTOMATIQUE** (cascade partielle auto, LOT 30bis)
   est attendue **vers le 7 septembre 2026** — premier tir réel de ce maillon, **à observer ce jour-là**.
-- **Pistes ouvertes signalées à Arno** (à sa main) : (a) harmoniser l'affichage horaire du fil `BlocFilEchanges`
-  (**UTC**) avec la mention (Paris) — divergence pré-existante ; (b) **réduire l'échelle de base du PREMIER rendu de la
+- **Pistes ouvertes signalées à Arno** (à sa main) : (a) ~~harmoniser l'affichage horaire du fil~~ **RÉSOLU au LOT 49**
+  (tout le fil est en Europe/Paris) ; (b) **réduire l'échelle de base du PREMIER rendu de la
   liseuse** (rendu à 1× + remontée au zoom) — le cache de rendu (LOT 25) rend le RETOUR instantané mais n'accélère PAS
   le premier rendu d'un plan jamais vu (plan A0 le plus dense d'Aubervilliers : ~3,5 s à froid, ~0,65 s à chaud) ;
   (c) **thème sombre — les FONDS sont traités** (chantier 41-45, grep par motif) ; ce qui RESTE = un parcours VISUEL
   écran par écran en sombre, pour ce qu'aucun grep ne voit (contrastes réels perçus, superpositions, survols) —
   Statistiques, Pilotage Moteur, Curation, Banc de test, Audit, Administratif.
-- **Prochaine action immédiate** : recevoir et exécuter le prochain « LOT » d'Arno (recon lecture seule → implémente
-  → contrôles de fin dans l'ordre → commit).
+- **PROCHAINE ACTION = LOT 51-C** (lot À RISQUE, isolé exprès par Arno) : **sortie DÉFINITIVE vers Rattachement** d'un
+  dossier testé, conditionnée à **DOUBLE condition : empreinte validée ET `nbCorpsSansAltitude === 0`** (l'altitude ne
+  doit PAS entrer dans le `peutValider` de la validation NORMALE — décision (2) : ne pas changer l'existant pour un cas
+  nouveau ; la garder pour le SEUL geste de sortie du test), avec **arrêt EXHAUSTIF des relances**.
+  ⚠️ **FAIT PROUVÉ EN RECON — à reporter TEL QUEL** : il n'existe **AUCUN point unique d'extinction**. `statut='close'`
+  arrête la cascade ORDINAIRE (`relanceAuto`/`envoiRelance` filtrent `statut='envoyee'`) mais **PAS** la cascade PARTIELLE
+  ni la relance sur réponse partielle (PART-E) — les deux filtrent `statut IN ('envoyee','close')`. `partiel_leve_le`
+  arrête ces DEUX-là mais **RÉACTIVE** la cascade ordinaire (la suspension tombe). ⇒ il faut les **DEUX gestes ENSEMBLE**
+  (`close` **+** `partiel_leve_le`). **PIÈGE AVÉRÉ** : `cloturerDemande` ne pose QUE `'close'` → une demande close mais
+  restée partielle-active continue de recevoir ② et ③. Décision (3) validée par Arno : la sortie pose bien les DEUX.
+  **TEST INDISPENSABLE** : « `close` + `partiel_leve_le` ⇒ **0 candidat aux TROIS systèmes** » (`relanceAuto`,
+  `cascadePartielleAuto`, `relanceReponsePartielleAuto`). Réutilise le marqueur `dossier_test_analyse` (efface à la sortie)
+  et la chaîne `validerProjection` existante (`permis_projection` + `permis_rattachement` en_attente_bati).
+- **Boucle standard d'un LOT** : recon lecture seule → implémente → contrôles de fin dans l'ordre → commit (`-F`, sans
+  Co-Authored-By, sans push).
 
 ## 7. Format des livrables (pour une conversation web en relais)
 Pour chaque instruction technique, un **bloc copiable** précédé d'un titre à pastille :
