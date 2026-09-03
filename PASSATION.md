@@ -46,11 +46,14 @@
 - Proposer les vrais choix (design/ressenti) AVANT d'implémenter ; sinon décider et le dire. Ne jamais conseiller
   de faire une pause. **Recon qui contredit une prémisse → la recon gagne** (précédents LOT 2 bigint, LOT 14 arrêt,
   LOT 40 : la prop `process` conditionnait le contenu de « Réponses », dit AVANT d'implémenter).
-- **Une SPEC que J'ÉCRIS peut être le défaut** (leçon LOT 47-bis) : ma spec « la relance manuelle OU automatique
-  acquitte le signal » ignorait que la relance sur réponse partielle (PART-E) est déclenchée PAR l'arrivée des pièces
-  — donc TOUJOURS postérieure — → le signal s'auto-annulait avant lecture. La règle « **exercer chaque maillon EN
-  RÉEL** » vaut AUSSI contre les spécifications, pas seulement contre le câblage : dérouler le scénario réel (qui
-  écrit quoi, dans quel ordre temporel) AVANT de figer une règle. Le défaut peut être en amont du code.
+- **Une SPEC que J'ÉCRIS peut être le défaut** (leçons LOT 47-bis ET 46) : (a) ma spec « la relance manuelle OU
+  automatique acquitte le signal » ignorait que la relance sur réponse partielle (PART-E) est déclenchée PAR l'arrivée
+  des pièces — donc TOUJOURS postérieure — → le signal s'auto-annulait avant lecture ; (b) au LOT 46, une bascule
+  d'onglet que j'avais spécifiée a été REFUSÉE à l'examen (elle cassait l'exclusivité). La règle « **exercer chaque
+  maillon EN RÉEL** » vaut AUSSI contre les spécifications, pas seulement contre le câblage : dérouler le scénario réel
+  (qui écrit quoi, dans quel ordre temporel) AVANT de figer une règle. Le défaut peut être en amont du code. Corollaire
+  du **28/08→02/09** : quand une recon CONTREDIT ma prémisse, **la recon gagne** — arrivé TROIS fois dans cette série
+  (47-bis, 48 doublon fil, 52 pastille pré-cassée). Toujours établir le fait sur la base RÉELLE avant de proposer un correctif.
 - **Dette TRANSVERSE → découper les lots PAR MOTIF racine, jamais par écran.** Leçon des lots 41→45 (thème sombre) :
   attaquer par motif (toggle inactif, champ, surface, `ink`-comme-fond, bordure) + grep global + recon lecture seule
   fait remonter les occurrences qu'aucun balayage écran par écran ne verrait — p. ex. un toggle d'`InternautesVue`
@@ -180,7 +183,7 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
   d'emprise) sont des faux positifs du §3 sans token équivalent. **Hex en dur non-test (admin)** : 235 (recon) → 181
   (L39) → 143 (L41) → 125 (L42) → 114 (L43) → 112 (L44) → **107** (L45). Golden Asnières hors diff sur tout le chantier.
 
-### SÉRIE 46 → 51 (session courante) — « En cours » affiné · fil lisible · tester en analyse (tous committés)
+### SÉRIE 46 → 52 (session courante) — « En cours » affiné · fil lisible · tester en analyse (tous committés)
 - **46** — « En cours » scindé en DEUX familles (`categorieEnCours`, exhaustif/exclusif : *1re réponse* / *à relancer*)
   + pastilles de LIGNE (rouge « incomplet (N) ») et d'ONGLET, pilotées par un **PRÉDICAT PUR PARTAGÉ serveur/client**
   (`demandeEnCoursIncomplete`, `demandesListe.ts`) → invariant **compteur d'onglet == somme des pastilles de ligne**
@@ -193,7 +196,8 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
 - **48** — la relance sur réponse partielle (PART-E) apparaît dans la FRISE (`friseSuivi`/`historiqueEnvois`, categorie
   'reponse'). **Décision métier COEXISTENCE ASSUMÉE** : deux systèmes de relance INDÉPENDANTS (cascade partielle ≠
   PART-E), on NE réconcilie PAS ; échéances de cascade et **butoir CADA intacts** (PART-E n'incrémente pas le compteur
-  de cascade — cf. §6 LOT 51-C).
+  de cascade — cf. §6 LOT 51-C). **Étape 0 = a évité un doublon** : cette relance était DÉJÀ dans le fil via le
+  **sortant hors-outil** capté dans `\Sent` (FIL-C) → on ne l'a ajoutée qu'à la FRISE, pas au fil (source distincte).
 - **49** — horodatages en **Europe/Paris** (`horodatageParis.ts` : `formaterHorodatageParis`/`jourParisISO`/`jourFrParis`),
   **5 surfaces** touchées. Discriminant = **présence d'un `T`** : instant UTC (« …T09:16Z ») → converti ; date CIVILE
   (sans T, ancrée **12:00 Europe/Paris** au LOT-1) → **JAMAIS re-convertie** (la convertir la décalerait d'un jour).
@@ -208,6 +212,15 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
   (`/projection {retour_en_cours}`, SANS envoi). Échéances/cascade JAMAIS touchées (le marqueur n'écrit QUE
   `dossier_test_analyse`, PROUVÉ par test). **Décision (2)** : l'altitude n'entre PAS dans `peutValider` normal. **Hors
   périmètre = 51-C** (voir §6).
+- **52** (`ac9cfb4`) — trois retours d'Arno après essai réel du LOT 51. **(1) Pastille « Analyse » ramenée sous
+  l'invariant du LOT 46** : elle valait `fileProjection + relancesReponseDue` (`actions/route.ts`) → les relances PART-E
+  dues en mode MANUEL, qui sont partiel-actives donc **EXCLUES de la file (FIX-2) → SANS ligne** dans l'onglet. Défaut
+  **ANTÉRIEUR au LOT 51** (la pastille gonflait déjà), rendu visible par un **double-compte** (la 154 « testée » comptée
+  comme ligne ET comme PART-E due → 4 vs 3). Corrigé : `const projection = fileProjection;` (== `listerFileProjection().length`).
+  `compterRelancesReponseDue` **conservé mais DÉBRANCHÉ** (docstring à jour ; placement « En cours » possible plus tard).
+  **(2)** boutons « Tester le dossier en analyse » et « Remettre dans En cours » → **pleine largeur, fond rouge tokenisé**
+  `svv-btn-primary`. **(3)** groupe dynamique « **Dossiers en test** » en PREMIÈRE POSITION d'Analyse (BlocRepliable
+  `defautOuvert`, partition sur `testeEnAnalyse`, non vide seul) — socle réutilisé, non modifié. Aucune migration.
 
 ### Prochain GROS chantier + fraîcheur/contrôle mixte (résumé de `docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md`)
 > **À LIRE avant tout chantier données/verdict/certificat/permis.** Corpus figé 25-26/07/2026.
@@ -234,23 +247,25 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
   chiffrage Sitadel documenté (ordre de grandeur du volume à traiter). Voir aussi `docs/SOURCES_DATA.md` (licences).
 
 ## 6. État courant & prochaine action
-- **Working tree PROPRE** (rien de non committé). Dernier commit : **`51283cb` (LOT 51-A+B)** + ce présent commit docs
-  §6. Le push est le geste d'Arno depuis VS Code, **au fil de l'eau** — ne pas raisonner en « compteur d'avance » (vrai
-  une minute, faux la suivante). Chaîne de la session courante : LOTs **46 → 50** puis **`51283cb`** (LOT 51-A/B).
-- **Migrations** : livrées jusqu'à **189** — **188** (LOT 47, `dossier_pieces_acquittement`) et **189** (LOT 51,
-  `dossier_test_analyse`) ; Arno les applique au fil de l'eau. **Code RÉSILIENT** si une migration n'est pas encore
-  passée (`42P01`/`42703` → comportement d'avant — vérifié : `test:integration` VERT avec 189 non appliquée). Contrôle de
-  fin courant : `npm test` **463 fichiers / 6017 tests** · `test:integration` **23 / 110**. Les DEUX cascades —
-  ordinaire ET partielle — partent en AUTO (LaunchAgent /15 min) ; l'envoi manuel = option hors calendrier.
+- **Working tree PROPRE** (rien de non committé). Dernier commit : **`ac9cfb4` (LOT 52)** + ce présent commit docs §6.
+  Le push est le geste d'Arno depuis VS Code, **au fil de l'eau** — ne pas raisonner en « compteur d'avance » (vrai une
+  minute, faux la suivante). Chaîne de la session courante : LOTs **46 → 50**, **`51283cb`** (LOT 51-A/B), **`ac9cfb4`** (LOT 52).
+- **Migrations** : **APPLIQUÉES jusqu'à 189** (188 = LOT 47 `dossier_pieces_acquittement` ; 189 = LOT 51
+  `dossier_test_analyse` — passées en local par Arno). **LOT 52 = AUCUNE migration.** Le code reste **RÉSILIENT** si une
+  migration manque (`42P01`/`42703` → comportement d'avant). Contrôle de fin courant : `npm test` **464 fichiers /
+  6025 tests** · `test:integration` **23 / 110**. Les DEUX cascades — ordinaire ET partielle — partent en AUTO
+  (LaunchAgent /15 min) ; l'envoi manuel = option hors calendrier.
 - **Aucun chantier en cours** : Arno enchaîne des « LOT N » séquentiels ; attendre le prochain.
 - **ÉVÉNEMENT MARQUANT DU 01/09/2026 — PREMIER DÉPÔT TÉLÉSERVICE PARIS RÉEL de bout en bout** (demande **161**) : la
   relève déclenchée (LOT 34) a marché, l'accusé a été détecté, la référence **`SLC260901542604` extraite** — mais
   l'écriture a échoué (défaut corrigé au **LOT 35**). **Leçon** : DEUX maillons marqués « ça devrait marcher » sans
   avoir jamais tourné en réel ont échoué au premier passage (câblage relève au clic, LOT 34 ; écriture référence,
   LOT 35). **Corollaire : exercer chaque maillon EN RÉEL avant de le déclarer acquis.**
-- **3e MAILLON JAMAIS EXERCÉ, À OBSERVER** : la demande **154 (Aubervilliers, `partiel_le` au 28/08/2026)** est le
-  SEUL dossier en régime partiel. Sa **première relance partielle AUTOMATIQUE** (cascade partielle auto, LOT 30bis)
-  est attendue **vers le 7 septembre 2026** — premier tir réel de ce maillon, **à observer ce jour-là**.
+- **Régime partiel EN COURS D'EXERCICE — demande 154 (Aubervilliers, `partiel_le` au 28/08/2026)**, SEUL dossier
+  partiel. La recon du LOT 52 (base réelle, `relanceAutoActive=false` = mode MANUEL) a montré la 154 avec une **relance
+  sur réponse partielle (PART-E) DUE, rang 2** (dernier mail mairie `2026-09-03`, famille manquante `étage`) → le maillon
+  PART-E est **désormais exercé en réel**. La 154 est le dossier-témoin naturel pour tout ce qui touche partiel / test /
+  51-C. (Rappel : PART-E ≠ cascade partielle auto LOT 30bis — deux systèmes indépendants, cf. §5 LOT 48.)
 - **Pistes ouvertes signalées à Arno** (à sa main) : (a) ~~harmoniser l'affichage horaire du fil~~ **RÉSOLU au LOT 49**
   (tout le fil est en Europe/Paris) ; (b) **réduire l'échelle de base du PREMIER rendu de la
   liseuse** (rendu à 1× + remontée au zoom) — le cache de rendu (LOT 25) rend le RETOUR instantané mais n'accélère PAS
@@ -259,9 +274,11 @@ ses **dossiers** (permis Sitadel). Points clés hérités :
   écran par écran en sombre, pour ce qu'aucun grep ne voit (contrastes réels perçus, superpositions, survols) —
   Statistiques, Pilotage Moteur, Curation, Banc de test, Audit, Administratif.
 - **PROCHAINE ACTION = LOT 51-C** (lot À RISQUE, isolé exprès par Arno) : **sortie DÉFINITIVE vers Rattachement** d'un
-  dossier testé, conditionnée à **DOUBLE condition : empreinte validée ET `nbCorpsSansAltitude === 0`** (l'altitude ne
-  doit PAS entrer dans le `peutValider` de la validation NORMALE — décision (2) : ne pas changer l'existant pour un cas
-  nouveau ; la garder pour le SEUL geste de sortie du test), avec **arrêt EXHAUSTIF des relances**.
+  dossier testé, conditionnée à **DOUBLE condition : empreinte validée ET `nbCorpsSansAltitude === 0`** — altitude par
+  **CORPS** (`permis_corps_batiment.altitude_sommet_ngf`, compteur déjà exposé `projectionFileRepo`), **distinct du
+  polygone BD TOPO** (`permis_polygone_altitude` par `cleabs`) et de l'altitude niveau-dossier (`permis_caracteristique`).
+  L'altitude ne doit PAS entrer dans le `peutValider` de la validation NORMALE (décision (2) : ne pas changer l'existant
+  pour un cas nouveau ; la garder pour le SEUL geste de sortie du test), avec **arrêt EXHAUSTIF des relances**.
   ⚠️ **FAIT PROUVÉ EN RECON — à reporter TEL QUEL** : il n'existe **AUCUN point unique d'extinction**. `statut='close'`
   arrête la cascade ORDINAIRE (`relanceAuto`/`envoiRelance` filtrent `statut='envoyee'`) mais **PAS** la cascade PARTIELLE
   ni la relance sur réponse partielle (PART-E) — les deux filtrent `statut IN ('envoyee','close')`. `partiel_leve_le`
