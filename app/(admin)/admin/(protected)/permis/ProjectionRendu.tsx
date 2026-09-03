@@ -32,6 +32,17 @@ export function TitreFamilleEtat({ base, etat }: { base: string; etat: EtatTitre
 
 const cell: CSSProperties = { padding: '.35rem .5rem', borderBottom: '1px solid var(--color-svv-line)', fontSize: 13, textAlign: 'left', verticalAlign: 'top' };
 const muted: CSSProperties = { color: 'var(--color-svv-muted)', fontSize: 12 };
+// LOT 55 — en-tête de colonne : jamais de retour à la ligne (surtout « Test permis « En cours » », le libellé le plus long).
+const enteteCell: CSSProperties = { ...cell, ...muted, fontWeight: 700, whiteSpace: 'nowrap' };
+
+// LOT 55 — largeurs de colonnes DÉTERMINISTES et PARTAGÉES, définies UNE SEULE FOIS. Comme les deux tableaux de l'onglet
+//   « Analyse et projection » (dossiers en test / file ordinaire) sont le MÊME composant, ce colgroup les dote de colonnes
+//   strictement alignées. `table-layout: fixed` fait lire ces largeurs (et non plus le contenu, qui divergeait d'un tableau
+//   à l'autre). La 1re colonne (30 %) accueille « Test permis « En cours » » sur une seule ligne. `MIN_WIDTH_TABLE` garantit
+//   cette place : en dessous, le wrapper `overflowX: 'auto'` (déjà présent) fait DÉFILER — comportement responsive existant
+//   conservé, aucun débordement nouveau sur desktop (où width:100% ≥ min-width).
+const LARGEURS_COLONNES = ['30%', '19%', '21%', '12%', '18%'];
+const MIN_WIDTH_TABLE = 700;
 
 /** Phrase d'aide : la file « Projection » et son rôle (intervalle entre réception des pièces et apparition du bâti). */
 export const AIDE_PROJECTION = 'Onglet « Analyse et projection » : à la réception des pièces, on INSTRUIT le permis (caractéristiques, bâtiments déclarés) PUIS on reconstitue l’emprise au sol des futurs bâtiments (neuve / extension) avant que BD TOPO ne les voie. Une reconstitution, jamais une mesure ; elle n’alimente ni le verdict ni l’altitude.';
@@ -48,14 +59,17 @@ export function TableProjection({ file, ouvert, onOuvrir, renderDetail, libelleP
   if (file.length === 0) return <p style={muted}>Aucun permis en attente de projection. La file est vide.</p>;
   return (
     <div style={{ overflowX: 'auto' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+      <table style={{ width: '100%', minWidth: MIN_WIDTH_TABLE, tableLayout: 'fixed', borderCollapse: 'collapse' }}>
+        <colgroup>
+          {LARGEURS_COLONNES.map((w, i) => <col key={i} style={{ width: w }} />)}
+        </colgroup>
         <thead>
           <tr>
-            <th style={{ ...cell, ...muted, fontWeight: 700 }}>{libellePermis}</th>
-            <th style={{ ...cell, ...muted, fontWeight: 700 }}>Commune</th>
-            <th style={{ ...cell, ...muted, fontWeight: 700 }}>Nature</th>
-            <th style={{ ...cell, ...muted, fontWeight: 700 }}>Bâtiments</th>
-            <th style={{ ...cell, ...muted, fontWeight: 700 }}>Pièces reçues</th>
+            <th style={enteteCell}>{libellePermis}</th>
+            <th style={enteteCell}>Commune</th>
+            <th style={enteteCell}>Nature</th>
+            <th style={enteteCell}>Bâtiments</th>
+            <th style={enteteCell}>Pièces reçues</th>
           </tr>
         </thead>
         <tbody>

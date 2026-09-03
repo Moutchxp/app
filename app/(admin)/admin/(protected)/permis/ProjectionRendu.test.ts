@@ -28,6 +28,17 @@ describe('PROJ-2c — rendu de la file Projection', () => {
     expect(enTest).toContain('Pièces reçues');
   });
 
+  it('TableProjection : colonnes déterministes et PARTAGÉES entre les deux tableaux (table-layout fixe + colgroup identique) — LOT 55', () => {
+    const colgroup = (s: string) => s.slice(s.indexOf('<colgroup'), s.indexOf('</colgroup>') + '</colgroup>'.length);
+    const parDefaut = renderToStaticMarkup(h(TableProjection, { file: [ligne()], ouvert: null, onOuvrir: () => {}, renderDetail: () => null }));
+    expect(parDefaut).toContain('table-layout:fixed');                     // largeurs lues du colgroup, pas du contenu
+    const cg = colgroup(parDefaut);
+    expect((cg.match(/<col /g) ?? []).length).toBe(5);                     // 5 colonnes dimensionnées (l'espace exclut <colgroup)
+    // MÊME colgroup quel que soit l'en-tête → colonnes strictement alignées entre file en test et file ordinaire
+    const enTest = renderToStaticMarkup(h(TableProjection, { file: [ligne()], ouvert: null, onOuvrir: () => {}, renderDetail: () => null, libellePermis: 'Test permis « En cours »' }));
+    expect(colgroup(enTest)).toBe(cg);
+  });
+
   it('TableProjection : ligne ouverte rend le détail (renderDetail) et masque les colonnes', () => {
     const html = renderToStaticMarkup(h(TableProjection, { file: [ligne()], ouvert: 11434, onOuvrir: () => {}, renderDetail: () => h('span', {}, 'DÉTAIL-ICI') }));
     expect(html).toContain('DÉTAIL-ICI');
