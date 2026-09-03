@@ -3,7 +3,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
-import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, partitionnerAnnulationMasse, CHOIX_STATUT_DEFAUT, categorieEnCours, CATEGORIE_EN_COURS_LIBELLE, demandeEnCoursIncomplete } from '../../../../lib/sitadel/demandesListe';
+import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, partitionnerAnnulationMasse, CHOIX_STATUT_DEFAUT, categorieEnCours, CATEGORIE_EN_COURS_LIBELLE, demandeEnCoursIncomplete, demandeADeNouvellesPieces } from '../../../../lib/sitadel/demandesListe';
 import { dansProcess, horsProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, BlocContactMairie, DecompteDelai, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
@@ -49,6 +49,10 @@ const PAGE_SIZE = 20;
 //   l'information (la couleur n'est qu'un appui), le compteur (N) désigne les familles manquantes. Aucune animation.
 const styleMarqueurIncomplet: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: '.35rem', color: 'var(--color-svv-red)', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' };
 const styleDotIncomplet: CSSProperties = { width: 8, height: 8, borderRadius: 999, background: 'var(--color-svv-red)', flexShrink: 0 };
+// LOT 47 — badge « nouvelles pièces reçues » (ÉVÉNEMENT). Famille BLEU (information), distincte du rouge « incomplet » (état à relancer)
+//   pour que les deux se lisent simultanément sans se confondre. Le TEXTE porte l'information (la couleur n'est qu'un appui).
+const styleBadgeNouvelles: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: '.35rem', color: 'var(--color-svv-blue)', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' };
+const styleDotNouvelles: CSSProperties = { width: 8, height: 8, borderRadius: 999, background: 'var(--color-svv-blue)', flexShrink: 0 };
 const styleChamp: CSSProperties = { padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 };
 
 const TEXTES: Record<Perimetre, { intro: string; vide: string }> = {
@@ -68,6 +72,7 @@ interface Props {
   perimetre: Perimetre;
   process: Process; // D2 : process actif du commutateur — SCOPE D'AFFICHAGE (filtre client sur le canal), jamais un WHERE serveur.
   signalRafraichir?: number; // Q6 : incrémenté par le parent (ex. après une création) → force un rechargement de la liste
+  onRecompter?: () => void;  // LOT 47 : après acquittement « vu », rafraîchit les pastilles d'onglet (source /actions) — invariant compteur == lignes allumées
 }
 
 async function erreurServeur(res: Response, repli: string): Promise<string> {
@@ -75,7 +80,7 @@ async function erreurServeur(res: Response, repli: string): Promise<string> {
   catch { return repli; }
 }
 
-export function SuiviDemandes({ categories, perimetre, process, signalRafraichir = 0 }: Props) {
+export function SuiviDemandes({ categories, perimetre, process, signalRafraichir = 0, onRecompter }: Props) {
   const avecActionsGroupees = perimetre === 'a_demander';
   const statutsFiltre = statutsDuPerimetre(perimetre);
   const avecAlertes = statutsFiltre.includes('brouillon'); // alertes d'identité = brouillons → uniquement « à demander »
@@ -489,10 +494,22 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   const marqueurLigne = enCours && suivi
     ? (d: { id: number }) => {
         const r = suivi.parId.get(d.id);
-        if (!r || !demandeEnCoursIncomplete(r)) return null;
+        if (!r) return null;
+        const nouvelles = demandeADeNouvellesPieces(r); // ÉVÉNEMENT (bleu)
+        const incomplet = demandeEnCoursIncomplete(r);  // ÉTAT à relancer (rouge)
+        if (!nouvelles && !incomplet) return null;       // ligne éteinte
         return (
-          <span style={styleMarqueurIncomplet} aria-label={`Dossier incomplet : ${r.completudeManquantes} famille(s) à relancer`}>
-            <span aria-hidden="true" style={styleDotIncomplet} />incomplet ({r.completudeManquantes})
+          <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 3, alignItems: 'flex-start' }}>
+            {nouvelles && (
+              <span style={styleBadgeNouvelles} aria-label="Nouvelles pièces reçues depuis la dernière relance ou consultation">
+                <span aria-hidden="true" style={styleDotNouvelles} />nouvelles pièces reçues
+              </span>
+            )}
+            {incomplet && (
+              <span style={styleMarqueurIncomplet} aria-label={`Dossier incomplet : ${r.completudeManquantes} famille(s) à relancer`}>
+                <span aria-hidden="true" style={styleDotIncomplet} />incomplet ({r.completudeManquantes})
+              </span>
+            )}
           </span>
         );
       }
@@ -503,6 +520,12 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   const messageVideTexte = !liste ? 'Chargement…' : (fReference.trim() !== ''
     ? `Aucune demande ne correspond à « ${fReference.trim()} » (mairie, SVAV ou n° de permis ; casse, espaces et tirets ignorés).`
     : TEXTES[perimetre].vide);
+  // LOT 47 — bouton « vu » : acquitte les nouvelles pièces AU NIVEAU DU PERMIS. Rafraîchit le suivi (badge de ligne) + la liste + les
+  //   pastilles d'onglet (onRecompter, invariant compteur == lignes allumées) + le détail (le bouton disparaît). Aucun statut modifié.
+  const acquitterPieces = async (demandeId: number): Promise<void> => {
+    const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'acquitter_pieces', demandeId }) });
+    if (res.ok) { rafraichirSuivi(); rafraichir(); onRecompter?.(); await ouvrir(demandeId, true); }
+  };
 
   return (
     <div className="flex flex-col gap-4">
@@ -731,6 +754,15 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   cle: 'suivi_actions', nonVide: true, titre: LIBELLE_FAMILLE.suivi_actions,
                   contenu: () => (
                   <>
+                {/* LOT 47 — ÉVÉNEMENT « nouvelles pièces reçues » + bouton « vu » (acquittement au niveau permis). Coexiste avec l'état
+                    « incomplet » (badge rouge de ligne) : ce sont deux informations distinctes. Un 3e déclencheur (« dossier complet »,
+                    LOT 48) éteindra le même signal via la même table d'acquittement. */}
+                {demandeADeNouvellesPieces(richDetail) && (
+                  <div className="svv-card" style={{ borderColor: 'var(--color-svv-blue)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.6rem', fontSize: 13 }}>
+                    <span style={{ fontWeight: 700, color: 'var(--color-svv-blue)' }}>Nouvelles pièces reçues depuis la dernière relance ou consultation.</span>
+                    <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem' }} onClick={() => void acquitterPieces(detail.id)}>Marquer comme vues</button>
+                  </div>
+                )}
                 {/* LOT 18 — PARCOURS COMPLET : projeterParcours DÉRIVE à chaque rendu les faits ET les étapes à venir datées, depuis l'état
                     courant (envoi initial, envois réels, bifurcation, annonce/saisine CADA) + les réglages de config (ordinaire + partiel).
                     Aucune lecture ajoutée ici (tout est déjà dans richDetail/suivi). Le GESTE « préparer le brouillon » est CONSERVÉ, sous la frise. */}

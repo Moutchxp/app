@@ -122,7 +122,7 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
       {onglet === 'rattachement' && <SuiviRattachementVue onRecompter={apresAction} />}
       {/* DEPOT-2 — ADemanderVue (préparation + dépôt/annulation via BlocDepot) notifie le foyer unique → compteurs du commutateur à jour. */}
       {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} process={processActif} onBasculerProcess={setProcessActif} onChangement={apresAction} onAllerReglages={() => setOnglet('reglages')} />}
-      {onglet === 'en_cours' && <EnCoursVue categories={categories} process={processActif} />}
+      {onglet === 'en_cours' && <EnCoursVue categories={categories} process={processActif} onRecompter={apresAction} />}
       {/* LOT 40 — « Réponses » n'est plus scopé par process : la liste affiche TOUS les rails (e-mail ET téléservice). */}
       {onglet === 'reponses' && <ReponsesVue onRecompter={apresAction} />}
       {onglet === 'projection' && <ProjectionVue onRecompter={apresAction} />}

@@ -238,6 +238,29 @@ export function demandeEnCoursIncomplete(
   return d.completudeManquantes > 0 && d.saisissable !== true && !demandeADuRetour(d);
 }
 
+/**
+ * LOT 47 — LIGNE « EN COURS » avec de NOUVELLES PIÈCES REÇUES (ÉVÉNEMENT, distinct de l'ÉTAT « incomplet » ci-dessus ; les DEUX
+ * peuvent être vrais en même temps). `nouvellesPiecesNonVues` est calculé côté serveur (reponsesSuivi : ≥ 1 pièce déposée après le
+ * dernier acquittement). Même SCOPING « En cours » que demandeEnCoursIncomplete (pas saisissable, pas de retour qui basculerait en
+ * Réponses) → jamais affiché ailleurs. PUR et PARTAGÉ serveur/client.
+ */
+export function demandeADeNouvellesPieces(
+  d: Parameters<typeof demandeADuRetour>[0] & { nouvellesPiecesNonVues?: boolean; saisissable?: boolean },
+): boolean {
+  return d.nouvellesPiecesNonVues === true && d.saisissable !== true && !demandeADuRetour(d);
+}
+
+/**
+ * LOT 47 — la ligne « En cours » DEMANDE UNE ACTION si elle est incomplète À RELANCER (LOT 46) OU si de nouvelles pièces sont reçues.
+ * FOYER UNIQUE du compteur d'onglet « En cours » : par construction, le compteur EST le nombre de lignes qui allument ≥ 1 pastille
+ * (une ligne = 1, jamais 2, même si elle porte les deux badges) → invariant « compteur == somme des lignes allumées ». PUR/PARTAGÉ.
+ */
+export function ligneEnCoursASignaler(
+  d: Parameters<typeof demandeEnCoursIncomplete>[0] & { nouvellesPiecesNonVues?: boolean },
+): boolean {
+  return demandeEnCoursIncomplete(d) || demandeADeNouvellesPieces(d);
+}
+
 // ── PART-B : deux CATÉGORIES d'affichage dans « En cours » ────────────────────
 /** Catégorie d'un permis dans « En cours » : ① 'premiere' (attend une 1re réponse) ; ② 'relance' (dossier partiel, réclamation envoyée). */
 export type CategorieEnCours = 'premiere' | 'relance';

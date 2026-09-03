@@ -16,6 +16,8 @@ import type { ReglagesCascade } from './cascadeRelance'; // cascade lot 4 : seui
 import type { EnvoiAutoInfos } from './statutCascade'; // lot « dire quand ça part » : interrupteur + fenêtre d'envoi (réglages existants)
 import type { EtatPartiel } from '../permis/dossierPartiel'; // CASC-1 : marqueur « dossier partiel » (type-only → erasé côté client)
 import { chargerCascadePartielle, MOTIF_RELANCE_PARTIELLE_PREFIXE, MOTIF_ANNONCE_CADA_PREFIXE, type EtatCascadePartielle } from './cascadePartielleRepo'; // CASC-3 ; LOT-8 C préfixe relances partielles ; LOT 18 préfixe annonce CADA
+import { MOTIF_RELANCE_REPONSE_PREFIXE } from './relanceReponsePartielleAuto'; // LOT 47 : relance PART-E, comptée comme relance dans l'acquittement dérivé
+import { MARQUEUR_FICHE_SYNTHESE } from '../permis/gedConstantes'; // LOT 47 : la fiche de synthèse générée n'est PAS une pièce reçue → exclue du signal « nouvelles pièces »
 import type { ReglagesCascadePartielle } from './cascadePartielle'; // LOT 18 : réglages de projection du parcours partiel (config, jamais en dur)
 import { manquantesParDossier } from '../permis/completudeRepo'; // LOT 13-A : compteur de familles manquantes par dossier (titre de famille)
 import { ordonnerHistoriqueEnvois, type EnvoiBrut, type EnvoiHistorique } from './historiqueEnvois'; // LOT 13-B : historique de nos envois (initiale + relances)
@@ -198,6 +200,7 @@ export interface DemandeSuivi {
   //   (= dûs + satisfaits d'une demande en partiel actif), MÊME ensemble que ce que rend l'encart ; un dossier obtenu non-partiel vit en Archives.
   completudeNonVide: boolean;       // ≥ 1 dossier d'encart a un diagnostic de complétude (permis_completude)
   completudeManquantes: number;     // LOT 13-A : nombre de familles de documents MANQUANTES (somme sur les dossiers d'encart) → compteur rouge du titre de famille ; 0 = rien à signaler
+  nouvellesPiecesNonVues: boolean;  // LOT 47 : ≥ 1 dossier d'encart a une pièce (dossier_document) déposée APRÈS le dernier acquittement (bouton « vu » OU dernière relance) → badge « nouvelles pièces reçues »
   historiqueEnvois: EnvoiHistorique[]; // LOT 13-B : NOS envois à la mairie (demande initiale puis relances), ordonnés — acheminement (initial/ordinaire) + journal (partiel), fusionnés
   historiqueNonVide: boolean;       // ≥ 1 entrée de FIL (niveau DEMANDE, = les 5 sources de BlocFilEchanges) : un ENVOI (initial/relance) OU la mairie a répondu (hors rebond) OU un suivi sortant (complément / déclaration / réponse libre / sortant hors outil)
   nbEchanges: number;               // LOT 17-C : NOMBRE d'échanges du fil (même périmètre que BlocFilEchanges) → mention du titre « Historique des échanges » ; 0 = pas de mention
@@ -627,6 +630,21 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
                AND EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = dd.dossier_id)`),
       ]);
 
+  // LOT 47 — NOUVELLES PIÈCES NON VUES (ÉVÉNEMENT, distinct de « incomplet ») : ≥ 1 dossier d'encart a une pièce (dossier_document,
+  //   hors fiche de synthèse générée) déposée APRÈS le dernier acquittement = GREATEST(bouton « vu » ; dernière RELANCE de la demande,
+  //   DÉRIVÉE du journal — partielle / PART-E / complément / déclaration). S'accroche au VERSEMENT réel (depose_le), JAMAIS à un
+  //   recalcul de diagnostic (diagnosticsVague n'insère aucune pièce). Résilient : 188 absente → set vide (aucun badge, sûr).
+  const nouvellesPiecesSet = ids.length === 0 ? new Set<number>() : await setDepuis(
+    `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd JOIN demande dp ON dp.id = dd.demande_id
+      WHERE dd.demande_id = ANY($1) AND dd.actif AND ${PORTEE_ENCART}
+        AND EXISTS (
+          SELECT 1 FROM dossier_document doc
+           WHERE doc.dossier_id = dd.dossier_id AND doc.note IS DISTINCT FROM $2
+             AND doc.depose_le > GREATEST(
+                   COALESCE((SELECT a.vu_le FROM dossier_pieces_acquittement a WHERE a.dossier_id = dd.dossier_id), '-infinity'::timestamptz),
+                   COALESCE((SELECT max(j.horodatage) FROM demande_journal j WHERE j.demande_id = dd.demande_id AND j.motif LIKE ANY($3)), '-infinity'::timestamptz)))`,
+    [ids, MARQUEUR_FICHE_SYNTHESE, [`${MOTIF_RELANCE_PARTIELLE_PREFIXE}%`, `${MOTIF_RELANCE_REPONSE_PREFIXE}%`, `${MOTIF_COMPLEMENT_PREFIXE}%`, `${MOTIF_DECLARATION_PREFIXE}%`]]);
+
   // LOT-9 (C) — CONTACT MAIRIE (carnet d'adresses) : par demande, les INTERLOCUTEURS = expéditeurs RÉELS des messages reçus (une ligne
   //   par adresse, avec la date du DERNIER message d'elle), + le DESTINATAIRE d'origine (où NOUS avons écrit). Deux requêtes SÉPARÉES,
   //   dans le MÊME périmètre de statut (aucun WHERE sur la source partagée `dem`, précédent B2). L'appelant trie par récence (dernierLe).
@@ -862,6 +880,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     lienEnAttente: liensEnAttente.has(r.id), // PART-D : lien fort en attente (GED vide) → bascule partiel vers Réponses
     lienEnAttenteLe: liensEnAttente.get(r.id) ?? null, // PART-D : plus ancien lien en attente → tri par urgence
     completudeNonVide: completudeSet.has(r.id), // UNIF-0 : signaux « non vide » de l'encart (comptes batchés, jamais le contenu)
+    nouvellesPiecesNonVues: nouvellesPiecesSet.has(r.id), // LOT 47 : événement « nouvelles pièces reçues » (versement postérieur au dernier acquittement)
     completudeManquantes: (encartDossiersParDemande.get(r.id) ?? []).reduce((n, id) => n + (manquantesParDoss.get(id) ?? 0), 0), // LOT 13-A
     historiqueEnvois: ordonnerHistoriqueEnvois(brutsEnvois.get(r.id) ?? []), // LOT 13-B : tri + grades (pur)
     historiqueNonVide: historiqueSet.has(r.id),

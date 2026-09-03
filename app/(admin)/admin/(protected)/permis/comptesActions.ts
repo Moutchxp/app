@@ -9,7 +9,7 @@
  * - Rattachement  : permis en « arbitrage demandé » (valider / refuser / retour LiDAR).
  */
 import { demandeADuRetour } from './ReponsesRendu';
-import { demandeEnCoursIncomplete } from '../../../../lib/sitadel/demandesListe'; // LOT 46 — prédicat PARTAGÉ ligne « En cours » à relancer (compteur d'onglet = nb de lignes allumées)
+import { demandeEnCoursIncomplete, ligneEnCoursASignaler } from '../../../../lib/sitadel/demandesListe'; // LOT 46/47 — prédicats PARTAGÉS ligne « En cours » (compteur d'onglet = nb de lignes allumées)
 import { ETATS_A_FAIRE } from '../../../../lib/permis/rattachementGroupes'; // SOURCE UNIQUE des états « à faire » comptés par la pastille Rattachement
 
 /** Un dossier DÛ non encore tranché = en attente de la décision d'Arno (marquer reçu / non fourni / refus). PUR. */
@@ -42,10 +42,17 @@ export function compterSaisines(data: { saisissables: unknown[]; fileADeposer: u
   return data.saisissables.length + data.fileADeposer.length;
 }
 
-/** LOT 46 — compteur « En cours » : nombre de demandes affichées en « En cours » à dossier INCOMPLET à relancer (prédicat partagé
- *  `demandeEnCoursIncomplete`). PAR CONSTRUCTION égal à la somme des pastilles de ligne (même prédicat, même donnée). PUR. */
+/** LOT 46 — compteur « En cours » à dossier INCOMPLET à relancer (prédicat partagé `demandeEnCoursIncomplete`). Conservé pour les
+ *  tests/usages du sous-signal ; le compteur d'ONGLET, lui, agrège TOUS les signaux via compterEnCoursASignaler (LOT 47). PUR. */
 export function compterEnCoursIncomplet(demandes: Parameters<typeof demandeEnCoursIncomplete>[0][]): number {
   return demandes.filter(demandeEnCoursIncomplete).length;
+}
+
+/** LOT 47 — compteur de l'ONGLET « En cours » : nombre de demandes affichées qui DEMANDENT UNE ACTION = incomplet à relancer OU
+ *  nouvelles pièces reçues (prédicat partagé `ligneEnCoursASignaler`). PAR CONSTRUCTION égal à la somme des lignes allumées (une
+ *  ligne compte pour 1, même si elle porte les deux badges) → invariant « compteur == somme des pastilles ». PUR. */
+export function compterEnCoursASignaler(demandes: Parameters<typeof ligneEnCoursASignaler>[0][]): number {
+  return demandes.filter(ligneEnCoursASignaler).length;
 }
 
 /** Compteur « Rattachement » : permis dans un état « à faire » (décision attendue d'Arno) — SOURCE UNIQUE `ETATS_A_FAIRE`

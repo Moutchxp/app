@@ -8,8 +8,9 @@ import { SuiviDemandes } from './SuiviDemandes';
  * ne sont pas partis. Aucune action groupée ici (elles portent sur des brouillons → onglet « À demander »). Le panneau détail
  * reste ouvrable. AUCUN envoi.
  */
-interface Props { categories: { cle: string; libelle: string; rang: number }[]; process: import('../../../../lib/sitadel/process').Process }
+interface Props { categories: { cle: string; libelle: string; rang: number }[]; process: import('../../../../lib/sitadel/process').Process; onRecompter?: () => void }
 
-export function EnCoursVue({ categories, process }: Props) {
-  return <SuiviDemandes categories={categories} perimetre="en_cours" process={process} />;
+export function EnCoursVue({ categories, process, onRecompter }: Props) {
+  // LOT 47 — onRecompter : après un acquittement « vu », rafraîchit les pastilles d'onglet (source /actions) pour tenir l'invariant.
+  return <SuiviDemandes categories={categories} perimetre="en_cours" process={process} onRecompter={onRecompter} />;
 }

@@ -7,8 +7,8 @@ import { compterFileProjection } from '../../../../../lib/permis/projectionFileR
 import { compterRelancesReponseDue } from '../../../../../lib/veille/relanceReponsePartielleAuto';
 import { compterSurveillanceDossiers } from '../../../../../lib/veille/surveillancePolygonesAuto';
 import { chargerConfigVeille } from '../../../../../lib/sitadel/veilleConfig';
-import { compterReponses, compterSaisines, compterRattachement, compterEnCoursIncomplet, assemblerComptes, type DemandeComptable } from '../../../../admin/(protected)/permis/comptesActions';
-import { demandeEnCoursIncomplete } from '../../../../../lib/sitadel/demandesListe';
+import { compterReponses, compterSaisines, compterRattachement, compterEnCoursASignaler, assemblerComptes, type DemandeComptable } from '../../../../admin/(protected)/permis/comptesActions';
+import { ligneEnCoursASignaler } from '../../../../../lib/sitadel/demandesListe';
 
 /**
  * /api/admin/permis/actions (PASTILLES) — UNE seule route, TROIS compteurs + le cumul, en une requête. Chaque compteur réutilise
@@ -37,9 +37,10 @@ export async function GET(request: Request): Promise<Response> {
     });
     const saisines = compterSaisines({ saisissables: saisinesData.saisissables, fileADeposer: saisinesData.fileADeposer });
     const rattachement = compterRattachement(suivi.compteurs);
-    // LOT 46 — pastille de l'onglet « En cours » : dossiers incomplets à relancer. Agrégat DISTINCT (jamais dans `total` tant que la
-    //   tuile home n'est pas câblée, LOT 48) → aucun changement de la tuile ni des compteurs existants. MÊME prédicat que la ligne.
-    const enCours = compterEnCoursIncomplet(reponsesData.demandes as unknown as Parameters<typeof demandeEnCoursIncomplete>[0][]);
+    // LOT 46/47 — pastille de l'onglet « En cours » : lignes qui DEMANDENT UNE ACTION = incomplet à relancer OU nouvelles pièces
+    //   reçues (prédicat partagé ligneEnCoursASignaler → compteur == somme des lignes allumées). Agrégat DISTINCT, HORS `total` tant
+    //   que la tuile home n'est pas câblée (LOT 48) → aucun changement de la tuile ni des compteurs existants.
+    const enCours = compterEnCoursASignaler(reponsesData.demandes as unknown as Parameters<typeof ligneEnCoursASignaler>[0][]);
     return Response.json({ ...assemblerComptes(reponses, saisines, rattachement, projection, surveillance), enCours, recomptageHeure: config.recomptageHeureLocale });
   } catch (e) {
     console.error('[permis/actions] GET impossible (503)', { message: (e as Error)?.message });

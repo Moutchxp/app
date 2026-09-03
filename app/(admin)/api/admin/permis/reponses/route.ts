@@ -8,6 +8,7 @@ import { cloturerDemande, rouvrirDemande, TransitionInterditeError, lireCleTelec
 import { confirmerDepot } from '../../../../../lib/veille/confirmerDepot'; // LOT 35 : confirmation de dépôt + attribution de la référence mairie
 import { lireReferenceMairieDeReponse } from '../../../../../lib/veille/releveReponses'; // LOT 35 : référence (SLC…) portée par l'accusé déclencheur
 import { majRelance, abandonnerRelance, regenererRelance, RelanceActionError } from '../../../../../lib/veille/demandeRelanceRepo';
+import { acquitterNouvellesPieces } from '../../../../../lib/permis/piecesAcquittementRepo'; // LOT 47 : bouton « vu » (acquittement des nouvelles pièces au niveau permis)
 
 /**
  * /api/admin/permis/reponses — GET agrégé LECTURE SEULE (R5a) + POST ACTIONS (R5b/R5c). R5b : rattacher une réponse à une
@@ -54,6 +55,14 @@ export async function POST(request: Request): Promise<Response> {
       envoyeLe?: unknown; // T4 : date RÉELLE de dépôt saisie (YYYY-MM-DD) pour confirmer une proposition
     };
     actionCtx = corps.action;
+
+    // LOT 47 — bouton « vu » : acquitter les nouvelles pièces AU NIVEAU DU PERMIS (tous les dossiers actifs de la demande). Éteint le
+    //   badge « nouvelles pièces reçues » jusqu'au prochain versement. N'écrit NI demande.statut NI satisfait_le (pur acquittement).
+    if (corps.action === 'acquitter_pieces') {
+      if (!estEntier(corps.demandeId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      const ok = await acquitterNouvellesPieces(corps.demandeId, auteur);
+      return Response.json({ ok, traite: ok });
+    }
 
     // Rattacher une réponse (file « à rattacher ») à une demande choisie → méthode 'manuel', rattache_le posé.
     if (corps.action === 'rattacher') {
