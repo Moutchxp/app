@@ -29,7 +29,9 @@ export function MentionFamillesManquantes({ manquantes }: { manquantes: number }
 export function MentionEchanges({ nbEchanges, dernierLe }: { nbEchanges: number; dernierLe: string | null }) {
   if (nbEchanges <= 0) return null;
   const pluriel = nbEchanges > 1 ? 's' : '';
-  return <span style={muted}> — {nbEchanges} échange{pluriel}{dernierLe ? ` — dernier le ${formaterEnvoiLe(dernierLe)}` : ''}</span>;
+  // LOT 50 — « e-mails échangés » (et non « échanges ») : ce compteur ne recense QUE les mails réels ; il exclut volontairement les
+  //   relances DÉCLARÉES hors outil (qui, elles, figurent dans le fil déployé). Nommer le périmètre lève la fausse contradiction 9 vs 10.
+  return <span style={muted}> — {nbEchanges} e-mail{pluriel} échangé{pluriel}{dernierLe ? ` — dernier le ${formaterEnvoiLe(dernierLe)}` : ''}</span>;
 }
 
 /** Date + heure d'un fait, en heure de Paris (« 04/08/2026 à 21h21 »). PUR (déterministe pour une ISO donnée). */

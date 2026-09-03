@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { MentionFamillesManquantes, MentionEchanges, FriseSuivi, formaterEnvoiLe, formaterEcheanceLe } from './FriseSuiviRendu';
@@ -94,23 +96,29 @@ describe('LOT 15 — FriseSuivi (frise unifiée : faits + échéances)', () => {
   });
 });
 
-describe('LOT 17-C — MentionEchanges (titre « Historique des échanges », neutre)', () => {
-  it('« N échanges — dernier le JJ/MM/AAAA à HHhMM » (format frise), ton NEUTRE (jamais rouge)', () => {
+describe('MentionEchanges (titre « Historique des échanges ») — LOT 50 : périmètre EXPLICITE « e-mails échangés »', () => {
+  it('« N e-mails échangés — dernier le JJ/MM/AAAA à HHhMM » (format frise), ton NEUTRE (jamais rouge)', () => {
     const html = renderToStaticMarkup(h(MentionEchanges, { nbEchanges: 8, dernierLe: '2026-08-30T22:23:55Z' }));
-    expect(html).toContain('8 échanges');
+    expect(html).toContain('8 e-mails échangés'); // LOT 50 : nomme le périmètre (mails réels), lève la fausse contradiction avec le total du fil
+    expect(html).not.toContain('8 échanges'); // l'ancien libellé nu ne doit pas revenir
     expect(html).toContain('dernier le 31/08/2026 à 00h23'); // Europe/Paris + format de la frise
     expect(html).not.toContain('var(--color-svv-red)'); // pas une alerte
   });
-  it('singulier « 1 échange »', () => {
-    expect(renderToStaticMarkup(h(MentionEchanges, { nbEchanges: 1, dernierLe: '2026-08-30T22:23:55Z' }))).toContain('1 échange —');
+  it('singulier « 1 e-mail échangé »', () => {
+    expect(renderToStaticMarkup(h(MentionEchanges, { nbEchanges: 1, dernierLe: '2026-08-30T22:23:55Z' }))).toContain('1 e-mail échangé —');
   });
   it('compte sans date connue → seulement le compte (jamais « dernier le … »)', () => {
     const html = renderToStaticMarkup(h(MentionEchanges, { nbEchanges: 3, dernierLe: null }));
-    expect(html).toContain('3 échanges');
+    expect(html).toContain('3 e-mails échangés');
     expect(html).not.toContain('dernier le');
   });
-  it('aucun échange → ABSENTE (point 11)', () => {
+  it('aucun e-mail → ABSENTE (point 11)', () => {
     expect(renderToStaticMarkup(h(MentionEchanges, { nbEchanges: 0, dernierLe: null }))).toBe('');
+  });
+  it('LOT 50 — le fil EXPLICITE que son total inclut les relances déclarées hors e-mail (garde de source)', () => {
+    const src = readFileSync(join(process.cwd(), 'app/(admin)/admin/(protected)/permis/BlocFilEchanges.tsx'), 'utf8');
+    expect(src).toContain("e.sens === 'declare'");           // compte des déclarations (hors e-mail), depuis les données DÉJÀ chargées
+    expect(src).toContain('relance'); expect(src).toContain('(hors e-mail)'); // clarifie que le total = e-mails + relances déclarées
   });
 });
 

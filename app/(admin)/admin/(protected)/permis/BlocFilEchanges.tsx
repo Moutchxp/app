@@ -79,6 +79,9 @@ export function BlocFilEchanges({ dossierId }: { dossierId: number }) {
       {fil?.statut === 'vide' && <span style={muted}>Aucun échange enregistré pour ce permis.</span>}
       {fil?.statut === 'ok' && (() => {
         const affichees = fil.entrees.filter((e) => gardeFiltre(e, filtre));
+        // LOT 50 — le TOTAL du fil inclut les relances DÉCLARÉES hors outil (sens 'declare'), qui ne sont PAS des e-mails : on l'explicite
+        //   pour que « N sur M » ici et « K e-mails échangés » du titre cessent de se contredire (M = K e-mails + relances déclarées).
+        const nbDeclare = fil.entrees.filter((e) => e.sens === 'declare').length;
         // LOT 19 (A) — la chronologie s'affiche DIRECTEMENT au dépli de la famille (un seul clic) : plus de sous-ligne « N échanges —
         //   dernier le … » (elle doublait la mention du titre, LOT 17) ni de 2e pli. Le compte + la date vivent désormais dans le titre.
         return (
@@ -87,7 +90,7 @@ export function BlocFilEchanges({ dossierId }: { dossierId: number }) {
               {([['tout', 'Tout'], ['recus', 'Reçus de la mairie'], ['envoyes', 'Envoyés par nous']] as [Filtre, string][]).map(([v, lib]) => (
                 <button key={v} type="button" className={`svv-btn ${filtre === v ? 'svv-btn-primary' : 'svv-btn-outline'}`} style={{ width: 'auto', padding: '.15rem .5rem', fontSize: 12 }} aria-pressed={filtre === v} onClick={() => setFiltre(v)}>{lib}</button>
               ))}
-              <span style={{ ...muted, alignSelf: 'center' }}>{affichees.length} affiché{affichees.length > 1 ? 's' : ''} sur {fil.entrees.length}</span>
+              <span style={{ ...muted, alignSelf: 'center' }}>{affichees.length} affiché{affichees.length > 1 ? 's' : ''} sur {fil.entrees.length}{nbDeclare > 0 ? ` · dont ${nbDeclare} relance${nbDeclare > 1 ? 's' : ''} déclarée${nbDeclare > 1 ? 's' : ''} (hors e-mail)` : ''}</span>
             </div>
             <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
               {affichees.map((x, i) => (
