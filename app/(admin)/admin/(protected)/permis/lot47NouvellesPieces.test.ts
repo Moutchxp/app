@@ -67,6 +67,15 @@ describe('LOT 47 — câblage (accroche, acquittement, migration)', () => {
     expect(s).toContain('demande_journal');                      // relance dérivée (rétroactif)
     expect(s).toContain('note IS DISTINCT FROM $2');             // fiche de synthèse exclue
   });
+  // 47-bis — LE défaut trouvé en réel : une relance AUTOMATIQUE (PART-E, déclenchée PAR l'arrivée des pièces, donc toujours postérieure)
+  //   éteignait le signal avant lecture. RÈGLE FIGÉE : seuls les gestes de l'utilisateur acquittent (auteur <> 'auto'). Ne doit pas revenir.
+  it('47-bis — une relance AUTOMATIQUE (auteur=auto) N’ACQUITTE PAS ; la date DÉCLARÉE prime sur l’horodatage', () => {
+    const s = lire('app/lib/veille/reponsesSuivi.ts');
+    expect(s).toContain("j.auteur IS DISTINCT FROM 'auto'"); // seuls les gestes de l'utilisateur (auteur admin) acquittent
+    expect(s).toContain("j.details->>'mode' = 'declare'");   // relance DÉCLARÉE : on prend la date déclarée…
+    expect(s).toContain("'dateRelance'");
+    expect(s).toContain('Europe/Paris');                     // …ancrée à 12:00 Europe/Paris (LOT-1), pas l'horodatage de saisie
+  });
   it('le compteur d’onglet agrège via le prédicat partagé', () => {
     expect(lire('app/(admin)/admin/(protected)/permis/comptesActions.ts')).toContain('demandes.filter(ligneEnCoursASignaler)');
   });

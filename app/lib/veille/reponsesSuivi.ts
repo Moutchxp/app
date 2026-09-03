@@ -630,10 +630,14 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
                AND EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = dd.dossier_id)`),
       ]);
 
-  // LOT 47 — NOUVELLES PIÈCES NON VUES (ÉVÉNEMENT, distinct de « incomplet ») : ≥ 1 dossier d'encart a une pièce (dossier_document,
-  //   hors fiche de synthèse générée) déposée APRÈS le dernier acquittement = GREATEST(bouton « vu » ; dernière RELANCE de la demande,
-  //   DÉRIVÉE du journal — partielle / PART-E / complément / déclaration). S'accroche au VERSEMENT réel (depose_le), JAMAIS à un
-  //   recalcul de diagnostic (diagnosticsVague n'insère aucune pièce). Résilient : 188 absente → set vide (aucun badge, sûr).
+  // LOT 47 / 47-bis — NOUVELLES PIÈCES NON VUES (ÉVÉNEMENT, distinct de « incomplet ») : ≥ 1 dossier d'encart a une pièce
+  //   (dossier_document, hors fiche de synthèse générée) déposée APRÈS le dernier acquittement = GREATEST(bouton « vu » ; dernière
+  //   relance FAITE PAR ARNO). S'accroche au VERSEMENT réel (depose_le), JAMAIS à un recalcul de diagnostic (diagnosticsVague n'insère
+  //   aucune pièce). Résilient : 188 absente → set vide (aucun badge, sûr).
+  //   47-bis — SEULS les gestes de l'utilisateur acquittent : `j.auteur IS DISTINCT FROM 'auto'`. Une relance AUTOMATIQUE n'est pas un
+  //   accusé de lecture — pire, la PART-E est déclenchée PAR l'arrivée des pièces (donc TOUJOURS postérieure), elle auto-éteignait le
+  //   signal avant qu'Arno le voie (cas 154). Et pour une relance DÉCLARÉE (PART-3e), on prend la date DÉCLARÉE (details.dateRelance,
+  //   ancrée 12:00 Europe/Paris comme LOT-1), pas l'horodatage de SAISIE au journal — sinon faux négatif si l'écart grandit.
   const nouvellesPiecesSet = ids.length === 0 ? new Set<number>() : await setDepuis(
     `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd JOIN demande dp ON dp.id = dd.demande_id
       WHERE dd.demande_id = ANY($1) AND dd.actif AND ${PORTEE_ENCART}
@@ -642,7 +646,11 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
            WHERE doc.dossier_id = dd.dossier_id AND doc.note IS DISTINCT FROM $2
              AND doc.depose_le > GREATEST(
                    COALESCE((SELECT a.vu_le FROM dossier_pieces_acquittement a WHERE a.dossier_id = dd.dossier_id), '-infinity'::timestamptz),
-                   COALESCE((SELECT max(j.horodatage) FROM demande_journal j WHERE j.demande_id = dd.demande_id AND j.motif LIKE ANY($3)), '-infinity'::timestamptz)))`,
+                   COALESCE((SELECT max(CASE WHEN j.details->>'mode' = 'declare' AND (j.details ? 'dateRelance')
+                                             THEN ((j.details->>'dateRelance') || ' 12:00:00')::timestamp AT TIME ZONE 'Europe/Paris'
+                                             ELSE j.horodatage END)
+                              FROM demande_journal j
+                             WHERE j.demande_id = dd.demande_id AND j.auteur IS DISTINCT FROM 'auto' AND j.motif LIKE ANY($3)), '-infinity'::timestamptz)))`,
     [ids, MARQUEUR_FICHE_SYNTHESE, [`${MOTIF_RELANCE_PARTIELLE_PREFIXE}%`, `${MOTIF_RELANCE_REPONSE_PREFIXE}%`, `${MOTIF_COMPLEMENT_PREFIXE}%`, `${MOTIF_DECLARATION_PREFIXE}%`]]);
 
   // LOT-9 (C) — CONTACT MAIRIE (carnet d'adresses) : par demande, les INTERLOCUTEURS = expéditeurs RÉELS des messages reçus (une ligne
