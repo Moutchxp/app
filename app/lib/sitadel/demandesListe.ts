@@ -224,6 +224,20 @@ export function demandeADuRetour(d: { nbReponsesReelles: number; dossiersSatisfa
   return d.nbReponsesReelles > 0 || d.dossiersSatisfaits > 0 || d.dossiers.some((x) => x.triage !== null);
 }
 
+/**
+ * LOT 46 — LIGNE « EN COURS » À RELANCER : un dossier partiel resté dans « En cours » (donc `!demandeADuRetour` : pas de lien de
+ * téléchargement en attente qui le ferait basculer en Réponses), NON saisissable (sinon il vit en Saisines CADA), dont le diagnostic
+ * de complétude MÉMORISÉ signale ≥ 1 famille manquante (`completudeManquantes > 0`). PRÉDICAT PARTAGÉ serveur (compteur d'onglet
+ * « En cours ») ↔ client (pastille de ligne) : UNE seule vérité → le compteur est, PAR CONSTRUCTION, le nombre exact de lignes
+ * allumées. Agrégat NOUVEAU et DISTINCT : ne réutilise NI `compterReponses`, NI `compterEnCoursParProcess`, NI `estEnCoursAffichee`
+ * (aucun lien avec la contradiction fermée au LOT 40). `completudeManquantes` est déjà porté par la donnée riche (reponsesSuivi). PUR.
+ */
+export function demandeEnCoursIncomplete(
+  d: Parameters<typeof demandeADuRetour>[0] & { completudeManquantes: number; saisissable?: boolean },
+): boolean {
+  return d.completudeManquantes > 0 && d.saisissable !== true && !demandeADuRetour(d);
+}
+
 // ── PART-B : deux CATÉGORIES d'affichage dans « En cours » ────────────────────
 /** Catégorie d'un permis dans « En cours » : ① 'premiere' (attend une 1re réponse) ; ② 'relance' (dossier partiel, réclamation envoyée). */
 export type CategorieEnCours = 'premiere' | 'relance';

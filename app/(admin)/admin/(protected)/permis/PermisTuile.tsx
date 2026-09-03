@@ -35,7 +35,7 @@ const ONGLETS_DEMANDES: readonly CleOnglet[] = ['a_demander', 'en_cours'];
  */
 interface Props { depuisParDefaut: string; categories: { cle: CleCategorie; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; qInitial?: string }
 
-interface Comptes { reponses: number; saisines: number; rattachement: number; projection: number; surveillance: number }
+interface Comptes { reponses: number; saisines: number; rattachement: number; projection: number; surveillance: number; enCours: number }
 
 /** Millisecondes jusqu'à la PROCHAINE occurrence de l'heure locale `h` (0..23). Sert au SEUL recomptage quotidien (pas un sondage). */
 function msJusquaProchaineHeure(h: number): number {
@@ -62,7 +62,7 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
       const res = await fetch('/api/admin/permis/actions', { cache: 'no-store' });
       if (!res.ok) return;
       const d = (await res.json()) as Comptes & { total: number; recomptageHeure: number };
-      setComptes({ reponses: d.reponses, saisines: d.saisines, rattachement: d.rattachement, projection: d.projection, surveillance: d.surveillance });
+      setComptes({ reponses: d.reponses, saisines: d.saisines, rattachement: d.rattachement, projection: d.projection, surveillance: d.surveillance, enCours: d.enCours ?? 0 });
       if (timer.current) clearTimeout(timer.current);
       timer.current = setTimeout(() => { void recompterRef.current(); }, msJusquaProchaineHeure(d.recomptageHeure)); // recomptage quotidien
     } catch { /* compteurs indisponibles : sans pastille, les onglets restent pleinement utilisables */ }
@@ -103,6 +103,7 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
     <div className="flex flex-col gap-3">
       <OngletsPermis actif={onglet} onChoisir={setOnglet}
         compteurs={comptes ? {
+          en_cours: comptes.enCours, // LOT 46 — dossiers incomplets à relancer (somme des pastilles de ligne de l'onglet En cours)
           reponses: comptes.reponses, saisines: comptes.saisines,
           rattachement: comptes.rattachement + comptes.surveillance, // SURV-1 — la surveillance à vérifier remonte sur l'onglet Rattachement
           projection: comptes.projection,

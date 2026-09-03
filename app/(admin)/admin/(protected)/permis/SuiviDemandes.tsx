@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
-import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, partitionnerAnnulationMasse, CHOIX_STATUT_DEFAUT, categorieEnCours, CATEGORIE_EN_COURS_LIBELLE } from '../../../../lib/sitadel/demandesListe';
+import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, partitionnerAnnulationMasse, CHOIX_STATUT_DEFAUT, categorieEnCours, CATEGORIE_EN_COURS_LIBELLE, demandeEnCoursIncomplete } from '../../../../lib/sitadel/demandesListe';
 import { dansProcess, horsProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, BlocContactMairie, DecompteDelai, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
@@ -15,6 +15,8 @@ import { libelleSuspension, dateButoirPartiel, libelleDelaiProlonge } from '../.
 import { RefMairieCellule } from './RefMairieCellule';
 // UNIF-1 — encart de familles (socle UNIF-0) + les 4 blocs PER-PERMIS réutilisés depuis « Analyse » (chargés paresseusement au dépliage).
 import { EncartFamilles, SousSectionsPermis } from './EncartFamilles';
+import { BlocRepliable } from './BlocRepliable'; // LOT 46 — deux groupes repliables « En cours » (1re réponse / à relancer)
+import { PastilleActions } from './PastilleActions'; // LOT 46 — pastille à gauche du titre de famille « Complétude »
 import { BlocFilEchanges } from './BlocFilEchanges'; // LOT-4 — même fil d'échanges mail qu'en Analyse/Archives
 import { SousBlocRepliable } from './SousBlocRepliable'; // LOT-5 — repli léger (1 clic) du sous-bloc artefacts, sans BlocRepliable imbriqué
 import { LIBELLE_FAMILLE } from '../../../../lib/permis/encartFamilles';
@@ -42,6 +44,11 @@ import type { ReglagesCascade } from '../../../../lib/veille/cascadeRelance';
  */
 const PROFILS: ProfilDemandeur[] = ['entreprise', 'personne'];
 const PAGE_SIZE = 20;
+
+// LOT 46 — marqueur de LIGNE « dossier incomplet à relancer » (colonne de tête d'« En cours »). Rouge de charte ; le TEXTE porte
+//   l'information (la couleur n'est qu'un appui), le compteur (N) désigne les familles manquantes. Aucune animation.
+const styleMarqueurIncomplet: CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: '.35rem', color: 'var(--color-svv-red)', fontSize: 12, fontWeight: 700, whiteSpace: 'nowrap' };
+const styleDotIncomplet: CSSProperties = { width: 8, height: 8, borderRadius: 999, background: 'var(--color-svv-red)', flexShrink: 0 };
 const styleChamp: CSSProperties = { padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 };
 
 const TEXTES: Record<Perimetre, { intro: string; vide: string }> = {
@@ -472,6 +479,31 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   // T6-A — donnée riche de la demande OUVERTE (détail « En cours ») : dossiers + statut + compteurs pour DetailDossiers/ActionsCloture.
   const richDetail = enCours && detail && suivi ? suivi.parId.get(detail.id) ?? null : null;
 
+  // LOT 46 — « En cours » scindé en DEUX GROUPES (categorieEnCours, marqueur EXHAUSTIF/EXCLUSIF : 'premiere' = attente 1re réponse ;
+  //   'relance' = dossier partiel à relancer). Enrichissement (date d'envoi + cascade) commun. Marqueur de LIGNE « à relancer » via le
+  //   PRÉDICAT PARTAGÉ demandeEnCoursIncomplete (même vérité que le compteur d'onglet). Hors En cours → identité (À demander inchangé).
+  const enrichirLigne = (d: (typeof visibles)[number]) =>
+    (enCours && suivi ? { ...d, envoyeLe: suivi.parId.get(d.id)?.envoyeLe ?? null, cascade: cascadeParId.get(d.id) ?? null } : d);
+  const visiblesParCategorie = (c: 'premiere' | 'relance'): typeof visibles =>
+    (enCours && suivi ? visibles.filter((d) => categorieEnCours(suivi.parId.get(d.id) ?? {}) === c) : []);
+  const marqueurLigne = enCours && suivi
+    ? (d: { id: number }) => {
+        const r = suivi.parId.get(d.id);
+        if (!r || !demandeEnCoursIncomplete(r)) return null;
+        return (
+          <span style={styleMarqueurIncomplet} aria-label={`Dossier incomplet : ${r.completudeManquantes} famille(s) à relancer`}>
+            <span aria-hidden="true" style={styleDotIncomplet} />incomplet ({r.completudeManquantes})
+          </span>
+        );
+      }
+    : undefined;
+  const titreGroupeEnCours = (c: 'premiere' | 'relance', n: number) => (
+    <span style={{ fontWeight: 700 }}>{c === 'premiere' ? 'En attente de la première réponse' : 'Dossiers incomplets à relancer'} ({n})</span>
+  );
+  const messageVideTexte = !liste ? 'Chargement…' : (fReference.trim() !== ''
+    ? `Aucune demande ne correspond à « ${fReference.trim()} » (mairie, SVAV ou n° de permis ; casse, espaces et tirets ignorés).`
+    : TEXTES[perimetre].vide);
+
   return (
     <div className="flex flex-col gap-4">
       {/* Q6b — compteurs de CE QUI EST AFFICHÉ + mention NON silencieuse des lignes mortes masquées par le défaut. */}
@@ -649,14 +681,22 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
         </div>
       )}
 
+      {/* LOT 46 — « En cours » scindé en deux groupes BlocRepliable (1re réponse / à relancer). Hors En cours (grp '__all__') : liste plate
+          rigoureusement inchangée. La donnée riche du panneau (détail) est identique aux deux groupes : seul le groupe qui CONTIENT la ligne
+          ouverte rend le panneau (demandeOuverte ∉ l'autre groupe). Groupe vide → non rendu ; En cours entièrement vide → carte « aucune ». */}
+      {enCours && visibles.length === 0 ? (
+        <div className="svv-card" style={{ color: 'var(--color-svv-muted)', fontSize: 13 }}>{messageVideTexte}</div>
+      ) : (enCours ? (['premiere', 'relance'] as const) : (['__all__'] as const)).map((grp) => {
+        const arr = grp === '__all__' ? visibles : visiblesParCategorie(grp);
+        if (grp !== '__all__' && arr.length === 0) return null;
+        const tableau = (
       <TableDemandes
         /* FUS / lot 4 — En cours : greffe la date d'envoi ET le statut de cascade (libellé + prochaine étape) sur la ligne pour la colonne Statut. Aucun WHERE ajouté, aucune source modifiée. */
-        visibles={enCours && suivi ? visibles.map((d) => ({ ...d, envoyeLe: suivi.parId.get(d.id)?.envoyeLe ?? null, cascade: cascadeParId.get(d.id) ?? null })) : visibles}
+        visibles={arr.map(enrichirLigne)}
+        marqueurParId={marqueurLigne}
         categories={categories} tri={tri} sel={sel} avecSelection={avecActionsGroupees}
-        toutCoche={visibles.length > 0 && visibles.every((d) => sel.has(d.id))}
-        messageVide={!liste ? 'Chargement…' : (fReference.trim() !== ''
-          ? `Aucune demande ne correspond à « ${fReference.trim()} » (mairie, SVAV ou n° de permis ; casse, espaces et tirets ignorés).`
-          : TEXTES[perimetre].vide)}
+        toutCoche={arr.length > 0 && arr.every((d) => sel.has(d.id))}
+        messageVide={messageVideTexte}
         // U7 — accordéon À UN SEUL VOLET : `detail` est UN objet (jamais un Set) → au plus une ligne dépliée ; le panneau se rend SOUS sa ligne.
         demandeOuverte={detail?.id ?? null}
         // LOT-8 — colonnes Délai + Réf. mairie (En cours seulement ; undefined → « À demander » inchangé).
@@ -807,7 +847,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                 { cle: 'completude',
                   // LOT 13-A — le compteur ROUGE de familles manquantes est posé DANS le titre de famille (visible replié : c'est tout
                   //   l'intérêt). Rien si 0 (point 4). MÊME formulation que le bilan de « Analyse et projection » (source unique).
-                  titre: <>{LIBELLE_FAMILLE.completude}<MentionFamillesManquantes manquantes={richDetail.completudeManquantes} /></>,
+                  titre: <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}><PastilleActions n={richDetail.completudeManquantes} ariaLabel={`${richDetail.completudeManquantes} famille(s) de pièces manquante(s)`} />{LIBELLE_FAMILLE.completude}<MentionFamillesManquantes manquantes={richDetail.completudeManquantes} /></span>,
                   nonVide: richDetail.completudeNonVide,
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} sansPli />} /> },
                 { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: richDetail.caracteristiquesNonVide,
@@ -831,6 +871,11 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
         // U7 — le bouton de ligne BASCULE : rouvrir la ligne ouverte la referme ; ouvrir une AUTRE remplace le détail (un seul volet).
         onOuvrir={(id) => { if (detail?.id === id) setDetail(null); else void ouvrir(id); }}
       />
+        );
+        return grp === '__all__'
+          ? <Fragment key="all">{tableau}</Fragment>
+          : <BlocRepliable key={grp} defautOuvert titre={titreGroupeEnCours(grp, arr.length)}>{() => tableau}</BlocRepliable>;
+      })}
 
       {nbPages > 1 && (
         <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>

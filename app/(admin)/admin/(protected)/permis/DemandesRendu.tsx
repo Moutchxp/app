@@ -818,7 +818,7 @@ export function DecompteDelai({ d, id }: { d: Decompte; id: number }) {
 }
 
 export function TableDemandes({
-  visibles, categories, tri, sel, toutCoche, messageVide, avecSelection = true, demandeOuverte = null, panneau, colonnesSuivi, masquerOrigineDest = false, onTrier, onToutSelectionner, onBasculer, onOuvrir,
+  visibles, categories, tri, sel, toutCoche, messageVide, avecSelection = true, demandeOuverte = null, panneau, colonnesSuivi, masquerOrigineDest = false, marqueurParId, onTrier, onToutSelectionner, onBasculer, onOuvrir,
 }: {
   visibles: DemandeAffichee[]; categories: { libelle: string; rang: number }[];
   tri: Tri; sel: ReadonlySet<number>; toutCoche: boolean; messageVide: string; avecSelection?: boolean;
@@ -831,15 +831,19 @@ export function TableDemandes({
   // LOT-8 (A) — en « En cours », Origine (constante = le rail sélectionné) et Destinataire (repris dans l'en-tête du détail) sont
   //   MASQUÉES pour gagner de la place. Ailleurs (« À demander »), elles restent (aucun rail sélectionné en tête, avant envoi).
   masquerOrigineDest?: boolean;
+  // LOT 46 — marqueur de LIGNE optionnel (colonne de TÊTE), utilisé par « En cours » pour la pastille « dossier incomplet à relancer ».
+  //   ABSENT ailleurs (À demander / Réponses) → aucune colonne ajoutée, table rigoureusement inchangée.
+  marqueurParId?: (d: { id: number }) => ReactNode;
   onTrier?: (c: TriColonne) => void; onToutSelectionner?: () => void; onBasculer?: (id: number) => void; onOuvrir?: (id: number) => void;
 }) {
   const nowrap: CSSProperties = { ...styleTdD, whiteSpace: 'nowrap' };
-  const nCols = (avecSelection ? 11 : 10) - (masquerOrigineDest ? 2 : 0) + (colonnesSuivi?.largeur ?? 0); // T6-B : +1 pour « N° permis ». colSpan du panneau et de la ligne « vide »
+  const nCols = (avecSelection ? 11 : 10) - (masquerOrigineDest ? 2 : 0) + (colonnesSuivi?.largeur ?? 0) + (marqueurParId ? 1 : 0); // T6-B : +1 « N° permis » ; LOT 46 : +1 colonne marqueur. colSpan du panneau et de la ligne « vide »
   return (
     <ConteneurTableDefilant ariaLabel="Tableau des demandes, défilement horizontal">
       <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
         <thead>
           <tr style={{ textAlign: 'center', color: 'var(--color-svv-muted)', borderBottom: '1px solid var(--color-svv-line)' }}>
+            {marqueurParId && <th style={styleTdD} aria-label="État" />}
             {avecSelection && <th style={styleTdD}><input type="checkbox" aria-label="Tout sélectionner" checked={toutCoche} onChange={() => onToutSelectionner?.()} /></th>}
             <th style={{ ...nowrap, minWidth: 130 }}>N° permis</th>
             <th style={nowrap}>Référence</th>
@@ -867,6 +871,7 @@ export function TableDemandes({
                   onKeyDown={onOuvrir ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOuvrir(d.id); } } : undefined}
                   style={{ borderBottom: ouvert ? 'none' : '1px solid var(--color-svv-line)', cursor: onOuvrir ? 'pointer' : undefined }}
                 >
+                  {marqueurParId && <td style={{ ...styleTdD, textAlign: 'left' }}>{marqueurParId(d)}</td>}
                   {avecSelection && <td style={styleTdD} onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel.has(d.id)} onChange={() => onBasculer?.(d.id)} aria-label={`Sélectionner ${d.reference}`} /></td>}
                   <CellulePermis numeros={d.numeros} demandeId={d.id} />
                   <CelluleReference reference={d.reference} />

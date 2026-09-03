@@ -9,6 +9,7 @@
  * - Rattachement  : permis en « arbitrage demandé » (valider / refuser / retour LiDAR).
  */
 import { demandeADuRetour } from './ReponsesRendu';
+import { demandeEnCoursIncomplete } from '../../../../lib/sitadel/demandesListe'; // LOT 46 — prédicat PARTAGÉ ligne « En cours » à relancer (compteur d'onglet = nb de lignes allumées)
 import { ETATS_A_FAIRE } from '../../../../lib/permis/rattachementGroupes'; // SOURCE UNIQUE des états « à faire » comptés par la pastille Rattachement
 
 /** Un dossier DÛ non encore tranché = en attente de la décision d'Arno (marquer reçu / non fourni / refus). PUR. */
@@ -39,6 +40,12 @@ export function compterReponses(data: { demandes: DemandeComptable[]; aRattacher
 /** Compteur « Saisines CADA » : saisissables non lancées + file d'envois à finaliser. */
 export function compterSaisines(data: { saisissables: unknown[]; fileADeposer: unknown[] }): number {
   return data.saisissables.length + data.fileADeposer.length;
+}
+
+/** LOT 46 — compteur « En cours » : nombre de demandes affichées en « En cours » à dossier INCOMPLET à relancer (prédicat partagé
+ *  `demandeEnCoursIncomplete`). PAR CONSTRUCTION égal à la somme des pastilles de ligne (même prédicat, même donnée). PUR. */
+export function compterEnCoursIncomplet(demandes: Parameters<typeof demandeEnCoursIncomplete>[0][]): number {
+  return demandes.filter(demandeEnCoursIncomplete).length;
 }
 
 /** Compteur « Rattachement » : permis dans un état « à faire » (décision attendue d'Arno) — SOURCE UNIQUE `ETATS_A_FAIRE`

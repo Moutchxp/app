@@ -33,7 +33,7 @@ function styleOnglet(actif: boolean): CSSProperties {
 /**
  * Deux blocs nommés qui s'empilent sur écran étroit (flex-wrap), chacun gardant son intitulé au-dessus de ses onglets.
  * `compteurs` (optionnel) porte le nombre d'actions en attente par onglet → une PastilleActions rouge s'affiche À GAUCHE du titre
- * quand le compteur est > 0 (zéro → rien). Seuls les onglets concernés (Réponses / Saisines CADA / Rattachement) reçoivent un compteur.
+ * quand le compteur est > 0 (zéro → rien). Seuls les onglets concernés (En cours / Réponses / Saisines CADA / Rattachement) reçoivent un compteur.
  */
 export function OngletsPermis({ actif, onChoisir, compteurs }: {
   actif: CleOnglet; onChoisir: (cle: CleOnglet) => void; compteurs?: Partial<Record<CleOnglet, number>>;

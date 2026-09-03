@@ -7,7 +7,8 @@ import { compterFileProjection } from '../../../../../lib/permis/projectionFileR
 import { compterRelancesReponseDue } from '../../../../../lib/veille/relanceReponsePartielleAuto';
 import { compterSurveillanceDossiers } from '../../../../../lib/veille/surveillancePolygonesAuto';
 import { chargerConfigVeille } from '../../../../../lib/sitadel/veilleConfig';
-import { compterReponses, compterSaisines, compterRattachement, assemblerComptes, type DemandeComptable } from '../../../../admin/(protected)/permis/comptesActions';
+import { compterReponses, compterSaisines, compterRattachement, compterEnCoursIncomplet, assemblerComptes, type DemandeComptable } from '../../../../admin/(protected)/permis/comptesActions';
+import { demandeEnCoursIncomplete } from '../../../../../lib/sitadel/demandesListe';
 
 /**
  * /api/admin/permis/actions (PASTILLES) — UNE seule route, TROIS compteurs + le cumul, en une requête. Chaque compteur réutilise
@@ -36,7 +37,10 @@ export async function GET(request: Request): Promise<Response> {
     });
     const saisines = compterSaisines({ saisissables: saisinesData.saisissables, fileADeposer: saisinesData.fileADeposer });
     const rattachement = compterRattachement(suivi.compteurs);
-    return Response.json({ ...assemblerComptes(reponses, saisines, rattachement, projection, surveillance), recomptageHeure: config.recomptageHeureLocale });
+    // LOT 46 — pastille de l'onglet « En cours » : dossiers incomplets à relancer. Agrégat DISTINCT (jamais dans `total` tant que la
+    //   tuile home n'est pas câblée, LOT 48) → aucun changement de la tuile ni des compteurs existants. MÊME prédicat que la ligne.
+    const enCours = compterEnCoursIncomplet(reponsesData.demandes as unknown as Parameters<typeof demandeEnCoursIncomplete>[0][]);
+    return Response.json({ ...assemblerComptes(reponses, saisines, rattachement, projection, surveillance), enCours, recomptageHeure: config.recomptageHeureLocale });
   } catch (e) {
     console.error('[permis/actions] GET impossible (503)', { message: (e as Error)?.message });
     return Response.json({ erreur: 'comptage indisponible' }, { status: 503 });
