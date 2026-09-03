@@ -7,7 +7,7 @@ import { lireCompletude, recalculerCompletude } from '../../../../../lib/permis/
  *  - GET : LECTURE SEULE du diagnostic mémorisé, recomposé selon les familles attendues VIVES, SANS relire les PDF. `null` = jamais
  *    analysé (ou 174 absente). LÉGER : c'est la seule requête tirée à l'ouverture d'une fiche (PERF-1).
  *  - POST : RECALCUL de la SEULE complétude (relit les PDF PAR CONTENU, parse LOCAL — AUCUNE vision/IA payante), pour l'actualisation
- *    AUTOMATIQUE NON BLOQUANTE quand la GED a changé (PERF-2). Renvoie le diagnostic à jour. « Relancer l'analyse » (POST /extraire,
+ *    AUTOMATIQUE NON BLOQUANTE quand la GED a changé (PERF-2). Renvoie le diagnostic à jour. « Diagnostic complet des documents » (POST /extraire,
  *    vision incluse) reste le geste délibéré distinct.
  * RÉSERVÉ ADMINISTRATEUR. Node.
  */
@@ -36,6 +36,6 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({ completude });
   } catch (e) {
     console.error('[permis/completude] POST recalcul impossible', e);
-    return Response.json({ erreur: 'recalcul impossible' }, { status: 503 }); // le client dira l'échec et laissera « Relancer l'analyse »
+    return Response.json({ erreur: 'recalcul impossible' }, { status: 503 }); // le client dira l'échec et laissera « Diagnostic complet des documents »
   }
 }

@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
- * EXT-1 (étape 2) — POST /permis/extraire (« Relancer l'analyse »). On MOCKE la garde + `executerExtractionPermis` : ce fichier
+ * EXT-1 (étape 2) — POST /permis/extraire (bouton « Diagnostic complet des documents », LOT 56-B). On MOCKE la garde + `executerExtractionPermis` : ce fichier
  * teste le COMPORTEMENT de la route (garde admin, validation dossierId, vision TOUJOURS incluse à la relève, compte rendu relayé,
  * 404/503). L'orchestration elle-même est un module serveur à part.
  */

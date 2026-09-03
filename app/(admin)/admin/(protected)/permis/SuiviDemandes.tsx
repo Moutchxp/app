@@ -90,6 +90,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   const [corps, setCorps] = useState('');
   const [retour, setRetour] = useState<RetourAction>(null);
   const [version, setVersion] = useState(0);
+  const [vApresAnalyse, setVApresAnalyse] = useState(0); // LOT 56-B — bump après « Diagnostic complet des documents » (encart) → remonte caractéristiques + best-of de l'encart
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [choixStatut, setChoixStatut] = useState<string>(CHOIX_STATUT_DEFAUT); // Q6b : défaut = statuts VIVANTS, pas « Tous »
   const [fCommune, setFCommune] = useState('');
@@ -904,7 +905,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   nonVide: richDetail.completudeNonVide,
                   contenu: () => (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
-                      <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} sansPli />} />
+                      <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} sansPli avecDiagnostic onAnalyseFinie={() => setVApresAnalyse((v) => v + 1)} />} />
                       {/* LOT 51 — sur un dossier INCOMPLET, ouvrir la porte de « Analyse et projection » pour l'examiner tout de suite, SANS
                           interrompre les relances (aller-retour réversible ; aucun changement de statut). Absent si rien ne manque. */}
                       {richDetail.completudeManquantes > 0 && (
@@ -917,7 +918,8 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                     </div>
                   ) },
                 { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: richDetail.caracteristiquesNonVide,
-                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={id} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+                  // LOT 56-B — clé versionnée : après « Diagnostic complet des documents » (bloc Complétude ci-dessus), les caractéristiques extraites sont fraîches → remontage.
+                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={`carac-enc-${id}-${vApresAnalyse}`} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
                 { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: richDetail.batimentsNonVide,
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} />} /> },
                 { cle: 'pieces', titre: LIBELLE_FAMILLE.pieces, nonVide: richDetail.piecesNonVide,
@@ -925,7 +927,10 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   //   (précédent 18/08). Un seul dépli (celui de la famille) : la liseuse ne s'enveloppe d'aucun BlocRepliable. Montée paresseuse (thunk `contenu`).
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => (
                     <div key={id} style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
-                      <LiseusePieces dossierId={id} />
+                      {/* LOT 56-B — clé versionnée : le best-of est recalculé à la volée depuis la GED ; on force son remontage après une passe.
+                          (Aujourd'hui « Diagnostic complet des documents » n'AJOUTE aucune pièce en GED → le best-of ne change pas en pratique ;
+                          le remontage est une garantie de cohérence, sans effet visible tant qu'aucun document n'est versé.) */}
+                      <LiseusePieces key={`liseuse-enc-${id}-${vApresAnalyse}`} dossierId={id} />
                       <BlocPiecesPermis dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />
                     </div>
                   )} /> },
