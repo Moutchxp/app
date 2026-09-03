@@ -256,8 +256,12 @@ export function demandeADeNouvellesPieces(
  * (une ligne = 1, jamais 2, même si elle porte les deux badges) → invariant « compteur == somme des lignes allumées ». PUR/PARTAGÉ.
  */
 export function ligneEnCoursASignaler(
-  d: Parameters<typeof demandeEnCoursIncomplete>[0] & { nouvellesPiecesNonVues?: boolean },
+  d: Parameters<typeof demandeEnCoursIncomplete>[0] & { nouvellesPiecesNonVues?: boolean; testeEnAnalyse?: boolean },
 ): boolean {
+  // LOT 51 — un dossier « testé en analyse » a QUITTÉ « En cours » (foyer Analyse, exclusivité option B) : il n'allume aucune pastille
+  //   d'onglet « En cours ». MÊME exclusion que l'affichage de la liste (SuiviDemandes) et que le compteur du commutateur
+  //   (estEnCoursAffichee) → l'invariant « compteur == somme des lignes allumées » reste tenu (les deux côtés écartent le même ensemble).
+  if (d.testeEnAnalyse === true) return false;
   return demandeEnCoursIncomplete(d) || demandeADeNouvellesPieces(d);
 }
 
@@ -292,6 +296,7 @@ export interface DemandeEnCoursAffichable {
   suspension?: unknown; // PART-A : marqueur « dossier partiel » actif (non nul) → foyer En cours même avec retour (lu par demandeADuRetour)
   lienEnAttente?: boolean; // PART-D : dossier partiel AVEC lien fort en attente (GED vide) → bascule vers Réponses (lu par demandeADuRetour)
   saisissable?: boolean; // LOT-10 : saisine CADA possible (foyer lireSaisinesEligibles, porté par chargerDemandesSuivi) → quitte En cours pour Saisines CADA
+  testeEnAnalyse?: boolean; // LOT 51 : ≥ 1 dossier « testé en analyse » → foyer Analyse (exclusivité option B), retiré de « En cours »
 }
 
 /**
@@ -305,7 +310,11 @@ export function estEnCoursAffichee(d: DemandeEnCoursAffichable): boolean {
   //   satisfait mais incomplet (dus=0) reste dans « En cours » au lieu de tomber en soldée. MÊME définition que la liste (pas de décompte qui ment).
   // LOT-10 — une demande SAISISSABLE (saisine CADA possible) quitte « En cours » pour « Saisines CADA » (invariant « jamais dans deux
   //   onglets »). Dérivé au runtime (jamais écrit) → dès que l'éligibilité retombe, `saisissable` redevient false et la demande revient.
+  // LOT 51 — un dossier « testé en analyse » quitte « En cours » pour « Analyse et projection » (exclusivité option B, invariant « jamais
+  //   dans deux onglets »). Dérivé au runtime (marqueur dossier_test_analyse, jamais un statut) → dès le retrait du marqueur, la demande
+  //   RÉAPPARAÎT ici, échéances intactes. MÊME exclusion que l'affichage (SuiviDemandes) et que la pastille (ligneEnCoursASignaler).
   return d.statut === 'envoyee'
+    && d.testeEnAnalyse !== true
     && estVivanteEnCours({ nbDossiers: d.dossiersActifs, dossiersDus: d.dossiersActifs - d.dossiersSatisfaits, suspension: d.suspension })
     && !demandeADuRetour(d)
     && d.saisissable !== true;

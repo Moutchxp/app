@@ -56,6 +56,18 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     } catch { setMessage('validation impossible'); } finally { setEnCours(false); }
   }, [onRecompter]);
 
+  // LOT 51-B — RETOUR EN COURS (sans envoi) : lève le marqueur « testé en analyse ». Aucun e-mail, aucune trace de relance, aucun statut
+  //   modifié → le permis revient dans « En cours » avec TOUTE sa planification de rappels intacte, comme s'il n'était jamais venu ici.
+  const retourEnCours = useCallback(async (dossierId: number) => {
+    setEnCours(true); setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/projection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'retour_en_cours', dossierId }) });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; file?: LigneProjectionAffichee[] };
+      if (res.ok && d.ok) { setFile(d.file ?? []); setOuvert(null); setVerdict(null); recompterSiSucces(true, onRecompter); }
+      else setMessage(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'retour impossible'));
+    } catch { setMessage('retour impossible'); } finally { setEnCours(false); }
+  }, [onRecompter]);
+
   // Ouverture d'une pièce GED à la page (visionneur) — MÊME signeur unique qu'Archives (action url_piece de /reponses ; la clé ne transite jamais).
   const ouvrirPiece = useCallback(async (pieceId: number, source: 'reponse' | 'dossier', page?: number): Promise<void> => {
     try {
@@ -83,6 +95,14 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
       <div className="flex flex-col gap-2">
         {/* EXT-1 (étape 2) — RELANCER L'ANALYSE : SEUL moyen de forcer un recalcul (inchangé). Toujours visible, en tête du détail. */}
         <BoutonRelancerAnalyse dossierId={ouvert} onFini={() => { setVAnalyse((v) => v + 1); setVInstruction((v) => v + 1); }} />
+        {/* LOT 51-B — ce permis est ici en TEST (dossier incomplet ouvert depuis « En cours »). S'il n'a pas permis de tout renseigner et
+            qu'on ne veut PAS relancer la mairie maintenant, « Remettre dans En cours » lève le marqueur : aucun e-mail, échéances intactes. */}
+        {row?.testeEnAnalyse && (
+          <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.6rem', fontSize: 13 }}>
+            <span style={{ flex: '1 1 16rem', minWidth: 0 }}>Dossier <strong>en test</strong> (ouvert depuis « En cours »). Les relances continuent en fond. Si l’examen n’a rien permis de conclure et que vous ne voulez pas relancer la mairie maintenant, remettez-le dans « En cours ».</span>
+            <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem', whiteSpace: 'nowrap' }} disabled={enCours} onClick={() => { void retourEnCours(ouvert); }}>Remettre dans En cours</button>
+          </div>
+        )}
         {/* PART-2 / PERF-1 — COMPLÉTUDE + relances : bilan (lecture mémoire) dans la ligne de titre ; détail au dépliage. Se remonte
             après « Relancer l'analyse » (key liée à vAnalyse) pour relire le diagnostic fraîchement recalculé. */}
         <BlocCompletude key={`completude-${ouvert}-${vAnalyse}`} dossierId={ouvert} />

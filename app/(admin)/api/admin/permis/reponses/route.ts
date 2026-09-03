@@ -9,6 +9,7 @@ import { confirmerDepot } from '../../../../../lib/veille/confirmerDepot'; // LO
 import { lireReferenceMairieDeReponse } from '../../../../../lib/veille/releveReponses'; // LOT 35 : référence (SLC…) portée par l'accusé déclencheur
 import { majRelance, abandonnerRelance, regenererRelance, RelanceActionError } from '../../../../../lib/veille/demandeRelanceRepo';
 import { acquitterNouvellesPieces } from '../../../../../lib/permis/piecesAcquittementRepo'; // LOT 47 : bouton « vu » (acquittement des nouvelles pièces au niveau permis)
+import { marquerTestAnalyseDemande } from '../../../../../lib/permis/testAnalyseRepo'; // LOT 51 : « Tester le dossier en analyse » (marqueur réversible, ne touche NI statut NI relance)
 
 /**
  * /api/admin/permis/reponses — GET agrégé LECTURE SEULE (R5a) + POST ACTIONS (R5b/R5c). R5b : rattacher une réponse à une
@@ -62,6 +63,15 @@ export async function POST(request: Request): Promise<Response> {
       if (!estEntier(corps.demandeId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
       const ok = await acquitterNouvellesPieces(corps.demandeId, auteur);
       return Response.json({ ok, traite: ok });
+    }
+
+    // LOT 51 — « Tester le dossier en analyse » : POSE le marqueur RÉVERSIBLE sur tous les dossiers ACTIFS de la demande → ils deviennent
+    //   visibles dans « Analyse et projection », la demande quitte « En cours ». N'écrit NI demande.statut NI partiel_leve_le : les relances
+    //   (ordinaire, partielle, sur réponse partielle) CONTINUENT. Retour = /projection { action:'retour_en_cours' } ou une relance envoyée.
+    if (corps.action === 'tester_en_analyse') {
+      if (!estEntier(corps.demandeId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      const n = await marquerTestAnalyseDemande(corps.demandeId, auteur);
+      return Response.json({ ok: true, dossiers: n });
     }
 
     // Rattacher une réponse (file « à rattacher ») à une demande choisie → méthode 'manuel', rattache_le posé.

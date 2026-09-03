@@ -5,7 +5,7 @@ import { TableProjection, BoutonValiderProjection, TitreFamilleEtat, type LigneP
 import { etatProjectionTitre, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection';
 
 const ligne = (over: Partial<LigneProjectionAffichee> = {}): LigneProjectionAffichee => ({
-  dossierId: 11434, numDau: 'PC07512025V0035', communeNom: 'Paris 15e', natureLibelle: 'Construction neuve', nbBatiments: 2, satisfaitLe: '2026-07-01', nbCorpsSansAltitude: 0, projectionValidee: false, ...over,
+  dossierId: 11434, numDau: 'PC07512025V0035', communeNom: 'Paris 15e', natureLibelle: 'Construction neuve', nbBatiments: 2, satisfaitLe: '2026-07-01', nbCorpsSansAltitude: 0, projectionValidee: false, testeEnAnalyse: false, ...over,
 });
 
 describe('PROJ-2c — rendu de la file Projection', () => {

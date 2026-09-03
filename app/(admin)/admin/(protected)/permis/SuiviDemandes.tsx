@@ -228,7 +228,17 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
     if (perimetre !== 'en_cours' || !suivi) return new Set<number>();
     return new Set(dansVue.filter((d) => { const rich = suivi.parId.get(d.id); return rich !== undefined && rich.saisissable && !aRetourIds.has(d.id); }).map((d) => d.id));
   }, [perimetre, suivi, dansVue, aRetourIds]);
-  const dansVueAffiche = (aRetourIds.size > 0 || saisissablesIds.size > 0) ? dansVue.filter((d) => !aRetourIds.has(d.id) && !saisissablesIds.has(d.id)) : dansVue;
+  // LOT 51 — TESTÉ EN ANALYSE : la demande a ≥ 1 dossier « testé en analyse » (rich.testeEnAnalyse) → foyer « Analyse et projection »
+  //   (exclusivité option B, invariant « jamais dans deux onglets »). MÊME filtre d'affichage SEUL que les soldées/à-retour/saisissables ;
+  //   ne touche NI la source (chargerDemandesSuivi) NI les relances (qui tournent en fond). Le compteur d'onglet écarte le MÊME ensemble
+  //   (ligneEnCoursASignaler/estEnCoursAffichee via rich.testeEnAnalyse) → l'invariant « compteur == somme des lignes allumées » tient.
+  const testesIds = useMemo(() => {
+    if (perimetre !== 'en_cours' || !suivi) return new Set<number>();
+    return new Set(dansVue.filter((d) => suivi.parId.get(d.id)?.testeEnAnalyse === true).map((d) => d.id));
+  }, [perimetre, suivi, dansVue]);
+  const dansVueAffiche = (aRetourIds.size > 0 || saisissablesIds.size > 0 || testesIds.size > 0)
+    ? dansVue.filter((d) => !aRetourIds.has(d.id) && !saisissablesIds.has(d.id) && !testesIds.has(d.id))
+    : dansVue;
   const filtrees = useMemo(
     () => trierDemandes(filtrerDemandes(dansVueAffiche, { statut: '', profil: fProfil, commune: fCommune, types: [...fTypes], reference: fReference }), tri),
     [dansVueAffiche, fCommune, fProfil, fTypes, fReference, tri],
@@ -255,7 +265,9 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   const exclusReponses = perimetre === 'en_cours' && aRetourIds.size > 0 ? { n: aRetourIds.size, libelle: 'suivie(s) dans l’onglet Réponses' } : undefined;
   // LOT-10 — mention NON RÉVÉLABLE : les saisissables sont désormais dans « Saisines CADA » (invariant « jamais dans deux onglets »).
   const exclusSaisines = perimetre === 'en_cours' && saisissablesIds.size > 0 ? { n: saisissablesIds.size, libelle: 'à saisir devant la CADA — voir l’onglet Saisines CADA' } : undefined;
-  const exclus = [exclusSoldees, exclusReponses, exclusSaisines].filter((x): x is { n: number; libelle: string } => x !== undefined);
+  // LOT 51 — mention NON RÉVÉLABLE : les dossiers « testés en analyse » sont montrés dans « Analyse et projection » (les relances continuent en fond).
+  const exclusTest = perimetre === 'en_cours' && testesIds.size > 0 ? { n: testesIds.size, libelle: 'en test dans l’onglet Analyse et projection (les relances continuent)' } : undefined;
+  const exclus = [exclusSoldees, exclusReponses, exclusSaisines, exclusTest].filter((x): x is { n: number; libelle: string } => x !== undefined);
   // PART-B — décompte par CATÉGORIE de CE QUI EST AFFICHÉ (En cours seulement). Exhaustif ET exclusif (categorieEnCours) → la somme
   //   vaut TOUJOURS dansVueAffiche.length : compteur exact, chaque permis dans une seule catégorie (précédent 18/08). La catégorie
   //   vient de la donnée riche (suspension) ; défaut 'premiere' si la riche manque (chargement). Hors En cours → aucun décompte.
@@ -525,6 +537,15 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   const acquitterPieces = async (demandeId: number): Promise<void> => {
     const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'acquitter_pieces', demandeId }) });
     if (res.ok) { rafraichirSuivi(); rafraichir(); onRecompter?.(); await ouvrir(demandeId, true); }
+  };
+
+  // LOT 51 — « Tester le dossier en analyse » : rend le(s) dossier(s) de la demande disponible(s) dans « Analyse et projection » SANS lever
+  //   le marqueur partiel (les relances continuent). La demande QUITTE alors « En cours » (exclusivité) → on ferme le détail et on rafraîchit
+  //   liste + suivi + pastilles d'onglet. AUCUN changement de statut, AUCUN envoi. Réversible depuis Analyse (« Remettre dans En cours ») ou par une relance.
+  const testerEnAnalyse = async (demandeId: number): Promise<void> => {
+    const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'tester_en_analyse', demandeId }) });
+    if (res.ok) { setDetail(null); rafraichirSuivi(); rafraichir(); onRecompter?.(); annoncer('Dossier envoyé en test dans « Analyse et projection » — les relances continuent. Vous pourrez le remettre dans « En cours » depuis Analyse.', true); }
+    else annoncer(await erreurServeur(res, 'Action impossible.'), false);
   };
 
   return (
@@ -881,7 +902,19 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   //   l'intérêt). Rien si 0 (point 4). MÊME formulation que le bilan de « Analyse et projection » (source unique).
                   titre: <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}><PastilleActions n={richDetail.completudeManquantes} ariaLabel={`${richDetail.completudeManquantes} famille(s) de pièces manquante(s)`} />{LIBELLE_FAMILLE.completude}<MentionFamillesManquantes manquantes={richDetail.completudeManquantes} /></span>,
                   nonVide: richDetail.completudeNonVide,
-                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} sansPli />} /> },
+                  contenu: () => (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+                      <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} sansPli />} />
+                      {/* LOT 51 — sur un dossier INCOMPLET, ouvrir la porte de « Analyse et projection » pour l'examiner tout de suite, SANS
+                          interrompre les relances (aller-retour réversible ; aucun changement de statut). Absent si rien ne manque. */}
+                      {richDetail.completudeManquantes > 0 && (
+                        <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.6rem', fontSize: 13 }}>
+                          <span style={{ flex: '1 1 16rem', minWidth: 0 }}>Dossier incomplet. Vous pouvez l’examiner dès maintenant dans « Analyse et projection » <strong>sans interrompre les relances</strong> — il quitte « En cours » et pourra y revenir.</span>
+                          <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.3rem .7rem', whiteSpace: 'nowrap' }} onClick={() => void testerEnAnalyse(detail.id)}>Tester le dossier en analyse</button>
+                        </div>
+                      )}
+                    </div>
+                  ) },
                 { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: richDetail.caracteristiquesNonVide,
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={id} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
                 { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: richDetail.batimentsNonVide,

@@ -17,6 +17,7 @@ import { classer, type DossierClassable } from '../sitadel/priorite';
 import type { ConfigVeille } from '../sitadel/veilleConfig';
 import { listerEmprises, listerIgnorees } from './empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from './projectionBatiments';
+import { lireDossiersEnTest } from './testAnalyseRepo'; // LOT 51 — porte FIX-2 ouverte pour un dossier « testé en analyse » (sans lever le partiel)
 
 export interface LigneProjection {
   dossierId: number;
@@ -27,6 +28,7 @@ export interface LigneProjection {
   satisfaitLe: string | null;
   nbCorpsSansAltitude: number;  // RATT-1 — bâtiments déclarés sans altitude de sommet (permis_corps_batiment.altitude_sommet_ngf NULL) → titre « Caractéristiques »
   projectionValidee: boolean;   // RATT-1 — la file EXCLUT par construction les projections validées (jalon NOT EXISTS permis_projection) → TOUJOURS false ici ; champ exposé pour un titre de famille générique et honnête
+  testeEnAnalyse: boolean;      // LOT 51 — le dossier est présent en Analyse via le marqueur « testé » (partiel actif tenu ouvert) → l'UI propose « Remettre dans En cours » ; false pour un dossier arrivé normalement
 }
 
 // Prédicat SQL de nature CONCERNÉE (miroir EXACT de concerneProjectionEmprise : immeuble neuf/construction neuve = nature '1',
@@ -43,15 +45,18 @@ function estColonneAbsente(e: unknown): boolean {
   return typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703';
 }
 
-async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: boolean): Promise<LigneProjection[]> {
+async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: boolean, testIds: number[]): Promise<LigneProjection[]> {
   const jalon = avecJalon ? `AND NOT EXISTS (SELECT 1 FROM permis_projection pp WHERE pp.dossier_id = s.id)` : '';
   // FIX-2 — EXCLUSIVITÉ des univers d'onglets : un dossier dont la demande porte un marqueur « dossier partiel » ACTIF (réclamation
   //   de pièces EN COURS) N'EST PAS prêt à être analysé/projeté → il QUITTE « Analyse » et vit dans « En cours » (symétrique de
   //   estVivanteEnCours, MÊME signal `partiel_le actif`). Il y revient TOUT SEUL à la levée auto du marqueur (evaluerLeveeAutoPartiel,
   //   dossier redevenu complet) : la règle « pièces jointes reçues → GED → Analyse » reste vraie tant qu'aucun partiel n'est actif.
+  // LOT 51 — PORTE : un dossier « testé en analyse » (marqueur `dossier_test_analyse`, s.id ∈ $1) OUVRE la porte MALGRÉ un partiel actif,
+  //   SANS lever le partiel (les relances continuent). `testIds` vide → `= ANY('{}')` faux → FIX-2 strictement inchangé (comportement d'avant).
   const partiel = avecPartiel
-    ? `AND NOT EXISTS (SELECT 1 FROM demande_dossier ddp JOIN demande dmp ON dmp.id = ddp.demande_id
-                        WHERE ddp.dossier_id = s.id AND ddp.actif AND dmp.partiel_le IS NOT NULL AND dmp.partiel_leve_le IS NULL)`
+    ? `AND (NOT EXISTS (SELECT 1 FROM demande_dossier ddp JOIN demande dmp ON dmp.id = ddp.demande_id
+                        WHERE ddp.dossier_id = s.id AND ddp.actif AND dmp.partiel_le IS NOT NULL AND dmp.partiel_leve_le IS NULL)
+           OR s.id = ANY($1))`
     : '';
   const { rows } = await query<{
     dossier_id: number; num_dau: string; commune_nom: string | null; type: 'PC' | 'PD';
@@ -70,11 +75,14 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: b
       WHERE EXISTS (SELECT 1 FROM dossier_document doc WHERE doc.dossier_id = s.id) AND ${CONCERNE_SQL} ${jalon} ${partiel}
       GROUP BY s.id, s.num_dau, c.nom, s.type, s.nature_projet_completee, s.i_extension, s.i_surelevation, s.nb_lgt_tot_crees, s.surf_creee
       ORDER BY max(dd.satisfait_le) DESC, s.num_dau`,
+    avecPartiel ? [testIds] : [], // $1 = marqueurs « testé » ; référencé UNIQUEMENT dans la clause partiel (sinon aucun paramètre lié)
   );
+  const testSet = new Set(testIds);
   return rows.map((r) => {
     const d: DossierClassable = { type: r.type, natureProjetCompletee: r.nature_projet_completee, iExtension: r.i_extension, iSurelevation: r.i_surelevation, nbLgtTotCrees: r.nb_lgt_tot_crees, surfCreee: r.surf_creee === null ? null : Number(r.surf_creee) };
     return { dossierId: r.dossier_id, numDau: r.num_dau, communeNom: r.commune_nom, natureLibelle: classer(d, cfg).libelle, nbBatiments: r.nb_batiments, satisfaitLe: r.satisfait_le,
-      nbCorpsSansAltitude: Number(r.nb_corps_sans_altitude ?? 0), projectionValidee: false }; // RATT-1 — false par construction (jalon d'exclusion des validées)
+      nbCorpsSansAltitude: Number(r.nb_corps_sans_altitude ?? 0), projectionValidee: false, // RATT-1 — false par construction (jalon d'exclusion des validées)
+      testeEnAnalyse: testSet.has(r.dossier_id) }; // LOT 51 — présent via le marqueur « testé » ⇒ l'UI propose le retour
   });
 }
 
@@ -82,15 +90,17 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: b
  *  jalon d'exclusion des validées) et partiel_* (177 → exclusion FIX-2 des dossiers en réclamation). Table absente (42P01) → sans
  *  jalon ; colonne absente (42703) → sans l'exclusion partiel ; comportement historique préservé si l'une manque, les deux présentes en prod. */
 export async function listerFileProjection(cfg: ConfigVeille): Promise<LigneProjection[]> {
-  try { return await requeteFile(cfg, true, true); }
+  // LOT 51 — marqueurs « testé en analyse » lus À PART et RÉSILIENTS (189 absente → ∅ → porte FIX-2 jamais ouverte, comportement d'avant).
+  const testIds = await lireDossiersEnTest();
+  try { return await requeteFile(cfg, true, true, testIds); }
   catch (e) {
     if (estColonneAbsente(e)) { // 177 absente → sans l'exclusion partiel (en re-gérant l'absence éventuelle de 151)
-      try { return await requeteFile(cfg, true, false); }
-      catch (e2) { if (estTableAbsente(e2)) return requeteFile(cfg, false, false); throw e2; }
+      try { return await requeteFile(cfg, true, false, testIds); }
+      catch (e2) { if (estTableAbsente(e2)) return requeteFile(cfg, false, false, testIds); throw e2; }
     }
     if (estTableAbsente(e)) { // 151 absente → sans jalon (en re-gérant l'absence éventuelle de 177)
-      try { return await requeteFile(cfg, false, true); }
-      catch (e2) { if (estColonneAbsente(e2)) return requeteFile(cfg, false, false); throw e2; }
+      try { return await requeteFile(cfg, false, true, testIds); }
+      catch (e2) { if (estColonneAbsente(e2)) return requeteFile(cfg, false, false, testIds); throw e2; }
     }
     throw e;
   }

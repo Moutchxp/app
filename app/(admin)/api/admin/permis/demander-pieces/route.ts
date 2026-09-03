@@ -1,6 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { lireEtatDemandePieces, executerDemandePieces, depsReellesDemandePieces, declarerRelanceComplement, depsReellesDeclaration, annulerDeclaration } from '../../../../../lib/permis/demanderPiecesRepo';
+import { retirerTestAnalyse } from '../../../../../lib/permis/testAnalyseRepo'; // LOT 51-B : une relance (envoyée OU déclarée) depuis Analyse ramène le dossier dans « En cours »
 import type { FamillePlan } from '../../../../../lib/permis/planMasse';
 
 /**
@@ -58,6 +59,7 @@ export async function POST(request: Request): Promise<Response> {
     const dateRelance = typeof body.dateRelance === 'string' ? body.dateRelance : '';
     try {
       const r = await declarerRelanceComplement(depsReellesDeclaration(), { dossierId, familles: fams, dateRelance, auteur: 'admin:decision', compteCommeRelance, destinataires, destinatairesAjoutes });
+      if (r.ok) await retirerTestAnalyse(dossierId); // LOT 51-B : une relance déclarée depuis Analyse ramène le dossier en « En cours » (no-op si non testé)
       return r.ok ? Response.json(r) : Response.json({ erreur: r.motif ?? 'déclaration impossible' }, { status: 422 });
     } catch (e) { console.error('[permis/demander-pieces] declarer échec', e); return Response.json({ erreur: 'déclaration impossible' }, { status: 503 }); }
   }
@@ -67,6 +69,7 @@ export async function POST(request: Request): Promise<Response> {
   const corps = typeof body.corps === 'string' ? body.corps : '';
   try {
     const r = await executerDemandePieces(depsReellesDemandePieces(), { dossierId, familles: fams, objet, corps, auteur: 'admin:decision', compteCommeRelance, destinataires, destinatairesAjoutes });
+    if (r.ok) await retirerTestAnalyse(dossierId); // LOT 51-B : relance ENVOYÉE depuis Analyse → le dossier revient dans « En cours » (échéances intactes ; no-op si non testé)
     return r.ok ? Response.json(r) : Response.json({ erreur: r.motif ?? 'envoi impossible' }, { status: 422 });
   } catch (e) {
     console.error('[permis/demander-pieces] POST échec', e);

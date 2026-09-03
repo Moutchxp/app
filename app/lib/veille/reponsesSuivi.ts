@@ -187,6 +187,7 @@ export interface DemandeSuivi {
   piecesReponses: ReponsePieces[]; // T5 : pièces des réponses rattachées (groupées par réponse), consultables/téléchargeables
   provenancesContenu: ProvenanceContenu[]; // FUS : messages porteurs de CONTENU (lien fort OU pièce), le PLUS RÉCENT d'abord — provenance affichée sur la ligne (date+heure + expéditeur), les autres au déplié
   saisissable: boolean;          // LOT-10 : saisine CADA POSSIBLE (foyer lireSaisinesEligibles) → quitte « En cours » pour « Saisines CADA » ; dérivé, réversible
+  testeEnAnalyse: boolean;       // LOT 51 : ≥ 1 dossier ACTIF « testé en analyse » (dossier_test_analyse) → quitte « En cours » pour « Analyse et projection » ; dérivé, réversible
   contactMairie: ContactMairie; // LOT-9 C : carnet d'adresses (interlocuteurs reçus, triés par récence, + destinataire d'origine)
   contactNonVide: boolean;       // LOT-9 C : ≥ 1 contact connu (interlocuteur OU destinataire) → famille « Contact mairie » affichée
   suspension: EtatPartiel | null; // CASC-1 : marqueur « dossier partiel » ACTIF (raison + date) → relance ordinaire suspendue ; null = non suspendue / 177 absente
@@ -723,6 +724,21 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     saisissablesIds = new Set((await lireSaisinesEligibles()).saisissables.map((s) => s.demandeId));
   } catch { /* résilient : lecture indisponible → aucune exclusion (comportement d'avant), jamais un permis coincé */ }
 
+  // LOT 51 — TESTÉ EN ANALYSE : une demande ayant ≥ 1 dossier ACTIF marqué « testé en analyse » (dossier_test_analyse) QUITTE « En cours »
+  //   pour « Analyse et projection » (exclusivité option B). Le marqueur partiel N'EST PAS levé → les relances continuent. DÉRIVÉ au
+  //   runtime (jamais un statut) → RÉVERSIBLE : au retrait du marqueur, la demande RÉAPPARAÎT en En cours, échéances intactes. Lecture
+  //   SÉPARÉE + résiliente (189 absente → Set vide → aucune exclusion, comportement d'avant). Un WHERE dd.actif : un dossier retiré ne compte pas.
+  let testeEnAnalyseIds = new Set<number>();
+  if (ids.length > 0) {
+    try {
+      const { rows } = await query<{ demande_id: number }>(
+        `SELECT DISTINCT dd.demande_id::int AS demande_id
+           FROM demande_dossier dd JOIN dossier_test_analyse t ON t.dossier_id = dd.dossier_id
+          WHERE dd.demande_id = ANY($1) AND dd.actif`, [ids]);
+      testeEnAnalyseIds = new Set(rows.map((r) => r.demande_id));
+    } catch { /* 189 absente → aucune exclusion (comportement d'avant) */ }
+  }
+
   // FIX-3 — dossiers SATISFAITS d'une demande en PARTIEL ACTIF : à FUSIONNER aux dûs pour le CONTENU per-permis de l'encart
   //   (`dossiersEncart`), SANS toucher `dossiers` (DetailDossiers/Réponses/Archives et l'invariant « un dossier jamais dans deux
   //   onglets » inchangés). Requête ISOLÉE + résiliente (177 absente → Map vide → encart = dûs seuls, comportement d'avant).
@@ -892,6 +908,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     piecesReponses: parPiecesReponses.get(r.id) ?? [],
     provenancesContenu: parProvenances.get(r.id) ?? [],
     saisissable: saisissablesIds.has(r.id), // LOT-10 : quitte En cours pour Saisines CADA (foyer lireSaisinesEligibles)
+    testeEnAnalyse: testeEnAnalyseIds.has(r.id), // LOT 51 : quitte En cours pour Analyse (marqueur dossier_test_analyse, partiel tenu ouvert)
     contactMairie: contactsParId.get(r.id) ?? { interlocuteurs: [], destinataire: null }, // LOT-9 C
     contactNonVide: (() => { const c = contactsParId.get(r.id); return c !== undefined && (c.interlocuteurs.length > 0 || c.destinataire !== null); })(), // LOT-9 C : ≥ 1 contact
     suspension: suspensions.get(r.id) ?? null, // CASC-1
