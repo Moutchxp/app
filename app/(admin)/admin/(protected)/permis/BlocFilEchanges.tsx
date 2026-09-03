@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 // Purs (aucun import serveur) → utilisables côté client pour pré-remplir « Re: » et pré-contrôler le texte.
 import { objetReponse, problemeTexteComplement } from '../../../../lib/permis/complementPieces';
+import { formaterHorodatageParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 : heure de Paris (le fil renvoie de l'UTC)
 
 /**
  * FIL-A/FIL-B — HISTORIQUE des échanges e-mail d'un permis (lecture) + RÉPONSE à un message choisi. Replié par défaut, du plus récent
@@ -16,7 +17,7 @@ type Filtre = 'tout' | 'recus' | 'envoyes';
 const muted: React.CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
 const styleChamp: React.CSSProperties = { width: '100%', padding: '.4rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, boxSizing: 'border-box' };
 const SENS: Record<FilEntree['sens'], string> = { recu: 'reçu de la mairie', envoye: 'envoyé par nous', declare: 'déclaré par Arno' };
-const dateHeure = (le: string): string => (le.length > 10 ? `${le.slice(0, 10)} ${le.slice(11, 16)}` : le.slice(0, 10));
+const dateHeure = (le: string): string => formaterHorodatageParis(le); // LOT 49 — instant UTC → Europe/Paris ; date civile (déclaration) laissée intacte
 const gardeFiltre = (e: FilEntree, f: Filtre): boolean => f === 'tout' || (f === 'recus' ? e.sens === 'recu' : e.sens !== 'recu'); // envoyés = envois + déclarations
 
 export function BlocFilEchanges({ dossierId }: { dossierId: number }) {

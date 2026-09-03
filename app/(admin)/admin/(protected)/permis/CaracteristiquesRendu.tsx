@@ -1,4 +1,5 @@
 import { Fragment, type CSSProperties } from 'react';
+import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « le … » en heure de Paris
 import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo';
 // ⚠️ Bundle client (piège du 13/08) : de `journalLecture` (module serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { JournalChamp, ProvenanceEcartee } from '../../../../lib/permis/journalLecture';
@@ -344,7 +345,7 @@ function LigneLabel({ libelle, origine, journal }: { libelle: string; origine: O
  * confiance + réserve + provenance + motif (via `AnnotationsExtraction`). Le SOMMET est signalé + une ligne dit ce qu'il désigne.
  */
 /** N10-C — « JJ/MM/AAAA » depuis un ISO (trace de validation). */
-function jjmmaaaa(iso: string): string { const d = iso.slice(0, 10); return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`; }
+function jjmmaaaa(iso: string): string { return jourFrParis(iso); } // LOT 49 — jour en Europe/Paris (évite le décalage d'un jour près de minuit)
 /** N10-D — la valeur du champ diffère-t-elle de la valeur EN BASE ? (comparaison numérique, champ vide = null). Sert au garde « non validée ». */
 function champDiffereBase(valeurChamp: string, base: number | null | undefined): boolean {
   const c = valeurChamp.trim() === '' ? null : Number(valeurChamp);

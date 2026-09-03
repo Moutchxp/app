@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from 'react';
+import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « décidé le … » en heure de Paris
 import {
   projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
 } from '../../../../lib/permis/calageEmprise';
@@ -708,7 +709,7 @@ export function SelectionPolygonesProjet({ polygones, ecartes, onToggle }: {
 /** RATT-1 (2) — libellé lisible d'un statut décidé. */
 function libelleStatut(s: 'preserve' | 'detruit' | 'mixte'): string { return s === 'preserve' ? 'bâtiment préservé' : s === 'mixte' ? 'partiellement détruit (fait géométrique)' : 'bâtiment détruit (prévision)'; }
 /** RATT-1 (2) — « JJ/MM/AAAA » depuis un ISO (trace de décision). */
-function jjmmaaaaStatut(iso: string): string { const d = iso.slice(0, 10); return `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}`; }
+function jjmmaaaaStatut(iso: string): string { return jourFrParis(iso); } // LOT 49 — jour en Europe/Paris (évite le décalage d'un jour près de minuit)
 
 /**
  * RATT-1 (2) / RATT-2 / RATT-4 — STATUER les bâtiments EXISTANTS du site (recouverts compris) ET les polygones « en projet » RECOUVERTS

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 // Générateur + validateur PURS (aucun import serveur) → utilisables dans le bundle client pour l'aperçu et le pré-contrôle.
 import { composerComplementPieces, problemeTexteComplement } from '../../../../lib/permis/complementPieces';
+import { jourParisISO } from '../../../../lib/permis/horodatageParis'; // LOT 49 : jour d'une relance réelle en Europe/Paris (date déclarée laissée telle quelle)
 import type { FamillePlan } from '../../../../lib/permis/planMasse';
 // LOT 29 — sélecteur de destinataire : types CLIENT-SAFE (aucun import serveur) + regex e-mail partagée avec la validation base (CHECK).
 import { LABEL_PROVENANCE, fusionnerOptions, type OptionDestinataire } from '../../../../lib/veille/optionsDestinataire';
@@ -336,7 +337,7 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
                 <ul style={{ margin: '.1rem 0 0', paddingLeft: '1.1rem' }}>
                   {etat.historique.map((h) => (
                     <li key={h.id}>
-                      {(h.dateRelance ?? h.le.slice(0, 10))} —{' '}
+                      {(h.dateRelance ?? jourParisISO(h.le))} —{' '}
                       {h.mode === 'declare'
                         ? <><strong>déclarée</strong> (contenu non connu du système){h.familles.length > 0 ? ` — ${h.familles.join(', ')}` : ''}{' '}
                             <button type="button" className="svv-link" style={{ width: 'auto', padding: '0 .3rem', color: 'var(--color-svv-red)' }} onClick={() => void annulerDecl(h.id)}>annuler</button></>

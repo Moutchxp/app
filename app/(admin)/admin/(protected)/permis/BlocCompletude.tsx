@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { BlocDemandePieces } from './BlocDemandePieces';
 import { BlocRepliable } from './BlocRepliable';
+import { jourParisISO } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « établi le » = jour en Europe/Paris
 import { resumeCompletude, doitRecalculerAuto, libelleFamillesManquantes } from '../../../../lib/permis/completudeResume';
 
 /**
@@ -146,7 +147,7 @@ function Contenu({ c, dossierId }: { c: Completude; dossierId: number }) {
       {c.diagnostic.nonClassees.length > 0 && (
         <span style={muted}>{c.diagnostic.nonClassees.length} pièce{c.diagnostic.nonClassees.length > 1 ? 's' : ''} non classée{c.diagnostic.nonClassees.length > 1 ? 's' : ''} (contenu illisible ou nom sans indice) : {c.diagnostic.nonClassees.join(', ')}</span>
       )}
-      <span style={{ ...muted, fontSize: 11 }}>Diagnostic établi le {c.calculeLe.slice(0, 10)}.</span>
+      <span style={{ ...muted, fontSize: 11 }}>Diagnostic établi le {jourParisISO(c.calculeLe)}.</span>
       {/* PART-3a — demander à la mairie les familles MANQUANTES (envoi manuel, dans le fil). Rien à demander si tout est présent. */}
       {manquantes.length > 0 && <BlocDemandePieces dossierId={dossierId} famillesManquantes={manquantes} />}
     </div>

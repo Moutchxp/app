@@ -4,6 +4,7 @@ import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffiche
 import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import { MessageRetour, BlocRepliable, type RetourAction } from './DemandesRendu';
 import { demandeADuRetour } from '../../../../lib/sitadel/demandesListe'; // D2-fix : FOYER UNIQUE (partagé serveur/client)
+import { formaterHorodatageParis, jourParisISO } from '../../../../lib/permis/horodatageParis'; // LOT 49 : horodatages affichés en heure de Paris
 import { mentionEnvoiAutoRelance, type EnvoiAutoInfos } from '../../../../lib/veille/statutCascade'; // « dire quand ça part » : mention d'envoi auto (réglages)
 import { ilYaEnJours } from '../../../../lib/veille/lienPeremption'; // PART-D : « reçu il y a N jours » (fait mesuré, module pur sans I/O)
 import type { NatureReclassable } from '../../../../lib/veille/demandeReponseRepo'; // FUS-4 : type SEUL (erasé) — 3 cibles du reclassement
@@ -67,13 +68,13 @@ export function dureeRelative(deltaMs: number): string {
   return `${j} jour${j > 1 ? 's' : ''}`;
 }
 
-/** Horodatage ISO → « AAAA-MM-JJ HH:MM » (déterministe, sans dépendance de fuseau pour les tests). */
+/** Horodatage ISO → « AAAA-MM-JJ HH:MM » en HEURE DE PARIS (LOT 49 : instant UTC converti à l'affichage ; date civile laissée intacte). */
 export function formaterDateHeure(iso: string | null): string {
-  return iso ? iso.replace('T', ' ').slice(0, 16) : '—';
+  return formaterHorodatageParis(iso);
 }
-/** Date ISO → « AAAA-MM-JJ ». */
+/** Date ISO → « AAAA-MM-JJ » (JOUR en Europe/Paris — LOT 49 : évite le décalage d'un jour près de minuit). */
 export function formaterDate(iso: string | null): string {
-  return iso ? iso.slice(0, 10) : '—';
+  return jourParisISO(iso);
 }
 
 /** Phrase explicative pour un bloc VIDE — jamais un tableau muet (rôle « note » pour lecteur d'écran). */
