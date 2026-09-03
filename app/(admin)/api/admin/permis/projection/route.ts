@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../lib/sitadel/veilleConfig';
-import { listerFileProjection, validerProjection } from '../../../../../lib/permis/projectionFileRepo';
+import { listerFileProjection, validerProjection, sortirTestVersRattachement } from '../../../../../lib/permis/projectionFileRepo';
 import { retirerTestAnalyse } from '../../../../../lib/permis/testAnalyseRepo';
 
 /**
@@ -38,6 +38,13 @@ export async function POST(request: Request): Promise<Response> {
     if (body.action === 'retour_en_cours') {
       await retirerTestAnalyse(dossierId);
       return Response.json({ ok: true, file: await listerFileProjection(await chargerConfigVeille()) });
+    }
+    // LOT 51-C — SORTIE DÉFINITIVE vers Rattachement (double condition empreinte + altitudes) + arrêt EXHAUSTIF des relances + effacement
+    //   du marqueur test. Refus métier (condition manquante) → 409 avec `manque` pour que l'écran dise LAQUELLE.
+    if (body.action === 'sortir_vers_rattachement') {
+      const res = await sortirTestVersRattachement(dossierId, 'admin:projection');
+      if (!res.ok) return Response.json({ erreur: res.motif, manque: res.manque }, { status: 409 });
+      return Response.json({ ok: true, marqueSuivi: res.marqueSuivi, demandesArretees: res.demandesArretees, file: await listerFileProjection(await chargerConfigVeille()) });
     }
     if (body.action !== 'valider') return Response.json({ erreur: 'action inconnue' }, { status: 400 });
 

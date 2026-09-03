@@ -12,12 +12,13 @@
  * verdict. Il lit permis_corps_batiment / permis_emprise_reconstruite / permis_projection_ignoree, écrit permis_projection et — pour
  * le marquage suivi — UNE ligne permis_rattachement (en_attente_bati) + son événement, exactement comme l'ouverture manuelle (M5).
  */
-import { query, withTransaction } from '../db/client';
+import { query, withTransaction, type RequeteTx } from '../db/client';
 import { classer, type DossierClassable } from '../sitadel/priorite';
 import type { ConfigVeille } from '../sitadel/veilleConfig';
 import { listerEmprises, listerIgnorees } from './empriseReconstruiteRepo';
-import { verdictProjectionBatiments } from './projectionBatiments';
+import { verdictProjectionBatiments, type VerdictProjection } from './projectionBatiments';
 import { lireDossiersEnTest } from './testAnalyseRepo'; // LOT 51 — porte FIX-2 ouverte pour un dossier « testé en analyse » (sans lever le partiel)
+import { arreterToutesRelances } from './arretRelances'; // LOT 51-C — arrêt EXHAUSTIF (close + partiel_leve_le) à la sortie définitive du test
 
 export interface LigneProjection {
   dossierId: number;
@@ -116,51 +117,103 @@ export type ResultatValidationProjection =
   | { ok: true; marqueSuivi: boolean }
   | { ok: false; motif: string };
 
-/**
- * VALIDER la projection d'un dossier. 🔴 Condition VÉRIFIÉE CÔTÉ SERVEUR (jamais la confiance au client) : chaque bâtiment a une
- * emprise tracée OU une projection ignorée (verdictProjectionBatiments). Si OK : jalon permis_projection + marquage suivi
- * (permis_rattachement en_attente_bati, idempotent via UNIQUE(dossier_id)) + événement. Sinon : refus explicite.
- */
-export async function validerProjection(dossierId: number, par: string | null): Promise<ResultatValidationProjection> {
-  if (!Number.isInteger(dossierId) || dossierId <= 0) return { ok: false, motif: 'dossier invalide' };
-  // Bâtiments déclarés + emprises + projections ignorées → verdict (pur).
+/** Évalue la CONDITION D'EMPREINTE (chaîne existante) : chaque bâtiment déclaré a une emprise tracée OU une projection ignorée.
+ *  Lectures batchées → verdict pur. Réutilisée par la validation NORMALE et par la SORTIE DU TEST (LOT 51-C). */
+async function evaluerEmpreinte(dossierId: number): Promise<VerdictProjection> {
   const [{ rows: bats }, emprises, ignores] = await Promise.all([
     query<{ id: number; repere: string | null }>(`SELECT id::int AS id, repere FROM permis_corps_batiment WHERE dossier_id = $1`, [dossierId]),
     listerEmprises(dossierId),
     listerIgnorees(dossierId),
   ]);
-  const verdict = verdictProjectionBatiments(
+  return verdictProjectionBatiments(
     bats.map((b) => ({ corpsId: b.id, repere: b.repere })),
     emprises.map((e) => ({ corpsId: e.corpsId, provenance: e.provenance })),
     ignores.map((i) => i.corpsId),
   );
-  if (!verdict.peutValider) {
-    // PROJ-3b — revérification SERVEUR (jamais la confiance au client) : 0 bâtiment déclaré ⇒ refus explicite (aucun passage par vacuité).
-    const motif = verdict.aucunBatiment
-      ? 'aucun bâtiment déclaré : déclarez au moins un bâtiment avant de valider la projection'
-      : `projection incomplète — ${verdict.libelle}`;
-    return { ok: false, motif };
-  }
+}
 
+/** Motif de refus quand l'empreinte n'est pas validable (0 bâtiment ⇒ message dédié PROJ-3b, jamais un passage par vacuité). */
+function motifEmpreinte(verdict: VerdictProjection): string {
+  return verdict.aucunBatiment
+    ? 'aucun bâtiment déclaré : déclarez au moins un bâtiment avant de valider la projection'
+    : `projection incomplète — ${verdict.libelle}`;
+}
+
+/** ÉCRIT le passage en projection validée DANS la transaction `q` : jalon permis_projection + marquage suivi (permis_rattachement
+ *  en_attente_bati, idempotent via UNIQUE(dossier_id)) + événement. Renvoie `marqueSuivi` (une nouvelle ligne de rattachement créée ?).
+ *  Verdict SENTINELLE (jamais un verdict de détection) ; le détecteur de delta l'ouvrira en 'arbitrage_demande' à la livraison BD TOPO. */
+async function ecrireProjectionValidee(q: RequeteTx, dossierId: number, par: string | null): Promise<boolean> {
+  await q(`INSERT INTO permis_projection (dossier_id, validee_par) VALUES ($1, $2) ON CONFLICT (dossier_id) DO NOTHING`, [dossierId, par]);
+  const { rows: r } = await q<{ id: number }>(
+    `INSERT INTO permis_rattachement (dossier_id, regime, verdict, etat, motif, detecte_le, reevalue_le)
+       VALUES ($1, 'indetermine', 'SUIVI_APRES_PROJECTION', 'en_attente_bati', 'projection validée : en attente d’une mise à jour BD TOPO', now(), now())
+     ON CONFLICT (dossier_id) DO NOTHING RETURNING id`, [dossierId]);
+  const marqueSuivi = r.length > 0;
+  if (marqueSuivi) {
+    await q(`INSERT INTO permis_rattachement_evenement (rattachement_id, type, ancien_etat, nouvel_etat, details, par)
+             VALUES ($1, 'suivi_apres_projection', NULL, 'en_attente_bati', $2::jsonb, $3)`,
+      [r[0].id, JSON.stringify({ origine: 'projection' }), par]);
+  }
+  return marqueSuivi;
+}
+
+/**
+ * VALIDER la projection d'un dossier (chemin NORMAL, hors test). 🔴 Condition SERVEUR : empreinte validable (verdictProjectionBatiments,
+ * jamais la confiance au client). N'EXIGE PAS les altitudes (décision porteur : ne pas changer le comportement des dossiers ordinaires ;
+ * l'altitude est le gate de la SEULE sortie du test — cf. sortirTestVersRattachement). N'arrête AUCUNE relance (un dossier normal n'est
+ * pas partiel-actif). Si OK : jalon + suivi. Sinon : refus explicite.
+ */
+export async function validerProjection(dossierId: number, par: string | null): Promise<ResultatValidationProjection> {
+  if (!Number.isInteger(dossierId) || dossierId <= 0) return { ok: false, motif: 'dossier invalide' };
+  const verdict = await evaluerEmpreinte(dossierId);
+  if (!verdict.peutValider) return { ok: false, motif: motifEmpreinte(verdict) };
   try {
-    return await withTransaction(async (q) => {
-      await q(`INSERT INTO permis_projection (dossier_id, validee_par) VALUES ($1, $2) ON CONFLICT (dossier_id) DO NOTHING`, [dossierId, par]);
-      // Marquage SUIVI : crée le dossier de rattachement en « en_attente_bati » S'IL N'EXISTE PAS (idempotent). Le détecteur de
-      // delta l'ouvrira en 'arbitrage_demande' quand BD TOPO livrera le bâti. Verdict SENTINELLE (jamais un verdict de détection).
-      const { rows: r } = await q<{ id: number }>(
-        `INSERT INTO permis_rattachement (dossier_id, regime, verdict, etat, motif, detecte_le, reevalue_le)
-           VALUES ($1, 'indetermine', 'SUIVI_APRES_PROJECTION', 'en_attente_bati', 'projection validée : en attente d’une mise à jour BD TOPO', now(), now())
-         ON CONFLICT (dossier_id) DO NOTHING RETURNING id`, [dossierId]);
-      const marqueSuivi = r.length > 0;
-      if (marqueSuivi) {
-        await q(`INSERT INTO permis_rattachement_evenement (rattachement_id, type, ancien_etat, nouvel_etat, details, par)
-                 VALUES ($1, 'suivi_apres_projection', NULL, 'en_attente_bati', $2::jsonb, $3)`,
-          [r[0].id, JSON.stringify({ origine: 'projection' }), par]);
-      }
-      return { ok: true, marqueSuivi } as const;
-    });
+    return await withTransaction(async (q) => ({ ok: true, marqueSuivi: await ecrireProjectionValidee(q, dossierId, par) } as const));
   } catch (e) {
     if (estTableAbsente(e)) return { ok: false, motif: 'file de projection indisponible (migration 151 non appliquée)' };
+    throw e;
+  }
+}
+
+export type ResultatSortieTest =
+  | { ok: true; marqueSuivi: boolean; demandesArretees: number }
+  | { ok: false; manque: 'empreinte' | 'altitude'; motif: string };
+
+/**
+ * LOT 51-C — SORTIE DÉFINITIVE d'un dossier « testé en analyse » vers « Rattachement ». DOUBLE CONDITION, non négociable :
+ *   (1) EMPREINTE validée (peutValider, MÊME chaîne que la validation normale) ; (2) `nbCorpsSansAltitude === 0` — altitude de sommet
+ *   NGF renseignée pour CHAQUE corps (`permis_corps_batiment.altitude_sommet_ngf`, PAR CORPS — distinct du polygone BD TOPO
+ *   `permis_polygone_altitude` et de l'altitude niveau-dossier `permis_caracteristique`). La condition altitude vaut UNIQUEMENT ICI
+ *   (jamais dans peutValider / la validation normale). Si l'une manque → refus AVEC `manque` ('empreinte'|'altitude') → message explicite.
+ * Sinon, EN UNE TRANSACTION (atomicité : tout réussit ou tout échoue, jamais un permis en Rattachement dont les relances tournent
+ *   encore) : passage en Rattachement (ecrireProjectionValidee) + ARRÊT EXHAUSTIF des relances de CHAQUE demande active du dossier
+ *   (arreterToutesRelances = close + partiel_leve_le ; cf. son en-tête : AUCUN geste seul ne suffit) + effacement du marqueur test.
+ */
+export async function sortirTestVersRattachement(dossierId: number, par: string | null): Promise<ResultatSortieTest> {
+  if (!Number.isInteger(dossierId) || dossierId <= 0) return { ok: false, manque: 'empreinte', motif: 'dossier invalide' };
+  const verdict = await evaluerEmpreinte(dossierId);
+  if (!verdict.peutValider) return { ok: false, manque: 'empreinte', motif: motifEmpreinte(verdict) };
+  // Condition ALTITUDE — PAR CORPS (nette distinction avec le polygone BD TOPO et permis_caracteristique). Gate propre à la sortie du test.
+  const { rows: alt } = await query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM permis_corps_batiment WHERE dossier_id = $1 AND altitude_sommet_ngf IS NULL`, [dossierId]);
+  const nbSansAltitude = alt[0]?.n ?? 0;
+  if (nbSansAltitude > 0) {
+    return { ok: false, manque: 'altitude', motif: `${nbSansAltitude} bâtiment(s) sans altitude de sommet (NGF) : renseignez-les avant la sortie` };
+  }
+  try {
+    return await withTransaction(async (q) => {
+      const marqueSuivi = await ecrireProjectionValidee(q, dossierId, par);
+      // ARRÊT EXHAUSTIF pour CHAQUE demande active portant ce dossier (le stop est per-demande ; typiquement une seule demande par dossier).
+      const { rows: dem } = await q<{ demande_id: number }>(
+        `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd WHERE dd.dossier_id = $1 AND dd.actif`, [dossierId]);
+      let demandesArretees = 0;
+      for (const d of dem) { if (await arreterToutesRelances(q, d.demande_id, par)) demandesArretees += 1; }
+      // Le dossier quitte DÉFINITIVEMENT le test (et En cours) : effacement du marqueur DANS la même transaction.
+      await q(`DELETE FROM dossier_test_analyse WHERE dossier_id = $1`, [dossierId]);
+      return { ok: true, marqueSuivi, demandesArretees } as const;
+    });
+  } catch (e) {
+    if (estTableAbsente(e)) return { ok: false, manque: 'empreinte', motif: 'sortie indisponible (migration 151/189 non appliquée)' };
     throw e;
   }
 }

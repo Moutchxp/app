@@ -68,6 +68,19 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     } catch { setMessage('retour impossible'); } finally { setEnCours(false); }
   }, [onRecompter]);
 
+  // LOT 51-C — SORTIE DÉFINITIVE vers Rattachement : double condition (empreinte + altitudes) vérifiée SERVEUR ; à la réussite le permis
+  //   quitte la file (et En cours), TOUTES les relances sont annulées (close + partiel_leve_le), le marqueur test est effacé. Un refus
+  //   métier (condition manquante) revient en 409 avec `manque` → l'écran l'affiche déjà via les deux lignes de condition.
+  const sortirVersRattachement = useCallback(async (dossierId: number) => {
+    setEnCours(true); setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/projection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'sortir_vers_rattachement', dossierId }) });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; manque?: string; demandesArretees?: number; file?: LigneProjectionAffichee[] };
+      if (res.ok && d.ok) { setFile(d.file ?? []); setOuvert(null); setVerdict(null); setMessage(`permis passé en Rattachement — relances annulées (${d.demandesArretees ?? 0} demande(s))`); recompterSiSucces(true, onRecompter); }
+      else setMessage(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'sortie impossible'));
+    } catch { setMessage('sortie impossible'); } finally { setEnCours(false); }
+  }, [onRecompter]);
+
   // Ouverture d'une pièce GED à la page (visionneur) — MÊME signeur unique qu'Archives (action url_piece de /reponses ; la clé ne transite jamais).
   const ouvrirPiece = useCallback(async (pieceId: number, source: 'reponse' | 'dossier', page?: number): Promise<void> => {
     try {
@@ -97,13 +110,39 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         <BoutonRelancerAnalyse dossierId={ouvert} onFini={() => { setVAnalyse((v) => v + 1); setVInstruction((v) => v + 1); }} />
         {/* LOT 51-B — ce permis est ici en TEST (dossier incomplet ouvert depuis « En cours »). S'il n'a pas permis de tout renseigner et
             qu'on ne veut PAS relancer la mairie maintenant, « Remettre dans En cours » lève le marqueur : aucun e-mail, échéances intactes. */}
-        {row?.testeEnAnalyse && (
-          // LOT 52 (point 2) — même défaut de visibilité que le bouton « Tester » : action rendue pleine largeur + fond rouge tokenisé (svv-btn-primary). Phrase explicative au-dessus.
-          <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem', fontSize: 13 }}>
-            <span>Dossier <strong>en test</strong> (ouvert depuis « En cours »). Les relances continuent en fond. Si l’examen n’a rien permis de conclure et que vous ne voulez pas relancer la mairie maintenant, remettez-le dans « En cours ».</span>
-            <button type="button" className="svv-btn svv-btn-primary" disabled={enCours} onClick={() => { void retourEnCours(ouvert); }}>Remettre dans En cours</button>
-          </div>
-        )}
+        {row?.testeEnAnalyse && (() => {
+          // LOT 51-C — carte de TEST : deux issues. (A) SORTIE DÉFINITIVE vers Rattachement, gardée par la DOUBLE condition (empreinte
+          //   validée ET toutes les altitudes de sommet NGF renseignées) — l'écran DIT laquelle manque, jamais un bouton grisé muet.
+          //   (B) RETOUR sans envoi. Le bouton « Valider la projection » NORMAL est masqué pour un dossier testé (il n'arrête pas les
+          //   relances) : la SEULE sortie d'un dossier testé passe par ici.
+          const altitudeManque = (row?.nbCorpsSansAltitude ?? 0) > 0;
+          const empreinteOk = ev.peutValider;             // requiert le dépliage + tracé de « Bâtiments et projection » (PERF-1) ; ev.libelle porte l'invite
+          const pretSortie = empreinteOk && !altitudeManque;
+          const ligneOk: React.CSSProperties = { color: 'var(--color-svv-green-ink)' };
+          const ligneKo: React.CSSProperties = { color: 'var(--color-svv-red)' };
+          return (
+            <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem', fontSize: 13 }}>
+              <span>Dossier <strong>en test</strong> (ouvert depuis « En cours »). Les relances à la mairie continuent en fond.</span>
+              {/* (A) SORTIE DÉFINITIVE */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.5rem' }}>
+                <strong>Terminer l’analyse et passer en Rattachement</strong>
+                <span style={{ color: 'var(--color-svv-muted)', fontSize: 12 }}>Sortie <strong>DÉFINITIVE</strong> : le permis quitte « En cours » et <strong>toutes les relances programmées sont annulées</strong>. Deux conditions requises :</span>
+                <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                  <li style={empreinteOk ? ligneOk : ligneKo}>{empreinteOk ? '✓ empreinte des bâtiments validée' : `Empreinte non validée — ${ev.libelle}`}</li>
+                  <li style={!altitudeManque ? ligneOk : ligneKo}>{!altitudeManque ? '✓ altitudes de sommet (NGF) renseignées' : `${row?.nbCorpsSansAltitude} bâtiment(s) sans altitude de sommet (NGF) — à renseigner dans « Caractéristiques du permis »`}</li>
+                </ul>
+                {pretSortie
+                  ? <button type="button" className="svv-btn svv-btn-primary" disabled={enCours} onClick={() => { void sortirVersRattachement(ouvert); }}>Terminer l’analyse et passer en Rattachement</button>
+                  : <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Complétez les deux conditions ci-dessus pour activer la sortie.</span>}
+              </div>
+              {/* (B) RETOUR SANS ENVOI */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.5rem' }}>
+                <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Ou, si l’examen n’a rien permis de conclure et que vous ne voulez pas relancer la mairie maintenant :</span>
+                <button type="button" className="svv-btn svv-btn-primary" disabled={enCours} onClick={() => { void retourEnCours(ouvert); }}>Remettre dans En cours</button>
+              </div>
+            </div>
+          );
+        })()}
         {/* PART-2 / PERF-1 — COMPLÉTUDE + relances : bilan (lecture mémoire) dans la ligne de titre ; détail au dépliage. Se remonte
             après « Relancer l'analyse » (key liée à vAnalyse) pour relire le diagnostic fraîchement recalculé. */}
         <BlocCompletude key={`completude-${ouvert}-${vAnalyse}`} dossierId={ouvert} />
@@ -123,12 +162,16 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
           {() => (
             <div className="flex flex-col gap-2">
               <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} rafraichir={vInstruction} />
-              <BoutonValiderProjection
-                peutValider={ev.peutValider}
-                aucunBatiment={ev.aucunBatiment}
-                libelle={ev.libelle}
-                enCours={enCours}
-                onValider={() => { void valider(ouvert); }} />
+              {/* LOT 51-C — pour un dossier TESTÉ, le bouton « Valider » NORMAL est masqué : il passe en Rattachement SANS arrêter les
+                  relances (dangereux). La sortie d'un dossier testé passe UNIQUEMENT par « Terminer l'analyse » (carte de test, double condition). */}
+              {!row?.testeEnAnalyse && (
+                <BoutonValiderProjection
+                  peutValider={ev.peutValider}
+                  aucunBatiment={ev.aucunBatiment}
+                  libelle={ev.libelle}
+                  enCours={enCours}
+                  onValider={() => { void valider(ouvert); }} />
+              )}
               {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
             </div>
           )}
