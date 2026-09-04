@@ -15,7 +15,7 @@ import { ecrireNiveaux } from './ecritureNiveaux';
 import { decisionParcelles, type ParcelleSitadel } from './decisionParcelles';
 import { lireParcellesRecapCerfa } from './parcellesRecap'; // LOT 66 : table « Références cadastrales » du récap (télé-service, TEXTE)
 import { lireDeclarationsRecapCerfa } from './recapCerfa'; // LOT 67 : déclarations du Cerfa (champs étiquetés + champ libre), DÉTERMINISTE
-import { ecrireDeclarationsRecap, ecrireDecompteDescription } from './cerfaRecapRepo'; // LOT 67 : instantané ; LOT 69 : décompte corroboré (journal 'recap')
+import { ecrireDeclarationsRecap, ecrireDecompteDescription, reporterDeclarationsCerfa } from './cerfaRecapRepo'; // LOT 67 : instantané ; LOT 69 : décompte ; LOT 70 : report dans les champs
 import { ecrireParcelles, figerEmpreinte, figerBatiSnapshot } from './parcellesRepo';
 import { figerVersionGel } from './gelRepo';
 import { lireCerfaScan, lecteurMistral } from './lireCerfaScan';
@@ -131,6 +131,10 @@ export async function executerExtractionPermis(dossierId: number, opts: { avecVi
     // LOT 69 — DÉCOMPTE du champ libre CORROBORÉ par la somme (nombre de bâtiments) : journalisé sous la méthode dédiée 'recap'
     //   (audit + précédence), retenue si concordant / écartée avec motif sinon. Best-effort, NO-OP si migration 193 absente. IA-free.
     await ecrireDecompteDescription(dossierId, decl.decompte, pieceRecap).catch(() => undefined);
+    // LOT 70 — REPORT des déclarations dans les CHAMPS de caractéristiques (logements, stationnement, surface de plancher), méthode
+    //   'recap' (la plus faible : ne remplit QUE les champs vides, n'écrase JAMAIS une saisie ni une méthode supérieure). Best-effort.
+    //   DOIT venir APRÈS ecrireDecompteDescription (dont la purge 'recap' blanket ne doit pas effacer ces lignes de report).
+    await reporterDeclarationsCerfa(dossierId, decl, pieceRecap, opts.majPar).catch(() => undefined);
   }
 
   // 6) VISION Mistral (Cerfa 13409 SCANNÉ) — seulement si demandé ; appel EXTERNE isolé.

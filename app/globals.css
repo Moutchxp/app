@@ -217,6 +217,12 @@ body {
   animation: svvInfoBump 0.6s ease-in-out, svvColorPulse 3s linear;
 }
 
+/* LOT 70 — indicateur d'attente (analyse au passage en analyse). Rotation continue ; DÉSACTIVÉE sous prefers-reduced-motion
+   (l'anneau reste visible et statique — l'état d'attente reste lisible par le texte à côté). */
+@keyframes svvSpin { to { transform: rotate(360deg); } }
+.svv-spin { animation: svvSpin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .svv-spin { animation: none; } }
+
 /* === Champ téléphone (react-international-phone) : calage sur la charte des autres champs ===
    Le widget est présenté comme UNE seule boîte (comme Prénom/Nom). */
 .react-international-phone-input-container {

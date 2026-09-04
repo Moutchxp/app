@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ResultatPassageAnalyse } from '../../../../lib/permis/analysePassage'; // type SEUL (module server-only : import de type erasé au build)
 import { BlocTraceEmprise } from './BlocTraceEmprise';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { BlocPiecesPermis } from './BlocPiecesPermis';
@@ -29,6 +30,13 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   const [vInstruction, setVInstruction] = useState(0); // PROJ-3b — compteur incrémenté à chaque écriture d'instruction → recharge le tracé (bâtiments)
   const [vAnalyse, setVAnalyse] = useState(0); // EXT-1 / LOT 56-B — bump après « Lancer le diagnostic complet des documents » (onAnalyseFinie du bloc Complétude) → remonte CaracteristiquesBloc/fil (refetch des champs extraits)
   const [batimentsOuvert, setBatimentsOuvert] = useState(false); // PERF-1 — le bloc bâtiments (verdict) est déplié à la demande ; jauge le bouton « Valider »
+  // LOT 70 — ANALYSE AU PASSAGE : à l'ouverture d'un permis, on lance (SANS geste) l'analyse si nécessaire (règle b, gate serveur) et
+  //   on reporte les déclarations dans les champs vides. État d'attente HONNÊTE pendant les 20-30 s de l'analyse complète.
+  const [passageEnCours, setPassageEnCours] = useState(false);
+  const [passageMsg, setPassageMsg] = useState<string | null>(null);
+  const passageDeclencheRef = useRef<number | null>(null); // dossier déjà déclenché pour CETTE ouverture (StrictMode : un seul tir → pas de course sur le verrou 58)
+  const ouvertRef = useRef<number | null>(ouvert);         // miroir de `ouvert` pour l'async (mis à jour en effet, jamais pendant le rendu)
+  useEffect(() => { ouvertRef.current = ouvert; }, [ouvert]);
 
   useEffect(() => {
     let annule = false;
@@ -42,6 +50,40 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     })();
     return () => { annule = true; };
   }, []);
+
+  // LOT 70 — à l'ouverture d'un permis en analyse : déclenche l'analyse au passage (une seule fois par ouverture, garde StrictMode via
+  //   `passageDeclencheRef` → jamais deux tirs qui se disputeraient le verrou 58). Le serveur décide s'il PAIE l'analyse complète
+  //   (règle b) ou s'il REPORTE seulement les valeurs connues. À la fin, on remonte les caractéristiques (vAnalyse) pour voir les
+  //   champs remplis. Session expirée → message honnête ; jamais une fausse panne.
+  useEffect(() => {
+    if (ouvert === null) return;                        // fermeture : l'état d'attente est réarmé par `ouvrir` (handler), pas ici
+    if (passageDeclencheRef.current === ouvert) return; // déjà déclenché pour cette ouverture (remontage StrictMode)
+    passageDeclencheRef.current = ouvert;
+    const cible = ouvert;
+    void (async () => {
+      setPassageEnCours(true); setPassageMsg(null);     // dans l'async (pas dans le corps de l'effet) → pas de rendu en cascade
+      try {
+        const res = await fetch('/api/admin/permis/analyse-passage', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dossierId: cible }),
+        });
+        if (ouvertRef.current !== cible) return; // l'utilisateur a changé de permis entre-temps → on n'applique rien de périmé
+        if (res.status === 401) { setPassageMsg('Session expirée — reconnectez-vous.'); return; }
+        if (res.status === 409) { setPassageMsg('Une analyse de ce permis est déjà en cours.'); return; }
+        const d = (await res.json().catch(() => ({}))) as { resultat?: ResultatPassageAnalyse; erreur?: string };
+        if (ouvertRef.current !== cible) return;
+        if (res.ok && d.resultat) {
+          const r = d.resultat;
+          setVAnalyse((v) => v + 1); setVInstruction((v) => v + 1); // remonte caractéristiques + tracé → les champs remplis apparaissent
+          setPassageMsg(r.analyseLancee
+            ? `Analyse terminée — ${r.rapport?.champsRetenus ?? 0} champ(s) renseigné(s) d’après les documents.`
+            : (r.champsReportes.length > 0
+                ? `Valeurs déclarées reportées dans ${r.champsReportes.length} champ(s) vide(s) — analyse déjà à jour.`
+                : 'Analyse déjà à jour — aucun champ vide à compléter depuis les déclarations.'));
+        } // erreur non-2xx sans corps : silencieux (l'état affiché n'est pas effacé)
+      } catch { /* réseau indisponible : silencieux, l'état précédent reste */ }
+      finally { if (ouvertRef.current === cible) setPassageEnCours(false); }
+    })();
+  }, [ouvert]);
 
   const valider = useCallback(async (dossierId: number) => {
     setEnCours(true); setMessage(null);
@@ -91,7 +133,10 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   if (erreur) return <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>File de projection indisponible.</div>;
   if (file === null) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>;
 
-  const ouvrir = (dossierId: number) => { setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setMessage(null); setBatimentsOuvert(false); }; // PERF-1 : chaque permis s'ouvre tout replié
+  const ouvrir = (dossierId: number) => {
+    setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setMessage(null); setBatimentsOuvert(false); // PERF-1 : chaque permis s'ouvre tout replié
+    passageDeclencheRef.current = null; setPassageMsg(null); setPassageEnCours(false); // LOT 70 : réarme l'analyse au passage (event handler → setState autorisé) pour la prochaine ouverture
+  };
 
   // PERF-1 — TOUS les blocs sont REPLIÉS par défaut et ne chargent leurs données QU'AU DÉPLIAGE (BlocRepliable, render-prop). Un bloc
   //   jamais ouvert ne déclenche AUCUNE requête. Seul le bilan de complétude fait UNE lecture légère (mémoire) au rendu, pour la
@@ -105,6 +150,17 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     const etatProj = etatProjectionTitre(row?.projectionValidee ?? false);
     return (
       <div className="flex flex-col gap-2">
+        {/* LOT 70 — ANALYSE AU PASSAGE : état d'attente honnête (jamais un écran figé) puis compte rendu. Le bouton de RELANCE manuel
+            reste « Lancer le diagnostic complet des documents » (BlocCompletude ci-dessous) — aucun 3e bouton. Tokens --color-svv-* (thème). */}
+        {passageEnCours && (
+          <div className="svv-card" role="status" aria-live="polite" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontSize: 13, color: 'var(--color-svv-ink)' }}>
+            <span aria-hidden className="svv-spin" style={{ width: 14, height: 14, border: '2px solid var(--color-svv-line)', borderTopColor: 'var(--color-svv-red)', borderRadius: '50%', display: 'inline-block', flexShrink: 0 }} />
+            <span>Analyse des documents et remplissage des champs en cours — comptez jusqu’à 20 à 30 secondes si une analyse approfondie est nécessaire.</span>
+          </div>
+        )}
+        {!passageEnCours && passageMsg && (
+          <div className="svv-card" role="status" aria-live="polite" style={{ fontSize: 12.5, color: passageMsg.startsWith('Session expirée') ? 'var(--color-svv-red)' : 'var(--color-svv-ink)' }}>{passageMsg}</div>
+        )}
         {/* LOT 56-B — le bouton de ré-analyse « Lancer le diagnostic complet des documents » vit désormais EN TÊTE du bloc « Complétude »
             (BlocCompletude), plus ici : un seul point d'entrée, un seul nom. Son `onAnalyseFinie` remonte les frères (caractéristiques,
             fil) via vAnalyse ; le bloc Complétude relit son propre diagnostic tout seul. */}

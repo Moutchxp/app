@@ -94,7 +94,9 @@ export function DeclarationsCerfaBloc({ declarations: d, pieceSource }: { declar
   return (
     <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
       <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: 'var(--color-svv-ink)' }}>Déclarations du Cerfa <span style={{ ...styleAide, fontWeight: 400 }}>— lues dans le récapitulatif, en regard des faits</span></h4>
-      <p style={styleAide}>Ce que le formulaire déclare, lu directement dans le texte. Informatif : jamais reporté sur Sitadel ni sur les valeurs du moteur.{pieceSource ? <> Source : <strong>{pieceSource}</strong>.</> : null}</p>
+      {/* LOT 70 — la phrase « jamais reporté sur les valeurs du moteur » était devenue fausse : logements, stationnement et surface de
+          plancher ALIMENTENT désormais les champs de caractéristiques quand ils sont vides. On dit ce qui est reporté et ce qui reste informatif. */}
+      <p style={styleAide}>Ce que le formulaire déclare, lu directement dans le texte. <strong>Logements</strong>, <strong>stationnement</strong> et <strong>surface de plancher</strong> alimentent les champs de caractéristiques <strong>lorsqu’ils sont vides</strong> (jamais par-dessus une valeur saisie à la main). Le reste (date, superficie du terrain, niveaux, emprise, description) demeure <strong>informatif</strong> : ni Sitadel ni les corps ne sont réécrits.{pieceSource ? <> Source : <strong>{pieceSource}</strong>.</> : null}</p>
       {lignes.length > 0
         ? <dl style={{ display: 'grid', gridTemplateColumns: 'minmax(0,auto) 1fr', gap: '.15rem .6rem', margin: 0, fontSize: 12.5, lineHeight: 1.45 }}>
             {lignes.map((l) => <Fragment key={l.label}><dt style={{ color: 'var(--color-svv-muted)' }}>{l.label}</dt><dd style={{ margin: 0, fontWeight: 600, color: 'var(--color-svv-ink)' }}>{l.valeur}</dd></Fragment>)}
