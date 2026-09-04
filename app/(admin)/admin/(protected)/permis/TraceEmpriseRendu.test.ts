@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -892,5 +892,35 @@ describe('LOT 62 — planches repérées par IMAGE dans le best-of (distinguable
     const b = construireBandePlans([{ id: 573, nomFichier: 'notice.pdf', propose: false, planches: [{ page: 6, echelle: null, tracable: false, famille: 'masse', origine: 'image' }] }]);
     const html = renderToStaticMarkup(h(BandePlans, { bande: b, index: 0, onPrecedent: () => {}, onSuivant: () => {} }));
     expect(html).toContain('repérée par image');
+  });
+});
+
+describe('LOT 64 — ListePiecesAnalyse : toutes les pièces, non analysées par image en tête, état par ligne', () => {
+  const pieces = [
+    { id: 10, nomFichier: 'PC02_masse.pdf', propose: true },
+    { id: 20, nomFichier: 'PC200 Autres pieces.pdf', propose: false },
+    { id: 30, nomFichier: 'PC03_coupe.pdf', propose: true },
+  ];
+  it('ORDRE : les JAMAIS analysées par image d’abord (ordre conservé dans le groupe), puis les analysées', () => {
+    // 10 déjà analysée → passe APRÈS 20 et 30 (jamais analysées, ordre conservé).
+    const runs = { 10: { nbPlanches: 3, dateLisible: '2026-09-05' } };
+    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces, runsParPiece: runs, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
+    const iPc200 = html.indexOf('PC200 Autres pieces.pdf'), iCoupe = html.indexOf('PC03_coupe.pdf'), iMasse = html.indexOf('PC02_masse.pdf');
+    expect(iPc200).toBeGreaterThan(-1); expect(iPc200).toBeLessThan(iMasse); // 20 (non analysée) avant 10 (analysée)
+    expect(iCoupe).toBeLessThan(iMasse);                                     // 30 (non analysée) avant 10
+  });
+  it('ÉTAT par ligne, en TEXTE : « jamais analysée » / « analysée le … · N planche(s) » / « aucune planche trouvée »', () => {
+    const runs = { 10: { nbPlanches: 3, dateLisible: '2026-09-05' }, 30: { nbPlanches: 0, dateLisible: '2026-09-04' } };
+    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces, runsParPiece: runs, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
+    expect(html).toContain('jamais analysée par image');                    // pièce 20
+    expect(html).toContain('analysée par image le 2026-09-05 · 3 planches trouvées');
+    expect(html).toContain('analysée par image le 2026-09-04 · aucune planche trouvée'); // 0 planche = info utile, pas un vide
+    expect(html).toContain('hors des pièces suivies');                      // pièce 20 (propose=false)
+  });
+  it('pièce NON PDF : listée QUAND MÊME, désactivée, avec la raison (jamais absente en silence)', () => {
+    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces: [], runsParPiece: {}, nonSupportees: [{ id: 99, nomFichier: 'photo.jpg', motif: 'format non pris en charge (image/jpeg)' }], pieceId: null, onChoisir: () => {} }));
+    expect(html).toContain('photo.jpg');
+    expect(html).toContain('impossible à ouvrir — format non pris en charge (image/jpeg)');
+    expect(html).toContain('aria-disabled="true"');
   });
 });

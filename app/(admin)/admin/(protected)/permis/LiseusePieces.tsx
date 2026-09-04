@@ -5,11 +5,12 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist'; // type SEUL (erasé au runtime) : pdf.js reste importé DYNAMIQUEMENT dans afficherPage
 import {
   construireBandePlans, cibleBestOf, bornerPage,
-  SelecteurPiecePlan, BandePlans, NavPieceLibre, ZoomPdf,
-  type PiecePlan, type Plan,
+  ListePiecesAnalyse, BandePlans, NavPieceLibre, ZoomPdf,
+  type PiecePlan, type Plan, type EtatAnalysePiece,
 } from './TraceEmpriseRendu';
 import { MAX_DOCS_CACHE, MAX_BITMAPS_RENDU, voisinsAPrecharger, rangerEtEvincer } from './prechargeLiseuse';
 import type { RunReperageAffiche } from '../../../../lib/permis/reperePlanchesRepo'; // LOT 62 — audit du repérage par image (type SEUL)
+import { jourParisISO } from '../../../../lib/permis/horodatageParis'; // LOT 64 — date « analysée le … » en Europe/Paris
 
 /** LOT 23 — un document pdf.js en cache + comment il y est entré (`precharge` = chargé en tâche de fond, pas encore affiché) + octets réellement transférés. */
 type EntreeCache = { doc: PDFDocumentProxy; precharge: boolean; octets: number };
@@ -71,6 +72,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   // LOT 62 — audit du repérage par IMAGE, par pièce (planches / incertaines / pages écartées RGPD + motif / coût). `vReper` : après un
   //   repérage, on RECHARGE le best-of (les nouvelles planches image y entrent). `reperEnCours`/`reperMsg` : état du bouton.
   const [runs, setRuns] = useState<Record<number, RunReperageAffiche>>({});
+  const [piecesNonSupportees, setPiecesNonSupportees] = useState<{ id: number; nomFichier: string; motif: string }[]>([]); // LOT 64 — pièces non PDF (listées désactivées)
   const [vReper, setVReper] = useState(0);
   const [reperEnCours, setReperEnCours] = useState(false);
   const [reperMsg, setReperMsg] = useState<string | null>(null);
@@ -122,11 +124,12 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       try {
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`);
         if (!res.ok) { if (vivant) setEtat('erreur'); return; }
-        const j = await res.json() as { pieces?: PiecePlan[]; exclusionsBestOf?: { pieceId: number; page: number }[]; reperageRuns?: Record<number, RunReperageAffiche> };
+        const j = await res.json() as { pieces?: PiecePlan[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; exclusionsBestOf?: { pieceId: number; page: number }[]; reperageRuns?: Record<number, RunReperageAffiche> };
         if (!vivant) return;
         const ps = j.pieces ?? [];
         setPieces(ps);
         setRuns(j.reperageRuns ?? {}); // LOT 62 — audit du repérage par image
+        setPiecesNonSupportees(j.piecesNonSupportees ?? []); // LOT 64
 
         if (ps.length === 0) { setEtat('vide'); return; }
         const b = construireBandePlans(ps); // RÈGLE PARTAGÉE — sélection/ordre du best-of, jamais recodée ici.
@@ -319,6 +322,9 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
 
   const planCourant = nav === 'bestof' ? (bandeVisible[planIndex] ?? null) : null;
   const runCourant = pieceId !== null ? runs[pieceId] : undefined; // LOT 62 — audit du repérage de la pièce courante
+  // LOT 64 — état d'analyse PAYANTE par pièce (date lisible Europe/Paris), pour la liste des pièces.
+  const runsParPiece = useMemo<Record<number, EtatAnalysePiece>>(() =>
+    Object.fromEntries(Object.entries(runs).map(([id, r]) => [Number(id), { nbPlanches: r.nbPlanches, dateLisible: r.creeLe ? jourParisISO(r.creeLe) : null }])), [runs]);
 
   // LOT 62 — REPÉRER les planches de la pièce courante par ANALYSE D'IMAGE (bouton MANUEL). POST sous le verrou du LOT 58 (409 si une
   //   analyse tourne déjà). 401 → « reconnectez-vous ». Succès → on RECHARGE le best-of (vReper) : les planches image y entrent.
@@ -423,7 +429,8 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
           </button>
           {pleinListe && (
             <div style={{ marginTop: '.3rem' }}>
-              <SelecteurPiecePlan pieces={pieces} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} />
+              {/* LOT 64 — liste EXPLICITE (plus un <select> replié à une ligne) : toutes les pièces, non analysées par image en tête, état par ligne. */}
+              <ListePiecesAnalyse pieces={pieces} runsParPiece={runsParPiece} nonSupportees={piecesNonSupportees} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} />
             </div>
           )}
         </div>
@@ -438,6 +445,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
           </button>
           <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>
             Pièce ciblée : <strong style={{ color: 'var(--color-svv-ink)', wordBreak: 'break-word' }}>{nomCourant}</strong>. Fait analyser ses images par un service payant pour trouver les plans encastrés que le repérage par le texte ne voit pas (de l’ordre de 2 centimes pour une vingtaine de pages). Résultat modifiable (vous pouvez retirer une page). Pour une pièce absente du best-of, ouvrez-la d’abord via « voir toutes les pièces du dossier » ci-dessus.
+            {runCourant && <> <strong style={{ color: 'var(--color-svv-ink)' }}>Cette pièce a déjà été analysée</strong> — relancer refera une analyse payante.</>}
           </span>
           {/* ENCART DE RÉSULTAT — visible et persistant (LOT 63 a). Rouge si session expirée, sinon neutre. */}
           {(reperMsg || runCourant) && (

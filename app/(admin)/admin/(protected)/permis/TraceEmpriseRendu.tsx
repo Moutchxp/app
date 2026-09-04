@@ -99,6 +99,57 @@ export function SelecteurPiecePlan({ pieces, pieceId, onChoisir }: { pieces: Pie
   );
 }
 
+/** LOT 64 — état d'analyse PAYANTE (par image) d'une pièce : nb de planches trouvées + date lisible (déjà formatée par l'appelant). */
+export interface EtatAnalysePiece { nbPlanches: number; dateLisible: string | null }
+
+/**
+ * LOT 64 — LISTE EXPLICITE des pièces du dossier pour la liseuse (remplace le `<select>` natif, qui replié n'affichait qu'UNE ligne
+ * → Arno croyait n'avoir qu'une pièce). TOUTES les pièces sont visibles et cliquables ; les NON PDF apparaissent désactivées avec la
+ * raison (jamais absentes en silence). ORDRE : pièces JAMAIS analysées PAR IMAGE d'abord (celles qui en ont le plus besoin, ex. PC200
+ * « hors des pièces suivies »), puis les analysées — épinglage N10-J : on ne retrie PAS l'intérieur d'un groupe. L'ÉTAT porte sur
+ * l'analyse PAYANTE seule (le best-of textuel gratuit ne compte pas), écrit en TEXTE (jamais la couleur seule). PUR.
+ */
+export function ListePiecesAnalyse({ pieces, runsParPiece, nonSupportees, pieceId, onChoisir }: {
+  pieces: PiecePlan[];
+  runsParPiece: Record<number, EtatAnalysePiece>;
+  nonSupportees: { id: number; nomFichier: string; motif: string }[];
+  pieceId: number | null;
+  onChoisir: (id: number) => void;
+}) {
+  const ordre = [...pieces.filter((p) => !runsParPiece[p.id]), ...pieces.filter((p) => runsParPiece[p.id])];
+  const etat = (p: PiecePlan): string => {
+    const r = runsParPiece[p.id];
+    if (!r) return 'jamais analysée par image';
+    const n = r.nbPlanches;
+    return `analysée par image le ${r.dateLisible ?? '—'} · ${n > 0 ? `${n} planche${n > 1 ? 's' : ''} trouvée${n > 1 ? 's' : ''}` : 'aucune planche trouvée'}`;
+  };
+  const ligne: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '.05rem', width: '100%', textAlign: 'left', minHeight: 36, padding: '.3rem .45rem', borderRadius: '.4rem', fontSize: 12, wordBreak: 'break-word' };
+  return (
+    <ul role="list" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+      {ordre.map((p) => {
+        const courante = p.id === pieceId;
+        return (
+          <li key={p.id}>
+            <button type="button" onClick={() => onChoisir(p.id)} aria-current={courante ? 'true' : undefined}
+              style={{ ...ligne, cursor: 'pointer', border: `1px solid ${courante ? 'var(--color-svv-ink)' : 'var(--color-svv-line)'}`, background: courante ? 'var(--color-svv-field)' : 'transparent', color: 'inherit' }}>
+              <span style={{ fontWeight: 600 }}>{p.nomFichier}{p.propose ? '' : ' — hors des pièces suivies'}</span>
+              <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>{etat(p)}</span>
+            </button>
+          </li>
+        );
+      })}
+      {nonSupportees.map((p) => (
+        <li key={`ns-${p.id}`}>
+          <div style={{ ...ligne, opacity: 0.6, border: '1px solid var(--color-svv-line)', cursor: 'not-allowed' }} aria-disabled="true">
+            <span style={{ fontWeight: 600 }}>{p.nomFichier}</span>
+            <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>impossible à ouvrir — {p.motif}</span>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 // ── PROJ-3e — BANDE DE PLANS : l'unité manipulée est LE PLAN (une page précise d'une pièce), plus « pièce » + « n° de page ». ──
 export interface Plan { pieceId: number; page: number; nomFichier: string; echelle: string | null; confirme: boolean; famille: FamillePlan; tracable: boolean; ambigu: boolean; niveaux?: string[]; origine: 'texte' | 'image' }
 
