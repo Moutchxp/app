@@ -10,6 +10,7 @@ import { resoudreDossier, depsReellesLectureGed, lireGedPermis } from '../lib/pe
 import { lireCerfaScan, lecteurMistral } from '../lib/permis/lireCerfaScan';
 import { ecrireCerfaScan } from '../lib/permis/ecritureCerfaScan';
 import { trouverCerfaPc } from '../lib/permis/identifierCerfa'; // LECT-1 (A) : Cerfa par CONTENU (13409), pas par nom
+import { avecVerrouDossier } from '../lib/permis/verrouExtraction'; // LOT 58 — MÊME verrou que la route web / completer (une analyse à la fois par permis)
 
 const MAJ_PAR = 'extraction:cerfa-scan';
 const arg = (n: string): string | undefined => { const i = process.argv.indexOf(n); return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : undefined; };
@@ -32,8 +33,13 @@ async function main(): Promise<void> {
   const pdf = await deps.lireObjet(cerfa.cleStockage);
 
   console.log(`\n══════ CERFA SCANNÉ — ${dau} · pièce « ${piece} »${dryRun ? ' · DRY-RUN (rien écrit)' : ''} ══════`);
-  const lectures = await lireCerfaScan(pdf, lecteurMistral());
-  const res = await ecrireCerfaScan(dossierId, piece, lectures, MAJ_PAR, dryRun);
+  // LOT 58 — VERROU PAR DOSSIER (même helper que la route web / completer) : pas de vision ni d'écriture si une analyse de ce permis tourne déjà.
+  const verrou = await avecVerrouDossier(dossierId, async () => {
+    const lectures = await lireCerfaScan(pdf, lecteurMistral());
+    return ecrireCerfaScan(dossierId, piece, lectures, MAJ_PAR, dryRun);
+  });
+  if (!verrou.ok) { console.error(`[cerfa-scan] une analyse de ce permis (${dau}) est déjà en cours — passe ignorée (aucune écriture).`); process.exitCode = 3; return; }
+  const res = verrou.valeur;
 
   console.log('\n── lectures (OCR ⟷ vision) et décision par champ :');
   // N10-P — UNE ligne par CHAMP (les deux entrées de journal restent écrites ; c'est l'affichage qu'on regroupe).

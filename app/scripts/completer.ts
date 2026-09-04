@@ -29,6 +29,7 @@ import { ecrireCerfaScan } from '../lib/permis/ecritureCerfaScan';
 import { lirePermisCaracteristiques } from '../lib/permis/caracteristiquesRepo';
 import { lireJournalChamps } from '../lib/permis/journalLecture';
 import { executerEtapes, construireRapport, compterSansMotif, type Etape, type PrevisionAbstention } from '../lib/permis/completerPermis';
+import { avecVerrouDossier } from '../lib/permis/verrouExtraction'; // LOT 58 — MÊME verrou que la route web (une seule analyse à la fois par permis)
 
 const MAJ = 'completer';
 const arg = (n: string): string | undefined => { const i = process.argv.indexOf(n); return i >= 0 && i + 1 < process.argv.length ? process.argv[i + 1] : undefined; };
@@ -102,7 +103,11 @@ async function main(): Promise<void> {
 
   const t0 = Date.now();
   console.log(`\n══════ COMPLÉTER — ${dau} (${resolu.dossier.type})${dry ? ' · DRY-RUN (aucune écriture)' : ''} ══════`);
-  const { etapes: res, coutApiUsd, overlay } = await executerEtapes(etapes, sauter);
+  // LOT 58 — VERROU PAR DOSSIER (même helper que la route web) : si une analyse de CE permis tourne déjà (autre process/onglet), on
+  //   NE lance PAS les écritures ni la vision — on le dit et on sort proprement, plutôt que d'entrelacer purges et écritures.
+  const verrou = await avecVerrouDossier(dossierId, () => executerEtapes(etapes, sauter));
+  if (!verrou.ok) { console.error(`[completer] une analyse de ce permis (${dau}) est déjà en cours — passe ignorée (aucune écriture).`); process.exitCode = 3; return; }
+  const { etapes: res, coutApiUsd, overlay } = verrou.valeur;
   const ms = Date.now() - t0;
 
   console.log('\n── étapes :');

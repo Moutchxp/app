@@ -7,13 +7,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 vi.mock('../../../../../lib/admin/garde', () => ({ exigerAdministrateur: vi.fn() }));
 vi.mock('../../../../../lib/permis/executerExtraction', () => ({ executerExtractionPermis: vi.fn() }));
+// LOT 58 — verrou MOCKÉ : par défaut il exécute `fn` (passe-plat) ; un cas force « occupé » pour le 409. Aucune vraie base.
+vi.mock('../../../../../lib/permis/verrouExtraction', () => ({ avecVerrouDossier: vi.fn() }));
 
 import { POST } from './route';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { executerExtractionPermis } from '../../../../../lib/permis/executerExtraction';
+import { avecVerrouDossier } from '../../../../../lib/permis/verrouExtraction';
 
 const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
 const extraire = executerExtractionPermis as unknown as ReturnType<typeof vi.fn>;
+const verrou = avecVerrouDossier as unknown as ReturnType<typeof vi.fn>;
 const req = (body: unknown) => POST(new Request('http://test/api/admin/permis/extraire', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
 const RAPPORT = { ok: true, numDau: '07512025V0006', champsRetenus: 3, nbPieces: 46, piecesSansCandidat: 39, visionTournee: true, visionPieces: 1, motifVision: null };
 
@@ -21,6 +25,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   garde.mockResolvedValue({ auteurId: 5 });
   extraire.mockResolvedValue(RAPPORT);
+  verrou.mockImplementation(async (_id: number, fn: () => Promise<unknown>) => ({ ok: true, valeur: await fn() }));
 });
 
 describe('EXT-1 — POST /permis/extraire', () => {
@@ -54,5 +59,13 @@ describe('EXT-1 — POST /permis/extraire', () => {
   it('échec interne → 503', async () => {
     extraire.mockRejectedValueOnce(new Error('boom'));
     expect((await req({ dossierId: 531 })).status).toBe(503);
+  });
+
+  it('LOT 58 — verrou déjà pris (analyse en cours) → 409, message honnête, AUCUNE extraction lancée', async () => {
+    verrou.mockResolvedValueOnce({ ok: false, occupe: true }); // fn non exécutée par le verrou
+    const res = await req({ dossierId: 531 });
+    expect(res.status).toBe(409);
+    expect((await res.json()).erreur).toMatch(/déjà en cours/i);
+    expect(extraire).not.toHaveBeenCalled(); // la seconde passe ne s'exécute pas
   });
 });
