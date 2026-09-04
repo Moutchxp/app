@@ -749,9 +749,15 @@ describe('LOT 67 — DeclarationsCerfaBloc : lecture approfondie du Cerfa, en re
     niveauxDessusSol: 5, niveauxDessousSol: 1, stationnementAvant: 0, stationnementApres: 49, empriseAuSolCreeeM2: 1354,
     surfacePlancherTotaleM2: 4994,
     descriptionProjet: 'Le projet consist e en la construction de 67 logements neufs sur 3 plots.',
+    decompte: null,
     absents: [{ champ: 'surface habitable', motif: 'le Cerfa déclare la surface de PLANCHER, pas la surface habitable' }],
     ambigus: [{ champ: 'nature du projet', motif: 'deux libellés sans marque de sélection' }],
     present: true,
+  };
+  const decompteConcordant = {
+    batiments: [{ repere: 'A', logements: 40 }, { repere: 'B', logements: 18 }, { repere: 'C', logements: 9 }],
+    nbBatimentsDeclare: 3, sommeLogements: 67, logementsTotalStructure: 67, concordant: true, nbBatimentsRetenu: 3,
+    motifEcart: null, locauxCommerciaux: [{ surfaceM2: 177 }, { surfaceM2: 69 }], placesStationnement: 49, extrait: 'Bat. A : 40 · Bat. B : 18 · Bat. C : 9',
   };
   it('affiche les scalaires déclarés + la pièce source', () => {
     const h = renderToStaticMarkup(createElement(DeclarationsCerfaBloc, { declarations: base, pieceSource: 'Recapitulatif de la demande-19.pdf' }));
@@ -777,5 +783,21 @@ describe('LOT 67 — DeclarationsCerfaBloc : lecture approfondie du Cerfa, en re
   it('champ libre absent → pas de bloc <details> muet', () => {
     const h = renderToStaticMarkup(createElement(DeclarationsCerfaBloc, { declarations: { ...base, descriptionProjet: null }, pieceSource: null }));
     expect(h).not.toContain('<details');
+  });
+  it('LOT 69 — décompte CONCORDANT : nombre de bâtiments affiché avec sa PROVENANCE et « à vérifier », informatif à part', () => {
+    const h = renderToStaticMarkup(createElement(DeclarationsCerfaBloc, { declarations: { ...base, decompte: decompteConcordant }, pieceSource: null }));
+    expect(h).toContain('Nombre de bâtiments');
+    expect(h).toContain('Bât. A : 40 logement(s)');
+    expect(h).toContain('à vérifier'); // PastilleConfiance a_verifier — jamais « confirmé » sur cette seule base
+    expect(h).toContain('40 + 18 + 9 = 67'); // dit sur quoi la valeur repose (la somme vérifiée)
+    expect(h).toContain('vérifiée avec le total de logements');
+    expect(h).toContain('non corroboré'); // les locaux/parking sont informatifs
+  });
+  it('LOT 69 — décompte DISCORDANT : décompte lu affiché « non retenu » AVEC le motif chiffré (jamais un rejet muet)', () => {
+    const disc = { ...decompteConcordant, concordant: false, nbBatimentsRetenu: null, logementsTotalStructure: 65, motifEcart: 'somme 40+18+9=67 ≠ total structuré 65 — non écrit', locauxCommerciaux: [], placesStationnement: null };
+    const h = renderToStaticMarkup(createElement(DeclarationsCerfaBloc, { declarations: { ...base, decompte: disc }, pieceSource: null }));
+    expect(h).toContain('non retenu');
+    expect(h).toContain('≠ total structuré 65');
+    expect(h).not.toContain('Nombre de bâtiments'); // rien écrit → pas de valeur retenue affichée
   });
 })

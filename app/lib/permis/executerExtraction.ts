@@ -15,7 +15,7 @@ import { ecrireNiveaux } from './ecritureNiveaux';
 import { decisionParcelles, type ParcelleSitadel } from './decisionParcelles';
 import { lireParcellesRecapCerfa } from './parcellesRecap'; // LOT 66 : table « Références cadastrales » du récap (télé-service, TEXTE)
 import { lireDeclarationsRecapCerfa } from './recapCerfa'; // LOT 67 : déclarations du Cerfa (champs étiquetés + champ libre), DÉTERMINISTE
-import { ecrireDeclarationsRecap } from './cerfaRecapRepo'; // LOT 67 : instantané informatif, résilient (192 absente → no-op)
+import { ecrireDeclarationsRecap, ecrireDecompteDescription } from './cerfaRecapRepo'; // LOT 67 : instantané ; LOT 69 : décompte corroboré (journal 'recap')
 import { ecrireParcelles, figerEmpreinte, figerBatiSnapshot } from './parcellesRepo';
 import { figerVersionGel } from './gelRepo';
 import { lireCerfaScan, lecteurMistral } from './lireCerfaScan';
@@ -125,7 +125,13 @@ export async function executerExtractionPermis(dossierId: number, opts: { avecVi
   //   sur le texte du dossier déjà lu. Pièce source identifiée PAR CONTENU (trouverCerfaPc), jamais par le nom. N'écrit RIEN dans les
   //   colonnes de valeur (précédence intacte) ni dans Sitadel. Best-effort, NO-OP si migration 192 absente. IA-free.
   const decl = lireDeclarationsRecapCerfa(texteDossier);
-  if (decl.present) await ecrireDeclarationsRecap(dossierId, decl, trouverCerfaPc(ged, metas)?.nomFichier ?? cerfaPiece?.nomFichier ?? null, opts.majPar).catch(() => undefined);
+  if (decl.present) {
+    const pieceRecap = trouverCerfaPc(ged, metas)?.nomFichier ?? cerfaPiece?.nomFichier ?? null;
+    await ecrireDeclarationsRecap(dossierId, decl, pieceRecap, opts.majPar).catch(() => undefined);
+    // LOT 69 — DÉCOMPTE du champ libre CORROBORÉ par la somme (nombre de bâtiments) : journalisé sous la méthode dédiée 'recap'
+    //   (audit + précédence), retenue si concordant / écartée avec motif sinon. Best-effort, NO-OP si migration 193 absente. IA-free.
+    await ecrireDecompteDescription(dossierId, decl.decompte, pieceRecap).catch(() => undefined);
+  }
 
   // 6) VISION Mistral (Cerfa 13409 SCANNÉ) — seulement si demandé ; appel EXTERNE isolé.
   let visionTournee = false, visionPieces = 0, motifVision: string | null = opts.avecVision ? null : 'vision non demandée';

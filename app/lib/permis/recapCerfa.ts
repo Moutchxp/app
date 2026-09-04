@@ -14,7 +14,13 @@
  * - Ce lecteur ALIMENTE UN INSTANTANÉ INFORMATIF affiché en lecture seule ; il n'écrit RIEN dans les colonnes de valeur arbitrées par
  *   `precedenceMethodes` (nb_places_stationnement, surface_plancher_m2, destinations…), pour ne pas contourner la précédence ni créer
  *   une seconde vérité concurrente de Sitadel / du Cerfa AcroForm.
+ * - LOT 69 : le CHAMP LIBRE porte un décompte (logements par bâtiment, nb de bâtiments…) qu'AUCUN champ structuré ne donne. On le lit
+ *   ET on ne le RETIENT que si la SOMME concorde avec le total structuré des logements (`decompteDescription`). C'est la SEULE lecture
+ *   de VALEUR tirée du champ libre — corroborée, jamais interprétée. Quand elle concorde, « nombre/noms de bâtiments » quittent les
+ *   `absents` (ils ne sont plus « absents » : ils sont lus et corroborés) ; sinon ils y restent (N10-R).
  */
+import { lireDecompteDescription, type DecompteDescription } from './decompteDescription';
+
 export interface DeclarationsRecapCerfa {
   dateDepot: string | null;               // « Déposé le : JJ/MM/AAAA » (déclaration Cerfa ; Sitadel porte sa propre date, non écrasée)
   superficieTerrainM2: number | null;     // « Superficie totale du terrain (m²) »
@@ -28,6 +34,7 @@ export interface DeclarationsRecapCerfa {
   empriseAuSolCreeeM2: number | null;     // « Emprise au sol créée (en m²) »
   surfacePlancherTotaleM2: number | null; // ligne « Surfaces totales (m²) », colonne Surface totale (déclaration Cerfa ≠ surf_creee)
   descriptionProjet: string | null;       // champ libre « Courte description… » — VERBATIM, jamais résumé ni interprété
+  decompte: DecompteDescription | null;    // LOT 69 : décompte lu dans le champ libre, corroboré par la somme (null si pas de récap)
   absents: { champ: string; motif: string }[];
   ambigus: { champ: string; motif: string }[];
   present: boolean;                        // false si le texte n'est pas un récapitulatif reconnaissable (rien lu)
@@ -50,7 +57,7 @@ export function lireDeclarationsRecapCerfa(texte: string): DeclarationsRecapCerf
   const vide: DeclarationsRecapCerfa = {
     dateDepot: null, superficieTerrainM2: null, logementsTotal: null, logementsIndividuels: null, logementsCollectifs: null,
     niveauxDessusSol: null, niveauxDessousSol: null, stationnementAvant: null, stationnementApres: null,
-    empriseAuSolCreeeM2: null, surfacePlancherTotaleM2: null, descriptionProjet: null, absents, ambigus, present: false,
+    empriseAuSolCreeeM2: null, surfacePlancherTotaleM2: null, descriptionProjet: null, decompte: null, absents, ambigus, present: false,
   };
   if (!RE_RECAP.test(t)) return vide; // pas un récapitulatif reconnaissable → rien (jamais une supposition)
 
@@ -77,10 +84,18 @@ export function lireDeclarationsRecapCerfa(texte: string): DeclarationsRecapCerf
   const desc = /Courte\s+description\s+de\s+votre\s+projet\s+ou\s+de\s+vos\s+travaux\s*:?\s*([\s\S]*?)(?=Votre\s+projet\s+porte\s+sur\s+une\s+installation|Si\s+votre\s+projet\s+n[ée]cessite|Informations\s+compl[ée]mentaires|$)/i.exec(t);
   if (desc) { const s = desc[1].trim(); if (s) descriptionProjet = s; }
 
+  // LOT 69 — DÉCOMPTE lu dans le champ libre, CORROBORÉ par la somme sur le total structuré des logements. Seule lecture de valeur du
+  //   champ libre. `logementsTotal` est l'AUTRE source (structurée) qui sert de preuve.
+  const decompte = lireDecompteDescription(descriptionProjet, logementsTotal);
+
   // N10-R — champs demandés par le porteur mais ABSENTS de ce formulaire : dits, jamais comblés par une supposition.
   absents.push({ champ: 'surface habitable', motif: 'le Cerfa déclare la surface de PLANCHER (tableau des surfaces), pas la surface habitable — mesures distinctes, non reportables' });
-  absents.push({ champ: 'nombre de bâtiments', motif: 'aucun champ structuré « nombre de bâtiments » au formulaire ; l’information n’apparaît que dans le champ libre (non extrait en valeur, régime ②)' });
-  absents.push({ champ: 'noms des bâtiments', motif: 'aucun champ structuré ; les repères « Bat. A/B/C » ne figurent que dans le champ libre (non extrait en valeur, régime ②)' });
+  // « nombre / noms de bâtiments » : ABSENTS des champs structurés. Ils ne sortent des `absents` QUE si le décompte du champ libre
+  //   CONCORDE (somme = total) — ils sont alors lus ET corroborés, plus « absents ». Sinon (pas de décompte, ou discordance) ils restent.
+  if (!decompte.concordant) {
+    absents.push({ champ: 'nombre de bâtiments', motif: 'aucun champ structuré « nombre de bâtiments » au formulaire ; l’information n’apparaît que dans le champ libre (non extrait en valeur, régime ②)' });
+    absents.push({ champ: 'noms des bâtiments', motif: 'aucun champ structuré ; les repères « Bat. A/B/C » ne figurent que dans le champ libre (non extrait en valeur, régime ②)' });
+  }
   // AMBIGU — la nature du projet : les libellés coexistent dans le texte aplati sans marque de sélection lisible.
   if (/Nouvelle\s+construction/i.test(t) && /Travaux\s+sur\s+(?:construction\s+)?existant/i.test(t)) {
     ambigus.push({ champ: 'nature du projet', motif: 'les libellés « Nouvelle construction » et « Travaux sur construction existante » coexistent sans marque de sélection lisible dans le texte — non tranché' });
@@ -89,6 +104,6 @@ export function lireDeclarationsRecapCerfa(texte: string): DeclarationsRecapCerf
   return {
     dateDepot: dateM ? dateM[1] : null, superficieTerrainM2, logementsTotal, logementsIndividuels, logementsCollectifs,
     niveauxDessusSol, niveauxDessousSol, stationnementAvant, stationnementApres, empriseAuSolCreeeM2, surfacePlancherTotaleM2,
-    descriptionProjet, absents, ambigus, present: true,
+    descriptionProjet, decompte, absents, ambigus, present: true,
   };
 }

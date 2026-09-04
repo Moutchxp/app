@@ -60,3 +60,27 @@ describe('lireDeclarationsRecapCerfa — N10-R / ambiguïté : jamais un vide mu
     expect(v.superficieTerrainM2).toBeNull();
   });
 });
+
+describe('lireDeclarationsRecapCerfa — LOT 69 : décompte du champ libre corroboré par la somme', () => {
+  // Récap dont le champ libre porte le décompte PAR bâtiment (40+18+9=67) ET le total structuré 67 → concordance.
+  const RECAP_DECOMPTE = [
+    "Courte description de votre projet ou de vos travaux : Construction de 67 logements sur 3 plots de A à C : 40 logements po ur le Bat. A, 18 pour le Bat. B et 9 pour le Bat. C.",
+    "Votre projet porte sur une installation agrivoltaïque : Non",
+    "Nombre total de logements créés : 67 dont individuels : 0 dont collectifs : 67",
+    "Références cadastrales Préfixe Section Numéro",
+  ].join(' ');
+
+  it('retient le décompte (concordant) et SORT « nombre/noms de bâtiments » des absents', () => {
+    const d = lireDeclarationsRecapCerfa(RECAP_DECOMPTE);
+    expect(d.decompte!.concordant).toBe(true);
+    expect(d.decompte!.nbBatimentsRetenu).toBe(3);
+    expect(d.decompte!.batiments).toEqual([{ repere: 'A', logements: 40 }, { repere: 'B', logements: 18 }, { repere: 'C', logements: 9 }]);
+    expect(d.absents.map((a) => a.champ)).toEqual(['surface habitable']); // plus « nombre/noms de bâtiments » : lus et corroborés
+  });
+
+  it('sans décompte par bâtiment, le décompte n’est pas concordant et les absents restent complets', () => {
+    const d = lireDeclarationsRecapCerfa(RECAP); // « 67 logements sur 3 plots » sans répartition
+    expect(d.decompte!.concordant).toBe(false);
+    expect(d.absents.map((a) => a.champ)).toContain('nombre de bâtiments');
+  });
+});

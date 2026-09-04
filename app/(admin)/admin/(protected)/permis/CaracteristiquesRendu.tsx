@@ -108,6 +108,37 @@ export function DeclarationsCerfaBloc({ declarations: d, pieceSource }: { declar
           <p style={{ ...styleAide, marginTop: '.3rem' }}>Texte repris tel quel du formulaire, sans résumé ni interprétation.</p>
         </details>
       )}
+      {/* LOT 69 — DÉCOMPTE lu dans le champ libre, CORROBORÉ par la somme sur le total structuré. Une valeur n'est AFFICHÉE COMME
+          RETENUE que si la somme concorde ; sinon on montre le décompte lu ET le motif de non-écriture (jamais un rejet muet). */}
+      {d.decompte && (d.decompte.batiments.length > 0 || d.decompte.locauxCommerciaux.length > 0 || d.decompte.placesStationnement !== null) && (
+        <div style={{ fontSize: 12.5, lineHeight: 1.5, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem', background: 'var(--color-svv-field)' }}>
+          {d.decompte.concordant && d.decompte.nbBatimentsRetenu !== null ? (
+            <>
+              <div><span style={{ color: 'var(--color-svv-muted)' }}>Nombre de bâtiments : </span><strong>{d.decompte.nbBatimentsRetenu}</strong> <PastilleConfiance confiance="a_verifier" /></div>
+              {d.decompte.batiments.length > 0 && (
+                <div style={{ marginTop: '.15rem' }}>{d.decompte.batiments.map((b) => `Bât. ${b.repere} : ${b.logements} logement(s)`).join(' · ')}</div>
+              )}
+              <p style={{ ...styleAide, marginTop: '.25rem' }}>
+                Déclaré dans la description du projet — somme des logements par bâtiment ({d.decompte.batiments.map((b) => b.logements).join(' + ')} = {d.decompte.sommeLogements}) vérifiée avec le total de logements ({d.decompte.logementsTotalStructure}). Jamais issu d’un champ structuré.
+              </p>
+            </>
+          ) : d.decompte.batiments.length > 0 ? (
+            <>
+              <div><span style={{ color: 'var(--color-svv-muted)' }}>Décompte lu dans la description (non retenu) : </span>{d.decompte.batiments.map((b) => `Bât. ${b.repere} : ${b.logements}`).join(' · ')}</div>
+              {d.decompte.motifEcart && <p role="note" style={{ ...styleNote, color: 'var(--color-svv-red)', marginTop: '.2rem' }}>⚠ {d.decompte.motifEcart}</p>}
+            </>
+          ) : null}
+          {/* INFORMATIF — jamais corroboré, jamais reporté sur une colonne de valeur (le stationnement arbitré reste au Cerfa/Sitadel). */}
+          {(d.decompte.locauxCommerciaux.length > 0 || d.decompte.placesStationnement !== null) && (
+            <p style={{ ...styleAide, marginTop: d.decompte.batiments.length > 0 ? '.3rem' : 0 }}>
+              Aussi lu dans la description (informatif, non corroboré) :
+              {d.decompte.locauxCommerciaux.length > 0 ? ` ${d.decompte.locauxCommerciaux.length} local(aux) commercial(aux)${d.decompte.locauxCommerciaux.some((l) => l.surfaceM2 !== null) ? ` (${d.decompte.locauxCommerciaux.map((l) => l.surfaceM2 !== null ? `${l.surfaceM2} m²` : '—').join(', ')})` : ''}` : ''}
+              {d.decompte.locauxCommerciaux.length > 0 && d.decompte.placesStationnement !== null ? ' ·' : ''}
+              {d.decompte.placesStationnement !== null ? ` ${d.decompte.placesStationnement} place(s) de stationnement` : ''}.
+            </p>
+          )}
+        </div>
+      )}
       {/* N10-R — champs demandés mais ABSENTS de CE formulaire : dits avec leur motif, jamais comblés par une supposition. */}
       {d.absents.length > 0 && (
         <div style={styleAide}>

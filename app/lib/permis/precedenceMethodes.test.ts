@@ -5,8 +5,8 @@ import { rangMethode, domine, methodeGagnante, motifEcartePrecedence, estMotifPr
  * N10-T — la précédence entre méthodes, déclarée UNE SEULE FOIS. Tests PURS. L'ordre : saisie > cerfa > enonce > plan > ia > motifs.
  */
 describe('precedenceMethodes', () => {
-  it('l’ORDRE est bien saisie > cerfa > enonce > plan > ia > motifs (rang croissant = force décroissante)', () => {
-    expect([...PRECEDENCE_METHODES]).toEqual(['saisie', 'cerfa', 'enonce', 'plan', 'ia', 'motifs']);
+  it('l’ORDRE est bien saisie > cerfa > enonce > plan > ia > motifs > recap (rang croissant = force décroissante)', () => {
+    expect([...PRECEDENCE_METHODES]).toEqual(['saisie', 'cerfa', 'enonce', 'plan', 'ia', 'motifs', 'recap']);
     expect(rangMethode('cerfa')).toBeLessThan(rangMethode('ia'));
     expect(rangMethode('enonce')).toBeLessThan(rangMethode('motifs'));
     expect(rangMethode('inconnue')).toBe(PRECEDENCE_METHODES.length); // inconnue = rang le plus faible
@@ -20,6 +20,10 @@ describe('precedenceMethodes', () => {
     expect(domine('motifs', 'enonce')).toBe(false);
     expect(domine('ia', null)).toBe(true);       // aucun propriétaire → on écrit
     expect(domine('ia', 'ia')).toBe(true);       // même méthode (recompute idempotent) → on écrit
+    // LOT 69 — 'recap' (champ libre corroboré) est le PLUS FAIBLE : il n'écrase AUCUNE méthode structurée, il n'écrit qu'un champ vierge.
+    expect(domine('recap', 'motifs')).toBe(false);
+    expect(domine('recap', null)).toBe(true);    // champ neuf (aucun propriétaire) → on écrit
+    expect(domine('cerfa', 'recap')).toBe(true); // toute méthode structurée domine 'recap'
   });
 
   it('methodeGagnante : la plus forte parmi des « retenue » ; ignore les méthodes nulles ; null si aucune', () => {
