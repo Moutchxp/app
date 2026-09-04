@@ -1,10 +1,13 @@
 /**
  * N10-O — LECTURE d'un Cerfa SCANNÉ par DEUX sources indépendantes : OCR (mistral-ocr-latest) et VISION (mistral-medium-latest).
- * IMPUR (modèle + pdftoppm). N'envoie à l'API que les PAGES DU TRIAGE (jamais le document en aveugle page par page). Les parsers
- * OCR sont calés sur le Cerfa 13409*15 (comme decisionCerfa) ; un autre millésime demandera à les étendre.
+ * IMPUR (modèle + pdftoppm). Les parsers OCR sont calés sur le Cerfa 13409*15 (comme decisionCerfa) ; un autre millésime demandera
+ * à les étendre.
  *
+ * 🔒 RGPD (LOT 56-E) — LISTE D'AUTORISATION : avant TOUT appel réseau, le PDF est DÉCOUPÉ aux seules pages utiles
+ * (`PAGES_UTILES_CERFA`, dérivées de `PAGES_CERFA`). OCR ET vision ne reçoivent QUE ce PDF réduit — jamais les pages d'identité du
+ * demandeur (nom, naissance, téléphone, signature). Découpe impossible (pagination non reconnue) → abstention, aucun envoi.
  * 🔒 Deux lectures SÉPARÉES → la décision (decisionCerfaScan) n'écrit que si elles s'accordent. Ce module NE décide rien, il LIT.
- * Le `LecteurCerfa` est INJECTABLE : les tests bouchonnent OCR + vision (aucun appel réseau en test).
+ * Le `LecteurCerfa` est INJECTABLE : les tests bouchonnent découpe + OCR + vision (aucun appel réseau ni binaire en test).
  */
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
@@ -16,13 +19,29 @@ import type { LectureValeur } from './decisionCerfaScan';
 /** Sous-destinations de la liste fermée (mêmes libellés que le CHECK 110). */
 export const SOUS_DESTINATIONS: readonly string[] = [...new Set(Object.values(SOUS_DESTINATION_PAR_LETTRE))];
 
-/** Triage MESURÉ (N10-O, Cerfa 13409*15) — pages 1-based. */
+/**
+ * Triage MESURÉ (N10-O, Cerfa 13409*15) — pages 1-based. Mesuré sur le PC 075 120 25 V0035 (24 pages) le 04/09 :
+ *   p.5 « 3.1 Localisation du terrain », p.7 « logements créés », p.9 « 4.5 Destination + tableau des surfaces »,
+ *   p.10 « 4.7 Stationnement ». Les pages d'IDENTITÉ du demandeur — p.4 (nom/naissance/téléphone), p.11 (co-demandeurs),
+ *   p.12 (signature) — n'y figurent JAMAIS : c'est une LISTE D'AUTORISATION, pas une exclusion.
+ */
 export const PAGES_CERFA = { adresse: 5, logements: 7, destinations: 9, stationnement: 10 } as const;
 
-/** Deux sources indépendantes + rasterisation (INJECTABLE → les tests bouchonnent tout, aucun appel réseau ni pdftoppm). */
+/**
+ * LOT 56-E — LISTE D'AUTORISATION RGPD, DÉRIVÉE de `PAGES_CERFA` (jamais recopiée) : les seules pages 1-based qu'on transmet à
+ * un service tiers. Tout ce qui n'est pas ici (identité, signature, architecte…) ne part PAS. En cas de doute on perd une valeur
+ * (abstention journalisée), jamais une page d'identité. Mesurée sur le 13409*15 ; un millésime à pagination différente échouera la
+ * borne de découpe → abstention.
+ */
+export const PAGES_UTILES_CERFA: readonly number[] = [...new Set(Object.values(PAGES_CERFA))].sort((a, b) => a - b);
+
+/** Deux sources indépendantes + rasterisation + DÉCOUPE RGPD (INJECTABLE → les tests bouchonnent tout, aucun appel réseau ni binaire poppler). */
 export interface LecteurCerfa {
-  ocr(pdf: Buffer): Promise<string[]>;                                  // markdown par page (index 0-based)
-  rasteriser(pdf: Buffer, page: number): string;                        // image base64 d'une page (1-based)
+  // LOT 56-E — POINT DE PASSAGE RGPD : réduit le PDF aux SEULES pages autorisées (dans l'ordre), en amont de tout envoi réseau.
+  //   Renvoie `null` si une page demandée n'existe pas (pagination non reconnue) → l'appelant s'abstient sans rien transmettre.
+  decouper(pdf: Buffer, pages: readonly number[]): Buffer | null;
+  ocr(pdf: Buffer): Promise<string[]>;                                  // markdown par page (index 0-based) — reçoit le PDF DÉJÀ RÉDUIT
+  rasteriser(pdf: Buffer, page: number): string;                        // image base64 d'une page (1-based) — du PDF DÉJÀ RÉDUIT
   vision(imageB64: string, prompt: string): Promise<Record<string, unknown>>;
 }
 
@@ -93,15 +112,42 @@ export function etatVersLecture(etat: unknown, valeur: unknown): LectureValeur {
   return { statut: 'illisible' };                                                     // (3) ni valeur ni vide franc
 }
 
+/**
+ * LOT 56-E — résultat d'ABSTENTION (découpe RGPD impossible) : toutes les lectures 'illisible', AUCUN envoi réseau. `planifierEcriture`
+ * en fera une abstention journalisée par champ (role 'ecartee', motif), jamais un vide muet — rien n'est écrit en base.
+ */
+function abstentionIllisible(): Awaited<ReturnType<typeof lireCerfaScan>> {
+  const ill: LectureValeur = { statut: 'illisible' };
+  const paire = { ocr: ill, vision: ill };
+  const dest: Record<string, LectureValeur> = {};
+  for (const sd of SOUS_DESTINATIONS) dest[sd] = ill;
+  return {
+    scalaires: { adresseTerrain: paire, surfacePlancherM2: paire, nbLogements: paire, nbPlacesStationnement: paire },
+    destinations: { ocr: dest, vision: dest },
+  };
+}
+
 /** Lit les DEUX sources et rend, par champ, la lecture OCR et la lecture vision (pures LectureValeur). */
 export async function lireCerfaScan(pdf: Buffer, lecteur: LecteurCerfa): Promise<{
   scalaires: Record<'surfacePlancherM2' | 'nbLogements' | 'nbPlacesStationnement' | 'adresseTerrain', { ocr: LectureValeur; vision: LectureValeur }>;
   destinations: { ocr: Record<string, LectureValeur>; vision: Record<string, LectureValeur> };
 }> {
-  const md = await lecteur.ocr(pdf);                    // markdown par page (index 0-based)
-  const page = (n: number) => md[n - 1] ?? '';
+  // LOT 56-E — DÉCOUPE RGPD EN AMONT DE TOUT RÉSEAU : on ne transmet QUE les pages utiles (liste d'autorisation `PAGES_UTILES_CERFA`).
+  //   Si la découpe échoue (une page attendue est hors du document → pagination non reconnue), on N'ENVOIE RIEN et on rend des
+  //   lectures 'illisible' → le plan journalise une abstention MOTIVÉE par champ (jamais un vide muet, doctrine N10-R). Aucun
+  //   appel ocr/vision dans ce cas. C'est le SEUL point de passage : `lecteur.ocr`/`rasteriser` ne voient QUE le PDF réduit.
+  const reduit = lecteur.decouper(pdf, PAGES_UTILES_CERFA);
+  if (reduit === null) {
+    console.warn('[cerfa-scan] découpe impossible (pagination non reconnue) — abstention, aucune page transmise à l’API', { pagesAttendues: PAGES_UTILES_CERFA });
+    return abstentionIllisible();
+  }
+  // Index dans le PDF RÉDUIT d'une page 1-based du document ORIGINAL (l'ordre de PAGES_UTILES_CERFA = l'ordre des pages réduites).
+  const idxReduit = (nOriginal: number) => PAGES_UTILES_CERFA.indexOf(nOriginal);
 
-  const visU = async (n: number, prompt: string) => lecteur.vision(lecteur.rasteriser(pdf, n), prompt);
+  const md = await lecteur.ocr(reduit);                 // markdown par page du PDF RÉDUIT (index 0-based)
+  const page = (nOriginal: number) => md[idxReduit(nOriginal)] ?? '';
+
+  const visU = async (nOriginal: number, prompt: string) => lecteur.vision(lecteur.rasteriser(reduit, idxReduit(nOriginal) + 1), prompt);
 
   // OCR (déterministe)
   const ocr = {
@@ -150,6 +196,30 @@ function rasteriser(pdf: Buffer, page: number): string {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
+/**
+ * LOT 56-E — DÉCOUPE RGPD réelle (poppler : pdfinfo + pdfseparate + pdfunite). Renvoie un PDF ne contenant QUE `pages` (dans l'ordre
+ * donné), ou `null` si une page demandée est hors du document (pagination non reconnue → l'appelant s'abstient). Aucun réseau.
+ */
+function decouperReel(pdf: Buffer, pages: readonly number[]): Buffer | null {
+  const dir = mkdtempSync(join(tmpdir(), 'cerfa-decoupe-'));
+  try {
+    const src = join(dir, 'd.pdf');
+    writeFileSync(src, pdf);
+    const info = execFileSync('pdfinfo', [src]).toString();
+    const total = Number(/^Pages:\s*(\d+)/m.exec(info)?.[1] ?? 0);
+    if (!total || pages.some((p) => p < 1 || p > total)) return null; // borne stricte : une page hors document = pagination non reconnue
+    const parts: string[] = [];
+    for (const p of pages) {
+      const out = join(dir, `p${p}.pdf`);
+      execFileSync('pdfseparate', ['-f', String(p), '-l', String(p), src, out]);
+      parts.push(out);
+    }
+    const merged = join(dir, 'reduit.pdf');
+    execFileSync('pdfunite', [...parts, merged]);
+    return readFileSync(merged);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}
+
 /** Usage cumulé d'une passe Mistral, pour chiffrer le coût. */
 export interface UsageMistral { ocrPages: number; promptTokens: number; completionTokens: number }
 /** Coût USD (tarifs LISTE : mistral-medium-3 0,40 $/M in · 2,00 $/M out ; mistral-ocr 1 $/1000 pages). */
@@ -165,6 +235,7 @@ export function lecteurMistral(usage?: UsageMistral): LecteurCerfa {
     return (await res.json()) as Record<string, unknown>;
   };
   return {
+    decouper: decouperReel,
     rasteriser,
     async ocr(pdf) {
       const d = await post('https://api.mistral.ai/v1/ocr', { model: 'mistral-ocr-latest', document: { type: 'document_url', document_url: `data:application/pdf;base64,${pdf.toString('base64')}` }, include_image_base64: false });
