@@ -999,46 +999,70 @@ export function LegendeSchemaProjection() {
   );
 }
 
-// ── LOT 80 — LÉGENDE PAR POLYGONE (bâtiment · cleabs · altitude validée) sous le schéma « Projection des emprises » ──
-export interface LigneLegendePolygone {
+// ── LOT 81 — LÉGENDE DU SCHÉMA « PROJECTION DES EMPRISES » : DEUX NATURES DISTINCTES (jamais mélangées, cf. cadre métier Arno) ──
+//   ① POLYGONES BD TOPO RÉELS (verdict certifié) ; ② EMPRISES PROJETÉES tracées d'après les plans du permis (verdict projeté, sans
+//   certificat). Correction du LOT 80 : une emprise tracée à la main N'EST PAS à exclure — c'est elle qui porte le bâtiment + l'altitude
+//   quand BD TOPO ne connaît pas encore le futur bâtiment.
+
+/** Nature d'un polygone BD TOPO réel dans la légende. `affecte` : adopté à un bâtiment du permis ; `projet_non_affecte` : futur bâti
+ *  « en projet » non adopté (un VRAI trou, doit se voir) ; `existant_sans_objet` : bâti existant, sans raison d'être rattaché au permis. */
+export type NaturePolygoneLegende = 'affecte' | 'projet_non_affecte' | 'existant_sans_objet';
+export interface LignePolygoneReel {
   cleabs: string;
-  repere: string;                    // repère du SCHÉMA (ordre de DESSIN, A/B/C…) — sert à retrouver le polygone sur le schéma ; JAMAIS le nom du bâtiment
-  nomBatiment: string | null;        // nom du BÂTIMENT DU PERMIS affecté (nomAffichageCorps) ; null = polygone NON AFFECTÉ
+  repere: string;                    // repère du SCHÉMA (ordre de DESSIN, A/B/C…) — retrouve le polygone sur le schéma ; JAMAIS le nom du bâtiment
+  nature: NaturePolygoneLegende;
+  nomBatiment: string | null;        // nom du BÂTIMENT DU PERMIS affecté (nomAffichageCorps) ; null hors 'affecte'
   altitudeSommetNgf: number | null;  // altitude de sommet VALIDÉE, PORTÉE PAR LE BÂTIMENT (héritée) ; null = altitude non validée
-  nbPolygonesDuBatiment: number;     // combien de polygones listés partagent ce bâtiment (≥ 2 → altitude commune, héritée — jamais mesurée sur le polygone)
+  nbPolygonesDuBatiment: number;     // ≥ 2 → altitude commune, héritée (jamais mesurée sur le polygone)
 }
+export interface LigneEmpriseProjetee {
+  empriseId: number;
+  nomBatiment: string;               // le bâtiment du permis que l'emprise SIMULE
+  altitudeSommetNgf: number | null;  // altitude de sommet du bâtiment (héritée) ; null = altitude non validée
+  nbEmprisesDuBatiment: number;      // ≥ 2 → altitude commune à plusieurs emprises du même bâtiment
+}
+export interface LegendeProjection { polygones: LignePolygoneReel[]; emprisesProjetees: LigneEmpriseProjetee[] }
 
 /**
- * LOT 80 — construit une ligne par POLYGONE BD TOPO dessiné (identité + ORDRE = repère du schéma, `attribuerReperes`), avec le NOM du
- * BÂTIMENT DU PERMIS auquel il est affecté et l'ALTITUDE DE SOMMET VALIDÉE de ce bâtiment. L'affectation polygone→bâtiment est celle des
- * EMPRISES ADOPTÉES (`calage.cleabs → corps`) — SEULE affectation opérante ici, la MÊME que le schéma et le bloc « projet »
- * (`polygonesProjetParBatiment`) ; l'ancienne affectation d'arbitrage (`permis_corps_polygone`) n'est jamais renseignée en pratique.
- * 🔴 L'altitude est portée par le BÂTIMENT (permis_corps_batiment), donc HÉRITÉE : deux polygones d'un même bâtiment affichent la MÊME
- * valeur — jamais une mesure sur ce polygone (vigilance). Polygone sans emprise-source → `nomBatiment` null (« non affecté ») ;
- * bâtiment sans altitude → `altitudeSommetNgf` null (« non validée »). Les emprises tracées à la main (sans cleabs) ne sont PAS des
- * polygones : elles n'entrent jamais ici. PUR (aucune I/O).
+ * LOT 81 — construit la légende à DEUX GROUPES du schéma « Projection des emprises ». Source unique du schéma : les polygones RÉELS
+ * (identité/ORDRE = repère `attribuerReperes`) ET les emprises reconstituées, RÉPARTIS par NATURE :
+ *  ① `polygones` — chaque polygone BD TOPO dessiné : `affecte` (adopté à un bâtiment via `calage.cleabs → corps`), `projet_non_affecte`
+ *     (futur bâti « en projet » non adopté = vrai trou), ou `existant_sans_objet` (bâti existant, aucun lien au permis attendu).
+ *  ② `emprisesProjetees` — chaque emprise TRACÉE À LA MAIN (aucun polygone BD TOPO source, `calage.cleabs` vide) reliée à SON bâtiment :
+ *     c'est le geste VOULU quand BD TOPO ne connaît pas encore le futur bâtiment (simulation d'après les plans). PAS de `cleabs` (normal).
+ * 🔴 L'altitude est portée par le BÂTIMENT (`permis_corps_batiment.altitude_sommet_ngf`), donc HÉRITÉE (jamais mesurée sur l'entité) ;
+ *    `null` = non validée. Les deux mondes ne se mélangent jamais (réel → verdict certifié ; projeté → verdict projeté sans certificat). PUR.
  */
-export function legendePolygonesProjection(
+export function legendeProjection(
   polygones: PolygoneRepere[], emprises: EmpriseReconstruite[],
   batiments: { corpsId: number; repere: string | null; nomRepli?: string | null; altitudeSommetNgf?: number | null }[],
-): LigneLegendePolygone[] {
-  // cleabs → corps, via les emprises ADOPTÉES (première emprise qui porte ce cleabs) — identique à polygonesProjetParBatiment.
+): LegendeProjection {
+  const batParCorps = new Map(batiments.map((b) => [b.corpsId, b]));
+  const nomEtAlt = (corpsId: number): { nom: string; alt: number | null } => {
+    const b = batParCorps.get(corpsId);
+    return { nom: nomAffichageCorps({ repere: b?.repere ?? null, nomRepli: b?.nomRepli, corpsId }), alt: b?.altitudeSommetNgf ?? null };
+  };
+  // ① cleabs → corps, via les emprises ADOPTÉES (première emprise qui porte ce cleabs) — même liaison que polygonesProjetParBatiment.
   const corpsDeCleabs = new Map<string, number>();
   for (const e of emprises) { if (e.corpsId === null) continue; for (const c of cleabsSourceEmprise(e)) if (!corpsDeCleabs.has(c)) corpsDeCleabs.set(c, e.corpsId); }
-  const batParCorps = new Map(batiments.map((b) => [b.corpsId, b]));
-  // On ne liste que les polygones RÉELLEMENT dessinés (anneau ≥ 3) et identifiés (cleabs) — jamais une emprise tracée (pas de cleabs).
-  const base = polygones.filter((p) => p.cleabs !== null && p.anneau.length >= 3).map((p) => {
+  const polyBase = polygones.filter((p) => p.cleabs !== null && p.anneau.length >= 3).map((p) => {
     const corpsId = corpsDeCleabs.get(p.cleabs as string);
-    const bat = corpsId === undefined ? undefined : batParCorps.get(corpsId);
-    return {
-      cleabs: p.cleabs as string, repere: p.repere, corpsId: corpsId ?? null,
-      nomBatiment: corpsId === undefined ? null : nomAffichageCorps({ repere: bat?.repere ?? null, nomRepli: bat?.nomRepli, corpsId }),
-      altitudeSommetNgf: bat?.altitudeSommetNgf ?? null,
-    };
+    if (corpsId !== undefined) { const { nom, alt } = nomEtAlt(corpsId); return { cleabs: p.cleabs as string, repere: p.repere, corpsId: corpsId as number | null, nature: 'affecte' as NaturePolygoneLegende, nomBatiment: nom, altitudeSommetNgf: alt }; }
+    // Pas d'emprise-source : bâti existant (sans objet) OU futur bâti « en projet » non adopté (vrai trou). Le MOT porte l'info.
+    const nature: NaturePolygoneLegende = estFuturBati(p.etat) ? 'projet_non_affecte' : 'existant_sans_objet';
+    return { cleabs: p.cleabs as string, repere: p.repere, corpsId: null as number | null, nature, nomBatiment: null, altitudeSommetNgf: null };
   });
-  const compte = new Map<number, number>();
-  for (const l of base) if (l.corpsId !== null) compte.set(l.corpsId, (compte.get(l.corpsId) ?? 0) + 1);
-  return base.map(({ corpsId, ...l }) => ({ ...l, nbPolygonesDuBatiment: corpsId === null ? 0 : (compte.get(corpsId) ?? 0) }));
+  const comptePoly = new Map<number, number>();
+  for (const l of polyBase) if (l.corpsId !== null) comptePoly.set(l.corpsId, (comptePoly.get(l.corpsId) ?? 0) + 1);
+  const polygonesL = polyBase.map(({ corpsId, ...l }) => ({ ...l, nbPolygonesDuBatiment: corpsId === null ? 0 : (comptePoly.get(corpsId) ?? 0) }));
+  // ② emprises PROJETÉES tracées à la main (aucun polygone BD TOPO source) reliées à leur bâtiment. Une emprise ADOPTÉE (avec cleabs)
+  //    est déjà représentée par son polygone en ① → jamais recomptée ici.
+  const traceBase = emprises.filter((e) => e.corpsId !== null && cleabsSourceEmprise(e).length === 0)
+    .map((e) => { const { nom, alt } = nomEtAlt(e.corpsId as number); return { empriseId: e.id, corpsId: e.corpsId as number, nomBatiment: nom, altitudeSommetNgf: alt }; });
+  const compteEmp = new Map<number, number>();
+  for (const l of traceBase) compteEmp.set(l.corpsId, (compteEmp.get(l.corpsId) ?? 0) + 1);
+  const emprisesProjetees = traceBase.map(({ corpsId, ...l }) => ({ ...l, nbEmprisesDuBatiment: compteEmp.get(corpsId) ?? 0 }));
+  return { polygones: polygonesL, emprisesProjetees };
 }
 
 /** LOT 80 — cleabs abrégé pour l'affichage (valeur complète conservée en `title`) : jamais tronqué silencieusement, jamais de blanc. PUR. */
@@ -1046,40 +1070,61 @@ export function abregerCleabs(cleabs: string): string {
   return cleabs.length > 20 ? `${cleabs.slice(0, 12)}…${cleabs.slice(-6)}` : cleabs;
 }
 
+/** LOT 81 — fragment « altitude … NGF » (ou « altitude non validée ») + mention de partage (héritée du bâtiment). PUR (renderToStaticMarkup). */
+function fragmentAltitude(alt: number | null, nbPartage: number, unite: 'polygones' | 'emprises') {
+  if (alt === null) return <span style={{ color: 'var(--color-svv-muted)' }}>altitude non validée</span>;
+  return <>altitude de sommet du bâtiment {fmtM(alt)} NGF{nbPartage > 1 ? <span style={muted}> (commune à ses {nbPartage} {unite})</span> : null}</>;
+}
+
 /**
- * LOT 80 — LÉGENDE PAR POLYGONE affichée SOUS la légende de catégories : une ligne « Polygone {repère} · {cleabs} — {bâtiment} ·
- * altitude validée {…} NGF ». Vocabulaire STRICT : « bâtiment » jamais « corps » ; le repère est celui du SCHÉMA (dessin), distinct du
- * nom du bâtiment. Non affecté / altitude non validée dits EN TOUTES LETTRES. Aucun polygone → SANS OBJET explicite. Mobile-first
- * (empilement, cleabs qui casse). PUR (renderToStaticMarkup).
+ * LOT 81 — LÉGENDE à DEUX GROUPES sous la légende de catégories. Vocabulaire STRICT (« bâtiment », jamais « corps ») ; le repère
+ * « Polygone A/B/C » est celui du SCHÉMA (dessin), distinct du nom du bâtiment. Chaque cas dit CE QU'IL EST (jamais un état par défaut) :
+ * bâti existant → « sans objet » ; en projet non adopté → « non affecté » (vrai trou, mis en évidence) ; emprise projetée → mention
+ * « simulée d'après les plans, aucun polygone BD TOPO à ce jour » (l'absence de cleabs n'est PAS un défaut). Un groupe vide affiche un
+ * « aucun … à ce jour » explicite, JAMAIS un « satisfait » (piège LOT 71). Mobile-first (empilement, cleabs qui casse). PUR.
  */
-export function LegendePolygonesProjection({ lignes, aDesEmprisesTracees = false }: { lignes: LigneLegendePolygone[]; aDesEmprisesTracees?: boolean }) {
-  if (lignes.length === 0) {
-    return <p role="note" style={{ ...muted, margin: '.15rem 0 0' }}>Aucun polygone BD TOPO dans l’emprise de ce permis : rien à détailler par polygone (sans objet).</p>;
-  }
+export function LegendeProjectionEmprises({ legende }: { legende: LegendeProjection }) {
+  const { polygones, emprisesProjetees } = legende;
+  const titre: CSSProperties = { fontSize: 12, fontWeight: 700 };
+  const ligne: CSSProperties = { fontSize: 12, display: 'flex', flexWrap: 'wrap', gap: '.1rem .4rem', alignItems: 'baseline', lineHeight: 1.35 };
+  const clef: CSSProperties = { fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 11, color: 'var(--color-svv-muted)', wordBreak: 'break-all' };
   return (
-    <div role="note" style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', marginTop: '.15rem' }}>
-      <div style={{ fontSize: 12, fontWeight: 700 }}>Par polygone : bâtiment · référence IGN (cleabs) · altitude de sommet validée</div>
-      <ul role="list" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
-        {lignes.map((l) => (
-          <li key={l.cleabs} data-cleabs={l.cleabs} style={{ fontSize: 12, display: 'flex', flexWrap: 'wrap', gap: '.1rem .4rem', alignItems: 'baseline', lineHeight: 1.35 }}>
-            {/* Repère du SCHÉMA (dessin) — vocabulaire « Polygone X » déjà utilisé partout ; ce n'est PAS le nom du bâtiment. */}
-            <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Polygone {l.repere}</span>
-            <span title={l.cleabs} style={{ fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 11, color: 'var(--color-svv-muted)', wordBreak: 'break-all' }}>{abregerCleabs(l.cleabs)}</span>
-            <span aria-hidden>—</span>
-            {l.nomBatiment === null
-              ? <span style={{ color: 'var(--color-svv-muted)' }}>non affecté à un bâtiment</span>
-              : (
-                <span>
-                  <strong>{l.nomBatiment}</strong>{' · '}
-                  {l.altitudeSommetNgf === null
-                    ? <span style={{ color: 'var(--color-svv-muted)' }}>altitude non validée</span>
-                    : <>altitude de sommet validée du bâtiment {fmtM(l.altitudeSommetNgf)} NGF{l.nbPolygonesDuBatiment > 1 ? <span style={muted}> (commune à ses {l.nbPolygonesDuBatiment} polygones)</span> : null}</>}
-                </span>
-              )}
-          </li>
-        ))}
-      </ul>
-      {aDesEmprisesTracees && <p style={{ ...muted, margin: '.1rem 0 0', fontStyle: 'italic' }}>Les emprises tracées à la main (en rouge sur le schéma) sont des reconstitutions, pas des polygones BD TOPO : elles ne figurent pas dans cette liste.</p>}
+    <div role="note" style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', marginTop: '.15rem' }}>
+      {/* ① Monde RÉEL — bord neutre. Sert au verdict CERTIFIÉ. */}
+      <div style={{ borderLeft: '3px solid var(--color-svv-ink)', paddingLeft: '.5rem', display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+        <div style={titre}>Polygones BD TOPO réels <span style={muted}>— servent au verdict certifié</span></div>
+        {polygones.length === 0
+          ? <p style={{ ...muted, margin: 0 }}>Aucun polygone BD TOPO dans l’emprise à ce jour (le futur bâtiment n’y figure pas encore).</p>
+          : <ul role="list" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+              {polygones.map((l) => (
+                <li key={l.cleabs} data-cleabs={l.cleabs} data-nature={l.nature} style={ligne}>
+                  <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Polygone {l.repere}</span>
+                  <span title={l.cleabs} style={clef}>{abregerCleabs(l.cleabs)}</span>
+                  <span aria-hidden>—</span>
+                  {l.nature === 'affecte'
+                    ? <span><strong>{l.nomBatiment}</strong>{' · '}{fragmentAltitude(l.altitudeSommetNgf, l.nbPolygonesDuBatiment, 'polygones')}</span>
+                    : l.nature === 'projet_non_affecte'
+                      ? <span style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}>⚠ en projet, non affecté à un bâtiment</span>
+                      : <span style={{ color: 'var(--color-svv-muted)' }}>bâti existant — affectation sans objet</span>}
+                </li>
+              ))}
+            </ul>}
+      </div>
+      {/* ② Monde PROJETÉ — bord rouge (couleur de l'emprise sur le schéma). Sert au verdict PROJETÉ, jamais au certificat. */}
+      <div style={{ borderLeft: '3px solid var(--color-svv-red)', paddingLeft: '.5rem', display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+        <div style={titre}>Emprises projetées <span style={muted}>— tracées d’après les plans du permis · verdict projeté, jamais un certificat</span></div>
+        {emprisesProjetees.length === 0
+          ? <p style={{ ...muted, margin: 0 }}>Aucune emprise simulée d’après les plans à ce jour.</p>
+          : <ul role="list" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+              {emprisesProjetees.map((l) => (
+                <li key={l.empriseId} data-emprise-projetee={l.empriseId} style={ligne}>
+                  <span><strong>{l.nomBatiment}</strong>{' · '}{fragmentAltitude(l.altitudeSommetNgf, l.nbEmprisesDuBatiment, 'emprises')}</span>
+                  <span aria-hidden>·</span>
+                  <span style={{ ...muted, fontStyle: 'italic' }}>emprise simulée d’après les plans du permis — aucun polygone BD TOPO à ce jour</span>
+                </li>
+              ))}
+            </ul>}
+      </div>
     </div>
   );
 }

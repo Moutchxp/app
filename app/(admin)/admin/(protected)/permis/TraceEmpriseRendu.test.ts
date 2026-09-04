@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendePolygonesProjection, LegendePolygonesProjection, abregerCleabs, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -267,45 +267,74 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
   });
 });
 
-describe('LOT 80 — légende par polygone (bâtiment · cleabs · altitude validée) du schéma « Projection des emprises »', () => {
+describe('LOT 81 — légende à DEUX GROUPES (polygones BD TOPO réels + emprises projetées) du schéma « Projection des emprises »', () => {
   const cal = (cleabs: string[]) => ({ cleabs }) as unknown as EmpriseReconstruite['calage'];
-  // 3 polygones BD TOPO dessinés (repères A/B/C = ordre de dessin), + 1 bâtiment « BP » (nom_repli) d'altitude validée 101.
+  // 4 polygones BD TOPO dessinés (repères A..D = ordre de dessin) : 2 « En projet » adoptés au même bâtiment, 1 « En projet » NON adopté
+  // (vrai trou), 1 bâti EXISTANT (sans objet). Bâtiment « BP » (nom_repli) d'altitude validée 101.
   const polys = attribuerReperes([
-    { cleabs: 'BATIMENT242', anneau: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], etat: 'En projet' },   // A → adopté au bâtiment
-    { cleabs: 'BATIMENT243', anneau: [{ x: 20, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 10 }], etat: 'En projet' },  // B → adopté au MÊME bâtiment (altitude héritée)
-    { cleabs: 'EXISTANT99', anneau: [{ x: 40, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 10 }], etat: 'En service' },  // C → aucune emprise-source → non affecté
+    { cleabs: 'BATIMENT242', anneau: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], etat: 'En projet' },   // A → adopté
+    { cleabs: 'BATIMENT243', anneau: [{ x: 20, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 10 }], etat: 'En projet' },  // B → adopté (même bâtiment, altitude héritée)
+    { cleabs: 'BATIMENT245', anneau: [{ x: 40, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 10 }], etat: 'En projet' },  // C → « En projet » NON adopté = vrai trou
+    { cleabs: 'EXISTANT99', anneau: [{ x: 60, y: 0 }, { x: 70, y: 0 }, { x: 70, y: 10 }], etat: 'En service' },  // D → bâti existant (sans objet)
   ]);
-  const emprises = [
+  const emprisesAdoptees = [
     emprise({ id: 16, corpsId: 3, provenance: 'ign_adopte', calage: cal(['BATIMENT242']) }),
     emprise({ id: 17, corpsId: 3, provenance: 'ign_adopte', calage: cal(['BATIMENT243']) }),
   ];
   const batiments = [{ corpsId: 3, repere: '', nomRepli: 'BP', altitudeSommetNgf: 101 }];
+  // 2 emprises TRACÉES à la main (11434) : chacune reliée à SON bâtiment (2D1/2D2) avec son altitude, AUCUN cleabs.
+  const empProjetees = [
+    emprise({ id: 4, corpsId: 2, provenance: 'trace_manuel', calage: null }),
+    emprise({ id: 5, corpsId: 1, provenance: 'trace_manuel', calage: null }),
+  ];
+  const bat11434 = [{ corpsId: 1, repere: '2D1', altitudeSommetNgf: 88.91 }, { corpsId: 2, repere: '2D2', altitudeSommetNgf: 86.11 }];
 
-  it('affecté + altitude : deux polygones d’un même bâtiment portent la MÊME altitude, HÉRITÉE (jamais mesurée sur le polygone)', () => {
-    const l = legendePolygonesProjection(polys, emprises, batiments);
-    expect(l.map((x) => x.repere)).toEqual(['A', 'B', 'C']); // ordre/identité = repères du schéma, jamais une 2e numérotation
-    expect(l[0]).toMatchObject({ cleabs: 'BATIMENT242', nomBatiment: 'bâtiment en projet', altitudeSommetNgf: 101, nbPolygonesDuBatiment: 2 });
-    expect(l[1]).toMatchObject({ cleabs: 'BATIMENT243', nomBatiment: 'bâtiment en projet', altitudeSommetNgf: 101, nbPolygonesDuBatiment: 2 });
+  it('① polygone adopté + altitude héritée : deux polygones d’un même bâtiment portent la MÊME altitude (jamais mesurée sur le polygone)', () => {
+    const { polygones } = legendeProjection(polys, emprisesAdoptees, batiments);
+    expect(polygones.map((x) => x.repere)).toEqual(['A', 'B', 'C', 'D']); // ordre/identité = repères du schéma
+    expect(polygones[0]).toMatchObject({ cleabs: 'BATIMENT242', nature: 'affecte', nomBatiment: 'bâtiment en projet', altitudeSommetNgf: 101, nbPolygonesDuBatiment: 2 });
+    expect(polygones[1]).toMatchObject({ nature: 'affecte', nbPolygonesDuBatiment: 2 });
   });
 
-  it('non affecté : un polygone sans emprise-source → nomBatiment null (« non affecté »), pas d’altitude reprise ailleurs', () => {
-    const l = legendePolygonesProjection(polys, emprises, batiments);
-    expect(l[2]).toMatchObject({ cleabs: 'EXISTANT99', nomBatiment: null, altitudeSommetNgf: null, nbPolygonesDuBatiment: 0 });
+  it('① bâti EXISTANT non affecté → nature existant_sans_objet (« sans objet »), JAMAIS « non affecté »', () => {
+    const { polygones } = legendeProjection(polys, emprisesAdoptees, batiments);
+    expect(polygones[3]).toMatchObject({ cleabs: 'EXISTANT99', nature: 'existant_sans_objet', nomBatiment: null });
   });
 
-  it('affecté mais bâtiment SANS altitude → altitudeSommetNgf null (« non validée ») — jamais une valeur d’un autre niveau', () => {
-    const l = legendePolygonesProjection(polys, emprises, [{ corpsId: 3, repere: '2D1', altitudeSommetNgf: null }]);
-    expect(l[0]).toMatchObject({ nomBatiment: '2D1', altitudeSommetNgf: null });
+  it('① polygone « En projet » NON adopté → nature projet_non_affecte (vrai trou, distinct du bâti existant)', () => {
+    const { polygones } = legendeProjection(polys, emprisesAdoptees, batiments);
+    expect(polygones[2]).toMatchObject({ cleabs: 'BATIMENT245', nature: 'projet_non_affecte', nomBatiment: null });
   });
 
-  it('emprise tracée à la main (sans cleabs) → n’est PAS un polygone : elle n’ajoute aucune ligne', () => {
-    const l = legendePolygonesProjection(polys, [emprise({ corpsId: 1, provenance: 'trace_manuel', calage: null })], batiments);
-    expect(l).toHaveLength(3); // seulement les 3 polygones BD TOPO ; l'emprise tracée n'entre pas
-    expect(l.every((x) => x.nomBatiment === null)).toBe(true); // aucune emprise-source → tous non affectés
+  it('② emprise PROJETÉE tracée à la main : reliée à SON bâtiment + altitude, SANS cleabs (normal) — corrige l’exclusion du LOT 80', () => {
+    const { polygones, emprisesProjetees } = legendeProjection([], empProjetees, bat11434);
+    expect(polygones).toEqual([]); // aucun polygone BD TOPO (le futur bâtiment n'y figure pas encore)
+    expect(emprisesProjetees).toHaveLength(2);
+    expect(emprisesProjetees.map((e) => e.nomBatiment).sort()).toEqual(['2D1', '2D2']);
+    expect(emprisesProjetees.find((e) => e.nomBatiment === '2D1')!.altitudeSommetNgf).toBe(88.91);
+    expect(emprisesProjetees.find((e) => e.nomBatiment === '2D2')!.altitudeSommetNgf).toBe(86.11);
   });
 
-  it('aucun polygone → liste vide (état SANS OBJET, jamais « tout validé »)', () => {
-    expect(legendePolygonesProjection([], emprises, batiments)).toEqual([]);
+  it('② emprise projetée SANS altitude de bâtiment → altitudeSommetNgf null (« non validée »)', () => {
+    const { emprisesProjetees } = legendeProjection([], [emprise({ id: 9, corpsId: 7, provenance: 'trace_manuel', calage: null })], [{ corpsId: 7, repere: 'B3', altitudeSommetNgf: null }]);
+    expect(emprisesProjetees[0]).toMatchObject({ nomBatiment: 'B3', altitudeSommetNgf: null });
+  });
+
+  it('② deux emprises tracées d’un MÊME bâtiment → altitude commune signalée (nbEmprisesDuBatiment = 2)', () => {
+    const deux = [emprise({ id: 4, corpsId: 2, provenance: 'trace_manuel', calage: null }), emprise({ id: 8, corpsId: 2, provenance: 'trace_manuel', calage: null })];
+    const { emprisesProjetees } = legendeProjection([], deux, bat11434);
+    expect(emprisesProjetees.every((e) => e.nbEmprisesDuBatiment === 2)).toBe(true);
+  });
+
+  it('une emprise ADOPTÉE (avec cleabs) n’apparaît PAS en groupe ② (déjà représentée par son polygone en ①) — jamais recomptée', () => {
+    const { emprisesProjetees } = legendeProjection(polys, emprisesAdoptees, batiments);
+    expect(emprisesProjetees).toEqual([]);
+  });
+
+  it('les DEUX groupes vides → aucune ligne dans l’un ni l’autre (le rendu affichera un « aucun … » explicite, jamais « satisfait »)', () => {
+    const { polygones, emprisesProjetees } = legendeProjection([], [], batiments);
+    expect(polygones).toEqual([]);
+    expect(emprisesProjetees).toEqual([]);
   });
 
   it('abregerCleabs : abrège une longue clé (title garde la valeur complète), laisse une courte intacte', () => {
@@ -313,23 +342,34 @@ describe('LOT 80 — légende par polygone (bâtiment · cleabs · altitude vali
     expect(abregerCleabs('COURT')).toBe('COURT');
   });
 
-  it('rendu : « Polygone A » (repère du schéma) DISTINCT du nom du bâtiment ; altitude commune signalée ; SANS OBJET si vide', () => {
-    const html = renderToStaticMarkup(h(LegendePolygonesProjection, { lignes: legendePolygonesProjection(polys, emprises, batiments), aDesEmprisesTracees: false }));
-    expect(html).toContain('Polygone A');                       // repère du schéma (dessin)
-    expect(html).toContain('bâtiment en projet');               // nom du bâtiment, distinct
-    expect(html).toContain('altitude de sommet validée du bâtiment');
+  it('rendu ① : « Polygone A » (repère du schéma) DISTINCT du nom du bâtiment ; existant « sans objet » ; en projet non affecté mis en évidence', () => {
+    const html = renderToStaticMarkup(h(LegendeProjectionEmprises, { legende: legendeProjection(polys, emprisesAdoptees, batiments) }));
+    expect(html).toContain('Polygone A');                          // repère du schéma (dessin)
+    expect(html).toContain('bâtiment en projet');                  // nom du bâtiment, distinct
+    expect(html).toContain('altitude de sommet du bâtiment');
     expect(html).toContain('101,00 m NGF');
-    expect(html).toContain('commune à ses 2 polygones');        // héritage explicite
-    expect(html).toContain('non affecté à un bâtiment');        // polygone C
-    const vide = renderToStaticMarkup(h(LegendePolygonesProjection, { lignes: [] }));
-    expect(vide).toContain('sans objet');
+    expect(html).toContain('commune à ses 2 polygones');           // héritage explicite
+    expect(html).toContain('bâti existant — affectation sans objet');
+    expect(html).toContain('en projet, non affecté');              // le vrai trou se voit
+    expect(html).toContain('verdict certifié');                    // monde réel étiqueté
   });
 
-  it('rendu : la mention « emprises tracées à la main… pas des polygones » n’apparaît que si demandée', () => {
-    const sans = renderToStaticMarkup(h(LegendePolygonesProjection, { lignes: legendePolygonesProjection(polys, emprises, batiments), aDesEmprisesTracees: false }));
-    expect(sans).not.toContain('tracées à la main');
-    const avec = renderToStaticMarkup(h(LegendePolygonesProjection, { lignes: legendePolygonesProjection(polys, emprises, batiments), aDesEmprisesTracees: true }));
-    expect(avec).toContain('reconstitutions, pas des polygones BD TOPO');
+  it('rendu ② : emprise projetée avec bâtiment + altitude + mention « aucun polygone BD TOPO à ce jour » ; JAMAIS « donnée manquante »', () => {
+    const html = renderToStaticMarkup(h(LegendeProjectionEmprises, { legende: legendeProjection([], empProjetees, bat11434) }));
+    expect(html).toContain('2D1');
+    expect(html).toContain('88,91 m NGF');
+    expect(html).toContain('86,11 m NGF');
+    expect(html).toContain('emprise simulée d’après les plans du permis — aucun polygone BD TOPO à ce jour');
+    expect(html).toContain('verdict projeté, jamais un certificat');
+    expect(html).not.toContain('SANS OBJET'); // plus de « sans objet » là où il y a bien 2 emprises projetées
+    // groupe ① vide → « aucun … à ce jour » explicite (jamais « satisfait »).
+    expect(html).toContain('Aucun polygone BD TOPO dans l’emprise à ce jour');
+  });
+
+  it('rendu : les deux groupes vides → deux « aucun … à ce jour » explicites (jamais un « satisfait » sur ensemble vide)', () => {
+    const html = renderToStaticMarkup(h(LegendeProjectionEmprises, { legende: legendeProjection([], [], batiments) }));
+    expect(html).toContain('Aucun polygone BD TOPO dans l’emprise à ce jour');
+    expect(html).toContain('Aucune emprise simulée d’après les plans à ce jour');
   });
 });
 

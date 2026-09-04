@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { cadreDeAnneaux, type Boite, type PointLambert } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
-import { SchemaParcelleTrace, LegendeSchemaProjection, LegendePolygonesProjection, legendePolygonesProjection, attribuerReperes, FILTRES_SCHEMA_DEFAUT } from './TraceEmpriseRendu';
+import { SchemaParcelleTrace, LegendeSchemaProjection, LegendeProjectionEmprises, legendeProjection, attribuerReperes, FILTRES_SCHEMA_DEFAUT } from './TraceEmpriseRendu';
 import type { EtatStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 
 /**
@@ -69,12 +69,10 @@ export function RecapProjectionRattachement({ etat, emprises, parcelle, polygone
       </p>
       <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={FILTRES_SCHEMA_DEFAUT} calageLambert={[]} statuts={statuts} />
       <LegendeSchemaProjection />
-      {/* LOT 80 — une ligne par POLYGONE : bâtiment du permis affecté + cleabs + altitude de sommet VALIDÉE (portée par le bâtiment,
-          héritée par ses polygones). Même identité/ordre que le schéma (polygonesReperes) ; affectation par emprise adoptée. */}
-      <LegendePolygonesProjection
-        lignes={legendePolygonesProjection(polygonesReperes, emprises, batiments)}
-        aDesEmprisesTracees={emprises.some((e) => e.provenance === 'trace_manuel')}
-      />
+      {/* LOT 81 — DEUX GROUPES distincts : ① polygones BD TOPO réels (bâtiment · cleabs · altitude validée) ② emprises PROJETÉES tracées
+          d'après les plans (bâtiment · altitude · « aucun polygone BD TOPO à ce jour »). Corrige le LOT 80 qui excluait les emprises
+          tracées — celles qui portent justement nos données quand BD TOPO ne connaît pas encore le bâtiment. Source unique du schéma. */}
+      <LegendeProjectionEmprises legende={legendeProjection(polygonesReperes, emprises, batiments)} />
     </div>
   );
 }
