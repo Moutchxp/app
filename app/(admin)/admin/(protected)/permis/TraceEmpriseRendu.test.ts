@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, placerEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -385,24 +385,6 @@ describe('LOT 82 — étiquettes (nom du bâtiment + altitude) posées SUR le sc
     expect(pointDansAnneau(p.x, p.y, formeL)).toBe(true);                  // pointOnSurface est DEDANS
   });
 
-  it('placerEtiquette : tient DEDANS un grand polygone (pas de déport)', () => {
-    const carre = [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 200 }, { x: 0, y: 200 }];
-    const vb = { minX: 0, minY: 0, w: 220, h: 220 };
-    const pos = placerEtiquette({ x: 100, y: 100 }, ['2D1', '88,91 m NGF'], carre, vb, 0);
-    expect(pos.deportee).toBe(false);
-  });
-
-  it('placerEtiquette : bande ÉTROITE → DÉPORTÉE (trait de rappel), et TOUJOURS clampée dans le cadre (jamais de débordement)', () => {
-    const bande = [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 5 }, { x: 0, y: 5 }]; // hauteur 5 < hauteur d’étiquette
-    const vb = { minX: 0, minY: 0, w: 220, h: 220 };
-    const pos = placerEtiquette({ x: 100, y: 2.5 }, ['2D1', '88,91 m NGF'], bande, vb, 0);
-    expect(pos.deportee).toBe(true);
-    expect(pos.x).toBeGreaterThanOrEqual(vb.minX);
-    expect(pos.x + pos.w).toBeLessThanOrEqual(vb.minX + vb.w + 1e-9); // clampée : aucun débordement du cadre
-    expect(pos.y).toBeGreaterThanOrEqual(vb.minY);
-    expect(pos.y + pos.h).toBeLessThanOrEqual(vb.minY + vb.h + 1e-9);
-  });
-
   // Données (réutilisent la ventilation réelle : 2 adoptés + 1 en projet non adopté + 1 existant ; 2 emprises tracées 2D1/2D2).
   const polys = attribuerReperes([
     { cleabs: 'BATIMENT242', anneau: formeL, etat: 'En projet' },
@@ -473,6 +455,78 @@ describe('LOT 82 — étiquettes (nom du bâtiment + altitude) posées SUR le sc
       etiquettes: etiquettesProjection([], empProjetees, bat11434),
     }));
     expect(html).not.toContain('data-nature="projete"'); // repères éteints → pas d’étiquette sur le dessin
+  });
+});
+
+describe('LOT 83 — étiquettes déportées ENTIÈREMENT dégagées (aucune à cheval sur une forme, aucune superposée)', () => {
+  const rect = (p: { x: number; y: number; w: number; h: number }) => p; // sucre
+  const bande = (y: number): { x: number; y: number }[] => [{ x: 20, y }, { x: 180, y }, { x: 180, y: y + 6 }, { x: 20, y: y + 6 }]; // bande étroite horizontale
+  const item = (cle: string, anneauPx: { x: number; y: number }[], ancre: { x: number; y: number }, nature: 'reel' | 'projete' = 'projete'): ItemEtiquette =>
+    ({ cle, lignes: ['2D1', '88,91 m NGF'], nature, anneauPx, ancre });
+
+  it('dimsBoiteEtiquette : la boîte grandit avec la ligne la plus longue et le nombre de lignes', () => {
+    const a = dimsBoiteEtiquette(['2D1']);
+    const b = dimsBoiteEtiquette(['2D1', '88,91 m NGF']);
+    expect(b.h).toBeGreaterThan(a.h);
+    expect(b.w).toBeGreaterThan(a.w);
+  });
+
+  it('boiteIntersectePolygone : collision de FORME (pas bbox) — vrai sur la forme, faux à côté même si dans la bbox d’une bande oblique', () => {
+    const carre = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }];
+    expect(boiteIntersectePolygone({ x: 10, y: 10, w: 20, h: 20 }, carre)).toBe(true);
+    expect(boiteIntersectePolygone({ x: 200, y: 200, w: 10, h: 10 }, carre)).toBe(false);
+    const diag = [{ x: 0, y: 0 }, { x: 100, y: 100 }, { x: 100, y: 110 }, { x: 0, y: 10 }]; // bande oblique : bbox 100×110 ≫ surface
+    expect(boiteIntersectePolygone({ x: 48, y: 50, w: 8, h: 8 }, diag)).toBe(true);   // sur la bande
+    expect(boiteIntersectePolygone({ x: 45, y: 85, w: 10, h: 10 }, diag)).toBe(false); // dans la bbox mais À CÔTÉ de la bande
+  });
+
+  it('boitesSeChevauchent : vrai si recouvrement, faux si séparées', () => {
+    expect(boitesSeChevauchent({ x: 0, y: 0, w: 10, h: 10 }, { x: 5, y: 5, w: 10, h: 10 })).toBe(true);
+    expect(boitesSeChevauchent({ x: 0, y: 0, w: 10, h: 10 }, { x: 20, y: 0, w: 10, h: 10 })).toBe(false);
+  });
+
+  it('DEDANS : une boîte qui tient entièrement dans un grand polygone → posée dedans (aucun déport)', () => {
+    const carre = [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 200 }, { x: 0, y: 200 }];
+    const [p] = placerEtiquettes([item('a', carre, { x: 100, y: 100 })], [carre], { minX: 0, minY: 0, w: 260, h: 260 });
+    expect(p.deportee).toBe(false);
+  });
+
+  it('DÉPORTÉE : bande étroite → boîte ENTIÈREMENT hors de la forme (jamais à cheval) + dans le cadre', () => {
+    const b1 = bande(100);
+    const vb = { minX: 0, minY: 0, w: 220, h: 220 };
+    const [p] = placerEtiquettes([item('b1', b1, { x: 100, y: 103 })], [b1], vb);
+    expect(p.deportee).toBe(true);
+    expect(boiteIntersectePolygone(rect(p), b1)).toBe(false);              // PREUVE : la boîte ne chevauche PAS sa forme
+    expect(p.x >= vb.minX && p.y >= vb.minY && p.x + p.w <= vb.minX + vb.w && p.y + p.h <= vb.minY + vb.h).toBe(true);
+    expect(p.recours).toBeFalsy();
+  });
+
+  it('rejet pour collision avec une AUTRE forme : la boîte évite AUSSI l’emprise voisine', () => {
+    const b1 = bande(100), b2 = bande(60); // deux bandes proches
+    const [p] = placerEtiquettes([item('b1', b1, { x: 100, y: 103 })], [b1, b2], { minX: 0, minY: 0, w: 220, h: 220 });
+    expect(boiteIntersectePolygone(rect(p), b1)).toBe(false);
+    expect(boiteIntersectePolygone(rect(p), b2)).toBe(false);
+  });
+
+  it('deux étiquettes voisines : chacune dégagée des formes ET l’une de l’autre (pas de superposition)', () => {
+    const b1 = bande(100), b2 = bande(60);
+    const placees = placerEtiquettes([item('b1', b1, { x: 100, y: 103 }), item('b2', b2, { x: 100, y: 63 })], [b1, b2], { minX: 0, minY: 0, w: 240, h: 240 });
+    for (const p of placees) { expect(boiteIntersectePolygone(rect(p), b1)).toBe(false); expect(boiteIntersectePolygone(rect(p), b2)).toBe(false); }
+    expect(boitesSeChevauchent(rect(placees[0]), rect(placees[1]))).toBe(false); // les deux boîtes ne se chevauchent pas
+  });
+
+  it('DERNIER RECOURS (parcelle saturée) : aucune position libre → position de moindre recouvrement marquée `recours`, clampée au cadre', () => {
+    const vb = { minX: 0, minY: 0, w: 80, h: 40 };
+    const b1 = [{ x: 0, y: 18 }, { x: 80, y: 18 }, { x: 80, y: 22 }, { x: 0, y: 22 }];       // bande désignée (mince)
+    const haut = [{ x: 0, y: 0 }, { x: 80, y: 0 }, { x: 80, y: 17 }, { x: 0, y: 17 }];        // remplit le haut
+    const bas = [{ x: 0, y: 23 }, { x: 80, y: 23 }, { x: 80, y: 40 }, { x: 0, y: 40 }];       // remplit le bas → aucun espace libre
+    const [p] = placerEtiquettes([item('b1', b1, { x: 40, y: 20 })], [b1, haut, bas], vb);
+    expect(p.recours).toBe(true); // règle explicite, jamais une boîte à cheval silencieuse
+    expect(p.x >= vb.minX && p.y >= vb.minY && p.x + p.w <= vb.minX + vb.w && p.y + p.h <= vb.minY + vb.h).toBe(true);
+  });
+
+  it('aucune entité → aucune étiquette placée', () => {
+    expect(placerEtiquettes([], [], { minX: 0, minY: 0, w: 100, h: 100 })).toEqual([]);
   });
 });
 

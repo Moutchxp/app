@@ -598,29 +598,99 @@ export function pointDansAnneau(x: number, y: number, anneau: { x: number; y: nu
 }
 
 // Gabarit d'étiquette (unités de la boîte SVG). Volontairement modeste : le schéma reste lisible, la légende dessous est le repli.
-const ETIQ = { police: 8.5, hauteurLigne: 10, largeurCar: 4.9, pad: 2.5, gapDeport: 8 };
-export interface PosEtiquette { x: number; y: number; w: number; h: number; deportee: boolean; ax: number; ay: number }
+const ETIQ = { police: 8.5, hauteurLigne: 10, largeurCar: 4.9, pad: 2.5 };
+const ETIQ_MARGE = 3;   // LOT 83 — marge de sécurité (px) autour de la boîte pour les tests de collision : jamais à ras d'une forme
+const ETIQ_PAS = 5;     // LOT 83 — pas radial du balayage des positions candidates (fin → trouve plus souvent une position libre)
+type Pt = { x: number; y: number };
+
+/** Dimensions (px) de la boîte d'une étiquette d'après ses lignes. PUR. */
+export function dimsBoiteEtiquette(lignes: readonly string[]): { w: number; h: number } {
+  return { w: ETIQ.pad * 2 + Math.max(1, ...lignes.map((s) => s.length)) * ETIQ.largeurCar, h: ETIQ.pad * 2 + lignes.length * ETIQ.hauteurLigne };
+}
+
+/** Deux segments [p1,p2] et [p3,p4] se croisent-ils (intersection propre) ? PUR. */
+function segmentsSeCroisent(p1: Pt, p2: Pt, p3: Pt, p4: Pt): boolean {
+  const d = (a: Pt, b: Pt, c: Pt) => (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x);
+  const d1 = d(p3, p4, p1), d2 = d(p3, p4, p2), d3 = d(p1, p2, p3), d4 = d(p1, p2, p4);
+  return (((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) && ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0)));
+}
+
 /**
- * LOT 82 — PLACE une étiquette : DEDANS si sa boîte tient ENTIÈREMENT dans le polygone projeté (4 coins intérieurs), sinon DÉPORTÉE
- * à côté de la forme (à droite, à gauche si pas de place) avec un décalage vertical selon l'index (limite les chevauchements — décalage
- * SIMPLE, pas de moteur d'évitement). TOUJOURS clampée dans le cadre `vb` : jamais de texte qui déborde du schéma. PUR (pixels).
+ * LOT 83 — la boîte `r` (px, {x,y,w,h}) intersecte-t-elle le POLYGONE `poly` (collision de FORME, pas de bbox — ces polygones sont des
+ * bandes obliques dont la bbox déborde très largement la surface réelle) ? Testé avec une marge de sécurité `marge`. Vrai si un coin de la
+ * boîte est dans le polygone, OU un sommet du polygone dans la boîte, OU une arête de la boîte croise une arête du polygone. PUR.
  */
-export function placerEtiquette(ancre: { x: number; y: number }, lignes: readonly string[], anneauPx: { x: number; y: number }[], vb: CadreVue, index: number): PosEtiquette {
-  const w = ETIQ.pad * 2 + Math.max(1, ...lignes.map((s) => s.length)) * ETIQ.largeurCar;
-  const h = ETIQ.pad * 2 + lignes.length * ETIQ.hauteurLigne;
-  const clampX = (x: number) => Math.max(vb.minX, Math.min(x, vb.minX + vb.w - w));
-  const clampY = (y: number) => Math.max(vb.minY, Math.min(y, vb.minY + vb.h - h));
-  const cx = ancre.x, cy = ancre.y;
-  const coins = [[cx - w / 2, cy - h / 2], [cx + w / 2, cy - h / 2], [cx + w / 2, cy + h / 2], [cx - w / 2, cy + h / 2]];
-  const tient = anneauPx.length >= 3 && coins.every(([x, y]) => pointDansAnneau(x, y, anneauPx));
-  if (tient) return { x: clampX(cx - w / 2), y: clampY(cy - h / 2), w, h, deportee: false, ax: cx, ay: cy };
-  const xs = anneauPx.map((p) => p.x), yss = anneauPx.map((p) => p.y);
-  const maxX = xs.length ? Math.max(...xs) : cx, minX = xs.length ? Math.min(...xs) : cx;
-  const stagger = (index % 4) * (h + 3);
-  let bx = maxX + ETIQ.gapDeport;
-  if (bx + w > vb.minX + vb.w) bx = minX - ETIQ.gapDeport - w; // pas de place à droite → à gauche
-  const by = (yss.length ? cy : cy) - h / 2 + stagger;
-  return { x: clampX(bx), y: clampY(by), w, h, deportee: true, ax: cx, ay: cy };
+export function boiteIntersectePolygone(r: { x: number; y: number; w: number; h: number }, poly: Pt[], marge = 0): boolean {
+  if (poly.length < 3) return false;
+  const x0 = r.x - marge, y0 = r.y - marge, x1 = r.x + r.w + marge, y1 = r.y + r.h + marge;
+  const coins: Pt[] = [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+  if (coins.some((c) => pointDansAnneau(c.x, c.y, poly))) return true;
+  if (poly.some((v) => v.x >= x0 && v.x <= x1 && v.y >= y0 && v.y <= y1)) return true;
+  for (let i = 0; i < 4; i++) {
+    const a = coins[i], b = coins[(i + 1) % 4];
+    for (let j = 0; j < poly.length; j++) if (segmentsSeCroisent(a, b, poly[j], poly[(j + 1) % poly.length])) return true;
+  }
+  return false;
+}
+
+/** Deux boîtes axis-aligned se chevauchent-elles (marge incluse) ? PUR. */
+export function boitesSeChevauchent(a: { x: number; y: number; w: number; h: number }, b: { x: number; y: number; w: number; h: number }, marge = 0): boolean {
+  return !(a.x + a.w + marge <= b.x || b.x + b.w + marge <= a.x || a.y + a.h + marge <= b.y || b.y + b.h + marge <= a.y);
+}
+
+export interface ItemEtiquette { cle: string; lignes: string[]; nature: 'reel' | 'projete'; trou?: boolean; anneauPx: Pt[]; ancre: Pt }
+export interface EtiquettePlacee { cle: string; lignes: string[]; nature: 'reel' | 'projete'; trou?: boolean; x: number; y: number; w: number; h: number; deportee: boolean; ax: number; ay: number; reduit?: boolean; recours?: boolean }
+
+/**
+ * LOT 83 — PLACE TOUTES les étiquettes ENSEMBLE (le placement d'une boîte dépend des autres), en px. Pour chacune, dans l'ordre :
+ *  1. DEDANS : si la boîte tient ENTIÈREMENT dans son polygone (4 coins intérieurs) ET dans le cadre → posée là (aucun trait de rappel).
+ *  2. DÉPORTÉE : balayage DÉTERMINISTE d'une couronne (rayon croissant × 8 directions), on retient la PREMIÈRE position dont la boîte est
+ *     ENTIÈREMENT dans le cadre ET ne collisionne NI aucune forme dessinée (`obstacles` : polygones + emprises, y compris la sienne) NI
+ *     une boîte déjà placée. → jamais à cheval sur une forme (défaut LOT 82 corrigé).
+ *  3. DERNIER RECOURS (parcelle saturée) : on retente en NOM SEUL (boîte plus petite) ; si toujours rien, on retient la position de
+ *     MOINDRE recouvrement (marquée `recours`), JAMAIS une boîte à cheval silencieuse. Toujours clampée au cadre.
+ * Le trait de rappel (rendu ailleurs) peut, lui, traverser des formes : seule la BOÎTE doit être dégagée. PUR (aucune I/O).
+ */
+export function placerEtiquettes(items: readonly ItemEtiquette[], obstacles: readonly Pt[][], vb: CadreVue): EtiquettePlacee[] {
+  // 16 directions (ordre stable, déterministe) normalisées : plus de positions candidates → on libère plus souvent une boîte sans recours.
+  const DIRS: [number, number][] = ([[1, 0], [0, -1], [0, 1], [-1, 0], [1, -1], [1, 1], [-1, -1], [-1, 1],
+    [2, -1], [2, 1], [-2, -1], [-2, 1], [1, -2], [1, 2], [-1, -2], [-1, 2]] as [number, number][]).map(([x, y]) => { const n = Math.hypot(x, y); return [x / n, y / n] as [number, number]; });
+  const dansCadre = (x: number, y: number, w: number, h: number) => x >= vb.minX && y >= vb.minY && x + w <= vb.minX + vb.w && y + h <= vb.minY + vb.h;
+  const placees: EtiquettePlacee[] = [];
+  for (const it of items) {
+    const base = { cle: it.cle, nature: it.nature, trou: it.trou, ax: it.ancre.x, ay: it.ancre.y };
+    const { w, h } = dimsBoiteEtiquette(it.lignes);
+    const cx = it.ancre.x, cy = it.ancre.y;
+    // 1) DEDANS
+    const coins: [number, number][] = [[cx - w / 2, cy - h / 2], [cx + w / 2, cy - h / 2], [cx + w / 2, cy + h / 2], [cx - w / 2, cy + h / 2]];
+    if (it.anneauPx.length >= 3 && dansCadre(cx - w / 2, cy - h / 2, w, h) && coins.every(([x, y]) => pointDansAnneau(x, y, it.anneauPx))) {
+      const p: EtiquettePlacee = { ...base, lignes: it.lignes, x: cx - w / 2, y: cy - h / 2, w, h, deportee: false };
+      placees.push(p); continue;
+    }
+    // 2) DÉPORTÉE — couronne déterministe ; boîte PLEINE puis, si saturé, NOM SEUL. On garde en réserve la MOINDRE collision.
+    let retenue: EtiquettePlacee | null = null;
+    let moindre: { p: EtiquettePlacee; penalite: number } | null = null;
+    for (const essai of [{ lignes: it.lignes, reduit: false }, { lignes: [it.lignes[0]], reduit: true }]) {
+      const d = dimsBoiteEtiquette(essai.lignes);
+      const rMax = Math.max(vb.w, vb.h);
+      for (let r = Math.max(d.w, d.h) / 2 + ETIQ_PAS; r <= rMax && !retenue; r += ETIQ_PAS) {
+        for (const [dx, dy] of DIRS) {
+          const bx = cx + dx * r - d.w / 2, by = cy + dy * r - d.h / 2;
+          if (!dansCadre(bx, by, d.w, d.h)) continue;
+          const rect = { x: bx, y: by, w: d.w, h: d.h };
+          const nColl = obstacles.reduce((s, o) => s + (boiteIntersectePolygone(rect, o as Pt[], ETIQ_MARGE) ? 1 : 0), 0)
+            + placees.reduce((s, b) => s + (boitesSeChevauchent(rect, b, ETIQ_MARGE) ? 1 : 0), 0);
+          const p: EtiquettePlacee = { ...base, lignes: essai.lignes, x: bx, y: by, w: d.w, h: d.h, deportee: true, reduit: essai.reduit || undefined };
+          if (nColl === 0) { retenue = p; break; }
+          if (!moindre || nColl < moindre.penalite) moindre = { p, penalite: nColl };
+        }
+      }
+      if (retenue) break;
+    }
+    const choix = retenue ?? (moindre ? { ...moindre.p, recours: true } : { ...base, lignes: it.lignes, x: Math.max(vb.minX, Math.min(cx - w / 2, vb.minX + vb.w - w)), y: Math.max(vb.minY, Math.min(cy - h / 2, vb.minY + vb.h - h)), w, h, deportee: true, recours: true });
+    placees.push(choix);
+  }
+  return placees;
 }
 
 /** LOT 82 — descripteur d'étiquette à poser sur le schéma (semantique + géométrie d'ancrage). `nature` : ① `reel` (polygone BD TOPO,
@@ -686,7 +756,9 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
   if (filtres.emprises) for (const e of emprises) for (const ring of (e.anneaux?.length ? e.anneaux : [e.anneau])) if (ring.length >= 3) for (const p of ring) pts.push(proj(p));
   for (const p of calageLambert) pts.push(proj(p));
   if (retoucheAnneau) for (const p of retoucheAnneau) pts.push(proj(p)); // PROJ-3s — garder le contour retouché dans le cadre
-  const vb = boiteEnglobanteRotee(pts, centre, angle);
+  // LOT 83 — MARGE DE RESPIRATION : quand des étiquettes sont posées, on élargit le cadre (pad 4 % → 16 %) pour offrir une zone
+  //   d'accueil aux boîtes déportées HORS des formes. N'affecte NI l'échelle du tracé NI les coordonnées (juste plus de blanc autour).
+  const vb = boiteEnglobanteRotee(pts, centre, angle, etiquettes.length > 0 ? 0.2 : 0.04);
   return (
     <svg viewBox={`${vb.minX} ${vb.minY} ${vb.w} ${vb.h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées"
       style={{ display: 'block', width: '100%', height: 'auto', maxHeight: hauteurMax, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', cursor: onCliquer ? 'crosshair' : 'default' }}
@@ -712,26 +784,33 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           : null))}
         {/* PROJ-3i ① — repères alphabétiques (mêmes lettres que le Rattachement), au centre de chaque polygone visible. */}
         {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3) return null; const q = projeterDansBoite(boite, centreAnneau(poly.anneau)); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={11} fontWeight={700} textAnchor="middle" fill="var(--color-svv-ink)" data-repere={poly.repere}>{poly.repere}</text>; })}
-        {/* LOT 82 — ÉTIQUETTES sur le dessin : nom du bâtiment + altitude de sommet, ancre GARANTIE intérieure (pointOnSurfaceAnneau).
-            Posée DEDANS si elle tient, sinon DÉPORTÉE avec trait de rappel. Couleurs FIXES (canvas clair permanent, cf. constantes) —
-            jamais les tokens de texte. Distinction ① réel (marqueur ▪, bord plein) vs ② projeté (marqueur ◇, bord tireté rouge) : forme
-            + trait, PAS la couleur seule. Suit la même case « repères / infos » ; la légende dessous reste le repli sur petit écran. */}
-        {filtres.reperes && etiquettes.map((et, i) => {
-          if (et.anneau.length < 3) return null;
-          const anneauPx = et.anneau.map(proj);
-          const ancre = projeterDansBoite(boite, pointOnSurfaceAnneau(et.anneau));
-          const pos = placerEtiquette(ancre, et.lignes, anneauPx, vb, i);
-          const bord = et.trou || et.nature === 'projete' ? ETIQ_ALERTE : ETIQ_ENCRE;
-          const marque = et.trou ? '⚠ ' : et.nature === 'projete' ? '◇ ' : '▪ ';
-          return (
-            <g key={`et-${et.cle}`} data-etiquette={et.cle} data-nature={et.nature} data-trou={et.trou || undefined} data-deportee={pos.deportee || undefined}>
-              {pos.deportee && <line x1={pos.ax} y1={pos.ay} x2={pos.x + pos.w / 2} y2={pos.y + pos.h / 2} stroke={ETIQ_ENCRE} strokeWidth={0.5} strokeOpacity={0.55} />}
-              <rect x={pos.x} y={pos.y} width={pos.w} height={pos.h} rx={2} fill="rgba(255,255,255,.82)" stroke={bord} strokeWidth={0.7} strokeDasharray={et.nature === 'projete' ? '2.5 1.5' : undefined} />
-              <text x={pos.x + ETIQ.pad} y={pos.y + ETIQ.pad + ETIQ.police} fontSize={ETIQ.police} fontWeight={700} fill={ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={0.6} paintOrder="stroke">{marque}{et.lignes[0]}</text>
-              {et.lignes[1] && <text x={pos.x + ETIQ.pad} y={pos.y + ETIQ.pad + ETIQ.hauteurLigne + ETIQ.police} fontSize={ETIQ.police - 0.5} fill={et.trou ? ETIQ_ALERTE : ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={0.5} paintOrder="stroke">{et.lignes[1]}</text>}
-            </g>
-          );
-        })}
+        {/* LOT 82/83 — ÉTIQUETTES sur le dessin : nom du bâtiment + altitude de sommet, ancre GARANTIE intérieure (pointOnSurfaceAnneau).
+            LOT 83 : placement COLLISION-AWARE calculé pour TOUTES ENSEMBLE (placerEtiquettes) — DEDANS si la boîte tient, sinon DÉPORTÉE
+            ENTIÈREMENT hors de TOUTES les formes (obstacles = polygones + emprises) et des autres boîtes, jamais à cheval ; trait de
+            rappel vers le point intérieur. Couleurs FIXES (canvas clair permanent) — jamais les tokens. Distinction ① réel (▪, bord plein)
+            vs ② projeté (◇, bord tireté rouge) : forme + trait, PAS la couleur seule. Suit la case « repères » ; légende = repli. */}
+        {filtres.reperes && (() => {
+          const items: ItemEtiquette[] = etiquettes.filter((et) => et.anneau.length >= 3).map((et) => ({
+            cle: et.cle, lignes: et.lignes, nature: et.nature, trou: et.trou, anneauPx: et.anneau.map(proj), ancre: projeterDansBoite(boite, pointOnSurfaceAnneau(et.anneau)),
+          }));
+          // Obstacles = TOUTES les formes dessinées (polygones BD TOPO visibles + emprises), en px — la boîte doit toutes les éviter.
+          const obstacles: { x: number; y: number }[][] = [
+            ...visibles.filter((p) => p.anneau.length >= 3).map((p) => p.anneau.map(proj)),
+            ...(filtres.emprises ? emprises.flatMap((e) => (e.anneaux?.length ? e.anneaux : [e.anneau]).filter((ring) => ring.length >= 3).map((ring) => ring.map(proj))) : []),
+          ];
+          return placerEtiquettes(items, obstacles, vb).map((pos) => {
+            const bord = pos.trou || pos.nature === 'projete' ? ETIQ_ALERTE : ETIQ_ENCRE;
+            const marque = pos.trou ? '⚠ ' : pos.nature === 'projete' ? '◇ ' : '▪ ';
+            return (
+              <g key={`et-${pos.cle}`} data-etiquette={pos.cle} data-nature={pos.nature} data-trou={pos.trou || undefined} data-deportee={pos.deportee || undefined} data-recours={pos.recours || undefined}>
+                {pos.deportee && <line x1={pos.ax} y1={pos.ay} x2={pos.x + pos.w / 2} y2={pos.y + pos.h / 2} stroke={ETIQ_ENCRE} strokeWidth={0.5} strokeOpacity={0.55} />}
+                <rect x={pos.x} y={pos.y} width={pos.w} height={pos.h} rx={2} fill="rgba(255,255,255,.82)" stroke={bord} strokeWidth={0.7} strokeDasharray={pos.nature === 'projete' ? '2.5 1.5' : undefined} />
+                <text x={pos.x + ETIQ.pad} y={pos.y + ETIQ.pad + ETIQ.police} fontSize={ETIQ.police} fontWeight={700} fill={ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={0.6} paintOrder="stroke">{marque}{pos.lignes[0]}</text>
+                {pos.lignes[1] && <text x={pos.x + ETIQ.pad} y={pos.y + ETIQ.pad + ETIQ.hauteurLigne + ETIQ.police} fontSize={ETIQ.police - 0.5} fill={pos.trou ? ETIQ_ALERTE : ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={0.5} paintOrder="stroke">{pos.lignes[1]}</text>}
+              </g>
+            );
+          });
+        })()}
         {calageLambert.map((p, i) => { const q = projeterDansBoite(boite, p); return <g key={`c${i}`}><circle cx={q.x} cy={q.y} r={4} fill="var(--color-svv-red)" /><text x={q.x + 6} y={q.y - 6} fontSize={11} fill="var(--color-svv-red)">{i + 1}</text></g>; })}
         {/* PROJ-3s — RETOUCHE : contour éditable + poignées de sommet (cibles tactiles) + points milieux de bord (insertion). */}
         {retoucheAnneau && retoucheAnneau.length >= 2 && <>
