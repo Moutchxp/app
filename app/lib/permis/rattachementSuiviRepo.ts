@@ -20,7 +20,7 @@ import { listerPiecesDossier } from '../sitadel/demandeRepo';
 import type { PieceArchive } from '../sitadel/demandeRepo';
 import { dossiersIncompletsParmi } from './completudeRepo'; // RATT-1 — signal « dossier incomplet » en lot (mémoire, sans IA)
 import { libelleNatureProjet, aucunSignalGeometriquePossible } from '../sitadel/priorite';
-import { estAFaire } from './rattachementGroupes'; // L6 — coupure en deux (source unique) ; le tri ci-dessous s'appuie dessus
+import { estAFaire, estValidationAcquise } from './rattachementGroupes'; // L6 — coupure en deux ; LOT 77 — validation acquise (source unique)
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti AFFICHÉ = registre (autorité), plus le proxy
 import { figerVersionValidation } from './gelRepo'; // SURV-1 — geler la référence de surveillance à la validation AUTO
 
@@ -203,6 +203,7 @@ export interface LigneSuivi {
   origineOuverture: 'detection' | 'manuelle' | null; // M7-ter — 'manuelle' = ouvert à la main (M5) ; null = pas de dossier / données < migration 147 → affichage 'detection'
   alertesSurveillance: number; // SURV-1 — nb d'alertes de surveillance des polygones en attente pour ce dossier (0 = aucune ; pastille rouge si > 0)
   completudeIncomplete: boolean; // RATT-1 — signal DÉRIVÉ (jamais stocké) : le diagnostic de complétude des pièces vaut « incomplet ». « Jamais diagnostiqué » → false.
+  validationAcquise: boolean;    // LOT 77 — DÉRIVÉ : projection validée ET ≥1 corps ET tous les corps ont leur altitude de sommet → « en attente » quelle que soit la complétude.
 }
 
 /** Tri décroissant d'une date ISO 'YYYY-MM-DD' (comparable lexicographiquement) ; une date ABSENTE va en FIN (jamais en tête). */
@@ -256,14 +257,18 @@ async function lireAlertesSurveillanceParDossier(): Promise<Map<number, number>>
 /** Liste l'UNIVERS des permis suivis (ceux qui ont une empreinte) LEFT JOIN leur dossier ; « aucun signal » si pas de dossier. */
 export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> }> {
   const alertesSurv = await lireAlertesSurveillanceParDossier();
-  const { rows } = await query<{ dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; origine_ouverture: 'detection' | 'manuelle' | null; jours: number; reevalue: string | null; date_autorisation: string | null; date_declenchement: string | null }>(
+  const { rows } = await query<{ dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; origine_ouverture: 'detection' | 'manuelle' | null; jours: number; reevalue: string | null; date_autorisation: string | null; date_declenchement: string | null; projection_validee: boolean; nb_corps: number; nb_corps_sans_alt: number }>(
     `SELECT e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s.type,
             nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
             s.nature_projet_completee AS nature, r.etat AS ratt_etat, r.verdict, r.origine_ouverture,
             GREATEST(0, floor(EXTRACT(EPOCH FROM (now() - COALESCE(r.detecte_le, e.maj_le))) / 86400))::int AS jours,
             to_char(r.reevalue_le, 'YYYY-MM-DD') AS reevalue,
             to_char(s.date_reelle_autorisation, 'YYYY-MM-DD') AS date_autorisation,
-            to_char(r.detecte_le, 'YYYY-MM-DD') AS date_declenchement
+            to_char(r.detecte_le, 'YYYY-MM-DD') AS date_declenchement,
+            -- LOT 77 — attestation de VALIDATION : projection validée (permis_projection) + décompte des corps et de ceux SANS altitude de sommet.
+            EXISTS (SELECT 1 FROM permis_projection pj WHERE pj.dossier_id = e.dossier_id) AS projection_validee,
+            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id) AS nb_corps,
+            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND cb.altitude_sommet_ngf IS NULL) AS nb_corps_sans_alt
        FROM permis_empreinte e
        JOIN sitadel_dossier s ON s.id = e.dossier_id
        LEFT JOIN commune c ON c.code_insee = s.code_insee
@@ -280,6 +285,7 @@ export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: 
     origineOuverture: r.origine_ouverture ?? null,
     alertesSurveillance: alertesSurv.get(Number(r.dossier_id)) ?? 0, // SURV-1 — pastille par-ligne (0 = aucune)
     completudeIncomplete: incomplets.has(Number(r.dossier_id)), // RATT-1 — dérivé (jamais stocké) : décide le 3e groupe
+    validationAcquise: estValidationAcquise(r.projection_validee === true, Number(r.nb_corps), Number(r.nb_corps_sans_alt)), // LOT 77
   })));
   const compteurs = Object.fromEntries((Object.keys(ORDRE_URGENCE) as EtatSuivi[]).map((e) => [e, 0])) as Record<EtatSuivi, number>;
   for (const l of lignes) compteurs[l.etat] += 1;

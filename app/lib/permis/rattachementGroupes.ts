@@ -29,23 +29,35 @@ export const GROUPE2_TITRE = 'En attente d’une mise à jour';
 //   croire à une progression (cas Aubervilliers). « Jamais diagnostiqué » ≠ « incomplet » → hors de ce groupe.
 export const GROUPE_INCOMPLET_TITRE = 'Permis avec dossier incomplet';
 
-/** Forme minimale groupable : l'état de suivi + le signal dérivé « dossier incomplet ». */
-export interface LigneGroupable { etat: EtatSuivi; completudeIncomplete: boolean }
+/** Forme minimale groupable : l'état de suivi + le signal dérivé « dossier incomplet » + la VALIDATION acquise (LOT 77). */
+export interface LigneGroupable { etat: EtatSuivi; completudeIncomplete: boolean; validationAcquise: boolean }
 
 /**
- * RATT-1 — PARTITION du suivi en TROIS groupes, EXCLUSIVE et EXHAUSTIVE (chaque ligne dans un seul groupe ; la somme des trois vaut
- * toujours le total — précédent 18/08 d'un décompte qui ment). SOURCE UNIQUE, comme la coupure en deux (L6), partagée par le tri et
- * l'affichage. PRIORITÉ ABSOLUE INCHANGÉE au groupe 1 « à faire » (`estAFaire`) : un arbitrage ouvert reste visible même si le dossier
- * est incomplet — l'action prime. Le groupe « incomplet » ne PUISE donc QUE dans ce qui serait sinon « en attente ». Quand le dossier
- * redevient complet, le permis QUITTE « incomplet » et retombe en « en attente » (ou reste « à faire » selon son état réel) — bascule
- * DÉRIVÉE, jamais un état stocké. Préserve l'ordre d'entrée dans chaque groupe (les lignes arrivent déjà triées). PUR (aucune I/O).
+ * LOT 77 (règle Arno) — la VALIDATION du permis est-elle ACQUISE ? = empreinte/projection validée ET AU MOINS UN corps déclaré ET
+ * TOUS les corps ont leur altitude de sommet (nbCorpsSansAltitude === 0). 🔴 PIÈGE LOT 71 : `0 corps` NE VAUT PAS « toutes les
+ * altitudes validées » — `nbCorps >= 1` est EXIGÉ, sinon un permis sans aucun bâtiment basculerait « validé » par vacuité. PURE.
+ */
+export function estValidationAcquise(projectionValidee: boolean, nbCorps: number, nbCorpsSansAltitude: number): boolean {
+  return projectionValidee && nbCorps >= 1 && nbCorpsSansAltitude === 0;
+}
+
+/**
+ * RATT-1 + LOT 77 — PARTITION du suivi en TROIS groupes, EXCLUSIVE et EXHAUSTIVE (chaque ligne dans un seul groupe ; la somme des
+ * trois vaut toujours le total). SOURCE UNIQUE, partagée par le tri et l'affichage. Priorités :
+ *  ① « à faire » (`estAFaire`) — PRIORITÉ ABSOLUE inchangée : un arbitrage ouvert reste visible même si le dossier est incomplet.
+ *  ② « incomplet » — MAIS seulement si la VALIDATION N'EST PAS acquise. 🔴 LOT 77 : quand l'instruction est terminée (empreinte +
+ *     altitudes de TOUS les corps validées), la complétude DOCUMENTAIRE ne décide plus du groupe — le permis va en « en attente »
+ *     même s'il manque une pièce en GED (l'info d'incomplétude n'est pas perdue : elle reste sur la ligne, cf. `completudeIncomplete`).
+ *  ③ « en attente » — le reste (dont les validés-incomplets).
+ * Tout reste DÉRIVÉ (aucun état stocké) et réversible : un permis qui PERD sa validation (un corps perd son altitude) et reste
+ * incomplet RETOMBE en « incomplet ». Préserve l'ordre d'entrée. PUR (aucune I/O).
  */
 export function partitionnerSuivi<T extends LigneGroupable>(lignes: readonly T[]): { aFaire: T[]; incomplets: T[]; enAttente: T[] } {
   const aFaire: T[] = [], incomplets: T[] = [], enAttente: T[] = [];
   for (const l of lignes) {
-    if (estAFaire(l.etat)) aFaire.push(l);            // ① priorité absolue : arbitrage ouvert (jamais masqué par l'incomplétude)
-    else if (l.completudeIncomplete) incomplets.push(l); // ② dossier incomplet (parking séparé, replié par défaut)
-    else enAttente.push(l);                            // ③ le reste : veille passive « en attente d'une mise à jour »
+    if (estAFaire(l.etat)) aFaire.push(l);                              // ① priorité absolue : arbitrage ouvert
+    else if (l.completudeIncomplete && !l.validationAcquise) incomplets.push(l); // ② incomplet ET pas encore validé
+    else enAttente.push(l);                                            // ③ le reste, dont les VALIDÉS-incomplets (LOT 77)
   }
   return { aFaire, incomplets, enAttente };
 }
