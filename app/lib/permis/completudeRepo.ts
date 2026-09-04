@@ -1,6 +1,6 @@
 /**
  * PART-2 — MÉMOIRE du diagnostic de complétude (IMPUR : base). Le classement PAR CONTENU lit les PDF (coûteux) : on le calcule au
- * moment de l'analyse (« Diagnostic complet des documents ») et on le MÉMORISE dans `permis_completude` ; l'affichage relit la mémoire et recompose
+ * moment de l'analyse (« Lancer le diagnostic complet des documents ») et on le MÉMORISE dans `permis_completude` ; l'affichage relit la mémoire et recompose
  * présent/manquant selon les familles attendues VIVES, SANS relire les PDF. Une pièce ajoutée depuis le calcul → diagnostic PÉRIMÉ.
  *
  * RÉSILIENCE : tant que la migration 174 n'est pas appliquée, la table n'existe pas → `enregistrer` est un NO-OP propre et `lire`
@@ -39,7 +39,7 @@ export interface CompletudeLue {
 
 /**
  * Lit le diagnostic mémorisé et le RECOMPOSE selon les familles attendues VIVES (config), sans relire les PDF. `null` = aucun
- * diagnostic mémorisé (jamais analysé, ou 174 absente) → l'appelant proposera « Diagnostic complet des documents ». PÉREMPTION : le nombre de
+ * diagnostic mémorisé (jamais analysé, ou 174 absente) → l'appelant proposera « Lancer le diagnostic complet des documents ». PÉREMPTION : le nombre de
  * documents GED (hors fiche de synthèse) diffère du nombre mémorisé au calcul.
  */
 export async function lireCompletude(dossierId: number): Promise<CompletudeLue | null> {
@@ -65,7 +65,7 @@ export async function lireCompletude(dossierId: number): Promise<CompletudeLue |
  * PERF-2 — RECALCUL de la SEULE complétude (typologie par contenu), pour l'actualisation AUTOMATIQUE quand la GED a changé. RELIT les
  * PDF PAR CONTENU (`lireGedPermis`, parse texte LOCAL) puis reclasse + mémorise — MÊME règle de calcul que la relance, MÊME fonction
  * `enregistrerCompletude`. Ne fait RIEN d'autre : ni extraction de caractéristiques, ni écriture de champs, ni géométrie/bâti, et
- * SURTOUT AUCUNE VISION (l'appel IA payant de « Diagnostic complet des documents » reste réservé au geste délibéré). Renvoie le diagnostic à jour
+ * SURTOUT AUCUNE VISION (l'appel IA payant de « Lancer le diagnostic complet des documents » reste réservé au geste délibéré). Renvoie le diagnostic à jour
  * (`perime` retombe à faux), ou `null` si indisponible (174 absente / dossier illisible). Import DYNAMIQUE de lectureGed pour garder
  * léger le chemin de LECTURE (`lireCompletude`).
  */

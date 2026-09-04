@@ -4,7 +4,7 @@ import { useState } from 'react';
 import type { CompteRenduExtraction } from '../../../../lib/permis/executerExtraction'; // type SEUL (bundle client)
 
 /**
- * EXT-1 (étape 2) / LOT 56-B — bouton « Diagnostic complet des documents » d'un permis. Point d'entrée UNIQUE de la ré-analyse
+ * EXT-1 (étape 2) / LOT 56-B — bouton « Lancer le diagnostic complet des documents » d'un permis. Point d'entrée UNIQUE de la ré-analyse
  * complète (renommé au LOT 56-B ; ancien libellé « Relancer l'analyse ») : relit la TOTALITÉ des documents et actualise le
  * diagnostic via /api/admin/permis/extraire (appel externe payant — un geste délibéré le paie), puis DIT ce qui s'est passé (champs
  * retenus, pièces sans candidat, analyse approfondie oui/non). Placé EN TÊTE du bloc « Complétude » (BlocCompletude) et, à
@@ -38,7 +38,7 @@ export function BoutonRelancerAnalyse({ dossierId, onFini }: { dossierId: number
     <div className="flex flex-col gap-1">
       <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 36, padding: '.3rem .7rem', alignSelf: 'flex-start' }}
         disabled={enCours} aria-busy={enCours} onClick={() => void relancer()}>
-        {enCours ? 'Analyse en cours…' : 'Diagnostic complet des documents'}
+        {enCours ? 'Analyse en cours…' : 'Lancer le diagnostic complet des documents'}
       </button>
       {/* LOT 56-B (point 3) — DIRE ce que fait le bouton AVANT le clic, en une ligne, sans jargon (ni « vision », ni « OCR »). */}
       <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>

@@ -90,7 +90,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   const [corps, setCorps] = useState('');
   const [retour, setRetour] = useState<RetourAction>(null);
   const [version, setVersion] = useState(0);
-  const [vApresAnalyse, setVApresAnalyse] = useState(0); // LOT 56-B — bump après « Diagnostic complet des documents » (encart) → remonte caractéristiques + best-of de l'encart
+  const [vApresAnalyse, setVApresAnalyse] = useState(0); // LOT 56-B — bump après « Lancer le diagnostic complet des documents » (encart) → remonte caractéristiques + best-of de l'encart
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [choixStatut, setChoixStatut] = useState<string>(CHOIX_STATUT_DEFAUT); // Q6b : défaut = statuts VIVANTS, pas « Tous »
   const [fCommune, setFCommune] = useState('');
@@ -920,7 +920,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                     </div>
                   ) },
                 { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: richDetail.caracteristiquesNonVide,
-                  // LOT 56-B — clé versionnée : après « Diagnostic complet des documents » (bloc Complétude ci-dessus), les caractéristiques extraites sont fraîches → remontage.
+                  // LOT 56-B — clé versionnée : après « Lancer le diagnostic complet des documents » (bloc Complétude ci-dessus), les caractéristiques extraites sont fraîches → remontage.
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={`carac-enc-${id}-${vApresAnalyse}`} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
                 { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: richDetail.batimentsNonVide,
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} />} /> },
@@ -930,7 +930,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => (
                     <div key={id} style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
                       {/* LOT 56-B — clé versionnée : le best-of est recalculé à la volée depuis la GED ; on force son remontage après une passe.
-                          (Aujourd'hui « Diagnostic complet des documents » n'AJOUTE aucune pièce en GED → le best-of ne change pas en pratique ;
+                          (Aujourd'hui « Lancer le diagnostic complet des documents » n'AJOUTE aucune pièce en GED → le best-of ne change pas en pratique ;
                           le remontage est une garantie de cohérence, sans effet visible tant qu'aucun document n'est versé.) */}
                       <LiseusePieces key={`liseuse-enc-${id}-${vApresAnalyse}`} dossierId={id} />
                       <BlocPiecesPermis dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />

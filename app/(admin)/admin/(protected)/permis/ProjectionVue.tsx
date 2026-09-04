@@ -27,7 +27,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   const [enCours, setEnCours] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [vInstruction, setVInstruction] = useState(0); // PROJ-3b — compteur incrémenté à chaque écriture d'instruction → recharge le tracé (bâtiments)
-  const [vAnalyse, setVAnalyse] = useState(0); // EXT-1 / LOT 56-B — bump après « Diagnostic complet des documents » (onAnalyseFinie du bloc Complétude) → remonte CaracteristiquesBloc/fil (refetch des champs extraits)
+  const [vAnalyse, setVAnalyse] = useState(0); // EXT-1 / LOT 56-B — bump après « Lancer le diagnostic complet des documents » (onAnalyseFinie du bloc Complétude) → remonte CaracteristiquesBloc/fil (refetch des champs extraits)
   const [batimentsOuvert, setBatimentsOuvert] = useState(false); // PERF-1 — le bloc bâtiments (verdict) est déplié à la demande ; jauge le bouton « Valider »
 
   useEffect(() => {
@@ -105,7 +105,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     const etatProj = etatProjectionTitre(row?.projectionValidee ?? false);
     return (
       <div className="flex flex-col gap-2">
-        {/* LOT 56-B — le bouton de ré-analyse « Diagnostic complet des documents » vit désormais EN TÊTE du bloc « Complétude »
+        {/* LOT 56-B — le bouton de ré-analyse « Lancer le diagnostic complet des documents » vit désormais EN TÊTE du bloc « Complétude »
             (BlocCompletude), plus ici : un seul point d'entrée, un seul nom. Son `onAnalyseFinie` remonte les frères (caractéristiques,
             fil) via vAnalyse ; le bloc Complétude relit son propre diagnostic tout seul. */}
         {/* LOT 51-B — ce permis est ici en TEST (dossier incomplet ouvert depuis « En cours »). S'il n'a pas permis de tout renseigner et
@@ -144,7 +144,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
           );
         })()}
         {/* PART-2 / PERF-1 — COMPLÉTUDE + relances : bilan (lecture mémoire) dans la ligne de titre ; détail au dépliage. LOT 56-B —
-            le bouton « Diagnostic complet des documents » est EN TÊTE de ce bloc : le bloc relit son propre diagnostic après la passe
+            le bouton « Lancer le diagnostic complet des documents » est EN TÊTE de ce bloc : le bloc relit son propre diagnostic après la passe
             (plus besoin de vAnalyse dans SA clé, ce qui préserverait le compte rendu du bouton d'un remontage). `onAnalyseFinie`
             remonte les FRÈRES (caractéristiques, fil) via vAnalyse. */}
         <BlocCompletude key={`completude-${ouvert}`} dossierId={ouvert} avecDiagnostic onAnalyseFinie={() => { setVAnalyse((v) => v + 1); setVInstruction((v) => v + 1); }} />
@@ -153,7 +153,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
           {() => <BlocFilEchanges key={`fil-${ouvert}-${vAnalyse}`} dossierId={ouvert} />}
         </BlocRepliable>
         {/* PROJ-3b — INSTRUCTION (caractéristiques + « + ajouter un bâtiment ») puis TRACÉ. Clés PRÉFIXÉES PAR RÔLE (unicité, cf. PART-2b),
-            suffixe vAnalyse conservé : chaque enfant monté se remonte après « Diagnostic complet des documents ». Montés au dépliage (PERF-1). */}
+            suffixe vAnalyse conservé : chaque enfant monté se remonte après « Lancer le diagnostic complet des documents ». Montés au dépliage (PERF-1). */}
         <BlocRepliable key={`w-carac-${ouvert}`} titre={<TitreFamilleEtat base="Caractéristiques du permis (saisie)" etat={etatAlt} />}>
           {() => <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
         </BlocRepliable>

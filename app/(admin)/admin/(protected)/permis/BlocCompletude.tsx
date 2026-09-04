@@ -3,14 +3,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { BlocDemandePieces } from './BlocDemandePieces';
 import { BlocRepliable } from './BlocRepliable';
-import { BoutonRelancerAnalyse } from './BoutonRelancerAnalyse'; // LOT 56-B — « Diagnostic complet des documents », en tête du corps
+import { BoutonRelancerAnalyse } from './BoutonRelancerAnalyse'; // LOT 56-B — « Lancer le diagnostic complet des documents », en tête du corps
 import { jourParisISO } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « établi le » = jour en Europe/Paris
 import { resumeCompletude, doitRecalculerAuto, libelleFamillesManquantes } from '../../../../lib/permis/completudeResume';
 
 /**
  * PART-2 / PERF-1 — DIAGNOSTIC DE COMPLÉTUDE des pièces (+ demande de pièces + déclaration de relance), en tête de la ligne dépliée
  * d'« Analyse et projection ». Lit le diagnostic MÉMORISÉ (GET /api/admin/permis/completude), recomposé selon les familles attendues
- * vives — AUCUNE relecture de PDF ni IA au rendu. Le calcul (coûteux) se fait au bouton « Diagnostic complet des documents »
+ * vives — AUCUNE relecture de PDF ni IA au rendu. Le calcul (coûteux) se fait au bouton « Lancer le diagnostic complet des documents »
  * (LOT 56-B), désormais EN TÊTE de ce bloc : après la passe, le corps relit son diagnostic (état local `vLocal`) et `onAnalyseFinie`
  * prévient le parent pour rafraîchir les frères (caractéristiques, best-of…).
  *
@@ -39,14 +39,14 @@ const muted: React.CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted
  * On rend alors le CORPS directement, sans 2e en-tête (qui ferait doublon avec le titre de famille). En « Analyse et projection », le
  * bloc est AUTONOME (`sansPli` absent) → son pli propre RESTE. Le fetch au montage (bilan) est INCHANGÉ dans les deux cas.
  */
-// `avecDiagnostic` (LOT 56-B) : afficher le bouton « Diagnostic complet des documents » EN TÊTE du corps. OPT-IN — Analyse et encart
+// `avecDiagnostic` (LOT 56-B) : afficher le bouton « Lancer le diagnostic complet des documents » EN TÊTE du corps. OPT-IN — Analyse et encart
 //   l'activent ; « Archives » NE l'active PAS (il garde son propre bouton dans la famille Caractéristiques) → jamais deux boutons.
 export function BlocCompletude({ dossierId, sansPli = false, avecDiagnostic = false, onAnalyseFinie }: { dossierId: number; sansPli?: boolean; avecDiagnostic?: boolean; onAnalyseFinie?: () => void }) {
   const [etat, setEtat] = useState<Etat>({ statut: 'chargement' });
   const [recalcEnCours, setRecalcEnCours] = useState(false); // PERF-2 — recalcul auto (GED changée) en tâche de fond
   const [recalcEchoue, setRecalcEchoue] = useState(false);   // PERF-2 — l'auto-recalcul a échoué : on le DIT, on ne montre pas un faux bilan
   const dejaLance = useRef(false);                           // PERF-2 — ANTI-BOUCLE : une seule tentative auto par ouverture de fiche
-  const [vLocal, setVLocal] = useState(0);                   // LOT 56-B — bump après « Diagnostic complet des documents » → relit le diagnostic fraîchement écrit
+  const [vLocal, setVLocal] = useState(0);                   // LOT 56-B — bump après « Lancer le diagnostic complet des documents » → relit le diagnostic fraîchement écrit
 
   useEffect(() => {
     let annule = false;
@@ -113,11 +113,11 @@ function CorpsCompletude({ etat, dossierId, recalcEnCours, recalcEchoue, avecDia
       {/* LOT 56-B — point d'entrée UNIQUE de la ré-analyse, là où le texte réclame déjà l'action (plus de renvoi vers un bouton « ailleurs »). OPT-IN (pas en Archives). */}
       {avecDiagnostic && <BoutonRelancerAnalyse dossierId={dossierId} onFini={onRelance} />}
       {recalcEnCours && <span style={muted} aria-live="polite">Actualisation du diagnostic (lecture des pièces)…</span>}
-      {!recalcEnCours && recalcEchoue && <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>L’actualisation automatique a échoué — utilisez « Diagnostic complet des documents » ci-dessus.</span>}
+      {!recalcEnCours && recalcEchoue && <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>L’actualisation automatique a échoué — utilisez « Lancer le diagnostic complet des documents » ci-dessus.</span>}
       {!recalcEnCours && !recalcEchoue && etat.statut === 'chargement' && <span style={muted} aria-live="polite">Analyse des pièces…</span>}
       {!recalcEnCours && !recalcEchoue && etat.statut === 'erreur' && <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Diagnostic indisponible.</span>}
       {!recalcEnCours && !recalcEchoue && etat.statut === 'ok' && etat.completude === null && (
-        <span style={muted}>Diagnostic non calculé pour ce permis — utilisez « Diagnostic complet des documents » ci-dessus pour l’établir.</span>
+        <span style={muted}>Diagnostic non calculé pour ce permis — utilisez « Lancer le diagnostic complet des documents » ci-dessus pour l’établir.</span>
       )}
       {!recalcEnCours && !recalcEchoue && etat.statut === 'ok' && etat.completude !== null && <Contenu c={etat.completude} dossierId={dossierId} />}
     </div>
@@ -130,7 +130,7 @@ function Contenu({ c, dossierId }: { c: Completude; dossierId: number }) {
     <div className="flex flex-col gap-1" style={{ fontSize: 13 }}>
       {c.perime && (
         <p role="note" style={{ margin: 0, fontSize: 12, color: 'var(--color-svv-red)' }}>
-          ⚠ Une pièce a été ajoutée depuis ce diagnostic — lancez un « Diagnostic complet des documents » (ci-dessus) pour l’actualiser.
+          ⚠ Une pièce a été ajoutée depuis ce diagnostic — utilisez le bouton « Lancer le diagnostic complet des documents » (ci-dessus) pour l’actualiser.
         </p>
       )}
       <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>

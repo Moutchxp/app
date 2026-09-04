@@ -4,7 +4,7 @@ import { executerExtractionPermis } from '../../../../../lib/permis/executerExtr
 import { avecVerrouDossier } from '../../../../../lib/permis/verrouExtraction';
 
 /**
- * EXT-1 (étape 2) — /api/admin/permis/extraire : « Diagnostic complet des documents » d'UN permis (Analyse et Archives). POST { dossierId } →
+ * EXT-1 (étape 2) — /api/admin/permis/extraire : « Lancer le diagnostic complet des documents » d'UN permis (Analyse et Archives). POST { dossierId } →
  * exécute le pipeline d'extraction, VISION INCLUSE (un geste délibéré paie l'appel externe, quel que soit le réglage du versement)
  * → renvoie le compte rendu (champs retenus, pièces sans candidat, vision tournée + nb pièces). AUCUN écrasement d'une saisie
  * (origine 'extraite', invariant 103). AUCUN envoi/relève. RÉSERVÉ ADMINISTRATEUR. Runtime Node.

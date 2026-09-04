@@ -117,12 +117,12 @@ export function ArchivesVue() {
         onFichier={(dossierId, fichier) => void televerser(dossierId, fichier)}
         slotCaracteristiques={(dossierId) => (
           <div className="flex flex-col gap-2">
-            {/* EXT-1 (étape 2) / LOT 56-B — Archives : le SEUL endroit où tout permis reste retrouvable après traitement → « Diagnostic complet des documents » y reste disponible dans la famille Caractéristiques (le bloc Complétude d'Archives n'affiche PAS son bouton interne → jamais deux boutons). */}
+            {/* EXT-1 (étape 2) / LOT 56-B — Archives : le SEUL endroit où tout permis reste retrouvable après traitement → « Lancer le diagnostic complet des documents » y reste disponible dans la famille Caractéristiques (le bloc Complétude d'Archives n'affiche PAS son bouton interne → jamais deux boutons). */}
             <BoutonRelancerAnalyse dossierId={dossierId} onFini={() => setVersion((v) => v + 1)} />
             <CaracteristiquesBloc key={`${dossierId}-${version}`} dossierId={dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />
           </div>
         )}
-        // UNIF-3 — familles « si non vide » (chargées AU DÉPLIAGE de leur bloc). Ré-clés sur `version` → « Diagnostic complet des documents » les rafraîchit.
+        // UNIF-3 — familles « si non vide » (chargées AU DÉPLIAGE de leur bloc). Ré-clés sur `version` → « Lancer le diagnostic complet des documents » les rafraîchit.
         slotCompletude={(dossierId) => <BlocCompletude key={`comp-${dossierId}-${version}`} dossierId={dossierId} />}
         slotHistorique={(dossierId) => <BlocFilEchanges key={`fil-${dossierId}-${version}`} dossierId={dossierId} />}
         slotBatiments={(dossierId) => <BlocTraceEmprise key={`bat-${dossierId}-${version}`} dossierId={dossierId} />} />
