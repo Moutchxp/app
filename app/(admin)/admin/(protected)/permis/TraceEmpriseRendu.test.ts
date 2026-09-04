@@ -184,7 +184,7 @@ describe('PROJ-3f ① — navigation PIÈCE LIBRE (feuilleter les pages d’une 
 });
 
 describe('LOT PROV-1 (point 1) — cibleBestOf : « revenir au best-of » n’est jamais un bouton mort', () => {
-  const plan = (pieceId: number, page: number): Plan => ({ pieceId, page, nomFichier: `p${pieceId}.pdf`, echelle: null, confirme: true, famille: 'masse', tracable: true, ambigu: false });
+  const plan = (pieceId: number, page: number): Plan => ({ pieceId, page, nomFichier: `p${pieceId}.pdf`, echelle: null, confirme: true, famille: 'masse', tracable: true, ambigu: false, origine: 'texte' });
 
   it('bande VIDE (aucun plan proposé, ex. 531) → repasse quand même en best-of, sans plan (bouton VIVANT)', () => {
     expect(cibleBestOf([], 0)).toEqual({ nav: 'bestof', plan: null });
@@ -867,5 +867,30 @@ describe('NOM-2 — PanneauRattrapage (aperçu avant écriture)', () => {
     expect(html).toContain('recouvert à 80 %');
     expect(html).toContain('Appliquer');
     expect(html).toContain('Annuler');
+  });
+});
+
+describe('LOT 62 — planches repérées par IMAGE dans le best-of (distinguables, non traçables)', () => {
+  it('construireBandePlans : une pièce NON proposée à planche image ENTRE dans la bande (origine image, jamais traçable)', () => {
+    const pieces: PiecePlan[] = [
+      { id: 55, nomFichier: 'PC02_masse.pdf', propose: true, famille: 'masse', planches: [{ page: 4, echelle: '1:200', origine: 'texte' }] },
+      { id: 573, nomFichier: 'PC200 Autres pieces-3.pdf', propose: false, planches: [{ page: 6, echelle: null, tracable: false, famille: 'masse', origine: 'image' }] },
+    ];
+    const b = construireBandePlans(pieces);
+    expect(b.map((p) => `${p.pieceId}:${p.page}:${p.origine}`)).toEqual(['55:4:texte', '573:6:image']);
+    const img = b.find((p) => p.pieceId === 573)!;
+    expect(img.tracable).toBe(false);   // présence seulement — jamais une surface de calage
+    expect(img.origine).toBe('image');
+  });
+
+  it('une pièce NON proposée SANS planche image reste HORS bande (comportement d’avant)', () => {
+    const b = construireBandePlans([{ id: 70, nomFichier: 'PC4_Notice.pdf', propose: false }]);
+    expect(b).toEqual([]);
+  });
+
+  it('BandePlans AFFICHE « repérée par image » (l’origine est écrite, pas seulement une couleur)', () => {
+    const b = construireBandePlans([{ id: 573, nomFichier: 'notice.pdf', propose: false, planches: [{ page: 6, echelle: null, tracable: false, famille: 'masse', origine: 'image' }] }]);
+    const html = renderToStaticMarkup(h(BandePlans, { bande: b, index: 0, onPrecedent: () => {}, onSuivant: () => {} }));
+    expect(html).toContain('repérée par image');
   });
 });

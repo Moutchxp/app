@@ -5,6 +5,9 @@ import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVr
 import { depsReellesLectureGed, lireGedPermis } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
 import { lireExclusionsBestOf, exclurePageBestOf, reintegrerPageBestOf } from '../../../../../lib/permis/bestOfExclusionRepo'; // LOT 61
+import { avecVerrouDossier } from '../../../../../lib/permis/verrouExtraction'; // LOT 58 — une analyse à la fois par dossier
+import { executerReperagePlanches, lecteurPlanchesMistral, coutVisionUsd, MODELE_PLANCHE, type UsageVision } from '../../../../../lib/permis/reperePlanches'; // LOT 62
+import { lireReperagePlanchesOui, lireRunsReperage, enregistrerReperage } from '../../../../../lib/permis/reperePlanchesRepo'; // LOT 62
 import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte, familleDeNom, tracabilitePlanche, type FamillePlan } from '../../../../../lib/permis/planMasse';
 import { familleDeContenu, niveauxDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV : famille + niveaux par le CONTENU
 import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone, appliquerAutoStatut } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2) / RATT-2
@@ -98,12 +101,21 @@ export async function GET(request: Request): Promise<Response> {
         confirmations.set(p.id, { planches });
       } catch (e) { indisponibles.push(`texte:${p.id}`); console.error(`[permis/emprise] confirmation pièce ${p.id} indisponible`, { message: e instanceof Error ? e.message : String(e) }); }
     }));
+    // LOT 62 — planches repérées par IMAGE (verdict='oui'), à FUSIONNER dans les pièces (distinguées par `origine:'image'`), + l'audit par pièce.
+    const planchesImage = await repli('reperage', lireReperagePlanchesOui(dossierId), new Map<number, { page: number; categorie: string }[]>());
+    const reperageRuns = await repli('reperageRuns', lireRunsReperage(dossierId), new Map());
+    const familleDeCategorie = (c: string): FamillePlan => (c === 'coupe' || c === 'facade' || c === 'elevation') ? 'coupe' : 'masse'; // DISPLAY seul (image = non traçable)
     const enrichir = (p: { id: number; nomFichier: string; typeMime: string | null }, propose: boolean, famille: FamillePlan | null) => {
-      const planches = confirmations.get(p.id)?.planches ?? [];
+      const planchesTexte = confirmations.get(p.id)?.planches ?? [];
+      // fusion : les pages IMAGE non déjà trouvées par le texte, marquées `origine:'image'`, jamais traçables.
+      const dejaTexte = new Set(planchesTexte.map((pl) => pl.page));
+      const planchesIma = (planchesImage.get(p.id) ?? []).filter((ip) => !dejaTexte.has(ip.page))
+        .map((ip) => ({ page: ip.page, echelle: null, tracable: false, famille: familleDeCategorie(ip.categorie), origine: 'image' as const }));
+      const planches = [...planchesTexte, ...planchesIma];
       return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, famille, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0, niveaux: niveauxParId.get(p.id) };
     };
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
-    return Response.json({ pieces, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, exclusionsBestOf, indisponibles });
+    return Response.json({ pieces, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, exclusionsBestOf, reperageRuns: Object.fromEntries(reperageRuns), indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
     return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });
@@ -141,6 +153,38 @@ export async function POST(request: Request): Promise<Response> {
         ? await exclurePageBestOf(dossierId, body.pieceId as number, body.page as number, garde.auteurId === null ? 'admin' : String(garde.auteurId))
         : await reintegrerPageBestOf(body.pieceId as number, body.page as number);
       return Response.json({ ok });
+    }
+
+    // LOT 62 — REPÉRER LES PLANCHES d'une pièce par ANALYSE D'IMAGE (bouton MANUEL, geste délibéré payant). Sous le VERROU du LOT 58
+    //   (un second repérage concurrent sur le même dossier est refusé, pas mis en file). PRÉSENCE seule (jamais le contenu). Le
+    //   pré-filtre RGPD (page par page, en abstention) vit dans `executerReperagePlanches` ; l'audit (pages écartées + motif, tokens,
+    //   coût, modèle) est persisté par `enregistrerReperage` (rejouable). JAMAIS déclenché en automatique ni par la veille.
+    if (body.action === 'reperer_planches') {
+      if (!Number.isInteger(body.pieceId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      const pieceId = body.pieceId as number;
+      const par = garde.auteurId === null ? 'admin' : String(garde.auteurId);
+      const verrou = await avecVerrouDossier(dossierId, async () => {
+        const deps = depsReellesLectureGed();
+        const meta = (await deps.listerPieces(dossierId)).find((m) => m.id === pieceId);
+        if (!meta) return { erreur: 'piece' as const };
+        const pdf = await deps.lireObjet(meta.cleStockage);
+        const ex = await deps.extraire(pdf, meta.typeMime);
+        const textes = ex.ok ? ex.pages : []; // pages sans texte → écartées par le pré-filtre RGPD (invérifiables)
+        const usage: UsageVision = { promptTokens: 0, completionTokens: 0, modeleResolu: null };
+        const resultat = await executerReperagePlanches({ textesPages: async () => textes, pdf: async () => pdf, lecteur: lecteurPlanchesMistral(usage) });
+        const coutUsd = coutVisionUsd(usage);
+        await enregistrerReperage(dossierId, pieceId, resultat, { modele: MODELE_PLANCHE, modeleResolu: usage.modeleResolu, tokensIn: usage.promptTokens, tokensOut: usage.completionTokens, coutUsd, par });
+        return { resume: {
+          analysees: resultat.pagesEnvoyees.length,
+          planches: resultat.verdicts.filter((v) => v.verdict === 'oui').length,
+          incertaines: resultat.verdicts.filter((v) => v.verdict === 'incertain').length,
+          ecartees: resultat.pagesEcartees.length,
+          coutUsd,
+        } };
+      });
+      if (!verrou.ok) return Response.json({ erreur: 'Une analyse de ce permis est déjà en cours.' }, { status: 409 });
+      if ('erreur' in verrou.valeur) return Response.json({ erreur: 'pièce introuvable' }, { status: 404 });
+      return Response.json({ ok: true, resume: verrou.valeur.resume });
     }
 
     // APERÇU DÉBORDEMENT (lecture seule, jamais bloquant) — recalcule le Lambert CÔTÉ SERVEUR (garde PROJ) depuis le calage + le tracé

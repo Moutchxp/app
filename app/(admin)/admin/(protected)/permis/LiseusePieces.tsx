@@ -9,6 +9,7 @@ import {
   type PiecePlan, type Plan,
 } from './TraceEmpriseRendu';
 import { MAX_DOCS_CACHE, MAX_BITMAPS_RENDU, voisinsAPrecharger, rangerEtEvincer } from './prechargeLiseuse';
+import type { RunReperageAffiche } from '../../../../lib/permis/reperePlanchesRepo'; // LOT 62 — audit du repérage par image (type SEUL)
 
 /** LOT 23 — un document pdf.js en cache + comment il y est entré (`precharge` = chargé en tâche de fond, pas encore affiché) + octets réellement transférés. */
 type EntreeCache = { doc: PDFDocumentProxy; precharge: boolean; octets: number };
@@ -67,6 +68,12 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   // LOT 61 — pages RETIRÉES du best-of à la main (réversibles), clé stable « pieceId:page ». On persiste les exclusions ; le best-of
   //   reste calculé à la volée, on lui SOUSTRAIT ces pages. Le retrait n'ôte JAMAIS le document ni la page en GED, seulement de la sélection.
   const [exclus, setExclus] = useState<Set<string>>(new Set());
+  // LOT 62 — audit du repérage par IMAGE, par pièce (planches / incertaines / pages écartées RGPD + motif / coût). `vReper` : après un
+  //   repérage, on RECHARGE le best-of (les nouvelles planches image y entrent). `reperEnCours`/`reperMsg` : état du bouton.
+  const [runs, setRuns] = useState<Record<number, RunReperageAffiche>>({});
+  const [vReper, setVReper] = useState(0);
+  const [reperEnCours, setReperEnCours] = useState(false);
+  const [reperMsg, setReperMsg] = useState<string | null>(null);
   const [nav, setNav] = useState<'bestof' | 'piece'>('bestof');
   const [planIndex, setPlanIndex] = useState(0);
   const [pieceId, setPieceId] = useState<number | null>(null);
@@ -115,10 +122,12 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       try {
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`);
         if (!res.ok) { if (vivant) setEtat('erreur'); return; }
-        const j = await res.json() as { pieces?: PiecePlan[]; exclusionsBestOf?: { pieceId: number; page: number }[] };
+        const j = await res.json() as { pieces?: PiecePlan[]; exclusionsBestOf?: { pieceId: number; page: number }[]; reperageRuns?: Record<number, RunReperageAffiche> };
         if (!vivant) return;
         const ps = j.pieces ?? [];
         setPieces(ps);
+        setRuns(j.reperageRuns ?? {}); // LOT 62 — audit du repérage par image
+
         if (ps.length === 0) { setEtat('vide'); return; }
         const b = construireBandePlans(ps); // RÈGLE PARTAGÉE — sélection/ordre du best-of, jamais recodée ici.
         setBande(b);
@@ -134,7 +143,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       } catch { if (vivant) setEtat('erreur'); }
     })();
     return () => { vivant = false; };
-  }, [dossierId]);
+  }, [dossierId, vReper]); // LOT 62 — vReper bump après un repérage → recharge le best-of avec les planches image
 
   useEffect(() => { pieceIdRef.current = pieceId; }, [pieceId]);
 
@@ -309,6 +318,25 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [pieceId, page, etat]);
 
   const planCourant = nav === 'bestof' ? (bandeVisible[planIndex] ?? null) : null;
+  const runCourant = pieceId !== null ? runs[pieceId] : undefined; // LOT 62 — audit du repérage de la pièce courante
+
+  // LOT 62 — REPÉRER les planches de la pièce courante par ANALYSE D'IMAGE (bouton MANUEL). POST sous le verrou du LOT 58 (409 si une
+  //   analyse tourne déjà). 401 → « reconnectez-vous ». Succès → on RECHARGE le best-of (vReper) : les planches image y entrent.
+  const reperer = useCallback(async () => {
+    if (pieceId === null || reperEnCours) return;
+    setReperEnCours(true); setReperMsg(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reperer_planches', dossierId, pieceId }) });
+      if (res.status === 401) { setReperMsg('Session expirée — reconnectez-vous.'); return; }
+      if (res.status === 409) { setReperMsg('Une analyse de ce permis est déjà en cours.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; resume?: { planches: number; incertaines: number; ecartees: number } };
+      if (!res.ok || !body.ok) { setReperMsg('Repérage impossible, réessayez.'); return; }
+      const r = body.resume;
+      setReperMsg(r ? `${r.planches} planche(s) repérée(s)${r.incertaines ? ` · ${r.incertaines} incertaine(s)` : ''}${r.ecartees ? ` · ${r.ecartees} page(s) écartée(s) par précaution` : ''}.` : 'Repérage terminé.');
+      setVReper((v) => v + 1);
+    } catch { setReperMsg('Repérage impossible, réessayez.'); }
+    finally { setReperEnCours(false); }
+  }, [pieceId, dossierId, reperEnCours]);
 
   // LOT 61 — RETIRER la page courante du best-of (réversible). Optimiste-après-confirmation : on n'ôte de la SÉLECTION qu'après un
   //   POST réussi. 401 → « reconnectez-vous » ; échec transport → message honnête ; migration 190 absente (ok:false) → no-op SILENCIEUX
@@ -397,6 +425,25 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
             <div style={{ marginTop: '.3rem' }}>
               <SelecteurPiecePlan pieces={pieces} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} />
             </div>
+          )}
+        </div>
+        {/* LOT 62 — REPÉRAGE DES PLANCHES par analyse d'image (bouton MANUEL, pièce courante). Annonce AVANT le clic ce qu'il fait et
+            ce qu'il coûte, sans jargon. Résultat visible + modifiable (retrait LOT 61). Pages écartées (RGPD) et incertaines dites. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem' }}>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 36, padding: '.3rem .6rem', fontSize: 12, alignSelf: 'flex-start' }}
+            disabled={reperEnCours || pieceId === null} aria-busy={reperEnCours} onClick={() => void reperer()}>
+            {reperEnCours ? 'Analyse des images en cours…' : 'Repérer les planches de cette pièce'}
+          </button>
+          <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>
+            Fait analyser les images de ce document par un service payant pour trouver les plans encastrés que le repérage par le texte ne voit pas. Quelques secondes par page (de l’ordre de 2 centimes pour une vingtaine de pages). Le résultat est modifiable : vous pouvez retirer une page.
+          </span>
+          {reperMsg && <span role="status" aria-live="polite" style={{ fontSize: 11, color: reperMsg.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-ink)' }}>{reperMsg}</span>}
+          {runCourant && (
+            <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>
+              {runCourant.nbPlanches} planche{runCourant.nbPlanches > 1 ? 's' : ''} repérée{runCourant.nbPlanches > 1 ? 's' : ''} par image dans cette pièce.
+              {runCourant.incertaines.length > 0 && ` ${runCourant.incertaines.length} page${runCourant.incertaines.length > 1 ? 's' : ''} incertaine${runCourant.incertaines.length > 1 ? 's' : ''} (${runCourant.incertaines.map((p) => `p${p}`).join(', ')}) — hors best-of.`}
+              {runCourant.pagesEcartees.length > 0 && ` ${runCourant.pagesEcartees.length} page${runCourant.pagesEcartees.length > 1 ? 's' : ''} non envoyée${runCourant.pagesEcartees.length > 1 ? 's' : ''} par précaution : ${runCourant.pagesEcartees.map((e) => `p${e.page} (${e.motif})`).join(' ; ')}.`}
+            </span>
           )}
         </div>
         <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajuster} />

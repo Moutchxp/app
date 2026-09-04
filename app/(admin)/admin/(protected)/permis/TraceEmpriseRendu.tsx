@@ -60,7 +60,8 @@ export function affichageTrace(etat: EtatChargementTrace, nbBatiments: number): 
 
 // PROJ-3f — une pièce candidate porte ses PLANCHES (pages hors cartouche) calculées côté serveur, chacune avec une échelle indicative.
 // PROJ-3m — chaque PLANCHE porte sa traçabilité PAR PAGE (une pièce PC3 « coupe » peut mêler coupes et plans de niveau).
-export interface Planche { page: number; echelle: string | null; tracable?: boolean; famille?: FamillePlan; ambigu?: boolean }
+//   LOT 62 — `origine` : 'texte' (best-of textuel, comportement d'avant) ou 'image' (repérée par analyse d'image, présence seule).
+export interface Planche { page: number; echelle: string | null; tracable?: boolean; famille?: FamillePlan; ambigu?: boolean; origine?: 'texte' | 'image' }
 export interface PiecePlan { id: number; nomFichier: string; propose?: boolean; famille?: FamillePlan | null; planches?: Planche[]; confirme?: boolean; niveaux?: string[] }
 
 /** PROJ-3d — sépare les pièces en « proposées » (plan de masse) / « autres », en conservant l'ordre reçu (le serveur classe déjà). PUR. */
@@ -99,7 +100,7 @@ export function SelecteurPiecePlan({ pieces, pieceId, onChoisir }: { pieces: Pie
 }
 
 // ── PROJ-3e — BANDE DE PLANS : l'unité manipulée est LE PLAN (une page précise d'une pièce), plus « pièce » + « n° de page ». ──
-export interface Plan { pieceId: number; page: number; nomFichier: string; echelle: string | null; confirme: boolean; famille: FamillePlan; tracable: boolean; ambigu: boolean; niveaux?: string[] }
+export interface Plan { pieceId: number; page: number; nomFichier: string; echelle: string | null; confirme: boolean; famille: FamillePlan; tracable: boolean; ambigu: boolean; niveaux?: string[]; origine: 'texte' | 'image' }
 
 /**
  * Construit la bande à feuilleter à partir des pièces déjà CLASSÉES (ordre masse → étage → coupe, PAS recalculé). PROJ-3f : un
@@ -110,14 +111,20 @@ export interface Plan { pieceId: number; page: number; nomFichier: string; echel
 export function construireBandePlans(pieces: PiecePlan[]): Plan[] {
   const out: Plan[] = [];
   for (const p of pieces) {
-    if (!p.propose) continue;
+    const planchesToutes = p.planches ?? [];
+    const aImage = planchesToutes.some((pl) => pl.origine === 'image');
+    // LOT 62 — on inclut une pièce PROPOSÉE (best-of textuel, comportement d'avant) OU une pièce à ≥1 planche repérée par IMAGE
+    //   (même une notice à nom opaque, non proposée par le texte). Les autres restent hors bande (ex. la notice sans planche image).
+    if (!p.propose && !aImage) continue;
     const famillePiece: FamillePlan = p.famille ?? 'masse';
-    const confirme = !!(p.planches && p.planches.length > 0);
-    const planches: Planche[] = confirme ? p.planches! : [{ page: 1, echelle: null }];
-    for (const pl of planches) {
+    const confirme = planchesToutes.length > 0;
+    const aEclater: Planche[] = planchesToutes.length > 0 ? planchesToutes : [{ page: 1, echelle: null }];
+    for (const pl of aEclater) {
+      const origine: 'texte' | 'image' = pl.origine ?? 'texte';
       const famille = pl.famille ?? famillePiece;
-      const tracable = pl.tracable ?? estTracable(famillePiece);
-      out.push({ pieceId: p.id, page: pl.page, nomFichier: p.nomFichier, echelle: pl.echelle, confirme, famille, tracable, ambigu: pl.ambigu ?? false, niveaux: p.niveaux });
+      // LOT 62 — une planche repérée par IMAGE n'est JAMAIS traçable : on sait qu'elle EXISTE, pas que c'est un plan de masse calable.
+      const tracable = origine === 'image' ? false : (pl.tracable ?? estTracable(famillePiece));
+      out.push({ pieceId: p.id, page: pl.page, nomFichier: p.nomFichier, echelle: pl.echelle, confirme, famille, tracable, ambigu: pl.ambigu ?? false, niveaux: p.niveaux, origine });
     }
   }
   return out;
@@ -172,6 +179,8 @@ export function BandePlans({ bande, index, onPrecedent, onSuivant }: { bande: Pl
         <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.05rem .35rem' }}>{libelleFamille(p.famille)}</span>
         {/* SUITE — les NIVEAUX que porte une planche d'étage (RDC/SSOL/R+n), pour savoir ce qu'on ouvre (une planche multi-niveaux entre une seule fois). */}
         {p.niveaux && p.niveaux.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.05rem .35rem' }}>niveaux : {p.niveaux.join(', ')}</span>}
+        {/* LOT 62 — ORIGINE distinguée (le mot porte l'info) : « repérée par image » = analyse d'image (présence seule, fiabilité différente du texte) → Arno sait ce qu'il regarde. */}
+        {p.origine === 'image' && <span style={{ fontSize: 11, fontWeight: 700, border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.05rem .35rem', color: 'var(--color-svv-muted)' }}>repérée par image</span>}
         <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{libellePlan(p)}{p.confirme ? '' : ' (page à confirmer)'}</span>
       </div>
     </div>
