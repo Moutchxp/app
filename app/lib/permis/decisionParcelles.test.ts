@@ -108,3 +108,35 @@ describe('decisionParcelles — N10-G annexe 4', () => {
     expect(d.parcelles.find((p) => p.section === 'DK' && p.numero === '4')).toBeTruthy();
   });
 });
+
+describe('decisionParcelles — LOT 66 : parcelles du récapitulatif (télé-service, sans AcroForm)', () => {
+  // Dossier-témoin 7424 : Sitadel plafonné à 3 (AB157/AB160/Z1), le récap en déclare 10.
+  const sitadel3 = [{ section: 'AB', numero: '157' }, { section: 'AB', numero: '160' }, { section: 'Z', numero: '1' }];
+  const recap10 = [
+    { prefixe: '000', section: 'Z', numero: '1', superficieM2: 600 }, { prefixe: '000', section: 'Z', numero: '2', superficieM2: 420 },
+    { prefixe: '000', section: 'Z', numero: '3', superficieM2: 273 }, { prefixe: '000', section: 'Z', numero: '4', superficieM2: 265 },
+    { prefixe: '000', section: 'Z', numero: '194', superficieM2: 224 }, { prefixe: '000', section: 'Z', numero: '124', superficieM2: 825 },
+    { prefixe: '000', section: 'Z', numero: '6', superficieM2: 272 }, { prefixe: '000', section: 'Z', numero: '195', superficieM2: 557 },
+    { prefixe: '000', section: 'AB', numero: '157', superficieM2: 1320 }, { prefixe: '000', section: 'AB', numero: '160', superficieM2: 259 },
+  ];
+
+  it('AcroForm vide + récap → les 10 parcelles sont lues, SANS plafond, préfixe 000', () => {
+    const d = decisionParcelles([], sitadel3, '09300125V0081', '93001', recap10);
+    expect(d.parcelles).toHaveLength(10);
+    expect(d.parcelles.every((p) => p.prefixe === '000')).toBe(true);
+    // les 3 corroborées par Sitadel = confirmee ; les 7 hors plafond = a_verifier (absence attendue, pas un doute)
+    expect(d.parcelles.filter((p) => p.confiance === 'confirmee').map((p) => `${p.section}${p.numero}`).sort()).toEqual(['AB157', 'AB160', 'Z1']);
+    const z2 = d.parcelles.find((p) => p.section === 'Z' && p.numero === '2')!;
+    expect(z2.confiance).toBe('a_verifier');
+    expect(z2.reserve).toMatch(/absence attendue/i);
+    expect(z2.provenance).toMatch(/récapitulatif/i);
+  });
+
+  it('DÉDUP : une parcelle donnée par T2 ET par le récap n’apparaît qu’une fois (T2 prioritaire)', () => {
+    const t2 = [champ('T2S_section', 'Z'), champ('T2N_numero', '1'), champ('T2T_superficie', '600')];
+    const d = decisionParcelles(t2, [], '09300125V0081', '93001', [{ prefixe: '000', section: 'Z', numero: '1', superficieM2: 600 }, { prefixe: '000', section: 'Z', numero: '2', superficieM2: 420 }]);
+    expect(d.parcelles.filter((p) => p.section === 'Z' && p.numero === '1')).toHaveLength(1);
+    expect(d.parcelles.find((p) => p.section === 'Z' && p.numero === '1')!.provenance).toMatch(/T2S/); // T2 conserve la main
+    expect(d.parcelles).toHaveLength(2); // Z1 (T2, non doublé par le récap) + Z2 (récap)
+  });
+});

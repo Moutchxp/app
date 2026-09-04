@@ -12,6 +12,8 @@ import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleT
 import { familleDeContenu, niveauxDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV : famille + niveaux par le CONTENU
 import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone, appliquerAutoStatut } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2) / RATT-2
 import { attribuerNomsRepli } from '../../../../../lib/permis/caracteristiquesRepo'; // NOM-1 — attribue « bâtiment en projet N » aux corps anonymes (best-effort)
+import { extrairePagesPdf } from '../../../../../lib/permis/extractionPdf'; // LOT 66 — lecture de TÊTE (≤3 pages) pour la catégorie Cerfa
+import { estPieceCerfaPc } from '../../../../../lib/permis/identifierCerfa'; // LOT 66 — reconnaissance du Cerfa PC par CONTENU (n° 13409)
 
 // PROJ-3d — confirmation page-level PARESSEUSE : plafond DUR de pièces ouvertes côté serveur (mesuré ~98 ms/pièce → ~0,7 s pour 7).
 //   Ne JAMAIS ouvrir les 81 pièces (~8 s). Les proposées au-delà du plafond restent proposées PAR LEUR NOM, sans confirmation.
@@ -115,8 +117,18 @@ export async function GET(request: Request): Promise<Response> {
       const planchesIma = (planchesImage.get(p.id) ?? []).filter((ip) => !dejaTexte.has(ip.page))
         .map((ip) => ({ page: ip.page, echelle: null, tracable: false, famille: familleDeCategorie(ip.categorie), origine: 'image' as const }));
       const planches = [...planchesTexte, ...planchesIma];
-      return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, famille, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0, niveaux: niveauxParId.get(p.id) };
+      return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, famille, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0, niveaux: niveauxParId.get(p.id), cerfa: cerfaIds.has(p.id) };
     };
+    // ÉTAPE 3 (LOT 66) — CATÉGORIE « Cerfa » : reconnaître PAR CONTENU (n° de formulaire 13409 en tête — cf. `estPieceCerfaPc` ; le
+    //   récapitulatif télé-service le porte aussi, « Basé sur le cerfa n° 13409 »), JAMAIS par le nom de fichier. Lecture de TÊTE
+    //   (≤3 pages) bon marché, best-effort et ISOLÉE : une pièce illisible ou incertaine n'est PAS marquée (N10-J), jamais une erreur.
+    const cerfaIds = new Set<number>();
+    await repli('categorie-cerfa', Promise.all(piecesPdf.map(async (p) => {
+      try {
+        const ex = await extrairePagesPdf(await deps.lireObjet(p.cleStockage), p.typeMime, 3);
+        if (ex.ok && estPieceCerfaPc(ex.pages)) cerfaIds.add(p.id);
+      } catch { /* illisible → non marqué (N10-J) */ }
+    })), []);
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
     return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, exclusionsBestOf, reperageRuns: Object.fromEntries(reperageRuns), indisponibles });
   } catch (e) {

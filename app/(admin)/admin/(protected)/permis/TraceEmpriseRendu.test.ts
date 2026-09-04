@@ -923,4 +923,13 @@ describe('LOT 64 — ListePiecesAnalyse : toutes les pièces, non analysées par
     expect(html).toContain('impossible à ouvrir — format non pris en charge (image/jpeg)');
     expect(html).toContain('aria-disabled="true"');
   });
+  it('LOT 66 — catégorie « Cerfa » : la pièce marquée cerfa porte le badge ; les autres non (jamais deviné par le nom)', () => {
+    const avecCerfa = [
+      { id: 40, nomFichier: 'Recapitulatif de la demande-19.pdf', propose: false, cerfa: true }, // reconnu PAR CONTENU
+      { id: 41, nomFichier: 'PC02_masse.pdf', propose: true, cerfa: false },
+    ];
+    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces: avecCerfa, runsParPiece: {}, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
+    expect(html).toContain('>Cerfa<');                                       // badge présent sur la pièce cerfa
+    expect((html.match(/>Cerfa</g) ?? [])).toHaveLength(1);                  // une seule : jamais posé sur PC02 (nom trompeur, cerfa=false)
+  });
 });

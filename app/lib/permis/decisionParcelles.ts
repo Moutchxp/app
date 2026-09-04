@@ -11,6 +11,7 @@
  * que les 3 emplacements Sitadel.
  */
 import type { ChampCerfa } from './decisionCerfa';
+import type { ParcelleRecap } from './parcellesRecap';
 import { versIdu, communeCadastrale } from '../sitadel/referenceCadastrale';
 
 export interface ParcelleSitadel { section: string; numero: string }
@@ -38,8 +39,12 @@ const nombre = (s: string): number | null => { const n = Number(String(s).replac
 /** Clé de COMPARAISON section/numéro : majuscules + zéros de tête retirés (Cerfa « DZ 09 » ⟷ Sitadel « DZ 9 »). */
 const cle = (section: string, numero: string) => `${section.trim().toUpperCase()}#${numero.trim().replace(/^0+/, '') || '0'}`;
 
-/** Décide les parcelles. `champsCerfa` = AcroForm du Cerfa ; `sitadel` = parcelles Sitadel ; `numDau`/`codeInsee` pour l'IDU. */
-export function decisionParcelles(champsCerfa: ChampCerfa[], sitadel: ParcelleSitadel[], numDau: string, codeInsee: string): DecisionParcelles {
+/**
+ * Décide les parcelles. `champsCerfa` = AcroForm du Cerfa ; `sitadel` = parcelles Sitadel ; `numDau`/`codeInsee` pour l'IDU ;
+ * `recap` (LOT 66) = parcelles lues dans la table « Références cadastrales » d'un récapitulatif de demande (télé-service, sans
+ * AcroForm) — MÊME AUTORITÉ que le bloc T2 (le Cerfa fait foi), SANS PLAFOND, dédoublonnées par section/numéro.
+ */
+export function decisionParcelles(champsCerfa: ChampCerfa[], sitadel: ParcelleSitadel[], numDau: string, codeInsee: string, recap: ParcelleRecap[] = []): DecisionParcelles {
   const idx = new Map<string, string>();
   for (const c of champsCerfa) if (!idx.has(c.nom)) idx.set(c.nom, (c.valeur ?? '').trim());
   const val = (nom: string) => (idx.get(nom) ?? '').trim();
@@ -107,6 +112,32 @@ export function decisionParcelles(champsCerfa: ChampCerfa[], sitadel: ParcelleSi
     });
   }
 
+  // 1ter) parcelles du RÉCAPITULATIF de demande (LOT 66) — la table « Références cadastrales » du télé-service, en TEXTE (pas d'AcroForm).
+  //   MÊME AUTORITÉ que T2/annexe 4 (le Cerfa fait foi), SANS PLAFOND. Dédup par section/numéro (une parcelle déjà donnée par T2/annexe
+  //   n'est pas réécrite). Le préfixe est déjà normalisé (« 000 ») par le lecteur, pour coïncider avec la clé des parcelles cadastrales.
+  for (const p of recap) {
+    if (!p.section || !p.numero) continue;
+    const k = cle(p.section, p.numero);
+    if (cerfaCles.has(k)) continue;                    // déjà donnée par le bloc T2 ou l'annexe 4 → pas de doublon
+    cerfaCles.add(k);
+    const corrobore = sitadelCles.has(k);
+    const idu = inseeCad ? versIdu({ insee: inseeCad, prefixe: p.prefixe || '000', section: p.section, numero: p.numero }) : null;
+    const reserves: string[] = [];
+    if (!inseeCad && motifCommune) reserves.push(motifCommune);
+    // Non corroborée : Sitadel plafonne à 3 → au-delà, l'absence est ATTENDUE (source tronquée), pas une contradiction (cf. annexe 4).
+    if (!corrobore) reserves.push(
+      sitadelCles.size >= 3
+        ? 'parcelle déclarée au récapitulatif du Cerfa ; non reprise par Sitadel, plafonné à 3 parcelles — absence attendue, aucune incidence sur son existence (à corroborer géométriquement, pas à vérifier)'
+        : 'parcelle déclarée au récapitulatif du Cerfa mais absente des références Sitadel',
+    );
+    parcelles.push({
+      prefixe: p.prefixe || '000', section: p.section.trim().toUpperCase(), numero: p.numero.trim(), superficieDeclareeM2: p.superficieM2, role: 'origine', idu,
+      confiance: corrobore && inseeCad ? 'confirmee' : 'a_verifier',
+      reserve: reserves.length ? reserves.join(' ; ') : null,
+      provenance: 'Cerfa récapitulatif (table « Références cadastrales »)',
+    });
+  }
+
   // 2) parcelles Sitadel non retrouvées au Cerfa → ÉCART (Cerfa muet ? repli : on les écrit quand même, en a_verifier).
   for (const p of sitadel) {
     if (!p.section || !p.numero) continue;
@@ -127,5 +158,5 @@ export function decisionParcelles(champsCerfa: ChampCerfa[], sitadel: ParcelleSi
     ecarts.push(`le Cerfa déclare ${cerfaCles.size} parcelles ; Sitadel est plafonné à ${sitadelCles.size} (sec/num_cadastre1..3)`);
   }
 
-  return { parcelles, ecarts, motif: parcelles.length === 0 ? 'aucune parcelle déclarée (bloc T2 du Cerfa vide et sec/num_cadastre Sitadel vides)' : null };
+  return { parcelles, ecarts, motif: parcelles.length === 0 ? 'aucune parcelle déclarée (bloc T2 / annexe 4 / récapitulatif du Cerfa vides et sec/num_cadastre Sitadel vides)' : null };
 }

@@ -62,7 +62,7 @@ export function affichageTrace(etat: EtatChargementTrace, nbBatiments: number): 
 // PROJ-3m — chaque PLANCHE porte sa traçabilité PAR PAGE (une pièce PC3 « coupe » peut mêler coupes et plans de niveau).
 //   LOT 62 — `origine` : 'texte' (best-of textuel, comportement d'avant) ou 'image' (repérée par analyse d'image, présence seule).
 export interface Planche { page: number; echelle: string | null; tracable?: boolean; famille?: FamillePlan; ambigu?: boolean; origine?: 'texte' | 'image' }
-export interface PiecePlan { id: number; nomFichier: string; propose?: boolean; famille?: FamillePlan | null; planches?: Planche[]; confirme?: boolean; niveaux?: string[] }
+export interface PiecePlan { id: number; nomFichier: string; propose?: boolean; famille?: FamillePlan | null; planches?: Planche[]; confirme?: boolean; niveaux?: string[]; cerfa?: boolean }
 
 /** PROJ-3d — sépare les pièces en « proposées » (plan de masse) / « autres », en conservant l'ordre reçu (le serveur classe déjà). PUR. */
 export function grouperPieces<T extends { propose?: boolean }>(pieces: T[]): { proposees: T[]; autres: T[] } {
@@ -132,7 +132,12 @@ export function ListePiecesAnalyse({ pieces, runsParPiece, nonSupportees, pieceI
           <li key={p.id}>
             <button type="button" onClick={() => onChoisir(p.id)} aria-current={courante ? 'true' : undefined}
               style={{ ...ligne, cursor: 'pointer', border: `1px solid ${courante ? 'var(--color-svv-ink)' : 'var(--color-svv-line)'}`, background: courante ? 'var(--color-svv-field)' : 'transparent', color: 'inherit' }}>
-              <span style={{ fontWeight: 600 }}>{p.nomFichier}{p.propose ? '' : ' — hors des pièces suivies'}</span>
+              <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+                {/* LOT 66 — catégorie « Cerfa » : marqueur posé PAR CONTENU (n° 13409), pour retrouver le formulaire d'un coup d'œil.
+                    Absent si l'identification est incertaine (N10-J) : on ne devine jamais d'après le nom de fichier. */}
+                {p.cerfa && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.02em', textTransform: 'uppercase', padding: '.05rem .3rem', borderRadius: '.25rem', background: 'var(--color-svv-red)', color: '#fff' }}>Cerfa</span>}
+                <span>{p.nomFichier}{p.propose ? '' : ' — hors des pièces suivies'}</span>
+              </span>
               <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>{etat(p)}</span>
             </button>
           </li>

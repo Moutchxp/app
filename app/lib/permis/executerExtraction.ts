@@ -13,6 +13,7 @@ import { decisionLots } from './decisionLots';
 import { decisionNiveaux } from './decisionNiveaux';
 import { ecrireNiveaux } from './ecritureNiveaux';
 import { decisionParcelles, type ParcelleSitadel } from './decisionParcelles';
+import { lireParcellesRecapCerfa } from './parcellesRecap'; // LOT 66 : table « Références cadastrales » du récap (télé-service, TEXTE)
 import { ecrireParcelles, figerEmpreinte, figerBatiSnapshot } from './parcellesRepo';
 import { figerVersionGel } from './gelRepo';
 import { lireCerfaScan, lecteurMistral } from './lireCerfaScan';
@@ -106,7 +107,11 @@ export async function executerExtractionPermis(dossierId: number, opts: { avecVi
   const sr = sit.rows[0] ?? {};
   const sitadelP: ParcelleSitadel[] = ([[sr.s1, sr.n1], [sr.s2, sr.n2], [sr.s3, sr.n3]] as [string | null, string | null][])
     .filter(([s, n]) => s && n).map(([s, n]) => ({ section: s as string, numero: n as string }));
-  await ecrireParcelles(dossierId, decisionParcelles(champsCerfa, sitadelP, m.num_dau, m.code_insee).parcelles, opts.majPar);
+  // LOT 66 — les parcelles peuvent n'exister que dans la table TEXTE d'un récapitulatif (télé-service, sans AcroForm) : on la lit sur
+  //   le texte du dossier ENTIER (le récap y est déjà, `texteDossier`). Le Cerfa fait foi (prime Sitadel, plafonné à 3), SANS plafond.
+  const recap = lireParcellesRecapCerfa(texteDossier);
+  if (recap.anomalies.length) console.warn(`[permis/parcelles-recap] dossier ${dossierId} : ${recap.anomalies.length} ligne(s) de la table illisible(s), ignorée(s) — ${recap.anomalies.join(' | ')}`);
+  await ecrireParcelles(dossierId, decisionParcelles(champsCerfa, sitadelP, m.num_dau, m.code_insee, recap.parcelles).parcelles, opts.majPar);
   await figerEmpreinte(dossierId, opts.majPar).catch(() => undefined);      // géométrie : best-effort, jamais bloquant
   await figerBatiSnapshot(dossierId, opts.majPar).catch(() => undefined);
   await figerVersionGel(dossierId, opts.majPar).catch(() => undefined);     // FIG-1 — version d'état figé opposable (NO-OP si migration 169 absente)
