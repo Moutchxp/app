@@ -1,4 +1,5 @@
 import type { EnvoiHistorique } from './historiqueEnvois';
+import { libelleRelanceReponse } from './historiqueEnvois'; // LOT 79 : titre de la relance sur réponse selon son origine (auto/manuel/indéterminée)
 import type { EtatPartiel } from '../permis/dossierPartiel';
 import { dateButoirPartiel } from '../permis/dossierPartiel';
 import { echeanceDe } from './echeance';
@@ -145,8 +146,10 @@ export function projeterParcours(e: EntreeParcours): EvenementFrise[] {
     //   Mécanisme DISTINCT de la cascade : étapes À PART ENTIÈRE dans la chronologie, JAMAIS fusionnées avec les créneaux de cascade
     //   (qui restent inchangés — décision « coexistence »). Toujours des FAITS (envoi réel). Le tri final (evs.sort) les place à leur
     //   date ; le liseré « courant » (dernier 'passe') se replace donc de lui-même sur la dernière relance réellement partie.
+    //   LOT 79 — le titre distingue l'origine : « Relance automatique / manuelle après réponse partielle » selon l'auteur journalisé
+    //   (dérivé sans présomption) ; origine indéterminée (ligne historique sans trace) → libellé neutre (règle Arno LOT 71).
     for (const rr of e.envois.filter((x) => x.nature === 'relance_reponse'))
-      evs.push({ le: iso(rr.le), quand: 'passe', libelle: 'Relance après réponse partielle', detail: detailEnvoi(rr.destinataire, 'pièces encore manquantes') });
+      evs.push({ le: iso(rr.le), quand: 'passe', libelle: libelleRelanceReponse(rr.origine ?? 'indetermine'), detail: detailEnvoi(rr.destinataire, 'pièces encore manquantes') });
     // INFORMATION SAISINE CADA (l'annonce, In-Reply-To) — effectuée sur envoi réel (adresse non conservée), sinon programmée (Règle B → toutes les adresses).
     const dateAnnonce = ajoute(J, rp.nbRelancesAvantAnnonce * rp.relanceJours + rp.annonceJours);
     const futurAnnonce = estMultiAdresseFutur(e.reglages.multiAdresse, totalPartiel, totalPartiel) ? TOUTES_ADRESSES_FUTUR : INTERLOCUTEUR_FUTUR;

@@ -874,12 +874,14 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     //   ADDITIF : ne touche NI aux échéances de cascade NI au butoir CADA. Le fil les montre déjà via demande_sortant_hors_outil (FIL-C) →
     //   aucun doublon ici (source de la FRISE, pas du fil). Résilient : table/colonne absente → source ignorée (dégradation sûre).
     try {
-      const { rows } = await query<{ demande_id: number; le: string; rang: number | null; destinataire: string | null }>(
+      const { rows } = await query<{ demande_id: number; le: string; rang: number | null; destinataire: string | null; auteur: string | null }>(
         `SELECT j.demande_id::int AS demande_id, j.horodatage::text AS le, (j.details->>'rang')::int AS rang,
-                coalesce(j.details->>'destinataire', nullif(d.dest_nom, ''), d.dest_email) AS destinataire
+                coalesce(j.details->>'destinataire', nullif(d.dest_nom, ''), d.dest_email) AS destinataire,
+                j.auteur AS auteur
            FROM demande_journal j JOIN demande d ON d.id = j.demande_id
           WHERE j.demande_id = ANY($1) AND j.motif LIKE $2 || '%'`, [ids, MOTIF_RELANCE_REPONSE_PREFIXE]);
-      for (const r of rows) pousser(r.demande_id, { le: r.le, categorie: 'reponse', variante: null, rang: r.rang, destinataire: r.destinataire });
+      // LOT 79 — on transmet l'auteur journalisé ('auto' pour l'ordonnanceur) ; l'origine auto/manuel/indéterminée est dérivée dans ordonnerHistoriqueEnvois.
+      for (const r of rows) pousser(r.demande_id, { le: r.le, categorie: 'reponse', variante: null, rang: r.rang, destinataire: r.destinataire, auteur: r.auteur });
     } catch { /* journal/details absents → historique sans les relances sur réponse (dégradation sûre) */ }
   }
 

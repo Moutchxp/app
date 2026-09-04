@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { projeterParcours, partitionnerFrise, type EvenementFrise, type ReglagesParcours } from './friseSuivi';
-import type { EnvoiHistorique } from './historiqueEnvois';
+import type { EnvoiHistorique, OrigineRelance } from './historiqueEnvois';
+import { libelleRelanceReponse } from './historiqueEnvois';
 import type { EtatPartiel } from '../permis/dossierPartiel';
 
 /**
@@ -21,7 +22,8 @@ const relanceOrd = (le: string, grade: string, destinataire: string | null = 'ma
 const relancePart = (le: string): EnvoiHistorique => ({ le, nature: 'relance_partielle', grade: '1re relance', libelle: 'Relance partielle — 1re relance', destinataire: null });
 const suspension = (le: string): EtatPartiel => ({ le, familles: ['cerfa'], origine: 'declaree' });
 // LOT 48 — relance sur réponse partielle (mécanisme DISTINCT de la cascade) : étape à part entière.
-const relanceReponse = (le: string): EnvoiHistorique => ({ le, nature: 'relance_reponse', grade: '1re relance', libelle: 'Relance après réponse partielle', destinataire: 'lauriane.pangui@mairie.fr' });
+// LOT 79 — origine paramétrable (défaut indéterminé pour les cas LOT 48 historiques → libellé neutre) ; le titre de la frise est dérivé de l'origine.
+const relanceReponse = (le: string, origine?: OrigineRelance): EnvoiHistorique => ({ le, nature: 'relance_reponse', grade: '1re relance', libelle: libelleRelanceReponse(origine ?? 'indetermine'), destinataire: 'lauriane.pangui@mairie.fr', origine });
 const base = { envoyeLe: INITIAL, envois: [initiale()], suspension: null, saisineCadaEnvoyeeLe: null, annonceCadaEnvoyeeLe: null, destinataireCourant: 'urba@mairie.fr', bifurcationDestinataire: null, annonceCadaDestinataire: null, reglages: REGLAGES };
 const jours = (ev: EvenementFrise[]) => ev.map((e) => ({ l: e.libelle, q: e.quand, d: e.le.slice(0, 10) }));
 
@@ -238,5 +240,27 @@ describe('LOT 48 — relance sur réponse partielle : étape à part dans la fri
     // la relance sur réponse n'est PAS slottée dans la cascade → la 1re relance cascade demeure « à venir » à la même date.
     expect(relanceProg(avec)?.le).toBe(relanceProg(sans)?.le);
     expect(relanceProg(avec)?.le?.slice(0, 10)).toBe('2026-09-07'); // 28/08 + 10 j
+  });
+});
+
+describe('LOT 79 — le titre de la relance sur réponse distingue l’origine (auto / manuel / indéterminée)', () => {
+  const J = '2026-08-28T12:00:00Z';
+  const bif = { ...base, envois: [initiale()], suspension: suspension(J) };
+  const titreReponse = (origine?: OrigineRelance): string | undefined => {
+    const p = projeterParcours({ ...bif, envois: [...bif.envois, relanceReponse('2026-09-03T09:16:00Z', origine)] });
+    return p.find((e) => e.detail?.includes('pièces encore manquantes'))?.libelle;
+  };
+
+  it('origine AUTO (ordonnanceur) → « Relance automatique après réponse partielle »', () => {
+    expect(titreReponse('auto')).toBe('Relance automatique après réponse partielle');
+  });
+
+  it('origine MANUELLE (geste humain) → « Relance manuelle après réponse partielle »', () => {
+    expect(titreReponse('manuel')).toBe('Relance manuelle après réponse partielle');
+  });
+
+  it('origine INDÉTERMINÉE (ligne historique sans trace) → libellé NEUTRE, jamais « automatique » par défaut', () => {
+    expect(titreReponse('indetermine')).toBe('Relance après réponse partielle');
+    expect(titreReponse(undefined)).toBe('Relance après réponse partielle');
   });
 });

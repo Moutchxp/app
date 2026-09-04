@@ -11,6 +11,30 @@ import { ordinalRelance } from './decompteButoir';
  */
 export type NatureEnvoi = 'initiale' | 'relance_ordinaire' | 'relance_partielle' | 'complement_extra' | 'relance_reponse';
 
+/** LOT 79 — ORIGINE d'une relance : automatique (ordonnanceur), manuelle (geste humain), ou indéterminée (aucune trace). */
+export type OrigineRelance = 'auto' | 'manuel' | 'indetermine';
+
+/**
+ * LOT 79 — origine DÉRIVÉE de l'auteur journalisé (`demande_journal.auteur`), JAMAIS présumée : 'auto'/'systeme' (acteurs non
+ * humains de l'ordonnanceur) → automatique ; toute autre valeur non vide (identité d'un utilisateur) → manuelle ; absente → indéterminée.
+ */
+export function origineRelanceDepuisAuteur(auteur: string | null | undefined): OrigineRelance {
+  const a = (auteur ?? '').trim();
+  if (a === '') return 'indetermine';
+  if (a === 'auto' || a === 'systeme') return 'auto';
+  return 'manuel';
+}
+
+/**
+ * LOT 79 — titre de l'étape « relance après réponse partielle » (frise) selon son origine. Une mention ne s'affiche que si elle est
+ * VÉRIFIABLE (règle Arno, LOT 71) : origine indéterminée → libellé NEUTRE, jamais « automatique » par défaut.
+ */
+export function libelleRelanceReponse(origine: OrigineRelance): string {
+  if (origine === 'auto') return 'Relance automatique après réponse partielle';
+  if (origine === 'manuel') return 'Relance manuelle après réponse partielle';
+  return 'Relance après réponse partielle';
+}
+
 /** Un envoi BRUT (avant mise en forme), tel que sorti d'une des deux sources. La `categorie` dit d'où il vient et quel grade lire. */
 export interface EnvoiBrut {
   le: string;                                                    // ISO de l'envoi (envoye_le d'acheminement OU horodatage du journal)
@@ -19,6 +43,7 @@ export interface EnvoiBrut {
   rang: number | null;                                          // partielle : 1, 2, … ; sinon null
   destinataire: string | null;                                  // si connu (dest_nom/dest_email, ou details du journal)
   manuel?: boolean;                                             // LOT 30 (③) : relance partielle COMPTÉE faite À LA MAIN (au lieu de partie tout seul)
+  auteur?: string | null;                                       // LOT 79 : auteur journalisé (relance sur réponse) → origine auto/manuel/indéterminée dérivée
 }
 
 /** Un envoi MIS EN FORME pour l'affichage : sa nature, son grade lisible, un libellé complet, la date/heure et le destinataire. */
@@ -29,6 +54,7 @@ export interface EnvoiHistorique {
   libelle: string;              // texte lisible complet
   destinataire: string | null;
   manuel?: boolean;             // LOT 30 (③) : relance partielle COMPTÉE mais faite à la main
+  origine?: OrigineRelance;     // LOT 79 : relance sur réponse partielle → origine (auto/manuel/indéterminée) qui pilote le titre de la frise
 }
 
 /**
@@ -51,7 +77,8 @@ export function ordonnerHistoriqueEnvois(bruts: readonly EnvoiBrut[]): EnvoiHist
       }
       if (e.categorie === 'reponse') { // LOT 48 — relance sur réponse partielle : ÉTAPE À PART (mécanisme distinct de la cascade partielle, jamais fusionnée).
         const grade = `${ordinalRelance(e.rang ?? 1)} relance`;
-        return { le: e.le, nature: 'relance_reponse', grade, libelle: 'Relance après réponse partielle', destinataire: e.destinataire };
+        const origine = origineRelanceDepuisAuteur(e.auteur); // LOT 79 : auto/manuel/indéterminée dérivée de l'auteur journalisé (jamais présumée)
+        return { le: e.le, nature: 'relance_reponse', grade, libelle: libelleRelanceReponse(origine), destinataire: e.destinataire, origine };
       }
       const grade = `${ordinalRelance(e.rang ?? 1)} relance`; // vocab PARTIEL (ordinaux) — jamais fusionné avec l'ordinaire
       return { le: e.le, nature: 'relance_partielle', grade, libelle: `Relance partielle — ${grade}`, destinataire: e.destinataire, manuel: e.manuel };
