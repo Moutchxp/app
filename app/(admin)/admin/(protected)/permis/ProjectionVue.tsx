@@ -12,6 +12,7 @@ import { TableProjection, BoutonValiderProjection, AIDE_PROJECTION, TitreFamille
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { etatValidationProjection } from '../../../../lib/permis/etatValidationProjection';
 import { etatProjectionTitre, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles
+import { conditionAltitudeSortie, pretPourSortie } from '../../../../lib/permis/etatSortieRattachement'; // LOT 71 — condition altitude à 3 états (sans objet ≠ satisfaite)
 import { recompterSiSucces } from './comptesActions';
 
 /**
@@ -171,11 +172,16 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
           //   validée ET toutes les altitudes de sommet NGF renseignées) — l'écran DIT laquelle manque, jamais un bouton grisé muet.
           //   (B) RETOUR sans envoi. Le bouton « Valider la projection » NORMAL est masqué pour un dossier testé (il n'arrête pas les
           //   relances) : la SEULE sortie d'un dossier testé passe par ici.
-          const altitudeManque = (row?.nbCorpsSansAltitude ?? 0) > 0;
+          // LOT 71 — la condition « altitudes renseignées » a TROIS états : SANS OBJET (0 bâtiment → rien à renseigner, ne compte pas
+          //   comme satisfaite), NON SATISFAITE (≥1 sans altitude), SATISFAITE (≥1 et tous renseignés). Un ensemble vide ne se déclare
+          //   plus VERT (défaut 7424). Le SERVEUR reste bloqué par l'empreinte (peutValider requiert ≥1 bâtiment, PROJ-3b) — inchangé.
+          const condAltitude = conditionAltitudeSortie(row?.nbBatiments ?? 0, row?.nbCorpsSansAltitude ?? 0);
           const empreinteOk = ev.peutValider;             // requiert le dépliage + tracé de « Bâtiments et projection » (PERF-1) ; ev.libelle porte l'invite
-          const pretSortie = empreinteOk && !altitudeManque;
+          const pretSortie = pretPourSortie(empreinteOk, condAltitude.etat); // « sans objet » ne débloque JAMAIS la sortie
           const ligneOk: React.CSSProperties = { color: 'var(--color-svv-green-ink)' };
           const ligneKo: React.CSSProperties = { color: 'var(--color-svv-red)' };
+          const ligneNeutre: React.CSSProperties = { color: 'var(--color-svv-muted)' };
+          const tonAltitude = condAltitude.ton === 'vert' ? ligneOk : condAltitude.ton === 'rouge' ? ligneKo : ligneNeutre;
           return (
             <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem', fontSize: 13 }}>
               <span>Dossier <strong>en test</strong> (ouvert depuis « En cours »). Les relances à la mairie continuent en fond.</span>
@@ -185,7 +191,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
                 <span style={{ color: 'var(--color-svv-muted)', fontSize: 12 }}>Sortie <strong>DÉFINITIVE</strong> : le permis quitte « En cours » et <strong>toutes les relances programmées sont annulées</strong>. Deux conditions requises :</span>
                 <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
                   <li style={empreinteOk ? ligneOk : ligneKo}>{empreinteOk ? '✓ empreinte des bâtiments validée' : `Empreinte non validée — ${ev.libelle}`}</li>
-                  <li style={!altitudeManque ? ligneOk : ligneKo}>{!altitudeManque ? '✓ altitudes de sommet (NGF) renseignées' : `${row?.nbCorpsSansAltitude} bâtiment(s) sans altitude de sommet (NGF) — à renseigner dans « Caractéristiques du permis »`}</li>
+                  <li style={tonAltitude}>{condAltitude.texte}</li>
                 </ul>
                 {pretSortie
                   ? <button type="button" className="svv-btn svv-btn-primary" disabled={enCours} onClick={() => { void sortirVersRattachement(ouvert); }}>Terminer l’analyse et passer en Rattachement</button>

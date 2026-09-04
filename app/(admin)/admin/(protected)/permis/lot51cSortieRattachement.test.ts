@@ -54,8 +54,12 @@ describe('LOT 51-C — UI : sortie gardée, condition manquante affichée, bouto
   });
   it('l’écran DIT laquelle des deux conditions manque (jamais un bouton grisé muet)', () => {
     expect(s).toContain('Empreinte non validée');
-    expect(s).toContain('sans altitude de sommet (NGF)');
-    expect(s).toContain('pretSortie'); // le bouton n'est actif QUE si les deux conditions sont vertes
+    // LOT 71 — la condition altitude à TROIS états (sans objet ≠ satisfaite) vit dans le module PUR `etatSortieRattachement`
+    //   (testé par etatSortieRattachement.test.ts) ; l'UI la câble et rend son texte.
+    expect(s).toContain('conditionAltitudeSortie');
+    expect(s).toContain('condAltitude.texte');
+    expect(s).toContain('pretPourSortie'); // le bouton n'est actif QUE si empreinte OK ET altitude SATISFAITE (jamais « sans objet »)
+    expect(lire('app/lib/permis/etatSortieRattachement.ts')).toContain('sans altitude de sommet (NGF)');
   });
   it('le bouton « Valider » NORMAL est masqué pour un dossier testé (chemin qui n’arrête pas les relances)', () => {
     expect(s).toContain('!row?.testeEnAnalyse && (');
