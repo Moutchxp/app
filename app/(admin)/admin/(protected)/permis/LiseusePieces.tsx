@@ -344,6 +344,22 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
     finally { setReperEnCours(false); }
   }, [pieceId, dossierId, reperEnCours]);
 
+  // LOT 65 — OUVRIR LE DOCUMENT COMPLET dans un nouvel onglet. Le lien SIGNÉ (durée de vie limitée) est fabriqué AU CLIC (jamais
+  //   pré-généré au rendu de chaque plan : posé à l'avance, il serait périmé au moment du clic). Signeur UNIQUE `url_piece` (source
+  //   'dossier' = GED), variante `inline` → ouverture dans le visionneur PDF ; on y ajoute `#page=N` (fragment JAMAIS signé → clé
+  //   jamais exposée) pour cibler la page COURANTE (suit la navigation). 401 → « reconnectez-vous » ; échec → message, l'aperçu reste.
+  const ouvrirDocumentComplet = useCallback(async () => {
+    if (pieceId === null) return;
+    setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'url_piece', pieceId, source: 'dossier', inline: true }) });
+      if (res.status === 401) { setMessage('Session expirée — reconnectez-vous.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { url?: string };
+      if (!res.ok || !body.url) { setMessage('Ouverture du document impossible, réessayez.'); return; } // jamais un onglet vide sur une erreur brute
+      window.open(page > 0 ? `${body.url}#page=${page}` : body.url, '_blank', 'noopener,noreferrer');
+    } catch { setMessage('Ouverture du document impossible, réessayez.'); }
+  }, [pieceId, page]);
+
   // LOT 61 — RETIRER la page courante du best-of (réversible). Optimiste-après-confirmation : on n'ôte de la SÉLECTION qu'après un
   //   POST réussi. 401 → « reconnectez-vous » ; échec transport → message honnête ; migration 190 absente (ok:false) → no-op SILENCIEUX
   //   (best-of complet, comportement d'avant). Après retrait, on se replace sur un plan visible (jamais un écran vide muet).
@@ -464,6 +480,15 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
         <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajuster} />
       </div>
       <div style={{ flex: '2 1 300px', minWidth: 0 }}>
+        {/* LOT 65 — OUVRIR LE DOCUMENT COMPLET (nouvel onglet), AU-DESSUS de l'image. Visiblement cliquable (souligné + ↗, jamais un
+            nom qui devient lien au survol). Le lien SUIT la page affichée (nomCourant + page, état courant) ; il est signé AU CLIC. */}
+        {pieceId !== null && (
+          <button type="button" className="svv-link" onClick={() => void ouvrirDocumentComplet()}
+            aria-label={`Ouvrir ${nomCourant} dans un nouvel onglet`}
+            style={{ width: 'auto', minHeight: 32, padding: '.2rem .1rem', marginBottom: '.3rem', fontSize: 12, textAlign: 'left', textDecoration: 'underline', wordBreak: 'break-word' }}>
+            Ouvrir « {nomCourant} »{page > 0 ? ` (page ${page})` : ''} dans un nouvel onglet ↗
+          </button>
+        )}
         <div ref={pdfContainerRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
           style={{ position: 'relative', minHeight: '8rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', background: 'var(--color-svv-field)', touchAction: zoom > 1 ? 'none' : 'auto', cursor: zoom > 1 ? 'grab' : 'default' }}>
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>

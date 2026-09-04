@@ -148,3 +148,29 @@ describe('LOT 23 — préchargement des voisins + cache LRU borné + retour visu
     expect(SRC).toContain("position: 'absolute', inset: 0");     // overlay qui recouvre sans déplacer (le conteneur garde sa hauteur)
   });
 });
+
+describe('LOT 65 — ouvrir le document complet (nouvel onglet), lien signé AU CLIC', () => {
+  it('le nom est un lien EXPLICITE (souligné, libellé « ouvrir … dans un nouvel onglet »), pas un survol surprise', () => {
+    expect(SRC).toContain('dans un nouvel onglet');
+    expect(SRC).toContain("aria-label={`Ouvrir ${nomCourant} dans un nouvel onglet`}"); // a11y : dit CE qui s'ouvre
+    expect(SRC).toContain("textDecoration: 'underline'");
+  });
+  it('le lien est SIGNÉ AU CLIC (dans un handler), jamais pré-généré au rendu', () => {
+    expect(SRC).toMatch(/const ouvrirDocumentComplet = useCallback\(async/); // fabrication au clic
+    expect(SRC).toContain("action: 'url_piece'");
+    expect(SRC).toContain('inline: true');       // ouverture dans le visionneur PDF
+    expect(SRC).toContain("source: 'dossier'");  // pièce GED
+  });
+  it('cible la page COURANTE (#page, fragment non signé) et ouvre en nouvel onglet sans quitter l’admin (noopener)', () => {
+    expect(SRC).toContain('#page=${page}');
+    expect(SRC).toContain("window.open(");
+    expect(SRC).toContain("'_blank', 'noopener,noreferrer'");
+  });
+  it('ÉCHEC HONNÊTE : 401 → reconnectez-vous ; échec → message, jamais un onglet vide (window.open UNIQUEMENT sur succès)', () => {
+    expect(SRC).toContain('Session expirée — reconnectez-vous.');
+    // window.open n'est atteint qu'après le garde `!res.ok || !body.url` (return avant) : aucun onglet ouvert sur erreur.
+    const h = SRC.slice(SRC.indexOf('const ouvrirDocumentComplet'), SRC.indexOf('const ouvrirDocumentComplet') + 900);
+    expect(h.indexOf('if (!res.ok || !body.url)')).toBeGreaterThan(-1);
+    expect(h.indexOf('if (!res.ok || !body.url)')).toBeLessThan(h.indexOf('window.open('));
+  });
+});
