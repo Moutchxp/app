@@ -134,6 +134,18 @@ describe('FUS-3b / L6 — TableSuivi (deux groupes, ancienneté)', () => {
     expect(h).not.toContain('INCOMPLET2');
   });
 
+  it('LOT 78 — un permis VALIDÉ mais incomplet est en « En attente » SANS mention d’incomplétude sur sa ligne', () => {
+    // Règle du LOT 77 conservée : validé + incomplet → « En attente » (pas dans le 3e groupe). LOT 78 : plus aucun cartouche sur la ligne.
+    const h = renderToStaticMarkup(createElement(TableSuivi, {
+      lignes: [ligne({ dossierId: 3, etat: 'en_attente_bati', completudeIncomplete: true, validationAcquise: true, numDau: 'VALIDE3' })],
+    }));
+    expect(h).toContain('En attente d’une mise à jour');
+    expect(h).toContain('VALIDE3');                          // bien présent, dans « En attente »
+    expect(h).not.toContain('Permis avec dossier incomplet'); // pas dans le 3e groupe (validé → en attente, règle 77 intacte)
+    expect(h).not.toContain('dossier incomplet');            // AUCUN cartouche/mention d'incomplétude (LOT 78)
+    expect(h).not.toContain('manque en GED');                // ni le tooltip du cartouche retiré
+  });
+
   it('RATT-1 — un permis « à faire » incomplet reste dans le GROUPE 1 (priorité absolue), pas dans « incomplet »', () => {
     const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 7, etat: 'arbitrage_demande', completudeIncomplete: true, numDau: 'AFAIRE7' })] }));
     expect(h).toContain('Rattachement à faire');

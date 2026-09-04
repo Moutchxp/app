@@ -212,14 +212,10 @@ function LigneSuiviLi({ l, groupe, onOuvrir, ouvert }: { l: LigneSuivi; groupe: 
       <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', fontWeight: 700 }}>{l.numDau}</span>
       <span>{l.type}{l.natureTravaux ? ` — ${l.natureTravaux}` : ''}</span>
       <span style={{ color: 'var(--color-svv-muted)' }}>{l.adresse ?? l.commune ?? `INSEE ${l.codeInsee}`}</span>
-      {/* LOT 77 — l'incomplétude documentaire NE DISPARAÎT PAS quand un permis validé rejoint « en attente » : elle reste signalée
-          SUR LA LIGNE (mention, jamais la couleur seule §15). La validation (empreinte + altitudes) reste acquise — c'est un rappel, pas une alerte bloquante. */}
-      {l.completudeIncomplete && (
-        <span role="note" title="Une pièce attendue manque en GED. La validation (empreinte + altitudes) reste acquise — ce permis reste en attente d’une mise à jour."
-          style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-red)', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.02rem .3rem', whiteSpace: 'nowrap' }}>
-          ⚠ dossier incomplet
-        </span>
-      )}
+      {/* LOT 78 — PAS de mention d'incomplétude sur une ligne de suivi. Décision Arno : un permis « en attente » a tout pour attendre
+          le rattachement (cadastre / BD TOPO), il n'attend plus de pièces → le cartouche « dossier incomplet » du LOT 77 est retiré.
+          La complétude reste CALCULÉE et VISIBLE ailleurs (détail « Complétude des pièces », onglets En cours / Analyse) ; le groupe
+          « Permis avec dossier incomplet » (permis NON validés) porte lui-même son propre libellé. */}
       {/* Date du critère de tri du groupe (déclenchement OU autorisation), libellée sans ambiguïté ; absence DITE, jamais un blanc. */}
       <span style={{ fontSize: 12, color: 'var(--color-svv-ink)', whiteSpace: 'nowrap' }}>{dateTexte}</span>
       <span style={{ ...styleAide, marginLeft: 'auto' }}>
