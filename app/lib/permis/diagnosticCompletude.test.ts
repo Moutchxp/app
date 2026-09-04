@@ -1,7 +1,9 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import {
   classerPiece, diagnostiquerCompletude, lignesDepuisClassements, famillesAttenduesDepuisConfig, estRubriqueAutresPieces,
-  type PieceLueDiag,
+  cerfaParNom, type PieceLueDiag,
 } from './diagnosticCompletude';
 import type { FamillePlan } from './planMasse';
 
@@ -87,6 +89,48 @@ describe('diagnostiquerCompletude', () => {
   it('le désaccord remonte dans `desaccords`', () => {
     const d = diagnostiquerCompletude([p('plan de masse - projet.pdf', ETAGE)], TOUTES);
     expect(d.desaccords.map((c) => c.nomFichier)).toEqual(['plan de masse - projet.pdf']);
+  });
+});
+
+describe('LOT 76 — un fichier nommé Cerfa compte comme Cerfa PRÉSENT (présence par le nom), sans toucher la lecture', () => {
+  it('CERFA_13409 SANS couche texte (scan) → famille cerfa PRÉSENTE (parNom, parContenu null)', () => {
+    const c = classerPiece(p('CERFA_13409_15_VF_signe___20250331171427.pdf')); // aucune page = scan muet
+    expect(c.famille).toBe('cerfa');
+    expect(c.parNom).toBe('cerfa');
+    expect(c.parContenu).toBeNull();
+    expect(c.desaccord).toBe(false);
+  });
+  it('reconnaît aussi cerfa_13824 et le mot « cerfa » nu ; un numéro 13409 seul suffit', () => {
+    expect(classerPiece(p('cerfa_13824_04_2D.pdf')).famille).toBe('cerfa');
+    expect(classerPiece(p('CERFA formulaire signé.pdf')).famille).toBe('cerfa');
+    expect(classerPiece(p('13409.pdf')).famille).toBe('cerfa');
+  });
+  it('le CONTENU reste prioritaire : nom « cerfa » mais contenu plan de masse → masse, désaccord exposé', () => {
+    const c = classerPiece(p('cerfa.pdf', MASSE));
+    expect(c.parNom).toBe('cerfa');
+    expect(c.parContenu).toBe('masse');
+    expect(c.famille).toBe('masse');
+    expect(c.desaccord).toBe(true);
+  });
+  it('STRICT — un nom opaque ou un plan quelconque n’est PAS pris pour un Cerfa (pas de faux positif)', () => {
+    expect(cerfaParNom('C_A1_2D_PDM__20251219164340.pdf')).toBe(false);
+    expect(cerfaParNom('PC4_A2_2D_PDM.pdf')).toBe(false);
+    expect(cerfaParNom('scan_001.pdf')).toBe(false);
+    expect(classerPiece(p('scan_001.pdf')).famille).toBeNull(); // reste non classé, pas un faux Cerfa
+  });
+  it('11430 (07512024V0037) : le Cerfa scanné cesse de manquer → Cerfa PRÉSENT', () => {
+    // Cerfa scanné + les 3 autres familles déjà attestées par le contenu → dossier COMPLET.
+    const d = diagnostiquerCompletude(
+      [p('CERFA_13409_15_VF_signe.pdf'), p('a.pdf', MASSE), p('PC03 - coupe.pdf'), p('plan du R+2.pdf')], TOUTES);
+    expect(d.lignes.find((l) => l.famille === 'cerfa')!.presente).toBe(true);
+    expect(d.lignes.every((l) => l.presente)).toBe(true);
+  });
+  it('la LECTURE de valeurs ne s’appuie PAS sur le nom : recapCerfa/decisionCerfa n’importent pas cerfaParNom', () => {
+    const lire = (f: string) => readFileSync(join(process.cwd(), f), 'utf8');
+    expect(lire('app/lib/permis/recapCerfa.ts')).not.toContain('cerfaParNom');
+    expect(lire('app/lib/permis/decisionCerfa.ts')).not.toContain('cerfaParNom');
+    // et planMasse (sélecteur de tracé) reste cerfa-free par le nom (PROV-2a intact)
+    expect(lire('app/lib/permis/planMasse.ts')).not.toContain('cerfaParNom');
   });
 });
 

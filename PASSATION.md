@@ -203,8 +203,10 @@ et **fonds par motif** (41-45, hex en dur admin 235 → 107) · retrait du commu
   injectable (réel : poppler `pdfinfo`+`pdfseparate`+`pdfunite`). **Preuve réelle poppler** : PDF réduit **4 pages, 0 marqueur
   d'identité** (vs 3 dans l'original). **Test qui intercepte ce qui est RÉELLEMENT transmis** (`recuParOcr === réduit`, `!== pdf
   entier`) → **échoue si quelqu'un rebranche le PDF entier**. La vision était DÉJÀ cadrée (rasterise page par page) ; seul l'OCR
-  fuyait. ⚠️ **Deux faits mesurés à garder** : (a) **07512025V0037 N'EXISTE PAS dans la base locale** — seul **07512025V0035
-  (dossier 11434)** a des pièces ; les mesures documentées sur 0037 ne sont **PAS rejouables ici**. (b) le détecteur ne reconnaît
+  fuyait. ⚠️ **Deux faits mesurés à garder** : (a) c'est **`07512025V0037` (année 2025)** qui **N'EXISTE PAS** dans la base locale
+  — À NE PAS CONFONDRE avec **`07512024V0037` (année 2024) = dossier 11430**, qui EXISTE et porte **80 pièces** (corrigé au LOT 75/76).
+  Les dossiers à pièces réels sont **11430 (`07512024V0037`, 80)**, **11434 (`07512025V0035`, 45)** et **7424** — « seul 11434 a des
+  pièces » était FAUX. (b) le détecteur ne reconnaît
   **QUE le Cerfa 13409** → le **13824 n'est JAMAIS lu par l'OCR** (le dossier 11434 contient les deux). Dette **préexistante**, pas
   introduite par ce lot.
   > 🔴 **NUANCÉ à la SÉRIE 57 → 67 (voir ci-dessous)** : le filtre RGPD n'est **plus uniforme**. Sur le **CERFA**, LISTE
@@ -363,9 +365,10 @@ et **fonds par motif** (41-45, hex en dur admin 235 → 107) · retrait du commu
   (d) **TROU 2 du 56-C, LATENT** : le versement auto en GED (PART-1) exige **réponse rattachée + `nature='documents'` +
   mono-dossier** — **0 cas réel aujourd'hui**, mais **sans entrée en GED il n'y a PAS de diagnostic** (trou EN AMONT, distinct).
   (e) **Cerfa 13824 jamais lu par l'OCR** (le détecteur ne reconnaît que le 13409, cf. 56-E/62) — dette **préexistante**.
-- **⚠️ Faits d'environnement à garder** : (1) **`07512025V0037` N'EXISTE PAS dans la base locale** (mesuré au 56-E) → les
-  mesures documentées sur ce dossier **ne sont PAS rejouables ici** ; seul **`07512025V0035` (dossier 11434)** a des pièces,
-  plus le **dossier-témoin 7424** (le seul récap **exploitable** pour le décompte corroboré du LOT 69). (2) **TROIS sessions
+- **⚠️ Faits d'environnement à garder** : (1) DOSSIERS À PIÈCES RÉELS (corrigé LOT 75/76) = **11430 (`07512024V0037`, 80 pièces)**,
+  **11434 (`07512025V0035`, 45)** et **7424** (seul récap **exploitable** pour le décompte corroboré du LOT 69). ⚠️ NE PAS confondre
+  **`07512024V0037` (2024, dossier 11430, EXISTE)** avec **`07512025V0037` (2025)** qui, lui, N'EXISTE PAS — l'ancienne note « 0037
+  absent / seul 11434 a des pièces » était une confusion d'année. (2) **TROIS sessions
   d'agent ont saturé leur contexte le 04/09** (recon LOT 66, LOT 67, LOT 69) → **ouvrir une session neuve dès qu'un lot
   approche 90 %**.
 - **Boucle standard d'un LOT** : recon lecture seule → implémente → contrôles de fin dans l'ordre → commit (`-F`, sans

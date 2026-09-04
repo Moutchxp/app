@@ -12,7 +12,12 @@
  *   → Une pièce que NI le contenu NI le nom ne classent (scan muet à nom opaque) est « non classée » : exposée (`nonClassees`),
  *      jamais comptée comme attestant une famille, mais jamais non plus la cause d'un faux « manquant » silencieux.
  *
- * Le Cerfa se détecte par son CONTENU (formulaire 13409), jamais par son nom.
+ * LOT 76 — PRÉSENCE ≠ LECTURE. Pour la COMPLÉTUDE (« ce dossier contient-il un Cerfa ? »), le NOM du fichier est une preuve
+ *   suffisante : un fichier nommé « CERFA_13409 » EST un Cerfa, MÊME scanné (couche texte absente → `familleDeContenu` aveugle). On
+ *   ajoute donc ICI une reconnaissance du Cerfa par le nom (`cerfaParNom`), en APPOINT du contenu, SCOPÉE À CE CLASSEMENT DE
+ *   COMPLÉTUDE. On ne touche PAS `planMasse.familleDeNom` (sélecteur de tracé, où un formulaire n'est jamais traçable — PROV-2(a)),
+ *   NI la LECTURE DE VALEURS (`recapCerfa`/`decisionCerfa`, par CONTENU uniquement) : le nom prouve la PRÉSENCE, jamais ce que le Cerfa
+ *   déclare. Le CONTENU reste prioritaire : un fichier nommé « cerfa » dont le contenu est une coupe est classé « coupe » (désaccord exposé).
  */
 import { familleDeContenu } from './planMasseContenu';
 import { familleDeNom, type FamillePlan } from './planMasse';
@@ -77,6 +82,17 @@ export function estRubriqueAutresPieces(nomFichier: string): boolean {
   return /\bpc\s*200\b/.test(n) || /\bautres?\s+pieces?\b/.test(n);
 }
 
+/**
+ * LOT 76 — un fichier est-il un FORMULAIRE Cerfa d'après son NOM (PRÉSENCE, pour la complétude UNIQUEMENT) ? STRICT — un faux positif
+ * ferait disparaître une vraie alerte « Cerfa manquant », pire que le défaut d'origine : on n'accepte que le mot « cerfa » (frontière
+ * de mot) OU un numéro de formulaire Cerfa CONNU (13409 = PC/PA, 13824), jamais une forme large. N'entre JAMAIS dans la LECTURE de
+ * valeurs ni dans la traçabilité (planMasse) — seulement dans le classement de complétude, en APPOINT du contenu.
+ */
+export function cerfaParNom(nomFichier: string): boolean {
+  const n = normaliserNom(nomFichier);
+  return /\bcerfa\b/.test(n) || /\b(13409|13824)\b/.test(n);
+}
+
 /** Config des familles attendues (4 interrupteurs). */
 export interface FamillesAttenduesConfig { cerfa: boolean; masse: boolean; coupe: boolean; etage: boolean }
 
@@ -88,7 +104,9 @@ export function famillesAttenduesDepuisConfig(cfg: FamillesAttenduesConfig): Fam
 /** Classe UNE pièce : contenu prioritaire, nom en appoint, désaccord signalé. PURE. */
 export function classerPiece(p: PieceLueDiag): ClassementPiece {
   const parContenu = familleDeContenu(p.pagesTexte);
-  const parNom = familleDeNom(p.nomFichier);
+  // LOT 76 — le NOM classe masse/étage/coupe (familleDeNom) ET, en dernier ressort, le Cerfa par son nom (présence). Le nom ne
+  //   décide du Cerfa QUE si familleDeNom se tait (un plan nommé « PC2 » reste 'masse', jamais 'cerfa').
+  const parNom = familleDeNom(p.nomFichier) ?? (cerfaParNom(p.nomFichier) ? 'cerfa' : null);
   const famille = parContenu ?? parNom; // le CONTENU l'emporte ; le NOM ne parle que là où le contenu se tait
   const desaccord = parContenu !== null && parNom !== null && parContenu !== parNom;
   const aTexte = p.pagesTexte.some((t) => t.trim().length > 0); // LOT 60 — mesuré au calcul : au moins une page porte du texte exploitable
