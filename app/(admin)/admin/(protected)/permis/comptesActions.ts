@@ -61,12 +61,15 @@ export function compterRattachement(compteurs: Record<string, number>): number {
   return ETATS_A_FAIRE.reduce((s, etat) => s + (compteurs[etat] ?? 0), 0);
 }
 
-export interface ComptesActions { reponses: number; saisines: number; rattachement: number; projection: number; surveillance: number; total: number }
+export interface ComptesActions { reponses: number; saisines: number; rattachement: number; projection: number; surveillance: number; enCours: number; total: number }
 
 /** Assemble les compteurs + le cumul (calculé ICI, source unique → tuile et onglets ne divergent jamais). PROJ-2c ajoute
- *  « Projection » ; SURV-1 ajoute « Surveillance » (dossiers validés en fenêtre dont les polygones ont bougé, à vérifier). */
-export function assemblerComptes(reponses: number, saisines: number, rattachement: number, projection: number, surveillance: number): ComptesActions {
-  return { reponses, saisines, rattachement, projection, surveillance, total: reponses + saisines + rattachement + projection + surveillance };
+ *  « Projection » ; SURV-1 ajoute « Surveillance » ; LOT 72 ajoute « En cours » — la tuile home doit cumuler TOUS les onglets, sinon
+ *  un permis dans « En cours » n'est compté nulle part tant qu'il n'a pas basculé en Analyse (défaut mesuré : 2 au lieu de 3).
+ *  🔒 INVARIANT : `total` = somme EXACTE des pastilles d'onglet, ni terme oublié ni double-compte. Les onglets sont mutuellement
+ *  exclusifs (« jamais dans deux onglets » : un dossier testé/saisissable/à-répondre QUITTE « En cours ») → aucune déduplication. */
+export function assemblerComptes(reponses: number, saisines: number, rattachement: number, projection: number, surveillance: number, enCours: number): ComptesActions {
+  return { reponses, saisines, rattachement, projection, surveillance, enCours, total: reponses + saisines + rattachement + projection + surveillance + enCours };
 }
 
 /** Câblage : recompter APRÈS une action seulement si elle a RÉUSSI (une action en échec ne recompte pas). PUR. */

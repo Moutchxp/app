@@ -1,8 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 import {
   compterReponses, compterSaisines, compterRattachement, assemblerComptes, recompterSiSucces,
-  dossierATrancher, messageAQualifier, type DemandeComptable,
+  compterEnCoursASignaler, dossierATrancher, messageAQualifier, type DemandeComptable,
 } from './comptesActions';
+import { ligneEnCoursASignaler } from '../../../../lib/sitadel/demandesListe';
+
+/** Fixture minimale d'une demande « En cours » (mêmes champs que le prédicat partagé ligneEnCoursASignaler). */
+const baseL = (o: Partial<Parameters<typeof ligneEnCoursASignaler>[0]>): Parameters<typeof ligneEnCoursASignaler>[0] =>
+  ({ nbReponsesReelles: 0, dossiersSatisfaits: 0, dossiers: [], suspension: null, lienEnAttente: false, completudeManquantes: 0, saisissable: false, nouvellesPiecesNonVues: false, testeEnAnalyse: false, ...o });
 
 /**
  * PASTILLES — comptage PUR. Un test par compteur (N éléments → N), le cumul, la règle « recompter si succès », et la PREUVE que
@@ -77,9 +82,39 @@ describe('PASTILLES — compteurs Saisines & Rattachement', () => {
 });
 
 describe('PASTILLES — cumul (source unique serveur)', () => {
-  it('total = somme exacte des cinq (PROJ-2c : + projection ; SURV-1 : + surveillance)', () => {
-    expect(assemblerComptes(2, 3, 4, 5, 6)).toEqual({ reponses: 2, saisines: 3, rattachement: 4, projection: 5, surveillance: 6, total: 20 });
-    expect(assemblerComptes(0, 0, 0, 0, 0)).toEqual({ reponses: 0, saisines: 0, rattachement: 0, projection: 0, surveillance: 0, total: 0 });
+  it('total = somme exacte des SIX (PROJ-2c : + projection ; SURV-1 : + surveillance ; LOT 72 : + en cours)', () => {
+    expect(assemblerComptes(2, 3, 4, 5, 6, 7)).toEqual({ reponses: 2, saisines: 3, rattachement: 4, projection: 5, surveillance: 6, enCours: 7, total: 27 });
+    expect(assemblerComptes(0, 0, 0, 0, 0, 0)).toEqual({ reponses: 0, saisines: 0, rattachement: 0, projection: 0, surveillance: 0, enCours: 0, total: 0 });
+  });
+
+  // 🔒 LOT 72 — INVARIANT FIGÉ : le `total` de la tuile == somme EXACTE de TOUS les termes agrégés (pastilles d'onglet). Puissances de 2
+  //   distinctes → tout terme oublié ou ajouté au total sans mise à jour de l'autre côté change la somme et FAIT ÉCHOUER ce test.
+  it('le total est la somme de TOUS les autres champs — ni terme oublié (En cours !), ni double-compte', () => {
+    const c = assemblerComptes(1, 2, 4, 8, 16, 32);
+    const { total, ...termes } = c;
+    expect(Object.values(termes).reduce((s, v) => s + v, 0)).toBe(total); // échoue si un onglet cesse d'entrer dans le cumul
+    expect(total).toBe(63);
+  });
+
+  // LOT 72 — un permis d'« En cours » DOIT peser dans le cumul (défaut mesuré : 1 en cours + 2 en analyse affichait 2 au lieu de 3).
+  it('un permis en « En cours » seul compte dans le total (cœur du défaut LOT 72)', () => {
+    expect(assemblerComptes(0, 0, 0, 0, 0, 1).total).toBe(1);              // 1 en cours, 0 ailleurs → 1
+    expect(assemblerComptes(0, 0, 0, 2, 0, 1).total).toBe(3);              // scénario d'Arno : 1 en cours + 2 en analyse → 3
+    // Après bascule du permis « En cours » → « Analyse » (exclusivité 51-C : il quitte En cours) : 0 en cours + 3 en analyse → 3.
+    expect(assemblerComptes(0, 0, 0, 3, 0, 0).total).toBe(3);              // même total, quel que soit l'onglet
+  });
+
+  // LOT 72 — un dossier EN TEST est compté UNE SEULE FOIS. Il est exclu de « En cours » (ligneEnCoursASignaler, exclusivité 51-C) et
+  //   figure dans la file Analyse (projection). Le cumul ne doit donc PAS l'additionner deux fois.
+  it('un dossier en test compte via « projection », jamais aussi via « En cours » (pas de double-compte)', () => {
+    const enCoursSample: Parameters<typeof ligneEnCoursASignaler>[0][] = [
+      baseL({ suspension: {}, completudeManquantes: 2 }),                        // incomplet visible → 1 en cours
+      baseL({ suspension: {}, completudeManquantes: 3, testeEnAnalyse: true }),  // incomplet MAIS testé → 0 en cours (foyer Analyse)
+    ];
+    const enCours = compterEnCoursASignaler(enCoursSample);
+    expect(enCours).toBe(1);                                                     // le testé n'entre PAS dans En cours
+    // Le testé est dans la file Analyse → projection=1. Total = 1 (en cours) + 1 (projection, le testé) = 2 permis, chacun 1 fois.
+    expect(assemblerComptes(0, 0, 0, 1, 0, enCours).total).toBe(2);             // jamais 3 : aucun double-compte
   });
 });
 

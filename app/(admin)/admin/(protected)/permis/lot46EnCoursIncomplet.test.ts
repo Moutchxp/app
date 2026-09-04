@@ -55,10 +55,10 @@ describe('LOT 46 — câblage (une seule vérité, du serveur à la ligne)', () 
   it('comptesActions.compterEnCoursIncomplet dérive du prédicat partagé', () => {
     expect(lire('app/(admin)/admin/(protected)/permis/comptesActions.ts')).toContain('demandes.filter(demandeEnCoursIncomplete)');
   });
-  it('la route actions expose enCours (hors total → tuile home inchangée) ; LOT 47 : agrégat = compterEnCoursASignaler', () => {
+  it('la route actions passe enCours à assemblerComptes (LOT 72 : DANS le total) ; LOT 47 : agrégat = compterEnCoursASignaler', () => {
     const s = lire('app/(admin)/api/admin/permis/actions/route.ts');
     expect(s).toContain('compterEnCoursASignaler('); // LOT 47 : l'onglet agrège incomplet OU nouvelles pièces
-    expect(s).toContain('enCours,');
+    expect(s).toContain('surveillance, enCours)'); // LOT 72 : enCours entre dans assemblerComptes → compté dans le cumul de la tuile
   });
   it('la tuile passe enCours à l’onglet « En cours »', () => {
     expect(lire('app/(admin)/admin/(protected)/permis/PermisTuile.tsx')).toContain('en_cours: comptes.enCours');

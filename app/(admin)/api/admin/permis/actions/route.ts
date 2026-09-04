@@ -42,10 +42,11 @@ export async function GET(request: Request): Promise<Response> {
     const saisines = compterSaisines({ saisissables: saisinesData.saisissables, fileADeposer: saisinesData.fileADeposer });
     const rattachement = compterRattachement(suivi.compteurs);
     // LOT 46/47 — pastille de l'onglet « En cours » : lignes qui DEMANDENT UNE ACTION = incomplet à relancer OU nouvelles pièces
-    //   reçues (prédicat partagé ligneEnCoursASignaler → compteur == somme des lignes allumées). Agrégat DISTINCT, HORS `total` tant
-    //   que la tuile home n'est pas câblée (LOT 48) → aucun changement de la tuile ni des compteurs existants.
+    //   reçues (prédicat partagé ligneEnCoursASignaler → compteur == somme des lignes allumées). LOT 72 — ENTRE désormais dans `total`
+    //   (assemblerComptes) : la tuile home cumule TOUS les onglets. Pas de double-compte : ligneEnCoursASignaler EXCLUT un dossier
+    //   testé en analyse (compté, lui, par `projection`) — « jamais dans deux onglets ».
     const enCours = compterEnCoursASignaler(reponsesData.demandes as unknown as Parameters<typeof ligneEnCoursASignaler>[0][]);
-    return Response.json({ ...assemblerComptes(reponses, saisines, rattachement, projection, surveillance), enCours, recomptageHeure: config.recomptageHeureLocale });
+    return Response.json({ ...assemblerComptes(reponses, saisines, rattachement, projection, surveillance, enCours), recomptageHeure: config.recomptageHeureLocale });
   } catch (e) {
     console.error('[permis/actions] GET impossible (503)', { message: (e as Error)?.message });
     return Response.json({ erreur: 'comptage indisponible' }, { status: 503 });
