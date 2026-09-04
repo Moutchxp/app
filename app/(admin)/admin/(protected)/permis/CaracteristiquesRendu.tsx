@@ -5,6 +5,7 @@ import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo'
 import type { JournalChamp, ProvenanceEcartee } from '../../../../lib/permis/journalLecture';
 import { MESURES, libelleBornes, composerLibelleDestinations, raisonParcelleNonRattachee, ecartSuperficieCadastre, type Bornes, type ChampDeclare, type FaitsPermis } from './caracteristiquesForm';
 import type { ParcelleLigne, EmpreinteLigne, BatiSnapshotResume } from '../../../../lib/permis/parcellesRepo'; // TYPE seulement (module serveur) — piège du bundle client
+import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa'; // LOT 67 — module PUR : import de type sûr côté client
 
 /**
  * N3-C — rendu PUR de l'éditeur des caractéristiques physiques (motifs ContactRendu + CarteReglageEntier). Aucun état, aucun
@@ -70,6 +71,54 @@ export function SourcesEnRegard({ surfaceCreeeSitadel, surfacePlancherCerfa, adr
       <span><strong>Surface</strong> — Sitadel (créée) : {nn(surfaceCreeeSitadel, ' m²')}  ·  Cerfa (plancher) : {nn(surfacePlancherCerfa, ' m²')}</span>
       <span><strong>Adresse</strong> — Sitadel : {nn(adresseSitadel)}  ·  Cerfa (terrain) : {nn(adresseCerfa)}</span>
       <span style={{ ...styleAide, color: 'var(--color-svv-muted)' }}>La « surface créée » (Sitadel) et la « surface de plancher » (Cerfa) ne sont pas la même mesure — jamais reportées de l’une à l’autre.</span>
+    </div>
+  );
+}
+
+/**
+ * LOT 67 — DÉCLARATIONS DU CERFA (récapitulatif) : lecture APPROFONDIE, DÉTERMINISTE, de ce que le formulaire déclare (régime ① =
+ * champs étiquetés) + le CHAMP LIBRE du pétitionnaire (régime ② = verbatim, jamais interprété). Bloc INFORMATIF en lecture seule : il
+ * s'affiche EN REGARD des faits Sitadel et des valeurs du moteur, sans jamais les reporter ni les écraser (précédence intacte). Un
+ * champ ABSENT du formulaire est DIT avec son motif (N10-R) ; un champ AMBIGU est signalé, pas écrit. PURE (testable via renderToStaticMarkup).
+ */
+export function DeclarationsCerfaBloc({ declarations: d, pieceSource }: { declarations: DeclarationsRecapCerfa; pieceSource: string | null }) {
+  const nn = (v: number | null): string => (v === null ? '—' : String(v));
+  const lignes: { label: string; valeur: string }[] = [];
+  if (d.dateDepot) lignes.push({ label: 'Déposé le', valeur: d.dateDepot });
+  if (d.superficieTerrainM2 !== null) lignes.push({ label: 'Superficie du terrain', valeur: `${d.superficieTerrainM2} m²` });
+  if (d.logementsTotal !== null) lignes.push({ label: 'Logements créés', valeur: `${d.logementsTotal} (${nn(d.logementsIndividuels)} individuel(s) · ${nn(d.logementsCollectifs)} collectif(s))` });
+  if (d.niveauxDessusSol !== null || d.niveauxDessousSol !== null) lignes.push({ label: 'Niveaux du bâtiment le plus élevé', valeur: `${nn(d.niveauxDessusSol)} au-dessus du sol · ${nn(d.niveauxDessousSol)} au-dessous` });
+  if (d.stationnementApres !== null || d.stationnementAvant !== null) lignes.push({ label: 'Stationnement', valeur: `${nn(d.stationnementAvant)} → ${nn(d.stationnementApres)} place(s)` });
+  if (d.empriseAuSolCreeeM2 !== null) lignes.push({ label: 'Emprise au sol créée', valeur: `${d.empriseAuSolCreeeM2} m²` });
+  if (d.surfacePlancherTotaleM2 !== null) lignes.push({ label: 'Surface de plancher (total déclaré)', valeur: `${d.surfacePlancherTotaleM2} m²` });
+  return (
+    <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
+      <h4 style={{ fontSize: 13, fontWeight: 700, margin: 0, color: 'var(--color-svv-ink)' }}>Déclarations du Cerfa <span style={{ ...styleAide, fontWeight: 400 }}>— lues dans le récapitulatif, en regard des faits</span></h4>
+      <p style={styleAide}>Ce que le formulaire déclare, lu directement dans le texte. Informatif : jamais reporté sur Sitadel ni sur les valeurs du moteur.{pieceSource ? <> Source : <strong>{pieceSource}</strong>.</> : null}</p>
+      {lignes.length > 0
+        ? <dl style={{ display: 'grid', gridTemplateColumns: 'minmax(0,auto) 1fr', gap: '.15rem .6rem', margin: 0, fontSize: 12.5, lineHeight: 1.45 }}>
+            {lignes.map((l) => <Fragment key={l.label}><dt style={{ color: 'var(--color-svv-muted)' }}>{l.label}</dt><dd style={{ margin: 0, fontWeight: 600, color: 'var(--color-svv-ink)' }}>{l.valeur}</dd></Fragment>)}
+          </dl>
+        : <p style={styleAide}>Aucune valeur structurée n’a pu être lue dans ce document.</p>}
+      {/* Régime ② — CHAMP LIBRE du pétitionnaire, VERBATIM, repliable (N10-J) : donne accès au texte, ne le raffine jamais. */}
+      {d.descriptionProjet && (
+        <details style={{ fontSize: 12.5, lineHeight: 1.5, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.35rem .5rem', background: 'var(--color-svv-field)' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--color-svv-ink)' }}>Ce que le pétitionnaire a écrit — « Courte description de votre projet ou de vos travaux »</summary>
+          <p style={{ margin: '.4rem 0 0', whiteSpace: 'pre-wrap', color: 'var(--color-svv-ink)' }}>{d.descriptionProjet}</p>
+          <p style={{ ...styleAide, marginTop: '.3rem' }}>Texte repris tel quel du formulaire, sans résumé ni interprétation.</p>
+        </details>
+      )}
+      {/* N10-R — champs demandés mais ABSENTS de CE formulaire : dits avec leur motif, jamais comblés par une supposition. */}
+      {d.absents.length > 0 && (
+        <div style={styleAide}>
+          <span style={{ fontWeight: 700 }}>Non déclaré dans ce Cerfa :</span>
+          <ul style={{ margin: '.15rem 0 0', paddingLeft: '1.1rem' }}>{d.absents.map((a) => <li key={a.champ}>{a.champ} — {a.motif}</li>)}</ul>
+        </div>
+      )}
+      {/* Champ AMBIGU : signalé, jamais retenu comme une valeur. */}
+      {d.ambigus.length > 0 && (
+        <p role="note" style={styleNote}>Ambigu, non retenu : {d.ambigus.map((a) => `${a.champ} (${a.motif})`).join(' ; ')}.</p>
+      )}
     </div>
   );
 }

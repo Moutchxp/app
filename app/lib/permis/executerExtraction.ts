@@ -14,6 +14,8 @@ import { decisionNiveaux } from './decisionNiveaux';
 import { ecrireNiveaux } from './ecritureNiveaux';
 import { decisionParcelles, type ParcelleSitadel } from './decisionParcelles';
 import { lireParcellesRecapCerfa } from './parcellesRecap'; // LOT 66 : table « Références cadastrales » du récap (télé-service, TEXTE)
+import { lireDeclarationsRecapCerfa } from './recapCerfa'; // LOT 67 : déclarations du Cerfa (champs étiquetés + champ libre), DÉTERMINISTE
+import { ecrireDeclarationsRecap } from './cerfaRecapRepo'; // LOT 67 : instantané informatif, résilient (192 absente → no-op)
 import { ecrireParcelles, figerEmpreinte, figerBatiSnapshot } from './parcellesRepo';
 import { figerVersionGel } from './gelRepo';
 import { lireCerfaScan, lecteurMistral } from './lireCerfaScan';
@@ -118,6 +120,12 @@ export async function executerExtractionPermis(dossierId: number, opts: { avecVi
   // PART-2 — DIAGNOSTIC DE COMPLÉTUDE : classe les pièces PAR CONTENU (à partir du `ged` DÉJÀ lu, aucune relecture) et mémorise le
   //   résultat. Best-effort, NO-OP si migration 174 absente ; n'impacte jamais l'extraction (les pièces sont déjà écrites).
   await enregistrerCompletude(dossierId, ged, opts.majPar).catch(() => undefined);
+
+  // LOT 67 — DÉCLARATIONS DU CERFA (instantané informatif) : lecture DÉTERMINISTE des champs étiquetés + du champ libre (régimes ①/②),
+  //   sur le texte du dossier déjà lu. Pièce source identifiée PAR CONTENU (trouverCerfaPc), jamais par le nom. N'écrit RIEN dans les
+  //   colonnes de valeur (précédence intacte) ni dans Sitadel. Best-effort, NO-OP si migration 192 absente. IA-free.
+  const decl = lireDeclarationsRecapCerfa(texteDossier);
+  if (decl.present) await ecrireDeclarationsRecap(dossierId, decl, trouverCerfaPc(ged, metas)?.nomFichier ?? cerfaPiece?.nomFichier ?? null, opts.majPar).catch(() => undefined);
 
   // 6) VISION Mistral (Cerfa 13409 SCANNÉ) — seulement si demandé ; appel EXTERNE isolé.
   let visionTournee = false, visionPieces = 0, motifVision: string | null = opts.avecVision ? null : 'vision non demandée';

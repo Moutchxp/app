@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps } from './CaracteristiquesRendu';
+import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, DeclarationsCerfaBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps } from './CaracteristiquesRendu';
+import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa';
 import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
 
@@ -739,5 +740,42 @@ describe('N10-M — règle vérifiée : l’écran énonce la règle, pas une di
   it('même journal mais RIEN d’écrit (origine null) → vraie divergence signalée (chemin N10-I préservé)', () => {
     const h = renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: gab, valeur: '', origine: null, journal: journalRegle, onValeur: noop }));
     expect(h).toContain('valeurs divergentes');
+  });
+})
+
+describe('LOT 67 — DeclarationsCerfaBloc : lecture approfondie du Cerfa, en regard, jamais reportée', () => {
+  const base: DeclarationsRecapCerfa = {
+    dateDepot: '04/11/2025', superficieTerrainM2: 5015, logementsTotal: 67, logementsIndividuels: 0, logementsCollectifs: 67,
+    niveauxDessusSol: 5, niveauxDessousSol: 1, stationnementAvant: 0, stationnementApres: 49, empriseAuSolCreeeM2: 1354,
+    surfacePlancherTotaleM2: 4994,
+    descriptionProjet: 'Le projet consist e en la construction de 67 logements neufs sur 3 plots.',
+    absents: [{ champ: 'surface habitable', motif: 'le Cerfa déclare la surface de PLANCHER, pas la surface habitable' }],
+    ambigus: [{ champ: 'nature du projet', motif: 'deux libellés sans marque de sélection' }],
+    present: true,
+  };
+  it('affiche les scalaires déclarés + la pièce source', () => {
+    const h = renderToStaticMarkup(createElement(DeclarationsCerfaBloc, { declarations: base, pieceSource: 'Recapitulatif de la demande-19.pdf' }));
+    expect(h).toContain('Déclarations du Cerfa');
+    expect(h).toContain('04/11/2025');
+    expect(h).toContain('5015 m²');
+    expect(h).toContain('49 place(s)');
+    expect(h).toContain('Recapitulatif de la demande-19.pdf');
+  });
+  it('régime ② — le champ libre est affiché VERBATIM (coupure conservée), repliable, identifié comme du pétitionnaire', () => {
+    const h = renderToStaticMarkup(createElement(DeclarationsCerfaBloc, { declarations: base, pieceSource: null }));
+    expect(h).toContain('<details');
+    expect(h).toContain('Ce que le pétitionnaire a écrit');
+    expect(h).toContain('consist e'); // verbatim, jamais recomposé
+  });
+  it('N10-R — un champ absent est DIT avec son motif ; un champ ambigu est signalé', () => {
+    const h = renderToStaticMarkup(createElement(DeclarationsCerfaBloc, { declarations: base, pieceSource: null }));
+    expect(h).toContain('Non déclaré dans ce Cerfa');
+    expect(h).toContain('surface habitable');
+    expect(h).toContain('Ambigu, non retenu');
+    expect(h).toContain('nature du projet');
+  });
+  it('champ libre absent → pas de bloc <details> muet', () => {
+    const h = renderToStaticMarkup(createElement(DeclarationsCerfaBloc, { declarations: { ...base, descriptionProjet: null }, pieceSource: null }));
+    expect(h).not.toContain('<details');
   });
 })

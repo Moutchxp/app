@@ -5,16 +5,17 @@ import { useCallback, useEffect, useState } from 'react';
 import type { CorpsBatiment, GlobalPermis, OrigineValeur, ValeursCorps } from '../../../../lib/permis/caracteristiquesRepo';
 import type { JournalPermis } from '../../../../lib/permis/journalLecture';
 import type { ParcelleLigne, EmpreinteLigne, BatiSnapshotResume } from '../../../../lib/permis/parcellesRepo';
+import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa'; // LOT 67 — module PUR : import de type sûr côté client
 import type { BornesParColonne } from '../../../../lib/sitadel/reglagesVeille';
 import {
   MESURES, CHAMPS_PERMIS, construireCorps, construirePermis, valeurVersInput, permisVersInput,
   type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
-import { FaitsPermisBloc, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, type LienPiece } from './CaracteristiquesRendu';
+import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, type LienPiece } from './CaracteristiquesRendu';
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
 // N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null }
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null; majLe: string | null } | null }
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '', adresse: c.adresse ?? '',
@@ -203,6 +204,10 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossie
       <FaitsPermisBloc faits={data.faits} nbBatiments={data.corps.length} parcelles={data.parcelles} empreinte={data.empreinte} bati={data.bati}
         onExportGeojson={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=1`, '_blank', 'noopener,noreferrer')}
         onExportEmpreinte={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=empreinte`, '_blank', 'noopener,noreferrer')} />
+
+      {/* LOT 67 — DÉCLARATIONS DU CERFA (récapitulatif) : lecture APPROFONDIE, en REGARD des faits Sitadel, jamais reportée sur eux.
+          Bloc informatif en lecture seule + champ libre du pétitionnaire (verbatim, repliable). Absent si migration 192 non appliquée. */}
+      {data.declarationsCerfa && <DeclarationsCerfaBloc declarations={data.declarationsCerfa.declarations} pieceSource={data.declarationsCerfa.pieceSource} />}
 
       {/* ═══ SECTION 1 — LE PERMIS (déclaré) : vaut pour tout le permis, ne se répète pas ═══ */}
       <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
