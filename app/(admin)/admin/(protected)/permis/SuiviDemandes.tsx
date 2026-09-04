@@ -8,7 +8,7 @@ import { dansProcess, horsProcess, PROCESS_META, type Process } from '../../../.
 import { MessageRetour, repartirRetour, FiltreTypes, TableDemandes, PanneauDetailDemande, MentionMasquage, BlocContactMairie, DecompteDelai, STATUT_LIBELLE, type RetourAction } from './DemandesRendu';
 // T6-A — « En cours » réutilise les composants PURS de « Réponses » (compte à rebours + 7 actions), la SOURCE UNIQUE de la donnée
 //   riche (chargerDemandesSuivi via /en-cours) et le calcul d'échéance INTOUCHÉ (etatEcheance). Aucun de ces imports n'affecte « À demander ».
-import { DetailDossiers, ActionsCloture, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, demandeADuRetour, formaterDate, type RetourCible } from './ReponsesRendu';
+import { DetailDossiers, ActionsCloture, BlocLiens, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, BlocPiecesNonVersees, demandeADuRetour, formaterDate, type RetourCible } from './ReponsesRendu';
 import { decompteButoirCada, ordinalRelance, type Decompte } from '../../../../lib/veille/decompteButoir'; // LOT-8 B/C : décompte butoir + grade cascade partielle
 import { statutCascade, prochaineEtape, libelleCourtCascade, type EnvoiAutoInfos } from '../../../../lib/veille/statutCascade';
 import { libelleSuspension, dateButoirPartiel, libelleDelaiProlonge } from '../../../../lib/permis/dossierPartiel'; // CASC-1/CASC-2 : suspension + délai CADA prolongé (dossier partiel)
@@ -862,9 +862,11 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   // LOT-4 — signal = « ≥ 1 entrée de fil » (historiqueNonVide, batché à part, hors `dem`), pas les liens/pièces : la
                   //   famille reflète le FIL (mêmes messages qu'en Analyse). Comme historiqueNonVide inclut les reçus, elle est vraie
                   //   dès qu'un artefact (lien/pièce/message/alerte) existe → aucun geste ci-dessous n'est jamais caché.
-                  nonVide: richDetail.historiqueNonVide,
+                  nonVide: richDetail.historiqueNonVide || richDetail.piecesNonVersees.length > 0, // LOT 57 — un blocage de versement suffit à ouvrir la famille (le signal ne doit jamais être caché)
                   contenu: () => (
                   <>
+                {/* LOT 57 — SIGNAL VISIBLE en tête : pièces reçues mais NON versées au permis (versement auto structurellement bloqué). N'apparaît que s'il y a un blocage réel ; téléchargeables via le même signeur que les pièces de réponse. */}
+                <BlocPiecesNonVersees pieces={richDetail.piecesNonVersees} onTelecharger={(pieceId) => void telechargerPiece(pieceId)} />
                 {/* LOT-4 — LE FIL des échanges mail (mêmes messages qu'en Analyse), par permis via SousSectionsPermis, comme Archives. */}
                 <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocFilEchanges key={id} dossierId={id} />} />
                 {/* Artefacts de réponses (liens/pièces/messages « autre »/alertes GED) : REPLIÉS par défaut (le fil ci-dessus est le contenu principal), 1 clic pour ouvrir, GESTES conservés derrière le pli. */}

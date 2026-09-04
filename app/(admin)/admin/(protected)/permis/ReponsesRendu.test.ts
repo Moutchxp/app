@@ -5,12 +5,12 @@ import {
   IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns, BlocEtatReleve,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
   EtatDemande, RappelObtenusArchives, partitionnerDemandes, partitionnerReponses, comparerUrgenceReponse, demandeADuRetour, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
-  BlocLiens, BlocLiensATelecharger, mentionExpiration, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, tronquerObjet, dedupLiensParUrl,
+  BlocLiens, BlocLiensATelecharger, mentionExpiration, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, BlocPiecesNonVersees, tronquerObjet, dedupLiensParUrl,
   trierOptionsDemandes, marqueurOption,
   type OptionDemande, type RetourCible,
 } from './ReponsesRendu';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi, CumulFenetre, PropositionDepotAffichee, ReglagesReleve, LienAffiche, AlerteGedAffiche } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, ReponseARattacher, RelancePreparee, DossierSuivi, CumulFenetre, PropositionDepotAffichee, ReglagesReleve, LienAffiche, AlerteGedAffiche, PieceNonVersee } from '../../../../lib/veille/reponsesSuivi';
 
 /**
  * R5a/R5b — rendu PUR de l'écran « Réponses » (renderToStaticMarkup, aucun DOM). Couvre l'indicateur de relève (3 signaux),
@@ -1322,5 +1322,35 @@ describe('LOT-5 — BlocLiens : plus AUCUNE clé React dupliquée + « reçu dan
     // une seule occurrence de l'URL forte dans le TEXTE de la ligne (href + libellé = 2 fois par ligne → 2, pas 4).
     expect((h.match(/https:\/\/forte\/x/g) ?? []).length).toBe(2);
     expect(h).toContain('reçu dans 2 messages'); // le lien est cité par 2 messages
+  });
+});
+
+describe('LOT 57 — BlocPiecesNonVersees : signal « pièces reçues non versées au permis »', () => {
+  const p = (id: number, nom: string, motif: PieceNonVersee['motif']): PieceNonVersee => ({ id, nomFichier: nom, motif });
+
+  it('liste vide → rien à l’écran (null), aucun bloc vide', () => {
+    expect(renderToStaticMarkup(createElement(BlocPiecesNonVersees, { pieces: [] }))).toBe('');
+  });
+
+  it('multi-dossier : le libellé explique la cause SANS jargon, la pièce est téléchargeable', () => {
+    const calls: number[] = [];
+    const h = renderToStaticMarkup(createElement(BlocPiecesNonVersees, { pieces: [p(7, 'plan-masse.pdf', 'multi_dossier')], onTelecharger: (id: number) => calls.push(id) }));
+    expect(h).toContain('1 pièce reçue non versée au permis');
+    expect(h).toContain('plusieurs permis');                 // cause en français
+    expect(h).not.toMatch(/nature|demande_id|dossier_id/i);  // aucun jargon technique
+    expect(h).toContain('plan-masse.pdf');                   // nom consultable
+    expect(h).toContain('<button');                          // téléchargeable (bouton présent quand onTelecharger fourni)
+  });
+
+  it('pas-documents : libellé dédié ; pluriel correct ; regroupe par motif', () => {
+    const h = renderToStaticMarkup(createElement(BlocPiecesNonVersees, {
+      pieces: [p(1, 'a.pdf', 'pas_documents'), p(2, 'b.pdf', 'pas_documents')],
+    }));
+    expect(h).toContain('2 pièces reçues non versées au permis');
+    expect(h).toContain('n’a pas été reconnue comme un envoi de documents');
+    expect(h).toContain('a.pdf');
+    expect(h).toContain('b.pdf');
+    // sans onTelecharger → au moins les NOMS sont montrés (pas de bouton mort)
+    expect(h).not.toContain('<button');
   });
 });

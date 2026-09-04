@@ -80,6 +80,56 @@ export interface PieceInfo {
 }
 
 /**
+ * LOT 57 — une pièce STOCKÉE (jointe d'e-mail) qui n'est PAS entrée en GED du permis parce que le versement automatique (PART-1) est
+ * STRUCTURELLEMENT bloqué. `motif` pilote le libellé français (aucun jargon) : `multi_dossier` = la demande porte plusieurs permis ;
+ * `pas_documents` = la réponse n'a pas été reconnue comme un envoi de documents. `id` = demande_reponse_piece.id → téléchargeable via
+ * `url_piece` (source 'reponse'), la clé de stockage ne sort jamais.
+ */
+export interface PieceNonVersee {
+  id: number;
+  nomFichier: string;
+  motif: 'multi_dossier' | 'pas_documents';
+}
+
+/**
+ * LOT 57 — PIÈCES REÇUES MAIS NON VERSÉES AU PERMIS, par demande. Pièces STOCKÉES dont le versement auto (PART-1) est
+ * STRUCTURELLEMENT bloqué : la demande porte plusieurs permis (multi-dossier), OU la réponse n'est pas classée 'documents'. On EXCLUT
+ * les faux positifs — pièce DÉJÀ en GED (même sha256, dédup PART-1) et pièce de SIGNATURE (sha256 dans la liste d'exclusion, MÊME
+ * source que le versement) — et on NE signale PAS une pièce simplement EN ATTENTE du prochain tic (réponse 'documents' mono-dossier :
+ * elle SERA versée). Ne révèle RIEN, n'assouplit aucune condition. RÉSILIENT : tables/colonnes absentes ou config illisible → Map vide.
+ */
+export async function piecesNonVerseesParDemande(): Promise<Map<number, PieceNonVersee[]>> {
+  const parDemande = new Map<number, PieceNonVersee[]>();
+  try {
+    const { rows } = await query<{ demande_id: number; piece_id: number; nom_fichier: string; sha256: string | null; nb_dossiers: number }>(
+      `SELECT r.demande_id::int AS demande_id, p.id::int AS piece_id, p.nom_fichier, p.empreinte_sha256 AS sha256,
+              (SELECT count(*)::int FROM demande_dossier dd WHERE dd.demande_id = r.demande_id AND dd.actif) AS nb_dossiers
+         FROM demande_reponse_piece p
+         JOIN demande_reponse r ON r.id = p.reponse_id
+         JOIN demande d ON d.id = r.demande_id
+        WHERE d.statut IN ('envoyee', 'close') AND r.demande_id IS NOT NULL AND r.nature <> 'rebond'
+          AND p.cle_stockage IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM dossier_document doc
+              JOIN demande_dossier dd2 ON dd2.dossier_id = doc.dossier_id AND dd2.demande_id = r.demande_id AND dd2.actif
+             WHERE doc.empreinte_sha256 = p.empreinte_sha256)
+          AND ((SELECT count(*) FROM demande_dossier dd3 WHERE dd3.demande_id = r.demande_id AND dd3.actif) >= 2 OR r.nature <> 'documents')
+        ORDER BY r.demande_id, r.recu_le DESC, p.id`,
+    );
+    const { chargerConfigVeille } = await import('../sitadel/veilleConfig');
+    const { parserHachagesExclus } = await import('../permis/versementRattache');
+    const exclus = new Set(parserHachagesExclus((await chargerConfigVeille()).piecesHachagesExclus));
+    for (const b of rows) {
+      if (b.sha256 !== null && exclus.has(b.sha256)) continue; // notre signature citée → légitimement hors GED, PAS bloquée
+      const motif: PieceNonVersee['motif'] = b.nb_dossiers >= 2 ? 'multi_dossier' : 'pas_documents';
+      (parDemande.get(b.demande_id) ?? parDemande.set(b.demande_id, []).get(b.demande_id)!)
+        .push({ id: b.piece_id, nomFichier: b.nom_fichier, motif });
+    }
+  } catch { /* tables/colonnes absentes ou config illisible → aucun signal (résilient) */ }
+  return parDemande;
+}
+
+/**
  * T5 — les pièces d'UNE réponse rattachée à une demande, groupées par réponse pour l'affichage (« reçues le JJ/MM — objet »).
  * Rend enfin consultables/téléchargeables les pièces d'une réponse rattachée, dans les détails « Réponses » ET « En cours ».
  */
@@ -185,6 +235,7 @@ export interface DemandeSuivi {
   alertesGed: AlerteGedAffiche[]; // G1 : alertes « à classer/télécharger en GED » déjà envoyées (retard visible)
   messagesAutre: MessageAutreAffiche[]; // T7-B : messages `autre` ancrés (cas ③) — la ligne est signalée tant qu'il en reste ≥1 non répondu
   piecesReponses: ReponsePieces[]; // T5 : pièces des réponses rattachées (groupées par réponse), consultables/téléchargeables
+  piecesNonVersees: PieceNonVersee[]; // LOT 57 : pièces stockées bloquées AVANT la GED (multi-dossier / pas 'documents') — signal + consultation
   provenancesContenu: ProvenanceContenu[]; // FUS : messages porteurs de CONTENU (lien fort OU pièce), le PLUS RÉCENT d'abord — provenance affichée sur la ligne (date+heure + expéditeur), les autres au déplié
   saisissable: boolean;          // LOT-10 : saisine CADA POSSIBLE (foyer lireSaisinesEligibles) → quitte « En cours » pour « Saisines CADA » ; dérivé, réversible
   testeEnAnalyse: boolean;       // LOT 51 : ≥ 1 dossier ACTIF « testé en analyse » (dossier_test_analyse) → quitte « En cours » pour « Analyse et projection » ; dérivé, réversible
@@ -507,6 +558,8 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     if (!g) { g = { reponseId: p.reponse_id, recuLe: p.recu_le, deAdresse: p.de_adresse, objet: p.objet, pieces: [] }; groupes.push(g); }
     g.pieces.push({ id: p.piece_id, nomFichier: p.nom_fichier, stockee: p.stockee, motif: p.motif_non_stocke });
   }
+
+  const parPiecesNonVersees = await piecesNonVerseesParDemande();
 
   // FUS — PROVENANCE du CONTENU : messages porteurs d'un lien FORT OU d'au moins une pièce (MÊME définition que l'alerte GED),
   //   PLUS RÉCENT d'abord (recu_le DESC) → la LIGNE du permis affiche le dernier (date+heure + expéditeur) + « +N autre(s) », le
@@ -906,6 +959,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     alertesGed: parAlertes.get(r.id) ?? [],
     messagesAutre: parMsgAutre.get(r.id) ?? [],
     piecesReponses: parPiecesReponses.get(r.id) ?? [],
+    piecesNonVersees: parPiecesNonVersees.get(r.id) ?? [],
     provenancesContenu: parProvenances.get(r.id) ?? [],
     saisissable: saisissablesIds.has(r.id), // LOT-10 : quitte En cours pour Saisines CADA (foyer lireSaisinesEligibles)
     testeEnAnalyse: testeEnAnalyseIds.has(r.id), // LOT 51 : quitte En cours pour Analyse (marqueur dossier_test_analyse, partiel tenu ouvert)

@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react';
 import type { EtatEcheance } from '../../../../lib/veille/echeance';
-import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche, LienATelecharger, AlerteGedAffiche, MessageAutreAffiche, ReponsePieces } from '../../../../lib/veille/reponsesSuivi';
+import type { LigneRun, DossierSuivi, ReponseARattacher, PropositionDepotAffichee, RelancePreparee, ReglagesReleve, CumulFenetre, LienAffiche, LienATelecharger, AlerteGedAffiche, MessageAutreAffiche, ReponsePieces, PieceNonVersee } from '../../../../lib/veille/reponsesSuivi';
 import { FENETRES_CUMUL, libelleFenetre, type FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import { MessageRetour, BlocRepliable, type RetourAction } from './DemandesRendu';
 import { demandeADuRetour } from '../../../../lib/sitadel/demandesListe'; // D2-fix : FOYER UNIQUE (partagé serveur/client)
@@ -980,6 +980,46 @@ export function BlocPiecesReponses({ groupes, onTelecharger }: {
                     ? <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', textAlign: 'left' }} onClick={() => onTelecharger(p.id)}>{p.nomFichier} ↓</button>
                     : <span>{p.nomFichier}</span>)
                   : <span style={{ color: 'var(--color-svv-red)' }}>{p.nomFichier} — <em>non récupérée{p.motif ? ` : ${p.motif}` : ''}</em></span>}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── LOT 57 : signal « pièces reçues mais non versées au permis » ──────────────────────────────────────────────────────
+const LIBELLE_BLOCAGE: Record<PieceNonVersee['motif'], string> = {
+  multi_dossier: 'Cette demande porte plusieurs permis : le versement automatique ne sait pas dans lequel classer ces pièces.',
+  pas_documents: 'Cette réponse n’a pas été reconnue comme un envoi de documents : ses pièces ne sont pas versées au permis.',
+};
+
+/**
+ * LOT 57 — SIGNAL VISIBLE : pièces reçues (stockées) mais BLOQUÉES avant la GED du permis. N'apparaît QUE s'il y a un blocage réel
+ * (`pieces` vide → `null`, aucun bloc vide). Chaque pièce est CONSULTABLE (téléchargeable via `onTelecharger`, même signeur que les
+ * pièces de réponse). Le libellé DIT la cause en français, sans jargon. Thème sombre : fond `red-soft` + texte tokenisés (basculent ensemble).
+ */
+export function BlocPiecesNonVersees({ pieces, onTelecharger }: {
+  pieces: PieceNonVersee[];
+  onTelecharger?: (pieceId: number) => void; // le serveur signe (source 'reponse') ; le client n'envoie qu'un pieceId
+}) {
+  if (pieces.length === 0) return null; // zéro blocage → rien à l'écran (pas de bloc vide, pas de « 0 pièce bloquée »)
+  const parMotif = new Map<PieceNonVersee['motif'], PieceNonVersee[]>();
+  for (const p of pieces) (parMotif.get(p.motif) ?? parMotif.set(p.motif, []).get(p.motif)!).push(p);
+  const n = pieces.length;
+  return (
+    <div className="svv-card" role="note" style={{ marginTop: '.5rem', display: 'flex', flexDirection: 'column', gap: '.4rem', background: 'var(--color-svv-red-soft)', borderLeft: '3px solid var(--color-svv-red)' }}>
+      <strong style={{ fontSize: 13, color: 'var(--color-svv-red)' }}>⚠ {n} pièce{n > 1 ? 's' : ''} reçue{n > 1 ? 's' : ''} non versée{n > 1 ? 's' : ''} au permis</strong>
+      {[...parMotif.entries()].map(([motif, liste]) => (
+        <div key={motif} style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+          <span style={{ fontSize: 12, color: 'var(--color-svv-ink)' }}>{LIBELLE_BLOCAGE[motif]}</span>
+          <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+            {liste.map((p) => (
+              <li key={p.id} style={{ wordBreak: 'break-word' }}>
+                {onTelecharger
+                  ? <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', textAlign: 'left' }} onClick={() => onTelecharger(p.id)}>{p.nomFichier} ↓</button>
+                  : <span>{p.nomFichier}</span>}
               </li>
             ))}
           </ul>
