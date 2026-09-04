@@ -1,7 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « décidé le … » en heure de Paris
 import {
-  projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
+  projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type CadreVue,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { libelleBatiment, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
@@ -567,6 +567,72 @@ function centreAnneau(anneau: PointLambert[]): PointLambert {
   return { x: anneau.reduce((s, p) => s + p.x, 0) / n, y: anneau.reduce((s, p) => s + p.y, 0) / n };
 }
 
+// ── LOT 82 — étiquettes NOM + ALTITUDE posées SUR le schéma (point d'ancrage GARANTI intérieur, placement dedans/déporté) ──
+
+/** LOT 82 — point GARANTI INTÉRIEUR d'un anneau (≈ `ST_PointOnSurface`) : milieu de la plus large travée intérieure, sur une horizontale
+ *  au milieu de la bbox. Robuste aux formes CONCAVES / EN L où la moyenne des sommets (`centreAnneau`, ≈ `ST_Centroid`) tombe DEHORS.
+ *  Repli sur la moyenne si aucune travée (dégénéré). PUR — sert d'ancre à l'étiquette, jamais au verdict ni à une géométrie stockée. */
+export function pointOnSurfaceAnneau(anneau: PointLambert[]): PointLambert {
+  if (anneau.length < 3) return centreAnneau(anneau);
+  const ys = anneau.map((p) => p.y);
+  const yScan = (Math.min(...ys) + Math.max(...ys)) / 2;
+  const xs: number[] = [];
+  for (let i = 0; i < anneau.length; i++) {
+    const a = anneau[i], b = anneau[(i + 1) % anneau.length];
+    if ((a.y <= yScan && b.y > yScan) || (b.y <= yScan && a.y > yScan)) xs.push(a.x + ((yScan - a.y) / (b.y - a.y)) * (b.x - a.x));
+  }
+  xs.sort((u, v) => u - v);
+  let best = -1, bx = 0;
+  for (let k = 0; k + 1 < xs.length; k += 2) { const w = xs[k + 1] - xs[k]; if (w > best) { best = w; bx = (xs[k] + xs[k + 1]) / 2; } }
+  return best >= 0 ? { x: bx, y: yScan } : centreAnneau(anneau);
+}
+
+/** LOT 82 — test pair-impair « le point (x,y) est-il dans l'anneau ? » (pixels OU Lambert, indifférent). PUR. */
+export function pointDansAnneau(x: number, y: number, anneau: { x: number; y: number }[]): boolean {
+  let dedans = false;
+  for (let i = 0, j = anneau.length - 1; i < anneau.length; j = i++) {
+    const a = anneau[i], b = anneau[j];
+    if (((a.y > y) !== (b.y > y)) && (x < ((b.x - a.x) * (y - a.y)) / (b.y - a.y) + a.x)) dedans = !dedans;
+  }
+  return dedans;
+}
+
+// Gabarit d'étiquette (unités de la boîte SVG). Volontairement modeste : le schéma reste lisible, la légende dessous est le repli.
+const ETIQ = { police: 8.5, hauteurLigne: 10, largeurCar: 4.9, pad: 2.5, gapDeport: 8 };
+export interface PosEtiquette { x: number; y: number; w: number; h: number; deportee: boolean; ax: number; ay: number }
+/**
+ * LOT 82 — PLACE une étiquette : DEDANS si sa boîte tient ENTIÈREMENT dans le polygone projeté (4 coins intérieurs), sinon DÉPORTÉE
+ * à côté de la forme (à droite, à gauche si pas de place) avec un décalage vertical selon l'index (limite les chevauchements — décalage
+ * SIMPLE, pas de moteur d'évitement). TOUJOURS clampée dans le cadre `vb` : jamais de texte qui déborde du schéma. PUR (pixels).
+ */
+export function placerEtiquette(ancre: { x: number; y: number }, lignes: readonly string[], anneauPx: { x: number; y: number }[], vb: CadreVue, index: number): PosEtiquette {
+  const w = ETIQ.pad * 2 + Math.max(1, ...lignes.map((s) => s.length)) * ETIQ.largeurCar;
+  const h = ETIQ.pad * 2 + lignes.length * ETIQ.hauteurLigne;
+  const clampX = (x: number) => Math.max(vb.minX, Math.min(x, vb.minX + vb.w - w));
+  const clampY = (y: number) => Math.max(vb.minY, Math.min(y, vb.minY + vb.h - h));
+  const cx = ancre.x, cy = ancre.y;
+  const coins = [[cx - w / 2, cy - h / 2], [cx + w / 2, cy - h / 2], [cx + w / 2, cy + h / 2], [cx - w / 2, cy + h / 2]];
+  const tient = anneauPx.length >= 3 && coins.every(([x, y]) => pointDansAnneau(x, y, anneauPx));
+  if (tient) return { x: clampX(cx - w / 2), y: clampY(cy - h / 2), w, h, deportee: false, ax: cx, ay: cy };
+  const xs = anneauPx.map((p) => p.x), yss = anneauPx.map((p) => p.y);
+  const maxX = xs.length ? Math.max(...xs) : cx, minX = xs.length ? Math.min(...xs) : cx;
+  const stagger = (index % 4) * (h + 3);
+  let bx = maxX + ETIQ.gapDeport;
+  if (bx + w > vb.minX + vb.w) bx = minX - ETIQ.gapDeport - w; // pas de place à droite → à gauche
+  const by = (yss.length ? cy : cy) - h / 2 + stagger;
+  return { x: clampX(bx), y: clampY(by), w, h, deportee: true, ax: cx, ay: cy };
+}
+
+/** LOT 82 — descripteur d'étiquette à poser sur le schéma (semantique + géométrie d'ancrage). `nature` : ① `reel` (polygone BD TOPO,
+ *  verdict certifié) vs ② `projete` (emprise tracée d'après les plans, verdict projeté) — distingués à l'œil ; `trou` : polygone « en
+ *  projet » non affecté (le vrai trou). `anneau` (Lambert) sert au point d'ancrage intérieur + au test « tient dedans ». */
+export interface EtiquetteProjection { cle: string; lignes: string[]; nature: 'reel' | 'projete'; trou?: boolean; anneau: PointLambert[] }
+// 🔴 COULEURS FIXES (le canvas du schéma reste CLAIR en permanence, même en thème sombre) — JAMAIS les tokens `--color-svv-*` de texte,
+//    qui basculeraient en sombre et deviendraient illisibles sur fond clair. La légende SOUS le schéma, elle, garde les tokens.
+const ETIQ_ENCRE = '#1b1b1b';  // texte foncé, lisible sur aplat clair
+const ETIQ_HALO = '#ffffff';   // halo/contour clair (paint-order stroke) pour passer au-dessus d'un aplat
+const ETIQ_ALERTE = '#a30402'; // rouge SVAV en dur : emprise projetée (②) + vrai trou « en projet non affecté »
+
 /** RATT-3/RATT-6 — PALETTE de statut (constantes de DESSIN, jamais des variables métier) : vert = préservé, orange = détruit total,
  *  MIXTE (partiellement détruit) = gris d'origine (le bâtiment SURVIT, il reste visible) + trait TIRETÉ ardoise — JAMAIS l'orange du
  *  détruit, aucune couleur criarde : le mixte ne se lit pas comme un détruit. */
@@ -599,10 +665,11 @@ export function polygonesConfigProjetee<T extends { cleabs: string | null }>(pol
  * EXISTANT (gris), (b) FUTUR BÂTI « en projet » (bleu tireté = DONNÉE IGN ; ÉCARTÉ → grisé barré), (c) emprise TRACÉE (rouge =
  * RECONSTITUTION, jamais une mesure — garde PROJ). PROJ-3i : repères A/B/C… si `reperes` ; `ecartes` (cleabs décochés) grisés.
  */
-export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, sommetSelectionne = null, statuts }: {
+export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, sommetSelectionne = null, statuts, etiquettes = [] }: {
   boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[]; angle?: number; hauteurMax?: string; onCliquer?: (px: { x: number; y: number }) => void;
   retoucheAnneau?: PointLambert[] | null; sommetSelectionne?: number | null; // PROJ-3s — contour en RETOUCHE (poignées éditables) + sommet sélectionné
   statuts?: Map<string, EtatStatutPolygone>; // RATT-3 — statut décidé par cleabs : colore l'existant (préservé vert / détruit orange). Absent → gris d'origine.
+  etiquettes?: EtiquetteProjection[]; // LOT 82 — nom du bâtiment + altitude posés SUR le dessin (suivent la case « repères / infos »). Vide = aucune (écran de tracé).
 }) {
   if (!boite || parcelle.length === 0) return <p style={muted}>Parcelle du permis absente : schéma non dessiné (aucun point fiable).</p>;
   const proj = (p: PointLambert) => projeterDansBoite(boite, p);
@@ -645,6 +712,26 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           : null))}
         {/* PROJ-3i ① — repères alphabétiques (mêmes lettres que le Rattachement), au centre de chaque polygone visible. */}
         {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3) return null; const q = projeterDansBoite(boite, centreAnneau(poly.anneau)); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={11} fontWeight={700} textAnchor="middle" fill="var(--color-svv-ink)" data-repere={poly.repere}>{poly.repere}</text>; })}
+        {/* LOT 82 — ÉTIQUETTES sur le dessin : nom du bâtiment + altitude de sommet, ancre GARANTIE intérieure (pointOnSurfaceAnneau).
+            Posée DEDANS si elle tient, sinon DÉPORTÉE avec trait de rappel. Couleurs FIXES (canvas clair permanent, cf. constantes) —
+            jamais les tokens de texte. Distinction ① réel (marqueur ▪, bord plein) vs ② projeté (marqueur ◇, bord tireté rouge) : forme
+            + trait, PAS la couleur seule. Suit la même case « repères / infos » ; la légende dessous reste le repli sur petit écran. */}
+        {filtres.reperes && etiquettes.map((et, i) => {
+          if (et.anneau.length < 3) return null;
+          const anneauPx = et.anneau.map(proj);
+          const ancre = projeterDansBoite(boite, pointOnSurfaceAnneau(et.anneau));
+          const pos = placerEtiquette(ancre, et.lignes, anneauPx, vb, i);
+          const bord = et.trou || et.nature === 'projete' ? ETIQ_ALERTE : ETIQ_ENCRE;
+          const marque = et.trou ? '⚠ ' : et.nature === 'projete' ? '◇ ' : '▪ ';
+          return (
+            <g key={`et-${et.cle}`} data-etiquette={et.cle} data-nature={et.nature} data-trou={et.trou || undefined} data-deportee={pos.deportee || undefined}>
+              {pos.deportee && <line x1={pos.ax} y1={pos.ay} x2={pos.x + pos.w / 2} y2={pos.y + pos.h / 2} stroke={ETIQ_ENCRE} strokeWidth={0.5} strokeOpacity={0.55} />}
+              <rect x={pos.x} y={pos.y} width={pos.w} height={pos.h} rx={2} fill="rgba(255,255,255,.82)" stroke={bord} strokeWidth={0.7} strokeDasharray={et.nature === 'projete' ? '2.5 1.5' : undefined} />
+              <text x={pos.x + ETIQ.pad} y={pos.y + ETIQ.pad + ETIQ.police} fontSize={ETIQ.police} fontWeight={700} fill={ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={0.6} paintOrder="stroke">{marque}{et.lignes[0]}</text>
+              {et.lignes[1] && <text x={pos.x + ETIQ.pad} y={pos.y + ETIQ.pad + ETIQ.hauteurLigne + ETIQ.police} fontSize={ETIQ.police - 0.5} fill={et.trou ? ETIQ_ALERTE : ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={0.5} paintOrder="stroke">{et.lignes[1]}</text>}
+            </g>
+          );
+        })}
         {calageLambert.map((p, i) => { const q = projeterDansBoite(boite, p); return <g key={`c${i}`}><circle cx={q.x} cy={q.y} r={4} fill="var(--color-svv-red)" /><text x={q.x + 6} y={q.y - 6} fontSize={11} fill="var(--color-svv-red)">{i + 1}</text></g>; })}
         {/* PROJ-3s — RETOUCHE : contour éditable + poignées de sommet (cibles tactiles) + points milieux de bord (insertion). */}
         {retoucheAnneau && retoucheAnneau.length >= 2 && <>
@@ -1068,6 +1155,42 @@ export function legendeProjection(
 /** LOT 80 — cleabs abrégé pour l'affichage (valeur complète conservée en `title`) : jamais tronqué silencieusement, jamais de blanc. PUR. */
 export function abregerCleabs(cleabs: string): string {
   return cleabs.length > 20 ? `${cleabs.slice(0, 12)}…${cleabs.slice(-6)}` : cleabs;
+}
+
+/** LOT 82 — libellé d'altitude d'une étiquette : « 88,91 m NGF » ou « altitude non validée » (jamais un blanc). PUR. */
+function texteAltitude(alt: number | null): string { return alt === null ? 'altitude non validée' : `${fmtM(alt)} NGF`; }
+
+/**
+ * LOT 82 — ÉTIQUETTES à poser SUR le schéma, dérivées de la MÊME source que la légende (`legendeProjection`) — jamais un recalcul
+ * parallèle — puis reliées à leur géométrie d'ancrage. Deux natures conservées (① polygone BD TOPO réel, ② emprise projetée tracée) :
+ *  - polygone `affecte` → nom du bâtiment + altitude (nature 'reel') ;
+ *  - polygone `projet_non_affecte` → « en projet / non affecté » (nature 'reel', `trou` = le vrai trou, doit se voir) ;
+ *  - polygone `existant_sans_objet` → AUCUNE étiquette (ne pas encombrer le dessin d'un « sans objet » par bâti existant) ;
+ *  - emprise projetée → nom du bâtiment + altitude (nature 'projete').
+ * Le cleabs n'est JAMAIS mis sur le dessin (illisible) — il reste dans la légende. PUR (aucune I/O).
+ */
+export function etiquettesProjection(
+  polygones: PolygoneRepere[], emprises: EmpriseReconstruite[],
+  batiments: { corpsId: number; repere: string | null; nomRepli?: string | null; altitudeSommetNgf?: number | null }[],
+): EtiquetteProjection[] {
+  const { polygones: lp, emprisesProjetees: le } = legendeProjection(polygones, emprises, batiments);
+  const anneauDeCleabs = new Map(polygones.filter((p) => p.cleabs !== null && p.anneau.length >= 3).map((p) => [p.cleabs as string, p.anneau]));
+  const anneauDeEmprise = new Map(emprises.map((e) => [e.id, (e.anneaux?.length ? e.anneaux[0] : e.anneau)] as const));
+  const out: EtiquetteProjection[] = [];
+  for (const l of lp) {
+    if (l.nature === 'existant_sans_objet') continue; // bâti existant → affectation SANS OBJET → pas d'étiquette (ne pas encombrer)
+    const anneau = anneauDeCleabs.get(l.cleabs);
+    if (!anneau || anneau.length < 3) continue;
+    out.push(l.nature === 'affecte'
+      ? { cle: `p-${l.cleabs}`, lignes: [l.nomBatiment as string, texteAltitude(l.altitudeSommetNgf)], nature: 'reel', anneau }
+      : { cle: `p-${l.cleabs}`, lignes: ['en projet', 'non affecté'], nature: 'reel', trou: true, anneau });
+  }
+  for (const l of le) {
+    const anneau = anneauDeEmprise.get(l.empriseId);
+    if (!anneau || anneau.length < 3) continue;
+    out.push({ cle: `e-${l.empriseId}`, lignes: [l.nomBatiment, texteAltitude(l.altitudeSommetNgf)], nature: 'projete', anneau });
+  }
+  return out;
 }
 
 /** LOT 81 — fragment « altitude … NGF » (ou « altitude non validée ») + mention de partage (héritée du bâtiment). PUR (renderToStaticMarkup). */

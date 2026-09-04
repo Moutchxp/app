@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, placerEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -370,6 +370,109 @@ describe('LOT 81 — légende à DEUX GROUPES (polygones BD TOPO réels + empris
     const html = renderToStaticMarkup(h(LegendeProjectionEmprises, { legende: legendeProjection([], [], batiments) }));
     expect(html).toContain('Aucun polygone BD TOPO dans l’emprise à ce jour');
     expect(html).toContain('Aucune emprise simulée d’après les plans à ce jour');
+  });
+});
+
+describe('LOT 82 — étiquettes (nom du bâtiment + altitude) posées SUR le schéma « Projection des emprises »', () => {
+  const cal = (cleabs: string[]) => ({ cleabs }) as unknown as EmpriseReconstruite['calage'];
+  // L concave : la MOYENNE des sommets (≈ ST_Centroid) tombe dans l'encoche (dehors) ; pointOnSurface doit rester DEDANS.
+  const formeL = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 4 }, { x: 4, y: 4 }, { x: 4, y: 10 }, { x: 0, y: 10 }];
+
+  it('pointOnSurfaceAnneau : un point GARANTI INTÉRIEUR d’une forme en L (là où le centroïde tomberait dehors)', () => {
+    const centroide = { x: 28 / 6, y: 28 / 6 }; // moyenne des 6 sommets ≈ (4.67, 4.67) → dans l’encoche
+    expect(pointDansAnneau(centroide.x, centroide.y, formeL)).toBe(false); // le centroïde est DEHORS
+    const p = pointOnSurfaceAnneau(formeL);
+    expect(pointDansAnneau(p.x, p.y, formeL)).toBe(true);                  // pointOnSurface est DEDANS
+  });
+
+  it('placerEtiquette : tient DEDANS un grand polygone (pas de déport)', () => {
+    const carre = [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 200 }, { x: 0, y: 200 }];
+    const vb = { minX: 0, minY: 0, w: 220, h: 220 };
+    const pos = placerEtiquette({ x: 100, y: 100 }, ['2D1', '88,91 m NGF'], carre, vb, 0);
+    expect(pos.deportee).toBe(false);
+  });
+
+  it('placerEtiquette : bande ÉTROITE → DÉPORTÉE (trait de rappel), et TOUJOURS clampée dans le cadre (jamais de débordement)', () => {
+    const bande = [{ x: 0, y: 0 }, { x: 200, y: 0 }, { x: 200, y: 5 }, { x: 0, y: 5 }]; // hauteur 5 < hauteur d’étiquette
+    const vb = { minX: 0, minY: 0, w: 220, h: 220 };
+    const pos = placerEtiquette({ x: 100, y: 2.5 }, ['2D1', '88,91 m NGF'], bande, vb, 0);
+    expect(pos.deportee).toBe(true);
+    expect(pos.x).toBeGreaterThanOrEqual(vb.minX);
+    expect(pos.x + pos.w).toBeLessThanOrEqual(vb.minX + vb.w + 1e-9); // clampée : aucun débordement du cadre
+    expect(pos.y).toBeGreaterThanOrEqual(vb.minY);
+    expect(pos.y + pos.h).toBeLessThanOrEqual(vb.minY + vb.h + 1e-9);
+  });
+
+  // Données (réutilisent la ventilation réelle : 2 adoptés + 1 en projet non adopté + 1 existant ; 2 emprises tracées 2D1/2D2).
+  const polys = attribuerReperes([
+    { cleabs: 'BATIMENT242', anneau: formeL, etat: 'En projet' },
+    { cleabs: 'BATIMENT243', anneau: [{ x: 20, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 10 }, { x: 20, y: 10 }], etat: 'En projet' },
+    { cleabs: 'BATIMENT245', anneau: [{ x: 40, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 10 }, { x: 40, y: 10 }], etat: 'En projet' }, // non adopté = trou
+    { cleabs: 'EXISTANT99', anneau: [{ x: 60, y: 0 }, { x: 70, y: 0 }, { x: 70, y: 10 }, { x: 60, y: 10 }], etat: 'En service' }, // existant
+  ]);
+  const emprisesAdoptees = [
+    emprise({ id: 16, corpsId: 3, provenance: 'ign_adopte', calage: cal(['BATIMENT242']) }),
+    emprise({ id: 17, corpsId: 3, provenance: 'ign_adopte', calage: cal(['BATIMENT243']) }),
+  ];
+  const batiments = [{ corpsId: 3, repere: '', nomRepli: 'BP', altitudeSommetNgf: 101 }];
+  const empProjetees = [
+    emprise({ id: 4, corpsId: 2, provenance: 'trace_manuel', calage: null, anneau: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }], anneaux: [[{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }]] }),
+    emprise({ id: 5, corpsId: 1, provenance: 'trace_manuel', calage: null, anneau: [{ x: 20, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 10 }, { x: 20, y: 10 }], anneaux: [[{ x: 20, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 10 }, { x: 20, y: 10 }]] }),
+  ];
+  const bat11434 = [{ corpsId: 1, repere: '2D1', altitudeSommetNgf: 88.91 }, { corpsId: 2, repere: '2D2', altitudeSommetNgf: 86.11 }];
+
+  it('etiquettesProjection : ① polygone adopté → nom + altitude ; ② emprise projetée → nom + altitude ; bâti existant → AUCUNE étiquette', () => {
+    const etq = etiquettesProjection(polys, emprisesAdoptees, batiments);
+    // Deux polygones adoptés (nature reel) + un « en projet non affecté » (trou) ; l’existant N’A PAS d’étiquette.
+    expect(etq.filter((e) => e.nature === 'reel' && !e.trou)).toHaveLength(2);
+    expect(etq.find((e) => e.cle === 'p-BATIMENT242')).toMatchObject({ nature: 'reel', lignes: ['bâtiment en projet', '101,00 m NGF'] });
+    expect(etq.some((e) => e.cle === 'p-EXISTANT99')).toBe(false); // bâti existant → pas d’étiquette
+    const trou = etq.find((e) => e.trou);
+    expect(trou).toMatchObject({ cle: 'p-BATIMENT245', nature: 'reel', lignes: ['en projet', 'non affecté'] });
+  });
+
+  it('etiquettesProjection : emprise projetée tracée à la main → nature projete, nom + altitude, SANS cleabs sur le dessin', () => {
+    const etq = etiquettesProjection([], empProjetees, bat11434);
+    expect(etq).toHaveLength(2);
+    expect(etq.every((e) => e.nature === 'projete')).toBe(true);
+    expect(etq.find((e) => e.lignes[0] === '2D1')!.lignes[1]).toBe('88,91 m NGF');
+    expect(etq.find((e) => e.lignes[0] === '2D2')!.lignes[1]).toBe('86,11 m NGF');
+    expect(etq.every((e) => !e.lignes.join(' ').includes('BATIMENT') && !e.lignes.join(' ').includes('cleabs'))).toBe(true); // jamais de cleabs
+  });
+
+  it('etiquettesProjection : bâtiment SANS altitude → « altitude non validée » (jamais un blanc)', () => {
+    const etq = etiquettesProjection([], [emprise({ id: 9, corpsId: 7, provenance: 'trace_manuel', calage: null })], [{ corpsId: 7, repere: 'B3', altitudeSommetNgf: null }]);
+    expect(etq[0].lignes).toEqual(['B3', 'altitude non validée']);
+  });
+
+  it('etiquettesProjection : aucune entité → aucune étiquette', () => {
+    expect(etiquettesProjection([], [], batiments)).toEqual([]);
+  });
+
+  it('rendu : les étiquettes apparaissent SUR le dessin (nom + altitude), avec distinction ① réel / ② projeté par FORME (pas la couleur seule)', () => {
+    const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 70, minY: 0, maxY: 10 } };
+    const filtres: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: true };
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, {
+      boite, parcelle: [[{ x: 0, y: 0 }, { x: 70, y: 0 }, { x: 70, y: 10 }, { x: 0, y: 10 }]],
+      emprises: empProjetees, polygones: polys, filtres, calageLambert: [],
+      etiquettes: etiquettesProjection([], empProjetees, bat11434),
+    }));
+    expect(html).toContain('2D1');
+    expect(html).toContain('88,91 m NGF');
+    expect(html).toContain('data-nature="projete"');
+    expect(html).toContain('◇');                       // marqueur de forme du projeté (distinction NON fondée sur la couleur seule)
+    expect(html).toContain('stroke-dasharray="2.5 1.5"'); // bord tireté du projeté
+  });
+
+  it('rendu : étiquettes suivies par la case « repères » — éteinte, aucune étiquette (repli sur la légende dessous)', () => {
+    const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 70, minY: 0, maxY: 10 } };
+    const filtres: FiltresSchema = { existant: true, futur: true, reperes: false, emprises: true };
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, {
+      boite, parcelle: [[{ x: 0, y: 0 }, { x: 70, y: 0 }, { x: 70, y: 10 }, { x: 0, y: 10 }]],
+      emprises: empProjetees, polygones: polys, filtres, calageLambert: [],
+      etiquettes: etiquettesProjection([], empProjetees, bat11434),
+    }));
+    expect(html).not.toContain('data-nature="projete"'); // repères éteints → pas d’étiquette sur le dessin
   });
 });
 

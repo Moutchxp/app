@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { cadreDeAnneaux, type Boite, type PointLambert } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
-import { SchemaParcelleTrace, LegendeSchemaProjection, LegendeProjectionEmprises, legendeProjection, attribuerReperes, FILTRES_SCHEMA_DEFAUT } from './TraceEmpriseRendu';
+import { SchemaParcelleTrace, LegendeSchemaProjection, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, attribuerReperes, FILTRES_SCHEMA_DEFAUT } from './TraceEmpriseRendu';
 import type { EtatStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 
 /**
@@ -67,7 +67,10 @@ export function RecapProjectionRattachement({ etat, emprises, parcelle, polygone
       <p style={{ ...muted, margin: 0 }}>
         Ce que l’on attend de BD TOPO : l’emprise au sol des futurs bâtiments, superposée à la parcelle et au bâti existant.
       </p>
-      <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={FILTRES_SCHEMA_DEFAUT} calageLambert={[]} statuts={statuts} />
+      {/* LOT 82 — étiquettes NOM + ALTITUDE posées SUR le dessin (mêmes données que la légende via etiquettesProjection) : on lit
+          directement quel polygone/emprise porte quel bâtiment et quelle altitude, sans aller-retour œil ↔ légende. La légende dessous
+          reste le repli lisible (petit écran, formes trop petites). */}
+      <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={FILTRES_SCHEMA_DEFAUT} calageLambert={[]} statuts={statuts} etiquettes={etiquettesProjection(polygonesReperes, emprises, batiments)} />
       <LegendeSchemaProjection />
       {/* LOT 81 — DEUX GROUPES distincts : ① polygones BD TOPO réels (bâtiment · cleabs · altitude validée) ② emprises PROJETÉES tracées
           d'après les plans (bâtiment · altitude · « aucun polygone BD TOPO à ce jour »). Corrige le LOT 80 qui excluait les emprises

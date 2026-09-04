@@ -111,4 +111,16 @@ describe('PROJ-4a — récap (lecture seule) de l’emprise projetée dans le Ra
     expect(html).toContain('bâti existant — affectation sans objet'); // le polygone existant (BATI-1) n'est pas « non affecté »
     expect(html).not.toContain('SANS OBJET'); // il y a bien une emprise projetée → jamais le « SANS OBJET » global du LOT 80
   });
+
+  // LOT 82 — les étiquettes (nom + altitude) sont posées SUR le dessin, en plus de la légende dessous.
+  it('LOT 82 — emprise projetée étiquetée SUR le schéma : « 2D1 » + « 88,91 m NGF », nature projete distinguée', () => {
+    const html = renderToStaticMarkup(h(RecapProjectionRattachement, {
+      etat: 'en_attente_bati' as EtatSuivi, parcelle: PARCELLE, polygones: [],
+      emprises: [emp({ id: 5, corpsId: 1, provenance: 'trace_manuel', calage: null, anneau: carre(40, 40), anneaux: [carre(40, 40)] })],
+      batiments: [{ corpsId: 1, repere: '2D1', altitudeSommetNgf: 88.91 }],
+    }));
+    expect(html).toContain('data-etiquette="e-5"');  // étiquette de l’emprise 5 sur le dessin
+    expect(html).toContain('data-nature="projete"');
+    expect(html).toContain('88,91 m NGF');
+  });
 });
