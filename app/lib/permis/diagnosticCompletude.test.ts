@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  classerPiece, diagnostiquerCompletude, lignesDepuisClassements, famillesAttenduesDepuisConfig,
+  classerPiece, diagnostiquerCompletude, lignesDepuisClassements, famillesAttenduesDepuisConfig, estRubriqueAutresPieces,
   type PieceLueDiag,
 } from './diagnosticCompletude';
 import type { FamillePlan } from './planMasse';
@@ -74,7 +74,8 @@ describe('diagnostiquerCompletude', () => {
 
   it('pièce muette à nom opaque → NON classée (exposée), jamais un faux « manquant » silencieux', () => {
     const d = diagnostiquerCompletude([p('scan_001.pdf'), p('a.pdf', MASSE)], TOUTES);
-    expect(d.nonClassees).toEqual(['scan_001.pdf']);
+    // LOT 60 — muette (aucun texte) → raison 'illisible' (scan) ; le nom n'est pas la rubrique « autres pièces ».
+    expect(d.nonClassees).toEqual([{ nomFichier: 'scan_001.pdf', raison: 'illisible', rubriqueAutresPieces: false }]);
     expect(d.lignes.find((l) => l.famille === 'masse')!.presente).toBe(true);
   });
 
@@ -98,6 +99,26 @@ describe('lignesDepuisClassements — rejoué à l’affichage sans relire les P
     const d = lignesDepuisClassements(classements, ['masse', 'cerfa']);
     expect(d.lignes.find((l) => l.famille === 'masse')!.presente).toBe(true);
     expect(d.lignes.find((l) => l.famille === 'cerfa')!.presente).toBe(false);
-    expect(d.nonClassees).toEqual(['b.pdf']);
+    // LOT 60 — classement ANTÉRIEUR au LOT 60 (aucun `aTexte`) → raison 'indetermine' (on n'affirme NI lisible NI illisible).
+    expect(d.nonClassees).toEqual([{ nomFichier: 'b.pdf', raison: 'indetermine', rubriqueAutresPieces: false }]);
+  });
+});
+
+describe('LOT 60 — non classée : la VRAIE raison, jamais « illisible » un contenu lisible', () => {
+  it('pièce à TEXTE lisible mais aucune des 4 familles → raison hors_familles (lue et rangée)', () => {
+    const d = diagnostiquerCompletude([p('note-en-prose.pdf', 'Note d’accompagnement du permis : présentation des enjeux du projet.'), p('a.pdf', MASSE)], TOUTES);
+    expect(d.nonClassees).toEqual([{ nomFichier: 'note-en-prose.pdf', raison: 'hors_familles', rubriqueAutresPieces: false }]);
+  });
+
+  it('rubrique Cerfa standard « PC200 autres pièces » à texte lisible → hors_familles + rubriqueAutresPieces', () => {
+    const d = diagnostiquerCompletude([p('PC200 Autres pieces-3.pdf', 'Notice descriptive en prose, plusieurs pages lisibles.')], ['masse', 'coupe', 'etage', 'cerfa']);
+    expect(d.nonClassees).toEqual([{ nomFichier: 'PC200 Autres pieces-3.pdf', raison: 'hors_familles', rubriqueAutresPieces: true }]);
+  });
+
+  it('estRubriqueAutresPieces : reconnaît le slot standard, sans faux positif (PC2/PC20 exclus)', () => {
+    expect(estRubriqueAutresPieces('PC200 Autres pieces-3.pdf')).toBe(true);
+    expect(estRubriqueAutresPieces('Autres pièces jointes.pdf')).toBe(true);
+    expect(estRubriqueAutresPieces('PC02 Plan de masse.pdf')).toBe(false);
+    expect(estRubriqueAutresPieces('PC20 façade.pdf')).toBe(false);
   });
 });

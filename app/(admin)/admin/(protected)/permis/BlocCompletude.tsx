@@ -6,6 +6,7 @@ import { BlocRepliable } from './BlocRepliable';
 import { BoutonRelancerAnalyse } from './BoutonRelancerAnalyse'; // LOT 56-B — « Lancer le diagnostic complet des documents », en tête du corps
 import { jourParisISO } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « établi le » = jour en Europe/Paris
 import { resumeCompletude, doitRecalculerAuto, libelleFamillesManquantes } from '../../../../lib/permis/completudeResume';
+import type { NonClassee } from '../../../../lib/permis/diagnosticCompletude'; // LOT 60 — pièce non classée AVEC sa raison (type SEUL, module pur)
 
 /**
  * PART-2 / PERF-1 — DIAGNOSTIC DE COMPLÉTUDE des pièces (+ demande de pièces + déclaration de relance), en tête de la ligne dépliée
@@ -25,10 +26,18 @@ const TITRE = 'Complétude des pièces et relances semi-automatiques';
 interface LigneCompletude { famille: Famille; presente: boolean; pieces: string[] }
 interface Desaccord { nomFichier: string; parContenu: Famille | null; parNom: Famille | null }
 interface Completude {
-  diagnostic: { lignes: LigneCompletude[]; desaccords: Desaccord[]; nonClassees: string[] };
+  diagnostic: { lignes: LigneCompletude[]; desaccords: Desaccord[]; nonClassees: NonClassee[] };
   calculeLe: string;
   perime: boolean;
 }
+
+// LOT 60 — restitution HONNÊTE d'une pièce hors des 4 familles suivies (jamais « illisible » quand le contenu est lisible). Sans
+//   jargon : on parle de « pièces suivies » (les 4 familles), et de la rubrique Cerfa « autres pièces » par son nom propre.
+const PHRASE_NON_CLASSEE: Record<NonClassee['raison'], string> = {
+  hors_familles: 'lue et rangée dans le dossier, mais elle ne correspond à aucune des pièces suivies (plan de masse, plan de coupe, plans d’étages, formulaire Cerfa)',
+  illisible: 'sans texte exploitable (document scanné en image) — son contenu n’a pas pu être lu automatiquement',
+  indetermine: 'rangée dans le dossier, mais rattachée à aucune des pièces suivies — relancez le diagnostic pour préciser',
+};
 type Etat = { statut: 'chargement' } | { statut: 'erreur' } | { statut: 'ok'; completude: Completude | null };
 
 const muted: React.CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
@@ -155,8 +164,18 @@ function Contenu({ c, dossierId }: { c: Completude; dossierId: number }) {
           </ul>
         </div>
       )}
+      {/* LOT 60 — pièces hors des 4 familles suivies : on DIT la vraie raison, par pièce, sans jamais annoncer « illisible » un contenu lisible. */}
       {c.diagnostic.nonClassees.length > 0 && (
-        <span style={muted}>{c.diagnostic.nonClassees.length} pièce{c.diagnostic.nonClassees.length > 1 ? 's' : ''} non classée{c.diagnostic.nonClassees.length > 1 ? 's' : ''} (contenu illisible ou nom sans indice) : {c.diagnostic.nonClassees.join(', ')}</span>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+          <span style={muted}>{c.diagnostic.nonClassees.length} pièce{c.diagnostic.nonClassees.length > 1 ? 's' : ''} hors des pièces suivies :</span>
+          <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+            {c.diagnostic.nonClassees.map((nc) => (
+              <li key={nc.nomFichier} style={{ ...muted, wordBreak: 'break-word' }}>
+                <strong>{nc.nomFichier}</strong>{nc.rubriqueAutresPieces ? ' (déposée dans la rubrique « autres pièces » du dossier)' : ''} — {PHRASE_NON_CLASSEE[nc.raison]}.
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       <span style={{ ...muted, fontSize: 11 }}>Diagnostic établi le {jourParisISO(c.calculeLe)}.</span>
       {/* PART-3a — demander à la mairie les familles MANQUANTES (envoi manuel, dans le fil). Rien à demander si tout est présent. */}
