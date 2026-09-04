@@ -560,18 +560,21 @@ export async function retablirProjection(dossierId: number, corpsId: number, par
   }
 }
 
-/** Bâtiments déclarés du permis (permis_corps_batiment) — l'univers du tracé/ignorance. `[]` si la table manque. */
-export async function listerBatiments(dossierId: number): Promise<{ corpsId: number; repere: string | null; nomRepli: string | null }[]> {
+/** Bâtiments déclarés du permis (permis_corps_batiment) — l'univers du tracé/ignorance. `[]` si la table manque.
+ *  LOT 80 — porte aussi l'ALTITUDE DE SOMMET VALIDÉE du bâtiment (`altitude_sommet_ngf`, migration 108 — celle qui alimente
+ *  `nbCorpsSansAltitude`/la sortie vers Rattachement), pour la légende par polygone du schéma « Projection des emprises » (altitude
+ *  PORTÉE PAR LE BÂTIMENT, héritée par ses polygones). `null` = altitude non validée. */
+export async function listerBatiments(dossierId: number): Promise<{ corpsId: number; repere: string | null; nomRepli: string | null; altitudeSommetNgf: number | null }[]> {
   try {
-    const { rows } = await query<{ id: number; repere: string | null; nom_repli: string | null }>(
-      `SELECT id::int AS id, repere, nom_repli FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]); // NOM-1 — + nom_repli
-    return rows.map((r) => ({ corpsId: r.id, repere: r.repere, nomRepli: r.nom_repli }));
+    const { rows } = await query<{ id: number; repere: string | null; nom_repli: string | null; alt: string | number | null }>(
+      `SELECT id::int AS id, repere, nom_repli, altitude_sommet_ngf AS alt FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]); // NOM-1 nom_repli ; LOT 80 altitude validée
+    return rows.map((r) => ({ corpsId: r.id, repere: r.repere, nomRepli: r.nom_repli, altitudeSommetNgf: r.alt == null ? null : Number(r.alt) }));
   } catch (err) {
     if (estTableAbsente(err)) return [];
-    if (estColonneAbsente(err)) { // NOM-1 — migration 168 non appliquée : on relit SANS nom_repli (→ null, l'affichage retombe sur « bâtiment {id} »).
-      const { rows } = await query<{ id: number; repere: string | null }>(
-        `SELECT id::int AS id, repere FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]);
-      return rows.map((r) => ({ corpsId: r.id, repere: r.repere, nomRepli: null }));
+    if (estColonneAbsente(err)) { // NOM-1 — migration 168 non appliquée : on relit SANS nom_repli (→ null, l'affichage retombe sur « bâtiment {id} »). altitude_sommet_ngf (108) reste lue.
+      const { rows } = await query<{ id: number; repere: string | null; alt: string | number | null }>(
+        `SELECT id::int AS id, repere, altitude_sommet_ngf AS alt FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]);
+      return rows.map((r) => ({ corpsId: r.id, repere: r.repere, nomRepli: null, altitudeSommetNgf: r.alt == null ? null : Number(r.alt) }));
     }
     throw err;
   }

@@ -999,6 +999,91 @@ export function LegendeSchemaProjection() {
   );
 }
 
+// ── LOT 80 — LÉGENDE PAR POLYGONE (bâtiment · cleabs · altitude validée) sous le schéma « Projection des emprises » ──
+export interface LigneLegendePolygone {
+  cleabs: string;
+  repere: string;                    // repère du SCHÉMA (ordre de DESSIN, A/B/C…) — sert à retrouver le polygone sur le schéma ; JAMAIS le nom du bâtiment
+  nomBatiment: string | null;        // nom du BÂTIMENT DU PERMIS affecté (nomAffichageCorps) ; null = polygone NON AFFECTÉ
+  altitudeSommetNgf: number | null;  // altitude de sommet VALIDÉE, PORTÉE PAR LE BÂTIMENT (héritée) ; null = altitude non validée
+  nbPolygonesDuBatiment: number;     // combien de polygones listés partagent ce bâtiment (≥ 2 → altitude commune, héritée — jamais mesurée sur le polygone)
+}
+
+/**
+ * LOT 80 — construit une ligne par POLYGONE BD TOPO dessiné (identité + ORDRE = repère du schéma, `attribuerReperes`), avec le NOM du
+ * BÂTIMENT DU PERMIS auquel il est affecté et l'ALTITUDE DE SOMMET VALIDÉE de ce bâtiment. L'affectation polygone→bâtiment est celle des
+ * EMPRISES ADOPTÉES (`calage.cleabs → corps`) — SEULE affectation opérante ici, la MÊME que le schéma et le bloc « projet »
+ * (`polygonesProjetParBatiment`) ; l'ancienne affectation d'arbitrage (`permis_corps_polygone`) n'est jamais renseignée en pratique.
+ * 🔴 L'altitude est portée par le BÂTIMENT (permis_corps_batiment), donc HÉRITÉE : deux polygones d'un même bâtiment affichent la MÊME
+ * valeur — jamais une mesure sur ce polygone (vigilance). Polygone sans emprise-source → `nomBatiment` null (« non affecté ») ;
+ * bâtiment sans altitude → `altitudeSommetNgf` null (« non validée »). Les emprises tracées à la main (sans cleabs) ne sont PAS des
+ * polygones : elles n'entrent jamais ici. PUR (aucune I/O).
+ */
+export function legendePolygonesProjection(
+  polygones: PolygoneRepere[], emprises: EmpriseReconstruite[],
+  batiments: { corpsId: number; repere: string | null; nomRepli?: string | null; altitudeSommetNgf?: number | null }[],
+): LigneLegendePolygone[] {
+  // cleabs → corps, via les emprises ADOPTÉES (première emprise qui porte ce cleabs) — identique à polygonesProjetParBatiment.
+  const corpsDeCleabs = new Map<string, number>();
+  for (const e of emprises) { if (e.corpsId === null) continue; for (const c of cleabsSourceEmprise(e)) if (!corpsDeCleabs.has(c)) corpsDeCleabs.set(c, e.corpsId); }
+  const batParCorps = new Map(batiments.map((b) => [b.corpsId, b]));
+  // On ne liste que les polygones RÉELLEMENT dessinés (anneau ≥ 3) et identifiés (cleabs) — jamais une emprise tracée (pas de cleabs).
+  const base = polygones.filter((p) => p.cleabs !== null && p.anneau.length >= 3).map((p) => {
+    const corpsId = corpsDeCleabs.get(p.cleabs as string);
+    const bat = corpsId === undefined ? undefined : batParCorps.get(corpsId);
+    return {
+      cleabs: p.cleabs as string, repere: p.repere, corpsId: corpsId ?? null,
+      nomBatiment: corpsId === undefined ? null : nomAffichageCorps({ repere: bat?.repere ?? null, nomRepli: bat?.nomRepli, corpsId }),
+      altitudeSommetNgf: bat?.altitudeSommetNgf ?? null,
+    };
+  });
+  const compte = new Map<number, number>();
+  for (const l of base) if (l.corpsId !== null) compte.set(l.corpsId, (compte.get(l.corpsId) ?? 0) + 1);
+  return base.map(({ corpsId, ...l }) => ({ ...l, nbPolygonesDuBatiment: corpsId === null ? 0 : (compte.get(corpsId) ?? 0) }));
+}
+
+/** LOT 80 — cleabs abrégé pour l'affichage (valeur complète conservée en `title`) : jamais tronqué silencieusement, jamais de blanc. PUR. */
+export function abregerCleabs(cleabs: string): string {
+  return cleabs.length > 20 ? `${cleabs.slice(0, 12)}…${cleabs.slice(-6)}` : cleabs;
+}
+
+/**
+ * LOT 80 — LÉGENDE PAR POLYGONE affichée SOUS la légende de catégories : une ligne « Polygone {repère} · {cleabs} — {bâtiment} ·
+ * altitude validée {…} NGF ». Vocabulaire STRICT : « bâtiment » jamais « corps » ; le repère est celui du SCHÉMA (dessin), distinct du
+ * nom du bâtiment. Non affecté / altitude non validée dits EN TOUTES LETTRES. Aucun polygone → SANS OBJET explicite. Mobile-first
+ * (empilement, cleabs qui casse). PUR (renderToStaticMarkup).
+ */
+export function LegendePolygonesProjection({ lignes, aDesEmprisesTracees = false }: { lignes: LigneLegendePolygone[]; aDesEmprisesTracees?: boolean }) {
+  if (lignes.length === 0) {
+    return <p role="note" style={{ ...muted, margin: '.15rem 0 0' }}>Aucun polygone BD TOPO dans l’emprise de ce permis : rien à détailler par polygone (sans objet).</p>;
+  }
+  return (
+    <div role="note" style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', marginTop: '.15rem' }}>
+      <div style={{ fontSize: 12, fontWeight: 700 }}>Par polygone : bâtiment · référence IGN (cleabs) · altitude de sommet validée</div>
+      <ul role="list" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+        {lignes.map((l) => (
+          <li key={l.cleabs} data-cleabs={l.cleabs} style={{ fontSize: 12, display: 'flex', flexWrap: 'wrap', gap: '.1rem .4rem', alignItems: 'baseline', lineHeight: 1.35 }}>
+            {/* Repère du SCHÉMA (dessin) — vocabulaire « Polygone X » déjà utilisé partout ; ce n'est PAS le nom du bâtiment. */}
+            <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Polygone {l.repere}</span>
+            <span title={l.cleabs} style={{ fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 11, color: 'var(--color-svv-muted)', wordBreak: 'break-all' }}>{abregerCleabs(l.cleabs)}</span>
+            <span aria-hidden>—</span>
+            {l.nomBatiment === null
+              ? <span style={{ color: 'var(--color-svv-muted)' }}>non affecté à un bâtiment</span>
+              : (
+                <span>
+                  <strong>{l.nomBatiment}</strong>{' · '}
+                  {l.altitudeSommetNgf === null
+                    ? <span style={{ color: 'var(--color-svv-muted)' }}>altitude non validée</span>
+                    : <>altitude de sommet validée du bâtiment {fmtM(l.altitudeSommetNgf)} NGF{l.nbPolygonesDuBatiment > 1 ? <span style={muted}> (commune à ses {l.nbPolygonesDuBatiment} polygones)</span> : null}</>}
+                </span>
+              )}
+          </li>
+        ))}
+      </ul>
+      {aDesEmprisesTracees && <p style={{ ...muted, margin: '.1rem 0 0', fontStyle: 'italic' }}>Les emprises tracées à la main (en rouge sur le schéma) sont des reconstitutions, pas des polygones BD TOPO : elles ne figurent pas dans cette liste.</p>}
+    </div>
+  );
+}
+
 /** AFF-2 — dimensions de la ZONE DE DESSIN des miniatures : identiques à l'origine (SchemaEmpreinteSvg = 320×240) pour un cadrage/échelle
  *  strictement partagés (3b/3c). Ce sont des tailles d'affichage, jamais des variables métier. */
 const MINI_L = 320, MINI_H = 240;

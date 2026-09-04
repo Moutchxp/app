@@ -82,4 +82,23 @@ describe('PROJ-4a — récap (lecture seule) de l’emprise projetée dans le Ra
     expect(html).not.toContain('Emprises non rattachées à un bâtiment');
     expect(html).not.toContain('ancienne emprise');
   });
+
+  // LOT 80 — la légende par polygone reprend l'identité du schéma (Polygone A = BATI-1) et affiche le bâtiment + son altitude validée.
+  it('LOT 80 — polygone adopté à un bâtiment → « Polygone A · … — <bâtiment> · altitude de sommet validée » ; unité NGF explicite', () => {
+    const cal = { cleabs: ['BATI-1'] } as unknown as EmpriseReconstruite['calage'];
+    const html = renderToStaticMarkup(h(RecapProjectionRattachement, {
+      etat: 'en_attente_bati' as EtatSuivi, parcelle: PARCELLE, polygones: POLYGONES,
+      emprises: [emp({ id: 1, corpsId: 10, provenance: 'ign_adopte', calage: cal })],
+      batiments: [{ corpsId: 10, repere: '2D1', altitudeSommetNgf: 42.5 }],
+    }));
+    expect(html).toContain('Par polygone');                    // titre de la légende
+    expect(html).toContain('Polygone A');                       // identité = repère du schéma (BATI-1 → A)
+    expect(html).toContain('2D1');                              // nom du bâtiment
+    expect(html).toContain('42,50 m NGF');                      // altitude validée, unité explicite, sans arrondi trompeur
+  });
+
+  it('LOT 80 — polygone sans emprise-source → « non affecté » en toutes lettres (jamais une lettre prise pour un nom de bâtiment)', () => {
+    const html = renderToStaticMarkup(h(RecapProjectionRattachement, props('en_attente_bati', [emp({ id: 1, calage: null })])));
+    expect(html).toContain('non affecté à un bâtiment');
+  });
 });

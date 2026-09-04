@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { cadreDeAnneaux, type Boite, type PointLambert } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
-import { SchemaParcelleTrace, LegendeSchemaProjection, attribuerReperes, FILTRES_SCHEMA_DEFAUT } from './TraceEmpriseRendu';
+import { SchemaParcelleTrace, LegendeSchemaProjection, LegendePolygonesProjection, legendePolygonesProjection, attribuerReperes, FILTRES_SCHEMA_DEFAUT } from './TraceEmpriseRendu';
 import type { EtatStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 
 /**
@@ -26,7 +26,7 @@ export interface RecapProjectionProps {
   emprises: EmpriseReconstruite[];                            // emprises reconstituées / adoptées du dossier (avec provenance + multi-parties)
   parcelle: PointLambert[][];                                 // empreinte parcellaire (Lambert-93), pour caler le schéma
   polygones: PolygoneBdTopo[];                                // bâti BD TOPO (∩ empreinte) — existant + futur « en projet »
-  batiments: { corpsId: number; repere: string | null; nomRepli?: string | null }[]; // bâtiments déclarés au permis (+ nom de repli NOM-1)
+  batiments: { corpsId: number; repere: string | null; nomRepli?: string | null; altitudeSommetNgf?: number | null }[]; // bâtiments déclarés au permis (nom NOM-1 + altitude validée LOT 80)
   statuts?: Map<string, EtatStatutPolygone>;                  // RATT-3 — statut décidé par cleabs : colore l'existant (préservé/détruit) sur le schéma
 }
 
@@ -36,7 +36,7 @@ export interface RecapProjectionProps {
  *  · aucune emprise → on le DIT explicitement (jamais un schéma vide) : pas passé par la projection, ou rien tracé ;
  *  · emprises présentes → schéma 3 couches (parcelle · bâti BD TOPO · emprise projetée) + légende + provenance par bâtiment.
  */
-export function RecapProjectionRattachement({ etat, emprises, parcelle, polygones, statuts }: RecapProjectionProps) {
+export function RecapProjectionRattachement({ etat, emprises, parcelle, polygones, batiments, statuts }: RecapProjectionProps) {
   if (etat !== 'en_attente_bati') return null;
 
   if (emprises.length === 0) {
@@ -69,6 +69,12 @@ export function RecapProjectionRattachement({ etat, emprises, parcelle, polygone
       </p>
       <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={FILTRES_SCHEMA_DEFAUT} calageLambert={[]} statuts={statuts} />
       <LegendeSchemaProjection />
+      {/* LOT 80 — une ligne par POLYGONE : bâtiment du permis affecté + cleabs + altitude de sommet VALIDÉE (portée par le bâtiment,
+          héritée par ses polygones). Même identité/ordre que le schéma (polygonesReperes) ; affectation par emprise adoptée. */}
+      <LegendePolygonesProjection
+        lignes={legendePolygonesProjection(polygonesReperes, emprises, batiments)}
+        aDesEmprisesTracees={emprises.some((e) => e.provenance === 'trace_manuel')}
+      />
     </div>
   );
 }

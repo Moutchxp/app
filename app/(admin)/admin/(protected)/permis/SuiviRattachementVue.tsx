@@ -54,7 +54,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   const [afficherProjection, setAfficherProjection] = useState(false); // PROJ-2c — filtre : superposer les emprises reconstituées au schéma d'origine
   const [emprisesProjetees, setEmprisesProjetees] = useState<EmpriseProjetee[]>([]); // PROJ-2c — emprises du dossier ouvert (Lambert), chargées à l'ouverture
   // PROJ-4a — DONNÉES du récap de projection (lecture seule) : emprises complètes + parcelle + bâti BD TOPO, pour l'état « en attente de bâti ».
-  const [recapProjection, setRecapProjection] = useState<{ emprises: EmpriseReconstruite[]; parcelle: PointLambert[][]; polygones: PolygoneBdTopo[]; batiments: { corpsId: number; repere: string | null }[] } | null>(null);
+  const [recapProjection, setRecapProjection] = useState<{ emprises: EmpriseReconstruite[]; parcelle: PointLambert[][]; polygones: PolygoneBdTopo[]; batiments: { corpsId: number; repere: string | null; nomRepli?: string | null; altitudeSommetNgf?: number | null }[] } | null>(null); // LOT 80 — batiments porte nomRepli + altitude validée pour la légende par polygone
   // RATT-1 bis — registre append-only des statuts décidés + cleabs recouverts par une emprise projetée, LUS de la MÊME réponse GET emprise (:82). + message d'erreur du geste.
   const [statutsLignes, setStatutsLignes] = useState<LigneStatutPolygone[]>([]);
   const [recouverts, setRecouverts] = useState<PolygoneRecouvert[]>([]); // RATT-5 — recouverts (au-dessus du seuil) + leur taux (%)
@@ -77,7 +77,7 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
 
   // RATT-1 bis — APPLIQUE une réponse du GET emprise à l'état (SOURCE UNIQUE : emprises projetées + récap + statuts + recouverts).
   //   Partagé par le chargement du dossier ET le rafraîchissement après un statut posé (pas d'état local divergent). PROJ-2c/4a inchangés.
-  type ReponseEmprise = { emprises?: EmpriseReconstruite[]; batiments?: { corpsId: number; repere: string | null }[]; contexte?: { empreinteAnneaux?: PointLambert[][] }; polygones?: PolygoneBdTopo[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[] };
+  type ReponseEmprise = { emprises?: EmpriseReconstruite[]; batiments?: { corpsId: number; repere: string | null; nomRepli?: string | null; altitudeSommetNgf?: number | null }[]; contexte?: { empreinteAnneaux?: PointLambert[][] }; polygones?: PolygoneBdTopo[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[] };
   const appliquerEmprise = useCallback((je: ReponseEmprise) => {
     const emprises = je.emprises ?? [];
     setEmprisesProjetees(emprises.filter((e) => e.anneau.length >= 3).map((e) => ({ id: e.id, libelle: e.libelle, anneau: e.anneau.map((p) => [p.x, p.y] as [number, number]) })));
