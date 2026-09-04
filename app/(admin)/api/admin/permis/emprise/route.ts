@@ -4,6 +4,7 @@ import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmpri
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed, lireGedPermis } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
+import { lireExclusionsBestOf, exclurePageBestOf, reintegrerPageBestOf } from '../../../../../lib/permis/bestOfExclusionRepo'; // LOT 61
 import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte, familleDeNom, tracabilitePlanche, type FamillePlan } from '../../../../../lib/permis/planMasse';
 import { familleDeContenu, niveauxDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV : famille + niveaux par le CONTENU
 import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone, appliquerAutoStatut } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2) / RATT-2
@@ -59,6 +60,8 @@ export async function GET(request: Request): Promise<Response> {
       repli('statuts', lireStatutsPolygones(dossierId), []),         // RATT-1 (2) — registre append-only des statuts décidés (préservé/détruit)
       repli('recouverts', polygonesRecouvertsParEmprise(dossierId), []), // RATT-1 (2) — cleabs recouverts par une emprise projetée (hors statut)
     ]);
+    // LOT 61 — pages RETIRÉES du best-of à la main (réversibles) : la liseuse les soustrait du best-of et affiche « N page(s) retirée(s) ».
+    const exclusionsBestOf = await repli('exclusionsBestOf', lireExclusionsBestOf(dossierId), []);
     // Seules les pièces PDF sont traçables (filtre inchangé) ; la clé de stockage ne sort JAMAIS.
     const piecesPdf = piecesBrutes.filter((p) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf'));
     // PROJ-3d/3g ① — TRI PAR NOM (instantané, 0 I/O) : familles masse → étage → coupe (ordre), le reste conservé (repli).
@@ -100,7 +103,7 @@ export async function GET(request: Request): Promise<Response> {
       return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, famille, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0, niveaux: niveauxParId.get(p.id) };
     };
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
-    return Response.json({ pieces, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, indisponibles });
+    return Response.json({ pieces, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, exclusionsBestOf, indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
     return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });
@@ -129,6 +132,16 @@ export async function POST(request: Request): Promise<Response> {
 
     const dossierId = coercerDossierId(body.dossierId);
     if (dossierId === null) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+
+    // LOT 61 — RETIRER / RÉINTÉGRER une page du best-of (réversible). N'affecte NI le document NI la page en GED : ôte seulement de
+    //   la SÉLECTION. `ok:false` = migration 190 absente (no-op résilient) → l'UI réintègre la page, jamais d'erreur dure à l'écran.
+    if (body.action === 'exclure_page_bestof' || body.action === 'reintegrer_page_bestof') {
+      if (!Number.isInteger(body.pieceId) || !Number.isInteger(body.page) || (body.page as number) < 1) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      const ok = body.action === 'exclure_page_bestof'
+        ? await exclurePageBestOf(dossierId, body.pieceId as number, body.page as number, garde.auteurId === null ? 'admin' : String(garde.auteurId))
+        : await reintegrerPageBestOf(body.pieceId as number, body.page as number);
+      return Response.json({ ok });
+    }
 
     // APERÇU DÉBORDEMENT (lecture seule, jamais bloquant) — recalcule le Lambert CÔTÉ SERVEUR (garde PROJ) depuis le calage + le tracé
     //   en cours, puis mesure la part hors parcelle. Réutilise le chemin d'enregistrement (mêmes paires/anneauPlan/corpsId), sans écrire.

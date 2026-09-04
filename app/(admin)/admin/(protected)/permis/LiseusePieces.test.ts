@@ -117,7 +117,7 @@ describe('LOT 23 — préchargement des voisins + cache LRU borné + retour visu
     // La RÈGLE de sélection des voisins est la fonction PURE partagée (testée à part), IMPORTÉE — jamais réimplémentée dans le composant.
     expect(SRC).toMatch(/import\s*\{[\s\S]*voisinsAPrecharger[\s\S]*\}\s*from\s*'\.\/prechargeLiseuse'/);
     expect(SRC).not.toMatch(/function\s+voisinsAPrecharger/);
-    expect(SRC).toContain('voisinsAPrecharger(bande.map');       // dérive les voisins de la bande best-of + plan courant
+    expect(SRC).toContain('voisinsAPrecharger(bandeVisible.map'); // LOT 61 — voisins de la bande best-of VISIBLE (moins les pages retirées) + plan courant
     expect(SRC).toContain('requestIdleCallback');                // tâche de fond quand le thread est oisif
     expect(SRC).toMatch(/precharge:\s*true/);                    // les voisins sont marqués « préchargé »
     // SÉQUENTIEL : une boucle for-of qui AWAIT chaque voisin (le suivant n'est chargé qu'après le précédent).

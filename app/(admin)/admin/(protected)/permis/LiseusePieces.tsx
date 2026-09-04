@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist'; // type SEUL (erasé au runtime) : pdf.js reste importé DYNAMIQUEMENT dans afficherPage
 import {
@@ -64,6 +64,9 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const [pieces, setPieces] = useState<PiecePlan[]>([]);
   const [etat, setEtat] = useState<'charge' | 'ok' | 'vide' | 'erreur'>('charge');
   const [bande, setBande] = useState<Plan[]>([]);
+  // LOT 61 — pages RETIRÉES du best-of à la main (réversibles), clé stable « pieceId:page ». On persiste les exclusions ; le best-of
+  //   reste calculé à la volée, on lui SOUSTRAIT ces pages. Le retrait n'ôte JAMAIS le document ni la page en GED, seulement de la sélection.
+  const [exclus, setExclus] = useState<Set<string>>(new Set());
   const [nav, setNav] = useState<'bestof' | 'piece'>('bestof');
   const [planIndex, setPlanIndex] = useState(0);
   const [pieceId, setPieceId] = useState<number | null>(null);
@@ -97,6 +100,12 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   //   de la famille), gelait l'affichage sur un écran « Chargement… » figé. `pieceIdRef` ne peut pas rester « bloqué » : il reflète toujours le pieceId réel.
   const pieceIdRef = useRef<number | null>(pieceId);
 
+  // LOT 61 — BEST-OF VISIBLE = bande complète MOINS les pages retirées (clé stable « pieceId:page »). Défini AVANT le préchargement
+  //   et la navigation, qui s'appuient dessus. `retirees` (l'inverse) alimente le compteur + la liste réintégrable.
+  const cle = (pl: { pieceId: number; page: number }) => `${pl.pieceId}:${pl.page}`;
+  const bandeVisible = useMemo(() => bande.filter((pl) => !exclus.has(cle(pl))), [bande, exclus]);
+  const retirees = useMemo(() => bande.filter((pl) => exclus.has(cle(pl))), [bande, exclus]);
+
   // CHARGEMENT PARESSEUX : cet effet ne part qu'À LA MONTÉE — or le composant n'est monté qu'à l'OUVERTURE de la famille (le `contenu`
   //   de BlocRepliable est un thunk appelé au dépli). Donc rien tant que la famille est repliée, et jamais au rendu de la liste des demandes.
   //   Même source que BlocTraceEmprise (GET /emprise) → mêmes pièces enrichies (propose/famille/planches) que le best-of ; per-dossier, aucun WHERE sur `dem`.
@@ -106,17 +115,21 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       try {
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`);
         if (!res.ok) { if (vivant) setEtat('erreur'); return; }
-        const j = await res.json() as { pieces?: PiecePlan[] };
+        const j = await res.json() as { pieces?: PiecePlan[]; exclusionsBestOf?: { pieceId: number; page: number }[] };
         if (!vivant) return;
         const ps = j.pieces ?? [];
         setPieces(ps);
         if (ps.length === 0) { setEtat('vide'); return; }
         const b = construireBandePlans(ps); // RÈGLE PARTAGÉE — sélection/ordre du best-of, jamais recodée ici.
         setBande(b);
+        // LOT 61 — exclusions persistées : on OUVRE sur le 1er plan VISIBLE (best-of moins les pages retirées).
+        const ex = new Set((j.exclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`));
+        setExclus(ex);
+        const vis = b.filter((pl) => !ex.has(`${pl.pieceId}:${pl.page}`));
         setNav('bestof'); setPlanIndex(0);
-        setPieceId(b[0]?.pieceId ?? ps[0]?.id ?? null); // ouverture DIRECTE sur le plan le mieux classé (ou 1re pièce à défaut).
-        setPage(b[0]?.page ?? 1);
-        setPleinListe(b.length <= 1);
+        setPieceId(vis[0]?.pieceId ?? ps[0]?.id ?? null); // ouverture DIRECTE sur le plan visible le mieux classé (ou 1re pièce à défaut).
+        setPage(vis[0]?.page ?? 1);
+        setPleinListe(vis.length <= 1);
         setEtat('ok');
       } catch { if (vivant) setEtat('erreur'); }
     })();
@@ -267,8 +280,8 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   //   du chargement courant (déclenché en `requestIdleCallback` = quand le thread est oisif). Annulation propre au changement de plan/
   //   dossier et au démontage (ctrl.annule + annulerIdle). Nourrit le CACHE LRU → « suivant › » devient instantané.
   useEffect(() => {
-    if (etat !== 'ok' || nav !== 'bestof' || bande.length === 0) return;
-    const voisins = voisinsAPrecharger(bande.map((pl) => pl.pieceId), planIndex);
+    if (etat !== 'ok' || nav !== 'bestof' || bandeVisible.length === 0) return;
+    const voisins = voisinsAPrecharger(bandeVisible.map((pl) => pl.pieceId), planIndex);
     if (voisins.length === 0) return;
     const ctrl = { annule: false };
     const handle = planifierIdle(async () => {
@@ -283,7 +296,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       }
     });
     return () => { ctrl.annule = true; annulerIdle(handle); };
-  }, [etat, nav, planIndex, bande, obtenirDoc]);
+  }, [etat, nav, planIndex, bandeVisible, obtenirDoc]);
 
   // LOT 23/24 — cache LRU : PURGE (destroy de tous les documents) au CHANGEMENT DE DOSSIER et au DÉMONTAGE (rien ne fuit ; genRef bumpé
   //   dans purgerCache invalide les chargements encore en vol). Idempotent sous StrictMode : la re-exécution recharge simplement depuis le
@@ -295,12 +308,47 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   useEffect(() => { afficherPageRef.current = afficherPage; }, [afficherPage]);
   useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [pieceId, page, etat]);
 
+  const planCourant = nav === 'bestof' ? (bandeVisible[planIndex] ?? null) : null;
+
+  // LOT 61 — RETIRER la page courante du best-of (réversible). Optimiste-après-confirmation : on n'ôte de la SÉLECTION qu'après un
+  //   POST réussi. 401 → « reconnectez-vous » ; échec transport → message honnête ; migration 190 absente (ok:false) → no-op SILENCIEUX
+  //   (best-of complet, comportement d'avant). Après retrait, on se replace sur un plan visible (jamais un écran vide muet).
+  const retirerDuBestOf = useCallback(async (pl: Plan) => {
+    const k = cle(pl);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'exclure_page_bestof', dossierId, pieceId: pl.pieceId, page: pl.page }) });
+      if (res.status === 401) { setMessage('Session expirée — reconnectez-vous.'); return; }
+      if (!res.ok) { setMessage('Retrait non enregistré, réessayez.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean };
+      if (body.ok === false) return; // migration 190 absente → no-op silencieux (comportement d'avant, aucune fausse panne)
+      const restantes = bandeVisible.filter((p) => cle(p) !== k);
+      setExclus((s) => { const n = new Set(s); n.add(k); return n; });
+      // se replacer sur un plan visible (même position bornée) ; si le best-of est vide, rester en best-of (message dédié à l'écran).
+      if (restantes.length > 0) { const i = Math.min(planIndex, restantes.length - 1); setPlanIndex(i); setPieceId(restantes[i].pieceId); setPage(restantes[i].page); }
+    } catch { setMessage('Retrait non enregistré, réessayez.'); }
+  }, [dossierId, bandeVisible, planIndex]);
+
+  // LOT 61 — RÉINTÉGRER une page retirée (annule le retrait). Même politique d'erreur.
+  const reintegrerDansBestOf = useCallback(async (pl: { pieceId: number; page: number }) => {
+    const k = cle(pl);
+    setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reintegrer_page_bestof', dossierId, pieceId: pl.pieceId, page: pl.page }) });
+      if (res.status === 401) { setMessage('Session expirée — reconnectez-vous.'); return; }
+      if (!res.ok) { setMessage('Réintégration non enregistrée, réessayez.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean };
+      if (body.ok === false) return;
+      setExclus((s) => { const n = new Set(s); n.delete(k); return n; });
+    } catch { setMessage('Réintégration non enregistrée, réessayez.'); }
+  }, [dossierId]);
+
   // NAVIGATION — LIBRE : aucun travail de tracé à préserver, donc aucun garde « changement abandonne le travail » (contrairement à BlocTraceEmprise).
   const appliquerPlan = useCallback((cible: number) => {
-    const r = cibleBestOf(bande, cible); // RÈGLE PARTAGÉE.
+    const r = cibleBestOf(bandeVisible, cible); // RÈGLE PARTAGÉE (sur la bande VISIBLE — LOT 61).
     setNav(r.nav);
     if (r.plan) { setPlanIndex(r.plan.index); setPieceId(r.plan.pieceId); setPage(r.plan.page); }
-  }, [bande]);
+  }, [bandeVisible]);
   const ouvrirPieceLibre = useCallback((id: number) => { if (id <= 0) return; setNav('piece'); setPieceId(id); setPage(1); }, []);
   const changerPage = useCallback((delta: number) => setPage((p) => bornerPage(p + delta, nbPagesPiece)), [nbPagesPiece]);
   const retourBestOf = useCallback(() => appliquerPlan(planIndex), [appliquerPlan, planIndex]);
@@ -336,7 +384,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       <div style={{ flex: '1 1 220px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
         <div style={{ fontSize: 12, fontWeight: 700 }}>Liseuse des pièces</div>
         {nav === 'bestof' ? (
-          <BandePlans bande={bande} index={planIndex} onPrecedent={() => appliquerPlan(planIndex - 1)} onSuivant={() => appliquerPlan(planIndex + 1)} />
+          <BandePlans bande={bandeVisible} index={planIndex} onPrecedent={() => appliquerPlan(planIndex - 1)} onSuivant={() => appliquerPlan(planIndex + 1)} />
         ) : (
           <NavPieceLibre nomFichier={nomCourant} page={page} nbPages={nbPagesPiece} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} onRetourBestOf={retourBestOf} />
         )}
@@ -369,8 +417,37 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
               </span>
             </div>
           )}
+          {/* LOT 61 — bouton DISCRET « retirer du best-of » posé SUR l'aperçu (coin haut-droit). RÉVERSIBLE (voir la liste ci-contre).
+              La liseuse est une zone décidée-CLAIRE (le canvas peint un plan clair) : ce contrôle d'INCRUSTATION porte donc son propre
+              contraste (puce sombre translucide + texte clair, comme des contrôles vidéo), lisible quel que soit le thème admin.
+              Cible ≥ 36 px, atteignable au clavier. Jamais « supprimer » : on retire de la SÉLECTION, pas de la GED. */}
+          {planCourant && !chargeReseau && !enRendu && (
+            <button type="button" onClick={() => void retirerDuBestOf(planCourant)}
+              aria-label={`Retirer du best-of la page ${planCourant.page} de ${planCourant.nomFichier} (réversible ; ne supprime pas le document)`}
+              style={{ position: 'absolute', top: '.4rem', right: '.4rem', minHeight: 32, padding: '.25rem .55rem', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#ffffff', background: 'rgba(20,20,20,0.62)', border: '1px solid rgba(255,255,255,0.55)', borderRadius: '.4rem' }}>
+              ✕ retirer du best-of
+            </button>
+          )}
         </div>
-        {message && <p style={{ fontSize: 11, color: 'var(--color-svv-red)', margin: '.3rem 0 0' }}>{message}</p>}
+        {message && <p role="alert" style={{ fontSize: 11, color: 'var(--color-svv-red)', margin: '.3rem 0 0' }}>{message}</p>}
+        {/* LOT 61 — le best-of est vide APRÈS retraits (jamais un écran muet) : on le DIT et on invite à réintégrer via la liste ci-dessous. */}
+        {nav === 'bestof' && bandeVisible.length === 0 && retirees.length > 0 && (
+          <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: '.3rem 0 0' }}>Toutes les pages du best-of ont été retirées. Réintégrez-en une ci-dessous pour la revoir.</p>
+        )}
+        {/* LOT 61 — COMPTEUR VISIBLE + RÉVERSIBILITÉ : liste des pages retirées, chacune réintégrable. Un best-of amputé n'est jamais silencieux. */}
+        {retirees.length > 0 && (
+          <div style={{ fontSize: 11, color: 'var(--color-svv-muted)', margin: '.4rem 0 0', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+            <span>{retirees.length} page{retirees.length > 1 ? 's' : ''} retirée{retirees.length > 1 ? 's' : ''} du best-of (le document reste en GED) :</span>
+            <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+              {retirees.map((pl) => (
+                <li key={`${pl.pieceId}:${pl.page}`} style={{ wordBreak: 'break-word' }}>
+                  {pl.nomFichier} — page {pl.page}{' '}
+                  <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }} onClick={() => void reintegrerDansBestOf(pl)}>réintégrer</button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
     </div>
   );
