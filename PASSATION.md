@@ -1,4 +1,4 @@
-> Passation générée le 04/09/2026 à 00h07 · actualisée LOT 68 (série 57 → 67)
+> Passation générée le 04/09/2026 à 00h07 · actualisée LOT 73 (série 68 → 72)
 
 # PASSATION — Application « Sans Vis-à-Vis® » (module Veille Permis)
 
@@ -12,13 +12,13 @@
 - **Repo** : github.com/Moutchxp/app · branche `main`. **Stack** : Next.js 16.2.9, React 19, TypeScript 5,
   Tailwind v4, **PostgreSQL 17 + PostGIS en LOCAL** (driver `pg` sur `DATABASE_URL`, pas de Supabase).
 - **Base LOCALE** : `postgresql://localhost:5432/sansvisavis`. Les migrations vivent dans `db/migrations/NNN_*.sql`,
-  **livrées NON APPLIQUÉES** puis appliquées à la main par Arno (`psql -v ON_ERROR_STOP=1 -f …`). Dernière = **192**
-  (LOT 67), **APPLIQUÉE** en local. Le code reste RÉSILIENT si une migration manque (`42P01`/`42703` → comportement d'avant).
+  **livrées NON APPLIQUÉES** puis appliquées à la main par Arno (`psql -v ON_ERROR_STOP=1 -f …`). Dernière = **193**
+  (LOT 69, méthode `recap` au CHECK du journal), **APPLIQUÉE** en local. Le code reste RÉSILIENT si une migration manque (`42P01`/`42703` → comportement d'avant).
 
 ## 2. Règles de collaboration (impératives)
 - **Un chantier = un prompt = un commit.** Recon **LECTURE SEULE** avant tout write sur fichier sensible.
-- **CONTRÔLE DE FIN OBLIGATOIRE, dans l'ordre** : `npm test` COMPLET (= `vitest run`, **468 fichiers / 6084 tests**)
-  · `npm run test:integration` (**29 fichiers**, vraie base) · `npx tsc --noEmit` · delta eslint · `npm run build`.
+- **CONTRÔLE DE FIN OBLIGATOIRE, dans l'ordre** : `npm test` COMPLET (= `vitest run`, **471 fichiers / 6113 tests**)
+  · `npm run test:integration` (**31 fichiers / 138 tests**, vraie base) · `npx tsc --noEmit` · delta eslint · `npm run build`.
   Les suites filtrées par chemin sont des contrôles RAPIDES, **jamais** le contrôle de fin (précédent
   `curation.test.ts` rouge 14/07→03/08, invisible aux filtrés). **INTERDIT : `npm run veille:run`** (envoi réel).
 - **`jsdom`** est en **devDependency**, utilisé par les SEULS tests qui exigent un montage React réel
@@ -273,6 +273,36 @@ et **fonds par motif** (41-45, hex en dur admin 235 → 107) · retrait du commu
   conservées, **aucune recomposition**. Laissés **vides avec motif** : surface habitable (le Cerfa porte du **PLANCHER**,
   non reportable), nombre et noms de bâtiments. « Nature du projet » signalée **ambiguë, non écrite**.
 
+### SÉRIE 68 → 72 (session courante, suite) — bâtiments par corroboration · report Cerfa dans les champs · conditions honnêtes · compteurs justes
+- **68** (`96f40d6`) — passation série 57 → 67 ; les **deux décisions renversées** annotées à leur point d'origine (56-A best-of
+  **persisté**, 56-E RGPD à **deux régimes**).
+- **69** (`50454a7`, **migration 193**) — 🥇 **PREMIER NOMBRE DE BÂTIMENTS OBTENU AUTOMATIQUEMENT** après trois fermetures du sujet
+  (P4/P5). Rapprochement **DÉTERMINISTE** du champ libre : **3 bâtiments, A:40 · B:18 · C:9**, écrit **parce que 40+18+9 = 67 = total
+  structuré**. La porte est **ARITHMÉTIQUE, pas un modèle**. 3 gardes vérifiées en réel : pas de total → non écrit ; somme ≠ total → non
+  écrit ; nb déclaré ≠ nb d'entrées → non écrit (parse partiel). Méthode **`recap`**, **rang le plus faible** de la précédence : remplit
+  un champ vierge, n'écrase JAMAIS une méthode structurée. ⚠️ **1 récapitulatif exploitable sur 6** → moteur volontairement étroit,
+  généralisation NON mesurée. ⚠️ Défaut découvert : la regex du LOT 67 **sur-capture le gabarit du Cerfa vierge** sur 2 dossiers (sans
+  conséquence aujourd'hui, du texte parasite est stocké).
+- **70** (`63c091b`) — 🔴 le bloc « Déclarations du Cerfa » (LOT 67) disait « **jamais reporté sur les valeurs du moteur** » : les
+  valeurs étaient VISIBLES mais n'alimentaient AUCUN champ, aucun geste ne permettait de les y porter (Arno : « je ne comprends pas
+  comment lancer la validation »). Désormais **3 champs reportables** (`nb_logements`, `nb_places_stationnement`, `surface_plancher_m2`) ;
+  le reste reste **informatif avec sa raison** (les **niveaux sont un champ PAR BÂTIMENT**, non rattachable → non reporté). Report dans
+  un champ **VIDE uniquement** ; **une valeur `saisie` n'est JAMAIS écrasée** (invariant 103, prouvé). Anti-N10-L : les valeurs
+  **SURVIVENT au rechargement** (écrites en base, pas posées en mémoire). L'analyse part à l'ouverture en « Analyse et projection »
+  **seulement si** jamais analysée OU GED changée (règle du 56-C), **sous le verrou du 58** ; sinon report gratuit. Bouton de relance =
+  l'existant du 56-B/59, **aucun 3ᵉ bouton**.
+- **71** (`d5ce591`) — 🔴 « ✓ altitudes de sommet (NGF) renseignées » s'affichait **EN VERT avec 0 bâtiment déclaré**
+  (`nbCorpsSansAltitude === 0` sur un ensemble vide). **RÈGLE D'ARNO POSÉE : une validation ne s'affiche que si elle est VÉRIFIABLE à
+  l'écran** ; un ensemble vide rend une condition **SANS OBJET** — troisième état, ni satisfaite ni non satisfaite. Mesuré : la sortie
+  n'était PAS déclenchable pour autant (l'empreinte bloquait avant) → **un premier verrou qui ment, masqué par le second**, pas un trou
+  de sécurité. Balayage : **13 occurrences** `.every()` sur `[]` / `count === 0` passées en revue, **une seule mentait**. Le `sans_objet`
+  ne débloque JAMAIS la sortie.
+- **72** (`6666814`) — 🔴 la pastille de la tuile « Permis de construire » n'incluait pas « En cours » (1 en cours + 2 en analyse →
+  affichait **2 au lieu de 3**). Cause : `enCours` était calculé mais renvoyé **hors total**, avec le commentaire « tant que la tuile
+  home n'est pas câblée (LOT 48) » — la tuile a été câblée depuis, le « tant que » n'a **jamais été levé**. Invariant du 46/52 rétabli :
+  **le cumul == la somme des pastilles**. Pas de double-compte (onglets **exclusifs** ; un dossier en test est hors `enCours` et compté
+  par `projection`, une seule fois). Test qui **fige la somme**.
+
 ### Prochain GROS chantier + fraîcheur/contrôle mixte (résumé de `docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md`)
 > **À LIRE avant tout chantier données/verdict/certificat/permis.** Corpus figé 25-26/07/2026.
 - **Énoncé du porteur** : mettre à jour en continu la base des maps pour tenir compte des **nouveaux permis de
@@ -296,16 +326,15 @@ et **fonds par motif** (41-45, hex en dur admin 235 → 107) · retrait du commu
   chiffrage Sitadel documenté. Voir aussi `docs/SOURCES_DATA.md` (licences).
 
 ## 6. État courant & prochaine action
-- **Working tree PROPRE** (hormis ce commit docs). Dernier commit de CODE : **`f27523d` (LOT 67)** + ce présent commit docs (68).
+- **Working tree PROPRE** (hormis ce commit docs). Dernier commit de CODE : **`6666814` (LOT 72)** + ce présent commit docs (73).
   Le push est le geste d'Arno depuis VS Code, **au fil de l'eau** — ne pas raisonner en « compteur d'avance ». Chaîne
-  de la SÉRIE 57 → 67 : `c85ce91` (57), `33c6432` (58), `af07be1` (59), `4915a13` (60), `d965684` (61), 62-A (mesure,
-  aucun commit), `d6f678b` (62-B), `e85ac9d` (63), `a33b79d` (64), `e109fac` (65), `d34dc8c` (66), `f27523d` (67).
-- **Migrations : APPLIQUÉES jusqu'à 192** (188 = LOT 47 ; 189 = LOT 51 ; **190 = LOT 61** exclusions best-of ; **191 = LOT 62**
-  repérage par image ; **192 = LOT 67** déclarations Cerfa). LOTS 57, 58, 59, 60, 63, 64, 65, 66 = **AUCUNE migration**.
-  Contrôle de fin courant vert : `npm test` **468 / 6084** · `test:integration` **29** · tsc · eslint delta 0 · build.
-- **AUCUN chantier ouvert.** La SÉRIE 57 → 67 (best-of persisté, RGPD deux régimes, parcelles & Cerfa lus en profondeur) est
-  **CLOSE et livrée**. **Attendre le prochain prompt.** Les séries antérieures — « tester un dossier en analyse » (51 → 53) et
-  la série 56 (diagnostic auto sur arrivée de documents) — restent CLOSES et fonctionnent en réel.
+  de la SÉRIE 68 → 72 : `96f40d6` (68 docs), `50454a7` (69), `63c091b` (70), `d5ce591` (71), `6666814` (72).
+- **Migrations : APPLIQUÉES jusqu'à 193** (188 = LOT 47 ; 189 = LOT 51 ; 190 = LOT 61 ; 191 = LOT 62 ; 192 = LOT 67 ;
+  **193 = LOT 69** méthode `recap` au CHECK du journal). LOTS 70, 71, 72 = **AUCUNE migration**.
+  Contrôle de fin courant vert : `npm test` **471 / 6113** · `test:integration` **31 / 138** · tsc · eslint delta 0 · build.
+- **AUCUN chantier ouvert.** La SÉRIE 68 → 72 (bâtiments par corroboration, report Cerfa dans les champs, conditions honnêtes,
+  compteurs justes) est **CLOSE et livrée**. **Attendre le prochain prompt.** Les séries antérieures (57 → 67, 51 → 53, série 56)
+  restent CLOSES et fonctionnent en réel.
 - **Régime partiel exercé en réel — demande 154 (Aubervilliers, `partiel_le` au 28/08/2026)**, seul dossier partiel.
   Au LOT 52 (base réelle, `relanceAutoActive=false` = mode MANUEL) elle portait une **relance PART-E due, rang 2**
   (dernier mail mairie `2026-09-03`, famille manquante `étage`). C'est le dossier-témoin naturel pour tout ce qui
@@ -319,21 +348,26 @@ et **fonds par motif** (41-45, hex en dur admin 235 → 107) · retrait du commu
   perçus, superpositions, survols) sur Statistiques, Pilotage Moteur, Curation, Banc de test, Audit, Administratif ;
   (c) le signal « N relances PART-E à envoyer à la main » a été **retiré de la pastille Analyse** au LOT 52 (il y était
   au mauvais endroit) — si Arno le veut, le rouvrir comme sujet dédié (placement « En cours »).
-- **Pistes ouvertes des SÉRIES 56 → 67** (non traitées, à la main d'Arno) :
-  (d) **rapprochement DÉTERMINISTE du champ libre du Cerfa** (regex « N plots », « Bat. X », « N logements pour »)
-  **corroboré par le total structuré** (40+18+9 = 67) → écrit **seulement si la somme concorde**. C'est la **voie vers le
-  nombre de bâtiments, SANS modèle**. À chiffrer sur un échantillon de récaps.
-  (e) **transaction commune des writers** : le **verrou par dossier est livré** (LOT 58, `avecVerrouDossier`) mais les
-  writers ne partagent **PAS** de transaction → un **crash en cours de passe laisse un état partiel** (cf. 58, sujet distinct
-  du verrou ; c'était l'ancien 56-F).
-  (f) **TROU 2 du 56-C, LATENT** : le versement auto en GED (PART-1) exige **réponse rattachée + `nature='documents'` +
-  mono-dossier** — **0 cas réel aujourd'hui**, mais **sans entrée en GED il n'y a PAS de diagnostic**, quel que soit
-  l'élargissement du 56-C (trou EN AMONT, distinct).
-  (g) **Cerfa 13824 jamais lu par l'OCR** (le détecteur ne reconnaît que le 13409, cf. 56-E/62) — dette **préexistante**.
+- 🔑 **MOTIF RÉCURRENT À BALAYER (piste transverse, forte valeur)** : sur les défauts trouvés en USAGE RÉEL le 04/09,
+  **quatre sur cinq étaient des provisoires jamais levés ou des conditions vraies-mais-vides** — `<select>` replié (64),
+  « hors total tant que » (72), vert sur ensemble vide (71), « jamais reporté » devenu faux (70). Un **balayage dédié**
+  (commentaires « tant que », TODO, conditions dont la prémisse a changé) vaudrait probablement **plusieurs lots correctifs**
+  pris un par un.
+- **Pistes ouvertes (non traitées, à la main d'Arno) :**
+  (a) **sur-capture du gabarit Cerfa vierge** par la regex du champ libre (LOT 69, LOT 67) : du texte parasite est stocké sur
+  2 dossiers, sans conséquence aujourd'hui.
+  (b) **création des N corps de bâtiment à partir du décompte corroboré** (LOT 69) — **chantier à part entière** : écrire un
+  nombre ≠ instancier N corps avec altitudes (effets de bord « ≥2 corps », leçon N8).
+  (c) **transaction commune des writers** : le verrou par dossier est livré (LOT 58) mais les writers ne partagent PAS de
+  transaction → un **crash en cours de passe laisse un état partiel** (sujet distinct du verrou ; ancien 56-F).
+  (d) **TROU 2 du 56-C, LATENT** : le versement auto en GED (PART-1) exige **réponse rattachée + `nature='documents'` +
+  mono-dossier** — **0 cas réel aujourd'hui**, mais **sans entrée en GED il n'y a PAS de diagnostic** (trou EN AMONT, distinct).
+  (e) **Cerfa 13824 jamais lu par l'OCR** (le détecteur ne reconnaît que le 13409, cf. 56-E/62) — dette **préexistante**.
 - **⚠️ Faits d'environnement à garder** : (1) **`07512025V0037` N'EXISTE PAS dans la base locale** (mesuré au 56-E) → les
   mesures documentées sur ce dossier **ne sont PAS rejouables ici** ; seul **`07512025V0035` (dossier 11434)** a des pièces,
-  plus le **dossier-témoin 7424**. (2) **DEUX sessions d'agent ont saturé leur contexte le 04/09** (recon LOT 66, LOT 67) →
-  **ouvrir une session neuve dès qu'un lot approche 90 %**.
+  plus le **dossier-témoin 7424** (le seul récap **exploitable** pour le décompte corroboré du LOT 69). (2) **TROIS sessions
+  d'agent ont saturé leur contexte le 04/09** (recon LOT 66, LOT 67, LOT 69) → **ouvrir une session neuve dès qu'un lot
+  approche 90 %**.
 - **Boucle standard d'un LOT** : recon lecture seule → implémente → contrôles de fin dans l'ordre → commit (`-F`, sans
   Co-Authored-By, sans push).
 
