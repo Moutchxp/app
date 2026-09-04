@@ -1,4 +1,4 @@
-> Passation générée le 04/09/2026 à 00h07
+> Passation générée le 04/09/2026 à 00h07 · actualisée LOT 68 (série 57 → 67)
 
 # PASSATION — Application « Sans Vis-à-Vis® » (module Veille Permis)
 
@@ -12,13 +12,13 @@
 - **Repo** : github.com/Moutchxp/app · branche `main`. **Stack** : Next.js 16.2.9, React 19, TypeScript 5,
   Tailwind v4, **PostgreSQL 17 + PostGIS en LOCAL** (driver `pg` sur `DATABASE_URL`, pas de Supabase).
 - **Base LOCALE** : `postgresql://localhost:5432/sansvisavis`. Les migrations vivent dans `db/migrations/NNN_*.sql`,
-  **livrées NON APPLIQUÉES** puis appliquées à la main par Arno (`psql -v ON_ERROR_STOP=1 -f …`). Dernière = **189**
-  (LOT 51), **APPLIQUÉE** en local. Le code reste RÉSILIENT si une migration manque (`42P01`/`42703` → comportement d'avant).
+  **livrées NON APPLIQUÉES** puis appliquées à la main par Arno (`psql -v ON_ERROR_STOP=1 -f …`). Dernière = **192**
+  (LOT 67), **APPLIQUÉE** en local. Le code reste RÉSILIENT si une migration manque (`42P01`/`42703` → comportement d'avant).
 
 ## 2. Règles de collaboration (impératives)
 - **Un chantier = un prompt = un commit.** Recon **LECTURE SEULE** avant tout write sur fichier sensible.
-- **CONTRÔLE DE FIN OBLIGATOIRE, dans l'ordre** : `npm test` COMPLET (= `vitest run`, **465 fichiers / 6039 tests**)
-  · `npm run test:integration` (25 fichiers / 118 tests, vraie base) · `npx tsc --noEmit` · delta eslint · `npm run build`.
+- **CONTRÔLE DE FIN OBLIGATOIRE, dans l'ordre** : `npm test` COMPLET (= `vitest run`, **468 fichiers / 6084 tests**)
+  · `npm run test:integration` (**29 fichiers**, vraie base) · `npx tsc --noEmit` · delta eslint · `npm run build`.
   Les suites filtrées par chemin sont des contrôles RAPIDES, **jamais** le contrôle de fin (précédent
   `curation.test.ts` rouge 14/07→03/08, invisible aux filtrés). **INTERDIT : `npm run veille:run`** (envoi réel).
 - **`jsdom`** est en **devDependency**, utilisé par les SEULS tests qui exigent un montage React réel
@@ -183,6 +183,8 @@ et **fonds par motif** (41-45, hex en dur admin 235 → 107) · retrait du commu
   L'analyse coûteuse (vision Mistral) ne tourne QUE sur ce bouton manuel ; l'auto est déterministe/gratuit. **Décision produit
   d'Arno : (X) câbler l'existant**, best-of **NON persisté** (option (Y) écartée). 🔑 **N7-A `triagePieces` (CLI seul) et N10-J
   épinglage bleu ne sont PAS le best-of.**
+  > 🔴 **RENVERSÉ à la SÉRIE 57 → 67 (voir ci-dessous)** : « best-of NON persisté » est désormais **CADUC**. Les **exclusions
+  > de page** (LOT 61, migration 190) et les **verdicts de repérage par image** (LOT 62, migration 191) SONT persistés.
 - **56-B** (`7e56bd8`) — bouton unique **« Diagnostic complet des documents »** : l'ancien « Relancer l'analyse » **RENOMMÉ ET
   DÉPLACÉ** en tête de `CorpsCompletude` (`BlocCompletude`), **pas dupliqué** (deux noms pour la même action = refusé). Rendu
   **opt-in** (`avecDiagnostic`) pour éviter un DOUBLE bouton dans `ArchivesVue` (qui monte AUSSI `BlocCompletude` + garde son bouton
@@ -205,6 +207,9 @@ et **fonds par motif** (41-45, hex en dur admin 235 → 107) · retrait du commu
   (dossier 11434)** a des pièces ; les mesures documentées sur 0037 ne sont **PAS rejouables ici**. (b) le détecteur ne reconnaît
   **QUE le Cerfa 13409** → le **13824 n'est JAMAIS lu par l'OCR** (le dossier 11434 contient les deux). Dette **préexistante**, pas
   introduite par ce lot.
+  > 🔴 **NUANCÉ à la SÉRIE 57 → 67 (voir ci-dessous)** : le filtre RGPD n'est **plus uniforme**. Sur le **CERFA**, LISTE
+  > D'AUTORISATION (56-E, pagination connue). Sur les **AUTRES pièces** (planches d'architecte, LOTs 62/63), LISTE
+  > D'EXCLUSION — **aucune pagination stable** → **régime plus faible, ASSUMÉ**, compensé par l'**abstention en cas de doute**.
 - **56-C** (`e5a53a7`) — **périmètre du diagnostic AUTO.** 🔴 **MESURE** : sur **6 dossiers** à documents GED réels, **1 seul** était
   candidat (7424, partiel) ; **5 non-partiels** (29/71/45/80/45 docs) **jamais de complétude calculée**. La condition de candidature
   (`candidatsVagueReels`) passe de « **partiel actif** » à « **la GED a changé depuis le dernier diagnostic** » (partiel ou non) :
@@ -215,6 +220,58 @@ et **fonds par motif** (41-45, hex en dur admin 235 → 107) · retrait du commu
   `lireDemandesPartiellesActives`, `candidatsRelanceReponseReels`), **avant ET après**. Diagnostic auto **déterministe/gratuit**
   (jamais la vision). **Aucune migration, aucun paramètre nouveau** (règle de correction, pas une variable pilotable ; le calme
   reste piloté). **TROU 2 amont mesuré = 0 cas réel** (cf. §6). **56-F non fait.**
+
+### SÉRIE 57 → 67 (session courante, suite) — best-of PERSISTÉ, RGPD deux régimes, parcelles & Cerfa lus en profondeur
+> 🔴 **DEUX DÉCISIONS DES SÉRIES PRÉCÉDENTES SONT RENVERSÉES — à retenir avant de lire les lots :**
+> ① **« le best-of n'est PAS persisté » (56-A) est CADUC** : les **exclusions de page** (LOT 61, migration 190) et les
+>    **verdicts de repérage par image** (LOT 62, migration 191) sont désormais **persistés**.
+> ② **le filtre RGPD n'est plus uniforme** : sur le **CERFA**, LISTE D'AUTORISATION (56-E, pagination connue) ; sur les
+>    **AUTRES pièces**, LISTE D'EXCLUSION (LOTs 62/63, **aucune pagination stable**) — **régime plus faible, ASSUMÉ**,
+>    compensé par l'**abstention en cas de doute**.
+- **57** (`c85ce91`) — signal des **pièces reçues mais NON VERSÉES en GED**. Fait établi : le **cas A** (réponse non
+  rattachée) s'auto-résout au tic de versement suivant ; les **cas B** (nature ≠ documents) et **C** (demande
+  multi-dossiers) ne se résolvent **JAMAIS**. **0 cas réel** aujourd'hui. Faux positif écarté : la **signature/logo SVAV**
+  citée dans les mails mairie, **exclue par empreinte** (même source que le versement).
+- **58** (`33c6432`) — **verrou par dossier** (advisory lock PostgreSQL) autour de l'analyse. Pas de point d'entrée commun
+  web/CLI → primitif partagé **`avecVerrouDossier`** appelé par les **3 entrées**. Libération garantie même processus tué.
+  🔴 **SIGNALÉ NON TRAITÉ** : les writers ne sont **PAS dans une transaction commune** — un crash en cours de passe laisse
+  un **état partiel** (sujet DISTINCT du verrou).
+- **59** (`af07be1`) — bouton **« Lancer le diagnostic complet des documents »** + MESURE : **PC200 a une couche texte
+  COMPLÈTE** (18/18 pages) ; ni scan, ni vocabulaire non reconnu, ni plafond → **115 images raster encastrées dans une
+  notice en prose**, **structurellement invisibles au best-of textuel**.
+- **60** (`4915a13`) — le message « contenu illisible » était **FAUX**. **3 états distincts** désormais (`hors_familles` /
+  `illisible` / `indetermine`). Limite assumée : les **diagnostics ANTÉRIEURS** ne portent pas la présence de texte → ils
+  affichent l'état vague **jusqu'au prochain diagnostic**.
+- **61** (`d965684`, **migration 190**) — **retrait manuel d'une page du best-of, RÉVERSIBLE** (liste persistante +
+  réintégration, **jamais un « annuler » éphémère**). Ne supprime **jamais** le document ni la page en GED. Cascade : la
+  pièce quitte la GED → l'exclusion **disparaît**.
+- **62-A** (mesure) — **vision Mistral** sur les pages encastrées : **10/10 discriminées, 0 faux positif, 0 faux négatif,
+  stable ×3**, **~0,1 ¢/page**. Cas pièges (carte, carte réseau, axonométrie 3D) **non confondus**. Réserve : **UN
+  document, 10 pages**.
+- **62-B** (`d6f678b`, **migration 191**) — **repérage câblé, BOUTON MANUEL uniquement, sous le verrou du 58**. Sortie =
+  **PRÉSENCE seulement** `{planche, categorie}`, **jamais de lecture de contenu** (doctrine P2/P4/P5). Badge « repérée par
+  image », **non traçable pour l'emprise**. « incertain » **n'entre pas**.
+- **63** (`e85ac9d`) — 🔴 le **pré-filtre RGPD bloquait le cas NOMINAL** : quasi toutes les planches d'architecte portent
+  un cartouche avec téléphone. Arbitrage du 56-E appliqué (« **on bloque ce qui identifie une PERSONNE, pas ce qui
+  localise le PROJET** ») : téléphone/e-mail/société/SIRET/entête seul **ne bloquent plus** ; **noms de personnes,
+  signature, civilité+nom bloquent**. Mesure : **5/32 pages écartées → 2/32**. Non-régression prouvée sur la p1 de PC200.
+  Essai réel : **8 planches** là où le textuel en voyait 0, **$0,017**.
+- **64** (`a33b79d`) — 🔴 le sélecteur de pièces était un **`<select>` natif REPLIÉ** : les 8 pièces étaient là,
+  **invisibles**. « **Vrai techniquement, faux à l'usage.** » Remplacé par une **liste explicite**, non analysées en tête,
+  **état par ligne** (jamais la couleur seule).
+- **65** (`e109fac`) — **ouvrir le document complet depuis la liseuse** ; lien signé **fabriqué AU CLIC** (jamais
+  pré-généré : un lien posé d'avance expire).
+- **66** (`d34dc8c`) — 🔴 **DÉFAUT DE JUSTESSE MAJEUR** : le Cerfa déclare **10 parcelles**, la base en avait **3** (venues
+  de **Sitadel**, qui plafonne à `num_cadastre1..3`) ; la table « **Références cadastrales** » du récapitulatif, en
+  **TEXTE**, n'avait **JAMAIS** été lue. Empreinte corrigée : **2164,3 m² (union de 3) → 5025,7 m² (union de 10)**. Piège
+  neutralisé : préfixe `0` du récap **normalisé en `000`**, sinon 3 doublons. Catégorie « **Cerfa** » ajoutée à
+  l'inventaire (**par contenu, jamais par nom de fichier**).
+- **67** (`f27523d`, **migration 192**) — **lecture approfondie du Cerfa**. Écrits : date de dépôt, superficie terrain,
+  logements, niveaux (**5 dessus / 1 dessous**), stationnement, emprise au sol, surface de plancher, description projet.
+  🥇 **Le champ libre chiffre ce qu'aucun champ structuré ne porte** : **3 plots A–C, 40/18/9 logements**, 2 locaux
+  commerciaux (**177 + 69 m²**), 1 sous-sol parking **49 places**. Extrait **VERBATIM**, coupures d'aplatissement pdfjs
+  conservées, **aucune recomposition**. Laissés **vides avec motif** : surface habitable (le Cerfa porte du **PLANCHER**,
+  non reportable), nombre et noms de bâtiments. « Nature du projet » signalée **ambiguë, non écrite**.
 
 ### Prochain GROS chantier + fraîcheur/contrôle mixte (résumé de `docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md`)
 > **À LIRE avant tout chantier données/verdict/certificat/permis.** Corpus figé 25-26/07/2026.
@@ -239,16 +296,16 @@ et **fonds par motif** (41-45, hex en dur admin 235 → 107) · retrait du commu
   chiffrage Sitadel documenté. Voir aussi `docs/SOURCES_DATA.md` (licences).
 
 ## 6. État courant & prochaine action
-- **Working tree PROPRE** (hormis ce commit docs). Dernier commit de CODE : **`e5a53a7` (LOT 56-C)** + ce présent commit docs (56-D).
+- **Working tree PROPRE** (hormis ce commit docs). Dernier commit de CODE : **`f27523d` (LOT 67)** + ce présent commit docs (68).
   Le push est le geste d'Arno depuis VS Code, **au fil de l'eau** — ne pas raisonner en « compteur d'avance ». Chaîne
-  de la session : LOTs **46 → 50**, `51283cb` (51-A/B), `ac9cfb4` (52), `00be4e2` (51-C), `7cba186` (53), `867038c` (54),
-  `1c83eea` (55), 56-A (recon, aucun commit), `7e56bd8` (56-B), `4d619c1` (56-E), `e5a53a7` (56-C).
-- **Migrations : APPLIQUÉES jusqu'à 189** (188 = LOT 47 ; 189 = LOT 51). LOTS 51-C, 52, 53, **54, 55, 56-A/B/C/E = AUCUNE migration**.
-  Contrôle de fin courant vert : `npm test` **465 / 6039** · `test:integration` **25 / 118** · tsc · eslint delta 0 · build.
-- **CHANTIER OUVERT : la SÉRIE 56 est en cours.** 56-A (recon) → 56-B → 56-E → 56-C **livrés** ; **56-F NON fait** (piste ci-dessous).
-  La série répond à la spec d'Arno du 03/09 (« un mail de mairie qui apporte des documents déclenche un diagnostic auto ») —
-  décision (X) : câbler l'existant. **Attendre le prochain prompt** (56-F ou autre). La série « tester un dossier en analyse »
-  (51 → 53) reste CLOSE et fonctionne en réel.
+  de la SÉRIE 57 → 67 : `c85ce91` (57), `33c6432` (58), `af07be1` (59), `4915a13` (60), `d965684` (61), 62-A (mesure,
+  aucun commit), `d6f678b` (62-B), `e85ac9d` (63), `a33b79d` (64), `e109fac` (65), `d34dc8c` (66), `f27523d` (67).
+- **Migrations : APPLIQUÉES jusqu'à 192** (188 = LOT 47 ; 189 = LOT 51 ; **190 = LOT 61** exclusions best-of ; **191 = LOT 62**
+  repérage par image ; **192 = LOT 67** déclarations Cerfa). LOTS 57, 58, 59, 60, 63, 64, 65, 66 = **AUCUNE migration**.
+  Contrôle de fin courant vert : `npm test` **468 / 6084** · `test:integration` **29** · tsc · eslint delta 0 · build.
+- **AUCUN chantier ouvert.** La SÉRIE 57 → 67 (best-of persisté, RGPD deux régimes, parcelles & Cerfa lus en profondeur) est
+  **CLOSE et livrée**. **Attendre le prochain prompt.** Les séries antérieures — « tester un dossier en analyse » (51 → 53) et
+  la série 56 (diagnostic auto sur arrivée de documents) — restent CLOSES et fonctionnent en réel.
 - **Régime partiel exercé en réel — demande 154 (Aubervilliers, `partiel_le` au 28/08/2026)**, seul dossier partiel.
   Au LOT 52 (base réelle, `relanceAutoActive=false` = mode MANUEL) elle portait une **relance PART-E due, rang 2**
   (dernier mail mairie `2026-09-03`, famille manquante `étage`). C'est le dossier-témoin naturel pour tout ce qui
@@ -262,12 +319,21 @@ et **fonds par motif** (41-45, hex en dur admin 235 → 107) · retrait du commu
   perçus, superpositions, survols) sur Statistiques, Pilotage Moteur, Curation, Banc de test, Audit, Administratif ;
   (c) le signal « N relances PART-E à envoyer à la main » a été **retiré de la pastille Analyse** au LOT 52 (il y était
   au mauvais endroit) — si Arno le veut, le rouvrir comme sujet dédié (placement « En cours »).
-- **Pistes ouvertes de la SÉRIE 56** (non traitées, à la main d'Arno) : (d) **56-F — verrou d'idempotence** autour de
-  `executerExtractionPermis` : **aucun aujourd'hui** ; deux passes concurrentes sur le même dossier peuvent s'**entrelacer**
-  (idempotence seulement par « purge-puis-réécrit » de chaque writer, pas d'anti-chevauchement). (e) **TROU 2 du 56-C, LATENT** :
-  le versement auto en GED (PART-1) exige **réponse rattachée + `nature='documents'` + mono-dossier** — **0 cas réel aujourd'hui**,
-  mais **sans entrée en GED il n'y a PAS de diagnostic**, quel que soit l'élargissement du 56-C (trou EN AMONT, distinct). (f)
-  **Cerfa 13824 jamais lu par l'OCR** (le détecteur ne reconnaît que le 13409, cf. 56-E) — dette préexistante.
+- **Pistes ouvertes des SÉRIES 56 → 67** (non traitées, à la main d'Arno) :
+  (d) **rapprochement DÉTERMINISTE du champ libre du Cerfa** (regex « N plots », « Bat. X », « N logements pour »)
+  **corroboré par le total structuré** (40+18+9 = 67) → écrit **seulement si la somme concorde**. C'est la **voie vers le
+  nombre de bâtiments, SANS modèle**. À chiffrer sur un échantillon de récaps.
+  (e) **transaction commune des writers** : le **verrou par dossier est livré** (LOT 58, `avecVerrouDossier`) mais les
+  writers ne partagent **PAS** de transaction → un **crash en cours de passe laisse un état partiel** (cf. 58, sujet distinct
+  du verrou ; c'était l'ancien 56-F).
+  (f) **TROU 2 du 56-C, LATENT** : le versement auto en GED (PART-1) exige **réponse rattachée + `nature='documents'` +
+  mono-dossier** — **0 cas réel aujourd'hui**, mais **sans entrée en GED il n'y a PAS de diagnostic**, quel que soit
+  l'élargissement du 56-C (trou EN AMONT, distinct).
+  (g) **Cerfa 13824 jamais lu par l'OCR** (le détecteur ne reconnaît que le 13409, cf. 56-E/62) — dette **préexistante**.
+- **⚠️ Faits d'environnement à garder** : (1) **`07512025V0037` N'EXISTE PAS dans la base locale** (mesuré au 56-E) → les
+  mesures documentées sur ce dossier **ne sont PAS rejouables ici** ; seul **`07512025V0035` (dossier 11434)** a des pièces,
+  plus le **dossier-témoin 7424**. (2) **DEUX sessions d'agent ont saturé leur contexte le 04/09** (recon LOT 66, LOT 67) →
+  **ouvrir une session neuve dès qu'un lot approche 90 %**.
 - **Boucle standard d'un LOT** : recon lecture seule → implémente → contrôles de fin dans l'ordre → commit (`-F`, sans
   Co-Authored-By, sans push).
 
