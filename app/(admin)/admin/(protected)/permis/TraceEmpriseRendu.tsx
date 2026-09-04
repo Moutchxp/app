@@ -39,7 +39,7 @@ export function noteFamille(f: FamillePlan | null): string | null {
  */
 
 const muted: CSSProperties = { color: 'var(--color-svv-muted)', fontSize: 13 };
-const carte: CSSProperties = { border: '1px solid var(--color-svv-line)', borderRadius: '.5rem', padding: '.6rem .8rem', background: '#fff' };
+const carte: CSSProperties = { border: '1px solid var(--color-svv-line)', borderRadius: '.5rem', padding: '.6rem .8rem', background: 'var(--color-svv-surface)' }; // LOT 84 : surface (= #fff exact en clair) → texte token lisible en sombre
 
 /** Nombre en français, sans arrondi trompeur d'un calcul (arrondi d'AFFICHAGE seulement). */
 export function fmtM2(x: number): string { return `${Math.round(x).toLocaleString('fr-FR')} m²`; }
@@ -1003,7 +1003,7 @@ export function StatutPolygonesExistants({ polygones, recouverts, statuts, onSta
             </div>
             {/* RATT-6 — POURQUOI les boutons sont grisés : le mixte est un fait géométrique déduit, pas une décision d'Arno. */}
             {estMixte && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Une partie du bâtiment tombe sous l’emprise, l’autre survit : statut déduit de la géométrie — non modifiable à la main. (Le découpage précis et l’altitude par partie relèvent d’un chantier ultérieur.)</span>}
-            {decide === 'detruit' && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-ink)', background: '#fff8f8', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.2rem .4rem' }}>Prévision : effacé de la PROJECTION de la future parcelle (jamais de BD TOPO). Sera confirmé ou infirmé à la mise à jour de la planche cadastrale.</span>}
+            {decide === 'detruit' && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-ink)', background: 'var(--color-svv-note-bg)', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.2rem .4rem' }}>Prévision : effacé de la PROJECTION de la future parcelle (jamais de BD TOPO). Sera confirmé ou infirmé à la mise à jour de la planche cadastrale.</span>}
             {decide === 'preserve' && st?.etatBdtopoAuMoment && st.etatBdtopoAuMoment !== p.etat && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>BD TOPO disait « {st.etatBdtopoAuMoment} » au moment de votre décision — votre « préservé » prime, la source reste lisible.</span>}
             {st && st.historique.length > 0 && (
               <details style={{ fontSize: 11 }}>

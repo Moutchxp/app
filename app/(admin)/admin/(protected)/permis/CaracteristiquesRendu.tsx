@@ -16,10 +16,10 @@ const styleAide: CSSProperties = { fontSize: 11, color: 'var(--color-svv-muted)'
 const styleLabel: CSSProperties = { fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' };
 const styleInput: CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14, fontFamily: 'inherit' };
 const styleErreur: CSSProperties = { fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 600 };
-const styleNote: CSSProperties = { fontSize: 11, lineHeight: 1.4, color: 'var(--color-svv-ink)', background: '#fff8f8', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.25rem .4rem' };
+const styleNote: CSSProperties = { fontSize: 11, lineHeight: 1.4, color: 'var(--color-svv-ink)', background: 'var(--color-svv-note-bg)', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.25rem .4rem' }; // LOT 84 : fond/texte basculent ensemble (thème sombre)
 // N10 — bleu des PIÈCES SOURCES : même couleur pour un lien de provenance et pour une pièce-source dans la liste (« même sens »).
 // Pas de jeton bleu dans la charte → couleur en dur, comme l'ORANGE d'échéance d'ArchivesRendu ; accessible sur fond blanc (AA).
-export const BLEU_SOURCE = '#1a5fb4';
+export const BLEU_SOURCE = 'var(--color-svv-lien-source)'; // LOT 84 : token (valeur claire = bleu source historique exact ; sombre = bleu clair mesuré)
 /** N10 / N10-B — résout le nom de fichier d'une provenance en un déclencheur d'OUVERTURE du document (à la page `page` si fournie, via
  *  la variante inline signée), ou `undefined` si la pièce n'est pas résolue (→ l'entrée reste en texte simple, jamais un lien mort).
  *  Fourni par la Vue (mappe nom → id `dossier_document`, unique par dossier). La clé de stockage ne transite jamais côté client. */
@@ -49,9 +49,9 @@ export function PastilleConfiance({ confiance }: { confiance: 'a_verifier' | 'co
  * (précédent T2-B) : la couleur ne porte JAMAIS l'information seule — le MOT « à confirmer » est obligatoire, pas décoratif. Le violet
  * n'est qu'un appui. Contraste AA sur fond blanc. Distinct de la confiance (« corroborée » = axe du moteur, pas l'examen humain).
  */
-export const VIOLET_A_CONFIRMER = '#7d3ac1';
+export const VIOLET_A_CONFIRMER = 'var(--color-svv-violet)'; // LOT 84 : token (valeur claire = violet « à confirmer » historique exact ; sombre = violet clair mesuré)
 export function PastilleAConfirmer() {
-  return <span style={{ fontSize: 10, fontWeight: 700, padding: '.02rem .3rem', borderRadius: '.3rem', whiteSpace: 'nowrap', background: '#f3e8ff', color: VIOLET_A_CONFIRMER, border: `1px solid ${VIOLET_A_CONFIRMER}` }}>à confirmer</span>;
+  return <span style={{ fontSize: 10, fontWeight: 700, padding: '.02rem .3rem', borderRadius: '.3rem', whiteSpace: 'nowrap', background: 'var(--color-svv-violet-soft)', color: VIOLET_A_CONFIRMER, border: `1px solid ${VIOLET_A_CONFIRMER}` }}>à confirmer</span>;
 }
 
 /** N10-C — « Cerfa = scan sans champ lisible » (liste fermée `methode='cerfa'`, jamais un rapprochement sur le TEXTE du motif) :
@@ -473,7 +473,7 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
   //   l'écrira pas → on prévient, visiblement, près du bouton de validation.
   const modifieeNonValidee = estSommet && !!onValider && champDiffereBase(valeur, valeurBase);
   const cadreSommet: CSSProperties = estSommet
-    ? { border: `1px solid ${aConfirmer ? VIOLET_A_CONFIRMER : 'var(--color-svv-red)'}`, borderRadius: '.5rem', padding: '.4rem .5rem', background: aConfirmer ? '#faf5ff' : '#fff8f8' }
+    ? { border: `1px solid ${aConfirmer ? VIOLET_A_CONFIRMER : 'var(--color-svv-red)'}`, borderRadius: '.5rem', padding: '.4rem .5rem', background: aConfirmer ? 'var(--color-svv-violet-faint)' : 'var(--color-svv-note-bg)' } // LOT 84 : fonds tokenisés (thème sombre)
     : {};
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0, ...cadreSommet }}>
