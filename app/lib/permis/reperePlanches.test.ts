@@ -3,18 +3,22 @@ import { pageExclueRgpd, verdictDepuisReponse, executerReperagePlanches, PROMPT_
 
 /** LOT 62 — repérage des planches par image : logique PURE (filtre RGPD, normalisation du verdict, orchestration). AUCUN appel API. */
 
-describe('pageExclueRgpd — pré-filtre RGPD par page, EN ABSTENTION', () => {
-  it('écarte au moindre signal de donnée personnelle (e-mail, téléphone, signature, naissance, civilité+nom)', () => {
-    expect(pageExclueRgpd('contact : jean.dupont@mairie.fr').exclue).toBe(true);
-    expect(pageExclueRgpd('Téléphone : 06 19 98 05 75').exclue).toBe(true);
-    expect(pageExclueRgpd('Signature numérique de X').exclue).toBe(true);
+describe('pageExclueRgpd — LOT 63 : bloque la PERSONNE, pas le contact PROFESSIONNEL', () => {
+  it('BLOQUE ce qui identifie une personne physique : civilité+nom, naissance, signature', () => {
+    expect(pageExclueRgpd('en présence de Monsieur Monteils').exclue).toBe(true);
     expect(pageExclueRgpd('né le 3 mai 1980').exclue).toBe(true);
-    expect(pageExclueRgpd('en présence de Monsieur Dupont').exclue).toBe(true);
+    expect(pageExclueRgpd('Signature numérique de Brice PIECHACZYK').exclue).toBe(true);
+    expect(pageExclueRgpd('Plan signé par l’architecte').exclue).toBe(true);
   });
-  it('écarte un cartouche émetteur (rédaction/vérification/validation) nommant des personnes', () => {
+  it('NE BLOQUE PLUS à eux seuls : téléphone, e-mail, société/SIRET, cartouche « Rédaction/Vérification/Validation » SEUL (contact pro publié)', () => {
+    // cas NOMINAL d'une planche d'architecte : cartouche pro avec tél + e-mail + société → passe.
+    expect(pageExclueRgpd('Maître d’ouvrage : Société des Grands Projets · Tél 06 37 18 37 19 · contact@sgp.fr · SIRET 508 803 599').exclue).toBe(false);
+    expect(pageExclueRgpd('Cartouche : Rédaction | Vérification | Validation | Indice | Date').exclue).toBe(false); // entête SEUL, sans noms
+  });
+  it('cartouche émetteur QUI NOMME DES PERSONNES (initiale + patronyme) reste BLOQUÉ — non-régression p1 de PC200 (62-A)', () => {
     const e = pageExclueRgpd('Date | Indice | Suivi | Rédaction J.TRESCARTES | Vérification H.NAULIN | Validation C.RICHARDSON');
     expect(e.exclue).toBe(true);
-    expect(e.motif).toMatch(/cartouche émetteur/i);
+    expect(e.motif).toMatch(/noms de personnes dans le cartouche/i);
   });
   it('page SANS texte → abstention (invérifiable), on n’envoie pas', () => {
     expect(pageExclueRgpd('').exclue).toBe(true);
@@ -50,7 +54,7 @@ describe('executerReperagePlanches — RGPD écarte AVANT tout envoi ; PRÉSENCE
   it('écarte la page à donnée personnelle, envoie les autres, et ne rend QUE {page,verdict,categorie}', async () => {
     // p1 = cartouche émetteur (écartée) ; p2 = plan (oui) ; p3 = prose (non).
     const textes = [
-      'Rédaction J.X | Vérification H.Y | Validation C.Z',
+      'Rédaction J.TRESCARTES | Vérification H.NAULIN | Validation C.RICHARDSON', // cartouche + noms de personnes → écartée
       'PLAN DE MASSE des constructions',
       'Présentation des enjeux du projet, en prose.',
     ];

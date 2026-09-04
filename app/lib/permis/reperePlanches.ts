@@ -41,28 +41,34 @@ export function verdictDepuisReponse(r: Record<string, unknown>): { verdict: Ver
   return { verdict, categorie: verdict === 'oui' ? (categorie === 'aucune' ? 'plan' : categorie) : 'aucune' };
 }
 
-// ── PRÉ-FILTRE RGPD (pur) : signaux de données personnelles sur la COUCHE TEXTE d'une page ────────────────────────────────────────
-const RE_EMAIL = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/i;
-const RE_TEL = /\b0[\s.]?[1-9]([\s.]?\d){8}\b/;                                  // 06 12 34 56 78, y compris chiffres espacés
-const RE_SIGNATURE = /signature\s+(numérique|electronique|électronique|de\b)|signé\s+par|signature\s*:/i;
-const RE_CIVILITE_NOM = /\b(Monsieur|Madame|Mademoiselle|Mme|Mlle)\.?\s+[A-ZÉÈÀ][a-zà-ÿ'-]+/;
+// ── PRÉ-FILTRE RGPD (pur) : on bloque ce qui identifie une PERSONNE, pas ce qui localise/contacte le PROJET ────────────────────────
+// LOT 63 — ARBITRAGE (identique au 56-E) : téléphone, e-mail, nom de société, SIRET, adresse d'entreprise, et le cartouche émetteur
+//   « Rédaction | Vérification | Validation » PRIS SEUL sont des CONTACTS PROFESSIONNELS PUBLIÉS → ils NE BLOQUENT PLUS à eux seuls
+//   (quasi toutes les planches d'architecte en portent → sinon le repérage serait inutilisable, mesuré sur le dossier 7424 : 2/32
+//   pages écartées au lieu de 5). RESTENT BLOQUANTS, car ils identifient une PERSONNE PHYSIQUE : civilité+nom, date de naissance,
+//   signature, ET le cartouche émetteur QUAND IL NOMME DES PERSONNES (initiale + patronyme, ex. « J.TRESCARTES » — cas p1 de PC200
+//   du 62-A, qui NE doit PAS régresser). ABSTENTION conservée : une page SANS texte reste invérifiable → non envoyée.
 const RE_NAISSANCE = /\bnée?\s+le\b/i;
+const RE_SIGNATURE = /signature\s+(numérique|manuscrite|électronique|electronique)|signé\s+par/i; // signature de personne (jamais un simple champ « Signature : » vide d'un cartouche)
+const RE_CIVILITE_NOM = /\b(Monsieur|Madame|Mademoiselle|Mme|Mlle)\.?\s+[A-ZÉÈÀ][a-zà-ÿ'-]+/;    // « Monsieur Monteils », « Mme Durand »
 const RE_REDACTION = /r[ée]daction/i, RE_VERIF = /v[ée]rification/i, RE_VALIDATION = /validation/i;
+// Nom de PERSONNE en convention de cartouche : INITIALE + PATRONYME en capitales (« J.TRESCARTES », « H. NAULIN »). Ne matche NI un
+//   nom de société (« SGP », « GRAND PARIS ») NI un nom de projet (« FERRAGUS ») : ceux-ci n'ont pas la forme « X. PATRONYME ».
+const RE_NOM_PERSONNE = /\b[A-ZÉÈ]\.\s?[A-ZÉÈ][A-ZÉÈ']{2,}\b/;
 
 /**
- * Une page doit-elle être ÉCARTÉE avant tout envoi (donnée personnelle probable, ou texte absent = invérifiable) ? ABSTENTION : au
- * moindre signal, ou en l'absence de texte, on n'envoie pas. Une adresse de projet / référence cadastrale n'est PAS un signal
- * (elle localise le projet, pas une personne — même critère qu'au 56-E). PUR.
+ * Une page doit-elle être ÉCARTÉE avant tout envoi (donnée d'une PERSONNE PHYSIQUE, ou texte absent = invérifiable) ? ABSTENTION : au
+ * moindre signal de personne, ou en l'absence de texte, on n'envoie pas. Un contact PROFESSIONNEL (tél/e-mail/société/SIRET) ou une
+ * adresse de projet / référence cadastrale n'est PAS un signal (même critère qu'au 56-E). Le motif NOMME le signal réel. PUR.
  */
 export function pageExclueRgpd(texte: string): { exclue: boolean; motif: string | null } {
   const t = texte ?? '';
   if (t.trim().length === 0) return { exclue: true, motif: 'page sans texte exploitable — impossible de vérifier l’absence de données personnelles' };
-  if (RE_EMAIL.test(t)) return { exclue: true, motif: 'adresse e-mail détectée' };
-  if (RE_TEL.test(t)) return { exclue: true, motif: 'numéro de téléphone détecté' };
-  if (RE_SIGNATURE.test(t)) return { exclue: true, motif: 'signature de personne détectée' };
-  if (RE_NAISSANCE.test(t)) return { exclue: true, motif: 'date de naissance détectée' };
-  if (RE_CIVILITE_NOM.test(t)) return { exclue: true, motif: 'civilité + nom de personne détectés' };
-  if (RE_REDACTION.test(t) && RE_VERIF.test(t) && RE_VALIDATION.test(t)) return { exclue: true, motif: 'cartouche émetteur (rédaction/vérification/validation) nommant des personnes' };
+  if (RE_NAISSANCE.test(t)) return { exclue: true, motif: 'date de naissance d’une personne détectée' };
+  if (RE_SIGNATURE.test(t)) return { exclue: true, motif: 'signature d’une personne détectée' };
+  if (RE_CIVILITE_NOM.test(t)) return { exclue: true, motif: 'civilité + nom d’une personne détectés' };
+  // Cartouche émetteur : bloque UNIQUEMENT s'il NOMME des personnes (initiale + patronyme). L'entête seul ne bloque plus.
+  if (RE_REDACTION.test(t) && RE_VERIF.test(t) && RE_VALIDATION.test(t) && RE_NOM_PERSONNE.test(t)) return { exclue: true, motif: 'noms de personnes dans le cartouche émetteur (rédaction/vérification/validation)' };
   return { exclue: false, motif: null };
 }
 

@@ -427,23 +427,30 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
             </div>
           )}
         </div>
-        {/* LOT 62 — REPÉRAGE DES PLANCHES par analyse d'image (bouton MANUEL, pièce courante). Annonce AVANT le clic ce qu'il fait et
-            ce qu'il coûte, sans jargon. Résultat visible + modifiable (retrait LOT 61). Pages écartées (RGPD) et incertaines dites. */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem' }}>
+        {/* LOT 62/63 — REPÉRAGE DES PLANCHES par analyse d'image (bouton MANUEL, pièce OUVERTE). Annonce AVANT le clic ce qu'il fait et
+            ce qu'il coûte, sans jargon. LOT 63 (a) : le résultat est un ENCART VISIBLE et PERSISTANT (pas un message fugace) → la
+            transition « occupé → résultat » est claire. LOT 63 (b) : le bouton CIBLE la pièce ouverte (son nom est affiché) ; pour une
+            pièce absente du best-of (ex. « autres pièces »), on l'ouvre d'abord via « voir toutes les pièces du dossier » ci-dessus. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem' }}>
           <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 36, padding: '.3rem .6rem', fontSize: 12, alignSelf: 'flex-start' }}
             disabled={reperEnCours || pieceId === null} aria-busy={reperEnCours} onClick={() => void reperer()}>
             {reperEnCours ? 'Analyse des images en cours…' : 'Repérer les planches de cette pièce'}
           </button>
           <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>
-            Fait analyser les images de ce document par un service payant pour trouver les plans encastrés que le repérage par le texte ne voit pas. Quelques secondes par page (de l’ordre de 2 centimes pour une vingtaine de pages). Le résultat est modifiable : vous pouvez retirer une page.
+            Pièce ciblée : <strong style={{ color: 'var(--color-svv-ink)', wordBreak: 'break-word' }}>{nomCourant}</strong>. Fait analyser ses images par un service payant pour trouver les plans encastrés que le repérage par le texte ne voit pas (de l’ordre de 2 centimes pour une vingtaine de pages). Résultat modifiable (vous pouvez retirer une page). Pour une pièce absente du best-of, ouvrez-la d’abord via « voir toutes les pièces du dossier » ci-dessus.
           </span>
-          {reperMsg && <span role="status" aria-live="polite" style={{ fontSize: 11, color: reperMsg.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-ink)' }}>{reperMsg}</span>}
-          {runCourant && (
-            <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>
-              {runCourant.nbPlanches} planche{runCourant.nbPlanches > 1 ? 's' : ''} repérée{runCourant.nbPlanches > 1 ? 's' : ''} par image dans cette pièce.
-              {runCourant.incertaines.length > 0 && ` ${runCourant.incertaines.length} page${runCourant.incertaines.length > 1 ? 's' : ''} incertaine${runCourant.incertaines.length > 1 ? 's' : ''} (${runCourant.incertaines.map((p) => `p${p}`).join(', ')}) — hors best-of.`}
-              {runCourant.pagesEcartees.length > 0 && ` ${runCourant.pagesEcartees.length} page${runCourant.pagesEcartees.length > 1 ? 's' : ''} non envoyée${runCourant.pagesEcartees.length > 1 ? 's' : ''} par précaution : ${runCourant.pagesEcartees.map((e) => `p${e.page} (${e.motif})`).join(' ; ')}.`}
-            </span>
+          {/* ENCART DE RÉSULTAT — visible et persistant (LOT 63 a). Rouge si session expirée, sinon neutre. */}
+          {(reperMsg || runCourant) && (
+            <div role="status" aria-live="polite" style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', padding: '.4rem .5rem', borderRadius: '.4rem', background: 'var(--color-svv-field)', borderLeft: `3px solid ${reperMsg && reperMsg.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}` }}>
+              {reperMsg && <span style={{ fontSize: 12, fontWeight: 600, color: reperMsg.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-ink)' }}>{reperMsg}</span>}
+              {runCourant && (
+                <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>
+                  {runCourant.nbPlanches} planche{runCourant.nbPlanches > 1 ? 's' : ''} repérée{runCourant.nbPlanches > 1 ? 's' : ''} par image dans cette pièce.
+                  {runCourant.incertaines.length > 0 && ` ${runCourant.incertaines.length} page${runCourant.incertaines.length > 1 ? 's' : ''} incertaine${runCourant.incertaines.length > 1 ? 's' : ''} (${runCourant.incertaines.map((p) => `p${p}`).join(', ')}) — hors best-of.`}
+                  {runCourant.pagesEcartees.length > 0 && ` ${runCourant.pagesEcartees.length} page${runCourant.pagesEcartees.length > 1 ? 's' : ''} non envoyée${runCourant.pagesEcartees.length > 1 ? 's' : ''} par précaution : ${runCourant.pagesEcartees.map((e) => `p${e.page} (${e.motif})`).join(' ; ')}.`}
+                </span>
+              )}
+            </div>
           )}
         </div>
         <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajuster} />
