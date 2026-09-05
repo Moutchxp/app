@@ -530,6 +530,31 @@ describe('LOT 83 — étiquettes déportées ENTIÈREMENT dégagées (aucune à 
   });
 });
 
+describe('LOT 86 — schéma lecture seule : 0 bâtiment déclaré, 0 emprise, 5 bâti BD TOPO existant (scénario dossier 470)', () => {
+  // 5 polygones BD TOPO EXISTANTS (En service) dans l'empreinte, aucune emprise projetée, aucun bâtiment déclaré.
+  const cinqBati = attribuerReperes(Array.from({ length: 5 }, (_, i) => ({
+    cleabs: `EXIST${i}`, etat: 'En service', anneau: [{ x: i * 20, y: 0 }, { x: i * 20 + 10, y: 0 }, { x: i * 20 + 10, y: 10 }, { x: i * 20, y: 10 }],
+  })));
+
+  it('legendeProjection : groupe ① = 5 « bâti existant, sans objet » (jamais « non affecté ») ; groupe ② VIDE (aucune emprise)', () => {
+    const { polygones, emprisesProjetees } = legendeProjection(cinqBati, [], []);
+    expect(polygones).toHaveLength(5);
+    expect(polygones.every((p) => p.nature === 'existant_sans_objet' && p.nomBatiment === null)).toBe(true);
+    expect(emprisesProjetees).toEqual([]);
+  });
+
+  it('etiquettesProjection : aucun bâti existant n’a d’étiquette (ne pas encombrer le dessin d’un « sans objet » par polygone)', () => {
+    expect(etiquettesProjection(cinqBati, [], [])).toEqual([]);
+  });
+
+  it('rendu de la légende : « bâti existant — affectation sans objet » + groupe ② « Aucune emprise simulée… » (SANS OBJET explicite)', () => {
+    const html = renderToStaticMarkup(h(LegendeProjectionEmprises, { legende: legendeProjection(cinqBati, [], []) }));
+    expect(html).toContain('bâti existant — affectation sans objet');
+    expect(html).toContain('Aucune emprise simulée d’après les plans à ce jour');
+    expect(html).not.toContain('non affecté'); // un bâti existant n’est jamais « non affecté »
+  });
+});
+
 describe('RATT-3 — couleur de statut sur le schéma + configuration projetée', () => {
   // Une couleur ne traduit QUE l'existence d'une décision en base ; une prévision non enregistrée reste grise.
   it('couleurStatutPolygone : preserve → vert, detruit → orange, revoque/absent → aucune couleur', () => {

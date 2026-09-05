@@ -8,7 +8,7 @@ import {
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
 import { statutCourantParCleabs, type LigneStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) ; RATT-5 : recouvert + taux
@@ -477,7 +477,32 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
     );
   }
   if (vue === 'aucun-batiment') {
-    return <div className="svv-card" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Aucun bâtiment déclaré au permis : rien à tracer pour l’instant. Déclarez au moins un bâtiment ci-dessus (« + ajouter un bâtiment ») pour pouvoir tracer une emprise et valider la projection.</div>;
+    // LOT 86 — LECTURE SEULE : le schéma reste CONSULTABLE (parcelle + empreinte + bâti BD TOPO) même sans bâtiment déclaré. `affichageTrace`
+    //   reste la SOURCE UNIQUE de décision (on ne duplique pas sa logique) ; ici on ne masque QUE les contrôles de TRACÉ (attacher une
+    //   emprise à un bâtiment, valider la projection), pas le dessin. RENDU PUR : aucune écriture, aucun calcul de verdict ajouté.
+    return (
+      <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+        <div style={{ fontWeight: 700, fontSize: 13 }}>Projection des emprises — reconstitution par bâtiment <span style={styleAide}>(jamais une mesure ; n’alimente ni le verdict ni l’altitude)</span></div>
+        <BandeauProjection verdict={verdict} />
+        {/* Message RECADRÉ : on ne peut pas encore TRACER (le tracé attache une emprise à un bâtiment déclaré), mais il y a à VOIR. */}
+        <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
+          Aucun bâtiment déclaré au permis : on ne peut pas encore <strong>tracer</strong> d’emprise (le tracé attache une emprise à un bâtiment déclaré) ni valider la projection. Déclarez au moins un bâtiment ci-dessus (« + ajouter un bâtiment »). Le schéma ci-dessous reste consultable.
+        </div>
+        {boite ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+            <RotationSchema angle={angle} onAngle={setAngle} />
+            {/* Schéma LECTURE SEULE : aucun onCliquer (pas de tracé), pas de points de calage. Étiquettes/légende des LOTs 81/82/83. */}
+            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesReperes, emprises, batiments)} />
+            {/* Options d'AFFICHAGE (bâti existant / futur / repères / projection) — pilotage visuel, pas un contrôle de tracé. Porte aussi la légende de catégories. */}
+            <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
+            <LegendeProjectionEmprises legende={legendeProjection(polygonesReperes, emprises, batiments)} />
+          </div>
+        ) : (
+          // HONNÊTETÉ (piège LOT 71) : rien à dessiner → dire CE QUI MANQUE, jamais un cadre vide muet.
+          <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Rien à dessiner pour l’instant : la parcelle du permis n’est pas disponible (empreinte non figée) — sans elle, ni le contour ni le bâti BD TOPO ne peuvent être cadrés.</div>
+        )}
+      </div>
+    );
   }
 
   return (
