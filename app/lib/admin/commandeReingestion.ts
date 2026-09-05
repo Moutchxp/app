@@ -8,6 +8,8 @@
  * ni `exec`, ni `spawn`, et n'appelle aucun script d'ingestion (on les invoque par leur commande, on ne les touche pas).
  */
 
+import { DEPARTEMENTS } from './sourcesFraicheur';
+
 /** Bloc de commande prêt à coller + son cadre d'honnêteté (avertissement, caractère destructif). */
 export interface PreparationCommande {
   /** Le bloc multi-lignes : `cd` absolu + chargement d'environnement + commande. */
@@ -32,7 +34,9 @@ interface Procedure {
 
 const PROCEDURES: Readonly<Record<string, Procedure>> = {
   bdtopo_bati: {
-    ligne: (e) => `npm run bdtopo:import -- --dep 75,77,78,92,93,94 --edition ${e ?? '<AAAA-MM-JJ>'}`,
+    // Liste des départements DÉRIVÉE de la source unique du périmètre (DEPARTEMENTS), jamais recopiée à la main
+    // (leçon LOT 110 : une liste figée en double devient périmée en silence — c'était le cas ici, 91/95 manquaient).
+    ligne: (e) => `npm run bdtopo:import -- --dep ${DEPARTEMENTS.join(',')} --edition ${e ?? '<AAAA-MM-JJ>'}`,
     avertissement:
       'Lourd : plusieurs centaines de Mo téléchargées, des millions de lignes ; requiert curl, 7z et ogr2ogr. Cette commande ne fait que CHARGER l’édition dans une table neuve — le basculement (remplacement de « batiment ») et le rescellage du golden sont une étape SÉPARÉE. À lancer hors production.',
     destructif: false,

@@ -19,9 +19,17 @@
  *   https://data.geopf.fr/telechargement/download/BDTOPO/BDTOPO_3-5_TOUSTHEMES_GPKG_LAMB93_D0XX_2026-06-15/…7z
  *
  * Lancer : npm run bdtopo:import -- [--dep 92,75,78,93,94,77] [--edition 2026-06-15] [--cible batiment_2026_06_15]
+ *
+ * ═══ LOT 117a — AJOUT 91/95 (staging, jamais la table vive) ══════════════════════════════════════════════════════════════════
+ * Les départements acceptés sont DÉRIVÉS de sourcesFraicheur.DEPARTEMENTS (8 dép. IDF, dont 91 et 95 depuis le LOT 110), au lieu
+ * d'une regex figée (leçon LOT 110 : une liste recopiée devient périmée en silence). Le garde-fou `cible` (bas de main) INTERDIT
+ * toujours d'écrire dans `batiment`/`batiment_edition_fige`. Pour ajouter 91/95 à la couverture, on charge dans une table de
+ * STAGING dédiée, puis une MIGRATION RELUE fusionne dans `batiment` (dédup par cleabs, fid régénéré) — c'est le LOT 117b :
+ *   npm run bdtopo:import -- --dep 91,95 --cible batiment_ajout_91_95
  */
 import '../lib/chargerEnv';
 import { query, closePool } from '../lib/db/client';
+import { DEPARTEMENTS } from '../lib/admin/sourcesFraicheur';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -73,7 +81,12 @@ async function importerDept(dep: string, edition: string, cible: string, dbUrl: 
   console.log(`  D0${dep} : ${url}`);
   const dossierDep = mkdtempSync(join(dir, `d0${dep}-`));
   const archive = join(dossierDep, `${paquet}.7z`);
-  sh('curl', ['-fSL', '--retry', '3', '--retry-connrefused', '-o', archive, url]);
+  // curl DURCI (leçon LOT BDT-4 : un reset serveur en cours de transfert = curl 56, que --retry-connrefused NE couvre PAS).
+  //   · --retry-all-errors : les retries couvrent AUSSI le reset mi-transfert (56), pas seulement le refus de connexion ;
+  //   · --retry-delay 10   : 10 s entre tentatives (laisse le serveur respirer) ;
+  //   · -C -               : REPRISE du téléchargement partiel (fichier de sortie stable par département : `archive`) au lieu de
+  //                          repartir de zéro à chaque coupure. Fichier inexistant au 1er essai → curl démarre à 0, normal.
+  sh('curl', ['-fSL', '--retry', '5', '--retry-connrefused', '--retry-all-errors', '--retry-delay', '10', '-C', '-', '-o', archive, url]);
   sh('7z', ['x', `-o${dossierDep}`, '-y', archive]);
   const gpkg = trouverGpkg(dossierDep);
   if (!gpkg) throw new Error(`D0${dep} : aucun .gpkg trouvé dans l'archive extraite`);
@@ -134,8 +147,11 @@ async function main(): Promise<void> {
   if (!dbUrl) { console.error('[bdtopo:import] DATABASE_URL absent'); process.exitCode = 2; return; }
   const edition = lireArg('--edition') ?? EDITION_DEFAUT;
   const cible = lireArg('--cible') ?? CIBLE_DEFAUT;
-  const deps = (lireArg('--dep')?.split(',').map((d) => d.trim()) ?? DEPS_DEFAUT).filter((d) => /^(75|77|78|92|93|94)$/.test(d));
-  if (!deps.length) { console.error('[bdtopo:import] aucun département valide (75,77,78,92,93,94)'); process.exitCode = 2; return; }
+  // Validation DÉRIVÉE de la liste unique du périmètre (sourcesFraicheur.DEPARTEMENTS, 8 dép. IDF), jamais une regex recopiée
+  // (leçon LOT 110 : une liste figée en double devient périmée en silence). Depuis le LOT 117, 91 et 95 y figurent → acceptés.
+  // ⚠️ La table VIVE `batiment` reste protégée par le garde-fou `cible` ci-dessous : 91/95 se chargent dans une table de STAGING.
+  const deps = (lireArg('--dep')?.split(',').map((d) => d.trim()) ?? DEPS_DEFAUT).filter((d) => (DEPARTEMENTS as readonly string[]).includes(d));
+  if (!deps.length) { console.error(`[bdtopo:import] aucun département valide (${DEPARTEMENTS.join(',')})`); process.exitCode = 2; return; }
 
   // Garde-fou : la table batiment_edition_fige (preuve de mars) ne doit JAMAIS être la cible.
   if (cible === 'batiment' || cible === 'batiment_edition_fige') { console.error(`[bdtopo:import] cible interdite : ${cible}`); process.exitCode = 2; return; }
