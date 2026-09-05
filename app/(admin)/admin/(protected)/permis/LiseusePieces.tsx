@@ -481,33 +481,8 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
             </div>
           )}
         </div>
-        {/* LOT 62/63 — REPÉRAGE DES PLANCHES par analyse d'image (bouton MANUEL, pièce OUVERTE). Annonce AVANT le clic ce qu'il fait et
-            ce qu'il coûte, sans jargon. LOT 63 (a) : le résultat est un ENCART VISIBLE et PERSISTANT (pas un message fugace) → la
-            transition « occupé → résultat » est claire. LOT 63 (b) : le bouton CIBLE la pièce ouverte (son nom est affiché) ; pour une
-            pièce absente du best-of (ex. « autres pièces »), on l'ouvre d'abord via « voir toutes les pièces du dossier » ci-dessus. */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem' }}>
-          <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 36, padding: '.3rem .6rem', fontSize: 12, alignSelf: 'flex-start' }}
-            disabled={reperEnCours || pieceId === null} aria-busy={reperEnCours} onClick={() => void reperer()}>
-            {reperEnCours ? 'Analyse des images en cours…' : 'Repérer les planches de cette pièce'}
-          </button>
-          <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>
-            Pièce ciblée : <strong style={{ color: 'var(--color-svv-ink)', wordBreak: 'break-word' }}>{nomCourant}</strong>. Fait analyser ses images par un service payant pour trouver les plans encastrés que le repérage par le texte ne voit pas (de l’ordre de 2 centimes pour une vingtaine de pages). Résultat modifiable (vous pouvez retirer une page). Pour une pièce absente du best-of, ouvrez-la d’abord via « voir toutes les pièces du dossier » ci-dessus.
-            {runCourant && <> <strong style={{ color: 'var(--color-svv-ink)' }}>Cette pièce a déjà été analysée</strong> — relancer refera une analyse payante.</>}
-          </span>
-          {/* ENCART DE RÉSULTAT — visible et persistant (LOT 63 a). Rouge si session expirée, sinon neutre. */}
-          {(reperMsg || runCourant) && (
-            <div role="status" aria-live="polite" style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', padding: '.4rem .5rem', borderRadius: '.4rem', background: 'var(--color-svv-field)', borderLeft: `3px solid ${reperMsg && reperMsg.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}` }}>
-              {reperMsg && <span style={{ fontSize: 12, fontWeight: 600, color: reperMsg.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-ink)' }}>{reperMsg}</span>}
-              {runCourant && (
-                <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>
-                  {runCourant.nbPlanches} planche{runCourant.nbPlanches > 1 ? 's' : ''} repérée{runCourant.nbPlanches > 1 ? 's' : ''} par image dans cette pièce.
-                  {runCourant.incertaines.length > 0 && ` ${runCourant.incertaines.length} page${runCourant.incertaines.length > 1 ? 's' : ''} incertaine${runCourant.incertaines.length > 1 ? 's' : ''} (${runCourant.incertaines.map((p) => `p${p}`).join(', ')}) — hors best-of.`}
-                  {runCourant.pagesEcartees.length > 0 && ` ${runCourant.pagesEcartees.length} page${runCourant.pagesEcartees.length > 1 ? 's' : ''} non envoyée${runCourant.pagesEcartees.length > 1 ? 's' : ''} par précaution : ${runCourant.pagesEcartees.map((e) => `p${e.page} (${e.motif})`).join(' ; ')}.`}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
+        {/* LOT 94 — la BARRE DE COMMANDES (navigation de pages, bascule best-of, analyses) a QUITTÉ cette colonne : elle est désormais
+            SOUS l'aperçu, dans la colonne de droite (voir plus bas). Ici ne restent que le contexte best-of/pièce et le zoom. */}
         <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajuster} />
       </div>
       {/* LOT 91 — APERÇU COLLANT : sur écran LARGE (colonnes côte à côte), le panneau d'aperçu SUIT le défilement (position sticky) →
@@ -541,27 +516,79 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
               </span>
             </div>
           )}
-          {/* LOT 61/92 — bouton DISCRET posé SUR l'aperçu (coin haut-droit), grain = LA PAGE affichée. TOGGLE : une page DANS le best-of
-              propose « ✕ retirer », une page HORS best-of (ex. ouverte via « voir toutes les pièces ») propose « ＋ ajouter cette page ».
-              Jamais un bouton qui ne dit pas ce qu'il fait. RÉVERSIBLE (listes ci-dessous). La liseuse est une zone décidée-CLAIRE (le canvas
-              peint un plan clair) : ce contrôle d'INCRUSTATION porte son propre contraste (puce sombre translucide + texte clair, comme des
-              contrôles vidéo), lisible quel que soit le thème admin. Cible ≥ 32 px, atteignable au clavier. On agit sur la SÉLECTION, jamais sur la GED. */}
-          {pieceId !== null && !chargeReseau && !enRendu && (
-            pageDansBestOf ? (
+          {/* LOT 94 — la bascule best-of au grain PAGE n'est PLUS en surimpression sur l'aperçu (elle l'était aux LOTs 61/92) : elle vit
+              maintenant dans la BARRE DE COMMANDES sous l'image (② ci-dessous), hors canvas → tokens de thème. Le canvas reste NU. */}
+        </div>
+        {/* LOT 94 — BARRE DE COMMANDES sous l'aperçu (colonne de droite). HORS canvas → tokens `--color-svv-*` : fond et texte basculent
+            ensemble en thème clair comme sombre (le canvas, lui, reste CLAIR et n'a plus aucun contrôle en surimpression). Quatre gestes :
+            ① navigation de PAGES du fichier ouvert — axe DISTINCT du best-of (BandePlans, colonne de gauche, « plan i sur N ») : les deux
+               coexistent, on sait à tout moment sur quel PLAN (à gauche) ET sur quelle PAGE (ici) on est ; ② bascule best-of au grain page
+               (mêmes gestes que le LOT 92, aucune 2e source de vérité) ; ③ analyse du FICHIER complet (bouton du LOT 62 déplacé + renommé,
+               coût inchangé) ; ④ analyse de LA PAGE, DÉSACTIVÉE et annoncée (le grain page reste à construire — jamais câblée sur ③). */}
+        {pieceId !== null && (
+          <div style={{ marginTop: '.4rem', paddingTop: '.4rem', borderTop: '1px solid var(--color-svv-line)', display: 'flex', flexDirection: 'column', gap: '.4rem', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)' }}>
+            {/* ① NAVIGATION DE PAGES — SEULEMENT si le fichier a plusieurs pages ; « précédent » à l'extrême gauche, « suivant » à
+                l'extrême droite (space-between), la page courante ENTRE les deux. Boutons DÉSACTIVÉS (pas masqués) aux bornes → la position
+                reste lisible. C'est un axe distinct du best-of : naviguer les pages NE change PAS le plan best-of courant. */}
+            {nbPagesPiece > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap' }}>
+                <button type="button" aria-label="Page précédente du fichier" disabled={page <= 1} onClick={() => changerPage(-1)}
+                  style={{ cursor: page <= 1 ? 'default' : 'pointer', opacity: page <= 1 ? 0.4 : 1, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}>‹ page précédente</button>
+                <span style={{ fontSize: 12, fontWeight: 700, textAlign: 'center' }}>page {page} sur {nbPagesPiece}{planAffiche?.echelle ? ` · échelle ${planAffiche.echelle}` : ''}</span>
+                <button type="button" aria-label="Page suivante du fichier" disabled={page >= nbPagesPiece} onClick={() => changerPage(1)}
+                  style={{ cursor: page >= nbPagesPiece ? 'default' : 'pointer', opacity: page >= nbPagesPiece ? 0.4 : 1, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}>page suivante ›</button>
+              </div>
+            )}
+            {/* ② BASCULE BEST-OF au grain PAGE (déplacée de la surimpression du LOT 92 vers la barre). TOGGLE : une page DANS le best-of
+                propose « ✕ retirer », une page HORS best-of propose « ＋ ajouter cette page ». Jamais un bouton muet. Réutilise
+                retirerDuBestOf / ajouterAuBestOf (tables inclusion/exclusion, LOT 92) — aucune 2e source de vérité. */}
+            {pageDansBestOf ? (
               <button type="button" onClick={() => void retirerDuBestOf(planAffiche!)}
                 aria-label={`Retirer du best-of la page ${page} de ${nomCourant} (réversible ; ne supprime pas le document)`}
-                style={{ position: 'absolute', top: '.4rem', right: '.4rem', minHeight: 32, padding: '.25rem .55rem', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#ffffff', background: 'rgba(20,20,20,0.62)', border: '1px solid rgba(255,255,255,0.55)', borderRadius: '.4rem' }}>
+                style={{ alignSelf: 'flex-start', cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 36, padding: '.3rem .6rem', fontSize: 12, fontWeight: 600 }}>
                 ✕ retirer du best-of
               </button>
             ) : (
               <button type="button" onClick={() => void ajouterAuBestOf(pieceId, page)}
                 aria-label={`Ajouter au best-of la page ${page} de ${nomCourant} (cette page seule, pas le fichier entier ; réversible)`}
-                style={{ position: 'absolute', top: '.4rem', right: '.4rem', minHeight: 32, padding: '.25rem .55rem', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#ffffff', background: 'rgba(20,20,20,0.62)', border: '1px solid rgba(255,255,255,0.55)', borderRadius: '.4rem' }}>
+                style={{ alignSelf: 'flex-start', cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 36, padding: '.3rem .6rem', fontSize: 12, fontWeight: 600 }}>
                 ＋ ajouter cette page au best-of
               </button>
-            )
-          )}
-        </div>
+            )}
+            {/* ③ ④ ANALYSES — le bouton du LOT 62 (« Repérer les planches… ») déplacé et renommé « analyse du fichier complet » (rendu pur,
+                MÊME coût, MÊME verrou 58) ; « analyse de la page » DÉSACTIVÉE, jamais câblée sur l'analyse du fichier entier (Arno croirait
+                payer pour une page et paierait pour toutes). */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
+              <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}
+                disabled={reperEnCours} aria-busy={reperEnCours} onClick={() => void reperer()}>
+                {reperEnCours ? 'Analyse des images en cours…' : 'analyse du fichier complet'}
+              </button>
+              <button type="button" className="svv-btn svv-btn-outline" disabled aria-disabled="true"
+                title="pas encore disponible — l'analyse au grain page reste à construire"
+                style={{ minHeight: 36, padding: '.3rem .6rem', fontSize: 12, opacity: 0.5, cursor: 'not-allowed' }}>
+                analyse de la page
+              </button>
+            </div>
+            {/* MENTION HONNÊTE — coût de ③ annoncé AVANT le clic + statut de ④ dit explicitement (jamais un bouton muet). */}
+            <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>
+              « analyse du fichier complet » fait analyser les images de <strong style={{ color: 'var(--color-svv-ink)', wordBreak: 'break-word' }}>{nomCourant}</strong> par un service payant (de l’ordre de 2 centimes pour une vingtaine de pages) pour trouver les plans encastrés que le repérage par le texte ne voit pas. Résultat modifiable (vous pouvez retirer une page). « analyse de la page » n’est <strong style={{ color: 'var(--color-svv-ink)' }}>pas encore disponible</strong> — l’analyse au grain page reste à construire.
+              {runCourant && <> <strong style={{ color: 'var(--color-svv-ink)' }}>Cette pièce a déjà été analysée</strong> — relancer refera une analyse payante.</>}
+            </span>
+            {/* ENCART DE RÉSULTAT du repérage — visible et persistant (LOT 63 a), déplacé avec le bouton. Rouge si session expirée. */}
+            {(reperMsg || runCourant) && (
+              <div role="status" aria-live="polite" style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', padding: '.4rem .5rem', borderRadius: '.4rem', background: 'var(--color-svv-field)', borderLeft: `3px solid ${reperMsg && reperMsg.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}` }}>
+                {reperMsg && <span style={{ fontSize: 12, fontWeight: 600, color: reperMsg.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-ink)' }}>{reperMsg}</span>}
+                {runCourant && (
+                  <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>
+                    {runCourant.nbPlanches} planche{runCourant.nbPlanches > 1 ? 's' : ''} repérée{runCourant.nbPlanches > 1 ? 's' : ''} par image dans cette pièce.
+                    {runCourant.incertaines.length > 0 && ` ${runCourant.incertaines.length} page${runCourant.incertaines.length > 1 ? 's' : ''} incertaine${runCourant.incertaines.length > 1 ? 's' : ''} (${runCourant.incertaines.map((p) => `p${p}`).join(', ')}) — hors best-of.`}
+                    {runCourant.pagesEcartees.length > 0 && ` ${runCourant.pagesEcartees.length} page${runCourant.pagesEcartees.length > 1 ? 's' : ''} non envoyée${runCourant.pagesEcartees.length > 1 ? 's' : ''} par précaution : ${runCourant.pagesEcartees.map((e) => `p${e.page} (${e.motif})`).join(' ; ')}.`}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {message && <p role="alert" style={{ fontSize: 11, color: 'var(--color-svv-red)', margin: '.3rem 0 0' }}>{message}</p>}
         {/* LOT 61 — le best-of est vide APRÈS retraits (jamais un écran muet) : on le DIT et on invite à réintégrer via la liste ci-dessous. */}
         {nav === 'bestof' && bandeVisible.length === 0 && retirees.length > 0 && (

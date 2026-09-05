@@ -102,6 +102,51 @@ describe('LOT 92 — ajouter/retirer une PAGE au best-of depuis l’aperçu (gar
   });
 });
 
+describe('LOT 94 — barre de commandes SOUS l’aperçu : navigation de PAGES, bascule best-of déplacée, deux boutons d’analyse (garde par lecture de source)', () => {
+  it('① la navigation de PAGES n’apparaît que si le fichier a PLUSIEURS pages, et est bornée (boutons désactivés, pas masqués)', () => {
+    expect(SRC).toMatch(/nbPagesPiece > 1 && \(/);              // la ligne de navigation de pages est conditionnée au multipage
+    expect(SRC).toContain('page {page} sur {nbPagesPiece}');    // indicateur de page courante ENTRE les deux boutons
+    expect(SRC).toMatch(/disabled=\{page <= 1\}/);              // début de fichier → « précédent » désactivé (pas masqué)
+    expect(SRC).toMatch(/disabled=\{page >= nbPagesPiece\}/);   // fin de fichier → « suivant » désactivé (pas masqué)
+    expect(SRC).toContain("justifyContent: 'space-between'");   // « précédent » à l'extrême gauche, « suivant » à l'extrême droite
+    expect(SRC).toContain('changerPage(-1)');
+    expect(SRC).toContain('changerPage(1)');
+  });
+  it('① DEUX AXES DISTINCTS conservés : la nav de PAGES (barre) coexiste avec la nav de PLANS best-of (BandePlans, colonne gauche) — l’une ne remplace pas l’autre', () => {
+    expect(SRC).toContain('<BandePlans');                        // l'axe best-of (« plan i sur N ») reste en colonne gauche
+    expect(SRC).toContain('Page précédente du fichier');         // l'axe pages porte un libellé PROPRE, distinct de « Plan précédent »
+    expect(SRC).toContain('Page suivante du fichier');
+  });
+  it('② la bascule best-of est DÉPLACÉE dans la barre (hors canvas → tokens de thème), plus AUCUNE surimpression sur l’aperçu', () => {
+    // le toggle grain page reste piloté par pageDansBestOf et réutilise ajouter/retirer du LOT 92 (aucune 2e source de vérité).
+    expect(SRC).toContain('＋ ajouter cette page au best-of');
+    expect(SRC).toContain('✕ retirer du best-of');
+    expect(SRC).toContain('ajouterAuBestOf(pieceId, page)');
+    expect(SRC).toContain('retirerDuBestOf(planAffiche!)');
+    // plus de bouton EN SURIMPRESSION : le toggle n'est plus positionné en absolu sur le canvas (fond translucide sombre supprimé).
+    expect(SRC).not.toContain("background: 'rgba(20,20,20,0.62)'");
+    // hors canvas = tokens de thème, jamais une couleur blanche en dur pour le texte du toggle.
+    expect(SRC).not.toContain("color: '#ffffff'");
+  });
+  it('③ « analyse du fichier complet » = le bouton de repérage du LOT 62 déplacé + renommé (même reperer, même verrou), coût annoncé', () => {
+    expect(SRC).toContain('analyse du fichier complet');
+    expect(SRC).toContain('void reperer()');                     // MÊME action que le LOT 62 (aucun nouveau coût)
+    expect(SRC).not.toContain('Repérer les planches de cette pièce'); // l'ancien libellé a bien disparu
+    expect(SRC).toContain('de l’ordre de 2 centimes pour une vingtaine de pages'); // coût annoncé AVANT le clic
+  });
+  it('④ « analyse de la page » est DÉSACTIVÉE et ANNONCÉE, JAMAIS câblée sur l’analyse du fichier entier', () => {
+    expect(SRC).toContain('analyse de la page');
+    expect(SRC).toContain("l'analyse au grain page reste à construire");
+    // on isole l'ÉLÉMENT bouton désactivé (de son attribut `disabled aria-disabled` jusqu'à son libellé) et on vérifie l'absence
+    //   de handler : « analyse de la page » n'est JAMAIS câblée sur reperer (Arno paierait pour tout le fichier).
+    const debut = SRC.indexOf('disabled aria-disabled="true"');
+    const bloc = SRC.slice(debut, SRC.indexOf('analyse de la page', debut));
+    expect(debut).toBeGreaterThan(-1);
+    expect(bloc).not.toContain('onClick');
+    expect(bloc).not.toContain('reperer');
+  });
+});
+
 describe('LOT 91 — aperçu collant + liste bornée : l’aperçu reste en face de la ligne cliquée (garde par lecture de source)', () => {
   it('le panneau d’APERÇU est COLLANT (position sticky, ancré en haut de sa colonne)', () => {
     expect(SRC).toMatch(/flex: '2 1 300px'[\s\S]{0,80}position: 'sticky'/); // la colonne aperçu porte position sticky
