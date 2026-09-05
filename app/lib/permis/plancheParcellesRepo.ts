@@ -37,6 +37,15 @@ export type CentreMode = 'empreinte' | 'parcelle' | 'adresse';
 export interface CentreDemande { mode: CentreMode; idu?: string | null }
 export interface CentreEffectif { mode: CentreMode; idu: string | null; point: { x: number; y: number } | null }
 
+/** PL-C — sélection validée à la main (superposition). active=false → 100% automatique. Provenance HONNÊTE (acteur résolu si id admin). */
+export interface SelectionInfo {
+  active: boolean;
+  idus: string[];              // IDU de la sélection validée (l'ensemble effectif)
+  validePar: string | null;    // valeur brute de valide_par (id admin, 'admin', ou autre)
+  valideLe: string | null;     // ISO de la validation
+  acteurNom: string | null;    // prénom+nom si valide_par est un id d'admin résolu ; null sinon
+}
+
 /** « Où l'on est » : commune de la planche + ce qu'on peut HONNÊTEMENT reconstituer du nom de planche (feuille non présente en base). */
 export interface Localisation {
   communeCode: string | null;   // INSEE cadastral (arrondissement pour Paris)
@@ -64,6 +73,7 @@ export interface PlancheParcelles {
   marqueurAdresse: { cx: number; cy: number } | null;
   parcellesChoix: { idu: string; section: string; numero: string }[];
   localisation: Localisation;
+  selection: SelectionInfo;     // PL-C — sélection validée (superposition) ; active=false = configuration automatique
 }
 
 interface LignePlanche {
@@ -134,6 +144,23 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
        FROM permis_parcelle pp JOIN parcelle par ON par.id = pp.idu WHERE pp.dossier_id = $1 ORDER BY par.section, par.numero`, [dossierId]);
   const parcellesChoix = choixRows.map((r) => ({ idu: r.idu, section: r.section, numero: r.numero }));
 
+  // PL-C — sélection validée (superposition). Résiliente si migration 202 absente (42P01 → aucune sélection = configuration automatique).
+  let selection: SelectionInfo = { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null };
+  try {
+    const { rows: selRows } = await query<{ idu: string; valide_par: string | null; valide_le: string | null; prenom: string | null; nom: string | null }>(
+      `SELECT s.idu, s.valide_par, s.valide_le::text AS valide_le, au.prenom, au.nom
+         FROM permis_parcelle_selection s
+         LEFT JOIN admin_utilisateur au ON au.id = CASE WHEN s.valide_par ~ '^[0-9]+$' THEN s.valide_par::bigint ELSE NULL END
+        WHERE s.dossier_id = $1 ORDER BY s.section, s.numero`, [dossierId]);
+    if (selRows.length > 0) {
+      const p = selRows[0];
+      selection = {
+        active: true, idus: selRows.map((r) => r.idu), validePar: p.valide_par, valideLe: p.valide_le,
+        acteurNom: p.prenom || p.nom ? `${p.prenom ?? ''} ${p.nom ?? ''}`.trim() : null,
+      };
+    }
+  } catch (e) { if ((e as { code?: string })?.code !== '42P01') throw e; } // 202 absente → configuration automatique
+
   const demande: CentreDemande = centre ?? { mode: 'empreinte' };
   let mode: CentreMode = 'empreinte';
   let idu: string | null = null;
@@ -170,6 +197,9 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
        SELECT p.id AS idu, p.section, p.numero, ST_Force2D(p.geom) AS geom
          FROM parcelle p, ref
         WHERE ref.g IS NOT NULL AND ST_DWithin(p.geom, ref.g, $2)
+       UNION  -- PL-C : les parcelles du permis ET de la sélection sont TOUJOURS dessinées (donc basculables/vertes), même hors rayon.
+       SELECT par.id, par.section, par.numero, ST_Force2D(par.geom)
+         FROM parcelle par WHERE par.id = ANY($7::text[])
      )
      SELECT d.idu, d.section, d.numero, ST_AsGeoJSON(d.geom)::json AS gj,
             r.origine, r.maj_par, r.maj_le, r.prenom, r.nom, (r.idu IS NOT NULL) AS retenue,
@@ -182,7 +212,8 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
           WHERE pp.dossier_id = $1 AND pp.idu = d.idu LIMIT 1
        ) r ON true
       ORDER BY (r.idu IS NOT NULL) DESC, ST_Y(ST_Centroid(d.geom)) DESC, ST_X(ST_Centroid(d.geom)), d.idu`,
-    [dossierId, rayon, mode, idu, point?.x ?? null, point?.y ?? null]);
+    [dossierId, rayon, mode, idu, point?.x ?? null, point?.y ?? null,
+     [...new Set([...parcellesChoix.map((p) => p.idu), ...selection.idus])]]);
 
   const meta: PlancheParcelleMeta[] = rows.map((r) => ({
     idu: r.idu, section: r.section, numero: r.numero, retenue: r.retenue === true,
@@ -225,6 +256,6 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
 
   return {
     schema, meta, rayonM: rayon, nbRetenues, nbVoisines, motif,
-    centre: { mode, idu, point }, centreAvertissement, marqueurAdresse, parcellesChoix, localisation,
+    centre: { mode, idu, point }, centreAvertissement, marqueurAdresse, parcellesChoix, localisation, selection,
   };
 }

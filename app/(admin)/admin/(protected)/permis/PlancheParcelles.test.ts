@@ -3,79 +3,89 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /**
- * PL-A — planche cadastrale (composant client : fetch + SVG). Garde par LECTURE DE SOURCE : on prouve la LECTURE SEULE, la
- * réutilisation du schéma pur, et la PROVENANCE HONNÊTE (jamais « à la main » pour un harnais/CLI), sans monter le DOM.
+ * PL-A/B/C — planche cadastrale (composant client). Garde par LECTURE DE SOURCE : réutilisation du schéma pur, provenance HONNÊTE,
+ * et (PL-C) le BASCULEMENT au clic LOCAL + les deux boutons d'écriture explicites, sans monter le DOM.
  */
 const SRC = readFileSync(fileURLToPath(new URL('./PlancheParcelles.tsx', import.meta.url)), 'utf8');
 const ROUTE = readFileSync(fileURLToPath(new URL('../../../../(admin)/api/admin/permis/planche/route.ts', import.meta.url)), 'utf8');
 
-describe('PlancheParcelles — lecture seule, schéma pur réutilisé, provenance honnête', () => {
-  it('LECTURE SEULE : GET de la planche, AUCUN POST/écriture depuis le composant', () => {
-    expect(SRC).toContain('/api/admin/permis/planche?');
-    expect(SRC).toContain('cache: '); // no-store, jamais une écriture
-    expect(SRC).not.toContain("method: 'POST'");
-  });
-  it('PL-B — RÉUTILISE la liseuse existante (jamais dupliquée) : import de LiseusePieces', () => {
+describe('PlancheParcelles — schéma pur, provenance honnête (PL-A/B)', () => {
+  it('RÉUTILISE la liseuse existante (jamais dupliquée) + le module PUR (pas de lib de tuiles)', () => {
     expect(SRC).toContain("import { LiseusePieces } from './LiseusePieces'");
     expect(SRC).toContain('<LiseusePieces dossierId={dossierId}');
-  });
-  it('PL-B — RAYON réglable à l’écran 50→200 m (input range)', () => {
-    expect(SRC).toContain('type="range"');
-    expect(SRC).toMatch(/RAYON_MIN\s*=\s*50/);
-    expect(SRC).toMatch(/RAYON_MAX\s*=\s*200/);
-  });
-  it('PL-B — TROIS modes de centrage (empreinte défaut / parcelle / adresse)', () => {
-    expect(SRC).toContain("changerMode('empreinte')");
-    expect(SRC).toContain("changerMode('parcelle')");
-    expect(SRC).toContain("changerMode('adresse')");
-  });
-  it('PL-B — « on ne devine pas » : l’avertissement de centrage est affiché (adresse non résolue)', () => {
-    expect(SRC).toContain('data.centreAvertissement');
-  });
-  it('PL-B — SURVOL→nom (title), TAP/CLIC (onClick→sélection), CLAVIER (tabIndex + onFocus/onKeyDown) : utilisable au doigt ET au clavier', () => {
-    expect(SRC).toContain('<title>');
-    expect(SRC).toContain('onClick={() => setSelection');
-    expect(SRC).toContain('tabIndex={0}');
-    expect(SRC).toMatch(/onFocus=\{\(\) => setSelection/);
-  });
-  it('la ROUTE n’expose QUE GET (aucune mutation)', () => {
-    expect(ROUTE).toContain('export async function GET');
-    expect(ROUTE).not.toContain('export async function POST');
-  });
-  it('réutilise le module PUR (schéma projeté) via le loader, pas une lib de tuiles', () => {
     expect(SRC).toContain("from '../../../../lib/permis/plancheParcellesRepo'");
     expect(SRC).toContain('schema.polygones');
     expect(SRC).not.toMatch(/leaflet|mapbox|maplibre|ol\/Map/i);
   });
-  it('PROVENANCE HONNÊTE : passe par descriptionActeurParcelle ; « à la main » CONDITIONNÉ (jamais inconditionnel)', () => {
-    expect(SRC).toContain('descriptionActeurParcelle');
-    expect(SRC).toContain('d.aLaMain');
-    expect(SRC).toContain('référence corrigée par'); // branche NON identifiable (verif-lot101)
+  it('RAYON 50→200 m + TROIS modes de centrage', () => {
+    expect(SRC).toContain('type="range"');
+    expect(SRC).toMatch(/RAYON_MIN\s*=\s*50/); expect(SRC).toMatch(/RAYON_MAX\s*=\s*200/);
+    expect(SRC).toContain("changerMode('empreinte')"); expect(SRC).toContain("changerMode('parcelle')"); expect(SRC).toContain("changerMode('adresse')");
   });
-  it('HONNÊTETÉ (piège LOT 71) : rien à dessiner → un MOTIF, jamais un cadre vide muet', () => {
-    expect(SRC).toContain('data.motif');
+  it('SURVOL instantané (onMouseMove + position:fixed), <title> a11y, OÙ L’ON EST', () => {
+    expect(SRC).toContain('onMouseMove='); expect(SRC).toContain('setSurvol'); expect(SRC).toContain("position: 'fixed'"); expect(SRC).toContain('<title>');
+    expect(SRC).toContain('data.localisation.feuilleLibelle'); expect(SRC).toContain('non résolue en base');
+  });
+  it('PROVENANCE HONNÊTE : descriptionActeurParcelle, « à la main » CONDITIONNÉ, jamais inconditionnel', () => {
+    expect(SRC).toContain('descriptionActeurParcelle');
+    expect(SRC).toContain('auteur non identifié'); // état validé par un auteur non-admin → jamais « à la main »
   });
 });
 
-describe('PlancheParcelles — corrections PL-B2', () => {
-  it('§1 SURVOL INSTANTANÉ : libellé qui suit le curseur (onMouseMove + position:fixed), <title> conservé pour l’a11y', () => {
-    expect(SRC).toContain('onMouseMove=');
-    expect(SRC).toContain('setSurvol');
-    expect(SRC).toContain("position: 'fixed'");
-    expect(SRC).toContain('<title>'); // gardé pour lecteurs d'écran
+describe('PlancheParcelles — sélection PL-C (basculement local + boutons d’écriture)', () => {
+  it('CLIC = BASCULEMENT LOCAL : onClick → basculer(id), un clic N’ÉCRIT RIEN (aucun fetch dans le basculement)', () => {
+    expect(SRC).toContain('onClick={() => basculer(id)}');
+    expect(SRC).toMatch(/const basculer = [\s\S]*?setComposition/); // basculer ne touche QUE l'état local
+    expect(SRC.match(/const basculer = \([\s\S]*?\};/)?.[0] ?? '').not.toContain('fetch');
   });
-  it('§2 LIBELLÉ explicite « Centrer sur une parcelle » + grisé si le permis n’a qu’une parcelle', () => {
-    expect(SRC).toContain('Centrer sur une parcelle');
-    expect(SRC).not.toContain('>Une parcelle<');
-    expect(SRC).toContain('data.parcellesChoix.length <= 1'); // désactivé quand identique au défaut
+  it('VERT = composition (allumée) ; re-clic désélectionne (aria-pressed reflète l’état)', () => {
+    expect(SRC).toContain('composition.has(id)');
+    expect(SRC).toContain('aria-pressed={dans}');
+    expect(SRC).toContain('var(--color-svv-green-ink)'); // vert des sélectionnées
   });
-  it('§3 OÙ L’ON EST : commune + libellé de planche affichés sous la carte (feuille reconstituée, honnête)', () => {
-    expect(SRC).toContain('data.localisation.feuilleLibelle');
-    expect(SRC).toContain('data.localisation.feuilleNote');
-    expect(SRC).toContain('non résolue en base'); // dit quand la commune ne se résout pas (jamais inventée)
+  it('CLAVIER + TACTILE : tabIndex sur les parcelles actionnables, Enter/Espace bascule, cibles ≥ 40 px (mobile-first)', () => {
+    expect(SRC).toMatch(/tabIndex=\{focusable\(m\) \? 0 : -1\}/);
+    expect(SRC).toContain("if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); basculer(id); }");
+    expect(SRC).toMatch(/minHeight:\s*40/);
   });
-  it('§4 PLANCHE DE L’ADRESSE : note honnête si aucune parcelle du permis autour de l’adresse', () => {
-    expect(SRC).toContain("data.centre.mode === 'adresse'");
-    expect(SRC).toContain('planche centrée sur l’adresse');
+  it('BOUTON « Valider la sélection » → POST valider ; refusé si composition vide', () => {
+    expect(SRC).toContain('Valider la sélection');
+    expect(SRC).toContain("poster('valider', [...composition])");
+    expect(SRC).toContain('disabled={enCours || composition.size === 0}');
+    expect(SRC).toContain('une empreinte vide n’est pas validable');
+  });
+  it('BOUTON « Revenir à la configuration d’origine » → POST retirer, SEULEMENT si une sélection existe', () => {
+    expect(SRC).toContain('Revenir à la configuration d’origine');
+    expect(SRC).toContain("poster('retirer')");
+    expect(SRC).toMatch(/data\.selection\.active && <button[\s\S]*Revenir à la configuration/);
+  });
+  it('« Réinitialiser à la sélection par défaut » : LOCAL (composition = défaut automatique), pas d’écriture', () => {
+    expect(SRC).toContain('Réinitialiser à la sélection par défaut');
+    expect(SRC).toContain('const reinitialiser = () => { setComposition(new Set(defautIdus));');
+  });
+  it('GESTE DÉLIBÉRÉ : DIT ce qui se recalcule (empreinte + bâti + projection) ; état courant DIT (auto vs validé par QUI/QUAND)', () => {
+    expect(SRC).toContain('recalcule l’empreinte, la photo du bâti et la projection');
+    expect(SRC).toContain('Sélection validée'); expect(SRC).toContain('Configuration automatique');
+    expect(SRC).toContain("data.selection.valideLe"); // QUAND
+  });
+  it('un POST passe bien par la route de modification /api/admin/permis/planche (method POST)', () => {
+    expect(SRC).toContain("fetch('/api/admin/permis/planche', { method: 'POST'");
+  });
+});
+
+describe('route /api/admin/permis/planche — GET (lecture) + POST (modification)', () => {
+  it('GET et POST exposés ; POST DÉLÈGUE à validerSelection / retirerSelection (aucun SQL dans la route)', () => {
+    expect(ROUTE).toContain('export async function GET'); expect(ROUTE).toContain('export async function POST');
+    expect(ROUTE).toContain('validerSelection'); expect(ROUTE).toContain('retirerSelection');
+    expect(ROUTE).not.toMatch(/INSERT|UPDATE|DELETE|SELECT /); // la route n'écrit aucun SQL : elle délègue au moteur (jamais permis_parcelle ici)
+  });
+  it('PROVENANCE : auteur = auteurDe(garde) (admin authentifié), jamais une chaîne de harnais', () => {
+    expect(ROUTE).toContain('const auteur = auteurDe(garde)');
+    expect(ROUTE).toContain('validerSelection(dossierId, idus, auteur)');
+    expect(ROUTE).toContain('retirerSelection(dossierId, auteur)');
+  });
+  it('SÉLECTION VIDE refusée explicitement (400), jamais un succès silencieux', () => {
+    expect(ROUTE).toContain('sélection vide');
+    expect(ROUTE).toMatch(/idus\.length === 0[\s\S]*status: 400/);
   });
 });
