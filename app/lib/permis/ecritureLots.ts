@@ -8,6 +8,7 @@
  * n'invente aucune valeur : un champ non écrit laisse une ligne 'ecartee' avec son motif.
  */
 import { query } from '../db/client';
+import { origineDepuisMajPar, suffixeOrigine, type OrigineExtraction } from './journalExtraction'; // LOT 100
 import { lirePermisCaracteristiques, creerCorps, definirRepere, ecrireCorps, type ValeursCorps } from './caracteristiquesRepo';
 import type { DecisionLots } from './decisionLots';
 
@@ -23,14 +24,16 @@ export interface ResultatEcritureLots { corps: { repere: string; corpsId: number
 type Role = 'retenue' | 'ecartee';
 interface Ligne { corpsId: number | null; champ: string; valeur: number | null; unite: 'ngf' | null; role: Role; confiance: 'confirmee' | 'a_verifier' | null; reserve: string | null; motif: string | null; piece: string | null; page: number | null; extrait: string | null }
 
-async function journaliser(dossierId: number, lignes: Ligne[]): Promise<void> {
+async function journaliser(dossierId: number, lignes: Ligne[], origine: OrigineExtraction | null): Promise<void> {
   for (const l of lignes) {
     if (!CHAMPS_ENONCE.includes(l.champ)) throw new Error(`ecritureLots : champ '${l.champ}' hors du domaine 'enonce' déclaré (CHAMPS_ENONCE) — l'y ajouter, sinon la purge le laisse fantôme`);
+    const params = [dossierId, l.corpsId, l.champ, l.valeur, l.unite, l.role, l.confiance, l.reserve, l.motif, l.piece, l.page, l.extrait];
+    const og = await suffixeOrigine(params.length, origine); // LOT 100
     await query(
       `INSERT INTO permis_extraction_journal
-         (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
-       VALUES ($1, $2, $3, $4, $5, $6, 'enonce', $7, $8, $9, $10, $11, $12, now())`,
-      [dossierId, l.corpsId, l.champ, l.valeur, l.unite, l.role, l.confiance, l.reserve, l.motif, l.piece, l.page, l.extrait],
+         (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le${og.cols})
+       VALUES ($1, $2, $3, $4, $5, $6, 'enonce', $7, $8, $9, $10, $11, $12, now()${og.vals})`,
+      [...params, ...og.params],
     );
   }
 }
@@ -93,6 +96,6 @@ export async function ecrireLots(dossierId: number, decision: DecisionLots, majP
     }
   }
 
-  await journaliser(dossierId, lignes);
+  await journaliser(dossierId, lignes, origineDepuisMajPar(majPar));
   return { corps: resCorps, sommetPermisEcrit };
 }

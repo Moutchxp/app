@@ -11,37 +11,41 @@
  *   Abstention → ligne 'ecartee' avec le motif (« pourquoi la désignation est vide »).
  */
 import { query } from '../db/client';
+import { origineDepuisMajPar, suffixeOrigine, type OrigineExtraction } from './journalExtraction'; // LOT 100
 import { ecrireCaracteristiquesGlobales } from './caracteristiquesRepo';
 import { MOTIF_SAISIE_PRIORITAIRE } from './ecritureCerfa';
 import type { DecisionDesignation } from './decisionDesignation';
 
 export interface ResultatEcritureDesignation { ecrit: boolean; ignoreSaisie: boolean; abstenue: boolean }
 
-async function journaliser(dossierId: number, role: 'retenue' | 'ecartee', motif: string | null, piece: string | null, page: number | null, extrait: string | null): Promise<void> {
+async function journaliser(dossierId: number, role: 'retenue' | 'ecartee', motif: string | null, piece: string | null, page: number | null, extrait: string | null, origine: OrigineExtraction | null): Promise<void> {
+  const params = [dossierId, role, motif, piece, page, extrait];
+  const og = await suffixeOrigine(params.length, origine); // LOT 100
   await query(
     `INSERT INTO permis_extraction_journal
-       (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
-     VALUES ($1, NULL, 'designation', NULL, NULL, $2, 'enonce', NULL, NULL, $3, $4, $5, $6, now())`,
-    [dossierId, role, motif, piece, page, extrait],
+       (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le${og.cols})
+     VALUES ($1, NULL, 'designation', NULL, NULL, $2, 'enonce', NULL, NULL, $3, $4, $5, $6, now()${og.vals})`,
+    [...params, ...og.params],
   );
 }
 
 /** Applique la décision de désignation (niveau permis). `majPar` identifie l'auteur automatique. */
 export async function ecrireDesignation(dossierId: number, decision: DecisionDesignation, majPar: string): Promise<ResultatEcritureDesignation> {
+  const origine = origineDepuisMajPar(majPar); // LOT 100 — auto (passage) / manuelle (relance) / null (indéterminée)
   // Recompute idempotent : purge CIBLÉE (jamais 'motifs'/'cerfa', jamais les autres 'enonce', jamais la saisie).
   await query(`DELETE FROM permis_extraction_journal WHERE dossier_id = $1 AND methode = 'enonce' AND champ = 'designation'`, [dossierId]);
 
   if (decision.statut === 'abstenue') {
-    await journaliser(dossierId, 'ecartee', decision.motif, null, null, null);
+    await journaliser(dossierId, 'ecartee', decision.motif, null, null, null, origine);
     return { ecrit: false, ignoreSaisie: false, abstenue: true };
   }
 
   const res = await ecrireCaracteristiquesGlobales(dossierId, { designation: decision.valeur }, 'extraite', majPar);
   if (res.ecrits.includes('designation')) {
-    await journaliser(dossierId, 'retenue', null, decision.piece, decision.page, decision.valeur);
+    await journaliser(dossierId, 'retenue', null, decision.piece, decision.page, decision.valeur, origine);
     return { ecrit: true, ignoreSaisie: false, abstenue: false };
   }
   // Non écrite : une valeur 'saisie' occupe déjà le champ (la main l'emporte).
-  await journaliser(dossierId, 'ecartee', MOTIF_SAISIE_PRIORITAIRE, null, null, null);
+  await journaliser(dossierId, 'ecartee', MOTIF_SAISIE_PRIORITAIRE, null, null, null, origine);
   return { ecrit: false, ignoreSaisie: true, abstenue: false };
 }

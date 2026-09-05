@@ -12,6 +12,7 @@
  * - RECOMPUTE IDEMPOTENT : purge CIBLÉE (methode='plan', champs gabarit + plateau) avant de réécrire.
  */
 import { query } from '../db/client';
+import { origineDepuisMajPar, suffixeOrigine, type OrigineExtraction } from './journalExtraction'; // LOT 100
 import { ecrireCorps } from './caracteristiquesRepo';
 import {
   decisionGabaritPlanche, agregerGabarit, controlerRegleGabarit, enonceRegle,
@@ -97,16 +98,19 @@ export function abstentionsGabarit(brutes: readonly LectureBrute[], cibles: read
   return out;
 }
 
-async function journaliser(dossierId: number, corpsId: number | null, champ: string, role: 'retenue' | 'ecartee', valeur: number | null, confiance: 'confirmee' | 'a_verifier' | null, reserve: string | null, motif: string | null, piece: string | null, page: number | null, extrait: string): Promise<void> {
+async function journaliser(dossierId: number, corpsId: number | null, champ: string, role: 'retenue' | 'ecartee', valeur: number | null, confiance: 'confirmee' | 'a_verifier' | null, reserve: string | null, motif: string | null, piece: string | null, page: number | null, extrait: string, origine: OrigineExtraction | null): Promise<void> {
+  const params = [dossierId, corpsId, champ, valeur, role, confiance, reserve, motif, piece, page, extrait];
+  const og = await suffixeOrigine(params.length, origine); // LOT 100
   await query(
-    `INSERT INTO permis_extraction_journal (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
-     VALUES ($1, $2, $3, $4, 'm', $5, 'plan', $6, $7, $8, $9, $10, $11, now())`,
-    [dossierId, corpsId, champ, valeur, role, confiance, reserve, motif, piece, page, extrait],
+    `INSERT INTO permis_extraction_journal (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le${og.cols})
+     VALUES ($1, $2, $3, $4, 'm', $5, 'plan', $6, $7, $8, $9, $10, $11, now()${og.vals})`,
+    [...params, ...og.params],
   );
 }
 
 /** Applique le gabarit + le plateau (niveau corps). `majPar` = auteur automatique. */
 export async function ecrireGabaritPlu(dossierId: number, brutes: readonly LectureBrute[], majPar: string): Promise<ResultatGabarit> {
+  const origine = origineDepuisMajPar(majPar); // LOT 100 — gabarit lancé par CLI/admin (majPar 'extraction:*') → manuelle
   const { rows } = await query<{ id: number }>(`SELECT id::int AS id FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY id`, [dossierId]);
   const corps = rows.map((r) => r.id);
   const cibles: (number | null)[] = corps.length > 0 ? corps : [null];
@@ -119,7 +123,7 @@ export async function ecrireGabaritPlu(dossierId: number, brutes: readonly Lectu
   if (cands.length === 0) {
     // N10-R — ABSTENTION décidée au niveau du corpus : aucune planche ne porte le libellé. On JOURNALISE par champ ET par corps
     //   (motif = la vérité du dossier, via la SOURCE UNIQUE `abstentionsGabarit`), au lieu de sortir en silence. Aucune valeur écrite.
-    for (const a of abstentionsGabarit(brutes, cibles)) await journaliser(dossierId, a.corpsId, a.champ, 'ecartee', null, null, null, a.motif, null, null, `abstention — ${a.motif}`);
+    for (const a of abstentionsGabarit(brutes, cibles)) await journaliser(dossierId, a.corpsId, a.champ, 'ecartee', null, null, null, a.motif, null, null, `abstention — ${a.motif}`, origine);
     return { statut: 'aucune', ecritGabarit: false, ecritPlateau: false, nbCorps: corps.length, nbPlanches: brutes.length, exclues: [] };
   }
 
@@ -134,9 +138,9 @@ export async function ecrireGabaritPlu(dossierId: number, brutes: readonly Lectu
 
     for (const cible of cibles) {
       // candidates de gabarit (pour les boutons) — réserve = l'ÉNONCÉ DE LA RÈGLE (pas « divergentes »).
-      for (const c of cands) await journaliser(dossierId, cible, CHAMP_GABARIT, 'ecartee', c.valeurNgf, c.confiance, reserveRegle, null, c.planche, c.page, `${c.valeurNgf.toFixed(2)} (NGF) — ${c.planche}`);
+      for (const c of cands) await journaliser(dossierId, cible, CHAMP_GABARIT, 'ecartee', c.valeurNgf, c.confiance, reserveRegle, null, c.planche, c.page, `${c.valeurNgf.toFixed(2)} (NGF) — ${c.planche}`, origine);
       // planches EXCLUES du contrôle (fit hors seuil) — journalisées « non concluante », jamais masquées.
-      for (const e of controle.exclues) await journaliser(dossierId, cible, CHAMP_GABARIT, 'ecartee', null, null, null, e.motif, e.planche, e.page, `${e.planche} — ${e.motif}`);
+      for (const e of controle.exclues) await journaliser(dossierId, cible, CHAMP_GABARIT, 'ecartee', null, null, null, e.motif, e.planche, e.page, `${e.planche} — ${e.motif}`, origine);
     }
 
     let ecritGabarit = false, ecritPlateau = false;
@@ -144,8 +148,8 @@ export async function ecrireGabaritPlu(dossierId: number, brutes: readonly Lectu
       const r = await ecrireCorps(corps[0], { hauteurMaxPluNgf: hauteurDefaut, altitudePlateauNivellementNgf: plateauMin }, 'extraite', majPar);
       ecritGabarit = r.ecrits.includes('hauteurMaxPluNgf');
       ecritPlateau = r.ecrits.includes('altitudePlateauNivellementNgf');
-      if (ecritGabarit) await journaliser(dossierId, corps[0], CHAMP_GABARIT, 'retenue', hauteurDefaut, conf(cands), reserveRegle, null, null, null, `${hauteurDefaut.toFixed(2)} (NGF) — plateau le plus bas ${plateauMin} + plafond ${plafond}`);
-      if (ecritPlateau) await journaliser(dossierId, corps[0], CHAMP_PLATEAU, 'retenue', plateauMin, conf(cands), reservePlateau, null, null, null, `${plateauMin.toFixed(2)} (NGF) — plateau le plus bas`);
+      if (ecritGabarit) await journaliser(dossierId, corps[0], CHAMP_GABARIT, 'retenue', hauteurDefaut, conf(cands), reserveRegle, null, null, null, `${hauteurDefaut.toFixed(2)} (NGF) — plateau le plus bas ${plateauMin} + plafond ${plafond}`, origine);
+      if (ecritPlateau) await journaliser(dossierId, corps[0], CHAMP_PLATEAU, 'retenue', plateauMin, conf(cands), reservePlateau, null, null, null, `${plateauMin.toFixed(2)} (NGF) — plateau le plus bas`, origine);
     }
     return { statut: 'regle_verifiee', plafond, plateauMin, plateauMax, gabaritMin, gabaritMax, hauteurDefaut, ecritGabarit, ecritPlateau, nbCorps: corps.length, nbPlanches: brutes.length, exclues: controle.exclues.map((e) => ({ planche: e.planche, page: e.page })) };
   }
@@ -156,13 +160,13 @@ export async function ecrireGabaritPlu(dossierId: number, brutes: readonly Lectu
   const reserve = [divergent ? RESERVE_DIVERGENCE : null, multiCorps ? RESERVE_MULTI_CORPS : null].filter(Boolean).join(' ; ') || null;
   for (const cible of cibles) for (const c of cands) {
     const extrait = `${c.valeurNgf.toFixed(2)} (NGF) — ${c.planche}${c.ecartM !== null ? ` (écart ${c.ecartM.toFixed(2)} m)` : ' (écart non convertible)'}`;
-    await journaliser(dossierId, cible, CHAMP_GABARIT, 'ecartee', c.valeurNgf, c.confiance, reserve, null, c.planche, c.page, extrait);
+    await journaliser(dossierId, cible, CHAMP_GABARIT, 'ecartee', c.valeurNgf, c.confiance, reserve, null, c.planche, c.page, extrait, origine);
   }
   let ecritGabarit = false;
   if (agg.statut === 'concordante' && !multiCorps) {
     const r = await ecrireCorps(corps[0], { hauteurMaxPluNgf: agg.valeur }, 'extraite', majPar);
     ecritGabarit = r.ecrits.includes('hauteurMaxPluNgf');
-    if (ecritGabarit) await journaliser(dossierId, corps[0], CHAMP_GABARIT, 'retenue', agg.valeur, conf(cands), null, null, null, null, `${agg.valeur.toFixed(2)} (NGF) — concordant sur ${cands.length} planche(s)`);
+    if (ecritGabarit) await journaliser(dossierId, corps[0], CHAMP_GABARIT, 'retenue', agg.valeur, conf(cands), null, null, null, null, `${agg.valeur.toFixed(2)} (NGF) — concordant sur ${cands.length} planche(s)`, origine);
   }
   return { statut: agg.statut === 'concordante' ? 'concordante' : 'divergente', ecritGabarit, ecritPlateau: false, nbCorps: corps.length, nbPlanches: brutes.length, exclues: [] };
 }

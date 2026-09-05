@@ -17,6 +17,7 @@ import { query } from '../db/client';
 import { lirePermisCaracteristiques, creerCorps, ecrireCorps, type ValeursCorps } from './caracteristiquesRepo';
 import { proprietairesRetenue } from './journalLecture';
 import { domine, motifEcartePrecedence } from './precedenceMethodes';
+import { origineDepuisMajPar, suffixeOrigine, type OrigineExtraction } from './journalExtraction'; // LOT 100 — origine (auto/manuelle) par ligne
 import type { CandidatNiveauFiniJournal } from './decisionSommet';
 import type { ChampEcrit, DecisionChamps } from './decisionChamps';
 
@@ -65,13 +66,15 @@ function lignesCandidats(cands: CandidatNiveauFiniJournal[]): LigneJournal[] {
   })));
 }
 
-async function journaliser(dossierId: number, lignes: LigneJournal[]): Promise<void> {
+async function journaliser(dossierId: number, lignes: LigneJournal[], origine: OrigineExtraction | null): Promise<void> {
   for (const l of lignes) {
+    const params = [dossierId, l.corpsId, l.champ, l.valeur, l.unite, l.role, l.confiance, l.reserve, l.motif, l.piece, l.page, l.extrait];
+    const og = await suffixeOrigine(params.length, origine); // LOT 100 — trace l'origine (auto/manuelle), résilient si migration 196 absente
     await query(
       `INSERT INTO permis_extraction_journal
-         (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
-       VALUES ($1, $2, $3, $4, $5, $6, 'motifs', $7, $8, $9, $10, $11, $12, now())`,
-      [dossierId, l.corpsId, l.champ, l.valeur, l.unite, l.role, l.confiance, l.reserve, l.motif, l.piece, l.page, l.extrait],
+         (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le${og.cols})
+       VALUES ($1, $2, $3, $4, $5, $6, 'motifs', $7, $8, $9, $10, $11, $12, now()${og.vals})`,
+      [...params, ...og.params],
     );
   }
 }
@@ -94,7 +97,7 @@ export async function ecrireChamps(dossierId: number, decision: DecisionChamps, 
     for (const d of champsCorps) lignes.push(ligneEcartee(d.champ, null, d.statut === 'ecrit' ? MOTIF_AMBIGU_CORPS : d.motif));
     for (const d of champsGlobal) if (d.statut === 'non_ecrit') lignes.push(ligneEcartee(d.champ, null, d.motif));
     lignes.push(...lignesCandidats(decision.candidatsNiveauFini));
-    await journaliser(dossierId, lignes);
+    await journaliser(dossierId, lignes, origineDepuisMajPar(majPar));
     return { statut: 'ambigu_plusieurs_corps', nbCorps: corps.length };
   }
 
@@ -129,7 +132,7 @@ export async function ecrireChamps(dossierId: number, decision: DecisionChamps, 
   }
   for (const d of champsGlobal) if (d.statut === 'non_ecrit') lignes.push(ligneEcartee(d.champ, null, d.motif));
   lignes.push(...lignesCandidats(decision.candidatsNiveauFini));
-  await journaliser(dossierId, lignes);
+  await journaliser(dossierId, lignes, origineDepuisMajPar(majPar));
 
   return { statut: 'traite', corpsId, corpsCree, champsEcrits: ecrits, champsIgnoresSaisie: ignores, champsEcartesPrecedence };
 }

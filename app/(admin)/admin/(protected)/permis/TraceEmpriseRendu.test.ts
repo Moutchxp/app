@@ -1356,9 +1356,16 @@ describe('LOT 99 — statut PAR PAGE à TROIS AXES (statutPageAnalyse PURE, sour
     expect(statutPageAnalyse({ reperage: { creeLe: 'Z' } }, () => '05/09/2026'))
       .toEqual({ nature: 'ia', origine: 'manuelle', etat: 'identifiee_non_lue', derive: true, dateLisible: '05/09/2026' });
   });
-  it('identification SANS IA (famille/Cerfa, dérivé) → identifiée non lue, nature SANS IA, origine INDÉTERMINÉE (jamais présumée auto)', () => {
+  it('identification SANS IA (famille/Cerfa, dérivé) → identifiée non lue, nature SANS IA, origine INDÉTERMINÉE si non tracée (jamais présumée auto)', () => {
     expect(statutPageAnalyse({ identifieeSansIa: true }))
       .toEqual({ nature: 'sans_ia', origine: 'indeterminee', etat: 'identifiee_non_lue', derive: true, dateLisible: null });
+  });
+  it('LOT 100 — origine SANS IA TRACÉE (auto/manuelle) affichée telle quelle ; absente → indéterminée', () => {
+    expect(statutPageAnalyse({ identifieeSansIa: true, origineSansIa: 'auto' }).origine).toBe('auto');       // extraction au passage en Analyse
+    expect(statutPageAnalyse({ identifieeSansIa: true, origineSansIa: 'manuelle' }).origine).toBe('manuelle'); // relance admin
+    expect(statutPageAnalyse({ identifieeSansIa: true }).origine).toBe('indeterminee');                       // ligne historique / jamais extrait
+    // l'origine tracée ne concerne QUE le sans-IA : l'IA reste 'manuelle' (fait d'architecture), jamais écrasée par origineSansIa.
+    expect(statutPageAnalyse({ reperage: { creeLe: 'Z' }, origineSansIa: 'auto' }).origine).toBe('manuelle');
   });
   it('PRIORITÉ : le MESURÉ (IA page) prime le DÉRIVÉ (repérage/identification) ; « lu » prime « identifié »', () => {
     // IA page valeurs lues l'emporte même si le fichier est repéré ET identifié sans IA.

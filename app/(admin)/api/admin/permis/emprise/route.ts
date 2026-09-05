@@ -10,6 +10,7 @@ import { executerReperagePlanches, lecteurPlanchesMistral, coutVisionUsd, MODELE
 import { lireReperagePlanchesOui, lireRunsReperage, enregistrerReperage } from '../../../../../lib/permis/reperePlanchesRepo'; // LOT 62
 import { executerLectureValeurPage } from '../../../../../lib/permis/lectureValeursPage'; // LOT 95 — lecture de VALEURS au grain page
 import { appliquerLectureValeur, enregistrerLecturePage, lireLecturesPage, annulerLectureValeur } from '../../../../../lib/permis/lectureValeursPageRepo'; // LOT 95
+import { lireOrigineExtractionSansIa } from '../../../../../lib/permis/journalExtraction'; // LOT 100 — origine (auto/manuelle) de l'extraction non-IA
 import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte, familleDeNom, tracabilitePlanche, type FamillePlan } from '../../../../../lib/permis/planMasse';
 import { familleDeContenu, niveauxDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV : famille + niveaux par le CONTENU
 import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone, appliquerAutoStatut } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2) / RATT-2
@@ -109,6 +110,8 @@ export async function GET(request: Request): Promise<Response> {
     const reperageRuns = await repli('reperageRuns', lireRunsReperage(dossierId), new Map());
     // LOT 95 — audit DATÉ « page analysée pour lire des valeurs » AU GRAIN PAGE (méthode 'ia'). Résilient : migration 195 absente → Map vide.
     const lecturesPages = await repli('lecturesPages', lireLecturesPage(dossierId), new Map());
+    // LOT 100 — origine (auto/manuelle) de la dernière extraction NON-IA du dossier → ferme la ligne 6 (« identifiée sans IA »). Null = indéterminée.
+    const origineExtractionSansIa = await repli('origineSansIa', lireOrigineExtractionSansIa(dossierId), null);
     const familleDeCategorie = (c: string): FamillePlan => (c === 'coupe' || c === 'facade' || c === 'elevation') ? 'coupe' : 'masse'; // DISPLAY seul (image = non traçable)
     const enrichir = (p: { id: number; nomFichier: string; typeMime: string | null }, propose: boolean, famille: FamillePlan | null) => {
       const planchesTexte = confirmations.get(p.id)?.planches ?? [];
@@ -130,7 +133,7 @@ export async function GET(request: Request): Promise<Response> {
       } catch { /* illisible → non marqué (N10-J) */ }
     })), []);
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
-    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, exclusionsBestOf, inclusionsBestOf, reperageRuns: Object.fromEntries(reperageRuns), lecturesPages: Object.fromEntries(lecturesPages), indisponibles });
+    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, exclusionsBestOf, inclusionsBestOf, reperageRuns: Object.fromEntries(reperageRuns), lecturesPages: Object.fromEntries(lecturesPages), origineExtractionSansIa, indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
     return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });

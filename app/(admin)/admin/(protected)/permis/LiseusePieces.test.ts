@@ -181,6 +181,13 @@ describe('LOT 95 — « analyse de la page » ACTIVÉE : lecture de valeurs au g
   });
 });
 
+describe('LOT 100 — origine (auto/manuelle) de l’extraction non-IA lue du serveur et passée au statut de page (garde par lecture de source)', () => {
+  it('l’origine non-IA du dossier est chargée du GET puis injectée dans statutPageAnalyse (jamais présumée)', () => {
+    expect(SRC).toContain("setOrigineSansIa(j.origineExtractionSansIa ?? null)"); // lue du serveur
+    expect(SRC).toMatch(/origineSansIa: origineSansIa \?\? undefined/);            // injectée dans le statut (null → indéterminée)
+  });
+});
+
 describe('LOT 99 — statut de page à 3 axes dans la barre : SOURCE UNIQUE statutPageAnalyse, pastille + libellé, bouton requalifié (garde par lecture de source)', () => {
   it('① STATUT DE LA PAGE COURANTE : calculé par la fonction PURE statutPageAnalyse (IA page mesuré, repérage/identification dérivés)', () => {
     expect(SRC).toContain('const statutPage = statutPageAnalyse(');

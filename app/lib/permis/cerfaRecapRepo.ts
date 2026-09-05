@@ -1,4 +1,5 @@
 import { query } from '../db/client';
+import { origineDepuisMajPar, suffixeOrigine } from './journalExtraction'; // LOT 100
 import type { DeclarationsRecapCerfa } from './recapCerfa';
 import type { DecompteDescription } from './decompteDescription';
 import { lirePermisCaracteristiques, ecrireCaracteristiquesGlobales, type ChampGlobalDeclare } from './caracteristiquesRepo';
@@ -40,27 +41,32 @@ export async function ecrireDeclarationsRecap(dossierId: number, declarations: D
  * 'recap') → l'INSERT échoue, capturé → no-op (l'instantané `permis_cerfa_recap` reste, lui, la source d'affichage). Renvoie `true`
  * si une ligne a été posée.
  */
-export async function ecrireDecompteDescription(dossierId: number, decompte: DecompteDescription | null, pieceSource: string | null): Promise<boolean> {
+export async function ecrireDecompteDescription(dossierId: number, decompte: DecompteDescription | null, pieceSource: string | null, majPar: string): Promise<boolean> {
   if (!decompte || (decompte.batiments.length === 0)) {
     // Rien lu : on purge quand même une éventuelle trace périmée, puis on s'arrête (best-effort).
     await query(`DELETE FROM permis_extraction_journal WHERE dossier_id = $1 AND methode = 'recap'`, [dossierId]).catch(() => undefined);
     return false;
   }
+  const origine = origineDepuisMajPar(majPar); // LOT 100 — auto (passage) / manuelle (relance) / null (indéterminée)
   try {
     await query(`DELETE FROM permis_extraction_journal WHERE dossier_id = $1 AND methode = 'recap'`, [dossierId]);
     if (decompte.concordant) {
       const reserve = `déclaré dans la description du projet ; somme des logements par bâtiment (${decompte.batiments.map((b) => b.logements).join('+')}=${decompte.sommeLogements}) vérifiée avec le total structuré (${decompte.logementsTotalStructure})`;
+      const params = [dossierId, CHAMP_NB_BATIMENTS, decompte.nbBatimentsRetenu, reserve, pieceSource, decompte.extrait];
+      const og = await suffixeOrigine(params.length, origine); // LOT 100
       await query(
         `INSERT INTO permis_extraction_journal
-           (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
-         VALUES ($1, NULL, $2, $3, NULL, 'retenue', 'recap', 'a_verifier', $4, NULL, $5, NULL, $6, now())`,
-        [dossierId, CHAMP_NB_BATIMENTS, decompte.nbBatimentsRetenu, reserve, pieceSource, decompte.extrait]);
+           (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le${og.cols})
+         VALUES ($1, NULL, $2, $3, NULL, 'retenue', 'recap', 'a_verifier', $4, NULL, $5, NULL, $6, now()${og.vals})`,
+        [...params, ...og.params]);
     } else {
+      const params = [dossierId, CHAMP_NB_BATIMENTS, decompte.nbBatimentsDeclare, decompte.motifEcart, pieceSource, decompte.extrait];
+      const og = await suffixeOrigine(params.length, origine); // LOT 100
       await query(
         `INSERT INTO permis_extraction_journal
-           (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
-         VALUES ($1, NULL, $2, $3, NULL, 'ecartee', 'recap', NULL, NULL, $4, $5, NULL, $6, now())`,
-        [dossierId, CHAMP_NB_BATIMENTS, decompte.nbBatimentsDeclare, decompte.motifEcart, pieceSource, decompte.extrait]);
+           (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le${og.cols})
+         VALUES ($1, NULL, $2, $3, NULL, 'ecartee', 'recap', NULL, NULL, $4, $5, NULL, $6, now()${og.vals})`,
+        [...params, ...og.params]);
     }
     return true;
   } catch { return false; } // 193 absente (CHECK refuse 'recap') → no-op, l'affichage reste porté par l'instantané
@@ -103,12 +109,15 @@ export async function reporterDeclarationsCerfa(dossierId: number, declarations:
   // JOURNAL 'recap' (audit + provenance + confiance). Purge CIBLÉE des champs reportables (jamais nb_batiments_declares du LOT 69).
   try {
     await query(`DELETE FROM permis_extraction_journal WHERE dossier_id = $1 AND methode = 'recap' AND champ = ANY($2::text[])`, [dossierId, colonnes]);
+    const origine = origineDepuisMajPar(majPar); // LOT 100
     for (const a of ecrits) {
+      const params = [dossierId, a.colonne, a.valeur, 'reporté depuis la déclaration du récapitulatif du Cerfa (aucun champ n’était renseigné)', pieceSource, `déclaré : ${a.valeur}`];
+      const og = await suffixeOrigine(params.length, origine); // LOT 100
       await query(
         `INSERT INTO permis_extraction_journal
-           (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
-         VALUES ($1, NULL, $2, $3, NULL, 'retenue', 'recap', 'a_verifier', $4, NULL, $5, NULL, $6, now())`,
-        [dossierId, a.colonne, a.valeur, 'reporté depuis la déclaration du récapitulatif du Cerfa (aucun champ n’était renseigné)', pieceSource, `déclaré : ${a.valeur}`]);
+           (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le${og.cols})
+         VALUES ($1, NULL, $2, $3, NULL, 'retenue', 'recap', 'a_verifier', $4, NULL, $5, NULL, $6, now()${og.vals})`,
+        [...params, ...og.params]);
     }
   } catch { /* 193 absente (CHECK refuse 'recap') → valeur reportée sans ligne de provenance ; jamais une exception propagée */ }
 

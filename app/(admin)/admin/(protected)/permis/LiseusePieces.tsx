@@ -84,6 +84,8 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   //   `lectureEnCours` : état du bouton. `lectureRes` : l'issue de la DERNIÈRE lecture, ANCRÉE à sa page (clé « pieceId:page ») pour ne
   //   l'afficher qu'en face de CETTE page (change de page → l'issue disparaît d'elle-même, sans effet de reset). `ecrit` → propose l'annulation.
   const [lectures, setLectures] = useState<Record<number, LecturePageAffiche[]>>({});
+  // LOT 100 — origine (auto/manuelle) de la dernière extraction NON-IA du dossier (null = indéterminée) → statut de page « identifiée sans IA ».
+  const [origineSansIa, setOrigineSansIa] = useState<'auto' | 'manuelle' | null>(null);
   const [lectureEnCours, setLectureEnCours] = useState(false);
   const [lectureRes, setLectureRes] = useState<{ cle: string; texte: string; ecrit: boolean } | null>(null);
   const [nav, setNav] = useState<'bestof' | 'piece'>('bestof');
@@ -142,12 +144,13 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       try {
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`);
         if (!res.ok) { if (vivant) setEtat('erreur'); return; }
-        const j = await res.json() as { pieces?: PiecePlan[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; reperageRuns?: Record<number, RunReperageAffiche>; lecturesPages?: Record<number, LecturePageAffiche[]> };
+        const j = await res.json() as { pieces?: PiecePlan[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; reperageRuns?: Record<number, RunReperageAffiche>; lecturesPages?: Record<number, LecturePageAffiche[]>; origineExtractionSansIa?: 'auto' | 'manuelle' | null };
         if (!vivant) return;
         const ps = j.pieces ?? [];
         setPieces(ps);
         setRuns(j.reperageRuns ?? {}); // LOT 62 — audit du repérage par image
         setLectures(j.lecturesPages ?? {}); // LOT 95 — audit daté « page analysée pour lire des valeurs »
+        setOrigineSansIa(j.origineExtractionSansIa ?? null); // LOT 100 — origine tracée de l'extraction non-IA
         setPiecesNonSupportees(j.piecesNonSupportees ?? []); // LOT 64
 
         if (ps.length === 0) { setEtat('vide'); return; }
@@ -357,6 +360,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
     ecarteeReperage: ecarteeReperage ? { motif: ecarteeReperage.motif } : undefined,
     reperage: runCourant ? { creeLe: runCourant.creeLe } : undefined,
     identifieeSansIa,
+    origineSansIa: origineSansIa ?? undefined, // LOT 100 — origine tracée (auto/manuelle) ; null → indéterminée (jamais présumée)
   }, (iso) => jourParisISO(iso));
   const resumePages = resumePagesAnalysees(lectures[pieceId ?? -1] ?? [], runCourant ? { creeLe: runCourant.creeLe } : undefined, (iso) => jourParisISO(iso));
   // LOT 97 — ÉTAT D'ANALYSE IA à DEUX AXES par pièce, pour la liste + sa pastille : COMBINE le repérage LOT 62 (grain PIÈCE = fichier

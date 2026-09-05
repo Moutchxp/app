@@ -12,6 +12,7 @@ import { accorder, accorderDestinations, planifierEcriture, type LectureValeur, 
 import { SOUS_DESTINATIONS } from './lireCerfaScan';
 import { proprietairesRetenue } from './journalLecture';
 import { domine, motifEcartePrecedence } from './precedenceMethodes';
+import { origineDepuisMajPar, suffixeOrigine } from './journalExtraction'; // LOT 100
 
 const METHODE = 'ia';
 
@@ -80,10 +81,12 @@ export async function ecrireCerfaScan(dossierId: number, piece: string, lectures
     const o = l.role === 'retenue' ? rejetePar(l.champ) : null;
     const role = o ? 'ecartee' : l.role;
     const motif = o ? motifEcartePrecedence(METHODE, o) : l.motif;
+    const params = [dossierId, l.champ, l.valeur, role, l.confiance, l.reserve, motif, l.piece, l.page, l.extrait];
+    const og = await suffixeOrigine(params.length, origineDepuisMajPar(majPar)); // LOT 100 — Cerfa scan auto (passage) / manuelle (relance)
     await query(
-      `INSERT INTO permis_extraction_journal (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
-       VALUES ($1, NULL, $2, $3, NULL, $4, 'ia', $5, $6, $7, $8, $9, $10, now())`,
-      [dossierId, l.champ, l.valeur, role, l.confiance, l.reserve, motif, l.piece, l.page, l.extrait],
+      `INSERT INTO permis_extraction_journal (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le${og.cols})
+       VALUES ($1, NULL, $2, $3, NULL, $4, 'ia', $5, $6, $7, $8, $9, $10, now()${og.vals})`,
+      [...params, ...og.params],
     );
     if (o) ecartesPrecedence.push({ champ: l.champ, owner: o, extrait: l.extrait });
     else if (role === 'ecartee') classer(l.champ, l.motif);

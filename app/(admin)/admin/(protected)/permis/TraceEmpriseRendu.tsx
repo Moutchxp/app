@@ -203,6 +203,7 @@ export interface EntreesStatutPage {
   reperage?: { creeLe: string | null };                                                                // LOT 62 — repérage IA du FICHIER (dérivé)
   identifieeSansIa?: boolean;                                                                           // famille/Cerfa connue par le texte/nom (dérivé, sans IA)
   dateSansIa?: string | null;                                                                           // date d'identification sans-IA si connue
+  origineSansIa?: OrigineAnalyse;                                                                        // LOT 100 — origine TRACÉE de l'extraction non-IA du dossier ('auto'/'manuelle'), sinon indéterminée
 }
 
 /**
@@ -219,7 +220,7 @@ export function statutPageAnalyse(e: EntreesStatutPage, formaterDate: (iso: stri
   }
   if (e.ecarteeReperage) return { nature: 'ia', origine: 'manuelle', etat: etatAbstention(e.ecarteeReperage.motif), derive: false, dateLisible: d(e.reperage?.creeLe) };
   if (e.reperage) return { nature: 'ia', origine: 'manuelle', etat: 'identifiee_non_lue', derive: true, dateLisible: d(e.reperage.creeLe) };
-  if (e.identifieeSansIa) return { nature: 'sans_ia', origine: 'indeterminee', etat: 'identifiee_non_lue', derive: true, dateLisible: d(e.dateSansIa) };
+  if (e.identifieeSansIa) return { nature: 'sans_ia', origine: e.origineSansIa ?? 'indeterminee', etat: 'identifiee_non_lue', derive: true, dateLisible: d(e.dateSansIa) }; // LOT 100 — origine tracée si connue, sinon indéterminée (jamais présumée)
   return { nature: 'aucune', origine: null, etat: 'non_identifiee', derive: false, dateLisible: null };
 }
 

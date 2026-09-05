@@ -8,6 +8,7 @@
  *   • annulerLectureValeur : RÉVERSIBILITÉ — vide le champ + retire la ligne 'ia', UNIQUEMENT si l'origine est 'extraite' (jamais une saisie).
  */
 import { query } from '../db/client';
+import { suffixeOrigine } from './journalExtraction'; // LOT 100 — origine 'manuelle' (bouton « analyse de la page »)
 import { ecrireCaracteristiquesGlobales } from './caracteristiquesRepo';
 import { deciderEcritureValeurLue, type ActionLecture, type ConfianceLue, type ValeurLue } from './lectureValeursPage';
 
@@ -67,10 +68,13 @@ export async function appliquerLectureValeur(dossierId: number, o: OptionsLectur
   }
 
   // Journal 'ia' — provenance pièce+page, confiance 'a_verifier' TOUJOURS (jamais 'confirmee' sur la seule foi du modèle).
+  // LOT 100 — origine 'manuelle' EXPLICITE : ce chemin est le bouton « analyse de la page » (geste humain délibéré), jamais automatique.
+  const params = [dossierId, CHAMP_SQL, valeurLue.valeur, role, motif, o.pieceNom, o.page, valeurLue.extrait || null];
+  const og = await suffixeOrigine(params.length, 'manuelle');
   await query(
-    `INSERT INTO permis_extraction_journal (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
-     VALUES ($1, NULL, $2, $3, 'ngf', $4, 'ia', 'a_verifier', NULL, $5, $6, $7, $8, now())`,
-    [dossierId, CHAMP_SQL, valeurLue.valeur, role, motif, o.pieceNom, o.page, valeurLue.extrait || null]);
+    `INSERT INTO permis_extraction_journal (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le${og.cols})
+     VALUES ($1, NULL, $2, $3, 'ngf', $4, 'ia', 'a_verifier', NULL, $5, $6, $7, $8, now()${og.vals})`,
+    [...params, ...og.params]);
 
   return { action, champ: CHAMP_SQL, valeur: valeurLue.valeur, confiance: valeurLue.confiance, ecrit, resume: resumeLecture(action, valeurLue.valeur, ecrit) };
 }

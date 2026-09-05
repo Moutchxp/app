@@ -130,7 +130,7 @@ export async function executerExtractionPermis(dossierId: number, opts: { avecVi
     await ecrireDeclarationsRecap(dossierId, decl, pieceRecap, opts.majPar).catch(() => undefined);
     // LOT 69 — DÉCOMPTE du champ libre CORROBORÉ par la somme (nombre de bâtiments) : journalisé sous la méthode dédiée 'recap'
     //   (audit + précédence), retenue si concordant / écartée avec motif sinon. Best-effort, NO-OP si migration 193 absente. IA-free.
-    await ecrireDecompteDescription(dossierId, decl.decompte, pieceRecap).catch(() => undefined);
+    await ecrireDecompteDescription(dossierId, decl.decompte, pieceRecap, opts.majPar).catch(() => undefined);
     // LOT 70 — REPORT des déclarations dans les CHAMPS de caractéristiques (logements, stationnement, surface de plancher), méthode
     //   'recap' (la plus faible : ne remplit QUE les champs vides, n'écrase JAMAIS une saisie ni une méthode supérieure). Best-effort.
     //   DOIT venir APRÈS ecrireDecompteDescription (dont la purge 'recap' blanket ne doit pas effacer ces lignes de report).

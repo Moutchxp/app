@@ -11,6 +11,7 @@
  * - Chaque valeur écrite laisse une ligne 'retenue' avec sa pièce (le Cerfa), le NOM EXACT du champ dans l'extrait, confiance et réserve.
  */
 import { query } from '../db/client';
+import { origineDepuisMajPar, suffixeOrigine, type OrigineExtraction } from './journalExtraction'; // LOT 100
 import { ecrireCaracteristiquesGlobales, ecrireDestinations, type ValeursGlobalDeclare } from './caracteristiquesRepo';
 import type { DecisionCerfa, DecisionCerfaChamp } from './decisionCerfa';
 
@@ -35,13 +36,15 @@ function ligneRetenue(d: DecisionCerfaChamp): LigneJournal {
 const ligneEcartee = (champ: string, motif: string): LigneJournal =>
   ({ champ, valeur: null, role: 'ecartee', confiance: null, reserve: null, motif, piece: null, page: null, extrait: null });
 
-async function journaliser(dossierId: number, lignes: LigneJournal[]): Promise<void> {
+async function journaliser(dossierId: number, lignes: LigneJournal[], origine: OrigineExtraction | null): Promise<void> {
   for (const l of lignes) {
+    const params = [dossierId, l.champ, l.valeur, l.role, l.confiance, l.reserve, l.motif, l.piece, l.page, l.extrait];
+    const og = await suffixeOrigine(params.length, origine); // LOT 100
     await query(
       `INSERT INTO permis_extraction_journal
-         (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le)
-       VALUES ($1, NULL, $2, $3, NULL, $4, 'cerfa', $5, $6, $7, $8, $9, $10, now())`,
-      [dossierId, l.champ, l.valeur, l.role, l.confiance, l.reserve, l.motif, l.piece, l.page, l.extrait],
+         (dossier_id, corps_id, champ, valeur, unite, role, methode, confiance, reserve, motif, piece, page, extrait, extrait_le${og.cols})
+       VALUES ($1, NULL, $2, $3, NULL, $4, 'cerfa', $5, $6, $7, $8, $9, $10, now()${og.vals})`,
+      [...params, ...og.params],
     );
   }
 }
@@ -91,6 +94,6 @@ export async function ecrireCerfa(dossierId: number, decision: DecisionCerfa, ma
     } else { lignes.push(ligneEcartee('destinations', MOTIF_SAISIE_PRIORITAIRE)); champsIgnoresSaisie.push('destinations'); }
   }
 
-  await journaliser(dossierId, lignes);
+  await journaliser(dossierId, lignes, origineDepuisMajPar(majPar));
   return { champsEcrits, champsIgnoresSaisie, champsNonEcrits };
 }
