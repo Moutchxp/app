@@ -6,7 +6,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist'; // type SEUL (erasé au runt
 import {
   construireBandePlans, bandeAvecOverrides, cibleBestOf, bornerPage,
   ListePiecesAnalyse, BandePlans, NavPieceLibre, ZoomPdf, etatAnalyseIA,
-  PastillePageAnalyse, etatPageAnalyse, libellePageAnalyse, resumePagesAnalysees,
+  PastilleStatutPage, statutPageAnalyse, libelleStatutPage, resumePagesAnalysees,
   type PiecePlan, type Plan, type EtatAnalyseIA,
 } from './TraceEmpriseRendu';
 import { MAX_DOCS_CACHE, MAX_BITMAPS_RENDU, voisinsAPrecharger, rangerEtEvincer } from './prechargeLiseuse';
@@ -346,13 +346,18 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const runCourant = pieceId !== null ? runs[pieceId] : undefined; // LOT 62 — audit du repérage de la pièce courante
   // LOT 95 — audit daté de LA page affichée (si déjà analysée pour lire des valeurs) → sert l'avertissement « déjà analysée, relancer refera payer ».
   const lectureCourante = pieceId !== null ? (lectures[pieceId] ?? []).find((l) => l.page === page) ?? undefined : undefined;
-  // LOT 98 — REPÈRE PAR PAGE : état d'analyse de LA page affichée (individuelle LOT 95 > couverte par le fichier LOT 62 > aucune) +
-  //   vue d'ensemble des pages déjà analysées de la pièce. Règles PURES importées (etatPageAnalyse / resumePagesAnalysees), date Europe/Paris.
-  const etatPage = etatPageAnalyse(
-    lectureCourante ? { creeLe: lectureCourante.creeLe } : undefined,
-    runCourant ? { creeLe: runCourant.creeLe } : undefined,
-    (iso) => jourParisISO(iso),
-  );
+  // LOT 99 — STATUT (3 axes) de LA page affichée, SOURCE UNIQUE (statutPageAnalyse). Entrées : IA grain PAGE (lectureCourante, mesuré),
+  //   page écartée pendant le repérage (runCourant.pagesEcartees), repérage IA du FICHIER (dérivé), et identification SANS IA du fichier
+  //   (famille/Cerfa connue → dérivé). L'extraction sans-IA de VALEURS est de fait au grain fichier → volontairement hors statut de page.
+  const pieceCourante = pieceId !== null ? pieces.find((p) => p.id === pieceId) : undefined;
+  const identifieeSansIa = !!pieceCourante && (pieceCourante.famille != null || pieceCourante.cerfa === true);
+  const ecarteeReperage = runCourant?.pagesEcartees.find((e) => e.page === page);
+  const statutPage = statutPageAnalyse({
+    lecturePage: lectureCourante ? { envoyee: lectureCourante.envoyee, nbValeurs: lectureCourante.nbValeurs, motif: lectureCourante.motif, creeLe: lectureCourante.creeLe } : undefined,
+    ecarteeReperage: ecarteeReperage ? { motif: ecarteeReperage.motif } : undefined,
+    reperage: runCourant ? { creeLe: runCourant.creeLe } : undefined,
+    identifieeSansIa,
+  }, (iso) => jourParisISO(iso));
   const resumePages = resumePagesAnalysees(lectures[pieceId ?? -1] ?? [], runCourant ? { creeLe: runCourant.creeLe } : undefined, (iso) => jourParisISO(iso));
   // LOT 97 — ÉTAT D'ANALYSE IA à DEUX AXES par pièce, pour la liste + sa pastille : COMBINE le repérage LOT 62 (grain PIÈCE = fichier
   //   complet, `runs`) et la lecture de valeurs LOT 95 (grain PAGE = partielle, `lectures`). Règle d'étendue + origine dans la fonction
@@ -611,13 +616,15 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
                   style={{ cursor: page >= nbPagesPiece ? 'default' : 'pointer', opacity: page >= nbPagesPiece ? 0.4 : 1, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}>page suivante ›</button>
               </div>
             )}
-            {/* LOT 98 ① — REPÈRE DE LA PAGE COURANTE : pastille (MÊMES tokens que le LOT 97, aucune 3e palette) + libellé EXPLICITE (jamais
-                la couleur seule) portant la DATE. Deux grains DISTINCTS : « analysée individuellement » (bleu pâle) ≠ « couverte par le
-                fichier complet » (bleu plein). 'aucune' → rien (pas d'état trompeur). */}
-            {etatPage.couverture !== 'aucune' && (
+            {/* LOT 99 ① — STATUT DE LA PAGE COURANTE (3 axes) : pastille (ton = famille d'état ; lettres = NATURE·ORIGINE, jamais un 3e ton)
+                + libellé EXPLICITE en français clair (« page identifiée mais non analysée » remplace « page couverte (fichier) »). Le title
+                énonce NATURE + ORIGINE + ÉTAT + date. 'non identifiée' → rien (pas d'état trompeur). */}
+            {statutPage.etat !== 'non_identifiee' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
-                <PastillePageAnalyse s={etatPage} />
-                <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>{libellePageAnalyse(etatPage)}</span>
+                <PastilleStatutPage s={statutPage} />
+                <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }} title={statutPage.derive ? 'statut déduit de l’analyse du fichier, pas d’une mesure page par page' : undefined}>
+                  {libelleStatutPage(statutPage)}{statutPage.derive ? ' (d’après l’analyse du fichier)' : ''}
+                </span>
               </div>
             )}
             {/* LOT 98 ② — VUE D'ENSEMBLE : quelles pages sont déjà analysées, SANS feuilleter (éviter de repayer). Repliée si la liste est

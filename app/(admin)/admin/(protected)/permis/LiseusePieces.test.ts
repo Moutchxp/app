@@ -181,29 +181,35 @@ describe('LOT 95 — « analyse de la page » ACTIVÉE : lecture de valeurs au g
   });
 });
 
-describe('LOT 98 — repère par PAGE dans la barre : pastille de page, vue d’ensemble, bouton requalifié (garde par lecture de source)', () => {
-  it('① REPÈRE DE LA PAGE COURANTE : état calculé par la fonction PURE etatPageAnalyse (lecture page > repérage fichier), pastille + libellé', () => {
-    expect(SRC).toContain('const etatPage = etatPageAnalyse(');
-    expect(SRC).toMatch(/lectureCourante \? \{ creeLe: lectureCourante\.creeLe \} : undefined/); // grain PAGE (LOT 95)
-    expect(SRC).toMatch(/runCourant \? \{ creeLe: runCourant\.creeLe \} : undefined/);           // grain FICHIER (LOT 62)
-    expect(SRC).toContain('<PastillePageAnalyse s={etatPage} />');
-    expect(SRC).toContain('libellePageAnalyse(etatPage)');
-    expect(SRC).toMatch(/etatPage\.couverture !== 'aucune' &&/); // jamais un état neutre trompeur
+describe('LOT 99 — statut de page à 3 axes dans la barre : SOURCE UNIQUE statutPageAnalyse, pastille + libellé, bouton requalifié (garde par lecture de source)', () => {
+  it('① STATUT DE LA PAGE COURANTE : calculé par la fonction PURE statutPageAnalyse (IA page mesuré, repérage/identification dérivés)', () => {
+    expect(SRC).toContain('const statutPage = statutPageAnalyse(');
+    expect(SRC).toMatch(/lecturePage: lectureCourante \?/);                     // IA grain PAGE (LOT 95, mesuré)
+    expect(SRC).toContain('ecarteeReperage: ecarteeReperage');                  // page écartée pendant le repérage
+    expect(SRC).toMatch(/reperage: runCourant \?/);                            // repérage IA du fichier (dérivé)
+    expect(SRC).toContain('identifieeSansIa');                                 // identification sans IA (famille/Cerfa, dérivé)
+    expect(SRC).toContain('<PastilleStatutPage s={statutPage} />');
+    expect(SRC).toContain('libelleStatutPage(statutPage)');
+    expect(SRC).toMatch(/statutPage\.etat !== 'non_identifiee' &&/);            // jamais un état trompeur
+    // HONNÊTETÉ : un statut dérivé du fichier le DIT.
+    expect(SRC).toContain('d’après l’analyse du fichier');
+  });
+  it('identification SANS IA = fait de fichier (famille/Cerfa), origine jamais présumée (indéterminée gérée par la fonction pure)', () => {
+    expect(SRC).toMatch(/identifieeSansIa = !!pieceCourante && \(pieceCourante\.famille != null \|\| pieceCourante\.cerfa === true\)/);
   });
   it('② VUE D’ENSEMBLE : resumePagesAnalysees (pages individuelles + repérage fichier), repliée si longue (esprit LOT 96)', () => {
     expect(SRC).toContain('const resumePages = resumePagesAnalysees(');
     expect(SRC).toContain('resumePages.pagesIndividuelles');
     expect(SRC).toContain('resumePages.fichier');
-    // repli au-delà d'un seuil, via un bouton aria-expanded (jamais un BlocRepliable imbriqué).
     expect(SRC).toMatch(/pagesIndividuelles\.length <= 10 \?/);
     expect(SRC).toContain('aria-expanded={pleinPagesAnalysees}');
   });
-  it('③ BOUTON REQUALIFIÉ quand c’est déjà fait : « ré-analyser … » (relance = geste conscient, jamais un bouton identique)', () => {
+  it('③ BOUTON REQUALIFIÉ quand c’est déjà fait : « ré-analyser … » seulement si les VALEURS ont été lues (acquis LOT 98)', () => {
     expect(SRC).toMatch(/runCourant \? 'ré-analyser le fichier complet' : 'analyse du fichier complet'/);
     expect(SRC).toMatch(/lectureCourante \? 'ré-analyser cette page' : 'analyse de la page'/);
   });
-  it('réutilise les TOKENS du LOT 97 (pas de 3e palette) : la pastille de page vit dans TraceEmpriseRendu (blue / blue-soft), importée ici', () => {
-    expect(SRC).toMatch(/PastillePageAnalyse, etatPageAnalyse, libellePageAnalyse, resumePagesAnalysees/);
+  it('SOURCE UNIQUE : la barre importe la fonction de statut de TraceEmpriseRendu (aucun calcul dupliqué, tokens LOT 97)', () => {
+    expect(SRC).toMatch(/PastilleStatutPage, statutPageAnalyse, libelleStatutPage, resumePagesAnalysees/);
   });
 });
 

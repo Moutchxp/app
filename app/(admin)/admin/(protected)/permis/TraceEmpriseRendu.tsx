@@ -176,34 +176,77 @@ export function PastilleAnalyseIA({ s }: { s: EtatAnalyseIA }) {
   );
 }
 
-// ── LOT 98 — REPÈRE PAR PAGE (dans la liseuse) : savoir si LA page affichée a déjà été analysée, pour ne pas repayer ────────────────
-//   Deux GRAINS DISTINCTS, jamais fusionnés en un état ambigu :
-//   · 'individuelle' = une ligne AU GRAIN PAGE existe (analyse de la page, LOT 95) → les valeurs de CETTE page ont été lues ;
-//   · 'fichier'      = pas de ligne page, MAIS un repérage AU GRAIN FICHIER existe (LOT 62) → la page est COUVERTE par l'analyse du
-//                      fichier complet (présence des planches), SANS que ses valeurs aient été lues individuellement ;
-//   · 'aucune'       = ni l'un ni l'autre → jamais analysée (rien d'affirmé).
-export type CouverturePage = 'aucune' | 'individuelle' | 'fichier';
-export interface EtatPageAnalyse { couverture: CouverturePage; dateLisible: string | null }
+// ── LOT 99 — STATUT D'ANALYSE PAR PAGE : TROIS AXES INDÉPENDANTS (jamais écrasés l'un dans l'autre) ────────────────────────────────
+//   · NATURE   : 'ia' (vision) · 'sans_ia' (texte/AcroForm du document) · 'aucune'.
+//   · ORIGINE  : 'manuelle' · 'auto' · 'indeterminee'. 🔴 FAITS SOURCÉS (recon LOT 99) :
+//       - IA → TOUJOURS 'manuelle' (fait d'architecture : seuls les 2 boutons de la liseuse écrivent 191/195).
+//       - sans_ia → 'indeterminee' : l'origine N'EST PAS TRACÉE. `permis_extraction_journal` n'a AUCUNE colonne d'origine/acteur ; le
+//         discriminant existe au CALL (`analysePassage` auto vs `extraire/route` `majPar='extraction:relance:…'`) mais n'est écrit que
+//         sur `maj_par` des colonnes de valeur (dernier écrivain, par champ), jamais par ligne de journal → on ne PRÉSUME jamais 'auto'.
+//   · ÉTAT     : 'non_identifiee' · 'identifiee_non_lue' · 'valeurs_lues' · 'rien_lisible' · 'non_analysable' · 'ecarte_rgpd'.
+//   GRAIN (recon) : l'IA au grain PAGE est MESURÉE (`permis_page_lecture`) ; le repérage IA et l'identification sans-IA (famille/Cerfa)
+//   sont au grain FICHIER → statut de page DÉRIVÉ (`derive:true`, dit « d'après l'analyse du fichier »). L'extraction sans-IA de VALEURS
+//   est de fait au grain FICHIER (page NULL sur données réelles) → NON attribuable à une page → volontairement ABSENTE du statut de page.
+export type NatureAnalyse = 'ia' | 'sans_ia' | 'aucune';
+export type EtatAnalyse = 'non_identifiee' | 'identifiee_non_lue' | 'valeurs_lues' | 'rien_lisible' | 'non_analysable' | 'ecarte_rgpd';
+export interface StatutPage { nature: NatureAnalyse; origine: OrigineAnalyse | null; etat: EtatAnalyse; derive: boolean; dateLisible: string | null }
 
-/** PURE — état d'analyse de LA page affichée. L'individuelle (grain page) PRIME le fichier (une page lue individuellement est le signal
- *  le plus précis). `formaterDate` injecté. RÉSILIENT : les deux entrées `undefined` → 'aucune'. */
-export function etatPageAnalyse(
-  lecturePage: { creeLe: string | null } | undefined,   // LOT 95 — ligne au grain PAGE pour CETTE page
-  reperage: { creeLe: string | null } | undefined,      // LOT 62 — repérage au grain FICHIER (couvre toutes les pages)
-  formaterDate: (iso: string) => string = (s) => s,
-): EtatPageAnalyse {
-  if (lecturePage) return { couverture: 'individuelle', dateLisible: lecturePage.creeLe ? formaterDate(lecturePage.creeLe) : null };
-  if (reperage) return { couverture: 'fichier', dateLisible: reperage.creeLe ? formaterDate(reperage.creeLe) : null };
-  return { couverture: 'aucune', dateLisible: null };
+/** Un motif d'abstention nomme-t-il un manque de TEXTE (→ non analysable) ou une donnée PERSONNELLE (→ écarté RGPD) ? PUR. */
+function etatAbstention(motif: string | null | undefined): EtatAnalyse {
+  return /sans texte/i.test(motif ?? '') ? 'non_analysable' : 'ecarte_rgpd';
 }
 
-/** PURE — libellé EXPLICITE de l'état de LA page (EN TOUTES LETTRES, jamais la couleur seule) : distingue nettement « analysée
- *  individuellement » de « couverte par le fichier complet » (valeurs non lues). */
-export function libellePageAnalyse(s: EtatPageAnalyse): string {
-  if (s.couverture === 'individuelle') return `cette page a déjà été analysée individuellement${s.dateLisible ? `, le ${s.dateLisible}` : ''}`;
-  if (s.couverture === 'fichier') return `cette page est couverte par l’analyse du fichier complet${s.dateLisible ? `, le ${s.dateLisible}` : ''} (ses valeurs n’ont pas été lues individuellement)`;
-  return 'cette page n’a pas encore été analysée';
+/** Entrées BRUTES par page (toutes optionnelles → résilient). */
+export interface EntreesStatutPage {
+  lecturePage?: { envoyee: boolean; nbValeurs: number; motif: string | null; creeLe: string | null }; // LOT 95 — IA grain PAGE (mesuré)
+  ecarteeReperage?: { motif: string };                                                                 // LOT 62 — cette page écartée pendant le repérage
+  reperage?: { creeLe: string | null };                                                                // LOT 62 — repérage IA du FICHIER (dérivé)
+  identifieeSansIa?: boolean;                                                                           // famille/Cerfa connue par le texte/nom (dérivé, sans IA)
+  dateSansIa?: string | null;                                                                           // date d'identification sans-IA si connue
 }
+
+/**
+ * PURE, SOURCE UNIQUE — les TROIS axes d'UNE page, EXCLUSIF (un seul état) et EXHAUSTIF (toute page a un état). Priorité : le MESURÉ au
+ * grain page (IA) prime le DÉRIVÉ du fichier ; « lu » prime « identifié ». `formaterDate` injecté (jourParisISO en prod).
+ */
+export function statutPageAnalyse(e: EntreesStatutPage, formaterDate: (iso: string) => string = (s) => s): StatutPage {
+  const d = (iso: string | null | undefined) => (iso ? formaterDate(iso) : null);
+  if (e.lecturePage) {
+    const l = e.lecturePage;
+    if (!l.envoyee) return { nature: 'ia', origine: 'manuelle', etat: etatAbstention(l.motif), derive: false, dateLisible: d(l.creeLe) };
+    if (l.nbValeurs > 0) return { nature: 'ia', origine: 'manuelle', etat: 'valeurs_lues', derive: false, dateLisible: d(l.creeLe) };
+    return { nature: 'ia', origine: 'manuelle', etat: 'rien_lisible', derive: false, dateLisible: d(l.creeLe) };
+  }
+  if (e.ecarteeReperage) return { nature: 'ia', origine: 'manuelle', etat: etatAbstention(e.ecarteeReperage.motif), derive: false, dateLisible: d(e.reperage?.creeLe) };
+  if (e.reperage) return { nature: 'ia', origine: 'manuelle', etat: 'identifiee_non_lue', derive: true, dateLisible: d(e.reperage.creeLe) };
+  if (e.identifieeSansIa) return { nature: 'sans_ia', origine: 'indeterminee', etat: 'identifiee_non_lue', derive: true, dateLisible: d(e.dateSansIa) };
+  return { nature: 'aucune', origine: null, etat: 'non_identifiee', derive: false, dateLisible: null };
+}
+
+/** LIBELLÉ COURT à l'écran (en FRANÇAIS CLAIR, sans jargon interne). « page identifiée mais non analysée » remplace « page couverte (fichier) » (LOT 98). PUR. */
+export function libelleStatutPage(s: StatutPage): string {
+  switch (s.etat) {
+    case 'valeurs_lues': return 'valeurs lues et intégrées';
+    case 'rien_lisible': return 'analysée, aucune valeur lisible';
+    case 'non_analysable': return 'non analysable (page sans texte)';
+    case 'ecarte_rgpd': return 'écartée (données personnelles)';
+    case 'identifiee_non_lue': return 'page identifiée mais non analysée';
+    default: return 'page non identifiée';
+  }
+}
+
+/** TITRE COMPLET (title/aria) — NATURE + ORIGINE + ÉTAT EN TOUTES LETTRES + date + « d'après l'analyse du fichier » si dérivé. PUR. */
+export function titreStatutPage(s: StatutPage): string {
+  const nature = s.nature === 'ia' ? 'analyse par IA (vision)' : s.nature === 'sans_ia' ? 'analyse sans IA (texte du document)' : 'aucune analyse';
+  const origine = s.origine === 'manuelle' ? ', déclenchée manuellement' : s.origine === 'auto' ? ', automatique' : s.origine === 'indeterminee' ? ', origine indéterminée' : '';
+  const quand = s.dateLisible ? `, le ${s.dateLisible}` : '';
+  const derive = s.derive ? ' (d’après l’analyse du fichier)' : '';
+  return `${libelleStatutPage(s)} — ${nature}${origine}${quand}${derive}`;
+}
+
+/** Lettres compactes portées par la pastille (2e/3e variables, jamais un ton de bleu de plus). NATURE : « IA » / « texte » ; ORIGINE : M / A / ?. */
+function natureCourte(n: NatureAnalyse): string { return n === 'ia' ? 'IA' : n === 'sans_ia' ? 'texte' : ''; }
+function lettreOriginePage(o: OrigineAnalyse | null): string { return o === 'manuelle' ? 'M' : o === 'auto' ? 'A' : o === 'indeterminee' ? '?' : ''; }
 
 /** PURE — vue d'ensemble des pages analysées d'une pièce (individuelles triées + présence d'un repérage fichier). */
 export interface ResumePagesAnalysees { pagesIndividuelles: number[]; fichier: boolean; dateFichier: string | null }
@@ -217,21 +260,24 @@ export function resumePagesAnalysees(
 }
 
 /**
- * LOT 98 — PASTILLE de PAGE : MÊME palette que le LOT 97 (aucune 3e couleur) — 'fichier' = bleu PLEIN (`--color-svv-blue`),
- * 'individuelle' = bleu PÂLE (`--color-svv-blue-soft`). Le MOT porte l'info (« page analysée » vs « couverte (fichier) »), la couleur
- * n'est qu'un appui ; `title`/`aria-label` disent tout + la date. 'aucune' → rien (jamais un état neutre trompeur). Hors canvas → tokens.
+ * LOT 99 — PASTILLE de STATUT DE PAGE : la GRAMMAIRE du LOT 97 conservée (aucune 3e palette de bleu) — le TON porte la « famille » d'état
+ * (valeurs lues = bleu PLEIN ; identifiée non lue = bleu PÂLE ; abstention/rien lisible = NEUTRE) ; NATURE (« IA »/« texte ») + ORIGINE
+ * (M/A/?) portées par des LETTRES, jamais par la couleur. Le MOT (libellé à côté) porte l'état ; `title`/`aria-label` énoncent tout +
+ * la date. 'non_identifiee' → aucune pastille. Hors canvas → tokens `--color-svv-*` (clair ET sombre).
  */
-export function PastillePageAnalyse({ s }: { s: EtatPageAnalyse }) {
-  if (s.couverture === 'aucune') return null;
-  const plein = s.couverture === 'fichier';
-  const libelle = libellePageAnalyse(s);
+export function PastilleStatutPage({ s }: { s: StatutPage }) {
+  if (s.etat === 'non_identifiee') return null;
+  const titre = titreStatutPage(s);
+  const fond = s.etat === 'valeurs_lues'
+    ? { background: 'var(--color-svv-blue)', color: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-blue)' }
+    : s.etat === 'identifiee_non_lue'
+      ? { background: 'var(--color-svv-blue-soft)', color: 'var(--color-svv-blue)', border: '1px solid var(--color-svv-blue)' }
+      : { background: 'var(--color-svv-field)', color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)' }; // rien lisible / écartée / non analysable
+  const lettres = [natureCourte(s.nature), lettreOriginePage(s.origine)].filter(Boolean).join('·');
   return (
-    <span role="img" title={libelle} aria-label={libelle}
-      style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', height: 18, padding: '0 .4rem', borderRadius: 999, fontSize: 10, fontWeight: 700, letterSpacing: '.02em',
-        background: plein ? 'var(--color-svv-blue)' : 'var(--color-svv-blue-soft)',
-        color: plein ? 'var(--color-svv-surface)' : 'var(--color-svv-blue)',
-        border: '1px solid var(--color-svv-blue)' }}>
-      {plein ? 'page couverte (fichier)' : 'page analysée'}
+    <span role="img" title={titre} aria-label={titre}
+      style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', height: 18, padding: '0 .4rem', borderRadius: 999, fontSize: 10, fontWeight: 700, letterSpacing: '.02em', ...fond }}>
+      {lettres}
     </span>
   );
 }

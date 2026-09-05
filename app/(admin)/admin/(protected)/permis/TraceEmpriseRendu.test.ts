@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, etatPageAnalyse, libellePageAnalyse, resumePagesAnalysees, PastillePageAnalyse, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -1337,31 +1337,68 @@ describe('LOT 97 — etatAnalyseIA / libelleAnalyseIA (fonctions PURES, deux axe
   });
 });
 
-describe('LOT 98 — repère PAR PAGE (etatPageAnalyse / libellePageAnalyse / resumePagesAnalysees, PURES) + pastille de page', () => {
-  it('page jamais analysée (ni page ni fichier) → « aucune » (rien d’affirmé)', () => {
-    expect(etatPageAnalyse(undefined, undefined)).toEqual({ couverture: 'aucune', dateLisible: null });
+describe('LOT 99 — statut PAR PAGE à TROIS AXES (statutPageAnalyse PURE, source unique) : exclusif, exhaustif, honnête', () => {
+  it('rien du tout → NON IDENTIFIÉE (nature aucune, origine null) — jamais un état trompeur', () => {
+    expect(statutPageAnalyse({})).toEqual({ nature: 'aucune', origine: null, etat: 'non_identifiee', derive: false, dateLisible: null });
   });
-  it('page analysée INDIVIDUELLEMENT (ligne au grain page) → « individuelle » + date formatée', () => {
-    expect(etatPageAnalyse({ creeLe: '2026-09-05T10:00:00Z' }, undefined, () => '05/09/2026'))
-      .toEqual({ couverture: 'individuelle', dateLisible: '05/09/2026' });
+  it('IA grain PAGE MESURÉ (permis_page_lecture) : valeurs lues / rien de lisible / écartée RGPD / non analysable', () => {
+    expect(statutPageAnalyse({ lecturePage: { envoyee: true, nbValeurs: 1, motif: null, creeLe: 'Z' } }, () => '05/09/2026'))
+      .toEqual({ nature: 'ia', origine: 'manuelle', etat: 'valeurs_lues', derive: false, dateLisible: '05/09/2026' });
+    expect(statutPageAnalyse({ lecturePage: { envoyee: true, nbValeurs: 0, motif: null, creeLe: 'Z' } }).etat).toBe('rien_lisible'); // JAMAIS « non analysée » (ne pas faire repayer)
+    expect(statutPageAnalyse({ lecturePage: { envoyee: false, nbValeurs: 0, motif: 'signature d’une personne détectée', creeLe: 'Z' } }).etat).toBe('ecarte_rgpd');
+    expect(statutPageAnalyse({ lecturePage: { envoyee: false, nbValeurs: 0, motif: 'page sans texte exploitable', creeLe: 'Z' } }).etat).toBe('non_analysable');
   });
-  it('page COUVERTE par un repérage FICHIER (sans ligne page) → « fichier » (distinct de individuelle)', () => {
-    expect(etatPageAnalyse(undefined, { creeLe: '2026-09-04T10:00:00Z' }, () => '04/09/2026'))
-      .toEqual({ couverture: 'fichier', dateLisible: '04/09/2026' });
+  it('page écartée pendant le REPÉRAGE (grain page mesuré) → écartée / non analysable selon le motif', () => {
+    expect(statutPageAnalyse({ ecarteeReperage: { motif: 'date de naissance détectée' }, reperage: { creeLe: 'Z' } }).etat).toBe('ecarte_rgpd');
+    expect(statutPageAnalyse({ ecarteeReperage: { motif: 'page sans texte' }, reperage: { creeLe: 'Z' } }).etat).toBe('non_analysable');
   });
-  it('les deux présents → l’INDIVIDUELLE PRIME (signal le plus précis pour la page)', () => {
-    expect(etatPageAnalyse({ creeLe: 'A' }, { creeLe: 'B' }).couverture).toBe('individuelle');
+  it('repérage IA du FICHIER (dérivé) → identifiée non lue, nature IA, DÉRIVÉ (d’après le fichier)', () => {
+    expect(statutPageAnalyse({ reperage: { creeLe: 'Z' } }, () => '05/09/2026'))
+      .toEqual({ nature: 'ia', origine: 'manuelle', etat: 'identifiee_non_lue', derive: true, dateLisible: '05/09/2026' });
   });
-  it('libellePageAnalyse — EN TOUTES LETTRES, distingue « individuellement » de « couverte par le fichier complet », avec date', () => {
-    expect(libellePageAnalyse({ couverture: 'individuelle', dateLisible: '05/09/2026' }))
-      .toBe('cette page a déjà été analysée individuellement, le 05/09/2026');
-    expect(libellePageAnalyse({ couverture: 'fichier', dateLisible: '04/09/2026' }))
-      .toContain('couverte par'); // « couverte par le fichier complet », distinct de « analysée individuellement »
-    expect(libellePageAnalyse({ couverture: 'fichier', dateLisible: '04/09/2026' }))
-      .toContain('fichier complet, le 04/09/2026');
-    expect(libellePageAnalyse({ couverture: 'fichier', dateLisible: '04/09/2026' }))
-      .toContain('lues individuellement'); // jamais fusionné avec « analysée individuellement »
-    expect(libellePageAnalyse({ couverture: 'aucune', dateLisible: null })).toContain('pas encore été analysée');
+  it('identification SANS IA (famille/Cerfa, dérivé) → identifiée non lue, nature SANS IA, origine INDÉTERMINÉE (jamais présumée auto)', () => {
+    expect(statutPageAnalyse({ identifieeSansIa: true }))
+      .toEqual({ nature: 'sans_ia', origine: 'indeterminee', etat: 'identifiee_non_lue', derive: true, dateLisible: null });
+  });
+  it('PRIORITÉ : le MESURÉ (IA page) prime le DÉRIVÉ (repérage/identification) ; « lu » prime « identifié »', () => {
+    // IA page valeurs lues l'emporte même si le fichier est repéré ET identifié sans IA.
+    expect(statutPageAnalyse({ lecturePage: { envoyee: true, nbValeurs: 2, motif: null, creeLe: 'A' }, reperage: { creeLe: 'B' }, identifieeSansIa: true }).etat).toBe('valeurs_lues');
+    // repérage IA (nature ia) prime l'identification sans IA quand aucune lecture de page.
+    expect(statutPageAnalyse({ reperage: { creeLe: 'B' }, identifieeSansIa: true }).nature).toBe('ia');
+  });
+  it('EXCLUSIF + EXHAUSTIF : chaque combinaison retenue tombe dans exactement UN état connu', () => {
+    const etatsConnus = new Set(['non_identifiee', 'identifiee_non_lue', 'valeurs_lues', 'rien_lisible', 'non_analysable', 'ecarte_rgpd']);
+    const cas: import('./TraceEmpriseRendu').EntreesStatutPage[] = [
+      {}, { identifieeSansIa: true }, { reperage: { creeLe: 'Z' } },
+      { lecturePage: { envoyee: true, nbValeurs: 1, motif: null, creeLe: 'Z' } },
+      { lecturePage: { envoyee: true, nbValeurs: 0, motif: null, creeLe: 'Z' } },
+      { lecturePage: { envoyee: false, nbValeurs: 0, motif: 'page sans texte', creeLe: 'Z' } },
+    ];
+    for (const c of cas) { const s = statutPageAnalyse(c); expect(etatsConnus.has(s.etat)).toBe(true); }
+  });
+  it('libelleStatutPage — FRANÇAIS CLAIR, « page identifiée mais non analysée » remplace « page couverte (fichier) »', () => {
+    expect(libelleStatutPage({ nature: 'ia', origine: 'manuelle', etat: 'identifiee_non_lue', derive: true, dateLisible: null })).toBe('page identifiée mais non analysée');
+    expect(libelleStatutPage({ nature: 'ia', origine: 'manuelle', etat: 'valeurs_lues', derive: false, dateLisible: null })).toBe('valeurs lues et intégrées');
+    expect(libelleStatutPage({ nature: 'ia', origine: 'manuelle', etat: 'rien_lisible', derive: false, dateLisible: null })).toContain('aucune valeur lisible');
+  });
+  it('titreStatutPage — NATURE + ORIGINE + ÉTAT EN TOUTES LETTRES + date + « d’après l’analyse du fichier » si dérivé', () => {
+    expect(titreStatutPage({ nature: 'sans_ia', origine: 'indeterminee', etat: 'identifiee_non_lue', derive: true, dateLisible: '05/09/2026' }))
+      .toBe('page identifiée mais non analysée — analyse sans IA (texte du document), origine indéterminée, le 05/09/2026 (d’après l’analyse du fichier)');
+    expect(titreStatutPage({ nature: 'ia', origine: 'manuelle', etat: 'valeurs_lues', derive: false, dateLisible: '05/09/2026' }))
+      .toBe('valeurs lues et intégrées — analyse par IA (vision), déclenchée manuellement, le 05/09/2026');
+  });
+  it('PastilleStatutPage — grammaire LOT 97 : ton = famille d’état ; lettres NATURE·ORIGINE ; « non identifiée » ne rend RIEN', () => {
+    const lu = renderToStaticMarkup(h(PastilleStatutPage, { s: { nature: 'ia', origine: 'manuelle', etat: 'valeurs_lues', derive: false, dateLisible: '05/09/2026' } }));
+    expect(lu).toContain('var(--color-svv-blue)');   // bleu PLEIN (valeurs lues)
+    expect(lu).toContain('IA·M');                     // NATURE·ORIGINE en lettres (jamais la couleur seule)
+    expect(lu).toContain('role="img"');
+    const idIa = renderToStaticMarkup(h(PastilleStatutPage, { s: { nature: 'ia', origine: 'manuelle', etat: 'identifiee_non_lue', derive: true, dateLisible: null } }));
+    expect(idIa).toContain('var(--color-svv-blue-soft)'); // bleu PÂLE (identifiée non lue)
+    const idTexte = renderToStaticMarkup(h(PastilleStatutPage, { s: { nature: 'sans_ia', origine: 'indeterminee', etat: 'identifiee_non_lue', derive: true, dateLisible: null } }));
+    expect(idTexte).toContain('texte·?'); // NATURE sans IA + origine indéterminée → distinct de l'IA (jamais écrasés)
+    const ecarte = renderToStaticMarkup(h(PastilleStatutPage, { s: { nature: 'ia', origine: 'manuelle', etat: 'ecarte_rgpd', derive: false, dateLisible: null } }));
+    expect(ecarte).toContain('var(--color-svv-field)'); // NEUTRE (ni « lu » ni « identifié »)
+    expect(renderToStaticMarkup(h(PastilleStatutPage, { s: { nature: 'aucune', origine: null, etat: 'non_identifiee', derive: false, dateLisible: null } }))).toBe('');
   });
   it('resumePagesAnalysees — pages NON CONTIGUËS triées + dédoublonnées ; repérage fichier signalé à part', () => {
     expect(resumePagesAnalysees([{ page: 7 }, { page: 3 }, { page: 3 }], undefined))
@@ -1369,17 +1406,5 @@ describe('LOT 98 — repère PAR PAGE (etatPageAnalyse / libellePageAnalyse / re
     expect(resumePagesAnalysees([], { creeLe: 'X' }, () => '05/09/2026'))
       .toEqual({ pagesIndividuelles: [], fichier: true, dateFichier: '05/09/2026' });
     expect(resumePagesAnalysees(undefined, undefined)).toEqual({ pagesIndividuelles: [], fichier: false, dateFichier: null });
-  });
-  it('PastillePageAnalyse — 2 tons du LOT 97 (aucune 3e palette) + libellé explicite ; « aucune » ne rend RIEN', () => {
-    const indiv = renderToStaticMarkup(h(PastillePageAnalyse, { s: { couverture: 'individuelle', dateLisible: '05/09/2026' } }));
-    expect(indiv).toContain('var(--color-svv-blue-soft)');   // bleu PÂLE (page analysée individuellement)
-    expect(indiv).toContain('page analysée');
-    expect(indiv).toContain('role="img"');
-    expect(indiv).toContain('analysée individuellement, le 05/09/2026'); // title EN TOUTES LETTRES + date
-    const fichier = renderToStaticMarkup(h(PastillePageAnalyse, { s: { couverture: 'fichier', dateLisible: '04/09/2026' } }));
-    expect(fichier).toContain('var(--color-svv-blue)');       // bleu PLEIN (couverte par le fichier)
-    expect(fichier).toContain('page couverte (fichier)');
-    // « aucune » → aucun rendu (pas de pastille, pas d'état neutre trompeur).
-    expect(renderToStaticMarkup(h(PastillePageAnalyse, { s: { couverture: 'aucune', dateLisible: null } }))).toBe('');
   });
 });
