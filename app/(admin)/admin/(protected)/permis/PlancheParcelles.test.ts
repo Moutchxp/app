@@ -11,8 +11,32 @@ const ROUTE = readFileSync(fileURLToPath(new URL('../../../../(admin)/api/admin/
 
 describe('PlancheParcelles — lecture seule, schéma pur réutilisé, provenance honnête', () => {
   it('LECTURE SEULE : GET de la planche, AUCUN POST/écriture depuis le composant', () => {
-    expect(SRC).toContain("fetch(`/api/admin/permis/planche?dossierId=");
+    expect(SRC).toContain('/api/admin/permis/planche?');
+    expect(SRC).toContain('cache: '); // no-store, jamais une écriture
     expect(SRC).not.toContain("method: 'POST'");
+  });
+  it('PL-B — RÉUTILISE la liseuse existante (jamais dupliquée) : import de LiseusePieces', () => {
+    expect(SRC).toContain("import { LiseusePieces } from './LiseusePieces'");
+    expect(SRC).toContain('<LiseusePieces dossierId={dossierId}');
+  });
+  it('PL-B — RAYON réglable à l’écran 50→200 m (input range)', () => {
+    expect(SRC).toContain('type="range"');
+    expect(SRC).toMatch(/RAYON_MIN\s*=\s*50/);
+    expect(SRC).toMatch(/RAYON_MAX\s*=\s*200/);
+  });
+  it('PL-B — TROIS modes de centrage (empreinte défaut / parcelle / adresse)', () => {
+    expect(SRC).toContain("changerMode('empreinte')");
+    expect(SRC).toContain("changerMode('parcelle')");
+    expect(SRC).toContain("changerMode('adresse')");
+  });
+  it('PL-B — « on ne devine pas » : l’avertissement de centrage est affiché (adresse non résolue)', () => {
+    expect(SRC).toContain('data.centreAvertissement');
+  });
+  it('PL-B — SURVOL→nom (title), TAP/CLIC (onClick→sélection), CLAVIER (tabIndex + onFocus/onKeyDown) : utilisable au doigt ET au clavier', () => {
+    expect(SRC).toContain('<title>');
+    expect(SRC).toContain('onClick={() => setSelection');
+    expect(SRC).toContain('tabIndex={0}');
+    expect(SRC).toMatch(/onFocus=\{\(\) => setSelection/);
   });
   it('la ROUTE n’expose QUE GET (aucune mutation)', () => {
     expect(ROUTE).toContain('export async function GET');
