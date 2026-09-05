@@ -710,6 +710,20 @@ describe('PROJ-3g — trois familles dans la bande + verrou de traçage', () => 
     ]);
     expect(b.map((p) => p.famille)).toEqual(['masse', 'etage', 'coupe']);
   });
+  it('LOT 88 — best-of PLANS SEULS : une pièce classée `cerfa` (même proposée + planches) N’ENTRE PAS dans la bande', () => {
+    const b = construireBandePlans([
+      { id: 1, nomFichier: 'PC2.pdf', propose: true, famille: 'masse', planches: [{ page: 1, echelle: null }], confirme: true },
+      { id: 9, nomFichier: 'cerfa_13409_15.pdf', propose: true, famille: 'cerfa', planches: [{ page: 1, echelle: null }], confirme: true },
+      { id: 3, nomFichier: 'PC3.1_Coupe_AA.pdf', propose: true, famille: 'coupe', planches: [{ page: 1, echelle: null }], confirme: true },
+    ]);
+    expect(b.map((p) => p.pieceId)).toEqual([1, 3]);            // le cerfa (9) est exclu
+    expect(b.map((p) => p.famille)).toEqual(['masse', 'coupe']); // ordre du LOT 87 préservé (masse → coupe)
+    expect(b.some((p) => p.famille === 'cerfa')).toBe(false);
+  });
+  it('LOT 88 — une bande de cerfa SEULS → bande VIDE (jamais un « satisfait » sur ensemble vide)', () => {
+    const b = construireBandePlans([{ id: 9, nomFichier: 'cerfa.pdf', propose: true, famille: 'cerfa', planches: [{ page: 1, echelle: null }], confirme: true }]);
+    expect(b).toEqual([]);
+  });
   it('BandePlans affiche le MOT de la famille (pas la couleur seule)', () => {
     const b = construireBandePlans([{ id: 3, nomFichier: 'PC3.1_Coupe_AA.pdf', propose: true, famille: 'coupe', planches: [{ page: 1, echelle: null }], confirme: true }]);
     const html = renderToStaticMarkup(h(BandePlans, { bande: b, index: 0, onPrecedent: () => {}, onSuivant: () => {} }));

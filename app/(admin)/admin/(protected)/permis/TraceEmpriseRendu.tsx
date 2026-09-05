@@ -162,11 +162,14 @@ export interface Plan { pieceId: number; page: number; nomFichier: string; echel
  * Construit la bande à feuilleter à partir des pièces déjà CLASSÉES (ordre masse → étage → coupe, PAS recalculé). PROJ-3f : un
  * plan = une PAGE ; une pièce proposée est ÉCLATÉE en une entrée par PLANCHE (pages hors cartouche, calculées serveur), sinon REPLI
  * page 1. PROJ-3g/3m : chaque entrée porte sa FAMILLE et sa TRAÇABILITÉ PAR PAGE (une planche de niveau d'une pièce PC3 est traçable).
- * Repli (non confirmée) : traçabilité au niveau de la PIÈCE. PUR.
+ * Repli (non confirmée) : traçabilité au niveau de la PIÈCE. LOT 88 : la famille `cerfa` est EXCLUE (best-of = plans seuls). PUR.
  */
 export function construireBandePlans(pieces: PiecePlan[]): Plan[] {
   const out: Plan[] = [];
   for (const p of pieces) {
+    // LOT 88 — le best-of est « PLANS SEULS » : une pièce classée `cerfa` (par son contenu/nom) N'ENTRE PAS dans la bande (un Cerfa
+    //   n'est pas un plan). On ne touche PAS au CLASSEMENT (la pièce RESTE un cerfa pour la complétude / recapCerfa) : seule la BANDE change.
+    if (p.famille === 'cerfa') continue;
     const planchesToutes = p.planches ?? [];
     const aImage = planchesToutes.some((pl) => pl.origine === 'image');
     // LOT 62 — on inclut une pièce PROPOSÉE (best-of textuel, comportement d'avant) OU une pièce à ≥1 planche repérée par IMAGE
