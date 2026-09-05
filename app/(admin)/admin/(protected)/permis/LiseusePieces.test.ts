@@ -181,6 +181,29 @@ describe('LOT 95 — « analyse de la page » ACTIVÉE : lecture de valeurs au g
   });
 });
 
+describe('LOT 96 — liste « N pages ajoutées à la main » repliable, repliée par défaut (garde par lecture de source)', () => {
+  it('REPLIÉE PAR DÉFAUT : état dédié initialisé à false, distinct de la liste « voir toutes les pièces »', () => {
+    expect(SRC).toContain('const [pleinAjoutees, setPleinAjoutees] = useState(false)');
+  });
+  it('la ligne repliée porte le COMPTE (accord singulier/pluriel), déclencheur unique avec aria-expanded', () => {
+    // le compte est sur le DÉCLENCHEUR (bouton), pas seulement dans le détail → on le voit sans déplier.
+    expect(SRC).toMatch(/aria-expanded=\{pleinAjoutees\}[\s\S]{0,120}onClick=\{\(\) => setPleinAjoutees\(\(v\) => !v\)\}/);
+    expect(SRC).toMatch(/\{ajoutees\.length\} page\{ajoutees\.length > 1 \? 's' : ''\} ajoutée\{ajoutees\.length > 1 \? 's' : ''\} au best-of à la main/);
+  });
+  it('0 ajout → RIEN affiché (jamais « 0 page ajoutée ») : toute la zone est gardée par ajoutees.length > 0', () => {
+    expect(SRC).toMatch(/\{ajoutees\.length > 0 && \(/);
+  });
+  it('le DÉTAIL (entrées + bouton « retirer ») n’apparaît qu’une fois DÉPLIÉ ; la bascule reste celle du LOT 92 (non réimplémentée)', () => {
+    expect(SRC).toMatch(/\{pleinAjoutees && \([\s\S]*ajoutees\.map/);
+    expect(SRC).toMatch(/ajoutees\.map\([\s\S]*retirerDuBestOf\(pl\)/); // le « retirer » du détail = bascule LOT 92
+  });
+  it('PAS de BlocRepliable imbriqué : la liseuse est déjà dans un repliable → simple bouton + état (aucune BALISE <BlocRepliable ni import)', () => {
+    // le NOM peut apparaître en COMMENTAIRE (on explique justement pourquoi on n'en met pas) ; ce qui est interdit = l'USAGE réel.
+    expect(SRC).not.toMatch(/<BlocRepliable/);
+    expect(SRC).not.toMatch(/import[^;\n]*BlocRepliable/); // aucun import de BlocRepliable (une seule instruction, jamais à travers le fichier)
+  });
+});
+
 describe('LOT 91 — aperçu collant + liste bornée : l’aperçu reste en face de la ligne cliquée (garde par lecture de source)', () => {
   it('le panneau d’APERÇU est COLLANT (position sticky, ancré en haut de sa colonne)', () => {
     expect(SRC).toMatch(/flex: '2 1 300px'[\s\S]{0,80}position: 'sticky'/); // la colonne aperçu porte position sticky

@@ -130,3 +130,47 @@ describe('LOT 94 — fichier d’UNE seule page : aucune navigation de pages', (
     expect(container.textContent).not.toContain('page 1 sur 1');
   });
 });
+
+describe('LOT 96 — liste « pages ajoutées à la main » repliable (reproduit le dossier 470 : 3 ajouts PC5)', () => {
+  // GET renvoie 1 pièce AUTO (best-of) + 3 pièces PC5 NON proposées, incluses à la main → 3 pages « ajoutées » (manuel).
+  function monterAvecAjouts(): void {
+    global.fetch = vi.fn(async (_i: unknown, init?: { method?: string }) => {
+      if ((init?.method ?? 'GET') === 'POST') return { ok: true, json: async () => ({ url: 'blob:fake' }) } as unknown as Response;
+      return { ok: true, json: async () => ({
+        pieces: [
+          { id: 55, nomFichier: 'A.pdf', propose: true, famille: 'masse', confirme: true, planches: [{ page: 1, echelle: null }] },
+          { id: 481, nomFichier: 'PC5_AUTRES__20250515130657.pdf', propose: false, famille: null },
+          { id: 484, nomFichier: 'PC5_SUD__20250515130517.pdf', propose: false, famille: null },
+          { id: 485, nomFichier: 'PC5_TOITURE__20250515130635.pdf', propose: false, famille: null },
+        ],
+        inclusionsBestOf: [{ pieceId: 481, page: 1 }, { pieceId: 484, page: 1 }, { pieceId: 485, page: 1 }],
+      }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+  }
+
+  it('ligne REPLIÉE par défaut : « 3 pages ajoutées au best-of à la main », détail caché ; dépliage → 3 boutons « retirer »', async () => {
+    monterAvecAjouts();
+    await act(async () => { root.render(h(LiseusePieces, { dossierId: 470 })); });
+    await flush();
+    // ligne repliée : le COMPTE est visible sans déplier (accord pluriel), déclencheur aria-expanded=false.
+    const ligne = boutonTexte('3 pages ajoutées au best-of à la main ▾');
+    expect(ligne).not.toBeNull();
+    expect(ligne!.getAttribute('aria-expanded')).toBe('false');
+    // détail replié → aucun bouton « retirer » visible.
+    expect(Array.from(container.querySelectorAll('button')).filter((b) => b.textContent === 'retirer')).toHaveLength(0);
+
+    // UN clic → détail ouvert : les 3 entrées et leurs 3 boutons « retirer ».
+    act(() => { ligne!.click(); });
+    await flush();
+    expect(container.textContent).toContain('PC5_AUTRES__20250515130657.pdf — page 1');
+    expect(container.textContent).toContain('PC5_SUD__20250515130517.pdf — page 1');
+    expect(container.textContent).toContain('PC5_TOITURE__20250515130635.pdf — page 1');
+    expect(Array.from(container.querySelectorAll('button')).filter((b) => b.textContent === 'retirer')).toHaveLength(3);
+  });
+
+  it('0 ajout → la ligne ne s’affiche PAS du tout (jamais « 0 page ajoutée »)', async () => {
+    await act(async () => { root.render(h(LiseusePieces, { dossierId: 1 })); }); // mock par défaut : aucune inclusion
+    await flush();
+    expect(container.textContent).not.toContain('ajoutée');
+  });
+});

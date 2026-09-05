@@ -91,6 +91,9 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const [page, setPage] = useState(1);
   const [nbPagesPiece, setNbPagesPiece] = useState(1);
   const [pleinListe, setPleinListe] = useState(false);
+  // LOT 96 — la liste des pages AJOUTÉES à la main est repliée par défaut (une seule ligne portant le compte) ; on l'ouvre à la demande.
+  //   Pas de BlocRepliable imbriqué : la liseuse EST déjà dans le repliable « Pièces du permis » → simple bouton + aria-expanded (comme « voir toutes les pièces »).
+  const [pleinAjoutees, setPleinAjoutees] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [message, setMessage] = useState<string | null>(null);
@@ -665,18 +668,26 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
             </ul>
           </div>
         )}
-        {/* LOT 92 — COMPTEUR + RÉVERSIBILITÉ des pages AJOUTÉES à la main (miroir des retirées) : chacune retirable. */}
+        {/* LOT 96 — COMPTEUR + RÉVERSIBILITÉ des pages AJOUTÉES à la main (miroir des retirées) : la liste est REPLIÉE PAR DÉFAUT (une seule
+            ligne portant le compte, pour ne pas prendre de place) et s'ouvre au clic. 0 ajout → rien du tout (jamais « 0 page ajoutée »). Un
+            SEUL clic pour déplier, aucune animation (repliable natif → prefers-reduced-motion respecté d'office). La bascule « retirer » du
+            détail reste celle du LOT 92 (retirerDuBestOf), strictement inchangée. Zone hors canvas → tokens de thème (clair ET sombre). */}
         {ajoutees.length > 0 && (
           <div style={{ fontSize: 11, color: 'var(--color-svv-muted)', margin: '.4rem 0 0', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-            <span>{ajoutees.length} page{ajoutees.length > 1 ? 's' : ''} ajoutée{ajoutees.length > 1 ? 's' : ''} au best-of à la main :</span>
-            <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-              {ajoutees.map((pl) => (
-                <li key={`${pl.pieceId}:${pl.page}`} style={{ wordBreak: 'break-word' }}>
-                  {pl.nomFichier} — page {pl.page}{' '}
-                  <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }} onClick={() => void retirerDuBestOf(pl)}>retirer</button>
-                </li>
-              ))}
-            </ul>
+            <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', fontSize: 11, color: 'var(--color-svv-muted)', alignSelf: 'flex-start' }}
+              aria-expanded={pleinAjoutees} onClick={() => setPleinAjoutees((v) => !v)}>
+              {ajoutees.length} page{ajoutees.length > 1 ? 's' : ''} ajoutée{ajoutees.length > 1 ? 's' : ''} au best-of à la main {pleinAjoutees ? '▲' : '▾'}
+            </button>
+            {pleinAjoutees && (
+              <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+                {ajoutees.map((pl) => (
+                  <li key={`${pl.pieceId}:${pl.page}`} style={{ wordBreak: 'break-word' }}>
+                    {pl.nomFichier} — page {pl.page}{' '}
+                    <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }} onClick={() => void retirerDuBestOf(pl)}>retirer</button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
       </div>
