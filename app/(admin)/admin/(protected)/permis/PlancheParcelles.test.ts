@@ -56,3 +56,26 @@ describe('PlancheParcelles — lecture seule, schéma pur réutilisé, provenanc
     expect(SRC).toContain('data.motif');
   });
 });
+
+describe('PlancheParcelles — corrections PL-B2', () => {
+  it('§1 SURVOL INSTANTANÉ : libellé qui suit le curseur (onMouseMove + position:fixed), <title> conservé pour l’a11y', () => {
+    expect(SRC).toContain('onMouseMove=');
+    expect(SRC).toContain('setSurvol');
+    expect(SRC).toContain("position: 'fixed'");
+    expect(SRC).toContain('<title>'); // gardé pour lecteurs d'écran
+  });
+  it('§2 LIBELLÉ explicite « Centrer sur une parcelle » + grisé si le permis n’a qu’une parcelle', () => {
+    expect(SRC).toContain('Centrer sur une parcelle');
+    expect(SRC).not.toContain('>Une parcelle<');
+    expect(SRC).toContain('data.parcellesChoix.length <= 1'); // désactivé quand identique au défaut
+  });
+  it('§3 OÙ L’ON EST : commune + libellé de planche affichés sous la carte (feuille reconstituée, honnête)', () => {
+    expect(SRC).toContain('data.localisation.feuilleLibelle');
+    expect(SRC).toContain('data.localisation.feuilleNote');
+    expect(SRC).toContain('non résolue en base'); // dit quand la commune ne se résout pas (jamais inventée)
+  });
+  it('§4 PLANCHE DE L’ADRESSE : note honnête si aucune parcelle du permis autour de l’adresse', () => {
+    expect(SRC).toContain("data.centre.mode === 'adresse'");
+    expect(SRC).toContain('planche centrée sur l’adresse');
+  });
+});

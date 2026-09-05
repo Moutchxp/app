@@ -30,6 +30,7 @@ export async function GET(request: Request): Promise<Response> {
       schema: { largeur: 360, hauteur: 300, empreintePath: null, polygones: [], motif: 'planche indisponible', transform: null },
       meta: [], rayonM: rayon, nbRetenues: 0, nbVoisines: 0, motif: 'planche indisponible (lecture des parcelles impossible)',
       centre: { mode: 'empreinte', idu: null, point: null }, centreAvertissement: null, marqueurAdresse: null, parcellesChoix: [],
+      localisation: { communeCode: null, communeNom: null, sections: [], feuilleLibelle: 'localisation indisponible', feuilleNote: '' },
     };
     return Response.json({ planche: vide });
   }

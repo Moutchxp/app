@@ -49,6 +49,7 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
   const [mode, setMode] = useState<CentreMode>('empreinte');
   const [idu, setIdu] = useState<string | null>(null);          // parcelle de centrage (mode 'parcelle')
   const [selection, setSelection] = useState<number | null>(null); // index sélectionné (tap/clic/clavier)
+  const [survol, setSurvol] = useState<{ x: number; y: number; texte: string } | null>(null); // PL-B2 — libellé de survol INSTANTANÉ (suit le curseur), en plus du <title> a11y
 
   useEffect(() => {
     let annule = false;
@@ -102,9 +103,11 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
           {/* CENTRAGE : empreinte (défaut) / parcelle / adresse */}
           <div role="group" aria-label="Centrage de la planche" style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Centrer :</span>
-            <button type="button" style={btn(mode === 'empreinte')} aria-pressed={mode === 'empreinte'} onClick={() => changerMode('empreinte')}>Parcelles du permis</button>
-            <button type="button" style={btn(mode === 'parcelle')} aria-pressed={mode === 'parcelle'} onClick={() => changerMode('parcelle')} disabled={data.parcellesChoix.length === 0}>Une parcelle</button>
-            <button type="button" style={btn(mode === 'adresse')} aria-pressed={mode === 'adresse'} onClick={() => changerMode('adresse')}>Adresse du permis</button>
+            <button type="button" style={btn(mode === 'empreinte')} aria-pressed={mode === 'empreinte'} onClick={() => changerMode('empreinte')}>Toutes les parcelles</button>
+            <button type="button" style={btn(mode === 'parcelle')} aria-pressed={mode === 'parcelle'} onClick={() => changerMode('parcelle')}
+              disabled={data.parcellesChoix.length <= 1}
+              title={data.parcellesChoix.length <= 1 ? 'ce permis n’a qu’une parcelle : identique à « Toutes les parcelles »' : undefined}>Centrer sur une parcelle</button>
+            <button type="button" style={btn(mode === 'adresse')} aria-pressed={mode === 'adresse'} onClick={() => changerMode('adresse')}>Centrer sur l’adresse</button>
             {mode === 'parcelle' && data.parcellesChoix.length > 0 && (
               <select aria-label="Parcelle de centrage" value={idu ?? ''} onChange={(e) => setIdu(e.target.value || null)}
                 style={{ fontSize: 12, padding: '.15rem .3rem', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' }}>
@@ -141,13 +144,15 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
                   {/* Voisines dessous : cliquables/tap au doigt (sélection) + survol (title). Hors tabulation (jusqu'à des centaines) — les RETENUES portent l'accès clavier. */}
                   {schema.polygones.map((p, i) => meta[i] && !meta[i].retenue ? (
                     <path key={p.repere} d={p.path} fill={styleParcelle(meta[i]).fill} fillOpacity={selection === i ? 0.25 : styleParcelle(meta[i]).fillOpacity} stroke={selection === i ? 'var(--color-svv-ink)' : styleParcelle(meta[i]).stroke} strokeWidth={selection === i ? 1.4 : 0.6}
-                      style={{ cursor: 'pointer' }} onClick={() => setSelection(i)}><title>{texteParcelle(meta[i])}</title></path>
+                      style={{ cursor: 'pointer' }} onClick={() => setSelection(i)}
+                      onMouseMove={(e) => setSurvol({ x: e.clientX, y: e.clientY, texte: texteParcelle(meta[i]) })} onMouseLeave={() => setSurvol(null)}><title>{texteParcelle(meta[i])}</title></path>
                   ) : null)}
                   {/* Retenues dessus : cliquables ET focusables au clavier (peu nombreuses) → survol + tap + clavier. */}
                   {schema.polygones.map((p, i) => meta[i] && meta[i].retenue ? (
                     <path key={p.repere} d={p.path} fill={styleParcelle(meta[i]).fill} fillOpacity={selection === i ? 0.5 : styleParcelle(meta[i]).fillOpacity} stroke={styleParcelle(meta[i]).stroke} strokeWidth={selection === i ? 2.4 : 1.4}
                       tabIndex={0} role="button" aria-label={texteParcelle(meta[i])} style={{ cursor: 'pointer' }}
                       onClick={() => setSelection(i)} onFocus={() => setSelection(i)}
+                      onMouseMove={(e) => setSurvol({ x: e.clientX, y: e.clientY, texte: texteParcelle(meta[i]) })} onMouseLeave={() => setSurvol(null)}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelection(i); } }}><title>{texteParcelle(meta[i])}</title></path>
                   ) : null)}
                   {/* Étiquettes section/numéro sur les RETENUES */}
@@ -173,6 +178,20 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
                 {sel ? <><strong>{texteParcelle(sel)}</strong>{sel.surfaceM2 !== null ? <span style={{ color: 'var(--color-svv-muted)' }}> · {sel.surfaceM2} m²</span> : null}{sel.idu ? <span style={{ color: 'var(--color-svv-muted)', fontFamily: 'var(--font-svv-mono, monospace)' }}> · {sel.idu}</span> : null}</>
                   : <span style={{ color: 'var(--color-svv-muted)' }}>Survolez, touchez ou sélectionnez au clavier une parcelle pour l’identifier.</span>}
               </div>
+
+              {/* PL-B2 §3 — OÙ L'ON EST : commune de la planche + nom de planche reconstitué (commune + section ; le n° de feuille cadastrale
+                  n'est pas dans nos données, on le DIT plutôt que d'inventer). Toujours affiché sous la carte. */}
+              <div style={{ fontSize: 12, color: 'var(--color-svv-ink)', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.35rem' }}>
+                <span aria-hidden>📍 </span><strong>{data.localisation.feuilleLibelle}</strong>
+                {data.localisation.communeNom === null && data.localisation.communeCode
+                  ? <span style={{ color: 'var(--color-svv-red)' }}> — commune {data.localisation.communeCode} non résolue en base</span> : null}
+                <span style={{ display: 'block', fontSize: 11, color: 'var(--color-svv-muted)' }}>{data.localisation.feuilleNote}</span>
+              </div>
+
+              {/* Mode adresse : la planche est celle de l'ADRESSE. Si aucune parcelle du permis n'y figure, on le DIT (jamais un vide muet). */}
+              {data.centre.mode === 'adresse' && data.nbRetenues === 0 && data.parcellesChoix.length > 0 && (
+                <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>Aucune parcelle du permis dans ce rayon autour de l’adresse (planche centrée sur l’adresse).</div>
+              )}
 
               <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexWrap: 'wrap', gap: '.15rem .8rem', fontSize: 11, color: 'var(--color-svv-muted)' }}>
                 {LEGENDE.map((l) => (
@@ -204,6 +223,14 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
           )}
         </div>
       </div>
+      {/* PL-B2 §1 — libellé de survol INSTANTANÉ qui suit le curseur (le <title> natif tarde ~1 s et ne suit pas). position:fixed sur
+          les coords écran, pointerEvents:none (ne bloque jamais le clic). Le <title> reste pour les lecteurs d'écran ; tap/clavier restent. */}
+      {survol && (
+        <div role="status" aria-hidden style={{ position: 'fixed', left: survol.x + 12, top: survol.y + 12, zIndex: 50, pointerEvents: 'none',
+          background: 'var(--color-svv-ink)', color: 'var(--color-svv-surface)', fontSize: 11, padding: '.15rem .4rem', borderRadius: '.3rem', whiteSpace: 'nowrap', boxShadow: '0 1px 4px rgba(0,0,0,.3)' }}>
+          {survol.texte}
+        </div>
+      )}
     </div>
   );
 }
