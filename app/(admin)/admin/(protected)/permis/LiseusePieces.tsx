@@ -444,7 +444,10 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
             {pleinListe ? 'masquer les autres pièces' : 'voir toutes les pièces du dossier'} {pleinListe ? '▲' : '▾'}
           </button>
           {pleinListe && (
-            <div style={{ marginTop: '.3rem' }}>
+            // LOT 91 — liste BORNÉE (défilement interne) : ~70 pièces ne repoussent plus l'aperçu hors du champ (desktop : l'aperçu
+            //   collant reste en face ; mobile empilé : l'aperçu, juste sous cette liste bornée, reste à portée). Scroll natif → aucune
+            //   animation (prefers-reduced-motion respecté d'office). La ligne cliquée reste marquée (aria-current, LOT 64).
+            <div style={{ marginTop: '.3rem', maxHeight: '60vh', overflowY: 'auto' }}>
               {/* LOT 64 — liste EXPLICITE (plus un <select> replié à une ligne) : toutes les pièces, non analysées par image en tête, état par ligne. */}
               <ListePiecesAnalyse pieces={pieces} runsParPiece={runsParPiece} nonSupportees={piecesNonSupportees} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} />
             </div>
@@ -479,7 +482,13 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
         </div>
         <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajuster} />
       </div>
-      <div style={{ flex: '2 1 300px', minWidth: 0 }}>
+      {/* LOT 91 — APERÇU COLLANT : sur écran LARGE (colonnes côte à côte), le panneau d'aperçu SUIT le défilement (position sticky) →
+          un clic sur n'importe quelle ligne, même tout en bas, affiche la page SANS remonter. Sur écran ÉTROIT (colonnes empilées via
+          flex-wrap), `top` n'a d'effet qu'une fois l'aperçu atteint : combiné à la liste bornée ci-dessus, l'aperçu reste à portée
+          (l'aperçu vient sous la liste bornée). `alignSelf:flex-start` : le sticky s'ancre en haut de la colonne, pas étiré. */}
+      <div style={{ flex: '2 1 300px', minWidth: 0, position: 'sticky', top: '.5rem', alignSelf: 'flex-start' }}>
+        {/* LOT 91 — aucune pièce sélectionnée → le dire explicitement (jamais un cadre vide muet, règle LOT 71). */}
+        {pieceId === null && <p role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: '0 0 .3rem' }}>Aucun aperçu ouvert : choisissez une pièce (best-of ci-contre ou « voir toutes les pièces du dossier »).</p>}
         {/* LOT 65 — OUVRIR LE DOCUMENT COMPLET (nouvel onglet), AU-DESSUS de l'image. Visiblement cliquable (souligné + ↗, jamais un
             nom qui devient lien au survol). Le lien SUIT la page affichée (nomCourant + page, état courant) ; il est signé AU CLIC. */}
         {pieceId !== null && (

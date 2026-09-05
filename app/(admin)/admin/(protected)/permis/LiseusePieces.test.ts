@@ -72,6 +72,26 @@ describe('LOT 14b — zéro duplication des RÈGLES, rendu neuf isolé', () => {
   });
 });
 
+describe('LOT 91 — aperçu collant + liste bornée : l’aperçu reste en face de la ligne cliquée (garde par lecture de source)', () => {
+  it('le panneau d’APERÇU est COLLANT (position sticky, ancré en haut de sa colonne)', () => {
+    expect(SRC).toMatch(/flex: '2 1 300px'[\s\S]{0,80}position: 'sticky'/); // la colonne aperçu porte position sticky
+    expect(SRC).toContain("alignSelf: 'flex-start'");
+    expect(SRC).toContain("top: '.5rem'");
+  });
+  it('la liste « voir toutes les pièces » est BORNÉE (défilement interne) → ne repousse plus l’aperçu de ~70 lignes', () => {
+    expect(SRC).toMatch(/maxHeight: '60vh'[\s\S]{0,40}overflowY: 'auto'/);
+  });
+  it('aucune pièce sélectionnée → message explicite (jamais un cadre vide muet, règle LOT 71)', () => {
+    expect(SRC).toContain('Aucun aperçu ouvert');
+    expect(SRC).toMatch(/pieceId === null &&/); // gardé par l'absence de sélection
+  });
+  it('AUCUNE animation introduite (prefers-reduced-motion) : ni transition ni scroll animé sur ces conteneurs', () => {
+    // le collant/bornage repose sur position:sticky + overflow natif ; aucun scrollIntoView/behavior smooth ajouté.
+    expect(SRC).not.toContain('scrollIntoView');
+    expect(SRC).not.toContain("behavior: 'smooth'");
+  });
+});
+
 describe('LOT 14b — montée paresseuse, indépendance du tracé', () => {
   it('à la simple montée (avant effet), affiche un état de chargement — pas de <canvas>, pas de fetch peint', () => {
     // renderToStaticMarkup n'exécute pas les effets : on voit l'état initial (chargement), donc AUCUN rendu PDF n'est déclenché au rendu.
