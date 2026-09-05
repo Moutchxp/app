@@ -10,6 +10,7 @@ import {
 } from './TraceEmpriseRendu';
 import { MAX_DOCS_CACHE, MAX_BITMAPS_RENDU, voisinsAPrecharger, rangerEtEvincer } from './prechargeLiseuse';
 import type { RunReperageAffiche } from '../../../../lib/permis/reperePlanchesRepo'; // LOT 62 — audit du repérage par image (type SEUL)
+import type { LecturePageAffiche } from '../../../../lib/permis/lectureValeursPageRepo'; // LOT 95 — audit daté « page analysée pour lire des valeurs » (type SEUL)
 import { jourParisISO } from '../../../../lib/permis/horodatageParis'; // LOT 64 — date « analysée le … » en Europe/Paris
 
 /** LOT 23 — un document pdf.js en cache + comment il y est entré (`precharge` = chargé en tâche de fond, pas encore affiché) + octets réellement transférés. */
@@ -78,6 +79,12 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const [vReper, setVReper] = useState(0);
   const [reperEnCours, setReperEnCours] = useState(false);
   const [reperMsg, setReperMsg] = useState<string | null>(null);
+  // LOT 95 — LECTURE DE VALEURS au grain page (bouton « analyse de la page »). `lectures` : audit daté par pièce (état « déjà analysée »).
+  //   `lectureEnCours` : état du bouton. `lectureRes` : l'issue de la DERNIÈRE lecture, ANCRÉE à sa page (clé « pieceId:page ») pour ne
+  //   l'afficher qu'en face de CETTE page (change de page → l'issue disparaît d'elle-même, sans effet de reset). `ecrit` → propose l'annulation.
+  const [lectures, setLectures] = useState<Record<number, LecturePageAffiche[]>>({});
+  const [lectureEnCours, setLectureEnCours] = useState(false);
+  const [lectureRes, setLectureRes] = useState<{ cle: string; texte: string; ecrit: boolean } | null>(null);
   const [nav, setNav] = useState<'bestof' | 'piece'>('bestof');
   const [planIndex, setPlanIndex] = useState(0);
   const [pieceId, setPieceId] = useState<number | null>(null);
@@ -129,11 +136,12 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       try {
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`);
         if (!res.ok) { if (vivant) setEtat('erreur'); return; }
-        const j = await res.json() as { pieces?: PiecePlan[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; reperageRuns?: Record<number, RunReperageAffiche> };
+        const j = await res.json() as { pieces?: PiecePlan[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; reperageRuns?: Record<number, RunReperageAffiche>; lecturesPages?: Record<number, LecturePageAffiche[]> };
         if (!vivant) return;
         const ps = j.pieces ?? [];
         setPieces(ps);
         setRuns(j.reperageRuns ?? {}); // LOT 62 — audit du repérage par image
+        setLectures(j.lecturesPages ?? {}); // LOT 95 — audit daté « page analysée pour lire des valeurs »
         setPiecesNonSupportees(j.piecesNonSupportees ?? []); // LOT 64
 
         if (ps.length === 0) { setEtat('vide'); return; }
@@ -330,6 +338,8 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const planAffiche = pieceId !== null ? (bandeVisible.find((pl) => pl.pieceId === pieceId && pl.page === page) ?? null) : null;
   const pageDansBestOf = planAffiche !== null;
   const runCourant = pieceId !== null ? runs[pieceId] : undefined; // LOT 62 — audit du repérage de la pièce courante
+  // LOT 95 — audit daté de LA page affichée (si déjà analysée pour lire des valeurs) → sert l'avertissement « déjà analysée, relancer refera payer ».
+  const lectureCourante = pieceId !== null ? (lectures[pieceId] ?? []).find((l) => l.page === page) ?? undefined : undefined;
   // LOT 64 — état d'analyse PAYANTE par pièce (date lisible Europe/Paris), pour la liste des pièces.
   const runsParPiece = useMemo<Record<number, EtatAnalysePiece>>(() =>
     Object.fromEntries(Object.entries(runs).map(([id, r]) => [Number(id), { nbPlanches: r.nbPlanches, dateLisible: r.creeLe ? jourParisISO(r.creeLe) : null }])), [runs]);
@@ -351,6 +361,41 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
     } catch { setReperMsg('Repérage impossible, réessayez.'); }
     finally { setReperEnCours(false); }
   }, [pieceId, dossierId, reperEnCours]);
+
+  // LOT 95 (B2) — LIRE DES VALEURS sur LA page affichée (une seule page → un seul appel vision). POST sous le verrou du LOT 58. 401 →
+  //   reconnectez-vous ; 409 → analyse déjà en cours. Honnête : le message d'issue vient du serveur (écrit / à vérifier / déjà rempli /
+  //   rien de lisible / page non envoyée). `bump vReper` recharge l'audit daté (« déjà analysée »). `ecrit` → propose l'annulation.
+  //   L'issue est ANCRÉE à sa page (clé) → change de page = elle disparaît, sans reset dans un effet.
+  const analyserPage = useCallback(async () => {
+    if (pieceId === null || lectureEnCours || reperEnCours) return;
+    const cle = `${pieceId}:${page}`;
+    setLectureEnCours(true); setLectureRes(null);
+    const poser = (texte: string, ecrit = false) => setLectureRes({ cle, texte, ecrit });
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'lire_valeurs_page', dossierId, pieceId, page }) });
+      if (res.status === 401) { poser('Session expirée — reconnectez-vous.'); return; }
+      if (res.status === 409) { poser('Une analyse de ce permis est déjà en cours.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; resume?: { texte?: string; ecrit?: boolean } };
+      if (!res.ok || !body.ok) { poser('Analyse de la page impossible, réessayez.'); return; }
+      poser(body.resume?.texte ?? 'Analyse terminée.', body.resume?.ecrit === true);
+      setVReper((v) => v + 1); // recharge l'audit daté par page (état « déjà analysée le … »)
+    } catch { poser('Analyse de la page impossible, réessayez.'); }
+    finally { setLectureEnCours(false); }
+  }, [pieceId, dossierId, page, lectureEnCours, reperEnCours]);
+
+  // LOT 95 — RÉVERSIBILITÉ : annuler la valeur écrite par « analyse de la page » (vide le champ + retire la ligne 'ia', jamais une saisie).
+  const annulerValeurPage = useCallback(async () => {
+    const cle = `${pieceId}:${page}`;
+    const poser = (texte: string) => setLectureRes({ cle, texte, ecrit: false });
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'annuler_lecture_page', dossierId }) });
+      if (res.status === 401) { poser('Session expirée — reconnectez-vous.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; annule?: boolean };
+      if (!res.ok || !body.ok) { poser('Annulation impossible, réessayez.'); return; }
+      poser(body.annule ? 'Valeur annulée : le champ a été remis à vide.' : 'Rien à annuler (aucune valeur écrite par l’image, ou valeur saisie à la main protégée).');
+      setVReper((v) => v + 1);
+    } catch { poser('Annulation impossible, réessayez.'); }
+  }, [pieceId, page, dossierId]);
 
   // LOT 65 — OUVRIR LE DOCUMENT COMPLET dans un nouvel onglet. Le lien SIGNÉ (durée de vie limitée) est fabriqué AU CLIC (jamais
   //   pré-généré au rendu de chaque plan : posé à l'avance, il serait périmé au moment du clic). Signeur UNIQUE `url_piece` (source
@@ -555,24 +600,24 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
                 ＋ ajouter cette page au best-of
               </button>
             )}
-            {/* ③ ④ ANALYSES — le bouton du LOT 62 (« Repérer les planches… ») déplacé et renommé « analyse du fichier complet » (rendu pur,
-                MÊME coût, MÊME verrou 58) ; « analyse de la page » DÉSACTIVÉE, jamais câblée sur l'analyse du fichier entier (Arno croirait
-                payer pour une page et paierait pour toutes). */}
+            {/* ③ ④ ANALYSES — ③ « analyse du fichier complet » = repérage LOT 62 (PRÉSENCE, N pages) ; ④ « analyse de la page » = LOT 95
+                (LECTURE DE VALEURS sur LA SEULE page affichée, altitude de sommet NGF). Les deux sont sous le MÊME verrou 58 (jamais deux à
+                la fois) → chacune désactive l'autre pendant qu'elle tourne. ④ n'est JAMAIS câblée sur ③ (Arno paierait tout le fichier). */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
               <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}
-                disabled={reperEnCours} aria-busy={reperEnCours} onClick={() => void reperer()}>
+                disabled={reperEnCours || lectureEnCours} aria-busy={reperEnCours} onClick={() => void reperer()}>
                 {reperEnCours ? 'Analyse des images en cours…' : 'analyse du fichier complet'}
               </button>
-              <button type="button" className="svv-btn svv-btn-outline" disabled aria-disabled="true"
-                title="pas encore disponible — l'analyse au grain page reste à construire"
-                style={{ minHeight: 36, padding: '.3rem .6rem', fontSize: 12, opacity: 0.5, cursor: 'not-allowed' }}>
-                analyse de la page
+              <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}
+                disabled={reperEnCours || lectureEnCours} aria-busy={lectureEnCours} onClick={() => void analyserPage()}>
+                {lectureEnCours ? 'Lecture de la page en cours…' : 'analyse de la page'}
               </button>
             </div>
-            {/* MENTION HONNÊTE — coût de ③ annoncé AVANT le clic + statut de ④ dit explicitement (jamais un bouton muet). */}
+            {/* MENTION HONNÊTE — coût de ③ (≈2 cts / 20 pages) ET de ④ (1 page ≈ 0,1 centime) annoncés AVANT le clic ; ce que lit ④ dit sans jargon. */}
             <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>
-              « analyse du fichier complet » fait analyser les images de <strong style={{ color: 'var(--color-svv-ink)', wordBreak: 'break-word' }}>{nomCourant}</strong> par un service payant (de l’ordre de 2 centimes pour une vingtaine de pages) pour trouver les plans encastrés que le repérage par le texte ne voit pas. Résultat modifiable (vous pouvez retirer une page). « analyse de la page » n’est <strong style={{ color: 'var(--color-svv-ink)' }}>pas encore disponible</strong> — l’analyse au grain page reste à construire.
-              {runCourant && <> <strong style={{ color: 'var(--color-svv-ink)' }}>Cette pièce a déjà été analysée</strong> — relancer refera une analyse payante.</>}
+              « analyse du fichier complet » fait analyser les images de <strong style={{ color: 'var(--color-svv-ink)', wordBreak: 'break-word' }}>{nomCourant}</strong> par un service payant (de l’ordre de 2 centimes pour une vingtaine de pages) pour trouver les plans encastrés que le repérage par le texte ne voit pas. « analyse de la page » n’envoie que <strong style={{ color: 'var(--color-svv-ink)' }}>la page affichée (page {page})</strong> — de l’ordre de 0,1 centime — pour y lire l’<strong style={{ color: 'var(--color-svv-ink)' }}>altitude de sommet NGF</strong> (utile sur une coupe ou une façade) et remplir ce champ s’il est vide. Rien de lisible → c’est dit ; valeur douteuse → proposée « à vérifier », jamais écrite ; valeur écrite → annulable ci-dessous.
+              {runCourant && <> <strong style={{ color: 'var(--color-svv-ink)' }}>Cette pièce a déjà été analysée (fichier complet)</strong> — relancer refera une analyse payante.</>}
+              {lectureCourante && <> <strong style={{ color: 'var(--color-svv-ink)' }}>Cette page a déjà été analysée</strong> le {lectureCourante.creeLe ? jourParisISO(lectureCourante.creeLe) : ''} — relancer refera une analyse payante.</>}
             </span>
             {/* ENCART DE RÉSULTAT du repérage — visible et persistant (LOT 63 a), déplacé avec le bouton. Rouge si session expirée. */}
             {(reperMsg || runCourant) && (
@@ -584,6 +629,18 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
                     {runCourant.incertaines.length > 0 && ` ${runCourant.incertaines.length} page${runCourant.incertaines.length > 1 ? 's' : ''} incertaine${runCourant.incertaines.length > 1 ? 's' : ''} (${runCourant.incertaines.map((p) => `p${p}`).join(', ')}) — hors best-of.`}
                     {runCourant.pagesEcartees.length > 0 && ` ${runCourant.pagesEcartees.length} page${runCourant.pagesEcartees.length > 1 ? 's' : ''} non envoyée${runCourant.pagesEcartees.length > 1 ? 's' : ''} par précaution : ${runCourant.pagesEcartees.map((e) => `p${e.page} (${e.motif})`).join(' ; ')}.`}
                   </span>
+                )}
+              </div>
+            )}
+            {/* LOT 95 — ENCART DE RÉSULTAT de « analyse de la page » (issue honnête du serveur), ANCRÉ à SA page (n'apparaît qu'en face
+                d'elle) + RÉVERSIBILITÉ (annuler une valeur écrite). */}
+            {lectureRes && lectureRes.cle === `${pieceId}:${page}` && (
+              <div role="status" aria-live="polite" style={{ display: 'flex', flexDirection: 'column', gap: '.25rem', padding: '.4rem .5rem', borderRadius: '.4rem', background: 'var(--color-svv-field)', borderLeft: `3px solid ${lectureRes.texte.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}` }}>
+                <span style={{ fontSize: 12, fontWeight: 600, color: lectureRes.texte.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-ink)' }}>{lectureRes.texte}</span>
+                {lectureRes.ecrit && (
+                  <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', alignSelf: 'flex-start' }} onClick={() => void annulerValeurPage()}>
+                    annuler la valeur écrite (remettre le champ à vide)
+                  </button>
                 )}
               </div>
             )}

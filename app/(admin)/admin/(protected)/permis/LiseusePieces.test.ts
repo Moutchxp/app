@@ -134,16 +134,50 @@ describe('LOT 94 — barre de commandes SOUS l’aperçu : navigation de PAGES, 
     expect(SRC).not.toContain('Repérer les planches de cette pièce'); // l'ancien libellé a bien disparu
     expect(SRC).toContain('de l’ordre de 2 centimes pour une vingtaine de pages'); // coût annoncé AVANT le clic
   });
-  it('④ « analyse de la page » est DÉSACTIVÉE et ANNONCÉE, JAMAIS câblée sur l’analyse du fichier entier', () => {
+  it('④ « analyse de la page » présente dans la barre — JAMAIS câblée sur l’analyse du fichier entier (activée au LOT 95, cf. suite dédiée)', () => {
     expect(SRC).toContain('analyse de la page');
-    expect(SRC).toContain("l'analyse au grain page reste à construire");
-    // on isole l'ÉLÉMENT bouton désactivé (de son attribut `disabled aria-disabled` jusqu'à son libellé) et on vérifie l'absence
-    //   de handler : « analyse de la page » n'est JAMAIS câblée sur reperer (Arno paierait pour tout le fichier).
-    const debut = SRC.indexOf('disabled aria-disabled="true"');
-    const bloc = SRC.slice(debut, SRC.indexOf('analyse de la page', debut));
-    expect(debut).toBeGreaterThan(-1);
-    expect(bloc).not.toContain('onClick');
+    // le bouton « analyse de la page » NE déclenche JAMAIS reperer() (sinon Arno paierait tout le fichier) : son handler est analyserPage().
+    const iBtn = SRC.indexOf("void analyserPage()");
+    const bloc = SRC.slice(Math.max(0, iBtn - 200), SRC.indexOf('analyse de la page', iBtn) + 20);
+    expect(iBtn).toBeGreaterThan(-1);
     expect(bloc).not.toContain('reperer');
+  });
+});
+
+describe('LOT 95 — « analyse de la page » ACTIVÉE : lecture de valeurs au grain page (garde par lecture de source)', () => {
+  it('le bouton « analyse de la page » n’est PLUS désactivé en dur : il appelle analyserPage(), sous le même verrou que le fichier complet', () => {
+    expect(SRC).toContain('analyse de la page');
+    expect(SRC).toContain('void analyserPage()');
+    // plus de bouton muet « pas encore disponible » : la mention désactivée du LOT 94 a disparu du bouton.
+    expect(SRC).not.toContain("title=\"pas encore disponible");
+    // MÊME verrou 58 : chaque bouton d'analyse désactive l'autre pendant qu'il tourne.
+    expect(SRC).toMatch(/disabled=\{reperEnCours \|\| lectureEnCours\}/);
+  });
+  it('POST action dédiée « lire_valeurs_page » sur LA page affichée (jamais le fichier entier), distincte de « reperer_planches »', () => {
+    expect(SRC).toContain("action: 'lire_valeurs_page'");
+    expect(SRC).toMatch(/lire_valeurs_page', dossierId, pieceId, page/); // la SEULE page affichée
+    expect(SRC).toContain("action: 'reperer_planches'"); // le repérage LOT 62 reste, inchangé
+  });
+  it('coût de LA page annoncé AVANT le clic + champ visé nommé (altitude de sommet NGF)', () => {
+    expect(SRC).toContain('la page affichée (page {page})');
+    expect(SRC).toContain('0,1 centime');
+    expect(SRC).toContain('altitude de sommet NGF');
+  });
+  it('avertissement « déjà analysée » au grain PAGE (lectureCourante), distinct de la pièce (runCourant)', () => {
+    expect(SRC).toContain('Cette page a déjà été analysée');
+    expect(SRC).toMatch(/const lectureCourante =/);
+    expect(SRC).toMatch(/lectures\[pieceId\] \?\? \[\]/);
+  });
+  it('RÉVERSIBILITÉ : quand une valeur a été écrite, un geste annule (jamais une saisie), via annuler_lecture_page', () => {
+    expect(SRC).toContain("action: 'annuler_lecture_page'");
+    expect(SRC).toContain('void annulerValeurPage()');
+    expect(SRC).toMatch(/lectureRes\.ecrit &&/); // le geste d'annulation n'apparaît que si une valeur a été écrite
+    expect(SRC).toContain('annuler la valeur écrite');
+  });
+  it('l’issue affichée vient du SERVEUR (honnêteté) : aucun message « canned » forgé côté client', () => {
+    // le texte d'issue est body.resume.texte (écrit/à vérifier/déjà rempli/rien/page non envoyée), jamais fabriqué ici.
+    expect(SRC).toContain('body.resume?.texte');
+    expect(SRC).toContain("setLectures(j.lecturesPages ?? {})"); // état daté par page chargé du serveur
   });
 });
 

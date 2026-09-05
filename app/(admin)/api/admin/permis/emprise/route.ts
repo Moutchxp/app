@@ -8,6 +8,8 @@ import { lireExclusionsBestOf, exclurePageBestOf, reintegrerPageBestOf, lireIncl
 import { avecVerrouDossier } from '../../../../../lib/permis/verrouExtraction'; // LOT 58 — une analyse à la fois par dossier
 import { executerReperagePlanches, lecteurPlanchesMistral, coutVisionUsd, MODELE_PLANCHE, type UsageVision } from '../../../../../lib/permis/reperePlanches'; // LOT 62
 import { lireReperagePlanchesOui, lireRunsReperage, enregistrerReperage } from '../../../../../lib/permis/reperePlanchesRepo'; // LOT 62
+import { executerLectureValeurPage } from '../../../../../lib/permis/lectureValeursPage'; // LOT 95 — lecture de VALEURS au grain page
+import { appliquerLectureValeur, enregistrerLecturePage, lireLecturesPage, annulerLectureValeur } from '../../../../../lib/permis/lectureValeursPageRepo'; // LOT 95
 import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte, familleDeNom, tracabilitePlanche, type FamillePlan } from '../../../../../lib/permis/planMasse';
 import { familleDeContenu, niveauxDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV : famille + niveaux par le CONTENU
 import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone, appliquerAutoStatut } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2) / RATT-2
@@ -105,6 +107,8 @@ export async function GET(request: Request): Promise<Response> {
     // LOT 62 — planches repérées par IMAGE (verdict='oui'), à FUSIONNER dans les pièces (distinguées par `origine:'image'`), + l'audit par pièce.
     const planchesImage = await repli('reperage', lireReperagePlanchesOui(dossierId), new Map<number, { page: number; categorie: string }[]>());
     const reperageRuns = await repli('reperageRuns', lireRunsReperage(dossierId), new Map());
+    // LOT 95 — audit DATÉ « page analysée pour lire des valeurs » AU GRAIN PAGE (méthode 'ia'). Résilient : migration 195 absente → Map vide.
+    const lecturesPages = await repli('lecturesPages', lireLecturesPage(dossierId), new Map());
     const familleDeCategorie = (c: string): FamillePlan => (c === 'coupe' || c === 'facade' || c === 'elevation') ? 'coupe' : 'masse'; // DISPLAY seul (image = non traçable)
     const enrichir = (p: { id: number; nomFichier: string; typeMime: string | null }, propose: boolean, famille: FamillePlan | null) => {
       const planchesTexte = confirmations.get(p.id)?.planches ?? [];
@@ -126,7 +130,7 @@ export async function GET(request: Request): Promise<Response> {
       } catch { /* illisible → non marqué (N10-J) */ }
     })), []);
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
-    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, exclusionsBestOf, inclusionsBestOf, reperageRuns: Object.fromEntries(reperageRuns), indisponibles });
+    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, exclusionsBestOf, inclusionsBestOf, reperageRuns: Object.fromEntries(reperageRuns), lecturesPages: Object.fromEntries(lecturesPages), indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
     return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });
@@ -202,6 +206,44 @@ export async function POST(request: Request): Promise<Response> {
       if (!verrou.ok) return Response.json({ erreur: 'Une analyse de ce permis est déjà en cours.' }, { status: 409 });
       if ('erreur' in verrou.valeur) return Response.json({ erreur: 'pièce introuvable' }, { status: 404 });
       return Response.json({ ok: true, resume: verrou.valeur.resume });
+    }
+
+    // LOT 95 (B2) — LIRE DES VALEURS sur LA SEULE page affichée (bouton « analyse de la page »). SŒUR du repérage LOT 62 mais lit UNE
+    //   VALEUR (altitude de sommet NGF, niveau DOSSIER) et remplit un champ VIDE (invariant 103, méthode 'ia', provenance pièce+page).
+    //   Sous le VERROU du LOT 58 (une seule page envoyée → un seul appel vision). Pré-filtre RGPD par page (abstention). Jamais câblé sur
+    //   l'analyse du fichier entier. Honnête : rien de lisible → on le dit ; douteux → « à vérifier » non écrit ; déjà rempli → non écrasé.
+    if (body.action === 'lire_valeurs_page') {
+      if (!Number.isInteger(body.pieceId) || !Number.isInteger(body.page) || (body.page as number) < 1) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      const pieceId = body.pieceId as number; const page = body.page as number;
+      const par = garde.auteurId === null ? 'admin' : String(garde.auteurId);
+      const verrou = await avecVerrouDossier(dossierId, async () => {
+        const deps = depsReellesLectureGed();
+        const meta = (await deps.listerPieces(dossierId)).find((m) => m.id === pieceId);
+        if (!meta) return { erreur: 'piece' as const };
+        const pdf = await deps.lireObjet(meta.cleStockage);
+        const ex = await deps.extraire(pdf, meta.typeMime);
+        const texte = ex.ok ? (ex.pages[page - 1] ?? '') : ''; // page sans texte → écartée par le pré-filtre RGPD (invérifiable)
+        const usage: UsageVision = { promptTokens: 0, completionTokens: 0, modeleResolu: null };
+        const res = await executerLectureValeurPage({ texte: async () => texte, pdf: async () => pdf, page, lecteur: lecteurPlanchesMistral(usage) });
+        if (!res.envoyee) { // ABSTENTION RGPD : aucune image envoyée, aucun coût, aucune valeur — mais l'audit daté est écrit (jamais muet).
+          await enregistrerLecturePage(dossierId, pieceId, page, { envoyee: false, motif: res.motif, nbValeurs: 0, resume: `Page non envoyée : ${res.motif}`, modele: MODELE_PLANCHE, modeleResolu: null, tokensIn: 0, tokensOut: 0, coutUsd: 0, par });
+          return { resume: { envoyee: false, action: 'rien' as const, valeur: null, ecrit: false, coutUsd: 0, texte: `Page non envoyée (précaution données personnelles) : ${res.motif}` } };
+        }
+        const coutUsd = coutVisionUsd(usage);
+        const appli = await appliquerLectureValeur(dossierId, { pieceId, pieceNom: meta.nomFichier, page, valeurLue: res.valeur, par });
+        await enregistrerLecturePage(dossierId, pieceId, page, { envoyee: true, motif: null, nbValeurs: appli.ecrit ? 1 : 0, resume: appli.resume, modele: MODELE_PLANCHE, modeleResolu: usage.modeleResolu, tokensIn: usage.promptTokens, tokensOut: usage.completionTokens, coutUsd, par });
+        return { resume: { envoyee: true, action: appli.action, valeur: appli.valeur, ecrit: appli.ecrit, coutUsd, texte: appli.resume } };
+      });
+      if (!verrou.ok) return Response.json({ erreur: 'Une analyse de ce permis est déjà en cours.' }, { status: 409 });
+      if ('erreur' in verrou.valeur) return Response.json({ erreur: 'pièce introuvable' }, { status: 404 });
+      return Response.json({ ok: true, resume: verrou.valeur.resume });
+    }
+
+    // LOT 95 — RÉVERSIBILITÉ : annuler la valeur écrite par « analyse de la page » (vide le champ + retire la ligne 'ia'), UNIQUEMENT si
+    //   l'origine est 'extraite' (jamais une saisie humaine). `annule:false` = rien à annuler (déjà vide / valeur humaine).
+    if (body.action === 'annuler_lecture_page') {
+      const r = await annulerLectureValeur(dossierId);
+      return Response.json(r);
     }
 
     // APERÇU DÉBORDEMENT (lecture seule, jamais bloquant) — recalcule le Lambert CÔTÉ SERVEUR (garde PROJ) depuis le calage + le tracé

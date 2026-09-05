@@ -37,9 +37,14 @@ beforeEach(() => {
   Object.defineProperty(window, 'devicePixelRatio', { value: 1, configurable: true });
   (HTMLCanvasElement.prototype.getContext as unknown) = () => ({ drawImage: () => {} });
   (globalThis as unknown as { createImageBitmap: unknown }).createImageBitmap = vi.fn(async (src: { width: number; height: number }) => ({ width: src.width, height: src.height, close: () => {} }));
-  // GET /emprise → 1 pièce proposée (best-of à un plan) ; POST → URL signée. Le NOMBRE DE PAGES vient de pdf.js (mocks.state.numPages).
-  global.fetch = vi.fn(async (_input: unknown, init?: { method?: string }) => {
-    if ((init?.method ?? 'GET') === 'POST') return { ok: true, json: async () => ({ url: 'blob:fake' }) } as unknown as Response;
+  // GET /emprise → 1 pièce proposée ; POST signer_piece → URL signée ; POST lire_valeurs_page → issue serveur (LOT 95). Le NOMBRE DE
+  //   PAGES vient de pdf.js (mocks.state.numPages). Les actions POST sont routées par `action` (aucun appel réseau réel).
+  global.fetch = vi.fn(async (_input: unknown, init?: { method?: string; body?: string }) => {
+    if ((init?.method ?? 'GET') === 'POST') {
+      const action = (() => { try { return JSON.parse(init?.body ?? '{}').action as string; } catch { return ''; } })();
+      if (action === 'lire_valeurs_page') return { ok: true, json: async () => ({ ok: true, resume: { envoyee: true, action: 'ecrire', valeur: 61.09, ecrit: true, coutUsd: 0.000001, texte: 'altitude de sommet 61,09 m NGF lue et écrite (champ vide rempli — à vérifier).' } }) } as unknown as Response;
+      return { ok: true, json: async () => ({ url: 'blob:fake' }) } as unknown as Response;
+    }
     return { ok: true, json: async () => ({ pieces: [
       { id: 55, nomFichier: 'A.pdf', propose: true, famille: 'masse', confirme: true, planches: [{ page: 1, echelle: null }] },
     ] }) } as unknown as Response;
@@ -90,6 +95,27 @@ describe('LOT 94 — navigation de PAGES dans la barre (fichier multipage)', () 
     expect(container.textContent).toContain('page 3 sur 3');
     expect(bouton('Page suivante du fichier')?.disabled).toBe(true);     // borne haute → désactivé
     expect(bouton('Page précédente du fichier')?.disabled).toBe(false);
+  });
+});
+
+function boutonTexte(txt: string): HTMLButtonElement | null {
+  return Array.from(container.querySelectorAll('button')).find((b) => (b.textContent ?? '').trim() === txt) as HTMLButtonElement | null;
+}
+
+describe('LOT 95 — « analyse de la page » ACTIVÉE : clic → issue serveur + réversibilité', () => {
+  it('le bouton est ENABLED (plus désactivé) ; un clic affiche l’issue serveur et propose d’annuler la valeur écrite', async () => {
+    await act(async () => { root.render(h(LiseusePieces, { dossierId: 1 })); });
+    await flush();
+    const btn = boutonTexte('analyse de la page');
+    expect(btn).not.toBeNull();
+    expect(btn!.disabled).toBe(false);               // activée (LOT 94 la livrait disabled ; LOT 95 l'active)
+
+    act(() => { btn!.click(); });
+    await flush();
+    // l'issue AFFICHÉE vient du serveur (honnêteté), jamais forgée côté client.
+    expect(container.textContent).toContain('lue et écrite');
+    // une valeur a été écrite → geste d'ANNULATION proposé (réversibilité).
+    expect(boutonTexte('annuler la valeur écrite (remettre le champ à vide)')).not.toBeNull();
   });
 });
 
