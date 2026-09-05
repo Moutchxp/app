@@ -30,9 +30,17 @@ describe('LOT 86 — la garde « aucun bâtiment » n’efface plus le schéma (
     expect(brancheEtSuite).toContain('<LegendeProjectionEmprises');         // légende des LOTs 81/82/83 sous le schéma
   });
 
-  it('message RECADRÉ (ne peut pas encore TRACER, pas « rien à voir ») + schéma « reste consultable »', () => {
-    expect(brancheEtSuite).toContain('on ne peut pas encore');
-    expect(brancheEtSuite).toContain('reste consultable');
+  it('LOT 90 — la LISEUSE lecture seule est montée à 0 bâtiment (gardée par `avecLiseuse`) ; le CALAGE reste FERMÉ (cul-de-sac sans bâtiment)', () => {
+    expect(brancheEtSuite).toContain('avecLiseuse && <LiseusePieces dossierId={dossierId} />'); // liseuse consultable
+    expect(src).toContain('avecLiseuse = true');                     // prop, défaut true
+    // Pas de boutons/mode de calage dans la branche (le calage vit dans le rendu principal, sous bâtiment).
+    expect(brancheEtSuite).not.toContain("setMode('calage')");
+    expect(brancheEtSuite).not.toContain('Calage (');
+  });
+
+  it('LOT 90 — message RECADRÉ : consulter les plans + « + ajouter un bâtiment » débloque tracé/enregistrement', () => {
+    expect(brancheEtSuite).toContain('consulter');
+    expect(brancheEtSuite).toContain('+ ajouter un bâtiment');
     // il ne dit plus « rien à tracer pour l’instant » comme SEUL contenu à la place du schéma
     expect(brancheEtSuite).not.toContain('rien à tracer pour l’instant');
   });
@@ -40,5 +48,10 @@ describe('LOT 86 — la garde « aucun bâtiment » n’efface plus le schéma (
   it('HONNÊTETÉ : si aucun cadre (ni parcelle ni empreinte) → dire ce qui manque, jamais un cadre vide muet', () => {
     expect(brancheEtSuite).toContain('Rien à dessiner pour l’instant');
     expect(brancheEtSuite).toContain('empreinte non figée');
+  });
+
+  it('LOT 90 — En cours (SuiviDemandes) : BlocTraceEmprise reçoit avecLiseuse={false} (liseuse standalone déjà présente → pas de doublon)', () => {
+    const sd = readFileSync(join(ici, 'SuiviDemandes.tsx'), 'utf8');
+    expect(sd).toContain('avecLiseuse={false}');
   });
 });

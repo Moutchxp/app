@@ -80,8 +80,12 @@ describe('LOT 14b — montée paresseuse, indépendance du tracé', () => {
     expect(html).not.toContain('<canvas');
   });
 
-  it('BlocTraceEmprise.tsx et TraceEmpriseRendu.tsx n’ont AUCUNE dépendance sur la liseuse (tracé indépendant)', () => {
-    expect(TRACE).not.toContain('LiseusePieces');
+  it('LOT 90 — couplage UNIDIRECTIONNEL : BlocTraceEmprise MONTE la liseuse (à 0 bâtiment) mais la liseuse n’en dépend JAMAIS (pas de circularité) ; le module PUR TraceEmpriseRendu reste indépendant', () => {
+    // BlocTraceEmprise réutilise la liseuse lecture seule (LOT 90) — dépendance ASSUMÉE, à sens unique.
+    expect(TRACE).toContain('LiseusePieces');
+    // La liseuse n'IMPORTE JAMAIS le tracé (aucune circularité ; « BlocTraceEmprise » n'apparaît que dans ses commentaires).
+    expect(SRC).not.toMatch(/from\s*'\.\/BlocTraceEmprise'/);
+    // Le module PUR de rendu (jamais d'I/O) reste indépendant de la liseuse.
     expect(RENDU).not.toContain('LiseusePieces');
   });
 });

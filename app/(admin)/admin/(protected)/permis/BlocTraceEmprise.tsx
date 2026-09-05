@@ -10,6 +10,7 @@ import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo } from '../
 import { verdictProjectionBatiments, libelleBatiment, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment
 import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
+import { LiseusePieces } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome (best-of, navigation, zoom) réutilisée à 0 bâtiment
 import { estFuturBati } from '../../../../lib/permis/etatBati';
 import { statutCourantParCleabs, type LigneStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) ; RATT-5 : recouvert + taux
 
@@ -30,11 +31,13 @@ const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
 const SEUIL_SOMMET_BOITE = 12; // PROJ-3s — rayon de capture d'un sommet au clic (unités de la boîte du schéma) : cible TACTILE, pas un seuil métier.
 type ModeRetouche = 'deplacer' | 'inserer' | 'supprimer';
 
-export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
+export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true }: {
   dossierId: number;
   onVerdict?: (v: VerdictProjection) => void;
   rafraichir?: number; // PROJ-3b — signal du parent : incrémenté quand l'instruction change (ajout de bâtiment) → recharge la liste
                        //   DÉFAUT 0 (jamais undefined) : le tableau de dépendances de l'effet garde une TAILLE CONSTANTE (PROJ-3b-fix ③).
+  avecLiseuse?: boolean; // LOT 90 — à 0 bâtiment, monter la liseuse LECTURE SEULE (consultation des plans). `false` là où une liseuse
+                         //   STANDALONE existe déjà sur le même écran (En cours : famille « Pièces du permis ») → jamais deux liseuses.
 }) {
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [batiments, setBatiments] = useState<BatimentProjection[]>([]);
@@ -484,10 +487,14 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0 }: {
       <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
         <div style={{ fontWeight: 700, fontSize: 13 }}>Projection des emprises — reconstitution par bâtiment <span style={styleAide}>(jamais une mesure ; n’alimente ni le verdict ni l’altitude)</span></div>
         <BandeauProjection verdict={verdict} />
-        {/* Message RECADRÉ : on ne peut pas encore TRACER (le tracé attache une emprise à un bâtiment déclaré), mais il y a à VOIR. */}
+        {/* Message RECADRÉ (LOT 90) : on peut CONSULTER les plans (liseuse) et le schéma ; seul le TRACÉ/enregistrement attend un bâtiment. */}
         <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
-          Aucun bâtiment déclaré au permis : on ne peut pas encore <strong>tracer</strong> d’emprise (le tracé attache une emprise à un bâtiment déclaré) ni valider la projection. Déclarez au moins un bâtiment ci-dessus (« + ajouter un bâtiment »). Le schéma ci-dessous reste consultable.
+          Aucun bâtiment déclaré au permis. Vous pouvez <strong>consulter</strong> les plans (liseuse ci-dessous) et le schéma. Pour <strong>tracer</strong> une emprise et l’enregistrer, déclarez d’abord un bâtiment via « <strong>+ ajouter un bâtiment</strong> » (bloc « Le permis / Les bâtiments » ci-dessus) : le calage et l’enregistrement apparaîtront alors.
         </div>
+        {/* LOT 90 — LISEUSE lecture seule (best-of + navigation + zoom, composant autonome). Le CALAGE reste FERMÉ à 0 bâtiment : il
+            n'alimente que l'enregistrement, qui exige un bâtiment → l'ouvrir mènerait à un cul-de-sac. La liseuse gère elle-même le
+            best-of vide (« Aucun plan… ») → jamais un cadre vide muet. `avecLiseuse=false` là où une liseuse standalone existe déjà. */}
+        {avecLiseuse && <LiseusePieces dossierId={dossierId} />}
         {boite ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
             <RotationSchema angle={angle} onAngle={setAngle} />

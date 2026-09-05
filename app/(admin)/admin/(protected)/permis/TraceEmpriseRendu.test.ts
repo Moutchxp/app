@@ -225,6 +225,15 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     expect(html).toContain('data-ecarte');                 // A1 écarté → grisé
     expect(html).not.toContain('url(#hachure-projection)'); // ⓪ croisillon supprimé
   });
+  it('LOT 90 — l’EMPREINTE (contour parcelle) se distingue du bâti : couleur FIXE (visible en sombre), trait épais, remplissage léger', () => {
+    const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
+    const filtres: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: true };
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }, { x: 0, y: 30 }]], emprises: [], polygones: attribuerReperes(polys), filtres, ecartes: [], calageLambert: [] }));
+    expect(html).toContain('data-empreinte="true"');          // le contour d'empreinte est identifiable
+    expect(html).toContain('stroke="#1b2430"');               // couleur FIXE (jamais var(--color-svv-ink) qui basculerait en clair sur canvas blanc)
+    expect(html).toContain('stroke-width="2.2"');             // trait épais, distinct du bâti (1.2)
+    expect(html).not.toContain('stroke="var(--color-svv-ink)"'); // plus de token de texte sur le contour de parcelle
+  });
   it('SchemaParcelleTrace : tout éteint masque tout', () => {
     const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
     const filtres: FiltresSchema = { existant: false, futur: false, reperes: false, emprises: false };
@@ -255,6 +264,7 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
   });
   it('④ LegendeSchemaProjection : 3 catégories + picto « i » (explication)', () => {
     const html = renderToStaticMarkup(h(LegendeSchemaProjection, {}));
+    expect(html).toContain('Empreinte de la parcelle (référence — pas une mesure)'); // LOT 90 — l'empreinte a son entrée de légende
     expect(html).toContain('Bâti existant (BD TOPO)');
     expect(html).toContain('En projet (donnée IGN)');
     expect(html).toContain('reconstitution — jamais une mesure');

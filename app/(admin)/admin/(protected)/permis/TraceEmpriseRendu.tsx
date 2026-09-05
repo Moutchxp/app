@@ -705,6 +705,11 @@ export interface EtiquetteProjection { cle: string; lignes: string[]; nature: 'r
 const ETIQ_ENCRE = '#1b1b1b';  // texte foncé, lisible sur aplat clair
 const ETIQ_HALO = '#ffffff';   // halo/contour clair (paint-order stroke) pour passer au-dessus d'un aplat
 const ETIQ_ALERTE = '#a30402'; // rouge SVAV en dur : emprise projetée (②) + vrai trou « en projet non affecté »
+// LOT 90 — EMPREINTE de la parcelle : couleur FIXE (le canvas reste clair en permanence, même en thème sombre — l'ancien
+//   `var(--color-svv-ink)` basculait en clair et devenait INVISIBLE sur fond blanc en sombre). Distincte du bâti par la couleur ET
+//   l'épaisseur ET un remplissage très léger (jamais la couleur seule). #1b2430 ≈ ink clair → rendu clair inchangé, visible en sombre.
+const EMPREINTE_TRAIT = '#1b2430';
+const EMPREINTE_FOND = 'rgba(90,99,113,.06)';
 
 /** RATT-3/RATT-6 — PALETTE de statut (constantes de DESSIN, jamais des variables métier) : vert = préservé, orange = détruit total,
  *  MIXTE (partiellement détruit) = gris d'origine (le bâtiment SURVIT, il reste visible) + trait TIRETÉ ardoise — JAMAIS l'orange du
@@ -767,7 +772,9 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
       style={{ display: 'block', width: '100%', height: 'auto', maxHeight: hauteurMax, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', cursor: onCliquer ? 'crosshair' : 'default' }}
       onClick={onCliquer ? (ev) => { const r = (ev.currentTarget as SVGSVGElement).getBoundingClientRect(); onCliquer(clicVersBoite(ev.clientX - r.left, ev.clientY - r.top, r.width, r.height, vb, centre, angle)); } : undefined}>
       <g transform={angle ? `rotate(${angle} ${centre.x} ${centre.y})` : undefined}>
-        {parcelle.map((a, i) => <path key={`p${i}`} d={path(a)} fill="none" stroke="var(--color-svv-ink)" strokeWidth={1.2} />)}
+        {/* LOT 90 — EMPREINTE (contour de la parcelle fusionnée, référence) : trait FIXE épais + remplissage très léger → distincte des
+            aplats de bâti (gris #888, trait fin 1,2) et visible sur le canvas clair dans les DEUX thèmes. */}
+        {parcelle.map((a, i) => <path key={`p${i}`} d={path(a)} fill={EMPREINTE_FOND} stroke={EMPREINTE_TRAIT} strokeWidth={2.2} strokeLinejoin="round" data-empreinte="true" />)}
         {/* (a) existant gris / (b) futur bâti bleu tireté (donnée IGN) ; un futur bâti ÉCARTÉ est grisé (décision d'Arno). Distinct par le TRAIT. */}
         {visibles.map((poly, i) => {
           if (poly.anneau.length < 3) return null;
@@ -1148,6 +1155,8 @@ export function LegendeSchemaProjection() {
   return (
     <div role="note" style={{ display: 'flex', flexDirection: 'column', gap: '.25rem', marginTop: '.15rem' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
+        {/* LOT 90 — l'EMPREINTE (contour épais foncé) distincte du bâti : le mot dit ce que c'est (référence, pas une mesure). */}
+        {item({ background: EMPREINTE_FOND, border: `2px solid ${EMPREINTE_TRAIT}` }, 'Empreinte de la parcelle (référence — pas une mesure)')}
         {item({ background: 'rgba(0,0,0,.06)', border: '1px solid #888' }, 'Bâti existant (BD TOPO)')}
         {item({ background: 'rgba(31,119,180,.14)', border: '1px dashed #1f77b4' }, 'En projet (donnée IGN)')}
         {item({ background: 'rgba(163,4,2,.18)', border: '1px solid var(--color-svv-red)' }, 'Emprise tracée (reconstitution — jamais une mesure)')}
@@ -1158,6 +1167,7 @@ export function LegendeSchemaProjection() {
       <details style={{ fontSize: 11 }}>
         <summary style={{ cursor: 'pointer', color: 'var(--color-svv-red)' }} aria-label="Explication des catégories du schéma">ⓘ Que veut dire chaque catégorie ?</summary>
         <div style={{ color: 'var(--color-svv-muted)', marginTop: '.2rem', lineHeight: 1.35 }}>
+          <div><strong>Empreinte de la parcelle</strong> : le contour attendu de la (ou des) parcelle(s) fusionnée(s) du permis — un REPÈRE de cadrage, jamais une mesure.</div>
           <div><strong>Bâti existant</strong> : donnée officielle IGN — des bâtiments déjà construits sur le terrain.</div>
           <div><strong>En projet</strong> : donnée officielle IGN — des bâtiments dessinés dans les données mais pas encore construits.</div>
           <div><strong>Emprise tracée</strong> : un contour que vous avez dessiné à la main (une reconstitution, jamais une mesure). Il ne sert qu’à visualiser : il n’alimente ni le verdict, ni l’altitude, ni un certificat.</div>
