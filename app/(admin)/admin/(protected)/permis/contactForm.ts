@@ -91,6 +91,7 @@ export function libelleSource(source: string | null): string {
   if (source === 'saisie_manuelle') return 'saisie manuelle';
   if (source === 'annuaire') return 'annuaire';
   if (source === 'reponse_mairie') return 'réponse de la mairie';
+  if (source === 'annuaire_banatic') return 'annuaire BANATIC';
   return 'non renseigné';
 }
 /** Libellé français d'un canal enregistré (ou 'non renseigné'). Réutilise les libellés du sélecteur. */

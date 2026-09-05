@@ -11,8 +11,11 @@
  * téléphonique et laisse `source='annuaire'` (la DILA n'est pas le destinataire, et basculer figerait les lignes hors de
  * `doitRemplacerDepuisAnnuaire`). 'annuaire_dila' est conservée pour le SEUL cas futur où la DILA fournirait le DESTINATAIRE
  * d'une commune qui n'a rien (ni contact ni PRADA) — 0 cas aujourd'hui. La contrainte CHECK de la migration 068 l'autorise.
+ * 'annuaire_banatic' (LOT 113, migration 199) = e-mail de mairie relevé FICHE PAR FICHE sur l'annuaire BANATIC (DGCL, Licence
+ * Ouverte Etalab 2.0). MÊME propriété que 'annuaire_dila' : hors de `doitRemplacerDepuisAnnuaire` (source ≠ 'annuaire') → une
+ * ligne 'annuaire_banatic' n'est jamais écrasée par api-lannuaire, sans prétendre à une vérification humaine (statut='presume').
  */
-export type SourceContact = 'annuaire' | 'saisie_manuelle' | 'reponse_mairie' | 'annuaire_dila';
+export type SourceContact = 'annuaire' | 'saisie_manuelle' | 'reponse_mairie' | 'annuaire_dila' | 'annuaire_banatic';
 export type StatutContact = 'presume' | 'confirme' | 'invalide';
 export type CanalContact = 'email' | 'formulaire' | 'courrier' | 'inconnu';
 
