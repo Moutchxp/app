@@ -36,6 +36,7 @@
   --color-svv-amber: #8a5a00;                /* famille AMBRE (avertissement) — texte/accent ; usage étendu en lot 2/3 */
   --color-svv-amber-soft: #fff4e0;           /* fond de pastille ambre (texte = --color-svv-amber) */
   --color-svv-blue: #1a4d8f;                 /* LOT 39 — famille BLEU (information : « accusé reçu ») ; texte/accent */
+  --color-svv-blue-soft: #e3ecfb;            /* LOT 97 — 2e ton de bleu (pastille analyse PARTIELLE) : fond pâle, texte = --color-svv-blue */
   /* LOT 84 — fonds d'encadrés d'aide + violet « à confirmer » + bleu des sources : valeurs CLAIRES = hex historique EXACT (aucune
      régression en clair) ; variantes SOMBRES mesurées ≥ 4,5:1 dans le bloc [data-theme='dark']/'system'. */
   --color-svv-note-bg: #fff8f8;              /* fond des encadrés d'aide/avertissement à bord rouge (texte = ink) */
@@ -137,6 +138,7 @@
   --color-svv-amber: #f2b23c;
   --color-svv-amber-soft: #382a0e;
   --color-svv-blue: #7ab0f5;
+  --color-svv-blue-soft: #223247;            /* LOT 97 — 2e ton SOMBRE (pastille PARTIELLE) : fond bleu ardoise, texte = --color-svv-blue (#7ab0f5) ≈ 5,6:1 */
   /* LOT 84 — variantes SOMBRES mesurées (contraste texte/fond ≥ 4,5:1) : note 14,3:1 · à confirmer 7,7:1 · carte sommet 13,8:1 · lien-source 7,2:1. */
   --color-svv-note-bg: #2a1618;
   --color-svv-violet: #c9a9f0;
@@ -167,6 +169,7 @@
     --color-svv-amber: #f2b23c;
     --color-svv-amber-soft: #382a0e;
     --color-svv-blue: #7ab0f5;
+    --color-svv-blue-soft: #223247;            /* LOT 97 — 2e ton SOMBRE (pastille PARTIELLE), identique au bloc [data-theme='dark']. */
     /* LOT 84 — variantes SOMBRES mesurées (≥ 4,5:1), identiques au bloc [data-theme='dark']. */
     --color-svv-note-bg: #2a1618;
     --color-svv-violet: #c9a9f0;

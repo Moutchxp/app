@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -1247,7 +1247,9 @@ describe('LOT 62 — planches repérées par IMAGE dans le best-of (distinguable
   });
 });
 
-describe('LOT 64 — ListePiecesAnalyse : toutes les pièces, non analysées par image en tête, état par ligne', () => {
+const complete = (nbPlanches: number, dateLisible: string) => ({ etendue: 'complete' as const, origine: 'manuelle' as const, dateLisible, nbPlanches, nbPagesLues: 0 });
+
+describe('LOT 64/97 — ListePiecesAnalyse : toutes les pièces, non analysées par image en tête, état + pastille par ligne', () => {
   const pieces = [
     { id: 10, nomFichier: 'PC02_masse.pdf', propose: true },
     { id: 20, nomFichier: 'PC200 Autres pieces.pdf', propose: false },
@@ -1255,22 +1257,39 @@ describe('LOT 64 — ListePiecesAnalyse : toutes les pièces, non analysées par
   ];
   it('ORDRE : les JAMAIS analysées par image d’abord (ordre conservé dans le groupe), puis les analysées', () => {
     // 10 déjà analysée → passe APRÈS 20 et 30 (jamais analysées, ordre conservé).
-    const runs = { 10: { nbPlanches: 3, dateLisible: '2026-09-05' } };
-    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces, runsParPiece: runs, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
+    const a = { 10: complete(3, '2026-09-05') };
+    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces, analyseParPiece: a, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
     const iPc200 = html.indexOf('PC200 Autres pieces.pdf'), iCoupe = html.indexOf('PC03_coupe.pdf'), iMasse = html.indexOf('PC02_masse.pdf');
     expect(iPc200).toBeGreaterThan(-1); expect(iPc200).toBeLessThan(iMasse); // 20 (non analysée) avant 10 (analysée)
     expect(iCoupe).toBeLessThan(iMasse);                                     // 30 (non analysée) avant 10
   });
   it('ÉTAT par ligne, en TEXTE : « jamais analysée » / « analysée le … · N planche(s) » / « aucune planche trouvée »', () => {
-    const runs = { 10: { nbPlanches: 3, dateLisible: '2026-09-05' }, 30: { nbPlanches: 0, dateLisible: '2026-09-04' } };
-    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces, runsParPiece: runs, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
+    const a = { 10: complete(3, '2026-09-05'), 30: complete(0, '2026-09-04') };
+    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces, analyseParPiece: a, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
     expect(html).toContain('jamais analysée par image');                    // pièce 20
     expect(html).toContain('analysée par image le 2026-09-05 · 3 planches trouvées');
     expect(html).toContain('analysée par image le 2026-09-04 · aucune planche trouvée'); // 0 planche = info utile, pas un vide
     expect(html).toContain('hors des pièces suivies');                      // pièce 20 (propose=false)
   });
+  it('LOT 97 — PARTIELLE (grain page) : état texte « (pages) » + pastille présente ; JAMAIS analysée → aucune pastille', () => {
+    const a = { 10: { etendue: 'partielle' as const, origine: 'manuelle' as const, dateLisible: '2026-09-05', nbPlanches: 0, nbPagesLues: 2 } };
+    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces, analyseParPiece: a, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
+    expect(html).toContain('analysée par image (pages) le 2026-09-05 · 2 pages analysées');
+    // pastille : title EXPLICITE (étendue + origine EN TOUTES LETTRES → jamais la couleur seule) ; role img.
+    expect(html).toContain('analyse IA partielle (pages seules), déclenchée manuellement, le 2026-09-05');
+    expect(html).toContain('role="img"');
+    // une SEULE pastille (pièce 10) : les 2 pièces jamais analysées n'en portent aucune.
+    expect((html.match(/role="img"/g) ?? [])).toHaveLength(1);
+  });
+  it('LOT 97 — DEUX TONS DE BLEU distincts : complète = --color-svv-blue (plein) ; partielle = --color-svv-blue-soft (pâle)', () => {
+    const a = { 10: complete(5, '2026-09-05'), 30: { etendue: 'partielle' as const, origine: 'manuelle' as const, dateLisible: '2026-09-04', nbPlanches: 0, nbPagesLues: 1 } };
+    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces, analyseParPiece: a, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
+    expect(html).toContain('var(--color-svv-blue)');       // ton PLEIN (complète)
+    expect(html).toContain('var(--color-svv-blue-soft)');  // ton PÂLE (partielle) — 2e ton, jamais un 3e
+    expect(html).toContain('analyse IA du fichier complet, déclenchée manuellement, le 2026-09-05 — 5 planches repérées');
+  });
   it('pièce NON PDF : listée QUAND MÊME, désactivée, avec la raison (jamais absente en silence)', () => {
-    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces: [], runsParPiece: {}, nonSupportees: [{ id: 99, nomFichier: 'photo.jpg', motif: 'format non pris en charge (image/jpeg)' }], pieceId: null, onChoisir: () => {} }));
+    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces: [], analyseParPiece: {}, nonSupportees: [{ id: 99, nomFichier: 'photo.jpg', motif: 'format non pris en charge (image/jpeg)' }], pieceId: null, onChoisir: () => {} }));
     expect(html).toContain('photo.jpg');
     expect(html).toContain('impossible à ouvrir — format non pris en charge (image/jpeg)');
     expect(html).toContain('aria-disabled="true"');
@@ -1280,8 +1299,40 @@ describe('LOT 64 — ListePiecesAnalyse : toutes les pièces, non analysées par
       { id: 40, nomFichier: 'Recapitulatif de la demande-19.pdf', propose: false, cerfa: true }, // reconnu PAR CONTENU
       { id: 41, nomFichier: 'PC02_masse.pdf', propose: true, cerfa: false },
     ];
-    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces: avecCerfa, runsParPiece: {}, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
+    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces: avecCerfa, analyseParPiece: {}, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
     expect(html).toContain('>Cerfa<');                                       // badge présent sur la pièce cerfa
     expect((html.match(/>Cerfa</g) ?? [])).toHaveLength(1);                  // une seule : jamais posé sur PC02 (nom trompeur, cerfa=false)
+  });
+});
+
+describe('LOT 97 — etatAnalyseIA / libelleAnalyseIA (fonctions PURES, deux axes indépendants)', () => {
+  it('aucune analyse → null (jamais de pastille, « jamais analysée »)', () => {
+    expect(etatAnalyseIA({})).toBeNull();
+    expect(etatAnalyseIA({ lectures: [] })).toBeNull();
+    // migration 195 absente = pas de lectures ; pas de repérage → null (repli propre).
+    expect(etatAnalyseIA({ reperage: undefined, lectures: undefined })).toBeNull();
+  });
+  it('repérage présent → COMPLÈTE, manuelle, date formatée ; le fichier complet PRIME une lecture de page', () => {
+    const s = etatAnalyseIA({ reperage: { nbPlanches: 8, creeLe: '2026-09-05T10:00:00Z' }, lectures: [{ envoyee: true, creeLe: '2026-09-06T10:00:00Z' }] }, () => '05/09/2026');
+    expect(s).toEqual({ etendue: 'complete', origine: 'manuelle', dateLisible: '05/09/2026', nbPlanches: 8, nbPagesLues: 1 });
+  });
+  it('lectures de page seules → PARTIELLE, manuelle, date la plus RÉCENTE ; pages abstenues RGPD non comptées', () => {
+    const s = etatAnalyseIA({ lectures: [
+      { envoyee: true, creeLe: '2026-09-04T10:00:00Z' },
+      { envoyee: false, creeLe: '2026-09-05T10:00:00Z' }, // abstenue → ne compte pas dans nbPagesLues
+    ] });
+    expect(s).toEqual({ etendue: 'partielle', origine: 'manuelle', dateLisible: '2026-09-05T10:00:00Z', nbPlanches: 0, nbPagesLues: 1 });
+  });
+  it('ORIGINE jamais inventée : les entrées réelles donnent TOUJOURS « manuelle » (jamais « auto »)', () => {
+    expect(etatAnalyseIA({ reperage: { nbPlanches: 0, creeLe: null } })!.origine).toBe('manuelle');
+    expect(etatAnalyseIA({ lectures: [{ envoyee: true, creeLe: null }] })!.origine).toBe('manuelle');
+  });
+  it('libelleAnalyseIA — étendue ET origine EN TOUTES LETTRES (jamais la couleur seule), pour les 3 origines', () => {
+    expect(libelleAnalyseIA({ etendue: 'complete', origine: 'manuelle', dateLisible: '05/09/2026', nbPlanches: 2, nbPagesLues: 0 }))
+      .toBe('analyse IA du fichier complet, déclenchée manuellement, le 05/09/2026 — 2 planches repérées');
+    expect(libelleAnalyseIA({ etendue: 'partielle', origine: 'auto', dateLisible: null, nbPlanches: 0, nbPagesLues: 1 }))
+      .toBe('analyse IA partielle (pages seules), automatique — 1 page analysée');
+    expect(libelleAnalyseIA({ etendue: 'complete', origine: 'indeterminee', dateLisible: null, nbPlanches: 0, nbPagesLues: 0 }))
+      .toBe('analyse IA du fichier complet, origine indéterminée — aucune planche repérée');
   });
 });

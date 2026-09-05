@@ -100,7 +100,81 @@ export function SelecteurPiecePlan({ pieces, pieceId, onChoisir }: { pieces: Pie
 }
 
 /** LOT 64 — état d'analyse PAYANTE (par image) d'une pièce : nb de planches trouvées + date lisible (déjà formatée par l'appelant). */
-export interface EtatAnalysePiece { nbPlanches: number; dateLisible: string | null }
+// ── LOT 97 — ÉTAT D'ANALYSE IA d'une pièce, à DEUX AXES INDÉPENDANTS (à ne jamais écraser l'un par l'autre) ────────────────────────
+//   · ÉTENDUE : 'complete' (analyse du FICHIER entier = repérage LOT 62, grain PIÈCE) vs 'partielle' (LECTURE DE PAGE LOT 95, grain PAGE).
+//   · ORIGINE : 'manuelle' | 'auto' | 'indeterminee'. 🔴 FAIT SOURCÉ (recon LOT 97) : les DEUX mécaniques d'analyse IMAGE sont MANUELLES
+//     par construction — seuls les gestes de la liseuse écrivent `permis_planche_vision_run` / `permis_page_lecture` ; AUCUNE analyse
+//     image automatique n'y écrit (le diagnostic auto 56-C passe par le journal d'extraction, pas ces tables). On n'INVENTE donc JAMAIS
+//     'auto' : `etatAnalyseIA` conclut 'manuelle'. 'auto'/'indeterminee' existent pour le jour où une origine serait réellement persistée.
+export type EtendueAnalyse = 'complete' | 'partielle';
+export type OrigineAnalyse = 'manuelle' | 'auto' | 'indeterminee';
+export interface EtatAnalyseIA { etendue: EtendueAnalyse; origine: OrigineAnalyse; dateLisible: string | null; nbPlanches: number; nbPagesLues: number }
+
+/** Entrées BRUTES par pièce (résilientes : `undefined` si repérage absent / migration 195 absente → aucune lecture). */
+export interface EntreesAnalyseIA {
+  reperage?: { nbPlanches: number; creeLe: string | null };   // LOT 62 — grain PIÈCE (fichier complet)
+  lectures?: { envoyee: boolean; creeLe: string | null }[];   // LOT 95 — grain PAGE (une entrée par page passée)
+}
+
+/** PROV — date la plus RÉCENTE d'une liste d'ISO (tri lexical = chronologique sur ISO). PUR. */
+function dateMaxIso(iso: readonly (string | null)[]): string | null {
+  const ok = iso.filter((x): x is string => !!x).slice().sort();
+  return ok.length ? ok[ok.length - 1] : null;
+}
+
+/**
+ * PURE — combine repérage (grain PIÈCE = FICHIER COMPLET) et lectures de page (grain PAGE = PARTIELLE) en un état d'analyse IA à deux
+ * axes, ou `null` si AUCUNE analyse (→ « jamais analysée », pas de pastille). Le repérage PRIME l'étendue (le fichier entier l'emporte
+ * sur une page). ORIGINE = 'manuelle' (fait sourcé, jamais 'auto' inventé). `formaterDate` injecté (jourParisISO en prod, identité en
+ * test). RÉSILIENT : entrées absentes → `null`.
+ */
+export function etatAnalyseIA(e: EntreesAnalyseIA, formaterDate: (iso: string) => string = (s) => s): EtatAnalyseIA | null {
+  const lectures = e.lectures ?? [];
+  const nbPagesLues = lectures.filter((l) => l.envoyee).length; // pages réellement ENVOYÉES à l'IA (une page abstenue RGPD ne compte pas)
+  if (e.reperage) {
+    return { etendue: 'complete', origine: 'manuelle', dateLisible: e.reperage.creeLe ? formaterDate(e.reperage.creeLe) : null, nbPlanches: e.reperage.nbPlanches, nbPagesLues };
+  }
+  if (lectures.length > 0) {
+    const d = dateMaxIso(lectures.map((l) => l.creeLe));
+    return { etendue: 'partielle', origine: 'manuelle', dateLisible: d ? formaterDate(d) : null, nbPlanches: 0, nbPagesLues };
+  }
+  return null; // aucune analyse → jamais analysée (pas de pastille)
+}
+
+/** PURE — libellé EXPLICITE (title/aria) : étendue ET origine EN TOUTES LETTRES + date (l'info ne repose JAMAIS sur la couleur seule). */
+export function libelleAnalyseIA(s: EtatAnalyseIA): string {
+  const etendue = s.etendue === 'complete' ? 'analyse IA du fichier complet' : 'analyse IA partielle (pages seules)';
+  const origine = s.origine === 'manuelle' ? 'déclenchée manuellement' : s.origine === 'auto' ? 'automatique' : 'origine indéterminée';
+  const quand = s.dateLisible ? `, le ${s.dateLisible}` : '';
+  const detail = s.etendue === 'complete'
+    ? (s.nbPlanches > 0 ? ` — ${s.nbPlanches} planche${s.nbPlanches > 1 ? 's' : ''} repérée${s.nbPlanches > 1 ? 's' : ''}` : ' — aucune planche repérée')
+    : (s.nbPagesLues > 0 ? ` — ${s.nbPagesLues} page${s.nbPagesLues > 1 ? 's' : ''} analysée${s.nbPagesLues > 1 ? 's' : ''}` : '');
+  return `${etendue}, ${origine}${quand}${detail}`;
+}
+
+/** PURE — lettre d'ORIGINE portée par la pastille (2e variable visuelle, JAMAIS un 3e ton de bleu). */
+export function lettreOrigineAnalyse(o: OrigineAnalyse): string { return o === 'manuelle' ? 'M' : o === 'auto' ? 'A' : '?'; }
+
+/**
+ * LOT 97 — PASTILLE d'état d'analyse IA (bas à droite d'une ligne de pièce). DEUX AXES : l'ÉTENDUE par le TON de bleu (complète = bleu
+ * plein · partielle = bleu pâle) ; l'ORIGINE par une LETTRE (M/A/?), jamais un 3e ton. Zone hors canvas → tokens `--color-svv-*` (fond ET
+ * texte basculent ensemble, clair comme sombre, contraste ≥ 4,5:1). `title`/`aria-label` disent tout EN TOUTES LETTRES (jamais la couleur
+ * seule). Non cliquable (marqueur informatif). Aucune animation (prefers-reduced-motion respecté d'office).
+ */
+export function PastilleAnalyseIA({ s }: { s: EtatAnalyseIA }) {
+  const libelle = libelleAnalyseIA(s);
+  const complete = s.etendue === 'complete';
+  return (
+    <span role="img" title={libelle} aria-label={libelle}
+      style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: '.15rem', height: 18, padding: '0 .4rem', borderRadius: 999,
+        fontSize: 10, fontWeight: 700, letterSpacing: '.02em',
+        background: complete ? 'var(--color-svv-blue)' : 'var(--color-svv-blue-soft)',
+        color: complete ? 'var(--color-svv-surface)' : 'var(--color-svv-blue)',
+        border: '1px solid var(--color-svv-blue)' }}>
+      IA {lettreOrigineAnalyse(s.origine)}
+    </span>
+  );
+}
 
 /**
  * LOT 64 — LISTE EXPLICITE des pièces du dossier pour la liseuse (remplace le `<select>` natif, qui replié n'affichait qu'UNE ligne
@@ -109,25 +183,26 @@ export interface EtatAnalysePiece { nbPlanches: number; dateLisible: string | nu
  * « hors des pièces suivies »), puis les analysées — épinglage N10-J : on ne retrie PAS l'intérieur d'un groupe. L'ÉTAT porte sur
  * l'analyse PAYANTE seule (le best-of textuel gratuit ne compte pas), écrit en TEXTE (jamais la couleur seule). PUR.
  */
-export function ListePiecesAnalyse({ pieces, runsParPiece, nonSupportees, pieceId, onChoisir }: {
+export function ListePiecesAnalyse({ pieces, analyseParPiece, nonSupportees, pieceId, onChoisir }: {
   pieces: PiecePlan[];
-  runsParPiece: Record<number, EtatAnalysePiece>;
+  analyseParPiece: Record<number, EtatAnalyseIA>; // LOT 97 — état d'analyse IA à deux axes (repérage LOT 62 + lecture de page LOT 95)
   nonSupportees: { id: number; nomFichier: string; motif: string }[];
   pieceId: number | null;
   onChoisir: (id: number) => void;
 }) {
-  const ordre = [...pieces.filter((p) => !runsParPiece[p.id]), ...pieces.filter((p) => runsParPiece[p.id])];
+  const ordre = [...pieces.filter((p) => !analyseParPiece[p.id]), ...pieces.filter((p) => analyseParPiece[p.id])];
   const etat = (p: PiecePlan): string => {
-    const r = runsParPiece[p.id];
-    if (!r) return 'jamais analysée par image';
-    const n = r.nbPlanches;
-    return `analysée par image le ${r.dateLisible ?? '—'} · ${n > 0 ? `${n} planche${n > 1 ? 's' : ''} trouvée${n > 1 ? 's' : ''}` : 'aucune planche trouvée'}`;
+    const a = analyseParPiece[p.id];
+    if (!a) return 'jamais analysée par image';
+    if (a.etendue === 'complete') { const n = a.nbPlanches; return `analysée par image le ${a.dateLisible ?? '—'} · ${n > 0 ? `${n} planche${n > 1 ? 's' : ''} trouvée${n > 1 ? 's' : ''}` : 'aucune planche trouvée'}`; }
+    const k = a.nbPagesLues; return `analysée par image (pages) le ${a.dateLisible ?? '—'} · ${k} page${k > 1 ? 's' : ''} analysée${k > 1 ? 's' : ''}`;
   };
   const ligne: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '.05rem', width: '100%', textAlign: 'left', minHeight: 36, padding: '.3rem .45rem', borderRadius: '.4rem', fontSize: 12, wordBreak: 'break-word' };
   return (
     <ul role="list" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
       {ordre.map((p) => {
         const courante = p.id === pieceId;
+        const a = analyseParPiece[p.id];
         return (
           <li key={p.id}>
             <button type="button" onClick={() => onChoisir(p.id)} aria-current={courante ? 'true' : undefined}
@@ -138,7 +213,12 @@ export function ListePiecesAnalyse({ pieces, runsParPiece, nonSupportees, pieceI
                 {p.cerfa && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.02em', textTransform: 'uppercase', padding: '.05rem .3rem', borderRadius: '.25rem', background: 'var(--color-svv-red)', color: '#fff' }}>Cerfa</span>}
                 <span>{p.nomFichier}{p.propose ? '' : ' — hors des pièces suivies'}</span>
               </span>
-              <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>{etat(p)}</span>
+              {/* LOT 97 — état en TEXTE (à gauche) + PASTILLE d'analyse IA (bas à DROITE). La pastille ne s'affiche que si la pièce a été
+                  analysée (jamais « 0 » ni un état neutre trompeur). `marginLeft:auto` la pousse à droite ; `flexShrink:0` → jamais tronquée en portrait. */}
+              <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                <span style={{ fontSize: 11, color: 'var(--color-svv-muted)', flex: '1 1 auto', minWidth: 0 }}>{etat(p)}</span>
+                {a && <PastilleAnalyseIA s={a} />}
+              </span>
             </button>
           </li>
         );

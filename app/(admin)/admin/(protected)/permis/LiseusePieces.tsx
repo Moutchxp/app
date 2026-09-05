@@ -5,8 +5,8 @@ import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist'; // type SEUL (erasé au runtime) : pdf.js reste importé DYNAMIQUEMENT dans afficherPage
 import {
   construireBandePlans, bandeAvecOverrides, cibleBestOf, bornerPage,
-  ListePiecesAnalyse, BandePlans, NavPieceLibre, ZoomPdf,
-  type PiecePlan, type Plan, type EtatAnalysePiece,
+  ListePiecesAnalyse, BandePlans, NavPieceLibre, ZoomPdf, etatAnalyseIA,
+  type PiecePlan, type Plan, type EtatAnalyseIA,
 } from './TraceEmpriseRendu';
 import { MAX_DOCS_CACHE, MAX_BITMAPS_RENDU, voisinsAPrecharger, rangerEtEvincer } from './prechargeLiseuse';
 import type { RunReperageAffiche } from '../../../../lib/permis/reperePlanchesRepo'; // LOT 62 — audit du repérage par image (type SEUL)
@@ -343,9 +343,22 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const runCourant = pieceId !== null ? runs[pieceId] : undefined; // LOT 62 — audit du repérage de la pièce courante
   // LOT 95 — audit daté de LA page affichée (si déjà analysée pour lire des valeurs) → sert l'avertissement « déjà analysée, relancer refera payer ».
   const lectureCourante = pieceId !== null ? (lectures[pieceId] ?? []).find((l) => l.page === page) ?? undefined : undefined;
-  // LOT 64 — état d'analyse PAYANTE par pièce (date lisible Europe/Paris), pour la liste des pièces.
-  const runsParPiece = useMemo<Record<number, EtatAnalysePiece>>(() =>
-    Object.fromEntries(Object.entries(runs).map(([id, r]) => [Number(id), { nbPlanches: r.nbPlanches, dateLisible: r.creeLe ? jourParisISO(r.creeLe) : null }])), [runs]);
+  // LOT 97 — ÉTAT D'ANALYSE IA à DEUX AXES par pièce, pour la liste + sa pastille : COMBINE le repérage LOT 62 (grain PIÈCE = fichier
+  //   complet, `runs`) et la lecture de valeurs LOT 95 (grain PAGE = partielle, `lectures`). Règle d'étendue + origine dans la fonction
+  //   PURE `etatAnalyseIA` (le fichier complet prime ; origine 'manuelle' = fait sourcé, jamais 'auto' inventé). Date lisible Europe/Paris.
+  const analyseParPiece = useMemo<Record<number, EtatAnalyseIA>>(() => {
+    const out: Record<number, EtatAnalyseIA> = {};
+    const ids = new Set<number>([...Object.keys(runs).map(Number), ...Object.keys(lectures).map(Number)]);
+    for (const id of ids) {
+      const r = runs[id];
+      const etat = etatAnalyseIA({
+        reperage: r ? { nbPlanches: r.nbPlanches, creeLe: r.creeLe } : undefined,
+        lectures: (lectures[id] ?? []).map((l) => ({ envoyee: l.envoyee, creeLe: l.creeLe })),
+      }, (iso) => jourParisISO(iso));
+      if (etat) out[id] = etat;
+    }
+    return out;
+  }, [runs, lectures]);
 
   // LOT 62 — REPÉRER les planches de la pièce courante par ANALYSE D'IMAGE (bouton MANUEL). POST sous le verrou du LOT 58 (409 si une
   //   analyse tourne déjà). 401 → « reconnectez-vous ». Succès → on RECHARGE le best-of (vReper) : les planches image y entrent.
@@ -525,7 +538,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
             //   animation (prefers-reduced-motion respecté d'office). La ligne cliquée reste marquée (aria-current, LOT 64).
             <div style={{ marginTop: '.3rem', maxHeight: '60vh', overflowY: 'auto' }}>
               {/* LOT 64 — liste EXPLICITE (plus un <select> replié à une ligne) : toutes les pièces, non analysées par image en tête, état par ligne. */}
-              <ListePiecesAnalyse pieces={pieces} runsParPiece={runsParPiece} nonSupportees={piecesNonSupportees} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} />
+              <ListePiecesAnalyse pieces={pieces} analyseParPiece={analyseParPiece} nonSupportees={piecesNonSupportees} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} />
             </div>
           )}
         </div>

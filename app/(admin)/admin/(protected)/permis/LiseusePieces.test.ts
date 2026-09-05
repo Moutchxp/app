@@ -181,6 +181,18 @@ describe('LOT 95 — « analyse de la page » ACTIVÉE : lecture de valeurs au g
   });
 });
 
+describe('LOT 97 — pastille d’analyse IA : la liste reçoit un état COMBINÉ (repérage LOT 62 + lecture page LOT 95) via la fonction pure', () => {
+  it('analyseParPiece est construit en combinant `runs` (fichier) et `lectures` (pages) par etatAnalyseIA (règle pure, non recodée)', () => {
+    expect(SRC).toContain('const analyseParPiece');
+    expect(SRC).toContain('etatAnalyseIA(');                 // règle d'étendue/origine importée, jamais réimplémentée ici
+    expect(SRC).toMatch(/reperage: r \? \{ nbPlanches: r\.nbPlanches, creeLe: r\.creeLe \}/); // grain PIÈCE (LOT 62)
+    expect(SRC).toMatch(/lectures: \(lectures\[id\] \?\? \[\]\)\.map/);                        // grain PAGE (LOT 95)
+    expect(SRC).toContain('analyseParPiece={analyseParPiece}');
+    // plus d'ancien état repérage-seul : la pastille couvre les DEUX mécaniques (pas d'écrasement d'un axe).
+    expect(SRC).not.toContain('runsParPiece');
+  });
+});
+
 describe('LOT 96 — liste « N pages ajoutées à la main » repliable, repliée par défaut (garde par lecture de source)', () => {
   it('REPLIÉE PAR DÉFAUT : état dédié initialisé à false, distinct de la liste « voir toutes les pièces »', () => {
     expect(SRC).toContain('const [pleinAjoutees, setPleinAjoutees] = useState(false)');
