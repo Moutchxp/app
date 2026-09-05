@@ -15,6 +15,10 @@ export interface ParcelleLigne {
   prefixe: string | null; section: string; numero: string; superficieDeclareeM2: number | null;
   role: 'origine' | 'finale'; origine: 'saisie' | 'extraite' | null;
   idu: string | null; confiance: 'confirmee' | 'a_verifier' | null; reserve: string | null; provenance: string | null;
+  // ── PL-A : PROVENANCE HONNÊTE de l'ACTEUR (né de l'incident verif-lot101 : ne pas dire « à la main » quand ce n'en est pas une) ──
+  majPar: string | null;              // auteur BRUT de la dernière écriture (id admin, 'admin', ou une chaîne d'outil/CLI)
+  majLe: string | null;               // horodatage ISO de la dernière écriture
+  acteurNom: string | null;           // prénom+nom SI maj_par est un id d'admin résolu (admin_utilisateur) ; null sinon
   // ── rattachement à `parcelle` ──
   communeCadastrale: string | null;   // commune de la parcelle rattachée (arrondissement) ; null si non rattachée
   contenance: number | null;          // contenance cadastrale (m²) ; null si non rattachée
@@ -59,16 +63,21 @@ export async function lireParcellesPermis(dossierId: number): Promise<ParcelleLi
     id: number; prefixe: string | null; section: string; numero: string; superficie: string | number | null;
     role: 'origine' | 'finale'; origine: 'saisie' | 'extraite' | null; idu: string | null;
     confiance: 'confirmee' | 'a_verifier' | null; reserve: string | null; provenance: string | null;
+    maj_par: string | null; maj_le: string | null; prenom: string | null; nom: string | null;
     commune: string | null; contenance: number | null; aire: string | number | null; a_geometrie: boolean; dept_charge: boolean;
   }>(
+    // PL-A — l'AUTEUR (maj_par) est résolu en nom quand c'est un id d'admin numérique (LEFT JOIN admin_utilisateur, garde regex pour
+    //   ne jamais caster une chaîne d'outil comme 'verif-lot101' en bigint) → l'écran peut nommer QUI, jamais mentir sur « à la main ».
     `SELECT pp.id, pp.prefixe, pp.section, pp.numero, pp.superficie_declaree_m2 AS superficie, pp.role, pp.origine, pp.idu,
             pp.confiance, pp.reserve, pp.provenance,
+            pp.maj_par, pp.maj_le::text AS maj_le, au.prenom, au.nom,
             par.commune, par.contenance,
             CASE WHEN par.id IS NOT NULL THEN round(ST_Area(par.geom)::numeric, 1) END AS aire,
             (par.id IS NOT NULL) AS a_geometrie,
             (pp.idu IS NOT NULL AND EXISTS (SELECT 1 FROM parcelle p2 WHERE p2.commune LIKE left(pp.idu, 2) || '%')) AS dept_charge
        FROM permis_parcelle pp
        LEFT JOIN parcelle par ON par.id = pp.idu
+       LEFT JOIN admin_utilisateur au ON au.id = CASE WHEN pp.maj_par ~ '^[0-9]+$' THEN pp.maj_par::bigint ELSE NULL END
       WHERE pp.dossier_id = $1
       ORDER BY pp.role, pp.section, pp.numero`,
     [dossierId]);
@@ -86,6 +95,7 @@ export async function lireParcellesPermis(dossierId: number): Promise<ParcelleLi
     prefixe: r.prefixe, section: r.section, numero: r.numero,
     superficieDeclareeM2: r.superficie === null ? null : Number(r.superficie),
     role: r.role, origine: r.origine, idu: r.idu, confiance: r.confiance, reserve: r.reserve, provenance: r.provenance,
+    majPar: r.maj_par, majLe: r.maj_le, acteurNom: r.prenom || r.nom ? `${r.prenom ?? ''} ${r.nom ?? ''}`.trim() : null,
     communeCadastrale: r.commune, contenance: r.contenance,
     aireCadastraleM2: r.aire === null ? null : Number(r.aire), aGeometrie: r.a_geometrie === true, deptCharge: r.dept_charge === true,
   }));

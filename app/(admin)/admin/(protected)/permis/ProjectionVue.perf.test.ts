@@ -19,7 +19,7 @@ const REPLIABLE = lire('./BlocRepliable.tsx');
 const COMPLETUDE = lire('./BlocCompletude.tsx');
 
 describe('PERF-1 — blocs coûteux montés au dépliage (render-prop)', () => {
-  for (const bloc of ['BlocFilEchanges', 'CaracteristiquesBloc', 'BlocPiecesPermis']) {
+  for (const bloc of ['BlocFilEchanges', 'CaracteristiquesBloc', 'BlocPiecesPermis', 'PlancheParcelles']) {
     it(`${bloc} est monté via une render-prop () => <…> (chargé au dépliage, pas au rendu de la fiche)`, () => {
       expect(PROJ).toContain(`() => <${bloc}`);
     });
@@ -35,11 +35,11 @@ describe('PERF-1 — blocs coûteux montés au dépliage (render-prop)', () => {
     expect(bat.indexOf('<BoutonValiderProjection')).toBeGreaterThan(bat.indexOf('<BlocTraceEmprise')); // bouton ENFERMÉ après la trace, dans le même bloc
   });
 
-  it('les 4 blocs coûteux du détail sont enveloppés dans BlocRepliable = 4 wrappers (LOT 54 : plus de groupe de tête)', () => {
-    // 4 render-props lazy du DÉTAIL (fil / caractéristiques / bâtiments+projection / pièces) — /emprise & co au seul dépliage.
-    //   Le groupe de tête « Test Permis » du LOT 52 a été RETIRÉ au LOT 54 : les dossiers en test se signalent par leur en-tête de
-    //   colonne, pas par un pli. Il ne reste donc que les 4 wrappers du détail.
-    expect((PROJ.match(/<BlocRepliable/g) ?? []).length).toBe(4);
+  it('les 5 blocs coûteux du détail sont enveloppés dans BlocRepliable = 5 wrappers (LOT 54 : plus de groupe de tête ; PL-A : + planche)', () => {
+    // 5 render-props lazy du DÉTAIL (fil / caractéristiques / bâtiments+projection / planche cadastrale / pièces) — chaque requête
+    //   (dont /planche) ne part qu'au dépliage. Le groupe de tête « Test Permis » du LOT 52 a été RETIRÉ au LOT 54 : les dossiers en
+    //   test se signalent par leur en-tête de colonne, pas par un pli. PL-A a ajouté la planche cadastrale (5e wrapper).
+    expect((PROJ.match(/<BlocRepliable/g) ?? []).length).toBe(5);
     expect(PROJ).not.toContain('Test Permis');
   });
 

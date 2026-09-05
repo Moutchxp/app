@@ -443,7 +443,7 @@ describe('N13 — ChampDestinationsEditeur : cases à cocher + libellé composé
 
 describe('N3-E — FaitsPermisBloc : parcelles cadastrales (ligne par parcelle, non-rattachée dit pourquoi, export)', () => {
   const faits: FaitsPermis = { numDau: '07512025V0035', type: 'PC', communeNom: 'Paris', codeInsee: '75056', adresse: '3 av. Benoît Frachon', natureTravaux: 'Construction neuve', dateAutorisation: '2026-03-13', surfaceCreee: null };
-  const parc = (over = {}) => ({ id: 1, refRemplacee: null, prefixe: '000', section: 'DZ', numero: '09', superficieDeclareeM2: 2631.5, role: 'origine' as const, origine: 'extraite' as const, idu: '75120000DZ0009', confiance: 'confirmee' as const, reserve: null, provenance: 'Cerfa', communeCadastrale: '75120', contenance: 2631, aireCadastraleM2: 2630, aGeometrie: true, deptCharge: true, ...over });
+  const parc = (over = {}) => ({ id: 1, refRemplacee: null, prefixe: '000', section: 'DZ', numero: '09', superficieDeclareeM2: 2631.5, role: 'origine' as const, origine: 'extraite' as const, idu: '75120000DZ0009', confiance: 'confirmee' as const, reserve: null, provenance: 'Cerfa', majPar: null, majLe: null, acteurNom: null, communeCadastrale: '75120', contenance: 2631, aireCadastraleM2: 2630, aGeometrie: true, deptCharge: true, ...over });
 
   it('parcelle rattachée : section, n°, superficie déclarée, contenance + ST_Area (preuve du contour), bouton export', () => {
     const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits, parcelles: [parc()], onExportGeojson: () => {} }));
@@ -470,7 +470,7 @@ describe('N3-E — FaitsPermisBloc : parcelles cadastrales (ligne par parcelle, 
 
 describe('FUS-1 — FaitsPermisBloc : empreinte attendue de la parcelle fusionnée', () => {
   const faits: FaitsPermis = { numDau: '07512025V0035', type: 'PC', communeNom: 'Paris', codeInsee: '75056', adresse: '3 av. B. Frachon', natureTravaux: 'Construction neuve', dateAutorisation: '2026-03-13', surfaceCreee: null };
-  const parc = () => ({ id: 1, refRemplacee: null, prefixe: '000', section: 'DZ', numero: '09', superficieDeclareeM2: 2631.5, role: 'origine' as const, origine: 'extraite' as const, idu: '75120000DZ0009', confiance: 'confirmee' as const, reserve: null, provenance: 'Cerfa', communeCadastrale: '75120', contenance: 2631, aireCadastraleM2: 2630, aGeometrie: true, deptCharge: true });
+  const parc = () => ({ id: 1, refRemplacee: null, prefixe: '000', section: 'DZ', numero: '09', superficieDeclareeM2: 2631.5, role: 'origine' as const, origine: 'extraite' as const, idu: '75120000DZ0009', confiance: 'confirmee' as const, reserve: null, provenance: 'Cerfa', majPar: null, majLe: null, acteurNom: null, communeCadastrale: '75120', contenance: 2631, aireCadastraleM2: 2630, aGeometrie: true, deptCharge: true });
 
   it('complète : surface + « union de N parcelles » + bouton export + garde-fou « pas la parcelle future réelle »', () => {
     const empreinte = { surfaceM2: 2886.3, nbParcelles: 2, complete: true, motif: null, millesime: '2026-06-01', aGeometrie: true };

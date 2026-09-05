@@ -34,6 +34,17 @@ describe('CorrectionParcelle — proposer/choisir/saisir/annuler (garde par lect
     expect(SRC).toContain("action: 'annuler_correction_parcelle'");
     expect(SRC).toContain('annuler la correction');
   });
+  it('PL-A — PROVENANCE HONNÊTE : « à la main » CONDITIONNÉ à un acteur admin identifiable ; sinon la valeur BRUTE (né de verif-lot101)', () => {
+    // la phrase passe par le décideur pur (jamais un « à la main » écrit en dur inconditionnel).
+    expect(SRC).toContain('descriptionActeurParcelle');
+    expect(SRC).toContain('d.aLaMain');
+    // branche NON identifiable : on nomme l'auteur brut, on DIT que ce n'est pas un geste manuel identifié.
+    expect(SRC).toContain('référence corrigée par');
+    expect(SRC).toContain('pas un geste manuel identifié');
+    // l'acteur (majPar/acteurNom) et la date (majLe) sont des entrées du composant.
+    expect(SRC).toMatch(/majPar|acteurNom/);
+    expect(SRC).toContain('majLe');
+  });
   it('une parcelle rattachée AUTOMATIQUEMENT (géométrie, non corrigée) → aucun geste (pas de bruit)', () => {
     expect(SRC).toMatch(/if \(aGeometrie\) return null;/);
   });

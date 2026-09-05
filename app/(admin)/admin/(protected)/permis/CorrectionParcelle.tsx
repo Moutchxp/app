@@ -1,17 +1,23 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle';
 
 /**
  * LOT 101 — GESTE MANUEL « rattacher une parcelle à la main » quand la référence Sitadel est fausse/introuvable (impasse « parcelle non
  * rattachée » : ex. 468, DK 649 inexistante ↔ DI 649). PRINCIPE : l'app PROPOSE des candidates AVEC LEUR SURFACE (le pouvoir de
  * vérification d'Arno), ARNO CHOISIT (ou saisit la référence exacte), rien n'est appliqué en silence. La correction est PERSISTÉE +
- * TRACÉE comme un geste HUMAIN (« rattachée à la main en remplacement de X ») et RÉVERSIBLE. Zone hors canvas → tokens `--color-svv-*`.
+ * TRACÉE et RÉVERSIBLE. Zone hors canvas → tokens `--color-svv-*`.
+ *
+ * PL-A — PROVENANCE HONNÊTE (né de l'incident verif-lot101) : on n'écrit « rattachée à la main » QUE si l'auteur est un compte admin
+ * identifiable (`acteurNom` résolu, ou 'admin'). Sinon on nomme l'auteur BRUT (« référence corrigée par verif-lot101 ») — jamais
+ * « à la main » pour un harnais/CLI. La date (maj_le) est toujours affichée. Règle partagée avec la planche (cf. acteurParcelle).
  */
 interface Candidat { idu: string; section: string; numero: string; contenance: number | null; motif: string }
 
-export function CorrectionParcelle({ dossierId, parcelleId, refActuelle, aGeometrie, refRemplacee, onFait }: {
-  dossierId: number; parcelleId: number; refActuelle: string; aGeometrie: boolean; refRemplacee: string | null; onFait: () => void;
+export function CorrectionParcelle({ dossierId, parcelleId, refActuelle, aGeometrie, refRemplacee, origine, majPar, majLe, acteurNom, onFait }: {
+  dossierId: number; parcelleId: number; refActuelle: string; aGeometrie: boolean; refRemplacee: string | null;
+  origine?: 'saisie' | 'extraite' | null; majPar?: string | null; majLe?: string | null; acteurNom?: string | null; onFait: () => void;
 }) {
   const [ouvert, setOuvert] = useState(false);
   const [candidats, setCandidats] = useState<Candidat[] | null>(null); // null = pas encore cherché
@@ -60,13 +66,18 @@ export function CorrectionParcelle({ dossierId, parcelleId, refActuelle, aGeomet
   const lien: React.CSSProperties = { width: 'auto', padding: '.05rem .35rem', fontSize: 11 };
   const champ: React.CSSProperties = { border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', padding: '.15rem .3rem', fontSize: 11, background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)' };
 
-  // DÉJÀ CORRIGÉE À LA MAIN → le dire explicitement + permettre l'annulation (réversibilité).
-  if (refRemplacee) {
+  // DÉJÀ CORRIGÉE / SAISIE → NOMMER L'ACTEUR honnêtement (jamais « à la main » pour un harnais/CLI) + permettre l'annulation.
+  if (refRemplacee || origine === 'saisie') {
+    const d = descriptionActeurParcelle({ majPar: majPar ?? null, majLe: majLe ?? null, acteurNom: acteurNom ?? null });
     return (
       <span style={{ fontSize: 11 }}>
-        {' '}<span style={{ color: 'var(--color-svv-blue)', fontWeight: 600 }}>rattachée à la main</span>
-        <span style={{ color: 'var(--color-svv-muted)' }}> en remplacement de {refRemplacee}</span>
-        <button type="button" className="svv-link" style={lien} disabled={enCours} onClick={() => void annuler()}>annuler la correction</button>
+        {' '}
+        {d.aLaMain
+          ? <><span style={{ color: 'var(--color-svv-blue)', fontWeight: 600 }}>rattachée à la main</span> par <strong style={{ color: 'var(--color-svv-ink)' }}>{d.qui}</strong></>
+          : <span style={{ color: 'var(--color-svv-muted)' }}>référence corrigée par <strong style={{ color: 'var(--color-svv-ink)' }}>{d.qui}</strong> <span style={{ fontStyle: 'italic' }}>(pas un geste manuel identifié)</span></span>}
+        {d.quand ? <span style={{ color: 'var(--color-svv-muted)' }}> le {d.quand}</span> : null}
+        {refRemplacee ? <span style={{ color: 'var(--color-svv-muted)' }}> en remplacement de {refRemplacee}</span> : null}
+        {refRemplacee ? <>{' '}<button type="button" className="svv-link" style={lien} disabled={enCours} onClick={() => void annuler()}>annuler la correction</button></> : null}
         {msg && <span role="alert" style={{ color: 'var(--color-svv-red)' }}> {msg}</span>}
       </span>
     );

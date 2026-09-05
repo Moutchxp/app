@@ -8,6 +8,7 @@ import { BlocPiecesPermis } from './BlocPiecesPermis';
 import { BlocCompletude } from './BlocCompletude';
 import { BlocFilEchanges } from './BlocFilEchanges';
 import { BlocRepliable } from './BlocRepliable';
+import { PlancheParcelles } from './PlancheParcelles'; // PL-A — planche cadastrale (lecture seule), à côté du schéma du bâti
 import { TableProjection, BoutonValiderProjection, AIDE_PROJECTION, TitreFamilleEtat, type LigneProjectionAffichee } from './ProjectionRendu';
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { etatValidationProjection } from '../../../../lib/permis/etatValidationProjection';
@@ -239,6 +240,12 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
               {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
             </div>
           )}
+        </BlocRepliable>
+        {/* PL-A — PLANCHE CADASTRALE (lecture seule) : à côté du schéma du bâti, elle montre les parcelles du permis (colorées par
+            origine — « lesquelles l'auto-analyse a retenues ») + les voisines dans un rayon. Chargée AU DÉPLIAGE (PERF-1 : un bloc
+            jamais ouvert ne requête rien). Aucune écriture (le clic ajouter/retirer une parcelle est le lot séparé PL-B). */}
+        <BlocRepliable key={`w-planche-${ouvert}`} titre="Planche cadastrale (parcelles)">
+          {() => <PlancheParcelles key={`planche-${ouvert}`} dossierId={ouvert} />}
         </BlocRepliable>
         {/* EXT-1 (point 5) — PIÈCES DU PERMIS en DERNIÈRE POSITION : référence en regard de la saisie. Chargées au dépliage (PERF-1). */}
         <BlocRepliable key={`w-pieces-${ouvert}`} titre="Pièces du permis">
