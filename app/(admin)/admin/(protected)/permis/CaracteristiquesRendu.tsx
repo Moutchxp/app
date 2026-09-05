@@ -5,6 +5,7 @@ import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo'
 import type { JournalChamp, ProvenanceEcartee } from '../../../../lib/permis/journalLecture';
 import { MESURES, libelleBornes, composerLibelleDestinations, raisonParcelleNonRattachee, ecartSuperficieCadastre, type Bornes, type ChampDeclare, type FaitsPermis } from './caracteristiquesForm';
 import type { ParcelleLigne, EmpreinteLigne, BatiSnapshotResume } from '../../../../lib/permis/parcellesRepo'; // TYPE seulement (module serveur) — piège du bundle client
+import { CorrectionParcelle } from './CorrectionParcelle'; // LOT 101 — geste de correction manuelle d'une parcelle
 import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa'; // LOT 67 — module PUR : import de type sûr côté client
 
 /**
@@ -163,11 +164,12 @@ export function DeclarationsCerfaBloc({ declarations: d, pieceSource }: { declar
  * les pièces. On le rend donc SÉPARÉ de la grille Sitadel, avec la provenance « d'après les pièces ». Jamais « 0 bâtiment » (un PC en
  * comporte forcément un) : une absence de lecture s'écrit « aucun bâtiment identifié dans les pièces ».
  */
-export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles, onExportGeojson, empreinte, onExportEmpreinte, bati }: {
+export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles, onExportGeojson, empreinte, onExportEmpreinte, bati, dossierId, onParcelleChange }: {
   faits: FaitsPermis; nbBatiments?: number;
   parcelles?: ParcelleLigne[]; ecartsParcelles?: string[]; onExportGeojson?: () => void; // N3-E — parcelles cadastrales + export GeoJSON
   empreinte?: EmpreinteLigne | null; onExportEmpreinte?: () => void; // FUS-1 — empreinte attendue de la future parcelle fusionnée
   bati?: BatiSnapshotResume | null; // FUS-1b — photo du bâti au moment de l'analyse (sous l'empreinte)
+  dossierId?: number; onParcelleChange?: () => void; // LOT 101 — geste de correction manuelle d'une parcelle (rattacher à la main)
 }) {
   const lignes: [string, string][] = [
     ['N° permis', `${faits.numDau} (${faits.type})`],
@@ -220,6 +222,10 @@ export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles
                       {p.origine === 'extraite' && p.confiance ? <> <PastilleConfiance confiance={p.confiance} /></> : null}
                       {ecart ? <span role="note" style={{ ...styleNote, color: 'var(--color-svv-red)', marginLeft: '.3rem' }}>⚠ {ecart}</span> : null}
                       {p.aGeometrie && p.reserve ? <span role="note" style={{ ...styleNote, color: 'var(--color-svv-muted)', marginLeft: '.3rem' }}>{p.reserve}</span> : null}
+                      {/* LOT 101 — geste MANUEL « rattacher à la main » (parcelle non rattachée) / trace + annulation (parcelle corrigée). */}
+                      {dossierId !== undefined && onParcelleChange && (
+                        <CorrectionParcelle dossierId={dossierId} parcelleId={p.id} refActuelle={`${p.section} ${p.numero}`} aGeometrie={p.aGeometrie} refRemplacee={p.refRemplacee} onFait={onParcelleChange} />
+                      )}
                     </li>
                   );
                 })}

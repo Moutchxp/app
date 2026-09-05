@@ -202,6 +202,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossie
     <div className="flex flex-col gap-3" style={{ marginTop: '.6rem' }}>
       <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--color-svv-ink)' }}>Caractéristiques</h3>
       <FaitsPermisBloc faits={data.faits} nbBatiments={data.corps.length} parcelles={data.parcelles} empreinte={data.empreinte} bati={data.bati}
+        dossierId={dossierId} onParcelleChange={() => void rafraichir()}
         onExportGeojson={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=1`, '_blank', 'noopener,noreferrer')}
         onExportEmpreinte={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=empreinte`, '_blank', 'noopener,noreferrer')} />
 

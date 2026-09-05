@@ -10,6 +10,8 @@ import type { ParcelleDecision } from './decisionParcelles';
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti = AUTORITÉ (registre), plus le proxy
 
 export interface ParcelleLigne {
+  id: number;                          // LOT 101 — id de la ligne permis_parcelle (cible du geste de correction)
+  refRemplacee: string | null;        // LOT 101 — si correction manuelle : « DK 649 » (référence d'origine remplacée), sinon null
   prefixe: string | null; section: string; numero: string; superficieDeclareeM2: number | null;
   role: 'origine' | 'finale'; origine: 'saisie' | 'extraite' | null;
   idu: string | null; confiance: 'confirmee' | 'a_verifier' | null; reserve: string | null; provenance: string | null;
@@ -24,8 +26,20 @@ export interface ParcelleLigne {
 /** Écrit les parcelles décidées (mode 'extraite'). Recompute idempotent + invariant saisie. Renvoie le nb écrit / ignoré. */
 export async function ecrireParcelles(dossierId: number, parcelles: ParcelleDecision[], majPar: string): Promise<{ ecrites: number; ignorees: number }> {
   await query(`DELETE FROM permis_parcelle WHERE dossier_id = $1 AND origine = 'extraite'`, [dossierId]); // ciblé : jamais la saisie
+  // LOT 101 — DURABILITÉ des corrections manuelles : une référence corrigée à la main (ex. DK 649 → DI 649) ne doit pas être RÉ-AJOUTÉE
+  //   par une ré-extraction (qui recasserait l'empreinte). On saute les refs d'origine que porte une correction. Résilient : colonne
+  //   `correction` absente (migration 197) → pas de filtrage (comportement d'avant).
+  const cleRef = (s: string | null, n: string | null, p: string | null) => `${s ?? ''}|${n ?? ''}|${p ?? ''}`;
+  let refsCorrigees = new Set<string>();
+  try {
+    const { rows } = await query<{ section: string | null; numero: string | null; prefixe: string | null }>(
+      `SELECT correction->'refOrigine'->>'section' AS section, correction->'refOrigine'->>'numero' AS numero, correction->'refOrigine'->>'prefixe' AS prefixe
+         FROM permis_parcelle WHERE dossier_id = $1 AND correction IS NOT NULL`, [dossierId]);
+    refsCorrigees = new Set(rows.map((r) => cleRef(r.section, r.numero, r.prefixe)));
+  } catch { /* colonne `correction` absente → aucun filtrage (comportement d'avant) */ }
   let ecrites = 0, ignorees = 0;
   for (const p of parcelles) {
+    if (refsCorrigees.has(cleRef(p.section, p.numero, p.prefixe))) { ignorees++; continue; } // corrigée à la main → ne pas ré-ajouter
     const res = await query(
       `INSERT INTO permis_parcelle (dossier_id, prefixe, section, numero, superficie_declaree_m2, role, origine, idu, confiance, reserve, provenance, maj_le, maj_par)
          VALUES ($1, $2, $3, $4, $5, $6, 'extraite', $7, $8, $9, $10, now(), $11)
@@ -42,12 +56,12 @@ export async function ecrireParcelles(dossierId: number, parcelles: ParcelleDeci
  */
 export async function lireParcellesPermis(dossierId: number): Promise<ParcelleLigne[]> {
   const { rows } = await query<{
-    prefixe: string | null; section: string; numero: string; superficie: string | number | null;
+    id: number; prefixe: string | null; section: string; numero: string; superficie: string | number | null;
     role: 'origine' | 'finale'; origine: 'saisie' | 'extraite' | null; idu: string | null;
     confiance: 'confirmee' | 'a_verifier' | null; reserve: string | null; provenance: string | null;
     commune: string | null; contenance: number | null; aire: string | number | null; a_geometrie: boolean; dept_charge: boolean;
   }>(
-    `SELECT pp.prefixe, pp.section, pp.numero, pp.superficie_declaree_m2 AS superficie, pp.role, pp.origine, pp.idu,
+    `SELECT pp.id, pp.prefixe, pp.section, pp.numero, pp.superficie_declaree_m2 AS superficie, pp.role, pp.origine, pp.idu,
             pp.confiance, pp.reserve, pp.provenance,
             par.commune, par.contenance,
             CASE WHEN par.id IS NOT NULL THEN round(ST_Area(par.geom)::numeric, 1) END AS aire,
@@ -58,7 +72,17 @@ export async function lireParcellesPermis(dossierId: number): Promise<ParcelleLi
       WHERE pp.dossier_id = $1
       ORDER BY pp.role, pp.section, pp.numero`,
     [dossierId]);
+  // LOT 101 — trace des corrections manuelles (référence d'origine remplacée), lue à part et RÉSILIENTE : colonne `correction` absente
+  //   (migration 197) → aucune correction connue (comportement d'avant), jamais une erreur qui ferait tomber la lecture des parcelles.
+  const refRemplaceeParId = new Map<number, string>();
+  try {
+    const { rows: corr } = await query<{ id: number; section: string | null; numero: string | null }>(
+      `SELECT id, correction->'refOrigine'->>'section' AS section, correction->'refOrigine'->>'numero' AS numero
+         FROM permis_parcelle WHERE dossier_id = $1 AND correction IS NOT NULL`, [dossierId]);
+    for (const c of corr) if (c.section || c.numero) refRemplaceeParId.set(c.id, `${c.section ?? ''} ${c.numero ?? ''}`.trim());
+  } catch { /* colonne `correction` absente → aucune correction affichée */ }
   return rows.map((r) => ({
+    id: r.id, refRemplacee: refRemplaceeParId.get(r.id) ?? null,
     prefixe: r.prefixe, section: r.section, numero: r.numero,
     superficieDeclareeM2: r.superficie === null ? null : Number(r.superficie),
     role: r.role, origine: r.origine, idu: r.idu, confiance: r.confiance, reserve: r.reserve, provenance: r.provenance,

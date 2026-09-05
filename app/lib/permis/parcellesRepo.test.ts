@@ -22,9 +22,11 @@ const H = vi.hoisted(() => {
       { cleabs: 'BATIMENT0002', etages: null, alt: null, hauteur: null, dmod: '2024-02-01' },
     ] as BatiRow[],
     capRow: { capture: true, nb: 2, motif: null, mill: '2026-03-20' } as CapRow,
+    refsCorrigees: [] as { section: string | null; numero: string | null; prefixe: string | null }[], // LOT 101
   };
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
+    if (/correction->'refOrigine'/i.test(sql)) return { rows: state.refsCorrigees, rowCount: state.refsCorrigees.length }; // LOT 101 — refs corrigées à la main
     if (/SELECT\s+count\(\*\)::int\s+AS\s+total/i.test(sql)) return { rows: [{ total: state.total, avec: state.avec }], rowCount: 1 };
     if (/INSERT\s+INTO\s+permis_empreinte[\s\S]*RETURNING/i.test(sql)) return { rows: [{ surface: state.unionSurface, nb: state.unionNb, mill: state.unionMill }], rowCount: 1 };
     if (/INSERT\s+INTO\s+permis_parcelle/i.test(sql)) return { rows: [], rowCount: state.insertRowCount };
@@ -70,6 +72,7 @@ beforeEach(() => {
     { cleabs: 'BATIMENT0002', etages: null, alt: null, hauteur: null, dmod: '2024-02-01' },
   ];
   H.state.capRow = { capture: true, nb: 2, motif: null, mill: '2026-03-20' };
+  H.state.refsCorrigees = [];
 });
 
 describe('ecrireParcelles', () => {
@@ -86,6 +89,14 @@ describe('ecrireParcelles', () => {
     H.state.insertRowCount = 0; // ON CONFLICT DO NOTHING → 0 ligne affectée
     const r = await ecrireParcelles(1, [p()], 'auto');
     expect(r).toEqual({ ecrites: 0, ignorees: 1 });
+  });
+  it('LOT 101 — une réf CORRIGÉE à la main n’est PAS ré-ajoutée par une ré-extraction (durabilité)', async () => {
+    H.state.refsCorrigees = [{ section: 'DK', numero: '649', prefixe: '000' }]; // DK 649 a été corrigée → DI 649
+    const r = await ecrireParcelles(1, [p({ section: 'DK', numero: '649', prefixe: '000', idu: '75119000DK0649' }), p({ section: 'DZ', numero: '10', prefixe: '000', idu: '75120000DZ0010' })], 'auto');
+    // DK 649 sautée (ignorée), seule DZ 10 insérée → la correction survit à la ré-extraction.
+    expect(inserts().some((i) => i.params.includes('75119000DK0649'))).toBe(false);
+    expect(inserts().some((i) => i.params.includes('75120000DZ0010'))).toBe(true);
+    expect(r).toEqual({ ecrites: 1, ignorees: 1 });
   });
 });
 
