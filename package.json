@@ -58,6 +58,7 @@
     "permis:verser-rattachees": "tsx app/scripts/verser-pieces-rattachees.ts",
     "permis:exporter-altitudes": "tsx app/scripts/exporter-altitudes.ts",
     "bdtopo:import": "tsx app/scripts/bdtopo-import.ts",
+    "permis:etat-des-lieux": "tsx app/scripts/etat-des-lieux.ts",
     "drive:autoriser": "tsx app/scripts/drive-autoriser.ts",
     "alertes:envoyer": "tsx app/scripts/envoyer-alerte.ts",
     "veille:run": "tsx app/scripts/veille-run.ts",

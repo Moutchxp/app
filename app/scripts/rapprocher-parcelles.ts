@@ -12,15 +12,33 @@
  * Normalisation SQL = MIROIR EXACT de `normaliserCleCadastrale` (upper + btrim section, btrim numéro ; PAS de zéros de tête —
  * mesuré sans gain). Cf. `app/lib/permis/cleCadastrale.ts`. Tout tourne dans UNE transaction (tables TEMP `ON COMMIT DROP`).
  *
- * Lancer :  npm run permis:rapprocher-parcelles -- [--dry-run]
+ * Lancer :  npm run permis:rapprocher-parcelles -- [--dry-run] [--dept 75[,92,…]]
  *   --dry-run : compte et journalise SANS écrire (transaction ouverte puis refermée sans INSERT).
+ *   --dept    : LOT 104 — restreint aux dossiers de ces départements (préfixe code_insee). ABSENT → tous les départements (comportement
+ *               inchangé). N'altère RIEN d'autre : mêmes gardes (préséance, ambiguïté, idempotence) sur le sous-ensemble.
  */
 import '../lib/chargerEnv';
 import { withTransaction, closePool, type RequeteTx } from '../lib/db/client';
 
 const MAJ_PAR = 'cli:rapprocher-parcelles';
 
-async function preparer(q: RequeteTx): Promise<void> {
+/** LOT 104 — départements passés en `--dept 75,92` (préfixes 2 chiffres). `null` = tous (comportement d'avant). PUR. */
+export function parserDepts(argv: readonly string[]): string[] | null {
+  const i = argv.indexOf('--dept');
+  const brut = i >= 0 && argv[i + 1] ? argv[i + 1] : (argv.find((a) => a.startsWith('--dept='))?.slice('--dept='.length) ?? '');
+  const depts = brut.split(',').map((s) => s.trim()).filter((s) => /^\d{2}$/.test(s));
+  return depts.length > 0 ? depts : null;
+}
+
+async function preparer(q: RequeteTx, depts: string[] | null): Promise<void> {
+  // LOT 104 — filtre départemental optionnel appliqué aux RÉFÉRENCES (donc aux dossiers) ; le reste du pipeline est inchangé.
+  const filtreDept = depts ? ` AND left(code_insee, 2) = ANY($1::text[])` : '';
+  const pDept: unknown[] = depts ? [depts] : [];
+  // LOT 104 — COMMUNE CADASTRALE : à Paris/Lyon/Marseille le cadastre est par ARRONDISSEMENT (751xx) alors que Sitadel donne la commune
+  //   entière (75056). Le n° de dossier encode l'arrondissement (`0`+dept+commune) → on le dérive (MIROIR SQL de `communeCadastrale`),
+  //   UNIQUEMENT pour 75/69/13 et si le dept concorde. Partout ailleurs → `code_insee` inchangé (comportement d'avant byte-à-byte).
+  const communeCol = `CASE WHEN left(code_insee,2) IN ('75','69','13') AND num_dau ~ '^0[0-9]{5}' AND substring(num_dau from 2 for 2) = left(code_insee,2)
+                            THEN substring(num_dau from 2 for 5) ELSE code_insee END`;
   // 1) Clés parcelle NORMALISÉES + comptage d'ambiguïté (nb par clé). min(...) = valeur unique quand la clé n'est pas ambiguë.
   await q(`
     CREATE TEMP TABLE pkn ON COMMIT DROP AS
@@ -34,9 +52,9 @@ async function preparer(q: RequeteTx): Promise<void> {
   // 2) Références cadastrales des dossiers, dépliées (≤ 3 par dossier) et normalisées EXACTEMENT comme la clé parcelle.
   await q(`
     CREATE TEMP TABLE refs ON COMMIT DROP AS
-      SELECT id AS dossier_id, code_insee AS commune, upper(btrim(sec_cadastre1)) AS secn, btrim(num_cadastre1) AS numn FROM sitadel_dossier WHERE btrim(coalesce(sec_cadastre1,'')) <> '' AND btrim(coalesce(num_cadastre1,'')) <> ''
-      UNION ALL SELECT id, code_insee, upper(btrim(sec_cadastre2)), btrim(num_cadastre2) FROM sitadel_dossier WHERE btrim(coalesce(sec_cadastre2,'')) <> '' AND btrim(coalesce(num_cadastre2,'')) <> ''
-      UNION ALL SELECT id, code_insee, upper(btrim(sec_cadastre3)), btrim(num_cadastre3) FROM sitadel_dossier WHERE btrim(coalesce(sec_cadastre3,'')) <> '' AND btrim(coalesce(num_cadastre3,'')) <> ''`);
+      SELECT id AS dossier_id, ${communeCol} AS commune, upper(btrim(sec_cadastre1)) AS secn, btrim(num_cadastre1) AS numn FROM sitadel_dossier WHERE btrim(coalesce(sec_cadastre1,'')) <> '' AND btrim(coalesce(num_cadastre1,'')) <> ''${filtreDept}
+      UNION ALL SELECT id, ${communeCol}, upper(btrim(sec_cadastre2)), btrim(num_cadastre2) FROM sitadel_dossier WHERE btrim(coalesce(sec_cadastre2,'')) <> '' AND btrim(coalesce(num_cadastre2,'')) <> ''${filtreDept}
+      UNION ALL SELECT id, ${communeCol}, upper(btrim(sec_cadastre3)), btrim(num_cadastre3) FROM sitadel_dossier WHERE btrim(coalesce(sec_cadastre3,'')) <> '' AND btrim(coalesce(num_cadastre3,'')) <> ''${filtreDept}`, pDept);
 
   // 3) Chaque réf ↔ sa clé parcelle (LEFT JOIN → distingue apparié nb=1 / ambigu nb≥2 / échec idu NULL).
   await q(`
@@ -54,10 +72,12 @@ async function preparer(q: RequeteTx): Promise<void> {
 
 async function main(): Promise<void> {
   const dryRun = process.argv.includes('--dry-run');
+  const depts = parserDepts(process.argv);
 
   await withTransaction(async (q) => {
     await q("SET LOCAL statement_timeout = '280s'");
-    await preparer(q);
+    await preparer(q, depts);
+    if (depts) console.log(`Filtre départemental : ${depts.join(', ')}`);
 
     // 4) JOURNAL (au niveau réf ET dossier).
     const j = (await q<{ refs: string; app: string; amb: string; ech: string; commune_ko: string }>(`
@@ -103,4 +123,8 @@ async function main(): Promise<void> {
   });
 }
 
-void main().catch((e) => { console.error('[permis:rapprocher-parcelles] échec', e); process.exitCode = 1; }).finally(() => closePool());
+// LOT 104 — n'exécuter `main()` QUE si ce fichier est le POINT D'ENTRÉE (lancé directement), jamais quand un autre module (ex. la CLI
+//   `etat-des-lieux`, ou un test) importe `parserDepts` — sinon l'import déclencherait un rapprochement réel + une double fermeture du pool.
+import { pathToFileURL } from 'node:url';
+const estPointEntree = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (estPointEntree) void main().catch((e) => { console.error('[permis:rapprocher-parcelles] échec', e); process.exitCode = 1; }).finally(() => closePool());
