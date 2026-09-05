@@ -7,7 +7,7 @@ import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteris
 import { lireJournalChamps, type JournalPermis } from '../../../../../lib/permis/journalLecture';
 import { lireParcellesPermis, geojsonParcellesPermis, lireEmpreintePermis, geojsonEmpreintePermis, lireBatiSnapshotPermis, type ParcelleLigne, type EmpreinteLigne, type BatiSnapshotResume } from '../../../../../lib/permis/parcellesRepo';
 import { lireDeclarationsRecap, type DeclarationsCerfaStockees } from '../../../../../lib/permis/cerfaRecapRepo'; // LOT 67 — déclarations du Cerfa (informatif)
-import { candidatsCorrectionParcelle, corrigerParcelle, annulerCorrectionParcelle } from '../../../../../lib/permis/correctionParcelleRepo'; // LOT 101 — correction manuelle de parcelle
+import { annulerCorrectionParcelle } from '../../../../../lib/permis/correctionParcelleRepo'; // LOT 101 → PL-C5 : seule l'annulation subsiste (dégeler une ligne héritée)
 import { MESURES, construireGlobal, construirePermis, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
 
 /** N7-E — liste FERMÉE de nature_projet, lue du CHECK de permis_caracteristique (jamais recopiée). */
@@ -232,35 +232,9 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok, supprime: ok });
     }
 
-    // LOT 101 — CANDIDATES pour corriger une parcelle introuvable (même commune : même numéro autre section, puis même section numéro proche),
-    //   AVEC leur contenance (le pouvoir de vérification d'Arno). Lecture seule ; jamais d'application silencieuse.
-    if (action === 'candidats_parcelle') {
-      if (!estEntier(body.dossierId) || !estEntier(body.parcelleId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
-      const res = await candidatsCorrectionParcelle(body.dossierId, body.parcelleId);
-      if (!res) return Response.json({ erreur: 'parcelle introuvable' }, { status: 404 });
-      return Response.json({ ok: true, ...res });
-    }
-
-    // LOT 101 — CORRECTION MANUELLE (choix d'une candidate OU saisie libre) : validée contre le cadastre, réécrit la ligne en 'saisie',
-    //   trace la correction, RECALCULE l'empreinte → le schéma redevient dessinable. Refus explicite si la référence n'existe pas.
-    if (action === 'corriger_parcelle') {
-      if (!estEntier(body.dossierId) || !estEntier(body.parcelleId)) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
-      const section = typeof body.section === 'string' ? body.section : '';
-      const numero = typeof body.numero === 'string' ? body.numero : (typeof body.numero === 'number' ? String(body.numero) : '');
-      const prefixe = typeof body.prefixe === 'string' ? body.prefixe : null;
-      if (section.trim() === '' || numero.trim() === '') return Response.json({ erreur: 'section et numéro requis' }, { status: 400 });
-      const r = await corrigerParcelle(body.dossierId, body.parcelleId, { section, numero, prefixe }, auteur);
-      if (!r.ok) {
-        const map: Record<string, { s: number; m: string }> = {
-          migration_requise: { s: 409, m: 'correction indisponible (mise à jour de la base requise)' },
-          reference_inexistante: { s: 422, m: 'cette référence n’existe pas au cadastre' },
-          parcelle_introuvable: { s: 404, m: 'parcelle introuvable' },
-          doublon: { s: 409, m: 'une parcelle avec cette section et ce numéro existe déjà pour ce permis' },
-        };
-        const e = map[r.motif]; return Response.json({ erreur: e.m }, { status: e.s });
-      }
-      return Response.json({ ok: true, parcelles: r.parcelles, empreinte: r.empreinte });
-    }
+    // LOT 101 → PL-C5 — la CORRECTION MANUELLE mutante (actions 'candidats_parcelle' / 'corriger_parcelle', qui réécrivait la ligne
+    //   en origine='saisie' et la GELAIT) est RETIRÉE : la SUPERPOSITION de sélection (planche cadastrale) la remplace, avec une
+    //   provenance vraie et sans jamais muter permis_parcelle. Ne subsiste que l'ANNULATION, pour dégeler une ligne héritée.
 
     // LOT 101 — ANNULER une correction (restaure la référence d'origine + empreinte d'avant, jamais un vide inventé).
     if (action === 'annuler_correction_parcelle') {

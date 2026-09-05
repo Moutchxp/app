@@ -224,7 +224,7 @@ export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles
                       {p.aGeometrie && p.reserve ? <span role="note" style={{ ...styleNote, color: 'var(--color-svv-muted)', marginLeft: '.3rem' }}>{p.reserve}</span> : null}
                       {/* LOT 101 — geste MANUEL « rattacher à la main » (parcelle non rattachée) / trace + annulation (parcelle corrigée). */}
                       {dossierId !== undefined && onParcelleChange && (
-                        <CorrectionParcelle dossierId={dossierId} parcelleId={p.id} refActuelle={`${p.section} ${p.numero}`} aGeometrie={p.aGeometrie} refRemplacee={p.refRemplacee} origine={p.origine} majPar={p.majPar} majLe={p.majLe} acteurNom={p.acteurNom} onFait={onParcelleChange} />
+                        <CorrectionParcelle dossierId={dossierId} parcelleId={p.id} refRemplacee={p.refRemplacee} origine={p.origine} majPar={p.majPar} majLe={p.majLe} acteurNom={p.acteurNom} onFait={onParcelleChange} />
                       )}
                     </li>
                   );
