@@ -135,9 +135,9 @@ describe('PROJ-3g — familles décidées au NOM (noms réels mesurés sur 11430
     expect(autres.map((p) => p.id)).toEqual([4]); // la notice reste atteignable au repli
   });
 
-  it('PROV-2 (a) — REPLI PAR CONTENU : noms opaques → le résolveur classe, le nom reste PRIORITAIRE', () => {
+  it('PROV-2 (a) — CONTENU complémentaire du nom : noms opaques classés par le contenu ; muet → « autres »', () => {
     const pieces: PieceScorable[] = [
-      { id: 10, nomFichier: 'PC2_Plan_de_masse.pdf', typeMime: 'application/pdf' }, // classé par le NOM (masse)
+      { id: 10, nomFichier: 'PC2_Plan_de_masse.pdf', typeMime: 'application/pdf' }, // classé par le NOM (masse) — contenu muet ici
       { id: 11, nomFichier: 'opaque_A.pdf', typeMime: 'application/pdf' },           // nom null → contenu : cerfa
       { id: 12, nomFichier: 'opaque_B.pdf', typeMime: 'application/pdf' },           // nom null → contenu : coupe
       { id: 13, nomFichier: 'opaque_C.pdf', typeMime: 'application/pdf' },           // nom null → contenu : null (muette)
@@ -149,10 +149,48 @@ describe('PROJ-3g — familles décidées au NOM (noms réels mesurés sur 11430
     expect(autres.map((p) => p.id)).toEqual([13]);
   });
 
-  it('PROV-2 (a) — le NOM prime sur le CONTENU (un plan de masse nommé n’est pas reclassé cerfa)', () => {
+  it('LOT 87 — le CONTENU prime sur le NOM quand les deux parlent (une pièce dont le contenu EST un cerfa est classée cerfa, pas masse)', () => {
     const pieces: PieceScorable[] = [{ id: 20, nomFichier: 'PC2_masse.pdf', typeMime: 'application/pdf' }];
     const { proposees } = classerPiecesParFamille(pieces, () => 'cerfa');
-    expect(proposees[0].famille).toBe('masse'); // le nom (masse) l’emporte, le résolveur n’est même pas consulté
+    expect(proposees[0].famille).toBe('cerfa'); // LOT 87 : le CONTENU (cerfa) l'emporte sur le nom (masse) — changement de doctrine vs PROV-2
+  });
+
+  it('LOT 87 — nom SEUL (aucun résolveur de contenu) : classement par le nom, inchangé', () => {
+    const pieces: PieceScorable[] = [{ id: 1, nomFichier: 'PC2_masse.pdf', typeMime: 'application/pdf' }, { id: 2, nomFichier: 'PC3_coupe.pdf', typeMime: 'application/pdf' }];
+    const { proposees } = classerPiecesParFamille(pieces);
+    expect(proposees.map((p) => `${p.id}:${p.famille}`)).toEqual(['1:masse', '2:coupe']);
+  });
+
+  it('LOT 87 — coupe reconnue par CONTENU seul entre dans le best-of, APRÈS la masse (ordre masse → coupe)', () => {
+    const pieces: PieceScorable[] = [
+      { id: 1, nomFichier: 'opaque_coupe.pdf', typeMime: 'application/pdf' }, // contenu : coupe
+      { id: 2, nomFichier: 'PC2_masse.pdf', typeMime: 'application/pdf' },     // nom : masse
+      { id: 3, nomFichier: 'opaque_masse.pdf', typeMime: 'application/pdf' },  // contenu : masse (ex. PC6_ARRIERE)
+    ];
+    const contenu = (p: PieceScorable) => (p.id === 1 ? 'coupe' as const : p.id === 3 ? 'masse' as const : null);
+    const { proposees } = classerPiecesParFamille(pieces, contenu);
+    expect(proposees.map((p) => p.famille)).toEqual(['masse', 'masse', 'coupe']); // les deux masse d'abord, la coupe ensuite
+    expect(proposees.map((p) => p.id)).toContain(1); // la coupe reconnue par contenu EST dans le best-of
+    expect(proposees.map((p) => p.id)).toContain(3); // le plan de masse reconnu par contenu SEUL (nom opaque) aussi
+  });
+
+  it('LOT 87 — ordre STABLE et déterministe sur deux appels (même entrée → même sortie)', () => {
+    const pieces: PieceScorable[] = [
+      { id: 1, nomFichier: 'PC3_coupe.pdf', typeMime: 'application/pdf' },
+      { id: 2, nomFichier: 'PC2_masse.pdf', typeMime: 'application/pdf' },
+      { id: 3, nomFichier: 'ANNEXE_Plan_du_R_1.pdf', typeMime: 'application/pdf' },
+    ];
+    const a = classerPiecesParFamille(pieces).proposees.map((p) => p.id);
+    const b = classerPiecesParFamille(pieces).proposees.map((p) => p.id);
+    expect(a).toEqual(b);
+    expect(a).toEqual([2, 3, 1]); // masse → étage → coupe
+  });
+
+  it('LOT 87 — aucune pièce classée → proposees VIDE (best-of vide, jamais un état « satisfait » sur ensemble vide)', () => {
+    const pieces: PieceScorable[] = [{ id: 1, nomFichier: 'notice.pdf', typeMime: 'application/pdf' }, { id: 2, nomFichier: 'opaque.pdf', typeMime: 'application/pdf' }];
+    const { proposees, autres } = classerPiecesParFamille(pieces, () => null); // ni nom ni contenu ne classent
+    expect(proposees).toEqual([]);
+    expect(autres.map((p) => p.id)).toEqual([1, 2]); // tout reste atteignable au repli
   });
 });
 

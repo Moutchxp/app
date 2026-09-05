@@ -48,6 +48,9 @@ vi.mock('../../../../../lib/permis/lectureGed', () => ({
     lireObjet: async () => Buffer.from('%PDF'),
     extraire: HG.extraire,
   }),
+  // LOT 87 — la route lit désormais TOUJOURS la GED pour le classement par contenu. Mock surchargeable ; par défaut contenu MUET
+  //   (→ classement par le NOM, comportement historique conservé pour les assertions existantes).
+  lireGedPermis: vi.fn(async () => ({ pieces: [] as { id: number; pages: { page: number; texte: string; aTexte: boolean }[] }[] })),
 }));
 vi.mock('../../../../../lib/permis/polygoneStatutRepo', () => ({
   lireStatutsPolygones: vi.fn(async () => [{ cleabs: 'BAT_A', statut: 'preserve', etatBdtopoAuMoment: 'En projet', decidePar: 'admin:projection', decideLe: '2026-08-01T10:00:00Z', origine: 'saisie' }]),
@@ -59,6 +62,7 @@ vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({ lireCleTelechargeable
 vi.mock('../../../../../lib/stockage', () => ({ urlSignee: async (cle: string) => `https://signed.example/${cle}` }));
 
 import { GET, POST } from './route';
+import { lireGedPermis } from '../../../../../lib/permis/lectureGed';
 import { enregistrerEmprise, supprimerEmprise, ignorerProjection, retablirProjection, listerBatiments } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { poserStatutPolygone } from '../../../../../lib/permis/polygoneStatutRepo';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
@@ -100,6 +104,20 @@ describe('PROJ-2 — GET', () => {
     expect(j.polygones[1].etat).toBe('En service');
     // PROJ-3i — sélection persistée : cleabs des polygones « en projet » écartés
     expect(j.polygonesEcartes).toEqual(['BATIMENT0009']);
+  });
+
+  it('LOT 87 — le classement par CONTENU tourne TOUJOURS : une pièce à nom OPAQUE (PC4 notice) dont le contenu est un plan de masse entre dans le best-of', async () => {
+    // Contenu : la pièce 57 (nom → aucune famille) porte le cartouche réglementaire d'un plan de masse → familleDeContenu = masse.
+    vi.mocked(lireGedPermis).mockResolvedValueOnce({ pieces: [
+      { id: 57, pages: [{ page: 1, texte: 'PC2 PLAN DE MASSE DES CONSTRUCTIONS À ÉDIFIER OU MODIFIER', aTexte: true }] },
+    ] } as unknown as Awaited<ReturnType<typeof lireGedPermis>>);
+    const res = await get('?dossierId=11434');
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    const p57 = j.pieces.find((p: { id: number }) => p.id === 57);
+    expect(p57).toMatchObject({ id: 57, propose: true, famille: 'masse' }); // classée par le CONTENU seul → dans le best-of (avant, elle restait dehors)
+    // les deux plans de masse (55 par le nom, 57 par le contenu) sont proposés AVANT toute autre famille.
+    expect(j.pieces.filter((p: { propose: boolean }) => p.propose).map((p: { id: number }) => p.id)).toEqual([55, 57]);
   });
 
   it('PROJ-3i — écarter / rétablir un polygone « en projet » (persisté, tracé), renvoie la liste à jour', async () => {

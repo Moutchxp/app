@@ -72,24 +72,18 @@ export async function GET(request: Request): Promise<Response> {
     const piecesPdf = piecesBrutes.filter(estPdf);
     // LOT 64 — pièces NON ouvrables (format non PDF) : listées quand même dans le sélecteur, désactivées avec la raison (jamais absentes en silence).
     const piecesNonSupportees = piecesBrutes.filter((p) => !estPdf(p)).map((p) => ({ id: p.id, nomFichier: p.nomFichier, motif: `format non pris en charge${p.typeMime ? ` (${p.typeMime})` : ''}` }));
-    // PROJ-3d/3g ① — TRI PAR NOM (instantané, 0 I/O) : familles masse → étage → coupe (ordre), le reste conservé (repli).
-    const nomSeul = classerPiecesParFamille(piecesPdf);
-    let proposees = nomSeul.proposees;
-    let autres = nomSeul.autres;
+    // LOT 87 — CLASSEMENT NOM + CONTENU, COMBINÉS ET TOUJOURS (plus de garde `proposees.length === 0`, qui sautait le contenu dès qu'UN
+    //   plan était nommé et laissait dehors les plans reconnus SEULEMENT par leur cartouche, ex. PC6_ARRIERE = plan de masse). Le CONTENU
+    //   est prioritaire quand les deux parlent (LOT 76) ; le NOM sert de repli. Résultat : le best-of contient TOUS les plans reconnus
+    //   (masse + coupe), ordonnés masse → étage → coupe. Coût assumé : lecture du texte de la GED à chaque appel (isolée en `repli` :
+    //   un échec laisse le classement retomber sur le nom seul plutôt que de faire tomber la réponse). Les planches RASTER sans couche
+    //   texte (pattern PC200) et les noms hors nomenclature restent HORS best-of tant que le repérage par IMAGE (bouton manuel, LOT 62)
+    //   n'est pas lancé — c'est la part fragile, hors de ce lot.
+    const ged = await repli('contenu', lireGedPermis(dossierId, deps), { pieces: [] } as unknown as Awaited<ReturnType<typeof lireGedPermis>>);
+    const texteParId = new Map(ged.pieces.map((p) => [p.id, p.pages.filter((x) => x.aTexte).map((x) => x.texte)] as const));
+    const { proposees, autres } = classerPiecesParFamille(piecesPdf, (p) => familleDeContenu(texteParId.get(p.id) ?? []));
     const niveauxParId = new Map<number, string[]>(); // PROV : niveaux portés par une planche d'ÉTAGE (RDC/SSOL/R+n), quand connus par le CONTENU
-    // PROV-2 (a) — NOMS OPAQUES : le nom n'a RIEN proposé (ex. 531 : 42 pièces → 0 famille) → REPLI par le CONTENU. On lit le texte
-    //   (lireGedPermis ~1,8 s) UNIQUEMENT dans ce cas (un dossier bien nommé ne déclenche aucune lecture) et on reconnaît cerfa /
-    //   coupe / masse par les signaux PRÉCIS de LECT-1 A/B (0 faux positif mesuré). Isolé en `repli` : un échec de lecture laisse la
-    //   bande vide plutôt que de faire tomber la réponse.
-    if (proposees.length === 0) {
-      const ged = await repli('contenu', lireGedPermis(dossierId, deps), { pieces: [] } as unknown as Awaited<ReturnType<typeof lireGedPermis>>);
-      const texteParId = new Map(ged.pieces.map((p) => [p.id, p.pages.filter((x) => x.aTexte).map((x) => x.texte)] as const));
-      const parContenu = classerPiecesParFamille(piecesPdf, (p) => familleDeContenu(texteParId.get(p.id) ?? []));
-      proposees = parContenu.proposees;
-      autres = parContenu.autres;
-      // PROV (suite) — pour chaque planche d'ÉTAGE, les niveaux qu'elle porte (RDC/SSOL/R+n), pour que l'internaute SACHE ce qu'il ouvre.
-      for (const p of proposees) if (p.famille === 'etage') { const niv = niveauxDeContenu(texteParId.get(p.id) ?? []); if (niv.length) niveauxParId.set(p.id, niv); }
-    }
+    for (const p of proposees) if (p.famille === 'etage') { const niv = niveauxDeContenu(texteParId.get(p.id) ?? []); if (niv.length) niveauxParId.set(p.id, niv); }
     // PROJ-3d/3f — CONFIRMATION PARESSEUSE, uniquement sur la shortlist plafonnée : ouvre chaque candidat et l'ÉCLATE EN PLANCHES
     //   (ses pages hors cartouche, cf. pagesPlanches) + une échelle indicative par page. Texte SEUL (jamais getOperatorList, trop cher).
     //   Dégradation propre : une pièce illisible reste proposée par son NOM, sans planche (confirme=false → l'UI repliera sur la page 1).

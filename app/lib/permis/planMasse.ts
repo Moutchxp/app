@@ -114,17 +114,20 @@ const RANG_FAMILLE: Record<FamillePlan, number> = { masse: 0, etage: 1, coupe: 2
  * Classe les pièces en familles pour la BANDE : proposées = pièces d'une famille, ordonnées masse (par score PROJ-3d) → étage →
  * coupe → cerfa ; autres = le reste (repli). REPLI GARANTI : aucune pièce perdue. PUR.
  *
- * PROV-2 (a) — `familleContenu` (optionnel) : REPLI PAR LE CONTENU quand le NOM ne classe rien (`familleDeNom` = null). C'est ce
- * qui sauve les versements à noms OPAQUES (ex. 531 : 42 noms → 0 famille par le nom). Fourni par l'appelant serveur (le texte des
- * pièces vit côté serveur → cf. `planMasseContenu.familleDeContenu`). Le NOM reste PRIORITAIRE (signal explicite de l'architecte) ;
- * le contenu ne parle que là où le nom se tait. PUR (le résolveur est injecté).
+ * PROV-2 (a) / LOT 87 — `familleContenu` (optionnel) : classement PAR LE CONTENU, COMPLÉMENTAIRE du nom. 🔴 LOT 87 : le CONTENU est
+ * PRIORITAIRE quand les deux parlent (une planche dont le TITRE dit « plan de masse » EST un plan de masse, quel que soit son nom),
+ * et il classe AUSSI les pièces que le nom n'a pas su nommer (noms opaques, ex. 531 : 42 noms → 0 famille par le nom ; ou PC6_ARRIERE
+ * dont seul le cartouche dit « plan de masse »). Le NOM sert de repli là où le contenu se tait (ou n'est pas fourni). Fourni par
+ * l'appelant serveur (le texte des pièces vit côté serveur → cf. `planMasseContenu.familleDeContenu`). PUR (le résolveur est injecté).
+ * ⚠️ CHANGEMENT DE DOCTRINE vs PROV-2 (qui faisait primer le NOM) : mesuré sans divergence sur 11430/11434 (nom == contenu partout où
+ * les deux parlent) ; aligne le best-of sur le classement de la COMPLÉTUDE (déjà contenu-prioritaire).
  */
 export function classerPiecesParFamille<T extends PieceScorable>(
   pieces: T[],
   familleContenu?: (piece: T) => FamillePlan | null,
 ): { proposees: (T & { famille: FamillePlan })[]; autres: T[] } {
   const avec = pieces.map((p, i) => {
-    const f = familleDeNom(p.nomFichier) ?? (familleContenu ? familleContenu(p) : null);
+    const f = (familleContenu ? familleContenu(p) : null) ?? familleDeNom(p.nomFichier); // LOT 87 : CONTENU prioritaire, NOM en repli
     return { p, i, f, s: scoreNomPlanMasse(p.nomFichier) };
   });
   const proposees = avec.filter((x): x is typeof x & { f: FamillePlan } => x.f !== null)
