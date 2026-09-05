@@ -34,8 +34,9 @@ export function nomParisArrondissement(insee: string | null): string | null {
 }
 
 export type CentreMode = 'empreinte' | 'parcelle' | 'adresse';
-export interface CentreDemande { mode: CentreMode; idu?: string | null }
-export interface CentreEffectif { mode: CentreMode; idu: string | null; point: { x: number; y: number } | null }
+export type GeoProvenance = 'ban-local' | 'api-adresse'; // PL-D — d'où vient le point d'adresse (copie locale vs API nationale)
+export interface CentreDemande { mode: CentreMode; idu?: string | null; adresseTexte?: string | null } // adresseTexte = saisie manuelle (PL-D)
+export interface CentreEffectif { mode: CentreMode; idu: string | null; point: { x: number; y: number } | null; provenance: GeoProvenance | null; label: string | null }
 
 /** PL-C — sélection validée à la main (superposition). active=false → 100% automatique. Provenance HONNÊTE (acteur résolu si id admin). */
 export interface SelectionInfo {
@@ -117,15 +118,54 @@ async function resoudreCommune(insee: string): Promise<string | null> {
  * Sitadel TRONQUÉ à 26 car. → match en PRÉFIXE unaccent ; n° à suffixe (« 5B ») → entier de tête. « on ne devine pas » :
  *  · n° exact → point PRÉCIS ; · voie sans le n° → n° le plus proche AVEC avertissement ; · rien → `erreur`.
  */
-export async function geocoderAdresse(dossierId: number): Promise<{ x: number; y: number; avertissement: string | null } | { erreur: string }> {
+interface GeoOk { x: number; y: number; provenance: GeoProvenance; label: string | null; avertissement: string | null }
+
+/**
+ * PL-D — RECOURS FRANCE ENTIÈRE : api-adresse.data.gouv.fr (Base Adresse Nationale, Licence Ouverte/Etalab) quand la copie LOCALE
+ * d'adresse_ban ne trouve rien (elle ne couvre que 103/399 communes de nos permis). L'API renvoie le point DIRECTEMENT en
+ * Lambert-93 (`properties.x/y`) → aucune reprojection. Timeout borné ; toute panne réseau → null (repli propre, jamais un blocage).
+ * ⚠️ Donnée EXTERNE : provenance='api-adresse' explicite (attribution BAN) — ce n'est PAS une décision humaine.
+ */
+async function geocoderViaApi(q: string, citycode: string | null): Promise<GeoOk | null> {
+  const requete = q.trim();
+  if (requete === '') return null;
+  try {
+    const url = `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(requete)}&limit=1${citycode ? `&citycode=${encodeURIComponent(citycode)}` : ''}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
+    if (!res.ok) return null;
+    const j = (await res.json()) as { features?: { properties?: { x?: number; y?: number; label?: string } }[] };
+    const p = j.features?.[0]?.properties;
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number') return null;
+    return { x: p.x, y: p.y, provenance: 'api-adresse', label: p.label ?? null,
+             avertissement: 'adresse localisée via l’API nationale (api-adresse.data.gouv.fr — Base Adresse Nationale, Licence Ouverte)' };
+  } catch { return null; } // réseau indisponible / timeout → repli propre
+}
+
+/**
+ * GÉOCODAGE : copie LOCALE d'adresse_ban d'abord (structuré : INSEE arrondissement + voie en préfixe unaccent + n° à suffixe géré),
+ * puis RECOURS api-adresse (France entière) si le local échoue. Une SAISIE MANUELLE (`texteManuel`, PL-D) est du texte libre →
+ * envoyée directement à l'API nationale (le local exige un libellé structuré). Provenance TOUJOURS explicite (ban-local vs api-adresse).
+ */
+export async function geocoderAdresse(dossierId: number, texteManuel?: string | null): Promise<GeoOk | { erreur: string }> {
   const { rows } = await query<{ num_dau: string; code_insee: string; num: string | null; voie: string | null }>(
     `SELECT num_dau, code_insee, adr_num_ter AS num, adr_libvoie_ter AS voie FROM sitadel_dossier WHERE id = $1`, [dossierId]);
   const d = rows[0];
   if (!d) return { erreur: 'dossier introuvable' };
-  const voie = (d.voie ?? '').trim();
-  if (!voie) return { erreur: 'adresse du permis absente (Sitadel ne porte pas de libellé de voie) : centrage sur les parcelles conservé' };
   const c = communeCadastrale(d.num_dau, d.code_insee);
   const insee = 'insee' in c ? c.insee : (d.code_insee ?? '').trim();
+
+  // SAISIE MANUELLE (texte libre) → API nationale directement, SANS forcer la commune (Arno saisit l'adresse complète : la contraindre
+  //   à l'arrondissement du permis produirait un faux appariement si l'adresse est ailleurs). Le libellé retourné DIT ce qui a matché.
+  const manuel = (texteManuel ?? '').trim();
+  if (manuel !== '') {
+    const api = await geocoderViaApi(manuel, null);
+    if (api) return api;
+    return { erreur: `adresse saisie « ${manuel} » non localisée (ni base locale ni API nationale)` };
+  }
+
+  // AUTO : adresse Sitadel. ① local exact ② local voie-seule ③ recours API nationale.
+  const voie = (d.voie ?? '').trim();
+  if (!voie) return { erreur: 'adresse du permis absente (Sitadel ne porte pas de libellé de voie) : saisissez une adresse' };
   const numTxt = (d.num ?? '').replace(/[^0-9].*$/, '');
   const numero = numTxt !== '' ? parseInt(numTxt, 10) : null;
 
@@ -133,7 +173,7 @@ export async function geocoderAdresse(dossierId: number): Promise<{ x: number; y
     `SELECT ST_X(geom) AS x, ST_Y(geom) AS y FROM adresse_ban
       WHERE insee_commune = $1 AND upper(unaccent(nom_voie)) LIKE upper(unaccent($2)) || '%' AND ($3::int IS NOT NULL AND numero = $3)
       ORDER BY (suffixe IS NULL) DESC LIMIT 1`, [insee, voie, numero]);
-  if (exact.rows[0]) return { x: Number(exact.rows[0].x), y: Number(exact.rows[0].y), avertissement: null };
+  if (exact.rows[0]) return { x: Number(exact.rows[0].x), y: Number(exact.rows[0].y), provenance: 'ban-local', label: null, avertissement: null };
 
   const voieSeule = await query<{ x: number; y: number; numero: number | null }>(
     `SELECT ST_X(geom) AS x, ST_Y(geom) AS y, numero FROM adresse_ban
@@ -144,9 +184,12 @@ export async function geocoderAdresse(dossierId: number): Promise<{ x: number; y
     const avert = numero !== null
       ? `n° ${numero} absent de la base BAN pour « ${voie} » — centré sur la voie (n° ${r.numero ?? '?'} le plus proche)`
       : `numéro du permis absent — centré sur la voie « ${voie} »`;
-    return { x: Number(r.x), y: Number(r.y), avertissement: avert };
+    return { x: Number(r.x), y: Number(r.y), provenance: 'ban-local', label: null, avertissement: avert };
   }
-  return { erreur: `adresse non localisée dans la base BAN (${insee} · ${voie}${numero !== null ? ` n° ${numero}` : ''}) : centrage sur les parcelles conservé` };
+
+  const api = await geocoderViaApi(`${numero !== null ? numero + ' ' : ''}${voie}`, insee || null);
+  if (api) return api;
+  return { erreur: `adresse non localisée (${insee} · ${voie}${numero !== null ? ` n° ${numero}` : ''}) — ni base locale ni API nationale` };
 }
 
 /**
@@ -169,14 +212,16 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
   let idu: string | null = null;
   let point: { x: number; y: number } | null = null;
   let centreAvertissement: string | null = null;
+  let provenance: GeoProvenance | null = null;
+  let label: string | null = null;
   if (demande.mode === 'parcelle' && demande.idu && parcellesChoix.some((p) => p.idu === demande.idu)) {
     mode = 'parcelle'; idu = demande.idu;
   } else if (demande.mode === 'parcelle') {
     centreAvertissement = 'parcelle de centrage inconnue pour ce permis — centrage sur l’empreinte';
   } else if (demande.mode === 'adresse') {
-    const geo = await geocoderAdresse(dossierId);
+    const geo = await geocoderAdresse(dossierId, demande.adresseTexte); // PL-D : saisie manuelle → API nationale ; sinon adresse Sitadel (local puis API)
     if ('erreur' in geo) { centreAvertissement = geo.erreur; }
-    else { mode = 'adresse'; point = { x: geo.x, y: geo.y }; centreAvertissement = geo.avertissement; }
+    else { mode = 'adresse'; point = { x: geo.x, y: geo.y }; centreAvertissement = geo.avertissement; provenance = geo.provenance; label = geo.label; }
   }
 
   const { rows: empRows } = await query<{ gj: unknown }>(
@@ -230,11 +275,15 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
 
   const nbRetenues = meta.filter((m) => m.retenue).length;
   const nbVoisines = meta.length - nbRetenues;
-  // Motif = le permis n'a AUCUNE parcelle rattachée à un contour (indépendant du centre). En mode adresse, 0 retenue DESSINÉE n'est
-  //   pas un motif (la planche de l'adresse peut ne pas contenir les parcelles du permis) → note douce plus bas côté écran.
-  const motif = parcellesChoix.length === 0
-    ? 'aucune parcelle de ce permis n’est rattachée à un contour cadastral : planche non dessinée (rattachez d’abord une parcelle)'
-    : null;
+  // PL-D — Motif SEULEMENT s'il n'y a RIEN à dessiner (0 parcelle). Un permis SANS parcelle rattachée (impasse) doit quand même
+  //   pouvoir composer sa sélection : en centrant sur l'ADRESSE (auto ou saisie), la planche dessine le voisinage réel → Arno clique
+  //   la bonne parcelle. Ne reste muet que si aucune parcelle n'est dessinée ET aucune adresse ne localise le permis.
+  const motif = meta.length > 0 ? null
+    : (parcellesChoix.length === 0
+        ? (centreAvertissement
+            ? `aucune parcelle rattachée à ce permis et l’adresse ne se localise pas (${centreAvertissement}) : saisissez une adresse pour dessiner la planche et composer la sélection.`
+            : 'aucune parcelle rattachée à ce permis : centrez sur l’adresse (ci-dessus) pour dessiner la planche et composer la sélection.')
+        : 'aucune parcelle à dessiner dans ce rayon : élargissez le rayon ou changez de centrage.');
 
   // Cadre : 'empreinte' → auto (empreinte + tout le dessin) ; 'parcelle'/'adresse' → cadré sur le DESSIN autour du point (planche du
   //   centre, pas de l'empreinte lointaine). construireSchema force la bbox si `cadre` fourni.
@@ -259,6 +308,6 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
 
   return {
     schema, meta, rayonM: rayon, nbRetenues, nbVoisines, motif,
-    centre: { mode, idu, point }, centreAvertissement, marqueurAdresse, parcellesChoix, localisation, selection,
+    centre: { mode, idu, point, provenance, label }, centreAvertissement, marqueurAdresse, parcellesChoix, localisation, selection,
   };
 }

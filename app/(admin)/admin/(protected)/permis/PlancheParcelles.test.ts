@@ -22,9 +22,19 @@ describe('PlancheParcelles — schéma pur, provenance honnête (PL-A/B)', () =>
     expect(SRC).toMatch(/RAYON_MIN\s*=\s*50/); expect(SRC).toMatch(/RAYON_MAX\s*=\s*200/);
     expect(SRC).toContain("changerMode('empreinte')"); expect(SRC).toContain("changerMode('parcelle')"); expect(SRC).toContain("changerMode('adresse')");
   });
-  it('SURVOL instantané (onMouseMove + position:fixed), <title> a11y, OÙ L’ON EST', () => {
-    expect(SRC).toContain('onMouseMove='); expect(SRC).toContain('setSurvol'); expect(SRC).toContain("position: 'fixed'"); expect(SRC).toContain('<title>');
+  it('SURVOL instantané (onMouseMove + position:fixed) ; 🐛 PL-D §3a : PLUS de <title> (double bulle), a11y par aria-label', () => {
+    expect(SRC).toContain('onMouseMove='); expect(SRC).toContain('setSurvol'); expect(SRC).toContain("position: 'fixed'");
+    expect(SRC).not.toContain('<title>');        // le <title> natif est retiré (il doublait le libellé instantané)
+    expect(SRC).toContain('aria-label={`${texteParcelle(m)}'); // les lecteurs d'écran passent par aria-label
     expect(SRC).toContain('data.localisation.feuilleLibelle'); expect(SRC).toContain('non résolue en base');
+  });
+  it('PL-D §1+2 : IMPASSE → auto-centrage adresse ; SAISIE MANUELLE + provenance (API nationale, jamais « à la main »)', () => {
+    expect(SRC).toContain("data.parcellesChoix.length === 0 && mode === 'empreinte'"); // impasse → bascule auto en adresse
+    expect(SRC).toContain("setMode('adresse')");
+    expect(SRC).toContain('aria-label="Adresse à localiser"'); // champ de saisie manuelle
+    expect(SRC).toContain('setAdresseAppliquee');
+    expect(SRC).toContain("q.set('adresse', adresseAppliquee)"); // la saisie pilote la requête
+    expect(SRC).toContain('API nationale (Base Adresse Nationale'); // provenance EXPLICITE du point externe
   });
   it('PROVENANCE HONNÊTE : descriptionActeurParcelle, « à la main » CONDITIONNÉ, jamais inconditionnel', () => {
     expect(SRC).toContain('descriptionActeurParcelle');

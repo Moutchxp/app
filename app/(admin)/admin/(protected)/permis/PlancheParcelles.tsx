@@ -56,6 +56,9 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
   const [prevSelKey, setPrevSelKey] = useState<string | null>(null);      // clé de RÉINITIALISATION de la composition (reset PENDANT le rendu, pas dans un effet)
   const [enCours, setEnCours] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [adresseSaisie, setAdresseSaisie] = useState('');           // PL-D — champ de saisie manuelle d'adresse (mode adresse)
+  const [adresseAppliquee, setAdresseAppliquee] = useState<string | null>(null); // committée (pilote la requête) au clic « Localiser »/Entrée
+  const [autoAdresse, setAutoAdresse] = useState<number | null>(null); // dossier pour lequel on a déjà auto-basculé en mode adresse (impasse)
 
   useEffect(() => {
     let annule = false;
@@ -64,6 +67,7 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
       try {
         const q = new URLSearchParams({ dossierId: String(dossierId), rayon: String(rayon), centre: mode });
         if (mode === 'parcelle' && idu) q.set('idu', idu);
+        if (mode === 'adresse' && adresseAppliquee) q.set('adresse', adresseAppliquee); // PL-D — saisie manuelle
         const res = await fetch(`/api/admin/permis/planche?${q.toString()}`, { cache: 'no-store' });
         if (annule) return;
         if (!res.ok) { setEtat('erreur'); return; }
@@ -72,7 +76,7 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
       } catch { if (!annule) setEtat('erreur'); }
     })();
     return () => { annule = true; };
-  }, [dossierId, rayon, mode, idu]);
+  }, [dossierId, rayon, mode, idu, adresseAppliquee]);
 
   // Init/reset de la COMPOSITION locale, PENDANT LE RENDU (React idiome « ajuster l'état quand une clé change » ; pas d'effet →
   //   pas de rendu en cascade). Clé = dossier + état de VALIDATION (PAS le rayon) → changer le rayon/centrage NE perd PAS une
@@ -81,6 +85,11 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
   if (data && selKey !== prevSelKey) {
     setPrevSelKey(selKey);
     setComposition(new Set(data.selection.active ? data.selection.idus : origineIdus(data)));
+  }
+  // PL-D — IMPASSE (aucune parcelle rattachée) : basculer AUTOMATIQUEMENT (une fois par dossier) sur le centrage ADRESSE → la planche
+  //   dessine le voisinage réel du permis (géocodage auto : local puis API nationale) et Arno peut composer sa sélection. Jamais muet.
+  if (data && data.parcellesChoix.length === 0 && mode === 'empreinte' && autoAdresse !== dossierId) {
+    setAutoAdresse(dossierId); setMode('adresse');
   }
 
   const defautIdus = useMemo(() => (data ? origineIdus(data) : []), [data]);
@@ -138,7 +147,23 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
               </select>
             )}
           </div>
-          {data.centreAvertissement && <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-red)' }}>⚠ {data.centreAvertissement}</div>}
+          {/* PL-D — SAISIE MANUELLE d'adresse (recours quand le géocodage auto échoue) : texte libre → API nationale. */}
+          {mode === 'adresse' && (
+            <div style={{ display: 'flex', gap: '.3rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <input aria-label="Adresse à localiser" placeholder={adresseAppliquee ? adresseAppliquee : (data.centre.label ?? 'saisir une adresse (ex. 21 rue…, 75019 Paris)')}
+                value={adresseSaisie} onChange={(e) => setAdresseSaisie(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setAdresseAppliquee(adresseSaisie.trim() || null); } }}
+                style={{ flex: '1 1 220px', minWidth: 0, fontSize: 12, padding: '.25rem .4rem', minHeight: 34, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' }} />
+              <button type="button" style={{ ...btn(false), minHeight: 34 }} onClick={() => setAdresseAppliquee(adresseSaisie.trim() || null)}>Localiser</button>
+              {adresseAppliquee && <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', fontSize: 11.5 }} onClick={() => { setAdresseSaisie(''); setAdresseAppliquee(null); }}>revenir à l’adresse du permis</button>}
+            </div>
+          )}
+          {/* Point d'adresse localisé : provenance EXPLICITE (base locale vs API nationale — donnée externe, jamais « à la main »). */}
+          {mode === 'adresse' && data.centre.point && (
+            <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>✚ {data.centre.label ?? 'adresse localisée'} — {data.centre.provenance === 'api-adresse' ? 'API nationale (Base Adresse Nationale, Licence Ouverte)' : 'base locale'}</div>
+          )}
+          {/* Avertissement : rouge (échec, aucun point) ou info (point trouvé mais approximatif / attribution API). */}
+          {data.centreAvertissement && <div role="note" style={{ fontSize: 11.5, color: data.centre.point ? 'var(--color-svv-muted)' : 'var(--color-svv-red)' }}>{data.centre.point ? 'ℹ ' : '⚠ '}{data.centreAvertissement}</div>}
 
           {/* RAYON */}
           <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -166,9 +191,7 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
                         tabIndex={focusable(m) ? 0 : -1} style={{ cursor: 'pointer' }}
                         onClick={() => basculer(id)} onFocus={() => id && setSurvol(null)}
                         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); basculer(id); } }}
-                        onMouseMove={(e) => setSurvol({ x: e.clientX, y: e.clientY, texte: texteParcelle(m) })} onMouseLeave={() => setSurvol(null)}>
-                        <title>{texteParcelle(m)}</title>
-                      </path>
+                        onMouseMove={(e) => setSurvol({ x: e.clientX, y: e.clientY, texte: texteParcelle(m) })} onMouseLeave={() => setSurvol(null)} />
                     );
                   })}
                   {schema.polygones.map((p, i) => meta[i] && meta[i].retenue ? (

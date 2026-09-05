@@ -18,7 +18,7 @@ const auteurDe = (g: { auteurId: number | null }): string => (g.auteurId != null
 const plancheVide = (rayon: number): PlancheParcelles => ({
   schema: { largeur: 360, hauteur: 300, empreintePath: null, polygones: [], motif: 'planche indisponible', transform: null },
   meta: [], rayonM: rayon, nbRetenues: 0, nbVoisines: 0, motif: 'planche indisponible (lecture des parcelles impossible)',
-  centre: { mode: 'empreinte', idu: null, point: null }, centreAvertissement: null, marqueurAdresse: null, parcellesChoix: [],
+  centre: { mode: 'empreinte', idu: null, point: null, provenance: null, label: null }, centreAvertissement: null, marqueurAdresse: null, parcellesChoix: [],
   localisation: { communeCode: null, communeNom: null, sections: [], feuilleLibelle: 'localisation indisponible', feuilleNote: '' },
   selection: { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null },
 });
@@ -34,8 +34,9 @@ export async function GET(request: Request): Promise<Response> {
   const modeBrut = (url.searchParams.get('centre') ?? 'empreinte').trim();
   const mode: CentreMode = modeBrut === 'parcelle' || modeBrut === 'adresse' ? modeBrut : 'empreinte';
   const idu = url.searchParams.get('idu');
+  const adresseTexte = url.searchParams.get('adresse'); // PL-D — saisie manuelle d'adresse (recours quand le géocodage auto échoue)
   try {
-    return Response.json({ planche: await parcellesVoisines(dossierId, rayon, { mode, idu }) });
+    return Response.json({ planche: await parcellesVoisines(dossierId, rayon, { mode, idu, adresseTexte }) });
   } catch (e) {
     console.error('[permis/planche] GET indisponible', e instanceof Error ? e.message : String(e));
     return Response.json({ planche: plancheVide(rayon) }); // jamais un 500 qui ferait disparaître le bloc sans explication
