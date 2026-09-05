@@ -60,8 +60,18 @@ vi.mock('../../../../../lib/permis/polygoneStatutRepo', () => ({
 }));
 vi.mock('../../../../../lib/sitadel/demandeRepo', () => ({ lireCleTelechargeable: vi.fn(async () => ({ cle: 'ged/dossier/55.pdf', nomFichier: 'PC2.pdf' })) }));
 vi.mock('../../../../../lib/stockage', () => ({ urlSignee: async (cle: string) => `https://signed.example/${cle}` }));
+// LOT 61/92 — overrides du best-of (exclusions + inclusions). Mock pour vérifier le WIRING et l'exclusivité mutuelle des gestes.
+vi.mock('../../../../../lib/permis/bestOfExclusionRepo', () => ({
+  lireExclusionsBestOf: vi.fn(async () => []),
+  exclurePageBestOf: vi.fn(async () => true),
+  reintegrerPageBestOf: vi.fn(async () => true),
+  lireInclusionsBestOf: vi.fn(async () => [{ pieceId: 57, page: 3 }]),
+  inclurePageBestOf: vi.fn(async () => true),
+  desinclurePageBestOf: vi.fn(async () => true),
+}));
 
 import { GET, POST } from './route';
+import { exclurePageBestOf, reintegrerPageBestOf, inclurePageBestOf, desinclurePageBestOf } from '../../../../../lib/permis/bestOfExclusionRepo';
 import { lireGedPermis } from '../../../../../lib/permis/lectureGed';
 import { enregistrerEmprise, supprimerEmprise, ignorerProjection, retablirProjection, listerBatiments } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { poserStatutPolygone } from '../../../../../lib/permis/polygoneStatutRepo';
@@ -390,5 +400,33 @@ describe('RATT-1 (2) — POST statuer_polygone (préservé / détruit / révoque
   });
   it('cleabs vide → 400', async () => {
     expect((await post({ action: 'statuer_polygone', dossierId: 531, cleabs: '', statut: 'preserve' })).status).toBe(400);
+  });
+});
+
+describe('LOT 61/92 — overrides du best-of par PAGE (route)', () => {
+  it('GET expose inclusionsBestOf (pages ajoutées à la main)', async () => {
+    const j = await (await get('?dossierId=11434')).json();
+    expect(j.inclusionsBestOf).toEqual([{ pieceId: 57, page: 3 }]);
+  });
+  it('AJOUTER (inclure_page_bestof) : inclut la page ET annule un éventuel retrait (exclusivité mutuelle)', async () => {
+    const res = await post({ action: 'inclure_page_bestof', dossierId: 470, pieceId: 481, page: 2 });
+    expect(res.status).toBe(200);
+    expect((await res.json()).ok).toBe(true);
+    expect(vi.mocked(inclurePageBestOf)).toHaveBeenCalledWith(470, 481, 2, expect.anything());
+    expect(vi.mocked(reintegrerPageBestOf)).toHaveBeenCalledWith(481, 2); // supprime une exclusion éventuelle
+  });
+  it('RETIRER une page AUTO (exclure_page_bestof) : exclut ET annule une inclusion éventuelle', async () => {
+    await post({ action: 'exclure_page_bestof', dossierId: 470, pieceId: 481, page: 2 });
+    expect(vi.mocked(exclurePageBestOf)).toHaveBeenCalledWith(470, 481, 2, expect.anything());
+    expect(vi.mocked(desinclurePageBestOf)).toHaveBeenCalledWith(481, 2);
+  });
+  it('RETIRER une page AJOUTÉE (desinclure_page_bestof) : simple désinclusion, aucune exclusion résiduelle', async () => {
+    await post({ action: 'desinclure_page_bestof', dossierId: 470, pieceId: 481, page: 2 });
+    expect(vi.mocked(desinclurePageBestOf)).toHaveBeenCalledWith(481, 2);
+    expect(vi.mocked(exclurePageBestOf)).not.toHaveBeenCalled();
+  });
+  it('page manquante/invalide → 400', async () => {
+    expect((await post({ action: 'inclure_page_bestof', dossierId: 470, pieceId: 481 })).status).toBe(400);
+    expect((await post({ action: 'inclure_page_bestof', dossierId: 470, pieceId: 481, page: 0 })).status).toBe(400);
   });
 });

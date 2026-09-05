@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist'; // type SEUL (erasé au runtime) : pdf.js reste importé DYNAMIQUEMENT dans afficherPage
 import {
-  construireBandePlans, cibleBestOf, bornerPage,
+  construireBandePlans, bandeAvecOverrides, cibleBestOf, bornerPage,
   ListePiecesAnalyse, BandePlans, NavPieceLibre, ZoomPdf,
   type PiecePlan, type Plan, type EtatAnalysePiece,
 } from './TraceEmpriseRendu';
@@ -69,6 +69,8 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   // LOT 61 — pages RETIRÉES du best-of à la main (réversibles), clé stable « pieceId:page ». On persiste les exclusions ; le best-of
   //   reste calculé à la volée, on lui SOUSTRAIT ces pages. Le retrait n'ôte JAMAIS le document ni la page en GED, seulement de la sélection.
   const [exclus, setExclus] = useState<Set<string>>(new Set());
+  // LOT 92 — pages AJOUTÉES au best-of à la main (réversibles), miroir de `exclus`. Le geste manuel l'emporte sur le calcul auto.
+  const [inclus, setInclus] = useState<Set<string>>(new Set());
   // LOT 62 — audit du repérage par IMAGE, par pièce (planches / incertaines / pages écartées RGPD + motif / coût). `vReper` : après un
   //   repérage, on RECHARGE le best-of (les nouvelles planches image y entrent). `reperEnCours`/`reperMsg` : état du bouton.
   const [runs, setRuns] = useState<Record<number, RunReperageAffiche>>({});
@@ -112,8 +114,11 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   // LOT 61 — BEST-OF VISIBLE = bande complète MOINS les pages retirées (clé stable « pieceId:page »). Défini AVANT le préchargement
   //   et la navigation, qui s'appuient dessus. `retirees` (l'inverse) alimente le compteur + la liste réintégrable.
   const cle = (pl: { pieceId: number; page: number }) => `${pl.pieceId}:${pl.page}`;
-  const bandeVisible = useMemo(() => bande.filter((pl) => !exclus.has(cle(pl))), [bande, exclus]);
+  // LOT 61/92 — BEST-OF VISIBLE = bande AUTO moins les pages retirées, PLUS les pages ajoutées à la main (source unique : bandeAvecOverrides).
+  const bandeVisible = useMemo(() => bandeAvecOverrides(bande, pieces, exclus, inclus), [bande, pieces, exclus, inclus]);
   const retirees = useMemo(() => bande.filter((pl) => exclus.has(cle(pl))), [bande, exclus]);
+  // LOT 92 — pages AJOUTÉES à la main (celles qui ne viennent pas de la bande auto) → liste réversible + compteur, miroir de `retirees`.
+  const ajoutees = useMemo(() => bandeVisible.filter((pl) => pl.manuel), [bandeVisible]);
 
   // CHARGEMENT PARESSEUX : cet effet ne part qu'À LA MONTÉE — or le composant n'est monté qu'à l'OUVERTURE de la famille (le `contenu`
   //   de BlocRepliable est un thunk appelé au dépli). Donc rien tant que la famille est repliée, et jamais au rendu de la liste des demandes.
@@ -124,7 +129,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       try {
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`);
         if (!res.ok) { if (vivant) setEtat('erreur'); return; }
-        const j = await res.json() as { pieces?: PiecePlan[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; exclusionsBestOf?: { pieceId: number; page: number }[]; reperageRuns?: Record<number, RunReperageAffiche> };
+        const j = await res.json() as { pieces?: PiecePlan[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; reperageRuns?: Record<number, RunReperageAffiche> };
         if (!vivant) return;
         const ps = j.pieces ?? [];
         setPieces(ps);
@@ -134,10 +139,11 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
         if (ps.length === 0) { setEtat('vide'); return; }
         const b = construireBandePlans(ps); // RÈGLE PARTAGÉE — sélection/ordre du best-of, jamais recodée ici.
         setBande(b);
-        // LOT 61 — exclusions persistées : on OUVRE sur le 1er plan VISIBLE (best-of moins les pages retirées).
+        // LOT 61/92 — overrides persistés : on OUVRE sur le 1er plan VISIBLE (best-of − retraits + ajouts).
         const ex = new Set((j.exclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`));
-        setExclus(ex);
-        const vis = b.filter((pl) => !ex.has(`${pl.pieceId}:${pl.page}`));
+        const inc = new Set((j.inclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`));
+        setExclus(ex); setInclus(inc);
+        const vis = bandeAvecOverrides(b, ps, ex, inc);
         setNav('bestof'); setPlanIndex(0);
         setPieceId(vis[0]?.pieceId ?? ps[0]?.id ?? null); // ouverture DIRECTE sur le plan visible le mieux classé (ou 1re pièce à défaut).
         setPage(vis[0]?.page ?? 1);
@@ -320,7 +326,9 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   useEffect(() => { afficherPageRef.current = afficherPage; }, [afficherPage]);
   useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [pieceId, page, etat]);
 
-  const planCourant = nav === 'bestof' ? (bandeVisible[planIndex] ?? null) : null;
+  // LOT 92 — la page ACTUELLEMENT affichée (dans les deux navs : best-of ou pièce libre) et son appartenance au best-of visible.
+  const planAffiche = pieceId !== null ? (bandeVisible.find((pl) => pl.pieceId === pieceId && pl.page === page) ?? null) : null;
+  const pageDansBestOf = planAffiche !== null;
   const runCourant = pieceId !== null ? runs[pieceId] : undefined; // LOT 62 — audit du repérage de la pièce courante
   // LOT 64 — état d'analyse PAYANTE par pièce (date lisible Europe/Paris), pour la liste des pièces.
   const runsParPiece = useMemo<Record<number, EtatAnalysePiece>>(() =>
@@ -366,18 +374,38 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const retirerDuBestOf = useCallback(async (pl: Plan) => {
     const k = cle(pl);
     setMessage(null);
+    // LOT 92 — une page AJOUTÉE à la main se retire par DÉSINCLUSION (retour au calcul auto, pas d'exclusion résiduelle) ; une page AUTO
+    //   se retire par EXCLUSION (réintégrable via la liste des retirées, LOT 61).
+    const action = pl.manuel ? 'desinclure_page_bestof' : 'exclure_page_bestof';
     try {
-      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'exclure_page_bestof', dossierId, pieceId: pl.pieceId, page: pl.page }) });
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, dossierId, pieceId: pl.pieceId, page: pl.page }) });
       if (res.status === 401) { setMessage('Session expirée — reconnectez-vous.'); return; }
       if (!res.ok) { setMessage('Retrait non enregistré, réessayez.'); return; }
       const body = (await res.json().catch(() => ({}))) as { ok?: boolean };
-      if (body.ok === false) return; // migration 190 absente → no-op silencieux (comportement d'avant, aucune fausse panne)
+      if (body.ok === false) return; // migration 190/194 absente → no-op silencieux (comportement d'avant, aucune fausse panne)
       const restantes = bandeVisible.filter((p) => cle(p) !== k);
-      setExclus((s) => { const n = new Set(s); n.add(k); return n; });
+      if (pl.manuel) setInclus((s) => { const n = new Set(s); n.delete(k); return n; });
+      else setExclus((s) => { const n = new Set(s); n.add(k); return n; });
       // se replacer sur un plan visible (même position bornée) ; si le best-of est vide, rester en best-of (message dédié à l'écran).
-      if (restantes.length > 0) { const i = Math.min(planIndex, restantes.length - 1); setPlanIndex(i); setPieceId(restantes[i].pieceId); setPage(restantes[i].page); }
+      if (restantes.length > 0 && nav === 'bestof') { const i = Math.min(planIndex, restantes.length - 1); setPlanIndex(i); setPieceId(restantes[i].pieceId); setPage(restantes[i].page); }
     } catch { setMessage('Retrait non enregistré, réessayez.'); }
-  }, [dossierId, bandeVisible, planIndex]);
+  }, [dossierId, bandeVisible, planIndex, nav]);
+
+  // LOT 92 — AJOUTER la page courante au best-of (réversible, grain = LA PAGE). Miroir de retirerDuBestOf. Optimiste-après-confirmation :
+  //   on n'ajoute à la SÉLECTION qu'après un POST réussi. migration 194 absente (ok:false) → no-op silencieux (comportement d'avant).
+  const ajouterAuBestOf = useCallback(async (pieceId2: number, page2: number) => {
+    const k = `${pieceId2}:${page2}`;
+    setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'inclure_page_bestof', dossierId, pieceId: pieceId2, page: page2 }) });
+      if (res.status === 401) { setMessage('Session expirée — reconnectez-vous.'); return; }
+      if (!res.ok) { setMessage('Ajout non enregistré, réessayez.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean };
+      if (body.ok === false) { setMessage('Ajout indisponible (mise à jour de la base requise).'); return; } // 194 non appliquée : on le DIT (jamais un bouton muet)
+      setInclus((s) => { const n = new Set(s); n.add(k); return n; });
+      setExclus((s) => { const n = new Set(s); n.delete(k); return n; }); // mutuellement exclusif : un ajout annule un retrait
+    } catch { setMessage('Ajout non enregistré, réessayez.'); }
+  }, [dossierId]);
 
   // LOT 61 — RÉINTÉGRER une page retirée (annule le retrait). Même politique d'erreur.
   const reintegrerDansBestOf = useCallback(async (pl: { pieceId: number; page: number }) => {
@@ -513,16 +541,25 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
               </span>
             </div>
           )}
-          {/* LOT 61 — bouton DISCRET « retirer du best-of » posé SUR l'aperçu (coin haut-droit). RÉVERSIBLE (voir la liste ci-contre).
-              La liseuse est une zone décidée-CLAIRE (le canvas peint un plan clair) : ce contrôle d'INCRUSTATION porte donc son propre
-              contraste (puce sombre translucide + texte clair, comme des contrôles vidéo), lisible quel que soit le thème admin.
-              Cible ≥ 36 px, atteignable au clavier. Jamais « supprimer » : on retire de la SÉLECTION, pas de la GED. */}
-          {planCourant && !chargeReseau && !enRendu && (
-            <button type="button" onClick={() => void retirerDuBestOf(planCourant)}
-              aria-label={`Retirer du best-of la page ${planCourant.page} de ${planCourant.nomFichier} (réversible ; ne supprime pas le document)`}
-              style={{ position: 'absolute', top: '.4rem', right: '.4rem', minHeight: 32, padding: '.25rem .55rem', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#ffffff', background: 'rgba(20,20,20,0.62)', border: '1px solid rgba(255,255,255,0.55)', borderRadius: '.4rem' }}>
-              ✕ retirer du best-of
-            </button>
+          {/* LOT 61/92 — bouton DISCRET posé SUR l'aperçu (coin haut-droit), grain = LA PAGE affichée. TOGGLE : une page DANS le best-of
+              propose « ✕ retirer », une page HORS best-of (ex. ouverte via « voir toutes les pièces ») propose « ＋ ajouter cette page ».
+              Jamais un bouton qui ne dit pas ce qu'il fait. RÉVERSIBLE (listes ci-dessous). La liseuse est une zone décidée-CLAIRE (le canvas
+              peint un plan clair) : ce contrôle d'INCRUSTATION porte son propre contraste (puce sombre translucide + texte clair, comme des
+              contrôles vidéo), lisible quel que soit le thème admin. Cible ≥ 32 px, atteignable au clavier. On agit sur la SÉLECTION, jamais sur la GED. */}
+          {pieceId !== null && !chargeReseau && !enRendu && (
+            pageDansBestOf ? (
+              <button type="button" onClick={() => void retirerDuBestOf(planAffiche!)}
+                aria-label={`Retirer du best-of la page ${page} de ${nomCourant} (réversible ; ne supprime pas le document)`}
+                style={{ position: 'absolute', top: '.4rem', right: '.4rem', minHeight: 32, padding: '.25rem .55rem', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#ffffff', background: 'rgba(20,20,20,0.62)', border: '1px solid rgba(255,255,255,0.55)', borderRadius: '.4rem' }}>
+                ✕ retirer du best-of
+              </button>
+            ) : (
+              <button type="button" onClick={() => void ajouterAuBestOf(pieceId, page)}
+                aria-label={`Ajouter au best-of la page ${page} de ${nomCourant} (cette page seule, pas le fichier entier ; réversible)`}
+                style={{ position: 'absolute', top: '.4rem', right: '.4rem', minHeight: 32, padding: '.25rem .55rem', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: '#ffffff', background: 'rgba(20,20,20,0.62)', border: '1px solid rgba(255,255,255,0.55)', borderRadius: '.4rem' }}>
+                ＋ ajouter cette page au best-of
+              </button>
+            )
           )}
         </div>
         {message && <p role="alert" style={{ fontSize: 11, color: 'var(--color-svv-red)', margin: '.3rem 0 0' }}>{message}</p>}
@@ -539,6 +576,20 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
                 <li key={`${pl.pieceId}:${pl.page}`} style={{ wordBreak: 'break-word' }}>
                   {pl.nomFichier} — page {pl.page}{' '}
                   <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }} onClick={() => void reintegrerDansBestOf(pl)}>réintégrer</button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {/* LOT 92 — COMPTEUR + RÉVERSIBILITÉ des pages AJOUTÉES à la main (miroir des retirées) : chacune retirable. */}
+        {ajoutees.length > 0 && (
+          <div style={{ fontSize: 11, color: 'var(--color-svv-muted)', margin: '.4rem 0 0', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+            <span>{ajoutees.length} page{ajoutees.length > 1 ? 's' : ''} ajoutée{ajoutees.length > 1 ? 's' : ''} au best-of à la main :</span>
+            <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+              {ajoutees.map((pl) => (
+                <li key={`${pl.pieceId}:${pl.page}`} style={{ wordBreak: 'break-word' }}>
+                  {pl.nomFichier} — page {pl.page}{' '}
+                  <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem' }} onClick={() => void retirerDuBestOf(pl)}>retirer</button>
                 </li>
               ))}
             </ul>

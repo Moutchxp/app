@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, grouperPieces, etiquettePiecePlan, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -733,6 +733,46 @@ describe('PROJ-3g — trois familles dans la bande + verrou de traçage', () => 
   it('LOT 88 — une bande de cerfa SEULS → bande VIDE (jamais un « satisfait » sur ensemble vide)', () => {
     const b = construireBandePlans([{ id: 9, nomFichier: 'cerfa.pdf', propose: true, famille: 'cerfa', planches: [{ page: 1, echelle: null }], confirme: true }]);
     expect(b).toEqual([]);
+  });
+
+  describe('LOT 92 — bandeAvecOverrides : ajouts/retraits manuels par PAGE (le geste manuel l’emporte)', () => {
+    const planAuto = (pieceId: number, page: number, famille: 'masse' | 'coupe'): Plan => ({ pieceId, page, nomFichier: `PC-${pieceId}.pdf`, echelle: null, confirme: true, famille, tracable: famille === 'masse', ambigu: false, origine: 'texte' });
+    const bandeAuto: Plan[] = [planAuto(1, 1, 'masse'), planAuto(2, 1, 'coupe')];
+    const pieces: PiecePlan[] = [
+      { id: 1, nomFichier: 'PC2.pdf', famille: 'masse' }, { id: 2, nomFichier: 'PC3.pdf', famille: 'coupe' },
+      { id: 5, nomFichier: 'PC5_NORD.pdf', famille: null }, // « autre » (famille inconnue)
+      { id: 6, nomFichier: 'PC2bis.pdf', famille: 'masse' },
+    ];
+    const S = (...ks: string[]) => new Set(ks);
+
+    it('RETRAIT : une page exclue disparaît de la bande', () => {
+      const b = bandeAvecOverrides(bandeAuto, pieces, S('1:1'), S());
+      expect(b.map((p) => `${p.pieceId}:${p.page}`)).toEqual(['2:1']);
+    });
+    it('AJOUT : seule LA PAGE ajoutée entre (pas le fichier), marquée `manuel`', () => {
+      const b = bandeAvecOverrides(bandeAuto, pieces, S(), S('5:3'));
+      const ajout = b.find((p) => p.pieceId === 5);
+      expect(ajout).toMatchObject({ pieceId: 5, page: 3, manuel: true, famille: null, tracable: false });
+      expect(b.filter((p) => p.pieceId === 5)).toHaveLength(1); // seule la page 3, pas d'autres pages du fichier 5
+    });
+    it('AJOUT d’une page DÉJÀ proposée automatiquement → pas de doublon', () => {
+      const b = bandeAvecOverrides(bandeAuto, pieces, S(), S('1:1'));
+      expect(b.filter((p) => p.pieceId === 1 && p.page === 1)).toHaveLength(1);
+      expect(b.find((p) => p.pieceId === 1 && p.page === 1)!.manuel).toBeUndefined(); // reste la page AUTO, pas un doublon manuel
+    });
+    it('ORDRE : masse (auto puis ajout) → coupe → famille INCONNUE en dernier (reste)', () => {
+      const b = bandeAvecOverrides(bandeAuto, pieces, S(), S('6:1', '5:2')); // 6 = masse, 5 = inconnue
+      expect(b.map((p) => `${p.pieceId}:${p.page}`)).toEqual(['1:1', '6:1', '2:1', '5:2']); // masse(auto 1, ajout 6) → coupe(2) → inconnue(5) en fin
+    });
+    it('page incluse dont la PIÈCE a disparu de la GED → ignorée (jamais d’entrée fantôme)', () => {
+      const b = bandeAvecOverrides(bandeAuto, pieces, S(), S('99:1'));
+      expect(b.some((p) => p.pieceId === 99)).toBe(false);
+    });
+    it('exclusion ET inclusion sur la même page : l’exclusion retire, l’inclusion (page absente de l’auto) la ré-ajoute (mutuellement exclusives côté route ; robustesse)', () => {
+      // cas de robustesse : si les deux ensembles contiennent 5:3 (page NON auto), l'inclusion l'ajoute (l'exclusion ne retire rien de l'auto).
+      const b = bandeAvecOverrides(bandeAuto, pieces, S('5:3'), S('5:3'));
+      expect(b.some((p) => p.pieceId === 5 && p.page === 3)).toBe(true);
+    });
   });
   it('BandePlans affiche le MOT de la famille (pas la couleur seule)', () => {
     const b = construireBandePlans([{ id: 3, nomFichier: 'PC3.1_Coupe_AA.pdf', propose: true, famille: 'coupe', planches: [{ page: 1, echelle: null }], confirme: true }]);

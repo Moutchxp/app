@@ -4,7 +4,7 @@ import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmpri
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed, lireGedPermis } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
-import { lireExclusionsBestOf, exclurePageBestOf, reintegrerPageBestOf } from '../../../../../lib/permis/bestOfExclusionRepo'; // LOT 61
+import { lireExclusionsBestOf, exclurePageBestOf, reintegrerPageBestOf, lireInclusionsBestOf, inclurePageBestOf, desinclurePageBestOf } from '../../../../../lib/permis/bestOfExclusionRepo'; // LOT 61 (exclusions) + LOT 92 (inclusions)
 import { avecVerrouDossier } from '../../../../../lib/permis/verrouExtraction'; // LOT 58 — une analyse à la fois par dossier
 import { executerReperagePlanches, lecteurPlanchesMistral, coutVisionUsd, MODELE_PLANCHE, type UsageVision } from '../../../../../lib/permis/reperePlanches'; // LOT 62
 import { lireReperagePlanchesOui, lireRunsReperage, enregistrerReperage } from '../../../../../lib/permis/reperePlanchesRepo'; // LOT 62
@@ -67,6 +67,8 @@ export async function GET(request: Request): Promise<Response> {
     ]);
     // LOT 61 — pages RETIRÉES du best-of à la main (réversibles) : la liseuse les soustrait du best-of et affiche « N page(s) retirée(s) ».
     const exclusionsBestOf = await repli('exclusionsBestOf', lireExclusionsBestOf(dossierId), []);
+    // LOT 92 — pages AJOUTÉES au best-of à la main (réversibles, miroir des exclusions). Résilient : 194 absente → [] (aucun ajout).
+    const inclusionsBestOf = await repli('inclusionsBestOf', lireInclusionsBestOf(dossierId), []);
     // Seules les pièces PDF sont traçables (filtre inchangé) ; la clé de stockage ne sort JAMAIS.
     const estPdf = (p: { typeMime: string | null; nomFichier: string }) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf');
     const piecesPdf = piecesBrutes.filter(estPdf);
@@ -124,7 +126,7 @@ export async function GET(request: Request): Promise<Response> {
       } catch { /* illisible → non marqué (N10-J) */ }
     })), []);
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
-    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, exclusionsBestOf, reperageRuns: Object.fromEntries(reperageRuns), indisponibles });
+    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, exclusionsBestOf, inclusionsBestOf, reperageRuns: Object.fromEntries(reperageRuns), indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
     return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });
@@ -154,13 +156,19 @@ export async function POST(request: Request): Promise<Response> {
     const dossierId = coercerDossierId(body.dossierId);
     if (dossierId === null) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
 
-    // LOT 61 — RETIRER / RÉINTÉGRER une page du best-of (réversible). N'affecte NI le document NI la page en GED : ôte seulement de
-    //   la SÉLECTION. `ok:false` = migration 190 absente (no-op résilient) → l'UI réintègre la page, jamais d'erreur dure à l'écran.
-    if (body.action === 'exclure_page_bestof' || body.action === 'reintegrer_page_bestof') {
+    // LOT 61/92 — RETIRER / AJOUTER / RÉINTÉGRER une page du best-of (réversible, grain = LA PAGE). N'affecte NI le document NI la page
+    //   en GED : ôte/ajoute seulement de la SÉLECTION. 🔴 MUTUELLEMENT EXCLUSIF : retirer supprime toute inclusion, ajouter supprime toute
+    //   exclusion → une page n'est jamais dans les deux (préséance du dernier geste, sans ambiguïté). `ok:false` = migration 190/194 absente
+    //   (no-op résilient) → l'UI retombe sur le comportement d'avant, jamais d'erreur dure à l'écran.
+    if (body.action === 'exclure_page_bestof' || body.action === 'reintegrer_page_bestof' || body.action === 'inclure_page_bestof' || body.action === 'desinclure_page_bestof') {
       if (!Number.isInteger(body.pieceId) || !Number.isInteger(body.page) || (body.page as number) < 1) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
-      const ok = body.action === 'exclure_page_bestof'
-        ? await exclurePageBestOf(dossierId, body.pieceId as number, body.page as number, garde.auteurId === null ? 'admin' : String(garde.auteurId))
-        : await reintegrerPageBestOf(body.pieceId as number, body.page as number);
+      const pid = body.pieceId as number, pg = body.page as number;
+      const par = garde.auteurId === null ? 'admin' : String(garde.auteurId);
+      let ok: boolean;
+      if (body.action === 'exclure_page_bestof') { ok = await exclurePageBestOf(dossierId, pid, pg, par); await desinclurePageBestOf(pid, pg); }      // retirer une page AUTO : exclusion + annule un éventuel ajout
+      else if (body.action === 'inclure_page_bestof') { ok = await inclurePageBestOf(dossierId, pid, pg, par); await reintegrerPageBestOf(pid, pg); }   // ajouter : inclusion + annule un éventuel retrait
+      else if (body.action === 'desinclure_page_bestof') ok = await desinclurePageBestOf(pid, pg);                                                        // retirer une page AJOUTÉE : simple retour au calcul auto (pas d'exclusion résiduelle)
+      else ok = await reintegrerPageBestOf(pid, pg);                                                                                                      // réintégrer (liste des retirées) : retour au calcul automatique
       return Response.json({ ok });
     }
 

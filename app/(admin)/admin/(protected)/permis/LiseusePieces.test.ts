@@ -72,6 +72,36 @@ describe('LOT 14b — zéro duplication des RÈGLES, rendu neuf isolé', () => {
   });
 });
 
+describe('LOT 92 — ajouter/retirer une PAGE au best-of depuis l’aperçu (garde par lecture de source)', () => {
+  it('bouton TOGGLE grain PAGE : « ajouter cette page » hors best-of, « retirer » dedans — jamais un bouton muet', () => {
+    expect(SRC).toContain('＋ ajouter cette page au best-of');
+    expect(SRC).toContain('✕ retirer du best-of');
+    expect(SRC).toMatch(/pageDansBestOf \?/); // toggle selon l'appartenance de LA PAGE affichée
+  });
+  it('l’ajout agit sur LA PAGE COURANTE (pieceId, page), jamais le fichier entier', () => {
+    expect(SRC).toContain('ajouterAuBestOf(pieceId, page)');
+    expect(SRC).toContain("action: 'inclure_page_bestof'");
+  });
+  it('best-of visible = bande AUTO + overrides (source unique bandeAvecOverrides), état `inclus` persisté', () => {
+    expect(SRC).toContain('bandeAvecOverrides(bande, pieces, exclus, inclus)');
+    expect(SRC).toContain('const [inclus, setInclus]');
+    expect(SRC).toContain('inclusionsBestOf');
+  });
+  it('retrait d’une page AJOUTÉE = désinclusion (retour au calcul auto) ; d’une page AUTO = exclusion (réintégrable)', () => {
+    expect(SRC).toMatch(/pl\.manuel \? 'desinclure_page_bestof' : 'exclure_page_bestof'/);
+  });
+  it('RÉVERSIBILITÉ : liste des pages ajoutées, chacune retirable (miroir des retirées)', () => {
+    expect(SRC).toMatch(/ajoutee?s\.length > 0/);
+    expect(SRC).toContain('ajoutée');
+  });
+  it('migration 194 (inclusion) livrée, MIROIR de 190, avec résilience 42P01 documentée', () => {
+    const mig = readFileSync(fileURLToPath(new URL('../../../../../db/migrations/194_best_of_inclusion.sql', import.meta.url)), 'utf8');
+    expect(mig).toContain('CREATE TABLE IF NOT EXISTS permis_best_of_inclusion');
+    expect(mig).toContain('PRIMARY KEY (piece_id, page)');
+    expect(mig).toMatch(/RÉSILIENT|resilient|42P01/i);
+  });
+});
+
 describe('LOT 91 — aperçu collant + liste bornée : l’aperçu reste en face de la ligne cliquée (garde par lecture de source)', () => {
   it('le panneau d’APERÇU est COLLANT (position sticky, ancré en haut de sa colonne)', () => {
     expect(SRC).toMatch(/flex: '2 1 300px'[\s\S]{0,80}position: 'sticky'/); // la colonne aperçu porte position sticky

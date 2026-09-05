@@ -13,8 +13,8 @@ import { rattrapageVide, type ApercuRattrapage } from '../../../../lib/permis/ra
 import { repereDepuisIndex, projeterLambertDansSchema, type SchemaEmpreinte } from '../../../../lib/permis/affectationSchema'; // AFF-2 : projetée au MÊME cadre que l'origine
 
 /** PROJ-3g — libellé lisible d'une famille (le MOT porte l'info, jamais la couleur seule). PUR. */
-export function libelleFamille(f: FamillePlan): string {
-  return f === 'masse' ? 'plan de masse' : f === 'etage' ? 'plan d’étage' : f === 'cerfa' ? 'Cerfa (formulaire)' : 'coupe / élévation';
+export function libelleFamille(f: FamillePlan | null): string {
+  return f === 'masse' ? 'plan de masse' : f === 'etage' ? 'plan d’étage' : f === 'cerfa' ? 'Cerfa (formulaire)' : f === 'coupe' ? 'coupe / élévation' : 'plan'; // LOT 92 : null (page ajoutée, famille inconnue) → « plan »
 }
 
 /** PROJ-3g/3j — message du VERROU métier : pourquoi on ne peut pas tracer ici (jamais un bouton grisé muet). null si traçable. Seules
@@ -156,7 +156,7 @@ export function ListePiecesAnalyse({ pieces, runsParPiece, nonSupportees, pieceI
 }
 
 // ── PROJ-3e — BANDE DE PLANS : l'unité manipulée est LE PLAN (une page précise d'une pièce), plus « pièce » + « n° de page ». ──
-export interface Plan { pieceId: number; page: number; nomFichier: string; echelle: string | null; confirme: boolean; famille: FamillePlan; tracable: boolean; ambigu: boolean; niveaux?: string[]; origine: 'texte' | 'image' }
+export interface Plan { pieceId: number; page: number; nomFichier: string; echelle: string | null; confirme: boolean; famille: FamillePlan | null; tracable: boolean; ambigu: boolean; niveaux?: string[]; origine: 'texte' | 'image'; manuel?: boolean } // LOT 92 : famille null = page AJOUTÉE dont la famille est inconnue ; manuel = ajoutée à la main
 
 /**
  * Construit la bande à feuilleter à partir des pièces déjà CLASSÉES (ordre masse → étage → coupe, PAS recalculé). PROJ-3f : un
@@ -187,6 +187,39 @@ export function construireBandePlans(pieces: PiecePlan[]): Plan[] {
     }
   }
   return out;
+}
+
+/** LOT 92 — rang d'ordre d'une famille dans la bande (masse → étage → coupe → cerfa → reste). `null` (page ajoutée de famille inconnue)
+ *  se range en DERNIER (« reste »), après les familles connues. PUR. */
+function rangFamillePlan(f: FamillePlan | null): number { return f === 'masse' ? 0 : f === 'etage' ? 1 : f === 'coupe' ? 2 : f === 'cerfa' ? 3 : 4; }
+
+/**
+ * LOT 92 — applique les OVERRIDES MANUELS (exclusions LOT 61 + inclusions LOT 92) à la bande AUTO. Le geste manuel L'EMPORTE sur le
+ * calcul, dans les deux sens : on RETIRE les pages exclues, on AJOUTE les pages incluses ABSENTES de la bande (chacune construite depuis
+ * sa pièce : nomFichier + famille du fichier, `null` si inconnue). Les ajouts se rangent dans leur famille (masse → coupe → …), les pages
+ * de famille INCONNUE en fin (« reste »). Ordre stable : à rang égal, les pages AUTO gardent leur ordre, les ajouts viennent après. Une
+ * page incluse dont la pièce a disparu de la GED est ignorée (jamais une entrée fantôme). Exclusions/inclusions sont mutuellement
+ * exclusives (garanti côté route) → aucune page dans les deux. PUR (aucune I/O).
+ */
+export function bandeAvecOverrides(bandeAuto: Plan[], pieces: PiecePlan[], exclus: ReadonlySet<string>, inclus: ReadonlySet<string>): Plan[] {
+  const cle = (pieceId: number, page: number) => `${pieceId}:${page}`;
+  const visible = bandeAuto.filter((pl) => !exclus.has(cle(pl.pieceId, pl.page)));
+  const dejaLa = new Set(visible.map((pl) => cle(pl.pieceId, pl.page)));
+  const parId = new Map(pieces.map((p) => [p.id, p]));
+  const ajoutees: Plan[] = [];
+  for (const k of inclus) {
+    if (dejaLa.has(k)) continue; // déjà proposée par l'auto → pas de doublon
+    const [pid, pg] = k.split(':').map(Number);
+    const p = parId.get(pid); if (!p) continue; // pièce disparue de la GED → inclusion sans objet
+    const f = p.famille ?? null;
+    ajoutees.push({ pieceId: pid, page: pg, nomFichier: p.nomFichier, echelle: null, confirme: true, famille: f, tracable: estTracable(f), ambigu: false, origine: 'texte', manuel: true });
+  }
+  const items = [
+    ...visible.map((p, i) => ({ p, r: rangFamillePlan(p.famille), i })),
+    ...ajoutees.map((p, i) => ({ p, r: rangFamillePlan(p.famille), i: 1_000_000 + i })), // après les auto de même rang
+  ];
+  items.sort((a, b) => a.r - b.r || a.i - b.i);
+  return items.map((x) => x.p);
 }
 
 /** Borne un index dans [0 ; n-1] (0 si liste vide). PUR. */
