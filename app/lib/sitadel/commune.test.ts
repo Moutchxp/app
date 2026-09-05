@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   type FeatureCommune, type CollectionCommunes, type Requete,
-  mapFeature, collectionComplete, upserterCommune, urlWfsCommunes, WFS_COUCHE,
+  mapFeature, collectionComplete, upserterCommune, urlWfsCommunes, WFS_COUCHE, DEPARTEMENTS,
 } from './commune';
 
 function feature(over: Partial<FeatureCommune['properties']> = {}, geom: FeatureCommune['geometry'] = { type: 'MultiPolygon', coordinates: [] }): FeatureCommune {
@@ -18,11 +18,14 @@ describe('Sitadel S4 — mapping ADMIN EXPRESS', () => {
     expect(mapFeature(feature({ code_insee: '' }))).toBeNull();
     expect(mapFeature(feature({ nom_officiel: '' }))).toBeNull();
   });
-  it('URL WFS : couche ADMIN EXPRESS + filtre sur les 4 départements + GeoJSON', () => {
+  it('URL WFS : couche ADMIN EXPRESS + filtre DÉRIVÉ de DEPARTEMENTS + GeoJSON', () => {
     const u = urlWfsCommunes();
     expect(u).toContain('data.geopf.fr'); // source IGN (jamais OSM)
     expect(u).toContain(encodeURIComponent(WFS_COUCHE));
-    expect(decodeURIComponent(u)).toContain("code_insee_du_departement IN ('75','92','93','78')");
+    const filtre = decodeURIComponent(u);
+    // Le filtre est DÉRIVÉ de DEPARTEMENTS (jamais recopié) → l'ajout d'un département (ex. 94) ne casse pas ce test.
+    expect(filtre).toContain('code_insee_du_departement IN (');
+    for (const d of DEPARTEMENTS) expect(filtre).toContain(`'${d}'`);
   });
 });
 

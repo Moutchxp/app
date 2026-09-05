@@ -8,7 +8,7 @@
 /** Couche COMMUNE d'ADMIN EXPRESS (COG CARTO, dernier millésime). La couche COMMUNE donne Paris = 75056 (commune
  *  unique), PAS les arrondissements 751xx → jointure directe avec sitadel_dossier.code_insee. */
 export const WFS_COUCHE = 'ADMINEXPRESS-COG-CARTO.LATEST:commune';
-export const DEPARTEMENTS = ['75', '92', '93', '78'] as const;
+export const DEPARTEMENTS = ['75', '92', '93', '78', '94'] as const;
 export const SOURCE_COMMUNE = 'IGN ADMIN EXPRESS COG CARTO (data.geopf.fr WFS) — Licence Ouverte Etalab 2.0';
 /** Millésime = identifiant de la couche « LATEST » (l'API DiDo/WFS n'expose pas d'année sur la feature). */
 export const MILLESIME_COMMUNE = WFS_COUCHE;

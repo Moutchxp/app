@@ -23,7 +23,10 @@ import {
 } from '../lib/sitadel/commune';
 
 const DOSSIER_LOCAL = 'data/commune';
-const FICHIER = `${DOSSIER_LOCAL}/adminexpress.75-92-93-78.geojson`;
+// 🔴 Le nom du cache est DÉRIVÉ de DEPARTEMENTS (trié → canonique par ENSEMBLE, pas par ordre de déclaration), pour que
+//   toute évolution de la liste (ajout du 94, etc.) invalide MÉCANIQUEMENT l'ancien fichier : sans ça, un cache périmé à
+//   4 départements serait réutilisé et produirait un import silencieusement incomplet. La liste et le nom ne peuvent plus diverger.
+const FICHIER = `${DOSSIER_LOCAL}/adminexpress.${[...DEPARTEMENTS].sort().join('-')}.geojson`;
 
 const q: Requete = <R = Record<string, unknown>>(text: string, params?: unknown[]): Promise<{ rows: R[] }> =>
   query(text, params) as unknown as Promise<{ rows: R[] }>;
