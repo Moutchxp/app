@@ -99,7 +99,7 @@ describe('LOT 94 — navigation de PAGES dans la barre (fichier multipage)', () 
 });
 
 function boutonTexte(txt: string): HTMLButtonElement | null {
-  return Array.from(container.querySelectorAll('button')).find((b) => (b.textContent ?? '').trim() === txt) as HTMLButtonElement | null;
+  return (Array.from(container.querySelectorAll('button')).find((b) => (b.textContent ?? '').trim() === txt) as HTMLButtonElement | undefined) ?? null;
 }
 
 describe('LOT 95 — « analyse de la page » ACTIVÉE : clic → issue serveur + réversibilité', () => {
@@ -172,5 +172,41 @@ describe('LOT 96 — liste « pages ajoutées à la main » repliable (reproduit
     await act(async () => { root.render(h(LiseusePieces, { dossierId: 1 })); }); // mock par défaut : aucune inclusion
     await flush();
     expect(container.textContent).not.toContain('ajoutée');
+  });
+});
+
+describe('LOT 98 — repère par page (reproduit 470 : PC5_AUTRES 3 pages, page 1 analysée individuellement)', () => {
+  function monterAvecLecturePage1(): void {
+    mocks.state.numPages = 3;
+    global.fetch = vi.fn(async (_i: unknown, init?: { method?: string }) => {
+      if ((init?.method ?? 'GET') === 'POST') return { ok: true, json: async () => ({ url: 'blob:fake' }) } as unknown as Response;
+      return { ok: true, json: async () => ({
+        pieces: [{ id: 481, nomFichier: 'PC5_AUTRES.pdf', propose: true, famille: 'masse', confirme: true, planches: [{ page: 1, echelle: null }] }],
+        lecturesPages: { 481: [{ page: 1, envoyee: true, motif: null, nbValeurs: 1, resume: 'ok', coutUsd: 0.000001, creeLe: '2026-09-05T10:00:00Z' }] },
+      }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+  }
+
+  it('page 1 (analysée individuellement) → pastille + libellé « analysée individuellement » + bouton « ré-analyser cette page »', async () => {
+    monterAvecLecturePage1();
+    await act(async () => { root.render(h(LiseusePieces, { dossierId: 470 })); });
+    await flush(); // ouvre sur page 1 (best-of)
+    expect(container.textContent).toContain('cette page a déjà été analysée individuellement');
+    expect(container.textContent).toContain('Page déjà analysée individuellement : 1.'); // vue d'ensemble
+    expect(boutonTexte('ré-analyser cette page')).not.toBeNull();
+    expect(boutonTexte('analyse de la page')).toBeNull(); // requalifié : jamais le libellé neutre quand c'est déjà fait
+  });
+
+  it('page 2 (jamais analysée) → aucun repère de page, bouton « analyse de la page » (travail neuf)', async () => {
+    monterAvecLecturePage1();
+    await act(async () => { root.render(h(LiseusePieces, { dossierId: 470 })); });
+    await flush();
+    cliquer('Page suivante du fichier'); await flush(); // page 2
+    expect(container.textContent).toContain('page 2 sur 3');
+    expect(container.textContent).not.toContain('cette page a déjà été analysée');
+    expect(boutonTexte('analyse de la page')).not.toBeNull();
+    expect(boutonTexte('ré-analyser cette page')).toBeNull();
+    // la VUE D'ENSEMBLE reste (elle décrit la pièce, pas la page) : page 1 y figure toujours.
+    expect(container.textContent).toContain('Page déjà analysée individuellement : 1.');
   });
 });

@@ -6,6 +6,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist'; // type SEUL (erasé au runt
 import {
   construireBandePlans, bandeAvecOverrides, cibleBestOf, bornerPage,
   ListePiecesAnalyse, BandePlans, NavPieceLibre, ZoomPdf, etatAnalyseIA,
+  PastillePageAnalyse, etatPageAnalyse, libellePageAnalyse, resumePagesAnalysees,
   type PiecePlan, type Plan, type EtatAnalyseIA,
 } from './TraceEmpriseRendu';
 import { MAX_DOCS_CACHE, MAX_BITMAPS_RENDU, voisinsAPrecharger, rangerEtEvincer } from './prechargeLiseuse';
@@ -94,6 +95,8 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   // LOT 96 — la liste des pages AJOUTÉES à la main est repliée par défaut (une seule ligne portant le compte) ; on l'ouvre à la demande.
   //   Pas de BlocRepliable imbriqué : la liseuse EST déjà dans le repliable « Pièces du permis » → simple bouton + aria-expanded (comme « voir toutes les pièces »).
   const [pleinAjoutees, setPleinAjoutees] = useState(false);
+  // LOT 98 — la vue d'ensemble « pages analysées : … » est repliée par défaut si la liste est LONGUE (esprit LOT 96) ; sinon affichée inline.
+  const [pleinPagesAnalysees, setPleinPagesAnalysees] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [message, setMessage] = useState<string | null>(null);
@@ -343,6 +346,14 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const runCourant = pieceId !== null ? runs[pieceId] : undefined; // LOT 62 — audit du repérage de la pièce courante
   // LOT 95 — audit daté de LA page affichée (si déjà analysée pour lire des valeurs) → sert l'avertissement « déjà analysée, relancer refera payer ».
   const lectureCourante = pieceId !== null ? (lectures[pieceId] ?? []).find((l) => l.page === page) ?? undefined : undefined;
+  // LOT 98 — REPÈRE PAR PAGE : état d'analyse de LA page affichée (individuelle LOT 95 > couverte par le fichier LOT 62 > aucune) +
+  //   vue d'ensemble des pages déjà analysées de la pièce. Règles PURES importées (etatPageAnalyse / resumePagesAnalysees), date Europe/Paris.
+  const etatPage = etatPageAnalyse(
+    lectureCourante ? { creeLe: lectureCourante.creeLe } : undefined,
+    runCourant ? { creeLe: runCourant.creeLe } : undefined,
+    (iso) => jourParisISO(iso),
+  );
+  const resumePages = resumePagesAnalysees(lectures[pieceId ?? -1] ?? [], runCourant ? { creeLe: runCourant.creeLe } : undefined, (iso) => jourParisISO(iso));
   // LOT 97 — ÉTAT D'ANALYSE IA à DEUX AXES par pièce, pour la liste + sa pastille : COMBINE le repérage LOT 62 (grain PIÈCE = fichier
   //   complet, `runs`) et la lecture de valeurs LOT 95 (grain PAGE = partielle, `lectures`). Règle d'étendue + origine dans la fonction
   //   PURE `etatAnalyseIA` (le fichier complet prime ; origine 'manuelle' = fait sourcé, jamais 'auto' inventé). Date lisible Europe/Paris.
@@ -600,6 +611,35 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
                   style={{ cursor: page >= nbPagesPiece ? 'default' : 'pointer', opacity: page >= nbPagesPiece ? 0.4 : 1, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}>page suivante ›</button>
               </div>
             )}
+            {/* LOT 98 ① — REPÈRE DE LA PAGE COURANTE : pastille (MÊMES tokens que le LOT 97, aucune 3e palette) + libellé EXPLICITE (jamais
+                la couleur seule) portant la DATE. Deux grains DISTINCTS : « analysée individuellement » (bleu pâle) ≠ « couverte par le
+                fichier complet » (bleu plein). 'aucune' → rien (pas d'état trompeur). */}
+            {etatPage.couverture !== 'aucune' && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                <PastillePageAnalyse s={etatPage} />
+                <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>{libellePageAnalyse(etatPage)}</span>
+              </div>
+            )}
+            {/* LOT 98 ② — VUE D'ENSEMBLE : quelles pages sont déjà analysées, SANS feuilleter (éviter de repayer). Repliée si la liste est
+                LONGUE (esprit LOT 96 : bouton + aria-expanded, compte replié). Le repérage FICHIER est dit à part (il couvre tout). */}
+            {(resumePages.fichier || resumePages.pagesIndividuelles.length > 0) && (
+              <div style={{ fontSize: 11, color: 'var(--color-svv-muted)', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+                {resumePages.fichier && <span>Fichier entier déjà analysé (repérage){resumePages.dateFichier ? ` le ${resumePages.dateFichier}` : ''}.</span>}
+                {resumePages.pagesIndividuelles.length > 0 && (
+                  resumePages.pagesIndividuelles.length <= 10 ? (
+                    <span>Page{resumePages.pagesIndividuelles.length > 1 ? 's' : ''} déjà analysée{resumePages.pagesIndividuelles.length > 1 ? 's' : ''} individuellement : {resumePages.pagesIndividuelles.join(', ')}.</span>
+                  ) : (
+                    <>
+                      <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', fontSize: 11, color: 'var(--color-svv-muted)', alignSelf: 'flex-start' }}
+                        aria-expanded={pleinPagesAnalysees} onClick={() => setPleinPagesAnalysees((v) => !v)}>
+                        {resumePages.pagesIndividuelles.length} pages déjà analysées individuellement {pleinPagesAnalysees ? '▲' : '▾'}
+                      </button>
+                      {pleinPagesAnalysees && <span>Pages : {resumePages.pagesIndividuelles.join(', ')}.</span>}
+                    </>
+                  )
+                )}
+              </div>
+            )}
             {/* ② BASCULE BEST-OF au grain PAGE (déplacée de la surimpression du LOT 92 vers la barre). TOGGLE : une page DANS le best-of
                 propose « ✕ retirer », une page HORS best-of propose « ＋ ajouter cette page ». Jamais un bouton muet. Réutilise
                 retirerDuBestOf / ajouterAuBestOf (tables inclusion/exclusion, LOT 92) — aucune 2e source de vérité. */}
@@ -619,14 +659,18 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
             {/* ③ ④ ANALYSES — ③ « analyse du fichier complet » = repérage LOT 62 (PRÉSENCE, N pages) ; ④ « analyse de la page » = LOT 95
                 (LECTURE DE VALEURS sur LA SEULE page affichée, altitude de sommet NGF). Les deux sont sous le MÊME verrou 58 (jamais deux à
                 la fois) → chacune désactive l'autre pendant qu'elle tourne. ④ n'est JAMAIS câblée sur ③ (Arno paierait tout le fichier). */}
+            {/* LOT 98 ③ — REQUALIFICATION DU BOUTON quand c'est DÉJÀ FAIT : un fichier déjà repéré → « ré-analyser le fichier complet » ;
+                une page déjà analysée INDIVIDUELLEMENT → « ré-analyser cette page ». Le libellé qui change (+ le repère ci-dessus) fait de la
+                relance un geste CONSCIENT, sans modale (plus léger, et Arno voit qu'il repaye). Une page seulement COUVERTE par le fichier
+                n'est PAS « déjà analysée » au grain page → le bouton reste « analyse de la page » (c'est un travail neuf : lire ses valeurs). */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
               <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}
                 disabled={reperEnCours || lectureEnCours} aria-busy={reperEnCours} onClick={() => void reperer()}>
-                {reperEnCours ? 'Analyse des images en cours…' : 'analyse du fichier complet'}
+                {reperEnCours ? 'Analyse des images en cours…' : (runCourant ? 'ré-analyser le fichier complet' : 'analyse du fichier complet')}
               </button>
               <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}
                 disabled={reperEnCours || lectureEnCours} aria-busy={lectureEnCours} onClick={() => void analyserPage()}>
-                {lectureEnCours ? 'Lecture de la page en cours…' : 'analyse de la page'}
+                {lectureEnCours ? 'Lecture de la page en cours…' : (lectureCourante ? 'ré-analyser cette page' : 'analyse de la page')}
               </button>
             </div>
             {/* MENTION HONNÊTE — coût de ③ (≈2 cts / 20 pages) ET de ④ (1 page ≈ 0,1 centime) annoncés AVANT le clic ; ce que lit ④ dit sans jargon. */}

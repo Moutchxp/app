@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, etatPageAnalyse, libellePageAnalyse, resumePagesAnalysees, PastillePageAnalyse, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -1334,5 +1334,52 @@ describe('LOT 97 — etatAnalyseIA / libelleAnalyseIA (fonctions PURES, deux axe
       .toBe('analyse IA partielle (pages seules), automatique — 1 page analysée');
     expect(libelleAnalyseIA({ etendue: 'complete', origine: 'indeterminee', dateLisible: null, nbPlanches: 0, nbPagesLues: 0 }))
       .toBe('analyse IA du fichier complet, origine indéterminée — aucune planche repérée');
+  });
+});
+
+describe('LOT 98 — repère PAR PAGE (etatPageAnalyse / libellePageAnalyse / resumePagesAnalysees, PURES) + pastille de page', () => {
+  it('page jamais analysée (ni page ni fichier) → « aucune » (rien d’affirmé)', () => {
+    expect(etatPageAnalyse(undefined, undefined)).toEqual({ couverture: 'aucune', dateLisible: null });
+  });
+  it('page analysée INDIVIDUELLEMENT (ligne au grain page) → « individuelle » + date formatée', () => {
+    expect(etatPageAnalyse({ creeLe: '2026-09-05T10:00:00Z' }, undefined, () => '05/09/2026'))
+      .toEqual({ couverture: 'individuelle', dateLisible: '05/09/2026' });
+  });
+  it('page COUVERTE par un repérage FICHIER (sans ligne page) → « fichier » (distinct de individuelle)', () => {
+    expect(etatPageAnalyse(undefined, { creeLe: '2026-09-04T10:00:00Z' }, () => '04/09/2026'))
+      .toEqual({ couverture: 'fichier', dateLisible: '04/09/2026' });
+  });
+  it('les deux présents → l’INDIVIDUELLE PRIME (signal le plus précis pour la page)', () => {
+    expect(etatPageAnalyse({ creeLe: 'A' }, { creeLe: 'B' }).couverture).toBe('individuelle');
+  });
+  it('libellePageAnalyse — EN TOUTES LETTRES, distingue « individuellement » de « couverte par le fichier complet », avec date', () => {
+    expect(libellePageAnalyse({ couverture: 'individuelle', dateLisible: '05/09/2026' }))
+      .toBe('cette page a déjà été analysée individuellement, le 05/09/2026');
+    expect(libellePageAnalyse({ couverture: 'fichier', dateLisible: '04/09/2026' }))
+      .toContain('couverte par'); // « couverte par le fichier complet », distinct de « analysée individuellement »
+    expect(libellePageAnalyse({ couverture: 'fichier', dateLisible: '04/09/2026' }))
+      .toContain('fichier complet, le 04/09/2026');
+    expect(libellePageAnalyse({ couverture: 'fichier', dateLisible: '04/09/2026' }))
+      .toContain('lues individuellement'); // jamais fusionné avec « analysée individuellement »
+    expect(libellePageAnalyse({ couverture: 'aucune', dateLisible: null })).toContain('pas encore été analysée');
+  });
+  it('resumePagesAnalysees — pages NON CONTIGUËS triées + dédoublonnées ; repérage fichier signalé à part', () => {
+    expect(resumePagesAnalysees([{ page: 7 }, { page: 3 }, { page: 3 }], undefined))
+      .toEqual({ pagesIndividuelles: [3, 7], fichier: false, dateFichier: null });
+    expect(resumePagesAnalysees([], { creeLe: 'X' }, () => '05/09/2026'))
+      .toEqual({ pagesIndividuelles: [], fichier: true, dateFichier: '05/09/2026' });
+    expect(resumePagesAnalysees(undefined, undefined)).toEqual({ pagesIndividuelles: [], fichier: false, dateFichier: null });
+  });
+  it('PastillePageAnalyse — 2 tons du LOT 97 (aucune 3e palette) + libellé explicite ; « aucune » ne rend RIEN', () => {
+    const indiv = renderToStaticMarkup(h(PastillePageAnalyse, { s: { couverture: 'individuelle', dateLisible: '05/09/2026' } }));
+    expect(indiv).toContain('var(--color-svv-blue-soft)');   // bleu PÂLE (page analysée individuellement)
+    expect(indiv).toContain('page analysée');
+    expect(indiv).toContain('role="img"');
+    expect(indiv).toContain('analysée individuellement, le 05/09/2026'); // title EN TOUTES LETTRES + date
+    const fichier = renderToStaticMarkup(h(PastillePageAnalyse, { s: { couverture: 'fichier', dateLisible: '04/09/2026' } }));
+    expect(fichier).toContain('var(--color-svv-blue)');       // bleu PLEIN (couverte par le fichier)
+    expect(fichier).toContain('page couverte (fichier)');
+    // « aucune » → aucun rendu (pas de pastille, pas d'état neutre trompeur).
+    expect(renderToStaticMarkup(h(PastillePageAnalyse, { s: { couverture: 'aucune', dateLisible: null } }))).toBe('');
   });
 });
