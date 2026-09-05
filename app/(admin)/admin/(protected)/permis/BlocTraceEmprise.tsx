@@ -11,6 +11,8 @@ import { verdictProjectionBatiments, libelleBatiment, type BatimentProjection, t
 import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome (best-of, navigation, zoom) réutilisée à 0 bâtiment
+import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
+import type { SelectionInfo } from '../../../../lib/permis/plancheParcellesRepo';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
 import { statutCourantParCleabs, type LigneStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) ; RATT-5 : recouvert + taux
 
@@ -49,6 +51,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const [ecartes, setEcartes] = useState<string[]>([]); // PROJ-3i — cleabs des polygones « en projet » écartés (persistés)
   const [statutsLignes, setStatutsLignes] = useState<LigneStatutPolygone[]>([]); // RATT-1 (2) — registre append-only des statuts décidés
   const [recouverts, setRecouverts] = useState<PolygoneRecouvert[]>([]); // RATT-1 (2) / RATT-5 — polygones recouverts (au-dessus du seuil) + leur taux (%)
+  // PL-C4 — sélection validée (superposition) : bandeau + retrait à deux temps (geste délibéré, RECALCULE l'empreinte).
+  const [selection, setSelection] = useState<SelectionInfo>({ active: false, idus: [], validePar: null, valideLe: null, acteurNom: null });
+  const [confirmeSel, setConfirmeSel] = useState(false);
+  const [occupeSel, setOccupeSel] = useState(false);
   const [pleinEcran, setPleinEcran] = useState(false); // PROJ-3i — agrandissement du schéma
   const [angle, setAngle] = useState(0); // PROJ-3j — rotation du schéma (0-360°), AFFICHAGE seulement, éphémère (non persistée)
   const [corpsSel, setCorpsSel] = useState<number | null>(null);
@@ -110,11 +116,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`, { cache: 'no-store' });
         if (annule) return;
         if (!res.ok) { setEtat('erreur'); setMessage('Bâtiments indisponibles (le serveur n’a pas répondu).'); return; }
-        const j = await res.json() as { pieces: Piece[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; indisponibles?: string[] };
+        const j = await res.json() as { pieces: Piece[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; selection?: SelectionInfo; indisponibles?: string[] };
         // Résilience serveur : « indisponible » ≠ « vide ». Si la lecture des BÂTIMENTS a échoué, on n'affiche JAMAIS « 0 bâtiment »
         //   (panne déguisée en donnée) → état d'échec explicite invitant à recharger.
         if (j.indisponibles?.includes('batiments')) { setEtat('erreur'); setMessage('Bâtiments indisponibles : rechargez.'); return; }
-        setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setStatutsLignes(j.statutsPolygones ?? []); setRecouverts(j.polygonesRecouverts ?? []); setAngle(0); setDebordement(null);
+        setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setStatutsLignes(j.statutsPolygones ?? []); setRecouverts(j.polygonesRecouverts ?? []); setSelection(j.selection ?? { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null }); setConfirmeSel(false); setAngle(0); setDebordement(null);
         // PROJ-3e — on ouvre DIRECTEMENT sur le 1er plan de la bande (le mieux classé) ; à défaut de plan proposé, la 1re pièce.
         const b = construireBandePlans(j.pieces);
         setNav('bestof'); setPlanIndex(0);
@@ -453,6 +459,18 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     } catch { setMessage('statut impossible'); }
   }, [dossierId]);
 
+  // PL-C4 — RETIRER la sélection validée (superposition) depuis le bandeau. Geste DÉLIBÉRÉ à deux temps (confirmé dans le bandeau) :
+  //   RECALCULE l'empreinte + bâti + projection (réversible). Puis recharge /emprise → nouvelle empreinte, schéma et bandeau à jour.
+  const retirerSelectionEmprise = useCallback(async () => {
+    setOccupeSel(true); setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/planche', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'retirer', dossierId }) });
+      if (!res.ok) { setMessage('retour à la configuration d’origine impossible'); return; }
+      setConfirmeSel(false); setRechargeLocal((n) => n + 1); // re-fetch : empreinte automatique + schéma + bandeau à jour
+      setMessage('Retour à la configuration automatique — empreinte, bâti et projection recalculés.');
+    } catch { setMessage('retour à la configuration d’origine impossible'); } finally { setOccupeSel(false); }
+  }, [dossierId]);
+
   // Overlay : positions CSS des points plan / sommets (lit `apercu` en state).
   const versCss = (p: PointPlan): { x: number; y: number } | null => {
     if (!apercu) return null;
@@ -465,6 +483,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
 
   const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.25rem .6rem', fontSize: 12 };
   const styleAide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
+  // PL-C4 — bandeau « sélection validée / configuration automatique », placé sous le curseur Rotation, avant le schéma (3 vues).
+  const bandeauSel = <BandeauSelection selection={selection} confirme={confirmeSel} enCours={occupeSel} onDemander={() => setConfirmeSel(true)} onConfirmer={() => void retirerSelectionEmprise()} onAnnuler={() => setConfirmeSel(false)} />;
 
   // PROJ-3b-fix ② — décision PURE (testée) : chargement · échec · succès-vide · prêt. « Aucun bâtiment » n'apparaît QU'au succès réel.
   const vue = affichageTrace(etat, batiments.length);
@@ -498,6 +518,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         {boite ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
             <RotationSchema angle={angle} onAngle={setAngle} />
+            {bandeauSel}
             {/* Schéma LECTURE SEULE : aucun onCliquer (pas de tracé), pas de points de calage. Étiquettes/légende des LOTs 81/82/83. */}
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesReperes, emprises, batiments)} />
             {/* Options d'AFFICHAGE (bâti existant / futur / repères / projection) — pilotage visuel, pas un contrôle de tracé. Porte aussi la légende de catégories. */}
@@ -586,6 +607,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
             {/* PROJ-3j ② — rotation d'affichage + schéma (clics dé-tournés côté schéma) + agrandir. */}
             <RotationSchema angle={angle} onAngle={setAngle} />
+            {bandeauSel}
             {/* PROJ-3m ② — quand le prochain clic va sur le SCHÉMA (correspondant du point plan), le guidage s'affiche ICI, au-dessus. */}
             {tracable && guidage.sur === 'schema' && <GuidageTraceBox g={guidage} />}
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} statuts={statutParCleabs}
@@ -692,6 +714,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               <button type="button" style={btn} onClick={() => setPleinEcran(false)} aria-label="Fermer l’agrandissement">✕ Fermer</button>
             </div>
             <RotationSchema angle={angle} onAngle={setAngle} />
+            {bandeauSel}
             <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
               <div style={{ flex: '1 1 420px', minWidth: 0 }}>
                 <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} ecartes={ecartes} angle={angle} hauteurMax="82vh" calageLambert={[]} statuts={statutParCleabs}

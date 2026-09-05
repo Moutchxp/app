@@ -83,6 +83,24 @@ interface LignePlanche {
 
 const nbOuNull = (v: string | number | null): number | null => (v === null || v === undefined ? null : Number(v));
 
+/**
+ * PL-C — lit la SÉLECTION validée d'un dossier sous la forme SelectionInfo (active + idus + provenance résolue). Partagée par la
+ * planche ET le bandeau « Bâtiments et projection » (route /emprise). Résiliente si migration 202 absente (42P01 → configuration automatique).
+ */
+export async function lireSelectionInfo(dossierId: number): Promise<SelectionInfo> {
+  try {
+    const { rows } = await query<{ idu: string; valide_par: string | null; valide_le: string | null; prenom: string | null; nom: string | null }>(
+      `SELECT s.idu, s.valide_par, s.valide_le::text AS valide_le, au.prenom, au.nom
+         FROM permis_parcelle_selection s
+         LEFT JOIN admin_utilisateur au ON au.id = CASE WHEN s.valide_par ~ '^[0-9]+$' THEN s.valide_par::bigint ELSE NULL END
+        WHERE s.dossier_id = $1 ORDER BY s.section, s.numero`, [dossierId]);
+    if (rows.length === 0) return { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null };
+    const p = rows[0];
+    return { active: true, idus: rows.map((r) => r.idu), validePar: p.valide_par, valideLe: p.valide_le,
+             acteurNom: p.prenom || p.nom ? `${p.prenom ?? ''} ${p.nom ?? ''}`.trim() : null };
+  } catch (e) { if ((e as { code?: string })?.code === '42P01') return { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null }; throw e; }
+}
+
 /** Résout le nom d'une commune cadastrale : Paris → dérivé (pur) ; sinon table `commune`, repli `adresse_ban.nom_commune`, sinon null. */
 async function resoudreCommune(insee: string): Promise<string | null> {
   const paris = nomParisArrondissement(insee);
@@ -144,22 +162,7 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
        FROM permis_parcelle pp JOIN parcelle par ON par.id = pp.idu WHERE pp.dossier_id = $1 ORDER BY par.section, par.numero`, [dossierId]);
   const parcellesChoix = choixRows.map((r) => ({ idu: r.idu, section: r.section, numero: r.numero }));
 
-  // PL-C — sélection validée (superposition). Résiliente si migration 202 absente (42P01 → aucune sélection = configuration automatique).
-  let selection: SelectionInfo = { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null };
-  try {
-    const { rows: selRows } = await query<{ idu: string; valide_par: string | null; valide_le: string | null; prenom: string | null; nom: string | null }>(
-      `SELECT s.idu, s.valide_par, s.valide_le::text AS valide_le, au.prenom, au.nom
-         FROM permis_parcelle_selection s
-         LEFT JOIN admin_utilisateur au ON au.id = CASE WHEN s.valide_par ~ '^[0-9]+$' THEN s.valide_par::bigint ELSE NULL END
-        WHERE s.dossier_id = $1 ORDER BY s.section, s.numero`, [dossierId]);
-    if (selRows.length > 0) {
-      const p = selRows[0];
-      selection = {
-        active: true, idus: selRows.map((r) => r.idu), validePar: p.valide_par, valideLe: p.valide_le,
-        acteurNom: p.prenom || p.nom ? `${p.prenom ?? ''} ${p.nom ?? ''}`.trim() : null,
-      };
-    }
-  } catch (e) { if ((e as { code?: string })?.code !== '42P01') throw e; } // 202 absente → configuration automatique
+  const selection = await lireSelectionInfo(dossierId); // PL-C — sélection validée (superposition) ; { active:false } = configuration automatique
 
   const demande: CentreDemande = centre ?? { mode: 'empreinte' };
   let mode: CentreMode = 'empreinte';

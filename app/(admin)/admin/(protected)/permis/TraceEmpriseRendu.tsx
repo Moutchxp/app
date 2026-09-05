@@ -1,4 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
+import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle'; // PL-C4 — provenance honnête de la sélection
+import type { SelectionInfo } from '../../../../lib/permis/plancheParcellesRepo';
 import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « décidé le … » en heure de Paris
 import {
   projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type CadreVue,
@@ -11,6 +13,38 @@ import { estFuturBati } from '../../../../lib/permis/etatBati';
 import { estStatuable, TOLERANCE_RECOUVREMENT_TOTAL_PCT, type EtatStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) : statut décidé ; RATT-5 : recouvert + taux ; RATT-6 : mixte
 import { rattrapageVide, type ApercuRattrapage } from '../../../../lib/permis/rattrapage'; // NOM-2 — aperçu du rattrapage (noms + statuts)
 import { repereDepuisIndex, projeterLambertDansSchema, type SchemaEmpreinte } from '../../../../lib/permis/affectationSchema'; // AFF-2 : projetée au MÊME cadre que l'origine
+
+/**
+ * PL-C4 — BANDEAU « Empreinte : sélection validée / configuration automatique » sous le curseur Rotation, avant le schéma. PUR
+ * (aucun état interne ; le geste de retrait est un GESTE DÉLIBÉRÉ à deux temps piloté par le parent : `confirme` + callbacks). Le
+ * retrait RECALCULE (empreinte + bâti + projection) → on le DIT, jamais un lien anodin. Provenance HONNÊTE (acteur résolu, sinon brut).
+ */
+export function BandeauSelection({ selection, confirme, enCours, onDemander, onConfirmer, onAnnuler }: {
+  selection: SelectionInfo; confirme: boolean; enCours: boolean; onDemander: () => void; onConfirmer: () => void; onAnnuler: () => void;
+}) {
+  if (!selection.active) return <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>Empreinte : <strong style={{ color: 'var(--color-svv-ink)' }}>configuration automatique</strong>.</div>;
+  const d = descriptionActeurParcelle({ majPar: selection.validePar, majLe: selection.valideLe, acteurNom: selection.acteurNom });
+  const lien: CSSProperties = { width: 'auto', padding: '.05rem .3rem', fontSize: 11.5, alignSelf: 'flex-start' };
+  return (
+    <div role="note" style={{ fontSize: 12, border: '1px solid var(--color-svv-green-ink)', borderRadius: '.4rem', padding: '.35rem .55rem', display: 'flex', flexDirection: 'column', gap: '.25rem', background: 'var(--color-svv-field)' }}>
+      <div>
+        <strong style={{ color: 'var(--color-svv-green-ink)' }}>Empreinte : sélection validée</strong> ({selection.idus.length} parcelle{selection.idus.length > 1 ? 's' : ''}) —{' '}
+        par <strong>{d.qui}</strong>{d.aLaMain ? null : <span style={{ fontStyle: 'italic', color: 'var(--color-svv-muted)' }}> (auteur non identifié)</span>}{d.quand ? <> le {d.quand}</> : null}.
+      </div>
+      {!confirme ? (
+        <button type="button" className="svv-link" style={lien} disabled={enCours} onClick={onDemander}>revenir à la configuration d’origine…</button>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+          <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>⚠ Cela RECALCULE l’empreinte, la photo du bâti et la projection de ce permis (réversible).</span>
+          <span style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+            <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.25rem .55rem', fontSize: 11.5, minHeight: 34 }} disabled={enCours} onClick={onConfirmer}>Confirmer le retour à l’origine</button>
+            <button type="button" className="svv-link" style={{ ...lien, alignSelf: 'center' }} disabled={enCours} onClick={onAnnuler}>annuler</button>
+          </span>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /** PROJ-3g — libellé lisible d'une famille (le MOT porte l'info, jamais la couleur seule). PUR. */
 export function libelleFamille(f: FamillePlan | null): string {

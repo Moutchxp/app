@@ -1,6 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { lireSelectionInfo, type SelectionInfo } from '../../../../../lib/permis/plancheParcellesRepo'; // PL-C4 — sélection validée pour le bandeau
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed, lireGedPermis } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
@@ -68,6 +69,8 @@ export async function GET(request: Request): Promise<Response> {
       repli('statuts', lireStatutsPolygones(dossierId), []),         // RATT-1 (2) — registre append-only des statuts décidés (préservé/détruit)
       repli('recouverts', polygonesRecouvertsParEmprise(dossierId), []), // RATT-1 (2) — cleabs recouverts par une emprise projetée (hors statut)
     ]);
+    // PL-C4 — la SÉLECTION validée (superposition), pour le bandeau « Empreinte : sélection validée » sous le curseur Rotation.
+    const selection = await repli('selection', lireSelectionInfo(dossierId), { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null } as SelectionInfo);
     // LOT 61 — pages RETIRÉES du best-of à la main (réversibles) : la liseuse les soustrait du best-of et affiche « N page(s) retirée(s) ».
     const exclusionsBestOf = await repli('exclusionsBestOf', lireExclusionsBestOf(dossierId), []);
     // LOT 92 — pages AJOUTÉES au best-of à la main (réversibles, miroir des exclusions). Résilient : 194 absente → [] (aucun ajout).
@@ -133,7 +136,7 @@ export async function GET(request: Request): Promise<Response> {
       } catch { /* illisible → non marqué (N10-J) */ }
     })), []);
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
-    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, exclusionsBestOf, inclusionsBestOf, reperageRuns: Object.fromEntries(reperageRuns), lecturesPages: Object.fromEntries(lecturesPages), origineExtractionSansIa, indisponibles });
+    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, selection, exclusionsBestOf, inclusionsBestOf, reperageRuns: Object.fromEntries(reperageRuns), lecturesPages: Object.fromEntries(lecturesPages), origineExtractionSansIa, indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
     return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });
