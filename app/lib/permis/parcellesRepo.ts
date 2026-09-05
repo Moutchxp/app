@@ -124,6 +124,17 @@ export interface EmpreinteLigne {
  * sinon on marque l'empreinte incomplète avec le motif — jamais une union silencieuse sur un sous-ensemble.
  */
 export async function figerEmpreinte(dossierId: number, majPar: string): Promise<EmpreinteLigne> {
+  // PL-C — 🔴 GARDE « SÉLECTION D'ABORD » : si une sélection validée à la main existe pour ce dossier, l'empreinte EFFECTIVE est
+  //   l'union des geom_snapshot GELÉS de la SÉLECTION (jamais re-snapshotés, `permis_parcelle` jamais touché). Une ré-analyse
+  //   automatique (executerExtraction → figerEmpreinte) passe donc ici SANS JAMAIS écraser la sélection. 0 ligne (ou table 202
+  //   absente) → chemin automatique inchangé ci-dessous. RÉSILIENT : migration 202 non appliquée → aucune sélection (comportement d'avant).
+  try {
+    const { rows: sel } = await query<{ total: number; avec: number }>(
+      `SELECT count(*)::int AS total, count(geom_snapshot)::int AS avec FROM permis_parcelle_selection WHERE dossier_id = $1`, [dossierId]);
+    const t = sel[0]?.total ?? 0, a = sel[0]?.avec ?? 0;
+    if (t > 0) return empreinteDepuisSelection(dossierId, majPar, t, a);
+  } catch (e) { if (!estTableAbsente(e)) throw e; } // 202 non appliquée → on ignore la superposition (aucune sélection possible)
+
   // 1) Snapshot : copie de la géométrie + du millésime cadastral courant du département, pour chaque parcelle d'origine rattachée.
   await query(
     `UPDATE permis_parcelle pp
@@ -165,6 +176,45 @@ export async function figerEmpreinte(dossierId: number, majPar: string): Promise
   const motif = total === 0
     ? 'aucune parcelle d’origine rattachée → empreinte attendue non calculable'
     : `${total - avec} parcelle(s) d’origine non rattachée(s) au cadastre → empreinte attendue incomplète (pas d’union sur un sous-ensemble)`;
+  await query(
+    `INSERT INTO permis_empreinte (dossier_id, geom, surface_m2, nb_parcelles, complete, motif, millesime, maj_le, maj_par)
+       VALUES ($1, NULL, NULL, $3, false, $4, NULL, now(), $2)
+       ON CONFLICT (dossier_id) DO UPDATE
+         SET geom = NULL, surface_m2 = NULL, nb_parcelles = EXCLUDED.nb_parcelles, complete = false,
+             motif = EXCLUDED.motif, millesime = NULL, maj_le = EXCLUDED.maj_le, maj_par = EXCLUDED.maj_par`,
+    [dossierId, majPar, total, motif]);
+  return { surfaceM2: null, nbParcelles: total, complete: false, motif, millesime: null, aGeometrie: false };
+}
+
+/** Une erreur SQL est-elle « relation absente » (migration 202 non appliquée) ? → on ignore la superposition (comportement d'avant). */
+function estTableAbsente(e: unknown): boolean {
+  return (e as { code?: string })?.code === '42P01';
+}
+
+/**
+ * PL-C — Empreinte EFFECTIVE issue de la SÉLECTION validée (superposition). Union des geom_snapshot GELÉS de `permis_parcelle_selection`
+ * (jamais re-snapshotés). NE TOUCHE JAMAIS `permis_parcelle`. `complete` seulement si toutes les parcelles sélectionnées ont un contour ;
+ * sinon empreinte incomplète + motif (jamais une union muette sur un sous-ensemble). motif=NULL quand complète → structure identique au
+ * chemin automatique (seule la géométrie diffère, c'est le but). Le retrait (DELETE + figerEmpreinte) redonne l'empreinte automatique.
+ */
+async function empreinteDepuisSelection(dossierId: number, majPar: string, total: number, avec: number): Promise<EmpreinteLigne> {
+  if (total > 0 && avec === total) {
+    const { rows } = await query<{ surface: string | number | null; nb: number; mill: string | null }>(
+      `INSERT INTO permis_empreinte (dossier_id, geom, surface_m2, nb_parcelles, complete, motif, millesime, maj_le, maj_par)
+         SELECT $1, ST_Multi(ST_Union(geom_snapshot)), ST_Area(ST_Union(geom_snapshot)), count(*)::int, true, NULL,
+                max(snapshot_millesime), now(), $2
+           FROM permis_parcelle_selection WHERE dossier_id = $1 AND geom_snapshot IS NOT NULL
+         ON CONFLICT (dossier_id) DO UPDATE
+           SET geom = EXCLUDED.geom, surface_m2 = EXCLUDED.surface_m2, nb_parcelles = EXCLUDED.nb_parcelles,
+               complete = EXCLUDED.complete, motif = EXCLUDED.motif, millesime = EXCLUDED.millesime,
+               maj_le = EXCLUDED.maj_le, maj_par = EXCLUDED.maj_par
+         RETURNING surface_m2 AS surface, nb_parcelles AS nb, millesime AS mill`,
+      [dossierId, majPar]);
+    const r = rows[0];
+    return { surfaceM2: r?.surface == null ? null : Number(r.surface), nbParcelles: r?.nb ?? total,
+             complete: true, motif: null, millesime: r?.mill ?? null, aGeometrie: true };
+  }
+  const motif = `${total - avec} parcelle(s) sélectionnée(s) sans contour cadastral → empreinte de sélection incomplète (pas d’union sur un sous-ensemble)`;
   await query(
     `INSERT INTO permis_empreinte (dossier_id, geom, surface_m2, nb_parcelles, complete, motif, millesime, maj_le, maj_par)
        VALUES ($1, NULL, NULL, $3, false, $4, NULL, now(), $2)

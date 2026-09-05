@@ -12,6 +12,7 @@ const H = vi.hoisted(() => {
   type CapRow = { capture: boolean; nb: number | null; motif: string | null; mill: string | null } | null;
   const state = {
     insertRowCount: 1, total: 2, avec: 2, unionSurface: 2886.3, unionNb: 2, unionMill: '2026-06-01',
+    selTotal: 0, selAvec: 0, // PL-C — garde « sélection d'abord » : par défaut AUCUNE sélection → figerEmpreinte prend le chemin automatique (scénarios FUS-1)
     // FUS-1b — état empreinte lu par figerBatiSnapshot, millésime couche bâti, bâtiments capturés, ligne résumé lue par lire…
     empRow: { a_geom: true, complete: true, motif: null } as EmpRow,
     batiMill: '2026-03-20' as string | null,           // proxy max(date_modification) — plus utilisé par le stampage depuis L8
@@ -27,6 +28,7 @@ const H = vi.hoisted(() => {
   const queryMock = async (sql: string, params?: unknown[]) => {
     appels.push({ sql, params: params ?? [] });
     if (/correction->'refOrigine'/i.test(sql)) return { rows: state.refsCorrigees, rowCount: state.refsCorrigees.length }; // LOT 101 — refs corrigées à la main
+    if (/FROM\s+permis_parcelle_selection/i.test(sql)) return { rows: [{ total: state.selTotal, avec: state.selAvec }], rowCount: 1 }; // PL-C — garde « sélection d'abord » : 0 par défaut → chemin AUTOMATIQUE
     if (/SELECT\s+count\(\*\)::int\s+AS\s+total/i.test(sql)) return { rows: [{ total: state.total, avec: state.avec }], rowCount: 1 };
     if (/INSERT\s+INTO\s+permis_empreinte[\s\S]*RETURNING/i.test(sql)) return { rows: [{ surface: state.unionSurface, nb: state.unionNb, mill: state.unionMill }], rowCount: 1 };
     if (/INSERT\s+INTO\s+permis_parcelle/i.test(sql)) return { rows: [], rowCount: state.insertRowCount };
