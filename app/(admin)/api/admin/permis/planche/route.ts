@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { parcellesVoisines, bornerRayon, type PlancheParcelles, type CentreMode } from '../../../../../lib/permis/plancheParcellesRepo';
+import { parcellesVoisines, suggestionsAdresse, bornerRayon, type PlancheParcelles, type CentreMode } from '../../../../../lib/permis/plancheParcellesRepo';
 import { validerSelection, retirerSelection } from '../../../../../lib/permis/selectionParcelleRepo';
 
 /**
@@ -29,14 +29,24 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const dossierId = Number(url.searchParams.get('dossierId'));
   if (!Number.isInteger(dossierId) || dossierId <= 0) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
+  // PL-E — AUTOCOMPLÉTION : ?suggest=<q> → liste de suggestions (proxy api-adresse, biais commune). Panne/rien → liste vide (repli propre).
+  const suggest = url.searchParams.get('suggest');
+  if (suggest !== null) {
+    try { return Response.json({ suggestions: await suggestionsAdresse(dossierId, suggest) }); }
+    catch (e) { console.error('[permis/planche] suggest indisponible', e instanceof Error ? e.message : String(e)); return Response.json({ suggestions: [] }); }
+  }
   const rayonBrut = url.searchParams.get('rayon');
   const rayon = bornerRayon(rayonBrut !== null && rayonBrut.trim() !== '' ? Number(rayonBrut) : undefined);
   const modeBrut = (url.searchParams.get('centre') ?? 'empreinte').trim();
   const mode: CentreMode = modeBrut === 'parcelle' || modeBrut === 'adresse' ? modeBrut : 'empreinte';
   const idu = url.searchParams.get('idu');
   const adresseTexte = url.searchParams.get('adresse'); // PL-D — saisie manuelle d'adresse (recours quand le géocodage auto échoue)
+  // PL-E — suggestion CHOISIE : point déjà connu (px/py Lambert-93 + libellé) → aucun re-géocodage.
+  const px = Number(url.searchParams.get('px')), py = Number(url.searchParams.get('py'));
+  const pointAdresse = Number.isFinite(px) && Number.isFinite(py) && url.searchParams.get('px') !== null
+    ? { x: px, y: py, label: url.searchParams.get('plabel') ?? 'adresse choisie' } : null;
   try {
-    return Response.json({ planche: await parcellesVoisines(dossierId, rayon, { mode, idu, adresseTexte }) });
+    return Response.json({ planche: await parcellesVoisines(dossierId, rayon, { mode, idu, adresseTexte, pointAdresse }) });
   } catch (e) {
     console.error('[permis/planche] GET indisponible', e instanceof Error ? e.message : String(e));
     return Response.json({ planche: plancheVide(rayon) }); // jamais un 500 qui ferait disparaître le bloc sans explication

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import type { PlancheParcelles as PlancheData, PlancheParcelleMeta, CentreMode } from '../../../../lib/permis/plancheParcellesRepo';
+import type { PlancheParcelles as PlancheData, PlancheParcelleMeta, CentreMode, SuggestionAdresse } from '../../../../lib/permis/plancheParcellesRepo';
 import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle';
 import { LiseusePieces } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome, RÉUTILISÉE (jamais dupliquée)
 
@@ -56,8 +56,10 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
   const [prevSelKey, setPrevSelKey] = useState<string | null>(null);      // clé de RÉINITIALISATION de la composition (reset PENDANT le rendu, pas dans un effet)
   const [enCours, setEnCours] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [adresseSaisie, setAdresseSaisie] = useState('');           // PL-D — champ de saisie manuelle d'adresse (mode adresse)
-  const [adresseAppliquee, setAdresseAppliquee] = useState<string | null>(null); // committée (pilote la requête) au clic « Localiser »/Entrée
+  const [adresseSaisie, setAdresseSaisie] = useState('');           // PL-D — champ de saisie d'adresse (mode adresse)
+  const [adresseCommittee, setAdresseCommittee] = useState<{ texte: string; point: { x: number; y: number } | null } | null>(null); // committée : suggestion CHOISIE (point) ou texte libre
+  const [suggestions, setSuggestions] = useState<SuggestionAdresse[] | null>(null); // PL-E — autocomplétion ; null = pas de recherche, [] = aucune
+  const [sugActive, setSugActive] = useState(-1);                    // index de la suggestion surlignée (clavier)
   const [autoAdresse, setAutoAdresse] = useState<number | null>(null); // dossier pour lequel on a déjà auto-basculé en mode adresse (impasse)
 
   useEffect(() => {
@@ -67,7 +69,10 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
       try {
         const q = new URLSearchParams({ dossierId: String(dossierId), rayon: String(rayon), centre: mode });
         if (mode === 'parcelle' && idu) q.set('idu', idu);
-        if (mode === 'adresse' && adresseAppliquee) q.set('adresse', adresseAppliquee); // PL-D — saisie manuelle
+        if (mode === 'adresse' && adresseCommittee) {
+          if (adresseCommittee.point) { q.set('px', String(adresseCommittee.point.x)); q.set('py', String(adresseCommittee.point.y)); q.set('plabel', adresseCommittee.texte); } // PL-E — suggestion CHOISIE : point déjà connu, aucun re-géocodage
+          else q.set('adresse', adresseCommittee.texte); // PL-D — texte libre à géocoder
+        }
         const res = await fetch(`/api/admin/permis/planche?${q.toString()}`, { cache: 'no-store' });
         if (annule) return;
         if (!res.ok) { setEtat('erreur'); return; }
@@ -76,7 +81,24 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
       } catch { if (!annule) setEtat('erreur'); }
     })();
     return () => { annule = true; };
-  }, [dossierId, rayon, mode, idu, adresseAppliquee]);
+  }, [dossierId, rayon, mode, idu, adresseCommittee]);
+
+  // PL-E — AUTOCOMPLÉTION : ≥ 3 caractères, débounce 300 ms, requête ANNULABLE (AbortController) → une réponse périmée qui arrive en
+  //   retard est IGNORÉE (le cleanup abort() la coupe). On ne re-suggère pas si le champ = exactement le libellé déjà choisi.
+  useEffect(() => {
+    const q = adresseSaisie.trim();
+    if (mode !== 'adresse' || q.length < 3 || (adresseCommittee && adresseCommittee.texte === adresseSaisie)) return; // pas de fetch (le vidage se fait dans onChange)
+    const ctrl = new AbortController();
+    const t = setTimeout(() => { void (async () => {
+      try {
+        const res = await fetch(`/api/admin/permis/planche?dossierId=${dossierId}&suggest=${encodeURIComponent(q)}`, { signal: ctrl.signal });
+        if (!res.ok) { setSuggestions([]); return; }
+        const j = (await res.json()) as { suggestions?: SuggestionAdresse[] };
+        setSuggestions(j.suggestions ?? []); setSugActive(-1);
+      } catch (e) { if ((e as Error).name !== 'AbortError') setSuggestions([]); } // AbortError = requête annulée (frappe rapide) → on ignore
+    })(); }, 300);
+    return () => { clearTimeout(t); ctrl.abort(); };
+  }, [adresseSaisie, dossierId, mode, adresseCommittee]);
 
   // Init/reset de la COMPOSITION locale, PENDANT LE RENDU (React idiome « ajuster l'état quand une clé change » ; pas d'effet →
   //   pas de rendu en cascade). Clé = dossier + état de VALIDATION (PAS le rayon) → changer le rayon/centrage NE perd PAS une
@@ -114,6 +136,17 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
   };
 
   const changerMode = (m: CentreMode) => { setMode(m); if (m === 'parcelle') setIdu((prev) => prev ?? data?.parcellesChoix[0]?.idu ?? null); };
+  // PL-E — choisir une suggestion (point DÉJÀ connu → aucun 2e appel) ; localiser du texte libre ; revenir à l'adresse du permis.
+  const choisirSuggestion = (s: SuggestionAdresse) => { setAdresseSaisie(s.label); setAdresseCommittee({ texte: s.label, point: { x: s.x, y: s.y } }); setSuggestions(null); setSugActive(-1); };
+  const localiserTexte = () => { const t = adresseSaisie.trim(); if (t) setAdresseCommittee({ texte: t, point: null }); setSuggestions(null); setSugActive(-1); };
+  const revenirAdressePermis = () => { setAdresseSaisie(''); setAdresseCommittee(null); setSuggestions(null); setSugActive(-1); };
+  const clavierAdresse = (e: React.KeyboardEvent) => {
+    const n = suggestions?.length ?? 0;
+    if (e.key === 'ArrowDown' && n) { e.preventDefault(); setSugActive((i) => (i + 1) % n); }
+    else if (e.key === 'ArrowUp' && n) { e.preventDefault(); setSugActive((i) => (i - 1 + n) % n); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (suggestions && sugActive >= 0 && sugActive < n) choisirSuggestion(suggestions[sugActive]); else localiserTexte(); }
+    else if (e.key === 'Escape') { setSuggestions(null); setSugActive(-1); }
+  };
 
   if (etat === 'chargement' && !data) return <div className="svv-card" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }} aria-live="polite">Chargement de la planche cadastrale…</div>;
   if (etat === 'erreur' || !data) return <div className="svv-card" role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Planche cadastrale indisponible.</div>;
@@ -147,15 +180,30 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
               </select>
             )}
           </div>
-          {/* PL-D — SAISIE MANUELLE d'adresse (recours quand le géocodage auto échoue) : texte libre → API nationale. */}
+          {/* PL-D/E — SAISIE d'adresse avec AUTOCOMPLÉTION (api-adresse) : suggestions à la frappe (≥3 car., biais commune) ; choisir =
+              géocoder sans 2e appel ; texte libre à défaut. Recours quand le géocodage auto échoue (impasse du 468). */}
           {mode === 'adresse' && (
-            <div style={{ display: 'flex', gap: '.3rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <input aria-label="Adresse à localiser" placeholder={adresseAppliquee ? adresseAppliquee : (data.centre.label ?? 'saisir une adresse (ex. 21 rue…, 75019 Paris)')}
-                value={adresseSaisie} onChange={(e) => setAdresseSaisie(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); setAdresseAppliquee(adresseSaisie.trim() || null); } }}
-                style={{ flex: '1 1 220px', minWidth: 0, fontSize: 12, padding: '.25rem .4rem', minHeight: 34, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' }} />
-              <button type="button" style={{ ...btn(false), minHeight: 34 }} onClick={() => setAdresseAppliquee(adresseSaisie.trim() || null)}>Localiser</button>
-              {adresseAppliquee && <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', fontSize: 11.5 }} onClick={() => { setAdresseSaisie(''); setAdresseAppliquee(null); }}>revenir à l’adresse du permis</button>}
+            <div style={{ display: 'flex', gap: '.3rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0 }}>
+                <input aria-label="Adresse à localiser" role="combobox" aria-expanded={!!(suggestions && suggestions.length)} aria-autocomplete="list" aria-controls={`sug-${dossierId}`}
+                  placeholder={data.centre.label ?? 'taper une adresse (ex. « inspecteur »…)'}
+                  value={adresseSaisie} onChange={(e) => { const v = e.target.value; setAdresseSaisie(v); if (adresseCommittee) setAdresseCommittee(null); if (v.trim().length < 3) { setSuggestions(null); setSugActive(-1); } }} onKeyDown={clavierAdresse}
+                  style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, padding: '.25rem .4rem', minHeight: 34, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' }} />
+                {suggestions && suggestions.length > 0 && (
+                  <ul id={`sug-${dossierId}`} role="listbox" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, listStyle: 'none', margin: '.1rem 0 0', padding: 0, background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', boxShadow: '0 2px 6px rgba(0,0,0,.15)', maxHeight: 210, overflowY: 'auto' }}>
+                    {suggestions.map((s, i) => (
+                      <li key={s.label} role="option" aria-selected={i === sugActive} onMouseEnter={() => setSugActive(i)}
+                        onMouseDown={(e) => { e.preventDefault(); choisirSuggestion(s); }} // mouseDown : choisit AVANT un éventuel blur
+                        style={{ padding: '.35rem .45rem', fontSize: 12, cursor: 'pointer', minHeight: 34, background: i === sugActive ? 'var(--color-svv-field)' : 'transparent', borderTop: i > 0 ? '1px solid var(--color-svv-line)' : undefined }}>{s.label}</li>
+                    ))}
+                  </ul>
+                )}
+                {suggestions && suggestions.length === 0 && adresseSaisie.trim().length >= 3 && (
+                  <div role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)', marginTop: '.15rem' }}>aucune suggestion — appuyez sur « Localiser » pour chercher tel quel</div>
+                )}
+              </div>
+              <button type="button" style={{ ...btn(false), minHeight: 34 }} onClick={localiserTexte}>Localiser</button>
+              {adresseCommittee && <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', fontSize: 11.5, alignSelf: 'center' }} onClick={revenirAdressePermis}>revenir à l’adresse du permis</button>}
             </div>
           )}
           {/* Point d'adresse localisé : provenance EXPLICITE (base locale vs API nationale — donnée externe, jamais « à la main »). */}

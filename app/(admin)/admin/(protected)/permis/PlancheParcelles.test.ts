@@ -28,13 +28,32 @@ describe('PlancheParcelles — schéma pur, provenance honnête (PL-A/B)', () =>
     expect(SRC).toContain('aria-label={`${texteParcelle(m)}'); // les lecteurs d'écran passent par aria-label
     expect(SRC).toContain('data.localisation.feuilleLibelle'); expect(SRC).toContain('non résolue en base');
   });
-  it('PL-D §1+2 : IMPASSE → auto-centrage adresse ; SAISIE MANUELLE + provenance (API nationale, jamais « à la main »)', () => {
+  it('PL-D §1 : IMPASSE → auto-centrage adresse ; provenance EXTERNE explicite (API nationale, jamais « à la main »)', () => {
     expect(SRC).toContain("data.parcellesChoix.length === 0 && mode === 'empreinte'"); // impasse → bascule auto en adresse
     expect(SRC).toContain("setMode('adresse')");
-    expect(SRC).toContain('aria-label="Adresse à localiser"'); // champ de saisie manuelle
-    expect(SRC).toContain('setAdresseAppliquee');
-    expect(SRC).toContain("q.set('adresse', adresseAppliquee)"); // la saisie pilote la requête
+    expect(SRC).toContain('aria-label="Adresse à localiser"');
     expect(SRC).toContain('API nationale (Base Adresse Nationale'); // provenance EXPLICITE du point externe
+  });
+  it('PL-E : AUTOCOMPLÉTION débounce 300 ms, ≥3 car., requête ANNULABLE (anti-réponse-périmée)', () => {
+    expect(SRC).toContain('&suggest=');            // endpoint d'autocomplétion
+    expect(SRC).toContain('setTimeout('); expect(SRC).toContain('300');
+    expect(SRC).toContain('q.length < 3');         // seuil 3 caractères
+    expect(SRC).toContain('new AbortController()'); expect(SRC).toContain('ctrl.abort()'); // race : réponse périmée coupée
+    expect(SRC).toContain("(e as Error).name !== 'AbortError'"); // une requête annulée est ignorée
+  });
+  it('PL-E : CHOISIR une suggestion → point déjà connu (px/py), AUCUN 2e géocodage', () => {
+    expect(SRC).toContain('choisirSuggestion');
+    expect(SRC).toContain("q.set('px'"); expect(SRC).toContain("q.set('py'"); expect(SRC).toContain("q.set('plabel'");
+    expect(SRC).toContain('adresseCommittee.point'); // si point connu → px/py ; sinon texte à géocoder
+  });
+  it('PL-E : CLAVIER (flèches/Entrée/Échap) + a11y combobox/listbox/option + tactile', () => {
+    expect(SRC).toContain("e.key === 'ArrowDown'"); expect(SRC).toContain("e.key === 'ArrowUp'");
+    expect(SRC).toContain("e.key === 'Enter'"); expect(SRC).toContain("e.key === 'Escape'");
+    expect(SRC).toContain('role="combobox"'); expect(SRC).toContain('role="listbox"'); expect(SRC).toContain('role="option"');
+    expect(SRC).toContain('minHeight: 34'); // cibles tactiles
+  });
+  it('PL-E : aucune suggestion ou API muette → le DIRE, garder la saisie libre (repli PL-D)', () => {
+    expect(SRC).toContain('aucune suggestion'); expect(SRC).toContain('localiserTexte'); // Localiser garde le texte libre
   });
   it('PROVENANCE HONNÊTE : descriptionActeurParcelle, « à la main » CONDITIONNÉ, jamais inconditionnel', () => {
     expect(SRC).toContain('descriptionActeurParcelle');

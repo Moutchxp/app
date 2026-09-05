@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // db/client crée un Pool à l'import (lazy, jamais connecté sans requête) ; on le mocke pour des tests PURS/ciblés (aucune I/O réelle).
 vi.mock('../db/client', () => ({ query: vi.fn() }));
 
-import { bornerRayon, RAYON_VOISINES_DEFAUT_M, nomParisArrondissement, geocoderAdresse } from './plancheParcellesRepo';
+import { bornerRayon, RAYON_VOISINES_DEFAUT_M, nomParisArrondissement, geocoderAdresse, suggestionsAdresse } from './plancheParcellesRepo';
 import { query } from '../db/client';
 
 /** PL-A — décision MESURÉE : rayon des voisines borné (paramètre de code), jamais une section entière (Seq Scan, illisible). */
@@ -85,5 +85,36 @@ describe('geocoderAdresse — recours API nationale + saisie manuelle (PL-D)', (
     vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network'); }));
     const r = await geocoderAdresse(468, 'une adresse quelconque');
     expect(r).toHaveProperty('erreur');
+  });
+});
+
+/** PL-E — autocomplétion : biais commune (résultats commune EN TÊTE) + France entière, dédup ; ≥3 car. ; panne → []. */
+describe('suggestionsAdresse — biais commune souple, dédup, seuil 3 car.', () => {
+  afterEach(() => { vi.unstubAllGlobals(); });
+  beforeEach(() => { vi.mocked(query).mockReset(); });
+
+  it('< 3 caractères → [] sans AUCUN appel (ni base ni réseau)', async () => {
+    const fetchSpy = vi.fn(); vi.stubGlobal('fetch', fetchSpy);
+    expect(await suggestionsAdresse(468, 'ab')).toEqual([]);
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(vi.mocked(query)).not.toHaveBeenCalled();
+  });
+
+  it('commune EN TÊTE puis France, DÉDUP par libellé ; chaque suggestion porte le point Lambert-93', async () => {
+    vi.mocked(query).mockResolvedValueOnce({ rows: [{ num_dau: '075119000A0001', code_insee: '75056' }], rowCount: 1 } as never);
+    vi.stubGlobal('fetch', vi.fn(async (u: string) => {
+      const feat = (label: string, x: number, y: number) => ({ properties: { label, x, y } });
+      if (u.includes('citycode=75119')) return { ok: true, json: async () => ({ features: [feat('Rue A 75019 Paris', 655000, 6864000)] }) };
+      return { ok: true, json: async () => ({ features: [feat('Rue A 75019 Paris', 655000, 6864000), feat('Rue A 45000 Orléans', 620000, 6750000)] }) };
+    }));
+    const r = await suggestionsAdresse(468, 'rue a');
+    expect(r.map((s) => s.label)).toEqual(['Rue A 75019 Paris', 'Rue A 45000 Orléans']); // commune d'abord, doublon retiré
+    expect(r[0]).toMatchObject({ x: 655000, y: 6864000 }); // point présent (choisir = géocoder sans 2e appel)
+  });
+
+  it('API injoignable → [] (repli propre, jamais une suggestion inventée)', async () => {
+    vi.mocked(query).mockResolvedValueOnce({ rows: [{ num_dau: '075119000A0001', code_insee: '75056' }], rowCount: 1 } as never);
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new Error('network'); }));
+    expect(await suggestionsAdresse(468, 'inspecteur')).toEqual([]);
   });
 });

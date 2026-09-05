@@ -35,7 +35,13 @@ export function nomParisArrondissement(insee: string | null): string | null {
 
 export type CentreMode = 'empreinte' | 'parcelle' | 'adresse';
 export type GeoProvenance = 'ban-local' | 'api-adresse'; // PL-D — d'où vient le point d'adresse (copie locale vs API nationale)
-export interface CentreDemande { mode: CentreMode; idu?: string | null; adresseTexte?: string | null } // adresseTexte = saisie manuelle (PL-D)
+/** PL-E — une suggestion d'autocomplétion : libellé + point DÉJÀ en Lambert-93 (choisir = géocoder, sans 2e appel). */
+export interface SuggestionAdresse { label: string; x: number; y: number }
+export interface CentreDemande {
+  mode: CentreMode; idu?: string | null;
+  adresseTexte?: string | null;                          // PL-D — saisie manuelle libre (à géocoder)
+  pointAdresse?: { x: number; y: number; label: string } | null; // PL-E — suggestion CHOISIE (point déjà connu → aucun re-géocodage)
+}
 export interface CentreEffectif { mode: CentreMode; idu: string | null; point: { x: number; y: number } | null; provenance: GeoProvenance | null; label: string | null }
 
 /** PL-C — sélection validée à la main (superposition). active=false → 100% automatique. Provenance HONNÊTE (acteur résolu si id admin). */
@@ -142,6 +148,40 @@ async function geocoderViaApi(q: string, citycode: string | null): Promise<GeoOk
 }
 
 /**
+ * PL-E — AUTOCOMPLÉTION d'adresse (api-adresse, mode `autocomplete`). BIAIS SOUPLE vers la commune du permis : on interroge à la fois
+ * AVEC le code INSEE (résultats de la commune EN TÊTE) et SANS (France entière, pour chercher ailleurs — le cas où l'automatique
+ * s'est trompé), puis on fusionne (commune d'abord, dédup par libellé). Chaque suggestion porte DÉJÀ le point Lambert-93 (choisir =
+ * géocoder sans 2e appel). ≥ 3 caractères requis. Toute panne réseau → liste vide (repli propre). Donnée EXTERNE (BAN, Licence Ouverte).
+ */
+async function apiSuggest(q: string, citycode: string | null): Promise<SuggestionAdresse[]> {
+  try {
+    const url = `https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&autocomplete=1&limit=5${citycode ? `&citycode=${encodeURIComponent(citycode)}` : ''}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) return [];
+    const j = (await res.json()) as { features?: { properties?: { label?: string; x?: number; y?: number } }[] };
+    return (j.features ?? []).flatMap((f) => {
+      const p = f.properties;
+      return p && typeof p.x === 'number' && typeof p.y === 'number' && p.label ? [{ label: p.label, x: p.x, y: p.y }] : [];
+    });
+  } catch { return []; }
+}
+
+export async function suggestionsAdresse(dossierId: number, q: string): Promise<SuggestionAdresse[]> {
+  const requete = (q ?? '').trim();
+  if (requete.length < 3) return []; // pas de rafale sur 1-2 caractères
+  const { rows } = await query<{ num_dau: string; code_insee: string }>(
+    `SELECT num_dau, code_insee FROM sitadel_dossier WHERE id = $1`, [dossierId]);
+  const d = rows[0];
+  const c = d ? communeCadastrale(d.num_dau, d.code_insee) : { motif: '' };
+  const insee = 'insee' in c ? c.insee : (d?.code_insee ?? '').trim();
+  const [commune, france] = await Promise.all([insee ? apiSuggest(requete, insee) : Promise.resolve([]), apiSuggest(requete, null)]);
+  const vues = new Set<string>();
+  const out: SuggestionAdresse[] = [];
+  for (const s of [...commune, ...france]) { if (!vues.has(s.label)) { vues.add(s.label); out.push(s); } } // commune EN TÊTE, dédup
+  return out.slice(0, 6);
+}
+
+/**
  * GÉOCODAGE : copie LOCALE d'adresse_ban d'abord (structuré : INSEE arrondissement + voie en préfixe unaccent + n° à suffixe géré),
  * puis RECOURS api-adresse (France entière) si le local échoue. Une SAISIE MANUELLE (`texteManuel`, PL-D) est du texte libre →
  * envoyée directement à l'API nationale (le local exige un libellé structuré). Provenance TOUJOURS explicite (ban-local vs api-adresse).
@@ -219,9 +259,15 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
   } else if (demande.mode === 'parcelle') {
     centreAvertissement = 'parcelle de centrage inconnue pour ce permis — centrage sur l’empreinte';
   } else if (demande.mode === 'adresse') {
-    const geo = await geocoderAdresse(dossierId, demande.adresseTexte); // PL-D : saisie manuelle → API nationale ; sinon adresse Sitadel (local puis API)
-    if ('erreur' in geo) { centreAvertissement = geo.erreur; }
-    else { mode = 'adresse'; point = { x: geo.x, y: geo.y }; centreAvertissement = geo.avertissement; provenance = geo.provenance; label = geo.label; }
+    if (demande.pointAdresse) {
+      // PL-E — suggestion CHOISIE : le point est DÉJÀ connu (Lambert-93) → aucun re-géocodage. Donnée externe (BAN).
+      mode = 'adresse'; point = { x: demande.pointAdresse.x, y: demande.pointAdresse.y }; provenance = 'api-adresse'; label = demande.pointAdresse.label;
+      centreAvertissement = 'adresse choisie via l’API nationale (api-adresse.data.gouv.fr — Base Adresse Nationale, Licence Ouverte)';
+    } else {
+      const geo = await geocoderAdresse(dossierId, demande.adresseTexte); // PL-D : saisie manuelle → API nationale ; sinon adresse Sitadel (local puis API)
+      if ('erreur' in geo) { centreAvertissement = geo.erreur; }
+      else { mode = 'adresse'; point = { x: geo.x, y: geo.y }; centreAvertissement = geo.avertissement; provenance = geo.provenance; label = geo.label; }
+    }
   }
 
   const { rows: empRows } = await query<{ gj: unknown }>(

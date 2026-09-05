@@ -11,10 +11,12 @@ vi.mock('../../../../../lib/permis/selectionParcelleRepo', () => ({
 }));
 vi.mock('../../../../../lib/permis/plancheParcellesRepo', () => ({
   parcellesVoisines: vi.fn(async () => ({ selection: { active: true, idus: ['A', 'B'] } })),
+  suggestionsAdresse: vi.fn(async () => [{ label: 'Rue de l’Inspecteur Allès 75019 Paris', x: 655865, y: 6864587 }]),
   bornerRayon: (n: number) => n ?? 50,
 }));
 
-import { POST } from './route';
+import { GET, POST } from './route';
+import { suggestionsAdresse } from '../../../../../lib/permis/plancheParcellesRepo';
 import { validerSelection, retirerSelection } from '../../../../../lib/permis/selectionParcelleRepo';
 
 const req = (body: unknown) => new Request('http://x/api/admin/permis/planche', { method: 'POST', body: JSON.stringify(body) });
@@ -45,5 +47,15 @@ describe('POST — valider / retirer une sélection superposée', () => {
     const res = await POST(req({ action: 'retirer', dossierId: 0 }));
     expect(res.status).toBe(400);
     expect(retirerSelection).not.toHaveBeenCalled();
+  });
+});
+
+describe('GET ?suggest — autocomplétion d’adresse (PL-E)', () => {
+  it('renvoie les suggestions (label + point) via suggestionsAdresse', async () => {
+    const res = await GET(new Request('http://x/api/admin/permis/planche?dossierId=468&suggest=inspecteur'));
+    expect(res.status).toBe(200);
+    const j = await res.json();
+    expect(suggestionsAdresse).toHaveBeenCalledWith(468, 'inspecteur');
+    expect(j.suggestions[0]).toMatchObject({ label: expect.stringContaining('Inspecteur Allès'), x: 655865, y: 6864587 });
   });
 });
