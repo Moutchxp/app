@@ -101,6 +101,9 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const [pleinPagesAnalysees, setPleinPagesAnalysees] = useState(false);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  // PROJ-AGR — agrandissement de l'aperçu (parité avec « Bâtiments et projection »). Côté planche la liseuse est PASSIVE : un clic n'y
+  //   pose RIEN (aucune capture de clic, aucune conversion écran→PDF) → l'agrandi reste un simple confort de lecture. Le canvas se re-rend à sa largeur.
+  const [imageAgrandie, setImageAgrandie] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   // LOT 23 — RETOUR VISUEL d'un téléchargement réseau NON préchargé : « Chargement… N % » (pct null tant qu'on n'a pas de total). null = rien à afficher.
   const [chargeReseau, setChargeReseau] = useState<{ pct: number | null } | null>(null);
@@ -341,7 +344,16 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   // Auto-affichage de la page courante au chargement (etat→ok) et à chaque changement de (pièce, page). Ref stable : ne pas se lier à afficherPage.
   const afficherPageRef = useRef(afficherPage);
   useEffect(() => { afficherPageRef.current = afficherPage; }, [afficherPage]);
-  useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [pieceId, page, etat]);
+  // PROJ-AGR — `imageAgrandie` dans les deps : basculer l'agrandi re-rend le canvas à la largeur de la nouvelle vue (le cache LRU des
+  //   documents évite tout re-téléchargement ; seul le rendu est refait). Aucune capture de clic : la planche reste passive.
+  useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [pieceId, page, etat, imageAgrandie]);
+  // PROJ-AGR — Échap réduit l'agrandissement (sortie clavier).
+  useEffect(() => {
+    if (!imageAgrandie) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setImageAgrandie(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [imageAgrandie]);
 
   // LOT 92 — la page ACTUELLEMENT affichée (dans les deux navs : best-of ou pièce libre) et son appartenance au best-of visible.
   const planAffiche = pieceId !== null ? (bandeVisible.find((pl) => pl.pieceId === pieceId && pl.page === page) ?? null) : null;
@@ -570,7 +582,16 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
           un clic sur n'importe quelle ligne, même tout en bas, affiche la page SANS remonter. Sur écran ÉTROIT (colonnes empilées via
           flex-wrap), `top` n'a d'effet qu'une fois l'aperçu atteint : combiné à la liste bornée ci-dessus, l'aperçu reste à portée
           (l'aperçu vient sous la liste bornée). `alignSelf:flex-start` : le sticky s'ancre en haut de la colonne, pas étiré. */}
-      <div style={{ flex: '2 1 300px', minWidth: 0, position: 'sticky', top: '.5rem', alignSelf: 'flex-start' }}>
+      {/* PROJ-AGR — colonne d'aperçu ; en agrandi, elle passe en PLEIN ÉCRAN (CSS). PASSIVE : aucun clic n'y pose de point (parité du geste
+          « Agrandir l'image » avec « Bâtiments et projection », mais sans tracé côté planche). */}
+      <div role={imageAgrandie ? 'dialog' : undefined} aria-modal={imageAgrandie || undefined} aria-label={imageAgrandie ? 'Aperçu agrandi' : undefined}
+        style={imageAgrandie
+          ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '.4rem' }
+          : { flex: '2 1 300px', minWidth: 0, position: 'sticky', top: '.5rem', alignSelf: 'flex-start' }}>
+        {pieceId !== null && (
+          <div><button type="button" style={{ cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.2rem .6rem', fontSize: 12 }}
+            onClick={() => setImageAgrandie((v) => !v)} aria-label={imageAgrandie ? 'Réduire l’image' : 'Agrandir l’image'}>{imageAgrandie ? '✕ Réduire l’image' : '⤢ Agrandir l’image'}</button></div>
+        )}
         {/* LOT 91 — aucune pièce sélectionnée → le dire explicitement (jamais un cadre vide muet, règle LOT 71). */}
         {pieceId === null && <p role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: '0 0 .3rem' }}>Aucun aperçu ouvert : choisissez une pièce (best-of ci-contre ou « voir toutes les pièces du dossier »).</p>}
         {/* LOT 65 — OUVRIR LE DOCUMENT COMPLET (nouvel onglet), AU-DESSUS de l'image. Visiblement cliquable (souligné + ↗, jamais un

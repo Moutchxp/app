@@ -309,8 +309,10 @@ describe('LOT 22/23 — liseuse rapide : cache LRU par pièce, une seule page, a
     expect((SRC.match(/\.getPage\(/g) ?? []).length).toBe(1);
     expect(SRC).not.toMatch(/for\s*\([^)]*numPages/); // jamais une boucle de rendu sur toutes les pages
   });
-  it('le rendu ne se recalcule qu’au changement de PIÈCE / PAGE (jamais à chaque re-render React) : deps [pieceId, page, etat]', () => {
-    expect(SRC).toMatch(/void afficherPageRef\.current\(\)[\s\S]*\}, \[pieceId, page, etat\]\)/);
+  it('le rendu ne se recalcule qu’au changement de PIÈCE / PAGE / AGRANDISSEMENT (jamais à chaque re-render React) : deps figées', () => {
+    // PROJ-AGR — `imageAgrandie` ajouté aux deps : basculer l'agrandi re-rend le canvas à la largeur de la nouvelle vue. Les deps restent
+    //   une LISTE FIGÉE (aucun re-render à chaque render React) — le garde-fou est préservé, seule la liste s'allonge d'un état explicite.
+    expect(SRC).toMatch(/void afficherPageRef\.current\(\)[\s\S]*\}, \[pieceId, page, etat, imageAgrandie\]\)/);
   });
   it('LECTURE SEULE : aucune couche texte ni annotations pdf.js (inutile, coûteuse)', () => {
     for (const inutile of ['textLayer', 'TextLayer', 'getTextContent', 'annotationLayer', 'AnnotationLayer']) {

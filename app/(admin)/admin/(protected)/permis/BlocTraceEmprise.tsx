@@ -57,6 +57,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const [confirmeSel, setConfirmeSel] = useState(false);
   const [occupeSel, setOccupeSel] = useState(false);
   const [pleinEcran, setPleinEcran] = useState(false); // PROJ-3i — agrandissement du schéma
+  // PROJ-AGR — agrandissement INTERACTIF de la visionneuse (« tracer en grand ») : la grille du workspace passe en plein écran (CSS),
+  //   le canvas SE RE-REND à sa nouvelle largeur → apercu/ratio recalculés POUR CETTE VUE (cf. effet d'auto-affichage). afficherPage et
+  //   cliquerPdf restent INCHANGÉS : un point posé en grand tombe au MÊME endroit géométrique qu'en petit (démontré dans agrandissement.filet.test.ts).
+  const [imageAgrandie, setImageAgrandie] = useState(false);
   const [angle, setAngle] = useState(0); // PROJ-3j — rotation du schéma (0-360°), AFFICHAGE seulement, éphémère (non persistée)
   const [corpsSel, setCorpsSel] = useState<number | null>(null);
   const [pieceId, setPieceId] = useState<number | null>(null);
@@ -186,6 +190,13 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [pleinEcran]);
+  // PROJ-AGR — Échap réduit aussi l'agrandissement de l'image (jamais un piège plein écran sans sortie clavier).
+  useEffect(() => {
+    if (!imageAgrandie) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setImageAgrandie(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [imageAgrandie]);
 
   // PROJ — APERÇU LIVE du débordement (débonce 400 ms) : la géométrie Lambert est recalculée CÔTÉ SERVEUR (garde PROJ) ; on ne fait
   //   qu'AFFICHER. On ne met à jour l'état QUE depuis le callback ASYNC (jamais un setState synchrone dans l'effet). Un contour non
@@ -285,7 +296,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   (bande best-of OU pièce libre) ne fait que poser pieceId/page → cet effet rend. Ref stable pour ne pas se lier à afficherPage.
   const afficherPageRef = useRef(afficherPage);
   useEffect(() => { afficherPageRef.current = afficherPage; }, [afficherPage]);
-  useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [pieceId, page, etat]);
+  // PROJ-AGR — `imageAgrandie` DANS les deps : basculer l'agrandissement re-déclenche afficherPage → le canvas se re-rend à la largeur
+  //   de la NOUVELLE vue (petite ↔ plein écran) et apercu/ratio se recalculent pour elle. Les points posés (sommets/paires en coords PDF)
+  //   ne sont PAS effacés par afficherPage → ils restent exacts et se re-projettent (versCss) au bon endroit dans les deux vues.
+  useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [pieceId, page, etat, imageAgrandie]);
 
   // PROJ-3e — CHANGER DE PAGE/PLAN sans perdre le travail en silence : un calage/tracé en cours → on diffère (confirmation inline) ;
   //   sinon on exécute. Le travail n'a de sens que sur SA page (points en espace-page) → on l'abandonne à l'échange (même règle qu'avant).
@@ -582,7 +596,14 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       </div>
 
       {batSel && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
+        // PROJ-AGR — quand `imageAgrandie`, TOUTE la grille (plan À GAUCHE + schéma À DROITE + outils) passe en PLEIN ÉCRAN (CSS
+        //   position:fixed). Le plan s'affiche large (tracé précis), le schéma reste présent (2e point de calage). Les MÊMES éléments et
+        //   handlers (pdfContainerRef/cliquerPdf, SchemaParcelleTrace/cliquerSchema) sont réutilisés → aucune duplication du tracé ; le
+        //   canvas se re-rend à la nouvelle largeur (effet ci-dessus) → coordonnées exactes pour cette vue.
+        <div role={imageAgrandie ? 'dialog' : undefined} aria-modal={imageAgrandie || undefined} aria-label={imageAgrandie ? 'Visionneuse agrandie — tracer en grand' : undefined}
+          style={imageAgrandie
+            ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
+            : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
           {/* Colonne PDF */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', minWidth: 0 }}>
             {/* PROJ-3f ① — DEUX navigations DISTINCTES, une seule visible à la fois, identifiée par son EN-TÊTE (les MOTS, pas la couleur). */}
@@ -630,6 +651,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             </div>
             {/* PROJ-3m ② — le guidage s'affiche À CÔTÉ du geste : ici sous le PLAN quand c'est là qu'il faut cliquer. */}
             {tracable && guidage.sur === 'plan' && <GuidageTraceBox g={guidage} />}
+            {/* PROJ-AGR — « Agrandir l'image » (même registre que « Agrandir le schéma ») : tracer/caler EN GRAND, sans quitter l'onglet.
+                La vue agrandie est INTERACTIVE et exacte au pixel (le canvas se re-rend à sa largeur, cliquerPdf inchangé). */}
+            <div><button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
+              aria-label={imageAgrandie ? 'Réduire l’image' : 'Agrandir l’image pour tracer en grand'}>{imageAgrandie ? '✕ Réduire l’image' : '⤢ Agrandir l’image'}</button></div>
           </div>
 
           {/* Colonne de droite — PROJ-3j ③ : le SCHÉMA en PREMIER (aligné avec le document à gauche), les outils en dessous. */}
