@@ -213,30 +213,42 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
     expect(iEtape1).toBeGreaterThan(iBarre);  // « Étape 1 » APRÈS la barre = dernière position de la colonne
   });
 
-  it('DEMANDE 1 — ALIGNEMENT : dans la colonne droite le SCHÉMA passe AVANT la rotation/guidage → il démarre à la même hauteur que l’image', () => {
+  it('DEMANDE 1 (9decccf) — ALIGNEMENT : dans la colonne droite le SCHÉMA passe AVANT la rotation/guidage → même hauteur que l’image', () => {
     const iSchema = src.indexOf('onCliquer={retouche ? cliquerRetouche'); // le schéma interactif (calage)
-    // le guide côté schéma (rendu pendant le processus) est DESCENDU sous le schéma.
+    // le guide côté schéma (rendu pendant le processus) est DESCENDU sous le schéma ; les options aussi.
     const iGuidageSchema = src.indexOf('tracable && procEnCours && <div className="svv-guide-fondu"');
-    const iAgrandirSchema = src.indexOf('⤢ Agrandir le schéma');
+    const iOptions = src.indexOf('<OptionsVisibiliteSchema', iSchema); // celui de la branche principale (après le schéma interactif)
     expect(iSchema).toBeGreaterThan(-1);
     expect(iGuidageSchema).toBeGreaterThan(iSchema);  // rotation/bandeau/guidage DESCENDUS sous le schéma
-    expect(iAgrandirSchema).toBeGreaterThan(iSchema);
+    expect(iOptions).toBeGreaterThan(iSchema);        // options DESCENDUES sous le schéma
   });
 
-  it('PARITÉ — les DEUX visionneuses passent slotActions (zoom + agrandir) et onRetourBestOf à la barre', () => {
+  it('PARITÉ — les DEUX visionneuses remontent la ligne d’outils (zoom + « mode grandes images ») et passent onRetourBestOf à la barre', () => {
     for (const f of [src, liseuse]) {
-      expect(f).toContain('slotActions={slotActions}');
+      expect(f).toContain('const ligneOutils =');            // ligne d'outils au-dessus de l'image (ex-slotActions)
+      expect(f).toContain('mode grandes images');            // « Agrandir l'image » RENOMMÉ
       expect(f).toContain('onRetourBestOf={retourBestOf}');
-      expect(f).toContain('const slotActions =');
+      expect(f).not.toContain('slotActions');                // slotActions supprimé (plus dans la barre)
     }
   });
 
-  it('DEMANDE 2c — slotActions est rendu EN TÊTE de la section « fonctions » de la barre (après le séparateur, avant le statut)', () => {
-    const iDivider = barre.indexOf('borderTop:');
-    const iActions = barre.indexOf('{slotActions}');
-    const iStatut = barre.indexOf('statutPage.etat');
-    expect(iActions).toBeGreaterThan(iDivider);
-    expect(iStatut).toBeGreaterThan(iActions);
+  it('DEMANDE 1 (ce lot) — LIGNE D’OUTILS au-dessus des DEUX images (tracé) : zoom + « mode grandes images » à gauche, « Agrandir le schéma » à l’extrême droite', () => {
+    const iLigneDef = src.indexOf('const ligneOutils =');
+    const iFinDef = src.indexOf('const vue = affichageTrace', iLigneDef);
+    const bloc = src.slice(iLigneDef, iFinDef);
+    expect(bloc).toContain("gridColumn: '1 / -1'");            // span les 2 colonnes (au-dessus des deux images)
+    expect(bloc).toContain("justifyContent: 'space-between'"); // gauche / extrême droite
+    const iZoom = bloc.indexOf('<ZoomPdf');
+    const iMode = bloc.indexOf('mode grandes images');
+    const iSchemaBtn = bloc.indexOf('⤢ Agrandir le schéma');
+    expect(iZoom).toBeGreaterThan(-1);
+    expect(iMode).toBeGreaterThan(iZoom);          // zoom PUIS « mode grandes images » (groupe gauche)
+    expect(iSchemaBtn).toBeGreaterThan(iMode);     // « Agrandir le schéma » à l'extrême droite (après le groupe gauche)
+    // la ligne est RENDUE en tête de grille, AVANT l'image.
+    const iRender = src.indexOf('{ligneOutils}');
+    const iImage = src.indexOf('ref={pdfContainerRef}');
+    expect(iRender).toBeGreaterThan(-1);
+    expect(iRender).toBeLessThan(iImage);
   });
 
   it('DEMANDE 3 — la barre porte le repère best-of vs fichier + un retour explicite (onRetourBestOf)', () => {
@@ -307,10 +319,10 @@ describe('SUITE LOT 7b47817 — le bloc outils/contrôle suit procEnCours, group
     const iGroupe = src.indexOf('tracable && procEnCours && <div className="svv-guide-fondu"');
     const iGuide = src.indexOf('<GuidageTraceBox', iGroupe);
     const iBloc = src.indexOf('{blocOutilsCalage}', iGroupe);
-    const iFinGroupe = src.indexOf('⤢ Agrandir le schéma', iGroupe); // borne : le conteneur groupé précède « Agrandir le schéma »
+    const iFinGroupe = src.indexOf('<OptionsVisibiliteSchema', iGroupe); // borne : le conteneur groupé précède les options de visibilité (sous le schéma)
     expect(iGuide).toBeGreaterThan(iGroupe);
     expect(iBloc).toBeGreaterThan(iGuide);          // ordre lisible : guide au-dessus, bloc en dessous
-    expect(iBloc).toBeLessThan(iFinGroupe);         // le bloc est BIEN dans le conteneur groupé (avant « Agrandir le schéma »)
+    expect(iBloc).toBeLessThan(iFinGroupe);         // le bloc est BIEN dans le conteneur groupé (avant les options sous le schéma)
   });
 
   it('(g) le RÉSIDU de calage + l’échelle implicite/déclarée + l’aire vivent DANS ce bloc → restent lisibles pendant le tracé', () => {

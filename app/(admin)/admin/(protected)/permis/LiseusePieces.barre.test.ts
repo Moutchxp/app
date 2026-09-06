@@ -131,6 +131,29 @@ describe('LOT 94 — fichier d’UNE seule page : aucune navigation de pages', (
   });
 });
 
+describe('DEMANDE 2 — « voir toutes les pièces » rend TOUTES les pièces renvoyées par la route (planche)', () => {
+  it('la route renvoie 3 pièces → le sélecteur en rend 3 (chaque nom présent, cliquable)', async () => {
+    // La route renvoie 3 pièces (dont 1 seule proposée) : la liste « voir toutes les pièces » doit toutes les proposer.
+    global.fetch = vi.fn(async (_i: unknown, init?: { method?: string; body?: string }) => {
+      if ((init?.method ?? 'GET') === 'POST') return { ok: true, json: async () => ({ url: 'blob:fake' }) } as unknown as Response;
+      return { ok: true, json: async () => ({ pieces: [
+        { id: 55, nomFichier: 'A_plan_masse.pdf', propose: true, famille: 'masse', confirme: true, planches: [{ page: 1, echelle: null }] },
+        { id: 60, nomFichier: 'B_notice.pdf', propose: false },
+        { id: 61, nomFichier: 'C_facade.pdf', propose: false },
+      ] }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await act(async () => { root.render(h(LiseusePieces, { dossierId: 1 })); });
+    await flush();
+    // ouvrir « voir toutes les pièces du dossier » si ce n'est pas déjà déplié.
+    const toggle = Array.from(container.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('voir toutes les pièces du dossier'));
+    if (toggle) { act(() => { toggle.click(); }); await flush(); }
+    // les 3 pièces sont proposées (liste explicite = un bouton par pièce).
+    for (const nom of ['A_plan_masse.pdf', 'B_notice.pdf', 'C_facade.pdf']) expect(container.textContent).toContain(nom);
+    const boutonsPiece = Array.from(container.querySelectorAll('button')).filter((b) => /\.pdf/.test(b.textContent ?? ''));
+    expect(boutonsPiece.length).toBeGreaterThanOrEqual(3); // au moins une entrée cliquable par pièce
+  });
+});
+
 describe('DEMANDE 3 — « où suis-je » : best-of vs pages du fichier, avec retour explicite au best-of', () => {
   it('page 1 (dans le best-of) → « best-of » ; feuilleter vers une page HORS best-of bascule le repère + fait apparaître « revenir au best-of »', async () => {
     await act(async () => { root.render(h(LiseusePieces, { dossierId: 1 })); });

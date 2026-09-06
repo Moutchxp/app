@@ -717,14 +717,18 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       )}
     </div>
   );
-  // DEMANDE 2c — fonctions viewer-spécifiques (zoom du document + « agrandir l'image »), passées en tête de la section « fonctions » de la
-  //   barre. « Agrandir l'image » est INTERACTIVE et exacte au pixel (le canvas se re-rend à sa largeur, cliquerPdf inchangé).
-  const slotActions = (
-    <>
-      <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
-      <div><button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
-        aria-label={imageAgrandie ? 'Réduire l’image' : 'Agrandir l’image pour tracer en grand'}>{imageAgrandie ? '✕ Réduire l’image' : '⤢ Agrandir l’image'}</button></div>
-    </>
+  // DEMANDE 1 — LIGNE D'OUTILS AU-DESSUS DES DEUX IMAGES (en tête de grille, span 2 colonnes) : à GAUCHE (au-dessus de l'image) les
+  //   contrôles de zoom + « mode grandes images » ; à l'EXTRÊME DROITE (au-dessus du schéma) « Agrandir le schéma ». Remontés de leur
+  //   position sous les images. « Agrandir l'image » RENOMMÉ « mode grandes images ». Aucun handler de zoom/agrandissement modifié.
+  const ligneOutils = (
+    <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
+        <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
+        <button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
+          aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images (tracer en grand)'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
+      </div>
+      <button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button>
+    </div>
   );
 
   // SUITE LOT 7b47817 — le SECOND bloc « barre d'outils de calage/tracé + encadré de contrôle + aire » suit le MÊME état (procEnCours) que
@@ -822,6 +826,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
           style={imageAgrandie
             ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
             : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
+          {/* DEMANDE 1 — LIGNE D'OUTILS au-dessus des DEUX images (span 2 colonnes) : zoom + « mode grandes images » à gauche, « Agrandir le schéma » à l'extrême droite. */}
+          {ligneOutils}
           {/* Colonne PDF — DEMANDE 2 : a) l'IMAGE en tête (alignée avec le schéma à droite) ; b) IMMÉDIATEMENT sous l'image, tout le bloc de
               navigation + « voir toutes les pièces » + lien (barre, section haute) ; c) « agrandir l'image » + zoom + fonctions (barre,
               section basse) ; d) EN DERNIER : le bloc « Étape 1 — caler la vue » (encadré rouge). */}
@@ -841,9 +847,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               </div>
             </div>
             {/* b) + c) BARRE PARTAGÉE (même composant que la planche), SOUS l'image : nav complète + voir-toutes + lien (haut), puis
-                zoom + « agrandir » (slotActions) + statut/best-of/analyses (bas). Zéro outil de tracé ; actions serveur existantes. */}
+                statut/best-of/analyses (bas). Zoom + « mode grandes images » sont AU-DESSUS (ligneOutils). Zéro outil de tracé. */}
             <BarreVisionneusePieces pieceId={pieceId} nomCourant={nomCourant} page={page} nbPagesPiece={nbPagesPiece} echelle={planAffiche?.echelle ?? null}
-              nav={nav} slotNav={slotNav} slotPieces={slotPieces} slotActions={slotActions}
+              nav={nav} slotNav={slotNav} slotPieces={slotPieces}
               onOuvrirDocument={() => void ouvrirDocumentComplet()} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} onRetourBestOf={retourBestOf}
               pageDansBestOf={pageDansBestOf} onRetirerBestOf={() => { if (planAffiche) void retirerDuBestOf(planAffiche!); }} onAjouterBestOf={() => { if (pieceId !== null) void ajouterAuBestOf(pieceId, page); }}
               statutPage={statutPage} resumePages={resumePages} pleinPagesAnalysees={pleinPagesAnalysees} onTogglePleinPages={() => setPleinPagesAnalysees((v) => !v)}
@@ -879,7 +885,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 peutAnnuler={paires.length > 0 || planEnAttente !== null} />
               {blocOutilsCalage}
             </div>}
-            <div><button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button></div>
+            {/* DEMANDE 1 — « Agrandir le schéma » a été REMONTÉ dans la ligne d'outils au-dessus des images (extrême droite). */}
 
             {/* Options de visibilité + sélection des polygones « en projet ». */}
             <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />

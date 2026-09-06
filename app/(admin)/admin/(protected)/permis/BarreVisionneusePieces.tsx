@@ -28,7 +28,6 @@ export interface BarreVisionneusePiecesProps {
   nav: 'bestof' | 'piece';               // mode courant : en 'piece', slotNav feuillette déjà les pages → pas de contrôle de page en double
   slotNav: React.ReactNode;              // navigation PRIMAIRE (unique paire ‹/›) : BandePlans (best-of) ou NavPieceLibre (pièce libre)
   slotPieces: React.ReactNode;           // « voir toutes les pièces du dossier » (contenu propre à chaque visionneuse) descendu sous l'image
-  slotActions?: React.ReactNode;         // fonctions viewer-spécifiques (zoom + « agrandir l'image ») en TÊTE de la section « fonctions »
   onOuvrirDocument: () => void;          // LIEN vers le document source (nouvel onglet) — url_piece
   onPagePrecedente: () => void;
   onPageSuivante: () => void;
@@ -52,11 +51,16 @@ export interface BarreVisionneusePiecesProps {
 }
 
 export function BarreVisionneusePieces({
-  pieceId, nomCourant, page, nbPagesPiece, echelle, nav, slotNav, slotPieces, slotActions, onOuvrirDocument, onPagePrecedente, onPageSuivante, onRetourBestOf,
+  pieceId, nomCourant, page, nbPagesPiece, echelle, nav, slotNav, slotPieces, onOuvrirDocument, onPagePrecedente, onPageSuivante, onRetourBestOf,
   pageDansBestOf, onRetirerBestOf, onAjouterBestOf, statutPage, resumePages, pleinPagesAnalysees, onTogglePleinPages,
   runCourant, lectureCourante, reperEnCours, lectureEnCours, onAnalyseFichier, onAnalysePage, reperMsg, lectureRes, onAnnulerValeur,
 }: BarreVisionneusePiecesProps) {
-  if (pieceId === null) return null;
+  // BUG « voir toutes les pièces VIDE » — RÉGRESSION de la factorisation : la barre faisait `return null` quand AUCUNE pièce n'est
+  //   ouverte (pieceId null), ce qui masquait AUSSI l'échappatoire `slotPieces` (« voir toutes les pièces ») et la nav `slotNav` — donc
+  //   plus aucun moyen de CHOISIR une pièce quand aucune n'est auto-sélectionnée (dossier avec bâtiments mais sans pièce PDF auto-ouverte).
+  //   Avant la factorisation, le sélecteur était rendu INCONDITIONNELLEMENT. On rétablit : `slotNav` + `slotPieces` TOUJOURS rendus ;
+  //   seules les commandes LIÉES À LA PAGE (nav page, lien, statut, best-of, analyses) restent gardées par `pageOuverte`.
+  const pageOuverte = pieceId !== null;
   // DEMANDE 4 — statut d'analyse IA de LA page affichée, dérivé des données déjà en main (aucune route neuve) : une lecture au grain
   //   page prime (valeurs lues), sinon un repérage du fichier entier la couvre, sinon elle n'a pas été analysée.
   const detailIA: string | null = lectureCourante ? 'valeurs lues (page)' : runCourant ? 'fichier analysé' : null;
@@ -74,7 +78,7 @@ export function BarreVisionneusePieces({
       {slotNav}
       {/* ① bis — CONTRÔLE DE PAGE DISCRET (fichier multi-pages), NETTEMENT distinct de la paire de plans. Masqué en mode « pièce libre »
           (slotNav y feuillette déjà les pages → jamais deux contrôles de page). Garde l'accès à toutes les pages sans seconde grande paire. */}
-      {nav !== 'piece' && nbPagesPiece > 1 && (
+      {pageOuverte && nav !== 'piece' && nbPagesPiece > 1 && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem', flexWrap: 'wrap', fontSize: 11, color: 'var(--color-svv-muted)' }}>
           <span>pages de ce fichier :</span>
           <button type="button" aria-label="Page précédente du fichier" disabled={page <= 1} onClick={onPagePrecedente} style={btnPageMini(page > 1)}>◁</button>
@@ -85,29 +89,32 @@ export function BarreVisionneusePieces({
       {/* ① ter — REPÈRE « OÙ SUIS-JE » (demande 3) + QUALIFICATION DE LA PAGE (demande 4), lisible d'un coup d'œil pendant la navigation.
           SOBRE (aides de lecture, pas des alertes). L'état best-of/fichier est porté par le MOT (pageDansBestOf), jamais par la couleur seule.
           Quand on est HORS best-of (une page du fichier non retenue), un retour EXPLICITE est proposé. Données déjà en main → zéro route. */}
-      <div role="status" style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', fontSize: 11, color: 'var(--color-svv-muted)' }}>
-        {pageDansBestOf ? (
-          <span>Vous parcourez le <strong style={{ color: 'var(--color-svv-ink)' }}>best-of des plans</strong>.</span>
-        ) : (
-          <>
-            <span>Vous parcourez les <strong style={{ color: 'var(--color-svv-ink)' }}>pages du fichier</strong> — hors best-of.</span>
-            <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', fontSize: 11 }} onClick={onRetourBestOf} aria-label="Revenir à la sélection best-of">↩ revenir au best-of</button>
-          </>
-        )}
-        {/* Deux qualificatifs de LA page affichée (inclusion best-of + analyse IA), réutilisant les données déjà renvoyées par GET /emprise. */}
-        <span style={pastille(pageDansBestOf)} title={pageDansBestOf ? 'cette page est dans le best-of' : 'cette page n’est pas dans le best-of'}>{pageDansBestOf ? '✓ dans le best-of' : '○ hors best-of'}</span>
-        <span style={pastille(pageAnalyseeIA)} title={pageAnalyseeIA ? `analysée par l’IA — ${detailIA}` : 'cette page n’a pas été analysée par l’IA'}>{pageAnalyseeIA ? `✓ analysée IA (${detailIA})` : '○ non analysée IA'}</span>
-      </div>
-      {/* ① quater — « voir toutes les pièces du dossier » (contenu propre à la visionneuse), descendu sous l'image comme le reste du bloc. */}
+      {pageOuverte && (
+        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', fontSize: 11, color: 'var(--color-svv-muted)' }}>
+          {pageDansBestOf ? (
+            <span>Vous parcourez le <strong style={{ color: 'var(--color-svv-ink)' }}>best-of des plans</strong>.</span>
+          ) : (
+            <>
+              <span>Vous parcourez les <strong style={{ color: 'var(--color-svv-ink)' }}>pages du fichier</strong> — hors best-of.</span>
+              <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', fontSize: 11 }} onClick={onRetourBestOf} aria-label="Revenir à la sélection best-of">↩ revenir au best-of</button>
+            </>
+          )}
+          {/* Deux qualificatifs de LA page affichée (inclusion best-of + analyse IA), réutilisant les données déjà renvoyées par GET /emprise. */}
+          <span style={pastille(pageDansBestOf)} title={pageDansBestOf ? 'cette page est dans le best-of' : 'cette page n’est pas dans le best-of'}>{pageDansBestOf ? '✓ dans le best-of' : '○ hors best-of'}</span>
+          <span style={pastille(pageAnalyseeIA)} title={pageAnalyseeIA ? `analysée par l’IA — ${detailIA}` : 'cette page n’a pas été analysée par l’IA'}>{pageAnalyseeIA ? `✓ analysée IA (${detailIA})` : '○ non analysée IA'}</span>
+        </div>
+      )}
+      {/* ① quater — « voir toutes les pièces du dossier » (ÉCHAPPATOIRE, contenu propre à la visionneuse) : TOUJOURS rendu, même sans pièce ouverte. */}
       {slotPieces}
+      {/* Le LIEN et toute la section FONCTIONS n'ont de sens qu'avec une PAGE ouverte → gardés par `pageOuverte` (sinon `slotNav` +
+          `slotPieces` ci-dessus suffisent comme échappatoire pour choisir une pièce). */}
+      {pageOuverte && (<>
       {/* LIEN VERS LE DOCUMENT SOURCE (nouvel onglet). Suit la page affichée ; signé AU CLIC (url_piece). */}
       <button type="button" className="svv-link" onClick={onOuvrirDocument} aria-label={`Ouvrir ${nomCourant} dans un nouvel onglet`}
         style={{ width: 'auto', minHeight: 32, padding: '.2rem .1rem', fontSize: 12, textAlign: 'left', textDecoration: 'underline', wordBreak: 'break-word' }}>
         Ouvrir « {nomCourant} »{page > 0 ? ` (page ${page})` : ''} dans un nouvel onglet ↗
       </button>
       <div style={{ paddingTop: '.4rem', borderTop: '1px solid var(--color-svv-line)', display: 'flex', flexDirection: 'column', gap: '.4rem', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)' }}>
-        {/* ② bis — FONCTIONS viewer-spécifiques (zoom du document + « agrandir l'image »), en TÊTE de la section fonctions (demande 2c). */}
-        {slotActions}
         {/* ② STATUT DE LA PAGE (pastille NATURE·ORIGINE + libellé). 'non identifiée' → rien. */}
         {statutPage.etat !== 'non_identifiee' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
@@ -183,6 +190,7 @@ export function BarreVisionneusePieces({
           </div>
         )}
       </div>
+      </>)}
     </div>
   );
 }

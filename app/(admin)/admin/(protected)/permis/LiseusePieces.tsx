@@ -572,14 +572,14 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       )}
     </div>
   );
-  // DEMANDE 2c — zoom + « agrandir l'image », en tête de la section « fonctions » de la barre (PARITÉ avec « Bâtiments et projection »).
-  //   PASSIVE côté planche : « agrandir » n'ouvre qu'un aperçu plein écran (aucun tracé). Zoom du document réutilisé tel quel.
-  const slotActions = (
-    <>
+  // DEMANDE 1 — LIGNE D'OUTILS AU-DESSUS DE L'IMAGE (parité avec « Bâtiments et projection », sans schéma côté planche) : zoom + « mode
+  //   grandes images » (ex-« Agrandir l'image », RENOMMÉ). PASSIVE : « grandes images » n'ouvre qu'un aperçu plein écran (aucun tracé).
+  const ligneOutils = (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
       <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajuster} />
-      <div><button type="button" style={{ cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.2rem .6rem', fontSize: 12 }}
-        onClick={() => setImageAgrandie((v) => !v)} aria-label={imageAgrandie ? 'Réduire l’image' : 'Agrandir l’image'}>{imageAgrandie ? '✕ Réduire l’image' : '⤢ Agrandir l’image'}</button></div>
-    </>
+      <button type="button" style={{ cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.2rem .6rem', fontSize: 12 }}
+        onClick={() => setImageAgrandie((v) => !v)} aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
+    </div>
   );
 
   return (
@@ -589,7 +589,8 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       <div style={{ flex: '1 1 220px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
         <div style={{ fontSize: 12, fontWeight: 700 }}>Liseuse des pièces</div>
         {/* LOT « paire unique » + demande 2c — navigation, « voir toutes les pièces », zoom et « agrandir » ont TOUS quitté cette colonne :
-            ils descendent SOUS l'aperçu, dans la barre partagée (slotNav / slotPieces / slotActions). Cette colonne ne porte que le titre. */}
+            ils descendent SOUS l'aperçu, dans la barre partagée (slotNav / slotPieces) ; le zoom + « mode grandes images » sont AU-DESSUS
+            de l'image (ligneOutils, demande 1). Cette colonne ne porte que le titre. */}
       </div>
       {/* LOT 91 — APERÇU COLLANT : sur écran LARGE (colonnes côte à côte), le panneau d'aperçu SUIT le défilement (position sticky) →
           un clic sur n'importe quelle ligne, même tout en bas, affiche la page SANS remonter. Sur écran ÉTROIT (colonnes empilées via
@@ -601,7 +602,8 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
         style={imageAgrandie
           ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '.4rem' }
           : { flex: '2 1 300px', minWidth: 0, position: 'sticky', top: '.5rem', alignSelf: 'flex-start' }}>
-        {/* DEMANDE 2c — « Agrandir l'image » a rejoint la barre (slotActions), sous l'aperçu : plus de bouton au-dessus de l'image. */}
+        {/* DEMANDE 1 — LIGNE D'OUTILS au-dessus de l'aperçu : zoom + « mode grandes images » (remontés de la barre). */}
+        {ligneOutils}
         {/* LOT 91 — aucune pièce sélectionnée → le dire explicitement (jamais un cadre vide muet, règle LOT 71). */}
         {pieceId === null && <p role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: '0 0 .3rem' }}>Aucun aperçu ouvert : choisissez une pièce (best-of ci-contre ou « voir toutes les pièces du dossier »).</p>}
         <div ref={pdfContainerRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
@@ -625,7 +627,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
         {/* LOT 94 / INCRÉMENT-2 — BARRE DE COMMANDES sous l'aperçu : composant PARTAGÉ (une seule vérité) avec « Bâtiments et projection ».
             Actions serveur inchangées (ouvrirDocumentComplet/changerPage/retirer/ajouterAuBestOf/reperer/analyserPage/annulerValeurPage). */}
         <BarreVisionneusePieces pieceId={pieceId} nomCourant={nomCourant} page={page} nbPagesPiece={nbPagesPiece} echelle={planAffiche?.echelle ?? null}
-          nav={nav} slotNav={slotNav} slotPieces={slotPieces} slotActions={slotActions}
+          nav={nav} slotNav={slotNav} slotPieces={slotPieces}
           onOuvrirDocument={() => void ouvrirDocumentComplet()} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} onRetourBestOf={retourBestOf}
           pageDansBestOf={pageDansBestOf} onRetirerBestOf={() => { if (planAffiche) void retirerDuBestOf(planAffiche!); }} onAjouterBestOf={() => { if (pieceId !== null) void ajouterAuBestOf(pieceId, page); }}
           statutPage={statutPage} resumePages={resumePages} pleinPagesAnalysees={pleinPagesAnalysees} onTogglePleinPages={() => setPleinPagesAnalysees((v) => !v)}
