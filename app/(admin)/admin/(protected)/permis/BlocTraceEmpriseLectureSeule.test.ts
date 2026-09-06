@@ -181,7 +181,7 @@ describe('LOT « paire unique » — une seule paire ‹/› (plans) sous l’im
     expect(iSuiv).toBeGreaterThan(iInfo);   // « suivant » à l'extrême droite, après l'information
   });
 
-  it('NavPieceLibre (mode pièce libre) : la paire de PAGES est aussi à l’extrême gauche/droite (space-between), retour best-of centré', () => {
+  it('NavPieceLibre (mode pièce libre) : la paire de PAGES reste à l’extrême gauche/droite (space-between) ; le RETOUR a quitté NavPieceLibre (déplacé dans la ligne de statut de la barre)', () => {
     const iNav = rendu.indexOf('export function NavPieceLibre');
     const iFin = rendu.indexOf('export type StatutBatiment');
     const bloc = rendu.slice(iNav, iFin);
@@ -190,7 +190,8 @@ describe('LOT « paire unique » — une seule paire ‹/› (plans) sous l’im
     const iSuiv = bloc.indexOf('>page suivante ›</button>');
     expect(iPrec).toBeGreaterThan(-1);
     expect(iSuiv).toBeGreaterThan(iPrec);
-    expect(bloc).toContain('revenir au best-of');
+    // le bouton de retour n'est plus rendu par NavPieceLibre (on cible l'aria-label du bouton, pas la prose des commentaires).
+    expect(bloc).not.toContain('aria-label="Revenir au best-of des plans"');
   });
 });
 
@@ -251,17 +252,18 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
     expect(iRender).toBeLessThan(iImage);
   });
 
-  it('DEMANDE 3 — la barre porte le repère best-of vs fichier + un retour explicite (onRetourBestOf)', () => {
-    expect(barre).toContain('Vous parcourez le');
-    expect(barre).toContain('best-of des plans');
-    expect(barre).toContain('pages du fichier');
+  it('LIGNE DE STATUT (ce lot) — statut de l’IMAGE (« Image best-of » / « Image fichier ») + retour au best-of (onRetourBestOf) sur la ligne du titre', () => {
+    expect(barre).toContain('Image best-of');
+    expect(barre).toContain('Image fichier');
     expect(barre).toContain('onClick={onRetourBestOf}');
+    expect(barre).toContain("'Best-of des plans proposés'"); // le titre est désormais dans la barre
+    // l'ancien bandeau « Vous parcourez… » (doublon du statut d'image) a été SUPPRIMÉ.
+    expect(barre).not.toContain('Vous parcourez le');
   });
 
-  it('DEMANDE 4 — deux qualificatifs de LA page (inclusion best-of + analyse IA), dérivés des données déjà en main (zéro route)', () => {
-    expect(barre).toContain('dans le best-of');
-    expect(barre).toContain('hors best-of');
+  it('LIGNE DE STATUT — capsule IA « analysée IA » / « non analysée IA », dérivée des données en main (zéro route)', () => {
     expect(barre).toContain('analysée IA');
+    expect(barre).toContain('non analysée IA');
     expect(barre).toContain("lectureCourante ? 'valeurs lues (page)' : runCourant ? 'fichier analysé'");
   });
 

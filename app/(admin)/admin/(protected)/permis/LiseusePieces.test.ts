@@ -78,7 +78,7 @@ describe('LOT 14b — zéro duplication des RÈGLES, rendu neuf isolé', () => {
 
 describe('LOT 92 — ajouter/retirer une PAGE au best-of depuis l’aperçu (garde par lecture de source)', () => {
   it('bouton TOGGLE grain PAGE : « ajouter cette page » hors best-of, « retirer » dedans — jamais un bouton muet', () => {
-    expect(SRC).toContain('＋ ajouter cette page au best-of');
+    expect(SRC).toContain('＋ ajouter au best-of');
     expect(SRC).toContain('✕ retirer du best-of');
     expect(SRC).toMatch(/pageDansBestOf \?/); // toggle selon l'appartenance de LA PAGE affichée
   });
@@ -130,7 +130,7 @@ describe('LOT « paire unique » — barre SOUS l’aperçu : UNE SEULE paire �
   });
   it('② la bascule best-of est DÉPLACÉE dans la barre (hors canvas → tokens de thème), plus AUCUNE surimpression sur l’aperçu', () => {
     // le toggle grain page reste piloté par pageDansBestOf et réutilise ajouter/retirer du LOT 92 (aucune 2e source de vérité).
-    expect(SRC).toContain('＋ ajouter cette page au best-of');
+    expect(SRC).toContain('＋ ajouter au best-of');
     expect(SRC).toContain('✕ retirer du best-of');
     expect(SRC).toContain('ajouterAuBestOf(pieceId, page)');
     expect(SRC).toContain('retirerDuBestOf(planAffiche!)');

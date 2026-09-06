@@ -704,8 +704,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
           onPrecedent={() => demanderChangement(() => appliquerPlan(indexPrecedent(planIndex, bande.length)))}
           onSuivant={() => demanderChangement(() => appliquerPlan(indexSuivant(planIndex, bande.length)))} />
       ) : (
-        <NavPieceLibre nomFichier={nomCourant} page={page} nbPages={nbPagesPiece}
-          onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} onRetourBestOf={retourBestOf} />
+        <NavPieceLibre page={page} nbPages={nbPagesPiece}
+          onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} />
       )}
       {avertissement && (
         <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>

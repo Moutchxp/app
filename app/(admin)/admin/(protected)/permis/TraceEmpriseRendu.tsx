@@ -550,8 +550,8 @@ export function BandePlans({ bande, index, onPrecedent, onSuivant }: { bande: Pl
   const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.25rem .6rem', fontSize: 12 };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-      {/* Le MODE est porté par les MOTS (« Best-of des plans »), jamais par la seule couleur. */}
-      <div style={{ fontSize: 12, fontWeight: 700 }}>Best-of des plans proposés</div>
+      {/* LOT « ligne de statut » — le TITRE « Best-of des plans proposés » a été DÉPLACÉ dans la barre partagée (ligne de statut, sous
+          l'image) : ici ne reste que la paire de navigation entre PLANS. */}
       {/* LOT « paire unique » — l'UNIQUE paire ‹ précédent / suivant › visible sous l'image : « précédent » à l'EXTRÊME GAUCHE,
           « suivant » à l'EXTRÊME DROITE (space-between) ; tout le BLOC D'INFORMATION (plan i sur n, type/famille, niveaux, origine,
           nom du fichier + page + échelle) est CENTRÉ ENTRE les deux. C'est la navigation entre PLANS du best-of (jamais des pages). */}
@@ -586,23 +586,19 @@ export function bornerPage(page: number, nbPages: number): number {
  * best-of). En-tête « Pièce : <nom> » + « page i sur n » (mode porté par les MOTS), bornes désactivées, et un retour EXPLICITE au
  * best-of. PUR (renderToStaticMarkup) : les boutons ne font que remonter l'intention ; l'état vit dans la Vue.
  */
-export function NavPieceLibre({ nomFichier, page, nbPages, onPagePrecedente, onPageSuivante, onRetourBestOf }: {
-  nomFichier: string; page: number; nbPages: number; onPagePrecedente: () => void; onPageSuivante: () => void; onRetourBestOf: () => void;
+export function NavPieceLibre({ page, nbPages, onPagePrecedente, onPageSuivante }: {
+  page: number; nbPages: number; onPagePrecedente: () => void; onPageSuivante: () => void;
 }) {
   const p = bornerPage(page, nbPages);
   const n = Math.max(1, nbPages);
   const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.25rem .6rem', fontSize: 12 };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-      <div style={{ fontSize: 12, fontWeight: 700 }}>Pièce : {nomFichier}</div>
-      {/* MÊME disposition que la bande best-of : l'UNIQUE paire ‹ / › à l'extrême gauche/droite (ici elle feuillette les PAGES de la
-          pièce ouverte, seul axe pertinent dans ce mode), l'indicateur « page i sur n » et le retour au best-of CENTRÉS entre les deux. */}
+      {/* LOT « ligne de statut » — le TITRE « Pièce : … » et le « revenir au best-of » ont été DÉPLACÉS dans la ligne de statut de la barre
+          (sous l'image). Ici ne reste que la paire de navigation entre PAGES de la pièce ouverte. */}
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap' }}>
         <button type="button" style={{ ...btn, flex: '0 0 auto', opacity: p <= 1 ? 0.4 : 1 }} disabled={p <= 1} onClick={onPagePrecedente} aria-label="Page précédente">‹ page précédente</button>
-        <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.15rem', textAlign: 'center' }}>
-          <span style={{ fontSize: 12, fontWeight: 700 }}>page {p} sur {n}</span>
-          <button type="button" style={{ ...btn, padding: '.15rem .5rem', fontSize: 11 }} onClick={onRetourBestOf} aria-label="Revenir au best-of des plans">◂ revenir au best-of</button>
-        </div>
+        <span style={{ flex: '1 1 auto', minWidth: 0, textAlign: 'center', fontSize: 12, fontWeight: 700 }}>page {p} sur {n}</span>
         <button type="button" style={{ ...btn, flex: '0 0 auto', opacity: p >= n ? 0.4 : 1 }} disabled={p >= n} onClick={onPageSuivante} aria-label="Page suivante">page suivante ›</button>
       </div>
     </div>

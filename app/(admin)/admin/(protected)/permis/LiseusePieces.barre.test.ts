@@ -154,33 +154,31 @@ describe('DEMANDE 2 — « voir toutes les pièces » rend TOUTES les pièces re
   });
 });
 
-describe('DEMANDE 3 — « où suis-je » : best-of vs pages du fichier, avec retour explicite au best-of', () => {
-  it('page 1 (dans le best-of) → « best-of » ; feuilleter vers une page HORS best-of bascule le repère + fait apparaître « revenir au best-of »', async () => {
+describe('LIGNE DE STATUT — statut de l’IMAGE (best-of / fichier) + retour explicite hors best-of', () => {
+  it('page 1 (dans le best-of) → « Image best-of », pas de retour ; feuilleter en page 2 (hors best-of) → « Image fichier » + retour', async () => {
     await act(async () => { root.render(h(LiseusePieces, { dossierId: 1 })); });
     await flush();
-    // page 1 = planche du best-of → on parcourt le BEST-OF, pas de retour à proposer.
-    expect(container.textContent).toContain('Vous parcourez le best-of des plans');
-    expect(container.textContent).not.toContain('Vous parcourez les pages du fichier');
+    // page 1 = planche du best-of → statut « Image best-of », pas de retour à proposer.
+    expect(container.textContent).toContain('Image best-of');
+    expect(container.textContent).not.toContain('Image fichier');
     expect(bouton('Revenir à la sélection best-of')).toBeNull();
 
-    // feuilleter à la page 2 (hors best-of) → le repère bascule et un retour EXPLICITE apparaît.
+    // feuilleter à la page 2 (hors best-of) → le statut bascule et un retour EXPLICITE apparaît.
     cliquer('Page suivante du fichier'); await flush();
-    expect(container.textContent).toContain('Vous parcourez les pages du fichier');
-    expect(container.textContent).toContain('hors best-of');
+    expect(container.textContent).toContain('Image fichier');
     expect(bouton('Revenir à la sélection best-of')).not.toBeNull();
   });
 });
 
-describe('DEMANDE 4 — qualifier la page pendant la navigation : inclusion best-of + analyse IA', () => {
-  it('page 1 : badge « dans le best-of » ; page 2 : badge « hors best-of » ; l’analyse IA est signalée « non analysée » (données du GET)', async () => {
+describe('LIGNE DE STATUT — capsule IA de l’image affichée', () => {
+  it('page 1 : « Image best-of » + « non analysée IA » (le GET mock ne renvoie ni lecture ni repérage)', async () => {
     await act(async () => { root.render(h(LiseusePieces, { dossierId: 1 })); });
     await flush();
-    expect(container.textContent).toContain('✓ dans le best-of');
-    expect(container.textContent).toContain('non analysée IA'); // le GET mock ne renvoie ni lecture ni repérage → non analysée
-    expect(container.textContent).not.toContain('✓ analysée IA');
+    expect(container.textContent).toContain('Image best-of');
+    expect(container.textContent).toContain('non analysée IA');
 
     cliquer('Page suivante du fichier'); await flush();
-    expect(container.textContent).toContain('○ hors best-of'); // page 2 pas dans la sélection
+    expect(container.textContent).toContain('Image fichier'); // page 2 pas dans la sélection
   });
 });
 

@@ -65,19 +65,43 @@ export function BarreVisionneusePieces({
   //   page prime (valeurs lues), sinon un repérage du fichier entier la couvre, sinon elle n'a pas été analysée.
   const detailIA: string | null = lectureCourante ? 'valeurs lues (page)' : runCourant ? 'fichier analysé' : null;
   const pageAnalyseeIA = detailIA !== null;
-  // Pastille SOBRE (aide de lecture, jamais une alerte) : contour vert discret quand la condition est vraie, muet sinon.
-  const pastille = (vrai: boolean): React.CSSProperties => ({ fontSize: 10, fontWeight: 700, borderRadius: '.35rem', padding: '.05rem .35rem', whiteSpace: 'nowrap', border: `1px solid ${vrai ? 'var(--color-svv-green)' : 'var(--color-svv-line)'}`, color: vrai ? 'var(--color-svv-green)' : 'var(--color-svv-muted)' });
+  // LOT « ligne de statut » — capsule IA (item 3), inchangée : contour vert THÉMATISÉ quand analysée, muet sinon. `flex:0 0 auto` → ne se
+  //   comprime pas (seul le TITRE se raccourcit si la place manque).
+  const pastille = (vrai: boolean): React.CSSProperties => ({ fontSize: 11, fontWeight: 700, borderRadius: '.35rem', padding: '.1rem .45rem', whiteSpace: 'nowrap', flex: '0 0 auto', border: `1px solid ${vrai ? 'var(--color-svv-green)' : 'var(--color-svv-line)'}`, color: vrai ? 'var(--color-svv-green)' : 'var(--color-svv-muted)' });
+  // LOT « ligne de statut » — TITRE + éléments alignés à sa suite. `titre` selon le mode ; `montrerRetour` = hors sélection (mode pièce OU
+  //   image hors best-of). Chips SOBRES et compactes, cohérentes avec la barre ; couleurs THÉMATISÉES (lisibles clair ET sombre).
+  const titre = nav === 'bestof' ? 'Best-of des plans proposés' : `Pièce : ${nomCourant}`;
+  const montrerRetour = nav === 'piece' || !pageDansBestOf;
+  const chipBtn: React.CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.1rem .45rem', fontSize: 11, fontWeight: 600, whiteSpace: 'nowrap', flex: '0 0 auto' };
+  // Statut de L'IMAGE : « Image best-of » (bleu thématisé) / « Image fichier » (muet). Bleu = même repère que le best-of de la liste (lot 4423e4a).
+  const chipStatutImage = (best: boolean): React.CSSProperties => ({ fontSize: 11, fontWeight: 700, borderRadius: '.35rem', padding: '.1rem .45rem', whiteSpace: 'nowrap', flex: '0 0 auto', border: `1px solid ${best ? 'var(--color-svv-blue)' : 'var(--color-svv-line)'}`, color: best ? 'var(--color-svv-blue)' : 'var(--color-svv-muted)' });
   // Flèches du contrôle de page DISCRET — volontairement PLUS PETITES et de glyphe différent (◁ ▷) que la paire de plans (‹ précédent /
   //   suivant ›), pour qu'aucun regard n'hésite entre « changer de plan » et « changer de page ».
   const btnPageMini = (actif: boolean): React.CSSProperties => ({ cursor: actif ? 'pointer' : 'default', opacity: actif ? 1 : 0.35, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 28, padding: '.1rem .4rem', fontSize: 12, lineHeight: 1 });
-  const btnBestOf: React.CSSProperties = { alignSelf: 'flex-start', cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 36, padding: '.3rem .6rem', fontSize: 12, fontWeight: 600 };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-      {/* ① NAVIGATION PRIMAIRE — l'UNIQUE paire ‹ précédent / suivant › (space-between), portée par slotNav (BandePlans / NavPieceLibre) :
-          elle descend ICI, sous l'image, avec tout son bloc d'information (plan i sur n, type, nom du fichier + page + échelle). */}
+      {/* ① LIGNE DE STATUT — UNE SEULE LIGNE sous l'image, sur la ligne du TITRE. Ordre imposé : [titre en tête] · [retour au best-of,
+          seulement hors sélection] · [statut de l'IMAGE : « Image best-of » / « Image fichier »] · [capsule IA] · [bascule best-of COMPACTE].
+          Remplace l'ancien bandeau « Vous parcourez… » (doublon du statut d'image). `nowrap` : le TITRE se raccourcit (ellipsis), pas les libellés. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'nowrap', minWidth: 0 }}>
+        <strong style={{ fontSize: 12, fontWeight: 700, flex: '0 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={titre}>{titre}</strong>
+        {pageOuverte && montrerRetour && (
+          <button type="button" onClick={onRetourBestOf} aria-label="Revenir à la sélection best-of" style={chipBtn}>↩ revenir au best-of</button>
+        )}
+        {pageOuverte && (
+          <span style={chipStatutImage(pageDansBestOf)} title={pageDansBestOf ? 'l’image affichée fait partie du best-of' : 'l’image affichée ne fait pas partie du best-of'}>{pageDansBestOf ? 'Image best-of' : 'Image fichier'}</span>
+        )}
+        {pageOuverte && (
+          <span style={pastille(pageAnalyseeIA)} title={pageAnalyseeIA ? `analysée par l’IA — ${detailIA}` : 'cette image n’a pas été analysée par l’IA'}>{pageAnalyseeIA ? 'analysée IA' : 'non analysée IA'}</span>
+        )}
+        {pageOuverte && (
+          <button type="button" onClick={pageDansBestOf ? onRetirerBestOf : onAjouterBestOf} style={chipBtn}
+            aria-label={pageDansBestOf ? `Retirer du best-of la page ${page} de ${nomCourant} (réversible)` : `Ajouter au best-of la page ${page} de ${nomCourant} (cette page seule, réversible)`}>{pageDansBestOf ? '✕ retirer du best-of' : '＋ ajouter au best-of'}</button>
+        )}
+      </div>
+      {/* ② NAVIGATION PRIMAIRE — l'UNIQUE paire ‹ précédent / suivant › (space-between), portée par slotNav (BandePlans / NavPieceLibre). */}
       {slotNav}
-      {/* ① bis — CONTRÔLE DE PAGE DISCRET (fichier multi-pages), NETTEMENT distinct de la paire de plans. Masqué en mode « pièce libre »
-          (slotNav y feuillette déjà les pages → jamais deux contrôles de page). Garde l'accès à toutes les pages sans seconde grande paire. */}
+      {/* ③ CONTRÔLE DE PAGE DISCRET (fichier multi-pages), NETTEMENT distinct de la paire de plans. Masqué en mode « pièce libre ». */}
       {pageOuverte && nav !== 'piece' && nbPagesPiece > 1 && (
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem', flexWrap: 'wrap', fontSize: 11, color: 'var(--color-svv-muted)' }}>
           <span>pages de ce fichier :</span>
@@ -86,25 +110,7 @@ export function BarreVisionneusePieces({
           <button type="button" aria-label="Page suivante du fichier" disabled={page >= nbPagesPiece} onClick={onPageSuivante} style={btnPageMini(page < nbPagesPiece)}>▷</button>
         </div>
       )}
-      {/* ① ter — REPÈRE « OÙ SUIS-JE » (demande 3) + QUALIFICATION DE LA PAGE (demande 4), lisible d'un coup d'œil pendant la navigation.
-          SOBRE (aides de lecture, pas des alertes). L'état best-of/fichier est porté par le MOT (pageDansBestOf), jamais par la couleur seule.
-          Quand on est HORS best-of (une page du fichier non retenue), un retour EXPLICITE est proposé. Données déjà en main → zéro route. */}
-      {pageOuverte && (
-        <div role="status" style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', fontSize: 11, color: 'var(--color-svv-muted)' }}>
-          {pageDansBestOf ? (
-            <span>Vous parcourez le <strong style={{ color: 'var(--color-svv-ink)' }}>best-of des plans</strong>.</span>
-          ) : (
-            <>
-              <span>Vous parcourez les <strong style={{ color: 'var(--color-svv-ink)' }}>pages du fichier</strong> — hors best-of.</span>
-              <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', fontSize: 11 }} onClick={onRetourBestOf} aria-label="Revenir à la sélection best-of">↩ revenir au best-of</button>
-            </>
-          )}
-          {/* Deux qualificatifs de LA page affichée (inclusion best-of + analyse IA), réutilisant les données déjà renvoyées par GET /emprise. */}
-          <span style={pastille(pageDansBestOf)} title={pageDansBestOf ? 'cette page est dans le best-of' : 'cette page n’est pas dans le best-of'}>{pageDansBestOf ? '✓ dans le best-of' : '○ hors best-of'}</span>
-          <span style={pastille(pageAnalyseeIA)} title={pageAnalyseeIA ? `analysée par l’IA — ${detailIA}` : 'cette page n’a pas été analysée par l’IA'}>{pageAnalyseeIA ? `✓ analysée IA (${detailIA})` : '○ non analysée IA'}</span>
-        </div>
-      )}
-      {/* ① quater — « voir toutes les pièces du dossier » (ÉCHAPPATOIRE, contenu propre à la visionneuse) : TOUJOURS rendu, même sans pièce ouverte. */}
+      {/* ④ « voir toutes les pièces du dossier » (ÉCHAPPATOIRE, contenu propre à la visionneuse) : TOUJOURS rendu, même sans pièce ouverte. */}
       {slotPieces}
       {/* Le LIEN et toute la section FONCTIONS n'ont de sens qu'avec une PAGE ouverte → gardés par `pageOuverte` (sinon `slotNav` +
           `slotPieces` ci-dessus suffisent comme échappatoire pour choisir une pièce). */}
@@ -143,14 +149,7 @@ export function BarreVisionneusePieces({
             )}
           </div>
         )}
-        {/* ④ BEST-OF au grain PAGE : retirer si dedans, ajouter sinon (exclure/inclure_page_bestof). */}
-        {pageDansBestOf ? (
-          <button type="button" onClick={onRetirerBestOf} style={btnBestOf}
-            aria-label={`Retirer du best-of la page ${page} de ${nomCourant} (réversible ; ne supprime pas le document)`}>✕ retirer du best-of</button>
-        ) : (
-          <button type="button" onClick={onAjouterBestOf} style={btnBestOf}
-            aria-label={`Ajouter au best-of la page ${page} de ${nomCourant} (cette page seule, pas le fichier entier ; réversible)`}>＋ ajouter cette page au best-of</button>
-        )}
+        {/* ④ BEST-OF au grain PAGE : la BASCULE ajouter/retirer a été REMONTÉE dans la LIGNE DE STATUT (en tête), restylée en chip compacte. */}
         {/* ⑤ ANALYSES IA : fichier complet (reperer_planches) + page (lire_valeurs_page). Même verrou serveur → l'une désactive l'autre. */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
           <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}

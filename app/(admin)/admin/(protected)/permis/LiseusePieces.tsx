@@ -556,7 +556,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   const slotNav = nav === 'bestof' ? (
     <BandePlans bande={bandeVisible} index={planIndex} onPrecedent={() => appliquerPlan(planIndex - 1)} onSuivant={() => appliquerPlan(planIndex + 1)} />
   ) : (
-    <NavPieceLibre nomFichier={nomCourant} page={page} nbPages={nbPagesPiece} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} onRetourBestOf={retourBestOf} />
+    <NavPieceLibre page={page} nbPages={nbPagesPiece} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} />
   );
   const slotPieces = (
     // Atteindre N'IMPORTE QUELLE pièce (le tri PROPOSE, il n'enferme jamais) ; l'ouvrir passe en nav « pièce libre » (page par page).

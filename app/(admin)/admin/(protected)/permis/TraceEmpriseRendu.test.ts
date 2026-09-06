@@ -209,16 +209,17 @@ describe('PROJ-3f ① — navigation PIÈCE LIBRE (feuilleter les pages d’une 
     expect(bornerPage(1, 1)).toBe(1);   // une seule page
     expect(bornerPage(3, 0)).toBe(1);   // nbPages inconnu → 1
   });
-  it('NavPieceLibre : « Pièce : <nom> », « page i sur n », retour best-of, bornes désactivées', () => {
-    const h1 = renderToStaticMarkup(h(NavPieceLibre, { nomFichier: 'PC3_2D_PDM.pdf', page: 1, nbPages: 18, onPagePrecedente: () => {}, onPageSuivante: () => {}, onRetourBestOf: () => {} }));
-    expect(h1).toContain('Pièce : PC3_2D_PDM.pdf');
+  it('NavPieceLibre : « page i sur n » + bornes désactivées (titre « Pièce : … » et retour best-of DÉPLACÉS dans la ligne de statut de la barre)', () => {
+    const h1 = renderToStaticMarkup(h(NavPieceLibre, { page: 1, nbPages: 18, onPagePrecedente: () => {}, onPageSuivante: () => {} }));
     expect(h1).toContain('page 1 sur 18');
-    expect(h1).toContain('revenir au best-of');
+    // le titre et le retour NE SONT PLUS dans NavPieceLibre (ils vivent dans la barre partagée).
+    expect(h1).not.toContain('Pièce :');
+    expect(h1).not.toContain('revenir au best-of');
     // page 1 → « page précédente » désactivée, « suivante » active
     expect(h1).toMatch(/disabled[^>]*aria-label="Page précédente"|aria-label="Page précédente"[^>]*disabled/);
     expect(h1).not.toMatch(/disabled[^>]*aria-label="Page suivante"|aria-label="Page suivante"[^>]*disabled/);
     // dernière page → « suivante » désactivée
-    const hN = renderToStaticMarkup(h(NavPieceLibre, { nomFichier: 'X.pdf', page: 18, nbPages: 18, onPagePrecedente: () => {}, onPageSuivante: () => {}, onRetourBestOf: () => {} }));
+    const hN = renderToStaticMarkup(h(NavPieceLibre, { page: 18, nbPages: 18, onPagePrecedente: () => {}, onPageSuivante: () => {} }));
     expect(hN).toMatch(/disabled[^>]*aria-label="Page suivante"|aria-label="Page suivante"[^>]*disabled/);
   });
 });
@@ -955,10 +956,14 @@ describe('PROJ-3g — trois familles dans la bande + verrou de traçage', () => 
 });
 
 describe('PROJ-3f ① — le best-of est un MODE nommé par les mots (pas la couleur)', () => {
-  it('BandePlans affiche l’en-tête « Best-of des plans proposés »', () => {
+  it('le TITRE « Best-of des plans proposés » a été DÉPLACÉ dans la ligne de statut de la barre (plus dans BandePlans)', () => {
     const bande = construireBandePlans([{ id: 1, nomFichier: 'PC2.pdf', propose: true, planches: [{ page: 1, echelle: null }], confirme: true }]);
     const html = renderToStaticMarkup(h(BandePlans, { bande, index: 0, onPrecedent: () => {}, onSuivant: () => {} }));
-    expect(html).toContain('Best-of des plans proposés');
+    expect(html).not.toContain('Best-of des plans proposés');   // BandePlans ne rend plus le titre
+    expect(html).toContain('plan 1 sur 1');                       // il rend toujours la navigation entre plans
+    // le titre est désormais rendu par la barre (ligne de statut).
+    const barre = readFileSync(fileURLToPath(new URL('./BarreVisionneusePieces.tsx', import.meta.url)), 'utf8');
+    expect(barre).toContain("'Best-of des plans proposés'");
   });
 });
 

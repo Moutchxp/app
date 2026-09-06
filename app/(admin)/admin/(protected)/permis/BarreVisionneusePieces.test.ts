@@ -45,3 +45,45 @@ describe('BUG sélecteur VIDE — slotPieces (échappatoire) reste rendu même s
     expect(html).toContain('analyse du fichier complet');  // analyses (page ouverte)
   });
 });
+
+describe('LIGNE DE STATUT — une seule ligne sous l’image : titre · retour · statut image · IA · bascule best-of', () => {
+  it('ORDRE de gauche à droite : titre → retour → « Image … » → capsule IA → bascule best-of', () => {
+    // hors best-of (retour visible) pour asserter les 5 éléments dans l'ordre.
+    const html = renderToStaticMarkup(h(BarreVisionneusePieces, props({ nav: 'bestof', pageDansBestOf: false })));
+    const iTitre = html.indexOf('Best-of des plans proposés');
+    const iRetour = html.indexOf('revenir au best-of');
+    const iStatut = html.indexOf('Image fichier');
+    const iIA = html.indexOf('non analysée IA');
+    const iToggle = html.indexOf('ajouter au best-of');
+    for (const i of [iTitre, iRetour, iStatut, iIA, iToggle]) expect(i).toBeGreaterThan(-1);
+    expect(iTitre).toBeLessThan(iRetour);
+    expect(iRetour).toBeLessThan(iStatut);
+    expect(iStatut).toBeLessThan(iIA);
+    expect(iIA).toBeLessThan(iToggle);
+    // pas de DOUBLON : l'ancien bandeau « Vous parcourez… » a disparu.
+    expect(html).not.toContain('Vous parcourez');
+  });
+
+  it('RETOUR : rendu SEULEMENT hors best-of (mode pièce OU image hors sélection) ; absent quand l’image EST au best-of', () => {
+    // bestof + image best-of → dans la sélection → PAS de retour, statut « Image best-of ».
+    const dedans = renderToStaticMarkup(h(BarreVisionneusePieces, props({ nav: 'bestof', pageDansBestOf: true })));
+    expect(dedans).toContain('Image best-of');
+    expect(dedans).not.toContain('revenir au best-of');
+    // bestof + image hors best-of → retour présent.
+    const horsImage = renderToStaticMarkup(h(BarreVisionneusePieces, props({ nav: 'bestof', pageDansBestOf: false })));
+    expect(horsImage).toContain('revenir au best-of');
+    // mode pièce (on navigue dans un fichier) → retour présent même si l'image est au best-of.
+    const modePiece = renderToStaticMarkup(h(BarreVisionneusePieces, props({ nav: 'piece', pageDansBestOf: true })));
+    expect(modePiece).toContain('revenir au best-of');
+    expect(modePiece).toContain('Pièce : A.pdf'); // titre en mode pièce
+  });
+
+  it('BASCULE best-of dans les DEUX sens (par l’état pageDansBestOf) : « ✕ retirer » si dedans, « ＋ ajouter » sinon', () => {
+    const dedans = renderToStaticMarkup(h(BarreVisionneusePieces, props({ pageDansBestOf: true })));
+    expect(dedans).toContain('✕ retirer du best-of');
+    expect(dedans).not.toContain('＋ ajouter au best-of');
+    const dehors = renderToStaticMarkup(h(BarreVisionneusePieces, props({ pageDansBestOf: false })));
+    expect(dehors).toContain('＋ ajouter au best-of');
+    expect(dehors).not.toContain('✕ retirer du best-of');
+  });
+});
