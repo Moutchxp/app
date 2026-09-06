@@ -193,3 +193,66 @@ describe('LOT « paire unique » — une seule paire ‹/› (plans) sous l’im
     expect(bloc).toContain('revenir au best-of');
   });
 });
+
+/**
+ * DEMANDES 1-5 (lot « aides de lecture ») — alignement des deux images, réorganisation de la colonne gauche (image → barre → « Étape 1 »
+ * en dernier), repère best-of/fichier + badges par page dans la barre partagée, et correction du sélecteur de pièces (non affichables
+ * listées). Gardes par lecture de source (composant client lourd) ; le comportement best-of/fichier est prouvé en montage jsdom ailleurs.
+ */
+describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fichier, bug sélecteur', () => {
+  const barre = readFileSync(join(ici, 'BarreVisionneusePieces.tsx'), 'utf8');
+  const liseuse = readFileSync(join(ici, 'LiseusePieces.tsx'), 'utf8');
+
+  it('DEMANDE 2 — COLONNE GAUCHE : l’image d’abord, puis la barre (nav + fonctions), puis « Étape 1 — caler la vue » EN DERNIER', () => {
+    const iImage = src.indexOf('ref={pdfContainerRef}');
+    const iBarre = src.indexOf('<BarreVisionneusePieces');
+    const iEtape1 = src.indexOf("guidage.sur === 'plan'"); // le bloc « Étape 1 » (GuidageTraceBox côté plan)
+    expect(iImage).toBeGreaterThan(-1);
+    expect(iBarre).toBeGreaterThan(iImage);   // la barre est SOUS l'image
+    expect(iEtape1).toBeGreaterThan(iBarre);  // « Étape 1 » APRÈS la barre = dernière position de la colonne
+  });
+
+  it('DEMANDE 1 — ALIGNEMENT : dans la colonne droite le SCHÉMA passe AVANT la rotation/guidage → il démarre à la même hauteur que l’image', () => {
+    const iSchema = src.indexOf('onCliquer={retouche ? cliquerRetouche'); // le schéma interactif (calage)
+    const iGuidageSchema = src.indexOf("guidage.sur === 'schema'");
+    const iAgrandirSchema = src.indexOf('⤢ Agrandir le schéma');
+    expect(iSchema).toBeGreaterThan(-1);
+    expect(iGuidageSchema).toBeGreaterThan(iSchema);  // rotation/bandeau/guidage DESCENDUS sous le schéma
+    expect(iAgrandirSchema).toBeGreaterThan(iSchema);
+  });
+
+  it('PARITÉ — les DEUX visionneuses passent slotActions (zoom + agrandir) et onRetourBestOf à la barre', () => {
+    for (const f of [src, liseuse]) {
+      expect(f).toContain('slotActions={slotActions}');
+      expect(f).toContain('onRetourBestOf={retourBestOf}');
+      expect(f).toContain('const slotActions =');
+    }
+  });
+
+  it('DEMANDE 2c — slotActions est rendu EN TÊTE de la section « fonctions » de la barre (après le séparateur, avant le statut)', () => {
+    const iDivider = barre.indexOf('borderTop:');
+    const iActions = barre.indexOf('{slotActions}');
+    const iStatut = barre.indexOf('statutPage.etat');
+    expect(iActions).toBeGreaterThan(iDivider);
+    expect(iStatut).toBeGreaterThan(iActions);
+  });
+
+  it('DEMANDE 3 — la barre porte le repère best-of vs fichier + un retour explicite (onRetourBestOf)', () => {
+    expect(barre).toContain('Vous parcourez le');
+    expect(barre).toContain('best-of des plans');
+    expect(barre).toContain('pages du fichier');
+    expect(barre).toContain('onClick={onRetourBestOf}');
+  });
+
+  it('DEMANDE 4 — deux qualificatifs de LA page (inclusion best-of + analyse IA), dérivés des données déjà en main (zéro route)', () => {
+    expect(barre).toContain('dans le best-of');
+    expect(barre).toContain('hors best-of');
+    expect(barre).toContain('analysée IA');
+    expect(barre).toContain("lectureCourante ? 'valeurs lues (page)' : runCourant ? 'fichier analysé'");
+  });
+
+  it('DEMANDE 5 — la visionneuse de tracé lit `piecesNonSupportees` du GET et les passe au sélecteur (plus d’écartement silencieux)', () => {
+    expect(src).toContain('setPiecesNonSupportees(j.piecesNonSupportees ?? [])');
+    expect(src).toContain('nonSupportees={piecesNonSupportees}');
+  });
+});

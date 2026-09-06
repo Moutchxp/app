@@ -114,11 +114,13 @@ export function etiquettePiecePlan(p: PiecePlan): string {
  * pièces (repli garanti — jamais masquées ni inaccessibles). Un plan proposé confirmé montre sa page + son échelle dans le libellé.
  * PUR (renderToStaticMarkup) : le choix ne fait que remonter l'id ; l'auto-remplissage de la page vit dans la Vue.
  */
-export function SelecteurPiecePlan({ pieces, pieceId, onChoisir }: { pieces: PiecePlan[]; pieceId: number | null; onChoisir: (id: number) => void }) {
+export function SelecteurPiecePlan({ pieces, pieceId, onChoisir, nonSupportees = [] }: { pieces: PiecePlan[]; pieceId: number | null; onChoisir: (id: number) => void; nonSupportees?: { id: number; nomFichier: string; motif: string }[] }) {
   const { proposees, autres } = grouperPieces(pieces);
+  // BUG « voir toutes les pièces » — les pièces NON AFFICHABLES (format non PDF) étaient ÉCARTÉES SILENCIEUSEMENT (jamais passées ici).
+  //   Règle du projet (piège LOT 71 / demande Arno) : ne jamais faire disparaître sans le dire → on les liste AVEC leur motif, DÉSACTIVÉES.
   return (
-    <select value={pieceId ?? ''} onChange={(e) => onChoisir(Number(e.target.value) || 0)} aria-label="Pièce à tracer (plans de masse proposés en tête)" style={{ maxWidth: 320, fontSize: 12 }}>
-      {pieces.length === 0 && <option value="">aucune pièce PDF</option>}
+    <select value={pieceId ?? ''} onChange={(e) => onChoisir(Number(e.target.value) || 0)} aria-label="Pièce à tracer (plans de masse proposés en tête ; pièces non affichables signalées)" style={{ maxWidth: 320, fontSize: 12 }}>
+      {pieces.length === 0 && nonSupportees.length === 0 && <option value="">aucune pièce</option>}
       {proposees.length > 0 && (
         <optgroup label="Plans de masse proposés">
           {proposees.map((p) => <option key={p.id} value={p.id}>{etiquettePiecePlan(p)}</option>)}
@@ -127,6 +129,11 @@ export function SelecteurPiecePlan({ pieces, pieceId, onChoisir }: { pieces: Pie
       {autres.length > 0 && (
         <optgroup label="Toutes les autres pièces">
           {autres.map((p) => <option key={p.id} value={p.id}>{p.nomFichier}</option>)}
+        </optgroup>
+      )}
+      {nonSupportees.length > 0 && (
+        <optgroup label="Non affichables (format)">
+          {nonSupportees.map((p) => <option key={`ns${p.id}`} value="" disabled>{p.nomFichier} — {p.motif}</option>)}
         </optgroup>
       )}
     </select>

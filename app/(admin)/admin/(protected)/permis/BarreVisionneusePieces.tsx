@@ -28,9 +28,11 @@ export interface BarreVisionneusePiecesProps {
   nav: 'bestof' | 'piece';               // mode courant : en 'piece', slotNav feuillette déjà les pages → pas de contrôle de page en double
   slotNav: React.ReactNode;              // navigation PRIMAIRE (unique paire ‹/›) : BandePlans (best-of) ou NavPieceLibre (pièce libre)
   slotPieces: React.ReactNode;           // « voir toutes les pièces du dossier » (contenu propre à chaque visionneuse) descendu sous l'image
+  slotActions?: React.ReactNode;         // fonctions viewer-spécifiques (zoom + « agrandir l'image ») en TÊTE de la section « fonctions »
   onOuvrirDocument: () => void;          // LIEN vers le document source (nouvel onglet) — url_piece
   onPagePrecedente: () => void;
   onPageSuivante: () => void;
+  onRetourBestOf: () => void;            // revenir à la sélection best-of (depuis une page du fichier hors best-of) — demande « où suis-je »
   pageDansBestOf: boolean;
   onRetirerBestOf: () => void;           // exclure_page_bestof / desinclure_page_bestof
   onAjouterBestOf: () => void;           // inclure_page_bestof
@@ -50,11 +52,17 @@ export interface BarreVisionneusePiecesProps {
 }
 
 export function BarreVisionneusePieces({
-  pieceId, nomCourant, page, nbPagesPiece, echelle, nav, slotNav, slotPieces, onOuvrirDocument, onPagePrecedente, onPageSuivante,
+  pieceId, nomCourant, page, nbPagesPiece, echelle, nav, slotNav, slotPieces, slotActions, onOuvrirDocument, onPagePrecedente, onPageSuivante, onRetourBestOf,
   pageDansBestOf, onRetirerBestOf, onAjouterBestOf, statutPage, resumePages, pleinPagesAnalysees, onTogglePleinPages,
   runCourant, lectureCourante, reperEnCours, lectureEnCours, onAnalyseFichier, onAnalysePage, reperMsg, lectureRes, onAnnulerValeur,
 }: BarreVisionneusePiecesProps) {
   if (pieceId === null) return null;
+  // DEMANDE 4 — statut d'analyse IA de LA page affichée, dérivé des données déjà en main (aucune route neuve) : une lecture au grain
+  //   page prime (valeurs lues), sinon un repérage du fichier entier la couvre, sinon elle n'a pas été analysée.
+  const detailIA: string | null = lectureCourante ? 'valeurs lues (page)' : runCourant ? 'fichier analysé' : null;
+  const pageAnalyseeIA = detailIA !== null;
+  // Pastille SOBRE (aide de lecture, jamais une alerte) : contour vert discret quand la condition est vraie, muet sinon.
+  const pastille = (vrai: boolean): React.CSSProperties => ({ fontSize: 10, fontWeight: 700, borderRadius: '.35rem', padding: '.05rem .35rem', whiteSpace: 'nowrap', border: `1px solid ${vrai ? 'var(--color-svv-green)' : 'var(--color-svv-line)'}`, color: vrai ? 'var(--color-svv-green)' : 'var(--color-svv-muted)' });
   // Flèches du contrôle de page DISCRET — volontairement PLUS PETITES et de glyphe différent (◁ ▷) que la paire de plans (‹ précédent /
   //   suivant ›), pour qu'aucun regard n'hésite entre « changer de plan » et « changer de page ».
   const btnPageMini = (actif: boolean): React.CSSProperties => ({ cursor: actif ? 'pointer' : 'default', opacity: actif ? 1 : 0.35, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 28, padding: '.1rem .4rem', fontSize: 12, lineHeight: 1 });
@@ -74,7 +82,23 @@ export function BarreVisionneusePieces({
           <button type="button" aria-label="Page suivante du fichier" disabled={page >= nbPagesPiece} onClick={onPageSuivante} style={btnPageMini(page < nbPagesPiece)}>▷</button>
         </div>
       )}
-      {/* ① ter — « voir toutes les pièces du dossier » (contenu propre à la visionneuse), descendu sous l'image comme le reste du bloc. */}
+      {/* ① ter — REPÈRE « OÙ SUIS-JE » (demande 3) + QUALIFICATION DE LA PAGE (demande 4), lisible d'un coup d'œil pendant la navigation.
+          SOBRE (aides de lecture, pas des alertes). L'état best-of/fichier est porté par le MOT (pageDansBestOf), jamais par la couleur seule.
+          Quand on est HORS best-of (une page du fichier non retenue), un retour EXPLICITE est proposé. Données déjà en main → zéro route. */}
+      <div role="status" style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', fontSize: 11, color: 'var(--color-svv-muted)' }}>
+        {pageDansBestOf ? (
+          <span>Vous parcourez le <strong style={{ color: 'var(--color-svv-ink)' }}>best-of des plans</strong>.</span>
+        ) : (
+          <>
+            <span>Vous parcourez les <strong style={{ color: 'var(--color-svv-ink)' }}>pages du fichier</strong> — hors best-of.</span>
+            <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', fontSize: 11 }} onClick={onRetourBestOf} aria-label="Revenir à la sélection best-of">↩ revenir au best-of</button>
+          </>
+        )}
+        {/* Deux qualificatifs de LA page affichée (inclusion best-of + analyse IA), réutilisant les données déjà renvoyées par GET /emprise. */}
+        <span style={pastille(pageDansBestOf)} title={pageDansBestOf ? 'cette page est dans le best-of' : 'cette page n’est pas dans le best-of'}>{pageDansBestOf ? '✓ dans le best-of' : '○ hors best-of'}</span>
+        <span style={pastille(pageAnalyseeIA)} title={pageAnalyseeIA ? `analysée par l’IA — ${detailIA}` : 'cette page n’a pas été analysée par l’IA'}>{pageAnalyseeIA ? `✓ analysée IA (${detailIA})` : '○ non analysée IA'}</span>
+      </div>
+      {/* ① quater — « voir toutes les pièces du dossier » (contenu propre à la visionneuse), descendu sous l'image comme le reste du bloc. */}
       {slotPieces}
       {/* LIEN VERS LE DOCUMENT SOURCE (nouvel onglet). Suit la page affichée ; signé AU CLIC (url_piece). */}
       <button type="button" className="svv-link" onClick={onOuvrirDocument} aria-label={`Ouvrir ${nomCourant} dans un nouvel onglet`}
@@ -82,6 +106,8 @@ export function BarreVisionneusePieces({
         Ouvrir « {nomCourant} »{page > 0 ? ` (page ${page})` : ''} dans un nouvel onglet ↗
       </button>
       <div style={{ paddingTop: '.4rem', borderTop: '1px solid var(--color-svv-line)', display: 'flex', flexDirection: 'column', gap: '.4rem', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)' }}>
+        {/* ② bis — FONCTIONS viewer-spécifiques (zoom du document + « agrandir l'image »), en TÊTE de la section fonctions (demande 2c). */}
+        {slotActions}
         {/* ② STATUT DE LA PAGE (pastille NATURE·ORIGINE + libellé). 'non identifiée' → rien. */}
         {statutPage.etat !== 'non_identifiee' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>

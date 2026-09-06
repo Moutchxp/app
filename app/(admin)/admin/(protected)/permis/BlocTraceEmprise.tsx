@@ -47,6 +47,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                          //   STANDALONE existe déjà sur le même écran (En cours : famille « Pièces du permis ») → jamais deux liseuses.
 }) {
   const [pieces, setPieces] = useState<Piece[]>([]);
+  const [piecesNonSupportees, setPiecesNonSupportees] = useState<{ id: number; nomFichier: string; motif: string }[]>([]); // BUG « voir toutes les pièces » — non affichables listées AVEC motif
   // INCRÉMENT-2 — état de la BARRE de commandes partagée (best-of overrides + audits d'analyse IA), lu du MÊME GET /emprise. N'interfère
   //   NI avec le canvas NI avec le calage/tracé : purement autour de l'aperçu. Le best-of visible = bande auto − retraits + ajouts.
   const [exclus, setExclus] = useState<Set<string>>(new Set());
@@ -140,11 +141,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`, { cache: 'no-store' });
         if (annule) return;
         if (!res.ok) { setEtat('erreur'); setMessage('Bâtiments indisponibles (le serveur n’a pas répondu).'); return; }
-        const j = await res.json() as { pieces: Piece[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; selection?: SelectionInfo; indisponibles?: string[]; reperageRuns?: Record<number, RunReperageAffiche>; lecturesPages?: Record<number, LecturePageAffiche[]>; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; origineExtractionSansIa?: 'auto' | 'manuelle' | null };
+        const j = await res.json() as { pieces: Piece[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; selection?: SelectionInfo; indisponibles?: string[]; reperageRuns?: Record<number, RunReperageAffiche>; lecturesPages?: Record<number, LecturePageAffiche[]>; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; origineExtractionSansIa?: 'auto' | 'manuelle' | null };
         // Résilience serveur : « indisponible » ≠ « vide ». Si la lecture des BÂTIMENTS a échoué, on n'affiche JAMAIS « 0 bâtiment »
         //   (panne déguisée en donnée) → état d'échec explicite invitant à recharger.
         if (j.indisponibles?.includes('batiments')) { setEtat('erreur'); setMessage('Bâtiments indisponibles : rechargez.'); return; }
-        setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setStatutsLignes(j.statutsPolygones ?? []); setRecouverts(j.polygonesRecouverts ?? []); setSelection(j.selection ?? { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null }); setConfirmeSel(false); setAngle(0); setDebordement(null);
+        setPieces(j.pieces); setPiecesNonSupportees(j.piecesNonSupportees ?? []); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setStatutsLignes(j.statutsPolygones ?? []); setRecouverts(j.polygonesRecouverts ?? []); setSelection(j.selection ?? { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null }); setConfirmeSel(false); setAngle(0); setDebordement(null);
         // INCRÉMENT-2 — audits d'analyse IA + overrides best-of (mêmes champs que la planche, déjà renvoyés par le GET).
         setRuns(j.reperageRuns ?? {}); setLectures(j.lecturesPages ?? {}); setOrigineSansIa(j.origineExtractionSansIa ?? null);
         setExclus(new Set((j.exclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`))); setInclus(new Set((j.inclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`)));
@@ -695,11 +696,20 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       </button>
       {pleinListe && (
         <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.3rem' }}>
-          <SelecteurPiecePlan pieces={pieces} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} />
-          <span style={styleAide}>Ouvre la pièce et la feuillette page par page.</span>
+          <SelecteurPiecePlan pieces={pieces} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} nonSupportees={piecesNonSupportees} />
+          <span style={styleAide}>Ouvre la pièce et la feuillette page par page. Les pièces non affichables (format) sont listées, désactivées, avec leur motif.</span>
         </div>
       )}
     </div>
+  );
+  // DEMANDE 2c — fonctions viewer-spécifiques (zoom du document + « agrandir l'image »), passées en tête de la section « fonctions » de la
+  //   barre. « Agrandir l'image » est INTERACTIVE et exacte au pixel (le canvas se re-rend à sa largeur, cliquerPdf inchangé).
+  const slotActions = (
+    <>
+      <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
+      <div><button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
+        aria-label={imageAgrandie ? 'Réduire l’image' : 'Agrandir l’image pour tracer en grand'}>{imageAgrandie ? '✕ Réduire l’image' : '⤢ Agrandir l’image'}</button></div>
+    </>
   );
 
   // PROJ-3b-fix ② — décision PURE (testée) : chargement · échec · succès-vide · prêt. « Aucun bâtiment » n'apparaît QU'au succès réel.
@@ -777,14 +787,12 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
           style={imageAgrandie
             ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
             : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
-          {/* Colonne PDF */}
+          {/* Colonne PDF — DEMANDE 2 : a) l'IMAGE en tête (alignée avec le schéma à droite) ; b) IMMÉDIATEMENT sous l'image, tout le bloc de
+              navigation + « voir toutes les pièces » + lien (barre, section haute) ; c) « agrandir l'image » + zoom + fonctions (barre,
+              section basse) ; d) EN DERNIER : le bloc « Étape 1 — caler la vue » (encadré rouge). */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', minWidth: 0 }}>
-            {/* LOT « paire unique » — la navigation (best-of / pièce libre), l'avertissement de changement et « voir toutes les pièces »
-                ont QUITTÉ le dessus de l'image : ils descendent SOUS le canvas, dans la barre partagée (slotNav / slotPieces). Ici, en
-                tête de colonne, ne reste que le zoom du document. */}
-            {/* PROJ-3l — commande de zoom du document. */}
-            <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
-            {/* Conteneur NON transformé (repère du clic) ; le PDF + l'overlay sont dans un wrapper zoomé/déplacé. Glisser = déplacer (si zoomé), cliquer = poser un point. */}
+            {/* a) IMAGE — conteneur NON transformé (repère du clic) ; le PDF + l'overlay sont dans un wrapper zoomé/déplacé. Glisser = déplacer (si zoomé), cliquer = poser un point.
+                🔴 RÈGLE ABSOLUE : géométrie du conteneur, canvas et repère de coordonnées INCHANGÉS — seul l'ORDRE des blocs autour a bougé. */}
             <div ref={pdfContainerRef} style={{ position: 'relative', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', touchAction: 'none', cursor: zoom > 1 ? 'grab' : (tracable ? 'crosshair' : 'default') }}
               onPointerDown={onPdfPointerDown} onPointerMove={onPdfPointerMove} onPointerUp={onPdfPointerUp}>
               <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
@@ -797,39 +805,37 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 </svg>
               </div>
             </div>
-            {/* PROJ-3m ② — le guidage s'affiche À CÔTÉ du geste : ici sous le PLAN quand c'est là qu'il faut cliquer. */}
-            {tracable && guidage.sur === 'plan' && <GuidageTraceBox g={guidage}
-              onAnnulerDernier={mode === 'calage' ? () => { if (planEnAttente) setPlanEnAttente(null); else setPaires((p) => p.slice(0, -1)); } : undefined}
-              onRecommencer={mode === 'calage' ? () => { setPaires([]); setPlanEnAttente(null); } : undefined}
-              peutAnnuler={paires.length > 0 || planEnAttente !== null} />}
-            {/* PROJ-AGR — « Agrandir l'image » (même registre que « Agrandir le schéma ») : tracer/caler EN GRAND, sans quitter l'onglet.
-                La vue agrandie est INTERACTIVE et exacte au pixel (le canvas se re-rend à sa largeur, cliquerPdf inchangé). */}
-            <div><button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
-              aria-label={imageAgrandie ? 'Réduire l’image' : 'Agrandir l’image pour tracer en grand'}>{imageAgrandie ? '✕ Réduire l’image' : '⤢ Agrandir l’image'}</button></div>
-            {/* INCRÉMENT-2 — BARRE de commandes PARTAGÉE (même composant présentationnel que la planche), SOUS le canvas. Zéro outil de
-                tracé : uniquement lien source, nav pages, best-of, analyse IA. Actions serveur existantes, mise à jour locale (pas de
-                rechargement → le calage est préservé). Disposition alignée sur la planche (précédent à GAUCHE, suivant à DROITE). */}
+            {/* b) + c) BARRE PARTAGÉE (même composant que la planche), SOUS l'image : nav complète + voir-toutes + lien (haut), puis
+                zoom + « agrandir » (slotActions) + statut/best-of/analyses (bas). Zéro outil de tracé ; actions serveur existantes. */}
             <BarreVisionneusePieces pieceId={pieceId} nomCourant={nomCourant} page={page} nbPagesPiece={nbPagesPiece} echelle={planAffiche?.echelle ?? null}
-              nav={nav} slotNav={slotNav} slotPieces={slotPieces}
-              onOuvrirDocument={() => void ouvrirDocumentComplet()} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)}
+              nav={nav} slotNav={slotNav} slotPieces={slotPieces} slotActions={slotActions}
+              onOuvrirDocument={() => void ouvrirDocumentComplet()} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} onRetourBestOf={retourBestOf}
               pageDansBestOf={pageDansBestOf} onRetirerBestOf={() => { if (planAffiche) void retirerDuBestOf(planAffiche!); }} onAjouterBestOf={() => { if (pieceId !== null) void ajouterAuBestOf(pieceId, page); }}
               statutPage={statutPage} resumePages={resumePages} pleinPagesAnalysees={pleinPagesAnalysees} onTogglePleinPages={() => setPleinPagesAnalysees((v) => !v)}
               runCourant={runCourant} lectureCourante={lectureCourante} reperEnCours={reperEnCours} lectureEnCours={lectureEnCours}
               onAnalyseFichier={() => void reperer()} onAnalysePage={() => void analyserPage()} reperMsg={reperMsg} lectureRes={lectureRes} onAnnulerValeur={() => void annulerValeurPage()} />
+            {/* d) EN DERNIÈRE POSITION (demande Arno) — bloc « Étape 1 — caler la vue » (encadré rouge : compteur + boutons d'annulation).
+                PROJ-3m ② : le guidage s'affiche quand c'est au PLAN qu'il faut cliquer. Déplacé sous la barre ; aucun effet sur le calage. */}
+            {tracable && guidage.sur === 'plan' && <GuidageTraceBox g={guidage}
+              onAnnulerDernier={mode === 'calage' ? () => { if (planEnAttente) setPlanEnAttente(null); else setPaires((p) => p.slice(0, -1)); } : undefined}
+              onRecommencer={mode === 'calage' ? () => { setPaires([]); setPlanEnAttente(null); } : undefined}
+              peutAnnuler={paires.length > 0 || planEnAttente !== null} />}
           </div>
 
-          {/* Colonne de droite — PROJ-3j ③ : le SCHÉMA en PREMIER (aligné avec le document à gauche), les outils en dessous. */}
+          {/* Colonne de droite — DEMANDE 1 : le SCHÉMA en PREMIER, aligné à la MÊME HAUTEUR que l'image à gauche (les deux cadres démarrent
+              sur la même ligne). La rotation, le bandeau de sélection et le guidage descendent SOUS le schéma. 🔴 RÈGLE ABSOLUE : le
+              repère de coordonnées du calage (SchemaParcelleTrace, SVG « meet ») est INCHANGÉ — seul l'ordre des blocs voisins a bougé. */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
-            {/* PROJ-3j ② — rotation d'affichage + schéma (clics dé-tournés côté schéma) + agrandir. */}
+            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} statuts={statutParCleabs}
+              onCliquer={retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined)} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
+            {/* PROJ-3j ② — rotation d'affichage + bandeau de sélection, sous le schéma. */}
             <RotationSchema angle={angle} onAngle={setAngle} />
             {bandeauSel}
-            {/* PROJ-3m ② — quand le prochain clic va sur le SCHÉMA (correspondant du point plan), le guidage s'affiche ICI, au-dessus. */}
+            {/* PROJ-3m ② — quand le prochain clic va sur le SCHÉMA (correspondant du point plan), le guidage s'affiche ICI. */}
             {tracable && guidage.sur === 'schema' && <GuidageTraceBox g={guidage}
               onAnnulerDernier={mode === 'calage' ? () => { if (planEnAttente) setPlanEnAttente(null); else setPaires((p) => p.slice(0, -1)); } : undefined}
               onRecommencer={mode === 'calage' ? () => { setPaires([]); setPlanEnAttente(null); } : undefined}
               peutAnnuler={paires.length > 0 || planEnAttente !== null} />}
-            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} statuts={statutParCleabs}
-              onCliquer={retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined)} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
             <div><button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button></div>
 
             {/* Options de visibilité + sélection des polygones « en projet ». */}

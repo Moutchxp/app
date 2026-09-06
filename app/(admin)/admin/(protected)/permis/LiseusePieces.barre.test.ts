@@ -131,6 +131,36 @@ describe('LOT 94 — fichier d’UNE seule page : aucune navigation de pages', (
   });
 });
 
+describe('DEMANDE 3 — « où suis-je » : best-of vs pages du fichier, avec retour explicite au best-of', () => {
+  it('page 1 (dans le best-of) → « best-of » ; feuilleter vers une page HORS best-of bascule le repère + fait apparaître « revenir au best-of »', async () => {
+    await act(async () => { root.render(h(LiseusePieces, { dossierId: 1 })); });
+    await flush();
+    // page 1 = planche du best-of → on parcourt le BEST-OF, pas de retour à proposer.
+    expect(container.textContent).toContain('Vous parcourez le best-of des plans');
+    expect(container.textContent).not.toContain('Vous parcourez les pages du fichier');
+    expect(bouton('Revenir à la sélection best-of')).toBeNull();
+
+    // feuilleter à la page 2 (hors best-of) → le repère bascule et un retour EXPLICITE apparaît.
+    cliquer('Page suivante du fichier'); await flush();
+    expect(container.textContent).toContain('Vous parcourez les pages du fichier');
+    expect(container.textContent).toContain('hors best-of');
+    expect(bouton('Revenir à la sélection best-of')).not.toBeNull();
+  });
+});
+
+describe('DEMANDE 4 — qualifier la page pendant la navigation : inclusion best-of + analyse IA', () => {
+  it('page 1 : badge « dans le best-of » ; page 2 : badge « hors best-of » ; l’analyse IA est signalée « non analysée » (données du GET)', async () => {
+    await act(async () => { root.render(h(LiseusePieces, { dossierId: 1 })); });
+    await flush();
+    expect(container.textContent).toContain('✓ dans le best-of');
+    expect(container.textContent).toContain('non analysée IA'); // le GET mock ne renvoie ni lecture ni repérage → non analysée
+    expect(container.textContent).not.toContain('✓ analysée IA');
+
+    cliquer('Page suivante du fichier'); await flush();
+    expect(container.textContent).toContain('○ hors best-of'); // page 2 pas dans la sélection
+  });
+});
+
 describe('LOT 96 — liste « pages ajoutées à la main » repliable (reproduit le dossier 470 : 3 ajouts PC5)', () => {
   // GET renvoie 1 pièce AUTO (best-of) + 3 pièces PC5 NON proposées, incluses à la main → 3 pages « ajoutées » (manuel).
   function monterAvecAjouts(): void {

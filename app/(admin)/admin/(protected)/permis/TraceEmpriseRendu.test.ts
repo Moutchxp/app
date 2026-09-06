@@ -106,9 +106,22 @@ describe('PROJ-3d — sélecteur de pièce : plans de masse proposés en tête, 
     // le plan de masse est bien AVANT la notice dans le markup (proposées en tête)
     expect(html.indexOf('value="55"')).toBeLessThan(html.indexOf('value="70"'));
   });
-  it('liste vide → option « aucune pièce PDF »', () => {
+  it('liste vide (ni PDF ni non affichable) → option « aucune pièce »', () => {
     const html = renderToStaticMarkup(h(SelecteurPiecePlan, { pieces: [], pieceId: null, onChoisir: () => {} }));
-    expect(html).toContain('aucune pièce PDF');
+    expect(html).toContain('aucune pièce');
+  });
+  it('BUG « voir toutes les pièces » — les pièces NON AFFICHABLES sont LISTÉES (désactivées, avec motif), jamais écartées en silence', () => {
+    const html = renderToStaticMarkup(h(SelecteurPiecePlan, { pieces, pieceId: 55, onChoisir: () => {},
+      nonSupportees: [{ id: 900, nomFichier: 'photo.jpg', motif: 'format non pris en charge (image/jpeg)' }, { id: 901, nomFichier: 'plan.dwg', motif: 'format non pris en charge' }] }));
+    expect(html).toContain('Non affichables (format)');
+    expect(html).toContain('photo.jpg');
+    expect(html).toContain('format non pris en charge (image/jpeg)');
+    expect(html).toContain('plan.dwg');
+    // COMPTAGE : les 4 pièces affichables + les 2 non affichables = 6 lignes atteignables (aucune ne disparaît).
+    const options = (html.match(/<option/g) ?? []).length;
+    expect(options).toBe(6);
+    // les non affichables sont DÉSACTIVÉES (on les voit, on ne les ouvre pas).
+    expect(html).toMatch(/<option[^>]*disabled[^>]*>photo\.jpg/);
   });
 });
 
