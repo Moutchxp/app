@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
 import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
-import { TableSuivi, DetailSuiviRendu, AffectationBloc, EnteteAffectation, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee } from './SuiviRattachementRendu';
+import { TableSuivi, PanneauRechercheSuivi, FILTRE_SUIVI_VIDE, filtreSuiviActif, DetailSuiviRendu, AffectationBloc, EnteteAffectation, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee, type FiltreSuiviValeurs } from './SuiviRattachementRendu';
 import { RecapProjectionRattachement } from './ProjectionRecapRattachement';
 // RATT-1 bis — le geste « statuer les polygones existants » réutilise le composant PUR d'Analyse + ses helpers (jamais dupliqué).
 import { BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, attribuerReperes, MiniConfigProjetee, CaseConfigOfficielle } from './TraceEmpriseRendu';
@@ -32,6 +32,11 @@ import { recompterSiSucces } from './comptesActions';
  */
 export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void } = {}) {
   const [liste, setListe] = useState<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> } | null>(null);
+  // RECHERCHE (les 6 critères) — FILTRAGE EN BASE + pagination. `resultats` non nul = mode recherche ; null = liste complète par défaut.
+  const [filtre, setFiltre] = useState<FiltreSuiviValeurs>(FILTRE_SUIVI_VIDE);
+  const [resultats, setResultats] = useState<{ lignes: LigneSuivi[]; total: number; page: number; nbPages: number } | null>(null);
+  const [chargeRecherche, setChargeRecherche] = useState(false);
+  const [rechercheErreur, setRechercheErreur] = useState(false);
   const [daactActif, setDaactActif] = useState<boolean | null>(null); // réglage : la DAACT déclenche-t-elle un dossier ?
   const [erreur, setErreur] = useState(false);
   const [ouvert, setOuvert] = useState<number | null>(null);
@@ -74,6 +79,29 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
     })();
     return () => { annule = true; };
   }, []);
+
+  // RECHERCHE — FILTRAGE EN BASE + pagination. Combine les 6 critères ; `total` reflète le FILTRE en cours. À la soumission (jamais par frappe).
+  const chercher = useCallback(async (page = 1): Promise<void> => {
+    if (!filtreSuiviActif(filtre)) { setResultats(null); return; }
+    setChargeRecherche(true); setRechercheErreur(false); setOuvert(null);
+    const p = new URLSearchParams();
+    if (filtre.num.trim()) p.set('num', filtre.num.trim());
+    if (filtre.interne.trim()) p.set('interne', filtre.interne.trim());
+    if (filtre.commune.trim()) p.set('commune', filtre.commune.trim());
+    if (filtre.type) p.set('type', filtre.type);
+    if (filtre.autorDe) p.set('autorDe', filtre.autorDe);
+    if (filtre.autorA) p.set('autorA', filtre.autorA);
+    if (filtre.entreeDe) p.set('entreeDe', filtre.entreeDe);
+    if (filtre.entreeA) p.set('entreeA', filtre.entreeA);
+    p.set('page', String(page));
+    try {
+      const res = await fetch(`/api/admin/permis/rattachement?${p.toString()}`, { cache: 'no-store' });
+      if (res.ok) { const d = (await res.json()) as { lignes: LigneSuivi[]; total: number; page: number; nbPages: number }; setResultats({ lignes: d.lignes, total: d.total, page: d.page, nbPages: d.nbPages }); }
+      else setRechercheErreur(true);
+    } catch { setRechercheErreur(true); }
+    finally { setChargeRecherche(false); }
+  }, [filtre]);
+  const reinitialiser = useCallback((): void => { setFiltre(FILTRE_SUIVI_VIDE); setResultats(null); setRechercheErreur(false); setOuvert(null); }, []);
 
   // RATT-1 bis — APPLIQUE une réponse du GET emprise à l'état (SOURCE UNIQUE : emprises projetées + récap + statuts + recouverts).
   //   Partagé par le chargement du dossier ET le rafraîchissement après un statut posé (pas d'état local divergent). PROJ-2c/4a inchangés.
@@ -446,8 +474,32 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
           </span>
         </label>
       )}
-      {/* L7 — le détail est rendu par TableSuivi DANS LE FLUX, juste sous la ligne ouverte (trame grise), plus en bas de page. */}
-      <TableSuivi lignes={liste.lignes} compteurs={liste.compteurs} ouvert={ouvert} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} renderDetail={renderDetail} />
+      {/* RECHERCHE — panneau (mêmes tokens/comportement que RechercheVivier). Combine les 6 critères, filtre EN BASE, pagination. */}
+      <PanneauRechercheSuivi valeurs={filtre} onValeurs={setFiltre} onChercher={() => void chercher(1)} onReset={reinitialiser} chargement={chargeRecherche} />
+      {resultats === null ? (
+        /* L7 — le détail est rendu par TableSuivi DANS LE FLUX, juste sous la ligne ouverte (trame grise), plus en bas de page. */
+        <TableSuivi lignes={liste.lignes} compteurs={liste.compteurs} ouvert={ouvert} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} renderDetail={renderDetail} />
+      ) : (
+        <div className="flex flex-col gap-2" aria-live="polite">
+          {rechercheErreur ? (
+            <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>Recherche indisponible.</div>
+          ) : resultats.total === 0 ? (
+            <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Aucun permis suivi ne correspond à ces critères. Élargissez la recherche ou réinitialisez.</div>
+          ) : (
+            <>
+              <div style={{ fontSize: 13, fontWeight: 700 }}>{resultats.total} résultat{resultats.total > 1 ? 's' : ''} pour ce filtre <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>· page {resultats.page} / {resultats.nbPages}</span></div>
+              <TableSuivi plat lignes={resultats.lignes} ouvert={ouvert} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} renderDetail={renderDetail} />
+              {resultats.nbPages > 1 && (
+                <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 40 }} disabled={chargeRecherche || resultats.page <= 1} onClick={() => void chercher(resultats.page - 1)}>‹ Précédent</button>
+                  <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>page {resultats.page} / {resultats.nbPages}</span>
+                  <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 40 }} disabled={chargeRecherche || resultats.page >= resultats.nbPages} onClick={() => void chercher(resultats.page + 1)}>Suivant ›</button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

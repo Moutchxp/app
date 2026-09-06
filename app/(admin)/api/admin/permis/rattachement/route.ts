@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerSuivi, lireDetailSuivi, ouvrirRattachementManuel, cloreRattachementAcheve } from '../../../../../lib/permis/rattachementSuiviRepo';
+import { listerSuivi, rechercherSuivi, construireFiltreSuivi, lireDetailSuivi, ouvrirRattachementManuel, cloreRattachementAcheve, type CriteresSuivi } from '../../../../../lib/permis/rattachementSuiviRepo';
 import { lireComparaison, affecterPolygone } from '../../../../../lib/permis/affectationRepo';
 import { validerRattachement, refuserRattachement, retourLidar } from '../../../../../lib/permis/actionsRattachement';
 import { lireDaactDeclencheurActif, ecrireDaactDeclencheurActif } from '../../../../../lib/permis/rattachementConfig';
@@ -23,11 +23,27 @@ export async function GET(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const dossierId = new URL(request.url).searchParams.get('dossierId');
+    const sp = new URL(request.url).searchParams;
+    const dossierId = sp.get('dossierId');
     if (dossierId) {
       const [detail, comparaison] = await Promise.all([lireDetailSuivi(Number(dossierId)), lireComparaison(Number(dossierId)).catch(() => null)]);
       if (!detail) return Response.json({ erreur: 'dossier inconnu' }, { status: 404 });
       return Response.json({ detail, comparaison });
+    }
+    // RECHERCHE (les 6 critères, combinables) — FILTRAGE EN BASE + PAGINATION. Un filtre actif → liste filtrée + total du filtre en cours.
+    const interneBrut = (sp.get('interne') ?? '').trim();
+    const criteres: CriteresSuivi = {
+      numDau: sp.get('num') ?? undefined,
+      dossierId: interneBrut !== '' && /^\d+$/.test(interneBrut) ? Number(interneBrut) : null,
+      commune: sp.get('commune') ?? undefined,
+      type: sp.get('type') ?? undefined,
+      autorisationDe: sp.get('autorDe') ?? undefined, autorisationA: sp.get('autorA') ?? undefined,
+      entreeDe: sp.get('entreeDe') ?? undefined, entreeA: sp.get('entreeA') ?? undefined,
+    };
+    if (construireFiltreSuivi(criteres).actif) {
+      const page = Number(sp.get('page') ?? '1');
+      const r = await rechercherSuivi(criteres, page);
+      return Response.json({ recherche: true, ...r });
     }
     const [suivi, daactActif] = await Promise.all([listerSuivi(), lireDaactDeclencheurActif()]);
     return Response.json({ ...suivi, daactActif });

@@ -23,6 +23,7 @@ import { libelleNatureProjet, aucunSignalGeometriquePossible } from '../sitadel/
 import { estAFaire, estValidationAcquise } from './rattachementGroupes'; // L6 — coupure en deux ; LOT 77 — validation acquise (source unique)
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti AFFICHÉ = registre (autorité), plus le proxy
 import { figerVersionValidation } from './gelRepo'; // SURV-1 — geler la référence de surveillance à la validation AUTO
+import { construireFiltreSuivi, TYPES_PERMIS_FILTRE, type CriteresSuivi } from './filtreSuivi'; // recherche : critères + WHERE paramétré (module PUR client-safe)
 
 // ÉTAGE 1 — deux états ajoutés : `acheve_sans_bati` (achèvement déclaré sur un permis SANS signal géométrique possible → décision
 //   humaine « confirmer et clore » attendue) et `clos_sans_bati` (terminal, après confirmation). Cf. resoudreEtatSuivi / migration 156.
@@ -254,30 +255,28 @@ async function lireAlertesSurveillanceParDossier(): Promise<Map<number, number>>
   } catch { return new Map(); } // 171 non appliquée → aucune pastille de surveillance
 }
 
-/** Liste l'UNIVERS des permis suivis (ceux qui ont une empreinte) LEFT JOIN leur dossier ; « aucun signal » si pas de dossier. */
-export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> }> {
-  const alertesSurv = await lireAlertesSurveillanceParDossier();
-  const { rows } = await query<{ dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; origine_ouverture: 'detection' | 'manuelle' | null; jours: number; reevalue: string | null; date_autorisation: string | null; date_declenchement: string | null; projection_validee: boolean; nb_corps: number; nb_corps_sans_alt: number }>(
-    `SELECT e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s.type,
+// SELECT + FROM PARTAGÉS entre `listerSuivi` (liste complète) et `rechercherSuivi` (filtré/paginé) : MÊMES colonnes → MÊME forme
+//   LigneSuivi, une seule vérité. Les alias e/s/c/r sont fixés par FROM_SUIVI.
+const SELECT_SUIVI = `e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s.type,
             nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
             s.nature_projet_completee AS nature, r.etat AS ratt_etat, r.verdict, r.origine_ouverture,
             GREATEST(0, floor(EXTRACT(EPOCH FROM (now() - COALESCE(r.detecte_le, e.maj_le))) / 86400))::int AS jours,
             to_char(r.reevalue_le, 'YYYY-MM-DD') AS reevalue,
             to_char(s.date_reelle_autorisation, 'YYYY-MM-DD') AS date_autorisation,
             to_char(r.detecte_le, 'YYYY-MM-DD') AS date_declenchement,
-            -- LOT 77 — attestation de VALIDATION : projection validée (permis_projection) + décompte des corps et de ceux SANS altitude de sommet.
             EXISTS (SELECT 1 FROM permis_projection pj WHERE pj.dossier_id = e.dossier_id) AS projection_validee,
             (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id) AS nb_corps,
-            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND cb.altitude_sommet_ngf IS NULL) AS nb_corps_sans_alt
-       FROM permis_empreinte e
+            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND cb.altitude_sommet_ngf IS NULL) AS nb_corps_sans_alt`;
+const FROM_SUIVI = `FROM permis_empreinte e
        JOIN sitadel_dossier s ON s.id = e.dossier_id
        LEFT JOIN commune c ON c.code_insee = s.code_insee
-       LEFT JOIN permis_rattachement r ON r.dossier_id = e.dossier_id`);
-  // RATT-1 — signal LÉGER « dossier incomplet » (lecture mémoire, une requête, aucune IA) pour le 3e groupe. Résilient (set vide si 174 absente).
-  const incomplets = await dossiersIncompletsParmi(rows.map((r) => Number(r.dossier_id)));
-  const lignes: LigneSuivi[] = trierLignesSuivi(rows.map((r) => ({
-    // `dossier_id` est un bigint → le pilote `pg` le renvoie en CHAÎNE. On honore le type `number` de LigneSuivi (sinon le POST,
-    // qui reçoit ce dossierId via le front, le rejette). Number() est sûr que la valeur soit déjà un nombre ou une chaîne numérique.
+       LEFT JOIN permis_rattachement r ON r.dossier_id = e.dossier_id`;
+
+interface RangeeSuivi { dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; origine_ouverture: 'detection' | 'manuelle' | null; jours: number; reevalue: string | null; date_autorisation: string | null; date_declenchement: string | null; projection_validee: boolean; nb_corps: number; nb_corps_sans_alt: number }
+
+/** Mappe une rangée SQL → LigneSuivi (source unique du mapping ; `dossier_id` bigint pg → CHAÎNE, honoré en NOMBRE via Number). */
+function versLigneSuivi(r: RangeeSuivi, alertesSurv: Map<number, number>, incomplets: Set<number>): LigneSuivi {
+  return {
     dossierId: Number(r.dossier_id), numDau: r.num_dau, commune: r.commune, codeInsee: r.code_insee,
     type: r.type, adresse: r.adresse, natureTravaux: r.nature ? libelleNatureProjet(r.nature) : null,
     etat: r.ratt_etat ?? 'suivi_aucun_signal', verdict: r.verdict, joursAnciennete: r.jours, derniereEvalIso: r.reevalue,
@@ -286,10 +285,47 @@ export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: 
     alertesSurveillance: alertesSurv.get(Number(r.dossier_id)) ?? 0, // SURV-1 — pastille par-ligne (0 = aucune)
     completudeIncomplete: incomplets.has(Number(r.dossier_id)), // RATT-1 — dérivé (jamais stocké) : décide le 3e groupe
     validationAcquise: estValidationAcquise(r.projection_validee === true, Number(r.nb_corps), Number(r.nb_corps_sans_alt)), // LOT 77
-  })));
+  };
+}
+
+/** Liste l'UNIVERS des permis suivis (ceux qui ont une empreinte) LEFT JOIN leur dossier ; « aucun signal » si pas de dossier. */
+export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> }> {
+  const alertesSurv = await lireAlertesSurveillanceParDossier();
+  const { rows } = await query<RangeeSuivi>(`SELECT ${SELECT_SUIVI}\n       ${FROM_SUIVI}`);
+  // RATT-1 — signal LÉGER « dossier incomplet » (lecture mémoire, une requête, aucune IA) pour le 3e groupe. Résilient (set vide si 174 absente).
+  const incomplets = await dossiersIncompletsParmi(rows.map((r) => Number(r.dossier_id)));
+  const lignes: LigneSuivi[] = trierLignesSuivi(rows.map((r) => versLigneSuivi(r, alertesSurv, incomplets)));
   const compteurs = Object.fromEntries((Object.keys(ORDRE_URGENCE) as EtatSuivi[]).map((e) => [e, 0])) as Record<EtatSuivi, number>;
   for (const l of lignes) compteurs[l.etat] += 1;
   return { lignes, compteurs };
+}
+
+// ── RECHERCHE / FILTRE de la liste de suivi (les 28 k) — FILTRAGE EN BASE (paramétré) + PAGINATION. Jamais un filtre client. ─────────
+// Critères + constructeur de WHERE : module PUR client-safe `filtreSuivi` (partagé avec le panneau de recherche). Re-exportés pour les appelants existants.
+export { construireFiltreSuivi, TYPES_PERMIS_FILTRE, type CriteresSuivi };
+
+export const TAILLE_PAGE_SUIVI = 20;
+/**
+ * RECHERCHE filtrée + PAGINÉE de la liste de suivi (les ~28 k). FILTRAGE EN BASE. `total` = compteur du filtre EN COURS (count OVER),
+ * jamais le total figé. `actif=false` (aucun critère) → résultat vide (l'appelant retombe sur `listerSuivi`, la liste complète).
+ */
+export async function rechercherSuivi(c: CriteresSuivi, page: number): Promise<{ lignes: LigneSuivi[]; total: number; page: number; nbPages: number }> {
+  const { fragments, valeurs, actif } = construireFiltreSuivi(c);
+  if (!actif) return { lignes: [], total: 0, page: 1, nbPages: 0 };
+  const pageSure = Math.max(1, Math.floor(Number(page)) || 1);
+  const offset = (pageSure - 1) * TAILLE_PAGE_SUIVI;
+  const alertesSurv = await lireAlertesSurveillanceParDossier();
+  const { rows } = await query<RangeeSuivi & { total: number | string }>(
+    `SELECT ${SELECT_SUIVI}, count(*) OVER() AS total
+       ${FROM_SUIVI}
+      WHERE ${fragments.join(' AND ')}
+      ORDER BY s.date_reelle_autorisation DESC NULLS LAST, e.dossier_id
+      LIMIT ${TAILLE_PAGE_SUIVI} OFFSET ${offset}`, valeurs);
+  const total = rows[0] ? Number(rows[0].total) : 0;
+  const incomplets = await dossiersIncompletsParmi(rows.map((r) => Number(r.dossier_id)));
+  // ORDRE SQL préservé (pagination stable) : jamais re-trié en mémoire.
+  const lignes = rows.map((r) => versLigneSuivi(r, alertesSurv, incomplets));
+  return { lignes, total, page: pageSure, nbPages: Math.ceil(total / TAILLE_PAGE_SUIVI) };
 }
 
 export interface DetailSuivi {

@@ -12,6 +12,7 @@ import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere,
 export interface EmpriseProjetee { id: number; libelle: string; anneau: [number, number][] }
 // rattachementGroupes est PUR (import de TYPE seul depuis le repo, erasé) → client-safe. Source UNIQUE de la coupure en deux (L6).
 import { partitionnerSuivi, GROUPE1_TITRE, GROUPE2_TITRE, GROUPE_INCOMPLET_TITRE } from '../../../../lib/permis/rattachementGroupes';
+import { TYPES_PERMIS_FILTRE } from '../../../../lib/permis/filtreSuivi'; // liste FERMÉE des types (module PUR client-safe)
 import { PastilleActions } from './PastilleActions'; // SURV-1 — pastille rouge « polygones à vérifier » par-ligne (composant pur, client-safe)
 import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
 
@@ -288,10 +289,61 @@ function GroupeIncomplet({ items, onOuvrir, ouvert, renderDetail }: {
   );
 }
 
-export function TableSuivi({ lignes, onOuvrir, ouvert, renderDetail }: {
+// ── PANNEAU DE RECHERCHE de la liste de suivi (mêmes tokens/classes/comportement que RechercheVivier : svv-card, submit, cibles ≥ 40 px,
+//    mobile-first, la couleur ne porte jamais l'info seule). Les 6 critères combinables. FILTRAGE EN BASE (la Vue appelle la route). ─────
+export interface FiltreSuiviValeurs { num: string; interne: string; commune: string; type: string; autorDe: string; autorA: string; entreeDe: string; entreeA: string }
+export const FILTRE_SUIVI_VIDE: FiltreSuiviValeurs = { num: '', interne: '', commune: '', type: '', autorDe: '', autorA: '', entreeDe: '', entreeA: '' };
+export const filtreSuiviActif = (v: FiltreSuiviValeurs): boolean => Object.values(v).some((x) => x.trim() !== '');
+
+export function PanneauRechercheSuivi({ valeurs, onValeurs, onChercher, onReset, chargement }: {
+  valeurs: FiltreSuiviValeurs; onValeurs: (v: FiltreSuiviValeurs) => void; onChercher: () => void; onReset: () => void; chargement: boolean;
+}) {
+  const maj = (k: keyof FiltreSuiviValeurs, x: string) => onValeurs({ ...valeurs, [k]: x });
+  const inp: CSSProperties = { minHeight: 40, padding: '.4rem .55rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14, minWidth: 0, width: '100%', boxSizing: 'border-box' };
+  const champ: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '.15rem', flex: '1 1 12rem', minWidth: 0 };
+  const lib: CSSProperties = { fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' };
+  const actif = filtreSuiviActif(valeurs);
+  return (
+    <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+      <strong style={{ fontSize: 13 }}>Rechercher dans les permis suivis</strong>
+      <form onSubmit={(e) => { e.preventDefault(); onChercher(); }} style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'flex-end' }}>
+        <label style={champ}><span style={lib}>N° de permis</span>
+          <input value={valeurs.num} onChange={(e) => maj('num', e.target.value)} placeholder="ex. 093001…" style={inp} /></label>
+        <label style={champ}><span style={lib}>N° interne</span>
+          <input value={valeurs.interne} onChange={(e) => maj('interne', e.target.value)} inputMode="numeric" placeholder="ex. 7424" style={inp} /></label>
+        <label style={champ}><span style={lib}>Ville / commune</span>
+          <input value={valeurs.commune} onChange={(e) => maj('commune', e.target.value)} placeholder="ex. Aubervilliers" style={inp} /></label>
+        <label style={champ}><span style={lib}>Type de permis</span>
+          <select value={valeurs.type} onChange={(e) => maj('type', e.target.value)} style={inp}>
+            <option value="">tous les types</option>
+            {TYPES_PERMIS_FILTRE.map((t) => <option key={t.cle} value={t.cle}>{t.libelle}</option>)}
+          </select></label>
+        <label style={champ}><span style={lib}>Date d’autorisation — du</span>
+          <input type="date" value={valeurs.autorDe} onChange={(e) => maj('autorDe', e.target.value)} style={inp} /></label>
+        <label style={champ}><span style={lib}>au</span>
+          <input type="date" value={valeurs.autorA} onChange={(e) => maj('autorA', e.target.value)} style={inp} /></label>
+        <label style={champ}><span style={lib}>Entrée en suivi — du</span>
+          <input type="date" value={valeurs.entreeDe} onChange={(e) => maj('entreeDe', e.target.value)} style={inp} /></label>
+        <label style={champ}><span style={lib}>au</span>
+          <input type="date" value={valeurs.entreeA} onChange={(e) => maj('entreeA', e.target.value)} style={inp} /></label>
+        <div style={{ display: 'flex', gap: '.4rem', flex: '1 1 12rem' }}>
+          <button type="submit" className="svv-btn svv-btn-primary" style={{ minHeight: 40, padding: '.4rem .8rem' }} disabled={chargement || !actif}>
+            <span aria-hidden="true">🔍</span> Chercher
+          </button>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 40, padding: '.4rem .8rem' }} disabled={chargement} onClick={onReset}>Réinitialiser</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+export function TableSuivi({ lignes, onOuvrir, ouvert, renderDetail, plat = false }: {
   lignes: LigneSuivi[]; compteurs?: Record<EtatSuivi, number>; onOuvrir?: (dossierId: number) => void; ouvert?: number | null;
   renderDetail?: (dossierId: number) => ReactNode; // L7 — contenu du détail, inséré DANS LE FLUX sous la ligne ouverte (fourni par la Vue)
+  plat?: boolean; // recherche : liste PLATE (déjà filtrée/paginée en base) sans les 3 groupes ni le message « aucun permis suivi » (l'appelant gère le vide)
 }) {
+  // Recherche : les résultats arrivent DÉJÀ filtrés + paginés du serveur → liste plate, réutilise la MÊME ligne + détail (LigneSuiviLi).
+  if (plat) return <ListeLignesSuivi items={lignes} groupe="en_attente" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />;
   if (lignes.length === 0) return <div className="svv-card" style={styleAide}>Aucun permis suivi (aucune parcelle analysée pour l’instant).</div>;
   // RATT-1 — partition EXCLUSIVE & EXHAUSTIVE en trois groupes (source unique pure). aFaire + incomplets + enAttente = lignes.length.
   const { aFaire, incomplets, enAttente } = partitionnerSuivi(lignes);
