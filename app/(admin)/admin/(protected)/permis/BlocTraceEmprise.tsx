@@ -247,6 +247,13 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   // Origine de l'emprise COURANTE : si adoptée (IGN), les repères de calage/échelle ne s'appliquent pas (PROJ-3r).
   const origineIgnCourant = empriseDuBat.some((e) => e.provenance === 'ign_adopte' || e.provenance === 'ign_retouche');
 
+  // 🔴 RENDU PDF DÉLIBÉRÉMENT DISTINCT de la liseuse de la planche (LiseusePieces) — NE PAS UNIFIER (décision Arno 31/08/2026, arrêt du
+  //   LOT 14 ; ré-confirmée au chantier « unification des visionneuses », Option 1). CE rendu calcule le viewport au scale
+  //   `(largeurCss/base)·dpr` avec dpr NON PLAFONNÉ et publie `apercu={vp,ratio}` : c'est LUI que lit le calage (cliquerPdf →
+  //   apercu.vp.convertToPdfPoint(u·ratio)). La liseuse, elle, plafonne le dpr à 2 + borne le canvas à MAX_PX et peint un ImageBitmap
+  //   (aucun viewport exposé). Aligner ce rendu sur celui de la planche CHANGERAIT le viewport → décalerait TOUS les points posés, au
+  //   pixel, silencieusement et sans test. Le garde-fou est `tracage.filet.test.ts` (composition cliquerPdf/versCss + compteur). Toute
+  //   retouche du RENDU PDF (viewport, dpr, ratio, convertToPdfPoint) DOIT laisser ce filet vert et être pensée des DEUX côtés.
   const afficherPage = useCallback(async () => {
     if (pieceId === null) return;
     setOccupe(true); setMessage(null); setZoom(1); setPan({ x: 0, y: 0 }); // PROJ-3l — zoom/déplacement réinitialisés au changement de plan
