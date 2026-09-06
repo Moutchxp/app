@@ -456,7 +456,7 @@ function grouperCandidatsGabarit(ecartes: readonly ProvenanceEcartee[]): { valeu
 export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, confirmeLe, confirmeParNom, valeurAuto, valeurBase, valeurIA, altitudeDernierPlancher, margeEgaliteM, limitePluNgf, limitePluHauteNgf, onValider, onUtiliserGabarit, onValeur }: {
   mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece;
   confirmeLe?: string | null; confirmeParNom?: string | null; valeurAuto?: number | null; valeurBase?: number | null; limitePluNgf?: number | null;
-  valeurIA?: number | null; // DEMANDE 1 — valeur LUE PAR L'IA (analyse de la page) ; si ≠ de la valeur actuelle → proposition en 1 clic + validation à revoir
+  valeurIA?: number | null; // DEMANDE 1 — valeur LUE PAR L'IA (analyse de la page) ; si ≠ de la valeur actuelle → proposition d'adoption en 1 clic
   altitudeDernierPlancher?: number | null; margeEgaliteM?: number; // DEMANDE 2 — contrôle de cohérence physique sommet/dernier plancher (marge de config)
   limitePluHauteNgf?: number | null; onValider?: () => void; // N10-M : gabarit PLU le PLUS HAUT applicable (le plafond descend à `limitePluNgf` au droit du plateau le plus bas)
   onUtiliserGabarit?: (valeur: number) => void; onValeur: (v: string) => void; // N10-L : « utiliser N » ÉCRIT en base (origine 'saisie') ; sans lui, repli sur le brouillon
@@ -468,7 +468,7 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
   // DEMANDE 2 — cohérence physique du sommet EFFECTIF (valeur en cours si saisie, sinon valeur en base) vs dernier plancher.
   const sommetEffectif = (() => { const t = valeur.trim(); if (t === '') return valeurBase ?? null; const n = Number(t.replace(',', '.')); return Number.isFinite(n) ? n : (valeurBase ?? null); })();
   const coherence = estSommet ? coherenceSommetPlancher(sommetEffectif, altitudeDernierPlancher ?? null, margeEgaliteM ?? MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT) : null;
-  // DURCISSEMENT (Arno) — sommet SOUS le dernier plancher = physiquement impossible → la seule action « Valider cette hauteur » est
+  // DURCISSEMENT (Arno) — sommet SOUS le dernier plancher = physiquement impossible → la seule action « Valider cette altitude » est
   //   BLOQUÉE (l'enregistrement du bâtiment/permis, la saisie et l'adoption d'une valeur restent libres). Le cas « égal » n'est qu'un
   //   avertissement, jamais bloquant. Le blocage suit la valeur EFFECTIVE : adopter l'IA / remettre l'auto / saisir une valeur cohérente débloque aussitôt.
   const validationBloquee = coherence === 'impossible';
@@ -490,6 +490,10 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
   // N10-D — GARDE ANTI-PIÈGE JUMEAU : la hauteur du champ diffère de la base → elle n'est PAS validée. « Enregistrer ce bâtiment » ne
   //   l'écrira pas → on prévient, visiblement, près du bouton de validation.
   const modifieeNonValidee = estSommet && !!onValider && champDiffereBase(valeur, valeurBase);
+  // DEMANDE 1 (Arno) — ÉTAT EFFECTIF de validation = SOURCE UNIQUE du libellé/couleur du bouton ET de la trace « validée » : validé en
+  //   base ET valeur du champ INCHANGÉE (toute modification — saisie OU adoption d'une proposition IA/auto — casse la validation) ET
+  //   cohérent (jamais « validé » si le sommet est sous le plancher). Empêche toute contradiction (validé + « à revoir »/« modifiée »/etc.).
+  const valideEffectif = valide && !modifieeNonValidee && !validationBloquee;
   const cadreSommet: CSSProperties = estSommet
     ? { border: `1px solid ${aConfirmer ? VIOLET_A_CONFIRMER : 'var(--color-svv-red)'}`, borderRadius: '.5rem', padding: '.4rem .5rem', background: aConfirmer ? 'var(--color-svv-violet-faint)' : 'var(--color-svv-note-bg)' } // LOT 84 : fonds tokenisés (thème sombre)
     : {};
@@ -519,25 +523,31 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
       )}
       {/* DEMANDE 1 — PROPOSITION IA : l'analyse a lu une valeur DIFFÉRENTE de la valeur actuelle. Même registre que « Remettre la valeur
           automatique » (bouton outline) : on ADOPTE en 1 CLIC dans le champ, SANS saisie (évite les fautes de frappe) ; la valeur
-          précédente reste lisible. Aucune écriture ici — l'écriture reste le geste humain « Valider cette hauteur » (jamais d'écrasement silencieux). */}
+          précédente reste lisible. Aucune écriture ici — l'écriture reste le geste humain « Valider cette altitude » (jamais d'écrasement silencieux). */}
       {propositionIA && (
         <div role="note" style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', fontSize: 11 }}>
           <span style={{ color: 'var(--color-svv-ink)' }}>l’analyse IA a lu <strong>{valeurIA}</strong> — différent de la valeur actuelle ({valeurBase ?? '—'}).</span>
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.15rem .5rem' }} onClick={() => onValeur(String(valeurIA))}>utiliser la valeur IA ({valeurIA})</button>
         </div>
       )}
-      {/* N10-D — le GESTE dédié au sommet : écrit LA VALEUR DU CHAMP (modifiée ou non) comme décision humaine. Périmètre disjoint d'« Enregistrer ce bâtiment ». */}
+      {/* N10-D / DEMANDE 1 — le GESTE dédié au sommet. Le bouton DIT L'ÉTAT RÉEL (source unique `valideEffectif`), sans contradiction :
+          VERT « Altitude validée » quand la valeur validée est en place et cohérente ; ROUGE « Valider cette altitude » sinon (jamais
+          validé, ou valeur modifiée depuis la validation) ; DÉSACTIVÉ tant que le sommet est sous le plancher (blocage 9280fba). */}
       {estSommet && onValider && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
-          <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.25rem .7rem', ...(validationBloquee ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }} disabled={validationBloquee} onClick={onValider}>Valider cette hauteur</button>
+          <button type="button" className="svv-btn svv-btn-primary"
+            style={{ padding: '.25rem .7rem',
+              ...(valideEffectif ? { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)', boxShadow: 'none' } : {}),
+              ...(validationBloquee ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}
+            disabled={validationBloquee} onClick={onValider}>{valideEffectif ? 'Altitude validée' : 'Valider cette altitude'}</button>
           {validationBloquee
             ? <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-red)' }}>validation impossible tant que le sommet est sous le dernier plancher</span>
-            : modifieeNonValidee && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: VIOLET_A_CONFIRMER }}>hauteur modifiée, non validée</span>}
+            : (!valideEffectif && modifieeNonValidee) && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: VIOLET_A_CONFIRMER }}>hauteur modifiée, non validée</span>}
         </div>
       )}
-      {/* DEMANDE 1 — la validation ne peut plus passer pour ACQUISE quand l'IA propose une valeur différente : « ✓ validée » masquée, remplacée par « à revalider ». */}
-      {valide && !propositionIA && <span role="note" style={{ ...styleAide, color: 'var(--color-svv-green-ink)' }}>✓ validée{confirmeParNom ? ` par ${confirmeParNom}` : ''}{confirmeLe ? ` le ${jjmmaaaa(confirmeLe)}` : ''}</span>}
-      {valide && propositionIA && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-amber)' }}>validation à revoir — l’analyse IA a lu une valeur différente : adoptez-la ou revalidez la valeur actuelle.</span>}
+      {/* DEMANDE 1 — la TRACE « validée par NOM le … » ne s'affiche QUE lorsque le bouton est vert (valideEffectif) : une seule histoire.
+          Plus de message « validation à revoir » : la modification (saisie ou adoption) fait déjà repasser le bouton au rouge, sans contradiction. */}
+      {valideEffectif && <span role="note" style={{ ...styleAide, color: 'var(--color-svv-green-ink)' }}>✓ validée{confirmeParNom ? ` par ${confirmeParNom}` : ''}{confirmeLe ? ` le ${jjmmaaaa(confirmeLe)}` : ''}</span>}
       {/* DEMANDE 2 — CONTRÔLE DE COHÉRENCE PHYSIQUE (non bloquant) : le sommet est le point le plus haut. On dit QUELLE valeur est suspecte. */}
       {coherence === 'impossible' && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-red)' }}>⚠ incohérence : l’altitude du sommet ({sommetEffectif} m) est SOUS le dernier plancher ({altitudeDernierPlancher} m) — physiquement impossible (le sommet est le point le plus haut). Validation impossible : adoptez la valeur IA proposée, remettez la valeur automatique, ou saisissez la bonne altitude du sommet.</span>}
       {coherence === 'egal' && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-amber)' }}>⚠ l’altitude du sommet ({sommetEffectif} m) est au niveau du dernier plancher ({altitudeDernierPlancher} m) — suspect : il manque la hauteur d’étage et l’acrotère ?</span>}

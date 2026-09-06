@@ -129,7 +129,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossie
     setErreursCorps((m) => ({ ...m, [corpsId]: erreurs }));
     if (!valide) { setMessage('Corrigez les champs signalés avant d’enregistrer.'); return; }
     // N10-D — PÉRIMÈTRES DISJOINTS : « Enregistrer ce bâtiment » ne touche PAS au sommet (ni valeur, ni marqueur de validation) —
-    //   le sommet a son propre geste « Valider cette hauteur ». On retire donc altitudeSommetNgf du lot enregistré ici.
+    //   le sommet a son propre geste « Valider cette altitude ». On retire donc altitudeSommetNgf du lot enregistré ici.
     const valeursHorsSommet = { ...(valeurs as ValeursCorps) };
     delete valeursHorsSommet.altitudeSommetNgf;
     setEnCours(true);
@@ -282,6 +282,21 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossie
         const versNombreFini = (v: number | string | null | undefined): number | null => { if (v == null) return null; const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) ? n : null; };
         const iaSommetDe = (j?: JournalChamp) => j ? versNombreFini(j.methode === 'ia' ? (j.valeurRetenue ?? null) : (j.ecartes?.find((e) => e.methode === 'ia')?.valeur ?? null)) : null;
         const valeurIaSommet = iaSommetDe(journalCorps['altitude_sommet_ngf']) ?? iaSommetDe(data.journal.permis['altitude_sommet_ngf']);
+        // DEMANDE 2 — rendu factorisé d'un champ mesuré : sert à séparer le SOMMET (colonne dédiée, mis en avant) des 7 autres champs
+        //   (grille dense), pour supprimer le grand vide vertical qu'un encadré sommet plus haut que ses voisins créait dans la grille unique.
+        const rendreMesure = (m: (typeof MESURES)[number]) => (
+          <ChampMesureEditeur key={m.cle} mesure={m} bornes={data.bornes[m.colonne]} valeur={ed[m.cle]} origine={origineDe(c, m.cle)}
+            erreur={err[m.cle]} journal={journalCorps[m.colonne]} lienPiece={lienPiece}
+            confirmeLe={m.estSommet ? c.altitudeSommetNgfConfirmeLe : undefined} confirmeParNom={m.estSommet ? c.altitudeSommetNgfConfirmeParNom : undefined}
+            valeurAuto={m.estSommet ? (journalCorps[m.colonne]?.valeurRetenue ?? null) : undefined} valeurBase={m.estSommet ? c.altitudeSommetNgf : undefined}
+            valeurIA={m.estSommet ? valeurIaSommet : undefined}
+            altitudeDernierPlancher={m.estSommet ? c.altitudeDernierPlancherNgf : undefined} margeEgaliteM={data.margeCoherenceSommetM}
+            limitePluNgf={m.estSommet ? c.hauteurMaxPluNgf : undefined}
+            limitePluHauteNgf={m.estSommet ? plafondHaut : undefined}
+            onValider={m.estSommet ? () => void validerSommet(c.id) : undefined}
+            onUtiliserGabarit={m.cle === 'hauteurMaxPluNgf' ? (v) => void utiliserGabaritPlu(c.id, v) : undefined}
+            onValeur={(v) => majChamp(c.id, m.cle, v)} />
+        );
         return (
           <div key={c.id} className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -292,20 +307,16 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossie
               </label>
               <button type="button" className="svv-link" style={{ width: 'auto', padding: '.2rem .5rem', color: 'var(--color-svv-red)' }} disabled={enCours} onClick={() => void supprimer(c.id, c.repere)}>supprimer ce bâtiment</button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))', gap: '.6rem' }}>
-              {MESURES.map((m) => (
-                <ChampMesureEditeur key={m.cle} mesure={m} bornes={data.bornes[m.colonne]} valeur={ed[m.cle]} origine={origineDe(c, m.cle)}
-                  erreur={err[m.cle]} journal={journalCorps[m.colonne]} lienPiece={lienPiece}
-                  confirmeLe={m.estSommet ? c.altitudeSommetNgfConfirmeLe : undefined} confirmeParNom={m.estSommet ? c.altitudeSommetNgfConfirmeParNom : undefined}
-                  valeurAuto={m.estSommet ? (journalCorps[m.colonne]?.valeurRetenue ?? null) : undefined} valeurBase={m.estSommet ? c.altitudeSommetNgf : undefined}
-                  valeurIA={m.estSommet ? valeurIaSommet : undefined}
-                  altitudeDernierPlancher={m.estSommet ? c.altitudeDernierPlancherNgf : undefined} margeEgaliteM={data.margeCoherenceSommetM}
-                  limitePluNgf={m.estSommet ? c.hauteurMaxPluNgf : undefined}
-                  limitePluHauteNgf={m.estSommet ? plafondHaut : undefined}
-                  onValider={m.estSommet ? () => void validerSommet(c.id) : undefined}
-                  onUtiliserGabarit={m.cle === 'hauteurMaxPluNgf' ? (v) => void utiliserGabaritPlu(c.id, v) : undefined}
-                  onValeur={(v) => majChamp(c.id, m.cle, v)} />
-              ))}
+            {/* DEMANDE 2 — deux colonnes : à gauche les mesures ordinaires en grille DENSE (compactes) ; à droite l'ALTITUDE DU SOMMET,
+                mise en avant dans sa propre colonne (étoile + encadré). Plus de grand vide vertical (l'encadré sommet, plus haut, ne
+                partage plus sa rangée avec des champs courts). Sur mobile, la colonne sommet passe SOUS la grille (flex-wrap). */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-start' }}>
+              <div style={{ flex: '3 1 320px', minWidth: 0, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))', gap: '.6rem', alignContent: 'flex-start' }}>
+                {MESURES.filter((m) => !m.estSommet).map(rendreMesure)}
+              </div>
+              <div style={{ flex: '1 1 260px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+                {MESURES.filter((m) => m.estSommet).map(rendreMesure)}
+              </div>
             </div>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem' }} disabled={enCours} onClick={() => void enregistrerCorps(c.id)}>Enregistrer ce bâtiment</button>

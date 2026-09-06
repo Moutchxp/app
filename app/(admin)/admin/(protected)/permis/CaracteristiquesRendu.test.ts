@@ -122,7 +122,7 @@ describe('N5-E — motif de non-écriture sous un champ vide', () => {
   });
 });
 
-describe('DEMANDE 1 — proposition IA sur le sommet (valeur différente → adoption 1 clic + validation à revoir)', () => {
+describe('DEMANDE 1 — proposition IA sur le sommet (valeur différente → adoption 1 clic ; jamais de message « à revoir »)', () => {
   const rendre = (props: Parameters<typeof ChampMesureEditeur>[0]) => renderToStaticMarkup(createElement(ChampMesureEditeur, props));
   const base = { mesure: sommet, bornes: { min: -50, max: 500 }, onValeur: noop, onValider: noop } as const;
 
@@ -138,10 +138,12 @@ describe('DEMANDE 1 — proposition IA sur le sommet (valeur différente → ado
     expect(h).not.toContain('utiliser la valeur IA');
     expect(h).toContain('✓ validée');
   });
-  it('valeur IA différente ET champ VALIDÉ → validation ANNULÉE (à revoir), « ✓ validée » masquée', () => {
+  it('valeur IA différente ET champ VALIDÉ+cohérent → PAS de « à revoir » : bouton VERT « Altitude validée », proposition toujours offerte', () => {
     const h = rendre({ ...base, valeur: '107.04', origine: 'extraite', valeurBase: 107.04, valeurIA: 122.65, confirmeLe: '2026-09-06T10:00:00Z', confirmeParNom: 'Arno' });
-    expect(h).toContain('validation à revoir');
-    expect(h).not.toContain('✓ validée');
+    expect(h).not.toContain('validation à revoir');       // le message contradictoire est supprimé
+    expect(h).toContain('Altitude validée');              // bouton vert : la valeur validée est en place
+    expect(h).toContain('✓ validée');                     // trace « validée par Arno »
+    expect(h).toContain('utiliser la valeur IA (122.65)'); // la proposition reste une OFFRE (pas une contradiction)
   });
   it('sans valeur IA → comportement inchangé (pas de proposition)', () => {
     const h = rendre({ ...base, valeur: '107.04', origine: 'extraite', valeurBase: 107.04 });
@@ -175,20 +177,20 @@ describe('DEMANDE 2 — cohérence physique sommet / dernier plancher (non bloqu
   });
 });
 
-describe('DURCISSEMENT — sommet SOUS le plancher : « Valider cette hauteur » DÉSACTIVÉ (seul ce bouton est bloqué)', () => {
+describe('DURCISSEMENT — sommet SOUS le plancher : « Valider cette altitude » DÉSACTIVÉ (seul ce bouton est bloqué)', () => {
   const rendre = (props: Parameters<typeof ChampMesureEditeur>[0]) => renderToStaticMarkup(createElement(ChampMesureEditeur, props));
   const base = { mesure: sommet, bornes: { min: -50, max: 500 }, onValeur: noop, onValider: noop, margeEgaliteM: 0.1 } as const;
 
   it('sommet < plancher → bouton disabled + message expliquant l’impossibilité et orientant vers l’action', () => {
     const h = rendre({ ...base, valeur: '107.04', origine: 'extraite', valeurBase: 107.04, altitudeDernierPlancher: 115.68 });
-    expect(h).toContain('Valider cette hauteur');
+    expect(h).toContain('Valider cette altitude');
     expect(h).toContain('disabled');                                             // le bouton de validation est désactivé
     expect(h).toContain('validation impossible tant que le sommet est sous le dernier plancher');
     expect(h).toContain('adoptez la valeur IA proposée, remettez la valeur automatique, ou saisissez'); // oriente vers l’action
   });
   it('sommet = plancher (dans la marge) → AVERTISSEMENT seulement, bouton NON désactivé', () => {
     const h = rendre({ ...base, valeur: '115.68', origine: 'extraite', valeurBase: 115.68, altitudeDernierPlancher: 115.68 });
-    expect(h).toContain('Valider cette hauteur');
+    expect(h).toContain('Valider cette altitude');
     expect(h).not.toContain('disabled');
     expect(h).not.toContain('validation impossible tant que');
   });
@@ -206,6 +208,49 @@ describe('DURCISSEMENT — sommet SOUS le plancher : « Valider cette hauteur »
   it('plancher absent → jamais de blocage (impossible à prouver)', () => {
     const h = rendre({ ...base, valeur: '107.04', origine: 'extraite', valeurBase: 107.04 });
     expect(h).not.toContain('disabled');
+  });
+});
+
+describe('DEMANDE 1 — le bouton dit l’ÉTAT RÉEL, sans contradiction (vert « Altitude validée » / rouge « Valider cette altitude »)', () => {
+  const rendre = (props: Parameters<typeof ChampMesureEditeur>[0]) => renderToStaticMarkup(createElement(ChampMesureEditeur, props));
+  const base = { mesure: sommet, bornes: { min: -50, max: 500 }, onValeur: noop, onValider: noop, margeEgaliteM: 0.1 } as const;
+
+  it('VALIDÉE + cohérente + inchangée → bouton VERT « Altitude validée » ; AUCUN message contradictoire', () => {
+    const h = rendre({ ...base, valeur: '101', origine: 'saisie', valeurBase: 101, confirmeLe: '2026-08-20T09:30:00Z', confirmeParNom: 'Arno', altitudeDernierPlancher: 90 });
+    expect(h).toContain('Altitude validée');
+    expect(h).not.toContain('Valider cette altitude');   // pas le libellé rouge en même temps
+    expect(h).not.toContain('validation à revoir');
+    expect(h).not.toContain('hauteur modifiée, non validée');
+    expect(h).not.toContain('à confirmer');
+    expect(h).not.toContain('incohérence');
+    expect(h).toContain('✓ validée');                    // trace cohérente avec le vert
+  });
+
+  it('NON validée → bouton ROUGE « Valider cette altitude » (jamais « Altitude validée »)', () => {
+    const h = rendre({ ...base, valeur: '101', origine: 'extraite', valeurBase: 101, confirmeLe: null, altitudeDernierPlancher: 90 });
+    expect(h).toContain('Valider cette altitude');
+    expect(h).not.toContain('Altitude validée');
+  });
+
+  it('validée PUIS valeur MODIFIÉE au clavier → la validation TOMBE : rouge « Valider cette altitude » + « hauteur modifiée, non validée »', () => {
+    const h = rendre({ ...base, valeur: '105', origine: 'saisie', valeurBase: 101, confirmeLe: '2026-08-20T09:30:00Z', altitudeDernierPlancher: 90 });
+    expect(h).toContain('Valider cette altitude');
+    expect(h).not.toContain('Altitude validée');
+    expect(h).toContain('hauteur modifiée, non validée');
+    expect(h).not.toContain('✓ validée');                // la trace « validée » ne subsiste pas sur une valeur modifiée
+  });
+
+  it('validée PUIS ADOPTION d’une proposition (champ = valeur IA ≠ base) → la validation TOMBE : rouge « Valider cette altitude »', () => {
+    const h = rendre({ ...base, valeur: '122.65', origine: 'saisie', valeurBase: 107.04, valeurIA: 122.65, confirmeLe: '2026-08-20T09:30:00Z', altitudeDernierPlancher: 90 });
+    expect(h).toContain('Valider cette altitude');
+    expect(h).not.toContain('Altitude validée');
+  });
+
+  it('sommet SOUS le plancher, MÊME si « validé » en base → bouton DÉSACTIVÉ, jamais « Altitude validée »', () => {
+    const h = rendre({ ...base, valeur: '107.04', origine: 'saisie', valeurBase: 107.04, confirmeLe: '2026-08-20T09:30:00Z', altitudeDernierPlancher: 115.68 });
+    expect(h).toContain('disabled');
+    expect(h).toContain('validation impossible tant que le sommet est sous le dernier plancher');
+    expect(h).not.toContain('Altitude validée');
   });
 });
 
@@ -583,20 +628,21 @@ describe('FUS-1 — FaitsPermisBloc : empreinte attendue de la parcelle fusionn�
   });
 });
 
-describe('N10-D — le sommet : violet « à confirmer », geste « Valider cette hauteur », valeur auto, trace, garde « non validée »', () => {
+describe('N10-D — le sommet : violet « à confirmer », geste « Valider cette altitude », valeur auto, trace, garde « non validée »', () => {
   const rendreSommet = (props: Partial<Parameters<typeof ChampMesureEditeur>[0]>) =>
     renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: sommet, valeur: '97.13', origine: 'extraite', valeurBase: 97.13, onValeur: noop, onValider: noop, ...props }));
 
-  it('① extraite JAMAIS examinée → le MOT « à confirmer » ET le violet + le bouton « Valider cette hauteur »', () => {
+  it('① extraite JAMAIS examinée → le MOT « à confirmer » ET le violet + le bouton « Valider cette altitude »', () => {
     const h = rendreSommet({ confirmeLe: null });
     expect(h).toContain('à confirmer');                 // le mot est obligatoire (règle T2-B)
     expect(h).toContain(VIOLET_A_CONFIRMER);            // le violet n'est qu'un appui
-    expect(h).toContain('Valider cette hauteur');        // le geste dédié au sommet
+    expect(h).toContain('Valider cette altitude');        // le geste dédié au sommet
   });
 
-  it('④ validée → plus de « à confirmer » ni violet, mais la TRACE « validée par NOM le JJ/MM/AAAA »', () => {
+  it('④ validée+cohérente → bouton VERT « Altitude validée », plus de « à confirmer » ni violet, + TRACE « validée par NOM le JJ/MM/AAAA »', () => {
     const h = rendreSommet({ origine: 'saisie', valeurBase: 101, valeur: '101', confirmeLe: '2026-08-20T09:30:00Z', confirmeParNom: 'Camille Moreau' });
     expect(h).not.toContain('à confirmer');
+    expect(h).toContain('Altitude validée');                         // le bouton dit l'état réel
     expect(h).toContain('validée par Camille Moreau le 20/08/2026'); // ④ : un NOM, pas un numéro
   });
 
@@ -619,7 +665,7 @@ describe('N10-D — le sommet : violet « à confirmer », geste « Valider cett
   it('le violet et le geste ne touchent QUE le sommet : un autre champ extrait n’a ni « à confirmer » ni « Valider »', () => {
     const h = renderToStaticMarkup(createElement(ChampMesureEditeur, { mesure: nbEtages, valeur: '5', origine: 'extraite', onValeur: noop }));
     expect(h).not.toContain('à confirmer');
-    expect(h).not.toContain('Valider cette hauteur');
+    expect(h).not.toContain('Valider cette altitude');
   });
 });
 
@@ -673,7 +719,7 @@ describe('N10-E — la limite PLU à côté du sommet + dépassement signalé (j
     expect(h).toContain('Hauteur maximale PLU (NGF)');
     expect(h).toContain('value="101"');
     expect(h).not.toContain('à confirmer');
-    expect(h).not.toContain('Valider cette hauteur');
+    expect(h).not.toContain('Valider cette altitude');
   });
 });
 
