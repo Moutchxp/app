@@ -275,7 +275,12 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossie
         const plafondHaut = candidatsGab.length > 0 ? Math.max(...candidatsGab) : null;
         // DEMANDE 1 — valeur du SOMMET lue par l'IA (« analyse de la page »). Elle est écrite au niveau PERMIS (corps_id NULL) ; on la
         //   prend du journal du corps si présente, sinon du journal permis. Le composant ne PROPOSE que si elle diffère de la valeur du corps.
-        const iaSommetDe = (j?: JournalChamp) => j ? (j.methode === 'ia' ? (j.valeurRetenue ?? null) : (j.ecartes?.find((e) => e.methode === 'ia')?.valeur ?? null)) : null;
+        // ⚠️ PIÈGE DE TYPE (dossier 468) : le journal vient d'un SELECT brut et `pg` renvoie les colonnes `numeric` comme des CHAÎNES
+        //   (aucun setTypeParser dans db/client). `valeurRetenue`/`ecartes.valeur` valent donc '122.65' (string) au RUNTIME, alors que
+        //   le type TS annonce `number`. Sans coercion, `Number.isFinite('122.65') === false` côté ChampMesureEditeur → la proposition
+        //   n'était JAMAIS rendue à l'écran (le test qui fabriquait un NOMBRE passait à tort). On coerce donc en nombre fini ici.
+        const versNombreFini = (v: number | string | null | undefined): number | null => { if (v == null) return null; const n = typeof v === 'number' ? v : Number(v); return Number.isFinite(n) ? n : null; };
+        const iaSommetDe = (j?: JournalChamp) => j ? versNombreFini(j.methode === 'ia' ? (j.valeurRetenue ?? null) : (j.ecartes?.find((e) => e.methode === 'ia')?.valeur ?? null)) : null;
         const valeurIaSommet = iaSommetDe(journalCorps['altitude_sommet_ngf']) ?? iaSommetDe(data.journal.permis['altitude_sommet_ngf']);
         return (
           <div key={c.id} className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
