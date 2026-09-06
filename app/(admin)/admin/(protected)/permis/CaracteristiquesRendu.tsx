@@ -3,7 +3,7 @@ import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 
 import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo';
 // ⚠️ Bundle client (piège du 13/08) : de `journalLecture` (module serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { JournalChamp, ProvenanceEcartee } from '../../../../lib/permis/journalLecture';
-import { MESURES, libelleBornes, composerLibelleDestinations, raisonParcelleNonRattachee, ecartSuperficieCadastre, type Bornes, type ChampDeclare, type FaitsPermis } from './caracteristiquesForm';
+import { MESURES, libelleBornes, composerLibelleDestinations, raisonParcelleNonRattachee, ecartSuperficieCadastre, coherenceSommetPlancher, MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT, type Bornes, type ChampDeclare, type FaitsPermis } from './caracteristiquesForm';
 import type { ParcelleLigne, EmpreinteLigne, BatiSnapshotResume } from '../../../../lib/permis/parcellesRepo'; // TYPE seulement (module serveur) — piège du bundle client
 import { CorrectionParcelle } from './CorrectionParcelle'; // LOT 101 — geste de correction manuelle d'une parcelle
 import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa'; // LOT 67 — module PUR : import de type sûr côté client
@@ -453,13 +453,21 @@ function grouperCandidatsGabarit(ecartes: readonly ProvenanceEcartee[]): { valeu
   return groupes;
 }
 
-export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, confirmeLe, confirmeParNom, valeurAuto, valeurBase, limitePluNgf, limitePluHauteNgf, onValider, onUtiliserGabarit, onValeur }: {
+export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, journal, lienPiece, confirmeLe, confirmeParNom, valeurAuto, valeurBase, valeurIA, altitudeDernierPlancher, margeEgaliteM, limitePluNgf, limitePluHauteNgf, onValider, onUtiliserGabarit, onValeur }: {
   mesure: (typeof MESURES)[number]; bornes?: Bornes; valeur: string; origine: OrigineValeur | null; erreur?: string; journal?: JournalChamp; lienPiece?: LienPiece;
   confirmeLe?: string | null; confirmeParNom?: string | null; valeurAuto?: number | null; valeurBase?: number | null; limitePluNgf?: number | null;
+  valeurIA?: number | null; // DEMANDE 1 — valeur LUE PAR L'IA (analyse de la page) ; si ≠ de la valeur actuelle → proposition en 1 clic + validation à revoir
+  altitudeDernierPlancher?: number | null; margeEgaliteM?: number; // DEMANDE 2 — contrôle de cohérence physique sommet/dernier plancher (marge de config)
   limitePluHauteNgf?: number | null; onValider?: () => void; // N10-M : gabarit PLU le PLUS HAUT applicable (le plafond descend à `limitePluNgf` au droit du plateau le plus bas)
   onUtiliserGabarit?: (valeur: number) => void; onValeur: (v: string) => void; // N10-L : « utiliser N » ÉCRIT en base (origine 'saisie') ; sans lui, repli sur le brouillon
 }) {
   const estSommet = mesure.estSommet === true;
+  // DEMANDE 1 — PROPOSITION IA : l'analyse a lu une valeur DIFFÉRENTE de celle déjà présente (valeurBase). Identique → aucune proposition,
+  //   validation conservée. On ne l'écrit pas : on PROPOSE (adoption en 1 clic dans le champ, sans saisie), l'écriture reste humaine.
+  const propositionIA = estSommet && valeurIA != null && Number.isFinite(valeurIA) && (valeurBase == null || Math.abs(valeurIA - valeurBase) > 1e-9);
+  // DEMANDE 2 — cohérence physique du sommet EFFECTIF (valeur en cours si saisie, sinon valeur en base) vs dernier plancher.
+  const sommetEffectif = (() => { const t = valeur.trim(); if (t === '') return valeurBase ?? null; const n = Number(t.replace(',', '.')); return Number.isFinite(n) ? n : (valeurBase ?? null); })();
+  const coherence = estSommet ? coherenceSommetPlancher(sommetEffectif, altitudeDernierPlancher ?? null, margeEgaliteM ?? MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT) : null;
   // N10-E/N10-M — la LIMITE PLU s'affiche À CÔTÉ du sommet. On SIGNALE un dépassement (non bloquant), mais on le compare au gabarit le
   //   PLUS HAUT applicable (`limitePluHauteNgf`) — le plafond descend à `limitePluNgf` seulement au droit du plateau le plus bas.
   //   Sinon un sommet à 101 au droit d'un plateau où le gabarit vaut 101 déclencherait une fausse alarme contre le plafond 100.
@@ -505,6 +513,15 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.15rem .5rem' }} onClick={() => onValeur(String(valeurAuto))}>Remettre la valeur automatique</button>
         </div>
       )}
+      {/* DEMANDE 1 — PROPOSITION IA : l'analyse a lu une valeur DIFFÉRENTE de la valeur actuelle. Même registre que « Remettre la valeur
+          automatique » (bouton outline) : on ADOPTE en 1 CLIC dans le champ, SANS saisie (évite les fautes de frappe) ; la valeur
+          précédente reste lisible. Aucune écriture ici — l'écriture reste le geste humain « Valider cette hauteur » (jamais d'écrasement silencieux). */}
+      {propositionIA && (
+        <div role="note" style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', fontSize: 11 }}>
+          <span style={{ color: 'var(--color-svv-ink)' }}>l’analyse IA a lu <strong>{valeurIA}</strong> — différent de la valeur actuelle ({valeurBase ?? '—'}).</span>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.15rem .5rem' }} onClick={() => onValeur(String(valeurIA))}>utiliser la valeur IA ({valeurIA})</button>
+        </div>
+      )}
       {/* N10-D — le GESTE dédié au sommet : écrit LA VALEUR DU CHAMP (modifiée ou non) comme décision humaine. Périmètre disjoint d'« Enregistrer ce bâtiment ». */}
       {estSommet && onValider && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
@@ -512,7 +529,12 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
           {modifieeNonValidee && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: VIOLET_A_CONFIRMER }}>hauteur modifiée, non validée</span>}
         </div>
       )}
-      {valide && <span role="note" style={{ ...styleAide, color: 'var(--color-svv-green-ink)' }}>✓ validée{confirmeParNom ? ` par ${confirmeParNom}` : ''}{confirmeLe ? ` le ${jjmmaaaa(confirmeLe)}` : ''}</span>}
+      {/* DEMANDE 1 — la validation ne peut plus passer pour ACQUISE quand l'IA propose une valeur différente : « ✓ validée » masquée, remplacée par « à revalider ». */}
+      {valide && !propositionIA && <span role="note" style={{ ...styleAide, color: 'var(--color-svv-green-ink)' }}>✓ validée{confirmeParNom ? ` par ${confirmeParNom}` : ''}{confirmeLe ? ` le ${jjmmaaaa(confirmeLe)}` : ''}</span>}
+      {valide && propositionIA && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-amber)' }}>validation à revoir — l’analyse IA a lu une valeur différente : adoptez-la ou revalidez la valeur actuelle.</span>}
+      {/* DEMANDE 2 — CONTRÔLE DE COHÉRENCE PHYSIQUE (non bloquant) : le sommet est le point le plus haut. On dit QUELLE valeur est suspecte. */}
+      {coherence === 'impossible' && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-red)' }}>⚠ incohérence : l’altitude du sommet ({sommetEffectif} m) est SOUS le dernier plancher ({altitudeDernierPlancher} m) — physiquement impossible (le sommet est le point le plus haut). Vérifiez l’altitude du sommet.</span>}
+      {coherence === 'egal' && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-amber)' }}>⚠ l’altitude du sommet ({sommetEffectif} m) est au niveau du dernier plancher ({altitudeDernierPlancher} m) — suspect : il manque la hauteur d’étage et l’acrotère ?</span>}
       {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
       {/* N10-I/N10-M — cotes de gabarit lues sur les planches. RÈGLE VÉRIFIÉE → on ÉNONCE la règle (factuel, pas une divergence :
           chaque valeur vaut au droit de son plateau). Sinon, plusieurs groupes = VRAIE divergence, à trancher à la main. */}

@@ -47,6 +47,25 @@ export const MESURES: readonly Mesure[] = [
   { cle: 'altitudeTerrainNaturelNgf', colonne: 'altitude_terrain_naturel_ngf', libelle: 'Altitude du terrain naturel (NGF)', unite: 'm', entier: false },
 ];
 
+/**
+ * DEMANDE 2 — CONTRÔLE DE COHÉRENCE PHYSIQUE (règle porteur) : le SOMMET d'un bâtiment est forcément son point le PLUS HAUT.
+ *  - sommet SOUS le dernier plancher (écart < −marge) → configuration IMPOSSIBLE (incohérence de données, pas un simple doute) ;
+ *  - sommet AU NIVEAU du dernier plancher (|écart| ≤ marge) → AVERTISSEMENT (il manquerait la hauteur d'étage et l'acrotère) ;
+ *  - sommet AU-DESSUS (écart > marge) → cohérent, rien à signaler.
+ * PUR. `margeM` = tolérance d'égalité, VARIABLE de config (config_veille, migration 205), JAMAIS une constante en dur. Retourne `null`
+ * si une des deux altitudes manque (on ne signale rien sur une donnée absente). NON BLOQUANT : l'appelant informe, il ne décide pas.
+ */
+export const MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT = 0.10;
+export type CoherenceSommet = 'impossible' | 'egal' | 'ok';
+export function coherenceSommetPlancher(sommet: number | null | undefined, plancher: number | null | undefined, margeM: number): CoherenceSommet | null {
+  if (sommet == null || plancher == null || !Number.isFinite(sommet) || !Number.isFinite(plancher)) return null;
+  const marge = Number.isFinite(margeM) && margeM >= 0 ? margeM : MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT;
+  const ecart = (sommet as number) - (plancher as number);
+  if (ecart < -marge) return 'impossible'; // clairement SOUS le plancher
+  if (ecart <= marge) return 'egal';        // AU NIVEAU du plancher (à la marge près)
+  return 'ok';
+}
+
 /** Édition d'un corps : tout en CHAÎNE (les inputs). Une chaîne VIDE = champ vide (→ null explicite), jamais 0. */
 export interface EditionCorps {
   repere: string;

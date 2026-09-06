@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { construireCorps, construireGlobal, construirePermis, valeurVersInput, libelleBornes, composerLibelleDestinations, raisonParcelleNonRattachee, ecartSuperficieCadastre, MESURES, CHAMPS_PERMIS, type EditionCorps, type EditionPermis, type Bornes } from './caracteristiquesForm';
+import { construireCorps, construireGlobal, construirePermis, valeurVersInput, libelleBornes, composerLibelleDestinations, raisonParcelleNonRattachee, ecartSuperficieCadastre, coherenceSommetPlancher, MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT, MESURES, CHAMPS_PERMIS, type EditionCorps, type EditionPermis, type Bornes } from './caracteristiquesForm';
 
 const NATURES = ['habitation', 'bureaux', 'commerce', 'mixte', 'equipement', 'autre'];
 const edPermis = (over: Partial<EditionPermis> = {}): EditionPermis => ({ natureProjet: '', surfacePlancherM2: '', nbLogements: '', nbPlacesStationnement: '', adresseTerrain: '', designation: '', altitudeSommetNgf: '', ...over });
@@ -156,5 +156,32 @@ describe('N3-E — raison de non-rattachement + écart de superficie (purs)', ()
     expect(ecartSuperficieCadastre(255, 255)).toBeNull();
     expect(ecartSuperficieCadastre(2631.5, 2000)).toContain('2631.5 m² déclarés vs 2000 m²');
     expect(ecartSuperficieCadastre(null, 2631)).toBeNull();
+  });
+});
+
+describe('DEMANDE 2 — coherenceSommetPlancher (PUR, marge PARAMÉTRÉE jamais en dur)', () => {
+  const M = 0.1;
+  it('sommet SOUS le plancher (au-delà de la marge) → « impossible » (cas réel 468 : 107,04 < 115,68)', () => {
+    expect(coherenceSommetPlancher(107.04, 115.68, M)).toBe('impossible');
+    expect(coherenceSommetPlancher(100, 101, M)).toBe('impossible');
+  });
+  it('sommet AU NIVEAU du plancher (|écart| ≤ marge) → « egal » (avertissement)', () => {
+    expect(coherenceSommetPlancher(115.68, 115.68, M)).toBe('egal');   // exactement égal
+    expect(coherenceSommetPlancher(115.73, 115.68, M)).toBe('egal');   // +0,05 ≤ marge
+    expect(coherenceSommetPlancher(115.60, 115.68, M)).toBe('egal');   // −0,08 (dans la marge) → « au niveau », pas « impossible »
+  });
+  it('sommet AU-DESSUS (écart > marge) → « ok » (rien) — la valeur IA 122,65 est cohérente', () => {
+    expect(coherenceSommetPlancher(122.65, 115.68, M)).toBe('ok');
+    expect(coherenceSommetPlancher(116, 115.68, M)).toBe('ok');        // +0,32 > marge
+  });
+  it('donnée manquante ou non finie → null (on ne signale rien)', () => {
+    expect(coherenceSommetPlancher(null, 115.68, M)).toBeNull();
+    expect(coherenceSommetPlancher(107, null, M)).toBeNull();
+    expect(coherenceSommetPlancher(NaN, 115, M)).toBeNull();
+  });
+  it('la MARGE est bien prise en compte (jamais en dur) : marge 1 m élargit « egal »', () => {
+    expect(coherenceSommetPlancher(115.0, 115.68, 1)).toBe('egal');    // −0,68 dans la marge de 1 m
+    expect(coherenceSommetPlancher(115.0, 115.68, 0.1)).toBe('impossible'); // même écart, marge 0,1 → impossible
+    expect(MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT).toBe(0.1);        // défaut centralisé = DEFAULT de la migration 205
   });
 });

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 // ⚠️ Bundle client (piège du 13/08) : de `caracteristiquesRepo` / `journalLecture` (modules serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { CorpsBatiment, GlobalPermis, OrigineValeur, ValeursCorps } from '../../../../lib/permis/caracteristiquesRepo';
-import type { JournalPermis } from '../../../../lib/permis/journalLecture';
+import type { JournalPermis, JournalChamp } from '../../../../lib/permis/journalLecture';
 import type { ParcelleLigne, EmpreinteLigne, BatiSnapshotResume } from '../../../../lib/permis/parcellesRepo';
 import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa'; // LOT 67 — module PUR : import de type sûr côté client
 import type { BornesParColonne } from '../../../../lib/sitadel/reglagesVeille';
@@ -15,7 +15,7 @@ import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, ChampDeclar
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
 // N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null; majLe: string | null } | null }
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null; majLe: string | null } | null; margeCoherenceSommetM?: number }
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '', adresse: c.adresse ?? '',
@@ -273,6 +273,10 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossie
         //   compare à lui, pas à hauteur_max_plu_ngf (le plafond au droit du plateau le plus bas), pour ne pas crier une fausse alarme.
         const candidatsGab = (journalCorps['hauteur_max_plu_ngf']?.ecartes ?? []).map((e) => e.valeur).filter((v): v is number => v != null);
         const plafondHaut = candidatsGab.length > 0 ? Math.max(...candidatsGab) : null;
+        // DEMANDE 1 — valeur du SOMMET lue par l'IA (« analyse de la page »). Elle est écrite au niveau PERMIS (corps_id NULL) ; on la
+        //   prend du journal du corps si présente, sinon du journal permis. Le composant ne PROPOSE que si elle diffère de la valeur du corps.
+        const iaSommetDe = (j?: JournalChamp) => j ? (j.methode === 'ia' ? (j.valeurRetenue ?? null) : (j.ecartes?.find((e) => e.methode === 'ia')?.valeur ?? null)) : null;
+        const valeurIaSommet = iaSommetDe(journalCorps['altitude_sommet_ngf']) ?? iaSommetDe(data.journal.permis['altitude_sommet_ngf']);
         return (
           <div key={c.id} className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -289,6 +293,8 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossie
                   erreur={err[m.cle]} journal={journalCorps[m.colonne]} lienPiece={lienPiece}
                   confirmeLe={m.estSommet ? c.altitudeSommetNgfConfirmeLe : undefined} confirmeParNom={m.estSommet ? c.altitudeSommetNgfConfirmeParNom : undefined}
                   valeurAuto={m.estSommet ? (journalCorps[m.colonne]?.valeurRetenue ?? null) : undefined} valeurBase={m.estSommet ? c.altitudeSommetNgf : undefined}
+                  valeurIA={m.estSommet ? valeurIaSommet : undefined}
+                  altitudeDernierPlancher={m.estSommet ? c.altitudeDernierPlancherNgf : undefined} margeEgaliteM={data.margeCoherenceSommetM}
                   limitePluNgf={m.estSommet ? c.hauteurMaxPluNgf : undefined}
                   limitePluHauteNgf={m.estSommet ? plafondHaut : undefined}
                   onValider={m.estSommet ? () => void validerSommet(c.id) : undefined}

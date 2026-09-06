@@ -122,6 +122,59 @@ describe('N5-E — motif de non-écriture sous un champ vide', () => {
   });
 });
 
+describe('DEMANDE 1 — proposition IA sur le sommet (valeur différente → adoption 1 clic + validation à revoir)', () => {
+  const rendre = (props: Parameters<typeof ChampMesureEditeur>[0]) => renderToStaticMarkup(createElement(ChampMesureEditeur, props));
+  const base = { mesure: sommet, bornes: { min: -50, max: 500 }, onValeur: noop, onValider: noop } as const;
+
+  it('valeur IA DIFFÉRENTE de l’existante → proposition portant la nouvelle valeur (1 clic), valeur précédente visible', () => {
+    const h = rendre({ ...base, valeur: '107.04', origine: 'extraite', valeurBase: 107.04, valeurIA: 122.65 });
+    expect(h).toContain('l’analyse IA a lu');
+    expect(h).toContain('122.65');                          // la NOUVELLE valeur portée par le bouton
+    expect(h).toContain('utiliser la valeur IA (122.65)');
+    expect(h).toContain('107.04');                          // la valeur précédente reste visible
+  });
+  it('valeur IA IDENTIQUE à l’existante → AUCUNE proposition ; validation conservée (✓ validée)', () => {
+    const h = rendre({ ...base, valeur: '122.65', origine: 'extraite', valeurBase: 122.65, valeurIA: 122.65, confirmeLe: '2026-09-06T10:00:00Z' });
+    expect(h).not.toContain('utiliser la valeur IA');
+    expect(h).toContain('✓ validée');
+  });
+  it('valeur IA différente ET champ VALIDÉ → validation ANNULÉE (à revoir), « ✓ validée » masquée', () => {
+    const h = rendre({ ...base, valeur: '107.04', origine: 'extraite', valeurBase: 107.04, valeurIA: 122.65, confirmeLe: '2026-09-06T10:00:00Z', confirmeParNom: 'Arno' });
+    expect(h).toContain('validation à revoir');
+    expect(h).not.toContain('✓ validée');
+  });
+  it('sans valeur IA → comportement inchangé (pas de proposition)', () => {
+    const h = rendre({ ...base, valeur: '107.04', origine: 'extraite', valeurBase: 107.04 });
+    expect(h).not.toContain('utiliser la valeur IA');
+  });
+});
+
+describe('DEMANDE 2 — cohérence physique sommet / dernier plancher (non bloquant)', () => {
+  const rendre = (props: Parameters<typeof ChampMesureEditeur>[0]) => renderToStaticMarkup(createElement(ChampMesureEditeur, props));
+  const base = { mesure: sommet, bornes: { min: -50, max: 500 }, onValeur: noop, margeEgaliteM: 0.1 } as const;
+
+  it('sommet SOUS le plancher → incohérence signalée, disant quelle valeur est suspecte (cas réel : 107,04 < 115,68)', () => {
+    const h = rendre({ ...base, valeur: '107.04', origine: 'extraite', valeurBase: 107.04, altitudeDernierPlancher: 115.68 });
+    expect(h).toContain('incohérence');
+    expect(h).toContain('sommet (107.04 m) est SOUS le dernier plancher (115.68 m)');
+    expect(h).toContain('impossible');
+  });
+  it('sommet ÉGAL au plancher → avertissement (suspect)', () => {
+    const h = rendre({ ...base, valeur: '115.68', origine: 'extraite', valeurBase: 115.68, altitudeDernierPlancher: 115.68 });
+    expect(h).toContain('au niveau du dernier plancher');
+    expect(h).toContain('manque la hauteur d’étage');
+  });
+  it('sommet AU-DESSUS du plancher → aucun signalement', () => {
+    const h = rendre({ ...base, valeur: '122.65', origine: 'extraite', valeurBase: 122.65, altitudeDernierPlancher: 115.68 });
+    expect(h).not.toContain('incohérence');
+    expect(h).not.toContain('au niveau du dernier plancher');
+  });
+  it('plancher absent → aucun contrôle (on ne signale rien sur une donnée manquante)', () => {
+    const h = rendre({ ...base, valeur: '107.04', origine: 'extraite', valeurBase: 107.04 });
+    expect(h).not.toContain('incohérence');
+  });
+});
+
 describe('LOT PROV-1 (point 2) — AnnotationsExtraction : liens de provenance sous un champ VIDE/DIVERGENT', () => {
   const rendre = (props: Parameters<typeof AnnotationsExtraction>[0]) => renderToStaticMarkup(createElement(AnnotationsExtraction, props));
   // journal d'un champ DIVERGENT (nb_logements) : origine null, deux lectures écartées (OCR/vision) MÊME pièce/page, + 1 ligne cerfa sans pièce.
