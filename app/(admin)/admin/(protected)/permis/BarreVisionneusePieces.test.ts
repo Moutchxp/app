@@ -117,3 +117,49 @@ describe('CAPSULE IA — quatre états distincts (vérité de l’analyse, y com
     expect(html).toContain('Page analysée IA');     // et pourtant analysée → capsule correcte
   });
 });
+
+describe('DISSOCIATION VISUELLE — deux capsules : BEST-OF (liseré BLEU) vs FICHIER (gris), sans rien déplacer', () => {
+  it('deux CONTENEURS distincts (role=group + libellés) ; distinction non réductible à la couleur', () => {
+    const html = renderToStaticMarkup(h(BarreVisionneusePieces, props({ pieceId: 55, nbPagesPiece: 3 })));
+    expect(html).toContain('role="group"');
+    expect(html).toContain('aria-label="Navigation du best-of des plans"'); // capsule best-of
+    expect(html).toContain('aria-label="Pages et pièces du fichier"');       // capsule fichier
+  });
+
+  it('la capsule BEST-OF utilise le MÊME bleu que « Image best-of » (var(--color-svv-blue)), pas le bleu fixe de la capsule IA', () => {
+    const html = renderToStaticMarkup(h(BarreVisionneusePieces, props({ pieceId: 55, pageDansBestOf: true })));
+    expect(html).toContain('1px solid var(--color-svv-blue)'); // liseré de la capsule best-of
+    expect(html).toContain('Image best-of');                    // le repère « Image best-of » (même token bleu)
+    // le bleu du liseré est un TOKEN thématisé (clair/sombre), distinct du bleu FIXE #1a4d8f de la capsule « Page analysée IA ».
+  });
+
+  it('la capsule FICHIER est en GRIS neutre (var(--color-svv-line))', () => {
+    const html = renderToStaticMarkup(h(BarreVisionneusePieces, props({ pieceId: 55 })));
+    const iFichier = html.indexOf('aria-label="Pages et pièces du fichier"');
+    expect(iFichier).toBeGreaterThan(-1);
+    expect(html.slice(iFichier, iFichier + 120)).toContain('var(--color-svv-line)'); // liseré gris sur le conteneur fichier
+  });
+
+  it('AUCUN élément de navigation n’a disparu, et chacun est dans la BONNE capsule (ordre : best-of → fichier)', () => {
+    const html = renderToStaticMarkup(h(BarreVisionneusePieces, props({ pieceId: 55, nbPagesPiece: 3, nav: 'bestof' })));
+    const iBleu = html.indexOf('Navigation du best-of des plans');
+    const iNav = html.indexOf('BLOC-NAV');                 // slotNav (compteur + ‹/› + type + nom·page·échelle)
+    const iGris = html.indexOf('Pages et pièces du fichier');
+    const iPage = html.indexOf('pages de ce fichier :');    // contrôle de page (module fichier)
+    const iPieces = html.indexOf('SELECTEUR-PIECES');       // « voir toutes les pièces » (module fichier)
+    const iOuvrir = html.indexOf('dans un nouvel onglet');  // lien (module fichier)
+    for (const i of [iBleu, iNav, iGris, iPage, iPieces, iOuvrir]) expect(i).toBeGreaterThan(-1);
+    // slotNav est DANS la capsule best-of (après son ouverture, avant la capsule fichier).
+    expect(iBleu).toBeLessThan(iNav);
+    expect(iNav).toBeLessThan(iGris);
+    // les trois éléments du module fichier sont APRÈS l'ouverture de la capsule fichier.
+    for (const i of [iPage, iPieces, iOuvrir]) expect(i).toBeGreaterThan(iGris);
+  });
+
+  it('sans pièce ouverte : la capsule FICHIER reste rendue avec l’échappatoire « voir toutes les pièces » (slotPieces toujours là)', () => {
+    const html = renderToStaticMarkup(h(BarreVisionneusePieces, props({ pieceId: null })));
+    expect(html).toContain('aria-label="Pages et pièces du fichier"');
+    expect(html).toContain('SELECTEUR-PIECES');
+    expect(html).not.toContain('dans un nouvel onglet'); // le lien reste gardé par pageOuverte
+  });
+});

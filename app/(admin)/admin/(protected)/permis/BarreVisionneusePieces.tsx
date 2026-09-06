@@ -98,6 +98,13 @@ export function BarreVisionneusePieces({
   // Flèches du contrôle de page DISCRET — volontairement PLUS PETITES et de glyphe différent (◁ ▷) que la paire de plans (‹ précédent /
   //   suivant ›), pour qu'aucun regard n'hésite entre « changer de plan » et « changer de page ».
   const btnPageMini = (actif: boolean): React.CSSProperties => ({ cursor: actif ? 'pointer' : 'default', opacity: actif ? 1 : 0.35, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 28, padding: '.1rem .4rem', fontSize: 12, lineHeight: 1 });
+  // DISSOCIER VISUELLEMENT les deux modules de navigation sous l'image (demande Arno). Deux CONTENEURS (on ENCADRE l'existant : rien
+  //   n'est déplacé, retiré ni réordonné à l'intérieur). BEST-OF = liseré BLEU, MÊME token que la capsule « Image best-of »
+  //   (`var(--color-svv-blue)`) → lien visuel immédiat. FICHIER = liseré GRIS neutre (`var(--color-svv-line)`), registre sobre. Compacts
+  //   (bordure 1px, padding léger : on ne rouvre pas le vide comblé au lot précédent), theme-aware (tokens clair/sombre). La distinction
+  //   NE repose PAS sur la seule couleur : deux blocs séparés + `role="group"`/`aria-label` + libellés internes portent déjà le sens.
+  const capsuleBestOf: React.CSSProperties = { border: '1px solid var(--color-svv-blue)', borderRadius: '.5rem', padding: '.4rem .5rem' };
+  const capsuleFichier: React.CSSProperties = { border: '1px solid var(--color-svv-line)', borderRadius: '.5rem', padding: '.4rem .5rem', display: 'flex', flexDirection: 'column', gap: '.4rem' };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
       {/* ① LIGNE DE STATUT — UNE SEULE LIGNE sous l'image, sur la ligne du TITRE. Ordre imposé : [titre en tête] · [retour au best-of,
@@ -119,27 +126,37 @@ export function BarreVisionneusePieces({
             aria-label={pageDansBestOf ? `Retirer du best-of la page ${page} de ${nomCourant} (réversible)` : `Ajouter au best-of la page ${page} de ${nomCourant} (cette page seule, réversible)`}>{pageDansBestOf ? '✕ retirer du best-of' : '＋ ajouter au best-of'}</button>
         )}
       </div>
-      {/* ② NAVIGATION PRIMAIRE — l'UNIQUE paire ‹ précédent / suivant › (space-between), portée par slotNav (BandePlans / NavPieceLibre). */}
-      {slotNav}
-      {/* ③ CONTRÔLE DE PAGE DISCRET (fichier multi-pages), NETTEMENT distinct de la paire de plans. Masqué en mode « pièce libre ». */}
-      {pageOuverte && nav !== 'piece' && nbPagesPiece > 1 && (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem', flexWrap: 'wrap', fontSize: 11, color: 'var(--color-svv-muted)' }}>
-          <span>pages de ce fichier :</span>
-          <button type="button" aria-label="Page précédente du fichier" disabled={page <= 1} onClick={onPagePrecedente} style={btnPageMini(page > 1)}>◁</button>
-          <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)' }}>page {page} / {nbPagesPiece}{echelle ? ` · échelle ${echelle}` : ''}</span>
-          <button type="button" aria-label="Page suivante du fichier" disabled={page >= nbPagesPiece} onClick={onPageSuivante} style={btnPageMini(page < nbPagesPiece)}>▷</button>
-        </div>
-      )}
-      {/* ④ « voir toutes les pièces du dossier » (ÉCHAPPATOIRE, contenu propre à la visionneuse) : TOUJOURS rendu, même sans pièce ouverte. */}
-      {slotPieces}
-      {/* Le LIEN et toute la section FONCTIONS n'ont de sens qu'avec une PAGE ouverte → gardés par `pageOuverte` (sinon `slotNav` +
-          `slotPieces` ci-dessus suffisent comme échappatoire pour choisir une pièce). */}
-      {pageOuverte && (<>
-      {/* LIEN VERS LE DOCUMENT SOURCE (nouvel onglet). Suit la page affichée ; signé AU CLIC (url_piece). */}
-      <button type="button" className="svv-link" onClick={onOuvrirDocument} aria-label={`Ouvrir ${nomCourant} dans un nouvel onglet`}
-        style={{ width: 'auto', minHeight: 32, padding: '.2rem .1rem', fontSize: 12, textAlign: 'left', textDecoration: 'underline', wordBreak: 'break-word' }}>
-        Ouvrir « {nomCourant} »{page > 0 ? ` (page ${page})` : ''} dans un nouvel onglet ↗
-      </button>
+      {/* ② MODULE BEST-OF — capsule à LISERÉ BLEU (même bleu que « Image best-of ») : l'UNIQUE paire ‹ précédent / suivant › + « plan i
+          sur n » + type + « nom.pdf — page N · échelle 1:X », portés par slotNav (BandePlans / NavPieceLibre). Conteneur : rien n'est déplacé. */}
+      <div role="group" aria-label="Navigation du best-of des plans" style={capsuleBestOf}>
+        {slotNav}
+      </div>
+      {/* ③④ + LIEN = MODULE FICHIER — capsule GRISE neutre (var(--color-svv-line)) : contrôle de page discret, « voir toutes les pièces
+          du dossier », lien « Ouvrir … dans un nouvel onglet ». CONTENEUR : rien n'est déplacé/retiré ; `slotPieces` reste TOUJOURS
+          rendu (échappatoire même sans pièce ouverte), le lien reste gardé par `pageOuverte`. */}
+      <div role="group" aria-label="Pages et pièces du fichier" style={capsuleFichier}>
+        {/* ③ CONTRÔLE DE PAGE DISCRET (fichier multi-pages), NETTEMENT distinct de la paire de plans. Masqué en mode « pièce libre ». */}
+        {pageOuverte && nav !== 'piece' && nbPagesPiece > 1 && (
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem', flexWrap: 'wrap', fontSize: 11, color: 'var(--color-svv-muted)' }}>
+            <span>pages de ce fichier :</span>
+            <button type="button" aria-label="Page précédente du fichier" disabled={page <= 1} onClick={onPagePrecedente} style={btnPageMini(page > 1)}>◁</button>
+            <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)' }}>page {page} / {nbPagesPiece}{echelle ? ` · échelle ${echelle}` : ''}</span>
+            <button type="button" aria-label="Page suivante du fichier" disabled={page >= nbPagesPiece} onClick={onPageSuivante} style={btnPageMini(page < nbPagesPiece)}>▷</button>
+          </div>
+        )}
+        {/* ④ « voir toutes les pièces du dossier » (ÉCHAPPATOIRE, contenu propre à la visionneuse) : TOUJOURS rendu, même sans pièce ouverte. */}
+        {slotPieces}
+        {/* LIEN VERS LE DOCUMENT SOURCE (nouvel onglet). Suit la page affichée ; signé AU CLIC (url_piece). Gardé par `pageOuverte`. */}
+        {pageOuverte && (
+          <button type="button" className="svv-link" onClick={onOuvrirDocument} aria-label={`Ouvrir ${nomCourant} dans un nouvel onglet`}
+            style={{ width: 'auto', minHeight: 32, padding: '.2rem .1rem', fontSize: 12, textAlign: 'left', textDecoration: 'underline', wordBreak: 'break-word' }}>
+            Ouvrir « {nomCourant} »{page > 0 ? ` (page ${page})` : ''} dans un nouvel onglet ↗
+          </button>
+        )}
+      </div>
+      {/* SECTION FONCTIONS (statut de la page, vue d'ensemble des pages analysées, analyses IA) — HORS des deux capsules, n'a de sens
+          qu'avec une PAGE ouverte → gardée par `pageOuverte`. */}
+      {pageOuverte && (
       <div style={{ paddingTop: '.4rem', borderTop: '1px solid var(--color-svv-line)', display: 'flex', flexDirection: 'column', gap: '.4rem', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)' }}>
         {/* ② STATUT DE LA PAGE (pastille NATURE·ORIGINE + libellé). 'non identifiée' → rien. */}
         {statutPage.etat !== 'non_identifiee' && (
@@ -209,7 +226,7 @@ export function BarreVisionneusePieces({
           </div>
         )}
       </div>
-      </>)}
+      )}
     </div>
   );
 }
