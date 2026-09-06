@@ -727,6 +727,26 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     </>
   );
 
+  // SUITE LOT 7b47817 — le SECOND bloc « barre d'outils de calage/tracé + encadré de contrôle + aire » suit le MÊME état (procEnCours) que
+  //   le guide : au repos à sa position actuelle (colonne droite, plus bas), et SOUS LE SCHÉMA — GROUPÉ avec le guide — pendant tout le
+  //   processus de création. Défini UNE seule fois, rendu à deux sites MUTUELLEMENT EXCLUSIFS (jamais deux, jamais aucun). Ainsi le
+  //   RÉSIDU de calage et l'écart ÉCHELLE implicite/déclarée (fiabilité du calage) restent LISIBLES pendant qu'on trace. Aucun calcul ni
+  //   coordonnée touché : simple relocalisation d'affichage (vc/aire/vv sont calculés en amont, inchangés).
+  const blocOutilsCalage = (
+    <>
+      {/* Outils de calage / tracé. */}
+      <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
+        <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'calage' ? 700 : 400 }} onClick={() => setMode('calage')}>Calage ({paires.length}/2)</button>
+        <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'trace' ? 700 : 400 }} onClick={() => setMode('trace')}>Tracé ({sommets.length})</button>
+        <button type="button" style={btn} onClick={() => mode === 'trace' ? setSommets((s) => s.slice(0, -1)) : (planEnAttente ? setPlanEnAttente(null) : setPaires((p) => p.slice(0, -1)))}>Annuler dernier</button>
+        <button type="button" style={btn} onClick={() => { setSommets([]); setPaires([]); setPlanEnAttente(null); setDebordement(null); }}>Reprendre</button>
+        <label style={styleAide}>échelle 1: <input inputMode="numeric" value={ratioDeclareSaisi} onChange={(e) => setRatioDeclareSaisi(e.target.value)} placeholder="200" style={{ width: 60 }} /></label>
+      </div>
+      <BandeauCalage calage={vc} nbPaires={paires.length} />
+      <BandeauVraisemblance aireM2={aire} v={vv} />
+    </>
+  );
+
   // PROJ-3b-fix ② — décision PURE (testée) : chargement · échec · succès-vide · prêt. « Aucun bâtiment » n'apparaît QU'au succès réel.
   const vue = affichageTrace(etat, batiments.length);
   if (vue === 'chargement') {
@@ -849,12 +869,16 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             <RotationSchema angle={angle} onAngle={setAngle} />
             {bandeauSel}
             {/* FIX « ascenseur » — PENDANT tout le processus de création (calage amorcé → 1/2 → 2/2 → tracé des sommets → jusqu'à la
-                validation), le guide « Étape 1 — caler la vue » reste ICI, SOUS LE SCHÉMA, quel que soit le côté cliqué (`procEnCours`).
-                Il ne fait plus l'ascenseur. Un seul exemplaire (exclusif du rendu de gauche). Fondu sobre à l'apparition. */}
-            {tracable && procEnCours && <div className="svv-guide-fondu"><GuidageTraceBox g={guidage}
-              onAnnulerDernier={mode === 'calage' ? () => { if (planEnAttente) setPlanEnAttente(null); else setPaires((p) => p.slice(0, -1)); } : undefined}
-              onRecommencer={mode === 'calage' ? () => { setPaires([]); setPlanEnAttente(null); } : undefined}
-              peutAnnuler={paires.length > 0 || planEnAttente !== null} /></div>}
+                validation), le guide « Étape 1 — caler la vue » ET le bloc d'outils/contrôle (résidu, échelle, aire) restent ICI, SOUS LE
+                SCHÉMA, GROUPÉS et dans cet ordre, quel que soit le côté cliqué (`procEnCours`). Un seul conteneur (fondu unique) ; exclusif
+                des rendus « au repos » (guide à gauche, bloc plus bas dans cette colonne). Le résidu/échelle restent lisibles pendant le tracé. */}
+            {tracable && procEnCours && <div className="svv-guide-fondu" style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+              <GuidageTraceBox g={guidage}
+                onAnnulerDernier={mode === 'calage' ? () => { if (planEnAttente) setPlanEnAttente(null); else setPaires((p) => p.slice(0, -1)); } : undefined}
+                onRecommencer={mode === 'calage' ? () => { setPaires([]); setPlanEnAttente(null); } : undefined}
+                peutAnnuler={paires.length > 0 || planEnAttente !== null} />
+              {blocOutilsCalage}
+            </div>}
             <div><button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button></div>
 
             {/* Options de visibilité + sélection des polygones « en projet ». */}
@@ -880,16 +904,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             {tracable && ambiguCourant && <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Type de vue incertain : proposé traçable — vérifiez qu’il s’agit bien d’une vue en plan (pas d’une coupe/façade) avant de tracer.</div>}
             {tracable && noteFamille(familleCourante) && <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{noteFamille(familleCourante)}</div>}
 
-            {/* Outils de calage / tracé. */}
-            <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
-              <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'calage' ? 700 : 400 }} onClick={() => setMode('calage')}>Calage ({paires.length}/2)</button>
-              <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'trace' ? 700 : 400 }} onClick={() => setMode('trace')}>Tracé ({sommets.length})</button>
-              <button type="button" style={btn} onClick={() => mode === 'trace' ? setSommets((s) => s.slice(0, -1)) : (planEnAttente ? setPlanEnAttente(null) : setPaires((p) => p.slice(0, -1)))}>Annuler dernier</button>
-              <button type="button" style={btn} onClick={() => { setSommets([]); setPaires([]); setPlanEnAttente(null); setDebordement(null); }}>Reprendre</button>
-              <label style={styleAide}>échelle 1: <input inputMode="numeric" value={ratioDeclareSaisi} onChange={(e) => setRatioDeclareSaisi(e.target.value)} placeholder="200" style={{ width: 60 }} /></label>
-            </div>
-            <BandeauCalage calage={vc} nbPaires={paires.length} />
-            <BandeauVraisemblance aireM2={aire} v={vv} />
+            {/* SUITE LOT 7b47817 — AU REPOS (aucun processus en cours), le bloc d'outils/contrôle reste ICI, à sa position actuelle
+                (inchangée). Pendant le processus, il migre sous le schéma avec le guide (rendu plus haut) : sites MUTUELLEMENT EXCLUSIFs. */}
+            {!procEnCours && blocOutilsCalage}
             {/* PROJ — repère « qualité du calage » : écart d'échelle (réutilisé du pavé de calage) + débordement hors parcelle (serveur). Jamais bloquant. */}
             <RepereQualiteCalage ecartEchelleRelatif={vc?.ecartEchelleRelatif ?? null} ratioImplicite={vc?.ratioImplicite ?? null} ratioDeclare={vc?.ratioDeclare ?? null}
               debordement={sommets.length >= 3 || sommets.length === 0 ? debordement : null} contourFerme={sommets.length >= 3} parcelleRattachee={parcelle.length > 0} origineIgn={origineIgnCourant && sommets.length < 3} />

@@ -216,7 +216,7 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
   it('DEMANDE 1 — ALIGNEMENT : dans la colonne droite le SCHÉMA passe AVANT la rotation/guidage → il démarre à la même hauteur que l’image', () => {
     const iSchema = src.indexOf('onCliquer={retouche ? cliquerRetouche'); // le schéma interactif (calage)
     // le guide côté schéma (rendu pendant le processus) est DESCENDU sous le schéma.
-    const iGuidageSchema = src.indexOf('tracable && procEnCours && <div className="svv-guide-fondu">');
+    const iGuidageSchema = src.indexOf('tracable && procEnCours && <div className="svv-guide-fondu"');
     const iAgrandirSchema = src.indexOf('⤢ Agrandir le schéma');
     expect(iSchema).toBeGreaterThan(-1);
     expect(iGuidageSchema).toBeGreaterThan(iSchema);  // rotation/bandeau/guidage DESCENDUS sous le schéma
@@ -268,7 +268,7 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
 describe('FIX « ascenseur du guide » — câblage : position pilotée par procEnCours, un seul guide, apparition sobre', () => {
   it('(f) UN SEUL guide à la fois : deux sites MUTUELLEMENT EXCLUSIFs (!procEnCours ⊕ procEnCours), plus AUCUN gating par guidage.sur', () => {
     expect(src).toContain('tracable && !procEnCours && <div className="svv-guide-fondu"><GuidageTraceBox'); // position initiale (repos)
-    expect(src).toContain('tracable && procEnCours && <div className="svv-guide-fondu"><GuidageTraceBox');   // sous le schéma (en cours)
+    expect(src).toContain('tracable && procEnCours && <div className="svv-guide-fondu"');                   // sous le schéma (en cours), conteneur groupé
     expect((src.match(/<GuidageTraceBox/g) ?? []).length).toBe(2); // exactement deux exemplaires dans le source, jamais rendus ensemble
     // le gating par « quel côté cliquer » (guidage.sur) a DISPARU des conditions de rendu → fin de l'ascenseur.
     expect(src).not.toContain("guidage.sur === 'plan' && <GuidageTraceBox");
@@ -286,5 +286,41 @@ describe('FIX « ascenseur du guide » — câblage : position pilotée par proc
     expect(src).toContain('className="svv-guide-fondu"');
     expect(css).toContain('.svv-guide-fondu');
     expect(css).toContain('prefers-reduced-motion: no-preference');
+  });
+});
+
+/**
+ * SUITE LOT 7b47817 — un SECOND bloc (barre d'outils calage/tracé + encadré de contrôle « résidu + échelle implicite/déclarée » +
+ * aire) suit EXACTEMENT le même sort que le guide : au repos à sa position actuelle, et SOUS LE SCHÉMA, GROUPÉ avec le guide, pendant
+ * tout le processus. UNE seule source de vérité (procEnCours) ; deux sites de rendu mutuellement exclusifs. Gardes par lecture de source.
+ */
+describe('SUITE LOT 7b47817 — le bloc outils/contrôle suit procEnCours, groupé avec le guide', () => {
+  it('SOURCE UNIQUE : blocOutilsCalage défini UNE fois, rendu à DEUX sites (repos vs en cours), aucune 3e source, aucun état parallèle', () => {
+    expect((src.match(/const blocOutilsCalage =/g) ?? []).length).toBe(1);          // une seule définition
+    expect((src.match(/blocOutilsCalage/g) ?? []).length).toBe(3);                  // 1 déf + 2 rendus, jamais plus
+    expect(src).toContain('{!procEnCours && blocOutilsCalage}');                    // au repos : position actuelle (inchangée)
+    // réutilise procEnCours (même état/décision que le guide) : aucun drapeau dédié à ce bloc.
+    expect(src).not.toMatch(/const \[[a-zA-Z]*[Oo]util/);
+  });
+
+  it('GROUPÉS pendant le processus : dans le conteneur procEnCours, le guide PUIS le bloc (même ordre, sous le schéma), jamais séparés', () => {
+    const iGroupe = src.indexOf('tracable && procEnCours && <div className="svv-guide-fondu"');
+    const iGuide = src.indexOf('<GuidageTraceBox', iGroupe);
+    const iBloc = src.indexOf('{blocOutilsCalage}', iGroupe);
+    const iFinGroupe = src.indexOf('⤢ Agrandir le schéma', iGroupe); // borne : le conteneur groupé précède « Agrandir le schéma »
+    expect(iGuide).toBeGreaterThan(iGroupe);
+    expect(iBloc).toBeGreaterThan(iGuide);          // ordre lisible : guide au-dessus, bloc en dessous
+    expect(iBloc).toBeLessThan(iFinGroupe);         // le bloc est BIEN dans le conteneur groupé (avant « Agrandir le schéma »)
+  });
+
+  it('(g) le RÉSIDU de calage + l’échelle implicite/déclarée + l’aire vivent DANS ce bloc → restent lisibles pendant le tracé', () => {
+    const iDef = src.indexOf('const blocOutilsCalage =');
+    const iFin = src.indexOf('const vue = affichageTrace', iDef);
+    const bloc = src.slice(iDef, iFin);
+    expect(bloc).toContain('Calage ({paires.length}/2)');
+    expect(bloc).toContain('Tracé ({sommets.length})');
+    expect(bloc).toContain('échelle 1:');
+    expect(bloc).toContain('<BandeauCalage calage={vc}');          // encadré de contrôle : Calage ✓ + résidu + échelle implicite/déclarée
+    expect(bloc).toContain('<BandeauVraisemblance aireM2={aire}'); // Aire — tracez un contour fermé
   });
 });
