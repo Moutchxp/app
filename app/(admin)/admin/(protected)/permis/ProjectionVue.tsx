@@ -245,7 +245,9 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
             origine — « lesquelles l'auto-analyse a retenues ») + les voisines dans un rayon. Chargée AU DÉPLIAGE (PERF-1 : un bloc
             jamais ouvert ne requête rien). Aucune écriture (le clic ajouter/retirer une parcelle est le lot séparé PL-B). */}
         <BlocRepliable key={`w-planche-${ouvert}`} titre="Planche cadastrale (parcelles)">
-          {() => <PlancheParcelles key={`planche-${ouvert}`} dossierId={ouvert} />}
+          {/* PL-H — valider/retirer une sélection dans la planche recalcule l'empreinte serveur : on rafraîchit le bloc « Bâtiments et
+              projection » par le MÊME canal que CaracteristiquesBloc (vInstruction → rafraichir de BlocTraceEmprise), jamais un 2e mécanisme. */}
+          {() => <PlancheParcelles key={`planche-${ouvert}`} dossierId={ouvert} onEmpreinteRecalculee={() => setVInstruction((v) => v + 1)} />}
         </BlocRepliable>
         {/* EXT-1 (point 5) — PIÈCES DU PERMIS en DERNIÈRE POSITION : référence en regard de la saisie. Chargées au dépliage (PERF-1). */}
         <BlocRepliable key={`w-pieces-${ouvert}`} titre="Pièces du permis">

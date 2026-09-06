@@ -45,7 +45,11 @@ const LEGENDE: { cle: string; couleur: string; texte: string }[] = [
   { cle: 'voisine', couleur: 'var(--color-svv-muted)', texte: 'voisine (repère)' },
 ];
 
-export function PlancheParcelles({ dossierId }: { dossierId: number }) {
+export function PlancheParcelles({ dossierId, onEmpreinteRecalculee }: {
+  dossierId: number;
+  onEmpreinteRecalculee?: () => void; // PL-H — appelé après un valider/retirer RÉUSSI (empreinte+bâti+projection recalculés serveur) → le
+                                      //   parent rafraîchit le bloc « Bâtiments et projection » via le canal EXISTANT (vInstruction/rafraichir).
+}) {
   const [data, setData] = useState<PlancheData | null>(null);
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
   const [rayon, setRayon] = useState(RAYON_MIN);
@@ -132,6 +136,7 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
       if (!res.ok || !j.ok || !j.planche) { setMsg(j.erreur ?? 'action impossible, réessayez.'); return; }
       setData(j.planche); // la composition se réaligne via l'effet (selKey change)
       setMsg(action === 'valider' ? 'Sélection validée — empreinte, bâti et projection recalculés.' : 'Retour à la configuration automatique.');
+      onEmpreinteRecalculee?.(); // PL-H — valider ET retirer recalculent l'empreinte serveur → rafraîchir le bloc « Bâtiments et projection » (jamais en cas d'échec : on est déjà sorti plus haut).
     } catch { setMsg('action impossible (réseau).'); } finally { setEnCours(false); }
   };
 
