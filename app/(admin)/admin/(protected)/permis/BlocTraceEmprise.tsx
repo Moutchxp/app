@@ -8,7 +8,7 @@ import {
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome (best-of, navigation, zoom) réutilisée à 0 bâtiment
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -88,6 +88,12 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const [paires, setPaires] = useState<PaireCalage[]>([]);
   const [planEnAttente, setPlanEnAttente] = useState<PointPlan | null>(null);
   const [sommets, setSommets] = useState<PointPlan[]>([]);
+  // FIX « ascenseur du guide » — la POSITION du bloc « Étape 1 — caler la vue » suit l'EXISTENCE d'un travail en cours, PAS le dernier
+  //   côté cliqué. `creationEnCours` s'arme dès qu'un point est posé (calage amorcé ou sommet tracé) et se désarme À LA VALIDATION du
+  //   polygone (où les paires de calage sont, elles, CONSERVÉES → un simple `paires>0` ne suffirait pas à distinguer « en cours » de
+  //   « validé »). Combiné à l'état de travail réel (voir `procEnCours`), toute remise à zéro (Reprendre / Recommencer / annuler) ramène
+  //   le guide à sa place initiale sans avoir à toucher chaque handler. On NE touche PAS cliquerPdf (conversion de coordonnées, gelée).
+  const [creationEnCours, setCreationEnCours] = useState(false);
   const [debordement, setDebordement] = useState<Debordement | null>(null); // repère « débordement hors parcelle » (serveur), live + après enregistrement
   // PROJ-3r — adoption : groupes automatiques (serveur), affectation cleabs→bâtiment (transient), groupes scindés, confirmation par bâtiment.
   const [groupesAdoption, setGroupesAdoption] = useState<GroupeAdoptionVue[]>([]);
@@ -131,6 +137,15 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const ambiguCourant = entreeCourante?.ambigu ?? false;
   // PROJ-3m ② — GUIDAGE du geste (pur) : étape courante, quoi cliquer, combien de points restent, où (plan/schéma). Explicitation seule.
   const guidage = guidageTrace(mode, paires.length, planEnAttente !== null, sommets.length, tracable);
+  // FIX « ascenseur » — la POSITION du guide suit l'EXISTENCE d'un travail, jamais le dernier côté cliqué (`guidage.sur`). Pattern React
+  //   « ajuster l'état pendant le rendu » (PAS d'effet, PAS de setState en effet, PAS de modif de cliquerPdf gelé) : on ARME `creationEnCours`
+  //   dès qu'un point est en cours de pose (`enPose`). Le `(creationEnCours || enPose)` donne déjà la bonne position DANS CE rendu. Le flag
+  //   persiste l'état « en cours » quand la pose momentanée retombe (ex. paire complétée : planEnAttente repasse à null mais paires>0). Le
+  //   désarmement se fait À LA VALIDATION (enregistrer, où les paires sont CONSERVÉES → indistinguables sans flag). Le ET avec le travail
+  //   réel ramène le guide à sa place initiale à TOUTE remise à zéro (annuler / Reprendre / Recommencer / changement de plan).
+  const enPose = planEnAttente !== null || sommets.length > 0;
+  if (!creationEnCours && enPose) setCreationEnCours(true); // guardé (converge) : ne re-déclenche pas une fois armé
+  const procEnCours = guideCalageSousSchema(creationEnCours, planEnAttente !== null, paires.length, sommets.length); // décision PURE (testée)
 
   // Chargement (pièces PDF + emprises + ignorées + contexte) au changement de dossier.
   useEffect(() => {
@@ -520,7 +535,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; ignores?: ProjectionIgnoree[]; debordement?: Debordement | null };
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'enregistrement refusé'); return; }
       setEmprises(j.emprises ?? []); if (j.ignores) setIgnores(j.ignores);
-      setSommets([]); setDebordement(j.debordement ?? null); setMessage('emprise reconstituée enregistrée'); // repère conservé « après enregistrement »
+      setSommets([]); setCreationEnCours(false); setDebordement(j.debordement ?? null); setMessage('emprise reconstituée enregistrée'); // repère conservé « après enregistrement » ; le guide REVIENT à sa place initiale (fin du processus)
     } catch { setMessage('erreur d’enregistrement'); } finally { setOccupe(false); }
   }, [sim, sommets, corpsEffectif, batSel, dossierId, pieceId, page, paires, ratioDeclare]);
 
@@ -814,12 +829,14 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               statutPage={statutPage} resumePages={resumePages} pleinPagesAnalysees={pleinPagesAnalysees} onTogglePleinPages={() => setPleinPagesAnalysees((v) => !v)}
               runCourant={runCourant} lectureCourante={lectureCourante} reperEnCours={reperEnCours} lectureEnCours={lectureEnCours}
               onAnalyseFichier={() => void reperer()} onAnalysePage={() => void analyserPage()} reperMsg={reperMsg} lectureRes={lectureRes} onAnnulerValeur={() => void annulerValeurPage()} />
-            {/* d) EN DERNIÈRE POSITION (demande Arno) — bloc « Étape 1 — caler la vue » (encadré rouge : compteur + boutons d'annulation).
-                PROJ-3m ② : le guidage s'affiche quand c'est au PLAN qu'il faut cliquer. Déplacé sous la barre ; aucun effet sur le calage. */}
-            {tracable && guidage.sur === 'plan' && <GuidageTraceBox g={guidage}
+            {/* d) POSITION INITIALE (AU REPOS) du bloc « Étape 1 — caler la vue » : en bas de la colonne gauche, sous la barre. FIX
+                « ascenseur » : affiché ICI UNIQUEMENT quand AUCUN processus n'est en cours (`!procEnCours`) — dès qu'on amorce un calage,
+                il migre sous le schéma (à droite) et n'en bouge plus jusqu'à la validation. Un seul exemplaire à la fois (conditions
+                mutuellement exclusives). Fondu sobre à l'apparition (désactivé sous prefers-reduced-motion). */}
+            {tracable && !procEnCours && <div className="svv-guide-fondu"><GuidageTraceBox g={guidage}
               onAnnulerDernier={mode === 'calage' ? () => { if (planEnAttente) setPlanEnAttente(null); else setPaires((p) => p.slice(0, -1)); } : undefined}
               onRecommencer={mode === 'calage' ? () => { setPaires([]); setPlanEnAttente(null); } : undefined}
-              peutAnnuler={paires.length > 0 || planEnAttente !== null} />}
+              peutAnnuler={paires.length > 0 || planEnAttente !== null} /></div>}
           </div>
 
           {/* Colonne de droite — DEMANDE 1 : le SCHÉMA en PREMIER, aligné à la MÊME HAUTEUR que l'image à gauche (les deux cadres démarrent
@@ -831,11 +848,13 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             {/* PROJ-3j ② — rotation d'affichage + bandeau de sélection, sous le schéma. */}
             <RotationSchema angle={angle} onAngle={setAngle} />
             {bandeauSel}
-            {/* PROJ-3m ② — quand le prochain clic va sur le SCHÉMA (correspondant du point plan), le guidage s'affiche ICI. */}
-            {tracable && guidage.sur === 'schema' && <GuidageTraceBox g={guidage}
+            {/* FIX « ascenseur » — PENDANT tout le processus de création (calage amorcé → 1/2 → 2/2 → tracé des sommets → jusqu'à la
+                validation), le guide « Étape 1 — caler la vue » reste ICI, SOUS LE SCHÉMA, quel que soit le côté cliqué (`procEnCours`).
+                Il ne fait plus l'ascenseur. Un seul exemplaire (exclusif du rendu de gauche). Fondu sobre à l'apparition. */}
+            {tracable && procEnCours && <div className="svv-guide-fondu"><GuidageTraceBox g={guidage}
               onAnnulerDernier={mode === 'calage' ? () => { if (planEnAttente) setPlanEnAttente(null); else setPaires((p) => p.slice(0, -1)); } : undefined}
               onRecommencer={mode === 'calage' ? () => { setPaires([]); setPlanEnAttente(null); } : undefined}
-              peutAnnuler={paires.length > 0 || planEnAttente !== null} />}
+              peutAnnuler={paires.length > 0 || planEnAttente !== null} /></div>}
             <div><button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button></div>
 
             {/* Options de visibilité + sélection des polygones « en projet ». */}

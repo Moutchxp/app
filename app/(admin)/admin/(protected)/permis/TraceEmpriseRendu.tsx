@@ -477,6 +477,22 @@ export function libellePlan(p: Pick<Plan, 'nomFichier' | 'page' | 'echelle'>): s
 export function travailEnCours(nbPaires: number, nbSommets: number): boolean { return nbPaires > 0 || nbSommets > 0; }
 
 /**
+ * FIX « ascenseur du guide » — le bloc « Étape 1 — caler la vue » doit rester SOUS LE SCHÉMA pendant TOUT le processus de création
+ * (calage amorcé → 1/2 → 2/2 → tracé des sommets → jusqu'à la validation), puis REVENIR à sa place initiale. Sa POSITION suit
+ * l'EXISTENCE d'un travail en cours, JAMAIS le dernier côté cliqué. PUR (testable sans DOM).
+ *
+ * `arme` = mémoire « un processus est en cours », armée dès le 1er point posé et désarmée À LA VALIDATION par l'appelant — nécessaire car
+ * les PAIRES de calage sont CONSERVÉES après enregistrement (« repère conservé ») : un simple `nbPaires>0` ne distinguerait pas « en cours »
+ * de « validé ». `enPose` (planEnAttente ou un sommet) donne déjà la bonne réponse DANS le rendu courant, avant que `arme` ne persiste.
+ * Le ET avec le travail réel (planEnAttente | paires | sommets) ramène le guide à sa place initiale à TOUTE remise à zéro
+ * (annuler / Reprendre / Recommencer / changement de plan), sans câbler chaque handler. Retourne true ⇒ guide SOUS LE SCHÉMA.
+ */
+export function guideCalageSousSchema(arme: boolean, planEnAttente: boolean, nbPaires: number, nbSommets: number): boolean {
+  const enPose = planEnAttente || nbSommets > 0;
+  return (arme || enPose) && (planEnAttente || nbPaires > 0 || nbSommets > 0);
+}
+
+/**
  * PROJ-3e — barre de navigation « ‹ précédent / suivant › » d'une bande de plans, avec l'indicateur « plan i sur n » et le libellé
  * lisible du plan courant. Bande vide → renvoie vers le repli (jamais un cul-de-sac). PUR (renderToStaticMarkup).
  */

@@ -83,6 +83,10 @@
   .svv-tip-wrap:hover .svv-tip,.svv-tip-wrap:focus-within .svv-tip{opacity:1}
   /* Apparition douce UNIQUEMENT si l'utilisateur ne demande pas la réduction de mouvement (sinon bascule instantanée). */
   @media (prefers-reduced-motion: no-preference){.svv-tip{transition:opacity .12s ease}}
+  /* FIX « ascenseur du guide » — le bloc « Étape 1 » change de colonne au début/fin du processus de calage. Fondu SOBRE à l'apparition
+     pour éviter un saut brutal ; AUCUN mouvement sous prefers-reduced-motion (bascule instantanée). */
+  @media (prefers-reduced-motion: no-preference){.svv-guide-fondu{animation:svvGuideFondu .18s ease-out both}}
+  @keyframes svvGuideFondu{from{opacity:.4}to{opacity:1}}
   /* En-tête standard des pages admin (socle unifié — voir composant EnTetePage). */
   .svv-page-head{margin:0 0 1rem}
   .svv-page-head-ligne{display:flex;align-items:center;justify-content:space-between;gap:.75rem}

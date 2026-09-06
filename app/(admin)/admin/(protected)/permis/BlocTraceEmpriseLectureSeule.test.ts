@@ -206,7 +206,8 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
   it('DEMANDE 2 — COLONNE GAUCHE : l’image d’abord, puis la barre (nav + fonctions), puis « Étape 1 — caler la vue » EN DERNIER', () => {
     const iImage = src.indexOf('ref={pdfContainerRef}');
     const iBarre = src.indexOf('<BarreVisionneusePieces');
-    const iEtape1 = src.indexOf("guidage.sur === 'plan'"); // le bloc « Étape 1 » (GuidageTraceBox côté plan)
+    // « Étape 1 » = le guide en POSITION INITIALE (bas de colonne gauche), rendu quand aucun processus n'est en cours.
+    const iEtape1 = src.indexOf('tracable && !procEnCours && <div className="svv-guide-fondu">');
     expect(iImage).toBeGreaterThan(-1);
     expect(iBarre).toBeGreaterThan(iImage);   // la barre est SOUS l'image
     expect(iEtape1).toBeGreaterThan(iBarre);  // « Étape 1 » APRÈS la barre = dernière position de la colonne
@@ -214,7 +215,8 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
 
   it('DEMANDE 1 — ALIGNEMENT : dans la colonne droite le SCHÉMA passe AVANT la rotation/guidage → il démarre à la même hauteur que l’image', () => {
     const iSchema = src.indexOf('onCliquer={retouche ? cliquerRetouche'); // le schéma interactif (calage)
-    const iGuidageSchema = src.indexOf("guidage.sur === 'schema'");
+    // le guide côté schéma (rendu pendant le processus) est DESCENDU sous le schéma.
+    const iGuidageSchema = src.indexOf('tracable && procEnCours && <div className="svv-guide-fondu">');
     const iAgrandirSchema = src.indexOf('⤢ Agrandir le schéma');
     expect(iSchema).toBeGreaterThan(-1);
     expect(iGuidageSchema).toBeGreaterThan(iSchema);  // rotation/bandeau/guidage DESCENDUS sous le schéma
@@ -254,5 +256,35 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
   it('DEMANDE 5 — la visionneuse de tracé lit `piecesNonSupportees` du GET et les passe au sélecteur (plus d’écartement silencieux)', () => {
     expect(src).toContain('setPiecesNonSupportees(j.piecesNonSupportees ?? [])');
     expect(src).toContain('nonSupportees={piecesNonSupportees}');
+  });
+});
+
+/**
+ * FIX « ascenseur du guide » — le bloc « Étape 1 — caler la vue » ne doit plus faire l'ascenseur à chaque clic : sa POSITION suit
+ * l'existence d'un travail en cours (état `procEnCours`, décision pure `guideCalageSousSchema`), pas le dernier côté cliqué. La logique
+ * par phase (a-e) est prouvée en unitaire sur la fonction pure (TraceEmpriseRendu.test.ts) ; ici on garde le CÂBLAGE et l'unicité (f)
+ * par lecture de source — BlocTraceEmprise n'est jamais monté (composant client lourd, pipeline de coordonnées gelé).
+ */
+describe('FIX « ascenseur du guide » — câblage : position pilotée par procEnCours, un seul guide, apparition sobre', () => {
+  it('(f) UN SEUL guide à la fois : deux sites MUTUELLEMENT EXCLUSIFs (!procEnCours ⊕ procEnCours), plus AUCUN gating par guidage.sur', () => {
+    expect(src).toContain('tracable && !procEnCours && <div className="svv-guide-fondu"><GuidageTraceBox'); // position initiale (repos)
+    expect(src).toContain('tracable && procEnCours && <div className="svv-guide-fondu"><GuidageTraceBox');   // sous le schéma (en cours)
+    expect((src.match(/<GuidageTraceBox/g) ?? []).length).toBe(2); // exactement deux exemplaires dans le source, jamais rendus ensemble
+    // le gating par « quel côté cliquer » (guidage.sur) a DISPARU des conditions de rendu → fin de l'ascenseur.
+    expect(src).not.toContain("guidage.sur === 'plan' && <GuidageTraceBox");
+    expect(src).not.toContain("guidage.sur === 'schema' && <GuidageTraceBox");
+  });
+
+  it('la position est pilotée par l’ÉTAT « processus en cours » (fonction pure), armé à la pose d’un point, désarmé à la VALIDATION', () => {
+    expect(src).toContain('guideCalageSousSchema(creationEnCours, planEnAttente !== null, paires.length, sommets.length)');
+    expect(src).toContain('if (!creationEnCours && enPose) setCreationEnCours(true)'); // armement pendant le rendu (pas d'effet ; cliquerPdf non touché)
+    expect(src).toContain('setSommets([]); setCreationEnCours(false)');                 // désarmement à la validation (enregistrer)
+  });
+
+  it('apparition SOBRE : classe .svv-guide-fondu, fondu DÉSACTIVÉ sous prefers-reduced-motion', () => {
+    const css = readFileSync(join(ici, '../../../../globals.css'), 'utf8');
+    expect(src).toContain('className="svv-guide-fondu"');
+    expect(css).toContain('.svv-guide-fondu');
+    expect(css).toContain('prefers-reduced-motion: no-preference');
   });
 });

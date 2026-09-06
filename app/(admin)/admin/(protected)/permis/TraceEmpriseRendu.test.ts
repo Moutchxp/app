@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -164,6 +164,30 @@ describe('PROJ-3e — bande de plans : feuilleter (fonctions pures)', () => {
     expect(travailEnCours(0, 0)).toBe(false);
     expect(travailEnCours(1, 0)).toBe(true);   // un point de calage posé
     expect(travailEnCours(0, 2)).toBe(true);   // un tracé commencé
+  });
+  describe('FIX « ascenseur » — guideCalageSousSchema : la position suit l’EXISTENCE d’un travail, pas le dernier côté cliqué', () => {
+    // Signature : (arme, planEnAttente, nbPaires, nbSommets) → true = SOUS LE SCHÉMA (processus en cours) ; false = position INITIALE.
+    it('(a) AU REPOS (rien posé, non armé) → position initiale', () => {
+      expect(guideCalageSousSchema(false, false, 0, 0)).toBe(false);
+    });
+    it('(b) PREMIER POINT posé (planEnAttente) → sous le schéma, même si le flag n’est pas encore armé (enPose suffit ce rendu)', () => {
+      expect(guideCalageSousSchema(false, true, 0, 0)).toBe(true);
+      // une fois armé, idem
+      expect(guideCalageSousSchema(true, true, 0, 0)).toBe(true);
+    });
+    it('(c) PAIRE COMPLÉTÉE (clic schéma : planEnAttente repasse à null, nbPaires=1) → RESTE sous le schéma (armé), pas d’ascenseur', () => {
+      expect(guideCalageSousSchema(true, false, 1, 0)).toBe(true);
+      // et pendant le tracé des sommets, idem
+      expect(guideCalageSousSchema(true, false, 2, 3)).toBe(true);
+      // transition « calage fini → passage en tracé » (sommets=0, paires=2, armé) : PAS de retour intempestif à gauche
+      expect(guideCalageSousSchema(true, false, 2, 0)).toBe(true);
+    });
+    it('(d) APRÈS VALIDATION (appelant désarme : arme=false ; les paires sont CONSERVÉES nbPaires=2) → revient en position initiale', () => {
+      expect(guideCalageSousSchema(false, false, 2, 0)).toBe(false);
+    });
+    it('(e) APRÈS REMISE À ZÉRO (Recommencer/Reprendre : tout à 0) → position initiale même si le flag est resté armé', () => {
+      expect(guideCalageSousSchema(true, false, 0, 0)).toBe(false);
+    });
   });
   it('BandePlans : indicateur « plan i sur n », bornes désactivées, bande vide → repli', () => {
     const bande = construireBandePlans(pieces);
