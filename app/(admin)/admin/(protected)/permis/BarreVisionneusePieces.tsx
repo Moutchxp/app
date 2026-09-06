@@ -12,8 +12,12 @@ import type { LecturePageAffiche } from '../../../../lib/permis/lectureValeursPa
  * elle vit AUTOUR du canvas. Chaque appelant lui passe état + handlers ; les actions serveur restent celles des repos (reperer_planches,
  * lire_valeurs_page, annuler_lecture_page, exclure/inclure_page_bestof, url_piece). Aucune I/O ici : pur affichage.
  *
- * DISPOSITION (exigence Arno) : navigation de PAGES SOUS l'image — « ‹ page précédente » à l'EXTRÊME GAUCHE, « page suivante › » à
- * l'EXTRÊME DROITE (space-between), l'indicateur « page i sur N · échelle » ENTRE les deux.
+ * DISPOSITION (exigence Arno, révisée) : UNE SEULE paire ‹ précédent / suivant › visible SOUS l'image, à l'extrême gauche/droite —
+ * c'est la navigation entre PLANS du best-of (portée par `slotNav` = BandePlans / NavPieceLibre, en space-between). Tout le BLOC
+ * D'INFORMATION (plan i sur n, type, nom du fichier + page + échelle) et « voir toutes les pièces » (`slotPieces`) descendent ici,
+ * sous l'image. La navigation entre PAGES d'un fichier multi-pages reste ACCESSIBLE mais sous forme d'un CONTRÔLE DISCRET, nettement
+ * distinct de la paire de plans (petit, centré, libellé « pages de ce fichier », flèches ◁ ▷) : on ne confond jamais « changer de
+ * plan » et « changer de page ». Les DEUX visionneuses passent les mêmes slots → disposition identique (aucune re-divergence).
  */
 export interface BarreVisionneusePiecesProps {
   pieceId: number | null;
@@ -21,6 +25,9 @@ export interface BarreVisionneusePiecesProps {
   page: number;
   nbPagesPiece: number;
   echelle?: string | null;
+  nav: 'bestof' | 'piece';               // mode courant : en 'piece', slotNav feuillette déjà les pages → pas de contrôle de page en double
+  slotNav: React.ReactNode;              // navigation PRIMAIRE (unique paire ‹/›) : BandePlans (best-of) ou NavPieceLibre (pièce libre)
+  slotPieces: React.ReactNode;           // « voir toutes les pièces du dossier » (contenu propre à chaque visionneuse) descendu sous l'image
   onOuvrirDocument: () => void;          // LIEN vers le document source (nouvel onglet) — url_piece
   onPagePrecedente: () => void;
   onPageSuivante: () => void;
@@ -43,29 +50,38 @@ export interface BarreVisionneusePiecesProps {
 }
 
 export function BarreVisionneusePieces({
-  pieceId, nomCourant, page, nbPagesPiece, echelle, onOuvrirDocument, onPagePrecedente, onPageSuivante,
+  pieceId, nomCourant, page, nbPagesPiece, echelle, nav, slotNav, slotPieces, onOuvrirDocument, onPagePrecedente, onPageSuivante,
   pageDansBestOf, onRetirerBestOf, onAjouterBestOf, statutPage, resumePages, pleinPagesAnalysees, onTogglePleinPages,
   runCourant, lectureCourante, reperEnCours, lectureEnCours, onAnalyseFichier, onAnalysePage, reperMsg, lectureRes, onAnnulerValeur,
 }: BarreVisionneusePiecesProps) {
   if (pieceId === null) return null;
-  const btnPage = (actif: boolean): React.CSSProperties => ({ cursor: actif ? 'pointer' : 'default', opacity: actif ? 1 : 0.4, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 36, padding: '.3rem .6rem', fontSize: 12 });
+  // Flèches du contrôle de page DISCRET — volontairement PLUS PETITES et de glyphe différent (◁ ▷) que la paire de plans (‹ précédent /
+  //   suivant ›), pour qu'aucun regard n'hésite entre « changer de plan » et « changer de page ».
+  const btnPageMini = (actif: boolean): React.CSSProperties => ({ cursor: actif ? 'pointer' : 'default', opacity: actif ? 1 : 0.35, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 28, padding: '.1rem .4rem', fontSize: 12, lineHeight: 1 });
   const btnBestOf: React.CSSProperties = { alignSelf: 'flex-start', cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 36, padding: '.3rem .6rem', fontSize: 12, fontWeight: 600 };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+      {/* ① NAVIGATION PRIMAIRE — l'UNIQUE paire ‹ précédent / suivant › (space-between), portée par slotNav (BandePlans / NavPieceLibre) :
+          elle descend ICI, sous l'image, avec tout son bloc d'information (plan i sur n, type, nom du fichier + page + échelle). */}
+      {slotNav}
+      {/* ① bis — CONTRÔLE DE PAGE DISCRET (fichier multi-pages), NETTEMENT distinct de la paire de plans. Masqué en mode « pièce libre »
+          (slotNav y feuillette déjà les pages → jamais deux contrôles de page). Garde l'accès à toutes les pages sans seconde grande paire. */}
+      {nav !== 'piece' && nbPagesPiece > 1 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.4rem', flexWrap: 'wrap', fontSize: 11, color: 'var(--color-svv-muted)' }}>
+          <span>pages de ce fichier :</span>
+          <button type="button" aria-label="Page précédente du fichier" disabled={page <= 1} onClick={onPagePrecedente} style={btnPageMini(page > 1)}>◁</button>
+          <span style={{ fontWeight: 700, color: 'var(--color-svv-ink)' }}>page {page} / {nbPagesPiece}{echelle ? ` · échelle ${echelle}` : ''}</span>
+          <button type="button" aria-label="Page suivante du fichier" disabled={page >= nbPagesPiece} onClick={onPageSuivante} style={btnPageMini(page < nbPagesPiece)}>▷</button>
+        </div>
+      )}
+      {/* ① ter — « voir toutes les pièces du dossier » (contenu propre à la visionneuse), descendu sous l'image comme le reste du bloc. */}
+      {slotPieces}
       {/* LIEN VERS LE DOCUMENT SOURCE (nouvel onglet). Suit la page affichée ; signé AU CLIC (url_piece). */}
       <button type="button" className="svv-link" onClick={onOuvrirDocument} aria-label={`Ouvrir ${nomCourant} dans un nouvel onglet`}
         style={{ width: 'auto', minHeight: 32, padding: '.2rem .1rem', fontSize: 12, textAlign: 'left', textDecoration: 'underline', wordBreak: 'break-word' }}>
         Ouvrir « {nomCourant} »{page > 0 ? ` (page ${page})` : ''} dans un nouvel onglet ↗
       </button>
       <div style={{ paddingTop: '.4rem', borderTop: '1px solid var(--color-svv-line)', display: 'flex', flexDirection: 'column', gap: '.4rem', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)' }}>
-        {/* ① NAVIGATION DE PAGES SOUS L'IMAGE — « précédent » à l'extrême GAUCHE, « suivant » à l'extrême DROITE (space-between). */}
-        {nbPagesPiece > 1 && (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap' }}>
-            <button type="button" aria-label="Page précédente du fichier" disabled={page <= 1} onClick={onPagePrecedente} style={btnPage(page > 1)}>‹ page précédente</button>
-            <span style={{ fontSize: 12, fontWeight: 700, textAlign: 'center' }}>page {page} sur {nbPagesPiece}{echelle ? ` · échelle ${echelle}` : ''}</span>
-            <button type="button" aria-label="Page suivante du fichier" disabled={page >= nbPagesPiece} onClick={onPageSuivante} style={btnPage(page < nbPagesPiece)}>page suivante ›</button>
-          </div>
-        )}
         {/* ② STATUT DE LA PAGE (pastille NATURE·ORIGINE + libellé). 'non identifiée' → rien. */}
         {statutPage.etat !== 'non_identifiee' && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>

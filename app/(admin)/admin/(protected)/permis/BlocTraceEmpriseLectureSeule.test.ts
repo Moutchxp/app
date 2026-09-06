@@ -63,7 +63,6 @@ describe('LOT 86 — la garde « aucun bâtiment » n’efface plus le schéma (
  * coordonnées, et ne déclenche AUCUN rechargement (qui réinitialiserait le calage). Gardes par lecture de source (composant client lourd).
  */
 describe('INCRÉMENT 2 — barre de commandes PARTAGÉE portée sous le canvas du tracé', () => {
-  const barre = readFileSync(join(ici, 'BarreVisionneusePieces.tsx'), 'utf8');
   const liseuse = readFileSync(join(ici, 'LiseusePieces.tsx'), 'utf8');
 
   it('PARITÉ SANS DUPLICATION : le MÊME composant présentationnel est monté dans les DEUX visionneuses', () => {
@@ -71,14 +70,6 @@ describe('INCRÉMENT 2 — barre de commandes PARTAGÉE portée sous le canvas d
     expect(liseuse).toContain("import { BarreVisionneusePieces } from './BarreVisionneusePieces'");
     expect(src).toContain('<BarreVisionneusePieces');
     expect(liseuse).toContain('<BarreVisionneusePieces');
-  });
-
-  it('DISPOSITION (portée par le composant partagé, donc identique dans les 2 contextes) : « précédent » à GAUCHE, « suivant » à DROITE (space-between)', () => {
-    expect(barre).toContain("justifyContent: 'space-between'");
-    const iPrec = barre.indexOf('‹ page précédente');
-    const iSuiv = barre.indexOf('page suivante ›');
-    expect(iPrec).toBeGreaterThan(-1);
-    expect(iSuiv).toBeGreaterThan(iPrec); // ordre du DOM = ordre visuel sous space-between : précédent AVANT suivant
   });
 
   it('LES 4 GROUPES DE FONCTIONS sont câblés dans le tracé : lien source, nav pages, best-of (ajout+retrait), analyse IA (fichier+page+annulation)', () => {
@@ -125,5 +116,80 @@ describe('INCRÉMENT 2 — barre de commandes PARTAGÉE portée sous le canvas d
     expect(handlers).not.toContain('afficherPageRef');   // aucune interaction avec le rendu du canvas
     expect(handlers).not.toContain('.convertToPdfPoint('); // aucune conversion de coordonnées écran→PDF
     expect(handlers).not.toContain('setApercu(');        // ne republie jamais apercu/ratio (propriété du seul afficherPage)
+  });
+});
+
+/**
+ * LOT « paire unique » — Arno : il ne doit rester qu'UNE SEULE paire ‹ précédent / suivant › visible, SOUS l'image, à l'extrême
+ * gauche/droite, et elle reprend le FONCTIONNEMENT des boutons du haut (navigation entre PLANS du best-of). Tout le bloc d'information
+ * et « voir toutes les pièces » descendent sous l'image. La navigation entre PAGES reste ACCESSIBLE mais en contrôle DISCRET, nettement
+ * distinct (flèches ◁ ▷). Même disposition dans les DEUX visionneuses (slots passés au composant partagé). Gardes par lecture de source.
+ */
+describe('LOT « paire unique » — une seule paire ‹/› (plans) sous l’image, pages en contrôle discret, disposition partagée', () => {
+  const barre = readFileSync(join(ici, 'BarreVisionneusePieces.tsx'), 'utf8');
+  const liseuse = readFileSync(join(ici, 'LiseusePieces.tsx'), 'utf8');
+  const rendu = readFileSync(join(ici, 'TraceEmpriseRendu.tsx'), 'utf8');
+
+  it('DISPOSITION PARTAGÉE : les DEUX visionneuses descendent la nav primaire + « voir toutes les pièces » via les MÊMES slots', () => {
+    for (const f of [src, liseuse]) {
+      expect(f).toContain('nav={nav}');
+      expect(f).toContain('slotNav={slotNav}');
+      expect(f).toContain('slotPieces={slotPieces}');
+    }
+  });
+
+  it('LA PAIRE UNIQUE reprend le FONCTIONNEMENT des boutons du haut = navigation entre PLANS (BandePlans → appliquerPlan), dans les deux', () => {
+    for (const f of [src, liseuse]) {
+      expect(f).toContain('<BandePlans');                    // best-of : la paire primaire = plans
+      expect(f).toContain('appliquerPlan(');                 // ‹ / › pilotent bien la navigation entre PLANS
+      expect(f).toContain('<NavPieceLibre');                 // mode pièce libre : la paire primaire feuillette les pages
+    }
+    // la nav n'est plus AU-DESSUS du canvas : les composants de nav sont construits en slots (const slotNav), pas dans la colonne PDF.
+    expect(src).toContain('const slotNav =');
+    expect(liseuse).toContain('const slotNav =');
+  });
+
+  it('LA BARRE porte l’UNIQUE paire (slotNav) EN TÊTE, puis le contrôle de PAGE DISCRET (masqué en pièce libre), puis « voir toutes les pièces »', () => {
+    const iNav = barre.indexOf('{slotNav}');
+    const iPage = barre.indexOf("nav !== 'piece' && nbPagesPiece > 1");
+    const iPieces = barre.indexOf('{slotPieces}');
+    expect(iNav).toBeGreaterThan(-1);
+    expect(iPage).toBeGreaterThan(iNav);      // le contrôle de page vient APRÈS la paire de plans
+    expect(iPieces).toBeGreaterThan(iPage);   // « voir toutes les pièces » ensuite
+    // contrôle de page DISCRET et distinct : glyphes ◁ ▷ (jamais les mêmes ‹ / › que la paire de plans), libellé « pages de ce fichier ».
+    expect(barre).toContain('pages de ce fichier');
+    expect(barre).toContain('◁');
+    expect(barre).toContain('▷');
+    // et il reste ACCESSIBLE + borné (aria propres, désactivés en butée).
+    expect(barre).toContain('aria-label="Page précédente du fichier"');
+    expect(barre).toContain('aria-label="Page suivante du fichier"');
+    expect(barre).toContain('disabled={page <= 1}');
+    expect(barre).toContain('disabled={page >= nbPagesPiece}');
+  });
+
+  it('L’ORDRE gauche/droite de la paire unique est porté par le composant partagé BandePlans : « ‹ précédent » AVANT « suivant › », en space-between', () => {
+    const iBande = rendu.indexOf('export function BandePlans');
+    const iFin = rendu.indexOf('export function bornerPage');
+    const bloc = rendu.slice(iBande, iFin);
+    expect(bloc).toContain("justifyContent: 'space-between'");     // extrême gauche / extrême droite
+    // on cible le MARKUP des boutons (>…</button>) pour ne pas matcher la prose des commentaires (« ‹ précédent / suivant › »).
+    const iPrec = bloc.indexOf('>‹ précédent</button>');
+    const iInfo = bloc.indexOf('>plan {i + 1} sur {bande.length}<');
+    const iSuiv = bloc.indexOf('>suivant ›</button>');
+    expect(iPrec).toBeGreaterThan(-1);
+    expect(iInfo).toBeGreaterThan(iPrec);   // le bloc d'information est ENTRE les deux boutons
+    expect(iSuiv).toBeGreaterThan(iInfo);   // « suivant » à l'extrême droite, après l'information
+  });
+
+  it('NavPieceLibre (mode pièce libre) : la paire de PAGES est aussi à l’extrême gauche/droite (space-between), retour best-of centré', () => {
+    const iNav = rendu.indexOf('export function NavPieceLibre');
+    const iFin = rendu.indexOf('export type StatutBatiment');
+    const bloc = rendu.slice(iNav, iFin);
+    expect(bloc).toContain("justifyContent: 'space-between'");
+    const iPrec = bloc.indexOf('>‹ page précédente</button>');
+    const iSuiv = bloc.indexOf('>page suivante ›</button>');
+    expect(iPrec).toBeGreaterThan(-1);
+    expect(iSuiv).toBeGreaterThan(iPrec);
+    expect(bloc).toContain('revenir au best-of');
   });
 });

@@ -484,17 +484,24 @@ export function BandePlans({ bande, index, onPrecedent, onSuivant }: { bande: Pl
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
       {/* Le MODE est porté par les MOTS (« Best-of des plans »), jamais par la seule couleur. */}
       <div style={{ fontSize: 12, fontWeight: 700 }}>Best-of des plans proposés</div>
-      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button type="button" style={{ ...btn, opacity: i <= 0 ? 0.4 : 1 }} disabled={i <= 0} onClick={onPrecedent} aria-label="Plan précédent">‹ précédent</button>
-        <span style={{ fontSize: 12, fontWeight: 700 }}>plan {i + 1} sur {bande.length}</span>
-        <button type="button" style={{ ...btn, opacity: i >= bande.length - 1 ? 0.4 : 1 }} disabled={i >= bande.length - 1} onClick={onSuivant} aria-label="Plan suivant">suivant ›</button>
-        {/* PROJ-3g — la FAMILLE est écrite (le mot porte l'info, jamais la couleur seule). */}
-        <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.05rem .35rem' }}>{libelleFamille(p.famille)}</span>
-        {/* SUITE — les NIVEAUX que porte une planche d'étage (RDC/SSOL/R+n), pour savoir ce qu'on ouvre (une planche multi-niveaux entre une seule fois). */}
-        {p.niveaux && p.niveaux.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.05rem .35rem' }}>niveaux : {p.niveaux.join(', ')}</span>}
-        {/* LOT 62 — ORIGINE distinguée (le mot porte l'info) : « repérée par image » = analyse d'image (présence seule, fiabilité différente du texte) → Arno sait ce qu'il regarde. */}
-        {p.origine === 'image' && <span style={{ fontSize: 11, fontWeight: 700, border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.05rem .35rem', color: 'var(--color-svv-muted)' }}>repérée par image</span>}
-        <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{libellePlan(p)}{p.confirme ? '' : ' (page à confirmer)'}</span>
+      {/* LOT « paire unique » — l'UNIQUE paire ‹ précédent / suivant › visible sous l'image : « précédent » à l'EXTRÊME GAUCHE,
+          « suivant » à l'EXTRÊME DROITE (space-between) ; tout le BLOC D'INFORMATION (plan i sur n, type/famille, niveaux, origine,
+          nom du fichier + page + échelle) est CENTRÉ ENTRE les deux. C'est la navigation entre PLANS du best-of (jamais des pages). */}
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+        <button type="button" style={{ ...btn, flex: '0 0 auto', opacity: i <= 0 ? 0.4 : 1 }} disabled={i <= 0} onClick={onPrecedent} aria-label="Plan précédent">‹ précédent</button>
+        <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.15rem', textAlign: 'center' }}>
+          <span style={{ fontSize: 12, fontWeight: 700 }}>plan {i + 1} sur {bande.length}</span>
+          <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
+            {/* PROJ-3g — la FAMILLE est écrite (le mot porte l'info, jamais la couleur seule). */}
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.05rem .35rem' }}>{libelleFamille(p.famille)}</span>
+            {/* SUITE — les NIVEAUX que porte une planche d'étage (RDC/SSOL/R+n), pour savoir ce qu'on ouvre (une planche multi-niveaux entre une seule fois). */}
+            {p.niveaux && p.niveaux.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.05rem .35rem' }}>niveaux : {p.niveaux.join(', ')}</span>}
+            {/* LOT 62 — ORIGINE distinguée (le mot porte l'info) : « repérée par image » = analyse d'image (présence seule, fiabilité différente du texte) → Arno sait ce qu'il regarde. */}
+            {p.origine === 'image' && <span style={{ fontSize: 11, fontWeight: 700, border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.05rem .35rem', color: 'var(--color-svv-muted)' }}>repérée par image</span>}
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--color-svv-muted)', wordBreak: 'break-word' }}>{libellePlan(p)}{p.confirme ? '' : ' (page à confirmer)'}</span>
+        </div>
+        <button type="button" style={{ ...btn, flex: '0 0 auto', opacity: i >= bande.length - 1 ? 0.4 : 1 }} disabled={i >= bande.length - 1} onClick={onSuivant} aria-label="Plan suivant">suivant ›</button>
       </div>
     </div>
   );
@@ -520,11 +527,15 @@ export function NavPieceLibre({ nomFichier, page, nbPages, onPagePrecedente, onP
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
       <div style={{ fontSize: 12, fontWeight: 700 }}>Pièce : {nomFichier}</div>
-      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-        <button type="button" style={btn} onClick={onRetourBestOf} aria-label="Revenir au best-of des plans">◂ revenir au best-of</button>
-        <button type="button" style={{ ...btn, opacity: p <= 1 ? 0.4 : 1 }} disabled={p <= 1} onClick={onPagePrecedente} aria-label="Page précédente">‹ page précédente</button>
-        <span style={{ fontSize: 12, fontWeight: 700 }}>page {p} sur {n}</span>
-        <button type="button" style={{ ...btn, opacity: p >= n ? 0.4 : 1 }} disabled={p >= n} onClick={onPageSuivante} aria-label="Page suivante">page suivante ›</button>
+      {/* MÊME disposition que la bande best-of : l'UNIQUE paire ‹ / › à l'extrême gauche/droite (ici elle feuillette les PAGES de la
+          pièce ouverte, seul axe pertinent dans ce mode), l'indicateur « page i sur n » et le retour au best-of CENTRÉS entre les deux. */}
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'nowrap' }}>
+        <button type="button" style={{ ...btn, flex: '0 0 auto', opacity: p <= 1 ? 0.4 : 1 }} disabled={p <= 1} onClick={onPagePrecedente} aria-label="Page précédente">‹ page précédente</button>
+        <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.15rem', textAlign: 'center' }}>
+          <span style={{ fontSize: 12, fontWeight: 700 }}>page {p} sur {n}</span>
+          <button type="button" style={{ ...btn, padding: '.15rem .5rem', fontSize: 11 }} onClick={onRetourBestOf} aria-label="Revenir au best-of des plans">◂ revenir au best-of</button>
+        </div>
+        <button type="button" style={{ ...btn, flex: '0 0 auto', opacity: p >= n ? 0.4 : 1 }} disabled={p >= n} onClick={onPageSuivante} aria-label="Page suivante">page suivante ›</button>
       </div>
     </div>
   );

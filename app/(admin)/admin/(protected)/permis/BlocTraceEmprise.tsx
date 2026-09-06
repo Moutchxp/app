@@ -665,6 +665,43 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   // PL-C4 — bandeau « sélection validée / configuration automatique », placé sous le curseur Rotation, avant le schéma (3 vues).
   const bandeauSel = <BandeauSelection selection={selection} confirme={confirmeSel} enCours={occupeSel} onDemander={() => setConfirmeSel(true)} onConfirmer={() => void retirerSelectionEmprise()} onAnnuler={() => setConfirmeSel(false)} />;
 
+  // LOT « paire unique » — navigation PRIMAIRE (unique paire ‹/›) + avertissement de changement, descendus SOUS l'image dans la barre
+  //   partagée (slotNav) ; « voir toutes les pièces » descend aussi (slotPieces). Mêmes slots/mêmes composants que la planche →
+  //   disposition IDENTIQUE. Les changements de plan/page restent GARDÉS par demanderChangement (un tracé en cours n'est jamais perdu en silence).
+  const slotNav = (
+    <>
+      {nav === 'bestof' ? (
+        <BandePlans bande={bande} index={planIndex}
+          onPrecedent={() => demanderChangement(() => appliquerPlan(indexPrecedent(planIndex, bande.length)))}
+          onSuivant={() => demanderChangement(() => appliquerPlan(indexSuivant(planIndex, bande.length)))} />
+      ) : (
+        <NavPieceLibre nomFichier={nomCourant} page={page} nbPages={nbPagesPiece}
+          onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} onRetourBestOf={retourBestOf} />
+      )}
+      {avertissement && (
+        <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>Un calage ou un tracé est en cours — changer de page l’abandonnera.</span>
+          <button type="button" style={btn} onClick={() => { avertissement.faire(); setAvertissement(null); }}>Changer quand même</button>
+          <button type="button" style={btn} onClick={() => setAvertissement(null)}>Rester</button>
+        </div>
+      )}
+    </>
+  );
+  const slotPieces = (
+    // Repli : atteindre N'IMPORTE QUELLE pièce (le tri PROPOSE, il n'enferme jamais) ; l'ouvrir passe en nav « pièce libre » (page par page).
+    <div>
+      <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', fontSize: 12 }} aria-expanded={pleinListe} onClick={() => setPleinListe((v) => !v)}>
+        {pleinListe ? 'masquer les autres pièces' : 'voir toutes les pièces du dossier'} {pleinListe ? '▲' : '▾'}
+      </button>
+      {pleinListe && (
+        <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.3rem' }}>
+          <SelecteurPiecePlan pieces={pieces} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} />
+          <span style={styleAide}>Ouvre la pièce et la feuillette page par page.</span>
+        </div>
+      )}
+    </div>
+  );
+
   // PROJ-3b-fix ② — décision PURE (testée) : chargement · échec · succès-vide · prêt. « Aucun bâtiment » n'apparaît QU'au succès réel.
   const vue = affichageTrace(etat, batiments.length);
   if (vue === 'chargement') {
@@ -742,34 +779,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
           {/* Colonne PDF */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', minWidth: 0 }}>
-            {/* PROJ-3f ① — DEUX navigations DISTINCTES, une seule visible à la fois, identifiée par son EN-TÊTE (les MOTS, pas la couleur). */}
-            {nav === 'bestof' ? (
-              <BandePlans bande={bande} index={planIndex}
-                onPrecedent={() => demanderChangement(() => appliquerPlan(indexPrecedent(planIndex, bande.length)))}
-                onSuivant={() => demanderChangement(() => appliquerPlan(indexSuivant(planIndex, bande.length)))} />
-            ) : (
-              <NavPieceLibre nomFichier={pieces.find((p) => p.id === pieceId)?.nomFichier ?? 'pièce'} page={page} nbPages={nbPagesPiece}
-                onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} onRetourBestOf={retourBestOf} />
-            )}
-            {avertissement && (
-              <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span>Un calage ou un tracé est en cours — changer de page l’abandonnera.</span>
-                <button type="button" style={btn} onClick={() => { avertissement.faire(); setAvertissement(null); }}>Changer quand même</button>
-                <button type="button" style={btn} onClick={() => setAvertissement(null)}>Rester</button>
-              </div>
-            )}
-            {/* Repli : atteindre N'IMPORTE QUELLE pièce (le tri PROPOSE, il n'enferme jamais) ; l'ouvrir passe en nav « pièce libre » (page par page). */}
-            <div>
-              <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', fontSize: 12 }} aria-expanded={pleinListe} onClick={() => setPleinListe((v) => !v)}>
-                {pleinListe ? 'masquer les autres pièces' : 'voir toutes les pièces du dossier'} {pleinListe ? '▲' : '▾'}
-              </button>
-              {pleinListe && (
-                <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.3rem' }}>
-                  <SelecteurPiecePlan pieces={pieces} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} />
-                  <span style={styleAide}>Ouvre la pièce et la feuillette page par page (‹ / › ci-dessus).</span>
-                </div>
-              )}
-            </div>
+            {/* LOT « paire unique » — la navigation (best-of / pièce libre), l'avertissement de changement et « voir toutes les pièces »
+                ont QUITTÉ le dessus de l'image : ils descendent SOUS le canvas, dans la barre partagée (slotNav / slotPieces). Ici, en
+                tête de colonne, ne reste que le zoom du document. */}
             {/* PROJ-3l — commande de zoom du document. */}
             <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
             {/* Conteneur NON transformé (repère du clic) ; le PDF + l'overlay sont dans un wrapper zoomé/déplacé. Glisser = déplacer (si zoomé), cliquer = poser un point. */}
@@ -798,6 +810,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 tracé : uniquement lien source, nav pages, best-of, analyse IA. Actions serveur existantes, mise à jour locale (pas de
                 rechargement → le calage est préservé). Disposition alignée sur la planche (précédent à GAUCHE, suivant à DROITE). */}
             <BarreVisionneusePieces pieceId={pieceId} nomCourant={nomCourant} page={page} nbPagesPiece={nbPagesPiece} echelle={planAffiche?.echelle ?? null}
+              nav={nav} slotNav={slotNav} slotPieces={slotPieces}
               onOuvrirDocument={() => void ouvrirDocumentComplet()} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)}
               pageDansBestOf={pageDansBestOf} onRetirerBestOf={() => { if (planAffiche) void retirerDuBestOf(planAffiche!); }} onAjouterBestOf={() => { if (pieceId !== null) void ajouterAuBestOf(pieceId, page); }}
               statutPage={statutPage} resumePages={resumePages} pleinPagesAnalysees={pleinPagesAnalysees} onTogglePleinPages={() => setPleinPagesAnalysees((v) => !v)}

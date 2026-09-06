@@ -106,20 +106,27 @@ describe('LOT 92 — ajouter/retirer une PAGE au best-of depuis l’aperçu (gar
   });
 });
 
-describe('LOT 94 — barre de commandes SOUS l’aperçu : navigation de PAGES, bascule best-of déplacée, deux boutons d’analyse (garde par lecture de source)', () => {
-  it('① la navigation de PAGES n’apparaît que si le fichier a PLUSIEURS pages, et est bornée (boutons désactivés, pas masqués)', () => {
-    expect(SRC).toMatch(/nbPagesPiece > 1 && \(/);              // la ligne de navigation de pages est conditionnée au multipage
-    expect(SRC).toContain('page {page} sur {nbPagesPiece}');    // indicateur de page courante ENTRE les deux boutons
-    expect(SRC).toMatch(/disabled=\{page <= 1\}/);              // début de fichier → « précédent » désactivé (pas masqué)
-    expect(SRC).toMatch(/disabled=\{page >= nbPagesPiece\}/);   // fin de fichier → « suivant » désactivé (pas masqué)
-    expect(SRC).toContain("justifyContent: 'space-between'");   // « précédent » à l'extrême gauche, « suivant » à l'extrême droite
+describe('LOT « paire unique » — barre SOUS l’aperçu : UNE SEULE paire ‹/› (plans), navigation de PAGES en contrôle discret, bascule best-of, analyses (garde par lecture de source)', () => {
+  it('① la navigation de PAGES est un CONTRÔLE DISCRET (fichier multi-pages), masqué en mode pièce libre et borné (boutons désactivés, pas masqués)', () => {
+    expect(SRC).toMatch(/nav !== 'piece' && nbPagesPiece > 1 && \(/); // masqué en pièce libre (slotNav y feuillette déjà les pages) + multipage
+    expect(SRC).toContain('page {page} / {nbPagesPiece}');       // indicateur COMPACT (barre oblique), distinct de « plan i sur n »
+    expect(SRC).toMatch(/disabled=\{page <= 1\}/);               // début de fichier → « précédent » désactivé (pas masqué)
+    expect(SRC).toMatch(/disabled=\{page >= nbPagesPiece\}/);    // fin de fichier → « suivant » désactivé (pas masqué)
     expect(SRC).toContain('changerPage(-1)');
     expect(SRC).toContain('changerPage(1)');
+    // flèches NETTEMENT distinctes de la paire de plans (‹/›) : glyphes ◁ ▷ → on ne confond jamais « changer de plan » et « changer de page ».
+    expect(SRC).toContain('◁');
+    expect(SRC).toContain('▷');
   });
-  it('① DEUX AXES DISTINCTS conservés : la nav de PAGES (barre) coexiste avec la nav de PLANS best-of (BandePlans, colonne gauche) — l’une ne remplace pas l’autre', () => {
-    expect(SRC).toContain('<BandePlans');                        // l'axe best-of (« plan i sur N ») reste en colonne gauche
-    expect(SRC).toContain('Page précédente du fichier');         // l'axe pages porte un libellé PROPRE, distinct de « Plan précédent »
+  it('① UNE SEULE paire ‹/› visible = navigation entre PLANS (slotNav, descendue sous l’image) ; l’axe PAGES reste accessible mais DISTINCT (« du fichier »)', () => {
+    expect(SRC).toContain('slotNav={slotNav}');                  // la paire primaire unique descend dans la barre partagée
+    expect(SRC).toContain('<BandePlans');                        // best-of (« plan i sur N ») = la paire primaire (mode best-of)
+    expect(SRC).toContain('<NavPieceLibre');                     // mode pièce libre : la paire primaire feuillette les pages
+    expect(SRC).toContain('Page précédente du fichier');         // l'axe pages (discret) porte un libellé PROPRE, distinct de « Plan précédent »
     expect(SRC).toContain('Page suivante du fichier');
+    // plus AUCUNE 2e GRANDE paire identique de pages dans la barre (l'ancien bouton-texte a cédé la place aux flèches discrètes ◁ ▷).
+    expect(SRC).not.toContain('‹ page précédente</button>');
+    expect(SRC).not.toContain('page suivante ›</button>');
   });
   it('② la bascule best-of est DÉPLACÉE dans la barre (hors canvas → tokens de thème), plus AUCUNE surimpression sur l’aperçu', () => {
     // le toggle grain page reste piloté par pageDansBestOf et réutilise ajouter/retirer du LOT 92 (aucune 2e source de vérité).

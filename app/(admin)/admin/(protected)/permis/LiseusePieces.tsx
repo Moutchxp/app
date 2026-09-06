@@ -549,34 +549,38 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
 
   const nomCourant = pieces.find((p) => p.id === pieceId)?.nomFichier ?? 'pièce';
 
+  // LOT « paire unique » — la navigation PRIMAIRE (best-of OU pièce libre) et « voir toutes les pièces » DESCENDENT sous l'image, dans la
+  //   barre partagée (mêmes slots que « Bâtiments et projection » → disposition identique). L'UNIQUE paire ‹/› vit dans slotNav.
+  const slotNav = nav === 'bestof' ? (
+    <BandePlans bande={bandeVisible} index={planIndex} onPrecedent={() => appliquerPlan(planIndex - 1)} onSuivant={() => appliquerPlan(planIndex + 1)} />
+  ) : (
+    <NavPieceLibre nomFichier={nomCourant} page={page} nbPages={nbPagesPiece} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} onRetourBestOf={retourBestOf} />
+  );
+  const slotPieces = (
+    // Atteindre N'IMPORTE QUELLE pièce (le tri PROPOSE, il n'enferme jamais) ; l'ouvrir passe en nav « pièce libre » (page par page).
+    <div>
+      <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', fontSize: 12 }} aria-expanded={pleinListe} onClick={() => setPleinListe((v) => !v)}>
+        {pleinListe ? 'masquer les autres pièces' : 'voir toutes les pièces du dossier'} {pleinListe ? '▲' : '▾'}
+      </button>
+      {pleinListe && (
+        // LOT 91 — liste BORNÉE (défilement interne) : ~70 pièces ne repoussent plus l'aperçu hors du champ. Scroll natif → aucune
+        //   animation (prefers-reduced-motion respecté d'office). La ligne cliquée reste marquée (aria-current, LOT 64).
+        <div style={{ marginTop: '.3rem', maxHeight: '60vh', overflowY: 'auto' }}>
+          {/* LOT 64 — liste EXPLICITE : toutes les pièces, non analysées par image en tête, état par ligne. */}
+          <ListePiecesAnalyse pieces={pieces} analyseParPiece={analyseParPiece} nonSupportees={piecesNonSupportees} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} />
+        </div>
+      )}
+    </div>
+  );
+
   return (
     // MOBILE-FIRST : flex-wrap → deux colonnes en large (nav ~1/3, aperçu ~2/3), EMPILÉES en écran étroit (la nav passe AU-DESSUS de l'aperçu).
     //   Chaque colonne a minWidth:0 et le canvas fait width:100% de SA colonne → jamais de débordement horizontal de la page.
     <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-start' }}>
       <div style={{ flex: '1 1 220px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
         <div style={{ fontSize: 12, fontWeight: 700 }}>Liseuse des pièces</div>
-        {nav === 'bestof' ? (
-          <BandePlans bande={bandeVisible} index={planIndex} onPrecedent={() => appliquerPlan(planIndex - 1)} onSuivant={() => appliquerPlan(planIndex + 1)} />
-        ) : (
-          <NavPieceLibre nomFichier={nomCourant} page={page} nbPages={nbPagesPiece} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} onRetourBestOf={retourBestOf} />
-        )}
-        {/* Atteindre N'IMPORTE QUELLE pièce (le tri PROPOSE, il n'enferme jamais) ; l'ouvrir passe en nav « pièce libre » (page par page). */}
-        <div>
-          <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', fontSize: 12 }} aria-expanded={pleinListe} onClick={() => setPleinListe((v) => !v)}>
-            {pleinListe ? 'masquer les autres pièces' : 'voir toutes les pièces du dossier'} {pleinListe ? '▲' : '▾'}
-          </button>
-          {pleinListe && (
-            // LOT 91 — liste BORNÉE (défilement interne) : ~70 pièces ne repoussent plus l'aperçu hors du champ (desktop : l'aperçu
-            //   collant reste en face ; mobile empilé : l'aperçu, juste sous cette liste bornée, reste à portée). Scroll natif → aucune
-            //   animation (prefers-reduced-motion respecté d'office). La ligne cliquée reste marquée (aria-current, LOT 64).
-            <div style={{ marginTop: '.3rem', maxHeight: '60vh', overflowY: 'auto' }}>
-              {/* LOT 64 — liste EXPLICITE (plus un <select> replié à une ligne) : toutes les pièces, non analysées par image en tête, état par ligne. */}
-              <ListePiecesAnalyse pieces={pieces} analyseParPiece={analyseParPiece} nonSupportees={piecesNonSupportees} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} />
-            </div>
-          )}
-        </div>
-        {/* LOT 94 — la BARRE DE COMMANDES (navigation de pages, bascule best-of, analyses) a QUITTÉ cette colonne : elle est désormais
-            SOUS l'aperçu, dans la colonne de droite (voir plus bas). Ici ne restent que le contexte best-of/pièce et le zoom. */}
+        {/* LOT « paire unique » — la navigation (best-of / pièce libre) et « voir toutes les pièces » ont QUITTÉ cette colonne : elles
+            descendent SOUS l'aperçu, dans la barre partagée (slotNav / slotPieces). Ici ne reste que le zoom du document. */}
         <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajuster} />
       </div>
       {/* LOT 91 — APERÇU COLLANT : sur écran LARGE (colonnes côte à côte), le panneau d'aperçu SUIT le défilement (position sticky) →
@@ -616,6 +620,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
         {/* LOT 94 / INCRÉMENT-2 — BARRE DE COMMANDES sous l'aperçu : composant PARTAGÉ (une seule vérité) avec « Bâtiments et projection ».
             Actions serveur inchangées (ouvrirDocumentComplet/changerPage/retirer/ajouterAuBestOf/reperer/analyserPage/annulerValeurPage). */}
         <BarreVisionneusePieces pieceId={pieceId} nomCourant={nomCourant} page={page} nbPagesPiece={nbPagesPiece} echelle={planAffiche?.echelle ?? null}
+          nav={nav} slotNav={slotNav} slotPieces={slotPieces}
           onOuvrirDocument={() => void ouvrirDocumentComplet()} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)}
           pageDansBestOf={pageDansBestOf} onRetirerBestOf={() => { if (planAffiche) void retirerDuBestOf(planAffiche!); }} onAjouterBestOf={() => { if (pieceId !== null) void ajouterAuBestOf(pieceId, page); }}
           statutPage={statutPage} resumePages={resumePages} pleinPagesAnalysees={pleinPagesAnalysees} onTogglePleinPages={() => setPleinPagesAnalysees((v) => !v)}

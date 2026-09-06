@@ -7,9 +7,9 @@ import { createRoot, type Root } from 'react-dom/client';
 /**
  * LOT 94 — BARRE DE COMMANDES sous l'aperçu : on MONTE réellement le composant (jsdom) et on pilote l'axe de navigation des PAGES du
  * fichier ouvert (distinct de l'axe best-of « plan i sur N »). On prouve le COMPORTEMENT observable (DOM), jamais la forme du code :
- *   • fichier MULTIPAGE → la barre affiche « page i sur n », boutons actifs/désactivés aux bornes, la page courante suit les clics ;
+ *   • fichier MULTIPAGE → la barre affiche « page i / n » (contrôle DISCRET, distinct de la paire de PLANS « plan i sur N »), boutons actifs/désactivés aux bornes, la page courante suit les clics ;
  *   • fichier 1 PAGE → aucune navigation de pages (rien à feuilleter) ;
- *   • l'axe PAGES ne touche PAS l'axe best-of (« Plan suivant » reste présent en colonne gauche).
+ *   • l'axe PAGES (contrôle discret) ne touche PAS l'axe best-of (« Plan suivant » reste présent, descendu sous l'image).
  * Aucun appel réseau réel : fetch et pdf.js sont mockés.
  */
 const mocks = vi.hoisted(() => {
@@ -73,13 +73,13 @@ function cliquer(aria: string): void {
 }
 
 describe('LOT 94 — navigation de PAGES dans la barre (fichier multipage)', () => {
-  it('affiche « page 1 sur 3 », « précédent » désactivé en tête, « suivant » actif ; les deux axes coexistent', async () => {
+  it('affiche « page 1 / 3 », « précédent » désactivé en tête, « suivant » actif ; les deux axes coexistent', async () => {
     await act(async () => { root.render(h(LiseusePieces, { dossierId: 1 })); });
     await flush();
-    expect(container.textContent).toContain('page 1 sur 3');
+    expect(container.textContent).toContain('page 1 / 3');
     expect(bouton('Page précédente du fichier')?.disabled).toBe(true);   // borne basse → désactivé (pas masqué)
     expect(bouton('Page suivante du fichier')?.disabled).toBe(false);
-    // AXE BEST-OF INTACT : la navigation de plans reste présente (colonne gauche), l'axe pages ne l'a pas remplacée.
+    // AXE BEST-OF INTACT : la navigation de PLANS (paire unique, sous l'image) reste présente ; l'axe pages (discret) ne l'a pas remplacée.
     expect(bouton('Plan suivant')).not.toBeNull();
   });
 
@@ -87,12 +87,12 @@ describe('LOT 94 — navigation de PAGES dans la barre (fichier multipage)', () 
     await act(async () => { root.render(h(LiseusePieces, { dossierId: 1 })); });
     await flush();
     cliquer('Page suivante du fichier'); await flush();
-    expect(container.textContent).toContain('page 2 sur 3');
+    expect(container.textContent).toContain('page 2 / 3');
     expect(bouton('Page précédente du fichier')?.disabled).toBe(false);
     expect(bouton('Page suivante du fichier')?.disabled).toBe(false);
 
     cliquer('Page suivante du fichier'); await flush();
-    expect(container.textContent).toContain('page 3 sur 3');
+    expect(container.textContent).toContain('page 3 / 3');
     expect(bouton('Page suivante du fichier')?.disabled).toBe(true);     // borne haute → désactivé
     expect(bouton('Page précédente du fichier')?.disabled).toBe(false);
   });
@@ -127,7 +127,7 @@ describe('LOT 94 — fichier d’UNE seule page : aucune navigation de pages', (
     expect(bouton('Page précédente du fichier')).toBeNull();
     expect(bouton('Page suivante du fichier')).toBeNull();
     // La barre reste présente (bascule best-of + analyses), seule la LIGNE de navigation de pages disparaît.
-    expect(container.textContent).not.toContain('page 1 sur 1');
+    expect(container.textContent).not.toContain('page 1 / 1');
   });
 });
 
@@ -202,7 +202,7 @@ describe('LOT 99 — statut par page (reproduit 470 : PC5_AUTRES 3 pages, page 1
     await act(async () => { root.render(h(LiseusePieces, { dossierId: 470 })); });
     await flush();
     cliquer('Page suivante du fichier'); await flush(); // page 2
-    expect(container.textContent).toContain('page 2 sur 3');
+    expect(container.textContent).toContain('page 2 / 3');
     expect(container.textContent).not.toContain('valeurs lues et intégrées');   // ses valeurs n'ont PAS été lues
     expect(container.textContent).toContain('page identifiée mais non analysée'); // identifiée SANS IA (famille), dérivé
     expect(container.textContent).toContain('d’après l’analyse du fichier');      // honnêteté : dérivé, pas mesuré page par page
