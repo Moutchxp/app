@@ -88,6 +88,14 @@ export async function enregistrerEmprise(e: EntreeEnregistrement): Promise<Resul
   if (!e.anneau.every((p) => Number.isFinite(p.x) && Number.isFinite(p.y))) return { ok: false, motif: 'coordonnées invalides' };
   const wkt = anneauVersWkt(e.anneau);
   try {
+    // 🔴 VALIDE la géométrie AVANT d'insérer (miroir EXACT de retoucherEmprise) : un contour AUTO-INTERSECTANT (des bords qui se
+    //   croisent) passe le CHECK de TYPE (geometrytype ∈ POLYGON/MULTIPOLYGON) mais reste ST_IsValid=false. Sans ce garde, la ligne
+    //   était persistée puis toute opération PostGIS AVAL sur l'union des emprises (ST_Union dans polygonesRecouvertsParEmprise, le
+    //   débordement…) levait une TopologyException, masquée par le catch-all de la route en 503 « action indisponible » — écran
+    //   contradictoire (emprise en base, « Aucune emprise » affiché). On refuse net, avec le message clair et actionnable.
+    const { rows: v } = await query<{ ok: boolean | null }>(
+      `SELECT ST_IsValid(ST_Force2D(ST_GeomFromText($1, 2154))) AS ok`, [wkt]);
+    if (!v[0]?.ok) return { ok: false, motif: 'contour invalide : des bords se croisent — ajustez les sommets avant d’enregistrer' };
     const { rows } = await query<{ id: number }>(
       `INSERT INTO permis_emprise_reconstruite (dossier_id, corps_id, libelle, geom, surface_m2, piece_id, page, calage, residu_m, cree_par)
        VALUES ($1, $9, $2, ST_GeomFromText($3, 2154), ST_Area(ST_GeomFromText($3, 2154)), $4, $5, $6::jsonb, $7, $8)

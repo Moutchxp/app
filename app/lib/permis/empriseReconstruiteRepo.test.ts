@@ -66,6 +66,17 @@ describe('PROJ-2 — enregistrerEmprise : n’écrit QUE la table des reconstitu
     expect(H.calls.some((c) => /INSERT/i.test(c.sql))).toBe(false);
   });
 
+  it('géométrie AUTO-INTERSECTANTE (ST_IsValid = false) → REFUS avec message clair, aucun INSERT', async () => {
+    // 🔴 RÉGRESSION 7424 : un contour dont les bords se croisent passait le CHECK de TYPE et était persisté, puis l'union PostGIS aval
+    //   (polygonesRecouvertsParEmprise) levait une TopologyException masquée en 503 « action indisponible » (écran contradictoire).
+    H.flags.geomValide = false;
+    const r = await enregistrerEmprise({ dossierId: 11434, corpsId: 3, libelle: '2D1', anneau, pieceId: 55, page: 2, calage, residuM: 0, creePar: 'admin' });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motif).toMatch(/bords se croisent/);
+    expect(H.calls.some((c) => /ST_IsValid/i.test(c.sql))).toBe(true);        // la validité est bien contrôlée…
+    expect(H.calls.some((c) => /INSERT INTO permis_emprise_reconstruite/i.test(c.sql))).toBe(false); // …AVANT tout INSERT
+  });
+
   it('supprimerEmprise est SCOPÉE au dossier (jamais un id seul)', async () => {
     await supprimerEmprise(7, 11434);
     const del = H.calls.find((c) => /DELETE FROM permis_emprise_reconstruite/i.test(c.sql))!;
