@@ -298,6 +298,51 @@ export async function lirePolygonesEmpreinte(dossierId: number): Promise<Polygon
   }
 }
 
+// PROJ-CTX — un objet de CONTEXTE (parcelle voisine ou bâti voisin) dans le rayon autour de l'empreinte. UNIQUEMENT pour l'affichage
+//   (3e registre) : JAMAIS candidat à l'affectation ni à l'empreinte. `genre` distingue le tracé (contour de parcelle vs aplat de bâti).
+export interface ObjetContexte { genre: 'parcelle' | 'batiment'; anneau: PointLambert[] }
+
+/**
+ * PROJ-CTX — parcelles VOISINES + leur BÂTI dans un RAYON autour de l'empreinte du permis (lecture seule). `rayonM` est passé par
+ * l'appelant (lu en config, lireRayonContexteM) — jamais en dur. ANTI-DOUBLON (exigence d) : on EXCLUT les parcelles du permis
+ * (intersection réelle avec l'empreinte ≥ 1 m² → c'est la parcelle focus) et le bâti DÉJÀ affiché (celui qui intersecte l'empreinte =
+ * « sur la parcelle » / « mitoyen », déjà rendu). ST_DWithin (index GiST — vérifié EXPLAIN), JAMAIS un KNN. Résilient : table absente → [].
+ */
+export async function lireVoisinageContexte(dossierId: number, rayonM: number): Promise<ObjetContexte[]> {
+  if (!(rayonM > 0)) return []; // rayon 0 (ou invalide) = aucun contexte
+  try {
+    const { rows } = await query<{ genre: 'parcelle' | 'batiment'; gj: { type: string; coordinates: number[][][] | number[][][][] } | null }>(
+      `WITH emp AS (SELECT geom FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL)
+       SELECT genre, ST_AsGeoJSON(geom)::json AS gj FROM (
+         -- parcelles VOISINES dans le rayon, HORS parcelle(s) du permis (intersection réelle avec l'empreinte < 1 m² = simple mitoyenneté)
+         SELECT 'parcelle'::text AS genre, ST_Force2D(par.geom) AS geom
+           FROM parcelle par, emp
+          WHERE ST_DWithin(par.geom, emp.geom, $2)
+            AND ST_Area(ST_Intersection(ST_Force2D(par.geom), emp.geom)) < 1
+         UNION ALL
+         -- bâti VOISIN dans le rayon, HORS bâti déjà affiché (celui qui intersecte l'empreinte : sur la parcelle / mitoyen)
+         SELECT 'batiment'::text, ST_Force2D(b.geom)
+           FROM batiment b, emp
+          WHERE ST_DWithin(b.geom, emp.geom, $2)
+            AND NOT (b.geom && emp.geom AND ST_Intersects(b.geom, emp.geom))
+       ) q`, [dossierId, rayonM]);
+    const out: ObjetContexte[] = [];
+    for (const r of rows) {
+      if (!r.gj) continue;
+      const anneaux: number[][][] = r.gj.type === 'Polygon'
+        ? [(r.gj.coordinates as number[][][])[0]].filter(Boolean)
+        : r.gj.type === 'MultiPolygon'
+          ? (r.gj.coordinates as number[][][][]).map((poly) => poly[0]).filter(Boolean)
+          : [];
+      for (const a of anneaux) out.push({ genre: r.genre, anneau: a.map(([x, y]) => ({ x, y })) });
+    }
+    return out;
+  } catch (err) {
+    if (estTableAbsente(err)) return [];
+    throw err;
+  }
+}
+
 // PROJ-3i — SÉLECTION des polygones « en projet » (permis_polygone_projet_ecarte, migration 152). Par DÉFAUT tout est RETENU ;
 //   une ligne = un cleabs ÉCARTÉ (décoché) par Arno, tracé (qui/quand). 🔴 AFFICHAGE/décision seulement : n'alimente NI verdict,
 //   NI altitude, NI rattachement ; aucune écriture moteur. Résilient : table absente (152 non appliquée) → liste vide / refus clair.

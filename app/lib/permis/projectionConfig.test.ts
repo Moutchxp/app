@@ -5,7 +5,7 @@ import { describe, it, expect, vi } from 'vitest';
  * seuil depuis `config_veille` (repli sûr + provenance). `db/client` mocké (même patron que rattachementConfig.test.ts).
  */
 const H = vi.hoisted(() => {
-  const state = { mode: 'ok' as 'ok' | 'vide' | 'null' | 'throw', row: { s: 5 as number | string | null } };
+  const state = { mode: 'ok' as 'ok' | 'vide' | 'null' | 'throw', row: { s: 5 } as Record<string, number | string | null> };
   const queryMock = async () => {
     if (state.mode === 'throw') throw new Error('column "projection_mitoyen_seuil_aire_m2" does not exist');
     if (state.mode === 'vide') return { rows: [], rowCount: 0 };
@@ -16,7 +16,7 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock }));
 
-import { qualifierMitoyennete, lireSeuilMitoyenAireM2, MITOYEN_SEUIL_AIRE_M2_DEFAUT } from './projectionConfig';
+import { qualifierMitoyennete, lireSeuilMitoyenAireM2, MITOYEN_SEUIL_AIRE_M2_DEFAUT, lireRayonContexteM, RAYON_CONTEXTE_M_DEFAUT } from './projectionConfig';
 
 describe('qualifierMitoyennete — PUR (seuil paramétré, jamais codé en dur)', () => {
   it('(a) polygone à 100 % (aire ≫ seuil) → « sur la parcelle »', () => {
@@ -57,5 +57,23 @@ describe('lireSeuilMitoyenAireM2 — seuil LU depuis config_veille, repli sûr +
     expect((await lireSeuilMitoyenAireM2()).provenance).toBe('defaut');
     H.state.mode = 'null';
     expect((await lireSeuilMitoyenAireM2()).provenance).toBe('defaut');
+  });
+});
+
+describe('lireRayonContexteM — rayon LU depuis config_veille, repli sûr + provenance (PROJ-CTX)', () => {
+  it('(c) valeur en base (numeric/integer → string) → rayon lu + provenance « base » ; NON codé en dur', async () => {
+    H.state.mode = 'ok'; H.state.row = { r: '120' }; // 120 ≠ défaut 50 → prouve que la valeur vient bien de la config
+    expect(await lireRayonContexteM()).toEqual({ rayonM: 120, provenance: 'base' });
+  });
+  it('colonne non migrée (erreur SQL) → défaut 50 + provenance « defaut »', async () => {
+    H.state.mode = 'throw';
+    expect(await lireRayonContexteM()).toEqual({ rayonM: RAYON_CONTEXTE_M_DEFAUT, provenance: 'defaut' });
+    expect(RAYON_CONTEXTE_M_DEFAUT).toBe(50); // = DEFAULT de la migration 204
+  });
+  it('ligne absente / valeur NULL → défaut + provenance « defaut »', async () => {
+    H.state.mode = 'vide';
+    expect((await lireRayonContexteM()).provenance).toBe('defaut');
+    H.state.mode = 'ok'; H.state.row = { r: null };
+    expect((await lireRayonContexteM()).provenance).toBe('defaut');
   });
 });

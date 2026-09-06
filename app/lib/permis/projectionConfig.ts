@@ -15,6 +15,27 @@ export const MITOYEN_SEUIL_AIRE_M2_DEFAUT = 0.5;
 /** Qualification d'un polygone BD TOPO selon son aire réelle dans l'empreinte. */
 export type QualificationPolygone = 'sur_parcelle' | 'mitoyen';
 
+// PROJ-CTX — rayon (m) du CONTEXTE (parcelles voisines + bâti autour de l'empreinte). Défaut CENTRALISÉ = DEFAULT de la migration 204.
+export const RAYON_CONTEXTE_M_DEFAUT = 50;
+export interface RayonContexteSource { rayonM: number; provenance: 'base' | 'defaut' }
+/**
+ * Lecture ISOLÉE du rayon du contexte (m), depuis `config_veille` (migration 204), REPLI SÛR sur le défaut si la colonne est absente
+ * (204 non appliquée), ligne absente ou NULL — même patron que `lireSeuilMitoyenAireM2`. Jamais d'exception propagée.
+ */
+export async function lireRayonContexteM(): Promise<RayonContexteSource> {
+  try {
+    const { rows } = await query<{ r: number | string | null }>(
+      `SELECT projection_contexte_rayon_m AS r FROM config_veille WHERE id = 1`);
+    const r = rows[0]?.r;
+    if (r === null || r === undefined) return { rayonM: RAYON_CONTEXTE_M_DEFAUT, provenance: 'defaut' };
+    const n = Number(r);
+    if (!Number.isFinite(n)) return { rayonM: RAYON_CONTEXTE_M_DEFAUT, provenance: 'defaut' };
+    return { rayonM: n, provenance: 'base' };
+  } catch {
+    return { rayonM: RAYON_CONTEXTE_M_DEFAUT, provenance: 'defaut' }; // 204 pas appliquée (colonne absente) → défaut
+  }
+}
+
 export interface SeuilMitoyenSource { seuilM2: number; provenance: 'base' | 'defaut' }
 
 /**

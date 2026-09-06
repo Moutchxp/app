@@ -1,6 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, lireVoisinageContexte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { lireRayonContexteM } from '../../../../../lib/permis/projectionConfig';
 import { lireSelectionInfo, type SelectionInfo } from '../../../../../lib/permis/plancheParcellesRepo'; // PL-C4 — sélection validée pour le bandeau
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed, lireGedPermis } from '../../../../../lib/permis/lectureGed';
@@ -267,6 +268,13 @@ export async function POST(request: Request): Promise<Response> {
     // PROJ-3q/3r — APERÇU AUTOMATIQUE (lecture seule) : les polygones cochés regroupés par connexité + aires (proposition par défaut).
     if (body.action === 'apercu_adoption') {
       return Response.json({ apercu: await apercuAdoptionEnProjet(dossierId) });
+    }
+
+    // PROJ-CTX — CONTEXTE (lecture seule) : parcelles voisines + bâti dans le rayon (config, repli sûr) autour de l'empreinte. Appelé
+    //   UNIQUEMENT quand l'interrupteur « contexte » est allumé côté client (aucune requête si éteint). JAMAIS candidats à l'affectation.
+    if (body.action === 'voisinage_contexte') {
+      const { rayonM, provenance } = await lireRayonContexteM();
+      return Response.json({ voisinage: await lireVoisinageContexte(dossierId, rayonM), rayonM, provenanceRayon: provenance });
     }
 
     // PROJ-3r — APERÇU PAR BÂTIMENT (lecture seule) d'une affectation donnée : combien d'emprises par bâtiment + leurs aires.

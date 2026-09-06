@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
@@ -299,6 +301,7 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     expect(html).toContain('Empreinte de la parcelle (référence — pas une mesure)'); // LOT 90 — l'empreinte a son entrée de légende
     expect(html).toContain('Bâti existant sur la parcelle (BD TOPO)');
     expect(html).toContain('Mitoyen (contexte — voisin accolé, hors parcelle)'); // PROJ-MIT — nouvelle entrée de légende
+    expect(html).toContain('Contexte : parcelles voisines et leur bâti (autour)'); // PROJ-CTX — 3e registre en légende
     expect(html).toContain('En projet (donnée IGN)');
     expect(html).toContain('reconstitution — jamais une mesure');
     expect(html).toContain('Que veut dire chaque catégorie');
@@ -330,6 +333,38 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     // les DEUX repères restent présents (le mitoyen est toujours porteur de son A/B/C)
     expect(html).toContain('data-repere="A"');
     expect(html).toContain('data-repere="B"');
+  });
+});
+
+describe('PROJ-CTX — contexte (parcelles voisines + bâti) : 3e registre, interrupteur, aucune requête si éteint', () => {
+  const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 60, minY: 0, maxY: 60 } };
+  const carre = (x: number, y: number, c: number) => [{ x, y }, { x: x + c, y }, { x: x + c, y: y + c }, { x, y: y + c }];
+  const voisinage = [
+    { genre: 'parcelle' as const, anneau: carre(40, 40, 15) },
+    { genre: 'batiment' as const, anneau: carre(44, 44, 6) },
+  ];
+
+  it('(a) contexte ALLUMÉ (défaut) → parcelles voisines + bâti RENDUS (teinte mauve distincte), non cliquables', () => {
+    const filtres: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: true, contexte: true };
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [carre(0, 0, 20)], emprises: [], polygones: [], filtres, calageLambert: [], voisinage }));
+    expect(html).toContain('data-contexte="parcelle"');
+    expect(html).toContain('data-contexte="batiment"');
+    expect(html).toContain('stroke="#b0a3c9"');            // teinte mauve FIXE (distincte des gris ; lisible dans les 2 thèmes)
+    expect(html).toContain('pointer-events="none"');       // jamais candidat à l'affectation (aucun clic)
+  });
+
+  it('(b) contexte ÉTEINT → AUCUN objet de contexte rendu (même si des données sont fournies)', () => {
+    const filtres: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: true, contexte: false };
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [carre(0, 0, 20)], emprises: [], polygones: [], filtres, calageLambert: [], voisinage }));
+    expect(html).not.toContain('data-contexte');
+  });
+
+  it('(b) garde SOURCE — BlocTraceEmprise NE PART PAS en requête quand l’interrupteur est éteint, et le contexte est chargé par l’action dédiée', () => {
+    const src = readFileSync(fileURLToPath(new URL('./BlocTraceEmprise.tsx', import.meta.url)), 'utf8').replace(/\s+/g, ' ');
+    // éteint → on VIDE et on RETURN AVANT le fetch (aucune requête ne part)
+    expect(src).toContain("if (filtres.contexte !== true) { setVoisinage([]); return; }");
+    // le contexte passe par l'action dédiée (lecture seule) — jamais mêlé au GET principal
+    expect(src).toContain("action: 'voisinage_contexte'");
   });
 });
 

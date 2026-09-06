@@ -5,7 +5,7 @@ import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 
 import {
   projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type CadreVue,
 } from '../../../../lib/permis/calageEmprise';
-import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise } from '../../../../lib/permis/empriseReconstruiteRepo';
+import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { libelleBatiment, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
@@ -801,8 +801,10 @@ export function ListeEmprises({ emprises, onSupprimer, onRetoucher, empriseEnRet
 //   ⓪ PROJ-3i : les deux filtres de PROJ-3h (« en projet » visibilité + « futur bâti » croisillon) visaient LE MÊME jeu de polygones
 //   (En projet ⊂ futur bâti ; sur le périmètre réel 0 « En construction ») → doublon d'interface, le croisillon faisant redondance
 //   avec le style bleu-tireté. On FUSIONNE en UN seul interrupteur « futur bâti (en projet) » et on AJOUTE l'interrupteur « repères ».
-export interface FiltresSchema { existant: boolean; futur: boolean; reperes: boolean; emprises: boolean }
-export const FILTRES_SCHEMA_DEFAUT: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: true };
+// PROJ-CTX — `contexte` FACULTATIF (rétro-compatible avec les littéraux existants) : parcelles voisines + bâti autour de l'empreinte
+//   (3e registre). Par DÉFAUT ALLUMÉ (FILTRES_SCHEMA_DEFAUT). Le gate de rendu ET de fetch teste `contexte === true` (undefined = éteint).
+export interface FiltresSchema { existant: boolean; futur: boolean; reperes: boolean; emprises: boolean; contexte?: boolean }
+export const FILTRES_SCHEMA_DEFAUT: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: true, contexte: true };
 
 /**
  * Quels polygones BD TOPO sont VISIBLES : le FUTUR BÂTI (En projet OU En construction) piloté par `futur`, le reste (existant :
@@ -1009,17 +1011,21 @@ export function polygonesConfigProjetee<T extends { cleabs: string | null }>(pol
  * EXISTANT (gris), (b) FUTUR BÂTI « en projet » (bleu tireté = DONNÉE IGN ; ÉCARTÉ → grisé barré), (c) emprise TRACÉE (rouge =
  * RECONSTITUTION, jamais une mesure — garde PROJ). PROJ-3i : repères A/B/C… si `reperes` ; `ecartes` (cleabs décochés) grisés.
  */
-export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, sommetSelectionne = null, statuts, etiquettes = [] }: {
+export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, sommetSelectionne = null, statuts, etiquettes = [], voisinage = [] }: {
   boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[]; angle?: number; hauteurMax?: string; onCliquer?: (px: { x: number; y: number }) => void;
   retoucheAnneau?: PointLambert[] | null; sommetSelectionne?: number | null; // PROJ-3s — contour en RETOUCHE (poignées éditables) + sommet sélectionné
   statuts?: Map<string, EtatStatutPolygone>; // RATT-3 — statut décidé par cleabs : colore l'existant (préservé vert / détruit orange). Absent → gris d'origine.
   etiquettes?: EtiquetteProjection[]; // LOT 82 — nom du bâtiment + altitude posés SUR le dessin (suivent la case « repères / infos »). Vide = aucune (écran de tracé).
+  voisinage?: ObjetContexte[]; // PROJ-CTX — contexte (parcelles voisines + bâti), 3e registre. Rendu seulement si filtres.contexte === true.
 }) {
   if (!boite || parcelle.length === 0) return <p style={muted}>Parcelle du permis absente : schéma non dessiné (aucun point fiable).</p>;
   const proj = (p: PointLambert) => projeterDansBoite(boite, p);
   const path = (anneau: PointLambert[]) => anneau.map((p, i) => { const q = proj(p); return `${i === 0 ? 'M' : 'L'}${q.x.toFixed(1)},${q.y.toFixed(1)}`; }).join(' ') + ' Z';
   const visibles = polygonesVisibles(polygones, filtres);
   const ecarte = (p: PolygoneRepere) => p.cleabs !== null && ecartes.includes(p.cleabs);
+  // PROJ-CTX — contexte visible SEULEMENT si l'interrupteur est allumé ET qu'on a de la matière (côté client, éteint ⇒ voisinage vide,
+  //   aucune requête). Dessiné DERRIÈRE le rendu principal (le principal, contour épais + aplats pleins, reste au premier plan).
+  const contexteVisible = filtres.contexte === true && voisinage.length > 0;
   // PROJ-3j/3k — la ROTATION est un affichage : le contenu est tourné via <g rotate>, un CLIC est ramené dans le repère NON tourné.
   //   PROJ-3k : le viewBox = boîte englobante du contenu APRÈS rotation → le contenu REMPLIT le cadre (largeur 100 %), se réadapte à
   //   l'angle, sans déformation. Le clic tient compte de l'échelle de rendu ET de l'angle (clicVersBoite) → calage exact à toute taille.
@@ -1030,6 +1036,9 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
   if (filtres.emprises) for (const e of emprises) for (const ring of (e.anneaux?.length ? e.anneaux : [e.anneau])) if (ring.length >= 3) for (const p of ring) pts.push(proj(p));
   for (const p of calageLambert) pts.push(proj(p));
   if (retoucheAnneau) for (const p of retoucheAnneau) pts.push(proj(p)); // PROJ-3s — garder le contour retouché dans le cadre
+  // PROJ-CTX — le contexte fait partie du cadrage QUAND il est allumé (sinon il resterait hors champ, invisible). Le rendu principal
+  //   reste identifiable par son POIDS visuel (contour épais foncé + aplats pleins) même si le cadre s'élargit pour montrer l'entour.
+  if (contexteVisible) for (const o of voisinage) if (o.anneau.length >= 3) for (const p of o.anneau) pts.push(proj(p));
   // LOT 83 — MARGE DE RESPIRATION : quand des étiquettes sont posées, on élargit le cadre (pad 4 % → 16 %) pour offrir une zone
   //   d'accueil aux boîtes déportées HORS des formes. N'affecte NI l'échelle du tracé NI les coordonnées (juste plus de blanc autour).
   const vb = boiteEnglobanteRotee(pts, centre, angle, etiquettes.length > 0 ? 0.2 : 0.04);
@@ -1038,6 +1047,14 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
       style={{ display: 'block', width: '100%', height: 'auto', maxHeight: hauteurMax, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', cursor: onCliquer ? 'crosshair' : 'default' }}
       onClick={onCliquer ? (ev) => { const r = (ev.currentTarget as SVGSVGElement).getBoundingClientRect(); onCliquer(clicVersBoite(ev.clientX - r.left, ev.clientY - r.top, r.width, r.height, vb, centre, angle)); } : undefined}>
       <g transform={angle ? `rotate(${angle} ${centre.x} ${centre.y})` : undefined}>
+        {/* PROJ-CTX — 3e REGISTRE, dessiné EN PREMIER (donc DERRIÈRE tout le reste) : parcelles voisines (contour mauve fin tireté, sans
+            aplat) + leur bâti (aplat mauve très léger). Teinte DISTINCTE des gris du principal/mitoyen → « ce qu'il y a autour », jamais
+            « ma parcelle ». Couleurs FIXES (canvas clair permanent, lisible dans les 2 thèmes). AUCUN clic : contexte non sélectionnable. */}
+        {contexteVisible && voisinage.map((o, i) => o.anneau.length < 3 ? null : (
+          o.genre === 'parcelle'
+            ? <path key={`vp${i}`} d={path(o.anneau)} fill="none" stroke="#b0a3c9" strokeWidth={0.7} strokeDasharray="3 2" strokeOpacity={0.85} data-contexte="parcelle" pointerEvents="none" />
+            : <path key={`vb${i}`} d={path(o.anneau)} fill="rgba(150,130,180,.10)" stroke="#b0a3c9" strokeWidth={0.8} data-contexte="batiment" pointerEvents="none" />
+        ))}
         {/* LOT 90 — EMPREINTE (contour de la parcelle fusionnée, référence) : trait FIXE épais + remplissage très léger → distincte des
             aplats de bâti (gris #888, trait fin 1,2) et visible sur le canvas clair dans les DEUX thèmes. */}
         {parcelle.map((a, i) => <path key={`p${i}`} d={path(a)} fill={EMPREINTE_FOND} stroke={EMPREINTE_TRAIT} strokeWidth={2.2} strokeLinejoin="round" data-empreinte="true" />)}
@@ -1189,6 +1206,8 @@ export function OptionsVisibiliteSchema({ filtres, onFiltres, nbFutur, nbExistan
       {ligne('futur', `Afficher les polygones en projet (futur bâti)${nbFutur > 0 ? ` (${nbFutur})` : ''}`)}
       {ligne('reperes', 'Afficher les repères (A, B, C…)')}
       {ligne('emprises', 'Afficher la projection')}
+      {/* PROJ-CTX — contexte : parcelles voisines + leur bâti autour de la parcelle du permis. Allumé par défaut (FILTRES_SCHEMA_DEFAUT). */}
+      {ligne('contexte', 'Afficher les parcelles voisines et leur bâti (contexte)')}
       <LegendeSchemaProjection />
     </div>
   );
@@ -1436,6 +1455,8 @@ export function LegendeSchemaProjection() {
         {item({ background: 'rgba(0,0,0,.02)', border: '1px dashed #b4b4b4' }, 'Mitoyen (contexte — voisin accolé, hors parcelle)')}
         {item({ background: 'rgba(31,119,180,.14)', border: '1px dashed #1f77b4' }, 'En projet (donnée IGN)')}
         {item({ background: 'rgba(163,4,2,.18)', border: '1px solid var(--color-svv-red)' }, 'Emprise tracée (reconstitution — jamais une mesure)')}
+        {/* PROJ-CTX — 3e registre : parcelles voisines + leur bâti, TEINTE mauve distincte (jamais confondu avec « ma » parcelle). */}
+        {item({ background: 'rgba(150,130,180,.10)', border: '1px dashed #b0a3c9' }, 'Contexte : parcelles voisines et leur bâti (autour)')}
         {/* RATT-3 — DÉCISIONS enregistrées sur l'existant (jamais des faits) : une couleur ne traduit qu'une décision en base. */}
         {item({ background: 'rgba(46,158,91,.22)', border: '1px solid var(--color-svv-green-ink)' }, 'Décidé « préservé » (prévision)')}
         {item({ background: 'rgba(217,119,6,.22)', border: '1px solid #c26a00' }, 'Décidé « détruit » (prévision)')}
@@ -1448,6 +1469,7 @@ export function LegendeSchemaProjection() {
           <div><strong>Mitoyen (contexte)</strong> : un bâtiment VOISIN simplement accolé à la parcelle par un mur (aire réelle sur la parcelle ≈ 0). On le GARDE — un immeuble mitoyen crée précisément du vis-à-vis — mais en retrait : c’est du contexte, pas un candidat à l’affectation. Il garde son repère (A, B, C…).</div>
           <div><strong>En projet</strong> : donnée officielle IGN — des bâtiments dessinés dans les données mais pas encore construits.</div>
           <div><strong>Emprise tracée</strong> : un contour que vous avez dessiné à la main (une reconstitution, jamais une mesure). Il ne sert qu’à visualiser : il n’alimente ni le verdict, ni l’altitude, ni un certificat.</div>
+          <div><strong>Contexte (parcelles voisines et leur bâti)</strong> : ce qu’il y a AUTOUR de la parcelle du permis, dans un rayon (réglable). Teinte mauve DISTINCTE pour ne jamais le confondre avec la parcelle sur laquelle vous travaillez. C’est un simple repère visuel : ces objets ne sont JAMAIS candidats à l’affectation ni à l’empreinte. L’interrupteur « Afficher les parcelles voisines et leur bâti » les masque (aucun chargement quand il est éteint).</div>
           <div><strong>Décidé « préservé » / « détruit »</strong> : votre décision ENREGISTRÉE sur un bâtiment existant (vert = préservé, orange = détruit). C’est une PRÉVISION, à confronter à la mise à jour cadastrale — jamais un fait. Un bâtiment sans décision reste gris, même recouvert par l’emprise projetée.</div>
         </div>
       </details>
