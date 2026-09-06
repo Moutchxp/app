@@ -468,6 +468,10 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
   // DEMANDE 2 — cohérence physique du sommet EFFECTIF (valeur en cours si saisie, sinon valeur en base) vs dernier plancher.
   const sommetEffectif = (() => { const t = valeur.trim(); if (t === '') return valeurBase ?? null; const n = Number(t.replace(',', '.')); return Number.isFinite(n) ? n : (valeurBase ?? null); })();
   const coherence = estSommet ? coherenceSommetPlancher(sommetEffectif, altitudeDernierPlancher ?? null, margeEgaliteM ?? MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT) : null;
+  // DURCISSEMENT (Arno) — sommet SOUS le dernier plancher = physiquement impossible → la seule action « Valider cette hauteur » est
+  //   BLOQUÉE (l'enregistrement du bâtiment/permis, la saisie et l'adoption d'une valeur restent libres). Le cas « égal » n'est qu'un
+  //   avertissement, jamais bloquant. Le blocage suit la valeur EFFECTIVE : adopter l'IA / remettre l'auto / saisir une valeur cohérente débloque aussitôt.
+  const validationBloquee = coherence === 'impossible';
   // N10-E/N10-M — la LIMITE PLU s'affiche À CÔTÉ du sommet. On SIGNALE un dépassement (non bloquant), mais on le compare au gabarit le
   //   PLUS HAUT applicable (`limitePluHauteNgf`) — le plafond descend à `limitePluNgf` seulement au droit du plateau le plus bas.
   //   Sinon un sommet à 101 au droit d'un plateau où le gabarit vaut 101 déclencherait une fausse alarme contre le plafond 100.
@@ -525,15 +529,17 @@ export function ChampMesureEditeur({ mesure, bornes, valeur, origine, erreur, jo
       {/* N10-D — le GESTE dédié au sommet : écrit LA VALEUR DU CHAMP (modifiée ou non) comme décision humaine. Périmètre disjoint d'« Enregistrer ce bâtiment ». */}
       {estSommet && onValider && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
-          <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.25rem .7rem' }} onClick={onValider}>Valider cette hauteur</button>
-          {modifieeNonValidee && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: VIOLET_A_CONFIRMER }}>hauteur modifiée, non validée</span>}
+          <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.25rem .7rem', ...(validationBloquee ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }} disabled={validationBloquee} onClick={onValider}>Valider cette hauteur</button>
+          {validationBloquee
+            ? <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-red)' }}>validation impossible tant que le sommet est sous le dernier plancher</span>
+            : modifieeNonValidee && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: VIOLET_A_CONFIRMER }}>hauteur modifiée, non validée</span>}
         </div>
       )}
       {/* DEMANDE 1 — la validation ne peut plus passer pour ACQUISE quand l'IA propose une valeur différente : « ✓ validée » masquée, remplacée par « à revalider ». */}
       {valide && !propositionIA && <span role="note" style={{ ...styleAide, color: 'var(--color-svv-green-ink)' }}>✓ validée{confirmeParNom ? ` par ${confirmeParNom}` : ''}{confirmeLe ? ` le ${jjmmaaaa(confirmeLe)}` : ''}</span>}
       {valide && propositionIA && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-amber)' }}>validation à revoir — l’analyse IA a lu une valeur différente : adoptez-la ou revalidez la valeur actuelle.</span>}
       {/* DEMANDE 2 — CONTRÔLE DE COHÉRENCE PHYSIQUE (non bloquant) : le sommet est le point le plus haut. On dit QUELLE valeur est suspecte. */}
-      {coherence === 'impossible' && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-red)' }}>⚠ incohérence : l’altitude du sommet ({sommetEffectif} m) est SOUS le dernier plancher ({altitudeDernierPlancher} m) — physiquement impossible (le sommet est le point le plus haut). Vérifiez l’altitude du sommet.</span>}
+      {coherence === 'impossible' && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-red)' }}>⚠ incohérence : l’altitude du sommet ({sommetEffectif} m) est SOUS le dernier plancher ({altitudeDernierPlancher} m) — physiquement impossible (le sommet est le point le plus haut). Validation impossible : adoptez la valeur IA proposée, remettez la valeur automatique, ou saisissez la bonne altitude du sommet.</span>}
       {coherence === 'egal' && <span role="note" style={{ fontSize: 11, fontWeight: 700, color: 'var(--color-svv-amber)' }}>⚠ l’altitude du sommet ({sommetEffectif} m) est au niveau du dernier plancher ({altitudeDernierPlancher} m) — suspect : il manque la hauteur d’étage et l’acrotère ?</span>}
       {erreur && <span role="alert" style={styleErreur}>{erreur}</span>}
       {/* N10-I/N10-M — cotes de gabarit lues sur les planches. RÈGLE VÉRIFIÉE → on ÉNONCE la règle (factuel, pas une divergence :

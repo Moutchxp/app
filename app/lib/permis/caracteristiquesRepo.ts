@@ -240,6 +240,15 @@ export async function validerSommetCorps(corpsId: number, valeur: number | null,
       WHERE id = $1`, [corpsId, valeur, majPar]);
 }
 
+/** Lecture SEULE de l'altitude du dernier plancher d'un corps (contrôle de cohérence sommet/plancher côté serveur). `null` si absente
+ *  ou corps inconnu → le contrôle ne bloque alors PAS (on ne peut pas prouver l'incohérence sans le plancher). */
+export async function lireAltitudeDernierPlancherCorps(corpsId: number): Promise<number | null> {
+  const { rows } = await query<{ p: string | number | null }>(
+    `SELECT altitude_dernier_plancher_ngf AS p FROM permis_corps_batiment WHERE id = $1`, [corpsId]);
+  const v = rows[0]?.p;
+  return v == null ? null : Number(v);
+}
+
 // ── ÉCRITURE du GLOBAL (parking porte l'invariant ; commentaire = note humaine sans origine) ───────────────────────────────────
 /**
  * Upsert du global d'un permis. `parking` suit l'invariant (AUTOMATIQUE ne l'écrase pas s'il est déjà 'saisie') ; `commentaire`

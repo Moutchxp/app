@@ -3,13 +3,13 @@ import { query } from '../../../../../lib/db/client';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { parserBornesCheck, parserListeCheck, parserListeArrayCheck, type BornesParColonne } from '../../../../../lib/sitadel/reglagesVeille';
 import { libelleNatureProjet } from '../../../../../lib/sitadel/priorite';
-import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, validerSommetCorps, attribuerNomsRepli, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
+import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, validerSommetCorps, lireAltitudeDernierPlancherCorps, attribuerNomsRepli, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
 import { lireJournalChamps, type JournalPermis } from '../../../../../lib/permis/journalLecture';
 import { lireMargeCoherenceSommetPlancherM, MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT } from '../../../../../lib/permis/coherenceConfig';
 import { lireParcellesPermis, geojsonParcellesPermis, lireEmpreintePermis, geojsonEmpreintePermis, lireBatiSnapshotPermis, type ParcelleLigne, type EmpreinteLigne, type BatiSnapshotResume } from '../../../../../lib/permis/parcellesRepo';
 import { lireDeclarationsRecap, type DeclarationsCerfaStockees } from '../../../../../lib/permis/cerfaRecapRepo'; // LOT 67 — déclarations du Cerfa (informatif)
 import { annulerCorrectionParcelle } from '../../../../../lib/permis/correctionParcelleRepo'; // LOT 101 → PL-C5 : seule l'annulation subsiste (dégeler une ligne héritée)
-import { MESURES, construireGlobal, construirePermis, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
+import { MESURES, construireGlobal, construirePermis, coherenceSommetPlancher, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
 
 /** N7-E — liste FERMÉE de nature_projet, lue du CHECK de permis_caracteristique (jamais recopiée). */
 async function lireNaturesPossibles(): Promise<string[]> {
@@ -168,6 +168,14 @@ export async function POST(request: Request): Promise<Response> {
       if (valeur !== null) {
         const motif = horsBornes({ altitudeSommetNgf: valeur }, await lireBornes());
         if (motif) return Response.json({ erreur: motif }, { status: 422 });
+        // DURCISSEMENT (Arno) — un sommet SOUS le dernier plancher (au-delà de la marge de config) est physiquement impossible :
+        //   la VALIDATION est refusée (défense en profondeur, même règle que le bouton désactivé côté écran). Le cas « égal » (à la
+        //   marge près) reste ACCEPTÉ (simple avertissement à l'écran). Plancher absent → non bloquant (impossible à prouver).
+        const plancher = await lireAltitudeDernierPlancherCorps(body.corpsId);
+        const { margeM } = await lireMargeCoherenceSommetPlancherM();
+        if (coherenceSommetPlancher(valeur, plancher, margeM) === 'impossible') {
+          return Response.json({ erreur: `Validation impossible : l’altitude du sommet (${valeur} m) est sous le dernier plancher (${plancher} m) — physiquement impossible (le sommet est le point le plus haut). Corrigez l’altitude du sommet avant de valider.` }, { status: 422 });
+        }
       }
       await validerSommetCorps(body.corpsId, valeur, auteur);
       return Response.json({ ok: true });

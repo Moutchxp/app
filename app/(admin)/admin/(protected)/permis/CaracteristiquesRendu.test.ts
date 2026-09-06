@@ -175,6 +175,40 @@ describe('DEMANDE 2 — cohérence physique sommet / dernier plancher (non bloqu
   });
 });
 
+describe('DURCISSEMENT — sommet SOUS le plancher : « Valider cette hauteur » DÉSACTIVÉ (seul ce bouton est bloqué)', () => {
+  const rendre = (props: Parameters<typeof ChampMesureEditeur>[0]) => renderToStaticMarkup(createElement(ChampMesureEditeur, props));
+  const base = { mesure: sommet, bornes: { min: -50, max: 500 }, onValeur: noop, onValider: noop, margeEgaliteM: 0.1 } as const;
+
+  it('sommet < plancher → bouton disabled + message expliquant l’impossibilité et orientant vers l’action', () => {
+    const h = rendre({ ...base, valeur: '107.04', origine: 'extraite', valeurBase: 107.04, altitudeDernierPlancher: 115.68 });
+    expect(h).toContain('Valider cette hauteur');
+    expect(h).toContain('disabled');                                             // le bouton de validation est désactivé
+    expect(h).toContain('validation impossible tant que le sommet est sous le dernier plancher');
+    expect(h).toContain('adoptez la valeur IA proposée, remettez la valeur automatique, ou saisissez'); // oriente vers l’action
+  });
+  it('sommet = plancher (dans la marge) → AVERTISSEMENT seulement, bouton NON désactivé', () => {
+    const h = rendre({ ...base, valeur: '115.68', origine: 'extraite', valeurBase: 115.68, altitudeDernierPlancher: 115.68 });
+    expect(h).toContain('Valider cette hauteur');
+    expect(h).not.toContain('disabled');
+    expect(h).not.toContain('validation impossible tant que');
+  });
+  it('sommet > plancher → rien, bouton actif', () => {
+    const h = rendre({ ...base, valeur: '122.65', origine: 'extraite', valeurBase: 122.65, altitudeDernierPlancher: 115.68 });
+    expect(h).not.toContain('disabled');
+    expect(h).not.toContain('validation impossible tant que');
+  });
+  it('SORTIE DE L’IMPASSE : valeur du champ redevenue cohérente (adoption IA / saisie) → bouton ré-activé', () => {
+    // valeurBase incohérente (107,04) MAIS le champ porte désormais 122,65 (valeur adoptée/saisie) → sommet EFFECTIF cohérent.
+    const h = rendre({ ...base, valeur: '122.65', origine: 'extraite', valeurBase: 107.04, altitudeDernierPlancher: 115.68, valeurIA: 122.65 });
+    expect(h).not.toContain('disabled');
+    expect(h).not.toContain('validation impossible tant que');
+  });
+  it('plancher absent → jamais de blocage (impossible à prouver)', () => {
+    const h = rendre({ ...base, valeur: '107.04', origine: 'extraite', valeurBase: 107.04 });
+    expect(h).not.toContain('disabled');
+  });
+});
+
 describe('LOT PROV-1 (point 2) — AnnotationsExtraction : liens de provenance sous un champ VIDE/DIVERGENT', () => {
   const rendre = (props: Parameters<typeof AnnotationsExtraction>[0]) => renderToStaticMarkup(createElement(AnnotationsExtraction, props));
   // journal d'un champ DIVERGENT (nb_logements) : origine null, deux lectures écartées (OCR/vision) MÊME pièce/page, + 1 ligne cerfa sans pièce.
