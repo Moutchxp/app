@@ -102,6 +102,7 @@ export async function enregistrerEmprise(e: EntreeEnregistrement): Promise<Resul
        RETURNING id::int AS id`,
       [e.dossierId, e.libelle.trim(), wkt, e.pieceId, e.page, JSON.stringify(e.calage), e.residuM, e.creePar, e.corpsId],
     );
+    await annulerValidationEmpriseCorps(e.corpsId); // (ré)enregistrer une emprise fait RETOMBER la validation du bâtiment
     return { ok: true, id: rows[0].id };
   } catch (err) {
     if (estTableAbsente(err)) return { ok: false, motif: 'table des emprises absente (migration 149 non appliquée)', tableAbsente: true };
@@ -175,6 +176,7 @@ export async function retoucherEmprise(dossierId: number, id: number, anneau: Po
         RETURNING provenance`,
       [id, dossierId, wkt, par]);
     if (upd.length === 0) return { ok: false, motif: 'emprise introuvable' };
+    await annulerValidationParEmprise(id); // retoucher la géométrie fait RETOMBER la validation (même id, mais l'emprise a changé)
     const emprises = await listerEmprises(dossierId);
     const debordement = await mesurerDebordementWkt(dossierId, wkt);
     return { ok: true, emprises, debordement, provenance: upd[0].provenance };
@@ -219,7 +221,7 @@ export async function listerEmprises(dossierId: number): Promise<EmpriseReconstr
   }
 }
 
-export interface EtatEmpriseBatiment { surfaceM2: number | null; creeLe: string | null; nbEmprises: number }
+export interface EtatEmpriseBatiment { surfaceM2: number | null; creeLe: string | null; nbEmprises: number; validee: boolean; valideeLe: string | null; valideePar: string | null }
 export interface EtatEmprisesPermis { projectionValidee: boolean; parBatiment: Record<number, EtatEmpriseBatiment>; ignoreCorps: number[] }
 
 /** Projection du DOSSIER validée ? = existence d'une ligne `permis_projection` (validation de NIVEAU DOSSIER, jamais par bâtiment).
@@ -236,18 +238,87 @@ export async function lireProjectionValidee(dossierId: number): Promise<boolean>
  * enregistrée » et « projection validée » sont DEUX états distincts. Résilient : chaque source absente retombe sur son défaut.
  */
 export async function lireEtatEmprisesPermis(dossierId: number): Promise<EtatEmprisesPermis> {
-  const projectionValidee = await lireProjectionValidee(dossierId);
+  const projectionValidee = await lireProjectionValidee(dossierId); // legacy niveau permis
   const parBatiment: Record<number, EtatEmpriseBatiment> = {};
+  // Agrégat PAR BÂTIMENT (tous les bâtiments déclarés) : nb d'emprises + surface/date + VALIDATION par bâtiment (migration 206).
+  //   validé ⟺ emprise_validee_id pointe une emprise ENCORE présente du bâtiment. RÉSILIENT : colonnes absentes (42703) → relecture
+  //   sans validation (validee=false) → l'écran reste utilisable, la validation par bâtiment attend l'application de la migration.
+  const avecValidation = `SELECT cb.id AS corps_id, count(e.id)::int AS n, SUM(e.surface_m2) AS surface, MAX(e.cree_le)::text AS cree_le,
+              cb.emprise_validee_le::text AS validee_le, cb.emprise_validee_par AS validee_par,
+              (cb.emprise_validee_id IS NOT NULL AND bool_or(e.id = cb.emprise_validee_id)) AS validee
+         FROM permis_corps_batiment cb
+         LEFT JOIN permis_emprise_reconstruite e ON e.corps_id = cb.id
+        WHERE cb.dossier_id = $1
+        GROUP BY cb.id, cb.emprise_validee_le, cb.emprise_validee_par, cb.emprise_validee_id`;
+  const sansValidation = `SELECT cb.id AS corps_id, count(e.id)::int AS n, SUM(e.surface_m2) AS surface, MAX(e.cree_le)::text AS cree_le,
+              NULL::text AS validee_le, NULL::text AS validee_par, false AS validee
+         FROM permis_corps_batiment cb
+         LEFT JOIN permis_emprise_reconstruite e ON e.corps_id = cb.id
+        WHERE cb.dossier_id = $1 GROUP BY cb.id`;
   try {
-    const { rows } = await query<{ corps_id: number; n: number; surface: string | number | null; cree_le: string | null }>(
-      `SELECT corps_id::int AS corps_id, count(*)::int AS n, SUM(surface_m2) AS surface, MAX(cree_le)::text AS cree_le
-         FROM permis_emprise_reconstruite WHERE dossier_id = $1 AND corps_id IS NOT NULL GROUP BY corps_id`, [dossierId]);
-    for (const r of rows) parBatiment[r.corps_id] = { surfaceM2: r.surface !== null ? Number(r.surface) : null, creeLe: r.cree_le, nbEmprises: r.n };
+    let rows: { corps_id: number; n: number; surface: string | number | null; cree_le: string | null; validee_le: string | null; validee_par: string | null; validee: boolean }[];
+    try { rows = (await query<typeof rows[number]>(avecValidation, [dossierId])).rows; }
+    catch (e) { if (!estColonneAbsente(e)) throw e; rows = (await query<typeof rows[number]>(sansValidation, [dossierId])).rows; } // 206 non appliquée → sans validation
+    for (const r of rows) {
+      const nbEmprises = Number(r.n);
+      // legacy : un dossier déjà validé (permis_projection) → tout bâtiment COUVERT est validé (OR avec le signal per-bâtiment).
+      const validee = r.validee === true || (projectionValidee && nbEmprises > 0);
+      parBatiment[r.corps_id] = { surfaceM2: r.surface !== null ? Number(r.surface) : null, creeLe: r.cree_le, nbEmprises, validee, valideeLe: r.validee_le, valideePar: r.validee_par };
+    }
   } catch (e) { if (!estTableAbsente(e)) throw e; }
   const ignoreCorps = await query<{ corps_id: number }>(
     `SELECT corps_id::int AS corps_id FROM permis_projection_ignoree WHERE dossier_id = $1`, [dossierId],
   ).then((r) => r.rows.map((x) => x.corps_id)).catch((e) => { if (estTableAbsente(e)) return [] as number[]; throw e; });
   return { projectionValidee, parBatiment, ignoreCorps };
+}
+
+/** VALIDATION par bâtiment (corpsId → validée ?), pour la pastille et le bandeau du bloc de tracé. Réutilise lireEtatEmprisesPermis (résilient). */
+export async function lireValideeParCorps(dossierId: number): Promise<Record<number, boolean>> {
+  const etat = await lireEtatEmprisesPermis(dossierId);
+  const out: Record<number, boolean> = {};
+  for (const [id, b] of Object.entries(etat.parBatiment)) out[Number(id)] = b.validee;
+  return out;
+}
+
+export type ResultatValidationEmprise = { ok: true } | { ok: false; motif: string; migrationAbsente?: boolean };
+const MOTIF_MIGRATION_206 = 'validation par bâtiment indisponible : mise à jour de la base requise (migration 206)';
+
+/**
+ * VALIDE l'emprise d'UN bâtiment — DÉCISION HUMAINE, calque de validerSommetCorps (altitude). Pointe `emprise_validee_id` sur
+ * l'emprise COURANTE (la plus récente) du bâtiment → une emprise retracée/retouchée après coup ne restera pas validée. Refus clair si
+ * aucune emprise à valider. RÉSILIENT : colonnes absentes (42703, migration 206 non appliquée) → refus explicite, jamais un crash.
+ */
+export async function validerEmpriseBatiment(corpsId: number, majPar: string): Promise<ResultatValidationEmprise> {
+  try {
+    const res = await query(
+      `UPDATE permis_corps_batiment
+          SET emprise_validee_id = (SELECT id FROM permis_emprise_reconstruite WHERE corps_id = $1 ORDER BY id DESC LIMIT 1),
+              emprise_validee_le = now(), emprise_validee_par = $2, maj_le = now(), maj_par = $2
+        WHERE id = $1 AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite WHERE corps_id = $1)`, [corpsId, majPar]);
+    if ((res.rowCount ?? 0) === 0) return { ok: false, motif: 'aucune emprise enregistrée à valider pour ce bâtiment — tracez d’abord l’emprise' };
+    return { ok: true };
+  } catch (e) { if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_MIGRATION_206, migrationAbsente: true }; throw e; }
+}
+
+/** RETIRE la validation d'un bâtiment (réversible, comme le retour arrière de l'altitude). RÉSILIENT (colonnes absentes → refus clair). */
+export async function devaliderEmpriseBatiment(corpsId: number, majPar: string): Promise<ResultatValidationEmprise> {
+  try {
+    await query(`UPDATE permis_corps_batiment SET emprise_validee_id = NULL, emprise_validee_le = NULL, emprise_validee_par = NULL, maj_le = now(), maj_par = $2 WHERE id = $1`, [corpsId, majPar]);
+    return { ok: true };
+  } catch (e) { if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_MIGRATION_206, migrationAbsente: true }; throw e; }
+}
+
+/** Une MUTATION d'emprise (enregistrement / adoption) fait RETOMBER la validation du bâtiment (jamais un « validé » sur une emprise qui
+ *  a changé). Best-effort, résilient (colonnes/table absentes → no-op). La SUPPRESSION est déjà gérée par la FK ON DELETE SET NULL. */
+async function annulerValidationEmpriseCorps(corpsId: number | null): Promise<void> {
+  if (corpsId === null) return;
+  try { await query(`UPDATE permis_corps_batiment SET emprise_validee_id = NULL, emprise_validee_le = NULL, emprise_validee_par = NULL WHERE id = $1`, [corpsId]); }
+  catch (e) { if (!estColonneAbsente(e) && !estTableAbsente(e)) throw e; }
+}
+/** RETOUCHE (UPDATE même id, géométrie changée) : la FK ne se déclenche pas → on efface explicitement toute validation pointant cette emprise. */
+async function annulerValidationParEmprise(empriseId: number): Promise<void> {
+  try { await query(`UPDATE permis_corps_batiment SET emprise_validee_id = NULL, emprise_validee_le = NULL, emprise_validee_par = NULL WHERE emprise_validee_id = $1`, [empriseId]); }
+  catch (e) { if (!estColonneAbsente(e) && !estTableAbsente(e)) throw e; }
 }
 
 /** Supprime UNE emprise (scopée au dossier — jamais une suppression aveugle par id seul). Renvoie le nombre de lignes retirées. */

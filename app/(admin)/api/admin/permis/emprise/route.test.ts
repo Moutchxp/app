@@ -30,6 +30,7 @@ vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
   supprimerEmprisesAdoptees: vi.fn(async () => 0),
   retoucherEmprise: vi.fn(async () => ({ ok: true, provenance: 'ign_retouche', debordement: { aireM2: 300, parcelleRattachee: true, aireHorsM2: 0, pctHors: 0, decalageLateralM: 0 }, emprises: [{ id: 9, dossierId: 11434, corpsId: 3, libelle: '2D1', anneau: [], anneaux: [], surfaceM2: 300, pieceId: null, page: null, calage: null, residuM: null, provenance: 'ign_retouche', creeLe: null }] })),
   lireProjectionValidee: vi.fn(async () => false), // SOURCE UNIQUE : projection du dossier validée ? (GET l'expose au bandeau/pastille)
+  lireValideeParCorps: vi.fn(async () => ({} as Record<number, boolean>)), // validation PAR BÂTIMENT (GET l'expose pour pastille/bandeau)
 }));
 const HG = vi.hoisted(() => ({
   // PROJ-3f/3m — texte simulé d'une pièce MULTI-PAGES : p1 = cartouche titré (exclu), p2-p3 = planches. vi.fn → surchargeable par test.

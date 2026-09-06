@@ -455,23 +455,27 @@ function grouperCandidatsGabarit(ecartes: readonly ProvenanceEcartee[]): { valeu
 }
 
 // ── CAPSULE D'ÉTAT DE L'EMPRISE (jumelle de la capsule d'altitude du sommet) ─────────────────────────────────────────────────
-export type EtatEmpriseBatimentVue = { surfaceM2: number | null; creeLe: string | null; nbEmprises: number };
+export type EtatEmpriseBatimentVue = { surfaceM2: number | null; creeLe: string | null; nbEmprises: number; validee: boolean; valideeLe: string | null; valideePar: string | null };
 export type CapsuleEmprise = { ton: 'vert' | 'ambre' | 'rouge'; libelle: string; detail: string | null };
 
 /**
  * PUR — état à afficher pour l'emprise d'UN bâtiment. 🔴 DÉRIVE DE LA SOURCE UNIQUE `statutEmpriseBatiment` (partagée avec la
- * pastille du sélecteur et le bandeau) : la capsule NE PEUT PAS diverger d'eux pour les mêmes faits. Quatre états, jamais un état
- * flatteur :
- *  · 'validee' (projection du DOSSIER validée) → VERT « Emprise du polygone projeté validée » ;
- *  · 'a_valider' (emprise enregistrée, projection NON validée) → ROUGE « Valider l'emprise du polygone projeté » + surface (m²) et date ;
+ * pastille du sélecteur et le bandeau) : la capsule NE PEUT PAS diverger d'eux. Quatre états, jamais un état flatteur :
+ *  · 'validee' (emprise de CE bâtiment validée) → VERT « Emprise du polygone projeté validée » + qui/quand (comme l'altitude) ;
+ *  · 'a_valider' (emprise enregistrée, NON validée) → ROUGE « Valider l'emprise du polygone projeté » + surface (m²) et date ;
  *  · 'ignoree' (projection explicitement ignorée) → AMBRE « Projection ignorée pour ce bâtiment » ;
  *  · 'a_tracer' (aucune emprise) → ROUGE « Tracer l'emprise du polygone projeté ».
- * 🔴 « enregistrée » ≠ « validée » : la validation est de NIVEAU DOSSIER (permis_projection), l'emprise est PAR bâtiment.
+ * 🔴 La validation est désormais PAR BÂTIMENT (emprise.validee), plus au niveau permis. « enregistrée » ≠ « validée ».
  */
-export function etatCapsuleEmprise(projectionValidee: boolean, emprise: EtatEmpriseBatimentVue | null, ignore = false): CapsuleEmprise {
+export function etatCapsuleEmprise(emprise: EtatEmpriseBatimentVue | null, ignore = false): CapsuleEmprise {
   const aEmprise = !!(emprise && emprise.nbEmprises > 0);
-  switch (statutEmpriseBatiment(aEmprise, ignore, projectionValidee)) {
-    case 'validee': return { ton: 'vert', libelle: 'Emprise du polygone projeté validée', detail: null };
+  const validee = !!(emprise && emprise.validee);
+  switch (statutEmpriseBatiment(aEmprise, ignore, validee)) {
+    case 'validee': {
+      const who = emprise?.valideePar ? ` par ${emprise.valideePar}` : '';
+      const when = emprise?.valideeLe ? ` le ${jjmmaaaa(emprise.valideeLe)}` : '';
+      return { ton: 'vert', libelle: 'Emprise du polygone projeté validée', detail: (who || when) ? `✓ validée${who}${when}` : null };
+    }
     case 'a_valider': {
       const m2 = emprise && emprise.surfaceM2 !== null ? `${Math.round(emprise.surfaceM2).toLocaleString('fr-FR')} m²` : null;
       const date = emprise && emprise.creeLe ? `le ${jjmmaaaa(emprise.creeLe)}` : null;
@@ -483,27 +487,31 @@ export function etatCapsuleEmprise(projectionValidee: boolean, emprise: EtatEmpr
 }
 
 /**
- * Capsule d'état de l'emprise — JUMELLE VISUELLE de la capsule d'altitude (mêmes classes `svv-btn svv-btn-primary`, mêmes tokens
- * `--color-svv-green-soft`/`green-ink` en VERT, même padding). État lu en base (jamais l'état local du tracé). Hors VERT, le clic
- * ne fait pas le geste sur place (il vit dans le bloc « Bâtiments et projection ») : il AMÈNE à l'endroit où le faire (défilement
- * vers l'ancre), jamais un « action indisponible » nu. Sans ancre, statut lisible non-interactif. En VERT, non actionnable.
+ * Capsule d'état de l'emprise — JUMELLE de la capsule d'altitude (mêmes classes/tokens/forme, MÊME grammaire « Valider… » → « …validée »).
+ * ACTIONNABLE : en 'a_valider' le clic VALIDE l'emprise de ce bâtiment (onValider) ; en VERT, un lien « retirer la validation »
+ * (onDevalider, réversible comme l'altitude) ; en 'a_tracer' le clic AMÈNE au bloc de tracé (ancre). Sans callback ni ancre, statut lisible.
  */
-export function CapsuleEtatEmprise({ projectionValidee, emprise, ignore = false, ancreEmprise }: {
-  projectionValidee: boolean; emprise: EtatEmpriseBatimentVue | null; ignore?: boolean; ancreEmprise?: string;
+export function CapsuleEtatEmprise({ emprise, ignore = false, ancreEmprise, onValider, onDevalider, enCours = false }: {
+  emprise: EtatEmpriseBatimentVue | null; ignore?: boolean; ancreEmprise?: string;
+  onValider?: () => void; onDevalider?: () => void; enCours?: boolean;
 }) {
-  const c = etatCapsuleEmprise(projectionValidee, emprise, ignore);
+  const c = etatCapsuleEmprise(emprise, ignore);
+  const aEmprise = !!(emprise && emprise.nbEmprises > 0);
   const vert = c.ton === 'vert';
-  // Actionnable hors VERT ET si une ancre existe (bloc « Bâtiments et projection » présent dans CE contexte). Sans ancre (vue de
-  //   référence sans le bloc de tracé), la capsule reste un STATUT lisible — jamais un bouton au clic mort ni « action indisponible ».
-  const actionnable = !vert && !!ancreEmprise;
-  const teinteAmbre = c.ton === 'ambre' ? { background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)', boxShadow: 'none' } : {};
+  const aValider = c.ton === 'rouge' && aEmprise; // emprise enregistrée → à valider (le geste vit ICI)
   const aller = () => { if (ancreEmprise && typeof document !== 'undefined') document.getElementById(ancreEmprise)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
+  const onClick = vert ? undefined : (aValider && onValider ? onValider : (ancreEmprise ? aller : undefined));
+  const actionnable = !!onClick && !enCours;
+  const teinteAmbre = c.ton === 'ambre' ? { background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)', boxShadow: 'none' } : {};
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
-      <button type="button" className="svv-btn svv-btn-primary"
+      <button type="button" className="svv-btn svv-btn-primary" disabled={enCours && !!onClick}
         style={{ padding: '.25rem .7rem', ...(actionnable ? {} : { cursor: 'default' }), ...(vert ? { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)', boxShadow: 'none' } : teinteAmbre) }}
-        aria-disabled={!actionnable || undefined} onClick={actionnable ? aller : undefined}>{c.libelle}</button>
-      {c.detail && <span style={styleAide}>{c.detail}</span>}
+        aria-disabled={!actionnable || undefined} onClick={actionnable ? onClick : undefined}>{c.libelle}</button>
+      {c.detail && <span style={{ ...styleAide, ...(vert ? { color: 'var(--color-svv-green-ink)' } : {}) }}>{c.detail}</span>}
+      {vert && onDevalider && (
+        <button type="button" className="svv-link" style={{ width: 'auto', padding: 0, fontSize: 11, color: 'var(--color-svv-muted)' }} disabled={enCours} onClick={onDevalider}>retirer la validation</button>
+      )}
     </div>
   );
 }

@@ -44,9 +44,9 @@ export type StatutEmpriseBatiment = 'validee' | 'a_valider' | 'ignoree' | 'a_tra
 /** PUR — statut UNIQUE d'un bâtiment. Ordre : ignoré explicite (sans emprise) = fait délibéré, prime même sur un dossier validé ;
  *  sinon projection du DOSSIER validée = VALIDÉE (la validation couvre tout le permis) ; sinon une emprise enregistrée = À VALIDER ;
  *  sinon rien = À TRACER. Une emprise PRIME un « ignoré » (comme statutBatiment). Un dossier validé n'a par construction aucun « à tracer ». */
-export function statutEmpriseBatiment(aEmprise: boolean, ignore: boolean, projectionValidee: boolean): StatutEmpriseBatiment {
+export function statutEmpriseBatiment(aEmprise: boolean, ignore: boolean, empriseValidee: boolean): StatutEmpriseBatiment {
   if (ignore && !aEmprise) return 'ignoree';
-  if (projectionValidee) return 'validee';
+  if (empriseValidee) return 'validee'; // 🔴 validation PAR BÂTIMENT (emprise_validee_*), plus au niveau permis
   if (aEmprise) return 'a_valider';
   return 'a_tracer';
 }
@@ -79,11 +79,13 @@ export type TonProjection = 'vert' | 'ambre' | 'rouge';
  *  · traçage incomplet → ROUGE « … · N en attente ».
  * `peutValider` (porte de validation, PROJ-3b) reste INCHANGÉ : il exige seulement que tout soit tracé/ignoré, pas que ce soit validé.
  */
-export function resumeProjection(v: VerdictProjection, projectionValidee: boolean): { ton: TonProjection; valide: boolean; texte: string } {
+export function resumeProjection(v: VerdictProjection, nbValides: number, nbAValider: number): { ton: TonProjection; valide: boolean; texte: string } {
   const parties = partiesCouverture(v.nbBatiments, v.nbEmprises, v.nbEmprisesIgn, v.nbEmprisesTrace, v.nbIgnores);
-  if (projectionValidee) return { ton: 'vert', valide: true, texte: [...parties, 'projection validée'].join(' · ') };
+  // AVANCEMENT RÉEL (per-bâtiment) : traçage incomplet → ROUGE « K en attente » ; tout couvert mais des emprises à valider → AMBRE
+  //   « M validés · K à valider » ; toutes validées (ou ignorées) → VERT « projection validée ». Le VERT n'apparaît que quand tout est validé.
   if (v.manquants.length > 0) return { ton: 'rouge', valide: false, texte: [...parties, `${v.manquants.length} en attente`].join(' · ') };
-  return { ton: 'ambre', valide: false, texte: [...parties, 'à valider'].join(' · ') };
+  if (nbAValider > 0) return { ton: 'ambre', valide: false, texte: [...parties, `${nbValides} validé${nbValides > 1 ? 's' : ''}`, `${nbAValider} à valider`].join(' · ') };
+  return { ton: 'vert', valide: true, texte: [...parties, 'projection validée'].join(' · ') };
 }
 
 /**

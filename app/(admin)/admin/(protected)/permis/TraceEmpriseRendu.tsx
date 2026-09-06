@@ -619,17 +619,17 @@ export function motStatutBatiment(s: StatutBatiment): string { return MOT_STATUT
  * PROJ-2b — BANDEAU de projection : dit AVANT le clic ce qui manque (« 2 bâtiments · 1 emprise tracée · 1 en attente »), et
  * NOMME les bâtiments en attente. Vert si passant, rouge sinon. Le mot porte l'info (la couleur n'est jamais seule).
  */
-export function BandeauProjection({ verdict, projectionValidee = false }: { verdict: VerdictProjection; projectionValidee?: boolean }) {
-  // SOURCE UNIQUE : resumeProjection décide le TON (validation-conscient). Jamais un ✓ vert tant que la projection n'est pas validée :
-  //   tracé complet mais non validé → AMBRE « à valider » (le compteur le DIT), pas « 0 en attente ». La couleur n'est jamais seule (icône + mot).
-  const r = resumeProjection(verdict, projectionValidee);
+export function BandeauProjection({ verdict, nbValides = 0, nbAValider = 0 }: { verdict: VerdictProjection; nbValides?: number; nbAValider?: number }) {
+  // SOURCE UNIQUE : resumeProjection décide le TON à partir de l'AVANCEMENT PAR BÂTIMENT. Jamais un ✓ vert tant que tout n'est pas
+  //   validé : traçage incomplet → ROUGE « K en attente » ; tout couvert mais des emprises à valider → AMBRE « M validés · K à valider ».
+  const r = resumeProjection(verdict, nbValides, nbAValider);
   const T = ({
     vert: { bord: 'var(--color-svv-green-ink)', fond: 'var(--color-svv-green-soft)', icone: '✓' },
     ambre: { bord: 'var(--color-svv-amber)', fond: 'var(--color-svv-amber-soft)', icone: '◐' },
     rouge: { bord: 'var(--color-svv-red)', fond: 'var(--color-svv-red-soft)', icone: '✕' },
   } as const)[r.ton];
   return (
-    <div className="svv-card" data-peut-valider={verdict.peutValider} data-projection-validee={projectionValidee} data-ton={r.ton} style={{ fontSize: 12, borderColor: T.bord, background: T.fond }}>
+    <div className="svv-card" data-peut-valider={verdict.peutValider} data-tout-valide={r.valide} data-ton={r.ton} style={{ fontSize: 12, borderColor: T.bord, background: T.fond }}>
       <div style={{ fontWeight: 700 }}>{T.icone} Projection des emprises — {r.texte}</div>
       {!verdict.peutValider && <div style={{ color: 'var(--color-svv-ink)' }}>En attente : {verdict.manquants.map((m) => libelleBatiment(m)).join(', ')}. Tracez une emprise ou ignorez explicitement la projection pour chacun avant de valider.</div>}
     </div>

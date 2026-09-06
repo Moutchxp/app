@@ -11,12 +11,16 @@ import { readFileSync } from 'node:fs';
 const H = vi.hoisted(() => {
   const calls: { sql: string; params: unknown[] }[] = [];
   const flags = { geomValide: true as boolean, updRows: [{ provenance: 'ign_retouche' }] as { provenance: string }[],
-    projectionValidee: false as boolean, empriseRows: [] as { corps_id: number; n: number; surface: string | number | null; cree_le: string | null }[] }; // PROJ-3s + capsule d'emprise — pilotables par test
+    projectionValidee: false as boolean, empriseRows: [] as { corps_id: number; n: number; surface: string | number | null; cree_le: string | null; validee_le: string | null; validee_par: string | null; validee: boolean }[],
+    validateRowCount: 1 as number, validationColonneAbsente: false as boolean }; // PROJ-3s + capsule + validation par bâtiment — pilotables par test
   const queryMock = async (sql: string, params?: unknown[]) => {
     calls.push({ sql, params: params ?? [] });
-    // Capsule d'emprise — projection validée (niveau dossier) + agrégat par bâtiment (pilotés par flags).
+    // Validation PAR BÂTIMENT (migration 206). Colonne absente → 42703 (le code refait proprement).
+    if (/UPDATE permis_corps_batiment[\s\S]*emprise_validee_id = \(SELECT id/i.test(sql)) { if (flags.validationColonneAbsente) throw Object.assign(new Error('col'), { code: '42703' }); return { rows: [], rowCount: flags.validateRowCount }; }
+    if (/UPDATE permis_corps_batiment SET emprise_validee_id = NULL[\s\S]*WHERE id = \$1/i.test(sql)) { if (flags.validationColonneAbsente) throw Object.assign(new Error('col'), { code: '42703' }); return { rows: [], rowCount: 1 }; }
+    // Capsule d'emprise — projection validée (niveau dossier) + agrégat PAR BÂTIMENT avec validation (permis_corps_batiment LEFT JOIN emprises).
     if (/EXISTS\(SELECT 1 FROM permis_projection/i.test(sql)) return { rows: [{ ok: flags.projectionValidee }], rowCount: 1 };
-    if (/FROM permis_emprise_reconstruite WHERE dossier_id = \$1 AND corps_id IS NOT NULL GROUP BY corps_id/i.test(sql)) return { rows: flags.empriseRows, rowCount: flags.empriseRows.length };
+    if (/FROM permis_corps_batiment cb[\s\S]*LEFT JOIN permis_emprise_reconstruite/i.test(sql)) return { rows: flags.empriseRows, rowCount: flags.empriseRows.length };
     // PROJ-3s — retouche : validité géométrique (ST_IsValid) puis UPDATE … RETURNING provenance (pilotés par flags).
     if (/ST_IsValid/i.test(sql)) return { rows: [{ ok: flags.geomValide }], rowCount: 1 };
     if (/UPDATE permis_emprise_reconstruite[\s\S]*RETURNING provenance/i.test(sql)) return { rows: flags.updRows, rowCount: flags.updRows.length };
@@ -38,13 +42,43 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock, withTransaction: async (fn: (q: unknown) => unknown) => fn(H.queryMock) }));
 
-import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, lireEtatEmprisesPermis } from './empriseReconstruiteRepo';
+import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, lireEtatEmprisesPermis, validerEmpriseBatiment, devaliderEmpriseBatiment } from './empriseReconstruiteRepo';
 import type { CalageTrace } from './empriseReconstruiteRepo';
 
 const calage: CalageTrace = { paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 10, y: 0 }, lambert: { x: 20, y: 0 } }], ratioDeclare: null, ratioImplicite: 200, residuFitM: 0, residuEchelleM: null, douteux: false, raisons: [] };
 const anneau = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
 
-beforeEach(() => { H.calls.length = 0; H.flags.geomValide = true; H.flags.updRows = [{ provenance: 'ign_retouche' }]; H.flags.projectionValidee = false; H.flags.empriseRows = []; });
+beforeEach(() => { H.calls.length = 0; H.flags.geomValide = true; H.flags.updRows = [{ provenance: 'ign_retouche' }]; H.flags.projectionValidee = false; H.flags.empriseRows = []; H.flags.validateRowCount = 1; H.flags.validationColonneAbsente = false; });
+
+describe('VALIDATION PAR BÂTIMENT — validerEmpriseBatiment / devaliderEmpriseBatiment (calque de « Valider cette altitude »)', () => {
+  it('valider : pointe emprise_validee_id sur l’emprise COURANTE du bâtiment + trace (par), paramètres liés', async () => {
+    const r = await validerEmpriseBatiment(194, 'arno');
+    expect(r.ok).toBe(true);
+    const up = H.calls.find((c) => /UPDATE permis_corps_batiment[\s\S]*emprise_validee_id = \(SELECT id/i.test(c.sql))!;
+    const norm = up.sql.replace(/\s+/g, ' ');
+    expect(norm).toContain('ORDER BY id DESC LIMIT 1'); // l'emprise la plus récente du bâtiment
+    expect(norm).toContain('emprise_validee_le = now()');
+    expect(up.params).toEqual([194, 'arno']); // corpsId + auteur LIÉS
+  });
+  it('valider : aucune emprise (0 ligne affectée) → refus explicite, jamais un « validé » vide', async () => {
+    H.flags.validateRowCount = 0;
+    const r = await validerEmpriseBatiment(194, 'arno');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motif).toMatch(/aucune emprise/);
+  });
+  it('migration 206 absente (42703) → refus CLAIR « mise à jour de la base requise », jamais un crash', async () => {
+    H.flags.validationColonneAbsente = true;
+    const r = await validerEmpriseBatiment(194, 'arno');
+    expect(r.ok).toBe(false);
+    if (!r.ok) { expect(r.motif).toMatch(/migration 206/); expect(r.migrationAbsente).toBe(true); }
+  });
+  it('devalider : remet emprise_validee_* à NULL (réversible, comme le retour arrière de l’altitude)', async () => {
+    const r = await devaliderEmpriseBatiment(194, 'arno');
+    expect(r.ok).toBe(true);
+    const up = H.calls.find((c) => /UPDATE permis_corps_batiment SET emprise_validee_id = NULL[\s\S]*WHERE id = \$1/i.test(c.sql))!;
+    expect(up.params).toEqual([194, 'arno']);
+  });
+});
 
 describe('PROJ-2 — enregistrerEmprise : n’écrit QUE la table des reconstitutions', () => {
   it('INSERT dans permis_emprise_reconstruite, géométrie ST_GeomFromText(…, 2154), calage en jsonb, corps_id lié', async () => {
@@ -60,7 +94,10 @@ describe('PROJ-2 — enregistrerEmprise : n’écrit QUE la table des reconstitu
     expect(String(ins.params[2])).toMatch(/^POLYGON\(\(0 0, 10 0, 10 10, 0 10, 0 0\)\)$/); // anneau FERMÉ
     // 🔴 aucune écriture vers une table du moteur
     const sqlTout = H.calls.map((c) => c.sql).join('\n');
-    expect(sqlTout).not.toMatch(/INSERT INTO batiment|UPDATE batiment|permis_polygone_altitude|permis_corps/i);
+    // Garde moteur : jamais batiment / altitude polygone. (Un UPDATE permis_corps_batiment SET emprise_validee_id=NULL — retombée de
+    //   validation — est LÉGITIME : ce n'est pas « entrer dans le moteur », juste retirer une décision humaine sur l'emprise.)
+    expect(sqlTout).not.toMatch(/INSERT INTO batiment|UPDATE batiment|permis_polygone_altitude/i);
+    expect(sqlTout).toMatch(/UPDATE permis_corps_batiment SET emprise_validee_id = NULL/i); // (ré)enregistrer fait retomber la validation
   });
 
   it('refuse un contour < 3 sommets, un libellé vide, des coordonnées non finies (aucune écriture)', async () => {
@@ -238,17 +275,20 @@ describe('CAPSULE D’EMPRISE — lireEtatEmprisesPermis : état lu en base (sur
   it('agrège par bâtiment (corps_id) et coerce la surface pg (chaîne) en nombre ; projection validée = EXISTS permis_projection', async () => {
     H.flags.projectionValidee = true;
     // pg renvoie `numeric` en CHAÎNE : la surface arrive '898.22' (string), le count en nombre.
-    H.flags.empriseRows = [{ corps_id: 194, n: 2, surface: '898.22', cree_le: '2026-09-06T20:40:26Z' }, { corps_id: 195, n: 1, surface: 120, cree_le: '2026-09-05T10:00:00Z' }];
+    H.flags.empriseRows = [{ corps_id: 194, n: 2, surface: '898.22', cree_le: '2026-09-06T20:40:26Z', validee_le: '2026-09-07T00:00:00Z', validee_par: '2', validee: true }, { corps_id: 195, n: 1, surface: 120, cree_le: '2026-09-05T10:00:00Z', validee_le: null, validee_par: null, validee: false }];
     const r = await lireEtatEmprisesPermis(7424);
     expect(r.projectionValidee).toBe(true);
-    expect(r.parBatiment[194]).toEqual({ surfaceM2: 898.22, creeLe: '2026-09-06T20:40:26Z', nbEmprises: 2 });
+    expect(r.parBatiment[194]).toEqual({ surfaceM2: 898.22, creeLe: '2026-09-06T20:40:26Z', nbEmprises: 2, validee: true, valideeLe: '2026-09-07T00:00:00Z', valideePar: '2' });
     expect(r.parBatiment[195].surfaceM2).toBe(120);
+    expect(r.parBatiment[195].validee).toBe(true); // legacy : projection validée (permis_projection) → bâtiment couvert validé (OR)
     // COMPORTEMENT : la validité est lue par un EXISTS sur permis_projection, l'agrégat scopé au dossier + corps_id non nul.
     const projSql = H.calls.find((c) => /permis_projection/i.test(c.sql))!;
     expect(projSql.sql).toMatch(/EXISTS/i);
     expect(projSql.params).toEqual([7424]);
-    const aggSql = H.calls.find((c) => /GROUP BY corps_id/i.test(c.sql))!;
-    expect(aggSql.sql.replace(/\s+/g, ' ')).toContain('corps_id IS NOT NULL');
+    const aggSql = H.calls.find((c) => /FROM permis_corps_batiment cb/i.test(c.sql))!;
+    const norm = aggSql.sql.replace(/\s+/g, ' ');
+    expect(norm).toContain('LEFT JOIN permis_emprise_reconstruite'); // tous les bâtiments, même sans emprise
+    expect(norm).toContain('emprise_validee_id');                    // validation PAR BÂTIMENT (migration 206)
     expect(aggSql.params).toEqual([7424]);
   });
 

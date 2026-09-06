@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, DeclarationsCerfaBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps, etatCapsuleEmprise, CapsuleEtatEmprise } from './CaracteristiquesRendu';
+import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, DeclarationsCerfaBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps, etatCapsuleEmprise, CapsuleEtatEmprise, type EtatEmpriseBatimentVue } from './CaracteristiquesRendu';
 import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa';
 import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
 import { statutEmpriseBatiment, MOT_STATUT_EMPRISE, resumeProjection, verdictProjectionBatiments, type StatutEmpriseBatiment } from '../../../../lib/permis/projectionBatiments';
@@ -936,73 +936,77 @@ describe('LOT 67 — DeclarationsCerfaBloc : lecture approfondie du Cerfa, en re
   });
 })
 
-describe('CAPSULE D’EMPRISE — jumelle de la capsule d’altitude (état lu en base, jamais flatteur)', () => {
-  it('etatCapsuleEmprise : trois états STRICTS', () => {
-    // VERT uniquement si la PROJECTION (dossier) est validée
-    const vert = etatCapsuleEmprise(true, null);
+describe('CAPSULE D’EMPRISE — jumelle de la capsule d’altitude, VALIDATION PAR BÂTIMENT', () => {
+  const emp = (o: Partial<EtatEmpriseBatimentVue> = {}): EtatEmpriseBatimentVue => ({ surfaceM2: 998, creeLe: '2026-09-06T20:00:00Z', nbEmprises: 1, validee: false, valideeLe: null, valideePar: null, ...o });
+
+  it('etatCapsuleEmprise : quatre états STRICTS (validation PAR BÂTIMENT, jamais un état flatteur)', () => {
+    // VERT ⟺ l'emprise de CE bâtiment est validée (+ qui/quand comme l'altitude)
+    const vert = etatCapsuleEmprise(emp({ validee: true, valideePar: '2', valideeLe: '2026-09-07T00:00:00Z' }));
     expect(vert.ton).toBe('vert');
     expect(vert.libelle).toContain('validée');
-    // ROUGE « Valider » quand une emprise est ENREGISTRÉE mais NON validée → surface (m²) + date affichées
-    const aValider = etatCapsuleEmprise(false, { surfaceM2: 898.2, creeLe: '2026-09-06T20:40:16Z', nbEmprises: 1 });
+    expect(vert.detail).toContain('✓ validée');
+    // ROUGE « Valider » : emprise ENREGISTRÉE mais NON validée → surface (m²) + date
+    const aValider = etatCapsuleEmprise(emp({ surfaceM2: 898.2, creeLe: '2026-09-06T20:40:16Z', validee: false }));
     expect(aValider.ton).toBe('rouge');
     expect(aValider.libelle).toContain('Valider');
-    expect(aValider.libelle).not.toContain('validée'); // 🔴 INTERDIT : « enregistrée » n’est JAMAIS « validée »
+    expect(aValider.libelle).not.toContain('validée'); // « enregistrée » ≠ « validée »
     expect(aValider.detail).toContain('m²');
-    expect(aValider.detail).toContain('le ');
-    // ROUGE « Tracer » quand aucune emprise
-    const aTracer = etatCapsuleEmprise(false, null);
-    expect(aTracer.ton).toBe('rouge');
-    expect(aTracer.libelle).toContain('Tracer');
-    // et un enregistrement fantôme (nbEmprises 0) compte comme « aucune emprise »
-    expect(etatCapsuleEmprise(false, { surfaceM2: null, creeLe: null, nbEmprises: 0 }).libelle).toContain('Tracer');
+    // ROUGE « Tracer » : aucune emprise (ou enregistrement fantôme nbEmprises 0)
+    expect(etatCapsuleEmprise(null).libelle).toContain('Tracer');
+    expect(etatCapsuleEmprise(emp({ nbEmprises: 0 })).libelle).toContain('Tracer');
+    // AMBRE : projection ignorée
+    expect(etatCapsuleEmprise(null, true).ton).toBe('ambre');
   });
 
-  // 🔴 RÉGRESSION « 4 mensonges du 7424 » : capsule (cartouche), pastille (sélecteur) et bandeau doivent TOUS dériver du même statut,
-  //   et le VERT (« validé/fait ») n'apparaître QUE si la projection du DOSSIER est validée. Ce test CASSE si un affichage diverge.
-  const CAS_STATUT: { aEmprise: boolean; ignore: boolean; pv: boolean; statut: StatutEmpriseBatiment; ton: 'vert' | 'ambre' | 'rouge' }[] = [
-    { aEmprise: true, ignore: false, pv: true, statut: 'validee', ton: 'vert' },
-    { aEmprise: true, ignore: false, pv: false, statut: 'a_valider', ton: 'rouge' },
-    { aEmprise: false, ignore: true, pv: false, statut: 'ignoree', ton: 'ambre' },
-    { aEmprise: false, ignore: false, pv: false, statut: 'a_tracer', ton: 'rouge' },
+  // 🔴 RÉGRESSION anti-divergence (étendue à la validation PAR BÂTIMENT) : capsule (cartouche), pastille (sélecteur) et bandeau
+  //   dérivent du MÊME statut ; le VERT (« validé ») n'apparaît QUE si l'emprise du bâtiment est validée. CASSE si un affichage diverge.
+  const CAS_STATUT: { aEmprise: boolean; ignore: boolean; validee: boolean; statut: StatutEmpriseBatiment; ton: 'vert' | 'ambre' | 'rouge' }[] = [
+    { aEmprise: true, ignore: false, validee: true, statut: 'validee', ton: 'vert' },
+    { aEmprise: true, ignore: false, validee: false, statut: 'a_valider', ton: 'rouge' },
+    { aEmprise: false, ignore: true, validee: false, statut: 'ignoree', ton: 'ambre' },
+    { aEmprise: false, ignore: false, validee: false, statut: 'a_tracer', ton: 'rouge' },
   ];
   for (const c of CAS_STATUT) {
-    it(`statut ${c.statut} : capsule ⟷ pastille alignées, vert ⟺ projection validée`, () => {
-      expect(statutEmpriseBatiment(c.aEmprise, c.ignore, c.pv)).toBe(c.statut); // 1) SOURCE UNIQUE
-      const cap = etatCapsuleEmprise(c.pv, c.aEmprise ? { surfaceM2: 998, creeLe: '2026-09-06T20:00:00Z', nbEmprises: 1 } : null, c.ignore);
+    it(`statut ${c.statut} : capsule ⟷ pastille alignées, vert ⟺ emprise validée`, () => {
+      expect(statutEmpriseBatiment(c.aEmprise, c.ignore, c.validee)).toBe(c.statut); // 1) SOURCE UNIQUE
+      const cap = etatCapsuleEmprise(c.aEmprise ? emp({ validee: c.validee }) : null, c.ignore);
       expect(cap.ton).toBe(c.ton);                     // 2) capsule dérive du même statut
-      expect(cap.ton === 'vert').toBe(c.pv);           // 3) VERT ⟺ projection validée, jamais un tracé nu
+      expect(cap.ton === 'vert').toBe(c.validee);      // 3) VERT ⟺ emprise validée, jamais un tracé nu
       const mot = MOT_STATUT_EMPRISE[c.statut];         // 4) pastille : mot unique du même statut
-      expect(mot.includes('validée')).toBe(c.pv);      //    « validée » (✓) ⟺ pv
-      expect(cap.libelle.includes('validée')).toBe(mot.includes('validée')); // capsule et pastille racontent le MÊME état
+      expect(mot.includes('validée')).toBe(c.validee);
+      expect(cap.libelle.includes('validée')).toBe(mot.includes('validée')); // capsule et pastille : MÊME état
     });
   }
 
-  it('BANDEAU : ✓ vert UNIQUEMENT si projection validée (jamais sur un tracé complet non validé, jamais « 0 en attente » trompeur)', () => {
-    const v = verdictProjectionBatiments([{ corpsId: 1, repere: 'A' }], [{ corpsId: 1, provenance: 'trace_manuel' }], []);
-    expect(v.peutValider).toBe(true); // tracé complet
-    const nonValide = resumeProjection(v, false); // …mais NON validé → AMBRE « à valider », jamais vert ni « 0 en attente »
-    expect(nonValide.ton).toBe('ambre');
-    expect(nonValide.texte).toContain('à valider');
-    expect(nonValide.texte).not.toContain('en attente');
-    const valide = resumeProjection(v, true);
-    expect(valide.ton).toBe('vert');
-    expect(valide.texte).toContain('projection validée');
+  it('BANDEAU : ✓ vert UNIQUEMENT quand TOUS validés ; sinon AMBRE « M validés · K à valider » ; traçage incomplet → ROUGE', () => {
+    const v = verdictProjectionBatiments([{ corpsId: 1, repere: 'A' }, { corpsId: 2, repere: 'B' }], [{ corpsId: 1, provenance: 'trace_manuel' }, { corpsId: 2, provenance: 'trace_manuel' }], []);
+    expect(v.peutValider).toBe(true); // tout tracé
+    const enCours = resumeProjection(v, 1, 1); // 1 validé, 1 à valider → AMBRE, le compteur le DIT
+    expect(enCours.ton).toBe('ambre');
+    expect(enCours.texte).toContain('1 validé');
+    expect(enCours.texte).toContain('1 à valider');
+    const tout = resumeProjection(v, 2, 0); // TOUS validés → VERT
+    expect(tout.ton).toBe('vert');
+    expect(tout.texte).toContain('projection validée');
+    // traçage incomplet (1 bâtiment sans emprise) → ROUGE « en attente », jamais vert
+    const incomplet = verdictProjectionBatiments([{ corpsId: 1, repere: 'A' }, { corpsId: 2, repere: 'B' }], [{ corpsId: 1, provenance: 'trace_manuel' }], []);
+    expect(resumeProjection(incomplet, 0, 1).ton).toBe('rouge');
   });
 
-  it('CapsuleEtatEmprise : cliquable (ancre présente) en rouge, statut non-interactif sinon ; vert jamais actionnable', () => {
-    // ROUGE + ancre → bouton actionnable (pas aria-disabled) + libellé « Valider »
-    const rougeAncre = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { projectionValidee: false, emprise: { surfaceM2: 898.2, creeLe: '2026-09-06T20:40:16Z', nbEmprises: 1 }, ancreEmprise: 'ancre-bloc-emprise-7424' }));
-    expect(rougeAncre).toContain('Valider');
-    expect(rougeAncre).not.toContain('aria-disabled');
-    // ROUGE SANS ancre → statut non-interactif (aria-disabled), jamais un « action indisponible »
-    const rougeSansAncre = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { projectionValidee: false, emprise: null }));
-    expect(rougeSansAncre).toContain('Tracer');
-    expect(rougeSansAncre).toContain('aria-disabled');
-    expect(rougeSansAncre).not.toContain('indisponible');
-    // VERT → jamais actionnable (aria-disabled), apparence verte (token green-ink)
-    const vert = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { projectionValidee: true, emprise: null, ancreEmprise: 'ancre-bloc-emprise-7424' }));
-    expect(vert).toContain('validée');
-    expect(vert).toContain('aria-disabled');
+  it('CapsuleEtatEmprise : « Valider » déclenche onValider ; VERT propose « retirer la validation » ; « Tracer » = statut/ancre, jamais « indisponible »', () => {
+    // a_valider → bouton « Valider » actionnable (onValider fourni)
+    const aValider = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { emprise: emp({ validee: false }), onValider: () => {}, ancreEmprise: 'a' }));
+    expect(aValider).toContain('Valider');
+    expect(aValider).not.toContain('aria-disabled');
+    // VERT → réversible : « retirer la validation » présent + apparence verte
+    const vert = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { emprise: emp({ validee: true }), onDevalider: () => {} }));
+    expect(vert).toContain('Emprise du polygone projeté validée');
+    expect(vert).toContain('retirer la validation');
     expect(vert).toContain('green-ink');
+    // a_tracer sans ancre ni callback → statut non-interactif (aria-disabled), jamais « indisponible »
+    const statut = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { emprise: null }));
+    expect(statut).toContain('Tracer');
+    expect(statut).toContain('aria-disabled');
+    expect(statut).not.toContain('indisponible');
   });
 })

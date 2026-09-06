@@ -166,6 +166,21 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
     setEnCours(false);
   }, [edCorps, poster, rafraichir]);
 
+  // VALIDER / DÉVALIDER l'emprise de CE bâtiment (capsule, jumelle de « Valider cette altitude »). `rafraichir` remonte le cartouche ET
+  //   les frères (bandeau/pastille du bloc de tracé) via onChange → tous les affichages reflètent la validation par bâtiment.
+  const validerEmprise = useCallback(async (corpsId: number) => {
+    setEnCours(true);
+    const r = await poster({ action: 'valider_emprise', dossierId, corpsId });
+    if (r.ok) { await rafraichir(); setMessage('Emprise validée.'); } else setMessage(r.erreur ?? 'échec');
+    setEnCours(false);
+  }, [poster, dossierId, rafraichir]);
+  const devaliderEmprise = useCallback(async (corpsId: number) => {
+    setEnCours(true);
+    const r = await poster({ action: 'devalider_emprise', dossierId, corpsId });
+    if (r.ok) { await rafraichir(); setMessage('Validation de l’emprise retirée.'); } else setMessage(r.erreur ?? 'échec');
+    setEnCours(false);
+  }, [poster, dossierId, rafraichir]);
+
   // N10-L — « utiliser N » du gabarit PLU : le bouton ÉCRIT (il ne pré-remplit plus). Écrit hauteur_max_plu_ngf=N sur le corps en
   //   origine 'saisie' (action 'corps' avec les SEULES clés fournies → ne touche ni repère ni adresse ni autre mesure). Invariant 103
   //   réutilisé (une saisie n'est jamais réécrasée par une extraction). Retour de réussite explicite, comme « Hauteur validée. ».
@@ -320,8 +335,9 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
                 {/* CAPSULE D'EMPRISE — jumelle de la capsule d'altitude, JUSTE EN DESSOUS (même colonne). État lu en base (data.empriseEtat) :
                     VERT si la projection du DOSSIER est validée, sinon ROUGE (« Valider » si une emprise existe déjà — avec surface/date —,
                     sinon « Tracer »). Le clic amène au bloc « Bâtiments et projection » (ancre). Se rafraîchit via la clé du bloc (vEmprise). */}
-                <CapsuleEtatEmprise projectionValidee={data.empriseEtat?.projectionValidee ?? false}
-                  emprise={data.empriseEtat?.parBatiment[c.id] ?? null} ignore={data.empriseEtat?.ignoreCorps.includes(c.id) ?? false} ancreEmprise={ancreEmprise} />
+                <CapsuleEtatEmprise emprise={data.empriseEtat?.parBatiment[c.id] ?? null}
+                  ignore={data.empriseEtat?.ignoreCorps.includes(c.id) ?? false} ancreEmprise={ancreEmprise}
+                  onValider={() => void validerEmprise(c.id)} onDevalider={() => void devaliderEmprise(c.id)} enCours={enCours} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
