@@ -65,7 +65,13 @@ function peindreBitmap(canvas: HTMLCanvasElement, bmp: RenduBitmap): void {
  *    (construireBandePlans / cibleBestOf / SelecteurPiecePlan / BandePlans / NavPieceLibre / ZoomPdf) et sont IMPORTÉES ici, JAMAIS recopiées.
  *    Toute évolution des critères se fait UNE fois là-bas et bénéficie aux deux liseuses (même sélection, même ordre, même plan par défaut).
  */
-export function LiseusePieces({ dossierId }: { dossierId: number }) {
+export function LiseusePieces({ dossierId, onValeurEcrite }: {
+  dossierId: number;
+  // LOT — « analyse de la page » écrit une valeur (ou l'annule) au niveau PERMIS/corps : ce signal permet à un frère co-monté
+  //   (CaracteristiquesBloc) de RE-FETCHER son journal, pour que la valeur lue apparaisse aussitôt en proposition (sinon, le bloc
+  //   restant monté — BlocRepliable ne démonte jamais — garde un journal périmé et n'affiche pas la proposition). N'affecte PAS le lecteur.
+  onValeurEcrite?: () => void;
+}) {
   const [pieces, setPieces] = useState<PiecePlan[]>([]);
   const [etat, setEtat] = useState<'charge' | 'ok' | 'vide' | 'erreur'>('charge');
   const [bande, setBande] = useState<Plan[]>([]);
@@ -436,9 +442,10 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       const nbValeurs = body.resume?.ecrit === true ? 1 : 0;
       setLectures((prev) => ({ ...prev, [pieceId]: [...(prev[pieceId] ?? []).filter((l) => l.page !== page), { page, envoyee, motif: null, nbValeurs, resume: body.resume?.texte ?? null, coutUsd: 0, creeLe: new Date().toISOString() }] }));
       setVReper((v) => v + 1); // recharge l'audit daté par page (état « déjà analysée le … »)
+      if (body.resume?.ecrit === true) onValeurEcrite?.(); // une valeur a été écrite → un frère (CaracteristiquesBloc) doit re-fetcher son journal
     } catch { echouer('Analyse de la page impossible, réessayez.'); }
     finally { setLectureEnCours(false); }
-  }, [pieceId, dossierId, page, lectureEnCours, reperEnCours]);
+  }, [pieceId, dossierId, page, lectureEnCours, reperEnCours, onValeurEcrite]);
 
   // LOT 95 — RÉVERSIBILITÉ : annuler la valeur écrite par « analyse de la page » (vide le champ + retire la ligne 'ia', jamais une saisie).
   const annulerValeurPage = useCallback(async () => {
@@ -451,8 +458,9 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
       if (!res.ok || !body.ok) { poser('Annulation impossible, réessayez.'); return; }
       poser(body.annule ? 'Valeur annulée : le champ a été remis à vide.' : 'Rien à annuler (aucune valeur écrite par l’image, ou valeur saisie à la main protégée).');
       setVReper((v) => v + 1);
+      if (body.annule === true) onValeurEcrite?.(); // valeur retirée → le frère (CaracteristiquesBloc) doit re-fetcher pour faire disparaître la proposition
     } catch { poser('Annulation impossible, réessayez.'); }
-  }, [pieceId, page, dossierId]);
+  }, [pieceId, page, dossierId, onValeurEcrite]);
 
   // LOT 65 — OUVRIR LE DOCUMENT COMPLET dans un nouvel onglet. Le lien SIGNÉ (durée de vie limitée) est fabriqué AU CLIC (jamais
   //   pré-généré au rendu de chaque plan : posé à l'avance, il serait périmé au moment du clic). Signeur UNIQUE `url_piece` (source

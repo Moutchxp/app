@@ -38,13 +38,15 @@ const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
 const SEUIL_SOMMET_BOITE = 12; // PROJ-3s — rayon de capture d'un sommet au clic (unités de la boîte du schéma) : cible TACTILE, pas un seuil métier.
 type ModeRetouche = 'deplacer' | 'inserer' | 'supprimer';
 
-export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true }: {
+export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true, onValeurLue }: {
   dossierId: number;
   onVerdict?: (v: VerdictProjection) => void;
   rafraichir?: number; // PROJ-3b — signal du parent : incrémenté quand l'instruction change (ajout de bâtiment) → recharge la liste
                        //   DÉFAUT 0 (jamais undefined) : le tableau de dépendances de l'effet garde une TAILLE CONSTANTE (PROJ-3b-fix ③).
   avecLiseuse?: boolean; // LOT 90 — à 0 bâtiment, monter la liseuse LECTURE SEULE (consultation des plans). `false` là où une liseuse
                          //   STANDALONE existe déjà sur le même écran (En cours : famille « Pièces du permis ») → jamais deux liseuses.
+  onValeurLue?: () => void; // pass-through : la liseuse embarquée signale une valeur lue/annulée par « analyse de la page » → le parent
+                            //   re-fetche CaracteristiquesBloc. Ne touche RIEN au tracé/canvas.
 }) {
   const [pieces, setPieces] = useState<Piece[]>([]);
   const [piecesNonSupportees, setPiecesNonSupportees] = useState<{ id: number; nomFichier: string; motif: string }[]>([]); // BUG « voir toutes les pièces » — non affichables listées AVEC motif
@@ -799,7 +801,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         {/* LOT 90 — LISEUSE lecture seule (best-of + navigation + zoom, composant autonome). Le CALAGE reste FERMÉ à 0 bâtiment : il
             n'alimente que l'enregistrement, qui exige un bâtiment → l'ouvrir mènerait à un cul-de-sac. La liseuse gère elle-même le
             best-of vide (« Aucun plan… ») → jamais un cadre vide muet. `avecLiseuse=false` là où une liseuse standalone existe déjà. */}
-        {avecLiseuse && <LiseusePieces dossierId={dossierId} />}
+        {avecLiseuse && <LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} />}
         {boite ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
             <RotationSchema angle={angle} onAngle={setAngle} />

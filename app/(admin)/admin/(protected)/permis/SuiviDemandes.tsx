@@ -91,6 +91,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   const [retour, setRetour] = useState<RetourAction>(null);
   const [version, setVersion] = useState(0);
   const [vApresAnalyse, setVApresAnalyse] = useState(0); // LOT 56-B — bump après « Lancer le diagnostic complet des documents » (encart) → remonte caractéristiques + best-of de l'encart
+  const [vValeurLue, setVValeurLue] = useState(0); // « analyse de la page » (liseuse de la famille « Pièces ») a écrit/annulé une valeur → remonte SEULEMENT CaracteristiquesBloc (refetch du journal → proposition). PAS dans la clé de la liseuse : le lecteur ne bouge pas.
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [choixStatut, setChoixStatut] = useState<string>(CHOIX_STATUT_DEFAUT); // Q6b : défaut = statuts VIVANTS, pas « Tous »
   const [fCommune, setFCommune] = useState('');
@@ -921,7 +922,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   ) },
                 { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: richDetail.caracteristiquesNonVide,
                   // LOT 56-B — clé versionnée : après « Lancer le diagnostic complet des documents » (bloc Complétude ci-dessus), les caractéristiques extraites sont fraîches → remontage.
-                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={`carac-enc-${id}-${vApresAnalyse}`} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={`carac-enc-${id}-${vApresAnalyse}-${vValeurLue}`} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
                 { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: richDetail.batimentsNonVide,
                   // LOT 90 — avecLiseuse={false} : la famille « Pièces du permis » ci-dessous porte DÉJÀ la liseuse standalone → pas de doublon à 0 bâtiment.
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} avecLiseuse={false} />} /> },
@@ -933,7 +934,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                       {/* LOT 56-B — clé versionnée : le best-of est recalculé à la volée depuis la GED ; on force son remontage après une passe.
                           (Aujourd'hui « Lancer le diagnostic complet des documents » n'AJOUTE aucune pièce en GED → le best-of ne change pas en pratique ;
                           le remontage est une garantie de cohérence, sans effet visible tant qu'aucun document n'est versé.) */}
-                      <LiseusePieces key={`liseuse-enc-${id}-${vApresAnalyse}`} dossierId={id} />
+                      <LiseusePieces key={`liseuse-enc-${id}-${vApresAnalyse}`} dossierId={id} onValeurEcrite={() => setVValeurLue((v) => v + 1)} />
                       <BlocPiecesPermis dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />
                     </div>
                   )} /> },
