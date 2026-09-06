@@ -3,7 +3,7 @@ import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle
 import type { SelectionInfo } from '../../../../lib/permis/plancheParcellesRepo';
 import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « décidé le … » en heure de Paris
 import {
-  projeterDansBoite, boiteEnglobanteRotee, clicVersBoite, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type CadreVue,
+  projeterDansBoite, boiteEnglobanteRotee, clicVersBoiteMeet, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type CadreVue,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { libelleBatiment, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
@@ -1055,7 +1055,7 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
   return (
     <svg viewBox={`${vb.minX} ${vb.minY} ${vb.w} ${vb.h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées"
       style={{ display: 'block', width: '100%', height: 'auto', maxHeight: hauteurMax, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', cursor: onCliquer ? 'crosshair' : 'default' }}
-      onClick={onCliquer ? (ev) => { const r = (ev.currentTarget as SVGSVGElement).getBoundingClientRect(); onCliquer(clicVersBoite(ev.clientX - r.left, ev.clientY - r.top, r.width, r.height, vb, centre, angle)); } : undefined}>
+      onClick={onCliquer ? (ev) => { const r = (ev.currentTarget as SVGSVGElement).getBoundingClientRect(); onCliquer(clicVersBoiteMeet(ev.clientX - r.left, ev.clientY - r.top, r.width, r.height, vb, centre, angle)); } : undefined}>
       <g transform={angle ? `rotate(${angle} ${centre.x} ${centre.y})` : undefined}>
         {/* PROJ-CTX — 3e REGISTRE, dessiné EN PREMIER (donc DERRIÈRE tout le reste) : parcelles voisines (contour mauve fin tireté, sans
             aplat) + leur bâti (aplat mauve très léger). Teinte DISTINCTE des gris du principal/mitoyen → « ce qu'il y a autour », jamais
@@ -1123,7 +1123,9 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
             );
           });
         })()}
-        {calageLambert.map((p, i) => { const q = projeterDansBoite(boite, p); return <g key={`c${i}`}><circle cx={q.x} cy={q.y} r={4} fill="var(--color-svv-red)" /><text x={q.x + 6} y={q.y - 6} fontSize={11} fill="var(--color-svv-red)">{i + 1}</text></g>; })}
+        {/* PROJ — points de calage PERSISTANTS (côté schéma) : rayon DOUBLÉ (8) pour être bien visibles ; ce ne sont PAS le pointeur de
+            visée du plan (cssAttente, inchangé). Positionnés exactement sous le clic depuis le correctif clicVersBoiteMeet. */}
+        {calageLambert.map((p, i) => { const q = projeterDansBoite(boite, p); return <g key={`c${i}`}><circle cx={q.x} cy={q.y} r={8} fill="var(--color-svv-red)" /><text x={q.x + 10} y={q.y - 10} fontSize={12} fontWeight={700} fill="var(--color-svv-red)">{i + 1}</text></g>; })}
         {/* PROJ-3s — RETOUCHE : contour éditable + poignées de sommet (cibles tactiles) + points milieux de bord (insertion). */}
         {retoucheAnneau && retoucheAnneau.length >= 2 && <>
           <path d={path(retoucheAnneau)} fill="rgba(163,4,2,.10)" stroke="var(--color-svv-red)" strokeWidth={1.6} strokeDasharray="5 3" data-retouche="true" />
@@ -1187,11 +1189,23 @@ export function guidageTrace(mode: 'calage' | 'trace', nbPaires: number, planEnA
 }
 
 /** PROJ-3m ② — encart de guidage AFFICHÉ À CÔTÉ du geste (jamais un texte lointain). PUR. */
-export function GuidageTraceBox({ g }: { g: Guidage }) {
+export function GuidageTraceBox({ g, onAnnulerDernier, onRecommencer, peutAnnuler = false }: {
+  g: Guidage;
+  // PROJ — annulation du CALAGE (état de travail LOCAL, aucune écriture base) : revenir de 2/2→1/2→0/2, ou tout recommencer (0/2).
+  //   Optionnels : affichés seulement quand fournis (pendant le calage). `peutAnnuler` grise les boutons quand rien n'est posé.
+  onAnnulerDernier?: () => void; onRecommencer?: () => void; peutAnnuler?: boolean;
+}) {
+  const bAnn: CSSProperties = { cursor: peutAnnuler ? 'pointer' : 'default', opacity: peutAnnuler ? 1 : 0.4, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.2rem .5rem', fontSize: 12 };
   return (
     <div role="note" style={{ fontSize: 12, border: '1px solid var(--color-svv-red)', background: 'var(--color-svv-red-soft, #fff5f4)', borderRadius: '.4rem', padding: '.3rem .5rem' }}>
       <div style={{ fontWeight: 700 }}>{g.titre}</div>
       <div style={{ color: 'var(--color-svv-ink)' }}>{g.instruction}</div>
+      {(onAnnulerDernier || onRecommencer) && (
+        <div style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
+          {onAnnulerDernier && <button type="button" style={bAnn} disabled={!peutAnnuler} onClick={onAnnulerDernier}>↩ Annuler le dernier point</button>}
+          {onRecommencer && <button type="button" style={bAnn} disabled={!peutAnnuler} onClick={onRecommencer}>✕ Recommencer le calage</button>}
+        </div>
+      )}
     </div>
   );
 }

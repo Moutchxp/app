@@ -239,6 +239,23 @@ export function clicVersBoite(ex: number, ey: number, ew: number, eh: number, vb
 }
 
 /**
+ * 🔴 CORRECTIF CALAGE CÔTÉ SCHÉMA — le SVG du schéma est en `preserveAspectRatio="xMidYMid meet"` (+ un `maxHeight` qui, dès qu'il
+ * PLAFONNE la hauteur, ou en vue AGRANDIE, rend le rapport d'aspect du conteneur ≠ de celui du viewBox). En « meet », le viewBox est
+ * mis à l'échelle pour TENIR dans le conteneur (scale = min) et CENTRÉ (xMid/yMid) → il y a un LETTERBOX (marges). Mapper le clic sur la
+ * BOUNDING BOX ENTIÈRE (comme `clicVersBoite` seul) fausse alors l'échelle ET ignore le décalage des marges → le marqueur persistant
+ * tombe À CÔTÉ du curseur ET le point Lambert STOCKÉ est faux. `clicVersBoiteMeet` reconstitue le rectangle RÉELLEMENT rendu (scale
+ * « meet » + centrage) puis délègue à `clicVersBoite`. Sans letterbox (aspect conteneur = aspect viewBox) → strictement identique à
+ * `clicVersBoite`. PUR, testé (le filet du schéma). NE dépend PAS de getScreenCTM (indisponible en test) : géométrie explicite.
+ */
+export function clicVersBoiteMeet(ex: number, ey: number, ew: number, eh: number, vb: CadreVue, centre: { x: number; y: number }, angleDeg: number): { x: number; y: number } {
+  const scale = Math.min(ew > 0 ? ew / vb.w : 0, eh > 0 ? eh / vb.h : 0); // « meet » = tenir dans le conteneur (le plus petit facteur)
+  if (!(scale > 0)) return clicVersBoite(ex, ey, ew, eh, vb, centre, angleDeg); // conteneur/viewBox dégénéré → repli sûr
+  const rw = vb.w * scale, rh = vb.h * scale;                                   // rectangle EFFECTIVEMENT rendu
+  const offX = (ew - rw) / 2, offY = (eh - rh) / 2;                             // centrage xMid / yMid (marges du letterbox)
+  return clicVersBoite(ex - offX, ey - offY, rw, rh, vb, centre, angleDeg);     // clic ramené dans le rendu réel, puis échelle + dé-rotation
+}
+
+/**
  * PROJ-3l — CLIC écran → coordonnée du DOCUMENT (canvas non transformé), en annulant le ZOOM et le DÉPLACEMENT (pan) appliqués au
  * PDF de gauche (transform `translate(pan) scale(zoom)`, origine haut-gauche). Résultat IDENTIQUE à zoom 1 / pan 0 → le calage reste
  * exact. AUCUN arrondi. PUR.

@@ -650,7 +650,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               </div>
             </div>
             {/* PROJ-3m ② — le guidage s'affiche À CÔTÉ du geste : ici sous le PLAN quand c'est là qu'il faut cliquer. */}
-            {tracable && guidage.sur === 'plan' && <GuidageTraceBox g={guidage} />}
+            {tracable && guidage.sur === 'plan' && <GuidageTraceBox g={guidage}
+              onAnnulerDernier={mode === 'calage' ? () => { if (planEnAttente) setPlanEnAttente(null); else setPaires((p) => p.slice(0, -1)); } : undefined}
+              onRecommencer={mode === 'calage' ? () => { setPaires([]); setPlanEnAttente(null); } : undefined}
+              peutAnnuler={paires.length > 0 || planEnAttente !== null} />}
             {/* PROJ-AGR — « Agrandir l'image » (même registre que « Agrandir le schéma ») : tracer/caler EN GRAND, sans quitter l'onglet.
                 La vue agrandie est INTERACTIVE et exacte au pixel (le canvas se re-rend à sa largeur, cliquerPdf inchangé). */}
             <div><button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
@@ -663,7 +666,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             <RotationSchema angle={angle} onAngle={setAngle} />
             {bandeauSel}
             {/* PROJ-3m ② — quand le prochain clic va sur le SCHÉMA (correspondant du point plan), le guidage s'affiche ICI, au-dessus. */}
-            {tracable && guidage.sur === 'schema' && <GuidageTraceBox g={guidage} />}
+            {tracable && guidage.sur === 'schema' && <GuidageTraceBox g={guidage}
+              onAnnulerDernier={mode === 'calage' ? () => { if (planEnAttente) setPlanEnAttente(null); else setPaires((p) => p.slice(0, -1)); } : undefined}
+              onRecommencer={mode === 'calage' ? () => { setPaires([]); setPlanEnAttente(null); } : undefined}
+              peutAnnuler={paires.length > 0 || planEnAttente !== null} />}
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} statuts={statutParCleabs}
               onCliquer={retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined)} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
             <div><button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button></div>
