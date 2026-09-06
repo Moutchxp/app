@@ -4,6 +4,7 @@ import { createElement as h } from 'react';
 import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
+import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBatiments';
 
@@ -241,6 +242,28 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     expect(html).not.toContain('data-futur');
     expect(html).not.toContain('data-emprise');
     expect(html).not.toContain('data-repere');
+  });
+  it('🐛 repères LISIBLES : couleur FIXE + halo (thème CLAIR comme SOMBRE sur canvas blanc), jamais le token var(--color-svv-ink)', () => {
+    const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
+    const filtres: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: true };
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }, { x: 0, y: 30 }]], emprises: [], polygones: attribuerReperes(polys), filtres, ecartes: [], calageLambert: [] }));
+    const tag = html.match(/<text\b[^>]*data-repere="A"[^>]*>/)?.[0] ?? '';
+    expect(tag).not.toBe('');
+    expect(tag).toContain('fill="#1b1b1b"');            // encre FIXE (ETIQ_ENCRE) → lisible sur le blanc du canvas dans les DEUX thèmes
+    expect(tag).toContain('paint-order="stroke"');      // halo blanc → passe au-dessus du gris du bâti
+    expect(tag).not.toContain('var(--color-svv-ink)');  // plus de token (qui basculait à #e8ebef = quasi-blanc, invisible en thème sombre)
+  });
+  it('📍 repère POSITIONNÉ DANS le polygone même CONCAVE (en L) : ancre intérieure (pointOnSurface), pas le centroïde qui tombe dehors', () => {
+    const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
+    const filtres: FiltresSchema = { existant: true, futur: false, reperes: true, emprises: false };
+    const L = [{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 10 }, { x: 10, y: 10 }, { x: 10, y: 30 }, { x: 0, y: 30 }]; // bande basse + bande gauche
+    const cx = L.reduce((s, p) => s + p.x, 0) / L.length, cy = L.reduce((s, p) => s + p.y, 0) / L.length;
+    expect(pointDansAnneau(cx, cy, L)).toBe(false);     // garde-fou : le centroïde brut EST dehors (sinon le test ne prouverait rien)
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }, { x: 0, y: 30 }]], emprises: [], polygones: attribuerReperes([{ cleabs: 'L1', anneau: L, etat: 'En service' }]), filtres, ecartes: [], calageLambert: [] }));
+    const tag = html.match(/<text\b[^>]*data-repere="A"[^>]*>/)?.[0] ?? '';
+    const x = Number(tag.match(/\bx="([^"]+)"/)?.[1]), y = Number(tag.match(/\by="([^"]+)"/)?.[1]);
+    const Lpx = L.map((p) => projeterDansBoite(boite, p));
+    expect(pointDansAnneau(x, y, Lpx)).toBe(true);      // la lettre est bien À L'INTÉRIEUR du L projeté au MÊME cadre
   });
   it('OptionsVisibiliteSchema : UN filtre futur bâti (⓪) + repères (①) + libellés d’origine ; plus de doublon', () => {
     const html = renderToStaticMarkup(h(OptionsVisibiliteSchema, { filtres: FILTRES_SCHEMA_DEFAUT, onFiltres: () => {}, nbFutur: 4, nbExistant: 12 }));
