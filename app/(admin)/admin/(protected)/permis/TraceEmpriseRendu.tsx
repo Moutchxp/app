@@ -331,14 +331,35 @@ export function PastilleStatutPage({ s }: { s: StatutPage }) {
  * « hors des pièces suivies »), puis les analysées — épinglage N10-J : on ne retrie PAS l'intérieur d'un groupe. L'ÉTAT porte sur
  * l'analyse PAYANTE seule (le best-of textuel gratuit ne compte pas), écrit en TEXTE (jamais la couleur seule). PUR.
  */
-export function ListePiecesAnalyse({ pieces, analyseParPiece, nonSupportees, pieceId, onChoisir }: {
+/**
+ * DEMANDE 2 — CATÉGORIE(S) d'affichage d'une pièce dans la liste groupée. Ordre imposé (Arno) : masse → coupe → étage → cerfa →
+ * indéterminé. DÉCISION Arno : une pièce est DUPLIQUÉE dans CHAQUE catégorie où AU MOINS UNE de ses pages appartient. Source réelle :
+ * `planches[].famille` (par page) ; le booléen `cerfa` (contenu, n°13409) ajoute la catégorie Cerfa ; À DÉFAUT DE PLANCHE, la famille
+ * de PIÈCE (nom/contenu) sert de repli ; sinon « indéterminé ». JAMAIS de catégorie devinée. PUR (testable sans DOM).
+ */
+export type CategoriePiece = 'masse' | 'coupe' | 'etage' | 'cerfa' | 'indetermine';
+export const ORDRE_CATEGORIES: CategoriePiece[] = ['masse', 'coupe', 'etage', 'cerfa', 'indetermine'];
+export function libelleCategoriePiece(c: CategoriePiece): string {
+  return c === 'masse' ? 'Plan de masse' : c === 'coupe' ? 'Plan de coupe' : c === 'etage' ? 'Plan d’étage' : c === 'cerfa' ? 'Cerfa (formulaire)' : 'Indéterminé';
+}
+export function categoriesPiece(p: Pick<PiecePlan, 'planches' | 'famille' | 'cerfa'>): CategoriePiece[] {
+  const cats = new Set<CategoriePiece>();
+  for (const pl of p.planches ?? []) if (pl.famille === 'masse' || pl.famille === 'coupe' || pl.famille === 'etage') cats.add(pl.famille); // par PAGE
+  if (p.cerfa) cats.add('cerfa');
+  if (cats.size === 0 && (p.famille === 'masse' || p.famille === 'coupe' || p.famille === 'etage' || p.famille === 'cerfa')) cats.add(p.famille); // repli : famille de PIÈCE (nom/contenu) quand aucune planche
+  if (cats.size === 0) cats.add('indetermine');
+  return ORDRE_CATEGORIES.filter((c) => cats.has(c)); // toujours dans l'ordre canonique
+}
+
+export function ListePiecesAnalyse({ pieces, analyseParPiece, nonSupportees, pieceId, onChoisir, piecesBestOf }: {
   pieces: PiecePlan[];
   analyseParPiece: Record<number, EtatAnalyseIA>; // LOT 97 — état d'analyse IA à deux axes (repérage LOT 62 + lecture de page LOT 95)
   nonSupportees: { id: number; nomFichier: string; motif: string }[];
   pieceId: number | null;
   onChoisir: (id: number) => void;
+  piecesBestOf?: ReadonlySet<number>; // DEMANDE 3 — pièces ayant AU MOINS une page/image dans le best-of (écrites en BLEU + repère textuel)
 }) {
-  const ordre = [...pieces.filter((p) => !analyseParPiece[p.id]), ...pieces.filter((p) => analyseParPiece[p.id])];
+  const bestOf = piecesBestOf ?? new Set<number>();
   const etat = (p: PiecePlan): string => {
     const a = analyseParPiece[p.id];
     if (!a) return 'jamais analysée par image';
@@ -346,40 +367,64 @@ export function ListePiecesAnalyse({ pieces, analyseParPiece, nonSupportees, pie
     const k = a.nbPagesLues; return `analysée par image (pages) le ${a.dateLisible ?? '—'} · ${k} page${k > 1 ? 's' : ''} analysée${k > 1 ? 's' : ''}`;
   };
   const ligne: CSSProperties = { display: 'flex', flexDirection: 'column', gap: '.05rem', width: '100%', textAlign: 'left', minHeight: 36, padding: '.3rem .45rem', borderRadius: '.4rem', fontSize: 12, wordBreak: 'break-word' };
+  const enteteCat: CSSProperties = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', color: 'var(--color-svv-muted)', margin: '.35rem 0 .1rem' };
+  const ulStyle: CSSProperties = { listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.25rem' };
+  // DEMANDE 3 — le best-of est porté par un REPÈRE TEXTUEL (★ best-of) EN PLUS du bleu (jamais la couleur seule → accessible). Le bleu
+  //   `--color-svv-blue` est THÉMATISÉ (clair #1a4d8f / sombre #7ab0f5) et le fond de la liste suit le thème → lisible dans les deux.
+  const rendreItem = (p: PiecePlan, cat: CategoriePiece) => {
+    const courante = p.id === pieceId;
+    const a = analyseParPiece[p.id];
+    const enBestOf = bestOf.has(p.id);
+    return (
+      <li key={`${cat}-${p.id}`}>
+        <button type="button" onClick={() => onChoisir(p.id)} aria-current={courante ? 'true' : undefined}
+          title={enBestOf ? 'au moins une page de ce document est dans le best-of' : undefined}
+          style={{ ...ligne, cursor: 'pointer', border: `1px solid ${courante ? 'var(--color-svv-ink)' : 'var(--color-svv-line)'}`, background: courante ? 'var(--color-svv-field)' : 'transparent', color: 'inherit' }}>
+          <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap', color: enBestOf ? 'var(--color-svv-blue)' : undefined }}>
+            {/* LOT 66 — catégorie « Cerfa » : marqueur posé PAR CONTENU (n° 13409). */}
+            {p.cerfa && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.02em', textTransform: 'uppercase', padding: '.05rem .3rem', borderRadius: '.25rem', background: 'var(--color-svv-red)', color: '#fff' }}>Cerfa</span>}
+            {/* DEMANDE 3 — repère TEXTUEL du best-of (compréhensible sans distinguer les couleurs). */}
+            {enBestOf && <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-svv-blue)', border: '1px solid var(--color-svv-blue)', borderRadius: '.25rem', padding: '.02rem .25rem' }}>★ best-of</span>}
+            <span>{p.nomFichier}{p.propose ? '' : ' — hors des pièces suivies'}</span>
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+            <span style={{ fontSize: 11, color: 'var(--color-svv-muted)', flex: '1 1 auto', minWidth: 0 }}>{etat(p)}</span>
+            {a && <PastilleAnalyseIA s={a} />}
+          </span>
+        </button>
+      </li>
+    );
+  };
   return (
-    <ul role="list" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
-      {ordre.map((p) => {
-        const courante = p.id === pieceId;
-        const a = analyseParPiece[p.id];
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+      {/* DEMANDE 2 — GROUPES par catégorie, dans l'ordre imposé. Une pièce multi-types apparaît dans CHAQUE groupe concerné (décision Arno). */}
+      {ORDRE_CATEGORIES.map((cat) => {
+        const membres = pieces.filter((p) => categoriesPiece(p).includes(cat));
+        if (membres.length === 0) return null;
         return (
-          <li key={p.id}>
-            <button type="button" onClick={() => onChoisir(p.id)} aria-current={courante ? 'true' : undefined}
-              style={{ ...ligne, cursor: 'pointer', border: `1px solid ${courante ? 'var(--color-svv-ink)' : 'var(--color-svv-line)'}`, background: courante ? 'var(--color-svv-field)' : 'transparent', color: 'inherit' }}>
-              <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
-                {/* LOT 66 — catégorie « Cerfa » : marqueur posé PAR CONTENU (n° 13409), pour retrouver le formulaire d'un coup d'œil.
-                    Absent si l'identification est incertaine (N10-J) : on ne devine jamais d'après le nom de fichier. */}
-                {p.cerfa && <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.02em', textTransform: 'uppercase', padding: '.05rem .3rem', borderRadius: '.25rem', background: 'var(--color-svv-red)', color: '#fff' }}>Cerfa</span>}
-                <span>{p.nomFichier}{p.propose ? '' : ' — hors des pièces suivies'}</span>
-              </span>
-              {/* LOT 97 — état en TEXTE (à gauche) + PASTILLE d'analyse IA (bas à DROITE). La pastille ne s'affiche que si la pièce a été
-                  analysée (jamais « 0 » ni un état neutre trompeur). `marginLeft:auto` la pousse à droite ; `flexShrink:0` → jamais tronquée en portrait. */}
-              <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-                <span style={{ fontSize: 11, color: 'var(--color-svv-muted)', flex: '1 1 auto', minWidth: 0 }}>{etat(p)}</span>
-                {a && <PastilleAnalyseIA s={a} />}
-              </span>
-            </button>
-          </li>
+          <div key={cat}>
+            <div style={enteteCat}>{libelleCategoriePiece(cat)}</div>
+            <ul role="list" style={ulStyle}>{membres.map((p) => rendreItem(p, cat))}</ul>
+          </div>
         );
       })}
-      {nonSupportees.map((p) => (
-        <li key={`ns-${p.id}`}>
-          <div style={{ ...ligne, opacity: 0.6, border: '1px solid var(--color-svv-line)', cursor: 'not-allowed' }} aria-disabled="true">
-            <span style={{ fontWeight: 600 }}>{p.nomFichier}</span>
-            <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>impossible à ouvrir — {p.motif}</span>
-          </div>
-        </li>
-      ))}
-    </ul>
+      {/* Acquis 9decccf — pièces NON AFFICHABLES (format) : listées, DÉSACTIVÉES, avec motif. Jamais écartées en silence. */}
+      {nonSupportees.length > 0 && (
+        <div>
+          <div style={enteteCat}>Non affichables (format)</div>
+          <ul role="list" style={ulStyle}>
+            {nonSupportees.map((p) => (
+              <li key={`ns-${p.id}`}>
+                <div style={{ ...ligne, opacity: 0.6, border: '1px solid var(--color-svv-line)', cursor: 'not-allowed' }} aria-disabled="true">
+                  <span style={{ fontWeight: 600 }}>{p.nomFichier}</span>
+                  <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>impossible à ouvrir — {p.motif}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 

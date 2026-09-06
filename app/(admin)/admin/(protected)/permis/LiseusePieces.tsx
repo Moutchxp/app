@@ -379,6 +379,8 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   // LOT 97 — ÉTAT D'ANALYSE IA à DEUX AXES par pièce, pour la liste + sa pastille : COMBINE le repérage LOT 62 (grain PIÈCE = fichier
   //   complet, `runs`) et la lecture de valeurs LOT 95 (grain PAGE = partielle, `lectures`). Règle d'étendue + origine dans la fonction
   //   PURE `etatAnalyseIA` (le fichier complet prime ; origine 'manuelle' = fait sourcé, jamais 'auto' inventé). Date lisible Europe/Paris.
+  // DEMANDE 3 — pièces ayant AU MOINS une page/image dans le best-of VISIBLE (bande = auto − retraits + ajouts) → marquées en bleu.
+  const piecesBestOf = useMemo(() => new Set(bandeVisible.map((pl) => pl.pieceId)), [bandeVisible]);
   const analyseParPiece = useMemo<Record<number, EtatAnalyseIA>>(() => {
     const out: Record<number, EtatAnalyseIA> = {};
     const ids = new Set<number>([...Object.keys(runs).map(Number), ...Object.keys(lectures).map(Number)]);
@@ -567,7 +569,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
         //   animation (prefers-reduced-motion respecté d'office). La ligne cliquée reste marquée (aria-current, LOT 64).
         <div style={{ marginTop: '.3rem', maxHeight: '60vh', overflowY: 'auto' }}>
           {/* LOT 64 — liste EXPLICITE : toutes les pièces, non analysées par image en tête, état par ligne. */}
-          <ListePiecesAnalyse pieces={pieces} analyseParPiece={analyseParPiece} nonSupportees={piecesNonSupportees} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} />
+          <ListePiecesAnalyse pieces={pieces} analyseParPiece={analyseParPiece} nonSupportees={piecesNonSupportees} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} piecesBestOf={piecesBestOf} />
         </div>
       )}
     </div>

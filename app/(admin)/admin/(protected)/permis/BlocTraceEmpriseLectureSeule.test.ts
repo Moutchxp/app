@@ -336,3 +336,21 @@ describe('SUITE LOT 7b47817 — le bloc outils/contrôle suit procEnCours, group
     expect(bloc).toContain('<BandeauVraisemblance aireM2={aire}'); // Aire — tracez un contour fermé
   });
 });
+
+/**
+ * DEMANDES 1-3 (ce lot) — la liste « voir toutes les pièces » du TRACÉ passe au MÊME composant explicite que la planche
+ * (ListePiecesAnalyse) : un seul clic l'ouvre (fin du <select> à re-cliquer), groupée par catégorie, best-of en bleu. Les deux
+ * visionneuses ne divergent pas. Gardes par lecture de source (BlocTraceEmprise n'est jamais monté).
+ */
+describe('DEMANDES 1-3 — liste des pièces unifiée (ListePiecesAnalyse) côté tracé', () => {
+  it('DEMANDE 1 — le tracé rend une LISTE EXPLICITE (ListePiecesAnalyse), plus le <select> SelecteurPiecePlan (qui exigeait un 2e clic)', () => {
+    expect(src).toContain('<ListePiecesAnalyse');
+    expect(src).not.toContain('<SelecteurPiecePlan'); // le sélecteur natif (double clic) a disparu du tracé
+  });
+  it('DEMANDES 2/3 — le tracé calcule analyseParPiece + piecesBestOf et les passe à la liste (groupement + marquage bleu, comme la planche)', () => {
+    expect(src).toContain('const analyseParPiece = useMemo');
+    expect(src).toContain('const piecesBestOf = useMemo(() => new Set(bande.map((pl) => pl.pieceId))');
+    expect(src).toContain('piecesBestOf={piecesBestOf}');
+    expect(src).toContain('nonSupportees={piecesNonSupportees}'); // acquis 9decccf conservé
+  });
+});

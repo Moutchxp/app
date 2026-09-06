@@ -184,6 +184,31 @@ describe('DEMANDE 4 — qualifier la page pendant la navigation : inclusion best
   });
 });
 
+describe('DEMANDE 1/2/3 — un SEUL clic ouvre la liste groupée ; best-of en bleu (montage planche)', () => {
+  it('best-of à 2 plans → liste FERMÉE ; UN clic sur « voir toutes les pièces » l’ouvre, groupée par catégorie, best-of marqué « ★ best-of »', async () => {
+    global.fetch = vi.fn(async (_i: unknown, init?: { method?: string }) => {
+      if ((init?.method ?? 'GET') === 'POST') return { ok: true, json: async () => ({ url: 'blob:fake' }) } as unknown as Response;
+      return { ok: true, json: async () => ({ pieces: [
+        { id: 55, nomFichier: 'A_masse.pdf', propose: true, famille: 'masse', confirme: true, planches: [{ page: 1, echelle: null, famille: 'masse' }] },
+        { id: 60, nomFichier: 'B_coupe.pdf', propose: true, famille: 'coupe', confirme: true, planches: [{ page: 1, echelle: null, famille: 'coupe' }] },
+      ] }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await act(async () => { root.render(h(LiseusePieces, { dossierId: 1 })); });
+    await flush();
+    // best-of à 2 plans → repli FERMÉ : la liste n'est pas encore montrée (les DEUX noms ne sont pas tous là).
+    const toggle = Array.from(container.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('voir toutes les pièces du dossier'));
+    expect(toggle).not.toBeUndefined();
+    // UN SEUL clic ouvre la liste directement (plus de second niveau à re-cliquer).
+    act(() => { toggle!.click(); }); await flush();
+    expect(container.textContent).toContain('A_masse.pdf');
+    expect(container.textContent).toContain('B_coupe.pdf');
+    // groupée par catégorie (en-têtes) dans l'ordre : masse avant coupe.
+    expect(container.textContent!.indexOf('Plan de masse')).toBeLessThan(container.textContent!.indexOf('Plan de coupe'));
+    // les DEUX pièces ont leur planche au best-of → repère textuel « ★ best-of » sur chacune.
+    expect((container.textContent!.match(/★ best-of/g) ?? []).length).toBe(2);
+  });
+});
+
 describe('LOT 96 — liste « pages ajoutées à la main » repliable (reproduit le dossier 470 : 3 ajouts PC5)', () => {
   // GET renvoie 1 pièce AUTO (best-of) + 3 pièces PC5 NON proposées, incluses à la main → 3 pages « ajoutées » (manuel).
   function monterAvecAjouts(): void {

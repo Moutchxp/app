@@ -8,7 +8,7 @@ import {
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome (best-of, navigation, zoom) réutilisée à 0 bâtiment
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -29,7 +29,7 @@ import { statutCourantParCleabs, type LigneStatutPolygone, type PolygoneRecouver
  */
 
 // PROJ-3d/3f — la pièce porte la PROPOSITION « plan de masse » (score par nom) + ses PLANCHES (pages hors cartouche, confirmées serveur).
-interface Piece { id: number; nomFichier: string; typeMime: string | null; propose?: boolean; famille?: FamillePlan | null; planches?: { page: number; echelle: string | null; tracable?: boolean; famille?: FamillePlan; ambigu?: boolean }[]; confirme?: boolean }
+interface Piece { id: number; nomFichier: string; typeMime: string | null; propose?: boolean; famille?: FamillePlan | null; planches?: { page: number; echelle: string | null; tracable?: boolean; famille?: FamillePlan; ambigu?: boolean }[]; confirme?: boolean; cerfa?: boolean; niveaux?: string[] }
 interface Contexte { empreinteAnneaux: [number, number][][] | PointLambert[][]; surfaceTerrainM2: number | null; surfacePlancherM2: number | null; batiments: { corpsId: number; nbEtages: number | null; empriseM2: number | null }[] }
 type Mode = 'calage' | 'trace';
 type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convertToViewportPoint(x: number, y: number): number[] }; ratio: number };
@@ -127,6 +127,19 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   // INCRÉMENT-2 — best-of VISIBLE = bande auto − retraits + ajouts (mêmes overrides que la planche). Touche la NAVIGATION (quel plan est
   //   proposé), JAMAIS le viewport ni la conversion de coordonnées.
   const bande = useMemo(() => bandeAvecOverrides(construireBandePlans(pieces), pieces, exclus, inclus), [pieces, exclus, inclus]);
+  // DEMANDES 2/3 — la liste « voir toutes les pièces » (partagée avec la planche via ListePiecesAnalyse) a besoin de l'état d'analyse IA
+  //   par pièce (repérage LOT 62 + lectures LOT 95) et de l'ensemble des pièces au best-of (pour le marquage bleu). Mêmes calculs que la planche.
+  const analyseParPiece = useMemo<Record<number, EtatAnalyseIA>>(() => {
+    const out: Record<number, EtatAnalyseIA> = {};
+    const ids = new Set<number>([...Object.keys(runs).map(Number), ...Object.keys(lectures).map(Number)]);
+    for (const id of ids) {
+      const r = runs[id];
+      const e = etatAnalyseIA({ reperage: r ? { nbPlanches: r.nbPlanches, creeLe: r.creeLe } : undefined, lectures: (lectures[id] ?? []).map((l) => ({ envoyee: l.envoyee, creeLe: l.creeLe })) }, (iso) => jourParisISO(iso));
+      if (e) out[id] = e;
+    }
+    return out;
+  }, [runs, lectures]);
+  const piecesBestOf = useMemo(() => new Set(bande.map((pl) => pl.pieceId)), [bande]); // DEMANDE 3 — ≥ 1 page au best-of → marquage bleu
   // PROJ-3g/3m — FAMILLE + TRAÇABILITÉ de la page courante. En best-of, la traçabilité est calculée PAR PAGE côté serveur (une planche
   //   de niveau d'une pièce PC3 est traçable) ; en pièce libre, on retombe sur la famille du NOM. `verrou` = pourquoi c'est bloqué ;
   //   `ambiguCourant` = classement incertain (traçable par défaut, mais on le DIT). Verrou revérifié serveur PAR PAGE à l'enregistrement.
@@ -710,9 +723,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         {pleinListe ? 'masquer les autres pièces' : 'voir toutes les pièces du dossier'} {pleinListe ? '▲' : '▾'}
       </button>
       {pleinListe && (
-        <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.3rem' }}>
-          <SelecteurPiecePlan pieces={pieces} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} nonSupportees={piecesNonSupportees} />
-          <span style={styleAide}>Ouvre la pièce et la feuillette page par page. Les pièces non affichables (format) sont listées, désactivées, avec leur motif.</span>
+        // DEMANDE 1 — liste EXPLICITE (un seul clic sur le repli l'ouvre directement, plus de <select> à re-cliquer). DEMANDES 2/3 —
+        //   groupée par catégorie + marquage bleu du best-of. MÊME composant que la planche (ListePiecesAnalyse) → les deux ne divergent pas.
+        <div style={{ marginTop: '.3rem', maxHeight: '60vh', overflowY: 'auto' }}>
+          <ListePiecesAnalyse pieces={pieces} analyseParPiece={analyseParPiece} nonSupportees={piecesNonSupportees} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} piecesBestOf={piecesBestOf} />
         </div>
       )}
     </div>

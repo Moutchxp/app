@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -1393,13 +1393,29 @@ describe('LOT 64/97 — ListePiecesAnalyse : toutes les pièces, non analysées 
     { id: 20, nomFichier: 'PC200 Autres pieces.pdf', propose: false },
     { id: 30, nomFichier: 'PC03_coupe.pdf', propose: true },
   ];
-  it('ORDRE : les JAMAIS analysées par image d’abord (ordre conservé dans le groupe), puis les analysées', () => {
-    // 10 déjà analysée → passe APRÈS 20 et 30 (jamais analysées, ordre conservé).
-    const a = { 10: complete(3, '2026-09-05') };
-    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces, analyseParPiece: a, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
-    const iPc200 = html.indexOf('PC200 Autres pieces.pdf'), iCoupe = html.indexOf('PC03_coupe.pdf'), iMasse = html.indexOf('PC02_masse.pdf');
-    expect(iPc200).toBeGreaterThan(-1); expect(iPc200).toBeLessThan(iMasse); // 20 (non analysée) avant 10 (analysée)
-    expect(iCoupe).toBeLessThan(iMasse);                                     // 30 (non analysée) avant 10
+  it('DEMANDE 2 — GROUPES par catégorie dans l’ordre imposé : masse → coupe → étage → cerfa → indéterminé', () => {
+    // catégories portées par les PLANCHES (par page) ; une pièce sans catégorie connue → « indéterminé ».
+    const grp = [
+      { id: 10, nomFichier: 'M.pdf', propose: true, planches: [{ page: 1, echelle: null, famille: 'masse' as const }] },
+      { id: 20, nomFichier: 'C.pdf', propose: true, planches: [{ page: 1, echelle: null, famille: 'coupe' as const }] },
+      { id: 30, nomFichier: 'E.pdf', propose: true, planches: [{ page: 1, echelle: null, famille: 'etage' as const }] },
+      { id: 40, nomFichier: 'F.pdf', propose: false, cerfa: true },
+      { id: 50, nomFichier: 'N.pdf', propose: false }, // aucune catégorie → indéterminé
+    ];
+    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces: grp, analyseParPiece: {}, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
+    // en-têtes de groupes présents et DANS L'ORDRE.
+    const iM = html.indexOf('Plan de masse'), iC = html.indexOf('Plan de coupe'), iE = html.indexOf('Plan d’étage'), iF = html.indexOf('Cerfa (formulaire)'), iN = html.indexOf('Indéterminé');
+    for (const i of [iM, iC, iE, iF, iN]) expect(i).toBeGreaterThan(-1);
+    expect(iM).toBeLessThan(iC); expect(iC).toBeLessThan(iE); expect(iE).toBeLessThan(iF); expect(iF).toBeLessThan(iN);
+    // chaque pièce sous le bon en-tête (N.pdf sans catégorie → indéterminé).
+    expect(html.indexOf('N.pdf')).toBeGreaterThan(iN);
+  });
+  it('DEMANDE 2 — pièce MULTI-TYPES dupliquée dans CHAQUE catégorie (décision Arno) ; une pièce sans catégorie → indéterminé', () => {
+    const multi = [{ id: 573, nomFichier: 'PC3.pdf', propose: true, planches: [
+      { page: 1, echelle: null, famille: 'coupe' as const }, { page: 2, echelle: null, famille: 'masse' as const }] }];
+    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces: multi, analyseParPiece: {}, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
+    // PC3.pdf apparaît DEUX fois : sous « Plan de masse » ET « Plan de coupe ».
+    expect((html.match(/PC3\.pdf/g) ?? [])).toHaveLength(2);
   });
   it('ÉTAT par ligne, en TEXTE : « jamais analysée » / « analysée le … · N planche(s) » / « aucune planche trouvée »', () => {
     const a = { 10: complete(3, '2026-09-05'), 30: complete(0, '2026-09-04') };
@@ -1426,20 +1442,45 @@ describe('LOT 64/97 — ListePiecesAnalyse : toutes les pièces, non analysées 
     expect(html).toContain('var(--color-svv-blue-soft)');  // ton PÂLE (partielle) — 2e ton, jamais un 3e
     expect(html).toContain('analyse IA du fichier complet, déclenchée manuellement, le 2026-09-05 — 5 planches repérées');
   });
+  it('DEMANDE 2 — categoriesPiece (PUR) : pages → catégories ; cerfa ; repli famille de pièce ; sinon indéterminé ; ordre canonique', () => {
+    expect(categoriesPiece({ planches: [{ page: 1, echelle: null, famille: 'coupe' }, { page: 2, echelle: null, famille: 'masse' }] })).toEqual(['masse', 'coupe']); // multi-types, ordre canonique
+    expect(categoriesPiece({ cerfa: true })).toEqual(['cerfa']);
+    expect(categoriesPiece({ famille: 'etage' })).toEqual(['etage']);           // repli famille de PIÈCE (aucune planche)
+    expect(categoriesPiece({ planches: [{ page: 1, echelle: null, famille: 'masse' }], famille: 'coupe' })).toEqual(['masse']); // les PLANCHES priment le repli
+    expect(categoriesPiece({})).toEqual(['indetermine']);                       // rien de connu → indéterminé, jamais deviné
+    expect(categoriesPiece({ nomFichier: 'PC2_plan_masse.pdf' } as never)).toEqual(['indetermine']); // JAMAIS deviné par le nom
+    expect(ORDRE_CATEGORIES).toEqual(['masse', 'coupe', 'etage', 'cerfa', 'indetermine']);
+    expect(libelleCategoriePiece('etage')).toBe('Plan d’étage');
+  });
+  it('DEMANDE 3 — best-of : une pièce ayant ≥ 1 page au best-of est en BLEU + repère TEXTUEL « ★ best-of » ; les autres non', () => {
+    const p2 = [
+      { id: 10, nomFichier: 'A.pdf', propose: true, planches: [{ page: 1, echelle: null, famille: 'masse' as const }] },
+      { id: 20, nomFichier: 'B.pdf', propose: true, planches: [{ page: 1, echelle: null, famille: 'masse' as const }] },
+    ];
+    const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces: p2, analyseParPiece: {}, nonSupportees: [], pieceId: null, onChoisir: () => {}, piecesBestOf: new Set([10]) }));
+    // repère TEXTUEL présent une seule fois (jamais la couleur seule).
+    expect((html.match(/★ best-of/g) ?? [])).toHaveLength(1);
+    expect(html).toContain('var(--color-svv-blue)');                 // écriture en bleu THÉMATISÉ (lisible clair + sombre)
+    expect(html).toContain('au moins une page de ce document est dans le best-of'); // title accessible
+    // sans best-of → aucun repère.
+    const htmlVide = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces: p2, analyseParPiece: {}, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
+    expect(htmlVide).not.toContain('★ best-of');
+  });
   it('pièce NON PDF : listée QUAND MÊME, désactivée, avec la raison (jamais absente en silence)', () => {
     const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces: [], analyseParPiece: {}, nonSupportees: [{ id: 99, nomFichier: 'photo.jpg', motif: 'format non pris en charge (image/jpeg)' }], pieceId: null, onChoisir: () => {} }));
     expect(html).toContain('photo.jpg');
     expect(html).toContain('impossible à ouvrir — format non pris en charge (image/jpeg)');
     expect(html).toContain('aria-disabled="true"');
   });
-  it('LOT 66 — catégorie « Cerfa » : la pièce marquée cerfa porte le badge ; les autres non (jamais deviné par le nom)', () => {
+  it('LOT 66 — badge « Cerfa » : la pièce marquée cerfa porte le badge ; les autres non (jamais deviné par le nom)', () => {
     const avecCerfa = [
       { id: 40, nomFichier: 'Recapitulatif de la demande-19.pdf', propose: false, cerfa: true }, // reconnu PAR CONTENU
-      { id: 41, nomFichier: 'PC02_masse.pdf', propose: true, cerfa: false },
+      { id: 41, nomFichier: 'PC02_masse.pdf', propose: true, cerfa: false, planches: [{ page: 1, echelle: null, famille: 'masse' as const }] },
     ];
     const html = renderToStaticMarkup(h(ListePiecesAnalyse, { pieces: avecCerfa, analyseParPiece: {}, nonSupportees: [], pieceId: null, onChoisir: () => {} }));
-    expect(html).toContain('>Cerfa<');                                       // badge présent sur la pièce cerfa
-    expect((html.match(/>Cerfa</g) ?? [])).toHaveLength(1);                  // une seule : jamais posé sur PC02 (nom trompeur, cerfa=false)
+    // le BADGE (>Cerfa<) est distinct de l'en-tête de catégorie (« Cerfa (formulaire) ») : une seule occurrence du badge, sur la pièce cerfa.
+    expect((html.match(/>Cerfa</g) ?? [])).toHaveLength(1);                  // jamais posé sur PC02 (nom trompeur, cerfa=false)
+    expect(html).toContain('Cerfa (formulaire)');                            // en-tête du groupe cerfa
   });
 });
 
