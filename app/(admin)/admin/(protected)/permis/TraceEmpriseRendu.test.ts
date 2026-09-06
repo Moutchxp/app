@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -252,6 +252,15 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     expect(tag).toContain('fill="#1b1b1b"');            // encre FIXE (ETIQ_ENCRE) → lisible sur le blanc du canvas dans les DEUX thèmes
     expect(tag).toContain('paint-order="stroke"');      // halo blanc → passe au-dessus du gris du bâti
     expect(tag).not.toContain('var(--color-svv-ink)');  // plus de token (qui basculait à #e8ebef = quasi-blanc, invisible en thème sombre)
+    expect(Number(tag.match(/font-size="([^"]+)"/)?.[1])).toBeGreaterThanOrEqual(15); // lisible sans zoomer (≥ plancher, > ancienne taille 12)
+  });
+  it('taille des repères : plancher lisible (petit polygone), plafond (grand), proportionnelle au milieu', () => {
+    const carre = (c: number) => [{ x: 0, y: 0 }, { x: c, y: 0 }, { x: c, y: c }, { x: 0, y: c }];
+    expect(tailleRepere(carre(6))).toBe(15);            // petit → PLANCHER (6*0.55=3,3 relevé) : jamais illisible, quitte à déborder un peu
+    expect(tailleRepere(carre(400))).toBe(30);          // grand → PLAFOND : n'écrase pas la forme
+    expect(tailleRepere(carre(40))).toBeCloseTo(22, 5); // moyen → 40*0,55 = 22, dans la plage
+    expect(tailleRepere(carre(40))).toBeGreaterThan(12); // strictement plus grand que l'ancienne taille fixe (12)
+    expect(tailleRepere([{ x: 0, y: 0 }, { x: 5, y: 0 }])).toBe(15); // dégénéré (< 3 pts) → plancher
   });
   it('📍 repère POSITIONNÉ DANS le polygone même CONCAVE (en L) : ancre intérieure (pointOnSurface), pas le centroïde qui tombe dehors', () => {
     const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };

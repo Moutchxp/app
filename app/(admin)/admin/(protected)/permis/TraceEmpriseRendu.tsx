@@ -965,6 +965,18 @@ const ETIQ_ALERTE = '#a30402'; // rouge SVAV en dur : emprise projetée (②) + 
 const EMPREINTE_TRAIT = '#1b2430';
 const EMPREINTE_FOND = 'rgba(90,99,113,.06)';
 
+// Repères (A, B, C…) : taille de police ADAPTÉE au polygone (unités de la boîte du schéma) — lisible d'un coup d'œil sur une forme
+//   moyenne, PLAFONNÉE pour ne pas écraser une grande forme, et surtout PLANCHER LISIBLE pour les petites (mieux vaut déborder un
+//   peu qu'illisible). Ratio appliqué à la plus PETITE dimension du polygone projeté.
+const REPERE_POLICE_MIN = 15, REPERE_POLICE_MAX = 30, REPERE_POLICE_RATIO = 0.55;
+/** Taille de police d'un repère selon la plus petite dimension de son polygone PROJETÉ (px boîte), bornée [MIN ; MAX]. PUR. */
+export function tailleRepere(anneauPx: { x: number; y: number }[]): number {
+  if (anneauPx.length < 3) return REPERE_POLICE_MIN;
+  const xs = anneauPx.map((p) => p.x), ys = anneauPx.map((p) => p.y);
+  const dim = Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+  return Math.max(REPERE_POLICE_MIN, Math.min(REPERE_POLICE_MAX, dim * REPERE_POLICE_RATIO));
+}
+
 /** RATT-3/RATT-6 — PALETTE de statut (constantes de DESSIN, jamais des variables métier) : vert = préservé, orange = détruit total,
  *  MIXTE (partiellement détruit) = gris d'origine (le bâtiment SURVIT, il reste visible) + trait TIRETÉ ardoise — JAMAIS l'orange du
  *  détruit, aucune couleur criarde : le mixte ne se lit pas comme un détruit. */
@@ -1051,7 +1063,7 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
             comme les étiquettes et le contour d'empreinte (EMPREINTE_TRAIT). L'ancien `var(--color-svv-ink)` basculait à #e8ebef en
             thème sombre → blanc sur blanc, invisible. Ancre = pointOnSurfaceAnneau (intérieur GARANTI, robuste aux formes concaves/en L
             où le centroïde tombe dehors) ; baseline centrale → la lettre est posée SUR le point. Rendu APRÈS le bâti → au-dessus de lui. */}
-        {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3) return null; const q = projeterDansBoite(boite, pointOnSurfaceAnneau(poly.anneau)); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={12} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill={ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={0.9} paintOrder="stroke" data-repere={poly.repere}>{poly.repere}</text>; })}
+        {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3) return null; const q = projeterDansBoite(boite, pointOnSurfaceAnneau(poly.anneau)); const taille = tailleRepere(poly.anneau.map((p) => projeterDansBoite(boite, p))); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={taille} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill={ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={Math.max(1, taille * 0.12)} paintOrder="stroke" data-repere={poly.repere}>{poly.repere}</text>; })}
         {/* LOT 82/83 — ÉTIQUETTES sur le dessin : nom du bâtiment + altitude de sommet, ancre GARANTIE intérieure (pointOnSurfaceAnneau).
             LOT 83 : placement COLLISION-AWARE calculé pour TOUTES ENSEMBLE (placerEtiquettes) — DEDANS si la boîte tient, sinon DÉPORTÉE
             ENTIÈREMENT hors de TOUTES les formes (obstacles = polygones + emprises) et des autres boîtes, jamais à cheval ; trait de
