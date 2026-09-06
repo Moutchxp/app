@@ -25,9 +25,10 @@ describe('PROJ-4a — récap (lecture seule) de l’emprise projetée dans le Ra
     expect(html).toContain('schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées'); // le schéma est dessiné
     expect(html).toContain('data-etat="En service"');   // couche bâti BD TOPO existant
     expect(html).toContain('data-emprise="1"');           // couche emprise projetée
-    // Légende reprise de l'écran de projection (catégories nommées ; PROJ-MIT : « sur la parcelle » distingué du « mitoyen »).
-    expect(html).toContain('Bâti existant sur la parcelle (BD TOPO)');
-    expect(html).toContain('Mitoyen (contexte — voisin accolé, hors parcelle)');
+    // Légende reprise de l'écran de projection (PROJ-HIÉRARCHIE : les 3 familles nommées, du plus saillant au plus discret).
+    expect(html).toContain('Le bâtiment du permis (sur la parcelle)');
+    expect(html).toContain('Le voisin direct (en contact)');
+    expect(html).toContain('Le contexte alentour (parcelles voisines et leur bâti)');
     expect(html).toContain('En projet (donnée IGN)');
     expect(html).toContain('Emprise tracée (reconstitution — jamais une mesure)');
   });
