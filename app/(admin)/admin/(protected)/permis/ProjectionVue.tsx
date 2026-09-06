@@ -231,16 +231,18 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
           {() => (
             <div className="flex flex-col gap-2">
               <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} onEmprisesChange={() => setVEmprise((v) => v + 1)} />
-              {/* LOT 51-C — pour un dossier TESTÉ, le bouton « Valider » NORMAL est masqué : il passe en Rattachement SANS arrêter les
-                  relances (dangereux). La sortie d'un dossier testé passe UNIQUEMENT par « Terminer l'analyse » (carte de test, double condition). */}
-              {!row?.testeEnAnalyse && (
-                <BoutonValiderProjection
-                  peutValider={ev.peutValider}
-                  aucunBatiment={ev.aucunBatiment}
-                  libelle={ev.libelle}
-                  enCours={enCours}
-                  onValider={() => { void valider(ouvert); }} />
-              )}
+              {/* PARITÉ TEST/NORMAL (décision porteur) — le bouton « Valider la projection » est rendu dans les DEUX cas : la fonction
+                  « bâtiments et projection » est IDENTIQUE pour un dossier testé et pour un dossier complet (avant, il était masqué pour un
+                  dossier testé → la projection ne pouvait JAMAIS être validée sur ce chemin, la capsule restait rouge). Garde INCHANGÉE
+                  (ev.peutValider : ≥ 1 bâtiment déclaré ET chacun couvert — jamais assouplie ; un bâtiment sans emprise ni ignore bloque et
+                  l'écran le DIT). 🔴 Pour un dossier testé, `valider` écrit permis_projection et marque le suivi comme d'habitude, mais
+                  N'ARRÊTE PAS les relances : l'arrêt exhaustif reste le geste DÉDIÉ « Terminer l'analyse » de la carte de test ci-dessus. */}
+              <BoutonValiderProjection
+                peutValider={ev.peutValider}
+                aucunBatiment={ev.aucunBatiment}
+                libelle={ev.libelle}
+                enCours={enCours}
+                onValider={() => { void valider(ouvert); }} />
               {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
             </div>
           )}

@@ -46,7 +46,7 @@ describe('LOT 51-C — sortirTestVersRattachement : double condition + atomicit�
   });
 });
 
-describe('LOT 51-C — UI : sortie gardée, condition manquante affichée, bouton normal masqué pour un dossier testé', () => {
+describe('LOT 51-C — UI : sortie gardée, condition manquante affichée ; bouton « Valider » désormais rendu aussi pour un dossier testé (parité)', () => {
   const s = lire('app/(admin)/admin/(protected)/permis/ProjectionVue.tsx');
   it('bouton de sortie plein libellé + action serveur dédiée', () => {
     expect(s).toContain('Terminer l’analyse et passer en Rattachement');
@@ -61,8 +61,10 @@ describe('LOT 51-C — UI : sortie gardée, condition manquante affichée, bouto
     expect(s).toContain('pretPourSortie'); // le bouton n'est actif QUE si empreinte OK ET altitude SATISFAITE (jamais « sans objet »)
     expect(lire('app/lib/permis/etatSortieRattachement.ts')).toContain('sans altitude de sommet (NGF)');
   });
-  it('le bouton « Valider » NORMAL est masqué pour un dossier testé (chemin qui n’arrête pas les relances)', () => {
-    expect(s).toContain('!row?.testeEnAnalyse && (');
+  it('PARITÉ test/normal — le bouton « Valider la projection » est rendu dans les DEUX cas (plus de garde !testeEnAnalyse) ; l’arrêt exhaustif des relances reste le geste DÉDIÉ « Terminer l’analyse »', () => {
+    expect(s).not.toContain('!row?.testeEnAnalyse && ('); // le bouton n’est plus masqué pour un dossier testé
+    expect(s).toContain('<BoutonValiderProjection');       // rendu (inconditionnel)
+    expect(s).toContain("action: 'sortir_vers_rattachement'"); // « Terminer l’analyse » (close + partiel_leve_le) subsiste pour l’arrêt des relances
   });
   it('la route 409 renvoie `manque` pour l’affichage', () => {
     expect(lire('app/(admin)/api/admin/permis/projection/route.ts')).toContain('manque: res.manque');
