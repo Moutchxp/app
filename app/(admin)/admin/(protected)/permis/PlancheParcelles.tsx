@@ -268,6 +268,13 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
                 </svg>
               </div>
 
+              {/* PL-G — parcelle(s) du permis hors de cette vue (au-delà du rayon) : elle(s) existe(nt), ailleurs — jamais « disparues ». Ton neutre. */}
+              {data.retenuesHorsVue > 0 && (
+                <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>
+                  ℹ {data.retenuesHorsVue} parcelle{data.retenuesHorsVue > 1 ? 's' : ''} du permis se situe{data.retenuesHorsVue > 1 ? 'nt' : ''} hors de cette vue (au-delà du rayon) — élargissez le rayon ou centrez sur les parcelles du permis pour la{data.retenuesHorsVue > 1 ? 's' : ''} voir.
+                </div>
+              )}
+
               {/* ── PL-C : ÉTAT COURANT + COMPOSITION + ACTIONS ─────────────────────────────────────────────────────────────── */}
               <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
                 {/* État courant : DIT clairement automatique vs validé par QUI et QUAND (provenance honnête). */}

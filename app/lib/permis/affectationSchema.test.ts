@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   repereDepuisIndex, indexDepuisRepere, couleurRepere, PALETTE_REPERE,
-  geomDepuisGeoJSON, construireSchema, cadreDe, unionCadre, optionsPourCorps, polygonesNonAffectes, corpsDuPolygone,
+  geomDepuisGeoJSON, construireSchema, cadreDe, unionCadre, cadreVue, optionsPourCorps, polygonesNonAffectes, corpsDuPolygone,
   recopierCote, cotesEnNombres, niveauSurlignement, etatSurlignement, cheminAnneauLambert,
   type CorpsAffectation, type PolygoneAffectable, type PolygoneEntreeSchema,
 } from './affectationSchema';
@@ -163,6 +163,37 @@ describe('L5 — cadrage COMMUN (cadreDe / unionCadre / construireSchema avec ca
     // sans cadre commun, l'empreinte se projetterait différemment (l'œil comparerait des formes qui ne se correspondent pas)
     const sLibre = construireSchema(emp, [], 320, 240, 12);
     expect(sLibre.empreintePath).not.toBe(sNouvelle.empreintePath);
+  });
+});
+
+describe('PL-G — cadreVue : le cadre suit LE CENTRAGE (les parcelles du permis hors rayon ne gonflent pas la vue)', () => {
+  const ent = (geom: PolygoneEntreeSchema['geom'], hors = false): PolygoneEntreeSchema => ({ repere: 'A', cleabs: 'X', geom, horsEmpreinte: hors });
+  const voisin = ent(carre(1000, 2000, 20));                 // voisinage proche du point d'adresse
+  const permisLoin = ent(carre(9000, 9000, 30), true);       // parcelle du permis TRÈS éloignée (forcée au dessin, hors rayon)
+  const point = { x: 1010, y: 2010 };
+
+  it('(a) mode adresse, parcelle du permis très éloignée → le cadre reste celui du voisinage, la lointaine ne le gonfle pas', () => {
+    const c = cadreVue('adresse', [voisin], [voisin, permisLoin], point, 100)!;
+    expect(c).not.toBeNull();
+    // La borne haute reste dans l'ordre du voisinage (≤ 1020) + le point ; JAMAIS tirée à 9000+ par la parcelle lointaine.
+    expect(c.maxX).toBeLessThanOrEqual(1020);
+    expect(c.maxY).toBeLessThanOrEqual(2020);
+  });
+
+  it('(b) mode adresse, parcelle du permis DANS le rayon (donc cadrante) → elle est bien cadrée', () => {
+    const permisProche = ent(carre(1030, 2030, 20));         // parcelle du permis proche → comptée parmi les cadrantes
+    const c = cadreVue('adresse', [voisin, permisProche], [voisin, permisProche], point, 100)!;
+    expect(c.maxX).toBeGreaterThanOrEqual(1050);             // 1030 + 20 → la parcelle proche élargit bien le cadre
+    expect(c.maxY).toBeGreaterThanOrEqual(2050);
+  });
+
+  it('(c) mode empreinte → null : comportement strictement inchangé (le cadre se calcule ensuite sur l’empreinte)', () => {
+    expect(cadreVue('empreinte', [voisin], [voisin, permisLoin], point, 100)).toBeNull();
+  });
+
+  it('(d) repli : aucune cadrante mais un point → fenêtre de la taille du rayon autour du point (jamais un cadre dégénéré ni l’explosion)', () => {
+    const c = cadreVue('adresse', [], [permisLoin], point, 50)!;
+    expect(c).toEqual({ minX: point.x - 50, maxX: point.x + 50, minY: point.y - 50, maxY: point.y + 50 });
   });
 });
 

@@ -111,6 +111,33 @@ export function unionCadre(a: Cadre | null, b: Cadre | null): Cadre | null {
 }
 
 /**
+ * PL-G — CADRE DE LA VUE selon le centrage. Sépare « ce qu'on DESSINE » de « ce qui CADRE » : les parcelles du permis restent
+ * FORCÉES au dessin (jamais perdues), mais elles ne doivent pas GONFLER la vue quand on centre ailleurs (adresse / parcelle choisie).
+ *  · mode 'empreinte' → null : le cadre se calcule ensuite sur l'empreinte + tout le dessin (comportement HISTORIQUE inchangé) ;
+ *  · mode 'adresse' / 'parcelle' → bbox des SEULES entrées CADRANTES (le voisinage dans le rayon autour du centre), englobant le
+ *    point de centrage pour que son repère reste visible. Une parcelle du permis HORS rayon est dessinée mais N'ENTRE PAS dans le cadre.
+ * Replis (jamais un cadre nul/dégénéré quand il y a de quoi voir) : aucune cadrante mais un point → fenêtre de la taille du rayon
+ * autour du point (voisinage vide, mais à la bonne échelle) ; ni cadrante ni point → bbox de tout le dessin. PUR.
+ */
+export function cadreVue(
+  mode: 'empreinte' | 'parcelle' | 'adresse',
+  cadrantes: PolygoneEntreeSchema[],
+  toutes: PolygoneEntreeSchema[],
+  point: { x: number; y: number } | null,
+  rayonM: number,
+): Cadre | null {
+  if (mode === 'empreinte') return null;
+  const base = cadreDe(null, cadrantes);
+  if (base) {
+    return point
+      ? { minX: Math.min(base.minX, point.x), maxX: Math.max(base.maxX, point.x), minY: Math.min(base.minY, point.y), maxY: Math.max(base.maxY, point.y) }
+      : base;
+  }
+  if (point && rayonM > 0) return { minX: point.x - rayonM, maxX: point.x + rayonM, minY: point.y - rayonM, maxY: point.y + rayonM };
+  return cadreDe(null, toutes);
+}
+
+/**
  * Projette l'empreinte + les polygones (Lambert-93) dans une boîte SVG (Y inversé). Empreinte absente/vide → `motif` explicite,
  * on NE dessine PAS au hasard. Un polygone hors empreinte est projeté quand même mais porte `horsEmpreinte` (signalé à l'écran).
  * `cadre` (L5, optionnel) FORCE la bbox de projection : passer le MÊME cadre à deux schémas garantit une échelle/cadrage communs.

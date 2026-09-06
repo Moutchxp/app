@@ -20,7 +20,7 @@ const plancheVide = (rayon: number): PlancheParcelles => ({
   meta: [], rayonM: rayon, nbRetenues: 0, nbVoisines: 0, motif: 'planche indisponible (lecture des parcelles impossible)',
   centre: { mode: 'empreinte', idu: null, point: null, provenance: null, label: null }, centreAvertissement: null, marqueurAdresse: null, parcellesChoix: [],
   localisation: { communeCode: null, communeNom: null, sections: [], feuilleLibelle: 'localisation indisponible', feuilleNote: '' },
-  selection: { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null },
+  selection: { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null }, retenuesHorsVue: 0,
 });
 
 export async function GET(request: Request): Promise<Response> {

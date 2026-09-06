@@ -15,7 +15,7 @@
  */
 import { query } from '../db/client';
 import { communeCadastrale } from '../sitadel/referenceCadastrale';
-import { construireSchema, geomDepuisGeoJSON, repereDepuisIndex, projeterLambertDansSchema, cadreDe, type SchemaEmpreinte, type PolygoneEntreeSchema, type GeomPoly } from './affectationSchema';
+import { construireSchema, geomDepuisGeoJSON, repereDepuisIndex, projeterLambertDansSchema, cadreVue, type SchemaEmpreinte, type PolygoneEntreeSchema, type GeomPoly } from './affectationSchema';
 
 export const RAYON_VOISINES_DEFAUT_M = 50;
 const RAYON_MIN_M = 10, RAYON_MAX_M = 200;
@@ -81,11 +81,13 @@ export interface PlancheParcelles {
   parcellesChoix: { idu: string; section: string; numero: string }[];
   localisation: Localisation;
   selection: SelectionInfo;     // PL-C — sélection validée (superposition) ; active=false = configuration automatique
+  retenuesHorsVue: number;      // PL-G — nb de parcelles DU PERMIS dessinées mais hors du cadre courant (au-delà du rayon) → l'écran le DIT
 }
 
 interface LignePlanche {
   idu: string | null; section: string; numero: string; gj: unknown; origine: 'saisie' | 'extraite' | null;
   maj_par: string | null; maj_le: string | null; prenom: string | null; nom: string | null; retenue: boolean; surface_m2: string | number | null;
+  dans_rayon: boolean;          // PL-G — la parcelle tombe-t-elle dans le rayon autour du centre courant ? (cadrante vs simplement forcée au dessin)
 }
 
 const nbOuNull = (v: string | number | null): number | null => (v === null || v === undefined ? null : Number(v));
@@ -297,8 +299,12 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
      )
      SELECT d.idu, d.section, d.numero, ST_AsGeoJSON(d.geom)::json AS gj,
             r.origine, r.maj_par, r.maj_le, r.prenom, r.nom, (r.idu IS NOT NULL) AS retenue,
-            round(ST_Area(d.geom)::numeric, 1) AS surface_m2
+            round(ST_Area(d.geom)::numeric, 1) AS surface_m2,
+            -- PL-G : la parcelle est-elle DANS LE RAYON autour du centre ? (sert au cadrage de la vue ; une parcelle du permis forcée
+            --   au dessin mais hors rayon a dans_rayon=false → dessinée mais hors cadre). ST_DWithin, pas un KNN → l'index GiST tient.
+            (ref.g IS NOT NULL AND ST_DWithin(d.geom, ref.g, $2)) AS dans_rayon
        FROM drawn d
+       CROSS JOIN ref
        LEFT JOIN LATERAL (
          SELECT pp.idu, pp.origine, pp.maj_par, pp.maj_le::text AS maj_le, au.prenom, au.nom
            FROM permis_parcelle pp
@@ -331,10 +337,15 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
             : 'aucune parcelle rattachée à ce permis : centrez sur l’adresse (ci-dessus) pour dessiner la planche et composer la sélection.')
         : 'aucune parcelle à dessiner dans ce rayon : élargissez le rayon ou changez de centrage.');
 
-  // Cadre : 'empreinte' → auto (empreinte + tout le dessin) ; 'parcelle'/'adresse' → cadré sur le DESSIN autour du point (planche du
-  //   centre, pas de l'empreinte lointaine). construireSchema force la bbox si `cadre` fourni.
-  const cadre = mode === 'empreinte' ? null : cadreDe(null, entrees);
+  // PL-G — CADRE selon le centrage. On sépare « ce qu'on dessine » (entrees : voisinage + parcelles du permis forcées) de « ce qui
+  //   CADRE » (cadrantes : uniquement ce qui tombe dans le rayon autour du centre). 'empreinte' → null (cadre historique sur empreinte
+  //   + tout le dessin) ; 'adresse'/'parcelle' → cadre sur le voisinage réel autour du point, SANS gonfler avec des parcelles lointaines.
+  const cadrantes = entrees.filter((_, i) => rows[i].dans_rayon === true);
+  const cadre = cadreVue(mode, cadrantes, entrees, point, rayon);
   const schema = construireSchema(empGeom, entrees, 360, 300, 14, cadre);
+  // PL-G — parcelles DU PERMIS dessinées mais hors du cadre courant (hors rayon) : on ne les perd pas, mais on le DIT (l'utilisateur ne
+  //   doit pas croire qu'elles ont disparu). Nul en mode empreinte (là le cadre englobe l'empreinte, donc ses parcelles).
+  const retenuesHorsVue = mode === 'empreinte' ? 0 : rows.filter((r) => r.retenue === true && r.dans_rayon !== true).length;
   const marqueurAdresse = mode === 'adresse' && point && schema.transform
     ? (([cx, cy]) => ({ cx, cy }))(projeterLambertDansSchema(schema.transform, point.x, point.y))
     : null;
@@ -354,6 +365,6 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
 
   return {
     schema, meta, rayonM: rayon, nbRetenues, nbVoisines, motif,
-    centre: { mode, idu, point, provenance, label }, centreAvertissement, marqueurAdresse, parcellesChoix, localisation, selection,
+    centre: { mode, idu, point, provenance, label }, centreAvertissement, marqueurAdresse, parcellesChoix, localisation, selection, retenuesHorsVue,
   };
 }
