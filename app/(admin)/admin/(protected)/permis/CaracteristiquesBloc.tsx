@@ -321,7 +321,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
                     VERT si la projection du DOSSIER est validée, sinon ROUGE (« Valider » si une emprise existe déjà — avec surface/date —,
                     sinon « Tracer »). Le clic amène au bloc « Bâtiments et projection » (ancre). Se rafraîchit via la clé du bloc (vEmprise). */}
                 <CapsuleEtatEmprise projectionValidee={data.empriseEtat?.projectionValidee ?? false}
-                  emprise={data.empriseEtat?.parBatiment[c.id] ?? null} ancreEmprise={ancreEmprise} />
+                  emprise={data.empriseEtat?.parBatiment[c.id] ?? null} ignore={data.empriseEtat?.ignoreCorps.includes(c.id) ?? false} ancreEmprise={ancreEmprise} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>

@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, DeclarationsCerfaBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps, etatCapsuleEmprise, CapsuleEtatEmprise } from './CaracteristiquesRendu';
 import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa';
 import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
+import { statutEmpriseBatiment, MOT_STATUT_EMPRISE, resumeProjection, verdictProjectionBatiments, type StatutEmpriseBatiment } from '../../../../lib/permis/projectionBatiments';
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
 
 /** N3-C — rendu PUR (node pur, renderToStaticMarkup) : origines, bornes lues de la base, NULL affiché vide, mention du sommet. */
@@ -954,6 +955,38 @@ describe('CAPSULE D’EMPRISE — jumelle de la capsule d’altitude (état lu e
     expect(aTracer.libelle).toContain('Tracer');
     // et un enregistrement fantôme (nbEmprises 0) compte comme « aucune emprise »
     expect(etatCapsuleEmprise(false, { surfaceM2: null, creeLe: null, nbEmprises: 0 }).libelle).toContain('Tracer');
+  });
+
+  // 🔴 RÉGRESSION « 4 mensonges du 7424 » : capsule (cartouche), pastille (sélecteur) et bandeau doivent TOUS dériver du même statut,
+  //   et le VERT (« validé/fait ») n'apparaître QUE si la projection du DOSSIER est validée. Ce test CASSE si un affichage diverge.
+  const CAS_STATUT: { aEmprise: boolean; ignore: boolean; pv: boolean; statut: StatutEmpriseBatiment; ton: 'vert' | 'ambre' | 'rouge' }[] = [
+    { aEmprise: true, ignore: false, pv: true, statut: 'validee', ton: 'vert' },
+    { aEmprise: true, ignore: false, pv: false, statut: 'a_valider', ton: 'rouge' },
+    { aEmprise: false, ignore: true, pv: false, statut: 'ignoree', ton: 'ambre' },
+    { aEmprise: false, ignore: false, pv: false, statut: 'a_tracer', ton: 'rouge' },
+  ];
+  for (const c of CAS_STATUT) {
+    it(`statut ${c.statut} : capsule ⟷ pastille alignées, vert ⟺ projection validée`, () => {
+      expect(statutEmpriseBatiment(c.aEmprise, c.ignore, c.pv)).toBe(c.statut); // 1) SOURCE UNIQUE
+      const cap = etatCapsuleEmprise(c.pv, c.aEmprise ? { surfaceM2: 998, creeLe: '2026-09-06T20:00:00Z', nbEmprises: 1 } : null, c.ignore);
+      expect(cap.ton).toBe(c.ton);                     // 2) capsule dérive du même statut
+      expect(cap.ton === 'vert').toBe(c.pv);           // 3) VERT ⟺ projection validée, jamais un tracé nu
+      const mot = MOT_STATUT_EMPRISE[c.statut];         // 4) pastille : mot unique du même statut
+      expect(mot.includes('validée')).toBe(c.pv);      //    « validée » (✓) ⟺ pv
+      expect(cap.libelle.includes('validée')).toBe(mot.includes('validée')); // capsule et pastille racontent le MÊME état
+    });
+  }
+
+  it('BANDEAU : ✓ vert UNIQUEMENT si projection validée (jamais sur un tracé complet non validé, jamais « 0 en attente » trompeur)', () => {
+    const v = verdictProjectionBatiments([{ corpsId: 1, repere: 'A' }], [{ corpsId: 1, provenance: 'trace_manuel' }], []);
+    expect(v.peutValider).toBe(true); // tracé complet
+    const nonValide = resumeProjection(v, false); // …mais NON validé → AMBRE « à valider », jamais vert ni « 0 en attente »
+    expect(nonValide.ton).toBe('ambre');
+    expect(nonValide.texte).toContain('à valider');
+    expect(nonValide.texte).not.toContain('en attente');
+    const valide = resumeProjection(v, true);
+    expect(valide.ton).toBe('vert');
+    expect(valide.texte).toContain('projection validée');
   });
 
   it('CapsuleEtatEmprise : cliquable (ancre présente) en rouge, statut non-interactif sinon ; vert jamais actionnable', () => {

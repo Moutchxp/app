@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, lireVoisinageContexte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, lireVoisinageContexte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, lireProjectionValidee, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { lireRayonContexteM } from '../../../../../lib/permis/projectionConfig';
 import { lireSelectionInfo, type SelectionInfo } from '../../../../../lib/permis/plancheParcellesRepo'; // PL-C4 — sélection validée pour le bandeau
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
@@ -76,6 +76,9 @@ export async function GET(request: Request): Promise<Response> {
     const exclusionsBestOf = await repli('exclusionsBestOf', lireExclusionsBestOf(dossierId), []);
     // LOT 92 — pages AJOUTÉES au best-of à la main (réversibles, miroir des exclusions). Résilient : 194 absente → [] (aucun ajout).
     const inclusionsBestOf = await repli('inclusionsBestOf', lireInclusionsBestOf(dossierId), []);
+    // SOURCE UNIQUE — la projection du DOSSIER est-elle validée ? Consommée par le bandeau et la pastille pour ne PLUS afficher un ✓
+    //   vert « tracé » là où une validation reste à faire (contradiction avec la capsule/en-tête). Résilient : table absente → false.
+    const projectionValidee = await repli('projectionValidee', lireProjectionValidee(dossierId), false);
     // Seules les pièces PDF sont traçables (filtre inchangé) ; la clé de stockage ne sort JAMAIS.
     const estPdf = (p: { typeMime: string | null; nomFichier: string }) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf');
     const piecesPdf = piecesBrutes.filter(estPdf);
@@ -137,7 +140,7 @@ export async function GET(request: Request): Promise<Response> {
       } catch { /* illisible → non marqué (N10-J) */ }
     })), []);
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
-    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, selection, exclusionsBestOf, inclusionsBestOf, reperageRuns: Object.fromEntries(reperageRuns), lecturesPages: Object.fromEntries(lecturesPages), origineExtractionSansIa, indisponibles });
+    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, selection, exclusionsBestOf, inclusionsBestOf, projectionValidee, reperageRuns: Object.fromEntries(reperageRuns), lecturesPages: Object.fromEntries(lecturesPages), origineExtractionSansIa, indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
     return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });

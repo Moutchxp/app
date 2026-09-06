@@ -36,6 +36,56 @@ export function libelleBatiment(b: BatimentProjection): string {
   return nomAffichageCorps({ repere: b.repere, nomRepli: b.nomRepli, corpsId: b.corpsId });
 }
 
+// ── SOURCE UNIQUE DE VÉRITÉ de l'état d'emprise/projection d'UN bâtiment (dérivée de la BASE, consommée par TOUS les affichages :
+//    capsule du cartouche, pastille du sélecteur, bandeau, en-tête). Aucun affichage ne recalcule l'état dans son coin. ──────────────
+//    🔴 DEUX faits DISTINCTS, jamais confondus : `aEmprise` (une emprise reconstituée existe pour ce bâtiment) et `projectionValidee`
+//    (la projection du DOSSIER est validée — permis_projection ; il n'existe pas de validation par bâtiment). « enregistrée » ≠ « validée ».
+export type StatutEmpriseBatiment = 'validee' | 'a_valider' | 'ignoree' | 'a_tracer';
+/** PUR — statut UNIQUE d'un bâtiment. Ordre : ignoré explicite (sans emprise) = fait délibéré, prime même sur un dossier validé ;
+ *  sinon projection du DOSSIER validée = VALIDÉE (la validation couvre tout le permis) ; sinon une emprise enregistrée = À VALIDER ;
+ *  sinon rien = À TRACER. Une emprise PRIME un « ignoré » (comme statutBatiment). Un dossier validé n'a par construction aucun « à tracer ». */
+export function statutEmpriseBatiment(aEmprise: boolean, ignore: boolean, projectionValidee: boolean): StatutEmpriseBatiment {
+  if (ignore && !aEmprise) return 'ignoree';
+  if (projectionValidee) return 'validee';
+  if (aEmprise) return 'a_valider';
+  return 'a_tracer';
+}
+/** VOCABULAIRE UNIQUE (court) par état — employé à l'identique par la pastille du sélecteur. « bâtiment »/« polygone » ; jamais « corps ». */
+export const MOT_STATUT_EMPRISE: Record<StatutEmpriseBatiment, string> = {
+  validee: '✓ emprise validée',
+  a_valider: '◐ emprise à valider',
+  ignoree: '⚠ projection ignorée',
+  a_tracer: '… emprise à tracer',
+};
+
+/** Parties « couverture » du résumé (bâtiments · emprises[origines] · ignorées), SANS la queue « en attente / à valider ». PUR, partagé. */
+function partiesCouverture(nbBatiments: number, nbEmprises: number, nbEmprisesIgn: number, nbEmprisesTrace: number, nbIgnores: number): string[] {
+  const parts = [`${nbBatiments} bâtiment${nbBatiments > 1 ? 's' : ''}`];
+  if (nbEmprises > 0) {
+    const org: string[] = [];
+    if (nbEmprisesIgn > 0) org.push(`${nbEmprisesIgn} issue${nbEmprisesIgn > 1 ? 's' : ''} de l’IGN`);
+    if (nbEmprisesTrace > 0) org.push(`${nbEmprisesTrace} tracée${nbEmprisesTrace > 1 ? 's' : ''} à la main`);
+    parts.push(`${nbEmprises} emprise${nbEmprises > 1 ? 's' : ''}${org.length ? ` (${org.join(', ')})` : ''}`);
+  } else parts.push('0 emprise');
+  if (nbIgnores > 0) parts.push(`${nbIgnores} ignorée${nbIgnores > 1 ? 's' : ''}`);
+  return parts;
+}
+
+export type TonProjection = 'vert' | 'ambre' | 'rouge';
+/**
+ * RÉSUMÉ AGRÉGÉ du bandeau, VALIDATION-CONSCIENT (source unique du bandeau). TROIS états distincts, jamais fusionnés :
+ *  · projection VALIDÉE → VERT « … · projection validée » ;
+ *  · tracé complet mais NON validée → AMBRE « … · à valider » (JAMAIS un ✓ vert « 0 en attente » : une validation reste à faire) ;
+ *  · traçage incomplet → ROUGE « … · N en attente ».
+ * `peutValider` (porte de validation, PROJ-3b) reste INCHANGÉ : il exige seulement que tout soit tracé/ignoré, pas que ce soit validé.
+ */
+export function resumeProjection(v: VerdictProjection, projectionValidee: boolean): { ton: TonProjection; valide: boolean; texte: string } {
+  const parties = partiesCouverture(v.nbBatiments, v.nbEmprises, v.nbEmprisesIgn, v.nbEmprisesTrace, v.nbIgnores);
+  if (projectionValidee) return { ton: 'vert', valide: true, texte: [...parties, 'projection validée'].join(' · ') };
+  if (v.manquants.length > 0) return { ton: 'rouge', valide: false, texte: [...parties, `${v.manquants.length} en attente`].join(' · ') };
+  return { ton: 'ambre', valide: false, texte: [...parties, 'à valider'].join(' · ') };
+}
+
 /**
  * PROJ-2c — ÉLIGIBILITÉ d'un permis à la FILE « Projection ». Trois conditions CUMULÉES :
  *  · `documentsObtenus` = ses pièces ont été reçues (même critère que l'entrée en Archives : demande_dossier.satisfait_le) ;
@@ -82,14 +132,8 @@ export function verdictProjectionBatiments(
   const nbEmprises = emprises.length;
   const nbEmprisesIgn = emprises.filter((e) => (e.provenance ?? '').startsWith('ign_')).length;
   const nbEmprisesTrace = emprises.filter((e) => (e.provenance ?? 'trace_manuel') === 'trace_manuel').length;
-  const parts = [`${nbBatiments} bâtiment${nbBatiments > 1 ? 's' : ''}`];
-  if (nbEmprises > 0) {
-    const org: string[] = [];
-    if (nbEmprisesIgn > 0) org.push(`${nbEmprisesIgn} issue${nbEmprisesIgn > 1 ? 's' : ''} de l’IGN`);
-    if (nbEmprisesTrace > 0) org.push(`${nbEmprisesTrace} tracée${nbEmprisesTrace > 1 ? 's' : ''} à la main`);
-    parts.push(`${nbEmprises} emprise${nbEmprises > 1 ? 's' : ''}${org.length ? ` (${org.join(', ')})` : ''}`);
-  } else parts.push('0 emprise');
-  if (nbIgnores > 0) parts.push(`${nbIgnores} ignorée${nbIgnores > 1 ? 's' : ''}`);
+  // Résumé « couverture » (bâtiments · emprises · ignorées) FACTORISÉ (partagé avec resumeProjection) + queue de traçage INCHANGÉE.
+  const parts = partiesCouverture(nbBatiments, nbEmprises, nbEmprisesIgn, nbEmprisesTrace, nbIgnores);
   parts.push(`${manquants.length} en attente`);
   const aucunBatiment = nbBatiments === 0;
   return { peutValider: !aucunBatiment && manquants.length === 0, aucunBatiment, nbBatiments, nbCouverts, nbEmprises, nbEmprisesIgn, nbEmprisesTrace, nbIgnores, manquants, libelle: parts.join(' · ') };

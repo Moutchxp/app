@@ -252,8 +252,8 @@ describe('CAPSULE D’EMPRISE — lireEtatEmprisesPermis : état lu en base (sur
     expect(aggSql.params).toEqual([7424]);
   });
 
-  it('aucune projection ni emprise → { projectionValidee: false, parBatiment: {} }', async () => {
+  it('aucune projection ni emprise → { projectionValidee: false, parBatiment: {}, ignoreCorps: [] }', async () => {
     const r = await lireEtatEmprisesPermis(7424);
-    expect(r).toEqual({ projectionValidee: false, parBatiment: {} });
+    expect(r).toEqual({ projectionValidee: false, parBatiment: {}, ignoreCorps: [] });
   });
 });

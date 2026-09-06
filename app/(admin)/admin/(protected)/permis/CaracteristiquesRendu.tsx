@@ -1,6 +1,7 @@
 import { Fragment, type CSSProperties } from 'react';
 import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « le … » en heure de Paris
 import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo';
+import { statutEmpriseBatiment } from '../../../../lib/permis/projectionBatiments'; // SOURCE UNIQUE du statut d'emprise (capsule = pastille = bandeau)
 // ⚠️ Bundle client (piège du 13/08) : de `journalLecture` (module serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { JournalChamp, ProvenanceEcartee } from '../../../../lib/permis/journalLecture';
 import { MESURES, libelleBornes, composerLibelleDestinations, raisonParcelleNonRattachee, ecartSuperficieCadastre, coherenceSommetPlancher, MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT, type Bornes, type ChampDeclare, type FaitsPermis } from './caracteristiquesForm';
@@ -455,46 +456,52 @@ function grouperCandidatsGabarit(ecartes: readonly ProvenanceEcartee[]): { valeu
 
 // ── CAPSULE D'ÉTAT DE L'EMPRISE (jumelle de la capsule d'altitude du sommet) ─────────────────────────────────────────────────
 export type EtatEmpriseBatimentVue = { surfaceM2: number | null; creeLe: string | null; nbEmprises: number };
-export type CapsuleEmprise = { ton: 'vert' | 'rouge'; libelle: string; detail: string | null };
+export type CapsuleEmprise = { ton: 'vert' | 'ambre' | 'rouge'; libelle: string; detail: string | null };
 
 /**
- * PUR — état à afficher pour l'emprise d'UN bâtiment. TROIS cas STRICTS (jamais un état flatteur) :
- *  · projection du DOSSIER validée → VERT « Emprise du polygone projeté validée » ;
- *  · emprise ENREGISTRÉE mais projection NON validée → ROUGE « Valider l'emprise du polygone projeté » + surface (m²) et date
- *    (pour qu'on sache que le tracé existe bien) ;
- *  · AUCUNE emprise → ROUGE « Tracer l'emprise du polygone projeté ».
- * 🔴 « enregistrée » ≠ « validée » : la validation est de NIVEAU DOSSIER (permis_projection), l'emprise est PAR bâtiment. On n'écrit
- *   JAMAIS « validée » sur une emprise seulement enregistrée.
+ * PUR — état à afficher pour l'emprise d'UN bâtiment. 🔴 DÉRIVE DE LA SOURCE UNIQUE `statutEmpriseBatiment` (partagée avec la
+ * pastille du sélecteur et le bandeau) : la capsule NE PEUT PAS diverger d'eux pour les mêmes faits. Quatre états, jamais un état
+ * flatteur :
+ *  · 'validee' (projection du DOSSIER validée) → VERT « Emprise du polygone projeté validée » ;
+ *  · 'a_valider' (emprise enregistrée, projection NON validée) → ROUGE « Valider l'emprise du polygone projeté » + surface (m²) et date ;
+ *  · 'ignoree' (projection explicitement ignorée) → AMBRE « Projection ignorée pour ce bâtiment » ;
+ *  · 'a_tracer' (aucune emprise) → ROUGE « Tracer l'emprise du polygone projeté ».
+ * 🔴 « enregistrée » ≠ « validée » : la validation est de NIVEAU DOSSIER (permis_projection), l'emprise est PAR bâtiment.
  */
-export function etatCapsuleEmprise(projectionValidee: boolean, emprise: EtatEmpriseBatimentVue | null): CapsuleEmprise {
-  if (projectionValidee) return { ton: 'vert', libelle: 'Emprise du polygone projeté validée', detail: null };
-  if (emprise && emprise.nbEmprises > 0) {
-    const m2 = emprise.surfaceM2 !== null ? `${Math.round(emprise.surfaceM2).toLocaleString('fr-FR')} m²` : null;
-    const date = emprise.creeLe ? `le ${jjmmaaaa(emprise.creeLe)}` : null;
-    return { ton: 'rouge', libelle: 'Valider l’emprise du polygone projeté', detail: ['emprise enregistrée', m2, date].filter(Boolean).join(' · ') };
+export function etatCapsuleEmprise(projectionValidee: boolean, emprise: EtatEmpriseBatimentVue | null, ignore = false): CapsuleEmprise {
+  const aEmprise = !!(emprise && emprise.nbEmprises > 0);
+  switch (statutEmpriseBatiment(aEmprise, ignore, projectionValidee)) {
+    case 'validee': return { ton: 'vert', libelle: 'Emprise du polygone projeté validée', detail: null };
+    case 'a_valider': {
+      const m2 = emprise && emprise.surfaceM2 !== null ? `${Math.round(emprise.surfaceM2).toLocaleString('fr-FR')} m²` : null;
+      const date = emprise && emprise.creeLe ? `le ${jjmmaaaa(emprise.creeLe)}` : null;
+      return { ton: 'rouge', libelle: 'Valider l’emprise du polygone projeté', detail: ['emprise enregistrée', m2, date].filter(Boolean).join(' · ') };
+    }
+    case 'ignoree': return { ton: 'ambre', libelle: 'Projection ignorée pour ce bâtiment', detail: null };
+    default: return { ton: 'rouge', libelle: 'Tracer l’emprise du polygone projeté', detail: null };
   }
-  return { ton: 'rouge', libelle: 'Tracer l’emprise du polygone projeté', detail: null };
 }
 
 /**
  * Capsule d'état de l'emprise — JUMELLE VISUELLE de la capsule d'altitude (mêmes classes `svv-btn svv-btn-primary`, mêmes tokens
- * `--color-svv-green-soft`/`green-ink` en VERT, même padding). État lu en base (jamais l'état local du tracé). En ROUGE, le clic
+ * `--color-svv-green-soft`/`green-ink` en VERT, même padding). État lu en base (jamais l'état local du tracé). Hors VERT, le clic
  * ne fait pas le geste sur place (il vit dans le bloc « Bâtiments et projection ») : il AMÈNE à l'endroit où le faire (défilement
- * vers l'ancre), jamais un « action indisponible » nu. En VERT, non actionnable (rien à faire), apparence verte identique.
+ * vers l'ancre), jamais un « action indisponible » nu. Sans ancre, statut lisible non-interactif. En VERT, non actionnable.
  */
-export function CapsuleEtatEmprise({ projectionValidee, emprise, ancreEmprise }: {
-  projectionValidee: boolean; emprise: EtatEmpriseBatimentVue | null; ancreEmprise?: string;
+export function CapsuleEtatEmprise({ projectionValidee, emprise, ignore = false, ancreEmprise }: {
+  projectionValidee: boolean; emprise: EtatEmpriseBatimentVue | null; ignore?: boolean; ancreEmprise?: string;
 }) {
-  const c = etatCapsuleEmprise(projectionValidee, emprise);
+  const c = etatCapsuleEmprise(projectionValidee, emprise, ignore);
   const vert = c.ton === 'vert';
-  // Actionnable UNIQUEMENT en ROUGE ET si une ancre existe (bloc « Bâtiments et projection » présent dans CE contexte). Sans ancre
-  //   (vue de référence sans le bloc de tracé), la capsule reste un STATUT lisible — jamais un bouton au clic mort ni « action indisponible ».
+  // Actionnable hors VERT ET si une ancre existe (bloc « Bâtiments et projection » présent dans CE contexte). Sans ancre (vue de
+  //   référence sans le bloc de tracé), la capsule reste un STATUT lisible — jamais un bouton au clic mort ni « action indisponible ».
   const actionnable = !vert && !!ancreEmprise;
+  const teinteAmbre = c.ton === 'ambre' ? { background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)', boxShadow: 'none' } : {};
   const aller = () => { if (ancreEmprise && typeof document !== 'undefined') document.getElementById(ancreEmprise)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
       <button type="button" className="svv-btn svv-btn-primary"
-        style={{ padding: '.25rem .7rem', ...(actionnable ? {} : { cursor: 'default' }), ...(vert ? { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)', boxShadow: 'none' } : {}) }}
+        style={{ padding: '.25rem .7rem', ...(actionnable ? {} : { cursor: 'default' }), ...(vert ? { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)', boxShadow: 'none' } : teinteAmbre) }}
         aria-disabled={!actionnable || undefined} onClick={actionnable ? aller : undefined}>{c.libelle}</button>
       {c.detail && <span style={styleAide}>{c.detail}</span>}
     </div>

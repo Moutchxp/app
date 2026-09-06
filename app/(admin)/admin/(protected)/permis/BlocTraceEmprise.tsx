@@ -7,8 +7,8 @@ import {
 } from '../../../../lib/permis/calageEmprise';
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
-import { verdictProjectionBatiments, libelleBatiment, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
+import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome (best-of, navigation, zoom) réutilisée à 0 bâtiment
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -66,6 +66,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const [pleinPagesAnalysees, setPleinPagesAnalysees] = useState(false);
   const [batiments, setBatiments] = useState<BatimentProjection[]>([]);
   const [emprises, setEmprises] = useState<EmpriseReconstruite[]>([]);
+  const [projectionValidee, setProjectionValidee] = useState(false); // SOURCE UNIQUE (permis_projection, niveau dossier) : le bandeau et la pastille ne mentent plus « validé » sur un simple tracé
   const [ignores, setIgnores] = useState<ProjectionIgnoree[]>([]);
   const [contexte, setContexte] = useState<Contexte | null>(null);
   const [polygones, setPolygones] = useState<PolygoneBdTopo[]>([]); // PROJ-3h — polygones BD TOPO (∩ empreinte) + état, pour l'affichage
@@ -173,11 +174,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`, { cache: 'no-store' });
         if (annule) return;
         if (!res.ok) { setEtat('erreur'); setMessage('Bâtiments indisponibles (le serveur n’a pas répondu).'); return; }
-        const j = await res.json() as { pieces: Piece[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; selection?: SelectionInfo; indisponibles?: string[]; reperageRuns?: Record<number, RunReperageAffiche>; lecturesPages?: Record<number, LecturePageAffiche[]>; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; origineExtractionSansIa?: 'auto' | 'manuelle' | null };
+        const j = await res.json() as { pieces: Piece[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; selection?: SelectionInfo; indisponibles?: string[]; reperageRuns?: Record<number, RunReperageAffiche>; lecturesPages?: Record<number, LecturePageAffiche[]>; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; projectionValidee?: boolean; origineExtractionSansIa?: 'auto' | 'manuelle' | null };
         // Résilience serveur : « indisponible » ≠ « vide ». Si la lecture des BÂTIMENTS a échoué, on n'affiche JAMAIS « 0 bâtiment »
         //   (panne déguisée en donnée) → état d'échec explicite invitant à recharger.
         if (j.indisponibles?.includes('batiments')) { setEtat('erreur'); setMessage('Bâtiments indisponibles : rechargez.'); return; }
-        setPieces(j.pieces); setPiecesNonSupportees(j.piecesNonSupportees ?? []); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setStatutsLignes(j.statutsPolygones ?? []); setRecouverts(j.polygonesRecouverts ?? []); setSelection(j.selection ?? { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null }); setConfirmeSel(false); setAngle(0); setDebordement(null);
+        setPieces(j.pieces); setPiecesNonSupportees(j.piecesNonSupportees ?? []); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setStatutsLignes(j.statutsPolygones ?? []); setRecouverts(j.polygonesRecouverts ?? []); setSelection(j.selection ?? { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null }); setConfirmeSel(false); setAngle(0); setDebordement(null); setProjectionValidee(j.projectionValidee ?? false);
         // INCRÉMENT-2 — audits d'analyse IA + overrides best-of (mêmes champs que la planche, déjà renvoyés par le GET).
         setRuns(j.reperageRuns ?? {}); setLectures(j.lecturesPages ?? {}); setOrigineSansIa(j.origineExtractionSansIa ?? null);
         setExclus(new Set((j.exclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`))); setInclus(new Set((j.inclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`)));
@@ -804,7 +805,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     return (
       <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
         <div style={{ fontWeight: 700, fontSize: 13 }}>Projection des emprises — reconstitution par bâtiment <span style={styleAide}>(jamais une mesure ; n’alimente ni le verdict ni l’altitude)</span></div>
-        <BandeauProjection verdict={verdict} />
+        <BandeauProjection verdict={verdict} projectionValidee={projectionValidee} />
         {/* Message RECADRÉ (LOT 90) : on peut CONSULTER les plans (liseuse) et le schéma ; seul le TRACÉ/enregistrement attend un bâtiment. */}
         <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
           Aucun bâtiment déclaré au permis. Vous pouvez <strong>consulter</strong> les plans (liseuse ci-dessous) et le schéma. Pour <strong>tracer</strong> une emprise et l’enregistrer, déclarez d’abord un bâtiment via « <strong>+ ajouter un bâtiment</strong> » (bloc « Le permis / Les bâtiments » ci-dessus) : le calage et l’enregistrement apparaîtront alors.
@@ -834,17 +835,18 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>Projection des emprises — reconstitution par bâtiment <span style={styleAide}>(jamais une mesure ; n’alimente ni le verdict ni l’altitude)</span></div>
-      <BandeauProjection verdict={verdict} />
+      <BandeauProjection verdict={verdict} projectionValidee={projectionValidee} />
 
       {/* Sélecteur de bâtiment : statut par bâtiment (mot + couleur d'appui). */}
       <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
         {batiments.map((b) => {
-          const st = statutBatiment(b.corpsId, emprises, ignores);
+          // SOURCE UNIQUE : même statut (validee/a_valider/ignoree/a_tracer) que la capsule du cartouche → jamais « ✓ tracée » là où la capsule dit « à valider ».
+          const st = statutEmpriseBatiment(emprises.some((e) => e.corpsId === b.corpsId), ignores.some((i) => i.corpsId === b.corpsId), projectionValidee);
           const actif = b.corpsId === corpsEffectif;
           return (
             <button key={b.corpsId} type="button" onClick={() => setCorpsSel(b.corpsId)}
               style={{ ...btn, fontWeight: actif ? 700 : 400, borderColor: actif ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }}>
-              {libelleBatiment(b)} — {motStatutBatiment(st)}
+              {libelleBatiment(b)} — {MOT_STATUT_EMPRISE[st]}
             </button>
           );
         })}

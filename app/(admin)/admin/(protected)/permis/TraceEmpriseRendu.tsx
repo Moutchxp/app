@@ -6,7 +6,7 @@ import {
   projeterDansBoite, boiteEnglobanteRotee, clicVersBoiteMeet, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type CadreVue,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
-import { libelleBatiment, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
+import { libelleBatiment, resumeProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
@@ -619,12 +619,19 @@ export function motStatutBatiment(s: StatutBatiment): string { return MOT_STATUT
  * PROJ-2b — BANDEAU de projection : dit AVANT le clic ce qui manque (« 2 bâtiments · 1 emprise tracée · 1 en attente »), et
  * NOMME les bâtiments en attente. Vert si passant, rouge sinon. Le mot porte l'info (la couleur n'est jamais seule).
  */
-export function BandeauProjection({ verdict }: { verdict: VerdictProjection }) {
-  const ok = verdict.peutValider;
+export function BandeauProjection({ verdict, projectionValidee = false }: { verdict: VerdictProjection; projectionValidee?: boolean }) {
+  // SOURCE UNIQUE : resumeProjection décide le TON (validation-conscient). Jamais un ✓ vert tant que la projection n'est pas validée :
+  //   tracé complet mais non validé → AMBRE « à valider » (le compteur le DIT), pas « 0 en attente ». La couleur n'est jamais seule (icône + mot).
+  const r = resumeProjection(verdict, projectionValidee);
+  const T = ({
+    vert: { bord: 'var(--color-svv-green-ink)', fond: 'var(--color-svv-green-soft)', icone: '✓' },
+    ambre: { bord: 'var(--color-svv-amber)', fond: 'var(--color-svv-amber-soft)', icone: '◐' },
+    rouge: { bord: 'var(--color-svv-red)', fond: 'var(--color-svv-red-soft)', icone: '✕' },
+  } as const)[r.ton];
   return (
-    <div className="svv-card" data-peut-valider={ok} style={{ fontSize: 12, borderColor: ok ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)', background: ok ? 'var(--color-svv-green-soft)' : 'var(--color-svv-red-soft)' }}>
-      <div style={{ fontWeight: 700 }}>{ok ? '✓ ' : '✕ '}Projection des emprises — {verdict.libelle}</div>
-      {!ok && <div style={{ color: 'var(--color-svv-ink)' }}>En attente : {verdict.manquants.map((m) => libelleBatiment(m)).join(', ')}. Tracez une emprise ou ignorez explicitement la projection pour chacun avant de valider.</div>}
+    <div className="svv-card" data-peut-valider={verdict.peutValider} data-projection-validee={projectionValidee} data-ton={r.ton} style={{ fontSize: 12, borderColor: T.bord, background: T.fond }}>
+      <div style={{ fontWeight: 700 }}>{T.icone} Projection des emprises — {r.texte}</div>
+      {!verdict.peutValider && <div style={{ color: 'var(--color-svv-ink)' }}>En attente : {verdict.manquants.map((m) => libelleBatiment(m)).join(', ')}. Tracez une emprise ou ignorez explicitement la projection pour chacun avant de valider.</div>}
     </div>
   );
 }
