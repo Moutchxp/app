@@ -1050,9 +1050,13 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           //   (ou révoqué), ou pour du futur bâti, la couleur d'origine reste INCHANGÉE — on ne colore jamais d'après une prévision non enregistrée.
           const statut = !futur ? statuts?.get(poly.cleabs ?? '')?.statut : null;
           const coul = couleurStatutPolygone(statut);
-          return <path key={`b${i}`} d={path(poly.anneau)} data-etat={poly.etat ?? ''} data-futur={futur} data-ecarte={off || undefined} data-statut={coul ? statut : undefined}
-            fill={off ? 'rgba(0,0,0,.04)' : futur ? 'rgba(31,119,180,.14)' : coul ? coul.fill : 'rgba(0,0,0,.06)'}
-            stroke={off ? '#bbb' : futur ? '#1f77b4' : coul ? coul.stroke : '#888'} strokeWidth={1.2} strokeDasharray={futur ? '4 2' : coul?.dash} strokeOpacity={off ? 0.6 : 1} />;
+          // PROJ-MIT — un bâti « mitoyen (contexte) » (voisin accolé, aire ≈ 0 dans l'empreinte) reste DESSINÉ mais en RETRAIT (aplat
+          //   plus léger + trait fin tireté grisé) : second plan, jamais confondu avec le bâti « sur la parcelle ». Uniquement pour un
+          //   existant SIMPLE (ni futur, ni écarté, ni statut décidé) : ces états gardent leur traitement propre. Rien n'est masqué.
+          const mitoyen = poly.qualification === 'mitoyen' && !futur && !off && !coul;
+          return <path key={`b${i}`} d={path(poly.anneau)} data-etat={poly.etat ?? ''} data-futur={futur} data-ecarte={off || undefined} data-statut={coul ? statut : undefined} data-qualification={poly.qualification || undefined}
+            fill={off ? 'rgba(0,0,0,.04)' : futur ? 'rgba(31,119,180,.14)' : mitoyen ? 'rgba(0,0,0,.02)' : coul ? coul.fill : 'rgba(0,0,0,.06)'}
+            stroke={off ? '#bbb' : futur ? '#1f77b4' : mitoyen ? '#b4b4b4' : coul ? coul.stroke : '#888'} strokeWidth={mitoyen ? 1 : 1.2} strokeDasharray={futur ? '4 2' : mitoyen ? '3 2' : coul?.dash} strokeOpacity={off ? 0.6 : mitoyen ? 0.7 : 1} />;
         })}
         {/* (c) emprises TRACÉES = reconstitution (rouge), si « Afficher la projection » est actif. */}
         {filtres.emprises && emprises.flatMap((e) => (e.anneaux?.length ? e.anneaux : [e.anneau]).map((ring, ri) => ring.length >= 3
@@ -1063,7 +1067,7 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
             comme les étiquettes et le contour d'empreinte (EMPREINTE_TRAIT). L'ancien `var(--color-svv-ink)` basculait à #e8ebef en
             thème sombre → blanc sur blanc, invisible. Ancre = pointOnSurfaceAnneau (intérieur GARANTI, robuste aux formes concaves/en L
             où le centroïde tombe dehors) ; baseline centrale → la lettre est posée SUR le point. Rendu APRÈS le bâti → au-dessus de lui. */}
-        {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3) return null; const q = projeterDansBoite(boite, pointOnSurfaceAnneau(poly.anneau)); const taille = tailleRepere(poly.anneau.map((p) => projeterDansBoite(boite, p))); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={taille} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill={ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={Math.max(1, taille * 0.12)} paintOrder="stroke" data-repere={poly.repere}>{poly.repere}</text>; })}
+        {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3) return null; const q = projeterDansBoite(boite, pointOnSurfaceAnneau(poly.anneau)); const taille = tailleRepere(poly.anneau.map((p) => projeterDansBoite(boite, p))); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={taille} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill={ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={Math.max(1, taille * 0.12)} paintOrder="stroke" opacity={poly.qualification === 'mitoyen' ? 0.85 : undefined} data-repere={poly.repere} data-qualification={poly.qualification || undefined}>{poly.repere}</text>; })}
         {/* LOT 82/83 — ÉTIQUETTES sur le dessin : nom du bâtiment + altitude de sommet, ancre GARANTIE intérieure (pointOnSurfaceAnneau).
             LOT 83 : placement COLLISION-AWARE calculé pour TOUTES ENSEMBLE (placerEtiquettes) — DEDANS si la boîte tient, sinon DÉPORTÉE
             ENTIÈREMENT hors de TOUTES les formes (obstacles = polygones + emprises) et des autres boîtes, jamais à cheval ; trait de
@@ -1427,7 +1431,9 @@ export function LegendeSchemaProjection() {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
         {/* LOT 90 — l'EMPREINTE (contour épais foncé) distincte du bâti : le mot dit ce que c'est (référence, pas une mesure). */}
         {item({ background: EMPREINTE_FOND, border: `2px solid ${EMPREINTE_TRAIT}` }, 'Empreinte de la parcelle (référence — pas une mesure)')}
-        {item({ background: 'rgba(0,0,0,.06)', border: '1px solid #888' }, 'Bâti existant (BD TOPO)')}
+        {item({ background: 'rgba(0,0,0,.06)', border: '1px solid #888' }, 'Bâti existant sur la parcelle (BD TOPO)')}
+        {/* PROJ-MIT — bâti VOISIN accolé (mitoyen), gardé comme CONTEXTE mais en retrait (aplat léger, trait fin tireté grisé). */}
+        {item({ background: 'rgba(0,0,0,.02)', border: '1px dashed #b4b4b4' }, 'Mitoyen (contexte — voisin accolé, hors parcelle)')}
         {item({ background: 'rgba(31,119,180,.14)', border: '1px dashed #1f77b4' }, 'En projet (donnée IGN)')}
         {item({ background: 'rgba(163,4,2,.18)', border: '1px solid var(--color-svv-red)' }, 'Emprise tracée (reconstitution — jamais une mesure)')}
         {/* RATT-3 — DÉCISIONS enregistrées sur l'existant (jamais des faits) : une couleur ne traduit qu'une décision en base. */}
@@ -1438,7 +1444,8 @@ export function LegendeSchemaProjection() {
         <summary style={{ cursor: 'pointer', color: 'var(--color-svv-red)' }} aria-label="Explication des catégories du schéma">ⓘ Que veut dire chaque catégorie ?</summary>
         <div style={{ color: 'var(--color-svv-muted)', marginTop: '.2rem', lineHeight: 1.35 }}>
           <div><strong>Empreinte de la parcelle</strong> : le contour attendu de la (ou des) parcelle(s) fusionnée(s) du permis — un REPÈRE de cadrage, jamais une mesure.</div>
-          <div><strong>Bâti existant</strong> : donnée officielle IGN — des bâtiments déjà construits sur le terrain.</div>
+          <div><strong>Bâti existant sur la parcelle</strong> : donnée officielle IGN — des bâtiments déjà construits, réellement sur la (ou les) parcelle(s) du permis.</div>
+          <div><strong>Mitoyen (contexte)</strong> : un bâtiment VOISIN simplement accolé à la parcelle par un mur (aire réelle sur la parcelle ≈ 0). On le GARDE — un immeuble mitoyen crée précisément du vis-à-vis — mais en retrait : c’est du contexte, pas un candidat à l’affectation. Il garde son repère (A, B, C…).</div>
           <div><strong>En projet</strong> : donnée officielle IGN — des bâtiments dessinés dans les données mais pas encore construits.</div>
           <div><strong>Emprise tracée</strong> : un contour que vous avez dessiné à la main (une reconstitution, jamais une mesure). Il ne sert qu’à visualiser : il n’alimente ni le verdict, ni l’altitude, ni un certificat.</div>
           <div><strong>Décidé « préservé » / « détruit »</strong> : votre décision ENREGISTRÉE sur un bâtiment existant (vert = préservé, orange = détruit). C’est une PRÉVISION, à confronter à la mise à jour cadastrale — jamais un fait. Un bâtiment sans décision reste gris, même recouvert par l’emprise projetée.</div>

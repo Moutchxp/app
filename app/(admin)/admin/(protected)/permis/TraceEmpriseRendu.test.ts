@@ -294,18 +294,42 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     const html = renderToStaticMarkup(h(SelectionPolygonesProjet, { polygones: attribuerReperes([{ cleabs: 'X', anneau: [], etat: 'En service' }]), ecartes: [], onToggle: () => {} }));
     expect(html).toBe('');
   });
-  it('④ LegendeSchemaProjection : 3 catégories + picto « i » (explication)', () => {
+  it('④ LegendeSchemaProjection : catégories + picto « i » (explication)', () => {
     const html = renderToStaticMarkup(h(LegendeSchemaProjection, {}));
     expect(html).toContain('Empreinte de la parcelle (référence — pas une mesure)'); // LOT 90 — l'empreinte a son entrée de légende
-    expect(html).toContain('Bâti existant (BD TOPO)');
+    expect(html).toContain('Bâti existant sur la parcelle (BD TOPO)');
+    expect(html).toContain('Mitoyen (contexte — voisin accolé, hors parcelle)'); // PROJ-MIT — nouvelle entrée de légende
     expect(html).toContain('En projet (donnée IGN)');
     expect(html).toContain('reconstitution — jamais une mesure');
     expect(html).toContain('Que veut dire chaque catégorie');
     expect(html).toContain('pas encore construits');
+    expect(html).toContain('un immeuble mitoyen crée précisément du vis-à-vis'); // explication du contexte mitoyen
     // RATT-3 — deux entrées de DÉCISION (jamais des faits) : préservé (vert) / détruit (orange).
     expect(html).toContain('Décidé « préservé » (prévision)');
     expect(html).toContain('Décidé « détruit » (prévision)');
     expect(html).toContain('sans décision reste gris');
+  });
+  it('PROJ-MIT — SchemaParcelleTrace : un « mitoyen » est DESSINÉ en retrait (tireté grisé) + GARDE son repère ; « sur la parcelle » reste principal', () => {
+    const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
+    const filtres: FiltresSchema = { existant: true, futur: false, reperes: true, emprises: false };
+    const carre = (x: number, y: number, c: number) => [{ x, y }, { x: x + c, y }, { x: x + c, y: y + c }, { x, y: y + c }];
+    const polygones = attribuerReperes([
+      { cleabs: 'SUR', anneau: carre(1, 1, 12), etat: 'En service', qualification: 'sur_parcelle' as const },
+      { cleabs: 'MIT', anneau: carre(16, 16, 12), etat: 'En service', qualification: 'mitoyen' as const },
+    ]);
+    const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [carre(0, 0, 30)], emprises: [], polygones, filtres, ecartes: [], calageLambert: [] }));
+    // le mitoyen porte sa qualification ET reste dessiné (rien n'est masqué) ET en RETRAIT (trait grisé tireté 3 2)
+    expect(html).toContain('data-qualification="mitoyen"');
+    const mitTag = html.match(/<path\b[^>]*data-qualification="mitoyen"[^>]*>/)?.[0] ?? '';
+    expect(mitTag).toContain('stroke="#b4b4b4"');
+    expect(mitTag).toContain('stroke-dasharray="3 2"');
+    // le principal « sur la parcelle » garde le gris plein #888 (jamais confondu avec le mitoyen)
+    expect(html).toContain('data-qualification="sur_parcelle"');
+    const surTag = html.match(/<path\b[^>]*data-qualification="sur_parcelle"[^>]*>/)?.[0] ?? '';
+    expect(surTag).toContain('stroke="#888"');
+    // les DEUX repères restent présents (le mitoyen est toujours porteur de son A/B/C)
+    expect(html).toContain('data-repere="A"');
+    expect(html).toContain('data-repere="B"');
   });
 });
 

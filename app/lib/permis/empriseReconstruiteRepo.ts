@@ -12,6 +12,7 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { aireM2, deriverDebordement, type PointLambert, type Debordement } from './calageEmprise';
 import { grouperPolygonesConnexes, grouperParBatiment } from './adoptionEmprise';
+import { lireSeuilMitoyenAireM2, qualifierMitoyennete, type QualificationPolygone } from './projectionConfig';
 
 /** Journal de calage stocké tel quel (jsonb) — auditable, jamais lissé. */
 export interface CalageTrace {
@@ -260,25 +261,35 @@ export async function lireContexteEmprise(dossierId: number): Promise<ContexteEm
  * opérations géométriques). 🔴 Ce sont des DONNÉES IGN, jamais une reconstitution : aucune écriture, aucun couplage moteur. `[]`
  * si `permis_empreinte`/`batiment` absentes (résilient).
  */
-export interface PolygoneBdTopo { cleabs: string | null; anneau: PointLambert[]; etat: string | null }
+// PROJ-MIT — un polygone porte désormais sa QUALIFICATION d'affichage (facultative → rétro-compatible avec les fixtures existantes) :
+//   aire RÉELLE d'intersection avec l'empreinte (m²) + « sur la parcelle » vs « mitoyen (contexte) » (seuil config). Le critère de
+//   SÉLECTION (ST_Intersects) est INCHANGÉ : on récupère les mêmes polygones, on les qualifie seulement. Rien n'est écarté.
+export interface PolygoneBdTopo { cleabs: string | null; anneau: PointLambert[]; etat: string | null; aireDansEmpreinteM2?: number; qualification?: QualificationPolygone }
 export async function lirePolygonesEmpreinte(dossierId: number): Promise<PolygoneBdTopo[]> {
   try {
     // ORDER BY spatial STABLE (haut→bas, gauche→droite, cleabs) : fixe les repères A/B/C… de façon déterministe (comme le Rattachement).
-    const { rows } = await query<{ cleabs: string | null; gj: { type: string; coordinates: number[][][] | number[][][][] } | null; etat: string | null }>(
+    // PROJ-MIT : on AJOUTE l'aire réelle d'intersection en SELECT (ST_Area(ST_Intersection…)) — calculée SEULEMENT sur les lignes déjà
+    //   filtrées par le prédicat WHERE (inchangé) → l'index GiST du JOIN reste pris (vérifié EXPLAIN). L'aire est par BÂTIMENT (partagée
+    //   par tous les anneaux d'un MultiPolygon). NULLIF évite une division nulle inutile ; ST_Area(ST_Intersection) tolère un simple contact (0).
+    const { rows } = await query<{ cleabs: string | null; gj: { type: string; coordinates: number[][][] | number[][][][] } | null; etat: string | null; aire: number | string | null }>(
       `WITH emp AS (SELECT geom FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL)
-       SELECT b.cleabs, ST_AsGeoJSON(ST_Force2D(b.geom))::json AS gj, b.etat_de_l_objet AS etat
+       SELECT b.cleabs, ST_AsGeoJSON(ST_Force2D(b.geom))::json AS gj, b.etat_de_l_objet AS etat,
+              ST_Area(ST_Intersection(ST_Force2D(b.geom), emp.geom)) AS aire
          FROM batiment b, emp
         WHERE b.geom && emp.geom AND ST_Intersects(b.geom, emp.geom)
         ORDER BY ST_YMax(b.geom) DESC, ST_XMin(b.geom), b.cleabs`, [dossierId]);
+    const { seuilM2 } = await lireSeuilMitoyenAireM2(); // seuil lu en config (repli sûr) — jamais en dur
     const out: PolygoneBdTopo[] = [];
     for (const r of rows) {
       if (!r.gj) continue;
+      const aireDansEmpreinteM2 = Number.isFinite(Number(r.aire)) ? Number(r.aire) : 0;
+      const qualification = qualifierMitoyennete(aireDansEmpreinteM2, seuilM2);
       const anneaux: number[][][] = r.gj.type === 'Polygon'
         ? [(r.gj.coordinates as number[][][])[0]].filter(Boolean)
         : r.gj.type === 'MultiPolygon'
           ? (r.gj.coordinates as number[][][][]).map((poly) => poly[0]).filter(Boolean)
           : [];
-      for (const a of anneaux) out.push({ cleabs: r.cleabs ?? null, anneau: a.map(([x, y]) => ({ x, y })), etat: r.etat ?? null });
+      for (const a of anneaux) out.push({ cleabs: r.cleabs ?? null, anneau: a.map(([x, y]) => ({ x, y })), etat: r.etat ?? null, aireDansEmpreinteM2, qualification });
     }
     return out;
   } catch (err) {
