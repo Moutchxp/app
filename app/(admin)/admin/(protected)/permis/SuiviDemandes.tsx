@@ -92,6 +92,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   const [version, setVersion] = useState(0);
   const [vApresAnalyse, setVApresAnalyse] = useState(0); // LOT 56-B — bump après « Lancer le diagnostic complet des documents » (encart) → remonte caractéristiques + best-of de l'encart
   const [vValeurLue, setVValeurLue] = useState(0); // « analyse de la page » (liseuse de la famille « Pièces ») a écrit/annulé une valeur → remonte SEULEMENT CaracteristiquesBloc (refetch du journal → proposition). PAS dans la clé de la liseuse : le lecteur ne bouge pas.
+  const [vEmprise, setVEmprise] = useState(0); // mutation d'emprise (famille « Bâtiments ») → remonte CaracteristiquesBloc (capsule d'emprise du cartouche relit son état). Même mécanisme que vValeurLue.
   const [sel, setSel] = useState<Set<number>>(new Set());
   const [choixStatut, setChoixStatut] = useState<string>(CHOIX_STATUT_DEFAUT); // Q6b : défaut = statuts VIVANTS, pas « Tous »
   const [fCommune, setFCommune] = useState('');
@@ -922,10 +923,10 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   ) },
                 { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: richDetail.caracteristiquesNonVide,
                   // LOT 56-B — clé versionnée : après « Lancer le diagnostic complet des documents » (bloc Complétude ci-dessus), les caractéristiques extraites sont fraîches → remontage.
-                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={`carac-enc-${id}-${vApresAnalyse}-${vValeurLue}`} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={`carac-enc-${id}-${vApresAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
                 { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: richDetail.batimentsNonVide,
                   // LOT 90 — avecLiseuse={false} : la famille « Pièces du permis » ci-dessous porte DÉJÀ la liseuse standalone → pas de doublon à 0 bâtiment.
-                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} avecLiseuse={false} />} /> },
+                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} avecLiseuse={false} onEmprisesChange={() => setVEmprise((v) => v + 1)} />} /> },
                 { cle: 'pieces', titre: LIBELLE_FAMILLE.pieces, nonVide: richDetail.piecesNonVide,
                   // LOT 14b — la LISEUSE (best-of + aperçu, lecture seule) est EN HAUT ; la liste des pièces avec ses téléchargements reste EN DESSOUS
                   //   (précédent 18/08). Un seul dépli (celui de la famille) : la liseuse ne s'enveloppe d'aucun BlocRepliable. Montée paresseuse (thunk `contenu`).

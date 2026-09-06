@@ -7,6 +7,7 @@ import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteris
 import { lireJournalChamps, type JournalPermis } from '../../../../../lib/permis/journalLecture';
 import { lireMargeCoherenceSommetPlancherM, MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT } from '../../../../../lib/permis/coherenceConfig';
 import { lireParcellesPermis, geojsonParcellesPermis, lireEmpreintePermis, geojsonEmpreintePermis, lireBatiSnapshotPermis, type ParcelleLigne, type EmpreinteLigne, type BatiSnapshotResume } from '../../../../../lib/permis/parcellesRepo';
+import { lireEtatEmprisesPermis, type EtatEmprisesPermis } from '../../../../../lib/permis/empriseReconstruiteRepo'; // capsule d'emprise du cartouche : état lu en base (surface/date par bâtiment + projection validée niveau dossier)
 import { lireDeclarationsRecap, type DeclarationsCerfaStockees } from '../../../../../lib/permis/cerfaRecapRepo'; // LOT 67 — déclarations du Cerfa (informatif)
 import { annulerCorrectionParcelle } from '../../../../../lib/permis/correctionParcelleRepo'; // LOT 101 → PL-C5 : seule l'annulation subsiste (dégeler une ligne héritée)
 import { MESURES, construireGlobal, construirePermis, coherenceSommetPlancher, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
@@ -117,9 +118,11 @@ export async function GET(request: Request): Promise<Response> {
     const declSur = lireDeclarationsRecap(dossierId).catch(() => null as DeclarationsCerfaStockees | null);
     // DEMANDE 2 — marge d'égalité sommet/plancher (config_veille, migration 205), repli sûr sur le défaut si 205 non appliquée.
     const margeSur = lireMargeCoherenceSommetPlancherM().then((r) => r.margeM).catch(() => MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT);
-    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur, parcSur, empSur, batiSur, declSur, margeSur]);
+    // Capsule d'emprise du cartouche : état par bâtiment (surface/date) + projection validée (niveau dossier), lu en base ; tolérant si tables absentes.
+    const empriseEtatSur = lireEtatEmprisesPermis(dossierId).catch(() => ({ projectionValidee: false, parBatiment: {} } as EtatEmprisesPermis));
+    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur, parcSur, empSur, batiSur, declSur, margeSur, empriseEtatSur]);
     if (faits === null) return Response.json({ erreur: 'permis inconnu' }, { status: 404 });
-    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM });
+    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat });
   } catch (e) {
     console.error('[permis/caracteristiques] GET indisponible', e);
     return Response.json({ erreur: 'caractéristiques indisponibles' }, { status: 503 });

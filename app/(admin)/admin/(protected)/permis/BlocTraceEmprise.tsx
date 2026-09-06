@@ -38,9 +38,11 @@ const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
 const SEUIL_SOMMET_BOITE = 12; // PROJ-3s — rayon de capture d'un sommet au clic (unités de la boîte du schéma) : cible TACTILE, pas un seuil métier.
 type ModeRetouche = 'deplacer' | 'inserer' | 'supprimer';
 
-export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true, onValeurLue }: {
+export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true, onValeurLue, onEmprisesChange }: {
   dossierId: number;
   onVerdict?: (v: VerdictProjection) => void;
+  onEmprisesChange?: () => void; // une MUTATION d'emprise (enregistrement / suppression / adoption / retouche) a changé la base → le
+                                 //   parent re-fetche CaracteristiquesBloc (capsule d'emprise du cartouche). Jamais appelé au chargement.
   rafraichir?: number; // PROJ-3b — signal du parent : incrémenté quand l'instruction change (ajout de bâtiment) → recharge la liste
                        //   DÉFAUT 0 (jamais undefined) : le tableau de dépendances de l'effet garde une TAILLE CONSTANTE (PROJ-3b-fix ③).
   avecLiseuse?: boolean; // LOT 90 — à 0 bâtiment, monter la liseuse LECTURE SEULE (consultation des plans). `false` là où une liseuse
@@ -562,8 +564,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'enregistrement refusé'); return; }
       setEmprises(j.emprises ?? []); if (j.ignores) setIgnores(j.ignores);
       setSommets([]); setCreationEnCours(false); setDebordement(j.debordement ?? null); setMessage('emprise reconstituée enregistrée'); // repère conservé « après enregistrement » ; le guide REVIENT à sa place initiale (fin du processus)
+      onEmprisesChange?.(); // capsule du cartouche : l'emprise vient d'être créée → re-fetch de CaracteristiquesBloc
     } catch { setMessage('erreur d’enregistrement'); } finally { setOccupe(false); }
-  }, [sim, sommets, corpsEffectif, batSel, dossierId, pieceId, page, paires, ratioDeclare]);
+  }, [sim, sommets, corpsEffectif, batSel, dossierId, pieceId, page, paires, ratioDeclare, onEmprisesChange]);
 
   const posterProjection = useCallback(async (action: 'ignorer' | 'retablir' | 'supprimer', corps: number, extra: Record<string, unknown> = {}) => {
     setOccupe(true); setMessage(null);
@@ -573,8 +576,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'action refusée'); return; }
       if (j.emprises) setEmprises(j.emprises); if (j.ignores) setIgnores(j.ignores);
       if (action === 'ignorer') setMotifIgnore('');
+      onEmprisesChange?.(); // suppression / ignorer / rétablir → l'état d'emprise du bâtiment change → capsule du cartouche
     } catch { setMessage('action impossible'); } finally { setOccupe(false); }
-  }, [dossierId]);
+  }, [dossierId, onEmprisesChange]);
 
   // PROJ-3r — construit la liste d'affectations {cleabs→bâtiment} pour tous les polygones des groupes courants.
   const affectationsCourantes = useCallback((): { cleabs: string; corpsId: number }[] => {
@@ -608,8 +612,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       setSommets([]); setPaires([]); setPlanEnAttente(null); // une adoption remplace tout tracé en cours
       setDebordement(j.debordement ?? null); setConfirmationAdoption(null);
       setMessage(`${j.nbCreees ?? 0} emprise(s) adoptée(s) depuis l’IGN`);
+      onEmprisesChange?.(); // adoption IGN → des emprises apparaissent sur des bâtiments → capsule du cartouche
     } catch { setMessage('adoption impossible'); } finally { setOccupe(false); }
-  }, [dossierId, affectationsCourantes]);
+  }, [dossierId, affectationsCourantes, onEmprisesChange]);
 
   // PROJ-3s — RETOUCHE d'une emprise existante (mono-polygone) sur le SCHÉMA, en Lambert. Rien n'est écrit tant que non validé.
   const demarrerRetouche = useCallback((id: number) => {
@@ -652,8 +657,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       setEmprises(j.emprises ?? []); if (j.ignores) setIgnores(j.ignores);
       setDebordement(j.debordement ?? null); setRetouche(null); setSommetSel(null);
       setMessage('emprise retouchée.');
+      onEmprisesChange?.(); // retouche → surface/géométrie de l'emprise change → capsule du cartouche
     } catch { setMessage('retouche impossible'); } finally { setOccupe(false); }
-  }, [retouche, dossierId]);
+  }, [retouche, dossierId, onEmprisesChange]);
 
   // PROJ-3i — ÉCARTER / RÉTABLIR un polygone « en projet » (décision persistée). Optimiste : la réponse serveur fait foi.
   const basculerEcart = useCallback(async (cleabs: string, ecarter: boolean) => {

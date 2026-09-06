@@ -32,6 +32,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   const [vInstruction, setVInstruction] = useState(0); // PROJ-3b — compteur incrémenté à chaque écriture d'instruction → recharge le tracé (bâtiments)
   const [vAnalyse, setVAnalyse] = useState(0); // EXT-1 / LOT 56-B — bump après « Lancer le diagnostic complet des documents » (onAnalyseFinie du bloc Complétude) → remonte CaracteristiquesBloc/fil (refetch des champs extraits)
   const [vValeurLue, setVValeurLue] = useState(0); // « analyse de la page » (liseuse) a écrit/annulé une valeur → remonte SEULEMENT CaracteristiquesBloc (refetch du journal → la valeur lue apparaît en proposition). PAS dans la clé de la liseuse : le lecteur ne bouge pas.
+  const [vEmprise, setVEmprise] = useState(0); // une MUTATION d'emprise (enregistrement/suppression/adoption/retouche) dans le bloc tracé → remonte CaracteristiquesBloc (capsule d'emprise du cartouche relit son état). Même mécanisme que vValeurLue.
   const [batimentsOuvert, setBatimentsOuvert] = useState(false); // PERF-1 — le bloc bâtiments (verdict) est déplié à la demande ; jauge le bouton « Valider »
   // LOT 70 — ANALYSE AU PASSAGE : à l'ouverture d'un permis, on lance (SANS geste) l'analyse si nécessaire (règle b, gate serveur) et
   //   on reporte les déclarations dans les champs vides. État d'attente HONNÊTE pendant les 20-30 s de l'analyse complète.
@@ -219,15 +220,17 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         {/* PROJ-3b — INSTRUCTION (caractéristiques + « + ajouter un bâtiment ») puis TRACÉ. Clés PRÉFIXÉES PAR RÔLE (unicité, cf. PART-2b),
             suffixe vAnalyse conservé : chaque enfant monté se remonte après « Lancer le diagnostic complet des documents ». Montés au dépliage (PERF-1). */}
         <BlocRepliable key={`w-carac-${ouvert}`} titre={<TitreFamilleEtat base="Caractéristiques du permis (saisie)" etat={etatAlt} />}>
-          {() => <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}`} dossierId={ouvert} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
+          {() => <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
         </BlocRepliable>
         {/* PERF-1 — BÂTIMENTS/PROJECTION (verdict) : la requête la PLUS coûteuse (≈ 9 s sur 7424). Différée au dépliage ; onOuvertChange
             débloque le bouton « Valider ». POLISH-1 — le bouton « Valider la projection » et ses phrases sont ENFERMÉS dans ce bloc :
             ils n'apparaissent qu'une fois DÉPLIÉ (cohérence avec les autres blocs repliés) ; repli → cachés, aucun /emprise relancé. */}
+        {/* Ancre de défilement pour la capsule d'emprise du cartouche (« amène à l'endroit où le faire ») — toujours rendue, même bloc replié. */}
+        <div id={`ancre-bloc-emprise-${ouvert}`} aria-hidden="true" />
         <BlocRepliable key={`w-bat-${ouvert}`} titre={<TitreFamilleEtat base="Bâtiments et projection (emprise)" etat={etatProj} />} onOuvertChange={setBatimentsOuvert}>
           {() => (
             <div className="flex flex-col gap-2">
-              <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} />
+              <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} onEmprisesChange={() => setVEmprise((v) => v + 1)} />
               {/* LOT 51-C — pour un dossier TESTÉ, le bouton « Valider » NORMAL est masqué : il passe en Rattachement SANS arrêter les
                   relances (dangereux). La sortie d'un dossier testé passe UNIQUEMENT par « Terminer l'analyse » (carte de test, double condition). */}
               {!row?.testeEnAnalyse && (

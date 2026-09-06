@@ -219,6 +219,30 @@ export async function listerEmprises(dossierId: number): Promise<EmpriseReconstr
   }
 }
 
+export interface EtatEmpriseBatiment { surfaceM2: number | null; creeLe: string | null; nbEmprises: number }
+export interface EtatEmprisesPermis { projectionValidee: boolean; parBatiment: Record<number, EtatEmpriseBatiment> }
+
+/**
+ * ÉTAT D'EMPRISE PAR BÂTIMENT (pour la capsule du cartouche « Les bâtiments ») — LECTURE SEULE, lu depuis la BASE (jamais depuis
+ * l'état local du composant de tracé). Pour chaque bâtiment (corps) portant ≥ 1 emprise reconstituée : surface TOTALE (m²) et date
+ * de la PLUS RÉCENTE. `projectionValidee` = existence d'une ligne `permis_projection` — 🔴 état de NIVEAU DOSSIER : la validation
+ * vaut pour TOUT le permis (il n'existe pas de validation par bâtiment). « emprise enregistrée » et « projection validée » sont donc
+ * DEUX états distincts. Résilient : chaque source absente (migration non appliquée) retombe sur son défaut, sans faire échouer l'autre.
+ */
+export async function lireEtatEmprisesPermis(dossierId: number): Promise<EtatEmprisesPermis> {
+  const projectionValidee = await query<{ ok: boolean }>(
+    `SELECT EXISTS(SELECT 1 FROM permis_projection WHERE dossier_id = $1) AS ok`, [dossierId],
+  ).then((r) => r.rows[0]?.ok === true).catch((e) => { if (estTableAbsente(e)) return false; throw e; });
+  const parBatiment: Record<number, EtatEmpriseBatiment> = {};
+  try {
+    const { rows } = await query<{ corps_id: number; n: number; surface: string | number | null; cree_le: string | null }>(
+      `SELECT corps_id::int AS corps_id, count(*)::int AS n, SUM(surface_m2) AS surface, MAX(cree_le)::text AS cree_le
+         FROM permis_emprise_reconstruite WHERE dossier_id = $1 AND corps_id IS NOT NULL GROUP BY corps_id`, [dossierId]);
+    for (const r of rows) parBatiment[r.corps_id] = { surfaceM2: r.surface !== null ? Number(r.surface) : null, creeLe: r.cree_le, nbEmprises: r.n };
+  } catch (e) { if (!estTableAbsente(e)) throw e; }
+  return { projectionValidee, parBatiment };
+}
+
 /** Supprime UNE emprise (scopée au dossier — jamais une suppression aveugle par id seul). Renvoie le nombre de lignes retirées. */
 export async function supprimerEmprise(id: number, dossierId: number): Promise<number> {
   try {

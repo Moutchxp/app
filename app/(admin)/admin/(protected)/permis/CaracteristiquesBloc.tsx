@@ -5,17 +5,18 @@ import { useCallback, useEffect, useState } from 'react';
 import type { CorpsBatiment, GlobalPermis, OrigineValeur, ValeursCorps } from '../../../../lib/permis/caracteristiquesRepo';
 import type { JournalPermis, JournalChamp } from '../../../../lib/permis/journalLecture';
 import type { ParcelleLigne, EmpreinteLigne, BatiSnapshotResume } from '../../../../lib/permis/parcellesRepo';
+import type { EtatEmprisesPermis } from '../../../../lib/permis/empriseReconstruiteRepo'; // TYPE seulement (module serveur, pg) : état d'emprise par bâtiment pour la capsule
 import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa'; // LOT 67 — module PUR : import de type sûr côté client
 import type { BornesParColonne } from '../../../../lib/sitadel/reglagesVeille';
 import {
   MESURES, CHAMPS_PERMIS, construireCorps, construirePermis, valeurVersInput, permisVersInput,
   type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
-import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, type LienPiece } from './CaracteristiquesRendu';
+import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtatEmprise, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, type LienPiece } from './CaracteristiquesRendu';
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
 // N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null; majLe: string | null } | null; margeCoherenceSommetM?: number }
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null; majLe: string | null } | null; margeCoherenceSommetM?: number; empriseEtat?: EtatEmprisesPermis }
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '', adresse: c.adresse ?? '',
@@ -51,7 +52,7 @@ const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '
  * BÂTIMENT (mesurés : repère, altitudes, étages, adresse par corps). Toute écriture est en 'saisie'. Confiance/réserve/motif
  * lus du journal (parCorps + permis). Bornes et liste de nature LUES de la base.
  */
-export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void }) {
+export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string }) {
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
   const [data, setData] = useState<EtatCharge | null>(null);
   const [edGlobal, setEdGlobal] = useState<EditionGlobal>({ parking: '', commentaire: '' });
@@ -316,6 +317,11 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange }: { dossie
               </div>
               <div style={{ flex: '1 1 260px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
                 {MESURES.filter((m) => m.estSommet).map(rendreMesure)}
+                {/* CAPSULE D'EMPRISE — jumelle de la capsule d'altitude, JUSTE EN DESSOUS (même colonne). État lu en base (data.empriseEtat) :
+                    VERT si la projection du DOSSIER est validée, sinon ROUGE (« Valider » si une emprise existe déjà — avec surface/date —,
+                    sinon « Tracer »). Le clic amène au bloc « Bâtiments et projection » (ancre). Se rafraîchit via la clé du bloc (vEmprise). */}
+                <CapsuleEtatEmprise projectionValidee={data.empriseEtat?.projectionValidee ?? false}
+                  emprise={data.empriseEtat?.parBatiment[c.id] ?? null} ancreEmprise={ancreEmprise} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>

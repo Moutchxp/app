@@ -10,9 +10,13 @@ import { readFileSync } from 'node:fs';
  */
 const H = vi.hoisted(() => {
   const calls: { sql: string; params: unknown[] }[] = [];
-  const flags = { geomValide: true as boolean, updRows: [{ provenance: 'ign_retouche' }] as { provenance: string }[] }; // PROJ-3s — pilotables par test
+  const flags = { geomValide: true as boolean, updRows: [{ provenance: 'ign_retouche' }] as { provenance: string }[],
+    projectionValidee: false as boolean, empriseRows: [] as { corps_id: number; n: number; surface: string | number | null; cree_le: string | null }[] }; // PROJ-3s + capsule d'emprise — pilotables par test
   const queryMock = async (sql: string, params?: unknown[]) => {
     calls.push({ sql, params: params ?? [] });
+    // Capsule d'emprise — projection validée (niveau dossier) + agrégat par bâtiment (pilotés par flags).
+    if (/EXISTS\(SELECT 1 FROM permis_projection/i.test(sql)) return { rows: [{ ok: flags.projectionValidee }], rowCount: 1 };
+    if (/FROM permis_emprise_reconstruite WHERE dossier_id = \$1 AND corps_id IS NOT NULL GROUP BY corps_id/i.test(sql)) return { rows: flags.empriseRows, rowCount: flags.empriseRows.length };
     // PROJ-3s — retouche : validité géométrique (ST_IsValid) puis UPDATE … RETURNING provenance (pilotés par flags).
     if (/ST_IsValid/i.test(sql)) return { rows: [{ ok: flags.geomValide }], rowCount: 1 };
     if (/UPDATE permis_emprise_reconstruite[\s\S]*RETURNING provenance/i.test(sql)) return { rows: flags.updRows, rowCount: flags.updRows.length };
@@ -34,13 +38,13 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock, withTransaction: async (fn: (q: unknown) => unknown) => fn(H.queryMock) }));
 
-import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise } from './empriseReconstruiteRepo';
+import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, lireEtatEmprisesPermis } from './empriseReconstruiteRepo';
 import type { CalageTrace } from './empriseReconstruiteRepo';
 
 const calage: CalageTrace = { paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 10, y: 0 }, lambert: { x: 20, y: 0 } }], ratioDeclare: null, ratioImplicite: 200, residuFitM: 0, residuEchelleM: null, douteux: false, raisons: [] };
 const anneau = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
 
-beforeEach(() => { H.calls.length = 0; H.flags.geomValide = true; H.flags.updRows = [{ provenance: 'ign_retouche' }]; });
+beforeEach(() => { H.calls.length = 0; H.flags.geomValide = true; H.flags.updRows = [{ provenance: 'ign_retouche' }]; H.flags.projectionValidee = false; H.flags.empriseRows = []; });
 
 describe('PROJ-2 — enregistrerEmprise : n’écrit QUE la table des reconstitutions', () => {
   it('INSERT dans permis_emprise_reconstruite, géométrie ST_GeomFromText(…, 2154), calage en jsonb, corps_id lié', async () => {
@@ -227,5 +231,29 @@ describe('PROJ-3s — retoucherEmprise : géométrie recalculée + validée serv
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.motif).toMatch(/introuvable/);
+  });
+});
+
+describe('CAPSULE D’EMPRISE — lireEtatEmprisesPermis : état lu en base (surface/date par bâtiment + projection validée niveau dossier)', () => {
+  it('agrège par bâtiment (corps_id) et coerce la surface pg (chaîne) en nombre ; projection validée = EXISTS permis_projection', async () => {
+    H.flags.projectionValidee = true;
+    // pg renvoie `numeric` en CHAÎNE : la surface arrive '898.22' (string), le count en nombre.
+    H.flags.empriseRows = [{ corps_id: 194, n: 2, surface: '898.22', cree_le: '2026-09-06T20:40:26Z' }, { corps_id: 195, n: 1, surface: 120, cree_le: '2026-09-05T10:00:00Z' }];
+    const r = await lireEtatEmprisesPermis(7424);
+    expect(r.projectionValidee).toBe(true);
+    expect(r.parBatiment[194]).toEqual({ surfaceM2: 898.22, creeLe: '2026-09-06T20:40:26Z', nbEmprises: 2 });
+    expect(r.parBatiment[195].surfaceM2).toBe(120);
+    // COMPORTEMENT : la validité est lue par un EXISTS sur permis_projection, l'agrégat scopé au dossier + corps_id non nul.
+    const projSql = H.calls.find((c) => /permis_projection/i.test(c.sql))!;
+    expect(projSql.sql).toMatch(/EXISTS/i);
+    expect(projSql.params).toEqual([7424]);
+    const aggSql = H.calls.find((c) => /GROUP BY corps_id/i.test(c.sql))!;
+    expect(aggSql.sql.replace(/\s+/g, ' ')).toContain('corps_id IS NOT NULL');
+    expect(aggSql.params).toEqual([7424]);
+  });
+
+  it('aucune projection ni emprise → { projectionValidee: false, parBatiment: {} }', async () => {
+    const r = await lireEtatEmprisesPermis(7424);
+    expect(r).toEqual({ projectionValidee: false, parBatiment: {} });
   });
 });

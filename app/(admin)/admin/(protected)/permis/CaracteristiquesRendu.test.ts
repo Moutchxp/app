@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, DeclarationsCerfaBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps } from './CaracteristiquesRendu';
+import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, DeclarationsCerfaBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps, etatCapsuleEmprise, CapsuleEtatEmprise } from './CaracteristiquesRendu';
 import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa';
 import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
@@ -932,5 +932,44 @@ describe('LOT 67 — DeclarationsCerfaBloc : lecture approfondie du Cerfa, en re
     expect(h).toContain('non retenu');
     expect(h).toContain('≠ total structuré 65');
     expect(h).not.toContain('Nombre de bâtiments'); // rien écrit → pas de valeur retenue affichée
+  });
+})
+
+describe('CAPSULE D’EMPRISE — jumelle de la capsule d’altitude (état lu en base, jamais flatteur)', () => {
+  it('etatCapsuleEmprise : trois états STRICTS', () => {
+    // VERT uniquement si la PROJECTION (dossier) est validée
+    const vert = etatCapsuleEmprise(true, null);
+    expect(vert.ton).toBe('vert');
+    expect(vert.libelle).toContain('validée');
+    // ROUGE « Valider » quand une emprise est ENREGISTRÉE mais NON validée → surface (m²) + date affichées
+    const aValider = etatCapsuleEmprise(false, { surfaceM2: 898.2, creeLe: '2026-09-06T20:40:16Z', nbEmprises: 1 });
+    expect(aValider.ton).toBe('rouge');
+    expect(aValider.libelle).toContain('Valider');
+    expect(aValider.libelle).not.toContain('validée'); // 🔴 INTERDIT : « enregistrée » n’est JAMAIS « validée »
+    expect(aValider.detail).toContain('m²');
+    expect(aValider.detail).toContain('le ');
+    // ROUGE « Tracer » quand aucune emprise
+    const aTracer = etatCapsuleEmprise(false, null);
+    expect(aTracer.ton).toBe('rouge');
+    expect(aTracer.libelle).toContain('Tracer');
+    // et un enregistrement fantôme (nbEmprises 0) compte comme « aucune emprise »
+    expect(etatCapsuleEmprise(false, { surfaceM2: null, creeLe: null, nbEmprises: 0 }).libelle).toContain('Tracer');
+  });
+
+  it('CapsuleEtatEmprise : cliquable (ancre présente) en rouge, statut non-interactif sinon ; vert jamais actionnable', () => {
+    // ROUGE + ancre → bouton actionnable (pas aria-disabled) + libellé « Valider »
+    const rougeAncre = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { projectionValidee: false, emprise: { surfaceM2: 898.2, creeLe: '2026-09-06T20:40:16Z', nbEmprises: 1 }, ancreEmprise: 'ancre-bloc-emprise-7424' }));
+    expect(rougeAncre).toContain('Valider');
+    expect(rougeAncre).not.toContain('aria-disabled');
+    // ROUGE SANS ancre → statut non-interactif (aria-disabled), jamais un « action indisponible »
+    const rougeSansAncre = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { projectionValidee: false, emprise: null }));
+    expect(rougeSansAncre).toContain('Tracer');
+    expect(rougeSansAncre).toContain('aria-disabled');
+    expect(rougeSansAncre).not.toContain('indisponible');
+    // VERT → jamais actionnable (aria-disabled), apparence verte (token green-ink)
+    const vert = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { projectionValidee: true, emprise: null, ancreEmprise: 'ancre-bloc-emprise-7424' }));
+    expect(vert).toContain('validée');
+    expect(vert).toContain('aria-disabled');
+    expect(vert).toContain('green-ink');
   });
 })
