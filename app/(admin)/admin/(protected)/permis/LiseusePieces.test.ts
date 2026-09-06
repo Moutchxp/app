@@ -16,7 +16,11 @@ import { construireBandePlans, cibleBestOf, type PiecePlan } from './TraceEmpris
  *   5. BlocTraceEmprise.tsx et TraceEmpriseRendu.tsx n'ont AUCUNE dépendance sur la liseuse (le tracé reste indépendant, bit-à-bit).
  * Les tests tournent sans canvas ni pdf.js : on ne prétend PAS vérifier le rendu PDF lui-même.
  */
-const SRC = readFileSync(fileURLToPath(new URL('./LiseusePieces.tsx', import.meta.url)), 'utf8');
+// INCRÉMENT-2 — la BARRE de commandes (nav de pages, best-of, analyses, statut, lien doc) est désormais un composant PARTAGÉ
+//   (BarreVisionneusePieces) rendu par la liseuse. `SRC` couvre donc les DEUX fichiers : les gardes `toContain` retrouvent les chaînes
+//   déplacées, et les gardes `not.toContain` (outils de tracé) s'appliquent AUSSI à la barre partagée (renforcées, jamais affaiblies).
+const SRC = readFileSync(fileURLToPath(new URL('./LiseusePieces.tsx', import.meta.url)), 'utf8')
+  + '\n' + readFileSync(fileURLToPath(new URL('./BarreVisionneusePieces.tsx', import.meta.url)), 'utf8');
 const TRACE = readFileSync(fileURLToPath(new URL('./BlocTraceEmprise.tsx', import.meta.url)), 'utf8');
 const RENDU = readFileSync(fileURLToPath(new URL('./TraceEmpriseRendu.tsx', import.meta.url)), 'utf8');
 
@@ -136,11 +140,12 @@ describe('LOT 94 — barre de commandes SOUS l’aperçu : navigation de PAGES, 
   });
   it('④ « analyse de la page » présente dans la barre — JAMAIS câblée sur l’analyse du fichier entier (activée au LOT 95, cf. suite dédiée)', () => {
     expect(SRC).toContain('analyse de la page');
-    // le bouton « analyse de la page » NE déclenche JAMAIS reperer() (sinon Arno paierait tout le fichier) : son handler est analyserPage().
-    const iBtn = SRC.indexOf("void analyserPage()");
-    const bloc = SRC.slice(Math.max(0, iBtn - 200), SRC.indexOf('analyse de la page', iBtn) + 20);
-    expect(iBtn).toBeGreaterThan(-1);
-    expect(bloc).not.toContain('reperer');
+    // le bouton « analyse de la page » NE déclenche JAMAIS reperer() (sinon Arno paierait tout le fichier). Dans le composant partagé,
+    //   les DEUX boutons ont des handlers DISTINCTS (onAnalysePage ≠ onAnalyseFichier) ; côté liseuse, onAnalysePage est câblé sur
+    //   analyserPage() (jamais reperer()). INCRÉMENT-2 : la barre est factorisée → on vérifie la séparation par ces câblages explicites.
+    expect(SRC).toContain('onClick={onAnalysePage}');
+    expect(SRC).toContain('onClick={onAnalyseFichier}');
+    expect(SRC).toMatch(/onAnalysePage=\{\(\) => void analyserPage\(\)\}/);
   });
 });
 
@@ -216,7 +221,10 @@ describe('LOT 99 — statut de page à 3 axes dans la barre : SOURCE UNIQUE stat
     expect(SRC).toMatch(/lectureCourante \? 'ré-analyser cette page' : 'analyse de la page'/);
   });
   it('SOURCE UNIQUE : la barre importe la fonction de statut de TraceEmpriseRendu (aucun calcul dupliqué, tokens LOT 97)', () => {
-    expect(SRC).toMatch(/PastilleStatutPage, statutPageAnalyse, libelleStatutPage, resumePagesAnalysees/);
+    // INCRÉMENT-2 — l'import est SCINDÉ par la factorisation : la barre partagée importe la pastille + le libellé de TraceEmpriseRendu,
+    //   la liseuse importe le CALCUL du statut/résumé. Aucune duplication : tout vient de TraceEmpriseRendu (source unique).
+    expect(SRC).toContain('PastilleStatutPage, libelleStatutPage');   // barre partagée
+    expect(SRC).toContain('statutPageAnalyse, resumePagesAnalysees'); // liseuse (calcul)
   });
 });
 

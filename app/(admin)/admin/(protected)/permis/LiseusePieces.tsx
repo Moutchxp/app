@@ -6,9 +6,10 @@ import type { PDFDocumentProxy } from 'pdfjs-dist'; // type SEUL (erasé au runt
 import {
   construireBandePlans, bandeAvecOverrides, cibleBestOf, bornerPage,
   ListePiecesAnalyse, BandePlans, NavPieceLibre, ZoomPdf, etatAnalyseIA,
-  PastilleStatutPage, statutPageAnalyse, libelleStatutPage, resumePagesAnalysees,
+  statutPageAnalyse, resumePagesAnalysees,
   type PiecePlan, type Plan, type EtatAnalyseIA,
 } from './TraceEmpriseRendu';
+import { BarreVisionneusePieces } from './BarreVisionneusePieces'; // INCRÉMENT-2 — barre de commandes PARTAGÉE (planche + tracé)
 import { MAX_DOCS_CACHE, MAX_BITMAPS_RENDU, voisinsAPrecharger, rangerEtEvincer } from './prechargeLiseuse';
 import type { RunReperageAffiche } from '../../../../lib/permis/reperePlanchesRepo'; // LOT 62 — audit du repérage par image (type SEUL)
 import type { LecturePageAffiche } from '../../../../lib/permis/lectureValeursPageRepo'; // LOT 95 — audit daté « page analysée pour lire des valeurs » (type SEUL)
@@ -594,15 +595,6 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
         )}
         {/* LOT 91 — aucune pièce sélectionnée → le dire explicitement (jamais un cadre vide muet, règle LOT 71). */}
         {pieceId === null && <p role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: '0 0 .3rem' }}>Aucun aperçu ouvert : choisissez une pièce (best-of ci-contre ou « voir toutes les pièces du dossier »).</p>}
-        {/* LOT 65 — OUVRIR LE DOCUMENT COMPLET (nouvel onglet), AU-DESSUS de l'image. Visiblement cliquable (souligné + ↗, jamais un
-            nom qui devient lien au survol). Le lien SUIT la page affichée (nomCourant + page, état courant) ; il est signé AU CLIC. */}
-        {pieceId !== null && (
-          <button type="button" className="svv-link" onClick={() => void ouvrirDocumentComplet()}
-            aria-label={`Ouvrir ${nomCourant} dans un nouvel onglet`}
-            style={{ width: 'auto', minHeight: 32, padding: '.2rem .1rem', marginBottom: '.3rem', fontSize: 12, textAlign: 'left', textDecoration: 'underline', wordBreak: 'break-word' }}>
-            Ouvrir « {nomCourant} »{page > 0 ? ` (page ${page})` : ''} dans un nouvel onglet ↗
-          </button>
-        )}
         <div ref={pdfContainerRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
           style={{ position: 'relative', minHeight: '8rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', background: 'var(--color-svv-field)', touchAction: zoom > 1 ? 'none' : 'auto', cursor: zoom > 1 ? 'grab' : 'default' }}>
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
@@ -621,123 +613,14 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
           {/* LOT 94 — la bascule best-of au grain PAGE n'est PLUS en surimpression sur l'aperçu (elle l'était aux LOTs 61/92) : elle vit
               maintenant dans la BARRE DE COMMANDES sous l'image (② ci-dessous), hors canvas → tokens de thème. Le canvas reste NU. */}
         </div>
-        {/* LOT 94 — BARRE DE COMMANDES sous l'aperçu (colonne de droite). HORS canvas → tokens `--color-svv-*` : fond et texte basculent
-            ensemble en thème clair comme sombre (le canvas, lui, reste CLAIR et n'a plus aucun contrôle en surimpression). Quatre gestes :
-            ① navigation de PAGES du fichier ouvert — axe DISTINCT du best-of (BandePlans, colonne de gauche, « plan i sur N ») : les deux
-               coexistent, on sait à tout moment sur quel PLAN (à gauche) ET sur quelle PAGE (ici) on est ; ② bascule best-of au grain page
-               (mêmes gestes que le LOT 92, aucune 2e source de vérité) ; ③ analyse du FICHIER complet (bouton du LOT 62 déplacé + renommé,
-               coût inchangé) ; ④ analyse de LA PAGE, DÉSACTIVÉE et annoncée (le grain page reste à construire — jamais câblée sur ③). */}
-        {pieceId !== null && (
-          <div style={{ marginTop: '.4rem', paddingTop: '.4rem', borderTop: '1px solid var(--color-svv-line)', display: 'flex', flexDirection: 'column', gap: '.4rem', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)' }}>
-            {/* ① NAVIGATION DE PAGES — SEULEMENT si le fichier a plusieurs pages ; « précédent » à l'extrême gauche, « suivant » à
-                l'extrême droite (space-between), la page courante ENTRE les deux. Boutons DÉSACTIVÉS (pas masqués) aux bornes → la position
-                reste lisible. C'est un axe distinct du best-of : naviguer les pages NE change PAS le plan best-of courant. */}
-            {nbPagesPiece > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap' }}>
-                <button type="button" aria-label="Page précédente du fichier" disabled={page <= 1} onClick={() => changerPage(-1)}
-                  style={{ cursor: page <= 1 ? 'default' : 'pointer', opacity: page <= 1 ? 0.4 : 1, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}>‹ page précédente</button>
-                <span style={{ fontSize: 12, fontWeight: 700, textAlign: 'center' }}>page {page} sur {nbPagesPiece}{planAffiche?.echelle ? ` · échelle ${planAffiche.echelle}` : ''}</span>
-                <button type="button" aria-label="Page suivante du fichier" disabled={page >= nbPagesPiece} onClick={() => changerPage(1)}
-                  style={{ cursor: page >= nbPagesPiece ? 'default' : 'pointer', opacity: page >= nbPagesPiece ? 0.4 : 1, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}>page suivante ›</button>
-              </div>
-            )}
-            {/* LOT 99 ① — STATUT DE LA PAGE COURANTE (3 axes) : pastille (ton = famille d'état ; lettres = NATURE·ORIGINE, jamais un 3e ton)
-                + libellé EXPLICITE en français clair (« page identifiée mais non analysée » remplace « page couverte (fichier) »). Le title
-                énonce NATURE + ORIGINE + ÉTAT + date. 'non identifiée' → rien (pas d'état trompeur). */}
-            {statutPage.etat !== 'non_identifiee' && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
-                <PastilleStatutPage s={statutPage} />
-                <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }} title={statutPage.derive ? 'statut déduit de l’analyse du fichier, pas d’une mesure page par page' : undefined}>
-                  {libelleStatutPage(statutPage)}{statutPage.derive ? ' (d’après l’analyse du fichier)' : ''}
-                </span>
-              </div>
-            )}
-            {/* LOT 98 ② — VUE D'ENSEMBLE : quelles pages sont déjà analysées, SANS feuilleter (éviter de repayer). Repliée si la liste est
-                LONGUE (esprit LOT 96 : bouton + aria-expanded, compte replié). Le repérage FICHIER est dit à part (il couvre tout). */}
-            {(resumePages.fichier || resumePages.pagesIndividuelles.length > 0) && (
-              <div style={{ fontSize: 11, color: 'var(--color-svv-muted)', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-                {resumePages.fichier && <span>Fichier entier déjà analysé (repérage){resumePages.dateFichier ? ` le ${resumePages.dateFichier}` : ''}.</span>}
-                {resumePages.pagesIndividuelles.length > 0 && (
-                  resumePages.pagesIndividuelles.length <= 10 ? (
-                    <span>Page{resumePages.pagesIndividuelles.length > 1 ? 's' : ''} déjà analysée{resumePages.pagesIndividuelles.length > 1 ? 's' : ''} individuellement : {resumePages.pagesIndividuelles.join(', ')}.</span>
-                  ) : (
-                    <>
-                      <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', fontSize: 11, color: 'var(--color-svv-muted)', alignSelf: 'flex-start' }}
-                        aria-expanded={pleinPagesAnalysees} onClick={() => setPleinPagesAnalysees((v) => !v)}>
-                        {resumePages.pagesIndividuelles.length} pages déjà analysées individuellement {pleinPagesAnalysees ? '▲' : '▾'}
-                      </button>
-                      {pleinPagesAnalysees && <span>Pages : {resumePages.pagesIndividuelles.join(', ')}.</span>}
-                    </>
-                  )
-                )}
-              </div>
-            )}
-            {/* ② BASCULE BEST-OF au grain PAGE (déplacée de la surimpression du LOT 92 vers la barre). TOGGLE : une page DANS le best-of
-                propose « ✕ retirer », une page HORS best-of propose « ＋ ajouter cette page ». Jamais un bouton muet. Réutilise
-                retirerDuBestOf / ajouterAuBestOf (tables inclusion/exclusion, LOT 92) — aucune 2e source de vérité. */}
-            {pageDansBestOf ? (
-              <button type="button" onClick={() => void retirerDuBestOf(planAffiche!)}
-                aria-label={`Retirer du best-of la page ${page} de ${nomCourant} (réversible ; ne supprime pas le document)`}
-                style={{ alignSelf: 'flex-start', cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 36, padding: '.3rem .6rem', fontSize: 12, fontWeight: 600 }}>
-                ✕ retirer du best-of
-              </button>
-            ) : (
-              <button type="button" onClick={() => void ajouterAuBestOf(pieceId, page)}
-                aria-label={`Ajouter au best-of la page ${page} de ${nomCourant} (cette page seule, pas le fichier entier ; réversible)`}
-                style={{ alignSelf: 'flex-start', cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', minHeight: 36, padding: '.3rem .6rem', fontSize: 12, fontWeight: 600 }}>
-                ＋ ajouter cette page au best-of
-              </button>
-            )}
-            {/* ③ ④ ANALYSES — ③ « analyse du fichier complet » = repérage LOT 62 (PRÉSENCE, N pages) ; ④ « analyse de la page » = LOT 95
-                (LECTURE DE VALEURS sur LA SEULE page affichée, altitude de sommet NGF). Les deux sont sous le MÊME verrou 58 (jamais deux à
-                la fois) → chacune désactive l'autre pendant qu'elle tourne. ④ n'est JAMAIS câblée sur ③ (Arno paierait tout le fichier). */}
-            {/* LOT 98 ③ — REQUALIFICATION DU BOUTON quand c'est DÉJÀ FAIT : un fichier déjà repéré → « ré-analyser le fichier complet » ;
-                une page déjà analysée INDIVIDUELLEMENT → « ré-analyser cette page ». Le libellé qui change (+ le repère ci-dessus) fait de la
-                relance un geste CONSCIENT, sans modale (plus léger, et Arno voit qu'il repaye). Une page seulement COUVERTE par le fichier
-                n'est PAS « déjà analysée » au grain page → le bouton reste « analyse de la page » (c'est un travail neuf : lire ses valeurs). */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
-              <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}
-                disabled={reperEnCours || lectureEnCours} aria-busy={reperEnCours} onClick={() => void reperer()}>
-                {reperEnCours ? 'Analyse des images en cours…' : (runCourant ? 'ré-analyser le fichier complet' : 'analyse du fichier complet')}
-              </button>
-              <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 36, padding: '.3rem .6rem', fontSize: 12 }}
-                disabled={reperEnCours || lectureEnCours} aria-busy={lectureEnCours} onClick={() => void analyserPage()}>
-                {lectureEnCours ? 'Lecture de la page en cours…' : (lectureCourante ? 'ré-analyser cette page' : 'analyse de la page')}
-              </button>
-            </div>
-            {/* MENTION HONNÊTE — coût de ③ (≈2 cts / 20 pages) ET de ④ (1 page ≈ 0,1 centime) annoncés AVANT le clic ; ce que lit ④ dit sans jargon. */}
-            <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>
-              « analyse du fichier complet » fait analyser les images de <strong style={{ color: 'var(--color-svv-ink)', wordBreak: 'break-word' }}>{nomCourant}</strong> par un service payant (de l’ordre de 2 centimes pour une vingtaine de pages) pour trouver les plans encastrés que le repérage par le texte ne voit pas. « analyse de la page » n’envoie que <strong style={{ color: 'var(--color-svv-ink)' }}>la page affichée (page {page})</strong> — de l’ordre de 0,1 centime — pour y lire l’<strong style={{ color: 'var(--color-svv-ink)' }}>altitude de sommet NGF</strong> (utile sur une coupe ou une façade) et remplir ce champ s’il est vide. Rien de lisible → c’est dit ; valeur douteuse → proposée « à vérifier », jamais écrite ; valeur écrite → annulable ci-dessous.
-              {runCourant && <> <strong style={{ color: 'var(--color-svv-ink)' }}>Cette pièce a déjà été analysée (fichier complet)</strong> — relancer refera une analyse payante.</>}
-              {lectureCourante && <> <strong style={{ color: 'var(--color-svv-ink)' }}>Cette page a déjà été analysée</strong> le {lectureCourante.creeLe ? jourParisISO(lectureCourante.creeLe) : ''} — relancer refera une analyse payante.</>}
-            </span>
-            {/* ENCART DE RÉSULTAT du repérage — visible et persistant (LOT 63 a), déplacé avec le bouton. Rouge si session expirée. */}
-            {(reperMsg || runCourant) && (
-              <div role="status" aria-live="polite" style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', padding: '.4rem .5rem', borderRadius: '.4rem', background: 'var(--color-svv-field)', borderLeft: `3px solid ${reperMsg && reperMsg.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}` }}>
-                {reperMsg && <span style={{ fontSize: 12, fontWeight: 600, color: reperMsg.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-ink)' }}>{reperMsg}</span>}
-                {runCourant && (
-                  <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>
-                    {runCourant.nbPlanches} planche{runCourant.nbPlanches > 1 ? 's' : ''} repérée{runCourant.nbPlanches > 1 ? 's' : ''} par image dans cette pièce.
-                    {runCourant.incertaines.length > 0 && ` ${runCourant.incertaines.length} page${runCourant.incertaines.length > 1 ? 's' : ''} incertaine${runCourant.incertaines.length > 1 ? 's' : ''} (${runCourant.incertaines.map((p) => `p${p}`).join(', ')}) — hors best-of.`}
-                    {runCourant.pagesEcartees.length > 0 && ` ${runCourant.pagesEcartees.length} page${runCourant.pagesEcartees.length > 1 ? 's' : ''} non envoyée${runCourant.pagesEcartees.length > 1 ? 's' : ''} par précaution : ${runCourant.pagesEcartees.map((e) => `p${e.page} (${e.motif})`).join(' ; ')}.`}
-                  </span>
-                )}
-              </div>
-            )}
-            {/* LOT 95 — ENCART DE RÉSULTAT de « analyse de la page » (issue honnête du serveur), ANCRÉ à SA page (n'apparaît qu'en face
-                d'elle) + RÉVERSIBILITÉ (annuler une valeur écrite). */}
-            {lectureRes && lectureRes.cle === `${pieceId}:${page}` && (
-              <div role="status" aria-live="polite" style={{ display: 'flex', flexDirection: 'column', gap: '.25rem', padding: '.4rem .5rem', borderRadius: '.4rem', background: 'var(--color-svv-field)', borderLeft: `3px solid ${lectureRes.texte.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-line)'}` }}>
-                <span style={{ fontSize: 12, fontWeight: 600, color: lectureRes.texte.includes('reconnectez') ? 'var(--color-svv-red)' : 'var(--color-svv-ink)' }}>{lectureRes.texte}</span>
-                {lectureRes.ecrit && (
-                  <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', alignSelf: 'flex-start' }} onClick={() => void annulerValeurPage()}>
-                    annuler la valeur écrite (remettre le champ à vide)
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+        {/* LOT 94 / INCRÉMENT-2 — BARRE DE COMMANDES sous l'aperçu : composant PARTAGÉ (une seule vérité) avec « Bâtiments et projection ».
+            Actions serveur inchangées (ouvrirDocumentComplet/changerPage/retirer/ajouterAuBestOf/reperer/analyserPage/annulerValeurPage). */}
+        <BarreVisionneusePieces pieceId={pieceId} nomCourant={nomCourant} page={page} nbPagesPiece={nbPagesPiece} echelle={planAffiche?.echelle ?? null}
+          onOuvrirDocument={() => void ouvrirDocumentComplet()} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)}
+          pageDansBestOf={pageDansBestOf} onRetirerBestOf={() => { if (planAffiche) void retirerDuBestOf(planAffiche!); }} onAjouterBestOf={() => { if (pieceId !== null) void ajouterAuBestOf(pieceId, page); }}
+          statutPage={statutPage} resumePages={resumePages} pleinPagesAnalysees={pleinPagesAnalysees} onTogglePleinPages={() => setPleinPagesAnalysees((v) => !v)}
+          runCourant={runCourant} lectureCourante={lectureCourante} reperEnCours={reperEnCours} lectureEnCours={lectureEnCours}
+          onAnalyseFichier={() => void reperer()} onAnalysePage={() => void analyserPage()} reperMsg={reperMsg} lectureRes={lectureRes} onAnnulerValeur={() => void annulerValeurPage()} />
         {message && <p role="alert" style={{ fontSize: 11, color: 'var(--color-svv-red)', margin: '.3rem 0 0' }}>{message}</p>}
         {/* LOT 61 — le best-of est vide APRÈS retraits (jamais un écran muet) : on le DIT et on invite à réintégrer via la liste ci-dessous. */}
         {nav === 'bestof' && bandeVisible.length === 0 && retirees.length > 0 && (

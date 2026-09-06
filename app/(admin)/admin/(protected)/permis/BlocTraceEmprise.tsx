@@ -8,10 +8,15 @@ import {
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, SelecteurPiecePlan, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome (best-of, navigation, zoom) réutilisée à 0 bâtiment
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
+import { bandeAvecOverrides, statutPageAnalyse, resumePagesAnalysees } from './TraceEmpriseRendu'; // INCRÉMENT-2 — best-of overrides + statut/résumé de page (barre partagée)
+import { BarreVisionneusePieces } from './BarreVisionneusePieces'; // INCRÉMENT-2 — barre de commandes PARTAGÉE avec la planche
+import type { RunReperageAffiche } from '../../../../lib/permis/reperePlanchesRepo';
+import type { LecturePageAffiche } from '../../../../lib/permis/lectureValeursPageRepo';
+import { jourParisISO } from '../../../../lib/permis/horodatageParis';
 import type { SelectionInfo } from '../../../../lib/permis/plancheParcellesRepo';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
 import { statutCourantParCleabs, type LigneStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) ; RATT-5 : recouvert + taux
@@ -42,6 +47,18 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                          //   STANDALONE existe déjà sur le même écran (En cours : famille « Pièces du permis ») → jamais deux liseuses.
 }) {
   const [pieces, setPieces] = useState<Piece[]>([]);
+  // INCRÉMENT-2 — état de la BARRE de commandes partagée (best-of overrides + audits d'analyse IA), lu du MÊME GET /emprise. N'interfère
+  //   NI avec le canvas NI avec le calage/tracé : purement autour de l'aperçu. Le best-of visible = bande auto − retraits + ajouts.
+  const [exclus, setExclus] = useState<Set<string>>(new Set());
+  const [inclus, setInclus] = useState<Set<string>>(new Set());
+  const [runs, setRuns] = useState<Record<number, RunReperageAffiche>>({});
+  const [lectures, setLectures] = useState<Record<number, LecturePageAffiche[]>>({});
+  const [origineSansIa, setOrigineSansIa] = useState<'auto' | 'manuelle' | null>(null);
+  const [reperEnCours, setReperEnCours] = useState(false);
+  const [lectureEnCours, setLectureEnCours] = useState(false);
+  const [reperMsg, setReperMsg] = useState<string | null>(null);
+  const [lectureRes, setLectureRes] = useState<{ cle: string; texte: string; ecrit: boolean } | null>(null);
+  const [pleinPagesAnalysees, setPleinPagesAnalysees] = useState(false);
   const [batiments, setBatiments] = useState<BatimentProjection[]>([]);
   const [emprises, setEmprises] = useState<EmpriseReconstruite[]>([]);
   const [ignores, setIgnores] = useState<ProjectionIgnoree[]>([]);
@@ -100,7 +117,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pdfContainerRef = useRef<HTMLDivElement>(null); // conteneur NON transformé (repère du clic)
   const dragRef = useRef<{ x0: number; y0: number; panX: number; panY: number; bouge: boolean } | null>(null);
-  const bande = useMemo(() => construireBandePlans(pieces), [pieces]);
+  // INCRÉMENT-2 — best-of VISIBLE = bande auto − retraits + ajouts (mêmes overrides que la planche). Touche la NAVIGATION (quel plan est
+  //   proposé), JAMAIS le viewport ni la conversion de coordonnées.
+  const bande = useMemo(() => bandeAvecOverrides(construireBandePlans(pieces), pieces, exclus, inclus), [pieces, exclus, inclus]);
   // PROJ-3g/3m — FAMILLE + TRAÇABILITÉ de la page courante. En best-of, la traçabilité est calculée PAR PAGE côté serveur (une planche
   //   de niveau d'une pièce PC3 est traçable) ; en pièce libre, on retombe sur la famille du NOM. `verrou` = pourquoi c'est bloqué ;
   //   `ambiguCourant` = classement incertain (traçable par défaut, mais on le DIT). Verrou revérifié serveur PAR PAGE à l'enregistrement.
@@ -121,11 +140,14 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`, { cache: 'no-store' });
         if (annule) return;
         if (!res.ok) { setEtat('erreur'); setMessage('Bâtiments indisponibles (le serveur n’a pas répondu).'); return; }
-        const j = await res.json() as { pieces: Piece[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; selection?: SelectionInfo; indisponibles?: string[] };
+        const j = await res.json() as { pieces: Piece[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; selection?: SelectionInfo; indisponibles?: string[]; reperageRuns?: Record<number, RunReperageAffiche>; lecturesPages?: Record<number, LecturePageAffiche[]>; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; origineExtractionSansIa?: 'auto' | 'manuelle' | null };
         // Résilience serveur : « indisponible » ≠ « vide ». Si la lecture des BÂTIMENTS a échoué, on n'affiche JAMAIS « 0 bâtiment »
         //   (panne déguisée en donnée) → état d'échec explicite invitant à recharger.
         if (j.indisponibles?.includes('batiments')) { setEtat('erreur'); setMessage('Bâtiments indisponibles : rechargez.'); return; }
         setPieces(j.pieces); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setStatutsLignes(j.statutsPolygones ?? []); setRecouverts(j.polygonesRecouverts ?? []); setSelection(j.selection ?? { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null }); setConfirmeSel(false); setAngle(0); setDebordement(null);
+        // INCRÉMENT-2 — audits d'analyse IA + overrides best-of (mêmes champs que la planche, déjà renvoyés par le GET).
+        setRuns(j.reperageRuns ?? {}); setLectures(j.lecturesPages ?? {}); setOrigineSansIa(j.origineExtractionSansIa ?? null);
+        setExclus(new Set((j.exclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`))); setInclus(new Set((j.inclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`)));
         // PROJ-3e — on ouvre DIRECTEMENT sur le 1er plan de la bande (le mieux classé) ; à défaut de plan proposé, la 1re pièce.
         const b = construireBandePlans(j.pieces);
         setNav('bestof'); setPlanIndex(0);
@@ -332,6 +354,120 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
 
   // PROJ-3f ① — revenir au best-of : restaure le plan courant de la bande (repasse en mode best-of).
   const retourBestOf = useCallback(() => demanderChangement(() => appliquerPlan(planIndex)), [demanderChangement, appliquerPlan, planIndex]);
+
+  // ─── INCRÉMENT-2 — LA BARRE DE COMMANDES PARTAGÉE (mêmes actions serveur que la planche, portées SOUS le canvas) ───────────────────────
+  //   RÈGLE ABSOLUE respectée : ces handlers ne touchent NI le canvas, NI afficherPage, NI apercu/ratio, NI la conversion de coordonnées.
+  //   DIFFÉRENCE CLÉ avec la planche (LiseusePieces) : ici un GET /emprise RÉINITIALISE le tracé (angle, sommets, sélection). On NE
+  //   RECHARGE donc JAMAIS après une action (pas de bump `rechargeLocal`). Best-of = mise à jour LOCALE optimiste des overrides
+  //   (exclus/inclus) → la bande se recalcule sans requête ; analyse IA = message du serveur (l'audit daté se rafraîchira au prochain
+  //   rechargement naturel). C'est exactement l'arbitrage « ne jamais casser le calage » (incrément 1 différé pour la même raison).
+  const cleBestOf = (pl: { pieceId: number; page: number }) => `${pl.pieceId}:${pl.page}`;
+
+  const reperer = useCallback(async () => {
+    if (pieceId === null || reperEnCours) return;
+    setReperEnCours(true); setReperMsg(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reperer_planches', dossierId, pieceId }) });
+      if (res.status === 401) { setReperMsg('Session expirée — reconnectez-vous.'); return; }
+      if (res.status === 409) { setReperMsg('Une analyse de ce permis est déjà en cours.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; resume?: { planches: number; incertaines: number; ecartees: number } };
+      if (!res.ok || !body.ok) { setReperMsg('Repérage impossible, réessayez.'); return; }
+      const r = body.resume;
+      setReperMsg(r ? `${r.planches} planche(s) repérée(s)${r.incertaines ? ` · ${r.incertaines} incertaine(s)` : ''}${r.ecartees ? ` · ${r.ecartees} page(s) écartée(s) par précaution` : ''}.` : 'Repérage terminé.');
+      // pas de rechargement (préserve le tracé) : le résumé ci-dessus EST le retour ; les planches image entreront au prochain chargement.
+    } catch { setReperMsg('Repérage impossible, réessayez.'); }
+    finally { setReperEnCours(false); }
+  }, [pieceId, dossierId, reperEnCours]);
+
+  const analyserPage = useCallback(async () => {
+    if (pieceId === null || lectureEnCours || reperEnCours) return;
+    const cle = `${pieceId}:${page}`;
+    setLectureEnCours(true); setLectureRes(null);
+    const poser = (texte: string, ecrit = false) => setLectureRes({ cle, texte, ecrit });
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'lire_valeurs_page', dossierId, pieceId, page }) });
+      if (res.status === 401) { poser('Session expirée — reconnectez-vous.'); return; }
+      if (res.status === 409) { poser('Une analyse de ce permis est déjà en cours.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; resume?: { texte?: string; ecrit?: boolean } };
+      if (!res.ok || !body.ok) { poser('Analyse de la page impossible, réessayez.'); return; }
+      poser(body.resume?.texte ?? 'Analyse terminée.', body.resume?.ecrit === true);
+    } catch { poser('Analyse de la page impossible, réessayez.'); }
+    finally { setLectureEnCours(false); }
+  }, [pieceId, dossierId, page, lectureEnCours, reperEnCours]);
+
+  const annulerValeurPage = useCallback(async () => {
+    const cle = `${pieceId}:${page}`;
+    const poser = (texte: string) => setLectureRes({ cle, texte, ecrit: false });
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'annuler_lecture_page', dossierId }) });
+      if (res.status === 401) { poser('Session expirée — reconnectez-vous.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; annule?: boolean };
+      if (!res.ok || !body.ok) { poser('Annulation impossible, réessayez.'); return; }
+      poser(body.annule ? 'Valeur annulée : le champ a été remis à vide.' : 'Rien à annuler (aucune valeur écrite par l’image, ou valeur saisie à la main protégée).');
+    } catch { poser('Annulation impossible, réessayez.'); }
+  }, [pieceId, page, dossierId]);
+
+  // LOT 65 — ouvrir le document complet dans un nouvel onglet ; lien SIGNÉ fabriqué AU CLIC (jamais pré-généré), fragment #page=N non signé.
+  const ouvrirDocumentComplet = useCallback(async () => {
+    if (pieceId === null) return;
+    setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'url_piece', pieceId, source: 'dossier', inline: true }) });
+      if (res.status === 401) { setMessage('Session expirée — reconnectez-vous.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { url?: string };
+      if (!res.ok || !body.url) { setMessage('Ouverture du document impossible, réessayez.'); return; }
+      window.open(page > 0 ? `${body.url}#page=${page}` : body.url, '_blank', 'noopener,noreferrer');
+    } catch { setMessage('Ouverture du document impossible, réessayez.'); }
+  }, [pieceId, page]);
+
+  // LOT 61/92 — retirer / ajouter la page courante au best-of (réversible). Mise à jour LOCALE des overrides (mutuellement exclusifs) ;
+  //   AUCUN repositionnement de plan (on ne bouge pas l'utilisateur qui trace) et AUCUN rechargement (préserve le calage).
+  const retirerDuBestOf = useCallback(async (pl: Plan) => {
+    const k = cleBestOf(pl);
+    setMessage(null);
+    const action = pl.manuel ? 'desinclure_page_bestof' : 'exclure_page_bestof';
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, dossierId, pieceId: pl.pieceId, page: pl.page }) });
+      if (res.status === 401) { setMessage('Session expirée — reconnectez-vous.'); return; }
+      if (!res.ok) { setMessage('Retrait non enregistré, réessayez.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean };
+      if (body.ok === false) return; // migration best-of absente → no-op silencieux (comportement d'avant)
+      if (pl.manuel) setInclus((s) => { const n = new Set(s); n.delete(k); return n; });
+      else setExclus((s) => { const n = new Set(s); n.add(k); return n; });
+    } catch { setMessage('Retrait non enregistré, réessayez.'); }
+  }, [dossierId]);
+
+  const ajouterAuBestOf = useCallback(async (pieceId2: number, page2: number) => {
+    const k = `${pieceId2}:${page2}`;
+    setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'inclure_page_bestof', dossierId, pieceId: pieceId2, page: page2 }) });
+      if (res.status === 401) { setMessage('Session expirée — reconnectez-vous.'); return; }
+      if (!res.ok) { setMessage('Ajout non enregistré, réessayez.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean };
+      if (body.ok === false) { setMessage('Ajout indisponible (mise à jour de la base requise).'); return; }
+      setInclus((s) => { const n = new Set(s); n.add(k); return n; });
+      setExclus((s) => { const n = new Set(s); n.delete(k); return n; });
+    } catch { setMessage('Ajout non enregistré, réessayez.'); }
+  }, [dossierId]);
+
+  // Dérivés de la BARRE (mêmes règles pures que la planche). `bande` est déjà le best-of VISIBLE (overrides appliqués).
+  const planAffiche = pieceId !== null ? (bande.find((pl) => pl.pieceId === pieceId && pl.page === page) ?? null) : null;
+  const pageDansBestOf = planAffiche !== null;
+  const runCourant = pieceId !== null ? runs[pieceId] : undefined;
+  const lectureCourante = pieceId !== null ? (lectures[pieceId] ?? []).find((l) => l.page === page) ?? undefined : undefined;
+  const pieceCourante = pieceId !== null ? pieces.find((p) => p.id === pieceId) : undefined;
+  const identifieeSansIa = !!pieceCourante && pieceCourante.famille != null; // (le type Piece de ce bloc n'expose pas `cerfa`)
+  const ecarteeReperage = runCourant?.pagesEcartees.find((e) => e.page === page);
+  const statutPage = statutPageAnalyse({
+    lecturePage: lectureCourante ? { envoyee: lectureCourante.envoyee, nbValeurs: lectureCourante.nbValeurs, motif: lectureCourante.motif, creeLe: lectureCourante.creeLe } : undefined,
+    ecarteeReperage: ecarteeReperage ? { motif: ecarteeReperage.motif } : undefined,
+    reperage: runCourant ? { creeLe: runCourant.creeLe } : undefined,
+    identifieeSansIa,
+    origineSansIa: origineSansIa ?? undefined,
+  }, (iso) => jourParisISO(iso));
+  const resumePages = resumePagesAnalysees(lectures[pieceId ?? -1] ?? [], runCourant ? { creeLe: runCourant.creeLe } : undefined, (iso) => jourParisISO(iso));
+  const nomCourant = pieces.find((p) => p.id === pieceId)?.nomFichier ?? 'pièce';
 
   // PROJ-3l — pose un point : le clic (écran) est ramené dans le canvas NON transformé (annule zoom + pan via ecranVersCanvas), puis
   //   converti en point PDF. Le repère est le CONTENEUR non transformé. Résultat identique quel que soit le zoom/déplacement (calage exact).
@@ -658,6 +794,15 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 La vue agrandie est INTERACTIVE et exacte au pixel (le canvas se re-rend à sa largeur, cliquerPdf inchangé). */}
             <div><button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
               aria-label={imageAgrandie ? 'Réduire l’image' : 'Agrandir l’image pour tracer en grand'}>{imageAgrandie ? '✕ Réduire l’image' : '⤢ Agrandir l’image'}</button></div>
+            {/* INCRÉMENT-2 — BARRE de commandes PARTAGÉE (même composant présentationnel que la planche), SOUS le canvas. Zéro outil de
+                tracé : uniquement lien source, nav pages, best-of, analyse IA. Actions serveur existantes, mise à jour locale (pas de
+                rechargement → le calage est préservé). Disposition alignée sur la planche (précédent à GAUCHE, suivant à DROITE). */}
+            <BarreVisionneusePieces pieceId={pieceId} nomCourant={nomCourant} page={page} nbPagesPiece={nbPagesPiece} echelle={planAffiche?.echelle ?? null}
+              onOuvrirDocument={() => void ouvrirDocumentComplet()} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)}
+              pageDansBestOf={pageDansBestOf} onRetirerBestOf={() => { if (planAffiche) void retirerDuBestOf(planAffiche!); }} onAjouterBestOf={() => { if (pieceId !== null) void ajouterAuBestOf(pieceId, page); }}
+              statutPage={statutPage} resumePages={resumePages} pleinPagesAnalysees={pleinPagesAnalysees} onTogglePleinPages={() => setPleinPagesAnalysees((v) => !v)}
+              runCourant={runCourant} lectureCourante={lectureCourante} reperEnCours={reperEnCours} lectureEnCours={lectureEnCours}
+              onAnalyseFichier={() => void reperer()} onAnalysePage={() => void analyserPage()} reperMsg={reperMsg} lectureRes={lectureRes} onAnnulerValeur={() => void annulerValeurPage()} />
           </div>
 
           {/* Colonne de droite — PROJ-3j ③ : le SCHÉMA en PREMIER (aligné avec le document à gauche), les outils en dessous. */}
