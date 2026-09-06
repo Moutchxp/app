@@ -8,7 +8,7 @@ import {
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, travailEnCours, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, motStatutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome (best-of, navigation, zoom) réutilisée à 0 bâtiment
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -354,12 +354,17 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   ne sont PAS effacés par afficherPage → ils restent exacts et se re-projettent (versCss) au bon endroit dans les deux vues.
   useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [pieceId, page, etat, imageAgrandie]);
 
-  // PROJ-3e — CHANGER DE PAGE/PLAN sans perdre le travail en silence : un calage/tracé en cours → on diffère (confirmation inline) ;
-  //   sinon on exécute. Le travail n'a de sens que sur SA page (points en espace-page) → on l'abandonne à l'échange (même règle qu'avant).
+  // PROJ-3e — CHANGER DE PAGE/PLAN sans perdre le travail en silence : un calage/tracé EN COURS ET NON ENREGISTRÉ → on diffère
+  //   (confirmation inline) ; sinon on exécute. Le travail n'a de sens que sur SA page (points en espace-page) → on l'abandonne à
+  //   l'échange.
+  // 🔴 SOURCE UNIQUE DE VÉRITÉ = `procEnCours` (le MÊME booléen que la position du guide) : un simple `paires>0` (travailEnCours)
+  //   avertissait à tort APRÈS un enregistrement réussi — `enregistrer` vide les sommets et DÉSARME `creationEnCours`, mais CONSERVE
+  //   les paires de calage (« repère conservé ») → l'internaute était menacé d'abandonner un tracé DÉJÀ persisté en base. `procEnCours`
+  //   retombe à false dès la validation ; il ne se rarme que sur un NOUVEAU point posé (un vrai travail non sauvegardé).
   const demanderChangement = useCallback((faire: () => void) => {
-    if (travailEnCours(paires.length, sommets.length)) setAvertissement({ faire });
+    if (procEnCours) setAvertissement({ faire });
     else faire();
-  }, [paires.length, sommets.length]);
+  }, [procEnCours]);
 
   // Nav BEST-OF : repasse TOUJOURS en mode best-of (LOT PROV-1 point 1 : même bande VIDE — sinon « revenir au best-of » était mort sur
   //   les dossiers sans plan classé). Restaure le plan `cible` s'il en existe un ; sinon on affiche la vue best-of (« aucun plan proposé »).
