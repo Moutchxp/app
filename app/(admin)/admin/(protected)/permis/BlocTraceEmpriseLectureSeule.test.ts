@@ -261,10 +261,16 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
     expect(barre).not.toContain('Vous parcourez le');
   });
 
-  it('LIGNE DE STATUT — capsule IA « analysée IA » / « non analysée IA », dérivée des données en main (zéro route)', () => {
-    expect(barre).toContain('analysée IA');
-    expect(barre).toContain('non analysée IA');
-    expect(barre).toContain("lectureCourante ? 'valeurs lues (page)' : runCourant ? 'fichier analysé'");
+  it('CAPSULE IA — QUATRE états distincts (valeurs / sans valeur / échec / non analysée), dérivés de l’audit de page (zéro route)', () => {
+    expect(barre).toContain('Page analysée IA');            // valeurs → fond bleu + blanc
+    expect(barre).toContain('analysée, aucune valeur');     // sans valeur (bug cerfa corrigé) — distinct de « non analysée »
+    expect(barre).toContain('analyse échouée');             // échec (jamais silencieux)
+    expect(barre).toContain('non analysée IA');             // jamais analysée
+    // valeurs = lecture envoyée ET nb_valeurs > 0 ; sinon « sans valeur » : la distinction lève « analysée → non analysée ».
+    expect(barre).toContain('lectureCourante.envoyee && lectureCourante.nbValeurs > 0');
+    // couleurs FIXES pour valeurs (bleu) et échec (ambre) → lisibles clair ET sombre.
+    expect(barre).toContain("background: '#1a4d8f', color: '#fff'");
+    expect(barre).toContain("background: '#8a5a00', color: '#fff'");
   });
 
   it('DEMANDE 5 — la visionneuse de tracé lit `piecesNonSupportees` du GET et les passe au sélecteur (plus d’écartement silencieux)', () => {
@@ -354,5 +360,28 @@ describe('DEMANDES 1-3 — liste des pièces unifiée (ListePiecesAnalyse) côt�
     expect(src).toContain('const piecesBestOf = useMemo(() => new Set(bande.map((pl) => pl.pieceId))');
     expect(src).toContain('piecesBestOf={piecesBestOf}');
     expect(src).toContain('nonSupportees={piecesNonSupportees}'); // acquis 9decccf conservé
+  });
+});
+
+/**
+ * BUG CERFA « analysée → non analysée » — côté TRACÉ, `analyserPage` NE REFETCH PAS (préserve le calage). La capsule ne pouvait donc
+ * pas refléter l'analyse. CORRECTION : mise à jour OPTIMISTE de l'audit local (`setLectures`) depuis la réponse du service, et `echec`
+ * transitoire sur panne (capsule « analyse échouée », jamais silencieux). Garde par lecture de source (BlocTraceEmprise non monté).
+ */
+describe('BUG CERFA (côté tracé) — capsule fidèle après analyse sans refetch', () => {
+  it('analyserPage met à jour l’audit local OPTIMISTIQUEMENT (setLectures) depuis resume.envoyee/ecrit, sans rechargement (calage préservé)', () => {
+    const iAnalyse = src.indexOf('const analyserPage = useCallback');
+    const bloc = src.slice(iAnalyse, iAnalyse + 2400); // le corps de analyserPage tient dans cette fenêtre
+    expect(bloc).toContain('setLectures((prev) => ({ ...prev, [pieceId]:'); // upsert optimiste de la page
+    expect(bloc).toContain('const envoyee = body.resume?.envoyee !== false');
+    expect(bloc).toContain('const nbValeurs = body.resume?.ecrit === true ? 1 : 0');
+    expect(bloc).not.toContain('setRechargeLocal'); // toujours PAS de refetch ici (calage)
+  });
+  it('les 4 chemins d’ÉCHEC arment `echec` (capsule « analyse échouée »), jamais silencieux', () => {
+    const iAnalyse = src.indexOf('const analyserPage = useCallback');
+    const bloc = src.slice(iAnalyse, iAnalyse + 2400);
+    // 401, 409, réponse !ok, exception réseau → tous via `echouer(...)`.
+    expect((bloc.match(/echouer\(/g) ?? []).length).toBeGreaterThanOrEqual(4);
+    expect(bloc).toContain("setLectureRes({ cle, texte, ecrit: false, echec: true })");
   });
 });

@@ -46,7 +46,7 @@ export interface BarreVisionneusePiecesProps {
   onAnalyseFichier: () => void;          // reperer_planches (fichier complet)
   onAnalysePage: () => void;             // lire_valeurs_page (une page)
   reperMsg: string | null;
-  lectureRes: { cle: string; texte: string; ecrit: boolean } | null;
+  lectureRes: { cle: string; texte: string; ecrit: boolean; echec?: boolean } | null; // `echec` : la DERNIÈRE analyse de cette page a échoué (transitoire) → capsule « analyse échouée »
   onAnnulerValeur: () => void;           // annuler_lecture_page
 }
 
@@ -61,13 +61,33 @@ export function BarreVisionneusePieces({
   //   Avant la factorisation, le sélecteur était rendu INCONDITIONNELLEMENT. On rétablit : `slotNav` + `slotPieces` TOUJOURS rendus ;
   //   seules les commandes LIÉES À LA PAGE (nav page, lien, statut, best-of, analyses) restent gardées par `pageOuverte`.
   const pageOuverte = pieceId !== null;
-  // DEMANDE 4 — statut d'analyse IA de LA page affichée, dérivé des données déjà en main (aucune route neuve) : une lecture au grain
-  //   page prime (valeurs lues), sinon un repérage du fichier entier la couvre, sinon elle n'a pas été analysée.
-  const detailIA: string | null = lectureCourante ? 'valeurs lues (page)' : runCourant ? 'fichier analysé' : null;
-  const pageAnalyseeIA = detailIA !== null;
-  // LOT « ligne de statut » — capsule IA (item 3), inchangée : contour vert THÉMATISÉ quand analysée, muet sinon. `flex:0 0 auto` → ne se
-  //   comprime pas (seul le TITRE se raccourcit si la place manque).
-  const pastille = (vrai: boolean): React.CSSProperties => ({ fontSize: 11, fontWeight: 700, borderRadius: '.35rem', padding: '.1rem .45rem', whiteSpace: 'nowrap', flex: '0 0 auto', border: `1px solid ${vrai ? 'var(--color-svv-green)' : 'var(--color-svv-line)'}`, color: vrai ? 'var(--color-svv-green)' : 'var(--color-svv-muted)' });
+  // CAPSULE IA — QUATRE ÉTATS (la VÉRITÉ de l'analyse de LA page affichée, y compris hors best-of) :
+  //   • echec (transitoire : la DERNIÈRE analyse de cette page a échoué) → « analyse échouée », jamais silencieux ;
+  //   • valeurs (lecture envoyée + ≥ 1 valeur écrite) → « Page analysée IA », FOND BLEU + texte BLANC (demande Arno) ;
+  //   • sans_valeur (lecture faite mais AUCUNE valeur exploitable, ou page non envoyée par précaution) → registre NEUTRE (jamais rouge) ;
+  //   • fichier (à défaut de lecture de page : le fichier entier a été repéré) ; • aucune (jamais analysée).
+  // Une lecture de PAGE (audit `permis_page_lecture`) PRIME le repérage de fichier. La distinction valeurs/sans_valeur lève le bug
+  //   « cerfa analysé → non analysée » : envoyee=true & nb_valeurs=0 est « analysée, aucune valeur », PAS « non analysée ».
+  const echecCourant = lectureRes?.cle === `${pieceId}:${page}` && lectureRes.echec === true;
+  const etatIA: 'echec' | 'valeurs' | 'sans_valeur' | 'fichier' | 'aucune' =
+    echecCourant ? 'echec'
+      : (lectureCourante && lectureCourante.envoyee && lectureCourante.nbValeurs > 0) ? 'valeurs'
+        : lectureCourante ? 'sans_valeur'
+          : runCourant ? 'fichier'
+            : 'aucune';
+  const detailIA: string | null = lectureCourante
+    ? (lectureCourante.envoyee ? (lectureCourante.nbValeurs > 0 ? 'valeur écrite' : (lectureCourante.resume ?? 'aucune valeur exploitable sur cette page')) : (lectureCourante.motif ? `non envoyée : ${lectureCourante.motif}` : 'non envoyée par précaution'))
+    : runCourant ? 'fichier repéré' : null;
+  // Rendu par état. Couleurs FIXES pour « valeurs » (bleu #1a4d8f / blanc) et « échec » (ambre #8a5a00 / blanc) → lisibles clair ET
+  //   sombre, indépendantes du thème (chip pleine). Les états neutres utilisent des tokens (fond = celui, thématisé, de la ligne).
+  const capsuleBase: React.CSSProperties = { fontSize: 11, fontWeight: 700, borderRadius: '.35rem', padding: '.1rem .45rem', whiteSpace: 'nowrap', flex: '0 0 auto' };
+  const CAPSULE_IA: Record<typeof etatIA, { texte: string; style: React.CSSProperties }> = {
+    echec: { texte: 'analyse échouée', style: { background: '#8a5a00', color: '#fff', border: '1px solid #8a5a00' } },
+    valeurs: { texte: 'Page analysée IA', style: { background: '#1a4d8f', color: '#fff', border: '1px solid #1a4d8f' } },
+    sans_valeur: { texte: 'analysée, aucune valeur', style: { border: '1px solid var(--color-svv-line)', color: 'var(--color-svv-muted)' } },
+    fichier: { texte: 'fichier analysé', style: { border: '1px solid var(--color-svv-green)', color: 'var(--color-svv-green)' } },
+    aucune: { texte: 'non analysée IA', style: { border: '1px solid var(--color-svv-line)', color: 'var(--color-svv-muted)' } },
+  };
   // LOT « ligne de statut » — TITRE + éléments alignés à sa suite. `titre` selon le mode ; `montrerRetour` = hors sélection (mode pièce OU
   //   image hors best-of). Chips SOBRES et compactes, cohérentes avec la barre ; couleurs THÉMATISÉES (lisibles clair ET sombre).
   const titre = nav === 'bestof' ? 'Best-of des plans proposés' : `Pièce : ${nomCourant}`;
@@ -92,7 +112,7 @@ export function BarreVisionneusePieces({
           <span style={chipStatutImage(pageDansBestOf)} title={pageDansBestOf ? 'l’image affichée fait partie du best-of' : 'l’image affichée ne fait pas partie du best-of'}>{pageDansBestOf ? 'Image best-of' : 'Image fichier'}</span>
         )}
         {pageOuverte && (
-          <span style={pastille(pageAnalyseeIA)} title={pageAnalyseeIA ? `analysée par l’IA — ${detailIA}` : 'cette image n’a pas été analysée par l’IA'}>{pageAnalyseeIA ? 'analysée IA' : 'non analysée IA'}</span>
+          <span style={{ ...capsuleBase, ...CAPSULE_IA[etatIA].style }} title={detailIA ? `analyse de la page : ${detailIA}` : (etatIA === 'echec' ? (lectureRes?.texte ?? 'la dernière analyse a échoué') : 'cette image n’a pas été analysée par l’IA')}>{CAPSULE_IA[etatIA].texte}</span>
         )}
         {pageOuverte && (
           <button type="button" onClick={pageDansBestOf ? onRetirerBestOf : onAjouterBestOf} style={chipBtn}

@@ -58,7 +58,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const [reperEnCours, setReperEnCours] = useState(false);
   const [lectureEnCours, setLectureEnCours] = useState(false);
   const [reperMsg, setReperMsg] = useState<string | null>(null);
-  const [lectureRes, setLectureRes] = useState<{ cle: string; texte: string; ecrit: boolean } | null>(null);
+  const [lectureRes, setLectureRes] = useState<{ cle: string; texte: string; ecrit: boolean; echec?: boolean } | null>(null);
   const [pleinPagesAnalysees, setPleinPagesAnalysees] = useState(false);
   const [batiments, setBatiments] = useState<BatimentProjection[]>([]);
   const [emprises, setEmprises] = useState<EmpriseReconstruite[]>([]);
@@ -413,14 +413,20 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     const cle = `${pieceId}:${page}`;
     setLectureEnCours(true); setLectureRes(null);
     const poser = (texte: string, ecrit = false) => setLectureRes({ cle, texte, ecrit });
+    const echouer = (texte: string) => setLectureRes({ cle, texte, ecrit: false, echec: true }); // capsule « analyse échouée » (jamais silencieux)
     try {
       const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'lire_valeurs_page', dossierId, pieceId, page }) });
-      if (res.status === 401) { poser('Session expirée — reconnectez-vous.'); return; }
-      if (res.status === 409) { poser('Une analyse de ce permis est déjà en cours.'); return; }
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; resume?: { texte?: string; ecrit?: boolean } };
-      if (!res.ok || !body.ok) { poser('Analyse de la page impossible, réessayez.'); return; }
+      if (res.status === 401) { echouer('Session expirée — reconnectez-vous.'); return; }
+      if (res.status === 409) { echouer('Une analyse de ce permis est déjà en cours.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; resume?: { texte?: string; ecrit?: boolean; envoyee?: boolean } };
+      if (!res.ok || !body.ok) { echouer('Analyse de la page impossible, réessayez.'); return; }
       poser(body.resume?.texte ?? 'Analyse terminée.', body.resume?.ecrit === true);
-    } catch { poser('Analyse de la page impossible, réessayez.'); }
+      // MISE À JOUR OPTIMISTE de l'audit local (aucun refetch ici : préserve le calage) → la capsule reflète la VÉRITÉ tout de suite,
+      //   y compris hors best-of. envoyee=false / nbValeurs=0 → « analysée, aucune valeur » (jamais « non analysée »).
+      const envoyee = body.resume?.envoyee !== false;
+      const nbValeurs = body.resume?.ecrit === true ? 1 : 0;
+      setLectures((prev) => ({ ...prev, [pieceId]: [...(prev[pieceId] ?? []).filter((l) => l.page !== page), { page, envoyee, motif: null, nbValeurs, resume: body.resume?.texte ?? null, coutUsd: 0, creeLe: new Date().toISOString() }] }));
+    } catch { echouer('Analyse de la page impossible, réessayez.'); }
     finally { setLectureEnCours(false); }
   }, [pieceId, dossierId, page, lectureEnCours, reperEnCours]);
 

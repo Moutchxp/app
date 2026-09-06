@@ -119,6 +119,34 @@ describe('LOT 95 — « analyse de la page » ACTIVÉE : clic → issue serveur 
   });
 });
 
+describe('BUG CERFA — analyse SANS valeur : la capsule bascule vers « analysée, aucune valeur », jamais « non analysée »', () => {
+  it('clic analyse → le service renvoie envoyée mais AUCUNE valeur (cerfa) → capsule « analysée, aucune valeur » (mock, pas d’appel réel)', async () => {
+    // GET STATEFUL : après l'analyse, le GET renvoie l'audit (envoyee=true, nb_valeurs=0), comme la vraie route après écriture de la ligne.
+    const etat = { analysee: false };
+    global.fetch = vi.fn(async (_i: unknown, init?: { method?: string; body?: string }) => {
+      if ((init?.method ?? 'GET') === 'POST') {
+        const action = (() => { try { return JSON.parse(init?.body ?? '{}').action as string; } catch { return ''; } })();
+        if (action === 'lire_valeurs_page') { etat.analysee = true; return { ok: true, json: async () => ({ ok: true, resume: { envoyee: true, action: 'rien', valeur: null, ecrit: false, coutUsd: 0.000001, texte: 'aucune valeur exploitable sur cette page.' } }) } as unknown as Response; }
+        return { ok: true, json: async () => ({ url: 'blob:fake' }) } as unknown as Response;
+      }
+      return { ok: true, json: async () => ({
+        pieces: [{ id: 55, nomFichier: 'cerfa_13409.pdf', propose: true, famille: 'cerfa', confirme: true, planches: [{ page: 1, echelle: null }] }],
+        lecturesPages: etat.analysee ? { 55: [{ page: 1, envoyee: true, motif_ecart: null, nb_valeurs: 0, resume: 'aucune valeur exploitable sur cette page.', cout_usd: 0.000001, cree_le: '2026-09-06T15:49:00Z' }] } : {},
+      }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await act(async () => { root.render(h(LiseusePieces, { dossierId: 1 })); });
+    await flush();
+    // avant l'analyse : « non analysée IA ».
+    expect(container.textContent).toContain('non analysée IA');
+
+    const btn = boutonTexte('analyse de la page');
+    act(() => { btn!.click(); }); await flush();
+    // APRÈS : « analysée, aucune valeur » (l'analyse a eu lieu, rien trouvé), JAMAIS « non analysée IA ».
+    expect(container.textContent).toContain('analysée, aucune valeur');
+    expect(container.textContent).not.toContain('non analysée IA');
+  });
+});
+
 describe('LOT 94 — fichier d’UNE seule page : aucune navigation de pages', () => {
   it('un fichier à 1 page n’affiche NI boutons de page NI indicateur « sur »', async () => {
     mocks.state.numPages = 1;

@@ -87,3 +87,33 @@ describe('LIGNE DE STATUT — une seule ligne sous l’image : titre · retour �
     expect(dehors).not.toContain('✕ retirer du best-of');
   });
 });
+
+describe('CAPSULE IA — quatre états distincts (vérité de l’analyse, y compris hors best-of)', () => {
+  const lecture = (over: object) => ({ page: 1, envoyee: true, motif: null, nbValeurs: 0, resume: null, coutUsd: 0, creeLe: null, ...over });
+  it('VALEURS (envoyée + nbValeurs>0) → « Page analysée IA », FOND BLEU + texte BLANC (couleurs fixes)', () => {
+    const html = renderToStaticMarkup(h(BarreVisionneusePieces, props({ pieceId: 5, page: 1, lectureCourante: lecture({ nbValeurs: 1 }) })));
+    expect(html).toContain('Page analysée IA');
+    expect(html).toContain('background:#1a4d8f');
+    expect(html).toContain('color:#fff');
+  });
+  it('BUG CERFA — analysée SANS valeur (envoyée, nbValeurs=0) → « analysée, aucune valeur », JAMAIS « non analysée »', () => {
+    const html = renderToStaticMarkup(h(BarreVisionneusePieces, props({ pieceId: 5, page: 19, lectureCourante: lecture({ page: 19, nbValeurs: 0, resume: 'aucune valeur exploitable sur cette page.' }) })));
+    expect(html).toContain('analysée, aucune valeur');
+    expect(html).not.toContain('non analysée IA');
+  });
+  it('ÉCHEC (lectureRes.echec pour LA page) → « analyse échouée », FOND AMBRE ; jamais silencieux', () => {
+    const html = renderToStaticMarkup(h(BarreVisionneusePieces, props({ pieceId: 5, page: 1, lectureRes: { cle: '5:1', texte: 'Analyse de la page impossible, réessayez.', ecrit: false, echec: true } })));
+    expect(html).toContain('analyse échouée');
+    expect(html).toContain('background:#8a5a00');
+  });
+  it('NON ANALYSÉE (aucune lecture, aucun repérage) → « non analysée IA » (état actuel)', () => {
+    const html = renderToStaticMarkup(h(BarreVisionneusePieces, props({ pieceId: 5, page: 1 })));
+    expect(html).toContain('non analysée IA');
+    expect(html).not.toContain('Page analysée IA');
+  });
+  it('page HORS best-of : la capsule reflète quand même l’analyse (pageDansBestOf=false + lecture avec valeur → « Page analysée IA »)', () => {
+    const html = renderToStaticMarkup(h(BarreVisionneusePieces, props({ pieceId: 5, page: 7, pageDansBestOf: false, lectureCourante: lecture({ page: 7, nbValeurs: 1 }) })));
+    expect(html).toContain('Image fichier');       // hors best-of
+    expect(html).toContain('Page analysée IA');     // et pourtant analysée → capsule correcte
+  });
+});

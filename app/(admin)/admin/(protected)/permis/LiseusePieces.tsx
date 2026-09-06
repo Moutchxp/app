@@ -88,7 +88,7 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
   // LOT 100 — origine (auto/manuelle) de la dernière extraction NON-IA du dossier (null = indéterminée) → statut de page « identifiée sans IA ».
   const [origineSansIa, setOrigineSansIa] = useState<'auto' | 'manuelle' | null>(null);
   const [lectureEnCours, setLectureEnCours] = useState(false);
-  const [lectureRes, setLectureRes] = useState<{ cle: string; texte: string; ecrit: boolean } | null>(null);
+  const [lectureRes, setLectureRes] = useState<{ cle: string; texte: string; ecrit: boolean; echec?: boolean } | null>(null);
   const [nav, setNav] = useState<'bestof' | 'piece'>('bestof');
   const [planIndex, setPlanIndex] = useState(0);
   const [pieceId, setPieceId] = useState<number | null>(null);
@@ -422,15 +422,21 @@ export function LiseusePieces({ dossierId }: { dossierId: number }) {
     const cle = `${pieceId}:${page}`;
     setLectureEnCours(true); setLectureRes(null);
     const poser = (texte: string, ecrit = false) => setLectureRes({ cle, texte, ecrit });
+    const echouer = (texte: string) => setLectureRes({ cle, texte, ecrit: false, echec: true }); // capsule « analyse échouée » (jamais silencieux)
     try {
       const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'lire_valeurs_page', dossierId, pieceId, page }) });
-      if (res.status === 401) { poser('Session expirée — reconnectez-vous.'); return; }
-      if (res.status === 409) { poser('Une analyse de ce permis est déjà en cours.'); return; }
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; resume?: { texte?: string; ecrit?: boolean } };
-      if (!res.ok || !body.ok) { poser('Analyse de la page impossible, réessayez.'); return; }
+      if (res.status === 401) { echouer('Session expirée — reconnectez-vous.'); return; }
+      if (res.status === 409) { echouer('Une analyse de ce permis est déjà en cours.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; resume?: { texte?: string; ecrit?: boolean; envoyee?: boolean } };
+      if (!res.ok || !body.ok) { echouer('Analyse de la page impossible, réessayez.'); return; }
       poser(body.resume?.texte ?? 'Analyse terminée.', body.resume?.ecrit === true);
+      // MISE À JOUR OPTIMISTE de l'audit local → capsule immédiate (« analysée, aucune valeur » si envoyee=false / nbValeurs=0), même
+      //   avant le refetch. `setVReper` reconcilie ensuite avec la vérité serveur (audit daté « déjà analysée le … »).
+      const envoyee = body.resume?.envoyee !== false;
+      const nbValeurs = body.resume?.ecrit === true ? 1 : 0;
+      setLectures((prev) => ({ ...prev, [pieceId]: [...(prev[pieceId] ?? []).filter((l) => l.page !== page), { page, envoyee, motif: null, nbValeurs, resume: body.resume?.texte ?? null, coutUsd: 0, creeLe: new Date().toISOString() }] }));
       setVReper((v) => v + 1); // recharge l'audit daté par page (état « déjà analysée le … »)
-    } catch { poser('Analyse de la page impossible, réessayez.'); }
+    } catch { echouer('Analyse de la page impossible, réessayez.'); }
     finally { setLectureEnCours(false); }
   }, [pieceId, dossierId, page, lectureEnCours, reperEnCours]);
 
