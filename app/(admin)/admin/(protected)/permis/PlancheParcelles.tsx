@@ -156,6 +156,14 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
   const btnAction: React.CSSProperties = { cursor: 'pointer', minHeight: 40, padding: '.4rem .7rem', borderRadius: '.45rem', fontSize: 13, fontWeight: 600, border: '1px solid var(--color-svv-line)' };
   const focusable = (m: PlancheParcelleMeta) => m.retenue || (m.idu ? composition.has(m.idu) : false); // parcelles ACTIONNABLES au clavier
   const provenanceSel = descriptionActeurParcelle({ majPar: data.selection.validePar, majLe: data.selection.valideLe, acteurNom: data.selection.acteurNom });
+  // PL-D2 — plus JAMAIS de boîte SVG vide et muette : si le schéma ne dessine RIEN (aucun contour), on DIT pourquoi, en considérant
+  //   le motif du SCHÉMA (empreinte absente) et pas seulement celui du repo (0 parcelle). Le motif du schéma peut désormais être
+  //   INFORMATIF alors qu'on dessine bien (empreinte manquante) : on ne le traite comme bloquant QUE s'il n'y a réellement rien à voir.
+  const rienADessiner = schema.polygones.length === 0 && !schema.empreintePath;
+  const messageVide = data.motif ?? schema.motif ?? 'planche cadastrale indisponible';
+  // PL-D2 — état de TRAVAIL normal (pas une panne) : aucune parcelle du permis n'apparaît sur la planche (permis sans parcelle rattachée,
+  //   ou ligne « fantôme » sans contour au cadastre, cas DK 649 sur le 468). Bandeau discret, ton neutre — on invite à composer la sélection.
+  const aucuneParcellePermis = data.nbRetenues === 0;
 
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -222,10 +230,15 @@ export function PlancheParcelles({ dossierId }: { dossierId: number }) {
           </div>
           {data.nbRetenues + data.nbVoisines > SEUIL_DENSE && <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>Planche dense ({data.nbRetenues + data.nbVoisines} parcelles) — rapprochez le rayon pour lire les repères.</div>}
 
-          {data.motif ? (
-            <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{data.motif}</div>
+          {data.motif || rienADessiner ? (
+            <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{messageVide}</div>
           ) : (
             <>
+              {aucuneParcellePermis && (
+                <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.35rem .55rem', background: 'var(--color-svv-field)' }}>
+                  Aucune parcelle du permis n’est dessinable — sélectionnez les bonnes parcelles ci-dessous pour établir l’empreinte.
+                </div>
+              )}
               <div style={{ width: '100%', overflowX: 'auto' }}>
                 <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} role="img"
                   aria-label={`Planche cadastrale : ${composition.size} parcelle(s) sélectionnée(s) sur ${data.nbRetenues} du permis, ${data.nbVoisines} voisine(s)`}

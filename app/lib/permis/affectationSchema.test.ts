@@ -92,6 +92,37 @@ describe('construireSchema', () => {
   });
 });
 
+describe('PL-D2 — construireSchema : empreinte FACULTATIVE (dessine le voisinage même sans empreinte)', () => {
+  it('(a) empreinte absente + parcelles voisines présentes → polygones DESSINÉS + transform + motif INFORMATIF (non bloquant), empreintePath null', () => {
+    const s = construireSchema(null, [
+      { repere: 'A', cleabs: 'V1', geom: carre(1000, 2000, 30), horsEmpreinte: true },
+      { repere: 'B', cleabs: 'V2', geom: carre(1050, 2050, 30), horsEmpreinte: true },
+    ]);
+    expect(s.polygones.map((p) => p.repere)).toEqual(['A', 'B']); // le voisinage est bien rendu (plus d'early-return qui vide tout)…
+    for (const p of s.polygones) expect(p.path).toContain('Z');
+    expect(s.transform).not.toBeNull();                            // …avec un transform (parcelles cliquables, marqueur d'adresse projetable)
+    expect(s.empreintePath).toBeNull();                            // pas de fond d'empreinte (elle manque)
+    expect(s.motif).toMatch(/empreinte absente/);                  // motif INFORMATIF : on dessine ET on dit que l'empreinte manque
+  });
+
+  it('(b) empreinte présente → comportement INCHANGÉ (motif null, empreinte tracée, polygones dessinés, transform présent)', () => {
+    const emp = carre(1000, 2000, 100);
+    const s = construireSchema(emp, [{ repere: 'A', cleabs: 'BAT', geom: carre(1010, 2010, 30), horsEmpreinte: false }]);
+    expect(s.motif).toBeNull();
+    expect(s.empreintePath).toContain('M');
+    expect(s.polygones).toHaveLength(1);
+    expect(s.transform).not.toBeNull();
+  });
+
+  it('(c) aucune entrée du tout (ni empreinte ni voisinage) → vide LÉGITIME : polygones [], transform null, motif explicite', () => {
+    const s = construireSchema(null, []);
+    expect(s.polygones).toEqual([]);
+    expect(s.empreintePath).toBeNull();
+    expect(s.transform).toBeNull();
+    expect(s.motif).toMatch(/parcelle du permis incomplète ou absente/);
+  });
+});
+
 describe('PROJ-2c — transform exposée + cheminAnneauLambert (overlay projection ALIGNÉ)', () => {
   const carre = (x: number, y: number, c: number): { anneaux: [number, number][][] } => ({ anneaux: [[[x, y], [x + c, y], [x + c, y + c], [x, y]]] });
   it('construireSchema expose transform ; projeter le MÊME anneau via cheminAnneauLambert redonne empreintePath (alignement garanti)', () => {

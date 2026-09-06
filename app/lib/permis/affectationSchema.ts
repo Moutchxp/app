@@ -117,10 +117,17 @@ export function unionCadre(a: Cadre | null, b: Cadre | null): Cadre | null {
  * Sans `cadre`, la bbox est calculée sur les points du schéma (comportement historique inchangé).
  */
 export function construireSchema(empreinte: GeomPoly | null, polygones: PolygoneEntreeSchema[], largeur = 320, hauteur = 240, marge = 12, cadre?: Cadre | null): SchemaEmpreinte {
-  if (!empreinte || empreinte.anneaux.length === 0) {
+  // PL-D2 — l'empreinte est FACULTATIVE. Un voisinage de parcelles suffit à produire un schéma dessinable (cliquable) : l'empreinte
+  //   n'est plus une CONDITION de dessin, seulement un FOND (empreintePath) quand elle existe. Sans elle, on dessine quand même les
+  //   parcelles voisines — c'est précisément le rôle de la planche : composer à la main la sélection qui ÉTABLIRA l'empreinte
+  //   manquante (dépendance inversée). Sinon la planche exigerait l'empreinte qu'elle est censée aider à construire (blocage circulaire).
+  const empreintePresente = !!empreinte && empreinte.anneaux.length > 0;
+  // Cadre : fourni (L5), sinon calculé sur empreinte + polygones, sinon sur les SEULS polygones si l'empreinte manque.
+  const boite = cadre ?? cadreDe(empreintePresente ? empreinte : null, polygones);
+  // Rien du tout à cadrer (ni empreinte ni voisinage) → vide LÉGITIME + motif explicite (jamais un dessin au hasard).
+  if (!boite) {
     return { largeur, hauteur, empreintePath: null, polygones: [], motif: 'parcelle du permis incomplète ou absente : schéma non dessiné (aucun point fiable)', transform: null };
   }
-  const boite = cadre ?? cadreDe(empreinte, polygones)!; // empreinte non vide ⇒ cadreDe ≠ null
   const { minX, maxX, minY, maxY } = boite;
   const bw = maxX - minX, bh = maxY - minY;
   if (bw <= 0 || bh <= 0) return { largeur, hauteur, empreintePath: null, polygones: [], motif: 'géométrie dégénérée : schéma non dessiné', transform: null };
@@ -137,8 +144,10 @@ export function construireSchema(empreinte: GeomPoly | null, polygones: Polygone
     return proj(sx, sy);
   };
   return {
-    largeur, hauteur, motif: null, transform,
-    empreintePath: geomVersPath(empreinte),
+    largeur, hauteur, transform,
+    // Motif INFORMATIF (pas bloquant) quand on dessine SANS empreinte : les polygones sont bien rendus, mais on DIT que l'empreinte manque.
+    motif: empreintePresente ? null : 'empreinte absente : aucune parcelle du permis dessinable',
+    empreintePath: empreintePresente ? geomVersPath(empreinte!) : null,
     polygones: polygones.map((p) => { const [cx, cy] = centroide(p.geom); return { repere: p.repere, cleabs: p.cleabs, path: geomVersPath(p.geom), cx, cy, horsEmpreinte: p.horsEmpreinte, attributs: p.attributs }; }),
   };
 }
