@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 // ⚠️ Bundle client : uniquement des TYPES depuis les modules serveur.
 import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/rattachementSuiviRepo';
+import type { ModePassageRattachement } from '../../../../lib/permis/rattachementConfig';
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
 import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
 import { TableSuivi, PanneauRechercheSuivi, FILTRE_SUIVI_VIDE, filtreSuiviActif, DetailSuiviRendu, AffectationBloc, EnteteAffectation, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee, type FiltreSuiviValeurs } from './SuiviRattachementRendu';
@@ -33,6 +34,7 @@ import { recompterSiSucces } from './comptesActions';
 export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vue?: 'rattachement' | 'surveillance'; onRecompter?: () => void } = {}) {
   const estSurveillance = vue === 'surveillance'; // « Sous surveillance » = le radar (permis suivis, aucun signal) + recherche ; « Rattachement » = le TRAVAIL (arbitrages à faire)
   const [liste, setListe] = useState<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> } | null>(null);
+  const [modePassage, setModePassage] = useState<ModePassageRattachement>('automatique'); // COMPLÉMENT — réglage lu du serveur, gouverne l'appartenance à Rattachement (TableSuivi)
   // RECHERCHE (les 6 critères) — FILTRAGE EN BASE + pagination. `resultats` non nul = mode recherche ; null = liste complète par défaut.
   const [filtre, setFiltre] = useState<FiltreSuiviValeurs>(FILTRE_SUIVI_VIDE);
   const [resultats, setResultats] = useState<{ lignes: LigneSuivi[]; total: number; page: number; nbPages: number } | null>(null);
@@ -75,7 +77,7 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vu
       try {
         const res = await fetch('/api/admin/permis/rattachement', { cache: 'no-store' });
         if (annule) return;
-        if (res.ok) { const d = (await res.json()) as { lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number>; daactActif?: boolean }; setListe({ lignes: d.lignes, compteurs: d.compteurs }); setDaactActif(d.daactActif ?? null); }
+        if (res.ok) { const d = (await res.json()) as { lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number>; daactActif?: boolean; modePassage?: ModePassageRattachement }; setListe({ lignes: d.lignes, compteurs: d.compteurs }); setDaactActif(d.daactActif ?? null); setModePassage(d.modePassage === 'cloture_manuelle' ? 'cloture_manuelle' : 'automatique'); }
         else setErreur(true);
       } catch { if (!annule) setErreur(true); }
     })();
@@ -507,7 +509,7 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vu
       })()}
       {(!estSurveillance || resultats === null) ? (
         /* L7 — le détail est rendu par TableSuivi DANS LE FLUX, juste sous la ligne ouverte. `vue` filtre les groupes affichés (travail vs radar). */
-        <TableSuivi vue={vue} lignes={liste.lignes} compteurs={liste.compteurs} ouvert={ouvert} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} renderDetail={renderDetail} />
+        <TableSuivi vue={vue} modePassage={modePassage} lignes={liste.lignes} compteurs={liste.compteurs} ouvert={ouvert} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} renderDetail={renderDetail} />
       ) : (
         <div className="flex flex-col gap-2" aria-live="polite">
           {rechercheErreur ? (

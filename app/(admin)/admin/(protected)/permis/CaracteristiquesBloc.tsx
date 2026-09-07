@@ -12,11 +12,11 @@ import {
   MESURES, CHAMPS_PERMIS, construireCorps, construirePermis, valeurVersInput, permisVersInput,
   type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
-import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtatEmprise, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, type LienPiece } from './CaracteristiquesRendu';
+import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtatEmprise, ClotureVersRattachement, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, type LienPiece } from './CaracteristiquesRendu';
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
 // N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null; majLe: string | null } | null; margeCoherenceSommetM?: number; empriseEtat?: EtatEmprisesPermis }
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null; majLe: string | null } | null; margeCoherenceSommetM?: number; empriseEtat?: EtatEmprisesPermis; modePassageRattachement?: 'automatique' | 'cloture_manuelle' }
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '', adresse: c.adresse ?? '',
@@ -180,6 +180,13 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
     if (r.ok) { await rafraichir(); setMessage('Validation de l’emprise retirée.'); } else setMessage(r.erreur ?? 'échec');
     setEnCours(false);
   }, [poster, dossierId, rafraichir]);
+  // COMPLÉMENT (④) — CLÔTURE MANUELLE : envoie le permis en Rattachement (écrit le marqueur de passage), même geste que l'auto-finalisation.
+  const cloturerPermis = useCallback(async () => {
+    setEnCours(true);
+    const r = await poster({ action: 'valider_permis', dossierId });
+    if (r.ok) { await rafraichir(); setMessage('Permis passé en Rattachement.'); } else setMessage(r.erreur ?? 'échec');
+    setEnCours(false);
+  }, [poster, dossierId, rafraichir]);
 
   // N10-L — « utiliser N » du gabarit PLU : le bouton ÉCRIT (il ne pré-remplit plus). Écrit hauteur_max_plu_ngf=N sur le corps en
   //   origine 'saisie' (action 'corps' avec les SEULES clés fournies → ne touche ni repère ni adresse ni autre mesure). Invariant 103
@@ -213,6 +220,11 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
   const champSommet = CHAMPS_PERMIS.find((c) => c.cle === 'altitudeSommetNgf')!;
   // N10-C — D : les 4 champs Cerfa du permis sont-ils tous vides ? (avec methode='cerfa' → « scan sans champ lisible »).
   const cerfaTousVides = (['surfacePlancherM2', 'nbLogements', 'nbPlacesStationnement', 'adresseTerrain'] as const).every((k) => (edPermis[k] ?? '').trim() === '');
+  // COMPLÉMENT (④) — passage vers Rattachement : tous les bâtiments couverts (emprise validée OU ignorée) = MÊME condition que l'auto-finalisation
+  //   serveur ; `permisDejaPasse` = marqueur de passage posé ; `modePassage` = réglage courant (défaut auto). Décide bouton (manuel) vs message (auto).
+  const tousEmprisesValides = data.corps.length > 0 && data.corps.every((c) => (data.empriseEtat?.parBatiment[c.id]?.validee ?? false) || (data.empriseEtat?.ignoreCorps.includes(c.id) ?? false));
+  const permisDejaPasse = data.empriseEtat?.projectionValidee ?? false;
+  const modePassage = data.modePassageRattachement ?? 'automatique';
 
   return (
     <div className="flex flex-col gap-3" style={{ marginTop: '.6rem' }}>
@@ -221,6 +233,10 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
         dossierId={dossierId} onParcelleChange={() => void rafraichir()}
         onExportGeojson={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=1`, '_blank', 'noopener,noreferrer')}
         onExportEmpreinte={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=empreinte`, '_blank', 'noopener,noreferrer')} />
+
+      {/* COMPLÉMENT (④) — CLÔTURE vers Rattachement, conditionnée au réglage : bouton en « clôture manuelle », message « passé »/« passe auto » sinon.
+          ①②③ (chaîne de boutons par bâtiment, capsules, statut de projection) sont INCHANGÉS et s'appliquent dans les deux modes. */}
+      <ClotureVersRattachement mode={modePassage} tousValides={tousEmprisesValides} dejaPasse={permisDejaPasse} onCloturer={() => void cloturerPermis()} enCours={enCours} />
 
       {/* LOT 67 — DÉCLARATIONS DU CERFA (récapitulatif) : lecture APPROFONDIE, en REGARD des faits Sitadel, jamais reportée sur eux.
           Bloc informatif en lecture seule + champ libre du pétitionnaire (verbatim, repliable). Absent si migration 192 non appliquée. */}

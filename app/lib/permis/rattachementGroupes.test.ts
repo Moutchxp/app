@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { partitionnerSuivi, estAFaire, aSignalMiseAJour, estValidationAcquise, ETATS_A_FAIRE, GROUPE1_TITRE, RATT_VALIDES_TITRE, SURV_SUIVIS_TITRE, GROUPE_INCOMPLET_TITRE, type LigneGroupable } from './rattachementGroupes';
+import { partitionnerSuivi, estAFaire, aSignalMiseAJour, estDansRattachement, estValidationAcquise, ETATS_A_FAIRE, GROUPE1_TITRE, RATT_VALIDES_TITRE, SURV_SUIVIS_TITRE, GROUPE_INCOMPLET_TITRE, type LigneGroupable } from './rattachementGroupes';
 import type { EtatSuivi } from './rattachementSuiviRepo';
 
 /**
@@ -8,7 +8,7 @@ import type { EtatSuivi } from './rattachementSuiviRepo';
  *   SOUS SURVEILLANCE (non validés) = `survSuivis` + `survIncomplets`.
  * Partition EXCLUSIVE & EXHAUSTIVE. SOURCE UNIQUE partagée par la pastille, le tri et l'affichage.
  */
-const l = (etat: EtatSuivi, completudeIncomplete: boolean, id = 0, validationAcquise = false, alertesSurveillance = 0): LigneGroupable & { id: number } => ({ etat, completudeIncomplete, validationAcquise, alertesSurveillance, id });
+const l = (etat: EtatSuivi, completudeIncomplete: boolean, id = 0, validationAcquise = false, alertesSurveillance = 0, passageAcquis = false): LigneGroupable & { id: number } => ({ etat, completudeIncomplete, validationAcquise, alertesSurveillance, passageAcquis, id });
 
 describe('LOT COMPLET — partitionnerSuivi (quatre groupes, exclusifs & exhaustifs)', () => {
   it('exhaustif : la somme des quatre groupes vaut toujours le total ; aucun id partagé', () => {
@@ -86,6 +86,31 @@ describe('LOT COMPLET — partitionnerSuivi (quatre groupes, exclusifs & exhaust
     expect(RATT_VALIDES_TITRE).not.toBe(SURV_SUIVIS_TITRE);
     expect(RATT_VALIDES_TITRE.toLowerCase()).toContain('validés');
     expect(SURV_SUIVIS_TITRE.toLowerCase()).toContain('non instruits');
+  });
+});
+
+describe('COMPLÉMENT — mode de passage (réglage) : estDansRattachement + partition selon le mode', () => {
+  it('T1 — mode AUTOMATIQUE : un permis entièrement validé (sans marqueur) ENTRE dans Rattachement', () => {
+    expect(estDansRattachement({ validationAcquise: true, passageAcquis: false }, 'automatique')).toBe(true);
+    const { rattValides } = partitionnerSuivi([l('en_attente_bati', false, 1, /*validé*/ true)], 'automatique');
+    expect(rattValides.map((x) => x.id)).toEqual([1]);
+  });
+  it('T2 — mode CLÔTURE MANUELLE : un permis validé mais NON clôturé (sans marqueur) N’apparaît PAS dans Rattachement', () => {
+    expect(estDansRattachement({ validationAcquise: true, passageAcquis: false }, 'cloture_manuelle')).toBe(false);
+    const { rattAFaire, rattValides, survSuivis } = partitionnerSuivi([l('en_attente_bati', false, 1, /*validé*/ true)], 'cloture_manuelle');
+    expect(rattAFaire).toHaveLength(0);
+    expect(rattValides).toHaveLength(0);
+    expect(survSuivis.map((x) => x.id)).toEqual([1]); // il patiente hors Rattachement (reste dans « Analyse et projection »)
+  });
+  it('🔴 T4 — « acquis reste acquis » : un permis DÉJÀ passé (marqueur permis_projection, ex. 7424) reste dans Rattachement APRÈS bascule en clôture manuelle', () => {
+    expect(estDansRattachement({ validationAcquise: true, passageAcquis: true }, 'cloture_manuelle')).toBe(true);
+    expect(estDansRattachement({ validationAcquise: false, passageAcquis: true }, 'cloture_manuelle')).toBe(true); // le marqueur suffit, même sans validation courante
+    const { rattValides } = partitionnerSuivi([l('en_attente_bati', false, 7424, /*validé*/ true, /*alertes*/ 0, /*passageAcquis*/ true)], 'cloture_manuelle');
+    expect(rattValides.map((x) => x.id)).toEqual([7424]);
+  });
+  it('défaut = automatique (aucun mode passé) → comportement livré au commit cdfdc0a (validationAcquise décide)', () => {
+    const { rattValides } = partitionnerSuivi([l('en_attente_bati', false, 1, /*validé*/ true)]);
+    expect(rattValides.map((x) => x.id)).toEqual([1]);
   });
 });
 

@@ -1,4 +1,5 @@
 import type { EtatSuivi } from './rattachementSuiviRepo';
+import type { ModePassageRattachement } from './rattachementConfig'; // type SEUL (effacé au build) → ce module reste pur/client-safe
 
 /**
  * LOT COMPLET (règle Arno, 07/09/2026) — L'ONGLET est décidé par « FRANCHI LE PROCESS » (validationAcquise), plus par la détection
@@ -43,8 +44,21 @@ export const SURV_SUIVIS_TITRE = 'Permis suivis, non instruits';
 //   diagnostiqué « incomplet » (au moins une pièce attendue manque). « Jamais diagnostiqué » ≠ « incomplet » → hors de ce groupe.
 export const GROUPE_INCOMPLET_TITRE = 'Permis avec dossier incomplet';
 
-/** Forme minimale groupable : état de suivi + signal dérivé « dossier incomplet » + VALIDATION acquise (LOT 77) + alertes de surveillance (SURV-1). */
-export interface LigneGroupable { etat: EtatSuivi; completudeIncomplete: boolean; validationAcquise: boolean; alertesSurveillance: number }
+/** Forme minimale groupable : état de suivi + signal « dossier incomplet » + VALIDATION acquise (LOT 77) + alertes (SURV-1) + PASSAGE acquis (marqueur permis_projection). */
+export interface LigneGroupable { etat: EtatSuivi; completudeIncomplete: boolean; validationAcquise: boolean; alertesSurveillance: number; passageAcquis: boolean }
+
+/**
+ * COMPLÉMENT — DÉCISION UNIQUE d'appartenance à « Rattachement », en LISANT le réglage (`mode`). Le réglage ne change pas le critère
+ * (`estValidationAcquise`) : il change ce qui DÉCLENCHE le passage.
+ *  · `passageAcquis` = le marqueur de passage (permis_projection) EST posé → le permis est DÉJÀ entré (par l'auto-finalisation OU le
+ *    clic de clôture). PERSISTANT : le basculement de réglage ne l'efface jamais → « ce qui est acquis reste acquis » (cas 7424).
+ *  · `mode === 'automatique' && validationAcquise` = en mode auto, un permis entièrement validé entre AUSSITÔT (même avant que le
+ *    marqueur ne soit matérialisé). En mode 'cloture_manuelle', seul le marqueur compte → un validé NON clôturé n'apparaît PAS ici.
+ * UN SEUL endroit décide (pas deux chemins parallèles selon le mode). PUR.
+ */
+export function estDansRattachement(l: Pick<LigneGroupable, 'validationAcquise' | 'passageAcquis'>, mode: ModePassageRattachement): boolean {
+  return l.passageAcquis || (mode === 'automatique' && l.validationAcquise);
+}
 
 /**
  * 🔴 CRITÈRE « FRANCHI LE PROCESS » (règle Arno, durci depuis le LOT 77) — SOURCE UNIQUE, consommée par le REGROUPEMENT (validationAcquise)
@@ -59,8 +73,8 @@ export function estValidationAcquise(nbCorps: number, nbSansAltitudeValidee: num
 
 /**
  * LOT COMPLET — PARTITION du suivi en QUATRE groupes, EXCLUSIVE et EXHAUSTIVE (chaque ligne dans un seul groupe ; la somme des quatre
- * vaut toujours le total). SOURCE UNIQUE, partagée par le tri, l'affichage ET la pastille. L'appartenance à l'ONGLET dérive de
- * `validationAcquise` (« franchi le process »), plus d'un signal :
+ * vaut toujours le total). SOURCE UNIQUE, partagée par le tri, l'affichage ET la pastille. L'appartenance à l'ONGLET est décidée par
+ * `estDansRattachement` (qui LIT le réglage `mode` : automatique = validationAcquise ; clôture manuelle = marqueur de passage requis) :
  *  — RATTACHEMENT (validationAcquise) :
  *      ① `rattAFaire`  = un signal de mise à jour a été détecté (`aSignalMiseAJour` : arbitrage ouvert OU alerte polygone) → décision attendue.
  *      ② `rattValides` = validé, aucun signal pour l'instant (en veille). Un signal fait passer un permis de ② vers ① SANS changer d'onglet.
@@ -70,13 +84,13 @@ export function estValidationAcquise(nbCorps: number, nbSansAltitudeValidee: num
  * l'ordre d'entrée. PUR (aucune I/O). 🔴 SOURCE UNIQUE : le garde du bouton « Terminer l'analyse », l'appartenance à Rattachement, la
  * catégorie interne et l'appartenance à Sous surveillance dérivent TOUS de `estValidationAcquise` — jamais de lectures parallèles (b7818ff).
  */
-export function partitionnerSuivi<T extends LigneGroupable>(lignes: readonly T[]): { rattAFaire: T[]; rattValides: T[]; survSuivis: T[]; survIncomplets: T[] } {
+export function partitionnerSuivi<T extends LigneGroupable>(lignes: readonly T[], mode: ModePassageRattachement = 'automatique'): { rattAFaire: T[]; rattValides: T[]; survSuivis: T[]; survIncomplets: T[] } {
   const rattAFaire: T[] = [], rattValides: T[] = [], survSuivis: T[] = [], survIncomplets: T[] = [];
   for (const l of lignes) {
-    if (l.validationAcquise) {                                         // FRANCHI → RATTACHEMENT
+    if (estDansRattachement(l, mode)) {                                // appartenance décidée EN LISANT le réglage (source unique)
       if (aSignalMiseAJour(l)) rattAFaire.push(l);                     //   ① signal BD TOPO détecté → décision attendue (en tête, pastille)
-      else rattValides.push(l);                                       //   ② validé, en attente du signal (en dessous)
-    } else if (l.completudeIncomplete) survIncomplets.push(l);        // NON validé → SURVEILLANCE : dossier incomplet
+      else rattValides.push(l);                                       //   ② validé/passé, en attente du signal (en dessous)
+    } else if (l.completudeIncomplete) survIncomplets.push(l);        // PAS (encore) dans Rattachement → SURVEILLANCE : dossier incomplet
     else survSuivis.push(l);                                          //   sinon : suivi, non instruit
   }
   return { rattAFaire, rattValides, survSuivis, survIncomplets };

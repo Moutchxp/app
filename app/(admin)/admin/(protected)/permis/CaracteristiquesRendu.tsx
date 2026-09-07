@@ -490,6 +490,27 @@ export function etatCapsuleEmprise(emprise: EtatEmpriseBatimentVue | null, ignor
 }
 
 /**
+ * COMPLÉMENT (④) — CLÔTURE du permis vers Rattachement, CONDITIONNÉE au réglage `mode`. PUR (testable).
+ *  · `dejaPasse` (marqueur de passage posé, par auto-finalisation OU clôture) → MESSAGE « passé en Rattachement », quel que soit le mode.
+ *  · sinon, tout validé + mode 'automatique' → MESSAGE « passe automatiquement » (jamais MUET après la dernière validation).
+ *  · sinon, tout validé + mode 'cloture_manuelle' → LE BOUTON « Valider le permis — envoyer en Rattachement » (n'apparaît QUE dans ce mode).
+ *  · pas encore tout validé → rien (les capsules par bâtiment disent ce qui reste).
+ */
+export function ClotureVersRattachement({ mode, tousValides, dejaPasse, onCloturer, enCours = false }: {
+  mode: 'automatique' | 'cloture_manuelle'; tousValides: boolean; dejaPasse: boolean; onCloturer?: () => void; enCours?: boolean;
+}) {
+  if (dejaPasse) return <div className="svv-card" role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)', fontWeight: 700 }}>✓ Ce permis est passé en Rattachement.</div>;
+  if (!tousValides) return null;
+  if (mode === 'automatique') return <div className="svv-card" role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)', fontWeight: 700 }}>✓ Toutes les altitudes et emprises sont validées : ce permis passe automatiquement en Rattachement.</div>;
+  return (
+    <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+      <div style={{ fontSize: 12 }}>Toutes les altitudes et emprises sont validées. Ce permis <strong>reste dans « Analyse et projection »</strong> tant que vous ne l’avez pas envoyé en Rattachement.</div>
+      <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={enCours} onClick={onCloturer}>Valider le permis — envoyer en Rattachement</button>
+    </div>
+  );
+}
+
+/**
  * Capsule d'état de l'emprise — JUMELLE de la capsule d'altitude (mêmes classes/tokens/forme, MÊME grammaire « Valider… » → « …validée »).
  * ACTIONNABLE : en 'a_valider' le clic VALIDE l'emprise de ce bâtiment (onValider) ; en VERT, un lien « retirer la validation »
  * (onDevalider, réversible comme l'altitude) ; en 'a_tracer' le clic AMÈNE au bloc de tracé (ancre). Sans callback ni ancre, statut lisible.

@@ -9,6 +9,7 @@ import { lireMargeCoherenceSommetPlancherM, MARGE_COHERENCE_SOMMET_PLANCHER_M_DE
 import { lireParcellesPermis, geojsonParcellesPermis, lireEmpreintePermis, geojsonEmpreintePermis, lireBatiSnapshotPermis, type ParcelleLigne, type EmpreinteLigne, type BatiSnapshotResume } from '../../../../../lib/permis/parcellesRepo';
 import { lireEtatEmprisesPermis, validerEmpriseBatiment, devaliderEmpriseBatiment, type EtatEmprisesPermis } from '../../../../../lib/permis/empriseReconstruiteRepo'; // capsule d'emprise du cartouche : état + validation PAR BÂTIMENT
 import { validerProjection } from '../../../../../lib/permis/projectionFileRepo'; // finalisation permis (permis_projection) quand tous les bâtiments sont validés — conséquence
+import { lireModePassageRattachement } from '../../../../../lib/permis/rattachementConfig'; // COMPLÉMENT — mode de passage (auto-finalisation vs clôture manuelle)
 import { lireDeclarationsRecap, type DeclarationsCerfaStockees } from '../../../../../lib/permis/cerfaRecapRepo'; // LOT 67 — déclarations du Cerfa (informatif)
 import { annulerCorrectionParcelle } from '../../../../../lib/permis/correctionParcelleRepo'; // LOT 101 → PL-C5 : seule l'annulation subsiste (dégeler une ligne héritée)
 import { MESURES, construireGlobal, construirePermis, coherenceSommetPlancher, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
@@ -121,9 +122,10 @@ export async function GET(request: Request): Promise<Response> {
     const margeSur = lireMargeCoherenceSommetPlancherM().then((r) => r.margeM).catch(() => MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT);
     // Capsule d'emprise du cartouche : état par bâtiment (surface/date) + projection validée (niveau dossier), lu en base ; tolérant si tables absentes.
     const empriseEtatSur = lireEtatEmprisesPermis(dossierId).catch(() => ({ projectionValidee: false, parBatiment: {} } as EtatEmprisesPermis));
-    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur, parcSur, empSur, batiSur, declSur, margeSur, empriseEtatSur]);
+    const modePassageSur = lireModePassageRattachement(); // COMPLÉMENT — mode courant : gouverne l'affichage du bouton de clôture (④) vs le message « passé en Rattachement »
+    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat, modePassageRattachement] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur, parcSur, empSur, batiSur, declSur, margeSur, empriseEtatSur, modePassageSur]);
     if (faits === null) return Response.json({ erreur: 'permis inconnu' }, { status: 404 });
-    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat });
+    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat, modePassageRattachement });
   } catch (e) {
     console.error('[permis/caracteristiques] GET indisponible', e);
     return Response.json({ erreur: 'caractéristiques indisponibles' }, { status: 503 });
@@ -193,14 +195,26 @@ export async function POST(request: Request): Promise<Response> {
       if (!r.ok) return Response.json({ erreur: r.motif }, { status: r.migrationAbsente ? 409 : 422 });
       // 🔴 LA PROJECTION DU PERMIS EN DÉCOULE : si TOUS les bâtiments déclarés sont désormais couverts (emprise validée OU ignorée),
       //   on FINALISE (permis_projection + suivi) — conséquence, jamais un geste concurrent. Garde peutValider inchangé (validerProjection).
-      let permisValide = false;
+      // COMPLÉMENT — l'auto-finalisation n'a lieu QU'EN mode 'automatique'. En 'cloture_manuelle', on NE finalise pas : le permis reste
+      //   dans « Analyse et projection » jusqu'au clic « Valider le permis — envoyer en Rattachement » (action 'valider_permis'). `tousCouvertsValides`
+      //   est renvoyé pour que l'écran propose le bouton (manuel) ou dise le passage (auto) — jamais muet après la dernière validation.
+      let permisValide = false, tousCouvertsValides = false;
+      const modePassage = await lireModePassageRattachement();
       if (estEntier(body.dossierId)) {
         const etat = await lireEtatEmprisesPermis(body.dossierId);
         const ids = Object.keys(etat.parBatiment).map(Number);
-        const tousCouvertsValides = ids.length > 0 && ids.every((id) => etat.parBatiment[id].validee || etat.ignoreCorps.includes(id));
-        if (tousCouvertsValides) { const f = await validerProjection(body.dossierId, auteur); permisValide = f.ok; }
+        tousCouvertsValides = ids.length > 0 && ids.every((id) => etat.parBatiment[id].validee || etat.ignoreCorps.includes(id));
+        if (tousCouvertsValides && modePassage === 'automatique') { const f = await validerProjection(body.dossierId, auteur); permisValide = f.ok; }
       }
-      return Response.json({ ok: true, permisValide });
+      return Response.json({ ok: true, permisValide, tousCouvertsValides, modePassage });
+    }
+    // COMPLÉMENT — CLÔTURE MANUELLE : « Valider le permis — envoyer en Rattachement ». Écrit le marqueur de passage (permis_projection),
+    //   exactement comme l'auto-finalisation — même geste, seul le DÉCLENCHEUR diffère. Garde `validerProjection.peutValider` inchangée.
+    if (action === 'valider_permis') {
+      if (!estEntier(body.dossierId)) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
+      const f = await validerProjection(body.dossierId, auteur);
+      if (!f.ok) return Response.json({ erreur: f.motif }, { status: 422 });
+      return Response.json({ ok: true, permisValide: true });
     }
     if (action === 'devalider_emprise') {
       if (!estEntier(body.corpsId)) return Response.json({ erreur: 'corpsId invalide' }, { status: 400 });

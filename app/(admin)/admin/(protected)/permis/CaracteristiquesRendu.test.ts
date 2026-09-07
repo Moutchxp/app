@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, DeclarationsCerfaBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps, etatCapsuleEmprise, CapsuleEtatEmprise, type EtatEmpriseBatimentVue } from './CaracteristiquesRendu';
+import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, DeclarationsCerfaBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps, etatCapsuleEmprise, CapsuleEtatEmprise, ClotureVersRattachement, type EtatEmpriseBatimentVue } from './CaracteristiquesRendu';
 import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa';
 import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
 import { statutEmpriseBatiment, MOT_STATUT_EMPRISE, resumeProjection, verdictProjectionBatiments, type StatutEmpriseBatiment } from '../../../../lib/permis/projectionBatiments';
@@ -1015,3 +1015,24 @@ describe('CAPSULE D’EMPRISE — jumelle de la capsule d’altitude, VALIDATION
     expect(statut).not.toContain('indisponible');
   });
 })
+
+describe('COMPLÉMENT (④) — ClotureVersRattachement : bouton de clôture CONDITIONNÉ au mode', () => {
+  it('🔴 T3 — le bouton « Valider le permis — envoyer en Rattachement » n’apparaît QU’en mode clôture manuelle (tout validé, pas encore passé)', () => {
+    const manuel = renderToStaticMarkup(createElement(ClotureVersRattachement, { mode: 'cloture_manuelle', tousValides: true, dejaPasse: false }));
+    expect(manuel).toContain('Valider le permis — envoyer en Rattachement');
+    const auto = renderToStaticMarkup(createElement(ClotureVersRattachement, { mode: 'automatique', tousValides: true, dejaPasse: false }));
+    expect(auto).not.toContain('Valider le permis — envoyer en Rattachement'); // jamais le bouton en automatique
+    expect(auto).toContain('passe automatiquement en Rattachement');            // jamais MUET après la dernière validation
+  });
+  it('déjà passé (marqueur posé) → message « passé en Rattachement », AUCUN bouton, quel que soit le mode', () => {
+    for (const mode of ['automatique', 'cloture_manuelle'] as const) {
+      const h = renderToStaticMarkup(createElement(ClotureVersRattachement, { mode, tousValides: true, dejaPasse: true }));
+      expect(h).toContain('passé en Rattachement');
+      expect(h).not.toContain('Valider le permis — envoyer');
+    }
+  });
+  it('pas encore tout validé → rien (ce sont les capsules par bâtiment qui disent ce qui reste)', () => {
+    const h = renderToStaticMarkup(createElement(ClotureVersRattachement, { mode: 'cloture_manuelle', tousValides: false, dejaPasse: false }));
+    expect(h).toBe('');
+  });
+});

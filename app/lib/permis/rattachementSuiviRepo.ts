@@ -11,7 +11,7 @@ import { query, withTransaction } from '../db/client';
 import { rejouerRattachement } from './rattachementRepo';
 import { etatInitialDepuisResultat } from './preseanceAltitude';
 import { resoudreEtatSuivi, MOTIF_DAACT, MOTIF_ACHEVE_SANS_BATI } from './etatSuiviRattachement';
-import { lireDaactDeclencheurActif } from './rattachementConfig';
+import { lireDaactDeclencheurActif, lireModePassageRattachement, type ModePassageRattachement } from './rattachementConfig';
 import { lirePermisCaracteristiques } from './caracteristiquesRepo';
 import { lireParcellesPermis } from './parcellesRepo';
 import { construireComparatif, type LigneComparative } from './comparatifRattachement';
@@ -205,6 +205,7 @@ export interface LigneSuivi {
   alertesSurveillance: number; // SURV-1 — nb d'alertes de surveillance des polygones en attente pour ce dossier (0 = aucune ; pastille rouge si > 0)
   completudeIncomplete: boolean; // RATT-1 — signal DÉRIVÉ (jamais stocké) : le diagnostic de complétude des pièces vaut « incomplet ». « Jamais diagnostiqué » → false.
   validationAcquise: boolean;    // LOT 77 — DÉRIVÉ : projection validée ET ≥1 corps ET tous les corps ont leur altitude de sommet → « en attente » quelle que soit la complétude.
+  passageAcquis: boolean;        // COMPLÉMENT — le marqueur de passage (permis_projection) EST posé : le permis est DÉJÀ entré en Rattachement (auto-finalisation OU clôture manuelle). Persistant → « acquis reste acquis ».
 }
 
 /** Tri décroissant d'une date ISO 'YYYY-MM-DD' (comparable lexicographiquement) ; une date ABSENTE va en FIN (jamais en tête). */
@@ -287,6 +288,7 @@ function versLigneSuivi(r: RangeeSuivi, alertesSurv: Map<number, number>, incomp
     alertesSurveillance: alertesSurv.get(Number(r.dossier_id)) ?? 0, // SURV-1 — pastille par-ligne (0 = aucune)
     completudeIncomplete: incomplets.has(Number(r.dossier_id)), // RATT-1 — dérivé (jamais stocké) : décide le 3e groupe
     validationAcquise: estValidationAcquise(Number(r.nb_corps), Number(r.nb_corps_sans_alt_validee), Number(r.nb_corps_sans_emprise_validee)), // « franchi le process » (altitudes + emprises VALIDÉES)
+    passageAcquis: r.projection_validee === true, // COMPLÉMENT — marqueur permis_projection présent (déjà entré en Rattachement, quel que soit le mode)
   };
 }
 
@@ -294,18 +296,18 @@ function versLigneSuivi(r: RangeeSuivi, alertesSurv: Map<number, number>, incomp
 export interface ComptesGroupesSuivi { rattAFaire: number; rattValides: number; survSuivis: number; survIncomplets: number }
 
 /** Liste l'UNIVERS des permis suivis (ceux qui ont une empreinte) LEFT JOIN leur dossier ; « aucun signal » si pas de dossier. */
-export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number>; comptesGroupes: ComptesGroupesSuivi }> {
-  const alertesSurv = await lireAlertesSurveillanceParDossier();
+export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number>; comptesGroupes: ComptesGroupesSuivi; modePassage: ModePassageRattachement }> {
+  const [alertesSurv, modePassage] = await Promise.all([lireAlertesSurveillanceParDossier(), lireModePassageRattachement()]); // COMPLÉMENT — le mode décide l'appartenance (source unique)
   const { rows } = await query<RangeeSuivi>(`SELECT ${SELECT_SUIVI}\n       ${FROM_SUIVI}`);
   // RATT-1 — signal LÉGER « dossier incomplet » (lecture mémoire, une requête, aucune IA) pour le 3e groupe. Résilient (set vide si 174 absente).
   const incomplets = await dossiersIncompletsParmi(rows.map((r) => Number(r.dossier_id)));
   const lignes: LigneSuivi[] = trierLignesSuivi(rows.map((r) => versLigneSuivi(r, alertesSurv, incomplets)));
   const compteurs = Object.fromEntries((Object.keys(ORDRE_URGENCE) as EtatSuivi[]).map((e) => [e, 0])) as Record<EtatSuivi, number>;
   for (const l of lignes) compteurs[l.etat] += 1;
-  // LOT COMPLET — les compteurs de groupe dérivent de la MÊME partition que l'affichage → la pastille et la liste ne divergent jamais.
-  const g = partitionnerSuivi(lignes);
+  // LOT COMPLET/COMPLÉMENT — les compteurs de groupe dérivent de la MÊME partition (et du MÊME mode) que l'affichage → pastille et liste ne divergent jamais.
+  const g = partitionnerSuivi(lignes, modePassage);
   const comptesGroupes: ComptesGroupesSuivi = { rattAFaire: g.rattAFaire.length, rattValides: g.rattValides.length, survSuivis: g.survSuivis.length, survIncomplets: g.survIncomplets.length };
-  return { lignes, compteurs, comptesGroupes };
+  return { lignes, compteurs, comptesGroupes, modePassage };
 }
 
 // ── RECHERCHE / FILTRE de la liste de suivi (les 28 k) — FILTRAGE EN BASE (paramétré) + PAGINATION. Jamais un filtre client. ─────────

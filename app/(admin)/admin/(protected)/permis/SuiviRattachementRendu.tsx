@@ -12,6 +12,7 @@ import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere,
 export interface EmpriseProjetee { id: number; libelle: string; anneau: [number, number][] }
 // rattachementGroupes est PUR (import de TYPE seul depuis le repo, erasé) → client-safe. Source UNIQUE de la coupure en deux (L6).
 import { partitionnerSuivi, GROUPE1_TITRE, RATT_VALIDES_TITRE, SURV_SUIVIS_TITRE, GROUPE_INCOMPLET_TITRE } from '../../../../lib/permis/rattachementGroupes';
+import type { ModePassageRattachement } from '../../../../lib/permis/rattachementConfig';
 import { TYPES_PERMIS_FILTRE } from '../../../../lib/permis/filtreSuivi'; // liste FERMÉE des types (module PUR client-safe)
 import { PastilleActions } from './PastilleActions'; // SURV-1 — pastille rouge « polygones à vérifier » par-ligne (composant pur, client-safe)
 import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
@@ -337,17 +338,17 @@ export function PanneauRechercheSuivi({ valeurs, onValeurs, onChercher, onReset,
   );
 }
 
-export function TableSuivi({ lignes, onOuvrir, ouvert, renderDetail, plat = false, vue = 'rattachement' }: {
+export function TableSuivi({ lignes, onOuvrir, ouvert, renderDetail, plat = false, vue = 'rattachement', modePassage = 'automatique' }: {
   lignes: LigneSuivi[]; compteurs?: Record<EtatSuivi, number>; onOuvrir?: (dossierId: number) => void; ouvert?: number | null;
   renderDetail?: (dossierId: number) => ReactNode; // L7 — contenu du détail, inséré DANS LE FLUX sous la ligne ouverte (fourni par la Vue)
   plat?: boolean; // recherche : liste PLATE (déjà filtrée/paginée en base) sans les groupes ni le message « aucun permis » (l'appelant gère le vide)
   vue?: 'rattachement' | 'surveillance'; // 🔴 SÉPARATION : 'rattachement' = le TRAVAIL (groupe « à faire ») ; 'surveillance' = le RADAR (en attente + incomplets)
+  modePassage?: ModePassageRattachement; // COMPLÉMENT — décide l'appartenance à Rattachement (auto = validationAcquise ; clôture manuelle = marqueur requis)
 }) {
   // Recherche : les résultats arrivent DÉJÀ filtrés + paginés du serveur → liste plate, réutilise la MÊME ligne + détail (LigneSuiviLi).
   if (plat) return <ListeLignesSuivi items={lignes} groupe="en_attente" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />;
-  // LOT COMPLET — partition EXCLUSIVE & EXHAUSTIVE (source unique pure). L'ONGLET dérive de « franchi le process » (validationAcquise) :
-  //   Rattachement = validés (① signal / ② en veille) ; Sous surveillance = non validés (suivis non instruits / incomplets).
-  const { rattAFaire, rattValides, survSuivis, survIncomplets } = partitionnerSuivi(lignes);
+  // LOT COMPLET/COMPLÉMENT — partition EXCLUSIVE & EXHAUSTIVE (source unique pure), l'appartenance LIT le réglage `modePassage`.
+  const { rattAFaire, rattValides, survSuivis, survIncomplets } = partitionnerSuivi(lignes, modePassage);
   const titreGroupe = (t: string, n: number): ReactNode => (
     <div style={{ fontSize: 13, fontWeight: 800, marginBottom: '.3rem' }}>{t} <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>({n})</span></div>
   );

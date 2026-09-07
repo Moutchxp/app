@@ -154,3 +154,30 @@ export async function ecrireDaactDeclencheurActif(actif: boolean): Promise<boole
   await query(`UPDATE config_veille SET rattachement_daact_declencheur_actif = $1 WHERE id = 1`, [actif === true]);
   return actif === true;
 }
+
+/**
+ * COMPLÉMENT (règle Arno, 07/09/2026) — MODE DE PASSAGE en Rattachement, RÉGLAGE à deux valeurs (Arno veut ESSAYER les deux, pas trancher) :
+ *  · 'automatique'     — un permis entre dans Rattachement dès que TOUTES ses altitudes ET emprises sont validées (auto-finalisation). Défaut : ne rien changer.
+ *  · 'cloture_manuelle'— le permis RESTE dans « Analyse et projection » tant qu'Arno n'a pas cliqué « Valider le permis — envoyer en Rattachement », même tout coché.
+ * Le réglage ne change PAS le critère (`estValidationAcquise` reste LE calcul) : il change ce qui DÉCLENCHE le passage. Lecture ISOLÉE
+ * et RÉSILIENTE : colonne absente (migration 207 non appliquée) → défaut 'automatique' (= comportement actuel), jamais d'exception.
+ */
+export type ModePassageRattachement = 'automatique' | 'cloture_manuelle';
+export const MODE_PASSAGE_RATTACHEMENT_DEFAUT: ModePassageRattachement = 'automatique';
+
+export async function lireModePassageRattachement(): Promise<ModePassageRattachement> {
+  try {
+    const { rows } = await query<{ mode: string | null }>(
+      `SELECT rattachement_passage_mode AS mode FROM config_veille WHERE id = 1`);
+    return rows[0]?.mode === 'cloture_manuelle' ? 'cloture_manuelle' : 'automatique';
+  } catch {
+    return MODE_PASSAGE_RATTACHEMENT_DEFAUT; // 207 pas encore appliquée → défaut = automatique (comportement livré au commit cdfdc0a)
+  }
+}
+
+/** RATTACHEMENT — écrit le mode de passage (config_veille, singleton). Valeur normalisée à la liste fermée. Renvoie le mode APRÈS écriture. */
+export async function ecrireModePassageRattachement(mode: ModePassageRattachement): Promise<ModePassageRattachement> {
+  const v: ModePassageRattachement = mode === 'cloture_manuelle' ? 'cloture_manuelle' : 'automatique';
+  await query(`UPDATE config_veille SET rattachement_passage_mode = $1 WHERE id = 1`, [v]);
+  return v;
+}

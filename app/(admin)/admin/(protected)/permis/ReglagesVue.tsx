@@ -351,7 +351,11 @@ export function ReglagesVue() {
 
           <CarteSection titre={TITRE_THEME_ALERTES} icone="🔔"><div style={grille}>{PARAMS_THEME_ALERTES.map((p) => carteParam(p))}</div></CarteSection>
           <CarteSection titre={TITRE_THEME_CADA} icone="⚖️"><div style={grille}>{PARAMS_THEME_CADA.map((p) => carteParam(p))}</div></CarteSection>
-          <CarteSection titre={TITRE_THEME_RATTACHEMENT} icone="🏗"><div style={grille}>{PARAMS_THEME_RATTACHEMENT.map((p) => carteParam(p))}</div></CarteSection>
+          <CarteSection titre={TITRE_THEME_RATTACHEMENT} icone="🏗">
+            <div style={grille}>{PARAMS_THEME_RATTACHEMENT.map((p) => carteParam(p))}</div>
+            {/* COMPLÉMENT (07/09/2026) — mode de passage en Rattachement : automatique vs clôture manuelle. Route dédiée légère (/reglage-passage). */}
+            <ReglagePassageRattachement />
+          </CarteSection>
 
           <CarteSection titre={TITRE_PARAMS_MENTIONS} icone="✍️">
             <p style={styleAide}>{AIDE_PARAMS_MENTIONS}</p>
@@ -372,6 +376,51 @@ export function ReglagesVue() {
 
       {/* S33 — « Classification et affichage des dossiers » vit dans l'onglet Automatisation (groupe « Mise à jour des dossiers »),
           jamais ici. Propriétaire inchangé : ces 8 réglages restent édités par la route /reglages (cf. ClassificationDossiers). */}
+    </div>
+  );
+}
+
+/**
+ * COMPLÉMENT (règle Arno, 07/09/2026) — RÉGLAGE « mode de passage en Rattachement », rangé dans le thème Rattachement. Deux valeurs.
+ * Le LIBELLÉ dit les CONSÉQUENCES en français simple (où va le permis, quand), pas le mécanisme. Route dédiée /reglage-passage
+ * (lecture + écriture, résiliente). Défaut 'automatique' (ne change rien sans geste explicite). Écriture optimiste, erreur DITE.
+ */
+function ReglagePassageRattachement() {
+  const [mode, setMode] = useState<'automatique' | 'cloture_manuelle' | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  const [erreur, setErreur] = useState('');
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/permis/reglage-passage', { cache: 'no-store' });
+        if (!annule && res.ok) { const d = (await res.json()) as { mode: 'automatique' | 'cloture_manuelle' }; setMode(d.mode); }
+      } catch { /* lecture indisponible : le contrôle reste en chargement */ }
+    })();
+    return () => { annule = true; };
+  }, []);
+  const choisir = async (v: 'automatique' | 'cloture_manuelle'): Promise<void> => {
+    if (v === mode || enCours) return;
+    const avant = mode; setMode(v); setEnCours(true); setErreur(''); // optimiste
+    try {
+      const res = await fetch('/api/admin/permis/reglage-passage', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mode: v }) });
+      if (!res.ok) { const d = (await res.json().catch(() => ({}))) as { erreur?: string }; setMode(avant); setErreur(d.erreur ?? 'Enregistrement impossible.'); }
+    } catch { setMode(avant); setErreur('Enregistrement impossible.'); }
+    finally { setEnCours(false); }
+  };
+  if (mode === null) return <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', marginTop: '.5rem' }}>Chargement du réglage…</p>;
+  const opt = (v: 'automatique' | 'cloture_manuelle', titre: string, aide: string) => (
+    <label style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start', fontSize: 13, padding: '.5rem', borderRadius: '.45rem', cursor: 'pointer', minHeight: 40, border: mode === v ? '2px solid var(--color-svv-ink)' : '1px solid var(--color-svv-line)' }}>
+      <input type="radio" name="mode-passage-rattachement" checked={mode === v} disabled={enCours} onChange={() => void choisir(v)} style={{ marginTop: '.15rem', flexShrink: 0 }} />
+      <span style={{ minWidth: 0 }}><strong>{titre}</strong><br /><span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{aide}</span></span>
+    </label>
+  );
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', marginTop: '.6rem' }}>
+      <strong style={{ fontSize: 13 }}>Quand un permis passe en « Rattachement »</strong>
+      {opt('automatique', 'Automatiquement, dès que tout est validé', 'Le permis rejoint « Rattachement » de lui-même dès que toutes les altitudes et toutes les emprises de ses bâtiments sont validées — rien de plus à faire.')}
+      {opt('cloture_manuelle', 'Seulement après votre clic', 'Le permis reste dans « Analyse et projection », même quand tout est validé, jusqu’à ce que vous cliquiez « Valider le permis — envoyer en Rattachement ». Tant que vous ne l’avez pas fait, il n’apparaît pas dans « Rattachement ».')}
+      {erreur && <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{erreur}</span>}
     </div>
   );
 }
