@@ -24,7 +24,7 @@ import { query } from '../db/client';
 import { depsReellesLectureGed, type DepsLectureGed, type PieceGedMeta } from '../permis/lectureGed';
 import { empreinteGed } from '../permis/bestOfCache';
 import { calculerBestOf, estPiecePdf } from '../permis/bestOfCalcul';
-import { ecrireBestOfPersiste, type BestOfValeur } from '../permis/bestOfPersistance';
+import { ecrireBestOfPersiste, TYPE_BEST_OF, type BestOfValeur } from '../permis/bestOfPersistance';
 
 /**
  * BUDGET DE TEMPS d'un tick de précalcul (ms). UNE seule constante nommée — remontable en réglage `config_veille` plus tard.
@@ -102,7 +102,7 @@ export function depsReellesPrecalculBestOf(): DepsPrecalculBestOf {
     },
     empreintePersistee: async (dossierId) => {
       try {
-        const { rows } = await query<{ empreinte: string }>(`SELECT empreinte FROM permis_best_of_precalcul WHERE dossier_id = $1`, [dossierId]);
+        const { rows } = await query<{ empreinte: string }>(`SELECT empreinte FROM permis_best_of_precalcul WHERE dossier_id = $1 AND type = $2`, [dossierId, TYPE_BEST_OF]);
         return rows[0]?.empreinte ?? null;
       } catch { return null; } // table 208 absente / lecture KO → traité comme « absent » → (re)calcul (jamais un crash)
     },

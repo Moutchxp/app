@@ -65,8 +65,9 @@ describe('PC-1 — lecture persistée (résiliente, empreinte liée)', () => {
     expect(r?.cerfaIds).toBeInstanceOf(Set);
     expect([...(r?.cerfaIds ?? [])]).toEqual([13, 42]);
     const [sql, params] = HG.query.mock.calls[0];
-    expect(sql.replace(/\s+/g, ' ')).toContain('WHERE dossier_id = $1 AND empreinte = $2'); // ne sert JAMAIS un autre état de GED
-    expect(params).toEqual([11434, 'EMP-1']);
+    const n = sql.replace(/\s+/g, ' ');
+    expect(n).toContain('WHERE dossier_id = $1 AND type = $2 AND empreinte = $3'); // ne sert JAMAIS un autre TYPE ni un autre état de GED
+    expect(params).toEqual([11434, 'best_of', 'EMP-1']); // le type est TOUJOURS lié (socle générique, migration 209)
   });
 
   it('miss (0 ligne = empreinte périmée ou absente) → null → l’appelant calcule', async () => {
@@ -87,12 +88,13 @@ describe('PC-1 — écriture persistée (best-effort, upsert par dossier)', () =
     const [sql, params] = HG.query.mock.calls[0];
     const n = sql.replace(/\s+/g, ' ');
     expect(n).toContain('INSERT INTO permis_best_of_precalcul');
-    expect(n).toContain('ON CONFLICT (dossier_id) DO UPDATE');
+    expect(n).toContain('ON CONFLICT (dossier_id, type) DO UPDATE'); // socle générique : upsert par (dossier_id, type)
     expect(params[0]).toBe(11434);
-    expect(params[1]).toBe('EMP-1');
-    expect(params[3]).toBe('a_la_volee');
+    expect(params[1]).toBe('best_of'); // le type est TOUJOURS lié explicitement (aucun écrit sans type)
+    expect(params[2]).toBe('EMP-1');   // empreinte
+    expect(params[4]).toBe('a_la_volee');
     // le résultat sérialisé est un JSON re-désérialisable à l'identique
-    expect(deserialiserBestOf(JSON.parse(params[2] as string))).toEqual(deserialiserBestOf(serialiserBestOf(exemple())));
+    expect(deserialiserBestOf(JSON.parse(params[3] as string))).toEqual(deserialiserBestOf(serialiserBestOf(exemple())));
   });
 
   it('🔴 écriture KO (table absente) → no-op silencieux, aucune exception propagée', async () => {
