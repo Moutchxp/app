@@ -655,9 +655,9 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
         {pieceId === null && <p role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: '0 0 .3rem' }}>Aucun aperçu ouvert : choisissez une pièce (best-of ci-contre ou « voir toutes les pièces du dossier »).</p>}
         {/* CADRE À HAUTEUR FIXE + DÉFILEMENT INTERNE : le WRAPPER (jamais le conteneur de rendu) porte la hauteur fixe et l'overflow →
             le canvas garde width:100% collé en haut-gauche à sa taille réelle, getBoundingClientRect du conteneur reste live (repère
-            passif ici, mais MÊME principe que la surface de dessin). `order:-1` en mode titre-en-tête : la surface passe en PREMIER pour
-            s'aligner sur le schéma. En mode agrandi, aucune hauteur imposée (plein écran). */}
-        <div style={{ order: titreEnEntete ? -1 : 0, ...(imageAgrandie ? {} : { height: HAUTEUR_CADRE_RENDU, overflow: 'auto' }) }}>
+            passif ici, mais MÊME principe que la surface de dessin). La barre d'outils (zoom + grandes images, ligneOutils ci-dessus)
+            reste JUSTE AU-DESSUS de la surface — même ligne que la barre de rotation du schéma. En mode agrandi : aucune hauteur imposée (plein écran). */}
+        <div style={imageAgrandie ? undefined : { height: HAUTEUR_CADRE_RENDU, overflow: 'auto' }}>
         <div ref={pdfContainerRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
           style={{ position: 'relative', minHeight: imageAgrandie ? '8rem' : HAUTEUR_CADRE_RENDU, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', background: 'var(--color-svv-field)', touchAction: zoom > 1 ? 'none' : 'auto', cursor: zoom > 1 ? 'grab' : 'default' }}>
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>

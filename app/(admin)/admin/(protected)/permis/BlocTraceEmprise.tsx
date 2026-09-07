@@ -808,9 +808,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       )}
     </div>
   );
-  // DEMANDE 1 — LIGNE D'OUTILS AU-DESSUS DES DEUX IMAGES (en tête de grille, span 2 colonnes) : à GAUCHE (au-dessus de l'image) les
-  //   contrôles de zoom + « mode grandes images » ; à l'EXTRÊME DROITE (au-dessus du schéma) « Agrandir le schéma ». Remontés de leur
-  //   position sous les images. « Agrandir l'image » RENOMMÉ « mode grandes images ». Aucun handler de zoom/agrandissement modifié.
+  // LIGNE D'OUTILS AU-DESSUS DES DEUX SURFACES (en tête de grille, span 2 colonnes) : à GAUCHE (au-dessus de l'IMAGE) le zoom + « mode
+  //   grandes images » ; à l'EXTRÊME DROITE (au-dessus du SCHÉMA) la ROTATION + « Agrandir le schéma ». Les deux barres sont ainsi sur la
+  //   MÊME LIGNE, chacune au-dessus de sa surface (rotation remontée de sous le schéma). Aucun handler de zoom/rotation/agrandissement modifié.
   const ligneOutils = (
     <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
@@ -818,7 +818,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         <button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
           aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images (tracer en grand)'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
       </div>
-      <button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
+        <RotationSchema angle={angle} onAngle={setAngle} />
+        <button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button>
+      </div>
     </div>
   );
 
@@ -859,12 +862,13 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     // LOT 86 — LECTURE SEULE : le schéma reste CONSULTABLE (parcelle + empreinte + bâti BD TOPO) même sans bâtiment déclaré. `affichageTrace`
     //   reste la SOURCE UNIQUE de décision ; ici on ne masque QUE les contrôles de TRACÉ, pas le dessin. Aucun onCliquer (pas de tracé),
     //   pas de points de calage — géométrie du schéma STRICTEMENT inchangée.
-    // LOT « alignement » — le SCHÉMA est le PREMIER élément de la carte (surface en haut, alignée sur la liseuse à gauche, cartes de
-    //   MÊME padding) ; rotation + sélection + options DESCENDENT dessous (comme le nominal). Carte svv-card pour la parité de padding.
+    // LOT « barres alignées » — la BARRE DE ROTATION est le PREMIER élément de la carte (au-dessus du schéma), au même Y que la barre de
+    //   zoom de la liseuse à gauche (cartes de MÊME padding) ; le schéma démarre juste dessous, aligné avec l'image de gauche. Sélection +
+    //   options DESCENDENT sous le schéma. Carte svv-card pour la parité de padding.
     const blocSchema = boite ? (
       <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
-        <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesReperes, emprises, batiments)} />
         <RotationSchema angle={angle} onAngle={setAngle} />
+        <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesReperes, emprises, batiments)} />
         {bandeauSel}
         {/* Options d'AFFICHAGE (bâti existant / futur / repères / projection) — pilotage visuel, pas un contrôle de tracé. Porte aussi la légende de catégories. */}
         <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
@@ -975,8 +979,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} statuts={statutParCleabs}
               onCliquer={retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined)} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
-            {/* PROJ-3j ② — rotation d'affichage + bandeau de sélection, sous le schéma. */}
-            <RotationSchema angle={angle} onAngle={setAngle} />
+            {/* La rotation est REMONTÉE dans la ligne d'outils (au-dessus du schéma, même ligne que le zoom) ; ne reste ici que le bandeau de sélection. */}
             {bandeauSel}
             {/* FIX « ascenseur » — PENDANT tout le processus de création (calage amorcé → 1/2 → 2/2 → tracé des sommets → jusqu'à la
                 validation), le guide « Étape 1 — caler la vue » ET le bloc d'outils/contrôle (résidu, échelle, aire) restent ICI, SOUS LE
