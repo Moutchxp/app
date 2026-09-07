@@ -18,6 +18,7 @@ import { familleDeContenu, niveauxDeContenu } from '../../../../../lib/permis/pl
 import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone, appliquerAutoStatut } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2) / RATT-2
 import { attribuerNomsRepli } from '../../../../../lib/permis/caracteristiquesRepo'; // NOM-1 — attribue « bâtiment en projet N » aux corps anonymes (best-effort)
 import { empreinteGed, bestOfMemo } from '../../../../../lib/permis/bestOfCache'; // P1 (perfo) — mémoïsation du best-of PDF (poste dominant), invalidation par empreinte de la GED
+import { lireBestOfPersiste, ecrireBestOfPersiste, type BestOfValeur } from '../../../../../lib/permis/bestOfPersistance'; // PC-1 (perfo) — best-of PERSISTÉ (survit au redémarrage), résilient
 import { estPieceCerfaPc } from '../../../../../lib/permis/identifierCerfa'; // LOT 66 — reconnaissance du Cerfa PC par CONTENU (n° 13409)
 
 // PROJ-3d — confirmation page-level PARESSEUSE : plafond DUR de pièces ouvertes côté serveur (mesuré ~98 ms/pièce → ~0,7 s pour 7).
@@ -103,6 +104,10 @@ export async function GET(request: Request): Promise<Response> {
     //   indisponibilités du calcul pour que la réponse soit IDENTIQUE au 1er appel (froid) et aux suivants (chaud).
     const empreinte = empreinteGed(piecesPdf.map((p) => ({ id: p.id, cleStockage: p.cleStockage, tailleOctets: p.tailleOctets, nomFichier: p.nomFichier })));
     const best = await bestOfMemo(dossierId, empreinte, async () => {
+      // PC-1 (perfo) — cache MÉMOIRE manqué → tenter le PERSISTÉ (survit au redémarrage/HMR) AVANT de payer le calcul. Résilient : table
+      //   absente (208 non appliquée) / entrée périmée (empreinte différente) / lecture KO → null → on calcule. JAMAIS un prérequis.
+      const persiste = await lireBestOfPersiste(dossierId, empreinte);
+      if (persiste) return { valeur: persiste, cachable: true }; // hit persisté → bestOfMemo le remet aussi en cache MÉMOIRE
       const indisGed: string[] = []; let echecTelechargement = false;
       let ged: Awaited<ReturnType<typeof lireGedPermis>>;
       try { ged = await lireGedPermis(dossierId, deps); }
@@ -136,7 +141,11 @@ export async function GET(request: Request): Promise<Response> {
         const g = gedParId.get(p.id);
         if (g && estPieceCerfaPc(g.pages.slice(0, 3).map((pg) => pg.texte))) cerfaIds.add(p.id);
       }
-      return { valeur: { proposees: proposeesAutres.proposees, autres: proposeesAutres.autres, niveauxParId, confirmations, cerfaIds, indisGed }, cachable: !echecTelechargement };
+      const valeur: BestOfValeur = { proposees: proposeesAutres.proposees, autres: proposeesAutres.autres, niveauxParId, confirmations, cerfaIds, indisGed };
+      // PC-1 — un cold-open PERSISTE son calcul (best-effort, non bloquant) → survit au redémarrage/HMR + re-peuple après un retour en Analyse.
+      //   Prudence P1 conservée : un calcul NON cachable (échec de téléchargement) n'est PAS persisté (comme il n'est pas mémoïsé).
+      if (!echecTelechargement) void ecrireBestOfPersiste(dossierId, empreinte, valeur, 'a_la_volee');
+      return { valeur, cachable: !echecTelechargement };
     });
     const { proposees, autres, niveauxParId, confirmations, cerfaIds } = best;
     indisponibles.push(...best.indisGed); // réponse IDENTIQUE froid/chaud (les indisponibilités du best-of sont mémoïsées avec lui)

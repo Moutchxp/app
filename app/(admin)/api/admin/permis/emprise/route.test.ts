@@ -47,6 +47,14 @@ const HG = vi.hoisted(() => ({
     { id: 57, nomFichier: 'PC4_Notice_architecturale.pdf', typeMime: 'application/pdf', cleStockage: 'k3', tailleOctets: 1 },
   ]),
   lireObjet: vi.fn(async () => Buffer.from('%PDF')),
+  // PC-1 (perfo) — persistance du best-of : par DÉFAUT persisté MANQUÉ (null) → la route calcule (comportement inchangé). Surchargeable par test (hit persisté).
+  lireBestOfPersiste: vi.fn(async (): Promise<import('../../../../../lib/permis/bestOfPersistance').BestOfValeur | null> => null),
+  ecrireBestOfPersiste: vi.fn(async () => {}),
+}));
+vi.mock('../../../../../lib/permis/bestOfPersistance', async (orig) => ({
+  ...(await orig<typeof import('../../../../../lib/permis/bestOfPersistance')>()), // garde serialiser/deserialiser RÉELS (round-trip)
+  lireBestOfPersiste: HG.lireBestOfPersiste,
+  ecrireBestOfPersiste: HG.ecrireBestOfPersiste,
 }));
 vi.mock('../../../../../lib/permis/lectureGed', () => ({
   depsReellesLectureGed: () => ({
@@ -492,5 +500,29 @@ describe('P2 (perfo, Lever 1) — Cerfa RÉUTILISE le texte de lireGedPermis (au
     HG.lireObjet.mockRejectedValue(new Error('MinIO indisponible')); // tout téléchargement échoue
     const j = await (await get('?dossierId=11434')).json();
     expect(j.pieces.find((p: { id: number }) => p.id === 55).cerfa).toBe(true); // 🔴 marqué SANS téléchargement — l'ancienne boucle Cerfa aurait échoué au download
+  });
+});
+
+describe('PC-1 (perfo) — best-of PERSISTÉ : hit sert sans calcul, cold-open persiste, repli', () => {
+  it('🔴 hit persisté (empreinte OK) → AUCUN téléchargement ni extraction ; le best-of persisté est servi (cerfa inclus)', async () => {
+    HG.lireBestOfPersiste.mockResolvedValueOnce({
+      proposees: [{ id: 55, nomFichier: 'A.pdf', typeMime: 'application/pdf', famille: 'masse' }],
+      autres: [{ id: 57, nomFichier: 'B.pdf', typeMime: 'application/pdf' }],
+      niveauxParId: new Map(), confirmations: new Map(), cerfaIds: new Set([57]), indisGed: [],
+    } as unknown as Awaited<ReturnType<typeof import('../../../../../lib/permis/bestOfPersistance').lireBestOfPersiste>>);
+    const j = await (await get('?dossierId=11434')).json();
+    expect(HG.lireObjet).not.toHaveBeenCalled();   // 🔴 aucun téléchargement : servi du persisté
+    expect(HG.extraire).not.toHaveBeenCalled();    // 🔴 aucune extraction
+    expect(j.pieces.find((p: { id: number }) => p.id === 55)).toMatchObject({ id: 55, propose: true, famille: 'masse' });
+    expect(j.pieces.find((p: { id: number }) => p.id === 57)).toMatchObject({ id: 57, cerfa: true }); // le cerfaIds persisté est appliqué
+  });
+
+  it('🔴 cold-open (persisté MANQUÉ = défaut null) → calcule ET PERSISTE (best-effort) pour survivre au redémarrage', async () => {
+    // On DRAINE la file « once » (clearAllMocks ne la purge pas) : garantit un calcul SANS échec de téléchargement → persistance atteinte.
+    HG.lireObjet.mockReset(); HG.lireObjet.mockResolvedValue(Buffer.from('%PDF'));
+    HG.extraire.mockReset(); HG.extraire.mockResolvedValue({ ok: true, pages: ['cartouche', 'planche', 'planche'] });
+    await (await get('?dossierId=11434')).json();
+    expect(HG.lireBestOfPersiste).toHaveBeenCalled(); // le persisté est bien consulté avant de calculer
+    expect(HG.ecrireBestOfPersiste).toHaveBeenCalled(); // le calcul à la volée est persisté
   });
 });
