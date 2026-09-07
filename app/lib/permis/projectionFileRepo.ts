@@ -183,17 +183,13 @@ async function ecrireProjectionValidee(q: RequeteTx, dossierId: number, par: str
              VALUES ($1, 'suivi_apres_projection', NULL, 'en_attente_bati', $2::jsonb, $3)`,
       [r[0].id, JSON.stringify({ origine: 'projection' }), par]);
   }
-  // PC-2 (perfo) — PURGE du best-of persisté À L'ENTRÉE EN RATTACHEMENT : le dossier quitte l'instruction, son pré-calcul (PC-1) n'a plus
-  //   lieu d'être et sera recalculé proprement si l'on revient en Analyse. Dans la MÊME transaction que le jalon (atomique), mais ISOLÉE
-  //   par un SAVEPOINT : table absente (208 non appliquée) ou purge KO → on annule la SEULE purge (sinon un statement en échec abort toute
-  //   la transaction Postgres), JAMAIS la validation de projection. Best-effort : accélérateur, jamais prérequis.
-  await q('SAVEPOINT sp_purge_best_of');
-  try {
-    await q(`DELETE FROM permis_best_of_precalcul WHERE dossier_id = $1`, [dossierId]);
-    await q('RELEASE SAVEPOINT sp_purge_best_of');
-  } catch {
-    await q('ROLLBACK TO SAVEPOINT sp_purge_best_of'); // purge non bloquante : la transaction poursuit et valide la projection
-  }
+  // P-fond 2 — AUCUNE PURGE du best-of persisté à l'entrée en Rattachement (l'ancien PC-2 est RETIRÉ, avec sa garde SAVEPOINT). Cette
+  //   fonction n'écrit QUE permis_projection / permis_rattachement / son événement : elle NE TOUCHE PAS la GED (dossier_document). Or le
+  //   best-of persisté (permis_best_of_precalcul) ne dépend QUE de la GED (empreinteGed sur les pièces PDF + leur contenu, bestOfCache.ts) —
+  //   pas des projections, validations ni du rattachement. L'entrée ne l'invalide donc pas : la ligne reste VALIDE et sert TELLE QUELLE, pour
+  //   une ouverture INSTANTANÉE de l'onglet Bâtiments pile dans la vue de travail (l'ancien DELETE garantissait au contraire un cold-open ~9 s).
+  //   L'invalidation reste portée par l'empreinte (une modif ULTÉRIEURE de la GED → miss → recalcul), et le producteur de fond garde ces
+  //   dossiers à jour (univers surveillance/rattachement). Volumétrie négligeable (~1,5-15 Ko/dossier). 🔴 Ne PAS réintroduire de purge aveugle.
   return marqueSuivi;
 }
 

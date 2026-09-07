@@ -6,13 +6,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 const H = vi.hoisted(() => {
   const calls: { sql: string; params: unknown[] }[] = [];
-  const state = { bats: [] as { id: number; repere: string | null }[], emprises: [] as { corpsId: number | null }[], ignores: [] as { corpsId: number }[], rattInsere: [{ id: 50 }] as { id: number }[], purgeThrow: false };
+  const state = { bats: [] as { id: number; repere: string | null }[], emprises: [] as { corpsId: number | null }[], ignores: [] as { corpsId: number }[], rattInsere: [{ id: 50 }] as { id: number }[] };
   const queryMock = async (sql: string, params?: unknown[]) => {
     calls.push({ sql, params: params ?? [] });
     if (/FROM permis_corps_batiment WHERE dossier_id/i.test(sql)) return { rows: state.bats };
     if (/INSERT INTO permis_rattachement\b/i.test(sql)) return { rows: state.rattInsere };
-    // PC-2 — simuler une purge en échec (ex. table 208 absente) : le DELETE rejette → la route doit ROLLBACK TO SAVEPOINT et poursuivre.
-    if (state.purgeThrow && /DELETE FROM permis_best_of_precalcul/i.test(sql)) throw Object.assign(new Error('relation "permis_best_of_precalcul" does not exist'), { code: '42P01' });
     return { rows: [] };
   };
   return { calls, state, queryMock };
@@ -23,7 +21,7 @@ vi.mock('./empriseReconstruiteRepo', () => ({ listerEmprises: async () => H.stat
 import { validerProjection, listerFileProjection } from './projectionFileRepo';
 
 const ins = (re: RegExp) => H.calls.filter((c) => re.test(c.sql));
-beforeEach(() => { H.calls.length = 0; H.state.bats = [{ id: 1, repere: '2D1' }, { id: 2, repere: '2D2' }]; H.state.emprises = []; H.state.ignores = []; H.state.rattInsere = [{ id: 50 }]; H.state.purgeThrow = false; });
+beforeEach(() => { H.calls.length = 0; H.state.bats = [{ id: 1, repere: '2D1' }, { id: 2, repere: '2D2' }]; H.state.emprises = []; H.state.ignores = []; H.state.rattInsere = [{ id: 50 }]; });
 
 describe('PROJ-2c — validerProjection', () => {
   it('projection INCOMPLÈTE (1 bâtiment sans emprise ni ignorance) → refus, aucun jalon', async () => {
@@ -74,32 +72,20 @@ describe('PROJ-2c — validerProjection', () => {
   });
 });
 
-describe('PC-2 (perfo) — purge du best-of persisté à l’entrée en Rattachement (atomique, isolée par SAVEPOINT)', () => {
-  it('🔴 validation → PURGE (DELETE par dossier_id) dans la MÊME transaction, encadrée SAVEPOINT/RELEASE', async () => {
+describe('P-fond 2 — l’entrée en Rattachement NE PURGE PLUS le best-of persisté (aucun DELETE aveugle)', () => {
+  it('🔴 validation → AUCUN DELETE FROM permis_best_of_precalcul, aucun SAVEPOINT de purge (la ligne valide survit → ouverture instantanée)', async () => {
     H.state.emprises = [{ corpsId: 1 }, { corpsId: 2 }];
     expect((await validerProjection(11434, 'admin')).ok).toBe(true);
-    const purge = ins(/DELETE FROM permis_best_of_precalcul/i)[0];
-    expect(purge, 'la purge doit être émise').toBeTruthy();
-    expect(purge.sql).toMatch(/WHERE dossier_id = \$1/);
-    expect(purge.params).toEqual([11434]); // le dossier qui entre en Rattachement
-    // isolation : SAVEPOINT posé AVANT la purge, RELEASE après le DELETE réussi (aucun ROLLBACK)
-    const seq = H.calls.map((c) => c.sql);
-    const iSp = seq.findIndex((s) => /SAVEPOINT sp_purge_best_of/i.test(s) && !/ROLLBACK|RELEASE/i.test(s));
-    const iDel = seq.findIndex((s) => /DELETE FROM permis_best_of_precalcul/i.test(s));
-    const iRel = seq.findIndex((s) => /RELEASE SAVEPOINT sp_purge_best_of/i.test(s));
-    expect(iSp).toBeGreaterThanOrEqual(0);
-    expect(iSp).toBeLessThan(iDel);
-    expect(iDel).toBeLessThan(iRel);
-    expect(seq.some((s) => /ROLLBACK TO SAVEPOINT/i.test(s))).toBe(false); // succès → pas de rollback de purge
-  });
-
-  it('🔴 purge en ÉCHEC (table 208 absente) → ROLLBACK TO SAVEPOINT, la validation RÉUSSIT quand même (best-effort, non bloquant)', async () => {
-    H.state.emprises = [{ corpsId: 1 }, { corpsId: 2 }];
-    H.state.purgeThrow = true;
-    const r = await validerProjection(11434, 'admin');
-    expect(r).toEqual({ ok: true, marqueSuivi: true }); // 🔴 la purge KO n'a PAS cassé la validation
-    expect(ins(/INSERT INTO permis_projection/i)).toHaveLength(1); // le jalon est bien écrit
-    expect(ins(/ROLLBACK TO SAVEPOINT sp_purge_best_of/i)).toHaveLength(1); // seule la purge est annulée
+    const sql = H.calls.map((c) => c.sql).join('\n');
+    // 🔴 GARDE ANTI-RÉGRESSION : une purge aveugle du best-of à l’entrée en Rattachement ne doit JAMAIS revenir. L’entrée ne touche pas
+    //   la GED (dossier_document) ; or le best-of persisté ne dépend QUE de la GED → il reste valide et sert tel quel. Un DELETE ici
+    //   garantirait au contraire un cold-open (~9 s) pile dans la vue de travail. Cf. projectionFileRepo.ts (ecrireProjectionValidee).
+    expect(sql, 'aucune purge du best-of à l’entrée en Rattachement').not.toMatch(/DELETE FROM permis_best_of_precalcul/i);
+    expect(sql, 'aucun SAVEPOINT de purge du best-of').not.toMatch(/SAVEPOINT sp_purge_best_of/i);
+    // le reste de l’entrée est inchangé : jalon + marquage suivi toujours écrits, aucune écriture moteur.
+    expect(ins(/INSERT INTO permis_projection/i)).toHaveLength(1);
+    expect(ins(/INSERT INTO permis_rattachement\b/i)).toHaveLength(1);
+    expect(sql).not.toMatch(/INSERT INTO batiment|permis_polygone_altitude/i);
   });
 });
 
