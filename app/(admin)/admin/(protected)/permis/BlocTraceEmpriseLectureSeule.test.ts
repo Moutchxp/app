@@ -32,21 +32,28 @@ describe('LOT 86 — la garde « aucun bâtiment » n’efface plus le schéma (
 
   it('LOT 90 — la LISEUSE lecture seule est montée à 0 bâtiment (gardée par `avecLiseuse`) ; le CALAGE reste FERMÉ (cul-de-sac sans bâtiment)', () => {
     expect(brancheEtSuite).toContain('avecLiseuse ? ('); // LOT 3a — liseuse montée SEULEMENT si avecLiseuse (sinon colonne gauche vide → on empile le seul schéma)
-    expect(brancheEtSuite).toContain('<LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete imageAgrandie={imageAgrandie} onToggleImageAgrandie={() => setImageAgrandie((v) => !v)} />'); // liseuse consultable, agrandi PILOTÉ par le parent (parité)
+    expect(brancheEtSuite).toContain('<LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete imageAgrandie={imageAgrandie} onToggleImageAgrandie={() => { setPleinEcran(false); setImageAgrandie((v) => !v); }} />'); // liseuse consultable, agrandi PILOTÉ par le parent + mutuellement exclusif du schéma
     expect(src).toContain('avecLiseuse = true');                     // prop, défaut true
     // Pas de boutons/mode de calage dans la branche (le calage vit dans le rendu principal, sous bâtiment).
     expect(brancheEtSuite).not.toContain("setMode('calage')");
     expect(brancheEtSuite).not.toContain('Calage (');
   });
 
-  it('PARITÉ GRANDES IMAGES — à 0 bâtiment, « mode grandes images » ouvre un OVERLAY 2 colonnes (liseuse | schéma), piloté par BlocTraceEmprise, sans toucher la surface de dessin', () => {
-    // overlay plein écran 2 colonnes, GATED par imageAgrandie (même structure que le nominal)
+  it('DEUX BOUTONS « agrandir » — à 0 bâtiment, MÊME STANDARD qu\'au nominal : « agrandir le plan » = liseuse SEULE plein écran ; « agrandir le schéma » = overlay schéma dédié ; mutuellement exclusifs ; surface de dessin jamais réutilisée', () => {
+    // EN PAGE : 2 colonnes (liseuse | schéma), MÊMES proportions que le nominal.
+    expect(brancheEtSuite).toContain("gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)'");
+    // « agrandir le plan » (bouton de la liseuse → imageAgrandie) : la LISEUSE SEULE passe en plein écran (position:fixed), UNE colonne, schéma retiré.
     expect(brancheEtSuite).toMatch(/imageAgrandie\s*\n?\s*\?\s*\{[\s\S]*?position: 'fixed'/);
-    expect(brancheEtSuite).toContain("gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)'"); // 2 colonnes liseuse | schéma
-    // l'agrandi est PORTÉ par BlocTraceEmprise et DÉLÉGUÉ à la liseuse (état + toggle) — pas l'imageAgrandie interne de la liseuse
+    expect(brancheEtSuite).toContain("gridTemplateColumns: 'minmax(0,1fr)'"); // UNE colonne quand le plan est seul
+    expect(brancheEtSuite).toContain('{!imageAgrandie && blocSchema}');       // le schéma est RETIRÉ quand la liseuse est seule
+    // l'agrandi est PORTÉ par BlocTraceEmprise et DÉLÉGUÉ à la liseuse, et MUTUELLEMENT EXCLUSIF du schéma (ferme pleinEcran).
     expect(brancheEtSuite).toContain('imageAgrandie={imageAgrandie}');
-    expect(brancheEtSuite).toContain('onToggleImageAgrandie={');
-    // 🔴 CONDITION : on NE réutilise NI le conteneur de coordonnées NI la conversion de la surface de dessin dans cette branche.
+    expect(brancheEtSuite).toContain('onToggleImageAgrandie={() => { setPleinEcran(false); setImageAgrandie((v) => !v); }}');
+    // « agrandir le schéma » (bouton du schéma → pleinEcran, ferme imageAgrandie) + son OVERLAY DÉDIÉ (le pleinEcran nominal est hors de cette branche).
+    expect(brancheEtSuite).toContain('setImageAgrandie(false); setPleinEcran(true);');
+    expect(brancheEtSuite).toContain('pleinEcran && boite && (');
+    expect(brancheEtSuite).toContain('Schéma de la parcelle agrandi');
+    // 🔴 CONDITION (inchangée) : on NE réutilise NI le conteneur de coordonnées NI la conversion de la surface de dessin dans cette branche.
     expect(brancheEtSuite).not.toContain('pdfContainerRef');
     expect(brancheEtSuite).not.toContain('cliquerPdf');
     expect(brancheEtSuite).not.toContain('onCliquer=');   // liseuse ET schéma restent PASSIFS (lecture seule, aucun point posé)
