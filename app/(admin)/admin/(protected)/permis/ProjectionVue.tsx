@@ -306,11 +306,11 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     <div className="flex flex-col gap-3">
       <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>{AIDE_PROJECTION}</p>
       {enTest.length > 0 && (
-        <TableProjection file={enTest} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} libellePermis={'Test permis « En cours »'} />
+        <TableProjection file={enTest} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} libellePermis={'Test permis « En cours »'} modePassage={modePassage} tousValidesOuvert={enteteProjection ? enteteProjection.ton === 'vert' : null} />
       )}
       {/* Reste de la file (hors test). Masqué si tout est en test (sinon « La file est vide » mentirait) ; toujours rendu si la file entière est vide (message normal). */}
       {(reste.length > 0 || file.length === 0) && (
-        <TableProjection file={reste} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} />
+        <TableProjection file={reste} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} modePassage={modePassage} tousValidesOuvert={enteteProjection ? enteteProjection.ton === 'vert' : null} />
       )}
     </div>
   );

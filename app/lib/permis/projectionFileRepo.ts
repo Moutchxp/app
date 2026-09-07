@@ -29,6 +29,8 @@ export interface LigneProjection {
   nbBatiments: number;     // permis_corps_batiment du permis (à tracer ou ignorer)
   satisfaitLe: string | null;
   nbCorpsSansAltitude: number;  // RATT-1 — bâtiments déclarés sans altitude de sommet (permis_corps_batiment.altitude_sommet_ngf NULL) → titre « Caractéristiques »
+  nbCorpsSansAltValidee: number;    // COMPLÉMENT — bâtiments sans altitude de sommet VALIDÉE (confirme_le NULL) : décide si le n° passe au vert (validable). Défaut = nbBatiments (non validable) si lecture indisponible.
+  nbCorpsSansEmpriseValidee: number; // COMPLÉMENT — bâtiments sans emprise VALIDÉE (206). Avec le précédent : le permis est VALIDABLE ssi les deux valent 0 (estValidationAcquise).
   projectionValidee: boolean;   // RATT-1 — la file EXCLUT par construction les projections validées (jalon NOT EXISTS permis_projection) → TOUJOURS false ici ; champ exposé pour un titre de famille générique et honnête
   testeEnAnalyse: boolean;      // LOT 51 — le dossier est présent en Analyse via le marqueur « testé » (partiel actif tenu ouvert) → l'UI propose « Renvoyer ce permis dans l'onglet En cours » ; false pour un dossier arrivé normalement
 }
@@ -84,6 +86,8 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: b
     const d: DossierClassable = { type: r.type, natureProjetCompletee: r.nature_projet_completee, iExtension: r.i_extension, iSurelevation: r.i_surelevation, nbLgtTotCrees: r.nb_lgt_tot_crees, surfCreee: r.surf_creee === null ? null : Number(r.surf_creee) };
     return { dossierId: r.dossier_id, numDau: r.num_dau, communeNom: r.commune_nom, natureLibelle: classer(d, cfg).libelle, nbBatiments: r.nb_batiments, satisfaitLe: r.satisfait_le,
       nbCorpsSansAltitude: Number(r.nb_corps_sans_altitude ?? 0), projectionValidee: false, // RATT-1 — false par construction (jalon d'exclusion des validées)
+      // COMPLÉMENT — DÉFAUT « non validable » (= tous les bâtiments manquants) : `listerFileProjection` remplace par les vrais comptes (lecture résiliente). Sûr si la lecture échoue (n° reste rouge).
+      nbCorpsSansAltValidee: Number(r.nb_batiments), nbCorpsSansEmpriseValidee: Number(r.nb_batiments),
       testeEnAnalyse: testSet.has(r.dossier_id) }; // LOT 51 — présent via le marqueur « testé » ⇒ l'UI propose le retour
   });
 }
@@ -91,21 +95,45 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: b
 /** File « Projection » : permis éligibles NON encore validés. Résilience INDÉPENDANTE à deux migrations : permis_projection (151 →
  *  jalon d'exclusion des validées) et partiel_* (177 → exclusion FIX-2 des dossiers en réclamation). Table absente (42P01) → sans
  *  jalon ; colonne absente (42703) → sans l'exclusion partiel ; comportement historique préservé si l'une manque, les deux présentes en prod. */
+/**
+ * COMPLÉMENT — comptes de VALIDATION par dossier (bâtiments sans altitude de sommet validée / sans emprise validée) pour la file. Requête
+ * BATCH, RÉSILIENTE et SÉPARÉE (jamais fondue dans la requête file, pour ne pas y ajouter une dépendance à la migration 206) : en cas
+ * d'erreur (206 absente…), map vide → chaque n° retombe sur le défaut « non validable » (rouge). Un dossier VALIDABLE ssi les deux valent 0.
+ */
+async function lireValidationFileParDossier(dossierIds: number[]): Promise<Map<number, { sansAlt: number; sansEmp: number }>> {
+  const m = new Map<number, { sansAlt: number; sansEmp: number }>();
+  if (dossierIds.length === 0) return m;
+  try {
+    const { rows } = await query<{ dossier_id: number; sans_alt: number | string; sans_emp: number | string }>(
+      `SELECT cb.dossier_id,
+              count(*) FILTER (WHERE cb.altitude_sommet_ngf_confirme_le IS NULL)::int AS sans_alt,
+              count(*) FILTER (WHERE NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite e WHERE e.id = cb.emprise_validee_id AND e.corps_id = cb.id)))::int AS sans_emp
+         FROM permis_corps_batiment cb WHERE cb.dossier_id = ANY($1) GROUP BY cb.dossier_id`, [dossierIds]);
+    for (const r of rows) m.set(Number(r.dossier_id), { sansAlt: Number(r.sans_alt), sansEmp: Number(r.sans_emp) });
+  } catch { /* 206 absente ou lecture indisponible → map vide, n° rouge (jamais un faux « prêt ») */ }
+  return m;
+}
+
 export async function listerFileProjection(cfg: ConfigVeille): Promise<LigneProjection[]> {
   // LOT 51 — marqueurs « testé en analyse » lus À PART et RÉSILIENTS (189 absente → ∅ → porte FIX-2 jamais ouverte, comportement d'avant).
   const testIds = await lireDossiersEnTest();
-  try { return await requeteFile(cfg, true, true, testIds); }
-  catch (e) {
-    if (estColonneAbsente(e)) { // 177 absente → sans l'exclusion partiel (en re-gérant l'absence éventuelle de 151)
-      try { return await requeteFile(cfg, true, false, testIds); }
-      catch (e2) { if (estTableAbsente(e2)) return requeteFile(cfg, false, false, testIds); throw e2; }
+  const rows = await (async (): Promise<LigneProjection[]> => {
+    try { return await requeteFile(cfg, true, true, testIds); }
+    catch (e) {
+      if (estColonneAbsente(e)) { // 177 absente → sans l'exclusion partiel (en re-gérant l'absence éventuelle de 151)
+        try { return await requeteFile(cfg, true, false, testIds); }
+        catch (e2) { if (estTableAbsente(e2)) return requeteFile(cfg, false, false, testIds); throw e2; }
+      }
+      if (estTableAbsente(e)) { // 151 absente → sans jalon (en re-gérant l'absence éventuelle de 177)
+        try { return await requeteFile(cfg, false, true, testIds); }
+        catch (e2) { if (estColonneAbsente(e2)) return requeteFile(cfg, false, false, testIds); throw e2; }
+      }
+      throw e;
     }
-    if (estTableAbsente(e)) { // 151 absente → sans jalon (en re-gérant l'absence éventuelle de 177)
-      try { return await requeteFile(cfg, false, true, testIds); }
-      catch (e2) { if (estColonneAbsente(e2)) return requeteFile(cfg, false, false, testIds); throw e2; }
-    }
-    throw e;
-  }
+  })();
+  // COMPLÉMENT — enrichit avec les VRAIS comptes de validation (défaut « non validable » sinon) → le n° passe au vert quand le permis est validable.
+  const val = await lireValidationFileParDossier(rows.map((r) => r.dossierId));
+  return rows.map((r) => { const v = val.get(r.dossierId); return v ? { ...r, nbCorpsSansAltValidee: v.sansAlt, nbCorpsSansEmpriseValidee: v.sansEmp } : r; });
 }
 
 /** Compteur de la file (pastille). Même critère que la liste. `0` si les tables amont manquent. */

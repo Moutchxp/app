@@ -1,5 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import type { EtatTitreFamille } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état porté par la ligne de titre d'une famille
+import { clotureVisible } from './CaracteristiquesRendu'; // COMPLÉMENT — SOURCE UNIQUE : n° VERT ⟺ bouton de clôture disponible
+import { estValidationAcquise } from '../../../../lib/permis/rattachementGroupes'; // COMPLÉMENT — « franchi le process » par ligne (alt + emprise validées)
 
 /**
  * PROJ-2c — RENDU PUR (renderToStaticMarkup) de la file « Projection » : le tableau des permis éligibles (documents obtenus,
@@ -14,6 +16,8 @@ export interface LigneProjectionAffichee {
   nbBatiments: number;
   satisfaitLe: string | null;
   nbCorpsSansAltitude: number;  // RATT-1 — bâtiments déclarés sans altitude de sommet (titre « Caractéristiques du permis »)
+  nbCorpsSansAltValidee: number;    // COMPLÉMENT — bâtiments sans altitude de sommet VALIDÉE ; avec le suivant, décide si le n° passe au vert (validable = les deux à 0)
+  nbCorpsSansEmpriseValidee: number; // COMPLÉMENT — bâtiments sans emprise VALIDÉE
   projectionValidee: boolean;   // RATT-1 — projection validée ? (titre « Bâtiments et projection ») — false par construction dans cette file
   testeEnAnalyse: boolean;      // LOT 51 — présent via le marqueur « testé en analyse » (partiel tenu ouvert) → l'UI propose « Renvoyer ce permis dans l'onglet En cours »
 }
@@ -47,7 +51,7 @@ const MIN_WIDTH_TABLE = 700;
 /** Phrase d'aide : la file « Projection » et son rôle (intervalle entre réception des pièces et apparition du bâti). */
 export const AIDE_PROJECTION = 'Onglet « Analyse et projection » : à la réception des pièces, on INSTRUIT le permis (caractéristiques, bâtiments déclarés) PUIS on reconstitue l’emprise au sol des futurs bâtiments (neuve / extension) avant que BD TOPO ne les voie. Une reconstitution, jamais une mesure ; elle n’alimente ni le verdict ni l’altitude.';
 
-export function TableProjection({ file, ouvert, onOuvrir, renderDetail, libellePermis = 'Permis' }: {
+export function TableProjection({ file, ouvert, onOuvrir, renderDetail, libellePermis = 'Permis', modePassage = 'automatique', tousValidesOuvert = null }: {
   file: LigneProjectionAffichee[];
   ouvert: number | null;
   onOuvrir: (dossierId: number) => void;
@@ -55,6 +59,11 @@ export function TableProjection({ file, ouvert, onOuvrir, renderDetail, libelleP
   // LOT 54 — en-tête de la 1re colonne. Défaut « Permis » (file normale). Le tableau des dossiers EN TEST reçoit
   //   « Test permis "En cours" » → c'est le SEUL signal qui distingue les deux blocs (plus de groupe/pli au-dessus).
   libellePermis?: string;
+  // COMPLÉMENT — le n° passe au VERT quand le permis est VALIDABLE (= le bouton de clôture s'affiche), via la SOURCE UNIQUE `clotureVisible`.
+  //   `tousValidesOuvert` (état LIVE du dossier ouvert, remonté par « Bâtiments et projection ») prime sur les comptes de la file → le n° du
+  //   dossier ouvert suit son bouton sans latence ; les autres lignes dérivent de leurs comptes de validation.
+  modePassage?: 'automatique' | 'cloture_manuelle';
+  tousValidesOuvert?: boolean | null;
 }) {
   if (file.length === 0) return <p style={muted}>Aucun permis en attente de projection. La file est vide.</p>;
   return (
@@ -75,12 +84,19 @@ export function TableProjection({ file, ouvert, onOuvrir, renderDetail, libelleP
         <tbody>
           {file.map((l) => {
             const estOuvert = l.dossierId === ouvert;
+            // COMPLÉMENT — VALIDABLE (n° vert) ⟺ bouton de clôture disponible : MÊME calcul `clotureVisible`. `tousValides` = état LIVE du
+            //   dossier ouvert (prime) sinon comptes de la file. `dejaPasse` = false par construction (la file exclut les permis passés).
+            const tousValides = (estOuvert && tousValidesOuvert !== null) ? tousValidesOuvert : estValidationAcquise(l.nbBatiments, l.nbCorpsSansAltValidee, l.nbCorpsSansEmpriseValidee);
+            const validable = clotureVisible(modePassage, tousValides, l.projectionValidee ?? false);
             return (
               <tr key={l.dossierId} style={estOuvert ? { background: 'var(--color-svv-field)' } : undefined}>
                 <td style={cell} colSpan={estOuvert ? 5 : 1}>
+                  {/* COMPLÉMENT — n° VERT (même token que « Projection validée ») quand validable, rouge sinon ; le chevron suit. Le ✓ est un
+                      signal NON coloré (l'info ne repose pas sur la seule couleur, pour la liste fermée où le n° est le seul indice). */}
                   <button type="button" onClick={() => onOuvrir(l.dossierId)} aria-expanded={estOuvert}
-                    style={{ cursor: 'pointer', background: 'none', border: 'none', padding: 0, color: 'var(--color-svv-red)', fontWeight: 600, fontSize: 13 }}>
-                    {estOuvert ? '▲ ' : '▼ '}{l.numDau}
+                    title={validable ? 'Prêt à être envoyé en Rattachement' : undefined}
+                    style={{ cursor: 'pointer', background: 'none', border: 'none', padding: 0, color: validable ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)', fontWeight: 600, fontSize: 13 }}>
+                    {estOuvert ? '▲ ' : '▼ '}{l.numDau}{validable ? ' ✓' : ''}
                   </button>
                   {estOuvert && <div style={{ marginTop: '.5rem' }}>{renderDetail()}</div>}
                 </td>

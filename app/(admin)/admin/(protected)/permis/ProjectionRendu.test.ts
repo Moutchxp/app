@@ -5,7 +5,7 @@ import { TableProjection, TitreFamilleEtat, type LigneProjectionAffichee } from 
 import { etatProjectionTitre, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection';
 
 const ligne = (over: Partial<LigneProjectionAffichee> = {}): LigneProjectionAffichee => ({
-  dossierId: 11434, numDau: 'PC07512025V0035', communeNom: 'Paris 15e', natureLibelle: 'Construction neuve', nbBatiments: 2, satisfaitLe: '2026-07-01', nbCorpsSansAltitude: 0, projectionValidee: false, testeEnAnalyse: false, ...over,
+  dossierId: 11434, numDau: 'PC07512025V0035', communeNom: 'Paris 15e', natureLibelle: 'Construction neuve', nbBatiments: 2, satisfaitLe: '2026-07-01', nbCorpsSansAltitude: 0, nbCorpsSansAltValidee: 2, nbCorpsSansEmpriseValidee: 2, projectionValidee: false, testeEnAnalyse: false, ...over,
 });
 
 describe('PROJ-2c — rendu de la file Projection', () => {
@@ -67,5 +67,27 @@ describe('RATT-1 — état sur la ligne de titre des familles (Analyse et projec
     expect(etatAltitudesTitre(2, 0)).toEqual({ texte: 'altitudes renseignées (2 bâtiments)', ton: 'vert' });
     expect(etatAltitudesTitre(2, 1)).toEqual({ texte: 'altitude manquante (1/2)', ton: 'rouge' });
     expect(etatAltitudesTitre(3, 2)).toEqual({ texte: 'altitudes manquantes (2/3)', ton: 'rouge' });
+  });
+});
+
+describe('COMPLÉMENT — TableProjection : le n° passe au VERT ⟺ le bouton de clôture est disponible (source unique clotureVisible)', () => {
+  const rendre = (over: Partial<LigneProjectionAffichee>, modePassage: 'automatique' | 'cloture_manuelle') =>
+    renderToStaticMarkup(h(TableProjection, { file: [ligne(over)], ouvert: null, onOuvrir: () => {}, renderDetail: () => null, modePassage }));
+
+  it('🔴 validable (clôture manuelle + tous bâtiments alt+emprise validés + non passé) → n° VERT (même token que « Projection validée ») + ✓ (signal non coloré)', () => {
+    const html = rendre({ nbCorpsSansAltValidee: 0, nbCorpsSansEmpriseValidee: 0 }, 'cloture_manuelle');
+    expect(html).toContain('var(--color-svv-green-ink)');
+    expect(html).toContain('✓');
+    expect(html).not.toContain('color:var(--color-svv-red)'); // le n° n'est plus rouge
+  });
+  it('🔴 un bâtiment sans emprise validée → PAS validable → n° ROUGE, aucun ✓ (le bouton ne s’affiche pas non plus)', () => {
+    const html = rendre({ nbCorpsSansAltValidee: 0, nbCorpsSansEmpriseValidee: 1 }, 'cloture_manuelle');
+    expect(html).toContain('var(--color-svv-red)');
+    expect(html).not.toContain('✓');
+  });
+  it('🔴 même tout validé, en mode AUTOMATIQUE le bouton n’est pas disponible → n° ROUGE (jamais vert sans bouton)', () => {
+    const html = rendre({ nbCorpsSansAltValidee: 0, nbCorpsSansEmpriseValidee: 0 }, 'automatique');
+    expect(html).toContain('var(--color-svv-red)');
+    expect(html).not.toContain('✓');
   });
 });
