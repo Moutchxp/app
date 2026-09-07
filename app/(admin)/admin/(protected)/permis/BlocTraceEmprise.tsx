@@ -32,7 +32,10 @@ import { statutCourantParCleabs, type LigneStatutPolygone, type PolygoneRecouver
 interface Piece { id: number; nomFichier: string; typeMime: string | null; propose?: boolean; famille?: FamillePlan | null; planches?: { page: number; echelle: string | null; tracable?: boolean; famille?: FamillePlan; ambigu?: boolean }[]; confirme?: boolean; cerfa?: boolean; niveaux?: string[] }
 interface Contexte { empreinteAnneaux: [number, number][][] | PointLambert[][]; surfaceTerrainM2: number | null; surfacePlancherM2: number | null; batiments: { corpsId: number; nbEtages: number | null; empriseM2: number | null }[] }
 type Mode = 'calage' | 'trace';
-type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convertToViewportPoint(x: number, y: number): number[] }; ratio: number };
+// `ratio` = INSTANTANÉ au re-rendu (canvas.width / largeur affichée AU MOMENT DU RENDU) — conservé comme REPLI (aucune régression aux
+//   largeurs re-rendues). `largeurCanvasPx` = nombre de pixels-device du canvas (canvas.width). Couplé à la largeur AFFICHÉE lue EN DIRECT
+//   (`largeurCanvasCss`, observée), il donne le RATIO D'AFFICHAGE LIVE des repères (versCss) → exact à N largeurs, y compris non re-rendues.
+type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convertToViewportPoint(x: number, y: number): number[] }; ratio: number; largeurCanvasPx: number };
 
 const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
 const SEUIL_SOMMET_BOITE = 12; // PROJ-3s — rayon de capture d'un sommet au clic (unités de la boîte du schéma) : cible TACTILE, pas un seuil métier.
@@ -88,6 +91,13 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   le canvas SE RE-REND à sa nouvelle largeur → apercu/ratio recalculés POUR CETTE VUE (cf. effet d'auto-affichage). afficherPage et
   //   cliquerPdf restent INCHANGÉS : un point posé en grand tombe au MÊME endroit géométrique qu'en petit (démontré dans agrandissement.filet.test.ts).
   const [imageAgrandie, setImageAgrandie] = useState(false);
+  // LOT 3 — NIVEAU 3 : le PLAN SEUL en plein écran, TRACÉ actif, calage indisponible (pas de schéma). S'ouvre DEPUIS le niveau 2 et y
+  //   revient. Réutilise le MÊME canvas/pdfContainerRef/cliquerPdf/apercu que les niveaux 1-2 (aucun 3e rendu pdf.js) ; seul le layout change.
+  const [planSeul, setPlanSeul] = useState(false);
+  // LOT 3 — largeur AFFICHÉE (mise en page, NON zoomée) du cadre du plan, lue EN DIRECT par un ResizeObserver (cf. effet plus bas). Source
+  //   de justesse des REPÈRES (versCss) à N largeurs : le ratio d'affichage = apercu.largeurCanvasPx / largeurCanvasCss. `null` tant que non
+  //   mesurée → versCss retombe sur apercu.ratio (byte-identique aux largeurs re-rendues → aucune régression niveaux 1-2).
+  const [largeurCanvasCss, setLargeurCanvasCss] = useState<number | null>(null);
   const [angle, setAngle] = useState(0); // PROJ-3j — rotation du schéma (0-360°), AFFICHAGE seulement, éphémère (non persistée)
   const [corpsSel, setCorpsSel] = useState<number | null>(null);
   const [pieceId, setPieceId] = useState<number | null>(null);
@@ -262,13 +272,22 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [pleinEcran]);
-  // PROJ-AGR — Échap réduit aussi l'agrandissement de l'image (jamais un piège plein écran sans sortie clavier).
+  // PROJ-AGR — Échap réduit aussi l'agrandissement de l'image (jamais un piège plein écran sans sortie clavier). LOT 3 — mais PAS quand le
+  //   niveau 3 (plan seul) est ouvert PAR-DESSUS : Échap ferme d'abord le niveau 3 (retour au niveau 2), pas les deux d'un coup. Le
+  //   comportement du niveau 2 SEUL (planSeul=false) est INCHANGÉ.
   useEffect(() => {
     if (!imageAgrandie) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setImageAgrandie(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !planSeul) setImageAgrandie(false); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [imageAgrandie]);
+  }, [imageAgrandie, planSeul]);
+  // LOT 3 — Échap au NIVEAU 3 (plan seul) : retour au NIVEAU 2 (décision Arno), jamais un piège plein écran sans sortie clavier.
+  useEffect(() => {
+    if (!planSeul) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPlanSeul(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [planSeul]);
 
   // PROJ — APERÇU LIVE du débordement (débonce 400 ms) : la géométrie Lambert est recalculée CÔTÉ SERVEUR (garde PROJ) ; on ne fait
   //   qu'AFFICHER. On ne met à jour l'état QUE depuis le callback ASYNC (jamais un setState synchrone dans l'effet). Un contour non
@@ -372,7 +391,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       canvas.style.width = '100%'; canvas.style.height = 'auto';
       const ctx = canvas.getContext('2d'); if (!ctx) return;
       await pageObj.render({ canvasContext: ctx, viewport }).promise;
-      setApercu({ vp: viewport as unknown as Apercu['vp'], ratio: canvas.width / (canvas.getBoundingClientRect().width || largeurCss) });
+      setApercu({ vp: viewport as unknown as Apercu['vp'], ratio: canvas.width / (canvas.getBoundingClientRect().width || largeurCss), largeurCanvasPx: canvas.width });
       setPage(p);
     } catch { setMessage('impossible d’afficher la page (PDF illisible)'); } finally { setOccupe(false); }
   }, [pieceId, page]);
@@ -384,7 +403,26 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   // PROJ-AGR — `imageAgrandie` DANS les deps : basculer l'agrandissement re-déclenche afficherPage → le canvas se re-rend à la largeur
   //   de la NOUVELLE vue (petite ↔ plein écran) et apercu/ratio se recalculent pour elle. Les points posés (sommets/paires en coords PDF)
   //   ne sont PAS effacés par afficherPage → ils restent exacts et se re-projettent (versCss) au bon endroit dans les deux vues.
-  useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [pieceId, page, etat, imageAgrandie]);
+  // LOT 3 — `planSeul` DANS les deps (comme imageAgrandie) : entrer/sortir du niveau 3 re-rend le canvas à sa NOUVELLE largeur (plein écran
+  //   plan seul → plus large) → bitmap NET pour un tracé précis, et apercu/ratio recalculés pour cette vue. Les points posés (coords PDF) ne
+  //   sont pas effacés → ils se re-projettent au bon endroit. La justesse des REPÈRES à toute largeur ne DÉPEND PAS de ce re-rendu (versCss
+  //   lit un ratio d'affichage live) : le re-rendu ne sert QUE la netteté.
+  useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [pieceId, page, etat, imageAgrandie, planSeul]);
+
+  // LOT 3 — OBSERVER→STATE : la largeur AFFICHÉE (mise en page, NON zoomée) du cadre du plan alimente `largeurCanvasCss`. On observe
+  //   `pdfContainerRef`, qui est HORS du wrapper `scale(zoom)` (le zoom est appliqué à SON enfant) → sa taille est TOUJOURS non zoomée,
+  //   sans dépendre de la sémantique « ResizeObserver ignore-t-il les transforms » : aucun double-comptage du zoom possible (piège lot F).
+  //   `contentRect.width` = largeur de contenu = celle que le canvas (width:100%) occupe = `largeurCss` du rendu → repli byte-identique quand
+  //   la vue n'a pas changé. Se ré-attache à chaque changement de niveau (l'élément est préservé, mais un disconnect/observe reste sûr).
+  useEffect(() => {
+    const el = pdfContainerRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const maj = (w: number) => { if (w > 0) setLargeurCanvasCss(w); };
+    maj(el.clientWidth); // valeur initiale immédiate (avant le 1er callback de l'observer)
+    const ro = new ResizeObserver((entries) => { for (const e of entries) maj(e.contentRect?.width ?? el.clientWidth); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [etat, imageAgrandie, planSeul]);
 
   // PROJ-3e — CHANGER DE PAGE/PLAN sans perdre le travail en silence : un calage/tracé EN COURS ET NON ENREGISTRÉ → on diffère
   //   (confirmation inline) ; sinon on exécute. Le travail n'a de sens que sur SA page (points en espace-page) → on l'abandonne à
@@ -769,14 +807,18 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     } catch { setMessage('retour à la configuration d’origine impossible'); } finally { setOccupeSel(false); }
   }, [dossierId]);
 
-  // Overlay : positions CSS des points plan / sommets (lit `apercu` en state). Reste sur `apercu.ratio` STOCKÉ : ce lot n'a que DEUX largeurs
-  //   (W1/W2), chacune re-rendue par afficherPage → apercu.ratio exact aux deux → repères BYTE-IDENTIQUES (aucun comportement visible). Un
-  //   ratio live ici imposerait une lecture de ref EN RENDU (interdite par react-hooks/refs) ; la justesse des repères à une 3e largeur non
-  //   re-rendue relèvera du lot qui introduira ce niveau (observer→state). Le mapping écran→PDF (cliquerPdf, chemin au risque silencieux) est, lui, déjà N largeurs.
+  // Overlay : positions CSS des points plan / sommets (lit `apercu` en state). LOT 3 (observer→state) — la source du ratio d'affichage est
+  //   désormais LIVE : `apercu.largeurCanvasPx / largeurCanvasCss`, où `largeurCanvasCss` est la largeur AFFICHÉE non zoomée lue en continu
+  //   par le ResizeObserver. Ainsi les REPÈRES tombent à la bonne FRACTION d'affichage à N largeurs — y compris une 3e largeur (niveau 3) ET
+  //   un simple redimensionnement de fenêtre, cas où apercu.ratio (instantané du re-rendu) serait périmé. Pas de lecture de ref en RENDU
+  //   (react-hooks/refs) : on ne lit que de l'ÉTAT. Repli sur apercu.ratio tant que la largeur live n'est pas mesurée → BYTE-IDENTIQUE aux
+  //   largeurs re-rendues (largeurCanvasCss == largeur du rendu ⇒ ratio == apercu.ratio) donc AUCUNE régression aux niveaux 1-2. Le zoom
+  //   n'entre PAS ici (l'overlay SVG est dans le wrapper zoomé, mis à l'échelle par le CSS), exactement comme avant.
+  const ratioAffichage = apercu ? (largeurCanvasCss && largeurCanvasCss > 0 ? apercu.largeurCanvasPx / largeurCanvasCss : apercu.ratio) : null;
   const versCss = (p: PointPlan): { x: number; y: number } | null => {
-    if (!apercu) return null;
+    if (!apercu || ratioAffichage === null) return null;
     const [vx, vy] = apercu.vp.convertToViewportPoint(p.x, p.y);
-    return { x: vx / apercu.ratio, y: vy / apercu.ratio };
+    return { x: vx / ratioAffichage, y: vy / ratioAffichage };
   };
   const cssSommets = sommets.map(versCss).filter((q): q is { x: number; y: number } => q !== null);
   const cssPaires = paires.map((pr) => versCss(pr.plan)).filter((q): q is { x: number; y: number } => q !== null);
@@ -833,10 +875,38 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
         <button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
           aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images (tracer en grand)'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
+        {/* LOT 3 (décision Arno C2) — bouton d'entrée du NIVEAU 3 (plan seul, plein écran, tracé), dans la barre de SA colonne, au-dessus de
+            son image. Présent UNIQUEMENT au niveau 2 (imageAgrandie) : le niveau 3 s'ouvre DEPUIS le niveau 2 et y revient. Le niveau 1 reste
+            STRICTEMENT inchangé (le bouton n'y apparaît pas). On force le mode 'trace' : au niveau 3 le calage est indisponible (pas de schéma). */}
+        {imageAgrandie && (
+          <button type="button" style={btn} disabled={!tracable} onClick={() => { setMode('trace'); setPlanSeul(true); }}
+            aria-label="Agrandir l’image en plein écran pour tracer (calage indisponible dans cette vue)">⤢ Agrandir l’image (tracer)</button>
+        )}
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
         <RotationSchema angle={angle} onAngle={setAngle} />
         <button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button>
+      </div>
+    </div>
+  );
+
+  // LOT 3 — BARRE du NIVEAU 3 (plan seul, plein écran) : elle REMPLACE ligneOutils dans le même emplacement de tête (jamais les deux à la
+  //   fois). Contient tout ce qu'il faut pour TRACER — retour au niveau 2, zoom, annuler/reprendre le tracé, compteur de sommets — et DIT
+  //   clairement que le calage est indisponible ici (pas de schéma). « Reprendre le tracé » n'efface QUE les sommets : le CALAGE fait au
+  //   niveau 2 (paires) est préservé, on n'y touche pas. Aucun outil de calage : au niveau 3 le clic pose des SOMMETS (mode 'trace' forcé).
+  const barreNiveau3 = (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', minWidth: 0 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
+        <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={() => setPlanSeul(false)}
+          aria-label="Revenir à la vue deux colonnes (liseuse et schéma)">← Revenir à la vue 2 colonnes</button>
+        <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
+        <button type="button" style={btn} disabled={sommets.length === 0} onClick={() => setSommets((s) => s.slice(0, -1))}>Annuler dernier sommet</button>
+        <button type="button" style={btn} disabled={sommets.length === 0} onClick={() => { setSommets([]); setDebordement(null); }}>Reprendre le tracé</button>
+        <span style={styleAide}>Sommets : {sommets.length}{paires.length > 0 ? ` · calage ${paires.length}/2 (fait à la vue 2 colonnes)` : ''}</span>
+      </div>
+      {/* HONNÊTETÉ (jamais laisser croire que le calage est cassé) : on DIT que le calage se fait ailleurs, pas ici. */}
+      <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
+        Vue <strong>plan seul</strong> pour tracer avec précision. Le <strong>calage</strong> (2 points plan ↔ schéma) n’est pas disponible ici — il se fait dans la vue 2 colonnes. Tracez vos sommets, puis revenez-y pour caler (si ce n’est pas fait) et enregistrer.
       </div>
     </div>
   );
@@ -943,27 +1013,35 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       </div>
 
       {batSel && (
-        // PROJ-AGR — quand `imageAgrandie`, TOUTE la grille (plan À GAUCHE + schéma À DROITE + outils) passe en PLEIN ÉCRAN (CSS
-        //   position:fixed). Le plan s'affiche large (tracé précis), le schéma reste présent (2e point de calage). Les MÊMES éléments et
-        //   handlers (pdfContainerRef/cliquerPdf, SchemaParcelleTrace/cliquerSchema) sont réutilisés → aucune duplication du tracé ; le
-        //   canvas se re-rend à la nouvelle largeur (effet ci-dessus) → coordonnées exactes pour cette vue.
-        <div role={imageAgrandie ? 'dialog' : undefined} aria-modal={imageAgrandie || undefined} aria-label={imageAgrandie ? 'Visionneuse agrandie — tracer en grand' : undefined}
-          style={imageAgrandie
-            ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
-            : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
-          {/* DEMANDE 1 — LIGNE D'OUTILS au-dessus des DEUX images (span 2 colonnes) : zoom + « mode grandes images » à gauche, « Agrandir le schéma » à l'extrême droite. */}
-          {ligneOutils}
+        // PROJ-AGR / LOT 3 — TROIS NIVEAUX, un SEUL conteneur (le canvas/pdfContainerRef n'est jamais démonté → apercu préservé, aucun 3e
+        //   rendu pdf.js) : seuls le STYLE et les enfants changent.
+        //   • NIVEAU 1 (défaut) : grille 2 colonnes EN PAGE. INCHANGÉ.
+        //   • NIVEAU 2 (imageAgrandie, !planSeul) : la MÊME grille 2 colonnes en PLEIN ÉCRAN (plan large + schéma pour le calage). INCHANGÉ.
+        //   • NIVEAU 3 (planSeul) : le PLAN SEUL en plein écran, une colonne, TRACÉ actif, calage indisponible (schéma masqué). NOUVEAU.
+        //   Le canvas se re-rend à la largeur de chaque niveau (effet, deps imageAgrandie+planSeul) → bitmap net ; les repères restent justes
+        //   à toute largeur via le ratio d'affichage live (versCss). Slots à CLÉ STABLE (topbar/colpdf/schema) → React réconcilie par clé et
+        //   ne démonte JAMAIS la colonne du plan en changeant de niveau.
+        <div role={imageAgrandie || planSeul ? 'dialog' : undefined} aria-modal={imageAgrandie || planSeul || undefined}
+          aria-label={planSeul ? 'Plan seul en plein écran — tracé (calage indisponible)' : imageAgrandie ? 'Visionneuse agrandie — tracer en grand' : undefined}
+          style={planSeul
+            ? { position: 'fixed', inset: 0, zIndex: 1001, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '.5rem' }
+            : imageAgrandie
+              ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
+              : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
+          {/* SLOT DE TÊTE (clé stable « topbar ») : ligneOutils (niveaux 1-2, span 2 colonnes) OU barreNiveau3 (niveau 3). Jamais les deux. */}
+          <div key="topbar" style={{ gridColumn: planSeul ? undefined : '1 / -1', minWidth: 0 }}>{planSeul ? barreNiveau3 : ligneOutils}</div>
           {/* Colonne PDF — DEMANDE 2 : a) l'IMAGE en tête (alignée avec le schéma à droite) ; b) IMMÉDIATEMENT sous l'image, tout le bloc de
               navigation + « voir toutes les pièces » + lien (barre, section haute) ; c) « agrandir l'image » + zoom + fonctions (barre,
               section basse) ; d) EN DERNIER : le bloc « Étape 1 — caler la vue » (encadré rouge). */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', minWidth: 0 }}>
+          <div key="colpdf" style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', minWidth: 0 }}>
             {/* a) IMAGE — conteneur NON transformé (repère du clic) ; le PDF + l'overlay sont dans un wrapper zoomé/déplacé. Glisser = déplacer (si zoomé), cliquer = poser un point.
                 🔴 RÈGLE ABSOLUE : le repère de coordonnées (top-left du conteneur via getBoundingClientRect, canvas width:100%, ratio) est INCHANGÉ.
                 CADRE À HAUTEUR FIXE + DÉFILEMENT INTERNE : la hauteur fixe et l'overflow sont portés par le WRAPPER extérieur, JAMAIS par le
                 conteneur `pdfContainerRef` → getBoundingClientRect reste live (r.left/r.top suivent le défilement) → cliquerPdf INCHANGÉ. Seul
-                `minHeight` du conteneur est fixé (vers le BAS uniquement : ni le top-left, ni la largeur du canvas, ni le ratio ne changent). */}
-            <div style={imageAgrandie ? undefined : { height: HAUTEUR_CADRE_RENDU, overflow: 'auto' }}>
-            <div ref={pdfContainerRef} style={{ position: 'relative', minHeight: imageAgrandie ? undefined : HAUTEUR_CADRE_RENDU, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', touchAction: 'none', cursor: zoom > 1 ? 'grab' : (tracable ? 'crosshair' : 'default') }}
+                `minHeight` du conteneur est fixé (vers le BAS uniquement : ni le top-left, ni la largeur du canvas, ni le ratio ne changent).
+                LOT 3 — niveau 3 (planSeul) traité comme le niveau 2 pour la hauteur : pas de cap, l'image occupe toute la largeur (défilement porté par le conteneur plein écran). */}
+            <div style={(imageAgrandie || planSeul) ? undefined : { height: HAUTEUR_CADRE_RENDU, overflow: 'auto' }}>
+            <div ref={pdfContainerRef} style={{ position: 'relative', minHeight: (imageAgrandie || planSeul) ? undefined : HAUTEUR_CADRE_RENDU, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', touchAction: 'none', cursor: zoom > 1 ? 'grab' : (tracable ? 'crosshair' : 'default') }}
               onPointerDown={onPdfPointerDown} onPointerMove={onPdfPointerMove} onPointerUp={onPdfPointerUp}>
               <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
                 <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: 'auto' }} />
@@ -977,19 +1055,21 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             </div>
             </div>{/* fin du CADRE À HAUTEUR FIXE (wrapper à défilement interne — hauteur/overflow HORS du conteneur de coordonnées) */}
             {/* b) + c) BARRE PARTAGÉE (même composant que la planche), SOUS l'image : nav complète + voir-toutes + lien (haut), puis
-                statut/best-of/analyses (bas). Zoom + « mode grandes images » sont AU-DESSUS (ligneOutils). Zéro outil de tracé. */}
-            <BarreVisionneusePieces pieceId={pieceId} nomCourant={nomCourant} page={page} nbPagesPiece={nbPagesPiece} echelle={planAffiche?.echelle ?? null}
+                statut/best-of/analyses (bas). Zoom + « mode grandes images » sont AU-DESSUS (ligneOutils). Zéro outil de tracé.
+                LOT 3 — MASQUÉE au niveau 3 (plan seul) : cette vue est dédiée au TRACÉ, sa barre (retour/zoom/tracé) est barreNiveau3, en tête. */}
+            {!planSeul && <BarreVisionneusePieces pieceId={pieceId} nomCourant={nomCourant} page={page} nbPagesPiece={nbPagesPiece} echelle={planAffiche?.echelle ?? null}
               nav={nav} slotNav={slotNav} slotPieces={slotPieces}
               onOuvrirDocument={() => void ouvrirDocumentComplet()} onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} onRetourBestOf={retourBestOf}
               pageDansBestOf={pageDansBestOf} onRetirerBestOf={() => { if (planAffiche) void retirerDuBestOf(planAffiche!); }} onAjouterBestOf={() => { if (pieceId !== null) void ajouterAuBestOf(pieceId, page); }}
               statutPage={statutPage} resumePages={resumePages} pleinPagesAnalysees={pleinPagesAnalysees} onTogglePleinPages={() => setPleinPagesAnalysees((v) => !v)}
               runCourant={runCourant} lectureCourante={lectureCourante} reperEnCours={reperEnCours} lectureEnCours={lectureEnCours}
-              onAnalyseFichier={() => void reperer()} onAnalysePage={() => void analyserPage()} reperMsg={reperMsg} lectureRes={lectureRes} onAnnulerValeur={() => void annulerValeurPage()} />
+              onAnalyseFichier={() => void reperer()} onAnalysePage={() => void analyserPage()} reperMsg={reperMsg} lectureRes={lectureRes} onAnnulerValeur={() => void annulerValeurPage()} />}
             {/* d) POSITION INITIALE (AU REPOS) du bloc « Étape 1 — caler la vue » : en bas de la colonne gauche, sous la barre. FIX
                 « ascenseur » : affiché ICI UNIQUEMENT quand AUCUN processus n'est en cours (`!procEnCours`) — dès qu'on amorce un calage,
                 il migre sous le schéma (à droite) et n'en bouge plus jusqu'à la validation. Un seul exemplaire à la fois (conditions
-                mutuellement exclusives). Fondu sobre à l'apparition (désactivé sous prefers-reduced-motion). */}
-            {tracable && !procEnCours && <div className="svv-guide-fondu"><GuidageTraceBox g={guidage}
+                mutuellement exclusives). Fondu sobre à l'apparition (désactivé sous prefers-reduced-motion).
+                LOT 3 — jamais au niveau 3 (`!planSeul`) : ce guide parle du CALAGE, indisponible en plan seul (le tracé y est guidé par barreNiveau3). */}
+            {!planSeul && tracable && !procEnCours && <div className="svv-guide-fondu"><GuidageTraceBox g={guidage}
               onAnnulerDernier={mode === 'calage' ? () => { if (planEnAttente) setPlanEnAttente(null); else setPaires((p) => p.slice(0, -1)); } : undefined}
               onRecommencer={mode === 'calage' ? () => { setPaires([]); setPlanEnAttente(null); } : undefined}
               peutAnnuler={paires.length > 0 || planEnAttente !== null} /></div>}
@@ -997,8 +1077,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
 
           {/* Colonne de droite — DEMANDE 1 : le SCHÉMA en PREMIER, aligné à la MÊME HAUTEUR que l'image à gauche (les deux cadres démarrent
               sur la même ligne). La rotation, le bandeau de sélection et le guidage descendent SOUS le schéma. 🔴 RÈGLE ABSOLUE : le
-              repère de coordonnées du calage (SchemaParcelleTrace, SVG « meet ») est INCHANGÉ — seul l'ordre des blocs voisins a bougé. */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+              repère de coordonnées du calage (SchemaParcelleTrace, SVG « meet ») est INCHANGÉ — seul l'ordre des blocs voisins a bougé.
+              LOT 3 — colonne ENTIÈREMENT MASQUÉE au niveau 3 (plan seul) : le calage exige les deux colonnes, il se fait aux niveaux 1-2.
+              Clé stable « schema » : React la démonte proprement en entrant au niveau 3 SANS toucher à la colonne du plan (clé « colpdf »). */}
+          {!planSeul && (
+          <div key="schema" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} statuts={statutParCleabs}
               onCliquer={retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined)} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
             {/* La rotation est REMONTÉE dans la ligne d'outils (au-dessus du schéma, même ligne que le zoom) ; ne reste ici que le bandeau de sélection. */}
@@ -1111,6 +1194,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               </div>
             )}
           </div>
+          )}
         </div>
       )}
 

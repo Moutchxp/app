@@ -259,8 +259,9 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
     expect(iZoom).toBeGreaterThan(-1);
     expect(iMode).toBeGreaterThan(iZoom);          // zoom PUIS « mode grandes images » (groupe gauche)
     expect(iSchemaBtn).toBeGreaterThan(iMode);     // « Agrandir le schéma » à l'extrême droite (après le groupe gauche)
-    // la ligne est RENDUE en tête de grille, AVANT l'image.
-    const iRender = src.indexOf('{ligneOutils}');
+    // la ligne est RENDUE en tête de grille, AVANT l'image. LOT 3 — via le SLOT DE TÊTE à clé stable (ligneOutils aux niveaux 1-2,
+    //   barreNiveau3 au niveau 3) : c'est le même emplacement, jamais les deux à la fois.
+    const iRender = src.indexOf('planSeul ? barreNiveau3 : ligneOutils');
     const iImage = src.indexOf('ref={pdfContainerRef}');
     expect(iRender).toBeGreaterThan(-1);
     expect(iRender).toBeLessThan(iImage);
