@@ -13,6 +13,7 @@
 import { query } from '../db/client'; // module PROPRE (pg + dotenv) : peut rester statique dans le graphe du CLI
 import { extrairePagesPdf, type ExtractionPdf } from './extractionPdf'; // brique UNIQUE (pdfjs en dynamique interne) ; module propre
 import { MARQUEUR_FICHE_SYNTHESE } from './gedConstantes';
+import { mapConcurrenceBornee } from '../concurrence'; // P2 (perfo, Lever 2) — lectures de pièces à concurrence bornée (chevauche les téléchargements), ordre préservé
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 export interface PieceGedMeta {
@@ -59,36 +60,41 @@ const msg = (e: unknown): string => (e instanceof Error ? e.message : String(e))
  * `motif` distinguable (jamais un silence, jamais un catch muet) et n'interrompt PAS les pièces suivantes. Rend un bilan chiffré
  * exact — c'est lui qui décidera d'un éventuel OCR, il ne maquille rien.
  */
+// P2 (perfo, LEVER 2) — CONCURRENCE des lectures de pièces. La lecture d'une pièce = téléchargement (I/O) + extraction (CPU). On borne à
+//   `CONCURRENCE_PIECES` opérations simultanées pour CHEVAUCHER les téléchargements (I/O) — la sérialisation en boucle `for` était le gros
+//   coût du 1er appel froid d'un gros dossier (78 pièces / 103 Mo, ex. 11430). 6 = marge sûre : assez pour garder le pipeline de
+//   téléchargement plein pendant qu'une pièce s'extrait (l'extraction pdf.js reste CPU, mono-thread → une concurrence plus haute
+//   n'accélère pas le CPU et floderait l'object store). Résultat IDENTIQUE (ordre préservé, même gestion d'échec par pièce).
+const CONCURRENCE_PIECES = 6;
+
 export async function lireGedPermis(dossierId: number, deps: DepsLectureGed): Promise<ResultatLectureGed> {
   const metas = await deps.listerPieces(dossierId);
-  const pieces: PieceLue[] = [];
-  for (const m of metas) {
+  // Ordre du résultat = ordre des `metas` (déterministe), quelle que soit la vitesse de chaque téléchargement. Chaque pièce gère son
+  //   propre échec (télécharger / extraire) → aucune exception ne remonte, une pièce fautive devient « muette » sans faire tomber le lot.
+  const pieces: PieceLue[] = await mapConcurrenceBornee(metas, CONCURRENCE_PIECES, async (m): Promise<PieceLue> => {
     let contenu: Buffer;
     try {
       contenu = await deps.lireObjet(m.cleStockage);
     } catch (e) {
-      pieces.push({ id: m.id, nomFichier: m.nomFichier, typeMime: m.typeMime, nbPages: 0, pages: [], muette: true, motif: `échec de lecture de l’objet : ${msg(e)}` });
-      continue;
+      return { id: m.id, nomFichier: m.nomFichier, typeMime: m.typeMime, nbPages: 0, pages: [], muette: true, motif: `échec de lecture de l’objet : ${msg(e)}` };
     }
     let ex: ExtractionPdf;
     try {
       ex = await deps.extraire(contenu, m.typeMime);
     } catch (e) {
-      pieces.push({ id: m.id, nomFichier: m.nomFichier, typeMime: m.typeMime, nbPages: 0, pages: [], muette: true, motif: `échec d’extraction : ${msg(e)}` });
-      continue;
+      return { id: m.id, nomFichier: m.nomFichier, typeMime: m.typeMime, nbPages: 0, pages: [], muette: true, motif: `échec d’extraction : ${msg(e)}` };
     }
     if (!ex.ok) {
-      pieces.push({ id: m.id, nomFichier: m.nomFichier, typeMime: m.typeMime, nbPages: 0, pages: [], muette: true, motif: ex.motif });
-      continue;
+      return { id: m.id, nomFichier: m.nomFichier, typeMime: m.typeMime, nbPages: 0, pages: [], muette: true, motif: ex.motif };
     }
     const pages: PageTexte[] = ex.pages.map((t, i) => ({ page: i + 1, texte: t, aTexte: t.trim() !== '' }));
     const avecTexte = pages.filter((p) => p.aTexte).length;
     const muette = avecTexte === 0;
-    pieces.push({
+    return {
       id: m.id, nomFichier: m.nomFichier, typeMime: m.typeMime, nbPages: pages.length, pages, muette,
       motif: muette ? 'PDF sans couche texte lisible (aucune page avec texte extrait)' : null,
-    });
-  }
+    };
+  });
   const bilan: BilanGed = {
     nbPieces: pieces.length,
     nbPages: pieces.reduce((s, p) => s + p.nbPages, 0),

@@ -109,3 +109,37 @@ describe('N4 — lireGedPermis : bilan chiffré exact', () => {
     expect(res.bilan).toEqual({ nbPieces: 3, nbPages: 4, pagesAvecTexte: 2, pagesSansTexte: 2, piecesMuettes: 2 });
   });
 });
+
+describe('P2 (Lever 2) — lecture à concurrence bornée : ordre préservé + concurrence plafonnée + échec isolé', () => {
+  it('🔴 ORDRE du résultat = ordre des pièces, même si les téléchargements finissent dans le DÉSORDRE', async () => {
+    const d: DepsLectureGed = {
+      listerPieces: async () => [meta({ id: 1, cleStockage: 'k1' }), meta({ id: 2, cleStockage: 'k2' }), meta({ id: 3, cleStockage: 'k3' })],
+      lireObjet: async (cle) => { await new Promise((r) => setTimeout(r, cle === 'k1' ? 15 : cle === 'k2' ? 1 : 8)); return Buffer.from(cle); }, // 1 lent, 2 rapide, 3 moyen
+      extraire: async () => ({ ok: true, pages: ['x'] }),
+    };
+    const res = await lireGedPermis(1, d);
+    expect(res.pieces.map((p) => p.id)).toEqual([1, 2, 3]); // ordre des pièces, PAS l'ordre d'arrivée [2, 3, 1]
+  });
+
+  it('🔴 concurrence BORNÉE : jamais plus de 6 téléchargements simultanés (et > 1 : la parallélisation est effective)', async () => {
+    let actifs = 0, maxActifs = 0;
+    const pieces = Array.from({ length: 20 }, (_, i) => meta({ id: i, cleStockage: `k${i}` }));
+    const d: DepsLectureGed = {
+      listerPieces: async () => pieces,
+      lireObjet: async (cle) => { actifs += 1; maxActifs = Math.max(maxActifs, actifs); await new Promise((r) => setTimeout(r, 2)); actifs -= 1; return Buffer.from(cle); },
+      extraire: async () => ({ ok: true, pages: ['x'] }),
+    };
+    await lireGedPermis(1, d);
+    expect(maxActifs).toBeLessThanOrEqual(6);
+    expect(maxActifs).toBeGreaterThan(1);
+  });
+
+  it('un échec de téléchargement d’UNE pièce n’interrompt pas les autres (résultat à SA position)', async () => {
+    const d = deps({ pieces: [meta({ id: 1, cleStockage: 'k1' }), meta({ id: 2, cleStockage: 'k2' }), meta({ id: 3, cleStockage: 'k3' })], absents: ['k2'] });
+    const res = await lireGedPermis(1, d);
+    expect(res.pieces.map((p) => p.id)).toEqual([1, 2, 3]);
+    expect(res.pieces[1]).toMatchObject({ muette: true });      // la pièce 2 échouée est muette, à sa position
+    expect(res.pieces[1].motif).toMatch(/échec de lecture/);
+    expect(res.pieces[0].muette).toBe(false); expect(res.pieces[2].muette).toBe(false);
+  });
+});
