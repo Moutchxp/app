@@ -11,7 +11,7 @@ import { readFileSync } from 'node:fs';
 const H = vi.hoisted(() => {
   const calls: { sql: string; params: unknown[] }[] = [];
   const flags = { geomValide: true as boolean, updRows: [{ provenance: 'ign_retouche' }] as { provenance: string }[],
-    projectionValidee: false as boolean, empriseRows: [] as { corps_id: number; n: number; surface: string | number | null; cree_le: string | null; validee_le: string | null; validee_par: string | null; validee: boolean }[],
+    projectionValidee: false as boolean, empriseRows: [] as { corps_id: number; n: number; surface: string | number | null; cree_le: string | null; validee_le: string | null; validee_par: string | null; validee_par_nom: string | null; validee: boolean }[],
     validateRowCount: 1 as number, validationColonneAbsente: false as boolean }; // PROJ-3s + capsule + validation par bâtiment — pilotables par test
   const queryMock = async (sql: string, params?: unknown[]) => {
     calls.push({ sql, params: params ?? [] });
@@ -275,10 +275,11 @@ describe('CAPSULE D’EMPRISE — lireEtatEmprisesPermis : état lu en base (sur
   it('agrège par bâtiment (corps_id) et coerce la surface pg (chaîne) en nombre ; projection validée = EXISTS permis_projection', async () => {
     H.flags.projectionValidee = true;
     // pg renvoie `numeric` en CHAÎNE : la surface arrive '898.22' (string), le count en nombre.
-    H.flags.empriseRows = [{ corps_id: 194, n: 2, surface: '898.22', cree_le: '2026-09-06T20:40:26Z', validee_le: '2026-09-07T00:00:00Z', validee_par: '2', validee: true }, { corps_id: 195, n: 1, surface: 120, cree_le: '2026-09-05T10:00:00Z', validee_le: null, validee_par: null, validee: false }];
+    H.flags.empriseRows = [{ corps_id: 194, n: 2, surface: '898.22', cree_le: '2026-09-06T20:40:26Z', validee_le: '2026-09-07T00:00:00Z', validee_par: '2', validee_par_nom: 'Arnaud Jorel', validee: true }, { corps_id: 195, n: 1, surface: 120, cree_le: '2026-09-05T10:00:00Z', validee_le: null, validee_par: null, validee_par_nom: null, validee: false }];
     const r = await lireEtatEmprisesPermis(7424);
     expect(r.projectionValidee).toBe(true);
-    expect(r.parBatiment[194]).toEqual({ surfaceM2: 898.22, creeLe: '2026-09-06T20:40:26Z', nbEmprises: 2, validee: true, valideeLe: '2026-09-07T00:00:00Z', valideePar: '2' });
+    // DEMANDE 2 — l'auteur est RÉSOLU EN NOM (jamais l'identifiant brut « 2 ») dès la lecture repo.
+    expect(r.parBatiment[194]).toEqual({ surfaceM2: 898.22, creeLe: '2026-09-06T20:40:26Z', nbEmprises: 2, validee: true, valideeLe: '2026-09-07T00:00:00Z', valideePar: '2', valideeParNom: 'Arnaud Jorel' });
     expect(r.parBatiment[195].surfaceM2).toBe(120);
     expect(r.parBatiment[195].validee).toBe(true); // legacy : projection validée (permis_projection) → bâtiment couvert validé (OR)
     // COMPORTEMENT : la validité est lue par un EXISTS sur permis_projection, l'agrégat scopé au dossier + corps_id non nul.

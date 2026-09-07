@@ -940,11 +940,16 @@ describe('CAPSULE D’EMPRISE — jumelle de la capsule d’altitude, VALIDATION
   const emp = (o: Partial<EtatEmpriseBatimentVue> = {}): EtatEmpriseBatimentVue => ({ surfaceM2: 998, creeLe: '2026-09-06T20:00:00Z', nbEmprises: 1, validee: false, valideeLe: null, valideePar: null, ...o });
 
   it('etatCapsuleEmprise : quatre états STRICTS (validation PAR BÂTIMENT, jamais un état flatteur)', () => {
-    // VERT ⟺ l'emprise de CE bâtiment est validée (+ qui/quand comme l'altitude)
-    const vert = etatCapsuleEmprise(emp({ validee: true, valideePar: '2', valideeLe: '2026-09-07T00:00:00Z' }));
+    // VERT ⟺ l'emprise de CE bâtiment est validée (+ qui/quand comme l'altitude). DEMANDE 2 — l'auteur s'affiche EN NOM (résolu), jamais l'identifiant brut « 2 ».
+    const vert = etatCapsuleEmprise(emp({ validee: true, valideePar: '2', valideeParNom: 'Arnaud Jorel', valideeLe: '2026-09-07T00:00:00Z' }));
     expect(vert.ton).toBe('vert');
     expect(vert.libelle).toContain('validée');
-    expect(vert.detail).toContain('✓ validée');
+    expect(vert.detail).toContain('✓ validée par Arnaud Jorel');
+    expect(vert.detail).not.toContain('par 2'); // 🔴 jamais l'identifiant brut
+    // repli HONNÊTE : id présent mais non résolu → « un administrateur », jamais un « 2 » nu ni un nom inventé
+    const repli = etatCapsuleEmprise(emp({ validee: true, valideePar: '2', valideeParNom: null, valideeLe: '2026-09-07T00:00:00Z' }));
+    expect(repli.detail).toContain('✓ validée par un administrateur');
+    expect(repli.detail).not.toContain('par 2');
     // ROUGE « Valider » : emprise ENREGISTRÉE mais NON validée → surface (m²) + date
     const aValider = etatCapsuleEmprise(emp({ surfaceM2: 898.2, creeLe: '2026-09-06T20:40:16Z', validee: false }));
     expect(aValider.ton).toBe('rouge');

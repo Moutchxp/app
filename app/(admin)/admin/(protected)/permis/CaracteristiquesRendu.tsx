@@ -455,7 +455,7 @@ function grouperCandidatsGabarit(ecartes: readonly ProvenanceEcartee[]): { valeu
 }
 
 // ── CAPSULE D'ÉTAT DE L'EMPRISE (jumelle de la capsule d'altitude du sommet) ─────────────────────────────────────────────────
-export type EtatEmpriseBatimentVue = { surfaceM2: number | null; creeLe: string | null; nbEmprises: number; validee: boolean; valideeLe: string | null; valideePar: string | null };
+export type EtatEmpriseBatimentVue = { surfaceM2: number | null; creeLe: string | null; nbEmprises: number; validee: boolean; valideeLe: string | null; valideePar: string | null; valideeParNom?: string | null };
 export type CapsuleEmprise = { ton: 'vert' | 'ambre' | 'rouge'; libelle: string; detail: string | null };
 
 /**
@@ -472,7 +472,10 @@ export function etatCapsuleEmprise(emprise: EtatEmpriseBatimentVue | null, ignor
   const validee = !!(emprise && emprise.validee);
   switch (statutEmpriseBatiment(aEmprise, ignore, validee)) {
     case 'validee': {
-      const who = emprise?.valideePar ? ` par ${emprise.valideePar}` : '';
+      // DEMANDE 2 — afficher un NOM (résolu via admin_utilisateur), jamais l'identifiant brut « 2 ». Repli HONNÊTE si l'auteur ne se
+      //   résout pas (id inconnu) : « par un administrateur » — jamais un nom inventé, jamais un « 2 » nu.
+      const nom = emprise?.valideeParNom ? emprise.valideeParNom : (emprise?.valideePar ? 'un administrateur' : '');
+      const who = nom ? ` par ${nom}` : '';
       const when = emprise?.valideeLe ? ` le ${jjmmaaaa(emprise.valideeLe)}` : '';
       return { ton: 'vert', libelle: 'Emprise du polygone projeté validée', detail: (who || when) ? `✓ validée${who}${when}` : null };
     }

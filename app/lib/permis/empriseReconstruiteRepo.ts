@@ -221,7 +221,7 @@ export async function listerEmprises(dossierId: number): Promise<EmpriseReconstr
   }
 }
 
-export interface EtatEmpriseBatiment { surfaceM2: number | null; creeLe: string | null; nbEmprises: number; validee: boolean; valideeLe: string | null; valideePar: string | null }
+export interface EtatEmpriseBatiment { surfaceM2: number | null; creeLe: string | null; nbEmprises: number; validee: boolean; valideeLe: string | null; valideePar: string | null; valideeParNom: string | null }
 export interface EtatEmprisesPermis { projectionValidee: boolean; parBatiment: Record<number, EtatEmpriseBatiment>; ignoreCorps: number[] }
 
 /** Projection du DOSSIER validée ? = existence d'une ligne `permis_projection` (validation de NIVEAU DOSSIER, jamais par bâtiment).
@@ -243,27 +243,30 @@ export async function lireEtatEmprisesPermis(dossierId: number): Promise<EtatEmp
   // Agrégat PAR BÂTIMENT (tous les bâtiments déclarés) : nb d'emprises + surface/date + VALIDATION par bâtiment (migration 206).
   //   validé ⟺ emprise_validee_id pointe une emprise ENCORE présente du bâtiment. RÉSILIENT : colonnes absentes (42703) → relecture
   //   sans validation (validee=false) → l'écran reste utilisable, la validation par bâtiment attend l'application de la migration.
+  // DEMANDE 2 (LOT COMPLET) — l'auteur de la validation est RÉSOLU EN NOM à l'affichage (comme la trace d'altitude), jamais l'identifiant
+  //   brut « 2 ». Lecture SEULE (aucune réécriture des valeurs en base) : sous-requête sur `admin_utilisateur` (prénom + nom).
   const avecValidation = `SELECT cb.id AS corps_id, count(e.id)::int AS n, SUM(e.surface_m2) AS surface, MAX(e.cree_le)::text AS cree_le,
               cb.emprise_validee_le::text AS validee_le, cb.emprise_validee_par AS validee_par,
+              (SELECT nullif(btrim(concat_ws(' ', u.prenom, u.nom)), '') FROM admin_utilisateur u WHERE u.id::text = cb.emprise_validee_par LIMIT 1) AS validee_par_nom,
               (cb.emprise_validee_id IS NOT NULL AND bool_or(e.id = cb.emprise_validee_id)) AS validee
          FROM permis_corps_batiment cb
          LEFT JOIN permis_emprise_reconstruite e ON e.corps_id = cb.id
         WHERE cb.dossier_id = $1
         GROUP BY cb.id, cb.emprise_validee_le, cb.emprise_validee_par, cb.emprise_validee_id`;
   const sansValidation = `SELECT cb.id AS corps_id, count(e.id)::int AS n, SUM(e.surface_m2) AS surface, MAX(e.cree_le)::text AS cree_le,
-              NULL::text AS validee_le, NULL::text AS validee_par, false AS validee
+              NULL::text AS validee_le, NULL::text AS validee_par, NULL::text AS validee_par_nom, false AS validee
          FROM permis_corps_batiment cb
          LEFT JOIN permis_emprise_reconstruite e ON e.corps_id = cb.id
         WHERE cb.dossier_id = $1 GROUP BY cb.id`;
   try {
-    let rows: { corps_id: number; n: number; surface: string | number | null; cree_le: string | null; validee_le: string | null; validee_par: string | null; validee: boolean }[];
+    let rows: { corps_id: number; n: number; surface: string | number | null; cree_le: string | null; validee_le: string | null; validee_par: string | null; validee_par_nom: string | null; validee: boolean }[];
     try { rows = (await query<typeof rows[number]>(avecValidation, [dossierId])).rows; }
     catch (e) { if (!estColonneAbsente(e)) throw e; rows = (await query<typeof rows[number]>(sansValidation, [dossierId])).rows; } // 206 non appliquée → sans validation
     for (const r of rows) {
       const nbEmprises = Number(r.n);
       // legacy : un dossier déjà validé (permis_projection) → tout bâtiment COUVERT est validé (OR avec le signal per-bâtiment).
       const validee = r.validee === true || (projectionValidee && nbEmprises > 0);
-      parBatiment[r.corps_id] = { surfaceM2: r.surface !== null ? Number(r.surface) : null, creeLe: r.cree_le, nbEmprises, validee, valideeLe: r.validee_le, valideePar: r.validee_par };
+      parBatiment[r.corps_id] = { surfaceM2: r.surface !== null ? Number(r.surface) : null, creeLe: r.cree_le, nbEmprises, validee, valideeLe: r.validee_le, valideePar: r.validee_par, valideeParNom: r.validee_par_nom ?? null };
     }
   } catch (e) { if (!estTableAbsente(e)) throw e; }
   const ignoreCorps = await query<{ corps_id: number }>(
