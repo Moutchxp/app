@@ -27,6 +27,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   const [erreur, setErreur] = useState(false);
   const [ouvert, setOuvert] = useState<number | null>(null);
   const [verdict, setVerdict] = useState<VerdictProjection | null>(null);
+  const [enteteProjection, setEnteteProjection] = useState<{ ton: 'vert' | 'rouge'; texte: string } | null>(null); // ③ COMPLÉMENT — état RÉEL de l'en-tête « Bâtiments et projection », remonté par BlocTraceEmprise (tous alt+emprise validées ?). null tant que le bloc n'est pas ouvert → repli sur le marqueur.
   const [enCours, setEnCours] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [vInstruction, setVInstruction] = useState(0); // PROJ-3b — compteur incrémenté à chaque écriture d'instruction → recharge le tracé (bâtiments)
@@ -138,7 +139,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   if (file === null) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>;
 
   const ouvrir = (dossierId: number) => {
-    setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setMessage(null); setBatimentsOuvert(false); // PERF-1 : chaque permis s'ouvre tout replié
+    setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setEnteteProjection(null); setMessage(null); setBatimentsOuvert(false); // PERF-1 : chaque permis s'ouvre tout replié
     passageDeclencheRef.current = null; setPassageMsg(null); setPassageEnCours(false); // LOT 70 : réarme l'analyse au passage (event handler → setState autorisé) pour la prochaine ouverture
   };
 
@@ -151,7 +152,9 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     // RATT-1 — état des familles calculé depuis la ligne DÉJÀ chargée (`file`), visible sans déplier ni tirer de contenu lourd (PERF-1 préservée).
     const row = file?.find((f) => f.dossierId === ouvert) ?? null;
     const etatAlt = etatAltitudesTitre(row?.nbBatiments ?? 0, row?.nbCorpsSansAltitude ?? 0);
-    const etatProj = etatProjectionTitre(row?.projectionValidee ?? false);
+    // ③ COMPLÉMENT — l'en-tête dit l'état RÉEL (tous les bâtiments alt+emprise validés → VERT ; sinon ce qui manque), remonté par le bloc
+    //   quand il est ouvert ; repli sur le marqueur `projectionValidee` tant qu'il ne l'est pas. SOURCE UNIQUE (estValidationAcquise) côté bloc.
+    const etatProj = enteteProjection ?? etatProjectionTitre(row?.projectionValidee ?? false);
     return (
       <div className="flex flex-col gap-2">
         {/* LOT 70 — ANALYSE AU PASSAGE : état d'attente honnête (jamais un écran figé) puis compte rendu. Le bouton de RELANCE manuel
@@ -230,7 +233,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         <BlocRepliable key={`w-bat-${ouvert}`} titre={<TitreFamilleEtat base="Bâtiments et projection (emprise)" etat={etatProj} />} onOuvertChange={setBatimentsOuvert}>
           {() => (
             <div className="flex flex-col gap-2">
-              <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} onEmprisesChange={() => setVEmprise((v) => v + 1)} />
+              <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} onEntete={setEnteteProjection} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} onEmprisesChange={() => setVEmprise((v) => v + 1)} />
               {/* PARITÉ TEST/NORMAL (décision porteur) — le bouton « Valider la projection » est rendu dans les DEUX cas : la fonction
                   « bâtiments et projection » est IDENTIQUE pour un dossier testé et pour un dossier complet (avant, il était masqué pour un
                   dossier testé → la projection ne pouvait JAMAIS être validée sur ce chemin, la capsule restait rouge). Garde INCHANGÉE

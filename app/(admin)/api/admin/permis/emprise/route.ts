@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, lireVoisinageContexte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, lireProjectionValidee, lireValideeParCorps, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, lireVoisinageContexte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, lireProjectionValidee, lireValideeParCorps, lireAltitudeValideeParCorps, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { lireRayonContexteM } from '../../../../../lib/permis/projectionConfig';
 import { lireSelectionInfo, type SelectionInfo } from '../../../../../lib/permis/plancheParcellesRepo'; // PL-C4 — sélection validée pour le bandeau
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
@@ -81,6 +81,8 @@ export async function GET(request: Request): Promise<Response> {
     const projectionValidee = await repli('projectionValidee', lireProjectionValidee(dossierId), false);
     // VALIDATION PAR BÂTIMENT (corpsId → validée) : la pastille et le bandeau en dérivent (mêmes faits que la capsule du cartouche). Résilient.
     const validationParCorps = await repli('validationParCorps', lireValideeParCorps(dossierId), {} as Record<number, boolean>);
+    // ③ COMPLÉMENT — altitude de sommet validée par bâtiment : avec l'emprise validée, décide l'en-tête « Projection(s) validée(s) ».
+    const altitudeValideeParCorps = await repli('altitudeValideeParCorps', lireAltitudeValideeParCorps(dossierId), {} as Record<number, boolean>);
     // Seules les pièces PDF sont traçables (filtre inchangé) ; la clé de stockage ne sort JAMAIS.
     const estPdf = (p: { typeMime: string | null; nomFichier: string }) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf');
     const piecesPdf = piecesBrutes.filter(estPdf);
@@ -142,7 +144,7 @@ export async function GET(request: Request): Promise<Response> {
       } catch { /* illisible → non marqué (N10-J) */ }
     })), []);
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
-    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, selection, exclusionsBestOf, inclusionsBestOf, projectionValidee, validationParCorps, reperageRuns: Object.fromEntries(reperageRuns), lecturesPages: Object.fromEntries(lecturesPages), origineExtractionSansIa, indisponibles });
+    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, selection, exclusionsBestOf, inclusionsBestOf, projectionValidee, validationParCorps, altitudeValideeParCorps, reperageRuns: Object.fromEntries(reperageRuns), lecturesPages: Object.fromEntries(lecturesPages), origineExtractionSansIa, indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
     return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });

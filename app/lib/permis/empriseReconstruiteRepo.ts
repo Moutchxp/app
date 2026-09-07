@@ -283,6 +283,21 @@ export async function lireValideeParCorps(dossierId: number): Promise<Record<num
   return out;
 }
 
+/**
+ * ③ COMPLÉMENT — ALTITUDE de sommet VALIDÉE par bâtiment (corpsId → altitude_sommet_ngf_confirme_le renseigné). Sert, avec
+ * `lireValideeParCorps` (emprise), à décider l'en-tête « Projection(s) validée(s) » (tous les bâtiments alt ET emprise validées).
+ * RÉSILIENT : en cas d'erreur, map vide (l'en-tête reste « non validée » plutôt que de casser l'écran).
+ */
+export async function lireAltitudeValideeParCorps(dossierId: number): Promise<Record<number, boolean>> {
+  try {
+    const { rows } = await query<{ corps_id: number; validee: boolean }>(
+      `SELECT id AS corps_id, (altitude_sommet_ngf_confirme_le IS NOT NULL) AS validee FROM permis_corps_batiment WHERE dossier_id = $1`, [dossierId]);
+    const out: Record<number, boolean> = {};
+    for (const r of rows) out[Number(r.corps_id)] = r.validee === true;
+    return out;
+  } catch { return {}; }
+}
+
 export type ResultatValidationEmprise = { ok: true } | { ok: false; motif: string; migrationAbsente?: boolean };
 const MOTIF_MIGRATION_206 = 'validation par bâtiment indisponible : mise à jour de la base requise (migration 206)';
 
