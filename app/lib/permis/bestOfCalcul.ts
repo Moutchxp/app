@@ -41,23 +41,35 @@ export async function calculerBestOf(dossierId: number, piecesPdf: PieceGedMeta[
   const proposeesAutres = classerPiecesParFamille(piecesPdf, (p) => familleDeContenu(texteParId.get(p.id) ?? []));
   const niveauxParId = new Map<number, string[]>(); // PROV : niveaux portés par une planche d'ÉTAGE (RDC/SSOL/R+n), quand connus par le CONTENU
   for (const p of proposeesAutres.proposees) if (p.famille === 'etage') { const niv = niveauxDeContenu(texteParId.get(p.id) ?? []); if (niv.length) niveauxParId.set(p.id, niv); }
+  // Index des pièces DÉJÀ lues par lireGedPermis (texte de CHAQUE page, tableau COMPLET, ordre préservé) — partagé par la shortlist et le Cerfa.
+  const gedParId = new Map(ged.pieces.map((g) => [g.id, g] as const));
   // PROJ-3d/3f — CONFIRMATION PARESSEUSE (shortlist plafonnée) : éclate chaque candidat en PLANCHES + échelle. Texte SEUL. Dégradation propre.
   const confirmations = new Map<number, { planches: { page: number; echelle: string | null; tracable: boolean; famille: FamillePlan; ambigu: boolean }[] }>();
   await Promise.all(proposeesAutres.proposees.slice(0, PLAFOND_SHORTLIST).map(async (p) => {
     try {
-      const ex = await deps.extraire(await deps.lireObjet(p.cleStockage), p.typeMime);
-      if (!ex.ok) { indisGed.push(`texte:${p.id}`); console.error(`[best-of] texte pièce ${p.id} illisible`, { motif: ex.motif }); return; } // contenu illisible = DÉTERMINISTE (cachable)
-      const planches = pagesPlanches(ex.pages).map((pg) => {
-        const tp = tracabilitePlanche(p.famille, ex.pages[pg - 1] ?? '');
-        return { page: pg, echelle: lireEchelleTexte(ex.pages[pg - 1] ?? ''), tracable: tp.tracable, famille: tp.famille, ambigu: tp.ambigu };
+      // P-fond 3 (perfo) — RÉUTILISE le texte DÉJÀ extrait par lireGedPermis (même approche que la détection Cerfa, commit 582a9f7) au lieu
+      //   de RE-TÉLÉCHARGER + RÉ-EXTRAIRE la pièce : lireGedPermis appelle le MÊME `deps.extraire` sans maxPages, sur le MÊME objet →
+      //   `g.pages[i].texte === ex.pages[i]` (tableau complet, pages vides incluses). Résultat STRICTEMENT identique, zéro re-téléchargement.
+      //   REPLI (comportement actuel) si le texte n'est pas disponible : pièce absente de la GED lue OU extraction en échec (g.pages vide).
+      const g = gedParId.get(p.id);
+      let pages: string[];
+      if (g && g.pages.length > 0) {
+        pages = g.pages.map((pg) => pg.texte); // texte complet déjà en mémoire (aucune I/O)
+      } else {
+        const ex = await deps.extraire(await deps.lireObjet(p.cleStockage), p.typeMime); // repli : re-télécharge + ré-extrait
+        if (!ex.ok) { indisGed.push(`texte:${p.id}`); console.error(`[best-of] texte pièce ${p.id} illisible`, { motif: ex.motif }); return; } // contenu illisible = DÉTERMINISTE (cachable)
+        pages = ex.pages;
+      }
+      const planches = pagesPlanches(pages).map((pg) => {
+        const tp = tracabilitePlanche(p.famille, pages[pg - 1] ?? '');
+        return { page: pg, echelle: lireEchelleTexte(pages[pg - 1] ?? ''), tracable: tp.tracable, famille: tp.famille, ambigu: tp.ambigu };
       });
       confirmations.set(p.id, { planches });
-    } catch (e) { indisGed.push(`texte:${p.id}`); console.error(`[best-of] confirmation pièce ${p.id} indisponible`, { message: e instanceof Error ? e.message : String(e) }); echecTelechargement = true; } // téléchargement raté = possiblement TRANSITOIRE → non cachable
+    } catch (e) { indisGed.push(`texte:${p.id}`); console.error(`[best-of] confirmation pièce ${p.id} indisponible`, { message: e instanceof Error ? e.message : String(e) }); echecTelechargement = true; } // téléchargement raté (repli) = possiblement TRANSITOIRE → non cachable
   }));
   // ÉTAPE 3 (LOT 66) — CATÉGORIE « Cerfa » PAR CONTENU (n° 13409), lecture de TÊTE (≤3 pages) : RÉUTILISE le texte DÉJÀ extrait par
   //   lireGedPermis (jamais un re-téléchargement). Déterministe (Set, indépendant de l'ordre).
   const cerfaIds = new Set<number>();
-  const gedParId = new Map(ged.pieces.map((g) => [g.id, g] as const));
   for (const p of piecesPdf) {
     const g = gedParId.get(p.id);
     if (g && estPieceCerfaPc(g.pages.slice(0, 3).map((pg) => pg.texte))) cerfaIds.add(p.id);
