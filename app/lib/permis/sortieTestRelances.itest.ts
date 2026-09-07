@@ -2,6 +2,8 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { query, withTransaction } from '../db/client';
 import { arreterToutesRelances } from './arretRelances';
 import { sortirTestVersRattachement } from './projectionFileRepo';
+import { validerEmpriseBatiment } from './empriseReconstruiteRepo'; // production : pose emprise_validee_id (migration 206)
+import { validerSommetCorps } from './caracteristiquesRepo';        // production : pose altitude_sommet_ngf_confirme_le
 import { marquerTestAnalyse, lireDossiersEnTest } from './testAnalyseRepo';
 import { marquerDossierPartiel } from './dossierPartielRepo';
 import { lireCandidatsRelance } from '../sitadel/envoiRelance';
@@ -33,7 +35,8 @@ async function codeInseeExistant(): Promise<string> {
  *  - un BROUILLON de relance (→ ①) ;
  *  - un message mairie récent + une complétude VIDE (toutes familles attendues manquantes) (→ ③) ;
  *  - marqueur partiel actif (→ ② et ③).
- * `corps` : 'none' (aucun bâtiment), 'sans_alt' (1 corps sans altitude), 'avec_alt' (1 corps couvert par une projection ignorée + altitude) ;
+ * `corps` : 'none' (aucun bâtiment), 'sans_alt' (1 corps, empreinte validable via projection ignorée, mais altitude NON validée),
+ *   'avec_alt' (1 corps RÉELLEMENT INSTRUIT au sens du critère durci : emprise du polygone projeté tracée PUIS validée + altitude de sommet validée) ;
  * `test` : pose le marqueur « testé en analyse » (pour la sortie end-to-end).
  */
 async function seedCandidat(opts: { corps?: 'none' | 'sans_alt' | 'avec_alt'; test?: boolean } = {}): Promise<{ demandeId: number; dossierId: number }> {
@@ -61,8 +64,22 @@ async function seedCandidat(opts: { corps?: 'none' | 'sans_alt' | 'avec_alt'; te
     const { rows: b } = await query<{ id: number }>(
       `INSERT INTO permis_corps_batiment (dossier_id, repere, altitude_sommet_ngf, altitude_sommet_ngf_origine) VALUES ($1, 'A', $2, $3) RETURNING id::int AS id`,
       [dossierId, alt, alt === null ? null : 'saisie']);
-    // couvre le corps par une projection IGNORÉE → l'empreinte est « validable » (peutValider) sans tracer de géométrie
-    await query(`INSERT INTO permis_projection_ignoree (dossier_id, corps_id, motif) VALUES ($1, $2, 'test 51-C')`, [dossierId, b[0].id]);
+    const corpsId = b[0].id;
+    if (opts.corps === 'avec_alt') {
+      // Le critère d'entrée a été DURCI (2c7f452 + migration 206) : franchir le process exige, PAR BÂTIMENT, l'altitude de sommet
+      //   VALIDÉE (confirme_le) ET l'emprise du polygone projeté VALIDÉE (emprise_validee_id). On produit cet état via les fonctions
+      //   de PRODUCTION (validerEmpriseBatiment / validerSommetCorps) → la fixture ne peut plus décrire un monde périmé : elle suit le
+      //   critère. Emprise TRACÉE (permis_emprise_reconstruite, polygone factice en Lambert-93) puis validée ; altitude validée.
+      await query(
+        `INSERT INTO permis_emprise_reconstruite (dossier_id, corps_id, libelle, geom, calage, provenance, cree_par)
+           VALUES ($1, $2, 'A', ST_GeomFromText('POLYGON((0 0,0 5,5 5,5 0,0 0))', 2154), '{}'::jsonb, 'trace_manuel', 'test:51c')`,
+        [dossierId, corpsId]);
+      await validerEmpriseBatiment(corpsId, 'test:51c'); // → emprise_validee_id (206)
+      await validerSommetCorps(corpsId, alt as number, 'test:51c'); // → altitude_sommet_ngf_confirme_le
+    } else {
+      // 'sans_alt' — empreinte « validable » via une projection IGNORÉE (peutValider), mais altitude NON validée → refus attendu (manque:'altitude').
+      await query(`INSERT INTO permis_projection_ignoree (dossier_id, corps_id, motif) VALUES ($1, $2, 'test 51-C')`, [dossierId, corpsId]);
+    }
   }
   if (opts.test) await marquerTestAnalyse(dossierId, 'test:51c');
   // ② + ③ marqueur partiel actif (aucun journal 'sortant' écrit → relanceReponseDue vrai)
