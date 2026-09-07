@@ -1,388 +1,296 @@
-> Passation générée le 04/09/2026 à 00h07 · actualisée LOT 73 (série 68 → 72)
+> Passation générée le 07/09/2026 à 20h18
 
-# PASSATION — Application « Sans Vis-à-Vis® » (module Veille Permis)
+# PASSATION — Application Sans Vis-à-Vis®
+
+Colle ce document au tout début d'une nouvelle conversation avec Claude. Il te donne le projet, les
+rôles, les règles, l'historique et la prochaine action, sans qu'Arno ait à réexpliquer.
+
+---
 
 ## 1. Rôles & workflow
-- **Arno** (a.jorel@sansvisavis.com) = fondateur **non-développeur** de **Sans Vis-à-Vis** (sansvisavis.com),
-  agence/plateforme de certification immobilière « vue dégagée » (Paris + petite couronne). Décide seul,
-  français, tutoiement, direct.
-- **Claude** = architecte / relecteur / exécutant. Dans CETTE session, Claude Code travaille **directement
-  dans le repo** (recon → implémente → lance les contrôles → **committe lui-même**, sans push). Pour la
-  passation vers une conversation web, garder le format relais (cartouches, §7).
-- **Repo** : github.com/Moutchxp/app · branche `main`. **Stack** : Next.js 16.2.9, React 19, TypeScript 5,
-  Tailwind v4, **PostgreSQL 17 + PostGIS en LOCAL** (driver `pg` sur `DATABASE_URL`, pas de Supabase).
-- **Base LOCALE** : `postgresql://localhost:5432/sansvisavis`. Les migrations vivent dans `db/migrations/NNN_*.sql`,
-  **livrées NON APPLIQUÉES** puis appliquées à la main par Arno (`psql -v ON_ERROR_STOP=1 -f …`). Dernière = **193**
-  (LOT 69, méthode `recap` au CHECK du journal), **APPLIQUÉE** en local. Le code reste RÉSILIENT si une migration manque (`42P01`/`42703` → comportement d'avant).
+
+> ### 🔒 RÈGLE PERMANENTE D'AUTONOMIE DE L'AGENT — À RECONDUIRE DANS TOUTE PASSATION FUTURE
+>
+> **Cette section est PERMANENTE.** Quand cette passation servira de base pour en régénérer une
+> nouvelle, elle DOIT être reportée **telle quelle** — jamais résumée, jamais supprimée, jamais diluée.
+>
+> **Arno donne son accord PAR DÉFAUT pour tout.** Il ne veut plus valider des demandes d'autorisation à
+> répétition. L'agent Claude Code travaille **de bout en bout sans solliciter Arno** : édition de
+> fichiers, commandes shell, tests, build, git local, commits — tout passe **sans validation**.
+>
+> **DEUX SEULES EXCEPTIONS** ont le droit d'interrompre son travail :
+> 1. une **QUESTION DE CHOIX à trancher** — arbitrage produit, option de design, décision métier :
+>    quelque chose dont **Arno seul** a la réponse ;
+> 2. une **DEMANDE D'ACCÈS à un service pour lequel Claude Code n'a pas ENCORE reçu l'accord** d'Arno —
+>    service de son ordinateur personnel, ou service externe sur internet. **Une fois l'accord donné
+>    pour un service, il n'est plus redemandé.**
+>
+> **CONSÉQUENCE À ASSUMER PAR LE CLAUDE ARCHITECTE** : les garde-fous qui reposaient sur une demande de
+> validation (écriture en base *live*, `git push`, commandes destructives) **ne sont plus portés par les
+> permissions**. Ils doivent donc être **ÉCRITS NOIR SUR BLANC DANS LE TEXTE** de chaque cartouche
+> 🔵 PROMPT — « lecture seule stricte », « tu ne pousses pas », « aucun DELETE/TRUNCATE/DROP », « pas
+> d'écriture en base » — et **jamais** confiés à une invite de confirmation qui n'arrivera pas.
+>
+> Cette règle est **PERMANENTE** et se reconduit dans toute passation future.
+
+- **Arno** = fondateur **non-développeur** de **Sans Vis-à-Vis** (sansvisavis.com), plateforme de
+  certification immobilière « vue dégagée / sans vis-à-vis » (Paris + petite couronne). Décide seul,
+  tranche le métier.
+- **Claude** = architecte / relecteur / concepteur des chantiers. Communication **en français,
+  tutoiement, direct, sans flagornerie**.
+- **Workflow relais (« vibe coding »)** : Claude rédige des **cartouches d'instructions** → Arno les
+  colle à l'**agent Claude Code dans VS Code** → l'agent **exécute en autonomie** (lecture, édition,
+  shell, tests, build, commits locaux) selon la règle d'autonomie ci-dessus. **Le `git push` reste
+  manuel par Arno**, sauf accord explicite ; chaque cartouche redit ses garde-fous en toutes lettres.
+- **Repo** : github.com/Moutchxp/app — branche `main`. Git user : Moutchxp.
+- **Stack** : Next.js 16.2.9, React 19.2.4, TypeScript 5, Tailwind v4, **PostgreSQL + PostGIS en
+  LOCAL** (plus de Supabase ; driver `pg` sur `DATABASE_URL=postgresql://localhost:5432/sansvisavis`).
+- **Langue du domaine** : français (faisceau, obstacle, point d'observation, corps de bâtiment…).
+- **Taille du dépôt (repère)** : ~185 800 lignes de code applicatif (TS+TSX+SQL+CSS) sur ~1 422
+  fichiers ; `.ts`+`.tsx` ≈ 172 500 lignes à eux seuls. ~218 k lignes tout compris (docs, JSON).
+  Tests : **506 fichiers `*.test.ts`** (collectés par `npm test`) + **33 `*.itest.ts`** (collectés par
+  `npm run test:integration`) — les deux globs sont **séparés volontairement** (cf. §2).
+
+---
 
 ## 2. Règles de collaboration (impératives)
-- **Un chantier = un prompt = un commit.** Recon **LECTURE SEULE** avant tout write sur fichier sensible.
-- **CONTRÔLE DE FIN OBLIGATOIRE, dans l'ordre** : `npm test` COMPLET (= `vitest run`, **471 fichiers / 6113 tests**)
-  · `npm run test:integration` (**31 fichiers / 138 tests**, vraie base) · `npx tsc --noEmit` · delta eslint · `npm run build`.
-  Les suites filtrées par chemin sont des contrôles RAPIDES, **jamais** le contrôle de fin (précédent
-  `curation.test.ts` rouge 14/07→03/08, invisible aux filtrés). **INTERDIT : `npm run veille:run`** (envoi réel).
-- **`jsdom`** est en **devDependency**, utilisé par les SEULS tests qui exigent un montage React réel
-  (cycle de vie / StrictMode), via l'en-tête `// @vitest-environment jsdom` en tête de fichier ; le RESTE de la
-  suite reste en environnement **node** (tests purs / `renderToStaticMarkup`).
-- **Tests** : ne jamais figer la FORME exacte d'un SQL émis (regex sur le WHERE) → asserter le COMPORTEMENT
-  (réponse, **paramètres LIÉS**) + le SQL par **FRAGMENTS sémantiques** sur chaîne whitespace-normalisée
-  (`sql.replace(/\s+/g,' ')` + `toContain`). Modèle : `curation.test.ts` (« entité supprimée »). Pour les tests de
-  RENDU par onglet non montables unitairement, garde par **lecture de source** (`readFileSync` + assertions) —
-  modèle `archivesGlobal.test.ts`. Un test qui vérifie un COMPORTEMENT réel (ex. « 0 candidat aux 3 systèmes ») est
-  un **itest** (vraie base, fixtures + `afterAll` DELETE), patron `saisissableEnCours.itest.ts`.
-- **KNN spatial** : un `<->` ne lit JAMAIS son point d'un CTE multi-référencé (matérialisé → perd l'index en
-  silence) → inliner l'expression dans l'`ORDER BY`. Les JOIN `ST_Intersects`/`ST_DWithin` NE sont PAS concernés.
-- **Flakes connus** : renvoyer au registre `docs/FLAKES_CONNUS.md` (une entrée / flake, preuve explicite) — ne
-  jamais présenter une hypothèse comme cause. `certificatPdf.test.ts` : cause **NON ÉTABLIE**, l'ancien
-  diagnostic « octets non déterministes / timestamp » est **RÉFUTÉ** (générateur prouvé déterministe). Observés :
-  `gelRepo.test` (scan de fichiers en run parallèle) et un flake **transitoire de `test:integration`** (vu aux LOTs 40
-  ET 53, vert au re-run, aucun code DB touché) — **re-lancer avant de diagnostiquer**.
-- **Commits (cette session)** : `git add` des SEULS fichiers du lot · `git commit` · **PAS de push** · **AUCUNE
-  ligne Co-Authored-By** · message via **fichier** (`git commit -F …`) car les backticks du message sont
-  interprétés par zsh (bug rencontré au LOT 16).
+
+- **Un chantier = un prompt = une modif logique = un commit.** Après chaque diff : vérifier puis committer.
+- **Recon LECTURE SEULE avant tout write** sur fichier sensible (moteur pur `app/lib/svv/*`, accès
+  données `app/lib/db/*`, front `app/page.tsx`/`MapContent.tsx`, test golden `pipeline.itest.ts`).
+- **Livrables = blocs copiables clairement labellisés** (voir §7). Jamais mélanger un prompt et un commit.
+- **Ne jamais conseiller de faire une pause / d'arrêter.** Arno décide seul. Proposer plusieurs options
+  AVANT d'implémenter sur un choix de design / ressenti.
 - **2 fichiers Gemini HORS staging** : `app/lib/svv/adaptateurIaPhoto.ts` et `app/api/analyse-photo/route.ts`.
-- **prefers-reduced-motion** respecté ; **exigence transverse mobile-first** (tout écran d'admin pleinement
-  utilisable sur smartphone portrait). Un seul clic pour déplier ; **pas de `BlocRepliable` imbriqué**.
-- Proposer les vrais choix (design/ressenti) AVANT d'implémenter ; sinon décider et le dire. Ne jamais conseiller
-  de faire une pause. **Recon qui contredit une prémisse → la recon gagne** (précédents LOT 2 bigint, LOT 14 arrêt,
-  LOT 40 prop `process`, LOT 52 pastille pré-cassée).
-- **Une SPEC que J'ÉCRIS peut être le défaut** (leçons LOT 47-bis ET 46) : (a) ma spec « la relance manuelle OU
-  automatique acquitte le signal » ignorait que la relance sur réponse partielle (PART-E) est déclenchée PAR l'arrivée
-  des pièces — donc TOUJOURS postérieure — → le signal s'auto-annulait avant lecture ; (b) au LOT 46, une bascule
-  d'onglet que j'avais spécifiée a été REFUSÉE à l'examen (elle cassait l'exclusivité). La règle « **exercer chaque
-  maillon EN RÉEL** » vaut AUSSI contre les spécifications, pas seulement contre le câblage : dérouler le scénario réel
-  (qui écrit quoi, dans quel ordre temporel) AVANT de figer une règle. Le défaut peut être en amont du code. **Quand une
-  recon CONTREDIT ma prémisse, la recon gagne** — arrivé plusieurs fois dans la série (47-bis, 48 doublon fil, 52
-  pastille pré-cassée). Toujours établir le fait sur la base RÉELLE avant de proposer un correctif.
-- **Dette TRANSVERSE / cohérence de libellé → inventaire par grep global, jamais écran par écran.** Leçon des lots
-  41→45 (thème sombre) et 49/50/53 (libellés) : un `grep -rn` du libellé/motif fait remonter TOUTES ses surfaces
-  (autre onglet, toast, sous-titre, aide, commentaire, test qui le fige) qu'aucun balayage écran par écran ne verrait.
-  Rendre l'inventaire à Arno et tout mettre en cohérence d'un coup.
+- **CONTRÔLE DE FIN OBLIGATOIRE = `npm test` COMPLET vert** (= `vitest run`, **506 fichiers `*.test.ts`**
+  aujourd'hui, glob `app/**/*.test.ts`). Les suites filtrées par chemin (`vitest run …/internaute`,
+  `…/sitadel`, `…/permis`) sont des contrôles RAPIDES en cours de travail, **jamais** le contrôle de fin :
+  une large majorité des fichiers vivent hors de ces sous-ensembles (précédent : `curation.test.ts` rouge
+  du 14/07 au 03/08/2026, invisible aux contrôles filtrés). **Pas d'alias `test:tout`** — `npm test` fait
+  déjà ça. **Deux globs SÉPARÉS volontairement** (`vitest.config.ts` = `*.test.ts` ; `vitest.integration.config.ts`
+  = `*.itest.ts`) pour que `npm test` ne ramasse pas les itests : le golden + les **33 `*.itest.ts`** (dont
+  `pipeline.itest.ts`) tournent à part via `npm run test:integration`. Un chantier complet lance **les deux**.
+  (Le « ~536 » d'anciennes passations était un arrondi périmé : le vrai partage est **506 + 33 = 539** sur disque.)
+- **Tests : ne jamais figer la FORME d'un SQL émis au runtime** (pas de regex sur le WHERE complet) →
+  asserter le COMPORTEMENT (réponse, paramètres liés) + le SQL par FRAGMENTS sémantiques
+  whitespace-normalisés (`sql.replace(/\s+/g,' ')` + `toContain`). Modèle : `curation.test.ts`.
+- **Un KNN `<->` ne lit JAMAIS son point d'un CTE multi-référencé** (matérialisation → seq scan silencieux) :
+  inliner l'expression du point dans le `ORDER BY`. Vérifier tout nouvel index par `EXPLAIN` sur la
+  requête RÉELLE (le planificateur doit le PRENDRE, pas juste exister).
+- **Flakes connus** → registre versionné `docs/FLAKES_CONNUS.md` (une entrée par flake, niveau de
+  preuve explicite). Pour `certificatPdf.test.ts` : cause **NON ÉTABLIE**, ancien diagnostic « octets
+  non déterministes / timestamp » **RÉFUTÉ** (générateur prouvé déterministe octet à octet). Ne JAMAIS
+  réimprimer « octets non déterministes » ; pointer vers le registre.
+- **Pièges de type `pg`** : le driver `pg` renvoie les colonnes **`numeric` comme des CHAÎNES** (aucun
+  `setTypeParser` dans `app/lib/db/client.ts`). Un `json_build_object`, lui, renvoie des **nombres**.
+  Ne jamais supposer qu'une valeur de journal typée `number` en TS l'est au runtime : coercer
+  (`Number(...)`) au point de comparaison numérique.
 
-## 3. Objectif
-- **Global** : transformer « sans vis-à-vis » en une norme mesurable/certifiable (verdict géométrique ≥ 40 m +
-  score de qualité de vue /100), avec à terme une **interface d'administration pilotable sans code** par Arno.
-- **Chantier en cours** : le **module admin « Veille Permis »** — suivi automatisé de la boucle CRPA (demandes de
-  communication aux mairies → relances → saisine CADA), écrans **« À demander » / « En cours » / « Réponses » /
-  « Analyse et projection » / « Archives » / « Saisines CADA »**, avec relance/saisine **automatiques par e-mail**
-  (LaunchAgent /15 min). **Aucun chantier ouvert** au moment de la passation : Arno enchaîne des « LOT N » séquentiels.
+---
 
-## 4. Invariants verrouillés (garde-fous permanents — cf. `docs/INVARIANTS_SVAV.md`)
-- **Golden Asnières = `29.107259068449615`** (note Couche 1 /80, scellé `pipeline.itest.ts:42`). Toute modif du
-  score → recalcul + validation main + **rescellage en commit SÉPARÉ**.
-- **Verdict binaire = 100 % géométrique** : 1er obstacle réel ≥ 40 m sur l'axe → SANS_VIS_A_VIS. Jamais couplé au
-  score ni à la photo. Toits = MNS LiDAR direct (jamais sol+hauteur). `ST_Force2D` jamais retiré.
-- **Hauteur de vision = FORMULE À PARAMÈTRE VARIABLE** : `etage × (hauteur_sous_plafond + 0,30 dalle) + 1,65 yeux`.
-  Sous-plafond CHOISI par l'internaute (défaut 2,50 m, [2,40 ; 4,50] pas 0,10). **« 2,80 »** = coefficient du seul
-  cas par défaut, PAS une constante (l'ancien « ×2,90 » comme formule est PÉRIMÉ) ; **« 2,90 » =
-  `FLOOR_HEIGHT_OBSTACLE_M`**, constante DISTINCTE (estimation immeuble voisin sans hauteur BD TOPO). Certificat :
-  `SAVV-AAAA-NNNNNN` (cible, non implémenté). Tolérance rattachement patrimoine = 15 m ; origine hors emprise = 0,30 m.
-- **PILOTAGE SANS CODE** : toute variable de moteur (score, cascade de relance, seuils, délais) DOIT être en table
-  de config lue au runtime, éditable par un non-développeur, avec type + défaut + plage/validation. Distinguer
-  VIVES / VESTIGIALES / GARDE (liste fermée). `config_scoring` (39 col.) et `config_veille` (relance/cascade)
-  suivent ce principe. Toute colonne d'un `COLONNES_THEME_*` (reglagesVeille) DOIT avoir son `ParamVeille` +
-  sa borne CHECK (garde-fou testé). **Aucune constante métier en dur dispersée.**
-- **Trois altitudes de sommet NGF DISTINCTES — ne jamais confondre** (nette au LOT 51-C) : (1) **par CORPS de
-  bâtiment** `permis_corps_batiment.altitude_sommet_ngf` (N par permis — « le bâtiment du permis ») ; (2) **niveau
-  DOSSIER** `permis_caracteristique.altitude_sommet_ngf` (acrotère max, non rattaché à un corps) ; (3) **par POLYGONE
-  BD TOPO** `permis_polygone_altitude` (clé `cleabs`, l'objet du monde réel, soumis à la préséance LiDAR).
-- Lire **`docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md`** AVANT tout chantier données/verdict/certificat/permis
-  (résumé en §5).
-- **IDEMPOTENCE StrictMode (leçon LOT 24)** : tout effet de la liseuse DOIT être idempotent (montage → démontage →
-  REMONTAGE même-fibre, refs PERSISTENT mais effets rejouent — ON en dev Next 16). Jamais s'appuyer sur un flag de
-  cycle de vie mis à `false` au démontage sans remise à `true` au remontage. Dériver la « fraîcheur » d'une donnée live.
-- **THÈME SOMBRE (37-39 mécanisme+palette, 41-45 fonds — terminés)** : `data-theme` scopé à `.svv-adm-root` (jamais
-  `:root` → public + PDF restent clairs), tokens `--color-svv-*`, seconde palette sombre mesurée (ratios ≥ 4,5:1).
-  **Règle** : un fond et son texte basculent TOUJOURS ENSEMBLE. Jamais `#fff`/`bg-white` en dur sous un texte token
-  (→ `var(--color-svv-surface)`, = `#ffffff` exact en clair) ; jamais un token de TEXTE (`ink`) en FOND avec texte
-  `#fff` en dur. **Zones qui restent CLAIRES par décision** : canvas liseuse, tracé d'emprise, cartes + marqueurs
-  Leaflet, data-viz catégorielle, PDF du certificat.
+## 3. Objectif à atteindre
 
-## 5. Historique — ce que fait déjà la Veille Permis (synthèse)
-Moteur pur + repos + écrans admin autour de l'entité **demande** (statuts `brouillon/prete/envoyee/close`) et de
-ses **dossiers** (permis Sitadel). Points clés hérités :
-- **Cascade ordinaire** (absence totale de réponse) : Rappel (J-10) → Avis (J-3) → Saisine annoncée → dépôt CADA
-  (échéance + 4 j). Réglages `config_veille`. Candidats/envoi filtrent `demande.statut='envoyee'`.
-- **Cascade partielle** (mairie a répondu, pièces manquantes → marqueur `demande.partiel_*`, CASC-1) : relances
-  1..N, annonce CADA, saisine ≥ butoir CASC-2 (`partiel_le + 1 mois + 4 j`). Candidats filtrent `partiel_le
-  actif AND statut IN ('envoyee','close')`. **Les DEUX cascades partent en AUTO** (défaut TRUE) ; manuel possible.
-- **PART-E — relance sur RÉPONSE partielle** : 3ᵉ système, INDÉPENDANT des deux cascades (`candidatsRelanceReponseReels`,
-  même filtre partiel que la cascade partielle). Déclenché PAR l'arrivée d'un message mairie récent + pièces encore
-  manquantes. N'incrémente pas le compteur de cascade.
-- **Rattachement des réponses** : 100 % par IDENTIFIANTS (In-Reply-To/References ∩ Message-ID émis, réf. SVAV, n°
-  dossier, réf. mairie) — jamais par l'expéditeur. Relève IMAP par domaine.
-- **Encart de familles** (`encartFamilles.ts`, socle UNIF-0, partagé En cours/Réponses/Analyse/Archives) : rendu
-  paresseux (`BlocRepliable`, render-prop).
-- **Deux process d'envoi** (D2) : e-mail (auto) et téléservice (dépôt manuel), commutateur en tête des onglets. Canal
-  figé par demande (`dest_canal`).
+- **Objectif GLOBAL** : transformer « sans vis-à-vis » (subjectif) en **norme mesurable, certifiable,
+  auditable** — verdict 100 % géométrique + score de qualité de vue /100 + certificat PDF
+  (`SAVV-AAAA-NNNNNN`, cible non encore implémentée) + estimation de plus-value.
+- **Chantier EN COURS = module interne PERMIS**, phase **RATTACHEMENT & PERF**. Le module instruit les
+  permis de construire (Sitadel + pièces PDF) pour **détecter le bâti neuf** qui invaliderait un
+  certificat, et prépare le futur **contrôle mixte LiDAR/BD TOPO** (voir §5). Série récente : séparation
+  nette de l'onglet **« Sous surveillance » (radar)** et de l'onglet **« Rattachement » (travail)** ;
+  **validation de projection bâtiment par bâtiment** ; **numéro de permis qui passe au vert** quand il
+  est prêt à être envoyé ; puis une **série perf** sur la fiche permis (mémoïsation + persistance du
+  best-of PDF, parallélisation des lectures GED, réutilisation du texte déjà extrait). **Aucun chantier
+  verdict/score en cours** ; tout est resté côté outillage interne (le golden n'a jamais bougé).
 
-### LOTS 13 → 45 (session précédente, tous poussés — résumé)
-Complétude/historique des envois · liseuse de pièces (pdf.js, lecture seule) · frise de suivi + parcours projeté ·
-perfs liseuse (cache LRU + cache de rendu peint) · StrictMode (24) · Contact mairie + téléphone signature (26/28) ·
-destinataires de relance multi-adresse (27, mig. 183) · **cascade partielle rendue AUTO** (30bis, mig. 184) · sélecteur
-de destinataire (29, mig. 186) · plafond anti-cumul d'envoi auto (31, mig. 185) · relève différée au clic « copier »
-(34, mig. 187) · correctif référence mairie non écrite, prouvé en réel (35) · **thème sombre** mécanisme+palette (37-39)
-et **fonds par motif** (41-45, hex en dur admin 235 → 107) · retrait du commutateur de process en « Réponses » (40).
+---
 
-### SÉRIE 46 → 53 (session courante) — « En cours » affiné · fil lisible · tester en analyse (tous committés)
-- **46** (`d9e2bf0`) — « En cours » scindé en DEUX familles (`categorieEnCours` : *1re réponse* / *à relancer*) +
-  pastilles de LIGNE et d'ONGLET pilotées par un **PRÉDICAT PUR PARTAGÉ serveur/client** (`demandeEnCoursIncomplete`,
-  `demandesListe.ts`) → invariant **compteur d'onglet == somme des pastilles de ligne** FIGÉ par test.
-- **47 + 47-bis** (`9c2ee84`, `111b054`) — signal « **nouvelles pièces reçues** » (`demandeADeNouvellesPieces`, badge
-  BLEU + bouton « vu »), **migration 188** `dossier_pieces_acquittement`. LEÇON 47-bis : la relance PART-E est déclenchée
-  PAR l'arrivée des pièces → toujours postérieure → le signal s'auto-annulait ; corrigé (`j.auteur IS DISTINCT FROM
-  'auto'` + date déclarée prime).
-- **48** (`41a8a14`) — la relance PART-E apparaît dans la FRISE. **Décision COEXISTENCE ASSUMÉE** : deux systèmes de
-  relance indépendants, on ne réconcilie pas ; butoir CADA intact. Étape 0 a évité un doublon (déjà dans le fil via le
-  sortant hors-outil capté dans `\Sent`, FIL-C → ajoutée à la frise seulement).
-- **49** (`21328cf`) — horodatages en **Europe/Paris** (`horodatageParis.ts`), 5 surfaces. Discriminant = présence
-  d'un `T` : instant UTC → converti ; date CIVILE (sans T, ancrée 12:00 Paris au LOT-1) → JAMAIS re-convertie.
-- **50** (`3ae7ee9`) — libellés du fil : « **N e-mails échangés** » (mails réels) vs « **M affichés · dont K relance(s)
-  déclarée(s) (hors e-mail)** » → lève la fausse contradiction « 9 » vs « 10 ».
-- **51-A/B** (`51283cb`) — **TESTER un dossier incomplet EN ANALYSE**, **migration 189** `dossier_test_analyse`
-  (marqueur RÉVERSIBLE par dossier, `testAnalyseRepo.ts`). Ouvre la porte FIX-2 (`OR s.id = ANY($1)`) SANS lever le
-  partiel → les relances continuent. **Décision OPTION B** : pendant le test le dossier DISPARAÎT de « En cours »
-  (exclu de `estEnCoursAffichee` + `ligneEnCoursASignaler` + affichage), exclusivité préservée. DEUX retours : (1)
-  relance envoyée/déclarée depuis Analyse efface le marqueur ; (2) bouton manuel de retour (sans envoi).
-- **52** (`ac9cfb4`) — 3 retours après essai réel. **(1) Pastille « Analyse » ramenée sous l'invariant du LOT 46** :
-  elle valait `fileProjection + relancesReponseDue` → les relances PART-E dues en manuel n'ont PAS de ligne (partiel-
-  actives, exclues par FIX-2). Défaut ANTÉRIEUR au LOT 51, rendu visible par un double-compte (4 vs 3). Corrigé :
-  `projection = fileProjection`. `compterRelancesReponseDue` conservé mais DÉBRANCHÉ. **(2)** boutons pleine largeur,
-  fond rouge tokenisé. **(3)** groupe dynamique en tête d'Analyse. Aucune migration.
-- **51-C** (`00be4e2`) — **SORTIE DÉFINITIVE vers Rattachement + ARRÊT EXHAUSTIF des relances** (LE lot à risque).
-  Double condition non négociable : **empreinte validée ET `nbCorpsSansAltitude === 0`** (par CORPS, distinct du
-  polygone BD TOPO). L'altitude ne gate QUE la sortie du test (pas `peutValider` ni la validation normale). 🔴 **FAIT
-  VÉRIFIÉ, à conserver** : il n'existe **AUCUN point unique d'extinction** — `statut='close'` coupe la cascade ORDINAIRE
-  mais PAS ② partielle ni ③ PART-E (elles acceptent 'close') ; `partiel_leve_le` coupe ② et ③ mais RÉACTIVE ① (lève la
-  suspension). ⇒ il faut les **DEUX gestes ENSEMBLE**, dans une transaction (`arretRelances.ts` :
-  `arreterToutesRelances`). Piège : `cloturerDemande` ne pose QUE 'close'. Chaîne atomique : Rattachement
-  (`ecrireProjectionValidee`) + arrêt + effacement du marqueur. **Itest de livraison** `sortieTestRelances.itest.ts`
-  (vraie base) : « close+levé ⇒ 0 candidat aux 3 systèmes » avec les deux contre-preuves + non-régression (une demande
-  non sortie ne perd rien) + sortie end-to-end. UI : bouton « Valider » normal MASQUÉ pour un dossier testé ; la sortie
-  dit LAQUELLE des deux conditions manque (jamais un bouton grisé muet).
-- **53** (`7cba186`) — deux libellés à l'écran : le groupe de tête d'Analyse « Dossiers en test » → **« Test Permis (N) »**
-  (collision avec l'écran « Banc de test » et la notion de test-dev) ; le bouton de retour « Remettre dans En cours » →
-  **« Renvoyer ce permis dans l'onglet « En cours » »**. Inventaire par grep : 2 rendus UI + 1 sous-titre + 1 toast + 5
-  commentaires + 3 fichiers de test mis en cohérence. Aucune migration, aucune logique touchée.
+## 4. Invariants verrouillés (garde-fous permanents)
 
-### SÉRIE 54 → 56 (session courante, suite) — en-tête de colonne · colonnes alignées · recon renversante · bouton unique · RGPD Cerfa · diagnostic élargi
-- **54** (`867038c`) — les dossiers en test se signalent par leur **EN-TÊTE DE COLONNE** « Test permis « En cours » », PLUS par un
-  groupe de tête. **Correction d'une mauvaise interprétation de ma part au LOT 52** : Arno ne voulait pas un groupe (pli + titre +
-  sous-titre au-dessus d'une seule ligne), seulement renommer l'en-tête « Permis » du tableau des testés. Partition testés-d'abord
-  conservée, seul l'habillage disparaît. Prop `libellePermis` sur `TableProjection` (défaut « Permis »).
-- **55** (`1c83eea`) — **colonnes ALIGNÉES** entre les deux tableaux d'Analyse (testés / file ordinaire) qui se suivaient avec des
-  colonnes décalées (chaque table en `width:100%`, `table-layout:auto`). `LARGEURS_COLONNES` (30/19/21/12/18 %) + `MIN_WIDTH_TABLE`
-  déclarés **une seule fois** dans `TableProjection` → `table-layout:fixed` + `<colgroup>` **identique** pour les deux instances.
-  Test qui compare les `colgroup` **byte-à-byte** entre les deux rendus. Mobile : sous la min-width, le wrapper `overflowX:auto`
-  existant défile (comportement responsive conservé).
-- **56-A** — **RECON, aucun code.** 🔑 **ELLE A RENVERSÉ TROIS PRÉMISSES** : (1) le **« best-of » EXISTE déjà** sous ce nom littéral
-  (liseuse « **Best-of des plans proposés** », `TraceEmpriseRendu.tsx:166`, montée `SuiviDemandes.tsx:928`) — sélection de **PAGES**,
-  **recalculée à la volée** depuis la GED via `GET /api/admin/permis/emprise`, **JAMAIS persistée, AUCUNE IA** ; (2) **l'arrivée IMAP
-  DÉCLENCHE déjà un diagnostic** (`executerDiagnosticsVague`, câblé aux DEUX relèves, délai de calme `vagueCalmeMinutes` défaut 10
-  **déjà en Réglages**) ; (3) un **bouton de ré-analyse complète existait déjà** (« Relancer l'analyse » → `POST /extraire`).
-  L'analyse coûteuse (vision Mistral) ne tourne QUE sur ce bouton manuel ; l'auto est déterministe/gratuit. **Décision produit
-  d'Arno : (X) câbler l'existant**, best-of **NON persisté** (option (Y) écartée). 🔑 **N7-A `triagePieces` (CLI seul) et N10-J
-  épinglage bleu ne sont PAS le best-of.**
-  > 🔴 **RENVERSÉ à la SÉRIE 57 → 67 (voir ci-dessous)** : « best-of NON persisté » est désormais **CADUC**. Les **exclusions
-  > de page** (LOT 61, migration 190) et les **verdicts de repérage par image** (LOT 62, migration 191) SONT persistés.
-- **56-B** (`7e56bd8`) — bouton unique **« Diagnostic complet des documents »** : l'ancien « Relancer l'analyse » **RENOMMÉ ET
-  DÉPLACÉ** en tête de `CorpsCompletude` (`BlocCompletude`), **pas dupliqué** (deux noms pour la même action = refusé). Rendu
-  **opt-in** (`avecDiagnostic`) pour éviter un DOUBLE bouton dans `ArchivesVue` (qui monte AUSSI `BlocCompletude` + garde son bouton
-  autonome). Sous-ligne sans jargon (relit tout, service payant, 20-30 s) ; **401 → « reconnectez-vous »** (proxy renvoie bien 401
-  sur `/api/admin/*`, `proxy.ts:120`). Rafraîchissement : le bloc relit son diagnostic (`vLocal`) + `onAnalyseFinie` remonte les
-  frères (caractéristiques/fil via `vAnalyse` ; best-of dans l'encart via `vApresAnalyse`). 🔴 **VÉRITÉ À CONSERVER** : `POST
-  /extraire` **n'ajoute AUCUNE pièce en GED** → cliquer ce bouton **ne change PAS le best-of aujourd'hui** ; le remontage par clé de
-  version est une **garantie de cohérence** pour quand des documents arriveront, **pas un effet visible**. Écrit tel quel dans le
-  code plutôt que de laisser croire à un effet.
-- **56-E** (`4d619c1`) — **RGPD.** 🔴 **FAIT MESURÉ** : jusqu'à ce commit, le **PDF Cerfa ENTIER** partait chez Mistral (OCR),
-  **pages d'identité comprises** — sur le 13409*15 réel (dossier 11434) : **p.4 = nom/naissance + un vrai n° de téléphone**, **p.11 =
-  co-demandeurs**, **p.12 = signature**. Principe retenu : **LISTE D'AUTORISATION, jamais exclusion** — on n'envoie QUE les pages
-  utiles (`PAGES_UTILES_CERFA`, dérivée de `PAGES_CERFA` = {5,7,9,10}, mesurée) ; **pagination non reconnue → on n'envoie RIEN +
-  abstention journalisée par champ** (N10-R). **Point de passage UNIQUE = `lireCerfaScan`**, en amont de `lecteur.ocr` ET
-  `lecteur.rasteriser` ; ses **4 appelants** (web `executerExtraction`, 2 CLI, tests) y passent tous — `decouper` ajouté au lecteur
-  injectable (réel : poppler `pdfinfo`+`pdfseparate`+`pdfunite`). **Preuve réelle poppler** : PDF réduit **4 pages, 0 marqueur
-  d'identité** (vs 3 dans l'original). **Test qui intercepte ce qui est RÉELLEMENT transmis** (`recuParOcr === réduit`, `!== pdf
-  entier`) → **échoue si quelqu'un rebranche le PDF entier**. La vision était DÉJÀ cadrée (rasterise page par page) ; seul l'OCR
-  fuyait. ⚠️ **Deux faits mesurés à garder** : (a) c'est **`07512025V0037` (année 2025)** qui **N'EXISTE PAS** dans la base locale
-  — À NE PAS CONFONDRE avec **`07512024V0037` (année 2024) = dossier 11430**, qui EXISTE et porte **80 pièces** (corrigé au LOT 75/76).
-  Les dossiers à pièces réels sont **11430 (`07512024V0037`, 80)**, **11434 (`07512025V0035`, 45)** et **7424** — « seul 11434 a des
-  pièces » était FAUX. (b) le détecteur ne reconnaît
-  **QUE le Cerfa 13409** → le **13824 n'est JAMAIS lu par l'OCR** (le dossier 11434 contient les deux). Dette **préexistante**, pas
-  introduite par ce lot.
-  > 🔴 **NUANCÉ à la SÉRIE 57 → 67 (voir ci-dessous)** : le filtre RGPD n'est **plus uniforme**. Sur le **CERFA**, LISTE
-  > D'AUTORISATION (56-E, pagination connue). Sur les **AUTRES pièces** (planches d'architecte, LOTs 62/63), LISTE
-  > D'EXCLUSION — **aucune pagination stable** → **régime plus faible, ASSUMÉ**, compensé par l'**abstention en cas de doute**.
-- **56-C** (`e5a53a7`) — **périmètre du diagnostic AUTO.** 🔴 **MESURE** : sur **6 dossiers** à documents GED réels, **1 seul** était
-  candidat (7424, partiel) ; **5 non-partiels** (29/71/45/80/45 docs) **jamais de complétude calculée**. La condition de candidature
-  (`candidatsVagueReels`) passe de « **partiel actif** » à « **la GED a changé depuis le dernier diagnostic** » (partiel ou non) :
-  `WHERE EXISTS(≥1 doc GED réel) OR pc.dossier_id IS NOT NULL` + filtre « changée » inchangé. **Garde-fou prouvé DEUX FOIS** : (1)
-  **structurellement** `evaluerLeveeAutoPartiel` (`dossierPartielRepo.ts:133`) `return` si la demande n'est pas suspendue → il ne
-  peut que **LEVER** un partiel, **jamais en créer** ; (2) **`diagnosticVagueScope.itest.ts`** (vraie base, 3 cas) prouve qu'un
-  non-partiel diagnostiqué reste candidat à **AUCUN** des 3 systèmes de relance (`lireCandidatsRelance`,
-  `lireDemandesPartiellesActives`, `candidatsRelanceReponseReels`), **avant ET après**. Diagnostic auto **déterministe/gratuit**
-  (jamais la vision). **Aucune migration, aucun paramètre nouveau** (règle de correction, pas une variable pilotable ; le calme
-  reste piloté). **TROU 2 amont mesuré = 0 cas réel** (cf. §6). **56-F non fait.**
+- **Golden Asnières = `29.107259068449615`** (note Couche 1 /80, scellé `pipeline.itest.ts:42`,
+  hand-verified). Tout ce qui touche le score /100 change le golden → recalcul + validation main +
+  **rescellage en commit SÉPARÉ**.
+- **Verdict binaire = 100 % géométrique** : 1er obstacle réel **≥ 40 m** sur l'axe → `SANS_VIS_A_VIS`,
+  sinon `VIS_A_VIS` (`THRESHOLD_M`). Jamais couplé au score ni à la photo.
+- **Toit = MNS LiDAR lu DIRECTEMENT** (absolu, nettoyé), jamais sol + hauteur côté obstacle ; terrain =
+  MNT LiDAR ; BD TOPO = emprise + identité (`cleabs`) uniquement, jamais l'altimétrie d'un certificat.
+- **Hauteur de vision = FORMULE À PARAMÈTRE VARIABLE** : `etage × (hauteur_sous_plafond + 0,30 dalle)
+  + 1,65 yeux`. Sous-plafond **choisi par l'internaute**, défaut **2,50 m**, fourchette **[2,40 ; 4,50]**
+  pas 0,10. **« 2,80 »** = coefficient du seul cas par défaut (2,50+0,30 = `FLOOR_HEIGHT_M`), **PAS**
+  une constante (le « × 2,90 » comme formule est PÉRIMÉ). **« 2,90 » = `FLOOR_HEIGHT_OBSTACLE_M`**,
+  constante DISTINCTE (estimation immeuble voisin sans hauteur BD TOPO), à ne pas confondre. Œil
+  **1,65 m** = définitif.
+- **Aucun arrondi nulle part** ; distances horizontales autoritatives en **Lambert-93 (EPSG:2154)** ;
+  **`ST_Force2D` jamais retiré** des opérations distance/raster.
+- **Tolérances** : rattachement patrimoine monument→cleabs = **15 m** ; point d'origine hors emprise =
+  **0,30 m** (`ORIGIN_OUTSIDE_TOLERANCE_M`).
+- **`config_scoring`** : 39 colonnes, singleton `id=1`, lues au runtime avec repli sûr
+  `PROFIL_DEGAGEMENT_DEFAUT`. Aucune constante de score en dur dispersée. **`prefers-reduced-motion`**
+  respecté pour toute animation.
+- **EXIGENCE ARCHITECTURE — PILOTAGE SANS CODE** : toute variable de tout moteur de score (Couche 1
+  dégagement, Couche 2 photo, barème familles, cumul, couloir, orientation, bornes années…) DOIT être
+  externalisée en table de config, éditable au runtime, jamais codée en dur. Cible = **interface
+  d'administration native utilisable par un non-développeur (Arno)**. Conséquences dans CHAQUE chantier :
+  * Aucune constante de score en dur (tout en table lue au runtime). Seule exception actée : les
+    libellés d'affichage `SCORE_LABEL` (75/60), à ne pas étendre.
+  * Toute nouvelle variable de moteur naît en table de config avec type, défaut, plage/validation
+    (min/max, liste fermée pour les enums type `mode_combinaison`).
+  * Statut à documenter : VIVE (agit sur le score) / VESTIGIALE (masquée/grisée en lecture seule) /
+    GARDE (éditable mais contrainte à une liste fermée, ex. `mode_combinaison`).
+  * Tout schéma/nommage/loader anticipe cette interface future (lisible/éditable par un non-dev).
+- **EXIGENCE INTERFACE MOBILE** : toute interface d'admin interne pensée **responsive / mobile-first**
+  (lisible et utilisable sur iPhone portrait) ; contenus denses → repli en cartes/accordéons, jamais un
+  débordement horizontal illisible.
+- **RÈGLE ABSOLUE du chantier PERMIS/liseuse** : ZÉRO ligne modifiée dans le **canvas / afficherPage /
+  cliquerPdf / cliquerSchema / aperçu-ratio / viewport / conversion de coordonnées**. **Filets 19/19
+  verts et inchangés** (`tracage.filet` 8 + `agrandissement.filet` 5 + `tracageSchema.filet` 6). Les
+  deux rendus pdf.js (liseuse lecture seule vs `BlocTraceEmprise` surface de dessin) sont des **jumeaux
+  volontairement distincts** (décision Arno 31/08/2026) — ne jamais unifier.
+- **PRÉCALCUL = ACCÉLÉRATEUR, JAMAIS UN PRÉREQUIS** (série fond, cf. §5) : toute route qui lit un résultat
+  pré-calculé garde **intégralement son repli calcul-à-la-volée**. Une ligne de précalcul absente/périmée
+  ne casse jamais l'écran ; elle est juste recalculée.
+- **GARDE `echecTelechargement`** : **jamais** de persistance d'un résultat calculé sur une GED
+  incomplètement téléchargée — pour **aucun** type (best_of comme complétude), ni côté lecteur, ni côté
+  producteur de fond. En cas de doute, on recalcule ; on ne fige jamais un résultat dégradé.
+- **Socle générique `permis_best_of_precalcul`** (migration 209) : clé **`(dossier_id, type)`** ; colonne
+  `type` **NOT NULL SANS DEFAULT** (un default ré-ouvrirait l'écrasement silencieux entre consommateurs) ;
+  **liste fermée par CHECK** (`best_of`, `completude`). `empreinte` = clé d'invalidation **propre au type**.
+- **La part VIVANTE ne se précalcule JAMAIS** : ce qui dépend de `config_veille` (ou d'un autre réglage)
+  est appliqué **au read** (modèle `lireCompletude` : `classements` stables pré-calculés + familles
+  attendues appliquées à la lecture). La **fraîcheur est structurelle**, pas « gérée » : un changement de
+  réglage est reflété immédiatement, jamais au prochain tick.
+- **Avant de généraliser un socle de précalcul pour un nouveau consommateur, VÉRIFIER D'ABORD s'il a déjà
+  sa table dédiée** : la dupliquer créerait une 2ᵉ vérité (leçon de P-fond 4b — la complétude a gardé
+  `permis_completude`, le `type='completude'` du socle reste réservé à un consommateur sans table).
+- **Le lanceur macOS (LaunchAgent `com.sansvisavis.veille`) ne tourne que machine allumée + session
+  ouverte** : le précalcul de fond (étape de `executerVeille`, tick 900 s) peut prendre du retard — d'où
+  le **repli calcul-à-la-volée obligatoire** ci-dessus.
 
-### SÉRIE 57 → 67 (session courante, suite) — best-of PERSISTÉ, RGPD deux régimes, parcelles & Cerfa lus en profondeur
-> 🔴 **DEUX DÉCISIONS DES SÉRIES PRÉCÉDENTES SONT RENVERSÉES — à retenir avant de lire les lots :**
-> ① **« le best-of n'est PAS persisté » (56-A) est CADUC** : les **exclusions de page** (LOT 61, migration 190) et les
->    **verdicts de repérage par image** (LOT 62, migration 191) sont désormais **persistés**.
-> ② **le filtre RGPD n'est plus uniforme** : sur le **CERFA**, LISTE D'AUTORISATION (56-E, pagination connue) ; sur les
->    **AUTRES pièces**, LISTE D'EXCLUSION (LOTs 62/63, **aucune pagination stable**) — **régime plus faible, ASSUMÉ**,
->    compensé par l'**abstention en cas de doute**.
-- **57** (`c85ce91`) — signal des **pièces reçues mais NON VERSÉES en GED**. Fait établi : le **cas A** (réponse non
-  rattachée) s'auto-résout au tic de versement suivant ; les **cas B** (nature ≠ documents) et **C** (demande
-  multi-dossiers) ne se résolvent **JAMAIS**. **0 cas réel** aujourd'hui. Faux positif écarté : la **signature/logo SVAV**
-  citée dans les mails mairie, **exclue par empreinte** (même source que le versement).
-- **58** (`33c6432`) — **verrou par dossier** (advisory lock PostgreSQL) autour de l'analyse. Pas de point d'entrée commun
-  web/CLI → primitif partagé **`avecVerrouDossier`** appelé par les **3 entrées**. Libération garantie même processus tué.
-  🔴 **SIGNALÉ NON TRAITÉ** : les writers ne sont **PAS dans une transaction commune** — un crash en cours de passe laisse
-  un **état partiel** (sujet DISTINCT du verrou).
-- **59** (`af07be1`) — bouton **« Lancer le diagnostic complet des documents »** + MESURE : **PC200 a une couche texte
-  COMPLÈTE** (18/18 pages) ; ni scan, ni vocabulaire non reconnu, ni plafond → **115 images raster encastrées dans une
-  notice en prose**, **structurellement invisibles au best-of textuel**.
-- **60** (`4915a13`) — le message « contenu illisible » était **FAUX**. **3 états distincts** désormais (`hors_familles` /
-  `illisible` / `indetermine`). Limite assumée : les **diagnostics ANTÉRIEURS** ne portent pas la présence de texte → ils
-  affichent l'état vague **jusqu'au prochain diagnostic**.
-- **61** (`d965684`, **migration 190**) — **retrait manuel d'une page du best-of, RÉVERSIBLE** (liste persistante +
-  réintégration, **jamais un « annuler » éphémère**). Ne supprime **jamais** le document ni la page en GED. Cascade : la
-  pièce quitte la GED → l'exclusion **disparaît**.
-- **62-A** (mesure) — **vision Mistral** sur les pages encastrées : **10/10 discriminées, 0 faux positif, 0 faux négatif,
-  stable ×3**, **~0,1 ¢/page**. Cas pièges (carte, carte réseau, axonométrie 3D) **non confondus**. Réserve : **UN
-  document, 10 pages**.
-- **62-B** (`d6f678b`, **migration 191**) — **repérage câblé, BOUTON MANUEL uniquement, sous le verrou du 58**. Sortie =
-  **PRÉSENCE seulement** `{planche, categorie}`, **jamais de lecture de contenu** (doctrine P2/P4/P5). Badge « repérée par
-  image », **non traçable pour l'emprise**. « incertain » **n'entre pas**.
-- **63** (`e85ac9d`) — 🔴 le **pré-filtre RGPD bloquait le cas NOMINAL** : quasi toutes les planches d'architecte portent
-  un cartouche avec téléphone. Arbitrage du 56-E appliqué (« **on bloque ce qui identifie une PERSONNE, pas ce qui
-  localise le PROJET** ») : téléphone/e-mail/société/SIRET/entête seul **ne bloquent plus** ; **noms de personnes,
-  signature, civilité+nom bloquent**. Mesure : **5/32 pages écartées → 2/32**. Non-régression prouvée sur la p1 de PC200.
-  Essai réel : **8 planches** là où le textuel en voyait 0, **$0,017**.
-- **64** (`a33b79d`) — 🔴 le sélecteur de pièces était un **`<select>` natif REPLIÉ** : les 8 pièces étaient là,
-  **invisibles**. « **Vrai techniquement, faux à l'usage.** » Remplacé par une **liste explicite**, non analysées en tête,
-  **état par ligne** (jamais la couleur seule).
-- **65** (`e109fac`) — **ouvrir le document complet depuis la liseuse** ; lien signé **fabriqué AU CLIC** (jamais
-  pré-généré : un lien posé d'avance expire).
-- **66** (`d34dc8c`) — 🔴 **DÉFAUT DE JUSTESSE MAJEUR** : le Cerfa déclare **10 parcelles**, la base en avait **3** (venues
-  de **Sitadel**, qui plafonne à `num_cadastre1..3`) ; la table « **Références cadastrales** » du récapitulatif, en
-  **TEXTE**, n'avait **JAMAIS** été lue. Empreinte corrigée : **2164,3 m² (union de 3) → 5025,7 m² (union de 10)**. Piège
-  neutralisé : préfixe `0` du récap **normalisé en `000`**, sinon 3 doublons. Catégorie « **Cerfa** » ajoutée à
-  l'inventaire (**par contenu, jamais par nom de fichier**).
-- **67** (`f27523d`, **migration 192**) — **lecture approfondie du Cerfa**. Écrits : date de dépôt, superficie terrain,
-  logements, niveaux (**5 dessus / 1 dessous**), stationnement, emprise au sol, surface de plancher, description projet.
-  🥇 **Le champ libre chiffre ce qu'aucun champ structuré ne porte** : **3 plots A–C, 40/18/9 logements**, 2 locaux
-  commerciaux (**177 + 69 m²**), 1 sous-sol parking **49 places**. Extrait **VERBATIM**, coupures d'aplatissement pdfjs
-  conservées, **aucune recomposition**. Laissés **vides avec motif** : surface habitable (le Cerfa porte du **PLANCHER**,
-  non reportable), nombre et noms de bâtiments. « Nature du projet » signalée **ambiguë, non écrite**.
+> Le code fait foi : `docs/INVARIANTS_SVAV.md` prouve chaque invariant `fichier:ligne`. En cas de
+> divergence formulation/doc/code, se référer au code cité.
 
-### SÉRIE 68 → 72 (session courante, suite) — bâtiments par corroboration · report Cerfa dans les champs · conditions honnêtes · compteurs justes
-- **68** (`96f40d6`) — passation série 57 → 67 ; les **deux décisions renversées** annotées à leur point d'origine (56-A best-of
-  **persisté**, 56-E RGPD à **deux régimes**).
-- **69** (`50454a7`, **migration 193**) — 🥇 **PREMIER NOMBRE DE BÂTIMENTS OBTENU AUTOMATIQUEMENT** après trois fermetures du sujet
-  (P4/P5). Rapprochement **DÉTERMINISTE** du champ libre : **3 bâtiments, A:40 · B:18 · C:9**, écrit **parce que 40+18+9 = 67 = total
-  structuré**. La porte est **ARITHMÉTIQUE, pas un modèle**. 3 gardes vérifiées en réel : pas de total → non écrit ; somme ≠ total → non
-  écrit ; nb déclaré ≠ nb d'entrées → non écrit (parse partiel). Méthode **`recap`**, **rang le plus faible** de la précédence : remplit
-  un champ vierge, n'écrase JAMAIS une méthode structurée. ⚠️ **1 récapitulatif exploitable sur 6** → moteur volontairement étroit,
-  généralisation NON mesurée. ⚠️ Défaut découvert : la regex du LOT 67 **sur-capture le gabarit du Cerfa vierge** sur 2 dossiers (sans
-  conséquence aujourd'hui, du texte parasite est stocké).
-- **70** (`63c091b`) — 🔴 le bloc « Déclarations du Cerfa » (LOT 67) disait « **jamais reporté sur les valeurs du moteur** » : les
-  valeurs étaient VISIBLES mais n'alimentaient AUCUN champ, aucun geste ne permettait de les y porter (Arno : « je ne comprends pas
-  comment lancer la validation »). Désormais **3 champs reportables** (`nb_logements`, `nb_places_stationnement`, `surface_plancher_m2`) ;
-  le reste reste **informatif avec sa raison** (les **niveaux sont un champ PAR BÂTIMENT**, non rattachable → non reporté). Report dans
-  un champ **VIDE uniquement** ; **une valeur `saisie` n'est JAMAIS écrasée** (invariant 103, prouvé). Anti-N10-L : les valeurs
-  **SURVIVENT au rechargement** (écrites en base, pas posées en mémoire). L'analyse part à l'ouverture en « Analyse et projection »
-  **seulement si** jamais analysée OU GED changée (règle du 56-C), **sous le verrou du 58** ; sinon report gratuit. Bouton de relance =
-  l'existant du 56-B/59, **aucun 3ᵉ bouton**.
-- **71** (`d5ce591`) — 🔴 « ✓ altitudes de sommet (NGF) renseignées » s'affichait **EN VERT avec 0 bâtiment déclaré**
-  (`nbCorpsSansAltitude === 0` sur un ensemble vide). **RÈGLE D'ARNO POSÉE : une validation ne s'affiche que si elle est VÉRIFIABLE à
-  l'écran** ; un ensemble vide rend une condition **SANS OBJET** — troisième état, ni satisfaite ni non satisfaite. Mesuré : la sortie
-  n'était PAS déclenchable pour autant (l'empreinte bloquait avant) → **un premier verrou qui ment, masqué par le second**, pas un trou
-  de sécurité. Balayage : **13 occurrences** `.every()` sur `[]` / `count === 0` passées en revue, **une seule mentait**. Le `sans_objet`
-  ne débloque JAMAIS la sortie.
-- **72** (`6666814`) — 🔴 la pastille de la tuile « Permis de construire » n'incluait pas « En cours » (1 en cours + 2 en analyse →
-  affichait **2 au lieu de 3**). Cause : `enCours` était calculé mais renvoyé **hors total**, avec le commentaire « tant que la tuile
-  home n'est pas câblée (LOT 48) » — la tuile a été câblée depuis, le « tant que » n'a **jamais été levé**. Invariant du 46/52 rétabli :
-  **le cumul == la somme des pastilles**. Pas de double-compte (onglets **exclusifs** ; un dossier en test est hors `enCours` et compté
-  par `projection`, une seule fois). Test qui **fige la somme**.
+---
 
-### Prochain GROS chantier + fraîcheur/contrôle mixte (résumé de `docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md`)
-> **À LIRE avant tout chantier données/verdict/certificat/permis.** Corpus figé 25-26/07/2026.
-- **Énoncé du porteur** : mettre à jour en continu la base des maps pour tenir compte des **nouveaux permis de
-  construire**, et en déduire, polygone par polygone, si l'on **garde le LiDAR** ou si on le **remplace** le temps
-  d'un nouveau vol.
-- **Règle de contrôle mixte** : détecter tout polygone dont l'emprise et/ou la hauteur change entre deux éditions
-  BD TOPO. Hauteur inchangée → **on conserve le LiDAR**. Hauteur changée → l'altitude maximale de toit BD TOPO
-  devient la **valeur de contrôle** du verdict pour CE polygone → certificat marqué **CONTRÔLE MIXTE**. L'invariant
-  « toit = MNS LiDAR direct » n'est PAS modifié : BD TOPO = **détecteur de changement**, jamais source de mesure.
-- **Le fait dur — deux régimes** : brancher la règle sur la **PRÉSENCE DU CHAMP** (`altitude_maximale_toit IS NOT
-  NULL`), **jamais sur un seuil de date** (remplissage non monotone). **Régime 1** (polygones modifiés récents) :
-  `altitude_maximale_toit` bien remplie (≥ 86 % post-2023) → la règle marche. **Régime 2** (bâti réellement NEUF,
-  `date_creation ≥ 2024`) : `altitude_maximale_toit` **7-8 %** seulement → BD TOPO ne connaît PAS structurellement la
-  hauteur d'un immeuble sorti après le vol LiDAR — **le cas le plus dangereux**. **Décision Régime 2** : ne PAS
-  substituer une valeur plus faible ; **MARQUER le certificat « à revérifier »**.
-- **Prérequis techniques identifiés** : index sur `batiment.cleabs` (absent) ; historiser une 2ᵉ édition BD TOPO
-  (table séparée ≈ +426 Mo) ; **capturer le `cleabs` de l'obstacle du verdict dans le snapshot** (absent :
-  `obstaclesParBalayage` renvoie `{distanceM, altitudeSommetM, source}` sans `cleabs`) ; aucun seuil « vrai changement
-  vs re-numérisation » calibrable avant une **2ᵉ édition réelle**.
-- **Permis de construire** = recours d'arbitrage / borne réglementaire (PLU), **pas une source de mesure** ;
-  chiffrage Sitadel documenté. Voir aussi `docs/SOURCES_DATA.md` (licences).
+## 5. Résumé de l'historique
+
+**Moteur & socle (déjà en place).** Verdict géométrique (LiDAR MNT/MNS, faisceaux, obstacles par
+balayage), score de qualité de vue /100 (50/50 dégagement objectif / qualité paysage, IA photo via
+Gemini — hors staging), `config_scoring` externalisé, golden Asnières scellé. Auditabilité : entité
+centrale « test », rattachements patrimoine (MH/Inventaire/mondial).
+
+**Module PERMIS (gros de l'activité récente, ~centaines de commits).** Ingestion Sitadel, curation,
+rapprochement cadastral (colonne `origine_lien`), empreinte/rattachement des corps de bâtiment,
+surveillance des polygones, complétude des pièces, demandes de pièces manquantes (fil mail
+In-Reply-To/References), GED (`dossier_document`), extraction (journal `permis_extraction_journal` avec
+`origine` auto/manuelle), analyse IA au grain page et fichier, deux process (email/téléservice),
+réglages par rail/commune. **Migrations appliquées jusqu'à 209.** Mémoire projet détaillée dans les
+fichiers `memory/` (MEMORY.md indexe les lots D1→D5, FUS, PARC, RATT, PART, LOT 69→104…).
+
+**Série récente — onglet RATTACHEMENT (séparation radar / travail) puis PERF fiche permis.** Du plus
+ancien au plus récent :
+- `d0b834b` **séparer « Sous surveillance » (radar) de « Rattachement » (travail)** — deux onglets
+  distincts. `cdfdc0a` l'entrée en Rattachement = permis **validés** (① signal / ② en veille), les
+  non-validés restent en Sous surveillance. `2c7f452` critère d'entrée **durci** : altitudes **ET**
+  emprises VALIDÉES.
+- `fc56b9e` **migration 206** : validation de projection **au niveau du bâtiment** (colonnes
+  `emprise_validee_*`). `f619517` valider la projection **bâtiment par bâtiment** depuis la capsule du
+  cartouche. `f258c1b`/`b7818ff` capsule d'état d'emprise (jumelle de la capsule d'altitude), **une
+  seule source de vérité** pour l'état emprise/projection d'un bâtiment. `b0afce8` parité test/normal
+  sur « Valider la projection ». `5323da0` chaîne de 3 boutons par bâtiment (enregistrer → valider →
+  modifier), capsule au vert sans rechargement.
+- `0ab1864` **moteur de recherche de l'onglet Rattachement** (6 critères, filtrage en base).
+  `d30a96b` panneau « Sous surveillance » repliable, fermé par défaut. `e5561fd` mode de passage en
+  Rattachement devenu un **réglage** (automatique / clôture manuelle) — **migration 207**.
+- `fbdeb0e`/`a922f67`/`2dc5dce`/`c742dff`/`2056d91` **bouton de clôture** : en-tête « Projection(s)
+  validée(s) » en vert, bouton de clôture posé **en haut** du détail (retrait du « Valider la
+  projection » global), sort du cartouche replié, réduit à trois emplacements (décision Arno : trop de
+  boutons). `0edea3c`/`0d5158b` le **numéro de permis passe au vert** quand il est prêt à être envoyé ;
+  la capsule affiche l'auteur **en nom**, jamais l'identifiant brut.
+- **Série PERF initiale (mémoire + persistance du best-of, jusqu'à `3302284`)** : `b91023a` supprimer le
+  doublon de `GET /emprise` (P3). `5fc1f01` **mémoïser le best-of PDF de `/emprise`** (P1, cause dominante ;
+  invalidation par empreinte de la GED). `582a9f7` la détection Cerfa **réutilise le texte déjà extrait**
+  au lieu de re-télécharger N objets (P2 Lever 1). `a06b967` **paralléliser les lectures de pièces** de
+  `lireGedPermis` à concurrence bornée (P2 Lever 2). `96fc5b8` **persister le best-of PDF** (survit au
+  redémarrage/HMR — **migration 208** `permis_best_of_precalcul`). `3302284` **purger le best-of à l'entrée
+  en Rattachement** (PC-2 — **retiré ensuite par P-fond 2**, voir ci-dessous).
+
+**Série FOND (P-fond 1 → 4b, 6 commits après `3302284`) — profilage d'abord, puis exécution.** Un
+profilage chiffré a établi que l'onglet **Bâtiments** ouvrait à froid en **~9 s** (dominé par pdf.js
+mono-thread + S3, `lireGedPermis` sur ~80 pièces) et que **POST /completude** relisait la GED une **3ᵉ
+fois** (~8,5 s lourd / ~0,75 s léger). La série déplace ce travail en tâche de fond et supprime les
+lectures redondantes :
+- `2a4ed6e` **P-fond 1** — brancher le **producteur de fond** manquant (que la migration 208 annonçait) :
+  une étape de `executerVeille` calcule et persiste le best-of **avant** l'ouverture (`calcule_par='fond'`),
+  univers **borné** (permis sous surveillance/rattachement ∩ GED), **en série**, sous un budget de temps
+  nommé `PRECALCUL_BUDGET_MS` (120 s), garde `echecTelechargement`. Extraction du calcul en source unique
+  `calculerBestOf` (`bestOfCalcul.ts`), partagée route ↔ fond.
+- `a2f6914` **fix fixture** `seedCandidat('avec_alt')` (itest `sortieTestRelances`) au critère d'entrée
+  durci (altitude **et** emprise validées) — la fixture décrivait un monde périmé.
+- `dce5be9` **P-fond 2** — **ne plus purger** le best-of à l'entrée en Rattachement (retrait du DELETE
+  PC-2) : l'entrée ne touche pas la GED → le best-of persisté reste valide et sert **tel quel** → ouverture
+  instantanée pile dans la vue de travail.
+- `cf61a7f` **P-fond 3** — la **shortlist** des confirmations réutilise le texte déjà extrait par
+  `lireGedPermis` (comme le Cerfa en 582a9f7), **zéro re-téléchargement** ; best-of identique octet pour octet.
+- `5b66cf7` **P-fond 4a** — **socle générique** : `permis_best_of_precalcul` passe en clé **`(dossier_id,
+  type)`**, `type` NOT NULL sans default, **liste fermée CHECK** `best_of|completude` (**migration 209**).
+- `d52b0c2` **P-fond 4b** — **mutualiser** la lecture GED : **une seule** `lireGedPermis` alimente le
+  best-of **et** la complétude (pré-remplie dans sa table dédiée `permis_completude`, part `config_veille`
+  appliquée **au read** → fraîcheur immédiate). Le `type='completude'` du socle reste **réservé**.
+- **Gains MESURÉS** : ouverture Bâtiments **~9 s → dizaines de ms** (hit persisté ~0,4 ms + SQL vivant) ;
+  complétude servie **~8,8 s → ~15 ms** (mémoire pré-remplie) ; **une seule lecture GED par dossier au
+  lieu de deux**. Golden **inchangé** ; aucune régression (`npm test` 506 + `test:integration` 33 verts).
+
+**Corpus figé `docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md` (25-26/07/2026) — À RELIRE avant tout
+chantier données/verdict/certificat/permis.** Points clés :
+- **État des données réel** : couverture LiDAR = **1 km² de test à Asnières (92)**, rien d'autre ;
+  `mns_bati_propre` VIDE ; **aucun millésime LiDAR** enregistré ; édition BD TOPO **≈ mars 2026**
+  (déduite de `date_modification`, écrite nulle part) ; aucune procédure de réingestion. Chiffrage
+  extension LiDAR : Paris+92+93 ≈ 16 Go, périmètre complet ≈ 90 Go de rasters (+20-30 % index).
+- **Contrôle mixte** : détecter les polygones dont emprise/hauteur change entre 2 éditions BD TOPO.
+  Hauteur inchangée → **on garde le LiDAR** ; hauteur changée → altitude toit BD TOPO devient valeur de
+  contrôle + certificat marqué **CONTRÔLE MIXTE**. L'invariant « toit = MNS LiDAR » n'est PAS modifié :
+  BD TOPO = **détecteur de changement**, jamais mesure du verdict.
+- **Deux régimes** (les taux de remplissage coupent la règle en deux) : **Régime 1** (polygones
+  modifiés récents) `altitude_maximale_toit` bien rempli (86-95 %), la règle marche. **Régime 2** (bâti
+  réellement NEUF, `date_creation` récent) : `altitude_maximale_toit` ~7-8 % seulement → **cas le plus
+  dangereux** (l'immeuble sorti après le vol LiDAR est justement celui qui invalide un certificat).
+  Décision Régime 2 : **ne PAS substituer une valeur plus faible**, **MARQUER le certificat « à
+  revérifier »** (un polygone neuf plus proche que la distance certifiée suffit à re-certifier). Brancher
+  la règle sur la **présence du champ** (`altitude_maximale_toit IS NOT NULL`), **jamais sur un seuil de date**.
+- **Prochain gros chantier (énoncé porteur)** : « mettre à jour en continu la base des maps pour tenir
+  compte des nouveaux permis, et en déduire si on garde le LiDAR ou si on le remplace par les données
+  des permis, le temps d'un nouveau passage LiDAR. » Prérequis identifiés : **index sur `batiment.cleabs`**
+  (absent), **historisation d'une 2ᵉ édition BD TOPO** (table séparée ≈ +426 Mo, lecteurs inchangés),
+  **capture du `cleabs` de l'obstacle du verdict dans le snapshot** (absent aujourd'hui), calibration
+  « vrai changement vs re-numérisation » impossible avant une 2ᵉ édition réelle.
+
+---
 
 ## 6. État courant & prochaine action
-- **Working tree PROPRE** (hormis ce commit docs). Dernier commit de CODE : **`6666814` (LOT 72)** + ce présent commit docs (73).
-  Le push est le geste d'Arno depuis VS Code, **au fil de l'eau** — ne pas raisonner en « compteur d'avance ». Chaîne
-  de la SÉRIE 68 → 72 : `96f40d6` (68 docs), `50454a7` (69), `63c091b` (70), `d5ce591` (71), `6666814` (72).
-- **Migrations : APPLIQUÉES jusqu'à 193** (188 = LOT 47 ; 189 = LOT 51 ; 190 = LOT 61 ; 191 = LOT 62 ; 192 = LOT 67 ;
-  **193 = LOT 69** méthode `recap` au CHECK du journal). LOTS 70, 71, 72 = **AUCUNE migration**.
-  Contrôle de fin courant vert : `npm test` **471 / 6113** · `test:integration` **31 / 138** · tsc · eslint delta 0 · build.
-- **AUCUN chantier ouvert.** La SÉRIE 68 → 72 (bâtiments par corroboration, report Cerfa dans les champs, conditions honnêtes,
-  compteurs justes) est **CLOSE et livrée**. **Attendre le prochain prompt.** Les séries antérieures (57 → 67, 51 → 53, série 56)
-  restent CLOSES et fonctionnent en réel.
-- **Régime partiel exercé en réel — demande 154 (Aubervilliers, `partiel_le` au 28/08/2026)**, seul dossier partiel.
-  Au LOT 52 (base réelle, `relanceAutoActive=false` = mode MANUEL) elle portait une **relance PART-E due, rang 2**
-  (dernier mail mairie `2026-09-03`, famille manquante `étage`). C'est le dossier-témoin naturel pour tout ce qui
-  touche partiel / test / sortie 51-C.
-- **Événement marquant du 01/09/2026** : PREMIER DÉPÔT TÉLÉSERVICE PARIS réel de bout en bout (demande 161) — relève
-  déclenchée OK, accusé détecté, référence `SLC260901542604` extraite (écriture corrigée au LOT 35). Corollaire :
-  **exercer chaque maillon EN RÉEL avant de le déclarer acquis.**
-- **Pistes ouvertes signalées à Arno** (à sa main) : (a) **réduire l'échelle de base du PREMIER rendu de la liseuse**
-  (le cache LOT 25 accélère le RETOUR, pas le premier rendu d'un plan jamais vu ; A0 dense d'Aubervilliers ~3,5 s à
-  froid) ; (b) **thème sombre — parcours VISUEL écran par écran** en sombre (ce qu'aucun grep ne voit : contrastes
-  perçus, superpositions, survols) sur Statistiques, Pilotage Moteur, Curation, Banc de test, Audit, Administratif ;
-  (c) le signal « N relances PART-E à envoyer à la main » a été **retiré de la pastille Analyse** au LOT 52 (il y était
-  au mauvais endroit) — si Arno le veut, le rouvrir comme sujet dédié (placement « En cours »).
-- 🔑 **MOTIF RÉCURRENT À BALAYER (piste transverse, forte valeur)** : sur les défauts trouvés en USAGE RÉEL le 04/09,
-  **quatre sur cinq étaient des provisoires jamais levés ou des conditions vraies-mais-vides** — `<select>` replié (64),
-  « hors total tant que » (72), vert sur ensemble vide (71), « jamais reporté » devenu faux (70). Un **balayage dédié**
-  (commentaires « tant que », TODO, conditions dont la prémisse a changé) vaudrait probablement **plusieurs lots correctifs**
-  pris un par un.
-- **Pistes ouvertes (non traitées, à la main d'Arno) :**
-  (a) **sur-capture du gabarit Cerfa vierge** par la regex du champ libre (LOT 69, LOT 67) : du texte parasite est stocké sur
-  2 dossiers, sans conséquence aujourd'hui.
-  (b) **création des N corps de bâtiment à partir du décompte corroboré** (LOT 69) — **chantier à part entière** : écrire un
-  nombre ≠ instancier N corps avec altitudes (effets de bord « ≥2 corps », leçon N8).
-  (c) **transaction commune des writers** : le verrou par dossier est livré (LOT 58) mais les writers ne partagent PAS de
-  transaction → un **crash en cours de passe laisse un état partiel** (sujet distinct du verrou ; ancien 56-F).
-  (d) **TROU 2 du 56-C, LATENT** : le versement auto en GED (PART-1) exige **réponse rattachée + `nature='documents'` +
-  mono-dossier** — **0 cas réel aujourd'hui**, mais **sans entrée en GED il n'y a PAS de diagnostic** (trou EN AMONT, distinct).
-  (e) **Cerfa 13824 jamais lu par l'OCR** (le détecteur ne reconnaît que le 13409, cf. 56-E/62) — dette **préexistante**.
-- **⚠️ Faits d'environnement à garder** : (1) DOSSIERS À PIÈCES RÉELS (corrigé LOT 75/76) = **11430 (`07512024V0037`, 80 pièces)**,
-  **11434 (`07512025V0035`, 45)** et **7424** (seul récap **exploitable** pour le décompte corroboré du LOT 69). ⚠️ NE PAS confondre
-  **`07512024V0037` (2024, dossier 11430, EXISTE)** avec **`07512025V0037` (2025)** qui, lui, N'EXISTE PAS — l'ancienne note « 0037
-  absent / seul 11434 a des pièces » était une confusion d'année. (2) **TROIS sessions
-  d'agent ont saturé leur contexte le 04/09** (recon LOT 66, LOT 67, LOT 69) → **ouvrir une session neuve dès qu'un lot
-  approche 90 %**.
-- **Boucle standard d'un LOT** : recon lecture seule → implémente → contrôles de fin dans l'ordre → commit (`-F`, sans
-  Co-Authored-By, sans push).
 
-## 7. Format des livrables (pour une conversation web en relais)
-> **Cohérence avec §2** : dans la session courante, Claude Code travaille DIRECTEMENT dans le repo — il implémente, lance les
-> contrôles de fin, puis **committe lui-même** (`-F`, sans Co-Authored-By, **sans push** ; le push reste le geste d'Arno). Le format
-> relais ci-dessous ne vaut que pour une **passation vers une conversation web** (agent distant).
+- **Working tree** : propre sauf `PASSATION.md` (ce fichier). **HEAD = `d52b0c2`**, branche `main`
+  **À JOUR avec `origin/main`** (la série fond a été poussée).
+- **Dernier chantier** : **série FOND terminée** (P-fond 1 → 4b + fix fixture, cf. §5), `d52b0c2` —
+  committée et poussée. Migrations appliquées jusqu'à **209**. Tous contrôles verts (`npm test` 506,
+  `test:integration` 33, `tsc` 0, `eslint` 0, `next build` OK, golden inchangé).
+- **PROCHAINE ACTION IMMÉDIATE** : **aucune tâche engagée**. Attendre le prochain chantier d'Arno.
+  Candidats naturels : (a) **ergonomie de l'onglet Rattachement / clôture** (retours d'Arno après essai
+  réel) ; (b) le **gros chantier contrôle mixte** (§5) en commençant par ses **prérequis** : index
+  `batiment.cleabs` (absent), **capture du `cleabs` de l'obstacle du verdict dans le snapshot** (absent),
+  puis **historisation d'une 2ᵉ édition BD TOPO**. Rien n'est engagé : demander à Arno ce qu'il veut
+  attaquer avant d'implémenter.
 
-Pour chaque instruction technique, un **bloc copiable** précédé d'un titre à pastille :
-- 🔵 **PROMPT** — travail en relais manuel (l'agent Claude Code implémente ET committe lui-même, comme en §2 ; en relais web pur,
-  il peut produire un DIFF qu'Arno vérifie). TOUJOURS préciser DANS QUEL TERMINAL.
-- 🔴 **PROMPT AUTO** — prompt qui déclenche un run autonome multi-subagents (`/svav-build`, etc.) : vigilance accrue,
-  contrôle a posteriori, commit toujours manuel.
-- 🟢 **COMMIT** — message à coller dans la boîte de commit de VS Code.
-Ne JAMAIS mélanger prompt et commit dans le même bloc. Tout run autonome porte 🔴, jamais 🔵.
+---
+
+## 7. Format des livrables (à respecter par le nouveau Claude)
+
+Pour CHAQUE instruction technique, un bloc copiable précédé d'un titre sans équivoque + pastille :
+
+- 🔵 **PROMPT** — prompt de travail en relais manuel (« vibe coding ») : l'agent Claude Code produit un
+  DIFF, Arno vérifie puis commit à la main. **Toujours préciser DANS QUEL TERMINAL** l'envoyer.
+- 🔴 **PROMPT AUTO** — prompt qui DÉCLENCHE L'AUTOMATISATION (lancement de `/svav-build` ou de tout run
+  autonome multi-subagents). Pastille rouge = run en autonomie : vigilance accrue, contrôle a posteriori
+  via le rapport final, commit toujours manuel par Arno.
+- 🟢 **COMMIT** — message de commit à coller dans la boîte de commit de VS Code (Source Control).
+
+Règle : tout prompt lançant un run autonome porte 🔴, jamais 🔵. **Ne JAMAIS mélanger un prompt et un
+commit dans le même bloc.** Messages de commit en Conventional Commits FR, **sans `Co-Authored-By`**.
