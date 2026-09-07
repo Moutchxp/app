@@ -4,7 +4,7 @@ import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmpri
 import { lireRayonContexteM } from '../../../../../lib/permis/projectionConfig';
 import { lireSelectionInfo, type SelectionInfo } from '../../../../../lib/permis/plancheParcellesRepo'; // PL-C4 — sélection validée pour le bandeau
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
-import { depsReellesLectureGed, lireGedPermis } from '../../../../../lib/permis/lectureGed';
+import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
 import { lireExclusionsBestOf, exclurePageBestOf, reintegrerPageBestOf, lireInclusionsBestOf, inclurePageBestOf, desinclurePageBestOf } from '../../../../../lib/permis/bestOfExclusionRepo'; // LOT 61 (exclusions) + LOT 92 (inclusions)
 import { avecVerrouDossier } from '../../../../../lib/permis/verrouExtraction'; // LOT 58 — une analyse à la fois par dossier
@@ -13,17 +13,13 @@ import { lireReperagePlanchesOui, lireRunsReperage, enregistrerReperage } from '
 import { executerLectureValeurPage } from '../../../../../lib/permis/lectureValeursPage'; // LOT 95 — lecture de VALEURS au grain page
 import { appliquerLectureValeur, enregistrerLecturePage, lireLecturesPage, annulerLectureValeur } from '../../../../../lib/permis/lectureValeursPageRepo'; // LOT 95
 import { lireOrigineExtractionSansIa } from '../../../../../lib/permis/journalExtraction'; // LOT 100 — origine (auto/manuelle) de l'extraction non-IA
-import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleTexte, familleDeNom, tracabilitePlanche, type FamillePlan } from '../../../../../lib/permis/planMasse';
-import { familleDeContenu, niveauxDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV : famille + niveaux par le CONTENU
+import { scoreNomPlanMasse, familleDeNom, tracabilitePlanche, type FamillePlan } from '../../../../../lib/permis/planMasse';
+import { familleDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV : famille par le CONTENU (enrichissement en aval)
 import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone, appliquerAutoStatut } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2) / RATT-2
 import { attribuerNomsRepli } from '../../../../../lib/permis/caracteristiquesRepo'; // NOM-1 — attribue « bâtiment en projet N » aux corps anonymes (best-effort)
 import { empreinteGed, bestOfMemo } from '../../../../../lib/permis/bestOfCache'; // P1 (perfo) — mémoïsation du best-of PDF (poste dominant), invalidation par empreinte de la GED
-import { lireBestOfPersiste, ecrireBestOfPersiste, type BestOfValeur } from '../../../../../lib/permis/bestOfPersistance'; // PC-1 (perfo) — best-of PERSISTÉ (survit au redémarrage), résilient
-import { estPieceCerfaPc } from '../../../../../lib/permis/identifierCerfa'; // LOT 66 — reconnaissance du Cerfa PC par CONTENU (n° 13409)
-
-// PROJ-3d — confirmation page-level PARESSEUSE : plafond DUR de pièces ouvertes côté serveur (mesuré ~98 ms/pièce → ~0,7 s pour 7).
-//   Ne JAMAIS ouvrir les 81 pièces (~8 s). Les proposées au-delà du plafond restent proposées PAR LEUR NOM, sans confirmation.
-const PLAFOND_SHORTLIST = 8;
+import { lireBestOfPersiste, ecrireBestOfPersiste } from '../../../../../lib/permis/bestOfPersistance'; // PC-1 (perfo) — best-of PERSISTÉ (survit au redémarrage), résilient
+import { calculerBestOf, estPiecePdf } from '../../../../../lib/permis/bestOfCalcul'; // SOURCE UNIQUE du calcul best-of (partagée avec le producteur de fond)
 
 /**
  * PROJ-2 / PROJ-2b — /api/admin/permis/emprise : tracé manuel assisté d'une emprise RECONSTITUÉE, calée sur la parcelle, PAR BÂTIMENT.
@@ -84,11 +80,11 @@ export async function GET(request: Request): Promise<Response> {
     const validationParCorps = await repli('validationParCorps', lireValideeParCorps(dossierId), {} as Record<number, boolean>);
     // ③ COMPLÉMENT — altitude de sommet validée par bâtiment : avec l'emprise validée, décide l'en-tête « Projection(s) validée(s) ».
     const altitudeValideeParCorps = await repli('altitudeValideeParCorps', lireAltitudeValideeParCorps(dossierId), {} as Record<number, boolean>);
-    // Seules les pièces PDF sont traçables (filtre inchangé) ; la clé de stockage ne sort JAMAIS.
-    const estPdf = (p: { typeMime: string | null; nomFichier: string }) => (p.typeMime ?? '').toLowerCase().includes('pdf') || p.nomFichier.toLowerCase().endsWith('.pdf');
-    const piecesPdf = piecesBrutes.filter(estPdf);
+    // Seules les pièces PDF sont traçables (filtre inchangé) ; la clé de stockage ne sort JAMAIS. `estPiecePdf` = SOURCE UNIQUE
+    //   partagée avec le producteur de fond → l'empreinte GED (clé du best-of persisté) est calculée à l'IDENTIQUE des deux côtés.
+    const piecesPdf = piecesBrutes.filter(estPiecePdf);
     // LOT 64 — pièces NON ouvrables (format non PDF) : listées quand même dans le sélecteur, désactivées avec la raison (jamais absentes en silence).
-    const piecesNonSupportees = piecesBrutes.filter((p) => !estPdf(p)).map((p) => ({ id: p.id, nomFichier: p.nomFichier, motif: `format non pris en charge${p.typeMime ? ` (${p.typeMime})` : ''}` }));
+    const piecesNonSupportees = piecesBrutes.filter((p) => !estPiecePdf(p)).map((p) => ({ id: p.id, nomFichier: p.nomFichier, motif: `format non pris en charge${p.typeMime ? ` (${p.typeMime})` : ''}` }));
     // LOT 87 — CLASSEMENT NOM + CONTENU, COMBINÉS ET TOUJOURS (plus de garde `proposees.length === 0`, qui sautait le contenu dès qu'UN
     //   plan était nommé et laissait dehors les plans reconnus SEULEMENT par leur cartouche, ex. PC6_ARRIERE = plan de masse). Le CONTENU
     //   est prioritaire quand les deux parlent (LOT 76) ; le NOM sert de repli. Résultat : le best-of contient TOUS les plans reconnus
@@ -106,46 +102,14 @@ export async function GET(request: Request): Promise<Response> {
     const best = await bestOfMemo(dossierId, empreinte, async () => {
       // PC-1 (perfo) — cache MÉMOIRE manqué → tenter le PERSISTÉ (survit au redémarrage/HMR) AVANT de payer le calcul. Résilient : table
       //   absente (208 non appliquée) / entrée périmée (empreinte différente) / lecture KO → null → on calcule. JAMAIS un prérequis.
+      //   Le PRODUCTEUR DE FOND (veille) peut avoir déjà rempli cette ligne (calcule_par='fond') AVANT toute ouverture → hit, ~0 ms.
       const persiste = await lireBestOfPersiste(dossierId, empreinte);
       if (persiste) return { valeur: persiste, cachable: true }; // hit persisté → bestOfMemo le remet aussi en cache MÉMOIRE
-      const indisGed: string[] = []; let echecTelechargement = false;
-      let ged: Awaited<ReturnType<typeof lireGedPermis>>;
-      try { ged = await lireGedPermis(dossierId, deps); }
-      catch (e) { indisGed.push('contenu'); console.error(`[permis/emprise] source indisponible: contenu`, { dossierId, message: e instanceof Error ? e.message : String(e) }); ged = { pieces: [] } as unknown as Awaited<ReturnType<typeof lireGedPermis>>; echecTelechargement = true; }
-      // P2 (LEVER 1) — un échec de TÉLÉCHARGEMENT/EXTRACTION d'une pièce dans lireGedPermis (motif « échec … ») rend le calcul NON cachable
-      //   (prudence P1). Ce signal était auparavant capté par le RE-téléchargement de la boucle Cerfa, désormais supprimée (réutilisation).
-      if (ged.pieces.some((g) => g.motif != null && (g.motif.startsWith('échec de lecture') || g.motif.startsWith('échec d’extraction')))) echecTelechargement = true;
-      const texteParId = new Map(ged.pieces.map((p) => [p.id, p.pages.filter((x) => x.aTexte).map((x) => x.texte)] as const));
-      const proposeesAutres = classerPiecesParFamille(piecesPdf, (p) => familleDeContenu(texteParId.get(p.id) ?? []));
-      const niveauxParId = new Map<number, string[]>(); // PROV : niveaux portés par une planche d'ÉTAGE (RDC/SSOL/R+n), quand connus par le CONTENU
-      for (const p of proposeesAutres.proposees) if (p.famille === 'etage') { const niv = niveauxDeContenu(texteParId.get(p.id) ?? []); if (niv.length) niveauxParId.set(p.id, niv); }
-      // PROJ-3d/3f — CONFIRMATION PARESSEUSE (shortlist plafonnée) : éclate chaque candidat en PLANCHES + échelle. Texte SEUL. Dégradation propre.
-      const confirmations = new Map<number, { planches: { page: number; echelle: string | null; tracable: boolean; famille: FamillePlan; ambigu: boolean }[] }>();
-      await Promise.all(proposeesAutres.proposees.slice(0, PLAFOND_SHORTLIST).map(async (p) => {
-        try {
-          const ex = await deps.extraire(await deps.lireObjet(p.cleStockage), p.typeMime);
-          if (!ex.ok) { indisGed.push(`texte:${p.id}`); console.error(`[permis/emprise] texte pièce ${p.id} illisible`, { motif: ex.motif }); return; } // contenu illisible = DÉTERMINISTE (cachable)
-          const planches = pagesPlanches(ex.pages).map((pg) => {
-            const tp = tracabilitePlanche(p.famille, ex.pages[pg - 1] ?? '');
-            return { page: pg, echelle: lireEchelleTexte(ex.pages[pg - 1] ?? ''), tracable: tp.tracable, famille: tp.famille, ambigu: tp.ambigu };
-          });
-          confirmations.set(p.id, { planches });
-        } catch (e) { indisGed.push(`texte:${p.id}`); console.error(`[permis/emprise] confirmation pièce ${p.id} indisponible`, { message: e instanceof Error ? e.message : String(e) }); echecTelechargement = true; } // téléchargement raté = possiblement TRANSITOIRE → non cachable
-      }));
-      // ÉTAPE 3 (LOT 66) — CATÉGORIE « Cerfa » PAR CONTENU (n° 13409), lecture de TÊTE (≤3 pages), best-effort ISOLÉE (N10-J : illisible → non marqué).
-      // P2 (LEVER 1) — RÉUTILISE le texte DÉJÀ extrait par lireGedPermis (mêmes 3 pages de tête, MÊME `estPieceCerfaPc`) au lieu de
-      //   RE-TÉLÉCHARGER + RÉ-EXTRAIRE les N objets (103 Mo sur 11430). Marqueur IDENTIQUE (même source). Déterministe (Set, indépendant de l'ordre).
-      const cerfaIds = new Set<number>();
-      const gedParId = new Map(ged.pieces.map((g) => [g.id, g] as const));
-      for (const p of piecesPdf) {
-        const g = gedParId.get(p.id);
-        if (g && estPieceCerfaPc(g.pages.slice(0, 3).map((pg) => pg.texte))) cerfaIds.add(p.id);
-      }
-      const valeur: BestOfValeur = { proposees: proposeesAutres.proposees, autres: proposeesAutres.autres, niveauxParId, confirmations, cerfaIds, indisGed };
-      // PC-1 — un cold-open PERSISTE son calcul (best-effort, non bloquant) → survit au redémarrage/HMR + re-peuple après un retour en Analyse.
-      //   Prudence P1 conservée : un calcul NON cachable (échec de téléchargement) n'est PAS persisté (comme il n'est pas mémoïsé).
-      if (!echecTelechargement) void ecrireBestOfPersiste(dossierId, empreinte, valeur, 'a_la_volee');
-      return { valeur, cachable: !echecTelechargement };
+      // MISS persisté → calcul à la volée (SOURCE UNIQUE `calculerBestOf`, partagée avec le producteur de fond). Comportement du
+      //   lecteur INCHANGÉ : un cold-open PERSISTE son calcul (best-effort, non bloquant) SI cachable (prudence P1 : jamais un best-of dégradé).
+      const { valeur, cachable } = await calculerBestOf(dossierId, piecesPdf, deps);
+      if (cachable) void ecrireBestOfPersiste(dossierId, empreinte, valeur, 'a_la_volee');
+      return { valeur, cachable };
     });
     const { proposees, autres, niveauxParId, confirmations, cerfaIds } = best;
     indisponibles.push(...best.indisGed); // réponse IDENTIQUE froid/chaud (les indisponibilités du best-of sont mémoïsées avec lui)

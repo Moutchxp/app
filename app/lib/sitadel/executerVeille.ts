@@ -47,6 +47,7 @@ import { executerAlerteAttenteBati, depsReellesAlerteAttenteBati } from '../veil
 import { executerAlerteObstacleDisparu, depsReellesAlerteObstacleDisparu } from '../veille/alerteObstacleDisparuAuto';
 import { executerSurveillancePolygones, depsReellesSurveillancePolygones } from '../veille/surveillancePolygonesAuto';
 import { executerVersementRattache, depsReellesVersementRattache } from './versementRattacheRepo';
+import { executerPrecalculBestOf, depsReellesPrecalculBestOf } from '../veille/precalculBestOfAuto';
 import { creerBudgetRun, type BudgetEnvoiRun } from '../veille/plafondEnvoiRun';
 import { CLE_VERROU_VEILLE } from '../veille/verrouVeille';
 import { executerAlerteMisesAJour } from '../veille/alerteMisesAJour';
@@ -192,6 +193,10 @@ export interface DepsVeille {
   // VERSEMENT rattaché (PART-1) — verse en GED les pièces des réponses « documents » rattachées (2e voie d'admission), hors signature
   //   citée et sans doublon. OPTIONNELLE et ISOLÉE. Idempotent. N'écrit sur aucun certificat, ne touche NI le moteur NI le verdict.
   versementRattache?(): Promise<unknown>;
+  // PC-3 — PRÉCALCUL de fond du best-of PDF (§1septdecies), APRÈS le versement (pour prendre en compte les pièces fraîchement versées).
+  //   OPTIONNEL et ISOLÉ. Univers BORNÉ (permis sous surveillance/rattachement AVEC GED), EN SÉRIE, sous budget de temps, garde
+  //   echecTelechargement. N'écrit QUE `permis_best_of_precalcul` (calcule_par='fond') ; ne touche NI le moteur NI le verdict. Accélérateur.
+  precalculBestOf?(): Promise<unknown>;
 }
 
 /** Date de publication en français lisible (Europe/Paris), ex. « 28 août 2026 » — pour les messages « publié le … ». */
@@ -395,6 +400,14 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
       try { await deps.versementRattache(); } catch { /* versement isolé : n'impacte jamais la veille Sitadel */ }
     }
 
+    // 1septdecies) PRÉCALCUL DE FOND du best-of PDF (PC-3) — JUSTE APRÈS le versement (§1sexdecies), pour que les pièces fraîchement
+    //   versées entrent dans le best-of du MÊME tick. Univers BORNÉ (permis sous surveillance/rattachement AYANT une GED), EN SÉRIE,
+    //   sous budget de temps (rend la main largement avant la fin de l'intervalle), garde echecTelechargement (jamais un best-of dégradé).
+    //   Accélérateur PUR : la route /emprise garde son repli à la volée. MÊME ISOLATION à double filet : un échec n'impacte jamais la veille.
+    if (faitDonnees && deps.precalculBestOf) {
+      try { await deps.precalculBestOf(); } catch { /* précalcul isolé : n'impacte jamais la veille Sitadel */ }
+    }
+
     // Le CŒUR SITADEL (§2-7 : garde d'intervalle, run journal, millésime distant, ingestion, purge) appartient à la famille
     // MAIRIES/PERMIS (classé C→A en H0 : Sitadel = la donnée des permis qui nourrit la veille mairies). Famille « donnees » →
     // on s'arrête ici, cœur non exécuté (aucun contact DiDo, aucun run journalisé). Le verrou est libéré par le `finally`.
@@ -592,6 +605,8 @@ function depsReelles(): DepsVeille {
     alerteObstacleDisparu: () => executerAlerteObstacleDisparu(depsReellesAlerteObstacleDisparu()),
     surveillancePolygones: () => executerSurveillancePolygones(depsReellesSurveillancePolygones()),
     versementRattache: () => executerVersementRattache(depsReellesVersementRattache(), { appliquer: true }),
+    // PC-3 — précalcul de fond du best-of PDF : univers borné (surveillance/rattachement ∩ GED), en série, sous budget, garde echecTelechargement, calcule_par='fond'.
+    precalculBestOf: () => executerPrecalculBestOf(depsReellesPrecalculBestOf()),
   };
 }
 
