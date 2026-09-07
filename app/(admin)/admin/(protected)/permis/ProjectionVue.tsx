@@ -9,7 +9,8 @@ import { BlocCompletude } from './BlocCompletude';
 import { BlocFilEchanges } from './BlocFilEchanges';
 import { BlocRepliable } from './BlocRepliable';
 import { PlancheParcelles } from './PlancheParcelles'; // PL-A — planche cadastrale (lecture seule), à côté du schéma du bâti
-import { TableProjection, BoutonValiderProjection, AIDE_PROJECTION, TitreFamilleEtat, type LigneProjectionAffichee } from './ProjectionRendu';
+import { TableProjection, AIDE_PROJECTION, TitreFamilleEtat, type LigneProjectionAffichee } from './ProjectionRendu';
+import { ClotureVersRattachement } from './CaracteristiquesRendu'; // ② COMPLÉMENT — bouton de clôture EN HAUT du détail (manuel) / message d'état, source unique
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { etatValidationProjection } from '../../../../lib/permis/etatValidationProjection';
 import { etatProjectionTitre, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles
@@ -28,6 +29,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   const [ouvert, setOuvert] = useState<number | null>(null);
   const [verdict, setVerdict] = useState<VerdictProjection | null>(null);
   const [enteteProjection, setEnteteProjection] = useState<{ ton: 'vert' | 'rouge'; texte: string } | null>(null); // ③ COMPLÉMENT — état RÉEL de l'en-tête « Bâtiments et projection », remonté par BlocTraceEmprise (tous alt+emprise validées ?). null tant que le bloc n'est pas ouvert → repli sur le marqueur.
+  const [modePassage, setModePassage] = useState<'automatique' | 'cloture_manuelle'>('automatique'); // ② COMPLÉMENT — réglage de passage (auto = message ; clôture manuelle = gros bouton). Lu une fois du serveur.
   const [enCours, setEnCours] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [vInstruction, setVInstruction] = useState(0); // PROJ-3b — compteur incrémenté à chaque écriture d'instruction → recharge le tracé (bâtiments)
@@ -90,17 +92,33 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     })();
   }, [ouvert]);
 
-  const valider = useCallback(async (dossierId: number) => {
+  // ② COMPLÉMENT — CLÔTURE MANUELLE : « Valider le permis — envoyer en Rattachement » écrit le marqueur de passage (route caracteristiques
+  //   valider_permis → validerProjection), puis re-fetche la file (le permis passé la quitte) et ferme le détail. Le bouton GLOBAL « Valider
+  //   la projection » (vestige, second chemin d'écriture) a été retiré : la validation est PAR BÂTIMENT (chaîne) + cette clôture.
+  const cloturerPermis = useCallback(async (dossierId: number) => {
     setEnCours(true); setMessage(null);
     try {
-      const res = await fetch('/api/admin/permis/projection', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'valider', dossierId }) });
-      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; file?: LigneProjectionAffichee[] };
-      if (res.ok && d.ok) {
-        setFile(d.file ?? []); setOuvert(null); setVerdict(null); setMessage('projection validée : le permis passe en suivi et quitte la file');
-        recompterSiSucces(true, onRecompter);
-      } else setMessage(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'validation impossible'));
-    } catch { setMessage('validation impossible'); } finally { setEnCours(false); }
+      const res = await fetch('/api/admin/permis/caracteristiques', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'valider_permis', dossierId }) });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
+      if (!res.ok || !d.ok) { setMessage(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'clôture impossible')); return; }
+      const gr = await fetch('/api/admin/permis/projection', { cache: 'no-store' }); // re-fetche la file : le permis passé n'y est plus
+      if (gr.ok) { const gd = (await gr.json()) as { file?: LigneProjectionAffichee[] }; setFile(gd.file ?? []); }
+      setOuvert(null); setVerdict(null); setEnteteProjection(null); setMessage('permis passé en Rattachement');
+      recompterSiSucces(true, onRecompter);
+    } catch { setMessage('clôture impossible'); } finally { setEnCours(false); }
   }, [onRecompter]);
+
+  // ② COMPLÉMENT — mode de passage lu une fois (résilient) : gouverne l'affichage du gros bouton (clôture manuelle) vs le message (auto).
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/permis/reglage-passage', { cache: 'no-store' });
+        if (!annule && res.ok) { const d = (await res.json()) as { mode: 'automatique' | 'cloture_manuelle' }; setModePassage(d.mode === 'cloture_manuelle' ? 'cloture_manuelle' : 'automatique'); }
+      } catch { /* réglage indisponible : défaut automatique */ }
+    })();
+    return () => { annule = true; };
+  }, []);
 
   // LOT 51-B — RETOUR EN COURS (sans envoi) : lève le marqueur « testé en analyse ». Aucun e-mail, aucune trace de relance, aucun statut
   //   modifié → le permis revient dans « En cours » avec TOUTE sa planification de rappels intacte, comme s'il n'était jamais venu ici.
@@ -222,6 +240,15 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         </BlocRepliable>
         {/* PROJ-3b — INSTRUCTION (caractéristiques + « + ajouter un bâtiment ») puis TRACÉ. Clés PRÉFIXÉES PAR RÔLE (unicité, cf. PART-2b),
             suffixe vAnalyse conservé : chaque enfant monté se remonte après « Lancer le diagnostic complet des documents ». Montés au dépliage (PERF-1). */}
+        {/* ② COMPLÉMENT — CLÔTURE vers Rattachement, EN HAUT (au début du déploiement des blocs « Bâtiments et projection » et
+            « Caractéristiques »), GROS bouton rouge en mode clôture manuelle. Pilotée par `enteteProjection` (SOURCE UNIQUE
+            etatEnteteProjection ← estValidationAcquise), remontée par « Bâtiments et projection ». Jamais muet : si la validation est
+            incomplète, elle DIT ce qui manque. Repli sur le marqueur pour `dejaPasse` (toujours false dans la file, par construction). */}
+        {enteteProjection && (
+          <ClotureVersRattachement mode={modePassage} tousValides={enteteProjection.ton === 'vert'}
+            manque={enteteProjection.ton === 'rouge' ? enteteProjection.texte : undefined}
+            dejaPasse={row?.projectionValidee ?? false} onCloturer={() => void cloturerPermis(ouvert)} enCours={enCours} />
+        )}
         <BlocRepliable key={`w-carac-${ouvert}`} titre={<TitreFamilleEtat base="Caractéristiques du permis (saisie)" etat={etatAlt} />}>
           {() => <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
         </BlocRepliable>
@@ -234,18 +261,10 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
           {() => (
             <div className="flex flex-col gap-2">
               <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} onEntete={setEnteteProjection} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} onEmprisesChange={() => setVEmprise((v) => v + 1)} />
-              {/* PARITÉ TEST/NORMAL (décision porteur) — le bouton « Valider la projection » est rendu dans les DEUX cas : la fonction
-                  « bâtiments et projection » est IDENTIQUE pour un dossier testé et pour un dossier complet (avant, il était masqué pour un
-                  dossier testé → la projection ne pouvait JAMAIS être validée sur ce chemin, la capsule restait rouge). Garde INCHANGÉE
-                  (ev.peutValider : ≥ 1 bâtiment déclaré ET chacun couvert — jamais assouplie ; un bâtiment sans emprise ni ignore bloque et
-                  l'écran le DIT). 🔴 Pour un dossier testé, `valider` écrit permis_projection et marque le suivi comme d'habitude, mais
-                  N'ARRÊTE PAS les relances : l'arrêt exhaustif reste le geste DÉDIÉ « Terminer l'analyse » de la carte de test ci-dessus. */}
-              <BoutonValiderProjection
-                peutValider={ev.peutValider}
-                aucunBatiment={ev.aucunBatiment}
-                libelle={ev.libelle}
-                enCours={enCours}
-                onValider={() => { void valider(ouvert); }} />
+              {/* ① COMPLÉMENT — le bouton GLOBAL « Valider la projection » a été RETIRÉ (vestige : il finalisait toute la projection d'un coup
+                  sur la seule COUVERTURE — traçé/ignoré — sans exiger la validation PAR BÂTIMENT, ouvrant un 2e chemin d'écriture sur
+                  permis_projection). La validation passe désormais par la chaîne par bâtiment (enregistrer → valider → modifier) et la clôture
+                  du haut. La sortie DÉDIÉE d'un dossier testé (arrêt des relances) reste « Terminer l'analyse » de la carte de test ci-dessus. */}
               {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
             </div>
           )}

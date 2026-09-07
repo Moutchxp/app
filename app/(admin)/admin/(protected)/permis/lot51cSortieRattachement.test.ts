@@ -67,10 +67,15 @@ describe('LOT 51-C — UI : sortie gardée, condition manquante affichée ; bout
     expect(s).toContain('pretPourSortie'); // le bouton n'est actif QUE si empreinte OK ET altitude SATISFAITE (jamais « sans objet »)
     expect(lire('app/lib/permis/etatSortieRattachement.ts')).toContain('sans altitude de sommet (NGF)');
   });
-  it('PARITÉ test/normal — le bouton « Valider la projection » est rendu dans les DEUX cas (plus de garde !testeEnAnalyse) ; l’arrêt exhaustif des relances reste le geste DÉDIÉ « Terminer l’analyse »', () => {
-    expect(s).not.toContain('!row?.testeEnAnalyse && ('); // le bouton n’est plus masqué pour un dossier testé
-    expect(s).toContain('<BoutonValiderProjection');       // rendu (inconditionnel)
-    expect(s).toContain("action: 'sortir_vers_rattachement'"); // « Terminer l’analyse » (close + partiel_leve_le) subsiste pour l’arrêt des relances
+  it('🔴 COMPLÉMENT — le bouton GLOBAL « Valider la projection » est RETIRÉ de l’écran (ne réapparaît nulle part) ; la sortie DÉDIÉE « Terminer l’analyse » subsiste', () => {
+    expect(s).not.toContain('<BoutonValiderProjection');           // le vestige n’est plus rendu (validation PAR BÂTIMENT désormais)
+    expect(lire('app/(admin)/admin/(protected)/permis/ProjectionRendu.tsx')).not.toContain('export function BoutonValiderProjection'); // ni défini
+    expect(s).toContain("action: 'sortir_vers_rattachement'");     // « Terminer l’analyse » (arrêt des relances) subsiste pour un dossier testé
+  });
+  it('🔴 COMPLÉMENT — la CLÔTURE « Valider le permis — envoyer en Rattachement » est rendue EN HAUT (source unique enteteProjection) et jamais muette', () => {
+    expect(s).toContain('<ClotureVersRattachement');
+    expect(s).toContain("action: 'valider_permis'");              // écrit le marqueur de passage (même geste que l’auto-finalisation)
+    expect(s).toContain('enteteProjection.ton === \'vert\'');     // pilotée par la SOURCE UNIQUE (estValidationAcquise via etatEnteteProjection)
   });
   it('la route 409 renvoie `manque` pour l’affichage', () => {
     expect(lire('app/(admin)/api/admin/permis/projection/route.ts')).toContain('manque: res.manque');

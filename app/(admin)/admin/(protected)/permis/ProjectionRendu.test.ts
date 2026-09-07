@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
-import { TableProjection, BoutonValiderProjection, TitreFamilleEtat, type LigneProjectionAffichee } from './ProjectionRendu';
+import { TableProjection, TitreFamilleEtat, type LigneProjectionAffichee } from './ProjectionRendu';
 import { etatProjectionTitre, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection';
 
 const ligne = (over: Partial<LigneProjectionAffichee> = {}): LigneProjectionAffichee => ({
@@ -45,21 +45,8 @@ describe('PROJ-2c — rendu de la file Projection', () => {
     expect(html).toContain('aria-expanded="true"');
   });
 
-  it('BoutonValiderProjection : FAIT AVANCER quand peutValider ; désactivé + explication sinon', () => {
-    const actif = renderToStaticMarkup(h(BoutonValiderProjection, { peutValider: true, libelle: '2 bâtiments · 2 emprises tracées · 0 en attente', enCours: false, onValider: () => {} }));
-    expect(actif).toContain('Valider la projection');
-    expect(actif).not.toContain('disabled');
-    const bloque = renderToStaticMarkup(h(BoutonValiderProjection, { peutValider: false, libelle: '2 bâtiments · 1 emprise tracée · 1 en attente', enCours: false, onValider: () => {} }));
-    expect(bloque).toContain('disabled');
-    expect(bloque).toContain('emprise tracée ou une projection ignorée');
-  });
-
-  it('BoutonValiderProjection : aucun bâtiment déclaré → message qui renvoie à l’instruction (PROJ-3b)', () => {
-    const h0 = renderToStaticMarkup(h(BoutonValiderProjection, { peutValider: false, aucunBatiment: true, libelle: '0 bâtiment · 0 emprise tracée · 0 en attente', enCours: false, onValider: () => {} }));
-    expect(h0).toContain('disabled');
-    expect(h0).toContain('Déclarez au moins un bâtiment');
-    expect(h0).not.toContain('emprise tracée ou une projection ignorée');
-  });
+  // COMPLÉMENT (07/09/2026) — le composant global `BoutonValiderProjection` a été SUPPRIMÉ (vestige d'un 2e chemin de validation).
+  //   Ses tests sont retirés ; le garde « il ne réapparaît pas » vit dans lot51cSortieRattachement.test.ts (source de ProjectionVue/Rendu).
 });
 
 describe('RATT-1 — état sur la ligne de titre des familles (Analyse et projection)', () => {

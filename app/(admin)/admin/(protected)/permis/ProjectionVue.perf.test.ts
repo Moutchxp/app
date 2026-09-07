@@ -25,14 +25,13 @@ describe('PERF-1 — blocs coûteux montés au dépliage (render-prop)', () => {
     });
   }
 
-  // POLISH-1 — BlocTraceEmprise reste chargé AU DÉPLIAGE, mais sa render-prop retourne désormais un fragment : le bloc « Bâtiments
-  //   et projection » enferme AUSSI le bouton « Valider la projection » (il n'apparaît plus hors du bloc replié). La requête /emprise
-  //   ne part donc toujours qu'au dépliage. On vérifie que trace ET bouton vivent dans la MÊME render-prop lazy.
-  it('BlocTraceEmprise + BoutonValiderProjection sont enfermés dans la render-prop lazy du bloc « Bâtiments et projection » (POLISH-1)', () => {
+  // POLISH-1 / COMPLÉMENT — BlocTraceEmprise reste chargé AU DÉPLIAGE (render-prop lazy) : la requête /emprise ne part qu'au dépliage.
+  //   Le bouton global « Valider la projection » a été RETIRÉ (validation par bâtiment). On vérifie que la trace vit dans la render-prop lazy.
+  it('BlocTraceEmprise est enfermé dans la render-prop lazy du bloc « Bâtiments et projection » (POLISH-1) ; le bouton global « Valider la projection » a disparu', () => {
     const bat = PROJ.slice(PROJ.indexOf('onOuvertChange={setBatimentsOuvert}'));
     expect(bat).toContain('{() => ('); // render-prop (lazy) — /emprise seulement au dépliage
     expect(bat.indexOf('<BlocTraceEmprise')).toBeGreaterThan(-1);
-    expect(bat.indexOf('<BoutonValiderProjection')).toBeGreaterThan(bat.indexOf('<BlocTraceEmprise')); // bouton ENFERMÉ après la trace, dans le même bloc
+    expect(PROJ).not.toContain('<BoutonValiderProjection'); // retiré de l'écran
   });
 
   it('les 5 blocs coûteux du détail sont enveloppés dans BlocRepliable = 5 wrappers (LOT 54 : plus de groupe de tête ; PL-A : + planche)', () => {

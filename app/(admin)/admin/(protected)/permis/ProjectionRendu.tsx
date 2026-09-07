@@ -99,22 +99,7 @@ export function TableProjection({ file, ouvert, onOuvrir, renderDetail, libelleP
   );
 }
 
-/** Bouton « Valider la projection » : ne bloque pas, il FAIT AVANCER (le permis quitte la file, passe en suivi). Actif ssi peutValider.
- *  PROJ-3b : `aucunBatiment` (aucun corps déclaré) → message qui renvoie à l'instruction (« + ajouter un bâtiment » ci-dessus). */
-export function BoutonValiderProjection({ peutValider, libelle, enCours, onValider, aucunBatiment = false }: {
-  peutValider: boolean; libelle: string; enCours: boolean; onValider: () => void; aucunBatiment?: boolean;
-}) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-      <div style={muted}>{libelle}</div>
-      <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={enCours || !peutValider} onClick={onValider}>
-        Valider la projection
-      </button>
-      {!peutValider && <div style={{ ...muted, color: 'var(--color-svv-red)' }}>
-        {aucunBatiment
-          ? 'Déclarez au moins un bâtiment (« + ajouter un bâtiment » ci-dessus) avant de valider la projection.'
-          : 'Chaque bâtiment doit avoir une emprise tracée ou une projection ignorée avant de valider.'}
-      </div>}
-    </div>
-  );
-}
+// COMPLÉMENT (07/09/2026) — le bouton GLOBAL « Valider la projection » (jadis `BoutonValiderProjection`) a été RETIRÉ : vestige du geste
+//   qui finalisait toute la projection d'un coup sur la seule COUVERTURE (tracé/ignoré), sans exiger la validation PAR BÂTIMENT — un 2e
+//   chemin d'écriture sur permis_projection, la divergence qu'on corrige. La validation passe désormais par la chaîne par bâtiment
+//   (enregistrer → valider → modifier, BlocTraceEmprise) et la clôture « Valider le permis — envoyer en Rattachement » (ProjectionVue).
