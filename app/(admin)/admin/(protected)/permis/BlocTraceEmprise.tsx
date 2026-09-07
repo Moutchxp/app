@@ -815,19 +815,13 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
         <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
-        {/* DEUX BOUTONS « agrandir » (un par surface, MUTUELLEMENT EXCLUSIFS). À GAUCHE, au-dessus du PLAN : « mode grandes images » agrandit
-            LE PLAN SEUL en plein écran (imageAgrandie). Le plan n'a ainsi QUE deux largeurs d'affichage — normale / plein écran — c'est ce que le
-            filet d'agrandissement exige (deps `imageAgrandie`, re-rendu ⇒ ratio recalculé, cliquerPdf inchangé) ; jamais de largeur intermédiaire. */}
-        <button type="button" style={btn} onClick={() => { setPleinEcran(false); setImageAgrandie((v) => !v); }}
+        <button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
           aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images (tracer en grand)'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
       </div>
-      {/* À DROITE, au-dessus du SCHÉMA : agrandit LE SCHÉMA SEUL (pleinEcran). Masqué quand le plan est déjà seul en plein écran (aucun schéma à l'écran). */}
-      {!imageAgrandie && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
-          <RotationSchema angle={angle} onAngle={setAngle} />
-          <button type="button" style={btn} onClick={() => { setImageAgrandie(false); setPleinEcran(true); }}>⤢ Agrandir le schéma</button>
-        </div>
-      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
+        <RotationSchema angle={angle} onAngle={setAngle} />
+        <button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button>
+      </div>
     </div>
   );
 
@@ -873,12 +867,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     //   options DESCENDENT sous le schéma. Carte svv-card pour la parité de padding.
     const blocSchema = boite ? (
       <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
-        {/* DEUX BOUTONS « agrandir » — MÊME STANDARD qu'au nominal, même à 0 bâtiment : la barre de rotation porte, à sa droite, le bouton qui
-            agrandit LE SCHÉMA SEUL (pleinEcran). Le bouton qui agrandit LE PLAN SEUL vit dans la barre de la liseuse (à gauche). Mutuellement exclusifs. */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap' }}>
-          <RotationSchema angle={angle} onAngle={setAngle} />
-          <button type="button" style={btn} onClick={() => { setImageAgrandie(false); setPleinEcran(true); }} aria-label="Agrandir le schéma (plein écran)">⤢ Agrandir le schéma</button>
-        </div>
+        <RotationSchema angle={angle} onAngle={setAngle} />
         <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesReperes, emprises, batiments)} />
         {bandeauSel}
         {/* Options d'AFFICHAGE (bâti existant / futur / repères / projection) — pilotage visuel, pas un contrôle de tracé. Porte aussi la légende de catégories. */}
@@ -902,36 +891,17 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             LOT 90 — le CALAGE reste FERMÉ à 0 bâtiment (rien à enregistrer). `avecLiseuse=false` (une liseuse standalone existe déjà ailleurs)
             → pas de 2 colonnes (sinon colonne gauche vide) : on empile le seul schéma, comme avant. */}
         {avecLiseuse ? (
-          // DEUX BOUTONS « agrandir » — MÊME STANDARD qu'au nominal, en LECTURE SEULE. En page : 2 colonnes (liseuse | schéma). « agrandir le
-          //   plan » (bouton de la liseuse → imageAgrandie) met LA LISEUSE SEULE en plein écran (UNE colonne, schéma retiré) ; « agrandir le
-          //   schéma » (bouton du schéma → pleinEcran) l'agrandit séparément (overlay dédié plus bas). La liseuse reste PASSIVE (aucun calage).
-          //   On NE réutilise NI le conteneur de coordonnées NI l'aperçu de la surface de dessin dans cette branche.
-          <div role={imageAgrandie ? 'dialog' : undefined} aria-modal={imageAgrandie || undefined} aria-label={imageAgrandie ? 'Plan agrandi — lecture seule' : undefined}
+          // PARITÉ GRANDES IMAGES — même overlay 2 colonnes que le nominal (position:fixed plein écran), mais en LECTURE SEULE : liseuse à
+          //   gauche + schéma à droite. L'agrandi est porté ICI (imageAgrandie de BlocTraceEmprise) et délégué à la liseuse (état + toggle) ;
+          //   la liseuse reste PASSIVE (aucun calage). On NE réutilise NI le conteneur de coordonnées NI l'aperçu de la surface de dessin dans cette branche.
+          <div role={imageAgrandie ? 'dialog' : undefined} aria-modal={imageAgrandie || undefined} aria-label={imageAgrandie ? 'Visionneuse agrandie — liseuse et schéma (lecture seule)' : undefined}
             style={imageAgrandie
-              ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
+              ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
               : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
-            <LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete imageAgrandie={imageAgrandie} onToggleImageAgrandie={() => { setPleinEcran(false); setImageAgrandie((v) => !v); }} />
-            {!imageAgrandie && blocSchema}
+            <LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete imageAgrandie={imageAgrandie} onToggleImageAgrandie={() => setImageAgrandie((v) => !v)} />
+            {blocSchema}
           </div>
         ) : blocSchema}
-        {/* « Agrandir le schéma » à 0 bâtiment : overlay dédié (le pleinEcran du nominal est APRÈS son propre return, donc hors de cette branche).
-            LECTURE SEULE (aucun onCliquer, calageLambert vide) — géométrie du schéma STRICTEMENT inchangée. Fermeture : clic hors zone, ✕, ou Échap. */}
-        {pleinEcran && boite && (
-          <div role="dialog" aria-modal="true" aria-label="Schéma de la parcelle agrandi" onClick={() => setPleinEcran(false)}
-            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-            <div onClick={(e) => e.stopPropagation()} className="svv-card" style={{ maxWidth: '95vw', maxHeight: '95vh', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <strong style={{ fontSize: 13 }}>Schéma de la parcelle et du bâti</strong>
-                <button type="button" style={btn} onClick={() => setPleinEcran(false)} aria-label="Fermer l’agrandissement">✕ Fermer</button>
-              </div>
-              <RotationSchema angle={angle} onAngle={setAngle} />
-              <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} hauteurMax="82vh" calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesReperes, emprises, batiments)} />
-              {bandeauSel}
-              <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
-              <LegendeProjectionEmprises legende={legendeProjection(polygonesReperes, emprises, batiments)} />
-            </div>
-          </div>
-        )}
       </div>
     );
   }
@@ -957,13 +927,13 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       </div>
 
       {batSel && (
-        // PROJ-AGR / DEUX BOUTONS — « agrandir le plan » (imageAgrandie) met LE PLAN SEUL en PLEIN ÉCRAN (CSS position:fixed, UNE colonne) :
-        //   le schéma (colonne de droite) est retiré de la grille, le plan occupe toute la largeur. Le MÊME pdfContainerRef/cliquerPdf est
-        //   réutilisé (aucune duplication du tracé) ; le canvas se re-rend à la nouvelle largeur (effet deps `imageAgrandie`) → coordonnées
-        //   exactes pour cette vue (une seule largeur agrandie, jamais d'intermédiaire). Le SCHÉMA s'agrandit séparément (bouton dédié → pleinEcran).
-        <div role={imageAgrandie ? 'dialog' : undefined} aria-modal={imageAgrandie || undefined} aria-label={imageAgrandie ? 'Plan agrandi — tracer en grand' : undefined}
+        // PROJ-AGR — quand `imageAgrandie`, TOUTE la grille (plan À GAUCHE + schéma À DROITE + outils) passe en PLEIN ÉCRAN (CSS
+        //   position:fixed). Le plan s'affiche large (tracé précis), le schéma reste présent (2e point de calage). Les MÊMES éléments et
+        //   handlers (pdfContainerRef/cliquerPdf, SchemaParcelleTrace/cliquerSchema) sont réutilisés → aucune duplication du tracé ; le
+        //   canvas se re-rend à la nouvelle largeur (effet ci-dessus) → coordonnées exactes pour cette vue.
+        <div role={imageAgrandie ? 'dialog' : undefined} aria-modal={imageAgrandie || undefined} aria-label={imageAgrandie ? 'Visionneuse agrandie — tracer en grand' : undefined}
           style={imageAgrandie
-            ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
+            ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
             : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
           {/* DEMANDE 1 — LIGNE D'OUTILS au-dessus des DEUX images (span 2 colonnes) : zoom + « mode grandes images » à gauche, « Agrandir le schéma » à l'extrême droite. */}
           {ligneOutils}
@@ -1012,9 +982,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
           {/* Colonne de droite — DEMANDE 1 : le SCHÉMA en PREMIER, aligné à la MÊME HAUTEUR que l'image à gauche (les deux cadres démarrent
               sur la même ligne). La rotation, le bandeau de sélection et le guidage descendent SOUS le schéma. 🔴 RÈGLE ABSOLUE : le
               repère de coordonnées du calage (SchemaParcelleTrace, SVG « meet ») est INCHANGÉ — seul l'ordre des blocs voisins a bougé. */}
-          {/* Colonne SCHÉMA — RETIRÉE quand le PLAN est seul en plein écran (`imageAgrandie`) : display:none (le tracé/calage et l'état sont
-              PRÉSERVÉS, rien n'est démonté ; ils réapparaissent intacts à la sortie). Le schéma s'agrandit par SON propre bouton (pleinEcran). */}
-          <div style={{ display: imageAgrandie ? 'none' : 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} statuts={statutParCleabs}
               onCliquer={retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined)} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
             {/* La rotation est REMONTÉE dans la ligne d'outils (au-dessus du schéma, même ligne que le zoom) ; ne reste ici que le bandeau de sélection. */}
