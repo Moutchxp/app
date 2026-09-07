@@ -272,7 +272,7 @@ describe('LOT 96 — liste « N pages ajoutées à la main » repliable, replié
 
 describe('LOT 91 — aperçu collant + liste bornée : l’aperçu reste en face de la ligne cliquée (garde par lecture de source)', () => {
   it('le panneau d’APERÇU est COLLANT (position sticky, ancré en haut de sa colonne)', () => {
-    expect(SRC).toMatch(/: '2 1 300px', minWidth: 0, position: 'sticky'/); // la colonne aperçu porte position sticky (branche par défaut ; LOT 3a : '1 1 100%' seulement si titreEnEntete)
+    expect(SRC).toMatch(/'2 1 300px'[\s\S]{0,80}position: 'sticky'/); // la colonne aperçu porte position sticky (branche par défaut ; '1 1 100%' + order seulement si titreEnEntete)
     expect(SRC).toContain("alignSelf: 'flex-start'");
     expect(SRC).toContain("top: '.5rem'");
   });

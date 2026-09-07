@@ -619,6 +619,14 @@ export function motStatutBatiment(s: StatutBatiment): string { return MOT_STATUT
  * PROJ-2b — BANDEAU de projection : dit AVANT le clic ce qui manque (« 2 bâtiments · 1 emprise tracée · 1 en attente »), et
  * NOMME les bâtiments en attente. Vert si passant, rouge sinon. Le mot porte l'info (la couleur n'est jamais seule).
  */
+/**
+ * LOT « cadre stable » — HAUTEUR FIXE de la zone de rendu (liseuse ET surface de dessin). Le cadre ne change plus de hauteur d'un plan
+ * à l'autre : le contenu (canvas, width:100%, collé en haut-gauche, taille RÉELLE) DÉFILE dans ce cadre s'il dépasse (overflow:auto sur
+ * un WRAPPER — jamais sur le conteneur de coordonnées, dont getBoundingClientRect reste live → calage intact). Valeur '62vh' : COHÉRENTE
+ * avec le `hauteurMax='62vh'` du schéma (SchemaParcelleTrace) → les deux colonnes ont la même hauteur visuelle. Une seule constante, à ajuster ici.
+ */
+export const HAUTEUR_CADRE_RENDU = '62vh';
+
 export function BandeauProjection({ verdict, nbValides = 0, nbAValider = 0 }: { verdict: VerdictProjection; nbValides?: number; nbAValider?: number }) {
   // SOURCE UNIQUE : resumeProjection décide le TON à partir de l'AVANCEMENT PAR BÂTIMENT. Jamais un ✓ vert tant que tout n'est pas
   //   validé : traçage incomplet → ROUGE « K en attente » ; tout couvert mais des emprises à valider → AMBRE « M validés · K à valider ».

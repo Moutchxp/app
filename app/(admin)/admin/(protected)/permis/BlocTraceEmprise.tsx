@@ -8,7 +8,7 @@ import {
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
+import { HAUTEUR_CADRE_RENDU, BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -857,22 +857,22 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   }
   if (vue === 'aucun-batiment') {
     // LOT 86 — LECTURE SEULE : le schéma reste CONSULTABLE (parcelle + empreinte + bâti BD TOPO) même sans bâtiment déclaré. `affichageTrace`
-    //   reste la SOURCE UNIQUE de décision (on ne duplique pas sa logique) ; ici on ne masque QUE les contrôles de TRACÉ (attacher une
-    //   emprise à un bâtiment, valider la projection), pas le dessin. RENDU PUR : aucune écriture, aucun calcul de verdict ajouté.
-    // Schéma LECTURE SEULE (colonne DROITE, comme le nominal) : parcelle + empreinte + bâti BD TOPO consultables sans bâtiment déclaré.
-    //   Aucun onCliquer (pas de tracé), pas de points de calage — géométrie du schéma STRICTEMENT inchangée.
+    //   reste la SOURCE UNIQUE de décision ; ici on ne masque QUE les contrôles de TRACÉ, pas le dessin. Aucun onCliquer (pas de tracé),
+    //   pas de points de calage — géométrie du schéma STRICTEMENT inchangée.
+    // LOT « alignement » — le SCHÉMA est le PREMIER élément de la carte (surface en haut, alignée sur la liseuse à gauche, cartes de
+    //   MÊME padding) ; rotation + sélection + options DESCENDENT dessous (comme le nominal). Carte svv-card pour la parité de padding.
     const blocSchema = boite ? (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+      <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+        <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesReperes, emprises, batiments)} />
         <RotationSchema angle={angle} onAngle={setAngle} />
         {bandeauSel}
-        <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesReperes, emprises, batiments)} />
         {/* Options d'AFFICHAGE (bâti existant / futur / repères / projection) — pilotage visuel, pas un contrôle de tracé. Porte aussi la légende de catégories. */}
         <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
         <LegendeProjectionEmprises legende={legendeProjection(polygonesReperes, emprises, batiments)} />
       </div>
     ) : (
       // HONNÊTETÉ (piège LOT 71) : rien à dessiner → dire CE QUI MANQUE, jamais un cadre vide muet.
-      <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Rien à dessiner pour l’instant : la parcelle du permis n’est pas disponible (empreinte non figée) — sans elle, ni le contour ni le bâti BD TOPO ne peuvent être cadrés.</div>
+      <div className="svv-card" role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Rien à dessiner pour l’instant : la parcelle du permis n’est pas disponible (empreinte non figée) — sans elle, ni le contour ni le bâti BD TOPO ne peuvent être cadrés.</div>
     );
     return (
       <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
@@ -932,8 +932,12 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               section basse) ; d) EN DERNIER : le bloc « Étape 1 — caler la vue » (encadré rouge). */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', minWidth: 0 }}>
             {/* a) IMAGE — conteneur NON transformé (repère du clic) ; le PDF + l'overlay sont dans un wrapper zoomé/déplacé. Glisser = déplacer (si zoomé), cliquer = poser un point.
-                🔴 RÈGLE ABSOLUE : géométrie du conteneur, canvas et repère de coordonnées INCHANGÉS — seul l'ORDRE des blocs autour a bougé. */}
-            <div ref={pdfContainerRef} style={{ position: 'relative', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', touchAction: 'none', cursor: zoom > 1 ? 'grab' : (tracable ? 'crosshair' : 'default') }}
+                🔴 RÈGLE ABSOLUE : le repère de coordonnées (top-left du conteneur via getBoundingClientRect, canvas width:100%, ratio) est INCHANGÉ.
+                CADRE À HAUTEUR FIXE + DÉFILEMENT INTERNE : la hauteur fixe et l'overflow sont portés par le WRAPPER extérieur, JAMAIS par le
+                conteneur `pdfContainerRef` → getBoundingClientRect reste live (r.left/r.top suivent le défilement) → cliquerPdf INCHANGÉ. Seul
+                `minHeight` du conteneur est fixé (vers le BAS uniquement : ni le top-left, ni la largeur du canvas, ni le ratio ne changent). */}
+            <div style={imageAgrandie ? undefined : { height: HAUTEUR_CADRE_RENDU, overflow: 'auto' }}>
+            <div ref={pdfContainerRef} style={{ position: 'relative', minHeight: imageAgrandie ? undefined : HAUTEUR_CADRE_RENDU, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', touchAction: 'none', cursor: zoom > 1 ? 'grab' : (tracable ? 'crosshair' : 'default') }}
               onPointerDown={onPdfPointerDown} onPointerMove={onPdfPointerMove} onPointerUp={onPdfPointerUp}>
               <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
                 <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: 'auto' }} />
@@ -945,6 +949,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 </svg>
               </div>
             </div>
+            </div>{/* fin du CADRE À HAUTEUR FIXE (wrapper à défilement interne — hauteur/overflow HORS du conteneur de coordonnées) */}
             {/* b) + c) BARRE PARTAGÉE (même composant que la planche), SOUS l'image : nav complète + voir-toutes + lien (haut), puis
                 statut/best-of/analyses (bas). Zoom + « mode grandes images » sont AU-DESSUS (ligneOutils). Zéro outil de tracé. */}
             <BarreVisionneusePieces pieceId={pieceId} nomCourant={nomCourant} page={page} nbPagesPiece={nbPagesPiece} echelle={planAffiche?.echelle ?? null}

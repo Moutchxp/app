@@ -6,7 +6,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist'; // type SEUL (erasé au runt
 import {
   construireBandePlans, bandeAvecOverrides, cibleBestOf, bornerPage,
   ListePiecesAnalyse, BandePlans, NavPieceLibre, ZoomPdf, etatAnalyseIA,
-  statutPageAnalyse, resumePagesAnalysees,
+  statutPageAnalyse, resumePagesAnalysees, HAUTEUR_CADRE_RENDU,
   type PiecePlan, type Plan, type EtatAnalyseIA,
 } from './TraceEmpriseRendu';
 import { BarreVisionneusePieces } from './BarreVisionneusePieces'; // INCRÉMENT-2 — barre de commandes PARTAGÉE (planche + tracé)
@@ -631,7 +631,9 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
     // MOBILE-FIRST : flex-wrap → deux colonnes en large (nav ~1/3, aperçu ~2/3), EMPILÉES en écran étroit (la nav passe AU-DESSUS de l'aperçu).
     //   Chaque colonne a minWidth:0 et le canvas fait width:100% de SA colonne → jamais de débordement horizontal de la page.
     <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-start' }}>
-      <div style={{ flex: titreEnEntete ? '1 1 100%' : '1 1 220px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+      <div style={{ flex: titreEnEntete ? '1 1 100%' : '1 1 220px', order: titreEnEntete ? 2 : 0, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+        {/* LOT « alignement » — en mode titre-en-tête (colonne « liseuse | schéma »), le titre DESCEND sous l'aperçu (order 2) pour que la
+            zone de rendu démarre au MÊME Y que le schéma de droite. Il n'est pas supprimé, seulement déplacé. */}
         <div style={{ fontSize: 12, fontWeight: 700 }}>Liseuse des pièces</div>
         {/* LOT « paire unique » + demande 2c — navigation, « voir toutes les pièces », zoom et « agrandir » ont TOUS quitté cette colonne :
             ils descendent SOUS l'aperçu, dans la barre partagée (slotNav / slotPieces) ; le zoom + « mode grandes images » sont AU-DESSUS
@@ -646,13 +648,18 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
       <div role={imageAgrandie ? 'dialog' : undefined} aria-modal={imageAgrandie || undefined} aria-label={imageAgrandie ? 'Aperçu agrandi' : undefined}
         style={imageAgrandie
           ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '.4rem' }
-          : { flex: titreEnEntete ? '1 1 100%' : '2 1 300px', minWidth: 0, position: 'sticky', top: '.5rem', alignSelf: 'flex-start' }}>
+          : { flex: titreEnEntete ? '1 1 100%' : '2 1 300px', order: titreEnEntete ? 1 : 0, minWidth: 0, position: 'sticky', top: '.5rem', alignSelf: 'flex-start', ...(titreEnEntete ? { display: 'flex', flexDirection: 'column', gap: '.4rem' } : {}) }}>
         {/* DEMANDE 1 — LIGNE D'OUTILS au-dessus de l'aperçu : zoom + « mode grandes images » (remontés de la barre). */}
         {ligneOutils}
         {/* LOT 91 — aucune pièce sélectionnée → le dire explicitement (jamais un cadre vide muet, règle LOT 71). */}
         {pieceId === null && <p role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: '0 0 .3rem' }}>Aucun aperçu ouvert : choisissez une pièce (best-of ci-contre ou « voir toutes les pièces du dossier »).</p>}
+        {/* CADRE À HAUTEUR FIXE + DÉFILEMENT INTERNE : le WRAPPER (jamais le conteneur de rendu) porte la hauteur fixe et l'overflow →
+            le canvas garde width:100% collé en haut-gauche à sa taille réelle, getBoundingClientRect du conteneur reste live (repère
+            passif ici, mais MÊME principe que la surface de dessin). `order:-1` en mode titre-en-tête : la surface passe en PREMIER pour
+            s'aligner sur le schéma. En mode agrandi, aucune hauteur imposée (plein écran). */}
+        <div style={{ order: titreEnEntete ? -1 : 0, ...(imageAgrandie ? {} : { height: HAUTEUR_CADRE_RENDU, overflow: 'auto' }) }}>
         <div ref={pdfContainerRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
-          style={{ position: 'relative', minHeight: '8rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', background: 'var(--color-svv-field)', touchAction: zoom > 1 ? 'none' : 'auto', cursor: zoom > 1 ? 'grab' : 'default' }}>
+          style={{ position: 'relative', minHeight: imageAgrandie ? '8rem' : HAUTEUR_CADRE_RENDU, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', background: 'var(--color-svv-field)', touchAction: zoom > 1 ? 'none' : 'auto', cursor: zoom > 1 ? 'grab' : 'default' }}>
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
             <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: 'auto' }} />
           </div>
@@ -669,6 +676,7 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
           {/* LOT 94 — la bascule best-of au grain PAGE n'est PLUS en surimpression sur l'aperçu (elle l'était aux LOTs 61/92) : elle vit
               maintenant dans la BARRE DE COMMANDES sous l'image (② ci-dessous), hors canvas → tokens de thème. Le canvas reste NU. */}
         </div>
+        </div>{/* fin du CADRE À HAUTEUR FIXE (wrapper à défilement interne) */}
         {/* LOT 94 / INCRÉMENT-2 — BARRE DE COMMANDES sous l'aperçu : composant PARTAGÉ (une seule vérité) avec « Bâtiments et projection ».
             Actions serveur inchangées (ouvrirDocumentComplet/changerPage/retirer/ajouterAuBestOf/reperer/analyserPage/annulerValeurPage). */}
         <BarreVisionneusePieces pieceId={pieceId} nomCourant={nomCourant} page={page} nbPagesPiece={nbPagesPiece} echelle={planAffiche?.echelle ?? null}
