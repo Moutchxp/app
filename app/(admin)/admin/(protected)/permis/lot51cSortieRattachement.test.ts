@@ -72,12 +72,12 @@ describe('LOT 51-C — UI : sortie gardée, condition manquante affichée ; bout
     expect(lire('app/(admin)/admin/(protected)/permis/ProjectionRendu.tsx')).not.toContain('export function BoutonValiderProjection'); // ni défini
     expect(s).toContain("action: 'sortir_vers_rattachement'");     // « Terminer l’analyse » (arrêt des relances) subsiste pour un dossier testé
   });
-  it('🔴 COMPLÉMENT — la CLÔTURE est le MÊME composant rendu à CINQ endroits (jamais cinq copies), condition unique clotureVisible', () => {
+  it('🔴 COMPLÉMENT — la CLÔTURE est le MÊME composant rendu à TROIS endroits (jamais des copies), condition unique clotureVisible', () => {
     expect(s).toContain('<ClotureVersRattachement');              // UN seul composant, dans le helper `rendreCloture`
-    expect((s.match(/rendreCloture\(/g) ?? []).length).toBe(5);   // 5 rendus (1 principal + 4 bouton) — pas cinq copies
-    expect(s).toContain("rendreCloture('principal')");            // 1er emplacement : message d'accompagnement
-    expect(s).toContain("rendreCloture('bouton')");               // les 4 autres : bouton seul
-    expect(s).toContain('clotureVisible(');                       // VISIBILITÉ = source unique (partagée avec le repli « Analyse déjà à jour… »)
+    expect((s.match(/rendreCloture\(/g) ?? []).length).toBe(3);   // 3 rendus (① principal + ③ et ⑤ bouton) — décision Arno : plus de rendus en HAUT des blocs
+    expect(s).toContain("rendreCloture('principal')");            // ① tête de fiche : message d'accompagnement
+    expect(s).toContain("rendreCloture('bouton')");               // ③/⑤ : bouton seul (bas des deux blocs)
+    expect(s).toContain('clotureVisible(');                       // VISIBILITÉ = source unique (partagée avec le repli « Analyse déjà à jour… » ET le n° en vert)
     expect(s).toContain("action: 'valider_permis'");              // écrit le marqueur de passage (même geste que l’auto-finalisation)
   });
   it('🔴 COMPLÉMENT — la ligne « Analyse déjà à jour… » RESTE quand le bouton n’est pas affiché (le bouton la remplace seulement s’il s’affiche)', () => {

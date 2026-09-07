@@ -251,11 +251,11 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         </BlocRepliable>
         {/* PROJ-3b — INSTRUCTION (caractéristiques + « + ajouter un bâtiment ») puis TRACÉ. Clés PRÉFIXÉES PAR RÔLE (unicité, cf. PART-2b),
             suffixe vAnalyse conservé : chaque enfant monté se remonte après « Lancer le diagnostic complet des documents ». Montés au dépliage (PERF-1). */}
-        {/* ②③ CLÔTURE — dans le CONTENU DÉPLOYÉ du bloc « Caractéristiques du permis (saisie) », en HAUT et en BAS (bouton seul). */}
+        {/* ③ CLÔTURE — dans le CONTENU DÉPLOYÉ du bloc « Caractéristiques du permis (saisie) », en BAS uniquement (bouton seul).
+            Le rendu du HAUT a été retiré (décision Arno : trop de boutons). */}
         <BlocRepliable key={`w-carac-${ouvert}`} titre={<TitreFamilleEtat base="Caractéristiques du permis (saisie)" etat={etatAlt} />}>
           {() => (
             <div className="flex flex-col gap-2">
-              {rendreCloture('bouton')}
               <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />
               {rendreCloture('bouton')}
             </div>
@@ -269,9 +269,8 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         <BlocRepliable key={`w-bat-${ouvert}`} titre={<TitreFamilleEtat base="Bâtiments et projection (emprise)" etat={etatProj} />} onOuvertChange={setBatimentsOuvert}>
           {() => (
             <div className="flex flex-col gap-2">
-              {/* ④ CLÔTURE — en HAUT du contenu déployé (bouton seul). Le bouton GLOBAL « Valider la projection » a été retiré (a922f67) :
-                  la validation passe par la chaîne par bâtiment (enregistrer → valider → modifier) + cette clôture. */}
-              {rendreCloture('bouton')}
+              {/* Le bouton GLOBAL « Valider la projection » a été retiré (a922f67) : la validation passe par la chaîne par bâtiment
+                  (enregistrer → valider → modifier) + la clôture. Le rendu du HAUT a été retiré (décision Arno : trop de boutons). */}
               <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} onEntete={setEnteteProjection} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} onEmprisesChange={() => setVEmprise((v) => v + 1)} />
               {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
               {/* ⑤ CLÔTURE — en BAS du contenu déployé (bouton seul). */}
