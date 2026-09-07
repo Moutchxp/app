@@ -183,6 +183,17 @@ async function ecrireProjectionValidee(q: RequeteTx, dossierId: number, par: str
              VALUES ($1, 'suivi_apres_projection', NULL, 'en_attente_bati', $2::jsonb, $3)`,
       [r[0].id, JSON.stringify({ origine: 'projection' }), par]);
   }
+  // PC-2 (perfo) — PURGE du best-of persisté À L'ENTRÉE EN RATTACHEMENT : le dossier quitte l'instruction, son pré-calcul (PC-1) n'a plus
+  //   lieu d'être et sera recalculé proprement si l'on revient en Analyse. Dans la MÊME transaction que le jalon (atomique), mais ISOLÉE
+  //   par un SAVEPOINT : table absente (208 non appliquée) ou purge KO → on annule la SEULE purge (sinon un statement en échec abort toute
+  //   la transaction Postgres), JAMAIS la validation de projection. Best-effort : accélérateur, jamais prérequis.
+  await q('SAVEPOINT sp_purge_best_of');
+  try {
+    await q(`DELETE FROM permis_best_of_precalcul WHERE dossier_id = $1`, [dossierId]);
+    await q('RELEASE SAVEPOINT sp_purge_best_of');
+  } catch {
+    await q('ROLLBACK TO SAVEPOINT sp_purge_best_of'); // purge non bloquante : la transaction poursuit et valide la projection
+  }
   return marqueSuivi;
 }
 
