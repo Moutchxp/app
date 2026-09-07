@@ -7,7 +7,7 @@ import {
 } from '../../../../lib/permis/calageEmprise';
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
-import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise
+import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
 import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome (best-of, navigation, zoom) réutilisée à 0 bâtiment
@@ -38,9 +38,10 @@ const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
 const SEUIL_SOMMET_BOITE = 12; // PROJ-3s — rayon de capture d'un sommet au clic (unités de la boîte du schéma) : cible TACTILE, pas un seuil métier.
 type ModeRetouche = 'deplacer' | 'inserer' | 'supprimer';
 
-export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true, onValeurLue, onEmprisesChange }: {
+export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true, onValeurLue, onEmprisesChange, onEntete }: {
   dossierId: number;
   onVerdict?: (v: VerdictProjection) => void;
+  onEntete?: (etat: { ton: 'vert' | 'rouge'; texte: string }) => void; // ③ COMPLÉMENT — état de l'en-tête « Bâtiments et projection » (validée / ce qui manque) remonté au parent pour le titre repliable
   onEmprisesChange?: () => void; // une MUTATION d'emprise (enregistrement / suppression / adoption / retouche) a changé la base → le
                                  //   parent re-fetche CaracteristiquesBloc (capsule d'emprise du cartouche). Jamais appelé au chargement.
   rafraichir?: number; // PROJ-3b — signal du parent : incrémenté quand l'instruction change (ajout de bâtiment) → recharge la liste
@@ -67,6 +68,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const [batiments, setBatiments] = useState<BatimentProjection[]>([]);
   const [emprises, setEmprises] = useState<EmpriseReconstruite[]>([]);
   const [validationParCorps, setValidationParCorps] = useState<Record<number, boolean>>({}); // VALIDATION PAR BÂTIMENT (corpsId → validée) : pastille + bandeau dérivent des MÊMES faits que la capsule du cartouche
+  const [altitudeValideeParCorps, setAltitudeValideeParCorps] = useState<Record<number, boolean>>({}); // ③ COMPLÉMENT — altitude de sommet validée par bâtiment : avec l'emprise, décide l'en-tête « Projection(s) validée(s) »
   const [ignores, setIgnores] = useState<ProjectionIgnoree[]>([]);
   const [contexte, setContexte] = useState<Contexte | null>(null);
   const [polygones, setPolygones] = useState<PolygoneBdTopo[]>([]); // PROJ-3h — polygones BD TOPO (∩ empreinte) + état, pour l'affichage
@@ -174,11 +176,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`, { cache: 'no-store' });
         if (annule) return;
         if (!res.ok) { setEtat('erreur'); setMessage('Bâtiments indisponibles (le serveur n’a pas répondu).'); return; }
-        const j = await res.json() as { pieces: Piece[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; selection?: SelectionInfo; indisponibles?: string[]; reperageRuns?: Record<number, RunReperageAffiche>; lecturesPages?: Record<number, LecturePageAffiche[]>; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; validationParCorps?: Record<number, boolean>; origineExtractionSansIa?: 'auto' | 'manuelle' | null };
+        const j = await res.json() as { pieces: Piece[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; selection?: SelectionInfo; indisponibles?: string[]; reperageRuns?: Record<number, RunReperageAffiche>; lecturesPages?: Record<number, LecturePageAffiche[]>; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; validationParCorps?: Record<number, boolean>; altitudeValideeParCorps?: Record<number, boolean>; origineExtractionSansIa?: 'auto' | 'manuelle' | null };
         // Résilience serveur : « indisponible » ≠ « vide ». Si la lecture des BÂTIMENTS a échoué, on n'affiche JAMAIS « 0 bâtiment »
         //   (panne déguisée en donnée) → état d'échec explicite invitant à recharger.
         if (j.indisponibles?.includes('batiments')) { setEtat('erreur'); setMessage('Bâtiments indisponibles : rechargez.'); return; }
-        setPieces(j.pieces); setPiecesNonSupportees(j.piecesNonSupportees ?? []); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setStatutsLignes(j.statutsPolygones ?? []); setRecouverts(j.polygonesRecouverts ?? []); setSelection(j.selection ?? { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null }); setConfirmeSel(false); setAngle(0); setDebordement(null); setValidationParCorps(j.validationParCorps ?? {});
+        setPieces(j.pieces); setPiecesNonSupportees(j.piecesNonSupportees ?? []); setEmprises(j.emprises); setIgnores(j.ignores); setBatiments(j.batiments ?? []); setContexte(j.contexte); setPolygones(j.polygones ?? []); setEcartes(j.polygonesEcartes ?? []); setStatutsLignes(j.statutsPolygones ?? []); setRecouverts(j.polygonesRecouverts ?? []); setSelection(j.selection ?? { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null }); setConfirmeSel(false); setAngle(0); setDebordement(null); setValidationParCorps(j.validationParCorps ?? {}); setAltitudeValideeParCorps(j.altitudeValideeParCorps ?? {});
         // INCRÉMENT-2 — audits d'analyse IA + overrides best-of (mêmes champs que la planche, déjà renvoyés par le GET).
         setRuns(j.reperageRuns ?? {}); setLectures(j.lecturesPages ?? {}); setOrigineSansIa(j.origineExtractionSansIa ?? null);
         setExclus(new Set((j.exclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`))); setInclus(new Set((j.inclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`)));
@@ -322,6 +324,17 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const ignoreDuBat = ignores.find((i) => i.corpsId === corpsEffectif) ?? null;
   // Origine de l'emprise COURANTE : si adoptée (IGN), les repères de calage/échelle ne s'appliquent pas (PROJ-3r).
   const origineIgnCourant = empriseDuBat.some((e) => e.provenance === 'ign_adopte' || e.provenance === 'ign_retouche');
+
+  // ① COMPLÉMENT — l'ÉTAPE de la chaîne (un seul bouton visible) DÉRIVE de la SOURCE UNIQUE `statutEmpriseBatiment` (comme la capsule).
+  const statutSel = corpsEffectif !== null ? statutEmpriseBatiment(empriseDuBat.length > 0, ignoreDuBat !== null, validationParCorps[corpsEffectif] ?? false) : 'a_tracer';
+  const etapeChaine = batSel ? etapeChaineEmprise(statutSel, sommets.length >= 3) : null;
+  // ③ COMPLÉMENT — état de l'en-tête « Bâtiments et projection » : VERT quand TOUS les bâtiments ont altitude ET emprise validées (source unique).
+  const enteteEtat = useMemo(() => {
+    const nbSansAlt = batiments.filter((b) => !(altitudeValideeParCorps[b.corpsId] ?? false)).length;
+    const nbSansEmp = batiments.filter((b) => !(validationParCorps[b.corpsId] ?? false)).length;
+    return etatEnteteProjection(batiments.length, nbSansAlt, nbSansEmp);
+  }, [batiments, altitudeValideeParCorps, validationParCorps]);
+  useEffect(() => { if (etat === 'ok') onEntete?.(enteteEtat); }, [enteteEtat, onEntete, etat]);
 
   // 🔴 RENDU PDF DÉLIBÉRÉMENT DISTINCT de la liseuse de la planche (LiseusePieces) — NE PAS UNIFIER (décision Arno 31/08/2026, arrêt du
   //   LOT 14 ; ré-confirmée au chantier « unification des visionneuses », Option 1). CE rendu calcule le viewport au scale
@@ -577,6 +590,34 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       onEmprisesChange?.(); // capsule du cartouche : l'emprise vient d'être créée → re-fetch de CaracteristiquesBloc
     } catch { setMessage('erreur d’enregistrement'); } finally { setOccupe(false); }
   }, [sim, sommets, corpsEffectif, batSel, dossierId, pieceId, page, paires, ratioDeclare, onEmprisesChange]);
+
+  // ① COMPLÉMENT — VALIDER l'emprise du bâtiment sélectionné. MÊME validation que la capsule du cartouche (route caracteristiques,
+  //   action valider_emprise → validerEmpriseBatiment + auto-finalisation gated par le mode) → SOURCE UNIQUE, jamais un 2e critère.
+  //   Après succès : recharge LOCALE (la chaîne avance à « Modifier ») + onEmprisesChange (② la capsule passe au vert sans rechargement).
+  const validerEmpriseChaine = useCallback(async () => {
+    if (corpsEffectif === null) return;
+    setOccupe(true); setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/caracteristiques', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'valider_emprise', dossierId, corpsId: corpsEffectif }) });
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
+      if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'validation impossible'); return; } // jamais un bouton muet (règle corrigée 3× cette nuit)
+      setRechargeLocal((n) => n + 1); onEmprisesChange?.();
+    } catch { setMessage('validation impossible'); } finally { setOccupe(false); }
+  }, [corpsEffectif, dossierId, onEmprisesChange]);
+
+  // ① COMPLÉMENT — MODIFIER une emprise VALIDÉE = la REPRENDRE : fait RETOMBER sa validation (devalider_emprise ; règle en base :
+  //   emprise_validee_id + FK ON DELETE SET NULL). La chaîne repart à « Valider » et l'écran le DIT ; retoucher/effacer (carte) redeviennent le détail.
+  const modifierEmpriseChaine = useCallback(async () => {
+    if (corpsEffectif === null) return;
+    setOccupe(true); setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/caracteristiques', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'devalider_emprise', dossierId, corpsId: corpsEffectif }) });
+      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
+      if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'modification impossible'); return; }
+      setMessage('Validation retirée : vous pouvez retoucher, effacer ou re-valider l’emprise.');
+      setRechargeLocal((n) => n + 1); onEmprisesChange?.();
+    } catch { setMessage('modification impossible'); } finally { setOccupe(false); }
+  }, [corpsEffectif, dossierId, onEmprisesChange]);
 
   const posterProjection = useCallback(async (action: 'ignorer' | 'retablir' | 'supprimer', corps: number, extra: Record<string, unknown> = {}) => {
     setOccupe(true); setMessage(null);
@@ -960,11 +1001,28 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             {/* PROJ — repère « qualité du calage » : écart d'échelle (réutilisé du pavé de calage) + débordement hors parcelle (serveur). Jamais bloquant. */}
             <RepereQualiteCalage ecartEchelleRelatif={vc?.ecartEchelleRelatif ?? null} ratioImplicite={vc?.ratioImplicite ?? null} ratioDeclare={vc?.ratioDeclare ?? null}
               debordement={sommets.length >= 3 || sommets.length === 0 ? debordement : null} contourFerme={sommets.length >= 3} parcelleRattachee={parcelle.length > 0} origineIgn={origineIgnCourant && sommets.length < 3} />
-            <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe || !tracable || !sim || sommets.length < 3} onClick={() => void enregistrer()}>
-              Enregistrer l’emprise de {libelleBatiment(batSel)}
-            </button>
-            {/* BUG PROV — le RÉSULTAT de l'enregistrement (succès OU erreur serveur) s'affiche ICI, au point d'action : un bouton MUET
-                (message rendu hors de vue) était le pire cas. Toute erreur est désormais dite en clair, à côté du bouton. */}
+            {/* ① COMPLÉMENT — CHAÎNE DE TROIS BOUTONS PAR BÂTIMENT : UN SEUL visible selon l'état (source unique `etapeChaineEmprise`),
+                ROUGE plein (facture « Enregistrer ce bâtiment » = svv-btn-primary), nommant le bâtiment par son repère réel. Au clic, l'état
+                avance (l'indicateur vert apparaît, le bouton suivant s'affiche). Toute erreur est DITE (jamais un bouton muet). */}
+            {etapeChaine === 'enregistrer' && (
+              <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe || !tracable || !sim || sommets.length < 3} onClick={() => void enregistrer()}>
+                Enregistrer l’emprise de {libelleBatiment(batSel!)}
+              </button>
+            )}
+            {etapeChaine === 'valider' && (
+              <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe} onClick={() => void validerEmpriseChaine()}>
+                Valider l’emprise de {libelleBatiment(batSel!)}
+              </button>
+            )}
+            {etapeChaine === 'modifier' && (
+              <>
+                <div role="status" style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-green-ink)' }}>✓ Emprise de {libelleBatiment(batSel!)} validée</div>
+                <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe} onClick={() => void modifierEmpriseChaine()}>
+                  Modifier l’emprise de {libelleBatiment(batSel!)}
+                </button>
+              </>
+            )}
+            {/* BUG PROV — le RÉSULTAT (succès OU erreur serveur) s'affiche ICI, au point d'action : un bouton MUET était le pire cas. */}
             {message && <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-svv-red)' }}>{message}</div>}
 
             {/* Emprises de CE bâtiment : retoucher (mono-polygone) ou effacer. */}

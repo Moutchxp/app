@@ -12,6 +12,7 @@
  */
 
 import { nomAffichageCorps } from './nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
+import { estValidationAcquise } from './rattachementGroupes'; // ③ COMPLÉMENT — SOURCE UNIQUE du « franchi le process » (altitudes + emprises validées) pour l'en-tête
 
 export interface BatimentProjection { corpsId: number; repere: string | null; nomRepli?: string | null } // NOM-1 — nom de repli maison (BP{rang}) si aucun repere document
 
@@ -50,6 +51,34 @@ export function statutEmpriseBatiment(aEmprise: boolean, ignore: boolean, empris
   if (aEmprise) return 'a_valider';
   return 'a_tracer';
 }
+/**
+ * ① COMPLÉMENT (chaîne de boutons par bâtiment) — l'ÉTAPE courante (UN SEUL bouton visible), DÉRIVÉE de la SOURCE UNIQUE
+ * `statutEmpriseBatiment`. Un tracé actif (contour en cours) prime : c'est l'action immédiate → 'enregistrer'. Sinon, selon le statut
+ * ENREGISTRÉ : 'validee' → 'modifier' (reprendre une emprise déjà validée, ce qui fera retomber sa validation) ; 'a_valider' → 'valider' ;
+ * 'a_tracer'/'ignoree' → null (rien à enchaîner : on trace avec les outils, ou la projection est explicitement ignorée). PUR.
+ */
+export function etapeChaineEmprise(statut: StatutEmpriseBatiment, traceActive: boolean): 'enregistrer' | 'valider' | 'modifier' | null {
+  if (traceActive) return 'enregistrer';
+  if (statut === 'validee') return 'modifier';
+  if (statut === 'a_valider') return 'valider';
+  return null;
+}
+
+/**
+ * ③ COMPLÉMENT — ÉTAT de l'EN-TÊTE « Bâtiments et projection » : VERT « Projection(s) validée(s) » quand TOUS les bâtiments ont
+ * altitude de sommet validée ET emprise validée (SOURCE UNIQUE `estValidationAcquise`) ; sinon ROUGE disant CE QUI MANQUE. PUR.
+ */
+export function etatEnteteProjection(nbBatiments: number, nbSansAltitudeValidee: number, nbSansEmpriseValidee: number): { ton: 'vert' | 'rouge'; texte: string } {
+  if (nbBatiments === 0) return { ton: 'rouge', texte: 'projection non validée (aucun bâtiment déclaré)' };
+  if (estValidationAcquise(nbBatiments, nbSansAltitudeValidee, nbSansEmpriseValidee)) {
+    return { ton: 'vert', texte: nbBatiments > 1 ? 'Projections validées' : 'Projection validée' };
+  }
+  const manque: string[] = [];
+  if (nbSansAltitudeValidee > 0) manque.push(`${nbSansAltitudeValidee} altitude${nbSansAltitudeValidee > 1 ? 's' : ''} de sommet`);
+  if (nbSansEmpriseValidee > 0) manque.push(`${nbSansEmpriseValidee} emprise${nbSansEmpriseValidee > 1 ? 's' : ''}`);
+  return { ton: 'rouge', texte: `projection non validée — à valider : ${manque.join(' et ')}` };
+}
+
 /** VOCABULAIRE UNIQUE (court) par état — employé à l'identique par la pastille du sélecteur. « bâtiment »/« polygone » ; jamais « corps ». */
 export const MOT_STATUT_EMPRISE: Record<StatutEmpriseBatiment, string> = {
   validee: '✓ emprise validée',

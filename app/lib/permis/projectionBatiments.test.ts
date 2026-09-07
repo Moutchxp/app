@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { verdictProjectionBatiments, libelleBatiment, eligibleProjection, effetValidationProjection } from './projectionBatiments';
+import { verdictProjectionBatiments, libelleBatiment, eligibleProjection, effetValidationProjection, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection } from './projectionBatiments';
 
 const B = [{ corpsId: 1, repere: '2D1' }, { corpsId: 2, repere: '2D2' }];
 // emprise « de couverture » : corpsId + provenance (trace par défaut).
@@ -108,5 +108,51 @@ describe('PROJ-2c — effet de « Valider la projection » (pure)', () => {
   it('!peutValider → aucun avancement (ne fait rien)', () => {
     const e = effetValidationProjection(false);
     expect(e).toMatchObject({ valide: false, etatSuiviCible: null, retireDeFile: false });
+  });
+});
+
+describe('① COMPLÉMENT — etapeChaineEmprise : UN SEUL bouton par état, dérivé de la SOURCE UNIQUE statutEmpriseBatiment', () => {
+  it('un tracé actif (contour en cours) → « enregistrer », quel que soit le statut enregistré', () => {
+    expect(etapeChaineEmprise('a_tracer', true)).toBe('enregistrer');
+    expect(etapeChaineEmprise('a_valider', true)).toBe('enregistrer'); // retracer par-dessus une emprise enregistrée
+    expect(etapeChaineEmprise('validee', true)).toBe('enregistrer');
+  });
+  it('🔴 « valider » n’apparaît QUE sur une emprise ENREGISTRÉE non validée (jamais sans emprise)', () => {
+    expect(etapeChaineEmprise('a_valider', false)).toBe('valider');
+    expect(etapeChaineEmprise('a_tracer', false)).toBeNull();   // rien à valider : pas d'emprise
+    expect(etapeChaineEmprise('ignoree', false)).toBeNull();
+  });
+  it('🔴 « modifier » n’apparaît QUE sur une emprise VALIDÉE (jamais sans validation)', () => {
+    expect(etapeChaineEmprise('validee', false)).toBe('modifier');
+    expect(etapeChaineEmprise('a_valider', false)).not.toBe('modifier');
+  });
+  it('SÉQUENCE — un clic réussi fait apparaître le bouton SUIVANT (état qui avance = source unique)', () => {
+    // tracé → enregistré : statut passe de a_tracer à a_valider → étape « valider » apparaît
+    expect(etapeChaineEmprise(statutEmpriseBatiment(false, false, false), true)).toBe('enregistrer');
+    expect(etapeChaineEmprise(statutEmpriseBatiment(true, false, false), false)).toBe('valider');   // après enregistrement
+    expect(etapeChaineEmprise(statutEmpriseBatiment(true, false, true), false)).toBe('modifier');   // après validation
+    // modifier fait retomber la validation → retour à « valider »
+    expect(etapeChaineEmprise(statutEmpriseBatiment(true, false, false), false)).toBe('valider');
+  });
+});
+
+describe('③ COMPLÉMENT — etatEnteteProjection : VERT ssi TOUS les bâtiments alt ET emprise validées ; sinon dit ce qui manque', () => {
+  it('tous validés (alt + emprise) → VERT « Projection(s) validée(s) »', () => {
+    expect(etatEnteteProjection(1, 0, 0)).toEqual({ ton: 'vert', texte: 'Projection validée' });
+    expect(etatEnteteProjection(3, 0, 0)).toEqual({ ton: 'vert', texte: 'Projections validées' });
+  });
+  it('🔴 un bâtiment sans altitude validée → PAS « validée » (rouge, dit l’altitude manquante)', () => {
+    const e = etatEnteteProjection(3, 1, 0);
+    expect(e.ton).toBe('rouge');
+    expect(e.texte).toContain('altitude');
+    expect(e.texte).not.toContain('Projection validée');
+  });
+  it('🔴 un bâtiment sans emprise validée → PAS « validée » (rouge, dit l’emprise manquante)', () => {
+    const e = etatEnteteProjection(3, 0, 2);
+    expect(e.ton).toBe('rouge');
+    expect(e.texte).toContain('emprise');
+  });
+  it('🔴 0 bâtiment → jamais « validée » (piège LOT 71)', () => {
+    expect(etatEnteteProjection(0, 0, 0).ton).toBe('rouge');
   });
 });
