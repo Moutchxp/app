@@ -10,7 +10,7 @@
  *    Une pièce simplement ILLISIBLE (contenu sans couche texte) est DÉTERMINISTE → `cachable` reste vrai.
  * PUR côté I/O réseau : toute lecture d'objet / extraction passe par les `deps` injectées (testable sans MinIO ni pdf.js).
  */
-import { lireGedPermis, type DepsLectureGed, type PieceGedMeta } from './lectureGed';
+import { lireGedPermis, type DepsLectureGed, type PieceGedMeta, type ResultatLectureGed } from './lectureGed';
 import { classerPiecesParFamille, pagesPlanches, lireEchelleTexte, tracabilitePlanche, type FamillePlan } from './planMasse';
 import { familleDeContenu, niveauxDeContenu } from './planMasseContenu'; // PROV : famille + niveaux par le CONTENU
 import { estPieceCerfaPc } from './identifierCerfa'; // LOT 66 — reconnaissance du Cerfa PC par CONTENU (n° 13409)
@@ -26,17 +26,37 @@ export function estPiecePdf(p: { typeMime: string | null; nomFichier: string }):
 }
 
 /**
+ * Une lecture de GED prête pour le calcul : le résultat brut + le signal d'échec de TÉLÉCHARGEMENT/EXTRACTION (prudence P1) + les
+ * indisponibilités à remonter. Extraite pour être PARTAGÉE : le producteur de fond (P-fond 4b) lit la GED UNE seule fois et en tire À LA
+ * FOIS le best-of ET la complétude — jamais deux lectures du même dossier.
+ */
+export interface LectureGedCalcul { ged: ResultatLectureGed; echec: boolean; indis: string[] }
+
+/** Lit la GED une fois, avec la MÊME détection d'échec que `calculerBestOf` (catastrophe → ged vide + echec ; échec par pièce via motif). */
+export async function lireGedPourCalcul(dossierId: number, deps: DepsLectureGed): Promise<LectureGedCalcul> {
+  try {
+    const ged = await lireGedPermis(dossierId, deps);
+    // Un échec de TÉLÉCHARGEMENT/EXTRACTION d'une pièce (motif « échec … ») rend le calcul NON cachable (prudence P1).
+    const echec = ged.pieces.some((g) => g.motif != null && (g.motif.startsWith('échec de lecture') || g.motif.startsWith('échec d’extraction')));
+    return { ged, echec, indis: [] };
+  } catch (e) {
+    console.error(`[best-of] source indisponible: contenu`, { dossierId, message: e instanceof Error ? e.message : String(e) });
+    return { ged: { dossierId, pieces: [], bilan: { nbPieces: 0, nbPages: 0, pagesAvecTexte: 0, pagesSansTexte: 0, piecesMuettes: 0 } }, echec: true, indis: ['contenu'] };
+  }
+}
+
+/**
  * Calcule le best-of d'un dossier à partir de ses pièces PDF (déjà filtrées par `estPiecePdf`) et des `deps` de lecture GED.
  * Rend `{ valeur, cachable }`. Ne LIT ni n'ÉCRIT le persisté : la persistance (empreinte, `calcule_par`) appartient à l'appelant
  * (route → 'a_la_volee', producteur de fond → 'fond'), qui n'écrit QUE si `cachable`.
+ * `lecturePreLue` (P-fond 4b) : lecture GED déjà faite par l'appelant (mutualisation best-of + complétude) ; ABSENTE → lecture interne
+ * (chemin de la route, INCHANGÉ).
  */
-export async function calculerBestOf(dossierId: number, piecesPdf: PieceGedMeta[], deps: DepsLectureGed): Promise<{ valeur: BestOfValeur; cachable: boolean }> {
-  const indisGed: string[] = []; let echecTelechargement = false;
-  let ged: Awaited<ReturnType<typeof lireGedPermis>>;
-  try { ged = await lireGedPermis(dossierId, deps); }
-  catch (e) { indisGed.push('contenu'); console.error(`[best-of] source indisponible: contenu`, { dossierId, message: e instanceof Error ? e.message : String(e) }); ged = { pieces: [] } as unknown as Awaited<ReturnType<typeof lireGedPermis>>; echecTelechargement = true; }
-  // Un échec de TÉLÉCHARGEMENT/EXTRACTION d'une pièce (motif « échec … ») rend le calcul NON cachable (prudence P1).
-  if (ged.pieces.some((g) => g.motif != null && (g.motif.startsWith('échec de lecture') || g.motif.startsWith('échec d’extraction')))) echecTelechargement = true;
+export async function calculerBestOf(dossierId: number, piecesPdf: PieceGedMeta[], deps: DepsLectureGed, lecturePreLue?: LectureGedCalcul): Promise<{ valeur: BestOfValeur; cachable: boolean }> {
+  const lecture = lecturePreLue ?? await lireGedPourCalcul(dossierId, deps);
+  const ged = lecture.ged;
+  const indisGed: string[] = [...lecture.indis];
+  let echecTelechargement = lecture.echec;
   const texteParId = new Map(ged.pieces.map((p) => [p.id, p.pages.filter((x) => x.aTexte).map((x) => x.texte)] as const));
   const proposeesAutres = classerPiecesParFamille(piecesPdf, (p) => familleDeContenu(texteParId.get(p.id) ?? []));
   const niveauxParId = new Map<number, string[]>(); // PROV : niveaux portés par une planche d'ÉTAGE (RDC/SSOL/R+n), quand connus par le CONTENU

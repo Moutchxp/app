@@ -23,7 +23,8 @@
 import { query } from '../db/client';
 import { depsReellesLectureGed, type DepsLectureGed, type PieceGedMeta } from '../permis/lectureGed';
 import { empreinteGed } from '../permis/bestOfCache';
-import { calculerBestOf, estPiecePdf } from '../permis/bestOfCalcul';
+import { calculerBestOf, estPiecePdf, lireGedPourCalcul } from '../permis/bestOfCalcul';
+import { memoriserClassementsCompletude } from '../permis/completudeRepo'; // P-fond 4b — complétude mutualisée sur la MÊME lecture GED
 import { ecrireBestOfPersiste, TYPE_BEST_OF, type BestOfValeur } from '../permis/bestOfPersistance';
 
 /**
@@ -112,7 +113,16 @@ export function depsReellesPrecalculBestOf(): DepsPrecalculBestOf {
       const empreinte = empreinteGed(piecesPdf.map((p) => ({ id: p.id, cleStockage: p.cleStockage, tailleOctets: p.tailleOctets, nomFichier: p.nomFichier })));
       return { empreinte, piecesPdf };
     },
-    calculer: (dossierId, piecesPdf) => calculerBestOf(dossierId, piecesPdf, depsGed),
+    calculer: async (dossierId, piecesPdf) => {
+      // P-fond 4b — UNE seule lecture GED alimente les DEUX résultats (plus de 3e lecture pour la complétude, mesurée ~8,5 s au profilage).
+      const lecture = await lireGedPourCalcul(dossierId, depsGed);
+      const best = await calculerBestOf(dossierId, piecesPdf, depsGed, lecture);
+      // COMPLÉTUDE mutualisée : mémorise la matière STABLE (classements) dans sa table dédiée permis_completude, SI la GED n'est pas dégradée
+      //   (même garde echec que le best-of). La part VIVANTE (config_veille) reste appliquée À LA VOLÉE par lireCompletude → un changement de
+      //   réglage est reflété IMMÉDIATEMENT (jamais au prochain tick). Best-effort (memoriser avale ses erreurs) ; jamais de levée de partiel ici.
+      if (!lecture.echec) await memoriserClassementsCompletude(dossierId, lecture.ged, 'completude:fond');
+      return best;
+    },
     persister: (dossierId, empreinte, valeur) => ecrireBestOfPersiste(dossierId, empreinte, valeur, 'fond'),
   };
 }

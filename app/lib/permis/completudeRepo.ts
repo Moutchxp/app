@@ -12,8 +12,13 @@ import { classerPiece, lignesDepuisClassements, famillesAttenduesDepuisConfig, t
 import { resumeCompletude } from './completudeResume'; // RATT-1 — MÊME règle « incomplet » que le bilan de titre (source unique)
 import type { ResultatLectureGed } from './lectureGed';
 
-/** Calcule le classement PAR CONTENU des pièces déjà lues (ged) et le mémorise. NO-OP résilient si la table est absente (174). */
-export async function enregistrerCompletude(dossierId: number, ged: ResultatLectureGed, calculePar: string): Promise<void> {
+/**
+ * Mémorise UNIQUEMENT la matière STABLE dérivée de la GED : le classement PAR CONTENU des pièces déjà lues (ged), config-INDÉPENDANT.
+ * AUCUN effet de bord (pas de levée de partiel). NO-OP résilient si la table est absente (174). C'est ce que le pré-calcul de fond
+ * (P-fond 4b, mutualisé avec le best-of) mémorise : la part VIVANTE (config_veille) reste appliquée À LA VOLÉE par `lireCompletude`
+ * → un changement de réglage est reflété IMMÉDIATEMENT, jamais figé dans la ligne mémorisée.
+ */
+export async function memoriserClassementsCompletude(dossierId: number, ged: ResultatLectureGed, calculePar: string): Promise<void> {
   const classements: ClassementPiece[] = ged.pieces.map((p) => classerPiece({
     nomFichier: p.nomFichier,
     pagesTexte: p.pages.filter((pg) => pg.aTexte).map((pg) => pg.texte),
@@ -26,8 +31,18 @@ export async function enregistrerCompletude(dossierId: number, ged: ResultatLect
          SET classements = EXCLUDED.classements, nb_pieces = EXCLUDED.nb_pieces, calcule_le = EXCLUDED.calcule_le, calcule_par = EXCLUDED.calcule_par`,
       [dossierId, JSON.stringify(classements), ged.pieces.length, calculePar]);
   } catch { /* 174 non appliquée → pas de mémoire ; l'affichage proposera de lancer l'analyse */ }
+}
+
+/**
+ * Calcule le classement PAR CONTENU des pièces déjà lues (ged) et le mémorise, PUIS évalue la levée auto du marqueur « dossier partiel ».
+ * = `memoriserClassementsCompletude` + effet de bord CASC-1. Comportement INCHANGÉ (chemins d'analyse / relance). NO-OP résilient (174).
+ */
+export async function enregistrerCompletude(dossierId: number, ged: ResultatLectureGed, calculePar: string): Promise<void> {
+  await memoriserClassementsCompletude(dossierId, ged, calculePar);
   // CASC-1 — LEVÉE AUTO du marqueur « dossier partiel » : c'est ICI, au (re)calcul du diagnostic (recalcul auto PERF-2 OU « Relancer
   //   l'analyse »), que la complétude peut passer à « complet ». Best-effort, import dynamique (aucun cycle statique), jamais bloquant.
+  //   VOLONTAIREMENT ABSENT du pré-calcul de fond (memoriserClassementsCompletude) : le fond ne doit pas couper des relances hors des
+  //   gardes de diagnosticsVague (vague close). Il ne mémorise que la matière stable.
   try { await (await import('./dossierPartielRepo')).evaluerLeveeAutoPartiel(dossierId); } catch { /* levée best-effort : n'impacte jamais la mémorisation */ }
 }
 
