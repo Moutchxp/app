@@ -891,8 +891,14 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             LOT 90 — le CALAGE reste FERMÉ à 0 bâtiment (rien à enregistrer). `avecLiseuse=false` (une liseuse standalone existe déjà ailleurs)
             → pas de 2 colonnes (sinon colonne gauche vide) : on empile le seul schéma, comme avant. */}
         {avecLiseuse ? (
-          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
-            <LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete />
+          // PARITÉ GRANDES IMAGES — même overlay 2 colonnes que le nominal (position:fixed plein écran), mais en LECTURE SEULE : liseuse à
+          //   gauche + schéma à droite. L'agrandi est porté ICI (imageAgrandie de BlocTraceEmprise) et délégué à la liseuse (état + toggle) ;
+          //   la liseuse reste PASSIVE (aucun calage). On NE réutilise NI le conteneur de coordonnées NI l'aperçu de la surface de dessin dans cette branche.
+          <div role={imageAgrandie ? 'dialog' : undefined} aria-modal={imageAgrandie || undefined} aria-label={imageAgrandie ? 'Visionneuse agrandie — liseuse et schéma (lecture seule)' : undefined}
+            style={imageAgrandie
+              ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
+              : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
+            <LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete imageAgrandie={imageAgrandie} onToggleImageAgrandie={() => setImageAgrandie((v) => !v)} />
             {blocSchema}
           </div>
         ) : blocSchema}

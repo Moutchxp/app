@@ -77,12 +77,19 @@ export interface DonneesLiseuse {
   origineExtractionSansIa?: 'auto' | 'manuelle' | null;
 }
 
-export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = null, titreEnEntete = false }: {
+export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = null, titreEnEntete = false, imageAgrandie: imageAgrandieProp, onToggleImageAgrandie }: {
   dossierId: number;
   // LOT 3a (layout) — OPT-IN : le titre passe en EN-TÊTE pleine largeur (au lieu de la colonne latérale ~220 px vestigiale, qui ne
   //   porte plus que le titre depuis le refactor « paire unique »). La liseuse devient alors une SEULE colonne (titre puis aperçu),
   //   pour tenir dans une colonne « liseuse | schéma ». Défaut `false` → tous les autres usages restent PIXEL POUR PIXEL inchangés.
   titreEnEntete?: boolean;
+  // PARITÉ GRANDES IMAGES — mode CONTRÔLÉ : quand `imageAgrandie` + `onToggleImageAgrandie` sont fournis, l'agrandi n'est plus porté par
+  //   l'état INTERNE de la liseuse mais par le PARENT (BlocTraceEmprise), qui ouvre lui-même un overlay 2 colonnes (liseuse | schéma).
+  //   Dans ce mode, la liseuse NE crée PAS son propre overlay plein écran (le parent l'enveloppe) : elle reste PASSIVE (aucun clic posé).
+  //   Le canvas se re-rend à la nouvelle largeur via l'effet existant (deps imageAgrandie) — piloté d'un cran plus haut, jamais réécrit.
+  //   Props ABSENTES → mode autonome (état interne + overlay propre), comportement historique strictement inchangé.
+  imageAgrandie?: boolean;
+  onToggleImageAgrandie?: () => void;
   // LOT — « analyse de la page » écrit une valeur (ou l'annule) au niveau PERMIS/corps : ce signal permet à un frère co-monté
   //   (CaracteristiquesBloc) de RE-FETCHER son journal, pour que la valeur lue apparaisse aussitôt en proposition (sinon, le bloc
   //   restant monté — BlocRepliable ne démonte jamais — garde un journal périmé et n'affiche pas la proposition). N'affecte PAS le lecteur.
@@ -130,7 +137,12 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
   const [pan, setPan] = useState({ x: 0, y: 0 });
   // PROJ-AGR — agrandissement de l'aperçu (parité avec « Bâtiments et projection »). Côté planche la liseuse est PASSIVE : un clic n'y
   //   pose RIEN (aucune capture de clic, aucune conversion écran→PDF) → l'agrandi reste un simple confort de lecture. Le canvas se re-rend à sa largeur.
-  const [imageAgrandie, setImageAgrandie] = useState(false);
+  const [imageAgrandieInterne, setImageAgrandieInterne] = useState(false);
+  // Agrandi CONTRÔLÉ par le parent si les deux props sont fournies (branche 0 bâtiment) ; sinon état interne (usage autonome).
+  const controle = imageAgrandieProp !== undefined && onToggleImageAgrandie !== undefined;
+  const imageAgrandie = controle ? imageAgrandieProp! : imageAgrandieInterne;      // effectif : pilote le RE-RENDU (deps) et la fin du cadre fixe
+  const basculerAgrandi = useCallback(() => { if (controle) onToggleImageAgrandie!(); else setImageAgrandieInterne((v) => !v); }, [controle, onToggleImageAgrandie]);
+  const agrandiPropre = imageAgrandie && !controle;                                // overlay plein écran PROPRE à la liseuse : SEULEMENT en mode autonome (le parent l'enveloppe en mode contrôlé)
   const [message, setMessage] = useState<string | null>(null);
   // LOT 23 — RETOUR VISUEL d'un téléchargement réseau NON préchargé : « Chargement… N % » (pct null tant qu'on n'a pas de total). null = rien à afficher.
   const [chargeReseau, setChargeReseau] = useState<{ pct: number | null } | null>(null);
@@ -386,10 +398,10 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
   // PROJ-AGR — Échap réduit l'agrandissement (sortie clavier).
   useEffect(() => {
     if (!imageAgrandie) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setImageAgrandie(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') basculerAgrandi(); }; // guardé par imageAgrandie → ne fait que RÉDUIRE (autonome ou parent)
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [imageAgrandie]);
+  }, [imageAgrandie, basculerAgrandi]);
 
   // LOT 92 — la page ACTUELLEMENT affichée (dans les deux navs : best-of ou pièce libre) et son appartenance au best-of visible.
   const planAffiche = pieceId !== null ? (bandeVisible.find((pl) => pl.pieceId === pieceId && pl.page === page) ?? null) : null;
@@ -623,7 +635,7 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
     <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
       <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajuster} />
       <button type="button" style={{ cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.2rem .6rem', fontSize: 12 }}
-        onClick={() => setImageAgrandie((v) => !v)} aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
+        onClick={basculerAgrandi} aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
     </div>
   );
 
@@ -645,8 +657,8 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
           (l'aperçu vient sous la liste bornée). `alignSelf:flex-start` : le sticky s'ancre en haut de la colonne, pas étiré. */}
       {/* PROJ-AGR — colonne d'aperçu ; en agrandi, elle passe en PLEIN ÉCRAN (CSS). PASSIVE : aucun clic n'y pose de point (parité du geste
           « Agrandir l'image » avec « Bâtiments et projection », mais sans tracé côté planche). */}
-      <div role={imageAgrandie ? 'dialog' : undefined} aria-modal={imageAgrandie || undefined} aria-label={imageAgrandie ? 'Aperçu agrandi' : undefined}
-        style={imageAgrandie
+      <div role={agrandiPropre ? 'dialog' : undefined} aria-modal={agrandiPropre || undefined} aria-label={agrandiPropre ? 'Aperçu agrandi' : undefined}
+        style={agrandiPropre
           ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '.4rem' }
           : { flex: titreEnEntete ? '1 1 100%' : '2 1 300px', order: titreEnEntete ? 1 : 0, minWidth: 0, position: 'sticky', top: '.5rem', alignSelf: 'flex-start', ...(titreEnEntete ? { display: 'flex', flexDirection: 'column', gap: '.4rem' } : {}) }}>
         {/* DEMANDE 1 — LIGNE D'OUTILS au-dessus de l'aperçu : zoom + « mode grandes images » (remontés de la barre). */}

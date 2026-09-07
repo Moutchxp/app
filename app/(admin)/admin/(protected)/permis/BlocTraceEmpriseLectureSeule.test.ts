@@ -32,11 +32,24 @@ describe('LOT 86 — la garde « aucun bâtiment » n’efface plus le schéma (
 
   it('LOT 90 — la LISEUSE lecture seule est montée à 0 bâtiment (gardée par `avecLiseuse`) ; le CALAGE reste FERMÉ (cul-de-sac sans bâtiment)', () => {
     expect(brancheEtSuite).toContain('avecLiseuse ? ('); // LOT 3a — liseuse montée SEULEMENT si avecLiseuse (sinon colonne gauche vide → on empile le seul schéma)
-    expect(brancheEtSuite).toContain('<LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete />'); // liseuse consultable + signal « valeur lue » repassé + P3 donnée partagée + LOT 3a titre en en-tête (layout 2 colonnes)
+    expect(brancheEtSuite).toContain('<LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete imageAgrandie={imageAgrandie} onToggleImageAgrandie={() => setImageAgrandie((v) => !v)} />'); // liseuse consultable, agrandi PILOTÉ par le parent (parité)
     expect(src).toContain('avecLiseuse = true');                     // prop, défaut true
     // Pas de boutons/mode de calage dans la branche (le calage vit dans le rendu principal, sous bâtiment).
     expect(brancheEtSuite).not.toContain("setMode('calage')");
     expect(brancheEtSuite).not.toContain('Calage (');
+  });
+
+  it('PARITÉ GRANDES IMAGES — à 0 bâtiment, « mode grandes images » ouvre un OVERLAY 2 colonnes (liseuse | schéma), piloté par BlocTraceEmprise, sans toucher la surface de dessin', () => {
+    // overlay plein écran 2 colonnes, GATED par imageAgrandie (même structure que le nominal)
+    expect(brancheEtSuite).toMatch(/imageAgrandie\s*\n?\s*\?\s*\{[\s\S]*?position: 'fixed'/);
+    expect(brancheEtSuite).toContain("gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)'"); // 2 colonnes liseuse | schéma
+    // l'agrandi est PORTÉ par BlocTraceEmprise et DÉLÉGUÉ à la liseuse (état + toggle) — pas l'imageAgrandie interne de la liseuse
+    expect(brancheEtSuite).toContain('imageAgrandie={imageAgrandie}');
+    expect(brancheEtSuite).toContain('onToggleImageAgrandie={');
+    // 🔴 CONDITION : on NE réutilise NI le conteneur de coordonnées NI la conversion de la surface de dessin dans cette branche.
+    expect(brancheEtSuite).not.toContain('pdfContainerRef');
+    expect(brancheEtSuite).not.toContain('cliquerPdf');
+    expect(brancheEtSuite).not.toContain('onCliquer=');   // liseuse ET schéma restent PASSIFS (lecture seule, aucun point posé)
   });
 
   it('LOT 90 — message RECADRÉ : consulter les plans + « + ajouter un bâtiment » débloque tracé/enregistrement', () => {
