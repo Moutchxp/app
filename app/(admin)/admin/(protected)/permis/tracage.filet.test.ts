@@ -15,8 +15,9 @@ import { guidageTrace } from './TraceEmpriseRendu';
  * versCss = convertToViewportPoint → ÷ratio) + le COMPTEUR de calage (guidageTrace), qui n'avaient AUCUN test.
  *
  * 🔴 POURQUOI DEUX RENDUS PDF DISTINCTS RESTENT DEUX (ne pas « nettoyer » plus tard) : la visionneuse de « Bâtiments et projection »
- * calcule le viewport pdf.js au scale `(largeurCss/base)·dpr` avec **dpr NON plafonné** et stocke `apercu={vp,ratio}` ; le calage lit
- * `apercu.vp.convertToPdfPoint(u·ratio)`. La liseuse de la planche, elle, plafonne le dpr à 2 + borne le canvas à MAX_PX et peint un
+ * calcule le viewport pdf.js au scale `(largeurCss/base)·dpr` avec **dpr NON plafonné** et expose `apercu.vp` ; le calage lit
+ * `apercu.vp.convertToPdfPoint(u·rl)` où `rl` est le RATIO LIVE (canvas.width/offsetWidth, lot F) — le VIEWPORT reste celui de ce rendu.
+ * La liseuse de la planche, elle, plafonne le dpr à 2 + borne le canvas à MAX_PX et peint un
  * ImageBitmap (pas de viewport exposé). Adopter le rendu de la planche côté tracé CHANGERAIT le viewport → décalerait tous les points
  * posés, au pixel, SILENCIEUSEMENT et sans test. D'où la décision Arno (31/08/2026) de garder deux rendus. Ce filet est le garde-fou.
  */
@@ -84,9 +85,11 @@ describe('FILET calage — compteur guidageTrace : 0/2 → point posé → 1/2 �
 describe('FILET calage — gardes de SOURCE : capture ACTIVE côté Bâtiments, PASSIVE côté planche', () => {
   const bloc = readFileSync(fileURLToPath(new URL('./BlocTraceEmprise.tsx', import.meta.url)), 'utf8').replace(/\s+/g, ' ');
   const lis = readFileSync(fileURLToPath(new URL('./LiseusePieces.tsx', import.meta.url)), 'utf8').replace(/\s+/g, ' ');
-  it('BlocTraceEmprise : le pointer-up de l’aperçu route vers cliquerPdf, composition de coordonnées inchangée', () => {
+  it('BlocTraceEmprise : le pointer-up de l’aperçu route vers cliquerPdf ; composition écran→PDF via RATIO LIVE (offsetWidth, dé-zoomé)', () => {
     expect(bloc).toContain('cliquerPdf(e.clientX, e.clientY)');
-    expect(bloc).toContain('apercu.vp.convertToPdfPoint(u.x * apercu.ratio, u.y * apercu.ratio)');
+    expect(bloc).toContain('const rl = ratioLive()');                            // le ratio est lu EN DIRECT au moment de l'usage (lot F)
+    expect(bloc).toContain('apercu.vp.convertToPdfPoint(u.x * rl, u.y * rl)');    // viewport inchangé × ratio live
+    expect(bloc).not.toContain('u.x * apercu.ratio');                            // l'ancien ratio STOCKÉ n'est plus la source de justesse du clic
   });
   it('LiseusePieces (planche) : PASSIVE — aucun cliquerPdf, aucun convertToPdfPoint (un clic n’y pose RIEN)', () => {
     expect(lis).not.toContain('convertToPdfPoint');

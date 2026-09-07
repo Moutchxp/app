@@ -543,16 +543,29 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const resumePages = resumePagesAnalysees(lectures[pieceId ?? -1] ?? [], runCourant ? { creeLe: runCourant.creeLe } : undefined, (iso) => jourParisISO(iso));
   const nomCourant = pieces.find((p) => p.id === pieceId)?.nomFichier ?? 'pièce';
 
+  // PROJ-AGR / socle N largeurs (lot F) — RATIO LIVE : nombre de canvas-px par px-affiché NON zoomé, lu EN DIRECT sur le canvas au moment de
+  //   l'usage (appelé UNIQUEMENT dans cliquerPdf, un gestionnaire d'événement → DOM à jour, lecture de ref autorisée). On lit la largeur
+  //   AFFICHÉE du canvas (getBoundingClientRect, la MÊME mesure fractionnaire que r à :550) et on la DÉ-ZOOME (÷ zoom, car le wrapper applique
+  //   scale(zoom)). Résultat = apercu.ratio À L'IDENTIQUE quand la vue n'a pas changé depuis le rendu (bit à bit à zoom 1 → aucune régression),
+  //   mais EXACT à N'IMPORTE QUELLE largeur d'affichage — même une 3e largeur non re-rendue. `apercu.ratio` reste stocké (rendu), n'est plus la source de justesse.
+  const ratioLive = useCallback((): number | null => {
+    const c = canvasRef.current;
+    if (!c) return null;
+    const larg = c.getBoundingClientRect().width;      // largeur AFFICHÉE (le wrapper lui applique scale(zoom))
+    const z = zoom > 0 ? zoom : 1;
+    return larg > 0 ? (c.width * z) / larg : null;      // ÷ largeur dé-zoomée → canvas-px par px-affiché non zoomé
+  }, [zoom]);
   // PROJ-3l — pose un point : le clic (écran) est ramené dans le canvas NON transformé (annule zoom + pan via ecranVersCanvas), puis
-  //   converti en point PDF. Le repère est le CONTENEUR non transformé. Résultat identique quel que soit le zoom/déplacement (calage exact).
+  //   converti en point PDF via le RATIO LIVE. Le repère est le CONTENEUR non transformé. Résultat identique quel que soit le zoom/déplacement.
   const cliquerPdf = useCallback((clientX: number, clientY: number) => {
-    if (!apercu || !pdfContainerRef.current) return;
+    const rl = ratioLive();
+    if (!apercu || !pdfContainerRef.current || rl === null) return;
     const r = pdfContainerRef.current.getBoundingClientRect();
     const u = ecranVersCanvas(clientX, clientY, r.left, r.top, pan, zoom);
-    const [px, py] = apercu.vp.convertToPdfPoint(u.x * apercu.ratio, u.y * apercu.ratio);
+    const [px, py] = apercu.vp.convertToPdfPoint(u.x * rl, u.y * rl);
     if (mode === 'trace') setSommets((s) => [...s, { x: px, y: py }]);
     else setPlanEnAttente({ x: px, y: py });
-  }, [mode, apercu, pan, zoom]);
+  }, [mode, apercu, pan, zoom, ratioLive]);
 
   // PROJ-3l — ZOOM (facteur 1,25 ; bornes [1 ; 8]) et retour à l'AJUSTEMENT (zoom 1, pan 0). AFFICHAGE seulement.
   const zoomer = useCallback(() => setZoom((z) => Math.min(8, z * 1.25)), []);
@@ -756,7 +769,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     } catch { setMessage('retour à la configuration d’origine impossible'); } finally { setOccupeSel(false); }
   }, [dossierId]);
 
-  // Overlay : positions CSS des points plan / sommets (lit `apercu` en state).
+  // Overlay : positions CSS des points plan / sommets (lit `apercu` en state). Reste sur `apercu.ratio` STOCKÉ : ce lot n'a que DEUX largeurs
+  //   (W1/W2), chacune re-rendue par afficherPage → apercu.ratio exact aux deux → repères BYTE-IDENTIQUES (aucun comportement visible). Un
+  //   ratio live ici imposerait une lecture de ref EN RENDU (interdite par react-hooks/refs) ; la justesse des repères à une 3e largeur non
+  //   re-rendue relèvera du lot qui introduira ce niveau (observer→state). Le mapping écran→PDF (cliquerPdf, chemin au risque silencieux) est, lui, déjà N largeurs.
   const versCss = (p: PointPlan): { x: number; y: number } | null => {
     if (!apercu) return null;
     const [vx, vy] = apercu.vp.convertToViewportPoint(p.x, p.y);

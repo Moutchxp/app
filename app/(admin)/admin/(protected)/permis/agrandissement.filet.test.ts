@@ -5,11 +5,12 @@ import { ecranVersCanvas } from '../../../../lib/permis/calageEmprise';
 import { guidageTrace } from './TraceEmpriseRendu';
 
 /**
- * PROJ-AGR — FILET de l'AGRANDISSEMENT INTERACTIF (« tracer en grand »). Prouve, sur le modèle de tracage.filet.test.ts, que la vue
- * agrandie recalcule sa conversion écran→PDF POUR ELLE-MÊME (autre scale de rendu, autre largeur d'affichage) et pose donc les points
- * au MÊME endroit géométrique que la vue normale. Le mécanisme réel : `imageAgrandie` est dans les deps de l'effet d'auto-affichage →
- * le canvas se re-rend à la largeur de la nouvelle vue → apercu/ratio se recalculent ; cliquerPdf (composition inchangée) devient exact
- * pour cette vue. TOLÉRANCE retenue : 1e-9 (flottant) — la construction est EXACTE (aucun arrondi), la tolérance ne couvre que l'IEEE754.
+ * PROJ-AGR — FILET du RATIO LIVE (socle N largeurs, lot F). Prouve que la conversion écran→PDF pose les points au MÊME endroit géométrique
+ * à N'IMPORTE QUELLE largeur d'affichage — pas seulement les deux largeurs re-rendues. Le mécanisme réel (lot F) : cliquerPdf lit un RATIO
+ * LIVE = canvas.width / offsetWidth (largeur de MISE EN PAGE, dé-zoomée) AU MOMENT DE L'USAGE, au lieu d'un `apercu.ratio` figé au re-rendu →
+ * la composition est exacte pour la largeur courante, quelle qu'elle soit. La preuve ci-dessous est une PROPRIÉTÉ D'INVARIANCE : on balaie N
+ * couples (scale de rendu, largeur d'affichage) arbitraires — y compris NON ronds — et l'on exige le MÊME point PDF partout. TOLÉRANCE : 1e-9
+ * — la construction est EXACTE (aucun arrondi), la tolérance ne couvre que l'IEEE754.
  */
 
 // Une VUE de rendu au scale `scale`, largeur d'affichage `displayW`. canvasW = pageWpt·scale ; ratio = canvasW/displayW ; le viewport
@@ -39,35 +40,46 @@ function versDisplay(v: ReturnType<typeof vue>, p: { x: number; y: number }) {
 }
 
 const pageWpt = 600, pageHpt = 800;
-const petite = vue(pageWpt, pageHpt, 1.0, 480);   // vue NORMALE
-const grande = vue(pageWpt, pageHpt, 3.2, 1400);  // vue AGRANDIE : autre scale de rendu ET autre largeur d'affichage
+// N LARGEURS ARBITRAIRES — chacune : autre scale de RENDU (→ autre canvasW) ET autre largeur d'AFFICHAGE (→ ratio LIVE distinct = canvasW/displayW).
+//   On inclut des valeurs NON rondes et des sous-échelles : l'invariance ne doit rien devoir à des cas « ronds » particuliers.
+const LARGEURS = [
+  vue(pageWpt, pageHpt, 1.0, 480),    // W1 — vue normale
+  vue(pageWpt, pageHpt, 3.2, 1400),   // W2 — plein écran 2 colonnes
+  vue(pageWpt, pageHpt, 2.1, 900),    // W3 — image seule (à venir)
+  vue(pageWpt, pageHpt, 1.37, 613),   // largeurs NON rondes
+  vue(pageWpt, pageHpt, 4.8, 2007),
+  vue(pageWpt, pageHpt, 0.75, 355),   // sous-échelle
+  vue(pageWpt, pageHpt, 5.5, 1024),
+];
+const FRACTIONS: [number, number][] = [[0.37, 0.62], [0.5, 0.25], [0.08, 0.91], [0.999, 0.001], [0.1234, 0.8766]];
 
-describe('PROJ-AGR — exactitude au pixel de la vue agrandie', () => {
-  it('(a) même FRACTION d’affichage cliquée dans les deux vues → MÊME point PDF (tolérance 1e-9)', () => {
-    const f = 0.37, g = 0.62; // fractions horizontale / verticale du plan
-    const pPetit = poser(petite, f * petite.displayW, g * petite.displayH);
-    const pGrand = poser(grande, f * grande.displayW, g * grande.displayH);
-    expect(pGrand.x).toBeCloseTo(pPetit.x, 9);
-    expect(pGrand.y).toBeCloseTo(pPetit.y, 9);
-    expect(pPetit.x).toBeCloseTo(f * pageWpt, 9);           // repère absolu : le point PDF est bien la fraction f de la page
-    expect(pPetit.y).toBeCloseTo((1 - g) * pageHpt, 9);     // Y inversé (fraction g depuis le haut)
+describe('PROJ-AGR — INVARIANCE EN LARGEUR (ratio live) : le point posé ne dépend PAS de la largeur d’affichage', () => {
+  it('(a) la MÊME fraction d’affichage → le MÊME point PDF à N largeurs arbitraires, ET l’ancre absolue (tolérance 1e-9)', () => {
+    for (const [f, g] of FRACTIONS) {
+      const pts = LARGEURS.map((v) => poser(v, f * v.displayW, g * v.displayH));
+      for (const p of pts) {
+        expect(p.x).toBeCloseTo(f * pageWpt, 9);           // ancre absolue : fraction f de la page, indépendante de scale ET de displayW
+        expect(p.y).toBeCloseTo((1 - g) * pageHpt, 9);     // Y inversé (fraction g depuis le haut)
+      }
+      for (const p of pts) { expect(p.x).toBeCloseTo(pts[0].x, 9); expect(p.y).toBeCloseTo(pts[0].y, 9); } // toutes les largeurs concordent entre elles
+    }
   });
 
-  it('(b) ALLER-RETOUR grand ↔ petit : un point déjà posé ne se déplace PAS (même fraction d’affichage dans les deux vues)', () => {
-    const p = poser(petite, 0.5 * petite.displayW, 0.25 * petite.displayH); // posé en petit
-    const dPetit = versDisplay(petite, p), dGrand = versDisplay(grande, p);
-    expect(dGrand.x / grande.displayW).toBeCloseTo(dPetit.x / petite.displayW, 9);
-    expect(dGrand.y / grande.displayH).toBeCloseTo(dPetit.y / petite.displayH, 9);
+  it('(b) ALLER-RETOUR à N largeurs : un point posé re-projette à la MÊME fraction d’affichage dans TOUTES les vues', () => {
+    const p = poser(LARGEURS[0], 0.5 * LARGEURS[0].displayW, 0.25 * LARGEURS[0].displayH);
+    const fracs = LARGEURS.map((v) => { const d = versDisplay(v, p); return { fx: d.x / v.displayW, fy: d.y / v.displayH }; });
+    for (const fr of fracs) { expect(fr.fx).toBeCloseTo(fracs[0].fx, 9); expect(fr.fy).toBeCloseTo(fracs[0].fy, 9); }
+    expect(fracs[0].fx).toBeCloseTo(0.5, 9); expect(fracs[0].fy).toBeCloseTo(0.25, 9); // ancre : re-projette bien à la fraction d'origine
   });
 
-  it('(c) compteur de calage et tracé IDENTIQUES dans les deux vues (guidageTrace ne dépend pas de la taille de rendu)', () => {
+  it('(c) compteur de calage et tracé IDENTIQUES quelle que soit la largeur (guidageTrace ne dépend pas de la taille de rendu)', () => {
     expect(guidageTrace('calage', 1, false, 0, true).titre).toContain('(1/2)');
     expect(guidageTrace('calage', 2, false, 0, true).titre).toContain('✓ 2 points');
     expect(guidageTrace('trace', 2, false, 3, true).titre).toContain('3 sommets');
   });
 });
 
-describe('PROJ-AGR — (d) planche PASSIVE + mécanisme d’exactitude (gardes de source)', () => {
+describe('PROJ-AGR — (d) planche PASSIVE + mécanisme du RATIO LIVE (gardes de source)', () => {
   const lis = readFileSync(fileURLToPath(new URL('./LiseusePieces.tsx', import.meta.url)), 'utf8');
   const bloc = readFileSync(fileURLToPath(new URL('./BlocTraceEmprise.tsx', import.meta.url)), 'utf8').replace(/\s+/g, ' ');
   it('LiseusePieces : agrandi PRÉSENT mais PASSIF — aucun cliquerPdf, aucun convertToPdfPoint (un clic n’y pose rien)', () => {
@@ -75,8 +87,13 @@ describe('PROJ-AGR — (d) planche PASSIVE + mécanisme d’exactitude (gardes d
     expect(lis).not.toContain('convertToPdfPoint');
     expect(lis).not.toContain('cliquerPdf');
   });
-  it('BlocTraceEmprise : l’agrandi re-déclenche le rendu (deps imageAgrandie) → apercu/ratio recalculés ; composition cliquerPdf INCHANGÉE', () => {
-    expect(bloc).toContain('[pieceId, page, etat, imageAgrandie]');
-    expect(bloc).toContain('apercu.vp.convertToPdfPoint(u.x * apercu.ratio, u.y * apercu.ratio)');
+  it('BlocTraceEmprise : le mapping écran→PDF utilise un RATIO LIVE (getBoundingClientRect dé-zoomée) → exact à N largeurs, plus l’instantané apercu.ratio', () => {
+    // la source de justesse du clic = un ratio LIVE, lu au moment de l'usage via un helper partagé (appelé dans un gestionnaire d'événement)
+    expect(bloc).toContain('const ratioLive = useCallback');
+    expect(bloc).toContain('const larg = c.getBoundingClientRect().width');      // MÊME mesure fractionnaire que r (à :550) → exact, pas de sous-pixel
+    expect(bloc).toContain('(c.width * z) / larg');                              // ÷ largeur DÉ-ZOOMÉE (z = zoom) → canvas-px par px-affiché non zoomé
+    // cliquerPdf compose avec ce ratio LIVE (le viewport apercu.vp, lui, ne change pas — cf. tracage.filet : deux rendus distincts)
+    expect(bloc).toContain('apercu.vp.convertToPdfPoint(u.x * rl, u.y * rl)');
+    expect(bloc).not.toContain('u.x * apercu.ratio');                           // l'ancienne composition FIGÉE du clic a disparu
   });
 });
