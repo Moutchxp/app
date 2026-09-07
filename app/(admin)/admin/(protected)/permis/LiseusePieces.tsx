@@ -77,8 +77,12 @@ export interface DonneesLiseuse {
   origineExtractionSansIa?: 'auto' | 'manuelle' | null;
 }
 
-export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = null }: {
+export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = null, titreEnEntete = false }: {
   dossierId: number;
+  // LOT 3a (layout) — OPT-IN : le titre passe en EN-TÊTE pleine largeur (au lieu de la colonne latérale ~220 px vestigiale, qui ne
+  //   porte plus que le titre depuis le refactor « paire unique »). La liseuse devient alors une SEULE colonne (titre puis aperçu),
+  //   pour tenir dans une colonne « liseuse | schéma ». Défaut `false` → tous les autres usages restent PIXEL POUR PIXEL inchangés.
+  titreEnEntete?: boolean;
   // LOT — « analyse de la page » écrit une valeur (ou l'annule) au niveau PERMIS/corps : ce signal permet à un frère co-monté
   //   (CaracteristiquesBloc) de RE-FETCHER son journal, pour que la valeur lue apparaisse aussitôt en proposition (sinon, le bloc
   //   restant monté — BlocRepliable ne démonte jamais — garde un journal périmé et n'affiche pas la proposition). N'affecte PAS le lecteur.
@@ -627,7 +631,7 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
     // MOBILE-FIRST : flex-wrap → deux colonnes en large (nav ~1/3, aperçu ~2/3), EMPILÉES en écran étroit (la nav passe AU-DESSUS de l'aperçu).
     //   Chaque colonne a minWidth:0 et le canvas fait width:100% de SA colonne → jamais de débordement horizontal de la page.
     <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-start' }}>
-      <div style={{ flex: '1 1 220px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+      <div style={{ flex: titreEnEntete ? '1 1 100%' : '1 1 220px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
         <div style={{ fontSize: 12, fontWeight: 700 }}>Liseuse des pièces</div>
         {/* LOT « paire unique » + demande 2c — navigation, « voir toutes les pièces », zoom et « agrandir » ont TOUS quitté cette colonne :
             ils descendent SOUS l'aperçu, dans la barre partagée (slotNav / slotPieces) ; le zoom + « mode grandes images » sont AU-DESSUS
@@ -642,7 +646,7 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
       <div role={imageAgrandie ? 'dialog' : undefined} aria-modal={imageAgrandie || undefined} aria-label={imageAgrandie ? 'Aperçu agrandi' : undefined}
         style={imageAgrandie
           ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '.4rem' }
-          : { flex: '2 1 300px', minWidth: 0, position: 'sticky', top: '.5rem', alignSelf: 'flex-start' }}>
+          : { flex: titreEnEntete ? '1 1 100%' : '2 1 300px', minWidth: 0, position: 'sticky', top: '.5rem', alignSelf: 'flex-start' }}>
         {/* DEMANDE 1 — LIGNE D'OUTILS au-dessus de l'aperçu : zoom + « mode grandes images » (remontés de la barre). */}
         {ligneOutils}
         {/* LOT 91 — aucune pièce sélectionnée → le dire explicitement (jamais un cadre vide muet, règle LOT 71). */}

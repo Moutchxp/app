@@ -31,7 +31,8 @@ describe('LOT 86 — la garde « aucun bâtiment » n’efface plus le schéma (
   });
 
   it('LOT 90 — la LISEUSE lecture seule est montée à 0 bâtiment (gardée par `avecLiseuse`) ; le CALAGE reste FERMÉ (cul-de-sac sans bâtiment)', () => {
-    expect(brancheEtSuite).toContain('avecLiseuse && <LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} />'); // liseuse consultable + signal « valeur lue » repassé au parent + P3 : donnée /emprise partagée (anti-doublon)
+    expect(brancheEtSuite).toContain('avecLiseuse ? ('); // LOT 3a — liseuse montée SEULEMENT si avecLiseuse (sinon colonne gauche vide → on empile le seul schéma)
+    expect(brancheEtSuite).toContain('<LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete />'); // liseuse consultable + signal « valeur lue » repassé + P3 donnée partagée + LOT 3a titre en en-tête (layout 2 colonnes)
     expect(src).toContain('avecLiseuse = true');                     // prop, défaut true
     // Pas de boutons/mode de calage dans la branche (le calage vit dans le rendu principal, sous bâtiment).
     expect(brancheEtSuite).not.toContain("setMode('calage')");

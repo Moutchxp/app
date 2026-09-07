@@ -859,32 +859,39 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     // LOT 86 — LECTURE SEULE : le schéma reste CONSULTABLE (parcelle + empreinte + bâti BD TOPO) même sans bâtiment déclaré. `affichageTrace`
     //   reste la SOURCE UNIQUE de décision (on ne duplique pas sa logique) ; ici on ne masque QUE les contrôles de TRACÉ (attacher une
     //   emprise à un bâtiment, valider la projection), pas le dessin. RENDU PUR : aucune écriture, aucun calcul de verdict ajouté.
+    // Schéma LECTURE SEULE (colonne DROITE, comme le nominal) : parcelle + empreinte + bâti BD TOPO consultables sans bâtiment déclaré.
+    //   Aucun onCliquer (pas de tracé), pas de points de calage — géométrie du schéma STRICTEMENT inchangée.
+    const blocSchema = boite ? (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+        <RotationSchema angle={angle} onAngle={setAngle} />
+        {bandeauSel}
+        <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesReperes, emprises, batiments)} />
+        {/* Options d'AFFICHAGE (bâti existant / futur / repères / projection) — pilotage visuel, pas un contrôle de tracé. Porte aussi la légende de catégories. */}
+        <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
+        <LegendeProjectionEmprises legende={legendeProjection(polygonesReperes, emprises, batiments)} />
+      </div>
+    ) : (
+      // HONNÊTETÉ (piège LOT 71) : rien à dessiner → dire CE QUI MANQUE, jamais un cadre vide muet.
+      <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Rien à dessiner pour l’instant : la parcelle du permis n’est pas disponible (empreinte non figée) — sans elle, ni le contour ni le bâti BD TOPO ne peuvent être cadrés.</div>
+    );
     return (
       <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
         <div style={{ fontWeight: 700, fontSize: 13 }}>Projection des emprises — reconstitution par bâtiment <span style={styleAide}>(jamais une mesure ; n’alimente ni le verdict ni l’altitude)</span></div>
         <BandeauProjection verdict={verdict} nbValides={nbValides} nbAValider={nbAValider} />
         {/* Message RECADRÉ (LOT 90) : on peut CONSULTER les plans (liseuse) et le schéma ; seul le TRACÉ/enregistrement attend un bâtiment. */}
         <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
-          Aucun bâtiment déclaré au permis. Vous pouvez <strong>consulter</strong> les plans (liseuse ci-dessous) et le schéma. Pour <strong>tracer</strong> une emprise et l’enregistrer, déclarez d’abord un bâtiment via « <strong>+ ajouter un bâtiment</strong> » (bloc « Le permis / Les bâtiments » ci-dessus) : le calage et l’enregistrement apparaîtront alors.
+          Aucun bâtiment déclaré au permis. Vous pouvez <strong>consulter</strong> les plans (liseuse à gauche) et le schéma (à droite). Pour <strong>tracer</strong> une emprise et l’enregistrer, déclarez d’abord un bâtiment via « <strong>+ ajouter un bâtiment</strong> » (bloc « Le permis / Les bâtiments » ci-dessus) : le calage et l’enregistrement apparaîtront alors.
         </div>
-        {/* LOT 90 — LISEUSE lecture seule (best-of + navigation + zoom, composant autonome). Le CALAGE reste FERMÉ à 0 bâtiment : il
-            n'alimente que l'enregistrement, qui exige un bâtiment → l'ouvrir mènerait à un cul-de-sac. La liseuse gère elle-même le
-            best-of vide (« Aucun plan… ») → jamais un cadre vide muet. `avecLiseuse=false` là où une liseuse standalone existe déjà. */}
-        {avecLiseuse && <LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} />}
-        {boite ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
-            <RotationSchema angle={angle} onAngle={setAngle} />
-            {bandeauSel}
-            {/* Schéma LECTURE SEULE : aucun onCliquer (pas de tracé), pas de points de calage. Étiquettes/légende des LOTs 81/82/83. */}
-            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesReperes, emprises, batiments)} />
-            {/* Options d'AFFICHAGE (bâti existant / futur / repères / projection) — pilotage visuel, pas un contrôle de tracé. Porte aussi la légende de catégories. */}
-            <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
-            <LegendeProjectionEmprises legende={legendeProjection(polygonesReperes, emprises, batiments)} />
+        {/* LOT 3a (layout) — DISPOSITION CÔTE À CÔTE lecture seule, aux MÊMES proportions/gouttière que le nominal (minmax(0,1.3fr) | minmax(0,1fr),
+            gap .8rem) : LISEUSE à gauche (titre en en-tête → plus de colonne latérale vide, cf. LiseusePieces `titreEnEntete`), SCHÉMA à droite.
+            LOT 90 — le CALAGE reste FERMÉ à 0 bâtiment (rien à enregistrer). `avecLiseuse=false` (une liseuse standalone existe déjà ailleurs)
+            → pas de 2 colonnes (sinon colonne gauche vide) : on empile le seul schéma, comme avant. */}
+        {avecLiseuse ? (
+          <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
+            <LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete />
+            {blocSchema}
           </div>
-        ) : (
-          // HONNÊTETÉ (piège LOT 71) : rien à dessiner → dire CE QUI MANQUE, jamais un cadre vide muet.
-          <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Rien à dessiner pour l’instant : la parcelle du permis n’est pas disponible (empreinte non figée) — sans elle, ni le contour ni le bâti BD TOPO ne peuvent être cadrés.</div>
-        )}
+        ) : blocSchema}
       </div>
     );
   }
