@@ -65,92 +65,83 @@ describe('ÉTAGE 1 — ClotureAcheveSansBati (surface honnête, une seule action
   });
 });
 
-describe('FUS-3b / L6 — TableSuivi (deux groupes, ancienneté)', () => {
-  it('chaque ligne porte son badge d’état + l’ancienneté', () => {
-    const lignes = [ligne({ dossierId: 2, etat: 'arbitrage_demande', joursAnciennete: 5, derniereEvalIso: '2026-08-11' }), ligne({ dossierId: 1, etat: 'suivi_aucun_signal', joursAnciennete: 3 })];
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes }));
+describe('FUS-3b / L6 — TableSuivi : SÉPARATION Rattachement (travail) / Sous surveillance (radar)', () => {
+  it('vue rattachement : badge + ancienneté du groupe « à faire »', () => {
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 2, etat: 'arbitrage_demande', joursAnciennete: 5, derniereEvalIso: '2026-08-11' })], vue: 'rattachement' }));
     expect(h).toContain('arbitrage demandé');
-    expect(h).toContain('suivi, aucun signal');
     expect(h).toContain('en attente depuis 5 jours');
-    expect(h).toContain('suivi depuis 3 jours');
     expect(h).toContain('évalué le 2026-08-11');
   });
+  it('vue surveillance : badge + ancienneté du radar', () => {
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 1, etat: 'suivi_aucun_signal', joursAnciennete: 3 })], vue: 'surveillance' }));
+    expect(h).toContain('suivi, aucun signal');
+    expect(h).toContain('suivi depuis 3 jours');
+  });
 
-  it('FUS-3c-ter — ligne repliée : n° + type + nature + adresse, et un BOUTON explicite (pas un clic sur la ligne)', () => {
+  it('FUS-3c-ter — ligne repliée : n° + type + adresse + BOUTON explicite (vue surveillance)', () => {
     const lignes = [ligne({ dossierId: 1, etat: 'suivi_aucun_signal', type: 'PC', natureTravaux: 'construction neuve', adresse: '5 rue de la Paix' })];
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, ouvert: null }));
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, ouvert: null, vue: 'surveillance' }));
     expect(h).toContain('PC — construction neuve');
     expect(h).toContain('5 rue de la Paix');
     expect(h).toContain('Ouvrir le détail');
-    const hOuvert = renderToStaticMarkup(createElement(TableSuivi, { lignes, ouvert: 1 }));
+    const hOuvert = renderToStaticMarkup(createElement(TableSuivi, { lignes, ouvert: 1, vue: 'surveillance' }));
     expect(hOuvert).toContain('Fermer le détail');
     expect(hOuvert).toContain('aria-expanded="true"');
   });
 
-  it('univers vide → message explicite', () => {
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [] }));
-    expect(h).toMatch(/Aucun permis suivi/);
+  it('vue rattachement : vide → « Aucun rattachement à faire » ÉNONCÉ (renvoie vers « Sous surveillance »), jamais une page muette', () => {
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [], vue: 'rattachement' }));
+    expect(h).toContain('Rattachement à faire');
+    expect(h).toContain('Aucun rattachement à faire pour l’instant');
+    expect(h).toContain('Sous surveillance');
+  });
+  it('vue surveillance : vide → message explicite', () => {
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [], vue: 'surveillance' }));
+    expect(h).toMatch(/Aucun permis sous surveillance/);
   });
 
-  it('L6 — DEUX groupes distincts, groupe 1 en tête ; le GROUPE 1 vide est DIT explicitement (pas d’écran incomplet)', () => {
-    // Aucun « à faire » aujourd'hui → groupe 1 vide + mention ; le reste va dans le groupe 2.
-    const hVide = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 1, etat: 'suivi_aucun_signal' })] }));
-    expect(hVide).toContain('Rattachement à faire');
-    expect(hVide).toContain('Aucun rattachement à faire pour l’instant');
-    expect(hVide).toContain('En attente d’une mise à jour');
-    // Un dossier à arbitrer → il apparaît dans le groupe 1, EN TÊTE du groupe 2.
+  it('🔴 SÉPARATION : « à faire » N’apparaît QUE dans Rattachement ; « en attente » QUE dans Sous surveillance (jamais mélangés)', () => {
     const lignes = [ligne({ dossierId: 9, etat: 'arbitrage_demande', dateDeclenchementIso: '2026-08-20' }), ligne({ dossierId: 1, etat: 'suivi_aucun_signal', dateAutorisationIso: '2026-01-01' })];
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes }));
-    expect(h.indexOf('Rattachement à faire')).toBeLessThan(h.indexOf('En attente d’une mise à jour')); // groupe 1 au-dessus
-    expect(h).not.toContain('Aucun rattachement à faire pour l’instant'); // groupe 1 non vide → pas la mention
-    expect(h).toContain('déclenché le 20/08/2026'); // ligne du groupe 1 : date de DÉCLENCHEMENT
+    const ratt = renderToStaticMarkup(createElement(TableSuivi, { lignes, vue: 'rattachement' }));
+    expect(ratt).toContain('Rattachement à faire');
+    expect(ratt).toContain('déclenché le 20/08/2026');            // la ligne « à faire »
+    expect(ratt).not.toContain('En attente d’une mise à jour');    // le RADAR n'est PAS dans Rattachement
+    const surv = renderToStaticMarkup(createElement(TableSuivi, { lignes, vue: 'surveillance' }));
+    expect(surv).toContain('En attente d’une mise à jour');
+    expect(surv).toContain('permis autorisé le 01/01/2026');
+    expect(surv).not.toContain('Rattachement à faire');            // le TRAVAIL n'est PAS dans Sous surveillance
   });
 
-  it('L6/L1 — groupe 2 : date d’AUTORISATION du permis (libellée) ; absence DITE ; date de déclenchement inconnue dans le groupe 1', () => {
-    const lignes = [
-      ligne({ dossierId: 1, etat: 'suivi_aucun_signal', dateAutorisationIso: '2025-08-27' }),
-      ligne({ dossierId: 2, etat: 'suivi_aucun_signal', dateAutorisationIso: null }),
-      ligne({ dossierId: 3, etat: 'arbitrage_demande', dateDeclenchementIso: null }),
-    ];
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes }));
-    expect(h).toContain('permis autorisé le 27/08/2025'); // groupe 2 : date de permis
-    expect(h).toContain('date d’autorisation inconnue');   // absence DITE, pas un blanc
-    expect(h).toContain('date de déclenchement inconnue'); // groupe 1 sans detecte_le → dit inconnu, jamais un blanc
-    expect(h).toContain('suivi depuis'); // l'ancienneté coexiste, distincte de la date de critère
+  it('vue surveillance : date d’AUTORISATION libellée ; absence DITE', () => {
+    const lignes = [ligne({ dossierId: 1, etat: 'suivi_aucun_signal', dateAutorisationIso: '2025-08-27' }), ligne({ dossierId: 2, etat: 'suivi_aucun_signal', dateAutorisationIso: null })];
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, vue: 'surveillance' }));
+    expect(h).toContain('permis autorisé le 27/08/2025');
+    expect(h).toContain('date d’autorisation inconnue');
+    expect(h).toContain('suivi depuis');
   });
 
-  it('RATT-1 — 3e groupe « Permis avec dossier incomplet », REPLIÉ par défaut ; un permis incomplet en sort de « En attente »', () => {
-    const lignes = [
-      ligne({ dossierId: 1, etat: 'suivi_aucun_signal', completudeIncomplete: false, numDau: 'COMPLET1' }),
-      ligne({ dossierId: 2, etat: 'suivi_aucun_signal', completudeIncomplete: true, numDau: 'INCOMPLET2' }),
-    ];
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes }));
-    // Le 3e groupe existe, avec son compteur (1), et son bouton est REPLIÉ (aria-expanded=false).
+  it('RATT-1 — 3e groupe « incomplet » vit dans Sous surveillance, REPLIÉ par défaut', () => {
+    const lignes = [ligne({ dossierId: 1, etat: 'suivi_aucun_signal', completudeIncomplete: false, numDau: 'COMPLET1' }), ligne({ dossierId: 2, etat: 'suivi_aucun_signal', completudeIncomplete: true, numDau: 'INCOMPLET2' })];
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, vue: 'surveillance' }));
     expect(h).toContain('Permis avec dossier incomplet');
     expect(h).toMatch(/Permis avec dossier incomplet[\s\S]*?\(1\)/);
-    expect(h).toMatch(/aria-expanded="false"[\s\S]*Permis avec dossier incomplet|Permis avec dossier incomplet[\s\S]*aria-expanded="false"/);
-    // Replié → la ligne du permis incomplet n'est PAS rendue ; le permis complet reste visible dans « En attente ».
     expect(h).toContain('COMPLET1');
-    expect(h).not.toContain('INCOMPLET2');
+    expect(h).not.toContain('INCOMPLET2'); // replié
   });
 
-  it('LOT 78 — un permis VALIDÉ mais incomplet est en « En attente » SANS mention d’incomplétude sur sa ligne', () => {
-    // Règle du LOT 77 conservée : validé + incomplet → « En attente » (pas dans le 3e groupe). LOT 78 : plus aucun cartouche sur la ligne.
-    const h = renderToStaticMarkup(createElement(TableSuivi, {
-      lignes: [ligne({ dossierId: 3, etat: 'en_attente_bati', completudeIncomplete: true, validationAcquise: true, numDau: 'VALIDE3' })],
-    }));
+  it('LOT 78 — un permis VALIDÉ mais incomplet est en « En attente » (Sous surveillance), sans mention', () => {
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 3, etat: 'en_attente_bati', completudeIncomplete: true, validationAcquise: true, numDau: 'VALIDE3' })], vue: 'surveillance' }));
     expect(h).toContain('En attente d’une mise à jour');
-    expect(h).toContain('VALIDE3');                          // bien présent, dans « En attente »
-    expect(h).not.toContain('Permis avec dossier incomplet'); // pas dans le 3e groupe (validé → en attente, règle 77 intacte)
-    expect(h).not.toContain('dossier incomplet');            // AUCUN cartouche/mention d'incomplétude (LOT 78)
-    expect(h).not.toContain('manque en GED');                // ni le tooltip du cartouche retiré
+    expect(h).toContain('VALIDE3');
+    expect(h).not.toContain('Permis avec dossier incomplet');
+    expect(h).not.toContain('dossier incomplet');
   });
 
-  it('RATT-1 — un permis « à faire » incomplet reste dans le GROUPE 1 (priorité absolue), pas dans « incomplet »', () => {
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 7, etat: 'arbitrage_demande', completudeIncomplete: true, numDau: 'AFAIRE7' })] }));
+  it('RATT-1 — un permis « à faire » incomplet reste dans Rattachement (priorité absolue)', () => {
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 7, etat: 'arbitrage_demande', completudeIncomplete: true, numDau: 'AFAIRE7' })], vue: 'rattachement' }));
     expect(h).toContain('Rattachement à faire');
-    expect(h).toContain('AFAIRE7');           // visible dans le groupe 1 (jamais masqué par l'incomplétude)
-    expect(h).not.toContain('Permis avec dossier incomplet'); // aucun permis n'alimente le 3e groupe
+    expect(h).toContain('AFAIRE7');
+    expect(h).not.toContain('Permis avec dossier incomplet');
   });
 });
 
@@ -1065,7 +1056,7 @@ describe('L7 — le détail s’insère DANS LE FLUX, sous sa ligne (trame grise
   ]; // triées : 9 (2026-02) avant 8 (2026-01), même groupe 2
 
   it('le panneau de la ligne A apparaît APRÈS A et AVANT B (jamais en fin de section)', () => {
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: deuxG2(), ouvert: 9, renderDetail: marqueur }));
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: deuxG2(), ouvert: 9, renderDetail: marqueur, vue: 'surveillance' }));
     const iA = h.indexOf('AAA'), iPanneau = h.indexOf('DETAIL_9'), iB = h.indexOf('BBB');
     expect(iA).toBeGreaterThanOrEqual(0); expect(iPanneau).toBeGreaterThan(iA); expect(iB).toBeGreaterThan(iPanneau);
     expect(h).toContain('id="detail-suivi-9"');            // le panneau porte l'id référencé par aria-controls
@@ -1074,23 +1065,22 @@ describe('L7 — le détail s’insère DANS LE FLUX, sous sa ligne (trame grise
   });
 
   it('détail FERMÉ (ouvert=null) → aucun panneau rendu', () => {
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: deuxG2(), ouvert: null, renderDetail: marqueur }));
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: deuxG2(), ouvert: null, renderDetail: marqueur, vue: 'surveillance' }));
     expect(h).not.toContain('DETAIL_');
     expect(h).not.toContain('id="detail-suivi-');
     expect(h).toContain('aria-controls="detail-suivi-9"'); // l'id est toujours référencé, même replié (a11y)
   });
 
-  it('détail ouvert dans le GROUPE 2 → le GROUPE 1 n’est pas traversé (le panneau reste APRÈS l’en-tête du groupe 2)', () => {
+  it('vue surveillance : le panneau du dossier ouvert reste APRÈS l’en-tête « En attente » ; le groupe « à faire » (autre onglet) n’est jamais rendu ici', () => {
     const lignes = [
-      ligne({ dossierId: 5, numDau: 'ARB', etat: 'arbitrage_demande', dateDeclenchementIso: '2026-08-20' }), // groupe 1
-      ligne({ dossierId: 9, numDau: 'AAA', etat: 'suivi_aucun_signal', dateAutorisationIso: '2026-02-01' }), // groupe 2 (ouvert)
+      ligne({ dossierId: 5, numDau: 'ARB', etat: 'arbitrage_demande', dateDeclenchementIso: '2026-08-20' }), // « à faire » → onglet Rattachement, PAS ici
+      ligne({ dossierId: 9, numDau: 'AAA', etat: 'suivi_aucun_signal', dateAutorisationIso: '2026-02-01' }), // radar (ouvert)
     ];
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, ouvert: 9, renderDetail: marqueur }));
-    const iG1 = h.indexOf('Rattachement à faire'), iG2 = h.indexOf('En attente d’une mise à jour'), iPanneau = h.indexOf('DETAIL_9');
-    expect(iG1).toBeLessThan(iG2);          // groupe 1 au-dessus du groupe 2 (coupure L6 intacte)
-    expect(iPanneau).toBeGreaterThan(iG2);  // le panneau du dossier ouvert est DANS le groupe 2, pas entre les groupes
-    // le dossier d'arbitrage (groupe 1) n'a pas de panneau : la coupure n'est pas traversée
-    expect(h).toContain('ARB'); expect(h).not.toContain('DETAIL_5');
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, ouvert: 9, renderDetail: marqueur, vue: 'surveillance' }));
+    const iG2 = h.indexOf('En attente d’une mise à jour'), iPanneau = h.indexOf('DETAIL_9');
+    expect(iPanneau).toBeGreaterThan(iG2);          // le panneau est DANS le groupe « en attente »
+    expect(h).not.toContain('Rattachement à faire'); // le TRAVAIL vit dans l'autre onglet
+    expect(h).not.toContain('ARB'); expect(h).not.toContain('DETAIL_5'); // la ligne « à faire » n'est pas dans la surveillance
   });
 });
 

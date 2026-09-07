@@ -8,12 +8,13 @@ import { PastilleActions } from './PastilleActions';
  * lecteur d'écran (`role="group"` + `aria-label`), pas seulement visuel. La couleur (liseré) n'est qu'un appui : l'intitulé
  * de groupe (les mots) porte l'information. Aucune transition → rien à neutraliser pour prefers-reduced-motion.
  */
-export type CleOnglet = 'dossiers' | 'a_demander' | 'en_cours' | 'reponses' | 'projection' | 'archives' | 'saisines' | 'reglages' | 'automatisation' | 'collaborateurs' | 'rattachement';
+export type CleOnglet = 'dossiers' | 'a_demander' | 'en_cours' | 'reponses' | 'projection' | 'archives' | 'saisines' | 'reglages' | 'automatisation' | 'collaborateurs' | 'rattachement' | 'sous_surveillance';
 
 export const GROUPES_ONGLETS: { titre: string; onglets: { cle: CleOnglet; libelle: string }[] }[] = [
   // FUS-3b — « Rattachement » = suivi du rattachement des permis à leur parcelle/bâtiments futurs (distinct du rattachement permis↔demande).
   // PROJ-2b — le tracé d'emprise n'est PLUS un onglet autonome : il vit dans le détail d'un dossier de « Rattachement », par bâtiment.
-  { titre: 'Mise à jour des dossiers', onglets: [{ cle: 'dossiers', libelle: 'Dossiers' }, { cle: 'automatisation', libelle: 'Automatisation' }, { cle: 'rattachement', libelle: 'Rattachement' }] },
+  // « Rattachement » = le TRAVAIL (décisions à prendre) ; « Sous surveillance » (juste après) = le RADAR (permis surveillés, aucun signal) — deux natures opposées, séparées.
+  { titre: 'Mise à jour des dossiers', onglets: [{ cle: 'dossiers', libelle: 'Dossiers' }, { cle: 'automatisation', libelle: 'Automatisation' }, { cle: 'rattachement', libelle: 'Rattachement' }, { cle: 'sous_surveillance', libelle: 'Sous surveillance' }] },
   // Q5 — l'ex-onglet « Demandes » est SCINDÉ en « À demander » (préparation) puis « En cours » (suivi), en tête du groupe.
   // PROJ-2c — « Projection » S'INSÈRE entre « Réponses » et « Archives » : à la réception des pièces, on reconstitue l'emprise des futurs bâtiments.
   { titre: 'Demandes aux mairies', onglets: [{ cle: 'a_demander', libelle: 'À demander' }, { cle: 'en_cours', libelle: 'En cours' }, { cle: 'reponses', libelle: 'Réponses' }, { cle: 'projection', libelle: 'Analyse et projection' }, { cle: 'archives', libelle: 'Archives' }, { cle: 'saisines', libelle: 'Saisines CADA' }, { cle: 'collaborateurs', libelle: 'Collaborateurs' }, { cle: 'reglages', libelle: 'Réglages' }] },

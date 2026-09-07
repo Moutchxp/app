@@ -30,7 +30,8 @@ import { recompterSiSucces } from './comptesActions';
  * toujours AUCUN bouton valider/refuser, AUCUNE injection d'altitude (FUS-3e). Les pièces sont téléchargeables mais ni supprimables
  * ni ajoutables ici (ça reste dans Archives). Le détail complet est REPLIÉ par défaut (lisible à 20 dossiers).
  */
-export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void } = {}) {
+export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vue?: 'rattachement' | 'surveillance'; onRecompter?: () => void } = {}) {
+  const estSurveillance = vue === 'surveillance'; // « Sous surveillance » = le radar (permis suivis, aucun signal) + recherche ; « Rattachement » = le TRAVAIL (arbitrages à faire)
   const [liste, setListe] = useState<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> } | null>(null);
   // RECHERCHE (les 6 critères) — FILTRAGE EN BASE + pagination. `resultats` non nul = mode recherche ; null = liste complète par défaut.
   const [filtre, setFiltre] = useState<FiltreSuiviValeurs>(FILTRE_SUIVI_VIDE);
@@ -460,11 +461,12 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
   return (
     <div className="flex flex-col gap-3">
       <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>
-        Suivi du rattachement des permis à leur parcelle et à leurs bâtiments futurs. Univers = permis dont les parcelles ont été
-        analysées (la parcelle du permis est constituée). Lecture seule.
+        {estSurveillance
+          ? 'Radar de surveillance : les permis dont la parcelle est constituée, sous veille en attendant une mise à jour BD TOPO. Aucune décision à prendre ici — utilisez la recherche pour retrouver un permis. Lecture seule.'
+          : 'Rattachement à faire : les permis dont un changement BD TOPO est détecté et demande une décision. Un permis n’arrive ici qu’après avoir franchi le process (altitude de sommet ET emprise du polygone projeté VALIDÉES pour tous les bâtiments), puis un signal de mise à jour. Lecture seule.'}
       </p>
-      {/* Réglage : la DAACT (attestation d'achèvement) comme déclencheur. Ouvre un dossier « en attente du bâti » — jamais d'injection. */}
-      {daactActif !== null && (
+      {/* Réglage : la DAACT (attestation d'achèvement) comme déclencheur. Réglage du TRAVAIL de rattachement → seulement sur « Rattachement ». */}
+      {!estSurveillance && daactActif !== null && (
         <label className="svv-card" style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start', fontSize: 12 }}>
           <input type="checkbox" checked={daactActif} onChange={(e) => void basculerDaact(e.target.checked)} style={{ marginTop: '.15rem' }} />
           <span>
@@ -474,11 +476,11 @@ export function SuiviRattachementVue({ onRecompter }: { onRecompter?: () => void
           </span>
         </label>
       )}
-      {/* RECHERCHE — panneau (mêmes tokens/comportement que RechercheVivier). Combine les 6 critères, filtre EN BASE, pagination. */}
-      <PanneauRechercheSuivi valeurs={filtre} onValeurs={setFiltre} onChercher={() => void chercher(1)} onReset={reinitialiser} chargement={chargeRecherche} />
-      {resultats === null ? (
-        /* L7 — le détail est rendu par TableSuivi DANS LE FLUX, juste sous la ligne ouverte (trame grise), plus en bas de page. */
-        <TableSuivi lignes={liste.lignes} compteurs={liste.compteurs} ouvert={ouvert} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} renderDetail={renderDetail} />
+      {/* RECHERCHE — UNIQUEMENT « Sous surveillance » (le moteur 6 critères a été construit pour cette liste). Mêmes tokens que RechercheVivier ; filtre EN BASE, pagination. */}
+      {estSurveillance && <PanneauRechercheSuivi valeurs={filtre} onValeurs={setFiltre} onChercher={() => void chercher(1)} onReset={reinitialiser} chargement={chargeRecherche} />}
+      {(!estSurveillance || resultats === null) ? (
+        /* L7 — le détail est rendu par TableSuivi DANS LE FLUX, juste sous la ligne ouverte. `vue` filtre les groupes affichés (travail vs radar). */
+        <TableSuivi vue={vue} lignes={liste.lignes} compteurs={liste.compteurs} ouvert={ouvert} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} renderDetail={renderDetail} />
       ) : (
         <div className="flex flex-col gap-2" aria-live="polite">
           {rechercheErreur ? (

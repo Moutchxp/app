@@ -337,36 +337,40 @@ export function PanneauRechercheSuivi({ valeurs, onValeurs, onChercher, onReset,
   );
 }
 
-export function TableSuivi({ lignes, onOuvrir, ouvert, renderDetail, plat = false }: {
+export function TableSuivi({ lignes, onOuvrir, ouvert, renderDetail, plat = false, vue = 'rattachement' }: {
   lignes: LigneSuivi[]; compteurs?: Record<EtatSuivi, number>; onOuvrir?: (dossierId: number) => void; ouvert?: number | null;
   renderDetail?: (dossierId: number) => ReactNode; // L7 — contenu du détail, inséré DANS LE FLUX sous la ligne ouverte (fourni par la Vue)
-  plat?: boolean; // recherche : liste PLATE (déjà filtrée/paginée en base) sans les 3 groupes ni le message « aucun permis suivi » (l'appelant gère le vide)
+  plat?: boolean; // recherche : liste PLATE (déjà filtrée/paginée en base) sans les groupes ni le message « aucun permis » (l'appelant gère le vide)
+  vue?: 'rattachement' | 'surveillance'; // 🔴 SÉPARATION : 'rattachement' = le TRAVAIL (groupe « à faire ») ; 'surveillance' = le RADAR (en attente + incomplets)
 }) {
   // Recherche : les résultats arrivent DÉJÀ filtrés + paginés du serveur → liste plate, réutilise la MÊME ligne + détail (LigneSuiviLi).
   if (plat) return <ListeLignesSuivi items={lignes} groupe="en_attente" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />;
-  if (lignes.length === 0) return <div className="svv-card" style={styleAide}>Aucun permis suivi (aucune parcelle analysée pour l’instant).</div>;
-  // RATT-1 — partition EXCLUSIVE & EXHAUSTIVE en trois groupes (source unique pure). aFaire + incomplets + enAttente = lignes.length.
+  // RATT-1 — partition EXCLUSIVE & EXHAUSTIVE (source unique pure). Chaque VUE en consomme sa part : jamais deux définitions du même groupe.
   const { aFaire, incomplets, enAttente } = partitionnerSuivi(lignes);
   const titreGroupe = (t: string, n: number): ReactNode => (
     <div style={{ fontSize: 13, fontWeight: 800, marginBottom: '.3rem' }}>{t} <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>({n})</span></div>
   );
-  return (
-    <div className="flex flex-col gap-3">
-      {/* ① GROUPE 1 — priorité absolue. Toujours affiché (même vide) pour que la coupure soit visible. */}
+  // « RATTACHEMENT » = uniquement le TRAVAIL (groupe « à faire »). Vide au début : c'est le comportement attendu, ÉNONCÉ clairement.
+  if (vue === 'rattachement') {
+    return (
       <section className="svv-card" role="group" aria-label={GROUPE1_TITRE} style={{ padding: '.5rem' }}>
         {titreGroupe(GROUPE1_TITRE, aFaire.length)}
         {aFaire.length === 0
-          ? <div style={styleAide}>Aucun rattachement à faire pour l’instant : aucun déclencheur n’a encore signalé de changement à arbitrer.</div>
+          ? <div style={styleAide}>Aucun rattachement à faire pour l’instant. Un permis apparaît ici quand il a franchi le process (altitude de sommet ET emprise du polygone projeté VALIDÉES pour tous ses bâtiments) PUIS qu’un changement BD TOPO est détecté sur sa parcelle. Les permis en veille sont dans « Sous surveillance ».</div>
           : <ListeLignesSuivi items={aFaire} groupe="a_faire" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />}
       </section>
-      {/* ② GROUPE 2 — en attente d'une mise à jour. */}
+    );
+  }
+  // « SOUS SURVEILLANCE » = le RADAR : en attente d'une mise à jour + dossiers incomplets. JAMAIS le groupe « à faire » (il vit dans « Rattachement »).
+  if (enAttente.length === 0 && incomplets.length === 0) return <div className="svv-card" style={styleAide}>Aucun permis sous surveillance (aucune parcelle analysée pour l’instant).</div>;
+  return (
+    <div className="flex flex-col gap-3">
       {enAttente.length > 0 && (
         <section className="svv-card" role="group" aria-label={GROUPE2_TITRE} style={{ padding: '.5rem' }}>
           {titreGroupe(GROUPE2_TITRE, enAttente.length)}
           <ListeLignesSuivi items={enAttente} groupe="en_attente" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />
         </section>
       )}
-      {/* ③ GROUPE 3 (RATT-1) — dossiers incomplets, replié par défaut. Rendu seulement s'il y en a. */}
       {incomplets.length > 0 && (
         <GroupeIncomplet items={incomplets} onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />
       )}
