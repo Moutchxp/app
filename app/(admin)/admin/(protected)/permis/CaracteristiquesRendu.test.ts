@@ -1031,8 +1031,10 @@ describe('COMPLÉMENT (④) — ClotureVersRattachement : bouton de clôture CON
       expect(h).not.toContain('Valider le permis — envoyer');
     }
   });
-  it('pas encore tout validé → rien (ce sont les capsules par bâtiment qui disent ce qui reste)', () => {
-    const h = renderToStaticMarkup(createElement(ClotureVersRattachement, { mode: 'cloture_manuelle', tousValides: false, dejaPasse: false }));
-    expect(h).toBe('');
+  it('🔴 pas encore tout validé → JAMAIS MUET : dit que l’envoi est indisponible ET ce qui manque (aucun bouton)', () => {
+    const h = renderToStaticMarkup(createElement(ClotureVersRattachement, { mode: 'cloture_manuelle', tousValides: false, manque: 'projection non validée — à valider : 1 emprise', dejaPasse: false }));
+    expect(h).toContain('Envoi en Rattachement indisponible');
+    expect(h).toContain('1 emprise');                                   // le « manque » remonté est affiché
+    expect(h).not.toContain('Valider le permis — envoyer en Rattachement'); // pas de bouton tant que c'est incomplet
   });
 });
