@@ -20,7 +20,7 @@ import { listerPiecesDossier } from '../sitadel/demandeRepo';
 import type { PieceArchive } from '../sitadel/demandeRepo';
 import { dossiersIncompletsParmi } from './completudeRepo'; // RATT-1 — signal « dossier incomplet » en lot (mémoire, sans IA)
 import { libelleNatureProjet, aucunSignalGeometriquePossible } from '../sitadel/priorite';
-import { estAFaire, estValidationAcquise } from './rattachementGroupes'; // L6 — coupure en deux ; LOT 77 — validation acquise (source unique)
+import { estAFaire, estValidationAcquise, partitionnerSuivi } from './rattachementGroupes'; // L6 — coupure en deux ; LOT 77/LOT COMPLET — validation acquise + partition (source unique)
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti AFFICHÉ = registre (autorité), plus le proxy
 import { figerVersionValidation } from './gelRepo'; // SURV-1 — geler la référence de surveillance à la validation AUTO
 import { construireFiltreSuivi, TYPES_PERMIS_FILTRE, type CriteresSuivi } from './filtreSuivi'; // recherche : critères + WHERE paramétré (module PUR client-safe)
@@ -290,8 +290,11 @@ function versLigneSuivi(r: RangeeSuivi, alertesSurv: Map<number, number>, incomp
   };
 }
 
+/** LOT COMPLET — compteurs des QUATRE groupes de la partition (source unique `partitionnerSuivi`). La pastille « Rattachement » = `rattAFaire` (catégorie ①). */
+export interface ComptesGroupesSuivi { rattAFaire: number; rattValides: number; survSuivis: number; survIncomplets: number }
+
 /** Liste l'UNIVERS des permis suivis (ceux qui ont une empreinte) LEFT JOIN leur dossier ; « aucun signal » si pas de dossier. */
-export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> }> {
+export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number>; comptesGroupes: ComptesGroupesSuivi }> {
   const alertesSurv = await lireAlertesSurveillanceParDossier();
   const { rows } = await query<RangeeSuivi>(`SELECT ${SELECT_SUIVI}\n       ${FROM_SUIVI}`);
   // RATT-1 — signal LÉGER « dossier incomplet » (lecture mémoire, une requête, aucune IA) pour le 3e groupe. Résilient (set vide si 174 absente).
@@ -299,7 +302,10 @@ export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: 
   const lignes: LigneSuivi[] = trierLignesSuivi(rows.map((r) => versLigneSuivi(r, alertesSurv, incomplets)));
   const compteurs = Object.fromEntries((Object.keys(ORDRE_URGENCE) as EtatSuivi[]).map((e) => [e, 0])) as Record<EtatSuivi, number>;
   for (const l of lignes) compteurs[l.etat] += 1;
-  return { lignes, compteurs };
+  // LOT COMPLET — les compteurs de groupe dérivent de la MÊME partition que l'affichage → la pastille et la liste ne divergent jamais.
+  const g = partitionnerSuivi(lignes);
+  const comptesGroupes: ComptesGroupesSuivi = { rattAFaire: g.rattAFaire.length, rattValides: g.rattValides.length, survSuivis: g.survSuivis.length, survIncomplets: g.survIncomplets.length };
+  return { lignes, compteurs, comptesGroupes };
 }
 
 // ── RECHERCHE / FILTRE de la liste de suivi (les 28 k) — FILTRAGE EN BASE (paramétré) + PAGINATION. Jamais un filtre client. ─────────

@@ -73,11 +73,9 @@ describe('PASTILLES — compteurs Saisines & Rattachement', () => {
     expect(compterSaisines({ saisissables: [1, 2], fileADeposer: [3] })).toBe(3);
     expect(compterSaisines({ saisissables: [], fileADeposer: [] })).toBe(0);
   });
-  it('Rattachement : états « à faire » = arbitrage_demande + acheve_sans_bati (ÉTAGE 1) ; les autres ne comptent pas', () => {
-    // 4 en arbitrage + 2 achevés-à-confirmer = 6 ; en_attente_bati / clos_sans_bati / valide / suivi ne comptent pas.
-    expect(compterRattachement({ arbitrage_demande: 4, acheve_sans_bati: 2, en_attente_bati: 7, clos_sans_bati: 5, valide: 99, suivi_aucun_signal: 3 })).toBe(6);
-    expect(compterRattachement({ acheve_sans_bati: 3 })).toBe(3); // le nouvel état seul compte aussi
-    expect(compterRattachement({ valide: 10 })).toBe(0); // clé absente → 0
+  it('Rattachement : LOT COMPLET — la pastille = catégorie ① (rattAFaire), dérivée de la MÊME partition que la liste (jamais un recompte par état)', () => {
+    expect(compterRattachement({ rattAFaire: 6, rattValides: 12, survSuivis: 999, survIncomplets: 4 })).toBe(6);
+    expect(compterRattachement({ rattAFaire: 0, rattValides: 30, survSuivis: 0, survIncomplets: 0 })).toBe(0); // les validés-en-veille (②) ne pingent PAS l'onglet
   });
 });
 

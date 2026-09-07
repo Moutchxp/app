@@ -462,8 +462,8 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vu
     <div className="flex flex-col gap-3">
       <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>
         {estSurveillance
-          ? 'Radar de surveillance : les permis dont la parcelle est constituée, sous veille en attendant une mise à jour BD TOPO. Aucune décision à prendre ici — utilisez la recherche pour retrouver un permis. Lecture seule.'
-          : 'Rattachement à faire : les permis dont un changement BD TOPO est détecté et demande une décision. Un permis n’arrive ici qu’après avoir franchi le process (altitude de sommet ET emprise du polygone projeté VALIDÉES pour tous les bâtiments), puis un signal de mise à jour. Lecture seule.'}
+          ? 'Sous surveillance : les permis SUIVIS et NON encore INSTRUITS (toutes leurs altitudes et emprises ne sont pas validées). Aucune décision à prendre ici — dès qu’un permis est entièrement validé, il quitte cette liste pour « Rattachement ». Utilisez la recherche pour retrouver un permis. Lecture seule.'
+          : 'Rattachement : les permis ENTIÈREMENT VALIDÉS (toutes les altitudes de sommet ET toutes les emprises des bâtiments). Deux catégories, sans changer d’onglet : « Rattachement à faire » (un changement BD TOPO est détecté → décision attendue, en tête) et « Validés — en attente du signal de mise à jour » (en veille, en dessous). Lecture seule.'}
       </p>
       {/* Réglage : la DAACT (attestation d'achèvement) comme déclencheur. Réglage du TRAVAIL de rattachement → seulement sur « Rattachement ». */}
       {!estSurveillance && daactActif !== null && (

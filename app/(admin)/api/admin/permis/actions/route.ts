@@ -4,7 +4,6 @@ import { chargerSuiviReponses } from '../../../../../lib/veille/reponsesSuivi';
 import { chargerSuiviSaisines } from '../../../../../lib/veille/saisinesSuivi';
 import { listerSuivi } from '../../../../../lib/permis/rattachementSuiviRepo';
 import { compterFileProjection } from '../../../../../lib/permis/projectionFileRepo';
-import { compterSurveillanceDossiers } from '../../../../../lib/veille/surveillancePolygonesAuto';
 import { chargerConfigVeille } from '../../../../../lib/sitadel/veilleConfig';
 import { compterReponses, compterSaisines, compterRattachement, compterEnCoursASignaler, assemblerComptes, type DemandeComptable } from '../../../../admin/(protected)/permis/comptesActions';
 import { ligneEnCoursASignaler } from '../../../../../lib/sitadel/demandesListe';
@@ -22,10 +21,13 @@ export async function GET(request: Request): Promise<Response> {
   if ('refus' in garde) return garde.refus;
   try {
     const config = await chargerConfigVeille();
-    const [reponsesData, saisinesData, suivi, fileProjection, surveillance] = await Promise.all([
+    const [reponsesData, saisinesData, suivi, fileProjection] = await Promise.all([
       chargerSuiviReponses(), chargerSuiviSaisines(), listerSuivi(), compterFileProjection(config),
-      compterSurveillanceDossiers(),
     ]);
+    // LOT COMPLET — SURV-1 (alerte de surveillance de polygone) est désormais FONDU dans la catégorie ① de « Rattachement » : une alerte
+    //   sur un permis VALIDÉ EST « un signal de mise à jour détecté » → comptée par `rattAFaire` (via `alertesSurveillance` de la ligne).
+    //   Plus de terme surveillance SÉPARÉ (sinon double-compte avec la pastille ①). Conservé à 0 pour la forme de `assemblerComptes`.
+    const surveillance = 0;
     // LOT 52 (point 1) — INVARIANT « pastille d'onglet == nombre de LIGNES affichées » (patron LOT 46/47) : la pastille « Analyse »
     //   vaut EXACTEMENT `compterFileProjection` = `listerFileProjection().length`, c.-à-d. les lignes rendues par l'onglet.
     //   ANTÉRIEUR au LOT 51 : on ajoutait ici `relancesReponseDue` (relances sur réponse partielle PART-E dues en mode manuel) —
@@ -40,7 +42,7 @@ export async function GET(request: Request): Promise<Response> {
       liensATelecharger: reponsesData.liensATelecharger, // GED-1 : les liens à télécharger comptent dans la pastille Réponses
     });
     const saisines = compterSaisines({ saisissables: saisinesData.saisissables, fileADeposer: saisinesData.fileADeposer });
-    const rattachement = compterRattachement(suivi.compteurs);
+    const rattachement = compterRattachement(suivi.comptesGroupes);
     // LOT 46/47 — pastille de l'onglet « En cours » : lignes qui DEMANDENT UNE ACTION = incomplet à relancer OU nouvelles pièces
     //   reçues (prédicat partagé ligneEnCoursASignaler → compteur == somme des lignes allumées). LOT 72 — ENTRE désormais dans `total`
     //   (assemblerComptes) : la tuile home cumule TOUS les onglets. Pas de double-compte : ligneEnCoursASignaler EXCLUT un dossier

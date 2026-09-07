@@ -65,14 +65,28 @@ describe('ÉTAGE 1 — ClotureAcheveSansBati (surface honnête, une seule action
   });
 });
 
-describe('FUS-3b / L6 — TableSuivi : SÉPARATION Rattachement (travail) / Sous surveillance (radar)', () => {
-  it('vue rattachement : badge + ancienneté du groupe « à faire »', () => {
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 2, etat: 'arbitrage_demande', joursAnciennete: 5, derniereEvalIso: '2026-08-11' })], vue: 'rattachement' }));
+describe('LOT COMPLET — TableSuivi : l’ONGLET dérive de « franchi le process » (Rattachement = validés ① signal / ② en veille ; Sous surveillance = non validés)', () => {
+  it('vue rattachement ① : un VALIDÉ + signal (arbitrage) est dans « Rattachement à faire » avec badge + ancienneté', () => {
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 2, etat: 'arbitrage_demande', validationAcquise: true, joursAnciennete: 5, derniereEvalIso: '2026-08-11' })], vue: 'rattachement' }));
+    expect(h).toContain('Rattachement à faire');
     expect(h).toContain('arbitrage demandé');
     expect(h).toContain('en attente depuis 5 jours');
     expect(h).toContain('évalué le 2026-08-11');
   });
-  it('vue surveillance : badge + ancienneté du radar', () => {
+  it('vue rattachement ② : un VALIDÉ sans signal est dans « Validés — en attente du signal de mise à jour » (jamais dans « à faire »)', () => {
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 4, etat: 'en_attente_bati', validationAcquise: true, numDau: 'VEILLE4' })], vue: 'rattachement' }));
+    expect(h).toContain('Validés — en attente du signal de mise à jour');
+    expect(h).toContain('VEILLE4');
+  });
+  it('🔴 SURV-1 fondu dans ① : un VALIDÉ SANS arbitrage mais AVEC alerte polygone monte dans « Rattachement à faire »', () => {
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 6, etat: 'en_attente_bati', validationAcquise: true, alertesSurveillance: 2, numDau: 'ALERTE6' })], vue: 'rattachement' }));
+    const iAFaire = h.indexOf('Rattachement à faire'), iVeille = h.indexOf('Validés — en attente'), iLigne = h.indexOf('ALERTE6');
+    expect(iAFaire).toBeGreaterThanOrEqual(0);
+    expect(iLigne).toBeGreaterThan(iAFaire);
+    // la ligne alertée est AVANT le groupe ② (elle est dans ①), et ② est vide → absent
+    expect(iVeille).toBe(-1);
+  });
+  it('vue surveillance : badge + ancienneté du radar (permis NON validé)', () => {
     const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 1, etat: 'suivi_aucun_signal', joursAnciennete: 3 })], vue: 'surveillance' }));
     expect(h).toContain('suivi, aucun signal');
     expect(h).toContain('suivi depuis 3 jours');
@@ -89,10 +103,10 @@ describe('FUS-3b / L6 — TableSuivi : SÉPARATION Rattachement (travail) / Sous
     expect(hOuvert).toContain('aria-expanded="true"');
   });
 
-  it('vue rattachement : vide → « Aucun rattachement à faire » ÉNONCÉ (renvoie vers « Sous surveillance »), jamais une page muette', () => {
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [], vue: 'rattachement' }));
-    expect(h).toContain('Rattachement à faire');
-    expect(h).toContain('Aucun rattachement à faire pour l’instant');
+  it('vue rattachement : AUCUN validé → message ÉNONCÉ (renvoie vers « Sous surveillance »), jamais une page muette', () => {
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 1, etat: 'suivi_aucun_signal', validationAcquise: false })], vue: 'rattachement' }));
+    expect(h).toContain('Aucun permis en rattachement pour l’instant');
+    expect(h).toContain('VALIDÉES');
     expect(h).toContain('Sous surveillance');
   });
   it('vue surveillance : vide → message explicite', () => {
@@ -100,14 +114,14 @@ describe('FUS-3b / L6 — TableSuivi : SÉPARATION Rattachement (travail) / Sous
     expect(h).toMatch(/Aucun permis sous surveillance/);
   });
 
-  it('🔴 SÉPARATION : « à faire » N’apparaît QUE dans Rattachement ; « en attente » QUE dans Sous surveillance (jamais mélangés)', () => {
-    const lignes = [ligne({ dossierId: 9, etat: 'arbitrage_demande', dateDeclenchementIso: '2026-08-20' }), ligne({ dossierId: 1, etat: 'suivi_aucun_signal', dateAutorisationIso: '2026-01-01' })];
+  it('🔴 SÉPARATION par validation : le VALIDÉ+signal est QUE dans Rattachement ; le NON validé est QUE dans Sous surveillance', () => {
+    const lignes = [ligne({ dossierId: 9, etat: 'arbitrage_demande', validationAcquise: true, dateDeclenchementIso: '2026-08-20' }), ligne({ dossierId: 1, etat: 'suivi_aucun_signal', validationAcquise: false, dateAutorisationIso: '2026-01-01' })];
     const ratt = renderToStaticMarkup(createElement(TableSuivi, { lignes, vue: 'rattachement' }));
     expect(ratt).toContain('Rattachement à faire');
-    expect(ratt).toContain('déclenché le 20/08/2026');            // la ligne « à faire »
-    expect(ratt).not.toContain('En attente d’une mise à jour');    // le RADAR n'est PAS dans Rattachement
+    expect(ratt).toContain('déclenché le 20/08/2026');            // la ligne « à faire » (validée + signal)
+    expect(ratt).not.toContain('Permis suivis, non instruits');   // le RADAR n'est PAS dans Rattachement
     const surv = renderToStaticMarkup(createElement(TableSuivi, { lignes, vue: 'surveillance' }));
-    expect(surv).toContain('En attente d’une mise à jour');
+    expect(surv).toContain('Permis suivis, non instruits');
     expect(surv).toContain('permis autorisé le 01/01/2026');
     expect(surv).not.toContain('Rattachement à faire');            // le TRAVAIL n'est PAS dans Sous surveillance
   });
@@ -120,7 +134,7 @@ describe('FUS-3b / L6 — TableSuivi : SÉPARATION Rattachement (travail) / Sous
     expect(h).toContain('suivi depuis');
   });
 
-  it('RATT-1 — 3e groupe « incomplet » vit dans Sous surveillance, REPLIÉ par défaut', () => {
+  it('RATT-1 — 3e groupe « incomplet » vit dans Sous surveillance (permis NON validés), REPLIÉ par défaut', () => {
     const lignes = [ligne({ dossierId: 1, etat: 'suivi_aucun_signal', completudeIncomplete: false, numDau: 'COMPLET1' }), ligne({ dossierId: 2, etat: 'suivi_aucun_signal', completudeIncomplete: true, numDau: 'INCOMPLET2' })];
     const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, vue: 'surveillance' }));
     expect(h).toContain('Permis avec dossier incomplet');
@@ -129,16 +143,22 @@ describe('FUS-3b / L6 — TableSuivi : SÉPARATION Rattachement (travail) / Sous
     expect(h).not.toContain('INCOMPLET2'); // replié
   });
 
-  it('LOT 78 — un permis VALIDÉ mais incomplet est en « En attente » (Sous surveillance), sans mention', () => {
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 3, etat: 'en_attente_bati', completudeIncomplete: true, validationAcquise: true, numDau: 'VALIDE3' })], vue: 'surveillance' }));
-    expect(h).toContain('En attente d’une mise à jour');
-    expect(h).toContain('VALIDE3');
-    expect(h).not.toContain('Permis avec dossier incomplet');
-    expect(h).not.toContain('dossier incomplet');
+  it('LOT COMPLET — un permis VALIDÉ même incomplet est en RATTACHEMENT ② (« Validés — … »), plus dans Sous surveillance', () => {
+    const validIncomplet = ligne({ dossierId: 3, etat: 'en_attente_bati', completudeIncomplete: true, validationAcquise: true, numDau: 'VALIDE3' });
+    const ratt = renderToStaticMarkup(createElement(TableSuivi, { lignes: [validIncomplet], vue: 'rattachement' }));
+    expect(ratt).toContain('Validés — en attente du signal de mise à jour');
+    expect(ratt).toContain('VALIDE3');
+    const surv = renderToStaticMarkup(createElement(TableSuivi, { lignes: [validIncomplet], vue: 'surveillance' }));
+    expect(surv).not.toContain('VALIDE3'); // un validé n'est JAMAIS sous surveillance
+    expect(surv).toMatch(/Aucun permis sous surveillance/);
   });
 
-  it('RATT-1 — un permis « à faire » incomplet reste dans Rattachement (priorité absolue)', () => {
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 7, etat: 'arbitrage_demande', completudeIncomplete: true, numDau: 'AFAIRE7' })], vue: 'rattachement' }));
+  it('LOT COMPLET — un permis « arbitrage » NON validé n’est PAS dans Rattachement (il patiente en surveillance) ; validé, il y entre', () => {
+    const nonValide = ligne({ dossierId: 7, etat: 'arbitrage_demande', completudeIncomplete: true, validationAcquise: false, numDau: 'AFAIRE7' });
+    const ratt = renderToStaticMarkup(createElement(TableSuivi, { lignes: [nonValide], vue: 'rattachement' }));
+    expect(ratt).not.toContain('AFAIRE7'); // non validé → pas dans Rattachement
+    expect(ratt).toContain('Aucun permis en rattachement');
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [ligne({ dossierId: 7, etat: 'arbitrage_demande', validationAcquise: true, numDau: 'AFAIRE7' })], vue: 'rattachement' }));
     expect(h).toContain('Rattachement à faire');
     expect(h).toContain('AFAIRE7');
     expect(h).not.toContain('Permis avec dossier incomplet');
@@ -815,8 +835,8 @@ describe('M7-ter — dossier ouvert à la main : badge honnête, jamais « arbit
   });
 
   it('liste : une ligne OUVERTE À LA MAIN dit « ouvert à la main » (jamais « arbitrage demandé »), « ouvert à la main le … », et RESTE dans la liste à traiter', () => {
-    const manuel = ligne({ dossierId: 5, numDau: '07512024V0037', etat: 'arbitrage_demande', origineOuverture: 'manuelle', dateDeclenchementIso: '2026-08-24' });
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [manuel] }));
+    const manuel = ligne({ dossierId: 5, numDau: '07512024V0037', etat: 'arbitrage_demande', validationAcquise: true, origineOuverture: 'manuelle', dateDeclenchementIso: '2026-08-24' });
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [manuel], vue: 'rattachement' }));
     expect(h).toContain('ouvert à la main');
     expect(h).not.toContain('arbitrage demandé');
     expect(h).toContain('ouvert à la main le 24/08/2026');
@@ -825,8 +845,8 @@ describe('M7-ter — dossier ouvert à la main : badge honnête, jamais « arbit
   });
 
   it('liste : une ligne de DÉTECTION garde l’affichage actuel (arbitrage demandé, urgence rouge, « déclenché le »)', () => {
-    const detecte = ligne({ dossierId: 6, etat: 'arbitrage_demande', origineOuverture: 'detection', dateDeclenchementIso: '2026-08-20' });
-    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [detecte] }));
+    const detecte = ligne({ dossierId: 6, etat: 'arbitrage_demande', validationAcquise: true, origineOuverture: 'detection', dateDeclenchementIso: '2026-08-20' });
+    const h = renderToStaticMarkup(createElement(TableSuivi, { lignes: [detecte], vue: 'rattachement' }));
     expect(h).toContain('arbitrage demandé');
     expect(h).toContain('var(--color-svv-red)'); // ton d'urgence conservé (aucune régression)
     expect(h).toContain('déclenché le 20/08/2026');
@@ -1071,16 +1091,16 @@ describe('L7 — le détail s’insère DANS LE FLUX, sous sa ligne (trame grise
     expect(h).toContain('aria-controls="detail-suivi-9"'); // l'id est toujours référencé, même replié (a11y)
   });
 
-  it('vue surveillance : le panneau du dossier ouvert reste APRÈS l’en-tête « En attente » ; le groupe « à faire » (autre onglet) n’est jamais rendu ici', () => {
+  it('vue surveillance : le panneau du dossier ouvert reste APRÈS l’en-tête « Permis suivis, non instruits » ; un VALIDÉ (autre onglet) n’est jamais rendu ici', () => {
     const lignes = [
-      ligne({ dossierId: 5, numDau: 'ARB', etat: 'arbitrage_demande', dateDeclenchementIso: '2026-08-20' }), // « à faire » → onglet Rattachement, PAS ici
-      ligne({ dossierId: 9, numDau: 'AAA', etat: 'suivi_aucun_signal', dateAutorisationIso: '2026-02-01' }), // radar (ouvert)
+      ligne({ dossierId: 5, numDau: 'ARB', etat: 'arbitrage_demande', validationAcquise: true, dateDeclenchementIso: '2026-08-20' }), // VALIDÉ + signal → onglet Rattachement, PAS ici
+      ligne({ dossierId: 9, numDau: 'AAA', etat: 'suivi_aucun_signal', dateAutorisationIso: '2026-02-01' }), // radar (ouvert), non validé
     ];
     const h = renderToStaticMarkup(createElement(TableSuivi, { lignes, ouvert: 9, renderDetail: marqueur, vue: 'surveillance' }));
-    const iG2 = h.indexOf('En attente d’une mise à jour'), iPanneau = h.indexOf('DETAIL_9');
-    expect(iPanneau).toBeGreaterThan(iG2);          // le panneau est DANS le groupe « en attente »
+    const iG2 = h.indexOf('Permis suivis, non instruits'), iPanneau = h.indexOf('DETAIL_9');
+    expect(iPanneau).toBeGreaterThan(iG2);          // le panneau est DANS le groupe « suivis, non instruits »
     expect(h).not.toContain('Rattachement à faire'); // le TRAVAIL vit dans l'autre onglet
-    expect(h).not.toContain('ARB'); expect(h).not.toContain('DETAIL_5'); // la ligne « à faire » n'est pas dans la surveillance
+    expect(h).not.toContain('ARB'); expect(h).not.toContain('DETAIL_5'); // le VALIDÉ n'est pas dans la surveillance
   });
 });
 

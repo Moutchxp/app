@@ -105,7 +105,7 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
         compteurs={comptes ? {
           en_cours: comptes.enCours, // LOT 46 — dossiers incomplets à relancer (somme des pastilles de ligne de l'onglet En cours)
           reponses: comptes.reponses, saisines: comptes.saisines,
-          rattachement: comptes.rattachement + comptes.surveillance, // SURV-1 — la surveillance à vérifier remonte sur l'onglet Rattachement
+          rattachement: comptes.rattachement, // LOT COMPLET — pastille = catégorie ① SEULE (« Rattachement à faire ») ; SURV-1 y est déjà fondu (rattAFaire), plus de terme surveillance séparé
           projection: comptes.projection,
         } : undefined} />
       {/* D2 — le commutateur de process coiffe « À demander » et « En cours » et les scope (email / téléservice) + 3e groupe « Hors process ».

@@ -11,7 +11,7 @@ import { optionsPourCorps, polygonesNonAffectes, corpsDuPolygone, couleurRepere,
 /** PROJ-2c — une emprise RECONSTITUÉE à superposer au schéma (filtre « Afficher la projection »). Anneau en Lambert-93. */
 export interface EmpriseProjetee { id: number; libelle: string; anneau: [number, number][] }
 // rattachementGroupes est PUR (import de TYPE seul depuis le repo, erasé) → client-safe. Source UNIQUE de la coupure en deux (L6).
-import { partitionnerSuivi, GROUPE1_TITRE, GROUPE2_TITRE, GROUPE_INCOMPLET_TITRE } from '../../../../lib/permis/rattachementGroupes';
+import { partitionnerSuivi, GROUPE1_TITRE, RATT_VALIDES_TITRE, SURV_SUIVIS_TITRE, GROUPE_INCOMPLET_TITRE } from '../../../../lib/permis/rattachementGroupes';
 import { TYPES_PERMIS_FILTRE } from '../../../../lib/permis/filtreSuivi'; // liste FERMÉE des types (module PUR client-safe)
 import { PastilleActions } from './PastilleActions'; // SURV-1 — pastille rouge « polygones à vérifier » par-ligne (composant pur, client-safe)
 import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
@@ -276,9 +276,9 @@ function GroupeIncomplet({ items, onOuvrir, ouvert, renderDetail }: {
         <span style={{ flex: 1, minWidth: 0 }}>{GROUPE_INCOMPLET_TITRE} <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>({items.length})</span></span>
       </button>
       <div style={{ ...styleAide, marginTop: '.25rem' }}>
-        Dossiers surveillés dont le diagnostic de complétude vaut « incomplet » : au moins une pièce attendue manque. Ils sont mis à
-        part pour ne pas se confondre avec une progression. Dès que le dossier est complet, le permis rejoint « {GROUPE2_TITRE} » (ou
-        « {GROUPE1_TITRE} » selon son état).
+        Permis suivis (non instruits) dont le diagnostic de complétude vaut « incomplet » : au moins une pièce attendue manque. Ils sont
+        mis à part pour ne pas se confondre avec une progression. Dès que le dossier est complet, le permis rejoint « {SURV_SUIVIS_TITRE} » ;
+        et quand toutes ses altitudes et emprises sont validées, il quitte « Sous surveillance » pour « Rattachement ».
       </div>
       {ouvertGroupe && (
         <div style={{ marginTop: '.4rem' }}>
@@ -345,34 +345,50 @@ export function TableSuivi({ lignes, onOuvrir, ouvert, renderDetail, plat = fals
 }) {
   // Recherche : les résultats arrivent DÉJÀ filtrés + paginés du serveur → liste plate, réutilise la MÊME ligne + détail (LigneSuiviLi).
   if (plat) return <ListeLignesSuivi items={lignes} groupe="en_attente" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />;
-  // RATT-1 — partition EXCLUSIVE & EXHAUSTIVE (source unique pure). Chaque VUE en consomme sa part : jamais deux définitions du même groupe.
-  const { aFaire, incomplets, enAttente } = partitionnerSuivi(lignes);
+  // LOT COMPLET — partition EXCLUSIVE & EXHAUSTIVE (source unique pure). L'ONGLET dérive de « franchi le process » (validationAcquise) :
+  //   Rattachement = validés (① signal / ② en veille) ; Sous surveillance = non validés (suivis non instruits / incomplets).
+  const { rattAFaire, rattValides, survSuivis, survIncomplets } = partitionnerSuivi(lignes);
   const titreGroupe = (t: string, n: number): ReactNode => (
     <div style={{ fontSize: 13, fontWeight: 800, marginBottom: '.3rem' }}>{t} <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>({n})</span></div>
   );
-  // « RATTACHEMENT » = uniquement le TRAVAIL (groupe « à faire »). Vide au début : c'est le comportement attendu, ÉNONCÉ clairement.
+  // « RATTACHEMENT » = les permis VALIDÉS. DEUX catégories : ① « à faire » (signal détecté) EN TÊTE, ② validés en veille EN DESSOUS.
+  //   Un permis passe de ② à ① sans changer d'onglet. Vide au début : DIT explicitement (jamais un écran qui semble incomplet).
   if (vue === 'rattachement') {
+    if (rattAFaire.length === 0 && rattValides.length === 0) {
+      return <div className="svv-card" style={styleAide}>Aucun permis en rattachement pour l’instant. Un permis entre ici dès que toutes les altitudes de sommet ET toutes les emprises de ses bâtiments sont VALIDÉES. Tant qu’un permis n’est pas entièrement validé, il reste dans « Sous surveillance ».</div>;
+    }
     return (
-      <section className="svv-card" role="group" aria-label={GROUPE1_TITRE} style={{ padding: '.5rem' }}>
-        {titreGroupe(GROUPE1_TITRE, aFaire.length)}
-        {aFaire.length === 0
-          ? <div style={styleAide}>Aucun rattachement à faire pour l’instant. Un permis apparaît ici quand il a franchi le process (altitude de sommet ET emprise du polygone projeté VALIDÉES pour tous ses bâtiments) PUIS qu’un changement BD TOPO est détecté sur sa parcelle. Les permis en veille sont dans « Sous surveillance ».</div>
-          : <ListeLignesSuivi items={aFaire} groupe="a_faire" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />}
-      </section>
+      <div className="flex flex-col gap-3">
+        {/* ① « Rattachement à faire » — signal BD TOPO détecté (arbitrage ouvert ou alerte polygone) : une décision est attendue. Compté par la pastille. */}
+        <section className="svv-card" role="group" aria-label={GROUPE1_TITRE} style={{ padding: '.5rem' }}>
+          {titreGroupe(GROUPE1_TITRE, rattAFaire.length)}
+          {rattAFaire.length === 0
+            ? <div style={styleAide}>Aucune décision à prendre pour l’instant : aucun changement BD TOPO n’a été détecté sur les parcelles des permis validés. Ils patientent juste en dessous.</div>
+            : <ListeLignesSuivi items={rattAFaire} groupe="a_faire" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />}
+        </section>
+        {/* ② « Validés — en attente du signal de mise à jour » : entièrement validés, aucun signal pour l'instant. Rien à faire, mais visibles. */}
+        {rattValides.length > 0 && (
+          <section className="svv-card" role="group" aria-label={RATT_VALIDES_TITRE} style={{ padding: '.5rem' }}>
+            {titreGroupe(RATT_VALIDES_TITRE, rattValides.length)}
+            <div style={{ ...styleAide, marginBottom: '.4rem' }}>Permis entièrement validés (altitudes + emprises). En veille : aucune décision tant qu’un changement BD TOPO n’apparaît pas sur leur parcelle. Ils monteront alors dans « {GROUPE1_TITRE} ».</div>
+            <ListeLignesSuivi items={rattValides} groupe="en_attente" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />
+          </section>
+        )}
+      </div>
     );
   }
-  // « SOUS SURVEILLANCE » = le RADAR : en attente d'une mise à jour + dossiers incomplets. JAMAIS le groupe « à faire » (il vit dans « Rattachement »).
-  if (enAttente.length === 0 && incomplets.length === 0) return <div className="svv-card" style={styleAide}>Aucun permis sous surveillance (aucune parcelle analysée pour l’instant).</div>;
+  // « SOUS SURVEILLANCE » = les permis NON validés : « Permis suivis, non instruits » + le 3e groupe « dossier incomplet ». JAMAIS les validés (qui vivent dans « Rattachement »).
+  if (survSuivis.length === 0 && survIncomplets.length === 0) return <div className="svv-card" style={styleAide}>Aucun permis sous surveillance (aucune parcelle analysée pour l’instant).</div>;
   return (
     <div className="flex flex-col gap-3">
-      {enAttente.length > 0 && (
-        <section className="svv-card" role="group" aria-label={GROUPE2_TITRE} style={{ padding: '.5rem' }}>
-          {titreGroupe(GROUPE2_TITRE, enAttente.length)}
-          <ListeLignesSuivi items={enAttente} groupe="en_attente" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />
+      {survSuivis.length > 0 && (
+        <section className="svv-card" role="group" aria-label={SURV_SUIVIS_TITRE} style={{ padding: '.5rem' }}>
+          {titreGroupe(SURV_SUIVIS_TITRE, survSuivis.length)}
+          <ListeLignesSuivi items={survSuivis} groupe="en_attente" onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />
         </section>
       )}
-      {incomplets.length > 0 && (
-        <GroupeIncomplet items={incomplets} onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />
+      {survIncomplets.length > 0 && (
+        <GroupeIncomplet items={survIncomplets} onOuvrir={onOuvrir} ouvert={ouvert} renderDetail={renderDetail} />
       )}
     </div>
   );

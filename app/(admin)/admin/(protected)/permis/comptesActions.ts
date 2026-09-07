@@ -10,7 +10,7 @@
  */
 import { demandeADuRetour } from './ReponsesRendu';
 import { demandeEnCoursIncomplete, ligneEnCoursASignaler } from '../../../../lib/sitadel/demandesListe'; // LOT 46/47 — prédicats PARTAGÉS ligne « En cours » (compteur d'onglet = nb de lignes allumées)
-import { ETATS_A_FAIRE } from '../../../../lib/permis/rattachementGroupes'; // SOURCE UNIQUE des états « à faire » comptés par la pastille Rattachement
+import type { ComptesGroupesSuivi } from '../../../../lib/permis/rattachementSuiviRepo'; // LOT COMPLET — la pastille Rattachement = catégorie ① (rattAFaire), dérivée de la MÊME partition que la liste
 
 /** Un dossier DÛ non encore tranché = en attente de la décision d'Arno (marquer reçu / non fourni / refus). PUR. */
 export function dossierATrancher(d: { satisfait: boolean; triage: string | null }): boolean {
@@ -55,10 +55,11 @@ export function compterEnCoursASignaler(demandes: Parameters<typeof ligneEnCours
   return demandes.filter(ligneEnCoursASignaler).length;
 }
 
-/** Compteur « Rattachement » : permis dans un état « à faire » (décision attendue d'Arno) — SOURCE UNIQUE `ETATS_A_FAIRE`
- *  (`arbitrage_demande` + ÉTAGE 1 `acheve_sans_bati`). Même pastille, aucun nouveau compteur : on somme les états à faire. */
-export function compterRattachement(compteurs: Record<string, number>): number {
-  return ETATS_A_FAIRE.reduce((s, etat) => s + (compteurs[etat] ?? 0), 0);
+/** Compteur « Rattachement » : LOT COMPLET — la pastille ne compte QUE la catégorie ① « Rattachement à faire » (permis VALIDÉS + signal
+ *  BD TOPO détecté), soit `rattAFaire`, dérivée de la MÊME partition (`partitionnerSuivi`) que la liste affichée → jamais de divergence
+ *  pastille/liste. Les permis validés-en-veille (②) et les non-validés (Sous surveillance) ne pingent PAS l'onglet. */
+export function compterRattachement(comptesGroupes: ComptesGroupesSuivi): number {
+  return comptesGroupes.rattAFaire;
 }
 
 export interface ComptesActions { reponses: number; saisines: number; rattachement: number; projection: number; surveillance: number; enCours: number; total: number }
