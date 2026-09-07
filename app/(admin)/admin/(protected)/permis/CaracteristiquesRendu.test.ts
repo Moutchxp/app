@@ -5,6 +5,7 @@ import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDecl
 import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa';
 import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
 import { statutEmpriseBatiment, MOT_STATUT_EMPRISE, resumeProjection, verdictProjectionBatiments, type StatutEmpriseBatiment } from '../../../../lib/permis/projectionBatiments';
+import { BandeauProjection } from './TraceEmpriseRendu';
 import type { JournalChamp } from '../../../../lib/permis/journalLecture';
 
 /** N3-C — rendu PUR (node pur, renderToStaticMarkup) : origines, bornes lues de la base, NULL affiché vide, mention du sommet. */
@@ -996,6 +997,32 @@ describe('CAPSULE D’EMPRISE — jumelle de la capsule d’altitude, VALIDATION
     // traçage incomplet (1 bâtiment sans emprise) → ROUGE « en attente », jamais vert
     const incomplet = verdictProjectionBatiments([{ corpsId: 1, repere: 'A' }, { corpsId: 2, repere: 'B' }], [{ corpsId: 1, provenance: 'trace_manuel' }], []);
     expect(resumeProjection(incomplet, 0, 1).ton).toBe('rouge');
+  });
+
+  it('0 BÂTIMENT : capsule NEUTRE « projection sans objet » (jamais « validée »), et phrase « Déclarez un bâtiment » sans ponctuation orpheline', () => {
+    const v0 = verdictProjectionBatiments([], [], []); // aucun bâtiment déclaré
+    expect(v0.aucunBatiment).toBe(true);
+    expect(v0.peutValider).toBe(false);
+    // capsule : ton neutre + « projection sans objet », JAMAIS « projection validée » (fin de la contradiction avec l'en-tête rouge).
+    const r = resumeProjection(v0, 0, 0);
+    expect(r.ton).toBe('neutre');
+    expect(r.valide).toBe(false);
+    expect(r.texte).toBe('0 bâtiment · 0 emprise · projection sans objet');
+    expect(r.texte).not.toContain('validée');
+    // rendu du bandeau : plus de « En attente : . » (point orphelin) ; message d'aide utile à la place.
+    const html = renderToStaticMarkup(createElement(BandeauProjection, { verdict: v0 }));
+    expect(html).toContain('projection sans objet');
+    expect(html).toContain('Déclarez un bâtiment pour tracer une emprise.');
+    expect(html).not.toContain('En attente'); // aucune liste vide, aucun point orphelin
+    expect(html).not.toContain('projection validée');
+  });
+
+  it('NON-RÉGRESSION nominal : avec bâtiments manquants, la phrase « En attente : … » reste inchangée', () => {
+    const incomplet = verdictProjectionBatiments([{ corpsId: 1, repere: 'A' }, { corpsId: 2, repere: 'B' }], [{ corpsId: 1, provenance: 'trace_manuel' }], []);
+    const html = renderToStaticMarkup(createElement(BandeauProjection, { verdict: incomplet, nbValides: 0, nbAValider: 1 }));
+    expect(html).toContain('En attente'); // la liste des manquants (nominal) est conservée
+    expect(html).toContain('Tracez une emprise ou ignorez');
+    expect(html).not.toContain('Déclarez un bâtiment pour tracer une emprise.');
   });
 
   it('CapsuleEtatEmprise : « Valider » déclenche onValider ; VERT propose « retirer la validation » ; « Tracer » = statut/ancre, jamais « indisponible »', () => {

@@ -627,11 +627,16 @@ export function BandeauProjection({ verdict, nbValides = 0, nbAValider = 0 }: { 
     vert: { bord: 'var(--color-svv-green-ink)', fond: 'var(--color-svv-green-soft)', icone: '✓' },
     ambre: { bord: 'var(--color-svv-amber)', fond: 'var(--color-svv-amber-soft)', icone: '◐' },
     rouge: { bord: 'var(--color-svv-red)', fond: 'var(--color-svv-red-soft)', icone: '✕' },
+    neutre: { bord: 'var(--color-svv-line)', fond: 'var(--color-svv-field)', icone: '—' }, // SANS OBJET (0 bâtiment) : gris neutre, ni vert ni rouge
   } as const)[r.ton];
   return (
     <div className="svv-card" data-peut-valider={verdict.peutValider} data-tout-valide={r.valide} data-ton={r.ton} style={{ fontSize: 12, borderColor: T.bord, background: T.fond }}>
       <div style={{ fontWeight: 700 }}>{T.icone} Projection des emprises — {r.texte}</div>
-      {!verdict.peutValider && <div style={{ color: 'var(--color-svv-ink)' }}>En attente : {verdict.manquants.map((m) => libelleBatiment(m)).join(', ')}. Tracez une emprise ou ignorez explicitement la projection pour chacun avant de valider.</div>}
+      {/* Phrase d'aide sous la capsule, sans jamais laisser de ponctuation orpheline : à 0 bâtiment il n'y a AUCUN manquant à lister
+          (« En attente : . » supprimé) ; sinon on liste les bâtiments manquants comme avant. */}
+      {verdict.aucunBatiment
+        ? <div style={{ color: 'var(--color-svv-ink)' }}>Déclarez un bâtiment pour tracer une emprise.</div>
+        : (!verdict.peutValider && verdict.manquants.length > 0 && <div style={{ color: 'var(--color-svv-ink)' }}>En attente : {verdict.manquants.map((m) => libelleBatiment(m)).join(', ')}. Tracez une emprise ou ignorez explicitement la projection pour chacun avant de valider.</div>)}
     </div>
   );
 }

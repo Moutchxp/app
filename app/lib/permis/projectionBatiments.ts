@@ -100,9 +100,11 @@ function partiesCouverture(nbBatiments: number, nbEmprises: number, nbEmprisesIg
   return parts;
 }
 
-export type TonProjection = 'vert' | 'ambre' | 'rouge';
+export type TonProjection = 'vert' | 'ambre' | 'rouge' | 'neutre';
 /**
- * RÉSUMÉ AGRÉGÉ du bandeau, VALIDATION-CONSCIENT (source unique du bandeau). TROIS états distincts, jamais fusionnés :
+ * RÉSUMÉ AGRÉGÉ du bandeau, VALIDATION-CONSCIENT (source unique du bandeau). QUATRE états distincts, jamais fusionnés :
+ *  · AUCUN bâtiment déclaré → NEUTRE « … · projection sans objet » (rien à projeter ⇒ ni validé, ni « en attente » ; état SANS OBJET,
+ *    même 3ᵉ état neutre que la condition de sortie, cf. etatSortieRattachement) ;
  *  · projection VALIDÉE → VERT « … · projection validée » ;
  *  · tracé complet mais NON validée → AMBRE « … · à valider » (JAMAIS un ✓ vert « 0 en attente » : une validation reste à faire) ;
  *  · traçage incomplet → ROUGE « … · N en attente ».
@@ -110,6 +112,9 @@ export type TonProjection = 'vert' | 'ambre' | 'rouge';
  */
 export function resumeProjection(v: VerdictProjection, nbValides: number, nbAValider: number): { ton: TonProjection; valide: boolean; texte: string } {
   const parties = partiesCouverture(v.nbBatiments, v.nbEmprises, v.nbEmprisesIgn, v.nbEmprisesTrace, v.nbIgnores);
+  // AUCUN bâtiment déclaré (PROJ-3b : peutValider=false) → SANS OBJET (neutre) : `manquants` est vide PAR VACUITÉ, jamais « validé ». Cette
+  //   branche ne s'active QU'À 0 bâtiment ; le chemin nominal (toujours ≥ 1 bâtiment) est strictement inchangé (branches ci-dessous intactes).
+  if (v.aucunBatiment) return { ton: 'neutre', valide: false, texte: [...parties, 'projection sans objet'].join(' · ') };
   // AVANCEMENT RÉEL (per-bâtiment) : traçage incomplet → ROUGE « K en attente » ; tout couvert mais des emprises à valider → AMBRE
   //   « M validés · K à valider » ; toutes validées (ou ignorées) → VERT « projection validée ». Le VERT n'apparaît que quand tout est validé.
   if (v.manquants.length > 0) return { ton: 'rouge', valide: false, texte: [...parties, `${v.manquants.length} en attente`].join(' · ') };
