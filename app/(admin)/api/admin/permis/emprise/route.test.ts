@@ -473,3 +473,24 @@ describe('P1 (perfo) — cache du best-of PDF : froid recalcule, chaud gratuit, 
     expect(HG.lireObjet.mock.calls.length).toBeGreaterThan(nLireObjet1); // recalcul pour l’autre dossier — pas de fuite
   });
 });
+
+describe('P2 (perfo, Lever 1) — Cerfa RÉUTILISE le texte de lireGedPermis (aucun re-téléchargement) ; marqueur IDENTIQUE', () => {
+  it('🔴 une pièce dont la TÊTE porte le n° 13409 (+ contexte) est marquée cerfa:true ; une sans 13409 ne l’est pas', async () => {
+    vi.mocked(lireGedPermis).mockResolvedValueOnce({ pieces: [
+      { id: 55, pages: [{ page: 1, texte: 'N° 13409*14 — CERFA Demande de permis de construire', aTexte: true }] },
+      { id: 57, pages: [{ page: 1, texte: 'Notice architecturale — article 5 circulations', aTexte: true }] },
+    ] } as unknown as Awaited<ReturnType<typeof lireGedPermis>>);
+    const j = await (await get('?dossierId=11434')).json();
+    expect(j.pieces.find((p: { id: number }) => p.id === 55).cerfa).toBe(true);   // détecté via le texte DÉJÀ extrait (mêmes 3 pages de tête, même estPieceCerfaPc)
+    expect(j.pieces.find((p: { id: number }) => p.id === 57).cerfa).toBeFalsy();  // pas de 13409 → pas cerfa
+  });
+
+  it('🔴 PREUVE DE RÉUTILISATION : la pièce Cerfa reste marquée MÊME si tout téléchargement échoue (la détection ne télécharge RIEN)', async () => {
+    vi.mocked(lireGedPermis).mockResolvedValueOnce({ pieces: [
+      { id: 55, pages: [{ page: 1, texte: 'N° 13409*14 CERFA permis de construire', aTexte: true }] },
+    ] } as unknown as Awaited<ReturnType<typeof lireGedPermis>>);
+    HG.lireObjet.mockRejectedValue(new Error('MinIO indisponible')); // tout téléchargement échoue
+    const j = await (await get('?dossierId=11434')).json();
+    expect(j.pieces.find((p: { id: number }) => p.id === 55).cerfa).toBe(true); // 🔴 marqué SANS téléchargement — l'ancienne boucle Cerfa aurait échoué au download
+  });
+});

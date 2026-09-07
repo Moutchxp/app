@@ -17,7 +17,6 @@ import { classerPiecesParFamille, scoreNomPlanMasse, pagesPlanches, lireEchelleT
 import { familleDeContenu, niveauxDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV : famille + niveaux par le CONTENU
 import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone, appliquerAutoStatut } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2) / RATT-2
 import { attribuerNomsRepli } from '../../../../../lib/permis/caracteristiquesRepo'; // NOM-1 — attribue « bâtiment en projet N » aux corps anonymes (best-effort)
-import { extrairePagesPdf } from '../../../../../lib/permis/extractionPdf'; // LOT 66 — lecture de TÊTE (≤3 pages) pour la catégorie Cerfa
 import { empreinteGed, bestOfMemo } from '../../../../../lib/permis/bestOfCache'; // P1 (perfo) — mémoïsation du best-of PDF (poste dominant), invalidation par empreinte de la GED
 import { estPieceCerfaPc } from '../../../../../lib/permis/identifierCerfa'; // LOT 66 — reconnaissance du Cerfa PC par CONTENU (n° 13409)
 
@@ -108,6 +107,9 @@ export async function GET(request: Request): Promise<Response> {
       let ged: Awaited<ReturnType<typeof lireGedPermis>>;
       try { ged = await lireGedPermis(dossierId, deps); }
       catch (e) { indisGed.push('contenu'); console.error(`[permis/emprise] source indisponible: contenu`, { dossierId, message: e instanceof Error ? e.message : String(e) }); ged = { pieces: [] } as unknown as Awaited<ReturnType<typeof lireGedPermis>>; echecTelechargement = true; }
+      // P2 (LEVER 1) — un échec de TÉLÉCHARGEMENT/EXTRACTION d'une pièce dans lireGedPermis (motif « échec … ») rend le calcul NON cachable
+      //   (prudence P1). Ce signal était auparavant capté par le RE-téléchargement de la boucle Cerfa, désormais supprimée (réutilisation).
+      if (ged.pieces.some((g) => g.motif != null && (g.motif.startsWith('échec de lecture') || g.motif.startsWith('échec d’extraction')))) echecTelechargement = true;
       const texteParId = new Map(ged.pieces.map((p) => [p.id, p.pages.filter((x) => x.aTexte).map((x) => x.texte)] as const));
       const proposeesAutres = classerPiecesParFamille(piecesPdf, (p) => familleDeContenu(texteParId.get(p.id) ?? []));
       const niveauxParId = new Map<number, string[]>(); // PROV : niveaux portés par une planche d'ÉTAGE (RDC/SSOL/R+n), quand connus par le CONTENU
@@ -126,13 +128,14 @@ export async function GET(request: Request): Promise<Response> {
         } catch (e) { indisGed.push(`texte:${p.id}`); console.error(`[permis/emprise] confirmation pièce ${p.id} indisponible`, { message: e instanceof Error ? e.message : String(e) }); echecTelechargement = true; } // téléchargement raté = possiblement TRANSITOIRE → non cachable
       }));
       // ÉTAPE 3 (LOT 66) — CATÉGORIE « Cerfa » PAR CONTENU (n° 13409), lecture de TÊTE (≤3 pages), best-effort ISOLÉE (N10-J : illisible → non marqué).
+      // P2 (LEVER 1) — RÉUTILISE le texte DÉJÀ extrait par lireGedPermis (mêmes 3 pages de tête, MÊME `estPieceCerfaPc`) au lieu de
+      //   RE-TÉLÉCHARGER + RÉ-EXTRAIRE les N objets (103 Mo sur 11430). Marqueur IDENTIQUE (même source). Déterministe (Set, indépendant de l'ordre).
       const cerfaIds = new Set<number>();
-      await Promise.all(piecesPdf.map(async (p) => {
-        try {
-          const ex = await extrairePagesPdf(await deps.lireObjet(p.cleStockage), p.typeMime, 3);
-          if (ex.ok && estPieceCerfaPc(ex.pages)) cerfaIds.add(p.id);
-        } catch { echecTelechargement = true; /* illisible/téléchargement raté → non marqué (N10-J) + non cachable */ }
-      }));
+      const gedParId = new Map(ged.pieces.map((g) => [g.id, g] as const));
+      for (const p of piecesPdf) {
+        const g = gedParId.get(p.id);
+        if (g && estPieceCerfaPc(g.pages.slice(0, 3).map((pg) => pg.texte))) cerfaIds.add(p.id);
+      }
       return { valeur: { proposees: proposeesAutres.proposees, autres: proposeesAutres.autres, niveauxParId, confirmations, cerfaIds, indisGed }, cachable: !echecTelechargement };
     });
     const { proposees, autres, niveauxParId, confirmations, cerfaIds } = best;
