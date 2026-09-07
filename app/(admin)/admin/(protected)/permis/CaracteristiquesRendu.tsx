@@ -496,24 +496,36 @@ export function etatCapsuleEmprise(emprise: EtatEmpriseBatimentVue | null, ignor
  *  · sinon, tout validé + mode 'cloture_manuelle' → LE BOUTON « Valider le permis — envoyer en Rattachement » (n'apparaît QUE dans ce mode).
  *  · pas encore tout validé → rien (les capsules par bâtiment disent ce qui reste).
  */
-export function ClotureVersRattachement({ mode, tousValides, manque, dejaPasse, onCloturer, enCours = false }: {
-  mode: 'automatique' | 'cloture_manuelle'; tousValides: boolean; manque?: string; dejaPasse: boolean; onCloturer?: () => void; enCours?: boolean;
+/**
+ * SOURCE UNIQUE de la VISIBILITÉ du bouton de clôture : il n'apparaît qu'en mode « clôture manuelle », quand TOUS les bâtiments ont
+ * altitude ET emprise validées (`tousValides`, via `estValidationAcquise` côté appelant) et que le permis n'est pas DÉJÀ passé. PUR.
+ * Consommée à la fois par le composant (les 5 rendus) ET par l'appelant (repli « Analyse déjà à jour… » au 1er emplacement) → jamais deux règles.
+ */
+export function clotureVisible(mode: 'automatique' | 'cloture_manuelle', tousValides: boolean, dejaPasse: boolean): boolean {
+  return tousValides && mode === 'cloture_manuelle' && !dejaPasse;
+}
+
+/**
+ * COMPLÉMENT (④) — bouton « Valider le permis — envoyer en Rattachement ». MÊME composant rendu à CINQ endroits (jamais cinq copies) :
+ * même condition (`clotureVisible`), même action, même état. `variante` ne change QUE la mise en forme :
+ *  · 'principal' (1er emplacement, en haut de la fiche) → carte avec le message d'accompagnement + le bouton ;
+ *  · 'bouton' (les 4 autres) → le bouton SEUL (le message n'est pas répété).
+ * Rendu NULL quand il ne doit pas apparaître : la raison est dite ailleurs (en-tête « Bâtiments et projection » ; ligne « Analyse déjà à jour… »).
+ */
+export function ClotureVersRattachement({ mode, tousValides, dejaPasse, variante = 'bouton', onCloturer, enCours = false }: {
+  mode: 'automatique' | 'cloture_manuelle'; tousValides: boolean; dejaPasse: boolean; variante?: 'principal' | 'bouton'; onCloturer?: () => void; enCours?: boolean;
 }) {
-  if (dejaPasse) return <div className="svv-card" role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)', fontWeight: 700 }}>✓ Ce permis est passé en Rattachement.</div>;
-  // JAMAIS MUET — quand le bouton est absent parce que la validation est incomplète, l'écran DIT ce qui manque (quel comptage).
-  if (!tousValides) return (
-    <div className="svv-card" role="status" style={{ fontSize: 12.5, color: 'var(--color-svv-red)', fontWeight: 600 }}>
-      Envoi en Rattachement indisponible — {manque ?? 'toutes les altitudes de sommet ET emprises des bâtiments doivent être validées'}. Validez chaque bâtiment (altitude + emprise) dans « Bâtiments et projection ».
-    </div>
+  if (!clotureVisible(mode, tousValides, dejaPasse)) return null;
+  const bouton = (
+    <button type="button" className="svv-btn svv-btn-primary" style={{ width: '100%', fontSize: 15, fontWeight: 700, padding: '.7rem 1rem' }} disabled={enCours} onClick={onCloturer}>Valider le permis — envoyer en Rattachement</button>
   );
-  if (mode === 'automatique') return <div className="svv-card" role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)', fontWeight: 700 }}>✓ Toutes les altitudes et emprises sont validées : ce permis passe automatiquement en Rattachement.</div>;
-  // GROS bouton rouge, EN HAUT du détail (au début du déploiement des blocs).
-  return (
+  if (variante === 'principal') return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
       <div style={{ fontSize: 12 }}>Toutes les altitudes et emprises sont validées. Ce permis <strong>reste dans « Analyse et projection »</strong> tant que vous ne l’avez pas envoyé en Rattachement.</div>
-      <button type="button" className="svv-btn svv-btn-primary" style={{ width: '100%', fontSize: 15, fontWeight: 700, padding: '.7rem 1rem' }} disabled={enCours} onClick={onCloturer}>Valider le permis — envoyer en Rattachement</button>
+      {bouton}
     </div>
   );
+  return <div>{bouton}</div>;
 }
 
 /**

@@ -19,11 +19,18 @@ const REPLIABLE = lire('./BlocRepliable.tsx');
 const COMPLETUDE = lire('./BlocCompletude.tsx');
 
 describe('PERF-1 — blocs coûteux montés au dépliage (render-prop)', () => {
-  for (const bloc of ['BlocFilEchanges', 'CaracteristiquesBloc', 'BlocPiecesPermis', 'PlancheParcelles']) {
+  for (const bloc of ['BlocFilEchanges', 'BlocPiecesPermis', 'PlancheParcelles']) {
     it(`${bloc} est monté via une render-prop () => <…> (chargé au dépliage, pas au rendu de la fiche)`, () => {
       expect(PROJ).toContain(`() => <${bloc}`);
     });
   }
+  // COMPLÉMENT — la render-prop de « Caractéristiques » enveloppe désormais un fragment (les rendus ②③ de clôture autour du bloc) : le
+  //   bloc reste LAZY (dans `{() => (`), seul son emballage change. On vérifie qu'il est bien enfermé dans une render-prop.
+  it('CaracteristiquesBloc reste monté au dépliage (dans une render-prop `{() => (` qui l’enveloppe avec les rendus de clôture)', () => {
+    const carac = PROJ.slice(PROJ.indexOf('base="Caractéristiques du permis (saisie)"'));
+    expect(carac).toContain('{() => (');
+    expect(carac.indexOf('<CaracteristiquesBloc')).toBeGreaterThan(carac.indexOf('{() => ('));
+  });
 
   // POLISH-1 / COMPLÉMENT — BlocTraceEmprise reste chargé AU DÉPLIAGE (render-prop lazy) : la requête /emprise ne part qu'au dépliage.
   //   Le bouton global « Valider la projection » a été RETIRÉ (validation par bâtiment). On vérifie que la trace vit dans la render-prop lazy.

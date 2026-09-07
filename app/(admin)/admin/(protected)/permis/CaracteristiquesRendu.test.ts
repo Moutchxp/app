@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, DeclarationsCerfaBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps, etatCapsuleEmprise, CapsuleEtatEmprise, ClotureVersRattachement, type EtatEmpriseBatimentVue } from './CaracteristiquesRendu';
+import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, DeclarationsCerfaBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps, etatCapsuleEmprise, CapsuleEtatEmprise, ClotureVersRattachement, clotureVisible, type EtatEmpriseBatimentVue } from './CaracteristiquesRendu';
 import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa';
 import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
 import { statutEmpriseBatiment, MOT_STATUT_EMPRISE, resumeProjection, verdictProjectionBatiments, type StatutEmpriseBatiment } from '../../../../lib/permis/projectionBatiments';
@@ -1016,25 +1016,26 @@ describe('CAPSULE D’EMPRISE — jumelle de la capsule d’altitude, VALIDATION
   });
 })
 
-describe('COMPLÉMENT (④) — ClotureVersRattachement : bouton de clôture CONDITIONNÉ au mode', () => {
-  it('🔴 T3 — le bouton « Valider le permis — envoyer en Rattachement » n’apparaît QU’en mode clôture manuelle (tout validé, pas encore passé)', () => {
-    const manuel = renderToStaticMarkup(createElement(ClotureVersRattachement, { mode: 'cloture_manuelle', tousValides: true, dejaPasse: false }));
-    expect(manuel).toContain('Valider le permis — envoyer en Rattachement');
-    const auto = renderToStaticMarkup(createElement(ClotureVersRattachement, { mode: 'automatique', tousValides: true, dejaPasse: false }));
-    expect(auto).not.toContain('Valider le permis — envoyer en Rattachement'); // jamais le bouton en automatique
-    expect(auto).toContain('passe automatiquement en Rattachement');            // jamais MUET après la dernière validation
+describe('COMPLÉMENT — ClotureVersRattachement : MÊME composant, condition unique (clotureVisible), variante = mise en forme seule', () => {
+  it('🔴 clotureVisible : bouton QUE si mode clôture manuelle + tout validé + pas encore passé (jamais sinon)', () => {
+    expect(clotureVisible('cloture_manuelle', true, false)).toBe(true);
+    expect(clotureVisible('automatique', true, false)).toBe(false);      // pas en mode automatique
+    expect(clotureVisible('cloture_manuelle', false, false)).toBe(false); // pas si validation incomplète
+    expect(clotureVisible('cloture_manuelle', true, true)).toBe(false);   // 🔴 pas si DÉJÀ passé (plus cliquable après le clic)
   });
-  it('déjà passé (marqueur posé) → message « passé en Rattachement », AUCUN bouton, quel que soit le mode', () => {
-    for (const mode of ['automatique', 'cloture_manuelle'] as const) {
-      const h = renderToStaticMarkup(createElement(ClotureVersRattachement, { mode, tousValides: true, dejaPasse: true }));
-      expect(h).toContain('passé en Rattachement');
-      expect(h).not.toContain('Valider le permis — envoyer');
+  it('variante « principal » → carte AVEC message d’accompagnement + bouton ; « bouton » → bouton SEUL (message non répété)', () => {
+    const principal = renderToStaticMarkup(createElement(ClotureVersRattachement, { mode: 'cloture_manuelle', tousValides: true, dejaPasse: false, variante: 'principal' }));
+    expect(principal).toContain('Valider le permis — envoyer en Rattachement');
+    expect(principal).toContain('reste dans « Analyse et projection »'); // message d'accompagnement
+    const bouton = renderToStaticMarkup(createElement(ClotureVersRattachement, { mode: 'cloture_manuelle', tousValides: true, dejaPasse: false, variante: 'bouton' }));
+    expect(bouton).toContain('Valider le permis — envoyer en Rattachement');
+    expect(bouton).not.toContain('reste dans « Analyse et projection »'); // message NON répété
+  });
+  it('🔴 rendu NULL (vide) quand il ne doit pas apparaître — quelle que soit la variante : auto, incomplet, déjà passé', () => {
+    for (const variante of ['principal', 'bouton'] as const) {
+      expect(renderToStaticMarkup(createElement(ClotureVersRattachement, { mode: 'automatique', tousValides: true, dejaPasse: false, variante }))).toBe('');
+      expect(renderToStaticMarkup(createElement(ClotureVersRattachement, { mode: 'cloture_manuelle', tousValides: false, dejaPasse: false, variante }))).toBe('');
+      expect(renderToStaticMarkup(createElement(ClotureVersRattachement, { mode: 'cloture_manuelle', tousValides: true, dejaPasse: true, variante }))).toBe(''); // déjà passé → aucun rendu cliquable
     }
-  });
-  it('🔴 pas encore tout validé → JAMAIS MUET : dit que l’envoi est indisponible ET ce qui manque (aucun bouton)', () => {
-    const h = renderToStaticMarkup(createElement(ClotureVersRattachement, { mode: 'cloture_manuelle', tousValides: false, manque: 'projection non validée — à valider : 1 emprise', dejaPasse: false }));
-    expect(h).toContain('Envoi en Rattachement indisponible');
-    expect(h).toContain('1 emprise');                                   // le « manque » remonté est affiché
-    expect(h).not.toContain('Valider le permis — envoyer en Rattachement'); // pas de bouton tant que c'est incomplet
   });
 });

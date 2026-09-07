@@ -10,7 +10,7 @@ import { BlocFilEchanges } from './BlocFilEchanges';
 import { BlocRepliable } from './BlocRepliable';
 import { PlancheParcelles } from './PlancheParcelles'; // PL-A — planche cadastrale (lecture seule), à côté du schéma du bâti
 import { TableProjection, AIDE_PROJECTION, TitreFamilleEtat, type LigneProjectionAffichee } from './ProjectionRendu';
-import { ClotureVersRattachement } from './CaracteristiquesRendu'; // ② COMPLÉMENT — bouton de clôture EN HAUT du détail (manuel) / message d'état, source unique
+import { ClotureVersRattachement, clotureVisible } from './CaracteristiquesRendu'; // COMPLÉMENT — bouton de clôture (MÊME composant, 5 rendus) + visibilité source unique
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { etatValidationProjection } from '../../../../lib/permis/etatValidationProjection';
 import { etatProjectionTitre, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles
@@ -173,6 +173,15 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     // ③ COMPLÉMENT — l'en-tête dit l'état RÉEL (tous les bâtiments alt+emprise validés → VERT ; sinon ce qui manque), remonté par le bloc
     //   quand il est ouvert ; repli sur le marqueur `projectionValidee` tant qu'il ne l'est pas. SOURCE UNIQUE (estValidationAcquise) côté bloc.
     const etatProj = enteteProjection ?? etatProjectionTitre(row?.projectionValidee ?? false);
+    // COMPLÉMENT — CLÔTURE : le MÊME composant rendu à CINQ endroits (tête de fiche + haut/bas de « Caractéristiques » + haut/bas de
+    //   « Bâtiments et projection »). Même condition (`clotureVisible`), même action (`cloturerPermis`), même état → jamais cinq copies
+    //   divergentes. `tousValides` = en-tête VERT (SOURCE UNIQUE etatEnteteProjection ← estValidationAcquise) ; `dejaPasse` = marqueur (false dans la file).
+    const tousValidesCloture = enteteProjection?.ton === 'vert';
+    const dejaPasseCloture = row?.projectionValidee ?? false;
+    const clotureVisibleIci = clotureVisible(modePassage, tousValidesCloture, dejaPasseCloture);
+    const rendreCloture = (variante: 'principal' | 'bouton') => (
+      <ClotureVersRattachement mode={modePassage} tousValides={tousValidesCloture} dejaPasse={dejaPasseCloture} variante={variante} onCloturer={() => void cloturerPermis(ouvert)} enCours={enCours} />
+    );
     return (
       <div className="flex flex-col gap-2">
         {/* LOT 70 — ANALYSE AU PASSAGE : état d'attente honnête (jamais un écran figé) puis compte rendu. Le bouton de RELANCE manuel
@@ -183,9 +192,11 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
             <span>Analyse des documents et remplissage des champs en cours — comptez jusqu’à 20 à 30 secondes si une analyse approfondie est nécessaire.</span>
           </div>
         )}
-        {!passageEnCours && passageMsg && (
-          <div className="svv-card" role="status" aria-live="polite" style={{ fontSize: 12.5, color: passageMsg.startsWith('Session expirée') ? 'var(--color-svv-red)' : 'var(--color-svv-ink)' }}>{passageMsg}</div>
-        )}
+        {/* ① CLÔTURE — EN HAUT DE LA FICHE, juste sous le numéro de permis : le bouton (variante principale, avec message) PREND LA PLACE de
+            la ligne « Analyse déjà à jour… » UNIQUEMENT quand il s'affiche ; sinon cette ligne RESTE (elle dit quelque chose d'utile). */}
+        {!passageEnCours && (clotureVisibleIci
+          ? rendreCloture('principal')
+          : (passageMsg && <div className="svv-card" role="status" aria-live="polite" style={{ fontSize: 12.5, color: passageMsg.startsWith('Session expirée') ? 'var(--color-svv-red)' : 'var(--color-svv-ink)' }}>{passageMsg}</div>))}
         {/* LOT 56-B — le bouton de ré-analyse « Lancer le diagnostic complet des documents » vit désormais EN TÊTE du bloc « Complétude »
             (BlocCompletude), plus ici : un seul point d'entrée, un seul nom. Son `onAnalyseFinie` remonte les frères (caractéristiques,
             fil) via vAnalyse ; le bloc Complétude relit son propre diagnostic tout seul. */}
@@ -240,17 +251,15 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         </BlocRepliable>
         {/* PROJ-3b — INSTRUCTION (caractéristiques + « + ajouter un bâtiment ») puis TRACÉ. Clés PRÉFIXÉES PAR RÔLE (unicité, cf. PART-2b),
             suffixe vAnalyse conservé : chaque enfant monté se remonte après « Lancer le diagnostic complet des documents ». Montés au dépliage (PERF-1). */}
-        {/* ② COMPLÉMENT — CLÔTURE vers Rattachement, EN HAUT (au début du déploiement des blocs « Bâtiments et projection » et
-            « Caractéristiques »), GROS bouton rouge en mode clôture manuelle. Pilotée par `enteteProjection` (SOURCE UNIQUE
-            etatEnteteProjection ← estValidationAcquise), remontée par « Bâtiments et projection ». Jamais muet : si la validation est
-            incomplète, elle DIT ce qui manque. Repli sur le marqueur pour `dejaPasse` (toujours false dans la file, par construction). */}
-        {enteteProjection && (
-          <ClotureVersRattachement mode={modePassage} tousValides={enteteProjection.ton === 'vert'}
-            manque={enteteProjection.ton === 'rouge' ? enteteProjection.texte : undefined}
-            dejaPasse={row?.projectionValidee ?? false} onCloturer={() => void cloturerPermis(ouvert)} enCours={enCours} />
-        )}
+        {/* ②③ CLÔTURE — dans le CONTENU DÉPLOYÉ du bloc « Caractéristiques du permis (saisie) », en HAUT et en BAS (bouton seul). */}
         <BlocRepliable key={`w-carac-${ouvert}`} titre={<TitreFamilleEtat base="Caractéristiques du permis (saisie)" etat={etatAlt} />}>
-          {() => <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />}
+          {() => (
+            <div className="flex flex-col gap-2">
+              {rendreCloture('bouton')}
+              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />
+              {rendreCloture('bouton')}
+            </div>
+          )}
         </BlocRepliable>
         {/* PERF-1 — BÂTIMENTS/PROJECTION (verdict) : la requête la PLUS coûteuse (≈ 9 s sur 7424). Différée au dépliage ; onOuvertChange
             débloque le bouton « Valider ». POLISH-1 — le bouton « Valider la projection » et ses phrases sont ENFERMÉS dans ce bloc :
@@ -260,12 +269,13 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         <BlocRepliable key={`w-bat-${ouvert}`} titre={<TitreFamilleEtat base="Bâtiments et projection (emprise)" etat={etatProj} />} onOuvertChange={setBatimentsOuvert}>
           {() => (
             <div className="flex flex-col gap-2">
+              {/* ④ CLÔTURE — en HAUT du contenu déployé (bouton seul). Le bouton GLOBAL « Valider la projection » a été retiré (a922f67) :
+                  la validation passe par la chaîne par bâtiment (enregistrer → valider → modifier) + cette clôture. */}
+              {rendreCloture('bouton')}
               <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} onEntete={setEnteteProjection} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} onEmprisesChange={() => setVEmprise((v) => v + 1)} />
-              {/* ① COMPLÉMENT — le bouton GLOBAL « Valider la projection » a été RETIRÉ (vestige : il finalisait toute la projection d'un coup
-                  sur la seule COUVERTURE — traçé/ignoré — sans exiger la validation PAR BÂTIMENT, ouvrant un 2e chemin d'écriture sur
-                  permis_projection). La validation passe désormais par la chaîne par bâtiment (enregistrer → valider → modifier) et la clôture
-                  du haut. La sortie DÉDIÉE d'un dossier testé (arrêt des relances) reste « Terminer l'analyse » de la carte de test ci-dessus. */}
               {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
+              {/* ⑤ CLÔTURE — en BAS du contenu déployé (bouton seul). */}
+              {rendreCloture('bouton')}
             </div>
           )}
         </BlocRepliable>

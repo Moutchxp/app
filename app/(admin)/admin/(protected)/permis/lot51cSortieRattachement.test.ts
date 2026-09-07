@@ -72,10 +72,17 @@ describe('LOT 51-C — UI : sortie gardée, condition manquante affichée ; bout
     expect(lire('app/(admin)/admin/(protected)/permis/ProjectionRendu.tsx')).not.toContain('export function BoutonValiderProjection'); // ni défini
     expect(s).toContain("action: 'sortir_vers_rattachement'");     // « Terminer l’analyse » (arrêt des relances) subsiste pour un dossier testé
   });
-  it('🔴 COMPLÉMENT — la CLÔTURE « Valider le permis — envoyer en Rattachement » est rendue EN HAUT (source unique enteteProjection) et jamais muette', () => {
-    expect(s).toContain('<ClotureVersRattachement');
+  it('🔴 COMPLÉMENT — la CLÔTURE est le MÊME composant rendu à CINQ endroits (jamais cinq copies), condition unique clotureVisible', () => {
+    expect(s).toContain('<ClotureVersRattachement');              // UN seul composant, dans le helper `rendreCloture`
+    expect((s.match(/rendreCloture\(/g) ?? []).length).toBe(5);   // 5 rendus (1 principal + 4 bouton) — pas cinq copies
+    expect(s).toContain("rendreCloture('principal')");            // 1er emplacement : message d'accompagnement
+    expect(s).toContain("rendreCloture('bouton')");               // les 4 autres : bouton seul
+    expect(s).toContain('clotureVisible(');                       // VISIBILITÉ = source unique (partagée avec le repli « Analyse déjà à jour… »)
     expect(s).toContain("action: 'valider_permis'");              // écrit le marqueur de passage (même geste que l’auto-finalisation)
-    expect(s).toContain('enteteProjection.ton === \'vert\'');     // pilotée par la SOURCE UNIQUE (estValidationAcquise via etatEnteteProjection)
+  });
+  it('🔴 COMPLÉMENT — la ligne « Analyse déjà à jour… » RESTE quand le bouton n’est pas affiché (le bouton la remplace seulement s’il s’affiche)', () => {
+    expect(s).toContain('Analyse déjà à jour');                   // la ligne (passageMsg) n'est pas supprimée
+    expect(s).toContain('clotureVisibleIci'); expect(s).toContain('passageMsg'); // remplacement conditionnel (bouton OU la ligne)
   });
   it('la route 409 renvoie `manque` pour l’affichage', () => {
     expect(lire('app/(admin)/api/admin/permis/projection/route.ts')).toContain('manque: res.manque');
