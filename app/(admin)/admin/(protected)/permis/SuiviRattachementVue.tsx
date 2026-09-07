@@ -38,6 +38,7 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vu
   const [resultats, setResultats] = useState<{ lignes: LigneSuivi[]; total: number; page: number; nbPages: number } | null>(null);
   const [chargeRecherche, setChargeRecherche] = useState(false);
   const [rechercheErreur, setRechercheErreur] = useState(false);
+  const [rechercheOuverte, setRechercheOuverte] = useState(false); // ④ — panneau de recherche REPLIÉ par défaut (rouvrir conserve les critères saisis, `filtre` est indépendant de l'ouverture)
   const [daactActif, setDaactActif] = useState<boolean | null>(null); // réglage : la DAACT déclenche-t-elle un dossier ?
   const [erreur, setErreur] = useState(false);
   const [ouvert, setOuvert] = useState<number | null>(null);
@@ -476,8 +477,34 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vu
           </span>
         </label>
       )}
-      {/* RECHERCHE — UNIQUEMENT « Sous surveillance » (le moteur 6 critères a été construit pour cette liste). Mêmes tokens que RechercheVivier ; filtre EN BASE, pagination. */}
-      {estSurveillance && <PanneauRechercheSuivi valeurs={filtre} onValeurs={setFiltre} onChercher={() => void chercher(1)} onReset={reinitialiser} chargement={chargeRecherche} />}
+      {/* ④ RECHERCHE — UNIQUEMENT « Sous surveillance ». Patron repliable (comme le 3e groupe / le détail complet) : FERMÉ par défaut pour
+          libérer le haut de l'écran. Fermé, il SIGNALE qu'un filtre tourne (nombre de résultats ou de critères) → jamais une liste courte
+          inexpliquée. Rouvrir conserve les critères (`filtre` est indépendant de l'ouverture). */}
+      {estSurveillance && (() => {
+        const nbCriteres = Object.values(filtre).filter((x) => x.trim() !== '').length;
+        const filtreActif = nbCriteres > 0;
+        const resume = resultats !== null
+          ? `${resultats.total} résultat${resultats.total > 1 ? 's' : ''}`
+          : `${nbCriteres} critère${nbCriteres > 1 ? 's' : ''} actif${nbCriteres > 1 ? 's' : ''}`;
+        return (
+          <div className="svv-card" style={{ padding: '.5rem' }}>
+            <button type="button" aria-expanded={rechercheOuverte} aria-controls="panneau-recherche-suivi" onClick={() => setRechercheOuverte((v) => !v)}
+              style={{ display: 'flex', alignItems: 'center', gap: '.4rem', width: '100%', minHeight: 40, textAlign: 'left', cursor: 'pointer', background: 'transparent', border: 'none', padding: 0, fontSize: 13, fontWeight: 700, color: 'var(--color-svv-ink)' }}>
+              <span aria-hidden style={{ color: 'var(--color-svv-muted)', flexShrink: 0 }}>{rechercheOuverte ? '▾' : '▸'}</span>
+              <span aria-hidden>🔍</span>
+              <span style={{ flex: 1, minWidth: 0 }}>Rechercher dans les permis suivis</span>
+              {!rechercheOuverte && filtreActif && (
+                <span style={{ flexShrink: 0, background: 'var(--color-svv-red)', color: '#fff', fontWeight: 700, fontSize: 11, borderRadius: '.4rem', padding: '.1rem .4rem' }}>filtre actif · {resume}</span>
+              )}
+            </button>
+            {rechercheOuverte && (
+              <div id="panneau-recherche-suivi" style={{ marginTop: '.5rem' }}>
+                <PanneauRechercheSuivi valeurs={filtre} onValeurs={setFiltre} onChercher={() => void chercher(1)} onReset={reinitialiser} chargement={chargeRecherche} />
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {(!estSurveillance || resultats === null) ? (
         /* L7 — le détail est rendu par TableSuivi DANS LE FLUX, juste sous la ligne ouverte. `vue` filtre les groupes affichés (travail vs radar). */
         <TableSuivi vue={vue} lignes={liste.lignes} compteurs={liste.compteurs} ouvert={ouvert} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} renderDetail={renderDetail} />
