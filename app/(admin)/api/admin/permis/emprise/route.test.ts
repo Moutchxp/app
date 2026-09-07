@@ -40,15 +40,18 @@ const HG = vi.hoisted(() => ({
     'planche implantation éch. 1:500',
     'planche niveaux',
   ] })),
+  // P1 (perfo) — listerPieces + lireObjet contrôlables (spies) : pour compter les téléchargements et simuler une mutation de GED (cache froid/chaud/invalidation). Défauts INCHANGÉS pour les tests existants.
+  listerPieces: vi.fn(async () => [
+    { id: 55, nomFichier: 'PC2.1_Plan_de_masse_projet.pdf', typeMime: 'application/pdf', cleStockage: 'k1', tailleOctets: 1 },
+    { id: 56, nomFichier: 'photo.jpg', typeMime: 'image/jpeg', cleStockage: 'k2', tailleOctets: 1 },
+    { id: 57, nomFichier: 'PC4_Notice_architecturale.pdf', typeMime: 'application/pdf', cleStockage: 'k3', tailleOctets: 1 },
+  ]),
+  lireObjet: vi.fn(async () => Buffer.from('%PDF')),
 }));
 vi.mock('../../../../../lib/permis/lectureGed', () => ({
   depsReellesLectureGed: () => ({
-    listerPieces: async () => [
-      { id: 55, nomFichier: 'PC2.1_Plan_de_masse_projet.pdf', typeMime: 'application/pdf', cleStockage: 'k1', tailleOctets: 1 },
-      { id: 56, nomFichier: 'photo.jpg', typeMime: 'image/jpeg', cleStockage: 'k2', tailleOctets: 1 },
-      { id: 57, nomFichier: 'PC4_Notice_architecturale.pdf', typeMime: 'application/pdf', cleStockage: 'k3', tailleOctets: 1 },
-    ],
-    lireObjet: async () => Buffer.from('%PDF'),
+    listerPieces: HG.listerPieces,
+    lireObjet: HG.lireObjet,
     extraire: HG.extraire,
   }),
   // LOT 87 — la route lit désormais TOUJOURS la GED pour le classement par contenu. Mock surchargeable ; par défaut contenu MUET
@@ -74,6 +77,7 @@ vi.mock('../../../../../lib/permis/bestOfExclusionRepo', () => ({
 }));
 
 import { GET, POST } from './route';
+import { _viderBestOfCache } from '../../../../../lib/permis/bestOfCache'; // P1 — purge du cache best-of entre tests (réel, non mocké)
 import { exclurePageBestOf, reintegrerPageBestOf, inclurePageBestOf, desinclurePageBestOf } from '../../../../../lib/permis/bestOfExclusionRepo';
 import { lireGedPermis } from '../../../../../lib/permis/lectureGed';
 import { enregistrerEmprise, supprimerEmprise, ignorerProjection, retablirProjection, listerBatiments } from '../../../../../lib/permis/empriseReconstruiteRepo';
@@ -85,7 +89,7 @@ const post = (body: unknown) => POST(new Request('http://test.local/api/admin/pe
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 }));
 
-beforeEach(() => { vi.clearAllMocks(); });
+beforeEach(() => { vi.clearAllMocks(); _viderBestOfCache(); }); // P1 — chaque test part CACHE FROID (sinon un test lirait le best-of mémoïsé d'un précédent)
 
 describe('PROJ-2 — GET', () => {
   it('PROJ-3d — propose les plans de masse (tri par nom + confirmation page/échelle), JPG écartée, clé jamais exposée', async () => {
@@ -431,5 +435,41 @@ describe('LOT 61/92 — overrides du best-of par PAGE (route)', () => {
   it('page manquante/invalide → 400', async () => {
     expect((await post({ action: 'inclure_page_bestof', dossierId: 470, pieceId: 481 })).status).toBe(400);
     expect((await post({ action: 'inclure_page_bestof', dossierId: 470, pieceId: 481, page: 0 })).status).toBe(400);
+  });
+});
+
+describe('P1 (perfo) — cache du best-of PDF : froid recalcule, chaud gratuit, mutation de GED invalide', () => {
+  const ids = (j: { pieces: { id: number }[] }): number[] => j.pieces.map((p) => p.id);
+
+  it('🔴 CHAUD = GRATUIT : 2e appel (même GED) → AUCUN nouveau téléchargement ni extraction PDF ; best-of IDENTIQUE au 1er (octet pour octet)', async () => {
+    const j1 = await (await get('?dossierId=11434')).json();
+    const nExtraireFroid = HG.extraire.mock.calls.length;
+    const nLireObjetFroid = HG.lireObjet.mock.calls.length;
+    expect(nExtraireFroid).toBeGreaterThan(0);  // FROID : extraction réelle
+    expect(nLireObjetFroid).toBeGreaterThan(0);
+    const j2 = await (await get('?dossierId=11434')).json();
+    expect(HG.extraire.mock.calls.length).toBe(nExtraireFroid);   // 🔴 CHAUD : aucune nouvelle extraction
+    expect(HG.lireObjet.mock.calls.length).toBe(nLireObjetFroid); // 🔴 CHAUD : aucun nouveau téléchargement
+    expect(j2.pieces).toEqual(j1.pieces);                          // best-of froid == chaud
+  });
+
+  it('🔴 INVALIDATION (test central) : une mutation de dossier_document (pièce retirée) → RECALCUL, best-of À JOUR (jamais l’ancien caché)', async () => {
+    const j1 = await (await get('?dossierId=11434')).json();
+    expect(ids(j1)).toContain(57);                                 // à froid, la pièce 57 est dans la réponse
+    const nLireObjetFroid = HG.lireObjet.mock.calls.length;
+    HG.listerPieces.mockResolvedValueOnce([                        // MUTATION : la pièce 57 est retirée de la GED → empreinte différente
+      { id: 55, nomFichier: 'PC2.1_Plan_de_masse_projet.pdf', typeMime: 'application/pdf', cleStockage: 'k1', tailleOctets: 1 },
+      { id: 56, nomFichier: 'photo.jpg', typeMime: 'image/jpeg', cleStockage: 'k2', tailleOctets: 1 },
+    ]);
+    const j2 = await (await get('?dossierId=11434')).json();
+    expect(HG.lireObjet.mock.calls.length).toBeGreaterThan(nLireObjetFroid); // 🔴 RECALCUL (l’entrée cachée n’a PAS été réutilisée)
+    expect(ids(j2)).not.toContain(57);                            // 🔴 best-of À JOUR : la pièce retirée a disparu (jamais l’ancien best-of)
+  });
+
+  it('🔴 ISOLATION entre dossiers : un dossier chaud ne sert JAMAIS le best-of d’un autre (fuite)', async () => {
+    await get('?dossierId=11434');
+    const nLireObjet1 = HG.lireObjet.mock.calls.length;
+    await get('?dossierId=7424');                                  // AUTRE dossier (clé de cache différente)
+    expect(HG.lireObjet.mock.calls.length).toBeGreaterThan(nLireObjet1); // recalcul pour l’autre dossier — pas de fuite
   });
 });

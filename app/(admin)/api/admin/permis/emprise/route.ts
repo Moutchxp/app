@@ -18,6 +18,7 @@ import { familleDeContenu, niveauxDeContenu } from '../../../../../lib/permis/pl
 import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone, appliquerAutoStatut } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2) / RATT-2
 import { attribuerNomsRepli } from '../../../../../lib/permis/caracteristiquesRepo'; // NOM-1 — attribue « bâtiment en projet N » aux corps anonymes (best-effort)
 import { extrairePagesPdf } from '../../../../../lib/permis/extractionPdf'; // LOT 66 — lecture de TÊTE (≤3 pages) pour la catégorie Cerfa
+import { empreinteGed, bestOfMemo } from '../../../../../lib/permis/bestOfCache'; // P1 (perfo) — mémoïsation du best-of PDF (poste dominant), invalidation par empreinte de la GED
 import { estPieceCerfaPc } from '../../../../../lib/permis/identifierCerfa'; // LOT 66 — reconnaissance du Cerfa PC par CONTENU (n° 13409)
 
 // PROJ-3d — confirmation page-level PARESSEUSE : plafond DUR de pièces ouvertes côté serveur (mesuré ~98 ms/pièce → ~0,7 s pour 7).
@@ -95,28 +96,48 @@ export async function GET(request: Request): Promise<Response> {
     //   un échec laisse le classement retomber sur le nom seul plutôt que de faire tomber la réponse). Les planches RASTER sans couche
     //   texte (pattern PC200) et les noms hors nomenclature restent HORS best-of tant que le repérage par IMAGE (bouton manuel, LOT 62)
     //   n'est pas lancé — c'est la part fragile, hors de ce lot.
-    const ged = await repli('contenu', lireGedPermis(dossierId, deps), { pieces: [] } as unknown as Awaited<ReturnType<typeof lireGedPermis>>);
-    const texteParId = new Map(ged.pieces.map((p) => [p.id, p.pages.filter((x) => x.aTexte).map((x) => x.texte)] as const));
-    const { proposees, autres } = classerPiecesParFamille(piecesPdf, (p) => familleDeContenu(texteParId.get(p.id) ?? []));
-    const niveauxParId = new Map<number, string[]>(); // PROV : niveaux portés par une planche d'ÉTAGE (RDC/SSOL/R+n), quand connus par le CONTENU
-    for (const p of proposees) if (p.famille === 'etage') { const niv = niveauxDeContenu(texteParId.get(p.id) ?? []); if (niv.length) niveauxParId.set(p.id, niv); }
-    // PROJ-3d/3f — CONFIRMATION PARESSEUSE, uniquement sur la shortlist plafonnée : ouvre chaque candidat et l'ÉCLATE EN PLANCHES
-    //   (ses pages hors cartouche, cf. pagesPlanches) + une échelle indicative par page. Texte SEUL (jamais getOperatorList, trop cher).
-    //   Dégradation propre : une pièce illisible reste proposée par son NOM, sans planche (confirme=false → l'UI repliera sur la page 1).
-    // PROJ-3m ① — chaque PLANCHE porte sa traçabilité PAR PAGE (une pièce PC3 « coupe » peut mêler coupes et plans de niveau).
-    const confirmations = new Map<number, { planches: { page: number; echelle: string | null; tracable: boolean; famille: FamillePlan; ambigu: boolean }[] }>();
-    await Promise.all(proposees.slice(0, PLAFOND_SHORTLIST).map(async (p) => {
-      try {
-        const ex = await deps.extraire(await deps.lireObjet(p.cleStockage), p.typeMime);
-        if (!ex.ok) { indisponibles.push(`texte:${p.id}`); console.error(`[permis/emprise] texte pièce ${p.id} illisible`, { motif: ex.motif }); return; }
-        const planches = pagesPlanches(ex.pages).map((pg) => {
-          const tp = tracabilitePlanche(p.famille, ex.pages[pg - 1] ?? '');
-          return { page: pg, echelle: lireEchelleTexte(ex.pages[pg - 1] ?? ''), tracable: tp.tracable, famille: tp.famille, ambigu: tp.ambigu };
-        });
-        confirmations.set(p.id, { planches });
-      } catch (e) { indisponibles.push(`texte:${p.id}`); console.error(`[permis/emprise] confirmation pièce ${p.id} indisponible`, { message: e instanceof Error ? e.message : String(e) }); }
-    }));
-    // LOT 62 — planches repérées par IMAGE (verdict='oui'), à FUSIONNER dans les pièces (distinguées par `origine:'image'`), + l'audit par pièce.
+    // P1 (perfo) — LE CLASSEMENT BEST-OF (extraction texte des pièces PDF : contenu GED + confirmation des planches + détection Cerfa) est
+    //   le POSTE DE COÛT DOMINANT (jusqu'à ~164 téléchargements+extractions PDF sur 11430) et DÉTERMINISTE pour une GED donnée. On le
+    //   MÉMOÏSE (cache mémoire, clé = dossier + empreinte des pièces PDF) → recalculé UNE fois par état de GED, quasi gratuit ensuite. Le
+    //   repérage IMAGE (mutable : bouton) et l'enrichissement restent EN AVAL, hors cache. `cachable=false` si une extraction a ÉCHOUÉ par
+    //   TÉLÉCHARGEMENT (possiblement transitoire) → on ne fige pas un best-of dégradé (en cas de doute, recalcule). `indisGed` remonte les
+    //   indisponibilités du calcul pour que la réponse soit IDENTIQUE au 1er appel (froid) et aux suivants (chaud).
+    const empreinte = empreinteGed(piecesPdf.map((p) => ({ id: p.id, cleStockage: p.cleStockage, tailleOctets: p.tailleOctets, nomFichier: p.nomFichier })));
+    const best = await bestOfMemo(dossierId, empreinte, async () => {
+      const indisGed: string[] = []; let echecTelechargement = false;
+      let ged: Awaited<ReturnType<typeof lireGedPermis>>;
+      try { ged = await lireGedPermis(dossierId, deps); }
+      catch (e) { indisGed.push('contenu'); console.error(`[permis/emprise] source indisponible: contenu`, { dossierId, message: e instanceof Error ? e.message : String(e) }); ged = { pieces: [] } as unknown as Awaited<ReturnType<typeof lireGedPermis>>; echecTelechargement = true; }
+      const texteParId = new Map(ged.pieces.map((p) => [p.id, p.pages.filter((x) => x.aTexte).map((x) => x.texte)] as const));
+      const proposeesAutres = classerPiecesParFamille(piecesPdf, (p) => familleDeContenu(texteParId.get(p.id) ?? []));
+      const niveauxParId = new Map<number, string[]>(); // PROV : niveaux portés par une planche d'ÉTAGE (RDC/SSOL/R+n), quand connus par le CONTENU
+      for (const p of proposeesAutres.proposees) if (p.famille === 'etage') { const niv = niveauxDeContenu(texteParId.get(p.id) ?? []); if (niv.length) niveauxParId.set(p.id, niv); }
+      // PROJ-3d/3f — CONFIRMATION PARESSEUSE (shortlist plafonnée) : éclate chaque candidat en PLANCHES + échelle. Texte SEUL. Dégradation propre.
+      const confirmations = new Map<number, { planches: { page: number; echelle: string | null; tracable: boolean; famille: FamillePlan; ambigu: boolean }[] }>();
+      await Promise.all(proposeesAutres.proposees.slice(0, PLAFOND_SHORTLIST).map(async (p) => {
+        try {
+          const ex = await deps.extraire(await deps.lireObjet(p.cleStockage), p.typeMime);
+          if (!ex.ok) { indisGed.push(`texte:${p.id}`); console.error(`[permis/emprise] texte pièce ${p.id} illisible`, { motif: ex.motif }); return; } // contenu illisible = DÉTERMINISTE (cachable)
+          const planches = pagesPlanches(ex.pages).map((pg) => {
+            const tp = tracabilitePlanche(p.famille, ex.pages[pg - 1] ?? '');
+            return { page: pg, echelle: lireEchelleTexte(ex.pages[pg - 1] ?? ''), tracable: tp.tracable, famille: tp.famille, ambigu: tp.ambigu };
+          });
+          confirmations.set(p.id, { planches });
+        } catch (e) { indisGed.push(`texte:${p.id}`); console.error(`[permis/emprise] confirmation pièce ${p.id} indisponible`, { message: e instanceof Error ? e.message : String(e) }); echecTelechargement = true; } // téléchargement raté = possiblement TRANSITOIRE → non cachable
+      }));
+      // ÉTAPE 3 (LOT 66) — CATÉGORIE « Cerfa » PAR CONTENU (n° 13409), lecture de TÊTE (≤3 pages), best-effort ISOLÉE (N10-J : illisible → non marqué).
+      const cerfaIds = new Set<number>();
+      await Promise.all(piecesPdf.map(async (p) => {
+        try {
+          const ex = await extrairePagesPdf(await deps.lireObjet(p.cleStockage), p.typeMime, 3);
+          if (ex.ok && estPieceCerfaPc(ex.pages)) cerfaIds.add(p.id);
+        } catch { echecTelechargement = true; /* illisible/téléchargement raté → non marqué (N10-J) + non cachable */ }
+      }));
+      return { valeur: { proposees: proposeesAutres.proposees, autres: proposeesAutres.autres, niveauxParId, confirmations, cerfaIds, indisGed }, cachable: !echecTelechargement };
+    });
+    const { proposees, autres, niveauxParId, confirmations, cerfaIds } = best;
+    indisponibles.push(...best.indisGed); // réponse IDENTIQUE froid/chaud (les indisponibilités du best-of sont mémoïsées avec lui)
+    // LOT 62 — planches repérées par IMAGE (verdict='oui'), MUTABLES (repérage manuel) → HORS cache, fusionnées ici. + audits.
     const planchesImage = await repli('reperage', lireReperagePlanchesOui(dossierId), new Map<number, { page: number; categorie: string }[]>());
     const reperageRuns = await repli('reperageRuns', lireRunsReperage(dossierId), new Map());
     // LOT 95 — audit DATÉ « page analysée pour lire des valeurs » AU GRAIN PAGE (méthode 'ia'). Résilient : migration 195 absente → Map vide.
@@ -133,16 +154,6 @@ export async function GET(request: Request): Promise<Response> {
       const planches = [...planchesTexte, ...planchesIma];
       return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, famille, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0, niveaux: niveauxParId.get(p.id), cerfa: cerfaIds.has(p.id) };
     };
-    // ÉTAPE 3 (LOT 66) — CATÉGORIE « Cerfa » : reconnaître PAR CONTENU (n° de formulaire 13409 en tête — cf. `estPieceCerfaPc` ; le
-    //   récapitulatif télé-service le porte aussi, « Basé sur le cerfa n° 13409 »), JAMAIS par le nom de fichier. Lecture de TÊTE
-    //   (≤3 pages) bon marché, best-effort et ISOLÉE : une pièce illisible ou incertaine n'est PAS marquée (N10-J), jamais une erreur.
-    const cerfaIds = new Set<number>();
-    await repli('categorie-cerfa', Promise.all(piecesPdf.map(async (p) => {
-      try {
-        const ex = await extrairePagesPdf(await deps.lireObjet(p.cleStockage), p.typeMime, 3);
-        if (ex.ok && estPieceCerfaPc(ex.pages)) cerfaIds.add(p.id);
-      } catch { /* illisible → non marqué (N10-J) */ }
-    })), []);
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
     return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, selection, exclusionsBestOf, inclusionsBestOf, projectionValidee, validationParCorps, altitudeValideeParCorps, reperageRuns: Object.fromEntries(reperageRuns), lecturesPages: Object.fromEntries(lecturesPages), origineExtractionSansIa, indisponibles });
   } catch (e) {
