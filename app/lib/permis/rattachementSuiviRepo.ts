@@ -266,13 +266,15 @@ const SELECT_SUIVI = `e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s
             to_char(r.detecte_le, 'YYYY-MM-DD') AS date_declenchement,
             EXISTS (SELECT 1 FROM permis_projection pj WHERE pj.dossier_id = e.dossier_id) AS projection_validee,
             (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id) AS nb_corps,
-            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND cb.altitude_sommet_ngf IS NULL) AS nb_corps_sans_alt`;
+            -- FRANCHI LE PROCESS : bâtiments dont l'altitude n'est PAS VALIDÉE (confirme_le NULL) et dont l'emprise n'est PAS VALIDÉE (206).
+            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND cb.altitude_sommet_ngf_confirme_le IS NULL) AS nb_corps_sans_alt_validee,
+            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.id = cb.emprise_validee_id AND ee.corps_id = cb.id))) AS nb_corps_sans_emprise_validee`;
 const FROM_SUIVI = `FROM permis_empreinte e
        JOIN sitadel_dossier s ON s.id = e.dossier_id
        LEFT JOIN commune c ON c.code_insee = s.code_insee
        LEFT JOIN permis_rattachement r ON r.dossier_id = e.dossier_id`;
 
-interface RangeeSuivi { dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; origine_ouverture: 'detection' | 'manuelle' | null; jours: number; reevalue: string | null; date_autorisation: string | null; date_declenchement: string | null; projection_validee: boolean; nb_corps: number; nb_corps_sans_alt: number }
+interface RangeeSuivi { dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; origine_ouverture: 'detection' | 'manuelle' | null; jours: number; reevalue: string | null; date_autorisation: string | null; date_declenchement: string | null; projection_validee: boolean; nb_corps: number; nb_corps_sans_alt_validee: number; nb_corps_sans_emprise_validee: number }
 
 /** Mappe une rangée SQL → LigneSuivi (source unique du mapping ; `dossier_id` bigint pg → CHAÎNE, honoré en NOMBRE via Number). */
 function versLigneSuivi(r: RangeeSuivi, alertesSurv: Map<number, number>, incomplets: Set<number>): LigneSuivi {
@@ -284,7 +286,7 @@ function versLigneSuivi(r: RangeeSuivi, alertesSurv: Map<number, number>, incomp
     origineOuverture: r.origine_ouverture ?? null,
     alertesSurveillance: alertesSurv.get(Number(r.dossier_id)) ?? 0, // SURV-1 — pastille par-ligne (0 = aucune)
     completudeIncomplete: incomplets.has(Number(r.dossier_id)), // RATT-1 — dérivé (jamais stocké) : décide le 3e groupe
-    validationAcquise: estValidationAcquise(r.projection_validee === true, Number(r.nb_corps), Number(r.nb_corps_sans_alt)), // LOT 77
+    validationAcquise: estValidationAcquise(Number(r.nb_corps), Number(r.nb_corps_sans_alt_validee), Number(r.nb_corps_sans_emprise_validee)), // « franchi le process » (altitudes + emprises VALIDÉES)
   };
 }
 

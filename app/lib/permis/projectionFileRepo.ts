@@ -19,6 +19,7 @@ import { listerEmprises, listerIgnorees } from './empriseReconstruiteRepo';
 import { verdictProjectionBatiments, type VerdictProjection } from './projectionBatiments';
 import { lireDossiersEnTest } from './testAnalyseRepo'; // LOT 51 — porte FIX-2 ouverte pour un dossier « testé en analyse » (sans lever le partiel)
 import { arreterToutesRelances } from './arretRelances'; // LOT 51-C — arrêt EXHAUSTIF (close + partiel_leve_le) à la sortie définitive du test
+import { estValidationAcquise } from './rattachementGroupes'; // 🔴 SOURCE UNIQUE du critère « franchi le process » (altitudes + emprises VALIDÉES), partagé avec le regroupement Rattachement/Surveillance
 
 export interface LigneProjection {
   dossierId: number;
@@ -177,7 +178,7 @@ export async function validerProjection(dossierId: number, par: string | null): 
 
 export type ResultatSortieTest =
   | { ok: true; marqueSuivi: boolean; demandesArretees: number }
-  | { ok: false; manque: 'empreinte' | 'altitude'; motif: string };
+  | { ok: false; manque: 'empreinte' | 'altitude' | 'emprise'; motif: string };
 
 /**
  * LOT 51-C — SORTIE DÉFINITIVE d'un dossier « testé en analyse » vers « Rattachement ». DOUBLE CONDITION, non négociable :
@@ -193,12 +194,22 @@ export async function sortirTestVersRattachement(dossierId: number, par: string 
   if (!Number.isInteger(dossierId) || dossierId <= 0) return { ok: false, manque: 'empreinte', motif: 'dossier invalide' };
   const verdict = await evaluerEmpreinte(dossierId);
   if (!verdict.peutValider) return { ok: false, manque: 'empreinte', motif: motifEmpreinte(verdict) };
-  // Condition ALTITUDE — PAR CORPS (nette distinction avec le polygone BD TOPO et permis_caracteristique). Gate propre à la sortie du test.
-  const { rows: alt } = await query<{ n: number }>(
-    `SELECT count(*)::int AS n FROM permis_corps_batiment WHERE dossier_id = $1 AND altitude_sommet_ngf IS NULL`, [dossierId]);
-  const nbSansAltitude = alt[0]?.n ?? 0;
-  if (nbSansAltitude > 0) {
-    return { ok: false, manque: 'altitude', motif: `${nbSansAltitude} bâtiment(s) sans altitude de sommet (NGF) : renseignez-les avant la sortie` };
+  // 🔴 FRANCHI LE PROCESS (règle Arno, durci) — PAR BÂTIMENT : altitude de sommet VALIDÉE (confirme_le) ET emprise du polygone projeté
+  //   VALIDÉE (emprise_validee_id, migration 206). Plus strict que « renseignées ». SOURCE UNIQUE = estValidationAcquise (même critère
+  //   que le regroupement Rattachement/Surveillance). Refus qui DIT quels bâtiments manquent et QUOI valider (jamais un bouton muet).
+  const { rows } = await query<{ id: number; repere: string | null; sans_alt: boolean; sans_emp: boolean }>(
+    `SELECT cb.id, cb.repere,
+            (cb.altitude_sommet_ngf_confirme_le IS NULL) AS sans_alt,
+            NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.id = cb.emprise_validee_id AND ee.corps_id = cb.id)) AS sans_emp
+       FROM permis_corps_batiment cb WHERE cb.dossier_id = $1 ORDER BY cb.id`, [dossierId]);
+  const sansAlt = rows.filter((r) => r.sans_alt), sansEmp = rows.filter((r) => r.sans_emp);
+  if (!estValidationAcquise(rows.length, sansAlt.length, sansEmp.length)) {
+    const nom = (r: { id: number; repere: string | null }) => r.repere ?? `bâtiment ${r.id}`;
+    const parts: string[] = [];
+    if (rows.length === 0) parts.push('aucun bâtiment déclaré');
+    if (sansAlt.length) parts.push(`altitude de sommet À VALIDER : ${sansAlt.map(nom).join(', ')}`);
+    if (sansEmp.length) parts.push(`emprise du polygone projeté À VALIDER : ${sansEmp.map(nom).join(', ')}`);
+    return { ok: false, manque: sansAlt.length > 0 ? 'altitude' : 'emprise', motif: `Process non franchi — ${parts.join(' ; ')}. Validez ce qui manque avant la sortie.` };
   }
   try {
     return await withTransaction(async (q) => {

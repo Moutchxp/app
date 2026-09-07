@@ -76,18 +76,18 @@ describe('RATT-1 — partitionnerSuivi (trois groupes, exclusifs & exhaustifs)',
   });
 });
 
-describe('LOT 77 — estValidationAcquise : 0 corps ne vaut JAMAIS « validé » (piège LOT 71)', () => {
-  it('projection validée + ≥1 corps + tous avec altitude → validé', () => {
-    expect(estValidationAcquise(true, 2, 0)).toBe(true);
-    expect(estValidationAcquise(true, 1, 0)).toBe(true);
+describe('« franchi le process » — estValidationAcquise DURCI (altitudes ET emprises VALIDÉES pour tous les bâtiments)', () => {
+  it('≥ 1 bâtiment + toutes altitudes VALIDÉES + toutes emprises VALIDÉES → franchi', () => {
+    expect(estValidationAcquise(3, 0, 0)).toBe(true);
+    expect(estValidationAcquise(1, 0, 0)).toBe(true);
   });
-  it('🔴 0 corps → PAS validé, même projection validée et 0 corps sans altitude', () => {
-    expect(estValidationAcquise(true, 0, 0)).toBe(false);
+  it('🔴 0 bâtiment → PAS franchi (piège LOT 71), même 0 manquant', () => {
+    expect(estValidationAcquise(0, 0, 0)).toBe(false);
   });
-  it('un corps sans altitude → PAS validé', () => {
-    expect(estValidationAcquise(true, 3, 1)).toBe(false);
+  it('un bâtiment sans altitude VALIDÉE → PAS franchi', () => {
+    expect(estValidationAcquise(3, 1, 0)).toBe(false);
   });
-  it('projection non validée → PAS validé', () => {
-    expect(estValidationAcquise(false, 2, 0)).toBe(false);
+  it('🔴 un bâtiment sans emprise VALIDÉE → PAS franchi (le durcissement : renseignée/tracée ne suffit plus)', () => {
+    expect(estValidationAcquise(3, 0, 1)).toBe(false);
   });
 });

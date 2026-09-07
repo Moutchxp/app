@@ -24,13 +24,19 @@ describe('LOT 51-C — arreterToutesRelances : LES DEUX gestes (aucun seul ne su
   });
 });
 
-describe('LOT 51-C — sortirTestVersRattachement : double condition + atomicité + altitude PAR CORPS', () => {
+describe('LOT 51-C / DURCI — sortirTestVersRattachement : « franchi le process » (altitudes ET emprises VALIDÉES par bâtiment)', () => {
   const s = lire('app/lib/permis/projectionFileRepo.ts');
-  it('gate empreinte PUIS altitude (permis_corps_batiment.altitude_sommet_ngf), avec `manque` explicite', () => {
+  it('gate empreinte PUIS « franchi le process » (altitude_sommet_ngf_confirme_le + emprise_validee_id), SOURCE UNIQUE estValidationAcquise, `manque` explicite', () => {
     expect(s).toContain('export async function sortirTestVersRattachement');
-    expect(s).toContain('altitude_sommet_ngf IS NULL');                 // altitude PAR CORPS
+    expect(s).toContain('altitude_sommet_ngf_confirme_le IS NULL'); // altitude VALIDÉE (pas seulement renseignée)
+    expect(s).toContain('emprise_validee_id');                       // emprise VALIDÉE (migration 206)
+    expect(s).toContain('estValidationAcquise(');                    // 🔴 même critère que le regroupement Rattachement/Surveillance
     expect(s).toContain("manque: 'empreinte'");
-    expect(s).toContain("manque: 'altitude'");
+    expect(s).toMatch(/manque: sansAlt\.length > 0 \? 'altitude' : 'emprise'/); // le refus DIT lequel manque
+  });
+  it('🔴 SOURCE UNIQUE (§4) — le garde du bouton ET le regroupement Rattachement/Surveillance consomment le MÊME estValidationAcquise (jamais deux critères)', () => {
+    expect(s).toContain('estValidationAcquise('); // garde du bouton (sortirTestVersRattachement)
+    expect(lire('app/lib/permis/rattachementSuiviRepo.ts')).toContain('estValidationAcquise('); // appartenance (validationAcquise → groupe « en attente » vs « incomplet »)
   });
   it('l’altitude n’entre PAS dans la validation NORMALE (validerProjection inchangée sur ce point)', () => {
     // Le CORPS de validerProjection (jusqu'au type ResultatSortieTest) ne lit jamais altitude_sommet_ngf : la condition altitude est

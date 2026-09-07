@@ -33,12 +33,14 @@ export const GROUPE_INCOMPLET_TITRE = 'Permis avec dossier incomplet';
 export interface LigneGroupable { etat: EtatSuivi; completudeIncomplete: boolean; validationAcquise: boolean }
 
 /**
- * LOT 77 (règle Arno) — la VALIDATION du permis est-elle ACQUISE ? = empreinte/projection validée ET AU MOINS UN corps déclaré ET
- * TOUS les corps ont leur altitude de sommet (nbCorpsSansAltitude === 0). 🔴 PIÈGE LOT 71 : `0 corps` NE VAUT PAS « toutes les
- * altitudes validées » — `nbCorps >= 1` est EXIGÉ, sinon un permis sans aucun bâtiment basculerait « validé » par vacuité. PURE.
+ * 🔴 CRITÈRE « FRANCHI LE PROCESS » (règle Arno, durci depuis le LOT 77) — SOURCE UNIQUE, consommée par le REGROUPEMENT (validationAcquise)
+ * ET le GARDE du bouton « Terminer l'analyse » (sortirTestVersRattachement). Un permis a franchi le process quand, pour TOUS ses
+ * bâtiments déclarés : ① l'altitude de sommet est VALIDÉE (pas seulement renseignée) ET ② l'emprise du polygone projeté est VALIDÉE
+ * (migration 206). Plus strict que le LOT 77 (qui n'exigeait que les altitudes RENSEIGNÉES + permis_projection). 🔴 PIÈGE LOT 71 :
+ * `0 corps` NE VAUT PAS « tout validé » — `nbCorps >= 1` EXIGÉ (sinon un permis sans bâtiment franchirait par vacuité). PURE.
  */
-export function estValidationAcquise(projectionValidee: boolean, nbCorps: number, nbCorpsSansAltitude: number): boolean {
-  return projectionValidee && nbCorps >= 1 && nbCorpsSansAltitude === 0;
+export function estValidationAcquise(nbCorps: number, nbSansAltitudeValidee: number, nbSansEmpriseValidee: number): boolean {
+  return nbCorps >= 1 && nbSansAltitudeValidee === 0 && nbSansEmpriseValidee === 0;
 }
 
 /**
