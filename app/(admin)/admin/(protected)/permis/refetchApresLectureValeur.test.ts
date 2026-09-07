@@ -34,7 +34,7 @@ describe('LiseusePieces — signale une valeur lue/annulée par « analyse de la
 describe('BlocTraceEmprise — repasse le signal de sa liseuse embarquée au parent (canvas/tracé intouché)', () => {
   it('accepte onValeurLue et le branche sur onValeurEcrite de la liseuse embarquée', () => {
     expect(TRACE).toContain('onValeurLue?: () => void');
-    expect(TRACE).toContain('<LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} />');
+    expect(TRACE).toContain('<LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} />'); // P3 — donnée /emprise partagée (anti-doublon)
   });
 });
 

@@ -65,12 +65,28 @@ function peindreBitmap(canvas: HTMLCanvasElement, bmp: RenduBitmap): void {
  *    (construireBandePlans / cibleBestOf / SelecteurPiecePlan / BandePlans / NavPieceLibre / ZoomPdf) et sont IMPORTÉES ici, JAMAIS recopiées.
  *    Toute évolution des critères se fait UNE fois là-bas et bénéficie aux deux liseuses (même sélection, même ordre, même plan par défaut).
  */
-export function LiseusePieces({ dossierId, onValeurEcrite }: {
+// P3 (perfo) — sous-ensemble de la réponse `GET /emprise` dont la liseuse a besoin. Permet à un FRÈRE (BlocTraceEmprise, qui a déjà
+//   chargé la même route) de PARTAGER sa donnée pour éviter un 2e GET /emprise identique (le poste de coût dominant : ré-extraction PDF).
+export interface DonneesLiseuse {
+  pieces: PiecePlan[];
+  piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[];
+  exclusionsBestOf?: { pieceId: number; page: number }[];
+  inclusionsBestOf?: { pieceId: number; page: number }[];
+  reperageRuns?: Record<number, RunReperageAffiche>;
+  lecturesPages?: Record<number, LecturePageAffiche[]>;
+  origineExtractionSansIa?: 'auto' | 'manuelle' | null;
+}
+
+export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = null }: {
   dossierId: number;
   // LOT — « analyse de la page » écrit une valeur (ou l'annule) au niveau PERMIS/corps : ce signal permet à un frère co-monté
   //   (CaracteristiquesBloc) de RE-FETCHER son journal, pour que la valeur lue apparaisse aussitôt en proposition (sinon, le bloc
   //   restant monté — BlocRepliable ne démonte jamais — garde un journal périmé et n'affiche pas la proposition). N'affecte PAS le lecteur.
   onValeurEcrite?: () => void;
+  // P3 (perfo) — données `/emprise` DÉJÀ chargées par un frère (BlocTraceEmprise). Si fournies au 1er chargement, la liseuse les RÉUTILISE
+  //   au lieu de refaire le GET (doublon supprimé). MÊME donnée (même route) → mêmes pièces, même best-of, même page par défaut. Le refetch
+  //   après un repérage (vReper>0) reste inchangé. Absentes/null → la liseuse charge elle-même (comportement d'origine, aucun cas dégradé).
+  donneesPrechargees?: DonneesLiseuse | null;
 }) {
   const [pieces, setPieces] = useState<PiecePlan[]>([]);
   const [etat, setEtat] = useState<'charge' | 'ok' | 'vide' | 'erreur'>('charge');
@@ -148,34 +164,43 @@ export function LiseusePieces({ dossierId, onValeurEcrite }: {
   // CHARGEMENT PARESSEUX : cet effet ne part qu'À LA MONTÉE — or le composant n'est monté qu'à l'OUVERTURE de la famille (le `contenu`
   //   de BlocRepliable est un thunk appelé au dépli). Donc rien tant que la famille est repliée, et jamais au rendu de la liste des demandes.
   //   Même source que BlocTraceEmprise (GET /emprise) → mêmes pièces enrichies (propose/famille/planches) que le best-of ; per-dossier, aucun WHERE sur `dem`.
+  // P3 (perfo) — ref MIROIR des données préchargées (lue au 1er chargement SANS être une dépendance de l'effet : une arrivée TARDIVE ne
+  //   doit pas ré-appliquer et réinitialiser la navigation ; le fallback fetch a de toute façon la même donnée). Mise à jour HORS rendu (effet).
+  const donneesRef = useRef(donneesPrechargees);
+  useEffect(() => { donneesRef.current = donneesPrechargees; }, [donneesPrechargees]);
   useEffect(() => {
     let vivant = true;
+    // APPLIQUE une réponse /emprise (fetchée OU préchargée par un frère) → pièces + best-of + page par défaut. SOURCE UNIQUE (mêmes setState).
+    const appliquer = (j: DonneesLiseuse) => {
+      const ps = j.pieces ?? [];
+      setPieces(ps);
+      setRuns(j.reperageRuns ?? {}); // LOT 62 — audit du repérage par image
+      setLectures(j.lecturesPages ?? {}); // LOT 95 — audit daté « page analysée pour lire des valeurs »
+      setOrigineSansIa(j.origineExtractionSansIa ?? null); // LOT 100 — origine tracée de l'extraction non-IA
+      setPiecesNonSupportees(j.piecesNonSupportees ?? []); // LOT 64
+      if (ps.length === 0) { setEtat('vide'); return; }
+      const b = construireBandePlans(ps); // RÈGLE PARTAGÉE — sélection/ordre du best-of, jamais recodée ici.
+      setBande(b);
+      // LOT 61/92 — overrides persistés : on OUVRE sur le 1er plan VISIBLE (best-of − retraits + ajouts).
+      const ex = new Set((j.exclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`));
+      const inc = new Set((j.inclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`));
+      setExclus(ex); setInclus(inc);
+      const vis = bandeAvecOverrides(b, ps, ex, inc);
+      setNav('bestof'); setPlanIndex(0);
+      setPieceId(vis[0]?.pieceId ?? ps[0]?.id ?? null); // ouverture DIRECTE sur le plan visible le mieux classé (ou 1re pièce à défaut).
+      setPage(vis[0]?.page ?? 1);
+      setPleinListe(vis.length <= 1);
+      setEtat('ok');
+    };
+    // P3 — au 1er chargement (vReper===0), si un frère (BlocTraceEmprise) a déjà chargé la MÊME route, on RÉUTILISE sa donnée : PAS de 2e GET.
+    if (vReper === 0 && donneesRef.current) { appliquer(donneesRef.current); return; }
     (async () => {
       try {
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`);
         if (!res.ok) { if (vivant) setEtat('erreur'); return; }
-        const j = await res.json() as { pieces?: PiecePlan[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; reperageRuns?: Record<number, RunReperageAffiche>; lecturesPages?: Record<number, LecturePageAffiche[]>; origineExtractionSansIa?: 'auto' | 'manuelle' | null };
+        const j = await res.json() as DonneesLiseuse;
         if (!vivant) return;
-        const ps = j.pieces ?? [];
-        setPieces(ps);
-        setRuns(j.reperageRuns ?? {}); // LOT 62 — audit du repérage par image
-        setLectures(j.lecturesPages ?? {}); // LOT 95 — audit daté « page analysée pour lire des valeurs »
-        setOrigineSansIa(j.origineExtractionSansIa ?? null); // LOT 100 — origine tracée de l'extraction non-IA
-        setPiecesNonSupportees(j.piecesNonSupportees ?? []); // LOT 64
-
-        if (ps.length === 0) { setEtat('vide'); return; }
-        const b = construireBandePlans(ps); // RÈGLE PARTAGÉE — sélection/ordre du best-of, jamais recodée ici.
-        setBande(b);
-        // LOT 61/92 — overrides persistés : on OUVRE sur le 1er plan VISIBLE (best-of − retraits + ajouts).
-        const ex = new Set((j.exclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`));
-        const inc = new Set((j.inclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`));
-        setExclus(ex); setInclus(inc);
-        const vis = bandeAvecOverrides(b, ps, ex, inc);
-        setNav('bestof'); setPlanIndex(0);
-        setPieceId(vis[0]?.pieceId ?? ps[0]?.id ?? null); // ouverture DIRECTE sur le plan visible le mieux classé (ou 1re pièce à défaut).
-        setPage(vis[0]?.page ?? 1);
-        setPleinListe(vis.length <= 1);
-        setEtat('ok');
+        appliquer(j);
       } catch { if (vivant) setEtat('erreur'); }
     })();
     return () => { vivant = false; };

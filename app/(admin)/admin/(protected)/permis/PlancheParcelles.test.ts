@@ -11,7 +11,7 @@ const ROUTE = readFileSync(fileURLToPath(new URL('../../../../(admin)/api/admin/
 
 describe('PlancheParcelles — schéma pur, provenance honnête (PL-A/B)', () => {
   it('RÉUTILISE la liseuse existante (jamais dupliquée) + le module PUR (pas de lib de tuiles)', () => {
-    expect(SRC).toContain("import { LiseusePieces } from './LiseusePieces'");
+    expect(SRC).toContain("import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'"); // P3 — + type partagé pour la donnée /emprise (anti-doublon)
     expect(SRC).toContain('<LiseusePieces dossierId={dossierId}');
     expect(SRC).toContain("from '../../../../lib/permis/plancheParcellesRepo'");
     expect(SRC).toContain('schema.polygones');

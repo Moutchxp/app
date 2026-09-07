@@ -10,7 +10,7 @@ import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetConte
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
 import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
-import { LiseusePieces } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome (best-of, navigation, zoom) réutilisée à 0 bâtiment
+import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
 import { bandeAvecOverrides, statutPageAnalyse, resumePagesAnalysees } from './TraceEmpriseRendu'; // INCRÉMENT-2 — best-of overrides + statut/résumé de page (barre partagée)
 import { BarreVisionneusePieces } from './BarreVisionneusePieces'; // INCRÉMENT-2 — barre de commandes PARTAGÉE avec la planche
@@ -38,10 +38,11 @@ const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
 const SEUIL_SOMMET_BOITE = 12; // PROJ-3s — rayon de capture d'un sommet au clic (unités de la boîte du schéma) : cible TACTILE, pas un seuil métier.
 type ModeRetouche = 'deplacer' | 'inserer' | 'supprimer';
 
-export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true, onValeurLue, onEmprisesChange, onEntete }: {
+export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true, onValeurLue, onEmprisesChange, onEntete, onDonneesLiseuse }: {
   dossierId: number;
   onVerdict?: (v: VerdictProjection) => void;
   onEntete?: (etat: { ton: 'vert' | 'rouge'; texte: string }) => void; // ③ COMPLÉMENT — état de l'en-tête « Bâtiments et projection » (validée / ce qui manque) remonté au parent pour le titre repliable
+  onDonneesLiseuse?: (d: DonneesLiseuse) => void; // P3 (perfo) — remonte au parent la donnée /emprise déjà chargée pour qu'un frère (liseuse de la planche) la réutilise au lieu d'un 2e GET
   onEmprisesChange?: () => void; // une MUTATION d'emprise (enregistrement / suppression / adoption / retouche) a changé la base → le
                                  //   parent re-fetche CaracteristiquesBloc (capsule d'emprise du cartouche). Jamais appelé au chargement.
   rafraichir?: number; // PROJ-3b — signal du parent : incrémenté quand l'instruction change (ajout de bâtiment) → recharge la liste
@@ -69,6 +70,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const [emprises, setEmprises] = useState<EmpriseReconstruite[]>([]);
   const [validationParCorps, setValidationParCorps] = useState<Record<number, boolean>>({}); // VALIDATION PAR BÂTIMENT (corpsId → validée) : pastille + bandeau dérivent des MÊMES faits que la capsule du cartouche
   const [altitudeValideeParCorps, setAltitudeValideeParCorps] = useState<Record<number, boolean>>({}); // ③ COMPLÉMENT — altitude de sommet validée par bâtiment : avec l'emprise, décide l'en-tête « Projection(s) validée(s) »
+  const [donneesLiseuse, setDonneesLiseuse] = useState<DonneesLiseuse | null>(null); // P3 (perfo) — sous-ensemble /emprise partagé avec la liseuse embarquée (0 bâtiment) ET remonté au parent (liseuse de la planche) → anti-doublon
   const [ignores, setIgnores] = useState<ProjectionIgnoree[]>([]);
   const [contexte, setContexte] = useState<Contexte | null>(null);
   const [polygones, setPolygones] = useState<PolygoneBdTopo[]>([]); // PROJ-3h — polygones BD TOPO (∩ empreinte) + état, pour l'affichage
@@ -184,6 +186,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         // INCRÉMENT-2 — audits d'analyse IA + overrides best-of (mêmes champs que la planche, déjà renvoyés par le GET).
         setRuns(j.reperageRuns ?? {}); setLectures(j.lecturesPages ?? {}); setOrigineSansIa(j.origineExtractionSansIa ?? null);
         setExclus(new Set((j.exclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`))); setInclus(new Set((j.inclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`)));
+        // P3 (perfo) — la MÊME réponse /emprise alimente aussi la LISEUSE (best-of). On la partage (état local pour la liseuse embarquée à
+        //   0 bâtiment + remontée au parent pour la liseuse de la planche) → aucun 2e GET /emprise identique. Sous-ensemble strictement lu par la liseuse.
+        setDonneesLiseuse({ pieces: j.pieces, piecesNonSupportees: j.piecesNonSupportees, exclusionsBestOf: j.exclusionsBestOf, inclusionsBestOf: j.inclusionsBestOf, reperageRuns: j.reperageRuns, lecturesPages: j.lecturesPages, origineExtractionSansIa: j.origineExtractionSansIa });
         // PROJ-3e — on ouvre DIRECTEMENT sur le 1er plan de la bande (le mieux classé) ; à défaut de plan proposé, la 1re pièce.
         const b = construireBandePlans(j.pieces);
         setNav('bestof'); setPlanIndex(0);
@@ -335,6 +340,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     return etatEnteteProjection(batiments.length, nbSansAlt, nbSansEmp);
   }, [batiments, altitudeValideeParCorps, validationParCorps]);
   useEffect(() => { if (etat === 'ok') onEntete?.(enteteEtat); }, [enteteEtat, onEntete, etat]);
+  // P3 (perfo) — remonte la donnée /emprise au parent (pour la liseuse de la planche) dès qu'elle est chargée. Effet SÉPARÉ (comme onVerdict/onEntete) → n'alourdit pas l'effet de fetch.
+  useEffect(() => { if (donneesLiseuse) onDonneesLiseuse?.(donneesLiseuse); }, [donneesLiseuse, onDonneesLiseuse]);
 
   // 🔴 RENDU PDF DÉLIBÉRÉMENT DISTINCT de la liseuse de la planche (LiseusePieces) — NE PAS UNIFIER (décision Arno 31/08/2026, arrêt du
   //   LOT 14 ; ré-confirmée au chantier « unification des visionneuses », Option 1). CE rendu calcule le viewport au scale
@@ -863,7 +870,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         {/* LOT 90 — LISEUSE lecture seule (best-of + navigation + zoom, composant autonome). Le CALAGE reste FERMÉ à 0 bâtiment : il
             n'alimente que l'enregistrement, qui exige un bâtiment → l'ouvrir mènerait à un cul-de-sac. La liseuse gère elle-même le
             best-of vide (« Aucun plan… ») → jamais un cadre vide muet. `avecLiseuse=false` là où une liseuse standalone existe déjà. */}
-        {avecLiseuse && <LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} />}
+        {avecLiseuse && <LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} />}
         {boite ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
             <RotationSchema angle={angle} onAngle={setAngle} />

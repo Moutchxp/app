@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { PlancheParcelles as PlancheData, PlancheParcelleMeta, CentreMode, SuggestionAdresse } from '../../../../lib/permis/plancheParcellesRepo';
 import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle';
-import { LiseusePieces } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome, RÉUTILISÉE (jamais dupliquée)
+import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome, RÉUTILISÉE (jamais dupliquée) ; P3 — partage donnée /emprise
 
 /**
  * PL-A/B/C — PLANCHE CADASTRALE. Parcelles du permis + voisines dans un rayon RÉGLABLE, schéma SVG maison (module pur, EPSG:2154).
@@ -45,10 +45,12 @@ const LEGENDE: { cle: string; couleur: string; texte: string }[] = [
   { cle: 'voisine', couleur: 'var(--color-svv-muted)', texte: 'voisine (repère)' },
 ];
 
-export function PlancheParcelles({ dossierId, onEmpreinteRecalculee }: {
+export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, donneesLiseuse = null }: {
   dossierId: number;
   onEmpreinteRecalculee?: () => void; // PL-H — appelé après un valider/retirer RÉUSSI (empreinte+bâti+projection recalculés serveur) → le
                                       //   parent rafraîchit le bloc « Bâtiments et projection » via le canal EXISTANT (vInstruction/rafraichir).
+  donneesLiseuse?: DonneesLiseuse | null; // P3 (perfo) — données /emprise déjà chargées par le bloc « Bâtiments et projection » : la liseuse
+                                          //   de la planche les RÉUTILISE au lieu de refaire le GET /emprise (doublon supprimé). Null → elle charge elle-même.
 }) {
   const [data, setData] = useState<PlancheData | null>(null);
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
@@ -176,7 +178,7 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee }: {
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '.8rem', alignItems: 'start' }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, color: 'var(--color-svv-muted)', marginBottom: '.3rem' }}>Documents du permis</div>
-          <LiseusePieces dossierId={dossierId} />
+          <LiseusePieces dossierId={dossierId} donneesPrechargees={donneesLiseuse} />
         </div>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>

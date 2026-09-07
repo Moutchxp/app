@@ -11,6 +11,7 @@ import { BlocRepliable } from './BlocRepliable';
 import { PlancheParcelles } from './PlancheParcelles'; // PL-A — planche cadastrale (lecture seule), à côté du schéma du bâti
 import { TableProjection, AIDE_PROJECTION, TitreFamilleEtat, type LigneProjectionAffichee } from './ProjectionRendu';
 import { ClotureVersRattachement, clotureVisible } from './CaracteristiquesRendu'; // COMPLÉMENT — bouton de clôture (MÊME composant, 5 rendus) + visibilité source unique
+import type { DonneesLiseuse } from './LiseusePieces'; // P3 (perfo) — donnée /emprise partagée (bloc Bâtiments → liseuse de la planche), anti-doublon
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { etatValidationProjection } from '../../../../lib/permis/etatValidationProjection';
 import { etatProjectionTitre, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles
@@ -30,6 +31,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   const [verdict, setVerdict] = useState<VerdictProjection | null>(null);
   const [enteteProjection, setEnteteProjection] = useState<{ ton: 'vert' | 'rouge'; texte: string } | null>(null); // ③ COMPLÉMENT — état RÉEL de l'en-tête « Bâtiments et projection », remonté par BlocTraceEmprise (tous alt+emprise validées ?). null tant que le bloc n'est pas ouvert → repli sur le marqueur.
   const [modePassage, setModePassage] = useState<'automatique' | 'cloture_manuelle'>('automatique'); // ② COMPLÉMENT — réglage de passage (auto = message ; clôture manuelle = gros bouton). Lu une fois du serveur.
+  const [donneesLiseuse, setDonneesLiseuse] = useState<DonneesLiseuse | null>(null); // P3 (perfo) — donnée /emprise chargée par le bloc « Bâtiments et projection », partagée à la liseuse de la planche (anti-doublon).
   const [enCours, setEnCours] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [vInstruction, setVInstruction] = useState(0); // PROJ-3b — compteur incrémenté à chaque écriture d'instruction → recharge le tracé (bâtiments)
@@ -157,7 +159,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   if (file === null) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>;
 
   const ouvrir = (dossierId: number) => {
-    setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setEnteteProjection(null); setMessage(null); setBatimentsOuvert(false); // PERF-1 : chaque permis s'ouvre tout replié
+    setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setEnteteProjection(null); setDonneesLiseuse(null); setMessage(null); setBatimentsOuvert(false); // PERF-1 : chaque permis s'ouvre tout replié
     passageDeclencheRef.current = null; setPassageMsg(null); setPassageEnCours(false); // LOT 70 : réarme l'analyse au passage (event handler → setState autorisé) pour la prochaine ouverture
   };
 
@@ -271,7 +273,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
             <div className="flex flex-col gap-2">
               {/* Le bouton GLOBAL « Valider la projection » a été retiré (a922f67) : la validation passe par la chaîne par bâtiment
                   (enregistrer → valider → modifier) + la clôture. Le rendu du HAUT a été retiré (décision Arno : trop de boutons). */}
-              <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} onEntete={setEnteteProjection} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} onEmprisesChange={() => setVEmprise((v) => v + 1)} />
+              <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} onEntete={setEnteteProjection} onDonneesLiseuse={setDonneesLiseuse} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} onEmprisesChange={() => setVEmprise((v) => v + 1)} />
               {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
               {/* ⑤ CLÔTURE — en BAS du contenu déployé (bouton seul). */}
               {rendreCloture('bouton')}
@@ -284,7 +286,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         <BlocRepliable key={`w-planche-${ouvert}`} titre="Planche cadastrale (parcelles)">
           {/* PL-H — valider/retirer une sélection dans la planche recalcule l'empreinte serveur : on rafraîchit le bloc « Bâtiments et
               projection » par le MÊME canal que CaracteristiquesBloc (vInstruction → rafraichir de BlocTraceEmprise), jamais un 2e mécanisme. */}
-          {() => <PlancheParcelles key={`planche-${ouvert}`} dossierId={ouvert} onEmpreinteRecalculee={() => setVInstruction((v) => v + 1)} />}
+          {() => <PlancheParcelles key={`planche-${ouvert}`} dossierId={ouvert} onEmpreinteRecalculee={() => setVInstruction((v) => v + 1)} donneesLiseuse={donneesLiseuse} />}
         </BlocRepliable>
         {/* EXT-1 (point 5) — PIÈCES DU PERMIS en DERNIÈRE POSITION : référence en regard de la saisie. Chargées au dépliage (PERF-1). */}
         <BlocRepliable key={`w-pieces-${ouvert}`} titre="Pièces du permis">
