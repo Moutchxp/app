@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -303,20 +303,25 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
     const filtres: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: true };
     const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }, { x: 0, y: 30 }]], emprises: [], polygones: attribuerReperes(polys), filtres, ecartes: [], calageLambert: [] }));
-    const tag = html.match(/<text\b[^>]*data-repere="A"[^>]*>/)?.[0] ?? '';
+    // data-repere porte désormais sur le <g> qui enveloppe la lettre (+ éventuel trait de rappel) ; on lit le <text> qu'il contient.
+    const bloc = html.match(/<g[^>]*data-repere="A"[^>]*>[\s\S]*?<\/g>/)?.[0] ?? '';
+    const tag = bloc.match(/<text\b[^>]*>/)?.[0] ?? '';
     expect(tag).not.toBe('');
     expect(tag).toContain('fill="#1b1b1b"');            // encre FIXE (ETIQ_ENCRE) → lisible sur le blanc du canvas dans les DEUX thèmes
     expect(tag).toContain('paint-order="stroke"');      // halo blanc → passe au-dessus du gris du bâti
     expect(tag).not.toContain('var(--color-svv-ink)');  // plus de token (qui basculait à #e8ebef = quasi-blanc, invisible en thème sombre)
     expect(Number(tag.match(/font-size="([^"]+)"/)?.[1])).toBeGreaterThanOrEqual(15); // lisible sans zoomer (≥ plancher, > ancienne taille 12)
   });
-  it('taille des repères : plancher lisible (petit polygone), plafond (grand), proportionnelle au milieu', () => {
+  it('taille des repères : plancher/plafond = FRACTIONS de l’affichage (viewBox) + proportionnelle au polygone entre les deux', () => {
     const carre = (c: number) => [{ x: 0, y: 0 }, { x: c, y: 0 }, { x: c, y: c }, { x: 0, y: c }];
-    expect(tailleRepere(carre(6))).toBe(15);            // petit → PLANCHER (6*0.55=3,3 relevé) : jamais illisible, quitte à déborder un peu
-    expect(tailleRepere(carre(400))).toBe(30);          // grand → PLAFOND : n'écrase pas la forme
-    expect(tailleRepere(carre(40))).toBeCloseTo(22, 5); // moyen → 40*0,55 = 22, dans la plage
-    expect(tailleRepere(carre(40))).toBeGreaterThan(12); // strictement plus grand que l'ancienne taille fixe (12)
-    expect(tailleRepere([{ x: 0, y: 0 }, { x: 5, y: 0 }])).toBe(15); // dégénéré (< 3 pts) → plancher
+    const refVb = 300; // plus petit côté du viewBox → plancher 22,5 / plafond 33
+    expect(tailleRepere(carre(6), refVb)).toBeCloseTo(22.5, 5);   // petit → PLANCHER (jamais rétréci dessous) : quitte à déborder/déporter
+    expect(tailleRepere(carre(400), refVb)).toBeCloseTo(33, 5);   // grand → PLAFOND : n'écrase pas la forme
+    expect(tailleRepere(carre(50), refVb)).toBeCloseTo(27.5, 5);  // moyen → 50*0,55 = 27,5, dans la plage
+    expect(tailleRepere(carre(50), refVb)).toBeGreaterThan(12);   // strictement plus grand que l'ancienne taille fixe (12)
+    expect(tailleRepere([{ x: 0, y: 0 }, { x: 5, y: 0 }], refVb)).toBeCloseTo(22.5, 5); // dégénéré (< 3 pts) → plancher
+    // ② FACTEUR D'AFFICHAGE (le cœur du correctif plein écran) : le MÊME polygone donne une lettre PLUS GRANDE sur un schéma plus grand.
+    expect(tailleRepere(carre(400), 600)).toBeGreaterThan(tailleRepere(carre(400), 300));
   });
   it('📍 repère POSITIONNÉ DANS le polygone même CONCAVE (en L) : ancre intérieure (pointOnSurface), pas le centroïde qui tombe dehors', () => {
     const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
@@ -325,10 +330,53 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     const cx = L.reduce((s, p) => s + p.x, 0) / L.length, cy = L.reduce((s, p) => s + p.y, 0) / L.length;
     expect(pointDansAnneau(cx, cy, L)).toBe(false);     // garde-fou : le centroïde brut EST dehors (sinon le test ne prouverait rien)
     const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }, { x: 0, y: 30 }]], emprises: [], polygones: attribuerReperes([{ cleabs: 'L1', anneau: L, etat: 'En service' }]), filtres, ecartes: [], calageLambert: [] }));
-    const tag = html.match(/<text\b[^>]*data-repere="A"[^>]*>/)?.[0] ?? '';
+    const bloc = html.match(/<g[^>]*data-repere="A"[^>]*>[\s\S]*?<\/g>/)?.[0] ?? '';
+    const tag = bloc.match(/<text\b[^>]*>/)?.[0] ?? '';
+    expect(bloc).not.toContain('<line');                // grand polygone (en L) → lettre DEDANS, donc AUCUN trait de rappel
     const x = Number(tag.match(/\bx="([^"]+)"/)?.[1]), y = Number(tag.match(/\by="([^"]+)"/)?.[1]);
     const Lpx = L.map((p) => projeterDansBoite(boite, p));
     expect(pointDansAnneau(x, y, Lpx)).toBe(true);      // la lettre est bien À L'INTÉRIEUR du L projeté au MÊME cadre
+  });
+  // FILET PUR (règle Arno) — placerReperes décide DEDANS vs DÉPORTÉ+TRAIT selon la taille d'affichage (viewBox) ET la taille du polygone,
+  //   avec plancher/plafond, et sans jamais chevaucher un autre polygone ni une autre lettre. Contrôle sur la FONCTION pure (indépendant du DOM).
+  describe('FILET — repères : taille adaptée (affichage + polygone) + déport avec trait de rappel si trop petit', () => {
+    const vb = { minX: 0, minY: 0, w: 200, h: 200 }; // refVb = 200 → plancher 15, plafond 22
+    const carre = (x: number, y: number, c: number) => [{ x, y }, { x: x + c, y }, { x: x + c, y: y + c }, { x, y: y + c }];
+    const ancre = (x: number, y: number, c: number) => ({ x: x + c / 2, y: y + c / 2 });
+
+    it('grand polygone → lettre DEDANS (à l’ancre intérieure), proche du plafond, SANS déport', () => {
+      const [p] = placerReperes([{ repere: 'A', anneauPx: carre(50, 50, 100), ancre: ancre(50, 50, 100) }], [], vb);
+      expect(p.deporte).toBe(false);
+      expect(p.taille).toBeCloseTo(22, 5);                                    // plafond = fraction du viewBox
+      expect(p.x).toBeCloseTo(100, 5); expect(p.y).toBeCloseTo(100, 5);       // posée sur l'ancre
+    });
+    it('polygone moyen → lettre DEDANS, taille proportionnelle (entre plancher et plafond)', () => {
+      const [p] = placerReperes([{ repere: 'A', anneauPx: carre(80, 80, 32), ancre: ancre(80, 80, 32) }], [], vb); // 32*0,55 = 17,6
+      expect(p.deporte).toBe(false);
+      expect(p.taille).toBeCloseTo(17.6, 5);
+    });
+    it('polygone trop PETIT pour une lettre au plancher → lettre DÉPORTÉE (taille plancher conservée) + ancre du trait de rappel', () => {
+      const petit = carre(95, 95, 10);                                        // 10*0,55 = 5,5 < plancher 15
+      const [p] = placerReperes([{ repere: 'A', anneauPx: petit, ancre: ancre(95, 95, 10) }], [petit], vb);
+      expect(p.deporte).toBe(true);
+      expect(p.taille).toBe(15);                                              // JAMAIS rétrécie sous le plancher
+      expect(p.ax).toBeCloseTo(100, 5); expect(p.ay).toBeCloseTo(100, 5);     // le trait part du centre du polygone
+      expect(Math.hypot(p.x - 100, p.y - 100)).toBeGreaterThan(0);           // la lettre est bien DÉPLACÉE hors du point
+    });
+    it('plafond RESPECTÉ : un polygone gigantesque ne dépasse pas la taille maximale', () => {
+      const [p] = placerReperes([{ repere: 'A', anneauPx: carre(0, 0, 200), ancre: ancre(0, 0, 200) }], [], vb);
+      expect(p.taille).toBeCloseTo(22, 5);
+    });
+    it('deux petits polygones VOISINS → leurs lettres déportées ne se CHEVAUCHENT pas', () => {
+      const a = carre(90, 100, 8), b = carre(106, 100, 8);
+      const placees = placerReperes([
+        { repere: 'A', anneauPx: a, ancre: ancre(90, 100, 8) },
+        { repere: 'B', anneauPx: b, ancre: ancre(106, 100, 8) },
+      ], [a, b], vb);
+      expect(placees.every((p) => p.deporte)).toBe(true);
+      const bl = (p: { x: number; y: number }) => ({ x: p.x - (15 * 0.72) / 2, y: p.y - 15 / 2, w: 15 * 0.72, h: 15 });
+      expect(boitesSeChevauchent(bl(placees[0]), bl(placees[1]), 0)).toBe(false); // aucun chevauchement des deux lettres
+    });
   });
   it('OptionsVisibiliteSchema : UN filtre futur bâti (⓪) + repères (①) + libellés d’origine ; plus de doublon', () => {
     const html = renderToStaticMarkup(h(OptionsVisibiliteSchema, { filtres: FILTRES_SCHEMA_DEFAUT, onFiltres: () => {}, nbFutur: 4, nbExistant: 12 }));

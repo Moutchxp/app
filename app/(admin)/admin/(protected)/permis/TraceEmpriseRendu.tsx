@@ -1088,16 +1088,81 @@ const PERMIS_FILL = 'rgba(15,118,110,.34)', PERMIS_TRAIT = '#0f766e';      // �
 const VOISIN_FILL = 'rgba(37,99,235,.18)', VOISIN_TRAIT = '#2563eb';       // ② BLEU — bâtiment voisin (hors permis)
 const CONTEXTE_FOND = 'rgba(122,180,230,.10)', CONTEXTE_TRAIT = '#7ab4e6'; // ③ BLEU CLAIR — parcelle voisine (contexte)
 
-// Repères (A, B, C…) : taille de police ADAPTÉE au polygone (unités de la boîte du schéma) — lisible d'un coup d'œil sur une forme
-//   moyenne, PLAFONNÉE pour ne pas écraser une grande forme, et surtout PLANCHER LISIBLE pour les petites (mieux vaut déborder un
-//   peu qu'illisible). Ratio appliqué à la plus PETITE dimension du polygone projeté.
-const REPERE_POLICE_MIN = 15, REPERE_POLICE_MAX = 30, REPERE_POLICE_RATIO = 0.55;
-/** Taille de police d'un repère selon la plus petite dimension de son polygone PROJETÉ (px boîte), bornée [MIN ; MAX]. PUR. */
-export function tailleRepere(anneauPx: { x: number; y: number }[]): number {
-  if (anneauPx.length < 3) return REPERE_POLICE_MIN;
+// Repères (A, B, C…) — RÈGLE ARNO : lettre NETTEMENT LISIBLE, taille ADAPTÉE à DEUX facteurs — ① la taille d'AFFICHAGE du schéma (le
+//   plancher ET le plafond sont des FRACTIONS du viewBox → un schéma deux fois plus grand donne une lettre proportionnellement plus
+//   grande : c'est ce qui corrige le plein écran, où l'ancien plafond en unités-boîte absolues devenait minuscule) ; ② la taille du
+//   POLYGONE (dim × ratio). Un polygone trop petit pour contenir la lettre AU PLANCHER → lettre DÉPORTÉE à l'extérieur (taille plancher
+//   conservée) + TRAIT de rappel (cf. placerReperes). ⚠️ La taille ne sert QU'AU RENDU du <text> (fontSize) : elle ne touche NI le calage
+//   NI le tracé (aucune conversion de coordonnées gelée).
+const REPERE_MIN_FRAC = 0.075, REPERE_MAX_FRAC = 0.11, REPERE_RATIO = 0.55; // fractions du plus petit côté du viewBox (suivent le zoom d'affichage)
+const REPERE_MARGE = 3, REPERE_PAS = 5; // collision : marge de sécurité + pas radial du balayage (mêmes valeurs que placerEtiquettes)
+/** Boîte approximative d'UNE lettre capitale à `taille` (pour collision/ajustement) : ~0,72×taille de large, ~taille de haut. */
+const boiteLettre = (taille: number): { w: number; h: number } => ({ w: taille * 0.72, h: taille });
+
+/** Taille de police d'un repère : proportionnelle au polygone (dim × ratio), BORNÉE par un plancher et un plafond eux-mêmes proportionnels
+ *  à la taille d'AFFICHAGE (`refVb` = plus petit côté du viewBox) → nettement plus grande sur un schéma plus grand. PUR. */
+export function tailleRepere(anneauPx: readonly { x: number; y: number }[], refVb: number): number {
+  const Fmin = refVb * REPERE_MIN_FRAC, Fmax = refVb * REPERE_MAX_FRAC;
+  if (anneauPx.length < 3) return Fmin;
   const xs = anneauPx.map((p) => p.x), ys = anneauPx.map((p) => p.y);
   const dim = Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
-  return Math.max(REPERE_POLICE_MIN, Math.min(REPERE_POLICE_MAX, dim * REPERE_POLICE_RATIO));
+  return Math.max(Fmin, Math.min(Fmax, dim * REPERE_RATIO));
+}
+
+export interface RepereAPlacer { repere: string; anneauPx: readonly Pt[]; ancre: Pt }
+export interface RepereePlace { repere: string; taille: number; x: number; y: number; deporte: boolean; ax: number; ay: number }
+
+// Couronne déterministe (16 directions normalisées) — MÊME esprit que placerEtiquettes : plus de candidats → on libère plus souvent.
+const DIRS_REPERE: [number, number][] = ([[1, 0], [0, -1], [0, 1], [-1, 0], [1, -1], [1, 1], [-1, -1], [-1, 1],
+  [2, -1], [2, 1], [-2, -1], [-2, 1], [1, -2], [1, 2], [-1, -2], [-1, 2]] as [number, number][]).map(([x, y]) => { const n = Math.hypot(x, y); return [x / n, y / n] as [number, number]; });
+
+/**
+ * PLACEMENT des repères (A, B, C…), PUR et COLLISION-AWARE (même esprit que placerEtiquettes). Pour chaque repère : DEDANS (à l'ancre
+ * intérieure `pointOnSurfaceAnneau`, taille adaptée) SI le polygone est assez grand pour contenir la lettre au plancher (`dim × ratio ≥
+ * plancher`) ; SINON DÉPORTÉE au PLANCHER (taille lisible CONSERVÉE, jamais rétrécie sous le plancher) dans une couronne déterministe
+ * (16 directions, rayon croissant) qui évite les POLYGONES (obstacles) ET les lettres DÉJÀ posées → deux petits polygones voisins ne se
+ * chevauchent jamais, ni leurs traits ; on réserve la MOINDRE collision en dernier recours. Renvoie taille + position (centre) + l'ancre
+ * du trait de rappel. Vaut dans TOUS les contextes (le viewBox reflète la taille d'affichage). Aucune coordonnée de calage/tracé touchée.
+ */
+export function placerReperes(reperes: readonly RepereAPlacer[], obstacles: readonly Pt[][], vb: CadreVue): RepereePlace[] {
+  const refVb = Math.min(vb.w, vb.h);
+  const Fmin = refVb * REPERE_MIN_FRAC;
+  const dansCadre = (x: number, y: number, w: number, h: number) => x >= vb.minX && y >= vb.minY && x + w <= vb.minX + vb.w && y + h <= vb.minY + vb.h;
+  const placees: RepereePlace[] = [];
+  const boitesPosees: { x: number; y: number; w: number; h: number }[] = [];
+  for (const r of reperes) {
+    const taille = tailleRepere(r.anneauPx, refVb);
+    const ax = r.ancre.x, ay = r.ancre.y;
+    const xs = r.anneauPx.map((p) => p.x), ys = r.anneauPx.map((p) => p.y);
+    const dim = r.anneauPx.length >= 3 ? Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)) : 0;
+    // DEDANS — polygone assez grand pour une lettre AU PLANCHER (jamais rétrécie dessous) : à l'ancre intérieure.
+    if (r.anneauPx.length >= 3 && dim * REPERE_RATIO >= Fmin) {
+      const b = boiteLettre(taille);
+      placees.push({ repere: r.repere, taille, x: ax, y: ay, deporte: false, ax, ay });
+      boitesPosees.push({ x: ax - b.w / 2, y: ay - b.h / 2, w: b.w, h: b.h });
+      continue;
+    }
+    // DÉPORTÉE au PLANCHER — couronne déterministe : évite obstacles + lettres posées ; réserve la MOINDRE collision en recours.
+    const bt = boiteLettre(Fmin);
+    const rMax = Math.max(vb.w, vb.h);
+    let retenue: RepereePlace | null = null, moindre: { p: RepereePlace; n: number } | null = null;
+    for (let rad = Math.max(bt.w, bt.h) / 2 + REPERE_PAS; rad <= rMax && !retenue; rad += REPERE_PAS) {
+      for (const [dx, dy] of DIRS_REPERE) {
+        const cx = ax + dx * rad, cy = ay + dy * rad;
+        const rect = { x: cx - bt.w / 2, y: cy - bt.h / 2, w: bt.w, h: bt.h };
+        if (!dansCadre(rect.x, rect.y, bt.w, bt.h)) continue;
+        const n = obstacles.reduce((s, o) => s + (boiteIntersectePolygone(rect, o as Pt[], REPERE_MARGE) ? 1 : 0), 0)
+          + boitesPosees.reduce((s, b) => s + (boitesSeChevauchent(rect, b, REPERE_MARGE) ? 1 : 0), 0);
+        const p: RepereePlace = { repere: r.repere, taille: Fmin, x: cx, y: cy, deporte: true, ax, ay };
+        if (n === 0) { retenue = p; break; }
+        if (!moindre || n < moindre.n) moindre = { p, n };
+      }
+    }
+    const choix = retenue ?? moindre?.p ?? { repere: r.repere, taille: Fmin, x: ax, y: ay, deporte: true, ax, ay };
+    placees.push(choix);
+    boitesPosees.push({ x: choix.x - bt.w / 2, y: choix.y - bt.h / 2, w: bt.w, h: bt.h });
+  }
+  return placees;
 }
 
 /** RATT-3/RATT-6 — PALETTE de statut (constantes de DESSIN, jamais des variables métier) : vert = préservé, orange = détruit total,
@@ -1205,7 +1270,24 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
             comme les étiquettes et le contour d'empreinte (EMPREINTE_TRAIT). L'ancien `var(--color-svv-ink)` basculait à #e8ebef en
             thème sombre → blanc sur blanc, invisible. Ancre = pointOnSurfaceAnneau (intérieur GARANTI, robuste aux formes concaves/en L
             où le centroïde tombe dehors) ; baseline centrale → la lettre est posée SUR le point. Rendu APRÈS le bâti → au-dessus de lui. */}
-        {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3 || !poly.repere) return null; const q = projeterDansBoite(boite, pointOnSurfaceAnneau(poly.anneau)); const taille = tailleRepere(poly.anneau.map((p) => projeterDansBoite(boite, p))); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={taille} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill={ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={Math.max(1, taille * 0.12)} paintOrder="stroke" data-repere={poly.repere}>{poly.repere}</text>; })}
+        {filtres.reperes && (() => {
+          // TAILLE ADAPTÉE (affichage via viewBox + polygone) + DÉPORT collision-aware calculé pour TOUS ENSEMBLE : un polygone trop petit
+          //   pour une lettre au plancher voit sa lettre déportée dehors + trait de rappel, sans chevaucher un autre polygone ni une autre
+          //   lettre (cf. placerReperes). Obstacles = MÊMES formes que les étiquettes (polygones visibles + emprises), en px.
+          const reperes: RepereAPlacer[] = visibles.filter((p) => p.anneau.length >= 3 && p.repere).map((p) => ({
+            repere: p.repere as string, anneauPx: p.anneau.map(proj), ancre: projeterDansBoite(boite, pointOnSurfaceAnneau(p.anneau)),
+          }));
+          const obstacles: { x: number; y: number }[][] = [
+            ...visibles.filter((p) => p.anneau.length >= 3).map((p) => p.anneau.map(proj)),
+            ...(filtres.emprises ? emprises.flatMap((e) => (e.anneaux?.length ? e.anneaux : [e.anneau]).filter((ring) => ring.length >= 3).map((ring) => ring.map(proj))) : []),
+          ];
+          return placerReperes(reperes, obstacles, vb).map((pos, i) => (
+            <g key={`r${i}`} data-repere={pos.repere} data-deportee={pos.deporte || undefined}>
+              {pos.deporte && <line x1={pos.ax} y1={pos.ay} x2={pos.x} y2={pos.y} stroke={ETIQ_ENCRE} strokeWidth={0.5} strokeOpacity={0.55} />}
+              <text x={pos.x} y={pos.y} fontSize={pos.taille} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill={ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={Math.max(1, pos.taille * 0.12)} paintOrder="stroke">{pos.repere}</text>
+            </g>
+          ));
+        })()}
         {/* LOT 82/83 — ÉTIQUETTES sur le dessin : nom du bâtiment + altitude de sommet, ancre GARANTIE intérieure (pointOnSurfaceAnneau).
             LOT 83 : placement COLLISION-AWARE calculé pour TOUTES ENSEMBLE (placerEtiquettes) — DEDANS si la boîte tient, sinon DÉPORTÉE
             ENTIÈREMENT hors de TOUTES les formes (obstacles = polygones + emprises) et des autres boîtes, jamais à cheval ; trait de
