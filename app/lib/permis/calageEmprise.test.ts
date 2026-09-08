@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   calculerSimilitude, appliquerSimilitude, echelleImpliciteMParPt, ratioEchelleImplicite,
   echelleDeclareeMParPt, residuFitM, residuEchelleDeclareeM, verdictCalage, aireM2, anneauVersLambert,
-  verdictVraisemblance, deriverDebordement, SEUIL_RESIDU_CALAGE_M, residusParPoint, type PaireCalage,
+  verdictVraisemblance, deriverDebordement, SEUIL_RESIDU_CALAGE_M, residusParPoint,
+  levierCalage, etatLevier, inverseSimilitude, SEUIL_LEVIER_RASSURANT_MAX, type PaireCalage,
   cadreDeAnneaux, projeterDansBoite, inverseDepuisBoite, rotePoint, boiteEnglobanteRotee, clicVersBoite, ecranVersCanvas, estClic, type Boite,
 } from './calageEmprise';
 
@@ -194,6 +195,72 @@ describe('PROJ — résidus PAR POINT (qualité du calage, jamais bloquante)', (
   it('< 2 paires → similitude indéfinissable : écarts vides, index -1 (jamais une exception)', () => {
     expect(residusParPoint([])).toEqual({ ecarts: [], indexPlusFautif: -1 });
     expect(residusParPoint([paire(0, 0, 0, 0)])).toEqual({ ecarts: [], indexPlusFautif: -1 });
+  });
+});
+
+describe('PROJ — écartement des repères (levierCalage) : sensibilité, jamais bloquante', () => {
+  const plan = (x: number, y: number): { x: number; y: number } => ({ x, y });
+  it('base LONGUE englobant le dessin → levier ≈ 1 (rassurant)', () => {
+    // repères aux 2 extrémités (0,0)-(100,0) ; dessin (boîte) qui s'étend le long de la base → sommet le plus loin ≈ base
+    const paires = [paire(0, 0, 0, 0), paire(100, 0, 100, 0)];
+    const sommets = [plan(0, -5), plan(100, -5), plan(100, 5), plan(0, 5)];
+    const r = levierCalage(paires, sommets)!;
+    expect(r.L).toBeCloseTo(100, 6);
+    expect(r.levier).toBeGreaterThan(0.9);
+    expect(r.levier).toBeLessThan(1.2);
+    expect(etatLevier(r.levier)).toBe('rassurant');
+  });
+
+  it('base COURTE vs grand dessin (cas 11434) → levier > 4 (élevé)', () => {
+    const paires = [paire(0, 0, 0, 0), paire(14, 0, 14, 0)]; // base de 14
+    const sommets = [plan(50, -30), plan(60, -30), plan(60, 30), plan(50, 30)]; // dessin à ~60 de la base
+    const r = levierCalage(paires, sommets)!;
+    expect(r.L).toBeCloseTo(14, 6);
+    expect(r.levier).toBeGreaterThan(4);
+    expect(etatLevier(r.levier)).toBe('eleve');
+  });
+
+  it('3 repères → L = distance des DEUX plus éloignés (pas une paire arbitraire)', () => {
+    const paires = [paire(0, 0, 0, 0), paire(5, 0, 5, 0), paire(50, 0, 50, 0)];
+    const sommets = [plan(24, -1), plan(26, -1), plan(26, 1), plan(24, 1)];
+    const r = levierCalage(paires, sommets)!;
+    expect(r.L).toBeCloseTo(50, 6); // les 2 plus éloignés = (0,0) et (50,0), jamais (0,0)-(5,0)
+  });
+
+  it('repères CONFONDUS (base nulle) → null (jamais de division par zéro)', () => {
+    expect(levierCalage([paire(10, 10, 10, 10), paire(10, 10, 20, 20)], [plan(0, 0), plan(1, 1), plan(2, 0)])).toBeNull();
+  });
+
+  it('< 2 repères ou aucun sommet → null', () => {
+    expect(levierCalage([paire(0, 0, 0, 0)], [plan(1, 1), plan(2, 2)])).toBeNull();
+    expect(levierCalage([paire(0, 0, 0, 0), paire(10, 0, 10, 0)], [])).toBeNull();
+  });
+
+  it('erreur par pixel = levier × mètres/pixel (fournie), sinon null', () => {
+    const paires = [paire(0, 0, 0, 0), paire(10, 0, 10, 0)];
+    const sommets = [plan(0, 0), plan(30, 0), plan(30, 5), plan(0, 5)];
+    const sans = levierCalage(paires, sommets)!;
+    expect(sans.erreurParPixelM).toBeNull();
+    const avec = levierCalage(paires, sommets, 0.2)!;
+    expect(avec.erreurParPixelM).toBeCloseTo(avec.levier * 0.2, 9);
+  });
+
+  it('etatLevier : seuils nommés (≤ 1,5 rassurant · [1,5 ; 3[ intermédiaire · ≥ 3 élevé)', () => {
+    expect(etatLevier(SEUIL_LEVIER_RASSURANT_MAX)).toBe('rassurant');
+    expect(etatLevier(1.6)).toBe('intermediaire');
+    expect(etatLevier(2.9)).toBe('intermediaire');
+    expect(etatLevier(3)).toBe('eleve');
+  });
+
+  it('inverseSimilitude : aller-retour EXACT avec appliquerSimilitude ; dégénéré → null', () => {
+    const paires = [paire(0, 0, 100, 200), paire(10, 0, 130, 200), paire(0, 10, 100, 230)];
+    const s = calculerSimilitude(paires)!;
+    const p = { x: 3.7, y: -2.1 };
+    const w = appliquerSimilitude(s, p);
+    const back = inverseSimilitude(s, w)!;
+    expect(back.x).toBeCloseTo(p.x, 6);
+    expect(back.y).toBeCloseTo(p.y, 6);
+    expect(inverseSimilitude({ a: 0, b: 0, tx: 5, ty: 5 }, { x: 1, y: 1 })).toBeNull();
   });
 });
 

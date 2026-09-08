@@ -3,7 +3,7 @@ import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle
 import type { SelectionInfo } from '../../../../lib/permis/plancheParcellesRepo';
 import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « décidé le … » en heure de Paris
 import {
-  projeterDansBoite, boiteEnglobanteRotee, clicVersBoiteMeet, SEUIL_RESIDU_CALAGE_M, SEUIL_RESIDU_CALAGE_BON_M, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type CadreVue,
+  projeterDansBoite, boiteEnglobanteRotee, clicVersBoiteMeet, SEUIL_RESIDU_CALAGE_M, SEUIL_RESIDU_CALAGE_BON_M, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type CadreVue, type EtatLevier,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { libelleBatiment, resumeProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
@@ -707,6 +707,37 @@ export function BandeauCalage({ calage, nbPaires }: { calage: VerdictCalage | nu
         {calage.residuEchelleM !== null && <li>écart d’échelle sur la base : <strong>{fmtM(calage.residuEchelleM)}</strong></li>}
         {calage.raisons.map((r) => <li key={r} style={{ color: 'var(--color-svv-red)' }}>{r}</li>)}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * INDICATEUR D'ÉCARTEMENT des repères (lot 2) — INFORME, ne bloque JAMAIS. Disponible dès 2 repères, AVANT le tracé (l'étendue du dessin
+ * est alors estimée sur la parcelle). Traduit le levier géométrique (R/L, JAMAIS montré) en une CONSÉQUENCE CONCRÈTE : X cm sur le terrain
+ * pour un léger tremblement au clic. 🔴 HONNÊTETÉ : X est une ESTIMATION de SENSIBILITÉ (« se traduirait par environ »), pas une mesure de
+ * l'erreur réelle ni de l'emprise. Distinct du résidu par repère (après calage, dès 3 repères) : ici c'est un pronostic géométrique. Trois
+ * états SANS vocabulaire d'échec. Un calage à 2 repères BIEN écartés est franchement rassurant (cas nominal, pas un compromis).
+ */
+export function IndicateurEcartement({ etat, xCm }: { etat: EtatLevier; xCm: number | null }) {
+  const chiffre = xCm !== null ? `environ ${Math.round(xCm)} cm` : 'quelques centimètres';
+  const sensibilite = `un léger tremblement de la main au clic se traduirait par ${chiffre} sur le terrain`;
+  const couleur = etat === 'eleve' ? 'var(--color-svv-red)' : etat === 'intermediaire' ? '#b45309' : '#15803d';
+  let titre: string, phrase: string;
+  if (etat === 'rassurant') {
+    titre = 'Écartement des repères ✓';
+    phrase = `Vos repères encadrent bien le dessin. ${sensibilite.charAt(0).toUpperCase()}${sensibilite.slice(1)}.`;
+  } else if (etat === 'intermediaire') {
+    titre = 'Écartement des repères';
+    phrase = `${sensibilite.charAt(0).toUpperCase()}${sensibilite.slice(1)}. Vous gagneriez en précision en éloignant vos repères.`;
+  } else {
+    titre = 'Écartement des repères ⚠';
+    phrase = `Vos repères sont proches l’un de l’autre par rapport au bâtiment : ${sensibilite}. Poser vos repères de part et d’autre du bâtiment améliorerait nettement le résultat.`;
+  }
+  return (
+    <div style={{ ...carte, borderColor: couleur }} data-ecartement={etat}>
+      <div style={{ fontWeight: 600, marginBottom: 4, color: couleur }}>{titre}</div>
+      <p style={{ ...muted, margin: 0 }}>{phrase}</p>
+      <p style={{ ...muted, margin: '4px 0 0', fontStyle: 'italic' }}>Estimation de sensibilité au clic, pas une mesure de l’emprise (2 repères restent parfaitement valides).</p>
     </div>
   );
 }

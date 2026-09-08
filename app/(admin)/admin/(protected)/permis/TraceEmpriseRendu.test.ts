@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, IndicateurEcartement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -26,6 +26,27 @@ describe('PROJ-2 — rendu pur', () => {
     expect(html).toContain('1:100');
     expect(html).toContain('éloignée de l’échelle déclarée');
     expect(html).toContain('aucun écart ne peut être calculé'); // 🔴 honnêteté : sur 2 repères on ne montre PAS de « 0,00 m » vert, on met la phrase neutre
+  });
+
+  it('IndicateurEcartement : 3 états, X cm comme message principal, jamais R/L, honnêteté « estimation »', () => {
+    const bon = renderToStaticMarkup(h(IndicateurEcartement, { etat: 'rassurant', xCm: 12 }));
+    expect(bon).toContain('encadrent bien le dessin');
+    expect(bon).toContain('environ 12 cm');
+    expect(bon).toContain('data-ecartement="rassurant"');
+    const inter = renderToStaticMarkup(h(IndicateurEcartement, { etat: 'intermediaire', xCm: 40 }));
+    expect(inter).toContain('environ 40 cm');
+    expect(inter).toContain('éloignant vos repères');
+    const eleve = renderToStaticMarkup(h(IndicateurEcartement, { etat: 'eleve', xCm: 130 }));
+    expect(eleve).toContain('proches l’un de l’autre');
+    expect(eleve).toContain('de part et d’autre du bâtiment');
+    expect(eleve).toContain('environ 130 cm');
+    // 🔴 jamais de jargon R/L ni de « levier » à l'écran ; honnêteté : « estimation », jamais « mesure de l'emprise »
+    for (const html of [bon, inter, eleve]) {
+      expect(html).not.toMatch(/levier|R\/L/i);
+      expect(html).toContain('Estimation de sensibilité');
+    }
+    // sans échelle écran connue → pas de faux chiffre précis
+    expect(renderToStaticMarkup(h(IndicateurEcartement, { etat: 'rassurant', xCm: null }))).toContain('quelques centimètres');
   });
 
   it('BandeauVraisemblance : 🔴 dépassement du terrain rendu en évidence, aire vive', () => {

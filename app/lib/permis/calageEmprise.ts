@@ -80,6 +80,18 @@ export function appliquerSimilitude(s: Similitude, p: PointPlan): PointLambert {
   return { x: s.a * p.x - s.b * p.y + s.tx, y: s.b * p.x + s.a * p.y + s.ty };
 }
 
+/**
+ * INVERSE de la similitude (Lambert → plan) : z = (w − d)/c. `null` si la similitude est dégénérée (|c|² = a²+b² = 0). Aller-retour
+ * EXACT avec appliquerSimilitude (aux erreurs flottantes près). Sert à estimer l'étendue du dessin AVANT tout tracé, en projetant la
+ * parcelle (connue en Lambert) dans l'espace PLAN où vivent les repères de calage. PUR.
+ */
+export function inverseSimilitude(s: Similitude, p: PointLambert): PointPlan | null {
+  const den = s.a * s.a + s.b * s.b;
+  if (den === 0) return null;
+  const wx = p.x - s.tx, wy = p.y - s.ty;
+  return { x: (wx * s.a + wy * s.b) / den, y: (wy * s.a - wx * s.b) / den };
+}
+
 /** Échelle implicite du calage, en MÈTRES par point PDF (= |c|). */
 export function echelleImpliciteMParPt(s: Similitude): number {
   return Math.hypot(s.a, s.b);
@@ -119,6 +131,46 @@ export function residusParPoint(paires: PaireCalage[]): ResidusParPoint {
   let indexPlusFautif = -1, max = -1;
   for (let i = 0; i < ecarts.length; i++) if (ecarts[i] > max) { max = ecarts[i]; indexPlusFautif = i; }
   return { ecarts, indexPlusFautif };
+}
+
+// ── ÉCARTEMENT des repères de calage : sensibilité au clic (PROJ, lot 2) ─────────────────────────────────────────────────────
+// Reprise EXACTE de la dérivation de la recon V1. Une similitude sur 2 repères est fixée par ces 2 points : une erreur de pointage δ
+// (exprimée en MÈTRES terrain) sur un repère fait PIVOTER tout le dessin autour de l'AUTRE repère (le pivot). Au sommet situé à
+// distance R du pivot, l'erreur induite vaut  erreur_sommet = (R / L) × δ_terrain  (L = base de calage). Le facteur R/L = le « levier » :
+//   · ≈ 1  → le dessin est encadré par les repères (interpolation) : faible sensibilité ;
+//   · > 1  → on extrapole HORS de la zone contrôlée par les repères (repères trop rapprochés) : forte sensibilité (cas 11434).
+// R (PIRE cas : le mésclic peut porter sur l'UN OU l'autre repère) = le sommet le plus éloigné, mesuré depuis le repère qui en est le
+//   plus loin, soit  max sur les repères de (distance au sommet le plus éloigné)  — identique au levier de la recon V1.
+// R/L est SANS DIMENSION (similitude conforme) : sa valeur est la même en points-plan qu'en Lambert. On le calcule ici en ESPACE PLAN.
+// `erreur_par_pixel = levier × (mètres terrain par pixel écran)` : X en cm est le message utile (jamais R/L à l'écran).
+/** Levier ≤ ce seuil : repères bien écartés, cas NOMINAL (rassurant). Constante nommée → futur réglage pilotable. */
+export const SEUIL_LEVIER_RASSURANT_MAX = 1.5;
+/** Levier ≥ ce seuil : repères nettement trop proches du dessin (alerte forte). Constante nommée → futur réglage pilotable. */
+export const SEUIL_LEVIER_ELEVE_MIN = 3.0;
+export type EtatLevier = 'rassurant' | 'intermediaire' | 'eleve';
+/** Classe un levier en trois états SANS vocabulaire d'échec (rassurant / intermédiaire / élevé). PUR. */
+export function etatLevier(levier: number): EtatLevier {
+  if (levier <= SEUIL_LEVIER_RASSURANT_MAX) return 'rassurant';
+  if (levier >= SEUIL_LEVIER_ELEVE_MIN) return 'eleve';
+  return 'intermediaire';
+}
+export interface LevierCalage { L: number; R: number; levier: number; erreurParPixelM: number | null }
+/**
+ * ÉCARTEMENT des repères vs étendue du dessin (PUR). `L` = base de calage (plus grande distance entre deux repères). `R` = pire-cas du
+ * sommet le plus éloigné (voir en-tête). `levier = R/L`. `erreurParPixelM = levier × metresTerrainParPixel` (X, la sensibilité au clic) si
+ * l'échelle écran est fournie, sinon `null`. `null` si < 2 repères, aucun sommet, ou repères confondus (L = 0 → pas de division par zéro).
+ */
+export function levierCalage(paires: PaireCalage[], sommetsPlan: PointPlan[], metresTerrainParPixel: number | null = null): LevierCalage | null {
+  if (paires.length < 2 || sommetsPlan.length === 0) return null;
+  const reperes = paires.map((p) => p.plan);
+  let L = 0;
+  for (let i = 0; i < reperes.length; i++) for (let j = i + 1; j < reperes.length; j++) L = Math.max(L, Math.hypot(reperes[i].x - reperes[j].x, reperes[i].y - reperes[j].y));
+  if (!(L > 0)) return null; // repères confondus → base nulle : aucun levier définissable (jamais de division par zéro)
+  let R = 0;
+  for (const c of reperes) { let d = 0; for (const s of sommetsPlan) d = Math.max(d, Math.hypot(s.x - c.x, s.y - c.y)); R = Math.max(R, d); }
+  const levier = R / L;
+  const erreurParPixelM = metresTerrainParPixel !== null && metresTerrainParPixel >= 0 ? levier * metresTerrainParPixel : null;
+  return { L, R, levier, erreurParPixelM };
 }
 
 /** Distance Lambert (m) réelle entre les deux points d'une paire de paires (la « base » de calage). null si < 2 paires. */

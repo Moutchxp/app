@@ -3,12 +3,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type CSSProperties } from 'react';
 import {
   calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, cadreDeAnneaux, residusParPoint,
+  levierCalage, etatLevier, inverseSimilitude, echelleImpliciteMParPt,
   inverseDepuisBoite, projeterDansBoite, ecranVersCanvas, estClic, type Boite, type PaireCalage, type PointPlan, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
 } from '../../../../lib/permis/calageEmprise';
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
-import { HAUTEUR_CADRE_RENDU, BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
+import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -921,6 +922,22 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const cssPaires = paires.map((pr) => versCss(pr.plan)).filter((q): q is { x: number; y: number } => q !== null);
   const cssAttente = planEnAttente ? versCss(planEnAttente) : null;
 
+  // ÉCARTEMENT DES REPÈRES (lot 2) — sensibilité au clic, disponible dès 2 repères, AVANT le tracé. Mètres terrain par PIXEL ÉCRAN (CSS) :
+  //   pt-PDF par pixel-device (pas unitaire sur convertToPdfPoint) × pixels-device par pixel-CSS (ratioAffichage) × mètres par pt-PDF
+  //   (echelleImplicite). LECTURE SEULE du viewport (aucune retouche du rendu/calage). Étendue du dessin : les sommets tracés si ≥ 3, sinon
+  //   la PARCELLE projetée en espace plan (inverseSimilitude) → l'indicateur existe déjà au calage, avant tout tracé.
+  const mParPixelCss: number | null = (() => {
+    if (!sim || !apercu || ratioAffichage === null || !(ratioAffichage > 0)) return null;
+    const o = apercu.vp.convertToPdfPoint(0, 0), ux = apercu.vp.convertToPdfPoint(1, 0);
+    const ptParDevicePx = Math.hypot(ux[0] - o[0], ux[1] - o[1]);
+    if (!(ptParDevicePx > 0)) return null;
+    return ptParDevicePx * ratioAffichage * echelleImpliciteMParPt(sim); // m terrain par pixel écran (CSS)
+  })();
+  const dessinPlan: PointPlan[] = sim
+    ? (sommets.length >= 3 ? sommets : parcelle.flat().map((p) => inverseSimilitude(sim, p)).filter((q): q is PointPlan => q !== null))
+    : [];
+  const ecartement = levierCalage(paires, dessinPlan, mParPixelCss);
+
   const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.25rem .6rem', fontSize: 12 };
   const styleAide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
   // POINT 3 — messages d'EMPÊCHEMENT de tracé (accesTrace : page non-plan, calage 0/2 puis 1/2) : EN ROUGE, MÊME jeton d'alerte que le
@@ -1149,6 +1166,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         <label style={styleAide}>échelle 1: <input inputMode="numeric" value={ratioDeclareSaisi} onChange={(e) => setRatioDeclareSaisi(e.target.value)} placeholder="200" style={{ width: 60 }} /></label>
       </div>
       <BandeauCalage calage={vc} nbPaires={paires.length} />
+      {/* Lot 2 — ÉCARTEMENT (avant tracé, dès 2 repères) : information COMPLÉMENTAIRE et distincte du résidu par repère du BandeauCalage
+          (après calage, dès 3 repères). L'un pronostique la sensibilité, l'autre mesure l'écart réel par point → titres distincts, jamais contradictoires. */}
+      {ecartement && <IndicateurEcartement etat={etatLevier(ecartement.levier)} xCm={ecartement.erreurParPixelM !== null ? ecartement.erreurParPixelM * 100 : null} />}
       <BandeauVraisemblance aireM2={aire} v={vv} />
     </>
   );
