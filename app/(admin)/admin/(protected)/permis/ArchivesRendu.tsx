@@ -105,10 +105,16 @@ export function couleurLigneArchive(dansRattachement: boolean | null, complet: b
   return { cle: 'orange', couleur: ORANGE };
 }
 
-/** G2 — mot d'état d'une ligne d'archive (colonne Pièces). Le MOT est TOUJOURS rendu ; la couleur n'est qu'un appui. PUR. */
-export function BadgeEtatArchive({ etat }: { etat: EtatArchive }) {
+/**
+ * Mot d'état d'une ligne d'archive (colonne Pièces). Le MOT est TOUJOURS rendu (lisible en noir et blanc). PUR.
+ * POINT 1 (Arno) — le mot prend LA COULEUR DE LA LIGNE (`couleur`, décidée UNE fois par `couleurLigneArchive` et déjà appliquée au
+ * `<tr>`), pour qu'une même ligne n'affiche jamais deux couleurs contradictoires (ex. « obtenu » vert sur une ligne orange). `couleur`
+ * nulle/absente (ligne NEUTRE) → aucun override → le mot HÉRITE de la couleur du `<tr>`, exactement comme le reste de la ligne. Une
+ * SEULE source de couleur : `couleur` est le jeton déjà appliqué à la ligne, jamais recalculé ici.
+ */
+export function BadgeEtatArchive({ etat, couleur }: { etat: EtatArchive; couleur?: string | null }) {
   return (
-    <span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', color: etat.couleurPieces ?? 'var(--color-svv-muted)' }}>{etat.mot}</span>
+    <span style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', color: couleur ?? undefined }}>{etat.mot}</span>
   );
 }
 
@@ -328,12 +334,16 @@ export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, on
                   <td style={styleTd}>{formaterDateJour(l.satisfaitLe)}</td>
                   <td style={styleTd}>{libelleOrigineSatisfaction(l.satisfaitPar)}</td>
                   <td style={{ ...styleTd, fontFamily: 'var(--font-svv-mono, monospace)' }}>{l.demandeReference}</td>
-                  {/* N1-C — ligne repliée informative : compte de pièces (U6) + mot d'état G2 + bouton de disclosure natif. */}
+                  {/* N1-C — ligne repliée informative : compte de pièces (U6) + mot d'état G2 + bouton de disclosure natif. POINT 2 (Arno) —
+                      GRILLE à colonnes de largeur FIXE (nombre · mot · bouton) : le bouton occupe la MÊME position horizontale sur toutes les
+                      lignes (colonne alignée), indépendante de la longueur du mot (« obtenu » vs « incomplet »). Le bouton réserve la largeur
+                      du plus long libellé (« Déplier ») et centre le texte → « Déplier » ↔ « Fermer » ne décale rien. */}
                   <td style={{ ...styleTd, whiteSpace: 'normal' }}>
-                    <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <span style={{ fontSize: 12, ...muted }}>{labelNbPieces(l.pieces.length)}</span>
-                      <BadgeEtatArchive etat={e} />
-                      <button type="button" className="svv-link" style={{ width: 'auto', padding: '.15rem .5rem' }}
+                    <div style={{ display: 'grid', gridTemplateColumns: '5rem 8rem max-content', alignItems: 'center', columnGap: '.5rem' }}>
+                      <span style={{ fontSize: 12, ...muted, whiteSpace: 'nowrap' }}>{labelNbPieces(l.pieces.length)}</span>
+                      {/* POINT 1 — le mot prend la couleur de la LIGNE (cLigne.couleur, source unique) ; neutre → hérite (comme le reste de la ligne). */}
+                      <BadgeEtatArchive etat={e} couleur={cLigne.couleur} />
+                      <button type="button" className="svv-link" style={{ width: '5rem', padding: '.15rem .5rem', textAlign: 'center' }}
                         aria-expanded={ouvert} aria-controls={ancrePieces(l.dossierId)} onClick={() => onDeplier?.(l.dossierId)}>
                         {ouvert ? 'Fermer' : 'Déplier'}
                       </button>

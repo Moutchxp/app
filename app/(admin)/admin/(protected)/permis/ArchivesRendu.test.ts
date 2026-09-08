@@ -320,9 +320,11 @@ describe('N1-C — repli des pièces par permis (disclosure natif)', () => {
     expect(h).not.toContain('type="file"');
   });
 
-  it('G2 — la couleur d’état de la ligne reste présente, REPLIÉE comme DÉPLOYÉE', () => {
-    const l = ligne({ pieces: [emailDeposee] });
-    const t = new Date('2026-07-15T12:00:00Z'); // délai dépassé (recu + 7 j), < 2 mois → rouge
+  it('POINT 1 — la couleur de LIGNE (couleurLigneArchive) est présente, REPLIÉE comme DÉPLOYÉE', () => {
+    // POINT 1 (a70a894 + ce lot) : la couleur ne vient plus de l'axe couleurPieces mais de la ligne. Hors Rattachement + non « obtenu »
+    //   (délai dépassé) → couleurLigneArchive = ROUGE, appliquée au <tr> ET au mot.
+    const l = ligne({ pieces: [emailDeposee], dansRattachement: false });
+    const t = new Date('2026-07-15T12:00:00Z'); // délai dépassé (recu + 7 j), < 2 mois → mot non « obtenu »
     expect(rendu([l], t, null)).toContain('var(--color-svv-red)'); // repliée
     expect(rendu([l], t, 1)).toContain('var(--color-svv-red)');    // déployée
   });
@@ -440,13 +442,18 @@ describe('G2 — etatArchive : 5 états (mot + couleur), 2 mois, exception « ve
 });
 
 describe('G2 — rendu : le MOT est TOUJOURS présent (lisible en noir et blanc) + la couleur en appui', () => {
-  it('BadgeEtatArchive rend le mot ; TableArchives colore la ligne et pose le mot dans la colonne Pièces', () => {
+  it('POINT 1 — BadgeEtatArchive rend le mot ; sa couleur SUIT la ligne (couleur passée), plus l’ancien axe couleurPieces', () => {
     const etat: EtatArchive = { cle: 'depasse', mot: 'délai dépassé', couleurLigne: 'var(--color-svv-red)', couleurPieces: 'var(--color-svv-red)' };
-    expect(renderToStaticMarkup(createElement(BadgeEtatArchive, { etat }))).toContain('délai dépassé');
-    // ligne « délai dépassé » : mot + couleur rouge présents ; ligne « versement oublié » (>2 mois) : mot présent, ligne neutre
-    const hDepasse = rendu([ligne({ pieces: [emailDeposee] })], new Date('2026-07-15T12:00:00Z'));
+    // Le mot est toujours rendu ; la couleur est celle PASSÉE par le parent (couleur de ligne) — ici ambre, PAS le rouge de couleurPieces.
+    const badge = renderToStaticMarkup(createElement(BadgeEtatArchive, { etat, couleur: 'var(--color-svv-amber)' }));
+    expect(badge).toContain('délai dépassé');
+    expect(badge).toContain('var(--color-svv-amber)');
+    expect(badge).not.toContain('var(--color-svv-red)'); // POINT 1 : le mot ne réutilise plus couleurPieces
+    // Dans le tableau : hors Rattachement + non « obtenu » → ligne ET mot en ROUGE (couleurLigneArchive).
+    const hDepasse = rendu([ligne({ pieces: [emailDeposee], dansRattachement: false })], new Date('2026-07-15T12:00:00Z'));
     expect(hDepasse).toContain('délai dépassé');
     expect(hDepasse).toContain('var(--color-svv-red)');
+    // « versement oublié » (>2 mois) : mot présent ; appartenance inconnue (dansRattachement absent) → ligne neutre, le mot hérite (pas de couleur forcée).
     const hOubli = rendu([ligne({ pieces: [emailDeposee] })], new Date('2026-10-01T12:00:00Z'));
     expect(hOubli).toContain('versement oublié');
   });
