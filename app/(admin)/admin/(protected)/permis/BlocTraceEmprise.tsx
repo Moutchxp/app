@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type CSSProperties } from 'react';
 import {
-  calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, cadreDeAnneaux,
+  calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, cadreDeAnneaux, residusParPoint,
   inverseDepuisBoite, projeterDansBoite, ecranVersCanvas, estClic, type Boite, type PaireCalage, type PointPlan, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
 } from '../../../../lib/permis/calageEmprise';
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
@@ -394,6 +394,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const anneauLambert = sim && sommets.length >= 3 ? anneauVersLambert(sim, sommets) : null;
   const aire = anneauLambert ? aireM2(anneauLambert) : null;
   const vc: VerdictCalage | null = sim ? verdictCalage(sim, paires, ratioDeclare) : null;
+  const residus = residusParPoint(paires); // PROJ — écart par repère (affiché à partir de 3 repères) + indice du plus fautif
   const vv: VerdictVraisemblance | null = aire !== null ? verdictVraisemblance({ aireM2: aire, corpsId: corpsEffectif, surfacePlancherM2: contexte?.surfacePlancherM2 ?? null, surfaceTerrainM2: contexte?.surfaceTerrainM2 ?? null, batiments: contexte?.batiments ?? [] }) : null;
 
   const batSel = batiments.find((b) => b.corpsId === corpsEffectif) ?? null;
@@ -1100,7 +1101,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             <>
               <button type="button" style={btn} disabled={sommets.length === 0} onClick={() => setSommets((s) => s.slice(0, -1))}>Annuler dernier sommet</button>
               <button type="button" style={btn} disabled={sommets.length === 0} onClick={() => { setSommets([]); setDebordement(null); }}>Reprendre le tracé</button>
-              <span style={styleAide}>Sommets : {sommets.length}{paires.length > 0 ? ` · calage ${paires.length}/2 (fait au mode XL)` : ''}</span>
+              <span style={styleAide}>Sommets : {sommets.length}{paires.length > 0 ? ` · calage ${paires.length} repère${paires.length > 1 ? 's' : ''} (fait au mode XL)` : ''}</span>
             </>
           ) : (
             // Tracé indisponible (page non-plan OU calage incomplet) : le MESSAGE remplace le bloc de boutons, au MÊME endroit. Jamais de bouton muet ni de vide.
@@ -1137,7 +1138,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
           (acces.disponible). Tant qu'il ne l'est pas (page en plan mais < 2 paires), un MESSAGE prend sa place (jamais de bouton grisé ni de
           clic silencieux) : c'est le SEUL moyen de passer en mode 'trace' → invariant « mode 'trace' ⇒ calage complet », sans toucher cliquerPdf. */}
       <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'calage' ? 700 : 400 }} onClick={() => setMode('calage')}>Calage ({paires.length}/2)</button>
+        <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'calage' ? 700 : 400 }} onClick={() => setMode('calage')}>Calage ({paires.length} repère{paires.length > 1 ? 's' : ''})</button>
         {acces.motif === 'calage' ? (
           <span role="note" style={{ ...styleEmpechement, maxWidth: 320 }}>{acces.message}</span>
         ) : (
@@ -1331,7 +1332,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             {/* BARRE DROITE — À L'INTÉRIEUR de la carte, en tête (rotation + « Agrandir le schéma »), au-dessus du schéma. MÊME hauteur mini
                 (styleBarre) et MÊME gap (.5rem) que la carte du plan → le schéma démarre à la même hauteur que l'image. */}
             {barreDroiteSchema}
-            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} statuts={statutParCleabs}
+            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} residusCalage={residus.ecarts} indicePireCalage={residus.indexPlusFautif} statuts={statutParCleabs}
               onCliquer={retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined)} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
             {/* Sous le schéma : bandeau de sélection (la rotation est désormais dans la barre droite, au-dessus du schéma). */}
             {bandeauSel}

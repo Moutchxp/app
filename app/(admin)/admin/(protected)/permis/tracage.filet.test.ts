@@ -65,12 +65,12 @@ describe('FILET calage — composition cliquerPdf : le point tombe au bon endroi
   });
 });
 
-describe('FILET calage — compteur guidageTrace : 0/2 → point posé → 1/2 → 2/2, puis tracé', () => {
-  it('calage : 0/2 → « Point posé » (attente schéma) → 1/2 → ✓ 2 points', () => {
-    expect(guidageTrace('calage', 0, false, 0, true).titre).toContain('(0/2)');
+describe('FILET calage — compteur guidageTrace : 0 → point posé → 1 repère → ✓ 2 repères, puis tracé', () => {
+  it('calage : 0 repère → « Point posé » (attente schéma) → 1 repère → ✓ 2 repères', () => {
+    expect(guidageTrace('calage', 0, false, 0, true).titre).toContain('(0 repère)');
     expect(guidageTrace('calage', 0, true, 0, true).instruction).toContain('Point posé sur le plan'); // 1er point de plan posé
-    expect(guidageTrace('calage', 1, false, 0, true).titre).toContain('(1/2)');                        // 1re paire complète
-    expect(guidageTrace('calage', 2, false, 0, true).titre).toContain('✓ 2 points');                   // 2/2
+    expect(guidageTrace('calage', 1, false, 0, true).titre).toContain('(1 repère)');                   // 1re paire complète
+    expect(guidageTrace('calage', 2, false, 0, true).titre).toContain('✓ 2 repères');                  // 2 repères suffisent
   });
   it('tracé : le compteur suit le nombre de sommets ; 3 → contour fermé (Enregistrer)', () => {
     expect(guidageTrace('trace', 2, false, 1, true).titre).toContain('1 sommet');

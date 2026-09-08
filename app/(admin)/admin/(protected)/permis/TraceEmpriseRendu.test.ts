@@ -18,14 +18,14 @@ const emprise = (over: Partial<EmpriseReconstruite> = {}): EmpriseReconstruite =
 
 describe('PROJ-2 — rendu pur', () => {
   it('BandeauCalage : sans calage → invite ; douteux → affiche « douteux » + raisons + résidu (jamais masqué)', () => {
-    expect(renderToStaticMarkup(h(BandeauCalage, { calage: null, nbPaires: 0 }))).toContain('posez 2 points');
+    expect(renderToStaticMarkup(h(BandeauCalage, { calage: null, nbPaires: 0 }))).toContain('posez 2 repères');
     const vc: VerdictCalage = { residuFitM: 0, ratioImplicite: 100, ratioDeclare: 1000, residuEchelleM: 3.2, ecartEchelleRelatif: 0.9, douteux: true, raisons: ['échelle du calage (1:100) éloignée de l’échelle déclarée (1:1000) de 90 %'] };
     const html = renderToStaticMarkup(h(BandeauCalage, { calage: vc, nbPaires: 2 }));
     expect(html).toContain('douteux');
     expect(html).toContain('data-douteux="true"');
     expect(html).toContain('1:100');
     expect(html).toContain('éloignée de l’échelle déclarée');
-    expect(html).toContain('calage exact sur 2 points'); // on DIT que le résidu de fit est nul par construction
+    expect(html).toContain('aucun écart ne peut être calculé'); // 🔴 honnêteté : sur 2 repères on ne montre PAS de « 0,00 m » vert, on met la phrase neutre
   });
 
   it('BandeauVraisemblance : 🔴 dépassement du terrain rendu en évidence, aire vive', () => {
@@ -1102,9 +1102,9 @@ describe('PROJ-3m ② — guidage du geste de tracé (pur) : étape, quoi clique
     const g = guidageTrace('calage', 0, false, 0, true);
     expect(g.sur).toBe('plan');
     expect(g.titre).toContain('Étape 1');
-    expect(g.titre).toContain('0/2');
+    expect(g.titre).toContain('0 repère');
     expect(g.instruction).toMatch(/PLAN/);
-    expect(g.instruction).toMatch(/2 point/);
+    expect(g.instruction).toMatch(/2 repère/);
   });
   it('calage, point plan posé : bascule le guidage SUR LE SCHÉMA (le prochain clic va à droite)', () => {
     const g = guidageTrace('calage', 0, true, 0, true);

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   calculerSimilitude, appliquerSimilitude, echelleImpliciteMParPt, ratioEchelleImplicite,
   echelleDeclareeMParPt, residuFitM, residuEchelleDeclareeM, verdictCalage, aireM2, anneauVersLambert,
-  verdictVraisemblance, deriverDebordement, SEUIL_RESIDU_CALAGE_M, type PaireCalage,
+  verdictVraisemblance, deriverDebordement, SEUIL_RESIDU_CALAGE_M, residusParPoint, type PaireCalage,
   cadreDeAnneaux, projeterDansBoite, inverseDepuisBoite, rotePoint, boiteEnglobanteRotee, clicVersBoite, ecranVersCanvas, estClic, type Boite,
 } from './calageEmprise';
 
@@ -164,6 +164,36 @@ describe('PROJ-2 — résidus (visibles, jamais lissés)', () => {
     expect(v.raisons.join(' ')).toMatch(/échelle/);
     // même feuille, échelle déclarée COHÉRENTE (1:100) → pas d'alerte d'échelle
     expect(verdictCalage(s, paires, 100).douteux).toBe(false);
+  });
+});
+
+describe('PROJ — résidus PAR POINT (qualité du calage, jamais bloquante)', () => {
+  it('2 paires → tous les écarts NULS (par construction), aucun « plus fautif » significatif', () => {
+    const r = residusParPoint([paire(0, 0, 100, 200), paire(10, 0, 130, 200)]);
+    expect(r.ecarts).toHaveLength(2);
+    for (const e of r.ecarts) expect(e).toBeCloseTo(0, 9);
+  });
+
+  it('3 paires COHÉRENTES (même similitude) → écarts quasi nuls', () => {
+    // 3 points suivant une similitude pure (échelle ×3, translation (100,200)) : le fit passe par tous → résidus ≈ 0
+    const paires = [paire(0, 0, 100, 200), paire(10, 0, 130, 200), paire(0, 10, 100, 230)];
+    const r = residusParPoint(paires);
+    expect(r.ecarts).toHaveLength(3);
+    for (const e of r.ecarts) expect(e).toBeCloseTo(0, 6);
+  });
+
+  it('paires dont UNE aberrante → l’écart le plus grand DÉSIGNE le repère mal pointé', () => {
+    // 3 repères propres (identité) ancrent solidement la similitude ; le 4e est décalé de ~7 m → il porte le plus gros résidu.
+    // (Aux moindres carrés, il faut plus d'inliers que de degrés de liberté pour que l'outlier RESSORTE seul — 2 seuls ne suffisent pas.)
+    const paires = [paire(0, 0, 0, 0), paire(10, 0, 10, 0), paire(10, 10, 10, 10), paire(0, 10, 5, 15)];
+    const r = residusParPoint(paires);
+    expect(r.indexPlusFautif).toBe(3);                       // c'est bien le 4e (aberrant) qui est fautif
+    for (let i = 0; i < 3; i++) expect(r.ecarts[3]).toBeGreaterThan(r.ecarts[i]);
+  });
+
+  it('< 2 paires → similitude indéfinissable : écarts vides, index -1 (jamais une exception)', () => {
+    expect(residusParPoint([])).toEqual({ ecarts: [], indexPlusFautif: -1 });
+    expect(residusParPoint([paire(0, 0, 0, 0)])).toEqual({ ecarts: [], indexPlusFautif: -1 });
   });
 });
 

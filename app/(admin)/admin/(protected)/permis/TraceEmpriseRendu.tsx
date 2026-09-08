@@ -3,7 +3,7 @@ import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle
 import type { SelectionInfo } from '../../../../lib/permis/plancheParcellesRepo';
 import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « décidé le … » en heure de Paris
 import {
-  projeterDansBoite, boiteEnglobanteRotee, clicVersBoiteMeet, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type CadreVue,
+  projeterDansBoite, boiteEnglobanteRotee, clicVersBoiteMeet, SEUIL_RESIDU_CALAGE_M, SEUIL_RESIDU_CALAGE_BON_M, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type CadreVue,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { libelleBatiment, resumeProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
@@ -691,12 +691,18 @@ export function BandeauProjection({ verdict, nbValides = 0, nbAValider = 0 }: { 
  * avec ses raisons — TOUJOURS affiché, jamais lissé. Sur 2 points le résidu de fit est nul par construction : on le DIT.
  */
 export function BandeauCalage({ calage, nbPaires }: { calage: VerdictCalage | null; nbPaires: number }) {
-  if (!calage) return <p style={muted}>Calage : posez 2 points (plan ↔ schéma) pour caler le tracé.</p>;
+  if (!calage) return <p style={muted}>Calage : posez 2 repères (plan ↔ schéma) pour caler le tracé. 2 suffisent.</p>;
+  // 🔴 HONNÊTETÉ — sur 2 repères, le résidu vaut 0 PAR CONSTRUCTION : il ne prouve RIEN. On n'affiche JAMAIS « 0,00 m » en vert (faux gage
+  //   de qualité) : on met une phrase NEUTRE qui rassure (2 suffisent) et offre le 3ᵉ repère comme CONTRÔLE facultatif. Les écarts chiffrés
+  //   n'apparaissent qu'à partir de 3 repères. La bordure rouge reste réservée au « douteux » d'ÉCHELLE (signal distinct, légitime).
+  const deuxRepere = nbPaires <= 2;
   return (
-    <div style={{ ...carte, borderColor: calage.douteux ? 'var(--color-svv-red)' : 'var(--color-svv-line)' }} data-douteux={calage.douteux}>
+    <div style={{ ...carte, borderColor: calage.douteux ? 'var(--color-svv-red)' : 'var(--color-svv-line)' }} data-douteux={calage.douteux} data-calage-2reperes={deuxRepere || undefined}>
       <div style={{ fontWeight: 600, marginBottom: 4 }}>Calage {calage.douteux ? '⚠ douteux' : '✓'}</div>
       <ul style={{ ...muted, margin: 0, paddingLeft: '1.1rem' }}>
-        <li>résidu de calage : <strong>{fmtM(calage.residuFitM)}</strong>{nbPaires <= 2 ? ' (calage exact sur 2 points — contrôlé par l’échelle déclarée ou un 3ᵉ repère)' : ''}</li>
+        {deuxRepere
+          ? <li>2 repères suffisent : le calage est valide. Avec 2 repères, aucun écart ne peut être calculé — c’est normal, ce n’est pas un défaut. Un 3ᵉ repère (facultatif) permet de contrôler le calage.</li>
+          : <li>résidu de calage : <strong>{fmtM(calage.residuFitM)}</strong> (moyenne sur {nbPaires} repères)</li>}
         <li>échelle implicite : <strong>1:{Math.round(calage.ratioImplicite)}</strong>{calage.ratioDeclare !== null ? ` · déclarée 1:${Math.round(calage.ratioDeclare)}` : ' · échelle déclarée non saisie'}</li>
         {calage.residuEchelleM !== null && <li>écart d’échelle sur la base : <strong>{fmtM(calage.residuEchelleM)}</strong></li>}
         {calage.raisons.map((r) => <li key={r} style={{ color: 'var(--color-svv-red)' }}>{r}</li>)}
@@ -1238,8 +1244,15 @@ export function polygonesConfigProjetee<T extends { cleabs: string | null }>(pol
  * EXISTANT (gris), (b) FUTUR BÂTI « en projet » (bleu tireté = DONNÉE IGN ; ÉCARTÉ → grisé barré), (c) emprise TRACÉE (rouge =
  * RECONSTITUTION, jamais une mesure — garde PROJ). PROJ-3i : repères A/B/C… si `reperes` ; `ecartes` (cleabs décochés) grisés.
  */
-export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, sommetSelectionne = null, statuts, etiquettes = [], voisinage = [] }: {
-  boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[]; angle?: number; hauteurMax?: string; onCliquer?: (px: { x: number; y: number }) => void;
+/** Couleur d'un écart de calage (m) — canvas CLAIR permanent → couleurs FIXES (jamais des tokens qui basculent en thème sombre). Seuils NOMMÉS. */
+export function couleurResidu(m: number): string {
+  return m >= SEUIL_RESIDU_CALAGE_M ? 'var(--color-svv-red)' : m >= SEUIL_RESIDU_CALAGE_BON_M ? '#b45309' : '#15803d';
+}
+
+export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, residusCalage = [], indicePireCalage = -1, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, sommetSelectionne = null, statuts, etiquettes = [], voisinage = [] }: {
+  boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[];
+  residusCalage?: number[]; indicePireCalage?: number; // PROJ — écart PAR repère (m, aligné sur calageLambert) + indice du plus fautif ; affichés SEULEMENT à partir de 3 repères (sur 2, tout est 0 par construction).
+  angle?: number; hauteurMax?: string; onCliquer?: (px: { x: number; y: number }) => void;
   retoucheAnneau?: PointLambert[] | null; sommetSelectionne?: number | null; // PROJ-3s — contour en RETOUCHE (poignées éditables) + sommet sélectionné
   statuts?: Map<string, EtatStatutPolygone>; // RATT-3 — statut décidé par cleabs : colore l'existant (préservé vert / détruit orange). Absent → gris d'origine.
   etiquettes?: EtiquetteProjection[]; // LOT 82 — nom du bâtiment + altitude posés SUR le dessin (suivent la case « repères / infos »). Vide = aucune (écran de tracé).
@@ -1360,8 +1373,23 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           });
         })()}
         {/* PROJ — points de calage PERSISTANTS (côté schéma) : rayon DOUBLÉ (8) pour être bien visibles ; ce ne sont PAS le pointeur de
-            visée du plan (cssAttente, inchangé). Positionnés exactement sous le clic depuis le correctif clicVersBoiteMeet. */}
-        {calageLambert.map((p, i) => { const q = projeterDansBoite(boite, p); return <g key={`c${i}`}><circle cx={q.x} cy={q.y} r={8} fill="var(--color-svv-red)" /><text x={q.x + 10} y={q.y - 10} fontSize={12} fontWeight={700} fill="var(--color-svv-red)">{i + 1}</text></g>; })}
+            visée du plan (cssAttente, inchangé). Positionnés exactement sous le clic depuis le correctif clicVersBoiteMeet.
+            QUALITÉ DU CALAGE (PROJ) : à partir de 3 repères SEULEMENT, on affiche l'écart PAR repère (m, arrondi au cm à l'affichage), coloré
+            (vert < 0,5 · orange < 1 · rouge ≥ 1 = SEUIL_RESIDU_CALAGE_M), et un halo DISCRET sur le plus fautif (« re-pointe celui-ci »).
+            🔴 Sur 2 repères l'écart est nul PAR CONSTRUCTION → on n'affiche RIEN de chiffré (pas de faux « 0,00 m » vert). Jamais bloquant. */}
+        {calageLambert.map((p, i) => {
+          const q = projeterDansBoite(boite, p);
+          const montrerEcart = calageLambert.length >= 3 && residusCalage[i] !== undefined;
+          const pire = montrerEcart && i === indicePireCalage;
+          return (
+            <g key={`c${i}`} data-calage={i} data-ecart-m={montrerEcart ? residusCalage[i].toFixed(2) : undefined} data-pire={pire || undefined}>
+              {pire && <circle cx={q.x} cy={q.y} r={12} fill="none" stroke={couleurResidu(residusCalage[i])} strokeWidth={1.6} strokeDasharray="2 2" />}
+              <circle cx={q.x} cy={q.y} r={8} fill="var(--color-svv-red)" />
+              <text x={q.x + 10} y={q.y - 10} fontSize={12} fontWeight={700} fill="var(--color-svv-red)">{i + 1}</text>
+              {montrerEcart && <text x={q.x + 10} y={q.y + 7} fontSize={10} fontWeight={700} fill={couleurResidu(residusCalage[i])} stroke="#fff" strokeWidth={2.5} paintOrder="stroke">{fmtM(residusCalage[i])}</text>}
+            </g>
+          );
+        })}
         {/* PROJ-3s — RETOUCHE : contour éditable + poignées de sommet (cibles tactiles) + points milieux de bord (insertion). */}
         {retoucheAnneau && retoucheAnneau.length >= 2 && <>
           <path d={path(retoucheAnneau)} fill="rgba(163,4,2,.10)" stroke="var(--color-svv-red)" strokeWidth={1.6} strokeDasharray="5 3" data-retouche="true" />
@@ -1419,9 +1447,10 @@ export interface Guidage { titre: string; instruction: string; sur: 'plan' | 'sc
 export function guidageTrace(mode: 'calage' | 'trace', nbPaires: number, planEnAttente: boolean, nbSommets: number, tracable: boolean): Guidage {
   if (!tracable) return { titre: 'Traçage indisponible', instruction: 'Cette vue n’est pas une vue en plan : on ne peut pas y tracer une emprise.', sur: 'plan' };
   if (mode === 'calage') {
-    if (planEnAttente) return { titre: `Étape 1 — caler la vue (${nbPaires}/2)`, instruction: 'Point posé sur le plan. Cliquez maintenant le MÊME point sur le schéma de la parcelle, à droite →', sur: 'schema' };
-    if (nbPaires >= 2) return { titre: 'Étape 1 — caler la vue : ✓ 2 points', instruction: 'Calage suffisant. Passez au bouton « Tracé » ci-dessous (ou posez un 3ᵉ point pour affiner l’échelle).', sur: 'plan' };
-    return { titre: `Étape 1 — caler la vue (${nbPaires}/2)`, instruction: `Cliquez un point reconnaissable du PLAN (un angle de la parcelle), puis son correspondant sur le schéma. Encore ${2 - nbPaires} point(s) à poser.`, sur: 'plan' };
+    const rep = (n: number) => `${n} repère${n > 1 ? 's' : ''}`;
+    if (planEnAttente) return { titre: `Étape 1 — caler la vue (${rep(nbPaires)})`, instruction: 'Point posé sur le plan. Cliquez maintenant le MÊME point sur le schéma de la parcelle, à droite →', sur: 'schema' };
+    if (nbPaires >= 2) return { titre: `Étape 1 — caler la vue : ✓ ${rep(nbPaires)}`, instruction: 'Calage suffisant : 2 repères suffisent pour tracer. Passez au bouton « Tracé » ci-dessous — ou posez un repère de plus pour vérifier le calage.', sur: 'plan' };
+    return { titre: `Étape 1 — caler la vue (${rep(nbPaires)})`, instruction: `Cliquez un point reconnaissable du PLAN (un angle de la parcelle), puis son correspondant sur le schéma. Encore ${2 - nbPaires} repère(s) pour caler — 2 suffisent.`, sur: 'plan' };
   }
   if (nbSommets < 3) return { titre: `Étape 2 — tracer l’emprise (${nbSommets} sommet${nbSommets > 1 ? 's' : ''})`, instruction: `Cliquez les sommets du contour du bâtiment sur le PLAN — au moins 3 pour fermer (encore ${3 - nbSommets}).`, sur: 'plan' };
   return { titre: `Étape 2 — tracer l’emprise (${nbSommets} sommets)`, instruction: 'Contour fermé. Cliquez « Enregistrer l’emprise ». « Annuler dernier » retire un point ; « Reprendre » recommence.', sur: 'plan' };
@@ -1442,8 +1471,8 @@ export function accesTrace(tracable: boolean, nbPaires: number): AccesTrace {
   if (nbPaires < 2) return {
     disponible: false, motif: 'calage',
     message: nbPaires <= 0
-      ? 'Faites d’abord le calage : cliquez un point reconnaissable du plan, puis le MÊME point sur le schéma (2 paires à poser pour débloquer le tracé).'
-      : 'Calage en cours (1/2) : posez la 2ᵉ paire — un point du plan puis le même sur le schéma — pour débloquer le tracé.',
+      ? 'Faites d’abord le calage : cliquez un point reconnaissable du plan, puis le MÊME point sur le schéma. 2 repères suffisent pour débloquer le tracé.'
+      : 'Calage en cours (1 repère) : posez un 2ᵉ repère — un point du plan puis le même sur le schéma — pour débloquer le tracé. 2 suffisent.',
   };
   return { disponible: true, motif: 'ok', message: null };
 }

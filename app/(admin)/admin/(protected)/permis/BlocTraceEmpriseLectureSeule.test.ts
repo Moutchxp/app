@@ -404,7 +404,7 @@ describe('SUITE LOT 7b47817 — le bloc outils/contrôle suit procEnCours, group
     const iDef = src.indexOf('const blocOutilsCalage =');
     const iFin = src.indexOf('const vue = affichageTrace', iDef);
     const bloc = src.slice(iDef, iFin);
-    expect(bloc).toContain('Calage ({paires.length}/2)');
+    expect(bloc).toContain('Calage ({paires.length} repère');
     expect(bloc).toContain('Tracé ({sommets.length})');
     expect(bloc).toContain('échelle 1:');
     expect(bloc).toContain('<BandeauCalage calage={vc}');          // encadré de contrôle : Calage ✓ + résidu + échelle implicite/déclarée

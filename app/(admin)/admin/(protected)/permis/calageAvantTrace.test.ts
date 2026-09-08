@@ -17,18 +17,18 @@ describe('accesTrace — décision PURE : le tracé n’est accessible qu’apr�
     expect(a.motif).toBe('non-plan');
     expect(a.message).toContain('vue en plan');
   });
-  it('page en plan, 0 paire → indisponible, motif « calage », message « faites d’abord le calage » (2 paires)', () => {
+  it('page en plan, 0 repère → indisponible, motif « calage », message « faites d’abord le calage » (2 repères suffisent)', () => {
     const a = accesTrace(true, 0);
     expect(a.disponible).toBe(false);
     expect(a.motif).toBe('calage');
     expect(a.message).toContain('calage');
-    expect(a.message).toContain('2 paires');
+    expect(a.message).toContain('2 repères');
   });
-  it('page en plan, 1 paire posée → toujours indisponible, message PROGRESSIF « (1/2) » (pas un texte figé)', () => {
+  it('page en plan, 1 repère posé → toujours indisponible, message PROGRESSIF « (1 repère) » (pas un texte figé)', () => {
     const a = accesTrace(true, 1);
     expect(a.disponible).toBe(false);
     expect(a.motif).toBe('calage');
-    expect(a.message).toContain('1/2');
+    expect(a.message).toContain('1 repère');
   });
   it('page en plan, 2 paires → DISPONIBLE (tracé débloqué), aucun message', () => {
     const a = accesTrace(true, 2);

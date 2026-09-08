@@ -39,6 +39,9 @@ export function echelleDeclareeMParPt(ratio: number): number {
 // ── Seuils de calage (NOMMÉS, jamais magiques ; le résidu s'AFFICHE toujours, ces seuils ne masquent rien) ──
 /** Au-delà de ce résidu de fit (m), le calage est marqué « douteux » — AFFICHÉ quand même, jamais masqué. */
 export const SEUIL_RESIDU_CALAGE_M = 1.0;
+/** En-deçà de ce résidu PAR POINT (m), le repère est de BONNE qualité (vert) ; entre ce seuil et SEUIL_RESIDU_CALAGE_M, à surveiller (orange) ;
+ *  au-delà, douteux (rouge). N'a de sens qu'à partir de 3 repères (sur 2, tous les écarts sont nuls par construction). */
+export const SEUIL_RESIDU_CALAGE_BON_M = 0.5;
 /** Écart RELATIF entre échelle implicite (calage) et échelle déclarée (feuille) au-delà duquel on alerte. 0,10 = 10 %.
  *  Motif mesuré : une feuille portait DEUX échelles (facteur 2,7) et un « 1:1000 » lu était une note de révision. */
 export const SEUIL_ECART_ECHELLE_RELATIF = 0.10;
@@ -100,6 +103,22 @@ export function residuFitM(s: Similitude, paires: PaireCalage[]): number {
     sse += (q.x - p.lambert.x) ** 2 + (q.y - p.lambert.y) ** 2;
   }
   return Math.sqrt(sse / paires.length);
+}
+
+/**
+ * RÉSIDU PAR POINT (m) : pour CHAQUE paire, l'écart entre son point PLAN projeté par la similitude et son Lambert réel. Sur 2 paires,
+ * tous les écarts sont NULS par construction (le fit passe EXACTEMENT par les 2 points) — ce n'est PAS un gage de qualité, à NE PAS afficher
+ * comme tel. Dès 3 paires, un écart élevé DÉSIGNE le repère mal pointé. `indexPlusFautif` = indice du plus grand écart (-1 si la similitude
+ * est indéfinissable : < 2 paires ou points plan confondus, `ecarts` alors vide). PUR, aucune I/O. AUCUN arrondi (l'arrondi n'existe qu'à l'affichage).
+ */
+export interface ResidusParPoint { ecarts: number[]; indexPlusFautif: number }
+export function residusParPoint(paires: PaireCalage[]): ResidusParPoint {
+  const s = calculerSimilitude(paires);
+  if (s === null) return { ecarts: [], indexPlusFautif: -1 };
+  const ecarts = paires.map((p) => { const q = appliquerSimilitude(s, p.plan); return Math.hypot(q.x - p.lambert.x, q.y - p.lambert.y); });
+  let indexPlusFautif = -1, max = -1;
+  for (let i = 0; i < ecarts.length; i++) if (ecarts[i] > max) { max = ecarts[i]; indexPlusFautif = i; }
+  return { ecarts, indexPlusFautif };
 }
 
 /** Distance Lambert (m) réelle entre les deux points d'une paire de paires (la « base » de calage). null si < 2 paires. */

@@ -90,8 +90,8 @@ describe('PROJ-AGR — INVARIANCE EN LARGEUR (ratio live) : le point posé ne d�
   });
 
   it('(c) compteur de calage et tracé IDENTIQUES quelle que soit la largeur (guidageTrace ne dépend pas de la taille de rendu)', () => {
-    expect(guidageTrace('calage', 1, false, 0, true).titre).toContain('(1/2)');
-    expect(guidageTrace('calage', 2, false, 0, true).titre).toContain('✓ 2 points');
+    expect(guidageTrace('calage', 1, false, 0, true).titre).toContain('(1 repère)');
+    expect(guidageTrace('calage', 2, false, 0, true).titre).toContain('✓ 2 repères');
     expect(guidageTrace('trace', 2, false, 3, true).titre).toContain('3 sommets');
   });
 });
