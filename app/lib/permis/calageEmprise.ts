@@ -447,3 +447,49 @@ export function deriverDebordement(aireM2: number, parcelleRattachee: boolean, a
   const decalageLateralM = perimetreHorsM !== null && perimetreHorsM > 0 ? (2 * hors) / perimetreHorsM : (hors === 0 ? 0 : null);
   return { aireM2, parcelleRattachee: true, aireHorsM2: hors, pctHors, decalageLateralM };
 }
+
+// ── AJUSTEMENT MANUEL RÉVERSIBLE d'une emprise projetée (PROJ-3t, lot 3a) ─────────────────────────────────────────────────────
+// 🔴 DELTA appliqué PAR-DESSUS le tracé d'origine, jamais un écrasement. Similitude RIGIDE UNIQUEMENT (translation + rotation + échelle
+//   UNIFORME) — jamais d'affine/cisaillement/échelles X≠Y (invariant A1 : plus de paramètres masquerait l'erreur en déformant le bâtiment).
+//   Le `centre` (centroïde figé À LA POSE) est stocké, jamais recalculé à la lecture. NULL = aucun ajustement → géométrie d'origine.
+/** DELTA d'ajustement rigide. `pose_le`/`pose_par` = traçabilité (qui/quand) dans la donnée elle-même. */
+export interface Ajustement { tx: number; ty: number; rotDeg: number; echelle: number; centre: { x: number; y: number }; pose_le?: string | null; pose_par?: string | null }
+
+/** Un objet jsonb est-il un ajustement EXPLOITABLE ? (nombres finis, échelle > 0, centre valide). Défensif : un delta malformé est ignoré (traité comme NULL). */
+export function ajustementValide(a: unknown): a is Ajustement {
+  if (typeof a !== 'object' || a === null) return false;
+  const o = a as Record<string, unknown>;
+  const fini = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const c = o.centre as Record<string, unknown> | undefined;
+  return fini(o.tx) && fini(o.ty) && fini(o.rotDeg) && fini(o.echelle) && (o.echelle as number) > 0 && typeof c === 'object' && c !== null && fini(c.x) && fini(c.y);
+}
+
+/** Applique le DELTA à UN point : échelle uniforme autour du centre, PUIS rotation autour du centre, PUIS translation. Réutilise rotePoint. PUR. */
+export function appliquerAjustementPoint(p: PointLambert, a: Ajustement): PointLambert {
+  const sx = a.centre.x + a.echelle * (p.x - a.centre.x), sy = a.centre.y + a.echelle * (p.y - a.centre.y);
+  const r = rotePoint({ x: sx, y: sy }, a.centre, a.rotDeg);
+  return { x: r.x + a.tx, y: r.y + a.ty };
+}
+
+/**
+ * Applique l'ajustement à un anneau (contour). `null` → l'anneau D'ORIGINE inchangé (NULL = aucun ajustement, comportement identique à
+ * aujourd'hui). 🔴 ORDRE : ce delta s'applique APRÈS les retouches par sommet (retoucherEmprise réécrit `geom` ; le delta ride au-dessus,
+ * à la LECTURE). Les deux mécanismes cohabitent sans s'annuler. AUCUN arrondi. PUR.
+ */
+export function appliquerAjustement(anneau: PointLambert[], a: Ajustement | null): PointLambert[] {
+  if (a === null) return anneau;
+  return anneau.map((p) => appliquerAjustementPoint(p, a));
+}
+
+/** Inverse du delta sur un point : dé-translation, PUIS dé-rotation (angle opposé), PUIS dé-échelle autour du centre. Inverse EXACT de appliquerAjustementPoint. PUR. */
+export function inverseAjustementPoint(p: PointLambert, a: Ajustement): PointLambert {
+  const t = { x: p.x - a.tx, y: p.y - a.ty };
+  const r = rotePoint(t, a.centre, -a.rotDeg);
+  return { x: a.centre.x + (r.x - a.centre.x) / a.echelle, y: a.centre.y + (r.y - a.centre.y) / a.echelle };
+}
+
+/** Inverse du delta sur un anneau (retour à l'origine). `null` → anneau inchangé. PUR. */
+export function inverseAjustement(anneau: PointLambert[], a: Ajustement | null): PointLambert[] {
+  if (a === null) return anneau;
+  return anneau.map((p) => inverseAjustementPoint(p, a));
+}

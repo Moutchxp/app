@@ -3,7 +3,8 @@ import {
   calculerSimilitude, appliquerSimilitude, echelleImpliciteMParPt, ratioEchelleImplicite,
   echelleDeclareeMParPt, residuFitM, residuEchelleDeclareeM, verdictCalage, aireM2, anneauVersLambert,
   verdictVraisemblance, deriverDebordement, SEUIL_RESIDU_CALAGE_M, residusParPoint,
-  levierCalage, etatLevier, inverseSimilitude, SEUIL_LEVIER_RASSURANT_MAX, type PaireCalage,
+  levierCalage, etatLevier, inverseSimilitude, SEUIL_LEVIER_RASSURANT_MAX,
+  appliquerAjustement, inverseAjustement, appliquerAjustementPoint, ajustementValide, type Ajustement, type PaireCalage,
   cadreDeAnneaux, projeterDansBoite, inverseDepuisBoite, rotePoint, boiteEnglobanteRotee, clicVersBoite, ecranVersCanvas, estClic, type Boite,
 } from './calageEmprise';
 
@@ -250,6 +251,61 @@ describe('PROJ — écartement des repères (levierCalage) : sensibilité, jamai
     expect(etatLevier(1.6)).toBe('intermediaire');
     expect(etatLevier(2.9)).toBe('intermediaire');
     expect(etatLevier(3)).toBe('eleve');
+  });
+
+  it('ajustement NULL → géométrie d’origine INCHANGÉE (comportement identique à aujourd’hui)', () => {
+    const anneau = [{ x: 10, y: 10 }, { x: 20, y: 10 }, { x: 20, y: 20 }, { x: 10, y: 20 }];
+    expect(appliquerAjustement(anneau, null)).toBe(anneau); // même référence : rien n’est recalculé
+    expect(inverseAjustement(anneau, null)).toBe(anneau);
+  });
+
+  it('delta NUL (tx=ty=rotDeg=0, echelle=1) → identité', () => {
+    const c = { x: 15, y: 15 };
+    const a: Ajustement = { tx: 0, ty: 0, rotDeg: 0, echelle: 1, centre: c };
+    for (const p of [{ x: 10, y: 10 }, { x: 20, y: 18 }]) {
+      const q = appliquerAjustementPoint(p, a);
+      expect(q.x).toBeCloseTo(p.x, 9); expect(q.y).toBeCloseTo(p.y, 9);
+    }
+  });
+
+  it('translation seule : décale sans déformer', () => {
+    const a: Ajustement = { tx: 5, ty: -3, rotDeg: 0, echelle: 1, centre: { x: 0, y: 0 } };
+    const q = appliquerAjustementPoint({ x: 10, y: 10 }, a);
+    expect(q.x).toBeCloseTo(15, 9); expect(q.y).toBeCloseTo(7, 9);
+  });
+
+  it('rotation seule autour du centre STOCKÉ : le centre est un point fixe, un autre tourne', () => {
+    const c = { x: 5, y: 5 };
+    const a: Ajustement = { tx: 0, ty: 0, rotDeg: 90, echelle: 1, centre: c };
+    const fixe = appliquerAjustementPoint(c, a);
+    expect(fixe.x).toBeCloseTo(5, 9); expect(fixe.y).toBeCloseTo(5, 9); // le centre ne bouge pas
+    const q = appliquerAjustementPoint({ x: 15, y: 5 }, a); // à droite du centre, +90° (repère y-bas, sens horaire) → vers le bas
+    expect(q.x).toBeCloseTo(5, 9); expect(q.y).toBeCloseTo(15, 9);
+  });
+
+  it('échelle seule autour du centre : dilate depuis le centre', () => {
+    const c = { x: 0, y: 0 };
+    const a: Ajustement = { tx: 0, ty: 0, rotDeg: 0, echelle: 2, centre: c };
+    const q = appliquerAjustementPoint({ x: 3, y: 4 }, a);
+    expect(q.x).toBeCloseTo(6, 9); expect(q.y).toBeCloseTo(8, 9);
+  });
+
+  it('composition des trois (échelle + rotation + translation) puis ALLER-RETOUR = origine (au flottant près)', () => {
+    const a: Ajustement = { tx: 12.5, ty: -7.25, rotDeg: 37, echelle: 1.8, centre: { x: 4, y: -2 } };
+    const anneau = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 6 }, { x: -3, y: 5 }];
+    const ajuste = appliquerAjustement(anneau, a);
+    // l'ajustement CHANGE la géométrie (sinon le test ne prouve rien)
+    expect(ajuste[1].x).not.toBeCloseTo(anneau[1].x, 3);
+    const retour = inverseAjustement(ajuste, a);
+    for (let i = 0; i < anneau.length; i++) { expect(retour[i].x).toBeCloseTo(anneau[i].x, 6); expect(retour[i].y).toBeCloseTo(anneau[i].y, 6); }
+  });
+
+  it('ajustementValide : rejette un delta malformé (traité comme NULL), accepte un delta correct', () => {
+    expect(ajustementValide({ tx: 1, ty: 2, rotDeg: 10, echelle: 1.2, centre: { x: 0, y: 0 } })).toBe(true);
+    expect(ajustementValide(null)).toBe(false);
+    expect(ajustementValide({ tx: 1, ty: 2, rotDeg: 10, echelle: 0, centre: { x: 0, y: 0 } })).toBe(false); // échelle 0 (division interdite)
+    expect(ajustementValide({ tx: 1, ty: 2, rotDeg: 10, echelle: 1 })).toBe(false); // centre manquant
+    expect(ajustementValide({ tx: NaN, ty: 2, rotDeg: 10, echelle: 1, centre: { x: 0, y: 0 } })).toBe(false); // non fini
   });
 
   it('inverseSimilitude : aller-retour EXACT avec appliquerSimilitude ; dégénéré → null', () => {

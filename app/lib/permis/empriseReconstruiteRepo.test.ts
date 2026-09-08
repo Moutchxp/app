@@ -12,7 +12,8 @@ const H = vi.hoisted(() => {
   const calls: { sql: string; params: unknown[] }[] = [];
   const flags = { geomValide: true as boolean, updRows: [{ provenance: 'ign_retouche' }] as { provenance: string }[],
     projectionValidee: false as boolean, empriseRows: [] as { corps_id: number; n: number; surface: string | number | null; cree_le: string | null; validee_le: string | null; validee_par: string | null; validee_par_nom: string | null; validee: boolean }[],
-    validateRowCount: 1 as number, validationColonneAbsente: false as boolean }; // PROJ-3s + capsule + validation par bâtiment — pilotables par test
+    validateRowCount: 1 as number, validationColonneAbsente: false as boolean,
+    listeRows: [] as Record<string, unknown>[], ajustementColonneAbsente: false as boolean }; // PROJ-3s + capsule + validation + PROJ-3t (listerEmprises/ajustement) — pilotables par test
   const queryMock = async (sql: string, params?: unknown[]) => {
     calls.push({ sql, params: params ?? [] });
     // Validation PAR BÂTIMENT (migration 206). Colonne absente → 42703 (le code refait proprement).
@@ -34,6 +35,11 @@ const H = vi.hoisted(() => {
     ], rowCount: 3 };
     // PROJ-3r — bâtiments déclarés du permis (repères) : 3 et 5.
     if (/SELECT id::int AS id, repere FROM permis_corps_batiment/i.test(sql)) return { rows: [{ id: 3, repere: '2D1' }, { id: 5, repere: '2D2' }], rowCount: 2 };
+    // PROJ-3t — listerEmprises : SELECT ST_AsGeoJSON(geom) … [, ajustement] FROM permis_emprise_reconstruite WHERE dossier_id. Colonne absente pilotée.
+    if (/ST_AsGeoJSON\(geom\)::json AS gj[\s\S]*FROM permis_emprise_reconstruite WHERE dossier_id/i.test(sql)) {
+      if (/, ajustement FROM/i.test(sql) && flags.ajustementColonneAbsente) throw Object.assign(new Error('col'), { code: '42703' });
+      return { rows: flags.listeRows, rowCount: flags.listeRows.length };
+    }
     if (/ST_UnaryUnion/i.test(sql)) return { rows: [{ wkt: 'POLYGON((0 0,20 0,20 10,0 10,0 0))', aire: 200 }], rowCount: 1 };
     if (/ST_Difference/i.test(sql)) return { rows: [{ aire: 200, a_parcelle: true, aire_hors: 0, perim_hors: 0 }], rowCount: 1 };
     return { rows: [], rowCount: 1 };
@@ -48,7 +54,7 @@ import type { CalageTrace } from './empriseReconstruiteRepo';
 const calage: CalageTrace = { paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 10, y: 0 }, lambert: { x: 20, y: 0 } }], ratioDeclare: null, ratioImplicite: 200, residuFitM: 0, residuEchelleM: null, douteux: false, raisons: [] };
 const anneau = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
 
-beforeEach(() => { H.calls.length = 0; H.flags.geomValide = true; H.flags.updRows = [{ provenance: 'ign_retouche' }]; H.flags.projectionValidee = false; H.flags.empriseRows = []; H.flags.validateRowCount = 1; H.flags.validationColonneAbsente = false; });
+beforeEach(() => { H.calls.length = 0; H.flags.geomValide = true; H.flags.updRows = [{ provenance: 'ign_retouche' }]; H.flags.projectionValidee = false; H.flags.empriseRows = []; H.flags.validateRowCount = 1; H.flags.validationColonneAbsente = false; H.flags.listeRows = []; H.flags.ajustementColonneAbsente = false; });
 
 describe('VALIDATION PAR BÂTIMENT — validerEmpriseBatiment / devaliderEmpriseBatiment (calque de « Valider cette altitude »)', () => {
   it('valider : pointe emprise_validee_id sur l’emprise COURANTE du bâtiment + trace (par), paramètres liés', async () => {
@@ -130,6 +136,47 @@ describe('PROJ-2 — enregistrerEmprise : n’écrit QUE la table des reconstitu
     const sel = H.calls.find((c) => /SELECT[\s\S]*FROM permis_emprise_reconstruite/i.test(c.sql))!;
     expect(sel.sql).toMatch(/ST_AsGeoJSON\(geom\)/);
     expect(sel.sql).toMatch(/WHERE dossier_id = \$1/);
+  });
+
+  // PROJ-3t (lot 3a) — le DELTA d'ajustement est appliqué au RENDU dans listerEmprises (point unique de consommation de la géométrie).
+  const ligneCarre = (ajustement: unknown, avecCle = true) => ({
+    id: 1, corps_id: 3, libelle: 'A', gj: { type: 'Polygon', coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]] },
+    surface_m2: 100, piece_id: null, page: 1, calage: null, residu_m: 0, provenance: 'trace_manuel', cree_le: null, ...(avecCle ? { ajustement } : {}),
+  });
+
+  it('ajustement NULL → géométrie et surface d’ORIGINE, identiques à avant le lot', async () => {
+    H.flags.listeRows = [ligneCarre(null)];
+    const [e] = await listerEmprises(11434);
+    expect(e.anneau).toEqual([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }, { x: 0, y: 0 }]); // inchangé (point de fermeture inclus)
+    expect(e.surfaceM2).toBe(100); // surface base conservée
+    expect(e.ajustement).toBeNull();
+  });
+
+  it('ajustement NON NULL → géométrie transformée au rendu + surface RE-CALCULÉE + delta exposé (traçabilité)', async () => {
+    H.flags.listeRows = [ligneCarre({ tx: 0, ty: 0, rotDeg: 0, echelle: 2, centre: { x: 0, y: 0 }, pose_le: '2026-09-09T10:00:00Z', pose_par: 'admin:ajustement' })];
+    const [e] = await listerEmprises(11434);
+    expect(e.anneau).toEqual([{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x: 0, y: 20 }, { x: 0, y: 0 }]); // ×2 autour de (0,0) (point de fermeture inclus)
+    expect(e.surfaceM2).toBeCloseTo(400, 6); // aire ×4 (échelle²), recalculée sur la géométrie ajustée (≠ 100 stockée)
+    expect(e.ajustement).not.toBeNull();
+    expect(e.ajustement?.pose_par).toBe('admin:ajustement'); // qui/quand présents dans la donnée
+  });
+
+  it('delta MALFORMÉ (échelle 0) → ignoré, traité comme NULL (défensif)', async () => {
+    H.flags.listeRows = [ligneCarre({ tx: 5, ty: 5, rotDeg: 0, echelle: 0, centre: { x: 0, y: 0 } })];
+    const [e] = await listerEmprises(11434);
+    expect(e.anneau[1]).toEqual({ x: 10, y: 0 }); // pas de translation appliquée (delta rejeté)
+    expect(e.ajustement).toBeNull();
+  });
+
+  it('colonne ajustement ABSENTE (migration 211 non appliquée) → repli sans erreur, ajustement NULL', async () => {
+    H.flags.ajustementColonneAbsente = true;
+    H.flags.listeRows = [ligneCarre(undefined, false)]; // le repli SELECT ne ramène pas la colonne
+    const emprises = await listerEmprises(11434);
+    expect(emprises).toHaveLength(1);
+    expect(emprises[0].ajustement).toBeNull();
+    expect(emprises[0].anneau).toEqual([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }, { x: 0, y: 0 }]);
+    // le repli a bien émis une 2ᵉ requête SANS « , ajustement »
+    expect(H.calls.some((c) => /FROM permis_emprise_reconstruite WHERE dossier_id/i.test(c.sql) && !/, ajustement FROM/i.test(c.sql))).toBe(true);
   });
 });
 

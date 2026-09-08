@@ -10,7 +10,7 @@
  * écriture refusée avec motif clair (aucune exception qui remonte). Module PROPRE : n'importe que db/client et le module pur.
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { aireM2, deriverDebordement, type PointLambert, type Debordement } from './calageEmprise';
+import { aireM2, deriverDebordement, appliquerAjustement, ajustementValide, type PointLambert, type Debordement, type Ajustement } from './calageEmprise';
 import { grouperPolygonesConnexes, grouperParBatiment } from './adoptionEmprise';
 import { lireSeuilMitoyenAireM2, qualifierMitoyennete, batimentAppartientPermis, type QualificationPolygone, type IntersectionParcelleBatiment } from './projectionConfig';
 
@@ -41,6 +41,7 @@ export interface EmpriseReconstruite {
   calage: CalageTrace | null;
   residuM: number | null;
   provenance: ProvenanceEmprise; // PROJ-3q — 'trace_manuel' (tracé) | 'ign_adopte' (IGN) | 'ign_retouche'
+  ajustement: Ajustement | null;  // PROJ-3t (lot 3a) — DELTA d'ajustement manuel réversible ; NULL = aucun. Non NULL = emprise retouchée à la main (traçabilité).
   creeLe: string | null;
 }
 
@@ -186,32 +187,46 @@ export async function retoucherEmprise(dossierId: number, id: number, anneau: Po
   }
 }
 
-/** Liste les emprises reconstituées d'un dossier (contour EPSG:2154 → anneau). `[]` si la table n'existe pas encore. */
+/** Ligne brute d'emprise (les deux variantes de SELECT — avec ou sans la colonne `ajustement` — partagent cette forme, `ajustement` en option). */
+type LigneEmprise = {
+  id: number; corps_id: number | null; libelle: string; gj: { type: string; coordinates: number[][][] | number[][][][] } | null; surface_m2: number | null;
+  piece_id: number | null; page: number | null; calage: CalageTrace | null; residu_m: number | null; provenance: ProvenanceEmprise | null; cree_le: Date | null; ajustement?: Ajustement | null;
+};
+
+/**
+ * Liste les emprises reconstituées d'un dossier (contour EPSG:2154 → anneau). `[]` si la table n'existe pas encore.
+ * 🔴 PROJ-3t (lot 3a) — le DELTA d'ajustement (colonne `ajustement`, jsonb) est appliqué ICI, au RENDU, PAR-DESSUS le tracé d'origine : c'est le
+ *   POINT UNIQUE de consommation de la géométrie (schéma, lecture seule, Archives passent tous par ici) → jamais d'emprise ajustée à côté d'une
+ *   non ajustée. `geom` en base reste le tracé d'ORIGINE (jamais réécrit). NULL = aucun ajustement → anneaux/surface d'origine, BYTE-IDENTIQUES à
+ *   avant le lot. ORDRE : le delta s'applique APRÈS les retouches par sommet (retoucherEmprise réécrit `geom` ; le delta ride au-dessus, à la lecture).
+ *   RÉSILIENT : colonne absente (42703, migration 211 non appliquée) → relecture sans `ajustement` (tous NULL) → comportement d'avant.
+ */
 export async function listerEmprises(dossierId: number): Promise<EmpriseReconstruite[]> {
+  const base = `id::int AS id, corps_id::int AS corps_id, libelle, ST_AsGeoJSON(geom)::json AS gj, surface_m2, piece_id::int AS piece_id, page, calage, residu_m, provenance, cree_le`;
   try {
-    const { rows } = await query<{
-      id: number; corps_id: number | null; libelle: string; gj: { type: string; coordinates: number[][][] | number[][][][] } | null; surface_m2: number | null;
-      piece_id: number | null; page: number | null; calage: CalageTrace | null; residu_m: number | null; provenance: ProvenanceEmprise | null; cree_le: Date | null;
-    }>(
-      `SELECT id::int AS id, corps_id::int AS corps_id, libelle, ST_AsGeoJSON(geom)::json AS gj, surface_m2, piece_id::int AS piece_id, page,
-              calage, residu_m, provenance, cree_le
-         FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`,
-      [dossierId],
-    );
+    let rows: LigneEmprise[];
+    try { rows = (await query<LigneEmprise>(`SELECT ${base}, ajustement FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows; }
+    catch (e) { if (!estColonneAbsente(e)) throw e; rows = (await query<LigneEmprise>(`SELECT ${base} FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows; } // 211 non appliquée
     return rows.map((r) => {
       // PROJ-3q — Polygon → un anneau extérieur ; MultiPolygon → un anneau extérieur PAR partie (groupe adopté à contact par sommet).
-      const anneaux: PointLambert[][] = r.gj?.type === 'MultiPolygon'
+      const anneauxOrigine: PointLambert[][] = r.gj?.type === 'MultiPolygon'
         ? (r.gj.coordinates as number[][][][]).map((poly) => (poly[0] ?? []).map(([x, y]) => ({ x, y })))
         : r.gj?.type === 'Polygon'
           ? [((r.gj.coordinates as number[][][])[0] ?? []).map(([x, y]) => ({ x, y }))]
           : [];
+      // DELTA appliqué au rendu (défensif : un delta malformé est ignoré = traité comme NULL). Surface RE-CALCULÉE si ajusté (l'échelle change l'aire) ;
+      //   sans ajustement, on garde la valeur base (ST_Area sur l'origine), byte-identique à avant.
+      const ajustement: Ajustement | null = ajustementValide(r.ajustement) ? (r.ajustement as Ajustement) : null;
+      const anneaux = ajustement ? anneauxOrigine.map((a) => appliquerAjustement(a, ajustement)) : anneauxOrigine;
+      const surfaceM2 = ajustement ? anneaux.reduce((s, a) => s + aireM2(a), 0) : (r.surface_m2 !== null ? Number(r.surface_m2) : null);
       return {
         id: r.id, dossierId, corpsId: r.corps_id, libelle: r.libelle,
         anneau: anneaux[0] ?? [], anneaux,
-        surfaceM2: r.surface_m2 !== null ? Number(r.surface_m2) : null,
+        surfaceM2,
         pieceId: r.piece_id, page: r.page, calage: r.calage,
         residuM: r.residu_m !== null ? Number(r.residu_m) : null,
         provenance: r.provenance ?? 'trace_manuel',
+        ajustement,
         creeLe: r.cree_le ? r.cree_le.toISOString() : null,
       };
     });

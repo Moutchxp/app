@@ -954,6 +954,10 @@ export function ListeEmprises({ emprises, onSupprimer, onRetoucher, empriseEnRet
               <span style={muted}>{ign ? '· donnée source IGN' : `· résidu ${e.residuM !== null ? fmtM(e.residuM) : '—'}${e.page !== null ? ` · page ${e.page}` : ''}`}</span>
               {enRetouche && <span style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}> · en cours de retouche</span>}
               {!retouchable && <span style={muted}> · retouche indisponible (emprise multi-parties)</span>}
+              {/* PROJ-3t (lot 3a) — SIGNAL lisible, piloté par la DONNÉE (delta non NULL) : une emprise ajustée à la main est distinguable ici, avec
+                  qui/quand, et l'affectation des polygones voisins est signalée « à vérifier » — sans AUCUNE action automatique (règle e : un
+                  ajustement ne recalcule jamais les statuts « détruit »). Latent tant que le geste d'ajustement (lot 3b) n'existe pas. */}
+              {e.ajustement && <span data-ajustee="true" style={{ color: '#b45309', fontWeight: 600 }}> · ✎ ajustée à la main{e.ajustement.pose_le ? ` le ${jourFrParis(e.ajustement.pose_le)}` : ''}{e.ajustement.pose_par ? ` par ${e.ajustement.pose_par}` : ''} — affectation des voisins à vérifier</span>}
             </span>
             <span style={{ display: 'flex', gap: '.3rem' }}>
               {onRetoucher && retouchable && !enRetouche && <button type="button" onClick={() => onRetoucher(e.id)} style={b}>retoucher</button>}

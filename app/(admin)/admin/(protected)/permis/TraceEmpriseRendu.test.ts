@@ -13,7 +13,7 @@ import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBat
 const RING = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
 const emprise = (over: Partial<EmpriseReconstruite> = {}): EmpriseReconstruite => ({
   id: 1, dossierId: 11434, corpsId: 1, libelle: '2D1', anneau: RING, anneaux: [RING],
-  surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0.3, provenance: 'trace_manuel', creeLe: null, ...over,
+  surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0.3, provenance: 'trace_manuel', ajustement: null, creeLe: null, ...over,
 });
 
 describe('PROJ-2 — rendu pur', () => {
@@ -26,6 +26,15 @@ describe('PROJ-2 — rendu pur', () => {
     expect(html).toContain('1:100');
     expect(html).toContain('éloignée de l’échelle déclarée');
     expect(html).toContain('aucun écart ne peut être calculé'); // 🔴 honnêteté : sur 2 repères on ne montre PAS de « 0,00 m » vert, on met la phrase neutre
+  });
+
+  it('ListeEmprises : une emprise AJUSTÉE porte un signal lisible (qui/quand + affectation à vérifier) ; non ajustée = rien', () => {
+    const sans = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ id: 1 })] }));
+    expect(sans).not.toContain('ajustée à la main');
+    const avec = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ id: 2, ajustement: { tx: 1, ty: 0, rotDeg: 0, echelle: 1, centre: { x: 0, y: 0 }, pose_le: '2026-09-09T10:00:00Z', pose_par: 'admin:ajustement' } })] }));
+    expect(avec).toContain('ajustée à la main');
+    expect(avec).toContain('affectation des voisins à vérifier');
+    expect(avec).toContain('data-ajustee="true"');
   });
 
   it('IndicateurEcartement : 3 états, X cm comme message principal, jamais R/L, honnêteté « estimation »', () => {
