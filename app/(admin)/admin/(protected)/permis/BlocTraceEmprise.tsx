@@ -851,6 +851,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
 
   const btn: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.25rem .6rem', fontSize: 12 };
   const styleAide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
+  // POINT 3 — messages d'EMPÊCHEMENT de tracé (accesTrace : page non-plan, calage 0/2 puis 1/2) : EN ROUGE, MÊME jeton d'alerte que le
+  //   bandeau « Projection des emprises — … en attente » (BandeauProjection rouge = var(--color-svv-red)). Pas une nouvelle teinte ; textes inchangés.
+  const styleEmpechement: CSSProperties = { fontSize: 12, color: 'var(--color-svv-red)' };
   // PL-C4 — bandeau « sélection validée / configuration automatique », placé sous le curseur Rotation, avant le schéma (3 vues).
   const bandeauSel = <BandeauSelection selection={selection} confirme={confirmeSel} enCours={occupeSel} onDemander={() => setConfirmeSel(true)} onConfirmer={() => void retirerSelectionEmprise()} onAnnuler={() => setConfirmeSel(false)} />;
 
@@ -896,15 +899,15 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   hauteur mini + MÊME structure) → les deux panneaux (plan à gauche, schéma à droite) démarrent EXACTEMENT à la même hauteur. Aucun
   //   libellé, aucun ORDRE d'éléments, aucun comportement de bouton ne change : seul l'EMPLACEMENT des deux groupes change (plein-largeur →
   //   une barre par colonne). Le niveau 3 (plan seul) garde sa barre `barreNiveau3` en tête (une seule colonne).
-  // `minHeight` COMMUN aux DEUX barres → les DEUX panneaux démarrent à la même hauteur dans leurs cartes, SANS retirer de bouton (contrainte
-  //   Arno). En VUE ÉTROITE (niveau 1 en page, colonnes serrées), la barre droite passe sur DEUX lignes (RotationSchema + « Agrandir le schéma »
-  //   ne tiennent pas côte à côte) → hauteur mini de DEUX lignes (3.7rem) pour que la barre gauche (une ligne, centrée) l'égale. En VUE LARGE
-  //   (niveau 2 plein écran), tout tient sur UNE ligne → hauteur mini d'UNE ligne (1.9rem), pas de vide superflu. Contenu centré (alignItems).
-  const styleBarre: CSSProperties = { display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0, minHeight: imageAgrandie ? '1.9rem' : '3.7rem' };
-  // BARRE GAUCHE — au-dessus du PLAN (colonne colpdf) : ZOOM (contrôle) à gauche, [grandes images · agrandir l'image] (actions écran) à
-  //   droite au niveau 2 (space-between) ; packé à gauche au niveau 1, à l'identique du cas 470. Aucun handler modifié.
+  // `minHeight` COMMUN aux DEUX barres → les DEUX panneaux démarrent à la même hauteur dans leurs cartes. Depuis le POINT 2 (curseur de rotation
+  //   raccourci), la barre droite tient sur UNE ligne à la largeur usuelle → une hauteur d'UNE ligne (1.9rem) suffit, aucune barre ne déborde,
+  //   plus de vide. Le `flexWrap` reste un filet : si une barre débordait à une largeur extrême, elle passerait proprement sur deux lignes.
+  const styleBarre: CSSProperties = { display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0, minHeight: '1.9rem' };
+  // BARRE GAUCHE — au-dessus du PLAN (colonne colpdf) : ZOOM (contrôle) à gauche, bloc ÉCRAN [grandes images · (niveau 2) agrandir l'image] à
+  //   DROITE de la carte (space-between) — AUX DEUX NIVEAUX (POINT 1) : même au niveau 1, « mode grandes images » (basculement d'affichage) est
+  //   poussé contre le bord droit, séparé visuellement du groupe Zoom. Aucun handler modifié.
   const barreGauchePlan = (
-    <div style={{ ...styleBarre, justifyContent: imageAgrandie ? 'space-between' : 'flex-start' }}>
+    <div style={{ ...styleBarre, justifyContent: 'space-between' }}>
       <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
         <button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
@@ -920,11 +923,12 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       </div>
     </div>
   );
-  // BARRE DROITE — au-dessus du SCHÉMA (sa colonne) : `RotationSchema` (Rotation [curseur] 0° [Remettre à 0]) TEL QUEL (comme 470), puis
-  //   « Agrandir le schéma » à la suite (le seul bouton en plus du cas 470). MÊME ordre d'éléments qu'auparavant. Packé à gauche.
+  // BARRE DROITE — au-dessus du SCHÉMA (sa colonne) : `RotationSchema` (Rotation [curseur] 0° [Remettre à 0]) puis « Agrandir le schéma ».
+  //   POINT 2 — (a) curseur RACCOURCI (largeurCurseur=48) UNIQUEMENT ICI (via prop ; les autres appelants de RotationSchema gardent 120) pour que
+  //   les 4 éléments tiennent SUR UNE SEULE LIGNE à ~1312 px ; (b) tout le GROUPE justifié À DROITE de la carte (flex-end). Le pas reste 1°.
   const barreDroiteSchema = (
-    <div style={{ ...styleBarre, justifyContent: 'flex-start' }}>
-      <RotationSchema angle={angle} onAngle={setAngle} />
+    <div style={{ ...styleBarre, justifyContent: 'flex-end' }}>
+      <RotationSchema angle={angle} onAngle={setAngle} largeurCurseur={48} />
       <button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button>
     </div>
   );
@@ -952,7 +956,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             </>
           ) : (
             // Tracé indisponible (page non-plan OU calage incomplet) : le MESSAGE remplace le bloc de boutons, au MÊME endroit. Jamais de bouton muet ni de vide.
-            <span role="note" style={styleAide}>{acces.message}</span>
+            <span role="note" style={styleEmpechement}>{acces.message}</span>
           )}
         </div>
       </div>
@@ -987,7 +991,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'calage' ? 700 : 400 }} onClick={() => setMode('calage')}>Calage ({paires.length}/2)</button>
         {acces.motif === 'calage' ? (
-          <span role="note" style={{ ...styleAide, maxWidth: 320 }}>{acces.message}</span>
+          <span role="note" style={{ ...styleEmpechement, maxWidth: 320 }}>{acces.message}</span>
         ) : (
           <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'trace' ? 700 : 400 }} onClick={() => setMode('trace')}>Tracé ({sommets.length})</button>
         )}

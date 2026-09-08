@@ -1236,12 +1236,15 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
  * PROJ-3j — commande de ROTATION du schéma (0 à 360°, LIBRE, pas par paliers) : curseur + valeur d'angle visible + retour à 0 en un
  * geste. AFFICHAGE seulement (aucune géométrie réécrite). PUR (le curseur ne fait que remonter l'angle).
  */
-export function RotationSchema({ angle, onAngle }: { angle: number; onAngle: (a: number) => void }) {
+export function RotationSchema({ angle, onAngle, largeurCurseur = 120 }: { angle: number; onAngle: (a: number) => void; largeurCurseur?: number }) {
+  // `largeurCurseur` — largeur du curseur en px. DÉFAUT 120 (inchangé partout ailleurs). Un appelant à colonne étroite (barre droite de
+  //   « Bâtiments et projection ») peut la RÉDUIRE pour que toute la barre tienne sur une ligne, SANS toucher les autres écrans. Le pas reste
+  //   1° et les flèches clavier gardent la précision au degré : le curseur plus court reste utilisable (réglage grossier + fin au clavier).
   return (
     <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
       <label style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
         Rotation
-        <input type="range" min={0} max={360} step={1} value={angle} onChange={(e) => onAngle(Number(e.target.value))} aria-label="Rotation du schéma en degrés" style={{ width: 120 }} />
+        <input type="range" min={0} max={360} step={1} value={angle} onChange={(e) => onAngle(Number(e.target.value))} aria-label="Rotation du schéma en degrés" style={{ width: largeurCurseur }} />
       </label>
       <span style={{ fontVariantNumeric: 'tabular-nums', minWidth: 34 }}>{Math.round(angle)}°</span>
       <button type="button" onClick={() => onAngle(0)} disabled={angle === 0} style={{ cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.15rem .5rem', fontSize: 12, opacity: angle === 0 ? 0.4 : 1 }}>Remettre à 0</button>

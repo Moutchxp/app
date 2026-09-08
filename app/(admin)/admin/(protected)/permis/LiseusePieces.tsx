@@ -658,7 +658,7 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
       {/* DROITE : bloc ÉCRAN. Au niveau 3, le MESSAGE d'empêchement (aucun tracé sans bâtiment) prend la place du bloc « grandes images / agrandir ». */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
         {planSeul ? (
-          messagePlanSeul && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{messagePlanSeul}</span>
+          messagePlanSeul && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{messagePlanSeul}</span>
         ) : (
           <>
             <button type="button" style={btnLise}

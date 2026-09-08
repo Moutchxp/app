@@ -297,6 +297,28 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
     expect(src).toContain('const styleBarre: CSSProperties');
   });
 
+  it('3 FINITIONS — (1) « mode grandes images » poussé à droite au niveau 1 ; (2) barre droite sur une ligne (curseur court + groupe à droite) ; (3) messages d’empêchement EN ROUGE', () => {
+    const rendu = readFileSync(join(ici, 'TraceEmpriseRendu.tsx'), 'utf8');
+    const liseuse = readFileSync(join(ici, 'LiseusePieces.tsx'), 'utf8');
+    // POINT 1 — barre gauche : space-between INCONDITIONNEL (plus de `imageAgrandie ? ... : 'flex-start'`) → zoom à gauche, écran à droite AUX DEUX niveaux.
+    const iBG = src.indexOf('const barreGauchePlan =');
+    const bg = src.slice(iBG, src.indexOf('const barreDroiteSchema', iBG));
+    expect(bg).toContain("justifyContent: 'space-between'");
+    expect(bg).not.toContain("imageAgrandie ? 'space-between' : 'flex-start'");
+    // POINT 2 — barre droite : curseur RACCOURCI ici (prop, pas le défaut) + groupe justifié À DROITE. RotationSchema expose `largeurCurseur` (défaut 120).
+    const iBD = src.indexOf('const barreDroiteSchema =');
+    const bd = src.slice(iBD, src.indexOf('const vue = affichageTrace', iBD));
+    expect(bd).toContain("justifyContent: 'flex-end'");
+    expect(bd).toContain('largeurCurseur={48}');
+    expect(rendu).toContain('largeurCurseur = 120');   // DÉFAUT inchangé → les autres appelants (blocSchema, pleinEcran) gardent 120
+    expect(rendu).toContain('style={{ width: largeurCurseur }}');
+    // POINT 3 — messages d'empêchement EN ROUGE (jeton d'alerte existant), textes inchangés.
+    expect(src).toContain("const styleEmpechement: CSSProperties = { fontSize: 12, color: 'var(--color-svv-red)' }");
+    expect(src).toContain('style={styleEmpechement}>{acces.message}');                 // barre niveau 3
+    expect(src).toContain('style={{ ...styleEmpechement, maxWidth: 320 }}>{acces.message}'); // blocOutilsCalage (niveaux 1-2)
+    expect(liseuse).toContain("color: 'var(--color-svv-red)' }}>{messagePlanSeul}");    // « … sans bâtiment renseigné » (0 bâtiment, niveau 3)
+  });
+
   it('LIGNE DE STATUT (ce lot) — statut de l’IMAGE (« Image best-of » / « Image fichier ») + retour au best-of (onRetourBestOf) sur la ligne du titre', () => {
     expect(barre).toContain('Image best-of');
     expect(barre).toContain('Image fichier');
