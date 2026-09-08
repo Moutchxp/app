@@ -1283,6 +1283,27 @@ export function guidageTrace(mode: 'calage' | 'trace', nbPaires: number, planEnA
   return { titre: `Étape 2 — tracer l’emprise (${nbSommets} sommets)`, instruction: 'Contour fermé. Cliquez « Enregistrer l’emprise ». « Annuler dernier » retire un point ; « Reprendre » recommence.', sur: 'plan' };
 }
 
+/**
+ * LOT « calage avant tracé » — DÉCISION PURE : le tracé est-il accessible sur la page COURANTE, sinon POURQUOI et QUOI faire ? RÈGLE MÉTIER :
+ * on ne peut pas dessiner le polygone avant d'avoir calé la vue — sans calage, le tracé n'a AUCUNE référence géographique (emprise fausse mais
+ * enregistrable). Le calage n'est PAS retenu entre sessions et n'est valable QUE pour UNE page → la décision se fonde sur l'état de SESSION
+ * (nombre de paires plan↔schéma de la page courante), jamais sur une donnée en base. HIÉRARCHIE des empêchements, le plus AMONT gagne :
+ *   ① page non traçable (coupe/façade) → ② calage incomplet (2 paires requises) → sinon tracé disponible.
+ * Le cas « aucun bâtiment » est traité EN AMONT (branche 0 bâtiment, message dédié) et n'arrive jamais ici (une page traçable implique un
+ * bâtiment sélectionné). `message` progressif : distingue 0/2 (rien posé) de 1/2 (une paire posée) — plus utile qu'un texte figé.
+ */
+export type AccesTrace = { disponible: boolean; motif: 'ok' | 'non-plan' | 'calage'; message: string | null };
+export function accesTrace(tracable: boolean, nbPaires: number): AccesTrace {
+  if (!tracable) return { disponible: false, motif: 'non-plan', message: 'Cette page n’est pas une vue en plan (coupe/façade) : on ne peut pas y tracer d’emprise.' };
+  if (nbPaires < 2) return {
+    disponible: false, motif: 'calage',
+    message: nbPaires <= 0
+      ? 'Faites d’abord le calage : cliquez un point reconnaissable du plan, puis le MÊME point sur le schéma (2 paires à poser pour débloquer le tracé).'
+      : 'Calage en cours (1/2) : posez la 2ᵉ paire — un point du plan puis le même sur le schéma — pour débloquer le tracé.',
+  };
+  return { disponible: true, motif: 'ok', message: null };
+}
+
 /** PROJ-3m ② — encart de guidage AFFICHÉ À CÔTÉ du geste (jamais un texte lointain). PUR. */
 export function GuidageTraceBox({ g, onAnnulerDernier, onRecommencer, peutAnnuler = false }: {
   g: Guidage;

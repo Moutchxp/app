@@ -8,7 +8,7 @@ import {
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
-import { HAUTEUR_CADRE_RENDU, BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
+import { HAUTEUR_CADRE_RENDU, BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -98,6 +98,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   de justesse des REPÈRES (versCss) à N largeurs : le ratio d'affichage = apercu.largeurCanvasPx / largeurCanvasCss. `null` tant que non
   //   mesurée → versCss retombe sur apercu.ratio (byte-identique aux largeurs re-rendues → aucune régression niveaux 1-2).
   const [largeurCanvasCss, setLargeurCanvasCss] = useState<number | null>(null);
+  // LOT « calage avant tracé » — clé de la page à laquelle appartient le calage/tracé EN COURS. Sert à INVALIDER le calage quand la page
+  //   change (règle métier : un calage n'est valable que pour UNE page). Ajustée PENDANT LE RENDU (pas d'effet), cf. le bloc convergent plus bas.
+  const [clePageTrace, setClePageTrace] = useState('');
   const [angle, setAngle] = useState(0); // PROJ-3j — rotation du schéma (0-360°), AFFICHAGE seulement, éphémère (non persistée)
   const [corpsSel, setCorpsSel] = useState<number | null>(null);
   const [pieceId, setPieceId] = useState<number | null>(null);
@@ -169,6 +172,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const ambiguCourant = entreeCourante?.ambigu ?? false;
   // PROJ-3m ② — GUIDAGE du geste (pur) : étape courante, quoi cliquer, combien de points restent, où (plan/schéma). Explicitation seule.
   const guidage = guidageTrace(mode, paires.length, planEnAttente !== null, sommets.length, tracable);
+  // LOT « calage avant tracé » — ACCÈS au tracé (décision PURE) : indisponible tant que le calage de la page COURANTE n'est pas complet
+  //   (2 paires plan↔schéma). État de SESSION (paires.length), jamais une donnée en base ; invalidé au changement de page (effet ci-dessous
+  //   + handlers de navigation). `acces.disponible` conditionne l'accès au tracé (jamais la conversion de coordonnées, gelée) ; `acces.message`
+  //   explique l'étape manquante là où s'affichent les autres empêchements. Le cas « aucun bâtiment » est en amont (branche 0 bâtiment).
+  const acces = accesTrace(tracable, paires.length);
   // FIX « ascenseur » — la POSITION du guide suit l'EXISTENCE d'un travail, jamais le dernier côté cliqué (`guidage.sur`). Pattern React
   //   « ajuster l'état pendant le rendu » (PAS d'effet, PAS de setState en effet, PAS de modif de cliquerPdf gelé) : on ARME `creationEnCours`
   //   dès qu'un point est en cours de pose (`enPose`). Le `(creationEnCours || enPose)` donne déjà la bonne position DANS CE rendu. Le flag
@@ -178,6 +186,23 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const enPose = planEnAttente !== null || sommets.length > 0;
   if (!creationEnCours && enPose) setCreationEnCours(true); // guardé (converge) : ne re-déclenche pas une fois armé
   const procEnCours = guideCalageSousSchema(creationEnCours, planEnAttente !== null, paires.length, sommets.length); // décision PURE (testée)
+
+  // LOT « calage avant tracé » — INVALIDATION DU CALAGE AU CHANGEMENT DE PAGE/PIÈCE (règle métier : un calage n'est valable que pour UNE page).
+  //   Pattern React RECOMMANDÉ « ajuster l'état pendant le rendu » (pas d'effet → pas de setState-in-effect, pas de flash) : dès que la clé
+  //   (pieceId, page) DIFFÈRE de celle du calage courant, on vide paires/sommets/point en attente et on revient au mode 'calage'. GARANTIE
+  //   ROBUSTE et indépendante des handlers de navigation (qui vident déjà, mais un chemin pourrait manquer — p. ex. le clamp de page dans
+  //   afficherPage). CONVERGENT : `setClePageTrace` aligne la clé → au rendu suivant les clés sont égales, plus aucune remise à zéro. Les
+  //   `if (…) set…` guardés évitent tout setState superflu quand un handler a déjà nettoyé. NE TOUCHE PAS à la conversion de coordonnées.
+  const clePageCourante = `${pieceId ?? ''}:${page}`;
+  if (clePageTrace !== clePageCourante) {
+    setClePageTrace(clePageCourante);
+    if (paires.length) setPaires([]);
+    if (sommets.length) setSommets([]);
+    if (planEnAttente) setPlanEnAttente(null);
+    if (mode !== 'calage') setMode('calage');
+    // creationEnCours n'est PAS remis ici (comme les handlers de navigation) : une fois paires/sommets/planEnAttente vidés,
+    //   guideCalageSousSchema retombe à false → le guide repart de lui-même à sa place initiale « calage à faire ».
+  }
 
   // Chargement (pièces PDF + emprises + ignorées + contexte) au changement de dossier.
   useEffect(() => {
@@ -883,8 +908,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               DEMANDE 1 — libellé « (tracer) » quand le tracé est possible (page en plan) ; « Agrandir l'image » (SANS « tracer ») sinon : on ne
               promet PAS une fonction indisponible → le niveau 3 s'ouvre alors en CONSULTATION. Jamais désactivé (l'agrandissement, lui, marche toujours). */}
           {imageAgrandie && (
-            <button type="button" style={btn} onClick={() => { if (tracable) setMode('trace'); setPlanSeul(true); }}
-              aria-label={tracable ? 'Agrandir l’image en plein écran pour tracer (calage indisponible dans cette vue)' : 'Agrandir l’image en plein écran (consultation, tracé indisponible sur cette page)'}>{tracable ? '⤢ Agrandir l’image (tracer)' : '⤢ Agrandir l’image'}</button>
+            // DEMANDE 1 + « calage avant tracé » — « (tracer) » seulement si le tracé est RÉELLEMENT accessible (page en plan ET calage complet).
+            //   On ne force le mode 'trace' que dans ce cas (invariant : mode 'trace' ⇒ calage complet) → jamais de sommet posé sans calage.
+            //   Sinon le niveau 3 s'ouvre en consultation ; sa barre dira quoi faire (caler dans la vue 2 colonnes).
+            <button type="button" style={btn} onClick={() => { if (acces.disponible) setMode('trace'); setPlanSeul(true); }}
+              aria-label={acces.disponible ? 'Agrandir l’image en plein écran pour tracer' : 'Agrandir l’image en plein écran (consultation ; tracé indisponible tant que le calage n’est pas fait)'}>{acces.disponible ? '⤢ Agrandir l’image (tracer)' : '⤢ Agrandir l’image'}</button>
           )}
         </div>
       </div>
@@ -910,22 +938,27 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
           <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
-          {tracable ? (
+          {acces.disponible ? (
             <>
               <button type="button" style={btn} disabled={sommets.length === 0} onClick={() => setSommets((s) => s.slice(0, -1))}>Annuler dernier sommet</button>
               <button type="button" style={btn} disabled={sommets.length === 0} onClick={() => { setSommets([]); setDebordement(null); }}>Reprendre le tracé</button>
               <span style={styleAide}>Sommets : {sommets.length}{paires.length > 0 ? ` · calage ${paires.length}/2 (fait à la vue 2 colonnes)` : ''}</span>
             </>
           ) : (
-            // Page non traçable (coupe/façade) : l'agrandissement sert alors à CONSULTER, jamais à tracer — on le DIT (pas de boutons muets, pas de vide).
-            <span role="note" style={styleAide}>Impossible de tracer ici : cette page n’est pas une vue en plan (coupe/façade).</span>
+            // Tracé indisponible (page non-plan OU calage incomplet) : le MESSAGE remplace le bloc de boutons, au MÊME endroit. Jamais de bouton muet ni de vide.
+            <span role="note" style={styleAide}>{acces.message}</span>
           )}
         </div>
       </div>
-      {/* HONNÊTETÉ (jamais laisser croire que le calage/tracé est cassé) : on DIT ce qui se passe et où. */}
-      {tracable ? (
+      {/* HONNÊTETÉ (jamais laisser croire que le calage/tracé est cassé) : on DIT ce qui se passe et où. Le niveau 3 ne CALE pas (une colonne) →
+          quand le calage manque, on renvoie EXPLICITEMENT vers la vue 2 colonnes (demande E). */}
+      {acces.disponible ? (
         <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
-          Vue <strong>plan seul</strong> pour tracer avec précision. Le <strong>calage</strong> (2 points plan ↔ schéma) n’est pas disponible ici — il se fait dans la vue 2 colonnes. Tracez vos sommets, puis revenez-y pour caler (si ce n’est pas fait) et enregistrer.
+          Vue <strong>plan seul</strong> pour tracer avec précision. Le calage est fait ; l’<strong>enregistrement</strong> se fait dans la vue 2 colonnes — tracez vos sommets ici, puis revenez-y pour enregistrer.
+        </div>
+      ) : acces.motif === 'calage' ? (
+        <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
+          Le <strong>calage</strong> (2 paires plan ↔ schéma) ne se fait pas ici (une seule colonne, pas de schéma) : <strong>revenez à la vue 2 colonnes</strong> pour caler, puis revenez tracer.
         </div>
       ) : (
         <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
@@ -942,10 +975,16 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   coordonnée touché : simple relocalisation d'affichage (vc/aire/vv sont calculés en amont, inchangés).
   const blocOutilsCalage = (
     <>
-      {/* Outils de calage / tracé. */}
-      <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
+      {/* Outils de calage / tracé. LOT « calage avant tracé » — le bouton « Tracé » n'existe QUE lorsque le calage de la page est complet
+          (acces.disponible). Tant qu'il ne l'est pas (page en plan mais < 2 paires), un MESSAGE prend sa place (jamais de bouton grisé ni de
+          clic silencieux) : c'est le SEUL moyen de passer en mode 'trace' → invariant « mode 'trace' ⇒ calage complet », sans toucher cliquerPdf. */}
+      <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'calage' ? 700 : 400 }} onClick={() => setMode('calage')}>Calage ({paires.length}/2)</button>
-        <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'trace' ? 700 : 400 }} onClick={() => setMode('trace')}>Tracé ({sommets.length})</button>
+        {acces.motif === 'calage' ? (
+          <span role="note" style={{ ...styleAide, maxWidth: 320 }}>{acces.message}</span>
+        ) : (
+          <button type="button" disabled={!tracable} style={{ ...btn, opacity: tracable ? 1 : 0.4, fontWeight: mode === 'trace' ? 700 : 400 }} onClick={() => setMode('trace')}>Tracé ({sommets.length})</button>
+        )}
         <button type="button" style={btn} onClick={() => mode === 'trace' ? setSommets((s) => s.slice(0, -1)) : (planEnAttente ? setPlanEnAttente(null) : setPaires((p) => p.slice(0, -1)))}>Annuler dernier</button>
         <button type="button" style={btn} onClick={() => { setSommets([]); setPaires([]); setPlanEnAttente(null); setDebordement(null); }}>Reprendre</button>
         <label style={styleAide}>échelle 1: <input inputMode="numeric" value={ratioDeclareSaisi} onChange={(e) => setRatioDeclareSaisi(e.target.value)} placeholder="200" style={{ width: 60 }} /></label>
