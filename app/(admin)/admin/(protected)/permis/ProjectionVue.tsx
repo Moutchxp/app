@@ -14,7 +14,7 @@ import { ClotureVersRattachement, clotureVisible } from './CaracteristiquesRendu
 import type { DonneesLiseuse } from './LiseusePieces'; // P3 (perfo) — donnée /emprise partagée (bloc Bâtiments → liseuse de la planche), anti-doublon
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { etatValidationProjection } from '../../../../lib/permis/etatValidationProjection';
-import { etatProjectionTitre, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles
+import { etatProjectionTitreDepuisComptes, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles (repli PAR BÂTIMENT, calqué sur estValidationAcquise)
 import { conditionAltitudeSortie, pretPourSortie } from '../../../../lib/permis/etatSortieRattachement'; // LOT 71 — condition altitude à 3 états (sans objet ≠ satisfaite)
 import { recompterSiSucces } from './comptesActions';
 
@@ -93,6 +93,19 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
       finally { if (ouvertRef.current === cible) setPassageEnCours(false); }
     })();
   }, [ouvert]);
+
+  // CORRECTIF B — FRAÎCHEUR DE LA FILE : après une mutation d'emprise en session, les COMPTES de la ligne (nbCorpsSansAltValidee /
+  //   nbCorpsSansEmpriseValidee) sont périmés. On re-fetche la file (source AUTORITATIVE) → le repli du titre ET le n° de la ligne
+  //   (etatProjectionTitreDepuisComptes / estValidationAcquise) reflètent la validation PAR BÂTIMENT sans rechargement de page. Choix du
+  //   re-fetch plutôt qu'un patch depuis `enteteProjection` : l'en-tête live ne porte QUE {ton, texte} — impossible d'en reconstituer les
+  //   comptes exacts d'un état PARTIEL. Réseau indisponible → la file garde ses comptes précédents (jamais d'effacement). Ne bump AUCUN
+  //   compteur qui remonterait BlocTraceEmprise (rafraichir=vInstruction inchangé) : pas de re-tir de /emprise (≈ 9 s).
+  const rafraichirFile = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/permis/projection', { cache: 'no-store' });
+      if (res.ok) setFile(((await res.json()) as { file: LigneProjectionAffichee[] }).file);
+    } catch { /* réseau indisponible : la file conserve ses comptes précédents */ }
+  }, []);
 
   // ② COMPLÉMENT — CLÔTURE MANUELLE : « Valider le permis — envoyer en Rattachement » écrit le marqueur de passage (route caracteristiques
   //   valider_permis → validerProjection), puis re-fetche la file (le permis passé la quitte) et ferme le détail. Le bouton GLOBAL « Valider
@@ -173,8 +186,10 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     const row = file?.find((f) => f.dossierId === ouvert) ?? null;
     const etatAlt = etatAltitudesTitre(row?.nbBatiments ?? 0, row?.nbCorpsSansAltitude ?? 0);
     // ③ COMPLÉMENT — l'en-tête dit l'état RÉEL (tous les bâtiments alt+emprise validés → VERT ; sinon ce qui manque), remonté par le bloc
-    //   quand il est ouvert ; repli sur le marqueur `projectionValidee` tant qu'il ne l'est pas. SOURCE UNIQUE (estValidationAcquise) côté bloc.
-    const etatProj = enteteProjection ?? etatProjectionTitre(row?.projectionValidee ?? false);
+    //   quand il est ouvert (valeur LIVE, prime). REPLI avant ouverture : calculé sur les COMPTES de la ligne (calqué sur estValidationAcquise,
+    //   MÊME règle que l'en-tête live), PLUS sur le jalon dossier `projectionValidee` — la section et la ligne disent ainsi une seule vérité
+    //   (validation PAR BÂTIMENT). Le jalon `permis_projection` gouverne UNIQUEMENT la clôture / l'envoi en Rattachement (bouton dédié).
+    const etatProj = enteteProjection ?? etatProjectionTitreDepuisComptes(row?.nbBatiments ?? 0, row?.nbCorpsSansAltValidee ?? 0, row?.nbCorpsSansEmpriseValidee ?? 0);
     // COMPLÉMENT — CLÔTURE : le MÊME composant rendu à CINQ endroits (tête de fiche + haut/bas de « Caractéristiques » + haut/bas de
     //   « Bâtiments et projection »). Même condition (`clotureVisible`), même action (`cloturerPermis`), même état → jamais cinq copies
     //   divergentes. `tousValides` = en-tête VERT (SOURCE UNIQUE etatEnteteProjection ← estValidationAcquise) ; `dejaPasse` = marqueur (false dans la file).
@@ -273,7 +288,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
             <div className="flex flex-col gap-2">
               {/* Le bouton GLOBAL « Valider la projection » a été retiré (a922f67) : la validation passe par la chaîne par bâtiment
                   (enregistrer → valider → modifier) + la clôture. Le rendu du HAUT a été retiré (décision Arno : trop de boutons). */}
-              <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} onEntete={setEnteteProjection} onDonneesLiseuse={setDonneesLiseuse} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} onEmprisesChange={() => setVEmprise((v) => v + 1)} />
+              <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} onEntete={setEnteteProjection} onDonneesLiseuse={setDonneesLiseuse} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} onEmprisesChange={() => { setVEmprise((v) => v + 1); void rafraichirFile(); }} />
               {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
               {/* ⑤ CLÔTURE — en BAS du contenu déployé (bouton seul). */}
               {rendreCloture('bouton')}
