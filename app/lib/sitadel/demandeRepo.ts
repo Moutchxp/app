@@ -21,6 +21,8 @@ import { expressionRangSql, classer, libelleNatureProjet, type CleCategorie } fr
 import type { SourceFichePermis } from '../pdf/fichePermisPdf'; // N1-B : type SEUL (le générateur PDF pdfkit n'entre jamais dans le graphe statique)
 import { MARQUEUR_FICHE_SYNTHESE, PREFIXE_NOTE_VERSEMENT_AUTO } from '../permis/gedConstantes'; // N1-B/N4/N6-F : sentinelle fiche + préfixe versement auto (source unique)
 import { lignesDepuisClassements, famillesAttenduesDepuisConfig, type ClassementPiece } from '../permis/diagnosticCompletude'; // POLISH-1 : MÊME logique de complétude que BlocCompletude (jamais recopiée)
+import { estValidationAcquise, estDansRattachement } from '../permis/rattachementGroupes'; // COULEUR LIGNE : appartenance à l'onglet Rattachement, MÊME règle que l'onglet (source unique)
+import { lireModePassageRattachement } from '../permis/rattachementConfig'; // idem — le mode gouverne estDansRattachement (automatique = validationAcquise ; clôture manuelle = marqueur de passage)
 import { MOTIF_COMPLEMENT_PREFIXE, MOTIF_DECLARATION_PREFIXE, MOTIF_REPONSE_LIBRE_PREFIXE } from '../permis/demanderPiecesRepo'; // UNIF-3 : mêmes préfixes que le fil (signal « historique non vide »)
 import { agregerStock, moisDePeriode, type LigneStock, type DossierStock } from './stock'; // Q2b : agrégat PUR du stock (réutilise estCandidatEligible via agregerStock)
 import { lireClePiece } from '../veille/demandeReponseRepo'; // A1b : réutilisé par le dispatcher unique de lecture de clé (pas de 2e implémentation)
@@ -348,6 +350,9 @@ export interface LigneArchive {
   pieces: PieceArchive[];
   sourcesNonResolues: string[];  // N10-J : noms de pièces SOURCES du journal non résolus (homonymes → ambigu, ou absents de la GED) → RIEN épinglé, mais RENDU VISIBLE (jamais deviné)
   completudeIncomplete: boolean; // POLISH-1 : le diagnostic de complétude est CONNU et INCOMPLET (une famille attendue manque) → ligne rouge « incomplet ». false = complet OU jamais diagnostiqué (inchangé).
+  // COULEUR DE LIGNE (Arno) — le permis APPARTIENT-il à l'onglet Rattachement (`estDansRattachement`, QUEL QUE SOIT son statut interne) ?
+  //   Calculé par la MÊME règle que l'onglet (source unique). `null`/absent = inconnu (lecture indisponible) → ligne NEUTRE (jamais un faux constat).
+  dansRattachement?: boolean | null;
   // UNIF-3 — SIGNAUX « non vide » de l'encart de familles (comptes batchés, JAMAIS le contenu → paresse PERF-1 préservée). Décident
   //   de l'affichage des familles « si non vide » du détail (Complétude / Historique / Bâtiments). Pièces + Caractéristiques sont
   //   REMPLISSABLES dans Archives → toujours affichées, sans signal.
@@ -452,6 +457,30 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
       for (const h of hist) historiqueNonVideSet.add(h.dossier_id);
     } catch { /* table absente → aucun historique signalé (famille masquée) */ }
   }
+  // COULEUR DE LIGNE (Arno) — APPARTENANCE à l'onglet Rattachement, en UNE lecture batchée, calculée par la MÊME règle que l'onglet :
+  //   `estDansRattachement` (LIT le mode : automatique = validationAcquise ; clôture manuelle = marqueur de passage) sur des faits par
+  //   dossier — marqueur permis_projection (passage), empreinte présente (univers du suivi), et les 3 comptes → `estValidationAcquise`.
+  //   Aucune règle recopiée. RÉSILIENT : lecture impossible → map vide → `dansRattachement` null → ligne NEUTRE (jamais un faux constat).
+  const dansRattachementParDossier = new Map<number, boolean>();
+  if (rows.length > 0) {
+    try {
+      const ids = rows.map((r) => r.dossier_id);
+      const mode = await lireModePassageRattachement();
+      const { rows: mem } = await query<{ dossier_id: number; passage: boolean; emp: boolean; nb: number; sa: number; se: number }>(
+        `SELECT d.id::int AS dossier_id,
+                EXISTS (SELECT 1 FROM permis_projection pj WHERE pj.dossier_id = d.id) AS passage,
+                EXISTS (SELECT 1 FROM permis_empreinte pe WHERE pe.dossier_id = d.id AND pe.geom IS NOT NULL) AS emp,
+                (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = d.id) AS nb,
+                (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = d.id AND cb.altitude_sommet_ngf_confirme_le IS NULL) AS sa,
+                (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = d.id AND NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.id = cb.emprise_validee_id AND ee.corps_id = cb.id))) AS se
+           FROM unnest($1::bigint[]) AS d(id)`, [ids]);
+      for (const m of mem) {
+        const validationAcquise = estValidationAcquise(Number(m.nb), Number(m.sa), Number(m.se));
+        // « dans l'onglet Rattachement » = présent dans l'univers du suivi (a une empreinte) ET estDansRattachement (règle de l'onglet).
+        dansRattachementParDossier.set(Number(m.dossier_id), m.emp === true && estDansRattachement({ validationAcquise, passageAcquis: m.passage === true }, mode));
+      }
+    } catch { /* migration/lecture indisponible → appartenance inconnue → ligne neutre (dégradation sûre, jamais un faux vert/rouge) */ }
+  }
   return rows.map((r) => {
     const marque = marquerSources([...(r.pieces ?? []), ...(manuels.get(r.dossier_id) ?? [])], sources.get(r.dossier_id) ?? new Map());
     const cl = classer(
@@ -469,6 +498,8 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
       pieces: marque.pieces,
       sourcesNonResolues: marque.sourcesNonResolues,
       completudeIncomplete: incompletParDossier.get(r.dossier_id) ?? false, // POLISH-1 : rouge « incomplet » seulement si diagnostic connu ET une famille manque
+      dansRattachement: dansRattachementParDossier.has(r.dossier_id) ? dansRattachementParDossier.get(r.dossier_id)! : null, // COULEUR LIGNE : null = appartenance inconnue → ligne neutre
+
       completudeNonVide: completudeConnue.has(r.dossier_id),  // UNIF-3 : diagnostic présent (complet OU incomplet)
       historiqueNonVide: historiqueNonVideSet.has(r.dossier_id),
       batimentsNonVide: batimentsNonVideSet.has(r.dossier_id),

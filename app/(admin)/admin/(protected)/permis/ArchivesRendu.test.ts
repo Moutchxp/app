@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableArchives, PieceLien, CellulePieces, AjoutDocument, categoriePiece, libelleOrigineSatisfaction, labelNbPieces, MESSAGE_VIDE_ARCHIVES, etatArchive, BadgeEtatArchive, type EtatArchive } from './ArchivesRendu';
+import { TableArchives, PieceLien, CellulePieces, AjoutDocument, categoriePiece, libelleOrigineSatisfaction, labelNbPieces, MESSAGE_VIDE_ARCHIVES, etatArchive, BadgeEtatArchive, couleurLigneArchive, type EtatArchive } from './ArchivesRendu';
 import { BLEU_SOURCE } from './CaracteristiquesRendu'; // N10 : le bleu partagé des pièces sources
 import type { LigneArchive, PieceArchive } from '../../../../lib/sitadel/demandeRepo';
 
@@ -325,6 +325,31 @@ describe('N1-C — repli des pièces par permis (disclosure natif)', () => {
     const t = new Date('2026-07-15T12:00:00Z'); // délai dépassé (recu + 7 j), < 2 mois → rouge
     expect(rendu([l], t, null)).toContain('var(--color-svv-red)'); // repliée
     expect(rendu([l], t, 1)).toContain('var(--color-svv-red)');    // déployée
+  });
+});
+
+describe('COULEUR DE LIGNE (Arno) — croisement ① dans Rattachement × ② complet (obtenu)', () => {
+  const VERT = 'var(--color-svv-green-ink)', ROUGE = 'var(--color-svv-red)', ORANGE = 'var(--color-svv-amber)';
+  it('dans Rattachement ET complet → VERT', () => {
+    expect(couleurLigneArchive(true, true)).toEqual({ cle: 'vert', couleur: VERT });
+  });
+  it('HORS Rattachement ET incomplet → ROUGE', () => {
+    expect(couleurLigneArchive(false, false)).toEqual({ cle: 'rouge', couleur: ROUGE });
+  });
+  it('complet mais PAS dans Rattachement → ORANGE (mixte)', () => {
+    expect(couleurLigneArchive(false, true)).toEqual({ cle: 'orange', couleur: ORANGE });
+  });
+  it('dans Rattachement mais incomplet → ORANGE (mixte)', () => {
+    expect(couleurLigneArchive(true, false)).toEqual({ cle: 'orange', couleur: ORANGE });
+  });
+  it('un critère INCONNU (null) → NEUTRE (aucune couleur, jamais un faux constat)', () => {
+    expect(couleurLigneArchive(null, true)).toEqual({ cle: 'neutre', couleur: null });
+    expect(couleurLigneArchive(false, null)).toEqual({ cle: 'neutre', couleur: null });
+    expect(couleurLigneArchive(null, null)).toEqual({ cle: 'neutre', couleur: null });
+  });
+  it('jetons EXISTANTS uniquement (green-ink / red / amber), aucune teinte nouvelle', () => {
+    const couleurs = [couleurLigneArchive(true, true), couleurLigneArchive(false, false), couleurLigneArchive(true, false)].map((c) => c.couleur);
+    expect(couleurs).toEqual([VERT, ROUGE, ORANGE]);
   });
 });
 

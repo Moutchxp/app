@@ -84,6 +84,27 @@ export function etatArchive(l: Pick<LigneArchive, 'satisfaitLe' | 'recuLe' | 'ex
   return { cle, mot, couleurLigne: null, couleurPieces: null }; // > 2 mois, rien à signaler → neutre (mot conservé)
 }
 
+export type CouleurLigneArchiveCle = 'vert' | 'rouge' | 'orange' | 'neutre';
+export interface CouleurLigneArchive { cle: CouleurLigneArchiveCle; couleur: string | null }
+
+/**
+ * RÈGLE COULEUR DE LIGNE Archives (Arno, 08/09/2026) — CONSTAT croisant DEUX critères LUS (jamais modifiés) :
+ *   ① `dansRattachement` = le permis APPARTIENT à l'onglet Rattachement — `estDansRattachement`, QUEL QUE SOIT son statut interne
+ *      (ce n'est PAS « rattachement terminé ») ; calculé au repo par la MÊME règle que l'onglet (source unique, jamais recopiée).
+ *   ② `complet` = le dossier de pièces est « obtenu » = EXACTEMENT la source de la colonne Pièces (`etatArchive(...).cle === 'obtenu'`),
+ *      pour que la couleur de la ligne ne contredise JAMAIS le mot affiché sur la même ligne.
+ * VERT = dans Rattachement ET complet ; ROUGE = HORS Rattachement ET incomplet ; ORANGE = les deux cas mixtes (dans Rattachement
+ * mais incomplet, OU complet mais pas encore dans Rattachement — « il reste quelque chose à faire, rien de bloquant »). Un critère
+ * INCONNU (`null`) → NEUTRE (aucune couleur, « comme aujourd'hui ») : on ne colore jamais sur une information manquante. PUR.
+ * Jetons EXISTANTS uniquement (VERT/ROUGE/ORANGE ci-dessus) — aucune teinte nouvelle. Ce CONSTAT ne déplace/valide/enregistre RIEN.
+ */
+export function couleurLigneArchive(dansRattachement: boolean | null, complet: boolean | null): CouleurLigneArchive {
+  if (dansRattachement === null || complet === null) return { cle: 'neutre', couleur: null };
+  if (dansRattachement && complet) return { cle: 'vert', couleur: VERT };
+  if (!dansRattachement && !complet) return { cle: 'rouge', couleur: ROUGE };
+  return { cle: 'orange', couleur: ORANGE };
+}
+
 /** G2 — mot d'état d'une ligne d'archive (colonne Pièces). Le MOT est TOUJOURS rendu ; la couleur n'est qu'un appui. PUR. */
 export function BadgeEtatArchive({ etat }: { etat: EtatArchive }) {
   return (
@@ -291,12 +312,15 @@ export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, on
         </thead>
         <tbody>
           {lignes.map((l) => {
-            // G2 — état visuel : le TEXTE de la ligne prend la couleur (couleurLigne), le MOT d'état reste sur la ligne repliée.
+            // RÈGLE COULEUR DE LIGNE (Arno) — croise ① appartenance à l'onglet Rattachement (`l.dansRattachement`, calculée au repo)
+            //   et ② complétude « obtenu » LUE de la MÊME source que la colonne Pièces (`e.cle === 'obtenu'`). Le MOT d'état (colonne
+            //   Pièces) reste piloté par `etatArchive` (couleurPieces) — inchangé : la couleur de LIGNE ne contredit jamais le mot.
             const e = etatArchive(l, maintenant);
+            const cLigne = couleurLigneArchive(l.dansRattachement ?? null, e.cle === 'obtenu');
             const ouvert = dossierOuvert === l.dossierId;
             return (
               <Fragment key={l.dossierId}>
-                <tr style={{ borderBottom: ouvert ? 'none' : '1px solid var(--color-svv-line)', color: e.couleurLigne ?? undefined }}>
+                <tr style={{ borderBottom: ouvert ? 'none' : '1px solid var(--color-svv-line)', color: cLigne.couleur ?? undefined }}>
                   <td style={{ ...styleTd, fontFamily: 'var(--font-svv-mono, monospace)' }}>{l.numDau}</td>
                   <td style={{ ...styleTd, whiteSpace: 'normal' }}>{l.communeNom ?? l.codeInsee} <span style={{ fontSize: 11, ...muted }}>({l.codeInsee})</span></td>
                   <td style={styleTd}>{l.libelleCategorie}</td>
