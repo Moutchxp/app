@@ -83,6 +83,10 @@
   .svv-tip-wrap:hover .svv-tip,.svv-tip-wrap:focus-within .svv-tip{opacity:1}
   /* Apparition douce UNIQUEMENT si l'utilisateur ne demande pas la réduction de mouvement (sinon bascule instantanée). */
   @media (prefers-reduced-motion: no-preference){.svv-tip{transition:opacity .12s ease}}
+  /* Variante « --delai » (bulle d'explication de couleur, Archives) : apparition après ~1 s de SURVOL ; disparition immédiate au départ
+     du curseur (la règle :hover ne s'applique plus → transition-delay 0). Au FOCUS clavier : immédiate (pas de règle de délai). Sous
+     prefers-reduced-motion il n'y a pas de transition → l'opacité bascule instantanément (aucune animation). */
+  .svv-tip-wrap--delai:hover .svv-tip{transition-delay:1s}
   /* FIX « ascenseur du guide » — le bloc « Étape 1 » change de colonne au début/fin du processus de calage. Fondu SOBRE à l'apparition
      pour éviter un saut brutal ; AUCUN mouvement sous prefers-reduced-motion (bascule instantanée). */
   @media (prefers-reduced-motion: no-preference){.svv-guide-fondu{animation:svvGuideFondu .18s ease-out both}}

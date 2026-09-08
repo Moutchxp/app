@@ -7,6 +7,7 @@ import { BLEU_SOURCE } from './CaracteristiquesRendu'; // N10 : MÊME bleu que l
 import { EncartFamilles, type FamilleRendu } from './EncartFamilles'; // UNIF-3 : le détail Archives adopte l'encart de familles (socle UNIF-0)
 import { LIBELLE_FAMILLE } from '../../../../lib/permis/encartFamilles';
 import type { LigneArchive, PieceArchive } from '../../../../lib/sitadel/demandeRepo';
+import { BulleCouleurLigne } from './BulleCouleurLigne'; // bulle d'explication de couleur au survol/focus du n° (constat, mécanisme .svv-tip réutilisé)
 
 /**
  * A1a/A1b — Rendu PUR de l'onglet Archives (permis renseignés par les mairies + leurs pièces, reçues par e-mail OU ajoutées à
@@ -66,7 +67,9 @@ export function etatArchive(l: Pick<LigneArchive, 'satisfaitLe' | 'recuLe' | 'ex
   const aContenu = l.pieces.some((p) => p.origine === 'email') || l.aLienFort;
 
   let cle: EtatArchiveCle, mot: string;
-  if (enGed) { cle = 'obtenu'; mot = 'obtenu'; }
+  // NOMENCLATURE (Arno) — le LIBELLÉ affiché « obtenu » devient « complet » (paire lisible « complet »/« incomplet »). La CLÉ technique
+  //   reste 'obtenu' (règle de complétude, couleur de ligne via `e.cle === 'obtenu'`, valeurs en base : INCHANGÉES). C'est un libellé.
+  if (enGed) { cle = 'obtenu'; mot = 'complet'; }
   else if (!aContenu) { cle = 'sans_contenu'; mot = 'sans contenu reçu'; } // jamais rouge : on ne reproche pas un contenu inexistant
   else {
     const delai = l.recuLe !== null ? expirationEffective(new Date(l.recuLe), l.expireLeCapte !== null ? new Date(l.expireLeCapte) : null) : null;
@@ -103,6 +106,20 @@ export function couleurLigneArchive(dansRattachement: boolean | null, complet: b
   if (dansRattachement && complet) return { cle: 'vert', couleur: VERT };
   if (!dansRattachement && !complet) return { cle: 'rouge', couleur: ROUGE };
   return { cle: 'orange', couleur: ORANGE };
+}
+
+/**
+ * TEXTE de la bulle d'explication de couleur (au survol/focus du n° de permis). PUR (testable). LIT EXACTEMENT les DEUX critères déjà
+ * calculés pour la couleur (`dansRattachement`, `complet`) — aucune 3ᵉ règle, aucun recalcul : la bulle ne peut jamais contredire la
+ * couleur. Ordre imposé : les deux critères (une ligne), puis la conclusion (ligne suivante). Français simple, nomenclature « complet »/
+ * « incomplet ». Appartenance INCONNUE (null, repli neutre) → on le DIT honnêtement, sans inventer d'explication.
+ */
+export function texteBulleCouleurArchive(dansRattachement: boolean | null, complet: boolean | null): string[] {
+  if (dansRattachement === null || complet === null) return ['L’appartenance à Rattachement n’a pas pu être lue — couleur indéterminée.'];
+  if (dansRattachement && complet) return ['Dans Rattachement · Dossier complet', '→ Rien à faire.'];
+  if (!dansRattachement && complet) return ['Pas encore dans Rattachement · Dossier complet', '→ Il reste à l’envoyer en Rattachement.'];
+  if (dansRattachement && !complet) return ['Dans Rattachement · Dossier incomplet', '→ Il manque des pièces.'];
+  return ['Pas dans Rattachement · Dossier incomplet', '→ Les deux restent à faire.'];
 }
 
 /**
@@ -327,7 +344,11 @@ export function TableArchives({ lignes, maintenant, dossierOuvert, onDeplier, on
             return (
               <Fragment key={l.dossierId}>
                 <tr style={{ borderBottom: ouvert ? 'none' : '1px solid var(--color-svv-line)', color: cLigne.couleur ?? undefined }}>
-                  <td style={{ ...styleTd, fontFamily: 'var(--font-svv-mono, monospace)' }}>{l.numDau}</td>
+                  {/* Bulle d'explication de couleur : LIT les DEUX critères déjà calculés pour la ligne (l.dansRattachement, e.cle === 'obtenu'),
+                      MÊME source que couleurLigneArchive → ne peut pas contredire la couleur. Survol/focus du n° ; constat sans requête. */}
+                  <td style={{ ...styleTd, fontFamily: 'var(--font-svv-mono, monospace)' }}>
+                    <BulleCouleurLigne idTip={`bulle-couleur-${l.dossierId}`} lignes={texteBulleCouleurArchive(l.dansRattachement ?? null, e.cle === 'obtenu')}>{l.numDau}</BulleCouleurLigne>
+                  </td>
                   <td style={{ ...styleTd, whiteSpace: 'normal' }}>{l.communeNom ?? l.codeInsee} <span style={{ fontSize: 11, ...muted }}>({l.codeInsee})</span></td>
                   <td style={styleTd}>{l.libelleCategorie}</td>
                   <td style={styleTd}>{formaterDateJour(l.dateAutorisation)}</td>

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { TableArchives, PieceLien, CellulePieces, AjoutDocument, categoriePiece, libelleOrigineSatisfaction, labelNbPieces, MESSAGE_VIDE_ARCHIVES, etatArchive, BadgeEtatArchive, couleurLigneArchive, type EtatArchive } from './ArchivesRendu';
+import { TableArchives, PieceLien, CellulePieces, AjoutDocument, categoriePiece, libelleOrigineSatisfaction, labelNbPieces, MESSAGE_VIDE_ARCHIVES, etatArchive, BadgeEtatArchive, couleurLigneArchive, texteBulleCouleurArchive, type EtatArchive } from './ArchivesRendu';
 import { BLEU_SOURCE } from './CaracteristiquesRendu'; // N10 : le bleu partagé des pièces sources
 import type { LigneArchive, PieceArchive } from '../../../../lib/sitadel/demandeRepo';
 
@@ -300,7 +300,7 @@ describe('N1-C — repli des pièces par permis (disclosure natif)', () => {
   it('ligne REPLIÉE (défaut) : compte + état visibles, mais AUCUNE pièce ni ajout de document rendus', () => {
     const h = rendu([ligne({ pieces: [emailDeposee, manuel] })], MAINTENANT, null);
     expect(h).toContain('2 pièces');              // U6 : le chiffre porté par la ligne repliée
-    expect(h).toContain('obtenu');                // état G2 conservé sur la ligne repliée (pièce manuelle = obtenu)
+    expect(h).toContain('complet');               // NOMENCLATURE : le libellé « obtenu » est devenu « complet » (pièce manuelle en GED)
     expect(h).toContain('aria-expanded="false"'); // disclosure fermé
     expect(h).toContain('Déplier');
     expect(h).not.toContain('plan-de-masse.pdf'); // pièces masquées tant que replié
@@ -355,6 +355,34 @@ describe('COULEUR DE LIGNE (Arno) — croisement ① dans Rattachement × ② co
   });
 });
 
+describe('PARTIE 2 — texteBulleCouleurArchive : mêmes 2 critères que la couleur, dans l’ordre (critères puis conclusion)', () => {
+  it('VERT (dans Rattachement · complet) → rien à faire', () => {
+    expect(texteBulleCouleurArchive(true, true)).toEqual(['Dans Rattachement · Dossier complet', '→ Rien à faire.']);
+  });
+  it('ORANGE (complet, hors Rattachement) → reste à envoyer en Rattachement', () => {
+    expect(texteBulleCouleurArchive(false, true)).toEqual(['Pas encore dans Rattachement · Dossier complet', '→ Il reste à l’envoyer en Rattachement.']);
+  });
+  it('ORANGE (dans Rattachement, incomplet) → il manque des pièces', () => {
+    expect(texteBulleCouleurArchive(true, false)).toEqual(['Dans Rattachement · Dossier incomplet', '→ Il manque des pièces.']);
+  });
+  it('ROUGE (hors Rattachement, incomplet) → les deux restent à faire', () => {
+    expect(texteBulleCouleurArchive(false, false)).toEqual(['Pas dans Rattachement · Dossier incomplet', '→ Les deux restent à faire.']);
+  });
+  it('APPARTENANCE INCONNUE (null) → dit honnêtement l’indétermination, n’invente rien', () => {
+    const attendu = ['L’appartenance à Rattachement n’a pas pu être lue — couleur indéterminée.'];
+    expect(texteBulleCouleurArchive(null, true)).toEqual(attendu);
+    expect(texteBulleCouleurArchive(false, null)).toEqual(attendu);
+    expect(texteBulleCouleurArchive(null, null)).toEqual(attendu);
+  });
+  it('critères D’ABORD, conclusion ENSUITE (2 lignes) pour les 4 cas colorés', () => {
+    for (const [dr, c] of [[true, true], [false, true], [true, false], [false, false]] as [boolean, boolean][]) {
+      const t = texteBulleCouleurArchive(dr, c);
+      expect(t).toHaveLength(2);
+      expect(t[1].startsWith('→')).toBe(true); // la conclusion en dernier
+    }
+  });
+});
+
 describe('A1a — libelleOrigineSatisfaction', () => {
   it('automatique / manuel / inconnu → jamais muet', () => {
     expect(libelleOrigineSatisfaction('automatique')).toBe('automatique');
@@ -369,16 +397,16 @@ describe('G2 — etatArchive : 5 états (mot + couleur), 2 mois, exception « ve
   const AVANT_DELAI = new Date('2026-07-05T12:00:00Z'); // avant recu+7 j
   const VIEUX = new Date('2026-10-01T12:00:00Z');     // > 2 mois après 2026-07-01
 
-  it('OBTENU (vert) : une pièce manuelle (= dossier_document en GED)', () => {
+  it('OBTENU (vert) : une pièce manuelle (= dossier_document en GED) — clé cle=obtenu (inchangée), libellé « complet »', () => {
     const e = etatArchive(ligne({ pieces: [emailDeposee, manuel] }), RECENT);
-    expect(e).toMatchObject({ cle: 'obtenu', mot: 'obtenu', couleurLigne: 'var(--color-svv-green-ink)' });
+    expect(e).toMatchObject({ cle: 'obtenu', mot: 'complet', couleurLigne: 'var(--color-svv-green-ink)' });
   });
 
   // N6-G — régression : N6-F a requalifié les pièces versées auto ('manuel' → 'auto'). L'état ne les reconnaissait plus comme
   //   « en GED » → un permis plein de pièces retombait sur « sans contenu reçu ». Ces tests l'auraient attrapée.
   it('N6-G — OBTENU : pièces d’origine AUTO SEULES (versées automatiquement) → en GED, JAMAIS « sans contenu reçu »', () => {
     const e = etatArchive(ligne({ pieces: [auto] }), RECENT);
-    expect(e).toMatchObject({ cle: 'obtenu', mot: 'obtenu', couleurLigne: 'var(--color-svv-green-ink)' });
+    expect(e).toMatchObject({ cle: 'obtenu', mot: 'complet', couleurLigne: 'var(--color-svv-green-ink)' });
     expect(e.cle).not.toBe('sans_contenu'); // le symptôme exact du 07512025V0035
   });
   it('N6-G — OBTENU : mélange AUTO + MANUEL → en GED', () => {
@@ -413,9 +441,9 @@ describe('G2 — etatArchive : 5 états (mot + couleur), 2 mois, exception « ve
     expect(e.couleurPieces).not.toBe('var(--color-svv-red)'); // jamais rouge, même vieux
   });
 
-  it('> 2 mois AVEC documents (classé) → NEUTRE (ligne et pièces sans couleur), mot « obtenu »', () => {
+  it('> 2 mois AVEC documents (classé) → NEUTRE (ligne et pièces sans couleur), mot « complet »', () => {
     const e = etatArchive(ligne({ pieces: [manuel] }), VIEUX);
-    expect(e).toMatchObject({ cle: 'obtenu', mot: 'obtenu', couleurLigne: null, couleurPieces: null });
+    expect(e).toMatchObject({ cle: 'obtenu', mot: 'complet', couleurLigne: null, couleurPieces: null });
   });
 
   it('> 2 mois SANS documents mais contenu reçu → ligne NEUTRE, colonne Pièces ROUGE « versement oublié »', () => {
