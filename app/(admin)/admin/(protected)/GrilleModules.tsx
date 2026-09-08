@@ -25,6 +25,7 @@ import { CSS } from '@dnd-kit/utilities';
 import type { LienMenu } from './menuAdmin';
 import { TuilePermisActions } from './TuilePermisActions';
 import { TuileSourcesActions } from './TuileSourcesActions';
+import { MSG_SECOURS_GRILLE, messageEchecReorg } from './ordreModulesUi';
 
 /** Slug de la tuile « Permis de construire » (menuAdmin) — porte le cumul d'actions en attente. */
 const SLUG_PERMIS = '/admin/permis';
@@ -110,21 +111,26 @@ function TuileSortable({ tuile, reduce }: { tuile: LienMenu; reduce: boolean }) 
  * non déterministes de dnd-kit (`DndDescribedBy-0` vs `-1`) ne sont émis qu'APRÈS montage, quand `TuileSortable` prend
  * le relais. La poignée reste présente (pas de saut de mise en page) ; elle devient interactive une fois montée.
  */
-function TuileStatique({ tuile }: { tuile: LienMenu }) {
+function TuileStatique({ tuile, poigneeInactive = false }: { tuile: LienMenu; poigneeInactive?: boolean }) {
   return (
     <li className="svv-grille-item">
       <Link href={tuile.slug} className="svv-grille-lien">
         <span className="svv-grille-titre">{tuile.libelle}</span>
         <DescriptionTuile tuile={tuile} />
       </Link>
-      <button type="button" className="svv-grille-poignee" aria-label={`Réordonner la tuile ${tuile.libelle}`}>
+      {/* En VOIE DE SECOURS (`poigneeInactive`), la poignée est DÉSACTIVÉE : on empêche le geste inutile plutôt que de le
+          sanctionner après coup (le motif est dit en clair au-dessus de la grille). Hors secours, `poigneeInactive=false`
+          → sortie IDENTIQUE à avant (aucun attribut `disabled`) : rendu pré-hydratation inchangé, aucun mismatch. */}
+      <button type="button" className="svv-grille-poignee" disabled={poigneeInactive} aria-disabled={poigneeInactive || undefined}
+        aria-label={poigneeInactive ? 'Réordonner indisponible en accès de secours' : `Réordonner la tuile ${tuile.libelle}`}
+        title={poigneeInactive ? 'Reconnectez-vous avec votre compte nommé pour ranger vos tuiles' : undefined}>
         <span aria-hidden="true">⠿</span>
       </button>
     </li>
   );
 }
 
-export function GrilleModules({ tuiles }: { tuiles: LienMenu[] }) {
+export function GrilleModules({ tuiles, secours = false }: { tuiles: LienMenu[]; secours?: boolean }) {
   const router = useRouter();
   const reduce = usePrefersReducedMotion();
   const [ordre, setOrdre] = useState<LienMenu[]>(tuiles);
@@ -175,28 +181,44 @@ export function GrilleModules({ tuiles }: { tuiles: LienMenu[] }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(nouveau.map((t) => t.slug)),
       });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      router.refresh(); // relit l'ordre côté serveur → la SIDEBAR (rendue par le layout) se met à jour
-    } catch {
-      // Tout chemin d'échec (réseau OU !res.ok) ramène l'état au repos : ordre rétabli, message visible.
+      if (res.ok) {
+        router.refresh(); // relit l'ordre côté serveur → la SIDEBAR (rendue par le layout) se met à jour
+        return;
+      }
+      // Échec HTTP : ordre rétabli + motif HONNÊTE selon le statut (voie de secours 400 / session expirée 401 / autre),
+      //   plus jamais un « panne de données » générique là où le vrai motif est « pas de compte nommé ». (Dette soldée.)
       setOrdre(ancien);
-      setErreur('Réorganisation non enregistrée — l’ordre précédent a été rétabli.');
+      setErreur(messageEchecReorg(res.status));
+    } catch {
+      // Coupure réseau (fetch a jeté) : on ne connaît pas de statut → message générique.
+      setOrdre(ancien);
+      setErreur(messageEchecReorg(0));
     }
   }
 
   return (
     <>
       <style>{CSS_GRILLE}</style>
+      {/* VOIE DE SECOURS — message de CONTEXTE affiché AVANT toute tentative (point 3) : on DIT que c'est l'ordre par défaut
+          (rien n'est perdu) et qu'il faut son compte nommé pour ranger. Le geste est empêché (poignées inactives ci-dessous),
+          pas sanctionné après coup. */}
+      {secours && (
+        <p className="svv-grille-info" role="note">
+          {MSG_SECOURS_GRILLE}
+        </p>
+      )}
       {erreur && (
         <p className="svv-grille-erreur" role="status">
           {erreur}
         </p>
       )}
-      {!mounted ? (
-        // SSR + premier rendu client : version STATIQUE (aucun dnd-kit) → HTML serveur == client, pas de mismatch.
+      {(!mounted || secours) ? (
+        // SSR + premier rendu client, OU voie de secours : version STATIQUE (aucun dnd-kit). En secours, les poignées sont
+        //   DÉSACTIVÉES (`poigneeInactive`) → aucun drag possible. Hors secours, rendu identique à avant (poignée inerte le temps
+        //   de l'hydratation, puis TuileSortable prend le relais). HTML serveur == 1er rendu client (secours vient du serveur) → pas de mismatch.
         <ul className="svv-grille">
           {ordre.map((t) => (
-            <TuileStatique key={t.slug} tuile={t} />
+            <TuileStatique key={t.slug} tuile={t} poigneeInactive={secours} />
           ))}
         </ul>
       ) : (
@@ -242,5 +264,10 @@ const CSS_GRILLE = `
 .svv-grille-poignee:hover,.svv-grille-poignee:focus-visible{opacity:1;color:var(--color-svv-ink)}
 .svv-grille-poignee:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-4px;border-radius:8px}
 .svv-grille-poignee:active{cursor:grabbing}
+/* Poignée DÉSACTIVÉE (voie de secours) : visible mais clairement inerte — jamais un survol qui laisse croire au drag. */
+.svv-grille-poignee:disabled{opacity:.28;cursor:not-allowed;color:var(--color-svv-muted)}
+.svv-grille-poignee:disabled:hover{opacity:.28;color:var(--color-svv-muted)}
 .svv-grille-erreur{margin:0 0 .6rem;font-size:.85rem;font-weight:600;color:var(--color-svv-red)}
+/* CONTEXTE voie de secours : ton neutre (pas une alerte rouge), au-dessus de la grille. */
+.svv-grille-info{margin:0 0 .6rem;font-size:.85rem;color:var(--color-svv-muted);line-height:1.4}
 `;

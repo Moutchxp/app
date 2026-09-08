@@ -15,6 +15,9 @@ export default async function AdminAccueilPage() {
   const payload = jeton ? await verifierJeton(jeton) : null;
   // Le layout (protected) a déjà exigé une session valide ; défaut prudent si absente (aucune tuile).
   const session = payload ? sessionDepuisPayload(payload) : null;
+  // VOIE DE SECOURS (mot de passe partagé, sub=null) : pas de compte → pas de rangement personnel. On le fait DESCENDRE en
+  //   prop pour que la grille empêche le geste inutile (poignées inactives) et DISE le motif, au lieu de laisser croire à une panne.
+  const secours = session ? session.sub === null : false;
   // Lecture DÉDIÉE de l'ordre personnalisé (D1 : pas de partage layout→page via children). Voie de secours
   // (sub=null) ou session absente → null → ordre par défaut. `ordonner()` = MÊME appel que le menu latéral.
   const ordreModules = session && session.sub !== null ? await lireOrdreModules(session.sub) : null;
@@ -25,8 +28,8 @@ export default async function AdminAccueilPage() {
       <EnTetePage titre="Tableau de bord" intro="Interface d’administration interne — Sans Vis-à-Vis®." />
 
       {/* Grille RÉORDONNABLE (client) : la lecture de l'ordre reste SERVEUR (ci-dessus), on passe la liste
-          déjà ordonnée. Le drag/persistance/accessibilité vivent dans GrilleModules. */}
-      <GrilleModules tuiles={tuiles} />
+          déjà ordonnée. Le drag/persistance/accessibilité vivent dans GrilleModules ; `secours` conditionne l'empêchement honnête. */}
+      <GrilleModules tuiles={tuiles} secours={secours} />
     </section>
   );
 }
