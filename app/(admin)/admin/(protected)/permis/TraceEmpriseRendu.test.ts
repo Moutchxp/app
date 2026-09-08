@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -302,6 +302,24 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     expect(polygonesVisibles(polys, { existant: true, futur: false }).map((p) => p.etat)).toEqual(['En service']);
     expect(polygonesVisibles(polys, { existant: false, futur: false }).length).toBe(0);
   });
+  it('RÈGLE ARNO — « bâti existant » gouverne le PERMIS, « contexte » les VOISINS ; aucun objet dans les deux ensembles', () => {
+    const carre = (x: number, y: number, c: number) => [{ x, y }, { x: x + c, y }, { x: x + c, y: y + c }, { x, y: y + c }];
+    const mix = [
+      { cleabs: 'P_EX', anneau: carre(0, 0, 4), etat: 'En service', appartientPermis: true },      // permis, existant
+      { cleabs: 'P_FUT', anneau: carre(6, 0, 4), etat: 'En projet', appartientPermis: true },       // permis, futur
+      { cleabs: 'VOIS', anneau: carre(12, 0, 4), etat: 'En service', appartientPermis: false },     // voisin (bleu, sans lettre)
+    ];
+    // « bâti existant » (existant:true) SANS contexte → SEUL le bâtiment DU PERMIS existant ; le voisin reste masqué.
+    expect(polygonesVisibles(mix, { existant: true, futur: false, contexte: false }).map((p) => p.cleabs)).toEqual(['P_EX']);
+    // « contexte » (contexte:true) SANS bâti existant → SEUL le voisin ; le permis existant reste masqué.
+    expect(polygonesVisibles(mix, { existant: false, futur: false, contexte: true }).map((p) => p.cleabs)).toEqual(['VOIS']);
+    // décocher « bâti existant » NE touche PAS le voisin (contexte allumé) : le voisin est là, le permis existant non.
+    expect(polygonesVisibles(mix, { existant: false, futur: false, contexte: true }).some((p) => p.cleabs === 'VOIS')).toBe(true);
+    // contexte undefined (rétro-compat) = éteint → aucun voisin.
+    expect(polygonesVisibles(mix, { existant: true, futur: true }).map((p) => p.cleabs)).toEqual(['P_EX', 'P_FUT']);
+    // COMPTEURS : ne comptent QUE le permis (le voisin ne gonfle NI existant NI futur).
+    expect(compterBatimentsPermis(mix)).toEqual({ existant: 1, futur: 1 });
+  });
   it('① attribuerReperes : A, B, C… dans l’ordre reçu (déterministe serveur)', () => {
     expect(attribuerReperes(polys).map((p) => p.repere)).toEqual(['A', 'B', 'C']);
   });
@@ -413,7 +431,7 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
   });
   it('OptionsVisibiliteSchema : UN filtre futur bâti (⓪) + repères (①) + libellés d’origine ; plus de doublon', () => {
     const html = renderToStaticMarkup(h(OptionsVisibiliteSchema, { filtres: FILTRES_SCHEMA_DEFAUT, onFiltres: () => {}, nbFutur: 4, nbExistant: 12 }));
-    expect(html).toContain('Afficher le bâti existant (BD TOPO)');
+    expect(html).toContain('Afficher le bâti existant du permis (BD TOPO)');
     expect(html).toContain('Afficher les polygones en projet (futur bâti)');
     expect(html).toContain('Afficher les repères (A, B, C…)'); // ① repris du Rattachement
     expect(html).toContain('Afficher la projection');
@@ -454,7 +472,8 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
   });
   it('RÈGLE ARNO — le bâtiment DU PERMIS (teal, repère A) vs le VOISIN hors permis (BLEU, SANS repère)', () => {
     const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
-    const filtres: FiltresSchema = { existant: true, futur: false, reperes: true, emprises: false };
+    // RÈGLE ARNO — le VOISIN (HORS) relève désormais de « contexte » : on l'allume pour qu'il soit rendu et que ses teintes soient assertables.
+    const filtres: FiltresSchema = { existant: true, futur: false, reperes: true, emprises: false, contexte: true };
     const carre = (x: number, y: number, c: number) => [{ x, y }, { x: x + c, y }, { x: x + c, y: y + c }, { x, y: y + c }];
     const polygones = attribuerReperes([
       { cleabs: 'SUR', anneau: carre(1, 1, 12), etat: 'En service', appartientPermis: true },

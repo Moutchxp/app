@@ -939,11 +939,27 @@ export interface FiltresSchema { existant: boolean; futur: boolean; reperes: boo
 export const FILTRES_SCHEMA_DEFAUT: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: true, contexte: true };
 
 /**
- * Quels polygones BD TOPO sont VISIBLES : le FUTUR BÂTI (En projet OU En construction) piloté par `futur`, le reste (existant :
- * En service / En ruine) par `existant`. PUR (testable pour toute combinaison, y compris tout éteint → liste vide).
+ * Quels polygones BD TOPO sont VISIBLES. RÈGLE ARNO — chaque case gouverne UN ensemble, SANS recouvrement :
+ *  - bâtiment DU PERMIS (`appartientPermis !== false`, ceux qui portent une lettre A, B, C…) : le FUTUR BÂTI (En projet /
+ *    En construction) piloté par `futur`, l'existant (En service / En ruine) par `existant` ;
+ *  - bâtiment VOISIN (`appartientPermis === false`, bleu, sans lettre) : gouverné UNIQUEMENT par `contexte` — comme le reste du
+ *    contexte (parcelles voisines + bâti hors empreinte). Décocher « bâti existant » n'a donc AUCUN effet sur les voisins.
+ *  Rétro-compat : `appartientPermis` absent (fixtures) = traité comme permis (comportement d'avant). `contexte` undefined = éteint.
+ *  PUR (testable pour toute combinaison, y compris tout éteint → liste vide).
  */
-export function polygonesVisibles<T extends { etat: string | null }>(polygones: T[], f: { existant: boolean; futur: boolean }): T[] {
-  return polygones.filter((p) => (estFuturBati(p.etat) ? f.futur : f.existant));
+export function polygonesVisibles<T extends { etat: string | null; appartientPermis?: boolean }>(polygones: T[], f: { existant: boolean; futur: boolean; contexte?: boolean }): T[] {
+  return polygones.filter((p) => p.appartientPermis === false
+    ? f.contexte === true                          // VOISIN (hors permis) → registre « contexte »
+    : (estFuturBati(p.etat) ? f.futur : f.existant)); // bâtiment DU PERMIS → « futur bâti » / « bâti existant »
+}
+
+/**
+ * RÈGLE ARNO — compteurs des interrupteurs « bâti existant » / « futur bâti » : ils ne comptent QUE les bâtiments DU PERMIS (les
+ * mêmes qui portent une lettre) ; les VOISINS relèvent de « contexte » et ne gonflent NI l'un NI l'autre. PUR.
+ */
+export function compterBatimentsPermis<T extends { etat: string | null; appartientPermis?: boolean }>(polygones: T[]): { existant: number; futur: number } {
+  const permis = polygones.filter((p) => p.appartientPermis !== false);
+  return { existant: permis.filter((p) => !estFuturBati(p.etat)).length, futur: permis.filter((p) => estFuturBati(p.etat)).length };
 }
 
 /** PROJ-3i ① / RÈGLE ARNO — le repérage alphabétique (A, B, C…) ne NUMÉROTE QUE les bâtiments DU PERMIS (`appartientPermis !== false`) et
@@ -1468,7 +1484,7 @@ export function OptionsVisibiliteSchema({ filtres, onFiltres, nbFutur, nbExistan
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .5rem' }}>
       <div style={{ fontSize: 12, fontWeight: 700 }}>Options de visibilité</div>
-      {ligne('existant', `Afficher le bâti existant (BD TOPO)${nbExistant > 0 ? ` (${nbExistant})` : ''}`)}
+      {ligne('existant', `Afficher le bâti existant du permis (BD TOPO)${nbExistant > 0 ? ` (${nbExistant})` : ''}`)}
       {ligne('futur', `Afficher les polygones en projet (futur bâti)${nbFutur > 0 ? ` (${nbFutur})` : ''}`)}
       {ligne('reperes', 'Afficher les repères (A, B, C…)')}
       {ligne('emprises', 'Afficher la projection')}
@@ -1734,7 +1750,7 @@ export function LegendeSchemaProjection() {
         <div style={{ color: 'var(--color-svv-muted)', marginTop: '.2rem', lineHeight: 1.35 }}>
           <div><strong>Empreinte de la parcelle</strong> : le contour attendu de la (ou des) parcelle(s) fusionnée(s) du permis — un REPÈRE de cadrage, jamais une mesure.</div>
           <div><strong>Le bâtiment du permis</strong> (teal) : donnée officielle IGN — le(s) bâtiment(s) dont la parcelle DOMINANTE (celle où se trouve la majeure partie du bâtiment) fait partie du permis. C’est le SUJET de l’écran : couleur franche + contour marqué, il domine la composition. Lui seul reçoit un repère (A, B, C…) et entre dans l’affectation préservé/détruit.</div>
-          <div><strong>Bâtiment voisin</strong> (bleu) : un bâtiment dont la parcelle dominante N’EST PAS une parcelle du permis (immeuble mitoyen, bâti alentour). Il reste AFFICHÉ pour le contexte de lecture — ce qui compte pour le vis-à-vis — mais il ne reçoit PAS de repère et n’entre PAS dans l’affectation préservé/détruit.</div>
+          <div><strong>Bâtiment voisin</strong> (bleu) : un bâtiment dont la parcelle dominante N’EST PAS une parcelle du permis (immeuble mitoyen, bâti alentour). Il reste AFFICHÉ pour le contexte de lecture — ce qui compte pour le vis-à-vis — mais il ne reçoit PAS de repère et n’entre PAS dans l’affectation préservé/détruit. Il relève de l’interrupteur « Afficher les parcelles voisines et leur bâti (contexte) », PAS de « bâti existant du permis » : décocher « bâti existant » ne le masque pas.</div>
           <div><strong>Parcelle voisine</strong> (bleu clair) : le contour des parcelles alentour dans un rayon (réglable), pour SITUER. Ces objets ne sont JAMAIS candidats à l’affectation ni à l’empreinte. L’interrupteur « Afficher les parcelles voisines et leur bâti » les masque (aucun chargement quand il est éteint).</div>
           <div><strong>En projet</strong> : donnée officielle IGN — des bâtiments dessinés dans les données mais pas encore construits.</div>
           <div><strong>Emprise tracée</strong> : un contour que vous avez dessiné à la main (une reconstitution, jamais une mesure). Il ne sert qu’à visualiser : il n’alimente ni le verdict, ni l’altitude, ni un certificat.</div>

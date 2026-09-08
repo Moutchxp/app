@@ -8,7 +8,7 @@ import {
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
-import { HAUTEUR_CADRE_RENDU, BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
+import { HAUTEUR_CADRE_RENDU, BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -18,7 +18,6 @@ import type { RunReperageAffiche } from '../../../../lib/permis/reperePlanchesRe
 import type { LecturePageAffiche } from '../../../../lib/permis/lectureValeursPageRepo';
 import { jourParisISO } from '../../../../lib/permis/horodatageParis';
 import type { SelectionInfo } from '../../../../lib/permis/plancheParcellesRepo';
-import { estFuturBati } from '../../../../lib/permis/etatBati';
 import { statutCourantParCleabs, type LigneStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) ; RATT-5 : recouvert + taux
 
 /**
@@ -316,7 +315,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   // PROJ-3r-fix — cleabs → repère (mêmes noms que la liste des polygones et le schéma) pour nommer les lignes de l'encart d'adoption.
   const reperesParCleabs = useMemo(() => Object.fromEntries(polygonesReperes.filter((p) => p.cleabs).map((p) => [p.cleabs as string, p.repere])), [polygonesReperes]);
   const boiteGrande: Boite | null = useMemo(() => { const c = cadreDeAnneaux(parcelle); return c ? { largeur: 680, hauteur: 520, marge: 18, cadre: c } : null; }, [parcelle]);
-  const nbFutur = useMemo(() => polygones.filter((p) => estFuturBati(p.etat)).length, [polygones]);
+  // RÈGLE ARNO — les compteurs des cases « bâti existant » / « futur bâti » ne comptent QUE les bâtiments DU PERMIS (les mêmes qui
+  //   portent une lettre) ; les voisins relèvent de « contexte » et n'y entrent pas.
+  const comptesVisibilite = useMemo(() => compterBatimentsPermis(polygones), [polygones]);
   // PROJ-3i — fermeture du plein écran à la touche Échap (le clic hors zone est géré par le fond).
   useEffect(() => {
     if (!pleinEcran) return;
@@ -1177,7 +1178,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesPermis, emprises, batiments)} />
         {bandeauSel}
         {/* Options d'AFFICHAGE (bâti existant / futur / repères / projection) — pilotage visuel, pas un contrôle de tracé. Porte aussi la légende de catégories. */}
-        <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
+        <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={comptesVisibilite.futur} nbExistant={comptesVisibilite.existant} />
         <LegendeProjectionEmprises legende={legendeProjection(polygonesPermis, emprises, batiments)} />
       </div>
     ) : (
@@ -1341,7 +1342,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             {/* « Agrandir le schéma » vit dans la BARRE DROITE (barreDroiteSchema, au-dessus du schéma), plus dans une barre pleine largeur. */}
 
             {/* Options de visibilité + sélection des polygones « en projet ». */}
-            <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
+            <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={comptesVisibilite.futur} nbExistant={comptesVisibilite.existant} />
             <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
             {/* AFF-1 — deux blocs REPLIÉS (identiques dans les deux onglets), sous le schéma : polygones « projet » affectés, puis bâtiments existants. */}
             <BlocProjetRepliable emprises={emprises} polygones={polygonesReperes} batiments={batiments} />
@@ -1442,7 +1443,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                   retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 240 }}>
-                <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
+                <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={comptesVisibilite.futur} nbExistant={comptesVisibilite.existant} />
                 <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
             {/* AFF-1 — deux blocs REPLIÉS (identiques dans les deux onglets), sous le schéma : polygones « projet » affectés, puis bâtiments existants. */}
             <BlocProjetRepliable emprises={emprises} polygones={polygonesReperes} batiments={batiments} />
