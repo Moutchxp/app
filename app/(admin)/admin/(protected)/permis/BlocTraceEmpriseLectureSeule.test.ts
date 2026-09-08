@@ -268,7 +268,7 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
     expect(src).not.toContain('planSeul ? barreNiveau3 : ligneOutils');
     expect(src).not.toContain('key="barre-plan"');   // les cellules de rangée 1 (77db24a) ont disparu…
     expect(src).not.toContain('key="barre-schema"');  // …la barre est DANS la carte de chaque colonne
-    expect(src).toContain('{planSeul && <div key="topbar"'); // seul le niveau 3 garde une barre en tête (hors carte)
+    expect(src).toContain('<div key="topbar"'); // seul le niveau 3 garde une barre en tête (hors carte)
     // COLONNE PLAN = carte, barre À L'INTÉRIEUR en tête, AVANT l'image (pdfContainerRef).
     expect(src).toContain('<div key="colpdf" className="svv-card"');
     const iBG = src.indexOf('{!planSeul && barreGauchePlan}');
@@ -450,5 +450,40 @@ describe('BUG CERFA (côté tracé) — capsule fidèle après analyse sans refe
     // 401, 409, réponse !ok, exception réseau → tous via `echouer(...)`.
     expect((bloc.match(/echouer\(/g) ?? []).length).toBeGreaterThanOrEqual(4);
     expect(bloc).toContain("setLectureRes({ cle, texte, ecrit: false, echec: true })");
+  });
+});
+
+/**
+ * LOT 3 (enchaînement) — le niveau 3 « plan seul » enchaîne le tracé de TOUS les bâtiments sans quitter le plein écran : une BANDE en tête
+ * (sélecteur de bâtiments défilant horizontalement + bouton de validation du bâtiment actif) apparaît QUAND ① au moins un bâtiment ET ②
+ * le calage est complet (`acces.disponible`). Sélecteur et bouton sont une SOURCE UNIQUE réutilisée par la vue 2 colonnes (jamais redessinés).
+ * Bande et messages rouges d'empêchement ne coexistent jamais (conditions opposées disponible/non-disponible). Garde par lecture de source.
+ */
+describe('LOT 3 (enchaînement) — bande de bâtiments + validation en tête du niveau 3', () => {
+  it('les cartouches ET la chaîne de validation sont des SOURCES UNIQUES réutilisées (jamais de second dessin)', () => {
+    // Une seule définition de chaque source ; le `.map(` sur batiments et la chaîne `etapeChaine === 'enregistrer'` ne sont PAS ré-inlinés.
+    expect(src).toContain('const boutonsCartouches = (avecRefActif: boolean) => batiments.map((b) =>');
+    expect(src).toContain('const chaineBoutons = (');
+    expect((src.match(/=> batiments\.map\(\(b\) =>/g) ?? []).length).toBe(1); // un SEUL map de cartouches (la source unique)
+    expect((src.match(/etapeChaine === 'enregistrer'/g) ?? []).length).toBe(1); // une SEULE chaîne (dans chaineBoutons)
+    // Réutilisation aux DEUX emplacements : vue 2 colonnes (repli) et bande du niveau 3 (défilement).
+    expect(src).toContain('{boutonsCartouches(false)}'); // vue 2 colonnes, repli multi-lignes
+    expect(src).toContain('{boutonsCartouches(true)}');  // bande niveau 3, ref d'auto-défilement sur l'actif
+    expect((src.match(/\{chaineBoutons\}/g) ?? []).length).toBe(2); // vue 2 colonnes + bande niveau 3
+  });
+  it('la BANDE du niveau 3 n’apparaît QUE sous `acces.disponible` (① bâtiment + ② calage) — jamais avec les messages rouges', () => {
+    const iTop = src.indexOf('<div key="topbar"');
+    const iBarre = src.indexOf('{barreNiveau3}', iTop);
+    const bloc = src.slice(iTop, iBarre); // la bande est AVANT barreNiveau3, dans le même conteneur
+    expect(bloc).toContain('{acces.disponible && ('); // condition d'apparition = ① et ② réunies
+    expect(bloc).toContain('{boutonsCartouches(true)}');
+    expect(bloc).toContain('{chaineBoutons}');
+    expect(bloc).toContain("overflowX: 'auto'"); // défilement horizontal (jamais de repli multi-lignes dans la bande)
+  });
+  it('le cartouche ACTIF de la bande est amené dans la vue par défilement DOM (scrollIntoView), sans setState-dans-effet', () => {
+    expect(src).toContain('cartoucheActifRef = useRef<HTMLButtonElement>(null)');
+    expect(src).toContain("cartoucheActifRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' })");
+    // le ref n'est posé QUE sur l'actif de la bande niveau 3 (avecRefActif), jamais sur le sélecteur de la vue 2 colonnes.
+    expect(src).toContain('ref={avecRefActif && actif ? cartoucheActifRef : undefined}');
   });
 });

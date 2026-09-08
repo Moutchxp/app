@@ -146,6 +146,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pdfContainerRef = useRef<HTMLDivElement>(null); // conteneur NON transformé (repère du clic)
   const dragRef = useRef<{ x0: number; y0: number; panX: number; panY: number; bouge: boolean } | null>(null);
+  const cartoucheActifRef = useRef<HTMLButtonElement>(null); // LOT 3 (enchaînement) — cartouche actif de la BANDE du niveau 3, pour l'amener dans la vue par défilement.
   // INCRÉMENT-2 — best-of VISIBLE = bande auto − retraits + ajouts (mêmes overrides que la planche). Touche la NAVIGATION (quel plan est
   //   proposé), JAMAIS le viewport ni la conversion de coordonnées.
   const bande = useMemo(() => bandeAvecOverrides(construireBandePlans(pieces), pieces, exclus, inclus), [pieces, exclus, inclus]);
@@ -265,6 +266,13 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     const attente = batiments.find((b) => statutBatiment(b.corpsId, emprises, ignores) === 'attente');
     return (attente ?? batiments[0])?.corpsId ?? null;
   }, [corpsSel, batiments, emprises, ignores]);
+
+  // LOT 3 (enchaînement) — au niveau 3, quand on change de bâtiment actif, amener SON cartouche dans la vue en faisant défiler la BANDE
+  //   (jamais la page : block/inline 'nearest'). scrollIntoView est une opération DOM (pas un setState) → pas de cascade de rendus.
+  //   Le ref n'est posé QUE sur le cartouche actif de la bande du niveau 3 : hors niveau 3 (bande absente) il vaut null → effet neutre.
+  useEffect(() => {
+    if (planSeul) cartoucheActifRef.current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [corpsEffectif, planSeul]);
 
   // Verdict de projection → remonte au parent (bouton Valider). Mémoïsé : ne rejoue l'effet que si les entrées changent.
   const verdict = useMemo(() => verdictProjectionBatiments(batiments, emprises.map((e) => ({ corpsId: e.corpsId, provenance: e.provenance })), ignores.map((i) => i.corpsId)), [batiments, emprises, ignores]);
@@ -933,6 +941,47 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     </div>
   );
 
+  // LOT 3 (enchaînement) — SOURCE UNIQUE des cartouches de bâtiment (mêmes libellés, mêmes états, même onClick) réutilisée par la vue 2
+  //   colonnes (repli en lignes) ET par la bande du niveau 3 (défilement horizontal). `avecRefActif` ne pose le ref QUE sur la bande du
+  //   niveau 3 (auto-défilement) — jamais deux refs concurrents (les deux emplacements ne sont jamais montés en même temps).
+  const boutonsCartouches = (avecRefActif: boolean) => batiments.map((b) => {
+    // SOURCE UNIQUE : même statut (validee/a_valider/ignoree/a_tracer) que la capsule du cartouche → jamais « ✓ tracée » là où la capsule dit « à valider ».
+    const st = statutEmpriseBatiment(emprises.some((e) => e.corpsId === b.corpsId), ignores.some((i) => i.corpsId === b.corpsId), validationParCorps[b.corpsId] ?? false);
+    const actif = b.corpsId === corpsEffectif;
+    return (
+      <button key={b.corpsId} ref={avecRefActif && actif ? cartoucheActifRef : undefined} type="button" onClick={() => setCorpsSel(b.corpsId)}
+        style={{ ...btn, flex: '0 0 auto', whiteSpace: 'nowrap', fontWeight: actif ? 700 : 400, borderColor: actif ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }}>
+        {libelleBatiment(b)} — {MOT_STATUT_EMPRISE[st]}
+      </button>
+    );
+  });
+
+  // LOT 3 (enchaînement) — SOURCE UNIQUE de la CHAÎNE de validation (bouton plein rouge, un seul visible selon `etapeChaineEmprise`) réutilisée
+  //   par la vue 2 colonnes ET par la bande du niveau 3. On BRANCHE sur les actions existantes (enregistrer/valider/modifier) : aucune règle
+  //   d'activation/désactivation réimplémentée. Rendu uniquement dans la branche `batSel` → `batSel!` sûr.
+  const chaineBoutons = (
+    <>
+      {etapeChaine === 'enregistrer' && (
+        <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe || !tracable || !sim || sommets.length < 3} onClick={() => void enregistrer()}>
+          Enregistrer l’emprise de {libelleBatiment(batSel!)}
+        </button>
+      )}
+      {etapeChaine === 'valider' && (
+        <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe} onClick={() => void validerEmpriseChaine()}>
+          Valider l’emprise de {libelleBatiment(batSel!)}
+        </button>
+      )}
+      {etapeChaine === 'modifier' && (
+        <>
+          <div role="status" style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-green-ink)' }}>✓ Emprise de {libelleBatiment(batSel!)} validée</div>
+          <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe} onClick={() => void modifierEmpriseChaine()}>
+            Modifier l’emprise de {libelleBatiment(batSel!)}
+          </button>
+        </>
+      )}
+    </>
+  );
+
   // LOT 3 — BARRE du NIVEAU 3 (plan seul, plein écran) : elle REMPLACE ligneOutils dans le même emplacement de tête (jamais les deux à la
   //   fois). Contient tout ce qu'il faut pour TRACER — retour au niveau 2, zoom, annuler/reprendre le tracé, compteur de sommets — et DIT
   //   clairement que le calage est indisponible ici (pas de schéma). « Reprendre le tracé » n'efface QUE les sommets : le CALAGE fait au
@@ -964,7 +1013,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
           quand le calage manque, on renvoie EXPLICITEMENT vers la vue 2 colonnes (demande E). */}
       {acces.disponible ? (
         <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
-          Vue <strong>plan seul</strong> pour tracer avec précision. Le calage est fait ; l’<strong>enregistrement</strong> se fait dans la vue 2 colonnes — tracez vos sommets ici, puis revenez-y pour enregistrer.
+          Vue <strong>plan seul</strong> pour tracer avec précision. Le calage est fait : tracez, <strong>enregistrez et validez chaque bâtiment ici même</strong> (bande en tête), puis passez au suivant — sans quitter le plein écran.
         </div>
       ) : acces.motif === 'calage' ? (
         <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
@@ -1079,19 +1128,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       <div style={{ fontWeight: 700, fontSize: 13 }}>Projection des emprises — reconstitution par bâtiment <span style={styleAide}>(jamais une mesure ; n’alimente ni le verdict ni l’altitude)</span></div>
       <BandeauProjection verdict={verdict} nbValides={nbValides} nbAValider={nbAValider} />
 
-      {/* Sélecteur de bâtiment : statut par bâtiment (mot + couleur d'appui). */}
+      {/* Sélecteur de bâtiment : statut par bâtiment (mot + couleur d'appui). SOURCE UNIQUE `boutonsCartouches` (réutilisée par la bande du niveau 3). */}
       <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-        {batiments.map((b) => {
-          // SOURCE UNIQUE : même statut (validee/a_valider/ignoree/a_tracer) que la capsule du cartouche → jamais « ✓ tracée » là où la capsule dit « à valider ».
-          const st = statutEmpriseBatiment(emprises.some((e) => e.corpsId === b.corpsId), ignores.some((i) => i.corpsId === b.corpsId), validationParCorps[b.corpsId] ?? false);
-          const actif = b.corpsId === corpsEffectif;
-          return (
-            <button key={b.corpsId} type="button" onClick={() => setCorpsSel(b.corpsId)}
-              style={{ ...btn, fontWeight: actif ? 700 : 400, borderColor: actif ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }}>
-              {libelleBatiment(b)} — {MOT_STATUT_EMPRISE[st]}
-            </button>
-          );
-        })}
+        {boutonsCartouches(false)}
       </div>
 
       {batSel && (
@@ -1112,7 +1151,23 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
           {/* Au NIVEAU 3 (plan seul, une colonne) : une SEULE barre `barreNiveau3` en tête, hors carte. Aux niveaux 1-2, PLUS AUCUN bandeau
               au-dessus des cadres : chaque barre est DANS la carte de sa colonne, en tête (parité EXACTE avec le cas 0 bâtiment). */}
-          {planSeul && <div key="topbar" style={{ minWidth: 0 }}>{barreNiveau3}</div>}
+          {planSeul && (
+            <div key="topbar" style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+              {/* LOT 3 (enchaînement) — EN TÊTE du niveau 3, QUAND ① au moins un bâtiment ET ② le calage est complet (acces.disponible) : la BANDE
+                  = sélecteur de bâtiments (défilement horizontal, jamais de repli multi-lignes, actif amené dans la vue) + le bouton de validation
+                  du bâtiment actif (source unique `chaineBoutons`), sur une même ligne. Sinon : rien ici → barreNiveau3 garde ses messages rouges.
+                  Bande et messages ne coexistent JAMAIS (conditions opposées : disponible vs non-disponible). */}
+              {acces.disponible && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', minWidth: 0 }}>
+                  <div style={{ display: 'flex', gap: '.4rem', overflowX: 'auto', flex: '1 1 auto', minWidth: 0, paddingBottom: '.2rem' }}>
+                    {boutonsCartouches(true)}
+                  </div>
+                  <div style={{ flex: '0 0 auto', display: 'flex', alignItems: 'center', gap: '.4rem' }}>{chaineBoutons}</div>
+                </div>
+              )}
+              {barreNiveau3}
+            </div>
+          )}
           {/* Colonne PDF = CARTE (svv-card, comme la liseuse du cas 0 bâtiment) : la BARRE GAUCHE À L'INTÉRIEUR, en tête, puis l'image, la nav,
               le guide. MÊME cadre/arrondi/padding que la carte du schéma → deux cadres jumeaux, chacun coiffé de SES outils, coupés par la
               gouttière. `gap .5rem` = celui de la carte du schéma → les deux panneaux démarrent à la même hauteur sous des barres de même hauteur. */}
@@ -1218,25 +1273,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               debordement={sommets.length >= 3 || sommets.length === 0 ? debordement : null} contourFerme={sommets.length >= 3} parcelleRattachee={parcelle.length > 0} origineIgn={origineIgnCourant && sommets.length < 3} />
             {/* ① COMPLÉMENT — CHAÎNE DE TROIS BOUTONS PAR BÂTIMENT : UN SEUL visible selon l'état (source unique `etapeChaineEmprise`),
                 ROUGE plein (facture « Enregistrer ce bâtiment » = svv-btn-primary), nommant le bâtiment par son repère réel. Au clic, l'état
-                avance (l'indicateur vert apparaît, le bouton suivant s'affiche). Toute erreur est DITE (jamais un bouton muet). */}
-            {etapeChaine === 'enregistrer' && (
-              <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe || !tracable || !sim || sommets.length < 3} onClick={() => void enregistrer()}>
-                Enregistrer l’emprise de {libelleBatiment(batSel!)}
-              </button>
-            )}
-            {etapeChaine === 'valider' && (
-              <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe} onClick={() => void validerEmpriseChaine()}>
-                Valider l’emprise de {libelleBatiment(batSel!)}
-              </button>
-            )}
-            {etapeChaine === 'modifier' && (
-              <>
-                <div role="status" style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-green-ink)' }}>✓ Emprise de {libelleBatiment(batSel!)} validée</div>
-                <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe} onClick={() => void modifierEmpriseChaine()}>
-                  Modifier l’emprise de {libelleBatiment(batSel!)}
-                </button>
-              </>
-            )}
+                avance (l'indicateur vert apparaît, le bouton suivant s'affiche). Toute erreur est DITE (jamais un bouton muet).
+                SOURCE UNIQUE `chaineBoutons` — même bloc réutilisé par la bande du niveau 3 (enchaînement sans quitter le plein écran). */}
+            {chaineBoutons}
             {/* BUG PROV — le RÉSULTAT (succès OU erreur serveur) s'affiche ICI, au point d'action : un bouton MUET était le pire cas. */}
             {message && <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-svv-red)' }}>{message}</div>}
 
