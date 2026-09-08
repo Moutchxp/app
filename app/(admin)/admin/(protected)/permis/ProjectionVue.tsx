@@ -192,8 +192,11 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     const etatProj = enteteProjection ?? etatProjectionTitreDepuisComptes(row?.nbBatiments ?? 0, row?.nbCorpsSansAltValidee ?? 0, row?.nbCorpsSansEmpriseValidee ?? 0);
     // COMPLÉMENT — CLÔTURE : le MÊME composant rendu à CINQ endroits (tête de fiche + haut/bas de « Caractéristiques » + haut/bas de
     //   « Bâtiments et projection »). Même condition (`clotureVisible`), même action (`cloturerPermis`), même état → jamais cinq copies
-    //   divergentes. `tousValides` = en-tête VERT (SOURCE UNIQUE etatEnteteProjection ← estValidationAcquise) ; `dejaPasse` = marqueur (false dans la file).
-    const tousValidesCloture = enteteProjection?.ton === 'vert';
+    //   divergentes. `tousValides` = l'ÉTAT DE PROJECTION `etatProj` VERT — MÊME source unique que le titre de section : valeur LIVE
+    //   `enteteProjection` quand le bloc est ouvert, sinon REPLI sur les COMPTES de la ligne (estValidationAcquise). Ainsi le BLOC DE
+    //   SORTIE (message + bouton) apparaît DÈS l'ouverture de la ligne pour un permis entièrement validé, sans devoir ouvrir « Bâtiments
+    //   et projection » d'abord. 0 bâtiment → etatProj ROUGE → pas de bloc de sortie. `dejaPasse` = marqueur (false dans la file).
+    const tousValidesCloture = etatProj.ton === 'vert';
     const dejaPasseCloture = row?.projectionValidee ?? false;
     const clotureVisibleIci = clotureVisible(modePassage, tousValidesCloture, dejaPasseCloture);
     const rendreCloture = (variante: 'principal' | 'bouton') => (

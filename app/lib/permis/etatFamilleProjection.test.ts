@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { etatProjectionTitre, etatProjectionTitreDepuisComptes, etatAltitudesTitre } from './etatFamilleProjection';
+import { clotureVisible } from '../../(admin)/admin/(protected)/permis/CaracteristiquesRendu'; // SOURCE UNIQUE de la visibilité du bloc de sortie (pure)
 
 /**
  * RATT-1 — états portés par la ligne de titre des familles « Bâtiments et projection » / « Caractéristiques du permis ». PUR.
@@ -31,6 +32,34 @@ describe('CORRECTIF A — etatProjectionTitreDepuisComptes (comptes → état)',
   });
   it('0 bâtiment → ROUGE (jamais validé par vacuité)', () => {
     expect(etatProjectionTitreDepuisComptes(0, 0, 0)).toEqual({ texte: 'projection non validée (aucun bâtiment déclaré)', ton: 'rouge' });
+  });
+});
+
+/**
+ * BLOC DE SORTIE VISIBLE (repli AVANT ouverture du sous-bloc « Bâtiments et projection ») — le bloc « Valider le permis — envoyer en
+ * Rattachement » doit apparaître DÈS l'ouverture de la ligne pour un permis entièrement validé, sans devoir ouvrir le sous-bloc. Sa
+ * visibilité = `clotureVisible(mode, etatProjectionTitreDepuisComptes(comptes).ton === 'vert', dejaPasse)` — MÊME source (estValidationAcquise
+ * sur les comptes de la ligne) que le titre de section. Cas : tout validé, partiellement validé, 0 bâtiment. Le réglage de clôture
+ * (mode `cloture_manuelle`) est HORS PÉRIMÈTRE : ce filet ne fait qu'ancrer le MOMENT (les comptes suffisent, sans en-tête live).
+ */
+describe('BLOC DE SORTIE — visible dès l’ouverture depuis les comptes de la ligne', () => {
+  const sortieVisible = (nbBat: number, sansAlt: number, sansEmp: number, mode: 'automatique' | 'cloture_manuelle' = 'cloture_manuelle', dejaPasse = false) =>
+    clotureVisible(mode, etatProjectionTitreDepuisComptes(nbBat, sansAlt, sansEmp).ton === 'vert', dejaPasse);
+
+  it('tout validé (mode clôture manuelle) → bloc de sortie VISIBLE sans en-tête live', () => {
+    expect(sortieVisible(1, 0, 0)).toBe(true);
+    expect(sortieVisible(3, 0, 0)).toBe(true);
+  });
+  it('partiellement validé → bloc de sortie MASQUÉ', () => {
+    expect(sortieVisible(3, 1, 0)).toBe(false);
+    expect(sortieVisible(2, 0, 2)).toBe(false);
+  });
+  it('0 bâtiment → bloc de sortie MASQUÉ (jamais validé par vacuité)', () => {
+    expect(sortieVisible(0, 0, 0)).toBe(false);
+  });
+  it('règles de clôture INCHANGÉES : mode automatique OU déjà passé → masqué même tout validé', () => {
+    expect(sortieVisible(2, 0, 0, 'automatique')).toBe(false);
+    expect(sortieVisible(2, 0, 0, 'cloture_manuelle', true)).toBe(false);
   });
 });
 
