@@ -891,35 +891,37 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       )}
     </div>
   );
-  // LIGNE D'OUTILS AU-DESSUS DES DEUX SURFACES (en tête de grille, span 2 colonnes) : à GAUCHE (au-dessus de l'IMAGE) le zoom + « mode
-  //   grandes images » ; à l'EXTRÊME DROITE (au-dessus du SCHÉMA) la ROTATION + « Agrandir le schéma ». Les deux barres sont ainsi sur la
-  //   MÊME LIGNE, chacune au-dessus de sa surface (rotation remontée de sous le schéma). Aucun handler de zoom/rotation/agrandissement modifié.
-  const ligneOutils = (
-    <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
-      {/* LOT 3 (demande 3a) — au-dessus du PLAN : ZOOM à GAUCHE, bloc ÉCRAN [grandes images · agrandir l'image] justifié À DROITE (au NIVEAU 2).
-          Au niveau 1, disposition historique (packé à gauche), pixel pour pixel : flex 0/flex-start. Séparation zoom / écran = intention Arno. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0, flex: imageAgrandie ? '1 1 auto' : '0 0 auto', justifyContent: imageAgrandie ? 'space-between' : 'flex-start' }}>
-        <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
-        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
-          <button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
-            aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images (tracer en grand)'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
-          {/* LOT 3 (décision Arno C2) — bouton d'entrée du NIVEAU 3, dans la barre de SA colonne, au-dessus de son image. Présent UNIQUEMENT au
-              niveau 2 (imageAgrandie) : le niveau 3 s'ouvre DEPUIS le niveau 2 et y revient. Le niveau 1 reste STRICTEMENT inchangé (pas de bouton).
-              DEMANDE 1 — libellé « (tracer) » quand le tracé est possible (page en plan) ; « Agrandir l'image » (SANS « tracer ») sinon : on ne
-              promet PAS une fonction indisponible → le niveau 3 s'ouvre alors en CONSULTATION. Jamais désactivé (l'agrandissement, lui, marche toujours). */}
-          {imageAgrandie && (
-            // DEMANDE 1 + « calage avant tracé » — « (tracer) » seulement si le tracé est RÉELLEMENT accessible (page en plan ET calage complet).
-            //   On ne force le mode 'trace' que dans ce cas (invariant : mode 'trace' ⇒ calage complet) → jamais de sommet posé sans calage.
-            //   Sinon le niveau 3 s'ouvre en consultation ; sa barre dira quoi faire (caler dans la vue 2 colonnes).
-            <button type="button" style={btn} onClick={() => { if (acces.disponible) setMode('trace'); setPlanSeul(true); }}
-              aria-label={acces.disponible ? 'Agrandir l’image en plein écran pour tracer' : 'Agrandir l’image en plein écran (consultation ; tracé indisponible tant que le calage n’est pas fait)'}>{acces.disponible ? '⤢ Agrandir l’image (tracer)' : '⤢ Agrandir l’image'}</button>
-          )}
-        </div>
-      </div>
+  // LOT « barres séparées » — la disposition du cas SANS bâtiment (dossier 470) devient la RÉFÉRENCE : DEUX barres d'outils DISTINCTES,
+  //   chacune au-dessus de SON panneau, DANS SA colonne (plus de barre unique pleine largeur au-dessus des deux). `styleBarre` PARTAGÉ (MÊME
+  //   hauteur mini + MÊME structure) → les deux panneaux (plan à gauche, schéma à droite) démarrent EXACTEMENT à la même hauteur. Aucun
+  //   libellé, aucun ORDRE d'éléments, aucun comportement de bouton ne change : seul l'EMPLACEMENT des deux groupes change (plein-largeur →
+  //   une barre par colonne). Le niveau 3 (plan seul) garde sa barre `barreNiveau3` en tête (une seule colonne).
+  const styleBarre: CSSProperties = { display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0, minHeight: '1.9rem' };
+  // BARRE GAUCHE — au-dessus du PLAN (colonne colpdf) : ZOOM (contrôle) à gauche, [grandes images · agrandir l'image] (actions écran) à
+  //   droite au niveau 2 (space-between) ; packé à gauche au niveau 1, à l'identique du cas 470. Aucun handler modifié.
+  const barreGauchePlan = (
+    <div style={{ ...styleBarre, justifyContent: imageAgrandie ? 'space-between' : 'flex-start' }}>
+      <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
-        <RotationSchema angle={angle} onAngle={setAngle} />
-        <button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button>
+        <button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
+          aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images (tracer en grand)'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
+        {/* LOT 3 (décision Arno C2) — bouton d'entrée du NIVEAU 3, dans la barre de SA colonne, au-dessus de son image. Présent UNIQUEMENT au
+            niveau 2 (imageAgrandie) : le niveau 3 s'ouvre DEPUIS le niveau 2 et y revient. Le niveau 1 reste STRICTEMENT inchangé (pas de bouton).
+            DEMANDE 1 — libellé « (tracer) » quand le tracé est possible (page en plan ET calage complet) ; « Agrandir l'image » (SANS « tracer »)
+            sinon : on ne promet PAS une fonction indisponible → le niveau 3 s'ouvre alors en CONSULTATION. Jamais désactivé. */}
+        {imageAgrandie && (
+          <button type="button" style={btn} onClick={() => { if (acces.disponible) setMode('trace'); setPlanSeul(true); }}
+            aria-label={acces.disponible ? 'Agrandir l’image en plein écran pour tracer' : 'Agrandir l’image en plein écran (consultation ; tracé indisponible tant que le calage n’est pas fait)'}>{acces.disponible ? '⤢ Agrandir l’image (tracer)' : '⤢ Agrandir l’image'}</button>
+        )}
       </div>
+    </div>
+  );
+  // BARRE DROITE — au-dessus du SCHÉMA (sa colonne) : `RotationSchema` (Rotation [curseur] 0° [Remettre à 0]) TEL QUEL (comme 470), puis
+  //   « Agrandir le schéma » à la suite (le seul bouton en plus du cas 470). MÊME ordre d'éléments qu'auparavant. Packé à gauche.
+  const barreDroiteSchema = (
+    <div style={{ ...styleBarre, justifyContent: 'flex-start' }}>
+      <RotationSchema angle={angle} onAngle={setAngle} />
+      <button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button>
     </div>
   );
 
@@ -1100,11 +1102,21 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             : imageAgrandie
               ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
               : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
-          {/* SLOT DE TÊTE (clé stable « topbar ») : ligneOutils (niveaux 1-2, span 2 colonnes) OU barreNiveau3 (niveau 3). Jamais les deux. */}
-          <div key="topbar" style={{ gridColumn: planSeul ? undefined : '1 / -1', minWidth: 0 }}>{planSeul ? barreNiveau3 : ligneOutils}</div>
-          {/* Colonne PDF — DEMANDE 2 : a) l'IMAGE en tête (alignée avec le schéma à droite) ; b) IMMÉDIATEMENT sous l'image, tout le bloc de
-              navigation + « voir toutes les pièces » + lien (barre, section haute) ; c) « agrandir l'image » + zoom + fonctions (barre,
-              section basse) ; d) EN DERNIER : le bloc « Étape 1 — caler la vue » (encadré rouge). */}
+          {/* SLOT DE TÊTE — DEUX barres séparées, une par colonne (parité 470). Aux niveaux 1-2 (grille), chaque barre est une CELLULE de la
+              RANGÉE 1 (barreGauchePlan en col 1 au-dessus du plan, barreDroiteSchema en col 2 au-dessus du schéma) : les PANNEAUX sont en
+              RANGÉE 2 → la grille les aligne EXACTEMENT à la même hauteur, MÊME si une barre passe sur deux lignes (cas de la barre droite en
+              vue étroite). `alignSelf:start` : les barres se calent en haut de la rangée. Au niveau 3 (plan seul, une colonne), une SEULE barre
+              `barreNiveau3` en tête. Clé « colpdf » stable → le canvas n'est jamais démonté. */}
+          {planSeul ? (
+            <div key="topbar" style={{ minWidth: 0 }}>{barreNiveau3}</div>
+          ) : (
+            <>
+              <div key="barre-plan" style={{ gridColumn: 1, minWidth: 0, alignSelf: 'start' }}>{barreGauchePlan}</div>
+              <div key="barre-schema" style={{ gridColumn: 2, minWidth: 0, alignSelf: 'start' }}>{barreDroiteSchema}</div>
+            </>
+          )}
+          {/* Colonne PDF (RANGÉE 2, col 1) — l'IMAGE ; sous elle le bloc de navigation + « voir toutes les pièces » + lien ; en dernier le
+              bloc « Étape 1 — caler la vue ». La BARRE de cette colonne est en rangée 1 (barre-plan), plus ici. */}
           <div key="colpdf" style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', minWidth: 0 }}>
             {/* a) IMAGE — conteneur NON transformé (repère du clic) ; le PDF + l'overlay sont dans un wrapper zoomé/déplacé. Glisser = déplacer (si zoomé), cliquer = poser un point.
                 🔴 RÈGLE ABSOLUE : le repère de coordonnées (top-left du conteneur via getBoundingClientRect, canvas width:100%, ratio) est INCHANGÉ.
@@ -1154,9 +1166,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               Clé stable « schema » : React la démonte proprement en entrant au niveau 3 SANS toucher à la colonne du plan (clé « colpdf »). */}
           {!planSeul && (
           <div key="schema" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+            {/* La BARRE DROITE (rotation + « Agrandir le schéma ») est en RANGÉE 1, col 2 (barre-schema), au-dessus de ce panneau — plus ici. */}
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} statuts={statutParCleabs}
               onCliquer={retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined)} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
-            {/* La rotation est REMONTÉE dans la ligne d'outils (au-dessus du schéma, même ligne que le zoom) ; ne reste ici que le bandeau de sélection. */}
+            {/* Sous le schéma : bandeau de sélection (la rotation est désormais dans la barre droite, au-dessus du schéma). */}
             {bandeauSel}
             {/* FIX « ascenseur » — PENDANT tout le processus de création (calage amorcé → 1/2 → 2/2 → tracé des sommets → jusqu'à la
                 validation), le guide « Étape 1 — caler la vue » ET le bloc d'outils/contrôle (résidu, échelle, aire) restent ICI, SOUS LE
@@ -1169,7 +1182,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 peutAnnuler={paires.length > 0 || planEnAttente !== null} />
               {blocOutilsCalage}
             </div>}
-            {/* DEMANDE 1 — « Agrandir le schéma » a été REMONTÉ dans la ligne d'outils au-dessus des images (extrême droite). */}
+            {/* « Agrandir le schéma » vit dans la BARRE DROITE (barreDroiteSchema, au-dessus du schéma), plus dans une barre pleine largeur. */}
 
             {/* Options de visibilité + sélection des polygones « en projet ». */}
             <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />

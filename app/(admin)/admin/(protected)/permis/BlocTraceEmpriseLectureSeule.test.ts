@@ -254,33 +254,46 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
     expect(iOptions).toBeGreaterThan(iSchema);        // options DESCENDUES sous le schéma
   });
 
-  it('PARITÉ — les DEUX visionneuses remontent la ligne d’outils (zoom + « mode grandes images ») et passent onRetourBestOf à la barre', () => {
+  it('PARITÉ — les DEUX visionneuses ont une barre d’outils (zoom + « mode grandes images ») au-dessus de l’image et passent onRetourBestOf à la barre', () => {
     for (const f of [src, liseuse]) {
-      expect(f).toContain('const ligneOutils =');            // ligne d'outils au-dessus de l'image (ex-slotActions)
+      expect(f).toMatch(/const (ligneOutils|barreGauchePlan) =/); // barre au-dessus de l'image (LiseusePieces : ligneOutils ; BlocTraceEmprise : barreGauchePlan)
       expect(f).toContain('mode grandes images');            // « Agrandir l'image » RENOMMÉ
       expect(f).toContain('onRetourBestOf={retourBestOf}');
       expect(f).not.toContain('slotActions');                // slotActions supprimé (plus dans la barre)
     }
   });
 
-  it('DEMANDE 1 (ce lot) — LIGNE D’OUTILS au-dessus des DEUX images (tracé) : zoom + « mode grandes images » à gauche, « Agrandir le schéma » à l’extrême droite', () => {
-    const iLigneDef = src.indexOf('const ligneOutils =');
-    const iFinDef = src.indexOf('const vue = affichageTrace', iLigneDef);
-    const bloc = src.slice(iLigneDef, iFinDef);
-    expect(bloc).toContain("gridColumn: '1 / -1'");            // span les 2 colonnes (au-dessus des deux images)
-    expect(bloc).toContain("justifyContent: 'space-between'"); // gauche / extrême droite
-    const iZoom = bloc.indexOf('<ZoomPdf');
-    const iMode = bloc.indexOf('mode grandes images');
-    const iSchemaBtn = bloc.indexOf('⤢ Agrandir le schéma');
-    expect(iZoom).toBeGreaterThan(-1);
-    expect(iMode).toBeGreaterThan(iZoom);          // zoom PUIS « mode grandes images » (groupe gauche)
-    expect(iSchemaBtn).toBeGreaterThan(iMode);     // « Agrandir le schéma » à l'extrême droite (après le groupe gauche)
-    // la ligne est RENDUE en tête de grille, AVANT l'image. LOT 3 — via le SLOT DE TÊTE à clé stable (ligneOutils aux niveaux 1-2,
-    //   barreNiveau3 au niveau 3) : c'est le même emplacement, jamais les deux à la fois.
-    const iRender = src.indexOf('planSeul ? barreNiveau3 : ligneOutils');
+  it('LOT « barres séparées » — DEUX barres, une par colonne (parité 470) : [zoom · grandes images · agrandir l’image] au-dessus du plan, [rotation · Agrandir le schéma] au-dessus du schéma', () => {
+    // Plus de barre UNIQUE pleine largeur : le slot de tête plein-largeur (span 2 colonnes) n'existe plus aux niveaux 1-2.
+    expect(src).not.toContain('planSeul ? barreNiveau3 : ligneOutils');
+    // Deux barres = deux CELLULES de la rangée 1 (une par colonne de la grille) ; le niveau 3 garde une seule barre en tête.
+    expect(src).toContain('<div key="barre-plan" style={{ gridColumn: 1');
+    expect(src).toContain('<div key="barre-schema" style={{ gridColumn: 2');
+    expect(src).toContain('<div key="topbar" style={{ minWidth: 0 }}>{barreNiveau3}</div>');
+    // BARRE GAUCHE (au-dessus du plan) : zoom PUIS « mode grandes images ».
+    const iG = src.indexOf('const barreGauchePlan =');
+    const g = src.slice(iG, src.indexOf('const barreDroiteSchema =', iG));
+    expect(iG).toBeGreaterThan(-1);
+    expect(g).toContain('<ZoomPdf');
+    expect(g.indexOf('mode grandes images')).toBeGreaterThan(g.indexOf('<ZoomPdf'));
+    // BARRE DROITE (au-dessus du schéma) : RotationSchema PUIS « Agrandir le schéma ».
+    const iD = src.indexOf('const barreDroiteSchema =');
+    const d = src.slice(iD, src.indexOf('const vue = affichageTrace', iD));
+    expect(iD).toBeGreaterThan(-1);
+    expect(d).toContain('<RotationSchema');
+    expect(d.indexOf('⤢ Agrandir le schéma')).toBeGreaterThan(d.indexOf('<RotationSchema'));
+    // MÊME hauteur mini des deux barres (styleBarre partagé) ; l'ALIGNEMENT des panneaux est garanti par la grille (barres en rangée 1, panneaux en rangée 2).
+    expect(src).toContain('const styleBarre: CSSProperties');
+    // La barre GAUCHE est rendue AU-DESSUS de l'image (cellule rangée 1 col 1, avant pdfContainerRef en rangée 2).
+    const iRenderG = src.indexOf('>{barreGauchePlan}</div>');
     const iImage = src.indexOf('ref={pdfContainerRef}');
-    expect(iRender).toBeGreaterThan(-1);
-    expect(iRender).toBeLessThan(iImage);
+    expect(iRenderG).toBeGreaterThan(-1);
+    expect(iRenderG).toBeLessThan(iImage);
+    // La barre DROITE (cellule rangée 1 col 2) est rendue AVANT le SchemaParcelleTrace calé de la branche principale (rangée 2).
+    const iRenderD = src.indexOf('>{barreDroiteSchema}</div>');
+    const iSchemaMain = src.indexOf('calageLambert={paires.map((p) => p.lambert)}');
+    expect(iRenderD).toBeGreaterThan(-1);
+    expect(iRenderD).toBeLessThan(iSchemaMain);
   });
 
   it('LIGNE DE STATUT (ce lot) — statut de l’IMAGE (« Image best-of » / « Image fichier ») + retour au best-of (onRetourBestOf) sur la ligne du titre', () => {
