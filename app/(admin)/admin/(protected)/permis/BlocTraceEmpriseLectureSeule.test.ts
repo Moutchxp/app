@@ -263,37 +263,38 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
     }
   });
 
-  it('LOT « barres séparées » — DEUX barres, une par colonne (parité 470) : [zoom · grandes images · agrandir l’image] au-dessus du plan, [rotation · Agrandir le schéma] au-dessus du schéma', () => {
-    // Plus de barre UNIQUE pleine largeur : le slot de tête plein-largeur (span 2 colonnes) n'existe plus aux niveaux 1-2.
+  it('LOT « barres dans les cadres » — chaque colonne est une CARTE (svv-card) coiffée de SA barre EN TÊTE, DANS le cadre (parité EXACTE 470)', () => {
+    // Plus AUCUN bandeau au-dessus des cadres (ni barre unique pleine largeur, ni cellules de rangée 1) : le slot de tête n'existe qu'au niveau 3.
     expect(src).not.toContain('planSeul ? barreNiveau3 : ligneOutils');
-    // Deux barres = deux CELLULES de la rangée 1 (une par colonne de la grille) ; le niveau 3 garde une seule barre en tête.
-    expect(src).toContain('<div key="barre-plan" style={{ gridColumn: 1');
-    expect(src).toContain('<div key="barre-schema" style={{ gridColumn: 2');
-    expect(src).toContain('<div key="topbar" style={{ minWidth: 0 }}>{barreNiveau3}</div>');
-    // BARRE GAUCHE (au-dessus du plan) : zoom PUIS « mode grandes images ».
+    expect(src).not.toContain('key="barre-plan"');   // les cellules de rangée 1 (77db24a) ont disparu…
+    expect(src).not.toContain('key="barre-schema"');  // …la barre est DANS la carte de chaque colonne
+    expect(src).toContain('{planSeul && <div key="topbar"'); // seul le niveau 3 garde une barre en tête (hors carte)
+    // COLONNE PLAN = carte, barre À L'INTÉRIEUR en tête, AVANT l'image (pdfContainerRef).
+    expect(src).toContain('<div key="colpdf" className="svv-card"');
+    const iBG = src.indexOf('{!planSeul && barreGauchePlan}');
+    const iImage = src.indexOf('ref={pdfContainerRef}');
+    expect(iBG).toBeGreaterThan(-1);
+    expect(iBG).toBeLessThan(iImage);
+    // COLONNE SCHÉMA = carte, barre À L'INTÉRIEUR en tête, AVANT le SchemaParcelleTrace calé.
+    expect(src).toContain('<div key="schema" className="svv-card"');
+    const iBD = src.indexOf('{barreDroiteSchema}');
+    const iSchemaMain = src.indexOf('calageLambert={paires.map((p) => p.lambert)}');
+    expect(iBD).toBeGreaterThan(-1);
+    expect(iBD).toBeLessThan(iSchemaMain);
+    // BARRE GAUCHE : zoom PUIS « mode grandes images ».
     const iG = src.indexOf('const barreGauchePlan =');
     const g = src.slice(iG, src.indexOf('const barreDroiteSchema =', iG));
     expect(iG).toBeGreaterThan(-1);
     expect(g).toContain('<ZoomPdf');
     expect(g.indexOf('mode grandes images')).toBeGreaterThan(g.indexOf('<ZoomPdf'));
-    // BARRE DROITE (au-dessus du schéma) : RotationSchema PUIS « Agrandir le schéma ».
+    // BARRE DROITE : RotationSchema PUIS « Agrandir le schéma ».
     const iD = src.indexOf('const barreDroiteSchema =');
     const d = src.slice(iD, src.indexOf('const vue = affichageTrace', iD));
     expect(iD).toBeGreaterThan(-1);
     expect(d).toContain('<RotationSchema');
     expect(d.indexOf('⤢ Agrandir le schéma')).toBeGreaterThan(d.indexOf('<RotationSchema'));
-    // MÊME hauteur mini des deux barres (styleBarre partagé) ; l'ALIGNEMENT des panneaux est garanti par la grille (barres en rangée 1, panneaux en rangée 2).
+    // MÊME hauteur mini des deux barres (styleBarre partagé) → les deux panneaux démarrent à la même hauteur dans leurs cadres.
     expect(src).toContain('const styleBarre: CSSProperties');
-    // La barre GAUCHE est rendue AU-DESSUS de l'image (cellule rangée 1 col 1, avant pdfContainerRef en rangée 2).
-    const iRenderG = src.indexOf('>{barreGauchePlan}</div>');
-    const iImage = src.indexOf('ref={pdfContainerRef}');
-    expect(iRenderG).toBeGreaterThan(-1);
-    expect(iRenderG).toBeLessThan(iImage);
-    // La barre DROITE (cellule rangée 1 col 2) est rendue AVANT le SchemaParcelleTrace calé de la branche principale (rangée 2).
-    const iRenderD = src.indexOf('>{barreDroiteSchema}</div>');
-    const iSchemaMain = src.indexOf('calageLambert={paires.map((p) => p.lambert)}');
-    expect(iRenderD).toBeGreaterThan(-1);
-    expect(iRenderD).toBeLessThan(iSchemaMain);
   });
 
   it('LIGNE DE STATUT (ce lot) — statut de l’IMAGE (« Image best-of » / « Image fichier ») + retour au best-of (onRetourBestOf) sur la ligne du titre', () => {

@@ -896,7 +896,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   hauteur mini + MÊME structure) → les deux panneaux (plan à gauche, schéma à droite) démarrent EXACTEMENT à la même hauteur. Aucun
   //   libellé, aucun ORDRE d'éléments, aucun comportement de bouton ne change : seul l'EMPLACEMENT des deux groupes change (plein-largeur →
   //   une barre par colonne). Le niveau 3 (plan seul) garde sa barre `barreNiveau3` en tête (une seule colonne).
-  const styleBarre: CSSProperties = { display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0, minHeight: '1.9rem' };
+  // `minHeight` COMMUN aux DEUX barres → les DEUX panneaux démarrent à la même hauteur dans leurs cartes, SANS retirer de bouton (contrainte
+  //   Arno). En VUE ÉTROITE (niveau 1 en page, colonnes serrées), la barre droite passe sur DEUX lignes (RotationSchema + « Agrandir le schéma »
+  //   ne tiennent pas côte à côte) → hauteur mini de DEUX lignes (3.7rem) pour que la barre gauche (une ligne, centrée) l'égale. En VUE LARGE
+  //   (niveau 2 plein écran), tout tient sur UNE ligne → hauteur mini d'UNE ligne (1.9rem), pas de vide superflu. Contenu centré (alignItems).
+  const styleBarre: CSSProperties = { display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0, minHeight: imageAgrandie ? '1.9rem' : '3.7rem' };
   // BARRE GAUCHE — au-dessus du PLAN (colonne colpdf) : ZOOM (contrôle) à gauche, [grandes images · agrandir l'image] (actions écran) à
   //   droite au niveau 2 (space-between) ; packé à gauche au niveau 1, à l'identique du cas 470. Aucun handler modifié.
   const barreGauchePlan = (
@@ -1102,22 +1106,15 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             : imageAgrandie
               ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
               : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
-          {/* SLOT DE TÊTE — DEUX barres séparées, une par colonne (parité 470). Aux niveaux 1-2 (grille), chaque barre est une CELLULE de la
-              RANGÉE 1 (barreGauchePlan en col 1 au-dessus du plan, barreDroiteSchema en col 2 au-dessus du schéma) : les PANNEAUX sont en
-              RANGÉE 2 → la grille les aligne EXACTEMENT à la même hauteur, MÊME si une barre passe sur deux lignes (cas de la barre droite en
-              vue étroite). `alignSelf:start` : les barres se calent en haut de la rangée. Au niveau 3 (plan seul, une colonne), une SEULE barre
-              `barreNiveau3` en tête. Clé « colpdf » stable → le canvas n'est jamais démonté. */}
-          {planSeul ? (
-            <div key="topbar" style={{ minWidth: 0 }}>{barreNiveau3}</div>
-          ) : (
-            <>
-              <div key="barre-plan" style={{ gridColumn: 1, minWidth: 0, alignSelf: 'start' }}>{barreGauchePlan}</div>
-              <div key="barre-schema" style={{ gridColumn: 2, minWidth: 0, alignSelf: 'start' }}>{barreDroiteSchema}</div>
-            </>
-          )}
-          {/* Colonne PDF (RANGÉE 2, col 1) — l'IMAGE ; sous elle le bloc de navigation + « voir toutes les pièces » + lien ; en dernier le
-              bloc « Étape 1 — caler la vue ». La BARRE de cette colonne est en rangée 1 (barre-plan), plus ici. */}
-          <div key="colpdf" style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', minWidth: 0 }}>
+          {/* Au NIVEAU 3 (plan seul, une colonne) : une SEULE barre `barreNiveau3` en tête, hors carte. Aux niveaux 1-2, PLUS AUCUN bandeau
+              au-dessus des cadres : chaque barre est DANS la carte de sa colonne, en tête (parité EXACTE avec le cas 0 bâtiment). */}
+          {planSeul && <div key="topbar" style={{ minWidth: 0 }}>{barreNiveau3}</div>}
+          {/* Colonne PDF = CARTE (svv-card, comme la liseuse du cas 0 bâtiment) : la BARRE GAUCHE À L'INTÉRIEUR, en tête, puis l'image, la nav,
+              le guide. MÊME cadre/arrondi/padding que la carte du schéma → deux cadres jumeaux, chacun coiffé de SES outils, coupés par la
+              gouttière. `gap .5rem` = celui de la carte du schéma → les deux panneaux démarrent à la même hauteur sous des barres de même hauteur. */}
+          <div key="colpdf" className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+            {/* BARRE GAUCHE — À L'INTÉRIEUR de la carte, en tête (jamais au niveau 3 : la barre y est barreNiveau3, hors carte). */}
+            {!planSeul && barreGauchePlan}
             {/* a) IMAGE — conteneur NON transformé (repère du clic) ; le PDF + l'overlay sont dans un wrapper zoomé/déplacé. Glisser = déplacer (si zoomé), cliquer = poser un point.
                 🔴 RÈGLE ABSOLUE : le repère de coordonnées (top-left du conteneur via getBoundingClientRect, canvas width:100%, ratio) est INCHANGÉ.
                 CADRE À HAUTEUR FIXE + DÉFILEMENT INTERNE : la hauteur fixe et l'overflow sont portés par le WRAPPER extérieur, JAMAIS par le
@@ -1165,8 +1162,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               LOT 3 — colonne ENTIÈREMENT MASQUÉE au niveau 3 (plan seul) : le calage exige les deux colonnes, il se fait aux niveaux 1-2.
               Clé stable « schema » : React la démonte proprement en entrant au niveau 3 SANS toucher à la colonne du plan (clé « colpdf »). */}
           {!planSeul && (
-          <div key="schema" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
-            {/* La BARRE DROITE (rotation + « Agrandir le schéma ») est en RANGÉE 1, col 2 (barre-schema), au-dessus de ce panneau — plus ici. */}
+          <div key="schema" className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+            {/* BARRE DROITE — À L'INTÉRIEUR de la carte, en tête (rotation + « Agrandir le schéma »), au-dessus du schéma. MÊME hauteur mini
+                (styleBarre) et MÊME gap (.5rem) que la carte du plan → le schéma démarre à la même hauteur que l'image. */}
+            {barreDroiteSchema}
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} statuts={statutParCleabs}
               onCliquer={retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined)} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
             {/* Sous le schéma : bandeau de sélection (la rotation est désormais dans la barre droite, au-dessus du schéma). */}
