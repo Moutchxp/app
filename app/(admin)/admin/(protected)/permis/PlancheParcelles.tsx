@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { PlancheParcelles as PlancheData, PlancheParcelleMeta, CentreMode, SuggestionAdresse } from '../../../../lib/permis/plancheParcellesRepo';
 import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle';
+import { comparerParcelles, type RefParcelle } from '../../../../lib/permis/comparatifParcelles'; // PL-COMPARATIF — constat PUR déclaré ↔ sélectionné (aucune écriture)
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome, RÉUTILISÉE (jamais dupliquée) ; P3 — partage donnée /emprise
 
 /**
@@ -172,6 +173,16 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, donneesLise
   //   ou ligne « fantôme » sans contour au cadastre, cas DK 649 sur le 468). Bandeau discret, ton neutre — on invite à composer la sélection.
   const aucuneParcellePermis = data.nbRetenues === 0;
 
+  // PL-COMPARATIF — CONSTAT (lecture seule) : parcelles DÉCLARÉES au permis (A = data.parcellesDeclarees, formes brutes) ↔ parcelles
+  //   SÉLECTIONNÉES dans la composition sur le schéma (B = `composition`, IDU → section/numéro via `meta`/`parcellesChoix`). La
+  //   comparaison NORMALISE (module pur `comparerParcelles`) : « DZ 09 » ⟷ « DZ 9 » ne sont pas comptés comme un écart. N'écrit RIEN,
+  //   ne touche pas « Valider la sélection ». `?? []` défensif si un payload ancien/mocké n'a pas encore le champ.
+  const refParIdu = new Map<string, RefParcelle>();
+  for (const x of data.parcellesChoix) refParIdu.set(x.idu, { section: x.section, numero: x.numero });
+  for (const m of meta) if (m.idu) refParIdu.set(m.idu, { section: m.section, numero: m.numero });
+  const refsSelection: RefParcelle[] = [...composition].map((id) => refParIdu.get(id) ?? { section: '', numero: '' });
+  const comparatif = comparerParcelles(data.parcellesDeclarees ?? [], refsSelection);
+
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>Planche cadastrale <span style={{ fontSize: 12, color: 'var(--color-svv-muted)', fontWeight: 400 }}>(cliquez une parcelle pour la sélectionner ; validez pour l’appliquer)</span></div>
@@ -324,6 +335,36 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, donneesLise
                 ))}
               </ul>
               <p style={{ margin: 0, fontSize: 11, color: 'var(--color-svv-muted)' }}>{data.nbRetenues} parcelle(s) du permis · {data.nbVoisines} voisine(s). Repère seulement — aucune mesure.</p>
+
+              {/* PL-COMPARATIF — CONSTAT déclaré ↔ sélectionné, SOUS la légende. Lecture seule : n'ajoute/retire/coche/corrige/enregistre
+                  RIEN, ne touche pas « Valider la sélection ». Jetons EXISTANTS uniquement (vert -green-ink / rouge -red / neutre -muted). */}
+              <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' }}>Déclaré au permis ↔ sélectionné sur le schéma</div>
+                {!comparatif.comparable ? (
+                  <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>{comparatif.motif}</div>
+                ) : (
+                  <>
+                    {/* Ligne de synthèse : VERTE si A et B coïncident exactement (après normalisation), ROUGE sinon. L'info est portée par le TEXTE. */}
+                    <div role="status" style={{ fontSize: 12, fontWeight: 700, color: comparatif.concordant ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)' }}>
+                      {comparatif.concordant
+                        ? '✓ Les parcelles sélectionnées correspondent aux parcelles déclarées au permis.'
+                        : '✗ Écart : la sélection ne correspond pas aux parcelles déclarées au permis.'}
+                    </div>
+                    <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+                      {comparatif.lignes.map((l) => {
+                        const couleur = l.statut === 'commune' ? 'var(--color-svv-green-ink)' : l.statut === 'a_verifier' ? 'var(--color-svv-muted)' : 'var(--color-svv-red)';
+                        const marque = l.statut === 'commune' ? '✓' : l.statut === 'a_verifier' ? '?' : '✗';
+                        const suffixe = l.statut === 'commune' ? 'présente des deux côtés'
+                          : l.statut === 'declaree_non_selectionnee' ? 'déclarée au permis, non sélectionnée sur le schéma'
+                          : l.statut === 'selectionnee_non_declaree' ? 'sélectionnée sur le schéma, non déclarée au permis'
+                          : 'à vérifier — référence incomplète';
+                        return <li key={l.cle} style={{ fontSize: 11.5, color: couleur }}><span aria-hidden>{marque} </span>{l.libelle} — {suffixe}</li>;
+                      })}
+                    </ul>
+                    <div style={{ fontSize: 10.5, color: 'var(--color-svv-muted)' }}>Constat seulement (références rapprochées à l’écriture près). N’ajoute, ne coche ni ne corrige rien.</div>
+                  </>
+                )}
+              </div>
             </>
           )}
         </div>

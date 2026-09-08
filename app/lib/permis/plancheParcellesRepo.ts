@@ -79,6 +79,10 @@ export interface PlancheParcelles {
   centreAvertissement: string | null;
   marqueurAdresse: { cx: number; cy: number } | null;
   parcellesChoix: { idu: string; section: string; numero: string }[];
+  // PL-COMPARATIF — références DÉCLARÉES au permis (caractéristiques : permis_parcelle, role 'origine'), formes BRUTES telles que
+  //   déclarées (ex. « DZ 09 »), Y COMPRIS une parcelle sans géométrie cadastrale (fantôme absente de `parcelle`, ex. DK 649) que
+  //   `parcellesChoix` (INNER JOIN parcelle) exclut. Sert au CONSTAT déclaré ↔ sélectionné ; jamais au dessin ni au calcul.
+  parcellesDeclarees: { section: string; numero: string }[];
   localisation: Localisation;
   selection: SelectionInfo;     // PL-C — sélection validée (superposition) ; active=false = configuration automatique
   retenuesHorsVue: number;      // PL-G — nb de parcelles DU PERMIS dessinées mais hors du cadre courant (au-delà du rayon) → l'écran le DIT
@@ -247,6 +251,13 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
        FROM permis_parcelle pp JOIN parcelle par ON par.id = pp.idu WHERE pp.dossier_id = $1 ORDER BY par.section, par.numero`, [dossierId]);
   const parcellesChoix = choixRows.map((r) => ({ idu: r.idu, section: r.section, numero: r.numero }));
 
+  // PL-COMPARATIF — références DÉCLARÉES (formes brutes du dossier), lues DIRECTEMENT de permis_parcelle (SANS jointure parcelle) :
+  //   inclut la parcelle « fantôme » sans géométrie cadastrale (ex. DK 649 du 468), que `parcellesChoix` exclut. role 'origine' = les
+  //   parcelles que le dossier déclare (exclut une éventuelle parcelle 'finale' de fusion, qui n'est pas une parcelle sélectionnable).
+  const { rows: declRows } = await query<{ section: string; numero: string }>(
+    `SELECT section, numero FROM permis_parcelle WHERE dossier_id = $1 AND role = 'origine' ORDER BY section, numero`, [dossierId]);
+  const parcellesDeclarees = declRows.map((r) => ({ section: r.section, numero: r.numero }));
+
   const selection = await lireSelectionInfo(dossierId); // PL-C — sélection validée (superposition) ; { active:false } = configuration automatique
 
   const demande: CentreDemande = centre ?? { mode: 'empreinte' };
@@ -365,6 +376,6 @@ export async function parcellesVoisines(dossierId: number, rayonM: number = RAYO
 
   return {
     schema, meta, rayonM: rayon, nbRetenues, nbVoisines, motif,
-    centre: { mode, idu, point, provenance, label }, centreAvertissement, marqueurAdresse, parcellesChoix, localisation, selection, retenuesHorsVue,
+    centre: { mode, idu, point, provenance, label }, centreAvertissement, marqueurAdresse, parcellesChoix, parcellesDeclarees, localisation, selection, retenuesHorsVue,
   };
 }
