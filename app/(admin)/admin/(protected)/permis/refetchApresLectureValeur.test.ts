@@ -34,7 +34,10 @@ describe('LiseusePieces — signale une valeur lue/annulée par « analyse de la
 describe('BlocTraceEmprise — repasse le signal de sa liseuse embarquée au parent (canvas/tracé intouché)', () => {
   it('accepte onValeurLue et le branche sur onValeurEcrite de la liseuse embarquée', () => {
     expect(TRACE).toContain('onValeurLue?: () => void');
-    expect(TRACE).toContain('<LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete imageAgrandie={imageAgrandie} onToggleImageAgrandie={() => setImageAgrandie((v) => !v)} />'); // P3 donnée partagée + agrandi piloté par le parent (parité grandes images)
+    // P3 donnée partagée + agrandi piloté par le parent — fragments sémantiques (la forme exacte de l'appel évolue avec le niveau 3).
+    expect(TRACE).toContain('<LiseusePieces key="liseuse" dossierId={dossierId}');
+    expect(TRACE).toContain('onValeurEcrite={onValeurLue}');
+    expect(TRACE).toContain('onToggleImageAgrandie={() => setImageAgrandie((v) => !v)}');
   });
 });
 

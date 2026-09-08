@@ -871,17 +871,22 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   MÊME LIGNE, chacune au-dessus de sa surface (rotation remontée de sous le schéma). Aucun handler de zoom/rotation/agrandissement modifié.
   const ligneOutils = (
     <div style={{ gridColumn: '1 / -1', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
+      {/* LOT 3 (demande 3a) — au-dessus du PLAN : ZOOM à GAUCHE, bloc ÉCRAN [grandes images · agrandir l'image] justifié À DROITE (au NIVEAU 2).
+          Au niveau 1, disposition historique (packé à gauche), pixel pour pixel : flex 0/flex-start. Séparation zoom / écran = intention Arno. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0, flex: imageAgrandie ? '1 1 auto' : '0 0 auto', justifyContent: imageAgrandie ? 'space-between' : 'flex-start' }}>
         <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
-        <button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
-          aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images (tracer en grand)'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
-        {/* LOT 3 (décision Arno C2) — bouton d'entrée du NIVEAU 3 (plan seul, plein écran, tracé), dans la barre de SA colonne, au-dessus de
-            son image. Présent UNIQUEMENT au niveau 2 (imageAgrandie) : le niveau 3 s'ouvre DEPUIS le niveau 2 et y revient. Le niveau 1 reste
-            STRICTEMENT inchangé (le bouton n'y apparaît pas). On force le mode 'trace' : au niveau 3 le calage est indisponible (pas de schéma). */}
-        {imageAgrandie && (
-          <button type="button" style={btn} disabled={!tracable} onClick={() => { setMode('trace'); setPlanSeul(true); }}
-            aria-label="Agrandir l’image en plein écran pour tracer (calage indisponible dans cette vue)">⤢ Agrandir l’image (tracer)</button>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
+          <button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
+            aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images (tracer en grand)'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
+          {/* LOT 3 (décision Arno C2) — bouton d'entrée du NIVEAU 3, dans la barre de SA colonne, au-dessus de son image. Présent UNIQUEMENT au
+              niveau 2 (imageAgrandie) : le niveau 3 s'ouvre DEPUIS le niveau 2 et y revient. Le niveau 1 reste STRICTEMENT inchangé (pas de bouton).
+              DEMANDE 1 — libellé « (tracer) » quand le tracé est possible (page en plan) ; « Agrandir l'image » (SANS « tracer ») sinon : on ne
+              promet PAS une fonction indisponible → le niveau 3 s'ouvre alors en CONSULTATION. Jamais désactivé (l'agrandissement, lui, marche toujours). */}
+          {imageAgrandie && (
+            <button type="button" style={btn} onClick={() => { if (tracable) setMode('trace'); setPlanSeul(true); }}
+              aria-label={tracable ? 'Agrandir l’image en plein écran pour tracer (calage indisponible dans cette vue)' : 'Agrandir l’image en plein écran (consultation, tracé indisponible sur cette page)'}>{tracable ? '⤢ Agrandir l’image (tracer)' : '⤢ Agrandir l’image'}</button>
+          )}
+        </div>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
         <RotationSchema angle={angle} onAngle={setAngle} />
@@ -896,18 +901,37 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   niveau 2 (paires) est préservé, on n'y touche pas. Aucun outil de calage : au niveau 3 le clic pose des SOMMETS (mode 'trace' forcé).
   const barreNiveau3 = (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', minWidth: 0 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
-        <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={() => setPlanSeul(false)}
-          aria-label="Revenir à la vue deux colonnes (liseuse et schéma)">← Revenir à la vue 2 colonnes</button>
-        <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
-        <button type="button" style={btn} disabled={sommets.length === 0} onClick={() => setSommets((s) => s.slice(0, -1))}>Annuler dernier sommet</button>
-        <button type="button" style={btn} disabled={sommets.length === 0} onClick={() => { setSommets([]); setDebordement(null); }}>Reprendre le tracé</button>
-        <span style={styleAide}>Sommets : {sommets.length}{paires.length > 0 ? ` · calage ${paires.length}/2 (fait à la vue 2 colonnes)` : ''}</span>
+      {/* LOT 3 (demande 3b) — RETOUR + ZOOM à GAUCHE ; le bloc TRACÉ [Annuler dernier sommet · Reprendre le tracé · Sommets : N] justifié À
+          DROITE (au-dessus de l'image). Quand le tracé est impossible ici, le MESSAGE d'empêchement REMPLACE ce bloc, au MÊME endroit (à droite). */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0, justifyContent: 'space-between' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={() => setPlanSeul(false)}
+            aria-label="Revenir à la vue deux colonnes (liseuse et schéma)">← Revenir à la vue 2 colonnes</button>
+          <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
+          {tracable ? (
+            <>
+              <button type="button" style={btn} disabled={sommets.length === 0} onClick={() => setSommets((s) => s.slice(0, -1))}>Annuler dernier sommet</button>
+              <button type="button" style={btn} disabled={sommets.length === 0} onClick={() => { setSommets([]); setDebordement(null); }}>Reprendre le tracé</button>
+              <span style={styleAide}>Sommets : {sommets.length}{paires.length > 0 ? ` · calage ${paires.length}/2 (fait à la vue 2 colonnes)` : ''}</span>
+            </>
+          ) : (
+            // Page non traçable (coupe/façade) : l'agrandissement sert alors à CONSULTER, jamais à tracer — on le DIT (pas de boutons muets, pas de vide).
+            <span role="note" style={styleAide}>Impossible de tracer ici : cette page n’est pas une vue en plan (coupe/façade).</span>
+          )}
+        </div>
       </div>
-      {/* HONNÊTETÉ (jamais laisser croire que le calage est cassé) : on DIT que le calage se fait ailleurs, pas ici. */}
-      <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
-        Vue <strong>plan seul</strong> pour tracer avec précision. Le <strong>calage</strong> (2 points plan ↔ schéma) n’est pas disponible ici — il se fait dans la vue 2 colonnes. Tracez vos sommets, puis revenez-y pour caler (si ce n’est pas fait) et enregistrer.
-      </div>
+      {/* HONNÊTETÉ (jamais laisser croire que le calage/tracé est cassé) : on DIT ce qui se passe et où. */}
+      {tracable ? (
+        <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
+          Vue <strong>plan seul</strong> pour tracer avec précision. Le <strong>calage</strong> (2 points plan ↔ schéma) n’est pas disponible ici — il se fait dans la vue 2 colonnes. Tracez vos sommets, puis revenez-y pour caler (si ce n’est pas fait) et enregistrer.
+        </div>
+      ) : (
+        <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
+          Vue <strong>plan seul</strong> en <strong>consultation</strong> (agrandissement). Le tracé se fait sur une <strong>vue en plan</strong> : revenez à la vue 2 colonnes et ouvrez une planche traçable.
+        </div>
+      )}
     </div>
   );
 
@@ -977,15 +1001,24 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             LOT 90 — le CALAGE reste FERMÉ à 0 bâtiment (rien à enregistrer). `avecLiseuse=false` (une liseuse standalone existe déjà ailleurs)
             → pas de 2 colonnes (sinon colonne gauche vide) : on empile le seul schéma, comme avant. */}
         {avecLiseuse ? (
-          // PARITÉ GRANDES IMAGES — même overlay 2 colonnes que le nominal (position:fixed plein écran), mais en LECTURE SEULE : liseuse à
-          //   gauche + schéma à droite. L'agrandi est porté ICI (imageAgrandie de BlocTraceEmprise) et délégué à la liseuse (état + toggle) ;
-          //   la liseuse reste PASSIVE (aucun calage). On NE réutilise NI le conteneur de coordonnées NI l'aperçu de la surface de dessin dans cette branche.
-          <div role={imageAgrandie ? 'dialog' : undefined} aria-modal={imageAgrandie || undefined} aria-label={imageAgrandie ? 'Visionneuse agrandie — liseuse et schéma (lecture seule)' : undefined}
-            style={imageAgrandie
-              ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
-              : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
-            <LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete imageAgrandie={imageAgrandie} onToggleImageAgrandie={() => setImageAgrandie((v) => !v)} />
-            {blocSchema}
+          // PARITÉ GRANDES IMAGES + LOT 3 — TROIS NIVEAUX, un seul conteneur (la liseuse à clé stable « liseuse » n'est jamais démontée entre
+          //   niveaux → pas de re-téléchargement) ; en LECTURE SEULE (la liseuse reste PASSIVE, aucun calage). On NE réutilise NI le conteneur
+          //   de coordonnées NI l'aperçu de la surface de dessin dans cette branche.
+          //   • NIVEAU 1 : grille 2 colonnes EN PAGE (liseuse | schéma). INCHANGÉ.
+          //   • NIVEAU 2 (imageAgrandie, !planSeul) : la MÊME grille 2 colonnes en PLEIN ÉCRAN. INCHANGÉ.
+          //   • NIVEAU 3 (planSeul) : la LISEUSE SEULE en plein écran, une colonne, en CONSULTATION (tracé impossible sans bâtiment → message
+          //     porté par la liseuse via `messagePlanSeul`). NOUVEAU. `imageAgrandie={imageAgrandie && !planSeul}` : le flag niveau 2 retombe à
+          //     l'entrée du niveau 3 (l'agrandissement du cadre y est porté par `planSeul`), pour que l'Échap partagé (BlocTraceEmprise) et la
+          //     bascule de la liseuse ne se marchent pas dessus.
+          <div role={imageAgrandie || planSeul ? 'dialog' : undefined} aria-modal={imageAgrandie || planSeul || undefined}
+            aria-label={planSeul ? 'Plan seul en plein écran — consultation (aucun bâtiment)' : imageAgrandie ? 'Visionneuse agrandie — liseuse et schéma (lecture seule)' : undefined}
+            style={planSeul
+              ? { position: 'fixed', inset: 0, zIndex: 1001, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '.5rem' }
+              : imageAgrandie
+                ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
+                : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
+            <LiseusePieces key="liseuse" dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete imageAgrandie={imageAgrandie && !planSeul} onToggleImageAgrandie={() => setImageAgrandie((v) => !v)} planSeul={planSeul} onOuvrirPlanSeul={() => setPlanSeul(true)} onQuitterPlanSeul={() => setPlanSeul(false)} messagePlanSeul="Impossible de tracer un polygone sans bâtiment renseigné" />
+            {!planSeul && blocSchema}
           </div>
         ) : blocSchema}
       </div>

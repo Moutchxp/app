@@ -32,7 +32,10 @@ describe('LOT 86 — la garde « aucun bâtiment » n’efface plus le schéma (
 
   it('LOT 90 — la LISEUSE lecture seule est montée à 0 bâtiment (gardée par `avecLiseuse`) ; le CALAGE reste FERMÉ (cul-de-sac sans bâtiment)', () => {
     expect(brancheEtSuite).toContain('avecLiseuse ? ('); // LOT 3a — liseuse montée SEULEMENT si avecLiseuse (sinon colonne gauche vide → on empile le seul schéma)
-    expect(brancheEtSuite).toContain('<LiseusePieces dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete imageAgrandie={imageAgrandie} onToggleImageAgrandie={() => setImageAgrandie((v) => !v)} />'); // liseuse consultable, agrandi PILOTÉ par le parent (parité)
+    // liseuse consultable, agrandi PILOTÉ par le parent (parité) — fragments sémantiques (la forme exacte de l'appel évolue avec le niveau 3).
+    expect(brancheEtSuite).toContain('<LiseusePieces key="liseuse" dossierId={dossierId}');
+    expect(brancheEtSuite).toContain('onValeurEcrite={onValeurLue}');
+    expect(brancheEtSuite).toContain('donneesPrechargees={donneesLiseuse}');
     expect(src).toContain('avecLiseuse = true');                     // prop, défaut true
     // Pas de boutons/mode de calage dans la branche (le calage vit dans le rendu principal, sous bâtiment).
     expect(brancheEtSuite).not.toContain("setMode('calage')");
@@ -43,8 +46,9 @@ describe('LOT 86 — la garde « aucun bâtiment » n’efface plus le schéma (
     // overlay plein écran 2 colonnes, GATED par imageAgrandie (même structure que le nominal)
     expect(brancheEtSuite).toMatch(/imageAgrandie\s*\n?\s*\?\s*\{[\s\S]*?position: 'fixed'/);
     expect(brancheEtSuite).toContain("gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)'"); // 2 colonnes liseuse | schéma
-    // l'agrandi est PORTÉ par BlocTraceEmprise et DÉLÉGUÉ à la liseuse (état + toggle) — pas l'imageAgrandie interne de la liseuse
-    expect(brancheEtSuite).toContain('imageAgrandie={imageAgrandie}');
+    // l'agrandi est PORTÉ par BlocTraceEmprise et DÉLÉGUÉ à la liseuse (état + toggle) — pas l'imageAgrandie interne de la liseuse.
+    //   LOT 3 — le flag niveau 2 retombe à l'entrée du niveau 3 (plan seul) → `imageAgrandie && !planSeul`.
+    expect(brancheEtSuite).toContain('imageAgrandie={imageAgrandie && !planSeul}');
     expect(brancheEtSuite).toContain('onToggleImageAgrandie={');
     // 🔴 CONDITION : on NE réutilise NI le conteneur de coordonnées NI la conversion de la surface de dessin dans cette branche.
     expect(brancheEtSuite).not.toContain('pdfContainerRef');
@@ -57,6 +61,18 @@ describe('LOT 86 — la garde « aucun bâtiment » n’efface plus le schéma (
     expect(brancheEtSuite).toContain('+ ajouter un bâtiment');
     // il ne dit plus « rien à tracer pour l’instant » comme SEUL contenu à la place du schéma
     expect(brancheEtSuite).not.toContain('rien à tracer pour l’instant');
+  });
+
+  it('LOT 3 (demandes 1-2) — NIVEAU 3 à 0 bâtiment : entrée CONSULTATION + message d’empêchement porté par la liseuse ; conteneur plein écran une colonne', () => {
+    // Le niveau 3 (planSeul) ouvre un conteneur plein écran UNE colonne (flex column), au-dessus des niveaux 1-2 (zIndex 1001), SANS schéma.
+    expect(brancheEtSuite).toMatch(/planSeul\s*\n?\s*\?\s*\{[\s\S]*?zIndex: 1001[\s\S]*?flexDirection: 'column'/);
+    expect(brancheEtSuite).toContain('{!planSeul && blocSchema}');            // le schéma disparaît au niveau 3 (le plan prend toute la largeur)
+    // Le bouton d'entrée (⤢ Agrandir l'image) est délégué à la liseuse via onOuvrirPlanSeul ; le RETOUR au niveau 2 via onQuitterPlanSeul.
+    expect(brancheEtSuite).toContain('onOuvrirPlanSeul={() => setPlanSeul(true)}');
+    expect(brancheEtSuite).toContain('onQuitterPlanSeul={() => setPlanSeul(false)}');
+    expect(brancheEtSuite).toContain('planSeul={planSeul}');
+    // DEMANDE 2 — message EXACT, à l'emplacement des boutons de tracé (ici porté par la liseuse, aucun tracé possible sans bâtiment).
+    expect(brancheEtSuite).toContain('messagePlanSeul="Impossible de tracer un polygone sans bâtiment renseigné"');
   });
 
   it('HONNÊTETÉ : si aucun cadre (ni parcelle ni empreinte) → dire ce qui manque, jamais un cadre vide muet', () => {

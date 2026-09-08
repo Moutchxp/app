@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { PointerEvent as ReactPointerEvent } from 'react';
+import type { PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import type { PDFDocumentProxy } from 'pdfjs-dist'; // type SEUL (erasé au runtime) : pdf.js reste importé DYNAMIQUEMENT dans afficherPage
 import {
   construireBandePlans, bandeAvecOverrides, cibleBestOf, bornerPage,
@@ -77,7 +77,7 @@ export interface DonneesLiseuse {
   origineExtractionSansIa?: 'auto' | 'manuelle' | null;
 }
 
-export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = null, titreEnEntete = false, imageAgrandie: imageAgrandieProp, onToggleImageAgrandie }: {
+export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = null, titreEnEntete = false, imageAgrandie: imageAgrandieProp, onToggleImageAgrandie, planSeul = false, onOuvrirPlanSeul, onQuitterPlanSeul, messagePlanSeul }: {
   dossierId: number;
   // LOT 3a (layout) — OPT-IN : le titre passe en EN-TÊTE pleine largeur (au lieu de la colonne latérale ~220 px vestigiale, qui ne
   //   porte plus que le titre depuis le refactor « paire unique »). La liseuse devient alors une SEULE colonne (titre puis aperçu),
@@ -90,6 +90,15 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
   //   Props ABSENTES → mode autonome (état interne + overlay propre), comportement historique strictement inchangé.
   imageAgrandie?: boolean;
   onToggleImageAgrandie?: () => void;
+  // LOT 3 (niveau 3 à 0 bâtiment) — CONSULTATION du plan SEUL en plein écran, piloté par le parent (BlocTraceEmprise), qui enveloppe la
+  //   liseuse dans un conteneur plein écran une colonne (SANS schéma). `planSeul` agrandit le cadre (comme imageAgrandie) et bascule la barre
+  //   d'outils en mode niveau 3 : bouton « ← Revenir à la vue 2 colonnes » (onQuitterPlanSeul) + `messagePlanSeul` À LA PLACE de la bascule
+  //   « grandes images ». `onOuvrirPlanSeul` (quand fourni, au niveau 2) affiche le bouton d'entrée « ⤢ Agrandir l'image » (SANS « tracer » :
+  //   la liseuse est toujours en CONSULTATION, aucun tracé). Props absentes → comportement historique strictement inchangé (usages autonomes).
+  planSeul?: boolean;
+  onOuvrirPlanSeul?: () => void;
+  onQuitterPlanSeul?: () => void;
+  messagePlanSeul?: ReactNode;
   // LOT — « analyse de la page » écrit une valeur (ou l'annule) au niveau PERMIS/corps : ce signal permet à un frère co-monté
   //   (CaracteristiquesBloc) de RE-FETCHER son journal, pour que la valeur lue apparaisse aussitôt en proposition (sinon, le bloc
   //   restant monté — BlocRepliable ne démonte jamais — garde un journal périmé et n'affiche pas la proposition). N'affecte PAS le lecteur.
@@ -143,6 +152,9 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
   const imageAgrandie = controle ? imageAgrandieProp! : imageAgrandieInterne;      // effectif : pilote le RE-RENDU (deps) et la fin du cadre fixe
   const basculerAgrandi = useCallback(() => { if (controle) onToggleImageAgrandie!(); else setImageAgrandieInterne((v) => !v); }, [controle, onToggleImageAgrandie]);
   const agrandiPropre = imageAgrandie && !controle;                                // overlay plein écran PROPRE à la liseuse : SEULEMENT en mode autonome (le parent l'enveloppe en mode contrôlé)
+  // LOT 3 — `grand` = cadre AGRANDI (plus de hauteur fixe) : vrai au niveau 2 (imageAgrandie) OU au niveau 3 (planSeul, plan seul plein écran).
+  //   `planSeul` est CONTRÔLÉ par le parent (jamais d'overlay propre ici) ; sa fermeture (retour niveau 2) est portée par le parent (Échap partagé).
+  const grand = imageAgrandie || planSeul;
   const [message, setMessage] = useState<string | null>(null);
   // LOT 23 — RETOUR VISUEL d'un téléchargement réseau NON préchargé : « Chargement… N % » (pct null tant qu'on n'a pas de total). null = rien à afficher.
   const [chargeReseau, setChargeReseau] = useState<{ pct: number | null } | null>(null);
@@ -394,7 +406,7 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
   useEffect(() => { afficherPageRef.current = afficherPage; }, [afficherPage]);
   // PROJ-AGR — `imageAgrandie` dans les deps : basculer l'agrandi re-rend le canvas à la largeur de la nouvelle vue (le cache LRU des
   //   documents évite tout re-téléchargement ; seul le rendu est refait). Aucune capture de clic : la planche reste passive.
-  useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [pieceId, page, etat, imageAgrandie]);
+  useEffect(() => { if (etat === 'ok') void afficherPageRef.current(); }, [pieceId, page, etat, imageAgrandie, planSeul]);
   // PROJ-AGR — Échap réduit l'agrandissement (sortie clavier).
   useEffect(() => {
     if (!imageAgrandie) return;
@@ -631,11 +643,32 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
   );
   // DEMANDE 1 — LIGNE D'OUTILS AU-DESSUS DE L'IMAGE (parité avec « Bâtiments et projection », sans schéma côté planche) : zoom + « mode
   //   grandes images » (ex-« Agrandir l'image », RENOMMÉ). PASSIVE : « grandes images » n'ouvre qu'un aperçu plein écran (aucun tracé).
+  // LOT 3 — séparation ZOOM (gauche) / ÉCRAN (droite) : quand le cadre est agrandi en mode contrôlé (niveaux 2-3), le bloc d'écran se
+  //   justifie À DROITE (au-dessus de l'image). En autonome ou au niveau 1, disposition historique (packé à gauche), pixel pour pixel.
+  //   Au NIVEAU 3 (planSeul) : la bascule « grandes images » cède la place au retour vers la vue 2 colonnes + au message d'empêchement.
+  const aligneADroite = controle && grand;
+  const btnLise = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.2rem .6rem', fontSize: 12 } as const;
   const ligneOutils = (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
-      <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajuster} />
-      <button type="button" style={{ cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.2rem .6rem', fontSize: 12 }}
-        onClick={basculerAgrandi} aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
+    <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0, justifyContent: aligneADroite ? 'space-between' : 'flex-start' }}>
+      {/* GAUCHE : (au niveau 3) le RETOUR vers la vue 2 colonnes, puis le ZOOM — même disposition que la barre niveau 3 de « Bâtiments et projection ». */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
+        {planSeul && <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={onQuitterPlanSeul} aria-label="Revenir à la vue deux colonnes">← Revenir à la vue 2 colonnes</button>}
+        <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajuster} />
+      </div>
+      {/* DROITE : bloc ÉCRAN. Au niveau 3, le MESSAGE d'empêchement (aucun tracé sans bâtiment) prend la place du bloc « grandes images / agrandir ». */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
+        {planSeul ? (
+          messagePlanSeul && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{messagePlanSeul}</span>
+        ) : (
+          <>
+            <button type="button" style={btnLise}
+              onClick={basculerAgrandi} aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
+            {imageAgrandie && onOuvrirPlanSeul && (
+              <button type="button" style={btnLise} onClick={onOuvrirPlanSeul} aria-label="Agrandir l’image en plein écran (consultation)">⤢ Agrandir l’image</button>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 
@@ -669,9 +702,9 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
             le canvas garde width:100% collé en haut-gauche à sa taille réelle, getBoundingClientRect du conteneur reste live (repère
             passif ici, mais MÊME principe que la surface de dessin). La barre d'outils (zoom + grandes images, ligneOutils ci-dessus)
             reste JUSTE AU-DESSUS de la surface — même ligne que la barre de rotation du schéma. En mode agrandi : aucune hauteur imposée (plein écran). */}
-        <div style={imageAgrandie ? undefined : { height: HAUTEUR_CADRE_RENDU, overflow: 'auto' }}>
+        <div style={grand ? undefined : { height: HAUTEUR_CADRE_RENDU, overflow: 'auto' }}>
         <div ref={pdfContainerRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
-          style={{ position: 'relative', minHeight: imageAgrandie ? '8rem' : HAUTEUR_CADRE_RENDU, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', background: 'var(--color-svv-field)', touchAction: zoom > 1 ? 'none' : 'auto', cursor: zoom > 1 ? 'grab' : 'default' }}>
+          style={{ position: 'relative', minHeight: grand ? '8rem' : HAUTEUR_CADRE_RENDU, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', background: 'var(--color-svv-field)', touchAction: zoom > 1 ? 'none' : 'auto', cursor: zoom > 1 ? 'grab' : 'default' }}>
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
             <canvas ref={canvasRef} style={{ display: 'block', width: '100%', height: 'auto' }} />
           </div>
