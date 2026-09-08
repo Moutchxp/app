@@ -1010,22 +1010,22 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   raccourci), la barre droite tient sur UNE ligne à la largeur usuelle → une hauteur d'UNE ligne (1.9rem) suffit, aucune barre ne déborde,
   //   plus de vide. Le `flexWrap` reste un filet : si une barre débordait à une largeur extrême, elle passerait proprement sur deux lignes.
   const styleBarre: CSSProperties = { display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0, minHeight: '1.9rem' };
-  // BARRE GAUCHE — au-dessus du PLAN (colonne colpdf) : ZOOM (contrôle) à gauche, bloc ÉCRAN [grandes images · (niveau 2) agrandir l'image] à
-  //   DROITE de la carte (space-between) — AUX DEUX NIVEAUX (POINT 1) : même au niveau 1, « mode grandes images » (basculement d'affichage) est
+  // BARRE GAUCHE — au-dessus du PLAN (colonne colpdf) : ZOOM (contrôle) à gauche, bloc ÉCRAN [mode XL · (niveau 2) mode XXL] à
+  //   DROITE de la carte (space-between) — AUX DEUX NIVEAUX (POINT 1) : même au niveau 1, « mode XL » (basculement d'affichage) est
   //   poussé contre le bord droit, séparé visuellement du groupe Zoom. Aucun handler modifié.
   const barreGauchePlan = (
     <div style={{ ...styleBarre, justifyContent: 'space-between' }}>
       <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
         <button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
-          aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images (tracer en grand)'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
+          aria-label={imageAgrandie ? 'Quitter le mode XL' : 'Activer le mode XL (tracer en grand)'}>{imageAgrandie ? '✕ quitter le mode XL' : '⤢ mode XL'}</button>
         {/* LOT 3 (décision Arno C2) — bouton d'entrée du NIVEAU 3, dans la barre de SA colonne, au-dessus de son image. Présent UNIQUEMENT au
             niveau 2 (imageAgrandie) : le niveau 3 s'ouvre DEPUIS le niveau 2 et y revient. Le niveau 1 reste STRICTEMENT inchangé (pas de bouton).
-            DEMANDE 1 — libellé « (tracer) » quand le tracé est possible (page en plan ET calage complet) ; « Agrandir l'image » (SANS « tracer »)
+            DEMANDE 1 — libellé « (tracer) » quand le tracé est possible (page en plan ET calage complet) ; « mode XXL » (SANS « tracer »)
             sinon : on ne promet PAS une fonction indisponible → le niveau 3 s'ouvre alors en CONSULTATION. Jamais désactivé. */}
         {imageAgrandie && (
           <button type="button" style={btn} onClick={() => { if (acces.disponible) setMode('trace'); setPlanSeul(true); }}
-            aria-label={acces.disponible ? 'Agrandir l’image en plein écran pour tracer' : 'Agrandir l’image en plein écran (consultation ; tracé indisponible tant que le calage n’est pas fait)'}>{acces.disponible ? '⤢ Agrandir l’image (tracer)' : '⤢ Agrandir l’image'}</button>
+            aria-label={acces.disponible ? 'Mode XXL — plein écran pour tracer' : 'Mode XXL — plein écran (consultation ; tracé indisponible tant que le calage n’est pas fait)'}>{acces.disponible ? '⤢ mode XXL (tracer)' : '⤢ mode XXL'}</button>
         )}
       </div>
     </div>
@@ -1092,7 +1092,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0, justifyContent: 'space-between' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
           <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={() => setPlanSeul(false)}
-            aria-label="Revenir à la vue deux colonnes (liseuse et schéma)">← Revenir à la vue 2 colonnes</button>
+            aria-label="Revenir au mode XL (liseuse et schéma)">← Revenir au mode XL</button>
           <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
@@ -1100,7 +1100,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             <>
               <button type="button" style={btn} disabled={sommets.length === 0} onClick={() => setSommets((s) => s.slice(0, -1))}>Annuler dernier sommet</button>
               <button type="button" style={btn} disabled={sommets.length === 0} onClick={() => { setSommets([]); setDebordement(null); }}>Reprendre le tracé</button>
-              <span style={styleAide}>Sommets : {sommets.length}{paires.length > 0 ? ` · calage ${paires.length}/2 (fait à la vue 2 colonnes)` : ''}</span>
+              <span style={styleAide}>Sommets : {sommets.length}{paires.length > 0 ? ` · calage ${paires.length}/2 (fait au mode XL)` : ''}</span>
             </>
           ) : (
             // Tracé indisponible (page non-plan OU calage incomplet) : le MESSAGE remplace le bloc de boutons, au MÊME endroit. Jamais de bouton muet ni de vide.
@@ -1109,18 +1109,18 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         </div>
       </div>
       {/* HONNÊTETÉ (jamais laisser croire que le calage/tracé est cassé) : on DIT ce qui se passe et où. Le niveau 3 ne CALE pas (une colonne) →
-          quand le calage manque, on renvoie EXPLICITEMENT vers la vue 2 colonnes (demande E). */}
+          quand le calage manque, on renvoie EXPLICITEMENT vers le mode XL (demande E). */}
       {acces.disponible ? (
         <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
           Vue <strong>plan seul</strong> pour tracer avec précision. Le calage est fait : tracez, <strong>enregistrez et validez chaque bâtiment ici même</strong> (bande en tête), puis passez au suivant — sans quitter le plein écran.
         </div>
       ) : acces.motif === 'calage' ? (
         <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
-          Le <strong>calage</strong> (2 paires plan ↔ schéma) ne se fait pas ici (une seule colonne, pas de schéma) : <strong>revenez à la vue 2 colonnes</strong> pour caler, puis revenez tracer.
+          Le <strong>calage</strong> (2 paires plan ↔ schéma) ne se fait pas ici (une seule colonne, pas de schéma) : <strong>revenez au mode XL</strong> pour caler, puis revenez tracer.
         </div>
       ) : (
         <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
-          Vue <strong>plan seul</strong> en <strong>consultation</strong> (agrandissement). Le tracé se fait sur une <strong>vue en plan</strong> : revenez à la vue 2 colonnes et ouvrez une planche traçable.
+          Vue <strong>plan seul</strong> en <strong>consultation</strong> (agrandissement). Le tracé se fait sur une <strong>vue en plan</strong> : revenez au mode XL et ouvrez une planche traçable.
         </div>
       )}
     </div>
@@ -1301,7 +1301,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             </div>
             </div>{/* fin du CADRE À HAUTEUR FIXE (wrapper à défilement interne — hauteur/overflow HORS du conteneur de coordonnées) */}
             {/* b) + c) BARRE PARTAGÉE (même composant que la planche), SOUS l'image : nav complète + voir-toutes + lien (haut), puis
-                statut/best-of/analyses (bas). Zoom + « mode grandes images » sont AU-DESSUS (ligneOutils). Zéro outil de tracé.
+                statut/best-of/analyses (bas). Zoom + « mode XL » sont AU-DESSUS (ligneOutils). Zéro outil de tracé.
                 LOT 3 — MASQUÉE au niveau 3 (plan seul) : cette vue est dédiée au TRACÉ, sa barre (retour/zoom/tracé) est barreNiveau3, en tête. */}
             {!planSeul && <BarreVisionneusePieces pieceId={pieceId} nomCourant={nomCourant} page={page} nbPagesPiece={nbPagesPiece} echelle={planAffiche?.echelle ?? null}
               nav={nav} slotNav={slotNav} slotPieces={slotPieces}

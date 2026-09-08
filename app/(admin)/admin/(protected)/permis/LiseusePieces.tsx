@@ -92,8 +92,8 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
   onToggleImageAgrandie?: () => void;
   // LOT 3 (niveau 3 à 0 bâtiment) — CONSULTATION du plan SEUL en plein écran, piloté par le parent (BlocTraceEmprise), qui enveloppe la
   //   liseuse dans un conteneur plein écran une colonne (SANS schéma). `planSeul` agrandit le cadre (comme imageAgrandie) et bascule la barre
-  //   d'outils en mode niveau 3 : bouton « ← Revenir à la vue 2 colonnes » (onQuitterPlanSeul) + `messagePlanSeul` À LA PLACE de la bascule
-  //   « grandes images ». `onOuvrirPlanSeul` (quand fourni, au niveau 2) affiche le bouton d'entrée « ⤢ Agrandir l'image » (SANS « tracer » :
+  //   d'outils en mode niveau 3 : bouton « ← Revenir au mode XL » (onQuitterPlanSeul) + `messagePlanSeul` À LA PLACE de la bascule
+  //   « mode XL ». `onOuvrirPlanSeul` (quand fourni, au niveau 2) affiche le bouton d'entrée « ⤢ mode XXL » (SANS « tracer » :
   //   la liseuse est toujours en CONSULTATION, aucun tracé). Props absentes → comportement historique strictement inchangé (usages autonomes).
   planSeul?: boolean;
   onOuvrirPlanSeul?: () => void;
@@ -642,29 +642,29 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
     </div>
   );
   // DEMANDE 1 — LIGNE D'OUTILS AU-DESSUS DE L'IMAGE (parité avec « Bâtiments et projection », sans schéma côté planche) : zoom + « mode
-  //   grandes images » (ex-« Agrandir l'image », RENOMMÉ). PASSIVE : « grandes images » n'ouvre qu'un aperçu plein écran (aucun tracé).
+  //   XL » (bascule d'affichage). PASSIVE : « mode XL » n'ouvre qu'un aperçu plein écran (aucun tracé).
   // LOT 3 — séparation ZOOM (gauche) / ÉCRAN (droite) : quand le cadre est agrandi en mode contrôlé (niveaux 2-3), le bloc d'écran se
   //   justifie À DROITE (au-dessus de l'image). En autonome ou au niveau 1, disposition historique (packé à gauche), pixel pour pixel.
-  //   Au NIVEAU 3 (planSeul) : la bascule « grandes images » cède la place au retour vers la vue 2 colonnes + au message d'empêchement.
+  //   Au NIVEAU 3 (planSeul) : la bascule « mode XL » cède la place au retour vers le mode XL + au message d'empêchement.
   const aligneADroite = controle && grand;
   const btnLise = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.2rem .6rem', fontSize: 12 } as const;
   const ligneOutils = (
     <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0, justifyContent: aligneADroite ? 'space-between' : 'flex-start' }}>
-      {/* GAUCHE : (au niveau 3) le RETOUR vers la vue 2 colonnes, puis le ZOOM — même disposition que la barre niveau 3 de « Bâtiments et projection ». */}
+      {/* GAUCHE : (au niveau 3) le RETOUR vers le mode XL, puis le ZOOM — même disposition que la barre niveau 3 de « Bâtiments et projection ». */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
-        {planSeul && <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={onQuitterPlanSeul} aria-label="Revenir à la vue deux colonnes">← Revenir à la vue 2 colonnes</button>}
+        {planSeul && <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={onQuitterPlanSeul} aria-label="Revenir au mode XL">← Revenir au mode XL</button>}
         <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajuster} />
       </div>
-      {/* DROITE : bloc ÉCRAN. Au niveau 3, le MESSAGE d'empêchement (aucun tracé sans bâtiment) prend la place du bloc « grandes images / agrandir ». */}
+      {/* DROITE : bloc ÉCRAN. Au niveau 3, le MESSAGE d'empêchement (aucun tracé sans bâtiment) prend la place du bloc « mode XL / mode XXL ». */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
         {planSeul ? (
           messagePlanSeul && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{messagePlanSeul}</span>
         ) : (
           <>
             <button type="button" style={btnLise}
-              onClick={basculerAgrandi} aria-label={imageAgrandie ? 'Quitter le mode grandes images' : 'Activer le mode grandes images'}>{imageAgrandie ? '✕ quitter les grandes images' : '⤢ mode grandes images'}</button>
+              onClick={basculerAgrandi} aria-label={imageAgrandie ? 'Quitter le mode XL' : 'Activer le mode XL'}>{imageAgrandie ? '✕ quitter le mode XL' : '⤢ mode XL'}</button>
             {imageAgrandie && onOuvrirPlanSeul && (
-              <button type="button" style={btnLise} onClick={onOuvrirPlanSeul} aria-label="Agrandir l’image en plein écran (consultation)">⤢ Agrandir l’image</button>
+              <button type="button" style={btnLise} onClick={onOuvrirPlanSeul} aria-label="Mode XXL — plein écran (consultation)">⤢ mode XXL</button>
             )}
           </>
         )}
@@ -681,7 +681,7 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
             zone de rendu démarre au MÊME Y que le schéma de droite. Il n'est pas supprimé, seulement déplacé. */}
         <div style={{ fontSize: 12, fontWeight: 700 }}>Liseuse des pièces</div>
         {/* LOT « paire unique » + demande 2c — navigation, « voir toutes les pièces », zoom et « agrandir » ont TOUS quitté cette colonne :
-            ils descendent SOUS l'aperçu, dans la barre partagée (slotNav / slotPieces) ; le zoom + « mode grandes images » sont AU-DESSUS
+            ils descendent SOUS l'aperçu, dans la barre partagée (slotNav / slotPieces) ; le zoom + « mode XL » sont AU-DESSUS
             de l'image (ligneOutils, demande 1). Cette colonne ne porte que le titre. */}
       </div>
       {/* LOT 91 — APERÇU COLLANT : sur écran LARGE (colonnes côte à côte), le panneau d'aperçu SUIT le défilement (position sticky) →
@@ -689,18 +689,18 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
           flex-wrap), `top` n'a d'effet qu'une fois l'aperçu atteint : combiné à la liste bornée ci-dessus, l'aperçu reste à portée
           (l'aperçu vient sous la liste bornée). `alignSelf:flex-start` : le sticky s'ancre en haut de la colonne, pas étiré. */}
       {/* PROJ-AGR — colonne d'aperçu ; en agrandi, elle passe en PLEIN ÉCRAN (CSS). PASSIVE : aucun clic n'y pose de point (parité du geste
-          « Agrandir l'image » avec « Bâtiments et projection », mais sans tracé côté planche). */}
+          « mode XXL » avec « Bâtiments et projection », mais sans tracé côté planche). */}
       <div role={agrandiPropre ? 'dialog' : undefined} aria-modal={agrandiPropre || undefined} aria-label={agrandiPropre ? 'Aperçu agrandi' : undefined}
         style={agrandiPropre
           ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '.4rem' }
           : { flex: titreEnEntete ? '1 1 100%' : '2 1 300px', order: titreEnEntete ? 1 : 0, minWidth: 0, position: 'sticky', top: '.5rem', alignSelf: 'flex-start', ...(titreEnEntete ? { display: 'flex', flexDirection: 'column', gap: '.4rem' } : {}) }}>
-        {/* DEMANDE 1 — LIGNE D'OUTILS au-dessus de l'aperçu : zoom + « mode grandes images » (remontés de la barre). */}
+        {/* DEMANDE 1 — LIGNE D'OUTILS au-dessus de l'aperçu : zoom + « mode XL » (remontés de la barre). */}
         {ligneOutils}
         {/* LOT 91 — aucune pièce sélectionnée → le dire explicitement (jamais un cadre vide muet, règle LOT 71). */}
         {pieceId === null && <p role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: '0 0 .3rem' }}>Aucun aperçu ouvert : choisissez une pièce (best-of ci-contre ou « voir toutes les pièces du dossier »).</p>}
         {/* CADRE À HAUTEUR FIXE + DÉFILEMENT INTERNE : le WRAPPER (jamais le conteneur de rendu) porte la hauteur fixe et l'overflow →
             le canvas garde width:100% collé en haut-gauche à sa taille réelle, getBoundingClientRect du conteneur reste live (repère
-            passif ici, mais MÊME principe que la surface de dessin). La barre d'outils (zoom + grandes images, ligneOutils ci-dessus)
+            passif ici, mais MÊME principe que la surface de dessin). La barre d'outils (zoom + mode XL, ligneOutils ci-dessus)
             reste JUSTE AU-DESSUS de la surface — même ligne que la barre de rotation du schéma. En mode agrandi : aucune hauteur imposée (plein écran). */}
         <div style={grand ? undefined : { height: HAUTEUR_CADRE_RENDU, overflow: 'auto' }}>
         <div ref={pdfContainerRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}

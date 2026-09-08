@@ -42,7 +42,7 @@ describe('LOT 86 — la garde « aucun bâtiment » n’efface plus le schéma (
     expect(brancheEtSuite).not.toContain('Calage (');
   });
 
-  it('PARITÉ GRANDES IMAGES — à 0 bâtiment, « mode grandes images » ouvre un OVERLAY 2 colonnes (liseuse | schéma), piloté par BlocTraceEmprise, sans toucher la surface de dessin', () => {
+  it('PARITÉ MODE XL — à 0 bâtiment, « mode XL » ouvre un OVERLAY 2 colonnes (liseuse | schéma), piloté par BlocTraceEmprise, sans toucher la surface de dessin', () => {
     // overlay plein écran 2 colonnes, GATED par imageAgrandie (même structure que le nominal)
     expect(brancheEtSuite).toMatch(/imageAgrandie\s*\n?\s*\?\s*\{[\s\S]*?position: 'fixed'/);
     expect(brancheEtSuite).toContain("gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)'"); // 2 colonnes liseuse | schéma
@@ -67,7 +67,7 @@ describe('LOT 86 — la garde « aucun bâtiment » n’efface plus le schéma (
     // Le niveau 3 (planSeul) ouvre un conteneur plein écran UNE colonne (flex column), au-dessus des niveaux 1-2 (zIndex 1001), SANS schéma.
     expect(brancheEtSuite).toMatch(/planSeul\s*\n?\s*\?\s*\{[\s\S]*?zIndex: 1001[\s\S]*?flexDirection: 'column'/);
     expect(brancheEtSuite).toContain('{!planSeul && blocSchema}');            // le schéma disparaît au niveau 3 (le plan prend toute la largeur)
-    // Le bouton d'entrée (⤢ Agrandir l'image) est délégué à la liseuse via onOuvrirPlanSeul ; le RETOUR au niveau 2 via onQuitterPlanSeul.
+    // Le bouton d'entrée (⤢ mode XXL) est délégué à la liseuse via onOuvrirPlanSeul ; le RETOUR au niveau 2 (mode XL) via onQuitterPlanSeul.
     expect(brancheEtSuite).toContain('onOuvrirPlanSeul={() => setPlanSeul(true)}');
     expect(brancheEtSuite).toContain('onQuitterPlanSeul={() => setPlanSeul(false)}');
     expect(brancheEtSuite).toContain('planSeul={planSeul}');
@@ -254,10 +254,10 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
     expect(iOptions).toBeGreaterThan(iSchema);        // options DESCENDUES sous le schéma
   });
 
-  it('PARITÉ — les DEUX visionneuses ont une barre d’outils (zoom + « mode grandes images ») au-dessus de l’image et passent onRetourBestOf à la barre', () => {
+  it('PARITÉ — les DEUX visionneuses ont une barre d’outils (zoom + « mode XL ») au-dessus de l’image et passent onRetourBestOf à la barre', () => {
     for (const f of [src, liseuse]) {
       expect(f).toMatch(/const (ligneOutils|barreGauchePlan) =/); // barre au-dessus de l'image (LiseusePieces : ligneOutils ; BlocTraceEmprise : barreGauchePlan)
-      expect(f).toContain('mode grandes images');            // « Agrandir l'image » RENOMMÉ
+      expect(f).toContain('mode XL');            // bascule d'affichage (ex-« mode grandes images »)
       expect(f).toContain('onRetourBestOf={retourBestOf}');
       expect(f).not.toContain('slotActions');                // slotActions supprimé (plus dans la barre)
     }
@@ -281,12 +281,12 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
     const iSchemaMain = src.indexOf('calageLambert={paires.map((p) => p.lambert)}');
     expect(iBD).toBeGreaterThan(-1);
     expect(iBD).toBeLessThan(iSchemaMain);
-    // BARRE GAUCHE : zoom PUIS « mode grandes images ».
+    // BARRE GAUCHE : zoom PUIS « mode XL ».
     const iG = src.indexOf('const barreGauchePlan =');
     const g = src.slice(iG, src.indexOf('const barreDroiteSchema =', iG));
     expect(iG).toBeGreaterThan(-1);
     expect(g).toContain('<ZoomPdf');
-    expect(g.indexOf('mode grandes images')).toBeGreaterThan(g.indexOf('<ZoomPdf'));
+    expect(g.indexOf('mode XL')).toBeGreaterThan(g.indexOf('<ZoomPdf'));
     // BARRE DROITE : RotationSchema PUIS « Agrandir le schéma ».
     const iD = src.indexOf('const barreDroiteSchema =');
     const d = src.slice(iD, src.indexOf('const vue = affichageTrace', iD));
@@ -297,7 +297,7 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
     expect(src).toContain('const styleBarre: CSSProperties');
   });
 
-  it('3 FINITIONS — (1) « mode grandes images » poussé à droite au niveau 1 ; (2) barre droite sur une ligne (curseur court + groupe à droite) ; (3) messages d’empêchement EN ROUGE', () => {
+  it('3 FINITIONS — (1) « mode XL » poussé à droite au niveau 1 ; (2) barre droite sur une ligne (curseur court + groupe à droite) ; (3) messages d’empêchement EN ROUGE', () => {
     const rendu = readFileSync(join(ici, 'TraceEmpriseRendu.tsx'), 'utf8');
     const liseuse = readFileSync(join(ici, 'LiseusePieces.tsx'), 'utf8');
     // POINT 1 — barre gauche : space-between INCONDITIONNEL (plus de `imageAgrandie ? ... : 'flex-start'`) → zoom à gauche, écran à droite AUX DEUX niveaux.
