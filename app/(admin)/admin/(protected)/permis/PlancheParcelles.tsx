@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { PlancheParcelles as PlancheData, PlancheParcelleMeta, CentreMode, SuggestionAdresse } from '../../../../lib/permis/plancheParcellesRepo';
 import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle';
-import { comparerParcelles, type RefParcelle } from '../../../../lib/permis/comparatifParcelles'; // PL-COMPARATIF — constat PUR déclaré ↔ sélectionné (aucune écriture)
+import { comparerParcelles, bilanComparatif, type RefParcelle, type LigneParcelleComparee } from '../../../../lib/permis/comparatifParcelles'; // PL-COMPARATIF — constat PUR déclaré ↔ sélectionné (aucune écriture)
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome, RÉUTILISÉE (jamais dupliquée) ; P3 — partage donnée /emprise
 
 /**
@@ -342,28 +342,37 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, donneesLise
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' }}>Déclaré au permis ↔ sélectionné sur le schéma</div>
                 {!comparatif.comparable ? (
                   <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>{comparatif.motif}</div>
-                ) : (
-                  <>
-                    {/* Ligne de synthèse : VERTE si A et B coïncident exactement (après normalisation), ROUGE sinon. L'info est portée par le TEXTE. */}
-                    <div role="status" style={{ fontSize: 12, fontWeight: 700, color: comparatif.concordant ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)' }}>
-                      {comparatif.concordant
-                        ? '✓ Les parcelles sélectionnées correspondent aux parcelles déclarées au permis.'
-                        : '✗ Écart : la sélection ne correspond pas aux parcelles déclarées au permis.'}
+                ) : (() => {
+                  // PHRASE DE BILAN (4 cas) + DÉTAIL GROUPÉ PAR NATURE de l'écart, tous DÉRIVÉS des statuts déjà classés (jamais recalculés).
+                  //   Chaque groupe n'est rendu QUE s'il contient ≥ 1 référence → on sait immédiatement de quel côté est chaque référence.
+                  const bilan = bilanComparatif(comparatif);
+                  const parStatut = (s: LigneParcelleComparee['statut']) => comparatif.lignes.filter((l) => l.statut === s);
+                  const communes = parStatut('commune'), manquantes = parStatut('declaree_non_selectionnee'), enTrop = parStatut('selectionnee_non_declaree'), aVerifier = parStatut('a_verifier');
+                  const groupe = (titre: string, lignes: LigneParcelleComparee[], couleur: string, marque: string) => lignes.length === 0 ? null : (
+                    <div key={titre}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: couleur }}>{titre}</div>
+                      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.1rem' }}>
+                        {lignes.map((l) => <li key={l.cle} style={{ fontSize: 11.5, color: couleur }}><span aria-hidden>{marque} </span>{l.libelle}</li>)}
+                      </ul>
                     </div>
-                    <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-                      {comparatif.lignes.map((l) => {
-                        const couleur = l.statut === 'commune' ? 'var(--color-svv-green-ink)' : l.statut === 'a_verifier' ? 'var(--color-svv-muted)' : 'var(--color-svv-red)';
-                        const marque = l.statut === 'commune' ? '✓' : l.statut === 'a_verifier' ? '?' : '✗';
-                        const suffixe = l.statut === 'commune' ? 'présente des deux côtés'
-                          : l.statut === 'declaree_non_selectionnee' ? 'déclarée au permis, non sélectionnée sur le schéma'
-                          : l.statut === 'selectionnee_non_declaree' ? 'sélectionnée sur le schéma, non déclarée au permis'
-                          : 'à vérifier — référence incomplète';
-                        return <li key={l.cle} style={{ fontSize: 11.5, color: couleur }}><span aria-hidden>{marque} </span>{l.libelle} — {suffixe}</li>;
-                      })}
-                    </ul>
-                    <div style={{ fontSize: 10.5, color: 'var(--color-svv-muted)' }}>Constat seulement (références rapprochées à l’écriture près). N’ajoute, ne coche ni ne corrige rien.</div>
-                  </>
-                )}
+                  );
+                  return (
+                    <>
+                      {/* PHRASE DE BILAN : nomme la situation (correspondance / il manque / en trop / les deux). L'info est portée par le TEXTE. */}
+                      <div role="status" style={{ fontSize: 12, fontWeight: 700, color: bilan.ton === 'vert' ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)' }}>
+                        <span aria-hidden>{bilan.ton === 'vert' ? '✓ ' : '✗ '}</span>{bilan.phrase}
+                      </div>
+                      {/* DÉTAIL groupé : présentes des deux côtés (vert) ; déclarées non sélectionnées (rouge) ; sélectionnées non déclarées (rouge). */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+                        {groupe('Présentes des deux côtés', communes, 'var(--color-svv-green-ink)', '✓')}
+                        {groupe('Déclarées au permis mais non sélectionnées', manquantes, 'var(--color-svv-red)', '✗')}
+                        {groupe('Sélectionnées mais non déclarées au permis', enTrop, 'var(--color-svv-red)', '✗')}
+                        {groupe('À vérifier — référence incomplète', aVerifier, 'var(--color-svv-muted)', '?')}
+                      </div>
+                      <div style={{ fontSize: 10.5, color: 'var(--color-svv-muted)' }}>Constat seulement (références rapprochées à l’écriture près). N’ajoute, ne coche ni ne corrige rien.</div>
+                    </>
+                  );
+                })()}
               </div>
             </>
           )}

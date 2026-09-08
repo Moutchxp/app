@@ -86,3 +86,31 @@ export function comparerParcelles(declarees: readonly RefParcelle[], selectionne
   const concordant = lignes.length > 0 && lignes.every((l) => l.statut === 'commune');
   return { comparable: true, motif: null, concordant, lignes };
 }
+
+export type CasBilanComparatif =
+  | 'correspondance'          // ① les deux ensembles sont identiques (vert)
+  | 'manquantes'              // ② toutes les sélectionnées sont déclarées, mais des déclarées ne sont pas sélectionnées → il en MANQUE (rouge)
+  | 'en_trop'                 // ③ toutes les déclarées sont sélectionnées, mais des sélectionnées ne sont pas déclarées → il y en a EN TROP (rouge)
+  | 'manquantes_et_en_trop'   // ④ il MANQUE des parcelles ET il y en a EN TROP — cas réel du 07511924V0040 (rouge)
+  | 'a_verifier'              // référence(s) non normalisable(s) uniquement → on ne tranche pas (rouge)
+  | 'impossible';             // un côté vide → comparaison impossible (neutre)
+
+export interface BilanComparatif { cas: CasBilanComparatif; ton: 'vert' | 'rouge' | 'neutre'; phrase: string }
+
+/**
+ * BILAN en UNE phrase, dérivé des statuts DÉJÀ classés par `comparerParcelles` (jamais recalculé) : la phrase dit à elle seule DE QUEL
+ * CÔTÉ est l'écart — il en MANQUE (moins) vs il y en a EN TROP (plus) vs LES DEUX. 4 cas colorés + comparaison impossible. PURE.
+ * ⚠️ Le cas ④ (manquantes ET en trop) EXISTE en données réelles (07511924V0040) : sans phrase dédiée, le bilan serait faux (ni « plus »
+ * ni « moins »). Réutilise la classification manquante/en trop, ne la refait pas.
+ */
+export function bilanComparatif(c: ComparatifParcelles): BilanComparatif {
+  if (!c.comparable) return { cas: 'impossible', ton: 'neutre', phrase: c.motif ?? 'Comparaison impossible.' };
+  const manque = c.lignes.filter((l) => l.statut === 'declaree_non_selectionnee').length;
+  const enTrop = c.lignes.filter((l) => l.statut === 'selectionnee_non_declaree').length;
+  const aVerifier = c.lignes.filter((l) => l.statut === 'a_verifier').length;
+  if (manque > 0 && enTrop > 0) return { cas: 'manquantes_et_en_trop', ton: 'rouge', phrase: 'La sélection ne correspond pas : des parcelles manquent et d’autres sont en trop.' };
+  if (manque > 0) return { cas: 'manquantes', ton: 'rouge', phrase: 'Moins de parcelles sélectionnées que déclarées au permis.' };
+  if (enTrop > 0) return { cas: 'en_trop', ton: 'rouge', phrase: 'Plus de parcelles sélectionnées que déclarées au permis.' };
+  if (aVerifier > 0) return { cas: 'a_verifier', ton: 'rouge', phrase: 'Certaines références n’ont pas pu être comparées (incomplètes).' };
+  return { cas: 'correspondance', ton: 'vert', phrase: 'Les mêmes parcelles sont sélectionnées que celles déclarées au permis.' };
+}
