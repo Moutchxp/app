@@ -16,7 +16,40 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock }));
 
-import { qualifierMitoyennete, lireSeuilMitoyenAireM2, MITOYEN_SEUIL_AIRE_M2_DEFAUT, lireRayonContexteM, RAYON_CONTEXTE_M_DEFAUT } from './projectionConfig';
+import { qualifierMitoyennete, batimentAppartientPermis, lireSeuilMitoyenAireM2, MITOYEN_SEUIL_AIRE_M2_DEFAUT, lireRayonContexteM, RAYON_CONTEXTE_M_DEFAUT, type IntersectionParcelleBatiment } from './projectionConfig';
+
+/**
+ * RÈGLE ARNO — un bâtiment appartient au permis si sa PARCELLE DOMINANTE fait partie du permis ET qu'il est MAJORITAIREMENT dessus.
+ * PUR. Cas : majoritairement sur parcelle du permis (inclus) · mitoyen effleurant l'empreinte, dominante hors permis (exclu) · à cheval
+ * majorité côté permis (inclus) · à cheval majorité hors permis (exclu) · aucune parcelle du permis renseignée (exclu).
+ */
+const inter = (aireInterM2: number, estParcellePermis: boolean): IntersectionParcelleBatiment => ({ aireInterM2, estParcellePermis });
+describe('batimentAppartientPermis — critère parcelle dominante du permis', () => {
+  it('majoritairement sur une parcelle DU PERMIS → inclus', () => {
+    expect(batimentAppartientPermis(100, [inter(100, true)])).toBe(true);
+    expect(batimentAppartientPermis(100, [inter(95, true), inter(5, false)])).toBe(true);
+  });
+  it('mitoyen effleurant l’empreinte, dominante HORS permis → exclu', () => {
+    // A/C du 07511924V0040 : 0,3 m² sur l’empreinte, mais l’essentiel du bâtiment est sur une parcelle voisine.
+    expect(batimentAppartientPermis(1618, [inter(1617.6, false), inter(0.36, true)])).toBe(false);
+  });
+  it('à cheval, MAJORITÉ côté permis → inclus (dominante = permis, > 50 %)', () => {
+    expect(batimentAppartientPermis(100, [inter(60, true), inter(40, false)])).toBe(true);
+  });
+  it('à cheval, MAJORITÉ hors permis → exclu (dominante = voisin)', () => {
+    expect(batimentAppartientPermis(100, [inter(40, true), inter(60, false)])).toBe(false);
+  });
+  it('à cheval sans majorité nette (dominante permis mais ≤ 50 %) → exclu (pas « majoritairement dessus »)', () => {
+    expect(batimentAppartientPermis(100, [inter(40, true), inter(35, false), inter(25, false)])).toBe(false);
+  });
+  it('aucune parcelle du permis renseignée → exclu', () => {
+    expect(batimentAppartientPermis(100, [inter(100, false)])).toBe(false);
+    expect(batimentAppartientPermis(100, [])).toBe(false);
+  });
+  it('bâtiment d’aire nulle → exclu (jamais une division par zéro)', () => {
+    expect(batimentAppartientPermis(0, [inter(0, true)])).toBe(false);
+  });
+});
 
 describe('qualifierMitoyennete — PUR (seuil paramétré, jamais codé en dur)', () => {
   it('(a) polygone à 100 % (aire ≫ seuil) → « sur la parcelle »', () => {

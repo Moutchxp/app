@@ -64,3 +64,19 @@ export async function lireSeuilMitoyenAireM2(): Promise<SeuilMitoyenSource> {
 export function qualifierMitoyennete(aireDansEmpreinteM2: number, seuilM2: number): QualificationPolygone {
   return aireDansEmpreinteM2 >= seuilM2 ? 'sur_parcelle' : 'mitoyen';
 }
+
+/** Intersection d'un bâtiment avec UNE parcelle : aire (m²) + la parcelle fait-elle partie du permis (majoritairement dans l'empreinte). */
+export interface IntersectionParcelleBatiment { aireInterM2: number; estParcellePermis: boolean }
+
+/**
+ * RÈGLE D'APPARTENANCE AU PERMIS (Arno) — PURE. « Un bâtiment appartient au permis si sa parcelle fait partie du permis ET que le
+ * bâtiment est MAJORITAIREMENT dessus. » Concrètement : la PARCELLE DOMINANTE (celle de plus grande intersection avec le bâtiment) est
+ * une parcelle du permis, ET cette intersection dépasse la MOITIÉ de l'aire du bâtiment (« majoritairement dessus »). Sinon = contexte.
+ * Aucune intersection, aucune parcelle du permis, ou bâtiment d'aire nulle → contexte (false). ⚠️ Ce critère NE REMPLACE PAS le seuil
+ * `qualifierMitoyennete` (label de style, inchangé) : c'est LUI, et lui seul, qui décide le repère et l'affectation.
+ */
+export function batimentAppartientPermis(aireBatimentM2: number, intersections: readonly IntersectionParcelleBatiment[]): boolean {
+  if (aireBatimentM2 <= 0 || intersections.length === 0) return false;
+  const dominante = intersections.reduce((a, b) => (b.aireInterM2 > a.aireInterM2 ? b : a));
+  return dominante.estParcellePermis && dominante.aireInterM2 / aireBatimentM2 > 0.5;
+}

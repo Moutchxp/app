@@ -12,7 +12,7 @@
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { aireM2, deriverDebordement, type PointLambert, type Debordement } from './calageEmprise';
 import { grouperPolygonesConnexes, grouperParBatiment } from './adoptionEmprise';
-import { lireSeuilMitoyenAireM2, qualifierMitoyennete, type QualificationPolygone } from './projectionConfig';
+import { lireSeuilMitoyenAireM2, qualifierMitoyennete, batimentAppartientPermis, type QualificationPolygone, type IntersectionParcelleBatiment } from './projectionConfig';
 
 /** Journal de calage stocké tel quel (jsonb) — auditable, jamais lissé. */
 export interface CalageTrace {
@@ -389,20 +389,27 @@ export async function lireContexteEmprise(dossierId: number): Promise<ContexteEm
  * opérations géométriques). 🔴 Ce sont des DONNÉES IGN, jamais une reconstitution : aucune écriture, aucun couplage moteur. `[]`
  * si `permis_empreinte`/`batiment` absentes (résilient).
  */
-// PROJ-MIT — un polygone porte désormais sa QUALIFICATION d'affichage (facultative → rétro-compatible avec les fixtures existantes) :
-//   aire RÉELLE d'intersection avec l'empreinte (m²) + « sur la parcelle » vs « mitoyen (contexte) » (seuil config). Le critère de
-//   SÉLECTION (ST_Intersects) est INCHANGÉ : on récupère les mêmes polygones, on les qualifie seulement. Rien n'est écarté.
-export interface PolygoneBdTopo { cleabs: string | null; anneau: PointLambert[]; etat: string | null; aireDansEmpreinteM2?: number; qualification?: QualificationPolygone }
+// PROJ-MIT — un polygone porte sa QUALIFICATION d'affichage (aire d'intersection ; « sur la parcelle » vs « mitoyen ») ET, RÈGLE ARNO,
+//   son APPARTENANCE AU PERMIS (`appartientPermis`) : le bâtiment est-il MAJORITAIREMENT sur une parcelle DU PERMIS (parcelle dominante) ?
+//   Champs FACULTATIFS (rétro-compatibles avec les fixtures existantes). ⚠️ Le critère de SÉLECTION (ST_Intersects) est INCHANGÉ : on
+//   récupère les MÊMES polygones (les voisins restent AFFICHÉS en contexte) ; `appartientPermis` ne fait que décider REPÈRE + AFFECTATION.
+export interface PolygoneBdTopo { cleabs: string | null; anneau: PointLambert[]; etat: string | null; aireDansEmpreinteM2?: number; qualification?: QualificationPolygone; appartientPermis?: boolean }
 export async function lirePolygonesEmpreinte(dossierId: number): Promise<PolygoneBdTopo[]> {
   try {
     // ORDER BY spatial STABLE (haut→bas, gauche→droite, cleabs) : fixe les repères A/B/C… de façon déterministe (comme le Rattachement).
-    // PROJ-MIT : on AJOUTE l'aire réelle d'intersection en SELECT (ST_Area(ST_Intersection…)) — calculée SEULEMENT sur les lignes déjà
-    //   filtrées par le prédicat WHERE (inchangé) → l'index GiST du JOIN reste pris (vérifié EXPLAIN). L'aire est par BÂTIMENT (partagée
-    //   par tous les anneaux d'un MultiPolygon). NULLIF évite une division nulle inutile ; ST_Area(ST_Intersection) tolère un simple contact (0).
-    const { rows } = await query<{ cleabs: string | null; gj: { type: string; coordinates: number[][][] | number[][][][] } | null; etat: string | null; aire: number | string | null }>(
+    // PROJ-MIT : aire réelle d'intersection en SELECT ; RÈGLE ARNO : pour chaque bâtiment, la LISTE de ses intersections parcellaires
+    //   (aire + « la parcelle fait-elle partie du permis » = majoritairement dans l'empreinte, ratio ≥ 0,5) → la décision d'appartenance est
+    //   tranchée en JS par la fonction PURE `batimentAppartientPermis` (parcelle DOMINANTE du permis + bâtiment majoritairement dessus). Les
+    //   sous-requêtes `par.geom && b.geom` tiennent l'index GiST (aucun KNN). Aire par BÂTIMENT (partagée par tous les anneaux d'un MultiPolygon).
+    const { rows } = await query<{ cleabs: string | null; gj: { type: string; coordinates: number[][][] | number[][][][] } | null; etat: string | null; aire: number | string | null; aire_bat: number | string | null; parcelles: { aireInterM2: number | string; estParcellePermis: boolean }[] | null }>(
       `WITH emp AS (SELECT geom FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL)
        SELECT b.cleabs, ST_AsGeoJSON(ST_Force2D(b.geom))::json AS gj, b.etat_de_l_objet AS etat,
-              ST_Area(ST_Intersection(ST_Force2D(b.geom), emp.geom)) AS aire
+              ST_Area(ST_Intersection(ST_Force2D(b.geom), emp.geom)) AS aire,
+              ST_Area(ST_Force2D(b.geom)) AS aire_bat,
+              (SELECT json_agg(json_build_object(
+                 'aireInterM2', ST_Area(ST_Intersection(ST_Force2D(par.geom), ST_Force2D(b.geom))),
+                 'estParcellePermis', (ST_Area(ST_Intersection(ST_Force2D(par.geom), emp.geom)) / NULLIF(ST_Area(ST_Force2D(par.geom)), 0)) >= 0.5))
+                 FROM parcelle par WHERE par.geom && b.geom AND ST_Intersects(par.geom, b.geom)) AS parcelles
          FROM batiment b, emp
         WHERE b.geom && emp.geom AND ST_Intersects(b.geom, emp.geom)
         ORDER BY ST_YMax(b.geom) DESC, ST_XMin(b.geom), b.cleabs`, [dossierId]);
@@ -412,12 +419,14 @@ export async function lirePolygonesEmpreinte(dossierId: number): Promise<Polygon
       if (!r.gj) continue;
       const aireDansEmpreinteM2 = Number.isFinite(Number(r.aire)) ? Number(r.aire) : 0;
       const qualification = qualifierMitoyennete(aireDansEmpreinteM2, seuilM2);
+      const intersections: IntersectionParcelleBatiment[] = (r.parcelles ?? []).map((p) => ({ aireInterM2: Number(p.aireInterM2), estParcellePermis: p.estParcellePermis === true }));
+      const appartientPermis = batimentAppartientPermis(Number(r.aire_bat ?? 0), intersections); // RÈGLE ARNO — parcelle dominante du permis
       const anneaux: number[][][] = r.gj.type === 'Polygon'
         ? [(r.gj.coordinates as number[][][])[0]].filter(Boolean)
         : r.gj.type === 'MultiPolygon'
           ? (r.gj.coordinates as number[][][][]).map((poly) => poly[0]).filter(Boolean)
           : [];
-      for (const a of anneaux) out.push({ cleabs: r.cleabs ?? null, anneau: a.map(([x, y]) => ({ x, y })), etat: r.etat ?? null, aireDansEmpreinteM2, qualification });
+      for (const a of anneaux) out.push({ cleabs: r.cleabs ?? null, anneau: a.map(([x, y]) => ({ x, y })), etat: r.etat ?? null, aireDansEmpreinteM2, qualification, appartientPermis });
     }
     return out;
   } catch (err) {

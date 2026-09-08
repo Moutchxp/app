@@ -338,49 +338,45 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     const html = renderToStaticMarkup(h(LegendeSchemaProjection, {}));
     expect(html).toContain('Empreinte de la parcelle (référence — pas une mesure)'); // LOT 90 — l'empreinte a son entrée de légende
     // PROJ-HIÉRARCHIE — les TROIS familles nommées par le vocabulaire utilisateur + leurs pastilles (3 teintes DISTINCTES, fixes).
-    expect(html).toContain('Le bâtiment du permis (sur la parcelle)');
-    expect(html).toContain('Le voisin direct (en contact)');
-    expect(html).toContain('Le contexte alentour (parcelles voisines et leur bâti)');
-    expect(html).toContain('#0f766e'); // ① teal (permis)
-    expect(html).toContain('#9a5533'); // ② sienna (voisin direct)
-    expect(html).toContain('#b0a3c9'); // ③ mauve (contexte)
+    expect(html).toContain('Le bâtiment du permis (repéré A, B, C…)');
+    expect(html).toContain('Bâtiment voisin (hors permis — contexte, sans repère)');
+    expect(html).toContain('Parcelle voisine (contexte)');
+    expect(html).toContain('#0f766e'); // ① teal (permis — inchangé)
+    expect(html).toContain('#2563eb'); // ② BLEU (bâtiment voisin hors permis)
+    expect(html).toContain('#7ab4e6'); // ③ BLEU CLAIR (parcelle voisine)
     expect(html).toContain('En projet (donnée IGN)');
     expect(html).toContain('reconstitution — jamais une mesure');
     expect(html).toContain('Que veut dire chaque catégorie');
     expect(html).toContain('pas encore construits');
-    expect(html).toContain('l’information qui compte pour le vis-à-vis'); // explication du voisin direct
+    expect(html).toContain('il ne reçoit PAS de repère et n’entre PAS dans l’affectation'); // explication du voisin hors permis
     expect(html).toContain('domine la composition');                      // le permis est le sujet dominant
     // RATT-3 — deux entrées de DÉCISION (jamais des faits) : préservé (vert) / détruit (orange).
     expect(html).toContain('Décidé « préservé » (prévision)');
     expect(html).toContain('Décidé « détruit » (prévision)');
     expect(html).toContain('sans décision reste gris');
   });
-  it('PROJ-HIÉRARCHIE — le PERMIS (teal, contour épais) DOMINE le VOISIN direct (sienna, plus fin) ; TROIS teintes distinctes, repères conservés', () => {
+  it('RÈGLE ARNO — le bâtiment DU PERMIS (teal, repère A) vs le VOISIN hors permis (BLEU, SANS repère)', () => {
     const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
     const filtres: FiltresSchema = { existant: true, futur: false, reperes: true, emprises: false };
     const carre = (x: number, y: number, c: number) => [{ x, y }, { x: x + c, y }, { x: x + c, y: y + c }, { x, y: y + c }];
     const polygones = attribuerReperes([
-      { cleabs: 'SUR', anneau: carre(1, 1, 12), etat: 'En service', qualification: 'sur_parcelle' as const },
-      { cleabs: 'MIT', anneau: carre(16, 16, 12), etat: 'En service', qualification: 'mitoyen' as const },
+      { cleabs: 'SUR', anneau: carre(1, 1, 12), etat: 'En service', appartientPermis: true },
+      { cleabs: 'HORS', anneau: carre(16, 16, 12), etat: 'En service', appartientPermis: false },
     ]);
     const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [carre(0, 0, 30)], emprises: [], polygones, filtres, ecartes: [], calageLambert: [] }));
-    // ① le bâtiment DU PERMIS : teal + contour ÉPAIS (1.9) → dominant. PLUS de gris #888.
-    const surTag = html.match(/<path\b[^>]*data-qualification="sur_parcelle"[^>]*>/)?.[0] ?? '';
-    expect(surTag).toContain('stroke="#0f766e"');       // teal (couleur FIXE, jamais un token)
-    expect(surTag).toContain('fill="rgba(15,118,110,.34)"');
-    expect(surTag).toContain('stroke-width="1.9"');     // contour le plus épais → domine
-    expect(surTag).not.toContain('#888');
-    // ② le VOISIN direct : sienna + contour plus FIN (1.3), sans tireté grisé. PLUS de #b4b4b4 ni de dash « 3 2 ».
-    const mitTag = html.match(/<path\b[^>]*data-qualification="mitoyen"[^>]*>/)?.[0] ?? '';
-    expect(mitTag).toContain('stroke="#9a5533"');       // sienna
-    expect(mitTag).toContain('stroke-width="1.3"');     // plus fin que le permis (1.9) → nettement second
-    expect(mitTag).not.toContain('#b4b4b4');
-    expect(mitTag).not.toContain('stroke-dasharray');
-    // TROIS teintes DISTINCTES (pas trois opacités d'un gris) : permis ≠ voisin ≠ contexte mauve.
-    expect(surTag).not.toContain('#9a5533');
-    // les DEUX repères restent présents (chaque famille porte son A/B/C)
+    // ① le bâtiment DU PERMIS : teal + contour ÉPAIS (1.9) → dominant (INCHANGÉ).
+    const permisTag = html.match(/<path\b[^>]*fill="rgba\(15,118,110,\.34\)"[^>]*>/)?.[0] ?? '';
+    expect(permisTag).toContain('stroke="#0f766e"');    // teal (couleur FIXE, jamais un token)
+    expect(permisTag).toContain('stroke-width="1.9"');  // contour le plus épais → domine
+    // ② le VOISIN hors permis : BLEU + contour plus FIN (1.3), et l'attribut d'appartenance à false.
+    const voisinTag = html.match(/<path\b[^>]*data-appartient-permis="false"[^>]*>/)?.[0] ?? '';
+    expect(voisinTag).toContain('stroke="#2563eb"');    // BLEU (bâtiment voisin hors permis)
+    expect(voisinTag).toContain('fill="rgba(37,99,235,.18)"');
+    expect(voisinTag).toContain('stroke-width="1.3"');  // plus fin que le permis (1.9) → nettement second
+    expect(permisTag).not.toContain('#2563eb');         // teintes DISTINCTES : permis ≠ voisin
+    // le PERMIS garde son repère A ; le VOISIN n'a AUCUN repère (repérage restreint au permis, repart de A).
     expect(html).toContain('data-repere="A"');
-    expect(html).toContain('data-repere="B"');
+    expect(html).not.toContain('data-repere="B"');
   });
 });
 
@@ -392,12 +388,13 @@ describe('PROJ-CTX — contexte (parcelles voisines + bâti) : 3e registre, inte
     { genre: 'batiment' as const, anneau: carre(44, 44, 6) },
   ];
 
-  it('(a) contexte ALLUMÉ (défaut) → parcelles voisines + bâti RENDUS (teinte mauve distincte), non cliquables', () => {
+  it('(a) contexte ALLUMÉ (défaut) → parcelles voisines (bleu clair) + bâti voisin (bleu) RENDUS, non cliquables', () => {
     const filtres: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: true, contexte: true };
     const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [carre(0, 0, 20)], emprises: [], polygones: [], filtres, calageLambert: [], voisinage }));
     expect(html).toContain('data-contexte="parcelle"');
     expect(html).toContain('data-contexte="batiment"');
-    expect(html).toContain('stroke="#b0a3c9"');            // teinte mauve FIXE (distincte des gris ; lisible dans les 2 thèmes)
+    expect(html).toContain('stroke="#7ab4e6"');            // parcelle voisine = BLEU CLAIR (FIXE, lisible dans les 2 thèmes)
+    expect(html).toContain('stroke="#2563eb"');            // bâti voisin = BLEU (même bleu que les voisins hors permis)
     expect(html).toContain('pointer-events="none"');       // jamais candidat à l'affectation (aucun clic)
   });
 

@@ -909,10 +909,13 @@ export function polygonesVisibles<T extends { etat: string | null }>(polygones: 
   return polygones.filter((p) => (estFuturBati(p.etat) ? f.futur : f.existant));
 }
 
-/** PROJ-3i ① — attribue un REPÈRE alphabétique (A, B, C…) à chaque polygone, dans l'ordre reçu (déterministe côté serveur). PUR. */
+/** PROJ-3i ① / RÈGLE ARNO — le repérage alphabétique (A, B, C…) ne NUMÉROTE QUE les bâtiments DU PERMIS (`appartientPermis !== false`) et
+ *  repart de A ; les VOISINS (contexte) restent affichés mais SANS lettre (`repere: ''`). Ordre reçu (déterministe côté serveur). PUR.
+ *  Rétro-compat : `appartientPermis` absent (fixtures) = traité comme permis (numéroté), comportement d'avant. */
 export type PolygoneRepere = PolygoneBdTopo & { repere: string };
 export function attribuerReperes(polygones: PolygoneBdTopo[]): PolygoneRepere[] {
-  return polygones.map((p, i) => ({ ...p, repere: repereDepuisIndex(i) }));
+  let n = 0;
+  return polygones.map((p) => p.appartientPermis === false ? { ...p, repere: '' } : { ...p, repere: repereDepuisIndex(n++) });
 }
 
 /** Centre approximatif d'un anneau (moyenne des sommets) — pour poser la lettre du repère. PUR. */
@@ -1062,15 +1065,16 @@ const ETIQ_ALERTE = '#a30402'; // rouge SVAV en dur : emprise projetée (②) + 
 const EMPREINTE_TRAIT = '#1b2430';
 const EMPREINTE_FOND = 'rgba(90,99,113,.06)';
 
-// PROJ-HIÉRARCHIE — TROIS FAMILLES DE BÂTI, TROIS TEINTES DISTINCTES (jamais 3 opacités d'un même gris), FIXES (canvas blanc dans les
-//   2 thèmes ; un token basculerait → invisible, piège du lot afa97b2). Classées du plus SAILLANT au plus discret, pour qu'un œil neuf
-//   désigne LE BÂTIMENT DU PERMIS en une seconde :
-//   ① PERMIS (sur la parcelle) = TEAL franc + contour ÉPAIS → DOMINE la composition ;
-//   ② VOISIN DIRECT (mitoyen, en contact) = SIENNA, présent mais nettement second (ce qui compte pour le vis-à-vis) ;
-//   ③ CONTEXTE éloigné (parcelles voisines + bâti hors contact) = MAUVE pâle, le plus discret (situer, pas capter l'attention).
-const PERMIS_FILL = 'rgba(15,118,110,.34)', PERMIS_TRAIT = '#0f766e';      // ① teal (sarcelle foncé)
-const VOISIN_FILL = 'rgba(160,90,55,.22)', VOISIN_TRAIT = '#9a5533';       // ② sienna (terre)
-const CONTEXTE_FOND = 'rgba(150,130,180,.09)', CONTEXTE_TRAIT = '#b0a3c9'; // ③ mauve pâle
+// PROJ-HIÉRARCHIE / RÈGLE ARNO — TROIS FAMILLES, TROIS TEINTES DISTINCTES, FIXES (canvas blanc dans les 2 thèmes ; un token basculerait
+//   → invisible, piège du lot afa97b2). Le PERMIS domine ; les VOISINS (hors permis) et le CONTEXTE se lisent comme « autour », en BLEU :
+//   ① PERMIS (bâtiment du permis, parcelle dominante du permis) = TEAL franc + contour ÉPAIS → DOMINE la composition (INCHANGÉ) ;
+//   ② BÂTIMENT VOISIN (hors permis — parcelle dominante hors permis, ET bâti de contexte du voisinage) = BLEU, présent mais second ;
+//   ③ PARCELLE VOISINE (contour de contexte, sans bâti) = BLEU CLAIR, le plus discret (situer, pas capter l'attention).
+// 🟦 JETONS DE COULEUR CRÉÉS (fixes, canvas clair permanent — jamais les tokens `--color-svv-*`) : bleu voisin `#2563eb`, bleu clair
+//   parcelle `#7ab4e6`. Distincts du bleu « en projet » IGN (`#1f77b4`, tireté) par la teinte ET le trait plein.
+const PERMIS_FILL = 'rgba(15,118,110,.34)', PERMIS_TRAIT = '#0f766e';      // ① teal (sarcelle foncé) — bâtiment DU PERMIS, inchangé
+const VOISIN_FILL = 'rgba(37,99,235,.18)', VOISIN_TRAIT = '#2563eb';       // ② BLEU — bâtiment voisin (hors permis)
+const CONTEXTE_FOND = 'rgba(122,180,230,.10)', CONTEXTE_TRAIT = '#7ab4e6'; // ③ BLEU CLAIR — parcelle voisine (contexte)
 
 // Repères (A, B, C…) : taille de police ADAPTÉE au polygone (unités de la boîte du schéma) — lisible d'un coup d'œil sur une forme
 //   moyenne, PLAFONNÉE pour ne pas écraser une grande forme, et surtout PLANCHER LISIBLE pour les petites (mieux vaut déborder un
@@ -1157,8 +1161,8 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
             « ma parcelle ». Couleurs FIXES (canvas clair permanent, lisible dans les 2 thèmes). AUCUN clic : contexte non sélectionnable. */}
         {contexteVisible && voisinage.map((o, i) => o.anneau.length < 3 ? null : (
           o.genre === 'parcelle'
-            ? <path key={`vp${i}`} d={path(o.anneau)} fill="none" stroke={CONTEXTE_TRAIT} strokeWidth={0.7} strokeDasharray="3 2" strokeOpacity={0.85} data-contexte="parcelle" pointerEvents="none" />
-            : <path key={`vb${i}`} d={path(o.anneau)} fill={CONTEXTE_FOND} stroke={CONTEXTE_TRAIT} strokeWidth={0.8} data-contexte="batiment" pointerEvents="none" />
+            ? <path key={`vp${i}`} d={path(o.anneau)} fill={CONTEXTE_FOND} stroke={CONTEXTE_TRAIT} strokeWidth={0.7} strokeDasharray="3 2" strokeOpacity={0.9} data-contexte="parcelle" pointerEvents="none" />
+            : <path key={`vb${i}`} d={path(o.anneau)} fill={VOISIN_FILL} stroke={VOISIN_TRAIT} strokeWidth={0.9} data-contexte="batiment" pointerEvents="none" />
         ))}
         {/* LOT 90 — EMPREINTE (contour de la parcelle fusionnée, référence) : trait FIXE épais + remplissage très léger → distincte des
             aplats de bâti (gris #888, trait fin 1,2) et visible sur le canvas clair dans les DEUX thèmes. */}
@@ -1170,16 +1174,15 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           // RATT-3/RATT-6 — un bâtiment EXISTANT prend le traitement de son statut ENREGISTRÉ : préservé → vert, détruit total → orange,
           //   MIXTE (partiellement détruit) → gris + tireté ardoise (il survit, il reste visible ; JAMAIS l'orange du détruit). Sans statut
           //   (ou révoqué), ou pour du futur bâti, la couleur d'origine reste INCHANGÉE — on ne colore jamais d'après une prévision non enregistrée.
-          const statut = !futur ? statuts?.get(poly.cleabs ?? '')?.statut : null;
+          // RÈGLE ARNO — un statut (préservé/détruit) ne colore QUE les bâtiments DU PERMIS : les décisions posées jadis sur des voisins
+          //   deviennent INERTES (plus lues par l'affichage) → un voisin reste BLEU même s'il porte encore une vieille décision en base.
+          const voisin = poly.appartientPermis === false && !futur && !off; // ② bâtiment VOISIN (hors permis) → bleu, jamais de statut
+          const statut = !futur && !voisin ? statuts?.get(poly.cleabs ?? '')?.statut : null;
           const coul = couleurStatutPolygone(statut);
-          // PROJ-MIT — un bâti « mitoyen (contexte) » (voisin accolé, aire ≈ 0 dans l'empreinte) reste DESSINÉ mais en RETRAIT (aplat
-          //   plus léger + trait fin tireté grisé) : second plan, jamais confondu avec le bâti « sur la parcelle ». Uniquement pour un
-          //   existant SIMPLE (ni futur, ni écarté, ni statut décidé) : ces états gardent leur traitement propre. Rien n'est masqué.
-          const mitoyen = poly.qualification === 'mitoyen' && !futur && !off && !coul; // ② voisin direct (en contact)
-          const surParcelle = !futur && !off && !coul && !mitoyen;                      // ① le bâtiment DU PERMIS (dominant)
-          return <path key={`b${i}`} d={path(poly.anneau)} data-etat={poly.etat ?? ''} data-futur={futur} data-ecarte={off || undefined} data-statut={coul ? statut : undefined} data-qualification={poly.qualification || undefined}
-            fill={off ? 'rgba(0,0,0,.04)' : futur ? 'rgba(31,119,180,.14)' : coul ? coul.fill : mitoyen ? VOISIN_FILL : PERMIS_FILL}
-            stroke={off ? '#bbb' : futur ? '#1f77b4' : coul ? coul.stroke : mitoyen ? VOISIN_TRAIT : PERMIS_TRAIT} strokeWidth={surParcelle ? 1.9 : mitoyen ? 1.3 : 1.2} strokeDasharray={futur ? '4 2' : coul?.dash} strokeOpacity={off ? 0.6 : 1} />;
+          const surParcelle = !futur && !off && !coul && !voisin;           // ① le bâtiment DU PERMIS (parcelle dominante du permis)
+          return <path key={`b${i}`} d={path(poly.anneau)} data-etat={poly.etat ?? ''} data-futur={futur} data-ecarte={off || undefined} data-statut={coul ? statut : undefined} data-qualification={poly.qualification || undefined} data-appartient-permis={poly.appartientPermis === false ? 'false' : undefined}
+            fill={off ? 'rgba(0,0,0,.04)' : futur ? 'rgba(31,119,180,.14)' : coul ? coul.fill : voisin ? VOISIN_FILL : PERMIS_FILL}
+            stroke={off ? '#bbb' : futur ? '#1f77b4' : coul ? coul.stroke : voisin ? VOISIN_TRAIT : PERMIS_TRAIT} strokeWidth={surParcelle ? 1.9 : voisin ? 1.3 : 1.2} strokeDasharray={futur ? '4 2' : coul?.dash} strokeOpacity={off ? 0.6 : 1} />;
         })}
         {/* (c) emprises TRACÉES = reconstitution (rouge), si « Afficher la projection » est actif. */}
         {filtres.emprises && emprises.flatMap((e) => (e.anneaux?.length ? e.anneaux : [e.anneau]).map((ring, ri) => ring.length >= 3
@@ -1190,7 +1193,7 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
             comme les étiquettes et le contour d'empreinte (EMPREINTE_TRAIT). L'ancien `var(--color-svv-ink)` basculait à #e8ebef en
             thème sombre → blanc sur blanc, invisible. Ancre = pointOnSurfaceAnneau (intérieur GARANTI, robuste aux formes concaves/en L
             où le centroïde tombe dehors) ; baseline centrale → la lettre est posée SUR le point. Rendu APRÈS le bâti → au-dessus de lui. */}
-        {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3) return null; const q = projeterDansBoite(boite, pointOnSurfaceAnneau(poly.anneau)); const taille = tailleRepere(poly.anneau.map((p) => projeterDansBoite(boite, p))); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={taille} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill={ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={Math.max(1, taille * 0.12)} paintOrder="stroke" opacity={poly.qualification === 'mitoyen' ? 0.85 : undefined} data-repere={poly.repere} data-qualification={poly.qualification || undefined}>{poly.repere}</text>; })}
+        {filtres.reperes && visibles.map((poly, i) => { if (poly.anneau.length < 3 || !poly.repere) return null; const q = projeterDansBoite(boite, pointOnSurfaceAnneau(poly.anneau)); const taille = tailleRepere(poly.anneau.map((p) => projeterDansBoite(boite, p))); return <text key={`r${i}`} x={q.x} y={q.y} fontSize={taille} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill={ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={Math.max(1, taille * 0.12)} paintOrder="stroke" data-repere={poly.repere}>{poly.repere}</text>; })}
         {/* LOT 82/83 — ÉTIQUETTES sur le dessin : nom du bâtiment + altitude de sommet, ancre GARANTIE intérieure (pointOnSurfaceAnneau).
             LOT 83 : placement COLLISION-AWARE calculé pour TOUTES ENSEMBLE (placerEtiquettes) — DEDANS si la boîte tient, sinon DÉPORTÉE
             ENTIÈREMENT hors de TOUTES les formes (obstacles = polygones + emprises) et des autres boîtes, jamais à cheval ; trait de
@@ -1597,10 +1600,10 @@ export function LegendeSchemaProjection() {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
         {/* LOT 90 — l'EMPREINTE (contour épais foncé) distincte du bâti : le mot dit ce que c'est (référence, pas une mesure). */}
         {item({ background: EMPREINTE_FOND, border: `2px solid ${EMPREINTE_TRAIT}` }, 'Empreinte de la parcelle (référence — pas une mesure)')}
-        {/* PROJ-HIÉRARCHIE — les TROIS familles de bâti, du plus saillant au plus discret (teal → sienna → mauve). */}
-        {item({ background: PERMIS_FILL, border: `2px solid ${PERMIS_TRAIT}` }, 'Le bâtiment du permis (sur la parcelle)')}
-        {item({ background: VOISIN_FILL, border: `1px solid ${VOISIN_TRAIT}` }, 'Le voisin direct (en contact)')}
-        {item({ background: CONTEXTE_FOND, border: `1px dashed ${CONTEXTE_TRAIT}` }, 'Le contexte alentour (parcelles voisines et leur bâti)')}
+        {/* PROJ-HIÉRARCHIE / RÈGLE ARNO — bâtiment du permis (teal) ; voisins hors permis (bleu) ; parcelles voisines de contexte (bleu clair). */}
+        {item({ background: PERMIS_FILL, border: `2px solid ${PERMIS_TRAIT}` }, 'Le bâtiment du permis (repéré A, B, C…)')}
+        {item({ background: VOISIN_FILL, border: `1px solid ${VOISIN_TRAIT}` }, 'Bâtiment voisin (hors permis — contexte, sans repère)')}
+        {item({ background: CONTEXTE_FOND, border: `1px dashed ${CONTEXTE_TRAIT}` }, 'Parcelle voisine (contexte)')}
         {item({ background: 'rgba(31,119,180,.14)', border: '1px dashed #1f77b4' }, 'En projet (donnée IGN)')}
         {item({ background: 'rgba(163,4,2,.18)', border: '1px solid var(--color-svv-red)' }, 'Emprise tracée (reconstitution — jamais une mesure)')}
         {/* RATT-3 — DÉCISIONS enregistrées sur l'existant (jamais des faits) : une couleur ne traduit qu'une décision en base. */}
@@ -1611,9 +1614,9 @@ export function LegendeSchemaProjection() {
         <summary style={{ cursor: 'pointer', color: 'var(--color-svv-red)' }} aria-label="Explication des catégories du schéma">ⓘ Que veut dire chaque catégorie ?</summary>
         <div style={{ color: 'var(--color-svv-muted)', marginTop: '.2rem', lineHeight: 1.35 }}>
           <div><strong>Empreinte de la parcelle</strong> : le contour attendu de la (ou des) parcelle(s) fusionnée(s) du permis — un REPÈRE de cadrage, jamais une mesure.</div>
-          <div><strong>Le bâtiment du permis</strong> (teal) : donnée officielle IGN — le(s) bâtiment(s) déjà construit(s) réellement SUR la (ou les) parcelle(s) du permis. C’est le SUJET de l’écran : couleur franche + contour marqué, il domine la composition.</div>
-          <div><strong>Le voisin direct</strong> (sienna) : un bâtiment VOISIN en CONTACT avec la parcelle ou le bâtiment du permis (accolé par un mur, aire réelle sur la parcelle ≈ 0). C’est l’information qui compte pour le vis-à-vis : présente et lisible, mais nettement moins forte que le bâtiment du permis. Il garde son repère (A, B, C…).</div>
-          <div><strong>Le contexte alentour</strong> (mauve) : les parcelles voisines et leur bâti dans un rayon (réglable), SANS contact avec le permis. Le plus discret des trois : présent pour SITUER, jamais pour capter l’attention. Ces objets ne sont JAMAIS candidats à l’affectation ni à l’empreinte. L’interrupteur « Afficher les parcelles voisines et leur bâti » les masque (aucun chargement quand il est éteint).</div>
+          <div><strong>Le bâtiment du permis</strong> (teal) : donnée officielle IGN — le(s) bâtiment(s) dont la parcelle DOMINANTE (celle où se trouve la majeure partie du bâtiment) fait partie du permis. C’est le SUJET de l’écran : couleur franche + contour marqué, il domine la composition. Lui seul reçoit un repère (A, B, C…) et entre dans l’affectation préservé/détruit.</div>
+          <div><strong>Bâtiment voisin</strong> (bleu) : un bâtiment dont la parcelle dominante N’EST PAS une parcelle du permis (immeuble mitoyen, bâti alentour). Il reste AFFICHÉ pour le contexte de lecture — ce qui compte pour le vis-à-vis — mais il ne reçoit PAS de repère et n’entre PAS dans l’affectation préservé/détruit.</div>
+          <div><strong>Parcelle voisine</strong> (bleu clair) : le contour des parcelles alentour dans un rayon (réglable), pour SITUER. Ces objets ne sont JAMAIS candidats à l’affectation ni à l’empreinte. L’interrupteur « Afficher les parcelles voisines et leur bâti » les masque (aucun chargement quand il est éteint).</div>
           <div><strong>En projet</strong> : donnée officielle IGN — des bâtiments dessinés dans les données mais pas encore construits.</div>
           <div><strong>Emprise tracée</strong> : un contour que vous avez dessiné à la main (une reconstitution, jamais une mesure). Il ne sert qu’à visualiser : il n’alimente ni le verdict, ni l’altitude, ni un certificat.</div>
           <div><strong>Décidé « préservé » / « détruit »</strong> : votre décision ENREGISTRÉE sur un bâtiment existant (vert = préservé, orange = détruit). C’est une PRÉVISION, à confronter à la mise à jour cadastrale — jamais un fait. Un bâtiment sans décision reste gris, même recouvert par l’emprise projetée.</div>

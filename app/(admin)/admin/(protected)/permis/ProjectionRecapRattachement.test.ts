@@ -25,10 +25,10 @@ describe('PROJ-4a — récap (lecture seule) de l’emprise projetée dans le Ra
     expect(html).toContain('schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées'); // le schéma est dessiné
     expect(html).toContain('data-etat="En service"');   // couche bâti BD TOPO existant
     expect(html).toContain('data-emprise="1"');           // couche emprise projetée
-    // Légende reprise de l'écran de projection (PROJ-HIÉRARCHIE : les 3 familles nommées, du plus saillant au plus discret).
-    expect(html).toContain('Le bâtiment du permis (sur la parcelle)');
-    expect(html).toContain('Le voisin direct (en contact)');
-    expect(html).toContain('Le contexte alentour (parcelles voisines et leur bâti)');
+    // Légende reprise de l'écran de projection (RÈGLE ARNO : bâtiment du permis vs voisins hors permis en bleu / parcelles voisines en bleu clair).
+    expect(html).toContain('Le bâtiment du permis (repéré A, B, C…)');
+    expect(html).toContain('Bâtiment voisin (hors permis — contexte, sans repère)');
+    expect(html).toContain('Parcelle voisine (contexte)');
     expect(html).toContain('En projet (donnée IGN)');
     expect(html).toContain('Emprise tracée (reconstitution — jamais une mesure)');
   });

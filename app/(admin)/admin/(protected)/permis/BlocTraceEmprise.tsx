@@ -294,6 +294,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const boite: Boite | null = useMemo(() => { const c = cadreDeAnneaux(parcelle); return c ? { largeur: BOITE_L, hauteur: BOITE_H, marge: BOITE_MARGE, cadre: c } : null; }, [parcelle]);
   // PROJ-3i — repères A/B/C… (déterministes, ordre serveur) partagés par le schéma et le panneau de sélection ; boîte plus grande pour le plein écran.
   const polygonesReperes = useMemo(() => attribuerReperes(polygones), [polygones]);
+  // RÈGLE ARNO — sous-ensemble DU PERMIS (parcelle dominante du permis) : c'est LUI qui alimente l'AFFECTATION (préservé/détruit), la
+  //   LÉGENDE des emprises et les ÉTIQUETTES. Le SCHÉMA, lui, reçoit TOUS les polygones (les voisins restent dessinés en contexte, bleu).
+  //   `appartientPermis` absent (payload/fixture ancien) = traité comme permis (comportement d'avant), jamais un écran vide par surprise.
+  const polygonesPermis = useMemo(() => polygonesReperes.filter((p) => p.appartientPermis !== false), [polygonesReperes]);
   // PROJ-3r-fix — cleabs → repère (mêmes noms que la liste des polygones et le schéma) pour nommer les lignes de l'encart d'adoption.
   const reperesParCleabs = useMemo(() => Object.fromEntries(polygonesReperes.filter((p) => p.cleabs).map((p) => [p.cleabs as string, p.repere])), [polygonesReperes]);
   const boiteGrande: Boite | null = useMemo(() => { const c = cadreDeAnneaux(parcelle); return c ? { largeur: 680, hauteur: 520, marge: 18, cadre: c } : null; }, [parcelle]);
@@ -1076,11 +1080,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     const blocSchema = boite ? (
       <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
         <RotationSchema angle={angle} onAngle={setAngle} />
-        <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesReperes, emprises, batiments)} />
+        <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesPermis, emprises, batiments)} />
         {bandeauSel}
         {/* Options d'AFFICHAGE (bâti existant / futur / repères / projection) — pilotage visuel, pas un contrôle de tracé. Porte aussi la légende de catégories. */}
         <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={nbFutur} nbExistant={polygones.length - nbFutur} />
-        <LegendeProjectionEmprises legende={legendeProjection(polygonesReperes, emprises, batiments)} />
+        <LegendeProjectionEmprises legende={legendeProjection(polygonesPermis, emprises, batiments)} />
       </div>
     ) : (
       // HONNÊTETÉ (piège LOT 71) : rien à dessiner → dire CE QUI MANQUE, jamais un cadre vide muet.
@@ -1247,7 +1251,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
             {/* AFF-1 — deux blocs REPLIÉS (identiques dans les deux onglets), sous le schéma : polygones « projet » affectés, puis bâtiments existants. */}
             <BlocProjetRepliable emprises={emprises} polygones={polygonesReperes} batiments={batiments} />
-            <BlocExistantsRepliable polygones={polygonesReperes} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
+            <BlocExistantsRepliable polygones={polygonesPermis} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
 
             {/* PROJ-3r — TROISIÈME issue, DANS l'encart « en projet » : affecter chaque groupe à un bâtiment déclaré + adopter (scinder/fusionner). */}
             <AdoptionGroupes groupes={groupesAdoption} batiments={batiments} reperes={reperesParCleabs} affectation={affectation} scindes={scindes} occupe={occupe}
@@ -1348,7 +1352,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
             {/* AFF-1 — deux blocs REPLIÉS (identiques dans les deux onglets), sous le schéma : polygones « projet » affectés, puis bâtiments existants. */}
             <BlocProjetRepliable emprises={emprises} polygones={polygonesReperes} batiments={batiments} />
-            <BlocExistantsRepliable polygones={polygonesReperes} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
+            <BlocExistantsRepliable polygones={polygonesPermis} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
               </div>
             </div>
           </div>
