@@ -7,6 +7,7 @@ import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVr
 import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
 import { lireExclusionsBestOf, exclurePageBestOf, reintegrerPageBestOf, lireInclusionsBestOf, inclurePageBestOf, desinclurePageBestOf } from '../../../../../lib/permis/bestOfExclusionRepo'; // LOT 61 (exclusions) + LOT 92 (inclusions)
+import { lireDeblocagesTracable, estPageDebloquee, debloquerPageTracable, reverrouillerPageTracable } from '../../../../../lib/permis/pageTracableManuelRepo'; // DÉBLOCAGE MANUEL — pages rendues traçables à la main (3e miroir 190/194)
 import { avecVerrouDossier } from '../../../../../lib/permis/verrouExtraction'; // LOT 58 — une analyse à la fois par dossier
 import { executerReperagePlanches, lecteurPlanchesMistral, coutVisionUsd, MODELE_PLANCHE, type UsageVision } from '../../../../../lib/permis/reperePlanches'; // LOT 62
 import { lireReperagePlanchesOui, lireRunsReperage, enregistrerReperage } from '../../../../../lib/permis/reperePlanchesRepo'; // LOT 62
@@ -73,6 +74,8 @@ export async function GET(request: Request): Promise<Response> {
     const exclusionsBestOf = await repli('exclusionsBestOf', lireExclusionsBestOf(dossierId), []);
     // LOT 92 — pages AJOUTÉES au best-of à la main (réversibles, miroir des exclusions). Résilient : 194 absente → [] (aucun ajout).
     const inclusionsBestOf = await repli('inclusionsBestOf', lireInclusionsBestOf(dossierId), []);
+    // DÉBLOCAGE MANUEL — pages NON traçables rendues traçables à la main (réversibles). Résilient : 210 absente → [] (aucun déblocage).
+    const deblocagesTracable = await repli('deblocagesTracable', lireDeblocagesTracable(dossierId), []);
     // SOURCE UNIQUE — la projection du DOSSIER est-elle validée ? Consommée par le bandeau et la pastille pour ne PLUS afficher un ✓
     //   vert « tracé » là où une validation reste à faire (contradiction avec la capsule/en-tête). Résilient : table absente → false.
     const projectionValidee = await repli('projectionValidee', lireProjectionValidee(dossierId), false);
@@ -131,7 +134,7 @@ export async function GET(request: Request): Promise<Response> {
       return { id: p.id, nomFichier: p.nomFichier, typeMime: p.typeMime, propose, famille, score: propose ? scoreNomPlanMasse(p.nomFichier) : 0, planches, confirme: planches.length > 0, niveaux: niveauxParId.get(p.id), cerfa: cerfaIds.has(p.id) };
     };
     const pieces = [...proposees.map((p) => enrichir(p, true, p.famille)), ...autres.map((p) => enrichir(p, false, null))];
-    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, selection, exclusionsBestOf, inclusionsBestOf, projectionValidee, validationParCorps, altitudeValideeParCorps, reperageRuns: Object.fromEntries(reperageRuns), lecturesPages: Object.fromEntries(lecturesPages), origineExtractionSansIa, indisponibles });
+    return Response.json({ pieces, piecesNonSupportees, emprises, ignores, batiments, contexte, polygones, polygonesEcartes, statutsPolygones, polygonesRecouverts, selection, exclusionsBestOf, inclusionsBestOf, deblocagesTracable, projectionValidee, validationParCorps, altitudeValideeParCorps, reperageRuns: Object.fromEntries(reperageRuns), lecturesPages: Object.fromEntries(lecturesPages), origineExtractionSansIa, indisponibles });
   } catch (e) {
     console.error('[permis/emprise] GET indisponible', e);
     return Response.json({ erreur: 'emprises indisponibles' }, { status: 503 });
@@ -148,6 +151,7 @@ export async function POST(request: Request): Promise<Response> {
       statut?: string; // RATT-1 (2) — preserve | detruit | revoque
       affectations?: { cleabs: string; corpsId: number }[];
       anneau?: { x: number; y: number }[]; // PROJ-3s — sommets Lambert d'une retouche (positions ; jamais une géométrie autoritative)
+      confirmerSuppression?: boolean; // DÉBLOCAGE MANUEL — retrait d'une page portant une emprise : confirmation explicite de suppression
     };
 
     if (body.action === 'signer_piece') {
@@ -175,6 +179,37 @@ export async function POST(request: Request): Promise<Response> {
       else if (body.action === 'desinclure_page_bestof') ok = await desinclurePageBestOf(pid, pg);                                                        // retirer une page AJOUTÉE : simple retour au calcul auto (pas d'exclusion résiduelle)
       else ok = await reintegrerPageBestOf(pid, pg);                                                                                                      // réintégrer (liste des retirées) : retour au calcul automatique
       return Response.json({ ok });
+    }
+
+    // DÉBLOCAGE MANUEL — DÉCLARER une page NON traçable comme exploitable pour le tracé (réversible, grain = LA PAGE). Persiste le geste ;
+    //   la route d'ENREGISTREMENT (plus bas) lit ce même registre pour lever son verrou métier (400). N'affecte NI le document NI la page en
+    //   GED, NI la classification auto. `ok:false` = migration 210 absente (no-op résilient) → l'UI retombe sur le comportement d'avant.
+    if (body.action === 'debloquer_page_tracable') {
+      if (!Number.isInteger(body.pieceId) || !Number.isInteger(body.page) || (body.page as number) < 1) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      const par = garde.auteurId === null ? 'admin' : String(garde.auteurId);
+      const ok = await debloquerPageTracable(dossierId, body.pieceId as number, body.page as number, par);
+      return Response.json({ ok });
+    }
+    // DÉBLOCAGE MANUEL — RETIRER le déblocage d'une page (la reverrouiller). Décision d'Arno : si une emprise a été ENREGISTRÉE sur cette
+    //   page, le retrait est BLOQUÉ tant qu'il n'a pas CONFIRMÉ la suppression (on l'avertit des conséquences côté UI). Sans confirmation →
+    //   on renvoie `bloque` + le nombre d'emprises concernées, sans rien toucher. Avec `confirmerSuppression`, on SUPPRIME ces emprises (elles
+    //   sont sur une page redevenue non traçable → à retracer) PUIS on retire le drapeau. Le calage « live » est de l'état de session (rien à
+    //   détruire côté base). Une page sans emprise se reverrouille directement.
+    if (body.action === 'reverrouiller_page_tracable') {
+      if (!Number.isInteger(body.pieceId) || !Number.isInteger(body.page) || (body.page as number) < 1) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+      const pid = body.pieceId as number, pg = body.page as number;
+      const emprisesPage = (await listerEmprises(dossierId)).filter((e) => e.pieceId === pid && e.page === pg);
+      if (emprisesPage.length > 0 && body.confirmerSuppression !== true) {
+        return Response.json({ ok: false, bloque: true, nbEmprises: emprisesPage.length }); // l'UI demande confirmation AVANT toute suppression
+      }
+      let emprisesSupprimees = 0;
+      if (emprisesPage.length > 0) {
+        for (const e of emprisesPage) emprisesSupprimees += await supprimerEmprise(e.id, dossierId);
+        await appliquerAutoStatut(dossierId, 'auto:emprise'); // l'emprise a disparu : révoquer les 'detruit' auto désormais hors couverture
+      }
+      await reverrouillerPageTracable(pid, pg);
+      const [emprises, ignores, statutsPolygones, polygonesRecouverts] = await Promise.all([listerEmprises(dossierId), listerIgnorees(dossierId), lireStatutsPolygones(dossierId), polygonesRecouvertsParEmprise(dossierId)]);
+      return Response.json({ ok: true, emprisesSupprimees, emprises, ignores, statutsPolygones, polygonesRecouverts });
     }
 
     // LOT 62 — REPÉRER LES PLANCHES d'une pièce par ANALYSE D'IMAGE (bouton MANUEL, geste délibéré payant). Sous le VERROU du LOT 58
@@ -386,7 +421,9 @@ export async function POST(request: Request): Promise<Response> {
           }
         } catch { tracablePage = false; }
       }
-      if (!tracablePage) return Response.json({ erreur: 'une emprise se trace sur une vue en plan (plan de masse, plan d’étage), jamais sur une coupe ou une façade (vue en élévation)' }, { status: 400 });
+      // DÉBLOCAGE MANUEL — le verrou métier tombe SI Arno a explicitement déclaré CETTE page (pieceId, page) exploitable pour le tracé
+      //   (registre persisté permis_page_tracable_manuel). Défense en profondeur : on relit la base, jamais un drapeau reçu du client.
+      if (!tracablePage && !(await estPageDebloquee(body.pieceId as number, page))) return Response.json({ erreur: 'une emprise se trace sur une vue en plan (plan de masse, plan d’étage), jamais sur une coupe ou une façade (vue en élévation)' }, { status: 400 });
       // 🔴 GÉOMÉTRIE AUTORITATIVE SERVEUR : la similitude est recalculée ici sur les paires de calage, jamais reçue du client.
       const sim = calculerSimilitude(paires);
       if (sim === null) return Response.json({ erreur: 'calage insuffisant (2 points distincts requis)' }, { status: 400 });

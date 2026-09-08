@@ -12,7 +12,7 @@ import { HAUTEUR_CADRE_RENDU, BandeauCalage, BandeauVraisemblance, ListeEmprises
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
-import { bandeAvecOverrides, statutPageAnalyse, resumePagesAnalysees } from './TraceEmpriseRendu'; // INCRÉMENT-2 — best-of overrides + statut/résumé de page (barre partagée)
+import { bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, statutPageAnalyse, resumePagesAnalysees } from './TraceEmpriseRendu'; // INCRÉMENT-2 — best-of overrides + statut/résumé de page (barre partagée) + déblocage manuel de traçabilité
 import { BarreVisionneusePieces } from './BarreVisionneusePieces'; // INCRÉMENT-2 — barre de commandes PARTAGÉE avec la planche
 import type { RunReperageAffiche } from '../../../../lib/permis/reperePlanchesRepo';
 import type { LecturePageAffiche } from '../../../../lib/permis/lectureValeursPageRepo';
@@ -61,6 +61,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   NI avec le canvas NI avec le calage/tracé : purement autour de l'aperçu. Le best-of visible = bande auto − retraits + ajouts.
   const [exclus, setExclus] = useState<Set<string>>(new Set());
   const [inclus, setInclus] = useState<Set<string>>(new Set());
+  const [debloques, setDebloques] = useState<Set<string>>(new Set()); // DÉBLOCAGE MANUEL — pages (pieceId:page) rendues traçables à la main (persistées)
+  const [deblocageDemande, setDeblocageDemande] = useState<{ pieceId: number; page: number } | null>(null); // page en attente de confirmation d'un déblocage (avertissement affiché)
+  const [reverrouDemande, setReverrouDemande] = useState<{ pieceId: number; page: number; nbEmprises: number } | null>(null); // retrait en attente de confirmation (emprise(s) liée(s))
   const [runs, setRuns] = useState<Record<number, RunReperageAffiche>>({});
   const [lectures, setLectures] = useState<Record<number, LecturePageAffiche[]>>({});
   const [origineSansIa, setOrigineSansIa] = useState<'auto' | 'manuelle' | null>(null);
@@ -149,7 +152,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const cartoucheActifRef = useRef<HTMLButtonElement>(null); // LOT 3 (enchaînement) — cartouche actif de la BANDE du niveau 3, pour l'amener dans la vue par défilement.
   // INCRÉMENT-2 — best-of VISIBLE = bande auto − retraits + ajouts (mêmes overrides que la planche). Touche la NAVIGATION (quel plan est
   //   proposé), JAMAIS le viewport ni la conversion de coordonnées.
-  const bande = useMemo(() => bandeAvecOverrides(construireBandePlans(pieces), pieces, exclus, inclus), [pieces, exclus, inclus]);
+  const bande = useMemo(() => appliquerDeblocageTracable(bandeAvecOverrides(construireBandePlans(pieces), pieces, exclus, inclus), debloques), [pieces, exclus, inclus, debloques]);
   // DEMANDES 2/3 — la liste « voir toutes les pièces » (partagée avec la planche via ListePiecesAnalyse) a besoin de l'état d'analyse IA
   //   par pièce (repérage LOT 62 + lectures LOT 95) et de l'ensemble des pièces au best-of (pour le marquage bleu). Mêmes calculs que la planche.
   const analyseParPiece = useMemo<Record<number, EtatAnalyseIA>>(() => {
@@ -168,7 +171,18 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   `ambiguCourant` = classement incertain (traçable par défaut, mais on le DIT). Verrou revérifié serveur PAR PAGE à l'enregistrement.
   const entreeCourante = nav === 'bestof' && bande.length > 0 ? bande[bornerIndex(planIndex, bande.length)] : null;
   const familleCourante: FamillePlan | null = entreeCourante ? entreeCourante.famille : familleDeNom(pieces.find((p) => p.id === pieceId)?.nomFichier ?? '');
-  const tracable = entreeCourante ? entreeCourante.tracable : estTracable(familleCourante);
+  // DÉBLOCAGE MANUEL — la PAGE COURANTE (best-of via entreeCourante, sinon pièce libre via pieceId/page) peut avoir été rendue traçable à la
+  //   main. En best-of, `entreeCourante.tracable` intègre DÉJÀ le déblocage (via appliquerDeblocageTracable dans `bande`) ; en pièce libre,
+  //   `estTracable` l'ignore → on ajoute explicitement `debloqueeCourante`. Ainsi calage/tracé s'ouvrent dans les DEUX modes par la même voie.
+  const pageCouranteId = entreeCourante ? entreeCourante.pieceId : pieceId;
+  const pageCourantePage = entreeCourante ? entreeCourante.page : page;
+  const cleCourante = pageCouranteId != null ? `${pageCouranteId}:${pageCourantePage}` : null;
+  const debloqueeCourante = cleCourante != null && debloques.has(cleCourante);
+  const tracable = (entreeCourante ? entreeCourante.tracable : estTracable(familleCourante)) || debloqueeCourante;
+  // Page traçable UNIQUEMENT grâce au déblocage manuel (→ mention + geste de retrait). Une planche par IMAGE reste hors périmètre.
+  const debloqueManuelCourant = entreeCourante ? !!entreeCourante.debloqueManuel : (debloqueeCourante && !estTracable(familleCourante));
+  const origineImageCourante = entreeCourante?.origine === 'image';
+  const etatDeblocage = pageCouranteId != null ? etatDeblocagePage(tracable, debloqueManuelCourant, origineImageCourante) : 'aucun';
   const verrou = tracable ? null : messageVerrou(familleCourante);
   const ambiguCourant = entreeCourante?.ambigu ?? false;
   // PROJ-3m ② — GUIDAGE du geste (pur) : étape courante, quoi cliquer, combien de points restent, où (plan/schéma). Explicitation seule.
@@ -214,7 +228,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         const res = await fetch(`/api/admin/permis/emprise?dossierId=${dossierId}`, { cache: 'no-store' });
         if (annule) return;
         if (!res.ok) { setEtat('erreur'); setMessage('Bâtiments indisponibles (le serveur n’a pas répondu).'); return; }
-        const j = await res.json() as { pieces: Piece[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; selection?: SelectionInfo; indisponibles?: string[]; reperageRuns?: Record<number, RunReperageAffiche>; lecturesPages?: Record<number, LecturePageAffiche[]>; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; validationParCorps?: Record<number, boolean>; altitudeValideeParCorps?: Record<number, boolean>; origineExtractionSansIa?: 'auto' | 'manuelle' | null };
+        const j = await res.json() as { pieces: Piece[]; piecesNonSupportees?: { id: number; nomFichier: string; motif: string }[]; emprises: EmpriseReconstruite[]; ignores: ProjectionIgnoree[]; batiments: BatimentProjection[]; contexte: Contexte; polygones?: PolygoneBdTopo[]; polygonesEcartes?: string[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; selection?: SelectionInfo; indisponibles?: string[]; reperageRuns?: Record<number, RunReperageAffiche>; lecturesPages?: Record<number, LecturePageAffiche[]>; exclusionsBestOf?: { pieceId: number; page: number }[]; inclusionsBestOf?: { pieceId: number; page: number }[]; deblocagesTracable?: { pieceId: number; page: number }[]; validationParCorps?: Record<number, boolean>; altitudeValideeParCorps?: Record<number, boolean>; origineExtractionSansIa?: 'auto' | 'manuelle' | null };
         // Résilience serveur : « indisponible » ≠ « vide ». Si la lecture des BÂTIMENTS a échoué, on n'affiche JAMAIS « 0 bâtiment »
         //   (panne déguisée en donnée) → état d'échec explicite invitant à recharger.
         if (j.indisponibles?.includes('batiments')) { setEtat('erreur'); setMessage('Bâtiments indisponibles : rechargez.'); return; }
@@ -222,6 +236,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         // INCRÉMENT-2 — audits d'analyse IA + overrides best-of (mêmes champs que la planche, déjà renvoyés par le GET).
         setRuns(j.reperageRuns ?? {}); setLectures(j.lecturesPages ?? {}); setOrigineSansIa(j.origineExtractionSansIa ?? null);
         setExclus(new Set((j.exclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`))); setInclus(new Set((j.inclusionsBestOf ?? []).map((e) => `${e.pieceId}:${e.page}`)));
+        setDebloques(new Set((j.deblocagesTracable ?? []).map((e) => `${e.pieceId}:${e.page}`))); setDeblocageDemande(null); setReverrouDemande(null);
         // P3 (perfo) — la MÊME réponse /emprise alimente aussi la LISEUSE (best-of). On la partage (état local pour la liseuse embarquée à
         //   0 bâtiment + remontée au parent pour la liseuse de la planche) → aucun 2e GET /emprise identique. Sous-ensemble strictement lu par la liseuse.
         setDonneesLiseuse({ pieces: j.pieces, piecesNonSupportees: j.piecesNonSupportees, exclusionsBestOf: j.exclusionsBestOf, inclusionsBestOf: j.inclusionsBestOf, reperageRuns: j.reperageRuns, lecturesPages: j.lecturesPages, origineExtractionSansIa: j.origineExtractionSansIa });
@@ -600,6 +615,49 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     } catch { setMessage('Ajout non enregistré, réessayez.'); }
   }, [dossierId]);
 
+  // DÉBLOCAGE MANUEL — CONFIRMER le déblocage d'une page (après l'avertissement « vue en plan »). Persiste le geste puis marque la page
+  //   traçable côté client (la capsule vire au vert, le calage/tracé s'ouvrent par accesTrace inchangé). `ok:false` = migration 210 absente.
+  const confirmerDeblocage = useCallback(async (cle: { pieceId: number; page: number }) => {
+    setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'debloquer_page_tracable', dossierId, pieceId: cle.pieceId, page: cle.page }) });
+      if (res.status === 401) { setMessage('Session expirée — reconnectez-vous.'); return; }
+      if (!res.ok) { setMessage('Déblocage non enregistré, réessayez.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean };
+      if (body.ok === false) { setMessage('Déblocage indisponible (mise à jour de la base requise).'); return; }
+      setDebloques((s) => { const n = new Set(s); n.add(`${cle.pieceId}:${cle.page}`); return n; });
+      setDeblocageDemande(null);
+    } catch { setMessage('Déblocage non enregistré, réessayez.'); }
+  }, [dossierId]);
+
+  // DÉBLOCAGE MANUEL — RETIRER le déblocage. Si une emprise a été enregistrée sur cette page, on avertit AVANT (état reverrouDemande) et on
+  //   ne poste qu'APRÈS confirmation, avec `confirmerSuppression` : le serveur supprime alors ces emprises (page redevenue non traçable → à
+  //   retracer) puis retire le drapeau. Sans emprise, retrait direct. La réponse renvoie l'état emprises/ignores/statuts rafraîchi.
+  const retirerDeblocage = useCallback(async (cle: { pieceId: number; page: number }, confirmerSuppression: boolean) => {
+    setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reverrouiller_page_tracable', dossierId, pieceId: cle.pieceId, page: cle.page, confirmerSuppression }) });
+      if (res.status === 401) { setMessage('Session expirée — reconnectez-vous.'); return; }
+      if (!res.ok) { setMessage('Retrait du déblocage non enregistré, réessayez.'); return; }
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; bloque?: boolean; nbEmprises?: number; emprises?: EmpriseReconstruite[]; ignores?: ProjectionIgnoree[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; emprisesSupprimees?: number };
+      if (body.bloque) { setReverrouDemande({ pieceId: cle.pieceId, page: cle.page, nbEmprises: body.nbEmprises ?? 1 }); return; } // emprise liée → demander confirmation
+      setDebloques((s) => { const n = new Set(s); n.delete(`${cle.pieceId}:${cle.page}`); return n; });
+      if (body.emprises) setEmprises(body.emprises);
+      if (body.ignores) setIgnores(body.ignores);
+      if (body.statutsPolygones) setStatutsLignes(body.statutsPolygones);
+      if (body.polygonesRecouverts) setRecouverts(body.polygonesRecouverts);
+      setReverrouDemande(null);
+    } catch { setMessage('Retrait du déblocage non enregistré, réessayez.'); }
+  }, [dossierId]);
+
+  // DÉBLOCAGE MANUEL — geste « ne plus utiliser cette page » : compte les emprises DÉJÀ enregistrées sur cette page (état local, sans
+  //   round-trip). ≥ 1 → on ouvre l'avertissement de suppression (confirmation explicite) ; 0 → retrait direct.
+  const demanderRetraitDeblocage = useCallback((cle: { pieceId: number; page: number }) => {
+    const n = emprises.filter((e) => e.pieceId === cle.pieceId && e.page === cle.page).length;
+    if (n > 0) setReverrouDemande({ pieceId: cle.pieceId, page: cle.page, nbEmprises: n });
+    else void retirerDeblocage(cle, false);
+  }, [emprises, retirerDeblocage]);
+
   // Dérivés de la BARRE (mêmes règles pures que la planche). `bande` est déjà le best-of VISIBLE (overrides appliqués).
   const planAffiche = pieceId !== null ? (bande.find((pl) => pl.pieceId === pieceId && pl.page === page) ?? null) : null;
   const pageDansBestOf = planAffiche !== null;
@@ -881,6 +939,42 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       ) : (
         <NavPieceLibre page={page} nbPages={nbPagesPiece}
           onPagePrecedente={() => changerPage(-1)} onPageSuivante={() => changerPage(1)} />
+      )}
+      {/* DÉBLOCAGE MANUEL — le GESTE + la MENTION pour la PAGE COURANTE, sous la bande de navigation (best-of OU pièce libre). Une page NON
+          traçable propose « utiliser cette page pour tracer » ; une page débloquée à la main affiche la MENTION persistée + le retrait. Une
+          page traçable d'origine (ou repérée par image) n'affiche rien. Le geste ne fait qu'OUVRIR l'avertissement/la confirmation ci-dessous. */}
+      {cleCourante && etatDeblocage === 'proposer' && (
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <button type="button" data-action="debloquer-tracage" style={btn} onClick={() => { setReverrouDemande(null); setDeblocageDemande({ pieceId: pageCouranteId!, page: pageCourantePage }); }}>utiliser cette page pour tracer</button>
+        </div>
+      )}
+      {cleCourante && etatDeblocage === 'retirer' && (
+        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap' }}>
+          <span data-debloque-manuel="true" style={{ fontSize: 11, fontWeight: 700, border: '1px solid var(--color-svv-green-ink)', borderRadius: '.35rem', padding: '.05rem .35rem', color: 'var(--color-svv-green-ink)' }} title="Page rendue traçable à la main : elle n’a pas été reconnue automatiquement.">débloquée manuellement</span>
+          <button type="button" data-action="reverrouiller-tracage" className="svv-link" style={{ width: 'auto', padding: '.1rem .3rem', fontSize: 12 }} onClick={() => { setDeblocageDemande(null); demanderRetraitDeblocage({ pieceId: pageCouranteId!, page: pageCourantePage }); }}>ne plus utiliser cette page pour tracer</button>
+        </div>
+      )}
+      {/* DÉBLOCAGE MANUEL — AVERTISSEMENT au moment du déblocage (avant de persister) : cette page doit être une VRAIE vue en plan, sinon le
+          calage 2 points (similitude) donnera un tracé faux SANS alerte. Confirmation explicite requise. */}
+      {deblocageDemande && (
+        <div role="alertdialog" aria-label="Confirmer l’utilisation de cette page pour tracer" style={{ fontSize: 12, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.5rem .6rem', display: 'flex', flexDirection: 'column', gap: '.4rem', background: 'var(--color-svv-field)' }}>
+          <span>Cette page doit être une <strong>vue en plan</strong> (vue du dessus, non déformée) : vous devez pouvoir y repérer <strong>deux points communs</strong> avec le schéma. Une coupe, une façade ou une perspective donnerait un tracé <strong>faux</strong>, sans alerte.</span>
+          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+            <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} onClick={() => void confirmerDeblocage(deblocageDemande)}>Oui, c’est une vue en plan — débloquer</button>
+            <button type="button" style={btn} onClick={() => setDeblocageDemande(null)}>Annuler</button>
+          </div>
+        </div>
+      )}
+      {/* DÉBLOCAGE MANUEL — RETRAIT avec emprise(s) liée(s) : on avertit des conséquences (suppression + retracer) et on ne supprime qu'après
+          confirmation explicite (décision d'Arno). Une page sans emprise ne passe jamais par ici (retrait direct). */}
+      {reverrouDemande && (
+        <div role="alertdialog" aria-label="Confirmer le retrait du déblocage" style={{ fontSize: 12, border: '1px solid var(--color-svv-red)', borderRadius: '.4rem', padding: '.5rem .6rem', display: 'flex', flexDirection: 'column', gap: '.4rem', background: 'var(--color-svv-field)' }}>
+          <span style={{ color: 'var(--color-svv-red)' }}>{reverrouDemande.nbEmprises === 1 ? 'Une emprise a été tracée' : `${reverrouDemande.nbEmprises} emprises ont été tracées`} sur cette page. La reverrouiller <strong>supprimera {reverrouDemande.nbEmprises === 1 ? 'ce polygone' : 'ces polygones'}</strong> — il faudra {reverrouDemande.nbEmprises === 1 ? 'le' : 'les'} retracer sur une autre vue en plan.</span>
+          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+            <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }} onClick={() => void retirerDeblocage({ pieceId: reverrouDemande.pieceId, page: reverrouDemande.page }, true)}>Supprimer et reverrouiller</button>
+            <button type="button" style={btn} onClick={() => setReverrouDemande(null)}>Annuler</button>
+          </div>
+        </div>
       )}
       {avertissement && (
         <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -205,6 +205,39 @@ describe('PROJ-3e — bande de plans : feuilleter (fonctions pures)', () => {
     expect(fondCapsuleType(false)).toBeNull();     // page non traçable (coupe/façade/cerfa) → sans fond
     expect(fondCapsuleType(undefined)).toBeNull(); // type inconnu / absent → sans fond
     expect(fondCapsuleType(null)).toBeNull();      // idem
+  });
+
+  // FILET PUR — DÉBLOCAGE MANUEL de la traçabilité d'une page (geste « utiliser cette page pour tracer », réversible). Décisions PURES :
+  //   ① page traçable d'origine → aucun geste ; ② page non traçable → proposer le déblocage ; ③ page débloquée → traçable + mention manuelle
+  //   + retrait ; ④ retrait (page hors registre) → retour à non traçable. Le geste manuel n'invente aucune traçabilité côté classement (il l'AJOUTE).
+  describe('FILET — déblocage manuel « utiliser cette page pour tracer »', () => {
+    const planNonTracable: Plan = { pieceId: 5, page: 6, nomFichier: 'MOUZAIA_PC5.pdf', echelle: null, confirme: true, famille: null, tracable: false, ambigu: false, origine: 'texte' };
+    const planTracable: Plan = { pieceId: 8, page: 1, nomFichier: 'plan_masse.pdf', echelle: '1:200', confirme: true, famille: 'masse', tracable: true, ambigu: false, origine: 'texte' };
+
+    it('appliquerDeblocageTracable : registre vide → bande INCHANGÉE (aucune traçabilité inventée)', () => {
+      const out = appliquerDeblocageTracable([planNonTracable, planTracable], new Set());
+      expect(out[0].tracable).toBe(false); expect(out[0].debloqueManuel).toBeUndefined();
+      expect(out[1].tracable).toBe(true);  expect(out[1].debloqueManuel).toBeUndefined();
+    });
+    it('appliquerDeblocageTracable : page NON traçable présente au registre → tracable + debloqueManuel ; une page DÉJÀ traçable est laissée telle quelle', () => {
+      const out = appliquerDeblocageTracable([planNonTracable, planTracable], new Set(['5:6', '8:1']));
+      expect(out[0]).toMatchObject({ tracable: true, debloqueManuel: true });   // ③ débloquée (capsule → verte via fondCapsuleType ← tracable)
+      expect(out[1].debloqueManuel).toBeUndefined();                            // déjà traçable → déblocage sans objet, jamais de mention
+    });
+    it('appliquerDeblocageTracable : RETRAIT = page hors registre → redevient non traçable (pas de mention résiduelle)', () => {
+      const debloque = appliquerDeblocageTracable([planNonTracable], new Set(['5:6']))[0];
+      expect(debloque).toMatchObject({ tracable: true, debloqueManuel: true });
+      const retire = appliquerDeblocageTracable([planNonTracable], new Set())[0]; // ④ registre vidé
+      expect(retire.tracable).toBe(false); expect(retire.debloqueManuel).toBeUndefined();
+    });
+    it('etatDeblocagePage : ① traçable d’origine → aucun geste ; ② non traçable → proposer ; ③ débloquée → retirer', () => {
+      expect(etatDeblocagePage(true, false, false)).toBe('aucun');    // ① page traçable d'origine → pas de bouton
+      expect(etatDeblocagePage(false, false, false)).toBe('proposer'); // ② non traçable → « utiliser cette page pour tracer »
+      expect(etatDeblocagePage(true, true, false)).toBe('retirer');    // ③ débloquée à la main → mention + « ne plus utiliser cette page »
+    });
+    it('etatDeblocagePage : une page repérée par IMAGE reste hors périmètre (présence seule) → aucun geste', () => {
+      expect(etatDeblocagePage(false, false, true)).toBe('aucun'); // origine image → jamais proposer le déblocage
+    });
   });
 
   it('CONSTAT — la capsule prend le fond vert sur une page TRAÇABLE (masse), sans fond sur une COUPE ; sans dépendre du calage', () => {

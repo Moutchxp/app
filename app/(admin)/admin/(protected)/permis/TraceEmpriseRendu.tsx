@@ -429,7 +429,7 @@ export function ListePiecesAnalyse({ pieces, analyseParPiece, nonSupportees, pie
 }
 
 // ── PROJ-3e — BANDE DE PLANS : l'unité manipulée est LE PLAN (une page précise d'une pièce), plus « pièce » + « n° de page ». ──
-export interface Plan { pieceId: number; page: number; nomFichier: string; echelle: string | null; confirme: boolean; famille: FamillePlan | null; tracable: boolean; ambigu: boolean; niveaux?: string[]; origine: 'texte' | 'image'; manuel?: boolean } // LOT 92 : famille null = page AJOUTÉE dont la famille est inconnue ; manuel = ajoutée à la main
+export interface Plan { pieceId: number; page: number; nomFichier: string; echelle: string | null; confirme: boolean; famille: FamillePlan | null; tracable: boolean; ambigu: boolean; niveaux?: string[]; origine: 'texte' | 'image'; manuel?: boolean; debloqueManuel?: boolean } // LOT 92 : famille null = page AJOUTÉE dont la famille est inconnue ; manuel = ajoutée à la main. debloqueManuel = page NON traçable rendue traçable À LA MAIN (déblocage réversible)
 
 /**
  * Construit la bande à feuilleter à partir des pièces déjà CLASSÉES (ordre masse → étage → coupe, PAS recalculé). PROJ-3f : un
@@ -493,6 +493,31 @@ export function bandeAvecOverrides(bandeAuto: Plan[], pieces: PiecePlan[], exclu
   ];
   items.sort((a, b) => a.r - b.r || a.i - b.i);
   return items.map((x) => x.p);
+}
+
+/**
+ * DÉBLOCAGE MANUEL de la traçabilité — applique le registre `debloque` (clés `pieceId:page`, persistées, cf. pageTracableManuelRepo) à la
+ * bande : une page NON traçable dont Arno a DÉCLARÉ qu'elle est une vue en plan devient `tracable: true` + `debloqueManuel: true`. Ainsi la
+ * capsule passe au vert (fondCapsuleType ← tracable) et le calage/tracé s'activent par les MÊMES règles existantes (accesTrace inchangé) ;
+ * `debloqueManuel` porte la MENTION « débloquée manuellement » à l'écran. Une page DÉJÀ traçable est laissée telle quelle (le déblocage est
+ * sans objet, jamais de mention trompeuse). N'invente aucune traçabilité côté classification auto : il ne fait qu'AJOUTER cette vérité de
+ * plus, par page. PUR (aucune I/O).
+ */
+export function appliquerDeblocageTracable(bande: Plan[], debloque: ReadonlySet<string>): Plan[] {
+  if (debloque.size === 0) return bande;
+  return bande.map((p) => (!p.tracable && debloque.has(`${p.pieceId}:${p.page}`)) ? { ...p, tracable: true, debloqueManuel: true } : p);
+}
+
+/**
+ * DÉBLOCAGE MANUEL — quel geste proposer sur la PAGE COURANTE (best-of OU pièce libre) ? PUR : 'retirer' si elle a été débloquée à la main
+ * (→ « ne plus utiliser cette page ») ; 'proposer' si elle est simplement NON traçable (→ « utiliser cette page pour tracer ») ; 'aucun'
+ * sinon (déjà traçable d'origine → geste sans objet). Une page repérée par IMAGE (présence seule, contenu non extrait) reste HORS périmètre
+ * ('aucun') : le déblocage vise les vues en plan mal classées par le TEXTE, jamais une planche connue par simple détection d'image.
+ */
+export function etatDeblocagePage(tracable: boolean, debloqueManuel: boolean, origineImage: boolean): 'proposer' | 'retirer' | 'aucun' {
+  if (origineImage) return 'aucun';
+  if (debloqueManuel) return 'retirer';
+  return tracable ? 'aucun' : 'proposer';
 }
 
 /** Borne un index dans [0 ; n-1] (0 si liste vide). PUR. */
