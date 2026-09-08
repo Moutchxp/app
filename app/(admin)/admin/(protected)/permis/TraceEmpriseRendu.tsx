@@ -1324,7 +1324,10 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           ];
           return placerReperes(reperes, obstacles, vb).map((pos, i) => (
             <g key={`r${i}`} data-repere={pos.repere} data-deportee={pos.deporte || undefined}>
-              {pos.deporte && <line x1={pos.ax} y1={pos.ay} x2={pos.x} y2={pos.y} stroke={ETIQ_ENCRE} strokeWidth={0.5} strokeOpacity={0.55} />}
+              {/* Trait de rappel (lettre déportée → son bâtiment) : épaisseur PROPORTIONNELLE à la lettre (suit l'échelle d'affichage comme
+                  le <text>, jamais figée) et DOUBLÉE (l'ancien 0,5 fixe était presque invisible en colonne comme en plein écran). Reste
+                  DISCRET : ~0,09×taille < le corps de la lettre, semi-transparent → plus visible sans masquer le bâti ni un autre polygone. */}
+              {pos.deporte && <line x1={pos.ax} y1={pos.ay} x2={pos.x} y2={pos.y} stroke={ETIQ_ENCRE} strokeWidth={Math.max(1, pos.taille * 0.09)} strokeOpacity={0.6} />}
               <text x={pos.x} y={pos.y} fontSize={pos.taille} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill={ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={Math.max(1, pos.taille * 0.12)} paintOrder="stroke">{pos.repere}</text>
             </g>
           ));

@@ -1189,9 +1189,16 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
         <div style={{ fontWeight: 700, fontSize: 13 }}>Projection des emprises — reconstitution par bâtiment <span style={styleAide}>(jamais une mesure ; n’alimente ni le verdict ni l’altitude)</span></div>
         <BandeauProjection verdict={verdict} nbValides={nbValides} nbAValider={nbAValider} />
-        {/* Message RECADRÉ (LOT 90) : on peut CONSULTER les plans (liseuse) et le schéma ; seul le TRACÉ/enregistrement attend un bâtiment. */}
-        <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem' }}>
-          Aucun bâtiment déclaré au permis. Vous pouvez <strong>consulter</strong> les plans (liseuse à gauche) et le schéma (à droite). Pour <strong>tracer</strong> une emprise et l’enregistrer, déclarez d’abord un bâtiment via « <strong>+ ajouter un bâtiment</strong> » (bloc « Le permis / Les bâtiments » ci-dessus) : le calage et l’enregistrement apparaîtront alors.
+        {/* POINT ③ — empêchement LÉGITIME (0 bâtiment DÉCLARÉ) : la règle (lot 3c / affichageTrace) est INCHANGÉE, seul le message gagne en
+            CLARTÉ et en VISIBILITÉ. Il RÉSOUT le paradoxe « je vois des bâtiments A, B, C mais on me dit 0 bâtiment » : les formes du schéma
+            sont le bâti EXISTANT (BD TOPO, pour se repérer), PAS un bâtiment déclaré du permis — c'est ce dernier qui débloque le tracé.
+            Style RECADRÉ (LOT 90) : consultable, seul le TRACÉ attend un bâtiment ; encre (plus muet) + liseré rouge → on ne le rate plus. */}
+        <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-ink)', border: '1px solid var(--color-svv-line)', borderLeft: '3px solid var(--color-svv-red)', borderRadius: '.4rem', padding: '.5rem .6rem', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+          <strong>Tracé indisponible : aucun bâtiment déclaré au permis.</strong>
+          <span>
+            {polygonesPermis.length > 0 && <>Les formes repérées (A, B, C…) sur le schéma sont le <strong>bâti existant</strong> (données BD TOPO), affichées pour se repérer — <strong>pas</strong> un bâtiment déclaré du permis. </>}
+            Vous pouvez <strong>consulter</strong> les plans (liseuse à gauche) et le schéma (à droite). Pour <strong>tracer</strong> l’emprise du futur bâtiment et l’enregistrer, déclarez-le d’abord via « <strong>+ ajouter un bâtiment</strong> » (bloc « Le permis / Les bâtiments » ci-dessus) : le calage et l’enregistrement apparaîtront alors.
+          </span>
         </div>
         {/* LOT 3a (layout) — DISPOSITION CÔTE À CÔTE lecture seule, aux MÊMES proportions/gouttière que le nominal (minmax(0,1.3fr) | minmax(0,1fr),
             gap .8rem) : LISEUSE à gauche (titre en en-tête → plus de colonne latérale vide, cf. LiseusePieces `titreEnEntete`), SCHÉMA à droite.
