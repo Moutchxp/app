@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -198,6 +198,22 @@ describe('PROJ-3e — bande de plans : feuilleter (fonctions pures)', () => {
     expect(h0).toMatch(/disabled[^>]*aria-label="Plan précédent"|aria-label="Plan précédent"[^>]*disabled/);
     const vide = renderToStaticMarkup(h(BandePlans, { bande: [], index: 0, onPrecedent: () => {}, onSuivant: () => {} }));
     expect(vide).toContain('voir toutes les pièces du dossier');
+  });
+
+  it('CONSTAT — fondCapsuleType : page traçable → fond VERT (jeton validé) ; non traçable / inconnu → aucun fond', () => {
+    expect(fondCapsuleType(true)).toEqual({ background: 'var(--color-svv-green-soft)' }); // page traçable → vert
+    expect(fondCapsuleType(false)).toBeNull();     // page non traçable (coupe/façade/cerfa) → sans fond
+    expect(fondCapsuleType(undefined)).toBeNull(); // type inconnu / absent → sans fond
+    expect(fondCapsuleType(null)).toBeNull();      // idem
+  });
+
+  it('CONSTAT — la capsule prend le fond vert sur une page TRAÇABLE (masse), sans fond sur une COUPE ; sans dépendre du calage', () => {
+    const bandeMasse = construireBandePlans([{ id: 90, nomFichier: 'plan.pdf', propose: true, famille: 'masse', planches: [{ page: 1, echelle: '1:200', famille: 'masse', tracable: true }], confirme: true }]);
+    const htmlMasse = renderToStaticMarkup(h(BandePlans, { bande: bandeMasse, index: 0, onPrecedent: () => {}, onSuivant: () => {} }));
+    expect(htmlMasse).toContain('var(--color-svv-green-soft)'); // fond vert présent (image traçable), indépendamment de tout calage
+    const bandeCoupe = construireBandePlans([{ id: 91, nomFichier: 'coupe.pdf', propose: true, famille: 'coupe', planches: [{ page: 1, echelle: null, famille: 'coupe', tracable: false }], confirme: true }]);
+    const htmlCoupe = renderToStaticMarkup(h(BandePlans, { bande: bandeCoupe, index: 0, onPrecedent: () => {}, onSuivant: () => {} }));
+    expect(htmlCoupe).not.toContain('var(--color-svv-green-soft)'); // page non traçable → aucun fond vert
   });
 });
 

@@ -541,6 +541,17 @@ export function guideCalageSousSchema(arme: boolean, planEnAttente: boolean, nbP
  * PROJ-3e — barre de navigation « ‹ précédent / suivant › » d'une bande de plans, avec l'indicateur « plan i sur n » et le libellé
  * lisible du plan courant. Bande vide → renvoie vers le repli (jamais un cul-de-sac). PUR (renderToStaticMarkup).
  */
+/**
+ * CONSTAT — fond de la capsule de TYPE DE PAGE (« PLAN DE MASSE »…) : FOND VERT (jeton « validé » = `--color-svv-green-soft`, thème-aware,
+ * texte sombre lisible dessus) quand l'IMAGE affichée est d'un type TRAÇABLE, sinon AUCUN fond. RÉUTILISE la notion existante `Plan.tracable`
+ * (la MÊME que `accesTrace` / `estTracable`) : jamais une 2ᵉ règle qui pourrait diverger. La capsule décrit l'IMAGE, PAS l'avancement — elle
+ * NE dépend NI du calage, NI du nombre de bâtiments, NI d'une emprise déjà tracée (ces empêchements restent portés par accesTrace + les
+ * boutons). Type inconnu/absent → `tracable` faux/absent → aucun fond. N'active rien, ne débloque rien. PUR (seul le fond change, aucun reflow).
+ */
+export function fondCapsuleType(tracable: boolean | null | undefined): CSSProperties | null {
+  return tracable === true ? { background: 'var(--color-svv-green-soft)' } : null;
+}
+
 export function BandePlans({ bande, index, onPrecedent, onSuivant }: { bande: Plan[]; index: number; onPrecedent: () => void; onSuivant: () => void }) {
   if (bande.length === 0) {
     return <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>Aucun plan de masse proposé — ouvrez « voir toutes les pièces du dossier » ci-dessous pour en choisir un.</p>;
@@ -560,8 +571,9 @@ export function BandePlans({ bande, index, onPrecedent, onSuivant }: { bande: Pl
         <div style={{ flex: '1 1 auto', minWidth: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '.15rem', textAlign: 'center' }}>
           <span style={{ fontSize: 12, fontWeight: 700 }}>plan {i + 1} sur {bande.length}</span>
           <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }}>
-            {/* PROJ-3g — la FAMILLE est écrite (le mot porte l'info, jamais la couleur seule). */}
-            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.05rem .35rem' }}>{libelleFamille(p.famille)}</span>
+            {/* PROJ-3g — la FAMILLE est écrite (le mot porte l'info, jamais la couleur seule). CONSTAT : FOND VERT si l'image affichée est
+                d'un type TRAÇABLE (fondCapsuleType ← p.tracable, même notion qu'accesTrace) ; seul le fond change (texte/taille/position inchangés, aucun reflow). */}
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.05rem .35rem', ...fondCapsuleType(p.tracable) }}>{libelleFamille(p.famille)}</span>
             {/* SUITE — les NIVEAUX que porte une planche d'étage (RDC/SSOL/R+n), pour savoir ce qu'on ouvre (une planche multi-niveaux entre une seule fois). */}
             {p.niveaux && p.niveaux.length > 0 && <span style={{ fontSize: 11, fontWeight: 700, border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.05rem .35rem' }}>niveaux : {p.niveaux.join(', ')}</span>}
             {/* LOT 62 — ORIGINE distinguée (le mot porte l'info) : « repérée par image » = analyse d'image (présence seule, fiabilité différente du texte) → Arno sait ce qu'il regarde. */}
