@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { lireDeclarationsRecapOuRepli } from './cerfaRecapRepo';
+import { lireDeclarationsRecapOuRepli, memoriserRecapCerfaDepuisGed } from './cerfaRecapRepo';
 import type { DeclarationsCerfaStockees } from './cerfaRecapRepo';
+import type { ResultatLectureGed, PieceGedMeta } from './lectureGed';
 
 /**
  * REPLI D'AFFICHAGE du récap Cerfa (déps injectées → pur, sans base ni S3). Règles :
@@ -52,5 +53,35 @@ describe('REPLI récap Cerfa — lireDeclarationsRecapOuRepli (déps injectées)
       lireTexteEtSource: async () => { throw new Error('S3 indisponible'); },
     });
     expect(r).toBeNull();
+  });
+});
+
+// GED minimale : une pièce PDF avec (ou sans) un récapitulatif lisible dans son texte.
+const gedAvec = (texte: string): ResultatLectureGed => ({
+  dossierId: 468,
+  pieces: [{ id: 1, nomFichier: 'recap.pdf', typeMime: 'application/pdf', nbPages: 1, muette: false, motif: null, pages: [{ page: 1, aTexte: true, texte }] }],
+  bilan: { nbPieces: 1, nbPages: 1, pagesAvecTexte: 1, pagesSansTexte: 0, piecesMuettes: 0 },
+});
+const METAS: PieceGedMeta[] = [{ id: 1, nomFichier: 'recap.pdf', typeMime: 'application/pdf', cleStockage: 'k', tailleOctets: 1 }];
+const TXT_RECAP = 'Courte description de votre projet ou de vos travaux : Immeuble neuf de 12 logements. Informations complémentaires';
+
+describe('PRODUCTION DE FOND — memoriserRecapCerfaDepuisGed (écriture injectée, sans base, sans IA)', () => {
+  it('récapitulatif lisible → ÉCRIT l’instantané (VERBATIM), avec la provenance et le majPar du fond', async () => {
+    const ecrire = vi.fn(async () => true);
+    const r = await memoriserRecapCerfaDepuisGed(468, gedAvec(TXT_RECAP), METAS, 'recap:fond', { ecrire });
+    expect(r).toBe(true);
+    expect(ecrire).toHaveBeenCalledOnce();
+    const [id, decl, , maj] = ecrire.mock.calls[0] as unknown as [number, { present: boolean; descriptionProjet: string | null }, string | null, string];
+    expect(id).toBe(468);
+    expect(decl.present).toBe(true);
+    expect(decl.descriptionProjet).toBe('Immeuble neuf de 12 logements.');
+    expect(maj).toBe('recap:fond');
+  });
+
+  it('aucun récapitulatif lisible → n’écrit RIEN (jamais une ligne vide), renvoie false', async () => {
+    const ecrire = vi.fn(async () => true);
+    const r = await memoriserRecapCerfaDepuisGed(468, gedAvec('un courrier quelconque sans récapitulatif'), METAS, 'recap:fond', { ecrire });
+    expect(r).toBe(false);
+    expect(ecrire).not.toHaveBeenCalled();
   });
 });

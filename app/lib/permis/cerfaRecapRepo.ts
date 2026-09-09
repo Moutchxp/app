@@ -1,7 +1,7 @@
 import { query } from '../db/client';
 import { origineDepuisMajPar, suffixeOrigine } from './journalExtraction'; // LOT 100
 import { lireDeclarationsRecapCerfa, type DeclarationsRecapCerfa } from './recapCerfa';
-import { lireGedPermis, depsReellesLectureGed } from './lectureGed'; // REPLI D'AFFICHAGE — texte DÉJÀ extrait des pièces (pdfjs local), aucune IA, aucun service payant
+import { lireGedPermis, depsReellesLectureGed, type ResultatLectureGed, type PieceGedMeta } from './lectureGed'; // REPLI D'AFFICHAGE — texte DÉJÀ extrait des pièces (pdfjs local), aucune IA, aucun service payant
 import { trouverCerfaPc } from './identifierCerfa'; // pièce source identifiée PAR CONTENU (jamais par nom)
 import type { DecompteDescription } from './decompteDescription';
 import { lirePermisCaracteristiques, ecrireCaracteristiquesGlobales, type ChampGlobalDeclare } from './caracteristiquesRepo';
@@ -136,14 +136,34 @@ export async function lireDeclarationsRecap(dossierId: number): Promise<Declarat
   } catch { return null; } // 192 absente → aucun bloc
 }
 
+/** Texte concaténé des pages À TEXTE d'une lecture GED — source COMMUNE au repli d'affichage et à la production de fond (aucune relecture). */
+function texteDeGed(ged: ResultatLectureGed): string {
+  return ged.pieces.flatMap((p) => p.pages.filter((y) => y.aTexte).map((y) => y.texte)).join('\n');
+}
+
 /** REPLI — lit tout le TEXTE de la GED d'un dossier (pdfjs local, aucune IA) + identifie la pièce Cerfa source PAR CONTENU. Isolé pour
  *  l'injection de tests (le repli d'affichage n'a pas à dépendre de S3 dans un test unitaire). Coût réel ~2 à 10 s selon le nb de pièces. */
 async function lireTexteGedEtSource(dossierId: number): Promise<{ texte: string; source: string | null }> {
   const deps = depsReellesLectureGed();
   const ged = await lireGedPermis(dossierId, deps);
-  const texte = ged.pieces.flatMap((p) => p.pages.filter((y) => y.aTexte).map((y) => y.texte)).join('\n');
   const metas = await deps.listerPieces(dossierId); // pièce source identifiée PAR CONTENU (trouverCerfaPc), jamais par nom
-  return { texte, source: trouverCerfaPc(ged, metas)?.nomFichier ?? null };
+  return { texte: texteDeGed(ged), source: trouverCerfaPc(ged, metas)?.nomFichier ?? null };
+}
+
+/**
+ * PRODUCTION DE FOND (PC-3 étendu) — ÉCRIT l'instantané du récap Cerfa à partir d'une lecture GED **DÉJÀ FAITE** (aucune relecture, aucune
+ * IA, aucun service payant). Appelé par le producteur de fond sur la MÊME lecture que le best-of/complétude → coût marginal quasi nul (le
+ * parsing du récap ne coûte que quelques ms). Écrit `permis_cerfa_recap` (upsert `ecrireDeclarationsRecap`) si le texte contient un
+ * récapitulatif LISIBLE ; sinon no-op (aucun récap → aucune ligne, comme à la volée). Pièce source identifiée PAR CONTENU. Renvoie `true`
+ * si une ligne a été écrite. Résilient (ecrireDeclarationsRecap avale l'absence de migration 192).
+ */
+export async function memoriserRecapCerfaDepuisGed(
+  dossierId: number, ged: ResultatLectureGed, metas: readonly PieceGedMeta[], majPar: string,
+  deps: { ecrire?: typeof ecrireDeclarationsRecap } = {}, // injectable pour les tests uniquement (défaut = écriture réelle)
+): Promise<boolean> {
+  const decl = lireDeclarationsRecapCerfa(texteDeGed(ged));
+  if (!decl.present) return false; // aucun récapitulatif lisible → rien à figer (jamais une ligne vide)
+  return (deps.ecrire ?? ecrireDeclarationsRecap)(dossierId, decl, trouverCerfaPc(ged, metas)?.nomFichier ?? null, majPar);
 }
 
 /**

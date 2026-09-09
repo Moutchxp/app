@@ -228,12 +228,14 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
         )}
       </BlocRepliable>
 
-      {/* CARTOUCHE 2 — DÉCLARATIONS DU CERFA (LOT 67, récapitulatif) : lecture en REGARD des faits Sitadel, jamais reportée. Absent si migration 192 non appliquée. */}
-      {data.declarationsCerfa && (
-        <BlocRepliable titre="Déclarations du Cerfa">
-          {() => <DeclarationsCerfaBloc declarations={data.declarationsCerfa!.declarations} pieceSource={data.declarationsCerfa!.pieceSource} />}
-        </BlocRepliable>
-      )}
+      {/* CARTOUCHE 2 — DÉCLARATIONS DU CERFA (LOT 67, récapitulatif) : lecture en REGARD des faits Sitadel, jamais reportée. PC-3 étendu —
+          TOUJOURS présente (jamais muette) : si l'instantané est stocké, contenu immédiat ; sinon la sous-section se PRÉPARE à part (repli
+          différé), sans bloquer le reste des caractéristiques. Le contenu du repliable est monté au 1er dépliage (PERF-1). */}
+      <BlocRepliable titre="Déclarations du Cerfa">
+        {() => data.declarationsCerfa
+          ? <DeclarationsCerfaBloc declarations={data.declarationsCerfa.declarations} pieceSource={data.declarationsCerfa.pieceSource} />
+          : <DeclarationsCerfaDiffere dossierId={dossierId} />}
+      </BlocRepliable>
 
       {/* CARTOUCHE 3 — LE PERMIS (déclaré) : vaut pour tout le permis, ne se répète pas. Le titre de section devient le titre du dépliant. */}
       <BlocRepliable titre={<>Le permis <span style={{ ...styleAide, fontWeight: 400 }}>— déclaré (Cerfa), vaut pour l’ensemble du projet</span></>}>
@@ -377,4 +379,33 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       {message && <span role="status" style={{ fontSize: 12 }}>{message}</span>}
     </div>
   );
+}
+
+/**
+ * PC-3 étendu — sous-section « Déclarations du Cerfa » en CHARGEMENT DIFFÉRÉ. Montée quand la cartouche est ouverte, POUR UN DOSSIER dont
+ * l'instantané du récap n'est pas encore stocké (tout juste arrivé, producteur de fond pas encore passé). Elle demande le récap À PART
+ * (`cerfaRecap=1`) → le payload principal des caractéristiques ne bloque JAMAIS sur cette relecture GED. Dit clairement, en français simple,
+ * que CETTE SEULE LIGNE se prépare (jamais muette). Aucune écriture, aucune IA. Un dossier stocké ne passe pas par ici (contenu immédiat).
+ */
+export function DeclarationsCerfaDiffere({ dossierId }: { dossierId: number }) {
+  const [etat, setEtat] = useState<'chargement' | 'absent' | 'erreur'>('chargement');
+  const [reca, setReca] = useState<{ declarations: DeclarationsRecapCerfa; pieceSource: string | null } | null>(null);
+  useEffect(() => {
+    // Le parent (CaracteristiquesBloc) est keyé par dossierId → remontage à chaque changement ⇒ état initial déjà frais ('chargement'/null) :
+    //   aucun reset synchrone d'état dans l'effet (éviterait un rendu en cascade). L'effet ne fait QUE lancer la requête et poser le résultat.
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&cerfaRecap=1`, { cache: 'no-store' });
+        const j = (await res.json().catch(() => ({}))) as { declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null } | null };
+        if (annule) return;
+        if (j.declarationsCerfa) setReca(j.declarationsCerfa); else setEtat('absent');
+      } catch { if (!annule) setEtat('erreur'); }
+    })();
+    return () => { annule = true; };
+  }, [dossierId]);
+  if (reca) return <DeclarationsCerfaBloc declarations={reca.declarations} pieceSource={reca.pieceSource} />;
+  if (etat === 'chargement') return <p aria-live="polite" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Préparation de cette ligne… — lecture du récapitulatif dans les pièces du dossier. Le reste des caractéristiques est déjà à jour.</p>;
+  if (etat === 'absent') return <p style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Aucun récapitulatif Cerfa lisible n’a été trouvé dans les pièces de ce permis.</p>;
+  return <p role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Préparation de la ligne « Déclarations du Cerfa » indisponible — rouvrez la section pour réessayer.</p>;
 }

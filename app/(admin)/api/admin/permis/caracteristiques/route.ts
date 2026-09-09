@@ -10,7 +10,7 @@ import { lireParcellesPermis, geojsonParcellesPermis, lireEmpreintePermis, geojs
 import { lireEtatEmprisesPermis, validerEmprise, devaliderEmprise, type EtatEmprisesPermis } from '../../../../../lib/permis/empriseReconstruiteRepo'; // VAL-1 — validation PAR EMPRISE (validerEmprise/devaliderEmprise par id)
 import { validerProjection } from '../../../../../lib/permis/projectionFileRepo'; // finalisation permis (permis_projection) quand tous les bâtiments sont validés — conséquence
 import { lireModePassageRattachement } from '../../../../../lib/permis/rattachementConfig'; // COMPLÉMENT — mode de passage (auto-finalisation vs clôture manuelle)
-import { lireDeclarationsRecapOuRepli, type DeclarationsCerfaStockees } from '../../../../../lib/permis/cerfaRecapRepo'; // LOT 67 — déclarations du Cerfa (informatif) ; repli lecture à la volée si aucun instantané stocké
+import { lireDeclarationsRecap, lireDeclarationsRecapOuRepli, type DeclarationsCerfaStockees } from '../../../../../lib/permis/cerfaRecapRepo'; // LOT 67 — déclarations du Cerfa : payload principal = instantané STOCKÉ (immédiat) ; sous-requête cerfaRecap=1 = repli DIFFÉRÉ (lecture GED)
 import { annulerCorrectionParcelle } from '../../../../../lib/permis/correctionParcelleRepo'; // LOT 101 → PL-C5 : seule l'annulation subsiste (dégeler une ligne héritée)
 import { MESURES, construireGlobal, construirePermis, coherenceSommetPlancher, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
 
@@ -97,6 +97,13 @@ export async function GET(request: Request): Promise<Response> {
     const nom = empreinte ? `empreinte-${dossierId}.geojson` : `parcelles-${dossierId}.geojson`;
     return new Response(JSON.stringify(fc), { headers: { 'Content-Type': 'application/geo+json', 'Content-Disposition': `attachment; filename="${nom}"` } });
   }
+  // PC-3 étendu — SOUS-REQUÊTE DIFFÉRÉE de la seule « Déclarations du Cerfa » : le payload principal ne bloque PLUS sur une relecture GED.
+  //   Quand un dossier n'a pas encore son instantané stocké (tout juste arrivé, fond pas encore passé), la sous-section la demande ICI, à
+  //   part, avec le repli lecture-à-la-volée. AUCUNE écriture, aucune IA. Rien d'autre du payload n'est calculé (réponse minimale).
+  if (urlReq.searchParams.get('cerfaRecap') === '1') {
+    const declarationsCerfa = await lireDeclarationsRecapOuRepli(dossierId).catch(() => null as DeclarationsCerfaStockees | null);
+    return Response.json({ declarationsCerfa });
+  }
   try {
     // N5-D/E/N7-E — le JOURNAL (confiance/réserve/provenance + MOTIF), séparé par niveau (parCorps / permis), lu dans le MÊME
     // aller-retour. TOLÉRANT : si les migrations ne sont pas appliquées, on dégrade en journal vide + log — sans casser l'éditeur.
@@ -116,10 +123,10 @@ export async function GET(request: Request): Promise<Response> {
     const empSur = lireEmpreintePermis(dossierId).catch(() => null as EmpreinteLigne | null);
     // FUS-1b — photo du bâti d'origine dans l'empreinte ; tolérante si 114 non appliquée (→ null).
     const batiSur = lireBatiSnapshotPermis(dossierId).catch(() => null as BatiSnapshotResume | null);
-    // LOT 67 — déclarations du Cerfa (instantané informatif) ; tolérante si 192 non appliquée (→ null → aucun bloc à l'écran). REPLI : si
-    //   aucun instantané n'est stocké (analyse antérieure au LOT 67), reconstitution à la volée depuis le texte DÉJÀ extrait (aucune écriture,
-    //   aucune IA). Coût lecture GED ~2-6 s → payé UNIQUEMENT par les dossiers non stockés ; un dossier stocké renvoie immédiatement.
-    const declSur = lireDeclarationsRecapOuRepli(dossierId).catch(() => null as DeclarationsCerfaStockees | null);
+    // LOT 67 / PC-3 étendu — déclarations du Cerfa : le payload principal ne renvoie QUE l'instantané STOCKÉ (lecture immédiate, ~ms),
+    //   JAMAIS le repli lecture-GED bloquant. Si l'instantané manque (dossier tout juste arrivé, fond pas encore passé), la sous-section
+    //   « Déclarations du Cerfa » le demande à part (cerfaRecap=1) et se remplit ENSUITE, sans pénaliser le reste des caractéristiques.
+    const declSur = lireDeclarationsRecap(dossierId).catch(() => null as DeclarationsCerfaStockees | null);
     // DEMANDE 2 — marge d'égalité sommet/plancher (config_veille, migration 205), repli sûr sur le défaut si 205 non appliquée.
     const margeSur = lireMargeCoherenceSommetPlancherM().then((r) => r.margeM).catch(() => MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT);
     // Capsule d'emprise du cartouche : état par bâtiment (surface/date) + projection validée (niveau dossier), lu en base ; tolérant si tables absentes.

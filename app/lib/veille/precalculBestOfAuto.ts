@@ -25,6 +25,7 @@ import { depsReellesLectureGed, type DepsLectureGed, type PieceGedMeta } from '.
 import { empreinteGed } from '../permis/bestOfCache';
 import { calculerBestOf, estPiecePdf, lireGedPourCalcul } from '../permis/bestOfCalcul';
 import { memoriserClassementsCompletude } from '../permis/completudeRepo'; // P-fond 4b — complétude mutualisée sur la MÊME lecture GED
+import { memoriserRecapCerfaDepuisGed } from '../permis/cerfaRecapRepo'; // PC-3 étendu — récap Cerfa produit sur la MÊME lecture GED (l'ouverture d'un permis n'attend plus une relecture)
 import { ecrireBestOfPersiste, TYPE_BEST_OF, type BestOfValeur } from '../permis/bestOfPersistance';
 
 /**
@@ -120,7 +121,12 @@ export function depsReellesPrecalculBestOf(): DepsPrecalculBestOf {
       // COMPLÉTUDE mutualisée : mémorise la matière STABLE (classements) dans sa table dédiée permis_completude, SI la GED n'est pas dégradée
       //   (même garde echec que le best-of). La part VIVANTE (config_veille) reste appliquée À LA VOLÉE par lireCompletude → un changement de
       //   réglage est reflété IMMÉDIATEMENT (jamais au prochain tick). Best-effort (memoriser avale ses erreurs) ; jamais de levée de partiel ici.
-      if (!lecture.echec) await memoriserClassementsCompletude(dossierId, lecture.ged, 'completude:fond');
+      if (!lecture.echec) {
+        await memoriserClassementsCompletude(dossierId, lecture.ged, 'completude:fond');
+        // PC-3 étendu — RÉCAP Cerfa produit sur la MÊME lecture GED (déterministe, aucune IA, ~ms) : la route caractéristiques lit alors
+        //   l'instantané STOCKÉ (immédiat) au lieu de relire toute la GED en bloquant à l'ouverture. Best-effort, même garde d'échec que le best-of.
+        await memoriserRecapCerfaDepuisGed(dossierId, lecture.ged, piecesPdf, 'recap:fond').catch(() => undefined);
+      }
       return best;
     },
     persister: (dossierId, empreinte, valeur) => ecrireBestOfPersiste(dossierId, empreinte, valeur, 'fond'),
