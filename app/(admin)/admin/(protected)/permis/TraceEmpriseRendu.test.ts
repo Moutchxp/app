@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, IndicateurEcartement, PanneauAjustement, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, rayonBullePoignee, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -76,6 +76,33 @@ describe('PROJ-2 — rendu pur', () => {
     expect(blocHtml).toContain('TOUTES les emprises ensemble');
     expect(blocHtml).toContain('positions relatives conservées');
     expect(blocHtml).toContain('data-ajustement-bloc="true"');
+  });
+
+  it('rayonBullePoignee : proportionnel au viewBox, borné [min ; max] → lisible à tout niveau d’affichage', () => {
+    expect(rayonBullePoignee(100)).toBe(12);     // petit schéma → plancher (jamais illisible)
+    expect(rayonBullePoignee(5000)).toBe(24);    // grand schéma (plein écran) → plafond (ne domine pas le dessin)
+    const r = rayonBullePoignee(400); expect(r).toBeGreaterThan(12); expect(r).toBeLessThan(24); // entre les bornes → proportionnel
+  });
+
+  it('DemarrageAjustementCompact : « cette emprise » par emprise + « toutes ensemble » dès 2 ; horizontal', () => {
+    const noop = () => {};
+    const une = renderToStaticMarkup(h(DemarrageAjustementCompact, { emprisesDuBatiment: [emprise({ id: 1 })], nbTotal: 1, onDemarrer: noop, onBloc: noop }));
+    expect(une).toContain('cette emprise');
+    expect(une).not.toContain('toutes ensemble'); // 1 seule emprise → pas de mode bloc
+    const deux = renderToStaticMarkup(h(DemarrageAjustementCompact, { emprisesDuBatiment: [emprise({ id: 1 }), emprise({ id: 2 })], nbTotal: 3, onDemarrer: noop, onBloc: noop }));
+    expect(deux).toContain('emprise 1'); expect(deux).toContain('emprise 2');
+    expect(deux).toContain('toutes ensemble (3)');
+  });
+
+  it('BandeauAjustementCompact : état lisible + pas-à-pas + Enregistrer/Abandonner/Origine ; en-tête Emprise vs Ensemble', () => {
+    const noop = () => {}; const props = { resume: { deplacementM: 0.5, rotationDeg: 3, echellePct: 2 }, onTranslate: noop, onRotate: noop, onScale: noop, onEnregistrer: noop, onAbandonner: noop, onOrigine: noop };
+    const h1 = renderToStaticMarkup(h(BandeauAjustementCompact, { ...props, aDeltaEnregistre: false }));
+    expect(h1).toContain('déplacée de 0,50 m');
+    expect(h1).toContain('Emprise'); // en-tête « cette emprise »
+    expect(h1).toContain('Enregistrer'); expect(h1).toContain('data-ajustement-compact="true"');
+    expect(h1).toMatch(/disabled/); // « Origine » désactivé sans delta enregistré
+    const bloc = renderToStaticMarkup(h(BandeauAjustementCompact, { ...props, aDeltaEnregistre: true, bloc: true }));
+    expect(bloc).toContain('Ensemble'); expect(bloc).toContain('data-ajustement-bloc="true"');
   });
 
   it('IndicateurEcartement : 3 états, X cm comme message principal, jamais R/L, honnêteté « estimation »', () => {

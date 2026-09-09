@@ -10,7 +10,7 @@ import {
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
-import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
+import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -40,7 +40,10 @@ type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convert
 
 const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
 const SEUIL_SOMMET_BOITE = 12; // PROJ-3s — rayon de capture d'un sommet au clic (unités de la boîte du schéma) : cible TACTILE, pas un seuil métier.
-const SEUIL_POIGNEE_BOITE = 16; // PROJ-3t — rayon de capture d'une poignée d'ajustement (rotation / échelle) au drag, en unités de la boîte du schéma.
+// PROJ-3t — la capture des poignées est décidée DANS le schéma (il connaît le rayon réel des bulles, proportionnel au viewBox). Ici ne reste que
+//   le FACTEUR de déport des poignées (multiple du « rayon » de l'emprise = distance du sommet le plus loin au centre) : > 1 → hors du polygone,
+//   assez pour que la bulle agrandie NE MASQUE PAS le dessin, avec une tige visible. Constante nommée.
+const FACTEUR_POIGNEE_AJUSTEMENT = 1.4;
 type ModeRetouche = 'deplacer' | 'inserer' | 'supprimer';
 
 export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true, onValeurLue, onEmprisesChange, onEntete, onDonneesLiseuse }: {
@@ -912,20 +915,19 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     const anneaux = ajustement.base.map((a) => appliquerAjustement(a, d));
     const centre = { x: d.centre.x + d.tx, y: d.centre.y + d.ty };
     let R = 0; for (const a of anneaux) for (const p of a) R = Math.max(R, Math.hypot(p.x - centre.x, p.y - centre.y));
-    const rayon = (R > 0 ? R : 1) * 1.25;
+    const rayon = (R > 0 ? R : 1) * FACTEUR_POIGNEE_AJUSTEMENT;
     const pt = (angleDeg: number): PointLambert => rotePoint({ x: centre.x + rayon, y: centre.y }, centre, angleDeg); // point à `rayon`, tourné
     return { anneaux, centre, poigneeRotation: pt(90 + d.rotDeg), poigneeEchelle: pt(d.rotDeg) }; // ↻ « au nord » de l'emprise, ⤢ « à l'est », suivent la rotation
   }, [ajustement]);
 
-  // Drag SOURIS/DOIGT : `down` choisit la cible (poignée par proximité en coords BOÎTE, sinon le corps) ; `move` compose le delta ; `up` finit.
-  const pointeurAjustement = useCallback((phase: 'down' | 'move' | 'up', pxBoite: { x: number; y: number }) => {
-    if (!ajustement || !boite || !apercuAjustement) return;
-    const lambert = inverseDepuisBoite(boite, pxBoite);
+  // Drag SOURIS/DOIGT : `down` fixe la cible (fournie par le schéma, qui connaît le rayon réel des bulles) ; `move` compose le delta ; `up`
+  //   finit. GÉNÉRIQUE sur la boîte utilisée (`boite` en page normale, `boiteGrande` en plein écran) — SEULE la conversion pxBoite → Lambert
+  //   en dépend ; l'aperçu/delta/centre sont en Lambert, partagés. Un seul état `ajustement` → geste identique quelle que soit la vue.
+  const gererPointeurAjustement = useCallback((boiteU: Boite | null, phase: 'down' | 'move' | 'up', pxBoite: { x: number; y: number }, cible: 'corps' | 'rotation' | 'echelle') => {
+    if (!ajustement || !boiteU || !apercuAjustement) return;
+    const lambert = inverseDepuisBoite(boiteU, pxBoite);
     if (phase === 'up') { dragAjust.current = null; return; }
     if (phase === 'down') {
-      const pRot = projeterDansBoite(boite, apercuAjustement.poigneeRotation), pEch = projeterDansBoite(boite, apercuAjustement.poigneeEchelle);
-      const proche = (q: { x: number; y: number }) => Math.hypot(q.x - pxBoite.x, q.y - pxBoite.y) < SEUIL_POIGNEE_BOITE;
-      const cible = proche(pRot) ? 'rotation' : proche(pEch) ? 'echelle' : 'corps';
       const centreAffiche = apercuAjustement.centre;
       dragAjust.current = { cible, startLambert: lambert, startDelta: ajustement.delta, centreAffiche,
         startAngle: Math.atan2(lambert.y - centreAffiche.y, lambert.x - centreAffiche.x),
@@ -936,9 +938,13 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     if (g.cible === 'corps') majDelta(() => ({ ...g.startDelta, tx: g.startDelta.tx + (lambert.x - g.startLambert.x), ty: g.startDelta.ty + (lambert.y - g.startLambert.y) }));
     else if (g.cible === 'rotation') { const cur = Math.atan2(lambert.y - g.centreAffiche.y, lambert.x - g.centreAffiche.x); majDelta(() => ({ ...g.startDelta, rotDeg: g.startDelta.rotDeg + (cur - g.startAngle) * 180 / Math.PI })); }
     else { const f = Math.hypot(lambert.x - g.centreAffiche.x, lambert.y - g.centreAffiche.y) / g.startDist; majDelta(() => ({ ...g.startDelta, echelle: Math.min(ECHELLE_MAX, Math.max(ECHELLE_MIN, g.startDelta.echelle * f)) })); }
-  }, [ajustement, boite, apercuAjustement, majDelta]);
+  }, [ajustement, apercuAjustement, majDelta]);
+  const pointeurAjustement = useCallback((phase: 'down' | 'move' | 'up', px: { x: number; y: number }, cible: 'corps' | 'rotation' | 'echelle') => gererPointeurAjustement(boite, phase, px, cible), [gererPointeurAjustement, boite]);
+  const pointeurAjustementGrand = useCallback((phase: 'down' | 'move' | 'up', px: { x: number; y: number }, cible: 'corps' | 'rotation' | 'echelle') => gererPointeurAjustement(boiteGrande, phase, px, cible), [gererPointeurAjustement, boiteGrande]);
 
-  const abandonnerAjustement = useCallback(() => { dragAjust.current = null; setAjustement(null); setMessage('ajustement abandonné : l’emprise en base n’a pas changé.'); }, []);
+  // 🔴 ABANDON = fin de la SESSION en cours seulement (aucune écriture) : les modifications NON ENREGISTRÉES sont annulées ; un ajustement DÉJÀ
+  //   ENREGISTRÉ, lui, reste en place (la ligne « ajustée à la main… » demeure vraie). On le DIT clairement pour ne pas laisser croire l'inverse.
+  const abandonnerAjustement = useCallback(() => { dragAjust.current = null; setAjustement(null); setMessage('Ajustement en cours abandonné : les modifications non enregistrées sont annulées. Un ajustement déjà enregistré, lui, reste inchangé.'); }, []);
 
   const enregistrerAjustementGeste = useCallback(async () => {
     if (!ajustement) return;
@@ -1591,11 +1597,20 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               <button type="button" style={btn} onClick={() => setPleinEcran(false)} aria-label="Fermer l’agrandissement">✕ Fermer</button>
             </div>
             <RotationSchema angle={angle} onAngle={setAngle} />
+            {/* PROJ-3t (plein écran) — COMMANDES D'AJUSTEMENT compactes, en pleine largeur près du curseur Rotation, SEULEMENT si au moins une
+                emprise existe. Bandeau horizontal, bas → l'espace vertical reste au schéma. MÊME état `ajustement` que la page normale (partagé). */}
+            {aEmprises && (ajustement
+              ? <BandeauAjustementCompact resume={resumeAjustement(ajustement.delta)} bloc={ajustement.bloc} occupe={occupe} aDeltaEnregistre={ajustement.enregistre}
+                  onTranslate={onTranslate} onRotate={onRotate} onScale={onScale}
+                  onEnregistrer={() => void enregistrerAjustementGeste()} onAbandonner={abandonnerAjustement} onOrigine={() => void revenirOrigineAjustement()} />
+              : <DemarrageAjustementCompact emprisesDuBatiment={empriseDuBat} nbTotal={emprises.length} occupe={occupe}
+                  onDemarrer={(id) => demarrerAjustement(id)} onBloc={demarrerAjustementBloc} />)}
             {bandeauSel}
             <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
               <div style={{ flex: '1 1 420px', minWidth: 0 }}>
                 <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} hauteurMax="82vh" calageLambert={[]} statuts={statutParCleabs}
-                  retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
+                  retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel}
+                  apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustementGrand : undefined} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 240 }}>
                 <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={comptesVisibilite.futur} nbExistant={comptesVisibilite.existant} />

@@ -1039,6 +1039,61 @@ export function PanneauAjustement({ resume, occupe = false, aDeltaEnregistre, bl
   );
 }
 
+/**
+ * PROJ-3t (plein écran) — DÉMARRAGE d'ajustement en vue plein écran : une ligne horizontale COMPACTE (« cette emprise » par emprise du bâtiment
+ * sélectionné · « toutes ensemble »). L'espace vertical appartient au schéma → ce bandeau reste bas. Rendu seulement s'il y a au moins une emprise.
+ */
+export function DemarrageAjustementCompact({ emprisesDuBatiment, nbTotal, occupe = false, onDemarrer, onBloc }: {
+  emprisesDuBatiment: EmpriseReconstruite[]; nbTotal: number; occupe?: boolean; onDemarrer: (id: number) => void; onBloc: () => void;
+}) {
+  const b: CSSProperties = { cursor: occupe ? 'default' : 'pointer', opacity: occupe ? 0.5 : 1, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.25rem .55rem', fontSize: 13, minHeight: 34 };
+  return (
+    <div role="group" aria-label="démarrer un ajustement" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.4rem', fontSize: 13 }}>
+      <strong>Ajuster :</strong>
+      {emprisesDuBatiment.map((e, i) => <button key={e.id} type="button" style={b} disabled={occupe} onClick={() => onDemarrer(e.id)}>{emprisesDuBatiment.length > 1 ? `emprise ${i + 1}` : 'cette emprise'}</button>)}
+      {nbTotal >= 2 && <button type="button" style={b} disabled={occupe} onClick={onBloc}>toutes ensemble ({nbTotal})</button>}
+    </div>
+  );
+}
+
+/**
+ * PROJ-3t (plein écran) — BANDEAU HORIZONTAL COMPACT des commandes d'ajustement, pensé pour la PLEINE LARGEUR en haut de la vue plein écran :
+ * état lisible + boutons pas-à-pas + Enregistrer / Abandonner / Origine, sur UNE ligne qui se replie (mobile). Se déroule bas → l'espace vertical
+ * reste au SCHÉMA. Même delta/état que la page normale (le parent partage `ajustement`). Souris (poignées) toujours disponible sur le schéma.
+ */
+export function BandeauAjustementCompact({ resume, bloc = false, occupe = false, aDeltaEnregistre, onTranslate, onRotate, onScale, onEnregistrer, onAbandonner, onOrigine }: {
+  resume: ResumeAjustement; bloc?: boolean; occupe?: boolean; aDeltaEnregistre: boolean;
+  onTranslate: (dxM: number, dyM: number) => void; onRotate: (deg: number) => void; onScale: (pct: number) => void;
+  onEnregistrer: () => void; onAbandonner: () => void; onOrigine: () => void;
+}) {
+  const b: CSSProperties = { cursor: occupe ? 'default' : 'pointer', opacity: occupe ? 0.5 : 1, border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.2rem .4rem', fontSize: 13, minWidth: 30, minHeight: 32 };
+  const grp: CSSProperties = { display: 'flex', alignItems: 'center', gap: 2 };
+  const cm = Math.round(PAS_TRANSLATION_M * 100);
+  return (
+    <div role="group" aria-label={bloc ? 'ajustement de toutes les emprises' : 'ajustement de l’emprise'} data-ajustement-compact="true" data-ajustement-bloc={bloc || undefined}
+      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.5rem', border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.35rem .5rem', background: 'var(--color-svv-surface)' }}>
+      <span data-ajustement-resume="true" style={{ fontSize: 13 }}><strong>{bloc ? 'Ensemble' : 'Emprise'}</strong> — {libelleResumeAjustement(resume)}</span>
+      <span style={grp} title={`déplacer (${cm} cm)`} aria-label={`déplacer, pas ${cm} cm`}>
+        <button type="button" style={b} disabled={occupe} aria-label={`déplacer vers l’ouest de ${cm} cm`} onClick={() => onTranslate(-PAS_TRANSLATION_M, 0)}>←</button>
+        <button type="button" style={b} disabled={occupe} aria-label={`déplacer vers le nord de ${cm} cm`} onClick={() => onTranslate(0, PAS_TRANSLATION_M)}>↑</button>
+        <button type="button" style={b} disabled={occupe} aria-label={`déplacer vers le sud de ${cm} cm`} onClick={() => onTranslate(0, -PAS_TRANSLATION_M)}>↓</button>
+        <button type="button" style={b} disabled={occupe} aria-label={`déplacer vers l’est de ${cm} cm`} onClick={() => onTranslate(PAS_TRANSLATION_M, 0)}>→</button>
+      </span>
+      <span style={grp} title={`tourner (${PAS_ROTATION_DEG}°)`}>
+        <button type="button" style={b} disabled={occupe} aria-label={`tourner de ${PAS_ROTATION_DEG}° dans le sens antihoraire`} onClick={() => onRotate(-PAS_ROTATION_DEG)}>↺</button>
+        <button type="button" style={b} disabled={occupe} aria-label={`tourner de ${PAS_ROTATION_DEG}° dans le sens horaire`} onClick={() => onRotate(PAS_ROTATION_DEG)}>↻</button>
+      </span>
+      <span style={grp} title={`redimensionner (${PAS_ECHELLE_PCT} %)`}>
+        <button type="button" style={b} disabled={occupe} aria-label={`réduire de ${PAS_ECHELLE_PCT} %`} onClick={() => onScale(-PAS_ECHELLE_PCT)}>−</button>
+        <button type="button" style={b} disabled={occupe} aria-label={`agrandir de ${PAS_ECHELLE_PCT} %`} onClick={() => onScale(PAS_ECHELLE_PCT)}>+</button>
+      </span>
+      <button type="button" className="svv-btn" style={{ width: 'auto', padding: '.2rem .5rem' }} disabled={occupe} onClick={onEnregistrer}>Enregistrer</button>
+      <button type="button" style={b} disabled={occupe} onClick={onAbandonner}>Abandonner</button>
+      <button type="button" style={{ ...b, borderColor: 'var(--color-svv-red)', color: 'var(--color-svv-red)' }} disabled={occupe || !aDeltaEnregistre} title={aDeltaEnregistre ? undefined : 'aucun ajustement enregistré à annuler'} onClick={onOrigine}>Origine</button>
+    </div>
+  );
+}
+
 // PROJ-3h/3i — état des OPTIONS DE VISIBILITÉ du schéma de projection. Chaque interrupteur agit IMMÉDIATEMENT, sans recharger la ligne.
 //   ⓪ PROJ-3i : les deux filtres de PROJ-3h (« en projet » visibilité + « futur bâti » croisillon) visaient LE MÊME jeu de polygones
 //   (En projet ⊂ futur bâti ; sur le périmètre réel 0 « En construction ») → doublon d'interface, le croisillon faisant redondance
@@ -1246,6 +1301,15 @@ const CONTEXTE_FOND = 'rgba(122,180,230,.10)', CONTEXTE_TRAIT = '#7ab4e6'; // �
 //   conservée) + TRAIT de rappel (cf. placerReperes). ⚠️ La taille ne sert QU'AU RENDU du <text> (fontSize) : elle ne touche NI le calage
 //   NI le tracé (aucune conversion de coordonnées gelée).
 const REPERE_MIN_FRAC = 0.075, REPERE_MAX_FRAC = 0.11, REPERE_RATIO = 0.55; // fractions du plus petit côté du viewBox (suivent le zoom d'affichage)
+// PROJ-3t (poignées) — RAYON des bulles de poignée d'ajustement (rotation ↻ / échelle ⤢), proportionnel au NIVEAU D'AFFICHAGE (fraction du
+//   plus petit côté du viewBox, comme les repères A/B/C), BORNÉ : bulle lisible et cible confortable (souris ET doigt) sans dominer le dessin.
+//   La bulle est posée AU BOUT de la tige (hors du polygone) et la tige reste visible → on comprend à quoi elle se rattache. Picto/tige/point
+//   central dérivent tous de ce rayon (aucune valeur en dur dispersée).
+const POIGNEE_RAYON_FRAC = 0.052, POIGNEE_RAYON_MIN = 12, POIGNEE_RAYON_MAX = 24;
+/** Rayon d'une bulle de poignée pour un viewBox donné (plus petit côté). PUR. */
+export function rayonBullePoignee(refVb: number): number {
+  return Math.max(POIGNEE_RAYON_MIN, Math.min(POIGNEE_RAYON_MAX, refVb * POIGNEE_RAYON_FRAC));
+}
 const REPERE_MARGE = 3, REPERE_PAS = 5; // collision : marge de sécurité + pas radial du balayage (mêmes valeurs que placerEtiquettes)
 /** Boîte approximative d'UNE lettre capitale à `taille` (pour collision/ajustement) : ~0,72×taille de large, ~taille de haut. */
 const boiteLettre = (taille: number): { w: number; h: number } => ({ w: taille * 0.72, h: taille });
@@ -1360,7 +1424,7 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
   retoucheAnneau?: PointLambert[] | null; sommetSelectionne?: number | null; // PROJ-3s — contour en RETOUCHE (poignées éditables) + sommet sélectionné
   // PROJ-3t (lot 3b) — APERÇU d'ajustement (emprise manipulée en surbrillance + poignées rotation/échelle + centre) et pointeur (drag). `pxBoite` en coords BOÎTE (comme onCliquer).
   apercuAjustement?: { anneaux: PointLambert[][]; centre: PointLambert; poigneeRotation: PointLambert; poigneeEchelle: PointLambert } | null;
-  onPointeurAjustement?: (phase: 'down' | 'move' | 'up', px: { x: number; y: number }) => void;
+  onPointeurAjustement?: (phase: 'down' | 'move' | 'up', px: { x: number; y: number }, cible: 'corps' | 'rotation' | 'echelle') => void;
   statuts?: Map<string, EtatStatutPolygone>; // RATT-3 — statut décidé par cleabs : colore l'existant (préservé vert / détruit orange). Absent → gris d'origine.
   etiquettes?: EtiquetteProjection[]; // LOT 82 — nom du bâtiment + altitude posés SUR le dessin (suivent la case « repères / infos »). Vide = aucune (écran de tracé).
   voisinage?: ObjetContexte[]; // PROJ-CTX — contexte (parcelles voisines + bâti), 3e registre. Rendu seulement si filtres.contexte === true.
@@ -1394,13 +1458,25 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
     const r = ev.currentTarget.getBoundingClientRect();
     return clicVersBoiteMeet(ev.clientX - r.left, ev.clientY - r.top, r.width, r.height, vb, centre, angle);
   };
+  // PROJ-3t (poignées) — la CIBLE du drag (corps / rotation / échelle) est décidée ICI, dans l'enfant, car il connaît le RAYON réel des bulles
+  //   (proportionnel au viewBox) : la zone de capture suit la taille de la bulle à tout niveau d'affichage, sans coupler le parent. Le parent
+  //   ne fait que la conversion pxBoite → Lambert (il connaît la boîte utilisée). Rayon partagé avec le rendu (aucune valeur en dur en double).
+  const rBulle = rayonBullePoignee(Math.min(vb.w, vb.h));
+  const cibleAjust = (px: { x: number; y: number }): 'corps' | 'rotation' | 'echelle' => {
+    if (!apercuAjustement || !boite) return 'corps';
+    const seuil = rBulle * 1.35; // capture un peu au-delà du bord de la bulle (confort tactile)
+    const pRot = projeterDansBoite(boite, apercuAjustement.poigneeRotation), pEch = projeterDansBoite(boite, apercuAjustement.poigneeEchelle);
+    if (Math.hypot(px.x - pRot.x, px.y - pRot.y) < seuil) return 'rotation';
+    if (Math.hypot(px.x - pEch.x, px.y - pEch.y) < seuil) return 'echelle';
+    return 'corps';
+  };
   return (
     <svg viewBox={`${vb.minX} ${vb.minY} ${vb.w} ${vb.h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées"
       style={{ display: 'block', width: '100%', height: 'auto', maxHeight: hauteurMax, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', touchAction: onPointeurAjustement ? 'none' : undefined, cursor: onPointeurAjustement ? 'grab' : onCliquer ? 'crosshair' : 'default' }}
       onClick={onCliquer ? (ev) => onCliquer(pxDe(ev)) : undefined}
-      onPointerDown={onPointeurAjustement ? (ev) => { (ev.currentTarget as SVGSVGElement).setPointerCapture(ev.pointerId); onPointeurAjustement('down', pxDe(ev)); } : undefined}
-      onPointerMove={onPointeurAjustement ? (ev) => { if (ev.buttons !== 0 || ev.pointerType === 'touch') onPointeurAjustement('move', pxDe(ev)); } : undefined}
-      onPointerUp={onPointeurAjustement ? (ev) => onPointeurAjustement('up', pxDe(ev)) : undefined}>
+      onPointerDown={onPointeurAjustement ? (ev) => { const px = pxDe(ev); (ev.currentTarget as SVGSVGElement).setPointerCapture(ev.pointerId); onPointeurAjustement('down', px, cibleAjust(px)); } : undefined}
+      onPointerMove={onPointeurAjustement ? (ev) => { if (ev.buttons !== 0 || ev.pointerType === 'touch') { const px = pxDe(ev); onPointeurAjustement('move', px, cibleAjust(px)); } } : undefined}
+      onPointerUp={onPointeurAjustement ? (ev) => { const px = pxDe(ev); onPointeurAjustement('up', px, cibleAjust(px)); } : undefined}>
       <g transform={angle ? `rotate(${angle} ${centre.x} ${centre.y})` : undefined}>
         {/* PROJ-CTX — 3e REGISTRE, dessiné EN PREMIER (donc DERRIÈRE tout le reste) : parcelles voisines (contour mauve fin tireté, sans
             aplat) + leur bâti (aplat mauve très léger). Teinte DISTINCTE des gris du principal/mitoyen → « ce qu'il y a autour », jamais
@@ -1513,16 +1589,20 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
         </>}
         {/* PROJ-3t (lot 3b) — APERÇU d'ajustement : l'emprise manipulée en surbrillance + trait vers les poignées + poignée de ROTATION (↻) et
             d'ÉCHELLE (⤢) + point de CENTRE. Le corps se glisse pour déplacer ; les poignées se glissent pour tourner / redimensionner. */}
-        {apercuAjustement && <g data-ajustement-apercu="true">
+        {apercuAjustement && (() => {
+          // Rayon proportionnel au niveau d'affichage (borné, = celui de la capture) → picto lisible d'un coup d'œil, cible confortable ; tige +
+          //   point central + halo du picto dérivent tous de ce rayon (aucune valeur en dur). Halo blanc sous le picto (paintOrder) → contraste net.
+          const rB = rBulle; const tige = Math.max(0.9, rB * 0.12), halo = Math.max(1.2, rB * 0.18);
+          return <g data-ajustement-apercu="true">
           {apercuAjustement.anneaux.map((a, i) => a.length >= 3 && <path key={`aj${i}`} d={path(a)} fill="rgba(15,118,110,.18)" stroke="var(--color-svv-ink)" strokeWidth={1.8} strokeDasharray="4 2" data-ajustement="corps" />)}
           {(() => { const c = proj(apercuAjustement.centre), r = proj(apercuAjustement.poigneeRotation), e = proj(apercuAjustement.poigneeEchelle); return <>
-            <line x1={c.x} y1={c.y} x2={r.x} y2={r.y} stroke="var(--color-svv-ink)" strokeWidth={0.8} strokeOpacity={0.6} />
-            <line x1={c.x} y1={c.y} x2={e.x} y2={e.y} stroke="var(--color-svv-ink)" strokeWidth={0.8} strokeOpacity={0.6} />
-            <circle cx={c.x} cy={c.y} r={3} fill="var(--color-svv-ink)" data-ajustement="centre" />
-            <g data-ajustement="rotation"><circle cx={r.x} cy={r.y} r={9} fill="#fff" stroke="var(--color-svv-ink)" strokeWidth={1.5} /><text x={r.x} y={r.y} fontSize={11} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill="var(--color-svv-ink)">↻</text></g>
-            <g data-ajustement="echelle"><circle cx={e.x} cy={e.y} r={9} fill="#fff" stroke="var(--color-svv-ink)" strokeWidth={1.5} /><text x={e.x} y={e.y} fontSize={11} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill="var(--color-svv-ink)">⤢</text></g>
+            <line x1={c.x} y1={c.y} x2={r.x} y2={r.y} stroke="var(--color-svv-ink)" strokeWidth={tige} strokeOpacity={0.65} />
+            <line x1={c.x} y1={c.y} x2={e.x} y2={e.y} stroke="var(--color-svv-ink)" strokeWidth={tige} strokeOpacity={0.65} />
+            <circle cx={c.x} cy={c.y} r={Math.max(3, rB * 0.26)} fill="var(--color-svv-ink)" data-ajustement="centre" />
+            <g data-ajustement="rotation" data-rayon={rB.toFixed(1)}><circle cx={r.x} cy={r.y} r={rB} fill="#fff" stroke="var(--color-svv-ink)" strokeWidth={halo} /><text x={r.x} y={r.y} fontSize={rB * 1.1} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill="var(--color-svv-ink)" stroke="#fff" strokeWidth={halo * 0.6} paintOrder="stroke">↻</text></g>
+            <g data-ajustement="echelle"><circle cx={e.x} cy={e.y} r={rB} fill="#fff" stroke="var(--color-svv-ink)" strokeWidth={halo} /><text x={e.x} y={e.y} fontSize={rB * 1.1} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill="var(--color-svv-ink)" stroke="#fff" strokeWidth={halo * 0.6} paintOrder="stroke">⤢</text></g>
           </>; })()}
-        </g>}
+        </g>; })()}
       </g>
     </svg>
   );

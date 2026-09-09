@@ -50,7 +50,9 @@ describe('câblage du bandeau (lecture de source)', () => {
     expect(ROUTE).toContain('lireSelectionInfo'); expect(ROUTE).toMatch(/selection,?\s*(exclusionsBestOf|\})/);
   });
   it('BlocTraceEmprise place le bandeau après le curseur Rotation et retire via la route planche (POST retirer)', () => {
-    expect(BLOC).toContain('<RotationSchema angle={angle} onAngle={setAngle} />\n            {bandeauSel}');
+    // le bandeau « Empreinte Parcelle(s) » reste APRÈS le curseur Rotation (le bandeau d'ajustement plein écran s'insère entre les deux, lot poignées).
+    const iRot = BLOC.indexOf('<RotationSchema angle={angle} onAngle={setAngle} />'), iSel = BLOC.indexOf('{bandeauSel}', iRot >= 0 ? iRot : 0);
+    expect(iRot).toBeGreaterThan(-1); expect(iSel).toBeGreaterThan(iRot);
     expect(BLOC).toContain("fetch('/api/admin/permis/planche', { method: 'POST'");
     expect(BLOC).toContain("action: 'retirer'");
     expect(BLOC).toContain('setRechargeLocal((n) => n + 1)'); // le retrait recharge /emprise → empreinte/schéma/bandeau à jour
