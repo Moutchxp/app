@@ -271,13 +271,15 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         </BlocRepliable>
         {/* PROJ-3b — INSTRUCTION (caractéristiques + « + ajouter un bâtiment ») puis TRACÉ. Clés PRÉFIXÉES PAR RÔLE (unicité, cf. PART-2b),
             suffixe vAnalyse conservé : chaque enfant monté se remonte après « Lancer le diagnostic complet des documents ». Montés au dépliage (PERF-1). */}
-        {/* ③ CLÔTURE — dans le CONTENU DÉPLOYÉ du bloc « Caractéristiques du permis (saisie) », en BAS uniquement (bouton seul).
-            Le rendu du HAUT a été retiré (décision Arno : trop de boutons). */}
+        {/* ③ CLÔTURE — le bouton (variante 'bouton') est passé À CaracteristiquesBloc via `pied` → il est rendu DANS le cartouche « Les futurs
+            bâtiments » (bas de son contenu), plus jamais en frère flottant entre les lignes de section. Reste atteignable en tête de fiche
+            ('principal') et dans « Bâtiments et projection » (⑤). Le rendu du HAUT du bloc a été retiré (décision Arno : trop de boutons).
+            ① HIÉRARCHIE — les sous-sections sont légèrement DÉCALÉES (indentation + filet gauche) pour lire la parenté d'un coup d'œil ;
+            décalage discret (~.85rem), width:100% des sous-lignes → aucun débordement horizontal en portrait. */}
         <BlocRepliable key={`w-carac-${ouvert}`} titre={<TitreFamilleEtat base="Caractéristiques du permis (saisie)" etat={etatAlt} />}>
           {() => (
-            <div className="flex flex-col gap-2">
-              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} />
-              {rendreCloture('bouton')}
+            <div className="flex flex-col gap-2" style={{ marginLeft: '.85rem', paddingLeft: '.85rem', borderLeft: '2px solid var(--color-svv-line)' }}>
+              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} pied={rendreCloture('bouton')} />
             </div>
           )}
         </BlocRepliable>

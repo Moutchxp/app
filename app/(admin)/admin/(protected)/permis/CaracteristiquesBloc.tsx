@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 // ⚠️ Bundle client (piège du 13/08) : de `caracteristiquesRepo` / `journalLecture` (modules serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { CorpsBatiment, GlobalPermis, OrigineValeur, ValeursCorps } from '../../../../lib/permis/caracteristiquesRepo';
 import type { JournalPermis, JournalChamp } from '../../../../lib/permis/journalLecture';
@@ -52,7 +52,7 @@ const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '
  * BÂTIMENT (mesurés : repère, altitudes, étages, adresse par corps). Toute écriture est en 'saisie'. Confiance/réserve/motif
  * lus du journal (parCorps + permis). Bornes et liste de nature LUES de la base.
  */
-export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string }) {
+export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, pied }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; pied?: ReactNode }) {
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
   const [data, setData] = useState<EtatCharge | null>(null);
   const [edGlobal, setEdGlobal] = useState<EditionGlobal>({ parking: '', commentaire: '' });
@@ -288,7 +288,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       </BlocRepliable>
 
       {/* CARTOUCHE 4 — LES CORPS DE BÂTIMENT (mesurés) : un par immeuble. Le titre de section devient le titre du dépliant. */}
-      <BlocRepliable titre={<>Les bâtiments <span style={{ ...styleAide, fontWeight: 400 }}>— mesurés, un par immeuble (altitudes, étages)</span></>}>
+      <BlocRepliable titre={<>Les futurs bâtiments et leurs altitudes <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span></>}>
         {() => (
       <div className="flex flex-col gap-3">
       {/* N10-C — D : ce que contient la section et d'où ça vient. */}
@@ -365,6 +365,10 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} disabled={enCours} onClick={() => void ajouterCorps()}>+ ajouter un bâtiment</button>
       </div>
+      {/* CLÔTURE-3 — le bouton « Valider le permis » vit DANS ce cartouche (au lieu de flotter entre les lignes de section) : rendu par le
+          parent (ProjectionVue) via `pied`, il n'apparaît que quand « Les futurs bâtiments » est déplié. Reste ATTEIGNABLE ailleurs (tête de
+          fiche + bloc « Bâtiments et projection »). Aucune condition d'apparition ni action changée : seul l'emplacement. */}
+      {pied}
       </div>
         )}
       </BlocRepliable>
