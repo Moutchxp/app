@@ -128,12 +128,12 @@ function CorpsCompletude({ etat, dossierId, recalcEnCours, recalcEchoue, avecDia
       {!recalcEnCours && !recalcEchoue && etat.statut === 'ok' && etat.completude === null && (
         <span style={muted}>Diagnostic non calculé pour ce permis — utilisez « Lancer le diagnostic complet des documents » ci-dessus pour l’établir.</span>
       )}
-      {!recalcEnCours && !recalcEchoue && etat.statut === 'ok' && etat.completude !== null && <Contenu c={etat.completude} dossierId={dossierId} />}
+      {!recalcEnCours && !recalcEchoue && etat.statut === 'ok' && etat.completude !== null && <ContenuCompletude c={etat.completude} dossierId={dossierId} />}
     </div>
   );
 }
 
-function Contenu({ c, dossierId }: { c: Completude; dossierId: number }) {
+export function ContenuCompletude({ c, dossierId }: { c: Completude; dossierId: number }) {
   const manquantes = c.diagnostic.lignes.filter((l) => !l.presente).map((l) => l.famille);
   return (
     <div className="flex flex-col gap-1" style={{ fontSize: 13 }}>
@@ -164,18 +164,21 @@ function Contenu({ c, dossierId }: { c: Completude; dossierId: number }) {
           </ul>
         </div>
       )}
-      {/* LOT 60 — pièces hors des 4 familles suivies : on DIT la vraie raison, par pièce, sans jamais annoncer « illisible » un contenu lisible. */}
+      {/* LOT 60 — pièces hors des 4 familles suivies : on DIT la vraie raison, par pièce, sans jamais annoncer « illisible » un contenu lisible.
+          ② PLI — cette liste peut compter des dizaines de pièces (illisible en un bloc). Elle devient un DÉPLIANT (BlocRepliable, MÊME chevron
+          que les autres blocs de l'écran), REPLIÉ PAR DÉFAUT : titre = compte RÉEL (pluriel accordé) ; un clic déplie la liste, INCHANGÉE. */}
       {c.diagnostic.nonClassees.length > 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-          <span style={muted}>{c.diagnostic.nonClassees.length} pièce{c.diagnostic.nonClassees.length > 1 ? 's' : ''} hors des pièces suivies :</span>
-          <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-            {c.diagnostic.nonClassees.map((nc) => (
-              <li key={nc.nomFichier} style={{ ...muted, wordBreak: 'break-word' }}>
-                <strong>{nc.nomFichier}</strong>{nc.rubriqueAutresPieces ? ' (déposée dans la rubrique « autres pièces » du dossier)' : ''} — {PHRASE_NON_CLASSEE[nc.raison]}.
-              </li>
-            ))}
-          </ul>
-        </div>
+        <BlocRepliable titre={`${c.diagnostic.nonClassees.length} pièce${c.diagnostic.nonClassees.length > 1 ? 's' : ''} hors des pièces suivies`}>
+          {() => (
+            <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+              {c.diagnostic.nonClassees.map((nc) => (
+                <li key={nc.nomFichier} style={{ ...muted, wordBreak: 'break-word' }}>
+                  <strong>{nc.nomFichier}</strong>{nc.rubriqueAutresPieces ? ' (déposée dans la rubrique « autres pièces » du dossier)' : ''} — {PHRASE_NON_CLASSEE[nc.raison]}.
+                </li>
+              ))}
+            </ul>
+          )}
+        </BlocRepliable>
       )}
       <span style={{ ...muted, fontSize: 11 }}>Diagnostic établi le {jourParisISO(c.calculeLe)}.</span>
       {/* PART-3a — demander à la mairie les familles MANQUANTES (envoi manuel, dans le fil). Rien à demander si tout est présent. */}
