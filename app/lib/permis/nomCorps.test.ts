@@ -1,5 +1,60 @@
 import { describe, it, expect } from 'vitest';
-import { nomAffichageCorps, libelleNomRepli, codeRepli } from './nomCorps';
+import { nomAffichageCorps, libelleNomRepli, codeRepli, nomAffichageEmprise, resolveurNomEmprise } from './nomCorps';
+
+describe('NOM-3 — nomAffichageEmprise (base corps + « (numéro) » si le corps porte plusieurs emprises)', () => {
+  const corpsRepere = { repere: 'A1', nomRepli: null, corpsId: 5 };
+  const corpsAnon = { repere: null, nomRepli: 'BP', corpsId: 5 }; // → « bâtiment en projet » (un seul corps)
+
+  it('UNE seule emprise sur le corps → base seule (aucun numéro superflu)', () => {
+    expect(nomAffichageEmprise({ id: 10, numero: 1 }, corpsRepere, [{ id: 10, numero: 1 }])).toBe('A1');
+    expect(nomAffichageEmprise({ id: 10, numero: 1 }, corpsAnon, [{ id: 10, numero: 1 }])).toBe('bâtiment en projet');
+  });
+
+  it('PLUSIEURS emprises sur le corps → « base (numéro) », numéro STABLE (le stocké), jamais un rang recalculé', () => {
+    const memeCorps = [{ id: 10, numero: 1 }, { id: 40, numero: 2 }];
+    expect(nomAffichageEmprise({ id: 10, numero: 1 }, corpsRepere, memeCorps)).toBe('A1 (1)');
+    expect(nomAffichageEmprise({ id: 40, numero: 2 }, corpsRepere, memeCorps)).toBe('A1 (2)');
+    expect(nomAffichageEmprise({ id: 10, numero: 1 }, corpsAnon, memeCorps)).toBe('bâtiment en projet (1)');
+  });
+
+  it('NON réattribué : après suppression de la 1re, la 2e GARDE son numéro (le n° suit l’emprise, pas la position)', () => {
+    const apresSuppression = [{ id: 40, numero: 2 }]; // il ne reste qu'une emprise → base seule (plus de doublon possible)
+    expect(nomAffichageEmprise({ id: 40, numero: 2 }, corpsRepere, apresSuppression)).toBe('A1');
+    // et si une 3e est créée (numéro 3, jamais 2) : les deux restent distinctes.
+    const deuxRestantes = [{ id: 40, numero: 2 }, { id: 70, numero: 3 }];
+    expect(nomAffichageEmprise({ id: 40, numero: 2 }, corpsRepere, deuxRestantes)).toBe('A1 (2)');
+    expect(nomAffichageEmprise({ id: 70, numero: 3 }, corpsRepere, deuxRestantes)).toBe('A1 (3)');
+  });
+
+  it('repli DÉTERMINISTE par id si numéro absent (migration 212 non appliquée) — jamais un crash', () => {
+    const memeCorps = [{ id: 10, numero: null }, { id: 40, numero: null }];
+    expect(nomAffichageEmprise({ id: 10, numero: null }, corpsAnon, memeCorps)).toBe('bâtiment en projet (1)');
+    expect(nomAffichageEmprise({ id: 40, numero: null }, corpsAnon, memeCorps)).toBe('bâtiment en projet (2)');
+  });
+
+  it('corps INTROUVABLE → « bâtiment en projet » (jamais vide) ; ne collisionne pas avec un autre corps nommé', () => {
+    expect(nomAffichageEmprise({ id: 10, numero: 1 }, null, [{ id: 10, numero: 1 }])).toBe('bâtiment en projet');
+  });
+});
+
+describe('NOM-3 — resolveurNomEmprise (nom distinct par emprise, dérivé bâtiments + emprises)', () => {
+  it('deux emprises tracées d’un même bâtiment anonyme → deux noms DISTINCTS', () => {
+    const batiments = [{ corpsId: 5, repere: null, nomRepli: 'BP' }];
+    const emprises = [{ id: 632, corpsId: 5, numero: 1 }, { id: 800, corpsId: 5, numero: 2 }];
+    const nom = resolveurNomEmprise(batiments, emprises);
+    expect(nom(emprises[0])).toBe('bâtiment en projet (1)');
+    expect(nom(emprises[1])).toBe('bâtiment en projet (2)');
+    expect(nom(emprises[0])).not.toBe(nom(emprises[1])); // jamais deux fois le même nom à l'écran
+  });
+
+  it('deux bâtiments (repli BP1/BP2) à UNE emprise chacun → distincts par le corps, sans suffixe', () => {
+    const batiments = [{ corpsId: 5, repere: null, nomRepli: 'BP1' }, { corpsId: 6, repere: null, nomRepli: 'BP2' }];
+    const emprises = [{ id: 10, corpsId: 5, numero: 1 }, { id: 20, corpsId: 6, numero: 2 }];
+    const nom = resolveurNomEmprise(batiments, emprises);
+    expect(nom(emprises[0])).toBe('bâtiment en projet 1');
+    expect(nom(emprises[1])).toBe('bâtiment en projet 2');
+  });
+});
 
 describe('NOM-1 — nomAffichageCorps (repere document → repli maison → dernier recours)', () => {
   it('repere lu dans les documents PRIME (« BAT A »)', () => {

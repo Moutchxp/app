@@ -44,6 +44,7 @@ export interface EmpriseReconstruite {
   ajustement: Ajustement | null;  // PROJ-3t (lot 3a) — DELTA d'ajustement manuel réversible ; NULL = aucun. Non NULL = emprise retouchée à la main (traçabilité).
   ajustementParNom: string | null; // PROJ-3t — NOM COMPLET de l'auteur de l'ajustement, résolu depuis pose_par (comme validee_par_nom / la sélection d'empreinte), jamais l'id brut.
   creeLe: string | null;
+  numero: number | null;          // NOM-3 (migration 212) — numéro STABLE par dossier (ordre de création, jamais réattribué) → désambiguïse le nom quand un bâtiment porte plusieurs emprises. NULL = migration 212 non appliquée (repli : rang dérivé par id).
 }
 
 export interface EntreeEnregistrement {
@@ -98,12 +99,30 @@ export async function enregistrerEmprise(e: EntreeEnregistrement): Promise<Resul
     const { rows: v } = await query<{ ok: boolean | null }>(
       `SELECT ST_IsValid(ST_Force2D(ST_GeomFromText($1, 2154))) AS ok`, [wkt]);
     if (!v[0]?.ok) return { ok: false, motif: 'contour invalide : des bords se croisent — ajustez les sommets avant d’enregistrer' };
-    const { rows } = await query<{ id: number }>(
-      `INSERT INTO permis_emprise_reconstruite (dossier_id, corps_id, libelle, geom, surface_m2, piece_id, page, calage, residu_m, cree_par)
-       VALUES ($1, $9, $2, ST_GeomFromText($3, 2154), ST_Area(ST_GeomFromText($3, 2154)), $4, $5, $6::jsonb, $7, $8)
-       RETURNING id::int AS id`,
-      [e.dossierId, e.libelle.trim(), wkt, e.pieceId, e.page, JSON.stringify(e.calage), e.residuM, e.creePar, e.corpsId],
-    );
+    const params = [e.dossierId, e.libelle.trim(), wkt, e.pieceId, e.page, JSON.stringify(e.calage), e.residuM, e.creePar, e.corpsId];
+    // NOM-3 (migration 212) — numéro STABLE par dossier attribué ATOMIQUEMENT : le compteur permis_emprise_numero est bumpé (+1) dans la même
+    //   requête (CTE) que l'INSERT → jamais de numéro perdu/dupliqué. Le compteur ne redescend jamais (ON CONFLICT … +1) → un numéro n'est
+    //   JAMAIS réattribué, même après suppression de l'emprise la plus haute. RÉSILIENT : table compteur / colonne absente (212 non appliquée,
+    //   42P01/42703) → INSERT classique sans numéro (le nom retombera sur un rang dérivé). Si c'est la table des EMPRISES qui manque (149),
+    //   l'INSERT de repli relève le 42P01 → catch externe (tableAbsente), comportement inchangé.
+    let rows: { id: number }[];
+    try {
+      rows = (await query<{ id: number }>(
+        `WITH n AS (
+           INSERT INTO permis_emprise_numero (dossier_id, dernier_numero) VALUES ($1, 1)
+           ON CONFLICT (dossier_id) DO UPDATE SET dernier_numero = permis_emprise_numero.dernier_numero + 1
+           RETURNING dernier_numero
+         )
+         INSERT INTO permis_emprise_reconstruite (dossier_id, corps_id, libelle, geom, surface_m2, piece_id, page, calage, residu_m, cree_par, numero)
+         SELECT $1, $9, $2, ST_GeomFromText($3, 2154), ST_Area(ST_GeomFromText($3, 2154)), $4, $5, $6::jsonb, $7, $8, n.dernier_numero FROM n
+         RETURNING id::int AS id`, params)).rows;
+    } catch (e212) {
+      if (!estColonneAbsente(e212) && !estTableAbsente(e212)) throw e212; // vraie erreur → remonte
+      rows = (await query<{ id: number }>(
+        `INSERT INTO permis_emprise_reconstruite (dossier_id, corps_id, libelle, geom, surface_m2, piece_id, page, calage, residu_m, cree_par)
+         VALUES ($1, $9, $2, ST_GeomFromText($3, 2154), ST_Area(ST_GeomFromText($3, 2154)), $4, $5, $6::jsonb, $7, $8)
+         RETURNING id::int AS id`, params)).rows;
+    }
     await annulerValidationEmpriseCorps(e.corpsId); // (ré)enregistrer une emprise fait RETOMBER la validation du bâtiment
     return { ok: true, id: rows[0].id };
   } catch (err) {
@@ -274,7 +293,7 @@ export async function reinitialiserAjustementBloc(dossierId: number): Promise<Re
 /** Ligne brute d'emprise (les deux variantes de SELECT — avec ou sans la colonne `ajustement` — partagent cette forme, `ajustement` en option). */
 type LigneEmprise = {
   id: number; corps_id: number | null; libelle: string; gj: { type: string; coordinates: number[][][] | number[][][][] } | null; surface_m2: number | null;
-  piece_id: number | null; page: number | null; calage: CalageTrace | null; residu_m: number | null; provenance: ProvenanceEmprise | null; cree_le: Date | null; ajustement?: Ajustement | null; ajustement_par_nom?: string | null;
+  piece_id: number | null; page: number | null; calage: CalageTrace | null; residu_m: number | null; provenance: ProvenanceEmprise | null; cree_le: Date | null; ajustement?: Ajustement | null; ajustement_par_nom?: string | null; numero?: number | null;
 };
 
 /**
@@ -291,8 +310,11 @@ export async function listerEmprises(dossierId: number): Promise<EmpriseReconstr
     // NOM de l'auteur de l'ajustement résolu EN BASE (comme la sélection d'empreinte et validee_par_nom) : jamais l'id brut à l'écran.
     const nomAuteur = `(SELECT nullif(btrim(concat_ws(' ', u.prenom, u.nom)), '') FROM admin_utilisateur u WHERE u.id::text = ajustement->>'pose_par' LIMIT 1) AS ajustement_par_nom`;
     let rows: LigneEmprise[];
-    try { rows = (await query<LigneEmprise>(`SELECT ${base}, ajustement, ${nomAuteur} FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows; }
-    catch (e) { if (!estColonneAbsente(e)) throw e; rows = (await query<LigneEmprise>(`SELECT ${base} FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows; } // 211 non appliquée
+    // 3 niveaux de résilience : (212) numéro + (211) ajustement + nom auteur ; sinon (211) ajustement seul ; sinon base seule (ni 211 ni 212).
+    try { rows = (await query<LigneEmprise>(`SELECT ${base}, ajustement, numero, ${nomAuteur} FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows; }
+    catch (e212) { if (!estColonneAbsente(e212)) throw e212; // 212 non appliquée (colonne `numero` absente) → on retombe sur le niveau 211
+      try { rows = (await query<LigneEmprise>(`SELECT ${base}, ajustement, ${nomAuteur} FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows; }
+      catch (e211) { if (!estColonneAbsente(e211)) throw e211; rows = (await query<LigneEmprise>(`SELECT ${base} FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows; } } // 211 non appliquée
     return rows.map((r) => {
       // PROJ-3q — Polygon → un anneau extérieur ; MultiPolygon → un anneau extérieur PAR partie (groupe adopté à contact par sommet).
       const anneauxOrigine: PointLambert[][] = r.gj?.type === 'MultiPolygon'
@@ -315,6 +337,7 @@ export async function listerEmprises(dossierId: number): Promise<EmpriseReconstr
         ajustement,
         ajustementParNom: ajustement ? (r.ajustement_par_nom ?? null) : null,
         creeLe: r.cree_le ? r.cree_le.toISOString() : null,
+        numero: r.numero ?? null,
       };
     });
   } catch (err) {

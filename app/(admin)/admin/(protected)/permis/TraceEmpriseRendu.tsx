@@ -8,7 +8,7 @@ import {
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { libelleBatiment, resumeProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
-import { nomAffichageCorps } from '../../../../lib/permis/nomCorps'; // NOM-1 — le SEUL décideur du nom d'affichage d'un corps
+import { nomAffichageCorps, resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-1/NOM-3 — nom d'un corps ; nom DISTINCT par emprise (repère + « (numéro) »)
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
 import { estStatuable, TOLERANCE_RECOUVREMENT_TOTAL_PCT, type EtatStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) : statut décidé ; RATT-5 : recouvert + taux ; RATT-6 : mixte
@@ -933,9 +933,10 @@ export function empriseRetouchable(e: EmpriseReconstruite): boolean {
 }
 
 /** Liste des emprises d'un bâtiment : libellé, ORIGINE (IGN / tracé à la main), surface, résidu ; RETOUCHER (mono-polygone) ; effacer. */
-export function ListeEmprises({ emprises, onSupprimer, onRetoucher, onAjuster, empriseEnRetouche = null, empriseEnAjustement = null, nomCorps, repereSource }: {
+export function ListeEmprises({ emprises, onSupprimer, onRetoucher, onAjuster, empriseEnRetouche = null, empriseEnAjustement = null, nomEmprise, nomCorps, repereSource }: {
   emprises: EmpriseReconstruite[]; onSupprimer?: (id: number) => void; onRetoucher?: (id: number) => void; onAjuster?: (id: number) => void;
   empriseEnRetouche?: number | null; empriseEnAjustement?: number | null; // PROJ-3t — emprise en cours d'ajustement (delta)
+  nomEmprise?: (e: EmpriseReconstruite) => string; // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) » si le corps porte plusieurs emprises). PRIME sur nomCorps.
   nomCorps?: string; // NOM-1 — nom RÉSOLU du corps (repere document / repli maison) : PRIME sur e.libelle stocké (« bâtiment 3 », vestigial).
   repereSource?: (e: EmpriseReconstruite) => string | null; // AFF-3 — label de la ligne = repère(s) du/des POLYGONE(s) BD TOPO source(s) de l'emprise (via calage.cleabs).
 }) {
@@ -952,7 +953,7 @@ export function ListeEmprises({ emprises, onSupprimer, onRetoucher, onAjuster, e
         return (
           <li key={e.id} data-emprise={e.id} data-en-retouche={enRetouche || undefined} data-en-ajustement={enAjustement || undefined} style={{ ...carte, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', borderColor: actif ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }}>
             <span>
-              <strong>{repereSource?.(e) ?? nomCorps ?? e.libelle}</strong>{' '}
+              <strong>{nomEmprise?.(e) ?? repereSource?.(e) ?? nomCorps ?? e.libelle}</strong>{' '}
               <span data-provenance={e.provenance} style={{ ...muted, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', padding: '0 .3rem' }}>{libelleProvenance(e.provenance)}</span>{' '}
               {e.surfaceM2 !== null ? fmtM2(e.surfaceM2) : ''}{' '}
               <span style={muted}>{ign ? '· donnée source IGN' : `· résidu ${e.residuM !== null ? fmtM(e.residuM) : '—'}${e.page !== null ? ` · page ${e.page}` : ''}`}</span>
@@ -990,8 +991,8 @@ export function libelleResumeAjustement(r: ResumeAjustement): string {
  * 2 échelles. Les boutons SUFFISENT à eux seuls (chemin complet, mobile-first) ; la souris (drag + poignées) est un plus. État affiché en
  * PERMANENCE en langage d'Arno. 🔴 HONNÊTETÉ : ajuster déplace un DESSIN, ça ne mesure RIEN (aucune précision gagnée). Réversibilité garantie.
  */
-export function PanneauAjustement({ resume, occupe = false, aDeltaEnregistre, bloc = false, onTranslate, onRotate, onScale, onEnregistrer, onAbandonner, onOrigine }: {
-  resume: ResumeAjustement; occupe?: boolean; aDeltaEnregistre: boolean; bloc?: boolean;
+export function PanneauAjustement({ resume, occupe = false, aDeltaEnregistre, bloc = false, nom, onTranslate, onRotate, onScale, onEnregistrer, onAbandonner, onOrigine }: {
+  resume: ResumeAjustement; occupe?: boolean; aDeltaEnregistre: boolean; bloc?: boolean; nom?: string; // NOM-3 — nom DISTINCT de l'emprise ajustée (mono) ; absent en mode ENSEMBLE
   onTranslate: (dxM: number, dyM: number) => void; onRotate: (deg: number) => void; onScale: (pct: number) => void;
   onEnregistrer: () => void; onAbandonner: () => void; onOrigine: () => void;
 }) {
@@ -999,7 +1000,7 @@ export function PanneauAjustement({ resume, occupe = false, aDeltaEnregistre, bl
   const cm = Math.round(PAS_TRANSLATION_M * 100);
   return (
     <div style={{ border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.6rem', background: 'var(--color-svv-surface)', display: 'flex', flexDirection: 'column', gap: '.5rem' }} role="group" aria-label={bloc ? 'ajustement de toutes les emprises' : 'ajustement de l’emprise'} data-ajustement-bloc={bloc || undefined}>
-      <div style={{ fontWeight: 600 }}>{bloc ? 'Ajuster TOUTES les emprises ensemble' : 'Ajuster l’emprise'} <span style={muted}>— déplacer / tourner / redimensionner un DESSIN (une reconstitution, jamais une mesure){bloc ? ' ; les emprises bougent ensemble, positions relatives conservées, et l’ajustement s’ajoute aux ajustements individuels existants (ils sont conservés)' : ''}</span></div>
+      <div style={{ fontWeight: 600 }}>{bloc ? 'Ajuster TOUTES les emprises ensemble' : `Ajuster ${nom ?? 'l’emprise'}`} <span style={muted}>— déplacer / tourner / redimensionner un DESSIN (une reconstitution, jamais une mesure){bloc ? ' ; les emprises bougent ensemble, positions relatives conservées, et l’ajustement s’ajoute aux ajustements individuels existants (ils sont conservés)' : ''}</span></div>
       <div data-ajustement-resume="true" style={{ fontSize: 13 }}><strong>{libelleResumeAjustement(resume)}</strong></div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.8rem', alignItems: 'flex-start' }}>
         {/* Translation — flèches (axes carte : nord / sud / est / ouest), pas nommé en cm terrain. */}
@@ -1061,8 +1062,8 @@ export function DemarrageAjustementCompact({ emprisesDuBatiment, nbTotal, occupe
  * état lisible + boutons pas-à-pas + Enregistrer / Abandonner / Origine, sur UNE ligne qui se replie (mobile). Se déroule bas → l'espace vertical
  * reste au SCHÉMA. Même delta/état que la page normale (le parent partage `ajustement`). Souris (poignées) toujours disponible sur le schéma.
  */
-export function BandeauAjustementCompact({ resume, bloc = false, occupe = false, aDeltaEnregistre, onTranslate, onRotate, onScale, onEnregistrer, onAbandonner, onOrigine }: {
-  resume: ResumeAjustement; bloc?: boolean; occupe?: boolean; aDeltaEnregistre: boolean;
+export function BandeauAjustementCompact({ resume, bloc = false, occupe = false, aDeltaEnregistre, nom, onTranslate, onRotate, onScale, onEnregistrer, onAbandonner, onOrigine }: {
+  resume: ResumeAjustement; bloc?: boolean; occupe?: boolean; aDeltaEnregistre: boolean; nom?: string; // NOM-3 — nom DISTINCT de l'emprise ajustée (mono) ; absent en mode ENSEMBLE
   onTranslate: (dxM: number, dyM: number) => void; onRotate: (deg: number) => void; onScale: (pct: number) => void;
   onEnregistrer: () => void; onAbandonner: () => void; onOrigine: () => void;
 }) {
@@ -1072,7 +1073,7 @@ export function BandeauAjustementCompact({ resume, bloc = false, occupe = false,
   return (
     <div role="group" aria-label={bloc ? 'ajustement de toutes les emprises' : 'ajustement de l’emprise'} data-ajustement-compact="true" data-ajustement-bloc={bloc || undefined}
       style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.5rem', border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.35rem .5rem', background: 'var(--color-svv-surface)' }}>
-      <span data-ajustement-resume="true" style={{ fontSize: 13 }}><strong>{bloc ? 'Ensemble' : 'Emprise'}</strong> — {libelleResumeAjustement(resume)}</span>
+      <span data-ajustement-resume="true" style={{ fontSize: 13 }}><strong>{bloc ? 'Ensemble' : (nom ?? 'Emprise')}</strong> — {libelleResumeAjustement(resume)}</span>
       <span style={grp} title={`déplacer (${cm} cm)`} aria-label={`déplacer, pas ${cm} cm`}>
         <button type="button" style={b} disabled={occupe} aria-label={`déplacer vers l’ouest de ${cm} cm`} onClick={() => onTranslate(-PAS_TRANSLATION_M, 0)}>←</button>
         <button type="button" style={b} disabled={occupe} aria-label={`déplacer vers le nord de ${cm} cm`} onClick={() => onTranslate(0, PAS_TRANSLATION_M)}>↑</button>
@@ -1099,8 +1100,8 @@ export function BandeauAjustementCompact({ resume, bloc = false, occupe = false,
  * Même principe que BandeauAjustementCompact (l'espace vertical reste au SCHÉMA). Geste DISTINCT de l'ajustement ; même état `retouche` que la
  * page normale (partagé par le parent). Le clic sur le schéma pose/déplace/insère/supprime — ce bandeau ne porte que le sous-mode + valider.
  */
-export function BandeauRetoucheCompact({ mode, occupe = false, peutAnnuler, contexteMasque = false, origineVisible = true, contourDispo = false, contourMotif = null, contourEnConfirmation = false, onMode, onAnnuler, onAbandonner, onValider, onToggleOrigine, onContourDemander, onContourConfirmer, onContourAnnuler }: {
-  mode: 'deplacer' | 'inserer' | 'supprimer'; occupe?: boolean; peutAnnuler: boolean; contexteMasque?: boolean;
+export function BandeauRetoucheCompact({ mode, occupe = false, peutAnnuler, contexteMasque = false, nom, origineVisible = true, contourDispo = false, contourMotif = null, contourEnConfirmation = false, onMode, onAnnuler, onAbandonner, onValider, onToggleOrigine, onContourDemander, onContourConfirmer, onContourAnnuler }: {
+  mode: 'deplacer' | 'inserer' | 'supprimer'; occupe?: boolean; peutAnnuler: boolean; contexteMasque?: boolean; nom?: string; // NOM-3 — nom DISTINCT de l'emprise retouchée
   origineVisible?: boolean; contourDispo?: boolean; contourMotif?: string | null; contourEnConfirmation?: boolean;
   onMode: (m: 'deplacer' | 'inserer' | 'supprimer') => void; onAnnuler: () => void; onAbandonner: () => void; onValider: () => void;
   onToggleOrigine?: () => void; onContourDemander?: () => void; onContourConfirmer?: () => void; onContourAnnuler?: () => void;
@@ -1109,7 +1110,7 @@ export function BandeauRetoucheCompact({ mode, occupe = false, peutAnnuler, cont
   return (
     <div role="group" aria-label="retouche de l’emprise" data-retouche-compact="true"
       style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.5rem', border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.35rem .5rem', background: 'var(--color-svv-surface)' }}>
-      <span style={{ fontSize: 13 }}><strong>Retouche</strong> <span style={muted}>— rien n’est enregistré tant que vous ne validez pas</span></span>
+      <span style={{ fontSize: 13 }}><strong>{nom ? `Retouche de ${nom}` : 'Retouche'}</strong> <span style={muted}>— rien n’est enregistré tant que vous ne validez pas</span></span>
       {(['deplacer', 'inserer', 'supprimer'] as const).map((m) => (
         <button key={m} type="button" style={{ ...b, fontWeight: mode === m ? 700 : 400 }} disabled={occupe} onClick={() => onMode(m)}>
           {m === 'deplacer' ? 'Déplacer un sommet' : m === 'inserer' ? 'Insérer sur un bord' : 'Supprimer un sommet'}
@@ -1140,8 +1141,9 @@ export function BandeauRetoucheCompact({ mode, occupe = false, peutAnnuler, cont
  * parent démarre alors la session → la page normale n'est pas altérée tant qu'on n'agit pas). Pour plusieurs emprises, on propose des
  * démarreurs (une cible à choisir avant de bouger). L'espace vertical reste au SCHÉMA (bandeau horizontal qui se replie, mobile-first).
  */
-export function BandeauGestesCompact({ emprisesDuBatiment, nbTotal, occupe = false, ajustementPersiste = false, onTranslate, onRotate, onScale, onOrigine, onDemarrer, onBloc, onRetoucher }: {
+export function BandeauGestesCompact({ emprisesDuBatiment, nbTotal, occupe = false, ajustementPersiste = false, nomEmprise, onTranslate, onRotate, onScale, onOrigine, onDemarrer, onBloc, onRetoucher }: {
   emprisesDuBatiment: EmpriseReconstruite[]; nbTotal: number; occupe?: boolean; ajustementPersiste?: boolean;
+  nomEmprise?: (e: EmpriseReconstruite) => string; // NOM-3 — nom DISTINCT par emprise (repère + « (numéro) ») pour les démarreurs multi-emprises
   onTranslate: (dxM: number, dyM: number) => void; onRotate: (deg: number) => void; onScale: (pct: number) => void; onOrigine: () => void;
   onDemarrer: (id: number) => void; onBloc: () => void; onRetoucher: (id: number) => void;
 }) {
@@ -1176,13 +1178,13 @@ export function BandeauGestesCompact({ emprisesDuBatiment, nbTotal, occupe = fal
       ) : (
         <>
           <strong style={{ fontSize: 13 }}>Ajuster :</strong>
-          {emprisesDuBatiment.map((e, i) => <button key={e.id} type="button" style={b} disabled={occupe} onClick={() => onDemarrer(e.id)}>emprise {i + 1}</button>)}
+          {emprisesDuBatiment.map((e, i) => <button key={e.id} type="button" style={b} disabled={occupe} onClick={() => onDemarrer(e.id)}>{nomEmprise?.(e) ?? `emprise ${i + 1}`}</button>)}
         </>
       )}
       {nbTotal >= 2 && <button type="button" style={b} disabled={occupe} onClick={onBloc}>toutes ensemble ({nbTotal})</button>}
       <span aria-hidden style={{ alignSelf: 'stretch', borderLeft: '1px solid var(--color-svv-line)', margin: '0 .1rem' }} />
       <strong style={{ fontSize: 13 }}>Retoucher :</strong>
-      {emprisesDuBatiment.map((e, i) => <button key={`r${e.id}`} type="button" style={b} disabled={occupe} onClick={() => onRetoucher(e.id)}>{single ? 'cette emprise' : `emprise ${i + 1}`}</button>)}
+      {emprisesDuBatiment.map((e, i) => <button key={`r${e.id}`} type="button" style={b} disabled={occupe} onClick={() => onRetoucher(e.id)}>{single ? 'cette emprise' : (nomEmprise?.(e) ?? `emprise ${i + 1}`)}</button>)}
     </div>
   );
 }
@@ -2020,6 +2022,10 @@ export function BlocProjetRepliable({ emprises, polygones, batiments }: {
 }) {
   const reperesParCleabs = new Map(polygones.filter((p) => p.cleabs).map((p) => [p.cleabs as string, p.repere]));
   const repereSource = (e: EmpriseReconstruite) => labelEmpriseParPolygone(e, reperesParCleabs);
+  // NOM-3 — nom DISTINCT par ligne : IGN adopté → repère(s) du/des polygone(s) SOURCE (AFF-3, conservé) ; tracé à la main → nom du corps + « (numéro) »
+  //   (deux emprises tracées d'un même bâtiment ne s'affichent plus toutes « Emprise reconstituée »).
+  const nomE = resolveurNomEmprise(batiments, emprises);
+  const nomLigne = (e: EmpriseReconstruite) => (e.provenance === 'ign_adopte' || e.provenance === 'ign_retouche') ? repereSource(e) : nomE(e);
   const parBatiment = batiments
     .map((b) => ({ b, emp: emprises.filter((e) => e.corpsId === b.corpsId) }))
     .filter((x) => x.emp.length > 0);
@@ -2033,7 +2039,7 @@ export function BlocProjetRepliable({ emprises, polygones, batiments }: {
         {parBatiment.map(({ b, emp }) => (
           <div key={b.corpsId} data-corps={b.corpsId}>
             <div style={{ fontSize: 12, fontWeight: 600 }}>{nomAffichageCorps({ repere: b.repere, nomRepli: b.nomRepli, corpsId: b.corpsId })}</div>
-            <ListeEmprises emprises={emp} repereSource={repereSource} />
+            <ListeEmprises emprises={emp} nomEmprise={nomLigne} />
           </div>
         ))}
         {orphelines.length > 0 && (

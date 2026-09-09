@@ -13,7 +13,7 @@ import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBat
 const RING = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
 const emprise = (over: Partial<EmpriseReconstruite> = {}): EmpriseReconstruite => ({
   id: 1, dossierId: 11434, corpsId: 1, libelle: '2D1', anneau: RING, anneaux: [RING],
-  surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0.3, provenance: 'trace_manuel', ajustement: null, ajustementParNom: null, creeLe: null, ...over,
+  surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0.3, provenance: 'trace_manuel', ajustement: null, ajustementParNom: null, creeLe: null, numero: null, ...over,
 });
 
 describe('PROJ-2 — rendu pur', () => {

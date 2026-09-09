@@ -11,6 +11,7 @@ import { RecapProjectionRattachement } from './ProjectionRecapRattachement';
 // RATT-1 bis — le geste « statuer les polygones existants » réutilise le composant PUR d'Analyse + ses helpers (jamais dupliqué).
 import { BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, attribuerReperes, MiniConfigProjetee, CaseConfigOfficielle } from './TraceEmpriseRendu';
 import { apercuRattrapage } from '../../../../lib/permis/rattrapage'; // NOM-2 — aperçu PUR du rattrapage (client, aucune requête)
+import { resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) »)
 import { statutCourantParCleabs, type LigneStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut';
 // TYPES seuls (modules serveur / purs) — pour le récap de projection (PROJ-4a), affichage pur.
 import type { EmpriseReconstruite, PolygoneBdTopo } from '../../../../lib/permis/empriseReconstruiteRepo';
@@ -112,7 +113,8 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vu
   type ReponseEmprise = { emprises?: EmpriseReconstruite[]; batiments?: { corpsId: number; repere: string | null; nomRepli?: string | null; altitudeSommetNgf?: number | null }[]; contexte?: { empreinteAnneaux?: PointLambert[][] }; polygones?: PolygoneBdTopo[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[] };
   const appliquerEmprise = useCallback((je: ReponseEmprise) => {
     const emprises = je.emprises ?? [];
-    setEmprisesProjetees(emprises.filter((e) => e.anneau.length >= 3).map((e) => ({ id: e.id, libelle: e.libelle, anneau: e.anneau.map((p) => [p.x, p.y] as [number, number]) })));
+    const nomE = resolveurNomEmprise(je.batiments ?? [], emprises); // NOM-3 — même nom DISTINCT qu'à l'écran de projection (repère + « (numéro) »)
+    setEmprisesProjetees(emprises.filter((e) => e.anneau.length >= 3).map((e) => ({ id: e.id, libelle: nomE(e), anneau: e.anneau.map((p) => [p.x, p.y] as [number, number]) })));
     setRecapProjection({ emprises, parcelle: je.contexte?.empreinteAnneaux ?? [], polygones: je.polygones ?? [], batiments: je.batiments ?? [] });
     setStatutsLignes(je.statutsPolygones ?? []); // RATT-1 bis — champs auparavant IGNORÉS de la même réponse
     setRecouverts(je.polygonesRecouverts ?? []);

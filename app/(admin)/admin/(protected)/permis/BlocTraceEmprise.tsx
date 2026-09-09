@@ -10,6 +10,7 @@ import {
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
+import { resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) » si plusieurs emprises sur le corps)
 import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
@@ -405,6 +406,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
 
   const batSel = batiments.find((b) => b.corpsId === corpsEffectif) ?? null;
   const empriseDuBat = emprises.filter((e) => e.corpsId === corpsEffectif);
+  // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) » si le corps porte plusieurs emprises), dérivé des bâtiments + numéros stables.
+  const nomEmprise = useMemo(() => resolveurNomEmprise(batiments, emprises), [batiments, emprises]);
+  const empriseRetouchee = retouche ? (emprises.find((e) => e.id === retouche.id) ?? null) : null;
+  const nomRetouche = empriseRetouchee ? nomEmprise(empriseRetouchee) : null;
   const ignoreDuBat = ignores.find((i) => i.corpsId === corpsEffectif) ?? null;
   // Origine de l'emprise COURANTE : si adoptée (IGN), les repères de calage/échelle ne s'appliquent pas (PROJ-3r).
   const origineIgnCourant = empriseDuBat.some((e) => e.provenance === 'ign_adopte' || e.provenance === 'ign_retouche');
@@ -938,6 +943,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   // `bloc` : geste d'ENSEMBLE (toutes les emprises du dossier) — `id` null, `base` = tous les anneaux AFFICHÉS (le geste se compose par-dessus
   //   les ajustements individuels au serveur). `une` : `base` = anneaux d'ORIGINE de l'emprise (inverse du delta stocké). Même moteur d'aperçu.
   const [ajustement, setAjustement] = useState<{ bloc: boolean; id: number | null; delta: Ajustement; base: PointLambert[][]; enregistre: boolean } | null>(null);
+  // NOM-3 — nom de l'emprise ACTUELLEMENT ajustée (pour titrer le panneau/bandeau « … de {nom} »). null si aucun, ou geste d'ENSEMBLE (bloc).
+  const nomAjustement = ajustement && !ajustement.bloc && ajustement.id != null ? nomEmprise(emprises.find((e) => e.id === ajustement.id) ?? { id: ajustement.id, corpsId: null, numero: null }) : null;
   const dragAjust = useRef<{ cible: 'corps' | 'rotation' | 'echelle'; startLambert: PointLambert; startDelta: Ajustement; centreAffiche: PointLambert; startAngle: number; startDist: number } | null>(null);
   const anneauxAffiches = useCallback((e: EmpriseReconstruite) => (e.anneaux?.length ? e.anneaux : (e.anneau.length ? [e.anneau] : [])), []);
 
@@ -1454,7 +1461,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       {message && <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-svv-red)' }}>{message}</div>}
 
       {/* Emprises de CE bâtiment : ajuster (delta rigide), retoucher (sommets, mono-polygone) ou effacer. Pendant un ajustement (une ou bloc), les boutons « ajuster » se masquent. */}
-      <ListeEmprises emprises={empriseDuBat} empriseEnRetouche={retouche?.id ?? null} empriseEnAjustement={ajustement?.id ?? null} nomCorps={batSel ? libelleBatiment(batSel) : undefined}
+      <ListeEmprises emprises={empriseDuBat} empriseEnRetouche={retouche?.id ?? null} empriseEnAjustement={ajustement?.id ?? null} nomEmprise={nomEmprise} nomCorps={batSel ? libelleBatiment(batSel) : undefined}
         onSupprimer={(id) => void posterProjection('supprimer', corpsEffectif!, { id })}
         onRetoucher={(id) => demarrerRetouche(id)} onAjuster={ajustement ? undefined : (id) => demarrerAjustement(id)} />
 
@@ -1466,7 +1473,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
 
       {/* PANNEAU D'AJUSTEMENT (souris + boutons ; les boutons suffisent seuls, mobile-first). Réversibilité garantie. */}
       {ajustement && apercuAjustement && (
-        <PanneauAjustement resume={resumeAjustement(ajustement.delta)} occupe={occupe} aDeltaEnregistre={ajustement.enregistre} bloc={ajustement.bloc}
+        <PanneauAjustement resume={resumeAjustement(ajustement.delta)} occupe={occupe} aDeltaEnregistre={ajustement.enregistre} bloc={ajustement.bloc} nom={nomAjustement ?? undefined}
           onTranslate={onTranslate} onRotate={onRotate} onScale={onScale}
           onEnregistrer={() => void enregistrerAjustementGeste()} onAbandonner={abandonnerAjustement} onOrigine={() => void revenirOrigineAjustement()} />
       )}
@@ -1474,7 +1481,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       {/* PROJ-3s — PANNEAU DE RETOUCHE (visible seulement en retouche) : sous-mode + annuler / abandonner / valider. Mobile-first. */}
       {retouche && (
         <div style={{ border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.6rem', background: 'var(--color-svv-surface)' }} role="group" aria-label="retouche de l’emprise">
-          <div style={{ fontWeight: 600, marginBottom: 4 }}>Retouche de l’emprise <span style={styleAide}>— rien n’est modifié en base tant que vous ne validez pas</span></div>
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Retouche de {nomRetouche ?? 'l’emprise'} <span style={styleAide}>— rien n’est modifié en base tant que vous ne validez pas</span></div>
           {contexteMasqueRetouche && filtres.contexte !== true && (
             <p role="note" style={{ ...styleAide, margin: '0 0 .3rem', fontStyle: 'italic' }}>Contexte (parcelles voisines) masqué pour agrandir le dessin — recochez-le dans les options si besoin.</p>
           )}
@@ -1704,15 +1711,15 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 ajustement ; ③ AU REPOS → bandeau des gestes complet (choix cette emprise / toutes, commandes pas-à-pas + Enregistrer +
                 retour à l'origine pour une emprise unique — le 1er geste ARME la session ; entrée en retouche). */}
             {aEmprises && (retouche
-              ? <BandeauRetoucheCompact mode={modeRetouche} occupe={occupe} peutAnnuler={retouche.hist.length > 0} contexteMasque={contexteMasqueRetouche && filtres.contexte !== true}
+              ? <BandeauRetoucheCompact mode={modeRetouche} occupe={occupe} peutAnnuler={retouche.hist.length > 0} contexteMasque={contexteMasqueRetouche && filtres.contexte !== true} nom={nomRetouche ?? undefined}
                   origineVisible={origineRetoucheVisible} contourDispo={contourParcelleDispo} contourMotif={contourParcelleMotif} contourEnConfirmation={confirmerContourParcelle}
                   onMode={(m) => { setModeRetouche(m); setSommetSel(null); }} onAnnuler={annulerRetouche} onAbandonner={abandonnerRetouche} onValider={() => void validerRetouche()}
                   onToggleOrigine={() => setOrigineRetoucheVisible((v) => !v)} onContourDemander={() => setConfirmerContourParcelle(true)} onContourConfirmer={partirDuContourParcelle} onContourAnnuler={() => setConfirmerContourParcelle(false)} />
               : ajustement
-              ? <BandeauAjustementCompact resume={resumeAjustement(ajustement.delta)} bloc={ajustement.bloc} occupe={occupe} aDeltaEnregistre={ajustement.enregistre}
+              ? <BandeauAjustementCompact resume={resumeAjustement(ajustement.delta)} bloc={ajustement.bloc} occupe={occupe} aDeltaEnregistre={ajustement.enregistre} nom={nomAjustement ?? undefined}
                   onTranslate={onTranslate} onRotate={onRotate} onScale={onScale}
                   onEnregistrer={() => void enregistrerAjustementGeste()} onAbandonner={abandonnerAjustement} onOrigine={() => void revenirOrigineAjustement()} />
-              : <BandeauGestesCompact emprisesDuBatiment={empriseDuBat} nbTotal={emprises.length} occupe={occupe} ajustementPersiste={empriseDuBat.length === 1 && empriseDuBat[0].ajustement != null}
+              : <BandeauGestesCompact emprisesDuBatiment={empriseDuBat} nbTotal={emprises.length} occupe={occupe} ajustementPersiste={empriseDuBat.length === 1 && empriseDuBat[0].ajustement != null} nomEmprise={nomEmprise}
                   onTranslate={(dx, dy) => { if (empriseDuBat[0]) demarrerAjustementAvecGeste(empriseDuBat[0].id, (d) => ({ ...d, tx: d.tx + dx, ty: d.ty + dy })); }}
                   onRotate={(deg) => { if (empriseDuBat[0]) demarrerAjustementAvecGeste(empriseDuBat[0].id, (d) => ({ ...d, rotDeg: d.rotDeg + deg })); }}
                   onScale={(pct) => { if (empriseDuBat[0]) demarrerAjustementAvecGeste(empriseDuBat[0].id, (d) => ({ ...d, echelle: Math.min(ECHELLE_MAX, Math.max(ECHELLE_MIN, d.echelle * (1 + pct / 100))) })); }}

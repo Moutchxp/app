@@ -52,3 +52,37 @@ export function nomAffichageCorps(corps: { repere: string | null; nomRepli?: str
   if (repli) return repli;
   return `bâtiment ${corps.corpsId}`;
 }
+
+/**
+ * NOM-3 — NOM D'AFFICHAGE d'une EMPRISE. `base` = nom du CORPS rattaché (nomAffichageCorps : repère document → repli maison → « bâtiment <id> »),
+ * COMPLÉTÉ de « (numéro) » UNIQUEMENT si ce corps porte PLUSIEURS emprises (le nom du corps seul créerait sinon des doublons). Le numéro est le
+ * n° STABLE de création (jamais réattribué) ; à défaut (migration 212 non appliquée → `numero` NULL), un rang DÉTERMINISTE par id sert de repli.
+ * ⚠️ Un nom d'emprise commence TOUJOURS par le nom de son corps → il ne peut JAMAIS désigner un AUTRE bâtiment à l'écran (aucune collision
+ * inter-bâtiments, même si deux corps anonymes coexistent). PUR (aucune I/O). `emprisesMemeCorps` inclut l'emprise elle-même.
+ */
+export function nomAffichageEmprise(
+  emprise: { id: number; numero?: number | null },
+  corps: { repere: string | null; nomRepli?: string | null; corpsId: number } | null,
+  emprisesMemeCorps: readonly { id: number; numero?: number | null }[],
+): string {
+  const base = corps ? nomAffichageCorps(corps) : 'bâtiment en projet';
+  if (emprisesMemeCorps.length <= 1) return base;
+  const rang = emprise.numero ?? emprisesMemeCorps.filter((x) => x.id <= emprise.id).length; // repli déterministe (par id) si numéro absent
+  return `${base} (${rang})`;
+}
+
+/**
+ * NOM-3 — RÉSOLVEUR prêt à l'emploi : rend une fonction `(emprise) => nom` à partir des bâtiments (repère/repli par corpsId) et de TOUTES les
+ * emprises du dossier (pour compter les emprises d'un même corps). PUR (mémoïse la table corps + regroupe par corps à la construction).
+ */
+export function resolveurNomEmprise(
+  batiments: readonly { corpsId: number; repere: string | null; nomRepli?: string | null }[],
+  emprises: readonly { id: number; corpsId: number | null; numero?: number | null }[],
+): (e: { id: number; corpsId: number | null; numero?: number | null }) => string {
+  const corpsParId = new Map(batiments.map((b) => [b.corpsId, b]));
+  return (e) => {
+    const c = e.corpsId !== null ? corpsParId.get(e.corpsId) : undefined;
+    const memeCorps = emprises.filter((x) => x.corpsId === e.corpsId);
+    return nomAffichageEmprise(e, c ? { repere: c.repere, nomRepli: c.nomRepli, corpsId: c.corpsId } : null, memeCorps);
+  };
+}
