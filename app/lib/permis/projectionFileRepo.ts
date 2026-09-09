@@ -21,6 +21,18 @@ import { lireDossiersEnTest } from './testAnalyseRepo'; // LOT 51 — porte FIX-
 import { arreterToutesRelances } from './arretRelances'; // LOT 51-C — arrêt EXHAUSTIF (close + partiel_leve_le) à la sortie définitive du test
 import { estValidationAcquise } from './rattachementGroupes'; // 🔴 SOURCE UNIQUE du critère « franchi le process » (altitudes + emprises VALIDÉES), partagé avec le regroupement Rattachement/Surveillance
 
+// VAL-1 (213) — un bâtiment est « SANS emprise validée » selon la validation PAR EMPRISE (≥ 1 emprise ET aucune emprise non validée). Repli
+//   (213 non appliquée) : ancien pointeur unique par corps `emprise_validee_id`. MÊME règle que le dépliant + la liste Rattachement → un seul verdict.
+function fragSansEmpriseValidee(perEmprise: boolean): string {
+  return perEmprise
+    ? `NOT (EXISTS (SELECT 1 FROM permis_emprise_reconstruite e WHERE e.corps_id = cb.id) AND NOT EXISTS (SELECT 1 FROM permis_emprise_reconstruite e WHERE e.corps_id = cb.id AND e.validee_le IS NULL))`
+    : `NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite e WHERE e.id = cb.emprise_validee_id AND e.corps_id = cb.id))`;
+}
+async function colValideeEmpriseExiste(): Promise<boolean> {
+  try { const { rows } = await query<{ n: number }>(`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'permis_emprise_reconstruite' AND column_name = 'validee_le'`); return (rows[0]?.n ?? 0) > 0; }
+  catch { return false; }
+}
+
 export interface LigneProjection {
   dossierId: number;
   numDau: string;
@@ -104,10 +116,11 @@ async function lireValidationFileParDossier(dossierIds: number[]): Promise<Map<n
   const m = new Map<number, { sansAlt: number; sansEmp: number }>();
   if (dossierIds.length === 0) return m;
   try {
+    const perEmprise = await colValideeEmpriseExiste(); // VAL-1 — per-emprise si 213 appliquée, sinon ancien pointeur corps
     const { rows } = await query<{ dossier_id: number; sans_alt: number | string; sans_emp: number | string }>(
       `SELECT cb.dossier_id,
               count(*) FILTER (WHERE cb.altitude_sommet_ngf_confirme_le IS NULL)::int AS sans_alt,
-              count(*) FILTER (WHERE NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite e WHERE e.id = cb.emprise_validee_id AND e.corps_id = cb.id)))::int AS sans_emp
+              count(*) FILTER (WHERE ${fragSansEmpriseValidee(perEmprise)})::int AS sans_emp
          FROM permis_corps_batiment cb WHERE cb.dossier_id = ANY($1) GROUP BY cb.dossier_id`, [dossierIds]);
     for (const r of rows) m.set(Number(r.dossier_id), { sansAlt: Number(r.sans_alt), sansEmp: Number(r.sans_emp) });
   } catch { /* 206 absente ou lecture indisponible → map vide, n° rouge (jamais un faux « prêt ») */ }
@@ -232,10 +245,11 @@ export async function sortirTestVersRattachement(dossierId: number, par: string 
   // 🔴 FRANCHI LE PROCESS (règle Arno, durci) — PAR BÂTIMENT : altitude de sommet VALIDÉE (confirme_le) ET emprise du polygone projeté
   //   VALIDÉE (emprise_validee_id, migration 206). Plus strict que « renseignées ». SOURCE UNIQUE = estValidationAcquise (même critère
   //   que le regroupement Rattachement/Surveillance). Refus qui DIT quels bâtiments manquent et QUOI valider (jamais un bouton muet).
+  const perEmprise = await colValideeEmpriseExiste(); // VAL-1 — même règle per-emprise que la liste/le dépliant/Rattachement (un seul verdict)
   const { rows } = await query<{ id: number; repere: string | null; sans_alt: boolean; sans_emp: boolean }>(
     `SELECT cb.id, cb.repere,
             (cb.altitude_sommet_ngf_confirme_le IS NULL) AS sans_alt,
-            NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.id = cb.emprise_validee_id AND ee.corps_id = cb.id)) AS sans_emp
+            ${fragSansEmpriseValidee(perEmprise)} AS sans_emp
        FROM permis_corps_batiment cb WHERE cb.dossier_id = $1 ORDER BY cb.id`, [dossierId]);
   const sansAlt = rows.filter((r) => r.sans_alt), sansEmp = rows.filter((r) => r.sans_emp);
   if (!estValidationAcquise(rows.length, sansAlt.length, sansEmp.length)) {

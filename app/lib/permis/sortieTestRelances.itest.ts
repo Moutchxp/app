@@ -2,7 +2,7 @@ import { describe, it, expect, afterAll } from 'vitest';
 import { query, withTransaction } from '../db/client';
 import { arreterToutesRelances } from './arretRelances';
 import { sortirTestVersRattachement } from './projectionFileRepo';
-import { validerEmpriseBatiment } from './empriseReconstruiteRepo'; // production : pose emprise_validee_id (migration 206)
+import { validerEmprise } from './empriseReconstruiteRepo'; // VAL-1 (213) : validation PAR EMPRISE (validee_le), chemin de production
 import { validerSommetCorps } from './caracteristiquesRepo';        // production : pose altitude_sommet_ngf_confirme_le
 import { marquerTestAnalyse, lireDossiersEnTest } from './testAnalyseRepo';
 import { marquerDossierPartiel } from './dossierPartielRepo';
@@ -66,15 +66,15 @@ async function seedCandidat(opts: { corps?: 'none' | 'sans_alt' | 'avec_alt'; te
       [dossierId, alt, alt === null ? null : 'saisie']);
     const corpsId = b[0].id;
     if (opts.corps === 'avec_alt') {
-      // Le critère d'entrée a été DURCI (2c7f452 + migration 206) : franchir le process exige, PAR BÂTIMENT, l'altitude de sommet
-      //   VALIDÉE (confirme_le) ET l'emprise du polygone projeté VALIDÉE (emprise_validee_id). On produit cet état via les fonctions
-      //   de PRODUCTION (validerEmpriseBatiment / validerSommetCorps) → la fixture ne peut plus décrire un monde périmé : elle suit le
-      //   critère. Emprise TRACÉE (permis_emprise_reconstruite, polygone factice en Lambert-93) puis validée ; altitude validée.
-      await query(
+      // Le critère d'entrée a été DURCI (2c7f452 + migration 206) puis porté PAR EMPRISE (VAL-1, migration 213) : franchir le process exige,
+      //   PAR BÂTIMENT, l'altitude de sommet VALIDÉE (confirme_le) ET l'emprise du polygone projeté VALIDÉE (validee_le sur CHAQUE emprise). On
+      //   produit cet état via les fonctions de PRODUCTION (validerEmprise / validerSommetCorps) → la fixture ne peut plus décrire un monde périmé :
+      //   elle suit le critère. Emprise TRACÉE (permis_emprise_reconstruite, polygone factice en Lambert-93) puis validée ; altitude validée.
+      const { rows: e } = await query<{ id: number }>(
         `INSERT INTO permis_emprise_reconstruite (dossier_id, corps_id, libelle, geom, calage, provenance, cree_par)
-           VALUES ($1, $2, 'A', ST_GeomFromText('POLYGON((0 0,0 5,5 5,5 0,0 0))', 2154), '{}'::jsonb, 'trace_manuel', 'test:51c')`,
+           VALUES ($1, $2, 'A', ST_GeomFromText('POLYGON((0 0,0 5,5 5,5 0,0 0))', 2154), '{}'::jsonb, 'trace_manuel', 'test:51c') RETURNING id::int AS id`,
         [dossierId, corpsId]);
-      await validerEmpriseBatiment(corpsId, 'test:51c'); // → emprise_validee_id (206)
+      await validerEmprise(dossierId, e[0].id, 'test:51c'); // VAL-1 (213) → validee_le PAR EMPRISE (chemin de production)
       await validerSommetCorps(corpsId, alt as number, 'test:51c'); // → altitude_sommet_ngf_confirme_le
     } else {
       // 'sans_alt' — empreinte « validable » via une projection IGNORÉE (peutValider), mais altitude NON validée → refus attendu (manque:'altitude').

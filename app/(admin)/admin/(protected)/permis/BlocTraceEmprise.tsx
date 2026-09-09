@@ -414,9 +414,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   // Origine de l'emprise COURANTE : si adoptée (IGN), les repères de calage/échelle ne s'appliquent pas (PROJ-3r).
   const origineIgnCourant = empriseDuBat.some((e) => e.provenance === 'ign_adopte' || e.provenance === 'ign_retouche');
 
-  // ① COMPLÉMENT — l'ÉTAPE de la chaîne (un seul bouton visible) DÉRIVE de la SOURCE UNIQUE `statutEmpriseBatiment` (comme la capsule).
-  const statutSel = corpsEffectif !== null ? statutEmpriseBatiment(empriseDuBat.length > 0, ignoreDuBat !== null, validationParCorps[corpsEffectif] ?? false) : 'a_tracer';
-  const etapeChaine = batSel ? etapeChaineEmprise(statutSel, sommets.length >= 3) : null;
+  // VAL-1 — la chaîne ne porte plus QUE le tracé ('enregistrer') ; la validation est PAR EMPRISE (bouton sur chaque ligne). Plus d'état 'valider'/'modifier'.
+  const etapeChaine = batSel ? etapeChaineEmprise(sommets.length >= 3) : null;
   // ③ COMPLÉMENT — état de l'en-tête « Bâtiments et projection » : VERT quand TOUS les bâtiments ont altitude ET emprise validées (source unique).
   const enteteEtat = useMemo(() => {
     const nbSansAlt = batiments.filter((b) => !(altitudeValideeParCorps[b.corpsId] ?? false)).length;
@@ -760,30 +759,18 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   // ① COMPLÉMENT — VALIDER l'emprise du bâtiment sélectionné. MÊME validation que la capsule du cartouche (route caracteristiques,
   //   action valider_emprise → validerEmpriseBatiment + auto-finalisation gated par le mode) → SOURCE UNIQUE, jamais un 2e critère.
   //   Après succès : recharge LOCALE (la chaîne avance à « Modifier ») + onEmprisesChange (② la capsule passe au vert sans rechargement).
-  const validerEmpriseChaine = useCallback(async () => {
-    if (corpsEffectif === null) return;
+  // VAL-1 — VALIDER une emprise PAR SON ID (indépendamment des autres). Recharge la ligne + remonte au parent (liste Rattachement + auto-finalisation
+  //   éventuelle). Plus AUCUNE dévalidation eager : « Modifier l'emprise » est retiré. La dévalidation se fait PAR CHANGEMENT DE GÉOMÉTRIE
+  //   (retouche validée / ajustement enregistré / retour à l'origine), géré côté serveur — pas de bouton « dévalider » (décision Arno).
+  const validerUneEmprise = useCallback(async (id: number) => {
     setOccupe(true); setMessage(null);
     try {
-      const res = await fetch('/api/admin/permis/caracteristiques', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'valider_emprise', dossierId, corpsId: corpsEffectif }) });
+      const res = await fetch('/api/admin/permis/caracteristiques', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'valider_emprise', dossierId, id }) });
       const j = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
-      if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'validation impossible'); return; } // jamais un bouton muet (règle corrigée 3× cette nuit)
+      if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'validation impossible'); return; }
       setRechargeLocal((n) => n + 1); onEmprisesChange?.();
     } catch { setMessage('validation impossible'); } finally { setOccupe(false); }
-  }, [corpsEffectif, dossierId, onEmprisesChange]);
-
-  // ① COMPLÉMENT — MODIFIER une emprise VALIDÉE = la REPRENDRE : fait RETOMBER sa validation (devalider_emprise ; règle en base :
-  //   emprise_validee_id + FK ON DELETE SET NULL). La chaîne repart à « Valider » et l'écran le DIT ; retoucher/effacer (carte) redeviennent le détail.
-  const modifierEmpriseChaine = useCallback(async () => {
-    if (corpsEffectif === null) return;
-    setOccupe(true); setMessage(null);
-    try {
-      const res = await fetch('/api/admin/permis/caracteristiques', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'devalider_emprise', dossierId, corpsId: corpsEffectif }) });
-      const j = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
-      if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'modification impossible'); return; }
-      setMessage('Validation retirée : vous pouvez retoucher, effacer ou re-valider l’emprise.');
-      setRechargeLocal((n) => n + 1); onEmprisesChange?.();
-    } catch { setMessage('modification impossible'); } finally { setOccupe(false); }
-  }, [corpsEffectif, dossierId, onEmprisesChange]);
+  }, [dossierId, onEmprisesChange]);
 
   const posterProjection = useCallback(async (action: 'ignorer' | 'retablir' | 'supprimer', corps: number, extra: Record<string, unknown> = {}) => {
     setOccupe(true); setMessage(null);
@@ -1272,28 +1259,15 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     );
   });
 
-  // LOT 3 (enchaînement) — SOURCE UNIQUE de la CHAÎNE de validation (bouton plein rouge, un seul visible selon `etapeChaineEmprise`) réutilisée
-  //   par la vue 2 colonnes ET par la bande du niveau 3. On BRANCHE sur les actions existantes (enregistrer/valider/modifier) : aucune règle
-  //   d'activation/désactivation réimplémentée. Rendu uniquement dans la branche `batSel` → `batSel!` sûr.
+  // LOT 3 (enchaînement) — SOURCE UNIQUE de la CHAÎNE (bouton plein rouge, visible selon `etapeChaineEmprise`) réutilisée par la vue 2 colonnes
+  //   ET par la bande du niveau 3. VAL-1 : elle ne porte plus QUE l'enregistrement du tracé (l'action immédiate) ; la VALIDATION est PAR EMPRISE,
+  //   sur chaque ligne (ListeEmprises), et le bouton « Modifier l'emprise » (dévalidation eager) est RETIRÉ. Rendu dans la branche `batSel` → `batSel!` sûr.
   const chaineBoutons = (
     <>
       {etapeChaine === 'enregistrer' && (
         <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe || !tracable || !sim || sommets.length < 3} onClick={() => void enregistrer()}>
           Enregistrer l’emprise de {libelleBatiment(batSel!)}
         </button>
-      )}
-      {etapeChaine === 'valider' && (
-        <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe} onClick={() => void validerEmpriseChaine()}>
-          Valider l’emprise de {libelleBatiment(batSel!)}
-        </button>
-      )}
-      {etapeChaine === 'modifier' && (
-        <>
-          <div role="status" style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-green-ink)' }}>✓ Emprise de {libelleBatiment(batSel!)} validée</div>
-          <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe} onClick={() => void modifierEmpriseChaine()}>
-            Modifier l’emprise de {libelleBatiment(batSel!)}
-          </button>
-        </>
       )}
     </>
   );
@@ -1462,6 +1436,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
 
       {/* Emprises de CE bâtiment : ajuster (delta rigide), retoucher (sommets, mono-polygone) ou effacer. Pendant un ajustement (une ou bloc), les boutons « ajuster » se masquent. */}
       <ListeEmprises emprises={empriseDuBat} empriseEnRetouche={retouche?.id ?? null} empriseEnAjustement={ajustement?.id ?? null} nomEmprise={nomEmprise} nomCorps={batSel ? libelleBatiment(batSel) : undefined}
+        onValider={(id) => void validerUneEmprise(id)} occupe={occupe}
         onSupprimer={(id) => void posterProjection('supprimer', corpsEffectif!, { id })}
         onRetoucher={(id) => demarrerRetouche(id)} onAjuster={ajustement ? undefined : (id) => demarrerAjustement(id)} />
 

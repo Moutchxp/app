@@ -38,9 +38,13 @@ const H = vi.hoisted(() => {
     // PROJ-3t (lot 3b) — écriture/suppression du delta d'ajustement (colonne absente pilotée).
     if (/UPDATE permis_emprise_reconstruite\s+SET ajustement = \$3::jsonb/i.test(sql)) { if (flags.ajustementColonneAbsente) throw Object.assign(new Error('col'), { code: '42703' }); return { rows: [], rowCount: flags.ajusteRowCount }; }
     if (/UPDATE permis_emprise_reconstruite SET ajustement = NULL/i.test(sql)) { if (flags.ajustementColonneAbsente) throw Object.assign(new Error('col'), { code: '42703' }); return { rows: [], rowCount: 1 }; }
-    // PROJ-3t — listerEmprises : SELECT ST_AsGeoJSON(geom) … [, ajustement] FROM permis_emprise_reconstruite WHERE dossier_id. Colonne absente pilotée.
+    // VAL-1 — listerEmprises DÉTECTE les colonnes optionnelles (info_schema) puis compose le SELECT. Colonne `ajustement` absente pilotée (212/213 présentes par défaut).
+    if (/information_schema\.columns/i.test(sql)) {
+      const cols = [{ c: 'numero' }, { c: 'validee_le' }, { c: 'validee_par' }];
+      if (!flags.ajustementColonneAbsente) cols.unshift({ c: 'ajustement' });
+      return { rows: cols, rowCount: cols.length };
+    }
     if (/ST_AsGeoJSON\(geom\)::json AS gj[\s\S]*FROM permis_emprise_reconstruite WHERE dossier_id/i.test(sql)) {
-      if (/, ajustement FROM/i.test(sql) && flags.ajustementColonneAbsente) throw Object.assign(new Error('col'), { code: '42703' });
       return { rows: flags.listeRows, rowCount: flags.listeRows.length };
     }
     if (/ST_UnaryUnion/i.test(sql)) return { rows: [{ wkt: 'POLYGON((0 0,20 0,20 10,0 10,0 0))', aire: 200 }], rowCount: 1 };
@@ -51,7 +55,7 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock, withTransaction: async (fn: (q: unknown) => unknown) => fn(H.queryMock) }));
 
-import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, enregistrerAjustement, supprimerAjustement, ajusterBloc, reinitialiserAjustementBloc, lireEtatEmprisesPermis, validerEmpriseBatiment, devaliderEmpriseBatiment } from './empriseReconstruiteRepo';
+import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, enregistrerAjustement, supprimerAjustement, ajusterBloc, reinitialiserAjustementBloc, lireEtatEmprisesPermis, validerEmpriseBatiment, devaliderEmpriseBatiment, validerEmprise, devaliderEmprise } from './empriseReconstruiteRepo';
 import type { Ajustement } from './calageEmprise';
 import type { CalageTrace } from './empriseReconstruiteRepo';
 
@@ -90,6 +94,43 @@ describe('VALIDATION PAR BÂTIMENT — validerEmpriseBatiment / devaliderEmprise
   });
 });
 
+describe('VAL-1 — VALIDATION PAR EMPRISE (validerEmprise / devaliderEmprise + retombée par changement de géométrie)', () => {
+  const empriseUpdate = (re: RegExp) => H.calls.find((c) => re.test(c.sql.replace(/\s+/g, ' ')));
+  it('validerEmprise : UPDATE validee_le = now(), validee_par = $3, scopé (id + dossier), paramètres liés', async () => {
+    const r = await validerEmprise(468, 632, 'arno');
+    expect(r.ok).toBe(true);
+    const up = empriseUpdate(/UPDATE permis_emprise_reconstruite SET validee_le = now\(\), validee_par = \$3 WHERE id = \$1 AND dossier_id = \$2/i)!;
+    expect(up.params).toEqual([632, 468, 'arno']);
+  });
+  it('devaliderEmprise : UPDATE validee_le = NULL, validee_par = NULL, scopé (id + dossier)', async () => {
+    const r = await devaliderEmprise(468, 632);
+    expect(r.ok).toBe(true);
+    const up = empriseUpdate(/UPDATE permis_emprise_reconstruite SET validee_le = NULL, validee_par = NULL WHERE id = \$1 AND dossier_id = \$2/i)!;
+    expect(up.params).toEqual([632, 468]);
+  });
+  it('RETOMBÉE — retoucher (géométrie changée) dévalide CETTE emprise (validee_le = NULL WHERE id), jamais le pointeur corps', async () => {
+    await retoucherEmprise(468, 632, anneau, 'admin:retouche');
+    expect(empriseUpdate(/UPDATE permis_emprise_reconstruite SET validee_le = NULL, validee_par = NULL WHERE id = \$1 AND dossier_id = \$2/i)).toBeTruthy();
+    expect(H.calls.some((c) => /permis_corps_batiment SET emprise_validee_id = NULL/i.test(c.sql))).toBe(false);
+  });
+  it('RETOMBÉE — enregistrer un ajustement dévalide CETTE emprise (décision Arno : la forme affichée bouge)', async () => {
+    await enregistrerAjustement(468, 632, { tx: 1, ty: 0, rotDeg: 0, echelle: 1, centre: { x: 0, y: 0 } }, 'admin:ajustement');
+    expect(empriseUpdate(/UPDATE permis_emprise_reconstruite SET validee_le = NULL, validee_par = NULL WHERE id = \$1 AND dossier_id = \$2/i)).toBeTruthy();
+  });
+  it('RETOMBÉE — retour au tracé d’origine (supprimerAjustement) dévalide CETTE emprise', async () => {
+    await supprimerAjustement(468, 632);
+    expect(empriseUpdate(/UPDATE permis_emprise_reconstruite SET validee_le = NULL, validee_par = NULL WHERE id = \$1 AND dossier_id = \$2/i)).toBeTruthy();
+  });
+  it('RETOMBÉE d’ENSEMBLE — ajuster bloc / retour origine bloc dévalident TOUTES les emprises du dossier (validee_le = NULL WHERE dossier_id)', async () => {
+    H.flags.listeRows = [{ id: 1, corps_id: 3, libelle: 'A', gj: { type: 'Polygon', coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]] }, surface_m2: 100, piece_id: null, page: 1, calage: null, residu_m: 0, provenance: 'trace_manuel', cree_le: null, ajustement: null }];
+    await ajusterBloc(468, { tx: 1, ty: 0, rotDeg: 0, echelle: 1, centre: { x: 0, y: 0 } }, 'admin:ajustement');
+    expect(empriseUpdate(/UPDATE permis_emprise_reconstruite SET validee_le = NULL, validee_par = NULL WHERE dossier_id = \$1/i)).toBeTruthy();
+    H.calls.length = 0;
+    await reinitialiserAjustementBloc(468);
+    expect(empriseUpdate(/UPDATE permis_emprise_reconstruite SET validee_le = NULL, validee_par = NULL WHERE dossier_id = \$1/i)).toBeTruthy();
+  });
+});
+
 describe('PROJ-2 — enregistrerEmprise : n’écrit QUE la table des reconstitutions', () => {
   it('INSERT dans permis_emprise_reconstruite, géométrie ST_GeomFromText(…, 2154), calage en jsonb, corps_id lié', async () => {
     const r = await enregistrerEmprise({ dossierId: 11434, corpsId: 3, libelle: '2D1', anneau, pieceId: 55, page: 2, calage, residuM: 0, creePar: 'admin' });
@@ -104,10 +145,11 @@ describe('PROJ-2 — enregistrerEmprise : n’écrit QUE la table des reconstitu
     expect(String(ins.params[2])).toMatch(/^POLYGON\(\(0 0, 10 0, 10 10, 0 10, 0 0\)\)$/); // anneau FERMÉ
     // 🔴 aucune écriture vers une table du moteur
     const sqlTout = H.calls.map((c) => c.sql).join('\n');
-    // Garde moteur : jamais batiment / altitude polygone. (Un UPDATE permis_corps_batiment SET emprise_validee_id=NULL — retombée de
-    //   validation — est LÉGITIME : ce n'est pas « entrer dans le moteur », juste retirer une décision humaine sur l'emprise.)
+    // Garde moteur : jamais batiment / altitude polygone.
     expect(sqlTout).not.toMatch(/INSERT INTO batiment|UPDATE batiment|permis_polygone_altitude/i);
-    expect(sqlTout).toMatch(/UPDATE permis_corps_batiment SET emprise_validee_id = NULL/i); // (ré)enregistrer fait retomber la validation
+    // VAL-1 — créer une emprise n'affecte JAMAIS la validation des AUTRES : plus aucune annulation par corps ni par emprise à l'enregistrement.
+    expect(sqlTout).not.toMatch(/UPDATE permis_corps_batiment SET emprise_validee_id = NULL/i);
+    expect(sqlTout).not.toMatch(/UPDATE permis_emprise_reconstruite SET validee_le = NULL/i);
   });
 
   it('refuse un contour < 3 sommets, un libellé vide, des coordonnées non finies (aucune écriture)', async () => {
@@ -416,7 +458,10 @@ describe('CAPSULE D’EMPRISE — lireEtatEmprisesPermis : état lu en base (sur
     const aggSql = H.calls.find((c) => /FROM permis_corps_batiment cb/i.test(c.sql))!;
     const norm = aggSql.sql.replace(/\s+/g, ' ');
     expect(norm).toContain('LEFT JOIN permis_emprise_reconstruite'); // tous les bâtiments, même sans emprise
-    expect(norm).toContain('emprise_validee_id');                    // validation PAR BÂTIMENT (migration 206)
+    // VAL-1 — validation PAR EMPRISE (migration 213) : un bâtiment est validé ssi ≥ 1 emprise ET aucune emprise non validée (FILTER validee_le IS NULL).
+    expect(norm).toContain('validee_le');
+    expect(norm).toContain("FILTER (WHERE e.validee_le IS NULL) = 0");
+    expect(norm).not.toContain('emprise_validee_id'); // le pointeur unique par corps n'est plus lu (repli seulement si colonne 213 absente)
     expect(aggSql.params).toEqual([7424]);
   });
 

@@ -45,6 +45,10 @@ export interface EmpriseReconstruite {
   ajustementParNom: string | null; // PROJ-3t — NOM COMPLET de l'auteur de l'ajustement, résolu depuis pose_par (comme validee_par_nom / la sélection d'empreinte), jamais l'id brut.
   creeLe: string | null;
   numero: number | null;          // NOM-3 (migration 212) — numéro STABLE par dossier (ordre de création, jamais réattribué) → désambiguïse le nom quand un bâtiment porte plusieurs emprises. NULL = migration 212 non appliquée (repli : rang dérivé par id).
+  validee: boolean;               // VAL-1 (migration 213) — VALIDATION PAR EMPRISE : validee_le IS NOT NULL. Chaque emprise se valide indépendamment.
+  valideeLe: string | null;       // horodatage de la validation de CETTE emprise (null = non validée).
+  valideePar: string | null;      // auteur (id/e-mail brut) ; le NOM résolu est valideeParNom.
+  valideeParNom: string | null;   // NOM COMPLET de l'auteur (résolu EN BASE, jamais l'id brut), comme ajustementParNom / validee_par_nom.
 }
 
 export interface EntreeEnregistrement {
@@ -123,7 +127,7 @@ export async function enregistrerEmprise(e: EntreeEnregistrement): Promise<Resul
          VALUES ($1, $9, $2, ST_GeomFromText($3, 2154), ST_Area(ST_GeomFromText($3, 2154)), $4, $5, $6::jsonb, $7, $8)
          RETURNING id::int AS id`, params)).rows;
     }
-    await annulerValidationEmpriseCorps(e.corpsId); // (ré)enregistrer une emprise fait RETOMBER la validation du bâtiment
+    // VAL-1 — la NOUVELLE emprise naît NON validée (validee_le NULL par défaut). Créer une emprise n'affecte JAMAIS la validation des AUTRES.
     return { ok: true, id: rows[0].id };
   } catch (err) {
     if (estTableAbsente(err)) return { ok: false, motif: 'table des emprises absente (migration 149 non appliquée)', tableAbsente: true };
@@ -197,7 +201,7 @@ export async function retoucherEmprise(dossierId: number, id: number, anneau: Po
         RETURNING provenance`,
       [id, dossierId, wkt, par]);
     if (upd.length === 0) return { ok: false, motif: 'emprise introuvable' };
-    await annulerValidationParEmprise(id); // retoucher la géométrie fait RETOMBER la validation (même id, mais l'emprise a changé)
+    await devaliderEmpriseParGeometrie(dossierId, id); // VAL-1 — la géométrie de CETTE emprise a changé → SA validation retombe (les autres intactes)
     const emprises = await listerEmprises(dossierId);
     const debordement = await mesurerDebordementWkt(dossierId, wkt);
     return { ok: true, emprises, debordement, provenance: upd[0].provenance };
@@ -228,6 +232,7 @@ export async function enregistrerAjustement(dossierId: number, id: number, ajust
         WHERE id = $1 AND dossier_id = $2`,
       [id, dossierId, JSON.stringify(noyau), par]);
     if ((rowCount ?? 0) === 0) return { ok: false, motif: 'emprise introuvable' };
+    await devaliderEmpriseParGeometrie(dossierId, id); // VAL-1 — la forme AFFICHÉE bouge (delta) → la validation de CETTE emprise retombe (décision Arno)
     return { ok: true, emprises: await listerEmprises(dossierId) };
   } catch (e) {
     if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_COLONNE_211, colonneAbsente: true };
@@ -241,6 +246,7 @@ export async function supprimerAjustement(dossierId: number, id: number): Promis
   if (!Number.isInteger(id) || !Number.isInteger(dossierId)) return { ok: false, motif: 'requête invalide' };
   try {
     await query(`UPDATE permis_emprise_reconstruite SET ajustement = NULL WHERE id = $1 AND dossier_id = $2`, [id, dossierId]);
+    await devaliderEmpriseParGeometrie(dossierId, id); // VAL-1 — retour à l'origine : la forme AFFICHÉE change → la validation de CETTE emprise retombe
     return { ok: true, emprises: await listerEmprises(dossierId) };
   } catch (e) {
     if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_COLONNE_211, colonneAbsente: true };
@@ -269,6 +275,7 @@ export async function ajusterBloc(dossierId: number, bloc: Ajustement, par: stri
           [e.id, dossierId, JSON.stringify(noyau), par]);
       }
     });
+    await devaliderToutesEmprisesGeometrie(dossierId); // VAL-1 — geste d'ENSEMBLE : toutes les formes affichées bougent → toutes les validations retombent
     return { ok: true, emprises: await listerEmprises(dossierId) };
   } catch (e) {
     if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_COLONNE_211, colonneAbsente: true };
@@ -282,6 +289,7 @@ export async function reinitialiserAjustementBloc(dossierId: number): Promise<Re
   if (!Number.isInteger(dossierId)) return { ok: false, motif: 'requête invalide' };
   try {
     await query(`UPDATE permis_emprise_reconstruite SET ajustement = NULL WHERE dossier_id = $1`, [dossierId]);
+    await devaliderToutesEmprisesGeometrie(dossierId); // VAL-1 — retour à l'origine en bloc : toutes les formes changent → toutes retombent
     return { ok: true, emprises: await listerEmprises(dossierId) };
   } catch (e) {
     if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_COLONNE_211, colonneAbsente: true };
@@ -290,10 +298,12 @@ export async function reinitialiserAjustementBloc(dossierId: number): Promise<Re
   }
 }
 
-/** Ligne brute d'emprise (les deux variantes de SELECT — avec ou sans la colonne `ajustement` — partagent cette forme, `ajustement` en option). */
+/** Ligne brute d'emprise. Les colonnes issues de migrations INDÉPENDANTES (211 ajustement, 212 numero, 213 validee) sont OPTIONNELLES : le
+ *  SELECT ne les inclut que si elles existent (détection information_schema), donc chacune peut être absente sans casser les autres. */
 type LigneEmprise = {
   id: number; corps_id: number | null; libelle: string; gj: { type: string; coordinates: number[][][] | number[][][][] } | null; surface_m2: number | null;
-  piece_id: number | null; page: number | null; calage: CalageTrace | null; residu_m: number | null; provenance: ProvenanceEmprise | null; cree_le: Date | null; ajustement?: Ajustement | null; ajustement_par_nom?: string | null; numero?: number | null;
+  piece_id: number | null; page: number | null; calage: CalageTrace | null; residu_m: number | null; provenance: ProvenanceEmprise | null; cree_le: Date | null;
+  ajustement?: Ajustement | null; ajustement_par_nom?: string | null; numero?: number | null; validee_le?: Date | null; validee_par?: string | null; validee_par_nom?: string | null;
 };
 
 /**
@@ -307,14 +317,18 @@ type LigneEmprise = {
 export async function listerEmprises(dossierId: number): Promise<EmpriseReconstruite[]> {
   const base = `id::int AS id, corps_id::int AS corps_id, libelle, ST_AsGeoJSON(geom)::json AS gj, surface_m2, piece_id::int AS piece_id, page, calage, residu_m, provenance, cree_le`;
   try {
-    // NOM de l'auteur de l'ajustement résolu EN BASE (comme la sélection d'empreinte et validee_par_nom) : jamais l'id brut à l'écran.
-    const nomAuteur = `(SELECT nullif(btrim(concat_ws(' ', u.prenom, u.nom)), '') FROM admin_utilisateur u WHERE u.id::text = ajustement->>'pose_par' LIMIT 1) AS ajustement_par_nom`;
-    let rows: LigneEmprise[];
-    // 3 niveaux de résilience : (212) numéro + (211) ajustement + nom auteur ; sinon (211) ajustement seul ; sinon base seule (ni 211 ni 212).
-    try { rows = (await query<LigneEmprise>(`SELECT ${base}, ajustement, numero, ${nomAuteur} FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows; }
-    catch (e212) { if (!estColonneAbsente(e212)) throw e212; // 212 non appliquée (colonne `numero` absente) → on retombe sur le niveau 211
-      try { rows = (await query<LigneEmprise>(`SELECT ${base}, ajustement, ${nomAuteur} FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows; }
-      catch (e211) { if (!estColonneAbsente(e211)) throw e211; rows = (await query<LigneEmprise>(`SELECT ${base} FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows; } } // 211 non appliquée
+    // Colonnes de migrations INDÉPENDANTES (211 ajustement · 212 numero · 213 validee) : on DÉTECTE lesquelles existent puis on compose le
+    //   SELECT — robuste QUEL QUE SOIT l'ordre d'application (jamais une chute en cascade qui perdrait une colonne présente parce qu'une autre manque).
+    const cols = new Set((await query<{ c: string }>(
+      `SELECT column_name AS c FROM information_schema.columns WHERE table_name = 'permis_emprise_reconstruite' AND column_name = ANY($1)`,
+      [['ajustement', 'numero', 'validee_le', 'validee_par']])).rows.map((r) => r.c));
+    const sel = [base];
+    // NOMS d'auteurs résolus EN BASE (jamais l'id brut à l'écran), comme la sélection d'empreinte.
+    if (cols.has('ajustement')) sel.push('ajustement', `(SELECT nullif(btrim(concat_ws(' ', u.prenom, u.nom)), '') FROM admin_utilisateur u WHERE u.id::text = ajustement->>'pose_par' LIMIT 1) AS ajustement_par_nom`);
+    if (cols.has('numero')) sel.push('numero');
+    if (cols.has('validee_le')) sel.push('validee_le'); // timestamptz → le driver pg renvoie un Date → .toISOString() (ISO avec « T », comme cree_le)
+    if (cols.has('validee_par')) sel.push('validee_par', `(SELECT nullif(btrim(concat_ws(' ', u.prenom, u.nom)), '') FROM admin_utilisateur u WHERE u.id::text = validee_par LIMIT 1) AS validee_par_nom`);
+    const rows = (await query<LigneEmprise>(`SELECT ${sel.join(', ')} FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows;
     return rows.map((r) => {
       // PROJ-3q — Polygon → un anneau extérieur ; MultiPolygon → un anneau extérieur PAR partie (groupe adopté à contact par sommet).
       const anneauxOrigine: PointLambert[][] = r.gj?.type === 'MultiPolygon'
@@ -338,6 +352,7 @@ export async function listerEmprises(dossierId: number): Promise<EmpriseReconstr
         ajustementParNom: ajustement ? (r.ajustement_par_nom ?? null) : null,
         creeLe: r.cree_le ? r.cree_le.toISOString() : null,
         numero: r.numero ?? null,
+        validee: r.validee_le != null, valideeLe: r.validee_le ? r.validee_le.toISOString() : null, valideePar: r.validee_par ?? null, valideeParNom: r.validee_le != null ? (r.validee_par_nom ?? null) : null,
       };
     });
   } catch (err) {
@@ -370,7 +385,19 @@ export async function lireEtatEmprisesPermis(dossierId: number): Promise<EtatEmp
   //   sans validation (validee=false) → l'écran reste utilisable, la validation par bâtiment attend l'application de la migration.
   // DEMANDE 2 (LOT COMPLET) — l'auteur de la validation est RÉSOLU EN NOM à l'affichage (comme la trace d'altitude), jamais l'identifiant
   //   brut « 2 ». Lecture SEULE (aucune réécriture des valeurs en base) : sous-requête sur `admin_utilisateur` (prénom + nom).
-  const avecValidation = `SELECT cb.id AS corps_id, count(e.id)::int AS n, SUM(e.surface_m2) AS surface, MAX(e.cree_le)::text AS cree_le,
+  // VAL-1 (213) — validation PAR EMPRISE : un bâtiment est « validé » ⟺ il a ≥ 1 emprise ET AUCUNE emprise non validée (toutes validées). Date/auteur
+  //   affichés = ceux de la PLUS RÉCENTE validation de ses emprises. C'est la vérité (le pointeur unique par corps emprise_validee_id n'est plus lu).
+  const dernierParAuteur = `(SELECT ee.validee_par FROM permis_emprise_reconstruite ee WHERE ee.corps_id = cb.id AND ee.validee_le IS NOT NULL ORDER BY ee.validee_le DESC LIMIT 1)`;
+  const avecValidationEmprise = `SELECT cb.id AS corps_id, count(e.id)::int AS n, SUM(e.surface_m2) AS surface, MAX(e.cree_le)::text AS cree_le,
+              MAX(e.validee_le)::text AS validee_le, ${dernierParAuteur} AS validee_par,
+              (SELECT nullif(btrim(concat_ws(' ', u.prenom, u.nom)), '') FROM admin_utilisateur u WHERE u.id::text = ${dernierParAuteur} LIMIT 1) AS validee_par_nom,
+              (count(e.id) > 0 AND count(e.id) FILTER (WHERE e.validee_le IS NULL) = 0) AS validee
+         FROM permis_corps_batiment cb
+         LEFT JOIN permis_emprise_reconstruite e ON e.corps_id = cb.id
+        WHERE cb.dossier_id = $1
+        GROUP BY cb.id`;
+  // Repli (213 non appliquée mais 206 oui) : ancien pointeur unique par corps. Repli ultime (ni 206 ni 213) : aucune validation.
+  const avecValidationCorps = `SELECT cb.id AS corps_id, count(e.id)::int AS n, SUM(e.surface_m2) AS surface, MAX(e.cree_le)::text AS cree_le,
               cb.emprise_validee_le::text AS validee_le, cb.emprise_validee_par AS validee_par,
               (SELECT nullif(btrim(concat_ws(' ', u.prenom, u.nom)), '') FROM admin_utilisateur u WHERE u.id::text = cb.emprise_validee_par LIMIT 1) AS validee_par_nom,
               (cb.emprise_validee_id IS NOT NULL AND bool_or(e.id = cb.emprise_validee_id)) AS validee
@@ -385,8 +412,10 @@ export async function lireEtatEmprisesPermis(dossierId: number): Promise<EtatEmp
         WHERE cb.dossier_id = $1 GROUP BY cb.id`;
   try {
     let rows: { corps_id: number; n: number; surface: string | number | null; cree_le: string | null; validee_le: string | null; validee_par: string | null; validee_par_nom: string | null; validee: boolean }[];
-    try { rows = (await query<typeof rows[number]>(avecValidation, [dossierId])).rows; }
-    catch (e) { if (!estColonneAbsente(e)) throw e; rows = (await query<typeof rows[number]>(sansValidation, [dossierId])).rows; } // 206 non appliquée → sans validation
+    try { rows = (await query<typeof rows[number]>(avecValidationEmprise, [dossierId])).rows; }
+    catch (e213) { if (!estColonneAbsente(e213)) throw e213; // 213 non appliquée (colonne validee_le absente) → repli sur le pointeur corps (206)
+      try { rows = (await query<typeof rows[number]>(avecValidationCorps, [dossierId])).rows; }
+      catch (e206) { if (!estColonneAbsente(e206)) throw e206; rows = (await query<typeof rows[number]>(sansValidation, [dossierId])).rows; } } // ni 206 ni 213
     for (const r of rows) {
       const nbEmprises = Number(r.n);
       // legacy : un dossier déjà validé (permis_projection) → tout bâtiment COUVERT est validé (OR avec le signal per-bâtiment).
@@ -451,16 +480,38 @@ export async function devaliderEmpriseBatiment(corpsId: number, majPar: string):
   } catch (e) { if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_MIGRATION_206, migrationAbsente: true }; throw e; }
 }
 
-/** Une MUTATION d'emprise (enregistrement / adoption) fait RETOMBER la validation du bâtiment (jamais un « validé » sur une emprise qui
- *  a changé). Best-effort, résilient (colonnes/table absentes → no-op). La SUPPRESSION est déjà gérée par la FK ON DELETE SET NULL. */
-async function annulerValidationEmpriseCorps(corpsId: number | null): Promise<void> {
-  if (corpsId === null) return;
-  try { await query(`UPDATE permis_corps_batiment SET emprise_validee_id = NULL, emprise_validee_le = NULL, emprise_validee_par = NULL WHERE id = $1`, [corpsId]); }
+// ── VAL-1 (migration 213) — VALIDATION PAR EMPRISE. La vérité passe sur permis_emprise_reconstruite.validee_le (le pointeur corps
+//    emprise_validee_id est conservé mais N'EST PLUS écrit ni lu). Chaque emprise se valide/dévalide indépendamment. ─────────────────────
+const MOTIF_MIGRATION_213 = 'validation par emprise indisponible : mise à jour de la base requise (migration 213)';
+
+/** VALIDE une emprise (décision humaine, réversible), INDÉPENDAMMENT des autres emprises. RÉSILIENT (colonne absente → refus clair). */
+export async function validerEmprise(dossierId: number, id: number, par: string): Promise<ResultatValidationEmprise> {
+  if (!Number.isInteger(id) || !Number.isInteger(dossierId)) return { ok: false, motif: 'requête invalide' };
+  try {
+    const { rowCount } = await query(`UPDATE permis_emprise_reconstruite SET validee_le = now(), validee_par = $3 WHERE id = $1 AND dossier_id = $2`, [id, dossierId, par]);
+    if ((rowCount ?? 0) === 0) return { ok: false, motif: 'emprise introuvable' };
+    return { ok: true };
+  } catch (e) { if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_MIGRATION_213, migrationAbsente: true }; if (estTableAbsente(e)) return { ok: false, motif: 'table des emprises absente' }; throw e; }
+}
+
+/** RETIRE la validation d'UNE emprise (réversible ; n'affecte aucune autre). RÉSILIENT. */
+export async function devaliderEmprise(dossierId: number, id: number): Promise<ResultatValidationEmprise> {
+  if (!Number.isInteger(id) || !Number.isInteger(dossierId)) return { ok: false, motif: 'requête invalide' };
+  try {
+    await query(`UPDATE permis_emprise_reconstruite SET validee_le = NULL, validee_par = NULL WHERE id = $1 AND dossier_id = $2`, [id, dossierId]);
+    return { ok: true };
+  } catch (e) { if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_MIGRATION_213, migrationAbsente: true }; if (estTableAbsente(e)) return { ok: false, motif: 'table des emprises absente' }; throw e; }
+}
+
+/** Une MUTATION DE GÉOMÉTRIE de CETTE emprise (retouche validée, ajustement enregistré, retour au tracé d'origine) fait RETOMBER SA validation
+ *  (la forme AFFICHÉE a bougé → il faut revalider). N'affecte JAMAIS une AUTRE emprise. Best-effort, résilient (colonne/table absente → no-op). */
+async function devaliderEmpriseParGeometrie(dossierId: number, id: number): Promise<void> {
+  try { await query(`UPDATE permis_emprise_reconstruite SET validee_le = NULL, validee_par = NULL WHERE id = $1 AND dossier_id = $2`, [id, dossierId]); }
   catch (e) { if (!estColonneAbsente(e) && !estTableAbsente(e)) throw e; }
 }
-/** RETOUCHE (UPDATE même id, géométrie changée) : la FK ne se déclenche pas → on efface explicitement toute validation pointant cette emprise. */
-async function annulerValidationParEmprise(empriseId: number): Promise<void> {
-  try { await query(`UPDATE permis_corps_batiment SET emprise_validee_id = NULL, emprise_validee_le = NULL, emprise_validee_par = NULL WHERE emprise_validee_id = $1`, [empriseId]); }
+/** Idem pour un geste d'ENSEMBLE (ajuster bloc) : toutes les emprises du dossier ont bougé → toutes retombent. */
+async function devaliderToutesEmprisesGeometrie(dossierId: number): Promise<void> {
+  try { await query(`UPDATE permis_emprise_reconstruite SET validee_le = NULL, validee_par = NULL WHERE dossier_id = $1`, [dossierId]); }
   catch (e) { if (!estColonneAbsente(e) && !estTableAbsente(e)) throw e; }
 }
 

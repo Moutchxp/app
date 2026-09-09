@@ -52,16 +52,12 @@ export function statutEmpriseBatiment(aEmprise: boolean, ignore: boolean, empris
   return 'a_tracer';
 }
 /**
- * ① COMPLÉMENT (chaîne de boutons par bâtiment) — l'ÉTAPE courante (UN SEUL bouton visible), DÉRIVÉE de la SOURCE UNIQUE
- * `statutEmpriseBatiment`. Un tracé actif (contour en cours) prime : c'est l'action immédiate → 'enregistrer'. Sinon, selon le statut
- * ENREGISTRÉ : 'validee' → 'modifier' (reprendre une emprise déjà validée, ce qui fera retomber sa validation) ; 'a_valider' → 'valider' ;
- * 'a_tracer'/'ignoree' → null (rien à enchaîner : on trace avec les outils, ou la projection est explicitement ignorée). PUR.
+ * ① COMPLÉMENT (chaîne de boutons par bâtiment) — VAL-1 : la chaîne ne porte plus QUE le TRACÉ. Un contour en cours → 'enregistrer' ;
+ * sinon rien (null). La VALIDATION est désormais PAR EMPRISE (bouton « valider » sur chaque ligne d'emprise), plus par bâtiment : les
+ * anciens états 'valider'/'modifier' (et le bouton « Modifier l'emprise », dévalidation eager) sont RETIRÉS. PUR.
  */
-export function etapeChaineEmprise(statut: StatutEmpriseBatiment, traceActive: boolean): 'enregistrer' | 'valider' | 'modifier' | null {
-  if (traceActive) return 'enregistrer';
-  if (statut === 'validee') return 'modifier';
-  if (statut === 'a_valider') return 'valider';
-  return null;
+export function etapeChaineEmprise(traceActive: boolean): 'enregistrer' | null {
+  return traceActive ? 'enregistrer' : null;
 }
 
 /**

@@ -258,7 +258,7 @@ async function lireAlertesSurveillanceParDossier(): Promise<Map<number, number>>
 
 // SELECT + FROM PARTAGÉS entre `listerSuivi` (liste complète) et `rechercherSuivi` (filtré/paginé) : MÊMES colonnes → MÊME forme
 //   LigneSuivi, une seule vérité. Les alias e/s/c/r sont fixés par FROM_SUIVI.
-const SELECT_SUIVI = `e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s.type,
+const SELECT_SUIVI_PREFIXE = `e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s.type,
             nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
             s.nature_projet_completee AS nature, r.etat AS ratt_etat, r.verdict, r.origine_ouverture,
             GREATEST(0, floor(EXTRACT(EPOCH FROM (now() - COALESCE(r.detecte_le, e.maj_le))) / 86400))::int AS jours,
@@ -267,9 +267,21 @@ const SELECT_SUIVI = `e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s
             to_char(r.detecte_le, 'YYYY-MM-DD') AS date_declenchement,
             EXISTS (SELECT 1 FROM permis_projection pj WHERE pj.dossier_id = e.dossier_id) AS projection_validee,
             (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id) AS nb_corps,
-            -- FRANCHI LE PROCESS : bâtiments dont l'altitude n'est PAS VALIDÉE (confirme_le NULL) et dont l'emprise n'est PAS VALIDÉE (206).
-            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND cb.altitude_sommet_ngf_confirme_le IS NULL) AS nb_corps_sans_alt_validee,
-            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.id = cb.emprise_validee_id AND ee.corps_id = cb.id))) AS nb_corps_sans_emprise_validee`;
+            -- FRANCHI LE PROCESS : bâtiments dont l'altitude n'est PAS VALIDÉE (confirme_le NULL) …
+            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND cb.altitude_sommet_ngf_confirme_le IS NULL) AS nb_corps_sans_alt_validee`;
+// VAL-1 (213) — bâtiments dont l'emprise N'EST PAS VALIDÉE. PAR EMPRISE : un bâtiment est « validé » ssi il a ≥ 1 emprise ET aucune emprise
+//   non validée. Repli (213 non appliquée) : ancien pointeur unique par corps `emprise_validee_id`. MÊME règle que le dépliant (lireEtatEmprisesPermis).
+function selectSuivi(perEmprise: boolean): string {
+  const fragment = perEmprise
+    ? `(SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND NOT (EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.corps_id = cb.id) AND NOT EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.corps_id = cb.id AND ee.validee_le IS NULL))) AS nb_corps_sans_emprise_validee`
+    : `(SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.id = cb.emprise_validee_id AND ee.corps_id = cb.id))) AS nb_corps_sans_emprise_validee`;
+  return `${SELECT_SUIVI_PREFIXE},\n            ${fragment}`;
+}
+/** Présence de la colonne validee_le (migration 213) → choisit le calcul PAR EMPRISE ; sinon repli pointeur corps. Résilient (métadonnée absente → repli). */
+async function colValideeEmpriseExiste(): Promise<boolean> {
+  try { const { rows } = await query<{ n: number }>(`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'permis_emprise_reconstruite' AND column_name = 'validee_le'`); return (rows[0]?.n ?? 0) > 0; }
+  catch { return false; }
+}
 const FROM_SUIVI = `FROM permis_empreinte e
        JOIN sitadel_dossier s ON s.id = e.dossier_id
        LEFT JOIN commune c ON c.code_insee = s.code_insee
@@ -297,8 +309,8 @@ export interface ComptesGroupesSuivi { rattAFaire: number; rattValides: number; 
 
 /** Liste l'UNIVERS des permis suivis (ceux qui ont une empreinte) LEFT JOIN leur dossier ; « aucun signal » si pas de dossier. */
 export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number>; comptesGroupes: ComptesGroupesSuivi; modePassage: ModePassageRattachement }> {
-  const [alertesSurv, modePassage] = await Promise.all([lireAlertesSurveillanceParDossier(), lireModePassageRattachement()]); // COMPLÉMENT — le mode décide l'appartenance (source unique)
-  const { rows } = await query<RangeeSuivi>(`SELECT ${SELECT_SUIVI}\n       ${FROM_SUIVI}`);
+  const [alertesSurv, modePassage, perEmprise] = await Promise.all([lireAlertesSurveillanceParDossier(), lireModePassageRattachement(), colValideeEmpriseExiste()]); // COMPLÉMENT — le mode décide l'appartenance (source unique)
+  const { rows } = await query<RangeeSuivi>(`SELECT ${selectSuivi(perEmprise)}\n       ${FROM_SUIVI}`);
   // RATT-1 — signal LÉGER « dossier incomplet » (lecture mémoire, une requête, aucune IA) pour le 3e groupe. Résilient (set vide si 174 absente).
   const incomplets = await dossiersIncompletsParmi(rows.map((r) => Number(r.dossier_id)));
   const lignes: LigneSuivi[] = trierLignesSuivi(rows.map((r) => versLigneSuivi(r, alertesSurv, incomplets)));
@@ -324,9 +336,9 @@ export async function rechercherSuivi(c: CriteresSuivi, page: number): Promise<{
   if (!actif) return { lignes: [], total: 0, page: 1, nbPages: 0 };
   const pageSure = Math.max(1, Math.floor(Number(page)) || 1);
   const offset = (pageSure - 1) * TAILLE_PAGE_SUIVI;
-  const alertesSurv = await lireAlertesSurveillanceParDossier();
+  const [alertesSurv, perEmprise] = await Promise.all([lireAlertesSurveillanceParDossier(), colValideeEmpriseExiste()]);
   const { rows } = await query<RangeeSuivi & { total: number | string }>(
-    `SELECT ${SELECT_SUIVI}, count(*) OVER() AS total
+    `SELECT ${selectSuivi(perEmprise)}, count(*) OVER() AS total
        ${FROM_SUIVI}
       WHERE ${fragments.join(' AND ')}
       ORDER BY s.date_reelle_autorisation DESC NULLS LAST, e.dossier_id

@@ -7,7 +7,7 @@ import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteris
 import { lireJournalChamps, type JournalPermis } from '../../../../../lib/permis/journalLecture';
 import { lireMargeCoherenceSommetPlancherM, MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT } from '../../../../../lib/permis/coherenceConfig';
 import { lireParcellesPermis, geojsonParcellesPermis, lireEmpreintePermis, geojsonEmpreintePermis, lireBatiSnapshotPermis, type ParcelleLigne, type EmpreinteLigne, type BatiSnapshotResume } from '../../../../../lib/permis/parcellesRepo';
-import { lireEtatEmprisesPermis, validerEmpriseBatiment, devaliderEmpriseBatiment, type EtatEmprisesPermis } from '../../../../../lib/permis/empriseReconstruiteRepo'; // capsule d'emprise du cartouche : état + validation PAR BÂTIMENT
+import { lireEtatEmprisesPermis, validerEmprise, devaliderEmprise, type EtatEmprisesPermis } from '../../../../../lib/permis/empriseReconstruiteRepo'; // VAL-1 — validation PAR EMPRISE (validerEmprise/devaliderEmprise par id)
 import { validerProjection } from '../../../../../lib/permis/projectionFileRepo'; // finalisation permis (permis_projection) quand tous les bâtiments sont validés — conséquence
 import { lireModePassageRattachement } from '../../../../../lib/permis/rattachementConfig'; // COMPLÉMENT — mode de passage (auto-finalisation vs clôture manuelle)
 import { lireDeclarationsRecap, type DeclarationsCerfaStockees } from '../../../../../lib/permis/cerfaRecapRepo'; // LOT 67 — déclarations du Cerfa (informatif)
@@ -190,8 +190,8 @@ export async function POST(request: Request): Promise<Response> {
     // VALIDER / DÉVALIDER l'emprise projetée d'UN bâtiment (capsule du cartouche, jumelle de « Valider cette altitude »). Réversible.
     //   409 si la migration 206 n'est pas appliquée (message clair), 422 si aucune emprise à valider.
     if (action === 'valider_emprise') {
-      if (!estEntier(body.corpsId)) return Response.json({ erreur: 'corpsId invalide' }, { status: 400 });
-      const r = await validerEmpriseBatiment(body.corpsId, auteur);
+      if (!estEntier(body.id) || !estEntier(body.dossierId)) return Response.json({ erreur: 'id / dossierId invalide' }, { status: 400 });
+      const r = await validerEmprise(body.dossierId, body.id, auteur); // VAL-1 — valide CETTE emprise (par id), indépendamment des autres
       if (!r.ok) return Response.json({ erreur: r.motif }, { status: r.migrationAbsente ? 409 : 422 });
       // 🔴 LA PROJECTION DU PERMIS EN DÉCOULE : si TOUS les bâtiments déclarés sont désormais couverts (emprise validée OU ignorée),
       //   on FINALISE (permis_projection + suivi) — conséquence, jamais un geste concurrent. Garde peutValider inchangé (validerProjection).
@@ -217,8 +217,8 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: true, permisValide: true });
     }
     if (action === 'devalider_emprise') {
-      if (!estEntier(body.corpsId)) return Response.json({ erreur: 'corpsId invalide' }, { status: 400 });
-      const r = await devaliderEmpriseBatiment(body.corpsId, auteur);
+      if (!estEntier(body.id) || !estEntier(body.dossierId)) return Response.json({ erreur: 'id / dossierId invalide' }, { status: 400 });
+      const r = await devaliderEmprise(body.dossierId, body.id); // VAL-1 — retire la validation de CETTE emprise (par id)
       if (!r.ok) return Response.json({ erreur: r.motif }, { status: r.migrationAbsente ? 409 : 422 });
       return Response.json({ ok: true });
     }

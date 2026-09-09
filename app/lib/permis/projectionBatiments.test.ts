@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { verdictProjectionBatiments, libelleBatiment, eligibleProjection, effetValidationProjection, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection } from './projectionBatiments';
+import { verdictProjectionBatiments, libelleBatiment, eligibleProjection, effetValidationProjection, etapeChaineEmprise, etatEnteteProjection } from './projectionBatiments';
 
 const B = [{ corpsId: 1, repere: '2D1' }, { corpsId: 2, repere: '2D2' }];
 // emprise « de couverture » : corpsId + provenance (trace par défaut).
@@ -111,28 +111,12 @@ describe('PROJ-2c — effet de « Valider la projection » (pure)', () => {
   });
 });
 
-describe('① COMPLÉMENT — etapeChaineEmprise : UN SEUL bouton par état, dérivé de la SOURCE UNIQUE statutEmpriseBatiment', () => {
-  it('un tracé actif (contour en cours) → « enregistrer », quel que soit le statut enregistré', () => {
-    expect(etapeChaineEmprise('a_tracer', true)).toBe('enregistrer');
-    expect(etapeChaineEmprise('a_valider', true)).toBe('enregistrer'); // retracer par-dessus une emprise enregistrée
-    expect(etapeChaineEmprise('validee', true)).toBe('enregistrer');
+describe('VAL-1 — etapeChaineEmprise : la chaîne ne porte plus QUE le tracé (la validation est PAR EMPRISE, sur chaque ligne)', () => {
+  it('un tracé actif (contour en cours) → « enregistrer »', () => {
+    expect(etapeChaineEmprise(true)).toBe('enregistrer');
   });
-  it('🔴 « valider » n’apparaît QUE sur une emprise ENREGISTRÉE non validée (jamais sans emprise)', () => {
-    expect(etapeChaineEmprise('a_valider', false)).toBe('valider');
-    expect(etapeChaineEmprise('a_tracer', false)).toBeNull();   // rien à valider : pas d'emprise
-    expect(etapeChaineEmprise('ignoree', false)).toBeNull();
-  });
-  it('🔴 « modifier » n’apparaît QUE sur une emprise VALIDÉE (jamais sans validation)', () => {
-    expect(etapeChaineEmprise('validee', false)).toBe('modifier');
-    expect(etapeChaineEmprise('a_valider', false)).not.toBe('modifier');
-  });
-  it('SÉQUENCE — un clic réussi fait apparaître le bouton SUIVANT (état qui avance = source unique)', () => {
-    // tracé → enregistré : statut passe de a_tracer à a_valider → étape « valider » apparaît
-    expect(etapeChaineEmprise(statutEmpriseBatiment(false, false, false), true)).toBe('enregistrer');
-    expect(etapeChaineEmprise(statutEmpriseBatiment(true, false, false), false)).toBe('valider');   // après enregistrement
-    expect(etapeChaineEmprise(statutEmpriseBatiment(true, false, true), false)).toBe('modifier');   // après validation
-    // modifier fait retomber la validation → retour à « valider »
-    expect(etapeChaineEmprise(statutEmpriseBatiment(true, false, false), false)).toBe('valider');
+  it('aucun tracé en cours → null (plus d’état « valider » ni « modifier » : le bouton « Modifier l’emprise » est retiré)', () => {
+    expect(etapeChaineEmprise(false)).toBeNull();
   });
 });
 

@@ -933,8 +933,9 @@ export function empriseRetouchable(e: EmpriseReconstruite): boolean {
 }
 
 /** Liste des emprises d'un bâtiment : libellé, ORIGINE (IGN / tracé à la main), surface, résidu ; RETOUCHER (mono-polygone) ; effacer. */
-export function ListeEmprises({ emprises, onSupprimer, onRetoucher, onAjuster, empriseEnRetouche = null, empriseEnAjustement = null, nomEmprise, nomCorps, repereSource }: {
+export function ListeEmprises({ emprises, onSupprimer, onRetoucher, onAjuster, onValider, occupe = false, empriseEnRetouche = null, empriseEnAjustement = null, nomEmprise, nomCorps, repereSource }: {
   emprises: EmpriseReconstruite[]; onSupprimer?: (id: number) => void; onRetoucher?: (id: number) => void; onAjuster?: (id: number) => void;
+  onValider?: (id: number) => void; occupe?: boolean; // VAL-1 — VALIDATION PAR EMPRISE : bouton « valider » par ligne (masqué si déjà validée) ; occupe désactive pendant une requête
   empriseEnRetouche?: number | null; empriseEnAjustement?: number | null; // PROJ-3t — emprise en cours d'ajustement (delta)
   nomEmprise?: (e: EmpriseReconstruite) => string; // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) » si le corps porte plusieurs emprises). PRIME sur nomCorps.
   nomCorps?: string; // NOM-1 — nom RÉSOLU du corps (repere document / repli maison) : PRIME sur e.libelle stocké (« bâtiment 3 », vestigial).
@@ -964,8 +965,11 @@ export function ListeEmprises({ emprises, onSupprimer, onRetoucher, onAjuster, e
                   qui/quand, et l'affectation des polygones voisins est signalée « à vérifier » — sans AUCUNE action automatique (règle e : un
                   ajustement ne recalcule jamais les statuts « détruit »). Latent tant que le geste d'ajustement (lot 3b) n'existe pas. */}
               {e.ajustement && <span data-ajustee="true" style={{ color: '#b45309', fontWeight: 600 }}> · ✎ ajustée à la main{e.ajustement.pose_le ? ` le ${jourFrParis(e.ajustement.pose_le)}` : ''}{e.ajustementParNom ? ` par ${e.ajustementParNom}` : ''} — affectation des voisins à vérifier</span>}
+              {/* VAL-1 — VALIDATION PAR EMPRISE : « ✓ validée » (qui/quand) OU (dans les actions) un bouton « valider ». Deux emprises se valident indépendamment. */}
+              {e.validee && <span data-validee="true" style={{ color: 'var(--color-svv-green-ink)', fontWeight: 700 }}> · ✓ emprise validée{e.valideeLe ? ` le ${jourFrParis(e.valideeLe)}` : ''}{e.valideeParNom ? ` par ${e.valideeParNom}` : ''}</span>}
             </span>
             <span style={{ display: 'flex', gap: '.3rem' }}>
+              {onValider && !actif && !e.validee && <button type="button" onClick={() => onValider(e.id)} disabled={occupe} style={{ ...b, borderColor: 'var(--color-svv-green-ink)', color: 'var(--color-svv-green-ink)', fontWeight: 700, opacity: occupe ? 0.5 : 1 }}>valider</button>}
               {onAjuster && !actif && <button type="button" onClick={() => onAjuster(e.id)} style={b}>ajuster</button>}
               {onRetoucher && retouchable && !actif && <button type="button" onClick={() => onRetoucher(e.id)} style={b}>retoucher</button>}
               {onSupprimer && !actif && <button type="button" onClick={() => onSupprimer(e.id)} style={b}>effacer</button>}
