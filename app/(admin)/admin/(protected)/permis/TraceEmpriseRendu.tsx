@@ -1094,6 +1094,87 @@ export function BandeauAjustementCompact({ resume, bloc = false, occupe = false,
   );
 }
 
+/**
+ * Plein écran — BANDEAU HORIZONTAL COMPACT de la RETOUCHE (déplacer / insérer / supprimer un sommet), pensé pleine largeur en tête de vue.
+ * Même principe que BandeauAjustementCompact (l'espace vertical reste au SCHÉMA). Geste DISTINCT de l'ajustement ; même état `retouche` que la
+ * page normale (partagé par le parent). Le clic sur le schéma pose/déplace/insère/supprime — ce bandeau ne porte que le sous-mode + valider.
+ */
+export function BandeauRetoucheCompact({ mode, occupe = false, peutAnnuler, contexteMasque = false, onMode, onAnnuler, onAbandonner, onValider }: {
+  mode: 'deplacer' | 'inserer' | 'supprimer'; occupe?: boolean; peutAnnuler: boolean; contexteMasque?: boolean;
+  onMode: (m: 'deplacer' | 'inserer' | 'supprimer') => void; onAnnuler: () => void; onAbandonner: () => void; onValider: () => void;
+}) {
+  const b: CSSProperties = { cursor: occupe ? 'default' : 'pointer', opacity: occupe ? 0.5 : 1, border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.2rem .5rem', fontSize: 13, minHeight: 32 };
+  return (
+    <div role="group" aria-label="retouche de l’emprise" data-retouche-compact="true"
+      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.5rem', border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.35rem .5rem', background: 'var(--color-svv-surface)' }}>
+      <span style={{ fontSize: 13 }}><strong>Retouche</strong> <span style={muted}>— rien n’est enregistré tant que vous ne validez pas</span></span>
+      {(['deplacer', 'inserer', 'supprimer'] as const).map((m) => (
+        <button key={m} type="button" style={{ ...b, fontWeight: mode === m ? 700 : 400 }} disabled={occupe} onClick={() => onMode(m)}>
+          {m === 'deplacer' ? 'Déplacer un sommet' : m === 'inserer' ? 'Insérer sur un bord' : 'Supprimer un sommet'}
+        </button>
+      ))}
+      <button type="button" style={b} disabled={occupe || !peutAnnuler} onClick={onAnnuler}>Annuler la dernière action</button>
+      <button type="button" style={b} disabled={occupe} onClick={onAbandonner}>Abandonner</button>
+      <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.2rem .5rem' }} disabled={occupe} onClick={onValider}>Valider la retouche</button>
+      {contexteMasque && <span role="note" style={{ ...muted, flexBasis: '100%', fontStyle: 'italic' }}>Contexte (parcelles voisines) masqué pour agrandir le dessin — recochez-le dans les options si besoin.</span>}
+    </div>
+  );
+}
+
+/**
+ * Plein écran — BANDEAU DES GESTES AU REPOS (aucun ajustement ni retouche en cours), visible D'EMBLÉE dès qu'au moins une emprise existe
+ * (aucun clic préalable) : le choix « cette emprise / toutes en bloc », les commandes pas-à-pas d'ajustement, Enregistrer, « revenir au tracé
+ * d'origine », et l'entrée en RETOUCHE. Pour une emprise UNIQUE, les commandes pas-à-pas sont LIVE : le premier geste ARME l'ajustement (le
+ * parent démarre alors la session → la page normale n'est pas altérée tant qu'on n'agit pas). Pour plusieurs emprises, on propose des
+ * démarreurs (une cible à choisir avant de bouger). L'espace vertical reste au SCHÉMA (bandeau horizontal qui se replie, mobile-first).
+ */
+export function BandeauGestesCompact({ emprisesDuBatiment, nbTotal, occupe = false, ajustementPersiste = false, onTranslate, onRotate, onScale, onOrigine, onDemarrer, onBloc, onRetoucher }: {
+  emprisesDuBatiment: EmpriseReconstruite[]; nbTotal: number; occupe?: boolean; ajustementPersiste?: boolean;
+  onTranslate: (dxM: number, dyM: number) => void; onRotate: (deg: number) => void; onScale: (pct: number) => void; onOrigine: () => void;
+  onDemarrer: (id: number) => void; onBloc: () => void; onRetoucher: (id: number) => void;
+}) {
+  const b: CSSProperties = { cursor: occupe ? 'default' : 'pointer', opacity: occupe ? 0.5 : 1, border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.2rem .4rem', fontSize: 13, minWidth: 30, minHeight: 32 };
+  const grp: CSSProperties = { display: 'flex', alignItems: 'center', gap: 2 };
+  const cm = Math.round(PAS_TRANSLATION_M * 100);
+  const single = emprisesDuBatiment.length === 1;
+  return (
+    <div role="group" aria-label="gestes d’emprise" data-gestes-compact="true"
+      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.5rem', border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.35rem .5rem', background: 'var(--color-svv-surface)' }}>
+      {single ? (
+        <>
+          <span style={{ fontSize: 13 }}><strong>Ajuster</strong> <span style={muted}>— cette emprise</span></span>
+          <span style={grp} title={`déplacer (${cm} cm)`} aria-label={`déplacer, pas ${cm} cm`}>
+            <button type="button" style={b} disabled={occupe} aria-label={`déplacer vers l’ouest de ${cm} cm`} onClick={() => onTranslate(-PAS_TRANSLATION_M, 0)}>←</button>
+            <button type="button" style={b} disabled={occupe} aria-label={`déplacer vers le nord de ${cm} cm`} onClick={() => onTranslate(0, PAS_TRANSLATION_M)}>↑</button>
+            <button type="button" style={b} disabled={occupe} aria-label={`déplacer vers le sud de ${cm} cm`} onClick={() => onTranslate(0, -PAS_TRANSLATION_M)}>↓</button>
+            <button type="button" style={b} disabled={occupe} aria-label={`déplacer vers l’est de ${cm} cm`} onClick={() => onTranslate(PAS_TRANSLATION_M, 0)}>→</button>
+          </span>
+          <span style={grp} title={`tourner (${PAS_ROTATION_DEG}°)`}>
+            <button type="button" style={b} disabled={occupe} aria-label={`tourner de ${PAS_ROTATION_DEG}° dans le sens antihoraire`} onClick={() => onRotate(-PAS_ROTATION_DEG)}>↺</button>
+            <button type="button" style={b} disabled={occupe} aria-label={`tourner de ${PAS_ROTATION_DEG}° dans le sens horaire`} onClick={() => onRotate(PAS_ROTATION_DEG)}>↻</button>
+          </span>
+          <span style={grp} title={`redimensionner (${PAS_ECHELLE_PCT} %)`}>
+            <button type="button" style={b} disabled={occupe} aria-label={`réduire de ${PAS_ECHELLE_PCT} %`} onClick={() => onScale(-PAS_ECHELLE_PCT)}>−</button>
+            <button type="button" style={b} disabled={occupe} aria-label={`agrandir de ${PAS_ECHELLE_PCT} %`} onClick={() => onScale(PAS_ECHELLE_PCT)}>+</button>
+          </span>
+          {/* Enregistrer PRÉSENT mais désactivé au repos (rien à enregistrer tant qu'aucun geste) — il s'active dès le 1er geste, quand la session d'ajustement s'arme et que le bandeau live prend le relais. */}
+          <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.2rem .5rem' }} disabled title="commencez par déplacer / tourner / redimensionner — l’enregistrement s’active dès le premier geste">Enregistrer</button>
+          <button type="button" style={{ ...b, borderColor: 'var(--color-svv-red)', color: 'var(--color-svv-red)' }} disabled={occupe || !ajustementPersiste} title={ajustementPersiste ? undefined : 'aucun ajustement enregistré à annuler'} onClick={onOrigine}>Revenir au tracé d’origine</button>
+        </>
+      ) : (
+        <>
+          <strong style={{ fontSize: 13 }}>Ajuster :</strong>
+          {emprisesDuBatiment.map((e, i) => <button key={e.id} type="button" style={b} disabled={occupe} onClick={() => onDemarrer(e.id)}>emprise {i + 1}</button>)}
+        </>
+      )}
+      {nbTotal >= 2 && <button type="button" style={b} disabled={occupe} onClick={onBloc}>toutes ensemble ({nbTotal})</button>}
+      <span aria-hidden style={{ alignSelf: 'stretch', borderLeft: '1px solid var(--color-svv-line)', margin: '0 .1rem' }} />
+      <strong style={{ fontSize: 13 }}>Retoucher :</strong>
+      {emprisesDuBatiment.map((e, i) => <button key={`r${e.id}`} type="button" style={b} disabled={occupe} onClick={() => onRetoucher(e.id)}>{single ? 'cette emprise' : `emprise ${i + 1}`}</button>)}
+    </div>
+  );
+}
+
 // PROJ-3h/3i — état des OPTIONS DE VISIBILITÉ du schéma de projection. Chaque interrupteur agit IMMÉDIATEMENT, sans recharger la ligne.
 //   ⓪ PROJ-3i : les deux filtres de PROJ-3h (« en projet » visibilité + « futur bâti » croisillon) visaient LE MÊME jeu de polygones
 //   (En projet ⊂ futur bâti ; sur le périmètre réel 0 « En construction ») → doublon d'interface, le croisillon faisant redondance

@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, rayonBullePoignee, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, rayonBullePoignee, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -103,6 +103,42 @@ describe('PROJ-2 — rendu pur', () => {
     expect(h1).toMatch(/disabled/); // « Origine » désactivé sans delta enregistré
     const bloc = renderToStaticMarkup(h(BandeauAjustementCompact, { ...props, aDeltaEnregistre: true, bloc: true }));
     expect(bloc).toContain('Ensemble'); expect(bloc).toContain('data-ajustement-bloc="true"');
+  });
+
+  it('BandeauRetoucheCompact (plein écran) : sous-modes + Annuler/Abandonner/Valider ; « Annuler » désactivé sans historique ; note contexte optionnelle', () => {
+    const noop = () => {};
+    const sansHist = renderToStaticMarkup(h(BandeauRetoucheCompact, { mode: 'deplacer', peutAnnuler: false, onMode: noop, onAnnuler: noop, onAbandonner: noop, onValider: noop }));
+    expect(sansHist).toContain('data-retouche-compact="true"');
+    expect(sansHist).toContain('Déplacer un sommet'); expect(sansHist).toContain('Insérer sur un bord'); expect(sansHist).toContain('Supprimer un sommet');
+    expect(sansHist).toContain('Valider la retouche');
+    expect(sansHist).toMatch(/disabled/); // « Annuler la dernière action » désactivé sans historique
+    expect(sansHist).not.toContain('masqué pour agrandir'); // pas de note contexte par défaut
+    const avecNote = renderToStaticMarkup(h(BandeauRetoucheCompact, { mode: 'inserer', peutAnnuler: true, contexteMasque: true, onMode: noop, onAnnuler: noop, onAbandonner: noop, onValider: noop }));
+    expect(avecNote).toContain('masqué pour agrandir'); // note « pourquoi le contexte a disparu »
+  });
+
+  it('BandeauGestesCompact (plein écran, repos) : emprise UNIQUE → pas-à-pas LIVE + Enregistrer + origine + « Retoucher : cette emprise », SANS clic préalable', () => {
+    const noop = () => {};
+    const props = { onTranslate: noop, onRotate: noop, onScale: noop, onOrigine: noop, onDemarrer: noop, onBloc: noop, onRetoucher: noop };
+    const une = renderToStaticMarkup(h(BandeauGestesCompact, { ...props, emprisesDuBatiment: [emprise({ id: 1 })], nbTotal: 1 }));
+    expect(une).toContain('data-gestes-compact="true"');
+    expect(une).toContain('Ajuster'); expect(une).toContain('Enregistrer'); // commandes visibles d'emblée (pas de démarreur à cliquer)
+    expect(une).toContain('Revenir au tracé d’origine');
+    expect(une).toContain('Retoucher'); expect(une).toContain('cette emprise'); // entrée en retouche présente
+    expect(une).not.toContain('toutes ensemble'); // 1 emprise au dossier → pas de mode bloc
+    // « Revenir à l'origine » désactivé s'il n'y a aucun ajustement persisté sur l'emprise.
+    expect(une).toMatch(/disabled/);
+    const persiste = renderToStaticMarkup(h(BandeauGestesCompact, { ...props, emprisesDuBatiment: [emprise({ id: 1, ajustement: { tx: 1, ty: 0, rotDeg: 0, echelle: 1, centre: { x: 0, y: 0 }, pose_le: '2026-09-09T10:00:00Z', pose_par: '2' } })], nbTotal: 1, ajustementPersiste: true }));
+    expect(persiste).toContain('Revenir au tracé d’origine');
+  });
+
+  it('BandeauGestesCompact (plein écran, repos) : PLUSIEURS emprises → démarreurs « emprise N » (ajuster + retoucher) + « toutes ensemble »', () => {
+    const noop = () => {};
+    const props = { onTranslate: noop, onRotate: noop, onScale: noop, onOrigine: noop, onDemarrer: noop, onBloc: noop, onRetoucher: noop };
+    const deux = renderToStaticMarkup(h(BandeauGestesCompact, { ...props, emprisesDuBatiment: [emprise({ id: 1 }), emprise({ id: 2 })], nbTotal: 2 }));
+    expect(deux).toContain('emprise 1'); expect(deux).toContain('emprise 2');
+    expect(deux).toContain('toutes ensemble (2)');
+    expect(deux).toContain('Retoucher');
   });
 
   it('IndicateurEcartement : 3 états, X cm comme message principal, jamais R/L, honnêteté « estimation »', () => {

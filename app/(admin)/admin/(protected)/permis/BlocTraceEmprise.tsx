@@ -10,7 +10,7 @@ import {
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
-import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
+import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -828,15 +828,27 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     } catch { setMessage('adoption impossible'); } finally { setOccupe(false); }
   }, [dossierId, affectationsCourantes, onEmprisesChange]);
 
+  // ISOLER LE POLYGONE PENDANT LA RETOUCHE — au démarrage, on masque le CONTEXTE (parcelles voisines + bâti) pour agrandir/aérer le dessin,
+  //   puis on le RESTAURE à la sortie (validation OU abandon OU bascule vers l'ajustement). RÉVERSIBLE, jamais confisqué : si l'internaute
+  //   recoche la case pendant la retouche, SON choix l'emporte et est celui conservé à la sortie ; si la case était déjà décochée, on ne
+  //   touche à rien (ni entrée ni sortie). `ctxAvantRetouche` = valeur AVANT (null = aucune retouche en cours) ; `ctxToucheParUtilisateur` =
+  //   la case a-t-elle été basculée à la main pendant. `contexteMasqueRetouche` (état) alimente la note « pourquoi le contexte a disparu ».
+  const ctxAvantRetouche = useRef<boolean | null>(null);
+  const ctxToucheParUtilisateur = useRef(false);
+  const [contexteMasqueRetouche, setContexteMasqueRetouche] = useState(false);
+
   // PROJ-3s — RETOUCHE d'une emprise existante (mono-polygone) sur le SCHÉMA, en Lambert. Rien n'est écrit tant que non validé.
   const demarrerRetouche = useCallback((id: number) => {
     const e = emprises.find((x) => x.id === id);
     const anneau = e ? (e.anneaux?.length ? e.anneaux[0] : e.anneau) : null;
     if (!anneau || anneau.length < 3) { setMessage('emprise non retouchable'); return; }
+    const ctxAvant = filtres.contexte ?? false;
+    ctxAvantRetouche.current = ctxAvant; ctxToucheParUtilisateur.current = false;
+    if (ctxAvant === true) { setFiltres((f) => ({ ...f, contexte: false })); setContexteMasqueRetouche(true); } else setContexteMasqueRetouche(false);
     setRetouche({ id, anneau: anneau.map((p) => ({ x: p.x, y: p.y })), hist: [] });
     setModeRetouche('deplacer'); setSommetSel(null);
-    setMessage('retouche en cours : déplacez, insérez ou supprimez un sommet, puis validez.');
-  }, [emprises]);
+    setMessage('retouche en cours : déplacez, insérez ou supprimez un sommet, puis validez.' + (ctxAvant === true ? ' Le contexte (parcelles voisines) est masqué pour agrandir le dessin — recochez-le si besoin.' : ''));
+  }, [emprises, filtres.contexte]);
 
   const appliquerRetouche = useCallback((res: ResultatRetouche) => {
     if (!res.ok) { setMessage(res.motif); return; }
@@ -845,18 +857,38 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   }, []);
 
   // Clic sur le schéma en mode retouche : sélectionne/déplace, insère sur un bord, ou supprime — selon le sous-mode. Coords BOÎTE.
-  const cliquerRetouche = useCallback((pxBoite: { x: number; y: number }) => {
-    if (!retouche || !boite) return;
-    const box = retouche.anneau.map((p) => projeterDansBoite(boite, p));
-    const lambert = inverseDepuisBoite(boite, pxBoite);
+  //   GÉNÉRIQUE sur la boîte utilisée (`boite` en page normale, `boiteGrande` en plein écran), comme gererPointeurAjustement : SEULE la
+  //   conversion pxBoite → Lambert en dépend ; l'anneau/l'historique sont en Lambert, partagés. Un seul état `retouche` → même geste des deux vues.
+  const gererClicRetouche = useCallback((boiteU: Boite | null, pxBoite: { x: number; y: number }) => {
+    if (!retouche || !boiteU) return;
+    const box = retouche.anneau.map((p) => projeterDansBoite(boiteU, p));
+    const lambert = inverseDepuisBoite(boiteU, pxBoite);
     if (modeRetouche === 'supprimer') { const i = sommetProche(box, pxBoite, SEUIL_SOMMET_BOITE); if (i >= 0) appliquerRetouche(supprimerSommet(retouche.anneau, i)); return; }
     if (modeRetouche === 'inserer') { const i = bordProche(box, pxBoite); if (i >= 0) appliquerRetouche(insererSommet(retouche.anneau, i, lambert)); return; }
     if (sommetSel === null) { const i = sommetProche(box, pxBoite, SEUIL_SOMMET_BOITE); if (i >= 0) setSommetSel(i); return; } // 1er clic : choisir le sommet
     appliquerRetouche(deplacerSommet(retouche.anneau, sommetSel, lambert)); setSommetSel(null);                          // 2e clic : nouvelle position
-  }, [retouche, boite, modeRetouche, sommetSel, appliquerRetouche]);
+  }, [retouche, modeRetouche, sommetSel, appliquerRetouche]);
+  const cliquerRetouche = useCallback((px: { x: number; y: number }) => gererClicRetouche(boite, px), [gererClicRetouche, boite]);
+  const cliquerRetoucheGrand = useCallback((px: { x: number; y: number }) => gererClicRetouche(boiteGrande, px), [gererClicRetouche, boiteGrande]);
 
   const annulerRetouche = useCallback(() => { setSommetSel(null); setRetouche((r) => (r && r.hist.length > 0 ? { id: r.id, anneau: r.hist[r.hist.length - 1], hist: r.hist.slice(0, -1) } : r)); }, []);
   const abandonnerRetouche = useCallback(() => { setRetouche(null); setSommetSel(null); setMessage('retouche abandonnée : l’emprise en base n’a pas changé.'); }, []);
+
+  // Restauration du CONTEXTE à TOUTE sortie de retouche (abandon, validation, ou bascule vers l'ajustement qui met `retouche` à null) — un
+  //   seul point de vérité, `retouche` retombé à null. On ne restaure QUE si on l'avait masqué (avant === true) ET que l'internaute n'a pas
+  //   basculé la case entre-temps (dans ce cas, SON choix l'emporte : on ne force rien).
+  useEffect(() => {
+    if (retouche || ctxAvantRetouche.current === null) return; // pas de retouche, ou aucune retouche n'était en cours → rien à restaurer
+    if (ctxAvantRetouche.current === true && !ctxToucheParUtilisateur.current) setFiltres((f) => (f.contexte === true ? f : { ...f, contexte: true }));
+    ctxAvantRetouche.current = null; ctxToucheParUtilisateur.current = false; setContexteMasqueRetouche(false);
+  }, [retouche]);
+
+  // Bascule d'une option de visibilité PAR L'INTERNAUTE (case cochée à la main). Pendant une retouche, un changement de la case CONTEXTE est
+  //   un choix explicite → il l'emporte sur la restauration automatique (cf. effet ci-dessus). Sinon, comportement inchangé (setFiltres direct).
+  const onFiltresUtilisateur = useCallback((next: FiltresSchema) => {
+    if (retouche && (next.contexte ?? false) !== (filtres.contexte ?? false)) ctxToucheParUtilisateur.current = true;
+    setFiltres(next);
+  }, [retouche, filtres.contexte]);
 
   const validerRetouche = useCallback(async () => {
     if (!retouche) return;
@@ -975,6 +1007,32 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       onEmprisesChange?.();
     } catch { setMessage('retour à l’origine impossible'); } finally { setOccupe(false); }
   }, [ajustement, dossierId, onEmprisesChange]);
+
+  // PLEIN ÉCRAN (repos, emprise unique) — LAZY START : le 1er geste sur le bandeau des gestes ARME l'ajustement en l'appliquant D'EMBLÉE
+  //   (aucune session parasite tant qu'on n'agit pas → la page normale n'est jamais altérée par la simple ouverture du plein écran). Ensuite
+  //   le bandeau live (BandeauAjustementCompact) prend le relais, avec le MÊME état `ajustement` partagé. Miroir exact de demarrerAjustement (cas « une »).
+  const demarrerAjustementAvecGeste = useCallback((id: number, geste: (d: Ajustement) => Ajustement) => {
+    const e = emprises.find((x) => x.id === id); if (!e) return;
+    const base = anneauxAffiches(e).map((a) => inverseAjustement(a, e.ajustement ?? null));
+    const delta = e.ajustement ?? ajustementIdentite(base);
+    setRetouche(null); setSommetSel(null);
+    setAjustement({ bloc: false, id, delta: geste(delta), base, enregistre: e.ajustement != null });
+    setMessage('ajustement : glissez le dessin ou une poignée, ou utilisez les boutons. Rien n’est enregistré tant que vous ne cliquez pas « Enregistrer ».');
+  }, [emprises, anneauxAffiches]);
+
+  // PLEIN ÉCRAN (repos, emprise unique) — « revenir au tracé d'origine » SANS session active : réinitialise l'ajustement PERSISTÉ de l'emprise
+  //   (même route serveur que revenirOrigineAjustement, cas « une »). Le bouton est désactivé en amont s'il n'y a aucun ajustement persisté.
+  const revenirOrigineDirect = useCallback(async (id: number) => {
+    setOccupe(true); setMessage(null);
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reinitialiser_ajustement', dossierId, id }) });
+      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[] };
+      if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'retour à l’origine impossible'); return; }
+      setEmprises(j.emprises ?? []);
+      setMessage('retour au tracé d’origine : l’ajustement a été supprimé, la géométrie d’origine est restituée.');
+      onEmprisesChange?.();
+    } catch { setMessage('retour à l’origine impossible'); } finally { setOccupe(false); }
+  }, [dossierId, onEmprisesChange]);
 
   // PROJ-3i — ÉCARTER / RÉTABLIR un polygone « en projet » (décision persistée). Optimiste : la réponse serveur fait foi.
   const basculerEcart = useCallback(async (cleabs: string, ecarter: boolean) => {
@@ -1307,7 +1365,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={[]} statuts={statutParCleabs} etiquettes={etiquettesProjection(polygonesPermis, emprises, batiments)} />
         {bandeauSel}
         {/* Options d'AFFICHAGE (bâti existant / futur / repères / projection) — pilotage visuel, pas un contrôle de tracé. Porte aussi la légende de catégories. */}
-        <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={comptesVisibilite.futur} nbExistant={comptesVisibilite.existant} />
+        <OptionsVisibiliteSchema filtres={filtres} onFiltres={onFiltresUtilisateur} nbFutur={comptesVisibilite.futur} nbExistant={comptesVisibilite.existant} />
         <LegendeProjectionEmprises legende={legendeProjection(polygonesPermis, emprises, batiments)} />
       </div>
     ) : (
@@ -1391,6 +1449,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       {retouche && (
         <div style={{ border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.6rem', background: 'var(--color-svv-surface)' }} role="group" aria-label="retouche de l’emprise">
           <div style={{ fontWeight: 600, marginBottom: 4 }}>Retouche de l’emprise <span style={styleAide}>— rien n’est modifié en base tant que vous ne validez pas</span></div>
+          {contexteMasqueRetouche && filtres.contexte !== true && (
+            <p role="note" style={{ ...styleAide, margin: '0 0 .3rem', fontStyle: 'italic' }}>Contexte (parcelles voisines) masqué pour agrandir le dessin — recochez-le dans les options si besoin.</p>
+          )}
           <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', marginBottom: '.3rem' }}>
             {(['deplacer', 'inserer', 'supprimer'] as ModeRetouche[]).map((m) => (
               <button key={m} type="button" style={{ ...btn, fontWeight: modeRetouche === m ? 700 : 400 }} disabled={occupe} onClick={() => { setModeRetouche(m); setSommetSel(null); }}>
@@ -1539,7 +1600,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             {/* « Agrandir le schéma » vit dans la BARRE DROITE (barreDroiteSchema, au-dessus du schéma), plus dans une barre pleine largeur. */}
 
             {/* Options de visibilité + sélection des polygones « en projet ». */}
-            <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={comptesVisibilite.futur} nbExistant={comptesVisibilite.existant} />
+            <OptionsVisibiliteSchema filtres={filtres} onFiltres={onFiltresUtilisateur} nbFutur={comptesVisibilite.futur} nbExistant={comptesVisibilite.existant} />
             <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
             {/* AFF-1 — deux blocs REPLIÉS (identiques dans les deux onglets), sous le schéma : polygones « projet » affectés, puis bâtiments existants. */}
             <BlocProjetRepliable emprises={emprises} polygones={polygonesReperes} batiments={batiments} />
@@ -1600,23 +1661,33 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               <button type="button" style={btn} onClick={() => setPleinEcran(false)} aria-label="Fermer l’agrandissement">✕ Fermer</button>
             </div>
             <RotationSchema angle={angle} onAngle={setAngle} />
-            {/* PROJ-3t (plein écran) — COMMANDES D'AJUSTEMENT compactes, en pleine largeur près du curseur Rotation, SEULEMENT si au moins une
-                emprise existe. Bandeau horizontal, bas → l'espace vertical reste au schéma. MÊME état `ajustement` que la page normale (partagé). */}
-            {aEmprises && (ajustement
+            {/* PLEIN ÉCRAN — BANDEAU DES GESTES en pleine largeur près du curseur Rotation, dès qu'AU MOINS UNE emprise existe (sans clic
+                préalable). Horizontal, bas → l'espace vertical reste au SCHÉMA. TROIS états, MÊMES états `retouche`/`ajustement` que la page
+                normale (partagés, aller-retour sans perte) : ① retouche en cours → bandeau retouche ; ② ajustement en cours → bandeau
+                ajustement ; ③ AU REPOS → bandeau des gestes complet (choix cette emprise / toutes, commandes pas-à-pas + Enregistrer +
+                retour à l'origine pour une emprise unique — le 1er geste ARME la session ; entrée en retouche). */}
+            {aEmprises && (retouche
+              ? <BandeauRetoucheCompact mode={modeRetouche} occupe={occupe} peutAnnuler={retouche.hist.length > 0} contexteMasque={contexteMasqueRetouche && filtres.contexte !== true}
+                  onMode={(m) => { setModeRetouche(m); setSommetSel(null); }} onAnnuler={annulerRetouche} onAbandonner={abandonnerRetouche} onValider={() => void validerRetouche()} />
+              : ajustement
               ? <BandeauAjustementCompact resume={resumeAjustement(ajustement.delta)} bloc={ajustement.bloc} occupe={occupe} aDeltaEnregistre={ajustement.enregistre}
                   onTranslate={onTranslate} onRotate={onRotate} onScale={onScale}
                   onEnregistrer={() => void enregistrerAjustementGeste()} onAbandonner={abandonnerAjustement} onOrigine={() => void revenirOrigineAjustement()} />
-              : <DemarrageAjustementCompact emprisesDuBatiment={empriseDuBat} nbTotal={emprises.length} occupe={occupe}
-                  onDemarrer={(id) => demarrerAjustement(id)} onBloc={demarrerAjustementBloc} />)}
+              : <BandeauGestesCompact emprisesDuBatiment={empriseDuBat} nbTotal={emprises.length} occupe={occupe} ajustementPersiste={empriseDuBat.length === 1 && empriseDuBat[0].ajustement != null}
+                  onTranslate={(dx, dy) => { if (empriseDuBat[0]) demarrerAjustementAvecGeste(empriseDuBat[0].id, (d) => ({ ...d, tx: d.tx + dx, ty: d.ty + dy })); }}
+                  onRotate={(deg) => { if (empriseDuBat[0]) demarrerAjustementAvecGeste(empriseDuBat[0].id, (d) => ({ ...d, rotDeg: d.rotDeg + deg })); }}
+                  onScale={(pct) => { if (empriseDuBat[0]) demarrerAjustementAvecGeste(empriseDuBat[0].id, (d) => ({ ...d, echelle: Math.min(ECHELLE_MAX, Math.max(ECHELLE_MIN, d.echelle * (1 + pct / 100))) })); }}
+                  onOrigine={() => { if (empriseDuBat[0]) void revenirOrigineDirect(empriseDuBat[0].id); }}
+                  onDemarrer={(id) => demarrerAjustement(id)} onBloc={demarrerAjustementBloc} onRetoucher={(id) => demarrerRetouche(id)} />)}
             {bandeauSel}
             <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
               <div style={{ flex: '1 1 420px', minWidth: 0 }}>
                 <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} hauteurMax="82vh" calageLambert={[]} statuts={statutParCleabs}
-                  retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel}
+                  onCliquer={retouche ? cliquerRetoucheGrand : undefined} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel}
                   apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustementGrand : undefined} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 240 }}>
-                <OptionsVisibiliteSchema filtres={filtres} onFiltres={setFiltres} nbFutur={comptesVisibilite.futur} nbExistant={comptesVisibilite.existant} />
+                <OptionsVisibiliteSchema filtres={filtres} onFiltres={onFiltresUtilisateur} nbFutur={comptesVisibilite.futur} nbExistant={comptesVisibilite.existant} />
                 <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
             {/* AFF-1 — deux blocs REPLIÉS (identiques dans les deux onglets), sous le schéma : polygones « projet » affectés, puis bâtiments existants. */}
             <BlocProjetRepliable emprises={emprises} polygones={polygonesReperes} batiments={batiments} />
