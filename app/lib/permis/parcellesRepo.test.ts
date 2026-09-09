@@ -23,6 +23,7 @@ const H = vi.hoisted(() => {
       { cleabs: 'BATIMENT0002', etages: null, alt: null, hauteur: null, dmod: '2024-02-01' },
     ] as BatiRow[],
     capRow: { capture: true, nb: 2, motif: null, mill: '2026-03-20' } as CapRow,
+    nonAppartenant: [] as string[], // VOIS-1 — cleabs à traiter comme VOISINS (parcelle dominante hors permis) dans la requête d'appartenance
     refsCorrigees: [] as { section: string | null; numero: string | null; prefixe: string | null }[], // LOT 101
   };
   const queryMock = async (sql: string, params?: unknown[]) => {
@@ -41,6 +42,8 @@ const H = vi.hoisted(() => {
     if (/INSERT\s+INTO\s+permis_bati_capture/i.test(sql)) return { rows: [], rowCount: 1 };
     if (/SELECT\s+capture,\s*nb_batiments[\s\S]*FROM\s+permis_bati_capture/i.test(sql)) return { rows: state.capRow ? [state.capRow] : [], rowCount: state.capRow ? 1 : 0 };
     if (/SELECT\s+cleabs[\s\S]*FROM\s+permis_bati_snapshot/i.test(sql)) return { rows: state.batiRows, rowCount: state.batiRows.length };
+    // VOIS-1 — requête d'appartenance (cleabsAppartenantPermis, source 'snapshot') : par défaut TOUS appartenant (parcelle dominante du permis, > 50 %).
+    if (/aire_bat[\s\S]*FROM\s+permis_bati_snapshot\s+b,\s*emp/i.test(sql)) return { rows: state.batiRows.map((b) => ({ cleabs: b.cleabs, aire_bat: 100, parcelles: [{ aireInterM2: 90, estParcellePermis: !state.nonAppartenant.includes(b.cleabs ?? '') }] })), rowCount: state.batiRows.length };
     return { rows: [], rowCount: 0 };
   };
   return { appels, state, queryMock };
@@ -74,6 +77,7 @@ beforeEach(() => {
     { cleabs: 'BATIMENT0002', etages: null, alt: null, hauteur: null, dmod: '2024-02-01' },
   ];
   H.state.capRow = { capture: true, nb: 2, motif: null, mill: '2026-03-20' };
+  H.state.nonAppartenant = [];
   H.state.refsCorrigees = [];
 });
 
@@ -207,6 +211,13 @@ describe('lireBatiSnapshotPermis (FUS-1b)', () => {
     expect(r).toMatchObject({ capture: true, nbBatiments: 2, motif: null, sourceMillesime: '2026-03-20' });
     expect(r!.batiments).toHaveLength(2);
     expect(r!.batiments[0]).toMatchObject({ cleabs: 'BATIMENT0001', nombreEtages: 3, altitudeMaxToit: 42.5, dateModification: '2019-05-01' });
+  });
+
+  it('VOIS-1 — un VOISIN (parcelle dominante hors permis) est FILTRÉ à la lecture : compte et détail suivent (2 figés → 1 affiché)', async () => {
+    H.state.nonAppartenant = ['BATIMENT0002']; // figé au snapshot mais majoritairement sur une parcelle voisine
+    const r = await lireBatiSnapshotPermis(7);
+    expect(r).toMatchObject({ capture: true, nbBatiments: 1 }); // le compte affiché suit le filtre (jamais le nb figé brut)
+    expect(r!.batiments.map((b) => b.cleabs)).toEqual(['BATIMENT0001']); // le voisin BATIMENT0002 n'entre pas dans les caractéristiques
   });
 
   it('jamais capturé → null', async () => {

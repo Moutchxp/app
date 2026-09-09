@@ -12,6 +12,7 @@ import {
   type SchemaEmpreinte, type CorpsAffectation, type PolygoneAffectable, type PolygoneEntreeSchema, type GeomPoly, type Cadre, type ActionAffectation,
 } from './affectationSchema';
 import { rejouerRattachement } from './rattachementRepo'; // L5 — ensemble NOUVEAU/MODIFIÉ (moteur pur, à froid) ; pas de cycle (rattachementRepo n'importe pas affectationRepo)
+import { cleabsAppartenantPermis } from './appartenancePermis'; // VOIS-1 — repères A/B/C et schémas (courant + origine) : bâti DU PERMIS seul, jamais les voisins
 
 export interface AffectationEtat {
   empreinteFigee: boolean;
@@ -120,7 +121,9 @@ async function lireLiveRows(dossierId: number): Promise<LigneGeom[]> {
        FROM batiment b, emp
       WHERE b.geom && emp.geom AND ST_Intersects(b.geom, emp.geom)
       ORDER BY ST_Y(ST_Centroid(b.geom)) DESC, ST_X(ST_Centroid(b.geom)), b.cleabs`, [dossierId]);
-  return rows;
+  // VOIS-1 — repères + affectation = caractéristiques du permis → seul le bâti DU PERMIS (batimentAppartientPermis), jamais les voisins.
+  const appartenant = await cleabsAppartenantPermis(dossierId, 'batiment');
+  return rows.filter((r) => r.cleabs != null && appartenant.has(r.cleabs));
 }
 
 /** Lignes du SNAPSHOT gelé (permis_bati_snapshot), MÊME expression d'ordre que le live → repères identiques sur le même jeu. */
@@ -133,7 +136,9 @@ async function lireSnapshotRows(dossierId: number): Promise<LigneGeom[]> {
        FROM permis_bati_snapshot s, emp
       WHERE s.dossier_id = $1
       ORDER BY ST_Y(ST_Centroid(s.geom)) DESC, ST_X(ST_Centroid(s.geom)), s.cleabs`, [dossierId]);
-  return rows;
+  // VOIS-1 — schéma « Configuration d'origine » + repères : seul le bâti DU PERMIS (jugé sur le footprint FIGÉ), jamais les voisins.
+  const appartenant = await cleabsAppartenantPermis(dossierId, 'snapshot');
+  return rows.filter((r) => r.cleabs != null && appartenant.has(r.cleabs));
 }
 
 /** État complet de l'affectation d'un permis (couche bâti VIVANTE) : empreinte + polygones (repères déterministes) + corps + schéma. Lecture seule. */

@@ -4,13 +4,14 @@
  * écriture, aucun DDL. S'appuie sur deux dossiers RÉELS de la base locale (cf. R0) — se saute proprement s'ils sont absents.
  *
  * Angle mort visé : une requête simulée ne prouverait pas que les repères A/B/C… restent IDENTIQUES entre snapshot et live (même
- * ordre déterministe). Seule une vraie base, sur le même jeu de 16 polygones, le démontre.
+ * ordre déterministe). Seule une vraie base le démontre. VOIS-1 — 11430 a 16 bâtiments figés dont 13 DU PERMIS (3 voisins, parcelle
+ * dominante hors permis, désormais FILTRÉS des caractéristiques) : les deux schémas (origine + live) portent donc 13 polygones.
  */
 import { describe, it, expect, afterAll, beforeAll } from 'vitest';
 import { lireAffectation, lireAffectationOrigine, lireComparaison } from './affectationRepo';
 import { query, closePool } from '../db/client';
 
-const DOSSIER_SNAPSHOT = 11430; // 07512024V0037 : 16 polygones gelés ET 16 en live (mêmes cleabs) — cf. R0
+const DOSSIER_SNAPSHOT = 11430; // 07512024V0037 : 16 bâtiments gelés ET 16 en live (mêmes cleabs), dont 13 DU PERMIS (VOIS-1 : 3 voisins filtrés) — cf. R0
 const DOSSIER_TERRAIN_NU = 11434; // 07512025V0035 : capture faite, 0 bâtiment (terrain nu au moment du gel)
 
 let dispo = false;
@@ -26,7 +27,7 @@ beforeAll(async () => {
 afterAll(async () => { await closePool(); });
 
 describe('L4 — lireAffectationOrigine lit le snapshot figé (lecture seule)', () => {
-  it('11430 : schéma d’origine depuis le snapshot — figé, 16 polygones, millésime du gel écrit', async () => {
+  it('11430 : schéma d’origine depuis le snapshot — figé, 13 polygones DU PERMIS (16 figés, 3 voisins filtrés — VOIS-1), millésime du gel écrit', async () => {
     if (!dispo) { expect(dispo).toBe(false); return; } // base non peuplée : test neutralisé (pas un faux échec)
     const o = await lireAffectationOrigine(DOSSIER_SNAPSHOT);
     expect(o.figee).toBe(true);
@@ -34,8 +35,8 @@ describe('L4 — lireAffectationOrigine lit le snapshot figé (lecture seule)', 
     // millesimeGel = le source_millesime RÉELLEMENT figé (lu en base, pas codé en dur : une re-capture le fait varier — L8/L9).
     const { rows: cap } = await query<{ m: string | null }>(`SELECT source_millesime AS m FROM permis_bati_capture WHERE dossier_id = $1`, [DOSSIER_SNAPSHOT]);
     expect(o.millesimeGel).toBe(cap[0].m);
-    expect(o.polygones.length).toBe(16);
-    expect(o.schema.polygones.length).toBe(16);
+    expect(o.polygones.length).toBe(13);       // VOIS-1 — bâti DU PERMIS seul (16 figés − 3 voisins)
+    expect(o.schema.polygones.length).toBe(13);
   });
 
   it('11430 : repères IDENTIQUES entre origine (snapshot) et live — aucun repère n’a bougé', async () => {
@@ -60,8 +61,8 @@ describe('L4 — lireAffectationOrigine lit le snapshot figé (lecture seule)', 
     if (!dispo) { expect(dispo).toBe(false); return; }
     const c = await lireComparaison(DOSSIER_SNAPSHOT);
     expect(c.origine.figee).toBe(true);
-    expect(c.origine.polygones.length).toBe(16);
-    expect(c.nouvelle.polygones.length).toBe(16);
+    expect(c.origine.polygones.length).toBe(13);  // VOIS-1 — bâti DU PERMIS seul (origine + live filtrés à l'identique → repères stables)
+    expect(c.nouvelle.polygones.length).toBe(13);
     expect(c.polygonesModifies).toEqual([]); // rien n'a bougé depuis le gel → rien en rouge
     expect(c.aChange).toBe(false);            // pas de second schéma jumeau
     // Cadre COMMUN : les deux schémas projettent l'empreinte à l'identique (même échelle/cadrage).

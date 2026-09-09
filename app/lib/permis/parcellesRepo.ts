@@ -8,6 +8,7 @@
 import { query } from '../db/client';
 import type { ParcelleDecision } from './decisionParcelles';
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti = AUTORITÉ (registre), plus le proxy
+import { cleabsAppartenantPermis } from './appartenancePermis'; // VOIS-1 — un bâtiment voisin n'entre jamais dans les caractéristiques (filtre à la LECTURE)
 
 export interface ParcelleLigne {
   id: number;                          // LOT 101 — id de la ligne permis_parcelle (cible du geste de correction)
@@ -331,11 +332,17 @@ export async function lireBatiSnapshotPermis(dossierId: number): Promise<BatiSna
   const { rows } = await query<{ cleabs: string | null; etages: number | null; alt: number | null; hauteur: number | null; dmod: string | null }>(
     `SELECT cleabs, nombre_d_etages AS etages, altitude_max_toit AS alt, hauteur, to_char(date_modification, 'YYYY-MM-DD') AS dmod
        FROM permis_bati_snapshot WHERE dossier_id = $1 ORDER BY cleabs`, [dossierId]);
-  const batiments: BatimentSnapshot[] = rows.map((r) => ({
+  const bruts: BatimentSnapshot[] = rows.map((r) => ({
     cleabs: r.cleabs, nombreEtages: r.etages, altitudeMaxToit: r.alt == null ? null : Number(r.alt),
     hauteur: r.hauteur == null ? null : Number(r.hauteur), dateModification: r.dmod,
   }));
-  return { capture: c.capture === true, nbBatiments: c.nb, motif: c.motif, sourceMillesime: c.mill, batiments };
+  // VOIS-1 — FILTRE À LA LECTURE : ne montrer que le bâti DU PERMIS (batimentAppartientPermis, jugé sur le footprint FIGÉ), jamais les
+  //   voisins. Les lignes figées ne sont PAS réécrites (état des lieux daté). Le COMPTE affiché suit le filtre (capture=true → compte filtré ;
+  //   capture=false → inchangé, il n'y a de toute façon aucune ligne). 0 après filtre = « terrain nu » du point de vue du permis.
+  if (c.capture !== true) return { capture: false, nbBatiments: c.nb, motif: c.motif, sourceMillesime: c.mill, batiments: bruts };
+  const appartenant = await cleabsAppartenantPermis(dossierId, 'snapshot');
+  const batiments = bruts.filter((b) => b.cleabs != null && appartenant.has(b.cleabs));
+  return { capture: true, nbBatiments: batiments.length, motif: c.motif, sourceMillesime: c.mill, batiments };
 }
 
 /** GeoJSON (FeatureCollection WGS84, une Feature) de l'empreinte attendue d'un permis — pour export, jamais déversé à l'écran. */

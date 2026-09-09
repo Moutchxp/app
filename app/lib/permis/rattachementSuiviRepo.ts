@@ -9,6 +9,7 @@
  */
 import { query, withTransaction } from '../db/client';
 import { rejouerRattachement } from './rattachementRepo';
+import { cleabsAppartenantPermis } from './appartenancePermis'; // VOIS-1 — comparatif « BD TOPO » : bâti DU PERMIS seul, jamais les voisins
 import { etatInitialDepuisResultat } from './preseanceAltitude';
 import { resoudreEtatSuivi, MOTIF_DAACT, MOTIF_ACHEVE_SANS_BATI } from './etatSuiviRattachement';
 import { lireDaactDeclencheurActif, lireModePassageRattachement, type ModePassageRattachement } from './rattachementConfig';
@@ -369,15 +370,18 @@ export interface DetailSuivi {
   pieces: PieceArchive[];                                      // FUS-3c — pièces jointes consultables (rapatriées d'Archives)
 }
 
-/** BD TOPO : les bâtiments COURANTS présents dans l'empreinte (étages, altitude toit, usages) — pour la colonne BD TOPO du comparatif. */
+/** BD TOPO : les bâtiments COURANTS présents dans l'empreinte (étages, altitude toit, usages) — pour la colonne BD TOPO du comparatif.
+ *  VOIS-1 : bâti DU PERMIS seul (batimentAppartientPermis), jamais les voisins — le comparatif ne mélange pas le bâti d'à côté. */
 async function lireBatimentsEmpreinte(dossierId: number): Promise<{ etages: (number | null)[]; altitudes: (number | null)[]; usages: string[] }> {
-  const { rows } = await query<{ etages: number | null; alt: string | number | null; u1: string | null; u2: string | null }>(
+  const { rows } = await query<{ cleabs: string | null; etages: number | null; alt: string | number | null; u1: string | null; u2: string | null }>(
     `WITH emp AS (SELECT geom FROM permis_empreinte WHERE dossier_id = $1 AND geom IS NOT NULL)
-     SELECT b.nombre_d_etages AS etages, b.altitude_maximale_toit AS alt, b.usage_1 AS u1, b.usage_2 AS u2
+     SELECT b.cleabs, b.nombre_d_etages AS etages, b.altitude_maximale_toit AS alt, b.usage_1 AS u1, b.usage_2 AS u2
        FROM batiment b, emp
       WHERE b.geom && emp.geom AND ST_Intersects(b.geom, emp.geom)`, [dossierId]);
-  const usages = rows.flatMap((r) => [r.u1, r.u2]).filter((u): u is string => !!u && u.trim() !== '');
-  return { etages: rows.map((r) => r.etages), altitudes: rows.map((r) => (r.alt == null ? null : Number(r.alt))), usages };
+  const appartenant = await cleabsAppartenantPermis(dossierId, 'batiment');
+  const permis = rows.filter((r) => r.cleabs != null && appartenant.has(r.cleabs));
+  const usages = permis.flatMap((r) => [r.u1, r.u2]).filter((u): u is string => !!u && u.trim() !== '');
+  return { etages: permis.map((r) => r.etages), altitudes: permis.map((r) => (r.alt == null ? null : Number(r.alt))), usages };
 }
 
 /** Détail d'un dossier : verdict/critères/seuils/millésimes (recalculés au runtime) + tableau comparatif « trois sources ». Lecture seule. */

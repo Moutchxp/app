@@ -12,6 +12,7 @@
  * du verdict/golden (gardes ETAN-1 intactes : ces tables ne sont référencées par aucun fichier de app/lib/db ni app/lib/svv).
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
+import { cleabsAppartenantPermis } from './appartenancePermis'; // VOIS-1 — le gel fige le bâti DU PERMIS seul (voisins exclus), même critère que la projection
 
 /** Référence stable d'une version d'état figé : l'id du registre + son numéro de version (croissant par dossier). */
 export interface VersionGel {
@@ -66,6 +67,8 @@ export async function versionGelCourante(q: RequeteTx, dossierId: number): Promi
  * (dossier_id, version) EN BASE protège contre deux appends concurrents (l'un des deux échoue plutôt que de dupliquer).
  */
 export async function figerVersionGel(dossierId: number, gelePar: string): Promise<ResultatFigerGel> {
+  // VOIS-1 — bâti figé DU PERMIS seul (jugé sur le footprint FIGÉ du snapshot) : le gel copie la même sélection que « Bâti au moment de l'analyse ».
+  const permisCleabs = [...await cleabsAppartenantPermis(dossierId, 'snapshot')];
   return withTransaction(async (q) => {
     if (!(await gelActif(q))) return { enregistre: false, raison: 'registre de gel indisponible (migration 169 non appliquée)' };
 
@@ -73,19 +76,19 @@ export async function figerVersionGel(dossierId: number, gelePar: string): Promi
       `SELECT COALESCE(max(version), 0) + 1 AS prochaine FROM permis_gel WHERE dossier_id = $1`, [dossierId]);
     const version = Number(v[0]?.prochaine ?? 1);
 
-    // EN-TÊTE : copie de l'empreinte + du résumé bâti COURANTS (LEFT JOIN → une ligne même si l'une des tables est vide).
+    // EN-TÊTE : copie de l'empreinte + du résumé bâti COURANTS. VOIS-1 : le COMPTE bâti suit le filtre (capture=true → nb permis ; sinon inchangé).
     const { rows: h } = await q<{ id: string | number }>(
       `INSERT INTO permis_gel (dossier_id, version, gele_par,
                                empreinte_geom, empreinte_surface_m2, empreinte_nb_parcelles, empreinte_complete, empreinte_motif, empreinte_millesime,
                                bati_capture, bati_nb_batiments, bati_motif, bati_source_millesime)
          SELECT $1, $2, $3,
                 pe.geom, pe.surface_m2, pe.nb_parcelles, pe.complete, pe.motif, pe.millesime,
-                pbc.capture, pbc.nb_batiments, pbc.motif, pbc.source_millesime
+                pbc.capture, CASE WHEN pbc.capture IS TRUE THEN $4::int ELSE pbc.nb_batiments END, pbc.motif, pbc.source_millesime
            FROM (SELECT $1::bigint AS dossier_id) d
            LEFT JOIN permis_empreinte    pe  ON pe.dossier_id  = d.dossier_id
            LEFT JOIN permis_bati_capture pbc ON pbc.dossier_id = d.dossier_id
          RETURNING id`,
-      [dossierId, version, gelePar]);
+      [dossierId, version, gelePar, permisCleabs.length]);
     const gelId = Number(h[0].id);
 
     // DÉTAIL parcelles d'origine (copie du geom_snapshot cadastral figé).
@@ -95,12 +98,12 @@ export async function figerVersionGel(dossierId: number, gelePar: string): Promi
            FROM permis_parcelle pp WHERE pp.dossier_id = $1 AND pp.role = 'origine'`,
       [dossierId, gelId]);
 
-    // DÉTAIL bâti (copie des footprints figés).
+    // DÉTAIL bâti (copie des footprints figés) — VOIS-1 : bâti DU PERMIS seul.
     const rb = await q(
       `INSERT INTO permis_gel_bati (gel_id, cleabs, geom, nombre_d_etages, altitude_max_toit, hauteur, date_modification, etat_de_l_objet, usage_1, usage_2)
          SELECT $2, pbs.cleabs, pbs.geom, pbs.nombre_d_etages, pbs.altitude_max_toit, pbs.hauteur, pbs.date_modification, pbs.etat_de_l_objet, pbs.usage_1, pbs.usage_2
-           FROM permis_bati_snapshot pbs WHERE pbs.dossier_id = $1`,
-      [dossierId, gelId]);
+           FROM permis_bati_snapshot pbs WHERE pbs.dossier_id = $1 AND pbs.cleabs = ANY($3)`,
+      [dossierId, gelId, permisCleabs]);
 
     return { enregistre: true, version, gelId, nbParcelles: rp.rowCount ?? 0, nbBati: rb.rowCount ?? 0 };
   });
@@ -132,6 +135,8 @@ export async function versionValidationCourante(q: RequeteTx, dossierId: number)
  * version) EN BASE protège contre deux appends concurrents.
  */
 export async function figerVersionValidation(dossierId: number, valPar: string): Promise<ResultatFigerGel> {
+  // VOIS-1 — bâti figé DU PERMIS seul (bâti COURANT ∩ empreinte, filtré par batimentAppartientPermis) : jamais les voisins.
+  const permisCleabs = [...await cleabsAppartenantPermis(dossierId, 'batiment')];
   return withTransaction(async (q) => {
     if (!(await gelActif(q))) return { enregistre: false, raison: 'registre de gel indisponible (migration 169 non appliquée)' };
 
@@ -140,7 +145,7 @@ export async function figerVersionValidation(dossierId: number, valPar: string):
     const version = Number(v[0]?.prochaine ?? 1);
     const gelePar = `${PREFIXE_GEL_VALIDATION}${valPar}`;
 
-    // EN-TÊTE : copie de l'empreinte COURANTE ; le résumé bâti est recompté sur le BÂTI COURANT ∩ empreinte (pas la capture d'origine).
+    // EN-TÊTE : copie de l'empreinte COURANTE ; VOIS-1 : le résumé bâti = COMPTE du bâti DU PERMIS ∩ empreinte (pas la capture d'origine, pas les voisins).
     const { rows: h } = await q<{ id: string | number }>(
       `INSERT INTO permis_gel (dossier_id, version, gele_par,
                                empreinte_geom, empreinte_surface_m2, empreinte_nb_parcelles, empreinte_complete, empreinte_motif, empreinte_millesime,
@@ -148,14 +153,12 @@ export async function figerVersionValidation(dossierId: number, valPar: string):
          SELECT $1, $2, $3,
                 pe.geom, pe.surface_m2, pe.nb_parcelles, pe.complete, pe.motif, pe.millesime,
                 (pe.geom IS NOT NULL AND pe.complete IS TRUE),
-                CASE WHEN pe.geom IS NOT NULL
-                     THEN (SELECT count(*) FROM batiment b WHERE b.geom && pe.geom AND ST_Intersects(b.geom, pe.geom))
-                     ELSE NULL END,
+                CASE WHEN pe.geom IS NOT NULL THEN $4::int ELSE NULL END,
                 'SURV-1 — gel de référence à la validation (bâti courant ∩ empreinte)', NULL
            FROM (SELECT $1::bigint AS dossier_id) d
            LEFT JOIN permis_empreinte pe ON pe.dossier_id = d.dossier_id
          RETURNING id`,
-      [dossierId, version, gelePar]);
+      [dossierId, version, gelePar, permisCleabs.length]);
     const gelId = Number(h[0].id);
 
     // DÉTAIL parcelles d'origine (copie du geom_snapshot cadastral figé — identique à figerVersionGel).
@@ -165,14 +168,14 @@ export async function figerVersionValidation(dossierId: number, valPar: string):
            FROM permis_parcelle pp WHERE pp.dossier_id = $1 AND pp.role = 'origine'`,
       [dossierId, gelId]);
 
-    // DÉTAIL bâti = BÂTI COURANT ∩ empreinte (footprint 2D figé). Même primitive que figerBatiSnapshot, mais SANS toucher le snapshot.
+    // DÉTAIL bâti = BÂTI COURANT ∩ empreinte (footprint 2D figé). VOIS-1 : bâti DU PERMIS seul. Même primitive que figerBatiSnapshot, sans toucher le snapshot.
     const rb = await q(
       `INSERT INTO permis_gel_bati (gel_id, cleabs, geom, nombre_d_etages, altitude_max_toit, hauteur, date_modification, etat_de_l_objet, usage_1, usage_2)
          SELECT $2, b.cleabs, ST_Multi(ST_Force2D(b.geom)), b.nombre_d_etages, b.altitude_maximale_toit, b.hauteur, b.date_modification, b.etat_de_l_objet, b.usage_1, b.usage_2
            FROM batiment b
            JOIN permis_empreinte pe ON pe.dossier_id = $1
-          WHERE pe.geom IS NOT NULL AND b.geom && pe.geom AND ST_Intersects(b.geom, pe.geom)`,
-      [dossierId, gelId]);
+          WHERE pe.geom IS NOT NULL AND b.geom && pe.geom AND ST_Intersects(b.geom, pe.geom) AND b.cleabs = ANY($3)`,
+      [dossierId, gelId, permisCleabs]);
 
     return { enregistre: true, version, gelId, nbParcelles: rp.rowCount ?? 0, nbBati: rb.rowCount ?? 0 };
   });

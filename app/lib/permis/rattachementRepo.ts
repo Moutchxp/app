@@ -20,6 +20,7 @@
 import { query } from '../db/client';
 import { detecterRattachement, type EntreesRattachement, type ResultatRattachement, type CorpsPermis, type PolygoneEmpreinte, type ParcelleCandidate } from './detectionRattachement';
 import { lireSeuilsRattachement } from './rattachementConfig';
+import { cleabsAppartenantPermis } from './appartenancePermis'; // VOIS-1 — surveillance restreinte au bâti DU PERMIS (voisins hors champ, décision Arno)
 
 // τ — tolérance de distance pour qu'un tronçon du contour candidat soit réputé « longer » le contour de l'empreinte (Lambert-93).
 export const TOLERANCE_BORDURE_M = 0.5;
@@ -110,15 +111,19 @@ export async function rejouerRattachement(dossierId: number): Promise<Rejeu> {
          LEFT JOIN snap s ON s.cleabs = b.cleabs
         WHERE b.geom && emp.geom AND ST_Intersects(b.geom, emp.geom)`,
       [dossierId]);
-    nbBatimentsEmpreinte = rows.length;
-    polygones = rows
-      .filter((r) => r.cleabs !== null) // sans cleabs, impossible de comparer au snapshot → non compté (pas un faux « nouveau »)
+    // VOIS-1 — un bâtiment VOISIN n'entre jamais dans les caractéristiques : la surveillance ne couvre QUE le bâti DU PERMIS
+    //   (batimentAppartientPermis, MÊME critère que la projection). Conséquence assumée par Arno : les voisins sortent du champ surveillé
+    //   (une démolition voisine se lit de toute façon par la disparition du polygone dans BD TOPO au calcul suivant).
+    const appartenantLive = await cleabsAppartenantPermis(dossierId, 'batiment');
+    const rowsPermis = rows.filter((r) => r.cleabs != null && appartenantLive.has(r.cleabs));
+    nbBatimentsEmpreinte = rowsPermis.length;
+    polygones = rowsPermis
       .filter((r) => r.etat === 'nouveau' || nb(r.chg_rel) > MODIF_SURF_REL) // 'modifie' seulement si l'emprise a réellement changé
       .map((r) => ({ cleabs: r.cleabs, etat: r.etat, nbEtages: r.nb_etages, altitudeMaxToit: r.alt_toit === null || r.alt_toit === undefined ? null : Number(r.alt_toit) }));
   }
 
-  // 6) Bâtiments figés au snapshot (contexte).
-  const { rows: snapRows } = await query<{ n: number }>(`SELECT count(*)::int AS n FROM permis_bati_snapshot WHERE dossier_id = $1`, [dossierId]);
+  // 6) Bâtiments figés au snapshot (contexte) — VOIS-1 : compte du bâti figé DU PERMIS seul (voisins exclus).
+  const nbSnapshotPermis = (await cleabsAppartenantPermis(dossierId, 'snapshot')).size;
 
   const entrees: EntreesRattachement = { empreinteComplete, parcellesOrigineToujoursLa, parcelleCandidate, polygones, corpsPermis, seuils: src.seuils };
   const contexte: ContexteRejeu = {
@@ -126,7 +131,7 @@ export async function rejouerRattachement(dossierId: number): Promise<Rejeu> {
     empreinteSurfaceM2: emp?.surface === null || emp?.surface === undefined ? null : Number(emp.surface),
     nbParcellesOrigine, nbOrigineEncore,
     candidatIdu: parcelleCandidate?.idu ?? null,
-    nbBatimentsEmpreinte, nbSnapshot: nb(snapRows[0]?.n),
+    nbBatimentsEmpreinte, nbSnapshot: nbSnapshotPermis,
     seuilsProvenance: src.provenance, seuilsBrut: src.brut,
   };
   return { entrees, contexte, resultat: detecterRattachement(entrees) };
