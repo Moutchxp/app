@@ -1031,7 +1031,7 @@ export function PanneauAjustement({ resume, occupe = false, aDeltaEnregistre, bl
       </div>
       <p style={{ ...muted, margin: 0, fontStyle: 'italic' }}>Sur le schéma : glissez le dessin pour le déplacer, ou une poignée (↻ / ⤢) pour tourner / redimensionner. Ajuster ne mesure rien — une emprise ajustée reste une reconstitution, et l’affectation des polygones voisins reste à vérifier à la main.</p>
       <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-        <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe} onClick={onEnregistrer}>Enregistrer l’ajustement</button>
+        <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe} onClick={onEnregistrer}>Enregistrer l’ajustement</button>
         <button type="button" style={b} disabled={occupe} onClick={onAbandonner}>Abandonner</button>
         <button type="button" style={{ ...b, borderColor: 'var(--color-svv-red)', color: 'var(--color-svv-red)' }} disabled={occupe || !aDeltaEnregistre} title={aDeltaEnregistre ? undefined : 'aucun ajustement enregistré à annuler'} onClick={onOrigine}>Revenir au tracé d’origine</button>
       </div>
@@ -1087,7 +1087,7 @@ export function BandeauAjustementCompact({ resume, bloc = false, occupe = false,
         <button type="button" style={b} disabled={occupe} aria-label={`réduire de ${PAS_ECHELLE_PCT} %`} onClick={() => onScale(-PAS_ECHELLE_PCT)}>−</button>
         <button type="button" style={b} disabled={occupe} aria-label={`agrandir de ${PAS_ECHELLE_PCT} %`} onClick={() => onScale(PAS_ECHELLE_PCT)}>+</button>
       </span>
-      <button type="button" className="svv-btn" style={{ width: 'auto', padding: '.2rem .5rem' }} disabled={occupe} onClick={onEnregistrer}>Enregistrer</button>
+      <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.2rem .5rem' }} disabled={occupe} onClick={onEnregistrer}>Enregistrer</button>
       <button type="button" style={b} disabled={occupe} onClick={onAbandonner}>Abandonner</button>
       <button type="button" style={{ ...b, borderColor: 'var(--color-svv-red)', color: 'var(--color-svv-red)' }} disabled={occupe || !aDeltaEnregistre} title={aDeltaEnregistre ? undefined : 'aucun ajustement enregistré à annuler'} onClick={onOrigine}>Origine</button>
     </div>

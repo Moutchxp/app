@@ -50,6 +50,8 @@
   .svv-btn{display:flex;width:100%;align-items:center;justify-content:center;gap:.55rem;border:0;border-radius:.85rem;padding:1rem;font-weight:700;font-size:1rem;line-height:1;cursor:pointer;transition:background-color .15s ease,border-color .15s ease}
   .svv-btn-primary{background:var(--color-svv-red);color:#fff;box-shadow:0 10px 22px rgba(166,0,0,.18)}
   .svv-btn-primary:hover{background:var(--color-svv-red-dark)}
+  /* Rouge plein DÉSACTIVÉ : bascule en neutre grisé (jetons field/muted, valides clair ET sombre) — jamais un « rouge délavé » ambigu ; lisible comme désactivé. */
+  .svv-btn-primary:disabled{background:var(--color-svv-field);color:var(--color-svv-muted);box-shadow:none;cursor:not-allowed}
   .svv-btn-outline{background:var(--color-svv-surface);color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong)}
   .svv-btn-outline:hover{border-color:var(--color-svv-line-strong-hover)}
   .svv-link{display:flex;width:100%;align-items:center;justify-content:center;gap:.4rem;background:none;border:0;color:var(--color-svv-muted);font-weight:600;font-size:.875rem;cursor:pointer;padding:.85rem 0 .15rem}

@@ -1406,7 +1406,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
           <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
             <button type="button" style={btn} disabled={occupe || retouche.hist.length === 0} onClick={annulerRetouche}>Annuler la dernière action</button>
             <button type="button" style={btn} disabled={occupe} onClick={abandonnerRetouche}>Abandonner</button>
-            <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe} onClick={() => void validerRetouche()}>Valider la retouche</button>
+          </div>
+          {/* Bouton qui CONCLUT la retouche : rouge plein (même traitement que « Modifier l'emprise… »), centré horizontalement sur sa ligne. */}
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '.3rem' }}>
+            <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe} onClick={() => void validerRetouche()}>Valider la retouche</button>
           </div>
         </div>
       )}
