@@ -1099,9 +1099,11 @@ export function BandeauAjustementCompact({ resume, bloc = false, occupe = false,
  * Même principe que BandeauAjustementCompact (l'espace vertical reste au SCHÉMA). Geste DISTINCT de l'ajustement ; même état `retouche` que la
  * page normale (partagé par le parent). Le clic sur le schéma pose/déplace/insère/supprime — ce bandeau ne porte que le sous-mode + valider.
  */
-export function BandeauRetoucheCompact({ mode, occupe = false, peutAnnuler, contexteMasque = false, onMode, onAnnuler, onAbandonner, onValider }: {
+export function BandeauRetoucheCompact({ mode, occupe = false, peutAnnuler, contexteMasque = false, origineVisible = true, contourDispo = false, contourMotif = null, contourEnConfirmation = false, onMode, onAnnuler, onAbandonner, onValider, onToggleOrigine, onContourDemander, onContourConfirmer, onContourAnnuler }: {
   mode: 'deplacer' | 'inserer' | 'supprimer'; occupe?: boolean; peutAnnuler: boolean; contexteMasque?: boolean;
+  origineVisible?: boolean; contourDispo?: boolean; contourMotif?: string | null; contourEnConfirmation?: boolean;
   onMode: (m: 'deplacer' | 'inserer' | 'supprimer') => void; onAnnuler: () => void; onAbandonner: () => void; onValider: () => void;
+  onToggleOrigine?: () => void; onContourDemander?: () => void; onContourConfirmer?: () => void; onContourAnnuler?: () => void;
 }) {
   const b: CSSProperties = { cursor: occupe ? 'default' : 'pointer', opacity: occupe ? 0.5 : 1, border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.2rem .5rem', fontSize: 13, minHeight: 32 };
   return (
@@ -1113,9 +1115,19 @@ export function BandeauRetoucheCompact({ mode, occupe = false, peutAnnuler, cont
           {m === 'deplacer' ? 'Déplacer un sommet' : m === 'inserer' ? 'Insérer sur un bord' : 'Supprimer un sommet'}
         </button>
       ))}
+      {/* Calque d'origine : confort d'affichage, jamais la géométrie. */}
+      {onToggleOrigine && <button type="button" style={b} disabled={occupe} aria-pressed={!origineVisible} onClick={onToggleOrigine} data-origine-visible={origineVisible} title="masquer/afficher le tracé d’origine (affichage seul)">{origineVisible ? 'Masquer l’origine' : 'Afficher l’origine'}</button>}
       <button type="button" style={b} disabled={occupe || !peutAnnuler} onClick={onAnnuler}>Annuler la dernière action</button>
       <button type="button" style={b} disabled={occupe} onClick={onAbandonner}>Abandonner</button>
       <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.2rem .5rem' }} disabled={occupe} onClick={onValider}>Valider la retouche</button>
+      {/* Partir du contour de la parcelle — geste EXPLICITE, annoncé avant, annulable (poussé dans l'historique). */}
+      {onContourDemander && (contourEnConfirmation
+        ? <span role="group" aria-label="confirmer le contour de la parcelle" data-contour-confirmation="true" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.4rem', flexBasis: '100%' }}>
+            <span style={{ ...muted, fontStyle: 'italic' }}>Remplacer la forme en cours par le contour de la parcelle ? On obtient une reconstitution à ajuster, pas une mesure du bâtiment.</span>
+            <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.2rem .5rem' }} disabled={occupe} onClick={onContourConfirmer}>Confirmer</button>
+            <button type="button" style={b} disabled={occupe} onClick={onContourAnnuler}>Annuler</button>
+          </span>
+        : <button type="button" style={{ ...b, opacity: (occupe || !contourDispo) ? 0.5 : 1 }} disabled={occupe || !contourDispo} title={contourDispo ? 'remplace la forme en cours par le contour de la parcelle (annulable)' : (contourMotif ?? undefined)} onClick={onContourDemander}>Partir du contour de la parcelle</button>)}
       {contexteMasque && <span role="note" style={{ ...muted, flexBasis: '100%', fontStyle: 'italic' }}>Contexte (parcelles voisines) masqué pour agrandir le dessin — recochez-le dans les options si besoin.</span>}
     </div>
   );
@@ -1374,6 +1386,13 @@ const EMPREINTE_FOND = 'rgba(90,99,113,.06)';
 const PERMIS_FILL = 'rgba(15,118,110,.34)', PERMIS_TRAIT = '#0f766e';      // ① teal (sarcelle foncé) — bâtiment DU PERMIS, inchangé
 const VOISIN_FILL = 'rgba(37,99,235,.18)', VOISIN_TRAIT = '#2563eb';       // ② BLEU — bâtiment voisin (hors permis)
 const CONTEXTE_FOND = 'rgba(122,180,230,.10)', CONTEXTE_TRAIT = '#7ab4e6'; // ③ BLEU CLAIR — parcelle voisine (contexte)
+// RETOUCHE — contraste FRANC entre la forme EN COURS et l'ORIGINE. Teinte MAGENTA/FUCHSIA : hue VOLONTAIREMENT INUTILISÉE sur ce schéma
+//   (ni rouge de l'emprise, ni vert préservé, ni orange détruit, ni bleu/teal du contexte/permis) → aucune information brouillée. Couleurs
+//   FIXES (canvas clair permanent, comme les autres jetons du schéma). La forme en cours est PLEINE et ÉPAISSE (elle saute aux yeux) ;
+//   l'origine passe en GRIS neutre fin/tireté « en retrait » (un repère d'où l'on part, jamais un 2e dessin qui rivalise).
+const RETOUCHE_TRAIT = '#c026d3', RETOUCHE_FOND = 'rgba(192,38,211,.16)';  // forme EN COURS — magenta vif
+const RETOUCHE_SOMMET_SEL = '#701a75';                                     // sommet sélectionné — magenta foncé (l'actif)
+const ORIGINE_RETOUCHE_TRAIT = '#9aa0a6', ORIGINE_RETOUCHE_FOND = 'rgba(154,160,166,.06)'; // ORIGINE en retouche — gris « en retrait »
 
 // Repères (A, B, C…) — RÈGLE ARNO : lettre NETTEMENT LISIBLE, taille ADAPTÉE à DEUX facteurs — ① la taille d'AFFICHAGE du schéma (le
 //   plancher ET le plafond sont des FRACTIONS du viewBox → un schéma deux fois plus grand donne une lettre proportionnellement plus
@@ -1498,11 +1517,13 @@ export function couleurResidu(m: number): string {
   return m >= SEUIL_RESIDU_CALAGE_M ? 'var(--color-svv-red)' : m >= SEUIL_RESIDU_CALAGE_BON_M ? '#b45309' : '#15803d';
 }
 
-export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, residusCalage = [], indicePireCalage = -1, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, sommetSelectionne = null, apercuAjustement = null, onPointeurAjustement, statuts, etiquettes = [], voisinage = [] }: {
+export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, residusCalage = [], indicePireCalage = -1, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, retoucheEmpriseId = null, afficherOrigineRetouche = true, sommetSelectionne = null, apercuAjustement = null, onPointeurAjustement, statuts, etiquettes = [], voisinage = [] }: {
   boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[];
   residusCalage?: number[]; indicePireCalage?: number; // PROJ — écart PAR repère (m, aligné sur calageLambert) + indice du plus fautif ; affichés SEULEMENT à partir de 3 repères (sur 2, tout est 0 par construction).
   angle?: number; hauteurMax?: string; onCliquer?: (px: { x: number; y: number }) => void;
   retoucheAnneau?: PointLambert[] | null; sommetSelectionne?: number | null; // PROJ-3s — contour en RETOUCHE (poignées éditables) + sommet sélectionné
+  retoucheEmpriseId?: number | null; // emprise en cours de retouche : son ORIGINE passe en gris « en retrait » (contraste), et se masque si afficherOrigineRetouche=false
+  afficherOrigineRetouche?: boolean;  // calque d'ORIGINE pendant la retouche : visible par défaut (repère), masquable (confort d'affichage, ne touche jamais la géométrie)
   // PROJ-3t (lot 3b) — APERÇU d'ajustement (emprise manipulée en surbrillance + poignées rotation/échelle + centre) et pointeur (drag). `pxBoite` en coords BOÎTE (comme onCliquer).
   apercuAjustement?: { anneaux: PointLambert[][]; centre: PointLambert; poigneeRotation: PointLambert; poigneeEchelle: PointLambert } | null;
   onPointeurAjustement?: (phase: 'down' | 'move' | 'up', px: { x: number; y: number }, cible: 'corps' | 'rotation' | 'echelle') => void;
@@ -1588,9 +1609,16 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
             stroke={off ? '#bbb' : futur ? '#1f77b4' : coul ? coul.stroke : voisin ? VOISIN_TRAIT : PERMIS_TRAIT} strokeWidth={surParcelle ? 1.9 : voisin ? 1.3 : 1.2} strokeDasharray={futur ? '4 2' : coul?.dash} strokeOpacity={off ? 0.6 : 1} />;
         })}
         {/* (c) emprises TRACÉES = reconstitution (rouge), si « Afficher la projection » est actif. */}
-        {filtres.emprises && emprises.flatMap((e) => (e.anneaux?.length ? e.anneaux : [e.anneau]).map((ring, ri) => ring.length >= 3
-          ? <path key={`e${e.id}-${ri}`} d={path(ring)} fill="rgba(163,4,2,.18)" stroke="var(--color-svv-red)" strokeWidth={1.4} data-emprise={e.id} data-provenance={e.provenance} />
-          : null))}
+        {filtres.emprises && emprises.flatMap((e) => (e.anneaux?.length ? e.anneaux : [e.anneau]).map((ring, ri) => {
+          if (ring.length < 3) return null;
+          // Emprise EN COURS DE RETOUCHE : son contour d'origine (rouge) rivaliserait avec la forme magenta éditée → on le passe en gris fin
+          //   tireté « en retrait » (repère d'où l'on part), ou on le masque si le calque d'origine est éteint (confort d'affichage seul).
+          const enRetouche = retoucheEmpriseId !== null && e.id === retoucheEmpriseId;
+          if (enRetouche && !afficherOrigineRetouche) return null;
+          return <path key={`e${e.id}-${ri}`} d={path(ring)} data-emprise={e.id} data-provenance={e.provenance} data-origine-retouche={enRetouche || undefined}
+            fill={enRetouche ? ORIGINE_RETOUCHE_FOND : 'rgba(163,4,2,.18)'} stroke={enRetouche ? ORIGINE_RETOUCHE_TRAIT : 'var(--color-svv-red)'}
+            strokeWidth={enRetouche ? 1.1 : 1.4} strokeDasharray={enRetouche ? '4 3' : undefined} strokeOpacity={enRetouche ? 0.85 : 1} />;
+        }))}
         {/* PROJ-3i ① — repères alphabétiques (mêmes lettres que le Rattachement), au CENTRE VISUEL de chaque polygone visible.
             🐛 correctif : le canvas est CLAIR EN PERMANENCE (background #fff, les 2 thèmes) → couleur FIXE + halo blanc (paintOrder),
             comme les étiquettes et le contour d'empreinte (EMPREINTE_TRAIT). L'ancien `var(--color-svv-ink)` basculait à #e8ebef en
@@ -1664,9 +1692,9 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
         })}
         {/* PROJ-3s — RETOUCHE : contour éditable + poignées de sommet (cibles tactiles) + points milieux de bord (insertion). */}
         {retoucheAnneau && retoucheAnneau.length >= 2 && <>
-          <path d={path(retoucheAnneau)} fill="rgba(163,4,2,.10)" stroke="var(--color-svv-red)" strokeWidth={1.6} strokeDasharray="5 3" data-retouche="true" />
-          {retoucheAnneau.map((p, i) => { const a = proj(p), b = proj(retoucheAnneau[(i + 1) % retoucheAnneau.length]); return <circle key={`m${i}`} cx={(a.x + b.x) / 2} cy={(a.y + b.y) / 2} r={3} fill="#fff" stroke="var(--color-svv-red)" strokeWidth={1} data-bord={i} />; })}
-          {retoucheAnneau.map((p, i) => { const q = proj(p); const sel = i === sommetSelectionne; return <circle key={`s${i}`} cx={q.x} cy={q.y} r={sel ? 7 : 5} fill={sel ? 'var(--color-svv-ink)' : 'var(--color-svv-red)'} stroke="#fff" strokeWidth={1.5} data-sommet={i} data-selectionne={sel || undefined} />; })}
+          <path d={path(retoucheAnneau)} fill={RETOUCHE_FOND} stroke={RETOUCHE_TRAIT} strokeWidth={2.2} strokeLinejoin="round" data-retouche="true" />
+          {retoucheAnneau.map((p, i) => { const a = proj(p), b = proj(retoucheAnneau[(i + 1) % retoucheAnneau.length]); return <circle key={`m${i}`} cx={(a.x + b.x) / 2} cy={(a.y + b.y) / 2} r={3} fill="#fff" stroke={RETOUCHE_TRAIT} strokeWidth={1} data-bord={i} />; })}
+          {retoucheAnneau.map((p, i) => { const q = proj(p); const sel = i === sommetSelectionne; return <circle key={`s${i}`} cx={q.x} cy={q.y} r={sel ? 7 : 5} fill={sel ? RETOUCHE_SOMMET_SEL : RETOUCHE_TRAIT} stroke="#fff" strokeWidth={1.5} data-sommet={i} data-selectionne={sel || undefined} />; })}
         </>}
         {/* PROJ-3t (lot 3b) — APERÇU d'ajustement : l'emprise manipulée en surbrillance + trait vers les poignées + poignée de ROTATION (↻) et
             d'ÉCHELLE (⤢) + point de CENTRE. Le corps se glisse pour déplacer ; les poignées se glissent pour tourner / redimensionner. */}

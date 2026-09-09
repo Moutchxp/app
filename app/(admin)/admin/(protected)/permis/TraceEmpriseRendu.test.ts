@@ -117,6 +117,39 @@ describe('PROJ-2 — rendu pur', () => {
     expect(avecNote).toContain('masqué pour agrandir'); // note « pourquoi le contexte a disparu »
   });
 
+  it('BandeauRetoucheCompact : toggle calque d’origine (libellé selon l’état) + « partir du contour de la parcelle » (dispo / désactivé motivé / confirmation)', () => {
+    const noop = () => {};
+    const base = { mode: 'deplacer' as const, peutAnnuler: false, onMode: noop, onAnnuler: noop, onAbandonner: noop, onValider: noop, onToggleOrigine: noop, onContourDemander: noop, onContourConfirmer: noop, onContourAnnuler: noop };
+    // origine VISIBLE → le bouton propose de la MASQUER ; contour DISPONIBLE → bouton actif.
+    const visible = renderToStaticMarkup(h(BandeauRetoucheCompact, { ...base, origineVisible: true, contourDispo: true }));
+    expect(visible).toContain('Masquer l’origine');
+    expect(visible).toContain('data-origine-visible="true"');
+    expect(visible).toContain('Partir du contour de la parcelle');
+    // origine MASQUÉE → le bouton propose de l’AFFICHER.
+    const masquee = renderToStaticMarkup(h(BandeauRetoucheCompact, { ...base, origineVisible: false, contourDispo: true }));
+    expect(masquee).toContain('Afficher l’origine');
+    // contour INDISPONIBLE → bouton désactivé, motif en title (jamais deviné).
+    const indispo = renderToStaticMarkup(h(BandeauRetoucheCompact, { ...base, contourDispo: false, contourMotif: 'l’empreinte comporte 2 contours distincts — cas ambigu' }));
+    expect(indispo).toContain('contours distincts');
+    // en CONFIRMATION → annonce + Confirmer/Annuler, plus le bouton d’appel.
+    const confirm = renderToStaticMarkup(h(BandeauRetoucheCompact, { ...base, contourDispo: true, contourEnConfirmation: true }));
+    expect(confirm).toContain('data-contour-confirmation="true"');
+    expect(confirm).toContain('reconstitution à ajuster'); expect(confirm).toContain('Confirmer');
+    expect(confirm).not.toContain('Partir du contour de la parcelle'); // remplacé par l’annonce pendant la confirmation
+  });
+
+  it('SchemaParcelleTrace : pendant la retouche, l’ORIGINE de l’emprise retouchée passe « en retrait » (data-origine-retouche) et se MASQUE si demandé', () => {
+    const boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 20, minY: 0, maxY: 20 } };
+    const ring = [{ x: 1, y: 1 }, { x: 19, y: 1 }, { x: 19, y: 19 }, { x: 1, y: 19 }];
+    const props = { boite, parcelle: [[{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x: 0, y: 20 }]], calageLambert: [], emprises: [emprise({ id: 7 })], retoucheAnneau: ring, retoucheEmpriseId: 7 };
+    const visible = renderToStaticMarkup(h(SchemaParcelleTrace, { ...props, afficherOrigineRetouche: true }));
+    expect(visible).toContain('data-origine-retouche="true"'); // l’emprise retouchée est dessinée en retrait (repère)
+    expect(visible).toContain('data-retouche="true"');         // la forme en cours reste dessinée
+    const masquee = renderToStaticMarkup(h(SchemaParcelleTrace, { ...props, afficherOrigineRetouche: false }));
+    expect(masquee).not.toContain('data-origine-retouche="true"'); // calque d’origine éteint → l’emprise retouchée n’est plus dessinée
+    expect(masquee).toContain('data-retouche="true"');            // …mais la forme en cours, si
+  });
+
   it('BandeauGestesCompact (plein écran, repos) : emprise UNIQUE → pas-à-pas LIVE + Enregistrer + origine + « Retoucher : cette emprise », SANS clic préalable', () => {
     const noop = () => {};
     const props = { onTranslate: noop, onRotate: noop, onScale: noop, onOrigine: noop, onDemarrer: noop, onBloc: noop, onRetoucher: noop };

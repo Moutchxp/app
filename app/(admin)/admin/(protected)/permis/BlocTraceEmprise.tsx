@@ -836,6 +836,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const ctxAvantRetouche = useRef<boolean | null>(null);
   const ctxToucheParUtilisateur = useRef(false);
   const [contexteMasqueRetouche, setContexteMasqueRetouche] = useState(false);
+  // Calque d'ORIGINE pendant la retouche : visible par défaut (repère d'où l'on part), masquable — CONFORT D'AFFICHAGE seul (la géométrie ne
+  //   change jamais). Revient à « visible » à chaque nouvelle retouche. `confirmerContourParcelle` : geste « partir du contour de la parcelle »
+  //   à deux temps (il ANNONCE avant d'agir).
+  const [origineRetoucheVisible, setOrigineRetoucheVisible] = useState(true);
+  const [confirmerContourParcelle, setConfirmerContourParcelle] = useState(false);
 
   // PROJ-3s — RETOUCHE d'une emprise existante (mono-polygone) sur le SCHÉMA, en Lambert. Rien n'est écrit tant que non validé.
   const demarrerRetouche = useCallback((id: number) => {
@@ -845,6 +850,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     const ctxAvant = filtres.contexte ?? false;
     ctxAvantRetouche.current = ctxAvant; ctxToucheParUtilisateur.current = false;
     if (ctxAvant === true) { setFiltres((f) => ({ ...f, contexte: false })); setContexteMasqueRetouche(true); } else setContexteMasqueRetouche(false);
+    setOrigineRetoucheVisible(true); setConfirmerContourParcelle(false); // chaque retouche démarre avec l'origine VISIBLE et aucune confirmation en attente
     setRetouche({ id, anneau: anneau.map((p) => ({ x: p.x, y: p.y })), hist: [] });
     setModeRetouche('deplacer'); setSommetSel(null);
     setMessage('retouche en cours : déplacez, insérez ou supprimez un sommet, puis validez.' + (ctxAvant === true ? ' Le contexte (parcelles voisines) est masqué pour agrandir le dessin — recochez-le si besoin.' : ''));
@@ -855,6 +861,25 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     setMessage(null);
     setRetouche((r) => (r ? { id: r.id, anneau: res.anneau, hist: [...r.hist, r.anneau] } : r));
   }, []);
+
+  // PARTIR DU CONTOUR DE LA PARCELLE — geste EXPLICITE (jamais automatique) pendant la retouche : remplace la forme en cours par le contour de
+  //   l'EMPREINTE validée du permis. ⚠️ Emprise de bâtiment ≠ contour de parcelle → ce qu'on obtient reste une RECONSTITUTION à ajuster, pas une
+  //   mesure. Disponible SEULEMENT si l'empreinte a UN seul contour (sinon ambigu → bouton désactivé + explication). Repris TEL QUEL (même
+  //   convention d'anneau fermé que l'emprise, cf. GeoJSON), AUCUNE simplification. Poussé dans l'historique → « Annuler la dernière action » le
+  //   défait ; rien n'est écrit en base tant que la retouche n'est pas validée.
+  const contourParcelleDispo = parcelle.length === 1 && (parcelle[0]?.length ?? 0) >= 3;
+  const contourParcelleMotif = parcelle.length === 0 ? 'aucune empreinte de parcelle figée pour ce permis'
+    : parcelle.length > 1 ? `l’empreinte comporte ${parcelle.length} contours distincts — cas ambigu (union/choix non décidé), à faire à la main`
+      : !contourParcelleDispo ? 'contour de parcelle inexploitable (moins de 3 sommets)'
+        : null;
+  const partirDuContourParcelle = useCallback(() => {
+    if (parcelle.length !== 1) return;
+    const ring = parcelle[0].map((p) => ({ x: p.x, y: p.y }));
+    if (ring.length < 3) { setMessage('contour de parcelle inexploitable'); return; }
+    appliquerRetouche({ ok: true, anneau: ring });
+    setSommetSel(null); setConfirmerContourParcelle(false);
+    setMessage('contour de la parcelle repris : reconstitution à AJUSTER, pas une mesure du bâtiment. « Annuler la dernière action » revient en arrière.');
+  }, [parcelle, appliquerRetouche]);
 
   // Clic sur le schéma en mode retouche : sélectionne/déplace, insère sur un bord, ou supprime — selon le sous-mode. Coords BOÎTE.
   //   GÉNÉRIQUE sur la boîte utilisée (`boite` en page normale, `boiteGrande` en plein écran), comme gererPointeurAjustement : SEULE la
@@ -881,6 +906,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     if (retouche || ctxAvantRetouche.current === null) return; // pas de retouche, ou aucune retouche n'était en cours → rien à restaurer
     if (ctxAvantRetouche.current === true && !ctxToucheParUtilisateur.current) setFiltres((f) => (f.contexte === true ? f : { ...f, contexte: true }));
     ctxAvantRetouche.current = null; ctxToucheParUtilisateur.current = false; setContexteMasqueRetouche(false);
+    setOrigineRetoucheVisible(true); setConfirmerContourParcelle(false); // le calque d'origine revient VISIBLE à la sortie ; aucune confirmation ne survit à la retouche
   }, [retouche]);
 
   // Bascule d'une option de visibilité PAR L'INTERNAUTE (case cochée à la main). Pendant une retouche, un changement de la case CONTEXTE est
@@ -1464,6 +1490,17 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               : modeRetouche === 'inserer' ? 'Touchez un bord pour y insérer un sommet.'
                 : 'Touchez un sommet pour le supprimer (un contour garde au moins 3 sommets).'}
           </p>
+          {/* Outils d'affichage/point de départ : (1) calque d'origine ON/OFF (confort, ne touche pas la géométrie) ; (2) partir du contour de la parcelle (geste explicite, annoncé, annulable). */}
+          <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', marginBottom: '.3rem', alignItems: 'center' }}>
+            <button type="button" style={btn} disabled={occupe} aria-pressed={!origineRetoucheVisible} data-origine-visible={origineRetoucheVisible} onClick={() => setOrigineRetoucheVisible((v) => !v)} title="masquer/afficher le tracé d’origine (affichage seul, ne change pas la géométrie)">{origineRetoucheVisible ? 'Masquer l’origine' : 'Afficher l’origine'}</button>
+            {confirmerContourParcelle
+              ? <span role="group" aria-label="confirmer le contour de la parcelle" data-contour-confirmation="true" style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <span style={{ ...styleAide, fontStyle: 'italic' }}>Remplacer la forme en cours par le contour de la parcelle ? On obtient une reconstitution à ajuster, pas une mesure du bâtiment.</span>
+                  <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.25rem .6rem' }} disabled={occupe} onClick={partirDuContourParcelle}>Confirmer</button>
+                  <button type="button" style={btn} disabled={occupe} onClick={() => setConfirmerContourParcelle(false)}>Annuler</button>
+                </span>
+              : <button type="button" style={{ ...btn, opacity: (occupe || !contourParcelleDispo) ? 0.5 : 1 }} disabled={occupe || !contourParcelleDispo} title={contourParcelleDispo ? 'remplace la forme en cours par le contour de la parcelle (annulable)' : (contourParcelleMotif ?? undefined)} onClick={() => setConfirmerContourParcelle(true)}>Partir du contour de la parcelle</button>}
+          </div>
           <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
             <button type="button" style={btn} disabled={occupe || retouche.hist.length === 0} onClick={annulerRetouche}>Annuler la dernière action</button>
             <button type="button" style={btn} disabled={occupe} onClick={abandonnerRetouche}>Abandonner</button>
@@ -1580,7 +1617,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 (styleBarre) et MÊME gap (.5rem) que la carte du plan → le schéma démarre à la même hauteur que l'image. */}
             {barreDroiteSchema}
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={ajustement ? [] : paires.map((p) => p.lambert)} residusCalage={residus.ecarts} indicePireCalage={residus.indexPlusFautif} statuts={statutParCleabs}
-              onCliquer={ajustement ? undefined : (retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined))} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel}
+              onCliquer={ajustement ? undefined : (retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined))} retoucheAnneau={retouche?.anneau ?? null} retoucheEmpriseId={retouche?.id ?? null} afficherOrigineRetouche={origineRetoucheVisible} sommetSelectionne={sommetSel}
               apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustement : undefined} />
             {/* POSITION REMONTÉE — dès qu'une emprise en projet existe, le bloc emprise vient JUSTE SOUS le schéma, au-dessus de « Empreinte Parcelle(s) ». */}
             {aEmprises && blocEmprises}
@@ -1668,7 +1705,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 retour à l'origine pour une emprise unique — le 1er geste ARME la session ; entrée en retouche). */}
             {aEmprises && (retouche
               ? <BandeauRetoucheCompact mode={modeRetouche} occupe={occupe} peutAnnuler={retouche.hist.length > 0} contexteMasque={contexteMasqueRetouche && filtres.contexte !== true}
-                  onMode={(m) => { setModeRetouche(m); setSommetSel(null); }} onAnnuler={annulerRetouche} onAbandonner={abandonnerRetouche} onValider={() => void validerRetouche()} />
+                  origineVisible={origineRetoucheVisible} contourDispo={contourParcelleDispo} contourMotif={contourParcelleMotif} contourEnConfirmation={confirmerContourParcelle}
+                  onMode={(m) => { setModeRetouche(m); setSommetSel(null); }} onAnnuler={annulerRetouche} onAbandonner={abandonnerRetouche} onValider={() => void validerRetouche()}
+                  onToggleOrigine={() => setOrigineRetoucheVisible((v) => !v)} onContourDemander={() => setConfirmerContourParcelle(true)} onContourConfirmer={partirDuContourParcelle} onContourAnnuler={() => setConfirmerContourParcelle(false)} />
               : ajustement
               ? <BandeauAjustementCompact resume={resumeAjustement(ajustement.delta)} bloc={ajustement.bloc} occupe={occupe} aDeltaEnregistre={ajustement.enregistre}
                   onTranslate={onTranslate} onRotate={onRotate} onScale={onScale}
@@ -1683,7 +1722,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
               <div style={{ flex: '1 1 420px', minWidth: 0 }}>
                 <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} hauteurMax="82vh" calageLambert={[]} statuts={statutParCleabs}
-                  onCliquer={retouche ? cliquerRetoucheGrand : undefined} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel}
+                  onCliquer={retouche ? cliquerRetoucheGrand : undefined} retoucheAnneau={retouche?.anneau ?? null} retoucheEmpriseId={retouche?.id ?? null} afficherOrigineRetouche={origineRetoucheVisible} sommetSelectionne={sommetSel}
                   apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustementGrand : undefined} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 240 }}>
