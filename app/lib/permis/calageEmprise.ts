@@ -493,3 +493,39 @@ export function inverseAjustement(anneau: PointLambert[], a: Ajustement | null):
   if (a === null) return anneau;
   return anneau.map((p) => inverseAjustementPoint(p, a));
 }
+
+// ── Gestes d'ajustement (PROJ-3t, lot 3b) : pas nommés (futur réglage pilotable), centroïde (centre stocké), résumé lisible ──────
+/** Pas de TRANSLATION par clic bouton, en MÈTRES terrain (10 cm). Constante nommée → futur réglage pilotable. */
+export const PAS_TRANSLATION_M = 0.10;
+/** Pas de ROTATION par clic bouton, en DEGRÉS (1°). */
+export const PAS_ROTATION_DEG = 1;
+/** Pas d'ÉCHELLE par clic bouton, en POURCENT (1 %). */
+export const PAS_ECHELLE_PCT = 1;
+/** Bornes de sécurité de l'échelle (un ajustement reste une reconstitution : on empêche les valeurs absurdes, jamais on ne « mesure »). */
+export const ECHELLE_MIN = 0.2, ECHELLE_MAX = 5;
+
+/** Centre stocké dans le delta = centroïde d'AIRE (shoelace) de l'ensemble des anneaux, repli sur la moyenne des sommets si aire nulle. PUR. */
+export function centroideAnneaux(anneaux: PointLambert[][]): PointLambert {
+  let ax = 0, ay = 0, aTot = 0;
+  for (const ring of anneaux) {
+    const n = ring.length; if (n < 3) continue;
+    let a2 = 0, cx = 0, cy = 0;
+    for (let i = 0; i < n; i++) { const p = ring[i], q = ring[(i + 1) % n]; const cross = p.x * q.y - q.x * p.y; a2 += cross; cx += (p.x + q.x) * cross; cy += (p.y + q.y) * cross; }
+    if (a2 !== 0) { ax += cx / 6; ay += cy / 6; aTot += a2 / 2; }
+  }
+  if (aTot !== 0) return { x: ax / aTot, y: ay / aTot };
+  const pts = anneaux.flat(); if (pts.length === 0) return { x: 0, y: 0 };
+  return { x: pts.reduce((s, p) => s + p.x, 0) / pts.length, y: pts.reduce((s, p) => s + p.y, 0) / pts.length };
+}
+
+/** Résumé LISIBLE d'un delta (langage d'Arno, jamais de jargon) : déplacement (m), rotation (°, normalisée −180..180), échelle (%). PUR. */
+export interface ResumeAjustement { deplacementM: number; rotationDeg: number; echellePct: number }
+export function resumeAjustement(a: Ajustement): ResumeAjustement {
+  const rot = ((a.rotDeg % 360) + 540) % 360 - 180; // ramène dans (−180 ; 180]
+  return { deplacementM: Math.hypot(a.tx, a.ty), rotationDeg: rot, echellePct: (a.echelle - 1) * 100 };
+}
+
+/** Delta IDENTITÉ pour une géométrie (centre = son centroïde) : point de départ d'un ajustement neuf (aucun déplacement). PUR. */
+export function ajustementIdentite(anneaux: PointLambert[][]): Ajustement {
+  return { tx: 0, ty: 0, rotDeg: 0, echelle: 1, centre: centroideAnneaux(anneaux) };
+}

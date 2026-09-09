@@ -245,7 +245,7 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
   });
 
   it('DEMANDE 1 (9decccf) — ALIGNEMENT : dans la colonne droite le SCHÉMA passe AVANT la rotation/guidage → même hauteur que l’image', () => {
-    const iSchema = src.indexOf('onCliquer={retouche ? cliquerRetouche'); // le schéma interactif (calage)
+    const iSchema = src.indexOf('retouche ? cliquerRetouche'); // le schéma interactif (calage) — fragment stable (le préfixe onCliquer gère aussi l'ajustement depuis le lot 3t)
     // le guide côté schéma (rendu pendant le processus) est DESCENDU sous le schéma ; les options aussi.
     const iGuidageSchema = src.indexOf('tracable && procEnCours && <div className="svv-guide-fondu"');
     const iOptions = src.indexOf('<OptionsVisibiliteSchema', iSchema); // celui de la branche principale (après le schéma interactif)
@@ -278,7 +278,7 @@ describe('DEMANDES 1-5 — alignement, ordre colonne gauche, repères best-of/fi
     // COLONNE SCHÉMA = carte, barre À L'INTÉRIEUR en tête, AVANT le SchemaParcelleTrace calé.
     expect(src).toContain('<div key="schema" className="svv-card"');
     const iBD = src.indexOf('{barreDroiteSchema}');
-    const iSchemaMain = src.indexOf('calageLambert={paires.map((p) => p.lambert)}');
+    const iSchemaMain = src.indexOf('residusCalage={residus.ecarts}'); // repère stable de l'appel SchemaParcelleTrace principal (calage inline retiré par le lot 3t)
     expect(iBD).toBeGreaterThan(-1);
     expect(iBD).toBeLessThan(iSchemaMain);
     // BARRE GAUCHE : zoom PUIS « mode XL ».

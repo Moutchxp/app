@@ -3,7 +3,8 @@ import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle
 import type { SelectionInfo } from '../../../../lib/permis/plancheParcellesRepo';
 import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « décidé le … » en heure de Paris
 import {
-  projeterDansBoite, boiteEnglobanteRotee, clicVersBoiteMeet, SEUIL_RESIDU_CALAGE_M, SEUIL_RESIDU_CALAGE_BON_M, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type CadreVue, type EtatLevier,
+  projeterDansBoite, boiteEnglobanteRotee, clicVersBoiteMeet, SEUIL_RESIDU_CALAGE_M, SEUIL_RESIDU_CALAGE_BON_M,
+  PAS_TRANSLATION_M, PAS_ROTATION_DEG, PAS_ECHELLE_PCT, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type CadreVue, type EtatLevier, type ResumeAjustement,
 } from '../../../../lib/permis/calageEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { libelleBatiment, resumeProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
@@ -932,8 +933,9 @@ export function empriseRetouchable(e: EmpriseReconstruite): boolean {
 }
 
 /** Liste des emprises d'un bâtiment : libellé, ORIGINE (IGN / tracé à la main), surface, résidu ; RETOUCHER (mono-polygone) ; effacer. */
-export function ListeEmprises({ emprises, onSupprimer, onRetoucher, empriseEnRetouche = null, nomCorps, repereSource }: {
-  emprises: EmpriseReconstruite[]; onSupprimer?: (id: number) => void; onRetoucher?: (id: number) => void; empriseEnRetouche?: number | null;
+export function ListeEmprises({ emprises, onSupprimer, onRetoucher, onAjuster, empriseEnRetouche = null, empriseEnAjustement = null, nomCorps, repereSource }: {
+  emprises: EmpriseReconstruite[]; onSupprimer?: (id: number) => void; onRetoucher?: (id: number) => void; onAjuster?: (id: number) => void;
+  empriseEnRetouche?: number | null; empriseEnAjustement?: number | null; // PROJ-3t — emprise en cours d'ajustement (delta)
   nomCorps?: string; // NOM-1 — nom RÉSOLU du corps (repere document / repli maison) : PRIME sur e.libelle stocké (« bâtiment 3 », vestigial).
   repereSource?: (e: EmpriseReconstruite) => string | null; // AFF-3 — label de la ligne = repère(s) du/des POLYGONE(s) BD TOPO source(s) de l'emprise (via calage.cleabs).
 }) {
@@ -945,14 +947,17 @@ export function ListeEmprises({ emprises, onSupprimer, onRetoucher, empriseEnRet
         const ign = e.provenance === 'ign_adopte' || e.provenance === 'ign_retouche';
         const retouchable = empriseRetouchable(e);
         const enRetouche = empriseEnRetouche === e.id;
+        const enAjustement = empriseEnAjustement === e.id;
+        const actif = enRetouche || enAjustement;
         return (
-          <li key={e.id} data-emprise={e.id} data-en-retouche={enRetouche || undefined} style={{ ...carte, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', borderColor: enRetouche ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }}>
+          <li key={e.id} data-emprise={e.id} data-en-retouche={enRetouche || undefined} data-en-ajustement={enAjustement || undefined} style={{ ...carte, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', borderColor: actif ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }}>
             <span>
               <strong>{repereSource?.(e) ?? nomCorps ?? e.libelle}</strong>{' '}
               <span data-provenance={e.provenance} style={{ ...muted, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', padding: '0 .3rem' }}>{libelleProvenance(e.provenance)}</span>{' '}
               {e.surfaceM2 !== null ? fmtM2(e.surfaceM2) : ''}{' '}
               <span style={muted}>{ign ? '· donnée source IGN' : `· résidu ${e.residuM !== null ? fmtM(e.residuM) : '—'}${e.page !== null ? ` · page ${e.page}` : ''}`}</span>
               {enRetouche && <span style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}> · en cours de retouche</span>}
+              {enAjustement && <span style={{ color: 'var(--color-svv-ink)', fontWeight: 600 }}> · en cours d’ajustement</span>}
               {!retouchable && <span style={muted}> · retouche indisponible (emprise multi-parties)</span>}
               {/* PROJ-3t (lot 3a) — SIGNAL lisible, piloté par la DONNÉE (delta non NULL) : une emprise ajustée à la main est distinguable ici, avec
                   qui/quand, et l'affectation des polygones voisins est signalée « à vérifier » — sans AUCUNE action automatique (règle e : un
@@ -960,13 +965,77 @@ export function ListeEmprises({ emprises, onSupprimer, onRetoucher, empriseEnRet
               {e.ajustement && <span data-ajustee="true" style={{ color: '#b45309', fontWeight: 600 }}> · ✎ ajustée à la main{e.ajustement.pose_le ? ` le ${jourFrParis(e.ajustement.pose_le)}` : ''}{e.ajustement.pose_par ? ` par ${e.ajustement.pose_par}` : ''} — affectation des voisins à vérifier</span>}
             </span>
             <span style={{ display: 'flex', gap: '.3rem' }}>
-              {onRetoucher && retouchable && !enRetouche && <button type="button" onClick={() => onRetoucher(e.id)} style={b}>retoucher</button>}
-              {onSupprimer && <button type="button" onClick={() => onSupprimer(e.id)} style={b}>effacer</button>}
+              {onAjuster && !actif && <button type="button" onClick={() => onAjuster(e.id)} style={b}>ajuster</button>}
+              {onRetoucher && retouchable && !actif && <button type="button" onClick={() => onRetoucher(e.id)} style={b}>retoucher</button>}
+              {onSupprimer && !actif && <button type="button" onClick={() => onSupprimer(e.id)} style={b}>effacer</button>}
             </span>
           </li>
         );
       })}
     </ul>
+  );
+}
+
+/** Résumé d'ajustement en LANGAGE d'Arno (jamais de jargon) : « déplacée de X m · tournée de Y° · agrandie/réduite de Z% ». PUR. */
+export function libelleResumeAjustement(r: ResumeAjustement): string {
+  const parts: string[] = [];
+  if (r.deplacementM >= 0.005) parts.push(`déplacée de ${r.deplacementM.toFixed(2).replace('.', ',')} m`);
+  if (Math.abs(r.rotationDeg) >= 0.5) parts.push(`tournée de ${Math.round(r.rotationDeg)}°`);
+  if (Math.abs(r.echellePct) >= 0.5) parts.push(`${r.echellePct >= 0 ? 'agrandie' : 'réduite'} de ${Math.abs(Math.round(r.echellePct))} %`);
+  return parts.length === 0 ? 'aucun ajustement (le dessin est à sa position d’origine)' : parts.join(' · ');
+}
+
+/**
+ * PROJ-3t (lot 3b) — PANNEAU d'ajustement FIN (boutons, à côté du schéma) : 4 flèches de translation (pas nommés en cm terrain), 2 rotations,
+ * 2 échelles. Les boutons SUFFISENT à eux seuls (chemin complet, mobile-first) ; la souris (drag + poignées) est un plus. État affiché en
+ * PERMANENCE en langage d'Arno. 🔴 HONNÊTETÉ : ajuster déplace un DESSIN, ça ne mesure RIEN (aucune précision gagnée). Réversibilité garantie.
+ */
+export function PanneauAjustement({ resume, occupe = false, aDeltaEnregistre, onTranslate, onRotate, onScale, onEnregistrer, onAbandonner, onOrigine }: {
+  resume: ResumeAjustement; occupe?: boolean; aDeltaEnregistre: boolean;
+  onTranslate: (dxM: number, dyM: number) => void; onRotate: (deg: number) => void; onScale: (pct: number) => void;
+  onEnregistrer: () => void; onAbandonner: () => void; onOrigine: () => void;
+}) {
+  const b: CSSProperties = { cursor: occupe ? 'default' : 'pointer', opacity: occupe ? 0.5 : 1, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.3rem .55rem', fontSize: 13, minWidth: 40, minHeight: 36 };
+  const cm = Math.round(PAS_TRANSLATION_M * 100);
+  return (
+    <div style={{ border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.6rem', background: 'var(--color-svv-surface)', display: 'flex', flexDirection: 'column', gap: '.5rem' }} role="group" aria-label="ajustement de l’emprise">
+      <div style={{ fontWeight: 600 }}>Ajuster l’emprise <span style={muted}>— déplacer / tourner / redimensionner un DESSIN (une reconstitution, jamais une mesure)</span></div>
+      <div data-ajustement-resume="true" style={{ fontSize: 13 }}><strong>{libelleResumeAjustement(resume)}</strong></div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.8rem', alignItems: 'flex-start' }}>
+        {/* Translation — flèches (axes carte : nord / sud / est / ouest), pas nommé en cm terrain. */}
+        <div>
+          <div style={{ ...muted, marginBottom: 3 }}>déplacer ({cm} cm)</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 40px)', gridTemplateRows: 'repeat(2, 36px)', gap: 3, justifyItems: 'center' }}>
+            <span /><button type="button" style={b} disabled={occupe} aria-label={`déplacer vers le nord de ${cm} cm`} onClick={() => onTranslate(0, PAS_TRANSLATION_M)}>↑</button><span />
+            <button type="button" style={b} disabled={occupe} aria-label={`déplacer vers l’ouest de ${cm} cm`} onClick={() => onTranslate(-PAS_TRANSLATION_M, 0)}>←</button>
+            <button type="button" style={b} disabled={occupe} aria-label={`déplacer vers le sud de ${cm} cm`} onClick={() => onTranslate(0, -PAS_TRANSLATION_M)}>↓</button>
+            <button type="button" style={b} disabled={occupe} aria-label={`déplacer vers l’est de ${cm} cm`} onClick={() => onTranslate(PAS_TRANSLATION_M, 0)}>→</button>
+          </div>
+        </div>
+        {/* Rotation. */}
+        <div>
+          <div style={{ ...muted, marginBottom: 3 }}>tourner ({PAS_ROTATION_DEG}°)</div>
+          <div style={{ display: 'flex', gap: 3 }}>
+            <button type="button" style={b} disabled={occupe} aria-label={`tourner de ${PAS_ROTATION_DEG}° dans le sens antihoraire`} onClick={() => onRotate(-PAS_ROTATION_DEG)}>↺</button>
+            <button type="button" style={b} disabled={occupe} aria-label={`tourner de ${PAS_ROTATION_DEG}° dans le sens horaire`} onClick={() => onRotate(PAS_ROTATION_DEG)}>↻</button>
+          </div>
+        </div>
+        {/* Échelle. */}
+        <div>
+          <div style={{ ...muted, marginBottom: 3 }}>redimensionner ({PAS_ECHELLE_PCT} %)</div>
+          <div style={{ display: 'flex', gap: 3 }}>
+            <button type="button" style={b} disabled={occupe} aria-label={`réduire de ${PAS_ECHELLE_PCT} %`} onClick={() => onScale(-PAS_ECHELLE_PCT)}>−</button>
+            <button type="button" style={b} disabled={occupe} aria-label={`agrandir de ${PAS_ECHELLE_PCT} %`} onClick={() => onScale(PAS_ECHELLE_PCT)}>+</button>
+          </div>
+        </div>
+      </div>
+      <p style={{ ...muted, margin: 0, fontStyle: 'italic' }}>Sur le schéma : glissez le dessin pour le déplacer, ou une poignée (↻ / ⤢) pour tourner / redimensionner. Ajuster ne mesure rien — une emprise ajustée reste une reconstitution, et l’affectation des polygones voisins reste à vérifier à la main.</p>
+      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe} onClick={onEnregistrer}>Enregistrer l’ajustement</button>
+        <button type="button" style={b} disabled={occupe} onClick={onAbandonner}>Abandonner</button>
+        <button type="button" style={{ ...b, borderColor: 'var(--color-svv-red)', color: 'var(--color-svv-red)' }} disabled={occupe || !aDeltaEnregistre} title={aDeltaEnregistre ? undefined : 'aucun ajustement enregistré à annuler'} onClick={onOrigine}>Revenir au tracé d’origine</button>
+      </div>
+    </div>
   );
 }
 
@@ -1284,11 +1353,14 @@ export function couleurResidu(m: number): string {
   return m >= SEUIL_RESIDU_CALAGE_M ? 'var(--color-svv-red)' : m >= SEUIL_RESIDU_CALAGE_BON_M ? '#b45309' : '#15803d';
 }
 
-export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, residusCalage = [], indicePireCalage = -1, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, sommetSelectionne = null, statuts, etiquettes = [], voisinage = [] }: {
+export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, residusCalage = [], indicePireCalage = -1, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, sommetSelectionne = null, apercuAjustement = null, onPointeurAjustement, statuts, etiquettes = [], voisinage = [] }: {
   boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[];
   residusCalage?: number[]; indicePireCalage?: number; // PROJ — écart PAR repère (m, aligné sur calageLambert) + indice du plus fautif ; affichés SEULEMENT à partir de 3 repères (sur 2, tout est 0 par construction).
   angle?: number; hauteurMax?: string; onCliquer?: (px: { x: number; y: number }) => void;
   retoucheAnneau?: PointLambert[] | null; sommetSelectionne?: number | null; // PROJ-3s — contour en RETOUCHE (poignées éditables) + sommet sélectionné
+  // PROJ-3t (lot 3b) — APERÇU d'ajustement (emprise manipulée en surbrillance + poignées rotation/échelle + centre) et pointeur (drag). `pxBoite` en coords BOÎTE (comme onCliquer).
+  apercuAjustement?: { anneaux: PointLambert[][]; centre: PointLambert; poigneeRotation: PointLambert; poigneeEchelle: PointLambert } | null;
+  onPointeurAjustement?: (phase: 'down' | 'move' | 'up', px: { x: number; y: number }) => void;
   statuts?: Map<string, EtatStatutPolygone>; // RATT-3 — statut décidé par cleabs : colore l'existant (préservé vert / détruit orange). Absent → gris d'origine.
   etiquettes?: EtiquetteProjection[]; // LOT 82 — nom du bâtiment + altitude posés SUR le dessin (suivent la case « repères / infos »). Vide = aucune (écran de tracé).
   voisinage?: ObjetContexte[]; // PROJ-CTX — contexte (parcelles voisines + bâti), 3e registre. Rendu seulement si filtres.contexte === true.
@@ -1317,10 +1389,18 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
   // LOT 83 — MARGE DE RESPIRATION : quand des étiquettes sont posées, on élargit le cadre (pad 4 % → 16 %) pour offrir une zone
   //   d'accueil aux boîtes déportées HORS des formes. N'affecte NI l'échelle du tracé NI les coordonnées (juste plus de blanc autour).
   const vb = boiteEnglobanteRotee(pts, centre, angle, etiquettes.length > 0 ? 0.2 : 0.04);
+  // PROJ-3t — conversion écran → coordonnée BOÎTE (identique à onClick), partagée par le clic ET le drag d'ajustement (aucun getScreenCTM).
+  const pxDe = (ev: { currentTarget: EventTarget & SVGSVGElement; clientX: number; clientY: number }) => {
+    const r = ev.currentTarget.getBoundingClientRect();
+    return clicVersBoiteMeet(ev.clientX - r.left, ev.clientY - r.top, r.width, r.height, vb, centre, angle);
+  };
   return (
     <svg viewBox={`${vb.minX} ${vb.minY} ${vb.w} ${vb.h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées"
-      style={{ display: 'block', width: '100%', height: 'auto', maxHeight: hauteurMax, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', cursor: onCliquer ? 'crosshair' : 'default' }}
-      onClick={onCliquer ? (ev) => { const r = (ev.currentTarget as SVGSVGElement).getBoundingClientRect(); onCliquer(clicVersBoiteMeet(ev.clientX - r.left, ev.clientY - r.top, r.width, r.height, vb, centre, angle)); } : undefined}>
+      style={{ display: 'block', width: '100%', height: 'auto', maxHeight: hauteurMax, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', touchAction: onPointeurAjustement ? 'none' : undefined, cursor: onPointeurAjustement ? 'grab' : onCliquer ? 'crosshair' : 'default' }}
+      onClick={onCliquer ? (ev) => onCliquer(pxDe(ev)) : undefined}
+      onPointerDown={onPointeurAjustement ? (ev) => { (ev.currentTarget as SVGSVGElement).setPointerCapture(ev.pointerId); onPointeurAjustement('down', pxDe(ev)); } : undefined}
+      onPointerMove={onPointeurAjustement ? (ev) => { if (ev.buttons !== 0 || ev.pointerType === 'touch') onPointeurAjustement('move', pxDe(ev)); } : undefined}
+      onPointerUp={onPointeurAjustement ? (ev) => onPointeurAjustement('up', pxDe(ev)) : undefined}>
       <g transform={angle ? `rotate(${angle} ${centre.x} ${centre.y})` : undefined}>
         {/* PROJ-CTX — 3e REGISTRE, dessiné EN PREMIER (donc DERRIÈRE tout le reste) : parcelles voisines (contour mauve fin tireté, sans
             aplat) + leur bâti (aplat mauve très léger). Teinte DISTINCTE des gris du principal/mitoyen → « ce qu'il y a autour », jamais
@@ -1431,6 +1511,18 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           {retoucheAnneau.map((p, i) => { const a = proj(p), b = proj(retoucheAnneau[(i + 1) % retoucheAnneau.length]); return <circle key={`m${i}`} cx={(a.x + b.x) / 2} cy={(a.y + b.y) / 2} r={3} fill="#fff" stroke="var(--color-svv-red)" strokeWidth={1} data-bord={i} />; })}
           {retoucheAnneau.map((p, i) => { const q = proj(p); const sel = i === sommetSelectionne; return <circle key={`s${i}`} cx={q.x} cy={q.y} r={sel ? 7 : 5} fill={sel ? 'var(--color-svv-ink)' : 'var(--color-svv-red)'} stroke="#fff" strokeWidth={1.5} data-sommet={i} data-selectionne={sel || undefined} />; })}
         </>}
+        {/* PROJ-3t (lot 3b) — APERÇU d'ajustement : l'emprise manipulée en surbrillance + trait vers les poignées + poignée de ROTATION (↻) et
+            d'ÉCHELLE (⤢) + point de CENTRE. Le corps se glisse pour déplacer ; les poignées se glissent pour tourner / redimensionner. */}
+        {apercuAjustement && <g data-ajustement-apercu="true">
+          {apercuAjustement.anneaux.map((a, i) => a.length >= 3 && <path key={`aj${i}`} d={path(a)} fill="rgba(15,118,110,.18)" stroke="var(--color-svv-ink)" strokeWidth={1.8} strokeDasharray="4 2" data-ajustement="corps" />)}
+          {(() => { const c = proj(apercuAjustement.centre), r = proj(apercuAjustement.poigneeRotation), e = proj(apercuAjustement.poigneeEchelle); return <>
+            <line x1={c.x} y1={c.y} x2={r.x} y2={r.y} stroke="var(--color-svv-ink)" strokeWidth={0.8} strokeOpacity={0.6} />
+            <line x1={c.x} y1={c.y} x2={e.x} y2={e.y} stroke="var(--color-svv-ink)" strokeWidth={0.8} strokeOpacity={0.6} />
+            <circle cx={c.x} cy={c.y} r={3} fill="var(--color-svv-ink)" data-ajustement="centre" />
+            <g data-ajustement="rotation"><circle cx={r.x} cy={r.y} r={9} fill="#fff" stroke="var(--color-svv-ink)" strokeWidth={1.5} /><text x={r.x} y={r.y} fontSize={11} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill="var(--color-svv-ink)">↻</text></g>
+            <g data-ajustement="echelle"><circle cx={e.x} cy={e.y} r={9} fill="#fff" stroke="var(--color-svv-ink)" strokeWidth={1.5} /><text x={e.x} y={e.y} fontSize={11} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill="var(--color-svv-ink)">⤢</text></g>
+          </>; })()}
+        </g>}
       </g>
     </svg>
   );

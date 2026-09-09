@@ -4,12 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as
 import {
   calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, cadreDeAnneaux, residusParPoint,
   levierCalage, etatLevier, inverseSimilitude, echelleImpliciteMParPt,
-  inverseDepuisBoite, projeterDansBoite, ecranVersCanvas, estClic, type Boite, type PaireCalage, type PointPlan, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement,
+  appliquerAjustement, inverseAjustement, ajustementIdentite, resumeAjustement, ECHELLE_MIN, ECHELLE_MAX,
+  inverseDepuisBoite, projeterDansBoite, ecranVersCanvas, estClic, rotePoint, type Boite, type PaireCalage, type PointPlan, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type Ajustement,
 } from '../../../../lib/permis/calageEmprise';
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
-import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
+import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -39,6 +40,7 @@ type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convert
 
 const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
 const SEUIL_SOMMET_BOITE = 12; // PROJ-3s — rayon de capture d'un sommet au clic (unités de la boîte du schéma) : cible TACTILE, pas un seuil métier.
+const SEUIL_POIGNEE_BOITE = 16; // PROJ-3t — rayon de capture d'une poignée d'ajustement (rotation / échelle) au drag, en unités de la boîte du schéma.
 type ModeRetouche = 'deplacer' | 'inserer' | 'supprimer';
 
 export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true, onValeurLue, onEmprisesChange, onEntete, onDonneesLiseuse }: {
@@ -868,6 +870,92 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     } catch { setMessage('retouche impossible'); } finally { setOccupe(false); }
   }, [retouche, dossierId, onEmprisesChange]);
 
+  // ─── PROJ-3t (lot 3b) — AJUSTEMENT d'UNE emprise (delta rigide réversible) ───────────────────────────────────────────────────
+  // État : l'emprise ajustée + son delta EN COURS + ses anneaux d'ORIGINE (reconstruits via inverseAjustement, le socle 3a) + un flag
+  //   « un delta est déjà persisté en base » (→ « revenir au tracé d'origine » disponible même après rechargement). Le drag souris vit
+  //   dans une ref (mutable, hors rendu). Les DEUX moyens (souris + boutons) écrivent le MÊME delta et se COMPOSENT.
+  const [ajustement, setAjustement] = useState<{ id: number; delta: Ajustement; origine: PointLambert[][]; enregistre: boolean } | null>(null);
+  const dragAjust = useRef<{ cible: 'corps' | 'rotation' | 'echelle'; startLambert: PointLambert; startDelta: Ajustement; centreAffiche: PointLambert; startAngle: number; startDist: number } | null>(null);
+
+  const demarrerAjustement = useCallback((id: number) => {
+    const e = emprises.find((x) => x.id === id); if (!e) return;
+    const affichees = e.anneaux?.length ? e.anneaux : (e.anneau.length ? [e.anneau] : []);
+    const origine = affichees.map((a) => inverseAjustement(a, e.ajustement ?? null)); // socle 3a : origine = inverse du delta stocké
+    const delta = e.ajustement ?? ajustementIdentite(origine);
+    setRetouche(null); setSommetSel(null); // exclusif de la retouche
+    setAjustement({ id, delta, origine, enregistre: e.ajustement != null });
+    setMessage('ajustement : glissez le dessin ou une poignée, ou utilisez les boutons. Rien n’est enregistré tant que vous ne cliquez pas « Enregistrer ».');
+  }, [emprises]);
+
+  const majDelta = useCallback((maj: (d: Ajustement) => Ajustement) => setAjustement((a) => (a ? { ...a, delta: maj(a.delta) } : a)), []);
+  const onTranslate = useCallback((dxM: number, dyM: number) => majDelta((d) => ({ ...d, tx: d.tx + dxM, ty: d.ty + dyM })), [majDelta]);
+  const onRotate = useCallback((deg: number) => majDelta((d) => ({ ...d, rotDeg: d.rotDeg + deg })), [majDelta]);
+  const onScale = useCallback((pct: number) => majDelta((d) => ({ ...d, echelle: Math.min(ECHELLE_MAX, Math.max(ECHELLE_MIN, d.echelle * (1 + pct / 100))) })), [majDelta]);
+
+  // Aperçu (anneaux ajustés) + poignées, dérivés du delta EN COURS. Centre affiché = centre stocké + translation (le centre d'aire est fixe
+  //   sous échelle/rotation autour de lui → T(centre) = centre + t). R = rayon de l'aperçu ; poignées à 1,25·R, tournant avec le delta.
+  const apercuAjustement = useMemo(() => {
+    if (!ajustement) return null;
+    const d = ajustement.delta;
+    const anneaux = ajustement.origine.map((a) => appliquerAjustement(a, d));
+    const centre = { x: d.centre.x + d.tx, y: d.centre.y + d.ty };
+    let R = 0; for (const a of anneaux) for (const p of a) R = Math.max(R, Math.hypot(p.x - centre.x, p.y - centre.y));
+    const rayon = (R > 0 ? R : 1) * 1.25;
+    const pt = (angleDeg: number): PointLambert => rotePoint({ x: centre.x + rayon, y: centre.y }, centre, angleDeg); // point à `rayon`, tourné
+    return { anneaux, centre, poigneeRotation: pt(90 + d.rotDeg), poigneeEchelle: pt(d.rotDeg) }; // ↻ « au nord » de l'emprise, ⤢ « à l'est », suivent la rotation
+  }, [ajustement]);
+
+  // Drag SOURIS/DOIGT : `down` choisit la cible (poignée par proximité en coords BOÎTE, sinon le corps) ; `move` compose le delta ; `up` finit.
+  const pointeurAjustement = useCallback((phase: 'down' | 'move' | 'up', pxBoite: { x: number; y: number }) => {
+    if (!ajustement || !boite || !apercuAjustement) return;
+    const lambert = inverseDepuisBoite(boite, pxBoite);
+    if (phase === 'up') { dragAjust.current = null; return; }
+    if (phase === 'down') {
+      const pRot = projeterDansBoite(boite, apercuAjustement.poigneeRotation), pEch = projeterDansBoite(boite, apercuAjustement.poigneeEchelle);
+      const proche = (q: { x: number; y: number }) => Math.hypot(q.x - pxBoite.x, q.y - pxBoite.y) < SEUIL_POIGNEE_BOITE;
+      const cible = proche(pRot) ? 'rotation' : proche(pEch) ? 'echelle' : 'corps';
+      const centreAffiche = apercuAjustement.centre;
+      dragAjust.current = { cible, startLambert: lambert, startDelta: ajustement.delta, centreAffiche,
+        startAngle: Math.atan2(lambert.y - centreAffiche.y, lambert.x - centreAffiche.x),
+        startDist: Math.max(1e-6, Math.hypot(lambert.x - centreAffiche.x, lambert.y - centreAffiche.y)) };
+      return;
+    }
+    const g = dragAjust.current; if (!g) return;
+    if (g.cible === 'corps') majDelta(() => ({ ...g.startDelta, tx: g.startDelta.tx + (lambert.x - g.startLambert.x), ty: g.startDelta.ty + (lambert.y - g.startLambert.y) }));
+    else if (g.cible === 'rotation') { const cur = Math.atan2(lambert.y - g.centreAffiche.y, lambert.x - g.centreAffiche.x); majDelta(() => ({ ...g.startDelta, rotDeg: g.startDelta.rotDeg + (cur - g.startAngle) * 180 / Math.PI })); }
+    else { const f = Math.hypot(lambert.x - g.centreAffiche.x, lambert.y - g.centreAffiche.y) / g.startDist; majDelta(() => ({ ...g.startDelta, echelle: Math.min(ECHELLE_MAX, Math.max(ECHELLE_MIN, g.startDelta.echelle * f)) })); }
+  }, [ajustement, boite, apercuAjustement, majDelta]);
+
+  const abandonnerAjustement = useCallback(() => { dragAjust.current = null; setAjustement(null); setMessage('ajustement abandonné : l’emprise en base n’a pas changé.'); }, []);
+
+  const enregistrerAjustementGeste = useCallback(async () => {
+    if (!ajustement) return;
+    setOccupe(true); setMessage(null); dragAjust.current = null;
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'ajuster', dossierId, id: ajustement.id, ajustement: ajustement.delta }) });
+      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[] };
+      if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'ajustement refusé'); return; }
+      setEmprises(j.emprises ?? []); setAjustement(null);
+      setMessage('ajustement enregistré. « Revenir au tracé d’origine » reste disponible à tout moment.');
+      onEmprisesChange?.();
+    } catch { setMessage('ajustement impossible'); } finally { setOccupe(false); }
+  }, [ajustement, dossierId, onEmprisesChange]);
+
+  const revenirOrigineAjustement = useCallback(async () => {
+    if (!ajustement) return;
+    setOccupe(true); setMessage(null); dragAjust.current = null;
+    try {
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reinitialiser_ajustement', dossierId, id: ajustement.id }) });
+      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[] };
+      if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'retour à l’origine impossible'); return; }
+      setEmprises(j.emprises ?? []); setAjustement(null);
+      setMessage('retour au tracé d’origine : l’ajustement a été supprimé, la géométrie d’origine est restituée.');
+      onEmprisesChange?.();
+    } catch { setMessage('retour à l’origine impossible'); } finally { setOccupe(false); }
+  }, [ajustement, dossierId, onEmprisesChange]);
+
   // PROJ-3i — ÉCARTER / RÉTABLIR un polygone « en projet » (décision persistée). Optimiste : la réponse serveur fait foi.
   const basculerEcart = useCallback(async (cleabs: string, ecarter: boolean) => {
     setMessage(null);
@@ -1352,8 +1440,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             {/* BARRE DROITE — À L'INTÉRIEUR de la carte, en tête (rotation + « Agrandir le schéma »), au-dessus du schéma. MÊME hauteur mini
                 (styleBarre) et MÊME gap (.5rem) que la carte du plan → le schéma démarre à la même hauteur que l'image. */}
             {barreDroiteSchema}
-            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={paires.map((p) => p.lambert)} residusCalage={residus.ecarts} indicePireCalage={residus.indexPlusFautif} statuts={statutParCleabs}
-              onCliquer={retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined)} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel} />
+            <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={ajustement ? [] : paires.map((p) => p.lambert)} residusCalage={residus.ecarts} indicePireCalage={residus.indexPlusFautif} statuts={statutParCleabs}
+              onCliquer={ajustement ? undefined : (retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined))} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel}
+              apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustement : undefined} />
             {/* Sous le schéma : bandeau de sélection (la rotation est désormais dans la barre droite, au-dessus du schéma). */}
             {bandeauSel}
             {/* FIX « ascenseur » — PENDANT tout le processus de création (calage amorcé → 1/2 → 2/2 → tracé des sommets → jusqu'à la
@@ -1406,10 +1495,17 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             {/* BUG PROV — le RÉSULTAT (succès OU erreur serveur) s'affiche ICI, au point d'action : un bouton MUET était le pire cas. */}
             {message && <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-svv-red)' }}>{message}</div>}
 
-            {/* Emprises de CE bâtiment : retoucher (mono-polygone) ou effacer. */}
-            <ListeEmprises emprises={empriseDuBat} empriseEnRetouche={retouche?.id ?? null} nomCorps={libelleBatiment(batSel)}
+            {/* Emprises de CE bâtiment : ajuster (delta rigide), retoucher (sommets, mono-polygone) ou effacer. */}
+            <ListeEmprises emprises={empriseDuBat} empriseEnRetouche={retouche?.id ?? null} empriseEnAjustement={ajustement?.id ?? null} nomCorps={libelleBatiment(batSel)}
               onSupprimer={(id) => void posterProjection('supprimer', corpsEffectif!, { id })}
-              onRetoucher={(id) => demarrerRetouche(id)} />
+              onRetoucher={(id) => demarrerRetouche(id)} onAjuster={(id) => demarrerAjustement(id)} />
+
+            {/* PROJ-3t (lot 3b) — PANNEAU D'AJUSTEMENT (souris + boutons ; les boutons suffisent seuls, mobile-first). Réversibilité garantie. */}
+            {ajustement && apercuAjustement && (
+              <PanneauAjustement resume={resumeAjustement(ajustement.delta)} occupe={occupe} aDeltaEnregistre={ajustement.enregistre}
+                onTranslate={onTranslate} onRotate={onRotate} onScale={onScale}
+                onEnregistrer={() => void enregistrerAjustementGeste()} onAbandonner={abandonnerAjustement} onOrigine={() => void revenirOrigineAjustement()} />
+            )}
 
             {/* PROJ-3s — PANNEAU DE RETOUCHE (visible seulement en retouche) : sous-mode + annuler / abandonner / valider. Mobile-first. */}
             {retouche && (

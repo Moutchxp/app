@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, IndicateurEcartement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, IndicateurEcartement, PanneauAjustement, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -35,6 +35,35 @@ describe('PROJ-2 — rendu pur', () => {
     expect(avec).toContain('ajustée à la main');
     expect(avec).toContain('affectation des voisins à vérifier');
     expect(avec).toContain('data-ajustee="true"');
+  });
+
+  it('ListeEmprises : bouton « ajuster » proposé quand onAjuster fourni ; masqué pendant l’ajustement en cours', () => {
+    const noop = () => {};
+    expect(renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ id: 1 })], onAjuster: noop }))).toContain('ajuster');
+    const enCours = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ id: 1 })], onAjuster: noop, empriseEnAjustement: 1 }));
+    expect(enCours).toContain('en cours d’ajustement');
+    expect(enCours).toContain('data-en-ajustement="true"');
+  });
+
+  it('libelleResumeAjustement : langage d’Arno (m / ° / %), « aucun ajustement » à l’identité, jamais de jargon', () => {
+    expect(libelleResumeAjustement({ deplacementM: 0, rotationDeg: 0, echellePct: 0 })).toContain('aucun ajustement');
+    const s = libelleResumeAjustement({ deplacementM: 1.234, rotationDeg: 7, echellePct: 12 });
+    expect(s).toContain('déplacée de 1,23 m');
+    expect(s).toContain('tournée de 7°');
+    expect(s).toContain('agrandie de 12 %');
+    expect(libelleResumeAjustement({ deplacementM: 0, rotationDeg: 0, echellePct: -8 })).toContain('réduite de 8 %');
+    expect(s).not.toMatch(/tx|rotDeg|echelle|delta/i);
+  });
+
+  it('PanneauAjustement : état lisible + boutons pas nommés + honnêteté ; « revenir à l’origine » désactivé sans delta enregistré', () => {
+    const noop = () => {}; const props = { resume: { deplacementM: 0.5, rotationDeg: 3, echellePct: 2 }, onTranslate: noop, onRotate: noop, onScale: noop, onEnregistrer: noop, onAbandonner: noop, onOrigine: noop };
+    const sans = renderToStaticMarkup(h(PanneauAjustement, { ...props, aDeltaEnregistre: false }));
+    expect(sans).toContain('déplacée de 0,50 m');
+    expect(sans).toContain('Revenir au tracé d’origine');
+    expect(sans).toContain('ne mesure rien'); // honnêteté
+    expect(sans).toMatch(/disabled/); // le bouton origine est désactivé sans delta enregistré
+    const avec = renderToStaticMarkup(h(PanneauAjustement, { ...props, aDeltaEnregistre: true }));
+    expect(avec).toContain('Enregistrer l’ajustement');
   });
 
   it('IndicateurEcartement : 3 états, X cm comme message principal, jamais R/L, honnêteté « estimation »', () => {

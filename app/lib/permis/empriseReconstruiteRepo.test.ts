@@ -13,7 +13,7 @@ const H = vi.hoisted(() => {
   const flags = { geomValide: true as boolean, updRows: [{ provenance: 'ign_retouche' }] as { provenance: string }[],
     projectionValidee: false as boolean, empriseRows: [] as { corps_id: number; n: number; surface: string | number | null; cree_le: string | null; validee_le: string | null; validee_par: string | null; validee_par_nom: string | null; validee: boolean }[],
     validateRowCount: 1 as number, validationColonneAbsente: false as boolean,
-    listeRows: [] as Record<string, unknown>[], ajustementColonneAbsente: false as boolean }; // PROJ-3s + capsule + validation + PROJ-3t (listerEmprises/ajustement) — pilotables par test
+    listeRows: [] as Record<string, unknown>[], ajustementColonneAbsente: false as boolean, ajusteRowCount: 1 as number }; // PROJ-3s + capsule + validation + PROJ-3t (listerEmprises/ajustement) — pilotables par test
   const queryMock = async (sql: string, params?: unknown[]) => {
     calls.push({ sql, params: params ?? [] });
     // Validation PAR BÂTIMENT (migration 206). Colonne absente → 42703 (le code refait proprement).
@@ -35,6 +35,9 @@ const H = vi.hoisted(() => {
     ], rowCount: 3 };
     // PROJ-3r — bâtiments déclarés du permis (repères) : 3 et 5.
     if (/SELECT id::int AS id, repere FROM permis_corps_batiment/i.test(sql)) return { rows: [{ id: 3, repere: '2D1' }, { id: 5, repere: '2D2' }], rowCount: 2 };
+    // PROJ-3t (lot 3b) — écriture/suppression du delta d'ajustement (colonne absente pilotée).
+    if (/UPDATE permis_emprise_reconstruite\s+SET ajustement = \$3::jsonb/i.test(sql)) { if (flags.ajustementColonneAbsente) throw Object.assign(new Error('col'), { code: '42703' }); return { rows: [], rowCount: flags.ajusteRowCount }; }
+    if (/UPDATE permis_emprise_reconstruite SET ajustement = NULL/i.test(sql)) { if (flags.ajustementColonneAbsente) throw Object.assign(new Error('col'), { code: '42703' }); return { rows: [], rowCount: 1 }; }
     // PROJ-3t — listerEmprises : SELECT ST_AsGeoJSON(geom) … [, ajustement] FROM permis_emprise_reconstruite WHERE dossier_id. Colonne absente pilotée.
     if (/ST_AsGeoJSON\(geom\)::json AS gj[\s\S]*FROM permis_emprise_reconstruite WHERE dossier_id/i.test(sql)) {
       if (/, ajustement FROM/i.test(sql) && flags.ajustementColonneAbsente) throw Object.assign(new Error('col'), { code: '42703' });
@@ -48,13 +51,14 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock, withTransaction: async (fn: (q: unknown) => unknown) => fn(H.queryMock) }));
 
-import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, lireEtatEmprisesPermis, validerEmpriseBatiment, devaliderEmpriseBatiment } from './empriseReconstruiteRepo';
+import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, enregistrerAjustement, supprimerAjustement, lireEtatEmprisesPermis, validerEmpriseBatiment, devaliderEmpriseBatiment } from './empriseReconstruiteRepo';
+import type { Ajustement } from './calageEmprise';
 import type { CalageTrace } from './empriseReconstruiteRepo';
 
 const calage: CalageTrace = { paires: [{ plan: { x: 0, y: 0 }, lambert: { x: 0, y: 0 } }, { plan: { x: 10, y: 0 }, lambert: { x: 20, y: 0 } }], ratioDeclare: null, ratioImplicite: 200, residuFitM: 0, residuEchelleM: null, douteux: false, raisons: [] };
 const anneau = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
 
-beforeEach(() => { H.calls.length = 0; H.flags.geomValide = true; H.flags.updRows = [{ provenance: 'ign_retouche' }]; H.flags.projectionValidee = false; H.flags.empriseRows = []; H.flags.validateRowCount = 1; H.flags.validationColonneAbsente = false; H.flags.listeRows = []; H.flags.ajustementColonneAbsente = false; });
+beforeEach(() => { H.calls.length = 0; H.flags.geomValide = true; H.flags.updRows = [{ provenance: 'ign_retouche' }]; H.flags.projectionValidee = false; H.flags.empriseRows = []; H.flags.validateRowCount = 1; H.flags.validationColonneAbsente = false; H.flags.listeRows = []; H.flags.ajustementColonneAbsente = false; H.flags.ajusteRowCount = 1; });
 
 describe('VALIDATION PAR BÂTIMENT — validerEmpriseBatiment / devaliderEmpriseBatiment (calque de « Valider cette altitude »)', () => {
   it('valider : pointe emprise_validee_id sur l’emprise COURANTE du bâtiment + trace (par), paramètres liés', async () => {
@@ -177,6 +181,46 @@ describe('PROJ-2 — enregistrerEmprise : n’écrit QUE la table des reconstitu
     expect(emprises[0].anneau).toEqual([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }, { x: 0, y: 0 }]);
     // le repli a bien émis une 2ᵉ requête SANS « , ajustement »
     expect(H.calls.some((c) => /FROM permis_emprise_reconstruite WHERE dossier_id/i.test(c.sql) && !/, ajustement FROM/i.test(c.sql))).toBe(true);
+  });
+
+  // PROJ-3t (lot 3b) — écriture/suppression du DELTA d'ajustement (geste utilisateur).
+  const delta: Ajustement = { tx: 1.5, ty: -2, rotDeg: 10, echelle: 1.1, centre: { x: 5, y: 5 } };
+
+  it('enregistrerAjustement : valide → UPDATE de la SEULE colonne ajustement, pose_le/pose_par posés serveur ; renvoie les emprises', async () => {
+    const r = await enregistrerAjustement(11434, 7, delta, 'admin:ajustement');
+    expect(r.ok).toBe(true);
+    const upd = H.calls.find((c) => /UPDATE permis_emprise_reconstruite\s+SET ajustement =/i.test(c.sql))!;
+    expect(upd.sql).toMatch(/jsonb_build_object\('pose_le', now\(\), 'pose_par'/i); // serveur estampille qui/quand
+    expect(upd.sql).not.toMatch(/geom/i); // 🔴 ne touche JAMAIS la géométrie d'origine
+    expect(upd.params[0]).toBe(7); expect(upd.params[1]).toBe(11434);
+    // ne persiste QUE la transformation (le client ne peut pas forcer pose_le/pose_par)
+    expect(JSON.parse(upd.params[2] as string)).toEqual({ tx: 1.5, ty: -2, rotDeg: 10, echelle: 1.1, centre: { x: 5, y: 5 } });
+  });
+
+  it('enregistrerAjustement : delta INVALIDE (échelle 0) refusé sans aucune écriture', async () => {
+    const r = await enregistrerAjustement(11434, 7, { ...delta, echelle: 0 }, 'admin');
+    expect(r.ok).toBe(false);
+    expect(H.calls.some((c) => /UPDATE permis_emprise_reconstruite\s+SET ajustement =/i.test(c.sql))).toBe(false);
+  });
+
+  it('enregistrerAjustement : emprise introuvable (0 ligne) → ok:false, jamais une exception', async () => {
+    H.flags.ajusteRowCount = 0;
+    expect((await enregistrerAjustement(11434, 999, delta, 'admin')).ok).toBe(false);
+  });
+
+  it('enregistrerAjustement : colonne absente (211 non appliquée) → colonneAbsente, refus clair', async () => {
+    H.flags.ajustementColonneAbsente = true;
+    const r = await enregistrerAjustement(11434, 7, delta, 'admin');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.colonneAbsente).toBe(true);
+  });
+
+  it('supprimerAjustement (revenir au tracé d’origine) : UPDATE ajustement = NULL, scopé au dossier', async () => {
+    const r = await supprimerAjustement(11434, 7);
+    expect(r.ok).toBe(true);
+    const upd = H.calls.find((c) => /UPDATE permis_emprise_reconstruite SET ajustement = NULL/i.test(c.sql))!;
+    expect(upd.sql).toMatch(/WHERE id = \$1 AND dossier_id = \$2/i);
+    expect(upd.params).toEqual([7, 11434]);
   });
 });
 

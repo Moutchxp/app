@@ -187,6 +187,48 @@ export async function retoucherEmprise(dossierId: number, id: number, anneau: Po
   }
 }
 
+export type ResultatAjustement =
+  | { ok: true; emprises: EmpriseReconstruite[] }
+  | { ok: false; motif: string; colonneAbsente?: boolean; tableAbsente?: boolean };
+const MOTIF_COLONNE_211 = 'ajustement indisponible : mise à jour de la base requise (migration 211)';
+
+/**
+ * PROJ-3t (lot 3b) — ENREGISTRE le DELTA d'ajustement d'UNE emprise (geste utilisateur). Le client envoie {tx, ty, rotDeg, echelle, centre} ;
+ * le SERVEUR estampille pose_le (now()) + pose_par (jsonb `||`, écrasent ce que le client aurait mis). 🔴 `geom` d'origine JAMAIS touché.
+ * 🔴 AUCUN recalcul d'auto-statut voisin (règle e du lot 3a) : cet UPDATE ne touche QUE la colonne ajustement. RÉSILIENT (colonne/table absente).
+ */
+export async function enregistrerAjustement(dossierId: number, id: number, ajustement: Ajustement, par: string | null): Promise<ResultatAjustement> {
+  if (!Number.isInteger(id) || !Number.isInteger(dossierId)) return { ok: false, motif: 'requête invalide' };
+  if (!ajustementValide(ajustement)) return { ok: false, motif: 'ajustement invalide (nombres finis, échelle > 0, centre requis)' };
+  const noyau = { tx: ajustement.tx, ty: ajustement.ty, rotDeg: ajustement.rotDeg, echelle: ajustement.echelle, centre: ajustement.centre }; // on ne persiste QUE la transformation ; pose_le/pose_par posés par le serveur
+  try {
+    const { rowCount } = await query(
+      `UPDATE permis_emprise_reconstruite
+          SET ajustement = $3::jsonb || jsonb_build_object('pose_le', now(), 'pose_par', $4::text)
+        WHERE id = $1 AND dossier_id = $2`,
+      [id, dossierId, JSON.stringify(noyau), par]);
+    if ((rowCount ?? 0) === 0) return { ok: false, motif: 'emprise introuvable' };
+    return { ok: true, emprises: await listerEmprises(dossierId) };
+  } catch (e) {
+    if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_COLONNE_211, colonneAbsente: true };
+    if (estTableAbsente(e)) return { ok: false, motif: 'table des emprises absente', tableAbsente: true };
+    throw e;
+  }
+}
+
+/** PROJ-3t (lot 3b) — RETOUR AU TRACÉ D'ORIGINE d'UNE emprise : remet ajustement à NULL (le delta est jeté, la géométrie d'origine restituée EXACTEMENT). RÉSILIENT. */
+export async function supprimerAjustement(dossierId: number, id: number): Promise<ResultatAjustement> {
+  if (!Number.isInteger(id) || !Number.isInteger(dossierId)) return { ok: false, motif: 'requête invalide' };
+  try {
+    await query(`UPDATE permis_emprise_reconstruite SET ajustement = NULL WHERE id = $1 AND dossier_id = $2`, [id, dossierId]);
+    return { ok: true, emprises: await listerEmprises(dossierId) };
+  } catch (e) {
+    if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_COLONNE_211, colonneAbsente: true };
+    if (estTableAbsente(e)) return { ok: false, motif: 'table des emprises absente', tableAbsente: true };
+    throw e;
+  }
+}
+
 /** Ligne brute d'emprise (les deux variantes de SELECT — avec ou sans la colonne `ajustement` — partagent cette forme, `ajustement` en option). */
 type LigneEmprise = {
   id: number; corps_id: number | null; libelle: string; gj: { type: string; coordinates: number[][][] | number[][][][] } | null; surface_m2: number | null;

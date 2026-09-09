@@ -1,9 +1,9 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, lireVoisinageContexte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, lireProjectionValidee, lireValideeParCorps, lireAltitudeValideeParCorps, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, lireVoisinageContexte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, enregistrerAjustement, supprimerAjustement, lireProjectionValidee, lireValideeParCorps, lireAltitudeValideeParCorps, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { lireRayonContexteM } from '../../../../../lib/permis/projectionConfig';
 import { lireSelectionInfo, type SelectionInfo } from '../../../../../lib/permis/plancheParcellesRepo'; // PL-C4 — sélection validée pour le bandeau
-import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan } from '../../../../../lib/permis/calageEmprise';
+import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan, type Ajustement } from '../../../../../lib/permis/calageEmprise';
 import { depsReellesLectureGed } from '../../../../../lib/permis/lectureGed';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
 import { lireExclusionsBestOf, exclurePageBestOf, reintegrerPageBestOf, lireInclusionsBestOf, inclurePageBestOf, desinclurePageBestOf } from '../../../../../lib/permis/bestOfExclusionRepo'; // LOT 61 (exclusions) + LOT 92 (inclusions)
@@ -151,6 +151,7 @@ export async function POST(request: Request): Promise<Response> {
       statut?: string; // RATT-1 (2) — preserve | detruit | revoque
       affectations?: { cleabs: string; corpsId: number }[];
       anneau?: { x: number; y: number }[]; // PROJ-3s — sommets Lambert d'une retouche (positions ; jamais une géométrie autoritative)
+      ajustement?: Ajustement; // PROJ-3t (lot 3b) — DELTA rigide {tx,ty,rotDeg,echelle,centre} d'un geste d'ajustement (pose_le/pose_par posés serveur)
       confirmerSuppression?: boolean; // DÉBLOCAGE MANUEL — retrait d'une page portant une emprise : confirmation explicite de suppression
     };
 
@@ -386,6 +387,22 @@ export async function POST(request: Request): Promise<Response> {
       await appliquerAutoStatut(dossierId, 'auto:emprise'); // RATT-2 — la retouche change la couverture : poser/révoquer les 'detruit' auto en conséquence
       const [ignores, statutsPolygones, polygonesRecouverts] = await Promise.all([listerIgnorees(dossierId), lireStatutsPolygones(dossierId), polygonesRecouvertsParEmprise(dossierId)]);
       return Response.json({ ok: true, emprises: res.emprises, ignores, debordement: res.debordement, provenance: res.provenance, statutsPolygones, polygonesRecouverts });
+    }
+
+    // PROJ-3t (lot 3b) — AJUSTER une emprise (delta rigide) ou REVENIR AU TRACÉ D'ORIGINE (delta → NULL). Le serveur estampille pose_le/pose_par.
+    //   🔴 AUCUN appliquerAutoStatut : un ajustement ne recalcule PAS les statuts « détruit » des voisins (règle e du lot 3a) — juste un signal à l'écran.
+    if (body.action === 'ajuster') {
+      if (!Number.isInteger(body.id)) return Response.json({ erreur: 'emprise à ajuster requise' }, { status: 400 });
+      if (typeof body.ajustement !== 'object' || body.ajustement === null) return Response.json({ erreur: 'ajustement requis' }, { status: 400 });
+      const res = await enregistrerAjustement(dossierId, body.id as number, body.ajustement, garde.auteurId === null ? 'admin:ajustement' : String(garde.auteurId));
+      if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.colonneAbsente || res.tableAbsente ? 409 : 400 });
+      return Response.json({ ok: true, emprises: res.emprises });
+    }
+    if (body.action === 'reinitialiser_ajustement') {
+      if (!Number.isInteger(body.id)) return Response.json({ erreur: 'emprise requise' }, { status: 400 });
+      const res = await supprimerAjustement(dossierId, body.id as number);
+      if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.colonneAbsente || res.tableAbsente ? 409 : 400 });
+      return Response.json({ ok: true, emprises: res.emprises });
     }
 
     if (body.action === 'enregistrer') {

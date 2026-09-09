@@ -4,7 +4,8 @@ import {
   echelleDeclareeMParPt, residuFitM, residuEchelleDeclareeM, verdictCalage, aireM2, anneauVersLambert,
   verdictVraisemblance, deriverDebordement, SEUIL_RESIDU_CALAGE_M, residusParPoint,
   levierCalage, etatLevier, inverseSimilitude, SEUIL_LEVIER_RASSURANT_MAX,
-  appliquerAjustement, inverseAjustement, appliquerAjustementPoint, ajustementValide, type Ajustement, type PaireCalage,
+  appliquerAjustement, inverseAjustement, appliquerAjustementPoint, ajustementValide,
+  centroideAnneaux, resumeAjustement, ajustementIdentite, type Ajustement, type PaireCalage,
   cadreDeAnneaux, projeterDansBoite, inverseDepuisBoite, rotePoint, boiteEnglobanteRotee, clicVersBoite, ecranVersCanvas, estClic, type Boite,
 } from './calageEmprise';
 
@@ -306,6 +307,26 @@ describe('PROJ — écartement des repères (levierCalage) : sensibilité, jamai
     expect(ajustementValide({ tx: 1, ty: 2, rotDeg: 10, echelle: 0, centre: { x: 0, y: 0 } })).toBe(false); // échelle 0 (division interdite)
     expect(ajustementValide({ tx: 1, ty: 2, rotDeg: 10, echelle: 1 })).toBe(false); // centre manquant
     expect(ajustementValide({ tx: NaN, ty: 2, rotDeg: 10, echelle: 1, centre: { x: 0, y: 0 } })).toBe(false); // non fini
+  });
+
+  it('centroideAnneaux : centre d’un carré = son milieu ; identité = delta neutre centré', () => {
+    const carre = [[{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }]];
+    const c = centroideAnneaux(carre);
+    expect(c.x).toBeCloseTo(5, 9); expect(c.y).toBeCloseTo(5, 9);
+    const id = ajustementIdentite(carre);
+    expect(id).toEqual({ tx: 0, ty: 0, rotDeg: 0, echelle: 1, centre: { x: 5, y: 5 } });
+    // aire nulle (2 points) → repli moyenne des sommets, jamais d’exception
+    expect(centroideAnneaux([[{ x: 2, y: 4 }, { x: 6, y: 8 }]])).toEqual({ x: 4, y: 6 });
+    expect(centroideAnneaux([])).toEqual({ x: 0, y: 0 });
+  });
+
+  it('resumeAjustement : déplacement (m), rotation normalisée (−180..180), échelle (%)', () => {
+    const r = resumeAjustement({ tx: 3, ty: 4, rotDeg: 370, echelle: 1.05, centre: { x: 0, y: 0 } });
+    expect(r.deplacementM).toBeCloseTo(5, 9);        // hypot(3,4)
+    expect(r.rotationDeg).toBeCloseTo(10, 9);        // 370° → 10°
+    expect(r.echellePct).toBeCloseTo(5, 9);          // +5 %
+    expect(resumeAjustement({ tx: 0, ty: 0, rotDeg: -190, echelle: 0.9, centre: { x: 0, y: 0 } }).rotationDeg).toBeCloseTo(170, 9); // −190 → 170
+    expect(resumeAjustement({ tx: 0, ty: 0, rotDeg: 0, echelle: 0.8, centre: { x: 0, y: 0 } }).echellePct).toBeCloseTo(-20, 9); // réduite
   });
 
   it('inverseSimilitude : aller-retour EXACT avec appliquerSimilitude ; dégénéré → null', () => {
