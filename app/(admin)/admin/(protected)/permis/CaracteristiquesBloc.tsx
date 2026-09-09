@@ -13,6 +13,7 @@ import {
   type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
 import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtatEmprise, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, type LienPiece } from './CaracteristiquesRendu';
+import { BlocRepliable } from './BlocRepliable'; // PLI-1 — même dépliant que « Complétude »/« Historique » : chaque cartouche de « Caractéristiques du permis » replié à son titre, ouvrable indépendamment
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
 // N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
@@ -43,7 +44,6 @@ const divergenceParking = (g: GlobalPermis | null): string | null => {
 
 const styleLabel = { fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' } as const;
 const styleAide = { fontSize: 11, color: 'var(--color-svv-muted)', lineHeight: 1.4 } as const;
-const styleTitre = { fontSize: 13, fontWeight: 700, margin: 0, color: 'var(--color-svv-ink)' } as const;
 const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14, fontFamily: 'inherit' };
 
 /**
@@ -216,19 +216,29 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
 
   return (
     <div className="flex flex-col gap-3" style={{ marginTop: '.6rem' }}>
-      <h3 style={{ fontSize: 14, fontWeight: 700, margin: 0, color: 'var(--color-svv-ink)' }}>Caractéristiques</h3>
-      <FaitsPermisBloc faits={data.faits} nbBatiments={data.corps.length} parcelles={data.parcelles} empreinte={data.empreinte} bati={data.bati}
-        dossierId={dossierId} onParcelleChange={() => void rafraichir()}
-        onExportGeojson={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=1`, '_blank', 'noopener,noreferrer')}
-        onExportEmpreinte={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=empreinte`, '_blank', 'noopener,noreferrer')} />
+      {/* PLI-1 — chaque cartouche est REPLIÉ à son titre (BlocRepliable, MÊME dépliant que « Complétude »/« Historique ») ; un clic déplie CE
+          cartouche seul et n'en referme aucun autre. Aucun contenu/donnée/logique ne change : uniquement la mise en forme pliée/dépliée. */}
+      {/* CARTOUCHE 1 — Caractéristiques et bâtiments d’origine (faits Sitadel, parcelles, empreinte attendue, bâti au moment de l’analyse). */}
+      <BlocRepliable titre="Caractéristiques et bâtiments d’origine">
+        {() => (
+          <FaitsPermisBloc faits={data.faits} nbBatiments={data.corps.length} parcelles={data.parcelles} empreinte={data.empreinte} bati={data.bati}
+            dossierId={dossierId} onParcelleChange={() => void rafraichir()}
+            onExportGeojson={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=1`, '_blank', 'noopener,noreferrer')}
+            onExportEmpreinte={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=empreinte`, '_blank', 'noopener,noreferrer')} />
+        )}
+      </BlocRepliable>
 
-      {/* LOT 67 — DÉCLARATIONS DU CERFA (récapitulatif) : lecture APPROFONDIE, en REGARD des faits Sitadel, jamais reportée sur eux.
-          Bloc informatif en lecture seule + champ libre du pétitionnaire (verbatim, repliable). Absent si migration 192 non appliquée. */}
-      {data.declarationsCerfa && <DeclarationsCerfaBloc declarations={data.declarationsCerfa.declarations} pieceSource={data.declarationsCerfa.pieceSource} />}
+      {/* CARTOUCHE 2 — DÉCLARATIONS DU CERFA (LOT 67, récapitulatif) : lecture en REGARD des faits Sitadel, jamais reportée. Absent si migration 192 non appliquée. */}
+      {data.declarationsCerfa && (
+        <BlocRepliable titre="Déclarations du Cerfa">
+          {() => <DeclarationsCerfaBloc declarations={data.declarationsCerfa!.declarations} pieceSource={data.declarationsCerfa!.pieceSource} />}
+        </BlocRepliable>
+      )}
 
-      {/* ═══ SECTION 1 — LE PERMIS (déclaré) : vaut pour tout le permis, ne se répète pas ═══ */}
+      {/* CARTOUCHE 3 — LE PERMIS (déclaré) : vaut pour tout le permis, ne se répète pas. Le titre de section devient le titre du dépliant. */}
+      <BlocRepliable titre={<>Le permis <span style={{ ...styleAide, fontWeight: 400 }}>— déclaré (Cerfa), vaut pour l’ensemble du projet</span></>}>
+        {() => (
       <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
-        <h4 style={styleTitre}>Le permis <span style={{ ...styleAide, fontWeight: 400 }}>— déclaré (Cerfa), vaut pour l’ensemble du projet</span></h4>
         {/* N10-C — D : ce que contient la section et d'où ça vient. */}
         <p style={styleAide}>Ce que le pétitionnaire a <strong>déclaré</strong> dans le Cerfa.</p>
         {/* N10-C — D : le Cerfa est un scan sans champ lisible → on le DIT une fois, au lieu de laisser déduire un échec (détection methode='cerfa'). */}
@@ -274,9 +284,13 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} disabled={enCours} onClick={() => void enregistrerPermis()}>Enregistrer le permis</button>
         </div>
       </div>
+        )}
+      </BlocRepliable>
 
-      {/* ═══ SECTION 2 — LES CORPS DE BÂTIMENT (mesurés) : un par immeuble ═══ */}
-      <h4 style={styleTitre}>Les bâtiments <span style={{ ...styleAide, fontWeight: 400 }}>— mesurés, un par immeuble (altitudes, étages)</span></h4>
+      {/* CARTOUCHE 4 — LES CORPS DE BÂTIMENT (mesurés) : un par immeuble. Le titre de section devient le titre du dépliant. */}
+      <BlocRepliable titre={<>Les bâtiments <span style={{ ...styleAide, fontWeight: 400 }}>— mesurés, un par immeuble (altitudes, étages)</span></>}>
+        {() => (
+      <div className="flex flex-col gap-3">
       {/* N10-C — D : ce que contient la section et d'où ça vient. */}
       <p style={styleAide}>Ce que la machine a <strong>mesuré</strong> sur les plans (coupes, façades) — distinct de ce que le Cerfa déclare.</p>
       {data.corps.length === 0 && <p style={styleAide}>{MESSAGE_AUCUN_CORPS}</p>}
@@ -350,8 +364,13 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
 
       <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} disabled={enCours} onClick={() => void ajouterCorps()}>+ ajouter un bâtiment</button>
-        {message && <span role="status" style={{ fontSize: 12 }}>{message}</span>}
       </div>
+      </div>
+        )}
+      </BlocRepliable>
+
+      {/* Message d'état (enregistrement / suppression / ajout) au NIVEAU DU BLOC → visible quel que soit le cartouche ouvert. */}
+      {message && <span role="status" style={{ fontSize: 12 }}>{message}</span>}
     </div>
   );
 }

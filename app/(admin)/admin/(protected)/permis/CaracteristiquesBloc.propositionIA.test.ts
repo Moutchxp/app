@@ -67,6 +67,9 @@ async function monter(e: object): Promise<HTMLElement> {
   root = createRoot(container);
   await act(async () => { root!.render(createElement(CaracteristiquesBloc, { dossierId: 468 })); });
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  // PLI-1 — « Les bâtiments » est désormais un cartouche REPLIÉ (BlocRepliable) ; on l'OUVRE pour rendre le champ sommet du bâtiment sur lequel porte la proposition IA.
+  const btnBat = [...container.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes('Les bâtiments'));
+  if (btnBat) await act(async () => { btnBat.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
   return container;
 }
 
