@@ -378,7 +378,7 @@ export function ListePiecesAnalyse({ pieces, analyseParPiece, nonSupportees, pie
     const enBestOf = bestOf.has(p.id);
     return (
       <li key={`${cat}-${p.id}`}>
-        <button type="button" onClick={() => onChoisir(p.id)} aria-current={courante ? 'true' : undefined}
+        <button type="button" onClick={() => onChoisir(p.id)} aria-current={courante ? 'true' : undefined} data-piece-id={p.id}
           title={enBestOf ? 'au moins une page de ce document est dans le best-of' : undefined}
           style={{ ...ligne, cursor: 'pointer', border: `1px solid ${courante ? 'var(--color-svv-ink)' : 'var(--color-svv-line)'}`, background: courante ? 'var(--color-svv-field)' : 'transparent', color: 'inherit' }}>
           <span style={{ fontWeight: 600, display: 'inline-flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap', color: enBestOf ? 'var(--color-svv-blue)' : undefined }}>

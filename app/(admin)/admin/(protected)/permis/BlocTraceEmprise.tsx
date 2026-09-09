@@ -17,6 +17,7 @@ import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
 import { bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, statutPageAnalyse, resumePagesAnalysees } from './TraceEmpriseRendu'; // INCRÉMENT-2 — best-of overrides + statut/résumé de page (barre partagée) + déblocage manuel de traçabilité
 import { BarreVisionneusePieces } from './BarreVisionneusePieces'; // INCRÉMENT-2 — barre de commandes PARTAGÉE avec la planche
+import { recentrerSurSelectionPiece } from './recentragePieces'; // RECENTRAGE-1 — au clic sur une pièce : recentre la vue sur la liseuse + place la pièce en 2ᵉ position
 import type { RunReperageAffiche } from '../../../../lib/permis/reperePlanchesRepo';
 import type { LecturePageAffiche } from '../../../../lib/permis/lectureValeursPageRepo';
 import { jourParisISO } from '../../../../lib/permis/horodatageParis';
@@ -154,6 +155,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const [pan, setPan] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const pdfContainerRef = useRef<HTMLDivElement>(null); // conteneur NON transformé (repère du clic)
+  const liseuseRef = useRef<HTMLDivElement>(null);      // RECENTRAGE-1 (①) — cadre de la liseuse : cible du recentrage de la vue au clic sur une pièce
+  const listePiecesRef = useRef<HTMLDivElement>(null);  // RECENTRAGE-1 (②) — fenêtre de défilement de la liste « voir toutes les pièces » : recalée pour la 2ᵉ position
   const dragRef = useRef<{ x0: number; y0: number; panX: number; panY: number; bouge: boolean } | null>(null);
   const cartoucheActifRef = useRef<HTMLButtonElement>(null); // LOT 3 (enchaînement) — cartouche actif de la BANDE du niveau 3, pour l'amener dans la vue par défilement.
   // INCRÉMENT-2 — best-of VISIBLE = bande auto − retraits + ajouts (mêmes overrides que la planche). Touche la NAVIGATION (quel plan est
@@ -514,6 +517,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     if (id <= 0) return;
     setNav('piece'); setPieceId(id); setPage(1);
     setPaires([]); setSommets([]); setPlanEnAttente(null); setMode('calage');
+    // RECENTRAGE-1 — AFFICHAGE seulement, uniquement quand la pièce CHANGE réellement (dans le callback confirmé de demanderChangement) :
+    //   recentre la vue sur la liseuse (①) + place la pièce en 2ᵉ position dans la liste (②). Jamais sur page/zoom/ajustement/retouche/calage.
+    recentrerSurSelectionPiece(liseuseRef.current, listePiecesRef.current, id);
   }), [demanderChangement]);
 
   // PROJ-3f ① — feuilleter les pages de la pièce courante, borné [1 ; nbPagesPiece].
@@ -1199,7 +1205,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       {pleinListe && (
         // DEMANDE 1 — liste EXPLICITE (un seul clic sur le repli l'ouvre directement, plus de <select> à re-cliquer). DEMANDES 2/3 —
         //   groupée par catégorie + marquage bleu du best-of. MÊME composant que la planche (ListePiecesAnalyse) → les deux ne divergent pas.
-        <div style={{ marginTop: '.3rem', maxHeight: '60vh', overflowY: 'auto' }}>
+        <div ref={listePiecesRef} style={{ marginTop: '.3rem', maxHeight: '60vh', overflowY: 'auto' }}>
           <ListePiecesAnalyse pieces={pieces} analyseParPiece={analyseParPiece} nonSupportees={piecesNonSupportees} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} piecesBestOf={piecesBestOf} />
         </div>
       )}
@@ -1553,7 +1559,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 conteneur `pdfContainerRef` → getBoundingClientRect reste live (r.left/r.top suivent le défilement) → cliquerPdf INCHANGÉ. Seul
                 `minHeight` du conteneur est fixé (vers le BAS uniquement : ni le top-left, ni la largeur du canvas, ni le ratio ne changent).
                 LOT 3 — niveau 3 (planSeul) traité comme le niveau 2 pour la hauteur : pas de cap, l'image occupe toute la largeur (défilement porté par le conteneur plein écran). */}
-            <div style={(imageAgrandie || planSeul) ? undefined : { height: HAUTEUR_CADRE_RENDU, overflow: 'auto' }}>
+            <div ref={liseuseRef} style={(imageAgrandie || planSeul) ? undefined : { height: HAUTEUR_CADRE_RENDU, overflow: 'auto' }}>
             <div ref={pdfContainerRef} style={{ position: 'relative', minHeight: (imageAgrandie || planSeul) ? undefined : HAUTEUR_CADRE_RENDU, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', touchAction: 'none', cursor: zoom > 1 ? 'grab' : (tracable ? 'crosshair' : 'default') }}
               onPointerDown={onPdfPointerDown} onPointerMove={onPdfPointerMove} onPointerUp={onPdfPointerUp}>
               <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>

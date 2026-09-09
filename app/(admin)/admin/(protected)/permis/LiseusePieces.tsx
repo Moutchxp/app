@@ -10,6 +10,7 @@ import {
   type PiecePlan, type Plan, type EtatAnalyseIA,
 } from './TraceEmpriseRendu';
 import { BarreVisionneusePieces } from './BarreVisionneusePieces'; // INCRÉMENT-2 — barre de commandes PARTAGÉE (planche + tracé)
+import { recentrerSurSelectionPiece } from './recentragePieces'; // RECENTRAGE-1 — au clic sur une pièce : recentre la vue sur la liseuse + place la pièce en 2ᵉ position
 import { MAX_DOCS_CACHE, MAX_BITMAPS_RENDU, voisinsAPrecharger, rangerEtEvincer } from './prechargeLiseuse';
 import type { RunReperageAffiche } from '../../../../lib/permis/reperePlanchesRepo'; // LOT 62 — audit du repérage par image (type SEUL)
 import type { LecturePageAffiche } from '../../../../lib/permis/lectureValeursPageRepo'; // LOT 95 — audit daté « page analysée pour lire des valeurs » (type SEUL)
@@ -162,6 +163,8 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
   const [enRendu, setEnRendu] = useState(false);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const pdfContainerRef = useRef<HTMLDivElement | null>(null);
+  const liseuseRef = useRef<HTMLDivElement | null>(null);      // RECENTRAGE-1 (①) — cadre de la liseuse : cible du recentrage de la vue au clic sur une pièce
+  const listePiecesRef = useRef<HTMLDivElement | null>(null);  // RECENTRAGE-1 (②) — fenêtre de défilement de la liste « voir toutes les pièces » : recalée pour la 2ᵉ position
   const dragRef = useRef<{ x0: number; y0: number; panX: number; panY: number } | null>(null);
   // LOT 22 (C) — le module pdf.js est chargé UNE fois (mémorisé), plus à chaque page.
   const pdfjsRef = useRef<typeof import('pdfjs-dist') | null>(null);
@@ -590,7 +593,13 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
     setNav(r.nav);
     if (r.plan) { setPlanIndex(r.plan.index); setPieceId(r.plan.pieceId); setPage(r.plan.page); }
   }, [bandeVisible]);
-  const ouvrirPieceLibre = useCallback((id: number) => { if (id <= 0) return; setNav('piece'); setPieceId(id); setPage(1); }, []);
+  const ouvrirPieceLibre = useCallback((id: number) => {
+    if (id <= 0) return;
+    setNav('piece'); setPieceId(id); setPage(1);
+    // RECENTRAGE-1 — AFFICHAGE seulement : recentre la vue sur la liseuse (①) + place la pièce en 2ᵉ position dans la liste (②). Uniquement
+    //   sur ce clic « pièce du permis » — jamais au chargement, ni sur page suivante / zoom / ajustement / retouche / calage / nav best-of.
+    recentrerSurSelectionPiece(liseuseRef.current, listePiecesRef.current, id);
+  }, []);
   const changerPage = useCallback((delta: number) => setPage((p) => bornerPage(p + delta, nbPagesPiece)), [nbPagesPiece]);
   const retourBestOf = useCallback(() => appliquerPlan(planIndex), [appliquerPlan, planIndex]);
 
@@ -634,7 +643,7 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
       {pleinListe && (
         // LOT 91 — liste BORNÉE (défilement interne) : ~70 pièces ne repoussent plus l'aperçu hors du champ. Scroll natif → aucune
         //   animation (prefers-reduced-motion respecté d'office). La ligne cliquée reste marquée (aria-current, LOT 64).
-        <div style={{ marginTop: '.3rem', maxHeight: '60vh', overflowY: 'auto' }}>
+        <div ref={listePiecesRef} style={{ marginTop: '.3rem', maxHeight: '60vh', overflowY: 'auto' }}>
           {/* LOT 64 — liste EXPLICITE : toutes les pièces, non analysées par image en tête, état par ligne. */}
           <ListePiecesAnalyse pieces={pieces} analyseParPiece={analyseParPiece} nonSupportees={piecesNonSupportees} pieceId={pieceId} onChoisir={(id) => ouvrirPieceLibre(id)} piecesBestOf={piecesBestOf} />
         </div>
@@ -702,7 +711,7 @@ export function LiseusePieces({ dossierId, onValeurEcrite, donneesPrechargees = 
             le canvas garde width:100% collé en haut-gauche à sa taille réelle, getBoundingClientRect du conteneur reste live (repère
             passif ici, mais MÊME principe que la surface de dessin). La barre d'outils (zoom + mode XL, ligneOutils ci-dessus)
             reste JUSTE AU-DESSUS de la surface — même ligne que la barre de rotation du schéma. En mode agrandi : aucune hauteur imposée (plein écran). */}
-        <div style={grand ? undefined : { height: HAUTEUR_CADRE_RENDU, overflow: 'auto' }}>
+        <div ref={liseuseRef} style={grand ? undefined : { height: HAUTEUR_CADRE_RENDU, overflow: 'auto' }}>
         <div ref={pdfContainerRef} onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp}
           style={{ position: 'relative', minHeight: grand ? '8rem' : HAUTEUR_CADRE_RENDU, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', overflow: 'hidden', background: 'var(--color-svv-field)', touchAction: zoom > 1 ? 'none' : 'auto', cursor: zoom > 1 ? 'grab' : 'default' }}>
           <div style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}>
