@@ -19,6 +19,10 @@ export const MARGE_ALTITUDE_CM_DEFAUT = 10;   // cm — marge d'égalité d'alti
 //   au-dessus → statut géométrique (detruit total / mixte partiel). Frère des trois seuils ci-dessus (config_veille). = DEFAULT de la
 //   migration 166 (défaut 3 depuis RATT-6 ; aucune constante dispersée).
 export const SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT = 3;
+// AFF-2 — seuil « DÉTRUIT » : taux de recouvrement (POURCENT) au-dessus duquel un polygone existant est classé « détruit » (sinon, entre le
+//   plancher ci-dessus et ce seuil → « partiellement détruit »). = DEFAULT de la migration 214 (aucune constante dispersée). Distinct du
+//   plancher anti-bruit (3) : c'est la frontière détruit / partiellement détruit, pilotable au runtime.
+export const SEUIL_DESTRUCTION_PCT_DEFAUT = 75;
 // PHASE-1 — délais du verdict à trois phases (JOURS). = DEFAULT de la migration 170. Défauts CENTRALISÉS (aucune constante dispersée).
 export const DELAI_BASCULE_JOURS_DEFAUT = 548;  // ≈ 1,5 an, compté depuis la date d'accord (date_reelle_autorisation)
 export const DUREE_MESSAGE_JOURS_DEFAUT = 548;  // ≈ 1,5 an, comptée depuis LA BASCULE elle-même
@@ -80,6 +84,26 @@ export async function lireSeuilRecouvrementEmprisePct(): Promise<SeuilRecouvreme
     return { seuilPct: s, provenance: 'base' };
   } catch {
     return { seuilPct: SEUIL_RECOUVREMENT_EMPRISE_PCT_DEFAUT, provenance: 'defaut' }; // 166 pas appliquée (colonne absente) → défaut
+  }
+}
+
+/**
+ * AFF-2 — SEUIL « DÉTRUIT » : taux de recouvrement (% de la surface du polygone) au-dessus duquel un bâtiment existant recouvert par
+ * l'emprise projetée est classé « détruit » (sinon « partiellement détruit »). Lu au runtime depuis `config_veille` (migration 214),
+ * avec REPLI SÛR sur le défaut 75 si la colonne est absente (214 non appliquée) — même patron résilient que `lireSeuilRecouvrementEmprisePct`.
+ * Rend la PROVENANCE ('base' vs 'defaut') pour que l'écran sache toujours avec quel seuil une décision de destruction est proposée.
+ * DISTINCT du plancher anti-bruit (lireSeuilRecouvrementEmprisePct) : c'est la frontière détruit / partiellement détruit.
+ */
+export interface SeuilDestructionSource { seuilPct: number; provenance: 'base' | 'defaut' }
+export async function lireSeuilDestructionPct(): Promise<SeuilDestructionSource> {
+  try {
+    const { rows } = await query<{ s: number | null }>(
+      `SELECT rattachement_seuil_destruction_pct AS s FROM config_veille WHERE id = 1`);
+    const s = rows[0]?.s;
+    if (s === null || s === undefined) return { seuilPct: SEUIL_DESTRUCTION_PCT_DEFAUT, provenance: 'defaut' };
+    return { seuilPct: s, provenance: 'base' };
+  } catch {
+    return { seuilPct: SEUIL_DESTRUCTION_PCT_DEFAUT, provenance: 'defaut' }; // 214 pas appliquée (colonne absente) → défaut
   }
 }
 

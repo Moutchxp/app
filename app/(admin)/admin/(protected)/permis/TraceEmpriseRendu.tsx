@@ -11,7 +11,7 @@ import { libelleBatiment, resumeProjection, type VerdictProjection } from '../..
 import { nomAffichageCorps, resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-1/NOM-3 — nom d'un corps ; nom DISTINCT par emprise (repère + « (numéro) »)
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { estFuturBati } from '../../../../lib/permis/etatBati';
-import { estStatuable, TOLERANCE_RECOUVREMENT_TOTAL_PCT, type EtatStatutPolygone, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) : statut décidé ; RATT-5 : recouvert + taux ; RATT-6 : mixte
+import { estStatuable, type EtatStatutPolygone, type OrigineStatut, type PolygoneRecouvert } from '../../../../lib/permis/polygoneStatut'; // RATT-1 (2) : statut décidé ; RATT-5 : recouvert + taux ; AFF-2 : trois statuts arbitrables
 import { rattrapageVide, type ApercuRattrapage } from '../../../../lib/permis/rattrapage'; // NOM-2 — aperçu du rattrapage (noms + statuts)
 import { repereDepuisIndex, projeterLambertDansSchema, type SchemaEmpreinte } from '../../../../lib/permis/affectationSchema'; // AFF-2 : projetée au MÊME cadre que l'origine
 
@@ -1880,7 +1880,15 @@ export function SelectionPolygonesProjet({ polygones, ecartes, onToggle }: {
 }
 
 /** RATT-1 (2) — libellé lisible d'un statut décidé. */
-function libelleStatut(s: 'preserve' | 'detruit' | 'mixte'): string { return s === 'preserve' ? 'bâtiment préservé' : s === 'mixte' ? 'partiellement détruit (fait géométrique)' : 'bâtiment détruit (prévision)'; }
+function libelleStatut(s: 'preserve' | 'detruit' | 'mixte'): string { return s === 'preserve' ? 'bâtiment préservé' : s === 'mixte' ? 'partiellement détruit (prévision)' : 'bâtiment détruit (prévision)'; }
+/** AFF-2 — pastille d'explication : conséquence de chaque statut sur le polygone et le verdict PROJETÉ, en français simple (sans jargon). */
+function consequenceStatut(s: 'preserve' | 'detruit' | 'mixte'): string {
+  return s === 'preserve'
+    ? 'Conservé tel quel dans la projection : le bâtiment garde ses données d’altitude LiDAR mesurées.'
+    : s === 'mixte'
+    ? 'Mixte : la partie recouverte suit les règles du bâtiment détruit ; la partie qui survit garde le polygone d’origine et ses données LiDAR. Le découpage précis et l’altitude par partie relèvent d’un chantier ultérieur.'
+    : 'Le polygone d’origine disparaît de la projection : ce sont les altitudes de sommet issues du permis qui s’appliquent. Prévision, à confirmer à la mise à jour cadastrale.';
+}
 /** RATT-1 (2) — « JJ/MM/AAAA » depuis un ISO (trace de décision). */
 function jjmmaaaaStatut(iso: string): string { return jourFrParis(iso); } // LOT 49 — jour en Europe/Paris (évite le décalage d'un jour près de minuit)
 
@@ -1898,12 +1906,21 @@ export function nbBatimentsStatuables(polygones: PolygoneRepere[], recouverts: r
   return polygones.filter((p) => estStatuable(p, p.cleabs !== null && rec.has(p.cleabs))).length;
 }
 
+/** AFF-2 — d'où vient la décision COURANTE : à la main (prime) ou proposée par l'automatisme (recouvrement). PUR (affichage). */
+function libelleOrigineStatut(o: OrigineStatut | null): string {
+  return o === 'saisie' ? 'décidé à la main' : (o === 'auto_recouvrement' || o === 'auto_mixte') ? 'proposé automatiquement' : o === 'auto_revocation' ? 'auto — recouvrement disparu' : '';
+}
+const TROIS_STATUTS: { s: 'preserve' | 'mixte' | 'detruit'; label: string }[] = [
+  { s: 'preserve', label: 'bâtiment préservé' },
+  { s: 'mixte', label: 'partiellement détruit' },
+  { s: 'detruit', label: 'bâtiment détruit' },
+];
 export function StatutPolygonesExistants({ polygones, recouverts, statuts, onStatuer, sansEntete = false }: {
   polygones: PolygoneRepere[]; recouverts: readonly PolygoneRecouvert[]; statuts: Map<string, EtatStatutPolygone>;
-  onStatuer: (cleabs: string, statut: 'preserve' | 'detruit' | 'revoque') => void;
+  onStatuer: (cleabs: string, statut: 'preserve' | 'detruit' | 'mixte' | 'revoque') => void;
   sansEntete?: boolean; // AFF-1 — masque le titre interne quand le bloc est porté par le résumé d'un <details> replié (le titre est sur le summary).
 }) {
-  // RATT-5 — `recouverts` ne contient QUE les polygones au-dessus du seuil (part sous l'emprise ≥ seuil config) ; chacun porte son taux (%).
+  // RATT-5 — `recouverts` ne contient QUE les polygones au-dessus du plancher (part sous l'emprise ≥ plancher config) ; chacun porte son taux (%).
   const tauxRecouvrement = new Map(recouverts.map((r) => [r.cleabs, r.tauxPct]));
   // RATT-2 — tous les existants (recouverts compris) ; RATT-4 — + les « en projet » RECOUVERTS par l'emprise (un futur bâti non recouvert reste hors liste).
   const statuables = polygones.filter((p) => estStatuable(p, p.cleabs !== null && tauxRecouvrement.has(p.cleabs)));
@@ -1912,47 +1929,53 @@ export function StatutPolygonesExistants({ polygones, recouverts, statuts, onSta
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem', border: sansEntete ? 'none' : '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: sansEntete ? 0 : '.4rem .5rem' }}>
       {!sansEntete && <div style={{ fontSize: 12, fontWeight: 700 }}>Bâtiments existants du site</div>}
-      <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Les bâtiments existants du site, plus les polygones « en projet » recouverts par la future emprise (un « en projet » non recouvert reste hors liste). Statuez chacun : la source BD TOPO reste affichée à côté de votre décision (jamais écrasée). Un polygone recouvert par la future emprise est « détruit » par défaut, mais vous pouvez le repasser en « préservé » (cas d’une surélévation). « Détruit » est une PRÉVISION, à confirmer le jour de la mise à jour cadastrale.</div>
+      <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Les bâtiments existants du site, plus les polygones « en projet » recouverts par la future emprise (un « en projet » non recouvert reste hors liste). Chaque bâtiment reçoit un statut PROPOSÉ automatiquement selon le taux de recouvrement (préservé sous le plancher, partiellement détruit en dessous du seuil « détruit », détruit au-dessus). Vous pouvez TOUJOURS l’arbitrer à la main parmi les trois — votre décision prime sur tout recalcul — puis revenir au statut automatique. La source BD TOPO reste affichée à côté (jamais écrasée). « Détruit » et « partiellement détruit » sont des PRÉVISIONS, à confirmer le jour de la mise à jour cadastrale.</div>
+      {/* AFF-2 — que veut dire chaque statut (mobile-first : accessible sans survol, replié par défaut). */}
+      <details style={{ fontSize: 11 }}>
+        <summary style={{ cursor: 'pointer', color: 'var(--color-svv-muted)' }}>que veut dire chaque statut ?</summary>
+        <ul style={{ margin: '.15rem 0 0', paddingLeft: '1rem', color: 'var(--color-svv-muted)', display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+          {TROIS_STATUTS.map(({ s, label }) => <li key={s} data-statut-aide={s}><strong>{label}</strong> — {consequenceStatut(s)}</li>)}
+        </ul>
+      </details>
       {statuables.map((p) => {
         const st = statuts.get(p.cleabs!);
         const decide = st?.statut ?? null;
-        const tauxRecouvert = tauxRecouvrement.get(p.cleabs!); // RATT-5 — % de la surface sous l'emprise (défini SSI au-dessus du seuil)
+        const origine = st?.origine ?? null;
+        const estManuel = origine === 'saisie'; // AFF-2 — une décision posée à la main (prime, jamais écrasée par l'auto)
+        const tauxRecouvert = tauxRecouvrement.get(p.cleabs!); // RATT-5 — % de la surface sous l'emprise (défini SSI au-dessus du plancher)
         const recouvert = tauxRecouvert !== undefined;
-        // RATT-6 — MIXTE = fait géométrique : recouvert PARTIELLEMENT (au-dessus du seuil mais sous le recouvrement total, à la tolérance
-        //   près) OU statut 'mixte' déjà enregistré. Non modifiable → les deux boutons sont DÉSACTIVÉS (jamais masqués : Arno voit pourquoi).
-        const estMixteGeo = recouvert && tauxRecouvert! < 100 - TOLERANCE_RECOUVREMENT_TOTAL_PCT;
-        const estMixte = decide === 'mixte' || estMixteGeo;
+        // AFF-2 — CAS PARTICULIER : « détruit » FORCÉ à la main sur un polygone qu'AUCUNE emprise projetée ne recouvre → décision volontaire (pas une déduction).
+        const detruitForceSansRecouvrement = decide === 'detruit' && estManuel && !recouvert;
         return (
-          <div key={p.cleabs} style={{ ...carte, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+          <div key={p.cleabs} style={{ ...carte, display: 'flex', flexDirection: 'column', gap: '.2rem' }} data-statut={decide ?? undefined} data-origine={origine ?? undefined}>
             <div style={{ fontSize: 12 }}>
               <strong>Polygone {p.repere}</strong> <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', userSelect: 'all', fontSize: 11, color: 'var(--color-svv-muted)', wordBreak: 'break-all' }}>{p.cleabs}</span>
             </div>
-            {/* SOURCE et DÉCISION côte à côte — jamais l'une à la place de l'autre. */}
+            {/* SOURCE et DÉCISION côte à côte — jamais l'une à la place de l'autre. La décision DIT si elle est auto ou à la main. */}
             <div style={{ fontSize: 12, display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
               <span><span style={{ color: 'var(--color-svv-muted)' }}>BD TOPO :</span> <strong>{p.etat ?? 'inconnu'}</strong></span>
-              <span><span style={{ color: 'var(--color-svv-muted)' }}>votre décision :</span> <strong>{decide ? libelleStatut(decide) : <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>aucune</span>}</strong></span>
+              <span><span style={{ color: 'var(--color-svv-muted)' }}>statut :</span> <strong>{decide ? libelleStatut(decide) : <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>aucun</span>}</strong>{decide && origine && <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}> ({libelleOrigineStatut(origine)})</span>}</span>
             </div>
-            {/* RATT-6 — MIXTE : mention ROUGE dédiée « partiellement détruit — recouvert à XX % » (le bâtiment survit en partie). Sinon RATT-2/RATT-5 :
-                recouvert total → « recouvert à XX % … statut détruit par défaut ». Le TAUX est toujours affiché : Arno voit DE COMBIEN il s'agit. */}
-            {estMixte
-              ? <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 700 }}>partiellement détruit — recouvert à {Math.round(tauxRecouvert ?? 0)} % par l’emprise projetée</span>
-              : recouvert && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 700 }}>recouvert à {Math.round(tauxRecouvert!)} % par l’emprise projetée — statut détruit par défaut</span>}
+            {/* RATT-5 — TAUX de recouvrement toujours affiché quand le polygone est recouvert : Arno voit DE COMBIEN il s'agit. */}
+            {recouvert && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 700 }}>recouvert à {Math.round(tauxRecouvert!)} % par l’emprise projetée</span>}
+            {/* AFF-2 — les TROIS statuts, TOUJOURS actifs (arbitrage manuel). Le statut courant est en gras ; la mention (auto/à la main) est au-dessus. */}
             <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-              {/* RATT-6 — sur un 'mixte' (fait géométrique), les deux boutons sont DÉSACTIVÉS (disabled + aria-disabled), jamais masqués : la mention rouge dit POURQUOI. */}
-              <button type="button" disabled={estMixte} aria-disabled={estMixte} style={{ ...btn, cursor: estMixte ? 'not-allowed' : 'pointer', opacity: estMixte ? 0.5 : 1, fontWeight: decide === 'preserve' ? 700 : 400, borderColor: decide === 'preserve' ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }} aria-pressed={decide === 'preserve'} onClick={() => { if (!estMixte) onStatuer(p.cleabs!, 'preserve'); }}>bâtiment préservé</button>
-              <button type="button" disabled={estMixte} aria-disabled={estMixte} style={{ ...btn, cursor: estMixte ? 'not-allowed' : 'pointer', opacity: estMixte ? 0.5 : 1, fontWeight: decide === 'detruit' ? 700 : 400, borderColor: decide === 'detruit' ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }} aria-pressed={decide === 'detruit'} onClick={() => { if (!estMixte) onStatuer(p.cleabs!, 'detruit'); }}>bâtiment détruit</button>
-              {decide && !estMixte && <button type="button" style={btn} onClick={() => onStatuer(p.cleabs!, 'revoque')}>annuler ma décision</button>}
+              {TROIS_STATUTS.map(({ s, label }) => (
+                <button key={s} type="button" style={{ ...btn, fontWeight: decide === s ? 700 : 400, borderColor: decide === s ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }} aria-pressed={decide === s} data-choix={s} onClick={() => onStatuer(p.cleabs!, s)}>{label}</button>
+              ))}
+              {estManuel && <button type="button" style={btn} data-choix="revoque" onClick={() => onStatuer(p.cleabs!, 'revoque')}>revenir au statut automatique</button>}
             </div>
-            {/* RATT-6 — POURQUOI les boutons sont grisés : le mixte est un fait géométrique déduit, pas une décision d'Arno. */}
-            {estMixte && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Une partie du bâtiment tombe sous l’emprise, l’autre survit : statut déduit de la géométrie — non modifiable à la main. (Le découpage précis et l’altitude par partie relèvent d’un chantier ultérieur.)</span>}
-            {decide === 'detruit' && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-ink)', background: 'var(--color-svv-note-bg)', border: '1px solid var(--color-svv-red)', borderRadius: '.35rem', padding: '.2rem .4rem' }}>Prévision : effacé de la PROJECTION de la future parcelle (jamais de BD TOPO). Sera confirmé ou infirmé à la mise à jour de la planche cadastrale.</span>}
+            {/* AFF-2 — PASTILLE : conséquence du statut COURANT sur le polygone et le verdict projeté (français simple). */}
+            {decide && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-ink)', background: 'var(--color-svv-note-bg)', border: `1px solid ${decide === 'preserve' ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)'}`, borderRadius: '.35rem', padding: '.2rem .4rem' }}>{consequenceStatut(decide)}</span>}
+            {/* AFF-2 — CAS PARTICULIER signalé à l'écran : détruit volontaire hors recouvrement. */}
+            {detruitForceSansRecouvrement && <span role="note" data-detruit-volontaire="true" style={{ fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 700 }}>Décision volontaire : aucune emprise projetée ne recouvre ce bâtiment. Vous l’avez néanmoins marqué « détruit » → il est retiré de la configuration projetée (jamais de BD TOPO).</span>}
             {decide === 'preserve' && st?.etatBdtopoAuMoment && st.etatBdtopoAuMoment !== p.etat && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>BD TOPO disait « {st.etatBdtopoAuMoment} » au moment de votre décision — votre « préservé » prime, la source reste lisible.</span>}
             {st && st.historique.length > 0 && (
               <details style={{ fontSize: 11 }}>
                 <summary style={{ cursor: 'pointer', color: 'var(--color-svv-muted)' }}>historique de mes décisions ({st.historique.length})</summary>
                 <ul style={{ margin: '.15rem 0 0', paddingLeft: '1rem', color: 'var(--color-svv-muted)' }}>
                   {st.historique.map((h, i) => (
-                    <li key={`${h.decideLe}-${i}`}>{h.statut === 'revoque' ? 'annulation' : libelleStatut(h.statut)}{h.decidePar ? ` · ${h.decidePar}` : ''} · {jjmmaaaaStatut(h.decideLe)}{h.etatBdtopoAuMoment ? ` (BD TOPO : ${h.etatBdtopoAuMoment})` : ''}</li>
+                    <li key={`${h.decideLe}-${i}`}>{h.statut === 'revoque' ? 'retour à l’automatique' : libelleStatut(h.statut)}{h.origine ? ` (${libelleOrigineStatut(h.origine)})` : ''}{h.decidePar ? ` · ${h.decidePar}` : ''} · {jjmmaaaaStatut(h.decideLe)}{h.etatBdtopoAuMoment ? ` (BD TOPO : ${h.etatBdtopoAuMoment})` : ''}</li>
                   ))}
                 </ul>
               </details>
@@ -2064,13 +2087,13 @@ export function BlocProjetRepliable({ emprises, polygones, batiments }: {
  */
 export function BlocExistantsRepliable({ polygones, recouverts, statuts, onStatuer }: {
   polygones: PolygoneRepere[]; recouverts: readonly PolygoneRecouvert[]; statuts: Map<string, EtatStatutPolygone>;
-  onStatuer: (cleabs: string, statut: 'preserve' | 'detruit' | 'revoque') => void;
+  onStatuer: (cleabs: string, statut: 'preserve' | 'detruit' | 'mixte' | 'revoque') => void;
 }) {
   const n = nbBatimentsStatuables(polygones, recouverts);
   if (n === 0) return null;
   return (
     <details style={{ ...carte }} data-bloc="existants">
-      <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Affectation (préservé/détruit) des bâtiments existants de la ou des parcelles du permis <span style={{ fontWeight: 400, color: 'var(--color-svv-muted)' }}>— {n} bâtiment{n > 1 ? 's' : ''}</span></summary>
+      <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Affectation (préservé / partiellement détruit / détruit) des bâtiments existants de la ou des parcelles du permis <span style={{ fontWeight: 400, color: 'var(--color-svv-muted)' }}>— {n} bâtiment{n > 1 ? 's' : ''}</span></summary>
       <div style={{ marginTop: '.4rem' }}>
         <StatutPolygonesExistants polygones={polygones} recouverts={recouverts} statuts={statuts} onStatuer={onStatuer} sansEntete />
       </div>

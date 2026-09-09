@@ -6,10 +6,11 @@ import { estFuturBati } from './etatBati';
  * La SOURCE IGN (`batiment.etat_de_l_objet`) est une donnée DISTINCTE, jamais touchée ici, TOUJOURS affichée à côté de ma décision.
  * PUR (aucune I/O), testable.
  */
-/** DÉCISION MANUELLE d'Arno (les deux seuls statuts qu'il peut poser à la main). 'mixte' n'en est PAS : c'est un FAIT géométrique déduit. */
-export type StatutDecide = 'preserve' | 'detruit';
-/** RATT-6 — statut COURANT possible d'un polygone : décision manuelle OU 'mixte' (partiellement détruit, déduit du taux, non modifiable). */
-export type StatutCourant = StatutDecide | 'mixte';
+/** AFF-2 — DÉCISION MANUELLE d'Arno : les TROIS statuts d'affectation qu'il peut poser à la main (arbitrage toujours possible). 'mixte'
+ *  (partiellement détruit) est aussi PROPOSÉ automatiquement selon le seuil, mais reste arbitrable — une décision manuelle prime (RATT-2). */
+export type StatutDecide = 'preserve' | 'detruit' | 'mixte';
+/** Statut COURANT possible d'un polygone : l'un des trois (posé à la main OU proposé par l'auto). Identique à StatutDecide. */
+export type StatutCourant = StatutDecide;
 export type LigneStatut = 'preserve' | 'detruit' | 'mixte' | 'revoque';
 /** RATT-2/RATT-6 — origine d'une ligne : saisie (Arno) | auto_recouvrement ('detruit' d'office, recouvrement total) | auto_mixte ('mixte'
  *  d'office, recouvrement partiel) | auto_revocation (l'auto défait SA propre ligne quand le recouvrement disparaît). */
@@ -21,7 +22,7 @@ export interface LigneStatutPolygone { cleabs: string; statut: LigneStatut; etat
 
 /** L'état COURANT d'un polygone : mon statut décidé (null si aucun/révoqué), l'origine de la ligne courante, l'état BD TOPO au moment, qui/quand, + l'historique complet. */
 export interface EtatStatutPolygone {
-  statut: StatutCourant | null;         // null = aucun statut (jamais posé, ou révoqué en dernier) ; 'mixte' = fait géométrique (RATT-6)
+  statut: StatutCourant | null;         // null = aucun statut (jamais posé, ou revenu à l'auto sans recouvrement) ; sinon l'un des trois (AFF-2)
   origine: OrigineStatut | null;        // RATT-2 — origine de la ligne COURANTE (pour savoir si l'auto peut la révoquer)
   etatBdtopoAuMoment: string | null;    // snapshot de la source au moment de la décision courante
   decidePar: string | null;
@@ -74,30 +75,22 @@ export function estRecouvertParEmprise(tauxPct: number, seuilPct: number): boole
 }
 
 /**
- * RATT-6 — TOLÉRANCE géométrique du « recouvrement total ». Un polygone entièrement sous l'emprise donne un taux ≈ 100 % à l'epsilon
- * flottant près (ST_Union + ST_Intersection, Lambert-93). Cette tolérance (0,05 point de %) n'absorbe QUE ce bruit numérique/topologique
- * (≪ 0,05 %) : dès 0,1 % de surface réellement survivante, le polygone bascule en « mixte ». Elle ne « rattrape » donc jamais un
- * survivant réel — cf. le test « 99,9 % → mixte ». Constante CENTRALISÉE (aucun 100/99,95 dispersé).
+ * AFF-2 — statut GÉOMÉTRIQUE PROPOSÉ à partir du taux de recouvrement, avec DEUX seuils (règle d'Arno). Trois branches :
+ *   · taux ≥ seuilDetruitPct           → 'detruit' (recouvert au seuil « détruit » ou plus : le polygone d'origine disparaît de la projection) ;
+ *   · plancherPct ≤ taux < seuilDetruit → 'mixte'   (partiellement détruit : mordu sans atteindre le seuil « détruit », une partie survit) ;
+ *   · taux < plancherPct                → null      (aucun recouvrement réel / anti-bruit de tracé → préservé, aucun statut auto).
+ * PUR. `plancherPct` = plancher anti-bruit (lireSeuilRecouvrementEmprisePct) ; `seuilDetruitPct` = seuil « détruit » (lireSeuilDestructionPct),
+ * tous deux lus en config. AFF-2 : le résultat est une PROPOSITION — Arno peut toujours l'arbitrer à la main (une saisie prime, cf. actionsAutoStatut).
  */
-export const TOLERANCE_RECOUVREMENT_TOTAL_PCT = 0.05;
-
-/**
- * RATT-6 — statut GÉOMÉTRIQUE déduit du taux de recouvrement (FAIT, jamais une décision). Trois branches :
- *   · taux ≥ 100 − tolérance          → 'detruit' (recouvrement total à l'epsilon près) ;
- *   · seuil ≤ taux < 100 − tolérance  → 'mixte'   (mordu sans être entièrement couvert : une partie tombe, une partie survit) ;
- *   · taux < seuil                     → null      (chevauchement marginal / anti-bruit de tracé : aucun statut auto).
- * PUR. `seuilPct` fourni par l'appelant (lu en config). Le résultat 'mixte' n'est JAMAIS modifiable à la main (cf. poserStatutPolygone).
- */
-export function statutDepuisRecouvrement(tauxPct: number, seuilPct: number): 'detruit' | 'mixte' | null {
-  if (tauxPct >= 100 - TOLERANCE_RECOUVREMENT_TOTAL_PCT) return 'detruit';
-  if (tauxPct >= seuilPct) return 'mixte';
-  return null;
+export function statutDepuisRecouvrement(tauxPct: number, plancherPct: number, seuilDetruitPct: number): 'detruit' | 'mixte' | null {
+  if (tauxPct < plancherPct) return null;
+  return tauxPct >= seuilDetruitPct ? 'detruit' : 'mixte';
 }
 
 /**
- * RATT-2/RATT-6 — DÉCISION PURE des écritures AUTOMATIQUES de statut après un changement d'emprise (enregistrement / adoption / retouche
- * / suppression). `recouverts` = polygones AU-DESSUS du seuil, avec leur taux ; `seuilPct` = seuil courant. Trois familles d'action, jamais
- * au détriment d'une décision humaine :
+ * RATT-2/AFF-2 — DÉCISION PURE des écritures AUTOMATIQUES de statut après un changement d'emprise (enregistrement / adoption / retouche
+ * / suppression). `recouverts` = polygones AU-DESSUS du plancher, avec leur taux ; `plancherPct` = plancher anti-bruit, `seuilDetruitPct` =
+ * seuil « détruit » (au-dessus → detruit ; entre les deux → mixte). Trois familles d'action, jamais au détriment d'une décision humaine :
  *   (1) recouvert + AUCUNE ligne (ou révoqué en dernier) → poser le statut GÉOMÉTRIQUE ('detruit'/'auto_recouvrement' si total,
  *       'mixte'/'auto_mixte' si partiel) ;
  *   (2) recouvert + statut AUTO déjà posé mais d'une AUTRE branche (le recouvrement a changé, ex. total → partiel) → RÉALIGNER sur le
@@ -107,14 +100,14 @@ export function statutDepuisRecouvrement(tauxPct: number, seuilPct: number): 'de
  * `statuts` = statut COURANT par cleabs (cf. statutCourantParCleabs). PUR (aucune I/O).
  */
 export interface ActionAutoStatut { cleabs: string; statut: 'detruit' | 'mixte' | 'revoque'; origine: 'auto_recouvrement' | 'auto_mixte' | 'auto_revocation' }
-export function actionsAutoStatut(recouverts: readonly PolygoneRecouvert[], seuilPct: number, statuts: Map<string, EtatStatutPolygone>): ActionAutoStatut[] {
+export function actionsAutoStatut(recouverts: readonly PolygoneRecouvert[], plancherPct: number, seuilDetruitPct: number, statuts: Map<string, EtatStatutPolygone>): ActionAutoStatut[] {
   const rec = new Set(recouverts.map((r) => r.cleabs));
   const out: ActionAutoStatut[] = [];
   const origineDe = (s: 'detruit' | 'mixte'): 'auto_recouvrement' | 'auto_mixte' => (s === 'detruit' ? 'auto_recouvrement' : 'auto_mixte');
-  // (1)+(2) poser / réaligner le statut géométrique des recouverts (tous au-dessus du seuil → cible ∈ {detruit, mixte}).
+  // (1)+(2) poser / réaligner le statut géométrique PROPOSÉ des recouverts (au-dessus du plancher → cible ∈ {detruit, mixte} selon le seuil « détruit »).
   for (const r of recouverts) {
-    const cible = statutDepuisRecouvrement(r.tauxPct, seuilPct);
-    if (cible === null) continue; // garde défensive (un recouvert est au-dessus du seuil)
+    const cible = statutDepuisRecouvrement(r.tauxPct, plancherPct, seuilDetruitPct);
+    if (cible === null) continue; // garde défensive (un recouvert est au-dessus du plancher)
     const e = statuts.get(r.cleabs);
     if (!e || e.statut === null) { out.push({ cleabs: r.cleabs, statut: cible, origine: origineDe(cible) }); continue; } // aucune ligne / révoqué → poser
     if (e.origine === 'saisie' || e.origine === null) continue; // décision humaine (ou origine inconnue) → JAMAIS touchée

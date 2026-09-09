@@ -24,11 +24,11 @@ describe('NOM-2 — apercuRattrapage (liste ce qui SERAIT écrit, sans rien écr
     expect(a.noms[0].nomFutur).toBe('bâtiment en projet');
   });
 
-  it('STATUTS : recouvert total (100 %) jamais statué → « detruit » ; partiel (80 %) → « mixte » ; le taux est affiché', () => {
-    const a = apercuRattrapage([], reperes, new Map(), [{ cleabs: 'C1', tauxPct: 100 }, { cleabs: 'C2', tauxPct: 80 }]);
+  it('STATUTS (AFF-2, seuil « détruit » par défaut 75) : ≥ 75 % (100 %) → « detruit » ; sous le seuil (50 %) → « mixte » ; le taux est affiché', () => {
+    const a = apercuRattrapage([], reperes, new Map(), [{ cleabs: 'C1', tauxPct: 100 }, { cleabs: 'C2', tauxPct: 50 }]);
     expect(a.statuts).toEqual([
       { cleabs: 'C1', repere: 'C', statut: 'detruit', tauxPct: 100 },
-      { cleabs: 'C2', repere: 'D', statut: 'mixte', tauxPct: 80 },
+      { cleabs: 'C2', repere: 'D', statut: 'mixte', tauxPct: 50 },
     ]);
   });
 

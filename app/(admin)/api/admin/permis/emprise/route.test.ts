@@ -89,7 +89,7 @@ import { _viderBestOfCache } from '../../../../../lib/permis/bestOfCache'; // P1
 import { exclurePageBestOf, reintegrerPageBestOf, inclurePageBestOf, desinclurePageBestOf } from '../../../../../lib/permis/bestOfExclusionRepo';
 import { lireGedPermis } from '../../../../../lib/permis/lectureGed';
 import { enregistrerEmprise, supprimerEmprise, ignorerProjection, retablirProjection, listerBatiments } from '../../../../../lib/permis/empriseReconstruiteRepo';
-import { poserStatutPolygone } from '../../../../../lib/permis/polygoneStatutRepo';
+import { poserStatutPolygone, appliquerAutoStatut } from '../../../../../lib/permis/polygoneStatutRepo';
 import { lireCleTelechargeable } from '../../../../../lib/sitadel/demandeRepo';
 
 const get = (q: string) => GET(new Request(`http://test.local/api/admin/permis/emprise${q}`));
@@ -395,18 +395,25 @@ describe('PROJ-3s — retoucher une emprise via la route', () => {
   });
 });
 
-describe('RATT-1 (2) — POST statuer_polygone (préservé / détruit / révoquer)', () => {
+describe('AFF-2 — POST statuer_polygone (préservé / partiellement détruit / détruit / revenir à l’auto)', () => {
   it('cleabs + statut valide → 200, poserStatutPolygone appelé, registre renvoyé', async () => {
     const res = await post({ action: 'statuer_polygone', dossierId: 531, cleabs: 'BAT_A', statut: 'preserve' });
     expect(res.status).toBe(200);
-    expect(poserStatutPolygone).toHaveBeenCalledWith(531, 'BAT_A', 'preserve', 'admin:projection', 'saisie'); // RATT-2 — décision humaine
+    expect(poserStatutPolygone).toHaveBeenCalledWith(531, 'BAT_A', 'preserve', 'admin:projection', 'saisie'); // AFF-2 — décision humaine
     const j = await res.json();
     expect(j.statutsPolygones[0]).toMatchObject({ cleabs: 'BAT_A', statut: 'preserve', etatBdtopoAuMoment: 'En projet' }); // source conservée à côté
   });
-  it('révoquer est un statut valide', async () => {
+  it('AFF-2 — « mixte » (partiellement détruit) est DÉSORMAIS un statut manuel valide → 200, posé en saisie', async () => {
+    const res = await post({ action: 'statuer_polygone', dossierId: 531, cleabs: 'BAT_A', statut: 'mixte' });
+    expect(res.status).toBe(200);
+    expect(poserStatutPolygone).toHaveBeenCalledWith(531, 'BAT_A', 'mixte', 'admin:projection', 'saisie'); // arbitrable à la main
+    expect(appliquerAutoStatut).not.toHaveBeenCalled(); // une décision POSÉE ne relance pas l'auto (elle prime)
+  });
+  it('AFF-2 — « revenir au statut automatique » (revoque) est valide ET re-propose l’auto (appliquerAutoStatut appelé)', async () => {
     const res = await post({ action: 'statuer_polygone', dossierId: 531, cleabs: 'BAT_A', statut: 'revoque' });
     expect(res.status).toBe(200);
-    expect(poserStatutPolygone).toHaveBeenCalledWith(531, 'BAT_A', 'revoque', 'admin:projection', 'saisie'); // RATT-2 — décision humaine
+    expect(poserStatutPolygone).toHaveBeenCalledWith(531, 'BAT_A', 'revoque', 'admin:projection', 'saisie'); // révoque MA décision
+    expect(appliquerAutoStatut).toHaveBeenCalledWith(531, 'auto:emprise'); // puis re-propose le statut géométrique
   });
   it('statut hors liste → 400, aucune écriture', async () => {
     const res = await post({ action: 'statuer_polygone', dossierId: 531, cleabs: 'BAT_A', statut: 'demoli' });

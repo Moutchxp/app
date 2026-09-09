@@ -1466,20 +1466,22 @@ describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décisio
     expect(html).toContain('Polygone A');
     expect(html).not.toContain('Polygone B'); // « en projet » (futur bâti) exclu (relève de l'adoption)
     expect(html).toContain('Polygone C'); // RATT-2 — recouvert par l'emprise projetée : DÉSORMAIS listé (détruit par défaut, basculable)
-    expect(html).toContain('recouvert à 100 % par l’emprise projetée — statut détruit par défaut'); // recouvrement TOTAL → détruit par défaut (RATT-5/6)
+    expect(html).toContain('recouvert à 100 % par l’emprise projetée'); // AFF-2 — le taux est affiché
     expect(html).toContain('BD TOPO');
     expect(html).toContain('bâtiment préservé');
     expect(html).toContain('BD TOPO disait « En projet »'); // 🔴 la source reste lisible ; ma décision prime sans l'écraser
   });
 
-  it('RATT-4 — un « en projet » RECOUVERT entre dans la liste (mention rouge + 2 boutons) ; un « en projet » NON recouvert reste exclu', () => {
+  it('AFF-2 — un « en projet » RECOUVERT entre dans la liste (mention rouge + TROIS boutons actifs) ; un « en projet » NON recouvert reste exclu', () => {
     const polygones = [poly('B', 'En projet', 'B'), poly('D', 'En projet', 'D')];
     const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: [{ cleabs: 'D', tauxPct: 100 }], statuts: new Map(), onStatuer: () => {} }));
     expect(html).toContain('Polygone D');                     // « en projet » RECOUVERT (total) → listé
     expect(html).not.toContain('Polygone B');                 // « en projet » NON recouvert → hors liste
-    expect(html).toContain('recouvert à 100 % par l’emprise projetée — statut détruit par défaut'); // recouvrement total → détruit
-    expect(html).toContain('bâtiment préservé');              // bouton actif (basculable)
-    expect(html).toContain('bâtiment détruit');               // bouton actif
+    expect(html).toContain('recouvert à 100 % par l’emprise projetée'); // AFF-2 — taux affiché
+    expect(html).toContain('data-choix="preserve"');          // bouton actif (arbitrable)
+    expect(html).toContain('data-choix="mixte"');             // AFF-2 — troisième statut arbitrable à la main
+    expect(html).toContain('data-choix="detruit"');           // bouton actif
+    expect(html).not.toContain('aria-disabled="true"');       // AFF-2 — plus aucun bouton inerte
   });
 
   it('RATT-5 — un « En service » SOUS le seuil (absent de recouverts) reste listé SANS mention ; au-dessus, mention avec son taux', () => {
@@ -1493,35 +1495,33 @@ describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décisio
     expect(html.match(/recouvert à/g) ?? []).toHaveLength(1);
   });
 
-  it('RATT-6 — recouvert PARTIEL (80 %) → mention « partiellement détruit » + les deux boutons DÉSACTIVÉS (aria-disabled)', () => {
-    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('A', 'En service', 'A')], recouverts: [{ cleabs: 'A', tauxPct: 80 }], statuts: new Map(), onStatuer: () => {} }));
-    expect(html).toContain('partiellement détruit — recouvert à 80 % par l’emprise projetée');
-    expect(html).not.toContain('statut détruit par défaut');       // pas la mention du détruit total
-    expect(html).toContain('non modifiable à la main');            // POURQUOI c'est grisé (accessibilité/compréhension)
-    expect((html.match(/aria-disabled="true"/g) ?? []).length).toBe(2); // préservé + détruit désactivés
-    expect(html).not.toContain('annuler ma décision');            // pas de révocation d'un fait géométrique
+  it('AFF-2 — recouvert PARTIEL (60 %) sans statut stocké → taux affiché + les TROIS boutons ACTIFS (arbitrage), aucun inerte', () => {
+    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('A', 'En service', 'A')], recouverts: [{ cleabs: 'A', tauxPct: 60 }], statuts: new Map(), onStatuer: () => {} }));
+    expect(html).toContain('recouvert à 60 % par l’emprise projetée');
+    expect(html).toContain('data-choix="preserve"');
+    expect(html).toContain('data-choix="mixte"');           // AFF-2 — partiellement détruit ARBITRABLE
+    expect(html).toContain('data-choix="detruit"');
+    expect(html).not.toContain('aria-disabled="true"');     // AFF-2 — plus aucun bouton grisé
   });
 
-  it('RATT-6 — recouvert TOTAL (100 %) → mention « détruit par défaut », boutons ACTIFS (pas de mixte)', () => {
-    const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('A', 'En service', 'A')], recouverts: [{ cleabs: 'A', tauxPct: 100 }], statuts: new Map(), onStatuer: () => {} }));
-    expect(html).toContain('recouvert à 100 % par l’emprise projetée — statut détruit par défaut');
-    expect(html).not.toContain('partiellement détruit');
-    expect(html).not.toContain('aria-disabled="true"'); // boutons actifs (détruit total est basculable)
-  });
-
-  it('RATT-6 — statut « mixte » STOCKÉ (auto) → boutons désactivés même sans info de recouvrement passée', () => {
+  it('AFF-2 — statut « mixte » STOCKÉ (proposé auto) → arbitrable : trois boutons ACTIFS, statut courant dit « proposé automatiquement »', () => {
     const statuts = statutCourantParCleabs([{ cleabs: 'A', statut: 'mixte', etatBdtopoAuMoment: 'En service', decidePar: 'auto', decideLe: '2026-08-01T10:00:00Z', origine: 'auto_mixte' }] as LigneStatutPolygone[]);
     const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('A', 'En service', 'A')], recouverts: [], statuts, onStatuer: () => {} }));
-    expect(html).toContain('partiellement détruit (fait géométrique)'); // libellé de la décision courante
-    expect((html.match(/aria-disabled="true"/g) ?? []).length).toBe(2);
+    expect(html).toContain('partiellement détruit (prévision)');  // libellé de la décision courante (AFF-2 : plus « fait géométrique »)
+    expect(html).toContain('proposé automatiquement');            // AFF-2 — distingue auto vs à la main
+    expect(html).not.toContain('aria-disabled="true"');           // AFF-2 — arbitrable, aucun bouton inerte
+    expect(html).toContain('data-choix="mixte"');
   });
 
-  it('« détruit » est signalé comme une PRÉVISION à confirmer à la mise à jour cadastrale', () => {
+  it('AFF-2 — « détruit » posé à la main est une PRÉVISION (mise à jour cadastrale) + bouton « revenir au statut automatique »', () => {
     const statuts = statutCourantParCleabs([ligne('A', 'detruit', 'En service')]);
     const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones: [poly('A', 'En service', 'A')], recouverts: [], statuts, onStatuer: () => {} }));
     expect(html).toMatch(/Prévision/);
-    expect(html).toContain('mise à jour de la planche cadastrale');
-    expect(html).toContain('annuler ma décision'); // révocable
+    expect(html).toContain('mise à jour cadastrale');
+    expect(html).toContain('revenir au statut automatique');      // AFF-2 — retour à l'auto (remplace « annuler ma décision »)
+    // AFF-2 — CAS PARTICULIER : détruit forcé à la main SANS recouvrement → décision volontaire signalée à l'écran.
+    expect(html).toContain('data-detruit-volontaire="true"');
+    expect(html).toContain('Décision volontaire');
   });
 
   it('l’HISTORIQUE de mes décisions est repliable (audit qui/quand)', () => {
@@ -1603,7 +1603,7 @@ describe('AFF-1 — encart réorganisé en blocs repliés', () => {
     const html = renderToStaticMarkup(h(BlocExistantsRepliable, { polygones, recouverts: [], statuts: new Map(), onStatuer: () => {} }));
     expect(html).toMatch(/<details/);
     expect(html).not.toMatch(/<details[^>]*\sopen/);
-    expect(html).toContain('Affectation (préservé/détruit) des bâtiments existants de la ou des parcelles du permis');
+    expect(html).toContain('Affectation (préservé / partiellement détruit / détruit) des bâtiments existants de la ou des parcelles du permis');
     expect(html).toContain('— 1 bâtiment');
     expect(html).toContain('bâtiment préservé');               // contenu StatutPolygonesExistants présent
     expect(html).not.toContain('Bâtiments existants du site'); // titre interne masqué (porté par le résumé)

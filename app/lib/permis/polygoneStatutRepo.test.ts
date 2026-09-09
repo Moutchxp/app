@@ -37,15 +37,16 @@ import { poserStatutPolygone } from './polygoneStatutRepo';
 
 const inserts = () => H.calls.filter((c) => /INSERT INTO permis_polygone_statut/i.test(c.sql));
 
-describe('RATT-6 — poserStatutPolygone : garde serveur « mixte » non modifiable', () => {
+describe('AFF-2 — poserStatutPolygone : les TROIS statuts arbitrables à la main (plus de garde « mixte »)', () => {
   beforeEach(() => { H.calls.length = 0; H.state.statutCourant = null; H.state.checkViolationSurMixte = false; H.state.gelColonne = false; H.state.gelVersion = null; });
 
-  it('SAISIE manuelle sur un polygone dont le statut COURANT est « mixte » → REFUSÉE côté serveur (aucun INSERT)', async () => {
-    H.state.statutCourant = 'mixte';
-    const r = await poserStatutPolygone(1, 'CLEABS_X', 'preserve', 'admin', 'saisie');
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.motif).toMatch(/non modifiable/i);
-    expect(inserts()).toHaveLength(0); // rien écrit
+  it('AFF-2 — SAISIE manuelle « mixte » (partiellement détruit) → DÉSORMAIS AUTORISÉE (INSERT émis, origine saisie)', async () => {
+    H.state.statutCourant = 'mixte'; // même si le courant était mixte : plus aucun refus
+    const r = await poserStatutPolygone(1, 'CLEABS_X', 'mixte', 'admin', 'saisie');
+    expect(r.ok).toBe(true);
+    expect(inserts()).toHaveLength(1);
+    expect(inserts()[0].params[2]).toBe('mixte');    // statut posé à la main
+    expect(inserts()[0].params[5]).toBe('saisie');   // origine = décision humaine (prime)
   });
 
   it('SAISIE manuelle sur un polygone « detruit » (pas mixte) → AUTORISÉE (INSERT émis)', async () => {

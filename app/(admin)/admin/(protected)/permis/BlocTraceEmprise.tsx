@@ -1068,7 +1068,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   // RATT-1 (2) — statut COURANT par cleabs (dérivé du registre append-only). Pur, dérivé de l'état.
   const statutParCleabs = useMemo(() => statutCourantParCleabs(statutsLignes), [statutsLignes]);
   // RATT-1 (2) — STATUER un polygone existant (préservé / détruit / révoquer). La réponse serveur (registre à jour) fait foi.
-  const statuerPolygone = useCallback(async (cleabs: string, statut: 'preserve' | 'detruit' | 'revoque') => {
+  const statuerPolygone = useCallback(async (cleabs: string, statut: 'preserve' | 'detruit' | 'mixte' | 'revoque') => {
     setMessage(null);
     try {
       const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'statuer_polygone', dossierId, cleabs, statut }) });

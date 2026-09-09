@@ -88,6 +88,26 @@ describe('RATT-5 — lireSeuilRecouvrementEmprisePct (seuil LU depuis la config,
   });
 });
 
+import { lireSeuilDestructionPct, SEUIL_DESTRUCTION_PCT_DEFAUT } from './rattachementConfig';
+
+describe('AFF-2 — lireSeuilDestructionPct (seuil « détruit » LU depuis la config, jamais codé en dur)', () => {
+  const rowS = (s: number) => { H.state.row = { s } as unknown as { s: number; b: number; m: number }; };
+  it('valeur en base (80) → seuilPct 80 + provenance « base » (≠ défaut : preuve que la config est lue)', async () => {
+    H.state.mode = 'ok'; rowS(80);
+    const r = await lireSeuilDestructionPct();
+    expect(r).toEqual({ seuilPct: 80, provenance: 'base' });
+    expect(r.seuilPct).not.toBe(SEUIL_DESTRUCTION_PCT_DEFAUT); // ≠ 75 → ce n'est PAS le défaut en dur
+  });
+  it('colonne non migrée (erreur SQL) → défaut 75 + provenance « defaut »', async () => {
+    H.state.mode = 'throw';
+    expect(await lireSeuilDestructionPct()).toEqual({ seuilPct: SEUIL_DESTRUCTION_PCT_DEFAUT, provenance: 'defaut' });
+  });
+  it('ligne config absente → défaut 75 (AFF-2) + provenance « defaut »', async () => {
+    H.state.mode = 'vide';
+    expect(await lireSeuilDestructionPct()).toEqual({ seuilPct: 75, provenance: 'defaut' });
+  });
+});
+
 import { lireDelaisPhases, DELAI_BASCULE_JOURS_DEFAUT, DUREE_MESSAGE_JOURS_DEFAUT } from './rattachementConfig';
 
 describe('PHASE-1 — lireDelaisPhases (délais LUS depuis la config, jamais codés en dur)', () => {

@@ -146,7 +146,7 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vu
   const polygonesReperes = useMemo(() => attribuerReperes(recapProjection?.polygones ?? []), [recapProjection]);
   const statutParCleabs = useMemo(() => statutCourantParCleabs(statutsLignes), [statutsLignes]);
   // RATT-1 bis — STATUER un polygone existant (mêmes paramètres qu'en Analyse). Après succès, REJOUE le GET emprise (source unique).
-  const statuerPolygone = useCallback(async (cleabs: string, statut: 'preserve' | 'detruit' | 'revoque') => {
+  const statuerPolygone = useCallback(async (cleabs: string, statut: 'preserve' | 'detruit' | 'mixte' | 'revoque') => {
     if (ouvert === null) return;
     setStatutErreur('');
     try {

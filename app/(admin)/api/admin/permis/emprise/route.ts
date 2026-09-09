@@ -148,7 +148,7 @@ export async function POST(request: Request): Promise<Response> {
     const body = (await request.json().catch(() => ({}))) as {
       action?: string; dossierId?: number | string; corpsId?: number; pieceId?: number; page?: number; libelle?: string;
       anneauPlan?: PointPlan[]; paires?: PaireCalage[]; ratioDeclare?: number | null; id?: number; motif?: string; cleabs?: string;
-      statut?: string; // RATT-1 (2) — preserve | detruit | revoque
+      statut?: string; // AFF-2 — preserve | detruit | mixte | revoque
       affectations?: { cleabs: string; corpsId: number }[];
       anneau?: { x: number; y: number }[]; // PROJ-3s — sommets Lambert d'une retouche (positions ; jamais une géométrie autoritative)
       ajustement?: Ajustement; // PROJ-3t (lot 3b) — DELTA rigide {tx,ty,rotDeg,echelle,centre} d'un geste d'ajustement (pose_le/pose_par posés serveur)
@@ -332,15 +332,19 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: true, polygonesEcartes: await listerPolygonesProjetEcartes(dossierId) });
     }
 
-    // RATT-1 (2) — STATUER un polygone EXISTANT (préservé / détruit / révoquer). Append-only : chaque décision = une nouvelle ligne.
+    // AFF-2 — STATUER un polygone EXISTANT (préservé / partiellement détruit / détruit / revenir à l'auto). Append-only : chaque décision = une nouvelle ligne.
     //   La source IGN batiment.etat_de_l_objet n'est JAMAIS touchée (snapshot lu côté repo). Disponible même « en attente du bâti »
     //   (ces statuts portent sur des polygones existants, pas sur le futur bâtiment). Renvoie le registre à jour pour l'affichage.
     if (body.action === 'statuer_polygone') {
       const cleabs = typeof body.cleabs === 'string' ? body.cleabs : '';
-      const statut = body.statut === 'preserve' || body.statut === 'detruit' || body.statut === 'revoque' ? body.statut : null;
-      if (cleabs.trim() === '' || statut === null) return Response.json({ erreur: 'requête invalide (cleabs + statut preserve|detruit|revoque)' }, { status: 400 });
-      const res = await poserStatutPolygone(dossierId, cleabs, statut, 'admin:projection', 'saisie'); // RATT-2 — décision HUMAINE (jamais révoquée par l'auto)
+      // AFF-2 — les TROIS statuts sont arbitrables à la main ('mixte' inclus) ; 'revoque' = « revenir au statut automatique ».
+      const statut = body.statut === 'preserve' || body.statut === 'detruit' || body.statut === 'mixte' || body.statut === 'revoque' ? body.statut : null;
+      if (cleabs.trim() === '' || statut === null) return Response.json({ erreur: 'requête invalide (cleabs + statut preserve|detruit|mixte|revoque)' }, { status: 400 });
+      const res = await poserStatutPolygone(dossierId, cleabs, statut, 'admin:projection', 'saisie'); // AFF-2 — décision HUMAINE (jamais révoquée par l'auto)
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.tableAbsente ? 409 : 400 });
+      // AFF-2 — « revenir au statut automatique » : après avoir révoqué MA décision, on re-propose aussitôt le statut géométrique (detruit/mixte
+      //   selon le taux, ou rien si non recouvert → préservé). Sur les trois statuts POSÉS à la main, on ne relance PAS l'auto (ma décision prime).
+      if (statut === 'revoque') await appliquerAutoStatut(dossierId, 'auto:emprise');
       return Response.json({ ok: true, statutsPolygones: await lireStatutsPolygones(dossierId), polygonesRecouverts: await polygonesRecouvertsParEmprise(dossierId) });
     }
 

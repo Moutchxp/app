@@ -1,6 +1,6 @@
 import { query } from '../db/client';
 import { statutCourantParCleabs, actionsAutoStatut, estRecouvertParEmprise, type LigneStatutPolygone, type LigneStatut, type OrigineStatut, type PolygoneRecouvert } from './polygoneStatut';
-import { lireSeuilRecouvrementEmprisePct } from './rattachementConfig'; // RATT-5 — seuil de recouvrement lu au runtime (config_veille), jamais en dur
+import { lireSeuilRecouvrementEmprisePct, lireSeuilDestructionPct } from './rattachementConfig'; // RATT-5 — plancher anti-bruit ; AFF-2 — seuil « détruit » ; lus au runtime (config_veille), jamais en dur
 import { versionGelCourante } from './gelRepo'; // FIG-1 — VERSION d'état figé désignée par la décision de statut
 
 /**
@@ -34,16 +34,6 @@ async function colonneGelStatut(): Promise<boolean> {
   } catch { return false; }
 }
 
-/** RATT-6 — statut COURANT (dernière ligne) d'un cleabs dans un dossier ; `null` si aucune ligne ou table absente. Sert au refus serveur
- *  d'une saisie manuelle sur un polygone 'mixte' (fait géométrique non modifiable). Lecture SEULE de NOTRE table de décision. */
-async function statutCourantDe(dossierId: number, cleabs: string): Promise<LigneStatut | null> {
-  try {
-    const { rows } = await query<{ statut: LigneStatut }>(
-      `SELECT statut FROM permis_polygone_statut WHERE dossier_id = $1 AND cleabs = $2 ORDER BY decide_le DESC LIMIT 1`, [dossierId, cleabs]);
-    return rows[0]?.statut ?? null;
-  } catch (e) { if (estTableAbsente(e)) return null; throw e; }
-}
-
 /** Toutes les lignes du registre pour un dossier (ordre quelconque ; la logique de « courant » est PURE, cf. polygoneStatut). `[]` si table absente.
  *  RATT-2 — lit `origine` si la colonne existe (migration 165) ; sinon repli SANS elle → `origine = null` (traité comme « non-auto », jamais révoqué). */
 export async function lireStatutsPolygones(dossierId: number): Promise<LigneStatutPolygone[]> {
@@ -66,9 +56,9 @@ export async function lireStatutsPolygones(dossierId: number): Promise<LigneStat
 
 /**
  * RATT-5 — polygones BD TOPO « recouverts » par l'emprise PROJETÉE (union des emprises tracées du dossier) AVEC leur TAUX de
- * recouvrement (part de la surface du polygone sous l'emprise, en %). Un polygone n'est retenu que si son taux ATTEINT LE SEUIL lu
- * en config (`lireSeuilRecouvrementEmprisePct`, défaut 50 %) : un chevauchement marginal ne vaut plus « détruit » (avant RATT-5, tout
- * `ST_Intersects` non vide comptait). `[]` si aucune emprise ou table absente.
+ * recouvrement (part de la surface du polygone sous l'emprise, en %). Un polygone n'est retenu que si son taux ATTEINT LE PLANCHER
+ * anti-bruit lu en config (`lireSeuilRecouvrementEmprisePct`, défaut 3 %) : sous le plancher, un chevauchement marginal est du bruit de
+ * tracé → aucun statut (préservé). Au-dessus, il sera « partiellement détruit » ou « détruit » selon le seuil « détruit » (AFF-2). `[]` si aucune emprise ou table absente.
  *
  * 🔴 INDEX PRÉSERVÉ : le filtre grossier reste `b.geom && emp.g` sur la géométrie BRUTE (jamais ST_Force2D autour du prédicat indexé) —
  *   EXPLAIN confirme l'Index Scan GiST `batiment_geom_geom_idx`. ST_Force2D reste dans le prédicat exact (ST_Intersects) et dans les
@@ -92,18 +82,16 @@ export async function polygonesRecouvertsParEmprise(dossierId: number): Promise<
 /**
  * POSER une décision de statut (append-only : une nouvelle LIGNE). `statut` ∈ 'preserve' | 'detruit' | 'mixte' | 'revoque'. On lit le
  * SNAPSHOT de la source IGN (`batiment.etat_de_l_objet`) au moment — jamais réécrit. RATT-2 : `origine` distingue saisie humaine d'un
- * automatisme. RATT-6 :
- *  · GARDE SERVEUR — une SAISIE manuelle sur un polygone dont le statut COURANT est 'mixte' est REFUSÉE (fait géométrique non
- *    modifiable), pas seulement grisée côté UI ;
+ * automatisme. AFF-2 :
+ *  · ARBITRAGE — les TROIS statuts (préservé / partiellement détruit / détruit) sont posables à la main : plus AUCUN refus serveur du
+ *    'mixte' manuel. Une décision origine='saisie' prime (jamais écrasée par l'automatisme, cf. actionsAutoStatut) ;
  *  · RÉSILIENCE migration 167 — si 'mixte'/'auto_mixte' n'est pas encore admis par le CHECK (23514), on REPLIE proprement sur l'ancien
  *    comportement ('detruit'/'auto_recouvrement' = détruit ENTIER), sans crash ni erreur remontée. La ligne existe, l'app tourne.
  */
 export async function poserStatutPolygone(dossierId: number, cleabs: string, statut: LigneStatut, par: string | null, origine: OrigineStatut = 'saisie'): Promise<ResultatStatut> {
   if (!cleabs || cleabs.trim() === '') return { ok: false, motif: 'polygone invalide' };
-  // RATT-6 — refus SERVEUR d'une saisie manuelle sur un 'mixte' (le fait géométrique prime ; l'automatisme, lui, réaligne son propre statut).
-  if (origine === 'saisie' && (await statutCourantDe(dossierId, cleabs)) === 'mixte') {
-    return { ok: false, motif: 'statut « partiellement détruit » non modifiable : c’est un fait géométrique (déduit du recouvrement), pas une décision' };
-  }
+  // AFF-2 — les TROIS statuts (préservé / partiellement détruit / détruit) sont désormais ARBITRABLES à la main : plus aucun refus serveur
+  //   du 'mixte' manuel. Une saisie porte origine='saisie' → JAMAIS écrasée par l'automatisme (cf. actionsAutoStatut), donc elle prime.
   // SNAPSHOT de la source IGN au moment (lecture SEULE de batiment) — la source n'est jamais modifiée.
   const src = await query<{ etat: string | null }>(`SELECT etat_de_l_objet AS etat FROM batiment WHERE cleabs = $1 LIMIT 1`, [cleabs]);
   const etatMoment = src.rows[0]?.etat ?? null;
@@ -144,12 +132,12 @@ export async function poserStatutPolygone(dossierId: number, cleabs: string, sta
  */
 export async function appliquerAutoStatut(dossierId: number, par: string | null): Promise<void> {
   try {
-    const [recouverts, lignes, { seuilPct }] = await Promise.all([
-      polygonesRecouvertsParEmprise(dossierId), lireStatutsPolygones(dossierId), lireSeuilRecouvrementEmprisePct(),
+    const [recouverts, lignes, { seuilPct: plancherPct }, { seuilPct: seuilDetruitPct }] = await Promise.all([
+      polygonesRecouvertsParEmprise(dossierId), lireStatutsPolygones(dossierId), lireSeuilRecouvrementEmprisePct(), lireSeuilDestructionPct(),
     ]);
     const statuts = statutCourantParCleabs(lignes);
-    // RATT-6 — le statut auto est GÉOMÉTRIQUE : 'detruit' (total) ou 'mixte' (partiel) selon le taux vs le seuil ; révocation si plus recouvert.
-    for (const a of actionsAutoStatut(recouverts, seuilPct, statuts)) {
+    // AFF-2 — le statut auto est GÉOMÉTRIQUE : 'detruit' (taux ≥ seuil « détruit ») ou 'mixte' (entre plancher et seuil) ; révocation si plus recouvert.
+    for (const a of actionsAutoStatut(recouverts, plancherPct, seuilDetruitPct, statuts)) {
       await poserStatutPolygone(dossierId, a.cleabs, a.statut, par, a.origine);
     }
   } catch { /* best-effort : l'automatisme de statut ne doit jamais faire échouer la mutation d'emprise appelante. */ }
