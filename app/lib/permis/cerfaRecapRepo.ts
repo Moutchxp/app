@@ -1,6 +1,8 @@
 import { query } from '../db/client';
 import { origineDepuisMajPar, suffixeOrigine } from './journalExtraction'; // LOT 100
-import type { DeclarationsRecapCerfa } from './recapCerfa';
+import { lireDeclarationsRecapCerfa, type DeclarationsRecapCerfa } from './recapCerfa';
+import { lireGedPermis, depsReellesLectureGed } from './lectureGed'; // REPLI D'AFFICHAGE — texte DÉJÀ extrait des pièces (pdfjs local), aucune IA, aucun service payant
+import { trouverCerfaPc } from './identifierCerfa'; // pièce source identifiée PAR CONTENU (jamais par nom)
 import type { DecompteDescription } from './decompteDescription';
 import { lirePermisCaracteristiques, ecrireCaracteristiquesGlobales, type ChampGlobalDeclare } from './caracteristiquesRepo';
 import { proprietairesRetenue } from './journalLecture';
@@ -132,4 +134,40 @@ export async function lireDeclarationsRecap(dossierId: number): Promise<Declarat
     const r = rows[0];
     return r ? { declarations: r.declarations, pieceSource: r.piece_source, majLe: r.maj_le } : null;
   } catch { return null; } // 192 absente → aucun bloc
+}
+
+/** REPLI — lit tout le TEXTE de la GED d'un dossier (pdfjs local, aucune IA) + identifie la pièce Cerfa source PAR CONTENU. Isolé pour
+ *  l'injection de tests (le repli d'affichage n'a pas à dépendre de S3 dans un test unitaire). Coût réel ~2 à 10 s selon le nb de pièces. */
+async function lireTexteGedEtSource(dossierId: number): Promise<{ texte: string; source: string | null }> {
+  const deps = depsReellesLectureGed();
+  const ged = await lireGedPermis(dossierId, deps);
+  const texte = ged.pieces.flatMap((p) => p.pages.filter((y) => y.aTexte).map((y) => y.texte)).join('\n');
+  const metas = await deps.listerPieces(dossierId); // pièce source identifiée PAR CONTENU (trouverCerfaPc), jamais par nom
+  return { texte, source: trouverCerfaPc(ged, metas)?.nomFichier ?? null };
+}
+
+/**
+ * AFFICHAGE — déclarations du Cerfa avec REPLI EN LECTURE À LA VOLÉE. L'INSTANTANÉ stocké (permis_cerfa_recap) reste PRIORITAIRE :
+ * s'il existe, on le renvoie tel quel, jamais recalculé par-dessus. S'il n'existe PAS (dossier dont l'analyse complète est ANTÉRIEURE à
+ * la persistance du récap — LOT 67), on RECONSTITUE les déclarations depuis le TEXTE DÉJÀ EXTRAIT des pièces (lireDeclarationsRecapCerfa,
+ * déterministe). ⚠️ REPLI D'AFFICHAGE, PAS un backfill : AUCUNE écriture en base. ⚠️ AUCUN appel IA ni service payant — uniquement le
+ * texte pdfjs local déjà présent. COÛT : ce repli lit toute la GED du dossier (~2 à 10 s selon le nombre de pièces) ; il ne s'exécute
+ * donc QUE lorsqu'aucun instantané n'est stocké (un dossier stocké paie 0 ms). Récap illisible ou toute erreur → null (comportement d'avant).
+ * `deps` injectables pour les tests uniquement (défauts = base + GED réelles).
+ */
+export async function lireDeclarationsRecapOuRepli(
+  dossierId: number,
+  deps: {
+    lireStocke?: (id: number) => Promise<DeclarationsCerfaStockees | null>;
+    lireTexteEtSource?: (id: number) => Promise<{ texte: string; source: string | null }>;
+  } = {},
+): Promise<DeclarationsCerfaStockees | null> {
+  const stocke = await (deps.lireStocke ?? lireDeclarationsRecap)(dossierId);
+  if (stocke) return stocke; // instantané STOCKÉ prioritaire — jamais recalculé par-dessus
+  try {
+    const { texte, source } = await (deps.lireTexteEtSource ?? lireTexteGedEtSource)(dossierId);
+    const decl = lireDeclarationsRecapCerfa(texte);
+    if (!decl.present) return null; // aucun récapitulatif lisible → pas de bloc (comportement d'avant)
+    return { declarations: decl, pieceSource: source, majLe: null }; // majLe null = reconstitué à la volée (non figé en base)
+  } catch { return null; }
 }
