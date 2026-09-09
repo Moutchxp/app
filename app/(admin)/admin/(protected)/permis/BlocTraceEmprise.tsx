@@ -1352,6 +1352,61 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     );
   }
 
+  // POSITION DU BLOC EMPRISE — dès qu'AU MOINS UNE emprise de bâtiment en projet existe pour ce permis (pas les polygones BD TOPO existants,
+  //   qui sont là d'office), le bloc « Modifier l'emprise… + ligne + gestes ajuster/retoucher/effacer » REMONTE juste sous le schéma (au-dessus
+  //   du bandeau « Empreinte Parcelle(s) »). Sinon, il reste à sa place actuelle, plus bas. Déplacement de POSITION uniquement : contenu, logique,
+  //   conditions d'activation et navigation INCHANGÉS (même JSX `blocEmprises`, rendu à UN seul des deux emplacements).
+  const aEmprises = emprises.length > 0;
+  const blocEmprises = (
+    <>
+      {chaineBoutons}
+      {/* BUG PROV — le RÉSULTAT (succès OU erreur serveur) s'affiche ICI, au point d'action : un bouton MUET était le pire cas. */}
+      {message && <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-svv-red)' }}>{message}</div>}
+
+      {/* Emprises de CE bâtiment : ajuster (delta rigide), retoucher (sommets, mono-polygone) ou effacer. Pendant un ajustement (une ou bloc), les boutons « ajuster » se masquent. */}
+      <ListeEmprises emprises={empriseDuBat} empriseEnRetouche={retouche?.id ?? null} empriseEnAjustement={ajustement?.id ?? null} nomCorps={batSel ? libelleBatiment(batSel) : undefined}
+        onSupprimer={(id) => void posterProjection('supprimer', corpsEffectif!, { id })}
+        onRetoucher={(id) => demarrerRetouche(id)} onAjuster={ajustement ? undefined : (id) => demarrerAjustement(id)} />
+
+      {/* PROJ-3t (lot 3b) — SÉLECTEUR de portée : « cette emprise » (bouton « ajuster » de chaque ligne ci-dessus) OU « toutes ensemble »
+          (positions relatives conservées). Offert quand ≥ 2 emprises dans le DOSSIER et aucun ajustement en cours. */}
+      {!ajustement && emprises.length >= 2 && (
+        <button type="button" style={{ ...btn, alignSelf: 'flex-start' }} onClick={demarrerAjustementBloc}>ajuster toutes les emprises du dossier ensemble ({emprises.length})</button>
+      )}
+
+      {/* PANNEAU D'AJUSTEMENT (souris + boutons ; les boutons suffisent seuls, mobile-first). Réversibilité garantie. */}
+      {ajustement && apercuAjustement && (
+        <PanneauAjustement resume={resumeAjustement(ajustement.delta)} occupe={occupe} aDeltaEnregistre={ajustement.enregistre} bloc={ajustement.bloc}
+          onTranslate={onTranslate} onRotate={onRotate} onScale={onScale}
+          onEnregistrer={() => void enregistrerAjustementGeste()} onAbandonner={abandonnerAjustement} onOrigine={() => void revenirOrigineAjustement()} />
+      )}
+
+      {/* PROJ-3s — PANNEAU DE RETOUCHE (visible seulement en retouche) : sous-mode + annuler / abandonner / valider. Mobile-first. */}
+      {retouche && (
+        <div style={{ border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.6rem', background: 'var(--color-svv-surface)' }} role="group" aria-label="retouche de l’emprise">
+          <div style={{ fontWeight: 600, marginBottom: 4 }}>Retouche de l’emprise <span style={styleAide}>— rien n’est modifié en base tant que vous ne validez pas</span></div>
+          <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', marginBottom: '.3rem' }}>
+            {(['deplacer', 'inserer', 'supprimer'] as ModeRetouche[]).map((m) => (
+              <button key={m} type="button" style={{ ...btn, fontWeight: modeRetouche === m ? 700 : 400 }} disabled={occupe} onClick={() => { setModeRetouche(m); setSommetSel(null); }}>
+                {m === 'deplacer' ? 'Déplacer un sommet' : m === 'inserer' ? 'Insérer sur un bord' : 'Supprimer un sommet'}
+              </button>
+            ))}
+          </div>
+          <p style={{ ...styleAide, margin: '0 0 .3rem' }}>
+            {modeRetouche === 'deplacer' ? (sommetSel === null ? 'Touchez un sommet à déplacer, puis touchez sa nouvelle position.' : 'Touchez la nouvelle position du sommet sélectionné.')
+              : modeRetouche === 'inserer' ? 'Touchez un bord pour y insérer un sommet.'
+                : 'Touchez un sommet pour le supprimer (un contour garde au moins 3 sommets).'}
+          </p>
+          <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
+            <button type="button" style={btn} disabled={occupe || retouche.hist.length === 0} onClick={annulerRetouche}>Annuler la dernière action</button>
+            <button type="button" style={btn} disabled={occupe} onClick={abandonnerRetouche}>Abandonner</button>
+            <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe} onClick={() => void validerRetouche()}>Valider la retouche</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>Projection des emprises — reconstitution par bâtiment <span style={styleAide}>(jamais une mesure ; n’alimente ni le verdict ni l’altitude)</span></div>
@@ -1457,6 +1512,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={ajustement ? [] : paires.map((p) => p.lambert)} residusCalage={residus.ecarts} indicePireCalage={residus.indexPlusFautif} statuts={statutParCleabs}
               onCliquer={ajustement ? undefined : (retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined))} retoucheAnneau={retouche?.anneau ?? null} sommetSelectionne={sommetSel}
               apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustement : undefined} />
+            {/* POSITION REMONTÉE — dès qu'une emprise en projet existe, le bloc emprise vient JUSTE SOUS le schéma, au-dessus de « Empreinte Parcelle(s) ». */}
+            {aEmprises && blocEmprises}
             {/* Sous le schéma : bandeau de sélection (la rotation est désormais dans la barre droite, au-dessus du schéma). */}
             {bandeauSel}
             {/* FIX « ascenseur » — PENDANT tout le processus de création (calage amorcé → 1/2 → 2/2 → tracé des sommets → jusqu'à la
@@ -1501,55 +1558,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             {/* PROJ — repère « qualité du calage » : écart d'échelle (réutilisé du pavé de calage) + débordement hors parcelle (serveur). Jamais bloquant. */}
             <RepereQualiteCalage ecartEchelleRelatif={vc?.ecartEchelleRelatif ?? null} ratioImplicite={vc?.ratioImplicite ?? null} ratioDeclare={vc?.ratioDeclare ?? null}
               debordement={sommets.length >= 3 || sommets.length === 0 ? debordement : null} contourFerme={sommets.length >= 3} parcelleRattachee={parcelle.length > 0} origineIgn={origineIgnCourant && sommets.length < 3} />
-            {/* ① COMPLÉMENT — CHAÎNE DE TROIS BOUTONS PAR BÂTIMENT : UN SEUL visible selon l'état (source unique `etapeChaineEmprise`),
-                ROUGE plein (facture « Enregistrer ce bâtiment » = svv-btn-primary), nommant le bâtiment par son repère réel. Au clic, l'état
-                avance (l'indicateur vert apparaît, le bouton suivant s'affiche). Toute erreur est DITE (jamais un bouton muet).
-                SOURCE UNIQUE `chaineBoutons` — même bloc réutilisé par la bande du niveau 3 (enchaînement sans quitter le plein écran). */}
-            {chaineBoutons}
-            {/* BUG PROV — le RÉSULTAT (succès OU erreur serveur) s'affiche ICI, au point d'action : un bouton MUET était le pire cas. */}
-            {message && <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-svv-red)' }}>{message}</div>}
-
-            {/* Emprises de CE bâtiment : ajuster (delta rigide), retoucher (sommets, mono-polygone) ou effacer. Pendant un ajustement (une ou bloc), les boutons « ajuster » se masquent. */}
-            <ListeEmprises emprises={empriseDuBat} empriseEnRetouche={retouche?.id ?? null} empriseEnAjustement={ajustement?.id ?? null} nomCorps={libelleBatiment(batSel)}
-              onSupprimer={(id) => void posterProjection('supprimer', corpsEffectif!, { id })}
-              onRetoucher={(id) => demarrerRetouche(id)} onAjuster={ajustement ? undefined : (id) => demarrerAjustement(id)} />
-
-            {/* PROJ-3t (lot 3b) — SÉLECTEUR de portée : « cette emprise » (bouton « ajuster » de chaque ligne ci-dessus) OU « toutes ensemble »
-                (positions relatives conservées). Offert quand ≥ 2 emprises dans le DOSSIER et aucun ajustement en cours. */}
-            {!ajustement && emprises.length >= 2 && (
-              <button type="button" style={{ ...btn, alignSelf: 'flex-start' }} onClick={demarrerAjustementBloc}>ajuster toutes les emprises du dossier ensemble ({emprises.length})</button>
-            )}
-
-            {/* PANNEAU D'AJUSTEMENT (souris + boutons ; les boutons suffisent seuls, mobile-first). Réversibilité garantie. */}
-            {ajustement && apercuAjustement && (
-              <PanneauAjustement resume={resumeAjustement(ajustement.delta)} occupe={occupe} aDeltaEnregistre={ajustement.enregistre} bloc={ajustement.bloc}
-                onTranslate={onTranslate} onRotate={onRotate} onScale={onScale}
-                onEnregistrer={() => void enregistrerAjustementGeste()} onAbandonner={abandonnerAjustement} onOrigine={() => void revenirOrigineAjustement()} />
-            )}
-
-            {/* PROJ-3s — PANNEAU DE RETOUCHE (visible seulement en retouche) : sous-mode + annuler / abandonner / valider. Mobile-first. */}
-            {retouche && (
-              <div style={{ border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.6rem', background: 'var(--color-svv-surface)' }} role="group" aria-label="retouche de l’emprise">
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>Retouche de l’emprise <span style={styleAide}>— rien n’est modifié en base tant que vous ne validez pas</span></div>
-                <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', marginBottom: '.3rem' }}>
-                  {(['deplacer', 'inserer', 'supprimer'] as ModeRetouche[]).map((m) => (
-                    <button key={m} type="button" style={{ ...btn, fontWeight: modeRetouche === m ? 700 : 400 }} disabled={occupe} onClick={() => { setModeRetouche(m); setSommetSel(null); }}>
-                      {m === 'deplacer' ? 'Déplacer un sommet' : m === 'inserer' ? 'Insérer sur un bord' : 'Supprimer un sommet'}
-                    </button>
-                  ))}
-                </div>
-                <p style={{ ...styleAide, margin: '0 0 .3rem' }}>
-                  {modeRetouche === 'deplacer' ? (sommetSel === null ? 'Touchez un sommet à déplacer, puis touchez sa nouvelle position.' : 'Touchez la nouvelle position du sommet sélectionné.')
-                    : modeRetouche === 'inserer' ? 'Touchez un bord pour y insérer un sommet.'
-                      : 'Touchez un sommet pour le supprimer (un contour garde au moins 3 sommets).'}
-                </p>
-                <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
-                  <button type="button" style={btn} disabled={occupe || retouche.hist.length === 0} onClick={annulerRetouche}>Annuler la dernière action</button>
-                  <button type="button" style={btn} disabled={occupe} onClick={abandonnerRetouche}>Abandonner</button>
-                  <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={occupe} onClick={() => void validerRetouche()}>Valider la retouche</button>
-                </div>
-              </div>
-            )}
+            {/* POSITION AU REPOS — quand AUCUNE emprise n'existe encore, le bloc emprise (chaîne « Enregistrer ce bâtiment » + ligne + gestes)
+                reste à sa place actuelle, plus bas dans la colonne. Dès qu'une emprise existe, il est rendu plus haut (juste sous le schéma). */}
+            {!aEmprises && blocEmprises}
 
             {/* Ignorer / rétablir la projection de CE bâtiment (motif obligatoire ; réversible). */}
             {ignoreDuBat ? (

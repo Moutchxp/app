@@ -42,6 +42,7 @@ export interface EmpriseReconstruite {
   residuM: number | null;
   provenance: ProvenanceEmprise; // PROJ-3q — 'trace_manuel' (tracé) | 'ign_adopte' (IGN) | 'ign_retouche'
   ajustement: Ajustement | null;  // PROJ-3t (lot 3a) — DELTA d'ajustement manuel réversible ; NULL = aucun. Non NULL = emprise retouchée à la main (traçabilité).
+  ajustementParNom: string | null; // PROJ-3t — NOM COMPLET de l'auteur de l'ajustement, résolu depuis pose_par (comme validee_par_nom / la sélection d'empreinte), jamais l'id brut.
   creeLe: string | null;
 }
 
@@ -273,7 +274,7 @@ export async function reinitialiserAjustementBloc(dossierId: number): Promise<Re
 /** Ligne brute d'emprise (les deux variantes de SELECT — avec ou sans la colonne `ajustement` — partagent cette forme, `ajustement` en option). */
 type LigneEmprise = {
   id: number; corps_id: number | null; libelle: string; gj: { type: string; coordinates: number[][][] | number[][][][] } | null; surface_m2: number | null;
-  piece_id: number | null; page: number | null; calage: CalageTrace | null; residu_m: number | null; provenance: ProvenanceEmprise | null; cree_le: Date | null; ajustement?: Ajustement | null;
+  piece_id: number | null; page: number | null; calage: CalageTrace | null; residu_m: number | null; provenance: ProvenanceEmprise | null; cree_le: Date | null; ajustement?: Ajustement | null; ajustement_par_nom?: string | null;
 };
 
 /**
@@ -287,8 +288,10 @@ type LigneEmprise = {
 export async function listerEmprises(dossierId: number): Promise<EmpriseReconstruite[]> {
   const base = `id::int AS id, corps_id::int AS corps_id, libelle, ST_AsGeoJSON(geom)::json AS gj, surface_m2, piece_id::int AS piece_id, page, calage, residu_m, provenance, cree_le`;
   try {
+    // NOM de l'auteur de l'ajustement résolu EN BASE (comme la sélection d'empreinte et validee_par_nom) : jamais l'id brut à l'écran.
+    const nomAuteur = `(SELECT nullif(btrim(concat_ws(' ', u.prenom, u.nom)), '') FROM admin_utilisateur u WHERE u.id::text = ajustement->>'pose_par' LIMIT 1) AS ajustement_par_nom`;
     let rows: LigneEmprise[];
-    try { rows = (await query<LigneEmprise>(`SELECT ${base}, ajustement FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows; }
+    try { rows = (await query<LigneEmprise>(`SELECT ${base}, ajustement, ${nomAuteur} FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows; }
     catch (e) { if (!estColonneAbsente(e)) throw e; rows = (await query<LigneEmprise>(`SELECT ${base} FROM permis_emprise_reconstruite WHERE dossier_id = $1 ORDER BY id`, [dossierId])).rows; } // 211 non appliquée
     return rows.map((r) => {
       // PROJ-3q — Polygon → un anneau extérieur ; MultiPolygon → un anneau extérieur PAR partie (groupe adopté à contact par sommet).
@@ -310,6 +313,7 @@ export async function listerEmprises(dossierId: number): Promise<EmpriseReconstr
         residuM: r.residu_m !== null ? Number(r.residu_m) : null,
         provenance: r.provenance ?? 'trace_manuel',
         ajustement,
+        ajustementParNom: ajustement ? (r.ajustement_par_nom ?? null) : null,
         creeLe: r.cree_le ? r.cree_le.toISOString() : null,
       };
     });

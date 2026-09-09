@@ -165,6 +165,15 @@ describe('PROJ-2 — enregistrerEmprise : n’écrit QUE la table des reconstitu
     expect(e.ajustement?.pose_par).toBe('admin:ajustement'); // qui/quand présents dans la donnée
   });
 
+  it('ajustement : le NOM de l’auteur est résolu EN BASE (ajustement_par_nom) et exposé, jamais l’id brut', async () => {
+    H.flags.listeRows = [{ id: 1, corps_id: 3, libelle: 'A', gj: { type: 'Polygon', coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]] }, surface_m2: 100, piece_id: null, page: 1, calage: null, residu_m: 0, provenance: 'trace_manuel', cree_le: null, ajustement: { tx: 1, ty: 0, rotDeg: 0, echelle: 1, centre: { x: 0, y: 0 }, pose_par: '2' }, ajustement_par_nom: 'Arnaud Jorel' }];
+    const [e] = await listerEmprises(11434);
+    expect(e.ajustementParNom).toBe('Arnaud Jorel');
+    // la requête résout bien le nom via admin_utilisateur sur pose_par
+    const sel = H.calls.find((c) => /ST_AsGeoJSON\(geom\)::json AS gj[\s\S]*ajustement_par_nom/i.test(c.sql))!;
+    expect(sel.sql).toMatch(/FROM admin_utilisateur u WHERE u\.id::text = ajustement->>'pose_par'/i);
+  });
+
   it('delta MALFORMÉ (échelle 0) → ignoré, traité comme NULL (défensif)', async () => {
     H.flags.listeRows = [ligneCarre({ tx: 5, ty: 5, rotDeg: 0, echelle: 0, centre: { x: 0, y: 0 } })];
     const [e] = await listerEmprises(11434);

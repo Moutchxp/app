@@ -13,7 +13,7 @@ import { verdictProjectionBatiments } from '../../../../lib/permis/projectionBat
 const RING = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
 const emprise = (over: Partial<EmpriseReconstruite> = {}): EmpriseReconstruite => ({
   id: 1, dossierId: 11434, corpsId: 1, libelle: '2D1', anneau: RING, anneaux: [RING],
-  surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0.3, provenance: 'trace_manuel', ajustement: null, creeLe: null, ...over,
+  surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0.3, provenance: 'trace_manuel', ajustement: null, ajustementParNom: null, creeLe: null, ...over,
 });
 
 describe('PROJ-2 — rendu pur', () => {
@@ -31,10 +31,17 @@ describe('PROJ-2 — rendu pur', () => {
   it('ListeEmprises : une emprise AJUSTÉE porte un signal lisible (qui/quand + affectation à vérifier) ; non ajustée = rien', () => {
     const sans = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ id: 1 })] }));
     expect(sans).not.toContain('ajustée à la main');
-    const avec = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ id: 2, ajustement: { tx: 1, ty: 0, rotDeg: 0, echelle: 1, centre: { x: 0, y: 0 }, pose_le: '2026-09-09T10:00:00Z', pose_par: 'admin:ajustement' } })] }));
+    const avec = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ id: 2, ajustement: { tx: 1, ty: 0, rotDeg: 0, echelle: 1, centre: { x: 0, y: 0 }, pose_le: '2026-09-09T10:00:00Z', pose_par: '2' }, ajustementParNom: 'Arnaud Jorel' })] }));
     expect(avec).toContain('ajustée à la main');
     expect(avec).toContain('affectation des voisins à vérifier');
     expect(avec).toContain('data-ajustee="true"');
+    // 🔴 le NOM COMPLET est affiché, JAMAIS l'identifiant brut (pose_par='2')
+    expect(avec).toContain('par Arnaud Jorel');
+    expect(avec).not.toContain('par 2');
+    // sans nom résolu (auteur non identifiable) → aucune mention « par … », jamais un id brut
+    const sansNom = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ id: 3, ajustement: { tx: 1, ty: 0, rotDeg: 0, echelle: 1, centre: { x: 0, y: 0 }, pose_le: '2026-09-09T10:00:00Z', pose_par: 'admin:ajustement' }, ajustementParNom: null })] }));
+    expect(sansNom).toContain('ajustée à la main');
+    expect(sansNom).not.toContain('par admin:ajustement');
   });
 
   it('ListeEmprises : bouton « ajuster » proposé quand onAjuster fourni ; masqué pendant l’ajustement en cours', () => {

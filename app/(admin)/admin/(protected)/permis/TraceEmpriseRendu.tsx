@@ -16,20 +16,20 @@ import { rattrapageVide, type ApercuRattrapage } from '../../../../lib/permis/ra
 import { repereDepuisIndex, projeterLambertDansSchema, type SchemaEmpreinte } from '../../../../lib/permis/affectationSchema'; // AFF-2 : projetée au MÊME cadre que l'origine
 
 /**
- * PL-C4 — BANDEAU « Empreinte : sélection validée / configuration automatique » sous le curseur Rotation, avant le schéma. PUR
+ * PL-C4 — BANDEAU « Empreinte Parcelle(s) : sélection validée / configuration automatique » sous le curseur Rotation, avant le schéma. PUR
  * (aucun état interne ; le geste de retrait est un GESTE DÉLIBÉRÉ à deux temps piloté par le parent : `confirme` + callbacks). Le
  * retrait RECALCULE (empreinte + bâti + projection) → on le DIT, jamais un lien anodin. Provenance HONNÊTE (acteur résolu, sinon brut).
  */
 export function BandeauSelection({ selection, confirme, enCours, onDemander, onConfirmer, onAnnuler }: {
   selection: SelectionInfo; confirme: boolean; enCours: boolean; onDemander: () => void; onConfirmer: () => void; onAnnuler: () => void;
 }) {
-  if (!selection.active) return <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>Empreinte : <strong style={{ color: 'var(--color-svv-ink)' }}>configuration automatique</strong>.</div>;
+  if (!selection.active) return <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>Empreinte Parcelle(s) : <strong style={{ color: 'var(--color-svv-ink)' }}>configuration automatique</strong>.</div>;
   const d = descriptionActeurParcelle({ majPar: selection.validePar, majLe: selection.valideLe, acteurNom: selection.acteurNom });
   const lien: CSSProperties = { width: 'auto', padding: '.05rem .3rem', fontSize: 11.5, alignSelf: 'flex-start' };
   return (
     <div role="note" style={{ fontSize: 12, border: '1px solid var(--color-svv-green-ink)', borderRadius: '.4rem', padding: '.35rem .55rem', display: 'flex', flexDirection: 'column', gap: '.25rem', background: 'var(--color-svv-field)' }}>
       <div>
-        <strong style={{ color: 'var(--color-svv-green-ink)' }}>Empreinte : sélection validée</strong> ({selection.idus.length} parcelle{selection.idus.length > 1 ? 's' : ''}) —{' '}
+        <strong style={{ color: 'var(--color-svv-green-ink)' }}>Empreinte Parcelle(s) : sélection validée</strong> ({selection.idus.length} parcelle{selection.idus.length > 1 ? 's' : ''}) —{' '}
         par <strong>{d.qui}</strong>{d.aLaMain ? null : <span style={{ fontStyle: 'italic', color: 'var(--color-svv-muted)' }}> (auteur non identifié)</span>}{d.quand ? <> le {d.quand}</> : null}.
       </div>
       {!confirme ? (
@@ -962,7 +962,7 @@ export function ListeEmprises({ emprises, onSupprimer, onRetoucher, onAjuster, e
               {/* PROJ-3t (lot 3a) — SIGNAL lisible, piloté par la DONNÉE (delta non NULL) : une emprise ajustée à la main est distinguable ici, avec
                   qui/quand, et l'affectation des polygones voisins est signalée « à vérifier » — sans AUCUNE action automatique (règle e : un
                   ajustement ne recalcule jamais les statuts « détruit »). Latent tant que le geste d'ajustement (lot 3b) n'existe pas. */}
-              {e.ajustement && <span data-ajustee="true" style={{ color: '#b45309', fontWeight: 600 }}> · ✎ ajustée à la main{e.ajustement.pose_le ? ` le ${jourFrParis(e.ajustement.pose_le)}` : ''}{e.ajustement.pose_par ? ` par ${e.ajustement.pose_par}` : ''} — affectation des voisins à vérifier</span>}
+              {e.ajustement && <span data-ajustee="true" style={{ color: '#b45309', fontWeight: 600 }}> · ✎ ajustée à la main{e.ajustement.pose_le ? ` le ${jourFrParis(e.ajustement.pose_le)}` : ''}{e.ajustementParNom ? ` par ${e.ajustementParNom}` : ''} — affectation des voisins à vérifier</span>}
             </span>
             <span style={{ display: 'flex', gap: '.3rem' }}>
               {onAjuster && !actif && <button type="button" onClick={() => onAjuster(e.id)} style={b}>ajuster</button>}

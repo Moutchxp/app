@@ -16,14 +16,15 @@ const rendre = (selection: SelectionInfo, confirme = false) =>
 const AUTO: SelectionInfo = { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null };
 
 describe('BandeauSelection — état courant DIT, provenance honnête, retrait délibéré', () => {
-  it('aucune sélection → « configuration automatique » (mention sobre, jamais un vide)', () => {
+  it('aucune sélection → « Empreinte Parcelle(s) : configuration automatique » (mention sobre, jamais un vide)', () => {
     const h = rendre(AUTO);
+    expect(h).toContain('Empreinte Parcelle(s)'); // « configuration automatique » est dans un <strong> séparé
     expect(h).toContain('configuration automatique');
     expect(h).not.toContain('sélection validée');
   });
-  it('sélection par un ADMIN identifiable → « sélection validée » + N parcelles + par NOM + date', () => {
+  it('sélection par un ADMIN identifiable → « Empreinte Parcelle(s) : sélection validée » + N parcelles + par NOM + date', () => {
     const h = rendre({ active: true, idus: ['A', 'B'], validePar: '2', valideLe: '2026-09-05T14:40:09+02:00', acteurNom: 'Arnaud Jorel' });
-    expect(h).toContain('sélection validée');
+    expect(h).toContain('Empreinte Parcelle(s) : sélection validée');
     expect(h).toContain('2 parcelles');
     expect(h).toContain('Arnaud Jorel');
     expect(h).toContain('05/09/2026');

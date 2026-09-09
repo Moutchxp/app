@@ -13,7 +13,7 @@ const POLYGONES: PolygoneBdTopo[] = [{ cleabs: 'BATI-1', anneau: carre(10, 10), 
 
 const emp = (over: Partial<EmpriseReconstruite> = {}): EmpriseReconstruite => ({
   id: 1, dossierId: 900, corpsId: 10, libelle: 'bâtiment A', anneau: carre(40, 40), anneaux: [carre(40, 40)],
-  surfaceM2: 120, pieceId: null, page: 2, calage: null, residuM: 0.5, provenance: 'trace_manuel', ajustement: null, creeLe: null, ...over,
+  surfaceM2: 120, pieceId: null, page: 2, calage: null, residuM: 0.5, provenance: 'trace_manuel', ajustement: null, ajustementParNom: null, creeLe: null, ...over,
 });
 const props = (etat: EtatSuivi, emprises: EmpriseReconstruite[], batiments = [{ corpsId: 10, repere: 'A' }]) =>
   ({ etat, emprises, parcelle: PARCELLE, polygones: POLYGONES, batiments });
