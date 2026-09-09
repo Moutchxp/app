@@ -14,7 +14,7 @@ import { ClotureVersRattachement, clotureVisible } from './CaracteristiquesRendu
 import type { DonneesLiseuse } from './LiseusePieces'; // P3 (perfo) — donnée /emprise partagée (bloc Bâtiments → liseuse de la planche), anti-doublon
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { etatValidationProjection } from '../../../../lib/permis/etatValidationProjection';
-import { etatProjectionTitreDepuisComptes, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles (repli PAR BÂTIMENT, calqué sur estValidationAcquise)
+import { etatProjectionTitreDepuisComptes, etatAltitudesTitre, etatPlancheTitre, type EtatTitreFamille } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles (repli PAR BÂTIMENT, calqué sur estValidationAcquise) ; PL-ÉTAT — état de la ligne « Planche cadastrale »
 import { conditionAltitudeSortie, pretPourSortie } from '../../../../lib/permis/etatSortieRattachement'; // LOT 71 — condition altitude à 3 états (sans objet ≠ satisfaite)
 import { recompterSiSucces } from './comptesActions';
 
@@ -39,6 +39,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   const [vValeurLue, setVValeurLue] = useState(0); // « analyse de la page » (liseuse) a écrit/annulé une valeur → remonte SEULEMENT CaracteristiquesBloc (refetch du journal → la valeur lue apparaît en proposition). PAS dans la clé de la liseuse : le lecteur ne bouge pas.
   const [vEmprise, setVEmprise] = useState(0); // une MUTATION d'emprise (enregistrement/suppression/adoption/retouche) dans le bloc tracé → remonte CaracteristiquesBloc (capsule d'emprise du cartouche relit son état). Même mécanisme que vValeurLue.
   const [batimentsOuvert, setBatimentsOuvert] = useState(false); // PERF-1 — le bloc bâtiments (verdict) est déplié à la demande ; jauge le bouton « Valider »
+  const [etatPlancheLive, setEtatPlancheLive] = useState<EtatTitreFamille | null>(null); // PL-ÉTAT — état LIVE de la planche remonté quand le bloc est ouvert (prime sur l'état SAUVEGARDÉ de la ligne) ; null tant que le bloc n'est pas ouvert → repli sur row.plancheEtat
   // LOT 70 — ANALYSE AU PASSAGE : à l'ouverture d'un permis, on lance (SANS geste) l'analyse si nécessaire (règle b, gate serveur) et
   //   on reporte les déclarations dans les champs vides. État d'attente HONNÊTE pendant les 20-30 s de l'analyse complète.
   const [passageEnCours, setPassageEnCours] = useState(false);
@@ -118,7 +119,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
       if (!res.ok || !d.ok) { setMessage(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'clôture impossible')); return; }
       const gr = await fetch('/api/admin/permis/projection', { cache: 'no-store' }); // re-fetche la file : le permis passé n'y est plus
       if (gr.ok) { const gd = (await gr.json()) as { file?: LigneProjectionAffichee[] }; setFile(gd.file ?? []); }
-      setOuvert(null); setVerdict(null); setEnteteProjection(null); setMessage('permis passé en Rattachement');
+      setOuvert(null); setVerdict(null); setEnteteProjection(null); setEtatPlancheLive(null); setMessage('permis passé en Rattachement');
       recompterSiSucces(true, onRecompter);
     } catch { setMessage('clôture impossible'); } finally { setEnCours(false); }
   }, [onRecompter]);
@@ -172,7 +173,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   if (file === null) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>;
 
   const ouvrir = (dossierId: number) => {
-    setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setEnteteProjection(null); setDonneesLiseuse(null); setMessage(null); setBatimentsOuvert(false); // PERF-1 : chaque permis s'ouvre tout replié
+    setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setEnteteProjection(null); setEtatPlancheLive(null); setDonneesLiseuse(null); setMessage(null); setBatimentsOuvert(false); // PERF-1 : chaque permis s'ouvre tout replié
     passageDeclencheRef.current = null; setPassageMsg(null); setPassageEnCours(false); // LOT 70 : réarme l'analyse au passage (event handler → setState autorisé) pour la prochaine ouverture
   };
 
@@ -190,6 +191,12 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     //   MÊME règle que l'en-tête live), PLUS sur le jalon dossier `projectionValidee` — la section et la ligne disent ainsi une seule vérité
     //   (validation PAR BÂTIMENT). Le jalon `permis_projection` gouverne UNIQUEMENT la clôture / l'envoi en Rattachement (bouton dédié).
     const etatProj = enteteProjection ?? etatProjectionTitreDepuisComptes(row?.nbBatiments ?? 0, row?.nbCorpsSansAltValidee ?? 0, row?.nbCorpsSansEmpriseValidee ?? 0);
+    // PL-ÉTAT — état de la ligne « Planche cadastrale » visible SANS déplier. Valeur LIVE `etatPlancheLive` (remontée par PlancheParcelles quand
+    //   le bloc est ouvert : elle porte le CHANGEMENT en attente → rouge « modifiée — non validée »), sinon REPLI sur l'état SAUVEGARDÉ de la
+    //   ligne (row.plancheEtat : sélection validée + bilan déclaré ↔ effectif). `null` (état indisponible / non calculé) → titre nu, sans suffixe
+    //   (jamais un faux « configuration automatique »). MÊME source unique que la planche : etatPlancheTitre (aucune règle dupliquée).
+    const etatPlanche: EtatTitreFamille | null = etatPlancheLive
+      ?? (row?.plancheEtat ? etatPlancheTitre({ selectionValidee: row.plancheEtat.selectionValidee, changementEnAttente: false, cas: row.plancheEtat.cas }) : null);
     // COMPLÉMENT — CLÔTURE : le MÊME composant rendu à CINQ endroits (tête de fiche + haut/bas de « Caractéristiques » + haut/bas de
     //   « Bâtiments et projection »). Même condition (`clotureVisible`), même action (`cloturerPermis`), même état → jamais cinq copies
     //   divergentes. `tousValides` = l'ÉTAT DE PROJECTION `etatProj` VERT — MÊME source unique que le titre de section : valeur LIVE
@@ -303,10 +310,11 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         {/* PL-A — PLANCHE CADASTRALE (lecture seule) : à côté du schéma du bâti, elle montre les parcelles du permis (colorées par
             origine — « lesquelles l'auto-analyse a retenues ») + les voisines dans un rayon. Chargée AU DÉPLIAGE (PERF-1 : un bloc
             jamais ouvert ne requête rien). Aucune écriture (le clic ajouter/retirer une parcelle est le lot séparé PL-B). */}
-        <BlocRepliable key={`w-planche-${ouvert}`} titre="Planche cadastrale (parcelles)">
+        <BlocRepliable key={`w-planche-${ouvert}`} titre={etatPlanche ? <TitreFamilleEtat base="Planche cadastrale (parcelles)" etat={etatPlanche} /> : 'Planche cadastrale (parcelles)'}>
           {/* PL-H — valider/retirer une sélection dans la planche recalcule l'empreinte serveur : on rafraîchit le bloc « Bâtiments et
-              projection » par le MÊME canal que CaracteristiquesBloc (vInstruction → rafraichir de BlocTraceEmprise), jamais un 2e mécanisme. */}
-          {() => <PlancheParcelles key={`planche-${ouvert}`} dossierId={ouvert} onEmpreinteRecalculee={() => setVInstruction((v) => v + 1)} donneesLiseuse={donneesLiseuse} />}
+              projection » par le MÊME canal que CaracteristiquesBloc (vInstruction → rafraichir de BlocTraceEmprise), jamais un 2e mécanisme.
+              PL-ÉTAT — la planche REMONTE son état LIVE (validée / modifiée-non-validée / écart) → la ligne de titre le dit sans déplier. */}
+          {() => <PlancheParcelles key={`planche-${ouvert}`} dossierId={ouvert} onEmpreinteRecalculee={() => setVInstruction((v) => v + 1)} onEtatPlanche={setEtatPlancheLive} donneesLiseuse={donneesLiseuse} />}
         </BlocRepliable>
         {/* EXT-1 (point 5) — PIÈCES DU PERMIS en DERNIÈRE POSITION : référence en regard de la saisie. Chargées au dépliage (PERF-1). */}
         <BlocRepliable key={`w-pieces-${ouvert}`} titre="Pièces du permis">

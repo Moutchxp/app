@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import type { EtatTitreFamille } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état porté par la ligne de titre d'une famille
+import type { CasBilanComparatif } from '../../../../lib/permis/comparatifParcelles'; // PL-ÉTAT — cas du bilan déclaré ↔ sélectionné (état SAUVEGARDÉ de la planche)
 import { clotureVisible } from './CaracteristiquesRendu'; // COMPLÉMENT — SOURCE UNIQUE : n° VERT ⟺ bouton de clôture disponible
 import { estValidationAcquise } from '../../../../lib/permis/rattachementGroupes'; // COMPLÉMENT — « franchi le process » par ligne (alt + emprise validées)
 
@@ -20,6 +21,7 @@ export interface LigneProjectionAffichee {
   nbCorpsSansEmpriseValidee: number; // COMPLÉMENT — bâtiments sans emprise VALIDÉE
   projectionValidee: boolean;   // RATT-1 — projection validée ? (titre « Bâtiments et projection ») — false par construction dans cette file
   testeEnAnalyse: boolean;      // LOT 51 — présent via le marqueur « testé en analyse » (partiel tenu ouvert) → l'UI propose « Renvoyer ce permis dans l'onglet En cours »
+  plancheEtat: { selectionValidee: boolean; cas: CasBilanComparatif } | null; // PL-ÉTAT — état SAUVEGARDÉ de la « Planche cadastrale » (ligne visible sans déplier) ; null si indisponible → titre nu
 }
 
 /**

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { PlancheParcelles as PlancheData, PlancheParcelleMeta, CentreMode, SuggestionAdresse } from '../../../../lib/permis/plancheParcellesRepo';
 import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle';
 import { comparerParcelles, bilanComparatif, type RefParcelle, type LigneParcelleComparee } from '../../../../lib/permis/comparatifParcelles'; // PL-COMPARATIF — constat PUR déclaré ↔ sélectionné (aucune écriture)
+import { etatPlancheTitre, type EtatTitreFamille } from '../../../../lib/permis/etatFamilleProjection'; // PL-ÉTAT — état de titre (validée / modifiée-non-validée / écart) remonté à la ligne de fonction, SANS déplier
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome, RÉUTILISÉE (jamais dupliquée) ; P3 — partage donnée /emprise
 
 /**
@@ -46,10 +47,12 @@ const LEGENDE: { cle: string; couleur: string; texte: string }[] = [
   { cle: 'voisine', couleur: 'var(--color-svv-muted)', texte: 'voisine (repère)' },
 ];
 
-export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, donneesLiseuse = null }: {
+export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanche, donneesLiseuse = null }: {
   dossierId: number;
   onEmpreinteRecalculee?: () => void; // PL-H — appelé après un valider/retirer RÉUSSI (empreinte+bâti+projection recalculés serveur) → le
                                       //   parent rafraîchit le bloc « Bâtiments et projection » via le canal EXISTANT (vInstruction/rafraichir).
+  onEtatPlanche?: (etat: EtatTitreFamille | null) => void; // PL-ÉTAT — REMONTE l'état LIVE de la planche (validée / modifiée-non-validée / écart) → la ligne
+                                                            //   de fonction le dit SANS déplier. null tant que rien n'est chargé. Prime sur l'état sauvegardé côté parent.
   donneesLiseuse?: DonneesLiseuse | null; // P3 (perfo) — données /emprise déjà chargées par le bloc « Bâtiments et projection » : la liseuse
                                           //   de la planche les RÉUTILISE au lieu de refaire le GET /emprise (doublon supprimé). Null → elle charge elle-même.
 }) {
@@ -126,6 +129,30 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, donneesLise
     const d = new Set(defautIdus);
     return d.size !== composition.size || [...composition].some((x) => !d.has(x));
   }, [composition, defautIdus]);
+  // PL-ÉTAT — CHANGEMENT EN ATTENTE = la composition à l'écran diffère de la BASE EFFECTIVE (sélection validée si active, sinon le défaut
+  //   automatique). DISTINCT de `compositionModifiee` (toujours vs défaut) : sur une sélection validée, revenir manuellement à sa composition
+  //   validée n'est PLUS « en attente ». C'est ce qui pilote le libellé du bouton (Valider vs Modifier) et l'alerte rouge « non validée ».
+  const changementEnAttente = useMemo(() => {
+    const base = new Set(data ? (data.selection.active ? data.selection.idus : origineIdus(data)) : []);
+    return base.size !== composition.size || [...composition].some((x) => !base.has(x));
+  }, [composition, data]);
+  // PL-COMPARATIF / PL-ÉTAT — SOURCE UNIQUE du bilan déclaré ↔ sélectionné (IDU → section/numéro via meta/parcellesChoix), consommé À LA FOIS
+  //   par le CONSTAT déplié (phrase + détail) ET par l'état de la ligne (remontée ci-dessous). Pur, aucune écriture ; `null` tant que rien n'est chargé.
+  const comparatif = useMemo(() => {
+    if (!data) return null;
+    const refParIdu = new Map<string, RefParcelle>();
+    for (const x of data.parcellesChoix) refParIdu.set(x.idu, { section: x.section, numero: x.numero });
+    for (const m of data.meta) if (m.idu) refParIdu.set(m.idu, { section: m.section, numero: m.numero });
+    const refsSelection: RefParcelle[] = [...composition].map((id) => refParIdu.get(id) ?? { section: '', numero: '' });
+    return comparerParcelles(data.parcellesDeclarees ?? [], refsSelection);
+  }, [data, composition]);
+  // PL-ÉTAT — REMONTE l'état de titre au parent (effet, jamais pendant le rendu). Une valeur LIVE porte le changement en attente → la ligne de
+  //   fonction passe au rouge « modifiée — non validée » ; validée → vert + nuance mêmes/différentes ; automatique concordant → neutre. Constat pur.
+  useEffect(() => {
+    if (!onEtatPlanche) return;
+    if (!data || !comparatif) { onEtatPlanche(null); return; }
+    onEtatPlanche(etatPlancheTitre({ selectionValidee: data.selection.active, changementEnAttente, cas: bilanComparatif(comparatif).cas }));
+  }, [data, comparatif, changementEnAttente, onEtatPlanche]);
 
   const basculer = (id: string | null) => { if (!id) return; setComposition((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
   const reinitialiser = () => { setComposition(new Set(defautIdus)); setMsg(null); };
@@ -173,15 +200,10 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, donneesLise
   //   ou ligne « fantôme » sans contour au cadastre, cas DK 649 sur le 468). Bandeau discret, ton neutre — on invite à composer la sélection.
   const aucuneParcellePermis = data.nbRetenues === 0;
 
-  // PL-COMPARATIF — CONSTAT (lecture seule) : parcelles DÉCLARÉES au permis (A = data.parcellesDeclarees, formes brutes) ↔ parcelles
-  //   SÉLECTIONNÉES dans la composition sur le schéma (B = `composition`, IDU → section/numéro via `meta`/`parcellesChoix`). La
-  //   comparaison NORMALISE (module pur `comparerParcelles`) : « DZ 09 » ⟷ « DZ 9 » ne sont pas comptés comme un écart. N'écrit RIEN,
-  //   ne touche pas « Valider la sélection ». `?? []` défensif si un payload ancien/mocké n'a pas encore le champ.
-  const refParIdu = new Map<string, RefParcelle>();
-  for (const x of data.parcellesChoix) refParIdu.set(x.idu, { section: x.section, numero: x.numero });
-  for (const m of meta) if (m.idu) refParIdu.set(m.idu, { section: m.section, numero: m.numero });
-  const refsSelection: RefParcelle[] = [...composition].map((id) => refParIdu.get(id) ?? { section: '', numero: '' });
-  const comparatif = comparerParcelles(data.parcellesDeclarees ?? [], refsSelection);
+  // PL-COMPARATIF — CONSTAT (lecture seule) : parcelles DÉCLARÉES au permis ↔ SÉLECTIONNÉES dans la composition (IDU → section/numéro via
+  //   `meta`/`parcellesChoix`, normalisation « DZ 09 » ⟷ « DZ 9 »). Calculé UNE fois dans le memo `comparatif` (SOURCE UNIQUE partagée avec
+  //   la remontée d'état de la ligne). Non nul ici : les early returns au-dessus ont éliminé `data === null`.
+  const comparatifRendu = comparatif!;
 
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -301,14 +323,20 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, donneesLise
                     ? <><strong style={{ color: 'var(--color-svv-green-ink)' }}>Sélection validée</strong> {provenanceSel.aLaMain ? <>par <strong>{provenanceSel.qui}</strong></> : <>par <strong>{provenanceSel.qui}</strong> <span style={{ fontStyle: 'italic', color: 'var(--color-svv-muted)' }}>(auteur non identifié)</span></>}{provenanceSel.quand ? <> le {provenanceSel.quand}</> : null}<span style={{ color: 'var(--color-svv-muted)' }}> — {data.selection.idus.length} parcelle(s).</span></>
                     : <span style={{ color: 'var(--color-svv-muted)' }}><strong style={{ color: 'var(--color-svv-ink)' }}>Configuration automatique</strong> (préparée par l’analyse). Le passage par la planche n’est pas obligatoire.</span>}
                 </div>
-                <div style={{ fontSize: 12 }}><strong>{composition.size}</strong> parcelle(s) dans la composition{compositionModifiee ? <span style={{ color: 'var(--color-svv-muted)' }}> (modifiée — non validée)</span> : null}</div>
+                <div style={{ fontSize: 12 }}><strong>{composition.size}</strong> parcelle(s) dans la composition{changementEnAttente ? <span style={{ color: 'var(--color-svv-red)' }}> (modifiée — non validée)</span> : null}</div>
 
+                {/* PL-ÉTAT (rule 1) — le LIBELLÉ dit ce que le clic fait, selon l'état RÉEL : un changement en attente → « Valider la sélection »
+                    (applique la composition) ; sinon la sélection est ACQUISE (validée, ou automatique par défaut) → « Modifier la sélection »,
+                    inactif car il n'y a rien à appliquer — on modifie en cliquant une parcelle sur le schéma (aucun mode ni écriture silencieuse). */}
                 <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-                  <button type="button" className="svv-btn svv-btn-primary" style={btnAction} disabled={enCours || composition.size === 0}
-                    onClick={() => void poster('valider', [...composition])}>Valider la sélection</button>
+                  {changementEnAttente
+                    ? <button type="button" className="svv-btn svv-btn-primary" style={btnAction} disabled={enCours || composition.size === 0}
+                        onClick={() => void poster('valider', [...composition])}>Valider la sélection</button>
+                    : <button type="button" className="svv-btn svv-btn-primary" style={btnAction} disabled title="La sélection est acquise : cliquez une parcelle sur le schéma pour la modifier.">Modifier la sélection</button>}
                   {compositionModifiee && <button type="button" style={{ ...btnAction, background: 'var(--color-svv-field)' }} disabled={enCours} onClick={reinitialiser}>Réinitialiser à la sélection par défaut</button>}
                   {data.selection.active && <button type="button" style={{ ...btnAction, background: 'var(--color-svv-field)' }} disabled={enCours} onClick={() => void poster('retirer')}>Revenir à la configuration d’origine</button>}
                 </div>
+                {!changementEnAttente && <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Sélection acquise — cliquez une parcelle sur le schéma pour la modifier.</div>}
 
                 {/* Geste DÉLIBÉRÉ : on DIT ce qui va se recalculer (jamais un clic anodin). */}
                 <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>⚠ « Valider » recalcule l’empreinte, la photo du bâti et la projection de ce permis. Réversible : « Revenir à la configuration d’origine » restaure l’état automatique à l’identique.</div>
@@ -340,13 +368,13 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, donneesLise
                   RIEN, ne touche pas « Valider la sélection ». Jetons EXISTANTS uniquement (vert -green-ink / rouge -red / neutre -muted). */}
               <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' }}>Déclaré au permis ↔ sélectionné sur le schéma</div>
-                {!comparatif.comparable ? (
-                  <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>{comparatif.motif}</div>
+                {!comparatifRendu.comparable ? (
+                  <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>{comparatifRendu.motif}</div>
                 ) : (() => {
                   // PHRASE DE BILAN (4 cas) + DÉTAIL GROUPÉ PAR NATURE de l'écart, tous DÉRIVÉS des statuts déjà classés (jamais recalculés).
                   //   Chaque groupe n'est rendu QUE s'il contient ≥ 1 référence → on sait immédiatement de quel côté est chaque référence.
-                  const bilan = bilanComparatif(comparatif);
-                  const parStatut = (s: LigneParcelleComparee['statut']) => comparatif.lignes.filter((l) => l.statut === s);
+                  const bilan = bilanComparatif(comparatifRendu);
+                  const parStatut = (s: LigneParcelleComparee['statut']) => comparatifRendu.lignes.filter((l) => l.statut === s);
                   const communes = parStatut('commune'), manquantes = parStatut('declaree_non_selectionnee'), enTrop = parStatut('selectionnee_non_declaree'), aVerifier = parStatut('a_verifier');
                   const groupe = (titre: string, lignes: LigneParcelleComparee[], couleur: string, marque: string) => lignes.length === 0 ? null : (
                     <div key={titre}>

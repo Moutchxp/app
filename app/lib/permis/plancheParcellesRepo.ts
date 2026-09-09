@@ -16,6 +16,7 @@
 import { query } from '../db/client';
 import { communeCadastrale } from '../sitadel/referenceCadastrale';
 import { construireSchema, geomDepuisGeoJSON, repereDepuisIndex, projeterLambertDansSchema, cadreVue, type SchemaEmpreinte, type PolygoneEntreeSchema, type GeomPoly } from './affectationSchema';
+import { comparerParcelles, bilanComparatif, type RefParcelle, type CasBilanComparatif } from './comparatifParcelles'; // PL-ÉTAT — bilan pur déclaré ↔ effectif (section/numéro), pour l'état SAUVEGARDÉ de la ligne « Planche cadastrale »
 
 export const RAYON_VOISINES_DEFAUT_M = 50;
 const RAYON_MIN_M = 10, RAYON_MAX_M = 200;
@@ -112,6 +113,34 @@ export async function lireSelectionInfo(dossierId: number): Promise<SelectionInf
     return { active: true, idus: rows.map((r) => r.idu), validePar: p.valide_par, valideLe: p.valide_le,
              acteurNom: p.prenom || p.nom ? `${p.prenom ?? ''} ${p.nom ?? ''}`.trim() : null };
   } catch (e) { if ((e as { code?: string })?.code === '42P01') return { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null }; throw e; }
+}
+
+/**
+ * PL-ÉTAT — état SAUVEGARDÉ de la ligne « Planche cadastrale (parcelles) » pour l'onglet « Analyse et projection », lisible SANS déplier
+ * (cas « bloc jamais ouvert » : la planche est en montage paresseux, donc la ligne ne peut PAS lire la composition live). Renvoie de quoi
+ * dériver l'état de titre (cf. etatPlancheTitre) : la sélection est-elle VALIDÉE, et le bilan déclaré ↔ effectif. Ne CALCULE que ce que
+ * PlancheParcelles calcule côté client, mais sur la BASE (déclarées = permis_parcelle role='origine' ; effectif = sélection validée si
+ * elle existe, sinon les parcelles DU PERMIS résolues au cadastre = ensemble « retenu » automatique). LECTURE SEULE, aucune écriture.
+ * Résilient si migration 202 absente (42P01 → configuration automatique). Le comparatif reste un CONSTAT : rien n'est coché ni corrigé.
+ */
+export async function lireEtatPlanche(dossierId: number): Promise<{ selectionValidee: boolean; cas: CasBilanComparatif }> {
+  try {
+    const selection = await lireSelectionInfo(dossierId);
+    const { rows: decl } = await query<{ section: string; numero: string }>(
+      `SELECT section, numero FROM permis_parcelle WHERE dossier_id = $1 AND role = 'origine'`, [dossierId]);
+    const declarees: RefParcelle[] = decl.map((r) => ({ section: r.section, numero: r.numero }));
+    let effectives: RefParcelle[];
+    if (selection.active) {
+      const { rows } = await query<{ section: string | null; numero: string | null }>(
+        `SELECT section, numero FROM permis_parcelle_selection WHERE dossier_id = $1`, [dossierId]);
+      effectives = rows.map((r) => ({ section: r.section ?? '', numero: r.numero ?? '' }));
+    } else {
+      const { rows } = await query<{ section: string; numero: string }>(
+        `SELECT par.section, par.numero FROM permis_parcelle pp JOIN parcelle par ON par.id = pp.idu WHERE pp.dossier_id = $1`, [dossierId]);
+      effectives = rows.map((r) => ({ section: r.section, numero: r.numero }));
+    }
+    return { selectionValidee: selection.active, cas: bilanComparatif(comparerParcelles(declarees, effectives)).cas };
+  } catch (e) { if ((e as { code?: string })?.code === '42P01') return { selectionValidee: false, cas: 'impossible' }; throw e; }
 }
 
 /** Résout le nom d'une commune cadastrale : Paris → dérivé (pur) ; sinon table `commune`, repli `adresse_ban.nom_commune`, sinon null. */

@@ -23,10 +23,16 @@ import { PlancheParcelles } from './PlancheParcelles';
 type Planche = Record<string, unknown>;
 const planche = (selectionActive: boolean): Planche => ({
   schema: { largeur: 360, hauteur: 300, empreintePath: 'M0,0 L10,0 L10,10 Z', motif: null,
-    polygones: [{ repere: 'A', cleabs: 'P1', path: 'M0,0 L10,0 L10,10 Z', cx: 5, cy: 5, horsEmpreinte: false }],
+    polygones: [
+      { repere: 'A', cleabs: 'P1', path: 'M0,0 L10,0 L10,10 Z', cx: 5, cy: 5, horsEmpreinte: false },
+      { repere: 'B', cleabs: 'P2', path: 'M20,0 L30,0 L30,10 Z', cx: 25, cy: 5, horsEmpreinte: true }, // voisine → ajout = changement en attente
+    ],
     transform: { minX: 0, minY: 0, scale: 1, padX: 0, padY: 0, hauteur: 300 } },
-  meta: [{ idu: 'P1', section: 'AB', numero: '1', retenue: true, origine: 'extraite', surfaceM2: 100, majPar: null, majLe: null, acteurNom: null }],
-  rayonM: 50, nbRetenues: 1, nbVoisines: 0, motif: null,
+  meta: [
+    { idu: 'P1', section: 'AB', numero: '1', retenue: true, origine: 'extraite', surfaceM2: 100, majPar: null, majLe: null, acteurNom: null },
+    { idu: 'P2', section: 'AB', numero: '2', retenue: false, origine: null, surfaceM2: 80, majPar: null, majLe: null, acteurNom: null },
+  ],
+  rayonM: 50, nbRetenues: 1, nbVoisines: 1, motif: null,
   centre: { mode: 'empreinte', idu: null, point: null, provenance: null, label: null },
   centreAvertissement: null, marqueurAdresse: null,
   parcellesChoix: [{ idu: 'P1', section: 'AB', numero: '1' }], // non vide → pas d'auto-bascule adresse
@@ -73,6 +79,13 @@ async function flush(n = 10): Promise<void> {
 function boutonTexte(txt: string): HTMLButtonElement | null {
   return [...container.querySelectorAll('button')].find((b) => (b.textContent ?? '').trim() === txt) as HTMLButtonElement | null ?? null;
 }
+// PL-ÉTAT — un clic sur la parcelle VOISINE l'ajoute à la composition → crée un CHANGEMENT EN ATTENTE (le bouton devient « Valider la
+//   sélection »). Sans changement, la sélection est ACQUISE et le bouton dit « Modifier la sélection » (inactif) : rien à valider.
+function clicVoisine(): void {
+  const path = [...container.querySelectorAll('path')].find((p) => (p.getAttribute('aria-label') ?? '').includes('voisine'));
+  if (!path) throw new Error('polygone voisine introuvable');
+  act(() => { path.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+}
 
 describe('PL-H — remontée planche → bloc « Bâtiments et projection » (comportement, DOM réel)', () => {
   it('(a) « Valider la sélection » réussie → onEmpreinteRecalculee appelé UNE fois ; (c) aucune boucle : le GET initial reste unique', async () => {
@@ -80,9 +93,13 @@ describe('PL-H — remontée planche → bloc « Bâtiments et projection » (co
     await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1, onEmpreinteRecalculee })); });
     await flush();
     expect(gets).toBe(1);                       // GET initial de la planche
+    expect(boutonTexte('Valider la sélection')).toBeNull();   // PL-ÉTAT — au chargement, composition = défaut → sélection ACQUISE (« Modifier la sélection »)
+    expect(boutonTexte('Modifier la sélection')).not.toBeNull();
+    clicVoisine();                              // ajoute la voisine → changement en attente
+    await flush();
     const b = boutonTexte('Valider la sélection');
-    expect(b).not.toBeNull();
-    expect(b!.disabled).toBe(false);            // composition = parcelle du permis retenue → activable
+    expect(b).not.toBeNull();                   // le libellé bascule sur l'action réelle
+    expect(b!.disabled).toBe(false);            // composition non vide → activable
     act(() => { b!.click(); });
     await flush();
     expect(posts).toBe(1);                       // un seul POST de validation
@@ -95,6 +112,8 @@ describe('PL-H — remontée planche → bloc « Bâtiments et projection » (co
     postOk = false;
     const onEmpreinteRecalculee = vi.fn();
     await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1, onEmpreinteRecalculee })); });
+    await flush();
+    clicVoisine();                              // changement en attente → bouton « Valider la sélection »
     await flush();
     act(() => { boutonTexte('Valider la sélection')!.click(); });
     await flush();

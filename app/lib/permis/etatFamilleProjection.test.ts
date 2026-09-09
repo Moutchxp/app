@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { etatProjectionTitre, etatProjectionTitreDepuisComptes, etatAltitudesTitre } from './etatFamilleProjection';
+import { etatProjectionTitre, etatProjectionTitreDepuisComptes, etatAltitudesTitre, etatPlancheTitre } from './etatFamilleProjection';
 import { clotureVisible } from '../../(admin)/admin/(protected)/permis/CaracteristiquesRendu'; // SOURCE UNIQUE de la visibilité du bloc de sortie (pure)
 
 /**
@@ -75,5 +75,41 @@ describe('RATT-1 — etatAltitudesTitre', () => {
   it('toutes renseignées → vert (avec compte) ; pluriel accordé', () => {
     expect(etatAltitudesTitre(1, 0)).toEqual({ texte: 'altitudes renseignées (1 bâtiment)', ton: 'vert' });
     expect(etatAltitudesTitre(4, 0)).toEqual({ texte: 'altitudes renseignées (4 bâtiments)', ton: 'vert' });
+  });
+});
+
+describe('PL-ÉTAT — etatPlancheTitre (ligne « Planche cadastrale »)', () => {
+  it('PRIORITÉ au changement en attente : rouge « modifiée — non validée », quel que soit le reste', () => {
+    // Un changement à l'écran non appliqué prime sur validée/automatique et sur le cas (une action reste à faire).
+    expect(etatPlancheTitre({ selectionValidee: false, changementEnAttente: true, cas: 'correspondance' }))
+      .toEqual({ texte: 'sélection modifiée — non validée', ton: 'rouge' });
+    expect(etatPlancheTitre({ selectionValidee: true, changementEnAttente: true, cas: 'en_trop' }))
+      .toEqual({ texte: 'sélection modifiée — non validée', ton: 'rouge' });
+  });
+
+  it('sélection VALIDÉE, mêmes parcelles → VERT + nuance « mêmes parcelles » (cas Chrome b après validation concordante)', () => {
+    expect(etatPlancheTitre({ selectionValidee: true, changementEnAttente: false, cas: 'correspondance' }))
+      .toEqual({ texte: 'validée — mêmes parcelles que le permis', ton: 'vert' });
+  });
+
+  it('sélection VALIDÉE avec ÉCART → VERT + nuance « parcelles différentes » (écart validé reste visible en clair, pas masqué) — cas Chrome c', () => {
+    for (const cas of ['manquantes', 'en_trop', 'manquantes_et_en_trop', 'a_verifier'] as const) {
+      expect(etatPlancheTitre({ selectionValidee: true, changementEnAttente: false, cas }))
+        .toEqual({ texte: 'validée — parcelles différentes du permis', ton: 'vert' });
+    }
+  });
+
+  it('AUTOMATIQUE concordant (ou incomparable) → NEUTRE « configuration automatique », AUCUNE alerte (cas Chrome a)', () => {
+    expect(etatPlancheTitre({ selectionValidee: false, changementEnAttente: false, cas: 'correspondance' }))
+      .toEqual({ texte: 'configuration automatique', ton: 'neutre' });
+    expect(etatPlancheTitre({ selectionValidee: false, changementEnAttente: false, cas: 'impossible' }))
+      .toEqual({ texte: 'configuration automatique', ton: 'neutre' }); // rien à comparer → pas de faux « écart »
+  });
+
+  it('AUTOMATIQUE en ÉCART avec le permis → ROUGE « écart… » (rule 3 : signalement sans déplier, jamais un blocage)', () => {
+    for (const cas of ['manquantes', 'en_trop', 'manquantes_et_en_trop', 'a_verifier'] as const) {
+      expect(etatPlancheTitre({ selectionValidee: false, changementEnAttente: false, cas }))
+        .toEqual({ texte: 'écart avec les parcelles déclarées au permis', ton: 'rouge' });
+    }
   });
 });

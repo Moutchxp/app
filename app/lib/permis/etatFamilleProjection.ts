@@ -5,6 +5,7 @@
  * nouvelle : 'rouge'/'vert'/'neutre' → couleurs EXISTANTES de l'admin, mappées par l'appelant (var(--color-svv-red) / -green-ink / -muted).
  */
 import { etatEnteteProjection } from './projectionBatiments'; // SOURCE UNIQUE : le repli de titre PARTAGE la règle de l'en-tête live (estValidationAcquise)
+import type { CasBilanComparatif } from './comparatifParcelles'; // PL-ÉTAT — cas du bilan déclaré ↔ sélectionné (module pur), pour l'état de la ligne « Planche cadastrale »
 
 export type TonTitreFamille = 'rouge' | 'vert' | 'neutre';
 export interface EtatTitreFamille { texte: string; ton: TonTitreFamille }
@@ -45,4 +46,26 @@ export function etatAltitudesTitre(nbBatimentsDeclares: number, nbSansAltitude: 
     return { texte: `altitude${nbSansAltitude > 1 ? 's' : ''} manquante${nbSansAltitude > 1 ? 's' : ''} (${nbSansAltitude}/${nbBatimentsDeclares})`, ton: 'rouge' };
   }
   return { texte: `altitudes renseignées (${nbBatimentsDeclares} bâtiment${nbBatimentsDeclares > 1 ? 's' : ''})`, ton: 'vert' };
+}
+
+/**
+ * PL-ÉTAT — « Planche cadastrale (parcelles) » : dire SANS déplier où en est la sélection de parcelles ET signaler tout écart avec les
+ * parcelles DÉCLARÉES au permis. PUR (dérivé des états déjà connus, jamais recalculé). Règles (décision Arno) :
+ *  · un CHANGEMENT à l'écran non encore appliqué → ROUGE « sélection modifiée — non validée » (il reste une action à faire) ;
+ *  · sinon, une SÉLECTION VALIDÉE → VERT, avec la NUANCE : « mêmes parcelles » (correspondance) ou « parcelles différentes » (écart validé,
+ *    laissé visible en clair — jamais masqué sous le vert) ;
+ *  · sinon (configuration automatique, aucune action en attente) : NEUTRE « configuration automatique » si ça concorde (ou incomparable),
+ *    ROUGE « écart avec les parcelles déclarées » sinon. C'est un SIGNALEMENT, jamais un blocage.
+ * `cas` = bilan `comparerParcelles`/`bilanComparatif` (déclaré ↔ effectif) ; le détail par nature reste dans le bloc déplié.
+ */
+export function etatPlancheTitre(p: { selectionValidee: boolean; changementEnAttente: boolean; cas: CasBilanComparatif }): EtatTitreFamille {
+  if (p.changementEnAttente) return { texte: 'sélection modifiée — non validée', ton: 'rouge' };
+  if (p.selectionValidee) {
+    return p.cas === 'correspondance'
+      ? { texte: 'validée — mêmes parcelles que le permis', ton: 'vert' }
+      : { texte: 'validée — parcelles différentes du permis', ton: 'vert' };
+  }
+  return (p.cas === 'correspondance' || p.cas === 'impossible')
+    ? { texte: 'configuration automatique', ton: 'neutre' }
+    : { texte: 'écart avec les parcelles déclarées au permis', ton: 'rouge' };
 }

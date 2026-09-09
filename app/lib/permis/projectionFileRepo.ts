@@ -20,6 +20,8 @@ import { verdictProjectionBatiments, type VerdictProjection } from './projection
 import { lireDossiersEnTest } from './testAnalyseRepo'; // LOT 51 — porte FIX-2 ouverte pour un dossier « testé en analyse » (sans lever le partiel)
 import { arreterToutesRelances } from './arretRelances'; // LOT 51-C — arrêt EXHAUSTIF (close + partiel_leve_le) à la sortie définitive du test
 import { estValidationAcquise } from './rattachementGroupes'; // 🔴 SOURCE UNIQUE du critère « franchi le process » (altitudes + emprises VALIDÉES), partagé avec le regroupement Rattachement/Surveillance
+import { lireEtatPlanche } from './plancheParcellesRepo'; // PL-ÉTAT — état SAUVEGARDÉ de la planche (sélection validée + bilan déclaré ↔ effectif), pour la LIGNE de titre sans déplier
+import type { CasBilanComparatif } from './comparatifParcelles'; // PL-ÉTAT — cas du bilan (module pur)
 
 // VAL-1 (213) — un bâtiment est « SANS emprise validée » selon la validation PAR EMPRISE (≥ 1 emprise ET aucune emprise non validée). Repli
 //   (213 non appliquée) : ancien pointeur unique par corps `emprise_validee_id`. MÊME règle que le dépliant + la liste Rattachement → un seul verdict.
@@ -45,6 +47,9 @@ export interface LigneProjection {
   nbCorpsSansEmpriseValidee: number; // COMPLÉMENT — bâtiments sans emprise VALIDÉE (206). Avec le précédent : le permis est VALIDABLE ssi les deux valent 0 (estValidationAcquise).
   projectionValidee: boolean;   // RATT-1 — la file EXCLUT par construction les projections validées (jalon NOT EXISTS permis_projection) → TOUJOURS false ici ; champ exposé pour un titre de famille générique et honnête
   testeEnAnalyse: boolean;      // LOT 51 — le dossier est présent en Analyse via le marqueur « testé » (partiel actif tenu ouvert) → l'UI propose « Renvoyer ce permis dans l'onglet En cours » ; false pour un dossier arrivé normalement
+  // PL-ÉTAT — état SAUVEGARDÉ de la « Planche cadastrale » lisible SANS déplier (le bloc est en montage paresseux) : la sélection est-elle
+  //   VALIDÉE, et le bilan déclaré ↔ effectif (correspondance/écart). `null` si non calculé (lecture indisponible) → ligne NEUTRE, jamais faux vert.
+  plancheEtat: { selectionValidee: boolean; cas: CasBilanComparatif } | null;
 }
 
 // Prédicat SQL de nature CONCERNÉE (miroir EXACT de concerneProjectionEmprise : immeuble neuf/construction neuve = nature '1',
@@ -100,6 +105,7 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: b
       nbCorpsSansAltitude: Number(r.nb_corps_sans_altitude ?? 0), projectionValidee: false, // RATT-1 — false par construction (jalon d'exclusion des validées)
       // COMPLÉMENT — DÉFAUT « non validable » (= tous les bâtiments manquants) : `listerFileProjection` remplace par les vrais comptes (lecture résiliente). Sûr si la lecture échoue (n° reste rouge).
       nbCorpsSansAltValidee: Number(r.nb_batiments), nbCorpsSansEmpriseValidee: Number(r.nb_batiments),
+      plancheEtat: null, // PL-ÉTAT — DÉFAUT neutre ; `listerFileProjection` renseigne l'état réel (lecture résiliente séparée)
       testeEnAnalyse: testSet.has(r.dossier_id) }; // LOT 51 — présent via le marqueur « testé » ⇒ l'UI propose le retour
   });
 }
@@ -127,6 +133,21 @@ async function lireValidationFileParDossier(dossierIds: number[]): Promise<Map<n
   return m;
 }
 
+/**
+ * PL-ÉTAT — état SAUVEGARDÉ de la planche PAR DOSSIER pour la file (peu de lignes) : la sélection est-elle validée, et le bilan déclaré ↔
+ * effectif. SÉPARÉ de la requête file (aucune dépendance ajoutée à la migration 202) et RÉSILIENT : toute erreur sur un dossier → pas
+ * d'entrée (ligne NEUTRE, jamais un faux « validé »/« écart »). LECTURE SEULE (lireEtatPlanche n'écrit rien).
+ */
+async function lirePlancheEtatParDossier(dossierIds: number[]): Promise<Map<number, { selectionValidee: boolean; cas: CasBilanComparatif }>> {
+  const m = new Map<number, { selectionValidee: boolean; cas: CasBilanComparatif }>();
+  if (dossierIds.length === 0) return m;
+  const etats = await Promise.all(dossierIds.map(async (id) => {
+    try { return { id, etat: await lireEtatPlanche(id) }; } catch { return null; }
+  }));
+  for (const e of etats) if (e) m.set(e.id, e.etat);
+  return m;
+}
+
 export async function listerFileProjection(cfg: ConfigVeille): Promise<LigneProjection[]> {
   // LOT 51 — marqueurs « testé en analyse » lus À PART et RÉSILIENTS (189 absente → ∅ → porte FIX-2 jamais ouverte, comportement d'avant).
   const testIds = await lireDossiersEnTest();
@@ -145,8 +166,13 @@ export async function listerFileProjection(cfg: ConfigVeille): Promise<LigneProj
     }
   })();
   // COMPLÉMENT — enrichit avec les VRAIS comptes de validation (défaut « non validable » sinon) → le n° passe au vert quand le permis est validable.
-  const val = await lireValidationFileParDossier(rows.map((r) => r.dossierId));
-  return rows.map((r) => { const v = val.get(r.dossierId); return v ? { ...r, nbCorpsSansAltValidee: v.sansAlt, nbCorpsSansEmpriseValidee: v.sansEmp } : r; });
+  const ids = rows.map((r) => r.dossierId);
+  const [val, planche] = await Promise.all([lireValidationFileParDossier(ids), lirePlancheEtatParDossier(ids)]); // PL-ÉTAT — état planche batché en //
+  return rows.map((r) => {
+    const v = val.get(r.dossierId);
+    const base = v ? { ...r, nbCorpsSansAltValidee: v.sansAlt, nbCorpsSansEmpriseValidee: v.sansEmp } : r;
+    return { ...base, plancheEtat: planche.get(r.dossierId) ?? null }; // PL-ÉTAT — état SAUVEGARDÉ (null si indisponible → ligne neutre)
+  });
 }
 
 /** Compteur de la file (pastille). Même critère que la liste. `0` si les tables amont manquent. */
