@@ -64,6 +64,11 @@ describe('PROJ-2 — rendu pur', () => {
     expect(sans).toMatch(/disabled/); // le bouton origine est désactivé sans delta enregistré
     const avec = renderToStaticMarkup(h(PanneauAjustement, { ...props, aDeltaEnregistre: true }));
     expect(avec).toContain('Enregistrer l’ajustement');
+    // mode BLOC : en-tête + explication de composition (positions relatives conservées, individuels conservés)
+    const blocHtml = renderToStaticMarkup(h(PanneauAjustement, { ...props, aDeltaEnregistre: false, bloc: true }));
+    expect(blocHtml).toContain('TOUTES les emprises ensemble');
+    expect(blocHtml).toContain('positions relatives conservées');
+    expect(blocHtml).toContain('data-ajustement-bloc="true"');
   });
 
   it('IndicateurEcartement : 3 états, X cm comme message principal, jamais R/L, honnêteté « estimation »', () => {

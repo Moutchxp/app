@@ -874,18 +874,30 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   // État : l'emprise ajustée + son delta EN COURS + ses anneaux d'ORIGINE (reconstruits via inverseAjustement, le socle 3a) + un flag
   //   « un delta est déjà persisté en base » (→ « revenir au tracé d'origine » disponible même après rechargement). Le drag souris vit
   //   dans une ref (mutable, hors rendu). Les DEUX moyens (souris + boutons) écrivent le MÊME delta et se COMPOSENT.
-  const [ajustement, setAjustement] = useState<{ id: number; delta: Ajustement; origine: PointLambert[][]; enregistre: boolean } | null>(null);
+  // `bloc` : geste d'ENSEMBLE (toutes les emprises du dossier) — `id` null, `base` = tous les anneaux AFFICHÉS (le geste se compose par-dessus
+  //   les ajustements individuels au serveur). `une` : `base` = anneaux d'ORIGINE de l'emprise (inverse du delta stocké). Même moteur d'aperçu.
+  const [ajustement, setAjustement] = useState<{ bloc: boolean; id: number | null; delta: Ajustement; base: PointLambert[][]; enregistre: boolean } | null>(null);
   const dragAjust = useRef<{ cible: 'corps' | 'rotation' | 'echelle'; startLambert: PointLambert; startDelta: Ajustement; centreAffiche: PointLambert; startAngle: number; startDist: number } | null>(null);
+  const anneauxAffiches = useCallback((e: EmpriseReconstruite) => (e.anneaux?.length ? e.anneaux : (e.anneau.length ? [e.anneau] : [])), []);
 
   const demarrerAjustement = useCallback((id: number) => {
     const e = emprises.find((x) => x.id === id); if (!e) return;
-    const affichees = e.anneaux?.length ? e.anneaux : (e.anneau.length ? [e.anneau] : []);
-    const origine = affichees.map((a) => inverseAjustement(a, e.ajustement ?? null)); // socle 3a : origine = inverse du delta stocké
-    const delta = e.ajustement ?? ajustementIdentite(origine);
+    const base = anneauxAffiches(e).map((a) => inverseAjustement(a, e.ajustement ?? null)); // socle 3a : origine = inverse du delta stocké
+    const delta = e.ajustement ?? ajustementIdentite(base);
     setRetouche(null); setSommetSel(null); // exclusif de la retouche
-    setAjustement({ id, delta, origine, enregistre: e.ajustement != null });
+    setAjustement({ bloc: false, id, delta, base, enregistre: e.ajustement != null });
     setMessage('ajustement : glissez le dessin ou une poignée, ou utilisez les boutons. Rien n’est enregistré tant que vous ne cliquez pas « Enregistrer ».');
-  }, [emprises]);
+  }, [emprises, anneauxAffiches]);
+
+  // MODE BLOC — geste appliqué à TOUTES les emprises du dossier ensemble. `base` = anneaux AFFICHÉS de toutes les emprises (le geste `externe`
+  //   se COMPOSE au serveur par-dessus l'ajustement individuel de chacune) ; centre = centroïde de l'ENSEMBLE affiché. Positions relatives préservées.
+  const demarrerAjustementBloc = useCallback(() => {
+    const base = emprises.flatMap((e) => anneauxAffiches(e)).filter((a) => a.length >= 3);
+    if (base.length === 0) return;
+    setRetouche(null); setSommetSel(null);
+    setAjustement({ bloc: true, id: null, delta: ajustementIdentite(base), base, enregistre: emprises.some((e) => e.ajustement != null) });
+    setMessage('ajustement d’ensemble : les emprises bougent ENSEMBLE (positions relatives conservées). Rien n’est enregistré tant que vous ne cliquez pas « Enregistrer ».');
+  }, [emprises, anneauxAffiches]);
 
   const majDelta = useCallback((maj: (d: Ajustement) => Ajustement) => setAjustement((a) => (a ? { ...a, delta: maj(a.delta) } : a)), []);
   const onTranslate = useCallback((dxM: number, dyM: number) => majDelta((d) => ({ ...d, tx: d.tx + dxM, ty: d.ty + dyM })), [majDelta]);
@@ -897,7 +909,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const apercuAjustement = useMemo(() => {
     if (!ajustement) return null;
     const d = ajustement.delta;
-    const anneaux = ajustement.origine.map((a) => appliquerAjustement(a, d));
+    const anneaux = ajustement.base.map((a) => appliquerAjustement(a, d));
     const centre = { x: d.centre.x + d.tx, y: d.centre.y + d.ty };
     let R = 0; for (const a of anneaux) for (const p of a) R = Math.max(R, Math.hypot(p.x - centre.x, p.y - centre.y));
     const rayon = (R > 0 ? R : 1) * 1.25;
@@ -932,12 +944,14 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     if (!ajustement) return;
     setOccupe(true); setMessage(null); dragAjust.current = null;
     try {
-      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'ajuster', dossierId, id: ajustement.id, ajustement: ajustement.delta }) });
+      const corps = ajustement.bloc
+        ? { action: 'ajuster_bloc', dossierId, ajustement: ajustement.delta }
+        : { action: 'ajuster', dossierId, id: ajustement.id, ajustement: ajustement.delta };
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
       const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[] };
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'ajustement refusé'); return; }
       setEmprises(j.emprises ?? []); setAjustement(null);
-      setMessage('ajustement enregistré. « Revenir au tracé d’origine » reste disponible à tout moment.');
+      setMessage(ajustement.bloc ? 'ajustement d’ensemble enregistré. « Revenir au tracé d’origine » reste disponible.' : 'ajustement enregistré. « Revenir au tracé d’origine » reste disponible à tout moment.');
       onEmprisesChange?.();
     } catch { setMessage('ajustement impossible'); } finally { setOccupe(false); }
   }, [ajustement, dossierId, onEmprisesChange]);
@@ -946,12 +960,12 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     if (!ajustement) return;
     setOccupe(true); setMessage(null); dragAjust.current = null;
     try {
-      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'reinitialiser_ajustement', dossierId, id: ajustement.id }) });
+      const corps = ajustement.bloc ? { action: 'reinitialiser_ajustement_bloc', dossierId } : { action: 'reinitialiser_ajustement', dossierId, id: ajustement.id };
+      const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
       const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[] };
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'retour à l’origine impossible'); return; }
       setEmprises(j.emprises ?? []); setAjustement(null);
-      setMessage('retour au tracé d’origine : l’ajustement a été supprimé, la géométrie d’origine est restituée.');
+      setMessage(ajustement.bloc ? 'retour à l’origine (ensemble) : tous les ajustements ont été supprimés, les géométries d’origine sont restituées.' : 'retour au tracé d’origine : l’ajustement a été supprimé, la géométrie d’origine est restituée.');
       onEmprisesChange?.();
     } catch { setMessage('retour à l’origine impossible'); } finally { setOccupe(false); }
   }, [ajustement, dossierId, onEmprisesChange]);
@@ -1495,14 +1509,20 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             {/* BUG PROV — le RÉSULTAT (succès OU erreur serveur) s'affiche ICI, au point d'action : un bouton MUET était le pire cas. */}
             {message && <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-svv-red)' }}>{message}</div>}
 
-            {/* Emprises de CE bâtiment : ajuster (delta rigide), retoucher (sommets, mono-polygone) ou effacer. */}
+            {/* Emprises de CE bâtiment : ajuster (delta rigide), retoucher (sommets, mono-polygone) ou effacer. Pendant un ajustement (une ou bloc), les boutons « ajuster » se masquent. */}
             <ListeEmprises emprises={empriseDuBat} empriseEnRetouche={retouche?.id ?? null} empriseEnAjustement={ajustement?.id ?? null} nomCorps={libelleBatiment(batSel)}
               onSupprimer={(id) => void posterProjection('supprimer', corpsEffectif!, { id })}
-              onRetoucher={(id) => demarrerRetouche(id)} onAjuster={(id) => demarrerAjustement(id)} />
+              onRetoucher={(id) => demarrerRetouche(id)} onAjuster={ajustement ? undefined : (id) => demarrerAjustement(id)} />
 
-            {/* PROJ-3t (lot 3b) — PANNEAU D'AJUSTEMENT (souris + boutons ; les boutons suffisent seuls, mobile-first). Réversibilité garantie. */}
+            {/* PROJ-3t (lot 3b) — SÉLECTEUR de portée : « cette emprise » (bouton « ajuster » de chaque ligne ci-dessus) OU « toutes ensemble »
+                (positions relatives conservées). Offert quand ≥ 2 emprises dans le DOSSIER et aucun ajustement en cours. */}
+            {!ajustement && emprises.length >= 2 && (
+              <button type="button" style={{ ...btn, alignSelf: 'flex-start' }} onClick={demarrerAjustementBloc}>ajuster toutes les emprises du dossier ensemble ({emprises.length})</button>
+            )}
+
+            {/* PANNEAU D'AJUSTEMENT (souris + boutons ; les boutons suffisent seuls, mobile-first). Réversibilité garantie. */}
             {ajustement && apercuAjustement && (
-              <PanneauAjustement resume={resumeAjustement(ajustement.delta)} occupe={occupe} aDeltaEnregistre={ajustement.enregistre}
+              <PanneauAjustement resume={resumeAjustement(ajustement.delta)} occupe={occupe} aDeltaEnregistre={ajustement.enregistre} bloc={ajustement.bloc}
                 onTranslate={onTranslate} onRotate={onRotate} onScale={onScale}
                 onEnregistrer={() => void enregistrerAjustementGeste()} onAbandonner={abandonnerAjustement} onOrigine={() => void revenirOrigineAjustement()} />
             )}

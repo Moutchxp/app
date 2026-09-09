@@ -10,7 +10,7 @@
  * écriture refusée avec motif clair (aucune exception qui remonte). Module PROPRE : n'importe que db/client et le module pur.
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { aireM2, deriverDebordement, appliquerAjustement, ajustementValide, type PointLambert, type Debordement, type Ajustement } from './calageEmprise';
+import { aireM2, deriverDebordement, appliquerAjustement, ajustementValide, composerAjustement, type PointLambert, type Debordement, type Ajustement } from './calageEmprise';
 import { grouperPolygonesConnexes, grouperParBatiment } from './adoptionEmprise';
 import { lireSeuilMitoyenAireM2, qualifierMitoyennete, batimentAppartientPermis, type QualificationPolygone, type IntersectionParcelleBatiment } from './projectionConfig';
 
@@ -221,6 +221,47 @@ export async function supprimerAjustement(dossierId: number, id: number): Promis
   if (!Number.isInteger(id) || !Number.isInteger(dossierId)) return { ok: false, motif: 'requête invalide' };
   try {
     await query(`UPDATE permis_emprise_reconstruite SET ajustement = NULL WHERE id = $1 AND dossier_id = $2`, [id, dossierId]);
+    return { ok: true, emprises: await listerEmprises(dossierId) };
+  } catch (e) {
+    if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_COLONNE_211, colonneAbsente: true };
+    if (estTableAbsente(e)) return { ok: false, motif: 'table des emprises absente', tableAbsente: true };
+    throw e;
+  }
+}
+
+/**
+ * PROJ-3t (lot 3b) — MODE BLOC : applique le geste d'ensemble `bloc` (centre = centroïde de L'ENSEMBLE affiché, fourni par le client) à
+ * TOUTES les emprises du dossier, en le COMPOSANT par-dessus l'ajustement individuel existant de chacune (jamais un écrasement) → les
+ * positions RELATIVES des emprises sont préservées, et un tweak individuel n'est pas perdu (comportement le moins surprenant). Chaque delta
+ * composé porte le centre de l'ensemble (règle 3a : centre stocké). Transactionnel. 🔴 AUCUN recalcul d'auto-statut (règle e). RÉSILIENT.
+ */
+export async function ajusterBloc(dossierId: number, bloc: Ajustement, par: string | null): Promise<ResultatAjustement> {
+  if (!Number.isInteger(dossierId)) return { ok: false, motif: 'requête invalide' };
+  if (!ajustementValide(bloc)) return { ok: false, motif: 'ajustement invalide (nombres finis, échelle > 0, centre requis)' };
+  try {
+    const avant = await listerEmprises(dossierId);
+    if (avant.length === 0) return { ok: false, motif: 'aucune emprise à ajuster dans ce dossier' };
+    await withTransaction(async (tx) => {
+      for (const e of avant) {
+        const c = composerAjustement(e.ajustement ?? null, bloc, bloc.centre); // bloc ∘ individuel (individuel conservé)
+        const noyau = { tx: c.tx, ty: c.ty, rotDeg: c.rotDeg, echelle: c.echelle, centre: c.centre };
+        await tx(`UPDATE permis_emprise_reconstruite SET ajustement = $3::jsonb || jsonb_build_object('pose_le', now(), 'pose_par', $4::text) WHERE id = $1 AND dossier_id = $2`,
+          [e.id, dossierId, JSON.stringify(noyau), par]);
+      }
+    });
+    return { ok: true, emprises: await listerEmprises(dossierId) };
+  } catch (e) {
+    if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_COLONNE_211, colonneAbsente: true };
+    if (estTableAbsente(e)) return { ok: false, motif: 'table des emprises absente', tableAbsente: true };
+    throw e;
+  }
+}
+
+/** PROJ-3t (lot 3b) — RETOUR À L'ORIGINE EN BLOC : remet ajustement à NULL sur TOUTES les emprises du dossier (chaque géométrie d'origine restituée). RÉSILIENT. */
+export async function reinitialiserAjustementBloc(dossierId: number): Promise<ResultatAjustement> {
+  if (!Number.isInteger(dossierId)) return { ok: false, motif: 'requête invalide' };
+  try {
+    await query(`UPDATE permis_emprise_reconstruite SET ajustement = NULL WHERE dossier_id = $1`, [dossierId]);
     return { ok: true, emprises: await listerEmprises(dossierId) };
   } catch (e) {
     if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_COLONNE_211, colonneAbsente: true };

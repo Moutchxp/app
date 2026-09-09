@@ -1,6 +1,6 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
-import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, lireVoisinageContexte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, enregistrerAjustement, supprimerAjustement, lireProjectionValidee, lireValideeParCorps, lireAltitudeValideeParCorps, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
+import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, lireVoisinageContexte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, enregistrerAjustement, supprimerAjustement, ajusterBloc, reinitialiserAjustementBloc, lireProjectionValidee, lireValideeParCorps, lireAltitudeValideeParCorps, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { lireRayonContexteM } from '../../../../../lib/permis/projectionConfig';
 import { lireSelectionInfo, type SelectionInfo } from '../../../../../lib/permis/plancheParcellesRepo'; // PL-C4 — sélection validée pour le bandeau
 import { calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, type PaireCalage, type PointPlan, type Ajustement } from '../../../../../lib/permis/calageEmprise';
@@ -401,6 +401,19 @@ export async function POST(request: Request): Promise<Response> {
     if (body.action === 'reinitialiser_ajustement') {
       if (!Number.isInteger(body.id)) return Response.json({ erreur: 'emprise requise' }, { status: 400 });
       const res = await supprimerAjustement(dossierId, body.id as number);
+      if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.colonneAbsente || res.tableAbsente ? 409 : 400 });
+      return Response.json({ ok: true, emprises: res.emprises });
+    }
+    // MODE BLOC — même geste appliqué à TOUTES les emprises du dossier (centre = ensemble), COMPOSÉ par-dessus les ajustements individuels
+    //   existants (positions relatives préservées). Retour à l'origine en bloc = toutes les colonnes à NULL. 🔴 Aucun recalcul d'auto-statut.
+    if (body.action === 'ajuster_bloc') {
+      if (typeof body.ajustement !== 'object' || body.ajustement === null) return Response.json({ erreur: 'ajustement requis' }, { status: 400 });
+      const res = await ajusterBloc(dossierId, body.ajustement, garde.auteurId === null ? 'admin:ajustement' : String(garde.auteurId));
+      if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.colonneAbsente || res.tableAbsente ? 409 : 400 });
+      return Response.json({ ok: true, emprises: res.emprises });
+    }
+    if (body.action === 'reinitialiser_ajustement_bloc') {
+      const res = await reinitialiserAjustementBloc(dossierId);
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.colonneAbsente || res.tableAbsente ? 409 : 400 });
       return Response.json({ ok: true, emprises: res.emprises });
     }

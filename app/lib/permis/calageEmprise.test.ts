@@ -5,7 +5,7 @@ import {
   verdictVraisemblance, deriverDebordement, SEUIL_RESIDU_CALAGE_M, residusParPoint,
   levierCalage, etatLevier, inverseSimilitude, SEUIL_LEVIER_RASSURANT_MAX,
   appliquerAjustement, inverseAjustement, appliquerAjustementPoint, ajustementValide,
-  centroideAnneaux, resumeAjustement, ajustementIdentite, type Ajustement, type PaireCalage,
+  centroideAnneaux, resumeAjustement, ajustementIdentite, composerAjustement, type Ajustement, type PaireCalage,
   cadreDeAnneaux, projeterDansBoite, inverseDepuisBoite, rotePoint, boiteEnglobanteRotee, clicVersBoite, ecranVersCanvas, estClic, type Boite,
 } from './calageEmprise';
 
@@ -327,6 +327,25 @@ describe('PROJ — écartement des repères (levierCalage) : sensibilité, jamai
     expect(r.echellePct).toBeCloseTo(5, 9);          // +5 %
     expect(resumeAjustement({ tx: 0, ty: 0, rotDeg: -190, echelle: 0.9, centre: { x: 0, y: 0 } }).rotationDeg).toBeCloseTo(170, 9); // −190 → 170
     expect(resumeAjustement({ tx: 0, ty: 0, rotDeg: 0, echelle: 0.8, centre: { x: 0, y: 0 } }).echellePct).toBeCloseTo(-20, 9); // réduite
+  });
+
+  it('composerAjustement : composé ≡ appliquer interne PUIS externe (propriété forte), sur des points quelconques', () => {
+    const interne: Ajustement = { tx: 5, ty: -3, rotDeg: 20, echelle: 1.3, centre: { x: 10, y: 4 } };
+    const externe: Ajustement = { tx: -2, ty: 7, rotDeg: -35, echelle: 0.8, centre: { x: 0, y: 0 } };
+    const compose = composerAjustement(interne, externe, { x: 3, y: 3 }); // centre de sortie quelconque
+    for (const p of [{ x: 0, y: 0 }, { x: 12, y: -5 }, { x: -7, y: 9 }]) {
+      const attendu = appliquerAjustementPoint(appliquerAjustementPoint(p, interne), externe); // externe ∘ interne
+      const obtenu = appliquerAjustementPoint(p, compose);
+      expect(obtenu.x).toBeCloseTo(attendu.x, 6); expect(obtenu.y).toBeCloseTo(attendu.y, 6);
+    }
+  });
+
+  it('composerAjustement : interne NULL (cas bloc propre) → renvoie le delta externe re-centré à l’identique', () => {
+    const externe: Ajustement = { tx: 4, ty: -1, rotDeg: 15, echelle: 1.2, centre: { x: 8, y: 8 } };
+    const compose = composerAjustement(null, externe, externe.centre); // bloc sur emprises non ajustées : même delta stocké
+    expect(compose.tx).toBeCloseTo(externe.tx, 6); expect(compose.ty).toBeCloseTo(externe.ty, 6);
+    expect(compose.rotDeg).toBeCloseTo(externe.rotDeg, 6); expect(compose.echelle).toBeCloseTo(externe.echelle, 6);
+    expect(compose.centre).toEqual(externe.centre);
   });
 
   it('inverseSimilitude : aller-retour EXACT avec appliquerSimilitude ; dégénéré → null', () => {

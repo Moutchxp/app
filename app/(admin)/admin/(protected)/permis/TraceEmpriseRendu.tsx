@@ -990,16 +990,16 @@ export function libelleResumeAjustement(r: ResumeAjustement): string {
  * 2 échelles. Les boutons SUFFISENT à eux seuls (chemin complet, mobile-first) ; la souris (drag + poignées) est un plus. État affiché en
  * PERMANENCE en langage d'Arno. 🔴 HONNÊTETÉ : ajuster déplace un DESSIN, ça ne mesure RIEN (aucune précision gagnée). Réversibilité garantie.
  */
-export function PanneauAjustement({ resume, occupe = false, aDeltaEnregistre, onTranslate, onRotate, onScale, onEnregistrer, onAbandonner, onOrigine }: {
-  resume: ResumeAjustement; occupe?: boolean; aDeltaEnregistre: boolean;
+export function PanneauAjustement({ resume, occupe = false, aDeltaEnregistre, bloc = false, onTranslate, onRotate, onScale, onEnregistrer, onAbandonner, onOrigine }: {
+  resume: ResumeAjustement; occupe?: boolean; aDeltaEnregistre: boolean; bloc?: boolean;
   onTranslate: (dxM: number, dyM: number) => void; onRotate: (deg: number) => void; onScale: (pct: number) => void;
   onEnregistrer: () => void; onAbandonner: () => void; onOrigine: () => void;
 }) {
   const b: CSSProperties = { cursor: occupe ? 'default' : 'pointer', opacity: occupe ? 0.5 : 1, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', padding: '.3rem .55rem', fontSize: 13, minWidth: 40, minHeight: 36 };
   const cm = Math.round(PAS_TRANSLATION_M * 100);
   return (
-    <div style={{ border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.6rem', background: 'var(--color-svv-surface)', display: 'flex', flexDirection: 'column', gap: '.5rem' }} role="group" aria-label="ajustement de l’emprise">
-      <div style={{ fontWeight: 600 }}>Ajuster l’emprise <span style={muted}>— déplacer / tourner / redimensionner un DESSIN (une reconstitution, jamais une mesure)</span></div>
+    <div style={{ border: '1px solid var(--color-svv-ink)', borderRadius: '.5rem', padding: '.6rem', background: 'var(--color-svv-surface)', display: 'flex', flexDirection: 'column', gap: '.5rem' }} role="group" aria-label={bloc ? 'ajustement de toutes les emprises' : 'ajustement de l’emprise'} data-ajustement-bloc={bloc || undefined}>
+      <div style={{ fontWeight: 600 }}>{bloc ? 'Ajuster TOUTES les emprises ensemble' : 'Ajuster l’emprise'} <span style={muted}>— déplacer / tourner / redimensionner un DESSIN (une reconstitution, jamais une mesure){bloc ? ' ; les emprises bougent ensemble, positions relatives conservées, et l’ajustement s’ajoute aux ajustements individuels existants (ils sont conservés)' : ''}</span></div>
       <div data-ajustement-resume="true" style={{ fontSize: 13 }}><strong>{libelleResumeAjustement(resume)}</strong></div>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.8rem', alignItems: 'flex-start' }}>
         {/* Translation — flèches (axes carte : nord / sud / est / ouest), pas nommé en cm terrain. */}

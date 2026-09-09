@@ -529,3 +529,22 @@ export function resumeAjustement(a: Ajustement): ResumeAjustement {
 export function ajustementIdentite(anneaux: PointLambert[][]): Ajustement {
   return { tx: 0, ty: 0, rotDeg: 0, echelle: 1, centre: centroideAnneaux(anneaux) };
 }
+
+// ── COMPOSITION de deux deltas (PROJ-3t, lot 3b — mode BLOC) ──────────────────────────────────────────────────────────────────
+// Un delta = similitude p ↦ A·(p − c) + c + t, équivalente à p ↦ A·p + d avec A = échelle·rotation (complexe α = a+ib) et d = c + t − A·c.
+// La composition `externe ∘ interne` (appliquer interne PUIS externe) est encore une similitude : A = A_ext·A_int (produit complexe),
+// d = A_ext·d_int + d_ext. On la ré-exprime autour d'un centre de sortie choisi (centreSortie). Sert au BLOC : chaque emprise garde son
+// ajustement individuel (interne), le geste d'ensemble (externe) se COMPOSE par-dessus (jamais un écrasement) → positions relatives préservées.
+function alphaDe(a: Ajustement): { re: number; im: number } { const r = (a.rotDeg * Math.PI) / 180; return { re: a.echelle * Math.cos(r), im: a.echelle * Math.sin(r) }; }
+function appliqueMatrice(al: { re: number; im: number }, p: { x: number; y: number }): { x: number; y: number } { return { x: al.re * p.x - al.im * p.y, y: al.im * p.x + al.re * p.y }; }
+function dDe(a: Ajustement): { x: number; y: number } { const Ac = appliqueMatrice(alphaDe(a), a.centre); return { x: a.centre.x + a.tx - Ac.x, y: a.centre.y + a.ty - Ac.y }; }
+/** Compose `externe ∘ interne` (interne d'abord), ré-exprimé autour de `centreSortie`. `interne` NULL = identité. PUR. */
+export function composerAjustement(interne: Ajustement | null, externe: Ajustement, centreSortie: PointLambert): Ajustement {
+  const ai = interne ? alphaDe(interne) : { re: 1, im: 0 };
+  const di = interne ? dDe(interne) : { x: 0, y: 0 };
+  const ae = alphaDe(externe), de = dDe(externe);
+  const alpha = { re: ae.re * ai.re - ae.im * ai.im, im: ae.re * ai.im + ae.im * ai.re }; // A_ext·A_int
+  const Aedi = appliqueMatrice(ae, di); const d = { x: Aedi.x + de.x, y: Aedi.y + de.y }; // A_ext·d_int + d_ext
+  const Acout = appliqueMatrice(alpha, centreSortie);
+  return { tx: d.x + Acout.x - centreSortie.x, ty: d.y + Acout.y - centreSortie.y, rotDeg: (Math.atan2(alpha.im, alpha.re) * 180) / Math.PI, echelle: Math.hypot(alpha.re, alpha.im), centre: { x: centreSortie.x, y: centreSortie.y } };
+}

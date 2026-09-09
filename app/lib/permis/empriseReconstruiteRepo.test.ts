@@ -51,7 +51,7 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock, withTransaction: async (fn: (q: unknown) => unknown) => fn(H.queryMock) }));
 
-import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, enregistrerAjustement, supprimerAjustement, lireEtatEmprisesPermis, validerEmpriseBatiment, devaliderEmpriseBatiment } from './empriseReconstruiteRepo';
+import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, enregistrerAjustement, supprimerAjustement, ajusterBloc, reinitialiserAjustementBloc, lireEtatEmprisesPermis, validerEmpriseBatiment, devaliderEmpriseBatiment } from './empriseReconstruiteRepo';
 import type { Ajustement } from './calageEmprise';
 import type { CalageTrace } from './empriseReconstruiteRepo';
 
@@ -221,6 +221,33 @@ describe('PROJ-2 — enregistrerEmprise : n’écrit QUE la table des reconstitu
     const upd = H.calls.find((c) => /UPDATE permis_emprise_reconstruite SET ajustement = NULL/i.test(c.sql))!;
     expect(upd.sql).toMatch(/WHERE id = \$1 AND dossier_id = \$2/i);
     expect(upd.params).toEqual([7, 11434]);
+  });
+
+  it('ajusterBloc : applique le geste à TOUTES les emprises (1 UPDATE par emprise), le delta bloc COMPOSÉ, transactionnel', async () => {
+    H.flags.listeRows = [
+      { id: 4, corps_id: 3, libelle: '2D1', gj: { type: 'Polygon', coordinates: [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]] }, surface_m2: 100, piece_id: null, page: 1, calage: null, residu_m: 0, provenance: 'trace_manuel', cree_le: null, ajustement: { tx: 3, ty: 0, rotDeg: 0, echelle: 1, centre: { x: 5, y: 5 } } }, // déjà ajustée
+      { id: 5, corps_id: 3, libelle: '2D2', gj: { type: 'Polygon', coordinates: [[[20, 0], [30, 0], [30, 10], [20, 10], [20, 0]]] }, surface_m2: 100, piece_id: null, page: 1, calage: null, residu_m: 0, provenance: 'trace_manuel', cree_le: null, ajustement: null }, // vierge
+    ];
+    const r = await ajusterBloc(11434, delta, 'admin:ajustement');
+    expect(r.ok).toBe(true);
+    const upds = H.calls.filter((c) => /UPDATE permis_emprise_reconstruite\s+SET ajustement =/i.test(c.sql));
+    expect(upds).toHaveLength(2); // une écriture par emprise
+    expect(upds.map((u) => u.params[0]).sort()).toEqual([4, 5]); // les deux emprises
+    for (const u of upds) { expect(u.params[1]).toBe(11434); expect(u.sql).toMatch(/jsonb_build_object\('pose_le', now\(\)/i); }
+  });
+
+  it('ajusterBloc : dossier sans emprise → ok:false, aucune écriture', async () => {
+    H.flags.listeRows = [];
+    const r = await ajusterBloc(11434, delta, 'admin');
+    expect(r.ok).toBe(false);
+    expect(H.calls.some((c) => /UPDATE permis_emprise_reconstruite\s+SET ajustement =/i.test(c.sql))).toBe(false);
+  });
+
+  it('reinitialiserAjustementBloc : UPDATE ajustement = NULL sur TOUT le dossier (une requête, scopée)', async () => {
+    const r = await reinitialiserAjustementBloc(11434);
+    expect(r.ok).toBe(true);
+    const upd = H.calls.find((c) => /UPDATE permis_emprise_reconstruite SET ajustement = NULL WHERE dossier_id = \$1/i.test(c.sql))!;
+    expect(upd.params).toEqual([11434]);
   });
 });
 
