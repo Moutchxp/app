@@ -16,7 +16,8 @@ import { DeclarationsCerfaDiffere } from './CaracteristiquesBloc';
 const recap = (descriptionProjet: string | null) => ({
   present: true, dateDepot: null, superficieTerrainM2: null, logementsTotal: null, logementsIndividuels: null, logementsCollectifs: null,
   niveauxDessusSol: null, niveauxDessousSol: null, stationnementAvant: null, stationnementApres: null, empriseAuSolCreeeM2: null,
-  surfacePlancherTotaleM2: null, descriptionProjet, descriptionProjetProvenance: descriptionProjet ? ('texte' as const) : ('absent' as const), decompte: null, absents: [], ambigus: [],
+  surfacePlancherTotaleM2: null, descriptionProjet, descriptionProjetProvenance: descriptionProjet ? ('texte' as const) : ('absent' as const),
+  descriptionScission: { genere: null, humain: descriptionProjet, valeurs: null }, decompte: null, absents: [], ambigus: [],
 });
 
 let root: Root | null = null;

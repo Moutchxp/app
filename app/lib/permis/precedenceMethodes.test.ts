@@ -5,12 +5,21 @@ import { rangMethode, domine, methodeGagnante, motifEcartePrecedence, estMotifPr
  * N10-T — la précédence entre méthodes, déclarée UNE SEULE FOIS. Tests PURS. L'ordre : saisie > cerfa > enonce > plan > ia > motifs.
  */
 describe('precedenceMethodes', () => {
-  it('l’ORDRE est bien saisie > cerfa > enonce > plan > ia > motifs > recap (rang croissant = force décroissante)', () => {
-    expect([...PRECEDENCE_METHODES]).toEqual(['saisie', 'cerfa', 'enonce', 'plan', 'ia', 'motifs', 'recap']);
+  it('l’ORDRE est bien saisie > cerfa > enonce > plan > teleservice > ia > motifs > recap (rang croissant = force décroissante)', () => {
+    expect([...PRECEDENCE_METHODES]).toEqual(['saisie', 'cerfa', 'enonce', 'plan', 'teleservice', 'ia', 'motifs', 'recap']);
     expect(rangMethode('cerfa')).toBeLessThan(rangMethode('ia'));
     expect(rangMethode('enonce')).toBeLessThan(rangMethode('motifs'));
     expect(rangMethode('inconnue')).toBe(PRECEDENCE_METHODES.length); // inconnue = rang le plus faible
     expect(rangMethode(null)).toBe(PRECEDENCE_METHODES.length);
+  });
+
+  it('CR-1b — « teleservice » se place SOUS les plans/coupes et AU-DESSUS de l’IA', () => {
+    expect(rangMethode('plan')).toBeLessThan(rangMethode('teleservice'));   // les plans/coupes priment
+    expect(rangMethode('teleservice')).toBeLessThan(rangMethode('ia'));      // mais teleservice prime l'IA
+    expect(domine('teleservice', 'ia')).toBe(true);
+    expect(domine('ia', 'teleservice')).toBe(false);
+    expect(domine('teleservice', 'plan')).toBe(false);                       // n'écrase pas un plan/une coupe
+    expect(domine('cerfa', 'teleservice')).toBe(true);                       // ni le formulaire
   });
 
   it('domine : une méthode écrit par-dessus une méthode de rang inférieur ou égal, jamais supérieur', () => {

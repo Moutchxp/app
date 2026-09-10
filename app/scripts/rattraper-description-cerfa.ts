@@ -1,8 +1,9 @@
 /**
- * CR-1 — RATTRAPAGE de la « Courte description de votre projet ou de vos travaux ». La coupe naïve d'avant ramenait du GABARIT
+ * CR-1 / CR-1b — RATTRAPAGE de la « Courte description de votre projet ou de vos travaux ». La coupe naïve d'avant ramenait du GABARIT
  * VIERGE sur les Cerfa aplatis (flux pdfjs réordonné) ; la nouvelle coupe (`descriptionProjet.ts`) rend la vraie déclaration ou
- * s'abstient. Ce script RECALCULE `descriptionProjet` pour les dossiers DÉJÀ en base (`permis_cerfa_recap`) et montre, par dossier :
- * ancien nombre de caractères, nouveau, provenance, et un extrait de 200 caractères.
+ * s'abstient, puis CR-1b SCINDE la phrase générée par le téléservice de la déclaration humaine (`descriptionScission.ts`). Ce script
+ * RECALCULE le récap pour les dossiers DÉJÀ en base (`permis_cerfa_recap`) et montre, par dossier : ancien/nouveau nombre de
+ * caractères, provenance, la PART GÉNÉRÉE, la PART HUMAINE et les VALEURS dérivées (méthode teleservice).
  *
  * DRY-RUN PAR DÉFAUT — aucune écriture. `--appliquer` upsert le récap recalculé (résilient : no-op si la table 192 manque). Ne touche
  * NI le moteur, NI le verdict, NI le golden, NI une altitude ; n'écrit QUE `permis_cerfa_recap`. AUCUN appel IA, AUCUN service payant
@@ -48,8 +49,13 @@ async function main(): Promise<void> {
     console.log(
       `\n  ${flag} dossier ${dossierId} — provenance=${decl.descriptionProjetProvenance}` +
       `  ancien=${ancienne?.length ?? 0}c  nouveau=${nouvelle?.length ?? 0}c`);
-    console.log(`     avant : ${apercu(ancienne)}`);
-    console.log(`     après : ${apercu(nouvelle)}`);
+    console.log(`     avant  : ${apercu(ancienne)}`);
+    console.log(`     après  : ${apercu(nouvelle)}`);
+    // CR-1b — scission généré / humain + valeurs dérivées (méthode teleservice).
+    const sc = decl.descriptionScission;
+    console.log(`     généré : ${apercu(sc.genere)}`);
+    console.log(`     humain : ${apercu(sc.humain)}`);
+    console.log(`     valeurs: ${sc.valeurs ? JSON.stringify(sc.valeurs) : '(aucune — pas de part générée)'}`);
     if (appliquer) {
       const source = trouverCerfaPc(ged, metas)?.nomFichier ?? null;
       const ok = await ecrireDeclarationsRecap(dossierId, decl, source, 'recap:rattrapage-description');

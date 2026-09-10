@@ -2,11 +2,17 @@
  * N10-T — PRÉCÉDENCE entre méthodes d'extraction, DÉCLARÉE UNE SEULE FOIS. Module PUR (aucune base) : tous les writers et le reader
  * s'en servent, aucun ne la recopie (même discipline que les domaines de purge de N10-S).
  *
- * ORDRE (rang décroissant) :  saisie > cerfa > enonce > plan > ia > motifs > recap
+ * ORDRE (rang décroissant) :  saisie > cerfa > enonce > plan > teleservice > ia > motifs > recap
  *   - saisie  : la main — au-dessus de tout (invariant 103, géré par l'origine, PAS par ce module ; elle ne va jamais au journal).
  *   - cerfa   : le FORMULAIRE lui-même (champs AcroForm du Cerfa) — la donnée déclarée à la source.
  *   - enonce  : la TABLE STRUCTURÉE des planches (tableaux de niveaux) — structure > cotes isolées (cf. ecritureNiveaux.ts).
  *   - plan    : cote lue par POSITION sur une planche (gabarit/plateau).
+ *   - teleservice : (CR-1b) valeurs DÉRIVÉES de la phrase que le TÉLÉSERVICE de la mairie pré-remplit dans le champ libre du Cerfa
+ *               (« Construction d'un bâtiment à R+N sur M niveau(x) de sous-sol à destination … Surface créée: S m² »). C'est un dérivé
+ *               PRODUIT PAR LA MAIRIE, pas une déclaration d'architecte : SOUS les plans/coupes et la déclaration humaine, mais
+ *               AU-DESSUS de l'IA (une valeur écrite en toutes lettres par l'outil officiel > une lecture d'image). Ne pas confondre
+ *               avec 'cerfa'. ⚠️ PAS ENCORE dans le CHECK du journal (migrations 109/133/193) : aucune écriture de journal 'teleservice'
+ *               dans CR-1b (les valeurs vivent dans le récap) ; l'instruction des champs et la migration du CHECK viendront en CR-3.
  *   - ia      : LECTURE D'IMAGE du même document (OCR + vision) — sous le formulaire qu'elle relit.
  *   - motifs  : la COTE ISOLÉE glanée dans le texte — dernier recours des cotes.
  *   - recap   : (LOT 69) une VALEUR déclarée dans le CHAMP LIBRE du récapitulatif, RETENUE parce que corroborée par une SOMME sur un
@@ -19,11 +25,14 @@
  * elle est ÉCARTÉE (journalisée 'ecartee' avec un motif qui NOMME la règle). 'saisie' reste au-dessus de tout (invariant inchangé).
  */
 
-/** Les méthodes automatiques journalisées (liste fermée du CHECK migrations 109/133/193). 'saisie' n'y figure pas (jamais journalisée). */
-export type MethodeExtraction = 'cerfa' | 'enonce' | 'plan' | 'ia' | 'motifs' | 'recap';
+/** Les méthodes automatiques (CHECK journal migrations 109/133/193 ; 'teleservice' PAS ENCORE dans le CHECK — cf. CR-3). 'saisie' n'y figure pas. */
+export type MethodeExtraction = 'cerfa' | 'enonce' | 'plan' | 'teleservice' | 'ia' | 'motifs' | 'recap';
+
+/** Nom de la méthode des valeurs dérivées de la phrase générée par le téléservice (CR-1b). Une seule source de vérité. */
+export const METHODE_TELESERVICE = 'teleservice' as const;
 
 /** Rang décroissant : indice 0 = plus fort. `saisie` inclus pour l'ordre complet, mais l'invariant 103 la traite via l'origine. */
-export const PRECEDENCE_METHODES = ['saisie', 'cerfa', 'enonce', 'plan', 'ia', 'motifs', 'recap'] as const;
+export const PRECEDENCE_METHODES = ['saisie', 'cerfa', 'enonce', 'plan', 'teleservice', 'ia', 'motifs', 'recap'] as const;
 
 /** Rang d'une méthode (plus petit = plus fort). Méthode inconnue ou nulle = rang le PLUS FAIBLE (ne domine personne). */
 export function rangMethode(m: string | null | undefined): number {

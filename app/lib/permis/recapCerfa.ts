@@ -21,6 +21,7 @@
  */
 import { lireDecompteDescription, type DecompteDescription } from './decompteDescription';
 import { choisirDescriptionProjet, type ProvenanceDescription } from './descriptionProjet'; // CR-1 — coupe robuste (deux ordres de flux) + AcroForm prioritaire
+import { scinderDescription, type ScissionDescription } from './descriptionScission'; // CR-1b — sépare la phrase générée (téléservice) de la déclaration humaine
 
 export interface DeclarationsRecapCerfa {
   dateDepot: string | null;               // « Déposé le : JJ/MM/AAAA » (déclaration Cerfa ; Sitadel porte sa propre date, non écrasée)
@@ -34,8 +35,9 @@ export interface DeclarationsRecapCerfa {
   stationnementApres: number | null;      // « Nombre de places après réalisation du projet »
   empriseAuSolCreeeM2: number | null;     // « Emprise au sol créée (en m²) »
   surfacePlancherTotaleM2: number | null; // ligne « Surfaces totales (m²) », colonne Surface totale (déclaration Cerfa ≠ surf_creee)
-  descriptionProjet: string | null;       // champ libre « Courte description… » — VERBATIM, jamais résumé ni interprété
+  descriptionProjet: string | null;       // champ libre « Courte description… » COMPLET (VERBATIM) — pièce de preuve, jamais tronqué
   descriptionProjetProvenance: ProvenanceDescription; // CR-1 : d'où vient la valeur — 'acroform' | 'texte' | 'absent'
+  descriptionScission: ScissionDescription; // CR-1b : { genere, humain, valeurs } — part téléservice / part pétitionnaire + dérivés
   decompte: DecompteDescription | null;    // LOT 69 : décompte lu dans le champ libre, corroboré par la somme (null si pas de récap)
   absents: { champ: string; motif: string }[];
   ambigus: { champ: string; motif: string }[];
@@ -60,7 +62,7 @@ export function lireDeclarationsRecapCerfa(texte: string, opts: { descriptionAcr
     dateDepot: null, superficieTerrainM2: null, logementsTotal: null, logementsIndividuels: null, logementsCollectifs: null,
     niveauxDessusSol: null, niveauxDessousSol: null, stationnementAvant: null, stationnementApres: null,
     empriseAuSolCreeeM2: null, surfacePlancherTotaleM2: null, descriptionProjet: null, descriptionProjetProvenance: 'absent',
-    decompte: null, absents, ambigus, present: false,
+    descriptionScission: { genere: null, humain: null, valeurs: null }, decompte: null, absents, ambigus, present: false,
   };
   if (!RE_RECAP.test(t)) return vide; // pas un récapitulatif reconnaissable → rien (jamais une supposition)
 
@@ -86,6 +88,8 @@ export function lireDeclarationsRecapCerfa(texte: string, opts: { descriptionAcr
   //   aplatis par iText), rejet du gabarit vierge, AcroForm prioritaire s'il est fourni. Voir `descriptionProjet.ts`.
   const description = choisirDescriptionProjet({ acroform: opts.descriptionAcroform, texte: t });
   const descriptionProjet = description.valeur;
+  // CR-1b — sépare la phrase générée par le téléservice (dérivé mairie) de la déclaration humaine ; le texte COMPLET reste dans descriptionProjet.
+  const descriptionScission = scinderDescription(descriptionProjet);
 
   // LOT 69 — DÉCOMPTE lu dans le champ libre, CORROBORÉ par la somme sur le total structuré des logements. Seule lecture de valeur du
   //   champ libre. `logementsTotal` est l'AUTRE source (structurée) qui sert de preuve.
@@ -107,6 +111,6 @@ export function lireDeclarationsRecapCerfa(texte: string, opts: { descriptionAcr
   return {
     dateDepot: dateM ? dateM[1] : null, superficieTerrainM2, logementsTotal, logementsIndividuels, logementsCollectifs,
     niveauxDessusSol, niveauxDessousSol, stationnementAvant, stationnementApres, empriseAuSolCreeeM2, surfacePlancherTotaleM2,
-    descriptionProjet, descriptionProjetProvenance: description.provenance, decompte, absents, ambigus, present: true,
+    descriptionProjet, descriptionProjetProvenance: description.provenance, descriptionScission, decompte, absents, ambigus, present: true,
   };
 }

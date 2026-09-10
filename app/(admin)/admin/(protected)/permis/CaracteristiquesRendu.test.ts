@@ -885,6 +885,7 @@ describe('LOT 67 — DeclarationsCerfaBloc : lecture approfondie du Cerfa, en re
     surfacePlancherTotaleM2: 4994,
     descriptionProjet: 'Le projet consist e en la construction de 67 logements neufs sur 3 plots.',
     descriptionProjetProvenance: 'texte',
+    descriptionScission: { genere: null, humain: 'Le projet consist e en la construction de 67 logements neufs sur 3 plots.', valeurs: null },
     decompte: null,
     absents: [{ champ: 'surface habitable', motif: 'le Cerfa déclare la surface de PLANCHER, pas la surface habitable' }],
     ambigus: [{ champ: 'nature du projet', motif: 'deux libellés sans marque de sélection' }],
