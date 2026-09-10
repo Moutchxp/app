@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { CompteRenduCartouche, type DonneesCartouche } from './CompteRenduCartouche';
+import { CompteRenduCartouche, type DonneesCartouche, type PasseIaCartouche } from './CompteRenduCartouche';
 import { LIBELLE_NON_DECLARE, LIBELLE_NON_INSTRUIT } from './compteRendu';
 import type { GlobalPermis, CorpsBatiment } from '../../../../lib/permis/caracteristiquesRepo';
 import type { JournalPermis } from '../../../../lib/permis/journalLecture';
@@ -129,7 +129,7 @@ describe('CompteRenduCartouche — section Lecture IA (à corroborer, informativ
   const socle = { faits: faits({}), global: glob({}), corps: [], journal: journal(), parcelles: [], declarations: decl({}), piecesCerfa: [] };
   const transmission = { pieceId: 521, pieceNom: 'cerfa.pdf', envoyees: [{ page: 34, cibles: ['nature'] }], refusees: [{ page: 17, motif: 'identité présente (téléphone) — jamais transmise' }] };
   it('statut « lu » : montre les valeurs lues + « à corroborer » ; abstention par champ dite franchement ; journal de transmission présent', () => {
-    const passeIa = { statut: 'lu' as const, motif: null, modele: 'mistral-medium-latest', passeLe: '2026-09-10', transmission,
+    const passeIa: PasseIaCartouche = { statut: 'lu', motif: null, modele: 'mistral-medium-latest', passeLe: '2026-09-10', transmission,
       lecture: { natureProjet: { valeur: null, confiance: 'faible', page: null }, typeOperationSvav: { valeur: 'immeuble', confiance: 'haute', page: 18 }, recoursArchitecte: { valeur: null, confiance: 'faible', page: null }, demolition: { valeur: false, confiance: 'haute', page: 18 }, travauxParTranches: { valeur: null, confiance: 'faible', page: null }, resumeDescription: null } };
     const h = rendre({ ...socle, passeIa });
     expect(h).toContain('Lecture IA');
