@@ -13,6 +13,8 @@ import {
   type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
 import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtatEmprise, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, type LienPiece } from './CaracteristiquesRendu';
+import { CompteRenduCartouche } from './CompteRenduCartouche'; // CR-2a — cartouche de compte rendu (remplace le pavé de texte brut)
+import { messageErreurCartouche, type PieceCerfa } from './compteRendu'; // CR-2a — message 401 « session expirée » (jamais « indisponible »)
 import { BlocRepliable } from './BlocRepliable'; // PLI-1 — même dépliant que « Complétude »/« Historique » : chaque cartouche de « Caractéristiques du permis » replié à son titre, ouvrable indépendamment
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
@@ -228,13 +230,13 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
         )}
       </BlocRepliable>
 
-      {/* CARTOUCHE 2 — DÉCLARATIONS DU CERFA (LOT 67, récapitulatif) : lecture en REGARD des faits Sitadel, jamais reportée. PC-3 étendu —
-          TOUJOURS présente (jamais muette) : si l'instantané est stocké, contenu immédiat ; sinon la sous-section se PRÉPARE à part (repli
-          différé), sans bloquer le reste des caractéristiques. Le contenu du repliable est monté au 1er dépliage (PERF-1). */}
-      <BlocRepliable titre="Déclarations du Cerfa">
-        {() => data.declarationsCerfa
-          ? <DeclarationsCerfaBloc declarations={data.declarationsCerfa.declarations} pieceSource={data.declarationsCerfa.pieceSource} />
-          : <DeclarationsCerfaDiffere dossierId={dossierId} />}
+      {/* CARTOUCHE 2 — COMPTE RENDU DU CERFA (CR-2a) : compte rendu LISIBLE reconstitué de ce qui est en base (aucune IA). Remplace le pavé
+          de texte brut. Chargé dans la sous-requête DIFFÉRÉE (cerfaRecap=1) — l'ouverture reste instantanée ; monté au 1er dépliage (PERF-1). */}
+      <BlocRepliable titre="Compte rendu du Cerfa">
+        {() => (
+          <CompteRenduDiffere dossierId={dossierId} faits={data.faits} global={data.global} corps={data.corps}
+            journal={data.journal} parcelles={data.parcelles ?? []} lienPiece={lienPiece} />
+        )}
       </BlocRepliable>
 
       {/* CARTOUCHE 3 — LE PERMIS (déclaré) : vaut pour tout le permis, ne se répète pas. Le titre de section devient le titre du dépliant. */}
@@ -408,4 +410,43 @@ export function DeclarationsCerfaDiffere({ dossierId }: { dossierId: number }) {
   if (etat === 'chargement') return <p aria-live="polite" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Préparation de cette ligne… — lecture du récapitulatif dans les pièces du dossier. Le reste des caractéristiques est déjà à jour.</p>;
   if (etat === 'absent') return <p style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Aucun récapitulatif Cerfa lisible n’a été trouvé dans les pièces de ce permis.</p>;
   return <p role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Préparation de la ligne « Déclarations du Cerfa » indisponible — rouvrez la section pour réessayer.</p>;
+}
+
+/** Déclarations VIDES (aucun récap lisible) : la cartouche montre alors les faits/bâti déjà en base, et « aucune déclaration » côté description. */
+const DECLARATIONS_VIDES: DeclarationsRecapCerfa = {
+  dateDepot: null, superficieTerrainM2: null, logementsTotal: null, logementsIndividuels: null, logementsCollectifs: null,
+  niveauxDessusSol: null, niveauxDessousSol: null, stationnementAvant: null, stationnementApres: null, empriseAuSolCreeeM2: null,
+  surfacePlancherTotaleM2: null, descriptionProjet: null, descriptionProjetProvenance: 'absent',
+  descriptionScission: { genere: null, humain: null, valeurs: null }, decompte: null, absents: [], ambigus: [], present: false,
+};
+
+/**
+ * CR-2a — CARTOUCHE de compte rendu en CHARGEMENT DIFFÉRÉ. Montée au 1er dépliage (PERF-1) → l'ouverture du permis reste instantanée.
+ * Récupère dans la sous-requête `cerfaRecap=1` la scission (déclarations) ET les pièces Cerfa (nom/pages/id) ; les FAITS structurés
+ * (identité, bâti, programme…) viennent, eux, du payload principal déjà chargé. PIÈGE DU 401 : une session expirée dit « reconnectez-vous »,
+ * jamais « indisponible ». Un récap absent n'empêche pas la cartouche : elle montre alors les faits en base et « aucune déclaration ».
+ */
+export function CompteRenduDiffere({ dossierId, faits, global, corps, journal, parcelles, lienPiece }: {
+  dossierId: number; faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; journal: JournalPermis; parcelles: ParcelleLigne[]; lienPiece?: LienPiece;
+}) {
+  const [etat, setEtat] = useState<'chargement' | 'ok' | 'erreur'>('chargement');
+  const [statutErr, setStatutErr] = useState(0);
+  const [recu, setRecu] = useState<{ declarations: DeclarationsRecapCerfa; piecesCerfa: PieceCerfa[] } | null>(null);
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&cerfaRecap=1`, { cache: 'no-store' });
+        if (!res.ok) { if (!annule) { setStatutErr(res.status); setEtat('erreur'); } return; } // 401 → « session expirée » (jamais « indisponible »)
+        const j = (await res.json().catch(() => ({}))) as { declarationsCerfa?: { declarations: DeclarationsRecapCerfa } | null; piecesCerfa?: PieceCerfa[] };
+        if (annule) return;
+        setRecu({ declarations: j.declarationsCerfa?.declarations ?? DECLARATIONS_VIDES, piecesCerfa: j.piecesCerfa ?? [] });
+        setEtat('ok');
+      } catch { if (!annule) { setStatutErr(0); setEtat('erreur'); } }
+    })();
+    return () => { annule = true; };
+  }, [dossierId]);
+  if (etat === 'ok' && recu) return <CompteRenduCartouche donnees={{ faits, global, corps, journal, parcelles, declarations: recu.declarations, piecesCerfa: recu.piecesCerfa, lienPiece }} />;
+  if (etat === 'chargement') return <p aria-live="polite" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Préparation du compte rendu… — lecture des pièces du dossier. Le reste des caractéristiques est déjà à jour.</p>;
+  return <p role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{messageErreurCartouche(statutErr)}</p>;
 }

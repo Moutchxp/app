@@ -18,6 +18,23 @@ export type ExtractionPdf =
  * `maxPages` (optionnel, LOT 66) : ne lit que les N premières pages — pour une reconnaissance de TÊTE bon marché (ex. « cette pièce
  * est-elle le formulaire Cerfa ? »), sans extraire un document de 300 pages. Absent = toutes les pages (comportement historique).
  */
+/**
+ * CR-2a — NOMBRE DE PAGES d'un PDF, SANS extraire le texte (charge la structure du document, pas le contenu des pages). Pour la liste
+ * « pièces analysées » de la cartouche. `null` si non-PDF, illisible ou chiffré (jamais d'exception — même règle que `extrairePagesPdf`).
+ */
+export async function nombrePagesPdf(contenu: Buffer, typeMime: string | null): Promise<number | null> {
+  if (typeMime !== 'application/pdf') return null;
+  try {
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(contenu), isEvalSupported: false, useSystemFonts: true }).promise;
+    const n = doc.numPages;
+    await doc.destroy();
+    return Number.isFinite(n) && n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function extrairePagesPdf(contenu: Buffer, typeMime: string | null, maxPages?: number): Promise<ExtractionPdf> {
   if (typeMime !== 'application/pdf') return { ok: false, motif: `type non extractible (${typeMime ?? 'inconnu'})` };
   try {

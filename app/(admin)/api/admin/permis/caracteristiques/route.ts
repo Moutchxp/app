@@ -11,6 +11,7 @@ import { lireEtatEmprisesPermis, validerEmprise, devaliderEmprise, type EtatEmpr
 import { validerProjection } from '../../../../../lib/permis/projectionFileRepo'; // finalisation permis (permis_projection) quand tous les bâtiments sont validés — conséquence
 import { lireModePassageRattachement } from '../../../../../lib/permis/rattachementConfig'; // COMPLÉMENT — mode de passage (auto-finalisation vs clôture manuelle)
 import { lireDeclarationsRecap, lireDeclarationsRecapOuRepli, type DeclarationsCerfaStockees } from '../../../../../lib/permis/cerfaRecapRepo'; // LOT 67 — déclarations du Cerfa : payload principal = instantané STOCKÉ (immédiat) ; sous-requête cerfaRecap=1 = repli DIFFÉRÉ (lecture GED)
+import { lirePiecesCerfa, type PieceCerfaInfo } from '../../../../../lib/permis/piecesCerfaRepo'; // CR-2a — « pièces analysées » de la cartouche (nom + pages + id), DIFFÉRÉ seulement (numPages lit le PDF)
 import { annulerCorrectionParcelle } from '../../../../../lib/permis/correctionParcelleRepo'; // LOT 101 → PL-C5 : seule l'annulation subsiste (dégeler une ligne héritée)
 import { MESURES, construireGlobal, construirePermis, coherenceSommetPlancher, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
 
@@ -101,8 +102,13 @@ export async function GET(request: Request): Promise<Response> {
   //   Quand un dossier n'a pas encore son instantané stocké (tout juste arrivé, fond pas encore passé), la sous-section la demande ICI, à
   //   part, avec le repli lecture-à-la-volée. AUCUNE écriture, aucune IA. Rien d'autre du payload n'est calculé (réponse minimale).
   if (urlReq.searchParams.get('cerfaRecap') === '1') {
-    const declarationsCerfa = await lireDeclarationsRecapOuRepli(dossierId).catch(() => null as DeclarationsCerfaStockees | null);
-    return Response.json({ declarationsCerfa });
+    // CR-2a — la CARTOUCHE se charge ICI (différé) : déclarations (scission) + pièces Cerfa (nom/pages/id). Les deux en parallèle ;
+    //   chacune tolère l'échec (null / []) sans casser l'autre. AUCUNE écriture, AUCUNE IA. Le payload principal ne fait ni l'un ni l'autre.
+    const [declarationsCerfa, piecesCerfa] = await Promise.all([
+      lireDeclarationsRecapOuRepli(dossierId).catch(() => null as DeclarationsCerfaStockees | null),
+      lirePiecesCerfa(dossierId).catch(() => [] as PieceCerfaInfo[]),
+    ]);
+    return Response.json({ declarationsCerfa, piecesCerfa });
   }
   try {
     // N5-D/E/N7-E — le JOURNAL (confiance/réserve/provenance + MOTIF), séparé par niveau (parCorps / permis), lu dans le MÊME
