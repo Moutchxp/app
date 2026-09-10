@@ -29,7 +29,7 @@ describe('PC-3 — producteur de fond du best-of (executerPrecalculBestOf)', () 
     const calculer = vi.fn(async () => ({ valeur: VALEUR, cachable: true }));
     const persister = vi.fn(async () => {});
     const r = await executerPrecalculBestOf(makeDeps({ listerCandidats: vi.fn(async () => []), calculer, persister }));
-    expect(r).toEqual({ candidats: 0, examines: 0, aJour: 0, recalcules: 0, persistes: 0, degrades: 0, interrompuBudget: false });
+    expect(r).toEqual({ candidats: 0, examines: 0, aJour: 0, recalcules: 0, persistes: 0, degrades: 0, interrompuBudget: false, teleserviceInstruits: 0, teleserviceChampsEcrits: 0, teleserviceEcartes: 0, teleserviceEchecs: 0 });
     expect(calculer).not.toHaveBeenCalled();
     expect(persister).not.toHaveBeenCalled();
   });
@@ -104,5 +104,47 @@ describe('PC-3 — producteur de fond du best-of (executerPrecalculBestOf)', () 
       empreinteCourante: vi.fn(async (d: number) => { vus.push(d); return { empreinte: `E${d}`, piecesPdf: PIECES }; }),
     }));
     expect(vus).toEqual([3, 5, 9]);
+  });
+});
+
+describe('CR-4 — instruction téléservice branchée sur le fond (trace agrégée dans le bilan)', () => {
+  it('interrupteur ON : la trace d’instruction est AGRÉGÉE (dossiers instruits, champs écrits, écartés)', async () => {
+    const r = await executerPrecalculBestOf(makeDeps({
+      listerCandidats: vi.fn(async () => [468, 470]),
+      empreintePersistee: vi.fn(async () => null),
+      calculer: vi.fn(async () => ({ valeur: VALEUR, cachable: true, instruction: { ecrits: 2, ecartes: 3, echec: false } })),
+    }));
+    expect(r).toMatchObject({ recalcules: 2, teleserviceInstruits: 2, teleserviceChampsEcrits: 4, teleserviceEcartes: 6, teleserviceEchecs: 0 });
+  });
+
+  it('interrupteur OFF : calculer ne rend AUCUNE instruction → compteurs à zéro (rien ne se déclenche)', async () => {
+    const r = await executerPrecalculBestOf(makeDeps({
+      listerCandidats: vi.fn(async () => [468]),
+      calculer: vi.fn(async () => ({ valeur: VALEUR, cachable: true })), // pas de champ `instruction`
+    }));
+    expect(r).toMatchObject({ teleserviceInstruits: 0, teleserviceChampsEcrits: 0, teleserviceEcartes: 0, teleserviceEchecs: 0 });
+  });
+
+  it('échec d’instruction sur un dossier → compté, best-of NON compromis, dossiers suivants traités', async () => {
+    const persister = vi.fn(async () => {});
+    const r = await executerPrecalculBestOf(makeDeps({
+      listerCandidats: vi.fn(async () => [1, 2]),
+      calculer: vi.fn(async () => ({ valeur: VALEUR, cachable: true, instruction: { ecrits: 0, ecartes: 0, echec: true } })),
+      persister,
+    }));
+    expect(r).toMatchObject({ examines: 2, persistes: 2, teleserviceEchecs: 2 }); // best-of persiste malgré l'échec d'instruction
+    expect(persister).toHaveBeenCalledTimes(2);
+  });
+
+  it('SECONDE PASSE — dossier déjà à jour (GED inchangée) → calculer JAMAIS appelé → aucune instruction (vrai no-op)', async () => {
+    const calculer = vi.fn(async () => ({ valeur: VALEUR, cachable: true, instruction: { ecrits: 1, ecartes: 0, echec: false } }));
+    const r = await executerPrecalculBestOf(makeDeps({
+      listerCandidats: vi.fn(async () => [468]),
+      empreinteCourante: vi.fn(async () => ({ empreinte: 'MEME', piecesPdf: PIECES })),
+      empreintePersistee: vi.fn(async () => 'MEME'), // déjà à jour
+      calculer,
+    }));
+    expect(calculer).not.toHaveBeenCalled();
+    expect(r).toMatchObject({ aJour: 1, teleserviceInstruits: 0, teleserviceChampsEcrits: 0 });
   });
 });

@@ -378,6 +378,9 @@ export const PARAMS_VEILLE: ParamVeille[] = [
   // RATT-AUTO — interrupteur du rejeu automatique du suivi de rattachement (thème « Rattachement au bâti »). Modèle relance_auto_active.
   { colonne: 'rattachement_suivi_auto_active', cle: 'rattachementSuiviAutoActive', libelle: 'Re-détecter le bâti automatiquement', unite: '', type: 'booleen',
     aide: 'Quand c’est activé, la veille rejoue seule, à chaque passage, le suivi des permis « en attente de bâti » : dès qu’une mise à jour BD TOPO fait apparaître le bâtiment attendu, le permis passe tout seul en « arbitrage demandé » (une décision de rattachement vous est alors demandée). Aucune altitude n’est jamais écrite automatiquement — la décision reste la vôtre. Tant que c’est décoché, il faut relancer le suivi à la main. Sans effet visible tant qu’aucune édition BD TOPO plus récente n’a été ingérée : il n’y a alors rien de neuf à détecter.' },
+  // CR-4 — interrupteur de l'instruction AUTO des valeurs du téléservice (même thème « Rattachement au bâti » : automatisation du pipeline permis). Modèle rattachement_suivi_auto_active.
+  { colonne: 'teleservice_instruction_auto_active', cle: 'teleserviceInstructionAutoActive', libelle: 'Instruire les valeurs du téléservice automatiquement', unite: '', type: 'booleen',
+    aide: 'Quand c’est activé, la préparation de fond reporte seule, à chaque passage, les valeurs de la phrase générée par le téléservice (niveaux hors sol, sous-sols, destination) dans les champs de caractéristiques ENCORE VIDES du permis — exactement les mêmes décisions qu’en manuel : jamais par-dessus une valeur saisie ou d’un rang supérieur, jamais si la déclaration humaine la contredit, jamais dans un bâtiment quand il y en a plusieurs, jamais une destination hors nomenclature, jamais la surface créée en surface de plancher. Tant que c’est décoché, rien n’est instruit automatiquement (le script manuel reste disponible). Aucune IA n’est appelée.' },
   // ATT-BATI — rappel e-mail quand un permis attend le bâti depuis trop longtemps (même thème). Interrupteur + seuil éditable.
   { colonne: 'attente_bati_alerte_active', cle: 'attenteBatiAlerteActive', libelle: 'M’alerter si un permis attend trop longtemps', unite: '', type: 'booleen',
     aide: 'Quand c’est activé, vous recevez un e-mail de RAPPEL (à l’adresse d’alerte configurée plus haut) dès qu’un permis reste « en attente de bâti » au-delà du seuil ci-dessous. C’est un simple rappel pour qu’un dossier ne soit pas oublié — JAMAIS une détection : il ne dit pas que le bâtiment est arrivé et n’appelle aucune action. Un seul rappel par dossier. Décoché, aucun rappel n’est envoyé.' },
@@ -479,6 +482,7 @@ export const COLONNES_THEME_CADA: readonly string[] = [
 // RATT-AUTO + ATT-BATI — thème PROPRE (ni demande, ni envoi) : automatisation du rattachement des permis à leur futur bâti.
 export const COLONNES_THEME_RATTACHEMENT: readonly string[] = [
   'rattachement_suivi_auto_active',   // RATT-AUTO — re-détection automatique du bâti
+  'teleservice_instruction_auto_active', // CR-4 — instruction auto des valeurs du téléservice (report en champs vides pendant le fond)
   'attente_bati_alerte_active', 'attente_bati_alerte_jours', // ATT-BATI — rappel si l'attente dure trop (interrupteur + seuil)
   'delai_bascule_jours', 'duree_message_jours', // PHASE-1 — les deux délais du verdict à trois phases
   'surveillance_active', // SURV-2 — interrupteur (opt-OUT) en tête du groupe surveillance

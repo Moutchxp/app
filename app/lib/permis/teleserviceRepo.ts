@@ -80,18 +80,25 @@ export async function instruireTeleservice(dossierId: number, opts: { appliquer:
   if (!appliquer) return { dossierId, decisions, ecrites: 0, migrationAbsente: false };
   if (!(await methodeTeleserviceAutorisee())) return { dossierId, decisions, ecrites: 0, migrationAbsente: true };
 
+  // IDEMPOTENCE (CR-4) : un champ qui porte DÉJÀ la valeur candidate n'est pas réécrit — une seconde passe est un VRAI no-op (aucune
+  //   réécriture de colonne, aucune ligne de journal ajoutée, le journal étant par ailleurs append-only WHERE NOT EXISTS). decisionTeleservice
+  //   reste inchangée (elle autorise la ré-écriture idempotente) ; c'est ICI, au moment d'écrire, qu'on saute la redondance stricte.
+  const memeArray = (a: string[] | number | null, b: readonly string[]): boolean => Array.isArray(a) && a.length === b.length && [...a].sort().join('|') === [...b].sort().join('|');
   let ecrites = 0;
   for (const d of decisions) {
     if (d.action === 'ecrire') {
       if (d.champ === 'nb_etages' && corpsId != null && d.valeurNombre != null) {
+        if (etatEtages.valeur === d.valeurNombre) continue; // déjà à cette valeur → no-op
         await ecrireCorps(corpsId, { nbEtages: d.valeurNombre }, 'extraite', majPar);
         await journaliser(dossierId, corpsId, 'nb_etages', 'retenue', d.valeurNombre, null, d.candidat, majPar);
         ecrites++;
       } else if (d.champ === 'nb_niveaux_sous_sol' && corpsId != null && d.valeurNombre != null) {
+        if (etatSousSol.valeur === d.valeurNombre) continue; // déjà à cette valeur → no-op
         await ecrireCorps(corpsId, { nbNiveauxSousSol: d.valeurNombre }, 'extraite', majPar);
         await journaliser(dossierId, corpsId, 'nb_niveaux_sous_sol', 'retenue', d.valeurNombre, null, d.candidat, majPar);
         ecrites++;
       } else if (d.champ === 'destinations' && d.valeurTexte) {
+        if (memeArray(etatDestinations.valeur, d.valeurTexte)) continue; // déjà à cette valeur → no-op
         await ecrireDestinations(dossierId, d.valeurTexte, 'extraite', majPar);
         await journaliser(dossierId, null, 'destinations', 'retenue', null, null, d.valeurTexte.join(', '), majPar);
         ecrites++;

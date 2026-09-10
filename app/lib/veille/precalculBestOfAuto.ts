@@ -26,6 +26,8 @@ import { empreinteGed } from '../permis/bestOfCache';
 import { calculerBestOf, estPiecePdf, lireGedPourCalcul } from '../permis/bestOfCalcul';
 import { memoriserClassementsCompletude } from '../permis/completudeRepo'; // P-fond 4b — complétude mutualisée sur la MÊME lecture GED
 import { memoriserRecapCerfaDepuisGed } from '../permis/cerfaRecapRepo'; // PC-3 étendu — récap Cerfa produit sur la MÊME lecture GED (l'ouverture d'un permis n'attend plus une relecture)
+import { instruireTeleservice } from '../permis/teleserviceRepo'; // CR-4 — instruction auto des valeurs du téléservice (mêmes décisions qu'en manuel)
+import { lireTeleserviceInstructionAuto } from '../sitadel/veilleConfig'; // CR-4 — interrupteur en base (défaut OFF), lu une fois par passe
 import { ecrireBestOfPersiste, TYPE_BEST_OF, type BestOfValeur } from '../permis/bestOfPersistance';
 
 /**
@@ -45,11 +47,14 @@ export interface DepsPrecalculBestOf {
   empreintePersistee(dossierId: number): Promise<string | null>;
   /** Empreinte GED COURANTE + pièces PDF du dossier (source IDENTIQUE à la route → l'empreinte matche le lecteur). */
   empreinteCourante(dossierId: number): Promise<{ empreinte: string; piecesPdf: PieceGedMeta[] }>;
-  /** Calcule le best-of (retourne cachable=false en cas d'échec de téléchargement). */
-  calculer(dossierId: number, piecesPdf: PieceGedMeta[]): Promise<{ valeur: BestOfValeur; cachable: boolean }>;
+  /** Calcule le best-of (retourne cachable=false en cas d'échec de téléchargement). `instruction` (CR-4) = bilan de l'instruction téléservice de CE dossier. */
+  calculer(dossierId: number, piecesPdf: PieceGedMeta[]): Promise<{ valeur: BestOfValeur; cachable: boolean; instruction?: InstructionTeleserviceStat }>;
   /** Persiste le best-of (calcule_par='fond'). Best-effort en amont : appelé UNIQUEMENT si cachable. */
   persister(dossierId: number, empreinte: string, valeur: BestOfValeur): Promise<void>;
 }
+
+/** CR-4 — bilan de l'instruction téléservice d'UN dossier (agrégé dans le bilan de passe). `echec` = l'instruction a levé (best-effort). */
+export interface InstructionTeleserviceStat { ecrits: number; ecartes: number; echec: boolean }
 
 export interface BilanPrecalculBestOf {
   candidats: number;        // taille de l'univers borné
@@ -59,6 +64,11 @@ export interface BilanPrecalculBestOf {
   persistes: number;        // écrits en 'fond' (cachable)
   degrades: number;         // calcul non cachable (échec téléchargement) → NON persisté
   interrompuBudget: boolean; // le budget a coupé la boucle avant la fin de l'univers
+  // CR-4 — INSTRUCTION TÉLÉSERVICE (trace lisible : combien de dossiers, champs écrits, écartés, en échec). 0 partout si l'interrupteur est OFF.
+  teleserviceInstruits: number;      // dossiers où l'instruction a tourné (interrupteur ON, GED recalculée)
+  teleserviceChampsEcrits: number;   // champs effectivement écrits (vides → renseignés)
+  teleserviceEcartes: number;        // décisions écartées (divergence, occupé, attribution, hors CHECK, surface)
+  teleserviceEchecs: number;         // dossiers où l'instruction a levé (best-effort : n'a PAS compromis best-of/complétude)
 }
 
 /**
@@ -70,16 +80,18 @@ export async function executerPrecalculBestOf(deps: DepsPrecalculBestOf, options
   const budgetMs = options?.budgetMs ?? PRECALCUL_BUDGET_MS;
   const debut = deps.maintenant();
   const candidats = await deps.listerCandidats();
-  const bilan: BilanPrecalculBestOf = { candidats: candidats.length, examines: 0, aJour: 0, recalcules: 0, persistes: 0, degrades: 0, interrompuBudget: false };
+  const bilan: BilanPrecalculBestOf = { candidats: candidats.length, examines: 0, aJour: 0, recalcules: 0, persistes: 0, degrades: 0, interrompuBudget: false, teleserviceInstruits: 0, teleserviceChampsEcrits: 0, teleserviceEcartes: 0, teleserviceEchecs: 0 };
   for (const dossierId of candidats) {
     // BUDGET vérifié AVANT de commencer un dossier (jamais coupé au milieu). Le reste sera repris au tick suivant (ordre stable).
     if (deps.maintenant() - debut >= budgetMs) { bilan.interrompuBudget = true; break; }
     bilan.examines++;
     const { empreinte, piecesPdf } = await deps.empreinteCourante(dossierId);
     const persistee = await deps.empreintePersistee(dossierId);
-    if (persistee !== null && persistee === empreinte) { bilan.aJour++; continue; } // déjà à jour → jamais recalculé
+    if (persistee !== null && persistee === empreinte) { bilan.aJour++; continue; } // déjà à jour → jamais recalculé (idempotence de passe gratuite)
     bilan.recalcules++;
-    const { valeur, cachable } = await deps.calculer(dossierId, piecesPdf);
+    const { valeur, cachable, instruction } = await deps.calculer(dossierId, piecesPdf);
+    // CR-4 — agrégation de la trace d'instruction (indépendante du sort du best-of : elle a déjà eu lieu, best-effort).
+    if (instruction) { bilan.teleserviceInstruits++; bilan.teleserviceChampsEcrits += instruction.ecrits; bilan.teleserviceEcartes += instruction.ecartes; if (instruction.echec) bilan.teleserviceEchecs++; }
     if (!cachable) { bilan.degrades++; continue; } // GARDE echecTelechargement : on ne fige jamais un best-of dégradé
     await deps.persister(dossierId, empreinte, valeur);
     bilan.persistes++;
@@ -90,6 +102,7 @@ export async function executerPrecalculBestOf(deps: DepsPrecalculBestOf, options
 // ── Deps RÉELLES (production) ────────────────────────────────────────────────
 export function depsReellesPrecalculBestOf(): DepsPrecalculBestOf {
   const depsGed: DepsLectureGed = depsReellesLectureGed(); // une seule instance réutilisée (stateless) pour lister + calculer
+  let flagInstruction: boolean | null = null; // CR-4 — interrupteur lu UNE SEULE FOIS par passe (mémoïsé sur l'instance de deps, créée par tick)
   return {
     maintenant: () => Date.now(),
     listerCandidats: async () => {
@@ -121,13 +134,27 @@ export function depsReellesPrecalculBestOf(): DepsPrecalculBestOf {
       // COMPLÉTUDE mutualisée : mémorise la matière STABLE (classements) dans sa table dédiée permis_completude, SI la GED n'est pas dégradée
       //   (même garde echec que le best-of). La part VIVANTE (config_veille) reste appliquée À LA VOLÉE par lireCompletude → un changement de
       //   réglage est reflété IMMÉDIATEMENT (jamais au prochain tick). Best-effort (memoriser avale ses erreurs) ; jamais de levée de partiel ici.
+      let instruction: InstructionTeleserviceStat | undefined;
       if (!lecture.echec) {
         await memoriserClassementsCompletude(dossierId, lecture.ged, 'completude:fond');
         // PC-3 étendu — RÉCAP Cerfa produit sur la MÊME lecture GED (déterministe, aucune IA, ~ms) : la route caractéristiques lit alors
         //   l'instantané STOCKÉ (immédiat) au lieu de relire toute la GED en bloquant à l'ouverture. Best-effort, même garde d'échec que le best-of.
         await memoriserRecapCerfaDepuisGed(dossierId, lecture.ged, piecesPdf, 'recap:fond').catch(() => undefined);
+        // CR-4 — INSTRUCTION TÉLÉSERVICE sur la MÊME passe (aucune relecture GED : instruireTeleservice lit l'instantané récap qu'on vient
+        //   d'écrire + les caractéristiques en base, ~ms ; aucune IA). Gatée par l'interrupteur (lu UNE fois/passe). BEST-EFFORT : une panne
+        //   sur un dossier est journalisée et n'interrompt NI le best-of NI la complétude NI les dossiers suivants (req 6).
+        flagInstruction ??= (await lireTeleserviceInstructionAuto()).teleserviceInstructionAutoActive;
+        if (flagInstruction) {
+          try {
+            const r = await instruireTeleservice(dossierId, { appliquer: true, majPar: 'teleservice:fond' }); // MÊMES décisions qu'en manuel
+            instruction = { ecrits: r.ecrites, ecartes: r.decisions.filter((d) => d.action === 'ecartee').length, echec: false };
+          } catch (e) {
+            console.warn('[precalcul] instruction téléservice en échec (best-effort — best-of/complétude/récap intacts)', { dossierId, motif: e instanceof Error ? e.message : String(e) });
+            instruction = { ecrits: 0, ecartes: 0, echec: true };
+          }
+        }
       }
-      return best;
+      return { ...best, instruction };
     },
     persister: (dossierId, empreinte, valeur) => ecrireBestOfPersiste(dossierId, empreinte, valeur, 'fond'),
   };

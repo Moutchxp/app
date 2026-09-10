@@ -89,6 +89,7 @@ export interface ConfigVeille {
   relanceMultiAdresseNbDernieres: number;  // LOT 20 : nombre des DERNIÈRES relances servies en multi-adresse (défaut 2) — 0..10
   saisineCadaAutoActive: boolean;    // Cascade lot 2 : envoyer la saisine CADA SANS relecture ? Sans effet tant que cadaEmail est vide — défaut false
   rattachementSuiviAutoActive: boolean; // RATT-AUTO : rejouer automatiquement le suivi des permis « en attente de bâti » à chaque tick ? (opt-in, défaut false)
+  teleserviceInstructionAutoActive: boolean; // CR-4 : instruire automatiquement les valeurs du téléservice (champs vides) pendant la préparation de fond ? (opt-in, défaut false)
   attenteBatiAlerteActive: boolean;     // ATT-BATI : envoyer un rappel e-mail quand un permis attend le bâti au-delà du seuil ? (opt-in, défaut false)
   attenteBatiAlerteJours: number;       // ATT-BATI : ancienneté (jours) au-delà de laquelle le rappel se déclenche — défaut 365, plage 30..1095
   obstacleDisparuAlerteActive: boolean; // ALERTE : prévenir quand un bâtiment qui fondait un certificat a disparu de BD TOPO ? (opt-in, défaut false)
@@ -166,6 +167,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   cascadePartielAutoActive: true, // = DEFAULT migration 184 (AUTO-PARTIEL : la cascade partielle part toute seule, comme l'ordinaire ; défaut ACTIF)
   relanceMultiAdresseActive: true, relanceMultiAdresseNbDernieres: 2, // = DEFAULT migration 183 (LOT 27 : multi-adresse des 2 dernières = NORME ; drapeau = arrêt d'urgence)
   rattachementSuiviAutoActive: false, // = DEFAULT de la migration 154 (RATT-AUTO : opt-in, comme tous les interrupteurs d'automatisation)
+  teleserviceInstructionAutoActive: false, // = DEFAULT de la migration 217 (CR-4 : opt-in, comme tous les interrupteurs d'automatisation)
   attenteBatiAlerteActive: false, attenteBatiAlerteJours: 365, // = DEFAULT de la migration 155 (ATT-BATI : opt-in ; seuil 1 an, bas de la fenêtre IGN 1-3 ans)
   obstacleDisparuAlerteActive: false, // = DEFAULT de la migration 157 (ALERTE obstacle disparu : opt-in)
   // D4-ter (étanche) — valeurs de rail téléservice à part entière. Ces défauts ne servent qu'au repli TOTAL (lecture impossible) ;
@@ -627,6 +629,14 @@ async function lireRattachementSuiviAuto(): Promise<Pick<ConfigVeille, 'rattache
   } catch { return { rattachementSuiviAutoActive: false }; } // 154 pas encore appliquée → OFF
 }
 
+/** CR-4 — interrupteur de l'instruction auto téléservice. Lecture ISOLÉE + résiliente (217 pas encore appliquée → OFF). Sert aussi de GATE au fond. */
+export async function lireTeleserviceInstructionAuto(): Promise<Pick<ConfigVeille, 'teleserviceInstructionAutoActive'>> {
+  try {
+    const { rows } = await query<{ teleservice_instruction_auto_active: boolean }>(`SELECT teleservice_instruction_auto_active FROM config_veille WHERE id = 1`);
+    return { teleserviceInstructionAutoActive: rows[0]?.teleservice_instruction_auto_active === true };
+  } catch { return { teleserviceInstructionAutoActive: false }; } // 217 pas encore appliquée → OFF (défaut sûr)
+}
+
 // ATT-BATI — lecture ISOLÉE de l'interrupteur + du seuil du rappel « en attente de bâti » (résiliente à l'ordre d'application de la
 //   155, livrée NON APPLIQUÉE) : tant que les colonnes n'existent pas, cette lecture échoue SEULE et retombe sur (false, 365), OFF.
 async function lireAttenteBatiAlerte(): Promise<Pick<ConfigVeille, 'attenteBatiAlerteActive' | 'attenteBatiAlerteJours'>> {
@@ -806,6 +816,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireCascadePartielAuto()),               // AUTO-PARTIEL : interrupteur d'envoi auto de la cascade partielle (défaut TRUE), lecture isolée (résiliente à la 184)
       ...(await lireRelanceMultiAdresse()),              // LOT 20 : multi-adresse des 2 dernières relances, lecture isolée (résiliente à la 182)
       ...(await lireRattachementSuiviAuto()),           // RATT-AUTO : interrupteur du rejeu automatique du suivi, lecture isolée (résiliente à la 154)
+      ...(await lireTeleserviceInstructionAuto()),       // CR-4 : interrupteur de l'instruction auto téléservice, lecture isolée (résiliente à la 217)
       ...(await lireAttenteBatiAlerte()),               // ATT-BATI : interrupteur + seuil du rappel « en attente de bâti », lecture isolée (résiliente à la 155)
       ...(await lireObstacleDisparuAlerte()),           // ALERTE obstacle disparu : interrupteur, lecture isolée (résiliente à la 157)
       ...(await lireTeleservice()),                     // D4 : réglages téléservice, lecture isolée (résiliente à la 159)
