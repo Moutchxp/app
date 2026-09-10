@@ -13,7 +13,7 @@ import {
   type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
 import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtatEmprise, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, type LienPiece } from './CaracteristiquesRendu';
-import { CompteRenduCartouche } from './CompteRenduCartouche'; // CR-2a — cartouche de compte rendu (remplace le pavé de texte brut)
+import { CompteRenduCartouche, type PasseIaCartouche } from './CompteRenduCartouche'; // CR-2a/CR-2b1 — cartouche + lecture IA (informative)
 import { messageErreurCartouche, type PieceCerfa } from './compteRendu'; // CR-2a — message 401 « session expirée » (jamais « indisponible »)
 import { BlocRepliable } from './BlocRepliable'; // PLI-1 — même dépliant que « Complétude »/« Historique » : chaque cartouche de « Caractéristiques du permis » replié à son titre, ouvrable indépendamment
 
@@ -431,22 +431,22 @@ export function CompteRenduDiffere({ dossierId, faits, global, corps, journal, p
 }) {
   const [etat, setEtat] = useState<'chargement' | 'ok' | 'erreur'>('chargement');
   const [statutErr, setStatutErr] = useState(0);
-  const [recu, setRecu] = useState<{ declarations: DeclarationsRecapCerfa; piecesCerfa: PieceCerfa[] } | null>(null);
+  const [recu, setRecu] = useState<{ declarations: DeclarationsRecapCerfa; piecesCerfa: PieceCerfa[]; passeIa: PasseIaCartouche | null } | null>(null);
   useEffect(() => {
     let annule = false;
     void (async () => {
       try {
         const res = await fetch(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&cerfaRecap=1`, { cache: 'no-store' });
         if (!res.ok) { if (!annule) { setStatutErr(res.status); setEtat('erreur'); } return; } // 401 → « session expirée » (jamais « indisponible »)
-        const j = (await res.json().catch(() => ({}))) as { declarationsCerfa?: { declarations: DeclarationsRecapCerfa } | null; piecesCerfa?: PieceCerfa[] };
+        const j = (await res.json().catch(() => ({}))) as { declarationsCerfa?: { declarations: DeclarationsRecapCerfa } | null; piecesCerfa?: PieceCerfa[]; passeIa?: PasseIaCartouche | null };
         if (annule) return;
-        setRecu({ declarations: j.declarationsCerfa?.declarations ?? DECLARATIONS_VIDES, piecesCerfa: j.piecesCerfa ?? [] });
+        setRecu({ declarations: j.declarationsCerfa?.declarations ?? DECLARATIONS_VIDES, piecesCerfa: j.piecesCerfa ?? [], passeIa: j.passeIa ?? null });
         setEtat('ok');
       } catch { if (!annule) { setStatutErr(0); setEtat('erreur'); } }
     })();
     return () => { annule = true; };
   }, [dossierId]);
-  if (etat === 'ok' && recu) return <CompteRenduCartouche donnees={{ faits, global, corps, journal, parcelles, declarations: recu.declarations, piecesCerfa: recu.piecesCerfa, lienPiece }} />;
+  if (etat === 'ok' && recu) return <CompteRenduCartouche donnees={{ faits, global, corps, journal, parcelles, declarations: recu.declarations, piecesCerfa: recu.piecesCerfa, passeIa: recu.passeIa, lienPiece }} />;
   if (etat === 'chargement') return <p aria-live="polite" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Préparation du compte rendu… — lecture des pièces du dossier. Le reste des caractéristiques est déjà à jour.</p>;
   return <p role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{messageErreurCartouche(statutErr)}</p>;
 }

@@ -124,3 +124,32 @@ describe('CompteRenduCartouche — aucune pièce en GED', () => {
     expect(h).toContain('Aucune pièce Cerfa dans la GED');
   });
 });
+
+describe('CompteRenduCartouche — section Lecture IA (à corroborer, informative)', () => {
+  const socle = { faits: faits({}), global: glob({}), corps: [], journal: journal(), parcelles: [], declarations: decl({}), piecesCerfa: [] };
+  const transmission = { pieceId: 521, pieceNom: 'cerfa.pdf', envoyees: [{ page: 34, cibles: ['nature'] }], refusees: [{ page: 17, motif: 'identité présente (téléphone) — jamais transmise' }] };
+  it('statut « lu » : montre les valeurs lues + « à corroborer » ; abstention par champ dite franchement ; journal de transmission présent', () => {
+    const passeIa = { statut: 'lu' as const, motif: null, modele: 'mistral-medium-latest', passeLe: '2026-09-10', transmission,
+      lecture: { natureProjet: { valeur: null, confiance: 'faible', page: null }, typeOperationSvav: { valeur: 'immeuble', confiance: 'haute', page: 18 }, recoursArchitecte: { valeur: null, confiance: 'faible', page: null }, demolition: { valeur: false, confiance: 'haute', page: 18 }, travauxParTranches: { valeur: null, confiance: 'faible', page: null }, resumeDescription: null } };
+    const h = rendre({ ...socle, passeIa });
+    expect(h).toContain('Lecture IA');
+    expect(h).toContain('à corroborer');
+    expect(h).toContain('immeuble');                                   // valeur lue
+    expect(h).toContain('l’IA n’a pas su lire cette information');     // abstention franche (natureProjet)
+    expect(h).toContain('Ce qui a été transmis au fournisseur');       // journal de transmission (repli)
+    expect(h).toContain('p34');
+  });
+  it('statut « echec » : « Lecture IA échouée » + motif, jamais une valeur inventée', () => {
+    const h = rendre({ ...socle, passeIa: { statut: 'echec' as const, lecture: null, motif: 'sortie IA non conforme', modele: null, passeLe: null, transmission } });
+    expect(h).toContain('Lecture IA échouée');
+    expect(h).toContain('sortie IA non conforme');
+  });
+  it('statut « abstention » : dit que l’IA n’a rien pu lire', () => {
+    const h = rendre({ ...socle, passeIa: { statut: 'abstention' as const, lecture: null, motif: 'aucune page transmissible', modele: null, passeLe: null, transmission: { pieceId: 1, pieceNom: 'x.pdf', envoyees: [], refusees: [] } } });
+    expect(h).toContain('L’IA n’a rien pu lire');
+  });
+  it('aucune passe (migration 216 non appliquée) → « non disponible », jamais un crash', () => {
+    const h = rendre({ ...socle, passeIa: null });
+    expect(h).toContain('Lecture IA non disponible');
+  });
+});

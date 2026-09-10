@@ -61,6 +61,7 @@
     "permis:rattraper-description": "tsx app/scripts/rattraper-description-cerfa.ts",
     "permis:instruire-teleservice": "tsx app/scripts/instruire-teleservice.ts",
     "permis:selection-pages-ia": "tsx app/scripts/selection-pages-ia.ts",
+    "permis:lire-cerfa-ia": "tsx app/scripts/lire-cerfa-ia.ts",
     "bdtopo:import": "tsx app/scripts/bdtopo-import.ts",
     "permis:etat-des-lieux": "tsx app/scripts/etat-des-lieux.ts",
     "permis:banatic-poser-94": "tsx app/scripts/banatic-poser-94.ts",

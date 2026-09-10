@@ -12,6 +12,7 @@ import { validerProjection } from '../../../../../lib/permis/projectionFileRepo'
 import { lireModePassageRattachement } from '../../../../../lib/permis/rattachementConfig'; // COMPLÉMENT — mode de passage (auto-finalisation vs clôture manuelle)
 import { lireDeclarationsRecap, lireDeclarationsRecapOuRepli, type DeclarationsCerfaStockees } from '../../../../../lib/permis/cerfaRecapRepo'; // LOT 67 — déclarations du Cerfa : payload principal = instantané STOCKÉ (immédiat) ; sous-requête cerfaRecap=1 = repli DIFFÉRÉ (lecture GED)
 import { lirePiecesCerfa, type PieceCerfaInfo } from '../../../../../lib/permis/piecesCerfaRepo'; // CR-2a — « pièces analysées » de la cartouche (nom + pages + id), DIFFÉRÉ seulement (numPages lit le PDF)
+import { lireDernierePasseIa, type PasseIaStockee } from '../../../../../lib/permis/compteRenduIaRepo'; // CR-2b1 — dernière passe IA (informative), lecture SEULE ; null si table absente
 import { annulerCorrectionParcelle } from '../../../../../lib/permis/correctionParcelleRepo'; // LOT 101 → PL-C5 : seule l'annulation subsiste (dégeler une ligne héritée)
 import { MESURES, construireGlobal, construirePermis, coherenceSommetPlancher, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
 
@@ -104,11 +105,14 @@ export async function GET(request: Request): Promise<Response> {
   if (urlReq.searchParams.get('cerfaRecap') === '1') {
     // CR-2a — la CARTOUCHE se charge ICI (différé) : déclarations (scission) + pièces Cerfa (nom/pages/id). Les deux en parallèle ;
     //   chacune tolère l'échec (null / []) sans casser l'autre. AUCUNE écriture, AUCUNE IA. Le payload principal ne fait ni l'un ni l'autre.
-    const [declarationsCerfa, piecesCerfa] = await Promise.all([
+    const [declarationsCerfa, piecesCerfa, passeIaBrute] = await Promise.all([
       lireDeclarationsRecapOuRepli(dossierId).catch(() => null as DeclarationsCerfaStockees | null),
       lirePiecesCerfa(dossierId).catch(() => [] as PieceCerfaInfo[]),
+      lireDernierePasseIa(dossierId).catch(() => null as PasseIaStockee | null), // CR-2b1 — lecture SEULE ; null si 216 non appliquée
     ]);
-    return Response.json({ declarationsCerfa, piecesCerfa });
+    // Forme attendue par la cartouche (PasseIaCartouche) ; jamais autoritative.
+    const passeIa = passeIaBrute && { statut: passeIaBrute.statut, lecture: passeIaBrute.lecture, motif: passeIaBrute.motif, modele: passeIaBrute.modele, transmission: passeIaBrute.transmission, passeLe: passeIaBrute.passeLe };
+    return Response.json({ declarationsCerfa, piecesCerfa, passeIa });
   }
   try {
     // N5-D/E/N7-E — le JOURNAL (confiance/réserve/provenance + MOTIF), séparé par niveau (parCorps / permis), lu dans le MÊME

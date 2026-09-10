@@ -187,7 +187,8 @@ export async function lireCerfaScan(pdf: Buffer, lecteur: LecteurCerfa): Promise
 }
 
 // ── Lecteur RÉEL (Mistral) — hors des tests ─────────────────────────────────────────────────────────────────────────────────────
-function rasteriser(pdf: Buffer, page: number): string {
+/** Rasterise UNE page (1-based) d'un PDF en JPEG base64 (pdftoppm). Exporté pour réutilisation par la lecture IA multi-pages (CR-2b1). */
+export function rasteriser(pdf: Buffer, page: number): string {
   const dir = mkdtempSync(join(tmpdir(), 'cerfa-scan-'));
   try {
     writeFileSync(join(dir, 'd.pdf'), pdf);

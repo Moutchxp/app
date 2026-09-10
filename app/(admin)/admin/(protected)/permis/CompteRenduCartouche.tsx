@@ -12,6 +12,8 @@ import {
   type Provenance, type EtatLigne, type PieceCerfa,
 } from './compteRendu';
 import type { LienPiece } from './CaracteristiquesRendu';
+import type { CompteRenduIa } from '../../../../lib/permis/compteRenduIaSchema'; // CR-2b1 — type SEUL (zod non embarqué côté client)
+import type { JournalTransmissionPiece } from '../../../../lib/permis/selectionPagesCerfaIa';
 
 /**
  * CR-2a — CARTOUCHE de COMPTE RENDU du Cerfa : remplace le pavé de texte brut par un compte rendu LISIBLE, construit UNIQUEMENT à
@@ -31,6 +33,17 @@ export interface DonneesCartouche {
   declarations: DeclarationsRecapCerfa;
   piecesCerfa: PieceCerfa[] | null;
   lienPiece?: LienPiece;
+  passeIa?: PasseIaCartouche | null; // CR-2b1 — dernière passe de lecture IA (informative, jamais autoritative)
+}
+
+/** CR-2b1 — dernière passe IA telle que l'écran la reçoit (lecture seule). `null` = aucune passe (migration 216 non appliquée / jamais lancée). */
+export interface PasseIaCartouche {
+  statut: 'lu' | 'abstention' | 'echec' | string;
+  lecture: CompteRenduIa | null;
+  motif: string | null;
+  modele: string | null;
+  transmission: JournalTransmissionPiece | null;
+  passeLe: string | null;
 }
 
 const styleAide: CSSProperties = { fontSize: 11, color: 'var(--color-svv-muted)', lineHeight: 1.4 };
@@ -67,6 +80,28 @@ function Section({ titre, children }: { titre: string; children: ReactNode }) {
   );
 }
 
+// ── CR-2b1 — LECTURE IA (à corroborer). Informative, JAMAIS autoritative : elle ne remplace aucune valeur déterministe, dit franchement
+//   quand elle ABSTIENT (jamais un tiret muet, jamais une valeur inventée), et expose le journal de transmission (preuve RGPD). ──
+const LIBELLES_IA: Record<string, string> = { natureProjet: 'Nature (case cochée)', typeOperationSvav: "Type d'opération (SVAV)", recoursArchitecte: "Recours à l'architecte", demolition: 'Démolition', travauxParTranches: 'Travaux par tranches' };
+const styleIaBox: CSSProperties = { border: '1px dashed var(--color-svv-violet)', borderRadius: '.45rem', padding: '.4rem .55rem', background: 'var(--color-svv-field)' };
+function valeurIaLisible(champ: string, valeur: unknown): string {
+  if (typeof valeur === 'boolean') return valeur ? 'oui' : 'non';
+  if (champ === 'natureProjet') return valeur === 'nouvelle_construction' ? 'nouvelle construction' : valeur === 'travaux_sur_existant' ? 'travaux sur existant' : String(valeur);
+  return String(valeur);
+}
+function LigneIa({ champ, c }: { champ: string; c: { valeur: unknown; confiance: string; page: number | null } | undefined }) {
+  return (
+    <Fragment>
+      <dt style={{ color: 'var(--color-svv-muted)', fontSize: 12.5 }}>{LIBELLES_IA[champ] ?? champ}</dt>
+      <dd style={{ margin: 0, fontSize: 12.5, lineHeight: 1.45, minWidth: 0 }}>
+        {!c || c.valeur === null || c.valeur === undefined
+          ? <span style={styleAbsent}>l’IA n’a pas su lire cette information</span>
+          : <><strong style={{ color: 'var(--color-svv-violet)' }}>{valeurIaLisible(champ, c.valeur)}</strong> <span style={styleProv}>· confiance {c.confiance}{c.page != null ? `, page ${c.page}` : ''} · à corroborer</span></>}
+      </dd>
+    </Fragment>
+  );
+}
+
 /** État « connu / non déclaré / pas encore instruit » d'un champ. `absentDuCerfa` = l'info n'est structurellement pas dans ce Cerfa. */
 function etat(valeurConnue: boolean, origine: OrigineValeur | null, methode: string | null | undefined, absentDuCerfa = false): EtatLigne {
   if (valeurConnue) return { statut: 'connu', provenance: provenanceChamp(origine, methode) ?? 'pieces' };
@@ -74,7 +109,7 @@ function etat(valeurConnue: boolean, origine: OrigineValeur | null, methode: str
 }
 
 export function CompteRenduCartouche({ donnees }: { donnees: DonneesCartouche }) {
-  const { faits, global: g, corps, journal, parcelles, declarations: d, piecesCerfa, lienPiece } = donnees;
+  const { faits, global: g, corps, journal, parcelles, declarations: d, piecesCerfa, lienPiece, passeIa } = donnees;
   const jp = journal.permis ?? {};
   const methPermis = (colonne: string): string | null | undefined => jp[colonne]?.methode;
   const methCorps = (corpsId: number, colonne: string): string | null | undefined => journal.parCorps?.[corpsId]?.[colonne]?.methode;
@@ -184,6 +219,41 @@ export function CompteRenduCartouche({ donnees }: { donnees: DonneesCartouche })
               })}
             </ul>
           : <p style={styleAbsent}>Aucune pièce Cerfa dans la GED de ce dossier.</p>}
+      </div>
+
+      {/* CR-2b1 — LECTURE IA (à corroborer) : visuellement DISTINCTE (encadré pointillé violet), informative, jamais autoritative. */}
+      <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
+        <h5 style={styleTitreSection}>Lecture IA <span style={{ textTransform: 'none', fontWeight: 400 }}>(à corroborer)</span></h5>
+        <div style={styleIaBox}>
+          {!passeIa
+            ? <p style={styleAbsent}>Lecture IA non disponible (non encore produite).</p>
+            : passeIa.statut === 'echec'
+              ? <p role="note" style={{ ...styleAbsent, color: 'var(--color-svv-red)' }}>Lecture IA échouée{passeIa.motif ? ` — ${passeIa.motif}` : ''}.</p>
+              : passeIa.statut === 'abstention' || !passeIa.lecture
+                ? <p style={styleAbsent}>L’IA n’a rien pu lire ici{passeIa.motif ? ` — ${passeIa.motif}` : ''}.</p>
+                : <>
+                    <p style={styleAide}>Ce que l’IA vision a lu sur les pages transmises — à corroborer, ne remplace jamais le déterministe ci-dessus.</p>
+                    <dl style={{ display: 'grid', gridTemplateColumns: 'minmax(9rem, max-content) 1fr', gap: '.1rem .6rem', margin: 0 }}>
+                      {['natureProjet', 'typeOperationSvav', 'recoursArchitecte', 'demolition', 'travauxParTranches'].map((k) => (
+                        <LigneIa key={k} champ={k} c={(passeIa.lecture as unknown as Record<string, { valeur: unknown; confiance: string; page: number | null }>)[k]} />
+                      ))}
+                    </dl>
+                    {passeIa.lecture.resumeDescription && <p style={{ margin: '.3rem 0 0', fontSize: 12.5, lineHeight: 1.5, color: 'var(--color-svv-ink)' }}><span style={{ color: 'var(--color-svv-muted)' }}>Résumé IA : </span>{passeIa.lecture.resumeDescription}</p>}
+                  </>}
+          {/* Journal de transmission (preuve RGPD de ce qui est parti chez le fournisseur), replié par défaut. */}
+          {passeIa?.transmission && (
+            <details style={{ marginTop: '.35rem', fontSize: 11.5 }}>
+              <summary style={{ ...styleAide, cursor: 'pointer' }}>Ce qui a été transmis au fournisseur</summary>
+              <p style={{ ...styleAide, margin: '.25rem 0 0' }}>
+                Envoyées : {passeIa.transmission.envoyees.map((e) => `p${e.page} [${e.cibles.join('+')}]`).join(', ') || '(aucune — abstention)'}
+              </p>
+              <p style={{ ...styleAide, margin: '.1rem 0 0' }}>
+                Refusées : {passeIa.transmission.refusees.filter((r) => !/aucune cible/.test(r.motif)).map((r) => `p${r.page} (${r.motif})`).join(' ; ') || '(aucune page-cible refusée)'}
+              </p>
+              {passeIa.modele && <p style={{ ...styleAide, margin: '.1rem 0 0' }}>Modèle : {passeIa.modele}{passeIa.passeLe ? ` · ${passeIa.passeLe}` : ''}</p>}
+            </details>
+          )}
+        </div>
       </div>
 
       {/* PIÈCE DE PREUVE — le texte source complet reste atteignable, replié par défaut. */}
