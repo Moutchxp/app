@@ -120,20 +120,26 @@ describe('GARDE append-only du registre de gel — aucun chemin d’écriture de
     new RegExp('DELETE\\s+FROM\\s+' + t + '\\b', 'i'),
     new RegExp('TRUNCATE\\s+' + t + '\\b', 'i'),
   ]);
+  // ROBUSTE à la concurrence : un AUTRE test (gardeImports.test.ts) crée puis SUPPRIME un fichier temporaire dans app/lib/svv/ pendant
+  //   qu'il tourne. Les workers vitest s'exécutent en parallèle → une entrée peut disparaître ENTRE le readdir et le stat/read (ENOENT).
+  //   Un fichier volatil d'un autre test n'est de toute façon pas du code applicatif à auditer → on l'IGNORE, jamais un échec de course.
   const fichiersTs = (dir: string): string[] => {
     const out: string[] = [];
     for (const e of readdirSync(dir)) {
       if (e === 'node_modules' || e === '.next' || e === 'dist') continue;
       const p = join(dir, e);
-      if (statSync(p).isDirectory()) out.push(...fichiersTs(p));
-      else if (p.endsWith('.ts') && !p.endsWith('.test.ts')) out.push(p);
+      try {
+        if (statSync(p).isDirectory()) out.push(...fichiersTs(p));
+        else if (p.endsWith('.ts') && !p.endsWith('.test.ts')) out.push(p);
+      } catch { /* entrée disparue en cours de scan (temp d'un test concurrent) → ignorée */ }
     }
     return out;
   };
   it('aucun UPDATE/DELETE/TRUNCATE sur les tables de gel dans le code applicatif (.ts hors tests)', () => {
     const coupables: string[] = [];
     for (const f of fichiersTs(join(process.cwd(), 'app'))) {
-      const src = readFileSync(f, 'utf8');
+      let src: string;
+      try { src = readFileSync(f, 'utf8'); } catch { continue; } // fichier disparu entre le scan et la lecture (temp concurrent) → ignoré
       if (interdits.some((re) => re.test(src))) coupables.push(f);
     }
     expect(coupables, `écriture destructive sur une table de gel détectée (append-only) : ${coupables.join(', ')}`).toEqual([]);
