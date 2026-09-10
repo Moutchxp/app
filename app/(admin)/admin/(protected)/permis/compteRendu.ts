@@ -3,7 +3,8 @@
  * méthode du journal, scission généré/humain) en libellés LISIBLES par un non-développeur, et détectent la divergence R+N.
  * Module client-safe (que des types importés d'ailleurs). Testé en node pur.
  */
-import type { ScissionDescription } from '../../../../lib/permis/descriptionScission';
+import { divergenceNiveauxHorsSol } from '../../../../lib/permis/descriptionScission'; // CR-3 : source unique (la lib), réexportée ici
+export { divergenceNiveauxHorsSol };
 
 /** Une pièce Cerfa ayant servi au compte rendu : nom, nombre de pages (null si illisible), id pour le lien GED signé. */
 export interface PieceCerfa { id: number; nom: string; pages: number | null }
@@ -79,17 +80,3 @@ export function etatChamp(
   return absentDuCerfa ? { statut: 'non_declare' } : { statut: 'non_instruit' };
 }
 
-/**
- * DIVERGENCE R+N entre la phrase GÉNÉRÉE (téléservice) et la déclaration HUMAINE. Cas réel 470 : généré « R+4 », humain « allant
- * jusqu'au R+5 ». La déclaration humaine PRIME sur le téléservice (précédence) → `retenu` = valeur humaine. `null` si pas de conflit
- * lisible (pas de part générée, pas de R+N dans l'humain, ou valeurs égales). On ne DEVINE pas : il faut un « R+N » explicite.
- */
-export function divergenceNiveauxHorsSol(scission: ScissionDescription): { genere: number; humain: number; retenu: number } | null {
-  const genere = scission.valeurs?.niveauxHorsSol ?? null;
-  if (genere == null || !scission.humain) return null;
-  const m = /R\s*\+\s*(\d+)/i.exec(scission.humain);
-  if (!m) return null;
-  const humain = Number(m[1]);
-  if (!Number.isFinite(humain) || humain === genere) return null;
-  return { genere, humain, retenu: humain }; // déclaration humaine > téléservice
-}

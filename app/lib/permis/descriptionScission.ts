@@ -68,6 +68,21 @@ export function parserPartGeneree(genere: string): ValeursGenerees {
   };
 }
 
+/**
+ * CR-2a/CR-3 — DIVERGENCE R+N entre la phrase GÉNÉRÉE (téléservice) et la déclaration HUMAINE. Cas réel 470 : généré « R+4 », humain
+ * « allant jusqu'au R+5 ». La déclaration humaine PRIME sur le téléservice (précédence) → `retenu` = valeur humaine. `null` si pas de
+ * conflit lisible (pas de part générée, pas de R+N dans l'humain, ou valeurs égales). On ne DEVINE pas : il faut un « R+N » explicite.
+ */
+export function divergenceNiveauxHorsSol(scission: ScissionDescription): { genere: number; humain: number; retenu: number } | null {
+  const genere = scission.valeurs?.niveauxHorsSol ?? null;
+  if (genere == null || !scission.humain) return null;
+  const m = /R\s*\+\s*(\d+)/i.exec(scission.humain);
+  if (!m) return null;
+  const humain = Number(m[1]);
+  if (!Number.isFinite(humain) || humain === genere) return null;
+  return { genere, humain, retenu: humain }; // déclaration humaine > téléservice
+}
+
 const vide = (s: string | null): string | null => { const t = (s ?? '').trim(); return t === '' ? null : t; };
 
 /**
