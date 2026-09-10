@@ -20,6 +20,7 @@
  *   `absents` (ils ne sont plus « absents » : ils sont lus et corroborés) ; sinon ils y restent (N10-R).
  */
 import { lireDecompteDescription, type DecompteDescription } from './decompteDescription';
+import { choisirDescriptionProjet, type ProvenanceDescription } from './descriptionProjet'; // CR-1 — coupe robuste (deux ordres de flux) + AcroForm prioritaire
 
 export interface DeclarationsRecapCerfa {
   dateDepot: string | null;               // « Déposé le : JJ/MM/AAAA » (déclaration Cerfa ; Sitadel porte sa propre date, non écrasée)
@@ -34,6 +35,7 @@ export interface DeclarationsRecapCerfa {
   empriseAuSolCreeeM2: number | null;     // « Emprise au sol créée (en m²) »
   surfacePlancherTotaleM2: number | null; // ligne « Surfaces totales (m²) », colonne Surface totale (déclaration Cerfa ≠ surf_creee)
   descriptionProjet: string | null;       // champ libre « Courte description… » — VERBATIM, jamais résumé ni interprété
+  descriptionProjetProvenance: ProvenanceDescription; // CR-1 : d'où vient la valeur — 'acroform' | 'texte' | 'absent'
   decompte: DecompteDescription | null;    // LOT 69 : décompte lu dans le champ libre, corroboré par la somme (null si pas de récap)
   absents: { champ: string; motif: string }[];
   ambigus: { champ: string; motif: string }[];
@@ -50,14 +52,15 @@ function nbApres(texte: string, label: RegExp): number | null {
   return Number.isFinite(v) ? v : null;
 }
 
-export function lireDeclarationsRecapCerfa(texte: string): DeclarationsRecapCerfa {
+export function lireDeclarationsRecapCerfa(texte: string, opts: { descriptionAcroform?: string | null } = {}): DeclarationsRecapCerfa {
   const t = (texte ?? '').replace(/\s+/g, ' ');
   const absents: { champ: string; motif: string }[] = [];
   const ambigus: { champ: string; motif: string }[] = [];
   const vide: DeclarationsRecapCerfa = {
     dateDepot: null, superficieTerrainM2: null, logementsTotal: null, logementsIndividuels: null, logementsCollectifs: null,
     niveauxDessusSol: null, niveauxDessousSol: null, stationnementAvant: null, stationnementApres: null,
-    empriseAuSolCreeeM2: null, surfacePlancherTotaleM2: null, descriptionProjet: null, decompte: null, absents, ambigus, present: false,
+    empriseAuSolCreeeM2: null, surfacePlancherTotaleM2: null, descriptionProjet: null, descriptionProjetProvenance: 'absent',
+    decompte: null, absents, ambigus, present: false,
   };
   if (!RE_RECAP.test(t)) return vide; // pas un récapitulatif reconnaissable → rien (jamais une supposition)
 
@@ -79,10 +82,10 @@ export function lireDeclarationsRecapCerfa(texte: string): DeclarationsRecapCerf
   const totM = /Surfaces\s+totales\s*\(m²\)\s*((?:\d{1,7}\s+){0,5}\d{1,7})/i.exec(t);
   if (totM) { const nums = totM[1].trim().split(/\s+/).map(Number).filter(Number.isFinite); if (nums.length) surfacePlancherTotaleM2 = nums[nums.length - 1]; }
 
-  // champ libre — VERBATIM entre son étiquette et le champ suivant connu. On ne recompose pas les mots coupés par l'aplatissement PDF.
-  let descriptionProjet: string | null = null;
-  const desc = /Courte\s+description\s+de\s+votre\s+projet\s+ou\s+de\s+vos\s+travaux\s*:?\s*([\s\S]*?)(?=Votre\s+projet\s+porte\s+sur\s+une\s+installation|Si\s+votre\s+projet\s+n[ée]cessite|Informations\s+compl[ée]mentaires|$)/i.exec(t);
-  if (desc) { const s = desc[1].trim(); if (s) descriptionProjet = s; }
+  // champ libre — VERBATIM (CR-1). Coupe ROBUSTE aux deux ordres de flux pdfjs (valeur après OU avant son libellé, cas des Cerfa
+  //   aplatis par iText), rejet du gabarit vierge, AcroForm prioritaire s'il est fourni. Voir `descriptionProjet.ts`.
+  const description = choisirDescriptionProjet({ acroform: opts.descriptionAcroform, texte: t });
+  const descriptionProjet = description.valeur;
 
   // LOT 69 — DÉCOMPTE lu dans le champ libre, CORROBORÉ par la somme sur le total structuré des logements. Seule lecture de valeur du
   //   champ libre. `logementsTotal` est l'AUTRE source (structurée) qui sert de preuve.
@@ -104,6 +107,6 @@ export function lireDeclarationsRecapCerfa(texte: string): DeclarationsRecapCerf
   return {
     dateDepot: dateM ? dateM[1] : null, superficieTerrainM2, logementsTotal, logementsIndividuels, logementsCollectifs,
     niveauxDessusSol, niveauxDessousSol, stationnementAvant, stationnementApres, empriseAuSolCreeeM2, surfacePlancherTotaleM2,
-    descriptionProjet, decompte, absents, ambigus, present: true,
+    descriptionProjet, descriptionProjetProvenance: description.provenance, decompte, absents, ambigus, present: true,
   };
 }

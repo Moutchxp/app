@@ -12,7 +12,7 @@ import type { DeclarationsRecapCerfa } from './recapCerfa';
 const DECL = (o: Partial<DeclarationsRecapCerfa> = {}): DeclarationsRecapCerfa => ({
   dateDepot: '04/11/2025', superficieTerrainM2: 5015, logementsTotal: 67, logementsIndividuels: 0, logementsCollectifs: 67,
   niveauxDessusSol: 5, niveauxDessousSol: 1, stationnementAvant: 0, stationnementApres: 49, empriseAuSolCreeeM2: 1354,
-  surfacePlancherTotaleM2: 4994, descriptionProjet: null, decompte: null, absents: [], ambigus: [], present: true, ...o,
+  surfacePlancherTotaleM2: 4994, descriptionProjet: null, descriptionProjetProvenance: 'absent', decompte: null, absents: [], ambigus: [], present: true, ...o,
 });
 
 let dossierId = 0;

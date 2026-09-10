@@ -137,7 +137,7 @@ export async function lireDeclarationsRecap(dossierId: number): Promise<Declarat
 }
 
 /** Texte concaténé des pages À TEXTE d'une lecture GED — source COMMUNE au repli d'affichage et à la production de fond (aucune relecture). */
-function texteDeGed(ged: ResultatLectureGed): string {
+export function texteDeGed(ged: ResultatLectureGed): string {
   return ged.pieces.flatMap((p) => p.pages.filter((y) => y.aTexte).map((y) => y.texte)).join('\n');
 }
 

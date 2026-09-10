@@ -11,7 +11,7 @@ import type { ResultatLectureGed, PieceGedMeta } from './lectureGed';
  * ⚠️ Le repli n'écrit RIEN et n'appelle aucune IA : il ne fait que relire du texte. Ce test le prouve par construction (aucune écriture mockée).
  */
 const STOCKE: DeclarationsCerfaStockees = {
-  declarations: { present: true, descriptionProjet: 'depuis la base', dateDepot: null, superficieTerrainM2: null, logementsTotal: null,
+  declarations: { present: true, descriptionProjet: 'depuis la base', descriptionProjetProvenance: 'texte', dateDepot: null, superficieTerrainM2: null, logementsTotal: null,
     logementsIndividuels: null, logementsCollectifs: null, niveauxDessusSol: null, niveauxDessousSol: null, stationnementAvant: null,
     stationnementApres: null, empriseAuSolCreeeM2: null, surfacePlancherTotaleM2: null, decompte: null, absents: [], ambigus: [] },
   pieceSource: 'stocke.pdf', majLe: '2026-09-05T10:00:00Z',
