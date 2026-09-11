@@ -14,6 +14,7 @@ import { lireDeclarationsRecap, lireDeclarationsRecapOuRepli, type DeclarationsC
 import { lirePiecesCerfa, type PieceCerfaInfo } from '../../../../../lib/permis/piecesCerfaRepo'; // CR-2a — « pièces analysées » de la cartouche (nom + pages + id), DIFFÉRÉ seulement (numPages lit le PDF)
 import { lireDernierePasseIa, type PasseIaStockee } from '../../../../../lib/permis/compteRenduIaRepo'; // CR-2b1 — dernière passe IA (informative), lecture SEULE ; null si table absente
 import { annulerCorrectionParcelle } from '../../../../../lib/permis/correctionParcelleRepo'; // LOT 101 → PL-C5 : seule l'annulation subsiste (dégeler une ligne héritée)
+import { lireNombreBatimentsValide } from '../../../../../lib/permis/autocreationCartesRepo'; // BAT-2 — nombre de bâtiments VALIDÉ (BAT-1), résilient (null si 218 absente) : état de cohérence de la sous-section « Caractéristiques et bâtiments d'origine »
 import { MESURES, construireGlobal, construirePermis, coherenceSommetPlancher, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
 
 /** N7-E — liste FERMÉE de nature_projet, lue du CHECK de permis_caracteristique (jamais recopiée). */
@@ -142,9 +143,11 @@ export async function GET(request: Request): Promise<Response> {
     // Capsule d'emprise du cartouche : état par bâtiment (surface/date) + projection validée (niveau dossier), lu en base ; tolérant si tables absentes.
     const empriseEtatSur = lireEtatEmprisesPermis(dossierId).catch(() => ({ projectionValidee: false, parBatiment: {} } as EtatEmprisesPermis));
     const modePassageSur = lireModePassageRattachement(); // COMPLÉMENT — mode courant : gouverne l'affichage du bouton de clôture (④) vs le message « passé en Rattachement »
-    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat, modePassageRattachement] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur, parcSur, empSur, batiSur, declSur, margeSur, empriseEtatSur, modePassageSur]);
+    // BAT-2 — nombre de bâtiments VALIDÉ (BAT-1) : état de cohérence de la sous-section « Caractéristiques et bâtiments d'origine ». Déjà résilient (null si 218 absente) ; `.catch` de ceinture par cohérence avec les autres lectures tolérantes.
+    const nbBatimentsValideSur = lireNombreBatimentsValide(dossierId).catch(() => null as number | null);
+    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat, modePassageRattachement, nbBatimentsValide] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur, parcSur, empSur, batiSur, declSur, margeSur, empriseEtatSur, modePassageSur, nbBatimentsValideSur]);
     if (faits === null) return Response.json({ erreur: 'permis inconnu' }, { status: 404 });
-    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat, modePassageRattachement });
+    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat, modePassageRattachement, nbBatimentsValide });
   } catch (e) {
     console.error('[permis/caracteristiques] GET indisponible', e);
     return Response.json({ erreur: 'caractéristiques indisponibles' }, { status: 503 });

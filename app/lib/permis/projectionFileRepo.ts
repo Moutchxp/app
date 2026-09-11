@@ -43,6 +43,7 @@ export interface LigneProjection {
   nbBatiments: number;     // permis_corps_batiment du permis (à tracer ou ignorer)
   satisfaitLe: string | null;
   nbCorpsSansAltitude: number;  // RATT-1 — bâtiments déclarés sans altitude de sommet (permis_corps_batiment.altitude_sommet_ngf NULL) → titre « Caractéristiques »
+  nbBatimentsValide: number | null; // BAT-2 — nombre de bâtiments VALIDÉ (BAT-1, permis_caracteristique.nb_batiments_valide) ; null = jamais validé (ou 218 absente). Sert à l'état de cohérence de la sous-section « Caractéristiques et bâtiments d'origine » (mère « Caractéristiques du permis »).
   nbCorpsSansAltValidee: number;    // COMPLÉMENT — bâtiments sans altitude de sommet VALIDÉE (confirme_le NULL) : décide si le n° passe au vert (validable). Défaut = nbBatiments (non validable) si lecture indisponible.
   nbCorpsSansEmpriseValidee: number; // COMPLÉMENT — bâtiments sans emprise VALIDÉE (206). Avec le précédent : le permis est VALIDABLE ssi les deux valent 0 (estValidationAcquise).
   projectionValidee: boolean;   // RATT-1 — la file EXCLUT par construction les projections validées (jalon NOT EXISTS permis_projection) → TOUJOURS false ici ; champ exposé pour un titre de famille générique et honnête
@@ -103,6 +104,7 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: b
     const d: DossierClassable = { type: r.type, natureProjetCompletee: r.nature_projet_completee, iExtension: r.i_extension, iSurelevation: r.i_surelevation, nbLgtTotCrees: r.nb_lgt_tot_crees, surfCreee: r.surf_creee === null ? null : Number(r.surf_creee) };
     return { dossierId: r.dossier_id, numDau: r.num_dau, communeNom: r.commune_nom, natureLibelle: classer(d, cfg).libelle, nbBatiments: r.nb_batiments, satisfaitLe: r.satisfait_le,
       nbCorpsSansAltitude: Number(r.nb_corps_sans_altitude ?? 0), projectionValidee: false, // RATT-1 — false par construction (jalon d'exclusion des validées)
+      nbBatimentsValide: null, // BAT-2 — DÉFAUT « non validé » ; `listerFileProjection` renseigne le nombre validé réel (lecture résiliente séparée)
       // COMPLÉMENT — DÉFAUT « non validable » (= tous les bâtiments manquants) : `listerFileProjection` remplace par les vrais comptes (lecture résiliente). Sûr si la lecture échoue (n° reste rouge).
       nbCorpsSansAltValidee: Number(r.nb_batiments), nbCorpsSansEmpriseValidee: Number(r.nb_batiments),
       plancheEtat: null, // PL-ÉTAT — DÉFAUT neutre ; `listerFileProjection` renseigne l'état réel (lecture résiliente séparée)
@@ -148,6 +150,22 @@ async function lirePlancheEtatParDossier(dossierIds: number[]): Promise<Map<numb
   return m;
 }
 
+/**
+ * BAT-2 — nombre de bâtiments VALIDÉ (BAT-1) PAR DOSSIER pour la file, lu SÉPARÉMENT et RÉSILIENT (jamais fondu dans la requête file :
+ * aucune dépendance ajoutée à la migration 218). Toute erreur (218 absente…) → map vide → nbBatimentsValide null pour la ligne (la mère
+ * « Caractéristiques du permis » vire alors au rouge via un porteur NEUTRE « non validé », jamais un faux « cohérent »). LECTURE SEULE.
+ */
+async function lireNbBatimentsValideParDossier(dossierIds: number[]): Promise<Map<number, number | null>> {
+  const m = new Map<number, number | null>();
+  if (dossierIds.length === 0) return m;
+  try {
+    const { rows } = await query<{ dossier_id: number; n: number | null }>(
+      `SELECT dossier_id, nb_batiments_valide AS n FROM permis_caracteristique WHERE dossier_id = ANY($1)`, [dossierIds]);
+    for (const r of rows) m.set(Number(r.dossier_id), r.n === null ? null : Number(r.n));
+  } catch { /* 218 absente ou lecture indisponible → map vide → nbBatimentsValide null (porteur neutre, mère rouge) */ }
+  return m;
+}
+
 export async function listerFileProjection(cfg: ConfigVeille): Promise<LigneProjection[]> {
   // LOT 51 — marqueurs « testé en analyse » lus À PART et RÉSILIENTS (189 absente → ∅ → porte FIX-2 jamais ouverte, comportement d'avant).
   const testIds = await lireDossiersEnTest();
@@ -167,11 +185,11 @@ export async function listerFileProjection(cfg: ConfigVeille): Promise<LigneProj
   })();
   // COMPLÉMENT — enrichit avec les VRAIS comptes de validation (défaut « non validable » sinon) → le n° passe au vert quand le permis est validable.
   const ids = rows.map((r) => r.dossierId);
-  const [val, planche] = await Promise.all([lireValidationFileParDossier(ids), lirePlancheEtatParDossier(ids)]); // PL-ÉTAT — état planche batché en //
+  const [val, planche, nbValide] = await Promise.all([lireValidationFileParDossier(ids), lirePlancheEtatParDossier(ids), lireNbBatimentsValideParDossier(ids)]); // PL-ÉTAT + BAT-2 — état planche & nombre validé batchés en //
   return rows.map((r) => {
     const v = val.get(r.dossierId);
     const base = v ? { ...r, nbCorpsSansAltValidee: v.sansAlt, nbCorpsSansEmpriseValidee: v.sansEmp } : r;
-    return { ...base, plancheEtat: planche.get(r.dossierId) ?? null }; // PL-ÉTAT — état SAUVEGARDÉ (null si indisponible → ligne neutre)
+    return { ...base, plancheEtat: planche.get(r.dossierId) ?? null, nbBatimentsValide: nbValide.get(r.dossierId) ?? null }; // PL-ÉTAT — état SAUVEGARDÉ (null si indisponible → ligne neutre) ; BAT-2 — nombre validé (null si indisponible → porteur neutre)
   });
 }
 

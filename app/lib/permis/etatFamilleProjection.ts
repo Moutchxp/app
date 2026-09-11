@@ -35,17 +35,52 @@ export function etatProjectionTitreDepuisComptes(nbBatiments: number, nbSansAlti
 }
 
 /**
- * « Caractéristiques du permis » : les altitudes de sommet des bâtiments DÉCLARÉS sont-elles renseignées ?
- * 🔴 CAS À NE PAS MENTIR (Arno) : AUCUN bâtiment déclaré → il n'y a RIEN à renseigner. On n'écrit ni « renseignées » (vert mensonger),
- *   ni « manquantes » (rouge mensonger) : libellé NEUTRE « aucun bâtiment déclaré ». ROUGE si ≥ 1 bâtiment déclaré est sans altitude ;
- *   VERT si tous les bâtiments déclarés ont leur altitude de sommet.
+ * BAT-2 — SOUS-SECTION 4 « Les futurs bâtiments et leurs altitudes » (PORTEUSE de la mère « Caractéristiques du permis (saisie) ») : les
+ * cartes de bâtiment existent-elles, et leur altitude de sommet est-elle renseignée ?
+ * 🔄 RÈGLE RÉVISÉE (décision Arno, BAT-2) — l'ancien « 0 bâtiment → NEUTRE » est RETIRÉ ici : une projection EXIGE au moins une carte, donc
+ *   AUCUNE carte n'est un manque à combler, pas un « rien à faire ». Trois cas :
+ *   · nbCartes ≤ 0 → ROUGE « aucune carte de bâtiment » ;
+ *   · ≥ 1 carte SANS altitude de sommet → ROUGE (avec compte) ;
+ *   · ≥ 1 carte, TOUTES renseignées → VERT (avec compte).
  */
-export function etatAltitudesTitre(nbBatimentsDeclares: number, nbSansAltitude: number): EtatTitreFamille {
-  if (nbBatimentsDeclares <= 0) return { texte: 'aucun bâtiment déclaré', ton: 'neutre' };
+export function etatAltitudesTitre(nbCartes: number, nbSansAltitude: number): EtatTitreFamille {
+  if (nbCartes <= 0) return { texte: 'aucune carte de bâtiment', ton: 'rouge' };
   if (nbSansAltitude > 0) {
-    return { texte: `altitude${nbSansAltitude > 1 ? 's' : ''} manquante${nbSansAltitude > 1 ? 's' : ''} (${nbSansAltitude}/${nbBatimentsDeclares})`, ton: 'rouge' };
+    return { texte: `altitude${nbSansAltitude > 1 ? 's' : ''} manquante${nbSansAltitude > 1 ? 's' : ''} (${nbSansAltitude}/${nbCartes})`, ton: 'rouge' };
   }
-  return { texte: `altitudes renseignées (${nbBatimentsDeclares} bâtiment${nbBatimentsDeclares > 1 ? 's' : ''})`, ton: 'vert' };
+  return { texte: `altitudes renseignées (${nbCartes} bâtiment${nbCartes > 1 ? 's' : ''})`, ton: 'vert' };
+}
+
+/**
+ * BAT-2 — SOUS-SECTION 1 « Caractéristiques et bâtiments d'origine » (PORTEUSE) : le NOMBRE de cartes de bâtiment (permis_corps_batiment)
+ * correspond-il au nombre de bâtiments VALIDÉ (BAT-1, permis_caracteristique.nb_batiments_valide) ?
+ *   · nbValide === null (JAMAIS validé — cas du « 0 détecté » que BAT-1 laisse à NULL) → NEUTRE « nombre de bâtiments non validé » : il n'y
+ *     a PAS de nombre validé à comparer, on ne MENT dans aucun sens (ni faux « cohérent », ni faux « incohérent »). « Pas encore fait »
+ *     n'est pas « rien à faire » : la mère vire tout de même au ROUGE via son agrégat (un porteur neutre bloque), SANS mentir sur ce titre.
+ *   · nbCartes !== nbValide → ROUGE, libellé qui DIT l'incohérence (n cartes / m validés) ;
+ *   · nbCartes === nbValide → VERT.
+ */
+export function etatCoherenceBatimentsTitre(nbCartes: number, nbValide: number | null): EtatTitreFamille {
+  if (nbValide === null) return { texte: 'nombre de bâtiments non validé', ton: 'neutre' };
+  if (nbCartes !== nbValide) {
+    return { texte: `${nbCartes} carte${nbCartes > 1 ? 's' : ''} pour ${nbValide} bâtiment${nbValide > 1 ? 's' : ''} validé${nbValide > 1 ? 's' : ''}`, ton: 'rouge' };
+  }
+  return { texte: 'nombre de cartes cohérent avec le nombre validé', ton: 'vert' };
+}
+
+/**
+ * BAT-2 — MÈRE « Caractéristiques du permis (saisie) » : agrège l'état de ses sous-sections PORTEUSES (l'appelant ne passe QUE les
+ * porteuses — section 1 cohérence + section 4 altitudes). Les sous-sections NON BLOQUANTES (« Compte rendu du Cerfa », « Le permis » :
+ * informatives, champs légitimement souvent vides) N'ENTRENT JAMAIS dans ce calcul. DEUX états seulement :
+ *   · VERTE ssi TOUTES les porteuses sont vertes ;
+ *   · ROUGE sinon — Y COMPRIS si une porteuse est NEUTRE (« pas encore fait » n'est pas « rien à faire »).
+ * Quand ROUGE, la mère NOMME les porteuses qui bloquent en REPRENANT leur propre `texte` (jamais une 2e formulation à maintenir) → on sait
+ * laquelle ouvrir sans déplier. SOURCE UNIQUE : cette fonction n'invente aucun état, elle agrège ceux des porteuses.
+ */
+export function etatMereCaracteristiques(porteuses: EtatTitreFamille[]): EtatTitreFamille {
+  const bloquantes = porteuses.filter((p) => p.ton !== 'vert');
+  if (bloquantes.length === 0) return { texte: 'complète', ton: 'vert' };
+  return { texte: bloquantes.map((p) => p.texte).join(' · '), ton: 'rouge' };
 }
 
 /**

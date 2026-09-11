@@ -2,10 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { TableProjection, TitreFamilleEtat, type LigneProjectionAffichee } from './ProjectionRendu';
-import { etatProjectionTitre, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection';
+import { etatProjectionTitre, etatAltitudesTitre, etatCoherenceBatimentsTitre, etatMereCaracteristiques } from '../../../../lib/permis/etatFamilleProjection';
 
 const ligne = (over: Partial<LigneProjectionAffichee> = {}): LigneProjectionAffichee => ({
-  dossierId: 11434, numDau: 'PC07512025V0035', communeNom: 'Paris 15e', natureLibelle: 'Construction neuve', nbBatiments: 2, satisfaitLe: '2026-07-01', nbCorpsSansAltitude: 0, nbCorpsSansAltValidee: 2, nbCorpsSansEmpriseValidee: 2, projectionValidee: false, testeEnAnalyse: false, plancheEtat: null, ...over,
+  dossierId: 11434, numDau: 'PC07512025V0035', communeNom: 'Paris 15e', natureLibelle: 'Construction neuve', nbBatiments: 2, satisfaitLe: '2026-07-01', nbCorpsSansAltitude: 0, nbBatimentsValide: 2, nbCorpsSansAltValidee: 2, nbCorpsSansEmpriseValidee: 2, projectionValidee: false, testeEnAnalyse: false, plancheEtat: null, ...over,
 });
 
 describe('PROJ-2c — rendu de la file Projection', () => {
@@ -62,11 +62,54 @@ describe('RATT-1 — état sur la ligne de titre des familles (Analyse et projec
     expect(etatProjectionTitre(true)).toEqual({ texte: 'projection validée', ton: 'vert' });
   });
 
-  it('altitudes : 0 bâtiment → NEUTRE (jamais mentir) ; manquante(s) → rouge ; toutes → vert', () => {
-    expect(etatAltitudesTitre(0, 0)).toEqual({ texte: 'aucun bâtiment déclaré', ton: 'neutre' });
+  it('altitudes : 0 carte → ROUGE (BAT-2, plus de neutre par vacuité) ; manquante(s) → rouge ; toutes → vert', () => {
+    expect(etatAltitudesTitre(0, 0)).toEqual({ texte: 'aucune carte de bâtiment', ton: 'rouge' });
     expect(etatAltitudesTitre(2, 0)).toEqual({ texte: 'altitudes renseignées (2 bâtiments)', ton: 'vert' });
     expect(etatAltitudesTitre(2, 1)).toEqual({ texte: 'altitude manquante (1/2)', ton: 'rouge' });
     expect(etatAltitudesTitre(3, 2)).toEqual({ texte: 'altitudes manquantes (2/3)', ton: 'rouge' });
+  });
+});
+
+/**
+ * BAT-2 — la LIGNE MÈRE « Caractéristiques du permis (saisie) » reflète l'état AGRÉGÉ de ses sous-sections porteuses (section 1 cohérence +
+ * section 4 altitudes), rendue par le MÊME TitreFamilleEtat. Tests en node pur (renderToStaticMarkup) : on asserte le COMPORTEMENT (le sens
+ * porté par le texte + le ton via le token de couleur EXISTANT), jamais la forme du HTML. Le vert est asserté par ABSENCE des textes bloquants
+ * + token vert (le libellé vert exact n'est pas figé).
+ */
+describe('BAT-2 — mère « Caractéristiques du permis (saisie) » (rendu)', () => {
+  const rendreMere = (etats: Parameters<typeof etatMereCaracteristiques>[0]) =>
+    renderToStaticMarkup(h(TitreFamilleEtat, { base: 'Caractéristiques du permis (saisie)', etat: etatMereCaracteristiques(etats) }));
+
+  it('toutes porteuses vertes → mère VERTE (token vert, aucun texte de blocage)', () => {
+    const html = rendreMere([etatCoherenceBatimentsTitre(2, 2), etatAltitudesTitre(2, 0)]);
+    expect(html).toContain('Caractéristiques du permis (saisie)');
+    expect(html).toContain('var(--color-svv-green-ink)');
+    expect(html).not.toContain('manquante');
+    expect(html).not.toContain('non validé');
+  });
+
+  it('une porteuse ROUGE (altitude manquante) → mère ROUGE et NOMME le blocage (texte de la porteuse)', () => {
+    const html = rendreMere([etatCoherenceBatimentsTitre(3, 3), etatAltitudesTitre(3, 1)]);
+    expect(html).toContain('var(--color-svv-red)');
+    expect(html).toContain('altitude manquante (1/3)'); // reprend le texte de la porteuse, jamais une 2e formulation
+  });
+
+  it('une porteuse NEUTRE (nombre non validé) → mère ROUGE et la nomme (« pas encore fait » bloque)', () => {
+    const html = rendreMere([etatCoherenceBatimentsTitre(3, null), etatAltitudesTitre(3, 0)]);
+    expect(html).toContain('var(--color-svv-red)');
+    expect(html).toContain('nombre de bâtiments non validé');
+  });
+
+  it('section 4 : 0 carte → ROUGE « aucune carte de bâtiment » (sur son propre titre)', () => {
+    const html = renderToStaticMarkup(h(TitreFamilleEtat, { base: 'Les futurs bâtiments et leurs altitudes', etat: etatAltitudesTitre(0, 0) }));
+    expect(html).toContain('aucune carte de bâtiment');
+    expect(html).toContain('var(--color-svv-red)');
+  });
+
+  it('section 1 : cartes ≠ nombre validé → ROUGE disant l’incohérence (sur son propre titre)', () => {
+    const html = renderToStaticMarkup(h(TitreFamilleEtat, { base: 'Caractéristiques et bâtiments d’origine', etat: etatCoherenceBatimentsTitre(3, 2) }));
+    expect(html).toContain('3 cartes pour 2 bâtiments validés');
+    expect(html).toContain('var(--color-svv-red)');
   });
 });
 

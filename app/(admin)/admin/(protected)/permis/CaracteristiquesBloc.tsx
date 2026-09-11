@@ -16,10 +16,12 @@ import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtat
 import { CompteRenduCartouche, type PasseIaCartouche } from './CompteRenduCartouche'; // CR-2a/CR-2b1 — cartouche + lecture IA (informative)
 import { messageErreurCartouche, type PieceCerfa } from './compteRendu'; // CR-2a — message 401 « session expirée » (jamais « indisponible »)
 import { BlocRepliable } from './BlocRepliable'; // PLI-1 — même dépliant que « Complétude »/« Historique » : chaque cartouche de « Caractéristiques du permis » replié à son titre, ouvrable indépendamment
+import { TitreFamilleEtat } from './ProjectionRendu'; // BAT-2 — état sur la ligne de titre d'une sous-section porteuse (réutilisé tel quel)
+import { etatCoherenceBatimentsTitre, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection'; // BAT-2 — fonctions PURES d'état des porteuses (SOURCE UNIQUE, mêmes que la mère de ProjectionVue)
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
 // N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null; majLe: string | null } | null; margeCoherenceSommetM?: number; empriseEtat?: EtatEmprisesPermis; modePassageRattachement?: 'automatique' | 'cloture_manuelle' }
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null; majLe: string | null } | null; margeCoherenceSommetM?: number; empriseEtat?: EtatEmprisesPermis; modePassageRattachement?: 'automatique' | 'cloture_manuelle'; nbBatimentsValide?: number | null } // BAT-2 — nombre de bâtiments VALIDÉ (BAT-1) : cohérence de la sous-section « Caractéristiques et bâtiments d'origine »
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '', adresse: c.adresse ?? '',
@@ -54,7 +56,10 @@ const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '
  * BÂTIMENT (mesurés : repère, altitudes, étages, adresse par corps). Toute écriture est en 'saisie'. Confiance/réserve/motif
  * lus du journal (parCorps + permis). Bornes et liste de nature LUES de la base.
  */
-export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, pied }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; pied?: ReactNode }) {
+export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, pied, avecEtatFamilles }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; pied?: ReactNode; avecEtatFamilles?: boolean }) {
+  // BAT-2 — `avecEtatFamilles` : n'affiche l'ÉTAT sur les titres des sous-sections PORTEUSES que dans la file « Analyse et projection »
+  //   (qui porte la mère « Caractéristiques du permis (saisie) ») → une mère rouge est diagnosticable sans la déplier. Ailleurs (Rattachement,
+  //   Archives, Réponses, Suivi) ce bloc est monté SANS ce drapeau : les titres restent nus, comportement inchangé.
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
   const [data, setData] = useState<EtatCharge | null>(null);
   const [edGlobal, setEdGlobal] = useState<EditionGlobal>({ parking: '', commentaire: '' });
@@ -207,6 +212,14 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
 
   const majChamp = (corpsId: number, cle: keyof EditionCorps, v: string) => setEdCorps((m) => ({ ...m, [corpsId]: { ...m[corpsId], [cle]: v } }));
 
+  // BAT-2 — état des sous-sections PORTEUSES, calculé depuis les données FRAÎCHES de ce bloc (mêmes fonctions pures que la mère de
+  //   ProjectionVue → une seule vérité). Section 1 = cohérence nombre de cartes ↔ nombre VALIDÉ (BAT-1) ; section 4 = altitudes de sommet
+  //   (nb de cartes sans altitude, MÊME critère que la file : altitude_sommet_ngf NULL). Affiché uniquement si `avecEtatFamilles`.
+  const nbCartes = data.corps.length;
+  const nbCartesSansAltitude = data.corps.filter((c) => c.altitudeSommetNgf === null).length;
+  const etatSection1 = etatCoherenceBatimentsTitre(nbCartes, data.nbBatimentsValide ?? null);
+  const etatSection4 = etatAltitudesTitre(nbCartes, nbCartesSansAltitude);
+
   // N10-A — résout un nom de fichier de provenance en un déclencheur de téléchargement (source 'dossier'), ou undefined si non résolu
   // (nom absent de la GED → l'entrée reste en texte simple, jamais un lien mort). Le signeur reste le SERVEUR (onOuvrir → variante
   //   inline signée + #page côté client) ; la clé de stockage ne transite jamais. N10-B : ouverture À LA PAGE de la provenance.
@@ -220,8 +233,9 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
     <div className="flex flex-col gap-3" style={{ marginTop: '.6rem' }}>
       {/* PLI-1 — chaque cartouche est REPLIÉ à son titre (BlocRepliable, MÊME dépliant que « Complétude »/« Historique ») ; un clic déplie CE
           cartouche seul et n'en referme aucun autre. Aucun contenu/donnée/logique ne change : uniquement la mise en forme pliée/dépliée. */}
-      {/* CARTOUCHE 1 — Caractéristiques et bâtiments d’origine (faits Sitadel, parcelles, empreinte attendue, bâti au moment de l’analyse). */}
-      <BlocRepliable titre="Caractéristiques et bâtiments d’origine">
+      {/* CARTOUCHE 1 — Caractéristiques et bâtiments d’origine (faits Sitadel, parcelles, empreinte attendue, bâti au moment de l’analyse).
+          BAT-2 — PORTEUSE : son titre porte l'état de COHÉRENCE (nombre de cartes ↔ nombre validé) quand `avecEtatFamilles`. */}
+      <BlocRepliable titre={avecEtatFamilles ? <TitreFamilleEtat base="Caractéristiques et bâtiments d’origine" etat={etatSection1} /> : 'Caractéristiques et bâtiments d’origine'}>
         {() => (
           <FaitsPermisBloc faits={data.faits} nbBatiments={data.corps.length} parcelles={data.parcelles} empreinte={data.empreinte} bati={data.bati}
             dossierId={dossierId} onParcelleChange={() => void rafraichir()}
@@ -291,8 +305,10 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
         )}
       </BlocRepliable>
 
-      {/* CARTOUCHE 4 — LES CORPS DE BÂTIMENT (mesurés) : un par immeuble. Le titre de section devient le titre du dépliant. */}
-      <BlocRepliable titre={<>Les futurs bâtiments et leurs altitudes <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span></>}>
+      {/* CARTOUCHE 4 — LES CORPS DE BÂTIMENT (mesurés) : un par immeuble. Le titre de section devient le titre du dépliant.
+          BAT-2 — PORTEUSE : son titre porte l'état des ALTITUDES (aucune carte / manquantes / renseignées) quand `avecEtatFamilles` (le
+          suffixe d'aide « — un par immeuble… » cède alors la place au suffixe d'état, plus utile pour diagnostiquer la mère). */}
+      <BlocRepliable titre={avecEtatFamilles ? <TitreFamilleEtat base="Les futurs bâtiments et leurs altitudes" etat={etatSection4} /> : <>Les futurs bâtiments et leurs altitudes <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span></>}>
         {() => (
       <div className="flex flex-col gap-3">
       {/* N10-C — D : ce que contient la section et d'où ça vient. */}

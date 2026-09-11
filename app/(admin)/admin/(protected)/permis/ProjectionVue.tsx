@@ -14,7 +14,7 @@ import { ClotureVersRattachement, clotureVisible } from './CaracteristiquesRendu
 import type { DonneesLiseuse } from './LiseusePieces'; // P3 (perfo) — donnée /emprise partagée (bloc Bâtiments → liseuse de la planche), anti-doublon
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { etatValidationProjection } from '../../../../lib/permis/etatValidationProjection';
-import { etatProjectionTitreDepuisComptes, etatAltitudesTitre, etatPlancheTitre, type EtatTitreFamille } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles (repli PAR BÂTIMENT, calqué sur estValidationAcquise) ; PL-ÉTAT — état de la ligne « Planche cadastrale »
+import { etatProjectionTitreDepuisComptes, etatAltitudesTitre, etatCoherenceBatimentsTitre, etatMereCaracteristiques, etatPlancheTitre, type EtatTitreFamille } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles (repli PAR BÂTIMENT, calqué sur estValidationAcquise) ; PL-ÉTAT — état de la ligne « Planche cadastrale » ; BAT-2 — mère « Caractéristiques du permis » agrégée (cohérence + altitudes)
 import { conditionAltitudeSortie, pretPourSortie } from '../../../../lib/permis/etatSortieRattachement'; // LOT 71 — condition altitude à 3 états (sans objet ≠ satisfaite)
 import { recompterSiSucces } from './comptesActions';
 
@@ -185,7 +185,14 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     const ev = etatValidationProjection(batimentsOuvert, verdict); // bouton « Valider » : invite à déplier les bâtiments tant qu'ils n'ont pas été ouverts
     // RATT-1 — état des familles calculé depuis la ligne DÉJÀ chargée (`file`), visible sans déplier ni tirer de contenu lourd (PERF-1 préservée).
     const row = file?.find((f) => f.dossierId === ouvert) ?? null;
-    const etatAlt = etatAltitudesTitre(row?.nbBatiments ?? 0, row?.nbCorpsSansAltitude ?? 0);
+    // BAT-2 — la MÈRE « Caractéristiques du permis (saisie) » agrège l'état de ses sous-sections PORTEUSES, calculées depuis la ligne DÉJÀ
+    //   chargée (PERF-1 : visible sans déplier ni tirer de contenu lourd). Section 1 = cohérence nombre de cartes ↔ nombre VALIDÉ (BAT-1) ;
+    //   section 4 = altitudes de sommet. Les non-bloquantes (compte rendu Cerfa, permis déclaré) n'y entrent pas. Les sous-titres DANS le
+    //   bloc portent le MÊME état (mêmes fonctions pures, depuis les données fraîches de CaracteristiquesBloc) → une mère rouge est diagnosticable.
+    const etatMere = etatMereCaracteristiques([
+      etatCoherenceBatimentsTitre(row?.nbBatiments ?? 0, row?.nbBatimentsValide ?? null),
+      etatAltitudesTitre(row?.nbBatiments ?? 0, row?.nbCorpsSansAltitude ?? 0),
+    ]);
     // ③ COMPLÉMENT — l'en-tête dit l'état RÉEL (tous les bâtiments alt+emprise validés → VERT ; sinon ce qui manque), remonté par le bloc
     //   quand il est ouvert (valeur LIVE, prime). REPLI avant ouverture : calculé sur les COMPTES de la ligne (calqué sur estValidationAcquise,
     //   MÊME règle que l'en-tête live), PLUS sur le jalon dossier `projectionValidee` — la section et la ligne disent ainsi une seule vérité
@@ -283,10 +290,12 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
             ('principal') et dans « Bâtiments et projection » (⑤). Le rendu du HAUT du bloc a été retiré (décision Arno : trop de boutons).
             ① HIÉRARCHIE — les sous-sections sont légèrement DÉCALÉES (indentation + filet gauche) pour lire la parenté d'un coup d'œil ;
             décalage discret (~.85rem), width:100% des sous-lignes → aucun débordement horizontal en portrait. */}
-        <BlocRepliable key={`w-carac-${ouvert}`} titre={<TitreFamilleEtat base="Caractéristiques du permis (saisie)" etat={etatAlt} />}>
+        <BlocRepliable key={`w-carac-${ouvert}`} titre={<TitreFamilleEtat base="Caractéristiques du permis (saisie)" etat={etatMere} />}>
           {() => (
             <div className="flex flex-col gap-2" style={{ marginLeft: '.85rem', paddingLeft: '.85rem', borderLeft: '2px solid var(--color-svv-line)' }}>
-              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} pied={rendreCloture('bouton')} />
+              {/* BAT-2 — `avecEtatFamilles` : SEULE la file « Analyse et projection » (qui porte la mère) demande l'état sur les titres des
+                  sous-sections, pour diagnostiquer une mère rouge sans la déplier. Ailleurs (Rattachement, Archives, Réponses…) ce bloc reste nu. */}
+              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} pied={rendreCloture('bouton')} />
             </div>
           )}
         </BlocRepliable>

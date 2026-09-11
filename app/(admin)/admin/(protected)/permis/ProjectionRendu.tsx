@@ -17,6 +17,7 @@ export interface LigneProjectionAffichee {
   nbBatiments: number;
   satisfaitLe: string | null;
   nbCorpsSansAltitude: number;  // RATT-1 — bâtiments déclarés sans altitude de sommet (titre « Caractéristiques du permis »)
+  nbBatimentsValide: number | null; // BAT-2 — nombre de bâtiments VALIDÉ (BAT-1) ; null = jamais validé → sous-section « Caractéristiques et bâtiments d'origine » (état de cohérence porté par la mère)
   nbCorpsSansAltValidee: number;    // COMPLÉMENT — bâtiments sans altitude de sommet VALIDÉE ; avec le suivant, décide si le n° passe au vert (validable = les deux à 0)
   nbCorpsSansEmpriseValidee: number; // COMPLÉMENT — bâtiments sans emprise VALIDÉE
   projectionValidee: boolean;   // RATT-1 — projection validée ? (titre « Bâtiments et projection ») — false par construction dans cette file
