@@ -1489,7 +1489,7 @@ describe('PROJ-3s — retouche : liste (retoucher / multi-parties) + poignées s
     const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle, emprises, calageLambert: [] }));
     expect(html).not.toContain('data-selectionnee');
   });
-  it('SchemaParcelleTrace (défauts E & F) : l’aperçu d’ajustement = corps à CONTOUR RENFORCÉ (halo blanc + liseré foncé) + tiges', () => {
+  it('SchemaParcelleTrace (défaut E + point 3) : aperçu = corps à liseré FIN teal distinct (tireté) + halo hairline + tiges', () => {
     const boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 40, minY: 0, maxY: 40 } };
     const parcelle = [[{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 0, y: 40 }]];
     const anneaux = [[{ x: 10, y: 10 }, { x: 20, y: 10 }, { x: 20, y: 20 }, { x: 10, y: 20 }]];
@@ -1497,9 +1497,10 @@ describe('PROJ-3s — retouche : liste (retoucher / multi-parties) + poignées s
     const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle, emprises: [], calageLambert: [], apercuAjustement }));
     expect(html).toContain('data-ajustement-apercu="true"');
     expect(html).toContain('data-ajustement="corps"');
-    // DÉFAUT F : le CONTOUR est renforcé (double liseré) — halo BLANC continu (fill none) + aplat teal discret : reconnaissable sur TOUTE couleur.
-    expect(html).toContain('fill="rgba(15,118,110,.16)"'); // aplat teal (discret : c'est le contour qui porte, pas l'aplat)
-    expect(html).toMatch(/fill="none"[^>]*stroke="#ffffff"/); // halo blanc SOUS le liseré du corps
+    // POINT 3 : la sélection se distingue par la COULEUR (teal foncé vif #0f766e) et le TIRETÉ, avec un aplat très discret — plus par l'épaisseur.
+    expect(html).toContain('fill="rgba(15,118,110,.14)"');   // aplat teal discret (c'est le liseré qui identifie)
+    expect(html).toMatch(/stroke="#0f766e"[^>]*stroke-dasharray/); // liseré teal foncé FIN et tireté
+    expect(html).toMatch(/fill="none"[^>]*stroke="#ffffff"/); // halo blanc HAIRLINE sous le liseré (lisibilité sur contour voisin foncé)
     // DÉFAUT E : les tiges (rotation ↻ / échelle ⤢) sont bien rendues.
     expect(html).toContain('data-ajustement="rotation"');
     expect(html).toContain('data-ajustement="echelle"');

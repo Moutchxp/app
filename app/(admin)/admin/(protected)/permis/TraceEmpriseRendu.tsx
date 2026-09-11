@@ -1498,6 +1498,10 @@ const CONTEXTE_FOND = 'rgba(122,180,230,.10)', CONTEXTE_TRAIT = '#7ab4e6'; // �
 const RETOUCHE_TRAIT = '#c026d3', RETOUCHE_FOND = 'rgba(192,38,211,.16)';  // forme EN COURS — magenta vif
 const RETOUCHE_SOMMET_SEL = '#701a75';                                     // sommet sélectionné — magenta foncé (l'actif)
 const ORIGINE_RETOUCHE_TRAIT = '#9aa0a6', ORIGINE_RETOUCHE_FOND = 'rgba(154,160,166,.06)'; // ORIGINE en retouche — gris « en retrait »
+// POINT 3 — contour de l'emprise SÉLECTIONNÉE (aperçu d'ajustement) : teal FONCÉ vif, distinct de toutes les autres teintes du schéma (rosé
+//   #a30402, bleu voisin #2563eb, magenta de retouche #c026d3, gris) et tranchant sur le fond blanc comme sur les aplats pâles. La sélection
+//   se lit désormais à la COULEUR (et au tireté), plus à l'épaisseur : liseré FIN pour ne pas masquer les décrochés de quelques pixels.
+const SELECTION_TRAIT = '#0f766e', SELECTION_FOND = 'rgba(15,118,110,.14)'; // teal foncé + aplat très discret (c'est le liseré qui identifie)
 
 // Repères (A, B, C…) — RÈGLE ARNO : lettre NETTEMENT LISIBLE, taille ADAPTÉE à DEUX facteurs — ① la taille d'AFFICHAGE du schéma (le
 //   plancher ET le plafond sont des FRACTIONS du viewBox → un schéma deux fois plus grand donne une lettre proportionnellement plus
@@ -1852,18 +1856,17 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           const tigeHalo = tige + Math.max(2, rB * 0.18); // liseré blanc SOUS la tige (dépasse de chaque côté) → visible sur polygone foncé
           const liserBulle = Math.max(2, rB * 0.16);      // liseré foncé du contour des bulles / du point central
           const rCentre = Math.max(3.5, rB * 0.28);
-          // BAT (défaut F) — l'emprise sélectionnée = seul indicateur (défaut A/point 3) : le CONTOUR doit être reconnaissable par-dessus TOUTES
-          //   les couleurs du schéma (rosé des emprises #a30402, bleu des voisins #2563eb, brun de l'étiquette, gris), pas seulement le fond
-          //   blanc. On RENFORCE le liseré (jamais l'aplat, qui se confondrait) par un DOUBLE trait, comme les tiges : halo BLANC continu SOUS
-          //   (sépare de n'importe quelle couleur), encre foncée AU-DESSUS (tireté = « forme active/déplaçable », distincte des contours pleins
-          //   statiques). Le sens reste AUSSI porté par le cartouche cerclé + le nom (la couleur ne porte jamais seule). Dérive de rB.
-          const contour = Math.max(2.8, rB * 0.24);       // liseré foncé du corps (plus épais que l'ancien 2,2)
-          const contourHalo = contour + Math.max(2.5, rB * 0.22); // halo BLANC sous le liseré → contraste garanti sur toute couleur
+          // POINT 3 — l'emprise sélectionnée (aperçu) se distingue par la COULEUR (teal foncé vif SELECTION_TRAIT, tranchant sur blanc, bâti bleu
+          //   et aplats rosés) et par le TIRETÉ, PLUS par l'épaisseur : liseré FIN, pour qu'un décroché de quelques pixels reste visible et
+          //   visable pendant l'ajustement/la retouche. Un halo blanc HAIRLINE dessous préserve la lisibilité là où le trait croise un contour
+          //   voisin foncé, sans épaissir l'aspect. Le sens reste AUSSI porté par le cartouche cerclé + le nom (la couleur ne porte jamais seule).
+          const traitSel = Math.max(1.1, rB * 0.07);      // liseré FIN (≈ 1,5 u au zoom courant) — ne masque pas les décrochés
+          const haloSel = traitSel + Math.max(1, rB * 0.05); // halo blanc HAIRLINE (dépasse à peine) → lisible sur contour voisin foncé, sans épaissir
           return <g data-ajustement-apercu="true">
           {apercuAjustement.anneaux.map((a, i) => a.length >= 3 && (
             <g key={`aj${i}`} data-ajustement="corps">
-              <path d={path(a)} fill="none" stroke={POIGNEE_HALO} strokeWidth={contourHalo} strokeLinejoin="round" pointerEvents="none" />
-              <path d={path(a)} fill="rgba(15,118,110,.16)" stroke={POIGNEE_ENCRE} strokeWidth={contour} strokeDasharray="5 2.5" strokeLinejoin="round" />
+              <path d={path(a)} fill="none" stroke={POIGNEE_HALO} strokeWidth={haloSel} strokeLinejoin="round" pointerEvents="none" />
+              <path d={path(a)} fill={SELECTION_FOND} stroke={SELECTION_TRAIT} strokeWidth={traitSel} strokeDasharray="4 3" strokeLinejoin="round" />
             </g>
           ))}
           {poigneesBoite && (() => { const c = poigneesBoite.centre, r = poigneesBoite.rotation, e = poigneesBoite.echelle; return <> {/* défaut E — positions bornées/repliées, identiques au hit-test */}
