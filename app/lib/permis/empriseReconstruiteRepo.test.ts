@@ -55,7 +55,7 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock, withTransaction: async (fn: (q: unknown) => unknown) => fn(H.queryMock) }));
 
-import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, enregistrerAjustement, supprimerAjustement, ajusterBloc, reinitialiserAjustementBloc, lireEtatEmprisesPermis, validerEmpriseBatiment, devaliderEmpriseBatiment, validerEmprise, devaliderEmprise } from './empriseReconstruiteRepo';
+import { enregistrerEmprise, listerEmprises, supprimerEmprise, ignorerProjection, retablirProjection, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, enregistrerAjustement, supprimerAjustement, ajusterBloc, reinitialiserAjustementBloc, lireEtatEmprisesPermis, validerEmprise, devaliderEmprise } from './empriseReconstruiteRepo';
 import type { Ajustement } from './calageEmprise';
 import type { CalageTrace } from './empriseReconstruiteRepo';
 
@@ -64,35 +64,8 @@ const anneau = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10
 
 beforeEach(() => { H.calls.length = 0; H.flags.geomValide = true; H.flags.updRows = [{ provenance: 'ign_retouche' }]; H.flags.projectionValidee = false; H.flags.empriseRows = []; H.flags.validateRowCount = 1; H.flags.validationColonneAbsente = false; H.flags.listeRows = []; H.flags.ajustementColonneAbsente = false; H.flags.ajusteRowCount = 1; });
 
-describe('VALIDATION PAR BÂTIMENT — validerEmpriseBatiment / devaliderEmpriseBatiment (calque de « Valider cette altitude »)', () => {
-  it('valider : pointe emprise_validee_id sur l’emprise COURANTE du bâtiment + trace (par), paramètres liés', async () => {
-    const r = await validerEmpriseBatiment(194, 'arno');
-    expect(r.ok).toBe(true);
-    const up = H.calls.find((c) => /UPDATE permis_corps_batiment[\s\S]*emprise_validee_id = \(SELECT id/i.test(c.sql))!;
-    const norm = up.sql.replace(/\s+/g, ' ');
-    expect(norm).toContain('ORDER BY id DESC LIMIT 1'); // l'emprise la plus récente du bâtiment
-    expect(norm).toContain('emprise_validee_le = now()');
-    expect(up.params).toEqual([194, 'arno']); // corpsId + auteur LIÉS
-  });
-  it('valider : aucune emprise (0 ligne affectée) → refus explicite, jamais un « validé » vide', async () => {
-    H.flags.validateRowCount = 0;
-    const r = await validerEmpriseBatiment(194, 'arno');
-    expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.motif).toMatch(/aucune emprise/);
-  });
-  it('migration 206 absente (42703) → refus CLAIR « mise à jour de la base requise », jamais un crash', async () => {
-    H.flags.validationColonneAbsente = true;
-    const r = await validerEmpriseBatiment(194, 'arno');
-    expect(r.ok).toBe(false);
-    if (!r.ok) { expect(r.motif).toMatch(/migration 206/); expect(r.migrationAbsente).toBe(true); }
-  });
-  it('devalider : remet emprise_validee_* à NULL (réversible, comme le retour arrière de l’altitude)', async () => {
-    const r = await devaliderEmpriseBatiment(194, 'arno');
-    expect(r.ok).toBe(true);
-    const up = H.calls.find((c) => /UPDATE permis_corps_batiment SET emprise_validee_id = NULL[\s\S]*WHERE id = \$1/i.test(c.sql))!;
-    expect(up.params).toEqual([194, 'arno']);
-  });
-});
+// La validation PAR CORPS (validerEmpriseBatiment / devaliderEmpriseBatiment, migration 206) était du code mort → retirée avec ses tests.
+//   VAL-1 ci-dessous (validation PAR EMPRISE) est la seule voie vivante.
 
 describe('VAL-1 — VALIDATION PAR EMPRISE (validerEmprise / devaliderEmprise + retombée par changement de géométrie)', () => {
   const empriseUpdate = (re: RegExp) => H.calls.find((c) => re.test(c.sql.replace(/\s+/g, ' ')));

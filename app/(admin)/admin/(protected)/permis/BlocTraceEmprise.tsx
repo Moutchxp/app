@@ -793,8 +793,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     } catch { setMessage('erreur d’enregistrement'); } finally { setOccupe(false); }
   }, [sim, sommets, corpsEffectif, batSel, dossierId, pieceId, page, paires, ratioDeclare, onEmprisesChange]);
 
-  // ① COMPLÉMENT — VALIDER l'emprise du bâtiment sélectionné. MÊME validation que la capsule du cartouche (route caracteristiques,
-  //   action valider_emprise → validerEmpriseBatiment + auto-finalisation gated par le mode) → SOURCE UNIQUE, jamais un 2e critère.
+  // ① COMPLÉMENT — VALIDER l'emprise sélectionnée. C'est le SEUL geste de validation d'emprise (la capsule du cartouche n'est plus qu'un
+  //   ACCÈS vers ici, BAT) : route caracteristiques, action valider_emprise → validerEmprise PAR SON ID + auto-finalisation gated par le mode.
   //   Après succès : recharge LOCALE (la chaîne avance à « Modifier ») + onEmprisesChange (② la capsule passe au vert sans rechargement).
   // VAL-1 — VALIDER une emprise PAR SON ID (indépendamment des autres). Recharge la ligne + remonte au parent (liste Rattachement + auto-finalisation
   //   éventuelle). Plus AUCUNE dévalidation eager : « Modifier l'emprise » est retiré. La dévalidation se fait PAR CHANGEMENT DE GÉOMÉTRIE

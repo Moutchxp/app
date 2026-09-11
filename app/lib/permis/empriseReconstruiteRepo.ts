@@ -456,32 +456,9 @@ export async function lireAltitudeValideeParCorps(dossierId: number): Promise<Re
 }
 
 export type ResultatValidationEmprise = { ok: true } | { ok: false; motif: string; migrationAbsente?: boolean };
-const MOTIF_MIGRATION_206 = 'validation par bâtiment indisponible : mise à jour de la base requise (migration 206)';
 
-/**
- * VALIDE l'emprise d'UN bâtiment — DÉCISION HUMAINE, calque de validerSommetCorps (altitude). Pointe `emprise_validee_id` sur
- * l'emprise COURANTE (la plus récente) du bâtiment → une emprise retracée/retouchée après coup ne restera pas validée. Refus clair si
- * aucune emprise à valider. RÉSILIENT : colonnes absentes (42703, migration 206 non appliquée) → refus explicite, jamais un crash.
- */
-export async function validerEmpriseBatiment(corpsId: number, majPar: string): Promise<ResultatValidationEmprise> {
-  try {
-    const res = await query(
-      `UPDATE permis_corps_batiment
-          SET emprise_validee_id = (SELECT id FROM permis_emprise_reconstruite WHERE corps_id = $1 ORDER BY id DESC LIMIT 1),
-              emprise_validee_le = now(), emprise_validee_par = $2, maj_le = now(), maj_par = $2
-        WHERE id = $1 AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite WHERE corps_id = $1)`, [corpsId, majPar]);
-    if ((res.rowCount ?? 0) === 0) return { ok: false, motif: 'aucune emprise enregistrée à valider pour ce bâtiment — tracez d’abord l’emprise' };
-    return { ok: true };
-  } catch (e) { if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_MIGRATION_206, migrationAbsente: true }; throw e; }
-}
-
-/** RETIRE la validation d'un bâtiment (réversible, comme le retour arrière de l'altitude). RÉSILIENT (colonnes absentes → refus clair). */
-export async function devaliderEmpriseBatiment(corpsId: number, majPar: string): Promise<ResultatValidationEmprise> {
-  try {
-    await query(`UPDATE permis_corps_batiment SET emprise_validee_id = NULL, emprise_validee_le = NULL, emprise_validee_par = NULL, maj_le = now(), maj_par = $2 WHERE id = $1`, [corpsId, majPar]);
-    return { ok: true };
-  } catch (e) { if (estColonneAbsente(e)) return { ok: false, motif: MOTIF_MIGRATION_206, migrationAbsente: true }; throw e; }
-}
+// NOTE : la validation PAR CORPS (validerEmpriseBatiment / devaliderEmpriseBatiment, pointeur `emprise_validee_id`, migration 206) a été
+//   RETIRÉE — code mort. VAL-1 (ci-dessous) l'a remplacée par une validation PAR EMPRISE (permis_emprise_reconstruite.validee_le).
 
 // ── VAL-1 (migration 213) — VALIDATION PAR EMPRISE. La vérité passe sur permis_emprise_reconstruite.validee_le (le pointeur corps
 //    emprise_validee_id est conservé mais N'EST PLUS écrit ni lu). Chaque emprise se valide/dévalide indépendamment. ─────────────────────
