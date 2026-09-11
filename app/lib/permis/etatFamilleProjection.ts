@@ -83,6 +83,36 @@ export function etatMereCaracteristiques(porteuses: EtatTitreFamille[]): EtatTit
   return { texte: bloquantes.map((p) => p.texte).join(' · '), ton: 'rouge' };
 }
 
+/** BAT-2c — comptes de caractéristiques d'UN permis (source des états des sous-sections porteuses). Réutilisé côté serveur (payload) et client. */
+export interface ComptesCaracteristiquesPermis { dossierId: number; nbCartes: number; nbSansAltitude: number; nbBatimentsValide: number | null }
+
+/**
+ * BAT-2c — état AGRÉGÉ d'UN permis = sa « mère » (cohérence des cartes + altitudes), depuis ses comptes bruts. MÊME agrégat que la ligne
+ * mère de Projection (etatMereCaracteristiques sur les deux porteuses) → une seule vérité. Rend l'état porté par la ligne « Permis {numDau} »
+ * d'un encart multi-permis, et alimente l'agrégat de la famille.
+ */
+export function etatCaracteristiquesPermis(c: ComptesCaracteristiquesPermis): EtatTitreFamille {
+  return etatMereCaracteristiques([etatCoherenceBatimentsTitre(c.nbCartes, c.nbBatimentsValide), etatAltitudesTitre(c.nbCartes, c.nbSansAltitude)]);
+}
+
+/**
+ * BAT-2c — état porté par le LIBELLÉ DE FAMILLE « Caractéristiques du permis » de l'encart d'une demande (Réponses / Suivi), pour savoir
+ * s'il faut ouvrir SANS déplier la famille. Une demande peut couvrir PLUSIEURS permis (`dossiersEncart`) → on agrège :
+ *   · 0 permis → `null` (pas de suffixe ; l'appelant garde le libellé nu — défensif, la famille est de toute façon masquée si vide) ;
+ *   · 1 permis → SON état brut (« complète » / « altitude manquante (1/1) »… ), le détail utile directement ;
+ *   · N permis → décompte : VERT « N permis complets » si tous verts, sinon ROUGE « X/N permis à compléter » (X = permis qui bloquent).
+ * Le DÉTAIL par permis (lequel, pourquoi) reste porté par chaque ligne « Permis {numDau} » (etatCaracteristiquesPermis). SOURCE UNIQUE.
+ */
+export function etatFamilleCaracteristiquesDemande(comptes: ComptesCaracteristiquesPermis[]): EtatTitreFamille | null {
+  if (comptes.length === 0) return null;
+  const etats = comptes.map(etatCaracteristiquesPermis);
+  if (etats.length === 1) return etats[0];
+  const bloquants = etats.filter((e) => e.ton !== 'vert').length;
+  return bloquants === 0
+    ? { texte: `${etats.length} permis complets`, ton: 'vert' }
+    : { texte: `${bloquants}/${etats.length} permis à compléter`, ton: 'rouge' };
+}
+
 /**
  * PL-ÉTAT — « Planche cadastrale (parcelles) » : dire SANS déplier où en est la sélection de parcelles ET signaler tout écart avec les
  * parcelles DÉCLARÉES au permis. PUR (dérivé des états déjà connus, jamais recalculé). Règles (décision Arno) :

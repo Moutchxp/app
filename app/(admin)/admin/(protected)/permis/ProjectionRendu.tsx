@@ -32,8 +32,10 @@ export interface LigneProjectionAffichee {
  * BAT-2b — créneau `aide` OPTIONNEL (ReactNode, stylé par l'appelant) inséré ENTRE le titre et l'état : sert à CONSERVER un suffixe d'aide
  *   existant (ex. « — un par immeuble, mesurés sur les plans » de la section 4) tout en AJOUTANT l'état après lui. Absent → rendu strictement
  *   inchangé (les appelants sans `aide` — mère, Bâtiments, Planche — ne bougent pas).
+ * BAT-2c — `base` accepte un ReactNode (pas seulement une chaîne) : permet un titre stylé (ex. « Permis {numDau} » en chasse fixe) porteur de
+ *   son état. Élargissement SÛR : une chaîne reste un ReactNode valide, les appelants existants ne changent pas.
  */
-export function TitreFamilleEtat({ base, etat, aide }: { base: string; etat: EtatTitreFamille; aide?: ReactNode }) {
+export function TitreFamilleEtat({ base, etat, aide }: { base: ReactNode; etat: EtatTitreFamille; aide?: ReactNode }) {
   const style: CSSProperties = etat.ton === 'rouge' ? { color: 'var(--color-svv-red)', fontWeight: 700 }
     : etat.ton === 'vert' ? { color: 'var(--color-svv-green-ink)', fontWeight: 700 }
     : { color: 'var(--color-svv-muted)', fontWeight: 400 };

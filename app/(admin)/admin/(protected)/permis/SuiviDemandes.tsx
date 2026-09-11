@@ -15,6 +15,8 @@ import { libelleSuspension, dateButoirPartiel, libelleDelaiProlonge } from '../.
 import { RefMairieCellule } from './RefMairieCellule';
 // UNIF-1 — encart de familles (socle UNIF-0) + les 4 blocs PER-PERMIS réutilisés depuis « Analyse » (chargés paresseusement au dépliage).
 import { EncartFamilles, SousSectionsPermis } from './EncartFamilles';
+import { TitreFamilleEtat } from './ProjectionRendu'; // BAT-2c — état sur le libellé de famille « Caractéristiques du permis »
+import { etatFamilleCaracteristiquesDemande, etatCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection'; // BAT-2c — agrégat demande + état par permis (fonctions pures, source unique)
 import { BlocRepliable } from './BlocRepliable'; // LOT 46 — deux groupes repliables « En cours » (1re réponse / à relancer)
 import { PastilleActions } from './PastilleActions'; // LOT 46 — pastille à gauche du titre de famille « Complétude »
 import { BlocFilEchanges } from './BlocFilEchanges'; // LOT-4 — même fil d'échanges mail qu'en Analyse/Archives
@@ -921,10 +923,15 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                       )}
                     </div>
                   ) },
-                { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: richDetail.caracteristiquesNonVide,
+                { cle: 'caracteristiques',
+                  // BAT-2c — le LIBELLÉ DE FAMILLE porte l'état AGRÉGÉ des permis de la demande (coup d'œil sans déplier) ; nu si indisponible.
+                  titre: (() => { const e = etatFamilleCaracteristiquesDemande(richDetail.caracteristiquesParDossier); return e ? <TitreFamilleEtat base={LIBELLE_FAMILLE.caracteristiques} etat={e} /> : LIBELLE_FAMILLE.caracteristiques; })(),
+                  nonVide: richDetail.caracteristiquesNonVide,
                   // LOT 56-B — clé versionnée : après « Lancer le diagnostic complet des documents » (bloc Complétude ci-dessus), les caractéristiques extraites sont fraîches → remontage.
-                  /* BAT-2b — état des sous-sections (cohérence cartes + altitudes) sur leurs titres (aide section 4 conservée). */
-                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={`carac-enc-${id}-${vApresAnalyse}-${vValeurLue}-${vEmprise}`} avecEtatFamilles dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+                  /* BAT-2b — état des sous-sections sur leurs titres (aide section 4 conservée). BAT-2c — état par « Permis {numDau} » (multi-permis). */
+                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart}
+                    etatParDossier={(id) => { const c = richDetail.caracteristiquesParDossier.find((x) => x.dossierId === id); return c ? etatCaracteristiquesPermis(c) : null; }}
+                    rendre={(id) => <CaracteristiquesBloc key={`carac-enc-${id}-${vApresAnalyse}-${vValeurLue}-${vEmprise}`} avecEtatFamilles dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
                 { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: richDetail.batimentsNonVide,
                   // LOT 90 — avecLiseuse={false} : la famille « Pièces du permis » ci-dessous porte DÉJÀ la liseuse standalone → pas de doublon à 0 bâtiment.
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} avecLiseuse={false} onEmprisesChange={() => setVEmprise((v) => v + 1)} />} /> },

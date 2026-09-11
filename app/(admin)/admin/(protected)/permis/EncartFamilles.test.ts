@@ -73,4 +73,23 @@ describe('UNIF-1 — SousSectionsPermis : 1 permis direct, N permis en sous-plis
     expect(h).not.toContain('RENDU_101');
     expect(h).not.toContain('RENDU_102');
   });
+
+  it('BAT-2c — etatParDossier : chaque ligne « Permis {numDau} » porte l’état de CE permis (null → titre nu, aucun état inventé)', () => {
+    const etatParDossier = (id: number) =>
+      id === 100 ? ({ texte: 'altitude manquante (1/1)', ton: 'rouge' as const })
+        : id === 101 ? ({ texte: 'complète', ton: 'vert' as const })
+        : null; // 102 : pas d'état connu → ligne nue
+    const h = renderToStaticMarkup(createElement(SousSectionsPermis, { dossiers: dossiers(3), rendre: rendreMarque, etatParDossier }));
+    expect(h).toContain('PC100'); expect(h).toContain('altitude manquante (1/1)'); // 100 → rouge nommé
+    expect(h).toContain('PC101'); expect(h).toContain('complète');                  // 101 → vert
+    expect(h).toContain('var(--color-svv-red)'); expect(h).toContain('var(--color-svv-green-ink)'); // couleurs EXISTANTES en appui
+    expect(h).not.toContain('complète — '); // 102 sans état : aucun suffixe « — » supplémentaire fabriqué
+  });
+
+  it('BAT-2c — 1 permis + etatParDossier : contenu DIRECT (l’état vit sur le libellé de famille, pas de ligne « Permis {numDau} »)', () => {
+    const h = renderToStaticMarkup(createElement(SousSectionsPermis, { dossiers: dossiers(1), rendre: rendreMarque, etatParDossier: () => ({ texte: 'complète', ton: 'vert' as const }) }));
+    expect(h).toContain('RENDU_100'); // contenu direct
+    expect(h).not.toContain('PC100');  // aucune ligne de sous-pli
+    expect(h).not.toContain('complète'); // aucun état de ligne (il est porté par le libellé de famille, hors de ce composant)
+  });
 });

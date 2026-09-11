@@ -354,3 +354,34 @@ export async function ecrireDestinations(dossierId: number, valeurs: string[] | 
     [dossierId, v, v === null ? null : mode, majPar]);
   return { ecrit: true, ignore: false };
 }
+
+/**
+ * BAT-2c — COMPTES de caractéristiques PAR DOSSIER (batché) pour l'agrégat d'état de la famille « Caractéristiques du permis » de l'encart
+ * (Réponses / Suivi). Par dossier : nb de cartes (permis_corps_batiment), nb sans altitude de sommet (altitude_sommet_ngf NULL), nombre
+ * VALIDÉ (BAT-1, permis_caracteristique.nb_batiments_valide ; null si 218 absente → RÉSILIENT, lu à part). LECTURE SEULE. Un dossier sans
+ * corps → nbCartes 0. L'appelant calcule l'état via les fonctions PURES (etatCaracteristiquesPermis) — aucune logique d'état ici (source unique).
+ */
+export async function lireCaracteristiquesComptesParDossier(
+  dossierIds: readonly number[],
+): Promise<Map<number, { nbCartes: number; nbSansAltitude: number; nbBatimentsValide: number | null }>> {
+  const m = new Map<number, { nbCartes: number; nbSansAltitude: number; nbBatimentsValide: number | null }>();
+  if (dossierIds.length === 0) return m;
+  try {
+    const { rows } = await query<{ dossier_id: number | string; nb_cartes: number | string; nb_sans_alt: number | string }>(
+      `SELECT dossier_id, count(*)::int AS nb_cartes,
+              count(*) FILTER (WHERE altitude_sommet_ngf IS NULL)::int AS nb_sans_alt
+         FROM permis_corps_batiment WHERE dossier_id = ANY($1::int[]) GROUP BY dossier_id`, [dossierIds]);
+    for (const r of rows) m.set(Number(r.dossier_id), { nbCartes: Number(r.nb_cartes), nbSansAltitude: Number(r.nb_sans_alt), nbBatimentsValide: null });
+  } catch { return m; } // lecture des corps indisponible → map vide (défensif)
+  // nb_batiments_valide SÉPARÉ + RÉSILIENT (218) : ne jamais faire échouer les comptes de corps si la colonne manque.
+  try {
+    const { rows } = await query<{ dossier_id: number | string; n: number | null }>(
+      `SELECT dossier_id, nb_batiments_valide AS n FROM permis_caracteristique WHERE dossier_id = ANY($1::int[])`, [dossierIds]);
+    for (const r of rows) {
+      const e = m.get(Number(r.dossier_id)) ?? { nbCartes: 0, nbSansAltitude: 0, nbBatimentsValide: null };
+      e.nbBatimentsValide = r.n === null ? null : Number(r.n);
+      m.set(Number(r.dossier_id), e);
+    }
+  } catch { /* 218 absente → nbBatimentsValide reste null (porteur neutre) */ }
+  return m;
+}

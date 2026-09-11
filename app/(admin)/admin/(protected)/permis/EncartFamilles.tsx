@@ -3,6 +3,8 @@
 import { type ReactNode } from 'react';
 import { BlocRepliable } from './BlocRepliable';
 import { familleAffichee, ORDRE_FAMILLES, type FamilleEncart, type OngletEncart } from '../../../../lib/permis/encartFamilles';
+import { TitreFamilleEtat } from './ProjectionRendu'; // BAT-2c — état porté par la ligne « Permis {numDau} » (réutilisé tel quel, base ReactNode)
+import type { EtatTitreFamille } from '../../../../lib/permis/etatFamilleProjection'; // BAT-2c — type d'état (source unique)
 
 /**
  * UNIF-0 — ENCART de familles du détail d'un permis, RÉUTILISABLE par « En cours », « Réponses » et « Archives ». Applique la
@@ -29,19 +31,27 @@ export interface FamilleRendu {
  * la famille ne déclenche AUCUN appel lourd, chaque permis charge le sien à son ouverture. Pour 1 seul permis : pas de pli superflu,
  * on rend directement son contenu (une seule requête). PUR (aucune I/O).
  */
-export function SousSectionsPermis({ dossiers, rendre }: {
+export function SousSectionsPermis({ dossiers, rendre, etatParDossier }: {
   dossiers: readonly { dossierId: number; numDau: string }[];
   rendre: (dossierId: number) => ReactNode;
+  // BAT-2c — état OPTIONNEL porté par la ligne « Permis {numDau} » (multi-permis) : savoir QUEL permis bloque sans le déplier. Seule la
+  //   famille « Caractéristiques du permis » le passe ; les autres familles (Complétude, Bâtiments, Pièces) ne le passent pas → titres nus,
+  //   inchangés. Pour UN seul permis, aucune ligne « Permis {numDau} » n'est rendue (contenu direct) → l'état vit sur le libellé de famille.
+  etatParDossier?: (dossierId: number) => EtatTitreFamille | null;
 }) {
   if (dossiers.length === 0) return null;
   if (dossiers.length === 1) return rendre(dossiers[0].dossierId); // 1 permis → contenu direct, aucun pli inutile
   return (
     <div className="flex flex-col gap-2">
-      {dossiers.map((d) => (
-        <BlocRepliable key={d.dossierId} titre={<span style={{ fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12 }}>Permis {d.numDau}</span>}>
-          {() => rendre(d.dossierId)}
-        </BlocRepliable>
-      ))}
+      {dossiers.map((d) => {
+        const mono = <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', fontSize: 12 }}>Permis {d.numDau}</span>;
+        const etat = etatParDossier?.(d.dossierId) ?? null;
+        return (
+          <BlocRepliable key={d.dossierId} titre={etat ? <TitreFamilleEtat base={mono} etat={etat} /> : mono}>
+            {() => rendre(d.dossierId)}
+          </BlocRepliable>
+        );
+      })}
     </div>
   );
 }

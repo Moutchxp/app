@@ -20,6 +20,8 @@ import { MOTIF_RELANCE_REPONSE_PREFIXE } from './relanceReponsePartielleAuto'; /
 import { MARQUEUR_FICHE_SYNTHESE } from '../permis/gedConstantes'; // LOT 47 : la fiche de synthèse générée n'est PAS une pièce reçue → exclue du signal « nouvelles pièces »
 import type { ReglagesCascadePartielle } from './cascadePartielle'; // LOT 18 : réglages de projection du parcours partiel (config, jamais en dur)
 import { manquantesParDossier } from '../permis/completudeRepo'; // LOT 13-A : compteur de familles manquantes par dossier (titre de famille)
+import { lireCaracteristiquesComptesParDossier } from '../permis/caracteristiquesRepo'; // BAT-2c : comptes (cartes / sans-altitude / nb validé) par dossier → agrégat d'état de la famille « Caractéristiques du permis »
+import type { ComptesCaracteristiquesPermis } from '../permis/etatFamilleProjection'; // BAT-2c : type des comptes par permis (état calculé côté client via les fonctions pures)
 import { ordonnerHistoriqueEnvois, type EnvoiBrut, type EnvoiHistorique } from './historiqueEnvois'; // LOT 13-B : historique de nos envois (initiale + relances)
 
 /** Réglages de relève/échéance en vigueur (lecture seule ; édités dans l'onglet Réglages). */
@@ -258,6 +260,7 @@ export interface DemandeSuivi {
   nbEchanges: number;               // LOT 17-C : NOMBRE d'échanges du fil (même périmètre que BlocFilEchanges) → mention du titre « Historique des échanges » ; 0 = pas de mention
   dernierEchangeLe: string | null;  // LOT 17-C : date ISO (UTC) du DERNIER échange → « dernier le JJ/MM/AAAA à HHhMM » (format frise) ; null si aucun
   caracteristiquesNonVide: boolean; // ≥ 1 dossier d'encart a une caractéristique saisie/extraite OU un corps de bâtiment
+  caracteristiquesParDossier: ComptesCaracteristiquesPermis[]; // BAT-2c : comptes par dossier d'encart (cartes / sans-altitude / nb validé) → l'écran calcule l'état AGRÉGÉ du libellé de famille + l'état par « Permis {numDau} » (fonctions pures, source unique). Portée = MÊMES dossiers que dossiersEncart.
   batimentsNonVide: boolean;        // ≥ 1 dossier d'encart a un corps de bâtiment déclaré (le tracé/emprise ~9 s reste chargé au dépliage)
   piecesNonVide: boolean;           // ≥ 1 dossier d'encart a une pièce en GED (dossier_document)
 }
@@ -819,6 +822,10 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     encartDossiersParDemande.set(r.id, [...dus, ...part]);
   }
   const manquantesParDoss = await manquantesParDossier([...new Set([...encartDossiersParDemande.values()].flat())]);
+  // BAT-2c — COMPTES de caractéristiques par dossier d'encart (batché, résilient), MÊME portée que `completudeManquantes` (dûs + partiels
+  //   actifs). Sert à l'agrégat d'état du libellé de famille « Caractéristiques du permis » + à l'état de chaque ligne « Permis {numDau} ».
+  //   L'ÉTAT est calculé à l'écran (fonctions pures) ; ici on ne transporte que les comptes bruts.
+  const caracComptesParDoss = await lireCaracteristiquesComptesParDossier([...new Set([...encartDossiersParDemande.values()].flat())]);
 
   // LOT 13-B — HISTORIQUE de NOS envois par demande (demande initiale + relances). DEUX sources FUSIONNÉES (piège du LOT 8) :
   //   (1) `demande_acheminement` (statut='envoye') : relance_id NULL = ENVOI INITIAL, NOT NULL = relance ORDINAIRE (grade = variante) ;
@@ -980,6 +987,11 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
     nbEchanges: echangesParId.get(r.id)?.n ?? 0, // LOT 17-C
     dernierEchangeLe: echangesParId.get(r.id)?.dernierLe ?? null, // LOT 17-C
     caracteristiquesNonVide: caracteristiquesSet.has(r.id),
+    // BAT-2c — comptes par dossier d'encart (MÊME ensemble que dossiersEncart : dûs + partiels-actifs), défaut 0/0/null si aucune donnée.
+    caracteristiquesParDossier: (encartDossiersParDemande.get(r.id) ?? []).map((id) => {
+      const c = caracComptesParDoss.get(id);
+      return { dossierId: id, nbCartes: c?.nbCartes ?? 0, nbSansAltitude: c?.nbSansAltitude ?? 0, nbBatimentsValide: c?.nbBatimentsValide ?? null };
+    }),
     batimentsNonVide: batimentsSet.has(r.id),
     piecesNonVide: piecesSet.has(r.id), // UNIF-1 : ≥ 1 dossier dû a une pièce en GED
   }));

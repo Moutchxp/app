@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { etatProjectionTitre, etatProjectionTitreDepuisComptes, etatAltitudesTitre, etatCoherenceBatimentsTitre, etatMereCaracteristiques, etatPlancheTitre } from './etatFamilleProjection';
+import { etatProjectionTitre, etatProjectionTitreDepuisComptes, etatAltitudesTitre, etatCoherenceBatimentsTitre, etatMereCaracteristiques, etatCaracteristiquesPermis, etatFamilleCaracteristiquesDemande, etatPlancheTitre } from './etatFamilleProjection';
 import { clotureVisible } from '../../(admin)/admin/(protected)/permis/CaracteristiquesRendu'; // SOURCE UNIQUE de la visibilité du bloc de sortie (pure)
 
 /**
@@ -120,6 +120,33 @@ describe('BAT-2 — etatMereCaracteristiques (agrégat des porteuses, 2 états)'
     // Les non-bloquantes (compte rendu Cerfa, permis déclaré) ne sont pas des entrées. Deux porteuses vertes ⇒ verte, quel que soit l’état
     //   d’une éventuelle section informative (qui n’est simplement pas fournie ici).
     expect(etatMereCaracteristiques([vert, { texte: 'altitudes renseignées (2 bâtiments)', ton: 'vert' }]).ton).toBe('vert');
+  });
+});
+
+describe('BAT-2c — état d’un permis + agrégat de la famille sur une demande (multi-permis)', () => {
+  const c = (dossierId: number, nbCartes: number, nbSansAltitude: number, nbBatimentsValide: number | null) => ({ dossierId, nbCartes, nbSansAltitude, nbBatimentsValide });
+
+  it('etatCaracteristiquesPermis = mère du permis (cohérence des cartes + altitudes)', () => {
+    expect(etatCaracteristiquesPermis(c(1, 2, 0, 2))).toEqual({ texte: 'complète', ton: 'vert' });
+    expect(etatCaracteristiquesPermis(c(1, 2, 1, 2))).toEqual({ texte: 'altitude manquante (1/2)', ton: 'rouge' });
+    expect(etatCaracteristiquesPermis(c(1, 2, 0, 3))).toEqual({ texte: '2 cartes pour 3 bâtiments validés', ton: 'rouge' });
+    expect(etatCaracteristiquesPermis(c(1, 1, 0, null))).toEqual({ texte: 'nombre de bâtiments non validé', ton: 'rouge' }); // porteur neutre → mère rouge
+    expect(etatCaracteristiquesPermis(c(1, 0, 0, null))).toEqual({ texte: 'nombre de bâtiments non validé · aucune carte de bâtiment', ton: 'rouge' }); // deux porteuses bloquent → nommées
+  });
+
+  it('demande 0 permis → null (l’appelant garde le libellé nu)', () => {
+    expect(etatFamilleCaracteristiquesDemande([])).toBeNull();
+  });
+
+  it('demande 1 permis → état BRUT de ce permis (pas de décompte)', () => {
+    expect(etatFamilleCaracteristiquesDemande([c(1, 2, 0, 2)])).toEqual({ texte: 'complète', ton: 'vert' });
+    expect(etatFamilleCaracteristiquesDemande([c(1, 2, 1, 2)])).toEqual({ texte: 'altitude manquante (1/2)', ton: 'rouge' });
+  });
+
+  it('demande N permis : tous verts → VERT « N permis complets » ; sinon ROUGE « X/N permis à compléter » (X = bloquants)', () => {
+    expect(etatFamilleCaracteristiquesDemande([c(1, 1, 0, 1), c(2, 2, 0, 2)])).toEqual({ texte: '2 permis complets', ton: 'vert' });
+    expect(etatFamilleCaracteristiquesDemande([c(1, 1, 1, 1), c(2, 2, 0, 2)])).toEqual({ texte: '1/2 permis à compléter', ton: 'rouge' });
+    expect(etatFamilleCaracteristiquesDemande([c(1, 1, 1, 1), c(2, 0, 0, null), c(3, 3, 0, 3)])).toEqual({ texte: '2/3 permis à compléter', ton: 'rouge' });
   });
 });
 

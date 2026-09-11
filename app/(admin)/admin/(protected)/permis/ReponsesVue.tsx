@@ -13,6 +13,8 @@ import {
 import { MessageRetour, MentionMasquage } from './DemandesRendu';
 // UNIF-2 — même encart de familles qu'« En cours » (socle UNIF-0/1) + les 4 blocs PER-PERMIS d'« Analyse » (chargés au dépliage).
 import { EncartFamilles, SousSectionsPermis } from './EncartFamilles';
+import { TitreFamilleEtat } from './ProjectionRendu'; // BAT-2c — état sur le libellé de famille « Caractéristiques du permis »
+import { etatFamilleCaracteristiquesDemande, etatCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection'; // BAT-2c — agrégat demande + état par permis (fonctions pures, source unique)
 import { BlocFilEchanges } from './BlocFilEchanges'; // LOT-4 — même fil d'échanges mail qu'en Analyse/Archives
 import { SousBlocRepliable } from './SousBlocRepliable'; // LOT-5 — repli léger (1 clic) du sous-bloc artefacts, sans BlocRepliable imbriqué
 import { LIBELLE_FAMILLE } from '../../../../lib/permis/encartFamilles';
@@ -348,9 +350,14 @@ export function ReponsesVue({ onRecompter }: { onRecompter?: () => void }) {
                               // UNIF-2 — familles PER-PERMIS (si non vides), sous-sections par permis, contenu chargé AU DÉPLIAGE (paresse).
                               { cle: 'completude', titre: LIBELLE_FAMILLE.completude, nonVide: d.completudeNonVide,
                                 contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} sansPli />} /> },
-                              { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: d.caracteristiquesNonVide,
-                                /* BAT-2b — état des sous-sections (cohérence cartes + altitudes) sur leurs titres (aide section 4 conservée). */
-                                contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={id} avecEtatFamilles dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+                              { cle: 'caracteristiques',
+                                // BAT-2c — le LIBELLÉ DE FAMILLE porte l'état AGRÉGÉ des permis de la demande (coup d'œil sans déplier) ; nu si indisponible.
+                                titre: (() => { const e = etatFamilleCaracteristiquesDemande(d.caracteristiquesParDossier); return e ? <TitreFamilleEtat base={LIBELLE_FAMILLE.caracteristiques} etat={e} /> : LIBELLE_FAMILLE.caracteristiques; })(),
+                                nonVide: d.caracteristiquesNonVide,
+                                /* BAT-2b — état des sous-sections (cohérence cartes + altitudes) sur leurs titres (aide section 4 conservée). BAT-2c — état par « Permis {numDau} » (multi-permis). */
+                                contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart}
+                                  etatParDossier={(id) => { const c = d.caracteristiquesParDossier.find((x) => x.dossierId === id); return c ? etatCaracteristiquesPermis(c) : null; }}
+                                  rendre={(id) => <CaracteristiquesBloc key={id} avecEtatFamilles dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
                               { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: d.batimentsNonVide,
                                 contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} />} /> },
                               { cle: 'pieces', titre: LIBELLE_FAMILLE.pieces, nonVide: d.piecesNonVide,
