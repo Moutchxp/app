@@ -181,4 +181,10 @@ describe('BlocTraceEmprise — câblage rangée + bascule de mode (garde source)
     expect(iSchema).toBeGreaterThan(-1);
     expect(iSchema).toBeLessThan(SRC.lastIndexOf('{bandeauSel}')); // le dernier {bandeauSel} = celui du plein écran, désormais SOUS le schéma
   });
+  it('(défaut A) SOURCE UNIQUE : selIdCourant = empriseSelectionnee(...) alimente le cerclé (selectionId) ET le surlignage du schéma (empriseSelectionneeId)', () => {
+    expect(SRC).toContain('const selIdCourant = empriseSelectionnee(ajustement, retouche)'); // une seule décision
+    expect(SRC).toContain('selectionId={selIdCourant}');           // cartouche cerclé
+    // le MÊME id est passé aux DEUX schémas (vue normale/XL + plein écran) pour le surlignage → cerclé, surlignage et tiges ne divergent pas
+    expect((SRC.match(/empriseSelectionneeId=\{selIdCourant\}/g) ?? []).length).toBe(2);
+  });
 });

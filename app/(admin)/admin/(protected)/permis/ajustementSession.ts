@@ -71,3 +71,19 @@ export function basculeRefusee(
   if (courant.id === cible.id && courant.mode === cible.mode) return false;    // déjà cet état (emprise + mode) → pas un changement
   return dirty;                                                                // vrai changement + travail non enregistré → refusé (confirmer)
 }
+
+/**
+ * BAT (défaut A) — SOURCE UNIQUE de l'emprise SÉLECTIONNÉE (celle sur laquelle on travaille), quel que soit le mode. C'est le SEUL endroit
+ * qui décide « quelle emprise est visée ». TOUT en dérive — le cartouche cerclé, le nom de la barre, le SURLIGNAGE du polygone dans le schéma
+ * ET la CIBLE des gestes (l'ajustement s'arme sur cet id) — donc ces cinq indicateurs ne peuvent PAS désigner des polygones différents.
+ *  · ajustement d'UNE emprise → son id ; · geste d'ENSEMBLE (bloc, id null) → null (aucune emprise unique) ; · retouche → l'emprise retouchée ;
+ *  · rien en cours → null. PUR.
+ */
+export function empriseSelectionnee(
+  ajustement: { bloc: boolean; id: number | null } | null,
+  retouche: { id: number } | null,
+): number | null {
+  if (ajustement && !ajustement.bloc) return ajustement.id;
+  if (retouche) return retouche.id;
+  return null;
+}

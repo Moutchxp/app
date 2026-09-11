@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deltaEgal, estAjustementModifie, sessionModifiee, basculeRefusee, type DeltaComparable } from './ajustementSession';
+import { deltaEgal, estAjustementModifie, sessionModifiee, basculeRefusee, empriseSelectionnee, type DeltaComparable } from './ajustementSession';
 
 const D = (o: Partial<DeltaComparable> = {}): DeltaComparable => ({ tx: 0, ty: 0, rotDeg: 0, echelle: 1, ...o });
 
@@ -84,5 +84,26 @@ describe('basculeRefusee — changer de polygone ET/OU de mode est-il refusé (�
   });
   it('changement de MODE (même emprise), session intouchée → non refusé (bascule directe)', () => {
     expect(basculeRefusee({ id: 1, mode: 'ajuster' }, { id: 1, mode: 'retoucher' }, false)).toBe(false);
+  });
+});
+
+describe('empriseSelectionnee (défaut A) — SOURCE UNIQUE : cerclé, nom, surlignage, tiges et cible dérivent tous de cet id', () => {
+  it('rien en cours → null', () => {
+    expect(empriseSelectionnee(null, null)).toBeNull();
+  });
+  it('ajustement d’UNE emprise → son id (le polygone visé)', () => {
+    expect(empriseSelectionnee({ bloc: false, id: 17 }, null)).toBe(17);
+  });
+  it('SÉLECTIONNER LA SECONDE (id 17) → la cible est bien 17, jamais une autre (16/18)', () => {
+    // Dossier réel 11430 (corps 3, emprises 16/17/18) : sélectionner « bâtiment en projet (2) » = id 17 → l'id visé est 17, pas 16 ni 18.
+    expect(empriseSelectionnee({ bloc: false, id: 17 }, null)).toBe(17);
+    expect(empriseSelectionnee({ bloc: false, id: 16 }, null)).toBe(16);
+    expect(empriseSelectionnee({ bloc: false, id: 18 }, null)).toBe(18);
+  });
+  it('retouche → l’emprise retouchée (le mode ne change pas la cible)', () => {
+    expect(empriseSelectionnee(null, { id: 42 })).toBe(42);
+  });
+  it('geste d’ENSEMBLE (bloc) → null (aucune emprise unique sélectionnée)', () => {
+    expect(empriseSelectionnee({ bloc: true, id: null }, null)).toBeNull();
   });
 });

@@ -1464,6 +1464,24 @@ describe('PROJ-3s — retouche : liste (retoucher / multi-parties) + poignées s
     expect(html).toContain('data-bord="0"');                                  // point milieu de bord (insertion)
     expect(html).toContain('data-selectionne="true"');                        // sommet 1 sélectionné
   });
+  it('SchemaParcelleTrace (défaut A) : SEULE l’emprise sélectionnée est SURLIGNÉE (data-selectionnee) ; changer la sélection déplace le surlignage sur l’AUTRE', () => {
+    const boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 40, minY: 0, maxY: 40 } };
+    const parcelle = [[{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 0, y: 40 }]]; // parcelle non vide → schéma dessiné
+    const A = [{ x: 2, y: 2 }, { x: 12, y: 2 }, { x: 12, y: 12 }, { x: 2, y: 12 }];       // emprise 16 (bas)
+    const B = [{ x: 22, y: 25 }, { x: 32, y: 25 }, { x: 32, y: 35 }, { x: 22, y: 35 }];   // emprise 17 (haut), distincte
+    const emprises = [emprise({ id: 16, anneau: A, anneaux: [A] }), emprise({ id: 17, anneau: B, anneaux: [B] })];
+    // sélectionner la PREMIÈRE (16) → seule 16 surlignée
+    const h16 = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle, emprises, calageLambert: [], empriseSelectionneeId: 16 }));
+    expect(h16).toContain('data-selectionnee="16"');
+    expect(h16).not.toContain('data-selectionnee="17"');
+    // sélectionner la SECONDE (17) → le surlignage passe sur 17, plus sur 16 (le surlignage SUIT la sélection, comme les tiges)
+    const h17 = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle, emprises, calageLambert: [], empriseSelectionneeId: 17 }));
+    expect(h17).toContain('data-selectionnee="17"');
+    expect(h17).not.toContain('data-selectionnee="16"');
+    // aucune sélection → aucun surlignage
+    const h0 = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle, emprises, calageLambert: [] }));
+    expect(h0).not.toContain('data-selectionnee');
+  });
 });
 
 describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décision côte à côte', () => {

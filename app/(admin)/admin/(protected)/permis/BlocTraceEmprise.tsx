@@ -12,7 +12,7 @@ import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetConte
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
 import { resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) » si plusieurs emprises sur le corps)
 import { choisirEmpriseAcces } from '../../../../lib/permis/choixEmpriseAcces'; // BAT — accès depuis la capsule : quelle emprise pointer quand la carte en porte plusieurs (validée sinon la plus récente)
-import { estAjustementModifie, sessionModifiee, basculeRefusee, type ModeGeste } from './ajustementSession'; // BAT — (déf.1) purge session intouchée ; (déf.D&B) garde unique : « ce changement de polygone OU de mode est-il refusé → confirmation »
+import { estAjustementModifie, sessionModifiee, basculeRefusee, empriseSelectionnee, type ModeGeste } from './ajustementSession'; // BAT — (déf.1) purge ; (déf.D&B) garde unique ; (déf.A) SOURCE UNIQUE de l'emprise sélectionnée (cerclé + nom + surlignage + tiges + cible en dérivent)
 import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, CartouchesAjustables, BasculeMode, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
@@ -1022,7 +1022,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   n'est sélectionné (bloc / au repos). `demanderBascule` applique directement si rien n'est en jeu, sinon ARME la confirmation ancrée sur
   //   le cartouche cible ; `appliquerBascule` route vers le bon mode (retouche exclusive de l'ajustement, cf. demarrerRetouche/demarrerAjustement).
   const modeCourant: ModeGeste = retouche ? 'retoucher' : 'ajuster';
-  const selIdCourant = ajustement && !ajustement.bloc ? ajustement.id : (retouche?.id ?? null);
+  const selIdCourant = empriseSelectionnee(ajustement, retouche); // SOURCE UNIQUE (défaut A) : cartouche cerclé, nom, surlignage du schéma et cible des gestes en dérivent → jamais divergents
   const cibleParDefaut = selIdCourant ?? empriseDuBat[0]?.id ?? emprises[0]?.id ?? null;
   //   `appliquerBascule` route vers le bon mode. En RETOUCHE, on efface d'abord l'ajustement (exclusivité : seules les poignées de sommet
   //   s'affichent, jamais les tiges) ; `demarrerAjustement` efface déjà la retouche de son côté → chaque mode n'affiche que ses contrôles.
@@ -1686,7 +1686,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             {barreDroiteSchema}
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={ajustement ? [] : paires.map((p) => p.lambert)} residusCalage={residus.ecarts} indicePireCalage={residus.indexPlusFautif} statuts={statutParCleabs}
               onCliquer={ajustement ? undefined : (retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined))} retoucheAnneau={retouche?.anneau ?? null} retoucheEmpriseId={retouche?.id ?? null} afficherOrigineRetouche={origineRetoucheVisible} sommetSelectionne={sommetSel}
-              apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustement : undefined} />
+              empriseSelectionneeId={selIdCourant} apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustement : undefined} />
             {/* POSITION REMONTÉE — dès qu'une emprise en projet existe, le bloc emprise vient JUSTE SOUS le schéma, au-dessus de « Empreinte Parcelle(s) ». */}
             {aEmprises && blocEmprises}
             {/* Sous le schéma : bandeau de sélection (la rotation est désormais dans la barre droite, au-dessus du schéma). */}
@@ -1805,7 +1805,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               <div style={{ flex: '1 1 420px', minWidth: 0 }}>
                 <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} hauteurMax="82vh" calageLambert={[]} statuts={statutParCleabs}
                   onCliquer={retouche ? cliquerRetoucheGrand : undefined} retoucheAnneau={retouche?.anneau ?? null} retoucheEmpriseId={retouche?.id ?? null} afficherOrigineRetouche={origineRetoucheVisible} sommetSelectionne={sommetSel}
-                  apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustementGrand : undefined} />
+                  empriseSelectionneeId={selIdCourant} apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustementGrand : undefined} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 240 }}>
                 <OptionsVisibiliteSchema filtres={filtres} onFiltres={onFiltresUtilisateur} nbFutur={comptesVisibilite.futur} nbExistant={comptesVisibilite.existant} />
