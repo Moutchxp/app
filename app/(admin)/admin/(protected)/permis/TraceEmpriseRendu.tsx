@@ -1850,8 +1850,20 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           const tigeHalo = tige + Math.max(2, rB * 0.18); // liseré blanc SOUS la tige (dépasse de chaque côté) → visible sur polygone foncé
           const liserBulle = Math.max(2, rB * 0.16);      // liseré foncé du contour des bulles / du point central
           const rCentre = Math.max(3.5, rB * 0.28);
+          // BAT (défaut F) — l'emprise sélectionnée = seul indicateur (défaut A/point 3) : le CONTOUR doit être reconnaissable par-dessus TOUTES
+          //   les couleurs du schéma (rosé des emprises #a30402, bleu des voisins #2563eb, brun de l'étiquette, gris), pas seulement le fond
+          //   blanc. On RENFORCE le liseré (jamais l'aplat, qui se confondrait) par un DOUBLE trait, comme les tiges : halo BLANC continu SOUS
+          //   (sépare de n'importe quelle couleur), encre foncée AU-DESSUS (tireté = « forme active/déplaçable », distincte des contours pleins
+          //   statiques). Le sens reste AUSSI porté par le cartouche cerclé + le nom (la couleur ne porte jamais seule). Dérive de rB.
+          const contour = Math.max(2.8, rB * 0.24);       // liseré foncé du corps (plus épais que l'ancien 2,2)
+          const contourHalo = contour + Math.max(2.5, rB * 0.22); // halo BLANC sous le liseré → contraste garanti sur toute couleur
           return <g data-ajustement-apercu="true">
-          {apercuAjustement.anneaux.map((a, i) => a.length >= 3 && <path key={`aj${i}`} d={path(a)} fill="rgba(15,118,110,.18)" stroke={POIGNEE_ENCRE} strokeWidth={2.2} strokeDasharray="4 2" data-ajustement="corps" />)}
+          {apercuAjustement.anneaux.map((a, i) => a.length >= 3 && (
+            <g key={`aj${i}`} data-ajustement="corps">
+              <path d={path(a)} fill="none" stroke={POIGNEE_HALO} strokeWidth={contourHalo} strokeLinejoin="round" pointerEvents="none" />
+              <path d={path(a)} fill="rgba(15,118,110,.16)" stroke={POIGNEE_ENCRE} strokeWidth={contour} strokeDasharray="5 2.5" strokeLinejoin="round" />
+            </g>
+          ))}
           {poigneesBoite && (() => { const c = poigneesBoite.centre, r = poigneesBoite.rotation, e = poigneesBoite.echelle; return <> {/* défaut E — positions bornées/repliées, identiques au hit-test */}
             {/* Tiges : liseré BLANC dessous (plus large), trait FONCÉ dessus → lisibles sur blanc ET sur polygone foncé. */}
             <line x1={c.x} y1={c.y} x2={r.x} y2={r.y} stroke={POIGNEE_HALO} strokeWidth={tigeHalo} strokeLinecap="round" />
