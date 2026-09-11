@@ -193,4 +193,8 @@ describe('BlocTraceEmprise — câblage rangée + bascule de mode (garde source)
     expect(SRC).toContain('ancragePoignees(anneaux, d.rotDeg)'); // ancre = centroïde d’aire de la géométrie AFFICHÉE
     expect(SRC).not.toContain('d.centre.x + d.tx');              // l’ancienne ancre pivot+translation (divergente si delta rechargé/composé) est retirée
   });
+  it('(point 1) validationParCorps SOURCE UNIQUE : recomposée depuis emprises[].validee, plus lue du serveur', () => {
+    expect(SRC).toContain('validationParCorps = useMemo(() => validationParCorpsDepuisEmprises(emprises)'); // dérivée de la vérité par emprise
+    expect(SRC).not.toContain('setValidationParCorps');          // le signal serveur (OR legacy projection / pointeur 206) n’est plus consommé
+  });
 });
