@@ -810,12 +810,19 @@ export function ChampDestinationsEditeur({ possibles, valeurs, origine, erreur, 
   );
 }
 
-/** N7-E — repère d'un corps : libellé humain (pas d'origine). On affiche son MOTIF s'il est VIDE et journalisé (ex. « attribution indécidable »). */
+/**
+ * N7-E — repère d'un corps : libellé humain (pas d'origine), édité ici. On affiche son MOTIF s'il est VIDE et journalisé (ex. « attribution à
+ * un bâtiment indécidable »).
+ * ⚠️ AFFICHAGE (BAT — lot d'affichage) : le champ est LIBELLÉ « Carte de bâtiment » (mot d'INTERFACE), mais la DONNÉE éditée reste le
+ *   `repere` — ce que l'architecte inscrit sur ses plans (« Bat. A », « 2D1 ») : colonne `permis_corps_batiment.repere`, clés de journal et
+ *   code inchangés. Divergence label ↔ donnée VOULUE : « repère » désigne une donnée, pas un mot d'écran. Le placeholder « A1, 2D1… » et le
+ *   motif restent en l'état (ils décrivent la valeur attendue, cohérents sous le nouveau libellé).
+ */
 export function EditeurRepere({ valeur, journal, onValeur }: { valeur: string; journal?: JournalChamp; onValeur: (v: string) => void }) {
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0, flex: '1 1 160px' }}>
-      <span style={styleLabel}>Repère du bâtiment</span>
-      <input value={valeur} placeholder="A1, 2D1…" onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label="Repère du bâtiment" />
+      <span style={styleLabel}>Carte de bâtiment</span>
+      <input value={valeur} placeholder="A1, 2D1…" onChange={(e) => onValeur(e.target.value)} style={styleInput} aria-label="Carte de bâtiment" />
       {/* origine = null si vide → le motif s'affiche ; sinon 'saisie' → rien. */}
       <AnnotationsExtraction origine={valeur.trim() === '' ? null : 'saisie'} journal={journal} />
     </div>
