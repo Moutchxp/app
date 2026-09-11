@@ -1636,13 +1636,12 @@ export function couleurResidu(m: number): string {
   return m >= SEUIL_RESIDU_CALAGE_M ? 'var(--color-svv-red)' : m >= SEUIL_RESIDU_CALAGE_BON_M ? '#b45309' : '#15803d';
 }
 
-export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, residusCalage = [], indicePireCalage = -1, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, retoucheEmpriseId = null, afficherOrigineRetouche = true, sommetSelectionne = null, empriseSelectionneeId = null, apercuAjustement = null, onPointeurAjustement, statuts, etiquettes = [], voisinage = [] }: {
+export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, residusCalage = [], indicePireCalage = -1, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, retoucheEmpriseId = null, afficherOrigineRetouche = true, sommetSelectionne = null, apercuAjustement = null, onPointeurAjustement, statuts, etiquettes = [], voisinage = [] }: {
   boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[];
   residusCalage?: number[]; indicePireCalage?: number; // PROJ — écart PAR repère (m, aligné sur calageLambert) + indice du plus fautif ; affichés SEULEMENT à partir de 3 repères (sur 2, tout est 0 par construction).
   angle?: number; hauteurMax?: string; onCliquer?: (px: { x: number; y: number }) => void;
   retoucheAnneau?: PointLambert[] | null; sommetSelectionne?: number | null; // PROJ-3s — contour en RETOUCHE (poignées éditables) + sommet sélectionné
   retoucheEmpriseId?: number | null; // emprise en cours de retouche : son ORIGINE passe en gris « en retrait » (contraste), et se masque si afficherOrigineRetouche=false
-  empriseSelectionneeId?: number | null; // BAT (défaut A) — emprise SÉLECTIONNÉE (source unique) : son polygone est SURLIGNÉ (contour épais foncé + halo) pour qu'on VOIE laquelle est visée, même au repos et parmi des emprises quasi superposées
   afficherOrigineRetouche?: boolean;  // calque d'ORIGINE pendant la retouche : visible par défaut (repère), masquable (confort d'affichage, ne touche jamais la géométrie)
   // PROJ-3t (lot 3b) — APERÇU d'ajustement (emprise manipulée en surbrillance + poignées rotation/échelle + centre) et pointeur (drag). `pxBoite` en coords BOÎTE (comme onCliquer).
   apercuAjustement?: { anneaux: PointLambert[][]; centre: PointLambert; poigneeRotation: PointLambert; poigneeEchelle: PointLambert } | null;
@@ -1743,18 +1742,10 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           //   tireté « en retrait » (repère d'où l'on part), ou on le masque si le calque d'origine est éteint (confort d'affichage seul).
           const enRetouche = retoucheEmpriseId !== null && e.id === retoucheEmpriseId;
           if (enRetouche && !afficherOrigineRetouche) return null;
-          // BAT (défaut A) — emprise SÉLECTIONNÉE (source unique `empriseSelectionneeId`) : SURLIGNÉE distinctement (halo blanc + contour épais
-          //   FONCÉ FIXE + aplat plus dense) → on VOIT laquelle est visée, au repos et même parmi des emprises quasi superposées. Le sens est
-          //   AUSSI porté par le cartouche (« · sélectionné » + aria) : la couleur ne porte jamais seule. Exclu pendant sa retouche (magenta).
-          const estSelectionnee = empriseSelectionneeId !== null && e.id === empriseSelectionneeId && !enRetouche;
-          if (estSelectionnee) {
-            return (
-              <g key={`e${e.id}-${ri}`} data-emprise={e.id} data-selectionnee={e.id} data-provenance={e.provenance}>
-                <path d={path(ring)} fill="none" stroke={POIGNEE_HALO} strokeWidth={5} strokeLinejoin="round" pointerEvents="none" />
-                <path d={path(ring)} fill="rgba(163,4,2,.30)" stroke={POIGNEE_ENCRE} strokeWidth={2.8} strokeLinejoin="round" />
-              </g>
-            );
-          }
+          // BAT (défaut A/point 3) — l'emprise STOCKÉE est dessinée telle quelle (rosé, ou gris « en retrait » si en retouche) : c'est
+          //   « où c'était ». Le SÉLECTIONNÉ n'est PLUS surligné ICI (ce surlignage figeait la géométrie stockée et divergeait de la cible
+          //   dès qu'on la déplaçait) : l'emprise sélectionnée est désormais représentée par l'APERÇU D'AJUSTEMENT transformé (teal + contour
+          //   renforcé + poignées), qui SUIT le geste. Une seule vérité visuelle de la cible.
           return <path key={`e${e.id}-${ri}`} d={path(ring)} data-emprise={e.id} data-provenance={e.provenance} data-origine-retouche={enRetouche || undefined}
             fill={enRetouche ? ORIGINE_RETOUCHE_FOND : 'rgba(163,4,2,.18)'} stroke={enRetouche ? ORIGINE_RETOUCHE_TRAIT : 'var(--color-svv-red)'}
             strokeWidth={enRetouche ? 1.1 : 1.4} strokeDasharray={enRetouche ? '4 3' : undefined} strokeOpacity={enRetouche ? 0.85 : 1} />;

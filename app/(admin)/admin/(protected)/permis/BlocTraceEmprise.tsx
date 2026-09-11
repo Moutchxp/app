@@ -1022,7 +1022,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   n'est sélectionné (bloc / au repos). `demanderBascule` applique directement si rien n'est en jeu, sinon ARME la confirmation ancrée sur
   //   le cartouche cible ; `appliquerBascule` route vers le bon mode (retouche exclusive de l'ajustement, cf. demarrerRetouche/demarrerAjustement).
   const modeCourant: ModeGeste = retouche ? 'retoucher' : 'ajuster';
-  const selIdCourant = empriseSelectionnee(ajustement, retouche); // SOURCE UNIQUE (défaut A) : cartouche cerclé, nom, surlignage du schéma et cible des gestes en dérivent → jamais divergents
+  const selIdCourant = empriseSelectionnee(ajustement, retouche); // SOURCE UNIQUE (défaut A) : cartouche cerclé (selectionId), nom de la barre et cible des gestes en dérivent. Le SURLIGNAGE du schéma est l'aperçu d'ajustement transformé (même `ajustement`), qui SUIT le geste — plus de géométrie stockée figée (point 3) → jamais divergents
   const cibleParDefaut = selIdCourant ?? empriseDuBat[0]?.id ?? emprises[0]?.id ?? null;
   //   `appliquerBascule` route vers le bon mode. En RETOUCHE, on efface d'abord l'ajustement (exclusivité : seules les poignées de sommet
   //   s'affichent, jamais les tiges) ; `demarrerAjustement` efface déjà la retouche de son côté → chaque mode n'affiche que ses contrôles.
@@ -1686,7 +1686,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             {barreDroiteSchema}
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={ajustement ? [] : paires.map((p) => p.lambert)} residusCalage={residus.ecarts} indicePireCalage={residus.indexPlusFautif} statuts={statutParCleabs}
               onCliquer={ajustement ? undefined : (retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined))} retoucheAnneau={retouche?.anneau ?? null} retoucheEmpriseId={retouche?.id ?? null} afficherOrigineRetouche={origineRetoucheVisible} sommetSelectionne={sommetSel}
-              empriseSelectionneeId={selIdCourant} apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustement : undefined} />
+              apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustement : undefined} />
             {/* POSITION REMONTÉE — dès qu'une emprise en projet existe, le bloc emprise vient JUSTE SOUS le schéma, au-dessus de « Empreinte Parcelle(s) ». */}
             {aEmprises && blocEmprises}
             {/* Sous le schéma : bandeau de sélection (la rotation est désormais dans la barre droite, au-dessus du schéma). */}
@@ -1805,7 +1805,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               <div style={{ flex: '1 1 420px', minWidth: 0 }}>
                 <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} hauteurMax="82vh" calageLambert={[]} statuts={statutParCleabs}
                   onCliquer={retouche ? cliquerRetoucheGrand : undefined} retoucheAnneau={retouche?.anneau ?? null} retoucheEmpriseId={retouche?.id ?? null} afficherOrigineRetouche={origineRetoucheVisible} sommetSelectionne={sommetSel}
-                  empriseSelectionneeId={selIdCourant} apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustementGrand : undefined} />
+                  apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustementGrand : undefined} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 240 }}>
                 <OptionsVisibiliteSchema filtres={filtres} onFiltres={onFiltresUtilisateur} nbFutur={comptesVisibilite.futur} nbExistant={comptesVisibilite.existant} />

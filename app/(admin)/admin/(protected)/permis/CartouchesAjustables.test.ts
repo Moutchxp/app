@@ -181,10 +181,12 @@ describe('BlocTraceEmprise — câblage rangée + bascule de mode (garde source)
     expect(iSchema).toBeGreaterThan(-1);
     expect(iSchema).toBeLessThan(SRC.lastIndexOf('{bandeauSel}')); // le dernier {bandeauSel} = celui du plein écran, désormais SOUS le schéma
   });
-  it('(défaut A) SOURCE UNIQUE : selIdCourant = empriseSelectionnee(...) alimente le cerclé (selectionId) ET le surlignage du schéma (empriseSelectionneeId)', () => {
+  it('(défaut A + point 3) SOURCE UNIQUE : selIdCourant alimente le cerclé (selectionId) ; le surlignage du schéma est l’APERÇU transformé (apercuAjustement), plus la géométrie stockée (empriseSelectionneeId retiré)', () => {
     expect(SRC).toContain('const selIdCourant = empriseSelectionnee(ajustement, retouche)'); // une seule décision
     expect(SRC).toContain('selectionId={selIdCourant}');           // cartouche cerclé
-    // le MÊME id est passé aux DEUX schémas (vue normale/XL + plein écran) pour le surlignage → cerclé, surlignage et tiges ne divergent pas
-    expect((SRC.match(/empriseSelectionneeId=\{selIdCourant\}/g) ?? []).length).toBe(2);
+    // point 3 : le surlignage NE dérive PLUS d’un id figeant la géométrie stockée (il divergeait de la cible dès un déplacement).
+    expect(SRC).not.toContain('empriseSelectionneeId=');
+    // Le surligné suivant le geste = l’aperçu d’ajustement, passé aux DEUX schémas (vue normale/XL + plein écran).
+    expect((SRC.match(/apercuAjustement=\{apercuAjustement\}/g) ?? []).length).toBe(2);
   });
 });
