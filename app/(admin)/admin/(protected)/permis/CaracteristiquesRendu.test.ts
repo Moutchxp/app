@@ -970,11 +970,11 @@ describe('CAPSULE D’EMPRISE — jumelle de la capsule d’altitude, VALIDATION
     const repli = etatCapsuleEmprise(emp({ validee: true, valideePar: '2', valideeParNom: null, valideeLe: '2026-09-07T00:00:00Z' }));
     expect(repli.detail).toContain('✓ validée par un administrateur');
     expect(repli.detail).not.toContain('par 2');
-    // ROUGE « Valider » : emprise ENREGISTRÉE mais NON validée → surface (m²) + date
+    // ROUGE « Accès pour validation… » (BAT — la capsule mène à l'accès, elle ne valide plus) : emprise ENREGISTRÉE mais NON validée → surface (m²) + date
     const aValider = etatCapsuleEmprise(emp({ surfaceM2: 898.2, creeLe: '2026-09-06T20:40:16Z', validee: false }));
     expect(aValider.ton).toBe('rouge');
-    expect(aValider.libelle).toContain('Valider');
-    expect(aValider.libelle).not.toContain('validée'); // « enregistrée » ≠ « validée »
+    expect(aValider.libelle).toContain('Accès');
+    expect(aValider.libelle).not.toContain('validée'); // « enregistrée » / « validation » ≠ « validée »
     expect(aValider.detail).toContain('m²');
     // ROUGE « Tracer » : aucune emprise (ou enregistrement fantôme nbEmprises 0)
     expect(etatCapsuleEmprise(null).libelle).toContain('Tracer');
@@ -985,11 +985,11 @@ describe('CAPSULE D’EMPRISE — jumelle de la capsule d’altitude, VALIDATION
 
   // 🔴 RÉGRESSION anti-divergence (étendue à la validation PAR BÂTIMENT) : capsule (cartouche), pastille (sélecteur) et bandeau
   //   dérivent du MÊME statut ; le VERT (« validé ») n'apparaît QUE si l'emprise du bâtiment est validée. CASSE si un affichage diverge.
-  const CAS_STATUT: { aEmprise: boolean; ignore: boolean; validee: boolean; statut: StatutEmpriseBatiment; ton: 'vert' | 'ambre' | 'rouge' }[] = [
+  const CAS_STATUT: { aEmprise: boolean; ignore: boolean; validee: boolean; statut: StatutEmpriseBatiment; ton: 'vert' | 'ambre' | 'rouge' | 'neutre' }[] = [
     { aEmprise: true, ignore: false, validee: true, statut: 'validee', ton: 'vert' },
     { aEmprise: true, ignore: false, validee: false, statut: 'a_valider', ton: 'rouge' },
     { aEmprise: false, ignore: true, validee: false, statut: 'ignoree', ton: 'ambre' },
-    { aEmprise: false, ignore: false, validee: false, statut: 'a_tracer', ton: 'rouge' },
+    { aEmprise: false, ignore: false, validee: false, statut: 'a_tracer', ton: 'neutre' }, // BAT — « Tracer » (aucune emprise) = NEUTRE, ni alarme ni succès
   ];
   for (const c of CAS_STATUT) {
     it(`statut ${c.statut} : capsule ⟷ pastille alignées, vert ⟺ emprise validée`, () => {
@@ -1044,17 +1044,22 @@ describe('CAPSULE D’EMPRISE — jumelle de la capsule d’altitude, VALIDATION
     expect(html).not.toContain('Déclarez un bâtiment pour tracer une emprise.');
   });
 
-  it('CapsuleEtatEmprise : « Valider » déclenche onValider ; VERT propose « retirer la validation » ; « Tracer » = statut/ancre, jamais « indisponible »', () => {
-    // a_valider → bouton « Valider » actionnable (onValider fourni)
-    const aValider = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { emprise: emp({ validee: false }), onValider: () => {}, ancreEmprise: 'a' }));
-    expect(aValider).toContain('Valider');
+  it('CapsuleEtatEmprise (BAT) : les 3 états mènent à l’ACCÈS (onAcces), y compris VERT ; plus de « retirer la validation » ; sans accès ni ancre = statut lisible', () => {
+    // a_valider → « Accès pour validation… » actionnable (onAcces fourni), jamais grisé
+    const aValider = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { emprise: emp({ validee: false }), onAcces: () => {} }));
+    expect(aValider).toContain('Accès pour validation');
     expect(aValider).not.toContain('aria-disabled');
-    // VERT → réversible : « retirer la validation » présent + apparence verte
-    const vert = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { emprise: emp({ validee: true }), onDevalider: () => {} }));
-    expect(vert).toContain('Emprise du polygone projeté validée');
-    expect(vert).toContain('retirer la validation');
+    // VERT → mène AUSSI à l'accès (plus de cul-de-sac) ; PLUS de lien « retirer la validation » ; apparence verte conservée
+    const vert = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { emprise: emp({ validee: true }), onAcces: () => {} }));
+    expect(vert).toContain('Polygone de l’emprise projetée validée');
+    expect(vert).not.toContain('retirer la validation');
     expect(vert).toContain('green-ink');
-    // a_tracer sans ancre ni callback → statut non-interactif (aria-disabled), jamais « indisponible »
+    expect(vert).not.toContain('aria-disabled'); // actionnable via onAcces
+    // a_tracer via ANCRE seule (repli, sans onAcces) → actionnable par défilement, jamais « indisponible »
+    const parAncre = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { emprise: null, ancreEmprise: 'a' }));
+    expect(parAncre).toContain('Tracer');
+    expect(parAncre).not.toContain('aria-disabled');
+    // sans onAcces NI ancre → statut non-interactif (aria-disabled), jamais « indisponible »
     const statut = renderToStaticMarkup(createElement(CapsuleEtatEmprise, { emprise: null }));
     expect(statut).toContain('Tracer');
     expect(statut).toContain('aria-disabled');

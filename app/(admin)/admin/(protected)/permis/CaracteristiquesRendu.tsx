@@ -451,16 +451,19 @@ function grouperCandidatsGabarit(ecartes: readonly ProvenanceEcartee[]): { valeu
 
 // ── CAPSULE D'ÉTAT DE L'EMPRISE (jumelle de la capsule d'altitude du sommet) ─────────────────────────────────────────────────
 export type EtatEmpriseBatimentVue = { surfaceM2: number | null; creeLe: string | null; nbEmprises: number; validee: boolean; valideeLe: string | null; valideePar: string | null; valideeParNom?: string | null };
-export type CapsuleEmprise = { ton: 'vert' | 'ambre' | 'rouge'; libelle: string; detail: string | null };
+export type CapsuleEmprise = { ton: 'vert' | 'ambre' | 'rouge' | 'neutre'; libelle: string; detail: string | null };
 
 /**
  * PUR — état à afficher pour l'emprise d'UN bâtiment. 🔴 DÉRIVE DE LA SOURCE UNIQUE `statutEmpriseBatiment` (partagée avec la
  * pastille du sélecteur et le bandeau) : la capsule NE PEUT PAS diverger d'eux. Quatre états, jamais un état flatteur :
- *  · 'validee' (emprise de CE bâtiment validée) → VERT « Emprise du polygone projeté validée » + qui/quand (comme l'altitude) ;
- *  · 'a_valider' (emprise enregistrée, NON validée) → ROUGE « Valider l'emprise du polygone projeté » + surface (m²) et date ;
+ *  · 'validee' (emprise de CE bâtiment validée) → VERT « Polygone de l'emprise projetée validée » + qui/quand (comme l'altitude) ;
+ *  · 'a_valider' (emprise enregistrée, NON validée) → ROUGE « Accès pour validation de l'emprise du polygone projeté » + surface (m²) et date ;
  *  · 'ignoree' (projection explicitement ignorée) → AMBRE « Projection ignorée pour ce bâtiment » ;
- *  · 'a_tracer' (aucune emprise) → ROUGE « Tracer l'emprise du polygone projeté ».
- * 🔴 La validation est désormais PAR BÂTIMENT (emprise.validee), plus au niveau permis. « enregistrée » ≠ « validée ».
+ *  · 'a_tracer' (aucune emprise) → NEUTRE « Tracer l'emprise du polygone projeté ».
+ * BAT — le bouton n'est plus un GESTE de validation (mort : la capsule ne valide pas) mais un ACCÈS : les trois états mènent au même
+ *   endroit (bloc « Bâtiments et projection », carte sélectionnée, planche restaurée, mode XL) où la validation par emprise se fait
+ *   réellement. Les LIBELLÉS le disent (« Accès pour validation… », « Tracer… ») ; la couleur ne porte jamais SEULE le sens.
+ * 🔴 La validation est PAR BÂTIMENT (emprise.validee), plus au niveau permis. « enregistrée » ≠ « validée ».
  */
 export function etatCapsuleEmprise(emprise: EtatEmpriseBatimentVue | null, ignore = false): CapsuleEmprise {
   const aEmprise = !!(emprise && emprise.nbEmprises > 0);
@@ -472,15 +475,15 @@ export function etatCapsuleEmprise(emprise: EtatEmpriseBatimentVue | null, ignor
       const nom = emprise?.valideeParNom ? emprise.valideeParNom : (emprise?.valideePar ? 'un administrateur' : '');
       const who = nom ? ` par ${nom}` : '';
       const when = emprise?.valideeLe ? ` le ${jjmmaaaa(emprise.valideeLe)}` : '';
-      return { ton: 'vert', libelle: 'Emprise du polygone projeté validée', detail: (who || when) ? `✓ validée${who}${when}` : null };
+      return { ton: 'vert', libelle: 'Polygone de l’emprise projetée validée', detail: (who || when) ? `✓ validée${who}${when}` : null };
     }
     case 'a_valider': {
       const m2 = emprise && emprise.surfaceM2 !== null ? `${Math.round(emprise.surfaceM2).toLocaleString('fr-FR')} m²` : null;
       const date = emprise && emprise.creeLe ? `le ${jjmmaaaa(emprise.creeLe)}` : null;
-      return { ton: 'rouge', libelle: 'Valider l’emprise du polygone projeté', detail: ['emprise enregistrée', m2, date].filter(Boolean).join(' · ') };
+      return { ton: 'rouge', libelle: 'Accès pour validation de l’emprise du polygone projeté', detail: ['emprise enregistrée', m2, date].filter(Boolean).join(' · ') };
     }
     case 'ignoree': return { ton: 'ambre', libelle: 'Projection ignorée pour ce bâtiment', detail: null };
-    default: return { ton: 'rouge', libelle: 'Tracer l’emprise du polygone projeté', detail: null };
+    default: return { ton: 'neutre', libelle: 'Tracer l’emprise du polygone projeté', detail: null };
   }
 }
 
@@ -524,31 +527,35 @@ export function ClotureVersRattachement({ mode, tousValides, dejaPasse, variante
 }
 
 /**
- * Capsule d'état de l'emprise — JUMELLE de la capsule d'altitude (mêmes classes/tokens/forme, MÊME grammaire « Valider… » → « …validée »).
- * ACTIONNABLE : en 'a_valider' le clic VALIDE l'emprise de ce bâtiment (onValider) ; en VERT, un lien « retirer la validation »
- * (onDevalider, réversible comme l'altitude) ; en 'a_tracer' le clic AMÈNE au bloc de tracé (ancre). Sans callback ni ancre, statut lisible.
+ * Capsule d'état de l'emprise — JUMELLE VISUELLE de la capsule d'altitude (mêmes classes/tokens/forme). BAT — ce n'est plus un GESTE de
+ * validation (mort : la capsule ne validait rien) mais un ACCÈS : les TROIS états mènent au MÊME endroit — le bloc « Bâtiments et projection »,
+ * carte pré-sélectionnée, planche de l'emprise restaurée, mode XL — où la validation par emprise se fait réellement. `onAcces` (fourni par le
+ * parent commun des deux blocs) pilote cet accès ; à défaut, repli sur un défilement vers l'ancre (`ancreEmprise`, respectant prefers-reduced-motion) ;
+ * sans l'un ni l'autre, statut lisible non interactif (jamais « indisponible »). Plus de « retirer la validation » (elle vivra ailleurs, par emprise).
  */
-export function CapsuleEtatEmprise({ emprise, ignore = false, ancreEmprise, onValider, onDevalider, enCours = false }: {
+export function CapsuleEtatEmprise({ emprise, ignore = false, ancreEmprise, onAcces, enCours = false }: {
   emprise: EtatEmpriseBatimentVue | null; ignore?: boolean; ancreEmprise?: string;
-  onValider?: () => void; onDevalider?: () => void; enCours?: boolean;
+  onAcces?: () => void; enCours?: boolean;
 }) {
   const c = etatCapsuleEmprise(emprise, ignore);
-  const aEmprise = !!(emprise && emprise.nbEmprises > 0);
   const vert = c.ton === 'vert';
-  const aValider = c.ton === 'rouge' && aEmprise; // emprise enregistrée → à valider (le geste vit ICI)
-  const aller = () => { if (ancreEmprise && typeof document !== 'undefined') document.getElementById(ancreEmprise)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); };
-  const onClick = vert ? undefined : (aValider && onValider ? onValider : (ancreEmprise ? aller : undefined));
+  // Défilement de repli (quand le parent ne pilote pas l'accès plein XL) : respecte prefers-reduced-motion (pas d'animation si désactivée).
+  const aller = () => {
+    if (!ancreEmprise || typeof document === 'undefined') return;
+    const reduit = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    document.getElementById(ancreEmprise)?.scrollIntoView({ behavior: reduit ? 'auto' : 'smooth', block: 'center' });
+  };
+  const onClick = onAcces ?? (ancreEmprise ? aller : undefined); // les TROIS états mènent au même accès (y compris VERT), jamais un cul-de-sac
   const actionnable = !!onClick && !enCours;
+  const teinteVerte = vert ? { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)', boxShadow: 'none' } : {};
   const teinteAmbre = c.ton === 'ambre' ? { background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)', boxShadow: 'none' } : {};
+  const teinteNeutre = c.ton === 'neutre' ? { background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', boxShadow: 'none' } : {}; // « Tracer » = état neutre (aucune emprise), ni alarme ni succès
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
       <button type="button" className="svv-btn svv-btn-primary" disabled={enCours && !!onClick}
-        style={{ padding: '.25rem .7rem', ...(actionnable ? {} : { cursor: 'default' }), ...(vert ? { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)', boxShadow: 'none' } : teinteAmbre) }}
+        style={{ padding: '.25rem .7rem', ...(actionnable ? {} : { cursor: 'default' }), ...teinteVerte, ...teinteAmbre, ...teinteNeutre }}
         aria-disabled={!actionnable || undefined} onClick={actionnable ? onClick : undefined}>{c.libelle}</button>
       {c.detail && <span style={{ ...styleAide, ...(vert ? { color: 'var(--color-svv-green-ink)' } : {}) }}>{c.detail}</span>}
-      {vert && onDevalider && (
-        <button type="button" className="svv-link" style={{ width: 'auto', padding: 0, fontSize: 11, color: 'var(--color-svv-muted)' }} disabled={enCours} onClick={onDevalider}>retirer la validation</button>
-      )}
     </div>
   );
 }

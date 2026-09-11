@@ -56,7 +56,7 @@ const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '
  * BÂTIMENT (mesurés : repère, altitudes, étages, adresse par corps). Toute écriture est en 'saisie'. Confiance/réserve/motif
  * lus du journal (parCorps + permis). Bornes et liste de nature LUES de la base.
  */
-export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, pied, avecEtatFamilles, etatSection4SansAide, onComptes }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; pied?: ReactNode; avecEtatFamilles?: boolean; etatSection4SansAide?: boolean; onComptes?: (comptes: ComptesCaracteristiquesPermis) => void }) {
+export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, onAccesEmprise, pied, avecEtatFamilles, etatSection4SansAide, onComptes }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; onAccesEmprise?: (corpsId: number) => void; pied?: ReactNode; avecEtatFamilles?: boolean; etatSection4SansAide?: boolean; onComptes?: (comptes: ComptesCaracteristiquesPermis) => void }) {
   // BAT-2 / BAT-2b — `avecEtatFamilles` : affiche l'ÉTAT sur les titres des sous-sections PORTEUSES (cohérence des cartes + altitudes),
   //   pour savoir s'il faut ouvrir d'un coup d'œil. Passé par LES CINQ vues qui montent ce bloc (Analyse et projection, Rattachement,
   //   Archives, Réponses, Suivi) — BAT-2b l'a étendu au-delà de la seule Projection. L'état vient TOUJOURS des données PROPRES de ce bloc
@@ -192,20 +192,9 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
     setEnCours(false);
   }, [edCorps, poster, rafraichir]);
 
-  // VALIDER / DÉVALIDER l'emprise de CE bâtiment (capsule, jumelle de « Valider cette altitude »). `rafraichir` remonte le cartouche ET
-  //   les frères (bandeau/pastille du bloc de tracé) via onChange → tous les affichages reflètent la validation par bâtiment.
-  const validerEmprise = useCallback(async (corpsId: number) => {
-    setEnCours(true);
-    const r = await poster({ action: 'valider_emprise', dossierId, corpsId });
-    if (r.ok) { await rafraichir(); setMessage('Emprise validée.'); } else setMessage(r.erreur ?? 'échec');
-    setEnCours(false);
-  }, [poster, dossierId, rafraichir]);
-  const devaliderEmprise = useCallback(async (corpsId: number) => {
-    setEnCours(true);
-    const r = await poster({ action: 'devalider_emprise', dossierId, corpsId });
-    if (r.ok) { await rafraichir(); setMessage('Validation de l’emprise retirée.'); } else setMessage(r.erreur ?? 'échec');
-    setEnCours(false);
-  }, [poster, dossierId, rafraichir]);
+  // BAT — la capsule d'emprise n'est plus un GESTE de validation (les anciens `valider_emprise` / `devalider_emprise` PAR CORPS étaient
+  //   morts : la route attend un id d'EMPRISE, pas un corpsId). Elle devient un ACCÈS : le clic délègue à `onAccesEmprise(corpsId)` (parent
+  //   commun) qui ouvre « Bâtiments et projection » sur ce bâtiment, en mode XL — là où la validation PAR EMPRISE se fait réellement.
 
   // N10-L — « utiliser N » du gabarit PLU : le bouton ÉCRIT (il ne pré-remplit plus). Écrit hauteur_max_plu_ngf=N sur le corps en
   //   origine 'saisie' (action 'corps' avec les SEULES clés fournies → ne touche ni repère ni adresse ni autre mesure). Invariant 103
@@ -443,12 +432,13 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
               </div>
               <div style={{ flex: '1 1 260px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
                 {MESURES.filter((m) => m.estSommet).map(rendreMesure)}
-                {/* CAPSULE D'EMPRISE — jumelle de la capsule d'altitude, JUSTE EN DESSOUS (même colonne). État lu en base (data.empriseEtat) :
-                    VERT si la projection du DOSSIER est validée, sinon ROUGE (« Valider » si une emprise existe déjà — avec surface/date —,
-                    sinon « Tracer »). Le clic amène au bloc « Bâtiments et projection » (ancre). Se rafraîchit via la clé du bloc (vEmprise). */}
+                {/* CAPSULE D'EMPRISE — jumelle VISUELLE de la capsule d'altitude, JUSTE EN DESSOUS (même colonne). État lu en base (data.empriseEtat) :
+                    VERT « …validée », ROUGE « Accès pour validation… » (une emprise existe — surface/date en dessous), NEUTRE « Tracer… » (aucune).
+                    BAT — le clic est un ACCÈS : il ouvre « Bâtiments et projection » sur CE bâtiment en mode XL (onAccesEmprise, parent commun) ;
+                    à défaut, repli sur le défilement vers l'ancre. Se rafraîchit via la clé du bloc (vEmprise). */}
                 <CapsuleEtatEmprise emprise={data.empriseEtat?.parBatiment[c.id] ?? null}
                   ignore={data.empriseEtat?.ignoreCorps.includes(c.id) ?? false} ancreEmprise={ancreEmprise}
-                  onValider={() => void validerEmprise(c.id)} onDevalider={() => void devaliderEmprise(c.id)} enCours={enCours} />
+                  onAcces={onAccesEmprise ? () => onAccesEmprise(c.id) : undefined} enCours={enCours} />
               </div>
             </div>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>

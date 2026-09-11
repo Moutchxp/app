@@ -11,6 +11,7 @@ import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProch
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
 import { resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) » si plusieurs emprises sur le corps)
+import { choisirEmpriseAcces } from '../../../../lib/permis/choixEmpriseAcces'; // BAT — accès depuis la capsule : quelle emprise pointer quand la carte en porte plusieurs (validée sinon la plus récente)
 import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
@@ -48,9 +49,14 @@ const SEUIL_SOMMET_BOITE = 12; // PROJ-3s — rayon de capture d'un sommet au cl
 const FACTEUR_POIGNEE_AJUSTEMENT = 1.4;
 type ModeRetouche = 'deplacer' | 'inserer' | 'supprimer';
 
-export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true, onValeurLue, onEmprisesChange, onEntete, onDonneesLiseuse }: {
+export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true, onValeurLue, onEmprisesChange, onEntete, onDonneesLiseuse, demandeAcces = null, onDemandeConsommee }: {
   dossierId: number;
   onVerdict?: (v: VerdictProjection) => void;
+  // BAT — DEMANDE D'ACCÈS depuis la capsule d'emprise (parent commun) : sélectionner CE bâtiment, restaurer la planche de son emprise
+  //   (validée sinon la plus récente) et basculer en mode XL. `nonce` croissant = une demande UNIQUE (consommée une fois, cf. effet).
+  //   `null`/absente = aucune demande (défaut → taille de deps constante). `onDemandeConsommee` : le parent remet la demande à zéro.
+  demandeAcces?: { corpsId: number; nonce: number } | null;
+  onDemandeConsommee?: () => void;
   onEntete?: (etat: { ton: 'vert' | 'rouge'; texte: string }) => void; // ③ COMPLÉMENT — état de l'en-tête « Bâtiments et projection » (validée / ce qui manque) remonté au parent pour le titre repliable
   onDonneesLiseuse?: (d: DonneesLiseuse) => void; // P3 (perfo) — remonte au parent la donnée /emprise déjà chargée pour qu'un frère (liseuse de la planche) la réutilise au lieu d'un 2e GET
   onEmprisesChange?: () => void; // une MUTATION d'emprise (enregistrement / suppression / adoption / retouche) a changé la base → le
@@ -351,6 +357,31 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [planSeul]);
+
+  // BAT — ACCÈS DEPUIS LA CAPSULE : une DEMANDE du parent (corps + nonce) sélectionne la carte, restaure la planche de l'emprise VISÉE
+  //   (validée sinon la plus récente, module PUR `choisirEmpriseAcces`) et bascule en mode XL — là où l'internaute valide/vérifie le tracé.
+  //   Emprise sans planche (pieceId null : IGN adopté) → on sélectionne le bâtiment et on ouvre l'XL sans forcer de planche (best-of courant).
+  //   Extrait en callback (comme MenuBurger) pour un point de disable UNIQUE au site d'application.
+  const appliquerDemandeAcces = useCallback((corpsId: number, empr: EmpriseReconstruite[]) => {
+    setCorpsSel(corpsId);
+    const cible = choisirEmpriseAcces(empr.filter((e) => e.corpsId === corpsId));
+    if (cible && cible.pieceId != null) {
+      setNav('piece'); setPieceId(cible.pieceId); setPage(cible.page ?? 1);
+      setPaires([]); setSommets([]); setPlanEnAttente(null); setMode('calage'); // navigation : on n'hérite pas d'un tracé attaché à une autre page
+    }
+    setImageAgrandie(true);
+  }, []);
+  // Appliquée SEULEMENT une fois les données prêtes (`etat === 'ok'`) : si le bloc vient d'être déplié (fetch /emprise ≈ 9 s), la demande
+  //   ATTEND le chargement puis s'applique. CONSOMMÉE UNE FOIS (ref sur le nonce) → un re-rendu, ou `emprises` qui change ensuite, ne rouvre
+  //   PAS l'XL en boucle. Le parent remet la demande à zéro via `onDemandeConsommee`. L'application passe par le callback ci-dessus (action
+  //   réutilisable, pas un setState synchrone épars dans le corps de l'effet).
+  const nonceAccesRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!demandeAcces || etat !== 'ok' || nonceAccesRef.current === demandeAcces.nonce) return;
+    nonceAccesRef.current = demandeAcces.nonce;
+    appliquerDemandeAcces(demandeAcces.corpsId, emprises);
+    onDemandeConsommee?.();
+  }, [demandeAcces, etat, emprises, onDemandeConsommee, appliquerDemandeAcces]);
 
   // PROJ — APERÇU LIVE du débordement (débonce 400 ms) : la géométrie Lambert est recalculée CÔTÉ SERVEUR (garde PROJ) ; on ne fait
   //   qu'AFFICHER. On ne met à jour l'état QUE depuis le callback ASYNC (jamais un setState synchrone dans l'effet). Un contour non

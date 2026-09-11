@@ -41,6 +41,11 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   const [batimentsOuvert, setBatimentsOuvert] = useState(false); // PERF-1 — le bloc bâtiments (verdict) est déplié à la demande ; jauge le bouton « Valider »
   const [etatPlancheLive, setEtatPlancheLive] = useState<EtatTitreFamille | null>(null); // PL-ÉTAT — état LIVE de la planche remonté quand le bloc est ouvert (prime sur l'état SAUVEGARDÉ de la ligne) ; null tant que le bloc n'est pas ouvert → repli sur row.plancheEtat
   const [comptesLive, setComptesLive] = useState<ComptesCaracteristiquesPermis | null>(null); // BAT-2d — comptes LIVE remontés par CaracteristiquesBloc → la mère « Caractéristiques du permis » se calcule sur les MÊMES données que ses sous-titres (fini la désynchro). null → repli sur row.
+  // BAT — ACCÈS À L'EMPRISE : la capsule d'emprise (cartouche « Caractéristiques ») demande l'accès au bloc « Bâtiments et projection » pour
+  //   UN bâtiment. `ouvrirBatiments` = nonce d'OUVERTURE COMMANDÉE du bloc frère (BlocRepliable) ; `demandeAcces` = {corps + nonce} consommé
+  //   UNE fois par BlocTraceEmprise (sélection carte + planche + mode XL), puis remis à zéro. Ce composant est le PARENT COMMUN des deux blocs.
+  const [ouvrirBatiments, setOuvrirBatiments] = useState(0);
+  const [demandeAcces, setDemandeAcces] = useState<{ corpsId: number; nonce: number } | null>(null);
   // LOT 70 — ANALYSE AU PASSAGE : à l'ouverture d'un permis, on lance (SANS geste) l'analyse si nécessaire (règle b, gate serveur) et
   //   on reporte les déclarations dans les champs vides. État d'attente HONNÊTE pendant les 20-30 s de l'analyse complète.
   const [passageEnCours, setPassageEnCours] = useState(false);
@@ -170,11 +175,24 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     } catch { /* lien indisponible : silencieux */ }
   }, []);
 
+  // BAT — ACCÈS DEPUIS LA CAPSULE : (1) commande l'ouverture du bloc « Bâtiments et projection » (nonce), (2) pose la demande {corps + nonce}
+  //   que BlocTraceEmprise consomme (sélection carte + planche + XL), (3) défile vers la section — behavior 'auto' sous prefers-reduced-motion.
+  //   `ouvertRef` (miroir de `ouvert`) évite une dépendance sur `ouvert` : le callback reste stable (l'ancre porte le dossier ouvert).
+  const accederEmprise = useCallback((corpsId: number) => {
+    setOuvrirBatiments((n) => n + 1);
+    setDemandeAcces((d) => ({ corpsId, nonce: (d?.nonce ?? 0) + 1 }));
+    if (typeof document !== 'undefined' && ouvertRef.current !== null) {
+      const reduit = typeof window !== 'undefined' && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+      document.getElementById(`ancre-bloc-emprise-${ouvertRef.current}`)?.scrollIntoView({ behavior: reduit ? 'auto' : 'smooth', block: 'start' });
+    }
+  }, []);
+  const consommerDemandeAcces = useCallback(() => setDemandeAcces(null), []); // stable → n'entre pas en boucle dans l'effet de BlocTraceEmprise
+
   if (erreur) return <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>File de projection indisponible.</div>;
   if (file === null) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>;
 
   const ouvrir = (dossierId: number) => {
-    setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setEnteteProjection(null); setEtatPlancheLive(null); setComptesLive(null); setDonneesLiseuse(null); setMessage(null); setBatimentsOuvert(false); // PERF-1 : chaque permis s'ouvre tout replié
+    setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setEnteteProjection(null); setEtatPlancheLive(null); setComptesLive(null); setDonneesLiseuse(null); setMessage(null); setBatimentsOuvert(false); setDemandeAcces(null); // PERF-1 : chaque permis s'ouvre tout replié ; BAT : jamais une demande d'accès héritée d'un autre permis (BlocTraceEmprise remonte par permis)
     passageDeclencheRef.current = null; setPassageMsg(null); setPassageEnCours(false); // LOT 70 : réarme l'analyse au passage (event handler → setState autorisé) pour la prochaine ouverture
   };
 
@@ -298,7 +316,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
               {/* BAT-2 / BAT-2b — `avecEtatFamilles` : état sur les titres des sous-sections (désormais dans LES CINQ vues). ICI seulement,
                   `etatSection4SansAide` fait que l'état REMPLACE le suffixe d'aide de la section 4 : la mère est déjà au-dessus, la hiérarchie
                   est dense. Ailleurs (Rattachement, Archives, Réponses, Suivi) l'aide est conservée et l'état s'ajoute après. */}
-              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles etatSection4SansAide onComptes={setComptesLive} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} pied={rendreCloture('bouton')} />
+              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles etatSection4SansAide onComptes={setComptesLive} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onAccesEmprise={accederEmprise} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} pied={rendreCloture('bouton')} />
             </div>
           )}
         </BlocRepliable>
@@ -307,12 +325,12 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
             ils n'apparaissent qu'une fois DÉPLIÉ (cohérence avec les autres blocs repliés) ; repli → cachés, aucun /emprise relancé. */}
         {/* Ancre de défilement pour la capsule d'emprise du cartouche (« amène à l'endroit où le faire ») — toujours rendue, même bloc replié. */}
         <div id={`ancre-bloc-emprise-${ouvert}`} aria-hidden="true" />
-        <BlocRepliable key={`w-bat-${ouvert}`} titre={<TitreFamilleEtat base="Bâtiments et projection (emprise)" etat={etatProj} />} onOuvertChange={setBatimentsOuvert}>
+        <BlocRepliable key={`w-bat-${ouvert}`} titre={<TitreFamilleEtat base="Bâtiments et projection (emprise)" etat={etatProj} />} onOuvertChange={setBatimentsOuvert} ouvrirSignal={ouvrirBatiments}>
           {() => (
             <div className="flex flex-col gap-2">
               {/* Le bouton GLOBAL « Valider la projection » a été retiré (a922f67) : la validation passe par la chaîne par bâtiment
                   (enregistrer → valider → modifier) + la clôture. Le rendu du HAUT a été retiré (décision Arno : trop de boutons). */}
-              <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} onEntete={setEnteteProjection} onDonneesLiseuse={setDonneesLiseuse} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} onEmprisesChange={() => { setVEmprise((v) => v + 1); void rafraichirFile(); }} />
+              <BlocTraceEmprise dossierId={ouvert} onVerdict={setVerdict} onEntete={setEnteteProjection} onDonneesLiseuse={setDonneesLiseuse} rafraichir={vInstruction} onValeurLue={() => setVValeurLue((v) => v + 1)} onEmprisesChange={() => { setVEmprise((v) => v + 1); void rafraichirFile(); }} demandeAcces={demandeAcces} onDemandeConsommee={consommerDemandeAcces} />
               {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>{message}</div>}
               {/* ⑤ CLÔTURE — en BAS du contenu déployé (bouton seul). */}
               {rendreCloture('bouton')}
