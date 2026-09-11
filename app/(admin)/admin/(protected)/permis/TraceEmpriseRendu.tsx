@@ -1411,10 +1411,27 @@ const REPERE_MIN_FRAC = 0.075, REPERE_MAX_FRAC = 0.11, REPERE_RATIO = 0.55; // f
 //   plus petit côté du viewBox, comme les repères A/B/C), BORNÉ : bulle lisible et cible confortable (souris ET doigt) sans dominer le dessin.
 //   La bulle est posée AU BOUT de la tige (hors du polygone) et la tige reste visible → on comprend à quoi elle se rattache. Picto/tige/point
 //   central dérivent tous de ce rayon (aucune valeur en dur dispersée).
-const POIGNEE_RAYON_FRAC = 0.052, POIGNEE_RAYON_MIN = 12, POIGNEE_RAYON_MAX = 24;
+// BAT (défaut 2) — bulles AGRANDIES (min 18, max 34, fraction 0,075 ; c'étaient 12 / 24 / 0,052) pour que le picto se lise d'un coup d'œil.
+const POIGNEE_RAYON_FRAC = 0.075, POIGNEE_RAYON_MIN = 18, POIGNEE_RAYON_MAX = 34;
 /** Rayon d'une bulle de poignée pour un viewBox donné (plus petit côté). PUR. */
 export function rayonBullePoignee(refVb: number): number {
   return Math.max(POIGNEE_RAYON_MIN, Math.min(POIGNEE_RAYON_MAX, refVb * POIGNEE_RAYON_FRAC));
+}
+// BAT (défaut 2) — COULEUR FIXE des poignées : le schéma est TOUJOURS blanc (background #fff), quel que soit le thème de l'admin. Or
+//   `--color-svv-ink` vaut #e8ebef en thème SOMBRE → des poignées « à l'encre » y étaient quasi invisibles sur blanc. On fige donc une encre
+//   FONCÉE (contraste fort sur blanc dans les deux thèmes) + un halo BLANC pour rester lisible AUSSI par-dessus un polygone foncé.
+export const POIGNEE_ENCRE = '#0b1b2e';   // encre foncée fixe (indépendante du thème)
+export const POIGNEE_HALO = '#ffffff';    // halo/liseré blanc (lisibilité sur polygone foncé)
+/**
+ * BAT (défaut 2) — RAYON de PRÉHENSION (capture) d'une poignée, en unités de boîte, GARANTISSANT une cible tactile d'au moins `ciblePx`
+ * pixels de diamètre même si la bulle DESSINÉE est plus petite. `scalePxParUnite` = px écran par unité de boîte (min des deux axes, « meet »).
+ * On prend le PLUS GRAND entre « un peu au-delà de la bulle » (confort visuel) et « la moitié de la cible physique convertie en unités ».
+ * PUR, testable. Repli sûr si l'échelle est inconnue/nulle (rendu non mesuré) : au moins la zone proportionnelle à la bulle.
+ */
+export function seuilCapturePoignee(rayonBulleUnites: number, scalePxParUnite: number, ciblePx = 44): number {
+  const proportionnel = rayonBulleUnites * 1.35;
+  const physique = scalePxParUnite > 0 ? (ciblePx / 2) / scalePxParUnite : 0;
+  return Math.max(proportionnel, physique);
 }
 const REPERE_MARGE = 3, REPERE_PAS = 5; // collision : marge de sécurité + pas radial du balayage (mêmes valeurs que placerEtiquettes)
 /** Boîte approximative d'UNE lettre capitale à `taille` (pour collision/ajustement) : ~0,72×taille de large, ~taille de haut. */
@@ -1566,13 +1583,21 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
     const r = ev.currentTarget.getBoundingClientRect();
     return clicVersBoiteMeet(ev.clientX - r.left, ev.clientY - r.top, r.width, r.height, vb, centre, angle);
   };
+  // BAT (défaut 2) — px de boîte + ÉCHELLE d'affichage (px écran par unité de boîte, « meet » = min des deux axes), pour dimensionner une
+  //   zone de préhension d'au moins 44 px même sur petit écran. Un seul getBoundingClientRect, réutilisé pour le clic et la capture.
+  const pxEtScaleDe = (ev: { currentTarget: EventTarget & SVGSVGElement; clientX: number; clientY: number }) => {
+    const r = ev.currentTarget.getBoundingClientRect();
+    const px = clicVersBoiteMeet(ev.clientX - r.left, ev.clientY - r.top, r.width, r.height, vb, centre, angle);
+    const scale = Math.min(vb.w > 0 ? r.width / vb.w : 0, vb.h > 0 ? r.height / vb.h : 0);
+    return { px, scale };
+  };
   // PROJ-3t (poignées) — la CIBLE du drag (corps / rotation / échelle) est décidée ICI, dans l'enfant, car il connaît le RAYON réel des bulles
   //   (proportionnel au viewBox) : la zone de capture suit la taille de la bulle à tout niveau d'affichage, sans coupler le parent. Le parent
   //   ne fait que la conversion pxBoite → Lambert (il connaît la boîte utilisée). Rayon partagé avec le rendu (aucune valeur en dur en double).
   const rBulle = rayonBullePoignee(Math.min(vb.w, vb.h));
-  const cibleAjust = (px: { x: number; y: number }): 'corps' | 'rotation' | 'echelle' => {
+  const cibleAjust = (px: { x: number; y: number }, scalePxParUnite: number): 'corps' | 'rotation' | 'echelle' => {
     if (!apercuAjustement || !boite) return 'corps';
-    const seuil = rBulle * 1.35; // capture un peu au-delà du bord de la bulle (confort tactile)
+    const seuil = seuilCapturePoignee(rBulle, scalePxParUnite); // BAT (défaut 2) — ≥ 44 px de diamètre, même si la bulle dessinée est plus petite
     const pRot = projeterDansBoite(boite, apercuAjustement.poigneeRotation), pEch = projeterDansBoite(boite, apercuAjustement.poigneeEchelle);
     if (Math.hypot(px.x - pRot.x, px.y - pRot.y) < seuil) return 'rotation';
     if (Math.hypot(px.x - pEch.x, px.y - pEch.y) < seuil) return 'echelle';
@@ -1582,9 +1607,9 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
     <svg viewBox={`${vb.minX} ${vb.minY} ${vb.w} ${vb.h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées"
       style={{ display: 'block', width: '100%', height: 'auto', maxHeight: hauteurMax, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', touchAction: onPointeurAjustement ? 'none' : undefined, cursor: onPointeurAjustement ? 'grab' : onCliquer ? 'crosshair' : 'default' }}
       onClick={onCliquer ? (ev) => onCliquer(pxDe(ev)) : undefined}
-      onPointerDown={onPointeurAjustement ? (ev) => { const px = pxDe(ev); (ev.currentTarget as SVGSVGElement).setPointerCapture(ev.pointerId); onPointeurAjustement('down', px, cibleAjust(px)); } : undefined}
-      onPointerMove={onPointeurAjustement ? (ev) => { if (ev.buttons !== 0 || ev.pointerType === 'touch') { const px = pxDe(ev); onPointeurAjustement('move', px, cibleAjust(px)); } } : undefined}
-      onPointerUp={onPointeurAjustement ? (ev) => { const px = pxDe(ev); onPointeurAjustement('up', px, cibleAjust(px)); } : undefined}>
+      onPointerDown={onPointeurAjustement ? (ev) => { const { px, scale } = pxEtScaleDe(ev); (ev.currentTarget as SVGSVGElement).setPointerCapture(ev.pointerId); onPointeurAjustement('down', px, cibleAjust(px, scale)); } : undefined}
+      onPointerMove={onPointeurAjustement ? (ev) => { if (ev.buttons !== 0 || ev.pointerType === 'touch') { const { px, scale } = pxEtScaleDe(ev); onPointeurAjustement('move', px, cibleAjust(px, scale)); } } : undefined}
+      onPointerUp={onPointeurAjustement ? (ev) => { const { px, scale } = pxEtScaleDe(ev); onPointeurAjustement('up', px, cibleAjust(px, scale)); } : undefined}>
       <g transform={angle ? `rotate(${angle} ${centre.x} ${centre.y})` : undefined}>
         {/* PROJ-CTX — 3e REGISTRE, dessiné EN PREMIER (donc DERRIÈRE tout le reste) : parcelles voisines (contour mauve fin tireté, sans
             aplat) + leur bâti (aplat mauve très léger). Teinte DISTINCTE des gris du principal/mitoyen → « ce qu'il y a autour », jamais
@@ -1705,17 +1730,27 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
         {/* PROJ-3t (lot 3b) — APERÇU d'ajustement : l'emprise manipulée en surbrillance + trait vers les poignées + poignée de ROTATION (↻) et
             d'ÉCHELLE (⤢) + point de CENTRE. Le corps se glisse pour déplacer ; les poignées se glissent pour tourner / redimensionner. */}
         {apercuAjustement && (() => {
-          // Rayon proportionnel au niveau d'affichage (borné, = celui de la capture) → picto lisible d'un coup d'œil, cible confortable ; tige +
-          //   point central + halo du picto dérivent tous de ce rayon (aucune valeur en dur). Halo blanc sous le picto (paintOrder) → contraste net.
-          const rB = rBulle; const tige = Math.max(0.9, rB * 0.12), halo = Math.max(1.2, rB * 0.18);
+          // BAT (défaut 2) — poignées LISIBLES sur le schéma TOUJOURS BLANC : encre FIXE foncée (indépendante du thème — `--color-svv-ink`
+          //   vaut #e8ebef en sombre, invisible sur blanc) + HALO BLANC (tige doublée d'un liseré, bulle à liseré, picto à halo `paintOrder`)
+          //   → nettes sur fond blanc ET par-dessus un polygone foncé. Tiges épaisses, bulles agrandies, picto qui grandit avec la bulle.
+          //   Tout dérive du rayon rB (aucune valeur dispersée).
+          const rB = rBulle;
+          const tige = Math.max(3, rB * 0.26);            // tige foncée (nettement plus épaisse qu'avant : max(0,9 ; rB*0,12))
+          const tigeHalo = tige + Math.max(2, rB * 0.18); // liseré blanc SOUS la tige (dépasse de chaque côté) → visible sur polygone foncé
+          const liserBulle = Math.max(2, rB * 0.16);      // liseré foncé du contour des bulles / du point central
+          const rCentre = Math.max(3.5, rB * 0.28);
           return <g data-ajustement-apercu="true">
-          {apercuAjustement.anneaux.map((a, i) => a.length >= 3 && <path key={`aj${i}`} d={path(a)} fill="rgba(15,118,110,.18)" stroke="var(--color-svv-ink)" strokeWidth={1.8} strokeDasharray="4 2" data-ajustement="corps" />)}
+          {apercuAjustement.anneaux.map((a, i) => a.length >= 3 && <path key={`aj${i}`} d={path(a)} fill="rgba(15,118,110,.18)" stroke={POIGNEE_ENCRE} strokeWidth={2.2} strokeDasharray="4 2" data-ajustement="corps" />)}
           {(() => { const c = proj(apercuAjustement.centre), r = proj(apercuAjustement.poigneeRotation), e = proj(apercuAjustement.poigneeEchelle); return <>
-            <line x1={c.x} y1={c.y} x2={r.x} y2={r.y} stroke="var(--color-svv-ink)" strokeWidth={tige} strokeOpacity={0.65} />
-            <line x1={c.x} y1={c.y} x2={e.x} y2={e.y} stroke="var(--color-svv-ink)" strokeWidth={tige} strokeOpacity={0.65} />
-            <circle cx={c.x} cy={c.y} r={Math.max(3, rB * 0.26)} fill="var(--color-svv-ink)" data-ajustement="centre" />
-            <g data-ajustement="rotation" data-rayon={rB.toFixed(1)}><circle cx={r.x} cy={r.y} r={rB} fill="#fff" stroke="var(--color-svv-ink)" strokeWidth={halo} /><text x={r.x} y={r.y} fontSize={rB * 1.1} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill="var(--color-svv-ink)" stroke="#fff" strokeWidth={halo * 0.6} paintOrder="stroke">↻</text></g>
-            <g data-ajustement="echelle"><circle cx={e.x} cy={e.y} r={rB} fill="#fff" stroke="var(--color-svv-ink)" strokeWidth={halo} /><text x={e.x} y={e.y} fontSize={rB * 1.1} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill="var(--color-svv-ink)" stroke="#fff" strokeWidth={halo * 0.6} paintOrder="stroke">⤢</text></g>
+            {/* Tiges : liseré BLANC dessous (plus large), trait FONCÉ dessus → lisibles sur blanc ET sur polygone foncé. */}
+            <line x1={c.x} y1={c.y} x2={r.x} y2={r.y} stroke={POIGNEE_HALO} strokeWidth={tigeHalo} strokeLinecap="round" />
+            <line x1={c.x} y1={c.y} x2={e.x} y2={e.y} stroke={POIGNEE_HALO} strokeWidth={tigeHalo} strokeLinecap="round" />
+            <line x1={c.x} y1={c.y} x2={r.x} y2={r.y} stroke={POIGNEE_ENCRE} strokeWidth={tige} strokeLinecap="round" />
+            <line x1={c.x} y1={c.y} x2={e.x} y2={e.y} stroke={POIGNEE_ENCRE} strokeWidth={tige} strokeLinecap="round" />
+            <circle cx={c.x} cy={c.y} r={rCentre + liserBulle} fill={POIGNEE_HALO} data-ajustement="centre-halo" />
+            <circle cx={c.x} cy={c.y} r={rCentre} fill={POIGNEE_ENCRE} data-ajustement="centre" />
+            <g data-ajustement="rotation" data-rayon={rB.toFixed(1)}><circle cx={r.x} cy={r.y} r={rB} fill={POIGNEE_HALO} stroke={POIGNEE_ENCRE} strokeWidth={liserBulle} /><text x={r.x} y={r.y} fontSize={rB * 1.3} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill={POIGNEE_ENCRE} stroke={POIGNEE_HALO} strokeWidth={liserBulle * 0.7} paintOrder="stroke">↻</text></g>
+            <g data-ajustement="echelle"><circle cx={e.x} cy={e.y} r={rB} fill={POIGNEE_HALO} stroke={POIGNEE_ENCRE} strokeWidth={liserBulle} /><text x={e.x} y={e.y} fontSize={rB * 1.3} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill={POIGNEE_ENCRE} stroke={POIGNEE_HALO} strokeWidth={liserBulle * 0.7} paintOrder="stroke">⤢</text></g>
           </>; })()}
         </g>; })()}
       </g>

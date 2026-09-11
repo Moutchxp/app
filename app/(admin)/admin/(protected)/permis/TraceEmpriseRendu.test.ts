@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, rayonBullePoignee, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, rayonBullePoignee, seuilCapturePoignee, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -79,9 +79,20 @@ describe('PROJ-2 — rendu pur', () => {
   });
 
   it('rayonBullePoignee : proportionnel au viewBox, borné [min ; max] → lisible à tout niveau d’affichage', () => {
-    expect(rayonBullePoignee(100)).toBe(12);     // petit schéma → plancher (jamais illisible)
-    expect(rayonBullePoignee(5000)).toBe(24);    // grand schéma (plein écran) → plafond (ne domine pas le dessin)
-    const r = rayonBullePoignee(400); expect(r).toBeGreaterThan(12); expect(r).toBeLessThan(24); // entre les bornes → proportionnel
+    // BAT (défaut 2) — bulles agrandies : bornes 18 / 34 (c'étaient 12 / 24), fraction 0,075.
+    expect(rayonBullePoignee(100)).toBe(18);     // petit schéma → plancher (jamais illisible)
+    expect(rayonBullePoignee(5000)).toBe(34);    // grand schéma (plein écran) → plafond (ne domine pas le dessin)
+    const r = rayonBullePoignee(400); expect(r).toBeGreaterThan(18); expect(r).toBeLessThan(34); // entre les bornes → proportionnel (400×0,075 = 30)
+  });
+
+  it('seuilCapturePoignee : cible d’au moins 44 px de diamètre, même si la bulle dessinée est plus petite', () => {
+    const rB = 18;
+    // Écran SERRÉ (0,5 px/unité) : la bulle*1,35 = 24,3 unités = 12,15 px de rayon → INSUFFISANT ; la contrainte physique (22 px) prime.
+    expect(seuilCapturePoignee(rB, 0.5)).toBeCloseTo(22 / 0.5, 6); // 44 unités = 22 px de rayon = 44 px de diamètre
+    // Écran LARGE (2 px/unité) : la contrainte physique (11 unités) est plus PETITE que la bulle*1,35 → c'est la bulle qui prime (confort visuel).
+    expect(seuilCapturePoignee(rB, 2)).toBeCloseTo(rB * 1.35, 6);
+    // Échelle inconnue/nulle (rendu non mesuré) : repli sûr sur la zone proportionnelle à la bulle (jamais 0).
+    expect(seuilCapturePoignee(rB, 0)).toBeCloseTo(rB * 1.35, 6);
   });
 
   it('DemarrageAjustementCompact : « cette emprise » par emprise + « toutes ensemble » dès 2 ; horizontal', () => {

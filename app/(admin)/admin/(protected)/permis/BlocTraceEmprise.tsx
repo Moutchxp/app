@@ -12,6 +12,7 @@ import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetConte
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
 import { resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) » si plusieurs emprises sur le corps)
 import { choisirEmpriseAcces } from '../../../../lib/permis/choixEmpriseAcces'; // BAT — accès depuis la capsule : quelle emprise pointer quand la carte en porte plusieurs (validée sinon la plus récente)
+import { estAjustementModifie } from './ajustementSession'; // BAT (défaut 1) — une session d'ajustement provisoire (armée à l'ouverture du plein écran) est-elle INTOUCHÉE → purgeable à la fermeture sans rien perdre
 import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
@@ -334,13 +335,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   // RÈGLE ARNO — les compteurs des cases « bâti existant » / « futur bâti » ne comptent QUE les bâtiments DU PERMIS (les mêmes qui
   //   portent une lettre) ; les voisins relèvent de « contexte » et n'y entrent pas.
   const comptesVisibilite = useMemo(() => compterBatimentsPermis(polygones), [polygones]);
-  // PROJ-3i — fermeture du plein écran à la touche Échap (le clic hors zone est géré par le fond).
-  useEffect(() => {
-    if (!pleinEcran) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPleinEcran(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [pleinEcran]);
+  // PROJ-3i — fermeture du plein écran à la touche Échap (le clic hors zone est géré par le fond). L'effet est relocalisé plus bas, après
+  //   `fermerPleinEcran` (BAT défaut 1) : Échap doit passer par la MÊME sortie que ✕ / le fond (purge d'une session intouchée).
   // PROJ-AGR — Échap réduit aussi l'agrandissement de l'image (jamais un piège plein écran sans sortie clavier). LOT 3 — mais PAS quand le
   //   niveau 3 (plan seul) est ouvert PAR-DESSUS : Échap ferme d'abord le niveau 3 (retour au niveau 2), pas les deux d'un coup. Le
   //   comportement du niveau 2 SEUL (planSeul=false) est INCHANGÉ.
@@ -991,6 +987,32 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     setMessage('ajustement d’ensemble : les emprises bougent ENSEMBLE (positions relatives conservées). Rien n’est enregistré tant que vous ne cliquez pas « Enregistrer ».');
   }, [emprises, anneauxAffiches]);
 
+  // BAT (défaut 1) — PURGE d'une session SINGLE INTOUCHÉE : sert à la fermeture du plein écran. Armer les poignées à l'arrivée ne doit rien
+  //   laisser derrière si l'internaute n'a rien fait (« la page normale n'est jamais altérée par la simple ouverture du plein écran »). Une
+  //   session MODIFIÉE (delta ≠ armement) est CONSERVÉE (travail non enregistré, jamais perdu en silence) ; le mode BLOC (explicite) aussi.
+  const purgerAjustementIntouche = useCallback(() => {
+    setAjustement((a) => (a && !a.bloc && a.id != null && !estAjustementModifie(a, emprises) ? null : a));
+  }, [emprises]);
+
+  // BAT (défaut 1) — POIGNÉES D'EMBLÉE EN PLEIN ÉCRAN. Cause du bug : les poignées dérivent de `apercuAjustement`, null tant qu'aucune session
+  //   `ajustement` n'est armée ; or à l'ouverture on était « au repos » et la session ne s'armait qu'au PREMIER geste. On corrige À LA SOURCE :
+  //   l'OUVERTURE arme la session pour l'emprise par défaut (celle du bâtiment courant, sinon la 1re) — sans exiger de geste ; une session déjà
+  //   active ou une retouche en cours ne sont jamais écrasées. La FERMETURE purge la session si elle est restée INTOUCHÉE (aucune pollution de
+  //   la vue normale — « la simple ouverture du plein écran n'altère pas la page normale »). Piloté par l'ÉVÉNEMENT open/close (setState permis
+  //   ici, hors effet) → aucun re-rendu ne réarme quoi que ce soit. TOUTES les sorties (✕, fond, Échap) passent par `fermerPleinEcran`.
+  const ouvrirPleinEcran = useCallback(() => {
+    setPleinEcran(true);
+    if (!ajustement && !retouche) { const cible = empriseDuBat[0] ?? emprises[0]; if (cible) demarrerAjustement(cible.id); }
+  }, [ajustement, retouche, empriseDuBat, emprises, demarrerAjustement]);
+  const fermerPleinEcran = useCallback(() => { setPleinEcran(false); purgerAjustementIntouche(); }, [purgerAjustementIntouche]);
+  // PROJ-3i — fermeture du plein écran à la touche Échap : MÊME sortie que ✕ / le fond (fermerPleinEcran → purge d'une session intouchée).
+  useEffect(() => {
+    if (!pleinEcran) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') fermerPleinEcran(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [pleinEcran, fermerPleinEcran]);
+
   const majDelta = useCallback((maj: (d: Ajustement) => Ajustement) => setAjustement((a) => (a ? { ...a, delta: maj(a.delta) } : a)), []);
   const onTranslate = useCallback((dxM: number, dyM: number) => majDelta((d) => ({ ...d, tx: d.tx + dxM, ty: d.ty + dyM })), [majDelta]);
   const onRotate = useCallback((deg: number) => majDelta((d) => ({ ...d, rotDeg: d.rotDeg + deg })), [majDelta]);
@@ -1277,7 +1299,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const barreDroiteSchema = (
     <div style={{ ...styleBarre, justifyContent: 'flex-end' }}>
       <RotationSchema angle={angle} onAngle={setAngle} largeurCurseur={48} />
-      <button type="button" style={btn} onClick={() => setPleinEcran(true)}>⤢ Agrandir le schéma</button>
+      <button type="button" style={btn} onClick={ouvrirPleinEcran}>⤢ Agrandir le schéma</button>
     </div>
   );
 
@@ -1708,13 +1730,13 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       {/* PROJ-3i ② — PLEIN ÉCRAN : schéma agrandi + TOUS les filtres + la sélection + la légende, cliquables. Fermeture : clic hors zone,
           bouton ×, ou touche Échap. Pas de transition → rien à neutraliser pour prefers-reduced-motion. */}
       {pleinEcran && (
-        <div role="dialog" aria-modal="true" aria-label="Schéma de la parcelle agrandi" onClick={() => setPleinEcran(false)}
+        <div role="dialog" aria-modal="true" aria-label="Schéma de la parcelle agrandi" onClick={fermerPleinEcran}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
           <div onClick={(e) => e.stopPropagation()} className="svv-card"
             style={{ maxWidth: '95vw', maxHeight: '95vh', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <strong style={{ fontSize: 13 }}>Schéma de la parcelle et du bâti</strong>
-              <button type="button" style={btn} onClick={() => setPleinEcran(false)} aria-label="Fermer l’agrandissement">✕ Fermer</button>
+              <button type="button" style={btn} onClick={fermerPleinEcran} aria-label="Fermer l’agrandissement">✕ Fermer</button>
             </div>
             <RotationSchema angle={angle} onAngle={setAngle} />
             {/* PLEIN ÉCRAN — BANDEAU DES GESTES en pleine largeur près du curseur Rotation, dès qu'AU MOINS UNE emprise existe (sans clic
