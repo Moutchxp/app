@@ -452,7 +452,8 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vu
         </div>
         {permisOuvert && (
           <div className="flex flex-col gap-2">
-            <CaracteristiquesBloc dossierId={detail.dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />
+            {/* BAT-2b — état des sous-sections (cohérence cartes + altitudes) sur leurs titres, comme dans les 4 autres vues (aide section 4 conservée). */}
+            <CaracteristiquesBloc avecEtatFamilles dossierId={detail.dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />
             <div className="svv-card" style={{ fontSize: 12 }}>
               <div style={{ fontSize: 12, fontWeight: 700, marginBottom: '.3rem' }}>Pièces jointes</div>
               <CellulePieces pieces={detail.pieces} onTelecharger={(id, source) => void telecharger(id, source)} />

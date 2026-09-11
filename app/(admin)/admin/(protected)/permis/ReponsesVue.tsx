@@ -349,7 +349,8 @@ export function ReponsesVue({ onRecompter }: { onRecompter?: () => void }) {
                               { cle: 'completude', titre: LIBELLE_FAMILLE.completude, nonVide: d.completudeNonVide,
                                 contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} sansPli />} /> },
                               { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: d.caracteristiquesNonVide,
-                                contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={id} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+                                /* BAT-2b — état des sous-sections (cohérence cartes + altitudes) sur leurs titres (aide section 4 conservée). */
+                                contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={id} avecEtatFamilles dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
                               { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: d.batimentsNonVide,
                                 contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} />} /> },
                               { cle: 'pieces', titre: LIBELLE_FAMILLE.pieces, nonVide: d.piecesNonVide,

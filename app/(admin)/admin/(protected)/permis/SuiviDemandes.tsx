@@ -923,7 +923,8 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   ) },
                 { cle: 'caracteristiques', titre: LIBELLE_FAMILLE.caracteristiques, nonVide: richDetail.caracteristiquesNonVide,
                   // LOT 56-B — clé versionnée : après « Lancer le diagnostic complet des documents » (bloc Complétude ci-dessus), les caractéristiques extraites sont fraîches → remontage.
-                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={`carac-enc-${id}-${vApresAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+                  /* BAT-2b — état des sous-sections (cohérence cartes + altitudes) sur leurs titres (aide section 4 conservée). */
+                  contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <CaracteristiquesBloc key={`carac-enc-${id}-${vApresAnalyse}-${vValeurLue}-${vEmprise}`} avecEtatFamilles dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
                 { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: richDetail.batimentsNonVide,
                   // LOT 90 — avecLiseuse={false} : la famille « Pièces du permis » ci-dessous porte DÉJÀ la liseuse standalone → pas de doublon à 0 bâtiment.
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} avecLiseuse={false} onEmprisesChange={() => setVEmprise((v) => v + 1)} />} /> },

@@ -293,9 +293,10 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
         <BlocRepliable key={`w-carac-${ouvert}`} titre={<TitreFamilleEtat base="Caractéristiques du permis (saisie)" etat={etatMere} />}>
           {() => (
             <div className="flex flex-col gap-2" style={{ marginLeft: '.85rem', paddingLeft: '.85rem', borderLeft: '2px solid var(--color-svv-line)' }}>
-              {/* BAT-2 — `avecEtatFamilles` : SEULE la file « Analyse et projection » (qui porte la mère) demande l'état sur les titres des
-                  sous-sections, pour diagnostiquer une mère rouge sans la déplier. Ailleurs (Rattachement, Archives, Réponses…) ce bloc reste nu. */}
-              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} pied={rendreCloture('bouton')} />
+              {/* BAT-2 / BAT-2b — `avecEtatFamilles` : état sur les titres des sous-sections (désormais dans LES CINQ vues). ICI seulement,
+                  `etatSection4SansAide` fait que l'état REMPLACE le suffixe d'aide de la section 4 : la mère est déjà au-dessus, la hiérarchie
+                  est dense. Ailleurs (Rattachement, Archives, Réponses, Suivi) l'aide est conservée et l'état s'ajoute après. */}
+              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles etatSection4SansAide ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} pied={rendreCloture('bouton')} />
             </div>
           )}
         </BlocRepliable>

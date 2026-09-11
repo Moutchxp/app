@@ -57,6 +57,23 @@ describe('RATT-1 — état sur la ligne de titre des familles (Analyse et projec
     expect(html).toContain('var(--color-svv-red)');   // couleur EXISTANTE, en appui
   });
 
+  it('BAT-2b — créneau `aide` : base + aide (conservée) PUIS état ; sans `aide`, rendu inchangé', () => {
+    // Avec aide : le suffixe d'aide reste entre le titre et l'état (cas des 4 vues qui gardent « un par immeuble… »).
+    const avec = renderToStaticMarkup(h(TitreFamilleEtat, {
+      base: 'Les futurs bâtiments et leurs altitudes',
+      etat: etatAltitudesTitre(2, 0),
+      aide: h('span', {}, '— un par immeuble, mesurés sur les plans'),
+    }));
+    expect(avec).toContain('Les futurs bâtiments et leurs altitudes');
+    expect(avec).toContain('un par immeuble, mesurés sur les plans'); // aide CONSERVÉE
+    expect(avec).toContain('altitudes renseignées (2 bâtiments)');    // état AJOUTÉ après
+    expect(avec.indexOf('un par immeuble')).toBeLessThan(avec.indexOf('altitudes renseignées')); // ordre : aide avant état
+    // Sans aide : aucune trace d'aide (cas Projection, où l'état remplace l'aide) — rendu identique à avant BAT-2b.
+    const sans = renderToStaticMarkup(h(TitreFamilleEtat, { base: 'Les futurs bâtiments et leurs altitudes', etat: etatAltitudesTitre(2, 0) }));
+    expect(sans).not.toContain('un par immeuble');
+    expect(sans).toContain('altitudes renseignées (2 bâtiments)');
+  });
+
   it('projection : non validée → rouge ; validée → vert (couleurs existantes)', () => {
     expect(etatProjectionTitre(false)).toEqual({ texte: 'projection non validée', ton: 'rouge' });
     expect(etatProjectionTitre(true)).toEqual({ texte: 'projection validée', ton: 'vert' });

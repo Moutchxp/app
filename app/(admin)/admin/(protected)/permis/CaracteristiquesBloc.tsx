@@ -56,10 +56,13 @@ const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '
  * BÂTIMENT (mesurés : repère, altitudes, étages, adresse par corps). Toute écriture est en 'saisie'. Confiance/réserve/motif
  * lus du journal (parCorps + permis). Bornes et liste de nature LUES de la base.
  */
-export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, pied, avecEtatFamilles }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; pied?: ReactNode; avecEtatFamilles?: boolean }) {
-  // BAT-2 — `avecEtatFamilles` : n'affiche l'ÉTAT sur les titres des sous-sections PORTEUSES que dans la file « Analyse et projection »
-  //   (qui porte la mère « Caractéristiques du permis (saisie) ») → une mère rouge est diagnosticable sans la déplier. Ailleurs (Rattachement,
-  //   Archives, Réponses, Suivi) ce bloc est monté SANS ce drapeau : les titres restent nus, comportement inchangé.
+export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, pied, avecEtatFamilles, etatSection4SansAide }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; pied?: ReactNode; avecEtatFamilles?: boolean; etatSection4SansAide?: boolean }) {
+  // BAT-2 / BAT-2b — `avecEtatFamilles` : affiche l'ÉTAT sur les titres des sous-sections PORTEUSES (cohérence des cartes + altitudes),
+  //   pour savoir s'il faut ouvrir d'un coup d'œil. Passé par LES CINQ vues qui montent ce bloc (Analyse et projection, Rattachement,
+  //   Archives, Réponses, Suivi) — BAT-2b l'a étendu au-delà de la seule Projection. L'état vient TOUJOURS des données PROPRES de ce bloc
+  //   (son propre fetch), donc identique quelle que soit la vue.
+  // `etatSection4SansAide` : dans la file « Analyse et projection » SEULE (qui porte déjà la mère au-dessus), le suffixe d'état de la
+  //   section 4 REMPLACE le suffixe d'aide. Ailleurs (défaut), l'aide « — un par immeuble… » est CONSERVÉE et l'état s'ajoute après (req BAT-2b).
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
   const [data, setData] = useState<EtatCharge | null>(null);
   const [edGlobal, setEdGlobal] = useState<EditionGlobal>({ parking: '', commentaire: '' });
@@ -306,9 +309,10 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       </BlocRepliable>
 
       {/* CARTOUCHE 4 — LES CORPS DE BÂTIMENT (mesurés) : un par immeuble. Le titre de section devient le titre du dépliant.
-          BAT-2 — PORTEUSE : son titre porte l'état des ALTITUDES (aucune carte / manquantes / renseignées) quand `avecEtatFamilles` (le
-          suffixe d'aide « — un par immeuble… » cède alors la place au suffixe d'état, plus utile pour diagnostiquer la mère). */}
-      <BlocRepliable titre={avecEtatFamilles ? <TitreFamilleEtat base="Les futurs bâtiments et leurs altitudes" etat={etatSection4} /> : <>Les futurs bâtiments et leurs altitudes <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span></>}>
+          BAT-2 / BAT-2b — PORTEUSE : son titre porte l'état des ALTITUDES (aucune carte / manquantes / renseignées) quand `avecEtatFamilles`.
+          Le suffixe d'aide « — un par immeuble… » est CONSERVÉ par défaut (créneau `aide` de TitreFamilleEtat, l'état s'ajoute après) ;
+          il n'est REMPLACÉ par l'état que dans Projection (`etatSection4SansAide`, qui a déjà la mère au-dessus). */}
+      <BlocRepliable titre={avecEtatFamilles ? <TitreFamilleEtat base="Les futurs bâtiments et leurs altitudes" etat={etatSection4} aide={etatSection4SansAide ? undefined : <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span>} /> : <>Les futurs bâtiments et leurs altitudes <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span></>}>
         {() => (
       <div className="flex flex-col gap-3">
       {/* N10-C — D : ce que contient la section et d'où ça vient. */}

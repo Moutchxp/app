@@ -29,12 +29,15 @@ export interface LigneProjectionAffichee {
  * RATT-1 — TITRE d'une famille de l'onglet « Analyse et projection » avec son ÉTAT en continuité (comme « Complétude des pièces — dossier
  * incomplet »). PUR. L'ÉTAT est porté par le TEXTE ; la couleur (rouge/vert existants, ou muted en neutre) n'est qu'un appui. Aucune
  * teinte nouvelle. Visible SANS déplier la famille (posé sur la ligne de titre du bloc repliable).
+ * BAT-2b — créneau `aide` OPTIONNEL (ReactNode, stylé par l'appelant) inséré ENTRE le titre et l'état : sert à CONSERVER un suffixe d'aide
+ *   existant (ex. « — un par immeuble, mesurés sur les plans » de la section 4) tout en AJOUTANT l'état après lui. Absent → rendu strictement
+ *   inchangé (les appelants sans `aide` — mère, Bâtiments, Planche — ne bougent pas).
  */
-export function TitreFamilleEtat({ base, etat }: { base: string; etat: EtatTitreFamille }) {
+export function TitreFamilleEtat({ base, etat, aide }: { base: string; etat: EtatTitreFamille; aide?: ReactNode }) {
   const style: CSSProperties = etat.ton === 'rouge' ? { color: 'var(--color-svv-red)', fontWeight: 700 }
     : etat.ton === 'vert' ? { color: 'var(--color-svv-green-ink)', fontWeight: 700 }
     : { color: 'var(--color-svv-muted)', fontWeight: 400 };
-  return <span>{base}<span style={style}> — {etat.texte}</span></span>;
+  return <span>{base}{aide != null ? <> {aide}</> : null}<span style={style}> — {etat.texte}</span></span>;
 }
 
 const cell: CSSProperties = { padding: '.35rem .5rem', borderBottom: '1px solid var(--color-svv-line)', fontSize: 13, textAlign: 'left', verticalAlign: 'top' };
