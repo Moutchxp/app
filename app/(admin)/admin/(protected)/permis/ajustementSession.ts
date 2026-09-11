@@ -39,18 +39,35 @@ export function estAjustementModifie(
   return !deltaEgal(ajustement.delta, arme);
 }
 
+// BAT (défaut B) — DEUX modes de travail per-emprise dans le plein écran : 'ajuster' (delta rigide) et 'retoucher' (sommet par sommet).
+export type ModeGeste = 'ajuster' | 'retoucher';
+
 /**
- * BAT (défaut D) — DÉCISION : sélectionner l'emprise `cibleId` est-il REFUSÉ (⇒ confirmation requise) ? Vrai UNIQUEMENT si c'est un VRAI
- * changement (autre emprise, ou depuis un geste d'ENSEMBLE) ET qu'un travail non enregistré est en cours (`estAjustementModifie`). Sinon
- * faux : aucune session, cible déjà sélectionnée, ou session intouchée → le changement se fait directement, sans confirmation.
- * PUR (la « raison » = un ajustement non enregistré serait abandonné) → l'écran n'a plus qu'à AFFICHER la confirmation, jamais à décider.
+ * BAT (défaut B) — Le TRAVAIL EN COURS (quel que soit le mode) porte-t-il des modifications NON ENREGISTRÉES ? PUR. Unifie les deux modes :
+ *  · ajustement rigide → `estAjustementModifie` (delta ≠ armement) ;
+ *  · retouche par sommet → au moins une édition dans l'historique (`retoucheHist > 0`).
+ * Sert de « raison » unique à la garde anti-perte (changement de polygone OU de mode). `retoucheHist` = longueur de l'historique de retouche.
  */
-export function changementAjustableRefuse(
+export function sessionModifiee(
   ajustement: { bloc: boolean; id: number | null; delta: DeltaComparable } | null,
   emprises: readonly { id: number; ajustement: DeltaComparable | null }[],
-  cibleId: number,
+  retoucheHist: number,
 ): boolean {
-  if (!ajustement) return false;                                  // rien en cours → jamais refusé
-  if (!ajustement.bloc && ajustement.id === cibleId) return false; // déjà cette emprise → pas un changement
-  return estAjustementModifie(ajustement, emprises);              // vrai changement + travail non enregistré → refusé (confirmer)
+  return retoucheHist > 0 || estAjustementModifie(ajustement, emprises);
+}
+
+/**
+ * BAT (défauts D & B) — DÉCISION unique : basculer vers (emprise `cible.id`, mode `cible.mode`) est-il REFUSÉ (⇒ confirmation) ? Vrai
+ * UNIQUEMENT si c'est un VRAI changement (autre emprise ET/OU autre mode) ET qu'un travail non enregistré est en cours (`dirty`). Sinon
+ * faux : rien en cours, cible = état courant, ou session intouchée → bascule directe. PUR → l'écran n'a plus qu'à AFFICHER la confirmation.
+ * Couvre à la fois le changement de POLYGONE (cartouche) et le changement de MODE (ajuster ⇄ retoucher) — une seule garde, jamais deux.
+ */
+export function basculeRefusee(
+  courant: { id: number | null; mode: ModeGeste } | null,
+  cible: { id: number; mode: ModeGeste },
+  dirty: boolean,
+): boolean {
+  if (!courant) return false;                                                  // rien en cours → jamais refusé
+  if (courant.id === cible.id && courant.mode === cible.mode) return false;    // déjà cet état (emprise + mode) → pas un changement
+  return dirty;                                                                // vrai changement + travail non enregistré → refusé (confirmer)
 }

@@ -12,8 +12,8 @@ import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetConte
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
 import { resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) » si plusieurs emprises sur le corps)
 import { choisirEmpriseAcces } from '../../../../lib/permis/choixEmpriseAcces'; // BAT — accès depuis la capsule : quelle emprise pointer quand la carte en porte plusieurs (validée sinon la plus récente)
-import { estAjustementModifie, changementAjustableRefuse } from './ajustementSession'; // BAT (défaut 1) purge d'une session intouchée ; (défaut D) décision « ce changement de polygone est-il refusé → confirmation »
-import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, CartouchesAjustables, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
+import { estAjustementModifie, sessionModifiee, basculeRefusee, type ModeGeste } from './ajustementSession'; // BAT — (déf.1) purge session intouchée ; (déf.D&B) garde unique : « ce changement de polygone OU de mode est-il refusé → confirmation »
+import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, CartouchesAjustables, BasculeMode, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -963,9 +963,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   // `bloc` : geste d'ENSEMBLE (toutes les emprises du dossier) — `id` null, `base` = tous les anneaux AFFICHÉS (le geste se compose par-dessus
   //   les ajustements individuels au serveur). `une` : `base` = anneaux d'ORIGINE de l'emprise (inverse du delta stocké). Même moteur d'aperçu.
   const [ajustement, setAjustement] = useState<{ bloc: boolean; id: number | null; delta: Ajustement; base: PointLambert[][]; enregistre: boolean } | null>(null);
-  // BAT (défaut 3) — changement de polygone à ajuster demandé ALORS qu'un ajustement non enregistré est en cours : id de l'emprise cible en
-  //   attente de confirmation (jamais d'abandon SILENCIEUX du travail). null = aucune demande.
-  const [confirmChangeAjust, setConfirmChangeAjust] = useState<number | null>(null);
+  // BAT (défauts 3, D & B) — GARDE ANTI-PERTE UNIQUE : un changement (autre POLYGONE et/ou autre MODE) demandé alors qu'un travail non
+  //   enregistré est en cours → on retient la CIBLE (emprise + mode visé) en attente de confirmation (jamais d'abandon silencieux). La
+  //   confirmation s'affiche ancrée sur le cartouche `cibleId`. null = aucune demande. Une seule et même garde pour les deux axes.
+  const [demandeConfirm, setDemandeConfirm] = useState<{ cibleId: number; modeVise: ModeGeste } | null>(null);
   // NOM-3 — nom de l'emprise ACTUELLEMENT ajustée (pour titrer le panneau/bandeau « … de {nom} »). null si aucun, ou geste d'ENSEMBLE (bloc).
   const nomAjustement = ajustement && !ajustement.bloc && ajustement.id != null ? nomEmprise(emprises.find((e) => e.id === ajustement.id) ?? { id: ajustement.id, corpsId: null, numero: null }) : null;
   const dragAjust = useRef<{ cible: 'corps' | 'rotation' | 'echelle'; startLambert: PointLambert; startDelta: Ajustement; centreAffiche: PointLambert; startAngle: number; startDist: number } | null>(null);
@@ -1016,15 +1017,28 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     return () => window.removeEventListener('keydown', onKey);
   }, [pleinEcran, fermerPleinEcran]);
 
-  // BAT (défaut 3) — SÉLECTIONNER le polygone à ajuster (clic sur un cartouche). Même emprise déjà en cours → rien. Sinon, si un ajustement
-  //   non enregistré est en cours (delta ≠ armement), on DEMANDE confirmation (le changement l'abandonnerait) au lieu de le perdre en
-  //   silence ; sans travail en cours, on bascule directement. `demarrerAjustement` (arme la session cible) → poignées + barre suivent.
-  const selectionnerAjustable = useCallback((id: number) => {
-    if (ajustement && !ajustement.bloc && ajustement.id === id) return; // déjà sélectionné → rien
-    if (changementAjustableRefuse(ajustement, emprises, id)) { setConfirmChangeAjust(id); return; } // travail non enregistré → confirmation ANCRÉE sur le cartouche visé (défaut D)
-    demarrerAjustement(id);
-  }, [ajustement, emprises, demarrerAjustement]);
-  const confirmerChangeAjust = useCallback(() => { if (confirmChangeAjust != null) demarrerAjustement(confirmChangeAjust); setConfirmChangeAjust(null); }, [confirmChangeAjust, demarrerAjustement]);
+  // BAT (défauts 3, D & B) — MACHINE DE BASCULE UNIQUE : changer de POLYGONE (cartouche) et/ou de MODE (ajuster ⇄ retoucher) passe par le
+  //   MÊME chemin et la MÊME garde. `modeCourant`/`selIdCourant` = état de travail courant ; `cibleParDefaut` = sur quoi retomber quand rien
+  //   n'est sélectionné (bloc / au repos). `demanderBascule` applique directement si rien n'est en jeu, sinon ARME la confirmation ancrée sur
+  //   le cartouche cible ; `appliquerBascule` route vers le bon mode (retouche exclusive de l'ajustement, cf. demarrerRetouche/demarrerAjustement).
+  const modeCourant: ModeGeste = retouche ? 'retoucher' : 'ajuster';
+  const selIdCourant = ajustement && !ajustement.bloc ? ajustement.id : (retouche?.id ?? null);
+  const cibleParDefaut = selIdCourant ?? empriseDuBat[0]?.id ?? emprises[0]?.id ?? null;
+  //   `appliquerBascule` route vers le bon mode. En RETOUCHE, on efface d'abord l'ajustement (exclusivité : seules les poignées de sommet
+  //   s'affichent, jamais les tiges) ; `demarrerAjustement` efface déjà la retouche de son côté → chaque mode n'affiche que ses contrôles.
+  const appliquerBascule = useCallback((cibleId: number, mode: ModeGeste) => {
+    if (mode === 'retoucher') { setAjustement(null); demarrerRetouche(cibleId); } else demarrerAjustement(cibleId);
+  }, [demarrerAjustement, demarrerRetouche]);
+  const demanderBascule = useCallback((cibleId: number, mode: ModeGeste) => {
+    const courant = ajustement ? { id: ajustement.bloc ? null : ajustement.id, mode: 'ajuster' as ModeGeste } : (retouche ? { id: retouche.id, mode: 'retoucher' as ModeGeste } : null);
+    if (courant && courant.id === cibleId && courant.mode === mode) return; // déjà cet état (emprise + mode) → rien
+    const dirty = sessionModifiee(ajustement, emprises, retouche?.hist.length ?? 0);
+    if (basculeRefusee(courant, { id: cibleId, mode }, dirty)) { setDemandeConfirm({ cibleId, modeVise: mode }); return; } // travail non enregistré → confirmation ANCRÉE au cartouche
+    appliquerBascule(cibleId, mode);
+  }, [ajustement, retouche, emprises, appliquerBascule]);
+  const selectionnerAjustable = useCallback((id: number) => demanderBascule(id, retouche ? 'retoucher' : 'ajuster'), [demanderBascule, retouche]); // change de POLYGONE, conserve le MODE courant
+  const basculerMode = useCallback((mode: ModeGeste) => { if (cibleParDefaut != null) demanderBascule(cibleParDefaut, mode); }, [demanderBascule, cibleParDefaut]); // change de MODE, conserve le POLYGONE
+  const confirmerChangeAjust = useCallback(() => { if (demandeConfirm) appliquerBascule(demandeConfirm.cibleId, demandeConfirm.modeVise); setDemandeConfirm(null); }, [demandeConfirm, appliquerBascule]);
 
   const majDelta = useCallback((maj: (d: Ajustement) => Ajustement) => setAjustement((a) => (a ? { ...a, delta: maj(a.delta) } : a)), []);
   const onTranslate = useCallback((dxM: number, dyM: number) => majDelta((d) => ({ ...d, tx: d.tx + dxM, ty: d.ty + dyM })), [majDelta]);
@@ -1752,14 +1766,17 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               <button type="button" style={btn} onClick={fermerPleinEcran} aria-label="Fermer l’agrandissement">✕ Fermer</button>
             </div>
             <RotationSchema angle={angle} onAngle={setAngle} />
-            {/* BAT (défaut 3) — RANGÉE DE CARTOUCHES au-dessus des boutons d'ajustement : dit SUR QUOI on travaille + change de polygone d'un
-                clic (le sélectionné cerclé de rouge + « · sélectionné » + aria-current). BAT (défaut D) — quand le changement est refusé
-                (ajustement non enregistré), la confirmation s'ANCRE sur le cartouche visé (`confirmId`) — visible LÀ où l'on a cliqué, jamais
-                un clic muet. Toujours affichée dès ≥ 1 emprise (même à 1). */}
+            {/* BAT (défaut B) — BASCULE DE MODE (Ajuster ⇄ Retoucher) près des cartouches, sans quitter le plein écran : la sélection de
+                polygone est conservée, un travail non enregistré passe par la MÊME garde (confirmation ancrée). Désactivée s'il n'y a pas
+                d'emprise sur quoi travailler. */}
+            {emprises.length > 0 && <BasculeMode mode={modeCourant} onMode={basculerMode} disabled={occupe || cibleParDefaut == null} />}
+            {/* BAT (défaut 3) — RANGÉE DE CARTOUCHES : dit SUR QUOI on travaille + change de polygone d'un clic (sélectionné cerclé de rouge +
+                « · sélectionné » + aria-current), dans le MODE courant. BAT (défaut D) — un changement refusé (travail non enregistré) affiche
+                la confirmation ANCRÉE sur le cartouche visé (`confirmId`), là où l'on a cliqué — jamais un clic muet. Affichée dès ≥ 1 emprise. */}
             {emprises.length > 0 && (
               <CartouchesAjustables emprises={emprises} nomEmprise={nomEmprise}
-                selectionId={ajustement && !ajustement.bloc ? ajustement.id : null}
-                confirmId={confirmChangeAjust} onConfirmer={confirmerChangeAjust} onAnnuler={() => setConfirmChangeAjust(null)}
+                selectionId={selIdCourant}
+                confirmId={demandeConfirm?.cibleId ?? null} onConfirmer={confirmerChangeAjust} onAnnuler={() => setDemandeConfirm(null)}
                 onSelectionner={selectionnerAjustable} occupe={occupe} />
             )}
             {/* PLEIN ÉCRAN — BANDEAU DES GESTES en pleine largeur près du curseur Rotation, dès qu'AU MOINS UNE emprise existe (sans clic

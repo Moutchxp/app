@@ -5,7 +5,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { readFileSync } from 'node:fs';
-import { CartouchesAjustables } from './TraceEmpriseRendu';
+import { CartouchesAjustables, BasculeMode } from './TraceEmpriseRendu';
 import type { EmpriseReconstruite } from '../../../../lib/permis/empriseReconstruiteRepo';
 
 /** Fixture minimale : seul `id` est lu par le composant (le nom vient du `nomEmprise` fourni). */
@@ -70,7 +70,7 @@ describe('CartouchesAjustables (BAT défaut 3) — un cartouche par emprise, sé
 describe('CartouchesAjustables (BAT défaut D) — confirmation ANCRÉE au cartouche visé, jamais un clic muet', () => {
   it('le cartouche VISÉ (confirmId) devient une carte « à confirmer » : texte explicite + deux issues + aria', () => {
     const html = renderToStaticMarkup(createElement(CartouchesAjustables, { emprises: [emp(1), emp(2)], nomEmprise: nom, selectionId: 1, confirmId: 2, onSelectionner: () => {}, onConfirmer: () => {}, onAnnuler: () => {} }));
-    expect(html).toContain('ajustement non enregistré'); // TEXTE lisible, à l'endroit du clic
+    expect(html).toContain('travail non enregistré'); // TEXTE lisible, à l'endroit du clic (couvre ajustement ET retouche)
     expect(html).toContain('Changer quand même');
     expect(html).toContain('Rester');
     expect(html).toContain('bâtiment en projet 2');       // ancré sur le polygone VISÉ, nommé
@@ -107,23 +107,73 @@ describe('CartouchesAjustables (BAT défaut D) — confirmation ANCRÉE au carto
   });
 });
 
+describe('BasculeMode (BAT défaut B) — bascule ajuster ⇄ retouche, mode actif porté par le TEXTE + aria', () => {
+  it('rend les deux modes ; l’actif est marqué « · actif » ET aria-pressed=true (jamais la couleur seule)', () => {
+    const html = renderToStaticMarkup(createElement(BasculeMode, { mode: 'retoucher', onMode: () => {} }));
+    expect(html).toContain('Ajuster');
+    expect(html).toContain('Retoucher');
+    expect(html).toContain('· actif');                 // marque écrite du mode actif
+    expect(html).toContain('aria-pressed="true"');     // état exposé aux lecteurs d'écran
+  });
+
+  it('cliquer un mode INACTIF appelle onMode(ce mode)', () => {
+    const container = document.createElement('div'); document.body.appendChild(container);
+    const onMode = vi.fn();
+    root = createRoot(container);
+    act(() => { root!.render(createElement(BasculeMode, { mode: 'ajuster', onMode })); });
+    const retoucher = Array.from(container.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Retoucher'))!;
+    act(() => { retoucher.click(); });
+    expect(onMode).toHaveBeenCalledWith('retoucher');
+  });
+
+  it('cliquer le mode DÉJÀ actif n’appelle rien (pas de bascule inutile)', () => {
+    const container = document.createElement('div'); document.body.appendChild(container);
+    const onMode = vi.fn();
+    root = createRoot(container);
+    act(() => { root!.render(createElement(BasculeMode, { mode: 'ajuster', onMode })); });
+    const ajuster = Array.from(container.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('Ajuster'))!;
+    act(() => { ajuster.click(); });
+    expect(onMode).not.toHaveBeenCalled();
+  });
+
+  it('disabled → aucun mode cliquable', () => {
+    const container = document.createElement('div'); document.body.appendChild(container);
+    const onMode = vi.fn();
+    root = createRoot(container);
+    act(() => { root!.render(createElement(BasculeMode, { mode: 'ajuster', onMode, disabled: true })); });
+    Array.from(container.querySelectorAll('button')).forEach((b) => act(() => (b as HTMLButtonElement).click()));
+    expect(onMode).not.toHaveBeenCalled();
+  });
+});
+
 /**
  * Garde de source (BlocTraceEmprise non montable) — le CÂBLAGE de la sélection : la rangée est branchée dans le plein écran, la sélection
  * passe par un handler qui PROTÈGE un ajustement non enregistré (confirmation), et le sélectionné suit l'emprise en cours (single).
  */
 // Chemin RELATIF AU CWD (racine du projet) — robuste en environnement jsdom, où `import.meta.url` n'est pas de schéma file:// (pattern déjà en place ailleurs).
 const SRC = readFileSync('app/(admin)/admin/(protected)/permis/BlocTraceEmprise.tsx', 'utf8').replace(/\s+/g, ' ');
-describe('BlocTraceEmprise — câblage de la rangée de sélection (garde source)', () => {
-  it('la rangée CartouchesAjustables est rendue ; sélection + confirmation ANCRÉE (confirmId) branchées', () => {
+describe('BlocTraceEmprise — câblage rangée + bascule de mode (garde source)', () => {
+  it('rangée + bascule de mode branchées ; sélection et confirmation ancrée suivent l’état courant', () => {
     expect(SRC).toContain('<CartouchesAjustables');
-    expect(SRC).toContain('selectionId={ajustement && !ajustement.bloc ? ajustement.id : null}');
+    expect(SRC).toContain('selectionId={selIdCourant}');                 // suit l'emprise courante (ajuster OU retouche)
     expect(SRC).toContain('onSelectionner={selectionnerAjustable}');
-    expect(SRC).toContain('confirmId={confirmChangeAjust}'); // défaut D — la confirmation est ancrée au cartouche visé
+    expect(SRC).toContain('confirmId={demandeConfirm?.cibleId ?? null}'); // confirmation ancrée au cartouche visé (défaut D)
+    expect(SRC).toContain('<BasculeMode mode={modeCourant} onMode={basculerMode}'); // bascule ajuster/retouche (défaut B)
   });
-  it('selectionnerAjustable protège un ajustement modifié via le prédicat pur (jamais d’abandon silencieux)', () => {
-    const bloc = SRC.match(new RegExp('const selectionnerAjustable = useCallback\\(\\(id: number\\) => \\{.*?\\}, \\['))?.[0] ?? '';
-    expect(bloc).toContain('changementAjustableRefuse'); // décision « refusé ? » dans le module pur
-    expect(bloc).toContain('setConfirmChangeAjust(id)'); // → confirmation ancrée au lieu de perdre
-    expect(bloc).toContain('demarrerAjustement(id)');    // sans travail en cours → bascule directe
+  it('la garde UNIQUE couvre polygone ET mode : demanderBascule via basculeRefusee + sessionModifiee, jamais d’abandon silencieux', () => {
+    const bloc = SRC.match(new RegExp('const demanderBascule = useCallback\\(\\(cibleId: number, mode: ModeGeste\\) => \\{.*?\\}, \\['))?.[0] ?? '';
+    expect(bloc).toContain('sessionModifiee');       // travail non enregistré (ajustement OU retouche)
+    expect(bloc).toContain('basculeRefusee');        // décision « refusé ? » dans le module pur
+    expect(bloc).toContain('setDemandeConfirm(');    // → confirmation ancrée au lieu de perdre
+    expect(bloc).toContain('appliquerBascule(');     // sans travail en cours → bascule directe
+    // selectionnerAjustable = changement de polygone (mode conservé) ; basculerMode = changement de mode (polygone conservé)
+    expect(SRC).toContain('const selectionnerAjustable = useCallback((id: number) => demanderBascule(id,');
+    expect(SRC).toContain('const basculerMode = useCallback((mode: ModeGeste) => { if (cibleParDefaut != null) demanderBascule(cibleParDefaut, mode);');
+  });
+  it('exclusivité des modes : appliquerBascule efface l’ajustement en retouche (jamais tiges + poignées de sommet ensemble)', () => {
+    const bloc = SRC.match(new RegExp('const appliquerBascule = useCallback\\(\\(cibleId: number, mode: ModeGeste\\) => \\{.*?\\}, \\['))?.[0] ?? '';
+    expect(bloc).toContain("mode === 'retoucher'");
+    expect(bloc).toContain('setAjustement(null); demarrerRetouche(cibleId)'); // retouche efface l'ajustement
+    expect(bloc).toContain('demarrerAjustement(cibleId)');                    // ajuster (demarrerAjustement efface déjà la retouche)
   });
 });

@@ -1230,7 +1230,7 @@ export function CartouchesAjustables({ emprises, nomEmprise, selectionId, onSele
           return (
             <span key={e.id} role="group" aria-label={`Changer pour ${nomEmprise(e)} — un ajustement non enregistré est en cours`}
               style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '.3rem', border: '2px solid var(--color-svv-red)', borderRadius: '.4rem', padding: '.2rem .45rem', background: 'var(--color-svv-field)' }}>
-              <span style={{ fontSize: 12, color: 'var(--color-svv-ink)', fontWeight: 600 }}><span aria-hidden>⚠ </span>{nomEmprise(e)} — ajustement non enregistré</span>
+              <span style={{ fontSize: 12, color: 'var(--color-svv-ink)', fontWeight: 600 }}><span aria-hidden>⚠ </span>{nomEmprise(e)} — travail non enregistré</span>
               <button type="button" onClick={onConfirmer} disabled={occupe} style={{ ...btnMini, borderColor: 'var(--color-svv-red)', color: 'var(--color-svv-red)', fontWeight: 700 }}>Changer quand même</button>
               <button type="button" onClick={onAnnuler} disabled={occupe} style={btnMini}>Rester</button>
             </span>
@@ -1252,6 +1252,39 @@ export function CartouchesAjustables({ emprises, nomEmprise, selectionId, onSele
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * BAT (défaut B) — BASCULE de MODE de travail sur l'emprise sélectionnée, en plein écran, sans changer d'écran : « Ajuster » (delta rigide)
+ * ⇄ « Retoucher » (sommet par sommet). Contrôle explicite près de la rangée de cartouches. Le mode actif est porté PAR LE TEXTE (« · actif »)
+ * ET par `aria-pressed` (jamais la seule couleur). `disabled` quand aucune emprise n'est disponible. Mobile-first (flexWrap, cibles ≥ 32 px).
+ */
+export function BasculeMode({ mode, onMode, disabled = false }: {
+  mode: 'ajuster' | 'retoucher';
+  onMode: (m: 'ajuster' | 'retoucher') => void;
+  disabled?: boolean;
+}) {
+  const opt = (m: 'ajuster' | 'retoucher', libelle: string) => {
+    const actif = mode === m;
+    return (
+      <button type="button" aria-pressed={actif} disabled={disabled} data-actif={actif || undefined}
+        onClick={() => { if (!disabled && !actif) onMode(m); }}
+        style={{
+          cursor: disabled || actif ? 'default' : 'pointer', opacity: disabled ? 0.5 : 1, fontSize: 13, minHeight: 32, padding: '.25rem .6rem',
+          borderRadius: '.4rem', border: '1px solid var(--color-svv-line)', fontWeight: actif ? 700 : 400,
+          background: actif ? 'var(--color-svv-ink)' : 'var(--color-svv-field)', color: actif ? 'var(--color-svv-surface)' : 'var(--color-svv-ink)',
+        }}>
+        {libelle}{actif && <span> · actif</span>}
+      </button>
+    );
+  };
+  return (
+    <div role="group" aria-label="mode de travail sur l’emprise" style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center', flexWrap: 'wrap', fontSize: 12 }}>
+      <span style={{ color: 'var(--color-svv-muted)', fontWeight: 700 }}>Mode :</span>
+      {opt('ajuster', 'Ajuster')}
+      {opt('retoucher', 'Retoucher')}
     </div>
   );
 }

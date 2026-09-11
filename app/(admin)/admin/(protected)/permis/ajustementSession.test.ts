@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deltaEgal, estAjustementModifie, changementAjustableRefuse, type DeltaComparable } from './ajustementSession';
+import { deltaEgal, estAjustementModifie, sessionModifiee, basculeRefusee, type DeltaComparable } from './ajustementSession';
 
 const D = (o: Partial<DeltaComparable> = {}): DeltaComparable => ({ tx: 0, ty: 0, rotDeg: 0, echelle: 1, ...o });
 
@@ -50,26 +50,39 @@ describe('estAjustementModifie — la session en cours diffère-t-elle de son ar
   });
 });
 
-describe('changementAjustableRefuse — sélectionner une autre emprise est-il refusé (⇒ confirmation) ?', () => {
-  const emprises = [{ id: 1, ajustement: null }, { id: 2, ajustement: null }];
-
-  it('aucune session en cours → jamais refusé (changement direct)', () => {
-    expect(changementAjustableRefuse(null, emprises, 2)).toBe(false);
+describe('sessionModifiee — le travail en cours (ajustement OU retouche) a-t-il des modifications non enregistrées ?', () => {
+  const emprises = [{ id: 1, ajustement: null }];
+  it('rien en cours → non modifié', () => {
+    expect(sessionModifiee(null, emprises, 0)).toBe(false);
   });
-
-  it('cible = emprise DÉJÀ sélectionnée → pas un changement → non refusé', () => {
-    expect(changementAjustableRefuse({ bloc: false, id: 2, delta: D() }, emprises, 2)).toBe(false);
+  it('ajustement déplacé (retouche absente) → modifié', () => {
+    expect(sessionModifiee({ bloc: false, id: 1, delta: D({ tx: 46.6 }) }, emprises, 0)).toBe(true);
   });
-
-  it('changement vers une AUTRE emprise, session INTOUCHÉE → non refusé (bascule directe)', () => {
-    expect(changementAjustableRefuse({ bloc: false, id: 1, delta: D() }, emprises, 2)).toBe(false);
+  it('retouche avec au moins une édition (historique > 0) → modifié, même sans ajustement', () => {
+    expect(sessionModifiee(null, emprises, 2)).toBe(true);
   });
-
-  it('changement vers une AUTRE emprise, travail NON ENREGISTRÉ → REFUSÉ (confirmation requise)', () => {
-    expect(changementAjustableRefuse({ bloc: false, id: 1, delta: D({ tx: 46.6 }) }, emprises, 2)).toBe(true);
+  it('ajustement intouché ET retouche sans édition → non modifié', () => {
+    expect(sessionModifiee({ bloc: false, id: 1, delta: D() }, emprises, 0)).toBe(false);
   });
+});
 
-  it('depuis un geste d’ENSEMBLE modifié → changer vers une emprise est refusé', () => {
-    expect(changementAjustableRefuse({ bloc: true, id: null, delta: D({ rotDeg: 3 }) }, emprises, 2)).toBe(true);
+describe('basculeRefusee — changer de polygone ET/OU de mode est-il refusé (⇒ confirmation) ?', () => {
+  it('rien en cours → jamais refusé', () => {
+    expect(basculeRefusee(null, { id: 2, mode: 'ajuster' }, true)).toBe(false);
+  });
+  it('cible = état courant (même emprise + même mode) → pas un changement → non refusé', () => {
+    expect(basculeRefusee({ id: 2, mode: 'ajuster' }, { id: 2, mode: 'ajuster' }, true)).toBe(false);
+  });
+  it('changement de POLYGONE, session intouchée → non refusé (bascule directe)', () => {
+    expect(basculeRefusee({ id: 1, mode: 'ajuster' }, { id: 2, mode: 'ajuster' }, false)).toBe(false);
+  });
+  it('changement de POLYGONE, travail non enregistré → REFUSÉ', () => {
+    expect(basculeRefusee({ id: 1, mode: 'ajuster' }, { id: 2, mode: 'ajuster' }, true)).toBe(true);
+  });
+  it('changement de MODE (même emprise), travail non enregistré → REFUSÉ', () => {
+    expect(basculeRefusee({ id: 1, mode: 'ajuster' }, { id: 1, mode: 'retoucher' }, true)).toBe(true);
+  });
+  it('changement de MODE (même emprise), session intouchée → non refusé (bascule directe)', () => {
+    expect(basculeRefusee({ id: 1, mode: 'ajuster' }, { id: 1, mode: 'retoucher' }, false)).toBe(false);
   });
 });
