@@ -1193,6 +1193,47 @@ export function BandeauGestesCompact({ emprisesDuBatiment, nbTotal, occupe = fal
   );
 }
 
+/**
+ * BAT (défaut 3) — RANGÉE DE CARTOUCHES : un par polygone AJUSTABLE présent dans le schéma (les EMPRISES projetées uniquement ; le bâti de
+ * fond BD TOPO, non modifiable, n'y figure pas). Elle dit SUR QUOI on travaille et permet de CHANGER de polygone d'un clic.
+ *  · Nom = `nomEmprise(e)` — EXACTEMENT le même que la barre d'ajustement (source unique, jamais un 2e nommage).
+ *  · Le cartouche SÉLECTIONNÉ est cerclé de ROUGE ET porte une marque ÉCRITE (« · sélectionné ») ET expose `aria-current="true"` (la
+ *    couleur ne porte jamais seule le sens).
+ *  · Cliquer un autre cartouche SÉLECTIONNE ce polygone (le parent arme l'ajustement → poignées + barre suivent).
+ *  · Une seule emprise → la rangée RESTE affichée (elle dit simplement sur quoi on travaille).
+ * Mobile-first : `flexWrap` (passe à la ligne, aucun débordement horizontal), cibles tactiles ≥ 32 px de haut.
+ */
+export function CartouchesAjustables({ emprises, nomEmprise, selectionId, onSelectionner, occupe = false }: {
+  emprises: EmpriseReconstruite[];
+  nomEmprise: (e: EmpriseReconstruite) => string;
+  selectionId: number | null; // emprise en cours d'ajustement (single) ; null si aucune / mode d'ensemble / retouche
+  onSelectionner: (id: number) => void;
+  occupe?: boolean;
+}) {
+  if (emprises.length === 0) return null; // rien d'ajustable → pas de rangée (mais dès 1 emprise, on l'affiche)
+  return (
+    <div role="group" aria-label="polygone projeté à ajuster"
+      style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.4rem', minWidth: 0, fontSize: 12 }}>
+      <span style={{ color: 'var(--color-svv-muted)', fontWeight: 700 }}>Polygone à ajuster :</span>
+      {emprises.map((e) => {
+        const sel = e.id === selectionId;
+        return (
+          <button key={e.id} type="button" aria-current={sel ? 'true' : undefined} disabled={occupe}
+            data-selectionne={sel || undefined}
+            onClick={() => onSelectionner(e.id)}
+            style={{
+              cursor: occupe ? 'default' : 'pointer', opacity: occupe ? 0.5 : 1, fontSize: 13, minHeight: 32, padding: '.25rem .55rem',
+              borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)',
+              border: sel ? '2px solid var(--color-svv-red)' : '1px solid var(--color-svv-line)', fontWeight: sel ? 700 : 400,
+            }}>
+            {nomEmprise(e)}{sel && <span style={{ color: 'var(--color-svv-red)', fontWeight: 700 }}> · sélectionné</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 // PROJ-3h/3i — état des OPTIONS DE VISIBILITÉ du schéma de projection. Chaque interrupteur agit IMMÉDIATEMENT, sans recharger la ligne.
 //   ⓪ PROJ-3i : les deux filtres de PROJ-3h (« en projet » visibilité + « futur bâti » croisillon) visaient LE MÊME jeu de polygones
 //   (En projet ⊂ futur bâti ; sur le périmètre réel 0 « En construction ») → doublon d'interface, le croisillon faisant redondance
