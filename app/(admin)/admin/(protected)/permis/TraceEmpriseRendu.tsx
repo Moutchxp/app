@@ -6,6 +6,7 @@ import {
   projeterDansBoite, boiteEnglobanteRotee, clicVersBoiteMeet, SEUIL_RESIDU_CALAGE_M, SEUIL_RESIDU_CALAGE_BON_M,
   PAS_TRANSLATION_M, PAS_ROTATION_DEG, PAS_ECHELLE_PCT, type Boite, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type CadreVue, type EtatLevier, type ResumeAjustement,
 } from '../../../../lib/permis/calageEmprise';
+import { placerPoigneeDansCadre, type CadreBoite, type BornesTige } from './ancragePoignees'; // BAT (défaut E) — borne la longueur de tige + replie la poignée dans le cadre (unités boîte), rendu ET hit-test → jamais divergents
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { libelleBatiment, resumeProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { nomAffichageCorps, resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-1/NOM-3 — nom d'un corps ; nom DISTINCT par emprise (repère + « (numéro) »)
@@ -1691,12 +1692,22 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
   //   (proportionnel au viewBox) : la zone de capture suit la taille de la bulle à tout niveau d'affichage, sans coupler le parent. Le parent
   //   ne fait que la conversion pxBoite → Lambert (il connaît la boîte utilisée). Rayon partagé avec le rendu (aucune valeur en dur en double).
   const rBulle = rayonBullePoignee(Math.min(vb.w, vb.h));
+  // BAT (défaut E) — positions ÉCRAN (unités boîte) des poignées, PARTAGÉES par le rendu ET le hit-test (une seule vérité → on saisit
+  //   exactement ce qu'on voit). Cadre = viewBox rétréci du rayon d'une bulle (la bulle ENTIÈRE reste dans le champ). Bornes de tige :
+  //   min = 2,4·rBulle (les bulles ne se chevauchent jamais, même sur un polygone minuscule) ; max = 0,42·(petit côté du viewBox) (les
+  //   poignées restent bien à l'intérieur). `placerPoigneeDansCadre` borne puis replie chaque poignée.
+  const cadrePoignee: CadreBoite = { minX: vb.minX + rBulle, minY: vb.minY + rBulle, w: Math.max(1, vb.w - 2 * rBulle), h: Math.max(1, vb.h - 2 * rBulle) };
+  const bornesTige: BornesTige = { min: 2.4 * rBulle, max: 0.42 * Math.min(vb.w, vb.h) };
+  const poigneesBoite = apercuAjustement ? {
+    centre: proj(apercuAjustement.centre),
+    rotation: placerPoigneeDansCadre(proj(apercuAjustement.centre), proj(apercuAjustement.poigneeRotation), cadrePoignee, bornesTige),
+    echelle: placerPoigneeDansCadre(proj(apercuAjustement.centre), proj(apercuAjustement.poigneeEchelle), cadrePoignee, bornesTige),
+  } : null;
   const cibleAjust = (px: { x: number; y: number }, scalePxParUnite: number): 'corps' | 'rotation' | 'echelle' => {
-    if (!apercuAjustement || !boite) return 'corps';
+    if (!poigneesBoite) return 'corps';
     const seuil = seuilCapturePoignee(rBulle, scalePxParUnite); // BAT (défaut 2) — ≥ 44 px de diamètre, même si la bulle dessinée est plus petite
-    const pRot = projeterDansBoite(boite, apercuAjustement.poigneeRotation), pEch = projeterDansBoite(boite, apercuAjustement.poigneeEchelle);
-    if (Math.hypot(px.x - pRot.x, px.y - pRot.y) < seuil) return 'rotation';
-    if (Math.hypot(px.x - pEch.x, px.y - pEch.y) < seuil) return 'echelle';
+    if (Math.hypot(px.x - poigneesBoite.rotation.x, px.y - poigneesBoite.rotation.y) < seuil) return 'rotation';
+    if (Math.hypot(px.x - poigneesBoite.echelle.x, px.y - poigneesBoite.echelle.y) < seuil) return 'echelle';
     return 'corps';
   };
   return (
@@ -1841,7 +1852,7 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           const rCentre = Math.max(3.5, rB * 0.28);
           return <g data-ajustement-apercu="true">
           {apercuAjustement.anneaux.map((a, i) => a.length >= 3 && <path key={`aj${i}`} d={path(a)} fill="rgba(15,118,110,.18)" stroke={POIGNEE_ENCRE} strokeWidth={2.2} strokeDasharray="4 2" data-ajustement="corps" />)}
-          {(() => { const c = proj(apercuAjustement.centre), r = proj(apercuAjustement.poigneeRotation), e = proj(apercuAjustement.poigneeEchelle); return <>
+          {poigneesBoite && (() => { const c = poigneesBoite.centre, r = poigneesBoite.rotation, e = poigneesBoite.echelle; return <> {/* défaut E — positions bornées/repliées, identiques au hit-test */}
             {/* Tiges : liseré BLANC dessous (plus large), trait FONCÉ dessus → lisibles sur blanc ET sur polygone foncé. */}
             <line x1={c.x} y1={c.y} x2={r.x} y2={r.y} stroke={POIGNEE_HALO} strokeWidth={tigeHalo} strokeLinecap="round" />
             <line x1={c.x} y1={c.y} x2={e.x} y2={e.y} stroke={POIGNEE_HALO} strokeWidth={tigeHalo} strokeLinecap="round" />

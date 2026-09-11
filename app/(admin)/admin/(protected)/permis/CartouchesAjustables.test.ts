@@ -189,4 +189,8 @@ describe('BlocTraceEmprise — câblage rangée + bascule de mode (garde source)
     // Le surligné suivant le geste = l’aperçu d’ajustement, passé aux DEUX schémas (vue normale/XL + plein écran).
     expect((SRC.match(/apercuAjustement=\{apercuAjustement\}/g) ?? []).length).toBe(2);
   });
+  it('(défaut E) l’ancre des poignées dérive du CENTROÏDE affiché (ancragePoignees), plus du pivot+translation (d.centre + d.tx)', () => {
+    expect(SRC).toContain('ancragePoignees(anneaux, d.rotDeg)'); // ancre = centroïde d’aire de la géométrie AFFICHÉE
+    expect(SRC).not.toContain('d.centre.x + d.tx');              // l’ancienne ancre pivot+translation (divergente si delta rechargé/composé) est retirée
+  });
 });

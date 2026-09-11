@@ -5,14 +5,15 @@ import {
   calculerSimilitude, anneauVersLambert, aireM2, verdictCalage, verdictVraisemblance, cadreDeAnneaux, residusParPoint,
   levierCalage, etatLevier, inverseSimilitude, echelleImpliciteMParPt,
   appliquerAjustement, inverseAjustement, ajustementIdentite, resumeAjustement, ECHELLE_MIN, ECHELLE_MAX,
-  inverseDepuisBoite, projeterDansBoite, ecranVersCanvas, estClic, rotePoint, type Boite, type PaireCalage, type PointPlan, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type Ajustement,
+  inverseDepuisBoite, projeterDansBoite, ecranVersCanvas, estClic, type Boite, type PaireCalage, type PointPlan, type PointLambert, type VerdictCalage, type VerdictVraisemblance, type Debordement, type Ajustement,
 } from '../../../../lib/permis/calageEmprise';
 import { deplacerSommet, insererSommet, supprimerSommet, sommetProche, bordProche, type ResultatRetouche } from '../../../../lib/permis/retoucheEmprise';
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
 import { resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) » si plusieurs emprises sur le corps)
 import { choisirEmpriseAcces } from '../../../../lib/permis/choixEmpriseAcces'; // BAT — accès depuis la capsule : quelle emprise pointer quand la carte en porte plusieurs (validée sinon la plus récente)
-import { estAjustementModifie, sessionModifiee, basculeRefusee, empriseSelectionnee, type ModeGeste } from './ajustementSession'; // BAT — (déf.1) purge ; (déf.D&B) garde unique ; (déf.A) SOURCE UNIQUE de l'emprise sélectionnée (cerclé + nom + surlignage + tiges + cible en dérivent)
+import { estAjustementModifie, sessionModifiee, basculeRefusee, empriseSelectionnee, type ModeGeste } from './ajustementSession'; // BAT — (déf.1) purge ; (déf.D&B) garde unique ; (déf.A) SOURCE UNIQUE de l'emprise sélectionnée (cerclé + nom + tiges + cible en dérivent)
+import { ancragePoignees } from './ancragePoignees'; // BAT (défaut E) — ancre des poignées = centroïde d'aire de la géométrie AFFICHÉE (suit le delta)
 import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, CartouchesAjustables, BasculeMode, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
@@ -45,9 +46,6 @@ type Apercu = { vp: { convertToPdfPoint(x: number, y: number): number[]; convert
 const BOITE_L = 300, BOITE_H = 230, BOITE_MARGE = 12;
 const SEUIL_SOMMET_BOITE = 12; // PROJ-3s — rayon de capture d'un sommet au clic (unités de la boîte du schéma) : cible TACTILE, pas un seuil métier.
 // PROJ-3t — la capture des poignées est décidée DANS le schéma (il connaît le rayon réel des bulles, proportionnel au viewBox). Ici ne reste que
-//   le FACTEUR de déport des poignées (multiple du « rayon » de l'emprise = distance du sommet le plus loin au centre) : > 1 → hors du polygone,
-//   assez pour que la bulle agrandie NE MASQUE PAS le dessin, avec une tige visible. Constante nommée.
-const FACTEUR_POIGNEE_AJUSTEMENT = 1.4;
 type ModeRetouche = 'deplacer' | 'inserer' | 'supprimer';
 
 export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLiseuse = true, onValeurLue, onEmprisesChange, onEntete, onDonneesLiseuse, demandeAcces = null, onDemandeConsommee }: {
@@ -1045,17 +1043,17 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const onRotate = useCallback((deg: number) => majDelta((d) => ({ ...d, rotDeg: d.rotDeg + deg })), [majDelta]);
   const onScale = useCallback((pct: number) => majDelta((d) => ({ ...d, echelle: Math.min(ECHELLE_MAX, Math.max(ECHELLE_MIN, d.echelle * (1 + pct / 100))) })), [majDelta]);
 
-  // Aperçu (anneaux ajustés) + poignées, dérivés du delta EN COURS. Centre affiché = centre stocké + translation (le centre d'aire est fixe
-  //   sous échelle/rotation autour de lui → T(centre) = centre + t). R = rayon de l'aperçu ; poignées à 1,25·R, tournant avec le delta.
+  // BAT (défaut E) — Aperçu (anneaux ajustés) + poignées, dérivés du delta EN COURS. L'ancre des poignées = CENTROÏDE D'AIRE de la géométrie
+  //   AFFICHÉE (`ancragePoignees` la recalcule sur les anneaux transformés) : elle SUIT donc tout déplacement/rotation/échelle par construction,
+  //   sans jamais se poser sur un coin ni rester à l'origine. Robuste même si `delta.centre` (pivot figé) ne coïncide plus avec le centroïde
+  //   courant (delta rechargé/composé). Le pivot du GESTE (rotation/échelle) reste ce même centre affiché. Bornes de tige + repli dans le cadre :
+  //   côté écran (schéma), où elles ont un sens — cf. `placerPoigneeDansCadre`.
   const apercuAjustement = useMemo(() => {
     if (!ajustement) return null;
     const d = ajustement.delta;
     const anneaux = ajustement.base.map((a) => appliquerAjustement(a, d));
-    const centre = { x: d.centre.x + d.tx, y: d.centre.y + d.ty };
-    let R = 0; for (const a of anneaux) for (const p of a) R = Math.max(R, Math.hypot(p.x - centre.x, p.y - centre.y));
-    const rayon = (R > 0 ? R : 1) * FACTEUR_POIGNEE_AJUSTEMENT;
-    const pt = (angleDeg: number): PointLambert => rotePoint({ x: centre.x + rayon, y: centre.y }, centre, angleDeg); // point à `rayon`, tourné
-    return { anneaux, centre, poigneeRotation: pt(90 + d.rotDeg), poigneeEchelle: pt(d.rotDeg) }; // ↻ « au nord » de l'emprise, ⤢ « à l'est », suivent la rotation
+    const { centre, poigneeRotation, poigneeEchelle } = ancragePoignees(anneaux, d.rotDeg); // ↻ « au nord », ⤢ « à l'est », suivent la rotation
+    return { anneaux, centre, poigneeRotation, poigneeEchelle };
   }, [ajustement]);
 
   // Drag SOURIS/DOIGT : `down` fixe la cible (fournie par le schéma, qui connaît le rayon réel des bulles) ; `move` compose le delta ; `up`
