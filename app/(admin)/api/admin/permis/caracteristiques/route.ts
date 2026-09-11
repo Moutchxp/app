@@ -3,7 +3,9 @@ import { query } from '../../../../../lib/db/client';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { parserBornesCheck, parserListeCheck, parserListeArrayCheck, type BornesParColonne } from '../../../../../lib/sitadel/reglagesVeille';
 import { libelleNatureProjet } from '../../../../../lib/sitadel/priorite';
-import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, validerSommetCorps, lireAltitudeDernierPlancherCorps, attribuerNomsRepli, type ValeursCorps } from '../../../../../lib/permis/caracteristiquesRepo';
+import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, validerSommetCorps, lireAltitudeDernierPlancherCorps, attribuerNomsRepli, lireCartesPourPlan, retirerCorps, reactiverCorps, lireCorpsRetires, journalBatiments, type ValeursCorps, type CorpsRetire } from '../../../../../lib/permis/caracteristiquesRepo';
+import { planRetraitCartes, selectionRetraitValide } from '../../../../../lib/permis/retraitCartes'; // BAT-3 — décision PURE du plan de retrait / validation d'une sélection explicite
+import { colonneCorpsActifDisponible } from '../../../../../lib/permis/corpsActif'; // BAT-3 — 219 appliquée ? (gate du retrait soft)
 import { lireJournalChamps, type JournalPermis } from '../../../../../lib/permis/journalLecture';
 import { lireMargeCoherenceSommetPlancherM, MARGE_COHERENCE_SOMMET_PLANCHER_M_DEFAUT } from '../../../../../lib/permis/coherenceConfig';
 import { lireParcellesPermis, geojsonParcellesPermis, lireEmpreintePermis, geojsonEmpreintePermis, lireBatiSnapshotPermis, type ParcelleLigne, type EmpreinteLigne, type BatiSnapshotResume } from '../../../../../lib/permis/parcellesRepo';
@@ -14,7 +16,7 @@ import { lireDeclarationsRecap, lireDeclarationsRecapOuRepli, type DeclarationsC
 import { lirePiecesCerfa, type PieceCerfaInfo } from '../../../../../lib/permis/piecesCerfaRepo'; // CR-2a — « pièces analysées » de la cartouche (nom + pages + id), DIFFÉRÉ seulement (numPages lit le PDF)
 import { lireDernierePasseIa, type PasseIaStockee } from '../../../../../lib/permis/compteRenduIaRepo'; // CR-2b1 — dernière passe IA (informative), lecture SEULE ; null si table absente
 import { annulerCorrectionParcelle } from '../../../../../lib/permis/correctionParcelleRepo'; // LOT 101 → PL-C5 : seule l'annulation subsiste (dégeler une ligne héritée)
-import { lireNombreBatimentsValide } from '../../../../../lib/permis/autocreationCartesRepo'; // BAT-2 — nombre de bâtiments VALIDÉ (BAT-1), résilient (null si 218 absente) : état de cohérence de la sous-section « Caractéristiques et bâtiments d'origine »
+import { lireNombreBatimentsValide, poserNombreBatimentsValide, colonneNbValideDisponible } from '../../../../../lib/permis/autocreationCartesRepo'; // BAT-2/BAT-3 — nombre de bâtiments VALIDÉ (lecture/écriture SOURCE UNIQUE) + sonde de la migration 218
 import { MESURES, construireGlobal, construirePermis, coherenceSommetPlancher, type EditionPermis } from '../../../../admin/(protected)/permis/caracteristiquesForm';
 
 /** N7-E — liste FERMÉE de nature_projet, lue du CHECK de permis_caracteristique (jamais recopiée). */
@@ -35,11 +37,16 @@ async function lireDestinationsPossibles(): Promise<string[]> {
  * /api/admin/permis/caracteristiques (chantier N3-C) — édition des caractéristiques physiques d'UN permis. GET = état complet
  * (faits lecture seule du permis + global + corps + BORNES lues des CHECK). POST = écritures, TOUJOURS en mode 'saisie' (l'écran
  * n'écrit JAMAIS 'extraite') : global, corps (repère + mesures), création/suppression d'un corps. RÉSERVÉ ADMINISTRATEUR. Pas de
- * catch muet : chaque échec renvoie un motif distinguable. Runtime Node (pg).
+ * catch muet : chaque échec renvoie un motif distinguable. Runtime Node (pg). BAT-3 — actions 'nb_batiments' (changer le nombre de
+ * bâtiments : crée/retire des cartes ; retrait SOFT non destructif ; confirmation récapitulative si une carte porteuse de valeur part)
+ * et 'reactiver_corps' (réversibilité d'un retrait). GET renvoie aussi `corpsRetires` (cartes retirées, pour la réactivation).
  */
 export const runtime = 'nodejs';
 
 const estEntier = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+// BAT-3 — garde de sûreté du nombre de bâtiments (borne HAUTE) : évite qu'une saisie erronée n'emballe la boucle de création de cartes.
+//   Généreux (un permis réel en compte au plus quelques dizaines) ; la borne BASSE (≥ 0) est portée par le CHECK de la migration 218.
+const MAX_BATIMENTS = 200;
 const auteurDe = (g: { auteurId: number | null }): string => (g.auteurId != null ? String(g.auteurId) : 'admin');
 
 async function lireBornes(): Promise<BornesParColonne> {
@@ -145,9 +152,11 @@ export async function GET(request: Request): Promise<Response> {
     const modePassageSur = lireModePassageRattachement(); // COMPLÉMENT — mode courant : gouverne l'affichage du bouton de clôture (④) vs le message « passé en Rattachement »
     // BAT-2 — nombre de bâtiments VALIDÉ (BAT-1) : état de cohérence de la sous-section « Caractéristiques et bâtiments d'origine ». Déjà résilient (null si 218 absente) ; `.catch` de ceinture par cohérence avec les autres lectures tolérantes.
     const nbBatimentsValideSur = lireNombreBatimentsValide(dossierId).catch(() => null as number | null);
-    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat, modePassageRattachement, nbBatimentsValide] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur, parcSur, empSur, batiSur, declSur, margeSur, empriseEtatSur, modePassageSur, nbBatimentsValideSur]);
+    // BAT-3 — cartes RETIRÉES (soft) du dossier, pour le geste de RÉACTIVATION. Résilient (219 non appliquée → []).
+    const corpsRetiresSur = lireCorpsRetires(dossierId).catch(() => [] as CorpsRetire[]);
+    const [faits, etat, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat, modePassageRattachement, nbBatimentsValide, corpsRetires] = await Promise.all([lireFaits(dossierId), lirePermisCaracteristiques(dossierId), lireBornes(), journalSur, naturesSur, piecesSur, destSur, parcSur, empSur, batiSur, declSur, margeSur, empriseEtatSur, modePassageSur, nbBatimentsValideSur, corpsRetiresSur]);
     if (faits === null) return Response.json({ erreur: 'permis inconnu' }, { status: 404 });
-    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat, modePassageRattachement, nbBatimentsValide });
+    return Response.json({ faits, global: etat.global, corps: etat.corps, bornes, journal, naturesPossibles, piecesParNom, destinationsPossibles, parcelles, empreinte, bati, declarationsCerfa, margeCoherenceSommetM, empriseEtat, modePassageRattachement, nbBatimentsValide, corpsRetires });
   } catch (e) {
     console.error('[permis/caracteristiques] GET indisponible', e);
     return Response.json({ erreur: 'caractéristiques indisponibles' }, { status: 503 });
@@ -305,6 +314,72 @@ export async function POST(request: Request): Promise<Response> {
       if (!estEntier(body.corpsId)) return Response.json({ erreur: 'corpsId invalide' }, { status: 400 });
       const ok = await supprimerCorps(body.corpsId);
       return Response.json({ ok, supprime: ok });
+    }
+
+    // BAT-3 — CHANGER LE NOMBRE DE BÂTIMENTS (nb_batiments_valide) et AJUSTER les cartes : augmenter CRÉE des cartes vides (geste anodin,
+    //   sans confirmation) ; diminuer RETIRE des cartes en trop de façon NON DESTRUCTIVE (soft-delete, jamais de DELETE). Ordre de retrait
+    //   DÉTERMINISTE (module pur `planRetraitCartes`) : cartes vides d'abord (récentes en tête), puis porteuses de valeur. Un retrait qui
+    //   TOUCHE une carte porteuse de valeur EXIGE une confirmation récapitulative (2e appel `confirme:true`) : rien ne part sans elle. Un
+    //   `corpsIds` explicite (choix réel de l'écran) prime le plan déterministe (validé par `selectionRetraitValide`).
+    if (action === 'nb_batiments') {
+      if (!estEntier(body.dossierId)) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
+      const nombre = estEntier(body.nombre) ? body.nombre : NaN;
+      if (!Number.isInteger(nombre) || nombre < 0) return Response.json({ erreur: 'nombre de bâtiments invalide (entier ≥ 0 attendu)' }, { status: 422 });
+      if (nombre > MAX_BATIMENTS) return Response.json({ erreur: `nombre de bâtiments trop élevé (maximum ${MAX_BATIMENTS})` }, { status: 422 }); // garde anti-emballement de la boucle de création
+      if (!(await colonneNbValideDisponible())) return Response.json({ erreur: 'nombre de bâtiments indisponible : mise à jour de la base requise (migration 218)' }, { status: 409 });
+
+      const cartes = await lireCartesPourPlan(body.dossierId);
+      // Sélection EXPLICITE (choix réel de l'écran, checkboxes) OU plan déterministe.
+      const idsExplicit = Array.isArray(body.corpsIds) ? body.corpsIds.filter((v): v is number => estEntier(v)) : null;
+      let aRetirer: { id: number; nom: string; vide: boolean; valideeAltitude: boolean }[];
+      let aCreer = 0; let besoinConfirmation = false;
+      if (idsExplicit && idsExplicit.length > 0) {
+        const sel = selectionRetraitValide(cartes, idsExplicit, nombre);
+        if (!sel.ok) return Response.json({ erreur: sel.motif }, { status: 422 });
+        aRetirer = sel.aRetirer; besoinConfirmation = sel.besoinConfirmation;
+      } else {
+        const plan = planRetraitCartes(cartes, nombre);
+        aRetirer = plan.aRetirer; aCreer = plan.aCreer; besoinConfirmation = plan.besoinConfirmation;
+      }
+
+      // RETRAIT → nécessite la migration 219 (soft-delete). Confirmation EXIGÉE si le plan touche une carte porteuse de valeur.
+      if (aRetirer.length > 0) {
+        if (!(await colonneCorpsActifDisponible())) return Response.json({ erreur: 'retrait de bâtiment indisponible : mise à jour de la base requise (migration 219)' }, { status: 409 });
+        if (besoinConfirmation && body.confirme !== true) {
+          // On ne retire RIEN : on renvoie le récapitulatif NOMMÉ (cartes qui partent + drapeau altitude validée) ET la liste des cartes
+          //   actives (pour le CHOIX RÉEL à l'écran : l'admin peut retirer d'autres cartes que le plan déterministe, à compte égal).
+          return Response.json({ ok: false, besoinConfirmation: true, aRetirer, cartes, actuel: cartes.length, cible: nombre });
+        }
+      }
+
+      const ancienValide = await lireNombreBatimentsValide(body.dossierId); // « ancien nombre » pour la trace (null si jamais validé → repli sur le nb de cartes)
+      const ancien = ancienValide ?? cartes.length;
+      // AUGMENTATION — créer les cartes vides manquantes (numérotées ensuite), sans confirmation.
+      for (let i = 0; i < aCreer; i++) await creerCorps(body.dossierId, null, auteur);
+      if (aCreer > 0) await attribuerNomsRepli(body.dossierId);
+      // DIMINUTION — RETRAIT SOFT de chaque carte planifiée + trace par carte (jamais de DELETE ; valeurs conservées, réactivables).
+      let retire = 0;
+      for (const c of aRetirer) {
+        if (await retirerCorps(c.id, auteur)) {
+          retire += 1;
+          await journalBatiments(body.dossierId, c.id, 'corps_actif', null,
+            `Bâtiment « ${c.nom} » retiré (carte conservée, réactivable)${c.valideeAltitude ? ' — portait une altitude de sommet VALIDÉE' : (c.vide ? ' — carte vide' : ' — portait une valeur')} · par ${auteur}`);
+        }
+      }
+      await poserNombreBatimentsValide(body.dossierId, nombre, auteur); // SOURCE UNIQUE (partagée BAT-1)
+      await journalBatiments(body.dossierId, null, 'nb_batiments_valide', nombre,
+        `Nombre de bâtiments validé : ${ancien} → ${nombre}${aCreer > 0 ? ` · ${aCreer} carte(s) créée(s)` : ''}${retire > 0 ? ` · ${retire} carte(s) retirée(s) : ${aRetirer.map((c) => c.nom).join(', ')}` : ''} · par ${auteur}`);
+      return Response.json({ ok: true, cree: aCreer, retire, nombre });
+    }
+
+    // BAT-3 — RÉACTIVER une carte retirée : réversibilité visible. La ligne et ses valeurs (altitude validée, emprise, repère) étaient
+    //   INTACTES → elles reviennent telles quelles. Trace dans le journal existant. Nécessite 219.
+    if (action === 'reactiver_corps') {
+      if (!estEntier(body.corpsId) || !estEntier(body.dossierId)) return Response.json({ erreur: 'corpsId / dossierId invalide' }, { status: 400 });
+      if (!(await colonneCorpsActifDisponible())) return Response.json({ erreur: 'réactivation indisponible : mise à jour de la base requise (migration 219)' }, { status: 409 });
+      const ok = await reactiverCorps(body.corpsId, auteur);
+      if (ok) await journalBatiments(body.dossierId, body.corpsId, 'corps_actif', null, `Bâtiment réactivé (carte et valeurs restaurées) · par ${auteur}`);
+      return Response.json({ ok, reactive: ok });
     }
 
     // LOT 101 → PL-C5 — la CORRECTION MANUELLE mutante (actions 'candidats_parcelle' / 'corriger_parcelle', qui réécrivait la ligne

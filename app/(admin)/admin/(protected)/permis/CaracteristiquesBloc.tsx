@@ -12,7 +12,7 @@ import {
   MESURES, CHAMPS_PERMIS, construireCorps, construirePermis, valeurVersInput, permisVersInput,
   type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
-import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtatEmprise, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, type LienPiece } from './CaracteristiquesRendu';
+import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtatEmprise, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, ChampNombreBatiments, ConfirmationRetraitCartes, CartesRetirees, type LienPiece, type CartePlanVue } from './CaracteristiquesRendu';
 import { CompteRenduCartouche, type PasseIaCartouche } from './CompteRenduCartouche'; // CR-2a/CR-2b1 — cartouche + lecture IA (informative)
 import { messageErreurCartouche, type PieceCerfa } from './compteRendu'; // CR-2a — message 401 « session expirée » (jamais « indisponible »)
 import { BlocRepliable } from './BlocRepliable'; // PLI-1 — même dépliant que « Complétude »/« Historique » : chaque cartouche de « Caractéristiques du permis » replié à son titre, ouvrable indépendamment
@@ -21,7 +21,7 @@ import { etatCoherenceBatimentsTitre, etatAltitudesTitre, type ComptesCaracteris
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
 // N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null; majLe: string | null } | null; margeCoherenceSommetM?: number; empriseEtat?: EtatEmprisesPermis; modePassageRattachement?: 'automatique' | 'cloture_manuelle'; nbBatimentsValide?: number | null } // BAT-2 — nombre de bâtiments VALIDÉ (BAT-1) : cohérence de la sous-section « Caractéristiques et bâtiments d'origine »
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null; majLe: string | null } | null; margeCoherenceSommetM?: number; empriseEtat?: EtatEmprisesPermis; modePassageRattachement?: 'automatique' | 'cloture_manuelle'; nbBatimentsValide?: number | null; corpsRetires?: { id: number; nom: string; valideeAltitude: boolean; desactiveLe: string | null; desactiveParNom: string | null }[] } // BAT-2 — nombre de bâtiments VALIDÉ (BAT-1) ; BAT-3 — cartes RETIRÉES (réactivables)
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '', adresse: c.adresse ?? '',
@@ -73,6 +73,10 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
   const [erreursCorps, setErreursCorps] = useState<Record<number, ErreursCorps>>({});
   const [message, setMessage] = useState<string>('');
   const [enCours, setEnCours] = useState(false);
+  // BAT-3 — changement du nombre de bâtiments : valeur saisie, récap de confirmation (retrait touchant une carte porteuse de valeur), sélection.
+  const [edNbBat, setEdNbBat] = useState<string>('');
+  const [confirmRetrait, setConfirmRetrait] = useState<{ cartes: CartePlanVue[]; cible: number } | null>(null);
+  const [selRetrait, setSelRetrait] = useState<number[]>([]);
 
   const appliquer = useCallback((d: EtatCharge) => {
     setData(d);
@@ -81,6 +85,9 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
     setEdDestinations(d.global?.destinations ?? []); // N13
     setEdCorps(Object.fromEntries(d.corps.map((c) => [c.id, editionDepuisCorps(c)])));
     setErreursCorps({}); setErreursPermis({});
+    // BAT-3 — le champ reflète le nombre VALIDÉ (BAT-1) si posé, sinon le nombre de cartes actives ; toute confirmation en cours est effacée.
+    setEdNbBat(String(d.nbBatimentsValide ?? d.corps.length));
+    setConfirmRetrait(null); setSelRetrait([]);
     setEtat('ok');
   }, []);
 
@@ -219,6 +226,50 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
     setEnCours(false);
   }, [poster, dossierId, rafraichir]);
 
+  // BAT-3 — APPLIQUER le nouveau nombre de bâtiments. Augmentation → création immédiate (aucune confirmation). Diminution ne touchant que
+  //   des cartes vides → retrait immédiat. Diminution qui TOUCHE une carte porteuse de valeur → le serveur ne retire RIEN et renvoie
+  //   `besoinConfirmation` + la liste des cartes → on ouvre le récap (rien ne part avant « Confirmer »). Réponse complète lue ICI (le
+  //   helper `poster` ne rend que {ok,erreur} — insuffisant pour besoinConfirmation/cartes).
+  const appliquerNbBatiments = useCallback(async () => {
+    const brut = edNbBat.trim();
+    const n = brut === '' ? NaN : Number(brut);
+    if (!Number.isInteger(n) || n < 0) { setMessage('Nombre de bâtiments invalide (entier ≥ 0).'); return; }
+    setMessage(''); setEnCours(true);
+    try {
+      const res = await fetch('/api/admin/permis/caracteristiques', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'nb_batiments', dossierId, nombre: n }) });
+      const rep = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; besoinConfirmation?: boolean; cartes?: CartePlanVue[]; aRetirer?: CartePlanVue[]; cible?: number; cree?: number; retire?: number };
+      if (rep.besoinConfirmation) { // retrait touchant une valeur → ouvrir le récap, pré-sélectionner le plan déterministe. RIEN n'est retiré.
+        setConfirmRetrait({ cartes: rep.cartes ?? [], cible: rep.cible ?? n });
+        setSelRetrait((rep.aRetirer ?? []).map((c) => c.id));
+      } else if (res.ok && rep.ok) {
+        setConfirmRetrait(null);
+        await rafraichir();
+        setMessage((rep.retire ?? 0) > 0 ? `${rep.retire} bâtiment(s) retiré(s) — conservés, réactivables.` : (rep.cree ?? 0) > 0 ? `${rep.cree} carte(s) de bâtiment créée(s).` : 'Nombre de bâtiments mis à jour.');
+      } else setMessage(rep.erreur ?? 'échec');
+    } catch { setMessage('le serveur n’a pas répondu'); }
+    setEnCours(false);
+  }, [edNbBat, dossierId, rafraichir]);
+
+  // BAT-3 — CONFIRMER le retrait (2e appel, `confirme:true` + la sélection EXPLICITE de cartes = choix réel). Le serveur retire en soft + journalise.
+  const confirmerRetrait = useCallback(async () => {
+    if (!confirmRetrait) return;
+    setEnCours(true);
+    const r = await poster({ action: 'nb_batiments', dossierId, nombre: confirmRetrait.cible, confirme: true, corpsIds: selRetrait });
+    if (r.ok) { setConfirmRetrait(null); await rafraichir(); setMessage('Bâtiment(s) retiré(s) — conservés, réactivables.'); } else setMessage(r.erreur ?? 'échec');
+    setEnCours(false);
+  }, [confirmRetrait, selRetrait, dossierId, poster, rafraichir]);
+
+  const annulerRetrait = useCallback(() => { setConfirmRetrait(null); setSelRetrait([]); setEdNbBat(String(data?.nbBatimentsValide ?? data?.corps.length ?? 0)); }, [data]);
+  const basculerSelRetrait = useCallback((id: number) => setSelRetrait((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id])), []);
+
+  // BAT-3 — RÉACTIVER une carte retirée (réversibilité). Le serveur remet actif=true ; les valeurs (altitude validée, emprise, repère) étaient intactes.
+  const reactiverCarte = useCallback(async (corpsId: number) => {
+    setEnCours(true);
+    const r = await poster({ action: 'reactiver_corps', dossierId, corpsId });
+    if (r.ok) { await rafraichir(); setMessage('Bâtiment réactivé.'); } else setMessage(r.erreur ?? 'échec');
+    setEnCours(false);
+  }, [poster, dossierId, rafraichir]);
+
   if (etat === 'chargement') return <p style={styleAide} aria-live="polite">Chargement des caractéristiques…</p>;
   if (etat === 'erreur' || !data) return <p role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>Caractéristiques indisponibles.</p>;
 
@@ -251,10 +302,17 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
         {() => (
           <FaitsPermisBloc faits={data.faits} nbBatiments={data.corps.length} parcelles={data.parcelles} empreinte={data.empreinte} bati={data.bati}
             dossierId={dossierId} onParcelleChange={() => void rafraichir()}
+            controleNbBatiments={<ChampNombreBatiments valeur={edNbBat} nbActuel={data.corps.length} onValeur={setEdNbBat} onAppliquer={() => void appliquerNbBatiments()} enCours={enCours} />}
             onExportGeojson={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=1`, '_blank', 'noopener,noreferrer')}
             onExportEmpreinte={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=empreinte`, '_blank', 'noopener,noreferrer')} />
         )}
       </BlocRepliable>
+      {/* BAT-3 — CONFIRMATION de retrait (rendue HORS du cartouche repliable → toujours visible tant qu'elle est ouverte). Rien n'est retiré
+          tant que « Confirmer » n'est pas cliqué ; « Annuler » referme sans effet. */}
+      {confirmRetrait && (
+        <ConfirmationRetraitCartes cartes={confirmRetrait.cartes} cible={confirmRetrait.cible} selection={selRetrait}
+          onToggle={basculerSelRetrait} onConfirmer={() => void confirmerRetrait()} onAnnuler={annulerRetrait} enCours={enCours} />
+      )}
 
       {/* CARTOUCHE 2 — COMPTE RENDU DU CERFA (CR-2a) : compte rendu LISIBLE reconstitué de ce qui est en base (aucune IA). Remplace le pavé
           de texte brut. Chargé dans la sous-requête DIFFÉRÉE (cerfaRecap=1) — l'ouverture reste instantanée ; monté au 1er dépliage (PERF-1). */}
@@ -327,6 +385,8 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       {/* N10-C — D : ce que contient la section et d'où ça vient. */}
       <p style={styleAide}>Ce que la machine a <strong>mesuré</strong> sur les plans (coupes, façades) — distinct de ce que le Cerfa déclare.</p>
       {data.corps.length === 0 && <p style={styleAide}>{MESSAGE_AUCUN_CORPS}</p>}
+      {/* BAT-3 — cartes RETIRÉES (soft) + réactivation. Rendu null si aucune (jamais de bruit). */}
+      <CartesRetirees corpsRetires={data.corpsRetires ?? []} onReactiver={(id) => void reactiverCarte(id)} enCours={enCours} />
       {data.corps.map((c) => {
         const ed = edCorps[c.id];
         const err = erreursCorps[c.id] ?? {};

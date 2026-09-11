@@ -10,7 +10,8 @@
  * La traçabilité « quelle pièce, quelle page » n'est PAS ici (propositions N5). Module PROPRE : n'importe que `db/client`.
  */
 import { query } from '../db/client';
-import { actionsNomsRepli } from './nomCorps'; // NOM-1/NOM-2 — décision pure des codes de repli maison (BP{rang}) des corps anonymes
+import { actionsNomsRepli, nomAffichageCorps } from './nomCorps'; // NOM-1/NOM-2 — décision pure des codes de repli maison (BP{rang}) + nom d'affichage (source unique)
+import { fragmentCorpsActif, colonneCorpsActifDisponible } from './corpsActif'; // BAT-3 — prédicat « carte active » (219), résilient : une carte retirée est invisible de la lecture
 
 export type OrigineValeur = 'saisie' | 'extraite';
 
@@ -87,8 +88,9 @@ export function repartirEcriture<C extends string>(
   return { ecrits, ignores };
 }
 
-// ── LECTURE (une seule requête : global + tous les corps, ordre stable par id) ──────────────────────────────────────────────
+// ── LECTURE (une seule requête : global + tous les corps ACTIFS, ordre stable par id) ──────────────────────────────────────
 export async function lirePermisCaracteristiques(dossierId: number): Promise<PermisCaracteristiques> {
+  const fa = await fragmentCorpsActif(''); // BAT-3 — n'agrège QUE les cartes actives (retirées invisibles) ; vide si 219 non appliquée
   const { rows } = await query<{ global: GlobalPermis | null; corps: CorpsBatiment[] | null }>(
     `SELECT
        (SELECT json_build_object('parking', parking, 'parkingOrigine', parking_origine, 'commentaire', commentaire,
@@ -120,7 +122,7 @@ export async function lirePermisCaracteristiques(dossierId: number): Promise<Per
            'adresse', adresse, 'adresseOrigine', adresse_origine,
            'majLe', maj_le::text, 'majPar', maj_par
          ) ORDER BY id)
-         FROM permis_corps_batiment WHERE dossier_id = $1), '[]'::json) AS corps
+         FROM permis_corps_batiment WHERE dossier_id = $1${fa}), '[]'::json) AS corps
      `,
     [dossierId],
   );
@@ -199,10 +201,109 @@ export async function attribuerNomsRepli(dossierId: number): Promise<void> {
   } catch { /* colonne/table absente ou indisponible : best-effort, l'affichage retombe sur « bâtiment {id} ». */ }
 }
 
-/** Supprime un corps par son id. `false` si l'id est inconnu. */
+/** Supprime un corps par son id (DELETE PHYSIQUE). `false` si l'id est inconnu. ⚠️ BAT-3 : ce chemin destructif N'EST PLUS appelé par le
+ *  changement de nombre de bâtiments (qui passe par le RETRAIT SOFT `retirerCorps`). Conservé pour les rares gestes d'administration explicites. */
 export async function supprimerCorps(corpsId: number): Promise<boolean> {
   const res = await query(`DELETE FROM permis_corps_batiment WHERE id = $1`, [corpsId]);
   return (res.rowCount ?? 0) > 0;
+}
+
+// ── BAT-3 — RETRAIT NON DESTRUCTIF d'une carte de bâtiment (soft-delete, migration 219) + réactivation + lecture des cartes retirées ──
+const estColonneAbsente = (e: unknown): boolean => typeof e === 'object' && e !== null && (e as { code?: string }).code === '42703'; // colonne inexistante
+
+/**
+ * BAT-3 — RETIRE une carte (retrait SOFT : actif=false + trace desactive_le/_par ; qui/quand). JAMAIS de DELETE. Idempotent : `false` si la
+ * carte est inconnue OU déjà retirée (WHERE … AND actif). Requiert la migration 219 (colonnes actif/desactive_*) : l'appelant SONDE
+ * `colonneCorpsActifDisponible()` AVANT (l'écran ne propose le retrait qu'après 219) — ici, colonne absente ⇒ l'UPDATE lève 42703 (remonté au caller).
+ */
+export async function retirerCorps(corpsId: number, majPar: string): Promise<boolean> {
+  const res = await query(
+    `UPDATE permis_corps_batiment SET actif = false, desactive_le = now(), desactive_par = $2, maj_le = now(), maj_par = $2 WHERE id = $1 AND actif`,
+    [corpsId, majPar]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+/** BAT-3 — RÉACTIVE une carte retirée : actif=true, trace de retrait effacée (desactive_le/_par NULL). La ligne et ses valeurs (altitude
+ *  validée, emprise, repère) étaient INTACTES → elles reviennent telles quelles. Idempotent : `false` si inconnue OU déjà active. */
+export async function reactiverCorps(corpsId: number, majPar: string): Promise<boolean> {
+  const res = await query(
+    `UPDATE permis_corps_batiment SET actif = true, desactive_le = NULL, desactive_par = NULL, maj_le = now(), maj_par = $2 WHERE id = $1 AND NOT actif`,
+    [corpsId, majPar]);
+  return (res.rowCount ?? 0) > 0;
+}
+
+/** BAT-3 — une carte active réduite aux signaux du PLAN de retrait (module pur `retraitCartes`). `vide` = aucune valeur portée. */
+export interface CartePlan { id: number; nom: string; vide: boolean; valideeAltitude: boolean }
+// « aucune valeur » = toutes les colonnes de mesure + emprise (corps) + repère + adresse à NULL. (L'emprise RECONSTRUITE est ajoutée à part.)
+const CORPS_SANS_VALEUR =
+  `cb.altitude_sommet_ngf IS NULL AND cb.emprise IS NULL AND cb.repere IS NULL AND cb.nb_etages IS NULL
+   AND cb.nb_niveaux_sous_sol IS NULL AND cb.altitude_dernier_plancher_ngf IS NULL AND cb.hauteur_max_plu_ngf IS NULL
+   AND cb.altitude_plateau_nivellement_ngf IS NULL AND cb.hauteur_relative_m IS NULL AND cb.altitude_terrain_naturel_ngf IS NULL AND cb.adresse IS NULL`;
+
+/**
+ * BAT-3 — cartes ACTIVES d'un dossier, prêtes pour `planRetraitCartes` : nom (source unique `nomAffichageCorps`), `valideeAltitude`
+ * (confirme_le posé) et `vide`. Une carte n'est VIDE que si elle n'a AUCUNE valeur de corps ET AUCUNE emprise RECONSTRUITE tracée
+ * (lecture séparée, résiliente : table 149 absente → aucune → conservateur). RÉSILIENT à l'absence de nom_repli (168).
+ */
+export async function lireCartesPourPlan(dossierId: number): Promise<CartePlan[]> {
+  const fa = await fragmentCorpsActif('cb');
+  const sql = (avecNomRepli: boolean) =>
+    `SELECT cb.id::int AS id, cb.repere${avecNomRepli ? ', cb.nom_repli' : ', NULL::text AS nom_repli'},
+            (cb.altitude_sommet_ngf_confirme_le IS NOT NULL) AS validee_altitude, (${CORPS_SANS_VALEUR}) AS sans_valeur
+       FROM permis_corps_batiment cb WHERE cb.dossier_id = $1${fa} ORDER BY cb.id`;
+  type Row = { id: number; repere: string | null; nom_repli: string | null; validee_altitude: boolean; sans_valeur: boolean };
+  let rows: Row[];
+  try { rows = (await query<Row>(sql(true), [dossierId])).rows; }
+  catch (e) { if (!estColonneAbsente(e)) throw e; rows = (await query<Row>(sql(false), [dossierId])).rows; } // 168 absente → sans nom_repli
+  // Emprises RECONSTRUITES tracées (par corps) — séparé et résilient (table 149 absente → ensemble vide → aucune n'empêche « vide »).
+  const avecEmprise = new Set<number>();
+  if (rows.length > 0) {
+    try {
+      const r = await query<{ id: number }>(`SELECT DISTINCT corps_id::int AS id FROM permis_emprise_reconstruite WHERE corps_id = ANY($1::int[])`, [rows.map((x) => x.id)]);
+      for (const x of r.rows) avecEmprise.add(Number(x.id));
+    } catch { /* 149 absente → aucune emprise reconstruite (rien à protéger) */ }
+  }
+  return rows.map((r) => ({
+    id: Number(r.id), nom: nomAffichageCorps({ repere: r.repere, nomRepli: r.nom_repli, corpsId: Number(r.id) }),
+    valideeAltitude: r.validee_altitude === true, vide: r.sans_valeur === true && !avecEmprise.has(Number(r.id)),
+  }));
+}
+
+/** BAT-3 — carte RETIRÉE (soft), pour le geste de RÉACTIVATION : nom, altitude validée (préservée), qui/quand du retrait (auteur résolu en nom). */
+export interface CorpsRetire { id: number; nom: string; valideeAltitude: boolean; desactiveLe: string | null; desactiveParNom: string | null }
+
+/** BAT-3 — cartes retirées d'un dossier (les plus récemment retirées en tête). `[]` si 219 non appliquée (aucune carte ne peut être retirée). */
+export async function lireCorpsRetires(dossierId: number): Promise<CorpsRetire[]> {
+  if (!(await colonneCorpsActifDisponible())) return []; // 219 non appliquée → aucune carte retirée possible
+  const sql = (avecNomRepli: boolean) =>
+    `SELECT cb.id::int AS id, cb.repere${avecNomRepli ? ', cb.nom_repli' : ', NULL::text AS nom_repli'},
+            (cb.altitude_sommet_ngf_confirme_le IS NOT NULL) AS validee_altitude, cb.desactive_le::text AS desactive_le,
+            (SELECT nullif(btrim(concat_ws(' ', u.prenom, u.nom)), '') FROM admin_utilisateur u WHERE u.id::text = cb.desactive_par LIMIT 1) AS desactive_par_nom
+       FROM permis_corps_batiment cb WHERE cb.dossier_id = $1 AND NOT cb.actif ORDER BY cb.desactive_le DESC NULLS LAST, cb.id`;
+  type Row = { id: number; repere: string | null; nom_repli: string | null; validee_altitude: boolean; desactive_le: string | null; desactive_par_nom: string | null };
+  let rows: Row[];
+  try { rows = (await query<Row>(sql(true), [dossierId])).rows; }
+  catch (e) { if (!estColonneAbsente(e)) throw e; rows = (await query<Row>(sql(false), [dossierId])).rows; } // 168 absente → sans nom_repli
+  return rows.map((r) => ({
+    id: Number(r.id), nom: nomAffichageCorps({ repere: r.repere, nomRepli: r.nom_repli, corpsId: Number(r.id) }),
+    valideeAltitude: r.validee_altitude === true, desactiveLe: r.desactive_le, desactiveParNom: r.desactive_par_nom ?? null,
+  }));
+}
+
+/**
+ * BAT-3 — TRACE d'audit d'un changement de nombre / retrait / réactivation, dans le journal EXISTANT `permis_extraction_journal` (pas de
+ * 2e journal). Ligne INERTE pour tous ses lecteurs : role='candidat' (exclu de lireJournalChamps/proprietairesRetenue qui filtrent
+ * 'retenue'/'ecartee') et origine NULL (exclu de lireOrigineExtractionSansIa qui exige origine NOT NULL) → n'affecte ni le journal
+ * affiché, ni la précédence, ni la ligne 6 du LOT 99. Le récit (qui/ancien→nouveau/cartes) va dans motif+extrait ; l'ACTEUR est aussi porté
+ * par les colonnes de ligne (desactive_par / nb_batiments_valide_par). BEST-EFFORT : table 104 absente → no-op (les colonnes _le/_par tracent déjà).
+ */
+export async function journalBatiments(dossierId: number, corpsId: number | null, champ: 'nb_batiments_valide' | 'corps_actif', valeur: number | null, recit: string): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO permis_extraction_journal (dossier_id, corps_id, champ, valeur, role, methode, motif, extrait, extrait_le)
+       VALUES ($1, $2, $3, $4, 'candidat', 'motifs', $5, $5, now())`,
+      [dossierId, corpsId, champ, valeur, recit]);
+  } catch { /* 104 absente / indisponible : trace best-effort (ne fait jamais échouer l'opération ; les colonnes _le/_par portent déjà qui/quand). */ }
 }
 
 /** N3-C — renomme un corps (le `repere` n'a PAS d'origine : c'est un libellé humain, comme le commentaire du global). `null` = anonyme. */
@@ -367,10 +468,11 @@ export async function lireCaracteristiquesComptesParDossier(
   const m = new Map<number, { nbCartes: number; nbSansAltitude: number; nbBatimentsValide: number | null }>();
   if (dossierIds.length === 0) return m;
   try {
+    const fa = await fragmentCorpsActif(''); // BAT-3 — ne compte QUE les cartes actives (une carte retirée sort du compte de la famille)
     const { rows } = await query<{ dossier_id: number | string; nb_cartes: number | string; nb_sans_alt: number | string }>(
       `SELECT dossier_id, count(*)::int AS nb_cartes,
               count(*) FILTER (WHERE altitude_sommet_ngf IS NULL)::int AS nb_sans_alt
-         FROM permis_corps_batiment WHERE dossier_id = ANY($1::int[]) GROUP BY dossier_id`, [dossierIds]);
+         FROM permis_corps_batiment WHERE dossier_id = ANY($1::int[])${fa} GROUP BY dossier_id`, [dossierIds]);
     for (const r of rows) m.set(Number(r.dossier_id), { nbCartes: Number(r.nb_cartes), nbSansAltitude: Number(r.nb_sans_alt), nbBatimentsValide: null });
   } catch { return m; } // lecture des corps indisponible → map vide (défensif)
   // nb_batiments_valide SÉPARÉ + RÉSILIENT (218) : ne jamais faire échouer les comptes de corps si la colonne manque.

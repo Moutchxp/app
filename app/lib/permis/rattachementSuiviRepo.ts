@@ -25,6 +25,7 @@ import { estAFaire, estValidationAcquise, partitionnerSuivi } from './rattacheme
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti AFFICHÉ = registre (autorité), plus le proxy
 import { figerVersionValidation } from './gelRepo'; // SURV-1 — geler la référence de surveillance à la validation AUTO
 import { construireFiltreSuivi, TYPES_PERMIS_FILTRE, type CriteresSuivi } from './filtreSuivi'; // recherche : critères + WHERE paramétré (module PUR client-safe)
+import { fragmentCorpsActif } from './corpsActif'; // BAT-3 — le suivi Rattachement ne compte que les cartes actives (retirées invisibles)
 
 // ÉTAGE 1 — deux états ajoutés : `acheve_sans_bati` (achèvement déclaré sur un permis SANS signal géométrique possible → décision
 //   humaine « confirmer et clore » attendue) et `clos_sans_bati` (terminal, après confirmation). Cf. resoudreEtatSuivi / migration 156.
@@ -259,7 +260,9 @@ async function lireAlertesSurveillanceParDossier(): Promise<Map<number, number>>
 
 // SELECT + FROM PARTAGÉS entre `listerSuivi` (liste complète) et `rechercherSuivi` (filtré/paginé) : MÊMES colonnes → MÊME forme
 //   LigneSuivi, une seule vérité. Les alias e/s/c/r sont fixés par FROM_SUIVI.
-const SELECT_SUIVI_PREFIXE = `e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s.type,
+// BAT-3 — `faCb` = fragment « cartes actives » (` AND cb.actif` si 219 appliquée, sinon vide) intercalé dans CHAQUE sous-requête de comptage
+//   de corps : une carte retirée ne pèse ni dans nb_corps, ni dans les « sans altitude/emprise validée » (une seule vérité avec le dépliant).
+const selectSuiviPrefixe = (faCb: string) => `e.dossier_id, s.num_dau, s.code_insee, c.nom AS commune, s.type,
             nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
             s.nature_projet_completee AS nature, r.etat AS ratt_etat, r.verdict, r.origine_ouverture,
             GREATEST(0, floor(EXTRACT(EPOCH FROM (now() - COALESCE(r.detecte_le, e.maj_le))) / 86400))::int AS jours,
@@ -267,16 +270,16 @@ const SELECT_SUIVI_PREFIXE = `e.dossier_id, s.num_dau, s.code_insee, c.nom AS co
             to_char(s.date_reelle_autorisation, 'YYYY-MM-DD') AS date_autorisation,
             to_char(r.detecte_le, 'YYYY-MM-DD') AS date_declenchement,
             EXISTS (SELECT 1 FROM permis_projection pj WHERE pj.dossier_id = e.dossier_id) AS projection_validee,
-            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id) AS nb_corps,
+            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id${faCb}) AS nb_corps,
             -- FRANCHI LE PROCESS : bâtiments dont l'altitude n'est PAS VALIDÉE (confirme_le NULL) …
-            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND cb.altitude_sommet_ngf_confirme_le IS NULL) AS nb_corps_sans_alt_validee`;
+            (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id${faCb} AND cb.altitude_sommet_ngf_confirme_le IS NULL) AS nb_corps_sans_alt_validee`;
 // VAL-1 (213) — bâtiments dont l'emprise N'EST PAS VALIDÉE. PAR EMPRISE : un bâtiment est « validé » ssi il a ≥ 1 emprise ET aucune emprise
 //   non validée. Repli (213 non appliquée) : ancien pointeur unique par corps `emprise_validee_id`. MÊME règle que le dépliant (lireEtatEmprisesPermis).
-function selectSuivi(perEmprise: boolean): string {
+function selectSuivi(perEmprise: boolean, faCb: string): string {
   const fragment = perEmprise
-    ? `(SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND NOT (EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.corps_id = cb.id) AND NOT EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.corps_id = cb.id AND ee.validee_le IS NULL))) AS nb_corps_sans_emprise_validee`
-    : `(SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id AND NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.id = cb.emprise_validee_id AND ee.corps_id = cb.id))) AS nb_corps_sans_emprise_validee`;
-  return `${SELECT_SUIVI_PREFIXE},\n            ${fragment}`;
+    ? `(SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id${faCb} AND NOT (EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.corps_id = cb.id) AND NOT EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.corps_id = cb.id AND ee.validee_le IS NULL))) AS nb_corps_sans_emprise_validee`
+    : `(SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = e.dossier_id${faCb} AND NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.id = cb.emprise_validee_id AND ee.corps_id = cb.id))) AS nb_corps_sans_emprise_validee`;
+  return `${selectSuiviPrefixe(faCb)},\n            ${fragment}`;
 }
 /** Présence de la colonne validee_le (migration 213) → choisit le calcul PAR EMPRISE ; sinon repli pointeur corps. Résilient (métadonnée absente → repli). */
 async function colValideeEmpriseExiste(): Promise<boolean> {
@@ -310,8 +313,8 @@ export interface ComptesGroupesSuivi { rattAFaire: number; rattValides: number; 
 
 /** Liste l'UNIVERS des permis suivis (ceux qui ont une empreinte) LEFT JOIN leur dossier ; « aucun signal » si pas de dossier. */
 export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number>; comptesGroupes: ComptesGroupesSuivi; modePassage: ModePassageRattachement }> {
-  const [alertesSurv, modePassage, perEmprise] = await Promise.all([lireAlertesSurveillanceParDossier(), lireModePassageRattachement(), colValideeEmpriseExiste()]); // COMPLÉMENT — le mode décide l'appartenance (source unique)
-  const { rows } = await query<RangeeSuivi>(`SELECT ${selectSuivi(perEmprise)}\n       ${FROM_SUIVI}`);
+  const [alertesSurv, modePassage, perEmprise, faCb] = await Promise.all([lireAlertesSurveillanceParDossier(), lireModePassageRattachement(), colValideeEmpriseExiste(), fragmentCorpsActif('cb')]); // COMPLÉMENT — le mode décide l'appartenance (source unique) ; BAT-3 — cartes actives
+  const { rows } = await query<RangeeSuivi>(`SELECT ${selectSuivi(perEmprise, faCb)}\n       ${FROM_SUIVI}`);
   // RATT-1 — signal LÉGER « dossier incomplet » (lecture mémoire, une requête, aucune IA) pour le 3e groupe. Résilient (set vide si 174 absente).
   const incomplets = await dossiersIncompletsParmi(rows.map((r) => Number(r.dossier_id)));
   const lignes: LigneSuivi[] = trierLignesSuivi(rows.map((r) => versLigneSuivi(r, alertesSurv, incomplets)));
@@ -337,9 +340,9 @@ export async function rechercherSuivi(c: CriteresSuivi, page: number): Promise<{
   if (!actif) return { lignes: [], total: 0, page: 1, nbPages: 0 };
   const pageSure = Math.max(1, Math.floor(Number(page)) || 1);
   const offset = (pageSure - 1) * TAILLE_PAGE_SUIVI;
-  const [alertesSurv, perEmprise] = await Promise.all([lireAlertesSurveillanceParDossier(), colValideeEmpriseExiste()]);
+  const [alertesSurv, perEmprise, faCb] = await Promise.all([lireAlertesSurveillanceParDossier(), colValideeEmpriseExiste(), fragmentCorpsActif('cb')]); // BAT-3 — cartes actives
   const { rows } = await query<RangeeSuivi & { total: number | string }>(
-    `SELECT ${selectSuivi(perEmprise)}, count(*) OVER() AS total
+    `SELECT ${selectSuivi(perEmprise, faCb)}, count(*) OVER() AS total
        ${FROM_SUIVI}
       WHERE ${fragments.join(' AND ')}
       ORDER BY s.date_reelle_autorisation DESC NULLS LAST, e.dossier_id

@@ -21,6 +21,7 @@ import { lireDossiersEnTest } from './testAnalyseRepo'; // LOT 51 — porte FIX-
 import { arreterToutesRelances } from './arretRelances'; // LOT 51-C — arrêt EXHAUSTIF (close + partiel_leve_le) à la sortie définitive du test
 import { estValidationAcquise } from './rattachementGroupes'; // 🔴 SOURCE UNIQUE du critère « franchi le process » (altitudes + emprises VALIDÉES), partagé avec le regroupement Rattachement/Surveillance
 import { lireEtatPlanche } from './plancheParcellesRepo'; // PL-ÉTAT — état SAUVEGARDÉ de la planche (sélection validée + bilan déclaré ↔ effectif), pour la LIGNE de titre sans déplier
+import { fragmentCorpsActif } from './corpsActif'; // BAT-3 — la file/projection ne compte que les cartes actives (retirées invisibles)
 import type { CasBilanComparatif } from './comparatifParcelles'; // PL-ÉTAT — cas du bilan (module pur)
 
 // VAL-1 (213) — un bâtiment est « SANS emprise validée » selon la validation PAR EMPRISE (≥ 1 emprise ET aucune emprise non validée). Repli
@@ -80,6 +81,7 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: b
                         WHERE ddp.dossier_id = s.id AND ddp.actif AND dmp.partiel_le IS NOT NULL AND dmp.partiel_leve_le IS NULL)
            OR s.id = ANY($1))`
     : '';
+  const faB = await fragmentCorpsActif('b'); // BAT-3 — comptes de bâtiments : cartes ACTIVES seulement (résilient : vide si 219 non appliquée)
   const { rows } = await query<{
     dossier_id: number; num_dau: string; commune_nom: string | null; type: 'PC' | 'PD';
     nature_projet_completee: string | null; i_extension: boolean | null; i_surelevation: boolean | null;
@@ -88,8 +90,8 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: b
   }>(
     `SELECT s.id::int AS dossier_id, s.num_dau, c.nom AS commune_nom, s.type,
             s.nature_projet_completee, s.i_extension, s.i_surelevation, s.nb_lgt_tot_crees, s.surf_creee,
-            (SELECT count(*) FROM permis_corps_batiment b WHERE b.dossier_id = s.id)::int AS nb_batiments,
-            (SELECT count(*) FROM permis_corps_batiment b WHERE b.dossier_id = s.id AND b.altitude_sommet_ngf IS NULL)::int AS nb_corps_sans_altitude,
+            (SELECT count(*) FROM permis_corps_batiment b WHERE b.dossier_id = s.id${faB})::int AS nb_batiments,
+            (SELECT count(*) FROM permis_corps_batiment b WHERE b.dossier_id = s.id${faB} AND b.altitude_sommet_ngf IS NULL)::int AS nb_corps_sans_altitude,
             max(dd.satisfait_le)::date::text AS satisfait_le
        FROM demande_dossier dd
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
@@ -125,11 +127,12 @@ async function lireValidationFileParDossier(dossierIds: number[]): Promise<Map<n
   if (dossierIds.length === 0) return m;
   try {
     const perEmprise = await colValideeEmpriseExiste(); // VAL-1 — per-emprise si 213 appliquée, sinon ancien pointeur corps
+    const faCb = await fragmentCorpsActif('cb'); // BAT-3 — comptes de validation : cartes ACTIVES seulement
     const { rows } = await query<{ dossier_id: number; sans_alt: number | string; sans_emp: number | string }>(
       `SELECT cb.dossier_id,
               count(*) FILTER (WHERE cb.altitude_sommet_ngf_confirme_le IS NULL)::int AS sans_alt,
               count(*) FILTER (WHERE ${fragSansEmpriseValidee(perEmprise)})::int AS sans_emp
-         FROM permis_corps_batiment cb WHERE cb.dossier_id = ANY($1) GROUP BY cb.dossier_id`, [dossierIds]);
+         FROM permis_corps_batiment cb WHERE cb.dossier_id = ANY($1)${faCb} GROUP BY cb.dossier_id`, [dossierIds]);
     for (const r of rows) m.set(Number(r.dossier_id), { sansAlt: Number(r.sans_alt), sansEmp: Number(r.sans_emp) });
   } catch { /* 206 absente ou lecture indisponible → map vide, n° rouge (jamais un faux « prêt ») */ }
   return m;
@@ -206,8 +209,9 @@ export type ResultatValidationProjection =
 /** Évalue la CONDITION D'EMPREINTE (chaîne existante) : chaque bâtiment déclaré a une emprise tracée OU une projection ignorée.
  *  Lectures batchées → verdict pur. Réutilisée par la validation NORMALE et par la SORTIE DU TEST (LOT 51-C). */
 async function evaluerEmpreinte(dossierId: number): Promise<VerdictProjection> {
+  const faEmp = await fragmentCorpsActif(''); // BAT-3 — l'univers de la condition d'empreinte exclut les cartes retirées
   const [{ rows: bats }, emprises, ignores] = await Promise.all([
-    query<{ id: number; repere: string | null }>(`SELECT id::int AS id, repere FROM permis_corps_batiment WHERE dossier_id = $1`, [dossierId]),
+    query<{ id: number; repere: string | null }>(`SELECT id::int AS id, repere FROM permis_corps_batiment WHERE dossier_id = $1${faEmp}`, [dossierId]),
     listerEmprises(dossierId),
     listerIgnorees(dossierId),
   ]);
@@ -290,11 +294,12 @@ export async function sortirTestVersRattachement(dossierId: number, par: string 
   //   VALIDÉE (emprise_validee_id, migration 206). Plus strict que « renseignées ». SOURCE UNIQUE = estValidationAcquise (même critère
   //   que le regroupement Rattachement/Surveillance). Refus qui DIT quels bâtiments manquent et QUOI valider (jamais un bouton muet).
   const perEmprise = await colValideeEmpriseExiste(); // VAL-1 — même règle per-emprise que la liste/le dépliant/Rattachement (un seul verdict)
+  const faCb = await fragmentCorpsActif('cb'); // BAT-3 — la validation du permis ne considère que les cartes ACTIVES
   const { rows } = await query<{ id: number; repere: string | null; sans_alt: boolean; sans_emp: boolean }>(
     `SELECT cb.id, cb.repere,
             (cb.altitude_sommet_ngf_confirme_le IS NULL) AS sans_alt,
             ${fragSansEmpriseValidee(perEmprise)} AS sans_emp
-       FROM permis_corps_batiment cb WHERE cb.dossier_id = $1 ORDER BY cb.id`, [dossierId]);
+       FROM permis_corps_batiment cb WHERE cb.dossier_id = $1${faCb} ORDER BY cb.id`, [dossierId]);
   const sansAlt = rows.filter((r) => r.sans_alt), sansEmp = rows.filter((r) => r.sans_emp);
   if (!estValidationAcquise(rows.length, sansAlt.length, sansEmp.length)) {
     const nom = (r: { id: number; repere: string | null }) => r.repere ?? `bâtiment ${r.id}`;

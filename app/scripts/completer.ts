@@ -8,6 +8,7 @@
  */
 import '../lib/chargerEnv';
 import { query, closePool } from '../lib/db/client';
+import { fragmentCorpsActif } from '../lib/permis/corpsActif'; // BAT-3 — l'aperçu des abstentions suit les mêmes cartes actives que l'écriture réelle
 import { resoudreDossier, lireGedPermis, depsReellesLectureGed } from '../lib/permis/lectureGed';
 import { extraireCandidats } from '../lib/permis/extractionCaracteristiques';
 import { decisionLots } from '../lib/permis/decisionLots';
@@ -77,7 +78,8 @@ async function main(): Promise<void> {
       if (!dry) await ecrireGabaritPlu(dossierId, brutes, 'extraction:gabarit-plu');
       // N10-R — prévoir les abstentions de corpus muet (désignation + gabarit/plateau par corps) pour que le compte rendu
       //   n'affiche AUCUN vide muet, y compris en --dry-run (où rien n'est journalisé). Mêmes conditions que les écritures.
-      const { rows: cr } = await query<{ id: number }>(`SELECT id::int AS id FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY id`, [dossierId]);
+      const faCr = await fragmentCorpsActif(''); // BAT-3 — cartes actives seulement (aligné sur ecritureGabaritPlu)
+      const { rows: cr } = await query<{ id: number }>(`SELECT id::int AS id FROM permis_corps_batiment WHERE dossier_id = $1${faCr} ORDER BY id`, [dossierId]);
       const cibles: (number | null)[] = cr.length > 0 ? cr.map((r) => r.id) : [null];
       const abstentions: PrevisionAbstention[] = [
         ...(desig.statut === 'abstenue' ? [{ champ: 'designation', corpsId: null, motif: desig.motif }] : []),

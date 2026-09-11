@@ -1,4 +1,4 @@
-import { Fragment, type CSSProperties } from 'react';
+import { Fragment, type CSSProperties, type ReactNode } from 'react';
 import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « le … » en heure de Paris
 import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo';
 import { statutEmpriseBatiment } from '../../../../lib/permis/projectionBatiments'; // SOURCE UNIQUE du statut d'emprise (capsule = pastille = bandeau)
@@ -165,8 +165,9 @@ export function DeclarationsCerfaBloc({ declarations: d, pieceSource }: { declar
  * les pièces. On le rend donc SÉPARÉ de la grille Sitadel, avec la provenance « d'après les pièces ». Jamais « 0 bâtiment » (un PC en
  * comporte forcément un) : une absence de lecture s'écrit « aucun bâtiment identifié dans les pièces ».
  */
-export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles, onExportGeojson, empreinte, onExportEmpreinte, bati, dossierId, onParcelleChange }: {
+export function FaitsPermisBloc({ faits, nbBatiments, controleNbBatiments, parcelles, ecartsParcelles, onExportGeojson, empreinte, onExportEmpreinte, bati, dossierId, onParcelleChange }: {
   faits: FaitsPermis; nbBatiments?: number;
+  controleNbBatiments?: ReactNode; // BAT-3 — contrôle « changer le nombre de bâtiments » (stateful, fourni par le parent), rendu À CÔTÉ du décompte
   parcelles?: ParcelleLigne[]; ecartsParcelles?: string[]; onExportGeojson?: () => void; // N3-E — parcelles cadastrales + export GeoJSON
   empreinte?: EmpreinteLigne | null; onExportEmpreinte?: () => void; // FUS-1 — empreinte attendue de la future parcelle fusionnée
   bati?: BatiSnapshotResume | null; // FUS-1b — photo du bâti au moment de l'analyse (sous l'empreinte)
@@ -194,6 +195,8 @@ export function FaitsPermisBloc({ faits, nbBatiments, parcelles, ecartsParcelles
         {n > 0
           ? <><span style={{ color: 'var(--color-svv-muted)' }}>Bâtiments identifiés : </span><strong>{n}</strong><span style={{ color: 'var(--color-svv-muted)' }}> (d’après les pièces)</span></>
           : <span style={{ color: 'var(--color-svv-muted)' }}>aucun bâtiment identifié dans les pièces</span>}
+        {/* BAT-3 — contrôle « changer le nombre de bâtiments » (stateful, fourni par le parent), juste à côté du décompte. */}
+        {controleNbBatiments}
       </div>
       {/* N3-E — PARCELLES CADASTRALES : une ligne par parcelle (section, n°, superficie déclarée, contenance cadastrale). Une parcelle
           non rattachée DIT pourquoi (jamais un vide muet). Écart déclaré/cadastre signalé. Le contour n'est pas déversé → export GeoJSON. */}
@@ -829,3 +832,116 @@ export function EditeurRepere({ valeur, journal, onValeur }: { valeur: string; j
 
 /** Message quand un permis n'a encore AUCUN corps de bâtiment (jamais un vide muet). */
 export const MESSAGE_AUCUN_CORPS = 'Aucun bâtiment renseigné. Ajoutez-en un pour saisir étages, altitudes et hauteur.';
+
+// ── BAT-3 — CHANGER LE NOMBRE DE BÂTIMENTS : champ de saisie, confirmation récapitulative de retrait, réactivation. Composants PURS. ──
+/** Carte réduite aux signaux affichés par la confirmation/réactivation (même forme que le serveur : plan + liste active). */
+export interface CartePlanVue { id: number; nom: string; vide: boolean; valideeAltitude: boolean }
+
+/**
+ * BAT-3 — CHAMP « changer le nombre de bâtiments », À CÔTÉ de « Bâtiments identifiés : N ». Contrôlé (le parent tient la valeur). Le bouton
+ * n'est actif que pour un entier ≥ 0 DIFFÉRENT du nombre actuel de cartes actives. La couleur n'est jamais le seul appui (texte d'erreur explicite).
+ */
+export function ChampNombreBatiments({ valeur, nbActuel, onValeur, onAppliquer, enCours = false }: {
+  valeur: string; nbActuel: number; onValeur: (v: string) => void; onAppliquer: () => void; enCours?: boolean;
+}) {
+  const brut = valeur.trim();
+  const n = brut === '' ? NaN : Number(brut);
+  const valide = Number.isInteger(n) && n >= 0;
+  const inchange = valide && n === nbActuel;
+  return (
+    <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.4rem' }}>
+      <label style={{ ...styleAide, display: 'inline-flex', gap: '.35rem', alignItems: 'center' }}>
+        Changer le nombre de bâtiments :
+        <input type="number" inputMode="numeric" min={0} step={1} value={valeur} disabled={enCours}
+          onChange={(e) => onValeur(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && valide && !inchange && !enCours) { e.preventDefault(); onAppliquer(); } }}
+          aria-label="Nouveau nombre de bâtiments" style={{ ...styleInput, width: '4.5rem', padding: '.3rem .4rem', minWidth: 0 }} />
+      </label>
+      <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .8rem' }} disabled={enCours || !valide || inchange}
+        onClick={onAppliquer}>Appliquer</button>
+      {brut !== '' && !valide && <span style={styleErreur}>entier ≥ 0 attendu</span>}
+    </span>
+  );
+}
+
+/**
+ * BAT-3 — CONFIRMATION RÉCAPITULATIVE d'un retrait qui touche une carte PORTEUSE DE VALEUR (jamais montrée pour un retrait de cartes
+ * vides seules — ce cas s'exécute directement). UNE seule confirmation, même pour un écart de 3+. NOMME chaque carte qui part et signale
+ * NOMMÉMENT (mot « altitude validée » + ⚠, la couleur n'étant qu'un appui) celles qui portent une altitude validée. « CHOIX RÉEL » : une
+ * case par carte active, pré-cochée sur le plan déterministe ; l'admin peut retirer d'AUTRES cartes à COMPTE ÉGAL. Confirmer n'est actif
+ * que si exactement `nbARetirer` cases sont cochées. Rien ne part tant que « Confirmer » n'est pas cliqué.
+ */
+export function ConfirmationRetraitCartes({ cartes, cible, selection, onToggle, onConfirmer, onAnnuler, enCours = false }: {
+  cartes: CartePlanVue[]; cible: number; selection: number[]; onToggle: (id: number) => void; onConfirmer: () => void; onAnnuler: () => void; enCours?: boolean;
+}) {
+  const nbARetirer = Math.max(0, cartes.length - cible);
+  const choisies = new Set(selection);
+  const nbValideesChoisies = cartes.filter((c) => choisies.has(c.id) && c.valideeAltitude).length;
+  const compteOk = selection.length === nbARetirer;
+  return (
+    <div role="alertdialog" aria-label="Confirmer le retrait de bâtiments" className="svv-card"
+      style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', border: `1px solid ${'var(--color-svv-red)'}`, background: 'var(--color-svv-note-bg)' }}>
+      <strong style={{ fontSize: 13, color: 'var(--color-svv-ink)' }}>
+        <span aria-hidden="true">⚠ </span>Retrait de {nbARetirer} bâtiment{nbARetirer > 1 ? 's' : ''} (de {cartes.length} à {cible})
+      </strong>
+      <p style={{ ...styleAide, color: 'var(--color-svv-ink)' }}>
+        Les cartes retirées sont <strong>conservées</strong> (valeurs, altitude, emprise) et <strong>réactivables</strong> — jamais supprimées.
+        Cochez exactement <strong>{nbARetirer}</strong> carte{nbARetirer > 1 ? 's' : ''} à retirer (le plan par défaut retire les cartes vides puis les plus récentes).
+      </p>
+      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+        {cartes.map((c) => {
+          const coche = choisies.has(c.id);
+          return (
+            <li key={c.id}>
+              <label style={{ display: 'flex', gap: '.4rem', alignItems: 'baseline', cursor: enCours ? 'default' : 'pointer', overflowWrap: 'anywhere' }}>
+                <input type="checkbox" checked={coche} disabled={enCours} onChange={() => onToggle(c.id)} aria-label={`Retirer ${c.nom}`} style={{ marginTop: '.15rem' }} />
+                <span>
+                  <strong style={{ color: 'var(--color-svv-ink)' }}>{c.nom}</strong>
+                  {c.valideeAltitude
+                    ? <span style={{ color: 'var(--color-svv-red)', fontWeight: 700 }}> — <span aria-hidden="true">⚠ </span>altitude validée</span>
+                    : c.vide ? <span style={{ color: 'var(--color-svv-muted)' }}> — carte vide</span> : <span style={{ color: 'var(--color-svv-muted)' }}> — porte une valeur</span>}
+                </span>
+              </label>
+            </li>
+          );
+        })}
+      </ul>
+      {nbValideesChoisies > 0 && compteOk && (
+        <p role="note" style={{ ...styleNote }}><span aria-hidden="true">⚠ </span>{nbValideesChoisies} carte{nbValideesChoisies > 1 ? 's' : ''} à <strong>altitude validée</strong> sera retirée (sa valeur reste conservée et réactivable).</p>
+      )}
+      {!compteOk && <span style={styleErreur}>Sélectionnez exactement {nbARetirer} carte{nbARetirer > 1 ? 's' : ''} ({selection.length} cochée{selection.length > 1 ? 's' : ''}).</span>}
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+        <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.4rem .9rem', background: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }}
+          disabled={enCours || !compteOk} onClick={onConfirmer}>Confirmer le retrait</button>
+        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.4rem .9rem' }} disabled={enCours} onClick={onAnnuler}>Annuler</button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * BAT-3 — CARTES RETIRÉES d'un permis + geste de RÉACTIVATION (réversibilité visible). Repliable (jamais de bruit quand vide → rendu
+ * `null`). Chaque carte dit son nom, si elle portait une altitude validée (conservée), quand et par qui elle a été retirée, et un bouton « réactiver ».
+ */
+export function CartesRetirees({ corpsRetires, onReactiver, enCours = false }: {
+  corpsRetires: { id: number; nom: string; valideeAltitude: boolean; desactiveLe: string | null; desactiveParNom: string | null }[];
+  onReactiver: (id: number) => void; enCours?: boolean;
+}) {
+  if (corpsRetires.length === 0) return null;
+  return (
+    <details style={{ fontSize: 12, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.4rem .55rem', background: 'var(--color-svv-field)' }}>
+      <summary style={{ cursor: 'pointer', fontWeight: 700, color: 'var(--color-svv-ink)' }}>Cartes retirées ({corpsRetires.length}) <span style={{ ...styleAide, fontWeight: 400 }}>— conservées, réactivables</span></summary>
+      <ul style={{ margin: '.35rem 0 0', padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+        {corpsRetires.map((c) => (
+          <li key={c.id} style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap', overflowWrap: 'anywhere' }}>
+            <span><strong style={{ color: 'var(--color-svv-ink)' }}>{c.nom}</strong>
+              {c.valideeAltitude ? <span style={{ color: 'var(--color-svv-muted)' }}> — altitude validée conservée</span> : null}
+              <span style={{ ...styleAide }}> — retirée{c.desactiveLe ? ` le ${jourFrParis(c.desactiveLe)}` : ''}{c.desactiveParNom ? ` par ${c.desactiveParNom}` : ''}</span>
+            </span>
+            <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.2rem .6rem', width: 'auto' }} disabled={enCours} onClick={() => onReactiver(c.id)}>réactiver</button>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}

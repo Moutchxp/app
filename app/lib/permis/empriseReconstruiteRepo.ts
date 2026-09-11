@@ -13,6 +13,7 @@ import { query, withTransaction, type RequeteTx } from '../db/client';
 import { aireM2, deriverDebordement, appliquerAjustement, ajustementValide, composerAjustement, type PointLambert, type Debordement, type Ajustement } from './calageEmprise';
 import { grouperPolygonesConnexes, grouperParBatiment } from './adoptionEmprise';
 import { lireSeuilMitoyenAireM2, qualifierMitoyennete, batimentAppartientPermis, type QualificationPolygone, type IntersectionParcelleBatiment } from './projectionConfig';
+import { fragmentCorpsActif } from './corpsActif'; // BAT-3 — l'univers du tracé/emprise ne voit que les cartes actives (retirées invisibles)
 
 /** Journal de calage stocké tel quel (jsonb) — auditable, jamais lissé. */
 export interface CalageTrace {
@@ -387,6 +388,7 @@ export async function lireEtatEmprisesPermis(dossierId: number): Promise<EtatEmp
   //   brut « 2 ». Lecture SEULE (aucune réécriture des valeurs en base) : sous-requête sur `admin_utilisateur` (prénom + nom).
   // VAL-1 (213) — validation PAR EMPRISE : un bâtiment est « validé » ⟺ il a ≥ 1 emprise ET AUCUNE emprise non validée (toutes validées). Date/auteur
   //   affichés = ceux de la PLUS RÉCENTE validation de ses emprises. C'est la vérité (le pointeur unique par corps emprise_validee_id n'est plus lu).
+  const faCb = await fragmentCorpsActif('cb'); // BAT-3 — agrège les emprises des seules cartes ACTIVES (une carte retirée sort de parBatiment)
   const dernierParAuteur = `(SELECT ee.validee_par FROM permis_emprise_reconstruite ee WHERE ee.corps_id = cb.id AND ee.validee_le IS NOT NULL ORDER BY ee.validee_le DESC LIMIT 1)`;
   const avecValidationEmprise = `SELECT cb.id AS corps_id, count(e.id)::int AS n, SUM(e.surface_m2) AS surface, MAX(e.cree_le)::text AS cree_le,
               MAX(e.validee_le)::text AS validee_le, ${dernierParAuteur} AS validee_par,
@@ -394,7 +396,7 @@ export async function lireEtatEmprisesPermis(dossierId: number): Promise<EtatEmp
               (count(e.id) > 0 AND count(e.id) FILTER (WHERE e.validee_le IS NULL) = 0) AS validee
          FROM permis_corps_batiment cb
          LEFT JOIN permis_emprise_reconstruite e ON e.corps_id = cb.id
-        WHERE cb.dossier_id = $1
+        WHERE cb.dossier_id = $1${faCb}
         GROUP BY cb.id`;
   // Repli (213 non appliquée mais 206 oui) : ancien pointeur unique par corps. Repli ultime (ni 206 ni 213) : aucune validation.
   const avecValidationCorps = `SELECT cb.id AS corps_id, count(e.id)::int AS n, SUM(e.surface_m2) AS surface, MAX(e.cree_le)::text AS cree_le,
@@ -403,13 +405,13 @@ export async function lireEtatEmprisesPermis(dossierId: number): Promise<EtatEmp
               (cb.emprise_validee_id IS NOT NULL AND bool_or(e.id = cb.emprise_validee_id)) AS validee
          FROM permis_corps_batiment cb
          LEFT JOIN permis_emprise_reconstruite e ON e.corps_id = cb.id
-        WHERE cb.dossier_id = $1
+        WHERE cb.dossier_id = $1${faCb}
         GROUP BY cb.id, cb.emprise_validee_le, cb.emprise_validee_par, cb.emprise_validee_id`;
   const sansValidation = `SELECT cb.id AS corps_id, count(e.id)::int AS n, SUM(e.surface_m2) AS surface, MAX(e.cree_le)::text AS cree_le,
               NULL::text AS validee_le, NULL::text AS validee_par, NULL::text AS validee_par_nom, false AS validee
          FROM permis_corps_batiment cb
          LEFT JOIN permis_emprise_reconstruite e ON e.corps_id = cb.id
-        WHERE cb.dossier_id = $1 GROUP BY cb.id`;
+        WHERE cb.dossier_id = $1${faCb} GROUP BY cb.id`;
   try {
     let rows: { corps_id: number; n: number; surface: string | number | null; cree_le: string | null; validee_le: string | null; validee_par: string | null; validee_par_nom: string | null; validee: boolean }[];
     try { rows = (await query<typeof rows[number]>(avecValidationEmprise, [dossierId])).rows; }
@@ -444,8 +446,9 @@ export async function lireValideeParCorps(dossierId: number): Promise<Record<num
  */
 export async function lireAltitudeValideeParCorps(dossierId: number): Promise<Record<number, boolean>> {
   try {
+    const fa = await fragmentCorpsActif(''); // BAT-3 — cartes actives seulement
     const { rows } = await query<{ corps_id: number; validee: boolean }>(
-      `SELECT id AS corps_id, (altitude_sommet_ngf_confirme_le IS NOT NULL) AS validee FROM permis_corps_batiment WHERE dossier_id = $1`, [dossierId]);
+      `SELECT id AS corps_id, (altitude_sommet_ngf_confirme_le IS NOT NULL) AS validee FROM permis_corps_batiment WHERE dossier_id = $1${fa}`, [dossierId]);
     const out: Record<number, boolean> = {};
     for (const r of rows) out[Number(r.corps_id)] = r.validee === true;
     return out;
@@ -738,8 +741,9 @@ async function unionEtAireGroupe(cleabs: string[]): Promise<{ wkt: string; aireM
 /** Repère de chaque bâtiment déclaré du permis (permis_corps_batiment) : Map corpsId → repère (ou null). `Map()` vide si absent. */
 async function lireReperesBatiments(dossierId: number): Promise<Map<number, string | null>> {
   try {
+    const fa = await fragmentCorpsActif(''); // BAT-3 — cartes actives seulement
     const { rows } = await query<{ id: number; repere: string | null }>(
-      `SELECT id::int AS id, repere FROM permis_corps_batiment WHERE dossier_id = $1`, [dossierId]);
+      `SELECT id::int AS id, repere FROM permis_corps_batiment WHERE dossier_id = $1${fa}`, [dossierId]);
     return new Map(rows.map((r) => [r.id, r.repere]));
   } catch (err) {
     if (estTableAbsente(err)) return new Map();
@@ -934,15 +938,16 @@ export async function retablirProjection(dossierId: number, corpsId: number, par
  *  `nbCorpsSansAltitude`/la sortie vers Rattachement), pour la légende par polygone du schéma « Projection des emprises » (altitude
  *  PORTÉE PAR LE BÂTIMENT, héritée par ses polygones). `null` = altitude non validée. */
 export async function listerBatiments(dossierId: number): Promise<{ corpsId: number; repere: string | null; nomRepli: string | null; altitudeSommetNgf: number | null }[]> {
+  const fa = await fragmentCorpsActif(''); // BAT-3 — l'univers du tracé exclut les cartes retirées (partagé par la requête et son repli 168)
   try {
     const { rows } = await query<{ id: number; repere: string | null; nom_repli: string | null; alt: string | number | null }>(
-      `SELECT id::int AS id, repere, nom_repli, altitude_sommet_ngf AS alt FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]); // NOM-1 nom_repli ; LOT 80 altitude validée
+      `SELECT id::int AS id, repere, nom_repli, altitude_sommet_ngf AS alt FROM permis_corps_batiment WHERE dossier_id = $1${fa} ORDER BY repere, id`, [dossierId]); // NOM-1 nom_repli ; LOT 80 altitude validée
     return rows.map((r) => ({ corpsId: r.id, repere: r.repere, nomRepli: r.nom_repli, altitudeSommetNgf: r.alt == null ? null : Number(r.alt) }));
   } catch (err) {
     if (estTableAbsente(err)) return [];
     if (estColonneAbsente(err)) { // NOM-1 — migration 168 non appliquée : on relit SANS nom_repli (→ null, l'affichage retombe sur « bâtiment {id} »). altitude_sommet_ngf (108) reste lue.
       const { rows } = await query<{ id: number; repere: string | null; alt: string | number | null }>(
-        `SELECT id::int AS id, repere, altitude_sommet_ngf AS alt FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]);
+        `SELECT id::int AS id, repere, altitude_sommet_ngf AS alt FROM permis_corps_batiment WHERE dossier_id = $1${fa} ORDER BY repere, id`, [dossierId]);
       return rows.map((r) => ({ corpsId: r.id, repere: r.repere, nomRepli: null, altitudeSommetNgf: r.alt == null ? null : Number(r.alt) }));
     }
     throw err;
@@ -984,8 +989,9 @@ async function lireSurfacePlancher(dossierId: number): Promise<number | null> {
  */
 async function lireBatimentsNiveaux(dossierId: number): Promise<{ corpsId: number; nbEtages: number | null }[]> {
   try {
+    const fa = await fragmentCorpsActif(''); // BAT-3 — niveaux des cartes actives seulement (une carte retirée ne pèse pas dans la vraisemblance)
     const { rows } = await query<{ id: number; nb_etages: number | null }>(
-      `SELECT id::int AS id, nb_etages FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY id`, [dossierId]);
+      `SELECT id::int AS id, nb_etages FROM permis_corps_batiment WHERE dossier_id = $1${fa} ORDER BY id`, [dossierId]);
     return rows.map((r) => ({ corpsId: r.id, nbEtages: r.nb_etages !== null ? Number(r.nb_etages) : null }));
   } catch (err) {
     if (estTableAbsente(err)) return [];

@@ -21,6 +21,7 @@ import { query } from '../db/client';
 import { detecterRattachement, type EntreesRattachement, type ResultatRattachement, type CorpsPermis, type PolygoneEmpreinte, type ParcelleCandidate } from './detectionRattachement';
 import { lireSeuilsRattachement } from './rattachementConfig';
 import { cleabsAppartenantPermis } from './appartenancePermis'; // VOIS-1 — surveillance restreinte au bâti DU PERMIS (voisins hors champ, décision Arno)
+import { fragmentCorpsActif } from './corpsActif'; // BAT-3 — le rattachement ne voit que les cartes actives (retirées invisibles)
 
 // τ — tolérance de distance pour qu'un tronçon du contour candidat soit réputé « longer » le contour de l'empreinte (Lambert-93).
 export const TOLERANCE_BORDURE_M = 0.5;
@@ -53,9 +54,10 @@ export async function rejouerRattachement(dossierId: number): Promise<Rejeu> {
   const emp = empRows[0];
   const empreinteComplete = emp?.complete === true && emp?.a_geom === true;
 
-  // 2) Corps déclarés au permis.
+  // 2) Corps déclarés au permis (ACTIFS seulement — BAT-3 : une carte retirée n'est pas rattachée).
+  const faRatt = await fragmentCorpsActif('');
   const { rows: corpsRows } = await query<{ repere: string | null; alt: string | number | null; etages: number | null }>(
-    `SELECT repere, altitude_sommet_ngf AS alt, nb_etages AS etages FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere`, [dossierId]);
+    `SELECT repere, altitude_sommet_ngf AS alt, nb_etages AS etages FROM permis_corps_batiment WHERE dossier_id = $1${faRatt} ORDER BY repere`, [dossierId]);
   const corpsPermis: CorpsPermis[] = corpsRows.map((r) => ({
     repere: r.repere, altitudeSommetNgf: r.alt === null || r.alt === undefined ? null : Number(r.alt), nbEtages: r.etages,
   }));

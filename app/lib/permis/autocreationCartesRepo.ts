@@ -6,6 +6,7 @@
  */
 import { query } from '../db/client';
 import { creerCorps, attribuerNomsRepli } from './caracteristiquesRepo';
+import { fragmentCorpsActif } from './corpsActif'; // BAT-3 — ne compte que les cartes actives (une carte retirée ne « remplit » pas le manque)
 import { lireDeclarationsRecap } from './cerfaRecapRepo';
 import { decisionAutocreationCartes, type EtatAutocreation } from './autocreationCartes';
 
@@ -46,8 +47,9 @@ export async function autocreerCartes(dossierId: number, majPar: string, deps: D
 }
 
 // ── Deps RÉELLES ────────────────────────────────────────────────────────────────────────────────────────────────────────────────
-/** La colonne nb_batiments_valide existe-t-elle ? (migration 218 appliquée). Résilient → false si indéterminable. */
-async function colonneNbValideDisponible(): Promise<boolean> {
+/** La colonne nb_batiments_valide existe-t-elle ? (migration 218 appliquée). Résilient → false si indéterminable. Exporté : BAT-3 gate le
+ *  changement manuel de nombre (sans 218, impossible de MÉMORISER le nombre validé → 409 explicite plutôt qu'une écriture qui échoue). */
+export async function colonneNbValideDisponible(): Promise<boolean> {
   try {
     const { rows } = await query<{ n: number }>(
       `SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'permis_caracteristique' AND column_name = 'nb_batiments_valide'`);
@@ -64,7 +66,8 @@ export async function lireNombreBatimentsValide(dossierId: number): Promise<numb
 }
 
 async function nbCorpsDe(dossierId: number): Promise<number> {
-  const { rows } = await query<{ n: number }>(`SELECT count(*)::int AS n FROM permis_corps_batiment WHERE dossier_id = $1`, [dossierId]);
+  const fa = await fragmentCorpsActif(''); // BAT-3 — cartes ACTIVES seulement (résilient : vide si 219 non appliquée)
+  const { rows } = await query<{ n: number }>(`SELECT count(*)::int AS n FROM permis_corps_batiment WHERE dossier_id = $1${fa}`, [dossierId]);
   return rows[0]?.n ?? 0;
 }
 
@@ -75,19 +78,25 @@ async function nbDecompteDe(dossierId: number): Promise<number> {
   return d?.concordant && d.nbBatimentsRetenu != null ? d.nbBatimentsRetenu : 0;
 }
 
+/**
+ * POSE le nombre de bâtiments VALIDÉ (upsert CIBLÉ des 3 colonnes nb_batiments_valide*, jamais les autres champs). ON CONFLICT
+ * (dossier_id) — même clé que ecrireGlobal. SOURCE UNIQUE : utilisé par l'auto-création (BAT-1) ET par le changement manuel de nombre
+ * (BAT-3) — aucun 2e chemin d'écriture du nombre validé. `_le/_par` = trace (quand/qui) de la décision, sur le patron du sommet confirmé.
+ */
+export async function poserNombreBatimentsValide(dossierId: number, n: number, majPar: string): Promise<void> {
+  await query(
+    `INSERT INTO permis_caracteristique (dossier_id, nb_batiments_valide, nb_batiments_valide_le, nb_batiments_valide_par, maj_le, maj_par)
+       VALUES ($1, $2, now(), $3, now(), $3)
+       ON CONFLICT (dossier_id) DO UPDATE SET nb_batiments_valide = EXCLUDED.nb_batiments_valide, nb_batiments_valide_le = now(), nb_batiments_valide_par = EXCLUDED.nb_batiments_valide_par, maj_le = now()`,
+    [dossierId, n, majPar]);
+}
+
 export function depsReellesAutocreation(): DepsAutocreation {
   return {
     colonneDisponible: colonneNbValideDisponible,
     etat: async (dossierId) => ({ nbValide: await lireNombreBatimentsValide(dossierId), nbCorps: await nbCorpsDe(dossierId), nbDecompte: await nbDecompteDe(dossierId) }),
     creerCarteVide: async (dossierId, majPar) => { await creerCorps(dossierId, null, majPar); }, // carte VIDE (repere null), numérotée ensuite
     nommer: async (dossierId) => { await attribuerNomsRepli(dossierId); },
-    poserNombre: async (dossierId, n, majPar) => {
-      // Upsert CIBLÉ des 3 colonnes (jamais les autres champs). ON CONFLICT (dossier_id) — même clé que ecrireGlobal.
-      await query(
-        `INSERT INTO permis_caracteristique (dossier_id, nb_batiments_valide, nb_batiments_valide_le, nb_batiments_valide_par, maj_le, maj_par)
-           VALUES ($1, $2, now(), $3, now(), $3)
-           ON CONFLICT (dossier_id) DO UPDATE SET nb_batiments_valide = EXCLUDED.nb_batiments_valide, nb_batiments_valide_le = now(), nb_batiments_valide_par = EXCLUDED.nb_batiments_valide_par, maj_le = now()`,
-        [dossierId, n, majPar]);
-    },
+    poserNombre: poserNombreBatimentsValide, // SOURCE UNIQUE (partagée avec BAT-3)
   };
 }

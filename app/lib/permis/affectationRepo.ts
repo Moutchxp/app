@@ -13,6 +13,7 @@ import {
 } from './affectationSchema';
 import { rejouerRattachement } from './rattachementRepo'; // L5 — ensemble NOUVEAU/MODIFIÉ (moteur pur, à froid) ; pas de cycle (rattachementRepo n'importe pas affectationRepo)
 import { cleabsAppartenantPermis } from './appartenancePermis'; // VOIS-1 — repères A/B/C et schémas (courant + origine) : bâti DU PERMIS seul, jamais les voisins
+import { fragmentCorpsActif } from './corpsActif'; // BAT-3 — l'affectation ne cible que les cartes actives (retirées invisibles)
 
 export interface AffectationEtat {
   empreinteFigee: boolean;
@@ -40,22 +41,24 @@ async function lireCorps(dossierId: number): Promise<{ corps: CorpsAffectation[]
     id: Number(r.id), repere: r.repere, altitudeSommetNgf: r.alt == null ? null : Number(r.alt), nbEtages: r.etages,
     cleabsAffectes: Array.isArray(r.cleabs) ? r.cleabs.filter((x): x is string => x != null) : [],
   });
+  const faC = await fragmentCorpsActif('c'); // BAT-3 — cartes ACTIVES seulement (résilient : vide si 219 non appliquée)
   try {
     const { rows } = await query<{ id: number; repere: string | null; alt: string | number | null; etages: number | null; cleabs: (string | null)[] | null }>(
       `SELECT c.id, c.repere, c.altitude_sommet_ngf AS alt, c.nb_etages AS etages,
               COALESCE(array_agg(l.cleabs) FILTER (WHERE l.cleabs IS NOT NULL), '{}') AS cleabs
          FROM permis_corps_batiment c
          LEFT JOIN permis_corps_polygone l ON l.corps_id = c.id AND l.dossier_id = c.dossier_id
-        WHERE c.dossier_id = $1
+        WHERE c.dossier_id = $1${faC}
         GROUP BY c.id, c.repere, c.altitude_sommet_ngf, c.nb_etages
         ORDER BY c.repere, c.id`, [dossierId]);
     const corps = rows.map(map);
     await enrichirNomsRepli(dossierId, corps);
     return { corps, colonneManquante: false };
   } catch {
+    const fa = await fragmentCorpsActif('');
     const { rows } = await query<{ id: number; repere: string | null; alt: string | number | null; etages: number | null }>(
       `SELECT id, repere, altitude_sommet_ngf AS alt, nb_etages AS etages
-         FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY repere, id`, [dossierId]);
+         FROM permis_corps_batiment WHERE dossier_id = $1${fa} ORDER BY repere, id`, [dossierId]);
     const corps = rows.map(map);
     await enrichirNomsRepli(dossierId, corps);
     return { corps, colonneManquante: true }; // table de liaison (146) absente → aucun lien, écriture impossible
@@ -66,8 +69,9 @@ async function lireCorps(dossierId: number): Promise<{ corps: CorpsAffectation[]
  *  Colonne/table absente (migration 168 non appliquée) → `nomRepli` reste undefined (l'affichage retombe sur « bâtiment {id} »). PUR d'effet de bord. */
 async function enrichirNomsRepli(dossierId: number, corps: CorpsAffectation[]): Promise<void> {
   try {
+    const fa = await fragmentCorpsActif(''); // BAT-3 — cartes actives seulement (cohérent avec la liste ; les retirées ne sont pas enrichies)
     const { rows } = await query<{ id: number; nom_repli: string | null }>(
-      `SELECT id::int AS id, nom_repli FROM permis_corps_batiment WHERE dossier_id = $1`, [dossierId]);
+      `SELECT id::int AS id, nom_repli FROM permis_corps_batiment WHERE dossier_id = $1${fa}`, [dossierId]);
     const parId = new Map(rows.map((r) => [r.id, r.nom_repli]));
     for (const c of corps) c.nomRepli = parId.get(c.id) ?? null;
   } catch { /* 168 non appliquée / indisponible : nomRepli laissé tel quel (undefined). */ }
@@ -265,7 +269,8 @@ export async function affecterPolygone(dossierId: number, corpsId: number, cleab
   if (dossier.length === 0) {
     return { ok: false, motif: 'aucun signal de mise à jour n’a encore été détecté pour ce permis : il n’y a rien à arbitrer. L’affectation des polygones aux bâtiments s’ouvrira dès qu’un changement (parcelle ou bâti) sera détecté.' };
   }
-  const { rows } = await query(`SELECT 1 FROM permis_corps_batiment WHERE id = $1 AND dossier_id = $2`, [corpsId, dossierId]);
+  const faExiste = await fragmentCorpsActif(''); // BAT-3 — une carte RETIRÉE ne peut recevoir d'affectation (traitée comme inconnue)
+  const { rows } = await query(`SELECT 1 FROM permis_corps_batiment WHERE id = $1 AND dossier_id = $2${faExiste}`, [corpsId, dossierId]);
   if (rows.length === 0) return { ok: false, motif: 'corps inconnu pour ce permis' };
   try {
     return await withTransaction(async (q) => {

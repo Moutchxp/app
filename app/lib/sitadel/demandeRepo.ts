@@ -24,6 +24,7 @@ import { lignesDepuisClassements, famillesAttenduesDepuisConfig, type Classement
 import { estValidationAcquise, estDansRattachement } from '../permis/rattachementGroupes'; // COULEUR LIGNE : appartenance à l'onglet Rattachement, MÊME règle que l'onglet (source unique)
 import { lireModePassageRattachement } from '../permis/rattachementConfig'; // idem — le mode gouverne estDansRattachement (automatique = validationAcquise ; clôture manuelle = marqueur de passage)
 import { MOTIF_COMPLEMENT_PREFIXE, MOTIF_DECLARATION_PREFIXE, MOTIF_REPONSE_LIBRE_PREFIXE } from '../permis/demanderPiecesRepo'; // UNIF-3 : mêmes préfixes que le fil (signal « historique non vide »)
+import { fragmentCorpsActif } from '../permis/corpsActif'; // BAT-3 — les comptes de bâtiments de la liste ne voient que les cartes actives
 import { agregerStock, moisDePeriode, type LigneStock, type DossierStock } from './stock'; // Q2b : agrégat PUR du stock (réutilise estCandidatEligible via agregerStock)
 import { lireClePiece } from '../veille/demandeReponseRepo'; // A1b : réutilisé par le dispatcher unique de lecture de clé (pas de 2e implémentation)
 import { resoudreDepotPresume } from '../veille/depotPresume'; // LOT B1 : résout la présomption de dépôt téléservice au geste terminal (dépôt/annulation)
@@ -442,8 +443,9 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
       }
     } catch { /* 174 absente / lecture impossible → aucun diagnostic connu → aucune ligne rouge (comportement inchangé) */ }
     try {
+      const faBat = await fragmentCorpsActif(''); // BAT-3 — « bâtiments non vide » ne compte que les cartes actives (un dossier dont toutes les cartes sont retirées redevient vide)
       const { rows: bat } = await query<{ dossier_id: number }>(
-        `SELECT DISTINCT dossier_id::int AS dossier_id FROM permis_corps_batiment WHERE dossier_id = ANY($1::bigint[])`, [ids]);
+        `SELECT DISTINCT dossier_id::int AS dossier_id FROM permis_corps_batiment WHERE dossier_id = ANY($1::bigint[])${faBat}`, [ids]);
       for (const b of bat) batimentsNonVideSet.add(b.dossier_id);
     } catch { /* table absente → aucun bâtiment signalé (famille masquée) */ }
     try {
@@ -466,13 +468,14 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
     try {
       const ids = rows.map((r) => r.dossier_id);
       const mode = await lireModePassageRattachement();
+      const faCb = await fragmentCorpsActif('cb'); // BAT-3 — appartenance Rattachement : cartes ACTIVES seulement (même règle que le suivi)
       const { rows: mem } = await query<{ dossier_id: number; passage: boolean; emp: boolean; nb: number; sa: number; se: number }>(
         `SELECT d.id::int AS dossier_id,
                 EXISTS (SELECT 1 FROM permis_projection pj WHERE pj.dossier_id = d.id) AS passage,
                 EXISTS (SELECT 1 FROM permis_empreinte pe WHERE pe.dossier_id = d.id AND pe.geom IS NOT NULL) AS emp,
-                (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = d.id) AS nb,
-                (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = d.id AND cb.altitude_sommet_ngf_confirme_le IS NULL) AS sa,
-                (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = d.id AND NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.id = cb.emprise_validee_id AND ee.corps_id = cb.id))) AS se
+                (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = d.id${faCb}) AS nb,
+                (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = d.id${faCb} AND cb.altitude_sommet_ngf_confirme_le IS NULL) AS sa,
+                (SELECT count(*)::int FROM permis_corps_batiment cb WHERE cb.dossier_id = d.id${faCb} AND NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.id = cb.emprise_validee_id AND ee.corps_id = cb.id))) AS se
            FROM unnest($1::bigint[]) AS d(id)`, [ids]);
       for (const m of mem) {
         const validationAcquise = estValidationAcquise(Number(m.nb), Number(m.sa), Number(m.se));

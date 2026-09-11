@@ -14,6 +14,7 @@
 import { query } from '../db/client';
 import { origineDepuisMajPar, suffixeOrigine, type OrigineExtraction } from './journalExtraction'; // LOT 100
 import { ecrireCorps } from './caracteristiquesRepo';
+import { fragmentCorpsActif } from './corpsActif'; // BAT-3 — n'écrit le gabarit que sur les cartes ACTIVES (une carte retirée ne reçoit rien)
 import {
   decisionGabaritPlanche, agregerGabarit, controlerRegleGabarit, enonceRegle,
   RESERVE_DIVERGENCE, RESERVE_MULTI_CORPS, MOTIF_ABSENCE_GABARIT, MOTIF_ABSENCE_PLATEAU,
@@ -111,7 +112,8 @@ async function journaliser(dossierId: number, corpsId: number | null, champ: str
 /** Applique le gabarit + le plateau (niveau corps). `majPar` = auteur automatique. */
 export async function ecrireGabaritPlu(dossierId: number, brutes: readonly LectureBrute[], majPar: string): Promise<ResultatGabarit> {
   const origine = origineDepuisMajPar(majPar); // LOT 100 — gabarit lancé par CLI/admin (majPar 'extraction:*') → manuelle
-  const { rows } = await query<{ id: number }>(`SELECT id::int AS id FROM permis_corps_batiment WHERE dossier_id = $1 ORDER BY id`, [dossierId]);
+  const faGab = await fragmentCorpsActif(''); // BAT-3 — cartes ACTIVES seulement
+  const { rows } = await query<{ id: number }>(`SELECT id::int AS id FROM permis_corps_batiment WHERE dossier_id = $1${faGab} ORDER BY id`, [dossierId]);
   const corps = rows.map((r) => r.id);
   const cibles: (number | null)[] = corps.length > 0 ? corps : [null];
   const cands = candidatsGabarit(brutes);

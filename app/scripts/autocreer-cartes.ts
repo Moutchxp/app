@@ -12,11 +12,13 @@ import '../lib/chargerEnv';
 import { pathToFileURL } from 'node:url';
 import { query, closePool } from '../lib/db/client';
 import { autocreerCartes, depsReellesAutocreation } from '../lib/permis/autocreationCartesRepo';
+import { fragmentCorpsActif } from '../lib/permis/corpsActif'; // BAT-3 — un dossier dont toutes les cartes sont retirées n'est plus « ayant des cartes »
 
-/** Univers = dossiers analysés (ayant des cartes OU un récap Cerfa). Ordre stable. */
+/** Univers = dossiers analysés (ayant des cartes ACTIVES OU un récap Cerfa). Ordre stable. */
 export async function candidatsAutocreation(): Promise<number[]> {
+  const faU = await fragmentCorpsActif('', 'WHERE');
   const { rows } = await query<{ dossier_id: number | string }>(
-    `SELECT dossier_id FROM permis_corps_batiment
+    `SELECT dossier_id FROM permis_corps_batiment${faU}
      UNION SELECT dossier_id FROM permis_cerfa_recap
      ORDER BY 1`);
   return rows.map((r) => Number(r.dossier_id));

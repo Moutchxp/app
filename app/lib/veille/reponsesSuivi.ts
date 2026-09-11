@@ -9,6 +9,7 @@ import { bornesFenetres, type FenetreCumul } from './fenetresCumul';
 import { apparierPropositions, type CibleDepot } from './propositionDepot';
 import { normaliserNumeroDossier } from './satisfactionDossier'; // source UNIQUE de la normalisation d'un n° Sitadel (garde les lettres)
 import { MOTIF_COMPLEMENT_PREFIXE, MOTIF_DECLARATION_PREFIXE, MOTIF_REPONSE_LIBRE_PREFIXE } from '../permis/demanderPiecesRepo'; // UNIF-0 : mêmes préfixes que le fil (historique non vide)
+import { fragmentCorpsActif } from '../permis/corpsActif'; // BAT-3 — l'encart « bâtiments » ne s'allume que sur des cartes ACTIVES (retirées invisibles)
 import { libelleNatureProjet } from '../sitadel/priorite'; // GED-1 : nature des travaux en clair (jamais le code nu)
 import { extraireTelephonesSignature, qualifierTelephones, normaliserTelephoneFr, type TelephoneQualifie } from './telephoneSignature'; // LOT 28 : téléphone des interlocuteurs (signature)
 import { fenetreDepuis } from './releveReponses'; // P1 : MÊME source que la relève pour « on relève depuis le … » (jamais une 2e vérité)
@@ -646,6 +647,7 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
       return new Set(); // autre table absente → dégradation sûre (famille masquée)
     }
   };
+  const faB = await fragmentCorpsActif('b'); // BAT-3 — cartes ACTIVES seulement dans les signaux « caractéristiques » et « bâtiments »
   const [completudeSet, historiqueSet, caracteristiquesSet, batimentsSet, piecesSet] = ids.length === 0
     ? [new Set<number>(), new Set<number>(), new Set<number>(), new Set<number>(), new Set<number>()]
     : await Promise.all([
@@ -668,16 +670,16 @@ export async function chargerDemandesSuivi(): Promise<SuiviDemandesData> {
           `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd JOIN demande dp ON dp.id = dd.demande_id
             WHERE dd.demande_id = ANY($1) AND dd.actif AND ${PORTEE_ENCART} AND (
               EXISTS (SELECT 1 FROM permis_caracteristique pc WHERE pc.dossier_id = dd.dossier_id)
-              OR EXISTS (SELECT 1 FROM permis_corps_batiment b WHERE b.dossier_id = dd.dossier_id))`,
+              OR EXISTS (SELECT 1 FROM permis_corps_batiment b WHERE b.dossier_id = dd.dossier_id${faB}))`,
           `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL AND (
               EXISTS (SELECT 1 FROM permis_caracteristique pc WHERE pc.dossier_id = dd.dossier_id)
-              OR EXISTS (SELECT 1 FROM permis_corps_batiment b WHERE b.dossier_id = dd.dossier_id))`),
+              OR EXISTS (SELECT 1 FROM permis_corps_batiment b WHERE b.dossier_id = dd.dossier_id${faB}))`),
         setEncart(
           `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
-             JOIN permis_corps_batiment b ON b.dossier_id = dd.dossier_id JOIN demande dp ON dp.id = dd.demande_id
+             JOIN permis_corps_batiment b ON b.dossier_id = dd.dossier_id${faB} JOIN demande dp ON dp.id = dd.demande_id
             WHERE dd.demande_id = ANY($1) AND dd.actif AND ${PORTEE_ENCART}`,
           `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd
-             JOIN permis_corps_batiment b ON b.dossier_id = dd.dossier_id WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL`),
+             JOIN permis_corps_batiment b ON b.dossier_id = dd.dossier_id${faB} WHERE dd.demande_id = ANY($1) AND dd.actif AND dd.satisfait_le IS NULL`),
         setEncart(
           `SELECT DISTINCT dd.demande_id::int AS demande_id FROM demande_dossier dd JOIN demande dp ON dp.id = dd.demande_id
             WHERE dd.demande_id = ANY($1) AND dd.actif AND ${PORTEE_ENCART}
