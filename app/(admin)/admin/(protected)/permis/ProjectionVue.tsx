@@ -14,7 +14,7 @@ import { ClotureVersRattachement, clotureVisible } from './CaracteristiquesRendu
 import type { DonneesLiseuse } from './LiseusePieces'; // P3 (perfo) — donnée /emprise partagée (bloc Bâtiments → liseuse de la planche), anti-doublon
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { etatValidationProjection } from '../../../../lib/permis/etatValidationProjection';
-import { etatProjectionTitreDepuisComptes, etatAltitudesTitre, etatCoherenceBatimentsTitre, etatMereCaracteristiques, etatPlancheTitre, type EtatTitreFamille } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles (repli PAR BÂTIMENT, calqué sur estValidationAcquise) ; PL-ÉTAT — état de la ligne « Planche cadastrale » ; BAT-2 — mère « Caractéristiques du permis » agrégée (cohérence + altitudes)
+import { etatProjectionTitreDepuisComptes, etatAltitudesTitre, etatCoherenceBatimentsTitre, etatMereCaracteristiques, etatPlancheTitre, type EtatTitreFamille, type ComptesCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles (repli PAR BÂTIMENT, calqué sur estValidationAcquise) ; PL-ÉTAT — état de la ligne « Planche cadastrale » ; BAT-2 — mère « Caractéristiques du permis » agrégée (cohérence + altitudes) ; BAT-2d — comptes LIVE remontés par le bloc
 import { conditionAltitudeSortie, pretPourSortie } from '../../../../lib/permis/etatSortieRattachement'; // LOT 71 — condition altitude à 3 états (sans objet ≠ satisfaite)
 import { recompterSiSucces } from './comptesActions';
 
@@ -40,6 +40,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   const [vEmprise, setVEmprise] = useState(0); // une MUTATION d'emprise (enregistrement/suppression/adoption/retouche) dans le bloc tracé → remonte CaracteristiquesBloc (capsule d'emprise du cartouche relit son état). Même mécanisme que vValeurLue.
   const [batimentsOuvert, setBatimentsOuvert] = useState(false); // PERF-1 — le bloc bâtiments (verdict) est déplié à la demande ; jauge le bouton « Valider »
   const [etatPlancheLive, setEtatPlancheLive] = useState<EtatTitreFamille | null>(null); // PL-ÉTAT — état LIVE de la planche remonté quand le bloc est ouvert (prime sur l'état SAUVEGARDÉ de la ligne) ; null tant que le bloc n'est pas ouvert → repli sur row.plancheEtat
+  const [comptesLive, setComptesLive] = useState<ComptesCaracteristiquesPermis | null>(null); // BAT-2d — comptes LIVE remontés par CaracteristiquesBloc → la mère « Caractéristiques du permis » se calcule sur les MÊMES données que ses sous-titres (fini la désynchro). null → repli sur row.
   // LOT 70 — ANALYSE AU PASSAGE : à l'ouverture d'un permis, on lance (SANS geste) l'analyse si nécessaire (règle b, gate serveur) et
   //   on reporte les déclarations dans les champs vides. État d'attente HONNÊTE pendant les 20-30 s de l'analyse complète.
   const [passageEnCours, setPassageEnCours] = useState(false);
@@ -119,7 +120,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
       if (!res.ok || !d.ok) { setMessage(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'clôture impossible')); return; }
       const gr = await fetch('/api/admin/permis/projection', { cache: 'no-store' }); // re-fetche la file : le permis passé n'y est plus
       if (gr.ok) { const gd = (await gr.json()) as { file?: LigneProjectionAffichee[] }; setFile(gd.file ?? []); }
-      setOuvert(null); setVerdict(null); setEnteteProjection(null); setEtatPlancheLive(null); setMessage('permis passé en Rattachement');
+      setOuvert(null); setVerdict(null); setEnteteProjection(null); setEtatPlancheLive(null); setComptesLive(null); setMessage('permis passé en Rattachement');
       recompterSiSucces(true, onRecompter);
     } catch { setMessage('clôture impossible'); } finally { setEnCours(false); }
   }, [onRecompter]);
@@ -173,7 +174,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   if (file === null) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>;
 
   const ouvrir = (dossierId: number) => {
-    setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setEnteteProjection(null); setEtatPlancheLive(null); setDonneesLiseuse(null); setMessage(null); setBatimentsOuvert(false); // PERF-1 : chaque permis s'ouvre tout replié
+    setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setEnteteProjection(null); setEtatPlancheLive(null); setComptesLive(null); setDonneesLiseuse(null); setMessage(null); setBatimentsOuvert(false); // PERF-1 : chaque permis s'ouvre tout replié
     passageDeclencheRef.current = null; setPassageMsg(null); setPassageEnCours(false); // LOT 70 : réarme l'analyse au passage (event handler → setState autorisé) pour la prochaine ouverture
   };
 
@@ -185,13 +186,17 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     const ev = etatValidationProjection(batimentsOuvert, verdict); // bouton « Valider » : invite à déplier les bâtiments tant qu'ils n'ont pas été ouverts
     // RATT-1 — état des familles calculé depuis la ligne DÉJÀ chargée (`file`), visible sans déplier ni tirer de contenu lourd (PERF-1 préservée).
     const row = file?.find((f) => f.dossierId === ouvert) ?? null;
-    // BAT-2 — la MÈRE « Caractéristiques du permis (saisie) » agrège l'état de ses sous-sections PORTEUSES, calculées depuis la ligne DÉJÀ
-    //   chargée (PERF-1 : visible sans déplier ni tirer de contenu lourd). Section 1 = cohérence nombre de cartes ↔ nombre VALIDÉ (BAT-1) ;
-    //   section 4 = altitudes de sommet. Les non-bloquantes (compte rendu Cerfa, permis déclaré) n'y entrent pas. Les sous-titres DANS le
-    //   bloc portent le MÊME état (mêmes fonctions pures, depuis les données fraîches de CaracteristiquesBloc) → une mère rouge est diagnosticable.
+    // BAT-2 / BAT-2d — la MÈRE « Caractéristiques du permis (saisie) » agrège ses sous-sections PORTEUSES (section 1 = cohérence cartes ↔
+    //   nombre VALIDÉ ; section 4 = altitudes). Les non-bloquantes (compte rendu Cerfa, permis déclaré) n'y entrent pas.
+    //   BAT-2d — SOURCE UNIQUE : quand le bloc est OUVERT il REMONTE ses comptes LIVE (`comptesLive`) → la mère se calcule sur EXACTEMENT
+    //   les mêmes données que ses sous-titres (fini la mère « verte » sur des sous-sections rouges après un ajout de carte). REPLI sur les
+    //   comptes de la file (`row`) tant que le bloc n'a pas remonté (replié / juste ouvert). Garde dossierId : jamais les comptes d'un autre permis.
+    const comptesMere = (comptesLive && comptesLive.dossierId === ouvert)
+      ? comptesLive
+      : { dossierId: ouvert, nbCartes: row?.nbBatiments ?? 0, nbSansAltitude: row?.nbCorpsSansAltitude ?? 0, nbBatimentsValide: row?.nbBatimentsValide ?? null };
     const etatMere = etatMereCaracteristiques([
-      etatCoherenceBatimentsTitre(row?.nbBatiments ?? 0, row?.nbBatimentsValide ?? null),
-      etatAltitudesTitre(row?.nbBatiments ?? 0, row?.nbCorpsSansAltitude ?? 0),
+      etatCoherenceBatimentsTitre(comptesMere.nbCartes, comptesMere.nbBatimentsValide),
+      etatAltitudesTitre(comptesMere.nbCartes, comptesMere.nbSansAltitude),
     ]);
     // ③ COMPLÉMENT — l'en-tête dit l'état RÉEL (tous les bâtiments alt+emprise validés → VERT ; sinon ce qui manque), remonté par le bloc
     //   quand il est ouvert (valeur LIVE, prime). REPLI avant ouverture : calculé sur les COMPTES de la ligne (calqué sur estValidationAcquise,
@@ -296,7 +301,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
               {/* BAT-2 / BAT-2b — `avecEtatFamilles` : état sur les titres des sous-sections (désormais dans LES CINQ vues). ICI seulement,
                   `etatSection4SansAide` fait que l'état REMPLACE le suffixe d'aide de la section 4 : la mère est déjà au-dessus, la hiérarchie
                   est dense. Ailleurs (Rattachement, Archives, Réponses, Suivi) l'aide est conservée et l'état s'ajoute après. */}
-              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles etatSection4SansAide ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} pied={rendreCloture('bouton')} />
+              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles etatSection4SansAide onComptes={setComptesLive} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} pied={rendreCloture('bouton')} />
             </div>
           )}
         </BlocRepliable>

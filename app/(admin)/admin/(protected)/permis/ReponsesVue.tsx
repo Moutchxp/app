@@ -14,7 +14,7 @@ import { MessageRetour, MentionMasquage } from './DemandesRendu';
 // UNIF-2 — même encart de familles qu'« En cours » (socle UNIF-0/1) + les 4 blocs PER-PERMIS d'« Analyse » (chargés au dépliage).
 import { EncartFamilles, SousSectionsPermis } from './EncartFamilles';
 import { TitreFamilleEtat } from './ProjectionRendu'; // BAT-2c — état sur le libellé de famille « Caractéristiques du permis »
-import { etatFamilleCaracteristiquesDemande, etatCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection'; // BAT-2c — agrégat demande + état par permis (fonctions pures, source unique)
+import { etatFamilleCaracteristiquesDemande, etatCaracteristiquesPermis, fusionnerComptesLive, type ComptesCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection'; // BAT-2c — agrégat demande + état par permis (fonctions pures, source unique) ; BAT-2d — fusion payload + comptes LIVE remontés
 import { BlocFilEchanges } from './BlocFilEchanges'; // LOT-4 — même fil d'échanges mail qu'en Analyse/Archives
 import { SousBlocRepliable } from './SousBlocRepliable'; // LOT-5 — repli léger (1 clic) du sous-bloc artefacts, sans BlocRepliable imbriqué
 import { LIBELLE_FAMILLE } from '../../../../lib/permis/encartFamilles';
@@ -55,6 +55,11 @@ function Pagination({ page, nbPages, total, onPage }: { page: number; nbPages: n
 
 export function ReponsesVue({ onRecompter }: { onRecompter?: () => void }) {
   const [data, setData] = useState<ReponsesData | null>(null);
+  // BAT-2d — comptes LIVE remontés par chaque CaracteristiquesBloc ouvert (par dossierId) → le résumé de famille « Caractéristiques du
+  //   permis » et l'état par « Permis {numDau} » se calculent sur les MÊMES données que les sous-titres du bloc (fini la désynchro du
+  //   snapshot serveur). Callback STABLE (deps []) → l'effet de remontée du bloc ne boucle pas.
+  const [comptesLive, setComptesLive] = useState<Map<number, ComptesCaracteristiquesPermis>>(() => new Map());
+  const onComptesDossier = useCallback((c: ComptesCaracteristiquesPermis) => setComptesLive((m) => new Map(m).set(c.dossierId, c)), []);
   const [maintenant, setMaintenant] = useState<Date>(() => new Date());
   const [erreur, setErreur] = useState(false);
   const [retour, setRetour] = useState<RetourCible>(null);
@@ -352,12 +357,13 @@ export function ReponsesVue({ onRecompter }: { onRecompter?: () => void }) {
                                 contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart} rendre={(id) => <BlocCompletude key={id} dossierId={id} sansPli />} /> },
                               { cle: 'caracteristiques',
                                 // BAT-2c — le LIBELLÉ DE FAMILLE porte l'état AGRÉGÉ des permis de la demande (coup d'œil sans déplier) ; nu si indisponible.
-                                titre: (() => { const e = etatFamilleCaracteristiquesDemande(d.caracteristiquesParDossier); return e ? <TitreFamilleEtat base={LIBELLE_FAMILLE.caracteristiques} etat={e} /> : LIBELLE_FAMILLE.caracteristiques; })(),
+                                // BAT-2d — fusionne le snapshot serveur avec les comptes LIVE des blocs ouverts (live prime) → agrégat cohérent avec les sous-titres.
+                                titre: (() => { const e = etatFamilleCaracteristiquesDemande(fusionnerComptesLive(d.caracteristiquesParDossier, comptesLive)); return e ? <TitreFamilleEtat base={LIBELLE_FAMILLE.caracteristiques} etat={e} /> : LIBELLE_FAMILLE.caracteristiques; })(),
                                 nonVide: d.caracteristiquesNonVide,
-                                /* BAT-2b — état des sous-sections (cohérence cartes + altitudes) sur leurs titres (aide section 4 conservée). BAT-2c — état par « Permis {numDau} » (multi-permis). */
+                                /* BAT-2b — état des sous-sections (cohérence cartes + altitudes) sur leurs titres (aide section 4 conservée). BAT-2c — état par « Permis {numDau} » (multi-permis). BAT-2d — onComptes remonte les comptes LIVE ; l'état par permis prime le live sur le payload. */
                                 contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart}
-                                  etatParDossier={(id) => { const c = d.caracteristiquesParDossier.find((x) => x.dossierId === id); return c ? etatCaracteristiquesPermis(c) : null; }}
-                                  rendre={(id) => <CaracteristiquesBloc key={id} avecEtatFamilles dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+                                  etatParDossier={(id) => { const c = comptesLive.get(id) ?? d.caracteristiquesParDossier.find((x) => x.dossierId === id) ?? null; return c ? etatCaracteristiquesPermis(c) : null; }}
+                                  rendre={(id) => <CaracteristiquesBloc key={id} avecEtatFamilles dossierId={id} onComptes={onComptesDossier} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
                               { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: d.batimentsNonVide,
                                 contenu: () => <SousSectionsPermis dossiers={d.dossiersEncart} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} />} /> },
                               { cle: 'pieces', titre: LIBELLE_FAMILLE.pieces, nonVide: d.piecesNonVide,

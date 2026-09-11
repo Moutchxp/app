@@ -5,6 +5,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { MESURES } from './caracteristiquesForm';
+import { etatMereCaracteristiques, etatCoherenceBatimentsTitre, etatAltitudesTitre, type ComptesCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection';
 
 /**
  * BAT-2b — l'ÉTAT des sous-sections PORTEUSES (cohérence des cartes + altitudes) s'affiche sur leurs TITRES dès que la vue passe
@@ -49,7 +50,7 @@ const fetchOrig = global.fetch;
 afterEach(() => { if (root) act(() => root!.unmount()); root = null; global.fetch = fetchOrig; });
 
 /** Monte CaracteristiquesBloc (fetch mocké → `e`) et rend le composant. On NE déplie rien : les TITRES des cartouches sont visibles repliés. */
-async function monter(e: object, props: { avecEtatFamilles?: boolean; etatSection4SansAide?: boolean }): Promise<HTMLElement> {
+async function monter(e: object, props: { avecEtatFamilles?: boolean; etatSection4SansAide?: boolean; onComptes?: (c: ComptesCaracteristiquesPermis) => void }): Promise<HTMLElement> {
   global.fetch = vi.fn(async () => ({ ok: true, json: async () => e })) as unknown as typeof fetch;
   const container = document.createElement('div'); document.body.appendChild(container);
   root = createRoot(container);
@@ -96,6 +97,50 @@ describe('BAT-2b — état des sous-sections sur les titres (rendu réel du comp
     expect(t).not.toContain('nombre de cartes cohérent avec le nombre validé');
     expect(t).not.toContain('altitude manquante (1/2)');
     expect(t).toContain('un par immeuble, mesurés sur les plans'); // aide d'origine conservée
+    c.remove();
+  });
+});
+
+/**
+ * BAT-2d — NON-RÉGRESSION de la désynchro mère ↔ porteuses. Le bloc REMONTE (`onComptes`) des comptes tirés de SES données ; la mère
+ * (ProjectionVue) et le résumé de famille (Réponses/Suivi) se calculent sur CES comptes — donc sur la MÊME source que les sous-titres.
+ * Ce test reproduit le cas réel du 07512024V0037 (2 cartes, 1 bâtiment validé, 1 altitude manquante) et prouve que la mère calculée sur
+ * les comptes remontés est ROUGE, comme les sous-titres — jamais « complète » verte. Sur l'ancien code (aucune remontée), `onComptes`
+ * n'était jamais appelé → ce test échoue. C'est le test qui manquait : il COMPARE la valeur qui pilote la mère à ce que le bloc affiche.
+ */
+describe('BAT-2d — le bloc remonte des comptes cohérents avec ses sous-titres (mère == porteuses)', () => {
+  it('bug 07512024V0037 (2 cartes, 1 validé, 1 altitude manquante) : sous-titres ROUGES ⇒ mère (sur comptes remontés) ROUGE, jamais verte', async () => {
+    const recu: ComptesCaracteristiquesPermis[] = [];
+    const c = await monter(etat([corps(5, 100), corps(6, null)], 1), { avecEtatFamilles: true, onComptes: (x) => recu.push(x) });
+    const t = c.textContent ?? '';
+    // Les sous-titres du bloc sont ROUGES (données fraîches) :
+    expect(t).toContain('2 cartes pour 1 bâtiment validé');
+    expect(t).toContain('altitude manquante (1/2)');
+    // Le bloc a REMONTÉ ses comptes, reflétant EXACTEMENT ces données (2 cartes, 1 sans altitude, 1 validé) :
+    const dernier = recu.at(-1);
+    expect(dernier).toEqual({ dossierId: 468, nbCartes: 2, nbSansAltitude: 1, nbBatimentsValide: 1 });
+    // La MÈRE se calcule sur CES comptes remontés (exactement ce que fait ProjectionVue) → ROUGE, nommant les deux sections, jamais « complète » :
+    const mere = etatMereCaracteristiques([
+      etatCoherenceBatimentsTitre(dernier!.nbCartes, dernier!.nbBatimentsValide),
+      etatAltitudesTitre(dernier!.nbCartes, dernier!.nbSansAltitude),
+    ]);
+    expect(mere.ton).toBe('rouge');
+    expect(mere.texte).toContain('2 cartes pour 1 bâtiment validé');
+    expect(mere.texte).toContain('altitude manquante (1/2)');
+    expect(mere.texte).not.toBe('complète');
+    c.remove();
+  });
+
+  it('tout cohérent (2 cartes, 2 validés, aucune altitude manquante) : sous-titres VERTS ⇒ mère (sur comptes remontés) VERTE', async () => {
+    const recu: ComptesCaracteristiquesPermis[] = [];
+    const c = await monter(etat([corps(5, 100), corps(6, 100)], 2), { avecEtatFamilles: true, onComptes: (x) => recu.push(x) });
+    const dernier = recu.at(-1);
+    expect(dernier).toEqual({ dossierId: 468, nbCartes: 2, nbSansAltitude: 0, nbBatimentsValide: 2 });
+    const mere = etatMereCaracteristiques([
+      etatCoherenceBatimentsTitre(dernier!.nbCartes, dernier!.nbBatimentsValide),
+      etatAltitudesTitre(dernier!.nbCartes, dernier!.nbSansAltitude),
+    ]);
+    expect(mere).toEqual({ texte: 'complète', ton: 'vert' });
     c.remove();
   });
 });

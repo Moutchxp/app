@@ -114,6 +114,19 @@ export function etatFamilleCaracteristiquesDemande(comptes: ComptesCaracteristiq
 }
 
 /**
+ * BAT-2d — FUSION des comptes du PAYLOAD (snapshot serveur, tous les dossiers d'encart) avec les comptes LIVE remontés par les blocs
+ * ouverts (par dossierId). Le LIVE PRIME : un bloc ouvert reflète les données fraîches (après ajout/suppression d'une carte), au moins
+ * aussi récentes que le payload → le résumé de famille et l'état par « Permis {numDau} » collent aux sous-titres des blocs (une seule
+ * vérité, comme la mère de Projection). Un dossier sans entrée live garde son compte du payload. PUR.
+ */
+export function fusionnerComptesLive(
+  payload: ComptesCaracteristiquesPermis[],
+  live: ReadonlyMap<number, ComptesCaracteristiquesPermis>,
+): ComptesCaracteristiquesPermis[] {
+  return payload.map((c) => live.get(c.dossierId) ?? c);
+}
+
+/**
  * PL-ÉTAT — « Planche cadastrale (parcelles) » : dire SANS déplier où en est la sélection de parcelles ET signaler tout écart avec les
  * parcelles DÉCLARÉES au permis. PUR (dérivé des états déjà connus, jamais recalculé). Règles (décision Arno) :
  *  · un CHANGEMENT à l'écran non encore appliqué → ROUGE « sélection modifiée — non validée » (il reste une action à faire) ;

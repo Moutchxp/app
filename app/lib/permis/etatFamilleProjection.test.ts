@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { etatProjectionTitre, etatProjectionTitreDepuisComptes, etatAltitudesTitre, etatCoherenceBatimentsTitre, etatMereCaracteristiques, etatCaracteristiquesPermis, etatFamilleCaracteristiquesDemande, etatPlancheTitre } from './etatFamilleProjection';
+import { etatProjectionTitre, etatProjectionTitreDepuisComptes, etatAltitudesTitre, etatCoherenceBatimentsTitre, etatMereCaracteristiques, etatCaracteristiquesPermis, etatFamilleCaracteristiquesDemande, fusionnerComptesLive, etatPlancheTitre, type ComptesCaracteristiquesPermis } from './etatFamilleProjection';
 import { clotureVisible } from '../../(admin)/admin/(protected)/permis/CaracteristiquesRendu'; // SOURCE UNIQUE de la visibilité du bloc de sortie (pure)
 
 /**
@@ -147,6 +147,30 @@ describe('BAT-2c — état d’un permis + agrégat de la famille sur une demand
     expect(etatFamilleCaracteristiquesDemande([c(1, 1, 0, 1), c(2, 2, 0, 2)])).toEqual({ texte: '2 permis complets', ton: 'vert' });
     expect(etatFamilleCaracteristiquesDemande([c(1, 1, 1, 1), c(2, 2, 0, 2)])).toEqual({ texte: '1/2 permis à compléter', ton: 'rouge' });
     expect(etatFamilleCaracteristiquesDemande([c(1, 1, 1, 1), c(2, 0, 0, null), c(3, 3, 0, 3)])).toEqual({ texte: '2/3 permis à compléter', ton: 'rouge' });
+  });
+});
+
+describe('BAT-2d — fusionnerComptesLive (le LIVE remonté par un bloc ouvert PRIME le snapshot du payload)', () => {
+  const c = (dossierId: number, nbCartes: number, nbSansAltitude: number, nbBatimentsValide: number | null): ComptesCaracteristiquesPermis => ({ dossierId, nbCartes, nbSansAltitude, nbBatimentsValide });
+
+  it('sans live → payload inchangé', () => {
+    const payload = [c(1, 1, 0, 1), c(2, 2, 0, 2)];
+    expect(fusionnerComptesLive(payload, new Map())).toEqual(payload);
+  });
+
+  it('live prime pour les dossiers remontés, payload conservé pour les autres', () => {
+    const payload = [c(1, 1, 0, 1), c(2, 1, 0, 1)];
+    const live = new Map<number, ComptesCaracteristiquesPermis>([[2, c(2, 2, 1, 1)]]); // le bloc 2, ouvert, a une carte ajoutée sans altitude
+    const fusion = fusionnerComptesLive(payload, live);
+    expect(fusion).toEqual([c(1, 1, 0, 1), c(2, 2, 1, 1)]); // 1 = payload, 2 = live
+    // conséquence : la famille passe au rouge (le permis 2 bloque), cohérent avec les sous-titres du bloc ouvert.
+    expect(etatFamilleCaracteristiquesDemande(fusion)).toEqual({ texte: '1/2 permis à compléter', ton: 'rouge' });
+  });
+
+  it('une entrée live pour un dossier ABSENT du payload est ignorée (on n’itère que le payload de la demande)', () => {
+    const payload = [c(1, 1, 0, 1)];
+    const live = new Map<number, ComptesCaracteristiquesPermis>([[99, c(99, 5, 5, 0)]]);
+    expect(fusionnerComptesLive(payload, live)).toEqual(payload);
   });
 });
 

@@ -16,7 +16,7 @@ import { RefMairieCellule } from './RefMairieCellule';
 // UNIF-1 — encart de familles (socle UNIF-0) + les 4 blocs PER-PERMIS réutilisés depuis « Analyse » (chargés paresseusement au dépliage).
 import { EncartFamilles, SousSectionsPermis } from './EncartFamilles';
 import { TitreFamilleEtat } from './ProjectionRendu'; // BAT-2c — état sur le libellé de famille « Caractéristiques du permis »
-import { etatFamilleCaracteristiquesDemande, etatCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection'; // BAT-2c — agrégat demande + état par permis (fonctions pures, source unique)
+import { etatFamilleCaracteristiquesDemande, etatCaracteristiquesPermis, fusionnerComptesLive, type ComptesCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection'; // BAT-2c — agrégat demande + état par permis (fonctions pures, source unique) ; BAT-2d — fusion payload + comptes LIVE remontés
 import { BlocRepliable } from './BlocRepliable'; // LOT 46 — deux groupes repliables « En cours » (1re réponse / à relancer)
 import { PastilleActions } from './PastilleActions'; // LOT 46 — pastille à gauche du titre de famille « Complétude »
 import { BlocFilEchanges } from './BlocFilEchanges'; // LOT-4 — même fil d'échanges mail qu'en Analyse/Archives
@@ -115,6 +115,10 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   //   retour des actions /reponses, DISTINCT de `retour` (zone-based) des actions /demandes. RIEN de ceci n'existe pour « À demander ».
   const enCours = perimetre === 'en_cours';
   const [suivi, setSuivi] = useState<{ parId: Map<number, DemandeSuivi>; derniereOkLe: string | null; reglages: ReglagesReleve; cascade: ReglagesCascade; envoi: EnvoiAutoInfos; partielDelai: { mois: number; jours: number }; reglagesPartiel: ReglagesCascadePartielle; multiAdresse: { active: boolean; nbDernieres: number } } | null>(null);
+  // BAT-2d — comptes LIVE remontés par chaque CaracteristiquesBloc ouvert (par dossierId) → le résumé de famille « Caractéristiques du
+  //   permis » et l'état par « Permis {numDau} » collent aux sous-titres des blocs (fini la désynchro du snapshot serveur). Callback STABLE.
+  const [comptesLive, setComptesLive] = useState<Map<number, ComptesCaracteristiquesPermis>>(() => new Map());
+  const onComptesDossier = useCallback((c: ComptesCaracteristiquesPermis) => setComptesLive((m) => new Map(m).set(c.dossierId, c)), []);
   const [maintenant, setMaintenant] = useState<Date>(() => new Date());
   const [versionSuivi, setVersionSuivi] = useState(0);
   const [retourReponse, setRetourReponse] = useState<RetourCible>(null);
@@ -925,13 +929,14 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
                   ) },
                 { cle: 'caracteristiques',
                   // BAT-2c — le LIBELLÉ DE FAMILLE porte l'état AGRÉGÉ des permis de la demande (coup d'œil sans déplier) ; nu si indisponible.
-                  titre: (() => { const e = etatFamilleCaracteristiquesDemande(richDetail.caracteristiquesParDossier); return e ? <TitreFamilleEtat base={LIBELLE_FAMILLE.caracteristiques} etat={e} /> : LIBELLE_FAMILLE.caracteristiques; })(),
+                  // BAT-2d — fusionne le snapshot serveur avec les comptes LIVE des blocs ouverts (live prime) → agrégat cohérent avec les sous-titres.
+                  titre: (() => { const e = etatFamilleCaracteristiquesDemande(fusionnerComptesLive(richDetail.caracteristiquesParDossier, comptesLive)); return e ? <TitreFamilleEtat base={LIBELLE_FAMILLE.caracteristiques} etat={e} /> : LIBELLE_FAMILLE.caracteristiques; })(),
                   nonVide: richDetail.caracteristiquesNonVide,
                   // LOT 56-B — clé versionnée : après « Lancer le diagnostic complet des documents » (bloc Complétude ci-dessus), les caractéristiques extraites sont fraîches → remontage.
-                  /* BAT-2b — état des sous-sections sur leurs titres (aide section 4 conservée). BAT-2c — état par « Permis {numDau} » (multi-permis). */
+                  /* BAT-2b — état des sous-sections sur leurs titres (aide section 4 conservée). BAT-2c — état par « Permis {numDau} » (multi-permis). BAT-2d — onComptes remonte les comptes LIVE ; l'état par permis prime le live sur le payload. */
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart}
-                    etatParDossier={(id) => { const c = richDetail.caracteristiquesParDossier.find((x) => x.dossierId === id); return c ? etatCaracteristiquesPermis(c) : null; }}
-                    rendre={(id) => <CaracteristiquesBloc key={`carac-enc-${id}-${vApresAnalyse}-${vValeurLue}-${vEmprise}`} avecEtatFamilles dossierId={id} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
+                    etatParDossier={(id) => { const c = comptesLive.get(id) ?? richDetail.caracteristiquesParDossier.find((x) => x.dossierId === id) ?? null; return c ? etatCaracteristiquesPermis(c) : null; }}
+                    rendre={(id) => <CaracteristiquesBloc key={`carac-enc-${id}-${vApresAnalyse}-${vValeurLue}-${vEmprise}`} avecEtatFamilles dossierId={id} onComptes={onComptesDossier} onOuvrir={(pid, source, page) => void ouvrirPiece(pid, source, page)} />} /> },
                 { cle: 'batiments', titre: LIBELLE_FAMILLE.batiments, nonVide: richDetail.batimentsNonVide,
                   // LOT 90 — avecLiseuse={false} : la famille « Pièces du permis » ci-dessous porte DÉJÀ la liseuse standalone → pas de doublon à 0 bâtiment.
                   contenu: () => <SousSectionsPermis dossiers={richDetail.dossiersEncart} rendre={(id) => <BlocTraceEmprise key={id} dossierId={id} avecLiseuse={false} onEmprisesChange={() => setVEmprise((v) => v + 1)} />} /> },

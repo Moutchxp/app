@@ -17,7 +17,7 @@ import { CompteRenduCartouche, type PasseIaCartouche } from './CompteRenduCartou
 import { messageErreurCartouche, type PieceCerfa } from './compteRendu'; // CR-2a — message 401 « session expirée » (jamais « indisponible »)
 import { BlocRepliable } from './BlocRepliable'; // PLI-1 — même dépliant que « Complétude »/« Historique » : chaque cartouche de « Caractéristiques du permis » replié à son titre, ouvrable indépendamment
 import { TitreFamilleEtat } from './ProjectionRendu'; // BAT-2 — état sur la ligne de titre d'une sous-section porteuse (réutilisé tel quel)
-import { etatCoherenceBatimentsTitre, etatAltitudesTitre } from '../../../../lib/permis/etatFamilleProjection'; // BAT-2 — fonctions PURES d'état des porteuses (SOURCE UNIQUE, mêmes que la mère de ProjectionVue)
+import { etatCoherenceBatimentsTitre, etatAltitudesTitre, type ComptesCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection'; // BAT-2 — fonctions PURES d'état des porteuses (SOURCE UNIQUE, mêmes que la mère de ProjectionVue) ; BAT-2d — type des comptes remontés au parent
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
 // N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
@@ -56,7 +56,7 @@ const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '
  * BÂTIMENT (mesurés : repère, altitudes, étages, adresse par corps). Toute écriture est en 'saisie'. Confiance/réserve/motif
  * lus du journal (parCorps + permis). Bornes et liste de nature LUES de la base.
  */
-export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, pied, avecEtatFamilles, etatSection4SansAide }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; pied?: ReactNode; avecEtatFamilles?: boolean; etatSection4SansAide?: boolean }) {
+export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, pied, avecEtatFamilles, etatSection4SansAide, onComptes }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; pied?: ReactNode; avecEtatFamilles?: boolean; etatSection4SansAide?: boolean; onComptes?: (comptes: ComptesCaracteristiquesPermis) => void }) {
   // BAT-2 / BAT-2b — `avecEtatFamilles` : affiche l'ÉTAT sur les titres des sous-sections PORTEUSES (cohérence des cartes + altitudes),
   //   pour savoir s'il faut ouvrir d'un coup d'œil. Passé par LES CINQ vues qui montent ce bloc (Analyse et projection, Rattachement,
   //   Archives, Réponses, Suivi) — BAT-2b l'a étendu au-delà de la seule Projection. L'état vient TOUJOURS des données PROPRES de ce bloc
@@ -107,6 +107,15 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
     })();
     return () => { annule = true; };
   }, [dossierId, appliquer]);
+
+  // BAT-2d — SOURCE UNIQUE : dès que les données de CE bloc changent (montage, refetch après ajout/suppression d'une carte…), on REMONTE
+  //   les comptes bruts (cartes / sans-altitude / nb validé) au parent. La mère « Caractéristiques du permis » (Projection) et le résumé de
+  //   famille (Réponses/Suivi) calculent alors leur état sur CES MÊMES données que les sous-titres de ce bloc → fini la mère « verte » sur
+  //   des sous-sections rouges. `onComptes` DOIT être stable (setState / useCallback) : la dépendance est `data` (change au fetch), jamais un objet recréé.
+  useEffect(() => {
+    if (!onComptes || !data) return;
+    onComptes({ dossierId, nbCartes: data.corps.length, nbSansAltitude: data.corps.filter((c) => c.altitudeSommetNgf === null).length, nbBatimentsValide: data.nbBatimentsValide ?? null });
+  }, [data, dossierId, onComptes]);
 
   const poster = useCallback(async (corps: Record<string, unknown>): Promise<{ ok: boolean; erreur?: string }> => {
     setMessage('');
