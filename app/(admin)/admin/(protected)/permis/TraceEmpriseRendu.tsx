@@ -968,9 +968,11 @@ export function ListeEmprises({ emprises, onSupprimer, onRetoucher, onAjuster, o
               {e.ajustement && <span data-ajustee="true" style={{ color: '#b45309', fontWeight: 600 }}> · ✎ ajustée à la main{e.ajustement.pose_le ? ` le ${jourFrParis(e.ajustement.pose_le)}` : ''}{e.ajustementParNom ? ` par ${e.ajustementParNom}` : ''} — affectation des voisins à vérifier</span>}
               {/* VAL-1 — VALIDATION PAR EMPRISE : « ✓ validée » (qui/quand) OU (dans les actions) un bouton « valider ». Deux emprises se valident indépendamment. */}
               {e.validee && <span data-validee="true" style={{ color: 'var(--color-svv-green-ink)', fontWeight: 700 }}> · ✓ emprise validée{e.valideeLe ? ` le ${jourFrParis(e.valideeLe)}` : ''}{e.valideeParNom ? ` par ${e.valideeParNom}` : ''}</span>}
+              {/* POINT 2 — mention ÉCRITE de l'attente, lisible sans survol, à côté du bouton qui bat (la couleur ne porte jamais seule le sens). */}
+              {onValider && !actif && !e.validee && <span data-attente-validation="true" style={{ color: 'var(--color-svv-ink)', fontWeight: 600 }}> · validation en attente</span>}
             </span>
             <span style={{ display: 'flex', gap: '.3rem' }}>
-              {onValider && !actif && !e.validee && <button type="button" onClick={() => onValider(e.id)} disabled={occupe} style={{ ...b, borderColor: 'var(--color-svv-green-ink)', color: 'var(--color-svv-green-ink)', fontWeight: 700, opacity: occupe ? 0.5 : 1 }}>valider</button>}
+              {onValider && !actif && !e.validee && <button type="button" onClick={() => onValider(e.id)} disabled={occupe} aria-label="valider — validation en attente" className={occupe ? undefined : 'svvValiderAttente'} style={{ ...b, borderColor: 'var(--color-svv-green-ink)', color: 'var(--color-svv-green-ink)', fontWeight: 700, opacity: occupe ? 0.5 : 1 }}>valider</button>}
               {onAjuster && !actif && <button type="button" onClick={() => onAjuster(e.id)} style={b}>ajuster</button>}
               {onRetoucher && retouchable && !actif && <button type="button" onClick={() => onRetoucher(e.id)} style={b}>retoucher</button>}
               {onSupprimer && !actif && <button type="button" onClick={() => onSupprimer(e.id)} style={b}>effacer</button>}

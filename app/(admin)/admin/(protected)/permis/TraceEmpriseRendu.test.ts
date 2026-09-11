@@ -51,6 +51,20 @@ describe('PROJ-2 — rendu pur', () => {
     expect(enCours).toContain('en cours d’ajustement');
     expect(enCours).toContain('data-en-ajustement="true"');
   });
+  it('ListeEmprises (point 2) : emprise EN ATTENTE → bouton « valider » qui bat + mention écrite ; validée → ni battement ni mention ; occupé → mention sans battement', () => {
+    const noop = () => {};
+    const attente = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ id: 1, validee: false })], onValider: noop }));
+    expect(attente).toContain('class="svvValiderAttente"');                    // battement lent vert↔rouge (CSS, coupé sous prefers-reduced-motion)
+    expect(attente).toContain('validation en attente');                        // mention ÉCRITE (la couleur ne porte jamais seule)
+    expect(attente).toContain('aria-label="valider — validation en attente"'); // repris pour les lecteurs d’écran
+    const validee = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ id: 2, validee: true, valideeLe: '2026-09-09T10:00:00Z' })], onValider: noop }));
+    expect(validee).not.toContain('svvValiderAttente');                        // validée → le battement s’arrête (bouton disparu)
+    expect(validee).not.toContain('validation en attente');
+    expect(validee).toContain('✓ emprise validée');
+    const occupe = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ id: 3, validee: false })], onValider: noop, occupe: true }));
+    expect(occupe).not.toContain('svvValiderAttente');                         // pendant un enregistrement, pas de battement…
+    expect(occupe).toContain('validation en attente');                         // …mais l’état reste écrit
+  });
 
   it('libelleResumeAjustement : langage d’Arno (m / ° / %), « aucun ajustement » à l’identité, jamais de jargon', () => {
     expect(libelleResumeAjustement({ deplacementM: 0, rotationDeg: 0, echellePct: 0 })).toContain('aucun ajustement');

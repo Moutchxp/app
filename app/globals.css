@@ -255,6 +255,17 @@ body {
 .svv-spin { animation: svvSpin 0.8s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .svv-spin { animation: none; } }
 
+/* POINT 2 — bouton « valider » d'une emprise EN ATTENTE de validation : battement LENT et régulier vert ↔ rouge ↔ vert (1,8 s/cycle,
+   ease-in-out → jamais stroboscopique) pour attirer l'œil sur le geste restant. Le SENS est aussi porté par le texte « validation en attente »
+   à côté (la couleur ne porte jamais seule). DÉSACTIVÉ sous prefers-reduced-motion : aucune animation, la couleur reste FIXE (vert de repos du
+   bouton) et l'état demeure lisible par le texte. Le battement s'arrête de lui-même dès la validation (le bouton disparaît, e.validee=true). */
+@keyframes svvValiderAttente {
+  0%, 100% { color: var(--color-svv-green-ink); border-color: var(--color-svv-green-ink); }
+  50%      { color: var(--color-svv-red);       border-color: var(--color-svv-red); }
+}
+.svvValiderAttente { animation: svvValiderAttente 1.8s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .svvValiderAttente { animation: none; } }
+
 /* === Champ téléphone (react-international-phone) : calage sur la charte des autres champs ===
    Le widget est présenté comme UNE seule boîte (comme Prénom/Nom). */
 .react-international-phone-input-container {
