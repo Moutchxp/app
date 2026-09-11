@@ -1799,7 +1799,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                   onScale={(pct) => { if (empriseDuBat[0]) demarrerAjustementAvecGeste(empriseDuBat[0].id, (d) => ({ ...d, echelle: Math.min(ECHELLE_MAX, Math.max(ECHELLE_MIN, d.echelle * (1 + pct / 100))) })); }}
                   onOrigine={() => { if (empriseDuBat[0]) void revenirOrigineDirect(empriseDuBat[0].id); }}
                   onDemarrer={(id) => demarrerAjustement(id)} onBloc={demarrerAjustementBloc} onRetoucher={(id) => demarrerRetouche(id)} />)}
-            {bandeauSel}
+            {/* BAT (défaut C) — le bandeau « Empreinte Parcelle(s) : sélection validée… » (info de contexte, pas un outil) DESCEND SOUS le
+                schéma (rendu plus bas) : le dessin récupère la hauteur en haut de l'écran. Contenu et liens INCHANGÉS. */}
             <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
               <div style={{ flex: '1 1 420px', minWidth: 0 }}>
                 <SchemaParcelleTrace boite={boiteGrande} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} hauteurMax="82vh" calageLambert={[]} statuts={statutParCleabs}
@@ -1814,6 +1815,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             <BlocExistantsRepliable polygones={polygonesPermis} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
               </div>
             </div>
+            {/* BAT (défaut C) — bandeau parcelle EN BAS, sous le schéma (info de contexte, pas un outil) : contenu et lien « revenir à la configuration d'origine » inchangés. */}
+            {bandeauSel}
           </div>
         </div>
       )}

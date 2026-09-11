@@ -176,4 +176,9 @@ describe('BlocTraceEmprise — câblage rangée + bascule de mode (garde source)
     expect(bloc).toContain('setAjustement(null); demarrerRetouche(cibleId)'); // retouche efface l'ajustement
     expect(bloc).toContain('demarrerAjustement(cibleId)');                    // ajuster (demarrerAjustement efface déjà la retouche)
   });
+  it('(défaut C) en plein écran, le bandeau parcelle (bandeauSel) est rendu APRÈS le schéma agrandi (boiteGrande) — sous le dessin', () => {
+    const iSchema = SRC.indexOf('boite={boiteGrande}');
+    expect(iSchema).toBeGreaterThan(-1);
+    expect(iSchema).toBeLessThan(SRC.lastIndexOf('{bandeauSel}')); // le dernier {bandeauSel} = celui du plein écran, désormais SOUS le schéma
+  });
 });
