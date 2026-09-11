@@ -38,3 +38,19 @@ export function estAjustementModifie(
     : (emprises.find((e) => e.id === ajustement.id)?.ajustement ?? IDENTITE);
   return !deltaEgal(ajustement.delta, arme);
 }
+
+/**
+ * BAT (défaut D) — DÉCISION : sélectionner l'emprise `cibleId` est-il REFUSÉ (⇒ confirmation requise) ? Vrai UNIQUEMENT si c'est un VRAI
+ * changement (autre emprise, ou depuis un geste d'ENSEMBLE) ET qu'un travail non enregistré est en cours (`estAjustementModifie`). Sinon
+ * faux : aucune session, cible déjà sélectionnée, ou session intouchée → le changement se fait directement, sans confirmation.
+ * PUR (la « raison » = un ajustement non enregistré serait abandonné) → l'écran n'a plus qu'à AFFICHER la confirmation, jamais à décider.
+ */
+export function changementAjustableRefuse(
+  ajustement: { bloc: boolean; id: number | null; delta: DeltaComparable } | null,
+  emprises: readonly { id: number; ajustement: DeltaComparable | null }[],
+  cibleId: number,
+): boolean {
+  if (!ajustement) return false;                                  // rien en cours → jamais refusé
+  if (!ajustement.bloc && ajustement.id === cibleId) return false; // déjà cette emprise → pas un changement
+  return estAjustementModifie(ajustement, emprises);              // vrai changement + travail non enregistré → refusé (confirmer)
+}

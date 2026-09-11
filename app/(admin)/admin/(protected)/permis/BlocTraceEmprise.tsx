@@ -12,7 +12,7 @@ import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetConte
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
 import { resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) » si plusieurs emprises sur le corps)
 import { choisirEmpriseAcces } from '../../../../lib/permis/choixEmpriseAcces'; // BAT — accès depuis la capsule : quelle emprise pointer quand la carte en porte plusieurs (validée sinon la plus récente)
-import { estAjustementModifie } from './ajustementSession'; // BAT (défaut 1) — une session d'ajustement provisoire (armée à l'ouverture du plein écran) est-elle INTOUCHÉE → purgeable à la fermeture sans rien perdre
+import { estAjustementModifie, changementAjustableRefuse } from './ajustementSession'; // BAT (défaut 1) purge d'une session intouchée ; (défaut D) décision « ce changement de polygone est-il refusé → confirmation »
 import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, CartouchesAjustables, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
@@ -1020,8 +1020,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   non enregistré est en cours (delta ≠ armement), on DEMANDE confirmation (le changement l'abandonnerait) au lieu de le perdre en
   //   silence ; sans travail en cours, on bascule directement. `demarrerAjustement` (arme la session cible) → poignées + barre suivent.
   const selectionnerAjustable = useCallback((id: number) => {
-    if (ajustement && !ajustement.bloc && ajustement.id === id) return; // déjà sélectionné
-    if (estAjustementModifie(ajustement, emprises)) { setConfirmChangeAjust(id); return; } // travail non enregistré → confirmer
+    if (ajustement && !ajustement.bloc && ajustement.id === id) return; // déjà sélectionné → rien
+    if (changementAjustableRefuse(ajustement, emprises, id)) { setConfirmChangeAjust(id); return; } // travail non enregistré → confirmation ANCRÉE sur le cartouche visé (défaut D)
     demarrerAjustement(id);
   }, [ajustement, emprises, demarrerAjustement]);
   const confirmerChangeAjust = useCallback(() => { if (confirmChangeAjust != null) demarrerAjustement(confirmChangeAjust); setConfirmChangeAjust(null); }, [confirmChangeAjust, demarrerAjustement]);
@@ -1753,19 +1753,14 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             </div>
             <RotationSchema angle={angle} onAngle={setAngle} />
             {/* BAT (défaut 3) — RANGÉE DE CARTOUCHES au-dessus des boutons d'ajustement : dit SUR QUOI on travaille + change de polygone d'un
-                clic (le sélectionné cerclé de rouge + « · sélectionné » + aria-current). Un ajustement non enregistré n'est jamais abandonné
-                en silence : le changement passe par une confirmation. Toujours affichée dès ≥ 1 emprise (même à 1). */}
+                clic (le sélectionné cerclé de rouge + « · sélectionné » + aria-current). BAT (défaut D) — quand le changement est refusé
+                (ajustement non enregistré), la confirmation s'ANCRE sur le cartouche visé (`confirmId`) — visible LÀ où l'on a cliqué, jamais
+                un clic muet. Toujours affichée dès ≥ 1 emprise (même à 1). */}
             {emprises.length > 0 && (
               <CartouchesAjustables emprises={emprises} nomEmprise={nomEmprise}
                 selectionId={ajustement && !ajustement.bloc ? ajustement.id : null}
+                confirmId={confirmChangeAjust} onConfirmer={confirmerChangeAjust} onAnnuler={() => setConfirmChangeAjust(null)}
                 onSelectionner={selectionnerAjustable} occupe={occupe} />
-            )}
-            {confirmChangeAjust != null && (
-              <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span>Un ajustement non enregistré est en cours — changer de polygone l’abandonnera.</span>
-                <button type="button" style={btn} onClick={confirmerChangeAjust}>Changer quand même</button>
-                <button type="button" style={btn} onClick={() => setConfirmChangeAjust(null)}>Rester</button>
-              </div>
             )}
             {/* PLEIN ÉCRAN — BANDEAU DES GESTES en pleine largeur près du curseur Rotation, dès qu'AU MOINS UNE emprise existe (sans clic
                 préalable). Horizontal, bas → l'espace vertical reste au SCHÉMA. TROIS états, MÊMES états `retouche`/`ajustement` que la page

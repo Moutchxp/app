@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deltaEgal, estAjustementModifie, type DeltaComparable } from './ajustementSession';
+import { deltaEgal, estAjustementModifie, changementAjustableRefuse, type DeltaComparable } from './ajustementSession';
 
 const D = (o: Partial<DeltaComparable> = {}): DeltaComparable => ({ tx: 0, ty: 0, rotDeg: 0, echelle: 1, ...o });
 
@@ -47,5 +47,29 @@ describe('estAjustementModifie — la session en cours diffère-t-elle de son ar
   it('geste d’ENSEMBLE (bloc) : armé sur l’identité → non modifié à l’identité, modifié dès un geste', () => {
     expect(estAjustementModifie({ bloc: true, id: null, delta: D() }, [])).toBe(false);
     expect(estAjustementModifie({ bloc: true, id: null, delta: D({ rotDeg: 2 }) }, [])).toBe(true);
+  });
+});
+
+describe('changementAjustableRefuse — sélectionner une autre emprise est-il refusé (⇒ confirmation) ?', () => {
+  const emprises = [{ id: 1, ajustement: null }, { id: 2, ajustement: null }];
+
+  it('aucune session en cours → jamais refusé (changement direct)', () => {
+    expect(changementAjustableRefuse(null, emprises, 2)).toBe(false);
+  });
+
+  it('cible = emprise DÉJÀ sélectionnée → pas un changement → non refusé', () => {
+    expect(changementAjustableRefuse({ bloc: false, id: 2, delta: D() }, emprises, 2)).toBe(false);
+  });
+
+  it('changement vers une AUTRE emprise, session INTOUCHÉE → non refusé (bascule directe)', () => {
+    expect(changementAjustableRefuse({ bloc: false, id: 1, delta: D() }, emprises, 2)).toBe(false);
+  });
+
+  it('changement vers une AUTRE emprise, travail NON ENREGISTRÉ → REFUSÉ (confirmation requise)', () => {
+    expect(changementAjustableRefuse({ bloc: false, id: 1, delta: D({ tx: 46.6 }) }, emprises, 2)).toBe(true);
+  });
+
+  it('depuis un geste d’ENSEMBLE modifié → changer vers une emprise est refusé', () => {
+    expect(changementAjustableRefuse({ bloc: true, id: null, delta: D({ rotDeg: 3 }) }, emprises, 2)).toBe(true);
   });
 });

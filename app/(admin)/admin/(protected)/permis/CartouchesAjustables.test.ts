@@ -61,9 +61,49 @@ describe('CartouchesAjustables (BAT défaut 3) — un cartouche par emprise, sé
     expect(onSelectionner).toHaveBeenCalledWith(2);
   });
 
-  it('occupe → cartouches désactivés (pas de sélection pendant une requête)', () => {
+  it('occupe → cartouches indisponibles (aria-disabled) le temps de la requête', () => {
     const html = renderToStaticMarkup(createElement(CartouchesAjustables, { emprises: [emp(1)], nomEmprise: nom, selectionId: null, onSelectionner: () => {}, occupe: true }));
-    expect(html).toContain('disabled');
+    expect(html).toContain('aria-disabled="true"');
+  });
+});
+
+describe('CartouchesAjustables (BAT défaut D) — confirmation ANCRÉE au cartouche visé, jamais un clic muet', () => {
+  it('le cartouche VISÉ (confirmId) devient une carte « à confirmer » : texte explicite + deux issues + aria', () => {
+    const html = renderToStaticMarkup(createElement(CartouchesAjustables, { emprises: [emp(1), emp(2)], nomEmprise: nom, selectionId: 1, confirmId: 2, onSelectionner: () => {}, onConfirmer: () => {}, onAnnuler: () => {} }));
+    expect(html).toContain('ajustement non enregistré'); // TEXTE lisible, à l'endroit du clic
+    expect(html).toContain('Changer quand même');
+    expect(html).toContain('Rester');
+    expect(html).toContain('bâtiment en projet 2');       // ancré sur le polygone VISÉ, nommé
+    expect(html).toContain('role="group"');               // structure exposée aux lecteurs d'écran
+  });
+
+  it('les AUTRES cartouches sont indisponibles pendant la confirmation : aria-disabled + texte « indisponible » (jamais la couleur seule)', () => {
+    // 3 emprises : 1 sélectionnée, 2 en confirmation, 3 = « autre » ni sélectionnée ni visée → doit être marquée indisponible.
+    const html = renderToStaticMarkup(createElement(CartouchesAjustables, { emprises: [emp(1), emp(2), emp(3)], nomEmprise: nom, selectionId: 1, confirmId: 2, onSelectionner: () => {}, onConfirmer: () => {}, onAnnuler: () => {} }));
+    expect(html).toContain('aria-disabled="true"'); // état accessible
+    expect(html).toContain('— indisponible');       // dit AUSSI par le texte (cartouche 3)
+  });
+
+  it('« Changer quand même » appelle onConfirmer, « Rester » appelle onAnnuler', () => {
+    const container = document.createElement('div'); document.body.appendChild(container);
+    const onConfirmer = vi.fn(), onAnnuler = vi.fn();
+    root = createRoot(container);
+    act(() => { root!.render(createElement(CartouchesAjustables, { emprises: [emp(1), emp(2)], nomEmprise: nom, selectionId: 1, confirmId: 2, onSelectionner: () => {}, onConfirmer, onAnnuler })); });
+    const trouver = (t: string) => Array.from(container.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes(t))!;
+    act(() => { trouver('Changer quand même').click(); });
+    expect(onConfirmer).toHaveBeenCalledTimes(1);
+    act(() => { trouver('Rester').click(); });
+    expect(onAnnuler).toHaveBeenCalledTimes(1);
+  });
+
+  it('cliquer un cartouche INDISPONIBLE pendant la confirmation n’a aucun effet (onSelectionner non appelé)', () => {
+    const container = document.createElement('div'); document.body.appendChild(container);
+    const onSelectionner = vi.fn();
+    root = createRoot(container);
+    act(() => { root!.render(createElement(CartouchesAjustables, { emprises: [emp(1), emp(2)], nomEmprise: nom, selectionId: 1, confirmId: 2, onSelectionner, onConfirmer: () => {}, onAnnuler: () => {} })); });
+    const c1 = Array.from(container.querySelectorAll('button')).find((b) => (b.textContent ?? '').includes('bâtiment en projet 1'))!;
+    act(() => { c1.click(); });
+    expect(onSelectionner).not.toHaveBeenCalled();
   });
 });
 
@@ -74,15 +114,16 @@ describe('CartouchesAjustables (BAT défaut 3) — un cartouche par emprise, sé
 // Chemin RELATIF AU CWD (racine du projet) — robuste en environnement jsdom, où `import.meta.url` n'est pas de schéma file:// (pattern déjà en place ailleurs).
 const SRC = readFileSync('app/(admin)/admin/(protected)/permis/BlocTraceEmprise.tsx', 'utf8').replace(/\s+/g, ' ');
 describe('BlocTraceEmprise — câblage de la rangée de sélection (garde source)', () => {
-  it('la rangée CartouchesAjustables est rendue, sélection = emprise single en cours', () => {
+  it('la rangée CartouchesAjustables est rendue ; sélection + confirmation ANCRÉE (confirmId) branchées', () => {
     expect(SRC).toContain('<CartouchesAjustables');
     expect(SRC).toContain('selectionId={ajustement && !ajustement.bloc ? ajustement.id : null}');
     expect(SRC).toContain('onSelectionner={selectionnerAjustable}');
+    expect(SRC).toContain('confirmId={confirmChangeAjust}'); // défaut D — la confirmation est ancrée au cartouche visé
   });
-  it('selectionnerAjustable protège un ajustement modifié (confirmation, jamais d’abandon silencieux)', () => {
+  it('selectionnerAjustable protège un ajustement modifié via le prédicat pur (jamais d’abandon silencieux)', () => {
     const bloc = SRC.match(new RegExp('const selectionnerAjustable = useCallback\\(\\(id: number\\) => \\{.*?\\}, \\['))?.[0] ?? '';
-    expect(bloc).toContain('estAjustementModifie');       // détecte le travail non enregistré
-    expect(bloc).toContain('setConfirmChangeAjust(id)');  // → confirmation au lieu de perdre
-    expect(bloc).toContain('demarrerAjustement(id)');     // sans travail en cours → bascule directe
+    expect(bloc).toContain('changementAjustableRefuse'); // décision « refusé ? » dans le module pur
+    expect(bloc).toContain('setConfirmChangeAjust(id)'); // → confirmation ancrée au lieu de perdre
+    expect(bloc).toContain('demarrerAjustement(id)');    // sans travail en cours → bascule directe
   });
 });

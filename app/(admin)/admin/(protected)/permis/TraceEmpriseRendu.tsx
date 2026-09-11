@@ -1203,30 +1203,52 @@ export function BandeauGestesCompact({ emprisesDuBatiment, nbTotal, occupe = fal
  *  · Une seule emprise → la rangée RESTE affichée (elle dit simplement sur quoi on travaille).
  * Mobile-first : `flexWrap` (passe à la ligne, aucun débordement horizontal), cibles tactiles ≥ 32 px de haut.
  */
-export function CartouchesAjustables({ emprises, nomEmprise, selectionId, onSelectionner, occupe = false }: {
+export function CartouchesAjustables({ emprises, nomEmprise, selectionId, onSelectionner, confirmId = null, onConfirmer, onAnnuler, occupe = false }: {
   emprises: EmpriseReconstruite[];
   nomEmprise: (e: EmpriseReconstruite) => string;
   selectionId: number | null; // emprise en cours d'ajustement (single) ; null si aucune / mode d'ensemble / retouche
   onSelectionner: (id: number) => void;
+  // BAT (défaut D) — CONFIRMATION ANCRÉE : quand un changement de polygone est refusé (ajustement non enregistré en cours), le cartouche
+  //   VISÉ passe en état « à confirmer » — LÀ où l'internaute a cliqué, avec ses deux issues. `null` = aucune confirmation en attente.
+  confirmId?: number | null;
+  onConfirmer?: () => void; // « Changer quand même » (abandonne le travail non enregistré et bascule)
+  onAnnuler?: () => void;   // « Rester » (referme la confirmation, garde l'ajustement en cours)
   occupe?: boolean;
 }) {
   if (emprises.length === 0) return null; // rien d'ajustable → pas de rangée (mais dès 1 emprise, on l'affiche)
+  const btnMini: CSSProperties = { cursor: 'pointer', fontSize: 12, minHeight: 32, padding: '.2rem .5rem', borderRadius: '.4rem', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)', border: '1px solid var(--color-svv-line)' };
+  const gardeActive = confirmId != null; // une confirmation est en attente → les AUTRES cartouches sont indisponibles le temps de trancher
   return (
     <div role="group" aria-label="polygone projeté à ajuster"
       style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.4rem', minWidth: 0, fontSize: 12 }}>
       <span style={{ color: 'var(--color-svv-muted)', fontWeight: 700 }}>Polygone à ajuster :</span>
       {emprises.map((e) => {
         const sel = e.id === selectionId;
+        // BAT (défaut D) — le cartouche VISÉ par une confirmation devient une petite carte « à confirmer », ANCRÉE ici (aucun défilement) :
+        //   texte explicite + deux issues. C'est la garde anti-perte de 44febfa RENDUE VISIBLE à l'endroit du clic (jamais un clic muet).
+        if (e.id === confirmId) {
+          return (
+            <span key={e.id} role="group" aria-label={`Changer pour ${nomEmprise(e)} — un ajustement non enregistré est en cours`}
+              style={{ display: 'inline-flex', flexWrap: 'wrap', alignItems: 'center', gap: '.3rem', border: '2px solid var(--color-svv-red)', borderRadius: '.4rem', padding: '.2rem .45rem', background: 'var(--color-svv-field)' }}>
+              <span style={{ fontSize: 12, color: 'var(--color-svv-ink)', fontWeight: 600 }}><span aria-hidden>⚠ </span>{nomEmprise(e)} — ajustement non enregistré</span>
+              <button type="button" onClick={onConfirmer} disabled={occupe} style={{ ...btnMini, borderColor: 'var(--color-svv-red)', color: 'var(--color-svv-red)', fontWeight: 700 }}>Changer quand même</button>
+              <button type="button" onClick={onAnnuler} disabled={occupe} style={btnMini}>Rester</button>
+            </span>
+          );
+        }
+        // Tant qu'une confirmation est en attente ailleurs, ce cartouche est INDISPONIBLE : signalé par le texte (« — indisponible ») ET par
+        //   l'état accessible (aria-disabled), jamais par la seule couleur. Clic sans effet (on tranche d'abord la confirmation).
+        const indispo = gardeActive || occupe;
         return (
-          <button key={e.id} type="button" aria-current={sel ? 'true' : undefined} disabled={occupe}
-            data-selectionne={sel || undefined}
-            onClick={() => onSelectionner(e.id)}
+          <button key={e.id} type="button" aria-current={sel ? 'true' : undefined} aria-disabled={indispo || undefined}
+            data-selectionne={sel || undefined} data-indisponible={(gardeActive && !occupe) || undefined}
+            onClick={() => { if (!indispo) onSelectionner(e.id); }}
             style={{
-              cursor: occupe ? 'default' : 'pointer', opacity: occupe ? 0.5 : 1, fontSize: 13, minHeight: 32, padding: '.25rem .55rem',
+              cursor: indispo ? 'default' : 'pointer', opacity: indispo ? 0.5 : 1, fontSize: 13, minHeight: 32, padding: '.25rem .55rem',
               borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)',
               border: sel ? '2px solid var(--color-svv-red)' : '1px solid var(--color-svv-line)', fontWeight: sel ? 700 : 400,
             }}>
-            {nomEmprise(e)}{sel && <span style={{ color: 'var(--color-svv-red)', fontWeight: 700 }}> · sélectionné</span>}
+            {nomEmprise(e)}{sel && <span style={{ color: 'var(--color-svv-red)', fontWeight: 700 }}> · sélectionné</span>}{gardeActive && !sel && <span style={{ color: 'var(--color-svv-muted)' }}> — indisponible</span>}
           </button>
         );
       })}
