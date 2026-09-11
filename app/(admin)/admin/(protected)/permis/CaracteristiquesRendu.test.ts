@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, DeclarationsCerfaBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps, etatCapsuleEmprise, CapsuleEtatEmprise, ClotureVersRattachement, clotureVisible, type EtatEmpriseBatimentVue } from './CaracteristiquesRendu';
+import { PastilleOrigineValeur, PastilleConfiance, ChampMesureEditeur, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurParking, EditeurRepere, FaitsPermisBloc, LigneNombreBatiments, ChampNombreBatiments, DeclarationsCerfaBloc, MESSAGE_AUCUN_CORPS, AnnotationsExtraction, candidatsDivergents, candidatsDestination, BLEU_SOURCE, VIOLET_A_CONFIRMER, cerfaEstScanSansChamps, etatCapsuleEmprise, CapsuleEtatEmprise, ClotureVersRattachement, clotureVisible, type EtatEmpriseBatimentVue } from './CaracteristiquesRendu';
 import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa';
 import { MESURES, CHAMPS_PERMIS, type FaitsPermis } from './caracteristiquesForm';
 import { statutEmpriseBatiment, MOT_STATUT_EMPRISE, resumeProjection, verdictProjectionBatiments, type StatutEmpriseBatiment } from '../../../../lib/permis/projectionBatiments';
@@ -470,22 +470,39 @@ describe('N3-C — FaitsPermisBloc : lecture seule, surface seulement si présen
     expect(h).toContain('Surface créée');
     expect(h).toContain('13032 m²');
   });
-  it('N12 — nombre de bâtiments AVEC sa provenance « d’après les pièces » (pas un fait Sitadel)', () => {
-    const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits: faits(), nbBatiments: 2 }));
-    expect(h).toContain('Bâtiments identifiés : ');
-    expect(h).toContain('2');
-    expect(h).toContain('d’après les pièces'); // provenance : pas présenté comme un fait officiel Sitadel
-  });
-  it('N12 — aucun bâtiment identifié → phrase d’ABSENCE, JAMAIS « 0 bâtiment »', () => {
-    const h0 = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits: faits(), nbBatiments: 0 }));
-    expect(h0).toContain('aucun bâtiment identifié dans les pièces');
-    expect(h0).not.toContain('0 bâtiment');
-    // prop absente = même comportement d’absence (jamais un « 0 » trompeur)
-    const hAbs = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits: faits() }));
-    expect(hAbs).toContain('aucun bâtiment identifié dans les pièces');
+  it('BAT-4 — le décompte de bâtiments a QUITTÉ FaitsPermisBloc (déplacé en section 4)', () => {
+    const h = renderToStaticMarkup(createElement(FaitsPermisBloc, { faits: faits() }));
+    expect(h).not.toContain('Bâtiments identifiés');
+    expect(h).not.toContain('aucun bâtiment identifié');
   });
   it('message « aucun corps » exporté', () => {
     expect(MESSAGE_AUCUN_CORPS).toContain('Aucun bâtiment');
+  });
+});
+
+describe('BAT-4 — LigneNombreBatiments (décompte + commande, une seule ligne en tête de section 4)', () => {
+  it('N12 — décompte AVEC provenance « d’après les pièces » (pas un fait Sitadel)', () => {
+    const h = renderToStaticMarkup(createElement(LigneNombreBatiments, { nbBatiments: 2 }));
+    expect(h).toContain('Bâtiments identifiés : ');
+    expect(h).toContain('2');
+    expect(h).toContain('d’après les pièces');
+  });
+  it('N12 — aucun bâtiment identifié → phrase d’ABSENCE, JAMAIS « 0 bâtiment »', () => {
+    const h0 = renderToStaticMarkup(createElement(LigneNombreBatiments, { nbBatiments: 0 }));
+    expect(h0).toContain('aucun bâtiment identifié dans les pièces');
+    expect(h0).not.toContain('0 bâtiment');
+  });
+  it('séparateur « · » entre le décompte et la commande (jamais collé) ; sans commande, pas de séparateur', () => {
+    const avec = renderToStaticMarkup(createElement(LigneNombreBatiments, { nbBatiments: 2, controle: createElement('span', {}, 'COMMANDE') }));
+    expect(avec).toContain('·');
+    expect(avec).toContain('COMMANDE');
+    const sans = renderToStaticMarkup(createElement(LigneNombreBatiments, { nbBatiments: 2 }));
+    expect(sans).not.toContain('·');
+  });
+  it('ChampNombreBatiments : libellé abrégé « Changer le nombre : » + bouton « Appliquer »', () => {
+    const h = renderToStaticMarkup(createElement(ChampNombreBatiments, { valeur: '2', nbActuel: 2, onValeur: () => {}, onAppliquer: () => {} }));
+    expect(h).toContain('Changer le nombre :');
+    expect(h).toContain('Appliquer');
   });
 });
 

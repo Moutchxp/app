@@ -165,9 +165,10 @@ export function DeclarationsCerfaBloc({ declarations: d, pieceSource }: { declar
  * les pièces. On le rend donc SÉPARÉ de la grille Sitadel, avec la provenance « d'après les pièces ». Jamais « 0 bâtiment » (un PC en
  * comporte forcément un) : une absence de lecture s'écrit « aucun bâtiment identifié dans les pièces ».
  */
-export function FaitsPermisBloc({ faits, nbBatiments, controleNbBatiments, parcelles, ecartsParcelles, onExportGeojson, empreinte, onExportEmpreinte, bati, dossierId, onParcelleChange }: {
-  faits: FaitsPermis; nbBatiments?: number;
-  controleNbBatiments?: ReactNode; // BAT-3 — contrôle « changer le nombre de bâtiments » (stateful, fourni par le parent), rendu À CÔTÉ du décompte
+// BAT-4 — le décompte de bâtiments + le champ « changer le nombre » ont QUITTÉ ce bloc (information Sitadel pure) pour la sous-section
+//   « Les futurs bâtiments et leurs altitudes » (composant `LigneNombreBatiments`), au-dessus des cartes qu'ils pilotent.
+export function FaitsPermisBloc({ faits, parcelles, ecartsParcelles, onExportGeojson, empreinte, onExportEmpreinte, bati, dossierId, onParcelleChange }: {
+  faits: FaitsPermis;
   parcelles?: ParcelleLigne[]; ecartsParcelles?: string[]; onExportGeojson?: () => void; // N3-E — parcelles cadastrales + export GeoJSON
   empreinte?: EmpreinteLigne | null; onExportEmpreinte?: () => void; // FUS-1 — empreinte attendue de la future parcelle fusionnée
   bati?: BatiSnapshotResume | null; // FUS-1b — photo du bâti au moment de l'analyse (sous l'empreinte)
@@ -181,7 +182,6 @@ export function FaitsPermisBloc({ faits, nbBatiments, controleNbBatiments, parce
     ['Date d’acceptation', faits.dateAutorisation ?? 'non renseignée'],
   ];
   if (faits.surfaceCreee) lignes.push(['Surface créée', `${faits.surfaceCreee} m²`]);
-  const n = nbBatiments ?? 0;
   return (
     <div className="svv-card" role="note" style={{ fontSize: 12 }}>
       <div style={{ ...styleAide, marginBottom: '.35rem' }}>Faits connus du permis (Sitadel) — lecture seule, non modifiables ici.</div>
@@ -189,14 +189,6 @@ export function FaitsPermisBloc({ faits, nbBatiments, controleNbBatiments, parce
         {lignes.map(([k, v]) => (
           <div key={k} style={{ minWidth: 0 }}><span style={{ color: 'var(--color-svv-muted)' }}>{k} : </span><strong style={{ overflowWrap: 'anywhere' }}>{v}</strong></div>
         ))}
-      </div>
-      {/* N12 — décompte de bâtiments : PAS un fait Sitadel → séparé de la grille + provenance explicite « d'après les pièces ». */}
-      <div style={{ marginTop: '.4rem', paddingTop: '.35rem', borderTop: '1px solid var(--color-svv-line)', overflowWrap: 'anywhere' }}>
-        {n > 0
-          ? <><span style={{ color: 'var(--color-svv-muted)' }}>Bâtiments identifiés : </span><strong>{n}</strong><span style={{ color: 'var(--color-svv-muted)' }}> (d’après les pièces)</span></>
-          : <span style={{ color: 'var(--color-svv-muted)' }}>aucun bâtiment identifié dans les pièces</span>}
-        {/* BAT-3 — contrôle « changer le nombre de bâtiments » (stateful, fourni par le parent), juste à côté du décompte. */}
-        {controleNbBatiments}
       </div>
       {/* N3-E — PARCELLES CADASTRALES : une ligne par parcelle (section, n°, superficie déclarée, contenance cadastrale). Une parcelle
           non rattachée DIT pourquoi (jamais un vide muet). Écart déclaré/cadastre signalé. Le contour n'est pas déversé → export GeoJSON. */}
@@ -838,8 +830,10 @@ export const MESSAGE_AUCUN_CORPS = 'Aucun bâtiment renseigné. Ajoutez-en un po
 export interface CartePlanVue { id: number; nom: string; vide: boolean; valideeAltitude: boolean }
 
 /**
- * BAT-3 — CHAMP « changer le nombre de bâtiments », À CÔTÉ de « Bâtiments identifiés : N ». Contrôlé (le parent tient la valeur). Le bouton
- * n'est actif que pour un entier ≥ 0 DIFFÉRENT du nombre actuel de cartes actives. La couleur n'est jamais le seul appui (texte d'erreur explicite).
+ * BAT-3 / BAT-4 — CHAMP « changer le nombre : [champ] [Appliquer] », rendu par `LigneNombreBatiments` DANS LA MÊME LIGNE que « Bâtiments
+ * identifiés : N ». Contrôlé (le parent tient la valeur). Le bouton n'est actif que pour un entier ≥ 0 DIFFÉRENT du nombre actuel de cartes
+ * actives. BAT-4 — le CHAMP et le BOUTON sont SOLIDAIRES (groupe `nowrap`) : sur mobile, le bouton reste dans le prolongement du champ,
+ * jamais relégué seul sur sa propre ligne. La couleur n'est jamais le seul appui (texte d'erreur explicite).
  */
 export function ChampNombreBatiments({ valeur, nbActuel, onValeur, onAppliquer, enCours = false }: {
   valeur: string; nbActuel: number; onValeur: (v: string) => void; onAppliquer: () => void; enCours?: boolean;
@@ -849,18 +843,38 @@ export function ChampNombreBatiments({ valeur, nbActuel, onValeur, onAppliquer, 
   const valide = Number.isInteger(n) && n >= 0;
   const inchange = valide && n === nbActuel;
   return (
-    <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.4rem' }}>
-      <label style={{ ...styleAide, display: 'inline-flex', gap: '.35rem', alignItems: 'center' }}>
-        Changer le nombre de bâtiments :
+    <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+      <span style={styleAide}>Changer le nombre :</span>
+      {/* champ + bouton SOLIDAIRES (nowrap) → le bouton ne se retrouve jamais seul sur sa ligne (mobile-first). */}
+      <span style={{ display: 'inline-flex', gap: '.35rem', alignItems: 'center', flexWrap: 'nowrap' }}>
         <input type="number" inputMode="numeric" min={0} step={1} value={valeur} disabled={enCours}
           onChange={(e) => onValeur(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && valide && !inchange && !enCours) { e.preventDefault(); onAppliquer(); } }}
-          aria-label="Nouveau nombre de bâtiments" style={{ ...styleInput, width: '4.5rem', padding: '.3rem .4rem', minWidth: 0 }} />
-      </label>
-      <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .8rem' }} disabled={enCours || !valide || inchange}
-        onClick={onAppliquer}>Appliquer</button>
+          aria-label="Nouveau nombre de bâtiments" style={{ ...styleInput, width: '4rem', padding: '.3rem .4rem', minWidth: 0 }} />
+        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .8rem', whiteSpace: 'nowrap' }} disabled={enCours || !valide || inchange}
+          onClick={onAppliquer}>Appliquer</button>
+      </span>
       {brut !== '' && !valide && <span style={styleErreur}>entier ≥ 0 attendu</span>}
     </span>
+  );
+}
+
+/**
+ * BAT-4 — LIGNE « Bâtiments identifiés : N (d'après les pièces) · Changer le nombre : [champ] [Appliquer] », en TÊTE de la sous-section
+ * « Les futurs bâtiments et leurs altitudes », au-dessus des cartes qu'elle pilote. Tout sur une SEULE ligne, un séparateur « · » CLAIR
+ * entre le décompte et la commande (corrige le « (d'après les pièces)Changer » collé). Mobile-first : la ligne peut passer à la ligne
+ * proprement, mais le champ et le bouton restent solidaires (cf. `ChampNombreBatiments`). Le décompte reste « d'après les pièces » (N12) ;
+ * jamais « 0 bâtiment » (phrase d'absence). `controle` = le `ChampNombreBatiments` stateful (fourni par le parent).
+ */
+export function LigneNombreBatiments({ nbBatiments, controle }: { nbBatiments: number; controle?: ReactNode }) {
+  const n = nbBatiments ?? 0;
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '.4rem .6rem', fontSize: 12, overflowWrap: 'anywhere' }}>
+      {n > 0
+        ? <span><span style={{ color: 'var(--color-svv-muted)' }}>Bâtiments identifiés : </span><strong>{n}</strong><span style={{ color: 'var(--color-svv-muted)' }}> (d’après les pièces)</span></span>
+        : <span style={{ color: 'var(--color-svv-muted)' }}>aucun bâtiment identifié dans les pièces</span>}
+      {controle && <><span aria-hidden="true" style={{ color: 'var(--color-svv-line)' }}>·</span>{controle}</>}
+    </div>
   );
 }
 

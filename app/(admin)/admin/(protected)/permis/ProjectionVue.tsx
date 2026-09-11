@@ -14,7 +14,7 @@ import { ClotureVersRattachement, clotureVisible } from './CaracteristiquesRendu
 import type { DonneesLiseuse } from './LiseusePieces'; // P3 (perfo) — donnée /emprise partagée (bloc Bâtiments → liseuse de la planche), anti-doublon
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { etatValidationProjection } from '../../../../lib/permis/etatValidationProjection';
-import { etatProjectionTitreDepuisComptes, etatAltitudesTitre, etatCoherenceBatimentsTitre, etatMereCaracteristiques, etatPlancheTitre, type EtatTitreFamille, type ComptesCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles (repli PAR BÂTIMENT, calqué sur estValidationAcquise) ; PL-ÉTAT — état de la ligne « Planche cadastrale » ; BAT-2 — mère « Caractéristiques du permis » agrégée (cohérence + altitudes) ; BAT-2d — comptes LIVE remontés par le bloc
+import { etatProjectionTitreDepuisComptes, etatCaracteristiquesPermis, etatPlancheTitre, type EtatTitreFamille, type ComptesCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles (repli PAR BÂTIMENT, calqué sur estValidationAcquise) ; PL-ÉTAT — état de la ligne « Planche cadastrale » ; BAT-4 — mère « Caractéristiques du permis » = unique porteuse (section 4 : cohérence + altitudes) ; BAT-2d — comptes LIVE remontés par le bloc
 import { conditionAltitudeSortie, pretPourSortie } from '../../../../lib/permis/etatSortieRattachement'; // LOT 71 — condition altitude à 3 états (sans objet ≠ satisfaite)
 import { recompterSiSucces } from './comptesActions';
 
@@ -186,18 +186,15 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     const ev = etatValidationProjection(batimentsOuvert, verdict); // bouton « Valider » : invite à déplier les bâtiments tant qu'ils n'ont pas été ouverts
     // RATT-1 — état des familles calculé depuis la ligne DÉJÀ chargée (`file`), visible sans déplier ni tirer de contenu lourd (PERF-1 préservée).
     const row = file?.find((f) => f.dossierId === ouvert) ?? null;
-    // BAT-2 / BAT-2d — la MÈRE « Caractéristiques du permis (saisie) » agrège ses sous-sections PORTEUSES (section 1 = cohérence cartes ↔
-    //   nombre VALIDÉ ; section 4 = altitudes). Les non-bloquantes (compte rendu Cerfa, permis déclaré) n'y entrent pas.
+    // BAT-2 / BAT-4 — la MÈRE « Caractéristiques du permis (saisie) » n'a plus qu'UNE porteuse : « Les futurs bâtiments et leurs altitudes »
+    //   (`etatSection4Titre` via `etatCaracteristiquesPermis` — altitude ET cohérence du nombre). La section 1 est redevenue NON BLOQUANTE (BAT-4).
     //   BAT-2d — SOURCE UNIQUE : quand le bloc est OUVERT il REMONTE ses comptes LIVE (`comptesLive`) → la mère se calcule sur EXACTEMENT
-    //   les mêmes données que ses sous-titres (fini la mère « verte » sur des sous-sections rouges après un ajout de carte). REPLI sur les
+    //   les mêmes données que son sous-titre (fini la mère « verte » sur une sous-section rouge après un ajout/retrait de carte). REPLI sur les
     //   comptes de la file (`row`) tant que le bloc n'a pas remonté (replié / juste ouvert). Garde dossierId : jamais les comptes d'un autre permis.
-    const comptesMere = (comptesLive && comptesLive.dossierId === ouvert)
+    const comptesMere: ComptesCaracteristiquesPermis = (comptesLive && comptesLive.dossierId === ouvert)
       ? comptesLive
       : { dossierId: ouvert, nbCartes: row?.nbBatiments ?? 0, nbSansAltitude: row?.nbCorpsSansAltitude ?? 0, nbBatimentsValide: row?.nbBatimentsValide ?? null };
-    const etatMere = etatMereCaracteristiques([
-      etatCoherenceBatimentsTitre(comptesMere.nbCartes, comptesMere.nbBatimentsValide),
-      etatAltitudesTitre(comptesMere.nbCartes, comptesMere.nbSansAltitude),
-    ]);
+    const etatMere = etatCaracteristiquesPermis(comptesMere); // BAT-4 — agrégat de l'unique porteuse (section 4), SOURCE UNIQUE avec le sous-titre du bloc
     // ③ COMPLÉMENT — l'en-tête dit l'état RÉEL (tous les bâtiments alt+emprise validés → VERT ; sinon ce qui manque), remonté par le bloc
     //   quand il est ouvert (valeur LIVE, prime). REPLI avant ouverture : calculé sur les COMPTES de la ligne (calqué sur estValidationAcquise,
     //   MÊME règle que l'en-tête live), PLUS sur le jalon dossier `projectionValidee` — la section et la ligne disent ainsi une seule vérité

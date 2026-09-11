@@ -5,13 +5,14 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { MESURES } from './caracteristiquesForm';
-import { etatMereCaracteristiques, etatCoherenceBatimentsTitre, etatAltitudesTitre, type ComptesCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection';
+import { etatCaracteristiquesPermis, type ComptesCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection';
 
 /**
- * BAT-2b — l'ÉTAT des sous-sections PORTEUSES (cohérence des cartes + altitudes) s'affiche sur leurs TITRES dès que la vue passe
- * `avecEtatFamilles` — désormais LES CINQ vues (Projection, Rattachement, Archives, Réponses, Suivi). Comme les cinq montent le MÊME
- * composant avec le MÊME drapeau (câblage vérifié par tsc), rendre ici `CaracteristiquesBloc` avec le drapeau PROUVE ce qu'affiche chaque
- * vue. On rend le composant RÉEL (effets + fetch mocké, jsdom), on lit les TITRES (visibles bloc REPLIÉ, aucun dépliage). Aucun réseau réel.
+ * BAT-2b / BAT-4 — l'ÉTAT s'affiche sur le TITRE de la SEULE porteuse « Les futurs bâtiments et leurs altitudes » (section 4, qui couvre
+ * DÉSORMAIS altitude ET cohérence du nombre) dès que la vue passe `avecEtatFamilles` — LES CINQ vues (Projection, Rattachement, Archives,
+ * Réponses, Suivi). La section 1 « Caractéristiques et bâtiments d'origine » est redevenue NON BLOQUANTE (aucun état sur son titre). Comme
+ * les cinq montent le MÊME composant avec le MÊME drapeau (câblage vérifié par tsc), rendre ici `CaracteristiquesBloc` avec le drapeau PROUVE
+ * ce qu'affiche chaque vue. On rend le composant RÉEL (effets + fetch mocké, jsdom), on lit les TITRES (visibles bloc REPLIÉ, aucun dépliage).
  * Deux modes couverts : « 4 autres vues » (aide de la section 4 CONSERVÉE) et « Projection » (`etatSection4SansAide` → l'état la remplace).
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -59,42 +60,49 @@ async function monter(e: object, props: { avecEtatFamilles?: boolean; etatSectio
   return container;
 }
 
-describe('BAT-2b — état des sous-sections sur les titres (rendu réel du composant partagé)', () => {
-  it('MODE 4 AUTRES VUES (avecEtatFamilles) : section 1 = cohérence, section 4 = altitudes ; aide « un par immeuble » CONSERVÉE', async () => {
-    // 2 cartes, 1 sans altitude, nombre validé = 2 → section 1 VERTE (cohérent), section 4 ROUGE (1/2 manquante).
+describe('BAT-4 — état sur la SEULE porteuse (section 4) ; section 1 non bloquante', () => {
+  it('MODE 4 AUTRES VUES : section 4 porte l’ALTITUDE ; section 1 SANS état ; aide « un par immeuble » CONSERVÉE', async () => {
+    // 2 cartes, 1 sans altitude, nombre validé = 2 → cohérence VERTE (2==2) ⇒ section 4 ROUGE au seul motif altitude (1/2).
     const c = await monter(etat([corps(5, 100), corps(6, null)], 2), { avecEtatFamilles: true });
     const t = c.textContent ?? '';
-    expect(t).toContain('nombre de cartes cohérent avec le nombre validé'); // état section 1
-    expect(t).toContain('altitude manquante (1/2)');                        // état section 4
-    expect(t).toContain('un par immeuble, mesurés sur les plans');          // aide CONSERVÉE (req BAT-2b point 3)
+    expect(t).toContain('altitude manquante (1/2)');                              // état section 4 (motif altitude)
+    expect(t).not.toContain('nombre de cartes cohérent avec le nombre validé');   // BAT-4 : section 1 n'a PLUS d'état (ce libellé vert n'est jamais rendu)
+    expect(t).toContain('un par immeuble, mesurés sur les plans');               // aide CONSERVÉE
     c.remove();
   });
 
-  it('MODE PROJECTION (avecEtatFamilles + etatSection4SansAide) : mêmes états, mais l’aide de la section 4 est REMPLACÉE par l’état', async () => {
+  it('MODE PROJECTION (etatSection4SansAide) : même état section 4, l’aide est REMPLACÉE par l’état', async () => {
     const c = await monter(etat([corps(5, 100), corps(6, null)], 2), { avecEtatFamilles: true, etatSection4SansAide: true });
     const t = c.textContent ?? '';
-    expect(t).toContain('nombre de cartes cohérent avec le nombre validé');
     expect(t).toContain('altitude manquante (1/2)');
-    expect(t).not.toContain('un par immeuble, mesurés sur les plans'); // aide REMPLACÉE (comportement BAT-2 de Projection préservé)
+    expect(t).not.toContain('un par immeuble, mesurés sur les plans'); // aide REMPLACÉE (comportement Projection préservé)
     c.remove();
   });
 
-  it('incohérence : cartes ≠ nombre validé → section 1 ROUGE disant l’écart', async () => {
+  it('INCOHÉRENCE (cartes ≠ nombre validé, altitudes OK) → portée par la SECTION 4, une seule fois (plus par section 1)', async () => {
     const c = await monter(etat([corps(5, 100), corps(6, 100)], 3), { avecEtatFamilles: true }); // 2 cartes, 3 validés
-    expect(c.textContent ?? '').toContain('2 cartes pour 3 bâtiments validés');
+    const t = c.textContent ?? '';
+    expect(t).toContain('2 cartes / 3 validés');                          // libellé abrégé BAT-4, sur la section 4
+    expect((t.match(/2 cartes \/ 3 validés/g) ?? []).length).toBe(1);     // une SEULE fois (jamais dupliqué sur section 1 devenue plate)
     c.remove();
   });
 
-  it('nombre validé NULL (jamais validé) → section 1 NEUTRE « nombre de bâtiments non validé »', async () => {
+  it('nombre validé NULL (jamais validé) → SECTION 4 « nombre de bâtiments non validé » (motif cohérence, composé)', async () => {
     const c = await monter(etat([corps(5, 100)], null), { avecEtatFamilles: true });
     expect(c.textContent ?? '').toContain('nombre de bâtiments non validé');
+    c.remove();
+  });
+
+  it('LES DEUX motifs (incohérence + altitude) → titre abrégé « cohérence · altitude » sur la section 4', async () => {
+    // 2 cartes, 1 sans altitude, 1 validé → « 2 cartes / 1 validé · altitude manquante (1/2) ».
+    const c = await monter(etat([corps(5, 100), corps(6, null)], 1), { avecEtatFamilles: true });
+    expect(c.textContent ?? '').toContain('2 cartes / 1 validé · altitude manquante (1/2)');
     c.remove();
   });
 
   it('SANS drapeau (comportement d’origine) : aucun état sur les titres ; l’aide de la section 4 reste', async () => {
     const c = await monter(etat([corps(5, 100), corps(6, null)], 2), {});
     const t = c.textContent ?? '';
-    expect(t).not.toContain('nombre de cartes cohérent avec le nombre validé');
     expect(t).not.toContain('altitude manquante (1/2)');
     expect(t).toContain('un par immeuble, mesurés sur les plans'); // aide d'origine conservée
     c.remove();
@@ -108,39 +116,29 @@ describe('BAT-2b — état des sous-sections sur les titres (rendu réel du comp
  * les comptes remontés est ROUGE, comme les sous-titres — jamais « complète » verte. Sur l'ancien code (aucune remontée), `onComptes`
  * n'était jamais appelé → ce test échoue. C'est le test qui manquait : il COMPARE la valeur qui pilote la mère à ce que le bloc affiche.
  */
-describe('BAT-2d — le bloc remonte des comptes cohérents avec ses sous-titres (mère == porteuses)', () => {
-  it('bug 07512024V0037 (2 cartes, 1 validé, 1 altitude manquante) : sous-titres ROUGES ⇒ mère (sur comptes remontés) ROUGE, jamais verte', async () => {
+describe('BAT-2d / BAT-4 — le bloc remonte des comptes cohérents avec son sous-titre (mère == unique porteuse, jamais divergente)', () => {
+  it('bug 07512024V0037 (2 cartes, 1 validé, 1 altitude manquante) : sous-titre section 4 ROUGE ⇒ mère (sur comptes remontés) ROUGE, jamais verte', async () => {
     const recu: ComptesCaracteristiquesPermis[] = [];
     const c = await monter(etat([corps(5, 100), corps(6, null)], 1), { avecEtatFamilles: true, onComptes: (x) => recu.push(x) });
-    const t = c.textContent ?? '';
-    // Les sous-titres du bloc sont ROUGES (données fraîches) :
-    expect(t).toContain('2 cartes pour 1 bâtiment validé');
-    expect(t).toContain('altitude manquante (1/2)');
+    // Le sous-titre de la section 4 réunit les DEUX motifs (données fraîches) — abrégé :
+    expect(c.textContent ?? '').toContain('2 cartes / 1 validé · altitude manquante (1/2)');
     // Le bloc a REMONTÉ ses comptes, reflétant EXACTEMENT ces données (2 cartes, 1 sans altitude, 1 validé) :
     const dernier = recu.at(-1);
     expect(dernier).toEqual({ dossierId: 468, nbCartes: 2, nbSansAltitude: 1, nbBatimentsValide: 1 });
-    // La MÈRE se calcule sur CES comptes remontés (exactement ce que fait ProjectionVue) → ROUGE, nommant les deux sections, jamais « complète » :
-    const mere = etatMereCaracteristiques([
-      etatCoherenceBatimentsTitre(dernier!.nbCartes, dernier!.nbBatimentsValide),
-      etatAltitudesTitre(dernier!.nbCartes, dernier!.nbSansAltitude),
-    ]);
+    // La MÈRE se calcule sur CES comptes (exactement ce que fait ProjectionVue → etatCaracteristiquesPermis) → ROUGE, REPREND le sous-titre, jamais « complète » :
+    const mere = etatCaracteristiquesPermis(dernier!);
     expect(mere.ton).toBe('rouge');
-    expect(mere.texte).toContain('2 cartes pour 1 bâtiment validé');
-    expect(mere.texte).toContain('altitude manquante (1/2)');
+    expect(mere.texte).toBe('2 cartes / 1 validé · altitude manquante (1/2)'); // 🔴 propriété BAT-2d : mère == sous-titre de la porteuse
     expect(mere.texte).not.toBe('complète');
     c.remove();
   });
 
-  it('tout cohérent (2 cartes, 2 validés, aucune altitude manquante) : sous-titres VERTS ⇒ mère (sur comptes remontés) VERTE', async () => {
+  it('tout cohérent (2 cartes, 2 validés, aucune altitude manquante) : sous-titre VERT ⇒ mère (sur comptes remontés) VERTE', async () => {
     const recu: ComptesCaracteristiquesPermis[] = [];
     const c = await monter(etat([corps(5, 100), corps(6, 100)], 2), { avecEtatFamilles: true, onComptes: (x) => recu.push(x) });
     const dernier = recu.at(-1);
     expect(dernier).toEqual({ dossierId: 468, nbCartes: 2, nbSansAltitude: 0, nbBatimentsValide: 2 });
-    const mere = etatMereCaracteristiques([
-      etatCoherenceBatimentsTitre(dernier!.nbCartes, dernier!.nbBatimentsValide),
-      etatAltitudesTitre(dernier!.nbCartes, dernier!.nbSansAltitude),
-    ]);
-    expect(mere).toEqual({ texte: 'complète', ton: 'vert' });
+    expect(etatCaracteristiquesPermis(dernier!)).toEqual({ texte: 'complète', ton: 'vert' });
     c.remove();
   });
 });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { etatProjectionTitre, etatProjectionTitreDepuisComptes, etatAltitudesTitre, etatCoherenceBatimentsTitre, etatMereCaracteristiques, etatCaracteristiquesPermis, etatFamilleCaracteristiquesDemande, fusionnerComptesLive, etatPlancheTitre, type ComptesCaracteristiquesPermis } from './etatFamilleProjection';
+import { etatProjectionTitre, etatProjectionTitreDepuisComptes, etatAltitudesTitre, etatCoherenceBatimentsTitre, etatSection4Titre, etatMereCaracteristiques, etatCaracteristiquesPermis, etatFamilleCaracteristiquesDemande, fusionnerComptesLive, etatPlancheTitre, type ComptesCaracteristiquesPermis } from './etatFamilleProjection';
 import { clotureVisible } from '../../(admin)/admin/(protected)/permis/CaracteristiquesRendu'; // SOURCE UNIQUE de la visibilité du bloc de sortie (pure)
 
 /**
@@ -79,20 +79,42 @@ describe('BAT-2 — etatAltitudesTitre (section « Les futurs bâtiments et leur
   });
 });
 
-describe('BAT-2 — etatCoherenceBatimentsTitre (section « Caractéristiques et bâtiments d’origine »)', () => {
+describe('BAT-2 / BAT-4 — etatCoherenceBatimentsTitre (MOTIF « cohérence du nombre », composé par la section 4)', () => {
   it('nombre validé NULL (jamais validé — 0 détecté laissé NULL par BAT-1) → NEUTRE, sans mentir', () => {
     expect(etatCoherenceBatimentsTitre(0, null)).toEqual({ texte: 'nombre de bâtiments non validé', ton: 'neutre' });
     expect(etatCoherenceBatimentsTitre(3, null)).toEqual({ texte: 'nombre de bâtiments non validé', ton: 'neutre' }); // le nb de cartes ne suffit pas à valider
   });
-  it('cartes ≠ nombre validé → ROUGE, libellé qui DIT l’incohérence (pluriel accordé)', () => {
-    expect(etatCoherenceBatimentsTitre(3, 2)).toEqual({ texte: '3 cartes pour 2 bâtiments validés', ton: 'rouge' });
-    expect(etatCoherenceBatimentsTitre(1, 2)).toEqual({ texte: '1 carte pour 2 bâtiments validés', ton: 'rouge' });
-    expect(etatCoherenceBatimentsTitre(2, 1)).toEqual({ texte: '2 cartes pour 1 bâtiment validé', ton: 'rouge' });
+  it('BAT-4 — cartes ≠ nombre validé → ROUGE, libellé ABRÉGÉ « N cartes / M validé » (pluriel accordé)', () => {
+    expect(etatCoherenceBatimentsTitre(3, 2)).toEqual({ texte: '3 cartes / 2 validés', ton: 'rouge' });
+    expect(etatCoherenceBatimentsTitre(1, 2)).toEqual({ texte: '1 carte / 2 validés', ton: 'rouge' });
+    expect(etatCoherenceBatimentsTitre(2, 1)).toEqual({ texte: '2 cartes / 1 validé', ton: 'rouge' });
   });
   it('cartes === nombre validé → VERT', () => {
     expect(etatCoherenceBatimentsTitre(1, 1)).toEqual({ texte: 'nombre de cartes cohérent avec le nombre validé', ton: 'vert' });
     expect(etatCoherenceBatimentsTitre(3, 3)).toEqual({ texte: 'nombre de cartes cohérent avec le nombre validé', ton: 'vert' });
     expect(etatCoherenceBatimentsTitre(0, 0)).toEqual({ texte: 'nombre de cartes cohérent avec le nombre validé', ton: 'vert' }); // 0 validé ET 0 carte : cohérent (la vacuité des cartes est portée par la section 4)
+  });
+});
+
+describe('BAT-4 — etatSection4Titre (SEULE porteuse : altitude ET cohérence du nombre, titre abrégé)', () => {
+  it('tout va (cartes présentes, nombre cohérent, altitudes posées) → VERT « altitudes renseignées (N) »', () => {
+    expect(etatSection4Titre(2, 0, 2)).toEqual({ texte: 'altitudes renseignées (2 bâtiments)', ton: 'vert' });
+    expect(etatSection4Titre(1, 0, 1)).toEqual({ texte: 'altitudes renseignées (1 bâtiment)', ton: 'vert' });
+  });
+  it('0 carte → ROUGE « aucune carte de bâtiment » (dominant, même si nombre validé non nul ou NULL)', () => {
+    expect(etatSection4Titre(0, 0, null)).toEqual({ texte: 'aucune carte de bâtiment', ton: 'rouge' });
+    expect(etatSection4Titre(0, 0, 3)).toEqual({ texte: 'aucune carte de bâtiment', ton: 'rouge' });
+  });
+  it('ALTITUDE manquante seule (nombre cohérent) → ROUGE, motif altitude seul', () => {
+    expect(etatSection4Titre(2, 1, 2)).toEqual({ texte: 'altitude manquante (1/2)', ton: 'rouge' });
+  });
+  it('INCOHÉRENCE seule (altitudes toutes posées) → ROUGE, motif cohérence seul', () => {
+    expect(etatSection4Titre(2, 0, 3)).toEqual({ texte: '2 cartes / 3 validés', ton: 'rouge' });
+    expect(etatSection4Titre(1, 0, null)).toEqual({ texte: 'nombre de bâtiments non validé', ton: 'rouge' }); // neutre → bloque en rouge une fois composé
+  });
+  it('LES DEUX motifs → ROUGE, titre abrégé « cohérence · altitude » (ex. porteur 2 cartes / 1 validé / 1 altitude manquante)', () => {
+    expect(etatSection4Titre(2, 1, 1)).toEqual({ texte: '2 cartes / 1 validé · altitude manquante (1/2)', ton: 'rouge' });
+    expect(etatSection4Titre(3, 2, 1)).toEqual({ texte: '3 cartes / 1 validé · altitudes manquantes (2/3)', ton: 'rouge' });
   });
 });
 
@@ -126,12 +148,12 @@ describe('BAT-2 — etatMereCaracteristiques (agrégat des porteuses, 2 états)'
 describe('BAT-2c — état d’un permis + agrégat de la famille sur une demande (multi-permis)', () => {
   const c = (dossierId: number, nbCartes: number, nbSansAltitude: number, nbBatimentsValide: number | null) => ({ dossierId, nbCartes, nbSansAltitude, nbBatimentsValide });
 
-  it('etatCaracteristiquesPermis = mère du permis (cohérence des cartes + altitudes)', () => {
+  it('BAT-4 — etatCaracteristiquesPermis = mère du permis = la SEULE porteuse (section 4 : altitude + cohérence)', () => {
     expect(etatCaracteristiquesPermis(c(1, 2, 0, 2))).toEqual({ texte: 'complète', ton: 'vert' });
     expect(etatCaracteristiquesPermis(c(1, 2, 1, 2))).toEqual({ texte: 'altitude manquante (1/2)', ton: 'rouge' });
-    expect(etatCaracteristiquesPermis(c(1, 2, 0, 3))).toEqual({ texte: '2 cartes pour 3 bâtiments validés', ton: 'rouge' });
-    expect(etatCaracteristiquesPermis(c(1, 1, 0, null))).toEqual({ texte: 'nombre de bâtiments non validé', ton: 'rouge' }); // porteur neutre → mère rouge
-    expect(etatCaracteristiquesPermis(c(1, 0, 0, null))).toEqual({ texte: 'nombre de bâtiments non validé · aucune carte de bâtiment', ton: 'rouge' }); // deux porteuses bloquent → nommées
+    expect(etatCaracteristiquesPermis(c(1, 2, 0, 3))).toEqual({ texte: '2 cartes / 3 validés', ton: 'rouge' });
+    expect(etatCaracteristiquesPermis(c(1, 1, 0, null))).toEqual({ texte: 'nombre de bâtiments non validé', ton: 'rouge' }); // motif cohérence neutre → mère rouge
+    expect(etatCaracteristiquesPermis(c(1, 0, 0, null))).toEqual({ texte: 'aucune carte de bâtiment', ton: 'rouge' }); // 0 carte domine (BAT-4)
   });
 
   it('demande 0 permis → null (l’appelant garde le libellé nu)', () => {

@@ -35,8 +35,9 @@ export function etatProjectionTitreDepuisComptes(nbBatiments: number, nbSansAlti
 }
 
 /**
- * BAT-2 — SOUS-SECTION 4 « Les futurs bâtiments et leurs altitudes » (PORTEUSE de la mère « Caractéristiques du permis (saisie) ») : les
- * cartes de bâtiment existent-elles, et leur altitude de sommet est-elle renseignée ?
+ * BAT-2 / BAT-4 — MOTIF « ALTITUDES » de la sous-section « Les futurs bâtiments et leurs altitudes ». Depuis BAT-4, cette sous-section est
+ * la SEULE PORTEUSE : ce n'est plus un titre à part entière mais l'un des DEUX motifs composés par `etatSection4Titre` (avec la COHÉRENCE
+ * du nombre). Les cartes existent-elles, et leur altitude de sommet est-elle renseignée ?
  * 🔄 RÈGLE RÉVISÉE (décision Arno, BAT-2) — l'ancien « 0 bâtiment → NEUTRE » est RETIRÉ ici : une projection EXIGE au moins une carte, donc
  *   AUCUNE carte n'est un manque à combler, pas un « rien à faire ». Trois cas :
  *   · nbCartes ≤ 0 → ROUGE « aucune carte de bâtiment » ;
@@ -52,26 +53,48 @@ export function etatAltitudesTitre(nbCartes: number, nbSansAltitude: number): Et
 }
 
 /**
- * BAT-2 — SOUS-SECTION 1 « Caractéristiques et bâtiments d'origine » (PORTEUSE) : le NOMBRE de cartes de bâtiment (permis_corps_batiment)
- * correspond-il au nombre de bâtiments VALIDÉ (BAT-1, permis_caracteristique.nb_batiments_valide) ?
- *   · nbValide === null (JAMAIS validé — cas du « 0 détecté » que BAT-1 laisse à NULL) → NEUTRE « nombre de bâtiments non validé » : il n'y
- *     a PAS de nombre validé à comparer, on ne MENT dans aucun sens (ni faux « cohérent », ni faux « incohérent »). « Pas encore fait »
- *     n'est pas « rien à faire » : la mère vire tout de même au ROUGE via son agrégat (un porteur neutre bloque), SANS mentir sur ce titre.
- *   · nbCartes !== nbValide → ROUGE, libellé qui DIT l'incohérence (n cartes / m validés) ;
- *   · nbCartes === nbValide → VERT.
+ * BAT-2 / BAT-4 — MOTIF « COHÉRENCE DU NOMBRE » : le NOMBRE de cartes de bâtiment (permis_corps_batiment) correspond-il au nombre de
+ * bâtiments VALIDÉ (BAT-1, permis_caracteristique.nb_batiments_valide) ?
+ * 🔄 BAT-4 — ce motif ne titre PLUS la section 1 (« Caractéristiques et bâtiments d'origine » redevient de l'information Sitadel pure, non
+ *   bloquante) : il est désormais l'un des deux motifs composés par `etatSection4Titre` sur la sous-section « Les futurs bâtiments… ». Motif :
+ *   un état affiché loin de la commande qui le provoque (le champ « changer le nombre » vit maintenant en section 4) est incompréhensible.
+ *   · nbValide === null (JAMAIS validé — cas du « 0 détecté » que BAT-1 laisse à NULL) → NEUTRE « nombre de bâtiments non validé » : pas de
+ *     nombre validé à comparer, on ne MENT dans aucun sens. « Pas encore fait » n'est pas « rien à faire » → bloque (rouge) via l'agrégat.
+ *   · nbCartes !== nbValide → ROUGE, libellé ABRÉGÉ qui DIT l'incohérence (« N cartes / M validé ») ;
+ *   · nbCartes === nbValide → VERT (jamais affiché seul : quand tout va, la section 4 montre son motif altitude « altitudes renseignées »).
  */
 export function etatCoherenceBatimentsTitre(nbCartes: number, nbValide: number | null): EtatTitreFamille {
   if (nbValide === null) return { texte: 'nombre de bâtiments non validé', ton: 'neutre' };
   if (nbCartes !== nbValide) {
-    return { texte: `${nbCartes} carte${nbCartes > 1 ? 's' : ''} pour ${nbValide} bâtiment${nbValide > 1 ? 's' : ''} validé${nbValide > 1 ? 's' : ''}`, ton: 'rouge' };
+    return { texte: `${nbCartes} carte${nbCartes > 1 ? 's' : ''} / ${nbValide} validé${nbValide > 1 ? 's' : ''}`, ton: 'rouge' };
   }
   return { texte: 'nombre de cartes cohérent avec le nombre validé', ton: 'vert' };
 }
 
 /**
- * BAT-2 — MÈRE « Caractéristiques du permis (saisie) » : agrège l'état de ses sous-sections PORTEUSES (l'appelant ne passe QUE les
- * porteuses — section 1 cohérence + section 4 altitudes). Les sous-sections NON BLOQUANTES (« Compte rendu du Cerfa », « Le permis » :
- * informatives, champs légitimement souvent vides) N'ENTRENT JAMAIS dans ce calcul. DEUX états seulement :
+ * BAT-4 — ÉTAT de la sous-section « Les futurs bâtiments et leurs altitudes », SEULE PORTEUSE de la mère « Caractéristiques du permis ».
+ * Elle couvre DÉSORMAIS DEUX motifs (décision Arno) : (1) l'ALTITUDE de sommet manquante sur ≥ 1 carte, (2) l'INCOHÉRENCE entre le nombre de
+ * cartes ACTIVES et le nombre validé (BAT-1). Composition PURE des deux déciders ci-dessus (SOURCE UNIQUE, aucune 3e règle) :
+ *   · 0 carte → ROUGE « aucune carte de bâtiment » (dominant ; le nombre attendu reste lisible sur le champ « changer le nombre ») ;
+ *   · sinon, on RÉUNIT les motifs qui BLOQUENT (cohérence puis altitude), joints par « · » — un TITRE abrégé, pas une phrase :
+ *       ex. 2 cartes / 1 validé / 1 altitude manquante → « 2 cartes / 1 validé · altitude manquante (1/2) » ;
+ *   · aucun motif ne bloque → VERT « altitudes renseignées (N bâtiment(s)) » (dit implicitement : cartes présentes, nombre cohérent, altitudes posées).
+ */
+export function etatSection4Titre(nbCartes: number, nbSansAltitude: number, nbValide: number | null): EtatTitreFamille {
+  const altitude = etatAltitudesTitre(nbCartes, nbSansAltitude);
+  if (nbCartes <= 0) return altitude; // « aucune carte de bâtiment » domine (la cohérence n'a pas de carte à compter)
+  const coherence = etatCoherenceBatimentsTitre(nbCartes, nbValide);
+  const bloquants = [coherence, altitude].filter((e) => e.ton !== 'vert'); // ordre : cohérence d'abord, puis altitude
+  if (bloquants.length === 0) return altitude; // tout va → le motif altitude VERT porte le titre (« altitudes renseignées (N) »)
+  return { texte: bloquants.map((e) => e.texte).join(' · '), ton: 'rouge' };
+}
+
+/**
+ * BAT-2 / BAT-4 — MÈRE « Caractéristiques du permis (saisie) » : agrège l'état de ses sous-sections PORTEUSES. Depuis BAT-4 il n'y a plus
+ * qu'UNE porteuse — « Les futurs bâtiments et leurs altitudes » (`etatSection4Titre`, qui couvre altitude ET cohérence du nombre) : la
+ * section 1 « Caractéristiques et bâtiments d'origine » est redevenue NON BLOQUANTE (information Sitadel pure). La fonction reste
+ * GÉNÉRIQUE (1..N porteuses) pour ne pas casser le patron de source unique. Les sous-sections NON BLOQUANTES (« Compte rendu du Cerfa »,
+ * « Le permis » : informatives) N'ENTRENT JAMAIS dans ce calcul. DEUX états seulement :
  *   · VERTE ssi TOUTES les porteuses sont vertes ;
  *   · ROUGE sinon — Y COMPRIS si une porteuse est NEUTRE (« pas encore fait » n'est pas « rien à faire »).
  * Quand ROUGE, la mère NOMME les porteuses qui bloquent en REPRENANT leur propre `texte` (jamais une 2e formulation à maintenir) → on sait
@@ -87,12 +110,12 @@ export function etatMereCaracteristiques(porteuses: EtatTitreFamille[]): EtatTit
 export interface ComptesCaracteristiquesPermis { dossierId: number; nbCartes: number; nbSansAltitude: number; nbBatimentsValide: number | null }
 
 /**
- * BAT-2c — état AGRÉGÉ d'UN permis = sa « mère » (cohérence des cartes + altitudes), depuis ses comptes bruts. MÊME agrégat que la ligne
- * mère de Projection (etatMereCaracteristiques sur les deux porteuses) → une seule vérité. Rend l'état porté par la ligne « Permis {numDau} »
- * d'un encart multi-permis, et alimente l'agrégat de la famille.
+ * BAT-2c / BAT-4 — état AGRÉGÉ d'UN permis = sa « mère », depuis ses comptes bruts. MÊME agrégat que la ligne mère de Projection
+ * (etatMereCaracteristiques sur l'UNIQUE porteuse `etatSection4Titre` — altitude ET cohérence du nombre) → une seule vérité. Rend l'état
+ * porté par la ligne « Permis {numDau} » d'un encart multi-permis, et alimente l'agrégat de la famille.
  */
 export function etatCaracteristiquesPermis(c: ComptesCaracteristiquesPermis): EtatTitreFamille {
-  return etatMereCaracteristiques([etatCoherenceBatimentsTitre(c.nbCartes, c.nbBatimentsValide), etatAltitudesTitre(c.nbCartes, c.nbSansAltitude)]);
+  return etatMereCaracteristiques([etatSection4Titre(c.nbCartes, c.nbSansAltitude, c.nbBatimentsValide)]); // BAT-4 — une seule porteuse (section 4)
 }
 
 /**

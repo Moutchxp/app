@@ -12,12 +12,12 @@ import {
   MESURES, CHAMPS_PERMIS, construireCorps, construirePermis, valeurVersInput, permisVersInput,
   type EditionCorps, type EditionGlobal, type EditionPermis, type ErreursCorps, type ErreursPermis, type FaitsPermis,
 } from './caracteristiquesForm';
-import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtatEmprise, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, ChampNombreBatiments, ConfirmationRetraitCartes, CartesRetirees, type LienPiece, type CartePlanVue } from './CaracteristiquesRendu';
+import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtatEmprise, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, ChampNombreBatiments, LigneNombreBatiments, ConfirmationRetraitCartes, CartesRetirees, type LienPiece, type CartePlanVue } from './CaracteristiquesRendu';
 import { CompteRenduCartouche, type PasseIaCartouche } from './CompteRenduCartouche'; // CR-2a/CR-2b1 — cartouche + lecture IA (informative)
 import { messageErreurCartouche, type PieceCerfa } from './compteRendu'; // CR-2a — message 401 « session expirée » (jamais « indisponible »)
 import { BlocRepliable } from './BlocRepliable'; // PLI-1 — même dépliant que « Complétude »/« Historique » : chaque cartouche de « Caractéristiques du permis » replié à son titre, ouvrable indépendamment
 import { TitreFamilleEtat } from './ProjectionRendu'; // BAT-2 — état sur la ligne de titre d'une sous-section porteuse (réutilisé tel quel)
-import { etatCoherenceBatimentsTitre, etatAltitudesTitre, type ComptesCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection'; // BAT-2 — fonctions PURES d'état des porteuses (SOURCE UNIQUE, mêmes que la mère de ProjectionVue) ; BAT-2d — type des comptes remontés au parent
+import { etatSection4Titre, type ComptesCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection'; // BAT-4 — état de la SEULE porteuse (section 4 : altitude + cohérence du nombre), SOURCE UNIQUE avec la mère de ProjectionVue ; BAT-2d — type des comptes remontés
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
 // N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
@@ -275,13 +275,13 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
 
   const majChamp = (corpsId: number, cle: keyof EditionCorps, v: string) => setEdCorps((m) => ({ ...m, [corpsId]: { ...m[corpsId], [cle]: v } }));
 
-  // BAT-2 — état des sous-sections PORTEUSES, calculé depuis les données FRAÎCHES de ce bloc (mêmes fonctions pures que la mère de
-  //   ProjectionVue → une seule vérité). Section 1 = cohérence nombre de cartes ↔ nombre VALIDÉ (BAT-1) ; section 4 = altitudes de sommet
-  //   (nb de cartes sans altitude, MÊME critère que la file : altitude_sommet_ngf NULL). Affiché uniquement si `avecEtatFamilles`.
+  // BAT-4 — la SEULE sous-section PORTEUSE est « Les futurs bâtiments et leurs altitudes » : son état couvre DEUX motifs — altitude de
+  //   sommet manquante ET incohérence entre le nombre de cartes ACTIVES et le nombre VALIDÉ (BAT-1). Section 1 « Caractéristiques et bâtiments
+  //   d'origine » est redevenue NON BLOQUANTE (information Sitadel pure) : l'état vit désormais à CÔTÉ de la commande qui le provoque (le champ
+  //   « changer le nombre » a rejoint la section 4). Calcul sur les données FRAÎCHES du bloc (même fonction pure que la mère de ProjectionVue).
   const nbCartes = data.corps.length;
   const nbCartesSansAltitude = data.corps.filter((c) => c.altitudeSommetNgf === null).length;
-  const etatSection1 = etatCoherenceBatimentsTitre(nbCartes, data.nbBatimentsValide ?? null);
-  const etatSection4 = etatAltitudesTitre(nbCartes, nbCartesSansAltitude);
+  const etatSection4 = etatSection4Titre(nbCartes, nbCartesSansAltitude, data.nbBatimentsValide ?? null);
 
   // N10-A — résout un nom de fichier de provenance en un déclencheur de téléchargement (source 'dossier'), ou undefined si non résolu
   // (nom absent de la GED → l'entrée reste en texte simple, jamais un lien mort). Le signeur reste le SERVEUR (onOuvrir → variante
@@ -297,12 +297,12 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       {/* PLI-1 — chaque cartouche est REPLIÉ à son titre (BlocRepliable, MÊME dépliant que « Complétude »/« Historique ») ; un clic déplie CE
           cartouche seul et n'en referme aucun autre. Aucun contenu/donnée/logique ne change : uniquement la mise en forme pliée/dépliée. */}
       {/* CARTOUCHE 1 — Caractéristiques et bâtiments d’origine (faits Sitadel, parcelles, empreinte attendue, bâti au moment de l’analyse).
-          BAT-2 — PORTEUSE : son titre porte l'état de COHÉRENCE (nombre de cartes ↔ nombre validé) quand `avecEtatFamilles`. */}
-      <BlocRepliable titre={avecEtatFamilles ? <TitreFamilleEtat base="Caractéristiques et bâtiments d’origine" etat={etatSection1} /> : 'Caractéristiques et bâtiments d’origine'}>
+          BAT-4 — NON BLOQUANTE : information Sitadel PURE, plus d'état coloré sur son titre. L'état (altitude + cohérence du nombre) et le
+          champ « changer le nombre » vivent désormais EN SECTION 4, au-dessus des cartes qu'ils pilotent (un état loin de sa commande est illisible). */}
+      <BlocRepliable titre="Caractéristiques et bâtiments d’origine">
         {() => (
-          <FaitsPermisBloc faits={data.faits} nbBatiments={data.corps.length} parcelles={data.parcelles} empreinte={data.empreinte} bati={data.bati}
+          <FaitsPermisBloc faits={data.faits} parcelles={data.parcelles} empreinte={data.empreinte} bati={data.bati}
             dossierId={dossierId} onParcelleChange={() => void rafraichir()}
-            controleNbBatiments={<ChampNombreBatiments valeur={edNbBat} nbActuel={data.corps.length} onValeur={setEdNbBat} onAppliquer={() => void appliquerNbBatiments()} enCours={enCours} />}
             onExportGeojson={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=1`, '_blank', 'noopener,noreferrer')}
             onExportEmpreinte={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=empreinte`, '_blank', 'noopener,noreferrer')} />
         )}
@@ -382,6 +382,10 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       <BlocRepliable titre={avecEtatFamilles ? <TitreFamilleEtat base="Les futurs bâtiments et leurs altitudes" etat={etatSection4} aide={etatSection4SansAide ? undefined : <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span>} /> : <>Les futurs bâtiments et leurs altitudes <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span></>}>
         {() => (
       <div className="flex flex-col gap-3">
+      {/* BAT-4 — EN TÊTE de la section : « Bâtiments identifiés : N (d'après les pièces) · Changer le nombre : [champ] [Appliquer] », au-dessus
+          des cartes qu'il pilote (déplacé depuis « Caractéristiques et bâtiments d'origine »). Une seule ligne, séparateur « · » clair. */}
+      <LigneNombreBatiments nbBatiments={data.corps.length}
+        controle={<ChampNombreBatiments valeur={edNbBat} nbActuel={data.corps.length} onValeur={setEdNbBat} onAppliquer={() => void appliquerNbBatiments()} enCours={enCours} />} />
       {/* N10-C — D : ce que contient la section et d'où ça vient. */}
       <p style={styleAide}>Ce que la machine a <strong>mesuré</strong> sur les plans (coupes, façades) — distinct de ce que le Cerfa déclare.</p>
       {data.corps.length === 0 && <p style={styleAide}>{MESSAGE_AUCUN_CORPS}</p>}
