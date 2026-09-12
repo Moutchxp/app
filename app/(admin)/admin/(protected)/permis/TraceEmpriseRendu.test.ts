@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, rayonBullePoignee, seuilCapturePoignee, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, estReperePolygoneEnProjet, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, ConfirmationTraceManuel, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, rayonBullePoignee, seuilCapturePoignee, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, estReperePolygoneEnProjet, RepereTexte, LibellePolygonesTexte, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, ConfirmationTraceManuel, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -691,9 +691,11 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
   });
   it('③ SelectionPolygonesProjet : seuls les futurs bâtis, par repère, tout retenu par défaut', () => {
     const html = renderToStaticMarkup(h(SelectionPolygonesProjet, { polygones: attribuerReperes(polys), ecartes: ['A1'], onToggle: () => {} }));
-    expect(html).toContain('Polygone <strong>A</strong>'); // En projet
-    expect(html).toContain('Polygone <strong>C</strong>'); // En construction (futur bâti)
-    expect(html).not.toContain('Polygone <strong>B</strong>'); // existant → pas listé
+    // LETTRAGE — ce bloc ne liste que des « en projet » → chaque repère est rouge #e11d48 + ◇ + libellé accessible (même nomenclature que le schéma).
+    expect(html).toContain('A◇'); expect(html).toContain('aria-label="Repère A, bâtiment en projet"'); // En projet
+    expect(html).toContain('C◇'); expect(html).toContain('aria-label="Repère C, bâtiment en projet"'); // En construction (futur bâti)
+    expect(html).toContain('#e11d48');
+    expect(html).not.toContain('Repère B');                    // existant → pas listé du tout
     expect(html).toContain('— écarté');                        // A1 écarté
   });
   it('③ SelectionPolygonesProjet : aucun futur bâti → rien', () => {
@@ -857,8 +859,9 @@ describe('LOT 81 — légende à DEUX GROUPES (polygones BD TOPO réels + empris
 
   it('rendu ① : « Polygone A » (repère du schéma) DISTINCT du nom du bâtiment ; existant « sans objet » ; en projet non affecté mis en évidence', () => {
     const html = renderToStaticMarkup(h(LegendeProjectionEmprises, { legende: legendeProjection(polys, emprisesAdoptees, batiments) }));
-    expect(html).toContain('Polygone A');                          // repère du schéma (dessin)
-    expect(html).toContain('bâtiment en projet');                  // nom du bâtiment, distinct
+    expect(html).toContain('A◇');                                  // repère du schéma (dessin), EN PROJET → rouge + ◇
+    expect(html).toContain('aria-label="Repère A, bâtiment en projet"'); // état exposé aux lecteurs d'écran (même nomenclature que le schéma)
+    expect(html).toContain('<strong>bâtiment en projet</strong>'); // nom du bâtiment (nomRepli BP), DISTINCT du repère
     expect(html).toContain('altitude de sommet du bâtiment');
     expect(html).toContain('101,00 m NGF');
     expect(html).toContain('commune à ses 2 polygones');           // héritage explicite
@@ -1638,8 +1641,9 @@ describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décisio
   it('AFF-2 — un « en projet » RECOUVERT entre dans la liste (mention rouge + TROIS boutons actifs) ; un « en projet » NON recouvert reste exclu', () => {
     const polygones = [poly('B', 'En projet', 'B'), poly('D', 'En projet', 'D')];
     const html = renderToStaticMarkup(h(StatutPolygonesExistants, { polygones, recouverts: [{ cleabs: 'D', tauxPct: 100 }], statuts: new Map(), onStatuer: () => {} }));
-    expect(html).toContain('Polygone D');                     // « en projet » RECOUVERT (total) → listé
-    expect(html).not.toContain('Polygone B');                 // « en projet » NON recouvert → hors liste
+    expect(html).toContain('D◇');                             // « en projet » RECOUVERT (total) → listé, repère rouge + ◇
+    expect(html).toContain('aria-label="Repère D, bâtiment en projet"'); // état exposé aux lecteurs d'écran
+    expect(html).not.toContain('B◇');                         // « en projet » NON recouvert → hors liste (jamais rendu)
     expect(html).toContain('recouvert à 100 % par l’emprise projetée'); // AFF-2 — taux affiché
     expect(html).toContain('data-choix="preserve"');          // bouton actif (arbitrable)
     expect(html).toContain('data-choix="mixte"');             // AFF-2 — troisième statut arbitrable à la main
@@ -1737,10 +1741,10 @@ describe('AFF-1 — encart réorganisé en blocs repliés', () => {
     expect(html).not.toMatch(/<details[^>]*\sopen/);           // FERMÉ par défaut
     expect(html).toContain('Bâtiment(s) au statut « projet » en base BD TOPO affecté(s) au projet de bâtiment');
     expect(html).toContain('— 3 emprises');                    // décompte sur la ligne fermée
-    expect((html.match(/bâtiment en projet/g) ?? []).length).toBe(1); // nom du bâtiment UNE SEULE fois (en tête)
-    expect(html).toContain('Polygone A');                      // repères DISTINCTS par ligne
-    expect(html).toContain('Polygone B');
-    expect(html).toContain('Polygone C');
+    expect((html.match(/>bâtiment en projet</g) ?? []).length).toBe(1); // nom du bâtiment UNE SEULE fois EN TÊTE (les aria-labels des repères en projet le citent aussi, hors balises)
+    // repères DISTINCTS par ligne ; P1/P2/P3 sont « en projet » → rouge #e11d48 + ◇ + libellé accessible (même nomenclature que le schéma).
+    expect(html).toContain('A◇'); expect(html).toContain('B◇'); expect(html).toContain('C◇');
+    expect(html).toContain('#e11d48'); expect(html).toContain('aria-label="Repère A, bâtiment en projet"');
     expect(html).toContain('issue de l’IGN');                  // provenance conservée sur chaque ligne
     expect(html).toContain('115 m²');                          // surface de l'emprise (richesse conservée)
     expect(html).not.toContain('bâtiment 3');                  // le libellé vestigial n'apparaît JAMAIS
@@ -2040,5 +2044,43 @@ describe('LOT 99 — statut PAR PAGE à TROIS AXES (statutPageAnalyse PURE, sour
     expect(resumePagesAnalysees([], { creeLe: 'X' }, () => '05/09/2026'))
       .toEqual({ pagesIndividuelles: [], fichier: true, dateFichier: '05/09/2026' });
     expect(resumePagesAnalysees(undefined, undefined)).toEqual({ pagesIndividuelles: [], fichier: false, dateFichier: null });
+  });
+});
+
+describe('LETTRAGE (texte) — repères « en projet » en rouge + ◇ dans les LISTES (même nomenclature que le schéma, 4682b58)', () => {
+  it('RepereTexte : en projet → rouge #e11d48 + ◇ + role img/aria-label ; existant → lettre NUE (strictement inchangée)', () => {
+    const proj = renderToStaticMarkup(h(RepereTexte, { repere: 'A', enProjet: true }));
+    expect(proj).toContain('A◇');
+    expect(proj).toContain('color:#e11d48');
+    expect(proj).toContain('role="img"');
+    expect(proj).toContain('aria-label="Repère A, bâtiment en projet"');
+    // existant : AUCUN markup (la lettre nue, contiguë avec ce qui l'entoure — jamais de <span> parasite)
+    expect(renderToStaticMarkup(h(RepereTexte, { repere: 'B', enProjet: false }))).toBe('B');
+  });
+
+  it('LibellePolygonesTexte : existant → texte contigu identique à libellePolygones ; projet → lettre colorée + ◇ ; « + » conservé', () => {
+    const rep = (c: string) => c;
+    // tous existants → « Polygone A » / « Polygones A + B » CONTIGUS (aucun <span> inséré → aucun test amont cassé)
+    expect(renderToStaticMarkup(h(LibellePolygonesTexte, { cleabs: ['A'], repereDe: rep, enProjetDe: () => false }))).toBe('Polygone A');
+    expect(renderToStaticMarkup(h(LibellePolygonesTexte, { cleabs: ['A', 'B'], repereDe: rep, enProjetDe: () => false }))).toBe('Polygones A + B');
+    // un seul en projet dans un lot mixte : lui seul est coloré + ◇, l'autre reste nu, le séparateur « + » demeure
+    const mixte = renderToStaticMarkup(h(LibellePolygonesTexte, { cleabs: ['A', 'B'], repereDe: rep, enProjetDe: (c) => c === 'A' }));
+    expect(mixte).toContain('Polygones ');
+    expect(mixte).toContain('A◇'); expect(mixte).toContain('aria-label="Repère A, bâtiment en projet"');
+    expect(mixte).toContain(' + ');
+    expect(mixte).not.toContain('B◇'); // B existant → nu
+  });
+
+  it('AdoptionGroupes : avec enProjetDe, le repère du polygone à adopter est rouge + ◇ ; sans (défaut), il reste nu', () => {
+    const base = {
+      groupes: [{ cleabs: ['P1'], surfaceM2: 100, polygones: [{ cleabs: 'P1', surfaceM2: 100 }] }],
+      batiments: [{ corpsId: 3, repere: null, nomRepli: 'BP' }], reperes: { P1: 'A' }, affectation: {}, scindes: [],
+      onAffecter: () => {}, onScinder: () => {}, onRegrouper: () => {}, onAdopter: () => {}, onReinitialiser: () => {},
+    };
+    const avec = renderToStaticMarkup(h(AdoptionGroupes, { ...base, enProjetDe: () => true }));
+    expect(avec).toContain('A◇'); expect(avec).toContain('aria-label="Repère A, bâtiment en projet"'); expect(avec).toContain('#e11d48');
+    // défaut (enProjetDe absent) : rétro-compatible → « Polygone A » contigu, aucune coloration
+    const sans = renderToStaticMarkup(h(AdoptionGroupes, base));
+    expect(sans).toContain('Polygone A'); expect(sans).not.toContain('A◇');
   });
 });

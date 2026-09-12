@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle'; // PL-C4 — provenance honnête de la sélection
 import type { SelectionInfo } from '../../../../lib/permis/plancheParcellesRepo';
@@ -827,8 +828,9 @@ export function libellePolygones(cleabs: string[], repereDe: (c: string) => stri
  * plus de « Groupe 1/2/3 ») ; un groupe multi-polygones le DIT (« réunis en une seule emprise ») ; le sélecteur de bâtiment est
  * EMPILÉ sous le nom, en toutes lettres, jamais tronqué (mobile-first). PUR (les gestes ne font que remonter l'intention).
  */
-export function AdoptionGroupes({ groupes, batiments, reperes, affectation, scindes, occupe = false, onAffecter, onScinder, onRegrouper, onAdopter, onReinitialiser }: {
+export function AdoptionGroupes({ groupes, batiments, reperes, affectation, scindes, occupe = false, enProjetDe = () => false, onAffecter, onScinder, onRegrouper, onAdopter, onReinitialiser }: {
   groupes: GroupeAdoptionVue[]; batiments: BatimentChoix[]; reperes: Record<string, string>; affectation: Record<string, number>; scindes: number[]; occupe?: boolean;
+  enProjetDe?: (cleabs: string) => boolean; // LETTRAGE — ce cleabs est-il « en projet » DU PERMIS ? (fourni par l'appelant qui a l'état BD TOPO). Ce bloc n'adopte que des « en projet » → en pratique toujours vrai.
   onAffecter: (cleabs: string[], corpsId: number) => void; onScinder: (i: number) => void; onRegrouper: (i: number) => void;
   onAdopter: () => void; onReinitialiser: () => void;
 }) {
@@ -839,14 +841,14 @@ export function AdoptionGroupes({ groupes, batiments, reperes, affectation, scin
   // PROJ-3t (C) — FEEDBACK de regroupement : si le bâtiment de cette ligne porte AUSSI d'autres polygones, on le DIT (« Rattaché au
   //   bâtiment X avec Polygone D »). N'apparaît que lorsqu'un même bâtiment reçoit ≥ 2 polygones (regroupement réel), sinon null.
   const tousLesCleabs = groupes.flatMap((g) => g.polygones.map((p) => p.cleabs));
-  const feedbackRegroupement = (cleabsLigne: string[], corpsId: number | ''): string | null => {
+  const feedbackRegroupement = (cleabsLigne: string[], corpsId: number | ''): ReactNode => {
     if (corpsId === '') return null;
     const autres = tousLesCleabs.filter((x) => !cleabsLigne.includes(x) && affectation[x] === corpsId);
     if (autres.length === 0) return null;
-    return `Rattaché au ${nomBatiment(batiments.find((bt) => bt.corpsId === corpsId), corpsId)} avec ${libellePolygones(autres, repereDe)}`;
+    return <>Rattaché au {nomBatiment(batiments.find((bt) => bt.corpsId === corpsId), corpsId)} avec <LibellePolygonesTexte cleabs={autres} repereDe={repereDe} enProjetDe={enProjetDe} /></>;
   };
   // Ligne d'affectation EMPILÉE (pleine largeur) : « rattaché au bâtiment : [sélecteur] » + boutons + FEEDBACK éventuel — jamais serré/tronqué.
-  const ligneBatiment = (valeur: number | '', onCh: (c: number) => void, boutons?: ReactNode, feedback?: string | null) => (
+  const ligneBatiment = (valeur: number | '', onCh: (c: number) => void, boutons?: ReactNode, feedback?: ReactNode) => (
     <>
       <div style={{ display: 'flex', gap: '.3rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.2rem' }}>
         <span style={muted}>rattaché au bâtiment :</span>
@@ -868,13 +870,13 @@ export function AdoptionGroupes({ groupes, batiments, reperes, affectation, scin
           ? (
             <li key={i} data-groupe={i} data-scinde="true" style={{ borderLeft: '2px solid var(--color-svv-line)', paddingLeft: '.4rem' }}>
               <div style={{ ...muted, display: 'flex', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap' }}>
-                <span>{libellePolygones(g.cleabs, repereDe)} — séparés (une emprise par polygone)</span>
+                <span><LibellePolygonesTexte cleabs={g.cleabs} repereDe={repereDe} enProjetDe={enProjetDe} /> — séparés (une emprise par polygone)</span>
                 <button type="button" style={b} disabled={occupe} onClick={() => onRegrouper(i)}>regrouper</button>
               </div>
               <ul style={{ listStyle: 'none', margin: '.2rem 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
                 {g.polygones.map((p) => (
                   <li key={p.cleabs} data-cleabs={p.cleabs}>
-                    <div><strong>Polygone {repereDe(p.cleabs)}</strong> — {fmtM2(p.surfaceM2)}</div>
+                    <div><strong><LibellePolygonesTexte cleabs={[p.cleabs]} repereDe={repereDe} enProjetDe={enProjetDe} /></strong> — {fmtM2(p.surfaceM2)}</div>
                     {ligneBatiment(affectation[p.cleabs] ?? '', (c) => onAffecter([p.cleabs], c), undefined, feedbackRegroupement([p.cleabs], affectation[p.cleabs] ?? ''))}
                   </li>
                 ))}
@@ -882,7 +884,7 @@ export function AdoptionGroupes({ groupes, batiments, reperes, affectation, scin
             </li>
           ) : (
             <li key={i} data-groupe={i}>
-              <div><strong>{libellePolygones(g.cleabs, repereDe)}</strong> — {fmtM2(g.surfaceM2)}{g.polygones.length > 1 ? ' · réunis en une seule emprise' : ''}</div>
+              <div><strong><LibellePolygonesTexte cleabs={g.cleabs} repereDe={repereDe} enProjetDe={enProjetDe} /></strong> — {fmtM2(g.surfaceM2)}{g.polygones.length > 1 ? ' · réunis en une seule emprise' : ''}</div>
               {ligneBatiment(corpsCommun(g.cleabs), (c) => onAffecter(g.cleabs, c), g.polygones.length > 1
                 ? <button type="button" style={b} disabled={occupe} onClick={() => onScinder(i)}>Séparer les polygones</button>
                 : undefined, feedbackRegroupement(g.cleabs, corpsCommun(g.cleabs)))}
@@ -980,9 +982,9 @@ export function ListeEmprises({ emprises, onSupprimer, onRetoucher, onAjuster, o
   emprises: EmpriseReconstruite[]; onSupprimer?: (id: number) => void; onRetoucher?: (id: number) => void; onAjuster?: (id: number) => void;
   onValider?: (id: number) => void; occupe?: boolean; // VAL-1 — VALIDATION PAR EMPRISE : bouton « valider » par ligne (masqué si déjà validée) ; occupe désactive pendant une requête
   empriseEnRetouche?: number | null; empriseEnAjustement?: number | null; // PROJ-3t — emprise en cours d'ajustement (delta)
-  nomEmprise?: (e: EmpriseReconstruite) => string; // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) » si le corps porte plusieurs emprises). PRIME sur nomCorps.
+  nomEmprise?: (e: EmpriseReconstruite) => ReactNode; // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) »). PRIME sur nomCorps. ReactNode : peut porter un repère « en projet » coloré (LibellePolygonesTexte).
   nomCorps?: string; // NOM-1 — nom RÉSOLU du corps (repere document / repli maison) : PRIME sur e.libelle stocké (« bâtiment 3 », vestigial).
-  repereSource?: (e: EmpriseReconstruite) => string | null; // AFF-3 — label de la ligne = repère(s) du/des POLYGONE(s) BD TOPO source(s) de l'emprise (via calage.cleabs).
+  repereSource?: (e: EmpriseReconstruite) => ReactNode; // AFF-3 — label de la ligne = repère(s) du/des POLYGONE(s) BD TOPO source(s) de l'emprise (via calage.cleabs). ReactNode : repère « en projet » coloré possible.
 }) {
   if (emprises.length === 0) return <p style={muted}>Aucune emprise pour ce bâtiment.</p>;
   const b: CSSProperties = { ...muted, cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', padding: '.15rem .5rem' };
@@ -1383,6 +1385,28 @@ export function attribuerReperes(polygones: PolygoneBdTopo[]): PolygoneRepere[] 
  *  (En projet / En construction, cf. `estFuturBati`). Sert à teinter sa lettre en rouge (+ ◇). PUR, testé. */
 export function estReperePolygoneEnProjet(p: { etat: string | null; appartientPermis?: boolean }): boolean {
   return p.appartientPermis !== false && estFuturBati(p.etat);
+}
+
+/** LETTRAGE (TEXTE) — une lettre de repère dans une LISTE textuelle, MÊME nomenclature que sur le schéma (cf. 4682b58) : un repère « en
+ *  projet » passe en rouge #e11d48 + suffixe ◇ (2ᵉ marqueur non coloré, lisible en N&B) et expose son état aux lecteurs d'écran
+ *  (role="img" + aria-label « Repère X, bâtiment en projet »). Un repère d'existant reste la lettre NUE (strictement inchangé). Source
+ *  UNIQUE du style texte — jamais dupliquer la teinte/le suffixe ailleurs. PUR. */
+export function RepereTexte({ repere, enProjet }: { repere: string; enProjet: boolean }): ReactNode {
+  if (!enProjet) return <>{repere}</>;
+  return <span data-repere-projet="true" role="img" aria-label={`Repère ${repere}, bâtiment en projet`} style={{ color: REPERE_PROJET_ROUGE }}>{repere}◇</span>;
+}
+
+/** LETTRAGE (TEXTE) — variante JSX de `libellePolygones` : « Polygone A » / « Polygones A + B », chaque lettre colorée selon `enProjetDe`
+ *  (via RepereTexte). À utiliser là où le libellé peut porter un repère « en projet » ; sinon `libellePolygones` (string) suffit. PUR. */
+export function LibellePolygonesTexte({ cleabs, repereDe, enProjetDe }: { cleabs: string[]; repereDe: (c: string) => string; enProjetDe: (c: string) => boolean }): ReactNode {
+  // Fragment (jamais <span>) comme conteneur de key : un repère NON en projet rend le texte NU (« Polygone C », « Polygones C + D »
+  //   contigus, identiques à `libellePolygones`) ; seul un repère EN PROJET introduit un <span> coloré.
+  return (
+    <>
+      {cleabs.length === 1 ? 'Polygone ' : 'Polygones '}
+      {cleabs.map((c, i) => <Fragment key={c}>{i > 0 ? ' + ' : ''}<RepereTexte repere={repereDe(c)} enProjet={enProjetDe(c)} /></Fragment>)}
+    </>
+  );
 }
 
 /** Centre approximatif d'un anneau (moyenne des sommets) — pour poser la lettre du repère. PUR. */
@@ -2122,7 +2146,7 @@ export function SelectionPolygonesProjet({ polygones, ecartes, onToggle }: {
         return (
           <label key={p.cleabs} style={{ display: 'flex', gap: '.4rem', alignItems: 'center', fontSize: 12, cursor: 'pointer' }}>
             <input type="checkbox" checked={retenu} onChange={(e) => onToggle(p.cleabs!, !e.target.checked)} />
-            <span>Polygone <strong>{p.repere}</strong>{retenu ? '' : ' — écarté'}</span>
+            <span>Polygone <strong><RepereTexte repere={p.repere} enProjet={estReperePolygoneEnProjet(p)} /></strong>{retenu ? '' : ' — écarté'}</span>
           </label>
         );
       })}
@@ -2250,7 +2274,7 @@ export function StatutPolygonesExistants({ polygones, recouverts, statuts, onSta
         return (
           <div key={p.cleabs} style={{ ...carte, display: 'flex', flexDirection: 'column', gap: '.2rem' }} data-statut={decide ?? undefined} data-origine={origine ?? undefined}>
             <div style={{ fontSize: 12 }}>
-              <strong>Polygone {p.repere}</strong> <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', userSelect: 'all', fontSize: 11, color: 'var(--color-svv-muted)', wordBreak: 'break-all' }}>{p.cleabs}</span>
+              <strong>Polygone <RepereTexte repere={p.repere} enProjet={estReperePolygoneEnProjet(p)} /></strong> <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', userSelect: 'all', fontSize: 11, color: 'var(--color-svv-muted)', wordBreak: 'break-all' }}>{p.cleabs}</span>
             </div>
             {/* SOURCE et DÉCISION côte à côte — jamais l'une à la place de l'autre. La décision DIT si elle est auto ou à la main. */}
             <div style={{ fontSize: 12, display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
@@ -2344,9 +2368,11 @@ export function polygonesProjetParBatiment(
  * reconstituée » — JAMAIS le libellé stocké « bâtiment 3 ». On ne FUSIONNE pas deux objets : la ligne EST l'emprise (provenance, surface,
  * résidu, page), seulement ÉTIQUETÉE par le polygone dont elle a été reconstituée. PUR.
  */
-function labelEmpriseParPolygone(e: EmpriseReconstruite, reperesParCleabs: Map<string, string>): string {
+function labelEmpriseParPolygone(e: EmpriseReconstruite, reperesParCleabs: Map<string, string>, enProjetParCleabs: Map<string, boolean>): ReactNode {
   const cleabsRec = cleabsSourceEmprise(e).filter((c) => reperesParCleabs.has(c));
-  return cleabsRec.length ? libellePolygones(cleabsRec, (c) => reperesParCleabs.get(c)!) : 'Emprise reconstituée';
+  return cleabsRec.length
+    ? <LibellePolygonesTexte cleabs={cleabsRec} repereDe={(c) => reperesParCleabs.get(c)!} enProjetDe={(c) => enProjetParCleabs.get(c) ?? false} />
+    : 'Emprise reconstituée';
 }
 
 /**
@@ -2359,7 +2385,10 @@ export function BlocProjetRepliable({ emprises, polygones, batiments }: {
   emprises: EmpriseReconstruite[]; polygones: PolygoneRepere[]; batiments: { corpsId: number; repere: string | null; nomRepli?: string | null }[];
 }) {
   const reperesParCleabs = new Map(polygones.filter((p) => p.cleabs).map((p) => [p.cleabs as string, p.repere]));
-  const repereSource = (e: EmpriseReconstruite) => labelEmpriseParPolygone(e, reperesParCleabs);
+  // LETTRAGE — un repère est-il « en projet » ? (décidé par le module pur, jamais une hypothèse « ce bloc n'a que du projet »). Les emprises
+  //   IGN adoptées référencent en pratique des polygones « en projet », mais on le VÉRIFIE cleabs par cleabs.
+  const enProjetParCleabs = new Map(polygones.filter((p) => p.cleabs).map((p) => [p.cleabs as string, estReperePolygoneEnProjet(p)]));
+  const repereSource = (e: EmpriseReconstruite) => labelEmpriseParPolygone(e, reperesParCleabs, enProjetParCleabs);
   // NOM-3 — nom DISTINCT par ligne : IGN adopté → repère(s) du/des polygone(s) SOURCE (AFF-3, conservé) ; tracé à la main → nom du corps + « (numéro) »
   //   (deux emprises tracées d'un même bâtiment ne s'affichent plus toutes « Emprise reconstituée »).
   const nomE = resolveurNomEmprise(batiments, emprises);
@@ -2483,6 +2512,7 @@ export interface LignePolygoneReel {
   cleabs: string;
   repere: string;                    // repère du SCHÉMA (ordre de DESSIN, A/B/C…) — retrouve le polygone sur le schéma ; JAMAIS le nom du bâtiment
   nature: NaturePolygoneLegende;
+  enProjet: boolean;                 // LETTRAGE — l'état BD TOPO est « en projet » (estReperePolygoneEnProjet) → repère rouge + ◇ ; distinct de `nature` (affectation)
   nomBatiment: string | null;        // nom du BÂTIMENT DU PERMIS affecté (nomAffichageCorps) ; null hors 'affecte'
   altitudeSommetNgf: number | null;  // altitude de sommet VALIDÉE, PORTÉE PAR LE BÂTIMENT (héritée) ; null = altitude non validée
   nbPolygonesDuBatiment: number;     // ≥ 2 → altitude commune, héritée (jamais mesurée sur le polygone)
@@ -2519,10 +2549,11 @@ export function legendeProjection(
   for (const e of emprises) { if (e.corpsId === null) continue; for (const c of cleabsSourceEmprise(e)) if (!corpsDeCleabs.has(c)) corpsDeCleabs.set(c, e.corpsId); }
   const polyBase = polygones.filter((p) => p.cleabs !== null && p.anneau.length >= 3).map((p) => {
     const corpsId = corpsDeCleabs.get(p.cleabs as string);
-    if (corpsId !== undefined) { const { nom, alt } = nomEtAlt(corpsId); return { cleabs: p.cleabs as string, repere: p.repere, corpsId: corpsId as number | null, nature: 'affecte' as NaturePolygoneLegende, nomBatiment: nom, altitudeSommetNgf: alt }; }
+    const enProjet = estReperePolygoneEnProjet(p); // LETTRAGE — état BD TOPO, indépendant de l'affectation
+    if (corpsId !== undefined) { const { nom, alt } = nomEtAlt(corpsId); return { cleabs: p.cleabs as string, repere: p.repere, corpsId: corpsId as number | null, nature: 'affecte' as NaturePolygoneLegende, enProjet, nomBatiment: nom, altitudeSommetNgf: alt }; }
     // Pas d'emprise-source : bâti existant (sans objet) OU futur bâti « en projet » non adopté (vrai trou). Le MOT porte l'info.
     const nature: NaturePolygoneLegende = estFuturBati(p.etat) ? 'projet_non_affecte' : 'existant_sans_objet';
-    return { cleabs: p.cleabs as string, repere: p.repere, corpsId: null as number | null, nature, nomBatiment: null, altitudeSommetNgf: null };
+    return { cleabs: p.cleabs as string, repere: p.repere, corpsId: null as number | null, nature, enProjet, nomBatiment: null, altitudeSommetNgf: null };
   });
   const comptePoly = new Map<number, number>();
   for (const l of polyBase) if (l.corpsId !== null) comptePoly.set(l.corpsId, (comptePoly.get(l.corpsId) ?? 0) + 1);
@@ -2606,7 +2637,7 @@ export function LegendeProjectionEmprises({ legende }: { legende: LegendeProject
           : <ul role="list" style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
               {polygones.map((l) => (
                 <li key={l.cleabs} data-cleabs={l.cleabs} data-nature={l.nature} style={ligne}>
-                  <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Polygone {l.repere}</span>
+                  <span style={{ fontWeight: 700, whiteSpace: 'nowrap' }}>Polygone <RepereTexte repere={l.repere} enProjet={l.enProjet} /></span>
                   <span title={l.cleabs} style={clef}>{abregerCleabs(l.cleabs)}</span>
                   <span aria-hidden>—</span>
                   {l.nature === 'affecte'
