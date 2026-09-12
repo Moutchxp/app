@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, rayonBullePoignee, seuilCapturePoignee, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, estReperePolygoneEnProjet, schemaADeuxCouleursReperes, RepereTexte, LibellePolygonesTexte, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, ConfirmationTraceManuel, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, rayonBullePoignee, seuilCapturePoignee, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, estReperePolygoneEnProjet, schemaADeuxCouleursReperes, choisirPlacementLegende, RepereTexte, LibellePolygonesTexte, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, ConfirmationTraceManuel, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -2108,5 +2108,58 @@ describe('LETTRAGE (texte) — repères « en projet » en rouge + ◇ dans les 
     // défaut (enProjetDe absent) : rétro-compatible → « Polygone A » contigu, aucune coloration
     const sans = renderToStaticMarkup(h(AdoptionGroupes, base));
     expect(sans).toContain('Polygone A'); expect(sans).not.toContain('A◇');
+  });
+});
+
+describe('LETTRAGE — choisirPlacementLegende : jamais de chevauchement d’une parcelle du permis, marge en PIXELS D’AFFICHAGE', () => {
+  const CADRE = { w: 300, h: 200 };
+  const LEG = { w: 100, h: 40 };
+  const rect = (x0: number, y0: number, x1: number, y1: number) => [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }];
+
+  it('coin libre : aucun obstacle → bas-droite (préféré, prévisible), DANS le cadre', () => {
+    const p = choisirPlacementLegende(CADRE, LEG, [], 20);
+    expect(p.ancrage).toBe('bas-droite');
+    expect(p.dansCadre).toBe(true);
+    expect(p.left).toBe(300 - 100 - 4); expect(p.top).toBe(200 - 40 - 4);
+  });
+
+  it('un seul coin libre : parcelle couvrant tout sauf le haut-gauche → haut-gauche', () => {
+    // obst1 = large bande droite (bloque les 2 coins droite, sans atteindre la marge du haut-gauche) ; obst2 = bande basse (bloque bas-gauche). Reste : haut-gauche.
+    const obstacles = [rect(130, 0, 300, 200), rect(0, 120, 300, 200)];
+    const p = choisirPlacementLegende(CADRE, LEG, obstacles, 20);
+    expect(p.ancrage).toBe('haut-gauche');
+    expect(p.dansCadre).toBe(true);
+  });
+
+  it('aucun coin libre mais un BORD libre : 4 obstacles aux coins → repli sur un bord (bord-bas)', () => {
+    const obstacles = [rect(0, 0, 60, 60), rect(240, 0, 300, 60), rect(0, 140, 60, 200), rect(240, 140, 300, 200)];
+    const p = choisirPlacementLegende(CADRE, LEG, obstacles, 20);
+    expect(p.ancrage).toBe('bord-bas'); // les 4 coins sont pris, le milieu du bas est libre
+    expect(p.dansCadre).toBe(true);
+  });
+
+  it('parcelle occupant TOUT le cadre → REPLI hors cadre (sous le dessin), jamais de chevauchement', () => {
+    const p = choisirPlacementLegende(CADRE, LEG, [rect(0, 0, 300, 200)], 20);
+    expect(p.ancrage).toBe('sous-cadre');
+    expect(p.dansCadre).toBe(false);
+  });
+
+  it('rotation ≠ 0 : parcelle OBLIQUE (losange) sur la moitié droite → coins droite bloqués, bas-gauche retenu', () => {
+    const losange = [{ x: 230, y: 40 }, { x: 290, y: 100 }, { x: 230, y: 160 }, { x: 170, y: 100 }]; // non aligné aux axes
+    const p = choisirPlacementLegende(CADRE, LEG, [losange], 20);
+    expect(p.ancrage).toBe('bas-gauche');
+    expect(p.dansCadre).toBe(true);
+  });
+
+  it('cadre dégénéré (0×0, pas encore mis en page) → repli, jamais de position hasardeuse', () => {
+    expect(choisirPlacementLegende({ w: 0, h: 0 }, LEG, [], 20).dansCadre).toBe(false);
+  });
+
+  it('la MARGE est bien prise en compte : un obstacle à 10 px du coin bas-droite (marge 20) le bloque ; à 30 px il le libère', () => {
+    // coin bas-droite occupe x[196,296] y[156,196]. Un obstacle qui s'en approche à moins de 20 px doit le bloquer.
+    const proche = rect(196 - 10, 0, 300, 156 - 10);  // bord droit du cadre, s'arrête 10 px au-dessus du coin → dans la marge de 20
+    expect(choisirPlacementLegende(CADRE, LEG, [proche], 20).ancrage).not.toBe('bas-droite');
+    const loin = rect(196 - 10, 0, 300, 156 - 30);     // s'arrête 30 px au-dessus → au-delà de la marge → coin libre
+    expect(choisirPlacementLegende(CADRE, LEG, [loin], 20).ancrage).toBe('bas-droite');
   });
 });

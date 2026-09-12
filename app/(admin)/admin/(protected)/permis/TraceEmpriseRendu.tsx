@@ -1,5 +1,8 @@
-import { Fragment } from 'react';
-import type { CSSProperties, ReactNode } from 'react';
+import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { CSSProperties, ReactNode, RefObject } from 'react';
+// LETTRAGE — effet de MESURE du placement de la légende : useLayoutEffect côté navigateur (repositionne AVANT peinture, aucun clignotement),
+//   useEffect en repli quand il n'y a pas de DOM (SSR / tests renderToStaticMarkup en environnement node → aucun avertissement React).
+const useEffetMiseEnPage = typeof document !== 'undefined' ? useLayoutEffect : useEffect;
 import { descriptionActeurParcelle } from '../../../../lib/permis/acteurParcelle'; // PL-C4 — provenance honnête de la sélection
 import type { SelectionInfo } from '../../../../lib/permis/plancheParcellesRepo';
 import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « décidé le … » en heure de Paris
@@ -1493,6 +1496,53 @@ export function boitesSeChevauchent(a: { x: number; y: number; w: number; h: num
   return !(a.x + a.w + marge <= b.x || b.x + b.w + marge <= a.x || a.y + a.h + marge <= b.y || b.y + b.h + marge <= a.y);
 }
 
+// LETTRAGE — PLACEMENT de la légende du code couleur (de9924f). Toutes les grandeurs sont en PIXELS D'AFFICHAGE : l'appelant projette la
+//   parcelle du permis en px écran (rotation + échelle « meet ») et passe la marge en px → la marge est CONSTANTE à l'écran, jamais liée au
+//   zoom (unités de viewBox). La fonction ci-dessous ne fait que du choix géométrique, PUR et testé.
+export type AncrageLegende = 'bas-droite' | 'bas-gauche' | 'haut-droite' | 'haut-gauche' | 'bord-bas' | 'bord-haut' | 'bord-droite' | 'bord-gauche' | 'sous-cadre';
+export interface PlacementLegende { ancrage: AncrageLegende; left: number; top: number; dansCadre: boolean }
+
+/**
+ * Choisit où poser la légende pour qu'elle ne CHEVAUCHE JAMAIS une parcelle du permis et garde ≥ `marge` px de son contour. Teste d'abord
+ * les QUATRE COINS (bas-droite en premier → prévisible d'une fois sur l'autre), puis les QUATRE BORDS (centrés) ; retient la 1re position
+ * ENTIÈREMENT dans le cadre ET à ≥ marge de TOUS les `obstacles` (chevauchement, boîte-dans-parcelle et parcelle-dans-boîte gérés par
+ * `boiteIntersectePolygone`). Aucune libre — parcelle occupant tout le cadre, cadre dégénéré (0×0, ex. non encore mis en page) — → REPLI
+ * `sous-cadre` (l'appelant la sort du dessin, en dessous) : jamais de chevauchement, jamais de disparition silencieuse. PUR.
+ */
+export function choisirPlacementLegende(
+  cadre: { w: number; h: number }, taille: { w: number; h: number }, obstacles: readonly (readonly Pt[])[], marge: number, inset = 4,
+): PlacementLegende {
+  const repli: PlacementLegende = { ancrage: 'sous-cadre', left: Math.max(inset, cadre.w - taille.w - inset), top: cadre.h + inset, dansCadre: false };
+  if (!(cadre.w > 0) || !(cadre.h > 0)) return repli;
+  const droite = cadre.w - taille.w - inset, gauche = inset;
+  const bas = cadre.h - taille.h - inset, haut = inset;
+  const milieuX = (cadre.w - taille.w) / 2, milieuY = (cadre.h - taille.h) / 2;
+  const candidats: { ancrage: AncrageLegende; left: number; top: number }[] = [
+    { ancrage: 'bas-droite', left: droite, top: bas },     // préféré (prévisible)
+    { ancrage: 'bas-gauche', left: gauche, top: bas },
+    { ancrage: 'haut-droite', left: droite, top: haut },
+    { ancrage: 'haut-gauche', left: gauche, top: haut },
+    { ancrage: 'bord-bas', left: milieuX, top: bas },      // bords : seulement si aucun coin ne convient
+    { ancrage: 'bord-haut', left: milieuX, top: haut },
+    { ancrage: 'bord-droite', left: droite, top: milieuY },
+    { ancrage: 'bord-gauche', left: gauche, top: milieuY },
+  ];
+  for (const c of candidats) {
+    const r = { x: c.left, y: c.top, w: taille.w, h: taille.h };
+    if (r.x < 0 || r.y < 0 || r.x + r.w > cadre.w || r.y + r.h > cadre.h) continue; // la légende ne tient pas ici (trop grande / cadre trop petit)
+    if (obstacles.some((poly) => boiteIntersectePolygone(r, poly as Pt[], marge))) continue; // recouvre / trop près d'une parcelle
+    return { ancrage: c.ancrage, left: c.left, top: c.top, dansCadre: true };
+  }
+  return repli;
+}
+
+/** LETTRAGE — deux placements équivalents (à l'arrondi px près) ? Évite un setState (donc un re-rendu) inutile quand la mesure ne bouge pas. PUR. */
+function memePlacementLegende(a: PlacementLegende | null, b: PlacementLegende | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return a.ancrage === b.ancrage && a.dansCadre === b.dansCadre && Math.round(a.left) === Math.round(b.left) && Math.round(a.top) === Math.round(b.top);
+}
+
 export interface ItemEtiquette { cle: string; lignes: string[]; nature: 'reel' | 'projete'; trou?: boolean; anneauPx: Pt[]; ancre: Pt }
 export interface EtiquettePlacee { cle: string; lignes: string[]; nature: 'reel' | 'projete'; trou?: boolean; x: number; y: number; w: number; h: number; deportee: boolean; ax: number; ay: number; reduit?: boolean; recours?: boolean }
 
@@ -1746,6 +1796,9 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
   etiquettes?: EtiquetteProjection[]; // LOT 82 — nom du bâtiment + altitude posés SUR le dessin (suivent la case « repères / infos »). Vide = aucune (écran de tracé).
   voisinage?: ObjetContexte[]; // PROJ-CTX — contexte (parcelles voisines + bâti), 3e registre. Rendu seulement si filtres.contexte === true.
 }) {
+  // LETTRAGE — ref du <svg> déclarée AVANT le retour anticipé (règle des hooks). Le placement runtime de la légende vit dans le composant
+  //   ENFANT <LegendeLettrage> (rendu seulement aux deux couleurs) : ses hooks y sont inconditionnels, et rien n'écrit de ref pendant le rendu.
+  const svgRef = useRef<SVGSVGElement | null>(null);
   if (!boite || parcelle.length === 0) return <p style={muted}>Parcelle du permis absente : schéma non dessiné (aucun point fiable).</p>;
   const proj = (p: PointLambert) => projeterDansBoite(boite, p);
   const path = (anneau: PointLambert[]) => anneau.map((p, i) => { const q = proj(p); return `${i === 0 ? 'M' : 'L'}${q.x.toFixed(1)},${q.y.toFixed(1)}`; }).join(' ') + ' Z';
@@ -1774,6 +1827,9 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
   //   repères sont affichés (elle suit la case « Afficher les repères… »). `reperesAffiches` = ceux réellement dessinés (visibles + lettre non vide).
   const reperesAffiches = visibles.filter((p) => p.anneau.length >= 3 && p.repere).map((p) => ({ enProjet: estReperePolygoneEnProjet(p) }));
   const legendeLettrage = !!filtres.reperes && schemaADeuxCouleursReperes(reperesAffiches);
+  // LETTRAGE — parcelle(s) DU PERMIS projetées en unités de boîte (l'enfant applique ensuite la rotation + l'échelle « meet » pour obtenir des
+  //   pixels d'écran). SEULES ces parcelles bloquent la légende (le contexte ne compte pas). Calculé uniquement si la légende est affichée.
+  const parcelleBoiteLegende = legendeLettrage ? parcelle.filter((a) => a.length >= 3).map((a) => a.map(proj)) : [];
   // PROJ-3t — conversion écran → coordonnée BOÎTE (identique à onClick), partagée par le clic ET le drag d'ajustement (aucun getScreenCTM).
   const pxDe = (ev: { currentTarget: EventTarget & SVGSVGElement; clientX: number; clientY: number }) => {
     const r = ev.currentTarget.getBoundingClientRect();
@@ -1812,8 +1868,8 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
     return 'corps';
   };
   return (
-    <div style={{ position: 'relative', display: 'block' }}>
-    <svg viewBox={`${vb.minX} ${vb.minY} ${vb.w} ${vb.h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées"
+    <div style={{ position: 'relative', display: 'flex', flexDirection: 'column' }}>
+    <svg ref={svgRef} viewBox={`${vb.minX} ${vb.minY} ${vb.w} ${vb.h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées"
       style={{ display: 'block', width: '100%', height: 'auto', maxHeight: hauteurMax, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', touchAction: onPointeurAjustement ? 'none' : undefined, cursor: onPointeurAjustement ? 'grab' : onCliquer ? 'crosshair' : 'default' }}
       onClick={onCliquer ? (ev) => onCliquer(pxDe(ev)) : undefined}
       onPointerDown={onPointeurAjustement ? (ev) => { const { px, scale } = pxEtScaleDe(ev); (ev.currentTarget as SVGSVGElement).setPointerCapture(ev.pointerId); onPointeurAjustement('down', px, cibleAjust(px, scale)); } : undefined}
@@ -2008,15 +2064,69 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
         </g>; })()}
       </g>
     </svg>
-    {/* LETTRAGE — LÉGENDE du code couleur, en bas à droite DANS le cadre (overlay HTML → texte responsive qui s'enroule, robuste en mobile).
-        Fond blanc LÉGER (semi-transparent) + léger décalage → ne masque pas une forme dessous ; pointerEvents:none → ne gêne aucun geste sur le
-        schéma. aria-hidden : redondante à l'oral (chaque lettre en projet porte déjà « Repère X, bâtiment en projet »). N'apparaît qu'aux deux couleurs. */}
-    {legendeLettrage && (
-      <div data-legende-lettrage="true" aria-hidden style={{ position: 'absolute', right: 4, bottom: 4, maxWidth: '62%', background: 'rgba(255,255,255,.86)', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.2rem .4rem', fontSize: 10, lineHeight: 1.3, color: ETIQ_ENCRE, pointerEvents: 'none', display: 'flex', flexDirection: 'column', gap: '.12rem' }}>
-        <span><strong style={{ color: ETIQ_ENCRE }}>A</strong> Lettres noires : bâtiments existants sur le cadastre</span>
-        <span><strong style={{ color: REPERE_PROJET_ROUGE }}>A</strong> Lettres rouges : bâtiments en projet de construction sur le cadastre</span>
-      </div>
-    )}
+    {/* LETTRAGE — LÉGENDE du code couleur, PLACÉE automatiquement pour ne jamais chevaucher une parcelle du permis (≥ 20 px). Rendue seulement
+        aux deux couleurs (composant enfant → hooks de mesure isolés). */}
+    {legendeLettrage && <LegendeLettrage svgRef={svgRef} vb={vb} centre={centre} angle={angle} parcelleBoite={parcelleBoiteLegende} />}
+    </div>
+  );
+}
+
+/**
+ * LETTRAGE — LÉGENDE du code couleur des repères + son PLACEMENT runtime. Overlay HTML (texte long → s'enroule, robuste en mobile) posé dans
+ * la zone LIBRE qui ne chevauche JAMAIS une parcelle du permis, avec ≥ 20 px de marge À L'ÉCHELLE AFFICHÉE. Se REPOSITIONNE quand le dessin
+ * bouge (rotation, zoom, ajustement, sélection → `vb`/`angle` changent) et quand le conteneur est redimensionné (ResizeObserver). `dansCadre`
+ * → `absolute` au coin/bord libre ; REPLI (aucune position libre : parcelle occupant tout le cadre) → hors du cadre, SOUS le dessin, dans le
+ * flux → jamais de chevauchement, jamais de disparition silencieuse. Avant 1re mesure / SSR → défaut bas-droite. Fond blanc LÉGER +
+ * pointerEvents:none → ne masque ni ne gêne le dessin. aria-hidden : redondante à l'oral (chaque lettre en projet porte déjà son libellé).
+ * `parcelleBoite` = parcelle(s) du permis en unités de boîte ; on applique ici la rotation (comme le <g transform>) puis l'échelle « meet ».
+ */
+function LegendeLettrage({ svgRef, vb, centre, angle, parcelleBoite }: {
+  svgRef: RefObject<SVGSVGElement | null>; vb: { minX: number; minY: number; w: number; h: number };
+  centre: { x: number; y: number }; angle: number; parcelleBoite: readonly (readonly { x: number; y: number }[])[];
+}) {
+  const ref = useRef<HTMLDivElement | null>(null);
+  const geoRef = useRef({ vb, centre, angle, parcelleBoite });
+  const [placement, setPlacement] = useState<PlacementLegende | null>(null);
+  // recalc STABLE (ne capture que svgRef) → lit la géométrie COURANTE via geoRef (écrite en phase d'effet, jamais pendant le rendu).
+  const recalc = useCallback(() => {
+    const svg = svgRef.current, leg = ref.current;
+    if (!svg) return;
+    const { vb, centre, angle, parcelleBoite } = geoRef.current;
+    const rect = svg.getBoundingClientRect();
+    const rw = rect.width, rh = rect.height;
+    if (!(rw > 0) || !(rh > 0) || !(vb.w > 0) || !(vb.h > 0)) return; // pas encore mis en page (jsdom / avant peinture) → on garde le défaut
+    const scale = Math.min(rw / vb.w, rh / vb.h); // « meet » : le contenu tient en entier, centré
+    const offX = (rw - vb.w * scale) / 2, offY = (rh - vb.h * scale) / 2;
+    const rad = (angle * Math.PI) / 180, cos = Math.cos(rad), sin = Math.sin(rad);
+    const versEcran = (q: { x: number; y: number }) => { // boîte → écran : rotation (identique au <g transform>) puis échelle/centrage
+      const dx = q.x - centre.x, dy = q.y - centre.y;
+      const rx = centre.x + dx * cos - dy * sin, ry = centre.y + dx * sin + dy * cos;
+      return { x: (rx - vb.minX) * scale + offX, y: (ry - vb.minY) * scale + offY };
+    };
+    const obstacles = parcelleBoite.map((a) => a.map(versEcran));
+    const taille = leg ? { w: leg.offsetWidth, h: leg.offsetHeight } : { w: 170, h: 44 };
+    const prochain = choisirPlacementLegende({ w: rw, h: rh }, taille, obstacles, 20); // 20 px À L'ÉCHELLE AFFICHÉE (tout est en px écran)
+    setPlacement((prev) => (memePlacementLegende(prev, prochain) ? prev : prochain));
+  }, [svgRef]);
+  useEffetMiseEnPage(() => { geoRef.current = { vb, centre, angle, parcelleBoite }; recalc(); }); // après CHAQUE rendu (le dessin a pu bouger) ; setState gardé → pas de boucle
+  useEffetMiseEnPage(() => { // conteneur redimensionné (responsive / rotation d'écran) → replace, sans changement de props
+    const svg = svgRef.current;
+    if (!svg || typeof ResizeObserver === 'undefined') return; // pas de ResizeObserver (SSR / certains tests) → l'effet ci-dessus suffit
+    const ro = new ResizeObserver(() => recalc());
+    ro.observe(svg);
+    return () => ro.disconnect();
+  }, [recalc, svgRef]);
+  return (
+    <div ref={ref} data-legende-lettrage="true" data-legende-ancrage={placement?.ancrage} aria-hidden
+      style={{
+        ...(placement && !placement.dansCadre
+          ? { position: 'static', alignSelf: 'flex-end', marginTop: 4 } // REPLI : sous le dessin, dans le flux → n'empiète sur rien
+          : { position: 'absolute', ...(placement ? { left: placement.left, top: placement.top } : { right: 4, bottom: 4 }) }),
+        maxWidth: '62%', background: 'rgba(255,255,255,.86)', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem',
+        padding: '.2rem .4rem', fontSize: 10, lineHeight: 1.3, color: ETIQ_ENCRE, pointerEvents: 'none', display: 'flex', flexDirection: 'column', gap: '.12rem',
+      }}>
+      <span><strong style={{ color: ETIQ_ENCRE }}>A</strong> Lettres noires : bâtiments existants sur le cadastre</span>
+      <span><strong style={{ color: REPERE_PROJET_ROUGE }}>A</strong> Lettres rouges : bâtiments en projet de construction sur le cadastre</span>
     </div>
   );
 }
