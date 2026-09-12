@@ -338,3 +338,53 @@ describe('Planche cadastrale — bascule symétrique et illimitée de TOUTE parc
     expect(parcellePath('1', dialog()!)!.getAttribute('fill')).toBe(FILL_VERT);
   });
 });
+
+describe('Planche cadastrale — plein écran plein surface : inventaire des contrôles (non-régression)', () => {
+  // Élément dont le TEXTE PROPRE (feuille) vaut exactement `txt` — pour cibler un libellé précis sans matcher un ancêtre.
+  function parTexteExact(txt: string, racine: ParentNode): Element | null {
+    return [...racine.querySelectorAll('*')].find((e) => e.textContent === txt && e.children.length === 0) as Element | null ?? null;
+  }
+
+  it('tous les contrôles sont présents dans le modal ; les contrôles précèdent le schéma, les infos (légende/comparatif) le suivent', async () => {
+    await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
+    await flush();
+    clic(boutonTexte('⤢ Agrandir le schéma')); await flush();
+    const dialog = container.querySelector('[role="dialog"][aria-modal="true"]') as HTMLElement | null;
+    expect(dialog).not.toBeNull();
+    // PRÉSENCE — la liste complète des contrôles (aucun perdu par le passage plein surface)
+    expect(boutonTexte('Toutes les parcelles', dialog!)).not.toBeNull();
+    expect(boutonTexte('Centrer sur une parcelle', dialog!)).not.toBeNull();
+    expect(boutonTexte('Centrer sur l’adresse', dialog!)).not.toBeNull();
+    expect(dialog!.querySelector('input[aria-label="Adresse à localiser"]')).not.toBeNull();
+    expect(boutonTexte('Localiser', dialog!)).not.toBeNull();
+    expect(dialog!.querySelector('input[type="range"]')).not.toBeNull(); // curseur « Voisines à »
+    expect(dialog!.textContent).toContain('Voisines à');
+    const boutonPrimaire = boutonTexte('Modifier la sélection', dialog!) ?? boutonTexte('Valider la sélection', dialog!);
+    expect(boutonPrimaire).not.toBeNull();
+    expect(dialog!.textContent).toContain('voisine (repère)');                              // légende
+    expect(dialog!.textContent).toContain('Déclaré au permis ↔ sélectionné sur le schéma'); // comparatif
+    expect(dialog!.textContent).toContain('Survolez ou touchez une parcelle');             // ligne d'identification/survol
+    // PLACEMENT — contrôles AU-DESSUS du schéma ; infos (comparatif) APRÈS le schéma (colonne latérale, jamais au-dessus)
+    const svg = dialog!.querySelector('svg[role="img"]');
+    expect(precede(boutonTexte('Toutes les parcelles', dialog!), svg)).toBe(true);
+    expect(precede(dialog!.querySelector('input[aria-label="Adresse à localiser"]'), svg)).toBe(true);
+    expect(precede(dialog!.querySelector('input[type="range"]'), svg)).toBe(true);
+    expect(precede(boutonPrimaire, svg)).toBe(true);
+    const titreComparatif = parTexteExact('Déclaré au permis ↔ sélectionné sur le schéma', dialog!);
+    expect(titreComparatif).not.toBeNull();
+    expect(precede(svg, titreComparatif)).toBe(true); // le schéma précède les infos → celles-ci sont en colonne latérale, pas au-dessus
+  });
+
+  it('les contrôles conditionnels (« Réinitialiser », « Revenir à la configuration d’origine ») restent atteignables dans le modal', async () => {
+    await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
+    await flush();
+    clic(boutonTexte('⤢ Agrandir le schéma')); await flush();
+    const dialog = () => container.querySelector('[role="dialog"][aria-modal="true"]') as HTMLElement | null;
+    expect(dialog()).not.toBeNull();
+    // au repos, la composition = défaut → « Réinitialiser » absent (rien à réinitialiser)
+    expect(boutonTexte('Réinitialiser à la sélection par défaut', dialog()!)).toBeNull();
+    // sélectionner une voisine (change la composition) → « Réinitialiser » apparaît DANS le modal
+    clic(parcellePath('2', dialog()!)); await flush();
+    expect(boutonTexte('Réinitialiser à la sélection par défaut', dialog()!)).not.toBeNull();
+  });
+});

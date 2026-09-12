@@ -305,10 +305,16 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
             Aucune parcelle du permis n’est dessinable — sélectionnez les bonnes parcelles ci-dessous pour établir l’empreinte.
           </div>
         )}
-        <div style={{ width: '100%', overflowX: 'auto' }}>
-          <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} role="img"
+        {/* SURFACE — en plein écran (`grand`) le tracé REMPLIT sa zone (largeur ET hauteur), sans plafond en dur : le conteneur s'étire (flex),
+            le SVG occupe 100 % de la zone et `preserveAspectRatio="xMidYMid meet"` conserve le rapport d'aspect (aucune déformation, léger
+            letterbox). `minHeight` évite qu'il soit écrasé quand la colonne latérale passe dessous (mobile) → la carte défile alors. En vue
+            intégrée, cadrage inchangé (maxWidth 520, hauteur auto, défilement horizontal). */}
+        <div style={grand ? { flex: 1, minWidth: 0, minHeight: '50vh', display: 'flex' } : { width: '100%', overflowX: 'auto' }}>
+          <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} role="img" preserveAspectRatio="xMidYMid meet"
             aria-label={`Planche cadastrale : ${composition.size} parcelle(s) sélectionnée(s) sur ${data.nbRetenues} du permis, ${data.nbVoisines} voisine(s)`}
-            style={{ width: '100%', maxWidth: grand ? 900 : 520, height: 'auto', display: 'block', background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }}>
+            style={grand
+              ? { width: '100%', height: '100%', display: 'block', background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }
+              : { width: '100%', maxWidth: 520, height: 'auto', display: 'block', background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }}>
             {schema.empreintePath && <path d={schema.empreintePath} fill="none" stroke="var(--color-svv-line)" strokeWidth={1.5} strokeDasharray="4 3" />}
             {schema.polygones.map((p, i) => { const m = meta[i]; if (!m) return null;
               const id = m.idu; const dans = id ? composition.has(id) : false; const s = styleParcelle(m, dans);
@@ -476,8 +482,12 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
           colonne). Pas d'empilement qui déborde sous le schéma. Fermeture : clic hors zone, ✕, ou Échap. SÉLECTION PARTAGÉE (même état). */}
       {schemaPleinEcran && (
         <div role="dialog" aria-modal="true" aria-label="Planche cadastrale agrandie — sélection des parcelles" onClick={() => setSchemaPleinEcran(false)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
-          <div onClick={(e) => e.stopPropagation()} className="svv-card" style={{ maxWidth: '95vw', maxHeight: '95vh', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', zIndex: 1000, padding: '1.5vmin' }}>
+          {/* SURFACE — la carte REMPLIT la fenêtre : `flex: 1` dans le fond en flex (largeur) + `align-items: stretch` par défaut (hauteur),
+              avec une marge mince et homogène (padding 1.5vmin du fond). Plus de carte centrée dimensionnée au contenu — l'ancien
+              `maxWidth 95vw / maxHeight 95vh` + centrage la bridait à ~la moitié de l'écran. `overflow: auto` = filet (fenêtre courte / mobile) ;
+              en temps normal rien ne défile, l'espace va au schéma. */}
+          <div onClick={(e) => e.stopPropagation()} className="svv-card" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: '.6rem', overflow: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <strong style={{ fontSize: 13 }}>Planche cadastrale</strong>
               <button type="button" style={{ ...btn(false), minHeight: 44 }} onClick={() => setSchemaPleinEcran(false)} aria-label="Fermer l’agrandissement du schéma">✕ Fermer</button>
@@ -490,9 +500,14 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
             {/* DEUX ZONES : schéma à gauche (prend l'espace), INFOS (survol / localisation / légende / comparatif — lecture seule, PAS des
                 contrôles de sélection) en colonne latérale à droite, comme la référence range ses options à côté du dessin. En portrait, la
                 colonne passe SOUS le schéma (flexWrap). */}
-            <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-              <div style={{ flex: '1 1 420px', minWidth: 0 }}>{schemaDessin(true)}</div>
-              {infosSchema && <div style={{ flex: '1 1 260px', minWidth: 240, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>{infosSchema}</div>}
+            {/* SURFACE — la rangée GRANDIT pour remplir la hauteur restante de la carte (`flex: 1`, `minHeight: 0`) et ses deux colonnes
+                s'étirent sur cette hauteur (`alignItems: stretch`) → le schéma dispose de toute la hauteur. Le SCHÉMA prend l'espace
+                (`flex: 1 1 420px`) ; la colonne d'INFOS garde une largeur stable et lisible (`flex: 0 1 320px` : ne s'étire PAS pour combler
+                le vide, ne descend pas sous `minWidth 240`) et DÉFILE si son contenu dépasse (`overflowY: auto`) — le schéma, lui, ne défile
+                pas. `flexWrap` : sur fenêtre étroite (mobile portrait) la colonne passe SOUS le schéma au lieu de l'écraser. */}
+            <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'stretch', flex: 1, minHeight: 0 }}>
+              <div style={{ flex: '1 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column' }}>{schemaDessin(true)}</div>
+              {infosSchema && <div style={{ flex: '0 1 320px', minWidth: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '.5rem' }}>{infosSchema}</div>}
             </div>
           </div>
         </div>
