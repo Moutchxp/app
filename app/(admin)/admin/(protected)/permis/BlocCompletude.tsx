@@ -5,7 +5,8 @@ import { BlocDemandePieces } from './BlocDemandePieces';
 import { BlocRepliable } from './BlocRepliable';
 import { BoutonRelancerAnalyse } from './BoutonRelancerAnalyse'; // LOT 56-B — « Lancer le diagnostic complet des documents », en tête du corps
 import { jourParisISO } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « établi le » = jour en Europe/Paris
-import { resumeCompletude, doitRecalculerAuto, libelleFamillesManquantes } from '../../../../lib/permis/completudeResume';
+import { resumeCompletude, doitRecalculerAuto } from '../../../../lib/permis/completudeResume';
+import { libelleFamillesManquantesNommees } from './familleManquanteTitre'; // ② — même formulation, enrichie des NOMS des familles manquantes
 import type { NonClassee } from '../../../../lib/permis/diagnosticCompletude'; // LOT 60 — pièce non classée AVEC sa raison (type SEUL, module pur)
 
 /**
@@ -108,7 +109,11 @@ function TitreBilan({ etat, recalcEnCours, recalcEchoue }: { etat: Etat; recalcE
   else {
     const r = resumeCompletude(etat.completude);
     if (r.statut === 'jamais') bilan = <span style={{ fontWeight: 400, ...muted }}> — diagnostic non calculé (dépliez pour le lancer)</span>;
-    else if (r.statut === 'incomplet') bilan = <span style={{ fontWeight: 700, color: 'var(--color-svv-red)' }}> — {libelleFamillesManquantes(r.manquantes)}</span>; // LOT 13-A : formulation UNIQUE (partagée avec le titre de famille de l'encart)
+    else if (r.statut === 'incomplet') {
+      // ② — NOMMER les familles manquantes (LIBELLE local = mêmes noms que la SOURCE UNIQUE LIBELLE_FAMILLE ; lignes déjà en ordre canonique).
+      const nomsManquants = (etat.completude?.diagnostic.lignes ?? []).filter((l) => !l.presente).map((l) => LIBELLE[l.famille]);
+      bilan = <span style={{ fontWeight: 700, color: 'var(--color-svv-red)' }}> — {libelleFamillesManquantesNommees(r.manquantes, nomsManquants)}</span>; // LOT 13-A : formulation UNIQUE (compte) + ② noms
+    }
     else bilan = <span style={{ fontWeight: 700, color: 'var(--color-svv-green-ink)' }}> — dossier complet</span>;
   }
   return <span>{TITRE}{bilan}</span>;
