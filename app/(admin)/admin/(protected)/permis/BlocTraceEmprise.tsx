@@ -1339,8 +1339,13 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     // SOURCE UNIQUE : même statut (validee/a_valider/ignoree/a_tracer) que la capsule du cartouche → jamais « ✓ tracée » là où la capsule dit « à valider ».
     const st = statutEmpriseBatiment(emprises.some((e) => e.corpsId === b.corpsId), ignores.some((i) => i.corpsId === b.corpsId), validationParCorps[b.corpsId] ?? false);
     const actif = b.corpsId === corpsEffectif;
+    // B — ONGLET EN ATTENTE DE VALIDATION : emprise ENREGISTRÉE mais NON validée (st 'a_valider') → MÊME battement lent vert↔rouge que le
+    //   bouton « valider » (classe partagée svvValiderAttente, facac36 : 1,8 s, coupé sous prefers-reduced-motion). Le sens reste porté par le
+    //   libellé « ◐ emprise à valider » (jamais la couleur seule). Un onglet « à tracer » (pas encore d'emprise) ne clignote PAS : rien n'attend une validation.
+    const enAttenteValidation = st === 'a_valider';
     return (
       <button key={b.corpsId} ref={avecRefActif && actif ? cartoucheActifRef : undefined} type="button" onClick={() => setCorpsSel(b.corpsId)}
+        className={enAttenteValidation ? 'svvValiderAttente' : undefined}
         style={{ ...btn, flex: '0 0 auto', whiteSpace: 'nowrap', fontWeight: actif ? 700 : 400, borderColor: actif ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }}>
         {libelleBatiment(b)} — {MOT_STATUT_EMPRISE[st]}
       </button>

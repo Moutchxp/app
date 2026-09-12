@@ -197,4 +197,8 @@ describe('BlocTraceEmprise — câblage rangée + bascule de mode (garde source)
     expect(SRC).toContain('validationParCorps = useMemo(() => validationParCorpsDepuisEmprises(emprises)'); // dérivée de la vérité par emprise
     expect(SRC).not.toContain('setValidationParCorps');          // le signal serveur (OR legacy projection / pointeur 206) n’est plus consommé
   });
+  it('(B) onglet de bâtiment EN ATTENTE (a_valider) : battement PARTAGÉ svvValiderAttente ; jamais pour à tracer / validée / ignorée', () => {
+    expect(SRC).toContain("const enAttenteValidation = st === 'a_valider'");              // seul l’état « enregistrée non validée » clignote
+    expect(SRC).toContain("className={enAttenteValidation ? 'svvValiderAttente' : undefined}"); // MÊME mécanisme que le bouton « valider » (facac36), pas une 2e implémentation
+  });
 });
