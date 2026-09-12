@@ -312,10 +312,14 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
             {schema.empreintePath && <path d={schema.empreintePath} fill="none" stroke="var(--color-svv-line)" strokeWidth={1.5} strokeDasharray="4 3" />}
             {schema.polygones.map((p, i) => { const m = meta[i]; if (!m) return null;
               const id = m.idu; const dans = id ? composition.has(id) : false; const s = styleParcelle(m, dans);
+              // CIBLE DE CLIC — `pointerEvents: 'all'` (style du path) rend TOUT le tracé cliquable, intérieur compris, INDÉPENDAMMENT du fill.
+              //   Sans lui, une parcelle du permis RETIRÉE (styleParcelle → `fill: 'none'`) n'était cliquable que sur son fin contour pointillé
+              //   (hit-test `visiblePainted` par défaut : l'intérieur non peint n'est pas une cible) → impossible de la re-sélectionner d'un
+              //   clic à l'intérieur. Bascule désormais symétrique et illimitée pour TOUTE parcelle (du permis ou voisine).
               return (
                 <path key={p.repere} d={p.path} fill={s.fill} fillOpacity={s.fillOpacity} stroke={s.stroke} strokeWidth={s.width} strokeDasharray={s.dash}
                   role="button" aria-pressed={dans} aria-label={`${texteParcelle(m)} — ${dans ? 'sélectionnée' : 'non sélectionnée'}`}
-                  tabIndex={focusable(m) ? 0 : -1} style={{ cursor: 'pointer' }}
+                  tabIndex={focusable(m) ? 0 : -1} style={{ cursor: 'pointer', pointerEvents: 'all' }}
                   onClick={() => basculer(id)} onFocus={() => id && setSurvol(null)}
                   onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); basculer(id); } }}
                   onMouseMove={(e) => setSurvol({ x: e.clientX, y: e.clientY, texte: texteParcelle(m) })} onMouseLeave={() => setSurvol(null)} />

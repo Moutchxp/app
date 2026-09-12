@@ -44,6 +44,7 @@ const planche = (): Planche => ({
   centre: { mode: 'empreinte', idu: null, point: null, provenance: null, label: null },
   centreAvertissement: null, marqueurAdresse: null,
   parcellesChoix: [{ idu: 'P1', section: 'AB', numero: '1' }, { idu: 'P2', section: 'AB', numero: '2' }], // 2 parcelles → le mode « Centrer sur une parcelle » est activable (test des 3 modes)
+  parcellesDeclarees: [{ section: 'AB', numero: '1' }], // P1 est DÉCLARÉE au permis → le comparatif « déclaré ↔ sélectionné » est comparable
   localisation: { communeCode: '75119', communeNom: 'Paris 19e', sections: ['AB'], feuilleLibelle: 'Paris 19e — section AB', feuilleNote: '' },
   selection: { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null },
   retenuesHorsVue: 0,
@@ -81,6 +82,18 @@ function precede(avant: Element | null, apres: Element | null): boolean {
   if (!avant || !apres) return false;
   return (apres.compareDocumentPosition(avant) & Node.DOCUMENT_POSITION_PRECEDING) !== 0;
 }
+// Path d'une parcelle repérée par son numéro (aria-label « … n° N … »), dans une racine (container ou dialog).
+function parcellePath(numero: string, racine: ParentNode = container): SVGPathElement | null {
+  return [...racine.querySelectorAll('path')].find((p) => (p.getAttribute('aria-label') ?? '').includes(`n° ${numero}`)) as SVGPathElement | null ?? null;
+}
+// Intérieur du tracé cliquable ? jsdom ne fait PAS de hit-testing (un clic synthétique déclenche onClick quel que soit le fill) : on ne peut
+//   donc pas reproduire le clic « raté » d'un vrai navigateur. On vérifie la PROPRIÉTÉ qui gouverne la cible de clic — `pointer-events: all`
+//   rend tout le tracé (intérieur compris) cliquable INDÉPENDAMMENT du fill (une parcelle du permis retirée a `fill: none`). C'est le
+//   comportement corrigé, exprimé par la seule voie observable en jsdom.
+function interieurCliquable(p: SVGPathElement | null): boolean {
+  return !!p && p.style.pointerEvents === 'all';
+}
+function clic(p: Element | null): void { if (p) act(() => { p.dispatchEvent(new MouseEvent('click', { bubbles: true })); }); }
 
 describe('Planche cadastrale — présence des contrôles (comportement, DOM réel)', () => {
   it('les TROIS modes de centrage + le curseur « Voisines à … » + la validation sont présents au chargement', async () => {
@@ -252,5 +265,76 @@ describe('Planche cadastrale — (B) « Modifier la sélection » actif + (C) co
     const boutonSel = boutonTexte('Modifier la sélection', dialog!) ?? boutonTexte('Valider la sélection', dialog!);
     expect(boutonSel).not.toBeNull();
     expect(precede(boutonSel, svg)).toBe(true); // les contrôles de sélection précèdent le schéma (marge des contrôles), jamais après/à droite
+  });
+});
+
+describe('Planche cadastrale — bascule symétrique et illimitée de TOUTE parcelle (cible de clic, bug re-sélection)', () => {
+  const FILL_VERT = 'var(--color-svv-green-ink)';
+  const FILL_VOISINE = 'var(--color-svv-muted)';
+
+  it('parcelle DU PERMIS : retirée → re-sélectionnée → retirée (état + rendu), et son intérieur reste cliquable une fois retirée', async () => {
+    await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
+    await flush();
+    // au chargement, P1 (parcelle du permis) est dans la composition → rendu « sélectionnée » (vert)
+    expect(parcellePath('1')!.getAttribute('fill')).toBe(FILL_VERT);
+    // clic 1 → RETIRÉE : rendu « retirée » (fill none, pointillés) ET l'intérieur reste une CIBLE DE CLIC (sinon on ne pourrait plus la re-cliquer)
+    clic(parcellePath('1')); await flush();
+    expect(parcellePath('1')!.getAttribute('fill')).toBe('none');
+    expect(parcellePath('1')!.getAttribute('aria-label')).toContain('non sélectionnée');
+    expect(interieurCliquable(parcellePath('1'))).toBe(true);
+    // clic 2 → RE-SÉLECTIONNÉE : retour au rendu « sélectionnée » (vert)
+    clic(parcellePath('1')); await flush();
+    expect(parcellePath('1')!.getAttribute('fill')).toBe(FILL_VERT);
+    expect(parcellePath('1')!.getAttribute('aria-label')).toContain('sélectionnée');
+    // clic 3 → RETIRÉE de nouveau (bascule illimitée)
+    clic(parcellePath('1')); await flush();
+    expect(parcellePath('1')!.getAttribute('fill')).toBe('none');
+  });
+
+  it('parcelle HORS permis (voisine) : sélectionnée → désélectionnée → sélectionnée (non-régression) ; intérieur cliquable', async () => {
+    await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
+    await flush();
+    // voisine non sélectionnée au départ (rendu neutre) ; son intérieur est une cible de clic
+    expect(parcellePath('2')!.getAttribute('fill')).toBe(FILL_VOISINE);
+    expect(interieurCliquable(parcellePath('2'))).toBe(true);
+    clic(parcellePath('2')); await flush();
+    expect(parcellePath('2')!.getAttribute('fill')).toBe(FILL_VERT);      // sélectionnée
+    clic(parcellePath('2')); await flush();
+    expect(parcellePath('2')!.getAttribute('fill')).toBe(FILL_VOISINE);   // désélectionnée
+    clic(parcellePath('2')); await flush();
+    expect(parcellePath('2')!.getAttribute('fill')).toBe(FILL_VERT);      // re-sélectionnée (illimité)
+  });
+
+  it('le comparatif « Déclaré ↔ sélectionné » se met à jour DANS LES DEUX SENS après (dé)sélection d’une parcelle du permis', async () => {
+    await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
+    await flush();
+    // On garde une voisine (P2) sélectionnée pour que la composition reste NON VIDE (le comparatif exige ≥1 sélectionnée pour être comparable).
+    clic(parcellePath('2')); await flush();
+    // P1 déclarée ET sélectionnée → « présentes des deux côtés »
+    expect(container.textContent).toContain('Présentes des deux côtés');
+    // retrait de P1 → « déclarées au permis mais non sélectionnées » ; l'intérieur reste cliquable pour pouvoir revenir
+    clic(parcellePath('1')); await flush();
+    expect(container.textContent).toContain('Déclarées au permis mais non sélectionnées');
+    expect(interieurCliquable(parcellePath('1'))).toBe(true);
+    // re-sélection de P1 → le comparatif REVIENT à « présentes des deux côtés » (pas bloqué sur « non sélectionnée »)
+    clic(parcellePath('1')); await flush();
+    expect(container.textContent).toContain('Présentes des deux côtés');
+    expect(container.textContent).not.toContain('Déclarées au permis mais non sélectionnées');
+  });
+
+  it('PLEIN ÉCRAN : la parcelle du permis se retire puis se re-sélectionne (intérieur cliquable dans le modal)', async () => {
+    await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
+    await flush();
+    clic(boutonTexte('⤢ Agrandir le schéma')); await flush();
+    const dialog = () => container.querySelector('[role="dialog"][aria-modal="true"]') as HTMLElement | null;
+    expect(dialog()).not.toBeNull();
+    expect(parcellePath('1', dialog()!)!.getAttribute('fill')).toBe(FILL_VERT);
+    // retrait dans le plein écran
+    clic(parcellePath('1', dialog()!)); await flush();
+    expect(parcellePath('1', dialog()!)!.getAttribute('fill')).toBe('none');
+    expect(interieurCliquable(parcellePath('1', dialog()!))).toBe(true);
+    // re-sélection dans le plein écran
+    clic(parcellePath('1', dialog()!)); await flush();
+    expect(parcellePath('1', dialog()!)!.getAttribute('fill')).toBe(FILL_VERT);
   });
 });
