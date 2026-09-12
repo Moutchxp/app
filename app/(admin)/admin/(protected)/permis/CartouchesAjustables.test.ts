@@ -211,6 +211,13 @@ describe('BlocTraceEmprise — câblage rangée + bascule de mode (garde source)
     expect(SRC).toContain('setReactionSelectionNonce((n) => n + 1)'); // à CHAQUE clic, y compris re-clic du bâtiment courant → pulsation « montre-moi lequel »
     expect(SRC).toContain('reactionSurlignageNonce={reactionSelectionNonce}'); // passé au schéma (vue normale/XL) ; le plein écran ne le reçoit pas
   });
+  it('(garde-fou tracé) l’enregistrement passe par impactTraceManuel : confirmation si destructif, sinon direct, et confirmer appelle l’enregistrement effectif', () => {
+    expect(SRC).toContain('const impact = impactTraceManuel(empriseDuBat)');       // décision PURE : ce que le tracé va effacer
+    expect(SRC).toContain('if (impact.destructif) { setConfirmationTrace(impact); return; }'); // destructif → confirmer ; sinon `void enregistrerEffectif()`
+    expect(SRC).toContain('void enregistrerEffectif()');                           // aucune adoptée → enregistrement DIRECT (geste non alourdi)
+    expect(SRC).toContain('onConfirmer={() => { setConfirmationTrace(null); void enregistrerEffectif(); }}'); // « Enregistrer quand même »
+    expect(SRC).toContain('<ConfirmationTraceManuel impact={confirmationTrace}');   // même famille que ConfirmationAdoption
+  });
   it('(retouche intouchée) la purge des sessions couvre la RETOUCHE, et toutes les sorties fullscreen l’appellent', () => {
     // MÊME notion de « modifié » que la garde (module pur) : une retouche à historique vide est purgée → plus de « en cours de retouche » fantôme.
     expect(SRC).toContain('setRetouche((r) => (r && !estRetoucheModifiee(r.hist.length) ? null : r))');

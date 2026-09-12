@@ -8,6 +8,7 @@ import {
 } from '../../../../lib/permis/calageEmprise';
 import { placerPoigneeDansCadre, type CadreBoite, type BornesTige } from './ancragePoignees'; // BAT (défaut E) — borne la longueur de tige + replie la poignée dans le cadre (unités boîte), rendu ET hit-test → jamais divergents
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
+import type { ImpactTraceManuel } from './impactTraceManuel'; // GARDE-FOU — avant qu'un tracé manuel efface les emprises adoptées d'un bâtiment
 import { libelleBatiment, resumeProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { nomAffichageCorps, resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-1/NOM-3 — nom d'un corps ; nom DISTINCT par emprise (repère + « (numéro) »)
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
@@ -918,6 +919,45 @@ export function ConfirmationAdoption({ apercu, remplaceExistant, occupe = false,
       <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
         {total > 0 && <button type="button" style={{ ...b, fontWeight: 700 }} disabled={occupe} onClick={onConfirmer}>Adopter</button>}
         <button type="button" style={b} disabled={occupe} onClick={onAnnuler}>Annuler</button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * GARDE-FOU — CONFIRMATION avant qu'un tracé manuel EFFACE les emprises adoptées de l'IGN du bâtiment (exclusivité serveur : adoption et
+ * tracé ne coexistent jamais). MÊME famille visuelle que `ConfirmationAdoption` (carte cerclée, liste, alerte rouge, deux issues). Ce qui
+ * doit sauter aux yeux : le nombre de VALIDÉES et, pour chacune, la date + l'auteur — c'est du travail humain qui disparaît définitivement.
+ * `impact` null ou non destructif → rien (aucune adoptée : l'enregistrement est direct, jamais alourdi). PUR. `repereDe` nomme une emprise par son id.
+ */
+export function ConfirmationTraceManuel({ impact, repereDe, occupe = false, onConfirmer, onAnnuler }: {
+  impact: ImpactTraceManuel | null; repereDe: (id: number) => string; occupe?: boolean; onConfirmer: () => void; onAnnuler: () => void;
+}) {
+  if (impact === null || !impact.destructif) return null;
+  const { aEffacer, nbEffacees, nbValidees } = impact;
+  const b: CSSProperties = { cursor: 'pointer', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)', padding: '.2rem .6rem', fontSize: 13 };
+  return (
+    <div style={{ ...carte, borderColor: 'var(--color-svv-ink)' }} role="group" aria-label="confirmation : ce tracé efface des emprises issues de l’IGN">
+      <div style={{ fontWeight: 600, marginBottom: 4 }}>Enregistrer ce tracé effacera {nbEffacees} emprise{nbEffacees > 1 ? 's' : ''} issue{nbEffacees > 1 ? 's' : ''} de l’IGN sur ce bâtiment</div>
+      {nbValidees > 0 && (
+        <p role="alert" style={{ color: 'var(--color-svv-red)', fontWeight: 700, margin: '0 0 .3rem' }}>
+          <span aria-hidden>⚠ </span>Dont {nbValidees} déjà validée{nbValidees > 1 ? 's' : ''} — cette validation sera perdue.
+        </p>
+      )}
+      <ul style={{ ...muted, margin: 0, paddingLeft: '1.1rem' }}>
+        {aEffacer.map((e) => (
+          <li key={e.id}>
+            <strong>{repereDe(e.id)}</strong>{e.surfaceM2 !== null ? ` — ${fmtM2(e.surfaceM2)}` : ''}{' '}
+            {e.validee
+              ? <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 700 }}>✓ validée{e.valideeLe ? ` le ${jourFrParis(e.valideeLe)}` : ''}{e.valideeParNom ? ` par ${e.valideeParNom}` : ''}</span>
+              : <span>non validée</span>}
+          </li>
+        ))}
+      </ul>
+      <p style={{ ...muted, margin: '.3rem 0 0' }}>Effacement <strong>définitif</strong> : ni corbeille ni annulation. Pour revenir en arrière, il faudra ré-adopter puis re-valider.</p>
+      <div style={{ display: 'flex', gap: '.4rem', marginTop: '.5rem', flexWrap: 'wrap' }}>
+        <button type="button" style={{ ...b, borderColor: 'var(--color-svv-red)', color: 'var(--color-svv-red)', fontWeight: 700 }} disabled={occupe} onClick={onConfirmer}>Enregistrer quand même</button>
+        <button type="button" style={b} disabled={occupe} onClick={onAnnuler}>Renoncer</button>
       </div>
     </div>
   );

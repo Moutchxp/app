@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, rayonBullePoignee, seuilCapturePoignee, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, rayonBullePoignee, seuilCapturePoignee, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, ConfirmationTraceManuel, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -1440,6 +1440,27 @@ describe('PROJ-3q — adoption IGN : aperçu, provenance, repère « qualité »
     expect(html).toMatch(/3 emprises issues de l’IGN/);          // total
     expect(html).toMatch(/remplacées/);                          // exclusivité
     expect(html).not.toContain('reconstitution');
+  });
+  it('ConfirmationTraceManuel : null / non destructif → rien ; sinon compte, VALIDATIONS saillantes (date + auteur), effacement définitif, deux issues', () => {
+    const repereDe = (id: number) => (({ 16: 'bâtiment en projet (1)', 17: 'bâtiment en projet (2)', 18: 'bâtiment en projet (3)' } as Record<number, string>)[id] ?? `emprise ${id}`);
+    // null → rien ; non destructif (aucune adoptée) → rien : le geste courant n'est pas alourdi
+    expect(renderToStaticMarkup(h(ConfirmationTraceManuel, { impact: null, repereDe, onConfirmer: () => {}, onAnnuler: () => {} }))).toBe('');
+    expect(renderToStaticMarkup(h(ConfirmationTraceManuel, { impact: { aEffacer: [], nbEffacees: 0, nbValidees: 0, destructif: false }, repereDe, onConfirmer: () => {}, onAnnuler: () => {} }))).toBe('');
+    // trois adoptées dont deux validées (cas réel 11430)
+    const impact = { destructif: true, nbEffacees: 3, nbValidees: 2, aEffacer: [
+      { id: 16, provenance: 'ign_adopte' as const, surfaceM2: 2647, validee: true, valideeLe: '2026-09-09T15:01:10Z', valideeParNom: 'Arnaud Jorel' },
+      { id: 17, provenance: 'ign_adopte' as const, surfaceM2: 721, validee: true, valideeLe: '2026-09-09T15:01:13Z', valideeParNom: 'Arnaud Jorel' },
+      { id: 18, provenance: 'ign_adopte' as const, surfaceM2: 115, validee: false, valideeLe: null, valideeParNom: null },
+    ] };
+    const html = renderToStaticMarkup(h(ConfirmationTraceManuel, { impact, repereDe, onConfirmer: () => {}, onAnnuler: () => {} }));
+    expect(html).toContain('effacera 3 emprises issues');          // COMBIEN + quoi
+    expect(html).toContain('role="alert"');                        // les validations sautent aux yeux…
+    expect(html).toContain('Dont 2 déjà validées');                // …avec leur nombre
+    expect(html).toContain('bâtiment en projet (1)');              // lesquelles (repère)
+    expect(html).toContain('09/09/2026'); expect(html).toContain('par Arnaud Jorel'); // date + auteur de la validation perdue
+    expect(html).toContain('non validée');                         // la 3e est dite non validée
+    expect(html).toContain('définitif');                           // effacement définitif, ni corbeille ni annulation
+    expect(html).toContain('Enregistrer quand même'); expect(html).toContain('Renoncer'); // deux issues explicites
   });
   it('RepereQualiteCalage origineIgn : calage/échelle « sans objet » ; débordement conservé', () => {
     const deb = { aireM2: 410, parcelleRattachee: true, aireHorsM2: 20, pctHors: 4.9, decalageLateralM: 0.3 };

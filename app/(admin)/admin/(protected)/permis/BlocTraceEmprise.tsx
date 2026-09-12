@@ -16,7 +16,8 @@ import { estAjustementModifie, estRetoucheModifiee, sessionModifiee, basculeRefu
 import { ancragePoignees } from './ancragePoignees'; // BAT (défaut E) — ancre des poignées = centroïde d'aire de la géométrie AFFICHÉE (suit le delta)
 import { validationParCorpsDepuisEmprises } from './etatValidationEmprise'; // POINT 1 — validation par corps dérivée de la SEULE vérité par emprise (source unique bandeau/en-tête/onglet/rangée)
 import { emprisesASurligner } from './surlignageSelection'; // D — emprises du bâtiment sélectionné à surligner sur la vue normale/XL (≥ 2 bâtiments)
-import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, CartouchesAjustables, BasculeMode, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
+import { impactTraceManuel, type ImpactTraceManuel } from './impactTraceManuel'; // GARDE-FOU — ce qu'un tracé manuel va effacer (emprises adoptées + validations)
+import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, CartouchesAjustables, BasculeMode, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, ConfirmationTraceManuel, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -143,6 +144,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const [affectation, setAffectation] = useState<Record<string, number>>({});
   const [scindes, setScindes] = useState<number[]>([]);
   const [confirmationAdoption, setConfirmationAdoption] = useState<{ batiments: BatimentAdoptionVue[] } | null>(null);
+  const [confirmationTrace, setConfirmationTrace] = useState<ImpactTraceManuel | null>(null); // GARDE-FOU — impact d'un tracé manuel qui effacerait des emprises adoptées (null = pas de confirmation en attente)
   // PROJ-3s — RETOUCHE d'une emprise existante : id + contour Lambert en cours + historique (annuler) ; mode + sommet sélectionné.
   const [retouche, setRetouche] = useState<{ id: number; anneau: PointLambert[]; hist: PointLambert[][] } | null>(null);
   const [modeRetouche, setModeRetouche] = useState<ModeRetouche>('deplacer');
@@ -772,7 +774,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     setPlanEnAttente(null);
   }, [mode, boite, planEnAttente]);
 
-  const enregistrer = useCallback(async () => {
+  // ENREGISTREMENT EFFECTIF du tracé (POST serveur inchangé). Côté serveur, un tracé manuel efface les emprises ADOPTÉES du bâtiment
+  //   (exclusivité). Appelé DIRECTEMENT si rien à détruire, ou APRÈS confirmation si le tracé effacerait des emprises adoptées (cf. `enregistrer`).
+  const enregistrerEffectif = useCallback(async () => {
     if (!sim || sommets.length < 3 || corpsEffectif === null || !batSel) { setMessage('sélectionnez un bâtiment, calez (2 points) et tracez un contour ≥ 3 sommets'); return; }
     setOccupe(true); setMessage(null);
     try {
@@ -781,10 +785,20 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; ignores?: ProjectionIgnoree[]; debordement?: Debordement | null };
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'enregistrement refusé'); return; }
       setEmprises(j.emprises ?? []); if (j.ignores) setIgnores(j.ignores);
-      setSommets([]); setCreationEnCours(false); setDebordement(j.debordement ?? null); setMessage('emprise reconstituée enregistrée'); // repère conservé « après enregistrement » ; le guide REVIENT à sa place initiale (fin du processus)
+      setSommets([]); setCreationEnCours(false); setConfirmationTrace(null); setDebordement(j.debordement ?? null); setMessage('emprise reconstituée enregistrée'); // repère conservé « après enregistrement » ; le guide REVIENT à sa place initiale (fin du processus)
       onEmprisesChange?.(); // capsule du cartouche : l'emprise vient d'être créée → re-fetch de CaracteristiquesBloc
     } catch { setMessage('erreur d’enregistrement'); } finally { setOccupe(false); }
   }, [sim, sommets, corpsEffectif, batSel, dossierId, pieceId, page, paires, ratioDeclare, onEmprisesChange]);
+
+  // GARDE-FOU — porte d'entrée de l'enregistrement : si le tracé effacerait des emprises ADOPTÉES du bâtiment (dont, souvent, des VALIDÉES),
+  //   on ARME une confirmation qui DIT ce qui sera perdu (module pur `impactTraceManuel`) au lieu d'effacer en silence. Rien à détruire →
+  //   enregistrement DIRECT (le geste courant n'est jamais alourdi). Ne change ni la règle métier ni le serveur : c'est un avertissement.
+  const enregistrer = useCallback(() => {
+    if (!sim || sommets.length < 3 || corpsEffectif === null || !batSel) { setMessage('sélectionnez un bâtiment, calez (2 points) et tracez un contour ≥ 3 sommets'); return; }
+    const impact = impactTraceManuel(empriseDuBat);
+    if (impact.destructif) { setConfirmationTrace(impact); return; }
+    void enregistrerEffectif();
+  }, [sim, sommets, corpsEffectif, batSel, empriseDuBat, enregistrerEffectif]);
 
   // ① COMPLÉMENT — VALIDER l'emprise sélectionnée. C'est le SEUL geste de validation d'emprise (la capsule du cartouche n'est plus qu'un
   //   ACCÈS vers ici, BAT) : route caracteristiques, action valider_emprise → validerEmprise PAR SON ID + auto-finalisation gated par le mode.
@@ -1611,6 +1625,19 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
 
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+      {/* GARDE-FOU — CONFIRMATION avant qu'un tracé manuel efface les emprises adoptées (dont validées) du bâtiment. Superposition centrée
+          (MÊME motif que l'agrandissement plein écran, MÊME carte que la ré-adoption) : visible depuis TOUTE vue de tracé (normale, XL, plan
+          seul), lisible sans défilement en portrait, jamais coincée dans la bande du plan seul. Clic sur le fond OU « Renoncer » = on renonce. */}
+      {confirmationTrace && (
+        <div role="dialog" aria-modal="true" aria-label="ce tracé effacera des emprises issues de l’IGN" onClick={() => setConfirmationTrace(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1100, padding: '1rem' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ maxWidth: 'min(95vw, 30rem)', maxHeight: '90vh', overflow: 'auto' }}>
+            <ConfirmationTraceManuel impact={confirmationTrace}
+              repereDe={(id) => { const e = emprises.find((x) => x.id === id); return e ? nomEmprise(e) : `emprise ${id}`; }}
+              occupe={occupe} onConfirmer={() => { setConfirmationTrace(null); void enregistrerEffectif(); }} onAnnuler={() => setConfirmationTrace(null)} />
+          </div>
+        </div>
+      )}
       <div style={{ fontWeight: 700, fontSize: 13 }}>Projection des emprises — reconstitution par bâtiment <span style={styleAide}>(jamais une mesure ; n’alimente ni le verdict ni l’altitude)</span></div>
       <BandeauProjection verdict={verdict} nbValides={nbValides} nbAValider={nbAValider} />
 
