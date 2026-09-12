@@ -220,7 +220,8 @@ describe('BlocTraceEmprise — câblage rangée + bascule de mode (garde source)
   });
   it('(retouche intouchée) la purge des sessions couvre la RETOUCHE, et toutes les sorties fullscreen l’appellent', () => {
     // MÊME notion de « modifié » que la garde (module pur) : une retouche à historique vide est purgée → plus de « en cours de retouche » fantôme.
-    expect(SRC).toContain('setRetouche((r) => (r && !estRetoucheModifiee(r.hist.length) ? null : r))');
+    expect(SRC).toContain('const reIntouchee = !!retouche && !estRetoucheModifiee(retouche.hist.length)');
+    expect(SRC).toContain('if (reIntouchee) setRetouche(null)');
     // toutes les sorties d’écran agrandi passent par la purge (fermeture plein écran ET sortie XL).
     expect(SRC).toContain('setPleinEcran(false); purgerSessionIntouchee()');
     expect(SRC).toContain('setImageAgrandie(false); purgerSessionIntouchee()');

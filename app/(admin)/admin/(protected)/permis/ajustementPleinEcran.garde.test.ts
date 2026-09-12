@@ -46,10 +46,22 @@ describe('BlocTraceEmprise — armement des poignées à l’ouverture, purge à
     expect((SRC.match(/setPleinEcran\(false\)/g) ?? []).length).toBe(1);
   });
 
-  it('la purge ne concerne qu’une session intouchée (jamais le mode bloc, ni un ajustement/retouche modifié) et couvre les DEUX natures', () => {
+  it('AUDIT complet des sorties : plein écran + XL passent par la purge ; le plan seul est un retour LATÉRAL (session conservée jusqu’à la sortie XL)', () => {
+    // XL — bouton ET liseuse passent par la MÊME bascule (qui purge à la sortie) ; jamais un setImageAgrandie((v) => !v) nu.
+    expect(SRC).toContain('onClick={basculerImageAgrandie}');
+    expect(SRC).toContain('onToggleImageAgrandie={basculerImageAgrandie}');
+    expect(SRC).not.toContain('setImageAgrandie((v) => !v)');
+    // Plan seul (niveau 3) : « Revenir au mode XL » et Échap RESTENT dans l'espace de travail XL → setPlanSeul(false) SANS purge (la session
+    //   intouchée, s'il y en a une, est purgée à la SORTIE de l'XL). C'est un retour latéral, pas une sortie d'écran → volontairement pas de purge.
+    expect(SRC).toContain('onClick={() => setPlanSeul(false)}');
+    expect(SRC).toMatch(/Escape' && !planSeul\) quitterImageAgrandie\(\)/); // Échap AU niveau 2 (XL, planSeul absent) → quitterImageAgrandie → purge
+  });
+
+  it('la purge ne concerne qu’une session intouchée (jamais le mode bloc, ni un ajustement/retouche modifié), couvre les DEUX natures ET efface le message', () => {
     const bloc = corps('purgerSessionIntouchee');
-    expect(bloc).toContain('!a.bloc');                 // le geste d'ENSEMBLE (explicite) n'est pas purgé
-    expect(bloc).toContain('estAjustementModifie');    // un AJUSTEMENT modifié (travail non enregistré) est conservé
-    expect(bloc).toContain('estRetoucheModifiee(r.hist.length)'); // une RETOUCHE intouchée (historique vide) est purgée ; modifiée → conservée
+    expect(bloc).toContain('!ajustement.bloc');        // le geste d'ENSEMBLE (explicite) n'est pas purgé
+    expect(bloc).toContain('estAjustementModifie(ajustement, emprises)'); // un AJUSTEMENT modifié (travail non enregistré) est conservé
+    expect(bloc).toContain('estRetoucheModifiee(retouche.hist.length)');  // une RETOUCHE intouchée (historique vide) est purgée ; modifiée → conservée
+    expect(bloc).toContain('setMessage(null)');        // 3ᵉ chemin — le message d'invitation part AVEC la session (plus de faux bandeau au retour)
   });
 });

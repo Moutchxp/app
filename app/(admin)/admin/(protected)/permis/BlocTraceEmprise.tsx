@@ -1009,9 +1009,14 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   //   ⚠️ Ouvrir la retouche N'EST PAS retoucher : une retouche intouchée (historique vide) est purgée → plus de mention « en cours de retouche »,
   //   plus de bandeau, plus de garde, l'état de validation antérieur reste tel quel. Le contexte masqué est restauré par l'effet sur `retouche` null.
   const purgerSessionIntouchee = useCallback(() => {
-    setAjustement((a) => (a && !a.bloc && a.id != null && !estAjustementModifie(a, emprises) ? null : a));
-    setRetouche((r) => (r && !estRetoucheModifiee(r.hist.length) ? null : r));
-  }, [emprises]);
+    const ajIntouche = !!ajustement && !ajustement.bloc && ajustement.id != null && !estAjustementModifie(ajustement, emprises);
+    const reIntouchee = !!retouche && !estRetoucheModifiee(retouche.hist.length);
+    if (ajIntouche) setAjustement(null);
+    if (reIntouchee) setRetouche(null);
+    // 3ᵉ chemin — le message d'INVITATION (« ajustement : … » / « retouche : … ») posé à l'armement doit PARTIR avec la session : sinon il
+    //   subsiste comme un faux bandeau au retour sur la vue (constaté après fermeture du plein écran sans rien modifier). MÊME purge, une trace de plus.
+    if (ajIntouche || reIntouchee) setMessage(null);
+  }, [ajustement, retouche, emprises]);
 
   // BAT (défaut 1) — POIGNÉES D'EMBLÉE EN PLEIN ÉCRAN. Cause du bug : les poignées dérivent de `apercuAjustement`, null tant qu'aucune session
   //   `ajustement` n'est armée ; or à l'ouverture on était « au repos » et la session ne s'armait qu'au PREMIER geste. On corrige À LA SOURCE :
