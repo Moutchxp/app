@@ -117,7 +117,7 @@ describe('Planche cadastrale — présence des contrôles (comportement, DOM ré
     expect(precede(container.querySelector('input[type="range"]'), svgApres)).toBe(true);
   });
 
-  it('PLEIN ÉCRAN — les contrôles de sélection restent disponibles dans le dialog agrandi (saisie d’adresse + curseur)', async () => {
+  it('PLEIN ÉCRAN — modal (parité « Agrandir le schéma ») : en-tête + contrôles au-dessus + DEUX ZONES [schéma | validation], rien de perdu', async () => {
     await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
     await flush();
     // passer en mode adresse puis agrandir
@@ -127,12 +127,74 @@ describe('Planche cadastrale — présence des contrôles (comportement, DOM ré
     await flush();
     const dialog = container.querySelector('[role="dialog"][aria-modal="true"]') as HTMLElement | null;
     expect(dialog).not.toBeNull();
-    // dans le plein écran : saisie d'adresse, curseur des voisines et validation sont là (même état de composant partagé)
-    expect(dialog!.querySelector('input[aria-label="Adresse à localiser"]')).not.toBeNull();
-    expect(dialog!.querySelector('input[type="range"]')).not.toBeNull();
+    // EN-TÊTE calquée sur la référence : titre + « ✕ Fermer » (jamais l'ancien bouton d'agrandissement, qui a cédé la place).
+    expect(dialog!.textContent).toContain('Planche cadastrale');
+    expect(boutonTexte('✕ Fermer', dialog!)).not.toBeNull();
+    expect(boutonTexte('⤢ Agrandir le schéma')).toBeNull();
+    // AUCUN contrôle perdu : saisie d'adresse, « Localiser », curseur des voisines et le schéma sont là (même état de composant partagé).
+    const saisie = dialog!.querySelector('input[aria-label="Adresse à localiser"]');
+    const curseur = dialog!.querySelector('input[type="range"]');
+    const svg = dialog!.querySelector('svg[role="img"]');
+    expect(saisie).not.toBeNull();
+    expect(curseur).not.toBeNull();
+    expect(svg).not.toBeNull();
     expect(dialog!.textContent).toContain('Voisines à');
     expect(boutonTexte('Localiser', dialog!)).not.toBeNull();
-    // et toujours au-dessus du schéma agrandi
-    expect(precede(dialog!.querySelector('input[aria-label="Adresse à localiser"]'), dialog!.querySelector('svg[role="img"]'))).toBe(true);
+    // CONTRÔLES DE CENTRAGE AU-DESSUS du schéma (pas d'empilement/regression) ; la VALIDATION est présente (zone latérale, à côté du schéma).
+    expect(precede(saisie, svg)).toBe(true);
+    expect(precede(curseur, svg)).toBe(true);
+    expect(dialog!.textContent).toContain('Déclaré au permis ↔ sélectionné sur le schéma'); // le bandeau de validation/comparatif est conservé
+  });
+});
+
+describe('Planche cadastrale — plein écran : fermetures et sélection partagée (parité modal « Bâtiments et projection »)', () => {
+  async function ouvrirPleinEcran(): Promise<HTMLElement> {
+    await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
+    await flush();
+    act(() => { boutonTexte('⤢ Agrandir le schéma')!.click(); });
+    await flush();
+    const dialog = container.querySelector('[role="dialog"][aria-modal="true"]') as HTMLElement | null;
+    expect(dialog).not.toBeNull();
+    return dialog!;
+  }
+
+  it('« ✕ Fermer » referme le modal', async () => {
+    await ouvrirPleinEcran();
+    act(() => { boutonTexte('✕ Fermer')!.click(); });
+    await flush();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(boutonTexte('⤢ Agrandir le schéma')).not.toBeNull(); // la vue intégrée revient
+  });
+
+  it('la touche Échap referme le modal', async () => {
+    await ouvrirPleinEcran();
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    await flush();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('le clic HORS de la carte (sur le fond) referme le modal ; un clic DANS la carte ne le ferme pas', async () => {
+    const dialog = await ouvrirPleinEcran();
+    // clic DANS la carte (sur le schéma) : ne ferme pas (stopPropagation sur la carte centrée)
+    const svg = dialog.querySelector('svg[role="img"]') as SVGElement | null;
+    if (svg) { act(() => { svg.dispatchEvent(new MouseEvent('click', { bubbles: true })); }); await flush(); }
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    // clic sur le FOND (l'élément dialog lui-même = le backdrop) : ferme
+    act(() => { dialog.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await flush();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it('SÉLECTION PARTAGÉE : cliquer une voisine en plein écran crée un changement en attente conservé à la fermeture (source unique)', async () => {
+    const dialog = await ouvrirPleinEcran();
+    const voisine = [...dialog.querySelectorAll('path')].find((p) => (p.getAttribute('aria-label') ?? '').includes('voisine'));
+    expect(voisine).toBeTruthy();
+    act(() => { voisine!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await flush();
+    expect(boutonTexte('Valider la sélection', dialog)).not.toBeNull(); // le changement est en attente DANS le plein écran
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    await flush();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(boutonTexte('Valider la sélection')).not.toBeNull(); // …et conservé au retour en vue intégrée (même état)
   });
 });

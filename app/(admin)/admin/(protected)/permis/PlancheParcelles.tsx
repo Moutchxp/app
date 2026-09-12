@@ -66,9 +66,9 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
   const [prevSelKey, setPrevSelKey] = useState<string | null>(null);      // clé de RÉINITIALISATION de la composition (reset PENDANT le rendu, pas dans un effet)
   const [enCours, setEnCours] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  // ② — SCHÉMA EN PLEIN ÉCRAN (parité « Agrandir le schéma » de « Bâtiments et projection »). Même brique que l'agrandi PROPRE de la liseuse
-  //   (LiseusePieces:155/703) : la colonne du schéma passe en position:fixed inset:0. Tout son contenu (svg + contrôles de sélection + légende)
-  //   s'y retrouve tel quel → la sélection est PARTAGÉE (même état de composant, une seule source de vérité), sans dupliquer le mécanisme.
+  // AGENCEMENT (parité « Agrandir le schéma » de « Bâtiments et projection », BlocTraceEmprise:1853) — le plein écran est un MODAL
+  //   (backdrop + carte centrée), PAS une colonne edge-to-edge. Son contenu partage le MÊME état de composant (composition / mode /
+  //   rayon) : la sélection est donc PARTAGÉE entre la vue intégrée et le plein écran, une seule source de vérité, sans duplication.
   const [schemaPleinEcran, setSchemaPleinEcran] = useState(false);
   const [adresseSaisie, setAdresseSaisie] = useState('');           // PL-D — champ de saisie d'adresse (mode adresse)
   const [adresseCommittee, setAdresseCommittee] = useState<{ texte: string; point: { x: number; y: number } | null } | null>(null); // committée : suggestion CHOISIE (point) ou texte libre
@@ -158,7 +158,7 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
     onEtatPlanche(etatPlancheTitre({ selectionValidee: data.selection.active, changementEnAttente, cas: bilanComparatif(comparatif).cas }));
   }, [data, comparatif, changementEnAttente, onEtatPlanche]);
 
-  // ② — fermeture du plein écran à la touche Échap (même sortie que « ✕ Fermer »). Aucune animation → prefers-reduced-motion respecté d'office.
+  // ② — fermeture du plein écran à la touche Échap (même sortie que « ✕ Fermer » / le clic hors zone). Aucune animation → prefers-reduced-motion respecté d'office.
   useEffect(() => {
     if (!schemaPleinEcran) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSchemaPleinEcran(false); };
@@ -217,6 +217,224 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
   //   la remontée d'état de la ligne). Non nul ici : les early returns au-dessus ont éliminé `data === null`.
   const comparatifRendu = comparatif!;
 
+  // ── AGENCEMENT PARTAGÉ (parité « Bâtiments et projection ») — le MÊME contenu est monté SOIT dans la colonne intégrée, SOIT dans le
+  //   MODAL plein écran, jamais les deux à la fois (source d'état UNIQUE → aucune duplication d'id ni de contrôle). On factorise les
+  //   briques comme la référence factorise `barreDroiteSchema` / `blocSchema` : barre de centrage, contrôles au-dessus du schéma, dessin,
+  //   bandeau de validation. On ne copie AUCUNE fonctionnalité de la référence : chaque brique reste 100 % propre à la planche.
+
+  // Barre « Centrer : » (modes + parcelle) — barre d'outils EN TÊTE du schéma. `avecAgrandir` : le bouton d'agrandissement n'apparaît qu'en
+  //   vue intégrée (dans le modal, on ferme par l'en-tête ✕ / le clic hors zone / Échap). Placé et libellé comme la référence (barreDroiteSchema) :
+  //   dans la barre au-dessus du schéma, poussé à droite, « ⤢ Agrandir le schéma ». Cible tactile ≥ 44 px.
+  const barreCentrage = (avecAgrandir: boolean) => (
+    <div role="group" aria-label="Centrage de la planche" style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
+      <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Centrer :</span>
+      <button type="button" style={btn(mode === 'empreinte')} aria-pressed={mode === 'empreinte'} onClick={() => changerMode('empreinte')}>Toutes les parcelles</button>
+      <button type="button" style={btn(mode === 'parcelle')} aria-pressed={mode === 'parcelle'} onClick={() => changerMode('parcelle')}
+        disabled={data.parcellesChoix.length <= 1} title={data.parcellesChoix.length <= 1 ? 'ce permis n’a qu’une parcelle : identique à « Toutes les parcelles »' : undefined}>Centrer sur une parcelle</button>
+      <button type="button" style={btn(mode === 'adresse')} aria-pressed={mode === 'adresse'} onClick={() => changerMode('adresse')}>Centrer sur l’adresse</button>
+      {mode === 'parcelle' && data.parcellesChoix.length > 0 && (
+        <select aria-label="Parcelle de centrage" value={idu ?? ''} onChange={(e) => setIdu(e.target.value || null)} style={{ fontSize: 12, padding: '.15rem .3rem', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' }}>
+          {data.parcellesChoix.map((p) => <option key={p.idu} value={p.idu}>Section {p.section} n° {p.numero}</option>)}
+        </select>
+      )}
+      {avecAgrandir && <button type="button" style={{ ...btn(false), minHeight: 44, marginLeft: 'auto' }} onClick={() => setSchemaPleinEcran(true)} aria-label="Agrandir le schéma en plein écran">⤢ Agrandir le schéma</button>}
+    </div>
+  );
+
+  // Contrôles de centrage/voisinage AU-DESSUS du schéma : saisie d'adresse (+ autocomplétion, provenance, avertissement), rayon des
+  //   voisines, note de densité. TOUJOURS au-dessus du dessin (régression d1ef439 : jamais repoussés dessous, ni en intégré ni en plein
+  //   écran). Monté une seule fois (intégré OU modal) → ids `sug-`/`rayon-` uniques.
+  const blocControles = (
+    <>
+      {/* PL-D/E — SAISIE d'adresse avec AUTOCOMPLÉTION (api-adresse) : suggestions à la frappe (≥3 car., biais commune) ; choisir =
+          géocoder sans 2e appel ; texte libre à défaut. Recours quand le géocodage auto échoue (impasse du 468). */}
+      {mode === 'adresse' && (
+        <div style={{ display: 'flex', gap: '.3rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0 }}>
+            <input aria-label="Adresse à localiser" role="combobox" aria-expanded={!!(suggestions && suggestions.length)} aria-autocomplete="list" aria-controls={`sug-${dossierId}`}
+              placeholder={data.centre.label ?? 'taper une adresse (ex. « inspecteur »…)'}
+              value={adresseSaisie} onChange={(e) => { const v = e.target.value; setAdresseSaisie(v); if (adresseCommittee) setAdresseCommittee(null); if (v.trim().length < 3) { setSuggestions(null); setSugActive(-1); } }} onKeyDown={clavierAdresse}
+              style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, padding: '.25rem .4rem', minHeight: 34, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' }} />
+            {suggestions && suggestions.length > 0 && (
+              <ul id={`sug-${dossierId}`} role="listbox" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, listStyle: 'none', margin: '.1rem 0 0', padding: 0, background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', boxShadow: '0 2px 6px rgba(0,0,0,.15)', maxHeight: 210, overflowY: 'auto' }}>
+                {suggestions.map((s, i) => (
+                  <li key={s.label} role="option" aria-selected={i === sugActive} onMouseEnter={() => setSugActive(i)}
+                    onMouseDown={(e) => { e.preventDefault(); choisirSuggestion(s); }} // mouseDown : choisit AVANT un éventuel blur
+                    style={{ padding: '.35rem .45rem', fontSize: 12, cursor: 'pointer', minHeight: 34, background: i === sugActive ? 'var(--color-svv-field)' : 'transparent', borderTop: i > 0 ? '1px solid var(--color-svv-line)' : undefined }}>{s.label}</li>
+                ))}
+              </ul>
+            )}
+            {suggestions && suggestions.length === 0 && adresseSaisie.trim().length >= 3 && (
+              <div role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)', marginTop: '.15rem' }}>aucune suggestion — appuyez sur « Localiser » pour chercher tel quel</div>
+            )}
+          </div>
+          <button type="button" style={{ ...btn(false), minHeight: 34 }} onClick={localiserTexte}>Localiser</button>
+          {adresseCommittee && <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', fontSize: 11.5, alignSelf: 'center' }} onClick={revenirAdressePermis}>revenir à l’adresse du permis</button>}
+        </div>
+      )}
+      {/* Point d'adresse localisé : provenance EXPLICITE (base locale vs API nationale — donnée externe, jamais « à la main »). */}
+      {mode === 'adresse' && data.centre.point && (
+        <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>✚ {data.centre.label ?? 'adresse localisée'} — {data.centre.provenance === 'api-adresse' ? 'API nationale (Base Adresse Nationale, Licence Ouverte)' : 'base locale'}</div>
+      )}
+      {/* Avertissement : rouge (échec, aucun point) ou info (point trouvé mais approximatif / attribution API). */}
+      {data.centreAvertissement && <div role="note" style={{ fontSize: 11.5, color: data.centre.point ? 'var(--color-svv-muted)' : 'var(--color-svv-red)' }}>{data.centre.point ? 'ℹ ' : '⚠ '}{data.centreAvertissement}</div>}
+
+      {/* RAYON */}
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <label htmlFor={`rayon-${dossierId}`} style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Voisines à</label>
+        <input id={`rayon-${dossierId}`} type="range" min={RAYON_MIN} max={RAYON_MAX} step={RAYON_PAS} value={rayon} onChange={(e) => setRayon(Number(e.target.value))} style={{ flex: '1 1 120px', maxWidth: 200 }} />
+        <strong style={{ fontSize: 12 }}>{data.rayonM} m</strong>
+        <span style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>· {data.nbVoisines} voisine(s)</span>
+      </div>
+      {data.nbRetenues + data.nbVoisines > SEUIL_DENSE && <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>Planche dense ({data.nbRetenues + data.nbVoisines} parcelles) — rapprochez le rayon pour lire les repères.</div>}
+    </>
+  );
+
+  // Le SCHÉMA (message si rien à dessiner, sinon le SVG cliquable). `grand` élargit le cadrage en plein écran (parité maxWidth de la référence).
+  const schemaDessin = (grand: boolean) => (
+    data.motif || rienADessiner ? (
+      <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{messageVide}</div>
+    ) : (
+      <>
+        {aucuneParcellePermis && (
+          <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.35rem .55rem', background: 'var(--color-svv-field)' }}>
+            Aucune parcelle du permis n’est dessinable — sélectionnez les bonnes parcelles ci-dessous pour établir l’empreinte.
+          </div>
+        )}
+        <div style={{ width: '100%', overflowX: 'auto' }}>
+          <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} role="img"
+            aria-label={`Planche cadastrale : ${composition.size} parcelle(s) sélectionnée(s) sur ${data.nbRetenues} du permis, ${data.nbVoisines} voisine(s)`}
+            style={{ width: '100%', maxWidth: grand ? 900 : 520, height: 'auto', display: 'block', background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }}>
+            {schema.empreintePath && <path d={schema.empreintePath} fill="none" stroke="var(--color-svv-line)" strokeWidth={1.5} strokeDasharray="4 3" />}
+            {schema.polygones.map((p, i) => { const m = meta[i]; if (!m) return null;
+              const id = m.idu; const dans = id ? composition.has(id) : false; const s = styleParcelle(m, dans);
+              return (
+                <path key={p.repere} d={p.path} fill={s.fill} fillOpacity={s.fillOpacity} stroke={s.stroke} strokeWidth={s.width} strokeDasharray={s.dash}
+                  role="button" aria-pressed={dans} aria-label={`${texteParcelle(m)} — ${dans ? 'sélectionnée' : 'non sélectionnée'}`}
+                  tabIndex={focusable(m) ? 0 : -1} style={{ cursor: 'pointer' }}
+                  onClick={() => basculer(id)} onFocus={() => id && setSurvol(null)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); basculer(id); } }}
+                  onMouseMove={(e) => setSurvol({ x: e.clientX, y: e.clientY, texte: texteParcelle(m) })} onMouseLeave={() => setSurvol(null)} />
+              );
+            })}
+            {schema.polygones.map((p, i) => meta[i] && meta[i].retenue ? (
+              <text key={`t-${p.repere}`} x={p.cx} y={p.cy} textAnchor="middle" dominantBaseline="central" style={{ fontSize: 9, fontWeight: 700, fill: 'var(--color-svv-ink)', paintOrder: 'stroke', stroke: 'var(--color-svv-surface)', strokeWidth: 2.5, pointerEvents: 'none' }}>{meta[i].section} {meta[i].numero}</text>
+            ) : null)}
+            {data.marqueurAdresse && (
+              <g pointerEvents="none">
+                <circle cx={data.marqueurAdresse.cx} cy={data.marqueurAdresse.cy} r={4.5} fill="none" stroke="var(--color-svv-red)" strokeWidth={1.6} />
+                <line x1={data.marqueurAdresse.cx - 7} y1={data.marqueurAdresse.cy} x2={data.marqueurAdresse.cx + 7} y2={data.marqueurAdresse.cy} stroke="var(--color-svv-red)" strokeWidth={1.2} />
+                <line x1={data.marqueurAdresse.cx} y1={data.marqueurAdresse.cy - 7} x2={data.marqueurAdresse.cx} y2={data.marqueurAdresse.cy + 7} stroke="var(--color-svv-red)" strokeWidth={1.2} />
+              </g>
+            )}
+          </svg>
+        </div>
+
+        {/* PL-G — parcelle(s) du permis hors de cette vue (au-delà du rayon) : elle(s) existe(nt), ailleurs — jamais « disparues ». Ton neutre. */}
+        {data.retenuesHorsVue > 0 && (
+          <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>
+            ℹ {data.retenuesHorsVue} parcelle{data.retenuesHorsVue > 1 ? 's' : ''} du permis se situe{data.retenuesHorsVue > 1 ? 'nt' : ''} hors de cette vue (au-delà du rayon) — élargissez le rayon ou centrez sur les parcelles du permis pour la{data.retenuesHorsVue > 1 ? 's' : ''} voir.
+          </div>
+        )}
+      </>
+    )
+  );
+
+  // Bandeau de VALIDATION/état : PL-C (état courant + composition + actions), survol, localisation, légende, comparatif « déclaré ↔ sélectionné ».
+  //   En vue intégrée : sous le schéma. En plein écran : dans la COLONNE DE DROITE, À CÔTÉ du schéma (parité « Bâtiments et projection » : les
+  //   options/sélection vivent en colonne latérale, pas en empilement vertical qui déborde sous le dessin). Rien si rien à dessiner.
+  const sectionValidation = !(data.motif || rienADessiner) ? (
+    <>
+      {/* ── PL-C : ÉTAT COURANT + COMPOSITION + ACTIONS ─────────────────────────────────────────────────────────────── */}
+      <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+        {/* État courant : DIT clairement automatique vs validé par QUI et QUAND (provenance honnête). */}
+        <div aria-live="polite" style={{ fontSize: 12 }}>
+          {data.selection.active
+            ? <><strong style={{ color: 'var(--color-svv-green-ink)' }}>Sélection validée</strong> {provenanceSel.aLaMain ? <>par <strong>{provenanceSel.qui}</strong></> : <>par <strong>{provenanceSel.qui}</strong> <span style={{ fontStyle: 'italic', color: 'var(--color-svv-muted)' }}>(auteur non identifié)</span></>}{provenanceSel.quand ? <> le {provenanceSel.quand}</> : null}<span style={{ color: 'var(--color-svv-muted)' }}> — {data.selection.idus.length} parcelle(s).</span></>
+            : <span style={{ color: 'var(--color-svv-muted)' }}><strong style={{ color: 'var(--color-svv-ink)' }}>Configuration automatique</strong> (préparée par l’analyse). Le passage par la planche n’est pas obligatoire.</span>}
+        </div>
+        <div style={{ fontSize: 12 }}><strong>{composition.size}</strong> parcelle(s) dans la composition{changementEnAttente ? <span style={{ color: 'var(--color-svv-red)' }}> (modifiée — non validée)</span> : null}</div>
+
+        {/* PL-ÉTAT (rule 1) — le LIBELLÉ dit ce que le clic fait, selon l'état RÉEL : un changement en attente → « Valider la sélection »
+            (applique la composition) ; sinon la sélection est ACQUISE (validée, ou automatique par défaut) → « Modifier la sélection »,
+            inactif car il n'y a rien à appliquer — on modifie en cliquant une parcelle sur le schéma (aucun mode ni écriture silencieuse). */}
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          {changementEnAttente
+            ? <button type="button" className="svv-btn svv-btn-primary" style={btnAction} disabled={enCours || composition.size === 0}
+                onClick={() => void poster('valider', [...composition])}>Valider la sélection</button>
+            : <button type="button" className="svv-btn svv-btn-primary" style={btnAction} disabled title="La sélection est acquise : cliquez une parcelle sur le schéma pour la modifier.">Modifier la sélection</button>}
+          {compositionModifiee && <button type="button" style={{ ...btnAction, background: 'var(--color-svv-field)' }} disabled={enCours} onClick={reinitialiser}>Réinitialiser à la sélection par défaut</button>}
+          {data.selection.active && <button type="button" style={{ ...btnAction, background: 'var(--color-svv-field)' }} disabled={enCours} onClick={() => void poster('retirer')}>Revenir à la configuration d’origine</button>}
+        </div>
+        {!changementEnAttente && <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Sélection acquise — cliquez une parcelle sur le schéma pour la modifier.</div>}
+
+        {/* Geste DÉLIBÉRÉ : on DIT ce qui va se recalculer (jamais un clic anodin). */}
+        <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>⚠ « Valider » recalcule l’empreinte, la photo du bâti et la projection de ce permis. Réversible : « Revenir à la configuration d’origine » restaure l’état automatique à l’identique.</div>
+        {composition.size === 0 && <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-red)' }}>Sélectionnez au moins une parcelle : une empreinte vide n’est pas validable.</div>}
+        {msg && <div role="status" style={{ fontSize: 12, color: msg.startsWith('Session') || msg.includes('impossible') ? 'var(--color-svv-red)' : 'var(--color-svv-green-ink)' }}>{msg}</div>}
+      </div>
+
+      {/* Identité de la parcelle survolée (le survol seul, instantané ci-dessous, + une ligne stable au doigt). */}
+      <div aria-live="polite" style={{ fontSize: 12, minHeight: '1.2em', color: 'var(--color-svv-muted)' }}>{survol ? survol.texte : 'Survolez ou touchez une parcelle pour l’identifier ; cliquez pour la (dé)sélectionner.'}</div>
+
+      {/* OÙ L'ON EST */}
+      <div style={{ fontSize: 12, color: 'var(--color-svv-ink)', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.35rem' }}>
+        <span aria-hidden>📍 </span><strong>{data.localisation.feuilleLibelle}</strong>
+        {data.localisation.communeNom === null && data.localisation.communeCode ? <span style={{ color: 'var(--color-svv-red)' }}> — commune {data.localisation.communeCode} non résolue en base</span> : null}
+        <span style={{ display: 'block', fontSize: 11, color: 'var(--color-svv-muted)' }}>{data.localisation.feuilleNote}</span>
+      </div>
+
+      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexWrap: 'wrap', gap: '.15rem .8rem', fontSize: 11, color: 'var(--color-svv-muted)' }}>
+        {LEGENDE.map((l) => (
+          <li key={l.cle} style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
+            <span aria-hidden style={{ width: 10, height: 10, borderRadius: 2, background: l.cle === 'retiree' ? 'transparent' : l.couleur, opacity: l.cle === 'voisine' ? 0.4 : 0.6, border: `1px ${l.cle === 'retiree' ? 'dashed' : 'solid'} ${l.couleur}`, flexShrink: 0 }} />
+            {l.texte}
+          </li>
+        ))}
+      </ul>
+      <p style={{ margin: 0, fontSize: 11, color: 'var(--color-svv-muted)' }}>{data.nbRetenues} parcelle(s) du permis · {data.nbVoisines} voisine(s). Repère seulement — aucune mesure.</p>
+
+      {/* PL-COMPARATIF — CONSTAT déclaré ↔ sélectionné, SOUS la légende. Lecture seule : n'ajoute/retire/coche/corrige/enregistre
+          RIEN, ne touche pas « Valider la sélection ». Jetons EXISTANTS uniquement (vert -green-ink / rouge -red / neutre -muted). */}
+      <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' }}>Déclaré au permis ↔ sélectionné sur le schéma</div>
+        {!comparatifRendu.comparable ? (
+          <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>{comparatifRendu.motif}</div>
+        ) : (() => {
+          // PHRASE DE BILAN (4 cas) + DÉTAIL GROUPÉ PAR NATURE de l'écart, tous DÉRIVÉS des statuts déjà classés (jamais recalculés).
+          //   Chaque groupe n'est rendu QUE s'il contient ≥ 1 référence → on sait immédiatement de quel côté est chaque référence.
+          const bilan = bilanComparatif(comparatifRendu);
+          const parStatut = (s: LigneParcelleComparee['statut']) => comparatifRendu.lignes.filter((l) => l.statut === s);
+          const communes = parStatut('commune'), manquantes = parStatut('declaree_non_selectionnee'), enTrop = parStatut('selectionnee_non_declaree'), aVerifier = parStatut('a_verifier');
+          const groupe = (titre: string, lignes: LigneParcelleComparee[], couleur: string, marque: string) => lignes.length === 0 ? null : (
+            <div key={titre}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: couleur }}>{titre}</div>
+              <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.1rem' }}>
+                {lignes.map((l) => <li key={l.cle} style={{ fontSize: 11.5, color: couleur }}><span aria-hidden>{marque} </span>{l.libelle}</li>)}
+              </ul>
+            </div>
+          );
+          return (
+            <>
+              {/* PHRASE DE BILAN : nomme la situation (correspondance / il manque / en trop / les deux). L'info est portée par le TEXTE. */}
+              <div role="status" style={{ fontSize: 12, fontWeight: 700, color: bilan.ton === 'vert' ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)' }}>
+                <span aria-hidden>{bilan.ton === 'vert' ? '✓ ' : '✗ '}</span>{bilan.phrase}
+              </div>
+              {/* DÉTAIL groupé : présentes des deux côtés (vert) ; déclarées non sélectionnées (rouge) ; sélectionnées non déclarées (rouge). */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+                {groupe('Présentes des deux côtés', communes, 'var(--color-svv-green-ink)', '✓')}
+                {groupe('Déclarées au permis mais non sélectionnées', manquantes, 'var(--color-svv-red)', '✗')}
+                {groupe('Sélectionnées mais non déclarées au permis', enTrop, 'var(--color-svv-red)', '✗')}
+                {groupe('À vérifier — référence incomplète', aVerifier, 'var(--color-svv-muted)', '?')}
+              </div>
+              <div style={{ fontSize: 10.5, color: 'var(--color-svv-muted)' }}>Constat seulement (références rapprochées à l’écriture près). N’ajoute, ne coche ni ne corrige rien.</div>
+            </>
+          );
+        })()}
+      </div>
+    </>
+  ) : null;
+
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>Planche cadastrale <span style={{ fontSize: 12, color: 'var(--color-svv-muted)', fontWeight: 400 }}>(cliquez une parcelle pour la sélectionner ; validez pour l’appliquer)</span></div>
@@ -226,216 +444,40 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
             l'aperçu démarre au MÊME Y que le schéma. C'est déjà une carte (svv-card) → parité de padding avec la colonne de droite. */}
         <LiseusePieces dossierId={dossierId} donneesPrechargees={donneesLiseuse} titreEnEntete />
 
-        <div className={schemaPleinEcran ? undefined : 'svv-card'}
-          role={schemaPleinEcran ? 'dialog' : undefined} aria-modal={schemaPleinEcran || undefined} aria-label={schemaPleinEcran ? 'Planche cadastrale agrandie — sélection des parcelles' : undefined}
-          style={schemaPleinEcran
-            ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', overflow: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '.5rem' } // ② plein écran (même brique que l'agrandi de la liseuse)
-            : { display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
-          {/* CENTRAGE — barre d'outils EN TÊTE de la carte (parité avec la barre de zoom de la liseuse à gauche) ; le schéma démarre juste dessous. */}
-          <div role="group" aria-label="Centrage de la planche" style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Centrer :</span>
-            <button type="button" style={btn(mode === 'empreinte')} aria-pressed={mode === 'empreinte'} onClick={() => changerMode('empreinte')}>Toutes les parcelles</button>
-            <button type="button" style={btn(mode === 'parcelle')} aria-pressed={mode === 'parcelle'} onClick={() => changerMode('parcelle')}
-              disabled={data.parcellesChoix.length <= 1} title={data.parcellesChoix.length <= 1 ? 'ce permis n’a qu’une parcelle : identique à « Toutes les parcelles »' : undefined}>Centrer sur une parcelle</button>
-            <button type="button" style={btn(mode === 'adresse')} aria-pressed={mode === 'adresse'} onClick={() => changerMode('adresse')}>Centrer sur l’adresse</button>
-            {mode === 'parcelle' && data.parcellesChoix.length > 0 && (
-              <select aria-label="Parcelle de centrage" value={idu ?? ''} onChange={(e) => setIdu(e.target.value || null)} style={{ fontSize: 12, padding: '.15rem .3rem', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' }}>
-                {data.parcellesChoix.map((p) => <option key={p.idu} value={p.idu}>Section {p.section} n° {p.numero}</option>)}
-              </select>
-            )}
-            {/* ② — « Agrandir le schéma » / « ✕ Fermer » : MÊME libellé et MÊME emplacement (au-dessus du schéma) que « Bâtiments et projection ».
-                Poussé à droite de la barre. Cible tactile ≥ 44 px. */}
-            {schemaPleinEcran
-              ? <button type="button" style={{ ...btn(false), minHeight: 44, marginLeft: 'auto' }} onClick={() => setSchemaPleinEcran(false)} aria-label="Fermer l’agrandissement du schéma">✕ Fermer</button>
-              : <button type="button" style={{ ...btn(false), minHeight: 44, marginLeft: 'auto' }} onClick={() => setSchemaPleinEcran(true)} aria-label="Agrandir le schéma en plein écran">⤢ Agrandir le schéma</button>}
+        {/* Colonne SCHÉMA — vue INTÉGRÉE. Masquée quand le plein écran est ouvert : son contenu vit alors dans le MODAL (même état de
+            composant, source de vérité UNIQUE → aucun id/contrôle en double). Contrôles TOUJOURS au-dessus du schéma (régression d1ef439). */}
+        {!schemaPleinEcran && (
+          <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+            {barreCentrage(true)}
+            {blocControles}
+            {schemaDessin(false)}
+            {sectionValidation}
           </div>
-          {/* RÉGRESSION CORRIGÉE — centrage (adresse) + voisinage (rayon) REMIS AU-DESSUS du schéma (leur place d'avant f30e208), juste sous la barre
-              « Centrer : » où on les déclenche. L'alignement les avait descendus SOUS le schéma : sur un schéma haut (et en iPhone portrait) ils
-              partaient hors de vue → cliquer « Centrer sur l'adresse » ne montrait « rien ». HORS du conditionnel de dessin (toujours visibles) : ce
-              sont le recours pour localiser une adresse MÊME quand rien ne se dessine (impasse du 468). */}
-          {/* PL-D/E — SAISIE d'adresse avec AUTOCOMPLÉTION (api-adresse) : suggestions à la frappe (≥3 car., biais commune) ; choisir =
-              géocoder sans 2e appel ; texte libre à défaut. Recours quand le géocodage auto échoue (impasse du 468). */}
-          {mode === 'adresse' && (
-            <div style={{ display: 'flex', gap: '.3rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-              <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0 }}>
-                <input aria-label="Adresse à localiser" role="combobox" aria-expanded={!!(suggestions && suggestions.length)} aria-autocomplete="list" aria-controls={`sug-${dossierId}`}
-                  placeholder={data.centre.label ?? 'taper une adresse (ex. « inspecteur »…)'}
-                  value={adresseSaisie} onChange={(e) => { const v = e.target.value; setAdresseSaisie(v); if (adresseCommittee) setAdresseCommittee(null); if (v.trim().length < 3) { setSuggestions(null); setSugActive(-1); } }} onKeyDown={clavierAdresse}
-                  style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, padding: '.25rem .4rem', minHeight: 34, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' }} />
-                {suggestions && suggestions.length > 0 && (
-                  <ul id={`sug-${dossierId}`} role="listbox" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, listStyle: 'none', margin: '.1rem 0 0', padding: 0, background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', boxShadow: '0 2px 6px rgba(0,0,0,.15)', maxHeight: 210, overflowY: 'auto' }}>
-                    {suggestions.map((s, i) => (
-                      <li key={s.label} role="option" aria-selected={i === sugActive} onMouseEnter={() => setSugActive(i)}
-                        onMouseDown={(e) => { e.preventDefault(); choisirSuggestion(s); }} // mouseDown : choisit AVANT un éventuel blur
-                        style={{ padding: '.35rem .45rem', fontSize: 12, cursor: 'pointer', minHeight: 34, background: i === sugActive ? 'var(--color-svv-field)' : 'transparent', borderTop: i > 0 ? '1px solid var(--color-svv-line)' : undefined }}>{s.label}</li>
-                    ))}
-                  </ul>
-                )}
-                {suggestions && suggestions.length === 0 && adresseSaisie.trim().length >= 3 && (
-                  <div role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)', marginTop: '.15rem' }}>aucune suggestion — appuyez sur « Localiser » pour chercher tel quel</div>
-                )}
-              </div>
-              <button type="button" style={{ ...btn(false), minHeight: 34 }} onClick={localiserTexte}>Localiser</button>
-              {adresseCommittee && <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', fontSize: 11.5, alignSelf: 'center' }} onClick={revenirAdressePermis}>revenir à l’adresse du permis</button>}
-            </div>
-          )}
-          {/* Point d'adresse localisé : provenance EXPLICITE (base locale vs API nationale — donnée externe, jamais « à la main »). */}
-          {mode === 'adresse' && data.centre.point && (
-            <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>✚ {data.centre.label ?? 'adresse localisée'} — {data.centre.provenance === 'api-adresse' ? 'API nationale (Base Adresse Nationale, Licence Ouverte)' : 'base locale'}</div>
-          )}
-          {/* Avertissement : rouge (échec, aucun point) ou info (point trouvé mais approximatif / attribution API). */}
-          {data.centreAvertissement && <div role="note" style={{ fontSize: 11.5, color: data.centre.point ? 'var(--color-svv-muted)' : 'var(--color-svv-red)' }}>{data.centre.point ? 'ℹ ' : '⚠ '}{data.centreAvertissement}</div>}
-
-          {/* RAYON */}
-          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <label htmlFor={`rayon-${dossierId}`} style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Voisines à</label>
-            <input id={`rayon-${dossierId}`} type="range" min={RAYON_MIN} max={RAYON_MAX} step={RAYON_PAS} value={rayon} onChange={(e) => setRayon(Number(e.target.value))} style={{ flex: '1 1 120px', maxWidth: 200 }} />
-            <strong style={{ fontSize: 12 }}>{data.rayonM} m</strong>
-            <span style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>· {data.nbVoisines} voisine(s)</span>
-          </div>
-          {data.nbRetenues + data.nbVoisines > SEUIL_DENSE && <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>Planche dense ({data.nbRetenues + data.nbVoisines} parcelles) — rapprochez le rayon pour lire les repères.</div>}
-
-          {data.motif || rienADessiner ? (
-            <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{messageVide}</div>
-          ) : (
-            <>
-              {aucuneParcellePermis && (
-                <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', padding: '.35rem .55rem', background: 'var(--color-svv-field)' }}>
-                  Aucune parcelle du permis n’est dessinable — sélectionnez les bonnes parcelles ci-dessous pour établir l’empreinte.
-                </div>
-              )}
-              <div style={{ width: '100%', overflowX: 'auto' }}>
-                <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} role="img"
-                  aria-label={`Planche cadastrale : ${composition.size} parcelle(s) sélectionnée(s) sur ${data.nbRetenues} du permis, ${data.nbVoisines} voisine(s)`}
-                  style={{ width: '100%', maxWidth: schemaPleinEcran ? 900 : 520, height: 'auto', display: 'block', background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }}>
-                  {schema.empreintePath && <path d={schema.empreintePath} fill="none" stroke="var(--color-svv-line)" strokeWidth={1.5} strokeDasharray="4 3" />}
-                  {schema.polygones.map((p, i) => { const m = meta[i]; if (!m) return null;
-                    const id = m.idu; const dans = id ? composition.has(id) : false; const s = styleParcelle(m, dans);
-                    return (
-                      <path key={p.repere} d={p.path} fill={s.fill} fillOpacity={s.fillOpacity} stroke={s.stroke} strokeWidth={s.width} strokeDasharray={s.dash}
-                        role="button" aria-pressed={dans} aria-label={`${texteParcelle(m)} — ${dans ? 'sélectionnée' : 'non sélectionnée'}`}
-                        tabIndex={focusable(m) ? 0 : -1} style={{ cursor: 'pointer' }}
-                        onClick={() => basculer(id)} onFocus={() => id && setSurvol(null)}
-                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); basculer(id); } }}
-                        onMouseMove={(e) => setSurvol({ x: e.clientX, y: e.clientY, texte: texteParcelle(m) })} onMouseLeave={() => setSurvol(null)} />
-                    );
-                  })}
-                  {schema.polygones.map((p, i) => meta[i] && meta[i].retenue ? (
-                    <text key={`t-${p.repere}`} x={p.cx} y={p.cy} textAnchor="middle" dominantBaseline="central" style={{ fontSize: 9, fontWeight: 700, fill: 'var(--color-svv-ink)', paintOrder: 'stroke', stroke: 'var(--color-svv-surface)', strokeWidth: 2.5, pointerEvents: 'none' }}>{meta[i].section} {meta[i].numero}</text>
-                  ) : null)}
-                  {data.marqueurAdresse && (
-                    <g pointerEvents="none">
-                      <circle cx={data.marqueurAdresse.cx} cy={data.marqueurAdresse.cy} r={4.5} fill="none" stroke="var(--color-svv-red)" strokeWidth={1.6} />
-                      <line x1={data.marqueurAdresse.cx - 7} y1={data.marqueurAdresse.cy} x2={data.marqueurAdresse.cx + 7} y2={data.marqueurAdresse.cy} stroke="var(--color-svv-red)" strokeWidth={1.2} />
-                      <line x1={data.marqueurAdresse.cx} y1={data.marqueurAdresse.cy - 7} x2={data.marqueurAdresse.cx} y2={data.marqueurAdresse.cy + 7} stroke="var(--color-svv-red)" strokeWidth={1.2} />
-                    </g>
-                  )}
-                </svg>
-              </div>
-
-              {/* PL-G — parcelle(s) du permis hors de cette vue (au-delà du rayon) : elle(s) existe(nt), ailleurs — jamais « disparues ». Ton neutre. */}
-              {data.retenuesHorsVue > 0 && (
-                <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>
-                  ℹ {data.retenuesHorsVue} parcelle{data.retenuesHorsVue > 1 ? 's' : ''} du permis se situe{data.retenuesHorsVue > 1 ? 'nt' : ''} hors de cette vue (au-delà du rayon) — élargissez le rayon ou centrez sur les parcelles du permis pour la{data.retenuesHorsVue > 1 ? 's' : ''} voir.
-                </div>
-              )}
-            </>
-          )}
-
-          {/* Section validation/état — sous le schéma. Rien si rien à dessiner. */}
-          {!(data.motif || rienADessiner) && (
-            <>
-              {/* ── PL-C : ÉTAT COURANT + COMPOSITION + ACTIONS ─────────────────────────────────────────────────────────────── */}
-              <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
-                {/* État courant : DIT clairement automatique vs validé par QUI et QUAND (provenance honnête). */}
-                <div aria-live="polite" style={{ fontSize: 12 }}>
-                  {data.selection.active
-                    ? <><strong style={{ color: 'var(--color-svv-green-ink)' }}>Sélection validée</strong> {provenanceSel.aLaMain ? <>par <strong>{provenanceSel.qui}</strong></> : <>par <strong>{provenanceSel.qui}</strong> <span style={{ fontStyle: 'italic', color: 'var(--color-svv-muted)' }}>(auteur non identifié)</span></>}{provenanceSel.quand ? <> le {provenanceSel.quand}</> : null}<span style={{ color: 'var(--color-svv-muted)' }}> — {data.selection.idus.length} parcelle(s).</span></>
-                    : <span style={{ color: 'var(--color-svv-muted)' }}><strong style={{ color: 'var(--color-svv-ink)' }}>Configuration automatique</strong> (préparée par l’analyse). Le passage par la planche n’est pas obligatoire.</span>}
-                </div>
-                <div style={{ fontSize: 12 }}><strong>{composition.size}</strong> parcelle(s) dans la composition{changementEnAttente ? <span style={{ color: 'var(--color-svv-red)' }}> (modifiée — non validée)</span> : null}</div>
-
-                {/* PL-ÉTAT (rule 1) — le LIBELLÉ dit ce que le clic fait, selon l'état RÉEL : un changement en attente → « Valider la sélection »
-                    (applique la composition) ; sinon la sélection est ACQUISE (validée, ou automatique par défaut) → « Modifier la sélection »,
-                    inactif car il n'y a rien à appliquer — on modifie en cliquant une parcelle sur le schéma (aucun mode ni écriture silencieuse). */}
-                <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-                  {changementEnAttente
-                    ? <button type="button" className="svv-btn svv-btn-primary" style={btnAction} disabled={enCours || composition.size === 0}
-                        onClick={() => void poster('valider', [...composition])}>Valider la sélection</button>
-                    : <button type="button" className="svv-btn svv-btn-primary" style={btnAction} disabled title="La sélection est acquise : cliquez une parcelle sur le schéma pour la modifier.">Modifier la sélection</button>}
-                  {compositionModifiee && <button type="button" style={{ ...btnAction, background: 'var(--color-svv-field)' }} disabled={enCours} onClick={reinitialiser}>Réinitialiser à la sélection par défaut</button>}
-                  {data.selection.active && <button type="button" style={{ ...btnAction, background: 'var(--color-svv-field)' }} disabled={enCours} onClick={() => void poster('retirer')}>Revenir à la configuration d’origine</button>}
-                </div>
-                {!changementEnAttente && <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Sélection acquise — cliquez une parcelle sur le schéma pour la modifier.</div>}
-
-                {/* Geste DÉLIBÉRÉ : on DIT ce qui va se recalculer (jamais un clic anodin). */}
-                <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>⚠ « Valider » recalcule l’empreinte, la photo du bâti et la projection de ce permis. Réversible : « Revenir à la configuration d’origine » restaure l’état automatique à l’identique.</div>
-                {composition.size === 0 && <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-red)' }}>Sélectionnez au moins une parcelle : une empreinte vide n’est pas validable.</div>}
-                {msg && <div role="status" style={{ fontSize: 12, color: msg.startsWith('Session') || msg.includes('impossible') ? 'var(--color-svv-red)' : 'var(--color-svv-green-ink)' }}>{msg}</div>}
-              </div>
-
-              {/* Identité de la parcelle survolée (le survol seul, instantané ci-dessous, + une ligne stable au doigt). */}
-              <div aria-live="polite" style={{ fontSize: 12, minHeight: '1.2em', color: 'var(--color-svv-muted)' }}>{survol ? survol.texte : 'Survolez ou touchez une parcelle pour l’identifier ; cliquez pour la (dé)sélectionner.'}</div>
-
-              {/* OÙ L'ON EST */}
-              <div style={{ fontSize: 12, color: 'var(--color-svv-ink)', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.35rem' }}>
-                <span aria-hidden>📍 </span><strong>{data.localisation.feuilleLibelle}</strong>
-                {data.localisation.communeNom === null && data.localisation.communeCode ? <span style={{ color: 'var(--color-svv-red)' }}> — commune {data.localisation.communeCode} non résolue en base</span> : null}
-                <span style={{ display: 'block', fontSize: 11, color: 'var(--color-svv-muted)' }}>{data.localisation.feuilleNote}</span>
-              </div>
-
-              <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexWrap: 'wrap', gap: '.15rem .8rem', fontSize: 11, color: 'var(--color-svv-muted)' }}>
-                {LEGENDE.map((l) => (
-                  <li key={l.cle} style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
-                    <span aria-hidden style={{ width: 10, height: 10, borderRadius: 2, background: l.cle === 'retiree' ? 'transparent' : l.couleur, opacity: l.cle === 'voisine' ? 0.4 : 0.6, border: `1px ${l.cle === 'retiree' ? 'dashed' : 'solid'} ${l.couleur}`, flexShrink: 0 }} />
-                    {l.texte}
-                  </li>
-                ))}
-              </ul>
-              <p style={{ margin: 0, fontSize: 11, color: 'var(--color-svv-muted)' }}>{data.nbRetenues} parcelle(s) du permis · {data.nbVoisines} voisine(s). Repère seulement — aucune mesure.</p>
-
-              {/* PL-COMPARATIF — CONSTAT déclaré ↔ sélectionné, SOUS la légende. Lecture seule : n'ajoute/retire/coche/corrige/enregistre
-                  RIEN, ne touche pas « Valider la sélection ». Jetons EXISTANTS uniquement (vert -green-ink / rouge -red / neutre -muted). */}
-              <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' }}>Déclaré au permis ↔ sélectionné sur le schéma</div>
-                {!comparatifRendu.comparable ? (
-                  <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>{comparatifRendu.motif}</div>
-                ) : (() => {
-                  // PHRASE DE BILAN (4 cas) + DÉTAIL GROUPÉ PAR NATURE de l'écart, tous DÉRIVÉS des statuts déjà classés (jamais recalculés).
-                  //   Chaque groupe n'est rendu QUE s'il contient ≥ 1 référence → on sait immédiatement de quel côté est chaque référence.
-                  const bilan = bilanComparatif(comparatifRendu);
-                  const parStatut = (s: LigneParcelleComparee['statut']) => comparatifRendu.lignes.filter((l) => l.statut === s);
-                  const communes = parStatut('commune'), manquantes = parStatut('declaree_non_selectionnee'), enTrop = parStatut('selectionnee_non_declaree'), aVerifier = parStatut('a_verifier');
-                  const groupe = (titre: string, lignes: LigneParcelleComparee[], couleur: string, marque: string) => lignes.length === 0 ? null : (
-                    <div key={titre}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: couleur }}>{titre}</div>
-                      <ul style={{ margin: 0, padding: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '.1rem' }}>
-                        {lignes.map((l) => <li key={l.cle} style={{ fontSize: 11.5, color: couleur }}><span aria-hidden>{marque} </span>{l.libelle}</li>)}
-                      </ul>
-                    </div>
-                  );
-                  return (
-                    <>
-                      {/* PHRASE DE BILAN : nomme la situation (correspondance / il manque / en trop / les deux). L'info est portée par le TEXTE. */}
-                      <div role="status" style={{ fontSize: 12, fontWeight: 700, color: bilan.ton === 'vert' ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)' }}>
-                        <span aria-hidden>{bilan.ton === 'vert' ? '✓ ' : '✗ '}</span>{bilan.phrase}
-                      </div>
-                      {/* DÉTAIL groupé : présentes des deux côtés (vert) ; déclarées non sélectionnées (rouge) ; sélectionnées non déclarées (rouge). */}
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
-                        {groupe('Présentes des deux côtés', communes, 'var(--color-svv-green-ink)', '✓')}
-                        {groupe('Déclarées au permis mais non sélectionnées', manquantes, 'var(--color-svv-red)', '✗')}
-                        {groupe('Sélectionnées mais non déclarées au permis', enTrop, 'var(--color-svv-red)', '✗')}
-                        {groupe('À vérifier — référence incomplète', aVerifier, 'var(--color-svv-muted)', '?')}
-                      </div>
-                      <div style={{ fontSize: 10.5, color: 'var(--color-svv-muted)' }}>Constat seulement (références rapprochées à l’écriture près). N’ajoute, ne coche ni ne corrige rien.</div>
-                    </>
-                  );
-                })()}
-              </div>
-            </>
-          )}
-        </div>
+        )}
       </div>
+
+      {/* PLEIN ÉCRAN — MODAL calqué sur « Agrandir le schéma » de « Bâtiments et projection » (BlocTraceEmprise:1853) : backdrop + carte
+          centrée (svv-card, 95vw × 95vh), en-tête « titre + ✕ Fermer », contrôles pleine largeur, puis DEUX ZONES [schéma | validation] —
+          pas un empilement vertical qui déborde sous le schéma. Fermeture : clic hors zone, ✕, ou Échap. SÉLECTION PARTAGÉE (même état). */}
+      {schemaPleinEcran && (
+        <div role="dialog" aria-modal="true" aria-label="Planche cadastrale agrandie — sélection des parcelles" onClick={() => setSchemaPleinEcran(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
+          <div onClick={(e) => e.stopPropagation()} className="svv-card" style={{ maxWidth: '95vw', maxHeight: '95vh', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <strong style={{ fontSize: 13 }}>Planche cadastrale</strong>
+              <button type="button" style={{ ...btn(false), minHeight: 44 }} onClick={() => setSchemaPleinEcran(false)} aria-label="Fermer l’agrandissement du schéma">✕ Fermer</button>
+            </div>
+            {barreCentrage(false)}
+            {blocControles}
+            {/* DEUX ZONES : schéma à gauche (prend l'espace), validation/comparatif/légende en colonne latérale à droite — comme la
+                référence range ses options en colonne à côté du dessin. En portrait, la colonne latérale passe SOUS le schéma (flexWrap). */}
+            <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+              <div style={{ flex: '1 1 420px', minWidth: 0 }}>{schemaDessin(true)}</div>
+              {sectionValidation && <div style={{ flex: '1 1 260px', minWidth: 240, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>{sectionValidation}</div>}
+            </div>
+          </div>
+        </div>
+      )}
       {survol && (
         <div role="status" aria-hidden style={{ position: 'fixed', left: survol.x + 12, top: survol.y + 12, zIndex: 50, pointerEvents: 'none', background: 'var(--color-svv-ink)', color: 'var(--color-svv-surface)', fontSize: 11, padding: '.15rem .4rem', borderRadius: '.3rem', whiteSpace: 'nowrap', boxShadow: '0 1px 4px rgba(0,0,0,.3)' }}>{survol.texte}</div>
       )}
