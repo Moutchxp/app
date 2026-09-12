@@ -39,15 +39,18 @@ describe('PROJ-2c — rendu de la file Projection', () => {
     expect(colgroup(enTest)).toBe(cg);
   });
 
-  it('TableProjection : ligne ouverte rend le détail (renderDetail) ET réaffiche les 4 infos du permis en tête (commune, nature, bâtiments, pièces reçues)', () => {
+  it('TableProjection : ligne ouverte = mêmes colonnes qu’une ligne fermée (valeurs, SANS étiquette) + le détail dans une 2e ligne', () => {
     const html = renderToStaticMarkup(h(TableProjection, { file: [ligne()], ouvert: 11434, onOuvrir: () => {}, renderDetail: () => h('span', {}, 'DÉTAIL-ICI') }));
     expect(html).toContain('DÉTAIL-ICI');
     expect(html).toContain('aria-expanded="true"');
-    // ① — dépliée, la ligne conserve le contexte du dossier : mêmes valeurs, mêmes libellés que les colonnes de la ligne fermée.
-    expect(html).toContain('Commune :'); expect(html).toContain('Paris 15e');
-    expect(html).toContain('Nature :'); expect(html).toContain('Construction neuve');
-    expect(html).toContain('Bâtiments :');
-    expect(html).toContain('Pièces reçues :'); expect(html).toContain('2026-07-01');
+    // ① — dépliée, la ligne se lit comme une ligne fermée : les 4 valeurs sont là, aux mêmes positions, JAMAIS d'étiquette répétée.
+    expect(html).toContain('Paris 15e');
+    expect(html).toContain('Construction neuve');
+    expect(html).toContain('2026-07-01');
+    expect(html).not.toContain('Commune :');
+    expect(html).not.toContain('Pièces reçues :'); // pas d'étiquette dans la ligne (l'en-tête « Pièces reçues » du <thead> n'a pas de « : »)
+    // le détail est dans une 2e ligne (colSpan) SOUS la ligne de colonnes, pas dans la cellule du numéro.
+    expect(html).toContain('colSpan="5"');
   });
 
   // COMPLÉMENT (07/09/2026) — le composant global `BoutonValiderProjection` a été SUPPRIMÉ (vestige d'un 2e chemin de validation).

@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
 import type { EtatTitreFamille } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état porté par la ligne de titre d'une famille
 import type { CasBilanComparatif } from '../../../../lib/permis/comparatifParcelles'; // PL-ÉTAT — cas du bilan déclaré ↔ sélectionné (état SAUVEGARDÉ de la planche)
@@ -46,8 +47,6 @@ const cell: CSSProperties = { padding: '.35rem .5rem', borderBottom: '1px solid 
 const muted: CSSProperties = { color: 'var(--color-svv-muted)', fontSize: 12 };
 // LOT 55 — en-tête de colonne : jamais de retour à la ligne (surtout « Test permis « En cours » », le libellé le plus long).
 const enteteCell: CSSProperties = { ...cell, ...muted, fontWeight: 700, whiteSpace: 'nowrap' };
-// ① — valeur (encre) des infos réaffichées sur une ligne dépliée : le libellé reste gris (muted), la valeur passe en encre pour rester lisible.
-const valeurEntete: CSSProperties = { color: 'var(--color-svv-ink)', fontWeight: 600 };
 
 // LOT 55 — largeurs de colonnes DÉTERMINISTES et PARTAGÉES, définies UNE SEULE FOIS. Comme les deux tableaux de l'onglet
 //   « Analyse et projection » (dossiers en test / file ordinaire) sont le MÊME composant, ce colgroup les dote de colonnes
@@ -99,35 +98,31 @@ export function TableProjection({ file, ouvert, onOuvrir, renderDetail, libelleP
             const tousValides = (estOuvert && tousValidesOuvert !== null) ? tousValidesOuvert : estValidationAcquise(l.nbBatiments, l.nbCorpsSansAltValidee, l.nbCorpsSansEmpriseValidee);
             const validable = clotureVisible(modePassage, tousValides, l.projectionValidee ?? false);
             return (
-              <tr key={l.dossierId} style={estOuvert ? { background: 'var(--color-svv-field)' } : undefined}>
-                <td style={cell} colSpan={estOuvert ? 5 : 1}>
-                  {/* COMPLÉMENT — n° VERT (même token que « Projection validée ») quand validable, rouge sinon ; le chevron suit. Le ✓ est un
-                      signal NON coloré (l'info ne repose pas sur la seule couleur, pour la liste fermée où le n° est le seul indice). */}
-                  <button type="button" onClick={() => onOuvrir(l.dossierId)} aria-expanded={estOuvert}
-                    title={validable ? 'Prêt à être envoyé en Rattachement' : undefined}
-                    style={{ cursor: 'pointer', background: 'none', border: 'none', padding: 0, color: validable ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)', fontWeight: 600, fontSize: 13 }}>
-                    {estOuvert ? '▲ ' : '▼ '}{l.numDau}{validable ? ' ✓' : ''}
-                  </button>
-                  {/* ① — DÉPLIÉE, la ligne perd l'alignement en colonnes du tableau : on RÉAFFICHE les 4 mêmes infos (mêmes valeurs, mêmes
-                      libellés que les en-têtes Commune/Nature/Bâtiments/Pièces reçues), en clair, dans le prolongement du numéro. Flex-wrap →
-                      en iPhone portrait elles passent à la ligne sans débordement. Aucun recalcul : ce sont les valeurs de la ligne fermée. */}
-                  {estOuvert && (
-                    <div style={{ marginTop: '.15rem', display: 'flex', flexWrap: 'wrap', gap: '.1rem .8rem', ...muted }}>
-                      <span>Commune : <strong style={valeurEntete}>{l.communeNom ?? '—'}</strong></span>
-                      <span>Nature : <strong style={valeurEntete}>{l.natureLibelle}</strong></span>
-                      <span>Bâtiments : <strong style={valeurEntete}>{l.nbBatiments}</strong></span>
-                      <span>Pièces reçues : <strong style={valeurEntete}>{l.satisfaitLe ?? '—'}</strong></span>
-                    </div>
-                  )}
-                  {estOuvert && <div style={{ marginTop: '.5rem' }}>{renderDetail()}</div>}
-                </td>
-                {!estOuvert && <>
+              // ① — une ligne DÉPLIÉE se lit EXACTEMENT comme une ligne fermée, au triangle près : les 4 mêmes valeurs, aux MÊMES positions
+              //   (colonnes Commune / Nature / Bâtiments / Pièces reçues), SANS étiquette répétée. Le détail vient dans une 2e ligne dessous
+              //   (colSpan). Mobile : comportement IDENTIQUE à la ligne fermée (même table-layout fixe, même repli/troncature).
+              <Fragment key={l.dossierId}>
+                <tr style={estOuvert ? { background: 'var(--color-svv-field)' } : undefined}>
+                  <td style={cell}>
+                    {/* COMPLÉMENT — n° VERT (même token que « Projection validée ») quand validable, rouge sinon ; le chevron suit. Le ✓ est un
+                        signal NON coloré (l'info ne repose pas sur la seule couleur, pour la liste fermée où le n° est le seul indice). */}
+                    <button type="button" onClick={() => onOuvrir(l.dossierId)} aria-expanded={estOuvert}
+                      title={validable ? 'Prêt à être envoyé en Rattachement' : undefined}
+                      style={{ cursor: 'pointer', background: 'none', border: 'none', padding: 0, color: validable ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)', fontWeight: 600, fontSize: 13 }}>
+                      {estOuvert ? '▲ ' : '▼ '}{l.numDau}{validable ? ' ✓' : ''}
+                    </button>
+                  </td>
                   <td style={cell}>{l.communeNom ?? <span style={muted}>—</span>}</td>
                   <td style={cell}>{l.natureLibelle}</td>
                   <td style={cell}>{l.nbBatiments}</td>
                   <td style={cell}>{l.satisfaitLe ?? <span style={muted}>—</span>}</td>
-                </>}
-              </tr>
+                </tr>
+                {estOuvert && (
+                  <tr style={{ background: 'var(--color-svv-field)' }}>
+                    <td style={cell} colSpan={5}>{renderDetail()}</td>
+                  </tr>
+                )}
+              </Fragment>
             );
           })}
         </tbody>
