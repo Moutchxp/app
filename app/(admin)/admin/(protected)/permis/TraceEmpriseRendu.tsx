@@ -2070,7 +2070,7 @@ export function OptionsVisibiliteSchema({ filtres, onFiltres, nbFutur, nbExistan
       <div style={{ fontSize: 12, fontWeight: 700 }}>Options de visibilité</div>
       {ligne('existant', `Afficher le bâti existant du permis (BD TOPO)${nbExistant > 0 ? ` (${nbExistant})` : ''}`)}
       {ligne('futur', `Afficher les polygones en projet (futur bâti)${nbFutur > 0 ? ` (${nbFutur})` : ''}`)}
-      {ligne('reperes', 'Afficher les repères (A, B, C…)')}
+      {ligne('reperes', 'Afficher les repères des bâtiments existants et en projet du permis (A, B, C…)')}
       {ligne('emprises', 'Afficher la projection')}
       {/* PROJ-CTX — contexte : parcelles voisines + leur bâti autour de la parcelle du permis. Allumé par défaut (FILTRES_SCHEMA_DEFAUT). */}
       {ligne('contexte', 'Afficher les parcelles voisines et leur bâti (contexte)')}

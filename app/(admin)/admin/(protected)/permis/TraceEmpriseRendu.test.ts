@@ -626,7 +626,7 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     const html = renderToStaticMarkup(h(OptionsVisibiliteSchema, { filtres: FILTRES_SCHEMA_DEFAUT, onFiltres: () => {}, nbFutur: 4, nbExistant: 12 }));
     expect(html).toContain('Afficher le bâti existant du permis (BD TOPO)');
     expect(html).toContain('Afficher les polygones en projet (futur bâti)');
-    expect(html).toContain('Afficher les repères (A, B, C…)'); // ① repris du Rattachement
+    expect(html).toContain('Afficher les repères des bâtiments existants et en projet du permis (A, B, C…)'); // ① les repères sont posés sur le bâti DU PERMIS — existant ET en projet (attribuerReperes : appartientPermis !== false) —, jamais sur les voisins de contexte
     expect(html).toContain('Afficher la projection');
     expect(html).not.toContain('Signaler le futur bâti');      // ⓪ toggle en doublon supprimé
     expect(html).toContain('(4)');
