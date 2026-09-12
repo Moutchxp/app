@@ -43,7 +43,7 @@ const planche = (): Planche => ({
   rayonM: 50, nbRetenues: 1, nbVoisines: 1, motif: null,
   centre: { mode: 'empreinte', idu: null, point: null, provenance: null, label: null },
   centreAvertissement: null, marqueurAdresse: null,
-  parcellesChoix: [{ idu: 'P1', section: 'AB', numero: '1' }],
+  parcellesChoix: [{ idu: 'P1', section: 'AB', numero: '1' }, { idu: 'P2', section: 'AB', numero: '2' }], // 2 parcelles → le mode « Centrer sur une parcelle » est activable (test des 3 modes)
   localisation: { communeCode: '75119', communeNom: 'Paris 19e', sections: ['AB'], feuilleLibelle: 'Paris 19e — section AB', feuilleNote: '' },
   selection: { active: false, idus: [], validePar: null, valideLe: null, acteurNom: null },
   retenuesHorsVue: 0,
@@ -51,9 +51,14 @@ const planche = (): Planche => ({
 
 let container: HTMLDivElement;
 let root: Root;
+let posts = 0; // compte les POST (valider/retirer) → prouve que le handler du bouton est bien appelé
 
 beforeEach(() => {
-  global.fetch = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ planche: planche() }) } as unknown as Response)) as unknown as typeof fetch;
+  posts = 0;
+  global.fetch = vi.fn(async (_input: unknown, init?: { method?: string }) => {
+    if ((init?.method ?? 'GET') === 'POST') { posts++; return { ok: true, status: 200, json: async () => ({ ok: true, planche: planche() }) } as unknown as Response; }
+    return { ok: true, status: 200, json: async () => ({ planche: planche() }) } as unknown as Response;
+  }) as unknown as typeof fetch;
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -93,14 +98,24 @@ describe('Planche cadastrale — présence des contrôles (comportement, DOM ré
     expect(container.querySelector('svg[role="img"]')).not.toBeNull();
   });
 
-  it('la SAISIE D’ADRESSE apparaît au clic « Centrer sur l’adresse » (+ « Localiser »)', async () => {
+  it('(A) la SAISIE D’ADRESSE est présente dans les TROIS modes de centrage (condition d’affichage levée)', async () => {
     await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
     await flush();
-    expect(container.querySelector('input[aria-label="Adresse à localiser"]')).toBeNull(); // gate : absente en mode empreinte
+    const saisiePresente = () => !!container.querySelector('input[aria-label="Adresse à localiser"]');
+    // mode « empreinte » (défaut) : la saisie est là SANS avoir cliqué « Centrer sur l’adresse » (+ « Localiser »)
+    expect(boutonTexte('Toutes les parcelles')!.getAttribute('aria-pressed')).toBe('true');
+    expect(saisiePresente()).toBe(true);
+    expect(boutonTexte('Localiser')).not.toBeNull();
+    // mode « parcelle »
+    act(() => { boutonTexte('Centrer sur une parcelle')!.click(); });
+    await flush();
+    expect(boutonTexte('Centrer sur une parcelle')!.getAttribute('aria-pressed')).toBe('true');
+    expect(saisiePresente()).toBe(true);
+    // mode « adresse »
     act(() => { boutonTexte('Centrer sur l’adresse')!.click(); });
     await flush();
-    expect(container.querySelector('input[aria-label="Adresse à localiser"]')).not.toBeNull();
-    expect(boutonTexte('Localiser')).not.toBeNull();
+    expect(boutonTexte('Centrer sur l’adresse')!.getAttribute('aria-pressed')).toBe('true');
+    expect(saisiePresente()).toBe(true);
   });
 
   it('RÉGRESSION f30e208 — saisie d’adresse ET curseur sont AU-DESSUS du schéma (ordre DOM), pas repoussés dessous', async () => {
@@ -196,5 +211,46 @@ describe('Planche cadastrale — plein écran : fermetures et sélection partag�
     await flush();
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(boutonTexte('Valider la sélection')).not.toBeNull(); // …et conservé au retour en vue intégrée (même état)
+  });
+});
+
+describe('Planche cadastrale — (B) « Modifier la sélection » actif + (C) contrôles de sélection au-dessus du schéma', () => {
+  it('(B) « Modifier la sélection » est ACTIF au repos et son clic POSTe (vue intégrée)', async () => {
+    await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
+    await flush();
+    const modifier = boutonTexte('Modifier la sélection');
+    expect(modifier).not.toBeNull();          // au repos (composition = défaut), le libellé est « Modifier la sélection »
+    expect(modifier!.disabled).toBe(false);   // …et il n'est PLUS grisé (décision Arno)
+    act(() => { modifier!.click(); });
+    await flush();
+    expect(posts).toBe(1);                     // son handler ré-applique la composition (POST valider)
+  });
+
+  it('(B) « Modifier la sélection » est ACTIF au repos et son clic POSTe AUSSI dans le plein écran', async () => {
+    await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
+    await flush();
+    act(() => { boutonTexte('⤢ Agrandir le schéma')!.click(); });
+    await flush();
+    const dialog = container.querySelector('[role="dialog"][aria-modal="true"]') as HTMLElement | null;
+    expect(dialog).not.toBeNull();
+    const modifier = boutonTexte('Modifier la sélection', dialog!);
+    expect(modifier).not.toBeNull();
+    expect(modifier!.disabled).toBe(false);
+    act(() => { modifier!.click(); });
+    await flush();
+    expect(posts).toBe(1);
+  });
+
+  it('(C) plein écran : le bouton de sélection (Valider/Modifier) est AU-DESSUS du schéma dans l’ordre DOM (pas en colonne de droite)', async () => {
+    await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
+    await flush();
+    act(() => { boutonTexte('⤢ Agrandir le schéma')!.click(); });
+    await flush();
+    const dialog = container.querySelector('[role="dialog"][aria-modal="true"]') as HTMLElement | null;
+    expect(dialog).not.toBeNull();
+    const svg = dialog!.querySelector('svg[role="img"]');
+    const boutonSel = boutonTexte('Modifier la sélection', dialog!) ?? boutonTexte('Valider la sélection', dialog!);
+    expect(boutonSel).not.toBeNull();
+    expect(precede(boutonSel, svg)).toBe(true); // les contrôles de sélection précèdent le schéma (marge des contrôles), jamais après/à droite
   });
 });

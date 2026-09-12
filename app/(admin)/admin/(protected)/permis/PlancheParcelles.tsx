@@ -101,7 +101,9 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
   //   retard est IGNORÉE (le cleanup abort() la coupe). On ne re-suggère pas si le champ = exactement le libellé déjà choisi.
   useEffect(() => {
     const q = adresseSaisie.trim();
-    if (mode !== 'adresse' || q.length < 3 || (adresseCommittee && adresseCommittee.texte === adresseSaisie)) return; // pas de fetch (le vidage se fait dans onChange)
+    // (A) AUTOCOMPLÉTION DISPONIBLE QUEL QUE SOIT LE MODE (décision Arno) : la recherche de suggestions ne dépend plus du mode de centrage
+    //   (l'endpoint /suggest est un simple géocodage). Le CENTRAGE reste piloté par le mode 'adresse', fixé à la validation (cf. handlers).
+    if (q.length < 3 || (adresseCommittee && adresseCommittee.texte === adresseSaisie)) return; // pas de fetch (le vidage se fait dans onChange)
     const ctrl = new AbortController();
     const t = setTimeout(() => { void (async () => {
       try {
@@ -112,7 +114,7 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
       } catch (e) { if ((e as Error).name !== 'AbortError') setSuggestions([]); } // AbortError = requête annulée (frappe rapide) → on ignore
     })(); }, 300);
     return () => { clearTimeout(t); ctrl.abort(); };
-  }, [adresseSaisie, dossierId, mode, adresseCommittee]);
+  }, [adresseSaisie, dossierId, adresseCommittee]);
 
   // Init/reset de la COMPOSITION locale, PENDANT LE RENDU (React idiome « ajuster l'état quand une clé change » ; pas d'effet →
   //   pas de rendu en cascade). Clé = dossier + état de VALIDATION (PAS le rayon) → changer le rayon/centrage NE perd PAS une
@@ -184,8 +186,10 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
 
   const changerMode = (m: CentreMode) => { setMode(m); if (m === 'parcelle') setIdu((prev) => prev ?? data?.parcellesChoix[0]?.idu ?? null); };
   // PL-E — choisir une suggestion (point DÉJÀ connu → aucun 2e appel) ; localiser du texte libre ; revenir à l'adresse du permis.
-  const choisirSuggestion = (s: SuggestionAdresse) => { setAdresseSaisie(s.label); setAdresseCommittee({ texte: s.label, point: { x: s.x, y: s.y } }); setSuggestions(null); setSugActive(-1); };
-  const localiserTexte = () => { const t = adresseSaisie.trim(); if (t) setAdresseCommittee({ texte: t, point: null }); setSuggestions(null); setSugActive(-1); };
+  // (A) — valider une adresse la CENTRE dessus en passant par le mode 'adresse' EXISTANT (setMode) : la logique de centrage (fetch/query)
+  //   n'est pas touchée, on la déclenche simplement. La saisie reste disponible quel que soit le mode ; c'est la validation qui centre.
+  const choisirSuggestion = (s: SuggestionAdresse) => { setAdresseSaisie(s.label); setAdresseCommittee({ texte: s.label, point: { x: s.x, y: s.y } }); setMode('adresse'); setSuggestions(null); setSugActive(-1); };
+  const localiserTexte = () => { const t = adresseSaisie.trim(); if (t) { setAdresseCommittee({ texte: t, point: null }); setMode('adresse'); } setSuggestions(null); setSugActive(-1); };
   const revenirAdressePermis = () => { setAdresseSaisie(''); setAdresseCommittee(null); setSuggestions(null); setSugActive(-1); };
   const clavierAdresse = (e: React.KeyboardEvent) => {
     const n = suggestions?.length ?? 0;
@@ -246,10 +250,11 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
   //   écran). Monté une seule fois (intégré OU modal) → ids `sug-`/`rayon-` uniques.
   const blocControles = (
     <>
-      {/* PL-D/E — SAISIE d'adresse avec AUTOCOMPLÉTION (api-adresse) : suggestions à la frappe (≥3 car., biais commune) ; choisir =
-          géocoder sans 2e appel ; texte libre à défaut. Recours quand le géocodage auto échoue (impasse du 468). */}
-      {mode === 'adresse' && (
-        <div style={{ display: 'flex', gap: '.3rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      {/* (A) SAISIE D'ADRESSE TOUJOURS DISPONIBLE (décision Arno) — le gate `mode === 'adresse'` est LEVÉ : Arno peut taper une adresse à
+          tout moment, quel que soit le centrage. Valider (choisir/Localiser) centre la planche dessus (les handlers passent en mode 'adresse').
+          PL-D/E — AUTOCOMPLÉTION (api-adresse) : suggestions à la frappe (≥3 car., biais commune) ; choisir = géocoder sans 2e appel ; texte
+          libre à défaut. Recours quand le géocodage auto échoue (impasse du 468). */}
+      <div style={{ display: 'flex', gap: '.3rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0 }}>
             <input aria-label="Adresse à localiser" role="combobox" aria-expanded={!!(suggestions && suggestions.length)} aria-autocomplete="list" aria-controls={`sug-${dossierId}`}
               placeholder={data.centre.label ?? 'taper une adresse (ex. « inspecteur »…)'}
@@ -271,9 +276,8 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
           <button type="button" style={{ ...btn(false), minHeight: 34 }} onClick={localiserTexte}>Localiser</button>
           {adresseCommittee && <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', fontSize: 11.5, alignSelf: 'center' }} onClick={revenirAdressePermis}>revenir à l’adresse du permis</button>}
         </div>
-      )}
-      {/* Point d'adresse localisé : provenance EXPLICITE (base locale vs API nationale — donnée externe, jamais « à la main »). */}
-      {mode === 'adresse' && data.centre.point && (
+      {/* Point d'adresse localisé : provenance EXPLICITE (base locale vs API nationale — donnée externe, jamais « à la main »). Montré dès qu'un point existe (indépendant du mode). */}
+      {data.centre.point && (
         <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>✚ {data.centre.label ?? 'adresse localisée'} — {data.centre.provenance === 'api-adresse' ? 'API nationale (Base Adresse Nationale, Licence Ouverte)' : 'base locale'}</div>
       )}
       {/* Avertissement : rouge (échec, aucun point) ou info (point trouvé mais approximatif / attribution API). */}
@@ -340,12 +344,10 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
     )
   );
 
-  // Bandeau de VALIDATION/état : PL-C (état courant + composition + actions), survol, localisation, légende, comparatif « déclaré ↔ sélectionné ».
-  //   En vue intégrée : sous le schéma. En plein écran : dans la COLONNE DE DROITE, À CÔTÉ du schéma (parité « Bâtiments et projection » : les
-  //   options/sélection vivent en colonne latérale, pas en empilement vertical qui déborde sous le dessin). Rien si rien à dessiner.
-  const sectionValidation = !(data.motif || rienADessiner) ? (
-    <>
-      {/* ── PL-C : ÉTAT COURANT + COMPOSITION + ACTIONS ─────────────────────────────────────────────────────────────── */}
+  // (C) — CONTRÔLES DE SÉLECTION (PL-C : état courant + composition + actions Valider/Modifier/Réinitialiser/Revenir). En vue INTÉGRÉE : sous
+  //   le schéma. En PLEIN ÉCRAN : REMONTÉS AU-DESSUS du schéma, dans la marge des contrôles (avec « Centrer : » et le curseur « Voisines à »),
+  //   jamais en colonne de droite (décision Arno). Rien si rien à dessiner.
+  const controlesSelection = !(data.motif || rienADessiner) ? (
       <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
         {/* État courant : DIT clairement automatique vs validé par QUI et QUAND (provenance honnête). */}
         <div aria-live="polite" style={{ fontSize: 12 }}>
@@ -355,25 +357,32 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
         </div>
         <div style={{ fontSize: 12 }}><strong>{composition.size}</strong> parcelle(s) dans la composition{changementEnAttente ? <span style={{ color: 'var(--color-svv-red)' }}> (modifiée — non validée)</span> : null}</div>
 
-        {/* PL-ÉTAT (rule 1) — le LIBELLÉ dit ce que le clic fait, selon l'état RÉEL : un changement en attente → « Valider la sélection »
-            (applique la composition) ; sinon la sélection est ACQUISE (validée, ou automatique par défaut) → « Modifier la sélection »,
-            inactif car il n'y a rien à appliquer — on modifie en cliquant une parcelle sur le schéma (aucun mode ni écriture silencieuse). */}
+        {/* PL-ÉTAT (rule 1) + décision Arno — BOUTON PRIMAIRE UNIQUE, TOUJOURS ACTIF (jamais grisé au repos) : le LIBELLÉ dit ce que le clic
+            fait selon l'état RÉEL — changement en attente → « Valider la sélection » ; sinon sélection ACQUISE → « Modifier la sélection »,
+            ACTIF lui aussi (MÊME handler : ré-applique/valide la composition acquise → recalcule empreinte, bâti et projection). On modifie
+            aussi en cliquant une parcelle sur le schéma. Désactivé UNIQUEMENT pendant une écriture (enCours) ou si la composition est vide
+            (une empreinte vide n'est pas validable — message rouge dédié ci-dessous). Identique en vue intégrée ET en plein écran. */}
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          {changementEnAttente
-            ? <button type="button" className="svv-btn svv-btn-primary" style={btnAction} disabled={enCours || composition.size === 0}
-                onClick={() => void poster('valider', [...composition])}>Valider la sélection</button>
-            : <button type="button" className="svv-btn svv-btn-primary" style={btnAction} disabled title="La sélection est acquise : cliquez une parcelle sur le schéma pour la modifier.">Modifier la sélection</button>}
+          <button type="button" className="svv-btn svv-btn-primary" style={btnAction} disabled={enCours || composition.size === 0}
+            title={changementEnAttente ? undefined : 'Ré-applique la sélection acquise (recalcule empreinte, bâti et projection). Vous pouvez aussi cliquer une parcelle pour la modifier.'}
+            onClick={() => void poster('valider', [...composition])}>{changementEnAttente ? 'Valider la sélection' : 'Modifier la sélection'}</button>
           {compositionModifiee && <button type="button" style={{ ...btnAction, background: 'var(--color-svv-field)' }} disabled={enCours} onClick={reinitialiser}>Réinitialiser à la sélection par défaut</button>}
           {data.selection.active && <button type="button" style={{ ...btnAction, background: 'var(--color-svv-field)' }} disabled={enCours} onClick={() => void poster('retirer')}>Revenir à la configuration d’origine</button>}
         </div>
-        {!changementEnAttente && <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Sélection acquise — cliquez une parcelle sur le schéma pour la modifier.</div>}
+        {!changementEnAttente && <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Sélection acquise — cliquez une parcelle sur le schéma pour la modifier, ou « Modifier la sélection » pour la ré-appliquer.</div>}
 
         {/* Geste DÉLIBÉRÉ : on DIT ce qui va se recalculer (jamais un clic anodin). */}
         <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>⚠ « Valider » recalcule l’empreinte, la photo du bâti et la projection de ce permis. Réversible : « Revenir à la configuration d’origine » restaure l’état automatique à l’identique.</div>
         {composition.size === 0 && <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-red)' }}>Sélectionnez au moins une parcelle : une empreinte vide n’est pas validable.</div>}
         {msg && <div role="status" style={{ fontSize: 12, color: msg.startsWith('Session') || msg.includes('impossible') ? 'var(--color-svv-red)' : 'var(--color-svv-green-ink)' }}>{msg}</div>}
       </div>
+  ) : null;
 
+  // INFOS DU SCHÉMA (lecture seule) : identité survolée, localisation, légende, comparatif « déclaré ↔ sélectionné ». En vue INTÉGRÉE : sous
+  //   les contrôles. En PLEIN ÉCRAN : en COLONNE LATÉRALE à droite du schéma (parité « Bâtiments et projection » : infos/options en colonne).
+  //   Ce ne sont PAS des contrôles de sélection → leur place en colonne de droite est conforme à la consigne. Rien si rien à dessiner.
+  const infosSchema = !(data.motif || rienADessiner) ? (
+    <>
       {/* Identité de la parcelle survolée (le survol seul, instantané ci-dessous, + une ligne stable au doigt). */}
       <div aria-live="polite" style={{ fontSize: 12, minHeight: '1.2em', color: 'var(--color-svv-muted)' }}>{survol ? survol.texte : 'Survolez ou touchez une parcelle pour l’identifier ; cliquez pour la (dé)sélectionner.'}</div>
 
@@ -451,14 +460,16 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
             {barreCentrage(true)}
             {blocControles}
             {schemaDessin(false)}
-            {sectionValidation}
+            {controlesSelection}
+            {infosSchema}
           </div>
         )}
       </div>
 
       {/* PLEIN ÉCRAN — MODAL calqué sur « Agrandir le schéma » de « Bâtiments et projection » (BlocTraceEmprise:1853) : backdrop + carte
-          centrée (svv-card, 95vw × 95vh), en-tête « titre + ✕ Fermer », contrôles pleine largeur, puis DEUX ZONES [schéma | validation] —
-          pas un empilement vertical qui déborde sous le schéma. Fermeture : clic hors zone, ✕, ou Échap. SÉLECTION PARTAGÉE (même état). */}
+          centrée (svv-card, 95vw × 95vh), en-tête « titre + ✕ Fermer », puis les CONTRÔLES (centrage, saisie d'adresse, curseur, sélection)
+          AU-DESSUS du schéma, et enfin DEUX ZONES [schéma | infos lecture seule] — comme la référence (contrôles/actions au-dessus, options en
+          colonne). Pas d'empilement qui déborde sous le schéma. Fermeture : clic hors zone, ✕, ou Échap. SÉLECTION PARTAGÉE (même état). */}
       {schemaPleinEcran && (
         <div role="dialog" aria-modal="true" aria-label="Planche cadastrale agrandie — sélection des parcelles" onClick={() => setSchemaPleinEcran(false)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '1rem' }}>
@@ -469,11 +480,15 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
             </div>
             {barreCentrage(false)}
             {blocControles}
-            {/* DEUX ZONES : schéma à gauche (prend l'espace), validation/comparatif/légende en colonne latérale à droite — comme la
-                référence range ses options en colonne à côté du dessin. En portrait, la colonne latérale passe SOUS le schéma (flexWrap). */}
+            {/* (C) — CONTRÔLES DE SÉLECTION AU-DESSUS du schéma, dans la marge des contrôles (avec « Centrer : » et le curseur), jamais en
+                colonne de droite (décision Arno). Ce sont les mêmes nœuds que la vue intégrée (état partagé, aucune duplication). */}
+            {controlesSelection}
+            {/* DEUX ZONES : schéma à gauche (prend l'espace), INFOS (survol / localisation / légende / comparatif — lecture seule, PAS des
+                contrôles de sélection) en colonne latérale à droite, comme la référence range ses options à côté du dessin. En portrait, la
+                colonne passe SOUS le schéma (flexWrap). */}
             <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
               <div style={{ flex: '1 1 420px', minWidth: 0 }}>{schemaDessin(true)}</div>
-              {sectionValidation && <div style={{ flex: '1 1 260px', minWidth: 240, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>{sectionValidation}</div>}
+              {infosSchema && <div style={{ flex: '1 1 260px', minWidth: 240, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>{infosSchema}</div>}
             </div>
           </div>
         </div>
