@@ -624,7 +624,7 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     });
   });
 
-  describe('LETTRAGE — repères des bâtiments « en projet » en rouge + ◇ (distinguer construit / projeté)', () => {
+  describe('LETTRAGE — repères des bâtiments « en projet » en rouge sur le schéma (distinguer construit / projeté ; ◇ retiré du schéma)', () => {
     const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
     const filtres: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: false };
     const blocG = (html: string, r: string) => html.match(new RegExp(`<g[^>]*data-repere="${r}"[^>]*>[\\s\\S]*?</g>`))?.[0] ?? '';
@@ -648,20 +648,20 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
       expect(places.find((p) => p.repere === 'B')?.enProjet).toBe(false);
     });
 
-    it('rendu : la lettre d’un « en projet » DU PERMIS est ROUGE + ◇ + état exposé ; l’existant reste INCHANGÉ', () => {
+    it('rendu : la lettre d’un « en projet » DU PERMIS est ROUGE + état exposé (SANS ◇ sur le schéma) ; l’existant reste INCHANGÉ', () => {
       const polys = [
         { cleabs: 'A1', anneau: [{ x: 1, y: 1 }, { x: 13, y: 1 }, { x: 13, y: 13 }, { x: 1, y: 13 }], etat: 'En projet' },
         { cleabs: 'B2', anneau: [{ x: 16, y: 16 }, { x: 29, y: 16 }, { x: 29, y: 29 }, { x: 16, y: 29 }], etat: 'En service' },
         { cleabs: 'C3', anneau: [{ x: 1, y: 16 }, { x: 13, y: 16 }, { x: 13, y: 28 }, { x: 1, y: 28 }], etat: 'En construction' },
       ];
       const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }, { x: 0, y: 30 }]], emprises: [], polygones: attribuerReperes(polys), filtres, ecartes: [], calageLambert: [] }));
-      // A = En projet → rouge vif dédié + ◇ (2ᵉ marqueur, lisible en N&B) + état lu par les lecteurs d’écran.
+      // A = En projet → rouge vif dédié + état lu par les lecteurs d’écran. PLUS de ◇ sur le schéma : la légende du schéma explique la couleur.
       const gA = blocG(html, 'A');
       expect(gA).toContain('data-en-projet="true"');
       expect(gA).toContain('role="img"');
       expect(gA).toContain('aria-label="Repère A, bâtiment en projet"');
       expect(gA).toContain('fill="#e11d48"');   // teinte crimson dédiée, distincte du rouge SVAV #a30402 et de l’orange « détruit »
-      expect(gA).toContain('◇');
+      expect(gA).not.toContain('◇');            // ◇ RETIRÉ du schéma (conservé dans les LISTES textuelles, cf. describe LETTRAGE (texte))
       // C = En construction → même traitement (futur bâti).
       expect(blocG(html, 'C')).toContain('fill="#e11d48"');
       // B = En service (EXISTANT) → strictement inchangé : encre foncée, aucun ◇, aucun marqueur d’état.
@@ -672,11 +672,11 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
       expect(gB).not.toContain('role="img"');
     });
 
-    it('la LÉGENDE explique le code couleur (repère « en projet » = rouge + ◇)', () => {
+    it('la LÉGENDE « repère de lecture » explique le code couleur (rouge = en projet), SANS ◇ (retiré du schéma)', () => {
       const html = renderToStaticMarkup(h(LegendeSchemaProjection, {}));
       expect(html).toContain('Repère d’un bâtiment en projet');
       expect(html).toContain('#e11d48');
-      expect(html).toContain('A◇');
+      expect(html).not.toContain('◇'); // cette légende décrit le SCHÉMA → plus de losange
     });
   });
 
