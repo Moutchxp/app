@@ -1131,9 +1131,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         ? { action: 'ajuster_bloc', dossierId, ajustement: ajustement.delta }
         : { action: 'ajuster', dossierId, id: ajustement.id, ajustement: ajustement.delta };
       const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
-      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[] };
+      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[] };
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'ajustement refusé'); return; }
       setEmprises(j.emprises ?? []); setAjustement(null);
+      if (j.statutsPolygones) setStatutsLignes(j.statutsPolygones); // règle e levée : l'ajustement a recalculé les statuts auto → rafraîchir le bloc
+      if (j.polygonesRecouverts) setRecouverts(j.polygonesRecouverts);
       setMessage(ajustement.bloc ? 'ajustement d’ensemble enregistré. « Revenir au tracé d’origine » reste disponible.' : 'ajustement enregistré. « Revenir au tracé d’origine » reste disponible à tout moment.');
       onEmprisesChange?.();
     } catch { setMessage('ajustement impossible'); } finally { setOccupe(false); }
@@ -1145,9 +1147,11 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     try {
       const corps = ajustement.bloc ? { action: 'reinitialiser_ajustement_bloc', dossierId } : { action: 'reinitialiser_ajustement', dossierId, id: ajustement.id };
       const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
-      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[] };
+      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[] };
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'retour à l’origine impossible'); return; }
       setEmprises(j.emprises ?? []); setAjustement(null);
+      if (j.statutsPolygones) setStatutsLignes(j.statutsPolygones); // le retour à l'origine change aussi la couverture → recalcul → rafraîchir le bloc
+      if (j.polygonesRecouverts) setRecouverts(j.polygonesRecouverts);
       setMessage(ajustement.bloc ? 'retour à l’origine (ensemble) : tous les ajustements ont été supprimés, les géométries d’origine sont restituées.' : 'retour au tracé d’origine : l’ajustement a été supprimé, la géométrie d’origine est restituée.');
       onEmprisesChange?.();
     } catch { setMessage('retour à l’origine impossible'); } finally { setOccupe(false); }

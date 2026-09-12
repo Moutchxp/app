@@ -17,6 +17,9 @@ import { lireOrigineExtractionSansIa } from '../../../../../lib/permis/journalEx
 import { scoreNomPlanMasse, familleDeNom, tracabilitePlanche, type FamillePlan } from '../../../../../lib/permis/planMasse';
 import { familleDeContenu } from '../../../../../lib/permis/planMasseContenu'; // PROV : famille par le CONTENU (enrichissement en aval)
 import { lireStatutsPolygones, polygonesRecouvertsParEmprise, poserStatutPolygone, appliquerAutoStatut } from '../../../../../lib/permis/polygoneStatutRepo'; // RATT-1 (2) / RATT-2
+import { statutCourantParCleabs } from '../../../../../lib/permis/polygoneStatut'; // recalcul statuts sur ajustement — état courant par cleabs
+import { lireSeuilRecouvrementEmprisePct, lireSeuilDestructionPct } from '../../../../../lib/permis/rattachementConfig'; // seuils du recalcul auto (runtime)
+import { construireEtatsPourDiff, diffStatutsRecalcul } from '../../../../admin/(protected)/permis/diffStatutsRecalcul'; // recalcul statuts sur ajustement — module PUR partagé (source unique du diff)
 import { attribuerNomsRepli } from '../../../../../lib/permis/caracteristiquesRepo'; // NOM-1 — attribue « bâtiment en projet N » aux corps anonymes (best-effort)
 import { empreinteGed, bestOfMemo } from '../../../../../lib/permis/bestOfCache'; // P1 (perfo) — mémoïsation du best-of PDF (poste dominant), invalidation par empreinte de la GED
 import { lireBestOfPersiste, ecrireBestOfPersiste } from '../../../../../lib/permis/bestOfPersistance'; // PC-1 (perfo) — best-of PERSISTÉ (survit au redémarrage), résilient
@@ -40,6 +43,25 @@ export const runtime = 'nodejs';
 function coercerDossierId(v: unknown): number | null {
   const n = typeof v === 'number' ? v : Number(v);
   return Number.isInteger(n) && n > 0 ? n : null;
+}
+
+// RECALCUL STATUTS SUR AJUSTEMENT — instantané du statut des bâtiments existants (statut courant + recouvrement + proposition auto), pour
+//   le diff AVANT/APRÈS. Lit les seuils au runtime (jamais en dur). PUR côté module (diffStatutsRecalcul) ; ici on ne fait que lire la base.
+async function instantaneStatuts(dossierId: number) {
+  const [lignes, recouverts, { seuilPct: plancher }, { seuilPct: seuilDetruit }] = await Promise.all([
+    lireStatutsPolygones(dossierId), polygonesRecouvertsParEmprise(dossierId), lireSeuilRecouvrementEmprisePct(), lireSeuilDestructionPct(),
+  ]);
+  return construireEtatsPourDiff(statutCourantParCleabs(lignes), recouverts, plancher, seuilDetruit);
+}
+
+// Réponse commune aux 4 gestes d'AJUSTEMENT (une emprise / bloc, poser / revenir à l'origine) : le recalcul auto tourne (règle e LEVÉE), puis
+//   on renvoie le DIFF (changements + désaccords) + les statuts/recouverts rafraîchis pour la notification et le marquage du bloc. `avant`
+//   est capturé AVANT la mutation de géométrie (pour repérer entrées/sorties). appliquerAutoStatut ne touche JAMAIS une décision manuelle.
+async function reponseAjustement(dossierId: number, avant: Awaited<ReturnType<typeof instantaneStatuts>>, extra: Record<string, unknown>): Promise<Response> {
+  await appliquerAutoStatut(dossierId, 'auto:emprise'); // lève la règle e : un ajustement recalcule les statuts auto (les manuels sont préservés)
+  const recalculStatut = diffStatutsRecalcul(avant, await instantaneStatuts(dossierId));
+  const [statutsPolygones, polygonesRecouverts] = await Promise.all([lireStatutsPolygones(dossierId), polygonesRecouvertsParEmprise(dossierId)]);
+  return Response.json({ ok: true, recalculStatut, statutsPolygones, polygonesRecouverts, ...extra });
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -394,32 +416,39 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // PROJ-3t (lot 3b) — AJUSTER une emprise (delta rigide) ou REVENIR AU TRACÉ D'ORIGINE (delta → NULL). Le serveur estampille pose_le/pose_par.
-    //   🔴 AUCUN appliquerAutoStatut : un ajustement ne recalcule PAS les statuts « détruit » des voisins (règle e du lot 3a) — juste un signal à l'écran.
+    //   🔄 RÈGLE e LEVÉE (décision Arno, remplace le lot 3a) : un ajustement RECALCULE désormais les statuts auto des bâtiments recouverts
+    //   (appliquerAutoStatut, via reponseAjustement). Sa raison d'être — ne JAMAIS écraser une décision manuelle — est intégralement préservée
+    //   (appliquerAutoStatut ne touche que l'auto) ; en échange, tout changement est SIGNALÉ (recalculStatut : notification + marquage du bloc,
+    //   acquittables), là où l'ancien signal « affectation des voisins à vérifier » était permanent et non acquittable.
     if (body.action === 'ajuster') {
       if (!Number.isInteger(body.id)) return Response.json({ erreur: 'emprise à ajuster requise' }, { status: 400 });
       if (typeof body.ajustement !== 'object' || body.ajustement === null) return Response.json({ erreur: 'ajustement requis' }, { status: 400 });
+      const avant = await instantaneStatuts(dossierId); // AVANT la mutation de géométrie → repère entrées/sorties
       const res = await enregistrerAjustement(dossierId, body.id as number, body.ajustement, garde.auteurId === null ? 'admin:ajustement' : String(garde.auteurId));
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.colonneAbsente || res.tableAbsente ? 409 : 400 });
-      return Response.json({ ok: true, emprises: res.emprises });
+      return reponseAjustement(dossierId, avant, { emprises: res.emprises });
     }
     if (body.action === 'reinitialiser_ajustement') {
       if (!Number.isInteger(body.id)) return Response.json({ erreur: 'emprise requise' }, { status: 400 });
+      const avant = await instantaneStatuts(dossierId);
       const res = await supprimerAjustement(dossierId, body.id as number);
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.colonneAbsente || res.tableAbsente ? 409 : 400 });
-      return Response.json({ ok: true, emprises: res.emprises });
+      return reponseAjustement(dossierId, avant, { emprises: res.emprises });
     }
     // MODE BLOC — même geste appliqué à TOUTES les emprises du dossier (centre = ensemble), COMPOSÉ par-dessus les ajustements individuels
-    //   existants (positions relatives préservées). Retour à l'origine en bloc = toutes les colonnes à NULL. 🔴 Aucun recalcul d'auto-statut.
+    //   existants (positions relatives préservées). Retour à l'origine en bloc = toutes les colonnes à NULL. Recalcul auto + signalement (règle e levée).
     if (body.action === 'ajuster_bloc') {
       if (typeof body.ajustement !== 'object' || body.ajustement === null) return Response.json({ erreur: 'ajustement requis' }, { status: 400 });
+      const avant = await instantaneStatuts(dossierId);
       const res = await ajusterBloc(dossierId, body.ajustement, garde.auteurId === null ? 'admin:ajustement' : String(garde.auteurId));
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.colonneAbsente || res.tableAbsente ? 409 : 400 });
-      return Response.json({ ok: true, emprises: res.emprises });
+      return reponseAjustement(dossierId, avant, { emprises: res.emprises });
     }
     if (body.action === 'reinitialiser_ajustement_bloc') {
+      const avant = await instantaneStatuts(dossierId);
       const res = await reinitialiserAjustementBloc(dossierId);
       if (!res.ok) return Response.json({ erreur: res.motif }, { status: res.colonneAbsente || res.tableAbsente ? 409 : 400 });
-      return Response.json({ ok: true, emprises: res.emprises });
+      return reponseAjustement(dossierId, avant, { emprises: res.emprises });
     }
 
     if (body.action === 'enregistrer') {
