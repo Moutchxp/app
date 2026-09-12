@@ -135,7 +135,7 @@ describe('PROJ-2 — rendu pur', () => {
     const sansHist = renderToStaticMarkup(h(BandeauRetoucheCompact, { mode: 'deplacer', peutAnnuler: false, onMode: noop, onAnnuler: noop, onAbandonner: noop, onValider: noop }));
     expect(sansHist).toContain('data-retouche-compact="true"');
     expect(sansHist).toContain('Déplacer un sommet'); expect(sansHist).toContain('Insérer sur un bord'); expect(sansHist).toContain('Supprimer un sommet');
-    expect(sansHist).toContain('Valider la retouche');
+    expect(sansHist).toContain('Enregistrer la retouche'); // A — enregistrer ≠ valider l'emprise (affichage) ; l'action est inchangée
     expect(sansHist).toMatch(/disabled/); // « Annuler la dernière action » désactivé sans historique
     expect(sansHist).not.toContain('masqué pour agrandir'); // pas de note contexte par défaut
     const avecNote = renderToStaticMarkup(h(BandeauRetoucheCompact, { mode: 'inserer', peutAnnuler: true, contexteMasque: true, onMode: noop, onAnnuler: noop, onAbandonner: noop, onValider: noop }));

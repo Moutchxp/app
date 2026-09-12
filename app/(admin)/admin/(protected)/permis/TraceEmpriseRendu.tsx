@@ -1127,7 +1127,8 @@ export function BandeauRetoucheCompact({ mode, occupe = false, peutAnnuler, cont
       {onToggleOrigine && <button type="button" style={b} disabled={occupe} aria-pressed={!origineVisible} onClick={onToggleOrigine} data-origine-visible={origineVisible} title="masquer/afficher le tracé d’origine (affichage seul)">{origineVisible ? 'Masquer l’origine' : 'Afficher l’origine'}</button>}
       <button type="button" style={b} disabled={occupe || !peutAnnuler} onClick={onAnnuler}>Annuler la dernière action</button>
       <button type="button" style={b} disabled={occupe} onClick={onAbandonner}>Abandonner</button>
-      <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.2rem .5rem' }} disabled={occupe} onClick={onValider}>Valider la retouche</button>
+      {/* A — AFFICHAGE : « Enregistrer » (≠ « valider l'emprise ») ; après enregistrement l'emprise reste « validation en attente ». L'ACTION (onValider) est inchangée. */}
+      <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', padding: '.2rem .5rem' }} disabled={occupe} onClick={onValider} aria-label="Enregistrer la retouche">Enregistrer la retouche</button>
       {/* Partir du contour de la parcelle — geste EXPLICITE, annoncé avant, annulable (poussé dans l'historique). */}
       {onContourDemander && (contourEnConfirmation
         ? <span role="group" aria-label="confirmer le contour de la parcelle" data-contour-confirmation="true" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.4rem', flexBasis: '100%' }}>
