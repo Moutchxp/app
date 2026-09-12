@@ -201,4 +201,10 @@ describe('BlocTraceEmprise — câblage rangée + bascule de mode (garde source)
     expect(SRC).toContain("const enAttenteValidation = st === 'a_valider'");              // seul l’état « enregistrée non validée » clignote
     expect(SRC).toContain("className={enAttenteValidation ? 'svvValiderAttente' : undefined}"); // MÊME mécanisme que le bouton « valider » (facac36), pas une 2e implémentation
   });
+  it('(C) l’écran XL porte le sélecteur de bâtiment (MÊME rangée boutonsCartouches → corpsEffectif partagé), en tête', () => {
+    expect(SRC).toContain('imageAgrandie && !planSeul && batiments.length > 0'); // sélecteur ajouté au niveau 2 (XL), pas au niveau 3 ni en doublon normal
+    // C'est la MÊME rangée que la vue normale (boutonsCartouches, false), pas un second composant → sélection partagée par construction (corpsEffectif).
+    expect((SRC.match(/boutonsCartouches\(false\)/g) ?? []).length).toBeGreaterThanOrEqual(2); // vue normale + XL
+    expect(SRC).toContain('onClick={() => setCorpsSel(b.corpsId)}'); // clic = même comportement (source unique corpsSel/corpsEffectif)
+  });
 });

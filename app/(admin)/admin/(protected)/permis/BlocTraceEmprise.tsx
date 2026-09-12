@@ -1635,6 +1635,15 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               {barreNiveau3}
             </div>
           )}
+          {/* C — SÉLECTEUR DE BÂTIMENT EN XL (niveau 2, imageAgrandie) : la MÊME rangée que la vue normale (`boutonsCartouches` → `corpsEffectif`),
+              EN TÊTE de l'overlay, pleine largeur (grille : gridColumn 1/-1). Change de bâtiment SANS quitter l'XL ; la sélection est PARTAGÉE avec
+              la vue normale (même variable `corpsEffectif`, aucun second état). Hérite du clignotement d'attente (B, classe partagée). Ni au niveau 3
+              (sa propre bande, `boutonsCartouches(true)`), ni en doublon de la vue normale (1594, derrière l'overlay). ref non posé (false) → aucun conflit. */}
+          {imageAgrandie && !planSeul && batiments.length > 0 && (
+            <div key="selbat-xl" style={{ gridColumn: '1 / -1', display: 'flex', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
+              {boutonsCartouches(false)}
+            </div>
+          )}
           {/* Colonne PDF = CARTE (svv-card, comme la liseuse du cas 0 bâtiment) : la BARRE GAUCHE À L'INTÉRIEUR, en tête, puis l'image, la nav,
               le guide. MÊME cadre/arrondi/padding que la carte du schéma → deux cadres jumeaux, chacun coiffé de SES outils, coupés par la
               gouttière. `gap .5rem` = celui de la carte du schéma → les deux panneaux démarrent à la même hauteur sous des barres de même hauteur. */}
