@@ -46,6 +46,8 @@ const cell: CSSProperties = { padding: '.35rem .5rem', borderBottom: '1px solid 
 const muted: CSSProperties = { color: 'var(--color-svv-muted)', fontSize: 12 };
 // LOT 55 — en-tête de colonne : jamais de retour à la ligne (surtout « Test permis « En cours » », le libellé le plus long).
 const enteteCell: CSSProperties = { ...cell, ...muted, fontWeight: 700, whiteSpace: 'nowrap' };
+// ① — valeur (encre) des infos réaffichées sur une ligne dépliée : le libellé reste gris (muted), la valeur passe en encre pour rester lisible.
+const valeurEntete: CSSProperties = { color: 'var(--color-svv-ink)', fontWeight: 600 };
 
 // LOT 55 — largeurs de colonnes DÉTERMINISTES et PARTAGÉES, définies UNE SEULE FOIS. Comme les deux tableaux de l'onglet
 //   « Analyse et projection » (dossiers en test / file ordinaire) sont le MÊME composant, ce colgroup les dote de colonnes
@@ -106,6 +108,17 @@ export function TableProjection({ file, ouvert, onOuvrir, renderDetail, libelleP
                     style={{ cursor: 'pointer', background: 'none', border: 'none', padding: 0, color: validable ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)', fontWeight: 600, fontSize: 13 }}>
                     {estOuvert ? '▲ ' : '▼ '}{l.numDau}{validable ? ' ✓' : ''}
                   </button>
+                  {/* ① — DÉPLIÉE, la ligne perd l'alignement en colonnes du tableau : on RÉAFFICHE les 4 mêmes infos (mêmes valeurs, mêmes
+                      libellés que les en-têtes Commune/Nature/Bâtiments/Pièces reçues), en clair, dans le prolongement du numéro. Flex-wrap →
+                      en iPhone portrait elles passent à la ligne sans débordement. Aucun recalcul : ce sont les valeurs de la ligne fermée. */}
+                  {estOuvert && (
+                    <div style={{ marginTop: '.15rem', display: 'flex', flexWrap: 'wrap', gap: '.1rem .8rem', ...muted }}>
+                      <span>Commune : <strong style={valeurEntete}>{l.communeNom ?? '—'}</strong></span>
+                      <span>Nature : <strong style={valeurEntete}>{l.natureLibelle}</strong></span>
+                      <span>Bâtiments : <strong style={valeurEntete}>{l.nbBatiments}</strong></span>
+                      <span>Pièces reçues : <strong style={valeurEntete}>{l.satisfaitLe ?? '—'}</strong></span>
+                    </div>
+                  )}
                   {estOuvert && <div style={{ marginTop: '.5rem' }}>{renderDetail()}</div>}
                 </td>
                 {!estOuvert && <>
