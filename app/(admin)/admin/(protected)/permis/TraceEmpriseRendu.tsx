@@ -1387,6 +1387,13 @@ export function estReperePolygoneEnProjet(p: { etat: string | null; appartientPe
   return p.appartientPermis !== false && estFuturBati(p.etat);
 }
 
+/** LETTRAGE (SCHÉMA) — le schéma affiche-t-il les DEUX couleurs de repère (au moins un existant EN noir ET au moins un en projet EN rouge) ?
+ *  Sert à n'afficher la petite légende du code couleur QUE dans ce cas (un schéma tout-noir ou tout-rouge n'en a pas besoin). `reperes` =
+ *  les repères EFFECTIVEMENT affichés (lettre non vide, polygone visible). PUR, testé. */
+export function schemaADeuxCouleursReperes(reperes: readonly { enProjet: boolean }[]): boolean {
+  return reperes.some((r) => r.enProjet) && reperes.some((r) => !r.enProjet);
+}
+
 /** LETTRAGE (TEXTE) — une lettre de repère dans une LISTE textuelle, MÊME nomenclature que sur le schéma (cf. 4682b58) : un repère « en
  *  projet » passe en rouge #e11d48 + suffixe ◇ (2ᵉ marqueur non coloré, lisible en N&B) et expose son état aux lecteurs d'écran
  *  (role="img" + aria-label « Repère X, bâtiment en projet »). Un repère d'existant reste la lettre NUE (strictement inchangé). Source
@@ -1763,6 +1770,10 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
   // LOT 83 — MARGE DE RESPIRATION : quand des étiquettes sont posées, on élargit le cadre (pad 4 % → 16 %) pour offrir une zone
   //   d'accueil aux boîtes déportées HORS des formes. N'affecte NI l'échelle du tracé NI les coordonnées (juste plus de blanc autour).
   const vb = boiteEnglobanteRotee(pts, centre, angle, etiquettes.length > 0 ? 0.2 : 0.04);
+  // LETTRAGE — la petite légende « noir = existant / rouge = en projet » n'apparaît QUE si les DEUX couleurs coexistent à l'écran ET si les
+  //   repères sont affichés (elle suit la case « Afficher les repères… »). `reperesAffiches` = ceux réellement dessinés (visibles + lettre non vide).
+  const reperesAffiches = visibles.filter((p) => p.anneau.length >= 3 && p.repere).map((p) => ({ enProjet: estReperePolygoneEnProjet(p) }));
+  const legendeLettrage = !!filtres.reperes && schemaADeuxCouleursReperes(reperesAffiches);
   // PROJ-3t — conversion écran → coordonnée BOÎTE (identique à onClick), partagée par le clic ET le drag d'ajustement (aucun getScreenCTM).
   const pxDe = (ev: { currentTarget: EventTarget & SVGSVGElement; clientX: number; clientY: number }) => {
     const r = ev.currentTarget.getBoundingClientRect();
@@ -1801,6 +1812,7 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
     return 'corps';
   };
   return (
+    <div style={{ position: 'relative', display: 'block' }}>
     <svg viewBox={`${vb.minX} ${vb.minY} ${vb.w} ${vb.h}`} preserveAspectRatio="xMidYMid meet" role="img" aria-label="schéma de la parcelle, du bâti BD TOPO et des emprises reconstituées"
       style={{ display: 'block', width: '100%', height: 'auto', maxHeight: hauteurMax, border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', background: '#fff', touchAction: onPointeurAjustement ? 'none' : undefined, cursor: onPointeurAjustement ? 'grab' : onCliquer ? 'crosshair' : 'default' }}
       onClick={onCliquer ? (ev) => onCliquer(pxDe(ev)) : undefined}
@@ -1995,6 +2007,16 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
         </g>; })()}
       </g>
     </svg>
+    {/* LETTRAGE — LÉGENDE du code couleur, en bas à droite DANS le cadre (overlay HTML → texte responsive qui s'enroule, robuste en mobile).
+        Fond blanc LÉGER (semi-transparent) + léger décalage → ne masque pas une forme dessous ; pointerEvents:none → ne gêne aucun geste sur le
+        schéma. aria-hidden : redondante à l'oral (chaque lettre en projet porte déjà « Repère X, bâtiment en projet »). N'apparaît qu'aux deux couleurs. */}
+    {legendeLettrage && (
+      <div data-legende-lettrage="true" aria-hidden style={{ position: 'absolute', right: 4, bottom: 4, maxWidth: '62%', background: 'rgba(255,255,255,.86)', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.2rem .4rem', fontSize: 10, lineHeight: 1.3, color: ETIQ_ENCRE, pointerEvents: 'none', display: 'flex', flexDirection: 'column', gap: '.12rem' }}>
+        <span><strong style={{ color: ETIQ_ENCRE }}>A</strong> Lettres noires : bâtiments existants sur le cadastre</span>
+        <span><strong style={{ color: REPERE_PROJET_ROUGE }}>A</strong> Lettres rouges : bâtiments en projet de construction sur le cadastre</span>
+      </div>
+    )}
+    </div>
   );
 }
 
