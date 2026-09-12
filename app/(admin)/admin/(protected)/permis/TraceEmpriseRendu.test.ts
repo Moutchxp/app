@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createElement as h } from 'react';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, rayonBullePoignee, seuilCapturePoignee, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, ConfirmationTraceManuel, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
+import { BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, DemarrageAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, rayonBullePoignee, seuilCapturePoignee, libelleResumeAjustement, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, fmtM2, affichageTrace, SelecteurPiecePlan, ListePiecesAnalyse, etatAnalyseIA, libelleAnalyseIA, statutPageAnalyse, libelleStatutPage, titreStatutPage, resumePagesAnalysees, PastilleStatutPage, grouperPieces, etiquettePiecePlan, construireBandePlans, bandeAvecOverrides, appliquerDeblocageTracable, etatDeblocagePage, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, libellePlan, travailEnCours, guideCalageSousSchema, categoriesPiece, libelleCategoriePiece, ORDRE_CATEGORIES, BandePlans, fondCapsuleType, bornerPage, NavPieceLibre, libelleFamille, messageVerrou, noteFamille, polygonesVisibles, compterBatimentsPermis, OptionsVisibiliteSchema, LegendeSchemaProjection, SelectionPolygonesProjet, attribuerReperes, estReperePolygoneEnProjet, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, ConfirmationTraceManuel, libelleProvenance, empriseRetouchable, FILTRES_SCHEMA_DEFAUT, StatutPolygonesExistants, couleurStatutPolygone, polygonesConfigProjetee, MiniConfigProjetee, CaseConfigOfficielle, BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, aireAnneauM2, polygonesProjetParBatiment, legendeProjection, LegendeProjectionEmprises, abregerCleabs, etiquettesProjection, pointOnSurfaceAnneau, pointDansAnneau, tailleRepere, placerReperes, placerEtiquettes, dimsBoiteEtiquette, boiteIntersectePolygone, boitesSeChevauchent, type ItemEtiquette, type FiltresSchema, type PiecePlan, type Plan } from './TraceEmpriseRendu';
 import { statutCourantParCleabs, type LigneStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 import type { VerdictCalage, VerdictVraisemblance, Boite } from '../../../../lib/permis/calageEmprise';
 import { projeterDansBoite } from '../../../../lib/permis/calageEmprise';
@@ -548,7 +548,8 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
     const filtres: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: true };
     const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }, { x: 0, y: 30 }]], emprises: [], polygones: attribuerReperes(polys), filtres, ecartes: [], calageLambert: [] }));
     // data-repere porte désormais sur le <g> qui enveloppe la lettre (+ éventuel trait de rappel) ; on lit le <text> qu'il contient.
-    const bloc = html.match(/<g[^>]*data-repere="A"[^>]*>[\s\S]*?<\/g>/)?.[0] ?? '';
+    // On cible « B » (En service = EXISTANT) : « A »/« C » sont « en projet » et passent en rouge (cf. describe LETTRAGE) → l'existant, lui, garde l'encre fixe.
+    const bloc = html.match(/<g[^>]*data-repere="B"[^>]*>[\s\S]*?<\/g>/)?.[0] ?? '';
     const tag = bloc.match(/<text\b[^>]*>/)?.[0] ?? '';
     expect(tag).not.toBe('');
     expect(tag).toContain('fill="#1b1b1b"');            // encre FIXE (ETIQ_ENCRE) → lisible sur le blanc du canvas dans les DEUX thèmes
@@ -622,6 +623,63 @@ describe('PROJ-3h/3i — options, repères, sélection des polygones « en proje
       expect(boitesSeChevauchent(bl(placees[0]), bl(placees[1]), 0)).toBe(false); // aucun chevauchement des deux lettres
     });
   });
+
+  describe('LETTRAGE — repères des bâtiments « en projet » en rouge + ◇ (distinguer construit / projeté)', () => {
+    const boite: Boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 30, minY: 0, maxY: 30 } };
+    const filtres: FiltresSchema = { existant: true, futur: true, reperes: true, emprises: false };
+    const blocG = (html: string, r: string) => html.match(new RegExp(`<g[^>]*data-repere="${r}"[^>]*>[\\s\\S]*?</g>`))?.[0] ?? '';
+
+    it('règle PURE estReperePolygoneEnProjet : futur DU PERMIS → vrai ; existant → faux ; voisin → faux', () => {
+      expect(estReperePolygoneEnProjet({ etat: 'En projet' })).toBe(true);           // rétro-compat : appartientPermis absent = permis
+      expect(estReperePolygoneEnProjet({ etat: 'En construction' })).toBe(true);
+      expect(estReperePolygoneEnProjet({ etat: 'En service' })).toBe(false);         // existant
+      expect(estReperePolygoneEnProjet({ etat: 'En projet', appartientPermis: true })).toBe(true);
+      expect(estReperePolygoneEnProjet({ etat: 'En projet', appartientPermis: false })).toBe(false); // voisin de contexte : jamais concerné
+    });
+
+    it('placerReperes propage enProjet (le rendu saura teinter la bonne lettre)', () => {
+      const vb = { minX: 0, minY: 0, w: 200, h: 200 };
+      const carre = (x: number, y: number, c: number) => [{ x, y }, { x: x + c, y }, { x: x + c, y: y + c }, { x, y: y + c }];
+      const places = placerReperes([
+        { repere: 'A', anneauPx: carre(40, 40, 100), ancre: { x: 90, y: 90 }, enProjet: true },
+        { repere: 'B', anneauPx: carre(60, 60, 40), ancre: { x: 80, y: 80 }, enProjet: false },
+      ], [], vb);
+      expect(places.find((p) => p.repere === 'A')?.enProjet).toBe(true);
+      expect(places.find((p) => p.repere === 'B')?.enProjet).toBe(false);
+    });
+
+    it('rendu : la lettre d’un « en projet » DU PERMIS est ROUGE + ◇ + état exposé ; l’existant reste INCHANGÉ', () => {
+      const polys = [
+        { cleabs: 'A1', anneau: [{ x: 1, y: 1 }, { x: 13, y: 1 }, { x: 13, y: 13 }, { x: 1, y: 13 }], etat: 'En projet' },
+        { cleabs: 'B2', anneau: [{ x: 16, y: 16 }, { x: 29, y: 16 }, { x: 29, y: 29 }, { x: 16, y: 29 }], etat: 'En service' },
+        { cleabs: 'C3', anneau: [{ x: 1, y: 16 }, { x: 13, y: 16 }, { x: 13, y: 28 }, { x: 1, y: 28 }], etat: 'En construction' },
+      ];
+      const html = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle: [[{ x: 0, y: 0 }, { x: 30, y: 0 }, { x: 30, y: 30 }, { x: 0, y: 30 }]], emprises: [], polygones: attribuerReperes(polys), filtres, ecartes: [], calageLambert: [] }));
+      // A = En projet → rouge vif dédié + ◇ (2ᵉ marqueur, lisible en N&B) + état lu par les lecteurs d’écran.
+      const gA = blocG(html, 'A');
+      expect(gA).toContain('data-en-projet="true"');
+      expect(gA).toContain('role="img"');
+      expect(gA).toContain('aria-label="Repère A, bâtiment en projet"');
+      expect(gA).toContain('fill="#e11d48"');   // teinte crimson dédiée, distincte du rouge SVAV #a30402 et de l’orange « détruit »
+      expect(gA).toContain('◇');
+      // C = En construction → même traitement (futur bâti).
+      expect(blocG(html, 'C')).toContain('fill="#e11d48"');
+      // B = En service (EXISTANT) → strictement inchangé : encre foncée, aucun ◇, aucun marqueur d’état.
+      const gB = blocG(html, 'B');
+      expect(gB).toContain('fill="#1b1b1b"');
+      expect(gB).not.toContain('data-en-projet');
+      expect(gB).not.toContain('◇');
+      expect(gB).not.toContain('role="img"');
+    });
+
+    it('la LÉGENDE explique le code couleur (repère « en projet » = rouge + ◇)', () => {
+      const html = renderToStaticMarkup(h(LegendeSchemaProjection, {}));
+      expect(html).toContain('Repère d’un bâtiment en projet');
+      expect(html).toContain('#e11d48');
+      expect(html).toContain('A◇');
+    });
+  });
+
   it('OptionsVisibiliteSchema : UN filtre futur bâti (⓪) + repères (①) + libellés d’origine ; plus de doublon', () => {
     const html = renderToStaticMarkup(h(OptionsVisibiliteSchema, { filtres: FILTRES_SCHEMA_DEFAUT, onFiltres: () => {}, nbFutur: 4, nbExistant: 12 }));
     expect(html).toContain('Afficher le bâti existant du permis (BD TOPO)');

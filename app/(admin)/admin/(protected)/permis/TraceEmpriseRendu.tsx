@@ -1378,6 +1378,13 @@ export function attribuerReperes(polygones: PolygoneBdTopo[]): PolygoneRepere[] 
   return polygones.map((p) => p.appartientPermis === false ? { ...p, repere: '' } : { ...p, repere: repereDepuisIndex(n++) });
 }
 
+/** LETTRAGE — RÈGLE PURE « ce repère est-il posé sur un bâtiment EN PROJET DU PERMIS ? ». VRAI ssi le polygone appartient au permis
+ *  (`appartientPermis !== false` — les voisins de contexte ne sont JAMAIS concernés, cf. périmètre) ET son état BD TOPO est « futur bâti »
+ *  (En projet / En construction, cf. `estFuturBati`). Sert à teinter sa lettre en rouge (+ ◇). PUR, testé. */
+export function estReperePolygoneEnProjet(p: { etat: string | null; appartientPermis?: boolean }): boolean {
+  return p.appartientPermis !== false && estFuturBati(p.etat);
+}
+
 /** Centre approximatif d'un anneau (moyenne des sommets) — pour poser la lettre du repère. PUR. */
 function centreAnneau(anneau: PointLambert[]): PointLambert {
   const n = anneau.length || 1;
@@ -1519,6 +1526,11 @@ export interface EtiquetteProjection { cle: string; lignes: string[]; nature: 'r
 const ETIQ_ENCRE = '#1b1b1b';  // texte foncé, lisible sur aplat clair
 const ETIQ_HALO = '#ffffff';   // halo/contour clair (paint-order stroke) pour passer au-dessus d'un aplat
 const ETIQ_ALERTE = '#a30402'; // rouge SVAV en dur : emprise projetée (②) + vrai trou « en projet non affecté »
+// LETTRAGE — rouge VIF (crimson) des LETTRES de repère posées sur un bâtiment « en projet » DU PERMIS. Volontairement DISTINCT du rouge SVAV
+//   #a30402 (ETIQ_ALERTE / --color-svv-red, omniprésent : aplat rosé des emprises, boutons, alertes) et de l'orange #c26a00 « détruit » :
+//   il TRANCHE d'un coup d'œil sur l'aplat rosé, le bleu voisin et le fond blanc (halo blanc paintOrder conservé). La couleur ne porte pas
+//   seule le sens → un suffixe ◇ (même glyphe « projeté » que les étiquettes) et un aria-label « bâtiment en projet » l'accompagnent.
+const REPERE_PROJET_ROUGE = '#e11d48';
 // LOT 90 — EMPREINTE de la parcelle : couleur FIXE (le canvas reste clair en permanence, même en thème sombre — l'ancien
 //   `var(--color-svv-ink)` basculait en clair et devenait INVISIBLE sur fond blanc en sombre). Distincte du bâti par la couleur ET
 //   l'épaisseur ET un remplissage très léger (jamais la couleur seule). #1b2430 ≈ ink clair → rendu clair inchangé, visible en sombre.
@@ -1594,8 +1606,8 @@ export function tailleRepere(anneauPx: readonly { x: number; y: number }[], refV
   return Math.max(Fmin, Math.min(Fmax, dim * REPERE_RATIO));
 }
 
-export interface RepereAPlacer { repere: string; anneauPx: readonly Pt[]; ancre: Pt }
-export interface RepereePlace { repere: string; taille: number; x: number; y: number; deporte: boolean; ax: number; ay: number }
+export interface RepereAPlacer { repere: string; anneauPx: readonly Pt[]; ancre: Pt; enProjet?: boolean } // enProjet : le polygone est un « en projet » DU PERMIS (lettre rouge + ◇), cf. estReperePolygoneEnProjet
+export interface RepereePlace { repere: string; taille: number; x: number; y: number; deporte: boolean; ax: number; ay: number; enProjet?: boolean }
 
 // Couronne déterministe (16 directions normalisées) — MÊME esprit que placerEtiquettes : plus de candidats → on libère plus souvent.
 const DIRS_REPERE: [number, number][] = ([[1, 0], [0, -1], [0, 1], [-1, 0], [1, -1], [1, 1], [-1, -1], [-1, 1],
@@ -1623,7 +1635,7 @@ export function placerReperes(reperes: readonly RepereAPlacer[], obstacles: read
     // DEDANS — polygone assez grand pour une lettre AU PLANCHER (jamais rétrécie dessous) : à l'ancre intérieure.
     if (r.anneauPx.length >= 3 && dim * REPERE_RATIO >= Fmin) {
       const b = boiteLettre(taille);
-      placees.push({ repere: r.repere, taille, x: ax, y: ay, deporte: false, ax, ay });
+      placees.push({ repere: r.repere, taille, x: ax, y: ay, deporte: false, ax, ay, enProjet: r.enProjet });
       boitesPosees.push({ x: ax - b.w / 2, y: ay - b.h / 2, w: b.w, h: b.h });
       continue;
     }
@@ -1638,12 +1650,12 @@ export function placerReperes(reperes: readonly RepereAPlacer[], obstacles: read
         if (!dansCadre(rect.x, rect.y, bt.w, bt.h)) continue;
         const n = obstacles.reduce((s, o) => s + (boiteIntersectePolygone(rect, o as Pt[], REPERE_MARGE) ? 1 : 0), 0)
           + boitesPosees.reduce((s, b) => s + (boitesSeChevauchent(rect, b, REPERE_MARGE) ? 1 : 0), 0);
-        const p: RepereePlace = { repere: r.repere, taille: Fmin, x: cx, y: cy, deporte: true, ax, ay };
+        const p: RepereePlace = { repere: r.repere, taille: Fmin, x: cx, y: cy, deporte: true, ax, ay, enProjet: r.enProjet };
         if (n === 0) { retenue = p; break; }
         if (!moindre || n < moindre.n) moindre = { p, n };
       }
     }
-    const choix = retenue ?? moindre?.p ?? { repere: r.repere, taille: Fmin, x: ax, y: ay, deporte: true, ax, ay };
+    const choix = retenue ?? moindre?.p ?? { repere: r.repere, taille: Fmin, x: ax, y: ay, deporte: true, ax, ay, enProjet: r.enProjet };
     placees.push(choix);
     boitesPosees.push({ x: choix.x - bt.w / 2, y: choix.y - bt.h / 2, w: bt.w, h: bt.h });
   }
@@ -1845,20 +1857,29 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           //   lettre (cf. placerReperes). Obstacles = MÊMES formes que les étiquettes (polygones visibles + emprises), en px.
           const reperes: RepereAPlacer[] = visibles.filter((p) => p.anneau.length >= 3 && p.repere).map((p) => ({
             repere: p.repere as string, anneauPx: p.anneau.map(proj), ancre: projeterDansBoite(boite, pointOnSurfaceAnneau(p.anneau)),
+            enProjet: estReperePolygoneEnProjet(p), // LETTRAGE — lettre rouge + ◇ pour un « en projet » DU PERMIS (les 3 schémas passent par ici : normal, XL, plein écran)
           }));
           const obstacles: { x: number; y: number }[][] = [
             ...visibles.filter((p) => p.anneau.length >= 3).map((p) => p.anneau.map(proj)),
             ...(filtres.emprises ? emprises.flatMap((e) => (e.anneaux?.length ? e.anneaux : [e.anneau]).filter((ring) => ring.length >= 3).map((ring) => ring.map(proj))) : []),
           ];
-          return placerReperes(reperes, obstacles, vb).map((pos, i) => (
-            <g key={`r${i}`} data-repere={pos.repere} data-deportee={pos.deporte || undefined}>
+          return placerReperes(reperes, obstacles, vb).map((pos, i) => {
+            // LETTRAGE — un repère « en projet » DU PERMIS : lettre ROUGE VIF + suffixe ◇ (2ᵉ signal non coloré, lisible en N&B), et l'état
+            //   est exposé aux lecteurs d'écran via role="img"/aria-label. Un repère d'existant reste STRICTEMENT inchangé (encre + halo, lu « A »).
+            const enProjet = pos.enProjet === true;
+            const encre = enProjet ? REPERE_PROJET_ROUGE : ETIQ_ENCRE;
+            return (
+            <g key={`r${i}`} data-repere={pos.repere} data-en-projet={enProjet || undefined} data-deportee={pos.deporte || undefined}
+              {...(enProjet ? { role: 'img', 'aria-label': `Repère ${pos.repere}, bâtiment en projet` } : {})}>
               {/* Trait de rappel (lettre déportée → son bâtiment) : épaisseur PROPORTIONNELLE à la lettre (suit l'échelle d'affichage comme
                   le <text>, jamais figée) et DOUBLÉE (l'ancien 0,5 fixe était presque invisible en colonne comme en plein écran). Reste
                   DISCRET : ~0,09×taille < le corps de la lettre, semi-transparent → plus visible sans masquer le bâti ni un autre polygone. */}
-              {pos.deporte && <line x1={pos.ax} y1={pos.ay} x2={pos.x} y2={pos.y} stroke={ETIQ_ENCRE} strokeWidth={Math.max(1, pos.taille * 0.09)} strokeOpacity={0.6} />}
-              <text x={pos.x} y={pos.y} fontSize={pos.taille} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill={ETIQ_ENCRE} stroke={ETIQ_HALO} strokeWidth={Math.max(1, pos.taille * 0.12)} paintOrder="stroke">{pos.repere}</text>
+              {pos.deporte && <line x1={pos.ax} y1={pos.ay} x2={pos.x} y2={pos.y} stroke={encre} strokeWidth={Math.max(1, pos.taille * 0.09)} strokeOpacity={0.6} />}
+              {/* ◇ aria-hidden porté par le texte (2ᵉ marqueur) ; le sens réel est dans l'aria-label du <g>. */}
+              <text x={pos.x} y={pos.y} fontSize={pos.taille} fontWeight={700} textAnchor="middle" dominantBaseline="central" fill={encre} stroke={ETIQ_HALO} strokeWidth={Math.max(1, pos.taille * 0.12)} paintOrder="stroke" aria-hidden={enProjet || undefined}>{pos.repere}{enProjet ? '◇' : ''}</text>
             </g>
-          ));
+            );
+          });
         })()}
         {/* LOT 82/83 — ÉTIQUETTES sur le dessin : nom du bâtiment + altitude de sommet, ancre GARANTIE intérieure (pointOnSurfaceAnneau).
             LOT 83 : placement COLLISION-AWARE calculé pour TOUTES ENSEMBLE (placerEtiquettes) — DEDANS si la boîte tient, sinon DÉPORTÉE
@@ -2424,6 +2445,10 @@ export function LegendeSchemaProjection() {
         {item({ background: VOISIN_FILL, border: `1px solid ${VOISIN_TRAIT}` }, 'Bâtiment voisin (hors permis — contexte, sans repère)')}
         {item({ background: CONTEXTE_FOND, border: `1px dashed ${CONTEXTE_TRAIT}` }, 'Parcelle voisine (contexte)')}
         {item({ background: 'rgba(31,119,180,.14)', border: '1px dashed #1f77b4' }, 'En projet (donnée IGN)')}
+        {/* LETTRAGE — code couleur des LETTRES de repère : rouge + ◇ = bâtiment « en projet » du permis (l'existant garde son encre foncée). */}
+        <span style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center', fontSize: 11 }}>
+          <span aria-hidden style={{ fontWeight: 700, color: REPERE_PROJET_ROUGE }}>A◇</span><span>Repère d’un bâtiment en projet</span>
+        </span>
         {item({ background: 'rgba(163,4,2,.18)', border: '1px solid var(--color-svv-red)' }, 'Emprise tracée (reconstitution — jamais une mesure)')}
         {/* RATT-3 — DÉCISIONS enregistrées sur l'existant (jamais des faits) : une couleur ne traduit qu'une décision en base. */}
         {item({ background: 'rgba(46,158,91,.22)', border: '1px solid var(--color-svv-green-ink)' }, 'Décidé « préservé » (prévision)')}
@@ -2433,10 +2458,11 @@ export function LegendeSchemaProjection() {
         <summary style={{ cursor: 'pointer', color: 'var(--color-svv-red)' }} aria-label="Explication des catégories du schéma">ⓘ Que veut dire chaque catégorie ?</summary>
         <div style={{ color: 'var(--color-svv-muted)', marginTop: '.2rem', lineHeight: 1.35 }}>
           <div><strong>Empreinte de la parcelle</strong> : le contour attendu de la (ou des) parcelle(s) fusionnée(s) du permis — un REPÈRE de cadrage, jamais une mesure.</div>
-          <div><strong>Le bâtiment du permis</strong> (teal) : donnée officielle IGN — le(s) bâtiment(s) dont la parcelle DOMINANTE (celle où se trouve la majeure partie du bâtiment) fait partie du permis. C’est le SUJET de l’écran : couleur franche + contour marqué, il domine la composition. Lui seul reçoit un repère (A, B, C…) et entre dans l’affectation préservé/détruit.</div>
+          <div><strong>Le bâtiment du permis</strong> (teal) : donnée officielle IGN — le(s) bâtiment(s) dont la parcelle DOMINANTE (celle où se trouve la majeure partie du bâtiment) fait partie du permis. C’est le SUJET de l’écran : couleur franche + contour marqué, il domine la composition. Il reçoit un repère (A, B, C…) — en encre pour un bâtiment existant, en rouge suivi d’un ◇ pour un bâtiment en projet — et entre dans l’affectation préservé/détruit.</div>
           <div><strong>Bâtiment voisin</strong> (bleu) : un bâtiment dont la parcelle dominante N’EST PAS une parcelle du permis (immeuble mitoyen, bâti alentour). Il reste AFFICHÉ pour le contexte de lecture — ce qui compte pour le vis-à-vis — mais il ne reçoit PAS de repère et n’entre PAS dans l’affectation préservé/détruit. Il relève de l’interrupteur « Afficher les parcelles voisines et leur bâti (contexte) », PAS de « bâti existant du permis » : décocher « bâti existant » ne le masque pas.</div>
           <div><strong>Parcelle voisine</strong> (bleu clair) : le contour des parcelles alentour dans un rayon (réglable), pour SITUER. Ces objets ne sont JAMAIS candidats à l’affectation ni à l’empreinte. L’interrupteur « Afficher les parcelles voisines et leur bâti » les masque (aucun chargement quand il est éteint).</div>
           <div><strong>En projet</strong> : donnée officielle IGN — des bâtiments dessinés dans les données mais pas encore construits.</div>
+          <div><strong>Repère « en projet »</strong> : la lettre (A, B, C…) d’un bâtiment encore en projet est écrite en <span style={{ color: REPERE_PROJET_ROUGE, fontWeight: 700 }}>rouge et suivie d’un ◇</span> ; celle d’un bâtiment existant reste en encre foncée. On distingue ainsi d’un coup d’œil, sur le dessin, ce qui est déjà bâti de ce qui est encore projeté.</div>
           <div><strong>Emprise tracée</strong> : un contour que vous avez dessiné à la main (une reconstitution, jamais une mesure). Il ne sert qu’à visualiser : il n’alimente ni le verdict, ni l’altitude, ni un certificat.</div>
           <div><strong>Décidé « préservé » / « détruit »</strong> : votre décision ENREGISTRÉE sur un bâtiment existant (vert = préservé, orange = détruit). C’est une PRÉVISION, à confronter à la mise à jour cadastrale — jamais un fait. Un bâtiment sans décision reste gris, même recouvert par l’emprise projetée.</div>
         </div>
