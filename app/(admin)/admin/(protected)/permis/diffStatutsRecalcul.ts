@@ -90,3 +90,21 @@ export function desaccordsActifs(desaccords: readonly DesaccordStatut[], statuts
     return e != null && e.origine === 'saisie' && e.statut === d.manuel && d.manuel !== d.autoPropose;
   });
 }
+
+/**
+ * MARQUAGE du bloc « Affectation … existants » : les deux index par cleabs consommés par le rendu — un CHANGEMENT à écrire sur la carte du
+ * bâtiment concerné, un DÉSACCORD (encore ACTIF) à marquer distinctement avec de quoi adopter le recalcul. Dérivé du diff + des statuts COURANTS
+ * (les désaccords déjà réglés par Arno sont filtrés live via `desaccordsActifs`). PUR — même source que la notification (vocabulaire unique).
+ */
+export interface MarquageRecalcul {
+  changementsParCleabs: Map<string, ChangementStatut>;
+  desaccordsParCleabs: Map<string, DesaccordStatut>;
+}
+export function marquageRecalcul(diff: DiffRecalcul | null, statutsCourants: ReadonlyMap<string, EtatStatutPolygone>): MarquageRecalcul {
+  if (diff === null) return { changementsParCleabs: new Map(), desaccordsParCleabs: new Map() };
+  const actifs = desaccordsActifs(diff.desaccords, statutsCourants);
+  return {
+    changementsParCleabs: new Map(diff.changements.map((c) => [c.cleabs, c])),
+    desaccordsParCleabs: new Map(actifs.map((d) => [d.cleabs, d])),
+  };
+}

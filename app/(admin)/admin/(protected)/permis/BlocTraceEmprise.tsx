@@ -17,7 +17,7 @@ import { ancragePoignees } from './ancragePoignees'; // BAT (défaut E) — ancr
 import { validationParCorpsDepuisEmprises } from './etatValidationEmprise'; // POINT 1 — validation par corps dérivée de la SEULE vérité par emprise (source unique bandeau/en-tête/onglet/rangée)
 import { emprisesASurligner } from './surlignageSelection'; // D — emprises du bâtiment sélectionné à surligner sur la vue normale/XL (≥ 2 bâtiments)
 import { impactTraceManuel, type ImpactTraceManuel } from './impactTraceManuel'; // GARDE-FOU — ce qu'un tracé manuel va effacer (emprises adoptées + validations)
-import type { DiffRecalcul } from './diffStatutsRecalcul'; // RECALCUL STATUTS — diff renvoyé par un ajustement (notification + marquage du bloc), état partagé
+import { marquageRecalcul, type DiffRecalcul } from './diffStatutsRecalcul'; // RECALCUL STATUTS — diff renvoyé par un ajustement (notification + marquage du bloc), état partagé + dérivation du marquage
 import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, CartouchesAjustables, BasculeMode, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, ConfirmationTraceManuel, NotificationRecalculStatut, abregerCleabs, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
@@ -1206,6 +1206,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
 
   // RATT-1 (2) — statut COURANT par cleabs (dérivé du registre append-only). Pur, dérivé de l'état.
   const statutParCleabs = useMemo(() => statutCourantParCleabs(statutsLignes), [statutsLignes]);
+  // RECALCUL STATUTS — marquage du bloc dérivé du diff + des statuts COURANTS : les désaccords réglés par Arno (via « adopter » ou un ré-arbitrage
+  //   à la main) disparaissent LIVE sans nouvel ajustement (desaccordsActifs, dans marquageRecalcul). Même source PURE que la notification.
+  const marquage = useMemo(() => marquageRecalcul(recalculStatut, statutParCleabs), [recalculStatut, statutParCleabs]);
   // RATT-1 (2) — STATUER un polygone existant (préservé / détruit / révoquer). La réponse serveur (registre à jour) fait foi.
   const statuerPolygone = useCallback(async (cleabs: string, statut: 'preserve' | 'detruit' | 'mixte' | 'revoque') => {
     setMessage(null);
@@ -1798,7 +1801,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
             <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
             {/* AFF-1 — deux blocs REPLIÉS (identiques dans les deux onglets), sous le schéma : polygones « projet » affectés, puis bâtiments existants. */}
             <BlocProjetRepliable emprises={emprises} polygones={polygonesReperes} batiments={batiments} />
-            <BlocExistantsRepliable polygones={polygonesPermis} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
+            <BlocExistantsRepliable polygones={polygonesPermis} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} marquage={marquage} onAcquitter={onAcquitterRecalcul} />
 
             {/* PROJ-3r — TROISIÈME issue, DANS l'encart « en projet » : affecter chaque groupe à un bâtiment déclaré + adopter (scinder/fusionner). */}
             <AdoptionGroupes groupes={groupesAdoption} batiments={batiments} reperes={reperesParCleabs} affectation={affectation} scindes={scindes} occupe={occupe}
@@ -1901,7 +1904,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 <SelectionPolygonesProjet polygones={polygonesReperes} ecartes={ecartes} onToggle={(cleabs, ecarter) => void basculerEcart(cleabs, ecarter)} />
             {/* AFF-1 — deux blocs REPLIÉS (identiques dans les deux onglets), sous le schéma : polygones « projet » affectés, puis bâtiments existants. */}
             <BlocProjetRepliable emprises={emprises} polygones={polygonesReperes} batiments={batiments} />
-            <BlocExistantsRepliable polygones={polygonesPermis} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} />
+            <BlocExistantsRepliable polygones={polygonesPermis} recouverts={recouverts} statuts={statutParCleabs} onStatuer={(cleabs, statut) => void statuerPolygone(cleabs, statut)} marquage={marquage} onAcquitter={onAcquitterRecalcul} />
               </div>
             </div>
             {/* BAT (défaut C) — bandeau parcelle EN BAS, sous le schéma (info de contexte, pas un outil) : contenu et lien « revenir à la configuration d'origine » inchangés. */}

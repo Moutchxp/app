@@ -9,7 +9,7 @@ import {
 import { placerPoigneeDansCadre, type CadreBoite, type BornesTige } from './ancragePoignees'; // BAT (défaut E) — borne la longueur de tige + replie la poignée dans le cadre (unités boîte), rendu ET hit-test → jamais divergents
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { ImpactTraceManuel } from './impactTraceManuel'; // GARDE-FOU — avant qu'un tracé manuel efface les emprises adoptées d'un bâtiment
-import type { ChangementStatut, DiffRecalcul } from './diffStatutsRecalcul'; // RECALCUL STATUTS — notification (zone d'alerte), source unique du diff
+import type { ChangementStatut, DesaccordStatut, DiffRecalcul, MarquageRecalcul } from './diffStatutsRecalcul'; // RECALCUL STATUTS — notification (zone d'alerte) + marquage du bloc, source unique du diff
 import type { StatutDecide } from '../../../../lib/permis/polygoneStatut';
 import { libelleBatiment, resumeProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { nomAffichageCorps, resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-1/NOM-3 — nom d'un corps ; nom DISTINCT par emprise (repère + « (numéro) »)
@@ -1005,9 +1005,10 @@ export function ListeEmprises({ emprises, onSupprimer, onRetoucher, onAjuster, o
               {enAjustement && <span style={{ color: 'var(--color-svv-ink)', fontWeight: 600 }}> · en cours d’ajustement</span>}
               {!retouchable && <span style={muted}> · retouche indisponible (emprise multi-parties)</span>}
               {/* PROJ-3t (lot 3a) — SIGNAL lisible, piloté par la DONNÉE (delta non NULL) : une emprise ajustée à la main est distinguable ici, avec
-                  qui/quand, et l'affectation des polygones voisins est signalée « à vérifier » — sans AUCUNE action automatique (règle e : un
-                  ajustement ne recalcule jamais les statuts « détruit »). Latent tant que le geste d'ajustement (lot 3b) n'existe pas. */}
-              {e.ajustement && <span data-ajustee="true" style={{ color: '#b45309', fontWeight: 600 }}> · ✎ ajustée à la main{e.ajustement.pose_le ? ` le ${jourFrParis(e.ajustement.pose_le)}` : ''}{e.ajustementParNom ? ` par ${e.ajustementParNom}` : ''} — affectation des voisins à vérifier</span>}
+                  qui/quand. RÈGLE E LEVÉE (décision Arno) : un ajustement RECALCULE désormais les statuts auto des bâtiments recouverts ; les
+                  changements sont signalés par la notification de la zone d'alerte + le marquage du bloc « Affectation … existants » (acquittables),
+                  et non plus par un avertissement permanent « affectation des voisins à vérifier ». Les décisions à la main ne sont jamais écrasées. */}
+              {e.ajustement && <span data-ajustee="true" style={{ color: '#b45309', fontWeight: 600 }}> · ✎ ajustée à la main{e.ajustement.pose_le ? ` le ${jourFrParis(e.ajustement.pose_le)}` : ''}{e.ajustementParNom ? ` par ${e.ajustementParNom}` : ''}</span>}
               {/* VAL-1 — VALIDATION PAR EMPRISE : « ✓ validée » (qui/quand) OU (dans les actions) un bouton « valider ». Deux emprises se valident indépendamment. */}
               {e.validee && <span data-validee="true" style={{ color: 'var(--color-svv-green-ink)', fontWeight: 700 }}> · ✓ emprise validée{e.valideeLe ? ` le ${jourFrParis(e.valideeLe)}` : ''}{e.valideeParNom ? ` par ${e.valideeParNom}` : ''}</span>}
               {/* POINT 2 — mention ÉCRITE de l'attente, lisible sans survol, à côté du bouton qui bat (la couleur ne porte jamais seule le sens). */}
@@ -1079,7 +1080,7 @@ export function PanneauAjustement({ resume, occupe = false, aDeltaEnregistre, bl
           </div>
         </div>
       </div>
-      <p style={{ ...muted, margin: 0, fontStyle: 'italic' }}>Sur le schéma : glissez le dessin pour le déplacer, ou une poignée (↻ / ⤢) pour tourner / redimensionner. Ajuster ne mesure rien — une emprise ajustée reste une reconstitution, et l’affectation des polygones voisins reste à vérifier à la main.</p>
+      <p style={{ ...muted, margin: 0, fontStyle: 'italic' }}>Sur le schéma : glissez le dessin pour le déplacer, ou une poignée (↻ / ⤢) pour tourner / redimensionner. Ajuster ne mesure rien — une emprise ajustée reste une reconstitution. À l’enregistrement, l’affectation des bâtiments existants recouverts est recalculée automatiquement (vos décisions à la main sont conservées ; les changements vous sont signalés).</p>
       <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
         <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto' }} disabled={occupe} onClick={onEnregistrer}>Enregistrer l’ajustement</button>
         <button type="button" style={b} disabled={occupe} onClick={onAbandonner}>Abandonner</button>
@@ -2144,9 +2145,19 @@ const TROIS_STATUTS: { s: 'preserve' | 'mixte' | 'detruit'; label: string }[] = 
   { s: 'mixte', label: 'partiellement détruit' },
   { s: 'detruit', label: 'bâtiment détruit' },
 ];
+// RECALCUL STATUTS — accent UNIQUE (indigo) du recalcul, partagé par la notification ET les marquages du bloc. JAMAIS le rouge (déjà pris par
+//   le taux de recouvrement, l'encart de prévision et les erreurs) ni le vert/orange (décisions préservé/détruit). La couleur ne porte jamais seule le sens.
+const INDIGO_RECALCUL = '#4338ca';
 /** RECALCUL STATUTS — libellé d'un statut, IDENTIQUE aux boutons du bloc (aucun 3e vocabulaire). `null` = aucun statut = bâtiment préservé. */
 export function motStatutRecalcul(s: StatutDecide | null): string {
   return TROIS_STATUTS.find((t) => t.s === s)?.label ?? 'bâtiment préservé';
+}
+/** RECALCUL STATUTS — mention ÉCRITE du titre replié du bloc quand il reste des changements non acquittés / des désaccords actifs. PUR. */
+export function libelleMentionMarquage(nbChangements: number, nbDesaccords: number): string {
+  const bouts: string[] = [];
+  if (nbChangements > 0) bouts.push(`${nbChangements} changement${nbChangements > 1 ? 's' : ''}`);
+  if (nbDesaccords > 0) bouts.push(`${nbDesaccords} désaccord${nbDesaccords > 1 ? 's' : ''}`);
+  return bouts.length ? `↻ ${bouts.join(', ')} après ajustement` : '';
 }
 /** RECALCUL STATUTS — un changement, en français simple : entrée/sortie de sous l'emprise, ou ancien → nouveau statut. PUR. */
 export function libelleChangementRecalcul(c: ChangementStatut): string {
@@ -2168,7 +2179,7 @@ export function NotificationRecalculStatut({ diff, repereDe, occupe = false, onA
   const n = diff.changements.length;
   return (
     <div className="svv-card" role="status" aria-live="polite" data-recalcul-notif="true"
-      style={{ borderLeft: '4px solid #4338ca', display: 'flex', flexDirection: 'column', gap: '.35rem', fontSize: 12.5 }}>
+      style={{ borderLeft: `4px solid ${INDIGO_RECALCUL}`, display: 'flex', flexDirection: 'column', gap: '.35rem', fontSize: 12.5 }}>
       <div style={{ fontWeight: 600 }}><span aria-hidden>↻ </span>Recalcul après ajustement : {n} bâtiment{n > 1 ? 's' : ''} existant{n > 1 ? 's' : ''} mis à jour</div>
       <ul style={{ margin: 0, paddingLeft: '1.1rem', color: 'var(--color-svv-ink)' }}>
         {diff.changements.map((c) => <li key={c.cleabs}><strong>{repereDe(c.cleabs)}</strong> : {libelleChangementRecalcul(c)}</li>)}
@@ -2177,10 +2188,14 @@ export function NotificationRecalculStatut({ diff, repereDe, occupe = false, onA
     </div>
   );
 }
-export function StatutPolygonesExistants({ polygones, recouverts, statuts, onStatuer, sansEntete = false }: {
+export function StatutPolygonesExistants({ polygones, recouverts, statuts, onStatuer, sansEntete = false, changementsParCleabs, desaccordsParCleabs }: {
   polygones: PolygoneRepere[]; recouverts: readonly PolygoneRecouvert[]; statuts: Map<string, EtatStatutPolygone>;
   onStatuer: (cleabs: string, statut: 'preserve' | 'detruit' | 'mixte' | 'revoque') => void;
   sansEntete?: boolean; // AFF-1 — masque le titre interne quand le bloc est porté par le résumé d'un <details> replié (le titre est sur le summary).
+  // RECALCUL STATUTS — marquages du dernier ajustement, par cleabs : un CHANGEMENT (auto) écrit sur la carte ; un DÉSACCORD (décision à la main
+  //   que le recalcul contredirait) marqué distinctement, avec « adopter le recalcul » d'un geste. Vides / absents → aucun marquage (rétro-compatible).
+  changementsParCleabs?: ReadonlyMap<string, ChangementStatut>;
+  desaccordsParCleabs?: ReadonlyMap<string, DesaccordStatut>;
 }) {
   // RATT-5 — `recouverts` ne contient QUE les polygones au-dessus du plancher (part sous l'emprise ≥ plancher config) ; chacun porte son taux (%).
   const tauxRecouvrement = new Map(recouverts.map((r) => [r.cleabs, r.tauxPct]));
@@ -2208,6 +2223,9 @@ export function StatutPolygonesExistants({ polygones, recouverts, statuts, onSta
         const recouvert = tauxRecouvert !== undefined;
         // AFF-2 — CAS PARTICULIER : « détruit » FORCÉ à la main sur un polygone qu'AUCUNE emprise projetée ne recouvre → décision volontaire (pas une déduction).
         const detruitForceSansRecouvrement = decide === 'detruit' && estManuel && !recouvert;
+        // RECALCUL STATUTS — marquages du dernier ajustement pour CE bâtiment (mutuellement exclusifs : un changement est auto, un désaccord est à la main).
+        const chg = p.cleabs !== null ? changementsParCleabs?.get(p.cleabs) : undefined;
+        const des = p.cleabs !== null ? desaccordsParCleabs?.get(p.cleabs) : undefined;
         return (
           <div key={p.cleabs} style={{ ...carte, display: 'flex', flexDirection: 'column', gap: '.2rem' }} data-statut={decide ?? undefined} data-origine={origine ?? undefined}>
             <div style={{ fontSize: 12 }}>
@@ -2220,6 +2238,16 @@ export function StatutPolygonesExistants({ polygones, recouverts, statuts, onSta
             </div>
             {/* RATT-5 — TAUX de recouvrement toujours affiché quand le polygone est recouvert : Arno voit DE COMBIEN il s'agit. */}
             {recouvert && <span role="note" style={{ fontSize: 11, color: 'var(--color-svv-red)', fontWeight: 700 }}>recouvert à {Math.round(tauxRecouvert!)} % par l’emprise projetée</span>}
+            {/* RECALCUL STATUTS — CHANGEMENT (statut auto modifié / entrée / sortie), écrit en clair. Accent indigo (jamais rouge). Le texte porte le sens. */}
+            {chg && <span role="status" data-recalcul-change="true" style={{ fontSize: 11, color: 'var(--color-svv-ink)', borderLeft: `3px solid ${INDIGO_RECALCUL}`, background: 'var(--color-svv-note-bg)', borderRadius: '.3rem', padding: '.2rem .45rem' }}><span aria-hidden>↻ </span>Recalcul après ajustement : {libelleChangementRecalcul(chg)}</span>}
+            {/* RECALCUL STATUTS — DÉSACCORD (décision à la main que le recalcul contredirait) : marquage DISTINCT (encadré indigo pointillé + « ≠ »),
+                la décision manuelle RESTE en place, et un seul geste pour ADOPTER le recalcul. Disparaît dès qu'Arno l'a réglé (filtré live). */}
+            {des && (
+              <div role="note" data-recalcul-desaccord="true" style={{ display: 'flex', flexDirection: 'column', gap: '.25rem', fontSize: 11, color: 'var(--color-svv-ink)', border: `1px dashed ${INDIGO_RECALCUL}`, borderRadius: '.35rem', padding: '.25rem .45rem' }}>
+                <span><span aria-hidden>≠ </span><strong>Désaccord avec le recalcul.</strong> Le recalcul propose « {motStatutRecalcul(des.autoPropose)} » ; votre décision à la main (« {motStatutRecalcul(des.manuel)} ») est conservée.</span>
+                <button type="button" data-adopter-recalcul={des.autoPropose} style={{ alignSelf: 'flex-start', cursor: 'pointer', fontSize: 11, minHeight: 30, padding: '.15rem .5rem', borderRadius: '.4rem', background: INDIGO_RECALCUL, color: '#fff', border: 'none' }} onClick={() => onStatuer(p.cleabs!, des.autoPropose)}>Adopter le recalcul : {motStatutRecalcul(des.autoPropose)}</button>
+              </div>
+            )}
             {/* AFF-2 — les TROIS statuts, TOUJOURS actifs (arbitrage manuel). Le statut courant est en gras ; la mention (auto/à la main) est au-dessus. */}
             <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
               {TROIS_STATUTS.map(({ s, label }) => (
@@ -2347,17 +2375,30 @@ export function BlocProjetRepliable({ emprises, polygones, batiments }: {
  * bâtiments). Ouvert : EXACTEMENT le contenu de StatutPolygonesExistants (mention rouge, taux, mixte, boutons, historique), sans son
  * titre interne (porté par le résumé). `<details>` natif. Rien si aucun bâtiment statuable. PUR.
  */
-export function BlocExistantsRepliable({ polygones, recouverts, statuts, onStatuer }: {
+export function BlocExistantsRepliable({ polygones, recouverts, statuts, onStatuer, marquage, onAcquitter }: {
   polygones: PolygoneRepere[]; recouverts: readonly PolygoneRecouvert[]; statuts: Map<string, EtatStatutPolygone>;
   onStatuer: (cleabs: string, statut: 'preserve' | 'detruit' | 'mixte' | 'revoque') => void;
+  // RECALCUL STATUTS — marquages du dernier ajustement (par cleabs) + acquittement PARTAGÉ avec la notification (un seul état). Absents → aucun marquage.
+  marquage?: MarquageRecalcul;
+  onAcquitter?: () => void;
 }) {
   const n = nbBatimentsStatuables(polygones, recouverts);
   if (n === 0) return null;
+  const nbChg = marquage?.changementsParCleabs.size ?? 0;
+  const nbDes = marquage?.desaccordsParCleabs.size ?? 0;
+  const mention = libelleMentionMarquage(nbChg, nbDes); // vide si rien à signaler
   return (
     <details style={{ ...carte }} data-bloc="existants">
-      <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Affectation (préservé / partiellement détruit / détruit) des bâtiments existants de la ou des parcelles du permis <span style={{ fontWeight: 400, color: 'var(--color-svv-muted)' }}>— {n} bâtiment{n > 1 ? 's' : ''}</span></summary>
-      <div style={{ marginTop: '.4rem' }}>
-        <StatutPolygonesExistants polygones={polygones} recouverts={recouverts} statuts={statuts} onStatuer={onStatuer} sansEntete />
+      <summary style={{ cursor: 'pointer', fontSize: 12, fontWeight: 700 }}>Affectation (préservé / partiellement détruit / détruit) des bâtiments existants de la ou des parcelles du permis <span style={{ fontWeight: 400, color: 'var(--color-svv-muted)' }}>— {n} bâtiment{n > 1 ? 's' : ''}</span>{mention !== '' && <span data-recalcul-titre="true" style={{ fontWeight: 700, color: INDIGO_RECALCUL }}> · {mention}</span>}</summary>
+      <div style={{ marginTop: '.4rem', display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+        {/* RECALCUL STATUTS — ACQUITTEMENT depuis le bloc : lève le MÊME état que la notification (donc les deux disparaissent ensemble). Réversible : rien n'est écrit. */}
+        {mention !== '' && onAcquitter && (
+          <div data-recalcul-acquit-bloc="true" style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.4rem', fontSize: 11, color: 'var(--color-svv-ink)', borderLeft: `3px solid ${INDIGO_RECALCUL}`, background: 'var(--color-svv-note-bg)', borderRadius: '.3rem', padding: '.25rem .45rem' }}>
+            <span><span aria-hidden>↻ </span>Ces marquages viennent du dernier ajustement.</span>
+            <button type="button" onClick={onAcquitter} style={{ cursor: 'pointer', fontSize: 11, minHeight: 30, padding: '.15rem .5rem', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', border: '1px solid var(--color-svv-line)' }}>J’ai vu</button>
+          </div>
+        )}
+        <StatutPolygonesExistants polygones={polygones} recouverts={recouverts} statuts={statuts} onStatuer={onStatuer} sansEntete changementsParCleabs={marquage?.changementsParCleabs} desaccordsParCleabs={marquage?.desaccordsParCleabs} />
       </div>
     </details>
   );

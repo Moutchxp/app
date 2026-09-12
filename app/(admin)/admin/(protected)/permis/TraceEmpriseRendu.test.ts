@@ -28,12 +28,13 @@ describe('PROJ-2 — rendu pur', () => {
     expect(html).toContain('aucun écart ne peut être calculé'); // 🔴 honnêteté : sur 2 repères on ne montre PAS de « 0,00 m » vert, on met la phrase neutre
   });
 
-  it('ListeEmprises : une emprise AJUSTÉE porte un signal lisible (qui/quand + affectation à vérifier) ; non ajustée = rien', () => {
+  it('ListeEmprises : une emprise AJUSTÉE porte un signal lisible (qui/quand) ; non ajustée = rien. Règle e LEVÉE → plus d’avertissement « affectation à vérifier »', () => {
     const sans = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ id: 1 })] }));
     expect(sans).not.toContain('ajustée à la main');
     const avec = renderToStaticMarkup(h(ListeEmprises, { emprises: [emprise({ id: 2, ajustement: { tx: 1, ty: 0, rotDeg: 0, echelle: 1, centre: { x: 0, y: 0 }, pose_le: '2026-09-09T10:00:00Z', pose_par: '2' }, ajustementParNom: 'Arnaud Jorel' })] }));
     expect(avec).toContain('ajustée à la main');
-    expect(avec).toContain('affectation des voisins à vérifier');
+    // RÈGLE E LEVÉE : l'avertissement permanent « affectation des voisins à vérifier » a disparu (remplacé par la notification + le marquage acquittables du bloc).
+    expect(avec).not.toContain('affectation des voisins à vérifier');
     expect(avec).toContain('data-ajustee="true"');
     // 🔴 le NOM COMPLET est affiché, JAMAIS l'identifiant brut (pose_par='2')
     expect(avec).toContain('par Arnaud Jorel');

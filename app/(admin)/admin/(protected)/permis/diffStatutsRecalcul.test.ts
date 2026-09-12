@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { diffStatutsRecalcul, construireEtatsPourDiff, desaccordsActifs, type EtatPourDiff } from './diffStatutsRecalcul';
+import { diffStatutsRecalcul, construireEtatsPourDiff, desaccordsActifs, marquageRecalcul, type EtatPourDiff, type DiffRecalcul } from './diffStatutsRecalcul';
 import type { EtatStatutPolygone } from '../../../../lib/permis/polygoneStatut';
 
 const e = (over: Partial<EtatPourDiff> & { cleabs: string }): EtatPourDiff =>
@@ -72,6 +72,29 @@ describe('desaccordsActifs — un désaccord réglé par Arno disparaît du marq
   });
   it('Arno a re-décidé « détruit » à la main (= ce que proposait le recalcul) → résolu', () => {
     expect(desaccordsActifs(desaccords, new Map([['A', courant('detruit', 'saisie')]]))).toEqual([]);
+  });
+});
+
+describe('marquageRecalcul — index par cleabs pour le marquage du bloc (changements + désaccords ACTIFS)', () => {
+  const diff: DiffRecalcul = {
+    changements: [{ cleabs: 'A', nature: 'statut', avant: 'mixte', apres: 'detruit' }],
+    desaccords: [{ cleabs: 'B', manuel: 'preserve', autoPropose: 'detruit' }],
+    aDesChangements: true,
+  };
+  it('un changement indexé + un désaccord ENCORE actif indexé', () => {
+    const m = marquageRecalcul(diff, new Map([['B', courant('preserve', 'saisie')]]));
+    expect(m.changementsParCleabs.get('A')).toEqual({ cleabs: 'A', nature: 'statut', avant: 'mixte', apres: 'detruit' });
+    expect(m.desaccordsParCleabs.get('B')).toEqual({ cleabs: 'B', manuel: 'preserve', autoPropose: 'detruit' });
+  });
+  it('un désaccord réglé par Arno (statut adopté = auto) n’est plus marqué (filtré live)', () => {
+    const m = marquageRecalcul(diff, new Map([['B', courant('detruit', 'saisie')]])); // Arno a adopté « détruit »
+    expect(m.changementsParCleabs.size).toBe(1); // le changement reste (acquittable)
+    expect(m.desaccordsParCleabs.size).toBe(0);  // le désaccord a disparu
+  });
+  it('diff null → aucun marquage', () => {
+    const m = marquageRecalcul(null, new Map());
+    expect(m.changementsParCleabs.size).toBe(0);
+    expect(m.desaccordsParCleabs.size).toBe(0);
   });
 });
 
