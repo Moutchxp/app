@@ -1505,6 +1505,22 @@ describe('PROJ-3s — retouche : liste (retoucher / multi-parties) + poignées s
     expect(html).toContain('data-ajustement="rotation"');
     expect(html).toContain('data-ajustement="echelle"');
   });
+  it('SchemaParcelleTrace (D) : emprises surlignées = trame (hachure) + liseré teal ; les autres non ; aucune → pas de trame ni data-surlignee', () => {
+    const boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 40, minY: 0, maxY: 40 } };
+    const parcelle = [[{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 0, y: 40 }]];
+    const A = [{ x: 2, y: 2 }, { x: 12, y: 2 }, { x: 12, y: 12 }, { x: 2, y: 12 }];
+    const B = [{ x: 22, y: 25 }, { x: 32, y: 25 }, { x: 32, y: 35 }, { x: 22, y: 35 }];
+    const emprises = [emprise({ id: 16, anneau: A, anneaux: [A] }), emprise({ id: 17, anneau: B, anneaux: [B] })];
+    const surl = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle, emprises, calageLambert: [], empriseSurligneeIds: [16] }));
+    expect(surl).toContain('id="svv-hachure-sel"');                    // la trame (pattern) est définie car il y a une emprise surlignée
+    expect(surl).toContain('data-surlignee="16"');                     // l'emprise du bâtiment sélectionné est surlignée…
+    expect(surl).not.toContain('data-surlignee="17"');                 // …pas les autres
+    expect(surl).toContain('fill="url(#svv-hachure-sel)"');            // remplie de la trame (pas l'aplat rosé)
+    expect(surl).toMatch(/data-surlignee="16"[^>]*stroke="#0f766e"/);  // liseré FIN teal (cohérent avec le plein écran)
+    const sans = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle, emprises, calageLambert: [] }));
+    expect(sans).not.toContain('svv-hachure-sel');                     // aucune surlignée → pas de trame inutile
+    expect(sans).not.toContain('data-surlignee');
+  });
 });
 
 describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décision côte à côte', () => {

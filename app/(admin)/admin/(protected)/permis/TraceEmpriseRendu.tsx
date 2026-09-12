@@ -1644,12 +1644,13 @@ export function couleurResidu(m: number): string {
   return m >= SEUIL_RESIDU_CALAGE_M ? 'var(--color-svv-red)' : m >= SEUIL_RESIDU_CALAGE_BON_M ? '#b45309' : '#15803d';
 }
 
-export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, residusCalage = [], indicePireCalage = -1, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, retoucheEmpriseId = null, afficherOrigineRetouche = true, sommetSelectionne = null, apercuAjustement = null, onPointeurAjustement, statuts, etiquettes = [], voisinage = [] }: {
+export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, residusCalage = [], indicePireCalage = -1, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, retoucheEmpriseId = null, empriseSurligneeIds = [], afficherOrigineRetouche = true, sommetSelectionne = null, apercuAjustement = null, onPointeurAjustement, statuts, etiquettes = [], voisinage = [] }: {
   boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[];
   residusCalage?: number[]; indicePireCalage?: number; // PROJ — écart PAR repère (m, aligné sur calageLambert) + indice du plus fautif ; affichés SEULEMENT à partir de 3 repères (sur 2, tout est 0 par construction).
   angle?: number; hauteurMax?: string; onCliquer?: (px: { x: number; y: number }) => void;
   retoucheAnneau?: PointLambert[] | null; sommetSelectionne?: number | null; // PROJ-3s — contour en RETOUCHE (poignées éditables) + sommet sélectionné
   retoucheEmpriseId?: number | null; // emprise en cours de retouche : son ORIGINE passe en gris « en retrait » (contraste), et se masque si afficherOrigineRetouche=false
+  empriseSurligneeIds?: number[]; // D — emprises du BÂTIMENT SÉLECTIONNÉ (vue normale/XL, ≥ 2 bâtiments) : trame + liseré teal pour VOIR quel bâtiment est visé. Vide = aucun surlignage
   afficherOrigineRetouche?: boolean;  // calque d'ORIGINE pendant la retouche : visible par défaut (repère), masquable (confort d'affichage, ne touche jamais la géométrie)
   // PROJ-3t (lot 3b) — APERÇU d'ajustement (emprise manipulée en surbrillance + poignées rotation/échelle + centre) et pointeur (drag). `pxBoite` en coords BOÎTE (comme onCliquer).
   apercuAjustement?: { anneaux: PointLambert[][]; centre: PointLambert; poigneeRotation: PointLambert; poigneeEchelle: PointLambert } | null;
@@ -1699,6 +1700,8 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
   //   (proportionnel au viewBox) : la zone de capture suit la taille de la bulle à tout niveau d'affichage, sans coupler le parent. Le parent
   //   ne fait que la conversion pxBoite → Lambert (il connaît la boîte utilisée). Rayon partagé avec le rendu (aucune valeur en dur en double).
   const rBulle = rayonBullePoignee(Math.min(vb.w, vb.h));
+  // D — pas de la TRAME (hachure) du surlignage de sélection, en unités boîte : proportionnel au viewBox pour rester lisible à tout zoom, borné bas.
+  const pasHachure = Math.max(6, Math.min(vb.w, vb.h) / 45);
   // BAT (défaut E) — positions ÉCRAN (unités boîte) des poignées, PARTAGÉES par le rendu ET le hit-test (une seule vérité → on saisit
   //   exactement ce qu'on voit). Cadre = viewBox rétréci du rayon d'une bulle (la bulle ENTIÈRE reste dans le champ). Bornes de tige :
   //   min = 2,4·rBulle (les bulles ne se chevauchent jamais, même sur un polygone minuscule) ; max = 0,42·(petit côté du viewBox) (les
@@ -1724,6 +1727,16 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
       onPointerDown={onPointeurAjustement ? (ev) => { const { px, scale } = pxEtScaleDe(ev); (ev.currentTarget as SVGSVGElement).setPointerCapture(ev.pointerId); onPointeurAjustement('down', px, cibleAjust(px, scale)); } : undefined}
       onPointerMove={onPointeurAjustement ? (ev) => { if (ev.buttons !== 0 || ev.pointerType === 'touch') { const { px, scale } = pxEtScaleDe(ev); onPointeurAjustement('move', px, cibleAjust(px, scale)); } } : undefined}
       onPointerUp={onPointeurAjustement ? (ev) => { const { px, scale } = pxEtScaleDe(ev); onPointeurAjustement('up', px, cibleAjust(px, scale)); } : undefined}>
+      {/* D — TRAME (hachure) du surlignage du bâtiment sélectionné : diagonale teal DISCRÈTE sur un aplat teal très clair → distingue la
+          sélection SANS masquer le tracé dessous. Rendue seulement s'il y a des emprises à surligner (un seul schéma la porte : normale/XL). */}
+      {empriseSurligneeIds.length > 0 && (
+        <defs>
+          <pattern id="svv-hachure-sel" width={pasHachure} height={pasHachure} patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <rect width={pasHachure} height={pasHachure} fill="rgba(15,118,110,.10)" />
+            <line x1={0} y1={0} x2={0} y2={pasHachure} stroke={SELECTION_TRAIT} strokeWidth={Math.max(0.8, pasHachure * 0.14)} strokeOpacity={0.5} />
+          </pattern>
+        </defs>
+      )}
       <g transform={angle ? `rotate(${angle} ${centre.x} ${centre.y})` : undefined}>
         {/* PROJ-CTX — 3e REGISTRE, dessiné EN PREMIER (donc DERRIÈRE tout le reste) : parcelles voisines (contour mauve fin tireté, sans
             aplat) + leur bâti (aplat mauve très léger). Teinte DISTINCTE des gris du principal/mitoyen → « ce qu'il y a autour », jamais
@@ -1760,10 +1773,17 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           //   tireté « en retrait » (repère d'où l'on part), ou on le masque si le calque d'origine est éteint (confort d'affichage seul).
           const enRetouche = retoucheEmpriseId !== null && e.id === retoucheEmpriseId;
           if (enRetouche && !afficherOrigineRetouche) return null;
+          // D — EMPRISE DU BÂTIMENT SÉLECTIONNÉ (vue normale/XL, ≥ 2 bâtiments) : TRAME (hachure teal discrète) + liseré FIN teal #0f766e →
+          //   on VOIT quel bâtiment est visé, tout en pouvant viser un décroché. Le sens est AUSSI porté par le repère écrit (cartouche actif) :
+          //   la couleur ne porte jamais seule. L'appelant EXCLUT l'emprise sous geste (aperçu/retouche = indicateur live) → aucune divergence (point 3).
+          const surlignee = empriseSurligneeIds.includes(e.id) && !enRetouche;
+          if (surlignee) {
+            return <path key={`e${e.id}-${ri}`} d={path(ring)} data-emprise={e.id} data-surlignee={e.id} data-provenance={e.provenance}
+              fill="url(#svv-hachure-sel)" stroke={SELECTION_TRAIT} strokeWidth={1.6} strokeLinejoin="round" />;
+          }
           // BAT (défaut A/point 3) — l'emprise STOCKÉE est dessinée telle quelle (rosé, ou gris « en retrait » si en retouche) : c'est
-          //   « où c'était ». Le SÉLECTIONNÉ n'est PLUS surligné ICI (ce surlignage figeait la géométrie stockée et divergeait de la cible
-          //   dès qu'on la déplaçait) : l'emprise sélectionnée est désormais représentée par l'APERÇU D'AJUSTEMENT transformé (teal + contour
-          //   renforcé + poignées), qui SUIT le geste. Une seule vérité visuelle de la cible.
+          //   « où c'était ». Le SÉLECTIONNÉ n'est PLUS surligné par la géométrie stockée FIGÉE (elle divergeait de la cible dès qu'on la
+          //   déplaçait) : pendant un geste, la cible est l'APERÇU transformé (teal + poignées) qui SUIT le geste. Une seule vérité visuelle.
           return <path key={`e${e.id}-${ri}`} d={path(ring)} data-emprise={e.id} data-provenance={e.provenance} data-origine-retouche={enRetouche || undefined}
             fill={enRetouche ? ORIGINE_RETOUCHE_FOND : 'rgba(163,4,2,.18)'} stroke={enRetouche ? ORIGINE_RETOUCHE_TRAIT : 'var(--color-svv-red)'}
             strokeWidth={enRetouche ? 1.1 : 1.4} strokeDasharray={enRetouche ? '4 3' : undefined} strokeOpacity={enRetouche ? 0.85 : 1} />;

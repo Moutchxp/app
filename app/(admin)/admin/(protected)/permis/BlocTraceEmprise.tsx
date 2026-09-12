@@ -15,6 +15,7 @@ import { choisirEmpriseAcces } from '../../../../lib/permis/choixEmpriseAcces'; 
 import { estAjustementModifie, sessionModifiee, basculeRefusee, empriseSelectionnee, type ModeGeste } from './ajustementSession'; // BAT — (déf.1) purge ; (déf.D&B) garde unique ; (déf.A) SOURCE UNIQUE de l'emprise sélectionnée (cerclé + nom + tiges + cible en dérivent)
 import { ancragePoignees } from './ancragePoignees'; // BAT (défaut E) — ancre des poignées = centroïde d'aire de la géométrie AFFICHÉE (suit le delta)
 import { validationParCorpsDepuisEmprises } from './etatValidationEmprise'; // POINT 1 — validation par corps dérivée de la SEULE vérité par emprise (source unique bandeau/en-tête/onglet/rangée)
+import { emprisesASurligner } from './surlignageSelection'; // D — emprises du bâtiment sélectionné à surligner sur la vue normale/XL (≥ 2 bâtiments)
 import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, CartouchesAjustables, BasculeMode, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
@@ -1026,6 +1027,13 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const modeCourant: ModeGeste = retouche ? 'retoucher' : 'ajuster';
   const selIdCourant = empriseSelectionnee(ajustement, retouche); // SOURCE UNIQUE (défaut A) : cartouche cerclé (selectionId), nom de la barre et cible des gestes en dérivent. Le SURLIGNAGE du schéma est l'aperçu d'ajustement transformé (même `ajustement`), qui SUIT le geste — plus de géométrie stockée figée (point 3) → jamais divergents
   const cibleParDefaut = selIdCourant ?? empriseDuBat[0]?.id ?? emprises[0]?.id ?? null;
+  // D — SURLIGNAGE du bâtiment SÉLECTIONNÉ (vue normale/XL) : les emprises de `corpsEffectif` (≥ 2 bâtiments), SAUF celle sous geste — l'aperçu
+  //   (ajustement) ou la forme magenta (retouche) est alors l'indicateur LIVE ; surligner la géométrie stockée en parallèle divergerait (point 3).
+  //   Geste d'ENSEMBLE (bloc) → aucune trame (l'aperçu montre TOUTES les emprises transformées). Règle d'appartenance : module pur `emprisesASurligner`.
+  const idsSurlignes = useMemo(
+    () => (ajustement?.bloc ? [] : emprisesASurligner(emprises, corpsEffectif, batiments.length).filter((id) => id !== ajustement?.id && id !== retouche?.id)),
+    [emprises, corpsEffectif, batiments.length, ajustement, retouche],
+  );
   //   `appliquerBascule` route vers le bon mode. En RETOUCHE, on efface d'abord l'ajustement (exclusivité : seules les poignées de sommet
   //   s'affichent, jamais les tiges) ; `demarrerAjustement` efface déjà la retouche de son côté → chaque mode n'affiche que ses contrôles.
   const appliquerBascule = useCallback((cibleId: number, mode: ModeGeste) => {
@@ -1702,7 +1710,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 (styleBarre) et MÊME gap (.5rem) que la carte du plan → le schéma démarre à la même hauteur que l'image. */}
             {barreDroiteSchema}
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={ajustement ? [] : paires.map((p) => p.lambert)} residusCalage={residus.ecarts} indicePireCalage={residus.indexPlusFautif} statuts={statutParCleabs}
-              onCliquer={ajustement ? undefined : (retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined))} retoucheAnneau={retouche?.anneau ?? null} retoucheEmpriseId={retouche?.id ?? null} afficherOrigineRetouche={origineRetoucheVisible} sommetSelectionne={sommetSel}
+              onCliquer={ajustement ? undefined : (retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined))} retoucheAnneau={retouche?.anneau ?? null} retoucheEmpriseId={retouche?.id ?? null} empriseSurligneeIds={idsSurlignes} afficherOrigineRetouche={origineRetoucheVisible} sommetSelectionne={sommetSel}
               apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustement : undefined} />
             {/* POSITION REMONTÉE — dès qu'une emprise en projet existe, le bloc emprise vient JUSTE SOUS le schéma, au-dessus de « Empreinte Parcelle(s) ». */}
             {aEmprises && blocEmprises}
