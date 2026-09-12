@@ -454,6 +454,14 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
     </>
   ) : null;
 
+  // BULLE DE SURVOL — petite bulle SUR LE SCHÉMA qui suit le curseur et porte le nom de la parcelle survolée (PL-B2, e52dfc7). Nœud/contenu/
+  //   style/positionnement STRICTEMENT d'origine (zIndex 50 inchangé). Montée dans UNE seule vue à la fois : au sein du MODAL en plein écran
+  //   (sinon, frère du modal en zIndex 50, elle était peinte DERRIÈRE le dialog zIndex 1000 depuis l'ajout du plein écran en 60aeda2 → invisible),
+  //   à la racine sinon. Un seul nœud à la fois, aucune duplication. `pointer-events: none` → n'intercepte aucun clic (fermeture du modal intacte).
+  const bulleSurvol = survol ? (
+    <div role="status" aria-hidden style={{ position: 'fixed', left: survol.x + 12, top: survol.y + 12, zIndex: 50, pointerEvents: 'none', background: 'var(--color-svv-ink)', color: 'var(--color-svv-surface)', fontSize: 11, padding: '.15rem .4rem', borderRadius: '.3rem', whiteSpace: 'nowrap', boxShadow: '0 1px 4px rgba(0,0,0,.3)' }}>{survol.texte}</div>
+  ) : null;
+
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>Planche cadastrale <span style={{ fontSize: 12, color: 'var(--color-svv-muted)', fontWeight: 400 }}>(cliquez une parcelle pour la sélectionner ; validez pour l’appliquer)</span></div>
@@ -510,11 +518,12 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
               {infosSchema && <div style={{ flex: '0 1 320px', minWidth: 240, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '.5rem' }}>{infosSchema}</div>}
             </div>
           </div>
+          {/* La bulle de survol vit DANS le dialog en plein écran → contexte d'empilement du modal, peinte AU-DESSUS de la carte (donc sur le schéma), sans changer son zIndex. */}
+          {bulleSurvol}
         </div>
       )}
-      {survol && (
-        <div role="status" aria-hidden style={{ position: 'fixed', left: survol.x + 12, top: survol.y + 12, zIndex: 50, pointerEvents: 'none', background: 'var(--color-svv-ink)', color: 'var(--color-svv-surface)', fontSize: 11, padding: '.15rem .4rem', borderRadius: '.3rem', whiteSpace: 'nowrap', boxShadow: '0 1px 4px rgba(0,0,0,.3)' }}>{survol.texte}</div>
-      )}
+      {/* En vue intégrée, la bulle est à la racine (rien ne la couvre). En plein écran elle est rendue DANS le modal (ci-dessus) → une seule instance à la fois. */}
+      {!schemaPleinEcran && bulleSurvol}
     </div>
   );
 }

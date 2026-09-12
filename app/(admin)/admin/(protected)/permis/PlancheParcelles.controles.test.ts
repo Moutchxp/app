@@ -388,3 +388,41 @@ describe('Planche cadastrale — plein écran plein surface : inventaire des con
     expect(boutonTexte('Réinitialiser à la sélection par défaut', dialog()!)).not.toBeNull();
   });
 });
+
+describe('Planche cadastrale — bulle de survol SUR LE SCHÉMA (identification de la parcelle survolée)', () => {
+  // La bulle de survol = le SEUL nœud role="status" + aria-hidden (la ligne d'identité de la colonne est aria-live, pas role status ;
+  //   le bilan comparatif et les messages sont role="status" mais SANS aria-hidden). Discriminant fiable, indépendant du style.
+  function bulle(racine: ParentNode = container): Element | null {
+    return racine.querySelector('[role="status"][aria-hidden="true"]');
+  }
+  function survoler(p: Element | null): void { if (p) act(() => { p.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 60, clientY: 70 })); }); }
+  function quitterSurvol(p: Element | null): void { if (p) act(() => { p.dispatchEvent(new MouseEvent('mouseout', { bubbles: true, relatedTarget: document.body })); }); }
+
+  it('vue intégrée : la bulle apparaît au survol avec le nom de la parcelle, et disparaît quand le survol cesse', async () => {
+    await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
+    await flush();
+    expect(bulle()).toBeNull();                    // rien tant qu'on ne survole pas
+    survoler(parcellePath('2')); await flush();     // survol de la voisine (n° 2)
+    const b = bulle();
+    expect(b).not.toBeNull();
+    expect(b!.textContent).toContain('n° 2');        // porte le nom de la parcelle survolée
+    quitterSurvol(parcellePath('2')); await flush();
+    expect(bulle()).toBeNull();                     // disparaît quand le survol cesse
+  });
+
+  it('plein écran : la bulle apparaît SUR LE SCHÉMA (dans le modal) au survol, et disparaît quand il cesse', async () => {
+    await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
+    await flush();
+    clic(boutonTexte('⤢ Agrandir le schéma')); await flush();
+    const dialog = container.querySelector('[role="dialog"][aria-modal="true"]') as HTMLElement | null;
+    expect(dialog).not.toBeNull();
+    survoler(parcellePath('2', dialog!)); await flush();
+    const b = bulle();
+    expect(b).not.toBeNull();
+    expect(b!.textContent).toContain('n° 2');
+    // SUR LE SCHÉMA = dans le sous-arbre du modal (donc peinte au-dessus de lui) — sur HEAD la bulle était RENDUE HORS du dialog (derrière).
+    expect(dialog!.contains(b!)).toBe(true);
+    quitterSurvol(parcellePath('2', dialog!)); await flush();
+    expect(bulle()).toBeNull();
+  });
+});
