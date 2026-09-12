@@ -211,4 +211,13 @@ describe('BlocTraceEmprise — câblage rangée + bascule de mode (garde source)
     expect(SRC).toContain('setReactionSelectionNonce((n) => n + 1)'); // à CHAQUE clic, y compris re-clic du bâtiment courant → pulsation « montre-moi lequel »
     expect(SRC).toContain('reactionSurlignageNonce={reactionSelectionNonce}'); // passé au schéma (vue normale/XL) ; le plein écran ne le reçoit pas
   });
+  it('(retouche intouchée) la purge des sessions couvre la RETOUCHE, et toutes les sorties fullscreen l’appellent', () => {
+    // MÊME notion de « modifié » que la garde (module pur) : une retouche à historique vide est purgée → plus de « en cours de retouche » fantôme.
+    expect(SRC).toContain('setRetouche((r) => (r && !estRetoucheModifiee(r.hist.length) ? null : r))');
+    // toutes les sorties d’écran agrandi passent par la purge (fermeture plein écran ET sortie XL).
+    expect(SRC).toContain('setPleinEcran(false); purgerSessionIntouchee()');
+    expect(SRC).toContain('setImageAgrandie(false); purgerSessionIntouchee()');
+    // et la garde anti-perte reste la source unique gated (sessionModifiee) — aucun second mécanisme.
+    expect(SRC).toContain('sessionModifiee(ajustement, emprises, retouche?.hist.length ?? 0)');
+  });
 });

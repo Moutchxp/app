@@ -12,7 +12,7 @@ import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ObjetConte
 import { verdictProjectionBatiments, libelleBatiment, statutEmpriseBatiment, etapeChaineEmprise, etatEnteteProjection, MOT_STATUT_EMPRISE, type BatimentProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments'; // NOM-1 : libelleBatiment ; source unique de statut d'emprise ; ①③ chaîne + en-tête
 import { resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-3 — nom DISTINCT par emprise (repère du corps + « (numéro) » si plusieurs emprises sur le corps)
 import { choisirEmpriseAcces } from '../../../../lib/permis/choixEmpriseAcces'; // BAT — accès depuis la capsule : quelle emprise pointer quand la carte en porte plusieurs (validée sinon la plus récente)
-import { estAjustementModifie, sessionModifiee, basculeRefusee, empriseSelectionnee, type ModeGeste } from './ajustementSession'; // BAT — (déf.1) purge ; (déf.D&B) garde unique ; (déf.A) SOURCE UNIQUE de l'emprise sélectionnée (cerclé + nom + tiges + cible en dérivent)
+import { estAjustementModifie, estRetoucheModifiee, sessionModifiee, basculeRefusee, empriseSelectionnee, type ModeGeste } from './ajustementSession'; // BAT — (déf.1) purge ; (déf.D&B) garde unique ; (déf.A) SOURCE UNIQUE de l'emprise sélectionnée (cerclé + nom + tiges + cible en dérivent)
 import { ancragePoignees } from './ancragePoignees'; // BAT (défaut E) — ancre des poignées = centroïde d'aire de la géométrie AFFICHÉE (suit le delta)
 import { validationParCorpsDepuisEmprises } from './etatValidationEmprise'; // POINT 1 — validation par corps dérivée de la SEULE vérité par emprise (source unique bandeau/en-tête/onglet/rangée)
 import { emprisesASurligner } from './surlignageSelection'; // D — emprises du bâtiment sélectionné à surligner sur la vue normale/XL (≥ 2 bâtiments)
@@ -341,15 +341,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const comptesVisibilite = useMemo(() => compterBatimentsPermis(polygones), [polygones]);
   // PROJ-3i — fermeture du plein écran à la touche Échap (le clic hors zone est géré par le fond). L'effet est relocalisé plus bas, après
   //   `fermerPleinEcran` (BAT défaut 1) : Échap doit passer par la MÊME sortie que ✕ / le fond (purge d'une session intouchée).
-  // PROJ-AGR — Échap réduit aussi l'agrandissement de l'image (jamais un piège plein écran sans sortie clavier). LOT 3 — mais PAS quand le
-  //   niveau 3 (plan seul) est ouvert PAR-DESSUS : Échap ferme d'abord le niveau 3 (retour au niveau 2), pas les deux d'un coup. Le
-  //   comportement du niveau 2 SEUL (planSeul=false) est INCHANGÉ.
-  useEffect(() => {
-    if (!imageAgrandie) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !planSeul) setImageAgrandie(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [imageAgrandie, planSeul]);
+  // PROJ-AGR — l'effet Échap qui réduit l'agrandissement de l'image (XL) est RELOCALISÉ plus bas, après `quitterImageAgrandie` (défini avec
+  //   `purgerSessionIntouchee`) : quitter l'XL doit AUSSI purger une session intouchée (retouche/ajustement), comme la fermeture du plein écran.
   // LOT 3 — Échap au NIVEAU 3 (plan seul) : retour au NIVEAU 2 (décision Arno), jamais un piège plein écran sans sortie clavier.
   useEffect(() => {
     if (!planSeul) return;
@@ -995,11 +988,15 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     setMessage('ajustement d’ensemble : les emprises bougent ENSEMBLE (positions relatives conservées). Rien n’est enregistré tant que vous ne cliquez pas « Enregistrer ».');
   }, [emprises, anneauxAffiches]);
 
-  // BAT (défaut 1) — PURGE d'une session SINGLE INTOUCHÉE : sert à la fermeture du plein écran. Armer les poignées à l'arrivée ne doit rien
-  //   laisser derrière si l'internaute n'a rien fait (« la page normale n'est jamais altérée par la simple ouverture du plein écran »). Une
-  //   session MODIFIÉE (delta ≠ armement) est CONSERVÉE (travail non enregistré, jamais perdu en silence) ; le mode BLOC (explicite) aussi.
-  const purgerAjustementIntouche = useCallback(() => {
+  // BAT (défaut 1 + retouche) — PURGE d'une session SINGLE INTOUCHÉE (ajustement OU retouche) : sert à la fermeture du plein écran / de l'XL.
+  //   Armer les poignées OU ouvrir une retouche à l'arrivée ne doit rien laisser derrière si l'internaute n'a RIEN modifié (« la page normale
+  //   n'est jamais altérée par la simple ouverture »). MÊME notion de « modifié » que la garde (module pur : estAjustementModifie /
+  //   estRetoucheModifiee). Une session MODIFIÉE est CONSERVÉE (travail non enregistré, jamais perdu en silence) ; le mode BLOC (explicite) aussi.
+  //   ⚠️ Ouvrir la retouche N'EST PAS retoucher : une retouche intouchée (historique vide) est purgée → plus de mention « en cours de retouche »,
+  //   plus de bandeau, plus de garde, l'état de validation antérieur reste tel quel. Le contexte masqué est restauré par l'effet sur `retouche` null.
+  const purgerSessionIntouchee = useCallback(() => {
     setAjustement((a) => (a && !a.bloc && a.id != null && !estAjustementModifie(a, emprises) ? null : a));
+    setRetouche((r) => (r && !estRetoucheModifiee(r.hist.length) ? null : r));
   }, [emprises]);
 
   // BAT (défaut 1) — POIGNÉES D'EMBLÉE EN PLEIN ÉCRAN. Cause du bug : les poignées dérivent de `apercuAjustement`, null tant qu'aucune session
@@ -1012,7 +1009,19 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     setPleinEcran(true);
     if (!ajustement && !retouche) { const cible = empriseDuBat[0] ?? emprises[0]; if (cible) demarrerAjustement(cible.id); }
   }, [ajustement, retouche, empriseDuBat, emprises, demarrerAjustement]);
-  const fermerPleinEcran = useCallback(() => { setPleinEcran(false); purgerAjustementIntouche(); }, [purgerAjustementIntouche]);
+  const fermerPleinEcran = useCallback(() => { setPleinEcran(false); purgerSessionIntouchee(); }, [purgerSessionIntouchee]);
+  // Quitter l'XL (niveau 2) purge une session INTOUCHÉE, comme la fermeture du plein écran : ouvrir n'est ni ajuster ni retoucher.
+  const quitterImageAgrandie = useCallback(() => { setImageAgrandie(false); purgerSessionIntouchee(); }, [purgerSessionIntouchee]);
+  // Bascule XL : à l'OUVERTURE on entre simplement ; à la SORTIE on passe par `quitterImageAgrandie` (purge intouchée). Partagé par le bouton et la liseuse.
+  const basculerImageAgrandie = useCallback(() => { if (imageAgrandie) quitterImageAgrandie(); else setImageAgrandie(true); }, [imageAgrandie, quitterImageAgrandie]);
+  // PROJ-AGR — Échap réduit l'agrandissement de l'image (jamais un piège sans sortie clavier). LOT 3 — mais PAS quand le niveau 3 (plan seul)
+  //   est ouvert PAR-DESSUS (Échap y ferme d'abord le niveau 3). Relocalisé ici pour passer par `quitterImageAgrandie` (purge intouchée).
+  useEffect(() => {
+    if (!imageAgrandie) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !planSeul) quitterImageAgrandie(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [imageAgrandie, planSeul, quitterImageAgrandie]);
   // PROJ-3i — fermeture du plein écran à la touche Échap : MÊME sortie que ✕ / le fond (fermerPleinEcran → purge d'une session intouchée).
   useEffect(() => {
     if (!pleinEcran) return;
@@ -1318,7 +1327,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     <div style={{ ...styleBarre, justifyContent: 'space-between' }}>
       <ZoomPdf zoom={zoom} onDezoom={dezoomer} onZoom={zoomer} onAjuster={ajusterPdf} />
       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', minWidth: 0 }}>
-        <button type="button" style={btn} onClick={() => setImageAgrandie((v) => !v)}
+        <button type="button" style={btn} onClick={basculerImageAgrandie}
           aria-label={imageAgrandie ? 'Quitter le mode XL' : 'Activer le mode XL (tracer en grand)'}>{imageAgrandie ? '✕ quitter le mode XL' : '⤢ mode XL'}</button>
         {/* LOT 3 (décision Arno C2) — bouton d'entrée du NIVEAU 3, dans la barre de SA colonne, au-dessus de son image. Présent UNIQUEMENT au
             niveau 2 (imageAgrandie) : le niveau 3 s'ouvre DEPUIS le niveau 2 et y revient. Le niveau 1 reste STRICTEMENT inchangé (pas de bouton).
@@ -1518,7 +1527,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
               : imageAgrandie
                 ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', padding: '1rem', overflow: 'auto', display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem', alignContent: 'start' }
                 : { display: 'grid', gridTemplateColumns: 'minmax(0,1.3fr) minmax(0,1fr)', gap: '.8rem' }}>
-            <LiseusePieces key="liseuse" dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete imageAgrandie={imageAgrandie && !planSeul} onToggleImageAgrandie={() => setImageAgrandie((v) => !v)} planSeul={planSeul} onOuvrirPlanSeul={() => setPlanSeul(true)} onQuitterPlanSeul={() => setPlanSeul(false)} messagePlanSeul="Impossible de tracer un polygone sans bâtiment renseigné" />
+            <LiseusePieces key="liseuse" dossierId={dossierId} onValeurEcrite={onValeurLue} donneesPrechargees={donneesLiseuse} titreEnEntete imageAgrandie={imageAgrandie && !planSeul} onToggleImageAgrandie={basculerImageAgrandie} planSeul={planSeul} onOuvrirPlanSeul={() => setPlanSeul(true)} onQuitterPlanSeul={() => setPlanSeul(false)} messagePlanSeul="Impossible de tracer un polygone sans bâtiment renseigné" />
             {!planSeul && blocSchema}
           </div>
         ) : blocSchema}

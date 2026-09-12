@@ -43,17 +43,29 @@ export function estAjustementModifie(
 export type ModeGeste = 'ajuster' | 'retoucher';
 
 /**
- * BAT (défaut B) — Le TRAVAIL EN COURS (quel que soit le mode) porte-t-il des modifications NON ENREGISTRÉES ? PUR. Unifie les deux modes :
+ * La session de RETOUCHE a-t-elle été MODIFIÉE depuis son ouverture ? C'est l'ÉQUIVALENT « sommets » de `estAjustementModifie` : OUVRIR une
+ * retouche n'est pas retoucher. Une retouche s'ouvre avec un historique VIDE (`hist: []`) ; elle n'est modifiée que dès qu'un sommet a été
+ * déplacé/inséré/supprimé (au moins une entrée d'historique). Un « Annuler » qui ramène l'historique à vide revient donc à « non modifiée ».
+ * `retoucheHist` = longueur de l'historique de retouche (0 = intouchée). PUR.
+ */
+export function estRetoucheModifiee(retoucheHist: number): boolean {
+  return retoucheHist > 0;
+}
+
+/**
+ * BAT (défaut B) — Le TRAVAIL EN COURS (quel que soit le mode) porte-t-il des modifications NON ENREGISTRÉES ? PUR. UNE seule notion de
+ * « travail modifié », DEUX natures, jamais deux mécanismes parallèles :
  *  · ajustement rigide → `estAjustementModifie` (delta ≠ armement) ;
- *  · retouche par sommet → au moins une édition dans l'historique (`retoucheHist > 0`).
- * Sert de « raison » unique à la garde anti-perte (changement de polygone OU de mode). `retoucheHist` = longueur de l'historique de retouche.
+ *  · retouche par sommet → `estRetoucheModifiee` (au moins une édition dans l'historique).
+ * Sert de « raison » unique à la garde anti-perte (changement de polygone OU de mode) ET à la purge des sessions INTOUCHÉES à la fermeture.
+ * `retoucheHist` = longueur de l'historique de retouche.
  */
 export function sessionModifiee(
   ajustement: { bloc: boolean; id: number | null; delta: DeltaComparable } | null,
   emprises: readonly { id: number; ajustement: DeltaComparable | null }[],
   retoucheHist: number,
 ): boolean {
-  return retoucheHist > 0 || estAjustementModifie(ajustement, emprises);
+  return estRetoucheModifiee(retoucheHist) || estAjustementModifie(ajustement, emprises);
 }
 
 /**

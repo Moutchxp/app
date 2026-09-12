@@ -37,7 +37,7 @@ describe('BlocTraceEmprise — repasse le signal de sa liseuse embarquée au par
     // P3 donnée partagée + agrandi piloté par le parent — fragments sémantiques (la forme exacte de l'appel évolue avec le niveau 3).
     expect(TRACE).toContain('<LiseusePieces key="liseuse" dossierId={dossierId}');
     expect(TRACE).toContain('onValeurEcrite={onValeurLue}');
-    expect(TRACE).toContain('onToggleImageAgrandie={() => setImageAgrandie((v) => !v)}');
+    expect(TRACE).toContain('onToggleImageAgrandie={basculerImageAgrandie}'); // bascule XL partagée (purge une session intouchée à la sortie)
   });
 });
 

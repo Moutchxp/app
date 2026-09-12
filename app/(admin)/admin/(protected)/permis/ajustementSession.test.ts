@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { deltaEgal, estAjustementModifie, sessionModifiee, basculeRefusee, empriseSelectionnee, type DeltaComparable } from './ajustementSession';
+import { deltaEgal, estAjustementModifie, estRetoucheModifiee, sessionModifiee, basculeRefusee, empriseSelectionnee, type DeltaComparable } from './ajustementSession';
 
 const D = (o: Partial<DeltaComparable> = {}): DeltaComparable => ({ tx: 0, ty: 0, rotDeg: 0, echelle: 1, ...o });
 
@@ -63,6 +63,22 @@ describe('sessionModifiee — le travail en cours (ajustement OU retouche) a-t-i
   });
   it('ajustement intouché ET retouche sans édition → non modifié', () => {
     expect(sessionModifiee({ bloc: false, id: 1, delta: D() }, emprises, 0)).toBe(false);
+  });
+});
+
+describe('estRetoucheModifiee — ouvrir une retouche n’est pas retoucher (équivalent sommets de estAjustementModifie)', () => {
+  it('entrer en retouche sans rien modifier (historique vide) → NON modifié', () => {
+    expect(estRetoucheModifiee(0)).toBe(false); // demarrerRetouche pose hist: [] → rien à perdre, aucune « retouche en cours »
+  });
+  it('déplacer un sommet (une édition dans l’historique) → modifié', () => {
+    expect(estRetoucheModifiee(1)).toBe(true);
+  });
+  it('annuler ce déplacement pour revenir à l’identique (historique de nouveau vide) → NON modifié', () => {
+    expect(estRetoucheModifiee(0)).toBe(false); // « Annuler la dernière action » dépile l’historique (annulerRetouche) → retour à intouchée
+  });
+  it('unifié avec sessionModifiee : la retouche seule pilote « modifié » sans ajustement', () => {
+    expect(sessionModifiee(null, [], 0)).toBe(false);
+    expect(sessionModifiee(null, [], 1)).toBe(true);
   });
 });
 
