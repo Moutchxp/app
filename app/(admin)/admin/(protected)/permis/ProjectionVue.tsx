@@ -316,7 +316,11 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
               {/* BAT-2 / BAT-2b — `avecEtatFamilles` : état sur les titres des sous-sections (désormais dans LES CINQ vues). ICI seulement,
                   `etatSection4SansAide` fait que l'état REMPLACE le suffixe d'aide de la section 4 : la mère est déjà au-dessus, la hiérarchie
                   est dense. Ailleurs (Rattachement, Archives, Réponses, Suivi) l'aide est conservée et l'état s'ajoute après. */}
-              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles etatSection4SansAide onComptes={setComptesLive} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onAccesEmprise={accederEmprise} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => setVInstruction((v) => v + 1)} pied={rendreCloture('bouton')} />
+              {/* BUG oscillation (retrait de carte) — une mutation de caractéristiques (dont AJOUT/RETRAIT DE CARTE, BAT-3, `onChange` après
+                  écriture) change le NOMBRE de corps ACTIFS. Le snapshot de la file (source de la ligne FERMÉE et de son décompte « Bâtiments »)
+                  devient alors périmé par rapport à l'intérieur LIVE → la ligne oscillait vert (ouvert) / rouge (fermé). On rafraîchit la file ICI
+                  aussi (comme `onEmprisesChange`), pour que la ligne fermée et le dossier ouvert lisent le MÊME décompte de bâtiments actifs. */}
+              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles etatSection4SansAide onComptes={setComptesLive} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onAccesEmprise={accederEmprise} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => { setVInstruction((v) => v + 1); void rafraichirFile(); }} pied={rendreCloture('bouton')} />
             </div>
           )}
         </BlocRepliable>
