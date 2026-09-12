@@ -1644,13 +1644,14 @@ export function couleurResidu(m: number): string {
   return m >= SEUIL_RESIDU_CALAGE_M ? 'var(--color-svv-red)' : m >= SEUIL_RESIDU_CALAGE_BON_M ? '#b45309' : '#15803d';
 }
 
-export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, residusCalage = [], indicePireCalage = -1, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, retoucheEmpriseId = null, empriseSurligneeIds = [], afficherOrigineRetouche = true, sommetSelectionne = null, apercuAjustement = null, onPointeurAjustement, statuts, etiquettes = [], voisinage = [] }: {
+export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [], filtres = FILTRES_SCHEMA_DEFAUT, ecartes = [], calageLambert, residusCalage = [], indicePireCalage = -1, angle = 0, hauteurMax = '62vh', onCliquer, retoucheAnneau = null, retoucheEmpriseId = null, empriseSurligneeIds = [], reactionSurlignageNonce = 0, afficherOrigineRetouche = true, sommetSelectionne = null, apercuAjustement = null, onPointeurAjustement, statuts, etiquettes = [], voisinage = [] }: {
   boite: Boite | null; parcelle: PointLambert[][]; emprises: EmpriseReconstruite[]; polygones?: PolygoneRepere[]; filtres?: FiltresSchema; ecartes?: string[]; calageLambert: PointLambert[];
   residusCalage?: number[]; indicePireCalage?: number; // PROJ — écart PAR repère (m, aligné sur calageLambert) + indice du plus fautif ; affichés SEULEMENT à partir de 3 repères (sur 2, tout est 0 par construction).
   angle?: number; hauteurMax?: string; onCliquer?: (px: { x: number; y: number }) => void;
   retoucheAnneau?: PointLambert[] | null; sommetSelectionne?: number | null; // PROJ-3s — contour en RETOUCHE (poignées éditables) + sommet sélectionné
   retoucheEmpriseId?: number | null; // emprise en cours de retouche : son ORIGINE passe en gris « en retrait » (contraste), et se masque si afficherOrigineRetouche=false
   empriseSurligneeIds?: number[]; // D — emprises du BÂTIMENT SÉLECTIONNÉ (vue normale/XL, ≥ 2 bâtiments) : trame + liseré teal pour VOIR quel bâtiment est visé. Vide = aucun surlignage
+  reactionSurlignageNonce?: number; // SUITE 68e7737 — compteur incrémenté à CHAQUE clic de bâtiment : entre dans la key des paths surlignés → remontage → le liseré PULSE une fois (réaction brève). Inchangé (0) → aucune pulsation
   afficherOrigineRetouche?: boolean;  // calque d'ORIGINE pendant la retouche : visible par défaut (repère), masquable (confort d'affichage, ne touche jamais la géométrie)
   // PROJ-3t (lot 3b) — APERÇU d'ajustement (emprise manipulée en surbrillance + poignées rotation/échelle + centre) et pointeur (drag). `pxBoite` en coords BOÎTE (comme onCliquer).
   apercuAjustement?: { anneaux: PointLambert[][]; centre: PointLambert; poigneeRotation: PointLambert; poigneeEchelle: PointLambert } | null;
@@ -1778,7 +1779,9 @@ export function SchemaParcelleTrace({ boite, parcelle, emprises, polygones = [],
           //   la couleur ne porte jamais seule. L'appelant EXCLUT l'emprise sous geste (aperçu/retouche = indicateur live) → aucune divergence (point 3).
           const surlignee = empriseSurligneeIds.includes(e.id) && !enRetouche;
           if (surlignee) {
-            return <path key={`e${e.id}-${ri}`} d={path(ring)} data-emprise={e.id} data-surlignee={e.id} data-provenance={e.provenance}
+            // key SUFFIXÉE par le nonce de clic → à CHAQUE clic (même bâtiment), le path REMONTE et l'animation one-shot (svvSelectionPulse)
+            //   REJOUE : le liseré pulse une fois puis retombe. Toutes les emprises du bâtiment partagent le même nonce → elles réagissent ENSEMBLE.
+            return <path key={`e${e.id}-${ri}-r${reactionSurlignageNonce}`} className="svvSelectionReaction" d={path(ring)} data-emprise={e.id} data-surlignee={e.id} data-provenance={e.provenance}
               fill="url(#svv-hachure-sel)" stroke={SELECTION_TRAIT} strokeWidth={1.6} strokeLinejoin="round" />;
           }
           // BAT (défaut A/point 3) — l'emprise STOCKÉE est dessinée telle quelle (rosé, ou gris « en retrait » si en retouche) : c'est

@@ -266,6 +266,25 @@ body {
 .svvValiderAttente { animation: svvValiderAttente 1.8s ease-in-out infinite; }
 @media (prefers-reduced-motion: reduce) { .svvValiderAttente { animation: none; } }
 
+/* SUITE 68e7737 — RÉACTION au clic de sélection : au clic sur un bouton de bâtiment, le liseré de son (ses) polygone(s) surligné(s) PULSE une
+   fois — épaissit puis retombe en ~0,7 s — pour qu'on repère la sélection SANS comparer les formes. ONE-SHOT (pas de battement permanent), re-tirée
+   à chaque clic via le remontage du path (nonce dans sa key). SEULE l'ÉPAISSEUR du trait varie : AUCUN mouvement/déformation de la géométrie (on
+   peut viser un décroché juste après). DISTINCTE du battement d'attente `svvValiderAttente` (celui-ci : CONTINU, en COULEUR, sur l'ONGLET) : ici
+   BREF, en LARGEUR, sur le POLYGONE → les deux restent distinguables si un polygone est à la fois sélectionné et en attente.
+   Sous prefers-reduced-motion : PAS de pulsation douce — le liseré passe à un état RENFORCÉ tenu la même durée puis revient, sans mouvement
+   (transition finale imperceptible). Le repère écrit de la sélection reste par ailleurs affiché (la couleur/largeur ne porte jamais seule le sens). */
+@keyframes svvSelectionPulse {
+  0%   { stroke-width: 1.6; }
+  25%  { stroke-width: 5; }
+  100% { stroke-width: 1.6; }
+}
+.svvSelectionReaction { animation: svvSelectionPulse 0.7s ease-out; }
+@keyframes svvSelectionRenfort {
+  0%, 99% { stroke-width: 4; }
+  100%    { stroke-width: 1.6; }
+}
+@media (prefers-reduced-motion: reduce) { .svvSelectionReaction { animation: svvSelectionRenfort 0.7s linear; } }
+
 /* === Champ téléphone (react-international-phone) : calage sur la charte des autres champs ===
    Le widget est présenté comme UNE seule boîte (comme Prénom/Nom). */
 .react-international-phone-input-container {

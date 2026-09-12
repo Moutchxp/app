@@ -1521,6 +1521,21 @@ describe('PROJ-3s — retouche : liste (retoucher / multi-parties) + poignées s
     expect(sans).not.toContain('svv-hachure-sel');                     // aucune surlignée → pas de trame inutile
     expect(sans).not.toContain('data-surlignee');
   });
+  it('SchemaParcelleTrace (réaction clic) : l’emprise surlignée porte la classe de pulsation ; aucune surlignée → aucune pulsation', () => {
+    const boite = { largeur: 320, hauteur: 240, marge: 12, cadre: { minX: 0, maxX: 40, minY: 0, maxY: 40 } };
+    const parcelle = [[{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 0, y: 40 }]];
+    const A = [{ x: 2, y: 2 }, { x: 12, y: 2 }, { x: 12, y: 12 }, { x: 2, y: 12 }];
+    const emprises = [emprise({ id: 16, anneau: A, anneaux: [A] }), emprise({ id: 17, anneau: A, anneaux: [A] })];
+    const surl = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle, emprises, calageLambert: [], empriseSurligneeIds: [16], reactionSurlignageNonce: 3 }));
+    expect(surl).toMatch(/class="svvSelectionReaction"[^>]*data-surlignee="16"/); // la classe one-shot est sur le path surligné (pulsation à chaque clic via remount par la key)
+    const sans = renderToStaticMarkup(h(SchemaParcelleTrace, { boite, parcelle, emprises, calageLambert: [] }));
+    expect(sans).not.toContain('svvSelectionReaction');                // aucun surlignage → aucune pulsation
+  });
+  it('(réaction clic) le path surligné intègre le nonce de clic dans sa key → remontage = pulsation re-tirée MÊME sur le bâtiment déjà sélectionné', () => {
+    const src = readFileSync('app/(admin)/admin/(protected)/permis/TraceEmpriseRendu.tsx', 'utf8').replace(/\s+/g, ' ');
+    expect(src).toContain('-r${reactionSurlignageNonce}`}'); // nonce dans la key du path surligné → React remonte à chaque changement → l’animation one-shot rejoue
+    expect(src).toContain('className="svvSelectionReaction"'); // classe one-shot (jamais permanente ; à ne pas confondre avec svvValiderAttente, continu sur l’onglet)
+  });
 });
 
 describe('RATT-1 (2) — StatutPolygonesExistants : source BD TOPO + ma décision côte à côte', () => {

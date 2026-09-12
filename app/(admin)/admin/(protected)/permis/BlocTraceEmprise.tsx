@@ -123,6 +123,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const [clePageTrace, setClePageTrace] = useState('');
   const [angle, setAngle] = useState(0); // PROJ-3j — rotation du schéma (0-360°), AFFICHAGE seulement, éphémère (non persistée)
   const [corpsSel, setCorpsSel] = useState<number | null>(null);
+  const [reactionSelectionNonce, setReactionSelectionNonce] = useState(0); // SUITE 68e7737 — incrémenté à CHAQUE clic de bâtiment (même déjà sélectionné) → le liseré du polygone pulse une fois (réaction « montre-moi lequel »)
   const [pieceId, setPieceId] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [ratioDeclareSaisi, setRatioDeclareSaisi] = useState('');
@@ -1352,7 +1353,8 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     //   libellé « ◐ emprise à valider » (jamais la couleur seule). Un onglet « à tracer » (pas encore d'emprise) ne clignote PAS : rien n'attend une validation.
     const enAttenteValidation = st === 'a_valider';
     return (
-      <button key={b.corpsId} ref={avecRefActif && actif ? cartoucheActifRef : undefined} type="button" onClick={() => setCorpsSel(b.corpsId)}
+      <button key={b.corpsId} ref={avecRefActif && actif ? cartoucheActifRef : undefined} type="button"
+        onClick={() => { setCorpsSel(b.corpsId); setReactionSelectionNonce((n) => n + 1); }} // SUITE 68e7737 — le nonce déclenche la pulsation du polygone, MÊME si le bâtiment est déjà sélectionné
         className={enAttenteValidation ? 'svvValiderAttente' : undefined}
         style={{ ...btn, flex: '0 0 auto', whiteSpace: 'nowrap', fontWeight: actif ? 700 : 400, borderColor: actif ? 'var(--color-svv-ink)' : 'var(--color-svv-line)' }}>
         {libelleBatiment(b)} — {MOT_STATUT_EMPRISE[st]}
@@ -1710,7 +1712,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
                 (styleBarre) et MÊME gap (.5rem) que la carte du plan → le schéma démarre à la même hauteur que l'image. */}
             {barreDroiteSchema}
             <SchemaParcelleTrace boite={boite} parcelle={parcelle} emprises={emprises} polygones={polygonesReperes} filtres={filtres} voisinage={filtres.contexte === true ? voisinage : []} ecartes={ecartes} angle={angle} calageLambert={ajustement ? [] : paires.map((p) => p.lambert)} residusCalage={residus.ecarts} indicePireCalage={residus.indexPlusFautif} statuts={statutParCleabs}
-              onCliquer={ajustement ? undefined : (retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined))} retoucheAnneau={retouche?.anneau ?? null} retoucheEmpriseId={retouche?.id ?? null} empriseSurligneeIds={idsSurlignes} afficherOrigineRetouche={origineRetoucheVisible} sommetSelectionne={sommetSel}
+              onCliquer={ajustement ? undefined : (retouche ? cliquerRetouche : (mode === 'calage' && planEnAttente ? cliquerSchema : undefined))} retoucheAnneau={retouche?.anneau ?? null} retoucheEmpriseId={retouche?.id ?? null} empriseSurligneeIds={idsSurlignes} reactionSurlignageNonce={reactionSelectionNonce} afficherOrigineRetouche={origineRetoucheVisible} sommetSelectionne={sommetSel}
               apercuAjustement={apercuAjustement} onPointeurAjustement={ajustement ? pointeurAjustement : undefined} />
             {/* POSITION REMONTÉE — dès qu'une emprise en projet existe, le bloc emprise vient JUSTE SOUS le schéma, au-dessus de « Empreinte Parcelle(s) ». */}
             {aEmprises && blocEmprises}
