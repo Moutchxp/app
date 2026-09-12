@@ -209,13 +209,13 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
       <div style={{ fontWeight: 700, fontSize: 13 }}>Planche cadastrale <span style={{ fontSize: 12, color: 'var(--color-svv-muted)', fontWeight: 400 }}>(cliquez une parcelle pour la sélectionner ; validez pour l’appliquer)</span></div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '.8rem', alignItems: 'start' }}>
-        <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 12, color: 'var(--color-svv-muted)', marginBottom: '.3rem' }}>Documents du permis</div>
-          <LiseusePieces dossierId={dossierId} donneesPrechargees={donneesLiseuse} />
-        </div>
+        {/* ALIGNEMENT (parité « Bâtiments et projection ») — la liseuse en mode « titre en en-tête » met l'aperçu EN HAUT (son titre
+            « Liseuse des pièces » descend sous l'aperçu) : sa barre de zoom se retrouve sur la MÊME LIGNE que « Centrer : » à droite et
+            l'aperçu démarre au MÊME Y que le schéma. C'est déjà une carte (svv-card) → parité de padding avec la colonne de droite. */}
+        <LiseusePieces dossierId={dossierId} donneesPrechargees={donneesLiseuse} titreEnEntete />
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
-          {/* CENTRAGE */}
+        <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+          {/* CENTRAGE — barre d'outils EN TÊTE de la carte (parité avec la barre de zoom de la liseuse à gauche) ; le schéma démarre juste dessous. */}
           <div role="group" aria-label="Centrage de la planche" style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Centrer :</span>
             <button type="button" style={btn(mode === 'empreinte')} aria-pressed={mode === 'empreinte'} onClick={() => changerMode('empreinte')}>Toutes les parcelles</button>
@@ -228,48 +228,6 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
               </select>
             )}
           </div>
-          {/* PL-D/E — SAISIE d'adresse avec AUTOCOMPLÉTION (api-adresse) : suggestions à la frappe (≥3 car., biais commune) ; choisir =
-              géocoder sans 2e appel ; texte libre à défaut. Recours quand le géocodage auto échoue (impasse du 468). */}
-          {mode === 'adresse' && (
-            <div style={{ display: 'flex', gap: '.3rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-              <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0 }}>
-                <input aria-label="Adresse à localiser" role="combobox" aria-expanded={!!(suggestions && suggestions.length)} aria-autocomplete="list" aria-controls={`sug-${dossierId}`}
-                  placeholder={data.centre.label ?? 'taper une adresse (ex. « inspecteur »…)'}
-                  value={adresseSaisie} onChange={(e) => { const v = e.target.value; setAdresseSaisie(v); if (adresseCommittee) setAdresseCommittee(null); if (v.trim().length < 3) { setSuggestions(null); setSugActive(-1); } }} onKeyDown={clavierAdresse}
-                  style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, padding: '.25rem .4rem', minHeight: 34, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' }} />
-                {suggestions && suggestions.length > 0 && (
-                  <ul id={`sug-${dossierId}`} role="listbox" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, listStyle: 'none', margin: '.1rem 0 0', padding: 0, background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', boxShadow: '0 2px 6px rgba(0,0,0,.15)', maxHeight: 210, overflowY: 'auto' }}>
-                    {suggestions.map((s, i) => (
-                      <li key={s.label} role="option" aria-selected={i === sugActive} onMouseEnter={() => setSugActive(i)}
-                        onMouseDown={(e) => { e.preventDefault(); choisirSuggestion(s); }} // mouseDown : choisit AVANT un éventuel blur
-                        style={{ padding: '.35rem .45rem', fontSize: 12, cursor: 'pointer', minHeight: 34, background: i === sugActive ? 'var(--color-svv-field)' : 'transparent', borderTop: i > 0 ? '1px solid var(--color-svv-line)' : undefined }}>{s.label}</li>
-                    ))}
-                  </ul>
-                )}
-                {suggestions && suggestions.length === 0 && adresseSaisie.trim().length >= 3 && (
-                  <div role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)', marginTop: '.15rem' }}>aucune suggestion — appuyez sur « Localiser » pour chercher tel quel</div>
-                )}
-              </div>
-              <button type="button" style={{ ...btn(false), minHeight: 34 }} onClick={localiserTexte}>Localiser</button>
-              {adresseCommittee && <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', fontSize: 11.5, alignSelf: 'center' }} onClick={revenirAdressePermis}>revenir à l’adresse du permis</button>}
-            </div>
-          )}
-          {/* Point d'adresse localisé : provenance EXPLICITE (base locale vs API nationale — donnée externe, jamais « à la main »). */}
-          {mode === 'adresse' && data.centre.point && (
-            <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>✚ {data.centre.label ?? 'adresse localisée'} — {data.centre.provenance === 'api-adresse' ? 'API nationale (Base Adresse Nationale, Licence Ouverte)' : 'base locale'}</div>
-          )}
-          {/* Avertissement : rouge (échec, aucun point) ou info (point trouvé mais approximatif / attribution API). */}
-          {data.centreAvertissement && <div role="note" style={{ fontSize: 11.5, color: data.centre.point ? 'var(--color-svv-muted)' : 'var(--color-svv-red)' }}>{data.centre.point ? 'ℹ ' : '⚠ '}{data.centreAvertissement}</div>}
-
-          {/* RAYON */}
-          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <label htmlFor={`rayon-${dossierId}`} style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Voisines à</label>
-            <input id={`rayon-${dossierId}`} type="range" min={RAYON_MIN} max={RAYON_MAX} step={RAYON_PAS} value={rayon} onChange={(e) => setRayon(Number(e.target.value))} style={{ flex: '1 1 120px', maxWidth: 200 }} />
-            <strong style={{ fontSize: 12 }}>{data.rayonM} m</strong>
-            <span style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>· {data.nbVoisines} voisine(s)</span>
-          </div>
-          {data.nbRetenues + data.nbVoisines > SEUIL_DENSE && <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>Planche dense ({data.nbRetenues + data.nbVoisines} parcelles) — rapprochez le rayon pour lire les repères.</div>}
-
           {data.motif || rienADessiner ? (
             <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{messageVide}</div>
           ) : (
@@ -314,7 +272,56 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
                   ℹ {data.retenuesHorsVue} parcelle{data.retenuesHorsVue > 1 ? 's' : ''} du permis se situe{data.retenuesHorsVue > 1 ? 'nt' : ''} hors de cette vue (au-delà du rayon) — élargissez le rayon ou centrez sur les parcelles du permis pour la{data.retenuesHorsVue > 1 ? 's' : ''} voir.
                 </div>
               )}
+            </>
+          )}
 
+          {/* ALIGNEMENT — centrage (adresse) + voisinage (rayon) SOUS le schéma, comme « Bâtiments et projection » range ses options sous le schéma.
+              HORS du conditionnel de dessin (toujours visibles) : ce sont le recours pour localiser une adresse MÊME quand rien ne se dessine (impasse du 468). */}
+          {/* PL-D/E — SAISIE d'adresse avec AUTOCOMPLÉTION (api-adresse) : suggestions à la frappe (≥3 car., biais commune) ; choisir =
+              géocoder sans 2e appel ; texte libre à défaut. Recours quand le géocodage auto échoue (impasse du 468). */}
+          {mode === 'adresse' && (
+            <div style={{ display: 'flex', gap: '.3rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
+              <div style={{ position: 'relative', flex: '1 1 240px', minWidth: 0 }}>
+                <input aria-label="Adresse à localiser" role="combobox" aria-expanded={!!(suggestions && suggestions.length)} aria-autocomplete="list" aria-controls={`sug-${dossierId}`}
+                  placeholder={data.centre.label ?? 'taper une adresse (ex. « inspecteur »…)'}
+                  value={adresseSaisie} onChange={(e) => { const v = e.target.value; setAdresseSaisie(v); if (adresseCommittee) setAdresseCommittee(null); if (v.trim().length < 3) { setSuggestions(null); setSugActive(-1); } }} onKeyDown={clavierAdresse}
+                  style={{ width: '100%', boxSizing: 'border-box', fontSize: 12, padding: '.25rem .4rem', minHeight: 34, border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)' }} />
+                {suggestions && suggestions.length > 0 && (
+                  <ul id={`sug-${dossierId}`} role="listbox" style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 40, listStyle: 'none', margin: '.1rem 0 0', padding: 0, background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.3rem', boxShadow: '0 2px 6px rgba(0,0,0,.15)', maxHeight: 210, overflowY: 'auto' }}>
+                    {suggestions.map((s, i) => (
+                      <li key={s.label} role="option" aria-selected={i === sugActive} onMouseEnter={() => setSugActive(i)}
+                        onMouseDown={(e) => { e.preventDefault(); choisirSuggestion(s); }} // mouseDown : choisit AVANT un éventuel blur
+                        style={{ padding: '.35rem .45rem', fontSize: 12, cursor: 'pointer', minHeight: 34, background: i === sugActive ? 'var(--color-svv-field)' : 'transparent', borderTop: i > 0 ? '1px solid var(--color-svv-line)' : undefined }}>{s.label}</li>
+                    ))}
+                  </ul>
+                )}
+                {suggestions && suggestions.length === 0 && adresseSaisie.trim().length >= 3 && (
+                  <div role="note" style={{ fontSize: 11, color: 'var(--color-svv-muted)', marginTop: '.15rem' }}>aucune suggestion — appuyez sur « Localiser » pour chercher tel quel</div>
+                )}
+              </div>
+              <button type="button" style={{ ...btn(false), minHeight: 34 }} onClick={localiserTexte}>Localiser</button>
+              {adresseCommittee && <button type="button" className="svv-link" style={{ width: 'auto', padding: '.05rem .3rem', fontSize: 11.5, alignSelf: 'center' }} onClick={revenirAdressePermis}>revenir à l’adresse du permis</button>}
+            </div>
+          )}
+          {/* Point d'adresse localisé : provenance EXPLICITE (base locale vs API nationale — donnée externe, jamais « à la main »). */}
+          {mode === 'adresse' && data.centre.point && (
+            <div style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>✚ {data.centre.label ?? 'adresse localisée'} — {data.centre.provenance === 'api-adresse' ? 'API nationale (Base Adresse Nationale, Licence Ouverte)' : 'base locale'}</div>
+          )}
+          {/* Avertissement : rouge (échec, aucun point) ou info (point trouvé mais approximatif / attribution API). */}
+          {data.centreAvertissement && <div role="note" style={{ fontSize: 11.5, color: data.centre.point ? 'var(--color-svv-muted)' : 'var(--color-svv-red)' }}>{data.centre.point ? 'ℹ ' : '⚠ '}{data.centreAvertissement}</div>}
+
+          {/* RAYON */}
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <label htmlFor={`rayon-${dossierId}`} style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Voisines à</label>
+            <input id={`rayon-${dossierId}`} type="range" min={RAYON_MIN} max={RAYON_MAX} step={RAYON_PAS} value={rayon} onChange={(e) => setRayon(Number(e.target.value))} style={{ flex: '1 1 120px', maxWidth: 200 }} />
+            <strong style={{ fontSize: 12 }}>{data.rayonM} m</strong>
+            <span style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>· {data.nbVoisines} voisine(s)</span>
+          </div>
+          {data.nbRetenues + data.nbVoisines > SEUIL_DENSE && <div role="note" style={{ fontSize: 11.5, color: 'var(--color-svv-muted)' }}>Planche dense ({data.nbRetenues + data.nbVoisines} parcelles) — rapprochez le rayon pour lire les repères.</div>}
+
+          {/* Section validation/état — sous les contrôles, comme la sélection/options sous le schéma de « Bâtiments et projection ». Rien si rien à dessiner. */}
+          {!(data.motif || rienADessiner) && (
+            <>
               {/* ── PL-C : ÉTAT COURANT + COMPOSITION + ACTIONS ─────────────────────────────────────────────────────────────── */}
               <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
                 {/* État courant : DIT clairement automatique vs validé par QUI et QUAND (provenance honnête). */}
