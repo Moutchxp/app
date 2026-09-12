@@ -66,6 +66,10 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
   const [prevSelKey, setPrevSelKey] = useState<string | null>(null);      // clé de RÉINITIALISATION de la composition (reset PENDANT le rendu, pas dans un effet)
   const [enCours, setEnCours] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  // ② — SCHÉMA EN PLEIN ÉCRAN (parité « Agrandir le schéma » de « Bâtiments et projection »). Même brique que l'agrandi PROPRE de la liseuse
+  //   (LiseusePieces:155/703) : la colonne du schéma passe en position:fixed inset:0. Tout son contenu (svg + contrôles de sélection + légende)
+  //   s'y retrouve tel quel → la sélection est PARTAGÉE (même état de composant, une seule source de vérité), sans dupliquer le mécanisme.
+  const [schemaPleinEcran, setSchemaPleinEcran] = useState(false);
   const [adresseSaisie, setAdresseSaisie] = useState('');           // PL-D — champ de saisie d'adresse (mode adresse)
   const [adresseCommittee, setAdresseCommittee] = useState<{ texte: string; point: { x: number; y: number } | null } | null>(null); // committée : suggestion CHOISIE (point) ou texte libre
   const [suggestions, setSuggestions] = useState<SuggestionAdresse[] | null>(null); // PL-E — autocomplétion ; null = pas de recherche, [] = aucune
@@ -154,6 +158,14 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
     onEtatPlanche(etatPlancheTitre({ selectionValidee: data.selection.active, changementEnAttente, cas: bilanComparatif(comparatif).cas }));
   }, [data, comparatif, changementEnAttente, onEtatPlanche]);
 
+  // ② — fermeture du plein écran à la touche Échap (même sortie que « ✕ Fermer »). Aucune animation → prefers-reduced-motion respecté d'office.
+  useEffect(() => {
+    if (!schemaPleinEcran) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSchemaPleinEcran(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [schemaPleinEcran]);
+
   const basculer = (id: string | null) => { if (!id) return; setComposition((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
   const reinitialiser = () => { setComposition(new Set(defautIdus)); setMsg(null); };
 
@@ -214,7 +226,11 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
             l'aperçu démarre au MÊME Y que le schéma. C'est déjà une carte (svv-card) → parité de padding avec la colonne de droite. */}
         <LiseusePieces dossierId={dossierId} donneesPrechargees={donneesLiseuse} titreEnEntete />
 
-        <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
+        <div className={schemaPleinEcran ? undefined : 'svv-card'}
+          role={schemaPleinEcran ? 'dialog' : undefined} aria-modal={schemaPleinEcran || undefined} aria-label={schemaPleinEcran ? 'Planche cadastrale agrandie — sélection des parcelles' : undefined}
+          style={schemaPleinEcran
+            ? { position: 'fixed', inset: 0, zIndex: 1000, background: 'var(--color-svv-surface)', overflow: 'auto', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '.5rem' } // ② plein écran (même brique que l'agrandi de la liseuse)
+            : { display: 'flex', flexDirection: 'column', gap: '.5rem', minWidth: 0 }}>
           {/* CENTRAGE — barre d'outils EN TÊTE de la carte (parité avec la barre de zoom de la liseuse à gauche) ; le schéma démarre juste dessous. */}
           <div role="group" aria-label="Centrage de la planche" style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Centrer :</span>
@@ -227,6 +243,11 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
                 {data.parcellesChoix.map((p) => <option key={p.idu} value={p.idu}>Section {p.section} n° {p.numero}</option>)}
               </select>
             )}
+            {/* ② — « Agrandir le schéma » / « ✕ Fermer » : MÊME libellé et MÊME emplacement (au-dessus du schéma) que « Bâtiments et projection ».
+                Poussé à droite de la barre. Cible tactile ≥ 44 px. */}
+            {schemaPleinEcran
+              ? <button type="button" style={{ ...btn(false), minHeight: 44, marginLeft: 'auto' }} onClick={() => setSchemaPleinEcran(false)} aria-label="Fermer l’agrandissement du schéma">✕ Fermer</button>
+              : <button type="button" style={{ ...btn(false), minHeight: 44, marginLeft: 'auto' }} onClick={() => setSchemaPleinEcran(true)} aria-label="Agrandir le schéma en plein écran">⤢ Agrandir le schéma</button>}
           </div>
           {data.motif || rienADessiner ? (
             <div role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>{messageVide}</div>
@@ -240,7 +261,7 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
               <div style={{ width: '100%', overflowX: 'auto' }}>
                 <svg viewBox={`0 0 ${schema.largeur} ${schema.hauteur}`} role="img"
                   aria-label={`Planche cadastrale : ${composition.size} parcelle(s) sélectionnée(s) sur ${data.nbRetenues} du permis, ${data.nbVoisines} voisine(s)`}
-                  style={{ width: '100%', maxWidth: 520, height: 'auto', display: 'block', background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }}>
+                  style={{ width: '100%', maxWidth: schemaPleinEcran ? 900 : 520, height: 'auto', display: 'block', background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem' }}>
                   {schema.empreintePath && <path d={schema.empreintePath} fill="none" stroke="var(--color-svv-line)" strokeWidth={1.5} strokeDasharray="4 3" />}
                   {schema.polygones.map((p, i) => { const m = meta[i]; if (!m) return null;
                     const id = m.idu; const dans = id ? composition.has(id) : false; const s = styleParcelle(m, dans);

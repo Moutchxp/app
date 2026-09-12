@@ -141,3 +141,33 @@ describe('PL-H — câblage : réutilise le canal existant (vInstruction), retra
     expect(SRC_BLOC).toContain('setRechargeLocal((n) => n + 1)'); // le canal LOCAL du bloc, tel quel
   });
 });
+
+describe('② — schéma cadastral en plein écran (parité « Agrandir le schéma »), sélection PARTAGÉE', () => {
+  it('« Agrandir le schéma » ouvre un dialog plein écran AVEC les contrôles de sélection ; « ✕ Fermer »/Échap le ferment ; la sélection est conservée', async () => {
+    await act(async () => { root.render(h(PlancheParcelles, { dossierId: 1 })); });
+    await flush();
+    // vue normale : le bouton d'agrandissement est là, aucun dialog encore.
+    expect(boutonTexte('⤢ Agrandir le schéma')).not.toBeNull();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    // ouvrir le plein écran
+    act(() => { boutonTexte('⤢ Agrandir le schéma')!.click(); });
+    await flush();
+    const dialog = container.querySelector('[role="dialog"][aria-modal="true"]') as HTMLElement | null;
+    expect(dialog).not.toBeNull();
+    expect(boutonTexte('✕ Fermer')).not.toBeNull();
+    expect(boutonTexte('⤢ Agrandir le schéma')).toBeNull(); // le bouton d'ouverture cède la place à « Fermer »
+    // les fonctions de sélection sont présentes en plein écran : « Centrer », parcelles cliquables, section validation.
+    expect(dialog!.textContent).toContain('Centrer :');
+    expect(dialog!.querySelectorAll('path[role="button"]').length).toBeGreaterThan(0);
+    // SÉLECTION PARTAGÉE : cliquer la voisine EN plein écran crée un changement en attente…
+    clicVoisine();
+    await flush();
+    expect(boutonTexte('Valider la sélection')).not.toBeNull();
+    // …et Échap ferme le plein écran SANS perdre la sélection (une seule source de vérité) ; le bouton d'agrandissement revient.
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    await flush();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(boutonTexte('Valider la sélection')).not.toBeNull();
+    expect(boutonTexte('⤢ Agrandir le schéma')).not.toBeNull();
+  });
+});
