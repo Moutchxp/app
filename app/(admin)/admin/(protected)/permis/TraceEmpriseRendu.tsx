@@ -9,6 +9,8 @@ import {
 import { placerPoigneeDansCadre, type CadreBoite, type BornesTige } from './ancragePoignees'; // BAT (défaut E) — borne la longueur de tige + replie la poignée dans le cadre (unités boîte), rendu ET hit-test → jamais divergents
 import type { EmpriseReconstruite, ProjectionIgnoree, PolygoneBdTopo, ProvenanceEmprise, ObjetContexte } from '../../../../lib/permis/empriseReconstruiteRepo';
 import type { ImpactTraceManuel } from './impactTraceManuel'; // GARDE-FOU — avant qu'un tracé manuel efface les emprises adoptées d'un bâtiment
+import type { ChangementStatut, DiffRecalcul } from './diffStatutsRecalcul'; // RECALCUL STATUTS — notification (zone d'alerte), source unique du diff
+import type { StatutDecide } from '../../../../lib/permis/polygoneStatut';
 import { libelleBatiment, resumeProjection, type VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import { nomAffichageCorps, resolveurNomEmprise } from '../../../../lib/permis/nomCorps'; // NOM-1/NOM-3 — nom d'un corps ; nom DISTINCT par emprise (repère + « (numéro) »)
 import { estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
@@ -2142,6 +2144,39 @@ const TROIS_STATUTS: { s: 'preserve' | 'mixte' | 'detruit'; label: string }[] = 
   { s: 'mixte', label: 'partiellement détruit' },
   { s: 'detruit', label: 'bâtiment détruit' },
 ];
+/** RECALCUL STATUTS — libellé d'un statut, IDENTIQUE aux boutons du bloc (aucun 3e vocabulaire). `null` = aucun statut = bâtiment préservé. */
+export function motStatutRecalcul(s: StatutDecide | null): string {
+  return TROIS_STATUTS.find((t) => t.s === s)?.label ?? 'bâtiment préservé';
+}
+/** RECALCUL STATUTS — un changement, en français simple : entrée/sortie de sous l'emprise, ou ancien → nouveau statut. PUR. */
+export function libelleChangementRecalcul(c: ChangementStatut): string {
+  if (c.nature === 'entree') return `entré sous l’emprise → ${motStatutRecalcul(c.apres)}`;
+  if (c.nature === 'sortie') return `sorti de l’emprise → ${motStatutRecalcul(c.apres)}`;
+  return `${motStatutRecalcul(c.avant)} → ${motStatutRecalcul(c.apres)}`;
+}
+
+/**
+ * RECALCUL STATUTS — NOTIFICATION (zone d'alerte) : liste UNIQUEMENT les CHANGEMENTS produits par le recalcul consécutif à un ajustement
+ * (statut auto modifié, bâtiment entré / sorti de sous l'emprise), en français simple. Acquittable (« J'ai vu ») : une fois vu, elle
+ * disparaît et ne revient qu'au prochain ajustement produisant des changements. Aucun changement → rien. Les DÉSACCORDS ne sont PAS ici
+ * (ils vivent dans le bloc). Accent INDIGO (jamais le rouge, réservé aux erreurs / au taux / à la prévision). Le repère écrit porte le sens. PUR.
+ */
+export function NotificationRecalculStatut({ diff, repereDe, occupe = false, onAcquitter }: {
+  diff: DiffRecalcul | null; repereDe: (cleabs: string) => string; occupe?: boolean; onAcquitter: () => void;
+}) {
+  if (diff === null || diff.changements.length === 0) return null;
+  const n = diff.changements.length;
+  return (
+    <div className="svv-card" role="status" aria-live="polite" data-recalcul-notif="true"
+      style={{ borderLeft: '4px solid #4338ca', display: 'flex', flexDirection: 'column', gap: '.35rem', fontSize: 12.5 }}>
+      <div style={{ fontWeight: 600 }}><span aria-hidden>↻ </span>Recalcul après ajustement : {n} bâtiment{n > 1 ? 's' : ''} existant{n > 1 ? 's' : ''} mis à jour</div>
+      <ul style={{ margin: 0, paddingLeft: '1.1rem', color: 'var(--color-svv-ink)' }}>
+        {diff.changements.map((c) => <li key={c.cleabs}><strong>{repereDe(c.cleabs)}</strong> : {libelleChangementRecalcul(c)}</li>)}
+      </ul>
+      <button type="button" onClick={onAcquitter} disabled={occupe} style={{ alignSelf: 'flex-start', cursor: 'pointer', fontSize: 12, minHeight: 32, padding: '.2rem .6rem', borderRadius: '.4rem', background: 'var(--color-svv-field)', color: 'var(--color-svv-ink)', border: '1px solid var(--color-svv-line)' }}>J’ai vu</button>
+    </div>
+  );
+}
 export function StatutPolygonesExistants({ polygones, recouverts, statuts, onStatuer, sansEntete = false }: {
   polygones: PolygoneRepere[]; recouverts: readonly PolygoneRecouvert[]; statuts: Map<string, EtatStatutPolygone>;
   onStatuer: (cleabs: string, statut: 'preserve' | 'detruit' | 'mixte' | 'revoque') => void;

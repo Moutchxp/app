@@ -17,7 +17,8 @@ import { ancragePoignees } from './ancragePoignees'; // BAT (défaut E) — ancr
 import { validationParCorpsDepuisEmprises } from './etatValidationEmprise'; // POINT 1 — validation par corps dérivée de la SEULE vérité par emprise (source unique bandeau/en-tête/onglet/rangée)
 import { emprisesASurligner } from './surlignageSelection'; // D — emprises du bâtiment sélectionné à surligner sur la vue normale/XL (≥ 2 bâtiments)
 import { impactTraceManuel, type ImpactTraceManuel } from './impactTraceManuel'; // GARDE-FOU — ce qu'un tracé manuel va effacer (emprises adoptées + validations)
-import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, CartouchesAjustables, BasculeMode, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, ConfirmationTraceManuel, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
+import type { DiffRecalcul } from './diffStatutsRecalcul'; // RECALCUL STATUTS — diff renvoyé par un ajustement (notification + marquage du bloc), état partagé
+import { HAUTEUR_CADRE_RENDU, BandeauCalage, IndicateurEcartement, PanneauAjustement, BandeauAjustementCompact, BandeauRetoucheCompact, BandeauGestesCompact, CartouchesAjustables, BasculeMode, BandeauVraisemblance, ListeEmprises, SchemaParcelleTrace, BandeauProjection, statutBatiment, affichageTrace, ListePiecesAnalyse, etatAnalyseIA, BandePlans, construireBandePlans, bornerIndex, cibleBestOf, indexSuivant, indexPrecedent, guideCalageSousSchema, NavPieceLibre, bornerPage, messageVerrou, noteFamille, OptionsVisibiliteSchema, compterBatimentsPermis, SelectionPolygonesProjet, BlocProjetRepliable, BlocExistantsRepliable, attribuerReperes, RotationSchema, ZoomPdf, guidageTrace, GuidageTraceBox, accesTrace, RepereQualiteCalage, AdoptionGroupes, ConfirmationAdoption, ConfirmationTraceManuel, NotificationRecalculStatut, abregerCleabs, LegendeProjectionEmprises, legendeProjection, etiquettesProjection, FILTRES_SCHEMA_DEFAUT, type FiltresSchema, type GroupeAdoptionVue, type BatimentAdoptionVue, type Plan, type EtatAnalyseIA } from './TraceEmpriseRendu';
 import { familleDeNom, estTracable, type FamillePlan } from '../../../../lib/permis/planMasse';
 import { LiseusePieces, type DonneesLiseuse } from './LiseusePieces'; // LOT 90 — liseuse LECTURE SEULE autonome ; P3 — partage de la donnée /emprise (anti-doublon)
 import { BandeauSelection } from './TraceEmpriseRendu'; // PL-C4 — bandeau « sélection validée » sous le curseur Rotation
@@ -102,6 +103,7 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const [voisinage, setVoisinage] = useState<ObjetContexte[]>([]); // PROJ-CTX — contexte (parcelles voisines + bâti dans le rayon), chargé SEULEMENT si l'interrupteur est allumé
   const [ecartes, setEcartes] = useState<string[]>([]); // PROJ-3i — cleabs des polygones « en projet » écartés (persistés)
   const [statutsLignes, setStatutsLignes] = useState<LigneStatutPolygone[]>([]); // RATT-1 (2) — registre append-only des statuts décidés
+  const [recalculStatut, setRecalculStatut] = useState<DiffRecalcul | null>(null); // RECALCUL STATUTS — diff du dernier ajustement (changements + désaccords) ; état UNIQUE partagé notification ↔ bloc ; null = rien à signaler / acquitté
   const [recouverts, setRecouverts] = useState<PolygoneRecouvert[]>([]); // RATT-1 (2) / RATT-5 — polygones recouverts (au-dessus du seuil) + leur taux (%)
   // PL-C4 — sélection validée (superposition) : bandeau + retrait à deux temps (geste délibéré, RECALCULE l'empreinte).
   const [selection, setSelection] = useState<SelectionInfo>({ active: false, idus: [], validePar: null, valideLe: null, acteurNom: null });
@@ -337,6 +339,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
   const polygonesPermis = useMemo(() => polygonesReperes.filter((p) => p.appartientPermis !== false), [polygonesReperes]);
   // PROJ-3r-fix — cleabs → repère (mêmes noms que la liste des polygones et le schéma) pour nommer les lignes de l'encart d'adoption.
   const reperesParCleabs = useMemo(() => Object.fromEntries(polygonesReperes.filter((p) => p.cleabs).map((p) => [p.cleabs as string, p.repere])), [polygonesReperes]);
+  // RECALCUL STATUTS — comment nommer un bâtiment à l'écran (notification + marquage du bloc) : son repère (A/B/C…, même nom que le schéma et la
+  //   liste), sinon un cleabs abrégé en repli. UN seul nommage, partagé par les deux affichages, pour que le vocabulaire soit strictement identique.
+  const repereDe = useCallback((cleabs: string) => reperesParCleabs[cleabs] ?? abregerCleabs(cleabs), [reperesParCleabs]);
   const boiteGrande: Boite | null = useMemo(() => { const c = cadreDeAnneaux(parcelle); return c ? { largeur: 680, hauteur: 520, marge: 18, cadre: c } : null; }, [parcelle]);
   // RÈGLE ARNO — les compteurs des cases « bâti existant » / « futur bâti » ne comptent QUE les bâtiments DU PERMIS (les mêmes qui
   //   portent une lettre) ; les voisins relèvent de « contexte » et n'y entrent pas.
@@ -1131,11 +1136,12 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
         ? { action: 'ajuster_bloc', dossierId, ajustement: ajustement.delta }
         : { action: 'ajuster', dossierId, id: ajustement.id, ajustement: ajustement.delta };
       const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
-      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[] };
+      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; recalculStatut?: DiffRecalcul };
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'ajustement refusé'); return; }
       setEmprises(j.emprises ?? []); setAjustement(null);
       if (j.statutsPolygones) setStatutsLignes(j.statutsPolygones); // règle e levée : l'ajustement a recalculé les statuts auto → rafraîchir le bloc
       if (j.polygonesRecouverts) setRecouverts(j.polygonesRecouverts);
+      setRecalculStatut(j.recalculStatut?.aDesChangements ? j.recalculStatut : null); // notification + marquage partagés : on montre s'il y a des changements/désaccords, sinon on efface une notification devenue caduque
       setMessage(ajustement.bloc ? 'ajustement d’ensemble enregistré. « Revenir au tracé d’origine » reste disponible.' : 'ajustement enregistré. « Revenir au tracé d’origine » reste disponible à tout moment.');
       onEmprisesChange?.();
     } catch { setMessage('ajustement impossible'); } finally { setOccupe(false); }
@@ -1147,11 +1153,12 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     try {
       const corps = ajustement.bloc ? { action: 'reinitialiser_ajustement_bloc', dossierId } : { action: 'reinitialiser_ajustement', dossierId, id: ajustement.id };
       const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
-      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[] };
+      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; recalculStatut?: DiffRecalcul };
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'retour à l’origine impossible'); return; }
       setEmprises(j.emprises ?? []); setAjustement(null);
       if (j.statutsPolygones) setStatutsLignes(j.statutsPolygones); // le retour à l'origine change aussi la couverture → recalcul → rafraîchir le bloc
       if (j.polygonesRecouverts) setRecouverts(j.polygonesRecouverts);
+      setRecalculStatut(j.recalculStatut?.aDesChangements ? j.recalculStatut : null); // même notification/marquage partagés qu'après un ajustement posé
       setMessage(ajustement.bloc ? 'retour à l’origine (ensemble) : tous les ajustements ont été supprimés, les géométries d’origine sont restituées.' : 'retour au tracé d’origine : l’ajustement a été supprimé, la géométrie d’origine est restituée.');
       onEmprisesChange?.();
     } catch { setMessage('retour à l’origine impossible'); } finally { setOccupe(false); }
@@ -1175,9 +1182,12 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
     setOccupe(true); setMessage(null);
     try {
       const res = await fetch('/api/admin/permis/emprise', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reinitialiser_ajustement', dossierId, id }) });
-      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[] };
+      const j = await res.json() as { ok?: boolean; erreur?: string; emprises?: EmpriseReconstruite[]; statutsPolygones?: LigneStatutPolygone[]; polygonesRecouverts?: PolygoneRecouvert[]; recalculStatut?: DiffRecalcul };
       if (!res.ok || !j.ok) { setMessage(j.erreur ?? 'retour à l’origine impossible'); return; }
       setEmprises(j.emprises ?? []);
+      if (j.statutsPolygones) setStatutsLignes(j.statutsPolygones); // règle e levée : ce retour à l'origine (plein écran) recalcule aussi les statuts → rafraîchir le bloc
+      if (j.polygonesRecouverts) setRecouverts(j.polygonesRecouverts);
+      setRecalculStatut(j.recalculStatut?.aDesChangements ? j.recalculStatut : null);
       setMessage('retour au tracé d’origine : l’ajustement a été supprimé, la géométrie d’origine est restituée.');
       onEmprisesChange?.();
     } catch { setMessage('retour à l’origine impossible'); } finally { setOccupe(false); }
@@ -1207,6 +1217,9 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       if (j.polygonesRecouverts) setRecouverts(j.polygonesRecouverts);
     } catch { setMessage('statut impossible'); }
   }, [dossierId]);
+  // RECALCUL STATUTS — ACQUITTEMENT UNIQUE ET PARTAGÉ : lever l'état ici efface À LA FOIS la notification de la zone d'alerte ET les marquages du
+  //   bloc « Affectation … existants » (un seul état, jamais deux). Réciproquement, un acquittement depuis le bloc appelle ce même geste.
+  const onAcquitterRecalcul = useCallback(() => setRecalculStatut(null), []);
 
   // PL-C4 — RETIRER la sélection validée (superposition) depuis le bandeau. Geste DÉLIBÉRÉ à deux temps (confirmé dans le bandeau) :
   //   RECALCULE l'empreinte + bâti + projection (réversible). Puis recharge /emprise → nouvelle empreinte, schéma et bandeau à jour.
@@ -1568,6 +1581,10 @@ export function BlocTraceEmprise({ dossierId, onVerdict, rafraichir = 0, avecLis
       {chaineBoutons}
       {/* BUG PROV — le RÉSULTAT (succès OU erreur serveur) s'affiche ICI, au point d'action : un bouton MUET était le pire cas. */}
       {message && <div role="alert" style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-svv-red)' }}>{message}</div>}
+
+      {/* RECALCUL STATUTS (règle e levée) — NOTIFICATION des changements produits par le dernier ajustement. Acquittement PARTAGÉ avec les
+          marquages du bloc « Affectation … existants » (un seul état `recalculStatut`). Aucun changement → ne rend rien. */}
+      <NotificationRecalculStatut diff={recalculStatut} repereDe={repereDe} occupe={occupe} onAcquitter={onAcquitterRecalcul} />
 
       {/* Emprises de CE bâtiment : ajuster (delta rigide), retoucher (sommets, mono-polygone) ou effacer. Pendant un ajustement (une ou bloc), les boutons « ajuster » se masquent. */}
       <ListeEmprises emprises={empriseDuBat} empriseEnRetouche={retouche?.id ?? null} empriseEnAjustement={ajustement?.id ?? null} nomEmprise={nomEmprise} nomCorps={batSel ? libelleBatiment(batSel) : undefined}
