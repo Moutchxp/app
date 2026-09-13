@@ -36,12 +36,24 @@ export type SaisieCarte = { repere: string; adresse: string } & Record<ChampEnre
 export type BaseCarte = { repere: string | null; adresse: string | null } & Record<ChampEnregistreMesure, number | null>;
 
 /**
- * B1 — la carte est-elle ENREGISTRÉE ET À JOUR ? `true` ssi AUCUN champ écrit par « Enregistrer ce bâtiment » ne diffère de la base
- * (repère, adresse, 7 mesures hors sommet). Une modification quelconque — y compris VIDER un champ rempli — le rend `false` ;
- * revenir à la valeur exacte de la base le rend `true` de nouveau.
+ * « ENREGISTRÉ » (confirmé humainement) — décision Arno : un bâtiment n'est enregistré QUE si ses valeurs ont été CONFIRMÉES par un humain
+ * (origine 'saisie'), pas laissées telles quelles depuis l'analyse IA (origine 'extraite'). Un bâtiment analysé mais JAMAIS enregistré porte
+ * donc des valeurs 'extraite' → NON enregistré. `true` ssi AUCUNE origine fournie n'est 'extraite' (les champs vides ont une origine null,
+ * jamais 'extraite' — cf. ecrireCorps « v null ⇒ origine null »). PUR.
  */
-export function batimentEnregistreAJour(saisie: SaisieCarte, base: BaseCarte): boolean {
-  if (texteDiffereBase(saisie.repere, base.repere)) return false;
+export function estConfirmeHumainement(origines: readonly (string | null | undefined)[]): boolean {
+  return !origines.some((o) => o === 'extraite');
+}
+
+/**
+ * B1 — la carte est-elle ENREGISTRÉE ET À JOUR ? `true` ssi (a) elle est CONFIRMÉE humainement (aucune valeur restée 'extraite' — couvre
+ * le cas « jamais enregistré ») ET (b) AUCUN champ écrit par « Enregistrer ce bâtiment » ne diffère de la base (repère, adresse, 7 mesures
+ * hors sommet — couvre le cas « enregistré puis modifié », y compris VIDER un champ). Revenir à la valeur exacte de la base + tout confirmé
+ * → `true`. C'est la règle du BOUTON « Enregistrer ce bâtiment » ET la source de l'exigence ② du statut de la ligne mère.
+ */
+export function batimentEnregistreAJour(saisie: SaisieCarte, base: BaseCarte, origines: readonly (string | null | undefined)[]): boolean {
+  if (!estConfirmeHumainement(origines)) return false; // (a) jamais confirmé humainement (valeurs encore 'extraite')
+  if (texteDiffereBase(saisie.repere, base.repere)) return false; // (b) modifié depuis…
   if (texteDiffereBase(saisie.adresse, base.adresse)) return false;
   for (const c of CHAMPS_ENREGISTRES_MESURE) if (champDiffereBase(saisie[c], base[c])) return false;
   return true;

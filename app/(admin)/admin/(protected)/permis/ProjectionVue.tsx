@@ -214,17 +214,23 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     const comptesMere: ComptesCaracteristiquesPermis = (comptesLive && comptesLive.dossierId === ouvert)
       ? comptesLive
       : { dossierId: ouvert, nbCartes: row?.nbBatiments ?? 0, nbSansAltitude: row?.nbCorpsSansAltitude ?? 0, nbBatimentsValide: row?.nbBatimentsValide ?? null };
-    const etatMere = etatCaracteristiquesPermis(comptesMere); // BAT-4 — agrégat de l'unique porteuse (section 4), SOURCE UNIQUE avec le sous-titre du bloc
+    const etatMereBase = etatCaracteristiquesPermis(comptesMere); // BAT-4 — agrégat de l'unique porteuse (section 4), SOURCE UNIQUE avec le sous-titre du bloc
+    // (C) — la mère « Caractéristiques du permis » suit la MÊME règle que sa porteuse « Les futurs bâtiments » (durcie dans CaracteristiquesBloc) :
+    //   ① altitude validée à jour + ② enregistré à jour, par bâtiment. Sa base ne teste pas la validation → listes COMPLÈTES (altitudeAValider).
+    const fraicheurIci = fraicheurBat && fraicheurBat.dossierId === ouvert ? fraicheurBat : null;
+    const etatMere = fraicheurIci
+      ? statutBatimentsProjection(etatMereBase, { aEnregistrer: fraicheurIci.aEnregistrer, altitudeAValider: fraicheurIci.altitudeAValider })
+      : etatMereBase;
     // ③ COMPLÉMENT — l'en-tête dit l'état RÉEL (tous les bâtiments alt+emprise validés → VERT ; sinon ce qui manque), remonté par le bloc
     //   quand il est ouvert (valeur LIVE, prime). REPLI avant ouverture : calculé sur les COMPTES de la ligne (calqué sur estValidationAcquise,
     //   MÊME règle que l'en-tête live), PLUS sur le jalon dossier `projectionValidee` — la section et la ligne disent ainsi une seule vérité
     //   (validation PAR BÂTIMENT). Le jalon `permis_projection` gouverne UNIQUEMENT la clôture / l'envoi en Rattachement (bouton dédié).
     const etatProjBase = enteteProjection ?? etatProjectionTitreDepuisComptes(row?.nbBatiments ?? 0, row?.nbCorpsSansAltValidee ?? 0, row?.nbCorpsSansEmpriseValidee ?? 0);
-    // (C) — on DURCIT ce statut avec la fraîcheur LIVE remontée par « Caractéristiques du permis » quand il est OUVERT (② enregistré à jour,
-    //   ① altitude validée à jour). Garde d'appartenance (dossierId) comme comptesLive/etatPlancheLive. Bloc replié → `fraicheurBat` null →
-    //   `statutBatimentsProjection` n'est pas appelé → etatProj = base serveur (comportement d'avant ce lot). N'écrase jamais un manquement serveur.
-    const etatProj = (fraicheurBat && fraicheurBat.dossierId === ouvert)
-      ? statutBatimentsProjection(etatProjBase, fraicheurBat)
+    // (C) — on DURCIT ce statut avec la fraîcheur LIVE quand le bloc « Caractéristiques » est OUVERT. Sa base (etatEnteteProjection) compte
+    //   DÉJÀ les altitudes jamais validées côté serveur → on ne lui passe que le SOUS-ENSEMBLE « validée puis modifiée » (altitudeModifiee),
+    //   sinon double-décompte. ② enregistré : listes complètes. Bloc replié → `fraicheurIci` null → etatProjBase inchangé (comportement d'avant).
+    const etatProj = fraicheurIci
+      ? statutBatimentsProjection(etatProjBase, { aEnregistrer: fraicheurIci.aEnregistrer, altitudeAValider: fraicheurIci.altitudeModifiee })
       : etatProjBase;
     // PL-ÉTAT — état de la ligne « Planche cadastrale » visible SANS déplier. Valeur LIVE `etatPlancheLive` (remontée par PlancheParcelles quand
     //   le bloc est ouvert : elle porte le CHANGEMENT en attente → rouge « modifiée — non validée »), sinon REPLI sur l'état SAUVEGARDÉ de la
@@ -329,7 +335,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
                   écriture) change le NOMBRE de corps ACTIFS. Le snapshot de la file (source de la ligne FERMÉE et de son décompte « Bâtiments »)
                   devient alors périmé par rapport à l'intérieur LIVE → la ligne oscillait vert (ouvert) / rouge (fermé). On rafraîchit la file ICI
                   aussi (comme `onEmprisesChange`), pour que la ligne fermée et le dossier ouvert lisent le MÊME décompte de bâtiments actifs. */}
-              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles etatSection4SansAide onComptes={setComptesLive} onFraicheur={setFraicheurBat} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onAccesEmprise={accederEmprise} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => { setVInstruction((v) => v + 1); void rafraichirFile(); }} pied={rendreCloture('bouton')} />
+              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles etatSection4SansAide durcirStatutFraicheur onComptes={setComptesLive} onFraicheur={setFraicheurBat} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onAccesEmprise={accederEmprise} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => { setVInstruction((v) => v + 1); void rafraichirFile(); }} pied={rendreCloture('bouton')} />
             </div>
           )}
         </BlocRepliable>
