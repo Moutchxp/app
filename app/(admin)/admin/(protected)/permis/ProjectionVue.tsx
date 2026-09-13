@@ -16,6 +16,7 @@ import type { VerdictProjection } from '../../../../lib/permis/projectionBatimen
 import { etatValidationProjection } from '../../../../lib/permis/etatValidationProjection';
 import { etatProjectionTitreDepuisComptes, etatCaracteristiquesPermis, etatPlancheTitre, type EtatTitreFamille, type ComptesCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection'; // RATT-1 — état sur la ligne de titre des familles (repli PAR BÂTIMENT, calqué sur estValidationAcquise) ; PL-ÉTAT — état de la ligne « Planche cadastrale » ; BAT-4 — mère « Caractéristiques du permis » = unique porteuse (section 4 : cohérence + altitudes) ; BAT-2d — comptes LIVE remontés par le bloc
 import { conditionAltitudeSortie, pretPourSortie } from '../../../../lib/permis/etatSortieRattachement'; // LOT 71 — condition altitude à 3 états (sans objet ≠ satisfaite)
+import { statutBatimentsProjection, type FraicheurBatimentsLive } from './statutBatimentsProjection'; // (C) — DURCIT « Bâtiments et projection » avec la fraîcheur LIVE (enregistré/validé à jour) remontée par CaracteristiquesBloc
 import { recompterSiSucces } from './comptesActions';
 
 /**
@@ -41,6 +42,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   const [batimentsOuvert, setBatimentsOuvert] = useState(false); // PERF-1 — le bloc bâtiments (verdict) est déplié à la demande ; jauge le bouton « Valider »
   const [etatPlancheLive, setEtatPlancheLive] = useState<EtatTitreFamille | null>(null); // PL-ÉTAT — état LIVE de la planche remonté quand le bloc est ouvert (prime sur l'état SAUVEGARDÉ de la ligne) ; null tant que le bloc n'est pas ouvert → repli sur row.plancheEtat
   const [comptesLive, setComptesLive] = useState<ComptesCaracteristiquesPermis | null>(null); // BAT-2d — comptes LIVE remontés par CaracteristiquesBloc → la mère « Caractéristiques du permis » se calcule sur les MÊMES données que ses sous-titres (fini la désynchro). null → repli sur row.
+  const [fraicheurBat, setFraicheurBat] = useState<FraicheurBatimentsLive | null>(null); // (C) — fraîcheur LIVE (enregistré/validé à jour) remontée par CaracteristiquesBloc OUVERT → durcit « Bâtiments et projection ». null (bloc replié) → repli sur l'état serveur.
   // BAT — ACCÈS À L'EMPRISE : la capsule d'emprise (cartouche « Caractéristiques ») demande l'accès au bloc « Bâtiments et projection » pour
   //   UN bâtiment. `ouvrirBatiments` = nonce d'OUVERTURE COMMANDÉE du bloc frère (BlocRepliable) ; `demandeAcces` = {corps + nonce} consommé
   //   UNE fois par BlocTraceEmprise (sélection carte + planche + mode XL), puis remis à zéro. Ce composant est le PARENT COMMUN des deux blocs.
@@ -125,7 +127,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
       if (!res.ok || !d.ok) { setMessage(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'clôture impossible')); return; }
       const gr = await fetch('/api/admin/permis/projection', { cache: 'no-store' }); // re-fetche la file : le permis passé n'y est plus
       if (gr.ok) { const gd = (await gr.json()) as { file?: LigneProjectionAffichee[] }; setFile(gd.file ?? []); }
-      setOuvert(null); setVerdict(null); setEnteteProjection(null); setEtatPlancheLive(null); setComptesLive(null); setMessage('permis passé en Rattachement');
+      setOuvert(null); setVerdict(null); setEnteteProjection(null); setEtatPlancheLive(null); setComptesLive(null); setFraicheurBat(null); setMessage('permis passé en Rattachement');
       recompterSiSucces(true, onRecompter);
     } catch { setMessage('clôture impossible'); } finally { setEnCours(false); }
   }, [onRecompter]);
@@ -192,7 +194,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   if (file === null) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>;
 
   const ouvrir = (dossierId: number) => {
-    setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setEnteteProjection(null); setEtatPlancheLive(null); setComptesLive(null); setDonneesLiseuse(null); setMessage(null); setBatimentsOuvert(false); setDemandeAcces(null); // PERF-1 : chaque permis s'ouvre tout replié ; BAT : jamais une demande d'accès héritée d'un autre permis (BlocTraceEmprise remonte par permis)
+    setOuvert((v) => (v === dossierId ? null : dossierId)); setVerdict(null); setEnteteProjection(null); setEtatPlancheLive(null); setComptesLive(null); setFraicheurBat(null); setDonneesLiseuse(null); setMessage(null); setBatimentsOuvert(false); setDemandeAcces(null); // PERF-1 : chaque permis s'ouvre tout replié ; BAT : jamais une demande d'accès héritée d'un autre permis (BlocTraceEmprise remonte par permis)
     passageDeclencheRef.current = null; setPassageMsg(null); setPassageEnCours(false); // LOT 70 : réarme l'analyse au passage (event handler → setState autorisé) pour la prochaine ouverture
   };
 
@@ -217,7 +219,13 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     //   quand il est ouvert (valeur LIVE, prime). REPLI avant ouverture : calculé sur les COMPTES de la ligne (calqué sur estValidationAcquise,
     //   MÊME règle que l'en-tête live), PLUS sur le jalon dossier `projectionValidee` — la section et la ligne disent ainsi une seule vérité
     //   (validation PAR BÂTIMENT). Le jalon `permis_projection` gouverne UNIQUEMENT la clôture / l'envoi en Rattachement (bouton dédié).
-    const etatProj = enteteProjection ?? etatProjectionTitreDepuisComptes(row?.nbBatiments ?? 0, row?.nbCorpsSansAltValidee ?? 0, row?.nbCorpsSansEmpriseValidee ?? 0);
+    const etatProjBase = enteteProjection ?? etatProjectionTitreDepuisComptes(row?.nbBatiments ?? 0, row?.nbCorpsSansAltValidee ?? 0, row?.nbCorpsSansEmpriseValidee ?? 0);
+    // (C) — on DURCIT ce statut avec la fraîcheur LIVE remontée par « Caractéristiques du permis » quand il est OUVERT (② enregistré à jour,
+    //   ① altitude validée à jour). Garde d'appartenance (dossierId) comme comptesLive/etatPlancheLive. Bloc replié → `fraicheurBat` null →
+    //   `statutBatimentsProjection` n'est pas appelé → etatProj = base serveur (comportement d'avant ce lot). N'écrase jamais un manquement serveur.
+    const etatProj = (fraicheurBat && fraicheurBat.dossierId === ouvert)
+      ? statutBatimentsProjection(etatProjBase, fraicheurBat)
+      : etatProjBase;
     // PL-ÉTAT — état de la ligne « Planche cadastrale » visible SANS déplier. Valeur LIVE `etatPlancheLive` (remontée par PlancheParcelles quand
     //   le bloc est ouvert : elle porte le CHANGEMENT en attente → rouge « modifiée — non validée »), sinon REPLI sur l'état SAUVEGARDÉ de la
     //   ligne (row.plancheEtat : sélection validée + bilan déclaré ↔ effectif). `null` (état indisponible / non calculé) → titre nu, sans suffixe
@@ -310,7 +318,8 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
             ('principal') et dans « Bâtiments et projection » (⑤). Le rendu du HAUT du bloc a été retiré (décision Arno : trop de boutons).
             ① HIÉRARCHIE — les sous-sections sont légèrement DÉCALÉES (indentation + filet gauche) pour lire la parenté d'un coup d'œil ;
             décalage discret (~.85rem), width:100% des sous-lignes → aucun débordement horizontal en portrait. */}
-        <BlocRepliable key={`w-carac-${ouvert}`} titre={<TitreFamilleEtat base="Caractéristiques du permis (saisie)" etat={etatMere} />}>
+        <BlocRepliable key={`w-carac-${ouvert}`} titre={<TitreFamilleEtat base="Caractéristiques du permis (saisie)" etat={etatMere} />}
+          onOuvertChange={(o) => { if (!o) setFraicheurBat(null); }}>{/* (C) — au REPLI, le bloc se démonte (édition perdue) : on purge la fraîcheur LIVE → « Bâtiments et projection » retombe sur l'état serveur. */}
           {() => (
             <div className="flex flex-col gap-2" style={{ marginLeft: '.85rem', paddingLeft: '.85rem', borderLeft: '2px solid var(--color-svv-line)' }}>
               {/* BAT-2 / BAT-2b — `avecEtatFamilles` : état sur les titres des sous-sections (désormais dans LES CINQ vues). ICI seulement,
@@ -320,7 +329,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
                   écriture) change le NOMBRE de corps ACTIFS. Le snapshot de la file (source de la ligne FERMÉE et de son décompte « Bâtiments »)
                   devient alors périmé par rapport à l'intérieur LIVE → la ligne oscillait vert (ouvert) / rouge (fermé). On rafraîchit la file ICI
                   aussi (comme `onEmprisesChange`), pour que la ligne fermée et le dossier ouvert lisent le MÊME décompte de bâtiments actifs. */}
-              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles etatSection4SansAide onComptes={setComptesLive} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onAccesEmprise={accederEmprise} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => { setVInstruction((v) => v + 1); void rafraichirFile(); }} pied={rendreCloture('bouton')} />
+              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles etatSection4SansAide onComptes={setComptesLive} onFraicheur={setFraicheurBat} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onAccesEmprise={accederEmprise} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => { setVInstruction((v) => v + 1); void rafraichirFile(); }} pied={rendreCloture('bouton')} />
             </div>
           )}
         </BlocRepliable>

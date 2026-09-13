@@ -14,7 +14,8 @@ import {
 } from './caracteristiquesForm';
 import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtatEmprise, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, ChampNombreBatiments, LigneNombreBatiments, ConfirmationRetraitCartes, CartesRetirees, type LienPiece, type CartePlanVue } from './CaracteristiquesRendu';
 import { CompteRenduCartouche, type PasseIaCartouche } from './CompteRenduCartouche'; // CR-2a/CR-2b1 — cartouche + lecture IA (informative)
-import { batimentEnregistreAJour, type BaseCarte } from './fraicheurBatiment'; // FRAÎCHEUR — le bouton « Enregistrer » reflète son état d'enregistrement
+import { batimentEnregistreAJour, altitudeSommetValideeAJour, type BaseCarte } from './fraicheurBatiment'; // FRAÎCHEUR — bouton « Enregistrer » + remontée au statut de la ligne mère
+import type { FraicheurBatimentsLive } from './statutBatimentsProjection'; // (C) — fraîcheur LIVE remontée au parent (ProjectionVue compose le statut « Bâtiments et projection »)
 import { messageErreurCartouche, type PieceCerfa } from './compteRendu'; // CR-2a — message 401 « session expirée » (jamais « indisponible »)
 import { BlocRepliable } from './BlocRepliable'; // PLI-1 — même dépliant que « Complétude »/« Historique » : chaque cartouche de « Caractéristiques du permis » replié à son titre, ouvrable indépendamment
 import { TitreFamilleEtat } from './ProjectionRendu'; // BAT-2 — état sur la ligne de titre d'une sous-section porteuse (réutilisé tel quel)
@@ -31,6 +32,14 @@ const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   hauteurMaxPluNgf: valeurVersInput(c.hauteurMaxPluNgf), // N10-E — limite PLU (NGF)
   altitudePlateauNivellementNgf: valeurVersInput(c.altitudePlateauNivellementNgf), // N10-M — plateau de nivellement (NGF)
   hauteurRelativeM: valeurVersInput(c.hauteurRelativeM), altitudeTerrainNaturelNgf: valeurVersInput(c.altitudeTerrainNaturelNgf),
+});
+// FRAÎCHEUR — état PERSISTÉ d'une carte réduit aux champs comparables (SOURCE UNIQUE, partagée par le bouton d'enregistrement et la
+//   remontée du statut mère) : le sommet est EXCLU (il a son propre geste de validation, cf. fraicheurBatiment).
+const baseCarteDepuisCorps = (c: CorpsBatiment): BaseCarte => ({
+  repere: c.repere, adresse: c.adresse ?? null,
+  nbEtages: c.nbEtages, nbNiveauxSousSol: c.nbNiveauxSousSol, altitudeDernierPlancherNgf: c.altitudeDernierPlancherNgf,
+  hauteurMaxPluNgf: c.hauteurMaxPluNgf, altitudePlateauNivellementNgf: c.altitudePlateauNivellementNgf,
+  hauteurRelativeM: c.hauteurRelativeM, altitudeTerrainNaturelNgf: c.altitudeTerrainNaturelNgf,
 });
 const editionDepuisPermis = (g: GlobalPermis | null): EditionPermis => ({
   natureProjet: g?.natureProjet ?? '', surfacePlancherM2: permisVersInput(g?.surfacePlancherM2), nbLogements: permisVersInput(g?.nbLogements),
@@ -57,7 +66,7 @@ const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '
  * BÂTIMENT (mesurés : repère, altitudes, étages, adresse par corps). Toute écriture est en 'saisie'. Confiance/réserve/motif
  * lus du journal (parCorps + permis). Bornes et liste de nature LUES de la base.
  */
-export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, onAccesEmprise, pied, avecEtatFamilles, etatSection4SansAide, onComptes }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; onAccesEmprise?: (corpsId: number) => void; pied?: ReactNode; avecEtatFamilles?: boolean; etatSection4SansAide?: boolean; onComptes?: (comptes: ComptesCaracteristiquesPermis) => void }) {
+export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, onAccesEmprise, pied, avecEtatFamilles, etatSection4SansAide, onComptes, onFraicheur }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; onAccesEmprise?: (corpsId: number) => void; pied?: ReactNode; avecEtatFamilles?: boolean; etatSection4SansAide?: boolean; onComptes?: (comptes: ComptesCaracteristiquesPermis) => void; onFraicheur?: (f: FraicheurBatimentsLive) => void }) {
   // BAT-2 / BAT-2b — `avecEtatFamilles` : affiche l'ÉTAT sur les titres des sous-sections PORTEUSES (cohérence des cartes + altitudes),
   //   pour savoir s'il faut ouvrir d'un coup d'œil. Passé par LES CINQ vues qui montent ce bloc (Analyse et projection, Rattachement,
   //   Archives, Réponses, Suivi) — BAT-2b l'a étendu au-delà de la seule Projection. L'état vient TOUJOURS des données PROPRES de ce bloc
@@ -124,6 +133,25 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
     if (!onComptes || !data) return;
     onComptes({ dossierId, nbCartes: data.corps.length, nbSansAltitude: data.corps.filter((c) => c.altitudeSommetNgf === null).length, nbBatimentsValide: data.nbBatimentsValide ?? null });
   }, [data, dossierId, onComptes]);
+
+  // (C) — FRAÎCHEUR LIVE remontée au parent : par bâtiment, ce qui n'est PAS encore enregistré/revalidé À L'ÉCRAN (état CLIENT, invisible du
+  //   serveur). Deux listes NOMMÉES : ① altitude validée en base MAIS modifiée depuis (« à revalider »), ② champ enregistré modifié depuis
+  //   (« à enregistrer »). Dépend de `edCorps` ET `data` → recalcul à chaque frappe. Le parent (ProjectionVue) DURCIT le statut de la ligne
+  //   « Bâtiments et projection » avec ces listes (repli sur l'état serveur quand elles sont vides). N'écrit RIEN.
+  useEffect(() => {
+    if (!onFraicheur || !data) return;
+    const aEnregistrer: string[] = [];
+    const altitudeARevalider: string[] = [];
+    data.corps.forEach((c, i) => {
+      const ed = edCorps[c.id];
+      if (!ed) return;
+      const nom = ed.repere.trim() || c.repere || `bâtiment ${i + 1}`;
+      if (!batimentEnregistreAJour(ed, baseCarteDepuisCorps(c))) aEnregistrer.push(nom);
+      // « à revalider » = altitude VALIDÉE en base (confirmeLe posé) mais valeur du champ modifiée depuis (les non-validées sont déjà comptées serveur).
+      if (c.altitudeSommetNgfConfirmeLe != null && !altitudeSommetValideeAJour(c.altitudeSommetNgfConfirmeLe, ed.altitudeSommetNgf, c.altitudeSommetNgf)) altitudeARevalider.push(nom);
+    });
+    onFraicheur({ dossierId, aEnregistrer, altitudeARevalider });
+  }, [edCorps, data, dossierId, onFraicheur]);
 
   const poster = useCallback(async (corps: Record<string, unknown>): Promise<{ ok: boolean; erreur?: string }> => {
     setMessage('');
@@ -417,13 +445,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
         // FRAÎCHEUR (B1) — le bouton « Enregistrer ce bâtiment » reflète son état : VERT « Bâtiment enregistré » quand la saisie courante
         //   correspond EXACTEMENT à l'état en base (repère, adresse, 7 mesures hors sommet), ROUGE « Enregistrer ce bâtiment » dès qu'un de
         //   ces champs est modifié (y compris vidé). Comparaison SAISIE (ed) ↔ BASE (c) : revenir à la valeur d'origine redonne le vert.
-        const baseCarte: BaseCarte = {
-          repere: c.repere, adresse: c.adresse ?? null,
-          nbEtages: c.nbEtages, nbNiveauxSousSol: c.nbNiveauxSousSol, altitudeDernierPlancherNgf: c.altitudeDernierPlancherNgf,
-          hauteurMaxPluNgf: c.hauteurMaxPluNgf, altitudePlateauNivellementNgf: c.altitudePlateauNivellementNgf,
-          hauteurRelativeM: c.hauteurRelativeM, altitudeTerrainNaturelNgf: c.altitudeTerrainNaturelNgf,
-        };
-        const enregistreAJour = batimentEnregistreAJour(ed, baseCarte);
+        const enregistreAJour = batimentEnregistreAJour(ed, baseCarteDepuisCorps(c));
         return (
           <div key={c.id} className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
