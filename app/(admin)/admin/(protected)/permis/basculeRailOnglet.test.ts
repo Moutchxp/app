@@ -14,9 +14,13 @@ const src = readFileSync(join(RACINE, 'app/(admin)/admin/(protected)/permis/Perm
 const compact = src.replace(/\s+/g, ' ');
 
 describe('LOT 33 — BasculeRail réservé à « À demander »', () => {
-  it('BasculeRail n’est monté que si onglet === "a_demander" (jamais dans En cours / Réponses)', () => {
-    // Le rendu de <BasculeRail …/> est GARDÉ par l'onglet « à demander » (montage conditionnel, pas un display:none).
-    expect(compact).toMatch(/onglet === 'a_demander' && <BasculeRail\b/);
+  it('BasculeRail n’est monté que si onglet === "a_demander" (via GroupeRailsCommunes ; jamais dans En cours / Réponses)', () => {
+    // AJUSTEMENT — BasculeRail est désormais REGROUPÉ dans GroupeRailsCommunes, lui-même GARDÉ par l'onglet « à demander » (montage
+    //   conditionnel, pas un display:none). Il n'est plus monté DIRECTEMENT dans PermisTuile → il n'existe aucune autre voie de montage.
+    expect(compact).toMatch(/onglet === 'a_demander' && <GroupeRailsCommunes\b/);
+    expect(compact).not.toMatch(/<BasculeRail\b/); // aucune autre voie dans PermisTuile
+    const groupe = readFileSync(join(RACINE, 'app/(admin)/admin/(protected)/permis/GroupeRailsCommunes.tsx'), 'utf8').replace(/\s+/g, ' ');
+    expect(groupe).toContain('<BasculeRail'); // la bascule vit dans le groupe (donc a_demander uniquement)
   });
 
   it('le commutateur de process (e-mail/téléservice + « Hors process ») reste sous la garde ONGLETS_DEMANDES', () => {

@@ -11,6 +11,7 @@ import { readFileSync } from 'node:fs';
  */
 const tuile = readFileSync('app/(admin)/admin/(protected)/permis/PermisTuile.tsx', 'utf8').replace(/\s+/g, ' ');
 const aDemander = readFileSync('app/(admin)/admin/(protected)/permis/ADemanderVue.tsx', 'utf8').replace(/\s+/g, ' ');
+const groupe = readFileSync('app/(admin)/admin/(protected)/permis/GroupeRailsCommunes.tsx', 'utf8').replace(/\s+/g, ' ');
 
 describe('DEPOT-2 — les compteurs du commutateur dépendent du foyer de rafraîchissement', () => {
   it('le foyer unique `apresAction` recharge BIEN les compteurs du commutateur (rechargerCompteursProcess)', () => {
@@ -23,7 +24,11 @@ describe('DEPOT-2 — les compteurs du commutateur dépendent du foyer de rafra�
   });
 
   it('la bascule de rail ET les onglets à action passent par le MÊME foyer (aucun compteur périmé)', () => {
-    expect(tuile).toMatch(/<BasculeRail[^>]*onBascule=\{apresAction\}/);
+    // La bascule est désormais REGROUPÉE dans GroupeRailsCommunes, câblé au foyer via onAction={apresAction} ; le groupe relaie ce foyer à
+    //   BasculeRail (onBascule={onAction}) ET à la carte (onApplique={onAction}) → toute affectation recharge les compteurs.
+    expect(tuile).toMatch(/<GroupeRailsCommunes[^>]*onAction=\{apresAction\}/);
+    expect(groupe).toMatch(/<BasculeRail[^>]*onBascule=\{onAction\}/);
+    expect(groupe).toMatch(/onApplique=\{onAction\}/);
     expect(tuile).toMatch(/<ReponsesVue[^>]*onRecompter=\{apresAction\}/);
   });
 

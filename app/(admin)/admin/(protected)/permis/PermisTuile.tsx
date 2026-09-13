@@ -14,10 +14,8 @@ import { SuiviRattachementVue } from './SuiviRattachementVue';
 import { ProjectionVue } from './ProjectionVue';
 import { OngletsPermis, type CleOnglet } from './PermisOnglets';
 import { CommutateurProcess, type CompteursProcess } from './CommutateurProcess';
-import { BasculeRail } from './BasculeRail';
-import { PROCESS_DEFAUT, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
-import { BlocRepliable } from './BlocRepliable';
-import { PanneauCarteRail } from './PanneauCarteRail'; // Lot 4 — carte interactive du rail actif (derrière le commutateur)
+import { GroupeRailsCommunes } from './GroupeRailsCommunes'; // AJUSTEMENT — une seule ligne repliable : « Basculer une commune de rail » + carte des communes du rail
+import { PROCESS_DEFAUT, type Process } from '../../../../lib/sitadel/process';
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
 
 /**
@@ -117,15 +115,11 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
           <CommutateurProcess actif={processActif} onChoisir={setProcessActif} compteurs={compteursProcess} />
           {/* LOT 33 — « Basculer une commune de rail » est un OUTIL DE PRÉPARATION : réservé à « À demander ». Non monté ailleurs
               (pas de requête, aucune action déclenchable dans « En cours » / « Réponses »). Le commutateur + « Hors process » restent, eux, sur les 3 onglets. */}
-          {onglet === 'a_demander' && <BasculeRail onBascule={apresAction} />}
-          {/* Lot 4 — CARTE INTERACTIVE des communes du rail ACTIF, DERRIÈRE le commutateur (une carte par rail : on change de rail avec le
-              commutateur). Repliée par défaut (BlocRepliable → corps lazy : la carte ~366 communes ne charge qu'à l'ouverture). N'ENLÈVE RIEN
-              d'existant (commutateur, Basculer, Hors process, filtres, recherche, stock restent). onApplique → rafraîchit les compteurs. */}
-          {onglet === 'a_demander' && (
-            <BlocRepliable titre={<>Carte des communes — rail {PROCESS_META[processActif].court}</>}>
-              {() => <PanneauCarteRail rail={processActif} onApplique={apresAction} />}
-            </BlocRepliable>
-          )}
+          {/* AJUSTEMENT — « Basculer une commune de rail » (② outil de préparation, a_demander uniquement) ET la carte interactive du rail
+              actif (③) sont REGROUPÉS dans UNE seule ligne repliable (gain de place). Repliée par défaut (corps lazy). Le décompte hors-process
+              est répété dans son libellé (info d'un coup d'œil) ; la ligne ① « Hors process » reste, elle, dans le commutateur au-dessus
+              (inchangée, sur a_demander ET en_cours). Aucune fonctionnalité retirée : les deux fonctions gardent tous leurs contrôles. */}
+          {onglet === 'a_demander' && <GroupeRailsCommunes hors={compteursProcess?.hors ?? null} rail={processActif} onAction={apresAction} />}
         </>
       )}
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} qInitial={qInitial} />}
