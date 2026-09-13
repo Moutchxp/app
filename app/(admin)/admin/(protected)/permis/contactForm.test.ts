@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { corpsPatchContact, corpsAdoptionPrada, noteAuChangementCanal, problemeContactUI, editionInitiale, construireFiche, CANAUX_ORDONNES, problemeUrlOuverture, origineContact, originePrada, libelleEmailType, libelleStatut, libelleSource, libelleCanal } from './contactForm';
+import { corpsPatchContact, corpsAdoptionPrada, noteAuChangementCanal, problemeContactUI, editionInitiale, construireFiche, CANAUX_ORDONNES, problemeUrlOuverture, origineContact, originePrada, libelleEmailType, libelleStatut, libelleSource, libelleCanal, etatRail, messageChargement, messageEnregistrement } from './contactForm';
 
 describe('S21 — INVARIANT : la PRADA n’est JAMAIS recopiée dans un champ éditable de contact', () => {
   it('editionInitiale : responsableNom vient de mairie_contact, JAMAIS de la PRADA ; l’e-mail non plus', () => {
@@ -215,5 +215,76 @@ describe('S15 — noteAuChangementCanal (trace en quittant le courrier)', () => 
   it('changement entre canaux non-courrier → note inchangée', () => {
     expect(noteAuChangementCanal('email', 'formulaire', '', '')).toBe('');
     expect(noteAuChangementCanal('inconnu', 'email', '', '')).toBe('');
+  });
+});
+
+// ── Lot B — éditeur commune-scopé : champs bloquants, messages, garanties reprises ───────────────────
+describe('Lot B — etatRail : le champ bloquant est signalé pour CHACUN des deux rails (texte, jamais couleur)', () => {
+  it('canal email SANS e-mail → rail email, incomplet, il manque l’e-mail', () => {
+    const e = etatRail('email', '', '');
+    expect(e).toMatchObject({ rail: 'email', complet: false, manqueEmail: true, manqueUrl: false });
+    expect(e.texte).toMatch(/E-mail/);
+    expect(e.texte).toMatch(/manque/);
+  });
+  it('canal email AVEC e-mail valide → sur le rail E-mail, complet', () => {
+    const e = etatRail('email', 'urbanisme@ville.fr', '');
+    expect(e).toMatchObject({ rail: 'email', complet: true, manqueEmail: false });
+    expect(e.texte).toMatch(/Sur le rail E-mail/);
+  });
+  it('canal formulaire SANS URL → rail formulaire, incomplet, il manque l’URL', () => {
+    const e = etatRail('formulaire', '', '');
+    expect(e).toMatchObject({ rail: 'formulaire', complet: false, manqueEmail: false, manqueUrl: true });
+    expect(e.texte).toMatch(/Téléservice/);
+    expect(e.texte).toMatch(/URL/);
+  });
+  it('canal formulaire AVEC URL http(s) → sur le rail Téléservice, complet', () => {
+    const e = etatRail('formulaire', '', 'https://ville.fr/urba');
+    expect(e).toMatchObject({ rail: 'formulaire', complet: true, manqueUrl: false });
+    expect(e.texte).toMatch(/Sur le rail Téléservice/);
+  });
+  it('canal hors process (inconnu) → rail null, texte « Hors process » citant les DEUX rails et ce qui manque', () => {
+    const e = etatRail('inconnu', '', '');
+    expect(e).toMatchObject({ rail: null, complet: false, manqueEmail: true, manqueUrl: true });
+    expect(e.texte).toMatch(/Hors process/);
+    expect(e.texte).toMatch(/E-mail/);
+    expect(e.texte).toMatch(/Téléservice/);
+  });
+  it('canal courrier mais e-mail déjà saisi → hors process, mais e-mail non « manquant » (juste basculer le canal)', () => {
+    const e = etatRail('courrier', 'urbanisme@ville.fr', '');
+    expect(e).toMatchObject({ rail: null, manqueEmail: false, manqueUrl: true });
+    expect(e.texte).toMatch(/déjà renseigné/);
+  });
+});
+
+describe('Lot B — messages d’erreur : 401/403 invitent à SE RECONNECTER (jamais « panne »)', () => {
+  it('messageChargement : 401/403 → reconnexion ; 404 → commune inconnue ; autre → indisponible (jamais « session »)', () => {
+    expect(messageChargement(401)).toMatch(/reconnectez-vous/i);
+    expect(messageChargement(403)).toMatch(/reconnectez-vous/i);
+    expect(messageChargement(404)).toBe('Commune inconnue.');
+    expect(messageChargement(503)).toBe('Chargement du contact impossible.');
+    expect(messageChargement(503)).not.toMatch(/session/i);
+  });
+  it('messageEnregistrement : 401 → reconnexion ; motif serveur repris ; sinon refus générique', () => {
+    expect(messageEnregistrement(401)).toMatch(/reconnectez-vous/i);
+    expect(messageEnregistrement(400, 'canal invalide')).toBe('Refusé : canal invalide.');
+    expect(messageEnregistrement(400)).toBe('Enregistrement refusé.');
+    expect(messageEnregistrement(400, '')).toBe('Enregistrement refusé.');
+  });
+});
+
+describe('Lot B — garanties REPRISES par l’éditeur commune-scopé (mêmes helpers purs que l’éditeur par permis)', () => {
+  it('la note existante n’est PAS écrasée quand on enregistre sans y toucher', () => {
+    const e = editionInitiale({ codeInsee: '92050', communeNom: 'Nanterre', destCanal: 'email', destEmail: 'mairie@nanterre.fr', destUrlFormulaire: null, destAdressePostale: null, destNote: 'note métier' });
+    expect(corpsPatchContact(e).note).toBe('note métier');
+  });
+  it('la PRADA n’alimente AUCUN champ éditable (responsableNom/e-mail viennent de mairie_contact)', () => {
+    const e = editionInitiale({ codeInsee: '92050', communeNom: 'Nanterre', destCanal: 'email', destEmail: 'mairie@nanterre.fr', destUrlFormulaire: null, destAdressePostale: null, destResponsableNom: null, destPradaNom: 'Jean PRADA', destPradaCourriel: 'prada@x.fr' });
+    expect(e.responsableNom).toBe('');
+    expect(e.email).toBe('mairie@nanterre.fr');
+  });
+  it('un enregistrement incohérent canal/champ est refusé côté client (miroir de la contrainte DB)', () => {
+    expect(problemeContactUI({ ...base, canal: 'email' })).toMatch(/e-mail/);          // email sans e-mail
+    expect(problemeContactUI({ ...base, canal: 'formulaire' })).toMatch(/URL/);          // formulaire sans URL
+    expect(problemeContactUI({ ...base, canal: 'email', email: 'x@y.fr' })).toBeNull();  // cohérent → accepté
   });
 });

@@ -2,7 +2,8 @@
  * Helpers PURS de l'éditeur de contact mairie (chantier S15) — construction du corps de la requête PATCH /contact et
  * pré-remplissage de la note. Sortis de `PermisVue` pour être testables en Node (aucun React, aucune I/O).
  */
-import { validerCanal, type CanalContact } from '../../../../lib/sitadel/mairieContact';
+import { validerCanal, emailValide, type CanalContact } from '../../../../lib/sitadel/mairieContact';
+import { processDeCanal, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 
 export interface EditionContact {
   code: string; canal: string; email: string; urlFormulaire: string; adressePostale: string; note: string;
@@ -245,4 +246,60 @@ export function noteAuChangementCanal(ancienCanal: string, nouveauCanal: string,
     return `Ancienne adresse courrier : ${adressePostale.trim()}`;
   }
   return noteActuelle;
+}
+
+// ── Lot B — CHAMPS BLOQUANTS : état de rail « en toutes lettres » + messages d'erreur (PURS, testables) ───────────────
+const urlTeleserviceValide = (u: string | null | undefined): boolean => /^https?:\/\/\S+$/.test((u ?? '').trim());
+
+/**
+ * État de RAIL d'une commune, pour la ligne d'état de l'éditeur (voir « d'un coup d'œil ce qui manque pour entrer dans un
+ * rail »). Le rail se dérive du canal via `processDeCanal` (SOURCE UNIQUE — jamais réimplémenté ici), le libellé via
+ * `PROCESS_META`. `complet` = le canal courant porte déjà son champ obligatoire (miroir de `mairie_contact_coherence_chk`).
+ * `manqueEmail` / `manqueUrl` = ce qu'il faut renseigner pour entrer dans le rail correspondant. `texte` porte TOUJOURS
+ * l'information en clair (jamais la couleur seule). PUR : aucun état, aucune I/O, aucune couleur.
+ */
+export interface EtatRail {
+  rail: Process | null;  // processDeCanal(canal) : 'email' | 'formulaire' | null (hors process)
+  complet: boolean;      // le canal courant porte déjà son champ obligatoire
+  manqueEmail: boolean;  // le rail E-mail exige un e-mail encore absent/invalide
+  manqueUrl: boolean;    // le rail Téléservice exige une URL encore absente/invalide
+  texte: string;         // ligne d'état, en toutes lettres
+}
+
+export function etatRail(canal: string, email: string, urlFormulaire: string): EtatRail {
+  const rail = processDeCanal(canal);
+  const emailOk = emailValide((email ?? '').trim());
+  const urlOk = urlTeleserviceValide(urlFormulaire);
+  const railEmail = PROCESS_META.email.court;      // libellé SOURCE UNIQUE (« E-mail »)
+  const railForm = PROCESS_META.formulaire.court;  // « Téléservice »
+  if (rail === 'email') {
+    return { rail, complet: emailOk, manqueEmail: !emailOk, manqueUrl: false,
+      texte: emailOk ? `Sur le rail ${railEmail}.` : `Rail ${railEmail} : il manque l’e-mail (obligatoire pour ce rail).` };
+  }
+  if (rail === 'formulaire') {
+    return { rail, complet: urlOk, manqueEmail: false, manqueUrl: !urlOk,
+      texte: urlOk ? `Sur le rail ${railForm}.` : `Rail ${railForm} : il manque l’URL de téléservice (obligatoire pour ce rail).` };
+  }
+  // Hors process (courrier / inconnu / vide) : dire ce qui manque pour CHAQUE rail, en reflétant ce qui est déjà saisi.
+  const pe = emailOk ? 'un e-mail est déjà renseigné (choisir le canal « e-mail »)' : 'il manque l’e-mail';
+  const pu = urlOk ? 'une URL de téléservice est déjà renseignée (choisir le canal « formulaire web »)' : 'il manque l’URL de téléservice';
+  return { rail: null, complet: false, manqueEmail: !emailOk, manqueUrl: !urlOk,
+    texte: `Hors process (aucune demande) : pour le rail ${railEmail}, ${pe} ; pour le rail ${railForm}, ${pu}.` };
+}
+
+/**
+ * Messages d'erreur PURS de l'éditeur commune-scopé. INVARIANT PROJET : un 401/403 (session expirée / accès révoqué) invite
+ * à SE RECONNECTER — JAMAIS présenté comme une panne de données ou un contenu indisponible. `messageChargement` : lecture
+ * du GET (404 → commune inconnue). `messageEnregistrement` : refus du PATCH (reprend le motif serveur quand il existe).
+ */
+export function messageChargement(status: number): string {
+  if (status === 401 || status === 403) return 'Session expirée ou accès non autorisé : reconnectez-vous.';
+  if (status === 404) return 'Commune inconnue.';
+  return 'Chargement du contact impossible.';
+}
+
+export function messageEnregistrement(status: number, erreurServeur?: string | null): string {
+  if (status === 401 || status === 403) return 'Session expirée ou accès non autorisé : reconnectez-vous.';
+  const e = (erreurServeur ?? '').trim();
+  return e !== '' ? `Refusé : ${e}.` : 'Enregistrement refusé.';
 }
