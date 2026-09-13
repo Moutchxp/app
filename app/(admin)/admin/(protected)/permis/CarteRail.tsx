@@ -37,14 +37,20 @@ function remplissage(etat: EtatCommuneRail, selectionnee: boolean, survolee: boo
   }
 }
 
-export function CarteRail({ rail, selection, onToggle, departement = null }: {
+export function CarteRail({ rail, selection, onToggle, departement = null, donnees, editable = true }: {
   rail: Process; selection: ReadonlySet<string>; onToggle: (code: string) => void; departement?: string | null;
+  /** Lot 3 — données FOURNIES par le parent (panneau) : évite un 2e fetch ET permet de refléter la nouvelle réalité après validation. Absent → la carte charge seule (usage standalone). */
+  donnees?: { communes: CommuneGeo[]; bbox: Bbox } | null;
+  /** Lot 3 — au REPOS la carte n'est PAS modifiable : `editable=false` → clic/clavier inertes, pas de curseur pointeur, hors du tab (le survol/bulle d'identification reste). Défaut true. */
+  editable?: boolean;
 }) {
-  const [data, setData] = useState<{ communes: CommuneGeo[]; bbox: Bbox } | null>(null);
+  const [dataFetch, setData] = useState<{ communes: CommuneGeo[]; bbox: Bbox } | null>(null);
   const [erreur, setErreur] = useState(false);
   const [survol, setSurvol] = useState<Survol | null>(null);
+  const data = donnees ?? dataFetch; // le parent PRIME : s'il fournit les données, la carte ne charge pas.
 
   useEffect(() => {
+    if (donnees) return; // données fournies par le parent → aucun fetch interne.
     let annule = false;
     void (async () => {
       try {
@@ -56,7 +62,7 @@ export function CarteRail({ rail, selection, onToggle, departement = null }: {
       } catch { if (!annule) setErreur(true); }
     })();
     return () => { annule = true; };
-  }, []);
+  }, [donnees]);
 
   // GÉOMÉTRIE mémoïsée (points SVG + canal + nom) : ne recalcule PAS au survol/sélection (perf ~366 communes).
   const rendu = useMemo(() => {
@@ -98,19 +104,20 @@ export function CarteRail({ rail, selection, onToggle, departement = null }: {
           const selectionnee = selection.has(p.code);
           const selectionnable = communeSelectionnable(etat);
           const survolee = survol?.code === p.code;
-          const c = remplissage(etat, selectionnee, survolee);
-          const activer = () => { if (selectionnable) onToggle(p.code); };
+          const actif = selectionnable && editable; // basculable seulement en édition ; au repos la carte n'est pas modifiable
+          const c = remplissage(etat, selectionnee, survolee && actif);
+          const activer = () => { if (actif) onToggle(p.code); };
           return (
-            <g key={p.code} role="button" aria-pressed={selectionnable ? selectionnee : undefined} aria-disabled={selectionnable ? undefined : true}
+            <g key={p.code} role="button" aria-pressed={selectionnable ? selectionnee : undefined} aria-disabled={actif ? undefined : true}
               aria-label={`${p.nom} — ${LIBELLE_ETAT_RAIL[etat]}${selectionnable ? (selectionnee ? ', sélectionnée' : ', non sélectionnée') : ''}`}
-              tabIndex={selectionnable ? 0 : -1}
+              tabIndex={actif ? 0 : -1}
               onClick={activer}
-              onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && selectionnable) { e.preventDefault(); onToggle(p.code); } }}
+              onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && actif) { e.preventDefault(); onToggle(p.code); } }}
               onMouseMove={(e) => setSurvol({ x: e.clientX, y: e.clientY, nom: p.nom, code: p.code })}
               onMouseLeave={() => setSurvol((s) => (s?.code === p.code ? null : s))}
               onFocus={() => setSurvol({ x: 0, y: 0, nom: p.nom, code: p.code })}
               onBlur={() => setSurvol((s) => (s?.code === p.code ? null : s))}
-              style={{ cursor: selectionnable ? 'pointer' : 'not-allowed' }}>
+              style={{ cursor: actif ? 'pointer' : 'default' }}>
               {p.pts.map((pts, i) => (
                 <polygon key={i} points={pts}
                   fill={c.fill} fillOpacity={c.opacity} stroke={c.stroke} strokeWidth={selectionnee ? 1.2 : 0.4}
