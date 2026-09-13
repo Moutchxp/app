@@ -41,6 +41,52 @@ async function monter(canauxInit: Record<string, string | null>, apercuRefus: (c
 const cycleBtn = (c: HTMLElement) => [...c.querySelectorAll('button')].find((b) => /Modifier la sélection|Garder la sélection|Valider ma sélection/.test(b.textContent ?? ''))!;
 const communeNode = (c: HTMLElement, nom: string) => [...c.querySelectorAll('[role="button"]')].find((g) => (g.getAttribute('aria-label') ?? '').startsWith(nom)) as unknown as SVGGElement;
 
+const toggleBtn = (c: HTMLElement) => [...c.querySelectorAll('button')].find((b) => /Tout désélectionner|Tout resélectionner/.test(b.textContent ?? ''));
+
+describe('POINT 2 — bascule « Tout désélectionner / Tout resélectionner »', () => {
+  it('vider → sélection vide + cycle « Valider » ; re-cliquer → origine restaurée + cycle « Garder » ; AUCUNE écriture', async () => {
+    const { c, patchFn } = await monter({ A: 'email', B: 'email', C: 'email', D: 'inconnu' }); // A,B,C sur email ; D hors process
+    act(() => cycleBtn(c).click()); await flush(); // édition
+    expect(toggleBtn(c)!.textContent).toContain('Tout désélectionner'); // non vide → prochain clic VIDE
+    act(() => toggleBtn(c)!.click()); await flush();                    // VIDER
+    expect(communeNode(c, 'Alphaville').getAttribute('aria-pressed')).toBe('false'); // désélectionnée
+    expect(communeNode(c, 'Betaville').getAttribute('aria-pressed')).toBe('false');
+    expect(cycleBtn(c).textContent).toContain('Valider ma sélection');  // écart vs origine
+    expect(toggleBtn(c)!.textContent).toContain('Tout resélectionner');  // vide → prochain clic RESTAURE
+    expect(patchFn).not.toHaveBeenCalled();                             // la bascule N'ÉCRIT RIEN
+    act(() => toggleBtn(c)!.click()); await flush();                    // RESTAURER
+    expect(communeNode(c, 'Alphaville').getAttribute('aria-pressed')).toBe('true'); // origine restaurée à l'identique
+    expect(communeNode(c, 'Betaville').getAttribute('aria-pressed')).toBe('true');
+    expect(cycleBtn(c).textContent).toContain('Garder la sélection');   // revenu à l'origine
+    expect(patchFn).not.toHaveBeenCalled();
+  });
+
+  it('les communes HORS PROCESS ne sont jamais touchées par la bascule', async () => {
+    const { c } = await monter({ A: 'email', D: 'inconnu' });
+    act(() => cycleBtn(c).click()); await flush();  // édition
+    act(() => toggleBtn(c)!.click()); await flush(); // vider
+    expect(communeNode(c, 'Deltaville').getAttribute('aria-disabled')).toBe('true'); // toujours non sélectionnable
+    expect(communeNode(c, 'Deltaville').getAttribute('aria-pressed')).toBeNull();     // jamais sélectionnée/désélectionnée
+    act(() => toggleBtn(c)!.click()); await flush(); // restaurer
+    expect(communeNode(c, 'Deltaville').getAttribute('aria-pressed')).toBeNull();
+  });
+
+  it('ENCHAÎNEMENT : vider → sélectionner 2 → valider → seules ces 2 restent sur le rail', async () => {
+    const { c, patchFn } = await monter({ A: 'email', B: 'email', C: 'email' }); // 3 sur email
+    act(() => cycleBtn(c).click()); await flush();   // édition
+    act(() => toggleBtn(c)!.click()); await flush();  // vider
+    act(() => { communeNode(c, 'Alphaville').dispatchEvent(new MouseEvent('click', { bubbles: true })); }); await flush(); // + A
+    act(() => { communeNode(c, 'Betaville').dispatchEvent(new MouseEvent('click', { bubbles: true })); }); await flush();  // + B
+    act(() => cycleBtn(c).click()); await flush();   // VALIDER (removes = {C})
+    expect(patchFn).toHaveBeenCalledWith('C', 'inconnu', expect.anything(), expect.anything()); // C retirée du rail → hors process
+    expect(patchFn).not.toHaveBeenCalledWith('A', expect.anything(), expect.anything(), expect.anything()); // A conservée
+    // après re-chargement : A et B « sur ce rail », C n'y est plus
+    expect(communeNode(c, 'Alphaville').getAttribute('aria-label')).toContain('sur ce rail');
+    expect(communeNode(c, 'Betaville').getAttribute('aria-label')).toContain('sur ce rail');
+    expect(communeNode(c, 'Gammaville').getAttribute('aria-label')).not.toContain('sur ce rail');
+  });
+});
+
 describe('PanneauCarteRail — cycle + exclusivité', () => {
   it('cycle : repos → « Garder la sélection » (rien changé) → referme sans rien appliquer', async () => {
     const { c, patchFn } = await monter({ A: 'email', B: 'formulaire', C: 'inconnu', D: null });

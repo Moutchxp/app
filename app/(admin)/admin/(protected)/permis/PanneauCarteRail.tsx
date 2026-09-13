@@ -116,6 +116,15 @@ export function PanneauCarteRail({ rail, departement = null, onApplique, deps }:
         <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .8rem' }} disabled={enCours || !data} onClick={() => void onBouton()}>
           {libelle}
         </button>
+        {/* POINT 2 — bascule TOUT désélectionner / TOUT resélectionner (édition seule : la sélection n'est modifiable qu'en édition). Ne modifie
+            QUE la sélection LOCALE (aucune écriture). Vider = Set() ; restaurer = l'ORIGINE (état à l'entrée). Les hors-process ne sont jamais
+            dans la sélection → jamais touchés. Le libellé dit ce que fera le PROCHAIN clic. Le cycle « Valider/Garder » suit tout seul (comparaison à l'origine). */}
+        {edition && (
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .8rem' }} disabled={enCours}
+            onClick={() => setSelection(selection.size === 0 ? new Set(origine) : new Set())}>
+            {selection.size === 0 ? 'Tout resélectionner' : 'Tout désélectionner'}
+          </button>
+        )}
         {edition && <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Cliquez les communes à mettre sur ce rail (un 2e clic les retire).</span>}
       </div>
 
