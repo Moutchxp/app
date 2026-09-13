@@ -15,8 +15,12 @@ import type { CompteursProcess } from './CommutateurProcess';
  * Ici on n'en RÉPÈTE que le DÉCOMPTE dans le libellé, pour garder l'info d'un coup d'œil SANS déplier. La carte (~366 communes) reste dans un
  * repli INTERNE → chargement paresseux : ouvrir le groupe pour « Basculer » ne charge pas la carte.
  */
-export function GroupeRailsCommunes({ hors, rail, onAction }: {
+export function GroupeRailsCommunes({ hors, rail, onAction, onOuvrirCommune, signalCarte }: {
   hors: CompteursProcess['hors'] | null; rail: Process; onAction: () => void;
+  /** Lot C — PORTE 1 : ouverture de la fiche contact d'une commune depuis la carte (au repos). Transmis à PanneauCarteRail → CarteRail. */
+  onOuvrirCommune?: (code: string) => void;
+  /** Lot C — signal de recharge de la carte après enregistrement d'une fiche (transmis à PanneauCarteRail). */
+  signalCarte?: number;
 }) {
   const sansAdresse = hors?.communesSansAdresse ?? 0;
   const courrier = hors?.courrierDemandes ?? 0;
@@ -40,7 +44,7 @@ export function GroupeRailsCommunes({ hors, rail, onAction }: {
           <BasculeRail onBascule={onAction} />
           {/* ③ Carte des communes du rail ACTIF — repli INTERNE (chargement paresseux de la carte) ; son titre sert de sous-titre distinct. */}
           <BlocRepliable titre={<>Carte des communes — rail {PROCESS_META[rail].court}</>}>
-            {() => <PanneauCarteRail rail={rail} onApplique={onAction} />}
+            {() => <PanneauCarteRail rail={rail} onApplique={onAction} onOuvrirCommune={onOuvrirCommune} signalRecharge={signalCarte} />}
           </BlocRepliable>
         </div>
       )}

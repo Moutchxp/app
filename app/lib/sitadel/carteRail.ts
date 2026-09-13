@@ -43,3 +43,16 @@ export const LIBELLE_SURVOL = 'survol';
 export function statutAffiche(etat: EtatCommuneRail, montreSelection: boolean): string {
   return montreSelection ? LIBELLE_SELECTION : LIBELLE_ETAT_RAIL[etat];
 }
+
+/**
+ * Lot C — action déclenchée par un clic (ou Entrée/Espace) sur une commune de la carte. Le MODE prime, la distinction de mode
+ * EXISTE déjà (`editable`, qui conditionne l'overlay de sélection depuis 4ac95ff) — on la RÉUTILISE, on n'en invente pas une 2e :
+ *   · ÉDITION (`editable`) : on (dé)sélectionne si la commune est sélectionnable, sinon rien (geste existant, INCHANGÉ) ;
+ *   · REPOS : si une ouverture de fiche est câblée, TOUTE commune ouvre sa fiche contact (même hors process — ce sont justement
+ *     celles à renseigner) ; sinon rien (usage standalone/historique : la carte au repos reste inerte). PUR (aucune couleur, aucune I/O).
+ */
+export type ActionCarte = 'basculer' | 'ouvrir' | 'inerte';
+export function actionAuClic(editable: boolean, selectionnable: boolean, ouvertureCablee: boolean): ActionCarte {
+  if (editable) return selectionnable ? 'basculer' : 'inerte';
+  return ouvertureCablee ? 'ouvrir' : 'inerte';
+}

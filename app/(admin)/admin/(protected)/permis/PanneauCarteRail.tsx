@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Bbox } from '../../../../lib/sitadel/carteProjection';
 import type { CommuneGeo } from '../../../../lib/sitadel/carteRepo';
 import { PROCESS_META, type Process } from '../../../../lib/sitadel/process';
@@ -34,10 +34,14 @@ function depsReelles(): DepsAffectation {
   };
 }
 
-export function PanneauCarteRail({ rail, departement = null, onApplique, deps }: {
+export function PanneauCarteRail({ rail, departement = null, onApplique, deps, onOuvrirCommune, signalRecharge }: {
   rail: Process; departement?: string | null; onApplique?: () => void;
   /** Deps INJECTABLES (test) ; en prod, les endpoints réels du geste existant. */
   deps?: DepsAffectation;
+  /** Lot C — PORTE 1 : ouverture de la fiche contact d'une commune (transmise à CarteRail ; active au REPOS seulement). */
+  onOuvrirCommune?: (code: string) => void;
+  /** Lot C — SIGNAL de recharge (incrémenté quand une fiche contact est enregistrée ailleurs) : recharge la carte, mais JAMAIS pendant une édition (différé jusqu'à la sortie d'édition → sélection préservée). */
+  signalRecharge?: number;
 }) {
   const [data, setData] = useState<{ communes: CommuneGeo[]; bbox: Bbox } | null>(null);
   const [erreur, setErreur] = useState(false);
@@ -71,6 +75,26 @@ export function PanneauCarteRail({ rail, departement = null, onApplique, deps }:
     })();
     return () => { annule = true; };
   }, []);
+
+  // Lot C — RECHARGE sur signal externe (une fiche contact vient d'être enregistrée depuis la carte au repos ou le bloc « Hors
+  //   process »). GARDE-FOU anti-clobber : pendant une ÉDITION de rail, l'amorce (plus bas) réinitialiserait la sélection en cours
+  //   à chaque changement de `data` → on NE recharge PAS pendant l'édition, on DIFFÈRE. `void charger()` (setData APRÈS await, jamais
+  //   synchrone en effet) ; refs (pas de setState synchrone). La valeur initiale du signal est ignorée (montage).
+  const rechargeEnAttente = useRef(false);
+  const signalVu = useRef(signalRecharge ?? 0);
+  useEffect(() => {
+    const s = signalRecharge ?? 0;
+    if (s === signalVu.current) return;            // montage ou re-rendu sans NOUVEAU signal
+    signalVu.current = s;
+    if (edition) { rechargeEnAttente.current = true; return; } // édition en cours → différer (sélection préservée)
+    void (async () => { await charger(); })();     // setState dans la fonction async (jamais synchrone dans le corps de l'effet)
+  }, [signalRecharge, edition, charger]);
+  // Drain de la recharge DIFFÉRÉE à la sortie d'édition (quelle que soit la voie : Garder / Valider). Idempotent (GET no-store).
+  useEffect(() => {
+    if (edition || !rechargeEnAttente.current) return;
+    rechargeEnAttente.current = false;
+    void (async () => { await charger(); })();
+  }, [edition, charger]);
 
   const origine = useMemo(() => (data ? origineRail(data.communes, rail) : new Set<string>()), [data, rail]);
   // Liste des communes RÉELLEMENT sur ce rail (= origine, la réalité validée ; PAS la sélection en cours). Se met à jour au re-chargement (après validation).
@@ -122,7 +146,7 @@ export function PanneauCarteRail({ rail, departement = null, onApplique, deps }:
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
-      <CarteRail rail={rail} selection={selection} onToggle={onToggle} departement={departement} donnees={data} editable={edition} />
+      <CarteRail rail={rail} selection={selection} onToggle={onToggle} departement={departement} donnees={data} editable={edition} onOuvrir={onOuvrirCommune} />
 
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .8rem' }} disabled={enCours || !data} onClick={() => void onBouton()}>

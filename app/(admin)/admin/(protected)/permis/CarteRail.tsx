@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { type Bbox, ajustement, anneauVersSvg, projeterL93VersSvg, bboxDe } from '../../../../lib/sitadel/carteProjection';
 import type { CommuneGeo } from '../../../../lib/sitadel/carteRepo';
 import { PROCESS_META, type Process } from '../../../../lib/sitadel/process';
-import { etatCommuneRail, communeSelectionnable, LIBELLE_ETAT_RAIL, LIBELLE_SELECTION, LIBELLE_SURVOL, statutAffiche, type EtatCommuneRail } from '../../../../lib/sitadel/carteRail';
+import { etatCommuneRail, communeSelectionnable, actionAuClic, LIBELLE_ETAT_RAIL, LIBELLE_SELECTION, LIBELLE_SURVOL, statutAffiche, type EtatCommuneRail } from '../../../../lib/sitadel/carteRail';
 
 /**
  * Lot 2 — CARTE INTERACTIVE des communes d'UN rail (chantier « À demander »). Réutilise le socle S6 (carteProjection L93→SVG, /api/admin/
@@ -47,12 +47,14 @@ function remplissage(etat: EtatCommuneRail, montreSelection: boolean, survolee: 
   return COULEUR_ETAT[etat];
 }
 
-export function CarteRail({ rail, selection, onToggle, departement = null, donnees, editable = true }: {
+export function CarteRail({ rail, selection, onToggle, departement = null, donnees, editable = true, onOuvrir }: {
   rail: Process; selection: ReadonlySet<string>; onToggle: (code: string) => void; departement?: string | null;
   /** Lot 3 — données FOURNIES par le parent (panneau) : évite un 2e fetch ET permet de refléter la nouvelle réalité après validation. Absent → la carte charge seule (usage standalone). */
   donnees?: { communes: CommuneGeo[]; bbox: Bbox } | null;
-  /** Lot 3 — au REPOS la carte n'est PAS modifiable : `editable=false` → clic/clavier inertes, pas de curseur pointeur, hors du tab (le survol/bulle d'identification reste). Défaut true. */
+  /** Lot 3 — au REPOS la carte n'est PAS modifiable : `editable=false` → clic/clavier de SÉLECTION inertes (le survol/bulle d'identification reste). Défaut true. */
   editable?: boolean;
+  /** Lot C — ouverture de la fiche contact d'une commune. Au REPOS (editable=false) SEULEMENT : un clic (ou Entrée/Espace) sur une commune l'appelle. Absent → carte au repos inerte (comportement historique). En ÉDITION, ignoré (le clic sélectionne). */
+  onOuvrir?: (code: string) => void;
 }) {
   const [dataFetch, setData] = useState<{ communes: CommuneGeo[]; bbox: Bbox } | null>(null);
   const [erreur, setErreur] = useState(false);
@@ -114,24 +116,29 @@ export function CarteRail({ rail, selection, onToggle, departement = null, donne
           const selectionnee = selection.has(p.code);
           const selectionnable = communeSelectionnable(etat);
           const survolee = survol?.code === p.code;
-          const actif = selectionnable && editable; // basculable seulement en édition ; au repos la carte n'est pas modifiable
-          // POINT 1 — l'overlay « sélectionnée » (rouge) ne s'applique QU'EN ÉDITION. Au REPOS, la sélection amorcée sur l'origine (Lot 3)
-          //   ne doit PAS teindre les communes du rail en rouge : elles portent leur état réel « sur ce rail » (vert). Idem aria-pressed /
-          //   suffixe « sélectionnée » : au repos, la carte n'est pas un sélecteur → on n'annonce pas de sélection.
+          // Le MODE décide (distinction existante `editable`) : en ÉDITION on (dé)sélectionne (geste inchangé) ; au REPOS, si une
+          //   ouverture de fiche est câblée, TOUTE commune ouvre sa fiche. `actionAuClic` = source unique de cette décision.
+          const acte = actionAuClic(editable, selectionnable, !!onOuvrir);
+          const interactif = acte !== 'inerte';
+          // POINT 1 (4ac95ff) — au REPOS la carte n'est pas un sélecteur : l'overlay « sélectionnée » (rouge) ET le survol teinté ne
+          //   s'appliquent QU'EN ÉDITION (pas de rouge au repos). La nouvelle interactivité au repos (ouvrir la fiche) se signale par
+          //   le curseur, l'aria-label et le hint — jamais par la couleur.
           const montreSelection = selectionnee && editable;
-          const c = remplissage(etat, montreSelection, survolee && actif);
-          const activer = () => { if (actif) onToggle(p.code); };
+          const c = remplissage(etat, montreSelection, survolee && acte === 'basculer');
+          const activer = () => { if (acte === 'basculer') onToggle(p.code); else if (acte === 'ouvrir') onOuvrir!(p.code); };
+          const suffixe = acte === 'basculer' ? (selectionnee ? ', sélectionnée' : ', non sélectionnée')
+            : acte === 'ouvrir' ? ', cliquer pour ouvrir la fiche' : '';
           return (
-            <g key={p.code} role="button" aria-pressed={actif ? selectionnee : undefined} aria-disabled={actif ? undefined : true}
-              aria-label={`${p.nom} — ${LIBELLE_ETAT_RAIL[etat]}${actif ? (selectionnee ? ', sélectionnée' : ', non sélectionnée') : ''}`}
-              tabIndex={actif ? 0 : -1}
+            <g key={p.code} role="button" aria-pressed={acte === 'basculer' ? selectionnee : undefined} aria-disabled={interactif ? undefined : true}
+              aria-label={`${p.nom} — ${LIBELLE_ETAT_RAIL[etat]}${suffixe}`}
+              tabIndex={interactif ? 0 : -1}
               onClick={activer}
-              onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && actif) { e.preventDefault(); onToggle(p.code); } }}
+              onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && interactif) { e.preventDefault(); activer(); } }}
               onMouseMove={(e) => setSurvol({ x: e.clientX, y: e.clientY, nom: p.nom, code: p.code, statut: statutAffiche(etat, montreSelection) })}
               onMouseLeave={() => setSurvol((s) => (s?.code === p.code ? null : s))}
               onFocus={() => setSurvol({ x: 0, y: 0, nom: p.nom, code: p.code, statut: statutAffiche(etat, montreSelection) })}
               onBlur={() => setSurvol((s) => (s?.code === p.code ? null : s))}
-              style={{ cursor: actif ? 'pointer' : 'default' }}>
+              style={{ cursor: interactif ? 'pointer' : 'default' }}>
               {p.pts.map((pts, i) => (
                 <polygon key={i} points={pts}
                   fill={c.fill} fillOpacity={c.opacity} stroke={c.stroke} strokeWidth={montreSelection ? 1.2 : 0.4}
@@ -147,7 +154,9 @@ export function CarteRail({ rail, selection, onToggle, departement = null, donne
       <p aria-live="polite" style={{ margin: '.3rem 0 0', minHeight: '1.2em', fontSize: 12, color: 'var(--color-svv-muted)' }}>
         {survol ? `${survol.nom} — ${survol.statut}` : (editable
           ? 'Survolez pour identifier ; cliquez une commune pour la (dé)sélectionner.'
-          : 'Survolez (ou tabulez sur) une commune pour l’identifier. Cliquez « Modifier la sélection » pour pouvoir affecter des communes à ce rail.')}
+          : onOuvrir
+            ? 'Survolez (ou tabulez sur) une commune pour l’identifier ; cliquez-la pour ouvrir sa fiche. Cliquez « Modifier la sélection » pour affecter des communes à ce rail.'
+            : 'Survolez (ou tabulez sur) une commune pour l’identifier. Cliquez « Modifier la sélection » pour pouvoir affecter des communes à ce rail.')}
       </p>
 
       {/* POINT 3 — LÉGENDE à VRAIES pastilles (≈18 px, teinte fidèle à la carte : remplissage à l'opacité par-dessus le fond de carte,

@@ -24,7 +24,10 @@ export function styleMentionEnCours(demandesEnCours: number): CSSProperties | un
   return demandesEnCours > 0 ? { color: 'var(--color-svv-red)', fontWeight: 700 } : undefined;
 }
 
-export function CommutateurProcess({ actif, onChoisir, compteurs }: { actif: Process; onChoisir: (p: Process) => void; compteurs: CompteursProcess | null }) {
+export function CommutateurProcess({ actif, onChoisir, compteurs, onOuvrirCommune }: { actif: Process; onChoisir: (p: Process) => void; compteurs: CompteursProcess | null;
+  /** Lot C — PORTE 2 : si fourni, chaque commune « sans adresse » devient un bouton qui ouvre sa fiche contact (code INSEE). Absent → liste inchangée (texte). */
+  onOuvrirCommune?: (code: string) => void;
+}) {
   const [horsOuvert, setHorsOuvert] = useState(false);
   const hors = compteurs?.hors;
   const nHors = (hors?.communesSansAdresse ?? 0) + (hors?.courrierDemandes ?? 0);
@@ -79,7 +82,18 @@ export function CommutateurProcess({ actif, onChoisir, compteurs }: { actif: Pro
               <div style={{ marginBottom: '.3rem' }}>
                 <strong>Communes sans adresse ({hors.communes.length})</strong>
                 <ul style={{ margin: '.15rem 0 0 1rem' }}>
-                  {hors.communes.map((cm) => <li key={cm.codeInsee}>{cm.nom ?? '—'} <span style={{ color: 'var(--color-svv-muted)' }}>({cm.codeInsee})</span></li>)}
+                  {/* Lot C — PORTE 2 : le NOM devient un vrai bouton actionnable (ouvre la fiche contact) quand `onOuvrirCommune` est fourni ;
+                      sinon texte INCHANGÉ. Le décompte du titre et le suffixe (codeInsee) restent tels quels. */}
+                  {hors.communes.map((cm) => (
+                    <li key={cm.codeInsee} style={{ marginBottom: '.1rem' }}>
+                      {onOuvrirCommune
+                        ? <button type="button" onClick={() => onOuvrirCommune(cm.codeInsee)}
+                            aria-label={`Ouvrir la fiche contact de ${cm.nom ?? cm.codeInsee}`}
+                            style={{ background: 'none', border: 0, padding: '.2rem .15rem', minHeight: 32, font: 'inherit', color: 'var(--color-svv-red)', textDecoration: 'underline', textAlign: 'left', cursor: 'pointer' }}>{cm.nom ?? '—'}</button>
+                        : (cm.nom ?? '—')}
+                      {' '}<span style={{ color: 'var(--color-svv-muted)' }}>({cm.codeInsee})</span>
+                    </li>
+                  ))}
                 </ul>
               </div>
             )}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   corpsPatchContact, corpsAdoptionPrada, noteAuChangementCanal, problemeContactUI,
   editionInitiale, construireFiche, etatRail, messageChargement, messageEnregistrement,
@@ -44,6 +44,17 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
   const [confPrada, setConfPrada] = useState(false);
   const [chargement, setChargement] = useState(false);
   const [erreurChargement, setErreurChargement] = useState('');
+
+  // FOCUS (Lot C) — à l'ouverture on mémorise le déclencheur (commune de la carte / item « Hors process ») pour LUI RENDRE le focus
+  //   à la fermeture (aucun piège de focus). `focusPanneau` (callback ref stable) donne le focus au panneau à son montage → le clavier
+  //   entre dans la fiche (Échap, champs) au lieu de rester derrière l'overlay. Refs (aucun setState synchrone en effet).
+  const declencheurRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (codeInsee === null || typeof document === 'undefined') return;
+    declencheurRef.current = document.activeElement as HTMLElement | null;
+    return () => { declencheurRef.current?.focus?.(); };
+  }, [codeInsee]);
+  const focusPanneau = useCallback((el: HTMLDivElement | null) => { el?.focus?.(); }, []);
 
   // Chargement de la fiche à l'ouverture (ou au changement de commune). Patron admin : setState DANS l'IIFE async + garde
   // anti-course (jamais de setState synchrone dans le corps de l'effet — règle react-hooks/set-state-in-effect).
@@ -118,7 +129,7 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
       onKeyDown={(e) => { if (e.key === 'Escape') onFerme(); }}
       onClick={(e) => { if (e.target === e.currentTarget) onFerme(); }}
       style={{ position: 'fixed', inset: 0, zIndex: 60, background: 'rgba(0,0,0,.45)', display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '1rem', overflowY: 'auto' }}>
-      <div className="svv-card" style={{ width: '100%', maxWidth: 560, maxHeight: '92vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+      <div ref={focusPanneau} tabIndex={-1} className="svv-card" style={{ width: '100%', maxWidth: 560, maxHeight: '92vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '.6rem', outline: 'none' }}>
         {chargement && <span role="status" style={{ fontSize: 13 }}>Chargement du contact…</span>}
         {erreurChargement && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>

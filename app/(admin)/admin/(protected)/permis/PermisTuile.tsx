@@ -15,6 +15,7 @@ import { ProjectionVue } from './ProjectionVue';
 import { OngletsPermis, type CleOnglet } from './PermisOnglets';
 import { CommutateurProcess, type CompteursProcess } from './CommutateurProcess';
 import { GroupeRailsCommunes } from './GroupeRailsCommunes'; // AJUSTEMENT — une seule ligne repliable : « Basculer une commune de rail » + carte des communes du rail
+import { EditeurContactCommune } from './EditeurContactCommune'; // Lot C — fiche contact ouvrable PAR COMMUNE (2 portes : carte au repos + bloc « Hors process »)
 import { PROCESS_DEFAUT, type Process } from '../../../../lib/sitadel/process';
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
 
@@ -52,6 +53,11 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
   // D2 — process actif du commutateur (défaut e-mail ; NE persiste PAS entre sessions) + compteurs des viviers.
   const [processActif, setProcessActif] = useState<Process>(PROCESS_DEFAUT);
   const [compteursProcess, setCompteursProcess] = useState<CompteursProcess | null>(null);
+  // Lot C — fiche contact ouvrable PAR COMMUNE (les 2 portes vivent ici : CommutateurProcess « Hors process » + carte du rail, tous deux
+  //   enfants de PermisTuile ; ADemanderVue en est un frère, pas un parent → PermisTuile est le seul ancêtre commun). `null` = fermée.
+  const [codeCommuneFiche, setCodeCommuneFiche] = useState<string | null>(null);
+  // Signal de recharge de la carte du rail après enregistrement d'une fiche (bump → PanneauCarteRail recharge, mais jamais en pleine édition).
+  const [signalCarte, setSignalCarte] = useState(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const recompterRef = useRef<() => Promise<void>>(async () => {}); // rompt l'auto-référence (planification quotidienne)
 
@@ -88,6 +94,10 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
   //   d'onglets (`recompter`) ET les compteurs du commutateur (`rechargerCompteursProcess`) → aucun compteur ne reste périmé,
   //   sans rechargement de page. Précédents du même mode de panne : DEPOT-1 (BlocDepot), puis DEPOT-2 (commutateur).
   const apresAction = useCallback((): void => { void recompter(); void rechargerCompteursProcess(); }, [recompter, rechargerCompteursProcess]);
+  // Lot C — APRÈS enregistrement d'une fiche commune (SEULEMENT sur enregistrement, jamais sur simple fermeture) : rafraîchit les
+  //   compteurs (le bloc « Hors process » perd la commune qui vient d'obtenir une adresse) ET signale la carte du rail (la commune change
+  //   d'état). La recharge de la carte est différée si une édition de rail est en cours (garantie côté PanneauCarteRail : aucune sélection perdue).
+  const apresFicheCommune = useCallback((): void => { apresAction(); setSignalCarte((s) => s + 1); }, [apresAction]);
   useEffect(() => {
     let annule = false;
     void (async () => {
@@ -112,14 +122,14 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
           LOT 40 — retiré de « Réponses » (compteurs « en cours » contradictoires avec la liste des réponses). */}
       {ONGLETS_DEMANDES.includes(onglet) && (
         <>
-          <CommutateurProcess actif={processActif} onChoisir={setProcessActif} compteurs={compteursProcess} />
+          <CommutateurProcess actif={processActif} onChoisir={setProcessActif} compteurs={compteursProcess} onOuvrirCommune={setCodeCommuneFiche} />
           {/* LOT 33 — « Basculer une commune de rail » est un OUTIL DE PRÉPARATION : réservé à « À demander ». Non monté ailleurs
               (pas de requête, aucune action déclenchable dans « En cours » / « Réponses »). Le commutateur + « Hors process » restent, eux, sur les 3 onglets. */}
           {/* AJUSTEMENT — « Basculer une commune de rail » (② outil de préparation, a_demander uniquement) ET la carte interactive du rail
               actif (③) sont REGROUPÉS dans UNE seule ligne repliable (gain de place). Repliée par défaut (corps lazy). Le décompte hors-process
               est répété dans son libellé (info d'un coup d'œil) ; la ligne ① « Hors process » reste, elle, dans le commutateur au-dessus
               (inchangée, sur a_demander ET en_cours). Aucune fonctionnalité retirée : les deux fonctions gardent tous leurs contrôles. */}
-          {onglet === 'a_demander' && <GroupeRailsCommunes hors={compteursProcess?.hors ?? null} rail={processActif} onAction={apresAction} />}
+          {onglet === 'a_demander' && <GroupeRailsCommunes hors={compteursProcess?.hors ?? null} rail={processActif} onAction={apresAction} onOuvrirCommune={setCodeCommuneFiche} signalCarte={signalCarte} />}
         </>
       )}
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} qInitial={qInitial} />}
@@ -136,6 +146,10 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
       {onglet === 'reglages' && <ReglagesVue />}
       {onglet === 'automatisation' && <AutomatisationVue />}
       {onglet === 'collaborateurs' && <CollaborateursVue />}
+      {/* Lot C — ÉDITEUR de contact PAR COMMUNE (overlay contrôlé par `codeCommuneFiche`). Deux portes le déclenchent : un clic sur une
+          commune de la carte AU REPOS, et un clic sur une commune du bloc « Hors process ». Enregistrer → rafraîchit compteurs + carte ;
+          fermer sans enregistrer → rien. `null` → l'overlay ne rend rien. */}
+      <EditeurContactCommune codeInsee={codeCommuneFiche} onFerme={() => setCodeCommuneFiche(null)} onEnregistre={apresFicheCommune} />
     </div>
   );
 }
