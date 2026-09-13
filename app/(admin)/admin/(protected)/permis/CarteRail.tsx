@@ -24,17 +24,27 @@ const LARGEUR = 900; // résolution interne du canevas SVG (le viewBox fait le z
 
 interface Survol { x: number; y: number; nom: string; code: string }
 
-/** Remplissage par état + survol/sélection. Jetons EXISTANTS ; la couleur n'est jamais le seul porteur (aria-label + légende portent le sens). */
-function remplissage(etat: EtatCommuneRail, selectionnee: boolean, survolee: boolean): { fill: string; opacity: number; stroke: string } {
-  if (selectionnee) return { fill: 'var(--color-svv-red)', opacity: 0.6, stroke: 'var(--color-svv-red)' };              // COULEUR DÉFINITIVE de sélection
-  if (survolee && communeSelectionnable(etat)) return { fill: 'var(--color-svv-red)', opacity: 0.22, stroke: 'var(--color-svv-red)' }; // couleur INTERMÉDIAIRE au survol
-  switch (etat) {
-    case 'courant':     return { fill: 'var(--color-svv-green-soft)', opacity: 1, stroke: 'var(--color-svv-green-ink)' }; // déjà sur ce rail
-    case 'autre':       return { fill: 'var(--color-svv-violet-faint)', opacity: 1, stroke: 'var(--color-svv-muted)' };   // sur l'autre rail (teinte distincte)
-    case 'horsProcess': return { fill: 'var(--color-svv-line)', opacity: 0.5, stroke: 'var(--color-svv-line)' };          // hors process, non sélectionnable (grisé)
-    case 'nonAffecte':
-    default:            return { fill: 'var(--color-svv-surface)', opacity: 1, stroke: 'var(--color-svv-line)' };          // non affectée (fond neutre TOKENISÉ — suit le thème clair/sombre ; opaque → intérieur cliquable)
-  }
+/**
+ * POINT 3 — PALETTE CLIVANTE (jetons SVAV EXISTANTS, tous THEME-AWARE — redéfinis en [data-theme='dark']). Des HUES distincts (vert /
+ * violet / gris / neutre / rouge) à opacité modérée : chaque état se distingue d'un coup d'œil, en clair comme en sombre. Aucune teinte
+ * nouvelle codée en dur (le #ffffff des « non affectées » est déjà var(--color-svv-surface)). La couleur n'est JAMAIS le seul porteur
+ * (aria-label + légende texte). MÊME source pour la carte ET les pastilles de légende (une seule vérité).
+ */
+type Teinte = { fill: string; opacity: number; stroke: string };
+const COULEUR_ETAT: Record<EtatCommuneRail, Teinte> = {
+  courant:     { fill: 'var(--color-svv-green)',   opacity: 0.5,  stroke: 'var(--color-svv-green-ink)' },   // sur ce rail — VERT franc
+  autre:       { fill: 'var(--color-svv-violet)',  opacity: 0.42, stroke: 'var(--color-svv-violet)' },      // sur l'autre rail — VIOLET
+  nonAffecte:  { fill: 'var(--color-svv-surface)', opacity: 1,    stroke: 'var(--color-svv-line-strong)' }, // non affectée — NEUTRE (fond, opaque → intérieur cliquable)
+  horsProcess: { fill: 'var(--color-svv-muted)',   opacity: 0.42, stroke: 'var(--color-svv-muted)' },       // hors process — GRIS marqué
+};
+const COULEUR_SELECTION: Teinte = { fill: 'var(--color-svv-red)', opacity: 0.62, stroke: 'var(--color-svv-red)' }; // sélectionnée — ROUGE (définitif)
+const COULEUR_SURVOL: Teinte    = { fill: 'var(--color-svv-red)', opacity: 0.28, stroke: 'var(--color-svv-red)' }; // survol — rouge CLAIR (intermédiaire)
+
+/** Remplissage d'une commune : sélection (édition) > survol > état réel. `montreSelection`/`survolee` déjà conditionnés à l'édition par l'appelant. */
+function remplissage(etat: EtatCommuneRail, montreSelection: boolean, survolee: boolean): Teinte {
+  if (montreSelection) return COULEUR_SELECTION;
+  if (survolee) return COULEUR_SURVOL;
+  return COULEUR_ETAT[etat];
 }
 
 export function CarteRail({ rail, selection, onToggle, departement = null, donnees, editable = true }: {
@@ -140,13 +150,24 @@ export function CarteRail({ rail, selection, onToggle, departement = null, donne
           : 'Survolez (ou tabulez sur) une commune pour l’identifier. Cliquez « Modifier la sélection » pour pouvoir affecter des communes à ce rail.')}
       </p>
 
-      {/* Légende des 4 états (le sens porté par le TEXTE, la couleur n'est qu'un appui). */}
-      <ul style={{ display: 'flex', flexWrap: 'wrap', gap: '.2rem .8rem', listStyle: 'none', margin: '.3rem 0 0', padding: 0, fontSize: 11, color: 'var(--color-svv-muted)' }}>
-        <li>■ {LIBELLE_ETAT_RAIL.courant}</li>
-        <li>■ {LIBELLE_ETAT_RAIL.autre}</li>
-        <li>□ {LIBELLE_ETAT_RAIL.nonAffecte}</li>
-        <li>▨ {LIBELLE_ETAT_RAIL.horsProcess}</li>
-        <li>▬ sélectionnée</li>
+      {/* POINT 3 — LÉGENDE à VRAIES pastilles (≈18 px, teinte fidèle à la carte : remplissage à l'opacité par-dessus le fond de carte,
+          bordée du trait de l'état) + libellé texte à côté. Le sens est porté par le TEXTE ; la pastille n'est qu'un appui visuel. */}
+      <ul style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem 1rem', listStyle: 'none', margin: '.45rem 0 0', padding: 0, fontSize: 12, color: 'var(--color-svv-ink)' }} aria-label="Légende des états de commune">
+        {[
+          { t: COULEUR_ETAT.courant, l: LIBELLE_ETAT_RAIL.courant },
+          { t: COULEUR_ETAT.autre, l: LIBELLE_ETAT_RAIL.autre },
+          { t: COULEUR_ETAT.nonAffecte, l: LIBELLE_ETAT_RAIL.nonAffecte },
+          { t: COULEUR_ETAT.horsProcess, l: LIBELLE_ETAT_RAIL.horsProcess },
+          { t: COULEUR_SELECTION, l: 'sélectionnée' },
+          { t: COULEUR_SURVOL, l: 'survol' },
+        ].map(({ t, l }) => (
+          <li key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
+            <span aria-hidden="true" style={{ position: 'relative', display: 'inline-block', width: 18, height: 18, borderRadius: 4, border: `1px solid ${t.stroke}`, background: 'var(--color-svv-field)', overflow: 'hidden', flexShrink: 0 }}>
+              <span style={{ position: 'absolute', inset: 0, background: t.fill, opacity: t.opacity }} />
+            </span>
+            {l}
+          </li>
+        ))}
       </ul>
 
       <p style={{ margin: '.3rem 0 0', fontSize: 11, color: 'var(--color-svv-muted)' }}>

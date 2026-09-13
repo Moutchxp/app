@@ -57,6 +57,18 @@ describe('POINT 1 — au REPOS, « sur ce rail » n’est PAS confondu avec « s
   });
 });
 
+describe('POINT 3 — légende', () => {
+  it('la légende (région accessible) présente les CINQ états avec leur libellé', async () => {
+    const c = await monter(vi.fn());
+    const legende = c.querySelector('ul[aria-label="Légende des états de commune"]');
+    expect(legende).toBeTruthy();
+    const txt = legende?.textContent ?? '';
+    for (const l of ['sur ce rail', 'autre rail', 'non affectée', 'hors process', 'sélectionnée']) {
+      expect(txt).toContain(l);
+    }
+  });
+});
+
 describe('CarteRail — bascule, hors-process, survol, clavier', () => {
   it('clic sur une commune SÉLECTIONNABLE bascule (illimité : autant de clics que voulu)', async () => {
     const onToggle = vi.fn();
