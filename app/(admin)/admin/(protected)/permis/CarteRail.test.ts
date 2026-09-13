@@ -4,6 +4,7 @@ import { createElement } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { CarteRail } from './CarteRail';
+import { LIBELLE_ETAT_RAIL, LIBELLE_SELECTION } from '../../../../lib/sitadel/carteRail';
 
 /**
  * Lot 2 — carte-rail interactive. On teste le COMPORTEMENT (bascule, non-sélectionnabilité du hors-process, bulle de survol, clavier).
@@ -54,6 +55,29 @@ describe('POINT 1 — au REPOS, « sur ce rail » n’est PAS confondu avec « s
     expect(label).toContain('sur ce rail');
     expect(label).toContain('sélectionnée');
     expect(communeNode(c, 'Betaville').getAttribute('aria-pressed')).toBe('true');
+  });
+});
+
+describe('POINT 1bis — la bulle de survol dit le NOM + le STATUT', () => {
+  it('les quatre états de base : « nom — statut » (survol séquentiel, libellés de la source unique)', async () => {
+    const c = await monter(vi.fn()); // sélection vide → chaque commune montre son état réel
+    const cas: [string, string][] = [
+      ['Betaville', LIBELLE_ETAT_RAIL.courant],     // email → sur ce rail
+      ['Gammaville', LIBELLE_ETAT_RAIL.autre],      // formulaire → sur l'autre rail
+      ['Alphaville', LIBELLE_ETAT_RAIL.nonAffecte], // null → non affectée
+      ['Deltaville', LIBELLE_ETAT_RAIL.horsProcess],// inconnu → hors process (Arno insiste : ça marche AUSSI pour hors process)
+    ];
+    for (const [nom, statut] of cas) {
+      act(() => { communeNode(c, nom).dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 5, clientY: 5 })); });
+      await flush();
+      expect((c.textContent ?? '')).toContain(`${nom} — ${statut}`);
+    }
+  });
+  it('cinquième statut « sélectionnée » : commune sélectionnée en édition → « nom — sélectionnée »', async () => {
+    const c = await monter(vi.fn(), new Set(['75002']), true); // Betaville sélectionnée, en édition
+    act(() => { communeNode(c, 'Betaville').dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: 5, clientY: 5 })); });
+    await flush();
+    expect((c.textContent ?? '')).toContain(`Betaville — ${LIBELLE_SELECTION}`);
   });
 });
 

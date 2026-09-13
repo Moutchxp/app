@@ -27,10 +27,19 @@ export function communeSelectionnable(etat: EtatCommuneRail): boolean {
   return etat !== 'horsProcess';
 }
 
-/** Libellé lisible de l'état (lecteur d'écran + légende). Aucune couleur ici (la couleur n'est qu'un appui). */
+/** Libellé lisible de l'état (lecteur d'écran + légende + bulle de survol). Aucune couleur ici (la couleur n'est qu'un appui). SOURCE UNIQUE. */
 export const LIBELLE_ETAT_RAIL: Record<EtatCommuneRail, string> = {
   courant: 'sur ce rail',
   autre: 'sur l’autre rail',
   nonAffecte: 'non affectée',
   horsProcess: 'hors process (non sélectionnable)',
 };
+/** Libellés des overlays (édition/survol) — MÊME source que la légende ET la bulle : un libellé qui change ici change partout. */
+export const LIBELLE_SELECTION = 'sélectionnée';
+export const LIBELLE_SURVOL = 'survol';
+
+/** Statut AFFICHÉ d'une commune (celui qui EXPLIQUE sa couleur) : « sélectionnée » quand l'overlay de sélection est montré (édition),
+ *  sinon l'état réel dérivé du canal. Utilisé par la bulle de survol ET la légende (source unique — jamais réécrit à la main). PUR. */
+export function statutAffiche(etat: EtatCommuneRail, montreSelection: boolean): string {
+  return montreSelection ? LIBELLE_SELECTION : LIBELLE_ETAT_RAIL[etat];
+}

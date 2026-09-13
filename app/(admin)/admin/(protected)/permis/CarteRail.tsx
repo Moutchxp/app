@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { type Bbox, ajustement, anneauVersSvg, projeterL93VersSvg, bboxDe } from '../../../../lib/sitadel/carteProjection';
 import type { CommuneGeo } from '../../../../lib/sitadel/carteRepo';
 import { PROCESS_META, type Process } from '../../../../lib/sitadel/process';
-import { etatCommuneRail, communeSelectionnable, LIBELLE_ETAT_RAIL, type EtatCommuneRail } from '../../../../lib/sitadel/carteRail';
+import { etatCommuneRail, communeSelectionnable, LIBELLE_ETAT_RAIL, LIBELLE_SELECTION, LIBELLE_SURVOL, statutAffiche, type EtatCommuneRail } from '../../../../lib/sitadel/carteRail';
 
 /**
  * Lot 2 — CARTE INTERACTIVE des communes d'UN rail (chantier « À demander »). Réutilise le socle S6 (carteProjection L93→SVG, /api/admin/
@@ -22,7 +22,7 @@ import { etatCommuneRail, communeSelectionnable, LIBELLE_ETAT_RAIL, type EtatCom
 
 const LARGEUR = 900; // résolution interne du canevas SVG (le viewBox fait le zoom)
 
-interface Survol { x: number; y: number; nom: string; code: string }
+interface Survol { x: number; y: number; nom: string; code: string; statut: string }
 
 /**
  * POINT 3 — PALETTE CLIVANTE (jetons SVAV EXISTANTS, tous THEME-AWARE — redéfinis en [data-theme='dark']). Des HUES distincts (vert /
@@ -127,9 +127,9 @@ export function CarteRail({ rail, selection, onToggle, departement = null, donne
               tabIndex={actif ? 0 : -1}
               onClick={activer}
               onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && actif) { e.preventDefault(); onToggle(p.code); } }}
-              onMouseMove={(e) => setSurvol({ x: e.clientX, y: e.clientY, nom: p.nom, code: p.code })}
+              onMouseMove={(e) => setSurvol({ x: e.clientX, y: e.clientY, nom: p.nom, code: p.code, statut: statutAffiche(etat, montreSelection) })}
               onMouseLeave={() => setSurvol((s) => (s?.code === p.code ? null : s))}
-              onFocus={() => setSurvol({ x: 0, y: 0, nom: p.nom, code: p.code })}
+              onFocus={() => setSurvol({ x: 0, y: 0, nom: p.nom, code: p.code, statut: statutAffiche(etat, montreSelection) })}
               onBlur={() => setSurvol((s) => (s?.code === p.code ? null : s))}
               style={{ cursor: actif ? 'pointer' : 'default' }}>
               {p.pts.map((pts, i) => (
@@ -145,7 +145,7 @@ export function CarteRail({ rail, selection, onToggle, departement = null, donne
       {/* Ligne d'identité (aria-live) : nom de la commune survolée/focus, doublure lisible de la bulle. Le hint DIT LA VÉRITÉ selon l'état :
           au REPOS la carte n'est pas modifiable (rien n'est cliquable → renvoi vers « Modifier la sélection ») ; en ÉDITION on (dé)sélectionne. */}
       <p aria-live="polite" style={{ margin: '.3rem 0 0', minHeight: '1.2em', fontSize: 12, color: 'var(--color-svv-muted)' }}>
-        {survol ? survol.nom : (editable
+        {survol ? `${survol.nom} — ${survol.statut}` : (editable
           ? 'Survolez pour identifier ; cliquez une commune pour la (dé)sélectionner.'
           : 'Survolez (ou tabulez sur) une commune pour l’identifier. Cliquez « Modifier la sélection » pour pouvoir affecter des communes à ce rail.')}
       </p>
@@ -158,8 +158,8 @@ export function CarteRail({ rail, selection, onToggle, departement = null, donne
           { t: COULEUR_ETAT.autre, l: LIBELLE_ETAT_RAIL.autre },
           { t: COULEUR_ETAT.nonAffecte, l: LIBELLE_ETAT_RAIL.nonAffecte },
           { t: COULEUR_ETAT.horsProcess, l: LIBELLE_ETAT_RAIL.horsProcess },
-          { t: COULEUR_SELECTION, l: 'sélectionnée' },
-          { t: COULEUR_SURVOL, l: 'survol' },
+          { t: COULEUR_SELECTION, l: LIBELLE_SELECTION },
+          { t: COULEUR_SURVOL, l: LIBELLE_SURVOL },
         ].map(({ t, l }) => (
           <li key={l} style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
             <span aria-hidden="true" style={{ position: 'relative', display: 'inline-block', width: 18, height: 18, borderRadius: 4, border: `1px solid ${t.stroke}`, background: 'var(--color-svv-field)', overflow: 'hidden', flexShrink: 0 }}>
@@ -174,7 +174,7 @@ export function CarteRail({ rail, selection, onToggle, departement = null, donne
         Contours © IGN ADMIN EXPRESS (Licence Ouverte Etalab 2.0) — aucun fond de plan.
       </p>
 
-      {bulle && <div role="status" aria-hidden style={bulle}>{survol!.nom}</div>}
+      {bulle && <div role="status" aria-hidden style={bulle}>{survol!.nom} — {survol!.statut}</div>}
     </div>
   );
 }
