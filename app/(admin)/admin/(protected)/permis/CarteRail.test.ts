@@ -26,11 +26,11 @@ let root: Root | null = null; const fetchOrig = global.fetch;
 afterEach(() => { if (root) act(() => root!.unmount()); root = null; global.fetch = fetchOrig; });
 async function flush(n = 10) { for (let i = 0; i < n; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); }); }
 
-async function monter(onToggle: (code: string) => void, selection: Set<string> = new Set()) {
+async function monter(onToggle: (code: string) => void, selection: Set<string> = new Set(), editable?: boolean) {
   global.fetch = vi.fn(async () => ({ ok: true, json: async () => PAYLOAD }) as unknown as Response) as unknown as typeof fetch;
   const container = document.createElement('div'); document.body.appendChild(container);
   root = createRoot(container);
-  await act(async () => { root!.render(createElement(CarteRail, { rail: 'email', selection, onToggle })); });
+  await act(async () => { root!.render(createElement(CarteRail, { rail: 'email', selection, onToggle, editable })); });
   await flush();
   return container;
 }
@@ -38,6 +38,24 @@ async function monter(onToggle: (code: string) => void, selection: Set<string> =
 function communeNode(c: HTMLElement, nom: string): SVGGElement {
   return [...c.querySelectorAll('[role="button"]')].find((g) => (g.getAttribute('aria-label') ?? '').startsWith(nom)) as unknown as SVGGElement;
 }
+
+describe('POINT 1 — au REPOS, « sur ce rail » n’est PAS confondu avec « sélectionnée »', () => {
+  it('REPOS (non éditable) : une commune du rail sélectionnée (amorce) reste « sur ce rail », SANS « sélectionnée »', async () => {
+    // Betaville est sur le rail email (courant) ET dans la sélection amorcée. Au repos, son libellé accessible dit son ÉTAT réel.
+    const c = await monter(vi.fn(), new Set(['75002']), false);
+    const label = communeNode(c, 'Betaville').getAttribute('aria-label') ?? '';
+    expect(label).toContain('sur ce rail');       // état réel dérivé du canal
+    expect(label).not.toContain('sélectionnée');   // PAS traitée comme sélectionnée au repos (le bug : elle l'était)
+    expect(communeNode(c, 'Betaville').getAttribute('aria-pressed')).toBeNull(); // au repos, la carte n'annonce pas de sélection
+  });
+  it('ÉDITION : la même commune sélectionnée est bien annoncée « sélectionnée » (non-régression Lot 2/3)', async () => {
+    const c = await monter(vi.fn(), new Set(['75002']), true);
+    const label = communeNode(c, 'Betaville').getAttribute('aria-label') ?? '';
+    expect(label).toContain('sur ce rail');
+    expect(label).toContain('sélectionnée');
+    expect(communeNode(c, 'Betaville').getAttribute('aria-pressed')).toBe('true');
+  });
+});
 
 describe('CarteRail — bascule, hors-process, survol, clavier', () => {
   it('clic sur une commune SÉLECTIONNABLE bascule (illimité : autant de clics que voulu)', async () => {

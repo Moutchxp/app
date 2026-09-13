@@ -105,11 +105,15 @@ export function CarteRail({ rail, selection, onToggle, departement = null, donne
           const selectionnable = communeSelectionnable(etat);
           const survolee = survol?.code === p.code;
           const actif = selectionnable && editable; // basculable seulement en édition ; au repos la carte n'est pas modifiable
-          const c = remplissage(etat, selectionnee, survolee && actif);
+          // POINT 1 — l'overlay « sélectionnée » (rouge) ne s'applique QU'EN ÉDITION. Au REPOS, la sélection amorcée sur l'origine (Lot 3)
+          //   ne doit PAS teindre les communes du rail en rouge : elles portent leur état réel « sur ce rail » (vert). Idem aria-pressed /
+          //   suffixe « sélectionnée » : au repos, la carte n'est pas un sélecteur → on n'annonce pas de sélection.
+          const montreSelection = selectionnee && editable;
+          const c = remplissage(etat, montreSelection, survolee && actif);
           const activer = () => { if (actif) onToggle(p.code); };
           return (
-            <g key={p.code} role="button" aria-pressed={selectionnable ? selectionnee : undefined} aria-disabled={actif ? undefined : true}
-              aria-label={`${p.nom} — ${LIBELLE_ETAT_RAIL[etat]}${selectionnable ? (selectionnee ? ', sélectionnée' : ', non sélectionnée') : ''}`}
+            <g key={p.code} role="button" aria-pressed={actif ? selectionnee : undefined} aria-disabled={actif ? undefined : true}
+              aria-label={`${p.nom} — ${LIBELLE_ETAT_RAIL[etat]}${actif ? (selectionnee ? ', sélectionnée' : ', non sélectionnée') : ''}`}
               tabIndex={actif ? 0 : -1}
               onClick={activer}
               onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && actif) { e.preventDefault(); onToggle(p.code); } }}
@@ -120,7 +124,7 @@ export function CarteRail({ rail, selection, onToggle, departement = null, donne
               style={{ cursor: actif ? 'pointer' : 'default' }}>
               {p.pts.map((pts, i) => (
                 <polygon key={i} points={pts}
-                  fill={c.fill} fillOpacity={c.opacity} stroke={c.stroke} strokeWidth={selectionnee ? 1.2 : 0.4}
+                  fill={c.fill} fillOpacity={c.opacity} stroke={c.stroke} strokeWidth={montreSelection ? 1.2 : 0.4}
                   strokeLinejoin="round" style={{ pointerEvents: 'all' }} />
               ))}
             </g>
@@ -128,9 +132,12 @@ export function CarteRail({ rail, selection, onToggle, departement = null, donne
         })}
       </svg>
 
-      {/* Ligne d'identité (aria-live) : nom de la commune survolée/focus, doublure lisible de la bulle. */}
+      {/* Ligne d'identité (aria-live) : nom de la commune survolée/focus, doublure lisible de la bulle. Le hint DIT LA VÉRITÉ selon l'état :
+          au REPOS la carte n'est pas modifiable (rien n'est cliquable → renvoi vers « Modifier la sélection ») ; en ÉDITION on (dé)sélectionne. */}
       <p aria-live="polite" style={{ margin: '.3rem 0 0', minHeight: '1.2em', fontSize: 12, color: 'var(--color-svv-muted)' }}>
-        {survol ? survol.nom : 'Survolez (ou tabulez sur) une commune pour l’identifier ; cliquez pour la (dé)sélectionner.'}
+        {survol ? survol.nom : (editable
+          ? 'Survolez pour identifier ; cliquez une commune pour la (dé)sélectionner.'
+          : 'Survolez (ou tabulez sur) une commune pour l’identifier. Cliquez « Modifier la sélection » pour pouvoir affecter des communes à ce rail.')}
       </p>
 
       {/* Légende des 4 états (le sens porté par le TEXTE, la couleur n'est qu'un appui). */}
