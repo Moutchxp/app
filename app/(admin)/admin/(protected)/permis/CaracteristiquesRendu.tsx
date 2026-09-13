@@ -844,26 +844,35 @@ export interface CartePlanVue { id: number; nom: string; vide: boolean; valideeA
  * actives. BAT-4 — le CHAMP et le BOUTON sont SOLIDAIRES (groupe `nowrap`) : sur mobile, le bouton reste dans le prolongement du champ,
  * jamais relégué seul sur sa propre ligne. La couleur n'est jamais le seul appui (texte d'erreur explicite).
  */
-export function ChampNombreBatiments({ valeur, nbActuel, onValeur, onAppliquer, enCours = false }: {
-  valeur: string; nbActuel: number; onValeur: (v: string) => void; onAppliquer: () => void; enCours?: boolean;
+export const LIBELLE_MODIFIER_NB = 'modifier nombre de bâtiment(s) du permis de construire';
+export function ChampNombreBatiments({ valeur, nbActuel, edition, succes, onValeur, onBouton, enCours = false }: {
+  valeur: string; nbActuel: number; edition: boolean; succes: boolean; onValeur: (v: string) => void; onBouton: () => void; enCours?: boolean;
 }) {
+  // CYCLE À TROIS TEMPS (état porté par le parent, ici présentationnel) : au REPOS (edition=false) le champ est INACTIF et le bouton propose de
+  //   « modifier » ; en ÉDITION avec une valeur IDENTIQUE à l'origine (nbActuel), le bouton garde ce libellé (un clic REFERME, rien à valider) ;
+  //   en ÉDITION avec une valeur DIFFÉRENTE, il propose « valider nouvelle valeur ». C'est une COMPARAISON à l'origine (nbActuel), pas un drapeau.
   const brut = valeur.trim();
   const n = brut === '' ? NaN : Number(brut);
   const valide = Number.isInteger(n) && n >= 0;
   const inchange = valide && n === nbActuel;
+  const enModif = edition && !inchange;                 // valeur différente de l'origine (éventuellement invalide → bouton désactivé)
+  const label = enModif ? 'valider nouvelle valeur' : LIBELLE_MODIFIER_NB;
   return (
     <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
       <span style={styleAide}>Changer le nombre :</span>
-      {/* champ + bouton SOLIDAIRES (nowrap) → le bouton ne se retrouve jamais seul sur sa ligne (mobile-first). */}
+      {/* champ + bouton SOLIDAIRES (nowrap) → le bouton ne se retrouve jamais seul sur sa ligne (mobile-first). Champ INACTIF hors édition
+          (disabled RÉEL, pas seulement grisé → verrouillé pour le clavier et les lecteurs d'écran). */}
       <span style={{ display: 'inline-flex', gap: '.35rem', alignItems: 'center', flexWrap: 'nowrap' }}>
-        <input type="number" inputMode="numeric" min={0} step={1} value={valeur} disabled={enCours}
+        <input type="number" inputMode="numeric" min={0} step={1} value={valeur} disabled={!edition || enCours}
           onChange={(e) => onValeur(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && valide && !inchange && !enCours) { e.preventDefault(); onAppliquer(); } }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && enModif && valide && !enCours) { e.preventDefault(); onBouton(); } }}
           aria-label="Nouveau nombre de bâtiments" style={{ ...styleInput, width: '4rem', padding: '.3rem .4rem', minWidth: 0 }} />
-        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .8rem', whiteSpace: 'nowrap' }} disabled={enCours || !valide || inchange}
-          onClick={onAppliquer}>Appliquer</button>
+        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .8rem', whiteSpace: 'nowrap' }}
+          disabled={enCours || (enModif && !valide)} onClick={onBouton}>{label}</button>
       </span>
       {brut !== '' && !valide && <span style={styleErreur}>entier ≥ 0 attendu</span>}
+      {/* CONFIRMATION — petite ligne VERTE JUSTE EN DESSOUS du champ (flexBasis 100% → sa propre ligne). role="status" → annoncée. */}
+      {succes && <span role="status" style={{ flexBasis: '100%', ...styleAide, color: 'var(--color-svv-green-ink)' }}>Nouvelle valeur enregistrée.</span>}
     </span>
   );
 }
@@ -878,7 +887,9 @@ export function ChampNombreBatiments({ valeur, nbActuel, onValeur, onAppliquer, 
 export function LigneNombreBatiments({ nbBatiments, controle }: { nbBatiments: number; controle?: ReactNode }) {
   const n = nbBatiments ?? 0;
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '.4rem .6rem', fontSize: 12, overflowWrap: 'anywhere' }}>
+    // (A) — FOND de SURFACE NEUTRE (var --color-svv-surface, celui des cartes) pour faire ressortir la ligne par contraste avec ce qui l'entoure.
+    //   Pas de blanc en dur : la variable suit le thème (blanc en clair, surface sombre en sombre). Bordure/texte via jetons existants (contraste OK).
+    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '.4rem .6rem', fontSize: 12, overflowWrap: 'anywhere', background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.5rem', padding: '.45rem .6rem' }}>
       {n > 0
         ? <span><span style={{ color: 'var(--color-svv-muted)' }}>Bâtiments identifiés : </span><strong>{n}</strong><span style={{ color: 'var(--color-svv-muted)' }}> (d’après les pièces)</span></span>
         : <span style={{ color: 'var(--color-svv-muted)' }}>aucun bâtiment identifié dans les pièces</span>}

@@ -89,6 +89,12 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
   const [enCours, setEnCours] = useState(false);
   // BAT-3 — changement du nombre de bâtiments : valeur saisie, récap de confirmation (retrait touchant une carte porteuse de valeur), sélection.
   const [edNbBat, setEdNbBat] = useState<string>('');
+  // (C) — CYCLE À TROIS TEMPS du nombre de bâtiments : champ VERROUILLÉ au repos, déverrouillé en édition, confirmation verte au succès.
+  //   `editionNb` : champ actif ? `attenteNb` : valeur soumise dont on attend qu'elle devienne le nombre RÉEL (robuste au flux de confirmation
+  //   des retraits — le nombre ne change qu'après « Confirmer »). `succesNb` : ligne verte affichée. Aucune écriture n'est modifiée.
+  const [editionNb, setEditionNb] = useState(false);
+  const [attenteNb, setAttenteNb] = useState<number | null>(null);
+  const [succesNb, setSuccesNb] = useState(false);
   const [confirmRetrait, setConfirmRetrait] = useState<{ cartes: CartePlanVue[]; cible: number } | null>(null);
   const [selRetrait, setSelRetrait] = useState<number[]>([]);
 
@@ -282,6 +288,20 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
     setEnCours(false);
   }, [edNbBat, dossierId, rafraichir]);
 
+  // (C) — BOUTON À TROIS TEMPS : repos → ouvre l'édition ; édition + valeur == origine → REFERME (rien à valider) ; édition + valeur différente
+  //   et valide → APPLIQUE (métier inchangé : appliquerNbBatiments) et mémorise la valeur soumise pour détecter le succès. Aucune écriture ici.
+  const onBoutonNb = useCallback(() => {
+    if (enCours) return;
+    const brut = edNbBat.trim();
+    const n = brut === '' ? NaN : Number(brut);
+    const valide = Number.isInteger(n) && n >= 0;
+    const nbActuel = data?.corps.length ?? 0;
+    if (!editionNb) { setEditionNb(true); setSuccesNb(false); return; }   // repos → édition
+    if (valide && n === nbActuel) { setEditionNb(false); return; }        // valeur == origine → referme sans rien appliquer
+    if (!valide) return;                                                  // invalide → ne fait rien (message d'erreur affiché)
+    setAttenteNb(n); void appliquerNbBatiments();                        // valeur différente → applique (métier inchangé)
+  }, [enCours, edNbBat, data, editionNb, appliquerNbBatiments]);
+
   // BAT-3 — CONFIRMER le retrait (2e appel, `confirme:true` + la sélection EXPLICITE de cartes = choix réel). Le serveur retire en soft + journalise.
   const confirmerRetrait = useCallback(async () => {
     if (!confirmRetrait) return;
@@ -306,6 +326,12 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
   if (etat === 'erreur' || !data) return <p role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>Caractéristiques indisponibles.</p>;
 
   const majChamp = (corpsId: number, cle: keyof EditionCorps, v: string) => setEdCorps((m) => ({ ...m, [corpsId]: { ...m[corpsId], [cle]: v } }));
+
+  // (C) — SUCCÈS détecté PENDANT LE RENDU (idiome React « ajuster l'état quand une donnée change », pas d'effet → pas de rendu en cascade,
+  //   cf. PlancheParcelles) : le nombre RÉEL de bâtiments a rejoint la valeur soumise (après application/confirmation serveur) → confirmation
+  //   verte, retour au repos, champ re-verrouillé. Converge : `setAttenteNb(null)` éteint la condition au rendu suivant. Robuste au flux de
+  //   confirmation des retraits (le nombre ne change qu'après « Confirmer »). N'ALTÈRE AUCUNE écriture.
+  if (attenteNb !== null && data.corps.length === attenteNb) { setSuccesNb(true); setEditionNb(false); setAttenteNb(null); }
 
   // BAT-4 — la SEULE sous-section PORTEUSE est « Les futurs bâtiments et leurs altitudes » : son état couvre DEUX motifs — altitude de
   //   sommet manquante ET incohérence entre le nombre de cartes ACTIVES et le nombre VALIDÉ (BAT-1). Section 1 « Caractéristiques et bâtiments
@@ -423,7 +449,8 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       {/* BAT-4 — EN TÊTE de la section : « Bâtiments identifiés : N (d'après les pièces) · Changer le nombre : [champ] [Appliquer] », au-dessus
           des cartes qu'il pilote (déplacé depuis « Caractéristiques et bâtiments d'origine »). Une seule ligne, séparateur « · » clair. */}
       <LigneNombreBatiments nbBatiments={data.corps.length}
-        controle={<ChampNombreBatiments valeur={edNbBat} nbActuel={data.corps.length} onValeur={setEdNbBat} onAppliquer={() => void appliquerNbBatiments()} enCours={enCours} />} />
+        controle={<ChampNombreBatiments valeur={edNbBat} nbActuel={data.corps.length} edition={editionNb} succes={succesNb}
+          onValeur={(v) => { setEdNbBat(v); setSuccesNb(false); setAttenteNb(null); }} onBouton={onBoutonNb} enCours={enCours} />} />
       {/* N10-C — D : ce que contient la section et d'où ça vient. */}
       <p style={styleAide}>Ce que la machine a <strong>mesuré</strong> sur les plans (coupes, façades) — distinct de ce que le Cerfa déclare.</p>
       {data.corps.length === 0 && <p style={styleAide}>{MESSAGE_AUCUN_CORPS}</p>}
