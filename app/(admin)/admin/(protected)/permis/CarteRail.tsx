@@ -33,7 +33,7 @@ function remplissage(etat: EtatCommuneRail, selectionnee: boolean, survolee: boo
     case 'autre':       return { fill: 'var(--color-svv-violet-faint)', opacity: 1, stroke: 'var(--color-svv-muted)' };   // sur l'autre rail (teinte distincte)
     case 'horsProcess': return { fill: 'var(--color-svv-line)', opacity: 0.5, stroke: 'var(--color-svv-line)' };          // hors process, non sélectionnable (grisé)
     case 'nonAffecte':
-    default:            return { fill: '#ffffff', opacity: 1, stroke: 'var(--color-svv-line)' };                          // non affectée (fond neutre, intérieur cliquable)
+    default:            return { fill: 'var(--color-svv-surface)', opacity: 1, stroke: 'var(--color-svv-line)' };          // non affectée (fond neutre TOKENISÉ — suit le thème clair/sombre ; opaque → intérieur cliquable)
   }
 }
 

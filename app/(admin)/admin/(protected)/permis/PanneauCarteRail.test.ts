@@ -83,6 +83,24 @@ describe('PanneauCarteRail — cycle + exclusivité', () => {
     expect((c.textContent ?? '')).toContain('renseignez la fiche contact'); // raison affichée
   });
 
+  it('liste dépliable : décompte + noms des communes du rail, MISE À JOUR après validation', async () => {
+    const { c } = await monter({ A: 'email', B: 'formulaire' }); // 1 sur email au départ
+    const ligne = () => [...c.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes('Communes sur ce rail'))!;
+    expect(ligne().textContent).toContain('(1)');                 // décompte initial (A)
+    act(() => ligne().click()); await flush();                    // déplier
+    const liste = () => c.querySelector('ul[aria-label^="Communes du rail"]');
+    expect((liste()?.textContent ?? '')).toContain('Alphaville');
+    expect((liste()?.textContent ?? '')).not.toContain('Betaville');
+    // on affecte B à email
+    act(() => cycleBtn(c).click()); await flush();
+    act(() => { communeNode(c, 'Betaville').dispatchEvent(new MouseEvent('click', { bubbles: true })); }); await flush();
+    act(() => cycleBtn(c).click()); await flush();
+    // la liste reflète la nouvelle réalité (2 communes) sans re-déplier
+    expect(ligne().textContent).toContain('(2)');
+    expect((liste()?.textContent ?? '')).toContain('Betaville');
+    expect((liste()?.textContent ?? '')).toContain('Alphaville');
+  });
+
   it('hors process non sélectionnable → jamais tenté au Valider', async () => {
     const { c, apercuFn } = await monter({ A: 'email', C: 'inconnu' });
     act(() => cycleBtn(c).click()); await flush();

@@ -5,6 +5,7 @@ import type { Bbox } from '../../../../lib/sitadel/carteProjection';
 import type { CommuneGeo } from '../../../../lib/sitadel/carteRepo';
 import { PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 import { CarteRail } from './CarteRail';
+import { BlocRepliable } from './BlocRepliable';
 import {
   origineRail, diffAffectation, aDesChangements, libelleBoutonCarte, appliquerAffectations,
   type DepsAffectation, type Refus,
@@ -69,6 +70,11 @@ export function PanneauCarteRail({ rail, departement = null, onApplique, deps }:
   }, []);
 
   const origine = useMemo(() => (data ? origineRail(data.communes, rail) : new Set<string>()), [data, rail]);
+  // Liste des communes RÉELLEMENT sur ce rail (= origine, la réalité validée ; PAS la sélection en cours). Se met à jour au re-chargement (après validation).
+  const communesDuRail = useMemo(
+    () => (data ? data.communes.filter((c) => origine.has(c.code)).map((c) => ({ code: c.code, nom: c.nom })).sort((a, b) => a.nom.localeCompare(b.nom, 'fr')) : []),
+    [data, origine],
+  );
 
   // AMORCE de la sélection sur l'ORIGINE (ajustement d'état pendant le rendu, pas un effet → converge quand la clé ne change plus). Se
   //   ré-amorce à chaque changement de données/rail (chargement initial, changement de rail, RE-CHARGE après validation). Pas de clobber en
@@ -122,6 +128,16 @@ export function PanneauCarteRail({ rail, departement = null, onApplique, deps }:
           </ul>
         </div>
       )}
+
+      {/* LISTE dépliable des communes du rail (nom + décompte, cohérent avec les autres en-têtes). Reflète la réalité VALIDÉE (origine) ;
+          se met à jour au re-chargement après validation. Repliée par défaut ; corps lazy (render-prop). */}
+      <BlocRepliable titre={<>Communes sur ce rail <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}>({communesDuRail.length})</span></>}>
+        {() => (communesDuRail.length === 0
+          ? <p style={{ margin: '.2rem 0 0', fontSize: 12, color: 'var(--color-svv-muted)' }}>Aucune commune sur ce rail.</p>
+          : <ul style={{ margin: '.2rem 0 0', paddingLeft: '1.1rem', fontSize: 13, columns: '2 12rem', listStyle: 'disc' }} aria-label={`Communes du rail ${PROCESS_META[rail].court}`}>
+              {communesDuRail.map((c) => <li key={c.code}>{c.nom}</li>)}
+            </ul>)}
+      </BlocRepliable>
     </div>
   );
 }
