@@ -232,3 +232,43 @@ describe('PL-ÉTAT — etatPlancheTitre (ligne « Planche cadastrale »)', () =>
     }
   });
 });
+
+/**
+ * (b) COHÉRENCE HIÉRARCHIQUE de l'onglet « Analyse et projection ». Hiérarchie RÉELLE établie (ProjectionVue) : sous le permis ouvert,
+ * trois familles FRÈRES — « Caractéristiques du permis » (mère de l'unique porteuse « Les futurs bâtiments et leurs altitudes »),
+ * « Bâtiments et projection (emprise) », « Planche cadastrale ». Il n'existe PAS de parent agrégé au-dessus des trois. Propagation :
+ *  · mère « Caractéristiques » = agrégat PUR de sa porteuse (etatMereCaracteristiques : ET des tons) → jamais verte au-dessus d'une fille rouge/neutre ;
+ *  · le N° du permis (validable) suit clotureVisible = « Bâtiments et projection » (etatProj) VERT ; etatProj vert exige TOUTES les altitudes
+ *    VALIDÉES, et une altitude validée est nécessairement RENSEIGNÉE → « Caractéristiques » verte : le N° vert ne surplombe JAMAIS une mère rouge.
+ *  · « Planche cadastrale » reste un SIGNALEMENT non bloquant (décision Arno, etatPlancheTitre) — condition NON écrasée.
+ */
+describe('(b) COHÉRENCE HIÉRARCHIQUE — aucune mère « complète » au-dessus d’une fille en manquement', () => {
+  const c = (nbCartes: number, nbSansAltitude: number, nbBatimentsValide: number | null): ComptesCaracteristiquesPermis => ({ dossierId: 1, nbCartes, nbSansAltitude, nbBatimentsValide });
+
+  it('FILLE rouge ⇒ MÈRE rouge', () => {
+    expect(etatCaracteristiquesPermis(c(2, 1, 2)).ton).toBe('rouge');    // altitude manquante
+    expect(etatCaracteristiquesPermis(c(0, 0, null)).ton).toBe('rouge');  // aucune carte
+  });
+  it('TOUTES filles vertes ⇒ MÈRE verte (nombre stocké ignoré, Option A)', () => {
+    expect(etatCaracteristiquesPermis(c(2, 0, 2))).toEqual({ texte: 'complète', ton: 'vert' });
+    expect(etatCaracteristiquesPermis(c(2, 0, 3))).toEqual({ texte: 'complète', ton: 'vert' });
+  });
+  it('agrégat = source unique : la mère ne peut PAS être verte si une porteuse est rouge OU neutre (aucun état inventé)', () => {
+    expect(etatMereCaracteristiques([{ texte: 'x', ton: 'rouge' }]).ton).toBe('rouge');
+    expect(etatMereCaracteristiques([{ texte: 'x', ton: 'neutre' }]).ton).toBe('rouge');
+    expect(etatMereCaracteristiques([{ texte: 'x', ton: 'vert' }, { texte: 'y', ton: 'rouge' }]).ton).toBe('rouge');
+  });
+  it('INVARIANT INTER-FAMILLES : N° vert (permis validable) ⇒ mère « Caractéristiques » verte (altitude validée ⇒ renseignée)', () => {
+    const nbBatiments = 2;
+    const projection = etatProjectionTitreDepuisComptes(nbBatiments, 0, 0); // toutes altitudes ET emprises validées
+    expect(projection.ton).toBe('vert');
+    expect(clotureVisible('cloture_manuelle', projection.ton === 'vert', false)).toBe(true); // le permis devient validable (N° vert / bloc de sortie)
+    // toutes altitudes validées ⇒ 0 altitude non renseignée ⇒ mère verte : le vert du N° ne surplombe pas une mère rouge.
+    expect(etatCaracteristiquesPermis(c(nbBatiments, 0, nbBatiments))).toEqual({ texte: 'complète', ton: 'vert' });
+  });
+  it('projection ROUGE (1 altitude non validée) ⇒ permis NON validable (pas de N° vert au-dessus d’un manquement)', () => {
+    const projection = etatProjectionTitreDepuisComptes(2, 1, 0);
+    expect(projection.ton).toBe('rouge');
+    expect(clotureVisible('cloture_manuelle', projection.ton === 'vert', false)).toBe(false);
+  });
+});
