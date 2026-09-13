@@ -8,6 +8,7 @@ import type { BaseCommune } from './contactForm';
 import { CarteRail } from './CarteRail';
 import { CommutateurProcess, type CompteursProcess } from './CommutateurProcess';
 import { EditeurContactCommune } from './EditeurContactCommune';
+import { PanneauCarteRail } from './PanneauCarteRail';
 
 /**
  * Lot C — COMPORTEMENT des deux portes de la fiche contact commune, exercé sur un vrai rendu (jsdom + act, sans testing-library ;
@@ -122,5 +123,50 @@ describe('Lot C — rafraîchissement : enregistrement le déclenche, fermeture 
     clic(annuler!);
     expect(onFerme).toHaveBeenCalledTimes(1);
     expect(onEnregistre).not.toHaveBeenCalled();
+  });
+});
+
+describe('CORRECTION 1 — e-mail ET URL toujours présents, quel que soit le canal (« inconnu » compris)', () => {
+  const monterFiche = async (base: BaseCommune): Promise<void> => {
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => base } as unknown as Response)) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EditeurContactCommune, { codeInsee: base.codeInsee, onFerme: vi.fn(), onEnregistre: vi.fn() })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  };
+  const deuxChamps = (): { email: boolean; url: boolean } => ({
+    email: !!container.querySelector('input[type="email"]'),
+    url: !!container.querySelector('input[type="url"]'),
+  });
+
+  it('canal « inconnu » (les 11 hors process) → les DEUX champs sont là : le cul-de-sac est levé', async () => {
+    await monterFiche({ codeInsee: '93008', communeNom: 'Bobigny', destCanal: 'inconnu', destEmail: null, destUrlFormulaire: null, destAdressePostale: null });
+    expect(deuxChamps()).toEqual({ email: true, url: true });
+  });
+  it('canal « email » → les deux champs sont là', async () => {
+    await monterFiche({ codeInsee: '75056', communeNom: 'Paris', destCanal: 'email', destEmail: 'x@y.fr', destUrlFormulaire: null, destAdressePostale: null });
+    expect(deuxChamps()).toEqual({ email: true, url: true });
+  });
+  it('canal « courrier » → les deux champs de rail sont là (en plus de l’adresse postale)', async () => {
+    await monterFiche({ codeInsee: '92050', communeNom: 'Nanterre', destCanal: 'courrier', destEmail: null, destUrlFormulaire: null, destAdressePostale: 'BASU' });
+    expect(deuxChamps()).toEqual({ email: true, url: true });
+  });
+});
+
+describe('CORRECTION 2 — liste « Communes sur ce rail » cliquable', () => {
+  it('clic sur une commune du rail ouvre la fiche de la BONNE commune', async () => {
+    const payload = {
+      communes: [
+        { code: '75056', nom: 'Paris', dep: '75', canal: 'email', anneaux: [RING] },
+        { code: '92050', nom: 'Nanterre', dep: '92', canal: 'formulaire', anneaux: [RING] },
+      ],
+      bbox: [0, 0, 10, 10],
+    };
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => payload } as unknown as Response)) as unknown as typeof fetch;
+    const onOuvrirCommune = vi.fn();
+    await act(async () => { root.render(createElement(PanneauCarteRail, { rail: 'email', onOuvrirCommune })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    // déplier « Communes sur ce rail » (replié + lazy), puis cliquer la commune du rail (Paris, canal email)
+    await act(async () => { boutons().find((b) => /Communes sur ce rail/.test(b.textContent ?? ''))!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    clic(boutons().find((b) => (b.getAttribute('aria-label') ?? '').includes('Paris'))!);
+    expect(onOuvrirCommune).toHaveBeenCalledWith('75056');
   });
 });

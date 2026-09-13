@@ -201,7 +201,16 @@ export function PanneauCarteRail({ rail, departement = null, onApplique, deps, o
         {() => (communesDuRail.length === 0
           ? <p style={{ margin: '.2rem 0 0', fontSize: 12, color: 'var(--color-svv-muted)' }}>Aucune commune sur ce rail.</p>
           : <ul style={{ margin: '.2rem 0 0', paddingLeft: '1.1rem', fontSize: 13, columns: '2 12rem', listStyle: 'disc' }} aria-label={`Communes du rail ${PROCESS_META[rail].court}`}>
-              {communesDuRail.map((c) => <li key={c.code}>{c.nom}</li>)}
+              {/* CORRECTION 2 — chaque commune du rail devient cliquable et ouvre la MÊME fiche (même câblage + même rafraîchissement
+                  que le bloc « Hors process »), quand `onOuvrirCommune` est fourni ; sinon texte INCHANGÉ. Décompte, ordre, colonnes et pliage inchangés. */}
+              {communesDuRail.map((c) => (
+                <li key={c.code}>
+                  {onOuvrirCommune
+                    ? <button type="button" onClick={() => onOuvrirCommune(c.code)} aria-label={`Ouvrir la fiche contact de ${c.nom}`}
+                        style={{ background: 'none', border: 0, padding: '.15rem 0', minHeight: 28, font: 'inherit', color: 'var(--color-svv-red)', textDecoration: 'underline', textAlign: 'left', cursor: 'pointer' }}>{c.nom}</button>
+                    : c.nom}
+                </li>
+              ))}
             </ul>)}
       </BlocRepliable>
     </div>

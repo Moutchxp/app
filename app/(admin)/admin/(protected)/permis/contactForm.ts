@@ -303,3 +303,22 @@ export function messageEnregistrement(status: number, erreurServeur?: string | n
   const e = (erreurServeur ?? '').trim();
   return e !== '' ? `Refusé : ${e}.` : 'Enregistrement refusé.';
 }
+
+/**
+ * CORRECTION 1 — AVIS après un enregistrement RÉUSSI. CONTRAT : `null` quand la commune entre bien dans un rail (canal
+ * email/formulaire) → l'appelant FERME comme d'habitude ; un TEXTE quand elle reste HORS PROCESS malgré une coordonnée saisie
+ * → l'appelant garde la fiche ouverte et l'affiche « en toutes lettres ». `communesSansAdresse` étant compté PAR CANAL (route
+ * process-compteurs), saisir un e-mail en laissant le canal « inconnu » est permis en base mais NE fait PAS entrer la commune
+ * dans un rail : la fiche doit le dire. PUR.
+ */
+export function messageApresEnregistrement(canal: string, email: string, urlFormulaire: string): string | null {
+  if (processDeCanal(canal) !== null) return null; // canal d'un rail → succès net, rien à signaler (fermeture)
+  const aEmail = emailValide((email ?? '').trim());
+  const aUrl = urlTeleserviceValide(urlFormulaire);
+  const railEmail = PROCESS_META.email.court;
+  const railForm = PROCESS_META.formulaire.court;
+  if (aEmail && aUrl) return `Enregistré. La commune reste hors process tant que son canal n'est pas « ${railEmail} » ou « ${railForm} ».`;
+  if (aEmail) return `E-mail enregistré, mais la commune reste hors process tant que son canal n'est pas « ${railEmail} ».`;
+  if (aUrl) return `URL de téléservice enregistrée, mais la commune reste hors process tant que son canal n'est pas « ${railForm} ».`;
+  return 'Enregistré. La commune reste hors process (aucune coordonnée exploitable pour un rail).';
+}

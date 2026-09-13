@@ -324,21 +324,21 @@ export function PermisVue({ depuisParDefaut, categories, qInitial }: Props) {
               n'est plus qu'une commodité (trace lisible en note) au moment où l'on quitte le canal 'courrier'. */}
           <SelecteurCanal canal={edition.canal} suggestionTeleservice={edition.suggestionTeleservice}
             onCanal={(c) => setEdition({ ...edition, canal: c, note: noteAuChangementCanal(edition.canal, c, edition.adressePostale, edition.note), erreur: '' })} />
-          {edition.canal === 'email' && (
-            <div className="flex flex-col gap-1" style={{ flex: '1 1 260px', minWidth: 0 }}>
-              <input type="email" value={edition.email} placeholder="urbanisme@ville.fr"
-                onChange={(e) => setEdition({ ...edition, email: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
-              {/* S19 — nature de CETTE adresse (une seule adresse ; ce champ ne crée pas de second destinataire) */}
-              <SelecteurEmailType emailType={edition.emailType} onEmailType={(v) => setEdition({ ...edition, emailType: v, erreur: '' })} />
-            </div>
-          )}
-          {edition.canal === 'formulaire' && (
-            <div className="flex flex-col gap-1" style={{ flex: '1 1 320px', minWidth: 0 }}>
-              <input type="url" value={edition.urlFormulaire} placeholder="https://ville.fr/urbanisme/contact"
-                onChange={(e) => setEdition({ ...edition, urlFormulaire: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
-              <BoutonOuvrirLien url={edition.urlFormulaire} />
-            </div>
-          )}
+          {/* CORRECTION 1 (portée partagée) — les champs e-mail ET URL de téléservice sont TOUJOURS affichés et saisissables,
+              quel que soit le canal (« inconnu » compris) : même piège que la fiche commune, corrigé à l'identique. AJOUT
+              d'affichage (dé-conditionnement), jamais un retrait ni un déplacement ; S23 inchangé (conservation CÔTÉ ROUTE).
+              aria-label = ce qui est requis pour chaque rail (accessible, sans changer la mise en page existante). */}
+          <div className="flex flex-col gap-1" style={{ flex: '1 1 260px', minWidth: 0 }}>
+            <input type="email" value={edition.email} placeholder="urbanisme@ville.fr" aria-label="Adresse e-mail (obligatoire pour le rail E-mail)"
+              onChange={(e) => setEdition({ ...edition, email: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
+            {/* S19 — nature de CETTE adresse (une seule adresse ; ce champ ne crée pas de second destinataire) */}
+            <SelecteurEmailType emailType={edition.emailType} onEmailType={(v) => setEdition({ ...edition, emailType: v, erreur: '' })} />
+          </div>
+          <div className="flex flex-col gap-1" style={{ flex: '1 1 320px', minWidth: 0 }}>
+            <input type="url" value={edition.urlFormulaire} placeholder="https://ville.fr/urbanisme/contact" aria-label="URL de téléservice (obligatoire pour le rail Téléservice)"
+              onChange={(e) => setEdition({ ...edition, urlFormulaire: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
+            <BoutonOuvrirLien url={edition.urlFormulaire} />
+          </div>
           {edition.canal === 'courrier' && (
             <input type="text" value={edition.adressePostale} placeholder="Service urbanisme, 1 place de la Mairie, 92000…"
               onChange={(e) => setEdition({ ...edition, adressePostale: e.target.value, erreur: '' })} style={{ ...styleChamp, flex: '1 1 320px' }} />

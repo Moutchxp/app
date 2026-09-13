@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react';
 import {
   corpsPatchContact, corpsAdoptionPrada, noteAuChangementCanal, problemeContactUI,
-  editionInitiale, construireFiche, etatRail, messageChargement, messageEnregistrement,
+  editionInitiale, construireFiche, etatRail, messageChargement, messageEnregistrement, messageApresEnregistrement,
   type EtatEditionContact, type FicheCommune, type BaseCommune,
 } from './contactForm';
 import { SelecteurCanal, ChampsProtocole, SelecteurEmailType, BoutonOuvrirLien, BlocFicheCommune } from './ContactRendu';
@@ -44,6 +44,9 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
   const [confPrada, setConfPrada] = useState(false);
   const [chargement, setChargement] = useState(false);
   const [erreurChargement, setErreurChargement] = useState('');
+  // CORRECTION 1 — AVIS après enregistrement (ex. « e-mail enregistré, mais la commune reste hors process… »). Distinct de
+  //   `erreur` (rouge) : c'est une confirmation avec réserve, jamais une erreur. Effacé à l'ouverture et au changement de canal.
+  const [avis, setAvis] = useState('');
 
   // FOCUS (Lot C) — à l'ouverture on mémorise le déclencheur (commune de la carte / item « Hors process ») pour LUI RENDRE le focus
   //   à la fermeture (aucun piège de focus). `focusPanneau` (callback ref stable) donne le focus au panneau à son montage → le clavier
@@ -61,8 +64,8 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
   useEffect(() => {
     let annule = false;
     void (async () => {
-      if (codeInsee === null) { setEdition(null); setFiche(null); setConfPrada(false); setErreurChargement(''); setChargement(false); return; }
-      setChargement(true); setErreurChargement(''); setEdition(null); setFiche(null); setConfPrada(false);
+      if (codeInsee === null) { setEdition(null); setFiche(null); setConfPrada(false); setErreurChargement(''); setChargement(false); setAvis(''); return; }
+      setChargement(true); setErreurChargement(''); setEdition(null); setFiche(null); setConfPrada(false); setAvis('');
       try {
         const res = await fetch(`/api/admin/permis/contact?code=${encodeURIComponent(codeInsee)}`);
         if (annule) return;
@@ -85,6 +88,7 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
     // Refus CÔTÉ CLIENT d'un canal incohérent (miroir de mairie_contact_coherence_chk) : message clair, pas d'erreur Postgres brute.
     const probleme = problemeContactUI(edition);
     if (probleme) { setEdition({ ...edition, erreur: `Impossible d’enregistrer : ${probleme}.` }); return; }
+    setAvis('');
     try {
       const res = await fetch('/api/admin/permis/contact', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -95,8 +99,11 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
         setEdition({ ...edition, erreur: messageEnregistrement(res.status, d.erreur) });
         return;
       }
-      onEnregistre?.(); // le parent rafraîchit (carte / bloc « Hors process ») — Lot C
-      onFerme();
+      onEnregistre?.(); // le parent rafraîchit (carte / bloc « Hors process ») — la base a changé dans les DEUX cas
+      // CORRECTION 1 — en rail → succès net (on ferme) ; hors process malgré une coordonnée saisie → on GARDE la fiche ouverte
+      //   et on l'explique « en toutes lettres » (la commune reste hors process tant que le canal n'est pas un rail).
+      const avisMsg = messageApresEnregistrement(edition.canal, edition.email, edition.urlFormulaire);
+      if (avisMsg === null) onFerme(); else setAvis(avisMsg);
     } catch { setEdition({ ...edition, erreur: 'Enregistrement impossible.' }); }
   }
 
@@ -148,27 +155,28 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
               <p role="status" style={{ margin: 0, fontSize: 13, fontWeight: 600, color: etat.complet ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)' }}>{etat.texte}</p>
             )}
             <SelecteurCanal canal={edition.canal} suggestionTeleservice={edition.suggestionTeleservice}
-              onCanal={(c) => setEdition({ ...edition, canal: c, note: noteAuChangementCanal(edition.canal, c, edition.adressePostale, edition.note), erreur: '' })} />
-            {edition.canal === 'email' && (
-              <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
-                <label style={styleLabel}>
-                  Adresse e-mail <span style={styleObligatoire}>(obligatoire pour le rail E-mail)</span>
-                  <input type="email" value={edition.email} placeholder="urbanisme@ville.fr" aria-label="Adresse e-mail (obligatoire pour le rail E-mail)"
-                    onChange={(e) => setEdition({ ...edition, email: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
-                </label>
-                <SelecteurEmailType emailType={edition.emailType} onEmailType={(v) => setEdition({ ...edition, emailType: v, erreur: '' })} />
-              </div>
-            )}
-            {edition.canal === 'formulaire' && (
-              <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
-                <label style={styleLabel}>
-                  URL de téléservice <span style={styleObligatoire}>(obligatoire pour le rail Téléservice)</span>
-                  <input type="url" value={edition.urlFormulaire} placeholder="https://ville.fr/urbanisme/contact" aria-label="URL de téléservice (obligatoire pour le rail Téléservice)"
-                    onChange={(e) => setEdition({ ...edition, urlFormulaire: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
-                </label>
-                <BoutonOuvrirLien url={edition.urlFormulaire} />
-              </div>
-            )}
+              onCanal={(c) => { setAvis(''); setEdition({ ...edition, canal: c, note: noteAuChangementCanal(edition.canal, c, edition.adressePostale, edition.note), erreur: '' }); }} />
+            {/* CORRECTION 1 — les DEUX champs de coordonnées de rail sont TOUJOURS affichés et saisissables, quel que soit le
+                canal (« inconnu » compris) : la fiche ne doit jamais nommer un manque sans permettre de le corriger. C'est un
+                AJOUT d'affichage (dé-conditionnement), jamais un retrait ; la mention « obligatoire pour le rail … » reste
+                accrochée à chaque champ pour dire ce qui est requis. S23 préservé : la conservation des coordonnées est CÔTÉ
+                ROUTE (champsCoordonnees) — rendre les champs visibles n'introduit aucun chemin qui vide une coordonnée. */}
+            <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
+              <label style={styleLabel}>
+                Adresse e-mail <span style={styleObligatoire}>(obligatoire pour le rail E-mail)</span>
+                <input type="email" value={edition.email} placeholder="urbanisme@ville.fr" aria-label="Adresse e-mail (obligatoire pour le rail E-mail)"
+                  onChange={(e) => setEdition({ ...edition, email: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
+              </label>
+              <SelecteurEmailType emailType={edition.emailType} onEmailType={(v) => setEdition({ ...edition, emailType: v, erreur: '' })} />
+            </div>
+            <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
+              <label style={styleLabel}>
+                URL de téléservice <span style={styleObligatoire}>(obligatoire pour le rail Téléservice)</span>
+                <input type="url" value={edition.urlFormulaire} placeholder="https://ville.fr/urbanisme/contact" aria-label="URL de téléservice (obligatoire pour le rail Téléservice)"
+                  onChange={(e) => setEdition({ ...edition, urlFormulaire: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
+              </label>
+              <BoutonOuvrirLien url={edition.urlFormulaire} />
+            </div>
             {edition.canal === 'courrier' && (
               <input type="text" value={edition.adressePostale} placeholder="Service urbanisme, 1 place de la Mairie, 92000…" aria-label="Adresse postale"
                 onChange={(e) => setEdition({ ...edition, adressePostale: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
@@ -196,6 +204,8 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
                 )
                 : <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.4rem .8rem', alignSelf: 'flex-start' }} onClick={() => setConfPrada(true)}>Utiliser le courriel de la PRADA comme destinataire</button>
             )}
+            {/* CORRECTION 1 — AVIS post-enregistrement « en toutes lettres » (jamais rouge) : la commune reste hors process tant que le canal n'est pas un rail. */}
+            {avis && <p role="status" style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--color-svv-amber)' }}>{avis}</p>}
             <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
               <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.4rem .8rem' }} onClick={() => void enregistrer()}>Enregistrer</button>
               <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.4rem .8rem' }} onClick={onFerme}>Annuler</button>

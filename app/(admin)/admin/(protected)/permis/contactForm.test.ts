@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { corpsPatchContact, corpsAdoptionPrada, noteAuChangementCanal, problemeContactUI, editionInitiale, construireFiche, CANAUX_ORDONNES, problemeUrlOuverture, origineContact, originePrada, libelleEmailType, libelleStatut, libelleSource, libelleCanal, etatRail, messageChargement, messageEnregistrement } from './contactForm';
+import { corpsPatchContact, corpsAdoptionPrada, noteAuChangementCanal, problemeContactUI, editionInitiale, construireFiche, CANAUX_ORDONNES, problemeUrlOuverture, origineContact, originePrada, libelleEmailType, libelleStatut, libelleSource, libelleCanal, etatRail, messageChargement, messageEnregistrement, messageApresEnregistrement } from './contactForm';
 
 describe('S21 — INVARIANT : la PRADA n’est JAMAIS recopiée dans un champ éditable de contact', () => {
   it('editionInitiale : responsableNom vient de mairie_contact, JAMAIS de la PRADA ; l’e-mail non plus', () => {
@@ -286,5 +286,26 @@ describe('Lot B — garanties REPRISES par l’éditeur commune-scopé (mêmes h
     expect(problemeContactUI({ ...base, canal: 'email' })).toMatch(/e-mail/);          // email sans e-mail
     expect(problemeContactUI({ ...base, canal: 'formulaire' })).toMatch(/URL/);          // formulaire sans URL
     expect(problemeContactUI({ ...base, canal: 'email', email: 'x@y.fr' })).toBeNull();  // cohérent → accepté
+  });
+});
+
+describe('CORRECTION 1 — saisir une coordonnée n’efface aucune autre coordonnée (S23) + avis après enregistrement', () => {
+  it('saisir un e-mail sans changer le canal préserve URL, adresse et note (aucun null-par-canal côté client)', () => {
+    const edition = { code: '75056', canal: 'inconnu', email: '', urlFormulaire: 'https://ts.paris.fr', adressePostale: 'BASU, 6 promenade', note: 'note métier', telephone: '01', responsableNom: 'R', telephoneStandard: '02', emailType: '' };
+    const corps = corpsPatchContact({ ...edition, email: 'nouveau@paris.fr' }); // l'humain saisit un e-mail, canal inchangé
+    expect(corps).toMatchObject({ email: 'nouveau@paris.fr', urlFormulaire: 'https://ts.paris.fr', adressePostale: 'BASU, 6 promenade', note: 'note métier', canal: 'inconnu' });
+  });
+  it('messageApresEnregistrement : en rail → null (succès net, l’appelant ferme)', () => {
+    expect(messageApresEnregistrement('email', 'urbanisme@ville.fr', '')).toBeNull();
+    expect(messageApresEnregistrement('formulaire', '', 'https://ts.ville.fr')).toBeNull();
+  });
+  it('messageApresEnregistrement : hors process avec e-mail → dit « reste hors process » + « E-mail »', () => {
+    const m = messageApresEnregistrement('inconnu', 'x@y.fr', '');
+    expect(m).toMatch(/hors process/);
+    expect(m).toMatch(/E-mail/);
+  });
+  it('messageApresEnregistrement : hors process avec URL → « reste hors process » + « Téléservice » ; sans rien → générique', () => {
+    expect(messageApresEnregistrement('inconnu', '', 'https://ts.ville.fr')).toMatch(/Téléservice/);
+    expect(messageApresEnregistrement('courrier', '', '')).toMatch(/hors process/);
   });
 });
