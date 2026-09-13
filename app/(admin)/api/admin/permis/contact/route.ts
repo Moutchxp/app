@@ -2,6 +2,7 @@ import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { withTransaction } from '../../../../../lib/db/client';
 import { type Requete, type CanalContact, validerCanal, champsCoordonnees, ecrireContact } from '../../../../../lib/sitadel/mairieContact';
+import { lireBaseCommune } from '../../../../../lib/sitadel/communeContactRepo';
 
 /**
  * PATCH /api/admin/permis/contact — CORRECTION MANUELLE de l'adresse e-mail d'une commune (chantier S5).
@@ -16,6 +17,27 @@ import { type Requete, type CanalContact, validerCanal, champsCoordonnees, ecrir
  * + registre atomiques). Runtime Node.
  */
 export const runtime = 'nodejs';
+
+/**
+ * GET /api/admin/permis/contact?code=INSEE — LECTURE SEULE de la fiche contact d'une commune (contact + PRADA + protocole +
+ * nom), au format `BaseCommune` : l'éditeur commune-scopé (Lot B) y branche directement `editionInitiale`/`construireFiche`.
+ * N'écrit RIEN (l'écriture reste le PATCH ci-dessous, chemin unique). RÉSERVÉ ADMINISTRATEUR (proxy fail-closed +
+ * `exigerAdministrateur`). `code` non conforme (5 chiffres) → 400 ; commune inconnue → 404 ; sinon 200 + `BaseCommune`. Une
+ * commune SANS contact renvoie 200 avec les `dest*` à null (cas « communes sans adresse ») — ce n'est PAS un 404. Runtime Node.
+ */
+export async function GET(request: Request): Promise<Response> {
+  const garde = await exigerAdministrateur(request);
+  if ('refus' in garde) return garde.refus;
+  try {
+    const code = (new URL(request.url).searchParams.get('code') ?? '').trim();
+    if (!/^\d{5}$/.test(code)) return Response.json({ erreur: 'code INSEE invalide' }, { status: 400 });
+    const commune = await lireBaseCommune(code);
+    if (commune === null) return Response.json({ erreur: 'commune inconnue' }, { status: 404 });
+    return Response.json(commune);
+  } catch {
+    return Response.json({ erreur: 'lecture du contact impossible' }, { status: 503 });
+  }
+}
 
 const CANAUX: readonly CanalContact[] = ['email', 'formulaire', 'courrier', 'inconnu'];
 
