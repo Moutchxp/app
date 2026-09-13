@@ -106,7 +106,7 @@ describe('S21/S22 — BlocFicheCommune (lecture seule, origine en texte, reflet 
     destinataireActuel: 'urba@clamart.fr', canalEnregistre: 'email', contactStatut: 'presume', contactSource: 'annuaire',
     telephone: '01 11 11 11 11', telephoneStandard: '01 22 22 22 22', responsableNom: 'Nom Service',
     adressePostale: '1 place de la Mairie', protocoleSource: 'clamart.fr/urbanisme',
-    protocoleVerifieLe: '2026-08-03', emailType: 'urbanisme',
+    protocoleVerifieLe: '2026-08-03', emailType: 'urbanisme', emailDirect: 'responsable@clamart.fr',
     pradaCourriel: 'prada@paris.fr', pradaNom: 'Charles Chenel', pradaAdresse: '6 promenade…', pradaMillesime: '2026-07',
     pradaOrigine: 'annuaire_cada', pradaStatut: 'presume', pradaRapprochement: 'automatique',
   };
@@ -120,6 +120,8 @@ describe('S21/S22 — BlocFicheCommune (lecture seule, origine en texte, reflet 
     expect(h).toContain('01 11 11 11 11');            // téléphone du service
     expect(h).toContain('01 22 22 22 22');            // standard
     expect(h).toContain('Nom Service');               // responsable
+    expect(h).toContain('E-mail direct');             // 221 : ligne lecture seule « e-mail direct (informatif) »
+    expect(h).toContain('responsable@clamart.fr');    // 221 : valeur de l'e-mail direct affichée
   });
   it('affiche les infos PRADA + contact, avec leur origine en TEXTE', () => {
     const h = renderToStaticMarkup(createElement(BlocFicheCommune, { fiche: pleine }));
@@ -141,7 +143,7 @@ describe('S21/S22 — BlocFicheCommune (lecture seule, origine en texte, reflet 
     const vide: FicheCommune = {
       destinataireActuel: null, canalEnregistre: null, contactStatut: null, contactSource: null,
       telephone: null, telephoneStandard: null, responsableNom: null,
-      adressePostale: null, protocoleSource: null, protocoleVerifieLe: null, emailType: null,
+      adressePostale: null, protocoleSource: null, protocoleVerifieLe: null, emailType: null, emailDirect: null,
       pradaCourriel: null, pradaNom: null, pradaAdresse: null, pradaMillesime: null, pradaOrigine: null, pradaStatut: null, pradaRapprochement: null,
     };
     const h = renderToStaticMarkup(createElement(BlocFicheCommune, { fiche: vide }));

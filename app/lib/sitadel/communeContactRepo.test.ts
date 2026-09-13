@@ -14,7 +14,7 @@ const ligne = (o: Record<string, unknown> = {}) => ({
   code_insee: '75056', commune_nom: 'Paris',
   dest_email: null, dest_statut: null, dest_source: null, dest_canal: null, dest_url_formulaire: null, dest_adresse_postale: null,
   dest_telephone: null, dest_responsable_nom: null, dest_protocole_verifie_le: null, dest_telephone_standard: null, dest_email_type: null,
-  dest_protocole_source: null, dest_note: null,
+  dest_protocole_source: null, dest_note: null, dest_email_direct: null,
   prada_courriel: null, prada_nom: null, prada_prenom: null, prada_adresse: null, prada_millesime: null, prada_statut: null, prada_origine: null, prada_rapprochement: null,
   ...o,
 });
@@ -43,6 +43,7 @@ describe('lireBaseCommune — lecture de la fiche contact par code INSEE', () =>
       dest_email: 'urbanisme@paris.fr', dest_statut: 'confirme', dest_source: 'saisie_manuelle', dest_canal: 'email',
       dest_url_formulaire: 'https://teleservice.paris.fr', dest_adresse_postale: 'BASU', dest_telephone: '0140', dest_responsable_nom: 'C. Chenel',
       dest_protocole_verifie_le: '2026-08-03', dest_telephone_standard: '3975', dest_email_type: 'urbanisme', dest_protocole_source: 'https://paris.fr/urba', dest_note: 'RAS',
+      dest_email_direct: 'responsable@paris.fr', // 221
       prada_courriel: 'prada@paris.fr', prada_nom: 'DUPONT', prada_prenom: 'Jean', prada_adresse: '1 rue X', prada_millesime: '2026-07', prada_statut: 'presume', prada_origine: 'annuaire_cada', prada_rapprochement: 'automatique',
     })] });
     expect(await lireBaseCommune('75056')).toEqual({
@@ -50,6 +51,7 @@ describe('lireBaseCommune — lecture de la fiche contact par code INSEE', () =>
       destCanal: 'email', destEmail: 'urbanisme@paris.fr', destUrlFormulaire: 'https://teleservice.paris.fr', destAdressePostale: 'BASU',
       destTelephone: '0140', destResponsableNom: 'C. Chenel', destProtocoleVerifieLe: '2026-08-03',
       destTelephoneStandard: '3975', destEmailType: 'urbanisme', destNote: 'RAS',
+      destEmailDirect: 'responsable@paris.fr', // 221 : e-mail direct (informatif) mappé
       destStatut: 'confirme', destSource: 'saisie_manuelle', destProtocoleSource: 'https://paris.fr/urba',
       destPradaCourriel: 'prada@paris.fr', destPradaNom: 'Jean DUPONT', destPradaAdresse: '1 rue X', destPradaMillesime: '2026-07',
       destPradaStatut: 'presume', destPradaOrigine: 'annuaire_cada', destPradaRapprochement: 'automatique',

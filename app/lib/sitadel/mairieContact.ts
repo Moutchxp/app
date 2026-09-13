@@ -31,6 +31,7 @@ export interface ContactExistant {
   telephoneStandard?: string | null; // S19 : standard de la mairie
   emailType?: string | null;         // S19 : nature de l'adresse (urbanisme|accueil|prada|inconnu)
   note?: string | null;              // S24 : lue pour préserver la note lorsqu'un appelant l'omet
+  emailDirect?: string | null;       // 221 : e-mail DIRECT (informatif) — JAMAIS destinataire d'un envoi ni pris en compte pour le rail
 }
 
 // ── Validation & choix d'adresse (pur) ───────────────────────────────────────
@@ -119,11 +120,11 @@ export type Requete = <R = Record<string, unknown>>(text: string, params?: unkno
 
 /** Lit le contact courant d'une commune (pour la règle d'import et l'email_avant du journal). `null` si aucun. */
 export async function lireContact(q: Requete, codeInsee: string): Promise<ContactExistant | null> {
-  const r = await q<{ email: string | null; source: SourceContact; statut: StatutContact; canal: CanalContact; url_formulaire: string | null; adresse_postale: string | null; telephone?: string | null; responsable_nom?: string | null; telephone_standard?: string | null; email_type?: string | null; note?: string | null }>(
-    `SELECT email, source, statut, canal, url_formulaire, adresse_postale, telephone, responsable_nom, telephone_standard, email_type, note FROM mairie_contact WHERE code_insee = $1`, [codeInsee],
+  const r = await q<{ email: string | null; source: SourceContact; statut: StatutContact; canal: CanalContact; url_formulaire: string | null; adresse_postale: string | null; telephone?: string | null; responsable_nom?: string | null; telephone_standard?: string | null; email_type?: string | null; note?: string | null; email_direct?: string | null }>(
+    `SELECT email, source, statut, canal, url_formulaire, adresse_postale, telephone, responsable_nom, telephone_standard, email_type, note, email_direct FROM mairie_contact WHERE code_insee = $1`, [codeInsee],
   );
   const x = r.rows[0];
-  return x ? { email: x.email, source: x.source, statut: x.statut, canal: x.canal, urlFormulaire: x.url_formulaire, adressePostale: x.adresse_postale, telephone: x.telephone ?? null, responsableNom: x.responsable_nom ?? null, telephoneStandard: x.telephone_standard ?? null, emailType: x.email_type ?? null, note: x.note ?? null } : null;
+  return x ? { email: x.email, source: x.source, statut: x.statut, canal: x.canal, urlFormulaire: x.url_formulaire, adressePostale: x.adresse_postale, telephone: x.telephone ?? null, responsableNom: x.responsable_nom ?? null, telephoneStandard: x.telephone_standard ?? null, emailType: x.email_type ?? null, note: x.note ?? null, emailDirect: x.email_direct ?? null } : null;
 }
 
 export interface EcritureContact {
@@ -138,6 +139,7 @@ export interface EcritureContact {
   responsableNom?: string | null;  // S18
   telephoneStandard?: string | null; // S19
   emailType?: string | null;         // S19 : urbanisme|accueil|prada|inconnu|null
+  emailDirect?: string | null;       // 221 : e-mail DIRECT (informatif). S24 : absent (undefined) → conservé ; null explicite → effacé
   motif: string;
   auteur: string | null;
   note?: string | null;
@@ -173,11 +175,13 @@ export async function ecrireContact(q: Requete, e: EcritureContact): Promise<{ c
   const telStd = garder(e.telephoneStandard, avant?.telephoneStandard);
   const emailType = garder(e.emailType, avant?.emailType);
   const note = garder(e.note, avant?.note);
+  const emailDir = garder(e.emailDirect, avant?.emailDirect); // 221 : S24 (absent → conservé)
   const inchange = avant !== null && avant.email === e.email && avant.source === e.source && avant.statut === e.statut
     && avant.canal === e.canal && avant.urlFormulaire === url && avant.adressePostale === adr
     && (avant.telephone ?? null) === tel && (avant.responsableNom ?? null) === resp        // S18
     && (avant.telephoneStandard ?? null) === telStd && (avant.emailType ?? null) === emailType // S19
-    && (avant.note ?? null) === note; // S24 : un changement de note seule doit aussi écrire
+    && (avant.note ?? null) === note // S24 : un changement de note seule doit aussi écrire
+    && (avant.emailDirect ?? null) === emailDir; // 221 : un changement du seul e-mail direct doit aussi écrire
   if (inchange) return { change: false };
 
   await q(
@@ -190,15 +194,15 @@ export async function ecrireContact(q: Requete, e: EcritureContact): Promise<{ c
   // (`mairie_contact.protocole_verifie_le`), création → NULL. `protocole_source` n'est jamais touchée ici (elle vient du seed).
   const touche = e.toucheProtocole !== false;
   await q(
-    `INSERT INTO mairie_contact (code_insee, email, source, statut, canal, url_formulaire, adresse_postale, maj_le, note, telephone, responsable_nom, protocole_verifie_le, telephone_standard, email_type)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, CASE WHEN $13 THEN CURRENT_DATE ELSE NULL END, $11, $12)
+    `INSERT INTO mairie_contact (code_insee, email, source, statut, canal, url_formulaire, adresse_postale, maj_le, note, telephone, responsable_nom, protocole_verifie_le, telephone_standard, email_type, email_direct)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, now(), $8, $9, $10, CASE WHEN $13 THEN CURRENT_DATE ELSE NULL END, $11, $12, $14)
      ON CONFLICT (code_insee) DO UPDATE SET
        email = EXCLUDED.email, source = EXCLUDED.source, statut = EXCLUDED.statut, canal = EXCLUDED.canal,
        url_formulaire = EXCLUDED.url_formulaire, adresse_postale = EXCLUDED.adresse_postale, maj_le = now(), note = EXCLUDED.note,
        telephone = EXCLUDED.telephone, responsable_nom = EXCLUDED.responsable_nom,
        protocole_verifie_le = CASE WHEN $13 THEN CURRENT_DATE ELSE mairie_contact.protocole_verifie_le END,
-       telephone_standard = EXCLUDED.telephone_standard, email_type = EXCLUDED.email_type`,
-    [e.codeInsee, e.email, e.source, e.statut, e.canal, url, adr, note, tel, resp, telStd, emailType, touche],
+       telephone_standard = EXCLUDED.telephone_standard, email_type = EXCLUDED.email_type, email_direct = EXCLUDED.email_direct`,
+    [e.codeInsee, e.email, e.source, e.statut, e.canal, url, adr, note, tel, resp, telStd, emailType, touche, emailDir],
   );
   return { change: true };
 }

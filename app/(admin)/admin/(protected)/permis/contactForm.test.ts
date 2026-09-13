@@ -92,7 +92,7 @@ describe('S22 — libellés lecture seule (texte, jamais couleur)', () => {
 
 describe('S22 — D : corpsAdoptionPrada ne touche que e-mail + nature + canal, et PRÉSERVE la BASU en note', () => {
   const base = { code: '75056', canal: 'courrier', email: 'ancien@mairie.fr', urlFormulaire: '', adressePostale: 'BASU, 6 promenade…',
-    note: '', telephone: '01 42 76 40 40', responsableNom: 'Chenel', telephoneStandard: '01 42 76 40 00', emailType: '' };
+    note: '', telephone: '01 42 76 40 40', responsableNom: 'Chenel', telephoneStandard: '01 42 76 40 00', emailType: '', emailDirect: 'perso@mairie.fr' };
   it('adopter la PRADA : e-mail=courriel PRADA, nature=prada, canal=email ; téléphone/responsable/standard INCHANGÉS', () => {
     const corps = corpsAdoptionPrada(base, 'prada@paris.fr', 'courrier', 'BASU, 6 promenade…');
     expect(corps.email).toBe('prada@paris.fr');
@@ -101,6 +101,7 @@ describe('S22 — D : corpsAdoptionPrada ne touche que e-mail + nature + canal, 
     expect(corps.telephone).toBe('01 42 76 40 40');          // pas touché
     expect(corps.responsableNom).toBe('Chenel');             // pas touché
     expect(corps.telephoneStandard).toBe('01 42 76 40 00');  // pas touché
+    expect(corps.emailDirect).toBe('perso@mairie.fr');       // 221 — anti-PRADA : l'e-mail DIRECT n'est PAS remplacé par le courriel PRADA
     // la BASU en base (canal courrier) est conservée en note — pas perdue par le passage à canal='email'
     expect(corps.note).toBe('Ancienne adresse courrier : BASU, 6 promenade…');
   });
@@ -174,7 +175,7 @@ describe('S17 — ordre des canaux (préférence décroissante) + présélection
   });
 });
 
-const base = { code: '75056', email: '', urlFormulaire: '', adressePostale: '', note: '', telephone: '', responsableNom: '', telephoneStandard: '', emailType: '' };
+const base = { code: '75056', email: '', urlFormulaire: '', adressePostale: '', note: '', telephone: '', responsableNom: '', telephoneStandard: '', emailType: '', emailDirect: '' };
 
 describe('S16 — problemeContactUI refuse un canal incohérent (miroir contrainte DB)', () => {
   it('formulaire SANS URL → refusé', () => {
@@ -194,12 +195,12 @@ describe('S15 — corpsPatchContact transmet bien la note', () => {
     const corps = corpsPatchContact({
       code: '75056', canal: 'email', email: '  daj-cada@paris.fr ', urlFormulaire: '', adressePostale: '',
       note: '  Ancienne adresse courrier : BASU  ', telephone: '  01 42 76 40 40 ', responsableNom: '  Chenel  ',
-      telephoneStandard: '  01 42 76 40 00 ', emailType: 'accueil',
+      telephoneStandard: '  01 42 76 40 00 ', emailType: 'accueil', emailDirect: '  perso@paris.fr  ',
     });
     expect(corps).toEqual({
       codeInsee: '75056', canal: 'email', email: 'daj-cada@paris.fr', urlFormulaire: '', adressePostale: '',
       note: 'Ancienne adresse courrier : BASU', telephone: '01 42 76 40 40', responsableNom: 'Chenel',
-      telephoneStandard: '01 42 76 40 00', emailType: 'accueil',
+      telephoneStandard: '01 42 76 40 00', emailType: 'accueil', emailDirect: 'perso@paris.fr', // 221 : envoyé + trimé
     });
   });
 });
@@ -291,9 +292,9 @@ describe('Lot B — garanties REPRISES par l’éditeur commune-scopé (mêmes h
 
 describe('CORRECTION 1 — saisir une coordonnée n’efface aucune autre coordonnée (S23) + avis après enregistrement', () => {
   it('saisir un e-mail sans changer le canal préserve URL, adresse et note (aucun null-par-canal côté client)', () => {
-    const edition = { code: '75056', canal: 'inconnu', email: '', urlFormulaire: 'https://ts.paris.fr', adressePostale: 'BASU, 6 promenade', note: 'note métier', telephone: '01', responsableNom: 'R', telephoneStandard: '02', emailType: '' };
+    const edition = { code: '75056', canal: 'inconnu', email: '', urlFormulaire: 'https://ts.paris.fr', adressePostale: 'BASU, 6 promenade', note: 'note métier', telephone: '01', responsableNom: 'R', telephoneStandard: '02', emailType: '', emailDirect: 'perso@paris.fr' };
     const corps = corpsPatchContact({ ...edition, email: 'nouveau@paris.fr' }); // l'humain saisit un e-mail, canal inchangé
-    expect(corps).toMatchObject({ email: 'nouveau@paris.fr', urlFormulaire: 'https://ts.paris.fr', adressePostale: 'BASU, 6 promenade', note: 'note métier', canal: 'inconnu' });
+    expect(corps).toMatchObject({ email: 'nouveau@paris.fr', urlFormulaire: 'https://ts.paris.fr', adressePostale: 'BASU, 6 promenade', note: 'note métier', canal: 'inconnu', emailDirect: 'perso@paris.fr' });
   });
   it('messageApresEnregistrement : en rail → null (succès net, l’appelant ferme)', () => {
     expect(messageApresEnregistrement('email', 'urbanisme@ville.fr', '')).toBeNull();

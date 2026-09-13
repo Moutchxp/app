@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   type ContactExistant, type Requete, type EcritureContact,
-  emailValide, choisirEmail, extraireEmailMairie, doitRemplacerDepuisAnnuaire, ecrireContact, validerCanal, champsCoordonnees,
+  emailValide, choisirEmail, extraireEmailMairie, doitRemplacerDepuisAnnuaire, ecrireContact, lireContact, validerCanal, champsCoordonnees,
 } from './mairieContact';
 
 /** Contact existant avec valeurs par défaut de canal (S5b), surchargeable. */
@@ -237,5 +237,59 @@ describe('S24 — ecrireContact ne détruit plus une colonne par OMISSION', () =
     const { q, getUpsert } = depotComplet({ ...enrichi, telephone_standard: null });
     await ecrireContact(q, { codeInsee: '92050', email: enrichi.email, source: 'annuaire', statut: 'presume', canal: 'email', telephoneStandard: '01 99 99 99 99', motif: 'édition', auteur: null });
     expect(getUpsert()![12]).toBe(true);     // toucheProtocole par défaut → true (comportement historique préservé)
+  });
+});
+
+describe('221 — e-mail direct (informatif) : parité DB + non-effacement par omission (S24)', () => {
+  type RowD = {
+    email: string | null; source: string; statut: string; canal: string; url_formulaire: string | null; adresse_postale: string | null;
+    telephone: string | null; responsable_nom: string | null; telephone_standard: string | null; email_type: string | null; note: string | null; email_direct: string | null;
+  };
+  /** Dépôt mémoire (SELECT complet + capture de l'UPSERT). Positions du INSERT : [$1 code, $2 email, …, $13 touche, $14 email_direct] → index 13. */
+  function depot(row: RowD | null) {
+    const registre = new Map<string, RowD>(); if (row) registre.set('93008', row);
+    let upsert: unknown[] | null = null;
+    const q: Requete = (async (text: string, params?: unknown[]) => {
+      const p = params ?? [];
+      if (text.includes('SELECT email, source, statut')) { const c = registre.get(String(p[0])); return { rows: c ? [c] : [] }; }
+      if (text.includes('INSERT INTO mairie_contact_journal')) return { rows: [] };
+      if (text.includes('INSERT INTO mairie_contact')) { upsert = [...p]; return { rows: [] }; }
+      return { rows: [] };
+    }) as Requete;
+    return { q, getUpsert: () => upsert };
+  }
+  const base: RowD = {
+    email: 'urba@bobigny.fr', source: 'saisie_manuelle', statut: 'confirme', canal: 'email', url_formulaire: null, adresse_postale: null,
+    telephone: null, responsable_nom: null, telephone_standard: null, email_type: null, note: null, email_direct: 'responsable@bobigny.fr',
+  };
+
+  it('PARITÉ : lireContact mappe email_direct → ContactExistant.emailDirect', async () => {
+    const { q } = depot(base);
+    const c = await lireContact(q, '93008');
+    expect(c?.emailDirect).toBe('responsable@bobigny.fr');
+  });
+
+  it('ÉCRITURE : enregistrer une valeur pour email_direct la persiste (paramètre $14)', async () => {
+    const { q, getUpsert } = depot({ ...base, email_direct: null });
+    await ecrireContact(q, { codeInsee: '93008', email: 'urba@bobigny.fr', source: 'saisie_manuelle', statut: 'confirme', canal: 'email', emailDirect: 'responsable@bobigny.fr', motif: 'm', auteur: null });
+    expect(getUpsert()![13]).toBe('responsable@bobigny.fr');
+  });
+
+  it('S24 — enregistrer SANS toucher email_direct (OMIS) ne l’efface pas', async () => {
+    const { q, getUpsert } = depot(base);
+    await ecrireContact(q, { codeInsee: '93008', email: 'autre@bobigny.fr', source: 'saisie_manuelle', statut: 'confirme', canal: 'email', motif: 'm', auteur: null });
+    expect(getUpsert()![13]).toBe('responsable@bobigny.fr'); // omis → CONSERVÉ (index 13 = $14)
+  });
+
+  it('effacement EXPLICITE : emailDirect=null vide la colonne', async () => {
+    const { q, getUpsert } = depot(base);
+    await ecrireContact(q, { codeInsee: '93008', email: 'urba@bobigny.fr', source: 'saisie_manuelle', statut: 'confirme', canal: 'email', emailDirect: null, motif: 'm', auteur: null });
+    expect(getUpsert()![13]).toBeNull();
+  });
+
+  it('un changement du SEUL email_direct déclenche bien l’écriture (inchange le prend en compte)', async () => {
+    const { q } = depot(base);
+    const r = await ecrireContact(q, { codeInsee: '93008', email: 'urba@bobigny.fr', source: 'saisie_manuelle', statut: 'confirme', canal: 'email', emailDirect: 'nouveau@bobigny.fr', motif: 'm', auteur: null });
+    expect(r.change).toBe(true);
   });
 });

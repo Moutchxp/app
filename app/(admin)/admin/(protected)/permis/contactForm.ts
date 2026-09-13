@@ -7,7 +7,7 @@ import { processDeCanal, PROCESS_META, type Process } from '../../../../lib/sita
 
 export interface EditionContact {
   code: string; canal: string; email: string; urlFormulaire: string; adressePostale: string; note: string;
-  telephone: string; responsableNom: string; telephoneStandard: string; emailType: string;
+  telephone: string; responsableNom: string; telephoneStandard: string; emailType: string; emailDirect: string; // 221 : e-mail direct (informatif)
 }
 
 /** Natures possibles de l'adresse e-mail (S19), libellés en français clair. '' (option de tête) = non renseignée → NULL. */
@@ -64,6 +64,7 @@ export interface FicheCommune {
   protocoleSource: string | null;      // URL cliquable
   protocoleVerifieLe: string | null;
   emailType: string | null;
+  emailDirect: string | null;          // 221 : e-mail DIRECT (informatif) — jamais destinataire ; « non renseigné » si vide
   pradaCourriel: string | null;
   pradaNom: string | null;             // « Prénom Nom » composé (annuaire CADA)
   pradaAdresse: string | null;
@@ -117,7 +118,7 @@ export function libelleEmailType(v: string | null): string {
 export interface EtatEditionContact {
   code: string; nom: string; canal: CanalContact; email: string; urlFormulaire: string; adressePostale: string;
   note: string; telephone: string; responsableNom: string; protocoleVerifieLe: string | null;
-  telephoneStandard: string; emailType: string; // S19
+  telephoneStandard: string; emailType: string; emailDirect: string; // S19 + 221 (e-mail direct informatif)
   suggestionTeleservice: boolean; erreur: string;
 }
 
@@ -130,7 +131,7 @@ export interface BaseCommune {
   codeInsee: string; communeNom: string | null;
   destCanal: CanalContact | null; destEmail: string | null; destUrlFormulaire: string | null; destAdressePostale: string | null;
   destTelephone?: string | null; destResponsableNom?: string | null; destProtocoleVerifieLe?: string | null;
-  destTelephoneStandard?: string | null; destEmailType?: string | null; destNote?: string | null;
+  destTelephoneStandard?: string | null; destEmailType?: string | null; destNote?: string | null; destEmailDirect?: string | null; // 221
   destStatut?: string | null; destSource?: string | null; destProtocoleSource?: string | null;
   destPradaCourriel?: string | null; destPradaNom?: string | null; destPradaAdresse?: string | null;
   destPradaMillesime?: string | null; destPradaOrigine?: string | null; destPradaStatut?: string | null; destPradaRapprochement?: string | null;
@@ -157,6 +158,7 @@ export function construireFiche(d: BaseCommune): FicheCommune {
     protocoleSource: nul(d.destProtocoleSource),
     protocoleVerifieLe: d.destProtocoleVerifieLe ?? null,
     emailType: d.destEmailType ?? null,
+    emailDirect: nul(d.destEmailDirect), // 221 : « non renseigné » (null) si vide
     pradaCourriel: nul(d.destPradaCourriel),
     pradaNom: d.destPradaNom ?? null,
     pradaAdresse: d.destPradaAdresse ?? null,
@@ -190,6 +192,8 @@ export function editionInitiale(d: BaseCommune): EtatEditionContact {
     protocoleVerifieLe: d.destProtocoleVerifieLe ?? null,
     telephoneStandard: d.destTelephoneStandard ?? '',
     emailType: d.destEmailType ?? '',
+    // 221 : e-mail DIRECT chargé depuis la base (JAMAIS recopié depuis la PRADA) ; préservé à l'enregistrement s'il n'est pas touché.
+    emailDirect: d.destEmailDirect ?? '',
     suggestionTeleservice: teleserviceConnu,
     erreur: '',
   };
@@ -207,13 +211,13 @@ export function problemeContactUI(e: EditionContact): string | null {
 /** Corps EXACT envoyé à PATCH /api/admin/permis/contact — `note` INCLUSE (la route et ecrireContact l'acceptent déjà). */
 export function corpsPatchContact(e: EditionContact): {
   codeInsee: string; canal: string; email: string; urlFormulaire: string; adressePostale: string; note: string;
-  telephone: string; responsableNom: string; telephoneStandard: string; emailType: string;
+  telephone: string; responsableNom: string; telephoneStandard: string; emailType: string; emailDirect: string;
 } {
   return {
     codeInsee: e.code, canal: e.canal,
     email: e.email.trim(), urlFormulaire: e.urlFormulaire.trim(), adressePostale: e.adressePostale.trim(),
     note: e.note.trim(), telephone: e.telephone.trim(), responsableNom: e.responsableNom.trim(),
-    telephoneStandard: e.telephoneStandard.trim(), emailType: e.emailType.trim(),
+    telephoneStandard: e.telephoneStandard.trim(), emailType: e.emailType.trim(), emailDirect: e.emailDirect.trim(), // 221
   };
 }
 

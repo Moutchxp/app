@@ -45,7 +45,7 @@ export async function PATCH(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const c = (await request.json()) as { codeInsee?: unknown; canal?: unknown; email?: unknown; urlFormulaire?: unknown; adressePostale?: unknown; note?: unknown; telephone?: unknown; responsableNom?: unknown; telephoneStandard?: unknown; emailType?: unknown; motif?: unknown };
+    const c = (await request.json()) as { codeInsee?: unknown; canal?: unknown; email?: unknown; urlFormulaire?: unknown; adressePostale?: unknown; note?: unknown; telephone?: unknown; responsableNom?: unknown; telephoneStandard?: unknown; emailType?: unknown; emailDirect?: unknown; motif?: unknown };
     // D5 — MOTIF libre (journalisé), pour relire dans six mois POURQUOI une commune a changé de rail. Absent → défaut historique.
     const motif = typeof c.motif === 'string' && c.motif.trim() !== '' ? c.motif.trim() : 'correction manuelle (admin)';
     const codeInsee = typeof c.codeInsee === 'string' ? c.codeInsee.trim() : '';
@@ -60,6 +60,9 @@ export async function PATCH(request: Request): Promise<Response> {
     const telephoneStandard = typeof c.telephoneStandard === 'string' && c.telephoneStandard.trim() !== '' ? c.telephoneStandard.trim() : null;
     // S19 : email_type = l'une des 4 valeurs, sinon NULL (honnête « non renseigné » — la CHECK de la migration 067 le borne aussi).
     const emailType = typeof c.emailType === 'string' && ['urbanisme', 'accueil', 'prada', 'inconnu'].includes(c.emailType) ? c.emailType : null;
+    // 221 — e-mail DIRECT (informatif). S24 : ABSENT (undefined) → CONSERVÉ par ecrireContact ; présent vide → effacé (null) ;
+    // présent non vide → enregistré. Un PATCH minimal (ex. basculer-rail) l'OMET → il n'est JAMAIS effacé par omission.
+    const emailDirect = typeof c.emailDirect === 'string' ? (c.emailDirect.trim() !== '' ? c.emailDirect.trim() : null) : undefined;
     if (!/^\d{5}$/.test(codeInsee)) return Response.json({ erreur: 'code INSEE invalide' }, { status: 400 });
     if (!CANAUX.includes(canal)) return Response.json({ erreur: 'canal invalide' }, { status: 400 });
     const motifErreur = validerCanal(canal, { email, urlFormulaire, adressePostale });
@@ -79,6 +82,7 @@ export async function PATCH(request: Request): Promise<Response> {
         canal, source: 'saisie_manuelle', statut: 'confirme',
         telephone, responsableNom, // S18 : protocole (protocole_verifie_le mis à CURRENT_DATE par ecrireContact)
         telephoneStandard, emailType, // S19 : standard + nature de l'adresse
+        emailDirect, // 221 : e-mail direct informatif (jamais destinataire ; S24 : undefined conservé)
         motif, auteur: garde.auteurId === null ? null : String(garde.auteurId), note,
       });
     });

@@ -170,3 +170,18 @@ describe('CORRECTION 2 — liste « Communes sur ce rail » cliquable', () => {
     expect(onOuvrirCommune).toHaveBeenCalledWith('75056');
   });
 });
+
+describe('221 — la fiche commune porte DEUX champs e-mail distincts (service + direct)', () => {
+  it('e-mail du SERVICE et e-mail DIRECT sont tous deux présents ; le direct est chargé depuis la base et distinct', async () => {
+    const base: BaseCommune = { codeInsee: '93008', communeNom: 'Bobigny', destCanal: 'inconnu', destEmail: null, destUrlFormulaire: null, destAdressePostale: null, destEmailDirect: 'responsable@bobigny.fr' };
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => base } as unknown as Response)) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(EditeurContactCommune, { codeInsee: '93008', onFerme: vi.fn(), onEnregistre: vi.fn() })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const emails = [...container.querySelectorAll('input[type="email"]')] as HTMLInputElement[];
+    expect(emails.length).toBe(2); // service + direct
+    // le champ DIRECT est distinct (aria-label « jamais destinataire ») et pré-rempli depuis la base (parité editionInitiale → UI)
+    const direct = emails.find((e) => (e.getAttribute('aria-label') ?? '').includes('jamais destinataire'));
+    expect(direct).toBeTruthy();
+    expect(direct!.value).toBe('responsable@bobigny.fr');
+  });
+});

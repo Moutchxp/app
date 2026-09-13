@@ -95,6 +95,8 @@ export function BlocFicheCommune({ fiche }: { fiche: FicheCommune }) {
       style={{ flex: '1 1 100%', background: 'var(--color-svv-field)', minWidth: 0 }}>
       <strong style={{ fontSize: 12 }}>Ce que l’on sait de cette commune (lecture seule, état enregistré en base)</strong>
       <LigneFiche label="Destinataire actuel" valeur={fiche.destinataireActuel} origine={oc} />
+      {/* 221 — e-mail DIRECT (informatif) : jamais destinataire d'un envoi. « non renseigné » si vide (LigneFiche). */}
+      <LigneFiche label="E-mail direct (informatif)" valeur={fiche.emailDirect} />
       <LigneFiche label="Canal enregistré" valeur={fiche.canalEnregistre ? libelleCanal(fiche.canalEnregistre) : null} origine={oc} />
       <LigneFiche label="Statut" valeur={fiche.contactStatut ? libelleStatut(fiche.contactStatut) : null} />
       <LigneFiche label="Source" valeur={fiche.contactSource ? libelleSource(fiche.contactSource) : null} />

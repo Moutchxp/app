@@ -334,6 +334,16 @@ export function PermisVue({ depuisParDefaut, categories, qInitial }: Props) {
             {/* S19 — nature de CETTE adresse (une seule adresse ; ce champ ne crée pas de second destinataire) */}
             <SelecteurEmailType emailType={edition.emailType} onEmailType={(v) => setEdition({ ...edition, emailType: v, erreur: '' })} />
           </div>
+          {/* 221 — 2e e-mail : contact DIRECT d'une personne (facultatif, INFORMATIF). JAMAIS destinataire : les demandes partent à
+              l'e-mail du SERVICE (ci-dessus) ; n'affecte ni le rail ni la chaîne d'envoi. Jamais alimenté par la PRADA (S21). */}
+          <div className="flex flex-col gap-1" style={{ flex: '1 1 260px', minWidth: 0 }}>
+            <label style={{ fontSize: 12, color: 'var(--color-svv-muted)', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+              E-mail direct <span style={{ fontStyle: 'italic' }}>(contact d’une personne — facultatif)</span>
+              <input type="email" value={edition.emailDirect} placeholder="prenom.nom@ville.fr" aria-label="E-mail direct (contact facultatif ; jamais destinataire des demandes)"
+                onChange={(e) => setEdition({ ...edition, emailDirect: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />
+            </label>
+            <span style={{ fontSize: 11, color: 'var(--color-svv-muted)', lineHeight: 1.4 }}>Les demandes ne partent PAS à cette adresse (le destinataire reste l’e-mail du service).</span>
+          </div>
           <div className="flex flex-col gap-1" style={{ flex: '1 1 320px', minWidth: 0 }}>
             <input type="url" value={edition.urlFormulaire} placeholder="https://ville.fr/urbanisme/contact" aria-label="URL de téléservice (obligatoire pour le rail Téléservice)"
               onChange={(e) => setEdition({ ...edition, urlFormulaire: e.target.value, erreur: '' })} style={{ ...styleChamp, width: '100%', boxSizing: 'border-box' }} />

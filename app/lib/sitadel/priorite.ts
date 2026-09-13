@@ -220,6 +220,8 @@ const SELECTION =
   `mc.telephone_standard AS dest_telephone_standard, mc.email_type AS dest_email_type, mc.protocole_source AS dest_protocole_source, ` +
   // S25 : note de la commune — chargée dans l'éditeur pour être COMPLÉTÉE, jamais écrasée par une saisie vide.
   `mc.note AS dest_note, ` +
+  // 221 : e-mail DIRECT (informatif) — affiché dans l'éditeur par permis ; JAMAIS destinataire (aucun chemin d'envoi ne le lit).
+  `mc.email_direct AS dest_email_direct, ` +
   // S14d : bruts PRADA (la précédence est calculée en TS par resoudreDestination, pas en SQL).
   `mp.courriel AS prada_courriel, mp.import_id AS prada_import_id, mp.nom AS prada_nom, mp.prenom AS prada_prenom, ` +
   // S21 : fiche PRADA (lecture seule) — adresse/millésime/statut/origine de l'annuaire + état de rapprochement.

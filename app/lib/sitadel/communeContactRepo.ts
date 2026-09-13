@@ -22,6 +22,7 @@ type LigneContactCommune = {
   dest_canal: 'email' | 'formulaire' | 'courrier' | 'inconnu' | null; dest_url_formulaire: string | null; dest_adresse_postale: string | null;
   dest_telephone: string | null; dest_responsable_nom: string | null; dest_protocole_verifie_le: string | null;
   dest_telephone_standard: string | null; dest_email_type: string | null; dest_protocole_source: string | null; dest_note: string | null;
+  dest_email_direct: string | null; // 221 : e-mail direct (informatif)
   prada_courriel: string | null; prada_nom: string | null; prada_prenom: string | null;
   prada_adresse: string | null; prada_millesime: string | null; prada_statut: string | null; prada_origine: string | null; prada_rapprochement: string | null;
 };
@@ -38,7 +39,7 @@ export async function lireBaseCommune(codeInsee: string): Promise<BaseCommune | 
             mc.canal AS dest_canal, mc.url_formulaire AS dest_url_formulaire, mc.adresse_postale AS dest_adresse_postale,
             mc.telephone AS dest_telephone, mc.responsable_nom AS dest_responsable_nom, mc.protocole_verifie_le::text AS dest_protocole_verifie_le,
             mc.telephone_standard AS dest_telephone_standard, mc.email_type AS dest_email_type, mc.protocole_source AS dest_protocole_source,
-            mc.note AS dest_note,
+            mc.note AS dest_note, mc.email_direct AS dest_email_direct,
             mp.courriel AS prada_courriel, mp.nom AS prada_nom, mp.prenom AS prada_prenom,
             mp.adresse_formatee AS prada_adresse, mp.millesime AS prada_millesime, mp.statut AS prada_statut, mp.origine AS prada_origine,
             pi.rapprochement AS prada_rapprochement
@@ -56,6 +57,7 @@ export async function lireBaseCommune(codeInsee: string): Promise<BaseCommune | 
     destCanal: x.dest_canal, destEmail: x.dest_email, destUrlFormulaire: x.dest_url_formulaire, destAdressePostale: x.dest_adresse_postale,
     destTelephone: x.dest_telephone, destResponsableNom: x.dest_responsable_nom, destProtocoleVerifieLe: x.dest_protocole_verifie_le,
     destTelephoneStandard: x.dest_telephone_standard, destEmailType: x.dest_email_type, destNote: x.dest_note,
+    destEmailDirect: x.dest_email_direct, // 221 : e-mail direct (informatif)
     destStatut: x.dest_statut, destSource: x.dest_source, destProtocoleSource: x.dest_protocole_source,
     destPradaCourriel: x.prada_courriel,
     // Nom PRADA composé « Prénom Nom » (miroir versAffiche) ; null si les deux sont vides.
