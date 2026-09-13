@@ -13,7 +13,9 @@ import { MESURES } from './caracteristiquesForm';
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-const REPOS = 'modifier nombre de bâtiment(s) du permis de construire';
+const REPOS = 'Modifier le nombre de bâtiment(s) du permis de construire';
+const GARDER = 'Garder la valeur';
+const VALIDER = 'valider nouvelle valeur';
 const bornesTous = Object.fromEntries(MESURES.map((m) => [m.colonne, { min: -50, max: 500 }]));
 
 function corps(id: number) {
@@ -46,7 +48,7 @@ function saisir(input: HTMLInputElement, value: string) {
 }
 function champNb(c: HTMLElement): HTMLInputElement { return c.querySelector('input[aria-label="Nouveau nombre de bâtiments"]') as HTMLInputElement; }
 function boutonNb(c: HTMLElement): HTMLButtonElement {
-  const b = [...c.querySelectorAll('button')].find((x) => new RegExp(`${REPOS.replace(/[()]/g, '\\$&')}|valider nouvelle valeur`).test(x.textContent ?? ''));
+  const b = [...c.querySelectorAll('button')].find((x) => /Modifier le nombre|Garder la valeur|valider nouvelle valeur/.test(x.textContent ?? ''));
   if (!b) throw new Error('bouton du nombre introuvable');
   return b as HTMLButtonElement;
 }
@@ -74,24 +76,36 @@ async function monter(): Promise<{ c: HTMLElement; posts: () => number }> {
 }
 
 describe('(C) — cycle à trois temps du nombre de bâtiments', () => {
-  it('au chargement : champ INACTIF + bouton au libellé de repos', async () => {
+  it('au chargement : champ INACTIF + bouton « Modifier le nombre… »', async () => {
     const { c } = await monter();
     expect(champNb(c).disabled).toBe(true);
     expect(boutonNb(c).textContent).toContain(REPOS);
   });
 
-  it('un clic ACTIVE le champ ; le bouton reste au repos tant que la valeur est inchangée', async () => {
+  it('un clic ACTIVE le champ, lui donne le FOCUS, et le bouton passe à « Garder la valeur » (valeur inchangée)', async () => {
     const { c } = await monter();
     act(() => { boutonNb(c).click(); }); await flush();
-    expect(champNb(c).disabled).toBe(false);            // édition
-    expect(boutonNb(c).textContent).toContain(REPOS);   // valeur == origine → pas encore « valider »
+    expect(champNb(c).disabled).toBe(false);                 // champ actif
+    expect(document.activeElement).toBe(champNb(c));          // (2) — le champ a reçu le focus (activation visible)
+    expect(boutonNb(c).textContent).toContain(GARDER);       // (3) — édition + valeur == origine → « Garder la valeur »
   });
 
-  it('saisir une valeur DIFFÉRENTE fait passer le bouton à « valider nouvelle valeur »', async () => {
+  it('« Garder la valeur » n’applique rien, re-verrouille le champ et restaure le libellé de repos', async () => {
+    const { c, posts } = await monter();
+    act(() => { boutonNb(c).click(); }); await flush();       // → édition, « Garder la valeur »
+    expect(boutonNb(c).textContent).toContain(GARDER);
+    act(() => { boutonNb(c).click(); }); await flush();       // clic « Garder la valeur »
+    expect(champNb(c).disabled).toBe(true);                  // re-verrouillé
+    expect(boutonNb(c).textContent).toContain(REPOS);         // libellé de repos restauré
+    expect(posts()).toBe(0);                                  // AUCUNE application
+    expect(c.textContent ?? '').not.toContain('Nouvelle valeur enregistrée.');
+  });
+
+  it('saisir une valeur DIFFÉRENTE fait basculer vers « valider nouvelle valeur »', async () => {
     const { c } = await monter();
     act(() => { boutonNb(c).click(); }); await flush();
     saisir(champNb(c), '2'); await flush();
-    expect(boutonNb(c).textContent).toContain('valider nouvelle valeur');
+    expect(boutonNb(c).textContent).toContain(VALIDER);
   });
 
   it('valider applique la valeur, affiche la confirmation, revient au repos et re-verrouille le champ', async () => {
@@ -105,22 +119,12 @@ describe('(C) — cycle à trois temps du nombre de bâtiments', () => {
     expect(champNb(c).value).toBe('2');                                     // le nombre réel a bien changé
   });
 
-  it('revenir à la valeur d’origine pendant l’édition ramène le libellé de repos', async () => {
+  it('revenir à la valeur d’origine pendant l’édition rebascule vers « Garder la valeur »', async () => {
     const { c } = await monter();
     act(() => { boutonNb(c).click(); }); await flush();
     saisir(champNb(c), '5'); await flush();
-    expect(boutonNb(c).textContent).toContain('valider nouvelle valeur');
+    expect(boutonNb(c).textContent).toContain(VALIDER);
     saisir(champNb(c), '1'); await flush();               // retour à l'origine (1)
-    expect(boutonNb(c).textContent).toContain(REPOS);
-  });
-
-  it('cliquer sans avoir rien changé REFERME le champ sans rien appliquer', async () => {
-    const { c, posts } = await monter();
-    act(() => { boutonNb(c).click(); }); await flush();   // ouvre l'édition
-    expect(champNb(c).disabled).toBe(false);
-    act(() => { boutonNb(c).click(); }); await flush();   // re-clic sans changement → referme
-    expect(champNb(c).disabled).toBe(true);
-    expect(posts()).toBe(0);                               // AUCUNE application
-    expect(c.textContent ?? '').not.toContain('Nouvelle valeur enregistrée.');
+    expect(boutonNb(c).textContent).toContain(GARDER);
   });
 });

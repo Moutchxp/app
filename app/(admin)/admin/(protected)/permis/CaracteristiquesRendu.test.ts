@@ -499,11 +499,11 @@ describe('BAT-4 — LigneNombreBatiments (décompte + commande, une seule ligne 
     const sans = renderToStaticMarkup(createElement(LigneNombreBatiments, { nbBatiments: 2 }));
     expect(sans).not.toContain('·');
   });
-  it('ChampNombreBatiments : au REPOS, « Changer le nombre : » + bouton « modifier nombre… » (champ verrouillé)', () => {
+  it('ChampNombreBatiments : au REPOS, « Changer le nombre : » + bouton « Modifier le nombre… » (champ verrouillé)', () => {
     const h = renderToStaticMarkup(createElement(ChampNombreBatiments, { valeur: '2', nbActuel: 2, edition: false, succes: false, onValeur: () => {}, onBouton: () => {} }));
     expect(h).toContain('Changer le nombre :');
-    expect(h).toContain('modifier nombre de bâtiment');   // libellé de repos (plus « Appliquer »)
-    expect(h).toContain('disabled');                       // champ inactif au repos (disabled réel)
+    expect(h).toContain('Modifier le nombre de bâtiment');   // libellé de repos exact (majuscule + « le »)
+    expect(h).toContain('disabled');                          // champ inactif au repos (disabled réel)
   });
 });
 

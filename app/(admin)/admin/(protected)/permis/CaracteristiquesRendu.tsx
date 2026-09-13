@@ -1,4 +1,4 @@
-import { Fragment, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { jourFrParis } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « le … » en heure de Paris
 import type { OrigineValeur } from '../../../../lib/permis/caracteristiquesRepo';
 import { statutEmpriseBatiment } from '../../../../lib/permis/projectionBatiments'; // SOURCE UNIQUE du statut d'emprise (capsule = pastille = bandeau)
@@ -844,29 +844,36 @@ export interface CartePlanVue { id: number; nom: string; vide: boolean; valideeA
  * actives. BAT-4 — le CHAMP et le BOUTON sont SOLIDAIRES (groupe `nowrap`) : sur mobile, le bouton reste dans le prolongement du champ,
  * jamais relégué seul sur sa propre ligne. La couleur n'est jamais le seul appui (texte d'erreur explicite).
  */
-export const LIBELLE_MODIFIER_NB = 'modifier nombre de bâtiment(s) du permis de construire';
-export function ChampNombreBatiments({ valeur, nbActuel, edition, succes, onValeur, onBouton, enCours = false }: {
-  valeur: string; nbActuel: number; edition: boolean; succes: boolean; onValeur: (v: string) => void; onBouton: () => void; enCours?: boolean;
+export const LIBELLE_MODIFIER_NB = 'Modifier le nombre de bâtiment(s) du permis de construire';
+export function ChampNombreBatiments({ valeur, nbActuel, edition, succes, onValeur, onBouton, enCours = false, inputRef }: {
+  valeur: string; nbActuel: number; edition: boolean; succes: boolean; onValeur: (v: string) => void; onBouton: () => void; enCours?: boolean; inputRef?: RefObject<HTMLInputElement | null>;
 }) {
   // CYCLE À TROIS TEMPS (état porté par le parent, ici présentationnel) : au REPOS (edition=false) le champ est INACTIF et le bouton propose de
-  //   « modifier » ; en ÉDITION avec une valeur IDENTIQUE à l'origine (nbActuel), le bouton garde ce libellé (un clic REFERME, rien à valider) ;
-  //   en ÉDITION avec une valeur DIFFÉRENTE, il propose « valider nouvelle valeur ». C'est une COMPARAISON à l'origine (nbActuel), pas un drapeau.
+  //   « Modifier le nombre… » ; en ÉDITION avec une valeur IDENTIQUE à l'origine (nbActuel), le bouton propose « Garder la valeur » (un clic
+  //   REFERME, rien à appliquer) ; en ÉDITION avec une valeur DIFFÉRENTE, il propose « valider nouvelle valeur ». COMPARAISON à l'origine, pas un drapeau.
   const brut = valeur.trim();
   const n = brut === '' ? NaN : Number(brut);
   const valide = Number.isInteger(n) && n >= 0;
   const inchange = valide && n === nbActuel;
   const enModif = edition && !inchange;                 // valeur différente de l'origine (éventuellement invalide → bouton désactivé)
-  const label = enModif ? 'valider nouvelle valeur' : LIBELLE_MODIFIER_NB;
+  const label = !edition ? LIBELLE_MODIFIER_NB : (enModif ? 'valider nouvelle valeur' : 'Garder la valeur');
+  // ACTIVATION VISIBLE — le champ change NETTEMENT d'apparence entre verrouillé et actif, avec des jetons EXISTANTS : verrouillé = fond
+  //   `--color-svv-field` (gris) + bordure neutre + curseur interdit ; actif = fond surface + bordure d'ACCENT `--color-svv-red` (la convention
+  //   d'interaction de l'app : hover/focus de .svv-doc / .svv-menu-entree). Le focus programmatique (parent) rend le passage évident et l'annonce au lecteur.
+  const styleChamp: CSSProperties = { ...styleInput, width: '4rem', padding: '.3rem .4rem', minWidth: 0,
+    ...(edition
+      ? { background: 'var(--color-svv-surface)', borderColor: 'var(--color-svv-red)', cursor: 'text' }
+      : { background: 'var(--color-svv-field)', borderColor: 'var(--color-svv-line)', cursor: 'not-allowed' }) };
   return (
     <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
       <span style={styleAide}>Changer le nombre :</span>
       {/* champ + bouton SOLIDAIRES (nowrap) → le bouton ne se retrouve jamais seul sur sa ligne (mobile-first). Champ INACTIF hors édition
-          (disabled RÉEL, pas seulement grisé → verrouillé pour le clavier et les lecteurs d'écran). */}
+          (disabled RÉEL, pas seulement grisé → verrouillé pour le clavier et les lecteurs d'écran). Le champ est À GAUCHE du bouton. */}
       <span style={{ display: 'inline-flex', gap: '.35rem', alignItems: 'center', flexWrap: 'nowrap' }}>
-        <input type="number" inputMode="numeric" min={0} step={1} value={valeur} disabled={!edition || enCours}
+        <input ref={inputRef} type="number" inputMode="numeric" min={0} step={1} value={valeur} disabled={!edition || enCours}
           onChange={(e) => onValeur(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && enModif && valide && !enCours) { e.preventDefault(); onBouton(); } }}
-          aria-label="Nouveau nombre de bâtiments" style={{ ...styleInput, width: '4rem', padding: '.3rem .4rem', minWidth: 0 }} />
+          aria-label="Nouveau nombre de bâtiments" style={styleChamp} />
         <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .8rem', whiteSpace: 'nowrap' }}
           disabled={enCours || (enModif && !valide)} onClick={onBouton}>{label}</button>
       </span>

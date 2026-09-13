@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 // ⚠️ Bundle client (piège du 13/08) : de `caracteristiquesRepo` / `journalLecture` (modules serveur, pg) on n'importe QUE des `type`, jamais une valeur.
 import type { CorpsBatiment, GlobalPermis, OrigineValeur, ValeursCorps } from '../../../../lib/permis/caracteristiquesRepo';
 import type { JournalPermis, JournalChamp } from '../../../../lib/permis/journalLecture';
@@ -95,6 +95,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
   const [editionNb, setEditionNb] = useState(false);
   const [attenteNb, setAttenteNb] = useState<number | null>(null);
   const [succesNb, setSuccesNb] = useState(false);
+  const nbInputRef = useRef<HTMLInputElement>(null); // (2) — champ « changer le nombre » : focus programmatique à l'activation (rend le passage verrouillé→actif évident)
   const [confirmRetrait, setConfirmRetrait] = useState<{ cartes: CartePlanVue[]; cible: number } | null>(null);
   const [selRetrait, setSelRetrait] = useState<number[]>([]);
 
@@ -172,6 +173,11 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
     if (!onFraicheur || !data) return;
     onFraicheur({ dossierId, aEnregistrer: fraicheurLocale.aEnregistrer, altitudeAValider: fraicheurLocale.altitudeAValider, altitudeModifiee: fraicheurLocale.altitudeModifiee });
   }, [fraicheurLocale, data, dossierId, onFraicheur]);
+
+  // (2) — ACTIVATION VISIBLE du champ « changer le nombre » : quand on passe en ÉDITION, le champ (déjà déverrouillé au rendu) reçoit le FOCUS
+  //   et son contenu est SÉLECTIONNÉ → on peut taper par-dessus, et le lecteur d'écran annonce le champ devenu éditable. Effet de synchronisation
+  //   DOM (pas de setState) → aucune cascade. Le champ est à GAUCHE du bouton, mais le ref le retrouve où qu'il soit.
+  useEffect(() => { if (editionNb) { nbInputRef.current?.focus(); nbInputRef.current?.select(); } }, [editionNb]);
 
   const poster = useCallback(async (corps: Record<string, unknown>): Promise<{ ok: boolean; erreur?: string }> => {
     setMessage('');
@@ -449,7 +455,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       {/* BAT-4 — EN TÊTE de la section : « Bâtiments identifiés : N (d'après les pièces) · Changer le nombre : [champ] [Appliquer] », au-dessus
           des cartes qu'il pilote (déplacé depuis « Caractéristiques et bâtiments d'origine »). Une seule ligne, séparateur « · » clair. */}
       <LigneNombreBatiments nbBatiments={data.corps.length}
-        controle={<ChampNombreBatiments valeur={edNbBat} nbActuel={data.corps.length} edition={editionNb} succes={succesNb}
+        controle={<ChampNombreBatiments valeur={edNbBat} nbActuel={data.corps.length} edition={editionNb} succes={succesNb} inputRef={nbInputRef}
           onValeur={(v) => { setEdNbBat(v); setSuccesNb(false); setAttenteNb(null); }} onBouton={onBoutonNb} enCours={enCours} />} />
       {/* N10-C — D : ce que contient la section et d'où ça vient. */}
       <p style={styleAide}>Ce que la machine a <strong>mesuré</strong> sur les plans (coupes, façades) — distinct de ce que le Cerfa déclare.</p>
