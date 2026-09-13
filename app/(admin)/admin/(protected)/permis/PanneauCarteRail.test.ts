@@ -87,6 +87,66 @@ describe('POINT 2 — bascule « Tout désélectionner / Tout resélectionner »
   });
 });
 
+const emailX = (n: number) => Object.fromEntries(Array.from({ length: n }, (_, i) => [`K${i}`, 'email'])) as Record<string, string>;
+const dialog = (c: HTMLElement) => c.querySelector('[role="alertdialog"]');
+const btnTexte = (c: HTMLElement, t: string) => [...c.querySelectorAll('button')].find((b) => (b.textContent ?? '').includes(t));
+
+describe('GARDE-FOU — confirmation sur les retraits en masse (seuil 20)', () => {
+  it('21 retraits → confirmation demandée, nombre annoncé EXACT, RIEN appliqué avant', async () => {
+    const { c, patchFn } = await monter(emailX(21)); // 21 communes sur email
+    act(() => cycleBtn(c).click()); await flush();        // édition
+    act(() => toggleBtn(c)!.click()); await flush();       // tout désélectionner → 21 retraits en attente
+    act(() => cycleBtn(c).click()); await flush();        // Valider
+    expect(dialog(c)).toBeTruthy();                        // confirmation demandée
+    expect((dialog(c)?.textContent ?? '')).toContain('21 commune(s) vont être retirées');
+    expect(patchFn).not.toHaveBeenCalled();               // RIEN appliqué tant qu'on n'a pas confirmé
+  });
+
+  it('20 retraits → AUCUNE confirmation, application directe', async () => {
+    const { c, patchFn } = await monter(emailX(20)); // 20 = pas STRICTEMENT plus de 20
+    act(() => cycleBtn(c).click()); await flush();
+    act(() => toggleBtn(c)!.click()); await flush();  // 20 retraits
+    act(() => cycleBtn(c).click()); await flush();   // Valider
+    expect(dialog(c)).toBeNull();                     // pas de confirmation
+    expect(patchFn).toHaveBeenCalledTimes(20);        // appliqué directement (20 désaffectations)
+  });
+
+  it('ANNULER la confirmation → aucune écriture, sélection préservée, carte toujours en édition', async () => {
+    const { c, patchFn } = await monter(emailX(21));
+    act(() => cycleBtn(c).click()); await flush();
+    act(() => toggleBtn(c)!.click()); await flush();  // vidé
+    act(() => cycleBtn(c).click()); await flush();   // Valider → confirmation
+    act(() => btnTexte(c, 'Annuler')!.click()); await flush();
+    expect(patchFn).not.toHaveBeenCalled();           // rien écrit
+    expect(dialog(c)).toBeNull();                     // confirmation fermée
+    expect(cycleBtn(c).textContent).toContain('Valider ma sélection'); // toujours en édition, écart préservé (sélection restée vidée)
+    expect(toggleBtn(c)!.textContent).toContain('Tout resélectionner'); // sélection toujours vide
+  });
+
+  it('CONFIRMER → application normale (comme sans garde-fou)', async () => {
+    const { c, patchFn } = await monter(emailX(21));
+    act(() => cycleBtn(c).click()); await flush();
+    act(() => toggleBtn(c)!.click()); await flush();  // vidé
+    act(() => cycleBtn(c).click()); await flush();   // Valider → confirmation
+    act(() => btnTexte(c, 'Confirmer le retrait')!.click()); await flush();
+    expect(patchFn).toHaveBeenCalledTimes(21);        // 21 désaffectations appliquées
+    expect(dialog(c)).toBeNull();
+    expect(cycleBtn(c).textContent).toContain('Modifier la sélection'); // retour au repos
+  });
+
+  it('des AJOUTS nombreux sans retrait → aucune confirmation (les ajouts ne comptent pas)', async () => {
+    const canaux: Record<string, string | null> = { A: 'email' };
+    for (let i = 0; i < 21; i++) canaux[`N${i}`] = null; // 21 communes non affectées, ajoutables
+    const { c, patchFn } = await monter(canaux);
+    act(() => cycleBtn(c).click()); await flush();   // édition (sélection = {A})
+    for (let i = 0; i < 21; i++) { act(() => { communeNode(c, `N${i}`).dispatchEvent(new MouseEvent('click', { bubbles: true })); }); }
+    await flush();
+    act(() => cycleBtn(c).click()); await flush();   // Valider : 21 ajouts, 0 retrait
+    expect(dialog(c)).toBeNull();                     // AUCUNE confirmation (removes = 0)
+    expect(patchFn).toHaveBeenCalled();               // appliqué directement (les ajouts)
+  });
+});
+
 describe('PanneauCarteRail — cycle + exclusivité', () => {
   it('cycle : repos → « Garder la sélection » (rien changé) → referme sans rien appliquer', async () => {
     const { c, patchFn } = await monter({ A: 'email', B: 'formulaire', C: 'inconnu', D: null });

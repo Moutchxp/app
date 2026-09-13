@@ -7,7 +7,7 @@ import { PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 import { CarteRail } from './CarteRail';
 import { BlocRepliable } from './BlocRepliable';
 import {
-  origineRail, diffAffectation, aDesChangements, libelleBoutonCarte, appliquerAffectations,
+  origineRail, diffAffectation, aDesChangements, libelleBoutonCarte, appliquerAffectations, confirmationRetraitRequise,
   type DepsAffectation, type Refus,
 } from '../../../../lib/sitadel/carteRailValidation';
 
@@ -46,6 +46,9 @@ export function PanneauCarteRail({ rail, departement = null, onApplique, deps }:
   const [enCours, setEnCours] = useState(false);
   const [message, setMessage] = useState('');
   const [refus, setRefus] = useState<Refus[]>([]);
+  // GARDE-FOU retrait en masse : diff EN ATTENTE de confirmation (null = aucune). Stocke le diff calculé AU MOMENT du clic « Valider » → on
+  //   applique EXACTEMENT ce qui a été annoncé. Toute modif de sélection l'annule (voir onToggle / la bascule).
+  const [confirmation, setConfirmation] = useState<{ adds: string[]; removes: string[] } | null>(null);
   const depsEff = useMemo(() => deps ?? depsReelles(), [deps]);
 
   const charger = useCallback(async () => { // RE-CHARGE après validation (appelé depuis onBouton, jamais synchrone dans un effet)
@@ -88,15 +91,14 @@ export function PanneauCarteRail({ rail, departement = null, onApplique, deps }:
 
   const onToggle = useCallback((code: string) => {
     if (!edition) return; // repos : carte non modifiable
+    setConfirmation(null); // toute modif de sélection annule une confirmation de retrait en attente (le diff annoncé n'est plus valable)
     setSelection((prev) => { const n = new Set(prev); if (n.has(code)) n.delete(code); else n.add(code); return n; });
   }, [edition]);
 
-  const onBouton = useCallback(async () => {
-    if (enCours) return;
-    if (!edition) { setEdition(true); setMessage(''); setRefus([]); return; }       // repos → édition
-    if (!changements) { setEdition(false); return; }                                // « Garder la sélection » : referme, rien à appliquer
+  // APPLICATION effective (RÉUTILISE le geste existant, INCHANGÉE) — appelée directement (peu de retraits) OU après confirmation (retrait en masse).
+  const appliquer = useCallback(async (adds: readonly string[], removes: readonly string[]) => {
+    setConfirmation(null);
     setEnCours(true);
-    const { adds, removes } = diffAffectation(selection, origine);
     const res = await appliquerAffectations(depsEff, { adds, removes, rail, motif: MOTIF });
     setRefus(res.refusees);
     setMessage(`${res.appliquees.length} commune(s) affectée(s) au rail ${PROCESS_META[rail].court}${res.refusees.length ? ` — ${res.refusees.length} refusée(s)` : ''}.`);
@@ -104,7 +106,17 @@ export function PanneauCarteRail({ rail, departement = null, onApplique, deps }:
     setEdition(false);
     setEnCours(false);
     onApplique?.();
-  }, [enCours, edition, changements, selection, origine, depsEff, rail, charger, onApplique]);
+  }, [depsEff, rail, charger, onApplique]);
+
+  const onBouton = useCallback(async () => {
+    if (enCours) return;
+    if (!edition) { setEdition(true); setMessage(''); setRefus([]); setConfirmation(null); return; } // repos → édition
+    if (!changements) { setEdition(false); setConfirmation(null); return; }                          // « Garder la sélection » : referme, rien à appliquer
+    const { adds, removes } = diffAffectation(selection, origine);
+    // GARDE-FOU : au-delà du seuil de retraits, on DEMANDE confirmation AVANT d'appliquer quoi que ce soit (aucune écriture ici).
+    if (confirmationRetraitRequise(removes.length)) { setConfirmation({ adds, removes }); return; }
+    await appliquer(adds, removes);
+  }, [enCours, edition, changements, selection, origine, appliquer]);
 
   if (erreur) return <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>Carte indisponible.</div>;
 
@@ -121,12 +133,33 @@ export function PanneauCarteRail({ rail, departement = null, onApplique, deps }:
             dans la sélection → jamais touchés. Le libellé dit ce que fera le PROCHAIN clic. Le cycle « Valider/Garder » suit tout seul (comparaison à l'origine). */}
         {edition && (
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .8rem' }} disabled={enCours}
-            onClick={() => setSelection(selection.size === 0 ? new Set(origine) : new Set())}>
+            onClick={() => { setConfirmation(null); setSelection(selection.size === 0 ? new Set(origine) : new Set()); }}>
             {selection.size === 0 ? 'Tout resélectionner' : 'Tout désélectionner'}
           </button>
         )}
         {edition && <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Cliquez les communes à mettre sur ce rail (un 2e clic les retire).</span>}
       </div>
+
+      {/* GARDE-FOU — CONFIRMATION de retrait EN MASSE (> seuil). N'apparaît qu'au clic « Valider » quand trop de communes quittent le rail.
+          Confirmer → applique le diff ANNONCÉ ; Annuler → RIEN appliqué, sélection préservée, carte toujours en édition (on peut réajuster). */}
+      {confirmation && (
+        <div className="svv-card" role="alertdialog" aria-label="Confirmer le retrait en masse" style={{ borderColor: 'var(--color-svv-red)', display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+          <strong>{confirmation.removes.length} commune(s) vont être retirées du rail {PROCESS_META[rail].court}.</strong>
+          <span style={{ fontSize: 13, color: 'var(--color-svv-muted)' }}>
+            Elles quittent ce rail et repassent « hors process » : le process d’obtention de permis ne s’appliquera plus à elles (ni demande
+            ni relance automatique) jusqu’à une nouvelle affectation.
+          </span>
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem', background: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }}
+              disabled={enCours} onClick={() => void appliquer(confirmation.adds, confirmation.removes)}>
+              Confirmer le retrait de {confirmation.removes.length} commune(s)
+            </button>
+            <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} disabled={enCours} onClick={() => setConfirmation(null)}>
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
 
       {message && <p role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)', fontWeight: 600, margin: 0 }}>{message}</p>}
       {refus.length > 0 && (

@@ -28,6 +28,14 @@ export function aDesChangements(selection: ReadonlySet<string>, origine: Readonl
   return d.adds.length > 0 || d.removes.length > 0;
 }
 
+/** GARDE-FOU (décision Arno) — au-delà de ce nombre de RETRAITS (communes quittant le rail au Valider), une confirmation est demandée avant
+ *  d'appliquer. Seuil AJUSTABLE à l'usage. Les AJOUTS ne comptent pas ; les hors-process non plus (jamais dans la sélection). */
+export const SEUIL_RETRAITS_CONFIRMATION = 20;
+/** Faut-il confirmer avant d'appliquer ? Vrai si le nombre de retraits dépasse STRICTEMENT le seuil (`> 20`, donc 20 n'y suffit pas). PUR. */
+export function confirmationRetraitRequise(nbRetraits: number): boolean {
+  return nbRetraits > SEUIL_RETRAITS_CONFIRMATION;
+}
+
 /** Libellé du bouton à 3 temps : repos → « Modifier la sélection » ; édition sans changement → « Garder la sélection » ; changement → « Valider ma sélection ». PUR. */
 export function libelleBoutonCarte(edition: boolean, changements: boolean): string {
   if (!edition) return 'Modifier la sélection';
