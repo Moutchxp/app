@@ -37,17 +37,22 @@ export type BaseCarte = { repere: string | null; adresse: string | null } & Reco
 
 /**
  * « ENREGISTRÉ » (confirmé humainement) — décision Arno : un bâtiment n'est enregistré QUE si ses valeurs ont été CONFIRMÉES par un humain
- * (origine 'saisie'), pas laissées telles quelles depuis l'analyse IA (origine 'extraite'). Un bâtiment analysé mais JAMAIS enregistré porte
- * donc des valeurs 'extraite' → NON enregistré. `true` ssi AUCUNE origine fournie n'est 'extraite' (les champs vides ont une origine null,
- * jamais 'extraite' — cf. ecrireCorps « v null ⇒ origine null »). PUR.
+ * (origine 'saisie'), pas laissées telles quelles depuis l'analyse IA (origine 'extraite'). Signal POSITIF, jamais par vacuité :
+ *   `true` ssi AU MOINS UNE origine est 'saisie' ET AUCUNE n'est 'extraite'.
+ * ⚠️ CORRECTION (Arno) — LE VIDE N'EST PAS UNE CONFIRMATION : une carte NEUVE (« + ajouter un bâtiment ») n'a AUCUNE valeur → toutes ses
+ *   origines sont null → l'ancienne règle « aucune 'extraite' » était vraie PAR VACUITÉ et affichait « Bâtiment enregistré » (vert) à tort.
+ *   En exigeant une origine 'saisie' présente, une carte qui n'a JAMAIS fait l'objet d'un enregistrement est NON enregistrée, quel que soit
+ *   l'état de ses champs. Cas préservés : valeurs 'extraite' non confirmées → false (some 'extraite') ; enregistrée (≥ 1 'saisie', pas d'
+ *   'extraite') → true ; la fraîcheur « modifié depuis » reste portée par les comparaisons de `batimentEnregistreAJour`. PUR.
  */
 export function estConfirmeHumainement(origines: readonly (string | null | undefined)[]): boolean {
-  return !origines.some((o) => o === 'extraite');
+  return origines.some((o) => o === 'saisie') && !origines.some((o) => o === 'extraite');
 }
 
 /**
- * B1 — la carte est-elle ENREGISTRÉE ET À JOUR ? `true` ssi (a) elle est CONFIRMÉE humainement (aucune valeur restée 'extraite' — couvre
- * le cas « jamais enregistré ») ET (b) AUCUN champ écrit par « Enregistrer ce bâtiment » ne diffère de la base (repère, adresse, 7 mesures
+ * B1 — la carte est-elle ENREGISTRÉE ET À JOUR ? `true` ssi (a) elle est CONFIRMÉE humainement (≥ 1 valeur 'saisie' ET aucune 'extraite' —
+ * une carte VIDE / jamais enregistrée est donc NON enregistrée : le vide n'est pas une confirmation) ET (b) AUCUN champ écrit par
+ * « Enregistrer ce bâtiment » ne diffère de la base (repère, adresse, 7 mesures
  * hors sommet — couvre le cas « enregistré puis modifié », y compris VIDER un champ). Revenir à la valeur exacte de la base + tout confirmé
  * → `true`. C'est la règle du BOUTON « Enregistrer ce bâtiment » ET la source de l'exigence ② du statut de la ligne mère.
  */
