@@ -55,6 +55,8 @@ export function etatAltitudesTitre(nbCartes: number, nbSansAltitude: number): Et
 /**
  * BAT-2 / BAT-4 — MOTIF « COHÉRENCE DU NOMBRE » : le NOMBRE de cartes de bâtiment (permis_corps_batiment) correspond-il au nombre de
  * bâtiments VALIDÉ (BAT-1, permis_caracteristique.nb_batiments_valide) ?
+ * 🔄 Option A (décision Arno) — CE MOTIF N'EST PLUS COMPOSÉ par `etatSection4Titre` : le nombre de bâtiments EST désormais le nombre de
+ *   cartes ACTIVES, il n'y a plus de « nombre validé » distinct à confronter. Fonction conservée (pure, testée) mais SANS appelant en prod.
  * 🔄 BAT-4 — ce motif ne titre PLUS la section 1 (« Caractéristiques et bâtiments d'origine » redevient de l'information Sitadel pure, non
  *   bloquante) : il est désormais l'un des deux motifs composés par `etatSection4Titre` sur la sous-section « Les futurs bâtiments… ». Motif :
  *   un état affiché loin de la commande qui le provoque (le champ « changer le nombre » vit maintenant en section 4) est incompréhensible.
@@ -73,20 +75,20 @@ export function etatCoherenceBatimentsTitre(nbCartes: number, nbValide: number |
 
 /**
  * BAT-4 — ÉTAT de la sous-section « Les futurs bâtiments et leurs altitudes », SEULE PORTEUSE de la mère « Caractéristiques du permis ».
- * Elle couvre DÉSORMAIS DEUX motifs (décision Arno) : (1) l'ALTITUDE de sommet manquante sur ≥ 1 carte, (2) l'INCOHÉRENCE entre le nombre de
- * cartes ACTIVES et le nombre validé (BAT-1). Composition PURE des deux déciders ci-dessus (SOURCE UNIQUE, aucune 3e règle) :
- *   · 0 carte → ROUGE « aucune carte de bâtiment » (dominant ; le nombre attendu reste lisible sur le champ « changer le nombre ») ;
- *   · sinon, on RÉUNIT les motifs qui BLOQUENT (cohérence puis altitude), joints par « · » — un TITRE abrégé, pas une phrase :
- *       ex. 2 cartes / 1 validé / 1 altitude manquante → « 2 cartes / 1 validé · altitude manquante (1/2) » ;
- *   · aucun motif ne bloque → VERT « altitudes renseignées (N bâtiment(s)) » (dit implicitement : cartes présentes, nombre cohérent, altitudes posées).
+ * 🔄 Option A (décision Arno) — elle ne couvre PLUS qu'UN motif : l'ALTITUDE de sommet (≥ 1 carte sans altitude → rouge). L'ancien 2e motif,
+ *   « cohérence du nombre » (cartes actives ↔ nombre validé), est RETIRÉ : le nombre de bâtiments EST le nombre de cartes actives, il n'y a
+ *   donc plus de nombre stocké à confronter — « validés > cartes » ne peut plus être affiché (impossible par construction). Cas :
+ *   · 0 carte → ROUGE « aucune carte de bâtiment » ;
+ *   · ≥ 1 carte SANS altitude → ROUGE « altitude(s) manquante(s) (X/N) » ;
+ *   · ≥ 1 carte, TOUTES renseignées → VERT « altitudes renseignées (N bâtiment(s)) ».
  */
-export function etatSection4Titre(nbCartes: number, nbSansAltitude: number, nbValide: number | null): EtatTitreFamille {
-  const altitude = etatAltitudesTitre(nbCartes, nbSansAltitude);
-  if (nbCartes <= 0) return altitude; // « aucune carte de bâtiment » domine (la cohérence n'a pas de carte à compter)
-  const coherence = etatCoherenceBatimentsTitre(nbCartes, nbValide);
-  const bloquants = [coherence, altitude].filter((e) => e.ton !== 'vert'); // ordre : cohérence d'abord, puis altitude
-  if (bloquants.length === 0) return altitude; // tout va → le motif altitude VERT porte le titre (« altitudes renseignées (N) »)
-  return { texte: bloquants.map((e) => e.texte).join(' · '), ton: 'rouge' };
+export function etatSection4Titre(nbCartes: number, nbSansAltitude: number): EtatTitreFamille {
+  // Option A (décision Arno) — le NOMBRE de bâtiments EST le nombre de cartes ACTIVES : il n'existe plus de « nombre validé » distinct à
+  //   confronter, donc plus de motif « cohérence du nombre » (celui-ci ne pouvait afficher « N cartes / M validés » qu'en laissant un nombre
+  //   STOCKÉ dériver au-dessus des cartes actives). « validés > cartes » devient IMPOSSIBLE PAR CONSTRUCTION : il n'y a plus de second nombre.
+  //   La section 4 ne porte donc plus qu'UN motif — l'ALTITUDE de sommet. `etatCoherenceBatimentsTitre` reste défini (pur, testé) mais N'EST
+  //   PLUS COMPOSÉ ici. La domination « aucune carte de bâtiment » (nbCartes ≤ 0) est déjà portée par `etatAltitudesTitre`.
+  return etatAltitudesTitre(nbCartes, nbSansAltitude);
 }
 
 /**
@@ -115,7 +117,7 @@ export interface ComptesCaracteristiquesPermis { dossierId: number; nbCartes: nu
  * porté par la ligne « Permis {numDau} » d'un encart multi-permis, et alimente l'agrégat de la famille.
  */
 export function etatCaracteristiquesPermis(c: ComptesCaracteristiquesPermis): EtatTitreFamille {
-  return etatMereCaracteristiques([etatSection4Titre(c.nbCartes, c.nbSansAltitude, c.nbBatimentsValide)]); // BAT-4 — une seule porteuse (section 4)
+  return etatMereCaracteristiques([etatSection4Titre(c.nbCartes, c.nbSansAltitude)]); // BAT-4 — une seule porteuse (section 4) ; Option A — plus de cohérence de nombre (c.nbBatimentsValide conservé dans le type, remonté partout, mais PLUS lu par l'état)
 }
 
 /**

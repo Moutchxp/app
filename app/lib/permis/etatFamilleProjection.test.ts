@@ -96,25 +96,24 @@ describe('BAT-2 / BAT-4 — etatCoherenceBatimentsTitre (MOTIF « cohérence du 
   });
 });
 
-describe('BAT-4 — etatSection4Titre (SEULE porteuse : altitude ET cohérence du nombre, titre abrégé)', () => {
-  it('tout va (cartes présentes, nombre cohérent, altitudes posées) → VERT « altitudes renseignées (N) »', () => {
-    expect(etatSection4Titre(2, 0, 2)).toEqual({ texte: 'altitudes renseignées (2 bâtiments)', ton: 'vert' });
-    expect(etatSection4Titre(1, 0, 1)).toEqual({ texte: 'altitudes renseignées (1 bâtiment)', ton: 'vert' });
+describe('Option A — etatSection4Titre (SEULE porteuse ; UN seul motif : l’ALTITUDE ; plus de cohérence de nombre)', () => {
+  it('cartes présentes, altitudes posées → VERT « altitudes renseignées (N) »', () => {
+    expect(etatSection4Titre(2, 0)).toEqual({ texte: 'altitudes renseignées (2 bâtiments)', ton: 'vert' });
+    expect(etatSection4Titre(1, 0)).toEqual({ texte: 'altitudes renseignées (1 bâtiment)', ton: 'vert' });
   });
-  it('0 carte → ROUGE « aucune carte de bâtiment » (dominant, même si nombre validé non nul ou NULL)', () => {
-    expect(etatSection4Titre(0, 0, null)).toEqual({ texte: 'aucune carte de bâtiment', ton: 'rouge' });
-    expect(etatSection4Titre(0, 0, 3)).toEqual({ texte: 'aucune carte de bâtiment', ton: 'rouge' });
+  it('0 carte → ROUGE « aucune carte de bâtiment »', () => {
+    expect(etatSection4Titre(0, 0)).toEqual({ texte: 'aucune carte de bâtiment', ton: 'rouge' });
   });
-  it('ALTITUDE manquante seule (nombre cohérent) → ROUGE, motif altitude seul', () => {
-    expect(etatSection4Titre(2, 1, 2)).toEqual({ texte: 'altitude manquante (1/2)', ton: 'rouge' });
+  it('≥ 1 carte SANS altitude → ROUGE, motif altitude', () => {
+    expect(etatSection4Titre(2, 1)).toEqual({ texte: 'altitude manquante (1/2)', ton: 'rouge' });
+    expect(etatSection4Titre(3, 2)).toEqual({ texte: 'altitudes manquantes (2/3)', ton: 'rouge' });
   });
-  it('INCOHÉRENCE seule (altitudes toutes posées) → ROUGE, motif cohérence seul', () => {
-    expect(etatSection4Titre(2, 0, 3)).toEqual({ texte: '2 cartes / 3 validés', ton: 'rouge' });
-    expect(etatSection4Titre(1, 0, null)).toEqual({ texte: 'nombre de bâtiments non validé', ton: 'rouge' }); // neutre → bloque en rouge une fois composé
-  });
-  it('LES DEUX motifs → ROUGE, titre abrégé « cohérence · altitude » (ex. porteur 2 cartes / 1 validé / 1 altitude manquante)', () => {
-    expect(etatSection4Titre(2, 1, 1)).toEqual({ texte: '2 cartes / 1 validé · altitude manquante (1/2)', ton: 'rouge' });
-    expect(etatSection4Titre(3, 2, 1)).toEqual({ texte: '3 cartes / 1 validé · altitudes manquantes (2/3)', ton: 'rouge' });
+  it('Option A — le nombre n’est PLUS un motif : altitudes OK ⇒ VERT, quel que soit l’ancien « nombre validé » (« validés > cartes » impossible)', () => {
+    // 2 cartes actives, altitudes toutes posées : avant, un nombre validé stocké à 3 affichait « 2 cartes / 3 validés » (rouge).
+    //   Désormais etatSection4Titre ne prend même plus ce nombre → VERT. C'est le CAS D'ARNO au niveau de la fonction pure.
+    expect(etatSection4Titre(2, 0)).toEqual({ texte: 'altitudes renseignées (2 bâtiments)', ton: 'vert' });
+    // Un permis jamais « validé » (ancien nbValide null → rouge « nombre non validé ») est désormais VERT si ses altitudes sont posées.
+    expect(etatSection4Titre(1, 0)).toEqual({ texte: 'altitudes renseignées (1 bâtiment)', ton: 'vert' });
   });
 });
 
@@ -148,12 +147,14 @@ describe('BAT-2 — etatMereCaracteristiques (agrégat des porteuses, 2 états)'
 describe('BAT-2c — état d’un permis + agrégat de la famille sur une demande (multi-permis)', () => {
   const c = (dossierId: number, nbCartes: number, nbSansAltitude: number, nbBatimentsValide: number | null) => ({ dossierId, nbCartes, nbSansAltitude, nbBatimentsValide });
 
-  it('BAT-4 — etatCaracteristiquesPermis = mère du permis = la SEULE porteuse (section 4 : altitude + cohérence)', () => {
+  it('Option A — etatCaracteristiquesPermis = mère du permis = la SEULE porteuse (section 4 : ALTITUDE seule ; nbBatimentsValide ignoré)', () => {
     expect(etatCaracteristiquesPermis(c(1, 2, 0, 2))).toEqual({ texte: 'complète', ton: 'vert' });
     expect(etatCaracteristiquesPermis(c(1, 2, 1, 2))).toEqual({ texte: 'altitude manquante (1/2)', ton: 'rouge' });
-    expect(etatCaracteristiquesPermis(c(1, 2, 0, 3))).toEqual({ texte: '2 cartes / 3 validés', ton: 'rouge' });
-    expect(etatCaracteristiquesPermis(c(1, 1, 0, null))).toEqual({ texte: 'nombre de bâtiments non validé', ton: 'rouge' }); // motif cohérence neutre → mère rouge
-    expect(etatCaracteristiquesPermis(c(1, 0, 0, null))).toEqual({ texte: 'aucune carte de bâtiment', ton: 'rouge' }); // 0 carte domine (BAT-4)
+    // CAS D'ARNO : 2 cartes, ancien nombre validé stocké = 3. Avant → « 2 cartes / 3 validés » (rouge). Option A → VERT (le nombre n'est plus confronté).
+    expect(etatCaracteristiquesPermis(c(1, 2, 0, 3))).toEqual({ texte: 'complète', ton: 'vert' });
+    // Jamais « validé » (nbBatimentsValide null) mais altitudes posées → VERT (plus de motif « nombre non validé »).
+    expect(etatCaracteristiquesPermis(c(1, 1, 0, null))).toEqual({ texte: 'complète', ton: 'vert' });
+    expect(etatCaracteristiquesPermis(c(1, 0, 0, null))).toEqual({ texte: 'aucune carte de bâtiment', ton: 'rouge' }); // 0 carte domine
   });
 
   it('demande 0 permis → null (l’appelant garde le libellé nu)', () => {

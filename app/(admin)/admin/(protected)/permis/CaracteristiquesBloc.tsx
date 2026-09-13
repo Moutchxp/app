@@ -106,8 +106,9 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
     setEdDestinations(d.global?.destinations ?? []); // N13
     setEdCorps(Object.fromEntries(d.corps.map((c) => [c.id, editionDepuisCorps(c)])));
     setErreursCorps({}); setErreursPermis({});
-    // BAT-3 — le champ reflète le nombre VALIDÉ (BAT-1) si posé, sinon le nombre de cartes actives ; toute confirmation en cours est effacée.
-    setEdNbBat(String(d.nbBatimentsValide ?? d.corps.length));
+    // Option A (décision Arno) — le champ reflète le nombre de CARTES ACTIVES (le nombre de bâtiments EST le nombre de cartes ; plus de
+    //   « nombre validé » distinct affiché). Cohérent avec le dénominateur du statut. Toute confirmation en cours est effacée.
+    setEdNbBat(String(d.corps.length));
     setConfirmRetrait(null); setSelRetrait([]);
     setEtat('ok');
   }, []);
@@ -317,7 +318,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
     setEnCours(false);
   }, [confirmRetrait, selRetrait, dossierId, poster, rafraichir]);
 
-  const annulerRetrait = useCallback(() => { setConfirmRetrait(null); setSelRetrait([]); setEdNbBat(String(data?.nbBatimentsValide ?? data?.corps.length ?? 0)); }, [data]);
+  const annulerRetrait = useCallback(() => { setConfirmRetrait(null); setSelRetrait([]); setEdNbBat(String(data?.corps.length ?? 0)); }, [data]); // Option A — retour au nombre de CARTES ACTIVES
   const basculerSelRetrait = useCallback((id: number) => setSelRetrait((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id])), []);
 
   // BAT-3 — RÉACTIVER une carte retirée (réversibilité). Le serveur remet actif=true ; les valeurs (altitude validée, emprise, repère) étaient intactes.
@@ -345,7 +346,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
   //   « changer le nombre » a rejoint la section 4). Calcul sur les données FRAÎCHES du bloc (même fonction pure que la mère de ProjectionVue).
   const nbCartes = data.corps.length;
   const nbCartesSansAltitude = data.corps.filter((c) => c.altitudeSommetNgf === null).length;
-  const etatSection4Base = etatSection4Titre(nbCartes, nbCartesSansAltitude, data.nbBatimentsValide ?? null);
+  const etatSection4Base = etatSection4Titre(nbCartes, nbCartesSansAltitude); // Option A — la cohérence du NOMBRE ne titre plus (nombre = cartes actives) ; seul l'altitude subsiste
   // (C) — dans « Analyse et projection » (durcirStatutFraicheur), le titre « Les futurs bâtiments et leurs altitudes » EXIGE en plus, par
   //   carte : ① altitude validée à jour, ② bâtiment enregistré à jour. Sa base ne teste QUE l'altitude renseignée → on lui passe le ①
   //   COMPLET (jamais validée OU modifiée). Ailleurs (Rattachement, Archives, Réponses, Suivi), le titre garde sa sémantique d'origine.

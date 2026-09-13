@@ -97,7 +97,7 @@ describe('RATT-1 — état sur la ligne de titre des familles (Analyse et projec
 
 /**
  * BAT-2 / BAT-4 — la LIGNE MÈRE « Caractéristiques du permis (saisie) » reflète l'état de son UNIQUE sous-section porteuse « Les futurs
- * bâtiments et leurs altitudes » (`etatSection4Titre` : altitude ET cohérence du nombre). Tests en node pur (renderToStaticMarkup) : on
+ * bâtiments et leurs altitudes » (`etatSection4Titre` : Option A — ALTITUDE seule ; plus de cohérence de nombre). Tests en node pur (renderToStaticMarkup) : on
  * asserte le COMPORTEMENT (le sens porté par le texte + le ton via le token de couleur EXISTANT), jamais la forme du HTML. Le vert est
  * asserté par ABSENCE des textes bloquants + token vert (le libellé vert exact n'est pas figé).
  */
@@ -105,42 +105,44 @@ describe('BAT-4 — mère « Caractéristiques du permis (saisie) » = unique po
   const rendreMere = (etats: Parameters<typeof etatMereCaracteristiques>[0]) =>
     renderToStaticMarkup(h(TitreFamilleEtat, { base: 'Caractéristiques du permis (saisie)', etat: etatMereCaracteristiques(etats) }));
 
-  it('porteuse VERTE (cartes présentes, nombre cohérent, altitudes posées) → mère VERTE (token vert, aucun texte de blocage)', () => {
-    const html = rendreMere([etatSection4Titre(2, 0, 2)]);
+  it('porteuse VERTE (cartes présentes, altitudes posées) → mère VERTE (token vert, aucun texte de blocage)', () => {
+    const html = rendreMere([etatSection4Titre(2, 0)]);
     expect(html).toContain('Caractéristiques du permis (saisie)');
     expect(html).toContain('var(--color-svv-green-ink)');
     expect(html).not.toContain('manquante');
-    expect(html).not.toContain('non validé');
+    expect(html).not.toContain('validés'); // Option A — plus jamais « N cartes / M validés »
   });
 
-  it('altitude manquante SEULE → mère ROUGE et NOMME le blocage (texte de la porteuse)', () => {
-    const html = rendreMere([etatSection4Titre(3, 1, 3)]);
+  it('altitude manquante → mère ROUGE et NOMME le blocage (texte de la porteuse)', () => {
+    const html = rendreMere([etatSection4Titre(3, 1)]);
     expect(html).toContain('var(--color-svv-red)');
     expect(html).toContain('altitude manquante (1/3)'); // reprend le texte de la porteuse, jamais une 2e formulation
   });
 
-  it('nombre non validé SEUL → mère ROUGE et la nomme (« pas encore fait » bloque)', () => {
-    const html = rendreMere([etatSection4Titre(3, 0, null)]);
-    expect(html).toContain('var(--color-svv-red)');
-    expect(html).toContain('nombre de bâtiments non validé');
+  it('Option A — jamais « validé » mais altitudes posées → mère VERTE (plus de motif « nombre non validé »)', () => {
+    const html = rendreMere([etatSection4Titre(3, 0)]);
+    expect(html).toContain('var(--color-svv-green-ink)');
+    expect(html).not.toContain('non validé');
   });
 
-  it('LES DEUX motifs → mère ROUGE, titre abrégé « cohérence · altitude »', () => {
-    const html = rendreMere([etatSection4Titre(2, 1, 1)]);
+  it('Option A — le NOMBRE ne titre plus : seul l’altitude peut bloquer (aucun « · N cartes / M validés »)', () => {
+    const html = rendreMere([etatSection4Titre(2, 1)]);
     expect(html).toContain('var(--color-svv-red)');
-    expect(html).toContain('2 cartes / 1 validé · altitude manquante (1/2)');
+    expect(html).toContain('altitude manquante (1/2)');
+    expect(html).not.toContain('validé'); // aucune trace de cohérence de nombre
   });
 
   it('section 4 : 0 carte → ROUGE « aucune carte de bâtiment » (sur son propre titre)', () => {
-    const html = renderToStaticMarkup(h(TitreFamilleEtat, { base: 'Les futurs bâtiments et leurs altitudes', etat: etatSection4Titre(0, 0, null) }));
+    const html = renderToStaticMarkup(h(TitreFamilleEtat, { base: 'Les futurs bâtiments et leurs altitudes', etat: etatSection4Titre(0, 0) }));
     expect(html).toContain('aucune carte de bâtiment');
     expect(html).toContain('var(--color-svv-red)');
   });
 
-  it('BAT-4 — l’incohérence cartes ≠ nombre validé est portée par la SECTION 4 (plus par la section 1)', () => {
-    const html = renderToStaticMarkup(h(TitreFamilleEtat, { base: 'Les futurs bâtiments et leurs altitudes', etat: etatSection4Titre(3, 0, 2) }));
-    expect(html).toContain('3 cartes / 2 validés');
-    expect(html).toContain('var(--color-svv-red)');
+  it('Option A — CAS D’ARNO : 2 cartes actives + ancien nombre validé stocké à 3, altitudes posées → mère VERTE (« validés > cartes » impossible)', () => {
+    // etatSection4Titre ne prend même plus le nombre validé : 2 cartes / altitudes OK ⇒ vert, quel que fût le nombre stocké (3).
+    const html = renderToStaticMarkup(h(TitreFamilleEtat, { base: 'Les futurs bâtiments et leurs altitudes', etat: etatSection4Titre(2, 0) }));
+    expect(html).not.toContain('validés');
+    expect(html).toContain('var(--color-svv-green-ink)');
   });
 });
 
