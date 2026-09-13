@@ -8,6 +8,7 @@ import { MESURES, libelleBornes, composerLibelleDestinations, raisonParcelleNonR
 import type { ParcelleLigne, EmpreinteLigne, BatiSnapshotResume } from '../../../../lib/permis/parcellesRepo'; // TYPE seulement (module serveur) — piège du bundle client
 import { CorrectionParcelle } from './CorrectionParcelle'; // LOT 101 — geste de correction manuelle d'une parcelle
 import type { DeclarationsRecapCerfa } from '../../../../lib/permis/recapCerfa'; // LOT 67 — module PUR : import de type sûr côté client
+import { champDiffereBase } from './fraicheurBatiment'; // FRAÎCHEUR — SOURCE UNIQUE de la comparaison saisie ↔ base (bouton d'altitude ET fraîcheur d'enregistrement)
 
 /**
  * N3-C — rendu PUR de l'éditeur des caractéristiques physiques (motifs ContactRendu + CarteReglageEntier). Aucun état, aucun
@@ -431,12 +432,6 @@ function LigneLabel({ libelle, origine, journal }: { libelle: string; origine: O
 /** N10-C — « JJ/MM/AAAA » depuis un ISO (trace de validation). */
 function jjmmaaaa(iso: string): string { return jourFrParis(iso); } // LOT 49 — jour en Europe/Paris (évite le décalage d'un jour près de minuit)
 /** N10-D — la valeur du champ diffère-t-elle de la valeur EN BASE ? (comparaison numérique, champ vide = null). Sert au garde « non validée ». */
-function champDiffereBase(valeurChamp: string, base: number | null | undefined): boolean {
-  const c = valeurChamp.trim() === '' ? null : Number(valeurChamp);
-  if (c !== null && !Number.isFinite(c)) return false; // saisie en cours illisible → pas d'alerte parasite
-  return (c ?? null) !== ((base ?? null) as number | null);
-}
-
 /** N10-I — groupe les cotes candidates du gabarit PLU (journalisées en 'plan', role='ecartee') par VALEUR (tolérance 0,05 m).
  *  Un seul groupe = concordant ; plusieurs = divergent (le gabarit NGF varie selon le plateau de nivellement). Aucune moyenne. */
 function grouperCandidatsGabarit(ecartes: readonly ProvenanceEcartee[]): { valeur: number; sources: ProvenanceEcartee[] }[] {

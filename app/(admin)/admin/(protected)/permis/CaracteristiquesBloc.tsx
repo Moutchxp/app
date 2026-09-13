@@ -14,6 +14,7 @@ import {
 } from './caracteristiquesForm';
 import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtatEmprise, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, ChampNombreBatiments, LigneNombreBatiments, ConfirmationRetraitCartes, CartesRetirees, type LienPiece, type CartePlanVue } from './CaracteristiquesRendu';
 import { CompteRenduCartouche, type PasseIaCartouche } from './CompteRenduCartouche'; // CR-2a/CR-2b1 — cartouche + lecture IA (informative)
+import { batimentEnregistreAJour, type BaseCarte } from './fraicheurBatiment'; // FRAÎCHEUR — le bouton « Enregistrer » reflète son état d'enregistrement
 import { messageErreurCartouche, type PieceCerfa } from './compteRendu'; // CR-2a — message 401 « session expirée » (jamais « indisponible »)
 import { BlocRepliable } from './BlocRepliable'; // PLI-1 — même dépliant que « Complétude »/« Historique » : chaque cartouche de « Caractéristiques du permis » replié à son titre, ouvrable indépendamment
 import { TitreFamilleEtat } from './ProjectionRendu'; // BAT-2 — état sur la ligne de titre d'une sous-section porteuse (réutilisé tel quel)
@@ -413,6 +414,16 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
             onUtiliserGabarit={m.cle === 'hauteurMaxPluNgf' ? (v) => void utiliserGabaritPlu(c.id, v) : undefined}
             onValeur={(v) => majChamp(c.id, m.cle, v)} />
         );
+        // FRAÎCHEUR (B1) — le bouton « Enregistrer ce bâtiment » reflète son état : VERT « Bâtiment enregistré » quand la saisie courante
+        //   correspond EXACTEMENT à l'état en base (repère, adresse, 7 mesures hors sommet), ROUGE « Enregistrer ce bâtiment » dès qu'un de
+        //   ces champs est modifié (y compris vidé). Comparaison SAISIE (ed) ↔ BASE (c) : revenir à la valeur d'origine redonne le vert.
+        const baseCarte: BaseCarte = {
+          repere: c.repere, adresse: c.adresse ?? null,
+          nbEtages: c.nbEtages, nbNiveauxSousSol: c.nbNiveauxSousSol, altitudeDernierPlancherNgf: c.altitudeDernierPlancherNgf,
+          hauteurMaxPluNgf: c.hauteurMaxPluNgf, altitudePlateauNivellementNgf: c.altitudePlateauNivellementNgf,
+          hauteurRelativeM: c.hauteurRelativeM, altitudeTerrainNaturelNgf: c.altitudeTerrainNaturelNgf,
+        };
+        const enregistreAJour = batimentEnregistreAJour(ed, baseCarte);
         return (
           <div key={c.id} className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
@@ -439,10 +450,16 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
                 <CapsuleEtatEmprise emprise={data.empriseEtat?.parBatiment[c.id] ?? null}
                   ignore={data.empriseEtat?.ignoreCorps.includes(c.id) ?? false} ancreEmprise={ancreEmprise}
                   onAcces={onAccesEmprise ? () => onAccesEmprise(c.id) : undefined} enCours={enCours} />
+                {/* (A) « Enregistrer ce bâtiment » — MÊME format que les deux boutons verts au-dessus (altitude, emprise), JUSTE EN DESSOUS
+                    dans la même colonne : VERT « Bâtiment enregistré » quand à jour, ROUGE « Enregistrer ce bâtiment » sinon. Écriture INCHANGÉE
+                    (enregistrerCorps). Pas de ligne « enregistré par … le … » : le corps n'a pas de trace fiable de CE geste (maj_le/maj_par
+                    est touché par toute écriture et maj_par n'est pas résolu en nom) — cf. rapport ; on n'invente rien. */}
+                <button type="button" className="svv-btn svv-btn-primary"
+                  style={{ padding: '.25rem .7rem', ...(enregistreAJour ? { background: 'var(--color-svv-green-soft)', color: 'var(--color-svv-green-ink)', boxShadow: 'none' } : {}) }}
+                  disabled={enCours} onClick={() => void enregistrerCorps(c.id)}>{enregistreAJour ? 'Bâtiment enregistré' : 'Enregistrer ce bâtiment'}</button>
               </div>
             </div>
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem' }} disabled={enCours} onClick={() => void enregistrerCorps(c.id)}>Enregistrer ce bâtiment</button>
               <span style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center' }}><span style={styleAide}>saisie ici :</span><PastilleOrigineValeur origine="saisie" /></span>
             </div>
           </div>
