@@ -898,8 +898,8 @@ export function LigneNombreBatiments({ nbBatiments, controle }: { nbBatiments: n
     //   Pas de blanc en dur : la variable suit le thème (blanc en clair, surface sombre en sombre). Bordure/texte via jetons existants (contraste OK).
     <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '.4rem .6rem', fontSize: 12, overflowWrap: 'anywhere', background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.5rem', padding: '.45rem .6rem' }}>
       {n > 0
-        ? <span><span style={{ color: 'var(--color-svv-muted)' }}>Bâtiments identifiés : </span><strong>{n}</strong><span style={{ color: 'var(--color-svv-muted)' }}> (d’après les pièces)</span></span>
-        : <span style={{ color: 'var(--color-svv-muted)' }}>aucun bâtiment identifié dans les pièces</span>}
+        ? <span><span style={{ color: 'var(--color-svv-muted)' }}>Futur(s) bâtiment(s) identifié(s) dans le permis : </span><strong>{n}</strong><span style={{ color: 'var(--color-svv-muted)' }}> (d’après les pièces)</span></span>
+        : <span style={{ color: 'var(--color-svv-muted)' }}>aucun futur bâtiment identifié dans les pièces</span>}
       {controle && <><span aria-hidden="true" style={{ color: 'var(--color-svv-line)' }}>·</span>{controle}</>}
     </div>
   );

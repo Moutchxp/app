@@ -483,13 +483,13 @@ describe('N3-C — FaitsPermisBloc : lecture seule, surface seulement si présen
 describe('BAT-4 — LigneNombreBatiments (décompte + commande, une seule ligne en tête de section 4)', () => {
   it('N12 — décompte AVEC provenance « d’après les pièces » (pas un fait Sitadel)', () => {
     const h = renderToStaticMarkup(createElement(LigneNombreBatiments, { nbBatiments: 2 }));
-    expect(h).toContain('Bâtiments identifiés : ');
+    expect(h).toContain('Futur(s) bâtiment(s) identifié(s) dans le permis : ');
     expect(h).toContain('2');
     expect(h).toContain('d’après les pièces');
   });
   it('N12 — aucun bâtiment identifié → phrase d’ABSENCE, JAMAIS « 0 bâtiment »', () => {
     const h0 = renderToStaticMarkup(createElement(LigneNombreBatiments, { nbBatiments: 0 }));
-    expect(h0).toContain('aucun bâtiment identifié dans les pièces');
+    expect(h0).toContain('aucun futur bâtiment identifié dans les pièces');
     expect(h0).not.toContain('0 bâtiment');
   });
   it('séparateur « · » entre le décompte et la commande (jamais collé) ; sans commande, pas de séparateur', () => {

@@ -20,18 +20,20 @@ describe('decisionAutocreationCartes — pure', () => {
 });
 
 // ── Orchestrateur avec deps SIMULÉES ────────────────────────────────────────────────────────────────────────────────────────────
-function deps(over: Partial<DepsAutocreation> & { etatVal: { nbValide: number | null; nbCorps: number; nbDecompte: number } }): DepsAutocreation & { creer: ReturnType<typeof vi.fn>; poser: ReturnType<typeof vi.fn>; nommer: ReturnType<typeof vi.fn> } {
+function deps(over: Partial<DepsAutocreation> & { etatVal: { nbValide: number | null; nbCorps: number; nbDecompte: number } }): DepsAutocreation & { creer: ReturnType<typeof vi.fn>; poser: ReturnType<typeof vi.fn>; nommer: ReturnType<typeof vi.fn>; poserDetecteFn: ReturnType<typeof vi.fn> } {
   const creer = vi.fn(async () => {});
   const poser = vi.fn(async () => {});
   const nommer = vi.fn(async () => {});
+  const poserDetecte = vi.fn(async () => {});
   return {
     colonneDisponible: over.colonneDisponible ?? (async () => true),
     etat: async () => over.etatVal,
     creerCarteVide: creer,
     nommer,
     poserNombre: poser,
-    creer, poser, nommerFn: nommer, // exposés pour assertion
-  } as unknown as DepsAutocreation & { creer: ReturnType<typeof vi.fn>; poser: ReturnType<typeof vi.fn>; nommer: ReturnType<typeof vi.fn> };
+    poserDetecte,
+    creer, poser, nommerFn: nommer, poserDetecteFn: poserDetecte, // exposés pour assertion
+  } as unknown as DepsAutocreation & { creer: ReturnType<typeof vi.fn>; poser: ReturnType<typeof vi.fn>; nommer: ReturnType<typeof vi.fn>; poserDetecteFn: ReturnType<typeof vi.fn> };
 }
 
 describe('autocreerCartes — orchestrateur', () => {
@@ -83,5 +85,35 @@ describe('autocreerCartes — orchestrateur', () => {
     expect(r).toMatchObject({ aCreer: 2, aPoser: 3, creees: 0, nombrePose: null });
     expect(d.creer).not.toHaveBeenCalled();
     expect(d.poser).not.toHaveBeenCalled();
+    expect(d.poserDetecteFn).not.toHaveBeenCalled(); // dry-run → aucun snapshot du détecté non plus
+  });
+});
+
+describe('autocreerCartes — SNAPSHOT du nombre DÉTECTÉ (constat d’analyse, immunisé du manuel)', () => {
+  it('applique + détecté > 0 → poserDetecte(dossier, détecté)', async () => {
+    const d = deps({ etatVal: { nbValide: null, nbCorps: 0, nbDecompte: 3 } });
+    await autocreerCartes(468, 'analyse:auto', d, { appliquer: true });
+    expect(d.poserDetecteFn).toHaveBeenCalledWith(468, 3, 'analyse:auto'); // le détecté est snapshoté par l'analyse
+  });
+
+  it('nombre DÉJÀ validé (décision humaine, poser=null) → le détecté est QUAND MÊME snapshoté', async () => {
+    const d = deps({ etatVal: { nbValide: 2, nbCorps: 2, nbDecompte: 4 } }); // détecté = max(2,4) = 4
+    const r = await autocreerCartes(468, 'analyse:auto', d, { appliquer: true });
+    expect(r.intouche).toBe(true);                       // la décision humaine (validé) n'est pas recalculée
+    expect(d.poser).not.toHaveBeenCalled();               // nb_batiments_valide intouché
+    expect(d.poserDetecteFn).toHaveBeenCalledWith(468, 4, 'analyse:auto'); // mais le CONSTAT détecté est mis à jour
+  });
+
+  it('détecté snapshoté MÊME si la migration 218 (nombre validé) est absente — colonne 220 indépendante', async () => {
+    const d = deps({ etatVal: { nbValide: null, nbCorps: 0, nbDecompte: 3 }, colonneDisponible: async () => false });
+    await autocreerCartes(468, 'analyse:auto', d, { appliquer: true });
+    expect(d.poser).not.toHaveBeenCalled();               // 218 absente → pas de pose du validé
+    expect(d.poserDetecteFn).toHaveBeenCalledWith(468, 3, 'analyse:auto'); // le détecté (220) est indépendant
+  });
+
+  it('0 détecté → poserDetecte PAS appelé (NULL préservé → « aucun futur bâtiment identifié »)', async () => {
+    const d = deps({ etatVal: { nbValide: null, nbCorps: 0, nbDecompte: 0 } });
+    await autocreerCartes(999, 'analyse:auto', d, { appliquer: true });
+    expect(d.poserDetecteFn).not.toHaveBeenCalled();
   });
 });

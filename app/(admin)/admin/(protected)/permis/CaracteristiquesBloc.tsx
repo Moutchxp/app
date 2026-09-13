@@ -23,7 +23,7 @@ import { etatSection4Titre, type ComptesCaracteristiquesPermis } from '../../../
 
 // N10 — piecesParNom : nom de fichier → id `dossier_document` (unique par dossier → résolution SÛRE). Sert à rendre une provenance cliquable.
 // N13 — destinationsPossibles : liste fermée des sous-destinations, LUE du CHECK 110 (jamais recopiée).
-interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null; majLe: string | null } | null; margeCoherenceSommetM?: number; empriseEtat?: EtatEmprisesPermis; modePassageRattachement?: 'automatique' | 'cloture_manuelle'; nbBatimentsValide?: number | null; corpsRetires?: { id: number; nom: string; valideeAltitude: boolean; desactiveLe: string | null; desactiveParNom: string | null }[] } // BAT-2 — nombre de bâtiments VALIDÉ (BAT-1) ; BAT-3 — cartes RETIRÉES (réactivables)
+interface EtatCharge { faits: FaitsPermis; global: GlobalPermis | null; corps: CorpsBatiment[]; bornes: BornesParColonne; journal: JournalPermis; naturesPossibles: string[]; piecesParNom?: Record<string, number>; destinationsPossibles?: string[]; parcelles?: ParcelleLigne[]; empreinte?: EmpreinteLigne | null; bati?: BatiSnapshotResume | null; declarationsCerfa?: { declarations: DeclarationsRecapCerfa; pieceSource: string | null; majLe: string | null } | null; margeCoherenceSommetM?: number; empriseEtat?: EtatEmprisesPermis; modePassageRattachement?: 'automatique' | 'cloture_manuelle'; nbBatimentsValide?: number | null; nbBatimentsDetecte?: number | null; corpsRetires?: { id: number; nom: string; valideeAltitude: boolean; desactiveLe: string | null; desactiveParNom: string | null }[] } // BAT-2 — nombre de bâtiments VALIDÉ (BAT-1) ; nbBatimentsDetecte = constat d'analyse (220) ; BAT-3 — cartes RETIRÉES
 
 const editionDepuisCorps = (c: CorpsBatiment): EditionCorps => ({
   repere: c.repere ?? '', adresse: c.adresse ?? '',
@@ -454,7 +454,10 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       <div className="flex flex-col gap-3">
       {/* BAT-4 — EN TÊTE de la section : « Bâtiments identifiés : N (d'après les pièces) · Changer le nombre : [champ] [Appliquer] », au-dessus
           des cartes qu'il pilote (déplacé depuis « Caractéristiques et bâtiments d'origine »). Une seule ligne, séparateur « · » clair. */}
-      <LigneNombreBatiments nbBatiments={data.corps.length}
+      {/* « Futur(s) bâtiment(s) identifié(s) … (d'après les pièces) » = CONSTAT DE L'ANALYSE (nbBatimentsDetecte, snapshot 220), et NON un
+          comptage des cartes : immunisé contre + ajouter / supprimer / « changer le nombre ». null (aucune analyse / migration 220 absente)
+          → « aucun bâtiment identifié dans les pièces ». Le champ « changer le nombre » (controle) reste corrélé aux cartes réelles (corps.length). */}
+      <LigneNombreBatiments nbBatiments={data.nbBatimentsDetecte ?? 0}
         controle={<ChampNombreBatiments valeur={edNbBat} nbActuel={data.corps.length} edition={editionNb} succes={succesNb} inputRef={nbInputRef}
           onValeur={(v) => { setEdNbBat(v); setSuccesNb(false); setAttenteNb(null); }} onBouton={onBoutonNb} enCours={enCours} />} />
       {/* N10-C — D : ce que contient la section et d'où ça vient. */}

@@ -16,6 +16,7 @@ export interface DepsAutocreation {
   creerCarteVide(dossierId: number, majPar: string): Promise<void>;
   nommer(dossierId: number): Promise<void>;               // attribuerNomsRepli (repli numéroté ; ne touche jamais un repère)
   poserNombre(dossierId: number, n: number, majPar: string): Promise<void>;
+  poserDetecte?(dossierId: number, n: number, majPar: string): Promise<void>; // SNAPSHOT du nombre DÉTECTÉ (constat d'analyse). Optionnel : résilient (NO-OP si migration 220 absente).
 }
 
 export interface RapportAutocreation {
@@ -37,7 +38,12 @@ export async function autocreerCartes(dossierId: number, majPar: string, deps: D
   const d = decisionAutocreationCartes(etat);
   const base: RapportAutocreation = { dossierId, migrationAbsente: !dispo, intouche: d.poser === null && d.creer === 0, detecte: d.detecte, nbCorpsAvant: etat.nbCorps, aCreer: d.creer, aPoser: d.poser, creees: 0, nombrePose: null };
 
-  // NO-OP d'écriture : dry-run, décision humaine / 0 détecté, OU migration absente (sans colonne, pas d'idempotence possible → on n'écrit rien).
+  // SNAPSHOT du nombre DÉTECTÉ (« Bâtiments identifiés d'après les pièces ») : posé dès qu'une analyse détecte ≥ 1 bâtiment, INDÉPENDAMMENT
+  //   de la décision (d.poser) et de la migration 218 (autre colonne, migration 220). Résilient (poserDetecte avale l'absence de colonne).
+  //   IMMUNISÉ DU MANUEL : autocreerCartes n'est appelé QUE par l'analyse ('analyse:auto' / rattrapage), jamais par un geste d'édition.
+  if (opts.appliquer && d.detecte > 0 && deps.poserDetecte) await deps.poserDetecte(dossierId, d.detecte, majPar);
+
+  // NO-OP d'écriture (auto-création + nombre validé) : dry-run, décision humaine / 0 détecté, OU migration 218 absente (sans colonne, pas d'idempotence possible).
   if (!opts.appliquer || d.poser === null || !dispo) return base;
 
   for (let i = 0; i < d.creer; i++) await deps.creerCarteVide(dossierId, majPar);
@@ -91,6 +97,30 @@ export async function poserNombreBatimentsValide(dossierId: number, n: number, m
     [dossierId, n, majPar]);
 }
 
+/**
+ * POSE le nombre de bâtiments DÉTECTÉ par l'analyse (snapshot « d'après les pièces », migration 220), upsert CIBLÉ des 3 colonnes
+ * nb_batiments_detecte* (jamais les autres). RÉSILIENT : colonne absente (220 non appliquée) → l'INSERT échoue, capturé → NO-OP (aucune
+ * exception propagée : le geste d'analyse ne doit jamais échouer sur l'absence de cette colonne d'affichage). Écrit UNIQUEMENT depuis
+ * l'analyse (autocreerCartes) → immunisé contre les gestes manuels.
+ */
+export async function poserNombreBatimentsDetecte(dossierId: number, n: number, majPar: string): Promise<void> {
+  try {
+    await query(
+      `INSERT INTO permis_caracteristique (dossier_id, nb_batiments_detecte, nb_batiments_detecte_le, nb_batiments_detecte_par, maj_le, maj_par)
+         VALUES ($1, $2, now(), $3, now(), $3)
+         ON CONFLICT (dossier_id) DO UPDATE SET nb_batiments_detecte = EXCLUDED.nb_batiments_detecte, nb_batiments_detecte_le = now(), nb_batiments_detecte_par = EXCLUDED.nb_batiments_detecte_par, maj_le = now()`,
+      [dossierId, n, majPar]);
+  } catch { /* 220 absente → NO-OP (l'UI affiche « aucun bâtiment identifié dans les pièces » ; jamais une exception) */ }
+}
+
+/** Nombre de bâtiments DÉTECTÉ par l'analyse (snapshot 220), ou null (aucune analyse posée, OU colonne absente → résilient). */
+export async function lireNombreBatimentsDetecte(dossierId: number): Promise<number | null> {
+  try {
+    const { rows } = await query<{ n: number | null }>(`SELECT nb_batiments_detecte AS n FROM permis_caracteristique WHERE dossier_id = $1`, [dossierId]);
+    return rows[0]?.n ?? null;
+  } catch { return null; } // 220 absente → traité comme « aucune analyse n'a posé de valeur »
+}
+
 export function depsReellesAutocreation(): DepsAutocreation {
   return {
     colonneDisponible: colonneNbValideDisponible,
@@ -98,5 +128,6 @@ export function depsReellesAutocreation(): DepsAutocreation {
     creerCarteVide: async (dossierId, majPar) => { await creerCorps(dossierId, null, majPar); }, // carte VIDE (repere null), numérotée ensuite
     nommer: async (dossierId) => { await attribuerNomsRepli(dossierId); },
     poserNombre: poserNombreBatimentsValide, // SOURCE UNIQUE (partagée avec BAT-3)
+    poserDetecte: poserNombreBatimentsDetecte, // snapshot du DÉTECTÉ (constat d'analyse), résilient si 220 absente
   };
 }
