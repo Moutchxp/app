@@ -865,25 +865,31 @@ export function ChampNombreBatiments({ valeur, nbActuel, edition, succes, onVale
       ? { background: 'var(--color-svv-surface)', borderColor: 'var(--color-svv-red)', cursor: 'text' }
       : { background: 'var(--color-svv-field)', borderColor: 'var(--color-svv-line)', cursor: 'not-allowed' }) };
   return (
-    <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'nowrap', minWidth: 0, flexShrink: 3 }}>
-      {/* (a) — le GROUPE de commande rétrécit en priorité (flexShrink 3), pour que le décompte à gauche garde sa place ; nowrap → une seule ligne. */}
-      <span style={{ ...styleAide, whiteSpace: 'nowrap', flexShrink: 0 }}>Changer le nombre :</span>
-      {/* champ + bouton SOLIDAIRES (nowrap) → le bouton ne se retrouve jamais seul sur sa ligne (mobile-first). Champ INACTIF hors édition
-          (disabled RÉEL, pas seulement grisé → verrouillé pour le clavier et les lecteurs d'écran). Le champ est À GAUCHE du bouton. */}
-      <span style={{ display: 'inline-flex', gap: '.35rem', alignItems: 'center', flexWrap: 'nowrap', minWidth: 0 }}>
-        <input ref={inputRef} type="number" inputMode="numeric" min={0} step={1} value={valeur} disabled={!edition || enCours}
-          onChange={(e) => onValeur(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && enModif && valide && !enCours) { e.preventDefault(); onBouton(); } }}
-          aria-label="Nouveau nombre de bâtiments" style={styleChamp} />
-        {/* (a) — le LIBELLÉ du bouton (le plus long et variable) est l'élément qui rétrécit : ellipsis quand l'espace manque, texte INTÉGRAL
-            préservé au survol (title) ET pour les lecteurs d'écran (le nom accessible reste le texte complet). Jamais de 2e ligne, jamais un champ coupé. */}
-        <button type="button" className="svv-btn svv-btn-outline" title={label}
-          style={{ padding: '.3rem .8rem', whiteSpace: 'nowrap', minWidth: 0, flexShrink: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}
-          disabled={enCours || (enModif && !valide)} onClick={onBouton}>{label}</button>
+    // (Point 2) COLONNE : RANGÉE 1 = libellé + champ + bouton (une seule ligne, règle ccf6e08 maintenue) ; RANGÉE 2 = message de confirmation,
+    //   EN DESSOUS et APRÈS le groupe dans l'ordre DOM (exception assumée par Arno). Le message ne partage donc plus la ligne du bouton
+    //   (fini l'écrasement « re de bâtiment(s) du perm ») → le bouton retrouve toute sa largeur utile.
+    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-start', gap: '.2rem', minWidth: 0, flexShrink: 3 }}>
+      {/* RANGÉE 1 — le GROUPE de commande rétrécit en priorité (flexShrink 3 sur la colonne) ; sa rangée tient sur UNE ligne (nowrap). */}
+      <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'nowrap', minWidth: 0, maxWidth: '100%' }}>
+        <span style={{ ...styleAide, whiteSpace: 'nowrap', flexShrink: 0 }}>Changer le nombre :</span>
+        {/* champ + bouton SOLIDAIRES (nowrap) → le bouton ne se retrouve jamais seul sur sa ligne (mobile-first). Champ INACTIF hors édition
+            (disabled RÉEL, pas seulement grisé → verrouillé pour le clavier et les lecteurs d'écran). Le champ est À GAUCHE du bouton. */}
+        <span style={{ display: 'inline-flex', gap: '.35rem', alignItems: 'center', flexWrap: 'nowrap', minWidth: 0 }}>
+          <input ref={inputRef} type="number" inputMode="numeric" min={0} step={1} value={valeur} disabled={!edition || enCours}
+            onChange={(e) => onValeur(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && enModif && valide && !enCours) { e.preventDefault(); onBouton(); } }}
+            aria-label="Nouveau nombre de bâtiments" style={styleChamp} />
+          {/* (a) — le LIBELLÉ du bouton (le plus long et variable) est l'élément qui rétrécit : ellipsis quand l'espace manque, texte INTÉGRAL
+              préservé au survol (title) ET pour les lecteurs d'écran (le nom accessible reste le texte complet). Jamais de 2e ligne, jamais un champ coupé. */}
+          <button type="button" className="svv-btn svv-btn-outline" title={label}
+            style={{ padding: '.3rem .8rem', whiteSpace: 'nowrap', minWidth: 0, flexShrink: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}
+            disabled={enCours || (enModif && !valide)} onClick={onBouton}>{label}</button>
+        </span>
+        {/* ERREUR — n'apparaît QU'EN édition (valeur illisible), donc le libellé du bouton est alors COURT : pas de conflit de largeur. Reste dans la rangée 1. */}
+        {brut !== '' && !valide && <span style={{ ...styleErreur, whiteSpace: 'nowrap', flexShrink: 0 }}>entier ≥ 0 attendu</span>}
       </span>
-      {brut !== '' && !valide && <span style={styleErreur}>entier ≥ 0 attendu</span>}
-      {/* CONFIRMATION — petite ligne VERTE JUSTE EN DESSOUS du champ (flexBasis 100% → sa propre ligne). role="status" → annoncée. */}
-      {succes && <span role="status" style={{ flexBasis: '100%', ...styleAide, color: 'var(--color-svv-green-ink)' }}>Nouvelle valeur enregistrée.</span>}
+      {/* RANGÉE 2 (Point 2) — CONFIRMATION VERTE sur sa PROPRE ligne, fine, sous le champ. role="status" → annoncée. */}
+      {succes && <span role="status" style={{ ...styleAide, color: 'var(--color-svv-green-ink)' }}>Nouvelle valeur enregistrée.</span>}
     </span>
   );
 }
