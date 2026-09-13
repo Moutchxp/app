@@ -865,16 +865,20 @@ export function ChampNombreBatiments({ valeur, nbActuel, edition, succes, onVale
       ? { background: 'var(--color-svv-surface)', borderColor: 'var(--color-svv-red)', cursor: 'text' }
       : { background: 'var(--color-svv-field)', borderColor: 'var(--color-svv-line)', cursor: 'not-allowed' }) };
   return (
-    <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-      <span style={styleAide}>Changer le nombre :</span>
+    <span style={{ display: 'inline-flex', gap: '.4rem', alignItems: 'center', flexWrap: 'nowrap', minWidth: 0, flexShrink: 3 }}>
+      {/* (a) — le GROUPE de commande rétrécit en priorité (flexShrink 3), pour que le décompte à gauche garde sa place ; nowrap → une seule ligne. */}
+      <span style={{ ...styleAide, whiteSpace: 'nowrap', flexShrink: 0 }}>Changer le nombre :</span>
       {/* champ + bouton SOLIDAIRES (nowrap) → le bouton ne se retrouve jamais seul sur sa ligne (mobile-first). Champ INACTIF hors édition
           (disabled RÉEL, pas seulement grisé → verrouillé pour le clavier et les lecteurs d'écran). Le champ est À GAUCHE du bouton. */}
-      <span style={{ display: 'inline-flex', gap: '.35rem', alignItems: 'center', flexWrap: 'nowrap' }}>
+      <span style={{ display: 'inline-flex', gap: '.35rem', alignItems: 'center', flexWrap: 'nowrap', minWidth: 0 }}>
         <input ref={inputRef} type="number" inputMode="numeric" min={0} step={1} value={valeur} disabled={!edition || enCours}
           onChange={(e) => onValeur(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter' && enModif && valide && !enCours) { e.preventDefault(); onBouton(); } }}
           aria-label="Nouveau nombre de bâtiments" style={styleChamp} />
-        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .8rem', whiteSpace: 'nowrap' }}
+        {/* (a) — le LIBELLÉ du bouton (le plus long et variable) est l'élément qui rétrécit : ellipsis quand l'espace manque, texte INTÉGRAL
+            préservé au survol (title) ET pour les lecteurs d'écran (le nom accessible reste le texte complet). Jamais de 2e ligne, jamais un champ coupé. */}
+        <button type="button" className="svv-btn svv-btn-outline" title={label}
+          style={{ padding: '.3rem .8rem', whiteSpace: 'nowrap', minWidth: 0, flexShrink: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}
           disabled={enCours || (enModif && !valide)} onClick={onBouton}>{label}</button>
       </span>
       {brut !== '' && !valide && <span style={styleErreur}>entier ≥ 0 attendu</span>}
@@ -896,11 +900,14 @@ export function LigneNombreBatiments({ nbBatiments, controle }: { nbBatiments: n
   return (
     // (A) — FOND de SURFACE NEUTRE (var --color-svv-surface, celui des cartes) pour faire ressortir la ligne par contraste avec ce qui l'entoure.
     //   Pas de blanc en dur : la variable suit le thème (blanc en clair, surface sombre en sombre). Bordure/texte via jetons existants (contraste OK).
-    <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: '.4rem .6rem', fontSize: 12, overflowWrap: 'anywhere', background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.5rem', padding: '.45rem .6rem' }}>
+    // (a) — UNE SEULE LIGNE : flex nowrap + overflow maîtrisé. Priorité de rétrécissement : le libellé du bouton (dans `controle`, flexShrink 3
+    //   + ellipsis) cède AVANT le décompte. Le décompte peut, à l'extrême, tronquer sa QUEUE « (d'après les pièces) » (ellipsis + title intégral),
+    //   jamais le nombre. Champ numérique et « · » intacts. Compromis mobile assumé : on raccourcit du texte, jamais de repli sur 2 lignes.
+    <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'baseline', gap: '.4rem .6rem', fontSize: 12, background: 'var(--color-svv-surface)', border: '1px solid var(--color-svv-line)', borderRadius: '.5rem', padding: '.45rem .6rem', minWidth: 0, overflow: 'hidden' }}>
       {n > 0
-        ? <span><span style={{ color: 'var(--color-svv-muted)' }}>Futur(s) bâtiment(s) identifié(s) dans le permis : </span><strong>{n}</strong><span style={{ color: 'var(--color-svv-muted)' }}> (d’après les pièces)</span></span>
-        : <span style={{ color: 'var(--color-svv-muted)' }}>aucun futur bâtiment identifié dans les pièces</span>}
-      {controle && <><span aria-hidden="true" style={{ color: 'var(--color-svv-line)' }}>·</span>{controle}</>}
+        ? <span title={`Futur(s) bâtiment(s) identifié(s) dans le permis : ${n} (d’après les pièces)`} style={{ minWidth: 0, flexShrink: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}><span style={{ color: 'var(--color-svv-muted)' }}>Futur(s) bâtiment(s) identifié(s) dans le permis : </span><strong>{n}</strong><span style={{ color: 'var(--color-svv-muted)' }}> (d’après les pièces)</span></span>
+        : <span style={{ color: 'var(--color-svv-muted)', minWidth: 0, flexShrink: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>aucun futur bâtiment identifié dans les pièces</span>}
+      {controle && <><span aria-hidden="true" style={{ color: 'var(--color-svv-line)', flexShrink: 0 }}>·</span>{controle}</>}
     </div>
   );
 }
