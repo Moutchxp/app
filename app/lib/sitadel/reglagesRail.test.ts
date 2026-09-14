@@ -21,6 +21,7 @@ const EMAIL = [
 const TELESERVICE = [
   'teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', 'teleservice_profil_demandeur_defaut',
   'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours',
+  'teleservice_verrou_reference_actif', // verrou « référence mairie » du vivier (défaut TRUE)
 ];
 // Les 3 grandeurs de préparation qui diffèrent par rail : colonne e-mail ↔ colonne téléservice (DEUX vérités, pas une surcharge).
 const PAIRES_PAR_RAIL: [string, string][] = [

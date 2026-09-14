@@ -208,7 +208,12 @@ export function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDema
 /** Lots PROPOSÉS (aucune écriture) + diagnostic (pour expliquer un « 0 lot ») — pour revue avant création. */
 export async function proposition(cfg: ConfigVeille, ancienneteMois?: number): Promise<{ lots: Lot[]; diagnostic: DiagnosticProposition }> {
   const [dossiers, hist] = await Promise.all([lireDossiersPriorite(cfg, cfg.nbCandidatsExamines), lireHistorique()]);
-  const candidats = dossiers.map(versCandidat);
+  // VERROU « référence mairie » (défaut ON) — MÊME lecture que chargerVivier : on retire les candidats des communes téléservice EN
+  //   ATTENTE D'ACCUSÉ (verrou demande_depot_presume vivant), pour que « Préparer les demandes » ne contourne pas la règle. Gaté par
+  //   le réglage : OFF → aucune lecture ni exclusion (byte-identique). Le verrou étant formulaire-only, seules des communes téléservice
+  //   sont retirées. LECTURE seule de l'état existant (levée = trigger 163 ; aucun code de levée ici).
+  const bloquees = cfg.teleserviceVerrouReferenceActif ? new Set(Object.keys(await communesBloqueesTeleservice())) : null;
+  const candidats = dossiers.map(versCandidat).filter((c) => !bloquees?.has(c.codeInsee));
   const params = paramsLot(cfg, ancienneteMois); // Q4 : fenêtre d'ancienneté d'écran (bornée), défaut = maximum du réglage
   return { lots: proposerLots(candidats, params, hist), diagnostic: diagnostiquer(candidats, hist, params) };
 }
@@ -246,11 +251,16 @@ export async function stockPermisParCommune(cfg: ConfigVeille, fenetreMois: numb
 export async function chargerVivier(cfg: ConfigVeille): Promise<{ vivier: PermisVivier[]; tronque: boolean }> {
   const dateMin = dateMinDepuis(cfg.ancienneteMaxDemandeAnnees); // borne d'ÉLIGIBILITÉ complète
   const [{ lignes, tronque }, hist] = await Promise.all([lireDossiersDepuis(cfg, dateMin), lireHistorique()]);
+  // VERROU « référence mairie » (défaut ON) — LECTURE de l'état existant : une commune téléservice EN ATTENTE D'ACCUSÉ (verrou
+  //   demande_depot_presume vivant) sort du vivier (compteur + recherche + mode manuel) jusqu'à la capture de sa référence
+  //   (trigger 163). Gaté par le réglage : OFF → aucune lecture, aucune exclusion (byte-identique). Le verrou est formulaire-only.
+  const bloquees = cfg.teleserviceVerrouReferenceActif ? new Set(Object.keys(await communesBloqueesTeleservice())) : null;
   const vivier: PermisVivier[] = [];
   for (const d of lignes) {
     const c = versCandidat(d);
     if (!estCandidatEligible(c, dateMin, hist.dejaRattaches)) continue; // MÊME éligibilité que stock/proposition
     if (d.categorie === 'autre') continue;                              // pas de catégorie « autre » (cf. CATEGORIES_STOCK)
+    if (bloquees?.has(c.codeInsee)) continue;                            // commune en attente d'accusé → hors vivier (verrou référence)
     vivier.push({
       dossierId: d.id, numDau: c.numDau, type: c.type ?? d.type ?? null,
       codeInsee: c.codeInsee, communeNom: c.communeNom, canal: c.canal ?? null,

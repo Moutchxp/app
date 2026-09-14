@@ -136,8 +136,8 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
   it('les thèmes « demandes » partitionnent les clés (disjoints, couvrants, sans perte ni doublon) — D4 : + thème Téléservice', () => {
     const themes = [PARAMS_THEME_PREPARATION, PARAMS_THEME_ENVOI, PARAMS_THEME_REPONSES, PARAMS_THEME_ALERTES, PARAMS_THEME_CADA, PARAMS_THEME_TELESERVICE];
     const clesThemes = themes.flatMap((t) => t.map((p) => p.colonne));
-    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length + PARAMS_THEME_TELESERVICE.length).toBe(60);
-    expect(new Set(clesThemes).size).toBe(60); // disjoints ; +1 LOT 34 (depot_releve_delai_secondes, thème Réponses)
+    expect(PARAMS_THEME_PREPARATION.length + PARAMS_THEME_ENVOI.length + PARAMS_THEME_REPONSES.length + PARAMS_THEME_ALERTES.length + PARAMS_THEME_CADA.length + PARAMS_THEME_TELESERVICE.length).toBe(61);
+    expect(new Set(clesThemes).size).toBe(61); // disjoints ; +1 LOT 34 (depot_releve_delai_secondes, thème Réponses) ; +1 verrou référence (thème Téléservice)
     // liste LITTÉRALE figée des clés « demandes » — comparée en ENSEMBLE à la concaténation des thèmes ET à COLONNES_PARAMS_DEMANDES.
     const CLES_DEMANDES = [
       'anciennete_max_demande_annees', 'dossiers_par_demande', 'permis_par_commune_par_mois', 'demandes_par_commune_par_mois',
@@ -162,6 +162,7 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       'cascade_partiel_relance_jours', 'cascade_partiel_annonce_jours', 'cascade_partiel_saisine_jours', 'cascade_partiel_nb_relances', // CASC-3b — rythme de la cascade partielle (thème CADA)
       'teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', 'teleservice_profil_demandeur_defaut', // D4-ter (étanche) — préparation PROPRE au téléservice
       'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours', // D4 — thème Téléservice
+      'teleservice_verrou_reference_actif', // verrou « référence mairie » du vivier (défaut TRUE) — thème Téléservice
     ];
     expect(new Set(clesThemes)).toEqual(new Set(CLES_DEMANDES));
     expect(new Set(PARAMS_DEMANDES.map((p) => p.colonne))).toEqual(new Set(CLES_DEMANDES)); // COLONNES_PARAMS_DEMANDES = concat des thèmes, même ENSEMBLE
@@ -178,9 +179,9 @@ describe('S13 — deux sous-blocs de paramètres (demandes vs dossiers)', () => 
       ...PARAMS_MENTIONS, ...PARAMS_SOURCES,
     ].map((p) => p.colonne);
     // Snapshot : 50 + PHASE-1 (2 délais) + SURV-1 (2 réglages) + SURV-2 (1 interrupteur) + PART-1 (2 exclusions, thème Réponses) = 57 clés
-    //   distinctes ; + PART-C (vague_calme_minutes) = 68 ; + PART-D (validité + délai d'alerte des liens, thème Réponses) = 70 ; + CR-4 (instruction téléservice) = 76.
-    expect(CLES_RENDUES_REGLAGES).toHaveLength(76);
-    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(76);
+    //   distinctes ; + PART-C (vague_calme_minutes) = 68 ; + PART-D (validité + délai d'alerte des liens, thème Réponses) = 70 ; + CR-4 (instruction téléservice) = 76 ; + verrou référence téléservice = 77.
+    expect(CLES_RENDUES_REGLAGES).toHaveLength(77);
+    expect(new Set(CLES_RENDUES_REGLAGES).size).toBe(77);
     // Partition globale de PARAMS_VEILLE (dossiers rendus dans l'onglet Automatisation, inchangés).
     const toutes = new Set([...CLES_RENDUES_REGLAGES, ...PARAMS_DOSSIERS.map((p) => p.colonne)]);
     expect(toutes).toEqual(new Set(PARAMS_VEILLE.map((p) => p.colonne)));

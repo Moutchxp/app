@@ -72,7 +72,7 @@ export function ResumeCriteresTeleservice({ signalRafraichir, onChangement, onAl
   async function enregistrer(): Promise<void> {
     if (!etat) return;
     const { bornes } = etat;
-    const patch: Record<string, number | string> = {};
+    const patch: Record<string, number | string | boolean> = {};
     const errs: Record<string, string> = {};
     // Entiers propres au téléservice : validés AVANT l'appel contre les bornes CHECK (jamais une erreur brute de la base).
     for (const cle of ['teleservicePermisParCommuneParMois', 'teleserviceDossiersParDepot'] as const) {
@@ -91,6 +91,11 @@ export function ResumeCriteresTeleservice({ signalRafraichir, onChangement, onAl
         const options = PARAMS_VEILLE.find((p) => p.cle === cle)?.optionsEnum ?? [];
         if (!options.includes(edits[col])) errs[col] = 'valeur hors liste'; else patch[col] = edits[col];
       }
+    }
+    // Verrou « référence mairie » (booléen) : coché/décoché → true/false. Envoyé SEULEMENT si l'utilisateur y a touché (validerReglages attend un vrai booléen).
+    {
+      const col = colonneDe('teleserviceVerrouReferenceActif');
+      if (edits[col] !== undefined) patch[col] = edits[col] === 'true';
     }
     setMessages(errs);
     if (Object.keys(errs).length > 0) { setAvis(''); return; }              // refusé AVANT l'appel
@@ -130,6 +135,8 @@ export function ResumeCriteresTeleservice({ signalRafraichir, onChangement, onAl
   };
 
   const colProfil = colonneDe('teleserviceProfilDemandeurDefaut');
+  const colVerrou = colonneDe('teleserviceVerrouReferenceActif');
+  const verrouCoche = edits[colVerrou] !== undefined ? edits[colVerrou] === 'true' : veille.teleserviceVerrouReferenceActif;
 
   return (
     <details open className="svv-card" style={{ fontSize: 13 }}>
@@ -151,6 +158,16 @@ export function ResumeCriteresTeleservice({ signalRafraichir, onChangement, onAl
               <option value="personne">{ETIQUETTE_PROFIL.personne}</option>
             </select>
             {messages[colProfil] && <span role="alert" style={styleErr}> — {messages[colProfil]}</span>}
+          </label>
+          {/* VERROU « référence mairie » (défaut ON) — le mot porte l'info, pas la couleur ; la case dit ce qu'elle fait. */}
+          <label style={{ ...styleLigne, display: 'flex', alignItems: 'flex-start', gap: '.4rem' }}>
+            <input type="checkbox" checked={verrouCoche}
+              aria-label="Bloquer une commune tant que sa référence mairie n’est pas enregistrée"
+              onChange={(e) => setEdits((s) => ({ ...s, [colVerrou]: String(e.target.checked) }))}
+              style={{ marginTop: '.15rem' }} />
+            <span>Bloquer une commune tant que sa référence mairie n’est pas enregistrée.
+              <span style={styleAide}> Une fois une demande déposée, la commune sort du vivier et de « Préparer les demandes » jusqu’à ce que la mairie renvoie sa référence (ou que vous leviez le blocage). Les cartes déjà préparées restent affichées.</span>
+            </span>
           </label>
           <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.2rem' }}>
             <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .7rem', minHeight: 36 }} disabled={enCours} onClick={() => void enregistrer()}>Enregistrer les critères modifiés</button>

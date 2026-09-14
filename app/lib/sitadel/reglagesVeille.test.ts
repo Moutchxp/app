@@ -125,12 +125,12 @@ describe('D4-ter (étanche) — classement par rail (e-mail / téléservice / tr
       expect(par(c).rail, c).toBe('email');
     }
   });
-  it('rail téléservice : les 5 réglages du thème Téléservice (préparation propre + alertes)', () => {
-    for (const c of ['teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', 'teleservice_profil_demandeur_defaut', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours']) {
+  it('rail téléservice : les 6 réglages du thème Téléservice (préparation propre + alertes + verrou référence)', () => {
+    for (const c of ['teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', 'teleservice_profil_demandeur_defaut', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours', 'teleservice_verrou_reference_actif']) {
       expect(par(c).rail, c).toBe('teleservice');
     }
     expect(PARAMS_THEME_TELESERVICE.map((p) => p.colonne)).toEqual([
-      'teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', 'teleservice_profil_demandeur_defaut', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours',
+      'teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', 'teleservice_profil_demandeur_defaut', 'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours', 'teleservice_verrou_reference_actif',
     ]);
   });
   it('transverse : ancienneté, examen, pièces, adresse de réponse, CADA, relève N’ONT PAS de rail', () => {

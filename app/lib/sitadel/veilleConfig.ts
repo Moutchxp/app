@@ -98,6 +98,7 @@ export interface ConfigVeille {
   teleserviceProfilDemandeurDefaut: string;   // D4-ter (étanche, absorbe P) : profil de demandeur par défaut PROPRE au téléservice (entreprise/personne). FranceConnect → 'personne'.
   teleserviceAlerteNonDeposeActive: boolean;  // D4 (B) : alerte « demande téléservice préparée non déposée depuis N jours » (opt-in, défaut false)
   teleserviceAlerteNonDeposeJours: number;    // D4 (B) : seuil (jours) de l'alerte « non déposée » du rail téléservice — défaut 7, plage 1..90
+  teleserviceVerrouReferenceActif: boolean;   // Verrou « référence mairie » : une commune en attente d'accusé (verrou demande_depot_presume vivant) sort du vivier + de « Préparer les demandes » tant que sa référence n'est pas captée. ⚠️ DÉFAUT TRUE (inverse des bascules téléservice ci-dessus). Lecture seule de l'état existant.
   delaiBasculeJours: number;                  // PHASE-1 : délai (jours) après l'accord avant bascule possible sur les polygones officiels — défaut 548 (≈1,5 an), plage 30..1825
   dureeMessageJours: number;                  // PHASE-1 : durée (jours) du message « construction récente », comptée depuis la bascule — défaut 548 (≈1,5 an), plage 30..1825
   surveillanceToleranceContourPct: number;    // SURV-1 : écart de contour (% diff. sym. relative) au-delà duquel un polygone validé est signalé — défaut 0, plage 0..100
@@ -174,6 +175,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   //   en marche normale, lireTeleservice COALESCE sur la valeur commune (= comportement identique jour J).
   teleserviceDossiersParDepot: 5, teleservicePermisParCommuneParMois: 5, teleserviceProfilDemandeurDefaut: 'entreprise',
   teleserviceAlerteNonDeposeActive: false, teleserviceAlerteNonDeposeJours: 7, // = DEFAULT de la migration 159 (D4 : réglages téléservice)
+  teleserviceVerrouReferenceActif: true, // = DEFAULT de la migration 222 — ⚠️ TRUE (filtre ON), à l'INVERSE des bascules téléservice ci-dessus (opt-in false)
   delaiBasculeJours: 548, dureeMessageJours: 548, // = DEFAULT de la migration 170 (PHASE-1 : délais du verdict à trois phases, ≈ 1,5 an chacun)
   surveillanceToleranceContourPct: 0, surveillanceFenetreJours: 730, // = DEFAULT de la migration 171 (SURV-1 : surveillance des polygones après validation)
   surveillanceActive: true, // = DEFAULT de la migration 172 (SURV-2 : interrupteur opt-OUT ; repli true = comportement SURV-1 préservé)
@@ -637,6 +639,19 @@ export async function lireTeleserviceInstructionAuto(): Promise<Pick<ConfigVeill
   } catch { return { teleserviceInstructionAutoActive: false }; } // 217 pas encore appliquée → OFF (défaut sûr)
 }
 
+/**
+ * Interrupteur du VERROU « référence mairie » du vivier téléservice. Lecture ISOLÉE + résiliente. ⚠️ REPLI TRUE (à l'inverse des
+ * autres bascules téléservice, opt-in false) : tant que la colonne n'existe pas (222 pas encore appliquée) OU que la lecture
+ * échoue, le filtre est réputé ACTIF (défaut porteur) — même comportement par défaut avant comme après la migration. `?? true`
+ * couvre aussi une ligne présente mais colonne NULL (jamais en pratique, la colonne est NOT NULL DEFAULT true).
+ */
+export async function lireTeleserviceVerrouReference(): Promise<Pick<ConfigVeille, 'teleserviceVerrouReferenceActif'>> {
+  try {
+    const { rows } = await query<{ teleservice_verrou_reference_actif: boolean | null }>(`SELECT teleservice_verrou_reference_actif FROM config_veille WHERE id = 1`);
+    return { teleserviceVerrouReferenceActif: rows[0]?.teleservice_verrou_reference_actif ?? true };
+  } catch { return { teleserviceVerrouReferenceActif: true }; } // 222 pas encore appliquée → ON (défaut porteur, inverse des opt-in)
+}
+
 // ATT-BATI — lecture ISOLÉE de l'interrupteur + du seuil du rappel « en attente de bâti » (résiliente à l'ordre d'application de la
 //   155, livrée NON APPLIQUÉE) : tant que les colonnes n'existent pas, cette lecture échoue SEULE et retombe sur (false, 365), OFF.
 async function lireAttenteBatiAlerte(): Promise<Pick<ConfigVeille, 'attenteBatiAlerteActive' | 'attenteBatiAlerteJours'>> {
@@ -817,6 +832,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireRelanceMultiAdresse()),              // LOT 20 : multi-adresse des 2 dernières relances, lecture isolée (résiliente à la 182)
       ...(await lireRattachementSuiviAuto()),           // RATT-AUTO : interrupteur du rejeu automatique du suivi, lecture isolée (résiliente à la 154)
       ...(await lireTeleserviceInstructionAuto()),       // CR-4 : interrupteur de l'instruction auto téléservice, lecture isolée (résiliente à la 217)
+      ...(await lireTeleserviceVerrouReference()),        // Verrou « référence mairie » du vivier : lecture isolée, repli TRUE (résiliente à la 222 ; défaut ON, inverse des opt-in)
       ...(await lireAttenteBatiAlerte()),               // ATT-BATI : interrupteur + seuil du rappel « en attente de bâti », lecture isolée (résiliente à la 155)
       ...(await lireObstacleDisparuAlerte()),           // ALERTE obstacle disparu : interrupteur, lecture isolée (résiliente à la 157)
       ...(await lireTeleservice()),                     // D4 : réglages téléservice, lecture isolée (résiliente à la 159)

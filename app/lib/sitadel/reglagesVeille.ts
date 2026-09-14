@@ -412,6 +412,10 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'Côté téléservice, rien ne part tout seul : une demande préparée attend que vous la déposiez à la main. Quand c’est activé, vous recevez un rappel (à l’adresse d’alerte configurée plus haut) dès qu’une demande téléservice reste préparée sans être déposée au-delà du seuil ci-dessous. Décoché, aucun rappel. Ne concerne QUE le rail téléservice.' },
   { colonne: 'teleservice_alerte_non_depose_jours', cle: 'teleserviceAlerteNonDeposeJours', libelle: 'Seuil « préparée non déposée » (jours)', unite: 'jours', type: 'entier', rail: 'teleservice',
     aide: 'Nombre de jours au-delà duquel une demande téléservice préparée mais non déposée déclenche le rappel ci-dessus. Défaut : 7 jours.' },
+  // VERROU « référence mairie » — ⚠️ SEULE bascule téléservice DÉFAUT TRUE (les autres sont opt-in). Le filtre lit l'état existant
+  //   (verrou de commune demande_depot_presume), il n'écrit rien ; décocher rend les communes bloquées de nouveau proposables.
+  { colonne: 'teleservice_verrou_reference_actif', cle: 'teleserviceVerrouReferenceActif', libelle: 'Bloquer une commune tant que sa référence mairie n’est pas enregistrée', unite: '', type: 'booleen', rail: 'teleservice',
+    aide: 'Quand c’est activé (défaut), dès qu’une demande a été déposée sur le téléservice d’une commune, cette commune disparaît du vivier — du compteur, de la recherche, du mode manuel ET du bouton « Préparer les demandes » — tant que la mairie n’a pas renvoyé sa référence (numéro de dossier de l’accusé de réception). Elle redevient proposable dès que la référence est enregistrée (automatiquement à la relève, ou saisie à la main), ou si vous levez le blocage par « pas d’accusé attendu ». Cela évite de déposer deux fois pour la même mairie avant de savoir si le premier dépôt a bien été pris en compte. Les cartes DÉJÀ préparées restent affichées. Décoché : comportement d’avant, la commune reste proposable même en attente d’accusé.' },
 ];
 
 /**
@@ -492,6 +496,7 @@ export const COLONNES_THEME_RATTACHEMENT: readonly string[] = [
 export const COLONNES_THEME_TELESERVICE: readonly string[] = [
   'teleservice_dossiers_par_depot', 'teleservice_permis_par_commune_par_mois', 'teleservice_profil_demandeur_defaut', // D4-ter (étanche) — valeurs de préparation PROPRES au téléservice
   'teleservice_alerte_non_depose_active', 'teleservice_alerte_non_depose_jours', // alerte « non déposée » : interrupteur + seuil
+  'teleservice_verrou_reference_actif', // verrou « référence mairie » du vivier (défaut TRUE) — sort une commune en attente d'accusé du vivier + de « Préparer »
 ];
 export const COLONNES_PARAMS_DEMANDES: readonly string[] = [
   ...COLONNES_THEME_PREPARATION, ...COLONNES_THEME_ENVOI, ...COLONNES_THEME_REPONSES, ...COLONNES_THEME_ALERTES, ...COLONNES_THEME_CADA,
