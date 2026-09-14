@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
- * LOT 8 — AFFICHAGE AUTOMATIQUE (téléservice). `propositionsDepotTeleservice` s'exerce END-TO-END sur le VRAI chemin (`proposition`
- * → filtre 77b1800 verrou de commune + plafond mensuel + éligibilité) via un mock de ../db/client qui renvoie de VRAIES lignes.
- * On PROUVE les PREUVES du lot : commune LIBRE → une carte (une par commune, dédupliquée) ; commune EN ATTENTE D'ACCUSÉ (verrou
- * `demande_depot_presume` vivant) → aucune carte ; verrou LEVÉ (référence captée) → la carte réapparaît d'elle-même ; cap mensuel
- * atteint → aucune carte ; commune déjà PRÉPARÉE (brouillon/prête) → aucune carte ; lots E-MAIL → jamais dans ce rail (non-régression).
+ * LOT 9 — AFFICHAGE AUTOMATIQUE (téléservice), cartes VIRTUELLES. `cartesDepotAutoTeleservice` s'exerce END-TO-END sur le VRAI
+ * chemin (`proposition` → filtre 77b1800 verrou de commune + plafond mensuel + éligibilité) via un mock de ../db/client. On PROUVE
+ * les PREUVES du lot : commune LIBRE → UNE carte COMPLÈTE (corps figé non vide + URL + dossiers), sans clic ; en attente d'accusé
+ * (verrou vivant) → aucune carte ; verrou levé → réapparaît ; cap atteint → aucune carte ; déjà préparée → aucune carte ; lots
+ * e-mail → jamais ; et surtout AUCUNE ÉCRITURE (INSERT/UPDATE/DELETE) à l'affichage → jamais de demande fantôme. La matérialisation
+ * (`materialiserDepotTeleservice`) n'écrit RIEN quand le lot n'est plus frais (garde) → jamais un doublon.
  */
 const H = vi.hoisted(() => {
   const state = {
@@ -14,20 +15,26 @@ const H = vi.hoisted(() => {
     moisRows: [] as Record<string, unknown>[],
     verrouRows: [] as Record<string, unknown>[],   // communesBloqueesTeleservice (demande_depot_presume vivant)
     dejaRows: [] as Record<string, unknown>[],       // communes déjà préparées (brouillon/prête)
+    urlRows: [] as Record<string, unknown>[],        // mairie_contact.url_formulaire
+    dossierRows: [] as Record<string, unknown>[],    // dossiersPourDepot (adresse + parcelles + sœurs)
+    sql: [] as string[],                             // toutes les requêtes émises → contrôle « lecture seule »
   };
   const queryMock = async (sql: string) => {
+    state.sql.push(sql);
     if (sql.includes('demande_depot_presume dp')) return { rows: state.verrouRows };              // verrou de commune (77b1800)
     if (sql.includes('SELECT DISTINCT code_insee FROM demande')) return { rows: state.dejaRows };  // déjà préparées (affichage)
+    if (sql.includes('url_formulaire FROM mairie_contact')) return { rows: state.urlRows };         // URL téléservice par commune
+    if (sql.includes('s.id::text AS dossier_id')) return { rows: state.dossierRows };               // dossiers (adresse/parcelles/sœurs)
     if (sql.includes('AS prada_courriel')) return { rows: state.candidatRows };                    // requête CANDIDATS
     if (sql.includes('max_dossiers_par_demande AS max_dossiers')) return { rows: state.contrainteRows }; // contraintes commune
     if (sql.includes("date_trunc('month'")) return { rows: state.moisRows };                       // permis du mois (plafond)
-    return { rows: [] }; // config_veille (→ défauts), demande_dossier actif (dejaRattaches vide), etc.
+    return { rows: [] }; // config_veille (→ défauts), etc.
   };
   return { state, queryMock };
 });
 vi.mock('../db/client', () => ({ query: H.queryMock, withTransaction: async () => undefined, pool: {}, closePool: async () => undefined }));
 
-import { propositionsDepotTeleservice } from './demandeRepo';
+import { cartesDepotAutoTeleservice, materialiserDepotTeleservice } from './demandeRepo';
 import { chargerConfigVeille } from './veilleConfig';
 
 const moisAvant = (n: number): string => { const d = new Date(); d.setMonth(d.getMonth() - n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
@@ -47,72 +54,100 @@ const rowFormulaire = (id: number, codeInsee: string, communeNom: string, date: 
   prada_courriel: null, prada_import_id: null, prada_nom: null, prada_prenom: null, prada_adresse: null,
   prada_millesime: null, prada_statut: null, prada_origine: null, prada_rapprochement: null,
 });
-
-/** Idem mais canal E-MAIL (rail e-mail) — ne doit JAMAIS apparaître dans le rail téléservice. */
 const rowEmail = (id: number, codeInsee: string, communeNom: string, date: string): Record<string, unknown> => ({
   ...rowFormulaire(id, codeInsee, communeNom, date),
   dest_email: `urbanisme@${codeInsee}.fr`, dest_canal: 'email', dest_url_formulaire: null, dest_email_type: 'direct',
 });
+/** Objet dossier renvoyé par dossiersPourDepot (shape listerADeposer) pour l'id `id`. */
+const dossierRow = (id: number, codeInsee: string, communeNom: string): Record<string, unknown> => ({
+  dossier_id: String(id),
+  dossier: { type: 'PC', numDau: `PC${codeInsee}00${String(id).padStart(3, '0')}`, adresse: '1 RUE DE RIVOLI ' + communeNom, codePostal: '75001', communeNom, parcelles: ['AB-0001'], soeurs: [] },
+});
 
-beforeEach(() => { H.state.candidatRows = []; H.state.contrainteRows = []; H.state.moisRows = []; H.state.verrouRows = []; H.state.dejaRows = []; });
+beforeEach(() => {
+  H.state.candidatRows = []; H.state.contrainteRows = []; H.state.moisRows = [];
+  H.state.verrouRows = []; H.state.dejaRows = []; H.state.urlRows = []; H.state.dossierRows = []; H.state.sql = [];
+});
 
-describe('LOT 8 — propositionsDepotTeleservice : une carte par commune LIBRE, aucune sinon', () => {
-  it('commune libre → UNE carte (deux dossiers formulaire dédupliqués en une seule proposition par commune)', async () => {
+const aucuneEcriture = (): boolean => !H.state.sql.some((s) => /\b(INSERT|UPDATE|DELETE)\b/i.test(s));
+
+describe('LOT 9 — cartesDepotAutoTeleservice : cartes de dépôt virtuelles complètes, une par commune LIBRE', () => {
+  it('commune libre → UNE carte COMPLÈTE (corps figé non vide + URL + dossiers), sans aucune écriture en base', async () => {
+    const cfg = await chargerConfigVeille();
+    H.state.contrainteRows = [{ code_insee: '75056', max_dossiers: 1, profil_impose: 'personne' }];
+    H.state.candidatRows = [rowFormulaire(1, '75056', 'Paris', moisAvant(2))];
+    H.state.urlRows = [{ code_insee: '75056', url_formulaire: 'https://teleservice.paris.fr' }];
+    H.state.dossierRows = [dossierRow(1, '75056', 'Paris')];
+
+    const cartes = await cartesDepotAutoTeleservice(cfg);
+    expect(cartes).toHaveLength(1);
+    const c = cartes[0];
+    expect(c.codeInsee).toBe('75056');
+    expect(c.communeNom).toBe('Paris');
+    expect(c.cle).not.toBe('');                       // clé de lot → matérialisation au 1er geste
+    expect(c.url).toBe('https://teleservice.paris.fr');
+    expect(c.corps).toContain('Madame, Monsieur');    // corps figé RÉEL (corpsFormulaireTeleservice), pas un placeholder
+    expect(c.corps).toContain('Permis concerné');
+    expect(c.dossiers).toHaveLength(1);
+    expect(c.dossiers[0].numDau).toMatch(/^PC75056/);
+    expect(aucuneEcriture()).toBe(true);              // PREUVE — afficher n'écrit RIEN (pas de demande fantôme)
+  });
+
+  it('deux dossiers même commune → UNE seule carte (un dépôt à la fois)', async () => {
     const cfg = await chargerConfigVeille();
     H.state.contrainteRows = [{ code_insee: '75056', max_dossiers: 1, profil_impose: 'personne' }];
     H.state.candidatRows = [rowFormulaire(1, '75056', 'Paris', moisAvant(2)), rowFormulaire(2, '75056', 'Paris', moisAvant(3))];
-
-    const props = await propositionsDepotTeleservice(cfg);
-    expect(props).toHaveLength(1);                       // UNE carte pour la commune, pas deux (un dépôt à la fois)
-    expect(props[0].codeInsee).toBe('75056');
-    expect(props[0].communeNom).toBe('Paris');
-    expect(props[0].cle).not.toBe('');                  // clé de lot utilisable par le POST …/demandes
-    expect(props[0].permis).toHaveLength(1);
-    expect(props[0].permis[0].numDau).toMatch(/^PC75056/);
+    H.state.urlRows = [{ code_insee: '75056', url_formulaire: 'https://teleservice.paris.fr' }];
+    H.state.dossierRows = [dossierRow(1, '75056', 'Paris'), dossierRow(2, '75056', 'Paris')];
+    expect(await cartesDepotAutoTeleservice(cfg)).toHaveLength(1);
   });
 
-  it('commune EN ATTENTE D’ACCUSÉ (verrou vivant) → aucune carte ; verrou levé → la carte réapparaît d’elle-même', async () => {
+  it('en attente d’accusé (verrou vivant) → aucune carte ; verrou levé → la carte réapparaît d’elle-même', async () => {
     const cfg = await chargerConfigVeille();
     H.state.contrainteRows = [{ code_insee: '75056', max_dossiers: 1, profil_impose: 'personne' }];
     H.state.candidatRows = [rowFormulaire(1, '75056', 'Paris', moisAvant(2))];
+    H.state.urlRows = [{ code_insee: '75056', url_formulaire: 'https://teleservice.paris.fr' }];
+    H.state.dossierRows = [dossierRow(1, '75056', 'Paris')];
 
-    // Verrou vivant → proposition (filtre 77b1800) écarte la commune → aucune proposition de dépôt.
     H.state.verrouRows = [{ code_insee: '75056', reference: null, demande_id: 900 }];
-    expect(await propositionsDepotTeleservice(cfg)).toHaveLength(0);
+    expect(await cartesDepotAutoTeleservice(cfg)).toHaveLength(0);
 
-    // Référence captée → verrou levé (plus de ligne vivante) → la carte réapparaît sans autre geste.
     H.state.verrouRows = [];
-    expect(await propositionsDepotTeleservice(cfg)).toHaveLength(1);
+    expect(await cartesDepotAutoTeleservice(cfg)).toHaveLength(1);
   });
 
-  it('cap mensuel atteint (5 permis déjà demandés ce mois) → aucune carte', async () => {
-    const cfg = await chargerConfigVeille(); // permisParCommuneParMois = 5
+  it('cap mensuel atteint (5 permis ce mois) → aucune carte', async () => {
+    const cfg = await chargerConfigVeille();
     H.state.contrainteRows = [{ code_insee: '75056', max_dossiers: 1, profil_impose: 'personne' }];
     H.state.candidatRows = [rowFormulaire(1, '75056', 'Paris', moisAvant(2))];
     H.state.moisRows = [{ code_insee: '75056', n: 5 }];
-    expect(await propositionsDepotTeleservice(cfg)).toHaveLength(0);
+    expect(await cartesDepotAutoTeleservice(cfg)).toHaveLength(0);
   });
 
-  it('commune déjà PRÉPARÉE (demande brouillon/prête) → aucune carte (sa carte est déjà dans le carrousel)', async () => {
+  it('commune déjà PRÉPARÉE (demande brouillon/prête) → aucune carte (elle est déjà réelle dans le carrousel)', async () => {
     const cfg = await chargerConfigVeille();
     H.state.contrainteRows = [{ code_insee: '75056', max_dossiers: 1, profil_impose: 'personne' }];
     H.state.candidatRows = [rowFormulaire(1, '75056', 'Paris', moisAvant(2))];
-    H.state.dejaRows = [{ code_insee: '75056' }];       // une demande brouillon/prête existe déjà pour la commune
-    expect(await propositionsDepotTeleservice(cfg)).toHaveLength(0);
+    H.state.dejaRows = [{ code_insee: '75056' }];
+    expect(await cartesDepotAutoTeleservice(cfg)).toHaveLength(0);
   });
 
-  it('non-régression rail e-mail : les lots E-MAIL n’apparaissent JAMAIS dans le rail téléservice', async () => {
+  it('non-régression rail e-mail : les lots E-MAIL n’apparaissent JAMAIS en carte téléservice', async () => {
     const cfg = await chargerConfigVeille();
-    H.state.candidatRows = [rowEmail(1, '92044', 'Courbevoie', moisAvant(2)), rowEmail(2, '92044', 'Courbevoie', moisAvant(3))];
-    expect(await propositionsDepotTeleservice(cfg)).toHaveLength(0); // canal 'email' filtré → rien pour le rail téléservice
+    H.state.candidatRows = [rowEmail(1, '92044', 'Courbevoie', moisAvant(2))];
+    expect(await cartesDepotAutoTeleservice(cfg)).toHaveLength(0);
+    expect(aucuneEcriture()).toBe(true);
   });
+});
 
-  it('mixte e-mail + téléservice : seule la commune téléservice libre produit une carte', async () => {
+describe('LOT 9 — materialiserDepotTeleservice : garde d’idempotence (lot non frais → aucune écriture)', () => {
+  it('clé sans lot frais correspondant → { ok:false } avec une raison, et AUCUNE écriture', async () => {
     const cfg = await chargerConfigVeille();
     H.state.contrainteRows = [{ code_insee: '75056', max_dossiers: 1, profil_impose: 'personne' }];
-    H.state.candidatRows = [rowFormulaire(1, '75056', 'Paris', moisAvant(2)), rowEmail(2, '92044', 'Courbevoie', moisAvant(2))];
-    const props = await propositionsDepotTeleservice(cfg);
-    expect(props).toHaveLength(1);
-    expect(props[0].codeInsee).toBe('75056'); // la commune e-mail (92044) est absente
+    H.state.candidatRows = [rowFormulaire(1, '75056', 'Paris', moisAvant(2))]; // lot réel pour 75056…
+    const res = await materialiserDepotTeleservice(cfg, 2026, 'admin', 'cle-inexistante-999', 'Paris'); // …mais on demande une clé qui n'existe pas
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.raison).toBeTruthy();
+    expect(aucuneEcriture()).toBe(true); // apparierSelection ne trouve rien → creerDemandes n'INSÈRE rien
   });
 });

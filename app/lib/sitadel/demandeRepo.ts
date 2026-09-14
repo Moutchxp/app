@@ -13,7 +13,7 @@ import {
   type ProfilDemandeur,
   proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande, problemesIdentite, profilValide, ETIQUETTE_PROFIL,
   configAvecSignataire, apparierSelection, profilEffectifLot, raisonInexploitable, estCandidatEligible,
-  verdictAnnulation, RAISON_REFUS_ANNULATION, valeurRail, cleLot,
+  verdictAnnulation, RAISON_REFUS_ANNULATION, valeurRail, cleLot, corpsFormulaireTeleservice,
 } from './demande';
 import type { PermisVivier } from './rechercheVivier'; // D3 : type SEUL (le module de recherche est PUR)
 import { type Collaborateur, choisirCollaborateur } from './collaborateur';
@@ -218,24 +218,62 @@ export async function proposition(cfg: ConfigVeille, ancienneteMois?: number): P
   return { lots: proposerLots(candidats, params, hist), diagnostic: diagnostiquer(candidats, hist, params) };
 }
 
-/** Une commune LIBRE du rail téléservice, prête à recevoir UN dépôt (le premier lot proposé). Sert à l'affichage automatique. */
-export interface PropositionDepotTeleservice {
+/**
+ * Une CARTE DE DÉPÔT VIRTUELLE : une commune LIBRE du rail téléservice, rendue « à la volée » comme une carte de dépôt COMPLÈTE
+ * (corps figé identique à la création, URL téléservice, dossiers pour l'adresse + le numéro de permis) SANS aucune demande en
+ * base. AUCUN `id` de demande : le champ `cle` (clé du lot) sert à MATÉRIALISER la demande au 1er geste réel (copie / dépôt) via
+ * `materialiserDepotTeleservice`. Tant qu'aucun geste n'est fait, RIEN n'est écrit → jamais de demande fantôme.
+ */
+export interface DepotVirtuel {
+  cle: string;                                  // clé du lot — la matérialisation (creerDemandes) la ré-apparie sur ses lots frais
   codeInsee: string;
-  communeNom: string;
-  cle: string;                                  // clé du lot — la création (creerDemandes) la ré-apparie sur ses lots frais
-  permis: { numDau: string; type: 'PC' | 'PD' | null }[];
+  communeNom: string | null;
+  url: string | null;                           // URL du téléservice (dest_url_formulaire de la commune)
+  corps: string;                                // texte figé — BYTE-IDENTIQUE à ce que la matérialisation écrira (corpsFormulaireTeleservice)
   nbDossiers: number;
+  dossiers: DemandeADeposer['dossiers'];        // même shape que listerADeposer (adresse + parcelles + sœurs) → carte identique
 }
 
 /**
- * TÉLÉSERVICE — communes LIBRES avec, pour chacune, LA proposition de dépôt (le PREMIER lot). RÉUTILISE `proposition` : le verrou
- * « référence mairie » (77b1800, gaté par le réglage), le plafond mensuel et l'éligibilité au vivier y sont DÉJÀ appliqués — donc
- * un lot téléservice = une commune libre au sens du porteur (pas de verrou vivant + cap non atteint + ≥1 permis éligible), aucune
- * redéfinition ici. On y ajoute la seule règle d'AFFICHAGE « un dépôt à la fois » : une commune ayant DÉJÀ une demande téléservice
- * PRÉPARÉE (brouillon/prête — sa carte est déjà dans le carrousel `listerADeposer`) n'est PAS re-proposée. UNE entrée par commune.
- * LECTURE SEULE (aucune écriture ; la création reste le clic « Préparer cette demande » → chemin `creerDemandes` existant).
+ * Dossiers (adresse, parcelles, lignes SŒURS) pour un ensemble d'ID, au FORMAT EXACT de `listerADeposer` — pour que la carte
+ * VIRTUELLE soit identique à la carte matérialisée (même résolution d'adresse cross-type). ⚠️ La forme json_build_object DOIT
+ * rester synchronisée avec le sous-select de `listerADeposer` (une seule vérité de présentation ; deux points d'entrée).
  */
-export async function propositionsDepotTeleservice(cfg: ConfigVeille): Promise<PropositionDepotTeleservice[]> {
+async function dossiersPourDepot(dossierIds: number[]): Promise<Map<number, DemandeADeposer['dossiers'][number]>> {
+  if (dossierIds.length === 0) return new Map();
+  const { rows } = await query<{ dossier_id: string; dossier: DemandeADeposer['dossiers'][number] }>(
+    `SELECT s.id::text AS dossier_id, json_build_object(
+              'type', s.type, 'numDau', s.num_dau,
+              'adresse', nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), ''),
+              'codePostal', s.adr_codpost_ter, 'communeNom', cs.nom,
+              'parcelles', ARRAY(SELECT upper(btrim(px.sec)) || '-' || btrim(px.num)
+                                   FROM (VALUES (s.sec_cadastre1, s.num_cadastre1), (s.sec_cadastre2, s.num_cadastre2), (s.sec_cadastre3, s.num_cadastre3)) px(sec, num)
+                                  WHERE coalesce(btrim(px.sec), '') <> ''),
+              'soeurs', (SELECT coalesce(json_agg(json_build_object(
+                             'type', o.type,
+                             'adresse', nullif(btrim(concat_ws(' ', o.adr_num_ter, o.adr_libvoie_ter, o.adr_localite_ter)), ''),
+                             'codePostal', o.adr_codpost_ter, 'communeNom', co.nom,
+                             'parcelles', ARRAY(SELECT upper(btrim(ox.sec)) || '-' || btrim(ox.num)
+                                                  FROM (VALUES (o.sec_cadastre1, o.num_cadastre1), (o.sec_cadastre2, o.num_cadastre2), (o.sec_cadastre3, o.num_cadastre3)) ox(sec, num)
+                                                 WHERE coalesce(btrim(ox.sec), '') <> ''))), '[]'::json)
+                           FROM sitadel_dossier o LEFT JOIN commune co ON co.code_insee = o.code_insee
+                          WHERE o.num_dau = s.num_dau AND o.type <> s.type)
+            ) AS dossier
+       FROM sitadel_dossier s LEFT JOIN commune cs ON cs.code_insee = s.code_insee
+      WHERE s.id = ANY($1::bigint[])`,
+    [dossierIds]);
+  return new Map(rows.map((r) => [Number(r.dossier_id), r.dossier]));
+}
+
+/**
+ * TÉLÉSERVICE — AFFICHAGE AUTOMATIQUE : pour chaque commune LIBRE, LA carte de dépôt COMPLÈTE (le PREMIER lot), rendue à la volée.
+ * RÉUTILISE `proposition` : le verrou « référence mairie » (77b1800, gaté par le réglage), le plafond mensuel et l'éligibilité au
+ * vivier y sont DÉJÀ appliqués — un lot téléservice = une commune libre au sens du porteur (pas de verrou vivant + cap non atteint
+ * + ≥1 permis éligible), aucune redéfinition ici. Règle d'AFFICHAGE « un dépôt à la fois » : une commune ayant DÉJÀ une demande
+ * téléservice PRÉPARÉE (brouillon/prête — sa carte est le carrousel `listerADeposer`) n'est PAS re-proposée. UNE entrée par commune.
+ * LECTURE SEULE STRICTE — aucun INSERT/UPDATE : afficher une commune n'écrit RIEN (la création est repoussée au 1er geste).
+ */
+export async function cartesDepotAutoTeleservice(cfg: ConfigVeille): Promise<DepotVirtuel[]> {
   const { lots } = await proposition(cfg);
   const teleservice = lots.filter((l) => l.canal === 'formulaire');
   if (teleservice.length === 0) return [];
@@ -243,13 +281,52 @@ export async function propositionsDepotTeleservice(cfg: ConfigVeille): Promise<P
     `SELECT DISTINCT code_insee FROM demande WHERE dest_canal = 'formulaire' AND statut IN ('brouillon', 'prete')`);
   const dejaPreparees = new Set(rows.map((r) => r.code_insee.trim()));
   const vues = new Set<string>();
-  const out: PropositionDepotTeleservice[] = [];
+  const retenus: Lot[] = [];
   for (const l of teleservice) {
     if (dejaPreparees.has(l.codeInsee) || vues.has(l.codeInsee)) continue; // UNE carte par commune libre ; jamais une commune déjà préparée
     vues.add(l.codeInsee);
-    out.push({ codeInsee: l.codeInsee, communeNom: l.communeNom, cle: cleLot(l), permis: l.dossiers.map((d) => ({ numDau: d.numDau, type: d.type ?? null })), nbDossiers: l.dossiers.length });
+    retenus.push(l);
   }
-  return out;
+  if (retenus.length === 0) return [];
+  // URL du téléservice par commune (dest_url_formulaire figé à la création = mairie_contact.url_formulaire pour le canal formulaire).
+  const codes = retenus.map((l) => l.codeInsee);
+  const urls = await query<{ code_insee: string; url_formulaire: string | null }>(
+    `SELECT code_insee, url_formulaire FROM mairie_contact WHERE code_insee = ANY($1)`, [codes]);
+  const urlParCommune = new Map(urls.rows.map((r) => [r.code_insee.trim(), r.url_formulaire]));
+  // Dossiers (adresse + parcelles + sœurs) au format listerADeposer → carte virtuelle IDENTIQUE à la carte matérialisée.
+  const dossiersById = await dossiersPourDepot(retenus.flatMap((l) => l.dossiers.map((d) => Number(d.dossierId))));
+  return retenus.map((l) => ({
+    cle: cleLot(l),
+    codeInsee: l.codeInsee,
+    communeNom: l.communeNom,
+    url: urlParCommune.get(l.codeInsee) ?? null,
+    corps: corpsFormulaireTeleservice(l).corps, // BYTE-IDENTIQUE à genererTexte (branche formulaire) → copie fidèle avant création
+    nbDossiers: l.dossiers.length,
+    dossiers: l.dossiers.map((d) => dossiersById.get(Number(d.dossierId))
+      // Repli défensif (dossier introuvable au 2e select, improbable) : shape minimale depuis le CandidatDossier, jamais un trou.
+      ?? { type: (d.type ?? 'PC') as 'PC' | 'PD', numDau: d.numDau, adresse: d.adresse || null, codePostal: d.codePostal, communeNom: d.communeNom, parcelles: d.cadastre, soeurs: [] }),
+  }));
+}
+
+/**
+ * TÉLÉSERVICE — MATÉRIALISE la demande d'UNE carte virtuelle au 1er geste réel (copie / dépôt). RÉUTILISE le chemin de création
+ * EXISTANT `creerDemandes` (un seul lot re-apparié sur la proposition FRAÎCHE : gardes réappliquées, verrou anti-doublon, journal)
+ * → aucune 2e voie d'écriture de demande. Renvoie l'`id` de la demande créée (retrouvé par sa référence unique) pour que le geste
+ * enchaîne sur les endpoints existants (dépôt, trace « copier »). Idempotence : si le lot n'est plus frais (déjà matérialisé,
+ * plafond atteint, dossier rattaché entre-temps), `creerDemandes` ne crée RIEN → { ok:false } avec la raison (jamais un doublon).
+ */
+export async function materialiserDepotTeleservice(
+  cfg: ConfigVeille, annee: number, auteur: string | null, cle: string, communeNom: string | null,
+): Promise<{ ok: true; id: number } | { ok: false; raison: string }> {
+  const res = await creerDemandes(cfg, annee, auteur, undefined, [{ cle, communeNom }]);
+  if (res.demandesCreees >= 1) {
+    const reference = res.crees[0];
+    const { rows } = await query<{ id: number }>(`SELECT id::int AS id FROM demande WHERE reference = $1`, [reference]);
+    const id = rows[0]?.id;
+    if (typeof id === 'number') return { ok: true, id };
+    return { ok: false, raison: 'demande créée mais introuvable (référence inattendue)' };
+  }
+  return { ok: false, raison: res.lotsInvalides[0]?.raison ?? 'commune non disponible (verrou, plafond, ou déjà préparée)' };
 }
 
 // ── Q2b : STOCK de permis encore à demander, par commune et par type (LECTURE SEULE) ─────────────────────────────────

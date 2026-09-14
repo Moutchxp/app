@@ -2,12 +2,20 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { CarteDepot, BoutonAnnulerDepot, type DepotAffiche } from './DemandesRendu';
+import type { DepotVirtuel } from '../../../../lib/sitadel/demandeRepo'; // type SEUL (erasé au build) — la carte virtuelle a la même forme que DepotAffiche, sans id
 import { creerPlanificateurReleve, type PlanificateurReleve } from './planifieReleveDepot'; // LOT 34 : relève déclenchée par le clic « copier »
 
 /**
  * File « À déposer à la main » de l'onglet Demandes (S16) : les demandes en canal 'formulaire' (téléservice). Trois gestes par
  * carte — « Copier le texte » / « Copier le numéro de permis » (dans la carte) puis « Marquer comme déposée » (→ 'envoyee').
  * Mobile-first (cartes). AUCUN envoi automatique.
+ *
+ * AFFICHAGE AUTOMATIQUE (lot 9) — en plus des demandes DÉJÀ préparées, le carrousel affiche des cartes de dépôt VIRTUELLES : une
+ * par commune LIBRE (`virtuels`, servies par le GET), rendues COMPLÈTES sans aucun clic ni aucune écriture en base. La demande ne
+ * se CRÉE qu'au 1er geste réel (copie du texte / du numéro, ou « Marquer comme déposée ») via `assurerMaterialisee` (dédupliquée
+ * par `cle` → jamais deux demandes pour une même carte). Une carte affichée mais jamais touchée ne laisse RIEN en base. Les cartes
+ * virtuelles n'ont pas de bouton « Annuler » (il n'y a encore aucune demande à annuler ; les demandes réelles gardent le leur).
+ * `afficherVirtuels` (piloté par le mode auto/manuel du parent) montre/masque les virtuelles ; les demandes réelles restent toujours.
  *
  * DEPOT-1 — RAFRAÎCHISSEMENT : la file se recharge sur `signalRafraichir` (incrémenté par le parent APRÈS une création dans
  * « À demander »), donc une demande téléservice fraîchement préparée apparaît SANS rechargement de page. Symétriquement, un dépôt
@@ -23,21 +31,30 @@ function signalerDepot(demandeId: number, bouton: 'texte' | 'ref'): void {
   }).catch(() => undefined);
 }
 
-export function BlocDepot({ signalRafraichir, onChangement }: { signalRafraichir: number; onChangement: () => void }) {
+export function BlocDepot({ signalRafraichir, onChangement, afficherVirtuels = true }: { signalRafraichir: number; onChangement: () => void; afficherVirtuels?: boolean }) {
   const [demandes, setDemandes] = useState<DepotAffiche[]>([]);
-  const [msg, setMsg] = useState<Record<number, string>>({});  // retour (ok/échec) par carte
-  const [refs, setRefs] = useState<Record<number, string>>({}); // P1 — référence mairie saisie par carte (facultative)
+  const [virtuels, setVirtuels] = useState<DepotVirtuel[]>([]); // AFFICHAGE AUTO — communes libres rendues à la volée (aucune demande en base)
+  const [msg, setMsg] = useState<Record<number, string>>({});  // retour (ok/échec) par carte réelle
+  const [msgV, setMsgV] = useState<Record<string, string>>({}); // retour par carte VIRTUELLE (clé = cle du lot)
+  const [refs, setRefs] = useState<Record<number, string>>({}); // P1 — référence mairie saisie par carte réelle (facultative)
+  const [refsV, setRefsV] = useState<Record<string, string>>({}); // P1 — référence mairie saisie par carte VIRTUELLE (clé = cle)
   const [annulerOuverts, setAnnulerOuverts] = useState<Set<number>>(new Set()); // U3 — confirmations « Annuler cette demande » ouvertes
   const [retourAnnul, setRetourAnnul] = useState('');                            // U3 — retour de niveau SECTION (la carte annulée disparaît → retour visible ailleurs)
+  // MATÉRIALISATION dédupliquée par `cle` : une carte virtuelle ne crée sa demande qu'UNE fois, quel que soit le nombre de gestes
+  //   (copie texte, copie numéro, dépôt) déclenchés avant le rafraîchissement. La promesse en cours/résolue est réutilisée.
+  const materialiseesRef = useRef<Map<string, Promise<number>>>(new Map());
   // LOT 34 — RELÈVE DÉCLENCHÉE par le clic « copier » : délai (config), retour d'écran, planificateur dédupliqué (une seule relève).
   const [releveMsg, setReleveMsg] = useState<string | null>(null);
-  // CARROUSEL (présentation, ce lot) — index de la carte courante + réf. de la piste défilante (rendu plus bas).
+  // CARROUSEL (présentation) — index de la carte courante + réf. de la piste défilante (rendu plus bas).
   const [index, setIndex] = useState(0);
   const pisteRef = useRef<HTMLDivElement | null>(null);
   const delaiSecRef = useRef(60);          // délai courant (config), lu au clic → jamais figé
   const planifRef = useRef<PlanificateurReleve | null>(null);
   const onChangementRef = useRef(onChangement); // dernière valeur du callback, sans recréer le planificateur
   useEffect(() => { onChangementRef.current = onChangement; }, [onChangement]);
+
+  const virtuelsAffiches = afficherVirtuels ? virtuels : []; // mode manuel → aucune carte virtuelle (les demandes réelles restent)
+  const total = demandes.length + virtuelsAffiches.length;
 
   // Planificateur créé UNE fois au montage (refs lues seulement ici, jamais pendant le rendu). Cleanup = annule un timer en attente.
   useEffect(() => {
@@ -72,8 +89,9 @@ export function BlocDepot({ signalRafraichir, onChangement }: { signalRafraichir
       try {
         const res = await fetch('/api/admin/permis/demandes/depot', { cache: 'no-store' });
         if (!annule && res.ok) {
-          const d = (await res.json()) as { demandes: DepotAffiche[]; releveDelaiSecondes?: number };
+          const d = (await res.json()) as { demandes: DepotAffiche[]; virtuels?: DepotVirtuel[]; releveDelaiSecondes?: number };
           setDemandes(d.demandes ?? []);
+          setVirtuels(d.virtuels ?? []);
           if (typeof d.releveDelaiSecondes === 'number') delaiSecRef.current = d.releveDelaiSecondes; // LOT 34 : délai piloté par config
         }
       } catch { /* file de dépôt indisponible : le reste de l'écran reste utilisable */ }
@@ -98,9 +116,10 @@ export function BlocDepot({ signalRafraichir, onChangement }: { signalRafraichir
     };
     piste.addEventListener('wheel', onWheel, { passive: false });
     return () => piste.removeEventListener('wheel', onWheel);
-  }, [demandes.length]);
+  }, [total]);
 
   const poser = (id: number, texte: string): void => setMsg((s) => ({ ...s, [id]: texte }));
+  const poserV = (cle: string, texte: string): void => setMsgV((s) => ({ ...s, [cle]: texte }));
 
   async function marquerDeposee(id: number): Promise<void> {
     poser(id, '');
@@ -116,6 +135,47 @@ export function BlocDepot({ signalRafraichir, onChangement }: { signalRafraichir
         poser(id, e.erreur ? `Refusé : ${e.erreur}.` : 'Action refusée.');
       }
     } catch { poser(id, 'Action impossible.'); }
+  }
+
+  // AFFICHAGE AUTO — MATÉRIALISE la demande de la carte virtuelle `v` (1er geste réel), UNE seule fois (mémoïsée par `cle`). En cas
+  //   d'échec, on OUBLIE la promesse pour permettre un nouvel essai. Renvoie l'id de la demande créée → le geste enchaîne dessus.
+  function assurerMaterialisee(v: DepotVirtuel): Promise<number> {
+    const enCours = materialiseesRef.current.get(v.cle);
+    if (enCours) return enCours;
+    const p = (async (): Promise<number> => {
+      const res = await fetch('/api/admin/permis/demandes/depot-auto', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cle: v.cle, communeNom: v.communeNom }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; id?: number; erreur?: string };
+      if (res.ok && d.ok && typeof d.id === 'number') return d.id;
+      throw new Error(res.status === 401 || res.status === 403 ? 'Session expirée — reconnecte-toi.' : (d.erreur ?? 'préparation impossible'));
+    })();
+    materialiseesRef.current.set(v.cle, p);
+    p.catch(() => materialiseesRef.current.delete(v.cle)); // échec → on oublie (nouvel essai possible)
+    return p;
+  }
+
+  // COPIE sur carte virtuelle : la copie clipboard a DÉJÀ eu lieu (BoutonCopier, valeur figée byte-identique) → on matérialise en
+  //   arrière-plan pour attacher la trace « copier » + la relève à la demande. La carte reste virtuelle jusqu'au dépôt (pas de
+  //   morphing en plein geste) ; le prochain rafraîchissement la remplacera par la carte réelle (avec sa référence SVAV + Annuler).
+  function copierVirtuel(v: DepotVirtuel, bouton: 'texte' | 'ref'): void {
+    void assurerMaterialisee(v)
+      .then((id) => { signalerDepot(id, bouton); programmerReleve(); })
+      .catch((e: unknown) => poserV(v.cle, (e as { message?: string })?.message ?? 'Préparation impossible.'));
+  }
+
+  // DÉPÔT depuis une carte virtuelle : on s'assure d'abord que la demande existe (matérialisation mémoïsée → id), PUIS on enchaîne
+  //   le dépôt via le MÊME endpoint que les cartes réelles ({ id, reference? }). Succès → rafraîchissement (la demande devient
+  //   'envoyee' et quitte le carrousel). Échec → motif DANS la carte (jamais un échec muet).
+  async function deposerVirtuel(v: DepotVirtuel): Promise<void> {
+    poserV(v.cle, '');
+    try {
+      const id = await assurerMaterialisee(v);
+      const reference = (refsV[v.cle] ?? '').trim();
+      const res = await fetch('/api/admin/permis/demandes/depot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reference === '' ? { id } : { id, reference }) });
+      if (res.ok) { onChangement(); }
+      else { const e = (await res.json().catch(() => ({}))) as { erreur?: string }; poserV(v.cle, e.erreur ? `Refusé : ${e.erreur}.` : 'Action refusée.'); }
+    } catch (e) { poserV(v.cle, (e as { message?: string })?.message ?? 'Préparation impossible.'); }
   }
 
   const fermerAnnul = (id: number): void => setAnnulerOuverts((s) => { const n = new Set(s); n.delete(id); return n; });
@@ -141,7 +201,7 @@ export function BlocDepot({ signalRafraichir, onChangement }: { signalRafraichir
 
   // CARROUSEL — navigation. `pos` = index BORNÉ (une carte retirée après dépôt/annulation ne laisse jamais « 4 sur 3 »).
   //   Défilement natif (swipe) + boutons ; `scrollTo` respecte prefers-reduced-motion (non animé si l'utilisateur le refuse).
-  const pos = Math.min(index, Math.max(0, demandes.length - 1));
+  const pos = Math.min(index, Math.max(0, total - 1));
   const comportementScroll = (): ScrollBehavior =>
     (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth');
   const allerA = (i: number): void => {
@@ -163,12 +223,12 @@ export function BlocDepot({ signalRafraichir, onChangement }: { signalRafraichir
     setIndex((cur) => (cur === plusProche ? cur : plusProche));
   };
 
-  if (demandes.length === 0) return null;
+  if (total === 0) return null;
 
   return (
     <section role="group" aria-label="Demandes à déposer à la main (téléservice)" className="flex flex-col gap-2">
       <div style={{ fontSize: 13 }}>
-        <strong>{demandes.length} demande(s) à déposer à la main</strong> — ces communes n’acceptent que leur téléservice. Ouvrez le formulaire, collez le texte, puis marquez la demande déposée.
+        <strong>{total} demande(s) à déposer à la main</strong> — ces communes n’acceptent que leur téléservice. Ouvrez le formulaire, collez le texte, puis marquez la demande déposée.
       </div>
       {/* U3 — retour de l'annulation : la carte concernée a disparu de la file, le retour reste visible au niveau de la section. */}
       {retourAnnul && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourAnnul}</div>}
@@ -180,15 +240,14 @@ export function BlocDepot({ signalRafraichir, onChangement }: { signalRafraichir
       <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
         <button type="button" className="svv-btn svv-btn-outline" style={{ flex: '0 0 auto', width: 'auto', padding: '.25rem .6rem', minHeight: 36 }}
           onClick={() => allerA(pos - 1)} disabled={pos <= 0} aria-label="Carte précédente"><span aria-hidden="true">‹</span></button>
-        <span role="status" aria-live="polite" style={{ fontSize: 13, fontWeight: 600, minWidth: '4.5rem', textAlign: 'center' }}>{pos + 1} sur {demandes.length}</span>
+        <span role="status" aria-live="polite" style={{ fontSize: 13, fontWeight: 600, minWidth: '4.5rem', textAlign: 'center' }}>{pos + 1} sur {total}</span>
         <button type="button" className="svv-btn svv-btn-outline" style={{ flex: '0 0 auto', width: 'auto', padding: '.25rem .6rem', minHeight: 36 }}
-          onClick={() => allerA(pos + 1)} disabled={pos >= demandes.length - 1} aria-label="Carte suivante"><span aria-hidden="true">›</span></button>
+          onClick={() => allerA(pos + 1)} disabled={pos >= total - 1} aria-label="Carte suivante"><span aria-hidden="true">›</span></button>
       </div>
-      {/* PISTE — rangée flex de cartes CÔTE À CÔTE à leur largeur d'ORIGINE (~320 px, `min(20rem,90vw)` : ~320 px sur desktop,
-          l'essentiel de la largeur sur iPhone portrait), défilement HORIZONTAL (swipe/trackpad natifs + molette + boutons) +
-          scroll-snap. `alignItems:'flex-start'` = rangée alignée EN HAUT → aucun saut vertical d'une carte à l'autre. Seule la
-          PISTE défile (overflow-x) : la page ne déborde jamais horizontalement. `overscrollBehaviorX:'contain'` évite le retour
-          navigateur. CarteDepot INCHANGÉE (mêmes props, mêmes gestes, mêmes enfants). */}
+      {/* PISTE — rangée flex de cartes CÔTE À CÔTE à leur largeur d'ORIGINE (~320 px, `min(20rem,90vw)`), défilement HORIZONTAL
+          (swipe/trackpad natifs + molette + boutons) + scroll-snap. `alignItems:'flex-start'` = rangée alignée EN HAUT → aucun
+          saut vertical d'une carte à l'autre. Seule la PISTE défile (overflow-x) : la page ne déborde jamais horizontalement.
+          Cartes RÉELLES (déjà préparées) d'abord, puis cartes VIRTUELLES (communes libres, affichage automatique). */}
       <div ref={pisteRef} onScroll={onScrollPiste} role="group" aria-label="Cartes de dépôt à faire (défilement horizontal)"
         style={{ display: 'flex', gap: '.6rem', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x mandatory', overscrollBehaviorX: 'contain', position: 'relative', alignItems: 'flex-start', WebkitOverflowScrolling: 'touch' }}>
         {demandes.map((d) => (
@@ -213,6 +272,25 @@ export function BlocDepot({ signalRafraichir, onChangement }: { signalRafraichir
                   onConfirmer={() => void annuler(d.id)}
                   onFermer={() => fermerAnnul(d.id)} />
               </div>
+            </CarteDepot>
+          </div>
+        ))}
+        {virtuelsAffiches.map((v) => (
+          <div key={`v-${v.cle}`} style={{ flex: '0 0 auto', width: 'min(20rem, 90vw)', boxSizing: 'border-box', scrollSnapAlign: 'start' }}>
+            {/* CARTE VIRTUELLE — MÊME composant, MÊME présentation qu'une carte réelle (id de demande = null : aucune référence SVAV
+                encore attribuée, elle le sera à la matérialisation). Gestes de copie/dépôt matérialisent la demande au 1er clic. */}
+            <CarteDepot d={{ id: -1, reference: '', communeNom: v.communeNom, url: v.url, corps: v.corps, nbDossiers: v.nbDossiers, statut: 'brouillon', dossiers: v.dossiers }}
+              onCopieTexte={() => copierVirtuel(v, 'texte')} onCopieRef={() => copierVirtuel(v, 'ref')}>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '.15rem', fontSize: 12, color: 'var(--color-svv-muted)' }}>
+                Référence mairie (accusé de réception) — facultatif
+                <input value={refsV[v.cle] ?? ''} onChange={(e) => setRefsV((s) => ({ ...s, [v.cle]: e.target.value }))}
+                  placeholder="ex. SLC260810440700"
+                  style={{ padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, fontFamily: 'var(--font-svv-mono, monospace)' }} />
+              </label>
+              <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
+                <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.3rem .7rem' }} onClick={() => void deposerVirtuel(v)}>Marquer comme déposée</button>
+              </div>
+              {msgV[v.cle] && <span role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{msgV[v.cle]}</span>}
             </CarteDepot>
           </div>
         ))}

@@ -1,13 +1,14 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
-import { listerADeposer, marquerDeposee, DepotInterditError } from '../../../../../../lib/sitadel/demandeRepo';
+import { listerADeposer, cartesDepotAutoTeleservice, marquerDeposee, DepotInterditError } from '../../../../../../lib/sitadel/demandeRepo';
 import { retenterRattachementParReference } from '../../../../../../lib/veille/demandeReponseRepo'; // FUS-4 ② : re-rattachement différé, second appelant
 import { chargerConfigVeille } from '../../../../../../lib/sitadel/veilleConfig'; // LOT 34 : délai de relève déclenchée (pilotage sans code)
 
 /**
- * /api/admin/permis/demandes/depot (chantier S16). GET = demandes en canal 'formulaire' encore à déposer à la main sur le
- * téléservice de la commune (texte figé + URL). POST = marque une demande comme DÉPOSÉE (statut 'envoyee'). RÉSERVÉ
- * ADMINISTRATEUR (proxy fail-closed + garde). AUCUN envoi automatique. Runtime Node.
+ * /api/admin/permis/demandes/depot (chantier S16). GET = cartes de dépôt téléservice à faire à la main : (1) `demandes` déjà
+ * PRÉPARÉES (canal 'formulaire', brouillon/prête, texte + URL figés) ; (2) `virtuels` = communes LIBRES rendues à la volée en
+ * cartes COMPLÈTES SANS écriture en base (affichage automatique — la demande se crée au 1er geste). POST = marque une demande
+ * comme DÉPOSÉE (statut 'envoyee'). RÉSERVÉ ADMINISTRATEUR (proxy fail-closed + garde). AUCUN envoi automatique. Runtime Node.
  */
 export const runtime = 'nodejs';
 
@@ -16,8 +17,10 @@ export async function GET(request: Request): Promise<Response> {
   if ('refus' in garde) return garde.refus;
   try {
     // LOT 34 — on joint le délai (config, résilient) : le client programme la relève déclenchée après ce délai au clic « copier ».
-    const [demandes, cfg] = await Promise.all([listerADeposer(), chargerConfigVeille()]);
-    return Response.json({ demandes, releveDelaiSecondes: cfg.depotReleveDelaiSecondes });
+    //   `virtuels` = affichage automatique des communes libres, LECTURE SEULE (aucune demande créée tant qu'aucun geste n'est fait).
+    const cfg = await chargerConfigVeille();
+    const [demandes, virtuels] = await Promise.all([listerADeposer(), cartesDepotAutoTeleservice(cfg)]);
+    return Response.json({ demandes, virtuels, releveDelaiSecondes: cfg.depotReleveDelaiSecondes });
   } catch {
     return Response.json({ erreur: 'liste indisponible' }, { status: 503 });
   }

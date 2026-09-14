@@ -11,7 +11,7 @@ import { SuiviDemandes } from './SuiviDemandes';
 import { RechercheVivier } from './RechercheVivier';
 import { CompteurVivierTeleservice } from './CompteurVivierTeleservice';
 import { ResumeCriteresTeleservice } from './ResumeCriteresTeleservice';
-import { ModeDemandeTeleservice } from './ModeDemandeTeleservice';
+import { ModeDemandeTeleservice, type ModePreparation } from './ModeDemandeTeleservice';
 import { dansProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 
 /**
@@ -59,6 +59,9 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
   const ancienneteMois = bornerAncienneteMois(moisSaisie, ancienneteMaxAnnees);
   const prepSeq = useRef(0); // Q4-fix : compteur de séquence des préparations (anti-race)
   const [signalSuivi, setSignalSuivi] = useState(0); // Q6 : incrémenté après une création → rafraîchit le tableau des non-envoyées
+  // Mode de préparation TÉLÉSERVICE (auto/manuel) — remonté ici car il pilote À LA FOIS le panneau de ModeDemandeTeleservice ET
+  //   l'affichage des cartes VIRTUELLES du carrousel (BlocDepot) : en manuel, on masque les virtuelles (les réelles restent).
+  const [modeTeleservice, setModeTeleservice] = useState<ModePreparation>('auto');
   // DEPOT-2 — FOYER UNIQUE local : toute action réussie (création, dépôt, annulation) rafraîchit les vues locales
   //   (SuiviDemandes + BlocDepot via signalSuivi) ET notifie le parent (compteurs du commutateur) — jamais l'un sans l'autre.
   const signalerChangement = useCallback((): void => { setSignalSuivi((s) => s + 1); onChangement?.(); }, [onChangement]);
@@ -167,11 +170,11 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
       {/* BASCULE AUTO/MANUEL (téléservice) — AU-DESSUS du carrousel. En mode AUTO : une carte de dépôt par commune LIBRE, proposée
           sans geste (remplace le bouton « Préparer les demandes », retiré de CE rail — un téléservice ne fait qu'un dépôt à la fois).
           En mode MANUEL : recherche d'un permis. Une demande préparée passe par le chemin EXISTANT et rejoint le MÊME carrousel. */}
-      {process === 'formulaire' && <ModeDemandeTeleservice categories={categories} signalRafraichir={signalSuivi} onChangement={signalerChangement} />}
+      {process === 'formulaire' && <ModeDemandeTeleservice categories={categories} mode={modeTeleservice} onMode={setModeTeleservice} onChangement={signalerChangement} />}
       {/* CARROUSEL TÉLÉSERVICE (lot 1 — présentation) — les cartes de dépôt à faire, DÉPLACÉES ici JUSTE SOUS le bloc des deux rails
           (CommutateurProcess + GroupeRailsCommunes, montés dans PermisTuile au-dessus de cette vue). UNE SEULE instance à l'écran
           (retirée du bas de l'onglet). Réservé au rail Téléservice (process === 'formulaire'), comme avant. DEPOT-1 : mêmes signaux. */}
-      {process === 'formulaire' && <BlocDepot signalRafraichir={signalSuivi} onChangement={signalerChangement} />}
+      {process === 'formulaire' && <BlocDepot signalRafraichir={signalSuivi} onChangement={signalerChangement} afficherVirtuels={modeTeleservice === 'auto'} />}
 
       {/* Q4 — rappel des réglages + filtre d'ancienneté, en tête de l'onglet. */}
       <BandeauReglages

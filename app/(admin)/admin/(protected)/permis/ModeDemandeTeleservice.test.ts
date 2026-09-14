@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, createElement } from 'react';
+import { act, createElement, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { ModeDemandeTeleservice } from './ModeDemandeTeleservice';
+import { ModeDemandeTeleservice, type ModePreparation } from './ModeDemandeTeleservice';
 
 /**
- * MODE MANUEL — COMPORTEMENT de la bascule (jsdom + act, sans testing-library). Aucune assertion de couleur/classe/pixel, aucune
- * lecture de source : on vérifie l'ÉTAT (aria-pressed) et la PRÉSENCE du panneau manuel, pas leur apparence.
+ * MODE (téléservice) — COMPORTEMENT de la bascule (jsdom + act, sans testing-library). Le `mode` est CONTRÔLÉ par le parent ; on
+ * l'éprouve via un petit wrapper à état (comme ADemanderVue). On vérifie l'ÉTAT (aria-pressed) et la PRÉSENCE du panneau manuel,
+ * jamais l'apparence. Le mode automatique n'a plus de bloc « Communes libres » : les cartes vivent dans le carrousel (BlocDepot).
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -22,23 +23,29 @@ const boutons = (): HTMLButtonElement[] => [...container.querySelectorAll('butto
 const boutonPar = (motif: RegExp): HTMLButtonElement | undefined => boutons().find((b) => motif.test(b.textContent ?? ''));
 const champManuel = (): HTMLInputElement | null => container.querySelector('input[aria-label*="vivier téléservice"]');
 
+// Wrapper à état : reproduit le parent (ADemanderVue possède `mode`, ModeDemandeTeleservice le reçoit + remonte via onMode).
+function Wrapper({ initial = 'auto' as ModePreparation }): React.ReactElement {
+  const [mode, setMode] = useState<ModePreparation>(initial);
+  return createElement(ModeDemandeTeleservice, { categories: [], mode, onMode: setMode, onChangement: vi.fn() });
+}
 const monter = async (): Promise<void> => {
-  await act(async () => { root.render(createElement(ModeDemandeTeleservice, { categories: [], signalRafraichir: 0, onChangement: vi.fn() })); });
+  await act(async () => { root.render(createElement(Wrapper, {})); });
   await act(async () => { await Promise.resolve(); });
 };
 
-describe('MODE MANUEL — bascule auto / manuel', () => {
-  it('mode automatique ACTIF par défaut au chargement (et aucun panneau manuel monté)', async () => {
+describe('MODE téléservice — bascule auto / manuel (mode contrôlé)', () => {
+  it('mode automatique ACTIF par défaut (aucun panneau manuel monté)', async () => {
     await monter();
     expect(boutonPar(/Mode automatique/)?.getAttribute('aria-pressed')).toBe('true');
     expect(boutonPar(/Mode manuel/)?.getAttribute('aria-pressed')).toBe('false');
     expect(champManuel()).toBeNull(); // le panneau manuel n'apparaît qu'en mode manuel
   });
 
-  it('la bascule dit en toutes lettres ce que fait chaque mode', async () => {
+  it('la bascule dit en toutes lettres ce que fait chaque mode (auto = carrousel ; manuel = vivier)', async () => {
     await monter();
-    expect(container.textContent).toMatch(/Préparer les demandes/i); // description du mode automatique
-    expect(container.textContent).toMatch(/vivier/i);                 // description du mode manuel
+    expect(container.textContent).toMatch(/carrousel/i); // description du mode automatique (cartes dans le carrousel)
+    expect(container.textContent).toMatch(/vivier/i);    // description du mode manuel
+    expect(boutons().some((b) => /Préparer/i.test(b.textContent ?? ''))).toBe(false); // aucun bouton « Préparer … » (bloc intermédiaire retiré)
   });
 
   it('bascule en mode manuel → le panneau de recherche du vivier apparaît, mode manuel actif', async () => {

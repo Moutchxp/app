@@ -571,46 +571,53 @@ export function signatureEntreprise(config: ConfigDemandeur): string[] {
  * proviennent de la config. `profil` sélectionne le modèle : 'entreprise' (identité de société, INCHANGÉ depuis S7c)
  * ou 'personne' (en-tête Nom/adresse/e-mail, 1re personne, aucune société/qualité/marque).
  */
+/**
+ * P3 — CORPS DÉDIÉ du canal FORMULAIRE (dépôt manuel sur téléservice), validé AU MOT PRÈS. Générateur PUR extrait de
+ * `genererTexte` (branche formulaire) pour être RÉUTILISÉ tel quel par l'affichage automatique (carte de dépôt « à la volée »,
+ * matérialisée seulement au 1er geste) : le corps ne dépend QUE du lot — AUCUNE identité, adresse de réponse, société, pièce
+ * configurable ni référence SVAV (une mairie n'adopte pas notre nomenclature ; le lien réponse↔permis passe par la référence de
+ * la MAIRIE). Donc corps « virtuel » (affiché/copié avant création) == corps matérialisé, BYTE POUR BYTE. Socle juridique EN DUR :
+ * L311-1, L311-9 3°, R431-9 (liste close INCHANGÉE). `genererTexte` délègue ici → la sortie du chemin e-mail reste inchangée.
+ */
+export function corpsFormulaireTeleservice(lot: Lot): TexteDemande {
+  const ligneDossierForm = (d: CandidatDossier): string => {
+    // U2 — référence AU MÊME FORMAT que le champ « Numéro de dossier instruit » (formaterReferencePermis, source unique). À
+    //   défaut de type (jamais en pratique — Sitadel garantit PC/PD), on retombe sur le num_dau BRUT : identifiant réel, pas un
+    //   type inventé. U4 — adresse via composerAdressePermis (source UNIQUE, partagée avec la carte de dépôt) : voie + ville/CP
+    //   + arrondissement quand l'adresse existe ; sinon DÉGRADATION propre (ville/CP + arrondissement), JAMAIS « non renseignée ».
+    const ref = formaterReferencePermis(d.type, d.numDau);
+    const refTexte = ref.ok ? ref.reference : d.numDau;
+    const cad = d.cadastre.length ? `parcelle(s) ${d.cadastre.join(', ')}` : '';
+    const segments = [refTexte, `autorisé le ${dateEnFrancais(d.dateReelleAutorisation)}`, composerAdressePermis(d).ligne, cad];
+    return segments.filter((x) => x !== '').join(' — ');
+  };
+  const objet = 'Demande de communication de documents administratifs';
+  const corps = [
+    'À l’attention du service de l’urbanisme',
+    '',
+    'Madame, Monsieur,',
+    '',
+    'En application des articles L. 311-1 et L. 311-9 3° du code des relations entre le public et l’administration, pourriez-vous, s’il vous plaît, me communiquer par courrier électronique les pièces suivantes du permis ci-dessous :',
+    '',
+    '— la pièce PC2, plan de masse coté dans les trois dimensions, prévue à l’article R. 431-9 du code de l’urbanisme ;',
+    '— la pièce PC3, plan en coupe du terrain et de la construction.',
+    '',
+    ...lot.dossiers.map((d) => `Permis concerné : ${ligneDossierForm(d)}`),
+    '',
+    'Je vous remercie par avance pour votre aide et vous souhaite une excellente journée.',
+  ].join('\n');
+  return { objet, corps };
+}
+
 export function genererTexte(
   lot: Lot, config: ConfigDemandeur, reference: string, pieces: Piece[], profil: ProfilDemandeur = 'entreprise',
   adresseReponse = '', mentions: MentionsCorps = {},
 ): TexteDemande {
   const n = lot.dossiers.length;
 
-  // P3 — CANAL FORMULAIRE (dépôt manuel sur téléservice) : corps DÉDIÉ, validé AU MOT PRÈS. Branche PRÉCOCE → le code des
-  // variantes e-mail (ci-dessous) est strictement INCHANGÉ. UN SEUL permis (le téléservice impose un dossier par dépôt),
-  // AUCUNE identité / adresse de réponse / société (FranceConnect les impose et le récapitulatif du formulaire les reprend),
-  // AUCUN rappel de la référence SVAV (une mairie n'adopte pas notre nomenclature ; le lien réponse↔permis se fera par la
-  // référence de la MAIRIE — chantier P5). Socle juridique EN DUR : L311-1, L311-9 3°, R431-9 (liste close INCHANGÉE).
-  if (lot.canal === 'formulaire') {
-    const ligneDossierForm = (d: CandidatDossier): string => {
-      // U2 — référence AU MÊME FORMAT que le champ « Numéro de dossier instruit » (formaterReferencePermis, source unique). À
-      //   défaut de type (jamais en pratique — Sitadel garantit PC/PD), on retombe sur le num_dau BRUT : identifiant réel, pas un
-      //   type inventé. U4 — adresse via composerAdressePermis (source UNIQUE, partagée avec la carte de dépôt) : voie + ville/CP
-      //   + arrondissement quand l'adresse existe ; sinon DÉGRADATION propre (ville/CP + arrondissement), JAMAIS « non renseignée ».
-      const ref = formaterReferencePermis(d.type, d.numDau);
-      const refTexte = ref.ok ? ref.reference : d.numDau;
-      const cad = d.cadastre.length ? `parcelle(s) ${d.cadastre.join(', ')}` : '';
-      const segments = [refTexte, `autorisé le ${dateEnFrancais(d.dateReelleAutorisation)}`, composerAdressePermis(d).ligne, cad];
-      return segments.filter((x) => x !== '').join(' — ');
-    };
-    const objet = 'Demande de communication de documents administratifs';
-    const corps = [
-      'À l’attention du service de l’urbanisme',
-      '',
-      'Madame, Monsieur,',
-      '',
-      'En application des articles L. 311-1 et L. 311-9 3° du code des relations entre le public et l’administration, pourriez-vous, s’il vous plaît, me communiquer par courrier électronique les pièces suivantes du permis ci-dessous :',
-      '',
-      '— la pièce PC2, plan de masse coté dans les trois dimensions, prévue à l’article R. 431-9 du code de l’urbanisme ;',
-      '— la pièce PC3, plan en coupe du terrain et de la construction.',
-      '',
-      ...lot.dossiers.map((d) => `Permis concerné : ${ligneDossierForm(d)}`),
-      '',
-      'Je vous remercie par avance pour votre aide et vous souhaite une excellente journée.',
-    ].join('\n');
-    return { objet, corps };
-  }
+  // P3 — CANAL FORMULAIRE : branche PRÉCOCE déléguée au générateur pur `corpsFormulaireTeleservice` (source unique, réutilisée
+  //   par l'affichage automatique) → le code des variantes e-mail (ci-dessous) reste strictement INCHANGÉ.
+  if (lot.canal === 'formulaire') return corpsFormulaireTeleservice(lot);
 
   // S40 — mentions de pratique (éditables) ; null si désactivées/vides. Insérées à leur place naturelle dans les 2 gabarits.
   const ligneService = mentionRetenue(mentions.serviceActive, mentions.serviceTexte);
