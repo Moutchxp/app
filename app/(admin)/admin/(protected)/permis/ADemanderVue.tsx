@@ -10,6 +10,7 @@ import { BlocDepot } from './BlocDepot';
 import { SuiviDemandes } from './SuiviDemandes';
 import { RechercheVivier } from './RechercheVivier';
 import { CompteurVivierTeleservice } from './CompteurVivierTeleservice';
+import { ResumeCriteresTeleservice } from './ResumeCriteresTeleservice';
 import { dansProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 
 /**
@@ -159,6 +160,9 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
       {/* COMPTEUR DE VIVIER (lot 2) — permis encore demandables en Téléservice, AU-DESSUS du carrousel, à gauche. INDÉPENDANT du
           carrousel : s'affiche même quand BlocDepot rend null (0 carte). Même signal de rafraîchissement (signalSuivi) que le carrousel. */}
       {process === 'formulaire' && <CompteurVivierTeleservice signalRafraichir={signalSuivi} />}
+      {/* RÉSUMÉ DES CRITÈRES (lot 3) — sous le compteur, au-dessus du carrousel : critères propres au téléservice ÉDITABLES ici,
+          critères partagés avec l'E-mail en LECTURE SEULE (renvoi vers Réglages). Se rafraîchit sur le même signal (signalSuivi). */}
+      {process === 'formulaire' && <ResumeCriteresTeleservice signalRafraichir={signalSuivi} onChangement={signalerChangement} onAllerReglages={onAllerReglages} />}
       {/* CARROUSEL TÉLÉSERVICE (lot 1 — présentation) — les cartes de dépôt à faire, DÉPLACÉES ici JUSTE SOUS le bloc des deux rails
           (CommutateurProcess + GroupeRailsCommunes, montés dans PermisTuile au-dessus de cette vue). UNE SEULE instance à l'écran
           (retirée du bas de l'onglet). Réservé au rail Téléservice (process === 'formulaire'), comme avant. DEPOT-1 : mêmes signaux. */}
