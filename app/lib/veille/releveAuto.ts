@@ -18,6 +18,7 @@ import { query, pool } from '../db/client';
 import { chargerConfigVeille } from '../sitadel/veilleConfig';
 import type { ProfilBoite } from './demandeReponseRepo';
 import { releverBoite, type ClientBoite, type RapportReleve } from './releveReponses';
+import { autoConfirmerAccusesTeleservice } from './autoConfirmationTeleservice'; // téléservice : bascule auto d'un accusé citant un num_dau en attente (aucun envoi)
 import { CLE_VERROU_VEILLE } from './verrouVeille';
 
 export type ResultatReleveAuto = 'ok' | 'erreur' | 'ignore';
@@ -170,7 +171,14 @@ export function depsReellesReleveAuto(): DepsReleveAuto {
     },
     relever: async (client, profil) => { // appliquer=true : écriture réelle (R7). N1-A : branche le versement auto en GED.
       const { brancheDepotManuel } = await import('../sitadel/depotManuel');
-      return releverBoite({ client, profil, appliquer: true, depot: await brancheDepotManuel(profil) });
+      const rapport = await releverBoite({ client, profil, appliquer: true, depot: await brancheDepotManuel(profil) });
+      // TÉLÉSERVICE — auto-confirmation des accusés citant le num_dau d'une demande EN ATTENTE (bascule + réf. + rattach + trace),
+      //   APRÈS la relève (sur les accusés fraîchement enregistrés, non rattachés). ISOLÉ : une erreur ici ne fait PAS échouer la
+      //   relève (le rapport releve_run reste fidèle). AUCUN envoi (marquerDeposee/ajouterReferenceExterne = écritures DB pures) →
+      //   la garde de sûreté « aucun émetteur » du foyer de relève est préservée.
+      try { await autoConfirmerAccusesTeleservice(true); }
+      catch (e) { console.error('[auto-confirm téléservice] échec (relève préservée)', e instanceof Error ? e.message : e); }
+      return rapport;
     },
     insererRun: async (profil) => {
       const { rows } = await query<{ id: number }>(

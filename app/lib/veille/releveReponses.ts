@@ -172,6 +172,21 @@ export function extraireReferenceMairie(objet: string | null | undefined, corps:
 }
 
 /**
+ * Auto-confirmation téléservice — COMPTE les références mairie DISTINCTES d'un accusé, et rend la référence UNIQUE si (et seulement
+ * si) il y en a exactement une. RÉUTILISE le MÊME `MOTIF_REFERENCE` que l'extraction et la rétention (aucune 2e définition ; ici en
+ * drapeau global via `.source`). ⚠️ OBJET D'ABORD, comme `extraireReferenceMairie` : le corps d'un accusé contient le PERMIS
+ * (« PC07511625V0016 ») dont `MOTIF_REFERENCE` capte le préfixe « PC07511625 » — le compter FAUSSERAIT le décompte (2 au lieu de 1).
+ * L'objet, lui, ne porte que la référence de la mairie (« …référence SLC260914095998… »). Corps consulté SEULEMENT si l'objet n'a
+ * aucune référence (mairie sans référence en objet). `count` = 0 (aucune, à saisir), 1 (unique → enregistrée), ≥ 2 (ambigu → aucune). PUR.
+ */
+export function compterReferencesMairie(objet: string | null | undefined, corps: string | null | undefined): { count: number; reference: string | null } {
+  const distincts = (s: string): string[] => [...new Set(s.match(new RegExp(MOTIF_REFERENCE.source, 'g')) ?? [])];
+  const enObjet = distincts(objet ?? '');
+  const trouves = enObjet.length > 0 ? enObjet : distincts(corps ?? ''); // objet d'abord ; corps SEULEMENT si l'objet n'en a aucune
+  return { count: trouves.length, reference: trouves.length === 1 ? trouves[0] : null };
+}
+
+/**
  * LOT 35 — RÉFÉRENCE mairie (SLC…) portée par UN message reçu (l'accusé), lue depuis SON objet + SON corps. Sert à la confirmation
  * de dépôt (T4) : la référence est extraite du MESSAGE qui a déclenché la proposition, donc INDÉPENDANTE de l'ordre des clics
  * (dépôt avant ou après l'accusé). `null` si le message est introuvable ou ne porte aucune référence. LECTURE SEULE.
