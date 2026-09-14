@@ -814,7 +814,9 @@ const RAISON_LOT_INVALIDE = 'lot plus disponible : dossiers déjà rattachés, p
  */
 async function construireLotsManuels(cfg: ConfigVeille, dossierIds: number[]): Promise<{ lots: Lot[]; ignores: LotIgnore[] }> {
   const dossiers = await lireDossiersParIds(cfg, dossierIds);
-  const parId = new Map(dossiers.map((d) => [d.id, versCandidat(d)]));
+  // ⚠️ `d.id` est un bigint sérialisé en CHAÎNE (piège bigint→chaîne) ; `dossierIds` (validés par la route) sont des ENTIERS.
+  //   On indexe la Map par `Number(d.id)` pour que `parId.get(id)` corresponde — sinon get(nombre) sur des clés chaîne rate toujours.
+  const parId = new Map(dossiers.map((d) => [Number(d.id), versCandidat(d)]));
   const lots: Lot[] = [];
   const ignores: LotIgnore[] = [];
   for (const id of dossierIds) {

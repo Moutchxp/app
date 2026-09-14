@@ -69,10 +69,15 @@ export function RechercheVivierManuel({ categories, onPrepared }: {
   //   au carrousel : on marque le permis « préparé » (sa ligne le montre) et on notifie le parent (onPrepared → rafraîchit le
   //   carrousel + les compteurs). Le plafond ne bloque pas : ce bouton reste actif même au plafond.
   async function preparer(p: PermisVivier): Promise<void> {
+    // ⚠️ L'id de dossier est un bigint : l'API le sérialise en CHAÎNE ("11142"). La route attend un ENTIER (validerIdsLot, strict —
+    //   « une chaîne n'est jamais un id valide », piège bigint→chaîne). On le convertit ICI, au point d'appel : sans ça la requête
+    //   part avec une chaîne et la garde saine « au moins un des deux » la refuse (« aucun lot sélectionné »). Jamais NaN → garde.
+    const dossierId = Number(p.dossierId);
+    if (!Number.isInteger(dossierId)) { setRetour({ texte: `Identifiant de permis illisible (${p.numDau}) — préparation impossible.`, ok: false }); return; }
     setPreparant(p.dossierId); setRetour(null);
     try {
       const r = await fetch('/api/admin/permis/demandes', {
-        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dossiersManuels: [p.dossierId] }),
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dossiersManuels: [dossierId] }),
       });
       const d = (await r.json().catch(() => ({}))) as { demandesCreees?: number; ignoresConflit?: number; lotsInvalides?: { raison?: string }[]; erreur?: string };
       if (r.ok && (d.demandesCreees ?? 0) >= 1) {

@@ -18,8 +18,10 @@ let root: Root;
 let postDemandes: unknown[]; // corps JSON des POST vers /api/admin/permis/demandes (création)
 
 const CATS = [{ cle: 'immeuble_neuf', libelle: 'Immeuble neuf', rang: 1 }];
+// ⚠️ dossierId est un bigint que l'API sérialise en CHAÎNE (forme RÉELLE du fil) — le type `number` ment à l'exécution. Les tests
+//   REPRODUISENT cette chaîne : le défaut cf0c6cd est passé justement parce qu'un mock numérique donnait un faux vert.
 const permis = (over: Partial<PermisVivier> = {}): PermisVivier => ({
-  dossierId: 4242, numDau: 'PC07511524V0006', type: 'PC', codeInsee: '75111', communeNom: 'Paris 11e',
+  dossierId: '4242' as unknown as number, numDau: 'PC07511524V0006', type: 'PC', codeInsee: '75111', communeNom: 'Paris 11e',
   canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2025-02-01', ...over,
 });
 
@@ -77,6 +79,21 @@ describe('MODE MANUEL — panneau de préparation', () => {
     expect(postDemandes).toEqual([{ dossiersManuels: [4242] }]);
     expect(onPrepared).toHaveBeenCalled();                 // la carte rejoint le carrousel (rafraîchissement des vues sœurs)
     expect(container.textContent).toMatch(/Demande préparée/i);
+  });
+
+  it('RÉGRESSION bigint→chaîne — un dossierId sérialisé en CHAÎNE est envoyé à la route comme ENTIER (jamais rejeté par la garde)', async () => {
+    // Le défaut cf0c6cd : le vivier renvoie dossierId "11142" (chaîne, bigint) ; le clic l'envoyait tel quel ; validerIdsLot
+    //   (strict Number.isInteger) le refusait → « aucun lot sélectionné ». Ce test aurait attrapé ça (mock = forme réelle du fil).
+    repVivier = { resultats: [permis({ dossierId: '11142' as unknown as number })], total: 1, autreProcess: 0, tronque: false, bloquees: {}, plafonds: {} };
+    await monter();
+    await rechercher('0751');
+    await act(async () => { boutonPar(/Préparer cette demande/)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await flush();
+
+    expect(postDemandes).toHaveLength(1);
+    const body = postDemandes[0] as { dossiersManuels: unknown[] };
+    expect(body.dossiersManuels).toEqual([11142]);                  // ENTIER 11142, pas la chaîne "11142"
+    expect(Number.isInteger(body.dossiersManuels[0])).toBe(true);   // exactement ce que la garde de la route exige
   });
 
   it('commune BLOQUÉE (verrou) → signalée AVANT la tentative, AUCUN bouton « Préparer » (mais un déblocage possible)', async () => {
