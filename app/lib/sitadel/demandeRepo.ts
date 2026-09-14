@@ -7,6 +7,7 @@ import { query, withTransaction } from '../db/client';
 import { chargerConfigVeille, type ConfigVeille } from './veilleConfig';
 import { lireDossiersPriorite, lireDossiersDepuis, type DossierAffiche } from './veilleRepo';
 import type { CanalContact } from './mairieContact';
+import { processDeCanal } from './process'; // Lot 2 (carrousel) — mapping SOURCE UNIQUE canal→rail pour le décompte du vivier par process
 import {
   type CandidatDossier, type ConfigDemandeur, type Lot, type HistoriqueDemandes, type DiagnosticProposition, type ParamsLot,
   type ProfilDemandeur,
@@ -257,6 +258,28 @@ export async function chargerVivier(cfg: ConfigVeille): Promise<{ vivier: Permis
     });
   }
   return { vivier, tronque };
+}
+
+/**
+ * Lot 2 (carrousel) — DÉCOMPTE PUR des permis d'un vivier par process (email / formulaire), via `processDeCanal` (SOURCE UNIQUE
+ * canal→rail). On compte des PERMIS (une commune peut en porter plusieurs), JAMAIS des communes. Les canaux hors des deux
+ * process ('courrier'/'inconnu'/absent) ne sont dans aucun compteur. PUR (aucune I/O).
+ */
+export function compterParProcess(vivier: readonly { canal: string | null }[]): { email: number; formulaire: number } {
+  let email = 0, formulaire = 0;
+  for (const p of vivier) { const pr = processDeCanal(p.canal); if (pr === 'email') email++; else if (pr === 'formulaire') formulaire++; }
+  return { email, formulaire };
+}
+
+/**
+ * Lot 2 (carrousel) — décompte des permis ENCORE DEMANDABLES par process, DÉRIVÉ de la MÊME source que la recherche
+ * (`chargerVivier` : éligibilité stock/proposition — non déjà demandés, ancienneté complète —, JAMAIS le cap de candidats ni le
+ * plafond mensuel, qui ne bornent que le PROCHAIN lot). C'est donc le STOCK RESTANT, pas la taille d'un lot. `tronque` (plafond
+ * de chargement de `lireDossiersDepuis`) : quand true, le décompte est un MINIMUM. LECTURE SEULE (n'écrit rien).
+ */
+export async function compterVivierParProcess(cfg: ConfigVeille): Promise<{ email: number; formulaire: number; tronque: boolean }> {
+  const { vivier, tronque } = await chargerVivier(cfg);
+  return { ...compterParProcess(vivier), tronque };
 }
 
 /** Q2b — un permis délivré (panneau de détail) : identité + type + s'il est DÉJÀ demandé (réf. de la demande active), sinon à demander. */
