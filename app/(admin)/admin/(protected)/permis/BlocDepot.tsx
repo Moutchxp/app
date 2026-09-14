@@ -81,6 +81,25 @@ export function BlocDepot({ signalRafraichir, onChangement }: { signalRafraichir
     return () => { annule = true; };
   }, [signalRafraichir]); // DEPOT-1 — se recharge à chaque signal du parent (création, dépôt, annulation)
 
+  // CARROUSEL — MOLETTE verticale → défilement HORIZONTAL, dans les bornes du carrousel (en bout de course, la PAGE reprend la
+  //   main → pas de scroll piégé). Listener natif NON-PASSIF pour que preventDefault soit fiable. Le trackpad horizontal (deltaX)
+  //   et le swipe tactile restent NATIFS (overflow-x). Ré-attaché quand la file apparaît (piste montée) ou change de longueur.
+  useEffect(() => {
+    const piste = pisteRef.current;
+    if (!piste) return;
+    const onWheel = (e: WheelEvent): void => {
+      if (e.deltaX !== 0 || e.deltaY === 0) return;                       // geste déjà horizontal (trackpad) → natif
+      const max = piste.scrollWidth - piste.clientWidth;
+      if (max <= 1) return;                                               // rien à faire défiler (une seule carte visible en entier)
+      const versDroite = e.deltaY > 0;
+      if ((versDroite && piste.scrollLeft >= max - 1) || (!versDroite && piste.scrollLeft <= 0)) return; // en bout → laisser la page
+      piste.scrollLeft += e.deltaY;
+      e.preventDefault();
+    };
+    piste.addEventListener('wheel', onWheel, { passive: false });
+    return () => piste.removeEventListener('wheel', onWheel);
+  }, [demandes.length]);
+
   const poser = (id: number, texte: string): void => setMsg((s) => ({ ...s, [id]: texte }));
 
   async function marquerDeposee(id: number): Promise<void> {
@@ -155,21 +174,25 @@ export function BlocDepot({ signalRafraichir, onChangement }: { signalRafraichir
       {retourAnnul && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourAnnul}</div>}
       {/* LOT 34 — état de la relève déclenchée par « copier » : « relevée dans un instant » puis résultat. Jamais silencieux. */}
       {releveMsg && <div role="status" aria-live="polite" style={{ fontSize: 12, color: 'var(--color-svv-ink)' }}>{releveMsg}</div>}
-      {/* CARROUSEL (présentation) — barre de navigation : Précédent / position EN TEXTE / Suivant (tous focusables au clavier). */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem', minHeight: 40 }}
-          onClick={() => allerA(pos - 1)} disabled={pos <= 0} aria-label="Carte précédente"><span aria-hidden="true">‹</span> Précédent</button>
-        <span role="status" aria-live="polite" style={{ fontSize: 13, fontWeight: 600, minWidth: '5.5rem', textAlign: 'center' }}>{pos + 1} sur {demandes.length}</span>
-        <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem', minHeight: 40 }}
-          onClick={() => allerA(pos + 1)} disabled={pos >= demandes.length - 1} aria-label="Carte suivante">Suivant <span aria-hidden="true">›</span></button>
+      {/* CARROUSEL — navigation DISCRÈTE, sur UNE seule ligne (deux petits boutons + la position EN TEXTE), pour ne PAS manger de
+          la hauteur au-dessus des cartes. `flex:'0 0 auto'` + `width:'auto'` ANNULENT le `width:100%` de `.svv-btn` (sinon chaque
+          bouton prenait toute la largeur et s'empilait). Boutons focusables ; la position en toutes lettres accompagne les flèches. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+        <button type="button" className="svv-btn svv-btn-outline" style={{ flex: '0 0 auto', width: 'auto', padding: '.25rem .6rem', minHeight: 36 }}
+          onClick={() => allerA(pos - 1)} disabled={pos <= 0} aria-label="Carte précédente"><span aria-hidden="true">‹</span></button>
+        <span role="status" aria-live="polite" style={{ fontSize: 13, fontWeight: 600, minWidth: '4.5rem', textAlign: 'center' }}>{pos + 1} sur {demandes.length}</span>
+        <button type="button" className="svv-btn svv-btn-outline" style={{ flex: '0 0 auto', width: 'auto', padding: '.25rem .6rem', minHeight: 36 }}
+          onClick={() => allerA(pos + 1)} disabled={pos >= demandes.length - 1} aria-label="Carte suivante"><span aria-hidden="true">›</span></button>
       </div>
-      {/* PISTE — une carte à la fois (flex: 0 0 100%), défilement horizontal + scroll-snap (swipe natif). Hauteur = celle de la
-          carte la PLUS HAUTE (la piste flex adopte la hauteur de son plus grand item) → AUCUN saut vertical d'une carte à l'autre ;
-          overflow-Y masqué (pas de débordement vertical parasite). CarteDepot INCHANGÉE (mêmes props, mêmes gestes, mêmes enfants). */}
+      {/* PISTE — rangée flex de cartes CÔTE À CÔTE à leur largeur d'ORIGINE (~320 px, `min(20rem,90vw)` : ~320 px sur desktop,
+          l'essentiel de la largeur sur iPhone portrait), défilement HORIZONTAL (swipe/trackpad natifs + molette + boutons) +
+          scroll-snap. `alignItems:'flex-start'` = rangée alignée EN HAUT → aucun saut vertical d'une carte à l'autre. Seule la
+          PISTE défile (overflow-x) : la page ne déborde jamais horizontalement. `overscrollBehaviorX:'contain'` évite le retour
+          navigateur. CarteDepot INCHANGÉE (mêmes props, mêmes gestes, mêmes enfants). */}
       <div ref={pisteRef} onScroll={onScrollPiste} role="group" aria-label="Cartes de dépôt à faire (défilement horizontal)"
-        style={{ display: 'flex', gap: '.6rem', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x mandatory', position: 'relative', alignItems: 'flex-start', WebkitOverflowScrolling: 'touch' }}>
+        style={{ display: 'flex', gap: '.6rem', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x mandatory', overscrollBehaviorX: 'contain', position: 'relative', alignItems: 'flex-start', WebkitOverflowScrolling: 'touch' }}>
         {demandes.map((d) => (
-          <div key={d.id} style={{ flex: '0 0 100%', minWidth: 0, boxSizing: 'border-box', scrollSnapAlign: 'start' }}>
+          <div key={d.id} style={{ flex: '0 0 auto', width: 'min(20rem, 90vw)', boxSizing: 'border-box', scrollSnapAlign: 'start' }}>
             <CarteDepot d={d}
               onCopieTexte={() => { signalerDepot(d.id, 'texte'); programmerReleve(); }} onCopieRef={() => { signalerDepot(d.id, 'ref'); programmerReleve(); }}>
               {/* P1 — référence renvoyée par la mairie (accusé de réception). Facultative : ne bloque jamais le dépôt. */}
