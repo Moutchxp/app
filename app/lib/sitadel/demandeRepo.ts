@@ -13,7 +13,7 @@ import {
   type ProfilDemandeur,
   proposerLots, genererTexte, piecesDepuisConfig, formaterReferenceDemande, problemesIdentite, profilValide, ETIQUETTE_PROFIL,
   configAvecSignataire, apparierSelection, profilEffectifLot, raisonInexploitable, estCandidatEligible,
-  verdictAnnulation, RAISON_REFUS_ANNULATION, valeurRail,
+  verdictAnnulation, RAISON_REFUS_ANNULATION, valeurRail, cleLot,
 } from './demande';
 import type { PermisVivier } from './rechercheVivier'; // D3 : type SEUL (le module de recherche est PUR)
 import { type Collaborateur, choisirCollaborateur } from './collaborateur';
@@ -216,6 +216,40 @@ export async function proposition(cfg: ConfigVeille, ancienneteMois?: number): P
   const candidats = dossiers.map(versCandidat).filter((c) => !bloquees?.has(c.codeInsee));
   const params = paramsLot(cfg, ancienneteMois); // Q4 : fenêtre d'ancienneté d'écran (bornée), défaut = maximum du réglage
   return { lots: proposerLots(candidats, params, hist), diagnostic: diagnostiquer(candidats, hist, params) };
+}
+
+/** Une commune LIBRE du rail téléservice, prête à recevoir UN dépôt (le premier lot proposé). Sert à l'affichage automatique. */
+export interface PropositionDepotTeleservice {
+  codeInsee: string;
+  communeNom: string;
+  cle: string;                                  // clé du lot — la création (creerDemandes) la ré-apparie sur ses lots frais
+  permis: { numDau: string; type: 'PC' | 'PD' | null }[];
+  nbDossiers: number;
+}
+
+/**
+ * TÉLÉSERVICE — communes LIBRES avec, pour chacune, LA proposition de dépôt (le PREMIER lot). RÉUTILISE `proposition` : le verrou
+ * « référence mairie » (77b1800, gaté par le réglage), le plafond mensuel et l'éligibilité au vivier y sont DÉJÀ appliqués — donc
+ * un lot téléservice = une commune libre au sens du porteur (pas de verrou vivant + cap non atteint + ≥1 permis éligible), aucune
+ * redéfinition ici. On y ajoute la seule règle d'AFFICHAGE « un dépôt à la fois » : une commune ayant DÉJÀ une demande téléservice
+ * PRÉPARÉE (brouillon/prête — sa carte est déjà dans le carrousel `listerADeposer`) n'est PAS re-proposée. UNE entrée par commune.
+ * LECTURE SEULE (aucune écriture ; la création reste le clic « Préparer cette demande » → chemin `creerDemandes` existant).
+ */
+export async function propositionsDepotTeleservice(cfg: ConfigVeille): Promise<PropositionDepotTeleservice[]> {
+  const { lots } = await proposition(cfg);
+  const teleservice = lots.filter((l) => l.canal === 'formulaire');
+  if (teleservice.length === 0) return [];
+  const { rows } = await query<{ code_insee: string }>(
+    `SELECT DISTINCT code_insee FROM demande WHERE dest_canal = 'formulaire' AND statut IN ('brouillon', 'prete')`);
+  const dejaPreparees = new Set(rows.map((r) => r.code_insee.trim()));
+  const vues = new Set<string>();
+  const out: PropositionDepotTeleservice[] = [];
+  for (const l of teleservice) {
+    if (dejaPreparees.has(l.codeInsee) || vues.has(l.codeInsee)) continue; // UNE carte par commune libre ; jamais une commune déjà préparée
+    vues.add(l.codeInsee);
+    out.push({ codeInsee: l.codeInsee, communeNom: l.communeNom, cle: cleLot(l), permis: l.dossiers.map((d) => ({ numDau: d.numDau, type: d.type ?? null })), nbDossiers: l.dossiers.length });
+  }
+  return out;
 }
 
 // ── Q2b : STOCK de permis encore à demander, par commune et par type (LECTURE SEULE) ─────────────────────────────────

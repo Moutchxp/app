@@ -164,10 +164,10 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
       {/* RÉSUMÉ DES CRITÈRES (lot 3) — sous le compteur, au-dessus du carrousel : critères propres au téléservice ÉDITABLES ici,
           critères partagés avec l'E-mail en LECTURE SEULE (renvoi vers Réglages). Se rafraîchit sur le même signal (signalSuivi). */}
       {process === 'formulaire' && <ResumeCriteresTeleservice signalRafraichir={signalSuivi} onChangement={signalerChangement} onAllerReglages={onAllerReglages} />}
-      {/* BASCULE AUTO/MANUEL (ce lot) — AU-DESSUS du carrousel, réservée au rail Téléservice. PUREMENT ADDITIVE : ne gouverne que
-          le nouveau panneau manuel ; le carrousel, « Préparer les demandes » et la recherche existante restent inchangés plus bas.
-          Une demande manuelle préparée passe par le chemin EXISTANT et apparaît dans le MÊME carrousel (signalerChangement). */}
-      {process === 'formulaire' && <ModeDemandeTeleservice categories={categories} onChangement={signalerChangement} />}
+      {/* BASCULE AUTO/MANUEL (téléservice) — AU-DESSUS du carrousel. En mode AUTO : une carte de dépôt par commune LIBRE, proposée
+          sans geste (remplace le bouton « Préparer les demandes », retiré de CE rail — un téléservice ne fait qu'un dépôt à la fois).
+          En mode MANUEL : recherche d'un permis. Une demande préparée passe par le chemin EXISTANT et rejoint le MÊME carrousel. */}
+      {process === 'formulaire' && <ModeDemandeTeleservice categories={categories} signalRafraichir={signalSuivi} onChangement={signalerChangement} />}
       {/* CARROUSEL TÉLÉSERVICE (lot 1 — présentation) — les cartes de dépôt à faire, DÉPLACÉES ici JUSTE SOUS le bloc des deux rails
           (CommutateurProcess + GroupeRailsCommunes, montés dans PermisTuile au-dessus de cette vue). UNE SEULE instance à l'écran
           (retirée du bas de l'onglet). Réservé au rail Téléservice (process === 'formulaire'), comme avant. DEPOT-1 : mêmes signaux. */}
@@ -201,16 +201,23 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
         ) : null}
       />
 
-      {/* D2/Part 6 — COHÉRENCE stock ↔ lots : un permis peut être visible ici SANS être proposable en lot. La raison se lit. */}
+      {/* D2/Part 6 — COHÉRENCE stock ↔ propositions : un permis peut être visible ici SANS être proposé. La raison se lit (par rail). */}
       {stockOuvert && stockLignes.length > 0 && (
         <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>
-          Un permis listé ici n’est pas toujours proposable en lot : sa commune peut être <strong>au plafond mensuel</strong> ou
-          le permis <strong>déjà demandé</strong>. Lancez « Préparer les demandes » : le détail nommé s’affiche sous l’aperçu
-          (« Pourquoi peu ou pas de lots »).
+          {process === 'formulaire' ? (
+            <>Un permis listé ici n’est pas toujours proposé en dépôt : sa commune peut être <strong>au plafond mensuel</strong>,
+            <strong> en attente d’un accusé</strong>, ou le permis <strong>déjà demandé</strong> — dans ces cas aucune carte n’apparaît pour elle en mode automatique.</>
+          ) : (
+            <>Un permis listé ici n’est pas toujours proposable en lot : sa commune peut être <strong>au plafond mensuel</strong> ou
+            le permis <strong>déjà demandé</strong>. Lancez « Préparer les demandes » : le détail nommé s’affiche sous l’aperçu
+            (« Pourquoi peu ou pas de lots »).</>
+          )}
         </p>
       )}
 
-      {/* Préparation : lance la proposition, choisit le profil, affiche le retour d'action. */}
+      {/* Préparation E-MAIL — « Préparer les demandes » (envoi groupé sur les 366 communes e-mail) + profil + retour. RETIRÉ du rail
+          TÉLÉSERVICE (accord porteur) : là, le mode automatique propose une carte de dépôt par commune libre (bascule ci-dessus). */}
+      {process === 'email' && (
       <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.4rem .8rem' }} onClick={() => void preparerAvec(ancienneteMois)}>Préparer les demandes</button>
         <label style={{ fontSize: 12, display: 'flex', gap: '.3rem', alignItems: 'center' }}>Profil
@@ -220,8 +227,9 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
         </label>
         <MessageRetour r={retour} />
       </div>
+      )}
 
-      {prop && (
+      {process === 'email' && prop && (
         <CartePropositions
           resumeDiag={resumeDiagnostic(prop.diagnostic)} explication={explication} total={lotsProp.length}
           profilLibelle={ETIQUETTE_PROFIL[profilPrep].toLowerCase()}
@@ -233,7 +241,7 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
 
       {/* D2/Part 5 — POURQUOI peu ou pas de lots : communes NOMMÉES (fin du décompte anonyme). Scopé au process actif (canal).
           Fin de la « soirée Paris » : Paris apparaît ici, au plafond, avec son quota et sa date de libération. */}
-      {prop && (() => {
+      {process === 'email' && prop && (() => {
         const plafond = (prop.diagnostic.communesAuPlafond ?? []).filter((c) => dansProcess(c.canal, process));
         const sansCanal = process === 'email' ? (prop.diagnostic.communesSansCanalNoms ?? []) : []; // « sans canal » ne concerne que la voie e-mail
         const dejaN = prop.diagnostic.dossiersDejaRattaches;

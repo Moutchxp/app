@@ -2,23 +2,24 @@
 
 import { useState } from 'react';
 import { RechercheVivierManuel } from './RechercheVivierManuel';
+import { DepotAutoTeleservice } from './DepotAutoTeleservice';
 
 /**
- * MODE DE PRÉPARATION (téléservice) — bascule entre deux modes, AU-DESSUS du carrousel. PUREMENT ADDITIF : n'enlève, ne masque,
- * ne déplace et ne conditionne AUCUN élément existant (le carrousel, le bouton « Préparer les demandes » et le moteur de
- * recherche actuels restent en place, inchangés, plus bas dans l'onglet). La bascule ne gouverne QUE le nouveau panneau manuel.
+ * MODE DE PRÉPARATION (téléservice) — bascule entre deux modes, AU-DESSUS du carrousel. Le rail Téléservice n'a PAS de bouton
+ * « Préparer les demandes » (préparer un lot n'a aucun sens : un téléservice ne permet qu'un dépôt à la fois, et le verrou de
+ * commune n'autorise qu'une demande en vol). Le rail E-mail garde son bouton (envoi groupé légitime), rendu par ADemanderVue.
  *
- * - AUTOMATIQUE (par défaut au chargement) : les cartes du carrousel viennent du bouton « Préparer les demandes », qui applique
- *   les critères de sélection. Rien de neuf ne s'affiche — les outils d'aujourd'hui restent en dessous.
- * - MANUEL : un panneau apparaît pour choisir soi-même un permis dans le vivier téléservice et préparer sa demande, hors du tri.
+ * - AUTOMATIQUE (par défaut) : pour chaque commune LIBRE, une carte de dépôt est proposée sans aucun geste (DepotAutoTeleservice).
+ * - MANUEL : un panneau apparaît pour choisir soi-même un permis dans le vivier téléservice, hors des critères de sélection.
  *
  * Chaque mode dit en TOUTES LETTRES ce qu'il fait (le texte porte l'info, jamais la couleur seule ; `aria-pressed` porte l'état).
  * Mobile-first : la bascule passe à la ligne sur écran étroit, cibles ≥ 40 px, aucun débordement horizontal.
  */
 type Mode = 'auto' | 'manuel';
 
-export function ModeDemandeTeleservice({ categories, onChangement }: {
+export function ModeDemandeTeleservice({ categories, signalRafraichir, onChangement }: {
   categories: { cle: string; libelle: string; rang: number }[];
+  signalRafraichir: number;
   onChangement: () => void;
 }) {
   const [mode, setMode] = useState<Mode>('auto'); // le mode automatique reste le mode par défaut au chargement
@@ -36,7 +37,7 @@ export function ModeDemandeTeleservice({ categories, onChangement }: {
         <button type="button" aria-pressed={mode === 'auto'} onClick={() => setMode('auto')} style={styleOnglet(mode === 'auto')}>
           Mode automatique {mode === 'auto' ? '· actif' : ''}
           <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>
-            Les cartes viennent du bouton « Préparer les demandes », selon les critères de sélection.
+            Une carte de dépôt apparaît toute seule pour chaque commune libre (pas d’accusé en attente, cap non atteint, permis éligible).
           </span>
         </button>
         <button type="button" aria-pressed={mode === 'manuel'} onClick={() => setMode('manuel')} style={styleOnglet(mode === 'manuel')}>
@@ -47,6 +48,7 @@ export function ModeDemandeTeleservice({ categories, onChangement }: {
         </button>
       </div>
 
+      {mode === 'auto' && <DepotAutoTeleservice signalRafraichir={signalRafraichir} onChangement={onChangement} />}
       {mode === 'manuel' && <RechercheVivierManuel categories={categories} onPrepared={onChangement} />}
     </section>
   );

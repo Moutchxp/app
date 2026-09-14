@@ -23,7 +23,7 @@ const boutonPar = (motif: RegExp): HTMLButtonElement | undefined => boutons().fi
 const champManuel = (): HTMLInputElement | null => container.querySelector('input[aria-label*="vivier téléservice"]');
 
 const monter = async (): Promise<void> => {
-  await act(async () => { root.render(createElement(ModeDemandeTeleservice, { categories: [], onChangement: vi.fn() })); });
+  await act(async () => { root.render(createElement(ModeDemandeTeleservice, { categories: [], signalRafraichir: 0, onChangement: vi.fn() })); });
   await act(async () => { await Promise.resolve(); });
 };
 
