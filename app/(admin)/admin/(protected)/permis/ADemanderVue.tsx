@@ -155,6 +155,11 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
 
   return (
     <div className="flex flex-col gap-4">
+      {/* CARROUSEL TÉLÉSERVICE (lot 1 — présentation) — les cartes de dépôt à faire, DÉPLACÉES ici JUSTE SOUS le bloc des deux rails
+          (CommutateurProcess + GroupeRailsCommunes, montés dans PermisTuile au-dessus de cette vue). UNE SEULE instance à l'écran
+          (retirée du bas de l'onglet). Réservé au rail Téléservice (process === 'formulaire'), comme avant. DEPOT-1 : mêmes signaux. */}
+      {process === 'formulaire' && <BlocDepot signalRafraichir={signalSuivi} onChangement={signalerChangement} />}
+
       {/* Q4 — rappel des réglages + filtre d'ancienneté, en tête de l'onglet. */}
       <BandeauReglages
         ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle}
@@ -241,11 +246,6 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
 
       {/* C2/C3 — arbitrages PRADA + communes injoignables : machinerie du RAIL A (rendre joignable par e-mail) → process E-MAIL seul. */}
       {process === 'email' && <BlocPrada />}
-
-      {/* P3 — « à déposer à la main » (téléservice) : file du process TÉLÉSERVICE seul (un dépôt non effectué EST un envoi non effectué).
-          DEPOT-1 — reçoit le MÊME signal que SuiviDemandes : une demande fraîchement préparée apparaît sans rafraîchir la page ; un
-          dépôt/annulation réincrémente le signal → toutes les vues de l'onglet se remettent à jour. */}
-      {process === 'formulaire' && <BlocDepot signalRafraichir={signalSuivi} onChangement={signalerChangement} />}
 
       {/* Q6 — tableau des demandes NON ENVOYÉES du process actif + actions groupées (« prête » / annulation D1). */}
       <SuiviDemandes categories={categories} perimetre="a_demander" process={process} signalRafraichir={signalSuivi} />
