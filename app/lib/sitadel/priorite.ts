@@ -197,12 +197,16 @@ export interface FiltresPermis {
   sansDestinataire: boolean; // n'afficher que les dossiers non adressables (aucun e-mail de mairie)
   etatDau: string | null; // filtre par état d'avancement (2/4/5/6) ; null = tous (S12)
   rattachement: EtatRattachement | null; // D1 : n'afficher qu'un état de rattachement ; null = tous. AFFICHAGE seul.
+  /** MODE MANUEL — restreint la requête à ces dossier_id EXACTS (préparation d'un permis choisi à la main dans le vivier, HORS
+   *  tri). `null`/absent/vide = aucune restriction → le chemin candidats reste BYTE-IDENTIQUE. Additif : la clause n'est ajoutée
+   *  QUE si la liste est non vide. Optionnel pour ne pas casser les littéraux `FiltresPermis` existants. */
+  dossierIds?: number[] | null;
 }
 
 /** Filtres neutres (aucune restriction) — base pour « top du classement » (constitution des demandes, S7). */
 export const FILTRES_PERMIS_VIDES: FiltresPermis = {
   departement: null, communes: [], type: null, rang: null, depuis: null, jusqua: null,
-  surfaceMin: null, logementsMin: null, q: null, sansDestinataire: false, etatDau: null, rattachement: null,
+  surfaceMin: null, logementsMin: null, q: null, sansDestinataire: false, etatDau: null, rattachement: null, dossierIds: null,
 };
 
 const SELECTION =
@@ -236,6 +240,9 @@ const SELECTION =
 function clausesWhere(f: FiltresPermis, params: unknown[], rangExpr: string | null): string {
   const cl: string[] = [];
   const add = (v: unknown): string => { params.push(v); return `$${params.length}`; };
+  // MODE MANUEL — restriction à des dossier_id EXACTS. Égalité sur la clé primaire (index PK, aucun souci KNN). Ajoutée
+  //   UNIQUEMENT si la liste est non vide → FILTRES_PERMIS_VIDES.dossierIds = null ⇒ aucune clause ⇒ chemin candidats byte-identique.
+  if (f.dossierIds && f.dossierIds.length > 0) cl.push(`d.id = ANY(${add(f.dossierIds)}::bigint[])`);
   if (f.departement) cl.push(`d.departement = ${add(f.departement)}`);
   if (f.communes.length > 0) {
     // Multi-sélection de communes ACTUELLES. Inclut aussi les dossiers déposés sous un ANCIEN code fusionné dans une

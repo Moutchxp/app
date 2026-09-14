@@ -5,7 +5,7 @@
  */
 import { query, withTransaction } from '../db/client';
 import { chargerConfigVeille, type ConfigVeille } from './veilleConfig';
-import { lireDossiersPriorite, lireDossiersDepuis, type DossierAffiche } from './veilleRepo';
+import { lireDossiersPriorite, lireDossiersDepuis, lireDossiersParIds, type DossierAffiche } from './veilleRepo';
 import type { CanalContact } from './mairieContact';
 import { processDeCanal } from './process'; // Lot 2 (carrousel) — mapping SOURCE UNIQUE canal→rail pour le décompte du vivier par process
 import {
@@ -804,6 +804,49 @@ export interface CompteRenduCreation {
 const RAISON_LOT_INVALIDE = 'lot plus disponible : dossiers déjà rattachés, plafond mensuel atteint, ou proposition modifiée depuis l’affichage — ignoré (jamais créé de force)';
 
 /**
+ * MODE MANUEL — construit des lots d'UN SEUL permis pour des dossiers CHOISIS À LA MAIN dans le vivier téléservice, en
+ * CONTOURNANT VOLONTAIREMENT le tri automatique : cap d'examen, ordre de priorité, PLAFOND MENSUEL et regroupement par commune
+ * ne s'appliquent pas — c'est tout l'intérêt du mode manuel (Arno prépare un permis que le tri n'aurait pas proposé). Le seul
+ * filet conservé est le VERROU ANTI-DOUBLON (index unique partiel `demande_dossier_unique_actif`) : un dossier déjà rattaché à
+ * une demande active échoue à l'INSERT et retombe en `ignoresConflit` dans la boucle de création — jamais de doublon. Ne retient
+ * que le canal 'formulaire' (téléservice) : le mode manuel est téléservice, un dossier non téléservice est listé « ignoré » avec
+ * sa raison (jamais créé en silence). LECTURE SEULE (n'écrit rien ; la création reste la boucle unique de `creerDemandes`).
+ */
+async function construireLotsManuels(cfg: ConfigVeille, dossierIds: number[]): Promise<{ lots: Lot[]; ignores: LotIgnore[] }> {
+  const dossiers = await lireDossiersParIds(cfg, dossierIds);
+  const parId = new Map(dossiers.map((d) => [d.id, versCandidat(d)]));
+  const lots: Lot[] = [];
+  const ignores: LotIgnore[] = [];
+  for (const id of dossierIds) {
+    const c = parId.get(id);
+    if (c === undefined) { ignores.push({ cle: String(id), communeNom: null, raison: 'permis introuvable' }); continue; }
+    if (c.communeNom === null) { ignores.push({ cle: String(id), communeNom: null, raison: 'commune inconnue' }); continue; }
+    if (c.canal !== 'formulaire') { ignores.push({ cle: String(id), communeNom: c.communeNom, raison: 'commune non téléservice (aucun dépôt formulaire possible)' }); continue; }
+    // Lot d'UN permis, shapé EXACTEMENT comme un lot de `proposerLots` → la boucle de création le traite à l'identique
+    //   (référence, destinataire FIGÉ, texte téléservice, journal, verrou anti-doublon).
+    lots.push({ codeInsee: c.codeInsee, communeNom: c.communeNom, canal: c.canal, destOrigine: c.destOrigine, destNom: c.destNom, profilImpose: c.profilImpose ?? null, dossiers: [c] });
+  }
+  return { lots, ignores };
+}
+
+/**
+ * MODE MANUEL — état du PLAFOND MENSUEL téléservice par commune (consommé / plafond / dépassé), pour l'AFFICHER dans la
+ * recherche du vivier manuel. Le plafond est un garde-fou anti-spam : en manuel il est MONTRÉ mais ne bloque pas (c'est Arno qui
+ * juge). Réutilise le MÊME comptage que le tri (`lireHistorique` → `SQL_PERMIS_CE_MOIS_PAR_COMMUNE`) et la MÊME valeur de rail
+ * (`valeurRail`, canal 'formulaire') — aucune 2e définition du plafond. Ne renvoie QUE les communes ayant consommé ce mois-ci
+ * (une commune absente = 0 consommé = non au plafond). LECTURE SEULE.
+ */
+export async function plafondsTeleservice(cfg: ConfigVeille): Promise<Record<string, { consomme: number; plafond: number; depasse: boolean }>> {
+  const hist = await lireHistorique();
+  const plafond = valeurRail(cfg.permisParCommuneParMois, cfg.teleservicePermisParCommuneParMois, 'formulaire');
+  const out: Record<string, { consomme: number; plafond: number; depasse: boolean }> = {};
+  for (const [code, consomme] of hist.permisCeMoisParCommune) {
+    out[code.trim()] = { consomme, plafond, depasse: plafond - consomme <= 0 };
+  }
+  return out;
+}
+
+/**
  * Crée les demandes des lots SÉLECTIONNÉS (V3). ⚠️ NE FAIT PAS CONFIANCE AU CLIENT : re-dérive la proposition FRAÎCHE
  * (`proposition(cfg)` = gardes réappliquées : dossiers encore libres, plafond mensuel, canal exploitable — proposerLots) et
  * n'apparie la sélection QUE par clé sur ces lots frais (`apparierSelection`). Un lot demandé sans lot frais correspondant est
@@ -811,15 +854,21 @@ const RAISON_LOT_INVALIDE = 'lot plus disponible : dossiers déjà rattachés, p
  * liens dossiers, journal (→brouillon). L'index unique partiel `demande_dossier_unique_actif` est le filet anti-course : un
  * dossier rattaché entre proposition() et l'INSERT → lot ignoré (ignoresConflit). Compte rendu CHIFFRÉ. AUCUN ENVOI.
  */
-export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: string | null, profilDemande: ProfilDemandeur | undefined, selection: { cle: string; communeNom: string | null }[], ancienneteMois?: number): Promise<CompteRenduCreation> {
+export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: string | null, profilDemande: ProfilDemandeur | undefined, selection: { cle: string; communeNom: string | null }[], ancienneteMois?: number, dossiersManuels?: number[]): Promise<CompteRenduCreation> {
   // D4-ter (étanche) — profil par défaut PROPRE au rail : e-mail → profil_demandeur_defaut ; téléservice → teleservice_profil_demandeur_defaut.
   //   Un profil explicitement demandé (`profilDemande`) prime pour les deux. Byte-identique tant que le profil téléservice = le commun.
   const profilEmail = profilDemande ?? profilValide(cfg.profilDemandeurDefaut);
   const profilTeleservice = profilDemande ?? profilValide(cfg.teleserviceProfilDemandeurDefaut);
   const { lots } = await proposition(cfg, ancienneteMois); // Q4 : re-dérive avec la MÊME fenêtre que l'aperçu (sinon lots ≠ affichés)
-  const { aCreer, invalides } = apparierSelection(lots, selection.map((s) => s.cle));
+  const { aCreer: autoCreer, invalides } = apparierSelection(lots, selection.map((s) => s.cle));
   const communeParCle = new Map(selection.map((s) => [s.cle, s.communeNom]));
   const lotsInvalides: LotIgnore[] = invalides.map((cle) => ({ cle, communeNom: communeParCle.get(cle) ?? null, raison: RAISON_LOT_INVALIDE }));
+  // MODE MANUEL — lots d'un SEUL permis choisi à la main (hors tri : ni cap, ni ordre, ni plafond, ni regroupement), APPENDUS à
+  //   ceux du tri. Absent/vide → ZÉRO lecture supplémentaire et chemin AUTOMATIQUE strictement byte-identique. Le reste de la
+  //   fonction (boucle de création, référence, destinataire figé, texte, journal, verrou anti-doublon) est PARTAGÉ sans distinction.
+  const manuel = dossiersManuels && dossiersManuels.length > 0 ? await construireLotsManuels(cfg, dossiersManuels) : { lots: [] as Lot[], ignores: [] as LotIgnore[] };
+  lotsInvalides.push(...manuel.ignores);
+  const aCreer = [...autoCreer, ...manuel.lots];
   const pieces = piecesDepuisConfig(cfg.piecesDemandees);
   // P3 — profil EFFECTIF par lot : celui IMPOSÉ par le téléservice de la commune (`lot.profilImpose`, issu de la proposition
   // re-jouée ici), sinon le profil du batch. La config d'identité est lue par profil réellement utilisé (au plus 2 lectures).
@@ -903,7 +952,7 @@ export async function creerDemandes(cfg: ConfigVeille, annee: number, auteur: st
   // D4-ter (étanche) — profil du compte rendu : celui RÉELLEMENT appliqué aux lots créés (la préparation est scopée à un process,
   //   donc homogène) ; à défaut de lot créé, le profil e-mail par défaut.
   const profil = aCreer.length > 0 ? profilDe(aCreer[0]) : profilEmail;
-  return { crees, demandesCreees: crees.length, lotsSelectionnes: selection.length, dossiersCrees, ignoresConflit, lotsInvalides, profil };
+  return { crees, demandesCreees: crees.length, lotsSelectionnes: selection.length + manuel.lots.length, dossiersCrees, ignoresConflit, lotsInvalides, profil };
 }
 
 export interface DemandeListe { id: number; reference: string; codeInsee: string; communeNom: string | null; canal: string | null; destOrigine: string; destNom: string | null; nbDossiers: number; statut: string; profil: string; creeLe: string;

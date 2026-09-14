@@ -6,15 +6,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 vi.mock('../../../../../../lib/admin/garde', () => ({ exigerAdministrateur: vi.fn() }));
 vi.mock('../../../../../../lib/sitadel/veilleConfig', () => ({ chargerConfigVeille: vi.fn(async () => ({ ancienneteMaxDemandeAnnees: 1 })) }));
-vi.mock('../../../../../../lib/sitadel/demandeRepo', () => ({ chargerVivier: vi.fn(), communesBloqueesTeleservice: vi.fn() }));
+vi.mock('../../../../../../lib/sitadel/demandeRepo', () => ({ chargerVivier: vi.fn(), communesBloqueesTeleservice: vi.fn(), plafondsTeleservice: vi.fn() }));
 
 import { GET } from './route';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
-import { chargerVivier, communesBloqueesTeleservice } from '../../../../../../lib/sitadel/demandeRepo';
+import { chargerVivier, communesBloqueesTeleservice, plafondsTeleservice } from '../../../../../../lib/sitadel/demandeRepo';
 
 const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
 const vivier = chargerVivier as unknown as ReturnType<typeof vi.fn>;
 const bloquees = communesBloqueesTeleservice as unknown as ReturnType<typeof vi.fn>;
+const plafonds = plafondsTeleservice as unknown as ReturnType<typeof vi.fn>;
 const req = (qs: string) => GET(new Request(`http://test/api/admin/permis/demandes/vivier-recherche${qs}`, { method: 'GET' }));
 
 const PERMIS = (over: Record<string, unknown> = {}) => ({ dossierId: 1, numDau: 'PC-A', type: 'PC', codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2024-06-01', ...over });
@@ -24,6 +25,7 @@ beforeEach(() => {
   garde.mockResolvedValue({ auteurId: 5 });
   vivier.mockResolvedValue({ vivier: [PERMIS(), PERMIS({ dossierId: 2, numDau: 'PC-B', canal: 'email', communeNom: 'Paris' })], tronque: false });
   bloquees.mockResolvedValue({});
+  plafonds.mockResolvedValue({});
 });
 
 describe('D3 — GET vivier-recherche', () => {
@@ -72,5 +74,18 @@ describe('D3 — GET vivier-recherche', () => {
     const body = await (await req('?q=paris&process=email')).json();
     expect(bloquees).not.toHaveBeenCalled();
     expect(body.bloquees).toEqual({});
+  });
+
+  it('MODE MANUEL — process FORMULAIRE : l’état du plafond mensuel par commune est renvoyé dans `plafonds`', async () => {
+    plafonds.mockResolvedValueOnce({ '75056': { consomme: 5, plafond: 5, depasse: true } });
+    const body = await (await req('?q=paris&process=formulaire')).json();
+    expect(body.plafonds).toEqual({ '75056': { consomme: 5, plafond: 5, depasse: true } });
+    expect(plafonds).toHaveBeenCalledTimes(1);
+  });
+
+  it('MODE MANUEL — process EMAIL : le plafond téléservice n’est PAS calculé (plafondsTeleservice non appelée)', async () => {
+    const body = await (await req('?q=paris&process=email')).json();
+    expect(plafonds).not.toHaveBeenCalled();
+    expect(body.plafonds).toEqual({});
   });
 });

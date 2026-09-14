@@ -29,12 +29,17 @@ export async function POST(request: Request): Promise<Response> {
   // Contexte capturé hors du try pour la trace du catch (le refus 400 « sélection invalide » est un `return`).
   let clesCtx: string[] | undefined;
   try {
-    const corps = (await request.json().catch(() => ({}))) as { profil?: unknown; lots?: unknown; ancienneteMois?: unknown };
+    const corps = (await request.json().catch(() => ({}))) as { profil?: unknown; lots?: unknown; ancienneteMois?: unknown; dossiersManuels?: unknown };
     const profil = corps.profil === undefined ? undefined : profilValide(corps.profil);
-    // V3 — le CHOIX est obligatoire : sans lot sélectionné (ou tous invalides), on refuse EXPLICITEMENT (400), jamais « tout créer ».
-    const v = validerLotsSelection(corps.lots);
-    if (!v.ok) return Response.json({ erreur: v.erreur }, { status: 400 });
-    clesCtx = v.lots.map((l) => l.cle);
+    // V3 — sélection du TRI (`lots`). MODE MANUEL — permis choisis à la main dans le vivier téléservice (`dossiersManuels`),
+    //   HORS tri. Au moins l'un des deux est REQUIS : sans lot NI permis manuel, on refuse EXPLICITEMENT (400), jamais « tout
+    //   créer ». Chacun est validé à part ; le message d'erreur reste celui de la sélection de lots (compat V3 inchangée).
+    const vLots = validerLotsSelection(corps.lots);
+    const vManuel = validerIdsLot(corps.dossiersManuels);
+    const lotsSel = vLots.ok ? vLots.lots : [];
+    const manuels = vManuel.ok ? vManuel.ids : [];
+    if (lotsSel.length === 0 && manuels.length === 0) return Response.json({ erreur: vLots.ok ? 'sélection invalide' : vLots.erreur }, { status: 400 });
+    clesCtx = lotsSel.map((l) => l.cle);
     const annee = new Date().getFullYear();
     const auteur = garde.auteurId === null ? null : String(garde.auteurId);
     const cfg = await chargerConfigVeille();
@@ -43,7 +48,7 @@ export async function POST(request: Request): Promise<Response> {
     const ancienneteMois = bornerAncienneteMois(corps.ancienneteMois, cfg.ancienneteMaxDemandeAnnees);
     // Aucun refus MÉTIER ici : un lot invalidé entre-temps n'est PAS une erreur (il est ignoré + listé dans le compte
     // rendu 200, par conception V3). Seule une exception INATTENDUE atteint le catch ci-dessous.
-    const res = await creerDemandes(cfg, annee, auteur, profil, v.lots, ancienneteMois);
+    const res = await creerDemandes(cfg, annee, auteur, profil, lotsSel, ancienneteMois, manuels);
     return Response.json(res);
   } catch (e) {
     // Trace SERVEUR de l'exception inattendue (jamais de catch muet) : sans elle, un bug (params liés, 22P02…) reste

@@ -88,6 +88,37 @@ describe('V3 — POST : ne crée QUE les lots transmis', () => {
   });
 });
 
+describe('MODE MANUEL — POST dossiersManuels : chemin de création EXISTANT réutilisé', () => {
+  it('dossiersManuels seuls (sans lots) → 200, creerDemandes reçoit les ids manuels (7e argument)', async () => {
+    creer.mockResolvedValueOnce({ ...RAPPORT, lotsInvalides: [] });
+    const res = await post({ dossiersManuels: [4242] });
+    expect(res.status).toBe(200);
+    const args = creer.mock.calls[0];
+    expect(args[4]).toEqual([]);     // aucune sélection issue du tri
+    expect(args[6]).toEqual([4242]); // les permis choisis à la main
+  });
+
+  it('lots ET dossiersManuels → les deux transmis à creerDemandes', async () => {
+    creer.mockResolvedValueOnce(RAPPORT);
+    await post({ lots: [{ cle: '1-2', communeNom: 'Asnières' }], dossiersManuels: [7, 8] });
+    const args = creer.mock.calls[0];
+    expect(args[4]).toEqual([{ cle: '1-2', communeNom: 'Asnières' }]);
+    expect(args[6]).toEqual([7, 8]);
+  });
+
+  it('ni lot ni permis manuel → 400, aucune création', async () => {
+    const res = await post({ dossiersManuels: [] });
+    expect(res.status).toBe(400);
+    expect(creer).not.toHaveBeenCalled();
+  });
+
+  it('dossiersManuels non entiers, sans lot valide → 400 (jamais un succès à 0)', async () => {
+    const res = await post({ dossiersManuels: ['x', 1.5] });
+    expect(res.status).toBe(400);
+    expect(creer).not.toHaveBeenCalled();
+  });
+});
+
 describe('U3 (B) — PATCH annulee : chemin d’annulation UNIQUE réutilisé (changerStatutLot)', () => {
   it('statut=annulee → 200 ; changerStatutLot([id],\'annulee\',auteur) est l’écrivain appelé', async () => {
     transition.mockResolvedValueOnce([]);

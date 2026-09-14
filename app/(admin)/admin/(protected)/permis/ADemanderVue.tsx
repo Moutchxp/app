@@ -11,6 +11,7 @@ import { SuiviDemandes } from './SuiviDemandes';
 import { RechercheVivier } from './RechercheVivier';
 import { CompteurVivierTeleservice } from './CompteurVivierTeleservice';
 import { ResumeCriteresTeleservice } from './ResumeCriteresTeleservice';
+import { ModeDemandeTeleservice } from './ModeDemandeTeleservice';
 import { dansProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 
 /**
@@ -163,6 +164,10 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
       {/* RÉSUMÉ DES CRITÈRES (lot 3) — sous le compteur, au-dessus du carrousel : critères propres au téléservice ÉDITABLES ici,
           critères partagés avec l'E-mail en LECTURE SEULE (renvoi vers Réglages). Se rafraîchit sur le même signal (signalSuivi). */}
       {process === 'formulaire' && <ResumeCriteresTeleservice signalRafraichir={signalSuivi} onChangement={signalerChangement} onAllerReglages={onAllerReglages} />}
+      {/* BASCULE AUTO/MANUEL (ce lot) — AU-DESSUS du carrousel, réservée au rail Téléservice. PUREMENT ADDITIVE : ne gouverne que
+          le nouveau panneau manuel ; le carrousel, « Préparer les demandes » et la recherche existante restent inchangés plus bas.
+          Une demande manuelle préparée passe par le chemin EXISTANT et apparaît dans le MÊME carrousel (signalerChangement). */}
+      {process === 'formulaire' && <ModeDemandeTeleservice categories={categories} onChangement={signalerChangement} />}
       {/* CARROUSEL TÉLÉSERVICE (lot 1 — présentation) — les cartes de dépôt à faire, DÉPLACÉES ici JUSTE SOUS le bloc des deux rails
           (CommutateurProcess + GroupeRailsCommunes, montés dans PermisTuile au-dessus de cette vue). UNE SEULE instance à l'écran
           (retirée du bas de l'onglet). Réservé au rail Téléservice (process === 'formulaire'), comme avant. DEPOT-1 : mêmes signaux. */}

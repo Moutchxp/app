@@ -192,6 +192,24 @@ export async function lireDossiersPriorite(c: ConfigVeille, n: number): Promise<
 }
 
 /**
+ * MODE MANUEL — charge des dossiers par leurs `id` EXACTS (préparation d'un permis choisi à la main dans le vivier téléservice,
+ * HORS tri). RÉUTILISE le MÊME constructeur (`construireRequeteListe`) et le MÊME mappage (`versAffiche` + contraintes commune
+ * P3) que le chemin candidats — donc la résolution destinataire/canal et les champs sont IDENTIQUES à ceux du tri automatique.
+ * Ne re-applique AUCUN critère d'éligibilité (cap, plafond, ancienneté) : c'est l'intérêt du mode manuel. LECTURE SEULE.
+ */
+export async function lireDossiersParIds(c: ConfigVeille, ids: number[]): Promise<DossierAffiche[]> {
+  if (ids.length === 0) return [];
+  // La restriction `dossierIds` borne déjà le résultat à ces id : `taille = ids.length` (page 1) suffit à tous les ramener.
+  const rq = construireRequeteListe({ ...FILTRES_PERMIS_VIDES, dossierIds: ids }, c, 1, ids.length);
+  const [r, contraintes] = await Promise.all([query<LigneSql>(rq.texte, rq.params), lireContraintesCommune()]);
+  return r.rows.map((row) => {
+    const d = versAffiche(row, c);
+    const ct = contraintes.get(d.codeInsee);
+    return { ...d, maxDossiersParDemande: ct?.max ?? null, profilImpose: ct?.profil ?? null };
+  });
+}
+
+/**
  * Q2b — TOUS les dossiers autorisés depuis `depuis` (borne incluse ; `null` = tout l'historique), pour l'agrégat de STOCK.
  * Réutilise le MÊME constructeur (`construireRequeteListe`, NON modifié) et le MÊME mappage que le chemin candidats
  * (`versAffiche` → `classer`, donc chaque ligne porte déjà `.categorie`), avec un filtre de date `depuis` et SANS le plafond

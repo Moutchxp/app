@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../../lib/sitadel/veilleConfig';
-import { chargerVivier, communesBloqueesTeleservice } from '../../../../../../lib/sitadel/demandeRepo';
+import { chargerVivier, communesBloqueesTeleservice, plafondsTeleservice } from '../../../../../../lib/sitadel/demandeRepo';
 import { rechercherDansVivier } from '../../../../../../lib/sitadel/rechercheVivier';
 
 /**
@@ -32,8 +32,12 @@ export async function GET(request: Request): Promise<Response> {
     // Lot C (point 3) — le blocage « en attente d'accusé » est TÉLÉSERVICE uniquement : on ne le calcule que pour le process
     //   'formulaire' (aucun blocage côté e-mail). Une commune bloquée → ses permis s'affichent « bloqué », jamais « demandable ».
     const bloquees = process === 'formulaire' ? await communesBloqueesTeleservice() : {};
+    // MODE MANUEL — état du PLAFOND MENSUEL par commune (téléservice), pour l'AFFICHER dans le vivier manuel : au plafond, le
+    //   mode manuel PRÉVIENT mais laisse passer (garde-fou anti-spam, c'est Arno qui juge). Additif : le champ `plafonds` est
+    //   IGNORÉ par la recherche existante (RechercheVivier), qui reste inchangée. Calculé pour le seul process 'formulaire'.
+    const plafonds = process === 'formulaire' ? await plafondsTeleservice(cfg) : {};
     // `tronque` = plafond de chargement du vivier atteint OU plus de CAP correspondances (dans les deux cas l'affichage est incomplet).
-    return Response.json({ ...r, bloquees, tronque: tronque || r.total > CAP });
+    return Response.json({ ...r, bloquees, plafonds, tronque: tronque || r.total > CAP });
   } catch {
     return Response.json({ erreur: 'recherche indisponible' }, { status: 503 });
   }
