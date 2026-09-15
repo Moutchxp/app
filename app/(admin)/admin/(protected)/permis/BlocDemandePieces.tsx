@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 // Générateur + validateur PURS (aucun import serveur) → utilisables dans le bundle client pour l'aperçu et le pré-contrôle.
 import { composerComplementPieces, problemeTexteComplement } from '../../../../lib/permis/complementPieces';
+import { BlocRepliable } from './BlocRepliable'; // motif de repli PARTAGÉ de l'écran (fermé par défaut, sans mémoire, en-tête <button> accessible)
 import { jourParisISO } from '../../../../lib/permis/horodatageParis'; // LOT 49 : jour d'une relance réelle en Europe/Paris (date déclarée laissée telle quelle)
 // LOT 29 — sélecteur de destinataire : types CLIENT-SAFE (aucun import serveur) + regex e-mail partagée avec la validation base (CHECK).
 import { LABEL_PROVENANCE, fusionnerOptions, type OptionDestinataire } from '../../../../lib/veille/optionsDestinataire';
@@ -347,10 +348,13 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
 
             {message && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-ink)' }}>{message}</div>}
 
-            {/* PART-3e — DÉCLARER une relance faite HORS de l'outil : visuellement DISTINCT (fond neutre encadré), et sans envoi. */}
-            <div style={{ marginTop: '.5rem', padding: '.5rem', border: '1px dashed var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)' }}>
-              <strong style={{ fontSize: 12 }}>Déclarer une relance déjà envoyée (hors outil)</strong>
-              <p style={{ ...muted, margin: '.15rem 0' }}>Constat, pas un envoi : aucun e-mail ne part. Enregistre une relance que vous avez faite vous-même depuis votre boîte.</p>
+            {/* PART-3e — DÉCLARER une relance faite HORS de l'outil (constat, AUCUN envoi). REPLI PUR : même motif `BlocRepliable` que les
+                autres blocs de l'écran, FERMÉ PAR DÉFAUT (geste rare) et sans mémoire d'ouverture. Contenu + comportement INCHANGÉS une
+                fois déplié. Le libellé de la ligne dit que c'est un CONSTAT (aucun e-mail ne part), lisible sans l'ouvrir. */}
+            <BlocRepliable titre="Déclarer une relance déjà envoyée (hors outil) — constat, aucun e-mail n’en part">
+              {() => (
+                <div style={{ padding: '.5rem', border: '1px dashed var(--color-svv-line)', borderRadius: '.4rem', background: 'var(--color-svv-field)' }}>
+                  <p style={{ ...muted, margin: '0 0 .3rem' }}>Constat, pas un envoi : aucun e-mail ne part. Enregistre une relance que vous avez faite vous-même depuis votre boîte.</p>
               <div style={{ display: 'flex', gap: '.4rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                 <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', fontSize: 12, maxWidth: 220 }}>
                   <span style={muted}>Date de la relance</span>
@@ -381,7 +385,9 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
                 disabled={!peutDeclarer} onClick={() => void declarer()}>{enCoursDecl ? 'Enregistrement…' : 'Déclarer cette relance'}</button>
               {dateDecl.trim() === '' && <span style={{ ...muted, display: 'block', marginTop: '.2rem' }}>Indiquez la date de la relance.</span>}
               {messageDecl && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-ink)', marginTop: '.2rem' }}>{messageDecl}</div>}
-            </div>
+                </div>
+              )}
+            </BlocRepliable>
 
             {etat.historique.length > 0 && (
               <div style={{ ...muted, marginTop: '.2rem' }}>
