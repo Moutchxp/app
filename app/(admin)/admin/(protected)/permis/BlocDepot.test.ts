@@ -194,3 +194,59 @@ describe('LOT 9 — cartes virtuelles (BlocDepot)', () => {
     expect(container.textContent).toBe('');
   });
 });
+
+/**
+ * RELECTURE EN DIRECT — le carrousel SUIT le vivier SERVEUR (GET …/demandes/depot) : une commune qui n'est plus proposée (référence
+ * enregistrée, dépôt sans référence, auto-confirmation d'accusé…) voit sa carte disparaître SANS rechargement de page, avec une
+ * confirmation la NOMMANT, et un état vide explicite si tout part. GARDE ANTI-MORPHING : aucune carte ne s'efface pendant un geste
+ * (champ focalisé). On PILOTE la réponse serveur (`reponse`, mutable) et on déclenche la relecture par un événement `focus`.
+ */
+describe('RELECTURE EN DIRECT — le carrousel suit le vivier serveur (sans reload)', () => {
+  let reponse: { demandes: DepotAffiche[]; virtuels: unknown[] };
+  const monterSuivi = async (): Promise<void> => {
+    global.fetch = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes('/api/admin/permis/demandes/depot')) return { ok: true, json: async () => ({ ...reponse, releveDelaiSecondes: 60 }) } as unknown as Response;
+      return { ok: true, json: async () => ({}) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(BlocDepot, { signalRafraichir: 0, onChangement: vi.fn() })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  };
+  const relireAuFocus = async (): Promise<void> => {
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  };
+  const nbCartes = (): number => boutons().filter((b) => b.textContent === 'Marquer comme déposée').length;
+
+  it('une commune qui quitte le vivier serveur → carte retirée au retour de focus, SANS reload, + confirmation la nommant', async () => {
+    reponse = { demandes: [carte(1, 'Alpha'), carte(2, 'Beta')], virtuels: [] };
+    await monterSuivi();
+    expect(nbCartes()).toBe(2);
+    reponse = { demandes: [carte(1, 'Alpha')], virtuels: [] }; // le serveur ne propose plus Beta (bascule hors carrousel)
+    await relireAuFocus();
+    expect(nbCartes()).toBe(1);                              // carte Beta retirée sans rechargement de page
+    expect(container.textContent).toContain('1 sur 1');      // carrousel recomposé (compteur remis à jour)
+    expect(container.textContent).toMatch(/Beta.*partie en/); // confirmation NOMMANT la commune partie
+  });
+
+  it('ANTI-MORPHING — pendant une saisie dans une carte (champ focalisé), la relecture ne retire AUCUNE carte', async () => {
+    reponse = { demandes: [carte(1, 'Alpha'), carte(2, 'Beta')], virtuels: [] };
+    await monterSuivi();
+    const input = container.querySelector('input') as HTMLInputElement | null; // champ « référence mairie » d'une carte
+    expect(input).toBeTruthy();
+    input!.focus(); // geste EN COURS dans une carte
+    reponse = { demandes: [carte(1, 'Alpha')], virtuels: [] }; // Beta a disparu côté serveur…
+    await relireAuFocus();
+    expect(nbCartes()).toBe(2); // …mais les DEUX cartes restent (aucun morphing pendant la saisie)
+  });
+
+  it('carrousel VIDÉ après un départ → état vide EXPLICITE (jamais un blanc)', async () => {
+    reponse = { demandes: [carte(1, 'Alpha')], virtuels: [] };
+    await monterSuivi();
+    reponse = { demandes: [], virtuels: [] }; // plus rien à déposer
+    await relireAuFocus();
+    expect(nbCartes()).toBe(0);                                             // plus aucune carte
+    expect(container.querySelector('textarea')).toBeNull();
+    expect(container.textContent).toMatch(/Alpha.*partie en/);              // confirmation du départ (nommée)
+    expect(container.textContent).toMatch(/Plus aucune commune à déposer/); // état vide explicite (pas un blanc)
+  });
+});

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { CarteDepot, BoutonAnnulerDepot, type DepotAffiche } from './DemandesRendu';
 import type { DepotVirtuel } from '../../../../lib/sitadel/demandeRepo'; // type SEUL (erasé au build) — la carte virtuelle a la même forme que DepotAffiche, sans id
 import { creerPlanificateurReleve, type PlanificateurReleve } from './planifieReleveDepot'; // LOT 34 : relève déclenchée par le clic « copier »
@@ -31,6 +31,12 @@ function signalerDepot(demandeId: number, bouton: 'texte' | 'ref'): void {
   }).catch(() => undefined);
 }
 
+// RELECTURE EN DIRECT — intervalle de re-synchronisation du carrousel avec le vivier SERVEUR (GET …/demandes/depot). Une commune
+//   qui quitte le vivier (référence enregistrée, dépôt sans référence, auto-confirmation d'accusé…) voit sa carte disparaître SANS
+//   rechargement de page, même quand la bascule s'est faite HORS d'un geste local du carrousel. La relecture est aussi déclenchée
+//   au retour de focus/onglet, et SUSPENDUE tant qu'un geste (copie / saisie) est en cours dans une carte (anti-morphing, lot 9).
+const RELIRE_INTERVALLE_MS = 12_000;
+
 export function BlocDepot({ signalRafraichir, onChangement, afficherVirtuels = true }: { signalRafraichir: number; onChangement: () => void; afficherVirtuels?: boolean }) {
   const [demandes, setDemandes] = useState<DepotAffiche[]>([]);
   const [virtuels, setVirtuels] = useState<DepotVirtuel[]>([]); // AFFICHAGE AUTO — communes libres rendues à la volée (aucune demande en base)
@@ -40,6 +46,7 @@ export function BlocDepot({ signalRafraichir, onChangement, afficherVirtuels = t
   const [refsV, setRefsV] = useState<Record<string, string>>({}); // P1 — référence mairie saisie par carte VIRTUELLE (clé = cle)
   const [annulerOuverts, setAnnulerOuverts] = useState<Set<number>>(new Set()); // U3 — confirmations « Annuler cette demande » ouvertes
   const [retourAnnul, setRetourAnnul] = useState('');                            // U3 — retour de niveau SECTION (la carte annulée disparaît → retour visible ailleurs)
+  const [retourDepot, setRetourDepot] = useState('');                            // RELECTURE EN DIRECT — confirmation de SECTION nommant la commune qui vient de quitter le vivier (survit au retrait de sa carte)
   // MATÉRIALISATION dédupliquée par `cle` : une carte virtuelle ne crée sa demande qu'UNE fois, quel que soit le nombre de gestes
   //   (copie texte, copie numéro, dépôt) déclenchés avant le rafraîchissement. La promesse en cours/résolue est réutilisée.
   const materialiseesRef = useRef<Map<string, Promise<number>>>(new Map());
@@ -83,21 +90,55 @@ export function BlocDepot({ signalRafraichir, onChangement, afficherVirtuels = t
   }, []);
   const programmerReleve = (): void => planifRef.current?.demander(); // DÉDUP interne : deux clics rapprochés → une seule relève
 
+  // ÉTAT SERVEUR courant (miroir) — pour DIFFÉRENCIER, à la relecture, les communes qui étaient proposées et ne le sont plus (afin
+  //   de les NOMMER dans la confirmation), sans rendu supplémentaire. Suit chaque changement de la file.
+  const etatRef = useRef<{ demandes: DepotAffiche[]; virtuels: DepotVirtuel[] }>({ demandes: [], virtuels: [] });
+  useEffect(() => { etatRef.current = { demandes, virtuels }; }, [demandes, virtuels]);
+
+  // RELECTURE de l'état auprès du SERVEUR (source UNIQUE d'éligibilité : GET …/demandes/depot). La liste affichée SUIT strictement
+  //   la réponse serveur — jamais une règle d'éligibilité réinventée côté client. `annoncer` → nomme, en confirmation de section,
+  //   les communes qui ont quitté le vivier depuis la dernière lecture (leur carte va disparaître).
+  const relireEtat = useCallback(async (annoncer: boolean): Promise<void> => {
+    try {
+      const res = await fetch('/api/admin/permis/demandes/depot', { cache: 'no-store' });
+      if (!res.ok) return;
+      const d = (await res.json()) as { demandes?: DepotAffiche[]; virtuels?: DepotVirtuel[]; releveDelaiSecondes?: number };
+      const fraiches = d.demandes ?? [];
+      const fraisVirtuels = d.virtuels ?? [];
+      if (annoncer) {
+        const nom = (x: { communeNom: string | null }): string | null => x.communeNom;
+        const nonVide = (x: string | null): x is string => x !== null && x !== '';
+        const apres = new Set([...fraiches.map(nom), ...fraisVirtuels.map(nom)].filter(nonVide));
+        const avant = etatRef.current;
+        const parties = [...new Set([...avant.demandes.map(nom), ...avant.virtuels.map(nom)].filter(nonVide))].filter((c) => !apres.has(c));
+        if (parties.length > 0) setRetourDepot(`${parties.join(', ')} — demande partie en « En cours » (n’est plus à déposer à la main).`);
+      }
+      setDemandes(fraiches);
+      setVirtuels(fraisVirtuels);
+      if (typeof d.releveDelaiSecondes === 'number') delaiSecRef.current = d.releveDelaiSecondes; // LOT 34 : délai piloté par config
+    } catch { /* file de dépôt indisponible : le reste de l'écran reste utilisable */ }
+  }, []);
+
+  // DEPOT-1 — recharge à chaque signal du parent (création, dépôt, annulation LOCAUX) : la commune vient d'un GESTE, sa confirmation
+  //   est déjà posée → on ne ré-annonce pas ici (annoncer=false).
+  useEffect(() => { void relireEtat(false); }, [signalRafraichir, relireEtat]);
+
+  // RELECTURE EN DIRECT — un geste HORS carrousel (auto-confirmation d'accusé, référence saisie dans « En cours », dépôt sans
+  //   référence…) peut faire quitter une commune du vivier SANS notifier le carrousel. On relit donc périodiquement ET au retour de
+  //   focus/onglet, pour retirer sa carte sans rechargement. GARDE ANTI-MORPHING (lot 9) : suspendu tant qu'un champ/bouton du
+  //   carrousel a le focus (geste en cours) → aucune carte ne se transforme/s'efface pendant une copie ou une saisie.
   useEffect(() => {
-    let annule = false;
-    void (async () => {
-      try {
-        const res = await fetch('/api/admin/permis/demandes/depot', { cache: 'no-store' });
-        if (!annule && res.ok) {
-          const d = (await res.json()) as { demandes: DepotAffiche[]; virtuels?: DepotVirtuel[]; releveDelaiSecondes?: number };
-          setDemandes(d.demandes ?? []);
-          setVirtuels(d.virtuels ?? []);
-          if (typeof d.releveDelaiSecondes === 'number') delaiSecRef.current = d.releveDelaiSecondes; // LOT 34 : délai piloté par config
-        }
-      } catch { /* file de dépôt indisponible : le reste de l'écran reste utilisable */ }
-    })();
-    return () => { annule = true; };
-  }, [signalRafraichir]); // DEPOT-1 — se recharge à chaque signal du parent (création, dépôt, annulation)
+    const relire = (): void => {
+      if (document.hidden) return;                                              // onglet caché → inutile de relire
+      if (pisteRef.current?.contains(document.activeElement) ?? false) return;  // geste en cours dans une carte → anti-morphing
+      void relireEtat(true);
+    };
+    const timer = setInterval(relire, RELIRE_INTERVALLE_MS);
+    const surRetour = (): void => { if (document.visibilityState === 'visible') relire(); };
+    window.addEventListener('focus', surRetour);
+    document.addEventListener('visibilitychange', surRetour);
+    return () => { clearInterval(timer); window.removeEventListener('focus', surRetour); document.removeEventListener('visibilitychange', surRetour); };
+  }, [relireEtat]);
 
   // CARROUSEL — MOLETTE verticale → défilement HORIZONTAL, dans les bornes du carrousel (en bout de course, la PAGE reprend la
   //   main → pas de scroll piégé). Listener natif NON-PASSIF pour que preventDefault soit fiable. Le trackpad horizontal (deltaX)
@@ -128,6 +169,8 @@ export function BlocDepot({ signalRafraichir, onChangement, afficherVirtuels = t
       const reference = (refs[id] ?? '').trim();
       const res = await fetch('/api/admin/permis/demandes/depot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reference === '' ? { id } : { id, reference }) });
       if (res.ok) {
+        const commune = demandes.find((x) => x.id === id)?.communeNom ?? '';
+        setRetourDepot(`${commune || 'Commune'} — demande déposée${reference !== '' ? ', référence enregistrée' : ''} → onglet « En cours ».`); // RETOUR VISUEL : la carte s'efface, la confirmation reste
         setDemandes((prev) => prev.filter((x) => x.id !== id)); // retrait optimiste (la carte disparaît, compteur à jour)
         onChangement();                                         // DEPOT-1 — recharge la file + les vues sœurs (pas de page à rafraîchir)
       } else {
@@ -173,7 +216,10 @@ export function BlocDepot({ signalRafraichir, onChangement, afficherVirtuels = t
       const id = await assurerMaterialisee(v);
       const reference = (refsV[v.cle] ?? '').trim();
       const res = await fetch('/api/admin/permis/demandes/depot', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reference === '' ? { id } : { id, reference }) });
-      if (res.ok) { onChangement(); }
+      if (res.ok) {
+        setRetourDepot(`${v.communeNom || 'Commune'} — demande déposée${reference !== '' ? ', référence enregistrée' : ''} → onglet « En cours ».`); // RETOUR VISUEL avant l'effacement de la carte (au rafraîchissement)
+        onChangement();
+      }
       else { const e = (await res.json().catch(() => ({}))) as { erreur?: string }; poserV(v.cle, e.erreur ? `Refusé : ${e.erreur}.` : 'Action refusée.'); }
     } catch (e) { poserV(v.cle, (e as { message?: string })?.message ?? 'Préparation impossible.'); }
   }
@@ -223,7 +269,16 @@ export function BlocDepot({ signalRafraichir, onChangement, afficherVirtuels = t
     setIndex((cur) => (cur === plusProche ? cur : plusProche));
   };
 
-  if (total === 0) return null;
+  // ÉTAT VIDE EXPLICITE — si le carrousel s'est VIDÉ après un départ de commune (retourDepot posé), on garde la confirmation + une
+  //   phrase disant pourquoi il n'y a plus rien (jamais un blanc). À l'ouverture (aucune carte, aucune confirmation) → rien (comme avant).
+  if (total === 0) {
+    return retourDepot ? (
+      <section role="group" aria-label="Demandes à déposer à la main (téléservice)" className="flex flex-col gap-2">
+        <div role="status" aria-live="polite" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourDepot}</div>
+        <div style={{ fontSize: 13, color: 'var(--color-svv-muted)' }}>Plus aucune commune à déposer à la main pour l’instant (les demandes sont parties en « En cours », ou le vivier téléservice est vide).</div>
+      </section>
+    ) : null;
+  }
 
   return (
     <section role="group" aria-label="Demandes à déposer à la main (téléservice)" className="flex flex-col gap-2">
@@ -232,6 +287,8 @@ export function BlocDepot({ signalRafraichir, onChangement, afficherVirtuels = t
       </div>
       {/* U3 — retour de l'annulation : la carte concernée a disparu de la file, le retour reste visible au niveau de la section. */}
       {retourAnnul && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourAnnul}</div>}
+      {/* RELECTURE EN DIRECT — confirmation NOMMÉE (dépôt local ou départ hors carrousel) : brève, non bloquante, survit au retrait de la carte. */}
+      {retourDepot && <div role="status" aria-live="polite" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourDepot}</div>}
       {/* LOT 34 — état de la relève déclenchée par « copier » : « relevée dans un instant » puis résultat. Jamais silencieux. */}
       {releveMsg && <div role="status" aria-live="polite" style={{ fontSize: 12, color: 'var(--color-svv-ink)' }}>{releveMsg}</div>}
       {/* CARROUSEL — navigation DISCRÈTE, sur UNE seule ligne (deux petits boutons + la position EN TEXTE), pour ne PAS manger de
