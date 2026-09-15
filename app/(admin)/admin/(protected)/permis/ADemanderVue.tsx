@@ -12,6 +12,8 @@ import { RechercheVivier } from './RechercheVivier';
 import { CompteurVivierTeleservice } from './CompteurVivierTeleservice';
 import { ResumeCriteresTeleservice } from './ResumeCriteresTeleservice';
 import { ModeDemandeTeleservice, type ModePreparation } from './ModeDemandeTeleservice';
+import { GroupeRailsCommunes } from './GroupeRailsCommunes';
+import type { CompteursProcess } from './CommutateurProcess';
 import { dansProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 
 /**
@@ -27,7 +29,10 @@ const styleChamp: CSSProperties = { padding: '.35rem .5rem', border: '1px solid 
 
 interface Props { categories: { cle: string; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; process: Process; onBasculerProcess: (p: Process) => void; onAllerReglages: () => void;
   /** DEPOT-2 — notifie le parent (PermisTuile) qu'une action a changé les compteurs (préparation / dépôt / annulation) → rafraîchit le commutateur. */
-  onChangement?: () => void }
+  onChangement?: () => void;
+  /** GroupeRailsCommunes (« Bascule de rail & carte des communes ») est rendu ICI, sous le carrousel — ces props sont RELAYÉES telles
+   *  quelles depuis PermisTuile (seul ancêtre commun avec l'éditeur de fiche par commune). */
+  hors: CompteursProcess['hors'] | null; onOuvrirCommune?: (code: string) => void; signalCarte?: number }
 
 /** Message d'échec = la RAISON réelle renvoyée par le serveur ({erreur}), jamais un libellé figé à deux mots. */
 async function erreurServeur(res: Response, repli: string): Promise<string> {
@@ -35,7 +40,7 @@ async function erreurServeur(res: Response, repli: string): Promise<string> {
   catch { return repli; }
 }
 
-export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, process, onBasculerProcess, onAllerReglages, onChangement }: Props) {
+export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, process, onBasculerProcess, onAllerReglages, onChangement, hors, onOuvrirCommune, signalCarte }: Props) {
   const [prop, setProp] = useState<{ lots: Lot[]; diagnostic: DiagnosticProposition; profil: ProfilDemandeur } | null>(null);
   const [profilPrep, setProfilPrep] = useState<ProfilDemandeur>('entreprise');
   const [retour, setRetour] = useState<RetourAction>(null);
@@ -161,11 +166,16 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
 
   return (
     <div className="flex flex-col gap-4">
-      {/* CARROUSEL TÉLÉSERVICE (lot 1 — présentation) — PREMIER contenu SOUS le bloc des deux rails (CommutateurProcess +
-          GroupeRailsCommunes, montés dans PermisTuile au-dessus de cette vue) : les cartes de dépôt à faire remontent en TÊTE de la vue,
-          au-dessus du compteur / des critères / de la bascule. UNE SEULE instance à l'écran. Réservé au rail Téléservice
+      {/* CARROUSEL TÉLÉSERVICE (lot 1 — présentation) — PREMIER contenu SOUS le SÉLECTEUR des deux rails (CommutateurProcess, monté
+          dans PermisTuile au-dessus de cette vue) : les cartes de dépôt à faire remontent en TÊTE de la vue, au-dessus de la ligne
+          « Bascule de rail & carte des communes » et de tout le reste. UNE SEULE instance à l'écran. Réservé au rail Téléservice
           (process === 'formulaire'), comme avant. DEPOT-1 : mêmes signaux. */}
       {process === 'formulaire' && <BlocDepot signalRafraichir={signalSuivi} onChangement={signalerChangement} afficherVirtuels={modeTeleservice === 'auto'} />}
+      {/* LIGNE « Bascule de rail & carte des communes » (repliable, repliée par défaut) — DÉPLACÉE ici depuis PermisTuile pour passer
+          SOUS le carrousel (accord porteur). S'affiche pour les DEUX rails (comme avant) ; en e-mail, BlocDepot rend null, donc cette
+          ligne reste le premier contenu de la vue → ordre e-mail inchangé. `onAction` = `onChangement` (apresAction), STRICTEMENT comme
+          quand elle vivait dans PermisTuile : même rafraîchissement (pastilles d'onglets + commutateur), aucun comportement modifié. */}
+      <GroupeRailsCommunes hors={hors} rail={process} onAction={onChangement ?? (() => {})} onOuvrirCommune={onOuvrirCommune} signalCarte={signalCarte} />
       {/* COMPTEUR DE VIVIER (lot 2) — permis encore demandables en Téléservice, SOUS le carrousel, à gauche. INDÉPENDANT du
           carrousel : s'affiche même quand BlocDepot rend null (0 carte). Même signal de rafraîchissement (signalSuivi) que le carrousel. */}
       {process === 'formulaire' && <CompteurVivierTeleservice signalRafraichir={signalSuivi} />}

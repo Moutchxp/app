@@ -14,7 +14,6 @@ import { SuiviRattachementVue } from './SuiviRattachementVue';
 import { ProjectionVue } from './ProjectionVue';
 import { OngletsPermis, type CleOnglet } from './PermisOnglets';
 import { CommutateurProcess, type CompteursProcess } from './CommutateurProcess';
-import { GroupeRailsCommunes } from './GroupeRailsCommunes'; // AJUSTEMENT — une seule ligne repliable : « Basculer une commune de rail » + carte des communes du rail
 import { EditeurContactCommune } from './EditeurContactCommune'; // Lot C — fiche contact ouvrable PAR COMMUNE (2 portes : carte au repos + bloc « Hors process »)
 import { PROCESS_DEFAUT, type Process } from '../../../../lib/sitadel/process';
 import type { CleCategorie } from '../../../../lib/sitadel/priorite';
@@ -53,8 +52,9 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
   // D2 — process actif du commutateur (défaut e-mail ; NE persiste PAS entre sessions) + compteurs des viviers.
   const [processActif, setProcessActif] = useState<Process>(PROCESS_DEFAUT);
   const [compteursProcess, setCompteursProcess] = useState<CompteursProcess | null>(null);
-  // Lot C — fiche contact ouvrable PAR COMMUNE (les 2 portes vivent ici : CommutateurProcess « Hors process » + carte du rail, tous deux
-  //   enfants de PermisTuile ; ADemanderVue en est un frère, pas un parent → PermisTuile est le seul ancêtre commun). `null` = fermée.
+  // Lot C — fiche contact ouvrable PAR COMMUNE. Les 2 PORTES qui l'ouvrent : CommutateurProcess « Hors process » (enfant direct de
+  //   PermisTuile) et la carte du rail (dans GroupeRailsCommunes, désormais rendu par ADemanderVue) → PermisTuile reste leur seul
+  //   ancêtre commun, donc `codeCommuneFiche` vit ici (relayé à ADemanderVue via `onOuvrirCommune`). `null` = fermée.
   const [codeCommuneFiche, setCodeCommuneFiche] = useState<string | null>(null);
   // Signal de recharge de la carte du rail après enregistrement d'une fiche (bump → PanneauCarteRail recharge, mais jamais en pleine édition).
   const [signalCarte, setSignalCarte] = useState(0);
@@ -123,20 +123,17 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
       {ONGLETS_DEMANDES.includes(onglet) && (
         <>
           <CommutateurProcess actif={processActif} onChoisir={setProcessActif} compteurs={compteursProcess} onOuvrirCommune={setCodeCommuneFiche} />
-          {/* LOT 33 — « Basculer une commune de rail » est un OUTIL DE PRÉPARATION : réservé à « À demander ». Non monté ailleurs
-              (pas de requête, aucune action déclenchable dans « En cours » / « Réponses »). Le commutateur + « Hors process » restent, eux, sur les 3 onglets. */}
-          {/* AJUSTEMENT — « Basculer une commune de rail » (② outil de préparation, a_demander uniquement) ET la carte interactive du rail
-              actif (③) sont REGROUPÉS dans UNE seule ligne repliable (gain de place). Repliée par défaut (corps lazy). Le décompte hors-process
-              est répété dans son libellé (info d'un coup d'œil) ; la ligne ① « Hors process » reste, elle, dans le commutateur au-dessus
-              (inchangée, sur a_demander ET en_cours). Aucune fonctionnalité retirée : les deux fonctions gardent tous leurs contrôles. */}
-          {onglet === 'a_demander' && <GroupeRailsCommunes hors={compteursProcess?.hors ?? null} rail={processActif} onAction={apresAction} onOuvrirCommune={setCodeCommuneFiche} signalCarte={signalCarte} />}
+          {/* LOT 33 / AJUSTEMENT — la ligne « Bascule de rail & carte des communes » (② basculer une commune + ③ carte du rail actif,
+              regroupées, repliée par défaut) est désormais RENDUE PAR ADemanderVue, SOUS le carrousel de dépôt (le carrousel doit passer
+              devant elle). Réservée à « À demander » (ADemanderVue n'est monté que là). La ligne ① « Hors process » reste, elle, dans le
+              commutateur ci-dessus (inchangée, sur a_demander ET en_cours). Props relayées via ADemanderVue (seul ancêtre commun avec l'éditeur de fiche). */}
         </>
       )}
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} qInitial={qInitial} />}
       {onglet === 'rattachement' && <SuiviRattachementVue vue="rattachement" onRecompter={apresAction} />}
       {onglet === 'sous_surveillance' && <SuiviRattachementVue vue="surveillance" onRecompter={apresAction} />}
       {/* DEPOT-2 — ADemanderVue (préparation + dépôt/annulation via BlocDepot) notifie le foyer unique → compteurs du commutateur à jour. */}
-      {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} process={processActif} onBasculerProcess={setProcessActif} onChangement={apresAction} onAllerReglages={() => setOnglet('reglages')} />}
+      {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} process={processActif} onBasculerProcess={setProcessActif} onChangement={apresAction} onAllerReglages={() => setOnglet('reglages')} hors={compteursProcess?.hors ?? null} onOuvrirCommune={setCodeCommuneFiche} signalCarte={signalCarte} />}
       {onglet === 'en_cours' && <EnCoursVue categories={categories} process={processActif} onRecompter={apresAction} />}
       {/* LOT 40 — « Réponses » n'est plus scopé par process : la liste affiche TOUS les rails (e-mail ET téléservice). */}
       {onglet === 'reponses' && <ReponsesVue onRecompter={apresAction} />}

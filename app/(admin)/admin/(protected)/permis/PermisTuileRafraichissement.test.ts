@@ -24,9 +24,10 @@ describe('DEPOT-2 — les compteurs du commutateur dépendent du foyer de rafra�
   });
 
   it('la bascule de rail ET les onglets à action passent par le MÊME foyer (aucun compteur périmé)', () => {
-    // La bascule est désormais REGROUPÉE dans GroupeRailsCommunes, câblé au foyer via onAction={apresAction} ; le groupe relaie ce foyer à
+    // La bascule est REGROUPÉE dans GroupeRailsCommunes, désormais rendu par ADemanderVue : le foyer `apresAction` lui parvient via
+    //   ADemanderVue (onChangement={apresAction}, vérifié ci-dessus), relayé en onAction={onChangement}. Le groupe relaie ce foyer à
     //   BasculeRail (onBascule={onAction}) ET à la carte (onApplique={onAction}) → toute affectation recharge les compteurs.
-    expect(tuile).toMatch(/<GroupeRailsCommunes[^>]*onAction=\{apresAction\}/);
+    expect(aDemander).toMatch(/<GroupeRailsCommunes[^>]*onAction=\{onChangement/);
     expect(groupe).toMatch(/<BasculeRail[^>]*onBascule=\{onAction\}/);
     expect(groupe).toMatch(/onApplique=\{onAction\}/);
     expect(tuile).toMatch(/<ReponsesVue[^>]*onRecompter=\{apresAction\}/);

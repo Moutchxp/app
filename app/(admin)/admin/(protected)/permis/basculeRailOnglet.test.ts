@@ -14,13 +14,17 @@ const src = readFileSync(join(RACINE, 'app/(admin)/admin/(protected)/permis/Perm
 const compact = src.replace(/\s+/g, ' ');
 
 describe('LOT 33 — BasculeRail réservé à « À demander »', () => {
-  it('BasculeRail n’est monté que si onglet === "a_demander" (via GroupeRailsCommunes ; jamais dans En cours / Réponses)', () => {
-    // AJUSTEMENT — BasculeRail est désormais REGROUPÉ dans GroupeRailsCommunes, lui-même GARDÉ par l'onglet « à demander » (montage
-    //   conditionnel, pas un display:none). Il n'est plus monté DIRECTEMENT dans PermisTuile → il n'existe aucune autre voie de montage.
-    expect(compact).toMatch(/onglet === 'a_demander' && <GroupeRailsCommunes\b/);
-    expect(compact).not.toMatch(/<BasculeRail\b/); // aucune autre voie dans PermisTuile
+  it('BasculeRail n’est monté que via ADemanderVue → onglet "a_demander" (jamais dans En cours / Réponses)', () => {
+    // AJUSTEMENT — BasculeRail est REGROUPÉ dans GroupeRailsCommunes, désormais rendu par ADemanderVue (sous le carrousel de dépôt).
+    //   ADemanderVue est monté UNIQUEMENT sous « à demander » (montage conditionnel, pas un display:none) → BasculeRail reste réservé à
+    //   cet onglet. PermisTuile ne monte plus GroupeRailsCommunes/BasculeRail directement : aucune autre voie.
+    expect(compact).toMatch(/onglet === 'a_demander' && <ADemanderVue\b/); // la vue porteuse du groupe est a_demander-only
+    expect(compact).not.toMatch(/<GroupeRailsCommunes\b/);                 // plus monté directement dans PermisTuile
+    expect(compact).not.toMatch(/<BasculeRail\b/);                         // aucune voie directe dans PermisTuile
+    const vue = readFileSync(join(RACINE, 'app/(admin)/admin/(protected)/permis/ADemanderVue.tsx'), 'utf8').replace(/\s+/g, ' ');
+    expect(vue).toMatch(/<GroupeRailsCommunes\b/); // le groupe vit dans ADemanderVue (donc a_demander uniquement)
     const groupe = readFileSync(join(RACINE, 'app/(admin)/admin/(protected)/permis/GroupeRailsCommunes.tsx'), 'utf8').replace(/\s+/g, ' ');
-    expect(groupe).toContain('<BasculeRail'); // la bascule vit dans le groupe (donc a_demander uniquement)
+    expect(groupe).toContain('<BasculeRail'); // la bascule vit dans le groupe
   });
 
   it('le commutateur de process (e-mail/téléservice + « Hors process ») reste sous la garde ONGLETS_DEMANDES', () => {
