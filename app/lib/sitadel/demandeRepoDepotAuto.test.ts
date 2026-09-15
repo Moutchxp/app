@@ -86,7 +86,7 @@ describe('LOT 9 — cartesDepotAutoTeleservice : cartes de dépôt virtuelles co
     expect(c.communeNom).toBe('Paris');
     expect(c.cle).not.toBe('');                       // clé de lot → matérialisation au 1er geste
     expect(c.url).toBe('https://teleservice.paris.fr');
-    expect(c.corps).toContain('Madame, Monsieur');    // corps figé RÉEL (corpsFormulaireTeleservice), pas un placeholder
+    expect(c.corps).toContain('du dossier suivant');    // corps figé RÉEL (corpsFormulaireTeleservice), pas un placeholder
     expect(c.corps).toContain('Permis concerné');
     expect(c.dossiers).toHaveLength(1);
     expect(c.dossiers[0].numDau).toMatch(/^PC75056/);

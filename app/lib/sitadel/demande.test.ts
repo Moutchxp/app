@@ -133,14 +133,16 @@ describe('Sitadel S7 — texte de la demande', () => {
   const pieces = piecesDepuisConfig('PC2,PC3');
   const { objet, corps } = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000001', pieces);
 
-  it('contient les DEUX pièces, la référence, et TOUS les dossiers du lot', () => {
-    expect(corps).toContain('la pièce PC2');
-    expect(corps).toContain('la pièce PC3');
+  it('contient la demande du DOSSIER + la liste indicative (PC2, PC3, NGF…), la référence, et TOUS les dossiers du lot', () => {
+    expect(corps).toContain('l’ensemble des pièces du dossier'); // la demande porte sur le DOSSIER (plus une liste fermée)
+    expect(corps).toContain('PC2, plan de masse coté');
+    expect(corps).toContain('PC3, plan en coupe');
+    expect(corps).toContain('altitudes ou cotes NGF');           // ligne clé pour SVAV
     expect(corps).toContain('SVAV-DEM-2026-000001');
     expect(objet).toContain('SVAV-DEM-2026-000001');
     expect(corps).toContain('PC0001');
     expect(corps).toContain('PC0002');
-    expect(corps).toContain('L311-1');
+    expect(corps).toContain('L. 311-1');
   });
 
   it('date d’autorisation en toutes lettres et code postal + commune sur chaque ligne', () => {
@@ -167,10 +169,14 @@ describe('Sitadel S7 — texte de la demande', () => {
     expect(corps).not.toMatch(interdits);
   });
 
-  it('les libellés de pièces viennent de la config (PC2 seule)', () => {
-    const un = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000002', piecesDepuisConfig('PC2'));
-    expect(un.corps).toContain('la pièce PC2');
-    expect(un.corps).not.toContain('la pièce PC3');
+  it('la liste des pièces est INDICATIVE et FIXE (la demande porte sur le DOSSIER) — indépendante de la config (15/09/2026)', () => {
+    // Décision porteur « liste fixe » : cfg.pieces_demandees ne pilote PLUS le corps → deux configs différentes donnent le MÊME corps.
+    const a = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000002', piecesDepuisConfig('PC2')).corps;
+    const b = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000002', piecesDepuisConfig('PC2,PC3,PC5')).corps;
+    expect(a).toBe(b);                                       // la config n'affecte plus le corps
+    expect(a).toContain('l’ensemble des pièces du dossier'); // demande = le DOSSIER
+    expect(a).toContain('PC2, plan de masse coté');          // liste indicative fixe (extrait)
+    expect(a).toContain('altitudes ou cotes NGF');           // ligne NGF systématique (clé pour SVAV)
   });
 
   it('destinataire/texte FIGÉ : muter la source après coup ne change pas le texte déjà généré (instantané figé)', () => {
@@ -198,20 +204,20 @@ describe('Sitadel S7 — texte de la demande', () => {
     const off = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000300', pieces, 'entreprise', 'r@svav.fr');
     expect(off.corps).not.toContain('service de l’urbanisme');
     expect(off.corps).not.toContain('silence vaudra');
-    // activées + texte : la mention service est EN TÊTE (avant « Madame, Monsieur »), la mention délai près de la clôture
+    // activées + texte : la mention service est EN TÊTE (avant « Bonjour, »), la mention délai près de la clôture
     const men = { serviceActive: true, serviceTexte: 'À l’attention du service de l’urbanisme', delaiActive: true, delaiTexte: 'À défaut de réponse dans le délai d’un mois, votre silence vaudra décision de refus.' };
     const soc = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000301', pieces, 'entreprise', 'r@svav.fr', men);
-    expect(soc.corps.indexOf('service de l’urbanisme')).toBeLessThan(soc.corps.indexOf('Madame, Monsieur'));
+    expect(soc.corps.indexOf('service de l’urbanisme')).toBeLessThan(soc.corps.indexOf('Bonjour,'));
     expect(soc.corps).toContain('votre silence vaudra décision de refus');
     const per = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000302', pieces, 'personne', 'r@svav.fr', men);
-    expect(per.corps.indexOf('service de l’urbanisme')).toBeLessThan(per.corps.indexOf('Madame, Monsieur'));
+    expect(per.corps.indexOf('service de l’urbanisme')).toBeLessThan(per.corps.indexOf('Bonjour,'));
     expect(per.corps).toContain('votre silence vaudra décision de refus');
     // active mais texte VIDE → rien ajouté (garde-fou de cohérence)
     const videActif = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000303', pieces, 'entreprise', 'r@svav.fr', { serviceActive: true, serviceTexte: '', delaiActive: true, delaiTexte: '   ' });
     expect(videActif.corps).not.toContain('service de l’urbanisme');
   });
 
-  it('S-DWG — tiret « fichiers sources » : INACTIF ⇒ corps byte-identique ; ACTIF ⇒ 3e tiret après PC3, dans la liste, ponctuation cohérente', () => {
+  it('S-DWG — tiret « fichiers sources » : INACTIF ⇒ corps byte-identique ; ACTIF ⇒ en FIN de liste indicative (après NGF, avant les modalités)', () => {
     // INACTIF (sourcesActive:false) : STRICTEMENT identique au corps sans aucune mention (byte-identique), et rien de « sources »
     const sansMention = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000400', pieces, 'entreprise', 'r@svav.fr').corps;
     const inactif = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000400', pieces, 'entreprise', 'r@svav.fr',
@@ -219,20 +225,18 @@ describe('Sitadel S7 — texte de la demande', () => {
     expect(inactif).toBe(sansMention);                         // byte-identique (ponctuation comprise)
     expect(sansMention).not.toContain('fichiers sources');
 
-    // ACTIF : le tiret sources est un 3e item de la LISTE des pièces, APRÈS PC3, AVANT « Dossiers concernés »
+    // ACTIF : le tiret sources est ajouté en FIN de la liste indicative — APRÈS la ligne NGF, AVANT les modalités (« Le format numérique »)
     const actif = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000401', pieces, 'entreprise', 'r@svav.fr',
       { sourcesActive: true, sourcesTexte: MENTION_SOURCES_TEXTE_DEFAUT }).corps;
     expect(actif).toContain('les fichiers sources des pièces graphiques (DWG, DXF)');
-    expect(actif.indexOf('fichiers sources')).toBeGreaterThan(actif.indexOf('la pièce PC3'));
-    expect(actif.indexOf('fichiers sources')).toBeLessThan(actif.indexOf('Dossiers concernés'));
-    // ponctuation : PC3 reste un item NON terminal (« ; »), le tiret sources est le DERNIER (point final)
-    expect(actif).toContain('plan en coupe du terrain et de la construction ;');
+    expect(actif.indexOf('fichiers sources')).toBeGreaterThan(actif.indexOf('altitudes ou cotes NGF'));
+    expect(actif.indexOf('fichiers sources')).toBeLessThan(actif.indexOf('Le format numérique'));
     expect(actif).toContain('ne doit en rien retarder l’envoi des pièces ci-dessus.');
-    // profil « personne » : le tiret entre AUSSI dans sa liste de pièces (même point d'insertion)
+    // profil « personne » : le tiret entre AUSSI dans sa liste indicative (même point d'insertion)
     const per = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000402', pieces, 'personne', 'r@svav.fr',
       { sourcesActive: true, sourcesTexte: MENTION_SOURCES_TEXTE_DEFAUT }).corps;
-    expect(per.indexOf('fichiers sources')).toBeGreaterThan(per.indexOf('la pièce PC3'));
-    expect(per.indexOf('fichiers sources')).toBeLessThan(per.indexOf('Dossiers concernés'));
+    expect(per.indexOf('fichiers sources')).toBeGreaterThan(per.indexOf('altitudes ou cotes NGF'));
+    expect(per.indexOf('fichiers sources')).toBeLessThan(per.indexOf('Le format numérique'));
 
     // ACTIF mais texte VIDE → rien ajouté (même garde-fou que S40)
     const videActif = genererTexte(lot, CONFIG, 'SVAV-DEM-2026-000403', pieces, 'entreprise', 'r@svav.fr',
@@ -386,7 +390,7 @@ describe('Sitadel S7e — deux profils de demandeur', () => {
     const sansProfil = genererTexte(lot, CONF_SOC, 'SVAV-DEM-2026-000105', pieces).corps;
     const avecEntreprise = genererTexte(lot, CONF_SOC, 'SVAV-DEM-2026-000105', pieces, 'entreprise').corps;
     expect(sansProfil).toBe(avecEntreprise);
-    expect(sansProfil).toContain('l’expression de ma considération distinguée.');
+    expect(sansProfil).toContain('Avec mes remerciements et mes salutations les meilleures,');
   });
 });
 
@@ -682,27 +686,30 @@ describe('P3 — corps FORMULAIRE (téléservice)', () => {
     expect(corps).not.toMatch(/référence/i);             // aucun rappel de référence
   });
 
-  it('les 3 articles attendus et AUCUN autre (liste close inchangée)', () => {
+  it('les articles cités appartiennent TOUS à la liste attendue (socle L311 + R431 indicatifs), aucun article hors liste', () => {
     // extrait TOUT article cité (L./R. num-num, éventuel « n° »), normalise l'espacement, vérifie l'appartenance à la liste.
+    // La liste indicative (nouveau texte 15/09/2026) cite les R. 431-7/8/9/10 comme AIDE à la recherche + L311-7 (occultation).
     const cites = [...corps.matchAll(/\b([LR])\.?\s?(\d+)-(\d+)(?:\s+\d+°)?/g)].map((m) => m[0].replace(/[.\s]/g, ''));
-    const AUTORISES = new Set(['L311-1', 'L311-93°', 'R431-9']);
+    const AUTORISES = new Set(['L311-1', 'L311-93°', 'L311-7', 'R431-7', 'R431-8', 'R431-9', 'R431-10']);
     expect(cites.length).toBeGreaterThan(0);
     for (const a of cites) expect(AUTORISES.has(a)).toBe(true); // aucun article hors liste
     expect(corps).toContain('L. 311-1');
     expect(corps).toContain('L. 311-9 3°');
     expect(corps).toContain('R. 431-9');
+    expect(corps).toContain('L. 311-7'); // occultation des mentions non communicables
   });
 
-  it('en-tête « service de l’urbanisme » + clôture cordiale ; objet générique', () => {
-    expect(corps).toContain('À l’attention du service de l’urbanisme');
-    expect(corps).toContain('Je vous remercie par avance pour votre aide et vous souhaite une excellente journée.');
+  it('téléservice : salutation « Bonjour, » + clôture « salutations les meilleures, » ; objet générique', () => {
+    expect(corps).toContain('Bonjour,');
+    expect(corps).toContain('Je vous remercie par avance du temps que vous voudrez bien consacrer à cette demande.');
+    expect(corps).toContain('Avec mes remerciements et mes salutations les meilleures,');
     expect(objet).toBe('Demande de communication de documents administratifs');
   });
 
-  it('non-régression : le corps E-MAIL est INCHANGÉ (la branche formulaire n’a pas fui)', () => {
+  it('le corps E-MAIL garde sa spécificité (identité + référence) et liste les dossiers « Permis concerné : … »', () => {
     const lotEmail: Lot = { codeInsee: '92050', communeNom: 'Nanterre', canal: 'email', dossiers: [cand({ numDau: 'PC0001' }), cand({ numDau: 'PC0002' })] };
     const { corps: cEnt } = genererTexte(lotEmail, CONFIG, 'SVAV-DEM-2026-000200', piecesDepuisConfig('PC2,PC3'), 'entreprise', 'rep@x.com');
-    expect(cEnt).toContain('Dossiers concernés :');
+    expect(cEnt).toContain('Permis concerné :');          // dossiers listés (nouveau format « Permis concerné : … »)
     expect(cEnt).toContain('SVAV-DEM-2026-000200');       // rappel de la référence (e-mail)
     expect(cEnt).toContain('Criterimmo');                 // identité société (e-mail)
     expect(cEnt).toContain('PC0001');
@@ -866,27 +873,27 @@ describe('FUS — bloc-signature ENTREPRISE (une personne SIGNE, une personne mo
   it('demande entreprise : signée du NOM + QUALITÉ après la politesse ; la clause « représentée par » RESTE (rôles distincts)', () => {
     const { corps } = genererTexte(lotSig, CONFIG, 'SVAV-DEM-2026-000900', piecesSig, 'entreprise', 'demandes@svav.fr');
     expect(corps).toContain('représentée par A. Jorel, gérant.'); // clause d'identité (personne MORALE) conservée
-    // signature (personne PHYSIQUE) = fin de lettre, APRÈS la politesse
-    expect(corps.indexOf('A. Jorel\ngérant')).toBeGreaterThan(corps.indexOf('ma considération distinguée.'));
-    expect(corps.trimEnd().endsWith('ma considération distinguée.\n\nA. Jorel\ngérant')).toBe(true);
+    // signature (personne PHYSIQUE) = fin de lettre, APRÈS la politesse (unique : CRPA_CLOTURE)
+    expect(corps.indexOf('A. Jorel\ngérant')).toBeGreaterThan(corps.indexOf('salutations les meilleures,'));
+    expect(corps.trimEnd().endsWith('Avec mes remerciements et mes salutations les meilleures,\n\nA. Jorel\ngérant')).toBe(true);
   });
 
   it('qualité FACULTATIVE vide → signature = le NOM SEUL (aucune ligne de qualité vide, aucun résidu)', () => {
     const cfg = configAvecSignataire(CONFIG, { nom: 'Martin', prenom: 'Lucas', fonction: '', email: 'l@svav.fr' });
     const { corps } = genererTexte(lotSig, cfg, 'SVAV-DEM-2026-000901', piecesSig, 'entreprise', 'demandes@svav.fr');
-    expect(corps.trimEnd().endsWith('ma considération distinguée.\n\nLucas Martin')).toBe(true);
+    expect(corps.trimEnd().endsWith('Avec mes remerciements et mes salutations les meilleures,\n\nLucas Martin')).toBe(true);
   });
 
-  it('téléservice (canal formulaire) : AUCUNE signature ajoutée (identité portée par FranceConnect) — se termine sur la politesse existante', () => {
+  it('téléservice (canal formulaire) : AUCUNE signature ajoutée (identité portée par le formulaire) — se termine sur la clôture du texte', () => {
     const { corps } = genererTexte({ ...lotSig, canal: 'formulaire' }, CONFIG, 'SVAV-DEM-2026-000902', piecesSig, 'entreprise', 'demandes@svav.fr');
     expect(corps).not.toContain('A. Jorel');                       // aucun nom de signataire dans le corps téléservice
-    expect(corps.trimEnd().endsWith('excellente journée.')).toBe(true);
+    expect(corps.trimEnd().endsWith('Avec mes remerciements et mes salutations les meilleures,')).toBe(true);
   });
 
   it('profil PERSONNE : signature nominative déjà là (nom SEUL), INCHANGÉE — jamais de qualité, jamais dédoublée', () => {
     const per = { ...CONFIG, representantNom: 'Camille Durand', representantQualite: 'gérant' };
     const { corps } = genererTexte(lotSig, per, 'SVAV-DEM-2026-000903', piecesSig, 'personne', 'demandes@svav.fr');
-    expect(corps.trimEnd().endsWith('mes salutations distinguées.\n\nCamille Durand')).toBe(true);
+    expect(corps.trimEnd().endsWith('Avec mes remerciements et mes salutations les meilleures,\n\nCamille Durand')).toBe(true);
     expect(corps).not.toContain('gérant'); // personne : aucune qualité (discrétion S7e)
   });
 });

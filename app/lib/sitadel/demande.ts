@@ -564,6 +564,44 @@ export function signatureEntreprise(config: ConfigDemandeur): string[] {
   return [config.representantNom.trim(), config.representantQualite.trim()].filter((x) => x !== '');
 }
 
+// ── TRAME CRPA (nouveau texte — décision porteur du 15/09/2026) ────────────────────────────────────────────────────────────────
+// La demande porte sur le DOSSIER (pas sur une liste fermée de pièces) : une formulation trop étroite (PC2/PC3) faisait répondre les
+// mairies au pied de la lettre. La liste ci-dessous est INDICATIVE (« pour vous faciliter la recherche »), FIXE et identique aux deux
+// rails (e-mail + téléservice), incluant les plans/cotes NGF (altitudes) — la donnée-clé pour SVAV. Socle juridique EN DUR : L311-1 /
+// L311-9 3° (communication par voie électronique) + L311-7 (occultation). Les articles R. 431-* ne sont qu'une AIDE À LA RECHERCHE.
+// PARTAGÉE par les 3 variantes de corps → un seul endroit fait foi, et le corps téléservice reste config-free (byte-identique lot 9).
+const CRPA_INTRO: readonly string[] = [
+  'Bonjour,',
+  '',
+  'Je vous remercie par avance du temps que vous voudrez bien consacrer à cette demande.',
+  '',
+  'En application des articles L. 311-1 et L. 311-9 3° du code des relations entre le public et l’administration, je souhaiterais obtenir communication, par voie électronique, du dossier suivant :',
+];
+/** Liste INDICATIVE (fixe) des pièces + la ligne d'introduction. `ligneSources` (mention DWG éditable, S-DWG) est ajoutée en fin de
+ *  liste quand elle est active — la liste reste par ailleurs fixe. PURE. */
+function crpaListeIndicative(ligneSources: string | null): string[] {
+  return [
+    'Ma demande porte sur l’ensemble des pièces du dossier tel que déposé et complété en cours d’instruction. Pour vous faciliter la recherche :',
+    '',
+    '— le formulaire de demande (Cerfa) et ses annexes ;',
+    '— PC1, plan de situation du terrain (art. R. 431-7 a) ;',
+    '— PC2, plan de masse coté dans les trois dimensions (art. R. 431-9) ;',
+    '— PC3, plan en coupe du terrain et de la construction (art. R. 431-10 a) ;',
+    '— PC4, notice décrivant le terrain et présentant le projet (art. R. 431-8) ;',
+    '— PC5, plan des façades et des toitures (art. R. 431-10 b) ;',
+    '— PC6, document graphique d’insertion (art. R. 431-10 c) ;',
+    '— l’arrêté accordant l’autorisation ;',
+    '— et, s’ils figurent au dossier, les plans de niveaux ou d’étages et tout document portant les altitudes ou cotes NGF du projet.',
+    ...(ligneSources ? [ligneSources] : []), // S-DWG — tiret « fichiers sources » optionnel (éditable), en fin de liste indicative
+  ];
+}
+const CRPA_MODALITES: readonly string[] = [
+  'Le format numérique d’origine convient parfaitement, en pièce jointe ou par lien de téléchargement, selon ce qui est le plus simple pour vous. N’hésitez pas à occulter les mentions que vous jugeriez non communicables (article L. 311-7) : seules les formes et les dimensions nous intéressent.',
+  '',
+  'Si une pièce ne figure pas au dossier ou ne peut pas être transmise, un simple mot de votre part suffira — cela nous évitera de revenir vers vous inutilement.',
+];
+const CRPA_CLOTURE = 'Avec mes remerciements et mes salutations les meilleures,';
+
 /**
  * Génère l'objet + le corps d'une demande selon la trame CRPA imposée, en substituant les variables. AUCUN motif ni
  * justification, et AUCUNE date-calendrier dans le corps (la date est apposée à l'ENVOI — chantier ultérieur — car
@@ -592,19 +630,18 @@ export function corpsFormulaireTeleservice(lot: Lot): TexteDemande {
     return segments.filter((x) => x !== '').join(' — ');
   };
   const objet = 'Demande de communication de documents administratifs';
+  // TÉLÉSERVICE — corps CONFIG-FREE (aucune identité, aucune référence SVAV, aucune pièce configurable) : dépend UNIQUEMENT du lot →
+  //   corps virtuel == corps matérialisé, BYTE POUR BYTE (lot 9). Pas de `ligneSources` ici (les mentions ne transitent pas par le canal formulaire).
   const corps = [
-    'À l’attention du service de l’urbanisme',
-    '',
-    'Madame, Monsieur,',
-    '',
-    'En application des articles L. 311-1 et L. 311-9 3° du code des relations entre le public et l’administration, pourriez-vous, s’il vous plaît, me communiquer par courrier électronique les pièces suivantes du permis ci-dessous :',
-    '',
-    '— la pièce PC2, plan de masse coté dans les trois dimensions, prévue à l’article R. 431-9 du code de l’urbanisme ;',
-    '— la pièce PC3, plan en coupe du terrain et de la construction.',
+    ...CRPA_INTRO,
     '',
     ...lot.dossiers.map((d) => `Permis concerné : ${ligneDossierForm(d)}`),
     '',
-    'Je vous remercie par avance pour votre aide et vous souhaite une excellente journée.',
+    ...crpaListeIndicative(null),
+    '',
+    ...CRPA_MODALITES,
+    '',
+    CRPA_CLOTURE,
   ].join('\n');
   return { objet, corps };
 }
@@ -622,16 +659,14 @@ export function genererTexte(
   // S40 — mentions de pratique (éditables) ; null si désactivées/vides. Insérées à leur place naturelle dans les 2 gabarits.
   const ligneService = mentionRetenue(mentions.serviceActive, mentions.serviceTexte);
   const ligneDelai = mentionRetenue(mentions.delaiActive, mentions.delaiTexte);
-  // S-DWG — 3e tiret OPTIONNEL des pièces (fichiers sources DWG/DXF), APRÈS PC3. `ligneSources` porte déjà son propre tiret
-  // cadratin et sa ponctuation finale (point = dernier item de la liste). Chaque ligne PC finit par « ; » (item non
-  // terminal) → la liste reste cohérente. ⚠️ INACTIVE (null) : `lignesPieces` est byte-identique à l'existant (un test le
-  // verrouille). Absente du canal 'formulaire' (branche précoce ci-dessus), des relances et des saisines CADA (autres modules).
+  // S-DWG — tiret OPTIONNEL « fichiers sources DWG/DXF » (mention ÉDITABLE). Depuis le nouveau texte (15/09/2026), il est ajouté en
+  //   FIN de la liste indicative FIXE (`crpaListeIndicative`) quand il est actif — plus après une « PC3 » (la liste ne dépend plus de
+  //   la config). INACTIVE (null, défaut) → liste byte-identique. Absent du canal 'formulaire' (branche précoce) et des autres modules.
   const ligneSources = mentionRetenue(mentions.sourcesActive, mentions.sourcesTexte);
 
-  const lignesPieces = [
-    ...pieces.map((p) => `— la pièce ${p.code}${p.description ? `, ${p.description}` : ''} ;`),
-    ...(ligneSources ? [ligneSources] : []),
-  ].join('\n');
+  // NOUVEAU TEXTE — la demande porte sur le DOSSIER ; la liste de pièces est désormais FIXE et INDICATIVE (`crpaListeIndicative`),
+  //   commune aux deux rails. Le paramètre `pieces` (config_veille.pieces_demandees) n'alimente donc plus le corps (contrôle conservé
+  //   côté config, simplement non rendu — décision porteur du 15/09/2026, option « liste fixe »).
   const lignesDossiers = lot.dossiers.map((d) => {
     // Commune + code postal, en plus de l'adresse. ⚠️ l'adresse (libellé de voie tronqué à 26 c par Sitadel) est
     // transmise TELLE QUELLE — on ajoute seulement les autres éléments d'identification autour.
@@ -648,7 +683,7 @@ export function genererTexte(
       if (secours) segments.push(secours);
     }
     return segments.join(' — ');
-  }).join('\n');
+  }); // TABLEAU (une ligne par dossier) → rendu « Permis concerné : … »
 
   if (profil === 'personne') {
     // ⚠️ DISCRÉTION (S7e correctif) : objet GÉNÉRIQUE et banal, SANS référence ni aucune chaîne dérivée de la marque
@@ -663,22 +698,19 @@ export function genererTexte(
       enTete,
       '',
       ...(ligneService ? [ligneService, ''] : []), // S40 — mention « service destinataire » (éditable), en tête
-      'Madame, Monsieur,',
+      ...CRPA_INTRO,
       '',
-      // SOCLE JURIDIQUE — EN DUR (non éditable) : articles + formule de demande par voie électronique.
-      'En application des articles L311-1 et L311-9 3° du code des relations entre le public et l’administration, je demande communication, par voie électronique, des pièces suivantes pour chacun des dossiers listés ci-dessous :',
-      lignesPieces,
+      ...lignesDossiers.map((l) => `Permis concerné : ${l}`),
       '',
-      'Dossiers concernés :',
-      lignesDossiers,
+      ...crpaListeIndicative(ligneSources),
       '',
-      'Je vous remercie de bien vouloir m’adresser ces documents à l’adresse électronique figurant en tête de la présente.',
+      ...CRPA_MODALITES,
       '',
       // S40 (point 4) — RÉFÉRENCE DISCRÈTE (rattachement de la réponse), sans marque ; l'objet reste générique.
       `Merci de bien vouloir rappeler la référence ${referenceDiscrete(reference)} dans votre réponse.`,
       ...(ligneDelai ? ['', ligneDelai] : []),      // S40 — mention « délai d'un mois » (éditable), près de la clôture
       '',
-      'Je vous prie d’agréer, Madame, Monsieur, l’expression de mes salutations distinguées.',
+      CRPA_CLOTURE, // UNE SEULE formule de clôture (remplace « Je vous prie d'agréer… » → pas de double politesse), suivie du nom
       '',
       config.representantNom.trim(),
     ].join('\n');
@@ -689,18 +721,16 @@ export function genererTexte(
   const tel = config.telephone.trim() !== '' ? `, téléphone ${config.telephone.trim()}` : '';
   const corps = [
     ...(ligneService ? [ligneService, ''] : []), // S40 — mention « service destinataire » (éditable), en tête
-    'Madame, Monsieur,',
+    ...CRPA_INTRO,
     '',
-    // SOCLE JURIDIQUE — EN DUR (non éditable) : articles + formule de demande par voie électronique.
-    'En application des articles L311-1 et L311-9 3° du code des relations entre le public et l’administration, je vous demande communication, par voie électronique, des pièces suivantes pour chacun des dossiers listés ci-dessous :',
+    ...lignesDossiers.map((l) => `Permis concerné : ${l}`),
     '',
-    lignesPieces,
+    ...crpaListeIndicative(ligneSources),
     '',
-    'Dossiers concernés :',
-    lignesDossiers,
+    ...CRPA_MODALITES,
     '',
-    // La qualité (fonction du signataire) est FACULTATIVE (S8a) : si vide, on l'omet SANS virgule orpheline ni double
-    // espace. Non vide → « , qualité » exactement comme avant (instantané figé préservé pour l'identité société).
+    // IDENTITÉ société (demandeur) — inchangée. La qualité (fonction du signataire) est FACULTATIVE (S8a) : si vide, on l'omet
+    // SANS virgule orpheline ni double espace.
     `${config.raisonSociale}, ${config.formeJuridique}, dont le siège est ${config.siegeAdresse}, représentée par ${config.representantNom}${config.representantQualite.trim() !== '' ? `, ${config.representantQualite}` : ''}.`,
     // S39 (B) — SOURCE UNIQUE : l'adresse de réponse vient de config_veille.adresse_reponse (paramètre `adresseReponse`),
     // plus de doublon avec config_demandeur.email_contact. C'est la boîte relue vers laquelle la mairie répondra.
@@ -709,7 +739,7 @@ export function genererTexte(
     `Je vous remercie de bien vouloir rappeler la référence ${reference} dans votre réponse.`,
     ...(ligneDelai ? ['', ligneDelai] : []),      // S40 — mention « délai d'un mois » (éditable), près de la clôture
     '',
-    'Je vous prie d’agréer, Madame, Monsieur, l’expression de ma considération distinguée.',
+    CRPA_CLOTURE, // UNE SEULE formule de clôture (remplace « Je vous prie d'agréer… » → pas de double politesse)
     '',
     ...signatureEntreprise(config), // FUS — la lettre au « je » est SIGNÉE par le représentant (nom + qualité si renseignée)
   ].join('\n');
