@@ -272,16 +272,14 @@ export function CarteDepot({ d, children, onCopieTexte, onCopieRef }: {
 
       {/* (1) ADRESSE + ARRONDISSEMENT — U4/U5 : source unique, provenance STRICTEMENT opérateur (jamais dans le corps mairie). */}
       {adresseAffichee
-        ? (
-          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Adresse : {adresseTexte}</span>
-            {/* « Copier l'adresse » — MÊME pastille (BoutonCopier) que « Copier le texte / le numéro » (accusé vert « ✓ Adresse copiée »).
-                À PART, SANS effet de bord : PAS de `onCopie` → aucune trace de dépôt, aucune matérialisation, aucune relève. Ce bouton
-                n'est PAS un « geste réel » (lot 9) et ne conditionne rien : les deux boutons « geste réel » gardent leur `onCopie`. */}
-            <BoutonCopier valeur={adresseTexte} libelle="Copier l'adresse" libelleMarque="Adresse copiée" />
-          </div>
-        )
+        ? <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Adresse : {adresseTexte}</span>
         : <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>Aucune adresse de voie n’est renseignée pour ce permis (base Sitadel) — à vérifier avant de déposer.</span>}
+      {/* « Copier l'adresse » — bouton PLEINE LARGEUR, MÊME gabarit que « Copier le texte / le numéro » : enfant DIRECT du flex-col de
+          la carte (comme les deux autres BoutonCopier) → largeur, hauteur, marges, typo et espacement vertical IDENTIQUES ; accusé vert
+          « ✓ Adresse copiée ». Placé SOUS la ligne « Adresse : … ». À PART, SANS effet de bord : PAS de `onCopie` → aucune trace de dépôt,
+          aucune matérialisation, aucune relève ; pas un « geste réel » (lot 9), ne conditionne rien. Affiché seulement quand une adresse
+          est disponible (sinon le message ci-dessus reste — règle inchangée). */}
+      {adresseAffichee && <BoutonCopier valeur={adresseTexte} libelle="Copier l'adresse" libelleMarque="Adresse copiée" />}
       {prov?.origine === 'repli' && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>Adresse issue de la ligne {prov.soeurType} du même numéro de permis (parcelle {prov.parcelleCommune} commune vérifiée).</span>}
       {prov?.origine === 'non_verifiable' && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Une ligne {prov.soeurTypes.join('/')} du même numéro de permis porte une adresse, mais le lien n’a pas pu être vérifié (parcelles cadastrales absentes) — à vérifier avant de l’utiliser.</span>}
       {prov?.origine === 'ambigu' && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Plusieurs lignes sœurs portent des adresses différentes — ambiguïté à trancher manuellement, aucun choix automatique.</span>}
