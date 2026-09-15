@@ -9,7 +9,6 @@
  */
 import { query } from '../db/client';
 import { problemeTexteComplement, problemeDateDeclaration, estNoReply, entetesFil } from './complementPieces';
-import type { FamillePlan } from './planMasse';
 import { marquerDossierPartiel } from './dossierPartielRepo'; // CASC-1 : pose le marqueur « dossier partiel » (suspend la relance ordinaire)
 import { lireOptionsDestinataire, enregistrerAdresseAjoutee, normaliserDestinatairesManuels } from '../veille/destinatairesCommune'; // LOT 29/32 : sélecteur de destinataire (multiple)
 import type { OptionDestinataire } from '../veille/optionsDestinataire';
@@ -32,20 +31,20 @@ export interface ResultatDemandePieces {
   ok: boolean;
   motif?: string;
   destinataire?: string;
-  familles?: FamillePlan[];
+  familles?: string[];
   messageId?: string;
 }
 
 /** Ce que le journal doit conserver (trace opposable) : l'objet + le corps RÉELLEMENT ENVOYÉS, + le contexte.
  *  LOT 30 (②) : `compte` = cet envoi consomme-t-il le créneau automatique suivant ? `creneau`/`rang` = lequel (pour le compteur + la frise). */
-export interface TraceEnvoi { objet: string; corps: string; familles: FamillePlan[]; destinataires: readonly string[]; messageId: string; compte: boolean; creneau: string | null; rang: number | null }
+export interface TraceEnvoi { objet: string; corps: string; familles: string[]; destinataires: readonly string[]; messageId: string; compte: boolean; creneau: string | null; rang: number | null }
 
 export interface DepsDemandePieces {
   lireCible(dossierId: number): Promise<CibleComplement | null>;
   // LOT 32 — `to` est une LISTE (multi-destinataires en To, jamais Cci). Le fil (In-Reply-To/References) reste celui du dernier message.
   envoyer(cible: CibleComplement, objet: string, corps: string, to: readonly string[]): Promise<{ messageId: string }>;
   journaliser(demandeId: number, trace: TraceEnvoi, auteur: string): Promise<void>;
-  marquerPartiel(demandeId: number, familles: readonly FamillePlan[]): Promise<void>; // CASC-1 : marqueur « dossier partiel » (origine 'outil')
+  marquerPartiel(demandeId: number, familles: readonly string[]): Promise<void>; // CASC-1 : marqueur « dossier partiel » (origine 'outil')
   // LOT 30 (②) — si l'utilisateur demande que cet envoi COMPTE comme la relance suivante : réserve le prochain créneau (verrou LOT 30bis).
   //   Réservé → compte ; déjà pris par l'automatique → ne compte pas. Appelé UNIQUEMENT quand `compteCommeRelance` est vrai.
   reserverCreneauSiCompte(demandeId: number, auteur: string): Promise<{ compte: boolean; creneau: string | null; rang: number | null }>;
@@ -59,7 +58,7 @@ export interface DepsDemandePieces {
  * et envoyé VERBATIM, jamais recomposé ici). Refuse (sans envoyer) si : aucune famille, objet/corps vide, entité HTML dans le texte,
  * aucun message de mairie, adresse non répondable / expédition indisponible. L'ENVOI précède le JOURNAL. PUR par injection.
  */
-export async function executerDemandePieces(deps: DepsDemandePieces, arg: { dossierId: number; familles: readonly FamillePlan[]; objet: string; corps: string; auteur: string; compteCommeRelance?: boolean; destinataires?: readonly string[]; destinatairesAjoutes?: readonly string[] }): Promise<ResultatDemandePieces> {
+export async function executerDemandePieces(deps: DepsDemandePieces, arg: { dossierId: number; familles: readonly string[]; objet: string; corps: string; auteur: string; compteCommeRelance?: boolean; destinataires?: readonly string[]; destinatairesAjoutes?: readonly string[] }): Promise<ResultatDemandePieces> {
   const familles = [...new Set(arg.familles)];
   if (familles.length === 0) return { ok: false, motif: 'aucune famille sélectionnée' };
   const problemeTexte = problemeTexteComplement(arg.objet, arg.corps);
@@ -214,12 +213,12 @@ export const MOTIF_DECLARATION_PREFIXE = 'relance de complément déclarée';
 
 // ── PART-3e — DÉCLARER une relance déjà effectuée HORS de l'outil (aucun envoi) ───────────────────────────────────────────────────
 /** Trace d'une relance DÉCLARÉE : date affirmée + familles. Le CONTENU n'est PAS connu du système (on ne fabrique aucun faux corps). */
-export interface TraceDeclaration { dateRelance: string; familles: FamillePlan[]; destinataires: readonly string[]; compte: boolean; creneau: string | null; rang: number | null }
+export interface TraceDeclaration { dateRelance: string; familles: string[]; destinataires: readonly string[]; compte: boolean; creneau: string | null; rang: number | null }
 
 export interface DepsDeclaration {
   lireContexte(dossierId: number): Promise<{ demandeId: number; destinataire: string; dernierMessageLe: string | Date } | null>; // Date au runtime (timestamptz), string en mock
   journaliserDeclaration(demandeId: number, trace: TraceDeclaration, auteur: string): Promise<void>;
-  marquerPartiel(demandeId: number, familles: readonly FamillePlan[], ancreCivile: string): Promise<void>; // CASC-1 : marqueur « dossier partiel » (origine 'declaree') ; CASC-2 : ancre = date d'envoi déclarée ('YYYY-MM-DD', posée à 12:00 Paris)
+  marquerPartiel(demandeId: number, familles: readonly string[], ancreCivile: string): Promise<void>; // CASC-1 : marqueur « dossier partiel » (origine 'declaree') ; CASC-2 : ancre = date d'envoi déclarée ('YYYY-MM-DD', posée à 12:00 Paris)
   aujourdhui(): string; // 'YYYY-MM-DD' — injecté (pureté de la borne « pas dans le futur »)
   reserverCreneauSiCompte(demandeId: number, auteur: string): Promise<{ compte: boolean; creneau: string | null; rang: number | null }>; // LOT 30 (②) — cf. DepsDemandePieces
   enregistrerAdresse?(demandeId: number, email: string, auteur: string): Promise<void>; // LOT 29 — cf. DepsDemandePieces (ajout manuel → carnet commune)
@@ -230,7 +229,7 @@ export interface DepsDeclaration {
  * PAS envoyer d'e-mail. Refuse si : aucune famille, aucun message de mairie, date dans le futur ou antérieure au dernier message reçu.
  * Le journal enregistre mode='declare' (contenu non connu), même ÉTAT qu'un envoi pour la suite (type + dateRelance + familles). PUR par injection.
  */
-export async function declarerRelanceComplement(deps: DepsDeclaration, arg: { dossierId: number; familles: readonly FamillePlan[]; dateRelance: string; auteur: string; compteCommeRelance?: boolean; destinataires?: readonly string[]; destinatairesAjoutes?: readonly string[] }): Promise<ResultatDemandePieces> {
+export async function declarerRelanceComplement(deps: DepsDeclaration, arg: { dossierId: number; familles: readonly string[]; dateRelance: string; auteur: string; compteCommeRelance?: boolean; destinataires?: readonly string[]; destinatairesAjoutes?: readonly string[] }): Promise<ResultatDemandePieces> {
   const familles = [...new Set(arg.familles)];
   if (familles.length === 0) return { ok: false, motif: 'aucune famille sélectionnée' };
   // LOT 32 — DESTINATAIRES CHOISIS (facultatif, LISTE) : à qui la relance a été envoyée (constat). Normalisés si fournis ; sinon destinataire d'origine.

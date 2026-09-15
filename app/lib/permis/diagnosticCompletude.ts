@@ -21,8 +21,15 @@
  */
 import { familleDeContenu } from './planMasseContenu';
 import { familleDeNom, type FamillePlan } from './planMasse';
+// PART-2 (élargissement) — le RÉFÉRENTIEL des familles suivies (pilotable, repli EN DUR sur les 4 historiques) remplace les Records en
+//   dur pour l'évaluation présent/manquant/indéterminé. `FamillePlan` (tracé/best-of) reste INTACT ; ici on manipule des CODES ouverts.
+import { evaluerCompletude, FAMILLES_REF_DEFAUT, type FamilleRef, type EtatFamille } from './famillesRef';
 
-/** Libellé FR d'une famille attendue (affichage + réglages). SOURCE UNIQUE. */
+export type { EtatFamille } from './famillesRef';
+
+/** Libellé FR des 4 familles HISTORIQUES (repli d'affichage — ex. libellé lisible d'un marqueur « dossier partiel »). SOURCE UNIQUE
+ *  historique. ⚠️ N'est PLUS la source des libellés du diagnostic (venus du référentiel) : conservé pour les consommateurs legacy
+ *  (dossierPartiel) qui tolèrent un code inconnu en repli. */
 export const LIBELLE_FAMILLE: Record<FamillePlan, string> = {
   masse: 'Plan de masse',
   coupe: 'Plan de coupe',
@@ -30,7 +37,7 @@ export const LIBELLE_FAMILLE: Record<FamillePlan, string> = {
   cerfa: 'Formulaire Cerfa',
 };
 
-/** Ordre d'AFFICHAGE des familles (défaut porteur : masse, coupe, étages, Cerfa). */
+/** Ordre d'AFFICHAGE des 4 familles historiques (repli). Le référentiel porte l'ordre vif une fois la migration 223 appliquée. */
 export const ORDRE_FAMILLES: readonly FamillePlan[] = ['masse', 'coupe', 'etage', 'cerfa'];
 
 /** Une pièce déjà lue : son nom + le texte de ses pages (vide/[] si scan muet). */
@@ -49,8 +56,12 @@ export interface ClassementPiece {
   aTexte?: boolean;
 }
 
-/** Une ligne du diagnostic : une famille ATTENDUE, présente ou non, et les pièces qui l'attestent. */
-export interface LigneCompletude { famille: FamillePlan; presente: boolean; pieces: string[] }
+/**
+ * Une ligne du diagnostic : une famille ATTENDUE, son ÉTAT (present / manquant / indetermine) et les pièces qui l'attestent.
+ * `famille` (= `code`) et `presente` (= `etat === 'present'`) sont CONSERVÉS pour les consommateurs existants (cascade partielle,
+ * bilan) ; le décompte des MANQUANTES doit se faire sur `etat === 'manquant'` (une famille `indetermine` n'est jamais une manquante).
+ */
+export interface LigneCompletude { code: string; famille: string; libelle: string; libelleCorps: string; ordre: number; etat: EtatFamille; presente: boolean; pieces: string[] }
 
 /**
  * LOT 60 — pourquoi une pièce n'entre dans AUCUNE des 4 familles suivies. `hors_familles` : elle a du TEXTE lisible mais ne relève
@@ -114,17 +125,24 @@ export function classerPiece(p: PieceLueDiag): ClassementPiece {
 }
 
 /**
- * Diagnostic à partir des CLASSEMENTS déjà calculés + des familles attendues (config VIVE). PURE et SANS I/O : c'est cette fonction
- * qu'on rejoue à l'affichage (les classements sont stockés au moment coûteux de la lecture des PDF ; ici, aucune relecture). Un
- * changement de config des familles attendues prend donc effet IMMÉDIATEMENT, sans relancer l'analyse.
+ * Résout la liste des familles attendues en `FamilleRef[]` : soit des objets `FamilleRef` (référentiel chargé), soit des CODES (repli
+ * sur `FAMILLES_REF_DEFAUT` — rétro-compat des appelants/tests qui passent `['masse','cerfa']`). Un code inconnu du repli est ignoré. PURE.
  */
-export function lignesDepuisClassements(classements: readonly ClassementPiece[], famillesAttendues: readonly FamillePlan[]): DiagnosticCompletude {
-  const lignes: LigneCompletude[] = ORDRE_FAMILLES
-    .filter((f) => famillesAttendues.includes(f))
-    .map((f) => {
-      const pieces = classements.filter((c) => c.famille === f).map((c) => c.nomFichier);
-      return { famille: f, presente: pieces.length > 0, pieces };
-    });
+function versFamillesRef(familles: readonly (FamilleRef | string)[]): FamilleRef[] {
+  return familles
+    .map((f) => (typeof f === 'string' ? (FAMILLES_REF_DEFAUT.find((r) => r.code === f) ?? null) : f))
+    .filter((f): f is FamilleRef => f !== null);
+}
+
+/**
+ * Diagnostic à partir des CLASSEMENTS déjà calculés + des familles attendues (config VIVE, référentiel). PURE et SANS I/O : c'est cette
+ * fonction qu'on rejoue à l'affichage (les classements sont stockés au moment coûteux de la lecture des PDF ; ici, aucune relecture). Un
+ * changement de config/référentiel prend donc effet IMMÉDIATEMENT, sans relancer l'analyse. Les familles à détecteur de CONTENU (les 4
+ * historiques) donnent present/manquant comme avant ; les familles par NOM seul peuvent être `indetermine` (jamais un faux manquant).
+ */
+export function lignesDepuisClassements(classements: readonly ClassementPiece[], famillesAttendues: readonly (FamilleRef | string)[]): DiagnosticCompletude {
+  const lignes: LigneCompletude[] = evaluerCompletude(classements, versFamillesRef(famillesAttendues))
+    .map((l) => ({ code: l.code, famille: l.code, libelle: l.libelle, libelleCorps: l.libelleCorps, ordre: l.ordre, etat: l.etat, presente: l.etat === 'present', pieces: l.pieces }));
   const desaccords = classements.filter((c) => c.desaccord);
   // LOT 60 — non classée AVEC sa raison : `aTexte===true` → lisible mais hors des 4 familles ; `===false` → illisible (scan) ;
   //   `undefined` (classement antérieur au LOT 60) → indéterminé (on n'affirme rien sur la lisibilité).
@@ -137,7 +155,7 @@ export function lignesDepuisClassements(classements: readonly ClassementPiece[],
 }
 
 /** Diagnostic complet depuis les pièces LUES (classe puis rapproche). PURE. Pratique pour le calcul et les tests. */
-export function diagnostiquerCompletude(pieces: readonly PieceLueDiag[], famillesAttendues: readonly FamillePlan[]): DiagnosticCompletude & { classements: ClassementPiece[] } {
+export function diagnostiquerCompletude(pieces: readonly PieceLueDiag[], famillesAttendues: readonly (FamilleRef | string)[]): DiagnosticCompletude & { classements: ClassementPiece[] } {
   const classements = pieces.map(classerPiece);
   return { ...lignesDepuisClassements(classements, famillesAttendues), classements };
 }

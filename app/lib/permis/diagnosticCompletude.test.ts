@@ -6,6 +6,7 @@ import {
   cerfaParNom, type PieceLueDiag,
 } from './diagnosticCompletude';
 import type { FamillePlan } from './planMasse';
+import type { FamilleRef } from './famillesRef';
 
 /**
  * PART-2 — diagnostic de complétude, module PUR. Les textes ci-dessous déclenchent le VRAI classement par contenu :
@@ -164,5 +165,27 @@ describe('LOT 60 — non classée : la VRAIE raison, jamais « illisible » un c
     expect(estRubriqueAutresPieces('Autres pièces jointes.pdf')).toBe(true);
     expect(estRubriqueAutresPieces('PC02 Plan de masse.pdf')).toBe(false);
     expect(estRubriqueAutresPieces('PC20 façade.pdf')).toBe(false);
+  });
+});
+
+// PART-2 (élargissement) — le diagnostic accepte un RÉFÉRENTIEL de familles (pilotable) et produit 3 états ; les familles détectées par
+//   le NOM seul restent « à vérifier » (indetermine) tant que le dossier n'est pas nommé réglementairement (jamais un faux « manquant »).
+describe('lignesDepuisClassements — référentiel ÉLARGI (familles par nom, 3 états)', () => {
+  const situation: FamilleRef = { code: 'situation', libelle: 'Plan de situation (PC1)', libelleCorps: 'le plan de situation (PC1)', ordre: 20, motifsNom: ['pc1', 'plan de situation'], detecteurContenu: null, actif: true };
+  const masseRef: FamilleRef = { code: 'masse', libelle: 'Plan de masse', libelleCorps: 'le plan de masse (PC2)', ordre: 30, motifsNom: ['pc2', 'plan de masse'], detecteurContenu: 'masse', actif: true };
+  const facade: FamilleRef = { code: 'facade', libelle: 'Plans des façades (PC5)', libelleCorps: 'les plans des façades (PC5)', ordre: 60, motifsNom: ['pc5', 'facade'], detecteurContenu: null, actif: true };
+
+  it('PC1 présent (par le nom), PC2 présent (par le contenu), PC5 absent mais nommage avéré → present/present/manquant + libellés/ordre du référentiel', () => {
+    const d = diagnostiquerCompletude([p('PC1 - plan de situation.pdf'), p('PC2 masse.pdf', MASSE)], [situation, masseRef, facade]);
+    expect(d.lignes.map((l) => l.code)).toEqual(['situation', 'masse', 'facade']); // ordre du référentiel
+    expect(d.lignes.find((l) => l.code === 'situation')!.etat).toBe('present');
+    expect(d.lignes.find((l) => l.code === 'masse')!.etat).toBe('present');
+    expect(d.lignes.find((l) => l.code === 'facade')!.etat).toBe('manquant'); // nommage réglementaire avéré (PC1/PC2) → absence significative
+    expect(d.lignes.find((l) => l.code === 'facade')!.libelleCorps).toBe('les plans des façades (PC5)'); // texte de corps porté par la ligne
+  });
+
+  it('dossier aux noms OPAQUES : une famille par nom est « à vérifier » (indetermine), jamais « manquant »', () => {
+    const d = diagnostiquerCompletude([p('image.png'), p('scan.pdf')], [situation, facade]);
+    expect(d.lignes.every((l) => l.etat === 'indetermine')).toBe(true);
   });
 });

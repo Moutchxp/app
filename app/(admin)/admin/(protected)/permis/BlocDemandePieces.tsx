@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } 
 // Générateur + validateur PURS (aucun import serveur) → utilisables dans le bundle client pour l'aperçu et le pré-contrôle.
 import { composerComplementPieces, problemeTexteComplement } from '../../../../lib/permis/complementPieces';
 import { jourParisISO } from '../../../../lib/permis/horodatageParis'; // LOT 49 : jour d'une relance réelle en Europe/Paris (date déclarée laissée telle quelle)
-import type { FamillePlan } from '../../../../lib/permis/planMasse';
 // LOT 29 — sélecteur de destinataire : types CLIENT-SAFE (aucun import serveur) + regex e-mail partagée avec la validation base (CHECK).
 import { LABEL_PROVENANCE, fusionnerOptions, type OptionDestinataire } from '../../../../lib/veille/optionsDestinataire';
 import { FORME_EMAIL } from '../../../../lib/sitadel/reglagesVeille';
@@ -15,7 +14,11 @@ import { FORME_EMAIL } from '../../../../lib/sitadel/reglagesVeille';
  * EXACTEMENT ce qui part (envoi verbatim côté serveur). Recocher une case RÉGÉNÈRE le texte, avec avertissement si des modifications
  * seraient perdues. No-reply / objet vide / corps vide / entité HTML → envoi refusé, motif affiché. Mobile-first, texte porteur.
  */
-const LIBELLE: Record<FamillePlan, string> = { masse: 'Plan de masse', coupe: 'Plan de coupe', etage: 'Plans d’étages', cerfa: 'Formulaire Cerfa' };
+/**
+ * Une pièce MANQUANTE proposée à la demande, issue du diagnostic (déjà ordonnée par le référentiel). `libelleCorps` + `ordre` servent à
+ * composer le corps (phrase EN CLAIR + ordre) ; `code` identifie la case ; `libelle` est l'affichage court. Familles PILOTÉES en base.
+ */
+export interface PieceManquante { code: string; libelle: string; libelleCorps: string; ordre: number }
 
 interface LigneHisto { id: number; le: string; mode: 'envoye' | 'declare'; dateRelance: string | null; objet: string | null; familles: string[] }
 interface Etat { numDau: string | null; destinataire: string | null; repliable: boolean; motif: string | null; adresses: OptionDestinataire[]; destinataireDefaut: string | null; historique: LigneHisto[] }
@@ -114,8 +117,9 @@ function libelleErreur(status: number, erreur: string | undefined, repli: string
   return erreur ?? repli;
 }
 
-export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId: number; famillesManquantes: FamillePlan[] }) {
-  const [coches, setCoches] = useState<Set<FamillePlan>>(() => new Set(famillesManquantes));
+export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId: number; famillesManquantes: PieceManquante[] }) {
+  const codesManquants = famillesManquantes.map((f) => f.code);
+  const [coches, setCoches] = useState<Set<string>>(() => new Set(codesManquants));
   const [etat, setEtat] = useState<Etat | null>(null);
   const [mode, setMode] = useState<'cases' | 'apercu'>('cases');
   const [objet, setObjet] = useState('');
@@ -125,7 +129,7 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
   const [message, setMessage] = useState<string | null>(null);
   // PART-3e — DÉCLARATION d'une relance faite hors outil (aucun envoi) : sélection + date propres au constat.
   const [compteEnvoi, setCompteEnvoi] = useState(false); // LOT 30 (②) — cet envoi compte-t-il comme la relance auto suivante ? Défaut « non » (statu quo).
-  const [cochesDecl, setCochesDecl] = useState<Set<FamillePlan>>(() => new Set(famillesManquantes));
+  const [cochesDecl, setCochesDecl] = useState<Set<string>>(() => new Set(codesManquants));
   const [dateDecl, setDateDecl] = useState('');
   const [compteDecl, setCompteDecl] = useState(false); // LOT 30 (②) — idem pour une relance DÉCLARÉE hors outil.
   const [enCoursDecl, setEnCoursDecl] = useState(false);
@@ -175,23 +179,33 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
   const repliable = etat?.repliable ?? false;
   const texteModifie = objet !== genere.objet || corps !== genere.corps;
 
-  // Génère l'objet + le corps depuis un ensemble de familles ; met à jour l'aperçu. Retourne false si aucune famille.
-  const regenerer = useCallback((fams: Set<FamillePlan>): boolean => {
-    const r = composerComplementPieces(numDau, [...fams]);
+  // Génère l'objet + le corps depuis un ensemble de CODES de familles ; met à jour l'aperçu. Retourne false si aucune famille. Les
+  //   phrases EN CLAIR (`libelleCorps`) et l'ordre viennent du référentiel (portés par `famillesManquantes`) → aucun texte en dur ici.
+  const regenerer = useCallback((codes: Set<string>): boolean => {
+    const pieces = famillesManquantes.filter((f) => codes.has(f.code)).map((f) => ({ code: f.code, libelleCorps: f.libelleCorps, ordre: f.ordre }));
+    const r = composerComplementPieces(numDau, pieces);
     if (r === null) return false;
     setObjet(r.objet); setCorps(r.corps); setGenere({ objet: r.objet, corps: r.corps }); setMessage(null);
     return true;
-  }, [numDau]);
+  }, [numDau, famillesManquantes]);
 
   const preparer = () => { if (regenerer(coches)) setMode('apercu'); };
 
   // Recocher : si le texte a été modifié à la main, PRÉVENIR avant de perdre les modifications. Ensemble vidé → retour aux cases.
-  const basculerCase = (f: FamillePlan) => {
-    const suivant = new Set(coches); if (suivant.has(f)) suivant.delete(f); else suivant.add(f);
+  // Applique une NOUVELLE sélection (une case, ou « tout cocher/décocher ») : en aperçu, prévient avant de perdre des modifications à
+  //   la main, puis régénère (ou revient aux cases si plus rien n'est coché). Chemin UNIQUE pour la case et les deux boutons de masse.
+  const appliquerSelection = (suivant: Set<string>) => {
     if (mode === 'apercu' && texteModifie && !window.confirm('Vos modifications du texte seront perdues et le message sera régénéré. Continuer ?')) return;
     setCoches(suivant);
     if (mode === 'apercu') { if (suivant.size === 0) setMode('cases'); else regenerer(suivant); }
   };
+  const basculerCase = (f: string) => {
+    const suivant = new Set(coches); if (suivant.has(f)) suivant.delete(f); else suivant.add(f);
+    appliquerSelection(suivant);
+  };
+  // « Tout cocher » ne coche QUE les familles MANQUANTES (= `famillesManquantes`, jamais les pièces déjà reçues) ; « Tout décocher » vide.
+  const toutCocher = () => appliquerSelection(new Set(codesManquants));
+  const toutDecocher = () => appliquerSelection(new Set());
 
   const envoyer = useCallback(async () => {
     const probleme = problemeTexteComplement(objet, corps); // pré-contrôle client (le serveur revalide)
@@ -210,7 +224,7 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
 
   const peutEnvoyer = repliable && objet.trim() !== '' && corps.trim() !== '' && selDestEnvoi.length > 0 && !envoi; // LOT 32 : au moins un destinataire
 
-  const basculerCaseDecl = (f: FamillePlan) => setCochesDecl((s) => { const n = new Set(s); if (n.has(f)) n.delete(f); else n.add(f); return n; });
+  const basculerCaseDecl = (f: string) => setCochesDecl((s) => { const n = new Set(s); if (n.has(f)) n.delete(f); else n.add(f); return n; });
 
   // DÉCLARER une relance faite hors outil : AUCUN envoi (action 'declarer'). On pose date + familles ; le serveur valide les bornes.
   const declarer = useCallback(async () => {
@@ -252,10 +266,19 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
 
             <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
               <legend style={{ ...muted, padding: 0 }}>Pièces à demander (décochez ce que vous ne voulez pas) :</legend>
+              {/* Sélection en MASSE — ne coche QUE les familles manquantes ; utile quand elles sont nombreuses. Cibles ≥ 40 px (mobile). */}
+              {famillesManquantes.length > 1 && (
+                <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.15rem' }}>
+                  <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.4rem .7rem', minHeight: 40 }}
+                    disabled={!repliable || coches.size === codesManquants.length} onClick={toutCocher}>Tout cocher</button>
+                  <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', padding: '.4rem .7rem', minHeight: 40 }}
+                    disabled={!repliable || coches.size === 0} onClick={toutDecocher}>Tout décocher</button>
+                </div>
+              )}
               {famillesManquantes.map((f) => (
-                <label key={f} style={{ display: 'flex', gap: '.4rem', alignItems: 'center', fontSize: 13 }}>
-                  <input type="checkbox" checked={coches.has(f)} onChange={() => basculerCase(f)} disabled={!repliable} />
-                  {LIBELLE[f]}
+                <label key={f.code} style={{ display: 'flex', gap: '.5rem', alignItems: 'center', fontSize: 13, minHeight: 40 }}>
+                  <input type="checkbox" checked={coches.has(f.code)} onChange={() => basculerCase(f.code)} disabled={!repliable} style={{ width: 18, height: 18 }} />
+                  {f.libelle}
                 </label>
               ))}
             </fieldset>
@@ -311,9 +334,9 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
               <fieldset style={{ border: 0, margin: '.3rem 0 0', padding: 0, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
                 <legend style={{ ...muted, padding: 0 }}>Pièces alors demandées :</legend>
                 {famillesManquantes.map((f) => (
-                  <label key={f} style={{ display: 'flex', gap: '.4rem', alignItems: 'center', fontSize: 13 }}>
-                    <input type="checkbox" checked={cochesDecl.has(f)} onChange={() => basculerCaseDecl(f)} />
-                    {LIBELLE[f]}
+                  <label key={f.code} style={{ display: 'flex', gap: '.5rem', alignItems: 'center', fontSize: 13, minHeight: 40 }}>
+                    <input type="checkbox" checked={cochesDecl.has(f.code)} onChange={() => basculerCaseDecl(f.code)} style={{ width: 18, height: 18 }} />
+                    {f.libelle}
                   </label>
                 ))}
               </fieldset>

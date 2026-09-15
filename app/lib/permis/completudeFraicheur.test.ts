@@ -14,9 +14,13 @@ import { lireCompletude } from './completudeRepo';
 
 const config = (coupe: boolean) => ({ familleAttendueCerfa: true, familleAttendueMasse: true, familleAttendueCoupe: coupe, familleAttendueEtage: true });
 
-/** MÊME mémoire à chaque appel : 1er SELECT = classements (FIXES, vides ici), 2e SELECT = count (péremption). */
+/** MÊME mémoire à chaque appel : 1er SELECT = classements (FIXES, vides ici), 2e SELECT = référentiel des familles (VIDE → repli EN DUR
+ *  sur les 4 familles historiques, dont la coupe), 3e SELECT = count (péremption). PART-2 (élargissement) : la lecture charge aussi le
+ *  référentiel pilotable ; ici la table est simulée absente (rows vide) → comportement historique (4 familles), la config reste la seule
+ *  variable vivante testée. */
 function armerMemoireFixe() {
   HG.query.mockResolvedValueOnce({ rows: [{ classements: [], nb_pieces: 0, calcule_le: '2026-01-01T00:00:00.000Z' }] });
+  HG.query.mockResolvedValueOnce({ rows: [] }); // permis_famille_ref → repli sur FAMILLES_REF_DEFAUT (4 historiques)
   HG.query.mockResolvedValueOnce({ rows: [{ n: 0 }] });
 }
 
@@ -35,7 +39,7 @@ describe('P-fond 4b — lireCompletude applique config_veille AU READ (fraîcheu
     expect(c?.diagnostic.lignes.some((l) => l.famille === 'coupe')).toBe(false);
     // lireCompletude n'émet QUE des SELECT (aucune écriture, aucune lecture d'objet/GED) → le diagnostic suit la config sans rien recalculer.
     const sqls = HG.query.mock.calls.map((c) => String(c[0]));
-    expect(sqls.length).toBe(2);
+    expect(sqls.length).toBe(3); // classements + référentiel des familles + count (péremption) — QUE des lectures
     expect(sqls.every((s) => /^\s*SELECT/i.test(s))).toBe(true);
   });
 });

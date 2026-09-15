@@ -2,7 +2,7 @@ import 'server-only';
 import { exigerAdministrateur } from '../../../../../lib/admin/garde';
 import { lireEtatDemandePieces, executerDemandePieces, depsReellesDemandePieces, declarerRelanceComplement, depsReellesDeclaration, annulerDeclaration } from '../../../../../lib/permis/demanderPiecesRepo';
 import { retirerTestAnalyse } from '../../../../../lib/permis/testAnalyseRepo'; // LOT 51-B : une relance (envoyée OU déclarée) depuis Analyse ramène le dossier dans « En cours »
-import type { FamillePlan } from '../../../../../lib/permis/planMasse';
+import { chargerFamillesRef } from '../../../../../lib/permis/famillesRefRepo'; // PART-2 (élargissement) — codes de familles VALIDES = référentiel vif (repli 4 historiques)
 
 /**
  * PART-3a/3c/3e — /api/admin/permis/demander-pieces : demander à la mairie les pièces manquantes, DANS LE FIL de son dernier message.
@@ -11,8 +11,12 @@ import type { FamillePlan } from '../../../../../lib/permis/planMasse';
  */
 export const runtime = 'nodejs';
 
-const FAMILLES_OK: ReadonlySet<string> = new Set(['masse', 'coupe', 'etage', 'cerfa']);
-const familles = (v: unknown): FamillePlan[] => (Array.isArray(v) ? v : []).filter((f): f is FamillePlan => typeof f === 'string' && FAMILLES_OK.has(f));
+/** Familles VALIDES = les codes du référentiel VIF (`permis_famille_ref`), repli sur les 4 historiques si la table est absente. Filtre
+ *  le corps reçu → on n'écrit jamais un code inconnu au journal / marqueur partiel. */
+async function famillesValides(v: unknown): Promise<string[]> {
+  const codes = new Set((await chargerFamillesRef()).map((f) => f.code));
+  return (Array.isArray(v) ? v : []).filter((f): f is string => typeof f === 'string' && codes.has(f));
+}
 
 export async function GET(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
@@ -51,7 +55,7 @@ export async function POST(request: Request): Promise<Response> {
 
   const dossierId = Number(body.dossierId);
   if (!Number.isInteger(dossierId) || dossierId <= 0) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
-  const fams = familles(body.familles);
+  const fams = await famillesValides(body.familles);
   if (fams.length === 0) return Response.json({ erreur: 'aucune famille sélectionnée' }, { status: 400 });
 
   // PART-3e — DÉCLARER une relance faite hors outil : AUCUN envoi (deps sans `envoyer`), on POSE date + familles.

@@ -7,7 +7,8 @@ import { BoutonRelancerAnalyse } from './BoutonRelancerAnalyse'; // LOT 56-B —
 import { jourParisISO } from '../../../../lib/permis/horodatageParis'; // LOT 49 : « établi le » = jour en Europe/Paris
 import { resumeCompletude, doitRecalculerAuto } from '../../../../lib/permis/completudeResume';
 import { libelleFamillesManquantesNommees } from './familleManquanteTitre'; // ② — même formulation, enrichie des NOMS des familles manquantes
-import type { NonClassee } from '../../../../lib/permis/diagnosticCompletude'; // LOT 60 — pièce non classée AVEC sa raison (type SEUL, module pur)
+import type { NonClassee, LigneCompletude } from '../../../../lib/permis/diagnosticCompletude'; // LOT 60 — pièce non classée AVEC sa raison ; PART-2 — ligne de complétude (3 états) — types SEULS (module pur)
+import type { PieceManquante } from './BlocDemandePieces'; // PART-2 (élargissement) — famille manquante enrichie (code + libellés + ordre) pour composer la demande
 
 /**
  * PART-2 / PERF-1 — DIAGNOSTIC DE COMPLÉTUDE des pièces (+ demande de pièces + déclaration de relance), en tête de la ligne dépliée
@@ -20,11 +21,12 @@ import type { NonClassee } from '../../../../lib/permis/diagnosticCompletude'; /
  * déplier). Le DÉTAIL — dont `BlocDemandePieces`, qui interroge le réseau — n'est monté qu'au DÉPLIAGE (render-prop de BlocRepliable).
  * Information portée par le TEXTE (jamais la couleur seule).
  */
+// Libellés des 4 familles HISTORIQUES — utilisés SEULEMENT pour l'affichage des désaccords nom/contenu (qui ne portent que sur ces 4,
+//   détectées par contenu). Les LIGNES du diagnostic portent désormais leur propre `libelle` (référentiel), affiché directement.
 type Famille = 'masse' | 'coupe' | 'etage' | 'cerfa';
 const LIBELLE: Record<Famille, string> = { masse: 'Plan de masse', coupe: 'Plan de coupe', etage: 'Plans d’étages', cerfa: 'Formulaire Cerfa' };
 const TITRE = 'Complétude des pièces et relances semi-automatiques';
 
-interface LigneCompletude { famille: Famille; presente: boolean; pieces: string[] }
 interface Desaccord { nomFichier: string; parContenu: Famille | null; parNom: Famille | null }
 interface Completude {
   diagnostic: { lignes: LigneCompletude[]; desaccords: Desaccord[]; nonClassees: NonClassee[] };
@@ -35,7 +37,7 @@ interface Completude {
 // LOT 60 — restitution HONNÊTE d'une pièce hors des 4 familles suivies (jamais « illisible » quand le contenu est lisible). Sans
 //   jargon : on parle de « pièces suivies » (les 4 familles), et de la rubrique Cerfa « autres pièces » par son nom propre.
 const PHRASE_NON_CLASSEE: Record<NonClassee['raison'], string> = {
-  hors_familles: 'lue et rangée dans le dossier, mais elle ne correspond à aucune des pièces suivies (plan de masse, plan de coupe, plans d’étages, formulaire Cerfa)',
+  hors_familles: 'lue et rangée dans le dossier, mais elle ne correspond à aucune des pièces suivies',
   illisible: 'sans texte exploitable (document scanné en image) — son contenu n’a pas pu être lu automatiquement',
   indetermine: 'rangée dans le dossier, mais rattachée à aucune des pièces suivies — relancez le diagnostic pour préciser',
 };
@@ -111,7 +113,7 @@ function TitreBilan({ etat, recalcEnCours, recalcEchoue }: { etat: Etat; recalcE
     if (r.statut === 'jamais') bilan = <span style={{ fontWeight: 400, ...muted }}> — diagnostic non calculé (dépliez pour le lancer)</span>;
     else if (r.statut === 'incomplet') {
       // ② — NOMMER les familles manquantes (LIBELLE local = mêmes noms que la SOURCE UNIQUE LIBELLE_FAMILLE ; lignes déjà en ordre canonique).
-      const nomsManquants = (etat.completude?.diagnostic.lignes ?? []).filter((l) => !l.presente).map((l) => LIBELLE[l.famille]);
+      const nomsManquants = (etat.completude?.diagnostic.lignes ?? []).filter((l) => l.etat === 'manquant').map((l) => l.libelle);
       bilan = <span style={{ fontWeight: 700, color: 'var(--color-svv-red)' }}> — {libelleFamillesManquantesNommees(r.manquantes, nomsManquants)}</span>; // LOT 13-A : formulation UNIQUE (compte) + ② noms
     }
     else bilan = <span style={{ fontWeight: 700, color: 'var(--color-svv-green-ink)' }}> — dossier complet</span>;
@@ -139,7 +141,11 @@ function CorpsCompletude({ etat, dossierId, recalcEnCours, recalcEchoue, avecDia
 }
 
 export function ContenuCompletude({ c, dossierId }: { c: Completude; dossierId: number }) {
-  const manquantes = c.diagnostic.lignes.filter((l) => !l.presente).map((l) => l.famille);
+  // Seules les MANQUANTES (jamais les « à vérifier » : on ne réclame pas une pièce dont on n'est pas sûr qu'elle manque). Enrichies
+  //   (code + libellés + ordre du référentiel) pour composer le corps de la demande sans texte en dur.
+  const manquantes: PieceManquante[] = c.diagnostic.lignes
+    .filter((l) => l.etat === 'manquant')
+    .map((l) => ({ code: l.code, libelle: l.libelle, libelleCorps: l.libelleCorps, ordre: l.ordre }));
   return (
     <div className="flex flex-col gap-1" style={{ fontSize: 13 }}>
       {c.perime && (
@@ -149,13 +155,16 @@ export function ContenuCompletude({ c, dossierId }: { c: Completude; dossierId: 
       )}
       <ul style={{ margin: 0, paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
         {c.diagnostic.lignes.map((l) => (
-          <li key={l.famille}>
-            {/* Texte porteur : le MOT « Présent »/« Manquant » dit l'état, la couleur n'est qu'un appui. */}
-            <strong>{LIBELLE[l.famille]}</strong> :{' '}
-            {l.presente
+          <li key={l.code}>
+            {/* Texte porteur : le MOT « Présent »/« Manquant »/« À vérifier » dit l'état, la couleur n'est qu'un appui. Trois états :
+                « À vérifier » (non déterminé) ≠ « Manquant » — on ne fabrique jamais un manque quand le classement ne peut pas trancher. */}
+            <strong>{l.libelle}</strong> :{' '}
+            {l.etat === 'present'
               ? <span style={{ color: 'var(--color-svv-green-ink)' }}>Présent ({l.pieces.length} pièce{l.pieces.length > 1 ? 's' : ''})</span>
-              : <span style={{ color: 'var(--color-svv-red)', fontWeight: 700 }}>Manquant</span>}
-            {l.presente && l.pieces.length > 0 && <span style={muted}> — {l.pieces.join(', ')}</span>}
+              : l.etat === 'manquant'
+                ? <span style={{ color: 'var(--color-svv-red)', fontWeight: 700 }}>Manquant</span>
+                : <span style={muted}>À vérifier <span style={{ fontStyle: 'italic' }}>(non déterminé)</span></span>}
+            {l.etat === 'present' && l.pieces.length > 0 && <span style={muted}> — {l.pieces.join(', ')}</span>}
           </li>
         ))}
       </ul>

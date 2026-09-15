@@ -150,4 +150,20 @@ describe('composerComplementPieces', () => {
       expect(texte.includes('&nbsp;')).toBe(false);
     }
   });
+
+  // PART-2 (élargissement) — familles PILOTÉES : l'appelant peut passer des objets {code, libelleCorps, ordre} (référentiel vif). La
+  //   phrase EN CLAIR et l'ordre viennent alors du référentiel, plus d'aucun texte en dur ; le tri suit `ordre`.
+  it('accepte des familles ÉLARGIES (objets du référentiel) : phrase de corps + ordre viennent du référentiel', () => {
+    const r = composerComplementPieces('0930012500081', [
+      { code: 'facade', libelleCorps: 'les plans des façades et des toitures (PC5)', ordre: 60 },
+      { code: 'situation', libelleCorps: 'le plan de situation du terrain (PC1)', ordre: 20 },
+    ])!;
+    expect(r.corps).toContain('les plans des façades et des toitures (PC5)');
+    expect(r.corps).toContain('le plan de situation du terrain (PC1)');
+    expect(r.corps.indexOf('situation')).toBeLessThan(r.corps.indexOf('façades')); // tri par ordre (20 avant 60)
+  });
+
+  it('un objet sans phrase de corps (libelleCorps vide) est ignoré ; aucune famille exploitable → null', () => {
+    expect(composerComplementPieces('X', [{ code: 'inconnu', libelleCorps: '' }])).toBeNull();
+  });
 });

@@ -8,7 +8,9 @@
  */
 import { query } from '../db/client';
 import { MARQUEUR_FICHE_SYNTHESE } from './gedConstantes';
-import { classerPiece, lignesDepuisClassements, famillesAttenduesDepuisConfig, type ClassementPiece, type DiagnosticCompletude } from './diagnosticCompletude';
+import { classerPiece, lignesDepuisClassements, type ClassementPiece, type DiagnosticCompletude } from './diagnosticCompletude';
+import { chargerFamillesRef } from './famillesRefRepo';                 // PART-2 (élargissement) — référentiel pilotable des familles (repli EN DUR = 4 historiques)
+import { famillesSuiviesActives } from './famillesRef'; // activation HYBRIDE (les 4 historiques via config_veille, les nouvelles via `actif`)
 import { resumeCompletude } from './completudeResume'; // RATT-1 — MÊME règle « incomplet » que le bilan de titre (source unique)
 import type { ResultatLectureGed } from './lectureGed';
 
@@ -65,9 +67,7 @@ export async function lireCompletude(dossierId: number): Promise<CompletudeLue |
     if (!r) return null;
     const { chargerConfigVeille } = await import('../sitadel/veilleConfig');
     const cfg = await chargerConfigVeille();
-    const familles = famillesAttenduesDepuisConfig({
-      cerfa: cfg.familleAttendueCerfa, masse: cfg.familleAttendueMasse, coupe: cfg.familleAttendueCoupe, etage: cfg.familleAttendueEtage,
-    });
+    const familles = famillesSuiviesActives(await chargerFamillesRef(), cfg); // référentiel vif (repli 4 historiques) + activation hybride
     const diagnostic = lignesDepuisClassements(r.classements ?? [], familles);
     const { rows: c } = await query<{ n: number }>(
       `SELECT count(*)::int AS n FROM dossier_document WHERE dossier_id = $1 AND note IS DISTINCT FROM $2`, [dossierId, MARQUEUR_FICHE_SYNTHESE]);
@@ -107,9 +107,7 @@ export async function dossiersIncompletsParmi(dossierIds: readonly number[]): Pr
     if (rows.length === 0) return new Set();
     const { chargerConfigVeille } = await import('../sitadel/veilleConfig');
     const cfg = await chargerConfigVeille();
-    const familles = famillesAttenduesDepuisConfig({
-      cerfa: cfg.familleAttendueCerfa, masse: cfg.familleAttendueMasse, coupe: cfg.familleAttendueCoupe, etage: cfg.familleAttendueEtage,
-    });
+    const familles = famillesSuiviesActives(await chargerFamillesRef(), cfg); // référentiel vif (repli 4 historiques) + activation hybride
     const incomplets = new Set<number>();
     for (const r of rows) {
       const diagnostic = lignesDepuisClassements(r.classements ?? [], familles);
@@ -133,9 +131,7 @@ export async function manquantesParDossier(dossierIds: readonly number[]): Promi
     if (rows.length === 0) return new Map();
     const { chargerConfigVeille } = await import('../sitadel/veilleConfig');
     const cfg = await chargerConfigVeille();
-    const familles = famillesAttenduesDepuisConfig({
-      cerfa: cfg.familleAttendueCerfa, masse: cfg.familleAttendueMasse, coupe: cfg.familleAttendueCoupe, etage: cfg.familleAttendueEtage,
-    });
+    const familles = famillesSuiviesActives(await chargerFamillesRef(), cfg); // référentiel vif (repli 4 historiques) + activation hybride
     const parDossier = new Map<number, number>();
     for (const r of rows) {
       const diagnostic = lignesDepuisClassements(r.classements ?? [], familles);

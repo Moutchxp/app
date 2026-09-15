@@ -8,18 +8,23 @@
  * Il ne cite QUE les familles passées (celles cochées à l'écran), rappelle le NUMÉRO DE PERMIS (num_dau, jamais la référence
  * interne SVAV-…), et remercie pour les pièces déjà transmises.
  */
-import type { FamillePlan } from './planMasse';
+import { FAMILLES_REF_DEFAUT } from './famillesRef';
 
-/** Libellé EN CLAIR (pour un agent de mairie) d'une famille demandée. Différent du libellé court d'affichage : ici c'est une phrase. */
-const DEMANDE_FAMILLE: Record<FamillePlan, string> = {
-  masse: 'le plan de masse (PC2)',
-  coupe: 'le plan de coupe (PC3)',
-  etage: 'les plans des différents niveaux (plans d’étages)',
-  cerfa: 'le formulaire Cerfa de demande de permis de construire et son annexe si besoin pour obtenir la liste intégrale des parcelles cadastrales concernées par ce permis',
-};
+/**
+ * Une pièce à demander dans le corps : soit un CODE de famille (résolu via le REPLI des 4 familles historiques `FAMILLES_REF_DEFAUT` —
+ * rétro-compat des appelants/tests), soit un objet COMPLET `{code, libelleCorps, ordre}` fourni par l'appelant (référentiel VIF, familles
+ * élargies pilotées en base). La phrase EN CLAIR (`libelleCorps`) et l'ordre viennent donc du référentiel, plus d'aucun texte en dur ici.
+ */
+export type PieceDemandee = string | { code: string; libelleCorps: string; ordre?: number };
 
-/** Ordre stable des familles dans le corps (masse, coupe, étages, Cerfa). */
-const ORDRE: readonly FamillePlan[] = ['masse', 'coupe', 'etage', 'cerfa'];
+/** Résout une pièce demandée en { code, libelleCorps, ordre }, ou null si inconnue (code hors repli, ou libellé de corps vide). PURE. */
+function resoudrePiece(p: PieceDemandee): { code: string; libelleCorps: string; ordre: number } | null {
+  if (typeof p === 'string') {
+    const f = FAMILLES_REF_DEFAUT.find((r) => r.code === p);
+    return f ? { code: f.code, libelleCorps: f.libelleCorps, ordre: f.ordre } : null;
+  }
+  return p.libelleCorps && p.libelleCorps.trim() !== '' ? { code: p.code, libelleCorps: p.libelleCorps, ordre: p.ordre ?? Number.MAX_SAFE_INTEGER } : null;
+}
 
 /** Une adresse est-elle un « no-reply » (non répondable) ? PURE. On refuse d'écrire à ces adresses (jamais de repli silencieux). */
 export function estNoReply(adresse: string | null | undefined): boolean {
@@ -89,12 +94,18 @@ export interface ComplementPieces { objet: string; corps: string }
  * Compose l'objet + le corps du courriel de complément. `familles` = les familles à demander (déjà filtrées : cochées à l'écran).
  * `null` si aucune famille (l'appelant refuse l'envoi en amont — ce retour null est un filet). PURE.
  */
-export function composerComplementPieces(numDau: string, familles: readonly FamillePlan[]): ComplementPieces | null {
-  const demandees = ORDRE.filter((f) => familles.includes(f));
+export function composerComplementPieces(numDau: string, familles: readonly PieceDemandee[]): ComplementPieces | null {
+  // Résout + écarte l'inconnu, TRIE par ordre référentiel (tri stable → à ordre égal, ordre d'entrée conservé), puis DÉDUPLIQUE par code.
+  const vues = new Set<string>();
+  const demandees = familles
+    .map(resoudrePiece)
+    .filter((x): x is { code: string; libelleCorps: string; ordre: number } => x !== null)
+    .sort((a, b) => a.ordre - b.ordre)
+    .filter((d) => (vues.has(d.code) ? false : (vues.add(d.code), true)));
   if (demandees.length === 0) return null;
 
   const objet = `Permis de construire n° ${numDau} — complément de pièces`;
-  const liste = demandees.map((f) => `  - ${DEMANDE_FAMILLE[f]}`);
+  const liste = demandees.map((f) => `  - ${f.libelleCorps}`);
   const intro = demandees.length === 1
     ? 'je me permets de solliciter la communication de la pièce suivante :'
     : 'je me permets de solliciter la communication des pièces suivantes :';

@@ -41,7 +41,7 @@ export async function famillesManquantesDemande(demandeId: number): Promise<{ ma
     const c = await lireCompletude(d.dossier_id);
     if (c === null) continue; // dossier jamais analysé → on ne présume rien
     diagnostiquees += 1;
-    for (const l of c.diagnostic.lignes) if (!l.presente) set.add(l.famille as FamillePlan);
+    for (const l of c.diagnostic.lignes) if (l.etat === 'manquant') set.add(l.famille as FamillePlan); // `indetermine` (« à vérifier ») n'entre PAS dans la cascade partielle
   }
   return { manquantes: [...set], diagnostiquees };
 }

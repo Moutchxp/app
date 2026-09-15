@@ -21,7 +21,9 @@ import { resoudreDestination, type ContactCommune } from './destinataire';
 import { expressionRangSql, classer, libelleNatureProjet, type CleCategorie } from './priorite'; // D2 : expressionRangSql réutilisé (pur) ; Q2b : classer = source unique de catégorie ; N1-B : libelleNatureProjet traduit le code nature
 import type { SourceFichePermis } from '../pdf/fichePermisPdf'; // N1-B : type SEUL (le générateur PDF pdfkit n'entre jamais dans le graphe statique)
 import { MARQUEUR_FICHE_SYNTHESE, PREFIXE_NOTE_VERSEMENT_AUTO } from '../permis/gedConstantes'; // N1-B/N4/N6-F : sentinelle fiche + préfixe versement auto (source unique)
-import { lignesDepuisClassements, famillesAttenduesDepuisConfig, type ClassementPiece } from '../permis/diagnosticCompletude'; // POLISH-1 : MÊME logique de complétude que BlocCompletude (jamais recopiée)
+import { lignesDepuisClassements, type ClassementPiece } from '../permis/diagnosticCompletude'; // POLISH-1 : MÊME logique de complétude que BlocCompletude (jamais recopiée)
+import { chargerFamillesRef } from '../permis/famillesRefRepo';            // PART-2 (élargissement) — référentiel pilotable (repli 4 historiques)
+import { famillesSuiviesActives } from '../permis/famillesRef';           // activation hybride (source unique, comme BlocCompletude)
 import { estValidationAcquise, estDansRattachement } from '../permis/rattachementGroupes'; // COULEUR LIGNE : appartenance à l'onglet Rattachement, MÊME règle que l'onglet (source unique)
 import { lireModePassageRattachement } from '../permis/rattachementConfig'; // idem — le mode gouverne estDansRattachement (automatique = validationAcquise ; clôture manuelle = marqueur de passage)
 import { MOTIF_COMPLEMENT_PREFIXE, MOTIF_DECLARATION_PREFIXE, MOTIF_REPONSE_LIBRE_PREFIXE } from '../permis/demanderPiecesRepo'; // UNIF-3 : mêmes préfixes que le fil (signal « historique non vide »)
@@ -594,14 +596,14 @@ export async function listerArchives(cfg: ConfigVeille): Promise<LigneArchive[]>
   if (rows.length > 0) {
     const ids = rows.map((r) => r.dossier_id);
     try {
-      const famillesAttendues = famillesAttenduesDepuisConfig({ cerfa: cfg.familleAttendueCerfa, masse: cfg.familleAttendueMasse, coupe: cfg.familleAttendueCoupe, etage: cfg.familleAttendueEtage });
+      const famillesAttendues = famillesSuiviesActives(await chargerFamillesRef(), cfg); // PART-2 (élargissement) : référentiel vif (repli 4 historiques) + activation hybride — MÊME source que BlocCompletude
       const { rows: comp } = await query<{ dossier_id: number; classements: ClassementPiece[] | null }>(
         `SELECT dossier_id::int AS dossier_id, classements FROM permis_completude WHERE dossier_id = ANY($1::bigint[])`,
         [ids]);
       for (const c of comp) {
         completudeConnue.add(c.dossier_id); // UNIF-3 : un diagnostic EXISTE (complet OU incomplet) → famille « Complétude » affichée
         const diag = lignesDepuisClassements(c.classements ?? [], famillesAttendues);
-        incompletParDossier.set(c.dossier_id, diag.lignes.some((l) => !l.presente)); // une famille attendue absente → incomplet
+        incompletParDossier.set(c.dossier_id, diag.lignes.some((l) => l.etat === 'manquant')); // une famille attendue MANQUANTE → incomplet (`indetermine` exclu)
       }
     } catch { /* 174 absente / lecture impossible → aucun diagnostic connu → aucune ligne rouge (comportement inchangé) */ }
     try {

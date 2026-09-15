@@ -6,7 +6,10 @@ import { BlocCompletude, ContenuCompletude } from './BlocCompletude';
 // ② — fixture de complétude : 4 familles PRÉSENTES (aucune manquante → pas de BlocDemandePieces, aucun réseau) + N pièces non classées.
 const completude = (noms: string[]) => ({
   diagnostic: {
-    lignes: (['masse', 'coupe', 'etage', 'cerfa'] as const).map((famille) => ({ famille, presente: true, pieces: [`${famille}.pdf`] })),
+    // PART-2 (élargissement) — ligne de complétude à 3 états : ici toutes PRÉSENTES (aucune manquante → pas de BlocDemandePieces, aucun réseau).
+    lignes: (['masse', 'coupe', 'etage', 'cerfa'] as const).map((code, i) => ({
+      code, famille: code, libelle: code, libelleCorps: code, ordre: (i + 1) * 10, etat: 'present' as const, presente: true, pieces: [`${code}.pdf`],
+    })),
     desaccords: [],
     nonClassees: noms.map((nomFichier) => ({ nomFichier, raison: 'hors_familles' as const, rubriqueAutresPieces: false })),
   },

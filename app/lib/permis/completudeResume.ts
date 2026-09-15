@@ -8,12 +8,13 @@
 export type StatutCompletude = 'complet' | 'incomplet' | 'jamais';
 export interface ResumeCompletude { statut: StatutCompletude; manquantes: number }
 
-/** Forme minimale lue : les lignes du diagnostic (présent/manquant par famille). `null` = jamais analysé. */
-export interface DiagnosticLu { diagnostic: { lignes: { presente: boolean }[] } }
+/** Forme minimale lue : l'ÉTAT de chaque famille du diagnostic. `null` = jamais analysé. Une famille `indetermine` (« à vérifier »)
+ *  n'est NI présente NI manquante → elle ne compte pas comme manquante et ne rend pas, à elle seule, un dossier « incomplet ». */
+export interface DiagnosticLu { diagnostic: { lignes: { etat: 'present' | 'manquant' | 'indetermine' }[] } }
 
 export function resumeCompletude(completude: DiagnosticLu | null): ResumeCompletude {
   if (completude === null) return { statut: 'jamais', manquantes: 0 }; // jamais calculé → neutre (surtout pas « incomplet »)
-  const manquantes = completude.diagnostic.lignes.filter((l) => !l.presente).length;
+  const manquantes = completude.diagnostic.lignes.filter((l) => l.etat === 'manquant').length; // `indetermine` exclu (jamais un faux manquant)
   return { statut: manquantes > 0 ? 'incomplet' : 'complet', manquantes };
 }
 

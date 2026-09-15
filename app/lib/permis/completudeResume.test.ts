@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { resumeCompletude, doitRecalculerAuto, libelleFamillesManquantes } from './completudeResume';
 
-const diag = (presences: boolean[]) => ({ diagnostic: { lignes: presences.map((presente) => ({ presente })) } });
+const diag = (etats: ('present' | 'manquant' | 'indetermine')[]) => ({ diagnostic: { lignes: etats.map((etat) => ({ etat })) } });
 
 describe('PERF-1 — resumeCompletude (bilan léger, pur)', () => {
   it('diagnostic jamais calculé (null) → statut « jamais », JAMAIS « incomplet »', () => {
@@ -9,15 +9,21 @@ describe('PERF-1 — resumeCompletude (bilan léger, pur)', () => {
   });
 
   it('des familles manquantes → « incomplet » + leur nombre (cas 7424 : 2 sur 4)', () => {
-    expect(resumeCompletude(diag([true, false, true, false]))).toEqual({ statut: 'incomplet', manquantes: 2 });
+    expect(resumeCompletude(diag(['present', 'manquant', 'present', 'manquant']))).toEqual({ statut: 'incomplet', manquantes: 2 });
   });
 
   it('toutes présentes → « complet », 0 manquante', () => {
-    expect(resumeCompletude(diag([true, true, true, true]))).toEqual({ statut: 'complet', manquantes: 0 });
+    expect(resumeCompletude(diag(['present', 'present', 'present', 'present']))).toEqual({ statut: 'complet', manquantes: 0 });
   });
 
   it('une seule manquante → « incomplet », 1', () => {
-    expect(resumeCompletude(diag([true, false]))).toEqual({ statut: 'incomplet', manquantes: 1 });
+    expect(resumeCompletude(diag(['present', 'manquant']))).toEqual({ statut: 'incomplet', manquantes: 1 });
+  });
+
+  // PART-2 (élargissement) — un état « indéterminé » (« à vérifier ») n'est NI présent NI manquant : il ne compte pas comme manquante.
+  it('« indéterminé » n’est jamais compté comme manquante (jamais un faux « incomplet »)', () => {
+    expect(resumeCompletude(diag(['present', 'indetermine']))).toEqual({ statut: 'complet', manquantes: 0 });
+    expect(resumeCompletude(diag(['present', 'manquant', 'indetermine']))).toEqual({ statut: 'incomplet', manquantes: 1 });
   });
 });
 
