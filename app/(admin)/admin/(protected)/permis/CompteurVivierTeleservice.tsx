@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 
 /**
- * Lot 2 (carrousel Téléservice) — COMPTEUR DE VIVIER, au-dessus du carrousel, à gauche. Affiche le nombre de PERMIS encore
+ * Lot 2 (carrousel Téléservice) — COMPTEUR DE VIVIER, sous le carrousel, à gauche. Affiche le nombre de PERMIS encore
  * DEMANDABLES sur le rail téléservice (stock restant), servi par /demandes/vivier-compteur (dérivé de `chargerVivier` : ni cap
  * ni plafond). Le libellé dit EN TOUTES LETTRES qu'il compte des PERMIS — à ne pas confondre avec « N commune(s) » du bloc de
  * rail (process-compteurs, GROUP BY mairie_contact) : deux nombres différents cohabitent, chacun s'annonce clairement.

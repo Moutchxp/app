@@ -3,12 +3,12 @@
 import { RechercheVivierManuel } from './RechercheVivierManuel';
 
 /**
- * MODE DE PRÉPARATION (téléservice) — bascule entre deux modes, AU-DESSUS du carrousel. Le rail Téléservice n'a PAS de bouton
+ * MODE DE PRÉPARATION (téléservice) — bascule entre deux modes, SOUS le carrousel. Le rail Téléservice n'a PAS de bouton
  * « Préparer les demandes » (préparer un lot n'a aucun sens : un téléservice ne permet qu'un dépôt à la fois, et le verrou de
  * commune n'autorise qu'une demande en vol). Le rail E-mail garde son bouton (envoi groupé légitime), rendu par ADemanderVue.
  *
  * - AUTOMATIQUE (par défaut) : pour chaque commune LIBRE, une carte de dépôt COMPLÈTE apparaît TOUTE SEULE dans le carrousel
- *   ci-dessous (aucun geste préalable) ; la demande ne se crée qu'au 1er geste réel (copie / dépôt). Ce mode n'ajoute donc aucun
+ *   ci-dessus (aucun geste préalable) ; la demande ne se crée qu'au 1er geste réel (copie / dépôt). Ce mode n'ajoute donc aucun
  *   contenu propre ici — juste un rappel de l'endroit où regarder.
  * - MANUEL : un panneau apparaît pour choisir soi-même un permis dans le vivier téléservice, hors des critères de sélection.
  *
@@ -37,7 +37,7 @@ export function ModeDemandeTeleservice({ categories, mode, onMode, onChangement 
         <button type="button" aria-pressed={mode === 'auto'} onClick={() => onMode('auto')} style={styleOnglet(mode === 'auto')}>
           Mode automatique {mode === 'auto' ? '· actif' : ''}
           <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>
-            Les cartes de dépôt des communes libres apparaissent toutes seules dans le carrousel ci-dessous (aucun clic ; la demande se crée au 1er geste).
+            Les cartes de dépôt des communes libres apparaissent toutes seules dans le carrousel ci-dessus (aucun clic ; la demande se crée au 1er geste).
           </span>
         </button>
         <button type="button" aria-pressed={mode === 'manuel'} onClick={() => onMode('manuel')} style={styleOnglet(mode === 'manuel')}>
@@ -50,7 +50,7 @@ export function ModeDemandeTeleservice({ categories, mode, onMode, onChangement 
 
       {mode === 'auto' && (
         <p role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>
-          Regarde le carrousel « à déposer à la main » juste en dessous : chaque commune libre y a déjà sa carte de dépôt, prête à copier.
+          Regarde le carrousel « à déposer à la main » ci-dessus : chaque commune libre y a déjà sa carte de dépôt, prête à copier.
         </p>
       )}
       {mode === 'manuel' && <RechercheVivierManuel categories={categories} onPrepared={onChangement} />}
