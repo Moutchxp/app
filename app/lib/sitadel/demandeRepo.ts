@@ -207,7 +207,12 @@ export function diagnostiquer(candidats: CandidatDossier[], hist: HistoriqueDema
 
 /** Lots PROPOSÉS (aucune écriture) + diagnostic (pour expliquer un « 0 lot ») — pour revue avant création. */
 export async function proposition(cfg: ConfigVeille, ancienneteMois?: number): Promise<{ lots: Lot[]; diagnostic: DiagnosticProposition }> {
-  const [dossiers, hist] = await Promise.all([lireDossiersPriorite(cfg, cfg.nbCandidatsExamines), lireHistorique()]);
+  // FENÊTRE D'ANCIENNETÉ EN AMONT DU CAP — on borne la requête candidats à la fenêtre d'éligibilité MAXIMALE
+  //   (`dateMinDepuis(anciennete_max)`, EXACTEMENT la borne de `chargerVivier`), AVANT le cap `nbCandidatsExamines`. Sans elle, le
+  //   cap coupait dans le classement BRUT (trié date/rang) saturé de dossiers hors fenêtre, évinçant les permis demandables
+  //   récents → le compteur du vivier voyait des communes que le carrousel ne voyait pas. Le filtre d'écran RÉDUIT
+  //   (`ancienneteMois`) reste appliqué APRÈS, en TS, par `proposerLots` (raffinement d'affichage au-dessus du « demandable »).
+  const [dossiers, hist] = await Promise.all([lireDossiersPriorite(cfg, cfg.nbCandidatsExamines, dateMinDepuis(cfg.ancienneteMaxDemandeAnnees)), lireHistorique()]);
   // VERROU « référence mairie » (défaut ON) — MÊME lecture que chargerVivier : on retire les candidats des communes téléservice EN
   //   ATTENTE D'ACCUSÉ (verrou demande_depot_presume vivant), pour que « Préparer les demandes » ne contourne pas la règle. Gaté par
   //   le réglage : OFF → aucune lecture ni exclusion (byte-identique). Le verrou étant formulaire-only, seules des communes téléservice

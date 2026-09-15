@@ -177,10 +177,16 @@ async function lireInclusions(communes: string[]): Promise<ResultatVeille['inclu
   return r.rows.map((x) => ({ ancien: x.ancien, nomAncien: x.nom_ancien, actuel: x.actuel, n: x.n }));
 }
 
-/** Les `n` premiers dossiers du CLASSEMENT DE PRIORITÉ (aucun filtre) — base des candidats à demande (S7). Réutilise
- *  strictement l'ordonnancement de `construireRequeteListe` (priorite.ts). */
-export async function lireDossiersPriorite(c: ConfigVeille, n: number): Promise<DossierAffiche[]> {
-  const rq = construireRequeteListe(FILTRES_PERMIS_VIDES, c, 1, n);
+/**
+ * Les `n` premiers dossiers ENCORE DEMANDABLES du CLASSEMENT DE PRIORITÉ — base des candidats à demande (S7). Réutilise
+ * strictement l'ordonnancement de `construireRequeteListe` (priorite.ts).
+ * `depuis` (fenêtre d'ancienneté, 'AAAA-MM-JJ') est appliqué EN SQL, AVANT le cap `n` : ainsi `n` = « les N premiers dossiers
+ * DANS la fenêtre d'éligibilité », et non « les N premiers du classement BRUT » (lequel, trié par date/rang, se remplissait de
+ * dossiers hors fenêtre et évinçait les permis demandables récents → carrousel téléservice vide). MÊME borne que
+ * `lireDossiersDepuis` (le compteur du vivier) : les deux chemins de lecture du vivier voient alors le MÊME ensemble. `null`
+ * (défaut) = aucun filtre de fenêtre → comportement historique byte-identique pour tout appelant qui ne passe pas de borne. */
+export async function lireDossiersPriorite(c: ConfigVeille, n: number, depuis: string | null = null): Promise<DossierAffiche[]> {
+  const rq = construireRequeteListe({ ...FILTRES_PERMIS_VIDES, depuis }, c, 1, n);
   // P3 — la requête candidats (`construireRequeteListe`) reste INCHANGÉE ; les contraintes de téléservice sont lues à part et
   // fusionnées en TS → la SÉLECTION (mêmes dossiers, même ordre) est byte-identique, seul le futur découpage en dépendra.
   const [r, contraintes] = await Promise.all([query<LigneSql>(rq.texte, rq.params), lireContraintesCommune()]);
@@ -213,8 +219,8 @@ export async function lireDossiersParIds(c: ConfigVeille, ids: number[]): Promis
  * Q2b — TOUS les dossiers autorisés depuis `depuis` (borne incluse ; `null` = tout l'historique), pour l'agrégat de STOCK.
  * Réutilise le MÊME constructeur (`construireRequeteListe`, NON modifié) et le MÊME mappage que le chemin candidats
  * (`versAffiche` → `classer`, donc chaque ligne porte déjà `.categorie`), avec un filtre de date `depuis` et SANS le plafond
- * `n` du chemin candidats. Le chemin CANDIDATS (`lireDossiersPriorite`, `FILTRES_PERMIS_VIDES` seuls) reste byte-identique :
- * on ajoute ici un filtre `depuis`, on n'en retire aucun. `tronque` = le plafond de garde a été atteint (jamais de coupe
+ * `n` du chemin candidats. Le chemin CANDIDATS (`lireDossiersPriorite`) applique DÉSORMAIS la MÊME borne `depuis` (fenêtre
+ * d'ancienneté) que ce chargement → les deux chemins de lecture du vivier voient le même ensemble. `tronque` = le plafond de garde a été atteint (jamais de coupe
  * silencieuse — l'appelant le journalise / le signale). LECTURE SEULE.
  */
 const PLAFOND_STOCK = 50000; // garde-fou anti-emballement ; la fenêtre d'affichage (6 mois, 4 dép. ≈ 1,4 k) est très en deçà.
