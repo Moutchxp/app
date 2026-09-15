@@ -3,13 +3,15 @@
 import { useEffect, useState } from 'react';
 
 /**
- * Lot 2 (carrousel Téléservice) — COMPTEUR DE VIVIER, sous le carrousel, à gauche. Affiche le nombre de PERMIS encore
+ * Lot 2 (carrousel Téléservice) — COMPTEUR DE VIVIER, rendu SUR LA LIGNE de navigation du carrousel (dans son prolongement, à la
+ * suite des flèches et du « n sur m »), passé en prop `compteurVivier` à BlocDepot. Affiche le nombre de PERMIS encore
  * DEMANDABLES sur le rail téléservice (stock restant), servi par /demandes/vivier-compteur (dérivé de `chargerVivier` : ni cap
- * ni plafond). Le libellé dit EN TOUTES LETTRES qu'il compte des PERMIS — à ne pas confondre avec « N commune(s) » du bloc de
- * rail (process-compteurs, GROUP BY mairie_contact) : deux nombres différents cohabitent, chacun s'annonce clairement.
+ * ni plafond). Le libellé dit EN TOUTES LETTRES qu'il compte des PERMIS — à ne pas confondre avec « n sur m » (PAGES du carrousel)
+ * ni avec « N commune(s) » du bloc de rail (process-compteurs, GROUP BY mairie_contact) : des nombres différents cohabitent.
  *
- * INDÉPENDANT du carrousel : ce composant vit à côté de BlocDepot dans ADemanderVue → il s'affiche MÊME quand le carrousel rend
- * null (0 carte). Se rafraîchit sur le MÊME signal que le carrousel (`signalRafraichir` : préparation / dépôt / annulation).
+ * INDÉPENDANT du carrousel : monté PAR BlocDepot (prop `compteurVivier`) et rendu MÊME à 0 carte (la barre subsiste pour lui) → il
+ * s'affiche toujours. Se rafraîchit sur le MÊME signal que le carrousel (`signalRafraichir` : préparation / dépôt / annulation),
+ * y compris à la relecture périodique (commit d2a41ee).
  * LECTURE SEULE. `tronque` (plafond de chargement atteint) → « au moins N » (jamais un total faux affiché comme exact).
  */
 export function CompteurVivierTeleservice({ signalRafraichir }: { signalRafraichir: number }) {

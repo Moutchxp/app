@@ -169,16 +169,15 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
       {/* CARROUSEL TÉLÉSERVICE (lot 1 — présentation) — PREMIER contenu SOUS le SÉLECTEUR des deux rails (CommutateurProcess, monté
           dans PermisTuile au-dessus de cette vue) : les cartes de dépôt à faire remontent en TÊTE de la vue, au-dessus de la ligne
           « Bascule de rail & carte des communes » et de tout le reste. UNE SEULE instance à l'écran. Réservé au rail Téléservice
-          (process === 'formulaire'), comme avant. DEPOT-1 : mêmes signaux. */}
-      {process === 'formulaire' && <BlocDepot signalRafraichir={signalSuivi} onChangement={signalerChangement} afficherVirtuels={modeTeleservice === 'auto'} />}
+          (process === 'formulaire'), comme avant. DEPOT-1 : mêmes signaux. Le COMPTEUR DE VIVIER (lot 2) est passé en prop
+          `compteurVivier` → BlocDepot le rend SUR LA LIGNE de sa navigation (flèches + « n sur m »), dans son prolongement : une
+          seule instance, gardant son propre fetch/rafraîchissement (signalSuivi), visible même carrousel vide. */}
+      {process === 'formulaire' && <BlocDepot signalRafraichir={signalSuivi} onChangement={signalerChangement} afficherVirtuels={modeTeleservice === 'auto'} compteurVivier={<CompteurVivierTeleservice signalRafraichir={signalSuivi} />} />}
       {/* LIGNE « Bascule de rail & carte des communes » (repliable, repliée par défaut) — DÉPLACÉE ici depuis PermisTuile pour passer
           SOUS le carrousel (accord porteur). S'affiche pour les DEUX rails (comme avant) ; en e-mail, BlocDepot rend null, donc cette
           ligne reste le premier contenu de la vue → ordre e-mail inchangé. `onAction` = `onChangement` (apresAction), STRICTEMENT comme
           quand elle vivait dans PermisTuile : même rafraîchissement (pastilles d'onglets + commutateur), aucun comportement modifié. */}
       <GroupeRailsCommunes hors={hors} rail={process} onAction={onChangement ?? (() => {})} onOuvrirCommune={onOuvrirCommune} signalCarte={signalCarte} />
-      {/* COMPTEUR DE VIVIER (lot 2) — permis encore demandables en Téléservice, SOUS le carrousel, à gauche. INDÉPENDANT du
-          carrousel : s'affiche même quand BlocDepot rend null (0 carte). Même signal de rafraîchissement (signalSuivi) que le carrousel. */}
-      {process === 'formulaire' && <CompteurVivierTeleservice signalRafraichir={signalSuivi} />}
       {/* RÉSUMÉ DES CRITÈRES (lot 3) — SOUS le carrousel : critères propres au téléservice ÉDITABLES ici,
           critères partagés avec l'E-mail en LECTURE SEULE (renvoi vers Réglages). Se rafraîchit sur le même signal (signalSuivi). */}
       {process === 'formulaire' && <ResumeCriteresTeleservice signalRafraichir={signalSuivi} onChangement={signalerChangement} onAllerReglages={onAllerReglages} />}

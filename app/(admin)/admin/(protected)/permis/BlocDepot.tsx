@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { CarteDepot, BoutonAnnulerDepot, type DepotAffiche } from './DemandesRendu';
 import type { DepotVirtuel } from '../../../../lib/sitadel/demandeRepo'; // type SEUL (erasé au build) — la carte virtuelle a la même forme que DepotAffiche, sans id
 import { creerPlanificateurReleve, type PlanificateurReleve } from './planifieReleveDepot'; // LOT 34 : relève déclenchée par le clic « copier »
@@ -37,7 +37,7 @@ function signalerDepot(demandeId: number, bouton: 'texte' | 'ref'): void {
 //   au retour de focus/onglet, et SUSPENDUE tant qu'un geste (copie / saisie) est en cours dans une carte (anti-morphing, lot 9).
 const RELIRE_INTERVALLE_MS = 12_000;
 
-export function BlocDepot({ signalRafraichir, onChangement, afficherVirtuels = true }: { signalRafraichir: number; onChangement: () => void; afficherVirtuels?: boolean }) {
+export function BlocDepot({ signalRafraichir, onChangement, afficherVirtuels = true, compteurVivier }: { signalRafraichir: number; onChangement: () => void; afficherVirtuels?: boolean; compteurVivier?: ReactNode }) {
   const [demandes, setDemandes] = useState<DepotAffiche[]>([]);
   const [virtuels, setVirtuels] = useState<DepotVirtuel[]>([]); // AFFICHAGE AUTO — communes libres rendues à la volée (aucune demande en base)
   const [msg, setMsg] = useState<Record<number, string>>({});  // retour (ok/échec) par carte réelle
@@ -269,42 +269,55 @@ export function BlocDepot({ signalRafraichir, onChangement, afficherVirtuels = t
     setIndex((cur) => (cur === plusProche ? cur : plusProche));
   };
 
-  // ÉTAT VIDE EXPLICITE — si le carrousel s'est VIDÉ après un départ de commune (retourDepot posé), on garde la confirmation + une
-  //   phrase disant pourquoi il n'y a plus rien (jamais un blanc). À l'ouverture (aucune carte, aucune confirmation) → rien (comme avant).
-  if (total === 0) {
-    return retourDepot ? (
-      <section role="group" aria-label="Demandes à déposer à la main (téléservice)" className="flex flex-col gap-2">
-        <div role="status" aria-live="polite" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourDepot}</div>
-        <div style={{ fontSize: 13, color: 'var(--color-svv-muted)' }}>Plus aucune commune à déposer à la main pour l’instant (les demandes sont parties en « En cours », ou le vivier téléservice est vide).</div>
-      </section>
-    ) : null;
-  }
+  // RIEN À AFFICHER — aucune carte, aucun compteur, aucune confirmation → null (comportement d'avant). En rail téléservice le compteur
+  //   de vivier est TOUJOURS fourni → la vue reste rendue, donc le compteur reste visible MÊME à 0 carte (comme avant son déplacement).
+  if (total === 0 && !compteurVivier && retourDepot === '') return null;
 
   return (
     <section role="group" aria-label="Demandes à déposer à la main (téléservice)" className="flex flex-col gap-2">
-      <div style={{ fontSize: 13 }}>
-        <strong>{total} demande(s) à déposer à la main</strong> — ces communes n’acceptent que leur téléservice. Ouvrez le formulaire, collez le texte, puis marquez la demande déposée.
-      </div>
+      {total > 0 && (
+        <div style={{ fontSize: 13 }}>
+          <strong>{total} demande(s) à déposer à la main</strong> — ces communes n’acceptent que leur téléservice. Ouvrez le formulaire, collez le texte, puis marquez la demande déposée.
+        </div>
+      )}
       {/* U3 — retour de l'annulation : la carte concernée a disparu de la file, le retour reste visible au niveau de la section. */}
       {retourAnnul && <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourAnnul}</div>}
       {/* RELECTURE EN DIRECT — confirmation NOMMÉE (dépôt local ou départ hors carrousel) : brève, non bloquante, survit au retrait de la carte. */}
       {retourDepot && <div role="status" aria-live="polite" style={{ fontSize: 12, color: 'var(--color-svv-green-ink)' }}>{retourDepot}</div>}
+      {/* ÉTAT VIDE EXPLICITE — carrousel vidé après un départ : on dit POURQUOI il n'y a plus rien (jamais un blanc). */}
+      {total === 0 && retourDepot !== '' && <div style={{ fontSize: 13, color: 'var(--color-svv-muted)' }}>Plus aucune commune à déposer à la main pour l’instant (les demandes sont parties en « En cours », ou le vivier téléservice est vide).</div>}
       {/* LOT 34 — état de la relève déclenchée par « copier » : « relevée dans un instant » puis résultat. Jamais silencieux. */}
       {releveMsg && <div role="status" aria-live="polite" style={{ fontSize: 12, color: 'var(--color-svv-ink)' }}>{releveMsg}</div>}
-      {/* CARROUSEL — navigation DISCRÈTE, sur UNE seule ligne (deux petits boutons + la position EN TEXTE), pour ne PAS manger de
-          la hauteur au-dessus des cartes. `flex:'0 0 auto'` + `width:'auto'` ANNULENT le `width:100%` de `.svv-btn` (sinon chaque
-          bouton prenait toute la largeur et s'empilait). Boutons focusables ; la position en toutes lettres accompagne les flèches. */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-        <button type="button" className="svv-btn svv-btn-outline" style={{ flex: '0 0 auto', width: 'auto', padding: '.25rem .6rem', minHeight: 36 }}
-          onClick={() => allerA(pos - 1)} disabled={pos <= 0} aria-label="Carte précédente"><span aria-hidden="true">‹</span></button>
-        <span role="status" aria-live="polite" style={{ fontSize: 13, fontWeight: 600, minWidth: '4.5rem', textAlign: 'center' }}>{pos + 1} sur {total}</span>
-        <button type="button" className="svv-btn svv-btn-outline" style={{ flex: '0 0 auto', width: 'auto', padding: '.25rem .6rem', minHeight: 36 }}
-          onClick={() => allerA(pos + 1)} disabled={pos >= total - 1} aria-label="Carte suivante"><span aria-hidden="true">›</span></button>
-      </div>
+      {/* BARRE — sur UNE seule ligne : la NAVIGATION du carrousel (flèches + « n sur m » = PAGES) puis, dans son PROLONGEMENT, le
+          COMPTEUR DE VIVIER (permis demandables = VIVIER ENTIER). DEUX nombres de natures DIFFÉRENTES : séparés par un « · » discret
+          + un espacement, chacun gardant son libellé explicite (jamais un nombre nu). flex-wrap → sur écran étroit le compteur passe
+          proprement SOUS la nav (libellé jamais tronqué). La nav n'apparaît que s'il y a des cartes ; le compteur, lui, reste visible
+          même carrousel vide (il vit désormais ICI, plus à côté). `flex:'0 0 auto'` + `width:'auto'` ANNULENT le `width:100%` de `.svv-btn`. */}
+      {(total > 0 || compteurVivier) && (
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '.35rem .7rem' }}>
+          {total > 0 && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+              <button type="button" className="svv-btn svv-btn-outline" style={{ flex: '0 0 auto', width: 'auto', padding: '.25rem .6rem', minHeight: 36 }}
+                onClick={() => allerA(pos - 1)} disabled={pos <= 0} aria-label="Carte précédente"><span aria-hidden="true">‹</span></button>
+              <span role="status" aria-live="polite" style={{ fontSize: 13, fontWeight: 600, minWidth: '4.5rem', textAlign: 'center' }}>{pos + 1} sur {total}</span>
+              <button type="button" className="svv-btn svv-btn-outline" style={{ flex: '0 0 auto', width: 'auto', padding: '.25rem .6rem', minHeight: 36 }}
+                onClick={() => allerA(pos + 1)} disabled={pos >= total - 1} aria-label="Carte suivante"><span aria-hidden="true">›</span></button>
+            </div>
+          )}
+          {compteurVivier && (
+            <div style={{ display: 'inline-flex', alignItems: 'baseline', gap: '.4rem', minWidth: 0 }}>
+              {total > 0 && <span aria-hidden="true" style={{ color: 'var(--color-svv-muted)', fontSize: 13 }}>·</span>}
+              {compteurVivier}
+            </div>
+          )}
+        </div>
+      )}
       {/* PISTE — rangée flex de cartes CÔTE À CÔTE à leur largeur d'ORIGINE (~320 px, `min(20rem,90vw)`), défilement HORIZONTAL
           (swipe/trackpad natifs + molette + boutons) + scroll-snap. `alignItems:'flex-start'` = rangée alignée EN HAUT → aucun
           saut vertical d'une carte à l'autre. Seule la PISTE défile (overflow-x) : la page ne déborde jamais horizontalement.
-          Cartes RÉELLES (déjà préparées) d'abord, puis cartes VIRTUELLES (communes libres, affichage automatique). */}
+          Cartes RÉELLES (déjà préparées) d'abord, puis cartes VIRTUELLES (communes libres, affichage automatique). La PISTE n'est
+          rendue que s'il y a des cartes (total > 0) — carrousel vide → seule la barre (compteur / état vide) subsiste. */}
+      {total > 0 && (
       <div ref={pisteRef} onScroll={onScrollPiste} role="group" aria-label="Cartes de dépôt à faire (défilement horizontal)"
         style={{ display: 'flex', gap: '.6rem', overflowX: 'auto', overflowY: 'hidden', scrollSnapType: 'x mandatory', overscrollBehaviorX: 'contain', position: 'relative', alignItems: 'flex-start', WebkitOverflowScrolling: 'touch' }}>
         {demandes.map((d) => (
@@ -352,6 +365,7 @@ export function BlocDepot({ signalRafraichir, onChangement, afficherVirtuels = t
           </div>
         ))}
       </div>
+      )}
     </section>
   );
 }

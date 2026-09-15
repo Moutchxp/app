@@ -250,3 +250,34 @@ describe('RELECTURE EN DIRECT — le carrousel suit le vivier serveur (sans relo
     expect(container.textContent).toMatch(/Plus aucune commune à déposer/); // état vide explicite (pas un blanc)
   });
 });
+
+/**
+ * COMPTEUR DE VIVIER sur la LIGNE DE NAVIGATION — le compteur (permis demandables = VIVIER) est passé en prop `compteurVivier` et
+ * rendu par BlocDepot dans le prolongement de la nav (flèches + « n sur m » = PAGES). Une seule instance ; il reste visible même
+ * carrousel vide. On PILOTE la liste via `reponse` et on repère le compteur par un marqueur `data-cpt`.
+ */
+describe('COMPTEUR DE VIVIER — rendu sur la ligne de nav (prop compteurVivier)', () => {
+  const cpt = () => createElement('span', { 'data-cpt': '1' }, '376 permis encore demandables sur le rail Téléservice');
+  const monterAvecCompteur = async (demandes: DepotAffiche[]): Promise<void> => {
+    global.fetch = vi.fn(async (url: string | URL | Request) => {
+      if (String(url).includes('/api/admin/permis/demandes/depot')) return { ok: true, json: async () => ({ demandes, releveDelaiSecondes: 60 }) } as unknown as Response;
+      return { ok: true, json: async () => ({}) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(BlocDepot, { signalRafraichir: 0, onChangement: vi.fn(), compteurVivier: cpt() })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+  };
+
+  it('avec cartes : nav (« n sur m ») ET compteur (permis) coexistent ; UNE seule instance du compteur', async () => {
+    await monterAvecCompteur([carte(1, 'Alpha'), carte(2, 'Beta')]);
+    expect(container.textContent).toContain('1 sur 2');                       // navigation = PAGES
+    expect(container.querySelectorAll('[data-cpt="1"]')).toHaveLength(1);     // UNE seule instance du compteur (déplacé, pas dupliqué)
+    expect(container.textContent).toContain('376 permis encore demandables'); // libellé EXPLICITE du compteur (VIVIER), jamais un nombre nu
+  });
+
+  it('carrousel VIDE : le compteur reste rendu (visible même à 0 carte), sans nav « n sur m »', async () => {
+    await monterAvecCompteur([]);
+    expect(container.querySelectorAll('[data-cpt="1"]')).toHaveLength(1); // le compteur est toujours là
+    expect(container.querySelector('textarea')).toBeNull();               // aucune carte
+    expect(container.textContent).not.toMatch(/\d+ sur \d+/);             // pas de compteur de PAGES quand il n'y a pas de carte
+  });
+});
