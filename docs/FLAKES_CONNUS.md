@@ -67,3 +67,45 @@ d'échec, le message porte : **longueurs**, **nombre d'octets divergents**, **5 
 4. **NE PAS rouvrir la piste timestamp** : réfutée.
 5. Si le dump montre une **vraie** divergence reproductible (offsets stables entre occurrences),
    c'est un fait NOUVEAU → il remplace le « NON ÉTABLI » ci-dessus, avec sa preuve.
+
+---
+
+## Test « fantôme » — un fichier de test JAMAIS collecté (défaut de COLLECTE, PAS un flake)
+
+> ⚠️ Ce n'est **pas** un flake (rien d'intermittent) : c'est un test qui ne tournait **jamais** tout
+> en étant annoncé vert. Consigné ici car c'est la même **famille de dette** que `curation.test.ts`
+> (resté rouge et invisible du 14/07 au 03/08/2026) : un contrôle qu'on **croit** actif ne l'est pas.
+> **RÉSOLU + VERROUILLÉ** le 2026-09-15.
+
+- **Incident** : `app/(admin)/admin/(protected)/permis/BlocDemandePieces.toutCocher.test.tsx` était
+  bien écrit et passait en exécution ciblée, mais **la suite ne l'a jamais exécuté**. Il a été annoncé
+  vert dans le commit `10dcf4e` sans avoir tourné une seule fois dans `npm test`.
+
+### ✅ PROUVÉ — cause ÉTABLIE (ce n'est pas une hypothèse)
+
+- `vitest.config.ts` avait `include: ['app/**/*.test.ts']` — **`.ts` uniquement**. Un fichier en
+  **`.test.tsx`** ne matche pas ce pattern → **hors collecte**, silencieusement.
+- Vérifié : `npx vitest list --filesOnly` renvoyait **570** fichiers ; `git ls-files` en listait
+  **571** ressemblant à un test. L'unique écart tracké était ce `.tsx`. (Le 571ᵉ sur disque,
+  `sandbox/additionne.test.ts`, est **gitignoré** — bac à sable isolé avec sa propre config, hors
+  périmètre projet, à ne pas collecter.)
+
+### Correctifs (deux, complémentaires)
+
+1. **Élargissement du `include`** → `app/**/*.{test,spec}.{ts,tsx,mts,cts,js,jsx,mjs,cjs}` : toute
+   extension TS/JS et les deux conventions (`.test.`/`.spec.`) sont désormais collectées. Portée
+   gardée à `app/**` (n'aspire pas `sandbox/`). Zéro fichier nouvellement collecté aujourd'hui (tous
+   les tests tracked sont des `.test.ts`) → aucun risque de rouge caché révélé au passage.
+2. **Méta-test garde-fou** `app/lib/collecteTests.test.ts` : compare l'ensemble des fichiers de test
+   **suivis par git** (donc hors gitignore) à l'ensemble **réellement résolu** par le `include` de la
+   config (via **tinyglobby**, le globber même de vitest → aucune divergence de matcher). Tout fichier
+   ressemblant à un test **non collecté** fait **échouer `npm test`** en nommant le coupable. Une garde
+   de sanité (`> 50` tests trouvés) empêche un faux vert si `git ls-files` ne répond pas.
+
+### Conduite à tenir si le méta-test est ROUGE
+
+- Il liste un fichier de test **non collecté**. **NE PAS le renommer, le déplacer hors scope, ni le
+  passer en `.skip`** pour faire taire l'alerte : ce serait re-masquer un test qui ne tourne pas.
+- **Corriger la COLLECTE** : élargir `test.include` pour couvrir l'extension/emplacement, ou déplacer
+  le fichier sous une zone couverte — puis vérifier que le test **passe** réellement. S'il échoue,
+  c'est un **vrai test rouge** qui dormait : il se traite comme tel (jamais désactivé).
