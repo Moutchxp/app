@@ -8,7 +8,7 @@ import { executerDemandePieces, declarerRelanceComplement, executerReponseLibre,
 const cible = (over: Partial<CibleComplement> = {}): CibleComplement => ({
   demandeId: 154, numDau: '0930012500081', destinataire: 'lauriane.pangui@mairie-aubervilliers.fr', deNom: 'Lauriane Pangui',
   messageId: '<abc@mairie-aubervilliers.fr>', referencesBrut: '<x@svav.com>', from: 'contact@sansvisavis.com', profil: 'entreprise',
-  recuLe: '2026-08-28T14:39:59+02:00', motifIndisponible: null, ...over,
+  recuLe: '2026-08-28T14:39:59+02:00', motifIndisponible: null, profilBoite: 'entreprise', adresseBoite: 'contact@sansvisavis.com', ...over,
 });
 
 const OBJET = 'Permis n° X — complément';

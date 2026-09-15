@@ -21,7 +21,8 @@ import { FORME_EMAIL } from '../../../../lib/sitadel/reglagesVeille';
 export interface PieceManquante { code: string; libelle: string; libelleCorps: string; ordre: number }
 
 interface LigneHisto { id: number; le: string; mode: 'envoye' | 'declare'; dateRelance: string | null; objet: string | null; familles: string[] }
-interface Etat { numDau: string | null; destinataire: string | null; repliable: boolean; motif: string | null; adresses: OptionDestinataire[]; destinataireDefaut: string | null; historique: LigneHisto[] }
+interface Adr { adresse: string; profil: string }
+interface Etat { numDau: string | null; destinataire: string | null; repliable: boolean; motif: string | null; adresses: OptionDestinataire[]; destinataireDefaut: string | null; historique: LigneHisto[]; expedition: Adr | null; reception: Adr | null }
 const muted: React.CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)' };
 const styleChamp: React.CSSProperties = { width: '100%', padding: '.4rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, boxSizing: 'border-box' };
 
@@ -115,6 +116,30 @@ function SelecteurDestinataire({ options, ajoutees, valeurs, disabled, onBascule
 function libelleErreur(status: number, erreur: string | undefined, repli: string): string {
   if (status === 401 || status === 403) return 'Session expirée ou accès non autorisé : reconnectez-vous, puis recommencez.';
   return erreur ?? repli;
+}
+
+/**
+ * AFFICHAGE SEUL, avant l'envoi : d'où PARTIRA le message (adresse d'expédition réelle = reply-to, + profil de la demande) et dans quelle
+ * BOÎTE la mairie a écrit (profil_boite + son adresse), quand c'est connu. Si les deux diffèrent, une phrase NEUTRE le dit — sans alerte,
+ * sans blocage, Arno décide. Ne fabrique jamais une adresse : `reception` est `null` si la boîte n'est pas résoluble → on n'affiche rien.
+ * Mobile-first : `wordBreak` coupe proprement les adresses longues (jamais de scroll horizontal de la page).
+ */
+function AcheminementInfo({ expedition, reception }: { expedition: Adr | null; reception: Adr | null }) {
+  if (!expedition && !reception) return null;
+  const casse = (a: string) => a.trim().toLowerCase();
+  const divergent = expedition !== null && reception !== null && casse(expedition.adresse) !== casse(reception.adresse);
+  const brk: React.CSSProperties = { wordBreak: 'break-all' };
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.1rem', minWidth: 0 }}>
+      {expedition && <span style={muted}>Le message partira de <strong style={brk}>{expedition.adresse}</strong> (profil {expedition.profil}).</span>}
+      {reception && <span style={muted}>La mairie a écrit à <strong style={brk}>{reception.adresse}</strong> (boîte {reception.profil}).</span>}
+      {divergent && (
+        <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-ink)', background: 'var(--color-svv-field)', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', padding: '.3rem .45rem', minWidth: 0 }}>
+          À noter : la mairie a écrit à <strong style={brk}>{reception!.adresse}</strong> ; la réponse partira de <strong style={brk}>{expedition!.adresse}</strong>.
+        </span>
+      )}
+    </div>
+  );
 }
 
 export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId: number; famillesManquantes: PieceManquante[] }) {
@@ -263,6 +288,10 @@ export function BlocDemandePieces({ dossierId, famillesManquantes }: { dossierId
             {/* LOT 29 — l'annonce reflète le destinataire RÉELLEMENT sélectionné (règle A par défaut), et se met à jour au changement. */}
             {repliable && selDestEnvoi.length > 0 && <span style={muted}>Sera envoyé dans le fil du dernier message, à {selDestEnvoi.join(', ')}.</span>}
             {!repliable && <p role="note" style={{ margin: 0, fontSize: 12, color: 'var(--color-svv-red)' }}>Envoi impossible : {etat.motif ?? 'destinataire non répondable'}.</p>}
+
+            {/* Transparence AVANT ENVOI (affichage seul) : d'où PARTIRA le message + dans quelle BOÎTE la mairie a écrit. Valeurs lues côté
+                serveur à la MÊME source que l'envoi. Adresses coupées proprement sur mobile (wordBreak) — jamais de scroll horizontal. */}
+            <AcheminementInfo expedition={etat.expedition} reception={etat.reception} />
 
             <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
               <legend style={{ ...muted, padding: 0 }}>Pièces à demander (décochez ce que vous ne voulez pas) :</legend>

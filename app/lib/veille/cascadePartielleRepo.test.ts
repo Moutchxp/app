@@ -8,7 +8,8 @@ import type { CibleComplement } from '../permis/demanderPiecesRepo';
  */
 const cible = (over: Partial<CibleComplement> = {}): CibleComplement => ({
   demandeId: 154, numDau: 'PC0930012500081', destinataire: 'urba@mairie-aubervilliers.fr', deNom: null, messageId: '<m@mairie>', referencesBrut: null,
-  from: 'contact@sansvisavis.com', profil: 'entreprise', recuLe: '2026-05-01T09:00:00Z', motifIndisponible: null, ...over,
+  from: 'contact@sansvisavis.com', profil: 'entreprise', recuLe: '2026-05-01T09:00:00Z', motifIndisponible: null,
+  profilBoite: 'entreprise', adresseBoite: 'contact@sansvisavis.com', ...over,
 });
 function deps(over: Partial<DepsRelancePartielle> = {}): DepsRelancePartielle {
   return {

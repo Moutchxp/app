@@ -25,6 +25,8 @@ export interface CibleComplement {
   profil: string;              // profil_demandeur (entreprise|personne) → compte SMTP
   recuLe: string;              // date/heure du dernier message reçu (borne basse d'une relance déclarée — PART-3e)
   motifIndisponible: string | null; // ≠ null ⇒ envoi impossible (no-reply, adresse d'expédition absente…)
+  profilBoite: string | null;  // profil de la BOÎTE qui a relevé le dernier message (demande_reponse.profil_boite) — null si inconnu
+  adresseBoite: string;        // adresse de cette boîte (config_demandeur.email_contact du profil_boite) — '' si non résoluble (n'affiche rien)
 }
 
 export interface ResultatDemandePieces {
@@ -108,19 +110,24 @@ export async function lireCibleComplementReel(dossierId: number): Promise<CibleC
   const d = dRows[0];
   if (!d) return null;
 
-  // 2) Le dernier message reçu (hors rebond) de cette demande, avec ses en-têtes de fil.
-  const { rows: mRows } = await query<{ message_id: string; references_brut: string | null; de_adresse: string; de_nom: string | null; recu_le: string }>(
-    `SELECT message_id, references_brut, de_adresse, de_nom, recu_le
+  // 2) Le dernier message reçu (hors rebond) de cette demande, avec ses en-têtes de fil ET la BOÎTE qui l'a relevé (profil_boite).
+  const { rows: mRows } = await query<{ message_id: string; references_brut: string | null; de_adresse: string; de_nom: string | null; recu_le: string; profil_boite: string | null }>(
+    `SELECT message_id, references_brut, de_adresse, de_nom, recu_le, profil_boite
        FROM demande_reponse
       WHERE demande_id = $1 AND nature <> 'rebond'
       ORDER BY recu_le DESC LIMIT 1`, [d.demande_id]);
   const m = mRows[0];
   if (!m) return null; // aucune réponse → rien à quoi répondre dans le fil
 
-  // 3) Adresse d'expédition du profil (= reply-to). Absente → envoi indisponible (jamais un repli silencieux).
+  // 3) Adresse d'expédition du profil (= reply-to). Absente → envoi indisponible (jamais un repli silencieux). MÊME source (config_demandeur.email_contact,
+  //   ventilé par profil, via lireAdressesExpedition) que ce qui sera RÉELLEMENT posé en From/Reply-To à l'envoi → l'affichage ne devine rien.
   const { lireAdressesExpedition, INFIXE_SMTP } = await import('../sitadel/envoiDemande');
   const { lireCompteSmtp } = await import('../email');
-  const from = ((await lireAdressesExpedition())[d.profil] ?? '').trim();
+  const adressesProfil = await lireAdressesExpedition();
+  const from = (adressesProfil[d.profil] ?? '').trim();
+  // BOÎTE de réception : le message a été relevé dans la boîte `profil_boite` ; son adresse = celle de CE profil (même table). Vide/inconnu → '' (l'affichage n'affichera rien).
+  const profilBoite = m.profil_boite ?? null;
+  const adresseBoite = (profilBoite ? (adressesProfil[profilBoite] ?? '') : '').trim();
   const compteOk = lireCompteSmtp(INFIXE_SMTP[d.profil as 'entreprise' | 'personne'] ?? '') !== null;
 
   const motifIndisponible = estNoReply(m.de_adresse)
@@ -134,6 +141,7 @@ export async function lireCibleComplementReel(dossierId: number): Promise<CibleC
   return {
     demandeId: d.demande_id, numDau: d.num_dau, destinataire: m.de_adresse, deNom: m.de_nom,
     messageId: m.message_id, referencesBrut: m.references_brut, from, profil: d.profil, recuLe: m.recu_le, motifIndisponible,
+    profilBoite, adresseBoite,
   };
 }
 
@@ -396,7 +404,8 @@ export interface LigneHistoriqueComplement {
   familles: string[];
 }
 
-/** État pour l'écran : cible (numDau, destinataire, répondable, motif) + carnet d'adresses (options + défaut règle A) + historique unifié. */
+/** État pour l'écran : cible (numDau, destinataire, répondable, motif) + carnet d'adresses (options + défaut règle A) + historique unifié.
+ *  + transparence AVANT ENVOI : l'adresse d'expédition RÉELLE (profil de la demande) et la BOÎTE qui a reçu le dernier message (profil_boite). */
 export interface EtatDemandePieces {
   numDau: string | null;
   destinataire: string | null;      // destinataire d'origine (dernier message reçu) — conservé pour compat
@@ -405,6 +414,9 @@ export interface EtatDemandePieces {
   adresses: OptionDestinataire[];    // LOT 29 : options du sélecteur (jeu règle B ordonné + provenance)
   destinataireDefaut: string | null; // LOT 29 : présélection (règle A — dernier répondant, repli chaîne)
   historique: LigneHistoriqueComplement[];
+  // AFFICHAGE SEUL — valeurs lues à la MÊME source que l'envoi (aucune reconstruction) :
+  expedition: { adresse: string; profil: string } | null; // adresse d'où PARTIRA le message (= reply-to réel) + son profil ; null si aucune adresse d'expédition
+  reception: { adresse: string; profil: string } | null;  // boîte qui a REÇU le dernier message de la mairie (profil_boite) + son adresse ; null si inconnue
 }
 
 /** Historique unifié des compléments (envoyés + déclarés). Lit `details` si présent ; sinon dérive du `motif` — résilient à la 175 absente. */
@@ -434,7 +446,7 @@ async function lireHistoriqueComplement(demandeId: number): Promise<LigneHistori
 export async function lireEtatDemandePieces(dossierId: number): Promise<EtatDemandePieces> {
   const cible = await lireCibleComplementReel(dossierId);
   if (cible === null) {
-    return { numDau: null, destinataire: null, repliable: false, motif: 'aucun message de mairie auquel répondre pour ce permis', adresses: [], destinataireDefaut: null, historique: [] };
+    return { numDau: null, destinataire: null, repliable: false, motif: 'aucun message de mairie auquel répondre pour ce permis', adresses: [], destinataireDefaut: null, historique: [], expedition: null, reception: null };
   }
   // LOT 29 — carnet d'adresses de la commune pour le sélecteur (options règle B ordonnées + défaut règle A). Résilient : code INSEE
   //   introuvable / table 186 absente → liste vide + défaut = destinataire d'origine (le sélecteur ne bloque pas, la saisie reste possible).
@@ -449,5 +461,8 @@ export async function lireEtatDemandePieces(dossierId: number): Promise<EtatDema
     adresses: carnet.options,
     destinataireDefaut: carnet.defaut ?? cible.destinataire,
     historique: await lireHistoriqueComplement(cible.demandeId),
+    // AFFICHAGE SEUL — mêmes valeurs que l'envoi : `from` (reply-to réel) + profil de la demande ; boîte de réception si résoluble.
+    expedition: cible.from.trim() !== '' ? { adresse: cible.from.trim(), profil: cible.profil } : null,
+    reception: cible.adresseBoite !== '' && cible.profilBoite ? { adresse: cible.adresseBoite, profil: cible.profilBoite } : null,
   };
 }
