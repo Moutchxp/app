@@ -398,14 +398,27 @@ export function compterParProcess(vivier: readonly { canal: string | null }[]): 
 }
 
 /**
- * Lot 2 (carrousel) — décompte des permis ENCORE DEMANDABLES par process, DÉRIVÉ de la MÊME source que la recherche
- * (`chargerVivier` : éligibilité stock/proposition — non déjà demandés, ancienneté complète —, JAMAIS le cap de candidats ni le
- * plafond mensuel, qui ne bornent que le PROCHAIN lot). C'est donc le STOCK RESTANT, pas la taille d'un lot. `tronque` (plafond
- * de chargement de `lireDossiersDepuis`) : quand true, le décompte est un MINIMUM. LECTURE SEULE (n'écrit rien).
+ * Lot 2 (carrousel) — décompte PUR d'AFFICHAGE d'un vivier : par process (email/formulaire, via `compterParProcess`) + le
+ * formulaire HORS DÉMOLITION. La démolition est identifiée par la catégorie `demolition` (SOURCE UNIQUE `classer` — un PD ne
+ * qualifiant AUCUNE catégorie de rang inférieur —, portée par `PermisVivier.categorie`), EXACTEMENT la même que la colonne
+ * « Démolition » du tableau de stock. ⚠️ Le vivier N'EST PAS filtré : les démolitions restent éligibles / proposées / dans le
+ * stock ; seul CE décompte d'affichage les écarte. PUR (aucune I/O).
  */
-export async function compterVivierParProcess(cfg: ConfigVeille): Promise<{ email: number; formulaire: number; tronque: boolean }> {
+export function compterVivier(vivier: readonly { canal: string | null; categorie: CleCategorie }[]): { email: number; formulaire: number; formulaireHorsDemolition: number } {
+  const parProcess = compterParProcess(vivier);
+  const formulaireHorsDemolition = compterParProcess(vivier.filter((p) => p.categorie !== 'demolition')).formulaire;
+  return { ...parProcess, formulaireHorsDemolition };
+}
+
+/**
+ * Lot 2 (carrousel) — décompte des permis ENCORE DEMANDABLES par process (+ formulaire HORS DÉMOLITION), DÉRIVÉ de la MÊME source
+ * que la recherche (`chargerVivier` : éligibilité stock/proposition — non déjà demandés, ancienneté complète —, JAMAIS le cap de
+ * candidats ni le plafond mensuel). C'est le STOCK RESTANT. `tronque` (plafond de chargement de `lireDossiersDepuis`) : quand true,
+ * le décompte est un MINIMUM. LECTURE SEULE (n'écrit rien).
+ */
+export async function compterVivierParProcess(cfg: ConfigVeille): Promise<{ email: number; formulaire: number; formulaireHorsDemolition: number; tronque: boolean }> {
   const { vivier, tronque } = await chargerVivier(cfg);
-  return { ...compterParProcess(vivier), tronque };
+  return { ...compterVivier(vivier), tronque };
 }
 
 /** Q2b — un permis délivré (panneau de détail) : identité + type + s'il est DÉJÀ demandé (réf. de la demande active), sinon à demander. */

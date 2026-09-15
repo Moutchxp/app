@@ -15,7 +15,8 @@ import { useEffect, useState } from 'react';
  * LECTURE SEULE. `tronque` (plafond de chargement atteint) → « au moins N » (jamais un total faux affiché comme exact).
  */
 export function CompteurVivierTeleservice({ signalRafraichir }: { signalRafraichir: number }) {
-  const [n, setN] = useState<number | null>(null);
+  const [total, setTotal] = useState<number | null>(null);       // formulaire TOUS TYPES (secondaire, en retrait)
+  const [horsDemo, setHorsDemo] = useState<number | null>(null); // formulaire HORS DÉMOLITION (principal, saute aux yeux)
   const [tronque, setTronque] = useState(false);
   const [erreur, setErreur] = useState(false);
 
@@ -26,20 +27,33 @@ export function CompteurVivierTeleservice({ signalRafraichir }: { signalRafraich
         const res = await fetch('/api/admin/permis/demandes/vivier-compteur', { cache: 'no-store' });
         if (annule) return;
         if (!res.ok) { setErreur(true); return; }
-        const d = (await res.json()) as { formulaire: number; tronque: boolean };
-        setN(d.formulaire); setTronque(!!d.tronque); setErreur(false);
+        const d = (await res.json()) as { formulaire: number; formulaireHorsDemolition?: number; tronque: boolean };
+        setTotal(d.formulaire);
+        // Repli sûr : champ absent (route antérieure) → on retombe sur le total, jamais un « undefined » affiché.
+        setHorsDemo(typeof d.formulaireHorsDemolition === 'number' ? d.formulaireHorsDemolition : d.formulaire);
+        setTronque(!!d.tronque); setErreur(false);
       } catch { if (!annule) setErreur(true); }
     })();
     return () => { annule = true; };
-  }, [signalRafraichir]); // même signal que le carrousel (création / dépôt / annulation)
+  }, [signalRafraichir]); // même signal que le carrousel (création / dépôt / annulation) — les DEUX nombres se rafraîchissent ensemble
+
+  const mini = (v: number): string => (tronque ? `au moins ${v}` : String(v)); // tronque → décompte MINIMUM, pour les DEUX nombres
 
   return (
     <p role="status" aria-live="polite" style={{ margin: 0, textAlign: 'left', fontSize: 13, color: 'var(--color-svv-ink)' }}>
       {erreur
         ? 'Vivier téléservice indisponible.'
-        : n === null
+        : total === null || horsDemo === null
           ? 'Comptage des permis demandables (téléservice)…'
-          : <><strong>{tronque ? `au moins ${n}` : n}</strong> permis encore demandables sur le rail Téléservice</>}
+          : (
+            <>
+              {/* PRINCIPAL — le nombre qui SAUTE AUX YEUX (gras) + libellé EXPLICITE « hors démolition ». */}
+              <strong>{mini(horsDemo)}</strong> permis encore demandables hors démolition sur le rail Téléservice
+              {/* SECONDAIRE — total TOUS TYPES, EN RETRAIT (gris + plus petit), séparé par un « · » discret : information de second
+                  rang, jamais un nombre nu (il porte son libellé « tous types confondus »). */}
+              <span style={{ color: 'var(--color-svv-muted)', fontSize: 12 }}> · {mini(total)} tous types confondus</span>
+            </>
+          )}
     </p>
   );
 }

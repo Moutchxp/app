@@ -21,35 +21,44 @@ const monter = async (signal: number, reponse: unknown): Promise<void> => {
   await act(async () => { await Promise.resolve(); await Promise.resolve(); });
 };
 
-describe('Lot 2 — compteur de vivier téléservice', () => {
-  it('affiche le nombre de PERMIS demandables (téléservice), en toutes lettres', async () => {
-    await monter(0, { formulaire: 340, email: 12, tronque: false });
-    expect(container.textContent).toContain('340');
-    expect(container.textContent).toMatch(/permis encore demandables/i);
+describe('Lot 2 — compteur de vivier téléservice (hors démolition en principal, total en second)', () => {
+  it('PRINCIPAL = vivier HORS démolition (libellé « hors démolition ») ; SECONDAIRE = total tous types (libellé)', async () => {
+    await monter(0, { formulaire: 376, formulaireHorsDemolition: 223, email: 12, tronque: false });
+    expect(container.textContent).toMatch(/223 permis encore demandables hors démolition/i); // le nombre qui saute aux yeux
     expect(container.textContent).toMatch(/Téléservice/i);
+    expect(container.textContent).toMatch(/376 tous types confondus/i);                       // total en information secondaire, pas un nombre nu
   });
 
-  it('carrousel vide mais vivier non vide → le compteur reste affiché (composant indépendant du carrousel)', async () => {
+  it('carrousel vide mais vivier non vide → le compteur reste affiché (les DEUX nombres, avec libellés)', async () => {
     // Rendu SEUL (aucun carrousel autour) : il montre le stock, prouvant qu'il ne dépend pas du return null de BlocDepot.
-    await monter(0, { formulaire: 5, email: 0, tronque: false });
-    expect(container.textContent).toContain('5');
-    expect(container.textContent).toMatch(/permis encore demandables/i);
+    await monter(0, { formulaire: 5, formulaireHorsDemolition: 3, email: 0, tronque: false });
+    expect(container.textContent).toMatch(/3 permis encore demandables hors démolition/i);
+    expect(container.textContent).toMatch(/5 tous types confondus/i);
   });
 
-  it('tronque → « au moins N » (jamais un total faux présenté comme exact)', async () => {
-    await monter(0, { formulaire: 340, email: 0, tronque: true });
-    expect(container.textContent).toMatch(/au moins\s*340/i);
+  it('tronque → « au moins N » sur les DEUX nombres (jamais un total faux présenté comme exact)', async () => {
+    await monter(0, { formulaire: 376, formulaireHorsDemolition: 223, email: 0, tronque: true });
+    expect(container.textContent).toMatch(/au moins\s*223/i); // principal (hors démolition)
+    expect(container.textContent).toMatch(/au moins\s*376/i); // secondaire (tous types)
   });
 
-  it('un rafraîchissement (nouveau signal) remet le chiffre à jour', async () => {
-    let val = 340;
-    global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ formulaire: val, tronque: false }) } as unknown as Response)) as unknown as typeof fetch;
+  it('un rafraîchissement (nouveau signal) remet les DEUX chiffres à jour ENSEMBLE', async () => {
+    let hd = 223, tot = 376;
+    global.fetch = vi.fn(async () => ({ ok: true, json: async () => ({ formulaire: tot, formulaireHorsDemolition: hd, tronque: false }) } as unknown as Response)) as unknown as typeof fetch;
     await act(async () => { root.render(createElement(CompteurVivierTeleservice, { signalRafraichir: 0 })); });
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(container.textContent).toContain('340');
-    val = 338; // après un dépôt, le stock baisse
+    expect(container.textContent).toContain('223');
+    expect(container.textContent).toContain('376');
+    hd = 222; tot = 375; // après un dépôt (hors démolition), les deux baissent ensemble
     await act(async () => { root.render(createElement(CompteurVivierTeleservice, { signalRafraichir: 1 })); });
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
-    expect(container.textContent).toContain('338');
+    expect(container.textContent).toContain('222');
+    expect(container.textContent).toContain('375');
+  });
+
+  it('repli sûr : route SANS le champ hors-démolition → on affiche le total (jamais « undefined »)', async () => {
+    await monter(0, { formulaire: 42, email: 0, tronque: false }); // formulaireHorsDemolition ABSENT
+    expect(container.textContent).toContain('42');
+    expect(container.textContent).not.toMatch(/undefined/i);
   });
 });
