@@ -251,6 +251,9 @@ export function CarteDepot({ d, children, onCopieTexte, onCopieRef }: {
   const adr = resolution?.adresse ?? null;
   const prov = resolution?.provenance;
   const adresseAffichee = adr !== null && (prov?.origine === 'propre' || prov?.origine === 'repli');
+  // Chaîne EXACTE de la ligne « Adresse : … » (voie + ville/CP) — ce que « Copier l'adresse » met au presse-papiers. L'ARRONDISSEMENT
+  //   est une ligne SÉPARÉE (« Arrondissement : … ») → volontairement HORS de cette chaîne (on copie l'adresse, pas l'arrondissement).
+  const adresseTexte = adresseAffichee ? [adr!.voie, adr!.villeCP].filter((x) => x !== '').join(', ') : '';
   const corps = d.corps ?? '';
   return (
     <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
@@ -269,7 +272,15 @@ export function CarteDepot({ d, children, onCopieTexte, onCopieRef }: {
 
       {/* (1) ADRESSE + ARRONDISSEMENT — U4/U5 : source unique, provenance STRICTEMENT opérateur (jamais dans le corps mairie). */}
       {adresseAffichee
-        ? <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Adresse : {[adr!.voie, adr!.villeCP].filter((x) => x !== '').join(', ')}</span>
+        ? (
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Adresse : {adresseTexte}</span>
+            {/* « Copier l'adresse » — MÊME pastille (BoutonCopier) que « Copier le texte / le numéro » (accusé vert « ✓ Adresse copiée »).
+                À PART, SANS effet de bord : PAS de `onCopie` → aucune trace de dépôt, aucune matérialisation, aucune relève. Ce bouton
+                n'est PAS un « geste réel » (lot 9) et ne conditionne rien : les deux boutons « geste réel » gardent leur `onCopie`. */}
+            <BoutonCopier valeur={adresseTexte} libelle="Copier l'adresse" libelleMarque="Adresse copiée" />
+          </div>
+        )
         : <span role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>Aucune adresse de voie n’est renseignée pour ce permis (base Sitadel) — à vérifier avant de déposer.</span>}
       {prov?.origine === 'repli' && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', fontStyle: 'italic' }}>Adresse issue de la ligne {prov.soeurType} du même numéro de permis (parcelle {prov.parcelleCommune} commune vérifiée).</span>}
       {prov?.origine === 'non_verifiable' && <span role="note" style={{ fontSize: 12, color: 'var(--color-svv-red)' }}>Une ligne {prov.soeurTypes.join('/')} du même numéro de permis porte une adresse, mais le lien n’a pas pu être vérifié (parcelles cadastrales absentes) — à vérifier avant de l’utiliser.</span>}

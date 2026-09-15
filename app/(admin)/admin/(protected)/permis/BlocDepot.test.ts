@@ -83,6 +83,28 @@ describe('Lot 1 — carrousel Téléservice (BlocDepot)', () => {
     const appels = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c) => String(c[0]));
     expect(appels.some((u) => u.includes('/api/admin/permis/depot-presume'))).toBe(true); // signalerDepot a bien tracé (onCopie déclenché)
   });
+
+  it('« Copier l’adresse » copie l’adresse affichée SANS effet de bord : accusé « Adresse copiée », AUCUNE trace de dépôt', async () => {
+    // Carte RÉELLE portant une adresse « propre » → la ligne « Adresse : … » et son bouton de copie apparaissent.
+    const c: DepotAffiche = { ...carte(1, 'Asnieres'), dossiers: [{ type: 'PC', numDau: '07511524V0006', adresse: '1 rue de la Paix', codePostal: '75002', communeNom: 'Asnieres', parcelles: ['AB-1'], soeurs: [] }] };
+    await monter([c]);
+    const copierAdr = boutons().find((b) => /Copier l.adresse/.test(b.textContent ?? ''));
+    expect(copierAdr).toBeTruthy();
+    await act(async () => { copierAdr!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await act(async () => { await Promise.resolve(); });
+    // (1) copie clipboard = l'adresse AFFICHÉE (voie + ville/CP), SANS l'arrondissement (ligne séparée « Arrondissement : … »).
+    const writeText = navigator.clipboard.writeText as unknown as ReturnType<typeof vi.fn>;
+    expect(writeText).toHaveBeenCalled();
+    const copie = String(writeText.mock.calls.at(-1)?.[0] ?? '');
+    expect(copie).toContain('rue de la Paix');     // la voie affichée
+    expect(copie).not.toContain('Arrondissement'); // jamais le libellé de la ligne séparée
+    // (2) ACCUSÉ vert (MÊME modèle que les deux autres) : le bouton passe à « ✓ Adresse copiée ».
+    expect(copierAdr!.getAttribute('aria-pressed')).toBe('true');
+    expect(copierAdr!.textContent).toContain('Adresse copiée');
+    // (3) AUCUN effet de bord : PAS de trace de dépôt (à l'inverse de « Copier le texte / le numéro », vérifiés au test précédent).
+    const appels2 = (global.fetch as unknown as ReturnType<typeof vi.fn>).mock.calls.map((call) => String(call[0]));
+    expect(appels2.some((u) => u.includes('/api/admin/permis/depot-presume'))).toBe(false);
+  });
 });
 
 /**
@@ -137,6 +159,15 @@ describe('LOT 9 — cartes virtuelles (BlocDepot)', () => {
     await act(async () => { copier!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(posteDepotAuto()).toBe(true); // la copie (client) déclenche la matérialisation en arrière-plan
+  });
+
+  it('« Copier l’adresse » sur une carte virtuelle NE matérialise PAS la demande (aucun POST …/depot-auto)', async () => {
+    await monterV([], [virtuel('11-12', 'Asnieres')]);
+    const copierAdr = boutons().find((b) => /Copier l.adresse/.test(b.textContent ?? ''));
+    expect(copierAdr).toBeTruthy();                    // la carte virtuelle a une adresse « propre » → le bouton est là
+    await act(async () => { copierAdr!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(posteDepotAuto()).toBe(false);              // À PART, sans effet de bord : copier l'adresse ne crée AUCUNE demande
   });
 
   it('« Marquer comme déposée » sur une carte virtuelle → matérialise PUIS dépose (id renvoyé réutilisé)', async () => {
