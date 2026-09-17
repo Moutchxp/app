@@ -3,7 +3,7 @@ import { correspondVivier, rechercherDansVivier, type PermisVivier } from './rec
 
 const p = (over: Partial<PermisVivier> = {}): PermisVivier => ({
   dossierId: 1, numDau: '07510124V0034', type: 'PC', codeInsee: '75056', communeNom: 'Paris',
-  canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2024-06-01', ...over,
+  canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2024-06-01', adresse: null, ...over,
 });
 
 describe('D3 — correspondVivier (n° de permis OU ville)', () => {
@@ -22,6 +22,55 @@ describe('D3 — correspondVivier (n° de permis OU ville)', () => {
   });
   it('aucune correspondance → false', () => {
     expect(correspondVivier(p({ numDau: 'PC1', communeNom: 'Nanterre', codeInsee: '92050' }), 'lyon')).toBe(false);
+  });
+});
+
+describe('recherche par ADRESSE — tolérante (virgule, accents, casse, espaces, apostrophes, tirets)', () => {
+  it('virgule après le numéro : « 25 rue du Commerce » ≡ « 25, rue du Commerce »', () => {
+    const permis = p({ adresse: '25 RUE DU COMMERCE' });
+    for (const q of ['25 rue du Commerce', '25, rue du Commerce', '25,rue du commerce', '25   RUE   DU   COMMERCE']) {
+      expect(correspondVivier(permis, q), q).toBe(true);
+    }
+  });
+
+  it('accents : « rue de l’Hôtel » ≡ « rue de l hotel » (donnée accentuée, saisie sans accent)', () => {
+    const permis = p({ adresse: "RUE DE L'HÔTEL" });
+    for (const q of ['rue de l hotel', 'rue de l’hotel', "RUE DE L'HÔTEL", 'HOTEL']) {
+      expect(correspondVivier(permis, q), q).toBe(true);
+    }
+  });
+
+  it('apostrophe droite ≡ typographique ; tiret ≡ espace', () => {
+    expect(correspondVivier(p({ adresse: "RUE D'ABOUKIR" }), 'd’aboukir')).toBe(true);   // droite (donnée) ≡ typo (saisie)
+    expect(correspondVivier(p({ adresse: 'RUE D’ABOUKIR' }), "d'aboukir")).toBe(true);   // typo (donnée) ≡ droite (saisie)
+    expect(correspondVivier(p({ adresse: 'RUE SAINT-MARTIN' }), 'saint martin')).toBe(true); // tiret (donnée) ≡ espace (saisie)
+    expect(correspondVivier(p({ adresse: 'RUE SAINT MARTIN' }), 'saint-martin')).toBe(true); // espace (donnée) ≡ tiret (saisie)
+  });
+
+  it('SYMÉTRIE : la normalisation s’applique aux DEUX côtés (peu importe lequel porte l’accent/la ponctuation)', () => {
+    const formes = ['RUE DE L’HÔTEL-DIEU', "rue de l'hotel dieu", '  RUE  DE  L HOTEL DIEU  ', 'rue-de-l’hôtel,dieu'];
+    for (const stocke of formes) {
+      for (const saisie of formes) {
+        expect(correspondVivier(p({ adresse: stocke }), saisie), `stocke=«${stocke}» saisie=«${saisie}»`).toBe(true);
+      }
+    }
+  });
+
+  it('adresse ABSENTE (null) : jamais un faux match, et la recherche par ville/num continue de marcher', () => {
+    const sansAdresse = p({ adresse: null, communeNom: 'Paris' });
+    expect(correspondVivier(sansAdresse, 'rue du commerce')).toBe(false); // rien à matcher, pas de crash
+    expect(correspondVivier(sansAdresse, 'paris')).toBe(true);            // la ville marche toujours
+    expect(correspondVivier(sansAdresse, '07510124V0034')).toBe(true);   // le num_dau marche toujours
+  });
+
+  it('rechercherDansVivier ramène le permis par son adresse, scopé au process', () => {
+    const vivier: PermisVivier[] = [
+      p({ dossierId: 10, adresse: '25 RUE DU COMMERCE', canal: 'formulaire' }),
+      p({ dossierId: 11, adresse: '3 AVENUE DE LA GARE', canal: 'formulaire' }),
+    ];
+    const r = rechercherDansVivier(vivier, '25, rue du commerce', 'formulaire', 50);
+    expect(r.resultats.map((x) => x.dossierId)).toEqual([10]);
+    expect(r.total).toBe(1);
   });
 });
 

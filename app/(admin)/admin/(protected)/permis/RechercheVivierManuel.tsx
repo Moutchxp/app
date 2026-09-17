@@ -100,12 +100,12 @@ export function RechercheVivierManuel({ categories, onPrepared }: {
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
       <strong style={{ fontSize: 13 }}>Choisir un permis à demander — vivier Téléservice</strong>
       <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>
-        Cherche par numéro de permis ou par ville, puis prépare la demande du permis voulu. Ce mode ignore les critères du tri
+        Cherche par numéro de permis, par ville ou par adresse, puis prépare la demande du permis voulu. Ce mode ignore les critères du tri
         automatique (ancienneté, ordre d’examen, cap de candidats) : tu peux préparer un permis que le tri n’aurait pas proposé.
       </p>
       <form onSubmit={(e) => { e.preventDefault(); void chercher(); }} style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="n° de permis ou ville"
-          aria-label="Rechercher un permis (numéro) ou une ville dans le vivier téléservice"
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="n° de permis, ville ou adresse"
+          aria-label="Rechercher un permis (numéro), une ville ou une adresse dans le vivier téléservice"
           style={{ flex: '1 1 12rem', minWidth: 0, minHeight: 40, padding: '.4rem .55rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14 }} />
         <button type="submit" className="svv-btn svv-btn-primary" style={{ minHeight: 40, padding: '.4rem .8rem' }} disabled={chargement}>
           <span aria-hidden="true">🔍</span> Chercher
@@ -134,6 +134,8 @@ export function RechercheVivierManuel({ categories, onPrepared }: {
                       <span style={{ fontWeight: 700 }}>{p.type ?? ''} {p.numDau}</span>
                       <span style={{ color: 'var(--color-svv-muted)' }}> · {nomCommune} · {libelle(p.categorie)}{p.dateAutorisation ? ` · ${p.dateAutorisation}` : ''}</span>
                     </div>
+                    {/* Adresse (rue) SOUS la ligne d'identité : wrap propre, ne pousse jamais le bouton hors écran (mobile). Rien si absente (jamais « — »). */}
+                    {p.adresse && <div style={{ color: 'var(--color-svv-muted)', fontSize: 12, wordBreak: 'break-word' }}>{p.adresse}</div>}
                     {bloc ? (
                       /* VERROU DE COMMUNE signalé AVANT toute tentative : pas de bouton « Préparer », mais le geste qui lève le blocage. */
                       <div style={{ marginTop: '.2rem', display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'baseline' }}>

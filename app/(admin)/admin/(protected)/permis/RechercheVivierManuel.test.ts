@@ -22,7 +22,7 @@ const CATS = [{ cle: 'immeuble_neuf', libelle: 'Immeuble neuf', rang: 1 }];
 //   REPRODUISENT cette chaîne : le défaut cf0c6cd est passé justement parce qu'un mock numérique donnait un faux vert.
 const permis = (over: Partial<PermisVivier> = {}): PermisVivier => ({
   dossierId: '4242' as unknown as number, numDau: 'PC07511524V0006', type: 'PC', codeInsee: '75111', communeNom: 'Paris 11e',
-  canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2025-02-01', ...over,
+  canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2025-02-01', adresse: null, ...over,
 });
 
 // Réponses servies par le fetch mocké (mutables entre les étapes d'un test).
@@ -79,6 +79,20 @@ describe('MODE MANUEL — panneau de préparation', () => {
     expect(postDemandes).toEqual([{ dossiersManuels: [4242] }]);
     expect(onPrepared).toHaveBeenCalled();                 // la carte rejoint le carrousel (rafraîchissement des vues sœurs)
     expect(container.textContent).toMatch(/Demande préparée/i);
+  });
+
+  it('AFFICHE l’adresse (rue) sur la ligne quand elle existe ; RIEN quand elle est absente (jamais « — »)', async () => {
+    repVivier = { resultats: [
+      permis({ dossierId: '1' as unknown as number, numDau: 'PCADR1', adresse: '25 RUE DU COMMERCE' }),
+      permis({ dossierId: '2' as unknown as number, numDau: 'PCADR2', adresse: null }),
+    ], total: 2, autreProcess: 0, tronque: false, bloquees: {}, plafonds: {} };
+    await monter();
+    await rechercher('pc');
+    const lis = [...container.querySelectorAll('li')];
+    const li1 = lis.find((li) => li.textContent?.includes('PCADR1'))!;
+    const li2 = lis.find((li) => li.textContent?.includes('PCADR2'))!;
+    expect(li1.textContent).toContain('25 RUE DU COMMERCE');   // adresse présente → affichée sous la ligne d'identité
+    expect(li2.textContent).not.toMatch(/RUE|AVENUE|—/);       // adresse absente → RIEN (ni rue, ni placeholder « — »)
   });
 
   it('RÉGRESSION bigint→chaîne — un dossierId sérialisé en CHAÎNE est envoyé à la route comme ENTIER (jamais rejeté par la garde)', async () => {

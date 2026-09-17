@@ -41,6 +41,12 @@ const asQ = (q: (t: string, p?: unknown[]) => Promise<unknown>): Requete => ((t,
 function adresseDe(d: DossierAffiche): string {
   return [d.adrNumTer, d.adrLibvoieTer, d.adrLocaliteTer].filter((x) => x && x.trim() !== '').join(' ');
 }
+/** Rue SEULE (n° + libellé de voie), SANS la localité — pour l'affichage/recherche du vivier, où la commune est déjà montrée à côté.
+ *  `null` si aucune voie exploitable (jamais un placeholder ni une recomposition approximative — règle porteur). PUR. */
+function rueDe(d: DossierAffiche): string | null {
+  const rue = [d.adrNumTer, d.adrLibvoieTer].map((x) => (x ?? '').trim()).filter((x) => x !== '').join(' ');
+  return rue === '' ? null : rue;
+}
 /** Contact brut d'un dossier (mairie_contact + PRADA) pour la résolution unique du destinataire (S14d). */
 function contactDe(d: DossierAffiche): ContactCommune {
   return {
@@ -383,6 +389,7 @@ export async function chargerVivier(cfg: ConfigVeille): Promise<{ vivier: Permis
       dossierId: d.id, numDau: c.numDau, type: c.type ?? d.type ?? null,
       codeInsee: c.codeInsee, communeNom: c.communeNom, canal: c.canal ?? null,
       categorie: d.categorie, dateAutorisation: c.dateReelleAutorisation,
+      adresse: rueDe(d), // AFFICHAGE + RECHERCHE : rue seule (n° + voie), null si absente. Déjà fetché par lireDossiersDepuis (aucune requête en plus).
     });
   }
   return { vivier, tronque };

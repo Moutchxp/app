@@ -18,6 +18,7 @@ export interface PermisVivier {
   canal: string | null;
   categorie: CleCategorie;
   dateAutorisation: string | null;
+  adresse: string | null; // rue seule (n° + libellé de voie), sans la localité ; null si absente (jamais un placeholder)
 }
 
 export interface ResultatRechercheVivier {
@@ -26,16 +27,30 @@ export interface ResultatRechercheVivier {
   autreProcess: number;      // nombre de correspondances dans l'AUTRE process (mention non silencieuse)
 }
 
-/** Normalise pour la comparaison (majuscule, sans espaces ni tirets) — même esprit que `normaliserReference`. */
+/**
+ * Normalise pour la comparaison — SANS accents, MAJUSCULES, et sans les caractères qui ne portent pas de sens de recherche : espaces
+ * (y compris multiples), virgules, points, apostrophes (droite ' ET typographiques ’ ‘), accent grave, tirets/traits (- – —). Appliquée
+ * SYMÉTRIQUEMENT à la saisie ET à la donnée stockée (num_dau, ville, adresse) → la tolérance marche dans les DEUX sens. Même esprit que
+ * `normaliserReference`. Ainsi « 25, rue de l'Hôtel » ≡ « 25 rue de l hotel » ≡ « 25   RUE DE L’HOTEL ». PURE.
+ */
 function norm(s: string): string {
-  return s.toUpperCase().replace(/[\s-]/g, '');
+  return s
+    .normalize('NFD').replace(/[̀-ͯ]/g, '') // ① retire les accents/diacritiques (é→e, ô→o, ÿ→y, ç→c…)
+    .toUpperCase()
+    .replace(/[\s,.'’‘`–—-]/g, '');          // ② espaces, virgules, points, apostrophes ' ’ ‘ `, tirets/traits - – —
 }
 
-/** Un permis du vivier correspond-il à la requête ? Par n° de permis (num_dau) OU par ville (nom / code INSEE). PURE. */
-export function correspondVivier(p: { numDau: string; communeNom: string | null; codeInsee: string }, q: string): boolean {
+/**
+ * Un permis du vivier correspond-il à la requête ? Par n° de permis (num_dau) OU par ville (nom / code INSEE) OU par ADRESSE (rue).
+ * Toutes les comparaisons passent par `norm` (tolérance symétrique). `codeInsee` reste comparé brut (chiffres, jamais d'accents/espaces). PURE.
+ */
+export function correspondVivier(p: { numDau: string; communeNom: string | null; codeInsee: string; adresse?: string | null }, q: string): boolean {
   const qn = norm(q);
   if (qn === '') return false; // requête vide → AUCUN résultat (jamais « tout le vivier »)
-  return norm(p.numDau).includes(qn) || norm(p.communeNom ?? '').includes(qn) || p.codeInsee.includes(qn);
+  return norm(p.numDau).includes(qn)
+    || norm(p.communeNom ?? '').includes(qn)
+    || p.codeInsee.includes(qn)
+    || norm(p.adresse ?? '').includes(qn); // ADRESSE — n'ajoute rien si absente (norm('') = '' ; qn ≠ '' ⇒ pas de faux match)
 }
 
 /**
