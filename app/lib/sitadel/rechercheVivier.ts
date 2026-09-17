@@ -41,16 +41,42 @@ function norm(s: string): string {
 }
 
 /**
- * Un permis du vivier correspond-il à la requête ? Par n° de permis (num_dau) OU par ville (nom / code INSEE) OU par ADRESSE (rue).
- * Toutes les comparaisons passent par `norm` (tolérance symétrique). `codeInsee` reste comparé brut (chiffres, jamais d'accents/espaces). PURE.
+ * Types de voie GÉNÉRIQUES. Une saisie d'adresse les contient souvent (« 82 rue denfert ») alors que la donnée porte un AUTRE type
+ * (« 82 AVENUE Denfert ») — l'internaute ne retient pas toujours rue/avenue/boulevard. On ne les EXIGE donc pas comme mot… SAUF si la
+ * saisie ne contient QUE des types de voie (« rue » seul) : là on les GARDE (recherche large ASSUMÉE, cf. `tokeniser`). Ce n'est PAS
+ * une correspondance devinée : on n'impose simplement pas un qualificatif générique. Normalisés (MAJUSCULES, sans accents/ponctuation).
+ */
+const STOP_VOIE: ReadonlySet<string> = new Set([
+  'RUE', 'AVENUE', 'AV', 'AVE', 'BOULEVARD', 'BD', 'BLVD', 'IMPASSE', 'ALLEE', 'ALLEES', 'PLACE', 'PL', 'CHEMIN', 'CHE', 'QUAI', 'COURS',
+  'PASSAGE', 'PSG', 'ROUTE', 'RTE', 'VOIE', 'SENTE', 'SENTIER', 'VILLA', 'SQUARE', 'SQ', 'FAUBOURG', 'FBG', 'RESIDENCE', 'RES', 'HAMEAU',
+  'RUELLE', 'VENELLE', 'ESPLANADE', 'PROMENADE', 'MAIL', 'CARREFOUR', 'CITE', 'CLOS', 'DOMAINE', 'MONTEE', 'TRAVERSE', 'ROND', 'GALERIE',
+  'PARVIS', 'PLACETTE', 'GRANDERUE',
+]);
+
+/**
+ * Découpe la saisie en MOTS normalisés (séparateurs = espaces ET virgules ; le reste de la ponctuation est absorbé par `norm` À
+ * L'INTÉRIEUR d'un mot : « l'hôtel »→« LHOTEL », « saint-martin »→« SAINTMARTIN »). Retire les types de voie génériques, SAUF si la
+ * saisie n'en contient QUE (on les garde alors). PURE. Un n° de permis (mot unique) et une ville en plusieurs mots restent intacts.
+ */
+function tokeniser(q: string): string[] {
+  const bruts = q.split(/[\s,]+/).map(norm).filter((t) => t !== '');
+  const utiles = bruts.filter((t) => !STOP_VOIE.has(t));
+  return utiles.length > 0 ? utiles : bruts;
+}
+
+/**
+ * Un permis du vivier correspond-il à la requête ? Recherche PAR MOTS INDÉPENDANTS : CHAQUE mot de la saisie (normalisé) doit se
+ * retrouver — dans n'importe quel ORDRE, sans être contigu — comme SOUS-CHAÎNE d'AU MOINS UN champ (n° de permis, ville, code INSEE,
+ * adresse). ET logique entre les mots (TOUS présents), position libre. Ainsi « 82 denfert » ≡ « denfert 82 » ≡ « 82 rue denfert »
+ * trouve le « 82 AVENUE Denfert Rochereau ». Un mot peut matcher un DÉBUT de mot du champ (« denf » → « DENFERT ») : sous-chaîne/préfixe,
+ * jamais deviné (aucune distance d'édition). `codeInsee` comparé brut (chiffres). Tolérance de `norm` conservée (accents, virgule,
+ * apostrophes, tirets, points, casse). PURE.
  */
 export function correspondVivier(p: { numDau: string; communeNom: string | null; codeInsee: string; adresse?: string | null }, q: string): boolean {
-  const qn = norm(q);
-  if (qn === '') return false; // requête vide → AUCUN résultat (jamais « tout le vivier »)
-  return norm(p.numDau).includes(qn)
-    || norm(p.communeNom ?? '').includes(qn)
-    || p.codeInsee.includes(qn)
-    || norm(p.adresse ?? '').includes(qn); // ADRESSE — n'ajoute rien si absente (norm('') = '' ; qn ≠ '' ⇒ pas de faux match)
+  const mots = tokeniser(q);
+  if (mots.length === 0) return false; // requête vide / que des séparateurs → AUCUN résultat (jamais « tout le vivier »)
+  const champs = [norm(p.numDau), norm(p.communeNom ?? ''), p.codeInsee, norm(p.adresse ?? '')];
+  return mots.every((m) => champs.some((c) => c.includes(m))); // chaque mot dans au moins un champ (position/ordre libres)
 }
 
 /**

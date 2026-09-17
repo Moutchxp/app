@@ -107,3 +107,60 @@ describe('D3 — rechercherDansVivier (scopé + mention non silencieuse de l’a
     expect(r.total).toBe(5);
   });
 });
+
+describe('recherche par MOTS INDÉPENDANTS (correction post-f895823 : mots non contigus, ordre libre, casse ignorée)', () => {
+  // Donnée stockée EN MAJUSCULES, comme en base ; le permis exact d'Arno.
+  const denfert = p({ dossierId: 25, numDau: '07511425V0025', communeNom: 'Paris 14e', codeInsee: '75114', adresse: '82 AVENUE DENFERT ROCHEREAU' });
+
+  it('LES CAS D’ARNO — minuscules, MAJUSCULES et casse mixte ramènent TOUS le permis (donnée en majuscules)', () => {
+    for (const q of ['82, DENFERT', '82 denfert', 'denfert 82', 'rochereau denfert', '82, rue denfert rochereau', '82 Rue Denfert Rochereau']) {
+      expect(correspondVivier(denfert, q), q).toBe(true);
+    }
+  });
+
+  it('mots NON CONTIGUS et ORDRE LIBRE : « 82 denfert » (ville/avenue entre les deux) et « denfert 82 » matchent', () => {
+    expect(correspondVivier(denfert, '82 denfert')).toBe(true);   // « 82 » et « denfert » séparés par « AVENUE »
+    expect(correspondVivier(denfert, 'denfert 82')).toBe(true);   // ordre inversé
+    expect(correspondVivier(denfert, 'rochereau 82 denfert')).toBe(true); // trois mots, tout ordre
+  });
+
+  it('le type de voie est OPTIONNEL : « rue » toléré sur une AVENUE (« 82 rue denfert » → 82 AVENUE Denfert)', () => {
+    expect(correspondVivier(denfert, '82 rue denfert')).toBe(true);
+    expect(correspondVivier(denfert, 'boulevard denfert rochereau')).toBe(true); // même un mauvais type est ignoré
+  });
+
+  it('DÉBUT DE MOT accepté (sous-chaîne, jamais deviné) : « denf » → « DENFERT »', () => {
+    expect(correspondVivier(denfert, 'denf 82')).toBe(true);
+    expect(correspondVivier(denfert, 'roch denf')).toBe(true);
+  });
+
+  it('ET logique : un mot ABSENT de l’adresse fait échouer le match (pas de correspondance approximative)', () => {
+    expect(correspondVivier(denfert, '82 denfert saint-michel')).toBe(false); // « saint-michel » n’est pas dans l’adresse
+    expect(correspondVivier(denfert, 'denfert lyon')).toBe(false);
+  });
+
+  it('GARDE-FOU num_dau (mot unique) et ville EN PLUSIEURS MOTS restent intacts', () => {
+    const pre = p({ numDau: 'PC09300112500042', communeNom: 'Le Pré-Saint-Gervais', codeInsee: '93061', adresse: null });
+    expect(correspondVivier(pre, 'le pré saint gervais')).toBe(true); // ville en 4 mots
+    expect(correspondVivier(pre, 'pré saint')).toBe(true);            // ville partielle
+    expect(correspondVivier(pre, 'PC09300112500042')).toBe(true);    // num_dau entier (mot unique)
+    expect(correspondVivier(pre, '2500042')).toBe(true);             // sous-chaîne du num_dau
+  });
+
+  it('« rue » (ou « avenue ») SEUL est GARDÉ : recherche large ASSUMÉE (matche les adresses de CE type, pas les autres)', () => {
+    const rue = p({ dossierId: 1, adresse: '5 RUE DE LA PAIX', canal: 'formulaire' });
+    expect(correspondVivier(rue, 'rue')).toBe(true);        // « rue » seul → matche une adresse en RUE
+    expect(correspondVivier(denfert, 'rue')).toBe(false);   // …mais PAS une AVENUE (Denfert)
+    expect(correspondVivier(denfert, 'avenue')).toBe(true); // « avenue » seul → matche l’AVENUE
+  });
+
+  it('bout-en-bout : rechercherDansVivier ramène le permis par des mots non contigus, scopé au process', () => {
+    const vivier: PermisVivier[] = [
+      denfert,
+      p({ dossierId: 99, adresse: '3 RUE DE RIVOLI', canal: 'formulaire' }),
+    ];
+    const r = rechercherDansVivier(vivier, '82 denfert', 'formulaire', 50);
+    expect(r.resultats.map((x) => x.dossierId)).toEqual([25]);
+    expect(r.total).toBe(1);
+  });
+});
