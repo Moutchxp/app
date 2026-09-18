@@ -21,10 +21,12 @@ type Bloquees = Record<string, { reference: string | null; demandeId: number }>;
 type Plafonds = Record<string, { consomme: number; plafond: number; depasse: boolean }>;
 type Reponse = ResultatRechercheVivier & { tronque: boolean; bloquees?: Bloquees; plafonds?: Plafonds };
 
-export function RechercheVivierManuel({ categories, onPrepared }: {
+export function RechercheVivierManuel({ categories, onPrepared, process = 'formulaire' }: {
   categories: { cle: string; libelle: string; rang: number }[];
   onPrepared: () => void;
+  process?: 'formulaire' | 'email'; // rail concerné (défaut téléservice — comportement historique inchangé). En e-mail : vivier e-mail, sans verrou/plafond téléservice (l'endpoint ne les calcule que pour 'formulaire').
 }) {
+  const estTeleservice = process === 'formulaire';
   const [q, setQ] = useState('');
   const [res, setRes] = useState<Reponse | null>(null);
   const [chargement, setChargement] = useState(false);
@@ -44,7 +46,7 @@ export function RechercheVivierManuel({ categories, onPrepared }: {
     if (query === '') { setRes(null); setRetour(null); return; }
     setChargement(true); setErreur(''); setRetour(null);
     try {
-      const r = await fetch(`/api/admin/permis/demandes/vivier-recherche?q=${encodeURIComponent(query)}&process=formulaire`, { cache: 'no-store' });
+      const r = await fetch(`/api/admin/permis/demandes/vivier-recherche?q=${encodeURIComponent(query)}&process=${process}`, { cache: 'no-store' });
       if (r.ok) { setRes((await r.json()) as Reponse); setPrepares(new Set()); }
       else setErreur(messageEchec(r.status, 'Recherche indisponible.'));
     } catch { setErreur('Recherche indisponible.'); }
@@ -82,7 +84,7 @@ export function RechercheVivierManuel({ categories, onPrepared }: {
       const d = (await r.json().catch(() => ({}))) as { demandesCreees?: number; ignoresConflit?: number; lotsInvalides?: { raison?: string }[]; erreur?: string };
       if (r.ok && (d.demandesCreees ?? 0) >= 1) {
         setPrepares((s) => new Set(s).add(p.dossierId));
-        setRetour({ texte: `Demande préparée pour ${p.type ?? ''} ${p.numDau} — elle apparaît dans le carrousel ci-dessous.`, ok: true });
+        setRetour({ texte: `Demande préparée pour ${p.type ?? ''} ${p.numDau} — elle apparaît ${estTeleservice ? 'dans le carrousel' : 'dans la liste des demandes'} ci-dessous.`, ok: true });
         onPrepared(); // la carte apparaît dans le même carrousel que les autres, sans distinction
       } else if (r.ok && (d.ignoresConflit ?? 0) >= 1) {
         setRetour({ texte: `${p.numDau} est déjà rattaché à une demande — rien préparé.`, ok: false });
@@ -98,14 +100,14 @@ export function RechercheVivierManuel({ categories, onPrepared }: {
 
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
-      <strong style={{ fontSize: 13 }}>Choisir un permis à demander — vivier Téléservice</strong>
+      <strong style={{ fontSize: 13 }}>Choisir un permis à demander — vivier {estTeleservice ? 'Téléservice' : 'E-mail'}</strong>
       <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>
         Cherche par numéro de permis, par ville ou par adresse, puis prépare la demande du permis voulu. Ce mode ignore les critères du tri
         automatique (ancienneté, ordre d’examen, cap de candidats) : tu peux préparer un permis que le tri n’aurait pas proposé.
       </p>
       <form onSubmit={(e) => { e.preventDefault(); void chercher(); }} style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="n° de permis, ville ou adresse"
-          aria-label="Rechercher un permis (numéro), une ville ou une adresse dans le vivier téléservice"
+          aria-label={`Rechercher un permis (numéro), une ville ou une adresse dans le vivier ${estTeleservice ? 'téléservice' : 'e-mail'}`}
           style={{ flex: '1 1 12rem', minWidth: 0, minHeight: 40, padding: '.4rem .55rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14 }} />
         <button type="submit" className="svv-btn svv-btn-primary" style={{ minHeight: 40, padding: '.4rem .8rem' }} disabled={chargement}>
           <span aria-hidden="true">🔍</span> Chercher
@@ -119,7 +121,7 @@ export function RechercheVivierManuel({ categories, onPrepared }: {
       {res && !chargement && (
         <div style={{ fontSize: 13 }}>
           {res.resultats.length === 0 ? (
-            <p style={{ margin: 0, color: 'var(--color-svv-muted)' }}>Aucun permis demandable dans le vivier Téléservice pour cette recherche.</p>
+            <p style={{ margin: 0, color: 'var(--color-svv-muted)' }}>Aucun permis demandable dans le vivier {estTeleservice ? 'Téléservice' : 'E-mail'} pour cette recherche.</p>
           ) : (
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
               {res.resultats.map((p: PermisVivier) => {
@@ -152,7 +154,7 @@ export function RechercheVivierManuel({ categories, onPrepared }: {
                       </div>
                     ) : prepare ? (
                       <div style={{ marginTop: '.2rem', color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>
-                        <span aria-hidden="true">✓</span> Préparé — voir le carrousel ci-dessous.
+                        <span aria-hidden="true">✓</span> Préparé — voir {estTeleservice ? 'le carrousel' : 'la liste des demandes'} ci-dessous.
                       </div>
                     ) : (
                       <div style={{ marginTop: '.2rem', display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'baseline' }}>

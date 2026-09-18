@@ -9,10 +9,13 @@
 
 export type Process = 'formulaire' | 'email';
 
-/** 'formulaire' = Téléservice (dépôt manuel, rail B) ; 'email' = E-mail (automatique, rail A). */
+/** 'formulaire' = Téléservice (rail B) ; 'email' = E-mail (rail A). Le `titre` du sélecteur nomme désormais l'AXE de préparation
+ *  commun aux deux rails (sélection auto/manuelle côté téléservice ; envoi auto/manuel de la 1re demande côté e-mail) — cf. le bloc
+ *  auto/manuel sous le sélecteur. ⚠️ Cet axe est DISTINCT de l'automatisation des RELANCES (config `relance_auto_active`, onglet
+ *  Réglages) : les deux ne s'influencent pas. `aide` conserve la NATURE du canal (téléservice = dépôt à la main ; e-mail = envoi). */
 export const PROCESS_META: Record<Process, { titre: string; court: string; aide: string }> = {
-  formulaire: { titre: 'Téléservice (dépôt manuel)', court: 'Téléservice', aide: 'Communes à téléservice : la machine prépare, vous déposez à la main.' },
-  email: { titre: 'E-mail (automatique)', court: 'E-mail', aide: 'Communes joignables par e-mail : demande et relance automatiques.' },
+  formulaire: { titre: 'Téléservice (sélection manuelle ou automatique)', court: 'Téléservice', aide: 'Communes à téléservice : dépôt à la main. La sélection des permis à demander peut être automatique (par critères) ou manuelle.' },
+  email: { titre: 'E-mail (envoi manuel ou automatique)', court: 'E-mail', aide: 'Communes joignables par e-mail. La 1re demande d’information peut être préparée automatiquement (par critères) ou manuellement.' },
 };
 
 export const PROCESS_ORDRE: readonly Process[] = ['email', 'formulaire'];

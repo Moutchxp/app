@@ -1,59 +1,74 @@
 'use client';
 
 import { RechercheVivierManuel } from './RechercheVivierManuel';
+import type { Process } from '../../../../lib/sitadel/process';
 
 /**
- * MODE DE PRÉPARATION (téléservice) — bascule entre deux modes, SOUS le carrousel. Le rail Téléservice n'a PAS de bouton
- * « Préparer les demandes » (préparer un lot n'a aucun sens : un téléservice ne permet qu'un dépôt à la fois, et le verrou de
- * commune n'autorise qu'une demande en vol). Le rail E-mail garde son bouton (envoi groupé légitime), rendu par ADemanderVue.
+ * BLOC AUTO/MANUEL de préparation des demandes — COMMUN AUX DEUX RAILS, rendu JUSTE SOUS le sélecteur des deux rails (au-dessus du
+ * carrousel de dépôt). L'axe auto/manuel désigne, selon le rail :
+ *  · TÉLÉSERVICE : la SÉLECTION des permis à demander. AUTO → une carte de dépôt par commune LIBRE apparaît toute seule dans le
+ *    carrousel ci-dessous (aucun geste ; la demande se crée au 1er geste réel). MANUEL → on choisit soi-même un permis dans le vivier
+ *    téléservice, hors critères.
+ *  · E-MAIL : la préparation de la 1re DEMANDE d'information. AUTO → le lot par critères (bouton « Préparer les demandes » plus bas,
+ *    INCHANGÉ). MANUEL → on choisit soi-même un permis dans le vivier e-mail, hors critères (même chemin de création existant).
  *
- * - AUTOMATIQUE (par défaut) : pour chaque commune LIBRE, une carte de dépôt COMPLÈTE apparaît TOUTE SEULE dans le carrousel
- *   ci-dessus (aucun geste préalable) ; la demande ne se crée qu'au 1er geste réel (copie / dépôt). Ce mode n'ajoute donc aucun
- *   contenu propre ici — juste un rappel de l'endroit où regarder.
- * - MANUEL : un panneau apparaît pour choisir soi-même un permis dans le vivier téléservice, hors des critères de sélection.
+ * 🔒 Cet axe est STRICTEMENT DISTINCT de l'automatisation des RELANCES (chronologie des rappels, réglage `relance_auto_active`) : le
+ *    choix fait ici n'a AUCUN impact sur elle, et réciproquement. Aucun écriture en base : `mode` est un état d'écran (parent ADemanderVue).
  *
- * Le `mode` est CONTRÔLÉ par le parent (ADemanderVue), qui l'utilise aussi pour afficher/masquer les cartes virtuelles du carrousel.
- * Chaque mode dit en TOUTES LETTRES ce qu'il fait (le texte porte l'info, jamais la couleur seule ; `aria-pressed` porte l'état).
- * Mobile-first : la bascule passe à la ligne sur écran étroit, cibles ≥ 40 px, aucun débordement horizontal.
+ * Le `mode` est CONTRÔLÉ par le parent (ADemanderVue), qui l'utilise aussi, côté téléservice, pour afficher/masquer les cartes
+ * virtuelles du carrousel. Chaque mode dit en TOUTES LETTRES ce qu'il fait (le texte porte l'info ; `aria-pressed` porte l'état ; la
+ * couleur — trame ROUGE du rail actif — n'est qu'un appui). Mobile-first : les cartes passent l'une sous l'autre, cibles ≥ 44 px.
  */
 export type ModePreparation = 'auto' | 'manuel';
 
-export function ModeDemandeTeleservice({ categories, mode, onMode, onChangement }: {
+export function ModeDemandeTeleservice({ categories, mode, onMode, onChangement, process = 'formulaire' }: {
   categories: { cle: string; libelle: string; rang: number }[];
   mode: ModePreparation;
   onMode: (m: ModePreparation) => void;
   onChangement: () => void;
+  process?: Process; // rail concerné (défaut téléservice — historique). Pilote le vocabulaire et le vivier du mode manuel.
 }) {
+  const estTeleservice = process === 'formulaire';
+  // Trame ROUGE de l'option ACTIVE = MÊMES tokens que le rail actif du sélecteur au-dessus (CommutateurProcess) : bordure rouge + fond
+  //   rouge pâle. Aucune valeur de couleur nouvelle en dur.
   const styleOnglet = (actif: boolean): React.CSSProperties => ({
     flex: '1 1 12rem', minHeight: 44, padding: '.4rem .7rem', borderRadius: '.5rem', fontSize: 13, textAlign: 'left',
-    border: actif ? '2px solid var(--color-svv-ink)' : '1px solid var(--color-svv-line)',
-    background: actif ? 'var(--color-svv-paper, #fff)' : 'transparent', fontWeight: actif ? 700 : 500, cursor: 'pointer',
+    border: actif ? '2px solid var(--color-svv-red)' : '1px solid var(--color-svv-line)',
+    background: actif ? 'var(--color-svv-red-soft, #fdecec)' : 'transparent', fontWeight: actif ? 700 : 500, cursor: 'pointer',
   });
 
+  const titre = estTeleservice ? 'Comment sélectionner les demandes téléservice ?' : 'Comment préparer la 1re demande e-mail ?';
+  const libAuto = estTeleservice ? 'Sélection automatique' : 'Envoi automatique';
+  const aideAuto = estTeleservice
+    ? 'Les cartes de dépôt des communes libres apparaissent toutes seules dans le carrousel ci-dessus (aucun clic ; la demande se crée au 1er geste).'
+    : 'La 1re demande est préparée par CRITÈRES : utilise le bouton « Préparer les demandes » ci-dessous (lot par ancienneté / ordre d’examen).';
+  const libManuel = estTeleservice ? 'Sélection manuelle' : 'Envoi manuel';
+  const aideManuel = estTeleservice
+    ? 'Tu choisis toi-même un permis dans le vivier téléservice, hors des critères de sélection.'
+    : 'Tu choisis toi-même un permis dans le vivier e-mail, hors des critères, pour préparer sa 1re demande.';
+
   return (
-    <section aria-label="Mode de préparation des demandes téléservice" className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
-      <strong style={{ fontSize: 13 }}>Comment préparer les demandes téléservice ?</strong>
+    <section aria-label="Mode de préparation des demandes" className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+      <strong style={{ fontSize: 13 }}>{titre}</strong>
       <div role="group" aria-label="Choisir le mode de préparation" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
         <button type="button" aria-pressed={mode === 'auto'} onClick={() => onMode('auto')} style={styleOnglet(mode === 'auto')}>
-          Mode automatique {mode === 'auto' ? '· actif' : ''}
-          <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>
-            Les cartes de dépôt des communes libres apparaissent toutes seules dans le carrousel ci-dessus (aucun clic ; la demande se crée au 1er geste).
-          </span>
+          {libAuto} {mode === 'auto' ? '· actif' : ''}
+          <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{aideAuto}</span>
         </button>
         <button type="button" aria-pressed={mode === 'manuel'} onClick={() => onMode('manuel')} style={styleOnglet(mode === 'manuel')}>
-          Mode manuel {mode === 'manuel' ? '· actif' : ''}
-          <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>
-            Tu choisis toi-même un permis dans le vivier, hors des critères de sélection.
-          </span>
+          {libManuel} {mode === 'manuel' ? '· actif' : ''}
+          <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{aideManuel}</span>
         </button>
       </div>
 
       {mode === 'auto' && (
         <p role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>
-          Regarde le carrousel « à déposer à la main » ci-dessus : chaque commune libre y a déjà sa carte de dépôt, prête à copier.
+          {estTeleservice
+            ? 'Regarde le carrousel « à déposer à la main » ci-dessus : chaque commune libre y a déjà sa carte de dépôt, prête à copier.'
+            : 'Le lot par critères se prépare avec le bouton « Préparer les demandes » plus bas ; l’aperçu des lots s’affiche à sa suite.'}
         </p>
       )}
-      {mode === 'manuel' && <RechercheVivierManuel categories={categories} onPrepared={onChangement} />}
+      {mode === 'manuel' && <RechercheVivierManuel categories={categories} onPrepared={onChangement} process={process} />}
     </section>
   );
 }

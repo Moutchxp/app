@@ -24,20 +24,20 @@ const boutonPar = (motif: RegExp): HTMLButtonElement | undefined => boutons().fi
 const champManuel = (): HTMLInputElement | null => container.querySelector('input[aria-label*="vivier téléservice"]');
 
 // Wrapper à état : reproduit le parent (ADemanderVue possède `mode`, ModeDemandeTeleservice le reçoit + remonte via onMode).
-function Wrapper({ initial = 'auto' as ModePreparation }): React.ReactElement {
+function Wrapper({ initial = 'auto' as ModePreparation, process = 'formulaire' as 'formulaire' | 'email' }): React.ReactElement {
   const [mode, setMode] = useState<ModePreparation>(initial);
-  return createElement(ModeDemandeTeleservice, { categories: [], mode, onMode: setMode, onChangement: vi.fn() });
+  return createElement(ModeDemandeTeleservice, { categories: [], mode, onMode: setMode, onChangement: vi.fn(), process });
 }
-const monter = async (): Promise<void> => {
-  await act(async () => { root.render(createElement(Wrapper, {})); });
+const monter = async (proc: 'formulaire' | 'email' = 'formulaire'): Promise<void> => {
+  await act(async () => { root.render(createElement(Wrapper, { process: proc })); });
   await act(async () => { await Promise.resolve(); });
 };
 
 describe('MODE téléservice — bascule auto / manuel (mode contrôlé)', () => {
   it('mode automatique ACTIF par défaut (aucun panneau manuel monté)', async () => {
     await monter();
-    expect(boutonPar(/Mode automatique/)?.getAttribute('aria-pressed')).toBe('true');
-    expect(boutonPar(/Mode manuel/)?.getAttribute('aria-pressed')).toBe('false');
+    expect(boutonPar(/Sélection automatique/)?.getAttribute('aria-pressed')).toBe('true');
+    expect(boutonPar(/Sélection manuelle/)?.getAttribute('aria-pressed')).toBe('false');
     expect(champManuel()).toBeNull(); // le panneau manuel n'apparaît qu'en mode manuel
   });
 
@@ -50,16 +50,45 @@ describe('MODE téléservice — bascule auto / manuel (mode contrôlé)', () =>
 
   it('bascule en mode manuel → le panneau de recherche du vivier apparaît, mode manuel actif', async () => {
     await monter();
-    await act(async () => { boutonPar(/Mode manuel/)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    expect(boutonPar(/Mode manuel/)?.getAttribute('aria-pressed')).toBe('true');
+    await act(async () => { boutonPar(/Sélection manuelle/)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(boutonPar(/Sélection manuelle/)?.getAttribute('aria-pressed')).toBe('true');
     expect(champManuel()).not.toBeNull();
   });
 
   it('retour en mode automatique → le panneau manuel disparaît (bascule réversible)', async () => {
     await monter();
-    await act(async () => { boutonPar(/Mode manuel/)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await act(async () => { boutonPar(/Sélection manuelle/)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(champManuel()).not.toBeNull();
-    await act(async () => { boutonPar(/Mode automatique/)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await act(async () => { boutonPar(/Sélection automatique/)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(champManuel()).toBeNull();
+  });
+});
+
+describe('MODE e-mail — MÊME bloc, vocabulaire « envoi », vivier e-mail (commun aux deux rails)', () => {
+  it('libellés « Envoi automatique / manuel » (jamais « Sélection ») ; auto actif par défaut', async () => {
+    await monter('email');
+    expect(boutonPar(/Envoi automatique/)?.getAttribute('aria-pressed')).toBe('true');
+    expect(boutonPar(/Envoi manuel/)?.getAttribute('aria-pressed')).toBe('false');
+    expect(boutonPar(/Sélection/)).toBeUndefined();                                       // vocabulaire téléservice absent en e-mail
+    expect(container.querySelector('input[aria-label*="vivier téléservice"]')).toBeNull();
+  });
+
+  it('bascule en manuel → recherche du vivier E-MAIL (et pas téléservice)', async () => {
+    await monter('email');
+    await act(async () => { boutonPar(/Envoi manuel/)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    expect(container.querySelector('input[aria-label*="vivier e-mail"]')).not.toBeNull();
+    expect(container.querySelector('input[aria-label*="vivier téléservice"]')).toBeNull();
+  });
+});
+
+describe('TRAME ROUGE de l’option active (mêmes tokens que le rail actif du sélecteur)', () => {
+  it('l’option sélectionnée porte la bordure + le fond ROUGE (var(--color-svv-red) / red-soft), l’autre non', async () => {
+    await monter('formulaire');
+    const actif = boutonPar(/Sélection automatique/)!;
+    const styleActif = actif.getAttribute('style') ?? '';
+    expect(styleActif).toContain('var(--color-svv-red)');        // bordure rouge (token existant)
+    expect(styleActif).toContain('var(--color-svv-red-soft');    // fond rouge pâle (token existant)
+    expect(actif.getAttribute('style')).not.toContain('var(--color-svv-ink)'); // plus le bleu/ink d'avant
+    expect(boutonPar(/Sélection manuelle/)!.getAttribute('style') ?? '').not.toContain('var(--color-svv-red)'); // l'option NON active reste neutre
   });
 });
