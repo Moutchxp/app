@@ -469,3 +469,32 @@ describe('CASC-2b — GARDE-FOU : toute colonne d’un thème a un ParamVeille (
     expect(NOMS_PARAMS.has('lien_alerte_avant_jours')).toBe(true);
   });
 });
+
+describe('224 — interrupteur d’ENVOI AUTO de la 1re demande e-mail : SÉPARATION STRICTE des relances', () => {
+  it('modifier le flag n’écrit QUE sa colonne (email_envoi_initial_auto_active), JAMAIS relance/saisine/cascade', () => {
+    const r = validerReglages({ veille: { email_envoi_initial_auto_active: true } }, BORNES);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      // La colonne écrite = EXACTEMENT le flag, rien d'autre → un clic sur cette bascule ne peut pas toucher un autre automatisme.
+      expect(r.veille).toEqual({ email_envoi_initial_auto_active: true });
+      const cols = Object.keys(r.veille);
+      for (const interdite of ['relance_auto_active', 'saisine_cada_auto_active', 'cascade_partiel_auto_active', 'rattachement_suivi_auto_active', 'auto_active']) {
+        expect(cols).not.toContain(interdite);
+      }
+    }
+  });
+
+  it('et RÉCIPROQUEMENT : modifier relance_auto_active n’écrit pas le flag e-mail (indépendance dans les deux sens)', () => {
+    const r = validerReglages({ veille: { relance_auto_active: true } }, BORNES);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.veille).toEqual({ relance_auto_active: true });
+      expect(Object.keys(r.veille)).not.toContain('email_envoi_initial_auto_active');
+    }
+  });
+
+  it('le flag est surfacé dans le thème « Envoi & relances » (éditable en Réglages, même vérité que le bloc)', () => {
+    expect(COLONNES_THEME_ENVOI).toContain('email_envoi_initial_auto_active'); // rendu dans « Envoi & relances » (rail e-mail)
+    expect(PARAMS_VEILLE.map((p) => p.colonne)).toContain('email_envoi_initial_auto_active'); // et dans l'allowlist du PATCH /reglages
+  });
+});

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type CSSProperties } from 'react';
-import { PROCESS_META, PROCESS_ORDRE, type Process } from '../../../../lib/sitadel/process';
+import { PROCESS_ORDRE, libelleRailAvecMode, type Process, type ModeRail } from '../../../../lib/sitadel/process';
 
 /**
  * D2 — COMMUTATEUR de process en tête de l'onglet Demandes. Choix entre les DEUX process (un actif à la fois) qui scope les
@@ -24,9 +24,11 @@ export function styleMentionEnCours(demandesEnCours: number): CSSProperties | un
   return demandesEnCours > 0 ? { color: 'var(--color-svv-red)', fontWeight: 700 } : undefined;
 }
 
-export function CommutateurProcess({ actif, onChoisir, compteurs, onOuvrirCommune }: { actif: Process; onChoisir: (p: Process) => void; compteurs: CompteursProcess | null;
+export function CommutateurProcess({ actif, onChoisir, compteurs, onOuvrirCommune, modeParRail }: { actif: Process; onChoisir: (p: Process) => void; compteurs: CompteursProcess | null;
   /** Lot C — PORTE 2 : si fourni, chaque commune « sans adresse » devient un bouton qui ouvre sa fiche contact (code INSEE). Absent → liste inchangée (texte). */
   onOuvrirCommune?: (code: string) => void;
+  /** Mode COURANT de chaque rail (bascule auto/manuel du bloc « À demander ») → le titre du rail reflète EN TEMPS RÉEL « sélection/envoi auto|manuel ». Absent → titre seul (repli). */
+  modeParRail?: Partial<Record<Process, ModeRail>>;
 }) {
   const [horsOuvert, setHorsOuvert] = useState(false);
   const hors = compteurs?.hors;
@@ -48,7 +50,7 @@ export function CommutateurProcess({ actif, onChoisir, compteurs, onOuvrirCommun
                 color: 'var(--color-svv-ink)', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '.15rem',
               }}>
               <span style={{ fontWeight: 800, fontSize: '.9rem' }}>
-                <span aria-hidden="true">{estActif ? '● ' : '○ '}</span>{PROCESS_META[p].titre}{estActif ? ' — actif' : ''}
+                <span aria-hidden="true">{estActif ? '● ' : '○ '}</span>{libelleRailAvecMode(p, modeParRail?.[p])}{estActif ? ' — actif' : ''}
               </span>
               <span style={{ fontSize: '.76rem', color: 'var(--color-svv-muted)' }}>
                 {c ? (

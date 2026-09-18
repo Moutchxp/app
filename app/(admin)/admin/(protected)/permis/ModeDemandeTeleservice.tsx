@@ -51,11 +51,11 @@ export function ModeDemandeTeleservice({ categories, mode, onMode, onChangement,
     <section aria-label="Mode de préparation des demandes" className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
       <strong style={{ fontSize: 13 }}>{titre}</strong>
       <div role="group" aria-label="Choisir le mode de préparation" style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-        <button type="button" aria-pressed={mode === 'auto'} onClick={() => onMode('auto')} style={styleOnglet(mode === 'auto')}>
+        <button type="button" className="svv-choix" aria-pressed={mode === 'auto'} onClick={() => onMode('auto')} style={styleOnglet(mode === 'auto')}>
           {libAuto} {mode === 'auto' ? '· actif' : ''}
           <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{aideAuto}</span>
         </button>
-        <button type="button" aria-pressed={mode === 'manuel'} onClick={() => onMode('manuel')} style={styleOnglet(mode === 'manuel')}>
+        <button type="button" className="svv-choix" aria-pressed={mode === 'manuel'} onClick={() => onMode('manuel')} style={styleOnglet(mode === 'manuel')}>
           {libManuel} {mode === 'manuel' ? '· actif' : ''}
           <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--color-svv-muted)' }}>{aideManuel}</span>
         </button>

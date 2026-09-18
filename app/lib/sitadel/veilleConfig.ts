@@ -74,6 +74,7 @@ export interface ConfigVeille {
   lienAlerteAvantJours: number;      // PART-D : jours avant le terme présumé à partir desquels alerter Arno d'un lien en attente (défaut 3)
   natureAccuseMotifs: string;       // FUS-4 : motifs d'objet reconnaissant un accusé (liste virgules/retours) — pilotage sans code
   relanceAutoActive: boolean;       // LOT B : envoyer les relances automatiquement ? STOCKÉ/AFFICHÉ, LU PAR AUCUN CODE D'ENVOI dans ce lot
+  emailEnvoiInitialAutoActive: boolean; // 224 : rail e-mail — envoyer la 1re DEMANDE automatiquement ? (défaut false). DISTINCT de relanceAutoActive / saisineCadaAutoActive / cascadePartielAutoActive. Édité depuis le bloc « À demander » ET Réglages (même vérité).
   relanceJoursAvantEcheance: number; // LOT B (VESTIGIAL, cascade lot 2) : remplacé par relanceRappelJoursAvant — conservé, non éditable
   relanceRappelJoursAvant: number;   // Cascade lot 2 : jours avant l'échéance où le RAPPEL (J-10) est préparé — borné 1..30, défaut 10
   relanceAvisJoursAvant: number;     // Cascade lot 2 : jours avant l'échéance où l'AVIS (J-3, possibilité CADA) est préparé — borné 1..30, défaut 3
@@ -162,6 +163,7 @@ export const CONFIG_VEILLE_DEFAUT: ConfigVeille = {
   lienValiditePresumeeJours: 7, lienAlerteAvantJours: 3, // = DEFAULT 181 (PART-D : péremption présumée des liens + délai d'alerte)
   natureAccuseMotifs: '',       // FUS-4 : repli ultime = aucun motif → comportement d'AVANT ce lot (la 125 pose 'accusé de réception')
   relanceAutoActive: false, relanceJoursAvantEcheance: 10, // = DEFAULT de la migration 128 (LOT B : opt-out d'envoi auto, préparation à J-10)
+  emailEnvoiInitialAutoActive: false, // = DEFAULT 224 (opt-in EXPLICITE : la 1re demande e-mail ne part auto que si Arno l'arme)
   relanceRappelJoursAvant: 10, relanceAvisJoursAvant: 3, relanceSaisineDelaiJours: 4, saisineCadaAutoActive: false, // = DEFAULT de la migration 136 (cascade lot 2)
   cadaPartielDelaiMois: 1, cadaPartielDelaiJours: 4, // = DEFAULT de la migration 178 (CASC-2 : 1 mois + 4 jours sur dossier partiel)
   cascadePartielRelanceJours: 10, cascadePartielAnnonceJours: 10, cascadePartielSaisineJours: 4, cascadePartielNbRelances: 2, // = DEFAULT migration 179 (CASC-3)
@@ -545,6 +547,17 @@ async function lireNatureAccuseMotifs(): Promise<Pick<ConfigVeille, 'natureAccus
 // LOT B — réglages de RELANCE (relance_auto_active + relance_jours_avant_echeance). Lecture ISOLÉE (résiliente à l'ordre
 //   d'application de la 128, livrée NON APPLIQUÉE) : tant que les colonnes n'existent pas, cette lecture échoue SEULE et
 //   retombe sur les défauts (false, 10), SANS dégrader tout le reste de la config (motif des migrations 069+).
+// 224 — interrupteur d'ENVOI AUTO de la 1re demande e-mail. Lecture ISOLÉE (résiliente à l'ordre d'application de la 224, livrée NON
+//   APPLIQUÉE) : tant que la colonne n'existe pas, cette lecture échoue SEULE et retombe sur le défaut (false), SANS dégrader le reste.
+//   ⚠️ N'AGRÈGE JAMAIS relance_auto_active/saisine/cascade : ce lecteur ne SELECT que sa propre colonne (séparation stricte).
+async function lireEmailEnvoiInitialAuto(): Promise<Pick<ConfigVeille, 'emailEnvoiInitialAutoActive'>> {
+  try {
+    const { rows } = await query<{ email_envoi_initial_auto_active: boolean }>(
+      `SELECT email_envoi_initial_auto_active FROM config_veille WHERE id = 1`);
+    return { emailEnvoiInitialAutoActive: rows[0]?.email_envoi_initial_auto_active === true };
+  } catch { return { emailEnvoiInitialAutoActive: false }; } // 224 pas encore appliquée → défaut OFF
+}
+
 async function lireRelanceReglages(): Promise<Pick<ConfigVeille, 'relanceAutoActive' | 'relanceJoursAvantEcheance'>> {
   const def = { relanceAutoActive: false, relanceJoursAvantEcheance: 10 };
   try {
@@ -825,6 +838,7 @@ export async function chargerConfigVeille(): Promise<ConfigVeille> {
       ...(await lireLienPeremption()),                  // PART-D : péremption présumée des liens + délai d'alerte, lecture isolée (résiliente à la 181)
       ...(await lireNatureAccuseMotifs()),             // FUS-4 : motifs d'objet « accusé », lecture isolée (résiliente à la 125)
       ...(await lireRelanceReglages()),                // LOT B : réglages de relance, lecture isolée (résiliente à la 128)
+      ...(await lireEmailEnvoiInitialAuto()),           // 224 : interrupteur d'envoi auto de la 1re demande e-mail, lecture isolée (résiliente à la 224)
       ...(await lireRelanceCascadeReglages()),          // Cascade lot 2 : 3 délais + auto-saisine CADA, lecture isolée (résiliente à la 136)
       ...(await lireCadaPartielDelai()),                 // CASC-2 : délai CADA sur dossier partiel (1 mois + 4 jours), lecture isolée (résiliente à la 178)
       ...(await lireCascadePartielle()),                 // CASC-3 : délais de la cascade partielle (10/10/4/2), lecture isolée (résiliente à la 179)

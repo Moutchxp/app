@@ -9,14 +9,25 @@
 
 export type Process = 'formulaire' | 'email';
 
-/** 'formulaire' = Téléservice (rail B) ; 'email' = E-mail (rail A). Le `titre` du sélecteur nomme désormais l'AXE de préparation
- *  commun aux deux rails (sélection auto/manuelle côté téléservice ; envoi auto/manuel de la 1re demande côté e-mail) — cf. le bloc
- *  auto/manuel sous le sélecteur. ⚠️ Cet axe est DISTINCT de l'automatisation des RELANCES (config `relance_auto_active`, onglet
- *  Réglages) : les deux ne s'influencent pas. `aide` conserve la NATURE du canal (téléservice = dépôt à la main ; e-mail = envoi). */
+/** 'formulaire' = Téléservice (rail B) ; 'email' = E-mail (rail A). `titre` = NATURE DU CANAL (téléservice = dépôt à la main ; e-mail).
+ *  Le sélecteur (`CommutateurProcess`) y AJOUTE, EN TEMPS RÉEL, le mode COURANT du bloc auto/manuel (téléservice → « sélection
+ *  auto/manuelle » ; e-mail → « envoi auto/manuel »), via `libelleRailAvecMode`. ⚠️ Cet axe est DISTINCT de l'automatisation des
+ *  RELANCES (config `relance_auto_active`) : les deux ne s'influencent pas. `court` (badges/renvois) inchangé. */
 export const PROCESS_META: Record<Process, { titre: string; court: string; aide: string }> = {
-  formulaire: { titre: 'Téléservice (sélection manuelle ou automatique)', court: 'Téléservice', aide: 'Communes à téléservice : dépôt à la main. La sélection des permis à demander peut être automatique (par critères) ou manuelle.' },
-  email: { titre: 'E-mail (envoi manuel ou automatique)', court: 'E-mail', aide: 'Communes joignables par e-mail. La 1re demande d’information peut être préparée automatiquement (par critères) ou manuellement.' },
+  formulaire: { titre: 'Téléservice (dépôt à la main)', court: 'Téléservice', aide: 'Communes à téléservice : dépôt à la main. La sélection des permis à demander peut être automatique (par critères) ou manuelle.' },
+  email: { titre: 'E-mail', court: 'E-mail', aide: 'Communes joignables par e-mail. La 1re demande d’information peut partir automatiquement (par critères) ou être envoyée à la main.' },
 };
+
+/** Mode de préparation courant d'un rail (miroir de la bascule auto/manuel du bloc « À demander »). Téléservice = sélection ; e-mail = envoi. */
+export type ModeRail = 'auto' | 'manuel';
+
+/** Libellé TEMPS RÉEL d'un rail dans le sélecteur : nature du canal (`titre`) + mode COURANT. `mode` absent → titre seul (repli sûr). PUR. */
+export function libelleRailAvecMode(p: Process, mode: ModeRail | undefined): string {
+  if (mode === undefined) return PROCESS_META[p].titre;
+  const axe = p === 'formulaire' ? 'sélection' : 'envoi';
+  const val = p === 'formulaire' ? (mode === 'auto' ? 'automatique' : 'manuelle') : (mode === 'auto' ? 'automatique' : 'manuel');
+  return `${PROCESS_META[p].titre} — ${axe} ${val}`;
+}
 
 export const PROCESS_ORDRE: readonly Process[] = ['email', 'formulaire'];
 export const PROCESS_DEFAUT: Process = 'email'; // défaut à l'ouverture (ne persiste pas entre sessions dans ce lot)

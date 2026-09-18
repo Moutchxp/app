@@ -222,6 +222,11 @@ export const PARAMS_VEILLE: ParamVeille[] = [
     aide: 'À partir de ce nombre de jours avant l’échéance, un rappel est préparé pour les demandes restées sans réponse. La préparation a toujours lieu et n’envoie rien.' },
   { colonne: 'relance_auto_active', cle: 'relanceAutoActive', libelle: 'Envoyer les relances automatiquement', unite: '', type: 'booleen', rail: 'email',
     aide: 'Si cette case est cochée, les relances partiront vers les mairies sans relecture. Tant qu’elle est décochée, rien ne part sans un clic.' },
+  // 224 — ENVOI AUTO DE LA 1re DEMANDE (rail e-mail). MÊME réglage que la bascule « auto / manuel » du bloc « À demander » (rail
+  //   e-mail) : éditer l'un met l'autre à jour (même colonne config_veille). ⚠️ STRICTEMENT DISTINCT de relance_auto_active /
+  //   cascade_partiel_auto_active / saisine_cada_auto_active — l'aide le dit sans détour.
+  { colonne: 'email_envoi_initial_auto_active', cle: 'emailEnvoiInitialAutoActive', libelle: 'Envoyer la 1re demande automatiquement', unite: '', type: 'booleen', rail: 'email',
+    aide: 'Si cette case est cochée, la PREMIÈRE demande d’information part automatiquement aux mairies joignables par e-mail, en respectant TOUS les caps (par run, par jour, plafond mensuel par commune) et la fenêtre horaire. Décochée, rien ne part sans un clic : les demandes préparées restent « prêtes » à envoyer à la main. ⚠️ N’a AUCUN effet sur l’envoi automatique des RELANCES ni de la saisine CADA (réglages distincts). C’est le MÊME interrupteur que la bascule « auto / manuel » du bloc « À demander » (rail e-mail).' },
   // AUTO-PARTIEL — interrupteur d'arrêt d'urgence de la cascade PARTIELLE (relances de dossier incomplet + annonce CADA). Modèle relance_auto_active.
   { colonne: 'cascade_partiel_auto_active', cle: 'cascadePartielAutoActive', libelle: 'Envoyer la cascade partielle automatiquement', unite: '', type: 'booleen', rail: 'email',
     aide: 'Si cette case est cochée, les relances de dossier incomplet (relances, annonce CADA) partent seules aux dates de la cascade, sans clic. Décochée, rien ne part sans un clic (arrêt d’urgence). Le délai de saisine CADA n’est jamais modifié par ce réglage.' },
@@ -451,6 +456,9 @@ export const COLONNES_THEME_PREPARATION: readonly string[] = [
 export const COLONNES_THEME_ENVOI: readonly string[] = [
   'adresse_reponse', 'envois_max_par_run', 'envois_max_par_jour',
   'envois_auto_max_par_demande_run', // PLAFOND ANTI-CUMUL — 1 e-mail auto/demande/passage (rempart anti-cumul, adjacent aux caps d'envoi)
+  // 224 — ENVOI AUTO DE LA 1re DEMANDE (rail e-mail) : adjacent aux caps d'ENVOI (c'est un interrupteur d'envoi), AVANT le duo relances
+  //   (dont il est strictement distinct). MÊME colonne que la bascule « auto / manuel » du bloc « À demander ».
+  'email_envoi_initial_auto_active',
   // LOT B — duo « relances » : à partir de quand un rappel est préparé, puis part-il tout seul (adjacents, sans sous-titre :
   //   l'écran Réglages ne rend pas de sous-groupe dans un thème — non inventé pour ce lot).
   'relance_jours_avant_echeance', 'relance_auto_active',

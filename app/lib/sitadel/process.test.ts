@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { processDeCanal, dansProcess, horsProcess, partitionnerParProcess, PROCESS_DEFAUT, PROCESS_ORDRE } from './process';
+import { processDeCanal, dansProcess, horsProcess, partitionnerParProcess, PROCESS_DEFAUT, PROCESS_ORDRE, PROCESS_META, libelleRailAvecMode } from './process';
 
 describe('D2 — process (viviers séparés)', () => {
   it('email/formulaire = les deux process ; courrier/inconnu/null = HORS process (3e groupe)', () => {
@@ -38,5 +38,24 @@ describe('D2 — process (viviers séparés)', () => {
   it('défaut = e-mail ; ordre d’affichage e-mail puis téléservice', () => {
     expect(PROCESS_DEFAUT).toBe('email');
     expect(PROCESS_ORDRE).toEqual(['email', 'formulaire']);
+  });
+});
+
+describe('libelleRailAvecMode — libellé TEMPS RÉEL du sélecteur (nature du canal + mode courant)', () => {
+  it('le titre porte la NATURE DU CANAL (téléservice = dépôt à la main ; e-mail)', () => {
+    expect(PROCESS_META.formulaire.titre).toBe('Téléservice (dépôt à la main)');
+    expect(PROCESS_META.email.titre).toBe('E-mail');
+  });
+  it('téléservice → « sélection automatique / manuelle » selon le mode', () => {
+    expect(libelleRailAvecMode('formulaire', 'auto')).toBe('Téléservice (dépôt à la main) — sélection automatique');
+    expect(libelleRailAvecMode('formulaire', 'manuel')).toBe('Téléservice (dépôt à la main) — sélection manuelle');
+  });
+  it('e-mail → « envoi automatique / manuel » selon le mode', () => {
+    expect(libelleRailAvecMode('email', 'auto')).toBe('E-mail — envoi automatique');
+    expect(libelleRailAvecMode('email', 'manuel')).toBe('E-mail — envoi manuel');
+  });
+  it('mode absent → titre seul (repli sûr, jamais de suffixe inventé)', () => {
+    expect(libelleRailAvecMode('formulaire', undefined)).toBe('Téléservice (dépôt à la main)');
+    expect(libelleRailAvecMode('email', undefined)).toBe('E-mail');
   });
 });
