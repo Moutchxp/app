@@ -12,6 +12,7 @@ import { RechercheVivier } from './RechercheVivier';
 import { CompteurVivierTeleservice } from './CompteurVivierTeleservice';
 import { ResumeCriteresTeleservice } from './ResumeCriteresTeleservice';
 import { ModeDemandeTeleservice, type ModePreparation } from './ModeDemandeTeleservice';
+import { ModaleConfirmationEnvoiAuto } from './ModaleConfirmationEnvoiAuto';
 import { GroupeRailsCommunes } from './GroupeRailsCommunes';
 import type { CompteursProcess } from './CommutateurProcess';
 import { dansProcess, PROCESS_META, type Process } from '../../../../lib/sitadel/process';
@@ -68,12 +69,57 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
   //   l'affichage des cartes VIRTUELLES du carrousel (en manuel, on masque les virtuelles ; les réelles restent). E-mail : pilote le
   //   panneau auto (lot par critères) / manuel (choix d'un permis du vivier e-mail). ⚠️ SANS aucun lien avec l'auto-relance (relance_auto_active).
   const [modeTeleservice, setModeTeleservice] = useState<ModePreparation>('auto');
-  const [modeEmail, setModeEmail] = useState<ModePreparation>('auto');
+  // 224 — E-MAIL : le mode auto/manuel du bloc EST le flag serveur `email_envoi_initial_auto_active` (config_veille) — UNE SEULE vérité,
+  //   éditable ICI comme dans Réglages. `null` = pas encore lu (affiché « manuel » = OFF, défaut sûr). Passer en AUTO exige une
+  //   CONFIRMATION (modale récapitulative) ; le retour en manuel est immédiat. AUCUN lien avec l'auto-relance (relance_auto_active).
+  const [emailEnvoiAuto, setEmailEnvoiAuto] = useState<boolean | null>(null);
+  const [modaleEnvoiAuto, setModaleEnvoiAuto] = useState(false);
+  const [basculeEnCours, setBasculeEnCours] = useState(false);
   // DEPOT-2 — FOYER UNIQUE local : toute action réussie (création, dépôt, annulation) rafraîchit les vues locales
   //   (SuiviDemandes + BlocDepot via signalSuivi) ET notifie le parent (compteurs du commutateur) — jamais l'un sans l'autre.
   const signalerChangement = useCallback((): void => { setSignalSuivi((s) => s + 1); onChangement?.(); }, [onChangement]);
 
   const annoncer = useCallback((texte: string, ok: boolean) => setRetour(texte === '' ? null : { texte, ok, zone: 'haut' }), []);
+
+  // 224 — LECTURE INITIALE du flag d'envoi auto e-mail (source unique = config_veille via /reglages). Rejouée au MONTAGE de la vue.
+  //   Comme PermisTuile démonte/remonte « À demander » à chaque changement d'onglet, revenir de Réglages relit le flag → l'état du bloc
+  //   suit Réglages en temps réel (les deux écrivent la MÊME colonne). Indisponible (403/503) → reste OFF affiché (défaut sûr).
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/permis/reglages', { cache: 'no-store' });
+        if (!annule && res.ok) { const d = (await res.json()) as { veille?: { emailEnvoiInitialAutoActive?: boolean } }; setEmailEnvoiAuto(d?.veille?.emailEnvoiInitialAutoActive === true); }
+      } catch { /* flag indisponible → OFF affiché */ }
+    })();
+    return () => { annule = true; };
+  }, []);
+  // 224 — écrit le flag via PATCH /reglages (allowlist PARAMS_VEILLE) et RECONCILIE sur la vérité serveur renvoyée (`.veille`). N'écrit
+  //   QUE `email_envoi_initial_auto_active` — jamais relance_auto_active / saisine_cada_auto_active / cascade_partiel_auto_active / auto_active.
+  const ecrireFlagEnvoiAuto = useCallback(async (actif: boolean): Promise<boolean> => {
+    try {
+      const res = await fetch('/api/admin/permis/reglages', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ veille: { email_envoi_initial_auto_active: actif } }) });
+      if (!res.ok) return false;
+      const d = (await res.json()) as { veille?: { emailEnvoiInitialAutoActive?: boolean } };
+      setEmailEnvoiAuto(d?.veille?.emailEnvoiInitialAutoActive === true);
+      return true;
+    } catch { return false; }
+  }, []);
+  // E-MAIL : passage en MANUEL = immédiat (rien à armer) ; passage en AUTO = ouvre la modale (rien ne s'arme sans confirmation explicite).
+  const changerModeEmail = useCallback((m: ModePreparation): void => {
+    if (m === 'auto') { setModaleEnvoiAuto(true); return; }
+    void (async () => { const ok = await ecrireFlagEnvoiAuto(false); if (!ok) annoncer('La désactivation de l’envoi automatique n’a pas pu être enregistrée.', false); })();
+  }, [ecrireFlagEnvoiAuto, annoncer]);
+  // Confirmation de la modale → arme le flag (PATCH true). Le déclenchement effectif reste gardé côté veille (flag + fenêtre + caps).
+  const confirmerEnvoiAuto = useCallback((): void => {
+    void (async () => {
+      setBasculeEnCours(true);
+      const ok = await ecrireFlagEnvoiAuto(true);
+      setBasculeEnCours(false);
+      setModaleEnvoiAuto(false);
+      annoncer(ok ? 'Envoi automatique des 1res demandes e-mail activé.' : 'L’activation de l’envoi automatique n’a pas pu être enregistrée.', ok);
+    })();
+  }, [ecrireFlagEnvoiAuto, annoncer]);
 
   const toggleStock = useCallback(() => setStockOuvert((o) => !o), []);
   // Q2b/Q4 — agrégat du stock : au montage (ouvert par défaut) et RECHARGÉ quand le filtre d'ancienneté change. setState dans l'IIFE async.
@@ -169,16 +215,25 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
   return (
     <div className="flex flex-col gap-4">
       {/* ② BLOC AUTO/MANUEL — COMMUN aux deux rails, JUSTE SOUS le sélecteur des deux rails (CommutateurProcess, monté dans PermisTuile
-          au-dessus de cette vue) et AU-DESSUS du carrousel. Pilote la PRÉPARATION : téléservice = sélection (auto=cartes / manuel=vivier
-          téléservice) ; e-mail = 1re demande (auto=lot par critères via « Préparer les demandes » plus bas / manuel=vivier e-mail). Le
-          mode est PROPRE au rail (modeTeleservice / modeEmail) : basculer de rail n'emporte pas le mode de l'autre. ⚠️ AUCUN lien avec
-          l'auto-relance (relance_auto_active) : les deux automatisations sont indépendantes. */}
+          au-dessus de cette vue) et AU-DESSUS du carrousel. Téléservice : SÉLECTION (auto=cartes / manuel=vivier téléservice), état
+          d'écran LOCAL (modeTeleservice). E-mail : ENVOI AUTO de la 1re demande — le mode auto/manuel EST le flag serveur
+          `email_envoi_initial_auto_active` (emailEnvoiAuto), donc partagé avec Réglages (une seule vérité) ; l'AUTO ouvre une modale de
+          confirmation, le MANUEL est immédiat. ⚠️ AUCUN lien avec l'auto-relance (relance_auto_active) : automatisations indépendantes. */}
       <ModeDemandeTeleservice
         categories={categories} process={process}
-        mode={process === 'formulaire' ? modeTeleservice : modeEmail}
-        onMode={process === 'formulaire' ? setModeTeleservice : setModeEmail}
+        mode={process === 'formulaire' ? modeTeleservice : (emailEnvoiAuto === true ? 'auto' : 'manuel')}
+        onMode={process === 'formulaire' ? setModeTeleservice : changerModeEmail}
         onChangement={signalerChangement}
+        badge={process === 'email' ? (
+          <span className="svv-pill" aria-live="polite" style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', color: emailEnvoiAuto === true ? 'var(--color-svv-red)' : 'var(--color-svv-muted)', borderColor: emailEnvoiAuto === true ? 'var(--color-svv-red)' : 'var(--color-svv-line)' }}>
+            {emailEnvoiAuto === true ? '● Envoi auto activé' : '○ Envoi auto désactivé'}
+          </span>
+        ) : undefined}
       />
+      {/* 224 — MODALE de confirmation (rail e-mail uniquement) : s'ouvre au passage en AUTO. Rien n'est armé tant qu'elle n'est pas confirmée. */}
+      {modaleEnvoiAuto && process === 'email' && (
+        <ModaleConfirmationEnvoiAuto onConfirmer={confirmerEnvoiAuto} onAnnuler={() => { if (!basculeEnCours) setModaleEnvoiAuto(false); }} enCours={basculeEnCours} />
+      )}
       {/* ③ CARROUSEL TÉLÉSERVICE (lot 1) — cartes de dépôt à faire, SOUS le bloc auto/manuel. UNE SEULE instance. Réservé au rail
           Téléservice (process === 'formulaire'). En mode MANUEL, les cartes VIRTUELLES sont masquées (afficherVirtuels=false) ; les
           RÉELLES restent. DEPOT-1 : mêmes signaux. Le COMPTEUR DE VIVIER (lot 2) est passé en prop `compteurVivier` → rendu SUR LA LIGNE

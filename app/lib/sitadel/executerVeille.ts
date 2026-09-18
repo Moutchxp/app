@@ -38,6 +38,7 @@ import { executerAlerteActionAuto, depsReellesAlerteAction } from '../veille/ale
 import { executerPreCochageAuto, depsReellesPreCochage } from '../veille/preCochageReponduAuto';
 import { executerCaptureSortantsAuto, depsReellesCaptureSortants } from '../veille/captureSortantsAuto';
 import { executerEnvoiAuto, depsReellesEnvoiAuto } from '../veille/envoiAuto';
+import { executerEnvoiInitialAuto, depsReellesEnvoiInitialAuto } from '../veille/envoiInitialAuto'; // 224 — envoi auto de la 1re demande (interrupteur DISTINCT des relances)
 import { executerDetection } from '../veille/detectionSources';
 import { depsReellesDetection } from '../veille/detectionRepo';
 import { executerIngestionAuto } from '../veille/ingestionAuto';
@@ -160,6 +161,10 @@ export interface DepsVeille {
   //   saisine_cada_auto_active, défauts false). Désactivés → rien ne part à un tiers. APPELLE envoyerRelances/envoyerSaisinesCada
   //   (gardes intactes) ; compte rendu interne à alerte_email. Un échec ne touche jamais la veille ni la relève.
   envoiAuto?(): Promise<unknown>;
+  // 224 — ENVOI AUTOMATIQUE de la 1re DEMANDE (rail e-mail). OPTIONNEL et ISOLÉ, comme envoiAuto. Interrupteur DISTINCT
+  //   (email_envoi_initial_auto_active, défaut false) : n'a AUCUN effet sur relance/saisine, et réciproquement. À false → rien ne part.
+  //   Passe par envoyerDemandes (capBatch + caps) + garde de fenêtre horaire. Un échec ne touche jamais la veille ni la relève.
+  envoiInitialAuto?(): Promise<unknown>;
   // FRAÎCHEUR lot 2 — DÉTECTION des nouvelles publications (métadonnées seules, JAMAIS de donnée), après l'envoi auto
   //   (§1undecies). OPTIONNELLE et ISOLÉE : un échec de détection ne touche jamais la veille ni la relève. Respecte son
   //   propre interrupteur global + sa cadence + l'activation par source, à l'intérieur (executerDetection).
@@ -344,6 +349,13 @@ export async function executerVeille(opts: OptionsVeille, deps: DepsVeille = dep
     //   de l'autre (dans executerEnvoiAuto). Un compte rendu INTERNE (alerte_email) récapitule tout envoi effectué.
     if (faitMairies && deps.envoiAuto) {
       try { await deps.envoiAuto(); } catch { /* envoi auto isolé : n'impacte jamais la veille Sitadel */ }
+    }
+
+    // 1decies-bis) ENVOI AUTO de la 1re DEMANDE (224) — étape ISOLÉE, à côté de l'envoi auto des relances mais INDÉPENDANTE :
+    //   son propre interrupteur (email_envoi_initial_auto_active, défaut false → rien ne part) + fenêtre horaire ; passe par
+    //   envoyerDemandes (capBatch + caps). Un échec n'impacte jamais la veille ni les relances.
+    if (faitMairies && deps.envoiInitialAuto) {
+      try { await deps.envoiInitialAuto(); } catch { /* envoi initial auto isolé : n'impacte jamais la veille Sitadel */ }
     }
 
     // 1undecies) DÉTECTION des nouvelles publications (FRAÎCHEUR lot 2) — DERNIÈRE étape auto : interroge les MÉTADONNÉES
@@ -591,6 +603,7 @@ function depsReelles(): DepsVeille {
     captureSortants: () => executerCaptureSortantsAuto(depsReellesCaptureSortants()),
     // RELANCE lot 6 — envoi automatique réel : DEUX interrupteurs + plafond auto + PLAFOND ANTI-CUMUL (budget partagé) + appels envoyerRelances/envoyerSaisinesCada (gardes intactes) + compte rendu interne, dans envoiAuto.ts.
     envoiAuto: async () => executerEnvoiAuto(depsReellesEnvoiAuto(await obtenirBudgetEnvoi())),
+    envoiInitialAuto: async () => executerEnvoiInitialAuto(depsReellesEnvoiInitialAuto()), // 224 — envoi auto de la 1re demande (gaté par son flag, capé via envoyerDemandes)
     // FRAÎCHEUR lot 2 — détection des nouvelles publications (métadonnées seules), interrupteur + cadence + activation par source dans executerDetection.
     detecterEditions: () => executerDetection(depsReellesDetection()),
     // FRAÎCHEUR lot 6 — ingestion automatique nocturne : interrupteurs par source (défaut false), fenêtre nocturne, garde-fou disque, une par tick/nuit.

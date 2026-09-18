@@ -81,6 +81,20 @@ describe('MODE e-mail — MÊME bloc, vocabulaire « envoi », vivier e-mail (co
   });
 });
 
+describe('224 — slot BADGE d’état (rendu dans l’en-tête, absent par défaut)', () => {
+  it('sans prop badge → aucune pastille ; avec badge → il est rendu (état visible en permanence)', async () => {
+    await monter('email'); // Wrapper sans badge
+    expect(container.textContent).not.toMatch(/Envoi auto désactivé/);
+    await act(async () => {
+      root.render(createElement(ModeDemandeTeleservice, {
+        categories: [], mode: 'manuel' as ModePreparation, onMode: vi.fn(), onChangement: vi.fn(), process: 'email',
+        badge: createElement('span', null, 'Envoi auto désactivé'),
+      }));
+    });
+    expect(container.textContent).toMatch(/Envoi auto désactivé/);
+  });
+});
+
 describe('TRAME ROUGE de l’option active (mêmes tokens que le rail actif du sélecteur)', () => {
   it('l’option sélectionnée porte la bordure + le fond ROUGE (var(--color-svv-red) / red-soft), l’autre non', async () => {
     await monter('formulaire');
