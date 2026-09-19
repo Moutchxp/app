@@ -19,6 +19,9 @@ export interface PermisVivier {
   categorie: CleCategorie;
   dateAutorisation: string | null;
   adresse: string | null; // rue seule (n° + libellé de voie), sans la localité ; null si absente (jamais un placeholder)
+  /** §B — le permis est porté par une carte du carrousel téléservice (virtuelle) → « carte en attente », pas d'action. DÉRIVÉ côté
+   *  serveur à CHAQUE recherche (jamais mémorisé côté client) ; absent / false = demandable. */
+  enAttente?: boolean;
 }
 
 export interface ResultatRechercheVivier {
@@ -40,6 +43,7 @@ export interface TriVivier { colonne: ColonneTriVivier; sens: 'asc' | 'desc' }
 export interface OptionsRechercheVivier {
   typesCategories?: string[]; // clés de catégorie retenues (cf. PermisVivier.categorie) ; vide/absent → tous les types
   tri?: TriVivier;            // tri appliqué AVANT le cap ; absent → ordre naturel du vivier (historique)
+  enAttente?: Set<number>;    // §B — dossierId portés par une carte du carrousel → marqués « carte en attente » (jamais retirés des résultats)
 }
 
 /**
@@ -154,5 +158,11 @@ export function rechercherDansVivier(vivier: readonly PermisVivier[], q: string,
     return pr !== null && pr !== process;
   }).length;
   if (opts?.tri) actif = trierVivier(actif, opts.tri);
-  return { resultats: actif.slice(0, cap), total: actif.length, autreProcess: autre };
+  // §B — MARQUE « carte en attente » les permis portés par une carte du carrousel (opts.enAttente = dossierId, dérivés serveur). Le
+  //   marquage vient APRÈS tri/scope et n'affecte NI le total, NI le tri, NI le cap : la ligne reste dans les résultats et comptée dans « N sur M ».
+  const enAttente = opts?.enAttente;
+  const resultats = enAttente
+    ? actif.slice(0, cap).map((p) => (enAttente.has(p.dossierId) ? { ...p, enAttente: true } : p))
+    : actif.slice(0, cap);
+  return { resultats, total: actif.length, autreProcess: autre };
 }

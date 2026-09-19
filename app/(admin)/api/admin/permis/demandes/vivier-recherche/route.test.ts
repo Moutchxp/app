@@ -6,16 +6,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 vi.mock('../../../../../../lib/admin/garde', () => ({ exigerAdministrateur: vi.fn() }));
 vi.mock('../../../../../../lib/sitadel/veilleConfig', () => ({ chargerConfigVeille: vi.fn(async () => ({ ancienneteMaxDemandeAnnees: 1 })) }));
-vi.mock('../../../../../../lib/sitadel/demandeRepo', () => ({ chargerVivier: vi.fn(), communesBloqueesTeleservice: vi.fn(), plafondsTeleservice: vi.fn() }));
+vi.mock('../../../../../../lib/sitadel/demandeRepo', () => ({ chargerVivier: vi.fn(), communesBloqueesTeleservice: vi.fn(), plafondsTeleservice: vi.fn(), idsDossiersCartesVirtuelles: vi.fn() }));
 
 import { GET } from './route';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
-import { chargerVivier, communesBloqueesTeleservice, plafondsTeleservice } from '../../../../../../lib/sitadel/demandeRepo';
+import { chargerVivier, communesBloqueesTeleservice, plafondsTeleservice, idsDossiersCartesVirtuelles } from '../../../../../../lib/sitadel/demandeRepo';
 
 const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
 const vivier = chargerVivier as unknown as ReturnType<typeof vi.fn>;
 const bloquees = communesBloqueesTeleservice as unknown as ReturnType<typeof vi.fn>;
 const plafonds = plafondsTeleservice as unknown as ReturnType<typeof vi.fn>;
+const cartesVirt = idsDossiersCartesVirtuelles as unknown as ReturnType<typeof vi.fn>;
 const req = (qs: string) => GET(new Request(`http://test/api/admin/permis/demandes/vivier-recherche${qs}`, { method: 'GET' }));
 
 const PERMIS = (over: Record<string, unknown> = {}) => ({ dossierId: 1, numDau: 'PC-A', type: 'PC', codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2024-06-01', ...over });
@@ -26,6 +27,7 @@ beforeEach(() => {
   vivier.mockResolvedValue({ vivier: [PERMIS(), PERMIS({ dossierId: 2, numDau: 'PC-B', canal: 'email', communeNom: 'Paris' })], tronque: false });
   bloquees.mockResolvedValue({});
   plafonds.mockResolvedValue({});
+  cartesVirt.mockResolvedValue(new Set()); // §B — aucune carte virtuelle par défaut ; les tests qui marquent le posent explicitement
 });
 
 describe('D3 — GET vivier-recherche', () => {
@@ -162,5 +164,21 @@ describe('D3 — GET vivier-recherche', () => {
     expect(body.resultats.length).toBe(50); // cap
     expect(body.total).toBe(60);            // total AVANT cap
     expect(body.tronque).toBe(true);        // total > CAP → tronque signalé
+  });
+
+  it('§B — un permis porté par une carte virtuelle est marqué « enAttente » (le cas PC 07511425V0025, Paris)', async () => {
+    vivier.mockResolvedValueOnce({ vivier: [PERMIS({ dossierId: 241, numDau: '07511425V0025', type: 'PC', communeNom: 'Paris', codeInsee: '75056', canal: 'formulaire' })], tronque: false });
+    cartesVirt.mockResolvedValueOnce(new Set([241]));
+    const body = await (await req('?q=paris&process=formulaire')).json();
+    const p = body.resultats.find((x: { dossierId: number }) => x.dossierId === 241);
+    expect(p.enAttente).toBe(true);
+    expect(cartesVirt).toHaveBeenCalledTimes(1);
+  });
+
+  it('§B — rail E-MAIL : idsDossiersCartesVirtuelles n’est PAS appelée (pas de carrousel), aucun marquage', async () => {
+    cartesVirt.mockResolvedValueOnce(new Set([2]));
+    const body = await (await req('?q=paris&process=email')).json();
+    expect(cartesVirt).not.toHaveBeenCalled();
+    expect(body.resultats.every((x: { enAttente?: boolean }) => x.enAttente !== true)).toBe(true);
   });
 });

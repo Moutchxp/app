@@ -286,7 +286,14 @@ async function dossiersPourDepot(dossierIds: number[]): Promise<Map<number, Dema
  * téléservice PRÉPARÉE (brouillon/prête — sa carte est le carrousel `listerADeposer`) n'est PAS re-proposée. UNE entrée par commune.
  * LECTURE SEULE STRICTE — aucun INSERT/UPDATE : afficher une commune n'écrit RIEN (la création est repoussée au 1er geste).
  */
-export async function cartesDepotAutoTeleservice(cfg: ConfigVeille): Promise<DepotVirtuel[]> {
+/**
+ * TÉLÉSERVICE — les LOTS effectivement portés par une carte de dépôt AUTOMATIQUE : le PREMIER lot par commune LIBRE (proposition ;
+ * une entrée par commune ; communes déjà préparées exclues). SOURCE UNIQUE partagée par le carrousel (`cartesDepotAutoTeleservice`,
+ * format d'affichage) ET le marquage « carte en attente » du moteur de recherche (`idsDossiersCartesVirtuelles`, ids de dossiers) →
+ * aucune divergence possible entre ce que le carrousel MONTRE et ce que la recherche MARQUE. LECTURE SEULE ; ne change NI la définition
+ * de la proposition NI le comportement du carrousel (extraction sans changement de logique).
+ */
+async function retenusCartesTeleservice(cfg: ConfigVeille): Promise<Lot[]> {
   const { lots } = await proposition(cfg);
   const teleservice = lots.filter((l) => l.canal === 'formulaire');
   if (teleservice.length === 0) return [];
@@ -300,6 +307,22 @@ export async function cartesDepotAutoTeleservice(cfg: ConfigVeille): Promise<Dep
     vues.add(l.codeInsee);
     retenus.push(l);
   }
+  return retenus;
+}
+
+/**
+ * §B — DOSSIERS (ids) portés par une carte VIRTUELLE du carrousel téléservice, pour DÉRIVER l'état « carte en attente » d'une ligne du
+ * moteur de recherche (voie serveur). MÊME source que le carrousel (`retenusCartesTeleservice` → proposition) → jamais de divergence.
+ * LECTURE SEULE. ⚠️ Ne marque QUE les VIRTUELLES : les cartes MATÉRIALISÉES (demande brouillon/prête) ont leurs dossiers DÉJÀ HORS vivier
+ * via `dejaRattaches` (SQL_DOSSIERS_DEJA_DEMANDES, `d.statut <> 'close'`) → jamais dans les résultats, donc rien à marquer pour elles.
+ */
+export async function idsDossiersCartesVirtuelles(cfg: ConfigVeille): Promise<Set<number>> {
+  const retenus = await retenusCartesTeleservice(cfg);
+  return new Set(retenus.flatMap((l) => l.dossiers.map((d) => Number(d.dossierId))));
+}
+
+export async function cartesDepotAutoTeleservice(cfg: ConfigVeille): Promise<DepotVirtuel[]> {
+  const retenus = await retenusCartesTeleservice(cfg);
   if (retenus.length === 0) return [];
   // URL du téléservice par commune (dest_url_formulaire figé à la création = mairie_contact.url_formulaire pour le canal formulaire).
   const codes = retenus.map((l) => l.codeInsee);

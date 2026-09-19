@@ -237,6 +237,10 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
                             ou saisir la référence mairie sur la demande {refBloc} (onglet « En cours »).
                           </span>
                         </>
+                      ) : p.enAttente ? (
+                        /* §B — porté par une carte du carrousel (virtuelle) : état DÉRIVÉ du serveur, JAMAIS de bouton d'action (la carte
+                           y est déjà). La ligne reste visible et comptée. Le mot porte l'info (pas la couleur seule). */
+                        <span style={{ color: 'var(--color-svv-ink)', fontWeight: 600 }}><span aria-hidden="true">🗂️</span> carte en attente dans le carrousel</span>
                       ) : (
                         <>
                           <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>demandable</span>

@@ -440,3 +440,64 @@ describe('§1 — état de ligne dérivé + synchro carrousel (réinterrogation)
     expect(li.children[1].querySelector('button')).not.toBeNull();   // ② bouton d'action sur la 2e ligne
   });
 });
+
+describe('§B — état « carte en attente » (permis porté par une carte du carrousel)', () => {
+  const permis = (over: Record<string, unknown> = {}) => ({ dossierId: 1, numDau: 'PC0951', type: 'PC', codeInsee: '78646', communeNom: 'Versailles', canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2024-01-01', adresse: '34 AVENUE DE PARIS', ...over });
+  const ligne = (motif: string) => [...container.querySelectorAll('li')].find((x) => x.textContent?.includes(motif))!;
+  const monterAvec = async (resultats: unknown[], signal = 0): Promise<void> => {
+    global.fetch = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes('/vivier-recherche')) { urls.push(u); return { ok: true, json: async () => ({ resultats, total: resultats.length, autreProcess: 0, tronque: false, bloquees: {}, plafonds: {} }) } as unknown as Response; }
+      return { ok: true, json: async () => ({}) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(RechercheVivier, { process: 'formulaire', categories: CATS, onBasculer: vi.fn(), mode: 'auto', onPrepared: vi.fn(), signalRafraichir: signal })); });
+    await flush();
+    await rechercher('paris');
+  };
+
+  it('permis marqué enAttente → « carte en attente dans le carrousel », PAS de bouton d’action', async () => {
+    await monterAvec([permis({ enAttente: true })]);
+    const li = ligne('PC0951');
+    expect(li.textContent).toMatch(/carte en attente dans le carrousel/i);
+    expect(li.textContent).not.toMatch(/demandable/);         // pas « demandable » SUR LA LIGNE (le compteur, lui, garde le mot)
+    expect(li.querySelector('button')).toBeNull();            // aucun bouton d'action
+  });
+
+  it('le cas EXACT de la capture (PC 07511425V0025, Paris, dossier 241) → carte en attente, pas de bouton', async () => {
+    await monterAvec([permis({ dossierId: 241, numDau: '07511425V0025', communeNom: 'Paris', codeInsee: '75056', adresse: '82 AVENUE DENFERT ROCHEREAU', enAttente: true })]);
+    const li = ligne('07511425V0025');
+    expect(li.textContent).toContain('82 AVENUE DENFERT ROCHEREAU');
+    expect(li.textContent).toMatch(/carte en attente dans le carrousel/i);
+    expect(li.querySelector('button')).toBeNull();
+  });
+
+  it('après annulation (signal), le permis n’est plus marqué → « demandable » + bouton (critères conservés)', async () => {
+    let resultats: unknown[] = [permis({ enAttente: true })];
+    global.fetch = vi.fn(async (url: string | URL | Request) => {
+      const u = String(url);
+      if (u.includes('/vivier-recherche')) { urls.push(u); return { ok: true, json: async () => ({ resultats, total: resultats.length, autreProcess: 0, tronque: false, bloquees: {}, plafonds: {} }) } as unknown as Response; }
+      return { ok: true, json: async () => ({}) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(RechercheVivier, { process: 'formulaire', categories: CATS, onBasculer: vi.fn(), mode: 'auto', onPrepared: vi.fn(), signalRafraichir: 0 })); });
+    await flush();
+    await rechercher('paris');
+    const urlAvant = urls.filter((u) => u.includes('/vivier-recherche')).at(-1)!;
+    expect(ligne('PC0951').textContent).toMatch(/carte en attente/i);
+    resultats = [permis()]; // carte annulée → le serveur ne marque plus enAttente
+    await act(async () => { root.render(createElement(RechercheVivier, { process: 'formulaire', categories: CATS, onBasculer: vi.fn(), mode: 'auto', onPrepared: vi.fn(), signalRafraichir: 1 })); });
+    await flush();
+    const li = ligne('PC0951');
+    expect(li.textContent).not.toMatch(/carte en attente/i);
+    expect(li.textContent).toContain('demandable');
+    expect(li.querySelector('button')).not.toBeNull();          // redevient demandable + bouton
+    expect(urls.filter((u) => u.includes('/vivier-recherche')).at(-1)).toBe(urlAvant); // MÊME URL → critères conservés
+  });
+
+  it('permis SANS carte (enAttente absent) → inchangé : « demandable » + bouton', async () => {
+    await monterAvec([permis()]);
+    const li = ligne('PC0951');
+    expect(li.textContent).toContain('demandable');
+    expect(li.textContent).not.toMatch(/carte en attente/i);
+    expect(li.querySelector('button')).not.toBeNull();
+  });
+});

@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../../lib/sitadel/veilleConfig';
-import { chargerVivier, communesBloqueesTeleservice, plafondsTeleservice } from '../../../../../../lib/sitadel/demandeRepo';
+import { chargerVivier, communesBloqueesTeleservice, plafondsTeleservice, idsDossiersCartesVirtuelles } from '../../../../../../lib/sitadel/demandeRepo';
 import { rechercherDansVivier, parseTriVivier } from '../../../../../../lib/sitadel/rechercheVivier';
 
 /**
@@ -37,8 +37,14 @@ export async function GET(request: Request): Promise<Response> {
   if (q === '' && !aCritere) return Response.json({ resultats: [], total: 0, autreProcess: 0, tronque: false });
   try {
     const cfg = await chargerConfigVeille();
-    const { vivier, tronque } = await chargerVivier(cfg);
-    const r = rechercherDansVivier(vivier, q, process, CAP, { typesCategories, tri });
+    // §B — le vivier ET les cartes VIRTUELLES du carrousel (proposition) sont chargés EN PARALLÈLE : le surcoût du marquage « carte en
+    //   attente » est masqué (temps mur ≈ le plus lent, pas la somme). TÉLÉSERVICE uniquement (le carrousel n'existe pas côté e-mail →
+    //   Set undefined, aucun marquage, comportement e-mail inchangé). LECTURE SEULE ; ne change ni la proposition ni le carrousel.
+    const [{ vivier, tronque }, enAttente] = await Promise.all([
+      chargerVivier(cfg),
+      process === 'formulaire' ? idsDossiersCartesVirtuelles(cfg) : Promise.resolve<Set<number> | undefined>(undefined),
+    ]);
+    const r = rechercherDansVivier(vivier, q, process, CAP, { typesCategories, tri, enAttente });
     // Lot C (point 3) — le blocage « en attente d'accusé » est TÉLÉSERVICE uniquement : on ne le calcule que pour le process
     //   'formulaire' (aucun blocage côté e-mail). Une commune bloquée → ses permis s'affichent « bloqué », jamais « demandable ».
     const bloquees = process === 'formulaire' ? await communesBloqueesTeleservice() : {};

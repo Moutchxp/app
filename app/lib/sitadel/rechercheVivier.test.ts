@@ -295,3 +295,24 @@ describe('§1 — terme FACULTATIF quand un filtre est actif (rechercherDansVivi
     expect(rechercherDansVivier(vivier, 'lyon', 'formulaire', 50, { typesCategories: ['immeuble_neuf'] }).resultats).toEqual([]); // Lyon est surélévation → filtré
   });
 });
+
+describe('§B — marquage « carte en attente » (permis porté par une carte du carrousel)', () => {
+  const vivier: PermisVivier[] = [
+    p({ dossierId: 241, numDau: '07511425V0025', type: 'PC', communeNom: 'Paris', codeInsee: '75056', canal: 'formulaire', categorie: 'immeuble_neuf' }),
+    p({ dossierId: 99, numDau: 'PARIS-B', communeNom: 'Paris', codeInsee: '75056', canal: 'formulaire', categorie: 'immeuble_neuf' }),
+  ];
+  it('le cas de la capture (PC 07511425V0025, dossier 241) : marqué enAttente ; les autres non', () => {
+    const r = rechercherDansVivier(vivier, 'paris', 'formulaire', 50, { enAttente: new Set([241]) });
+    expect(r.resultats.find((x) => x.dossierId === 241)?.enAttente).toBe(true);
+    expect(r.resultats.find((x) => x.dossierId === 99)?.enAttente).toBeUndefined(); // sans carte → non marqué
+  });
+  it('le marquage n’affecte NI le total NI le cap : la ligne reste dans les résultats et comptée', () => {
+    const r = rechercherDansVivier(vivier, 'paris', 'formulaire', 50, { enAttente: new Set([241]) });
+    expect(r.resultats.map((x) => x.dossierId)).toEqual([241, 99]); // les deux visibles (241 marqué)
+    expect(r.total).toBe(2);
+  });
+  it('sans enAttente → aucun marquage (comportement historique)', () => {
+    const r = rechercherDansVivier(vivier, 'paris', 'formulaire', 50);
+    expect(r.resultats.every((x) => x.enAttente === undefined)).toBe(true);
+  });
+});
