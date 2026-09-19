@@ -197,11 +197,15 @@ export function RechercheVivier({ process, categories, onBasculer }: {
               aucun fetch, aucun effet en base). Vocabulaire VOLONTAIREMENT distinct du geste « basculer de rail » de BasculeRail/
               PanneauCarteRail, qui, lui, écrit (annulation + PATCH mairie_contact.canal) — aucun rapport. Condition d'affichage inchangée. */}
           {res.autreProcess > 0 && (
-            <button type="button" className="svv-btn svv-btn-outline"
-              style={{ marginTop: '.35rem', minHeight: 44, padding: '.4rem .8rem', width: 'auto', maxWidth: '100%', whiteSpace: 'normal', textAlign: 'left' }}
-              onClick={() => onBasculer(autre)}>
-              Voir {res.autreProcess === 1 ? '1 résultat' : `les ${res.autreProcess} résultats`} dans le canal {PROCESS_META[autre].court}
-            </button>
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '.35rem' }}>
+              {/* Bouton CENTRÉ (le bouton lui-même, pas seulement son texte) qui garde sa largeur propre (width:auto, jamais étiré) ;
+                  le libellé passe à la ligne en écran étroit (whiteSpace:normal) et reste centré. */}
+              <button type="button" className="svv-btn svv-btn-outline"
+                style={{ minHeight: 44, padding: '.4rem .8rem', width: 'auto', maxWidth: '100%', whiteSpace: 'normal', textAlign: 'center' }}
+                onClick={() => onBasculer(autre)}>
+                Voir {res.autreProcess === 1 ? 'l’autre résultat' : `les ${res.autreProcess} autres résultats`} dans le canal {PROCESS_META[autre].court}
+              </button>
+            </div>
           )}
         </div>
       )}

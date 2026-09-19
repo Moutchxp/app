@@ -228,12 +228,12 @@ describe('§ — bouton « Voir les N résultats dans le canal … » (renvoi ve
 
   it('N > 1 depuis Téléservice → « Voir les 3 résultats dans le canal E-mail »', async () => {
     await rechercherAvec('formulaire', rep(3));
-    expect(boutonPar(/Voir les 3 résultats dans le canal E-mail/)).toBeDefined();
+    expect(boutonPar(/Voir les 3 autres résultats dans le canal E-mail/)).toBeDefined();
   });
 
   it('N = 1 → singulier « Voir 1 résultat dans le canal E-mail » (jamais « les », jamais le pluriel)', async () => {
     await rechercherAvec('formulaire', rep(1));
-    const btn = boutonPar(/Voir 1 résultat dans le canal E-mail/);
+    const btn = boutonPar(/Voir l’autre résultat dans le canal E-mail/);
     expect(btn).toBeDefined();
     expect(btn!.textContent).not.toMatch(/résultats/); // singulier
     expect(btn!.textContent).not.toMatch(/Voir les/);  // pas de « les »
@@ -241,13 +241,13 @@ describe('§ — bouton « Voir les N résultats dans le canal … » (renvoi ve
 
   it('depuis E-mail → pointe vers le canal Téléservice', async () => {
     await rechercherAvec('email', rep(2));
-    expect(boutonPar(/Voir les 2 résultats dans le canal Téléservice/)).toBeDefined();
+    expect(boutonPar(/Voir les 2 autres résultats dans le canal Téléservice/)).toBeDefined();
   });
 
   it('le clic appelle onBasculer avec le process OPPOSÉ et ne déclenche AUCUN appel réseau', async () => {
     const onBasculer = await rechercherAvec('formulaire', rep(2));
     const nAvant = urls.length;
-    await act(async () => { boutonPar(/Voir les 2 résultats/)!.click(); });
+    await act(async () => { boutonPar(/Voir les 2 autres résultats/)!.click(); });
     await flush();
     expect(onBasculer).toHaveBeenCalledWith('email'); // opposé de 'formulaire'
     expect(onBasculer).toHaveBeenCalledTimes(1);
