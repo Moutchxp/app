@@ -26,7 +26,7 @@ const champManuel = (): HTMLInputElement | null => container.querySelector('inpu
 // Wrapper à état : reproduit le parent (ADemanderVue possède `mode`, ModeDemandeTeleservice le reçoit + remonte via onMode).
 function Wrapper({ initial = 'auto' as ModePreparation, process = 'formulaire' as 'formulaire' | 'email' }): React.ReactElement {
   const [mode, setMode] = useState<ModePreparation>(initial);
-  return createElement(ModeDemandeTeleservice, { categories: [], mode, onMode: setMode, onChangement: vi.fn(), process });
+  return createElement(ModeDemandeTeleservice, { mode, onMode: setMode, process });
 }
 const monter = async (proc: 'formulaire' | 'email' = 'formulaire'): Promise<void> => {
   await act(async () => { root.render(createElement(Wrapper, { process: proc })); });
@@ -48,19 +48,20 @@ describe('MODE téléservice — bascule auto / manuel (mode contrôlé)', () =>
     expect(boutons().some((b) => /Préparer/i.test(b.textContent ?? ''))).toBe(false); // aucun bouton « Préparer … » (bloc intermédiaire retiré)
   });
 
-  it('bascule en mode manuel → le panneau de recherche du vivier apparaît, mode manuel actif', async () => {
+  it('bascule en mode manuel → mode manuel actif + note orientant vers le moteur fusionné (plus de moteur interne)', async () => {
     await monter();
     await act(async () => { boutonPar(/Sélection manuelle/)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
     expect(boutonPar(/Sélection manuelle/)?.getAttribute('aria-pressed')).toBe('true');
-    expect(champManuel()).not.toBeNull();
+    expect(champManuel()).toBeNull(); // §C — le moteur de recherche a migré vers RechercheVivier ; plus de champ interne ici
+    expect(container.textContent).toMatch(/moteur de recherche ci-dessous/i); // note d'orientation
   });
 
-  it('retour en mode automatique → le panneau manuel disparaît (bascule réversible)', async () => {
+  it('bascule réversible : la note du mode manuel apparaît en manuel, disparaît en auto', async () => {
     await monter();
     await act(async () => { boutonPar(/Sélection manuelle/)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    expect(champManuel()).not.toBeNull();
+    expect(container.textContent).toMatch(/moteur de recherche ci-dessous/i);
     await act(async () => { boutonPar(/Sélection automatique/)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    expect(champManuel()).toBeNull();
+    expect(container.textContent).not.toMatch(/moteur de recherche ci-dessous/i);
   });
 });
 
@@ -73,11 +74,12 @@ describe('MODE e-mail — MÊME bloc, vocabulaire « envoi », vivier e-mail (co
     expect(container.querySelector('input[aria-label*="vivier téléservice"]')).toBeNull();
   });
 
-  it('bascule en manuel → recherche du vivier E-MAIL (et pas téléservice)', async () => {
+  it('bascule en manuel (e-mail) → mode manuel actif + note orientant vers le moteur (vocabulaire e-mail)', async () => {
     await monter('email');
     await act(async () => { boutonPar(/Envoi manuel/)!.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
-    expect(container.querySelector('input[aria-label*="vivier e-mail"]')).not.toBeNull();
-    expect(container.querySelector('input[aria-label*="vivier téléservice"]')).toBeNull();
+    expect(boutonPar(/Envoi manuel/)?.getAttribute('aria-pressed')).toBe('true');
+    expect(container.querySelector('input[aria-label*="vivier"]')).toBeNull(); // plus de moteur interne dans ce bloc
+    expect(container.textContent).toMatch(/Préparer cette demande/i); // la note e-mail cite le bouton du moteur fusionné
   });
 });
 
@@ -87,7 +89,7 @@ describe('224 — slot BADGE d’état (rendu dans l’en-tête, absent par déf
     expect(container.textContent).not.toMatch(/Envoi auto désactivé/);
     await act(async () => {
       root.render(createElement(ModeDemandeTeleservice, {
-        categories: [], mode: 'manuel' as ModePreparation, onMode: vi.fn(), onChangement: vi.fn(), process: 'email',
+        mode: 'manuel' as ModePreparation, onMode: vi.fn(), process: 'email',
         badge: createElement('span', null, 'Envoi auto désactivé'),
       }));
     });

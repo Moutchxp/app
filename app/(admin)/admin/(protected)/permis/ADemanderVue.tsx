@@ -220,10 +220,9 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
           `email_envoi_initial_auto_active` (emailEnvoiAuto), donc partagé avec Réglages (une seule vérité) ; l'AUTO ouvre une modale de
           confirmation, le MANUEL est immédiat. ⚠️ AUCUN lien avec l'auto-relance (relance_auto_active) : automatisations indépendantes. */}
       <ModeDemandeTeleservice
-        categories={categories} process={process}
+        process={process}
         mode={process === 'formulaire' ? modeTeleservice : (emailEnvoiAuto === true ? 'auto' : 'manuel')}
         onMode={process === 'formulaire' ? setModeTeleservice : changerModeEmail}
-        onChangement={signalerChangement}
         badge={process === 'email' ? (
           <span className="svv-pill" aria-live="polite" style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', color: emailEnvoiAuto === true ? 'var(--color-svv-red)' : 'var(--color-svv-muted)', borderColor: emailEnvoiAuto === true ? 'var(--color-svv-red)' : 'var(--color-svv-line)' }}>
             {emailEnvoiAuto === true ? '● Envoi auto activé' : '○ Envoi auto désactivé'}

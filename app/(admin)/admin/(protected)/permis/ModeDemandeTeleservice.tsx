@@ -1,6 +1,5 @@
 'use client';
 
-import { RechercheVivierManuel } from './RechercheVivierManuel';
 import type { Process } from '../../../../lib/sitadel/process';
 
 /**
@@ -21,12 +20,10 @@ import type { Process } from '../../../../lib/sitadel/process';
  */
 export type ModePreparation = 'auto' | 'manuel';
 
-export function ModeDemandeTeleservice({ categories, mode, onMode, onChangement, process = 'formulaire', badge }: {
-  categories: { cle: string; libelle: string; rang: number }[];
+export function ModeDemandeTeleservice({ mode, onMode, process = 'formulaire', badge }: {
   mode: ModePreparation;
   onMode: (m: ModePreparation) => void;
-  onChangement: () => void;
-  process?: Process; // rail concerné (défaut téléservice — historique). Pilote le vocabulaire et le vivier du mode manuel.
+  process?: Process; // rail concerné (défaut téléservice — historique). Pilote le vocabulaire du mode manuel.
   badge?: React.ReactNode; // 224 — pastille d'ÉTAT permanent (rail e-mail : envoi auto ON/OFF), rendue dans l'en-tête. Absente → rien.
 }) {
   const estTeleservice = process === 'formulaire';
@@ -72,7 +69,15 @@ export function ModeDemandeTeleservice({ categories, mode, onMode, onChangement,
             : 'L’envoi automatique est activé : les 1res demandes prêtes partent aux mairies aux créneaux ouvrés, sans geste de ta part. Reviens en « Envoi manuel » pour reprendre la main. Le bouton « Préparer les demandes » plus bas reste disponible.'}
         </p>
       )}
-      {mode === 'manuel' && <RechercheVivierManuel categories={categories} onPrepared={onChangement} process={process} />}
+      {/* §C — le moteur de recherche du mode manuel a MIGRÉ dans le moteur fusionné (RechercheVivier, plus bas dans l'onglet) : ici, une
+          NOTE oriente vers lui. La bascule et le texte du mode manuel restent ; seul l'ancien moteur interne (RechercheVivierManuel) est retiré. */}
+      {mode === 'manuel' && (
+        <p role="note" style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>
+          {estTeleservice
+            ? 'Sers-toi du moteur de recherche ci-dessous : cherche un permis, puis « Afficher la carte dans le carrousel » — elle passe en 1re position, devant la sélection automatique de sa commune.'
+            : 'Sers-toi du moteur de recherche ci-dessous : cherche un permis, puis « Préparer cette demande » — elle apparaît dans la liste des demandes.'}
+        </p>
+      )}
     </section>
   );
 }
