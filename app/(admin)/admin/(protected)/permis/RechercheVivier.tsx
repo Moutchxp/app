@@ -1,8 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 import type { PermisVivier, ResultatRechercheVivier, ColonneTriVivier } from '../../../../lib/sitadel/rechercheVivier';
+
+/** §D — critères d'une recherche du vivier, transférables d'un rail à l'autre lors d'un « voir les N autres… » : terme + types + tri. */
+export interface CriteresRenvoi {
+  q: string;
+  types: string[];
+  tri: { colonne: ColonneTriVivier; sens: 'asc' | 'desc' } | null;
+}
+/** §D — charge utile REÇUE par le moteur du rail d'ARRIVÉE : les critères + le rail cible + un `jeton` (nonce) → consommé UNE seule fois. */
+export interface TransfertRenvoi extends CriteresRenvoi {
+  cible: Process;
+  jeton: number;
+}
 
 /**
  * MOTEUR DE RECHERCHE DU VIVIER — FUSIONNÉ (consultation + action). Recherche par n° de permis / ville / adresse, scopée au process
@@ -18,10 +30,12 @@ import type { PermisVivier, ResultatRechercheVivier, ColonneTriVivier } from '..
  * n'a jamais de bouton actif : la raison est affichée + le geste « Débloquer ». Le PLAFOND mensuel est affiché mais ne bloque pas.
  * Mobile-first (cibles ≥ 44 px), pas de dark mode.
  */
-export function RechercheVivier({ process, categories, onBasculer, mode = 'auto', onPrepared, signalRafraichir = 0 }: {
+export function RechercheVivier({ process, categories, onBasculer, mode = 'auto', onPrepared, signalRafraichir = 0, transfert }: {
   process: Process;
   categories: { cle: string; libelle: string; rang: number }[];
-  onBasculer: (p: Process) => void;
+  /** §D — bascule vers l'autre rail EN REPORTANT les critères courants (terme + types + tri). Le parent commute le process ET arme un
+   *  `transfert` pour le rail d'arrivée. Le libellé du bouton ne change pas ; le CommutateurProcess, lui, n'emprunte JAMAIS ce chemin. */
+  onBasculer: (p: Process, criteres: CriteresRenvoi) => void;
   /** Rail e-mail : le bouton d'action par ligne n'apparaît qu'en mode MANUEL (auto → aucun bouton). Téléservice : toujours. Défaut 'auto'. */
   mode?: 'auto' | 'manuel';
   /** Après une préparation réussie (POST /demandes {dossiersManuels}) → rafraîchit le carrousel + les compteurs (foyer du parent). */
@@ -29,6 +43,9 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
   /** §1 — SIGNAL de synchronisation du parent, incrémenté après toute action des vues sœurs (annulation/dépôt d'une carte du carrousel,
    *  préparation…). À chaque changement, la recherche COURANTE est réinterrogée (mêmes critères) → l'état des lignes DÉRIVE des données. */
   signalRafraichir?: number;
+  /** §D — critères REÇUS de l'autre rail (report). À chaque nouveau `jeton`, le moteur du rail d'ARRIVÉE pré-remplit les champs, EXÉCUTE
+   *  la recherche (scope = rail d'arrivée → total = le N annoncé), déplie le panneau si des filtres ont été transférés, et défile jusqu'à lui. */
+  transfert?: TransfertRenvoi;
 }) {
   // `bloquees` : par code_insee, la commune téléservice en attente d'accusé (réf. SVAV de la demande qui bloque). `plafonds` : état du
   //   plafond mensuel par commune (téléservice) — AFFICHÉ, ne bloque JAMAIS. Les deux ne sont calculés côté serveur que pour 'formulaire'.
@@ -50,26 +67,35 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
   const [triColonne, setTriColonne] = useState<'' | ColonneTriVivier>('');
   const [triSens, setTriSens] = useState<'asc' | 'desc'>('asc');
   const basculerType = (cle: string): void => setTypesCoches((s) => { const n = new Set(s); if (n.has(cle)) n.delete(cle); else n.add(cle); return n; });
+  const refRacine = useRef<HTMLDivElement | null>(null); // §D — cible de défilement à l'arrivée d'un report (renvoi vers l'autre rail).
+  // §D — critères RÉELLEMENT appliqués à la recherche affichée (snapshot au succès). Le bouton de renvoi reporte CEUX-CI (pas l'état live du
+  //   champ, qui pourrait avoir changé sans nouvelle recherche) → le N annoncé et les critères transférés proviennent de la MÊME recherche.
+  const [critereApplique, setCritereApplique] = useState<CriteresRenvoi | null>(null);
 
   // B1 — les CRITÈRES (type coché OU tri explicite) valent désormais sur LES DEUX RAILS. Terme facultatif dès qu'un critère est présent ;
   //   sans terme NI critère → aucune recherche (bouton « Chercher » inactif + indice), règles ed3590c/a46f64b appliquées à l'identique.
   const aCritere = typesCoches.size > 0 || triColonne !== '';
   const aUnCritere = q.trim() !== '' || aCritere;
 
-  async function chercher(): Promise<void> {
-    const query = q.trim();
-    if (query === '' && !aCritere) { setRes(null); return; }
+  // Recherche À PARTIR de critères EXPLICITES (jamais l'état, pour éviter toute course avec un setState) : `chercher()` lit l'état courant ;
+  //   le report de rail (`transfert`) passe SES critères directement. Le scope reste le `process` du rail AFFICHÉ. Au succès, on mémorise les
+  //   critères appliqués (`critereApplique`) → le bouton de renvoi les reporte tels quels, cohérents avec le `autreProcess` (N) affiché.
+  async function chercherAvec(c: CriteresRenvoi): Promise<void> {
+    const query = c.q.trim();
+    if (query === '' && c.types.length === 0 && c.tri === null) { setRes(null); setCritereApplique(null); return; }
     setChargement(true); setErreur('');
     const params = new URLSearchParams({ q: query, process });
-    if (typesCoches.size > 0) params.set('types', [...typesCoches].join(','));
-    if (triColonne !== '') params.set('tri', `${triColonne}:${triSens}`);
+    if (c.types.length > 0) params.set('types', c.types.join(','));
+    if (c.tri !== null) params.set('tri', `${c.tri.colonne}:${c.tri.sens}`);
     try {
       const r = await fetch(`/api/admin/permis/demandes/vivier-recherche?${params.toString()}`, { cache: 'no-store' });
-      if (r.ok) setRes((await r.json()) as ResultatRechercheVivier & { tronque: boolean; bloquees?: Bloquees; plafonds?: Plafonds });
+      if (r.ok) { setRes((await r.json()) as ResultatRechercheVivier & { tronque: boolean; bloquees?: Bloquees; plafonds?: Plafonds }); setCritereApplique(c); }
       else setErreur('Recherche indisponible.');
     } catch { setErreur('Recherche indisponible.'); }
     finally { setChargement(false); }
   }
+  const critereCourant = (): CriteresRenvoi => ({ q, types: [...typesCoches], tri: triColonne !== '' ? { colonne: triColonne, sens: triSens } : null });
+  async function chercher(): Promise<void> { return chercherAvec(critereCourant()); }
 
   // ISSUE DE SECOURS depuis le vivier : « pas d'accusé attendu » lève le verrou de la commune (geste humain), puis on relance la recherche.
   async function debloquer(demandeId: number): Promise<void> {
@@ -94,6 +120,28 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
     void chercher();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signalRafraichir]);
+
+  // §D — REPORT DE RAIL : à réception d'un `transfert` pour CE rail (cible === process ; une SEULE fois par `jeton`), le moteur d'ARRIVÉE :
+  //   ① pré-remplit les champs (terme, types, tri) à l'identique ; ② EXÉCUTE la recherche avec CES critères (scope = rail d'arrivée → le
+  //   total = le N annoncé par le bouton) ; ③ DÉPLIE le panneau si des filtres (types/tri) ont été transférés, sinon le laisse fermé ;
+  //   ④ DÉFILE jusqu'au moteur (prefers-reduced-motion respecté). Aucune écriture (GET). Le CommutateurProcess ne change JAMAIS le jeton
+  //   → il ne passe jamais par ici (report réservé au bouton « voir les N autres… »).
+  useEffect(() => {
+    if (!transfert || transfert.cible !== process) return;
+    setQ(transfert.q);
+    setTypesCoches(new Set(transfert.types));
+    setTriColonne(transfert.tri?.colonne ?? '');
+    setTriSens(transfert.tri?.sens ?? 'asc');
+    setMoteurOuvert(transfert.types.length > 0 || transfert.tri !== null);
+    setRetourPrep(null);
+    void chercherAvec({ q: transfert.q, types: transfert.types, tri: transfert.tri });
+    const el = refRacine.current;
+    if (el) {
+      const reduit = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
+      el.scrollIntoView?.({ behavior: reduit ? 'auto' : 'smooth', block: 'start' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [transfert?.jeton]);
 
   // B3 — préparer la demande d'un permis CHOISI, par le chemin EXISTANT (POST /demandes {dossiersManuels}). Repris À L'IDENTIQUE de
   //   RechercheVivierManuel (piège bigint→chaîne : l'API sérialise dossierId en CHAÎNE, la route attend un ENTIER → conversion au point
@@ -127,7 +175,7 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
   const libelleAction = estFormulaire ? 'Afficher la carte dans le carrousel' : 'Préparer cette demande';
 
   return (
-    <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
+    <div ref={refRacine} className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
       {/* TITRE + DÉCLENCHEUR du moteur complet (LES DEUX RAILS depuis la fusion) sur la même ligne, à droite ; discret ; wrap sous le titre si étroit. */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap' }}>
         <strong style={{ fontSize: 13, flex: '1 1 auto' }}>Rechercher un permis / une ville — vivier {PROCESS_META[process].court}</strong>
@@ -268,12 +316,14 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
             </>
           )}
           {res.tronque && <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: '.3rem 0 0' }}>Affichage limité — précisez la recherche.</p>}
-          {/* MENTION NON SILENCIEUSE — un SEUL bouton porte l'info (compteur + canal) ET navigue vers l'autre rail AFFICHÉ (onBasculer → setProcessActif : aucun écrit). */}
+          {/* MENTION NON SILENCIEUSE — un SEUL bouton porte l'info (compteur + canal) ET, en une action : bascule vers l'autre rail AFFICHÉ
+              EN REPORTANT les critères de LA recherche affichée (`critereApplique`, jamais l'état live) → le rail d'arrivée exécute la même
+              recherche, dont le total = le N annoncé ici. Le libellé ne change pas. §D. */}
           {res.autreProcess > 0 && (
             <div style={{ display: 'flex', justifyContent: 'center', marginTop: '.35rem' }}>
               <button type="button" className="svv-btn svv-btn-outline"
                 style={{ minHeight: 44, padding: '.4rem .8rem', width: 'auto', maxWidth: '100%', whiteSpace: 'normal', textAlign: 'center' }}
-                onClick={() => onBasculer(autre)}>
+                onClick={() => onBasculer(autre, critereApplique ?? critereCourant())}>
                 Voir {res.autreProcess === 1 ? 'l’autre résultat' : `les ${res.autreProcess} autres résultats`} dans le canal {PROCESS_META[autre].court}
               </button>
             </div>

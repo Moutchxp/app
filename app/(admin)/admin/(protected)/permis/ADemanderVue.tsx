@@ -8,7 +8,7 @@ import { MessageRetour, CartePropositions, BlocStock, TableStock, PanneauDetailS
 import { BlocPrada } from './BlocPrada';
 import { BlocDepot } from './BlocDepot';
 import { SuiviDemandes } from './SuiviDemandes';
-import { RechercheVivier } from './RechercheVivier';
+import { RechercheVivier, type TransfertRenvoi, type CriteresRenvoi } from './RechercheVivier';
 import { CompteurVivierTeleservice } from './CompteurVivierTeleservice';
 import { ResumeCriteresTeleservice } from './ResumeCriteresTeleservice';
 import { ModeDemandeTeleservice, type ModePreparation } from './ModeDemandeTeleservice';
@@ -78,6 +78,18 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
   // DEPOT-2 — FOYER UNIQUE local : toute action réussie (création, dépôt, annulation) rafraîchit les vues locales
   //   (SuiviDemandes + BlocDepot via signalSuivi) ET notifie le parent (compteurs du commutateur) — jamais l'un sans l'autre.
   const signalerChangement = useCallback((): void => { setSignalSuivi((s) => s + 1); onChangement?.(); }, [onChangement]);
+
+  // §D — REPORT DE RAIL depuis le bouton « voir les N autres… » du moteur : on commute le rail (comportement existant, inchangé) ET on
+  //   ARME un `transfert` (critères courants + jeton) pour le moteur du rail d'ARRIVÉE, qui pré-remplit + exécute + déplie + défile. Le
+  //   CommutateurProcess (rendu dans PermisTuile, branché DIRECTEMENT sur setProcessActif) n'arme jamais de transfert → aucun report par ce
+  //   chemin. `transfert` n'est LU que par l'effet keyé sur le jeton : une commutation sans nouveau jeton n'exécute rien (état inerte).
+  const [transfert, setTransfert] = useState<TransfertRenvoi | null>(null);
+  const jetonRenvoi = useRef(0);
+  const renvoyer = useCallback((cible: Process, criteres: CriteresRenvoi): void => {
+    onBasculerProcess(cible);
+    jetonRenvoi.current += 1;
+    setTransfert({ cible, ...criteres, jeton: jetonRenvoi.current });
+  }, [onBasculerProcess]);
 
   const annoncer = useCallback((texte: string, ok: boolean) => setRetour(texte === '' ? null : { texte, ok, zone: 'haut' }), []);
 
@@ -254,7 +266,7 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
       {/* MOTEUR FUSIONNÉ — recherche du VIVIER + action par ligne selon le rail. `mode` = mode COURANT du rail actif (téléservice :
           modeTeleservice ; e-mail : le flag d'envoi auto) → pilote l'apparition du bouton « Préparer » côté e-mail. `onPrepared` =
           foyer unique de rafraîchissement (carrousel + compteurs), comme l'ex-RechercheVivierManuel. */}
-      <RechercheVivier process={process} categories={categories} onBasculer={onBasculerProcess}
+      <RechercheVivier process={process} categories={categories} onBasculer={renvoyer} transfert={transfert}
         mode={process === 'formulaire' ? modeTeleservice : (emailEnvoiAuto === true ? 'auto' : 'manuel')}
         onPrepared={signalerChangement} signalRafraichir={signalSuivi} />
 

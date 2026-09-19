@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, createElement } from 'react';
+import { act, createElement, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { RechercheVivier } from './RechercheVivier';
+import { RechercheVivier, type CriteresRenvoi, type TransfertRenvoi } from './RechercheVivier';
 
 /**
  * MOTEUR COMPLET (rail téléservice) — COMPORTEMENT du panneau d'options additif (jsdom + act, sans testing-library). `fetch` mocké,
@@ -244,14 +244,17 @@ describe('§ — bouton « Voir les N résultats dans le canal … » (renvoi ve
     expect(boutonPar(/Voir les 2 autres résultats dans le canal Téléservice/)).toBeDefined();
   });
 
-  it('le clic appelle onBasculer avec le process OPPOSÉ et ne déclenche AUCUN appel réseau', async () => {
+  it('le clic appelle onBasculer avec le process OPPOSÉ + les critères courants, et ne déclenche par lui-même AUCUN appel réseau', async () => {
     const onBasculer = await rechercherAvec('formulaire', rep(2));
     const nAvant = urls.length;
     await act(async () => { boutonPar(/Voir les 2 autres résultats/)!.click(); });
     await flush();
-    expect(onBasculer).toHaveBeenCalledWith('email'); // opposé de 'formulaire'
+    // §D — bascule vers l'opposé EN REPORTANT les critères de la recherche affichée (ici « paris », sans filtre).
+    expect(onBasculer).toHaveBeenCalledWith('email', { q: 'paris', types: [], tri: null });
     expect(onBasculer).toHaveBeenCalledTimes(1);
-    expect(urls.length).toBe(nAvant); // aucun fetch supplémentaire déclenché par le clic
+    // Le HANDLER du clic n'écrit rien et ne fetch rien lui-même (parent mocké) : la recherche du rail d'arrivée est déclenchée par le
+    //   parent (transfert) — cf. le bloc §D ci-dessous qui exerce le report complet.
+    expect(urls.length).toBe(nAvant);
   });
 
   it('N = 0 → aucun bouton (condition d’affichage inchangée)', async () => {
@@ -499,5 +502,118 @@ describe('§B — état « carte en attente » (permis porté par une carte du c
     expect(li.textContent).toContain('demandable');
     expect(li.textContent).not.toMatch(/carte en attente/i);
     expect(li.querySelector('button')).not.toBeNull();
+  });
+});
+
+describe('§D — renvoi = raccourci : report des critères + exécution + panneau + défilement (les deux sens)', () => {
+  // Harness qui REPRODUIT le câblage d'ADemanderVue : le bouton commute le process ET arme un `transfert` (critères + jeton) pour le rail
+  //   d'arrivée. Le CommutateurProcess (testé à part) ne passe PAS par là (il ne change pas le jeton).
+  function Harness({ initial, modeEmail = 'auto' }: { initial: 'formulaire' | 'email'; modeEmail?: 'auto' | 'manuel' }) {
+    const [process, setProcess] = useState<'formulaire' | 'email'>(initial);
+    const [transfert, setTransfert] = useState<TransfertRenvoi | null>(null);
+    const jeton = useRef(0);
+    const onBasculer = (cible: Parameters<typeof setProcess>[0], criteres: CriteresRenvoi): void => {
+      setProcess(cible); jeton.current += 1; setTransfert({ cible, ...criteres, jeton: jeton.current });
+    };
+    return createElement(RechercheVivier, { process, categories: CATS, onBasculer, transfert, mode: process === 'formulaire' ? 'auto' : modeEmail, onPrepared: vi.fn() });
+  }
+  const permisTele = (i: number) => ({ dossierId: i, numDau: `PCTELE${i}`, type: 'PC', codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2024-01-01', adresse: null });
+  const permisMail = (i: number) => ({ dossierId: 100 + i, numDau: `PCMAIL${i}`, type: 'PC', codeInsee: '78646', communeNom: 'Versailles', canal: 'email', categorie: 'immeuble_neuf', dateAutorisation: '2024-01-01', adresse: null });
+  let posts: { url: string; body: unknown }[];
+  // fetch RAIL-AWARE : CHAQUE rail rend 3 résultats et annonce 3 correspondances dans l'AUTRE (symétrique) → le N annoncé par le bouton
+  //   = le total obtenu à l'arrivée, dans les DEUX sens. Capture les POST pour prouver l'absence d'écriture.
+  const brancherFlux = (): void => {
+    posts = [];
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const s = String(url);
+      if (s.includes('/vivier-recherche')) {
+        urls.push(s);
+        const p = new URL(s, 'http://test').searchParams.get('process');
+        const resultats = p === 'formulaire' ? [permisTele(1), permisTele(2), permisTele(3)] : [permisMail(1), permisMail(2), permisMail(3)];
+        return { ok: true, json: async () => ({ resultats, total: 3, autreProcess: 3, tronque: false, bloquees: {}, plafonds: {} }) } as unknown as Response;
+      }
+      if (init?.method === 'POST') posts.push({ url: s, body: JSON.parse(String(init?.body ?? '{}')) });
+      return { ok: true, json: async () => ({}) } as unknown as Response;
+    }) as unknown as typeof fetch;
+  };
+  const urlVivierAvec = (motif: string): URL => new URL(urls.filter((x) => x.includes('/vivier-recherche') && x.includes(motif)).at(-1)!, 'http://test');
+  const cliquerRenvoi = async (): Promise<void> => { await act(async () => { boutonPar(/dans le canal/)!.click(); }); await flush(); await flush(); };
+
+  it('Téléservice → E-mail : terme + types + tri reportés ; recherche exécutée à l’arrivée ; total = N annoncé ; champs pré-remplis ; sans écriture', async () => {
+    brancherFlux();
+    await act(async () => { root.render(createElement(Harness, { initial: 'formulaire' })); });
+    await flush();
+    await ouvrirMoteur();
+    const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    await act(async () => { cases[1].click(); }); await flush(); // « Surélévation »
+    await choisirSelect(container.querySelectorAll('select')[0] as HTMLSelectElement, 'date');
+    await choisirSelect(container.querySelectorAll('select')[1] as HTMLSelectElement, 'desc');
+    await rechercher('paris');
+    expect(boutonPar(/Voir les 3 autres résultats dans le canal E-mail/)).toBeDefined(); // N = 3
+
+    await cliquerRenvoi();
+    const u = urlVivierAvec('process=email');
+    expect(u.searchParams.get('process')).toBe('email');       // scope = rail d'arrivée
+    expect(u.searchParams.get('q')).toBe('paris');             // terme reporté
+    expect(u.searchParams.get('types')).toBe('surelevation');  // types reportés
+    expect(u.searchParams.get('tri')).toBe('date:desc');       // tri reporté
+    expect(container.textContent).toMatch(/3\s*affichés\s*sur\s*3/); // total = N annoncé
+    expect((container.querySelector('input[aria-label^="Rechercher un permis"]') as HTMLInputElement).value).toBe('paris'); // champ pré-rempli
+    expect(container.querySelector('#moteur-recherche-complet')).not.toBeNull(); // panneau déplié (filtres transférés)
+    expect(((container.querySelectorAll('input[type="checkbox"]')[1]) as HTMLInputElement).checked).toBe(true); // « Surélévation » recochée à l'arrivée
+    expect(posts).toEqual([]); // AUCUNE écriture déclenchée par le clic
+  });
+
+  it('E-mail → Téléservice : symétrique (terme + tri reportés, recherche exécutée, total = N)', async () => {
+    brancherFlux();
+    await act(async () => { root.render(createElement(Harness, { initial: 'email' })); });
+    await flush();
+    await ouvrirMoteur();
+    await choisirSelect(container.querySelectorAll('select')[0] as HTMLSelectElement, 'commune');
+    await rechercher('paris');
+    expect(boutonPar(/Voir les 3 autres résultats dans le canal Téléservice/)).toBeDefined();
+
+    await cliquerRenvoi();
+    const u = urlVivierAvec('process=formulaire');
+    expect(u.searchParams.get('process')).toBe('formulaire'); // scope = rail d'arrivée (téléservice)
+    expect(u.searchParams.get('q')).toBe('paris');
+    expect(u.searchParams.get('tri')).toBe('commune:asc');
+    expect(container.textContent).toMatch(/3\s*affichés\s*sur\s*3/);
+    expect(posts).toEqual([]);
+  });
+
+  it('report SANS filtre (terme seul) → panneau RESTE FERMÉ à l’arrivée', async () => {
+    brancherFlux();
+    await act(async () => { root.render(createElement(Harness, { initial: 'formulaire' })); });
+    await flush();
+    await rechercher('paris'); // aucun type, aucun tri
+    await cliquerRenvoi();
+    expect(urlVivierAvec('process=email').searchParams.get('q')).toBe('paris'); // recherche bien exécutée à l'arrivée
+    expect(container.querySelector('#moteur-recherche-complet')).toBeNull();     // mais panneau fermé (seul le terme a été transféré)
+  });
+
+  it('aucun contrôle propre à un rail n’apparaît dans l’autre après la bascule (E-mail auto : ni « Afficher la carte » ni « Préparer »)', async () => {
+    brancherFlux();
+    await act(async () => { root.render(createElement(Harness, { initial: 'formulaire', modeEmail: 'auto' })); });
+    await flush();
+    await rechercher('paris');
+    expect(boutonPar(/Afficher la carte dans le carrousel/)).toBeDefined(); // présent côté Téléservice AVANT bascule
+    await cliquerRenvoi();
+    // À l'arrivée (E-mail auto) : aucun bouton d'action propre à un rail sur les lignes.
+    expect(boutonPar(/Afficher la carte dans le carrousel/)).toBeUndefined(); // contrôle TÉLÉSERVICE absent du rail e-mail
+    expect(boutonPar(/Préparer cette demande/)).toBeUndefined();              // e-mail AUTO → pas de bouton non plus
+    expect(container.textContent).toMatch(/demandable/);                       // les lignes s'affichent bien
+  });
+
+  it('CommutateurProcess (changement de process SANS nouveau jeton) → AUCUNE réexécution ni report', async () => {
+    brancherFlux();
+    await act(async () => { root.render(createElement(RechercheVivier, { process: 'formulaire', categories: CATS, onBasculer: vi.fn(), mode: 'auto', onPrepared: vi.fn() })); });
+    await flush();
+    await rechercher('paris');
+    const n = urls.filter((u) => u.includes('/vivier-recherche')).length;
+    // simule un clic direct sur CommutateurProcess : le parent change SEULEMENT le process (aucun `transfert` armé) → l'instance persiste.
+    await act(async () => { root.render(createElement(RechercheVivier, { process: 'email', categories: CATS, onBasculer: vi.fn(), mode: 'auto', onPrepared: vi.fn() })); });
+    await flush();
+    expect(urls.filter((u) => u.includes('/vivier-recherche')).length).toBe(n); // la seule bascule ne déclenche aucune recherche
   });
 });
