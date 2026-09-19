@@ -35,7 +35,10 @@ export function RechercheVivier({ process, categories, onBasculer }: {
 
   async function chercher(): Promise<void> {
     const query = q.trim();
-    if (query === '') { setRes(null); return; }
+    // §1 — q FACULTATIF si un TYPE est coché (téléservice) : champ vide + filtre → recherche par type, sans contrainte de terme.
+    //   Sans terme NI type → aucune recherche (pas de résultat vide trompeur), comme aujourd'hui. Le tri seul ne suffit pas.
+    const aFiltre = estFormulaire && typesCoches.size > 0;
+    if (query === '' && !aFiltre) { setRes(null); return; }
     setChargement(true); setErreur('');
     // Rail e-mail : URL STRICTEMENT inchangée (q + process). Téléservice : ajoute les options du moteur complet SI renseignées
     //   (rien de coché / aucun tri → aucun paramètre → réponse identique à aujourd'hui). Le serveur les traite en optionnels.
@@ -67,63 +70,77 @@ export function RechercheVivier({ process, categories, onBasculer }: {
     finally { setDebloquant(null); }
   }
 
+  // §1 — le bouton « Chercher » reflète l'état SANS mentir : inactif tant qu'aucun critère (ni terme, ni type coché en téléservice) →
+  //   un indice dit quoi faire (jamais une fausse panne). En e-mail, aucun type possible → critère = terme seul (comportement inchangé).
+  const aUnCritere = q.trim() !== '' || (estFormulaire && typesCoches.size > 0);
+
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
-      <strong style={{ fontSize: 13 }}>Rechercher un permis / une ville — vivier {PROCESS_META[process].court}</strong>
+      {/* §2 — TITRE + DÉCLENCHEUR DISCRET du moteur complet sur la MÊME LIGNE (téléservice), dans le prolongement du titre, aligné à
+          droite. Discret : petit texte, PAS de fond plein ni bordure lourde, chevron d'état. Cible ≥ 44 px (padding + minHeight, sans
+          agrandir le texte). Étroit (iPhone) → le déclencheur passe SOUS le titre (flexWrap), jamais de titre tronqué. En e-mail : rien. */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap' }}>
+        <strong style={{ fontSize: 13, flex: '1 1 auto' }}>Rechercher un permis / une ville — vivier {PROCESS_META[process].court}</strong>
+        {estFormulaire && (
+          <button type="button" aria-expanded={moteurOuvert} aria-controls="moteur-recherche-complet"
+            onClick={() => setMoteurOuvert((o) => !o)}
+            style={{ flex: '0 0 auto', background: 'none', border: 0, padding: '.4rem .3rem', minHeight: 44, fontSize: 12, color: 'var(--color-svv-muted)', textDecoration: 'underline', cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            <span aria-hidden="true">{moteurOuvert ? '▾ ' : '▸ '}</span>Moteur de recherche complet
+          </button>
+        )}
+      </div>
       <form onSubmit={(e) => { e.preventDefault(); void chercher(); }} style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="n° de permis ou ville"
           aria-label="Rechercher un permis (numéro) ou une ville dans le vivier"
           style={{ flex: '1 1 12rem', minHeight: 40, padding: '.4rem .55rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14 }} />
-        {/* MOTEUR COMPLET — rail téléservice UNIQUEMENT. Bouton + panneau ENTRE le champ et « Chercher ». En e-mail : rien (rendu
-            historique à l'identique). Dépliage = montage conditionnel INSTANTANÉ (aucune animation → respecte prefers-reduced-motion). */}
-        {estFormulaire && (
-          <>
-            <button type="button" className="svv-btn svv-btn-outline" aria-expanded={moteurOuvert} aria-controls="moteur-recherche-complet"
-              onClick={() => setMoteurOuvert((o) => !o)} style={{ minHeight: 44, padding: '.4rem .8rem', flex: '0 0 auto' }}>
-              <span aria-hidden="true">{moteurOuvert ? '▾ ' : '▸ '}</span>Moteur de recherche complet
-            </button>
-            {moteurOuvert && (
-              <div id="moteur-recherche-complet" style={{ flex: '1 1 100%', display: 'flex', flexDirection: 'column', gap: '.7rem', padding: '.6rem', border: '1px solid var(--color-svv-line)', borderRadius: '.5rem', background: 'var(--color-svv-field)' }}>
-                {/* Groupe 1 — TYPE DE PERMIS : cases multi. Référentiel = prop `categories` (= categoriesConnues(config)), JAMAIS une liste en dur. */}
-                <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
-                  <legend style={{ fontSize: 12, fontWeight: 700, padding: 0 }}>Type de permis</legend>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
-                    {categories.map((c) => (
-                      <label key={c.cle} style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', minHeight: 44, padding: '.2rem .55rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, cursor: 'pointer' }}>
-                        <input type="checkbox" checked={typesCoches.has(c.cle)} onChange={() => basculerType(c.cle)} style={{ width: 18, height: 18 }} />
-                        {c.libelle}
-                      </label>
-                    ))}
-                  </div>
-                  <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Aucun coché = tous les types.</span>
-                </fieldset>
-                {/* Groupe 2 — TRI : colonne × sens, sur les champs RÉELLEMENT présents dans le vivier (date, commune). Pas de « surface » (absente de PermisVivier). */}
-                <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-end' }}>
-                  <legend style={{ fontSize: 12, fontWeight: 700, padding: 0, width: '100%' }}>Tri</legend>
-                  <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', fontSize: 12 }}>Trier par
-                    <select value={triColonne} onChange={(e) => setTriColonne(e.target.value as '' | ColonneTriVivier)} style={{ minHeight: 44, padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 }}>
-                      <option value="">Ordre par défaut</option>
-                      <option value="date">Date d’autorisation</option>
-                      <option value="commune">Commune</option>
-                    </select>
+        {/* §2 — le PANNEAU reste ENTRE le champ et « Chercher » (place inchangée) ; seul le DÉCLENCHEUR a migré sur la ligne du titre.
+            Dépliage = montage conditionnel INSTANTANÉ (aucune animation → respecte prefers-reduced-motion). En e-mail : rien. */}
+        {estFormulaire && moteurOuvert && (
+          <div id="moteur-recherche-complet" style={{ flex: '1 1 100%', display: 'flex', flexDirection: 'column', gap: '.7rem', padding: '.6rem', border: '1px solid var(--color-svv-line)', borderRadius: '.5rem', background: 'var(--color-svv-field)' }}>
+            {/* Groupe 1 — TYPE DE PERMIS : cases multi. Référentiel = prop `categories` (= categoriesConnues(config)), JAMAIS une liste en dur. */}
+            <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+              <legend style={{ fontSize: 12, fontWeight: 700, padding: 0 }}>Type de permis</legend>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
+                {categories.map((c) => (
+                  <label key={c.cle} style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', minHeight: 44, padding: '.2rem .55rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={typesCoches.has(c.cle)} onChange={() => basculerType(c.cle)} style={{ width: 18, height: 18 }} />
+                    {c.libelle}
                   </label>
-                  {triColonne !== '' && (
-                    <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', fontSize: 12 }}>Sens
-                      <select value={triSens} onChange={(e) => setTriSens(e.target.value as 'asc' | 'desc')} style={{ minHeight: 44, padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 }}>
-                        <option value="asc">Croissant</option>
-                        <option value="desc">Décroissant</option>
-                      </select>
-                    </label>
-                  )}
-                </fieldset>
+                ))}
               </div>
-            )}
-          </>
+              <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Aucun coché = tous les types.</span>
+            </fieldset>
+            {/* Groupe 2 — TRI : colonne × sens, sur les champs RÉELLEMENT présents dans le vivier (date, commune). Pas de « surface » (absente de PermisVivier). */}
+            <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-end' }}>
+              <legend style={{ fontSize: 12, fontWeight: 700, padding: 0, width: '100%' }}>Tri</legend>
+              <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', fontSize: 12 }}>Trier par
+                <select value={triColonne} onChange={(e) => setTriColonne(e.target.value as '' | ColonneTriVivier)} style={{ minHeight: 44, padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 }}>
+                  <option value="">Ordre par défaut</option>
+                  <option value="date">Date d’autorisation</option>
+                  <option value="commune">Commune</option>
+                </select>
+              </label>
+              {triColonne !== '' && (
+                <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', fontSize: 12 }}>Sens
+                  <select value={triSens} onChange={(e) => setTriSens(e.target.value as 'asc' | 'desc')} style={{ minHeight: 44, padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 }}>
+                    <option value="asc">Croissant</option>
+                    <option value="desc">Décroissant</option>
+                  </select>
+                </label>
+              )}
+            </fieldset>
+          </div>
         )}
-        <button type="submit" className="svv-btn svv-btn-primary" style={{ minHeight: 40, padding: '.4rem .8rem' }} disabled={chargement}>
+        <button type="submit" className="svv-btn svv-btn-primary" style={{ minHeight: 40, padding: '.4rem .8rem' }}
+          disabled={chargement || (estFormulaire && !aUnCritere)}
+          title={estFormulaire && !aUnCritere ? 'Saisis un terme, ou coche un type de permis dans le moteur de recherche complet' : undefined}>
           <span aria-hidden="true">🔍</span> Chercher
         </button>
       </form>
+      {/* §1 — indice NON-mensonger quand « Chercher » est inactif (téléservice) : il manque un critère, ce n'est pas une panne. Visible (pas hover-only). */}
+      {estFormulaire && !aUnCritere && (
+        <p style={{ fontSize: 11, color: 'var(--color-svv-muted)', margin: 0 }}>Saisis un terme, ou coche un type de permis dans le moteur de recherche complet.</p>
+      )}
 
       {chargement && <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }} aria-live="polite">Recherche…</p>}
       {erreur && <p role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', margin: 0 }}>{erreur}</p>}

@@ -243,3 +243,42 @@ describe('MOTEUR COMPLET — rechercherDansVivier (filtre type + tri, options OP
     expect(r.resultats.map((x) => x.dossierId)).toEqual([1, 2]); // 2024-03-01 avant 2024-01-01
   });
 });
+
+describe('§1 — terme FACULTATIF quand un filtre est actif (rechercherDansVivier)', () => {
+  const vivier: PermisVivier[] = [
+    p({ dossierId: 1, numDau: 'A', communeNom: 'Paris', canal: 'formulaire', categorie: 'immeuble_neuf' }),
+    p({ dossierId: 2, numDau: 'B', communeNom: 'Lyon', canal: 'formulaire', categorie: 'surelevation' }),
+    p({ dossierId: 3, numDau: 'C', communeNom: 'Nice', canal: 'email', categorie: 'immeuble_neuf' }),
+  ];
+  it('q VIDE + un type → TOUS les permis du type sur le rail, sans contrainte de terme ; l’autre process est compté', () => {
+    const r = rechercherDansVivier(vivier, '', 'formulaire', 50, { typesCategories: ['immeuble_neuf'] });
+    expect(r.resultats.map((x) => x.dossierId)).toEqual([1]); // formulaire + immeuble_neuf
+    expect(r.total).toBe(1);
+    expect(r.autreProcess).toBe(1); // le 3 (email, immeuble_neuf)
+  });
+  it('q VIDE + plusieurs types → union des types (toujours sans terme)', () => {
+    const r = rechercherDansVivier(vivier, '', 'formulaire', 50, { typesCategories: ['immeuble_neuf', 'surelevation'] });
+    expect(r.resultats.map((x) => x.dossierId)).toEqual([1, 2]);
+  });
+  it('q VIDE + AUCUN filtre → aucun résultat (jamais « tout le vivier » par défaut), avec ou sans opts vide', () => {
+    expect(rechercherDansVivier(vivier, '', 'formulaire', 50)).toEqual({ resultats: [], total: 0, autreProcess: 0 });
+    expect(rechercherDansVivier(vivier, '', 'formulaire', 50, {})).toEqual({ resultats: [], total: 0, autreProcess: 0 });
+  });
+  it('q VIDE + TRI SEUL (sans type) → aucun résultat : le tri n’est pas un critère', () => {
+    expect(rechercherDansVivier(vivier, '', 'formulaire', 50, { tri: { colonne: 'date', sens: 'asc' } }))
+      .toEqual({ resultats: [], total: 0, autreProcess: 0 });
+  });
+  it('q VIDE + type + tri → filtre par type PUIS tri (cap normal)', () => {
+    const date: PermisVivier[] = [
+      p({ dossierId: 10, canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2024-05-01' }),
+      p({ dossierId: 11, canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2024-01-01' }),
+      p({ dossierId: 12, canal: 'formulaire', categorie: 'surelevation', dateAutorisation: '2024-02-01' }),
+    ];
+    const r = rechercherDansVivier(date, '', 'formulaire', 50, { typesCategories: ['immeuble_neuf'], tri: { colonne: 'date', sens: 'asc' } });
+    expect(r.resultats.map((x) => x.dossierId)).toEqual([11, 10]); // surélévation exclue ; tri date asc
+  });
+  it('q RENSEIGNÉ → comportement inchangé (filtre par mots), avec ou sans type', () => {
+    expect(rechercherDansVivier(vivier, 'paris', 'formulaire', 50).resultats.map((x) => x.dossierId)).toEqual([1]);
+    expect(rechercherDansVivier(vivier, 'lyon', 'formulaire', 50, { typesCategories: ['immeuble_neuf'] }).resultats).toEqual([]); // Lyon est surélévation → filtré
+  });
+});

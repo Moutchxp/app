@@ -24,13 +24,16 @@ export async function GET(request: Request): Promise<Response> {
   const p = url.searchParams.get('process');
   const process = p === 'email' || p === 'formulaire' ? p : null;
   if (process === null) return Response.json({ erreur: 'process invalide (email|formulaire)' }, { status: 422 });
-  if (q === '') return Response.json({ resultats: [], total: 0, autreProcess: 0, tronque: false });
   // MOTEUR COMPLET (téléservice) — paramètres OPTIONNELS. Absents (cas du rail e-mail, qui ne les envoie jamais) → recherche
   //   historique à l'identique. `types` = clés de catégorie séparées par des virgules ; `tri` = « colonne:sens » (validé par
   //   parseTriVivier, ignoré si invalide). Aucun WHERE SQL ajouté : le filtrage/tri restent en aval, purs (rechercherDansVivier).
   const typesParam = url.searchParams.get('types');
   const typesCategories = typesParam ? typesParam.split(',').map((s) => s.trim()).filter((s) => s !== '') : undefined;
   const tri = parseTriVivier(url.searchParams.get('tri'));
+  const aFiltre = !!(typesCategories && typesCategories.length > 0);
+  // q FACULTATIF dès qu'un FILTRE (type) est fourni. Sans q NI filtre → comportement HISTORIQUE : vide, SANS charger le vivier
+  //   (cas exact du rail e-mail — test de non-régression clé). Le tri seul n'est PAS un critère (il ordonne, il ne sélectionne pas).
+  if (q === '' && !aFiltre) return Response.json({ resultats: [], total: 0, autreProcess: 0, tronque: false });
   try {
     const cfg = await chargerConfigVeille();
     const { vivier, tronque } = await chargerVivier(cfg);

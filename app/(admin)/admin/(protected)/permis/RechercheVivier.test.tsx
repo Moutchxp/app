@@ -113,3 +113,70 @@ describe('MOTEUR COMPLET — RechercheVivier', () => {
     expect(u.searchParams.get('tri')).toBe('date:desc');
   });
 });
+
+describe('§1 — champ libre FACULTATIF quand un filtre est actif', () => {
+  it('champ VIDE + un type coché → recherche exécutée (URL avec types, q vide)', async () => {
+    await monter('formulaire');
+    await ouvrirMoteur();
+    const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    await act(async () => { cases[0].click(); }); // « Immeuble neuf »
+    await flush();
+    const form = container.querySelector('form') as HTMLFormElement;
+    await act(async () => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+    await flush();
+    const u = dernierVivierUrl();
+    expect(u.searchParams.get('q')).toBe('');                    // terme vide
+    expect(u.searchParams.get('types')).toBe('immeuble_neuf');   // filtre porté
+  });
+
+  it('champ VIDE + aucun filtre → aucune recherche déclenchée ; « Chercher » inactif + indice non-mensonger', async () => {
+    await monter('formulaire');
+    expect(boutonPar(/Chercher/)!.disabled).toBe(true);
+    expect(container.textContent).toMatch(/coche un type de permis/); // indice visible (pas hover-only)
+    const form = container.querySelector('form') as HTMLFormElement;
+    await act(async () => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+    await flush();
+    expect(urls.some((u) => u.includes('/vivier-recherche'))).toBe(false); // rien cherché
+  });
+
+  it('cocher puis DÉcocher le type → « Chercher » redevient inactif (pas de faux critère)', async () => {
+    await monter('formulaire');
+    await ouvrirMoteur();
+    const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    await act(async () => { cases[0].click(); });
+    await flush();
+    expect(boutonPar(/Chercher/)!.disabled).toBe(false);
+    await act(async () => { cases[0].click(); }); // décoche
+    await flush();
+    expect(boutonPar(/Chercher/)!.disabled).toBe(true);
+  });
+
+  it('rail e-mail : « Chercher » reste actif même champ vide (inchangé), aucun indice', async () => {
+    await monter('email');
+    expect(boutonPar(/Chercher/)!.disabled).toBe(false);
+    expect(container.textContent).not.toMatch(/coche un type de permis/);
+  });
+});
+
+describe('§2 — déclencheur discret sur la ligne du titre, panneau inchangé de place', () => {
+  it('le déclencheur est HORS du formulaire, sur la ligne du titre', async () => {
+    await monter('formulaire');
+    const trigger = boutonPar(/Moteur de recherche complet/)!;
+    const form = container.querySelector('form') as HTMLFormElement;
+    expect(form.contains(trigger)).toBe(false);
+    const titre = [...container.querySelectorAll('strong')].find((s) => /Rechercher un permis/.test(s.textContent ?? ''))!;
+    expect(titre.parentElement!.contains(trigger)).toBe(true); // même conteneur que le titre
+  });
+
+  it('le panneau reste DANS le formulaire, entre le champ et « Chercher »', async () => {
+    await monter('formulaire');
+    await ouvrirMoteur();
+    const form = container.querySelector('form') as HTMLFormElement;
+    const panneau = container.querySelector('#moteur-recherche-complet') as HTMLElement;
+    expect(form.contains(panneau)).toBe(true);
+    const input = form.querySelector('input[aria-label^="Rechercher un permis"]') as HTMLElement;
+    const submit = [...form.querySelectorAll('button')].find((b) => /Chercher/.test(b.textContent ?? '')) as HTMLElement;
+    expect(input.compareDocumentPosition(panneau) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // input avant panneau
+    expect(panneau.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // panneau avant submit
+  });
+});

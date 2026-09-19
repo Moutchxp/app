@@ -125,17 +125,24 @@ export function correspondVivier(p: { numDau: string; communeNom: string | null;
 
 /**
  * Recherche dans le vivier, scopée au `process` actif. `cap` borne les résultats renvoyés (le total réel est renvoyé à part
- * pour signaler une troncature). Requête vide → aucun résultat. `opts` (moteur complet, téléservice) est OPTIONNEL : sans lui,
- * comportement STRICTEMENT historique (filtre par mots → scope process → cap, ordre naturel du vivier). PURE.
+ * pour signaler une troncature). `opts` (moteur complet, téléservice) est OPTIONNEL : sans lui, comportement STRICTEMENT historique
+ * (filtre par mots → scope process → cap, ordre naturel du vivier). PURE.
+ * - TERME `q` FACULTATIF dès qu'un FILTRE est fourni : q renseigné → filtre par mots ; q vide MAIS ≥ 1 type coché → AUCUNE contrainte
+ *   de terme (tout le vivier passe, puis on filtre par type). q vide ET sans filtre → aucun résultat (jamais « tout le vivier » par
+ *   défaut). Le TRI seul n'est PAS un critère (il ordonne, il ne sélectionne pas) → il ne déclenche jamais une recherche à lui seul.
+ *   `correspondVivier` garde sa sémantique STRICTE (q vide = aucun match, contrat inchangé) : on ne l'appelle QUE si q est renseigné.
  * - `typesCategories` (vide/absent → aucun filtre) : appliqué AVANT le split process, donc `total` ET `autreProcess` reflètent le
  *   filtre (la mention « N dans l'autre process » ne promet jamais des résultats qui, une fois basculé, seraient filtrés).
  * - `tri` (absent → ordre naturel) : appliqué AVANT le cap, pour que les `cap` premiers soient bien les `cap` premiers du tri.
  */
 export function rechercherDansVivier(vivier: readonly PermisVivier[], q: string, process: Process, cap: number, opts?: OptionsRechercheVivier): ResultatRechercheVivier {
-  if (norm(q) === '') return { resultats: [], total: 0, autreProcess: 0 };
-  let matches = vivier.filter((p) => correspondVivier(p, q));
+  const qVide = norm(q) === '';
   const types = opts?.typesCategories;
-  if (types && types.length > 0) {
+  const aFiltre = !!(types && types.length > 0);
+  if (qVide && !aFiltre) return { resultats: [], total: 0, autreProcess: 0 }; // ni terme ni filtre → rien (le tri seul ne compte pas)
+  // q vide + filtre → aucune contrainte de terme (tout le vivier) ; q renseigné → filtre par mots (correspondVivier, sémantique stricte).
+  let matches = qVide ? [...vivier] : vivier.filter((p) => correspondVivier(p, q));
+  if (aFiltre) {
     const retenus = new Set(types);
     matches = matches.filter((p) => retenus.has(p.categorie));
   }

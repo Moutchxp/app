@@ -123,4 +123,26 @@ describe('D3 — GET vivier-recherche', () => {
     expect(body.resultats.map((x: { dossierId: number }) => x.dossierId)).toEqual([2]); // PC-B email (beforeEach)
     expect(body.autreProcess).toBe(1);
   });
+
+  it('§1 — q VIDE + `types` (téléservice) → recherche EXÉCUTÉE (vivier chargé, résultats filtrés par type)', async () => {
+    vivier.mockResolvedValueOnce({ vivier: [
+      PERMIS({ dossierId: 1, numDau: 'PC-N', categorie: 'immeuble_neuf', canal: 'formulaire' }),
+      PERMIS({ dossierId: 2, numDau: 'PC-S', categorie: 'surelevation', canal: 'formulaire' }),
+    ], tronque: false });
+    const body = await (await req('?q=&process=formulaire&types=immeuble_neuf')).json();
+    expect(vivier).toHaveBeenCalledTimes(1); // le vivier EST chargé (q facultatif car un filtre est fourni)
+    expect(body.resultats.map((x: { dossierId: number }) => x.dossierId)).toEqual([1]);
+  });
+
+  it('§1 — RÉGRESSION CLÉ : q VIDE + AUCUN filtre → vide SANS charger le vivier (comportement d’avant, cas rail e-mail)', async () => {
+    const body = await (await req('?q=&process=email')).json();
+    expect(body).toEqual({ resultats: [], total: 0, autreProcess: 0, tronque: false });
+    expect(vivier).not.toHaveBeenCalled();
+  });
+
+  it('§1 — q VIDE + TRI SEUL (sans type) → vide SANS charger le vivier (le tri n’est pas un critère)', async () => {
+    const body = await (await req('?q=&process=formulaire&tri=date:asc')).json();
+    expect(body).toEqual({ resultats: [], total: 0, autreProcess: 0, tronque: false });
+    expect(vivier).not.toHaveBeenCalled();
+  });
 });
