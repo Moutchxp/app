@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 import type { PermisVivier, ResultatRechercheVivier, ColonneTriVivier } from '../../../../lib/sitadel/rechercheVivier';
 
@@ -18,7 +18,7 @@ import type { PermisVivier, ResultatRechercheVivier, ColonneTriVivier } from '..
  * n'a jamais de bouton actif : la raison est affichée + le geste « Débloquer ». Le PLAFOND mensuel est affiché mais ne bloque pas.
  * Mobile-first (cibles ≥ 44 px), pas de dark mode.
  */
-export function RechercheVivier({ process, categories, onBasculer, mode = 'auto', onPrepared }: {
+export function RechercheVivier({ process, categories, onBasculer, mode = 'auto', onPrepared, signalRafraichir = 0 }: {
   process: Process;
   categories: { cle: string; libelle: string; rang: number }[];
   onBasculer: (p: Process) => void;
@@ -26,6 +26,9 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
   mode?: 'auto' | 'manuel';
   /** Après une préparation réussie (POST /demandes {dossiersManuels}) → rafraîchit le carrousel + les compteurs (foyer du parent). */
   onPrepared?: () => void;
+  /** §1 — SIGNAL de synchronisation du parent, incrémenté après toute action des vues sœurs (annulation/dépôt d'une carte du carrousel,
+   *  préparation…). À chaque changement, la recherche COURANTE est réinterrogée (mêmes critères) → l'état des lignes DÉRIVE des données. */
+  signalRafraichir?: number;
 }) {
   // `bloquees` : par code_insee, la commune téléservice en attente d'accusé (réf. SVAV de la demande qui bloque). `plafonds` : état du
   //   plafond mensuel par commune (téléservice) — AFFICHÉ, ne bloque JAMAIS. Les deux ne sont calculés côté serveur que pour 'formulaire'.
@@ -38,7 +41,6 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
   const [debloquant, setDebloquant] = useState<number | null>(null);
   // Action par ligne (préparer un permis choisi), repris de RechercheVivierManuel : dossierId en cours, déjà préparés, retour de section.
   const [preparant, setPreparant] = useState<number | null>(null);
-  const [prepares, setPrepares] = useState<Set<number>>(new Set());
   const [retourPrep, setRetourPrep] = useState<{ texte: string; ok: boolean } | null>(null);
   const libelle = (cle: string): string => categories.find((c) => c.cle === cle)?.libelle ?? cle;
   const autre: Process = process === 'email' ? 'formulaire' : 'email';
@@ -63,7 +65,7 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
     if (triColonne !== '') params.set('tri', `${triColonne}:${triSens}`);
     try {
       const r = await fetch(`/api/admin/permis/demandes/vivier-recherche?${params.toString()}`, { cache: 'no-store' });
-      if (r.ok) { setRes((await r.json()) as ResultatRechercheVivier & { tronque: boolean; bloquees?: Bloquees; plafonds?: Plafonds }); setPrepares(new Set()); setRetourPrep(null); }
+      if (r.ok) setRes((await r.json()) as ResultatRechercheVivier & { tronque: boolean; bloquees?: Bloquees; plafonds?: Plafonds });
       else setErreur('Recherche indisponible.');
     } catch { setErreur('Recherche indisponible.'); }
     finally { setChargement(false); }
@@ -82,6 +84,17 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
     finally { setDebloquant(null); }
   }
 
+  // §1 — SYNCHRO carrousel → moteur : à chaque signal du parent (annulation/dépôt d'une carte, préparation…), RÉINTERROGER la recherche
+  //   COURANTE. Ne relance QUE si une recherche est affichée (res≠null couvre aussi le montage). L'état des lignes suit ainsi les données :
+  //   un permis annulé redevient « demandable » (+ bouton), un permis préparé quitte les demandables. Aucune écriture (GET). La recherche
+  //   de l'utilisateur (terme, types, tri, scroll) est conservée — `chercher()` LIT les états courants sans les toucher. `retourPrep` (feedback
+  //   de préparation) N'est PAS effacé ici (seule une nouvelle recherche manuelle l'efface), pour que la confirmation survive au rechargement de la liste.
+  useEffect(() => {
+    if (res === null) return;
+    void chercher();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signalRafraichir]);
+
   // B3 — préparer la demande d'un permis CHOISI, par le chemin EXISTANT (POST /demandes {dossiersManuels}). Repris À L'IDENTIQUE de
   //   RechercheVivierManuel (piège bigint→chaîne : l'API sérialise dossierId en CHAÎNE, la route attend un ENTIER → conversion au point
   //   d'appel ; sinon la garde stricte refuse). Le brouillon créé apparaît dans le carrousel (téléservice) / la liste (e-mail).
@@ -94,7 +107,6 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
       const r = await fetch('/api/admin/permis/demandes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ dossiersManuels: [dossierId] }) });
       const d = (await r.json().catch(() => ({}))) as { demandesCreees?: number; ignoresConflit?: number; lotsInvalides?: { raison?: string }[]; erreur?: string };
       if (r.ok && (d.demandesCreees ?? 0) >= 1) {
-        setPrepares((s) => new Set(s).add(p.dossierId));
         setRetourPrep({ texte: estFormulaire
           ? `${p.type ?? ''} ${p.numDau} — carte ajoutée en 1re position du carrousel (elle remplace la carte automatique de ${p.communeNom ?? 'sa commune'}).`
           : `Demande préparée pour ${p.type ?? ''} ${p.numDau} — elle apparaît dans la liste des demandes.`, ok: true });
@@ -125,7 +137,7 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
           <span aria-hidden="true">{moteurOuvert ? '▾ ' : '▸ '}</span>Moteur de recherche complet
         </button>
       </div>
-      <form onSubmit={(e) => { e.preventDefault(); void chercher(); }} style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+      <form onSubmit={(e) => { e.preventDefault(); setRetourPrep(null); void chercher(); }} style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="n° de permis, ville ou adresse"
           aria-label="Rechercher un permis (numéro), une ville ou une adresse dans le vivier"
           style={{ flex: '1 1 12rem', minHeight: 40, padding: '.4rem .55rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14 }} />
@@ -200,21 +212,23 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
                 const plaf = res.plafonds?.[p.codeInsee];
                 const nomCommune = p.communeNom ?? p.codeInsee;
                 const refBloc = bloc?.reference ?? (bloc ? `demande #${bloc.demandeId}` : '');
-                const prepare = prepares.has(p.dossierId);
                 return (
-                  // B2 — chaque résultat est un BLOC nettement séparé : séparateur + respiration verticale ; identité, adresse, état/action en colonne.
-                  <li key={p.dossierId} style={{ borderTop: '1px solid var(--color-svv-line)', padding: '.55rem 0', display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+                  // §2 — résultat sur DEUX lignes : ① identité ; ② adresse + état + action sur la MÊME 2e ligne (flex-wrap → repli propre en
+                  //   iPhone portrait). Séparateur + respiration conservés (borderTop + padding) : le gain de hauteur vient de la compacité interne.
+                  <li key={p.dossierId} style={{ borderTop: '1px solid var(--color-svv-line)', padding: '.5rem 0', display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+                    {/* ① IDENTITÉ : n° de permis · commune · type · date */}
                     <div>
                       <span style={{ fontWeight: 700 }}>{p.type ?? ''} {p.numDau}</span>
                       <span style={{ color: 'var(--color-svv-muted)' }}> · {nomCommune} · {libelle(p.categorie)}{p.dateAutorisation ? ` · ${p.dateAutorisation}` : ''}</span>
                     </div>
-                    {/* ADRESSE (rue) — dit POURQUOI la ligne matche (« rue de Paris » d'une commune de banlieue). Distincte de la commune ; rien si absente. */}
-                    {p.adresse && <div style={{ color: 'var(--color-svv-muted)', fontSize: 12, wordBreak: 'break-word' }}>{p.adresse}</div>}
-                    {bloc ? (
-                      /* Commune BLOQUÉE (verrou référence) → JAMAIS de bouton d'action : la raison + le geste de déblocage (jamais contourné). */
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
-                        <span style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}><span aria-hidden="true">⛔</span> bloqué — {nomCommune} en attente de l’accusé de {refBloc}</span>
-                        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+                    {/* ② ADRESSE + ÉTAT + ACTION, sur la 2e ligne (wrap en écran étroit ; jamais de débordement ni de troncature de l'adresse). */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem .6rem', alignItems: 'center' }}>
+                      {/* ADRESSE (rue) — dit POURQUOI la ligne matche ; distincte de la commune (localité) ; rien si absente. */}
+                      {p.adresse && <span style={{ color: 'var(--color-svv-muted)', fontSize: 12, wordBreak: 'break-word' }}>{p.adresse}</span>}
+                      {bloc ? (
+                        /* Commune BLOQUÉE (verrou référence) → JAMAIS de bouton d'action : la raison + le geste de déblocage (jamais contourné). */
+                        <>
+                          <span style={{ color: 'var(--color-svv-red)', fontWeight: 600 }}><span aria-hidden="true">⛔</span> bloqué — {nomCommune} en attente de l’accusé de {refBloc}</span>
                           <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 44, padding: '.25rem .6rem', width: 'auto', color: 'var(--color-svv-red)' }}
                             disabled={debloquant === bloc.demandeId} onClick={() => void debloquer(bloc.demandeId)}>
                             Débloquer — pas d’accusé attendu
@@ -222,30 +236,27 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
                           <span style={{ color: 'var(--color-svv-muted)', fontSize: 11 }}>
                             ou saisir la référence mairie sur la demande {refBloc} (onglet « En cours »).
                           </span>
-                        </div>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'center' }}>
-                        <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>demandable</span>
-                        {/* PLAFOND mensuel (téléservice) — AFFICHÉ, ne bloque JAMAIS (repris de RechercheVivierManuel). */}
-                        {plaf?.depasse && (
-                          <span style={{ color: 'var(--color-svv-red)', fontSize: 12 }}>
-                            <span aria-hidden="true">⚠</span> {nomCommune} au plafond mensuel ({plaf.consomme}/{plaf.plafond}) — tu peux quand même.
-                          </span>
-                        )}
-                        {prepare ? (
-                          <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>
-                            <span aria-hidden="true">✓</span> {estFormulaire ? 'Carte ajoutée — voir le carrousel ci-dessus' : 'Préparé — voir la liste des demandes ci-dessous'}
-                          </span>
-                        ) : actionParLigne ? (
-                          /* Bouton DISCRET (sobre, pas pleine largeur, cible ≥ 44 px) : téléservice « Afficher la carte », e-mail manuel « Préparer ». */
-                          <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 44, padding: '.3rem .7rem', width: 'auto', fontSize: 13 }}
-                            disabled={preparant === p.dossierId} onClick={() => void preparer(p)}>
-                            {preparant === p.dossierId ? 'Préparation…' : libelleAction}
-                          </button>
-                        ) : null}
-                      </div>
-                    )}
+                        </>
+                      ) : (
+                        <>
+                          <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}>demandable</span>
+                          {/* PLAFOND mensuel (téléservice) — AFFICHÉ, ne bloque JAMAIS. */}
+                          {plaf?.depasse && (
+                            <span style={{ color: 'var(--color-svv-red)', fontSize: 12 }}>
+                              <span aria-hidden="true">⚠</span> {nomCommune} au plafond mensuel ({plaf.consomme}/{plaf.plafond}) — tu peux quand même.
+                            </span>
+                          )}
+                          {/* Bouton DISCRET (cible ≥ 44 px, largeur propre). §1 — plus de drapeau « préparé » local : après préparation, la
+                              réinterrogation retire le permis des demandables (il est passé au carrousel / à la liste). L'état DÉRIVE des données. */}
+                          {actionParLigne && (
+                            <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 44, padding: '.3rem .7rem', width: 'auto', fontSize: 13 }}
+                              disabled={preparant === p.dossierId} onClick={() => void preparer(p)}>
+                              {preparant === p.dossierId ? 'Préparation…' : libelleAction}
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </li>
                 );
               })}

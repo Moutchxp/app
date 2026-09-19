@@ -368,3 +368,75 @@ describe('§B — moteur fusionné : action par ligne selon le rail', () => {
     expect(onPrepared).not.toHaveBeenCalled();
   });
 });
+
+describe('§1 — état de ligne dérivé + synchro carrousel (réinterrogation) ; §2 — deux lignes', () => {
+  const permis = (over: Record<string, unknown> = {}) => ({ dossierId: 1, numDau: 'PC0951', type: 'PC', codeInsee: '78646', communeNom: 'Versailles', canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2024-01-01', adresse: '34 AVENUE DE PARIS', ...over });
+  const rep = (resultats: unknown[]) => ({ resultats, total: resultats.length, autreProcess: 0, tronque: false, bloquees: {}, plafonds: {} });
+  const ligne = (motif: string) => [...container.querySelectorAll('li')].find((x) => x.textContent?.includes(motif))!;
+  // monte avec un signalRafraichir contrôlé ; `boite.rep` sert la réponse vivier-recherche courante ; capture les POST.
+  const monterSignal = async (signal: number, boite: { rep: unknown; posts: unknown[] }): Promise<void> => {
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/vivier-recherche')) { urls.push(u); return { ok: true, json: async () => boite.rep } as unknown as Response; }
+      if (u.includes('/api/admin/permis/demandes')) { boite.posts.push(JSON.parse(String(init?.body ?? '{}'))); return { ok: true, json: async () => ({ demandesCreees: 1 }) } as unknown as Response; }
+      return { ok: true, json: async () => ({}) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(RechercheVivier, { process: 'formulaire', categories: CATS, onBasculer: vi.fn(), mode: 'auto', onPrepared: vi.fn(), signalRafraichir: signal })); });
+    await flush();
+  };
+
+  it('§1 — un changement de signalRafraichir RÉINTERROGE la recherche courante (MÊME URL), sans écriture', async () => {
+    const boite = { rep: rep([permis()]), posts: [] as unknown[] };
+    await monterSignal(0, boite);
+    await rechercher('paris');
+    const url1 = urls.filter((u) => u.includes('/vivier-recherche')).at(-1)!;
+    const nAvant = urls.filter((u) => u.includes('/vivier-recherche')).length;
+    // simule une annulation de carte dans le carrousel : le parent incrémente le signal → re-render
+    await act(async () => { root.render(createElement(RechercheVivier, { process: 'formulaire', categories: CATS, onBasculer: vi.fn(), mode: 'auto', onPrepared: vi.fn(), signalRafraichir: 1 })); });
+    await flush();
+    const apres = urls.filter((u) => u.includes('/vivier-recherche'));
+    expect(apres.length).toBeGreaterThan(nAvant);       // réinterrogé
+    expect(apres.at(-1)).toBe(url1);                     // MÊME URL → terme/types/tri conservés
+    expect(boite.posts.length).toBe(0);                 // aucune écriture (GET seul)
+  });
+
+  it('§1 — après annulation (signal), un permis réapparu redevient « demandable » avec son bouton', async () => {
+    const boite = { rep: rep([]), posts: [] as unknown[] };
+    await monterSignal(0, boite);
+    await rechercher('paris');
+    expect(boutonPar(/Afficher la carte dans le carrousel/)).toBeUndefined(); // aucun résultat → pas de bouton
+    boite.rep = rep([permis()]); // la carte est annulée → le permis redevient demandable
+    await act(async () => { root.render(createElement(RechercheVivier, { process: 'formulaire', categories: CATS, onBasculer: vi.fn(), mode: 'auto', onPrepared: vi.fn(), signalRafraichir: 1 })); });
+    await flush();
+    expect(boutonPar(/Afficher la carte dans le carrousel/)).toBeDefined(); // réapparu demandable + bouton
+  });
+
+  it('§1 — après préparation (Option A), la réinterrogation retire le permis des demandables ; la confirmation survit', async () => {
+    const boite = { rep: rep([permis()]), posts: [] as unknown[] };
+    await monterSignal(0, boite);
+    await rechercher('paris');
+    await act(async () => { boutonPar(/Afficher la carte dans le carrousel/)!.click(); });
+    await flush();
+    expect(boite.posts).toEqual([{ dossiersManuels: [1] }]);
+    expect(container.textContent).toMatch(/carte ajoutée en 1re position/i);
+    // le parent (onPrepared → signalSuivi++) déclenche la réinterrogation ; le permis préparé est désormais exclu du vivier
+    boite.rep = rep([]);
+    await act(async () => { root.render(createElement(RechercheVivier, { process: 'formulaire', categories: CATS, onBasculer: vi.fn(), mode: 'auto', onPrepared: vi.fn(), signalRafraichir: 1 })); });
+    await flush();
+    expect(boutonPar(/Afficher la carte dans le carrousel/)).toBeUndefined(); // le permis a quitté les demandables
+    expect(container.textContent).toMatch(/carte ajoutée en 1re position/i);  // la confirmation SURVIT à la réinterrogation
+  });
+
+  it('§2 — un résultat s’affiche sur DEUX blocs : ① identité ; ② adresse + état + bouton', async () => {
+    const boite = { rep: rep([permis()]), posts: [] as unknown[] };
+    await monterSignal(0, boite);
+    await rechercher('paris');
+    const li = ligne('PC0951');
+    expect(li.children.length).toBe(2);                              // exactement deux lignes visuelles
+    expect(li.children[0].textContent).toContain('PC0951');          // ① identité : n° permis
+    expect(li.children[0].textContent).toContain('Versailles');      // ① commune
+    expect(li.children[1].textContent).toContain('34 AVENUE DE PARIS'); // ② adresse
+    expect(li.children[1].textContent).toContain('demandable');      // ② état
+    expect(li.children[1].querySelector('button')).not.toBeNull();   // ② bouton d'action sur la 2e ligne
+  });
+});

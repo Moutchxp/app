@@ -256,7 +256,7 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
           foyer unique de rafraîchissement (carrousel + compteurs), comme l'ex-RechercheVivierManuel. */}
       <RechercheVivier process={process} categories={categories} onBasculer={onBasculerProcess}
         mode={process === 'formulaire' ? modeTeleservice : (emailEnvoiAuto === true ? 'auto' : 'manuel')}
-        onPrepared={signalerChangement} />
+        onPrepared={signalerChangement} signalRafraichir={signalSuivi} />
 
       {/* Q2b/U6 — STOCK par commune : REPLIÉ par défaut (une seule ligne à l'arrivée) ; l'ouverture manuelle charge et déplie. */}
       <BlocStock
