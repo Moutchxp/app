@@ -180,3 +180,38 @@ describe('§2 — déclencheur discret sur la ligne du titre, panneau inchangé 
     expect(panneau.compareDocumentPosition(submit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // panneau avant submit
   });
 });
+
+describe('§ — le TRI SEUL est un critère + compteur honnête', () => {
+  it('tri SEUL (champ vide, aucun type, une colonne choisie) → recherche exécutée (URL avec tri, sans types) ; bouton actif', async () => {
+    await monter('formulaire');
+    await ouvrirMoteur();
+    const selCol = container.querySelectorAll('select')[0] as HTMLSelectElement;
+    await choisirSelect(selCol, 'commune');
+    expect(boutonPar(/Chercher/)!.disabled).toBe(false); // le tri seul est un critère → bouton actif
+    const form = container.querySelector('form') as HTMLFormElement;
+    await act(async () => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+    await flush();
+    const u = dernierVivierUrl();
+    expect(u.searchParams.get('q')).toBe('');
+    expect(u.searchParams.get('tri')).toBe('commune:asc'); // sens par défaut asc
+    expect(u.searchParams.has('types')).toBe(false);
+  });
+
+  it('« Ordre par défaut » seul (aucun autre critère) → PAS de critère : bouton inactif + indice', async () => {
+    await monter('formulaire');
+    await ouvrirMoteur();
+    expect(boutonPar(/Chercher/)!.disabled).toBe(true); // colonne restée sur « Ordre par défaut » (valeur '')
+    expect(container.textContent).toMatch(/coche un type de permis/);
+  });
+
+  it('COMPTEUR — « X affichés sur N » quand le total dépasse le cap', async () => {
+    const resultats = Array.from({ length: 50 }, (_, i) => ({ dossierId: i + 1, numDau: `PC${i}`, type: 'PC', codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2024-01-01', adresse: null }));
+    global.fetch = vi.fn(async (url: string | URL | Request) => {
+      urls.push(String(url));
+      return { ok: true, json: async () => ({ resultats, total: 213, autreProcess: 0, tronque: true, bloquees: {} }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    await monter('formulaire');
+    await rechercher('paris');
+    expect(container.textContent).toMatch(/50\s*affichés\s*sur\s*213/); // « 50 affichés sur 213 » (le cap ne ment pas sur le tout)
+  });
+});

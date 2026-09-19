@@ -140,9 +140,27 @@ describe('D3 — GET vivier-recherche', () => {
     expect(vivier).not.toHaveBeenCalled();
   });
 
-  it('§1 — q VIDE + TRI SEUL (sans type) → vide SANS charger le vivier (le tri n’est pas un critère)', async () => {
+  it('TRI SEUL — q VIDE + `tri` explicite (sans type) → recherche EXÉCUTÉE (vivier chargé, ordonné)', async () => {
+    vivier.mockResolvedValueOnce({ vivier: [
+      PERMIS({ dossierId: 1, numDau: 'PC-A', dateAutorisation: '2024-05-01', canal: 'formulaire' }),
+      PERMIS({ dossierId: 2, numDau: 'PC-B', dateAutorisation: '2024-01-01', canal: 'formulaire' }),
+    ], tronque: false });
     const body = await (await req('?q=&process=formulaire&tri=date:asc')).json();
+    expect(vivier).toHaveBeenCalledTimes(1); // le vivier EST chargé : le tri explicite est un critère suffisant
+    expect(body.resultats.map((x: { dossierId: number }) => x.dossierId)).toEqual([2, 1]); // date asc
+  });
+
+  it('NON-RÉGRESSION — sans q, sans types ET sans tri → vide SANS charger le vivier (comportement d’avant)', async () => {
+    const body = await (await req('?q=&process=formulaire')).json();
     expect(body).toEqual({ resultats: [], total: 0, autreProcess: 0, tronque: false });
     expect(vivier).not.toHaveBeenCalled();
+  });
+
+  it('COMPTEUR — `total` (avant cap) est propagé tel quel ; tronque quand total > CAP', async () => {
+    vivier.mockResolvedValueOnce({ vivier: Array.from({ length: 60 }, (_, i) => PERMIS({ dossierId: i + 1, numDau: `PC${i}`, categorie: 'immeuble_neuf', canal: 'formulaire' })), tronque: false });
+    const body = await (await req('?q=&process=formulaire&types=immeuble_neuf')).json();
+    expect(body.resultats.length).toBe(50); // cap
+    expect(body.total).toBe(60);            // total AVANT cap
+    expect(body.tronque).toBe(true);        // total > CAP → tronque signalé
   });
 });

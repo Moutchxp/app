@@ -264,9 +264,22 @@ describe('§1 — terme FACULTATIF quand un filtre est actif (rechercherDansVivi
     expect(rechercherDansVivier(vivier, '', 'formulaire', 50)).toEqual({ resultats: [], total: 0, autreProcess: 0 });
     expect(rechercherDansVivier(vivier, '', 'formulaire', 50, {})).toEqual({ resultats: [], total: 0, autreProcess: 0 });
   });
-  it('q VIDE + TRI SEUL (sans type) → aucun résultat : le tri n’est pas un critère', () => {
-    expect(rechercherDansVivier(vivier, '', 'formulaire', 50, { tri: { colonne: 'date', sens: 'asc' } }))
-      .toEqual({ resultats: [], total: 0, autreProcess: 0 });
+  it('q VIDE + TRI SEUL (sans type) → tout le vivier du rail, ORDONNÉ (le tri explicite EST un critère suffisant)', () => {
+    const date: PermisVivier[] = [
+      p({ dossierId: 1, canal: 'formulaire', dateAutorisation: '2024-05-01' }),
+      p({ dossierId: 2, canal: 'formulaire', dateAutorisation: '2024-01-01' }),
+      p({ dossierId: 3, canal: 'email', dateAutorisation: '2024-03-01' }),
+    ];
+    const r = rechercherDansVivier(date, '', 'formulaire', 50, { tri: { colonne: 'date', sens: 'asc' } });
+    expect(r.resultats.map((x) => x.dossierId)).toEqual([2, 1]); // formulaire, date asc (l'email est hors du process actif)
+    expect(r.total).toBe(2);
+    expect(r.autreProcess).toBe(1); // le 3 (email)
+  });
+  it('COMPTEUR — `total` = correspondances AVANT cap (jamais le nombre affiché)', () => {
+    const gros: PermisVivier[] = Array.from({ length: 130 }, (_, i) => p({ dossierId: i + 1, canal: 'formulaire', categorie: 'immeuble_neuf' }));
+    const r = rechercherDansVivier(gros, '', 'formulaire', 50, { typesCategories: ['immeuble_neuf'] });
+    expect(r.resultats).toHaveLength(50); // cap
+    expect(r.total).toBe(130);            // total exact avant cap
   });
   it('q VIDE + type + tri → filtre par type PUIS tri (cap normal)', () => {
     const date: PermisVivier[] = [

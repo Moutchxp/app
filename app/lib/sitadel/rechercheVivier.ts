@@ -127,9 +127,9 @@ export function correspondVivier(p: { numDau: string; communeNom: string | null;
  * Recherche dans le vivier, scopée au `process` actif. `cap` borne les résultats renvoyés (le total réel est renvoyé à part
  * pour signaler une troncature). `opts` (moteur complet, téléservice) est OPTIONNEL : sans lui, comportement STRICTEMENT historique
  * (filtre par mots → scope process → cap, ordre naturel du vivier). PURE.
- * - TERME `q` FACULTATIF dès qu'un FILTRE est fourni : q renseigné → filtre par mots ; q vide MAIS ≥ 1 type coché → AUCUNE contrainte
- *   de terme (tout le vivier passe, puis on filtre par type). q vide ET sans filtre → aucun résultat (jamais « tout le vivier » par
- *   défaut). Le TRI seul n'est PAS un critère (il ordonne, il ne sélectionne pas) → il ne déclenche jamais une recherche à lui seul.
+ * - TERME `q` FACULTATIF dès qu'un CRITÈRE est fourni : q renseigné → filtre par mots ; q vide MAIS ≥ 1 type coché OU un TRI explicite
+ *   → AUCUNE contrainte de terme (tout le vivier passe, puis on filtre par type éventuel et on ordonne). q vide ET sans AUCUN critère
+ *   → aucun résultat (jamais « tout le vivier » par défaut). Un TRI explicite est donc un critère suffisant à lui seul (téléservice).
  *   `correspondVivier` garde sa sémantique STRICTE (q vide = aucun match, contrat inchangé) : on ne l'appelle QUE si q est renseigné.
  * - `typesCategories` (vide/absent → aucun filtre) : appliqué AVANT le split process, donc `total` ET `autreProcess` reflètent le
  *   filtre (la mention « N dans l'autre process » ne promet jamais des résultats qui, une fois basculé, seraient filtrés).
@@ -139,7 +139,9 @@ export function rechercherDansVivier(vivier: readonly PermisVivier[], q: string,
   const qVide = norm(q) === '';
   const types = opts?.typesCategories;
   const aFiltre = !!(types && types.length > 0);
-  if (qVide && !aFiltre) return { resultats: [], total: 0, autreProcess: 0 }; // ni terme ni filtre → rien (le tri seul ne compte pas)
+  // CRITÈRE = un FILTRE (type) OU un TRI explicite. q vide + AUCUN critère → rien (jamais « tout le vivier » par défaut).
+  const aCritere = aFiltre || !!opts?.tri;
+  if (qVide && !aCritere) return { resultats: [], total: 0, autreProcess: 0 };
   // q vide + filtre → aucune contrainte de terme (tout le vivier) ; q renseigné → filtre par mots (correspondVivier, sémantique stricte).
   let matches = qVide ? [...vivier] : vivier.filter((p) => correspondVivier(p, q));
   if (aFiltre) {

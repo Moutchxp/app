@@ -31,9 +31,10 @@ export async function GET(request: Request): Promise<Response> {
   const typesCategories = typesParam ? typesParam.split(',').map((s) => s.trim()).filter((s) => s !== '') : undefined;
   const tri = parseTriVivier(url.searchParams.get('tri'));
   const aFiltre = !!(typesCategories && typesCategories.length > 0);
-  // q FACULTATIF dès qu'un FILTRE (type) est fourni. Sans q NI filtre → comportement HISTORIQUE : vide, SANS charger le vivier
-  //   (cas exact du rail e-mail — test de non-régression clé). Le tri seul n'est PAS un critère (il ordonne, il ne sélectionne pas).
-  if (q === '' && !aFiltre) return Response.json({ resultats: [], total: 0, autreProcess: 0, tronque: false });
+  // q FACULTATIF dès qu'un CRITÈRE est fourni : un FILTRE (type) OU un TRI explicite (parseTriVivier ≠ undefined). Sans q NI critère
+  //   → comportement HISTORIQUE : vide, SANS charger le vivier (cas exact du rail e-mail — test de non-régression clé).
+  const aCritere = aFiltre || tri !== undefined;
+  if (q === '' && !aCritere) return Response.json({ resultats: [], total: 0, autreProcess: 0, tronque: false });
   try {
     const cfg = await chargerConfigVeille();
     const { vivier, tronque } = await chargerVivier(cfg);

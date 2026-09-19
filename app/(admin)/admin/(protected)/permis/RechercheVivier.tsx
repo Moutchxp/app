@@ -35,10 +35,10 @@ export function RechercheVivier({ process, categories, onBasculer }: {
 
   async function chercher(): Promise<void> {
     const query = q.trim();
-    // §1 — q FACULTATIF si un TYPE est coché (téléservice) : champ vide + filtre → recherche par type, sans contrainte de terme.
-    //   Sans terme NI type → aucune recherche (pas de résultat vide trompeur), comme aujourd'hui. Le tri seul ne suffit pas.
-    const aFiltre = estFormulaire && typesCoches.size > 0;
-    if (query === '' && !aFiltre) { setRes(null); return; }
+    // q FACULTATIF si un CRITÈRE est présent (téléservice) : ≥ 1 type coché OU un TRI explicite (≠ « Ordre par défaut »). Sans terme
+    //   NI critère → aucune recherche (pas de résultat vide trompeur), comme aujourd'hui.
+    const aCritere = estFormulaire && (typesCoches.size > 0 || triColonne !== '');
+    if (query === '' && !aCritere) { setRes(null); return; }
     setChargement(true); setErreur('');
     // Rail e-mail : URL STRICTEMENT inchangée (q + process). Téléservice : ajoute les options du moteur complet SI renseignées
     //   (rien de coché / aucun tri → aucun paramètre → réponse identique à aujourd'hui). Le serveur les traite en optionnels.
@@ -72,7 +72,7 @@ export function RechercheVivier({ process, categories, onBasculer }: {
 
   // §1 — le bouton « Chercher » reflète l'état SANS mentir : inactif tant qu'aucun critère (ni terme, ni type coché en téléservice) →
   //   un indice dit quoi faire (jamais une fausse panne). En e-mail, aucun type possible → critère = terme seul (comportement inchangé).
-  const aUnCritere = q.trim() !== '' || (estFormulaire && typesCoches.size > 0);
+  const aUnCritere = q.trim() !== '' || (estFormulaire && (typesCoches.size > 0 || triColonne !== ''));
 
   return (
     <div className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
@@ -152,6 +152,13 @@ export function RechercheVivier({ process, categories, onBasculer }: {
               Aucun permis demandable dans le process {PROCESS_META[process].court} pour cette recherche.
             </p>
           ) : (
+            <>
+            {/* COMPTEUR HONNÊTE — le cap 50 ne doit jamais laisser croire que l'affiché est le tout. `total` = COUNT (en mémoire, mêmes
+                critères, AVANT cap) renvoyé par le moteur — aucun COUNT SQL. Vivier tronqué au CHARGEMENT → N minorant, signalé par
+                « Affichage limité » ci-dessous. Vaut pour TOUS les cas de recherche (cohérent, sans risque). */}
+            <p style={{ margin: '0 0 .35rem', fontSize: 12, color: 'var(--color-svv-muted)' }} aria-live="polite">
+              <strong style={{ color: 'var(--color-svv-ink)' }}>{res.resultats.length}</strong> affiché{res.resultats.length > 1 ? 's' : ''} sur <strong style={{ color: 'var(--color-svv-ink)' }}>{res.total}</strong> permis demandable{res.total > 1 ? 's' : ''}
+            </p>
             <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
               {res.resultats.map((p: PermisVivier) => {
                 const bloc = res.bloquees?.[p.codeInsee];
@@ -182,6 +189,7 @@ export function RechercheVivier({ process, categories, onBasculer }: {
                 );
               })}
             </ul>
+            </>
           )}
           {res.tronque && <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: '.3rem 0 0' }}>Affichage limité — précisez la recherche.</p>}
           {/* 🔑 MENTION NON SILENCIEUSE : une correspondance dans l'autre vivier n'est jamais un faux « aucun résultat ». */}
