@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { EncartArbitrages, BlocInjoignables, CarteAmbiguite, CarteInjoignable, retirerCommune, type ArbitrageAffiche, type AmbiguiteAffiche, type CommuneInjoignableAffiche } from './DemandesRendu';
+import { EditeurContactCommune } from './EditeurContactCommune';
 
 /**
  * Bloc PRADA de l'onglet Demandes (S14e/S15) : encart d'arbitrages (info seule), résolution des rapprochements AMBIGUS, et
@@ -28,6 +29,8 @@ export function BlocPrada() {
   const [okMsg, setOkMsg] = useState('');                       // confirmation de succès (la carte concernée a disparu)
   const [errLigne, setErrLigne] = useState<Record<number, string>>({}); // échec affiché DANS la carte concernée
   const [version, setVersion] = useState(0);
+  // §C — carte annuaire ouverte depuis une ligne d'arbitrage (voie complète : reprendre ou remplacer l'adresse PRADA). `null` = fermée.
+  const [codeFiche, setCodeFiche] = useState<string | null>(null);
 
   useEffect(() => {
     let annule = false;
@@ -107,7 +110,7 @@ export function BlocPrada() {
 
   return (
     <div className="flex flex-col gap-3">
-      <EncartArbitrages arbitrages={arbitragesMemo} ouvert={arbitragesOuvert} onToggle={() => setArbitragesOuvert((o) => !o)} />
+      <EncartArbitrages arbitrages={arbitragesMemo} ouvert={arbitragesOuvert} onToggle={() => setArbitragesOuvert((o) => !o)} onOuvrirCommune={setCodeFiche} />
 
       {ambiguites.length > 0 && (
         <section role="group" aria-label="Rapprochements PRADA ambigus à trancher" className="flex flex-col gap-2">
@@ -177,6 +180,10 @@ export function BlocPrada() {
           ))}
         </div>
       </BlocInjoignables>
+
+      {/* §C — carte annuaire montée à la demande (codeFiche non nul). onEnregistre → rafraîchit les arbitrages (version++) : la ligne quitte le
+          bloc si la PRADA a été adoptée (e-mail = courriel PRADA, lireArbitrages « au sens strict »). onFerme → ferme la carte. */}
+      <EditeurContactCommune codeInsee={codeFiche} onFerme={() => setCodeFiche(null)} onEnregistre={() => setVersion((v) => v + 1)} />
     </div>
   );
 }

@@ -1,6 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { Requete } from './mairieContact';
-import { rattacherManuelTx, estIdentifiantValide, SQL_RATTACHER_MANUEL, SQL_ECARTER, SQL_LIGNE_IMPORT, SQL_AMBIGUITES } from './pradaAdmin';
+import { rattacherManuelTx, estIdentifiantValide, lireArbitrages, SQL_RATTACHER_MANUEL, SQL_ECARTER, SQL_LIGNE_IMPORT, SQL_AMBIGUITES } from './pradaAdmin';
+
+// `lireArbitrages` construit son SQL EN LIGNE (pas de constante exportée) : on intercepte `query` pour inspecter la requête
+// RÉELLEMENT émise (invariants AGENTS.md : fragments SÉMANTIQUES sur chaîne whitespace-normalisée, jamais une regex sur le WHERE
+// complet). Les autres tests du fichier passent leur PROPRE `q` (fauxQ) et ne touchent jamais ce `query` mocké.
+const espion = vi.hoisted(() => ({ requetes: [] as { sql: string; params: unknown[] }[], rows: [] as Record<string, unknown>[] }));
+vi.mock('../db/client', () => ({
+  query: async (sql: string, params?: unknown[]) => { espion.requetes.push({ sql, params: params ?? [] }); return { rows: espion.rows }; },
+  withTransaction: async () => { throw new Error('withTransaction ne doit pas être appelé par ces tests'); },
+}));
 
 /** Faux `q` (transaction) journalisant chaque requête pour vérifier la SÉQUENCE et les invariants, sans base. */
 function fauxQ(opts: { pradaExistante?: { courriel: string | null; protegee?: boolean } } = {}) {
@@ -73,5 +82,32 @@ describe('S14e — cause du « importId invalide » : bigint sérialisé en cha�
     expect(estIdentifiantValide(undefined)).toBe(false);// absent → refusé (jamais de rattachement indéterminé)
     expect(estIdentifiantValide(1.5)).toBe(false);
     expect(estIdentifiantValide(null)).toBe(false);
+  });
+});
+
+describe('Lot 10 §C — « PRADA non adoptée » AU SENS STRICT (courriel PRADA ≠ e-mail de contact retenu)', () => {
+  const norm = (s: string): string => s.replace(/\s+/g, ' ').trim();
+  const sqlEmis = (): string => norm(espion.requetes.at(-1)!.sql);
+
+  it('le prédicat EXCLUT les communes dont l’e-mail de contact = courriel PRADA (adoption) — comparaison insensible casse/espaces', async () => {
+    espion.requetes.length = 0; espion.rows = [];
+    await lireArbitrages();
+    const sql = sqlEmis();
+    // le cœur de la décision Arno (Option 3) : on ne garde que si e-mail ≠ courriel, casse/espaces neutralisés des DEUX côtés.
+    expect(sql).toContain("lower(btrim(coalesce(mc.email, ''))) <> lower(btrim(mp.courriel))");
+    // ET les gardes historiques CONSERVÉES : courriel PRADA non vide + contact confirmé à la main (rien n’a basculé auto).
+    expect(sql).toContain("coalesce(btrim(mp.courriel), '') <> ''");
+    expect(sql).toContain("mc.statut = 'confirme'");
+    // le CANAL n’entre PAS dans le prédicat (une commune sur un rail reste listée si son contact diffère de sa PRADA).
+    expect(sql).not.toContain('mc.canal =');
+  });
+
+  it('mappe fidèlement les lignes remontées (une commune non adoptée reste affichée)', async () => {
+    espion.requetes.length = 0;
+    espion.rows = [{ code_insee: '93047', commune_nom: 'Montfermeil', prada_nom: 'Service CADA', prada_courriel: 'cada@montfermeil.fr',
+      contact_canal: 'email', contact_email: 'urbanisme@montfermeil.fr', contact_adresse: null }];
+    const arb = await lireArbitrages();
+    expect(arb).toEqual([{ codeInsee: '93047', communeNom: 'Montfermeil', pradaNom: 'Service CADA', pradaCourriel: 'cada@montfermeil.fr',
+      contactCanal: 'email', contactEmail: 'urbanisme@montfermeil.fr', contactAdressePostale: null }]);
   });
 });

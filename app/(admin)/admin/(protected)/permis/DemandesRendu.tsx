@@ -127,7 +127,7 @@ const detailContact = (a: ArbitrageAffiche): string =>
  * aucun contenu masqué quand fermé (rien à animer → prefers-reduced-motion sans objet). AUCUNE logique métier ici.
  */
 const ID_CONTENU_ARBITRAGES = 'arbitrages-prada-contenu';
-export function EncartArbitrages({ arbitrages, ouvert, onToggle }: { arbitrages: ArbitrageAffiche[]; ouvert: boolean; onToggle?: () => void }) {
+export function EncartArbitrages({ arbitrages, ouvert, onToggle, onOuvrirCommune }: { arbitrages: ArbitrageAffiche[]; ouvert: boolean; onToggle?: () => void; onOuvrirCommune?: (code: string) => void }) {
   if (arbitrages.length === 0) return null; // décompte nul → rien du tout
   const n = arbitrages.length;
   return (
@@ -146,9 +146,20 @@ export function EncartArbitrages({ arbitrages, ouvert, onToggle }: { arbitrages:
           </p>
           <ul style={{ margin: '.4rem 0 0', paddingLeft: '1.1rem', fontSize: 13, lineHeight: 1.5 }}>
             {arbitrages.map((a) => (
-              <li key={a.codeInsee}>
-                <strong>{a.communeNom ?? a.codeInsee}</strong> — PRADA {a.pradaNom ?? '(nom non renseigné)'}
-                {a.pradaCourriel ? ` · ${a.pradaCourriel}` : ''} — <em>retenu&nbsp;:</em> {detailContact(a) || '(contact incomplet)'}
+              <li key={a.codeInsee} style={{ marginBottom: '.35rem' }}>
+                {/* §C — chaque ligne OUVRE la carte annuaire (la voie complète : reprendre ou remplacer l'adresse PRADA, visible ci-contre).
+                    Le bouton d'adoption reste dispo DANS la carte (raccourci). Une fois la PRADA adoptée (e-mail = courriel PRADA), la ligne
+                    quitte le bloc (lireArbitrages « au sens strict ») après rafraîchissement. */}
+                <div style={{ display: 'flex', gap: '.4rem .8rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
+                  <span style={{ flex: '1 1 auto', minWidth: 0 }}>
+                    <strong>{a.communeNom ?? a.codeInsee}</strong> — PRADA {a.pradaNom ?? '(nom non renseigné)'}
+                    {a.pradaCourriel ? ` · ${a.pradaCourriel}` : ''} — <em>retenu&nbsp;:</em> {detailContact(a) || '(contact incomplet)'}
+                  </span>
+                  {onOuvrirCommune && (
+                    <button type="button" className="svv-btn svv-btn-outline" style={{ flex: '0 0 auto', minHeight: 44, padding: '.25rem .6rem', width: 'auto', fontSize: 12 }}
+                      onClick={() => onOuvrirCommune(a.codeInsee)}>Ouvrir la fiche</button>
+                  )}
+                </div>
               </li>
             ))}
           </ul>

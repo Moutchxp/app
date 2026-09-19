@@ -50,7 +50,13 @@ export interface ArbitragePrada {
   contactCanal: string | null; contactEmail: string | null; contactAdressePostale: string | null;
 }
 
-/** Communes où une PRADA au courriel non vide existe mais le contact 'confirme' est CONSERVÉ (rien n'a basculé). */
+/**
+ * Communes où une PRADA au courriel non vide existe mais le contact 'confirme' est CONSERVÉ, ET la PRADA N'EST PAS ADOPTÉE :
+ * courriel PRADA ≠ e-mail de contact retenu (comparaison insensible casse/espaces). C'est le SENS STRICT de « non adoptée »
+ * (décision Arno) : tant qu'on écrit à une autre adresse que la PRADA, l'arbitrage reste ouvert ; dès qu'on l'adopte
+ * (e-mail = courriel PRADA, par le bouton d'adoption ou la carte annuaire), la ligne quitte le bloc. Le CANAL n'entre PAS dans
+ * le prédicat : une commune sur un rail (Paris/Montreuil en téléservice) reste listée si son contact diffère de sa PRADA.
+ */
 export async function lireArbitrages(): Promise<ArbitragePrada[]> {
   const { rows } = await query<{ code_insee: string; commune_nom: string | null; prada_nom: string | null; prada_courriel: string | null; contact_canal: string | null; contact_email: string | null; contact_adresse: string | null }>(
     `SELECT mp.code_insee, c.nom AS commune_nom,
@@ -60,6 +66,7 @@ export async function lireArbitrages(): Promise<ArbitragePrada[]> {
      JOIN mairie_contact mc ON mc.code_insee = mp.code_insee
      LEFT JOIN commune c ON c.code_insee = mp.code_insee
      WHERE coalesce(btrim(mp.courriel), '') <> '' AND mc.statut = 'confirme'
+       AND lower(btrim(coalesce(mc.email, ''))) <> lower(btrim(mp.courriel))
      ORDER BY c.nom NULLS LAST, mp.code_insee`,
   );
   return rows.map((r) => ({

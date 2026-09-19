@@ -7,6 +7,7 @@ import {
   type EtatEditionContact, type FicheCommune, type BaseCommune,
 } from './contactForm';
 import { SelecteurCanal, ChampsProtocole, SelecteurEmailType, BoutonOuvrirLien, BlocFicheCommune } from './ContactRendu';
+import { processDeCanal } from '../../../../lib/sitadel/process';
 
 /**
  * Lot B — ÉDITEUR DE CONTACT OUVRABLE PAR COMMUNE (code INSEE). Composant CONTRÔLÉ : `codeInsee` non nul → il charge la
@@ -47,6 +48,10 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
   // CORRECTION 1 — AVIS après enregistrement (ex. « e-mail enregistré, mais la commune reste hors process… »). Distinct de
   //   `erreur` (rouge) : c'est une confirmation avec réserve, jamais une erreur. Effacé à l'ouverture et au changement de canal.
   const [avis, setAvis] = useState('');
+  // §B — CHANGEMENT DE RAIL depuis la carte : quand le rail change ET qu'il existe des demandes NON envoyées, l'enregistrement DEMANDE d'abord
+  //   confirmation (elles seront annulées et leurs permis retournent au réservoir). `null` = pas de bascule en attente. Les allers-retours sont
+  //   ILLIMITÉS (aucun verrou/compteur) ; les demandes déjà envoyées ne sont JAMAIS touchées (verrou serveur d'annuler-lot).
+  const [basculePendante, setBasculePendante] = useState<{ ids: number[]; count: number } | null>(null);
 
   // FOCUS (Lot C) — à l'ouverture on mémorise le déclencheur (commune de la carte / item « Hors process ») pour LUI RENDRE le focus
   //   à la fermeture (aucun piège de focus). `focusPanneau` (callback ref stable) donne le focus au panneau à son montage → le clavier
@@ -64,8 +69,8 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
   useEffect(() => {
     let annule = false;
     void (async () => {
-      if (codeInsee === null) { setEdition(null); setFiche(null); setConfPrada(false); setErreurChargement(''); setChargement(false); setAvis(''); return; }
-      setChargement(true); setErreurChargement(''); setEdition(null); setFiche(null); setConfPrada(false); setAvis('');
+      if (codeInsee === null) { setEdition(null); setFiche(null); setConfPrada(false); setErreurChargement(''); setChargement(false); setAvis(''); setBasculePendante(null); return; }
+      setChargement(true); setErreurChargement(''); setEdition(null); setFiche(null); setConfPrada(false); setAvis(''); setBasculePendante(null);
       try {
         const res = await fetch(`/api/admin/permis/contact?code=${encodeURIComponent(codeInsee)}`);
         if (annule) return;
@@ -83,27 +88,63 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
 
   if (codeInsee === null) return null;
 
+  // ÉCRITURE (chemin UNIQUE : PATCH /contact → ecrireContact, source='saisie_manuelle', statut='confirme', journalisé). Extraite pour être
+  //   partagée entre l'enregistrement DIRECT et l'enregistrement APRÈS annulation des demandes (changement de rail). AUCUN second chemin.
+  async function ecrirePatch(ed: EtatEditionContact): Promise<void> {
+    try {
+      const res = await fetch('/api/admin/permis/contact', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(corpsPatchContact(ed)), // les 13 colonnes, note incluse (verbatim si non touchée)
+      });
+      if (!res.ok) {
+        const d = (await res.json().catch(() => ({}))) as { erreur?: string };
+        setEdition({ ...ed, erreur: messageEnregistrement(res.status, d.erreur) });
+        return;
+      }
+      onEnregistre?.(); // le parent rafraîchit (carte / bloc « Hors process » / bloc PRADA) — la base a changé
+      const avisMsg = messageApresEnregistrement(ed.canal, ed.email, ed.urlFormulaire);
+      if (avisMsg === null) onFerme(); else setAvis(avisMsg);
+    } catch { setEdition({ ...ed, erreur: 'Enregistrement impossible.' }); }
+  }
+
   async function enregistrer(): Promise<void> {
     if (!edition) return;
     // Refus CÔTÉ CLIENT d'un canal incohérent (miroir de mairie_contact_coherence_chk) : message clair, pas d'erreur Postgres brute.
     const probleme = problemeContactUI(edition);
     if (probleme) { setEdition({ ...edition, erreur: `Impossible d’enregistrer : ${probleme}.` }); return; }
-    setAvis('');
+    setAvis(''); setBasculePendante(null);
+    // §B — CHANGEMENT DE RAIL : si le rail (processDeCanal) change ET qu'il existe des demandes NON envoyées, on emprunte le CHEMIN DE BASCULE
+    //   EXISTANT (aperçu `basculer-rail` → confirmation → `annuler-lot` → PATCH), pour que l'effet métier reste le même que la bascule de la carte
+    //   des communes. Rail INCHANGÉ (ou 0 demande) → enregistrement DIRECT, sans avertissement, exactement comme avant. Allers-retours illimités.
+    const railAvant = processDeCanal(fiche?.canalEnregistre ?? null);
+    const railApres = processDeCanal(edition.canal);
+    if (railAvant !== railApres) {
+      try {
+        const cible = railApres === 'formulaire' ? 'formulaire' : 'email'; // valide pour la route ; les ids (demandes non envoyées) sont INDÉPENDANTS de la cible
+        const res = await fetch(`/api/admin/permis/basculer-rail?q=${encodeURIComponent(edition.code)}&cible=${cible}`, { cache: 'no-store' });
+        if (res.ok) {
+          const d = (await res.json()) as { ids?: number[]; nbDemandes?: number };
+          if ((d.nbDemandes ?? 0) > 0) { setBasculePendante({ ids: d.ids ?? [], count: d.nbDemandes ?? 0 }); return; } // → confirmation avant d'appliquer
+        }
+      } catch { /* aperçu indisponible → on n'empêche pas l'enregistrement (rien à annoncer) */ }
+    }
+    await ecrirePatch(edition);
+  }
+
+  // §B — CONFIRMÉ : annule les demandes non envoyées (chemin `annuler-lot` EXISTANT, autoriserPrete → 'annulee', permis rendus au réservoir, AUCUN
+  //   DELETE), PUIS écrit le PATCH. Les demandes déjà envoyées sont TOUJOURS épargnées (verrou serveur d'annuler-lot).
+  async function confirmerBascule(): Promise<void> {
+    if (!edition || !basculePendante) return;
+    const { ids } = basculePendante;
+    setBasculePendante(null);
     try {
-      const res = await fetch('/api/admin/permis/contact', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(corpsPatchContact(edition)), // les 13 colonnes, note incluse (verbatim si non touchée)
-      });
-      if (!res.ok) {
-        const d = (await res.json().catch(() => ({}))) as { erreur?: string };
-        setEdition({ ...edition, erreur: messageEnregistrement(res.status, d.erreur) });
-        return;
+      if (ids.length > 0) {
+        const res = await fetch('/api/admin/permis/demandes/annuler-lot', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids, autoriserPrete: true }),
+        });
+        if (!res.ok) { setEdition({ ...edition, erreur: 'Annulation des demandes impossible — rien changé.' }); return; }
       }
-      onEnregistre?.(); // le parent rafraîchit (carte / bloc « Hors process ») — la base a changé dans les DEUX cas
-      // CORRECTION 1 — en rail → succès net (on ferme) ; hors process malgré une coordonnée saisie → on GARDE la fiche ouverte
-      //   et on l'explique « en toutes lettres » (la commune reste hors process tant que le canal n'est pas un rail).
-      const avisMsg = messageApresEnregistrement(edition.canal, edition.email, edition.urlFormulaire);
-      if (avisMsg === null) onFerme(); else setAvis(avisMsg);
+      await ecrirePatch(edition);
     } catch { setEdition({ ...edition, erreur: 'Enregistrement impossible.' }); }
   }
 
@@ -155,7 +196,7 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
               <p role="status" style={{ margin: 0, fontSize: 13, fontWeight: 600, color: etat.complet ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)' }}>{etat.texte}</p>
             )}
             <SelecteurCanal canal={edition.canal} suggestionTeleservice={edition.suggestionTeleservice}
-              onCanal={(c) => { setAvis(''); setEdition({ ...edition, canal: c, note: noteAuChangementCanal(edition.canal, c, edition.adressePostale, edition.note), erreur: '' }); }} />
+              onCanal={(c) => { setAvis(''); setBasculePendante(null); setEdition({ ...edition, canal: c, note: noteAuChangementCanal(edition.canal, c, edition.adressePostale, edition.note), erreur: '' }); }} />
             {/* CORRECTION 1 — les DEUX champs de coordonnées de rail sont TOUJOURS affichés et saisissables, quel que soit le
                 canal (« inconnu » compris) : la fiche ne doit jamais nommer un manque sans permettre de le corriger. C'est un
                 AJOUT d'affichage (dé-conditionnement), jamais un retrait ; la mention « obligatoire pour le rail … » reste
@@ -217,11 +258,25 @@ export function EditeurContactCommune({ codeInsee, onFerme, onEnregistre }: {
             )}
             {/* CORRECTION 1 — AVIS post-enregistrement « en toutes lettres » (jamais rouge) : la commune reste hors process tant que le canal n'est pas un rail. */}
             {avis && <p role="status" style={{ margin: 0, fontSize: 13, fontWeight: 600, color: 'var(--color-svv-amber)' }}>{avis}</p>}
-            <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-              <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.4rem .8rem' }} onClick={() => void enregistrer()}>Enregistrer</button>
-              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.4rem .8rem' }} onClick={onFerme}>Annuler</button>
-              {edition.erreur && <span role="alert" style={{ color: 'var(--color-svv-red)', fontSize: 13 }}>{edition.erreur}</span>}
-            </div>
+            {basculePendante ? (
+              /* §B — AVERTISSEMENT avant un changement de rail : ce qui va être annulé EN CLAIR (jamais d'annulation silencieuse — d'autant qu'Arno peut le faire souvent). */
+              <div role="alert" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem', padding: '.6rem', border: '1px solid var(--color-svv-red)', borderRadius: '.5rem', background: 'var(--color-svv-field)' }}>
+                <span style={{ fontSize: 13 }}>
+                  Changer de rail annulera <strong>{basculePendante.count} demande{basculePendante.count > 1 ? 's' : ''} non envoyée{basculePendante.count > 1 ? 's' : ''}</strong> de {edition.nom} : leurs permis retournent au <strong>réservoir de demandes à faire</strong>. Les demandes déjà envoyées ne sont pas touchées.
+                </span>
+                <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                  <button type="button" className="svv-btn svv-btn-primary" style={{ minHeight: 44, padding: '.4rem .8rem' }} onClick={() => void confirmerBascule()}>Confirmer et enregistrer</button>
+                  <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 44, padding: '.4rem .8rem' }} onClick={() => setBasculePendante(null)}>Annuler</button>
+                  {edition.erreur && <span role="alert" style={{ color: 'var(--color-svv-red)', fontSize: 13 }}>{edition.erreur}</span>}
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <button type="button" className="svv-btn svv-btn-primary" style={{ minHeight: 44, padding: '.4rem .8rem' }} onClick={() => void enregistrer()}>Enregistrer</button>
+                <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 44, padding: '.4rem .8rem' }} onClick={onFerme}>Annuler</button>
+                {edition.erreur && <span role="alert" style={{ color: 'var(--color-svv-red)', fontSize: 13 }}>{edition.erreur}</span>}
+              </div>
+            )}
           </>
         )}
       </div>
