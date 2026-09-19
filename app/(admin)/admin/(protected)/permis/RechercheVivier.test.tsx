@@ -215,3 +215,47 @@ describe('§ — le TRI SEUL est un critère + compteur honnête', () => {
     expect(container.textContent).toMatch(/50\s*affichés\s*sur\s*213/); // « 50 affichés sur 213 » (le cap ne ment pas sur le tout)
   });
 });
+
+describe('§ — bouton « Voir les N résultats dans le canal … » (renvoi vers l’autre rail affiché)', () => {
+  const rechercherAvec = async (process: 'email' | 'formulaire', reponse: unknown, onBasculer = vi.fn()): Promise<ReturnType<typeof vi.fn>> => {
+    global.fetch = vi.fn(async (url: string | URL | Request) => { urls.push(String(url)); return { ok: true, json: async () => reponse } as unknown as Response; }) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(RechercheVivier, { process, categories: CATS, onBasculer })); });
+    await flush();
+    await rechercher('paris');
+    return onBasculer;
+  };
+  const rep = (autreProcess: number) => ({ resultats: [], total: 0, autreProcess, tronque: false, bloquees: {} });
+
+  it('N > 1 depuis Téléservice → « Voir les 3 résultats dans le canal E-mail »', async () => {
+    await rechercherAvec('formulaire', rep(3));
+    expect(boutonPar(/Voir les 3 résultats dans le canal E-mail/)).toBeDefined();
+  });
+
+  it('N = 1 → singulier « Voir 1 résultat dans le canal E-mail » (jamais « les », jamais le pluriel)', async () => {
+    await rechercherAvec('formulaire', rep(1));
+    const btn = boutonPar(/Voir 1 résultat dans le canal E-mail/);
+    expect(btn).toBeDefined();
+    expect(btn!.textContent).not.toMatch(/résultats/); // singulier
+    expect(btn!.textContent).not.toMatch(/Voir les/);  // pas de « les »
+  });
+
+  it('depuis E-mail → pointe vers le canal Téléservice', async () => {
+    await rechercherAvec('email', rep(2));
+    expect(boutonPar(/Voir les 2 résultats dans le canal Téléservice/)).toBeDefined();
+  });
+
+  it('le clic appelle onBasculer avec le process OPPOSÉ et ne déclenche AUCUN appel réseau', async () => {
+    const onBasculer = await rechercherAvec('formulaire', rep(2));
+    const nAvant = urls.length;
+    await act(async () => { boutonPar(/Voir les 2 résultats/)!.click(); });
+    await flush();
+    expect(onBasculer).toHaveBeenCalledWith('email'); // opposé de 'formulaire'
+    expect(onBasculer).toHaveBeenCalledTimes(1);
+    expect(urls.length).toBe(nAvant); // aucun fetch supplémentaire déclenché par le clic
+  });
+
+  it('N = 0 → aucun bouton (condition d’affichage inchangée)', async () => {
+    await rechercherAvec('formulaire', { resultats: [{ dossierId: 1, numDau: 'PC1', type: 'PC', codeInsee: '75056', communeNom: 'Paris', canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: null, adresse: null }], total: 1, autreProcess: 0, tronque: false, bloquees: {} });
+    expect(boutonPar(/Voir .* dans le canal/)).toBeUndefined();
+  });
+});

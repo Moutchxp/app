@@ -192,12 +192,16 @@ export function RechercheVivier({ process, categories, onBasculer }: {
             </>
           )}
           {res.tronque && <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: '.3rem 0 0' }}>Affichage limité — précisez la recherche.</p>}
-          {/* 🔑 MENTION NON SILENCIEUSE : une correspondance dans l'autre vivier n'est jamais un faux « aucun résultat ». */}
+          {/* 🔑 MENTION NON SILENCIEUSE : une correspondance dans l'autre vivier n'est jamais un faux « aucun résultat ». UN SEUL bouton
+              porte l'info (compteur + canal, réutilisés tels quels) ET navigue vers l'autre rail AFFICHÉ (onBasculer → setProcessActif :
+              aucun fetch, aucun effet en base). Vocabulaire VOLONTAIREMENT distinct du geste « basculer de rail » de BasculeRail/
+              PanneauCarteRail, qui, lui, écrit (annulation + PATCH mairie_contact.canal) — aucun rapport. Condition d'affichage inchangée. */}
           {res.autreProcess > 0 && (
-            <p style={{ fontSize: 12, margin: '.3rem 0 0' }}>
-              {res.autreProcess} résultat(s) dans le process {PROCESS_META[autre].court} —{' '}
-              <button type="button" className="svv-link" style={{ padding: 0, verticalAlign: 'baseline' }} onClick={() => onBasculer(autre)}>basculer</button>
-            </p>
+            <button type="button" className="svv-btn svv-btn-outline"
+              style={{ marginTop: '.35rem', minHeight: 44, padding: '.4rem .8rem', width: 'auto', maxWidth: '100%', whiteSpace: 'normal', textAlign: 'left' }}
+              onClick={() => onBasculer(autre)}>
+              Voir {res.autreProcess === 1 ? '1 résultat' : `les ${res.autreProcess} résultats`} dans le canal {PROCESS_META[autre].court}
+            </button>
           )}
         </div>
       )}
