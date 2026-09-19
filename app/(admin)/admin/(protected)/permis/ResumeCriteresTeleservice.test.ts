@@ -58,6 +58,22 @@ describe('messageHorsBornes (pur)', () => {
 });
 
 describe('Lot 3 — résumé des critères téléservice', () => {
+  it('§1 — REPLIÉ au montage (<details> sans `open`), tout le contenu reste présent dans le dépliant', async () => {
+    brancherFetch();
+    await monter();
+    const d = container.querySelector('details');
+    expect(d).not.toBeNull();
+    expect(d?.open).toBe(false); // fermé au montage, comme les autres blocs repliables de l'écran
+    // le contenu n'est ni retiré ni masqué : les 3 critères propres (2 nombres + 1 select), le bouton d'enregistrement,
+    //   le verrou « référence mairie », et le pavé partagé « AUSSI pour le rail E-mail » vivent tous dans le dépliant.
+    expect(container.querySelector('summary')?.textContent).toMatch(/Critères de sélection des cartes/);
+    expect(inputsNombre()).toHaveLength(2);
+    expect(container.querySelectorAll('select')).toHaveLength(1);
+    expect(container.textContent).toMatch(/Enregistrer les critères/);
+    expect(container.textContent).toMatch(/référence mairie/i);
+    expect(container.textContent).toMatch(/AUSSI pour le rail E-mail/i);
+  });
+
   it('les 3 critères PARTAGÉS sont NON éditables (aucun contrôle) et renvoient vers Réglages', async () => {
     brancherFetch();
     await monter();

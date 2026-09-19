@@ -51,14 +51,16 @@ const champRecherche = (): HTMLInputElement | null => container.querySelector('i
 const vivierUrls = (): string[] => urls.filter((u) => u.includes('/vivier-recherche'));
 
 // Réplique EXACTE de l'enveloppe montée par ADemanderVue : titre porté par le repli, RechercheVivier en render-prop avec titreExterne.
-const moteur = (process: Process, transfert?: TransfertRenvoi) => createElement(BlocRepliable, {
+//   `ouvrirQuand` (§2) = latch de dépliage au montage quand le rail actif est en mode manuel (ADemanderVue passe `railManuelCertain`).
+const moteur = (process: Process, transfert?: TransfertRenvoi, ouvrirQuand?: boolean) => createElement(BlocRepliable, {
   titre: `Rechercher un permis / une ville — vivier ${PROCESS_META[process].court}`,
   ouvrirSignal: transfert?.jeton,
+  ouvrirQuand,
 }, () => createElement(RechercheVivier, {
   process, categories: CATS, onBasculer: vi.fn(), transfert, mode: 'auto', onPrepared: vi.fn(), signalRafraichir: 0, titreExterne: true,
 }));
-const rendreMoteur = async (process: Process, transfert?: TransfertRenvoi): Promise<void> => {
-  await act(async () => { root.render(moteur(process, transfert)); }); await flush();
+const rendreMoteur = async (process: Process, transfert?: TransfertRenvoi, ouvrirQuand?: boolean): Promise<void> => {
+  await act(async () => { root.render(moteur(process, transfert, ouvrirQuand)); }); await flush();
 };
 const titreMoteur = (): HTMLButtonElement | undefined => parTexte(/Rechercher un permis \/ une ville — vivier/);
 const rechercher = async (texte: string): Promise<void> => {
@@ -82,6 +84,33 @@ describe('Moteur de recherche — FERMÉ au montage, sur les deux rails', () => 
   it('rail E-mail : même ligne de titre (« vivier E-mail »), repliée', async () => {
     await rendreMoteur('email');
     expect(titreMoteur()?.textContent).toContain('vivier E-mail');
+    expect(titreMoteur()?.getAttribute('aria-expanded')).toBe('false');
+    expect(champRecherche()).toBeNull();
+  });
+});
+
+describe('Moteur de recherche — DÉPLIÉ au montage en mode MANUEL (ouvrirQuand), sur les deux rails ; panneau complet TOUJOURS fermé (§2)', () => {
+  const moteurComplet = (): HTMLButtonElement | undefined => parTexte(/Moteur de recherche complet/);
+
+  it('rail Téléservice, manuel : le moteur est DÉPLIÉ au montage (champ visible), le panneau « Moteur de recherche complet » reste FERMÉ', async () => {
+    await rendreMoteur('formulaire', undefined, true);
+    expect(titreMoteur()?.getAttribute('aria-expanded')).toBe('true'); // déplié par la latch (rail en manuel)
+    expect(champRecherche()).not.toBeNull();                            // le moteur est monté et visible
+    expect(moteurComplet()?.getAttribute('aria-expanded')).toBe('false'); // le panneau d'options, lui, reste fermé
+  });
+
+  it('rail E-mail, manuel : même dépliage au montage, panneau complet fermé', async () => {
+    await rendreMoteur('email', undefined, true);
+    expect(titreMoteur()?.getAttribute('aria-expanded')).toBe('true');
+    expect(champRecherche()).not.toBeNull();
+    expect(moteurComplet()?.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('mode automatique (ouvrirQuand=false) : le moteur reste FERMÉ au montage sur les deux rails', async () => {
+    await rendreMoteur('formulaire', undefined, false);
+    expect(titreMoteur()?.getAttribute('aria-expanded')).toBe('false');
+    expect(champRecherche()).toBeNull();
+    await rendreMoteur('email', undefined, false);
     expect(titreMoteur()?.getAttribute('aria-expanded')).toBe('false');
     expect(champRecherche()).toBeNull();
   });
@@ -171,6 +200,14 @@ describe('Placement dans ADemanderVue (§1) — moteur sous le bloc auto/manuel,
     expect(compact).toContain('titre={`Rechercher un permis / une ville — vivier ${PROCESS_META[process].court}`}');
     expect(compact).toContain('titreExterne'); // le libellé est porté par le repli, pas répété dans le composant
     expect(compact).toContain('ouvrirSignal={transfert?.jeton}'); // le renvoi ouvre le repli
+  });
+
+  it('§2 — le moteur reçoit ouvrirQuand={railManuelCertain} (déplié au montage en manuel) SANS lâcher ouvrirSignal (renvoi inchangé)', () => {
+    expect(compact).toContain('ouvrirSignal={transfert?.jeton}'); // non-régression §D : le renvoi reste branché
+    expect(compact).toContain('ouvrirQuand={railManuelCertain}'); // §2 : dépliage au montage quand le rail actif est en manuel
+    // railManuelCertain = manuel CERTAIN par rail : téléservice (état local) OU e-mail flag LU à OFF ; `null` (inconnu) n'ouvre jamais le moteur.
+    expect(compact).toContain("modeTeleservice === 'manuel'");
+    expect(compact).toContain('emailEnvoiAuto === false');
   });
 
   it('ORDRE : bloc auto/manuel → moteur repliable → stock (le moteur est bien JUSTE SOUS le bloc de sélection)', () => {

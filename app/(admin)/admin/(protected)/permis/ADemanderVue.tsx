@@ -225,6 +225,14 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
   const basculerLot = (cle: string): void => setSelLots((s) => { const n = new Set(s); if (n.has(cle)) n.delete(cle); else n.add(cle); return n; });
   const toutSelectionnerLots = (): void => setSelLots(toutCocheLots ? new Set<string>() : new Set(lotsProp.map(cleLot)));
 
+  // Mode auto/manuel du RAIL ACTIF — UNE SEULE vérité, réutilisée par le bloc de sélection ET le moteur (téléservice : état d'écran local ;
+  //   e-mail : flag serveur email_envoi_initial_auto_active). `null` (flag pas encore lu) s'affiche « manuel » (défaut sûr OFF).
+  const modeRailActif: ModePreparation = process === 'formulaire' ? modeTeleservice : (emailEnvoiAuto === true ? 'auto' : 'manuel');
+  // §2 — le rail actif est-il CERTAINEMENT en manuel ? Téléservice : modeTeleservice (toujours connu, défaut 'auto'). E-mail : le flag serveur
+  //   LU et à OFF (`emailEnvoiAuto === false`) — `null` (pas encore lu) NE compte PAS : on n'ouvre pas le moteur sur une valeur inconnue, sinon
+  //   il se déplierait à tort le temps du chargement, y compris quand l'envoi auto est en fait actif. Pilote la latch `ouvrirQuand` du moteur.
+  const railManuelCertain = process === 'formulaire' ? modeTeleservice === 'manuel' : emailEnvoiAuto === false;
+
   return (
     <div className="flex flex-col gap-4">
       {/* ② BLOC AUTO/MANUEL — COMMUN aux deux rails, JUSTE SOUS le sélecteur des deux rails (CommutateurProcess, monté dans PermisTuile
@@ -234,7 +242,7 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
           confirmation, le MANUEL est immédiat. ⚠️ AUCUN lien avec l'auto-relance (relance_auto_active) : automatisations indépendantes. */}
       <ModeDemandeTeleservice
         process={process}
-        mode={process === 'formulaire' ? modeTeleservice : (emailEnvoiAuto === true ? 'auto' : 'manuel')}
+        mode={modeRailActif}
         onMode={process === 'formulaire' ? setModeTeleservice : changerModeEmail}
         badge={process === 'email' ? (
           <span className="svv-pill" aria-live="polite" style={{ fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap', color: emailEnvoiAuto === true ? 'var(--color-svv-red)' : 'var(--color-svv-muted)', borderColor: emailEnvoiAuto === true ? 'var(--color-svv-red)' : 'var(--color-svv-line)' }}>
@@ -250,11 +258,15 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
           (fermé par défaut). UNE SEULE instance, commune aux deux rails (jamais dupliquée). Le libellé passe sur la ligne de titre du repli
           (titreExterne). ⚠️ État PRÉSERVÉ replier/déplier : BlocRepliable garde l'enfant MONTÉ (caché en CSS `hidden`) après la 1re ouverture
           → critères et résultats intacts. `ouvrirSignal={transfert?.jeton}` : un renvoi « voir les N autres… » OUVRE le repli et monte le
-          moteur → l'effet de report (pré-remplissage + recherche + défilement) s'exécute comme avant (aucune régression du bouton de renvoi). */}
-      <BlocRepliable titre={`Rechercher un permis / une ville — vivier ${PROCESS_META[process].court}`} ouvrirSignal={transfert?.jeton}>
+          moteur → l'effet de report (pré-remplissage + recherche + défilement) s'exécute comme avant (aucune régression du bouton de renvoi).
+          §2 — `ouvrirQuand={railManuelCertain}` : quand le rail actif est en mode MANUEL, le moteur se DÉPLIE tout seul (une seule fois) pour
+          inviter à chercher (le bloc auto/manuel au-dessus y renvoie explicitement). La latch n'ouvre qu'UNE fois : l'internaute peut ensuite
+          replier librement, et repasser en automatique NE le referme PAS (une recherche en cours n'est jamais perdue d'un clic sur la bascule).
+          Le panneau interne « Moteur de recherche complet » (options), lui, reste fermé (état propre à RechercheVivier). */}
+      <BlocRepliable titre={`Rechercher un permis / une ville — vivier ${PROCESS_META[process].court}`} ouvrirSignal={transfert?.jeton} ouvrirQuand={railManuelCertain}>
         {() => (
           <RechercheVivier process={process} categories={categories} onBasculer={renvoyer} transfert={transfert}
-            mode={process === 'formulaire' ? modeTeleservice : (emailEnvoiAuto === true ? 'auto' : 'manuel')}
+            mode={modeRailActif}
             onPrepared={signalerChangement} signalRafraichir={signalSuivi} titreExterne />
         )}
       </BlocRepliable>

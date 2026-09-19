@@ -18,7 +18,7 @@ import type { ConfigVeille } from '../../../../lib/sitadel/veilleConfig';
  * GET /reglages), JAMAIS recopiées en dur. Après enregistrement, on rafraîchit par le signal EXISTANT (`onChangement`) → compteur +
  * carrousel + ce résumé (via `signalRafraichir`). Valeur hors bornes refusée AVANT l'appel. 401/403 → « reconnectez-vous ».
  * Rédigé pour un non-développeur : chaque critère est une phrase concrète, jamais un nom de variable. Mobile-first, texte (jamais
- * la couleur seule), déplié par défaut (<details open>). Purement additif.
+ * la couleur seule), REPLIÉ par défaut (<details> fermé au montage, comme les autres blocs repliables de l'écran). Purement additif.
  */
 type Bornes = Record<string, { min: number; max: number }>;
 interface EtatReglages { veille: ConfigVeille; bornes: Bornes }
@@ -139,7 +139,7 @@ export function ResumeCriteresTeleservice({ signalRafraichir, onChangement, onAl
   const verrouCoche = edits[colVerrou] !== undefined ? edits[colVerrou] === 'true' : veille.teleserviceVerrouReferenceActif;
 
   return (
-    <details open className="svv-card" style={{ fontSize: 13 }}>
+    <details className="svv-card" style={{ fontSize: 13 }}>
       <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Critères de sélection des cartes — rail Téléservice</summary>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', marginTop: '.5rem' }}>

@@ -11,7 +11,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
  * `titre` reste visible même replié (il peut porter un bilan léger). Accessible et tactile : vrai `<button>` + `aria-expanded`,
  * aucune interaction au survol seul (exigence transverse mobile §15).
  */
-export function BlocRepliable({ titre, children, onOuvertChange, defautOuvert = false, ouvrirSignal }: {
+export function BlocRepliable({ titre, children, onOuvertChange, defautOuvert = false, ouvrirSignal, ouvrirQuand }: {
   titre: ReactNode;                    // ligne de titre, visible repliée (peut porter un bilan léger)
   children: () => ReactNode;           // RENDER-PROP : évaluée (donc l'enfant monté) UNIQUEMENT une fois le bloc ouvert
   onOuvertChange?: (ouvert: boolean) => void; // notifie le parent (ex. jauge le bouton « Valider » sur l'ouverture des bâtiments)
@@ -20,6 +20,12 @@ export function BlocRepliable({ titre, children, onOuvertChange, defautOuvert = 
   //   Absente/undefined → comportement non contrôlé STRICTEMENT inchangé (tous les autres appelants). Ne PREND PAS le contrôle : l'internaute
   //   peut toujours replier/déplier ensuite. Sert au parent qui veut ouvrir un bloc frère d'un clic (BAT — accès à « Bâtiments et projection »).
   ouvrirSignal?: number;
+  // OUVERTURE LATCHÉE (optionnelle) : dès que `ouvrirQuand` est/devient VRAI, le bloc s'ouvre — UNE SEULE FOIS pour toute la vie du composant.
+  //   Il ne referme JAMAIS de lui-même (repasser à faux ne fait rien) et ne réouvre JAMAIS après coup : une fois la latch tirée, l'internaute
+  //   est SEUL maître (il peut replier librement). Sert au parent qui veut déplier un bloc quand un CONTEXTE s'établit (ex. rail en mode
+  //   manuel : le moteur s'ouvre pour inviter à chercher) SANS pour autant le PILOTER. Absente/undefined → aucun effet (rétro-compatible).
+  //   Indépendante de `ouvrirSignal` (nonce ré-armable) : deux mécanismes d'ouverture distincts qui coexistent sans se gêner.
+  ouvrirQuand?: boolean;
 }) {
   const [ouvert, setOuvert] = useState(defautOuvert);
   const [dejaOuvert, setDejaOuvert] = useState(defautOuvert); // resté vrai après la 1re ouverture → l'enfant n'est plus démonté (pas de refetch)
@@ -31,6 +37,15 @@ export function BlocRepliable({ titre, children, onOuvertChange, defautOuvert = 
     dernierSignal.current = ouvrirSignal;
     setOuvert(true); setDejaOuvert(true); onOuvertChange?.(true);
   }, [ouvrirSignal, onOuvertChange]);
+  // Latch d'ouverture (`ouvrirQuand`) : tirée AU PLUS UNE FOIS, jamais elle ne referme. Le garde `latchTiree` la rend insensible aux re-rendus
+  //   et à un retour de `ouvrirQuand` à faux → après elle, seul l'internaute pilote (repli libre respecté). Là où `ouvrirSignal` est un nonce
+  //   ré-armable (rouvre à chaque changement), `ouvrirQuand` est une porte qui ne s'ouvre qu'UNE fois.
+  const latchTiree = useRef(false);
+  useEffect(() => {
+    if (!ouvrirQuand || latchTiree.current) return;
+    latchTiree.current = true;
+    setOuvert(true); setDejaOuvert(true); onOuvertChange?.(true);
+  }, [ouvrirQuand, onOuvertChange]);
 
   const basculer = () => {
     const v = !ouvert;
