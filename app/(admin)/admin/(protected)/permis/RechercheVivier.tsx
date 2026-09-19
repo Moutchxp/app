@@ -77,10 +77,49 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
   const aCritere = typesCoches.size > 0 || triColonne !== '';
   const aUnCritere = q.trim() !== '' || aCritere;
 
+  // §D — DÉFILEMENT vers le moteur à l'arrivée d'un report de rail. Le carrousel du rail de départ (~1160 px au-dessus de la cible) disparaît
+  //   en PLUSIEURS commits (rendu concurrent React) et le SCROLL-ANCHORING du navigateur recale alors la position pour garder le contenu visible
+  //   stable → un `scrollIntoView` `smooth` voit sa cible bouger EN VOL et s'arrête trop haut (l'écart Téléservice→E-mail). PARADE (pas du timing) :
+  //   ① on attend que l'OFFSET absolu du moteur soit FIGÉ = mise en page du rail d'arrivée stabilisée (carrousel retiré, liste rendue) ; ② on NEUTRALISE
+  //   l'anchoring du document — `overflow-anchor:none` sur <html>, car c'est le VIEWPORT qui scrolle (`.svv-adm-shell` = min-height:100dvh sans overflow) —
+  //   le temps du saut ; ③ on va à un offset ABSOLU explicite via `window.scrollTo` (jamais un `scrollIntoView` relatif à un layout en mouvement) ;
+  //   ④ on RÉTABLIT l'anchoring. Le sens inverse (E-mail→Téléservice, qui AJOUTE le carrousel) suit exactement le même chemin. reduced-motion respecté.
+  function defileVersMoteur(): void {
+    const el = refRacine.current;
+    if (!el) return;
+    const reduit = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
+    if (typeof window === 'undefined' || typeof document === 'undefined' || typeof requestAnimationFrame !== 'function') {
+      el.scrollIntoView?.({ behavior: reduit ? 'auto' : 'smooth', block: 'start' });
+      return;
+    }
+    const offsetMoteur = (): number => el.getBoundingClientRect().top + window.scrollY; // position ABSOLUE dans le document (invariante au scroll et au recalage d'anchoring)
+    let precedent = Number.NaN;
+    let stable = 0;
+    let frames = 0;
+    const finir = (): void => {
+      const html = document.documentElement; // le viewport scrolle → l'anchoring du document se porte sur <html>
+      const cible = offsetMoteur();
+      const ancreAvant = html.style.overflowAnchor;
+      html.style.overflowAnchor = 'none';                                     // ② neutralise le recalage pendant le saut
+      window.scrollTo({ top: cible, behavior: reduit ? 'auto' : 'smooth' });  // ③ offset ABSOLU explicite (titre + champ en haut du viewport)
+      requestAnimationFrame(() => { html.style.overflowAnchor = ancreAvant; }); // ④ rétablit (layout déjà figé → plus rien à recaler)
+    };
+    const attendre = (): void => {
+      const y = offsetMoteur();                                               // ① figé = mise en page du rail d'arrivée stabilisée
+      stable = Math.abs(y - precedent) < 1 ? stable + 1 : 0;
+      precedent = y;
+      frames += 1;
+      if (stable >= 2 || frames >= 60) finir();                              // 60 = garde-fou anti-boucle borné (jamais un pari de durée)
+      else requestAnimationFrame(attendre);
+    };
+    requestAnimationFrame(attendre);
+  }
+
   // Recherche À PARTIR de critères EXPLICITES (jamais l'état, pour éviter toute course avec un setState) : `chercher()` lit l'état courant ;
   //   le report de rail (`transfert`) passe SES critères directement. Le scope reste le `process` du rail AFFICHÉ. Au succès, on mémorise les
   //   critères appliqués (`critereApplique`) → le bouton de renvoi les reporte tels quels, cohérents avec le `autreProcess` (N) affiché.
-  async function chercherAvec(c: CriteresRenvoi): Promise<void> {
+  //   `defilerApres` (report de rail uniquement) → on défile UNE fois la liste posée (cf. `defileVersMoteur`), jamais avant.
+  async function chercherAvec(c: CriteresRenvoi, defilerApres = false): Promise<void> {
     const query = c.q.trim();
     if (query === '' && c.types.length === 0 && c.tri === null) { setRes(null); setCritereApplique(null); return; }
     setChargement(true); setErreur('');
@@ -89,7 +128,7 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
     if (c.tri !== null) params.set('tri', `${c.tri.colonne}:${c.tri.sens}`);
     try {
       const r = await fetch(`/api/admin/permis/demandes/vivier-recherche?${params.toString()}`, { cache: 'no-store' });
-      if (r.ok) { setRes((await r.json()) as ResultatRechercheVivier & { tronque: boolean; bloquees?: Bloquees; plafonds?: Plafonds }); setCritereApplique(c); }
+      if (r.ok) { setRes((await r.json()) as ResultatRechercheVivier & { tronque: boolean; bloquees?: Bloquees; plafonds?: Plafonds }); setCritereApplique(c); if (defilerApres) defileVersMoteur(); }
       else setErreur('Recherche indisponible.');
     } catch { setErreur('Recherche indisponible.'); }
     finally { setChargement(false); }
@@ -134,12 +173,9 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
     setTriSens(transfert.tri?.sens ?? 'asc');
     setMoteurOuvert(transfert.types.length > 0 || transfert.tri !== null);
     setRetourPrep(null);
-    void chercherAvec({ q: transfert.q, types: transfert.types, tri: transfert.tri });
-    const el = refRacine.current;
-    if (el) {
-      const reduit = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)').matches : false;
-      el.scrollIntoView?.({ behavior: reduit ? 'auto' : 'smooth', block: 'start' });
-    }
+    // Le défilement est DIFFÉRÉ au rendu des résultats (defilerApres=true → cf. `defileVersMoteur`) : il vise la mise en page STABILISÉE du rail
+    //   d'arrivée (jamais l'état d'avant bascule) et NEUTRALISE le scroll-anchoring le temps d'un saut à offset explicite. C'était la cause de l'écart Téléservice→E-mail.
+    void chercherAvec({ q: transfert.q, types: transfert.types, tri: transfert.tri }, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [transfert?.jeton]);
 
