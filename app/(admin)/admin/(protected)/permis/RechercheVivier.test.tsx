@@ -63,9 +63,9 @@ const choisirSelect = async (el: HTMLSelectElement, valeur: string): Promise<voi
 };
 
 describe('MOTEUR COMPLET — RechercheVivier', () => {
-  it('rail E-MAIL : AUCUN bouton « Moteur de recherche complet » (rendu historique), champ + « Chercher » présents', async () => {
+  it('rail E-MAIL : le déclencheur du moteur complet EST présent (fusion : panneau sur les deux rails)', async () => {
     await monter('email');
-    expect(boutonPar(/Moteur de recherche complet/)).toBeUndefined();
+    expect(boutonPar(/Moteur de recherche complet/)).toBeDefined();
     expect(container.querySelector('input[aria-label^="Rechercher un permis"]')).not.toBeNull();
     expect(boutonPar(/Chercher/)).toBeDefined();
   });
@@ -151,10 +151,10 @@ describe('§1 — champ libre FACULTATIF quand un filtre est actif', () => {
     expect(boutonPar(/Chercher/)!.disabled).toBe(true);
   });
 
-  it('rail e-mail : « Chercher » reste actif même champ vide (inchangé), aucun indice', async () => {
+  it('rail e-mail : « Chercher » inactif champ vide + aucun critère (règles unifiées sur les deux rails)', async () => {
     await monter('email');
-    expect(boutonPar(/Chercher/)!.disabled).toBe(false);
-    expect(container.textContent).not.toMatch(/coche un type de permis/);
+    expect(boutonPar(/Chercher/)!.disabled).toBe(true);
+    expect(container.textContent).toMatch(/coche un type de permis/);
   });
 });
 
@@ -296,5 +296,75 @@ describe('§ — adresse affichée dans les lignes de résultat (les deux rails)
   it('rail TÉLÉSERVICE : l’adresse s’affiche aussi (le motif vaut pour les deux rails)', async () => {
     await avecResultats('formulaire', [permis({ canal: 'formulaire', communeNom: 'Clichy', adresse: '64 RUE DE PARIS' })]);
     expect(ligne('PC0951').textContent).toContain('64 RUE DE PARIS');
+  });
+});
+
+describe('§B — moteur fusionné : action par ligne selon le rail', () => {
+  const permis = (over: Record<string, unknown> = {}) => ({ dossierId: 1, numDau: 'PC0951', type: 'PC', codeInsee: '78646', communeNom: 'Versailles', canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2024-01-01', adresse: '34 AVENUE DE PARIS', ...over });
+  const monterFusion = async (process: 'email' | 'formulaire', mode: 'auto' | 'manuel', resultats: unknown[], opts: { bloquees?: unknown; plafonds?: unknown; repCreation?: unknown } = {}): Promise<{ posts: unknown[]; onPrepared: ReturnType<typeof vi.fn> }> => {
+    const posts: unknown[] = [];
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/vivier-recherche')) { urls.push(u); return { ok: true, json: async () => ({ resultats, total: resultats.length, autreProcess: 0, tronque: false, bloquees: opts.bloquees ?? {}, plafonds: opts.plafonds ?? {} }) } as unknown as Response; }
+      if (u.includes('/debloquer')) return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
+      if (u.includes('/api/admin/permis/demandes')) { posts.push(JSON.parse(String(init?.body ?? '{}'))); return { ok: true, json: async () => (opts.repCreation ?? { demandesCreees: 1, dossiersCrees: 1 }) } as unknown as Response; }
+      return { ok: true, json: async () => ({}) } as unknown as Response;
+    }) as unknown as typeof fetch;
+    const onPrepared = vi.fn();
+    await act(async () => { root.render(createElement(RechercheVivier, { process, categories: CATS, onBasculer: vi.fn(), mode, onPrepared })); });
+    await flush();
+    await rechercher('paris');
+    return { posts, onPrepared };
+  };
+
+  it('TÉLÉSERVICE demandable → « Afficher la carte dans le carrousel » ; clic → POST dossiersManuels + onPrepared', async () => {
+    const { posts, onPrepared } = await monterFusion('formulaire', 'auto', [permis()]);
+    const btn = boutonPar(/Afficher la carte dans le carrousel/);
+    expect(btn).toBeDefined();
+    await act(async () => { btn!.click(); });
+    await flush();
+    expect(posts).toEqual([{ dossiersManuels: [1] }]);          // MÊME chemin d'écriture existant
+    expect(onPrepared).toHaveBeenCalled();                       // rafraîchit le carrousel + compteurs
+    expect(container.textContent).toMatch(/carte ajoutée en 1re position/i);
+  });
+
+  it('E-MAIL mode MANUEL demandable → « Préparer cette demande » ; clic → POST dossiersManuels', async () => {
+    const { posts } = await monterFusion('email', 'manuel', [permis({ canal: 'email' })]);
+    const btn = boutonPar(/Préparer cette demande/);
+    expect(btn).toBeDefined();
+    await act(async () => { btn!.click(); });
+    await flush();
+    expect(posts).toEqual([{ dossiersManuels: [1] }]);
+    expect(container.textContent).toMatch(/Demande préparée/i);
+  });
+
+  it('E-MAIL mode AUTO → AUCUN bouton d’action sur la ligne (consultation seule)', async () => {
+    await monterFusion('email', 'auto', [permis({ canal: 'email' })]);
+    expect(boutonPar(/Préparer cette demande/)).toBeUndefined();
+    expect(boutonPar(/Afficher la carte/)).toBeUndefined();
+    expect(container.textContent).toMatch(/demandable/); // la ligne s'affiche quand même
+  });
+
+  it('commune BLOQUÉE → aucun bouton d’action, « Débloquer » présent, raison visible (verrou jamais contourné)', async () => {
+    await monterFusion('formulaire', 'auto', [permis()], { bloquees: { '78646': { reference: 'SVAV-DEM-2026-000009', demandeId: 9 } } });
+    expect(boutonPar(/Afficher la carte dans le carrousel/)).toBeUndefined();
+    expect(container.textContent).toMatch(/bloqué/i);
+    expect(boutonPar(/Débloquer/)).toBeDefined();
+  });
+
+  it('plafond mensuel dépassé (téléservice) → averti mais bouton d’action ACTIF (ne bloque pas)', async () => {
+    await monterFusion('formulaire', 'auto', [permis()], { plafonds: { '78646': { consomme: 5, plafond: 5, depasse: true } } });
+    expect(container.textContent).toMatch(/au plafond mensuel/i);
+    const btn = boutonPar(/Afficher la carte dans le carrousel/);
+    expect(btn).toBeDefined();
+    expect(btn!.disabled).toBe(false);
+  });
+
+  it('déjà rattaché (ignoresConflit) → message clair, jamais un faux succès', async () => {
+    const { onPrepared } = await monterFusion('formulaire', 'auto', [permis()], { repCreation: { demandesCreees: 0, ignoresConflit: 1 } });
+    await act(async () => { boutonPar(/Afficher la carte dans le carrousel/)!.click(); });
+    await flush();
+    expect(container.textContent).toMatch(/déjà rattaché/i);
+    expect(onPrepared).not.toHaveBeenCalled();
   });
 });

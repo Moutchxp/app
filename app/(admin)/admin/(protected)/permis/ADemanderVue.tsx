@@ -252,8 +252,12 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
         moisSaisie={moisSaisie} maxMois={maxMois} onMois={changerMois} onAllerReglages={onAllerReglages}
       />
 
-      {/* D3 — recherche du VIVIER (permis demandables) par n° de permis / ville, scopée au process, mention non silencieuse de l'autre. */}
-      <RechercheVivier process={process} categories={categories} onBasculer={onBasculerProcess} />
+      {/* MOTEUR FUSIONNÉ — recherche du VIVIER + action par ligne selon le rail. `mode` = mode COURANT du rail actif (téléservice :
+          modeTeleservice ; e-mail : le flag d'envoi auto) → pilote l'apparition du bouton « Préparer » côté e-mail. `onPrepared` =
+          foyer unique de rafraîchissement (carrousel + compteurs), comme l'ex-RechercheVivierManuel. */}
+      <RechercheVivier process={process} categories={categories} onBasculer={onBasculerProcess}
+        mode={process === 'formulaire' ? modeTeleservice : (emailEnvoiAuto === true ? 'auto' : 'manuel')}
+        onPrepared={signalerChangement} />
 
       {/* Q2b/U6 — STOCK par commune : REPLIÉ par défaut (une seule ligne à l'arrivée) ; l'ouverture manuelle charge et déplie. */}
       <BlocStock
