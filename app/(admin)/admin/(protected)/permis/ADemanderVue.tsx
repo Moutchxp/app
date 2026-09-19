@@ -254,14 +254,19 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
       {modaleEnvoiAuto && process === 'email' && (
         <ModaleConfirmationEnvoiAuto onConfirmer={confirmerEnvoiAuto} onAnnuler={() => { if (!basculeEnCours) setModaleEnvoiAuto(false); }} enCours={basculeEnCours} />
       )}
-      {/* §1+§2 (mise en forme) — MOTEUR DE RECHERCHE du vivier, DÉPLACÉ juste SOUS le bloc auto/manuel (les deux rails) et rendu REPLIABLE
-          (fermé par défaut). UNE SEULE instance, commune aux deux rails (jamais dupliquée). Le libellé passe sur la ligne de titre du repli
-          (titreExterne). ⚠️ État PRÉSERVÉ replier/déplier : BlocRepliable garde l'enfant MONTÉ (caché en CSS `hidden`) après la 1re ouverture
-          → critères et résultats intacts. `ouvrirSignal={transfert?.jeton}` : un renvoi « voir les N autres… » OUVRE le repli et monte le
-          moteur → l'effet de report (pré-remplissage + recherche + défilement) s'exécute comme avant (aucune régression du bouton de renvoi).
-          §2 — `ouvrirQuand={railManuelCertain}` : quand le rail actif est en mode MANUEL, le moteur se DÉPLIE tout seul (une seule fois) pour
-          inviter à chercher (le bloc auto/manuel au-dessus y renvoie explicitement). La latch n'ouvre qu'UNE fois : l'internaute peut ensuite
-          replier librement, et repasser en automatique NE le referme PAS (une recherche en cours n'est jamais perdue d'un clic sur la bascule).
+      {/* ③ CARROUSEL TÉLÉSERVICE (lot 1) — cartes de dépôt à faire, SOUS le bloc auto/manuel. UNE SEULE instance. Réservé au rail
+          Téléservice (process === 'formulaire'). En mode MANUEL, les cartes VIRTUELLES sont masquées (afficherVirtuels=false) ; les
+          RÉELLES restent. DEPOT-1 : mêmes signaux. Le COMPTEUR DE VIVIER (lot 2) est passé en prop `compteurVivier` → rendu SUR LA LIGNE
+          de nav du carrousel (fetch/rafraîchissement propres via signalSuivi), visible même carrousel vide. */}
+      {process === 'formulaire' && <BlocDepot signalRafraichir={signalSuivi} onChangement={signalerChangement} afficherVirtuels={modeTeleservice === 'auto'} compteurVivier={<CompteurVivierTeleservice signalRafraichir={signalSuivi} />} />}
+      {/* §1 (mise en forme, option B d'Arno) — MOTEUR DE RECHERCHE du vivier, en position FIXE SOUS LE CARROUSEL (les deux rails, les DEUX
+          modes) : la POSITION ne dépend plus du mode, seul le REPLI en dépend. Sur E-mail, BlocDepot rend null → le moteur occupe la place
+          équivalente (juste sous le bloc auto/manuel). UNE SEULE instance, commune aux deux rails (jamais dupliquée). Le libellé passe sur la
+          ligne de titre du repli (titreExterne). ⚠️ État PRÉSERVÉ replier/déplier : BlocRepliable garde l'enfant MONTÉ (caché en CSS `hidden`)
+          après la 1re ouverture → critères et résultats intacts. `ouvrirSignal={transfert?.jeton}` : un renvoi « voir les N autres… » OUVRE le
+          repli et monte le moteur → le report (pré-remplissage + recherche + défilement) s'exécute comme avant (aucune régression du renvoi).
+          `ouvrirQuand={railManuelCertain}` : en mode MANUEL le moteur se DÉPLIE au montage (une seule fois) pour inviter à chercher ; la latch
+          n'ouvre qu'UNE fois (repli libre ensuite, et repasser en automatique NE referme pas — une recherche en cours n'est jamais perdue).
           Le panneau interne « Moteur de recherche complet » (options), lui, reste fermé (état propre à RechercheVivier). */}
       <BlocRepliable titre={`Rechercher un permis / une ville — vivier ${PROCESS_META[process].court}`} ouvrirSignal={transfert?.jeton} ouvrirQuand={railManuelCertain}>
         {() => (
@@ -270,11 +275,6 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
             onPrepared={signalerChangement} signalRafraichir={signalSuivi} titreExterne />
         )}
       </BlocRepliable>
-      {/* ③ CARROUSEL TÉLÉSERVICE (lot 1) — cartes de dépôt à faire, SOUS le bloc auto/manuel. UNE SEULE instance. Réservé au rail
-          Téléservice (process === 'formulaire'). En mode MANUEL, les cartes VIRTUELLES sont masquées (afficherVirtuels=false) ; les
-          RÉELLES restent. DEPOT-1 : mêmes signaux. Le COMPTEUR DE VIVIER (lot 2) est passé en prop `compteurVivier` → rendu SUR LA LIGNE
-          de nav du carrousel (fetch/rafraîchissement propres via signalSuivi), visible même carrousel vide. */}
-      {process === 'formulaire' && <BlocDepot signalRafraichir={signalSuivi} onChangement={signalerChangement} afficherVirtuels={modeTeleservice === 'auto'} compteurVivier={<CompteurVivierTeleservice signalRafraichir={signalSuivi} />} />}
       {/* ④ LIGNE « Bascule de rail & carte des communes » (repliable, repliée par défaut) — sous le carrousel. S'affiche pour les DEUX
           rails ; en e-mail, BlocDepot rend null. `onAction` = `onChangement` : même rafraîchissement qu'avant, aucun comportement modifié. */}
       <GroupeRailsCommunes hors={hors} rail={process} onAction={onChangement ?? (() => {})} onOuvrirCommune={onOuvrirCommune} signalCarte={signalCarte} />

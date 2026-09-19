@@ -68,11 +68,12 @@ export function CommutateurProcess({ actif, onChoisir, compteurs, onOuvrirCommun
 
       {/* 3e groupe — JAMAIS masqué : ligne persistante + détail dépliable. */}
       <div style={{ fontSize: '.78rem' }}>
-        <button type="button" aria-expanded={horsOuvert} onClick={() => setHorsOuvert((v) => !v)}
-          className="svv-btn svv-btn-outline" style={{ minHeight: 34, padding: '.25rem .6rem', fontSize: '.76rem' }}>
-          <span aria-hidden="true">{horsOuvert ? '▾ ' : '▸ '}</span>
-          Hors process : {hors?.communesSansAdresse ?? 0} commune(s) sans adresse ni téléservice
-          {hors && hors.courrierDemandes > 0 ? ` · ${hors.courrierDemandes} demande(s) « courrier » (vestige)` : ''}
+        {/* §2 — ligne de titre repliable UNIFIÉE (variante NUE : ligne persistante du commutateur ; le détail dépliable ci-dessous garde
+            sa carte). Même chevron muté, même typo/hauteur ≥44px/focus que les autres blocs dépliables. Le libellé wrappe proprement (span flex). */}
+        <button type="button" aria-expanded={horsOuvert} onClick={() => setHorsOuvert((v) => !v)} className="svv-repli-titre-nu">
+          <span aria-hidden="true" className="svv-repli-chevron">{horsOuvert ? '▾' : '▸'}</span>
+          <span style={{ flex: 1, minWidth: 0 }}>Hors process : {hors?.communesSansAdresse ?? 0} commune(s) sans adresse ni téléservice
+          {hors && hors.courrierDemandes > 0 ? ` · ${hors.courrierDemandes} demande(s) « courrier » (vestige)` : ''}</span>
         </button>
         {horsOuvert && hors && (
           <div className="svv-card" style={{ marginTop: '.4rem', background: 'var(--color-svv-field)', fontSize: '.76rem' }}>

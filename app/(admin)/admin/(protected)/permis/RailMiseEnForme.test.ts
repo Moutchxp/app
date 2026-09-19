@@ -191,7 +191,17 @@ describe('Bandeau d’ancienneté — REPLIABLE, fermé par défaut, fonctionnel
   });
 });
 
-describe('Placement dans ADemanderVue (§1) — moteur sous le bloc auto/manuel, UNE seule instance', () => {
+describe('Apparence UNIFIÉE des lignes repliables (§2)', () => {
+  it('la ligne de titre du moteur (BlocRepliable) porte la classe partagée .svv-repli-titre + le chevron commun', async () => {
+    await rendreMoteur('formulaire');
+    const t = titreMoteur();
+    expect(t?.className).toContain('svv-repli-titre');            // même apparence que tous les blocs dépliables
+    expect(t?.querySelector('.svv-repli-chevron')).not.toBeNull(); // chevron commun (muté, ▸/▾)
+    expect(t?.getAttribute('aria-expanded')).toBe('false');       // toujours un vrai bouton dépliable
+  });
+});
+
+describe('Placement dans ADemanderVue (§1) — moteur SOUS le carrousel, UNE seule instance', () => {
   const src = readFileSync(join(process.cwd(), 'app/(admin)/admin/(protected)/permis/ADemanderVue.tsx'), 'utf8');
   const compact = src.replace(/\s+/g, ' ');
 
@@ -210,12 +220,14 @@ describe('Placement dans ADemanderVue (§1) — moteur sous le bloc auto/manuel,
     expect(compact).toContain('emailEnvoiAuto === false');
   });
 
-  it('ORDRE : bloc auto/manuel → moteur repliable → stock (le moteur est bien JUSTE SOUS le bloc de sélection)', () => {
+  it('ORDRE (§1) : bloc auto/manuel → carrousel → moteur repliable → stock (le moteur est SOUS le carrousel, position fixe)', () => {
     const iMode = compact.indexOf('<ModeDemandeTeleservice');
+    const iCarrousel = compact.indexOf('<BlocDepot');
     const iMoteur = compact.indexOf('titre={`Rechercher un permis / une ville — vivier');
     const iStock = compact.indexOf('<BlocStock');
     expect(iMode).toBeGreaterThanOrEqual(0);
-    expect(iMoteur).toBeGreaterThan(iMode);
+    expect(iCarrousel).toBeGreaterThan(iMode);    // le carrousel suit le bloc de sélection
+    expect(iMoteur).toBeGreaterThan(iCarrousel);  // §1 : le moteur est SOUS le carrousel (les deux modes), plus juste sous la sélection
     expect(iStock).toBeGreaterThan(iMoteur);
   });
 

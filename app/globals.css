@@ -65,6 +65,22 @@
   .svv-row-btn{display:flex;width:100%;flex-direction:column;gap:0;background:none;border:0;padding:0;margin:0;text-align:left;cursor:pointer;min-height:44px;color:inherit;font:inherit}
   .svv-chevron{flex-shrink:0;color:var(--color-svv-muted);transition:transform .15s ease}
   .svv-chevron[data-open="true"]{transform:rotate(180deg)}
+  /* LIGNE DE TITRE REPLIABLE UNIFIÉE — apparence UNIQUE (chevron, typo, hauteur, espacement, survol, focus) pour TOUS les blocs dépliables
+     de niveau bloc de l'écran (BlocRepliable, <details> natif, blocs d'alerte). `.svv-repli-titre` = variante ENCADRÉE (bloc autonome).
+     `.svv-repli-titre-nu` = variante NUE, à l'intérieur d'une carte / alerte DÉJÀ encadrée (pas de double bordure ; la carte garde sa
+     couleur). Cible tactile ≥44px partout ; glyphe ▸/▾ (piloté en JS côté React, en CSS côté <details>). */
+  .svv-repli-titre,.svv-repli-titre-nu{display:flex;align-items:center;gap:.4rem;width:100%;min-height:44px;text-align:left;cursor:pointer;font-size:13px;font-weight:700;color:var(--color-svv-ink)}
+  .svv-repli-titre{padding:.5rem .6rem;background:transparent;border:1px solid var(--color-svv-line);border-radius:.5rem;transition:background-color .15s ease}
+  .svv-repli-titre:hover{background:var(--color-svv-field)}
+  .svv-repli-titre-nu{padding:0;background:none;border:0;color:inherit}
+  .svv-repli-titre:focus-visible,.svv-repli-titre-nu:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+  .svv-repli-titre:focus:not(:focus-visible),.svv-repli-titre-nu:focus:not(:focus-visible){outline:none}
+  .svv-repli-chevron{flex-shrink:0;color:var(--color-svv-muted)}
+  /* <summary> stylé identiquement : retirer le marqueur natif du navigateur ; le chevron ▸/▾ vient du CSS et suit [open] (aucun état JS). */
+  summary.svv-repli-titre{list-style:none}
+  summary.svv-repli-titre::-webkit-details-marker{display:none}
+  summary.svv-repli-titre .svv-repli-chevron::before{content:'▸'}
+  details[open]>summary.svv-repli-titre .svv-repli-chevron::before{content:'▾'}
   /* Intérieur BLANC (fond clair habituel de l'app, cf. .svv-card / champs du tunnel) : surface claire + bordure sur la carte
      grise = trois éléments cliquables distincts. #fff = convention de surface établie, aucun token de surface ajouté. */
   .svv-doc{display:flex;flex-direction:column;gap:2px;min-height:44px;justify-content:center;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px;transition:border-color .15s ease}
@@ -75,7 +91,7 @@
      transition border-color .15s ease, texte inchangé), ÉTENDU à focus-visible (clavier) et active (appui tactile). */
   .svv-menu-entree{display:flex;align-items:center;justify-content:space-between;gap:.75rem;min-height:56px;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:12px;padding:12px 16px;font-size:1rem;font-weight:600;color:var(--color-svv-ink);transition:border-color .15s ease}
   .svv-menu-entree:hover,.svv-menu-entree:focus-visible,.svv-menu-entree:active{border-color:var(--color-svv-red)}
-  @media (prefers-reduced-motion: reduce){.svv-chevron,.svv-doc,.svv-menu-entree{transition:none}}
+  @media (prefers-reduced-motion: reduce){.svv-chevron,.svv-doc,.svv-menu-entree,.svv-repli-titre{transition:none}}
   /* Cartes de CHOIX (bloc auto/manuel « À demander ») : le halo de focus par DÉFAUT du navigateur est bleu → on le remet aux MÊMES
      tokens ROUGES que le rail actif. Clavier (focus-visible) → cerclage rouge visible ; souris/tactile (focus non-visible) → pas de
      halo (la carte active porte déjà sa bordure rouge). a11y préservée (le focus clavier reste visible). */

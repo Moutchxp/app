@@ -138,9 +138,16 @@ export function ResumeCriteresTeleservice({ signalRafraichir, onChangement, onAl
   const colVerrou = colonneDe('teleserviceVerrouReferenceActif');
   const verrouCoche = edits[colVerrou] !== undefined ? edits[colVerrou] === 'true' : veille.teleserviceVerrouReferenceActif;
 
+  // §2 — ligne de titre repliable UNIFIÉE : le <summary> adopte `.svv-repli-titre` (+ chevron ▸/▾ en CSS via [open]) → même apparence,
+  //   survol, focus et cible ≥44px que BlocRepliable. On retire `svv-card` (le bordé de la ligne suffit ; pas de double bordure) : ce bloc
+  //   NEUTRE rejoint la famille « ligne encadrée » (moteur, bascule, ancienneté). Reste un <details> natif : PAS de conversion en React
+  //   (le comportement — contenu monté même replié, fetch au montage — ne doit pas changer).
   return (
-    <details className="svv-card" style={{ fontSize: 13 }}>
-      <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Critères de sélection des cartes — rail Téléservice</summary>
+    <details style={{ fontSize: 13 }}>
+      <summary className="svv-repli-titre">
+        <span aria-hidden className="svv-repli-chevron" />
+        <span style={{ flex: 1, minWidth: 0 }}>Critères de sélection des cartes — rail Téléservice</span>
+      </summary>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', marginTop: '.5rem' }}>
         {/* ① Propres au téléservice — MODIFIABLES ICI (ne touchent que ce rail). */}

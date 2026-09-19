@@ -56,17 +56,15 @@ export function BlocRepliable({ titre, children, onOuvertChange, defautOuvert = 
 
   return (
     <div className="flex flex-col gap-1" style={{ minWidth: 0 }}>
+      {/* Ligne de titre repliable UNIFIÉE (`.svv-repli-titre` + `.svv-repli-chevron`, cf. globals.css) : même apparence, survol, focus et
+          cible tactile ≥44px que tous les autres blocs dépliables de l'écran. Glyphe ▸/▾ piloté par l'état. */}
       <button
         type="button"
         onClick={basculer}
         aria-expanded={ouvert}
-        style={{
-          display: 'flex', alignItems: 'center', gap: '.4rem', width: '100%', textAlign: 'left', cursor: 'pointer',
-          padding: '.5rem .6rem', fontSize: 13, fontWeight: 700, color: 'var(--color-svv-ink)',
-          background: 'transparent', border: '1px solid var(--color-svv-line)', borderRadius: '.5rem',
-        }}
+        className="svv-repli-titre"
       >
-        <span aria-hidden style={{ color: 'var(--color-svv-muted)', flexShrink: 0 }}>{ouvert ? '▾' : '▸'}</span>
+        <span aria-hidden className="svv-repli-chevron">{ouvert ? '▾' : '▸'}</span>
         <span style={{ flex: 1, minWidth: 0 }}>{titre}</span>
       </button>
       {/* Monté SEULEMENT après la 1re ouverture (dejaOuvert) ; caché en CSS quand replié → jamais démonté, donc jamais de refetch. */}

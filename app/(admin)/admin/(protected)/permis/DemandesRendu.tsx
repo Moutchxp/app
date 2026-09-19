@@ -132,10 +132,11 @@ export function EncartArbitrages({ arbitrages, ouvert, onToggle, onOuvrirCommune
   const n = arbitrages.length;
   return (
     <section role="group" aria-label="Arbitrages PRADA à rendre" className="svv-card" style={{ background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)' }}>
-      <button type="button" aria-expanded={ouvert} aria-controls={ID_CONTENU_ARBITRAGES} onClick={() => onToggle?.()}
-        style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit', display: 'flex', gap: '.4rem', alignItems: 'baseline', width: '100%', textAlign: 'left' }}>
-        <span aria-hidden="true">{ouvert ? '▾' : '▸'}</span>
-        <strong>{n} commune{n > 1 ? 's' : ''} {n > 1 ? 'ont' : 'a'} une PRADA non adoptée</strong>
+      {/* §2 — ligne de titre repliable UNIFIÉE (variante NUE : la carte ambre porte déjà la boîte et la couleur d'alerte). Chevron muté
+          commun, typo/hauteur ≥44px/focus alignés ; la couleur d'alerte reste sur le titre (color:inherit → ambre). */}
+      <button type="button" aria-expanded={ouvert} aria-controls={ID_CONTENU_ARBITRAGES} onClick={() => onToggle?.()} className="svv-repli-titre-nu">
+        <span aria-hidden="true" className="svv-repli-chevron">{ouvert ? '▾' : '▸'}</span>
+        <strong style={{ flex: 1, minWidth: 0 }}>{n} commune{n > 1 ? 's' : ''} {n > 1 ? 'ont' : 'a'} une PRADA non adoptée</strong>
       </button>
       {ouvert && (
         <div id={ID_CONTENU_ARBITRAGES}>
@@ -204,10 +205,11 @@ export function BlocRepliable({ ligne, ouvert, onToggle, idContenu, ariaLabel, r
 }) {
   return (
     <section role="group" aria-label={ariaLabel} className={className} style={style}>
-      <button type="button" aria-expanded={ouvert} aria-controls={idContenu} onClick={() => onToggle?.()}
-        style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer', font: 'inherit', color: 'inherit', display: 'flex', gap: '.4rem', alignItems: 'baseline', width: '100%', textAlign: 'left' }}>
-        <span aria-hidden="true">{ouvert ? '▾' : '▸'}</span>
-        <strong>{ligne}</strong>
+      {/* §2 — ligne de titre repliable UNIFIÉE (variante NUE : le conteneur `className` — svv-card ou carte d'alerte — porte déjà la boîte
+          et sa couleur). Même chevron muté, même typo/hauteur ≥44px/focus que les autres blocs dépliables. */}
+      <button type="button" aria-expanded={ouvert} aria-controls={idContenu} onClick={() => onToggle?.()} className="svv-repli-titre-nu">
+        <span aria-hidden="true" className="svv-repli-chevron">{ouvert ? '▾' : '▸'}</span>
+        <strong style={{ flex: 1, minWidth: 0 }}>{ligne}</strong>
       </button>
       {/* retour de saisie : TOUJOURS visible (hors du repli) */}
       {retour ? <div style={{ marginTop: '.4rem' }}>{retour}</div> : null}

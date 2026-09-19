@@ -74,6 +74,17 @@ describe('Lot 3 — résumé des critères téléservice', () => {
     expect(container.textContent).toMatch(/AUSSI pour le rail E-mail/i);
   });
 
+  it('§2 — ligne de titre UNIFIÉE : <summary> porte .svv-repli-titre + chevron commun, plus de svv-card, et RESTE un <details> natif', async () => {
+    brancherFetch();
+    await monter();
+    const d = container.querySelector('details');
+    const s = d?.querySelector('summary');
+    expect(s?.className).toContain('svv-repli-titre');             // même apparence que BlocRepliable (ligne encadrée)
+    expect(s?.querySelector('.svv-repli-chevron')).not.toBeNull(); // chevron commun (▸/▾ via CSS [open])
+    expect(d?.className ?? '').not.toContain('svv-card');          // le bordé de la ligne suffit → pas de double bordure
+    expect(d?.tagName.toLowerCase()).toBe('details');             // PAS converti en React : comportement (montage/fetch) inchangé
+  });
+
   it('les 3 critères PARTAGÉS sont NON éditables (aucun contrôle) et renvoient vers Réglages', async () => {
     brancherFetch();
     await monter();
