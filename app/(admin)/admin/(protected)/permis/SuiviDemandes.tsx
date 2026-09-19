@@ -701,7 +701,11 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
         {avecActionsGroupees && (
           <>
             <span style={{ marginLeft: 'auto' }}>{sel.size} sélectionnée(s)</span>
-            <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .7rem', opacity: sel.size ? 1 : 0.5 }} disabled={sel.size === 0} onClick={() => void transition([...sel], 'prete')}>Passer en prête</button>
+            {/* §2 — « Passer en prête » ne sert QUE le rail e-mail : 'prete' n'est consommé que par envoyerDemandes/dest_canal='email'
+                (envoiDemande.ts:148) ; le dépôt téléservice part du brouillon (demandeRepo.ts:1543-1544). Masqué en formulaire ; INCHANGÉ en e-mail. */}
+            {process === 'email' && (
+              <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .7rem', opacity: sel.size ? 1 : 0.5 }} disabled={sel.size === 0} onClick={() => void transition([...sel], 'prete')}>Passer en prête</button>
+            )}
             <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem', opacity: sel.size ? 1 : 0.5 }} disabled={sel.size === 0} onClick={() => void transition([...sel], 'annulee')}>Annuler la demande</button>
             <label className="flex flex-col gap-1">Basculer la sélection en…
               <select value="" disabled={sel.size === 0} onChange={(e) => { if (e.target.value) setConfBascule({ ids: [...sel], profil: selProfil(e.target.value) }); }} style={{ ...styleChamp, opacity: sel.size ? 1 : 0.5 }}>
@@ -716,8 +720,9 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
               title="Annuler tous les brouillons de la vue filtrée actuelle (les prêtes sont exclues)">
               Tout annuler ({masse.brouillons.length} brouillon{masse.brouillons.length > 1 ? 's' : ''})
             </button>
-            {/* D1 — geste DÉDIÉ par demande PRÊTE présente dans la vue : nommée, distincte du geste de masse. */}
-            {masse.pretes.map((d) => (
+            {/* D1 — geste DÉDIÉ par demande PRÊTE présente dans la vue : nommée, distincte du geste de masse.
+                §2 — rail E-MAIL uniquement : en téléservice, une prête s'annule depuis son panneau détail (onAnnulerPrete, §1). */}
+            {process === 'email' && masse.pretes.map((d) => (
               <button key={d.id} type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem', color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }}
                 onClick={() => setConfPrete({ id: d.id, reference: d.reference, communeNom: d.communeNom })}
                 title={`Annuler la demande prête ${d.reference} (sur le point de partir)`}>
