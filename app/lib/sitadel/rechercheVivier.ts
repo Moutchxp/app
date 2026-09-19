@@ -28,6 +28,50 @@ export interface ResultatRechercheVivier {
 }
 
 /**
+ * MOTEUR COMPLET (rail téléservice) — colonnes de TRI, bornées aux champs RÉELLEMENT présents dans `PermisVivier` (:12-22).
+ * `date` = `dateAutorisation` ; `commune` = `communeNom` (repli `codeInsee`). ⚠️ PAS de `surface` : ce champ n'existe pas dans le
+ * vivier (aucune jointure ajoutée pour l'obtenir — décision : livrer sans, cf. rapport). Additif : le rail e-mail n'envoie jamais
+ * ces options → comportement historique intact.
+ */
+export type ColonneTriVivier = 'date' | 'commune';
+export const COLONNES_TRI_VIVIER: readonly ColonneTriVivier[] = ['date', 'commune'];
+export interface TriVivier { colonne: ColonneTriVivier; sens: 'asc' | 'desc' }
+/** Options OPTIONNELLES de la recherche (moteur complet). Absentes → recherche historique à l'identique. */
+export interface OptionsRechercheVivier {
+  typesCategories?: string[]; // clés de catégorie retenues (cf. PermisVivier.categorie) ; vide/absent → tous les types
+  tri?: TriVivier;            // tri appliqué AVANT le cap ; absent → ordre naturel du vivier (historique)
+}
+
+/**
+ * Décode un paramètre de tri « colonne:sens » en `TriVivier`, ou `undefined` si absent/invalide (colonne hors
+ * `COLONNES_TRI_VIVIER` — dont `surface`, inexistant — ou sens ≠ asc/desc). PURE. Un tri invalide n'est jamais une erreur : il est
+ * simplement ignoré (retour à l'ordre naturel), pour que le passe-plat serveur reste tolérant.
+ */
+export function parseTriVivier(v: string | null | undefined): TriVivier | undefined {
+  if (typeof v !== 'string') return undefined;
+  const parts = v.split(':');
+  if (parts.length !== 2) return undefined; // « colonne:sens » EXACTEMENT (rejette 'date', 'date:asc:desc', etc.)
+  const [colonne, sens] = parts;
+  if (!COLONNES_TRI_VIVIER.includes(colonne as ColonneTriVivier)) return undefined;
+  if (sens !== 'asc' && sens !== 'desc') return undefined;
+  return { colonne: colonne as ColonneTriVivier, sens };
+}
+
+/** Ordre de base (croissant) d'une colonne de tri du vivier. Départage FINAL par `dossierId` → ordre TOTAL (asc/desc inverses exacts). */
+function ordreBaseVivier(colonne: ColonneTriVivier, a: PermisVivier, b: PermisVivier): number {
+  let c = 0;
+  if (colonne === 'date') c = (a.dateAutorisation ?? '').localeCompare(b.dateAutorisation ?? '');
+  else c = (a.communeNom ?? a.codeInsee).localeCompare(b.communeNom ?? b.codeInsee, 'fr'); // 'commune'
+  return c !== 0 ? c : a.dossierId - b.dossierId;
+}
+
+/** Trie une liste de permis du vivier (copie, jamais en place). `desc` = négation exacte de `asc`. PURE. */
+export function trierVivier(resultats: readonly PermisVivier[], tri: TriVivier): PermisVivier[] {
+  const sign = tri.sens === 'asc' ? 1 : -1;
+  return [...resultats].sort((a, b) => sign * ordreBaseVivier(tri.colonne, a, b));
+}
+
+/**
  * Normalise pour la comparaison — SANS accents, MAJUSCULES, et sans les caractères qui ne portent pas de sens de recherche : espaces
  * (y compris multiples), virgules, points, apostrophes (droite ' ET typographiques ’ ‘), accent grave, tirets/traits (- – —). Appliquée
  * SYMÉTRIQUEMENT à la saisie ET à la donnée stockée (num_dau, ville, adresse) → la tolérance marche dans les DEUX sens. Même esprit que
@@ -81,15 +125,25 @@ export function correspondVivier(p: { numDau: string; communeNom: string | null;
 
 /**
  * Recherche dans le vivier, scopée au `process` actif. `cap` borne les résultats renvoyés (le total réel est renvoyé à part
- * pour signaler une troncature). Requête vide → aucun résultat. PURE.
+ * pour signaler une troncature). Requête vide → aucun résultat. `opts` (moteur complet, téléservice) est OPTIONNEL : sans lui,
+ * comportement STRICTEMENT historique (filtre par mots → scope process → cap, ordre naturel du vivier). PURE.
+ * - `typesCategories` (vide/absent → aucun filtre) : appliqué AVANT le split process, donc `total` ET `autreProcess` reflètent le
+ *   filtre (la mention « N dans l'autre process » ne promet jamais des résultats qui, une fois basculé, seraient filtrés).
+ * - `tri` (absent → ordre naturel) : appliqué AVANT le cap, pour que les `cap` premiers soient bien les `cap` premiers du tri.
  */
-export function rechercherDansVivier(vivier: readonly PermisVivier[], q: string, process: Process, cap: number): ResultatRechercheVivier {
+export function rechercherDansVivier(vivier: readonly PermisVivier[], q: string, process: Process, cap: number, opts?: OptionsRechercheVivier): ResultatRechercheVivier {
   if (norm(q) === '') return { resultats: [], total: 0, autreProcess: 0 };
-  const matches = vivier.filter((p) => correspondVivier(p, q));
-  const actif = matches.filter((p) => processDeCanal(p.canal) === process);
+  let matches = vivier.filter((p) => correspondVivier(p, q));
+  const types = opts?.typesCategories;
+  if (types && types.length > 0) {
+    const retenus = new Set(types);
+    matches = matches.filter((p) => retenus.has(p.categorie));
+  }
+  let actif = matches.filter((p) => processDeCanal(p.canal) === process);
   const autre = matches.filter((p) => {
     const pr = processDeCanal(p.canal);
     return pr !== null && pr !== process;
   }).length;
+  if (opts?.tri) actif = trierVivier(actif, opts.tri);
   return { resultats: actif.slice(0, cap), total: actif.length, autreProcess: autre };
 }

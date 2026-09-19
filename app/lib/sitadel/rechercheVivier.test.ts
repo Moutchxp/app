@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { correspondVivier, rechercherDansVivier, type PermisVivier } from './rechercheVivier';
+import { correspondVivier, rechercherDansVivier, trierVivier, parseTriVivier, type PermisVivier } from './rechercheVivier';
 
 const p = (over: Partial<PermisVivier> = {}): PermisVivier => ({
   dossierId: 1, numDau: '07510124V0034', type: 'PC', codeInsee: '75056', communeNom: 'Paris',
@@ -162,5 +162,84 @@ describe('recherche par MOTS INDÉPENDANTS (correction post-f895823 : mots non c
     const r = rechercherDansVivier(vivier, '82 denfert', 'formulaire', 50);
     expect(r.resultats.map((x) => x.dossierId)).toEqual([25]);
     expect(r.total).toBe(1);
+  });
+});
+
+describe('MOTEUR COMPLET — parseTriVivier (colonne:sens, tolérant)', () => {
+  it('décode les colonnes valides et les deux sens', () => {
+    expect(parseTriVivier('date:asc')).toEqual({ colonne: 'date', sens: 'asc' });
+    expect(parseTriVivier('date:desc')).toEqual({ colonne: 'date', sens: 'desc' });
+    expect(parseTriVivier('commune:asc')).toEqual({ colonne: 'commune', sens: 'asc' });
+  });
+  it('undefined pour tout ce qui est absent ou invalide (dont « surface », inexistant dans le vivier)', () => {
+    for (const v of [null, undefined, '', 'date', 'date:', 'date:up', 'surface:asc', 'commune:DESC', 'xxx:asc', 'date:asc:desc']) {
+      expect(parseTriVivier(v as string | null | undefined), String(v)).toBeUndefined();
+    }
+  });
+});
+
+describe('MOTEUR COMPLET — trierVivier (date, commune ; asc = inverse exact de desc)', () => {
+  it('trie par date (repli chaîne vide pour null) et départage par dossierId', () => {
+    const liste = [
+      p({ dossierId: 3, dateAutorisation: '2024-01-10' }),
+      p({ dossierId: 1, dateAutorisation: '2023-05-01' }),
+      p({ dossierId: 2, dateAutorisation: '2024-01-10' }), // même date que 3 → départage par dossierId (2 avant 3)
+    ];
+    expect(trierVivier(liste, { colonne: 'date', sens: 'asc' }).map((x) => x.dossierId)).toEqual([1, 2, 3]);
+    expect(trierVivier(liste, { colonne: 'date', sens: 'desc' }).map((x) => x.dossierId)).toEqual([3, 2, 1]);
+  });
+  it('trie par commune (repli codeInsee si nom absent), locale fr', () => {
+    const liste = [
+      p({ dossierId: 1, communeNom: 'Vincennes' }),
+      p({ dossierId: 2, communeNom: 'Asnières' }),
+      p({ dossierId: 3, communeNom: 'Évry' }),
+    ];
+    expect(trierVivier(liste, { colonne: 'commune', sens: 'asc' }).map((x) => x.dossierId)).toEqual([2, 3, 1]);
+    expect(trierVivier(liste, { colonne: 'commune', sens: 'desc' }).map((x) => x.dossierId)).toEqual([1, 3, 2]);
+  });
+  it('ne mute jamais l’entrée (copie)', () => {
+    const liste = [p({ dossierId: 2, dateAutorisation: '2024-01-01' }), p({ dossierId: 1, dateAutorisation: '2023-01-01' })];
+    const avant = liste.map((x) => x.dossierId);
+    trierVivier(liste, { colonne: 'date', sens: 'asc' });
+    expect(liste.map((x) => x.dossierId)).toEqual(avant);
+  });
+});
+
+describe('MOTEUR COMPLET — rechercherDansVivier (filtre type + tri, options OPTIONNELLES)', () => {
+  const vivier: PermisVivier[] = [
+    p({ dossierId: 1, numDau: 'PARIS-1', communeNom: 'Paris', canal: 'formulaire', categorie: 'immeuble_neuf', dateAutorisation: '2024-03-01' }),
+    p({ dossierId: 2, numDau: 'PARIS-2', communeNom: 'Paris', canal: 'formulaire', categorie: 'surelevation', dateAutorisation: '2024-01-01' }),
+    p({ dossierId: 3, numDau: 'PARIS-3', communeNom: 'Paris', canal: 'email', categorie: 'immeuble_neuf', dateAutorisation: '2024-02-01' }),
+  ];
+  it('sans options → comportement historique EXACT (identique à l’appel à 4 arguments et à opts vide)', () => {
+    const a = rechercherDansVivier(vivier, 'paris', 'formulaire', 50);
+    const b = rechercherDansVivier(vivier, 'paris', 'formulaire', 50, {});
+    expect(b).toEqual(a);
+    expect(a.resultats.map((x) => x.dossierId)).toEqual([1, 2]); // ordre NATUREL du vivier
+    expect(a.autreProcess).toBe(1);
+  });
+  it('typesCategories vide → aucun filtre (tous les types)', () => {
+    const r = rechercherDansVivier(vivier, 'paris', 'formulaire', 50, { typesCategories: [] });
+    expect(r.resultats.map((x) => x.dossierId)).toEqual([1, 2]);
+  });
+  it('filtre par type : ne garde que les catégories cochées, ET recompte l’autre process', () => {
+    const r = rechercherDansVivier(vivier, 'paris', 'formulaire', 50, { typesCategories: ['immeuble_neuf'] });
+    expect(r.resultats.map((x) => x.dossierId)).toEqual([1]);   // surélévation (2) écartée
+    expect(r.total).toBe(1);
+    expect(r.autreProcess).toBe(1);                              // PARIS-3 email est immeuble_neuf → toujours compté
+  });
+  it('un filtre de type qui EXCLUT l’autre process → autreProcess retombe à 0 (mention jamais mensongère)', () => {
+    const r = rechercherDansVivier(vivier, 'paris', 'formulaire', 50, { typesCategories: ['surelevation'] });
+    expect(r.resultats.map((x) => x.dossierId)).toEqual([2]);
+    expect(r.autreProcess).toBe(0);                              // le seul email (3) est immeuble_neuf, filtré
+  });
+  it('tri appliqué AVANT le cap (les N premiers = les N premiers DU TRI, pas un sous-ensemble arbitraire)', () => {
+    const r = rechercherDansVivier(vivier, 'paris', 'formulaire', 1, { tri: { colonne: 'date', sens: 'asc' } });
+    expect(r.resultats.map((x) => x.dossierId)).toEqual([2]);    // 2024-01-01 = la plus ancienne, seule renvoyée (cap 1)
+    expect(r.total).toBe(2);
+  });
+  it('tri date desc sur le process actif', () => {
+    const r = rechercherDansVivier(vivier, 'paris', 'formulaire', 50, { tri: { colonne: 'date', sens: 'desc' } });
+    expect(r.resultats.map((x) => x.dossierId)).toEqual([1, 2]); // 2024-03-01 avant 2024-01-01
   });
 });

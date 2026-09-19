@@ -2,7 +2,7 @@ import 'server-only';
 import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../../lib/sitadel/veilleConfig';
 import { chargerVivier, communesBloqueesTeleservice, plafondsTeleservice } from '../../../../../../lib/sitadel/demandeRepo';
-import { rechercherDansVivier } from '../../../../../../lib/sitadel/rechercheVivier';
+import { rechercherDansVivier, parseTriVivier } from '../../../../../../lib/sitadel/rechercheVivier';
 
 /**
  * D3 — GET /api/admin/permis/demandes/vivier-recherche?q=…&process=email|formulaire — RECHERCHE dans le VIVIER (permis encore
@@ -25,10 +25,16 @@ export async function GET(request: Request): Promise<Response> {
   const process = p === 'email' || p === 'formulaire' ? p : null;
   if (process === null) return Response.json({ erreur: 'process invalide (email|formulaire)' }, { status: 422 });
   if (q === '') return Response.json({ resultats: [], total: 0, autreProcess: 0, tronque: false });
+  // MOTEUR COMPLET (téléservice) — paramètres OPTIONNELS. Absents (cas du rail e-mail, qui ne les envoie jamais) → recherche
+  //   historique à l'identique. `types` = clés de catégorie séparées par des virgules ; `tri` = « colonne:sens » (validé par
+  //   parseTriVivier, ignoré si invalide). Aucun WHERE SQL ajouté : le filtrage/tri restent en aval, purs (rechercherDansVivier).
+  const typesParam = url.searchParams.get('types');
+  const typesCategories = typesParam ? typesParam.split(',').map((s) => s.trim()).filter((s) => s !== '') : undefined;
+  const tri = parseTriVivier(url.searchParams.get('tri'));
   try {
     const cfg = await chargerConfigVeille();
     const { vivier, tronque } = await chargerVivier(cfg);
-    const r = rechercherDansVivier(vivier, q, process, CAP);
+    const r = rechercherDansVivier(vivier, q, process, CAP, { typesCategories, tri });
     // Lot C (point 3) — le blocage « en attente d'accusé » est TÉLÉSERVICE uniquement : on ne le calcule que pour le process
     //   'formulaire' (aucun blocage côté e-mail). Une commune bloquée → ses permis s'affichent « bloqué », jamais « demandable ».
     const bloquees = process === 'formulaire' ? await communesBloqueesTeleservice() : {};

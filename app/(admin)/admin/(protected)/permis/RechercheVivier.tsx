@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { PROCESS_META, type Process } from '../../../../lib/sitadel/process';
-import type { PermisVivier, ResultatRechercheVivier } from '../../../../lib/sitadel/rechercheVivier';
+import type { PermisVivier, ResultatRechercheVivier, ColonneTriVivier } from '../../../../lib/sitadel/rechercheVivier';
 
 /**
  * D3 — PANNEAU de recherche du VIVIER (permis encore demandables) par n° de permis ou par ville, SCOPÉ au process actif. Une
@@ -24,13 +24,28 @@ export function RechercheVivier({ process, categories, onBasculer }: {
   const [debloquant, setDebloquant] = useState<number | null>(null);
   const libelle = (cle: string): string => categories.find((c) => c.cle === cle)?.libelle ?? cle;
   const autre: Process = process === 'email' ? 'formulaire' : 'email';
+  // MOTEUR COMPLET — rail TÉLÉSERVICE uniquement (`estFormulaire`). État d'écran LOCAL, NON persistant (aucun localStorage/URL) ;
+  //   panneau FERMÉ au montage ; rien de coché → tous les types. Le rail e-mail ne rend RIEN de ceci et n'envoie aucun paramètre.
+  const estFormulaire = process === 'formulaire';
+  const [moteurOuvert, setMoteurOuvert] = useState(false);
+  const [typesCoches, setTypesCoches] = useState<Set<string>>(new Set());
+  const [triColonne, setTriColonne] = useState<'' | ColonneTriVivier>('');
+  const [triSens, setTriSens] = useState<'asc' | 'desc'>('asc');
+  const basculerType = (cle: string): void => setTypesCoches((s) => { const n = new Set(s); if (n.has(cle)) n.delete(cle); else n.add(cle); return n; });
 
   async function chercher(): Promise<void> {
     const query = q.trim();
     if (query === '') { setRes(null); return; }
     setChargement(true); setErreur('');
+    // Rail e-mail : URL STRICTEMENT inchangée (q + process). Téléservice : ajoute les options du moteur complet SI renseignées
+    //   (rien de coché / aucun tri → aucun paramètre → réponse identique à aujourd'hui). Le serveur les traite en optionnels.
+    const params = new URLSearchParams({ q: query, process });
+    if (estFormulaire) {
+      if (typesCoches.size > 0) params.set('types', [...typesCoches].join(','));
+      if (triColonne !== '') params.set('tri', `${triColonne}:${triSens}`);
+    }
     try {
-      const r = await fetch(`/api/admin/permis/demandes/vivier-recherche?q=${encodeURIComponent(query)}&process=${process}`, { cache: 'no-store' });
+      const r = await fetch(`/api/admin/permis/demandes/vivier-recherche?${params.toString()}`, { cache: 'no-store' });
       if (r.ok) setRes((await r.json()) as ResultatRechercheVivier & { tronque: boolean; bloquees?: Bloquees });
       else setErreur('Recherche indisponible.');
     } catch { setErreur('Recherche indisponible.'); }
@@ -59,6 +74,52 @@ export function RechercheVivier({ process, categories, onBasculer }: {
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="n° de permis ou ville"
           aria-label="Rechercher un permis (numéro) ou une ville dans le vivier"
           style={{ flex: '1 1 12rem', minHeight: 40, padding: '.4rem .55rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14 }} />
+        {/* MOTEUR COMPLET — rail téléservice UNIQUEMENT. Bouton + panneau ENTRE le champ et « Chercher ». En e-mail : rien (rendu
+            historique à l'identique). Dépliage = montage conditionnel INSTANTANÉ (aucune animation → respecte prefers-reduced-motion). */}
+        {estFormulaire && (
+          <>
+            <button type="button" className="svv-btn svv-btn-outline" aria-expanded={moteurOuvert} aria-controls="moteur-recherche-complet"
+              onClick={() => setMoteurOuvert((o) => !o)} style={{ minHeight: 44, padding: '.4rem .8rem', flex: '0 0 auto' }}>
+              <span aria-hidden="true">{moteurOuvert ? '▾ ' : '▸ '}</span>Moteur de recherche complet
+            </button>
+            {moteurOuvert && (
+              <div id="moteur-recherche-complet" style={{ flex: '1 1 100%', display: 'flex', flexDirection: 'column', gap: '.7rem', padding: '.6rem', border: '1px solid var(--color-svv-line)', borderRadius: '.5rem', background: 'var(--color-svv-field)' }}>
+                {/* Groupe 1 — TYPE DE PERMIS : cases multi. Référentiel = prop `categories` (= categoriesConnues(config)), JAMAIS une liste en dur. */}
+                <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+                  <legend style={{ fontSize: 12, fontWeight: 700, padding: 0 }}>Type de permis</legend>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
+                    {categories.map((c) => (
+                      <label key={c.cle} style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem', minHeight: 44, padding: '.2rem .55rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13, cursor: 'pointer' }}>
+                        <input type="checkbox" checked={typesCoches.has(c.cle)} onChange={() => basculerType(c.cle)} style={{ width: 18, height: 18 }} />
+                        {c.libelle}
+                      </label>
+                    ))}
+                  </div>
+                  <span style={{ fontSize: 11, color: 'var(--color-svv-muted)' }}>Aucun coché = tous les types.</span>
+                </fieldset>
+                {/* Groupe 2 — TRI : colonne × sens, sur les champs RÉELLEMENT présents dans le vivier (date, commune). Pas de « surface » (absente de PermisVivier). */}
+                <fieldset style={{ border: 0, margin: 0, padding: 0, display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-end' }}>
+                  <legend style={{ fontSize: 12, fontWeight: 700, padding: 0, width: '100%' }}>Tri</legend>
+                  <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', fontSize: 12 }}>Trier par
+                    <select value={triColonne} onChange={(e) => setTriColonne(e.target.value as '' | ColonneTriVivier)} style={{ minHeight: 44, padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 }}>
+                      <option value="">Ordre par défaut</option>
+                      <option value="date">Date d’autorisation</option>
+                      <option value="commune">Commune</option>
+                    </select>
+                  </label>
+                  {triColonne !== '' && (
+                    <label style={{ display: 'flex', flexDirection: 'column', gap: '.2rem', fontSize: 12 }}>Sens
+                      <select value={triSens} onChange={(e) => setTriSens(e.target.value as 'asc' | 'desc')} style={{ minHeight: 44, padding: '.3rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.4rem', fontSize: 13 }}>
+                        <option value="asc">Croissant</option>
+                        <option value="desc">Décroissant</option>
+                      </select>
+                    </label>
+                  )}
+                </fieldset>
+              </div>
+            )}
+          </>
+        )}
         <button type="submit" className="svv-btn svv-btn-primary" style={{ minHeight: 40, padding: '.4rem .8rem' }} disabled={chargement}>
           <span aria-hidden="true">🔍</span> Chercher
         </button>

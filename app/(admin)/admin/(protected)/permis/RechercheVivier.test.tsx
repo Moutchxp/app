@@ -1,0 +1,115 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { RechercheVivier } from './RechercheVivier';
+
+/**
+ * MOTEUR COMPLET (rail téléservice) — COMPORTEMENT du panneau d'options additif (jsdom + act, sans testing-library). `fetch` mocké,
+ * URLs capturées. On vérifie : ABSENT sur le rail e-mail (rendu historique) ; FERMÉ au montage en téléservice ; à l'ouverture, une
+ * case par catégorie CONNUE (référentiel des demandes) + le tri + la mention « rien coché = tout » ; rien coché / aucun tri → URL
+ * SANS `types` ni `tri` (comportement de base) ; sélection → propagation exacte de `types` et `tri`. Aucune assertion de couleur/pixel.
+ */
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+let container: HTMLDivElement;
+let root: Root;
+let urls: string[]; // toutes les URLs passées à fetch
+
+const CATS = [
+  { cle: 'immeuble_neuf', libelle: 'Immeuble neuf', rang: 1 },
+  { cle: 'surelevation', libelle: 'Surélévation', rang: 2 },
+];
+
+beforeEach(() => {
+  container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+  urls = [];
+  global.fetch = vi.fn(async (url: string | URL | Request) => {
+    urls.push(String(url));
+    return { ok: true, json: async () => ({ resultats: [], total: 0, autreProcess: 0, tronque: false, bloquees: {} }) } as unknown as Response;
+  }) as unknown as typeof fetch;
+});
+afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
+
+const boutons = (): HTMLButtonElement[] => [...container.querySelectorAll('button')];
+const boutonPar = (motif: RegExp): HTMLButtonElement | undefined => boutons().find((b) => motif.test(b.textContent ?? ''));
+const flush = async (): Promise<void> => { await act(async () => { await Promise.resolve(); await Promise.resolve(); }); };
+
+const monter = async (process: 'email' | 'formulaire'): Promise<void> => {
+  await act(async () => { root.render(createElement(RechercheVivier, { process, categories: CATS, onBasculer: vi.fn() })); });
+  await flush();
+};
+
+const ouvrirMoteur = async (): Promise<void> => {
+  await act(async () => { boutonPar(/Moteur de recherche complet/)!.click(); });
+  await flush();
+};
+
+/** Saisit une requête dans le champ libre (jamais une case à cocher) et soumet le formulaire → déclenche la recherche. */
+const rechercher = async (texte: string): Promise<void> => {
+  const input = container.querySelector('input[aria-label^="Rechercher un permis"]') as HTMLInputElement;
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')!.set!;
+  await act(async () => { setter.call(input, texte); input.dispatchEvent(new Event('input', { bubbles: true })); });
+  const form = container.querySelector('form') as HTMLFormElement;
+  await act(async () => { form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })); });
+  await flush();
+};
+
+const dernierVivierUrl = (): URL => new URL(urls.filter((u) => u.includes('/vivier-recherche')).at(-1)!, 'http://test');
+const choisirSelect = async (el: HTMLSelectElement, valeur: string): Promise<void> => {
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, 'value')!.set!;
+  await act(async () => { setter.call(el, valeur); el.dispatchEvent(new Event('change', { bubbles: true })); });
+  await flush();
+};
+
+describe('MOTEUR COMPLET — RechercheVivier', () => {
+  it('rail E-MAIL : AUCUN bouton « Moteur de recherche complet » (rendu historique), champ + « Chercher » présents', async () => {
+    await monter('email');
+    expect(boutonPar(/Moteur de recherche complet/)).toBeUndefined();
+    expect(container.querySelector('input[aria-label^="Rechercher un permis"]')).not.toBeNull();
+    expect(boutonPar(/Chercher/)).toBeDefined();
+  });
+
+  it('rail TÉLÉSERVICE : bouton présent, panneau FERMÉ au montage (aucune case, aucune mention)', async () => {
+    await monter('formulaire');
+    expect(boutonPar(/Moteur de recherche complet/)).toBeDefined();
+    expect(container.querySelector('input[type="checkbox"]')).toBeNull();
+    expect(container.textContent).not.toMatch(/Aucun coché = tous/);
+  });
+
+  it('à l’ouverture : une case par catégorie CONNUE + tri + mention « rien coché = tout »', async () => {
+    await monter('formulaire');
+    await ouvrirMoteur();
+    expect(container.querySelectorAll('input[type="checkbox"]').length).toBe(CATS.length);
+    expect(container.textContent).toMatch(/Immeuble neuf/);
+    expect(container.textContent).toMatch(/Surélévation/);
+    expect(container.textContent).toMatch(/Aucun coché = tous les types/);
+    expect(container.textContent).toMatch(/Trier par/);
+  });
+
+  it('rien coché, aucun tri → l’URL ne porte NI `types` NI `tri` (comportement de base)', async () => {
+    await monter('formulaire');
+    await rechercher('paris');
+    const u = dernierVivierUrl();
+    expect(u.searchParams.get('q')).toBe('paris');
+    expect(u.searchParams.get('process')).toBe('formulaire');
+    expect(u.searchParams.has('types')).toBe(false);
+    expect(u.searchParams.has('tri')).toBe(false);
+  });
+
+  it('cocher un type + choisir un tri → l’URL propage EXACTEMENT `types` et `tri`', async () => {
+    await monter('formulaire');
+    await ouvrirMoteur();
+    const cases = [...container.querySelectorAll('input[type="checkbox"]')] as HTMLInputElement[];
+    await act(async () => { cases[1].click(); }); // « Surélévation »
+    await flush();
+    const selCol = container.querySelectorAll('select')[0] as HTMLSelectElement;
+    await choisirSelect(selCol, 'date');
+    const selSens = container.querySelectorAll('select')[1] as HTMLSelectElement; // « Sens » apparaît après le choix de colonne
+    await choisirSelect(selSens, 'desc');
+    await rechercher('paris');
+    const u = dernierVivierUrl();
+    expect(u.searchParams.get('types')).toBe('surelevation');
+    expect(u.searchParams.get('tri')).toBe('date:desc');
+  });
+});

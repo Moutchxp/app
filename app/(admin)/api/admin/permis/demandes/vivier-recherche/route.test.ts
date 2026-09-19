@@ -88,4 +88,39 @@ describe('D3 — GET vivier-recherche', () => {
     expect(plafonds).not.toHaveBeenCalled();
     expect(body.plafonds).toEqual({});
   });
+
+  it('MOTEUR COMPLET — `types` filtre les catégories demandées (téléservice)', async () => {
+    vivier.mockResolvedValueOnce({ vivier: [
+      PERMIS({ dossierId: 1, numDau: 'PC-N', categorie: 'immeuble_neuf' }),
+      PERMIS({ dossierId: 2, numDau: 'PC-S', categorie: 'surelevation' }),
+    ], tronque: false });
+    const body = await (await req('?q=pc&process=formulaire&types=surelevation')).json();
+    expect(body.resultats.map((x: { dossierId: number }) => x.dossierId)).toEqual([2]);
+  });
+
+  it('MOTEUR COMPLET — `tri=date:asc` ordonne les résultats (téléservice)', async () => {
+    vivier.mockResolvedValueOnce({ vivier: [
+      PERMIS({ dossierId: 1, numDau: 'PC-A', dateAutorisation: '2024-05-01' }),
+      PERMIS({ dossierId: 2, numDau: 'PC-B', dateAutorisation: '2024-01-01' }),
+    ], tronque: false });
+    const body = await (await req('?q=pc&process=formulaire&tri=date:asc')).json();
+    expect(body.resultats.map((x: { dossierId: number }) => x.dossierId)).toEqual([2, 1]);
+  });
+
+  it('MOTEUR COMPLET — un tri INVALIDE (ex. « surface ») est IGNORÉ : ordre naturel, statut 200, jamais une erreur', async () => {
+    vivier.mockResolvedValueOnce({ vivier: [
+      PERMIS({ dossierId: 1, numDau: 'PC-A', dateAutorisation: '2024-05-01' }),
+      PERMIS({ dossierId: 2, numDau: 'PC-B', dateAutorisation: '2024-01-01' }),
+    ], tronque: false });
+    const res = await req('?q=pc&process=formulaire&tri=surface:asc');
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.resultats.map((x: { dossierId: number }) => x.dossierId)).toEqual([1, 2]); // tri ignoré → ordre naturel
+  });
+
+  it('RÉTROCOMPAT — sans `types` ni `tri` (cas du rail e-mail) : réponse INCHANGÉE', async () => {
+    const body = await (await req('?q=paris&process=email')).json();
+    expect(body.resultats.map((x: { dossierId: number }) => x.dossierId)).toEqual([2]); // PC-B email (beforeEach)
+    expect(body.autreProcess).toBe(1);
+  });
 });
