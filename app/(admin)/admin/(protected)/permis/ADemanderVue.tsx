@@ -5,6 +5,7 @@ import { type Lot, type DiagnosticProposition, expliquerProposition, resumeDiagn
 import type { StockResultat, PermisDetail, CompteRenduCreation } from '../../../../lib/sitadel/demandeRepo';
 import { PERIODE_STOCK_DEFAUT } from '../../../../lib/sitadel/stock';
 import { MessageRetour, CartePropositions, BlocStock, TableStock, PanneauDetailStock, BandeauReglages, type RetourAction } from './DemandesRendu';
+import { BlocRepliable } from './BlocRepliable';
 import { BlocPrada } from './BlocPrada';
 import { BlocDepot } from './BlocDepot';
 import { SuiviDemandes } from './SuiviDemandes';
@@ -245,6 +246,18 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
       {modaleEnvoiAuto && process === 'email' && (
         <ModaleConfirmationEnvoiAuto onConfirmer={confirmerEnvoiAuto} onAnnuler={() => { if (!basculeEnCours) setModaleEnvoiAuto(false); }} enCours={basculeEnCours} />
       )}
+      {/* §1+§2 (mise en forme) — MOTEUR DE RECHERCHE du vivier, DÉPLACÉ juste SOUS le bloc auto/manuel (les deux rails) et rendu REPLIABLE
+          (fermé par défaut). UNE SEULE instance, commune aux deux rails (jamais dupliquée). Le libellé passe sur la ligne de titre du repli
+          (titreExterne). ⚠️ État PRÉSERVÉ replier/déplier : BlocRepliable garde l'enfant MONTÉ (caché en CSS `hidden`) après la 1re ouverture
+          → critères et résultats intacts. `ouvrirSignal={transfert?.jeton}` : un renvoi « voir les N autres… » OUVRE le repli et monte le
+          moteur → l'effet de report (pré-remplissage + recherche + défilement) s'exécute comme avant (aucune régression du bouton de renvoi). */}
+      <BlocRepliable titre={`Rechercher un permis / une ville — vivier ${PROCESS_META[process].court}`} ouvrirSignal={transfert?.jeton}>
+        {() => (
+          <RechercheVivier process={process} categories={categories} onBasculer={renvoyer} transfert={transfert}
+            mode={process === 'formulaire' ? modeTeleservice : (emailEnvoiAuto === true ? 'auto' : 'manuel')}
+            onPrepared={signalerChangement} signalRafraichir={signalSuivi} titreExterne />
+        )}
+      </BlocRepliable>
       {/* ③ CARROUSEL TÉLÉSERVICE (lot 1) — cartes de dépôt à faire, SOUS le bloc auto/manuel. UNE SEULE instance. Réservé au rail
           Téléservice (process === 'formulaire'). En mode MANUEL, les cartes VIRTUELLES sont masquées (afficherVirtuels=false) ; les
           RÉELLES restent. DEPOT-1 : mêmes signaux. Le COMPTEUR DE VIVIER (lot 2) est passé en prop `compteurVivier` → rendu SUR LA LIGNE
@@ -257,18 +270,18 @@ export function ADemanderVue({ categories, ancienneteMaxAnnees, triLibelle, proc
           LECTURE SEULE (renvoi vers Réglages). Se rafraîchit sur le même signal (signalSuivi). */}
       {process === 'formulaire' && <ResumeCriteresTeleservice signalRafraichir={signalSuivi} onChangement={signalerChangement} onAllerReglages={onAllerReglages} />}
 
-      {/* Q4 — rappel des réglages + filtre d'ancienneté, en tête de l'onglet. */}
-      <BandeauReglages
-        ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle}
-        moisSaisie={moisSaisie} maxMois={maxMois} onMois={changerMois} onAllerReglages={onAllerReglages}
-      />
-
-      {/* MOTEUR FUSIONNÉ — recherche du VIVIER + action par ligne selon le rail. `mode` = mode COURANT du rail actif (téléservice :
-          modeTeleservice ; e-mail : le flag d'envoi auto) → pilote l'apparition du bouton « Préparer » côté e-mail. `onPrepared` =
-          foyer unique de rafraîchissement (carrousel + compteurs), comme l'ex-RechercheVivierManuel. */}
-      <RechercheVivier process={process} categories={categories} onBasculer={renvoyer} transfert={transfert}
-        mode={process === 'formulaire' ? modeTeleservice : (emailEnvoiAuto === true ? 'auto' : 'manuel')}
-        onPrepared={signalerChangement} signalRafraichir={signalSuivi} />
+      {/* §3 (mise en forme) — REPLIABLE, fermé par défaut : le rappel des réglages (ancienneté max, ordre d'examen, lien vers l'onglet
+          Réglages) ET le filtre « Filtrer par ancienneté » (avec sa plage autorisée) regroupés sous une ligne de titre courte. Rien n'est
+          retiré : le filtre reste pleinement fonctionnel une fois déplié (replié, le défaut maxMois s'applique, comportement inchangé).
+          Même composant repliable que « Bascule de rail & carte des communes » / « Stock » → écran homogène. */}
+      <BlocRepliable titre="Ancienneté & ordre d’examen">
+        {() => (
+          <BandeauReglages
+            ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle}
+            moisSaisie={moisSaisie} maxMois={maxMois} onMois={changerMois} onAllerReglages={onAllerReglages}
+          />
+        )}
+      </BlocRepliable>
 
       {/* Q2b/U6 — STOCK par commune : REPLIÉ par défaut (une seule ligne à l'arrivée) ; l'ouverture manuelle charge et déplie. */}
       <BlocStock

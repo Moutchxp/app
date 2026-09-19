@@ -30,7 +30,7 @@ export interface TransfertRenvoi extends CriteresRenvoi {
  * n'a jamais de bouton actif : la raison est affichée + le geste « Débloquer ». Le PLAFOND mensuel est affiché mais ne bloque pas.
  * Mobile-first (cibles ≥ 44 px), pas de dark mode.
  */
-export function RechercheVivier({ process, categories, onBasculer, mode = 'auto', onPrepared, signalRafraichir = 0, transfert }: {
+export function RechercheVivier({ process, categories, onBasculer, mode = 'auto', onPrepared, signalRafraichir = 0, transfert, titreExterne = false }: {
   process: Process;
   categories: { cle: string; libelle: string; rang: number }[];
   /** §D — bascule vers l'autre rail EN REPORTANT les critères courants (terme + types + tri). Le parent commute le process ET arme un
@@ -46,6 +46,10 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
   /** §D — critères REÇUS de l'autre rail (report). À chaque nouveau `jeton`, le moteur du rail d'ARRIVÉE pré-remplit les champs, EXÉCUTE
    *  la recherche (scope = rail d'arrivée → total = le N annoncé), déplie le panneau si des filtres ont été transférés, et défile jusqu'à lui. */
   transfert?: TransfertRenvoi;
+  /** Mise en forme (lot repli) : quand le bloc est enveloppé dans une ligne de titre repliable qui PORTE DÉJÀ le libellé, `titreExterne`
+   *  masque le `<strong>` interne (le libellé n'est pas RETIRÉ — il est DÉPLACÉ sur la ligne de titre du repli). Le déclencheur « Moteur de
+   *  recherche complet » et tout le reste sont inchangés. Défaut `false` → rendu historique STRICTEMENT identique (aucun autre appelant). */
+  titreExterne?: boolean;
 }) {
   // `bloquees` : par code_insee, la commune téléservice en attente d'accusé (réf. SVAV de la demande qui bloque). `plafonds` : état du
   //   plafond mensuel par commune (téléservice) — AFFICHÉ, ne bloque JAMAIS. Les deux ne sont calculés côté serveur que pour 'formulaire'.
@@ -212,9 +216,10 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
 
   return (
     <div ref={refRacine} className="svv-card" style={{ display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
-      {/* TITRE + DÉCLENCHEUR du moteur complet (LES DEUX RAILS depuis la fusion) sur la même ligne, à droite ; discret ; wrap sous le titre si étroit. */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.4rem', flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: 13, flex: '1 1 auto' }}>Rechercher un permis / une ville — vivier {PROCESS_META[process].court}</strong>
+      {/* TITRE + DÉCLENCHEUR du moteur complet (LES DEUX RAILS depuis la fusion) sur la même ligne, à droite ; discret ; wrap sous le titre si étroit.
+          `titreExterne` : le libellé est porté par la ligne de titre repliable du parent → on ne le répète pas ici (le déclencheur reste). */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: titreExterne ? 'flex-start' : 'space-between', gap: '.4rem', flexWrap: 'wrap' }}>
+        {!titreExterne && <strong style={{ fontSize: 13, flex: '1 1 auto' }}>Rechercher un permis / une ville — vivier {PROCESS_META[process].court}</strong>}
         <button type="button" aria-expanded={moteurOuvert} aria-controls="moteur-recherche-complet"
           onClick={() => setMoteurOuvert((o) => !o)}
           style={{ flex: '0 0 auto', background: 'none', border: 0, padding: '.4rem .3rem', minHeight: 44, fontSize: 12, color: 'var(--color-svv-muted)', textDecoration: 'underline', cursor: 'pointer', whiteSpace: 'nowrap' }}>
