@@ -409,7 +409,11 @@ export async function chargerVivier(cfg: ConfigVeille): Promise<{ vivier: Permis
     if (d.categorie === 'autre') continue;                              // pas de catégorie « autre » (cf. CATEGORIES_STOCK)
     if (bloquees?.has(c.codeInsee)) continue;                            // commune en attente d'accusé → hors vivier (verrou référence)
     vivier.push({
-      dossierId: d.id, numDau: c.numDau, type: c.type ?? d.type ?? null,
+      // pg sérialise `d.id` (bigint) en CHAÎNE ; `PermisVivier.dossierId` est typé `number` et comparé au `Set<number>` de
+      //   `idsDossiersCartesVirtuelles` (marquage « carte en attente »). On coerce ICI, au SEUL producteur, pour que le type ne
+      //   mente plus au runtime — jamais au point de comparaison. MÊME parade que `s.id::int` de `listerArchives` (« piège
+      //   bigint→chaîne évité », cf. plus bas). N'affecte PAS l'éligibilité : elle passe par `c`/`versCandidat` (ci-dessus), pas cet objet.
+      dossierId: Number(d.id), numDau: c.numDau, type: c.type ?? d.type ?? null,
       codeInsee: c.codeInsee, communeNom: c.communeNom, canal: c.canal ?? null,
       categorie: d.categorie, dateAutorisation: c.dateReelleAutorisation,
       adresse: rueDe(d), // AFFICHAGE + RECHERCHE : rue seule (n° + voie), null si absente. Déjà fetché par lireDossiersDepuis (aucune requête en plus).
