@@ -931,7 +931,7 @@ const PROFILS_DEMANDE: ProfilDemandeur[] = ['entreprise', 'personne'];
  * (le panneau a seulement CHANGÉ D'EMPLACEMENT). La bascule/les transitions ne sont offertes qu'en brouillon (garde inchangée).
  */
 export function PanneauDetailDemande({
-  detail, corps, retour, onCorps, onFermer, onSauverCorps, onAjouterRef, onModifierRef, onSupprimerRef, onBascule, onTransition, slotDossiers, slotActions, masquerRefMairie = false, dateInitialeEnvoi = null,
+  detail, corps, retour, onCorps, onFermer, onSauverCorps, onAjouterRef, onModifierRef, onSupprimerRef, onBascule, onTransition, onAnnulerPrete, slotDossiers, slotActions, masquerRefMairie = false, dateInitialeEnvoi = null,
 }: {
   detail: DemandeDetail; corps: string; retour: RetourAction;
   onCorps: (v: string) => void;
@@ -941,6 +941,10 @@ export function PanneauDetailDemande({
   onModifierRef: (ancien: string, nouveau: string) => Promise<string | null>;
   onSupprimerRef: (reference: string) => Promise<string | null>;
   onBascule: (profil: ProfilDemandeur) => void; onTransition: (statut: 'prete' | 'annulee') => void;
+  // §1 — rail TÉLÉSERVICE : annuler une demande 'prete' DEPUIS LE DÉTAIL, par le MÊME chemin que « Annuler la prête » de la barre
+  //   de masse (POST /demandes/annuler-lot {autoriserPrete:true}, via `confPrete`/`confirmerAnnulerPrete` côté Vue — aucun nouveau
+  //   chemin d'écriture). Fourni SEULEMENT quand process==='formulaire' ET statut 'prete' → e-mail et brouillon INCHANGÉS (absent).
+  onAnnulerPrete?: () => void;
   // T6-A — slots pour « En cours » : `slotDossiers` REMPLACE le détail brut des dossiers par DetailDossiers (actions T1) ;
   //   `slotActions` ajoute ActionsCloture (clôturer/rouvrir). ABSENTS pour « À demander » → rendu STRICTEMENT inchangé.
   slotDossiers?: ReactNode; slotActions?: ReactNode;
@@ -1024,6 +1028,14 @@ export function PanneauDetailDemande({
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => onSauverCorps()}>Enregistrer le texte</button>
           <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .8rem' }} onClick={() => onTransition('prete')}>Marquer prête</button>
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem' }} onClick={() => onTransition('annulee')}>Annuler la demande</button>
+        </div>
+      )}
+      {/* §1 — TÉLÉSERVICE : une demande 'prete' n'a plus d'annulation dans son détail (le bloc ci-dessus est brouillon-only). On rend
+           ICI le SEUL geste d'annulation d'une prête, via `onAnnulerPrete` (chemin annuler-lot {autoriserPrete:true} de la barre). Fourni
+           uniquement en formulaire+prete → e-mail et brouillon inchangés. Sans lui (défaut), ce bloc n'existe pas (rendu historique). */}
+      {detail.statut === 'prete' && onAnnulerPrete && (
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .8rem', color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)' }} onClick={() => onAnnulerPrete()}>Annuler la demande</button>
         </div>
       )}
       <MessageRetour r={retour} />

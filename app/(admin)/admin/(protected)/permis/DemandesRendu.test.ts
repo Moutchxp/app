@@ -1497,3 +1497,36 @@ describe('LOT-9 (C) — BlocContactMairie + libelleRetourMairie', () => {
     expect(libelleRetourMairie('aucun', 0)).toBe('aucun retour');
   });
 });
+
+describe('§1 — PanneauDetailDemande : annuler une prête DEPUIS LE DÉTAIL (rail téléservice)', () => {
+  const noop = () => {};
+  const cbs = { onCorps: noop, onFermer: noop, onSauverCorps: noop, onAjouterRef: async () => null, onModifierRef: async () => null, onSupprimerRef: async () => null, onBascule: noop, onTransition: noop };
+  const DETAIL = (over: Record<string, unknown> = {}) => ({
+    id: 1, reference: 'SVAV-DEM-2026-000009', codeInsee: '92004', communeNom: 'Asnières', statut: 'prete',
+    profil: 'entreprise', canal: 'formulaire', destEmail: null, destAdressePostale: null, destUrlFormulaire: 'https://teleservice.example',
+    destOrigine: 'mairie_contact', destNom: null, corps: 'CORPS DEMANDE',
+    dossiers: [{ numDau: 'PC0920042500009', date: null }], dossiersRetires: [],
+    referencesMairie: [], referencesMairieIndisponible: false, ...over,
+  }) as unknown as Parameters<typeof PanneauDetailDemande>[0]['detail'];
+  const rendre = (over: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) =>
+    renderToStaticMarkup(createElement(PanneauDetailDemande, { detail: DETAIL(over), corps: 'CORPS DEMANDE', retour: null as RetourAction, ...cbs, ...extra }));
+
+  it('prête + onAnnulerPrete (téléservice) → « Annuler la demande » exposé dans le détail', () => {
+    const h = rendre({ statut: 'prete' }, { onAnnulerPrete: noop });
+    expect(h).toContain('Annuler la demande');
+  });
+
+  it('prête SANS onAnnulerPrete (rail e-mail) → AUCUN geste d’annulation dans le détail (rendu inchangé)', () => {
+    const h = rendre({ statut: 'prete', canal: 'email', destEmail: 'urba@mairie.fr', destUrlFormulaire: null });
+    expect(h).not.toContain('Annuler la demande');
+    expect(h).not.toContain('Marquer prête');        // pas brouillon → aucun geste brouillon
+    expect(h).not.toContain('Enregistrer le texte');
+  });
+
+  it('brouillon → inchangé : 3 gestes brouillon ; « Annuler la demande » une SEULE fois même si onAnnulerPrete est fourni (aucun doublon)', () => {
+    const h = rendre({ statut: 'brouillon' }, { onAnnulerPrete: noop });
+    expect(h).toContain('Enregistrer le texte');
+    expect(h).toContain('Marquer prête');
+    expect((h.match(/Annuler la demande/g) ?? []).length).toBe(1); // le bloc prête ne s'affiche PAS en brouillon
+  });
+});

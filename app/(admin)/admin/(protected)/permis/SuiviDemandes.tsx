@@ -771,6 +771,9 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
             onSupprimerRef={async (r) => { const e = await supprimerRefTable(detail.id, r); if (!e) await ouvrir(detail.id, true); return e; }}
             onBascule={(p) => setConfBascule({ ids: [detail.id], profil: p })}
             onTransition={(statut) => void transition([detail.id], statut, 'detail')}
+            /* §1 — TÉLÉSERVICE + 'prete' : expose l'annulation dans le détail via le geste DÉDIÉ existant (setConfPrete → confirmation
+               en 2 temps → confirmerAnnulerPrete → POST annuler-lot {autoriserPrete:true}). E-mail / brouillon : undefined → inchangé. */
+            onAnnulerPrete={process === 'formulaire' && detail.statut === 'prete' ? () => setConfPrete({ id: detail.id, reference: detail.reference, communeNom: detail.communeNom }) : undefined}
             // T6-A — En cours : les 7 actions (DetailDossiers + ActionsCloture) via la MÊME route POST /reponses. À demander : slots absents → détail inchangé.
             // UNIF-1 — le détail « En cours » adopte le format « Analyse » : un ENCART de familles repliées (EncartFamilles), règle
             //   d'affichage unique (familleAffichee). « Suivi & actions » (remplissable) réunit TOUS les gestes de pilotage ; les 4

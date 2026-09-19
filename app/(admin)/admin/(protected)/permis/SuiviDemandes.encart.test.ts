@@ -65,3 +65,11 @@ describe('UNIF-1 — NE RIEN PERDRE : les 9 gestes du détail « En cours » sur
     });
   }
 });
+
+describe('§1 — annuler une prête depuis le détail : câblage vers le geste dédié EXISTANT (aucun nouveau chemin)', () => {
+  it('le panneau détail reçoit onAnnulerPrete, gardé formulaire + prete, pointant vers setConfPrete (→ confirmerAnnulerPrete → annuler-lot)', () => {
+    expect(SRC).toContain('onAnnulerPrete=');
+    expect(SRC).toMatch(/process === 'formulaire' && detail\.statut === 'prete'/); // fourni uniquement en téléservice + prête
+    expect(SRC).toContain('setConfPrete({ id: detail.id');                        // réutilise le geste dédié (chemin annuler-lot {autoriserPrete:true})
+  });
+});

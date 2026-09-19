@@ -112,6 +112,27 @@ describe('D1 — annulerLot (masse, per-item résilient)', () => {
     expect(dedie.permisLiberes).toBe(1);
   });
 
+  // §1 — annuler une prête TÉLÉSERVICE (geste dédié, autoriserPrete=true) DOIT lever le verrou de commune (resoudreDepotPresume →
+  //   'renoncee'), exactement comme l'annulation d'un brouillon formulaire. C'est ce qui garantit qu'après le retrait des deux gestes
+  //   e-mail-purs de la barre (§2), annuler une prête téléservice depuis le détail reste métier-complet (aucune commune coincée).
+  it('§1 — prête TÉLÉSERVICE annulée (autoriserPrete=true) : lève le verrou de commune (UPDATE demande_depot_presume, « renoncee »)', async () => {
+    cfg.demandes = { 7: { statut: 'prete', dest_canal: 'formulaire', reference: 'SVAV-7', liberes: [30] } };
+    const r = await annulerLot([7], '42', true);
+    expect(r.annulees).toBe(1);
+    expect(r.permisLiberes).toBe(1);
+    // Le verrou VIVANT de la commune est résolu : on assère le COMPORTEMENT (table + params LIÉS), pas la forme du SQL.
+    const leve = ecritures.find((e) => /UPDATE demande_depot_presume/.test(e.sql));
+    expect(leve).toBeDefined();
+    expect(leve!.params).toEqual([7, 'renoncee', '42']);
+  });
+
+  it('§1 — contrôle négatif : une prête E-MAIL annulée ne touche JAMAIS la présomption téléservice', async () => {
+    cfg.demandes = { 8: { statut: 'prete', dest_canal: 'email', reference: 'SVAV-8', liberes: [] } };
+    const r = await annulerLot([8], '42', true);
+    expect(r.annulees).toBe(1);
+    expect(ecritures.some((e) => /UPDATE demande_depot_presume/.test(e.sql))).toBe(false);
+  });
+
   it('mélange brouillon + envoyee : le brouillon est annulé, l’envoyée refusée (per-item, jamais tout-ou-rien)', async () => {
     cfg.demandes = {
       1: { statut: 'brouillon', dest_canal: 'email', reference: 'SVAV-1', liberes: [10] },
