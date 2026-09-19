@@ -185,6 +185,10 @@ export function RechercheVivier({ process, categories, onBasculer }: {
                     ) : (
                       <span style={{ color: 'var(--color-svv-green-ink)', fontWeight: 600 }}> · demandable</span>
                     )}
+                    {/* ADRESSE (rue) SOUS la ligne d'identité : dit POURQUOI la ligne matche (ex. « rue de Paris » d'une commune de
+                        banlieue). MÊME source que RechercheVivierManuel (p.adresse = rueDe côté serveur) — aucune requête, aucun champ ajouté.
+                        Distincte de la commune (localité) : muted + repli propre en mobile (wordBreak). Rien si absente (jamais de séparateur orphelin). */}
+                    {p.adresse && <div style={{ color: 'var(--color-svv-muted)', fontSize: 12, wordBreak: 'break-word', marginTop: '.15rem' }}>{p.adresse}</div>}
                   </li>
                 );
               })}

@@ -259,3 +259,42 @@ describe('§ — bouton « Voir les N résultats dans le canal … » (renvoi ve
     expect(boutonPar(/Voir .* dans le canal/)).toBeUndefined();
   });
 });
+
+describe('§ — adresse affichée dans les lignes de résultat (les deux rails)', () => {
+  const avecResultats = async (process: 'email' | 'formulaire', resultats: unknown[]): Promise<void> => {
+    global.fetch = vi.fn(async (url: string | URL | Request) => { urls.push(String(url)); return { ok: true, json: async () => ({ resultats, total: resultats.length, autreProcess: 0, tronque: false, bloquees: {} }) } as unknown as Response; }) as unknown as typeof fetch;
+    await act(async () => { root.render(createElement(RechercheVivier, { process, categories: CATS, onBasculer: vi.fn() })); });
+    await flush();
+    await rechercher('paris');
+  };
+  const permis = (over: Record<string, unknown> = {}) => ({ dossierId: 1, numDau: 'PC0951', type: 'PC', codeInsee: '78646', communeNom: 'Versailles', canal: 'email', categorie: 'immeuble_neuf', dateAutorisation: '2024-01-01', adresse: '34 AVENUE DE PARIS', ...over });
+  const ligne = (motif: string) => [...container.querySelectorAll('li')].find((x) => x.textContent?.includes(motif))!;
+
+  it('une ligne dont le permis a une adresse l’affiche (sous la commune, distincte de la localité)', async () => {
+    await avecResultats('email', [permis()]);
+    const li = ligne('PC0951');
+    expect(li.textContent).toContain('Versailles');          // commune (localité) conservée
+    expect(li.textContent).toContain('34 AVENUE DE PARIS');   // adresse (voie) affichée
+  });
+
+  it('une ligne SANS adresse s’affiche sans séparateur orphelin (aucune voie, aucun « — »)', async () => {
+    await avecResultats('email', [permis({ dossierId: 2, numDau: 'PCNOADR', adresse: null })]);
+    const li = ligne('PCNOADR');
+    expect(li.textContent).toContain('Versailles');
+    expect(li.textContent).not.toMatch(/AVENUE|RUE|—/); // rien d'adresse, pas de séparateur en trop
+  });
+
+  it('les autres champs de la ligne restent inchangés (n° permis, commune, catégorie, état)', async () => {
+    await avecResultats('email', [permis()]);
+    const li = ligne('PC0951');
+    expect(li.textContent).toContain('PC0951');        // n° permis
+    expect(li.textContent).toContain('Versailles');    // commune
+    expect(li.textContent).toContain('Immeuble neuf'); // libellé catégorie
+    expect(li.textContent).toContain('demandable');    // état (non bloqué)
+  });
+
+  it('rail TÉLÉSERVICE : l’adresse s’affiche aussi (le motif vaut pour les deux rails)', async () => {
+    await avecResultats('formulaire', [permis({ canal: 'formulaire', communeNom: 'Clichy', adresse: '64 RUE DE PARIS' })]);
+    expect(ligne('PC0951').textContent).toContain('64 RUE DE PARIS');
+  });
+});
