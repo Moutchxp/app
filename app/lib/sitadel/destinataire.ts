@@ -3,14 +3,15 @@
  * (proposerLots, via versCandidat) ET par le figement à la création (creerDemandes). Une seule fonction : deux endroits qui
  * décideraient « quel canal, quel destinataire » différemment produiraient des demandes incohérentes.
  *
- * RÈGLE DE PRÉCÉDENCE (le cœur du chantier) :
- *   - La PRADA l'emporte sur `mairie_contact` SEULEMENT si son courriel est NON VIDE ET `mairie_contact.statut = 'presume'`.
- *   - Si le contact est 'confirme' (posé/validé à la main — aujourd'hui Paris seul), il est CONSERVÉ : la PRADA ne
- *     s'applique pas (« le travail humain prime »). On le SIGNALE (`arbitragePrada`) pour que le rapport le liste — jamais
- *     de bascule silencieuse.
- *   - PRADA au courriel vide → repli `mairie_contact`, aucune bascule.
- * Effet clé : une commune en canal 'inconnu' mais porteuse d'une PRADA au courriel non vide (et 'presume') devient
- * adressable par e-mail → elle cesse d'être exclue par proposerLots.
+ * CANAL = celui de `mairie_contact`, SANS forçage par la PRADA. 🔴 OVERRIDE PRADA RETIRÉ (décision Arno, cf. recon PRADA) :
+ * l'ancienne règle « PRADA courriel non vide ET statut='presume' → canal forcé email » déduisait le canal d'un contact CADA
+ * (accès aux documents administratifs), rapproché AUTOMATIQUEMENT depuis l'annuaire et JAMAIS vérifié — avoir une PRADA
+ * n'implique pas que la commune se traite par e-mail (Paris/Montreuil ont une PRADA et fonctionnent en téléservice). La
+ * déduction produisait des envois réels vers des boîtes CADA devinées ; elle est supprimée.
+ *
+ * La PRADA reste une DONNÉE utile : affichée en fiche commune, ADOPTABLE À LA MAIN par le bouton existant (qui écrit alors
+ * `mairie_contact.canal='email'`), et `arbitragePrada` SIGNALE toujours qu'une PRADA au courriel non vide existe sur un contact
+ * 'confirme' (rapport « PRADA non adoptée » — jamais de bascule silencieuse). Seule la DÉDUCTION AUTOMATIQUE du canal disparaît.
  */
 import type { CanalContact } from './mairieContact';
 
@@ -44,20 +45,9 @@ export interface Destination {
 const estVide = (s: string | null): boolean => (s ?? '').trim() === '';
 
 export function resoudreDestination(c: ContactCommune): Destination {
+  // CANAL = `mairie_contact`, jamais forcé par la PRADA (override retiré). `origine` est donc TOUJOURS 'mairie_contact' — la valeur
+  //   'prada' ne subsiste que dans les demandes HISTORIQUES (colonne `dest_origine`), plus jamais produite ici.
   const pradaDisponible = !estVide(c.pradaCourriel);
-  if (pradaDisponible && c.contactStatut === 'presume') {
-    return {
-      canal: 'email',
-      email: (c.pradaCourriel ?? '').trim(),
-      urlFormulaire: null,
-      adressePostale: null,
-      origine: 'prada',
-      pradaImportId: c.pradaImportId,
-      nom: (c.pradaNom ?? '').trim() === '' ? null : (c.pradaNom ?? '').trim(),
-      arbitragePrada: false,
-    };
-  }
-  // Repli sur le contact générique. Si une PRADA était disponible mais qu'un contact 'confirme' l'emporte, on le signale.
   return {
     canal: c.contactCanal,
     email: c.contactEmail,
@@ -66,6 +56,7 @@ export function resoudreDestination(c: ContactCommune): Destination {
     origine: 'mairie_contact',
     pradaImportId: null,
     nom: null,
+    // SIGNAL inchangé : une PRADA existe MAIS le contact 'confirme' est conservé → à arbitrer (rapport « PRADA non adoptée »).
     arbitragePrada: pradaDisponible && c.contactStatut === 'confirme',
   };
 }

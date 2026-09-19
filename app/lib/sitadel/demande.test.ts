@@ -474,17 +474,17 @@ describe('Sitadel S8a — courrier signé par un collaborateur', () => {
 describe('S14d — destinataire PRADA : adressabilité en amont + texte inchangé', () => {
   const pieces = piecesDepuisConfig('PC2,PC3');
 
-  it('commune en canal INCONNU mais PRADA au courriel non vide → canal résolu « email » → n’est PLUS exclue de proposerLots', () => {
-    // canal résolu par la MÊME fonction que la prod (versCandidat) : inconnu + presume + PRADA → email
+  it('commune en canal INCONNU avec PRADA au courriel non vide → RESTE inconnu (override retiré) → EXCLUE de proposerLots', () => {
+    // canal résolu par la MÊME fonction que la prod (versCandidat) : inconnu + presume + PRADA → RESTE inconnu (plus de forçage e-mail)
     const canalResolu = resoudreDestination({
       contactCanal: 'inconnu', contactStatut: 'presume', contactEmail: null, contactUrlFormulaire: null, contactAdressePostale: null,
       pradaCourriel: 'prada@ville.fr', pradaImportId: 3, pradaNom: 'Jean Dupont',
     }).canal;
-    expect(canalResolu).toBe('email');
+    expect(canalResolu).toBe('inconnu');
     const lots = proposerLots([cand({ canal: canalResolu })], { ...P, permisParCommuneParMois: 5 }, HIST_VIDE);
-    expect(lots).toHaveLength(1); // adressable → un lot est proposé
+    expect(lots).toHaveLength(0); // inconnu → non adressable → aucun lot (l'ancienne rescousse PRADA n'existe plus)
 
-    // témoin : une commune restée 'inconnu' (aucune PRADA) demeure exclue
+    // témoin : une commune restée 'inconnu' SANS PRADA → même résultat (exclue). Avec ou sans PRADA, inconnu reste inconnu.
     expect(proposerLots([cand({ canal: 'inconnu' as CanalContact })], { ...P, permisParCommuneParMois: 5 }, HIST_VIDE)).toHaveLength(0);
   });
 
