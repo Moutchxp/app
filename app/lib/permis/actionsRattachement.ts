@@ -14,15 +14,18 @@ import { lireAffectation } from './affectationRepo';
 import { journalActif, colonneGelJournal, enregistrerLigneJournal, derniereLigne, dateModifBatiment } from './journalAltitude';
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo';
 import { versionGelCourante, figerVersionValidation } from './gelRepo';
+import { lireCorpsNonEnregistres, motifEnregistrement } from './projectionFileRepo'; // RATT-EDIT (lot B3) — MÊME garde d'enregistrement que la validation initiale (9e291f8), réutilisée pour la revalidation
 
 export interface ResultatAction {
   ok: boolean;
   motif?: string;                 // motif d'échec
+  manque?: 'enregistrement';      // RATT-EDIT (lot B3) — refus de revalidation : ≥1 corps actif non confirmé humainement (garde Lot 1)
   nbInjectes?: number;
   injections?: { cleabs: string; repere: string | null; cote: number }[]; // M8 — détail RÉELLEMENT écrit à la validation (pour l'accusé)
   nbRestaures?: number;
   nbTraites?: number;             // import BD TOPO : nb de cleabs suivis parcourus
   nbEcrases?: number;             // import/mesure LiDAR : nb d'altitudes 'permis' écrasées → dossiers annulés par LiDAR
+  versionGel?: number;            // RATT-EDIT (lot B3) — n° de la version de gel APPENDÉE par la revalidation (nouvelle référence)
 }
 
 /** Provenance d'une mesure LiDAR — OBLIGATOIRE (pièce de preuve) : millésime d'édition + source. Refus si l'un manque. */
@@ -158,6 +161,27 @@ export async function validerRattachement(dossierId: number, valPar: string, cot
     try { await figerVersionValidation(dossierId, valPar); } catch { /* isolé : la surveillance n'a pas de référence, la validation reste valide */ }
   }
   return resultat;
+}
+
+/**
+ * RATT-EDIT (lot B3) — REVALIDER un permis MODIFIÉ après sa validation, EN PLACE (dans Rattachement). N'injecte AUCUNE altitude, ne
+ * change PAS `permis_rattachement.etat` (le permis NE redescend PAS en Analyse et reste exactement là où il est) : la revalidation ne
+ * fait qu'APPENDER une NOUVELLE version de gel de validation (figerVersionValidation, B1) qui recouvre l'état courant modifié → elle
+ * devient la nouvelle RÉFÉRENCE (surveillance + marqueur « modifié, à revalider »), la précédente restant intacte et restaurable (C1).
+ *
+ * 🔴 GARDE DU LOT 1, SANS EXCEPTION : un corps actif non confirmé humainement BLOQUE la revalidation, EXACTEMENT comme il bloque la
+ * validation initiale (MÊME `lireCorpsNonEnregistres` / `motifEnregistrement` que validerProjection / sortirTestVersRattachement,
+ * 9e291f8) — une revalidation n'est pas une porte dérobée. Le figeage étant append-only, un état non enregistré ne doit jamais y entrer.
+ */
+export async function revaliderRattachement(dossierId: number, valPar: string): Promise<ResultatAction> {
+  if (!Number.isInteger(dossierId) || dossierId <= 0) return { ok: false, motif: 'dossier invalide' };
+  // GARDE LOT 1 (identique à la validation initiale) : aucun corps « à enregistrer ».
+  const nonEnr = await lireCorpsNonEnregistres(dossierId);
+  if (nonEnr.length > 0) return { ok: false, motif: motifEnregistrement(nonEnr), manque: 'enregistrement' };
+  // La revalidation = une NOUVELLE version de gel de validation (append-only). C'est le SEUL effet : ni etat, ni injection d'altitude.
+  const r = await figerVersionValidation(dossierId, valPar);
+  if (!r.enregistre) return { ok: false, motif: r.raison ?? 'registre de gel indisponible' };
+  return { ok: true, versionGel: r.version };
 }
 
 /** REFUSER : passe le dossier à « refuse » avec qui/quand et un MOTIF OBLIGATOIRE. Aucune altitude n'est touchée. */

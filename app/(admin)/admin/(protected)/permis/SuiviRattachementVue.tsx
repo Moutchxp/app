@@ -22,7 +22,7 @@ const SOURCE_GEL = 'au moment du gel (état des lieux figé)';
 const SOURCE_VIVANTE = 'état actuel (couche BD TOPO)';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { BlocTraceEmprise } from './BlocTraceEmprise'; // RATT-EDIT (lot B2) — éditeur d'emprise, monté SEULEMENT en modification déverrouillée
-import { BandeauModificationValidation, PopUpConfirmerModification } from './ModifierValidation'; // RATT-EDIT (lot B2) — verrou d'édition + pop-up 1
+import { BandeauModificationValidation, PopUpConfirmerModification, PopUpConfirmerRevalidation } from './ModifierValidation'; // RATT-EDIT (lot B2/B3) — verrou d'édition + pop-up 1 (modifier) + pop-up 2 (revalider)
 import { CellulePieces } from './ArchivesRendu';
 import { recompterSiSucces } from './comptesActions';
 
@@ -59,6 +59,10 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
   //   « Modifier » + pop-up 1 déverrouillent. Réinitialisés à chaque changement de dossier (jamais un verrou ouvert hérité d'un autre permis).
   const [modifOuverte, setModifOuverte] = useState(false); // édition déverrouillée ?
   const [popupModif, setPopupModif] = useState(false);     // pop-up 1 (confirmation avant d'ouvrir la modification) visible ?
+  // RATT-EDIT (lot B3) — REVALIDATION : pop-up 2 + état d'envoi + accusé/erreur. Le marqueur « modifié, à revalider » vient du SERVEUR (detail).
+  const [popupReval, setPopupReval] = useState(false);
+  const [revalEnCours, setRevalEnCours] = useState(false);
+  const [revalMsg, setRevalMsg] = useState('');
   // FUS-3e — décisions
   const [motifRefus, setMotifRefus] = useState('');
   const [accuse, setAccuse] = useState<AccuseValidationData | null>(null); // M8 — accusé de prise en compte (persistant), construit depuis la réponse serveur
@@ -132,6 +136,7 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
     void (async () => {
       setDetail(null); setComparaison(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); setPleinEcran(null);
       setModifOuverte(false); setPopupModif(false); // B2 — un nouveau dossier s'ouvre TOUJOURS verrouillé (lecture seule), pop-up fermée
+      setPopupReval(false); setRevalEnCours(false); setRevalMsg(''); // B3 — reset de la revalidation à chaque changement de dossier
       setMotifRefus(''); setAccuse(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); setAfficherProjection(false); setEmprisesProjetees([]); setRecapProjection(null); setStatutsLignes([]); setRecouverts([]); setStatutErreur(''); // reset décisions (DANS l'async)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
@@ -259,6 +264,29 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
     } catch { setAccuse(composerAccuse({ ok: false, statut: 0, erreur: 'Réseau indisponible : la validation n’a pas pu être envoyée.' })); }
     finally { setEnCours(false); }
   }, [ouvert, cotesEffectives, onRecompter]);
+
+  // B3 — REVALIDER un permis modifié après validation, EN PLACE. POST 'revalider' → nouvelle version de gel (nouvelle référence) ; le SERVEUR
+  //   renvoie le détail recalculé (modifieDepuisValidation = false → marqueur effacé). Refus 409 si un corps n'est pas enregistré (garde Lot 1).
+  //   Ne change PAS l'état : le permis reste dans Rattachement. 401 = session expirée (jamais « panne »).
+  const revalider = useCallback(async (): Promise<void> => {
+    if (ouvert === null) return;
+    setRevalEnCours(true); setRevalMsg('');
+    try {
+      const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'revalider', dossierId: ouvert }) });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; detail?: DetailSuivi; comparaison?: ComparaisonRattachement | null };
+      if (res.ok && d.ok) {
+        if (d.detail) setDetail(d.detail);            // détail à jour → modifieDepuisValidation = false (marqueur effacé, sans rechargement)
+        if (d.comparaison !== undefined) setComparaison(d.comparaison ?? null);
+        setPopupReval(false); setModifOuverte(false); // revalidé → on referme l'édition ; retour en lecture seule, sans marqueur
+        setRevalMsg('Permis revalidé — nouvelle validation de référence enregistrée (la précédente est conservée).');
+        recompterSiSucces(true, onRecompter);
+      } else {
+        setRevalMsg(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'Revalidation impossible.'));
+        setPopupReval(false); // referme la pop-up ; le message d'erreur reste affiché dans le détail
+      }
+    } catch { setRevalMsg('Revalidation impossible.'); setPopupReval(false); }
+    finally { setRevalEnCours(false); }
+  }, [ouvert, onRecompter]);
 
   // ÉTAGE 1 — CLÔTURER un dossier « achevé, à confirmer » (surélévation / surface constante). Aucune injection : constat de workflow.
   const clore = useCallback(async (): Promise<void> => {
@@ -464,6 +492,29 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
                 (BlocTraceEmprise, monté seulement ici). Le permis NE redescend PAS en Analyse (aucune action de rattachement déclenchée). */}
             <BandeauModificationValidation modifOuverte={modifOuverte} peutModifier={peutModifierPermis}
               onDemander={() => setPopupModif(true)} onVerrouiller={() => setModifOuverte(false)} />
+            {/* B3 — MARQUEUR PERSISTANT (fait SERVEUR, survit au rechargement, vaut pour tout utilisateur) : ce permis a été modifié après sa
+                validation et n'est pas encore revalidé. Visible SANS déplier (bannière en tête + badge sur la ligne fermée). En édition, le
+                bandeau B2 « modification en cours » couvre déjà ce message → on n'affiche celui-ci qu'en lecture seule (évite le doublon). */}
+            {detail.modifieDepuisValidation && !modifOuverte && (
+              <div role="status" className="svv-card" style={{ fontSize: 13, borderColor: 'var(--color-svv-red)' }}>
+                <strong style={{ color: 'var(--color-svv-red)' }}>⚠ Modifié après validation, non revalidé.</strong>{' '}
+                {(() => {
+                  const t = detail.derniereModif;
+                  const qui = t?.parNom ? ` par ${t.parNom}` : '';
+                  const quand = t?.le ? ` le ${new Date(t.le).toLocaleString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : '';
+                  return `L’altitude ou l’emprise a été modifiée${qui}${quand}. Revalidez pour en faire la nouvelle validation de référence.`;
+                })()}
+              </div>
+            )}
+            {/* B3 — REVALIDER (gaté par la capacité) : disponible dès qu'il y a quelque chose à revalider (édition en cours OU marqueur serveur).
+                La revalidation N'injecte PAS d'altitude et ne change PAS l'état : le permis reste dans Rattachement. Garde Lot 1 côté serveur. */}
+            {peutModifierPermis && (modifOuverte || detail.modifieDepuisValidation) && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'center' }}>
+                <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', minHeight: 44, padding: '.5rem 1rem' }}
+                  disabled={revalEnCours} onClick={() => setPopupReval(true)}>Revalider ce permis</button>
+              </div>
+            )}
+            {revalMsg && <div role="status" aria-live="polite" style={{ fontSize: 12, color: revalMsg.startsWith('Permis revalidé') ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)', fontWeight: 600 }}>{revalMsg}</div>}
             {/* BAT-2b — état des sous-sections (cohérence cartes + altitudes) sur leurs titres, comme dans les 4 autres vues (aide section 4 conservée).
                 B2 — `lectureSeule` VERROUILLE l'édition de l'altitude tant que la modification n'est pas déverrouillée (ferme l'effet de bord : un admin ne modifie plus par inadvertance). */}
             <CaracteristiquesBloc avecEtatFamilles lectureSeule={!modifOuverte} dossierId={detail.dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />
@@ -487,6 +538,12 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
           <PopUpConfirmerModification
             onConfirmer={() => { setModifOuverte(true); setPopupModif(false); }}
             onAnnuler={() => setPopupModif(false)} />
+        )}
+        {/* B3 — POP-UP 2 : confirmation AVANT de revalider. Dit ce qui sera enregistré (nouvelle référence) + que la précédente est conservée. */}
+        {popupReval && (
+          <PopUpConfirmerRevalidation
+            modifieParNom={detail.derniereModif?.parNom ?? null} modifieLe={detail.derniereModif?.le ?? null}
+            enCours={revalEnCours} onConfirmer={() => void revalider()} onAnnuler={() => setPopupReval(false)} />
         )}
       </div>
     );

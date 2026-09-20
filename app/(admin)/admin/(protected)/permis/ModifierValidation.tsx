@@ -74,6 +74,63 @@ function dateLisible(iso: string | null | undefined): string | null {
   return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+/** Date+heure lisibles en français (jamais un ISO brut) ; null/invalide → non affichées. */
+function dateHeureLisible(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+export function PopUpConfirmerRevalidation({ modifieParNom, modifieLe, enCours = false, onConfirmer, onAnnuler }: {
+  modifieParNom?: string | null; // trace : auteur de la dernière modification (si disponible)
+  modifieLe?: string | null;     // trace : date/heure de la dernière modification (ISO, si disponible)
+  enCours?: boolean;             // revalidation en cours (bloque le double-clic)
+  onConfirmer: () => void;
+  onAnnuler: () => void;
+}) {
+  const refAnnuler = useRef<HTMLButtonElement>(null);
+  useEffect(() => { refAnnuler.current?.focus(); }, []);
+  useEffect(() => {
+    const surTouche = (e: KeyboardEvent) => { if (e.key === 'Escape' && !enCours) onAnnuler(); };
+    window.addEventListener('keydown', surTouche);
+    return () => window.removeEventListener('keydown', surTouche);
+  }, [onAnnuler, enCours]);
+
+  const quand = dateHeureLisible(modifieLe);
+  const auteur = modifieParNom && modifieParNom.trim() !== '' ? modifieParNom.trim() : null;
+
+  return (
+    <div style={overlay} role="presentation" onClick={() => { if (!enCours) onAnnuler(); }}>
+      <div style={carte} role="dialog" aria-modal="true" aria-labelledby="titre-revalidation" onClick={(e) => e.stopPropagation()}>
+        <strong id="titre-revalidation" style={{ fontSize: 16 }}>Revalider ce permis ?</strong>
+        {(quand || auteur) && (
+          <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5, color: 'var(--color-svv-muted)' }}>
+            Dernière modification{auteur ? ` par ${auteur}` : ''}{quand ? ` le ${quand}` : ''}.
+          </p>
+        )}
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
+          L’<strong>altitude</strong> et l’<strong>emprise</strong> actuelles seront enregistrées comme la <strong>nouvelle validation de
+          référence</strong> de ce permis.
+        </p>
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
+          La <strong>validation précédente est conservée</strong> et restera restaurable. Le permis reste dans « Rattachement ».
+        </p>
+        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', marginTop: '.15rem' }}>
+          <button type="button" onClick={onConfirmer} disabled={enCours}
+            style={{ ...btnBase, border: '1px solid var(--color-svv-red)', background: 'var(--color-svv-red)', color: '#fff', opacity: enCours ? 0.6 : 1 }}>
+            {enCours ? 'Revalidation…' : 'Revalider'}
+          </button>
+          <button ref={refAnnuler} type="button" onClick={onAnnuler} disabled={enCours}
+            style={{ ...btnBase, border: '1px solid var(--color-svv-line)', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)' }}>
+            Annuler
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PopUpConfirmerModification({ validationDate, validationAuteur, onConfirmer, onAnnuler }: {
   validationDate?: string | null;   // date de validation d'origine, SI disponible côté écran (sinon message générique)
   validationAuteur?: string | null; // auteur de la validation, SI disponible

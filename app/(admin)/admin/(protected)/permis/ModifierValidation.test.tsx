@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createElement } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { BandeauModificationValidation, PopUpConfirmerModification } from './ModifierValidation';
+import { BandeauModificationValidation, PopUpConfirmerModification, PopUpConfirmerRevalidation } from './ModifierValidation';
 
 /**
  * RATT-EDIT (lot B2) — composants PURS du verrou d'édition (montés réellement en jsdom ; aucun réseau) :
@@ -86,5 +86,35 @@ describe('PopUpConfirmerModification — pop-up 1', () => {
     const c = monter(createElement(PopUpConfirmerModification, { onConfirmer: () => {}, onAnnuler: () => {} }));
     expect(c.textContent).toMatch(/déjà été/i);
     expect(c.textContent).not.toMatch(/null|undefined|NaN|Invalid/);
+  });
+});
+
+describe('PopUpConfirmerRevalidation — pop-up 2', () => {
+  it('dit ce qui sera enregistré (nouvelle référence) + précédente conservée ; revalider → onConfirmer, annuler → onAnnuler', () => {
+    const onConfirmer = vi.fn(), onAnnuler = vi.fn();
+    const c = monter(createElement(PopUpConfirmerRevalidation, { onConfirmer, onAnnuler }));
+    expect(c.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(c.textContent).toMatch(/nouvelle validation de référence/i);
+    expect(c.textContent).toMatch(/précédente est conservée/i);
+    cliquer(boutonTexte(c, /^Revalider$/) as HTMLButtonElement);
+    expect(onConfirmer).toHaveBeenCalledTimes(1);
+    cliquer(boutonTexte(c, /^Annuler$/) as HTMLButtonElement);
+    expect(onAnnuler).toHaveBeenCalledTimes(1);
+  });
+
+  it('affiche la trace (auteur + date) de la dernière modification si fournie ; jamais « null »', () => {
+    const c = monter(createElement(PopUpConfirmerRevalidation, { modifieParNom: 'Arnaud Jorel', modifieLe: '2026-09-20T20:22:00Z', onConfirmer: () => {}, onAnnuler: () => {} }));
+    expect(c.textContent).toMatch(/Arnaud Jorel/);
+    expect(c.textContent).toMatch(/septembre 2026/);
+    expect(c.textContent).not.toMatch(/null|undefined|NaN|Invalid/);
+  });
+
+  it('enCours → bouton « Revalidation… » désactivé (anti double-clic) ; Échap bloqué', () => {
+    const onConfirmer = vi.fn(), onAnnuler = vi.fn();
+    const c = monter(createElement(PopUpConfirmerRevalidation, { enCours: true, onConfirmer, onAnnuler }));
+    const b = boutonTexte(c, /Revalidation…/) as HTMLButtonElement;
+    expect(b.disabled).toBe(true);
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(onAnnuler).not.toHaveBeenCalled(); // Échap ignoré pendant l'envoi
   });
 });

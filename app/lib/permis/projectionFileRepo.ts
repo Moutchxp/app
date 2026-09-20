@@ -51,16 +51,17 @@ function fragCorpsNonEnregistre(alias: string): string {
   const some = (v: string) => `(${ORIGINES_ENREGISTREMENT.map((c) => `${alias}.${c} = '${v}'`).join(' OR ')})`;
   return `NOT (${some('saisie')} IS TRUE AND ${some('extraite')} IS NOT TRUE)`;
 }
-/** ENR-1 — corps ACTIFS NON enregistrés d'un dossier, nommés (repère sinon « bâtiment {id} »), pour la GARDE d'envoi en Rattachement. LECTURE SEULE. */
-async function lireCorpsNonEnregistres(dossierId: number): Promise<{ id: number; repere: string | null }[]> {
+/** ENR-1 — corps ACTIFS NON enregistrés d'un dossier, nommés (repère sinon « bâtiment {id} »), pour la GARDE d'envoi en Rattachement. LECTURE SEULE.
+ *  RATT-EDIT (lot B3) — EXPORTÉ : la revalidation applique EXACTEMENT la même garde que la validation initiale (aucune porte dérobée). */
+export async function lireCorpsNonEnregistres(dossierId: number): Promise<{ id: number; repere: string | null }[]> {
   const faCb = await fragmentCorpsActif('cb'); // BAT-3 — la garde ne considère que les cartes ACTIVES (retirées invisibles)
   const { rows } = await query<{ id: number; repere: string | null }>(
     `SELECT cb.id::int AS id, cb.repere FROM permis_corps_batiment cb
       WHERE cb.dossier_id = $1${faCb} AND ${fragCorpsNonEnregistre('cb')} ORDER BY cb.id`, [dossierId]);
   return rows;
 }
-/** ENR-1 — motif de refus « bâtiment(s) à enregistrer » (nommés), commun aux deux chemins d'envoi. */
-function motifEnregistrement(corps: { id: number; repere: string | null }[]): string {
+/** ENR-1 — motif de refus « bâtiment(s) à enregistrer » (nommés), commun aux deux chemins d'envoi. RATT-EDIT (lot B3) — EXPORTÉ pour la revalidation. */
+export function motifEnregistrement(corps: { id: number; repere: string | null }[]): string {
   const nom = (r: { id: number; repere: string | null }) => (r.repere && r.repere.trim()) ? r.repere.trim() : `bâtiment ${r.id}`;
   return `Bâtiment(s) à enregistrer avant l’envoi en Rattachement : ${corps.map(nom).join(', ')}. Confirmez la saisie (« Enregistrer ce bâtiment ») dans « Caractéristiques du permis ».`;
 }

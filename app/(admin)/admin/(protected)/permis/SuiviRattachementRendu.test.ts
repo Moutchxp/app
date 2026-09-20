@@ -14,7 +14,7 @@ import type { AttributsPolygone } from '../../../../lib/permis/affectationSchema
  * FUS-3b — rendu PUR du suivi (renderToStaticMarkup, aucun DOM). Couvre : compteurs + groupes par état, tri par urgence,
  * ancienneté ; le tableau comparatif « trois sources » (dont « aucun bâtiment » et « sans objet »), critères et provenance.
  */
-const ligne = (o: Partial<LigneSuivi>): LigneSuivi => ({ dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', verdict: null, joursAnciennete: 3, derniereEvalIso: null, dateAutorisationIso: '2026-03-13', dateDeclenchementIso: null, origineOuverture: 'detection', alertesSurveillance: 0, completudeIncomplete: false, validationAcquise: false, passageAcquis: false, ...o });
+const ligne = (o: Partial<LigneSuivi>): LigneSuivi => ({ dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', verdict: null, joursAnciennete: 3, derniereEvalIso: null, dateAutorisationIso: '2026-03-13', dateDeclenchementIso: null, origineOuverture: 'detection', alertesSurveillance: 0, completudeIncomplete: false, validationAcquise: false, passageAcquis: false, modifieApresValidation: false, ...o });
 
 const detail = (o: Partial<DetailSuivi> = {}): DetailSuivi => ({
   dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', persiste: false,
@@ -33,6 +33,7 @@ const detail = (o: Partial<DetailSuivi> = {}): DetailSuivi => ({
     { intitule: 'Nombre de bâtiments', enBase: { texte: '2 corps déclarés', presente: true }, cadastre: { texte: 'sans objet pour cette source', presente: false }, bdTopo: { texte: 'aucun bâtiment dans la parcelle du permis', presente: true } },
   ],
   nbParcellesOrigine: 2, nbContoursEmpreinte: 1, streetView: { lat: 48.87, lng: 2.35 }, streetViewMotif: null, pieces: [],
+  modifieDepuisValidation: false, derniereModif: null,
   ...o,
 });
 const critSurface = (o: Partial<CritereSurface> = {}): CritereSurface => ({ applicable: true, ratio: 0.95, seuil: 0.8, franchi: true, ...o });

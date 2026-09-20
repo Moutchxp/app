@@ -20,6 +20,7 @@ import type { ResultatRattachement } from './detectionRattachement';
 import { listerPiecesDossier } from '../sitadel/demandeRepo';
 import type { PieceArchive } from '../sitadel/demandeRepo';
 import { dossiersIncompletsParmi } from './completudeRepo'; // RATT-1 — signal « dossier incomplet » en lot (mémoire, sans IA)
+import { marqueursModifApresValidation } from './modificationApresValidation'; // RATT-EDIT (lot B3) — marqueur+trace « modifié après validation, à revalider » (dérivé, sans migration)
 import { libelleNatureProjet, aucunSignalGeometriquePossible } from '../sitadel/priorite';
 import { estAFaire, estValidationAcquise, partitionnerSuivi } from './rattachementGroupes'; // L6 — coupure en deux ; LOT 77/LOT COMPLET — validation acquise + partition (source unique)
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti AFFICHÉ = registre (autorité), plus le proxy
@@ -208,6 +209,7 @@ export interface LigneSuivi {
   completudeIncomplete: boolean; // RATT-1 — signal DÉRIVÉ (jamais stocké) : le diagnostic de complétude des pièces vaut « incomplet ». « Jamais diagnostiqué » → false.
   validationAcquise: boolean;    // LOT 77 — DÉRIVÉ : projection validée ET ≥1 corps ET tous les corps ont leur altitude de sommet → « en attente » quelle que soit la complétude.
   passageAcquis: boolean;        // COMPLÉMENT — le marqueur de passage (permis_projection) EST posé : le permis est DÉJÀ entré en Rattachement (auto-finalisation OU clôture manuelle). Persistant → « acquis reste acquis ».
+  modifieApresValidation: boolean; // RATT-EDIT (lot B3) — DÉRIVÉ (jamais stocké) : altitude/emprise MODIFIÉE depuis la dernière validation et PAS encore revalidée → badge « à revalider », visible SANS déplier. Voir modificationApresValidation.
 }
 
 /** Tri décroissant d'une date ISO 'YYYY-MM-DD' (comparable lexicographiquement) ; une date ABSENTE va en FIN (jamais en tête). */
@@ -294,7 +296,7 @@ const FROM_SUIVI = `FROM permis_empreinte e
 interface RangeeSuivi { dossier_id: number; num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; ratt_etat: EtatSuivi | null; verdict: string | null; origine_ouverture: 'detection' | 'manuelle' | null; jours: number; reevalue: string | null; date_autorisation: string | null; date_declenchement: string | null; projection_validee: boolean; nb_corps: number; nb_corps_sans_alt_validee: number; nb_corps_sans_emprise_validee: number }
 
 /** Mappe une rangée SQL → LigneSuivi (source unique du mapping ; `dossier_id` bigint pg → CHAÎNE, honoré en NOMBRE via Number). */
-function versLigneSuivi(r: RangeeSuivi, alertesSurv: Map<number, number>, incomplets: Set<number>): LigneSuivi {
+function versLigneSuivi(r: RangeeSuivi, alertesSurv: Map<number, number>, incomplets: Set<number>, modifies: Set<number>): LigneSuivi {
   return {
     dossierId: Number(r.dossier_id), numDau: r.num_dau, commune: r.commune, codeInsee: r.code_insee,
     type: r.type, adresse: r.adresse, natureTravaux: r.nature ? libelleNatureProjet(r.nature) : null,
@@ -305,7 +307,15 @@ function versLigneSuivi(r: RangeeSuivi, alertesSurv: Map<number, number>, incomp
     completudeIncomplete: incomplets.has(Number(r.dossier_id)), // RATT-1 — dérivé (jamais stocké) : décide le 3e groupe
     validationAcquise: estValidationAcquise(Number(r.nb_corps), Number(r.nb_corps_sans_alt_validee), Number(r.nb_corps_sans_emprise_validee)), // « franchi le process » (altitudes + emprises VALIDÉES)
     passageAcquis: r.projection_validee === true, // COMPLÉMENT — marqueur permis_projection présent (déjà entré en Rattachement, quel que soit le mode)
+    modifieApresValidation: modifies.has(Number(r.dossier_id)), // RATT-EDIT (lot B3) — dérivé (jamais stocké) : altitude/emprise modifiée depuis la validation, à revalider
   };
+}
+
+/** RATT-EDIT (lot B3) — ensemble des dossiers (parmi ceux DÉJÀ passés en Rattachement) modifiés depuis leur validation. Borné aux
+ *  `projection_validee` : le marqueur n'a de sens que pour un permis validé, et ça garde le calcul (ST_Equals par emprise) petit. */
+async function dossiersModifiesParmi(rows: RangeeSuivi[]): Promise<Set<number>> {
+  const idsValides = rows.filter((r) => r.projection_validee === true).map((r) => Number(r.dossier_id));
+  return new Set((await marqueursModifApresValidation(idsValides)).keys());
 }
 
 /** LOT COMPLET — compteurs des QUATRE groupes de la partition (source unique `partitionnerSuivi`). La pastille « Rattachement » = `rattAFaire` (catégorie ①). */
@@ -316,8 +326,8 @@ export async function listerSuivi(): Promise<{ lignes: LigneSuivi[]; compteurs: 
   const [alertesSurv, modePassage, perEmprise, faCb] = await Promise.all([lireAlertesSurveillanceParDossier(), lireModePassageRattachement(), colValideeEmpriseExiste(), fragmentCorpsActif('cb')]); // COMPLÉMENT — le mode décide l'appartenance (source unique) ; BAT-3 — cartes actives
   const { rows } = await query<RangeeSuivi>(`SELECT ${selectSuivi(perEmprise, faCb)}\n       ${FROM_SUIVI}`);
   // RATT-1 — signal LÉGER « dossier incomplet » (lecture mémoire, une requête, aucune IA) pour le 3e groupe. Résilient (set vide si 174 absente).
-  const incomplets = await dossiersIncompletsParmi(rows.map((r) => Number(r.dossier_id)));
-  const lignes: LigneSuivi[] = trierLignesSuivi(rows.map((r) => versLigneSuivi(r, alertesSurv, incomplets)));
+  const [incomplets, modifies] = await Promise.all([dossiersIncompletsParmi(rows.map((r) => Number(r.dossier_id))), dossiersModifiesParmi(rows)]);
+  const lignes: LigneSuivi[] = trierLignesSuivi(rows.map((r) => versLigneSuivi(r, alertesSurv, incomplets, modifies)));
   const compteurs = Object.fromEntries((Object.keys(ORDRE_URGENCE) as EtatSuivi[]).map((e) => [e, 0])) as Record<EtatSuivi, number>;
   for (const l of lignes) compteurs[l.etat] += 1;
   // LOT COMPLET/COMPLÉMENT — les compteurs de groupe dérivent de la MÊME partition (et du MÊME mode) que l'affichage → pastille et liste ne divergent jamais.
@@ -348,9 +358,9 @@ export async function rechercherSuivi(c: CriteresSuivi, page: number): Promise<{
       ORDER BY s.date_reelle_autorisation DESC NULLS LAST, e.dossier_id
       LIMIT ${TAILLE_PAGE_SUIVI} OFFSET ${offset}`, valeurs);
   const total = rows[0] ? Number(rows[0].total) : 0;
-  const incomplets = await dossiersIncompletsParmi(rows.map((r) => Number(r.dossier_id)));
+  const [incomplets, modifies] = await Promise.all([dossiersIncompletsParmi(rows.map((r) => Number(r.dossier_id))), dossiersModifiesParmi(rows)]);
   // ORDRE SQL préservé (pagination stable) : jamais re-trié en mémoire.
-  const lignes = rows.map((r) => versLigneSuivi(r, alertesSurv, incomplets));
+  const lignes = rows.map((r) => versLigneSuivi(r, alertesSurv, incomplets, modifies));
   return { lignes, total, page: pageSure, nbPages: Math.ceil(total / TAILLE_PAGE_SUIVI) };
 }
 
@@ -371,6 +381,8 @@ export interface DetailSuivi {
   streetView: { lat: number; lng: number } | null;            // FUS-3c — centroïde WGS84 de l'empreinte, null si pas de point fiable
   streetViewMotif: string | null;                             // pourquoi il n'y a pas de lien (empreinte incomplète/absente)
   pieces: PieceArchive[];                                      // FUS-3c — pièces jointes consultables (rapatriées d'Archives)
+  modifieDepuisValidation: boolean;                            // RATT-EDIT (lot B3) — altitude/emprise MODIFIÉE depuis la dernière validation, pas encore revalidée (dérivé, persistant, visible par tous)
+  derniereModif: { parNom: string | null; le: string | null } | null; // RATT-EDIT (lot B3) — trace « qui / quand » de la dernière modification (null si non modifié, ou modif d'emprise seule non attribuable)
 }
 
 /** BD TOPO : les bâtiments COURANTS présents dans l'empreinte (étages, altitude toit, usages) — pour la colonne BD TOPO du comparatif.
@@ -448,6 +460,9 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
   //   MILLESIME_INCONNU → null (l'écran dira « non renseigné » ; jamais un repli muet sur le proxy). Le cadastre garde sa source.
   const mEditionBati = await millesimeEditionCourante(query);
 
+  // RATT-EDIT (lot B3) — marqueur PERSISTANT + trace (dérivés, sans migration) : altitude/emprise modifiée depuis la dernière validation ?
+  const marqueur = (await marqueursModifApresValidation([dossierId])).get(dossierId) ?? null;
+
   return {
     dossierId, numDau: b.num_dau, commune: b.commune, codeInsee: b.code_insee,
     type: b.type, adresse: b.adresse, natureTravaux: b.nature ? libelleNatureProjet(b.nature) : null,
@@ -457,5 +472,7 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
     millesimeCadastre: contexte.empreinteMillesime, millesimeBati: mEditionBati === MILLESIME_INCONNU ? null : mEditionBati,
     comparatif,
     nbParcellesOrigine: parcelles.length, nbContoursEmpreinte, streetView, streetViewMotif, pieces,
+    modifieDepuisValidation: marqueur !== null,                                      // RATT-EDIT (lot B3) — bannière persistante « à revalider »
+    derniereModif: marqueur ? { parNom: marqueur.parNom, le: marqueur.le } : null,   // RATT-EDIT (lot B3) — trace qui/quand de la dernière modification
   };
 }

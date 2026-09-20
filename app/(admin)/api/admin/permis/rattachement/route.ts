@@ -1,8 +1,8 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerAdministrateur, exigerCapaciteModif } from '../../../../../lib/admin/garde';
 import { listerSuivi, rechercherSuivi, construireFiltreSuivi, lireDetailSuivi, ouvrirRattachementManuel, cloreRattachementAcheve, type CriteresSuivi } from '../../../../../lib/permis/rattachementSuiviRepo';
 import { lireComparaison, affecterPolygone } from '../../../../../lib/permis/affectationRepo';
-import { validerRattachement, refuserRattachement, retourLidar } from '../../../../../lib/permis/actionsRattachement';
+import { validerRattachement, refuserRattachement, retourLidar, revaliderRattachement } from '../../../../../lib/permis/actionsRattachement';
 import { lireDaactDeclencheurActif, ecrireDaactDeclencheurActif } from '../../../../../lib/permis/rattachementConfig';
 
 /**
@@ -108,6 +108,18 @@ export async function POST(request: Request): Promise<Response> {
       // Rafraîchit détail + affectation (état du dossier / altitudes à jour). M8 — `injections` : détail RÉELLEMENT écrit, pour l'accusé.
       const [detail, comparaison] = await Promise.all([lireDetailSuivi(dossierId), lireComparaison(dossierId).catch(() => null)]);
       return Response.json({ ok: true, nbInjectes: res.nbInjectes, injections: res.injections, nbRestaures: res.nbRestaures, detail, comparaison });
+    }
+
+    // RATT-EDIT (lot B3) — REVALIDER un permis modifié après validation. Sous-droit « modifier après validation » requis (exigerCapaciteModif,
+    //   défense en profondeur : la route est déjà admin-only → un non-administrateur est refusé plus haut, URL directe comprise). La garde du
+    //   Lot 1 (corps non enregistré) est appliquée DANS revaliderRattachement. Aucune injection, aucun changement d'état : le permis reste ici.
+    if (body.action === 'revalider') {
+      const refusModif = await exigerCapaciteModif(request);
+      if (refusModif) return refusModif;
+      const res = await revaliderRattachement(dossierId, 'admin:decision');
+      if (!res.ok) return Response.json({ erreur: res.motif ?? 'revalidation impossible', manque: res.manque }, { status: 409 });
+      const [detail, comparaison] = await Promise.all([lireDetailSuivi(dossierId), lireComparaison(dossierId).catch(() => null)]);
+      return Response.json({ ok: true, versionGel: res.versionGel, detail, comparaison });
     }
 
     return Response.json({ erreur: 'action inconnue' }, { status: 400 });

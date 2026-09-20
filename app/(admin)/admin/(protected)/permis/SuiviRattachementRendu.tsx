@@ -210,6 +210,14 @@ function LigneSuiviLi({ l, groupe, onOuvrir, ouvert }: { l: LigneSuivi; groupe: 
           <PastilleActions n={l.alertesSurveillance} ariaLabel={`${l.alertesSurveillance} changement${l.alertesSurveillance > 1 ? 's' : ''} de polygone à vérifier`} />
         </span>
       )}
+      {/* RATT-EDIT (lot B3) — BADGE PERSISTANT « à revalider » : l'altitude ou l'emprise a été modifiée depuis la validation et n'a pas
+          été revalidée. Visible SANS déplier (dérivé serveur → survit au rechargement, vaut pour tout utilisateur). */}
+      {l.modifieApresValidation && (
+        <span title="Altitude ou emprise modifiée depuis la validation — à revalider"
+          style={{ display: 'inline-flex', alignItems: 'center', gap: '.2rem', background: 'var(--color-svv-red-soft)', color: 'var(--color-svv-red)', fontWeight: 700, fontSize: 11, borderRadius: '.4rem', padding: '.1rem .4rem', whiteSpace: 'nowrap' }}>
+          <span aria-hidden>⚠</span> modifié — à revalider
+        </span>
+      )}
       {/* FUS-3c-ter — n° + type/nature + adresse ; l'ouverture passe par un BOUTON EXPLICITE, pas un clic sur la ligne. */}
       <span style={{ fontFamily: 'var(--font-svv-mono, monospace)', fontWeight: 700 }}>{l.numDau}</span>
       <span>{l.type}{l.natureTravaux ? ` — ${l.natureTravaux}` : ''}</span>

@@ -14,6 +14,7 @@ const vue = readFileSync(join(ici, 'SuiviRattachementVue.tsx'), 'utf8');
 const tuile = readFileSync(join(ici, 'PermisTuile.tsx'), 'utf8');
 const page = readFileSync(join(ici, 'page.tsx'), 'utf8');
 const projection = readFileSync(join(ici, 'ProjectionVue.tsx'), 'utf8');
+const rendu = readFileSync(join(ici, 'SuiviRattachementRendu.tsx'), 'utf8');
 
 describe('B2 — verrou par défaut : altitude en lecture seule tant que la modification n’est pas déverrouillée', () => {
   it('état modifOuverte initialisé à FALSE (verrouillé pour tous, admin compris)', () => {
@@ -55,8 +56,9 @@ describe('B2 — éditeur d’emprise monté seulement déverrouillé ; le permi
     const bloc = vue.slice(iBandeau, iFin);
     expect(iBandeau).toBeGreaterThan(-1);
     expect(iFin).toBeGreaterThan(iBandeau);
+    // On cible la CHARGE utile d'un POST de décision (`action: '…'`), pas le mot nu : « Revalider » (B3) contient « valider » sans être une décision.
     for (const action of ['valider', 'clore', 'retour_lidar', 'ouvrir_manuel'])
-      expect(bloc, `le déverrouillage ne doit pas déclencher « ${action} »`).not.toContain(action);
+      expect(bloc, `le déverrouillage ne doit pas déclencher « ${action} »`).not.toContain(`action: '${action}'`);
   });
 });
 
@@ -81,5 +83,40 @@ describe('B2 — Analyse et projection STRICTEMENT inchangé', () => {
     expect(projection).not.toContain('BandeauModificationValidation');
     expect(projection).not.toContain('PopUpConfirmerModification');
     expect(projection).not.toContain('modifOuverte');
+  });
+});
+
+describe('B3 — revalidation en place + marqueur persistant + trace', () => {
+  it('marqueur PERSISTANT servi par le SERVEUR (detail.modifieDepuisValidation) → survit au rechargement, vaut pour tout utilisateur (jamais un état local)', () => {
+    expect(vue).toContain('detail.modifieDepuisValidation');
+  });
+  it('BADGE sur la ligne fermée (l.modifieApresValidation) → visible SANS déplier', () => {
+    expect(rendu).toContain('l.modifieApresValidation');
+    expect(rendu).toMatch(/modifié\s*—\s*à revalider/);
+  });
+  it('la trace « qui / quand » (derniereModif) est affichée dans le détail', () => {
+    expect(vue).toContain('detail.derniereModif');
+  });
+  it('bouton « Revalider » gaté par la capacité peutModifierPermis + pop-up 2', () => {
+    expect(vue).toMatch(/peutModifierPermis && \(modifOuverte \|\| detail\.modifieDepuisValidation\)/);
+    expect(vue).toContain('<PopUpConfirmerRevalidation');
+    expect(vue).toContain("setPopupReval(true)");
+  });
+  it('la revalidation POSTe l’action « revalider » et rafraîchit le détail (marqueur effacé sans rechargement)', () => {
+    const iReval = vue.indexOf('const revalider = useCallback');
+    const bloc = vue.slice(iReval, iReval + 1400);
+    expect(bloc).toContain("action: 'revalider'");
+    expect(bloc).toContain('if (d.detail) setDetail(d.detail)'); // le détail à jour porte modifieDepuisValidation=false
+  });
+  it('la revalidation ne déclenche AUCUNE action qui ferait redescendre le permis (valider/refuser/clore/retour) — il reste dans Rattachement', () => {
+    const iReval = vue.indexOf('const revalider = useCallback');
+    const bloc = vue.slice(iReval, iReval + 1400);
+    for (const a of ["'valider'", "'refuser'", "'retour_lidar'", "'clore'", "'ouvrir_manuel'"])
+      expect(bloc, `la revalidation ne doit pas émettre ${a}`).not.toContain(a);
+  });
+  it('Analyse et projection : AUCUNE contagion de la revalidation', () => {
+    expect(projection).not.toContain('revalider');
+    expect(projection).not.toContain('modifieDepuisValidation');
+    expect(projection).not.toContain('PopUpConfirmerRevalidation');
   });
 });
