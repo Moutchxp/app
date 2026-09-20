@@ -62,6 +62,13 @@ describe('S14e / C2 — EncartArbitrages (repliable, information seule, aucune b
     expect(rendu([a, b], false)).toContain('2 communes ont une PRADA non adoptée');
   });
 
+  it('§2 — RENDU UNIQUE : ligne de titre `.svv-repli-titre--alerte` (ambre, même forme que tous les blocs), plus de variante nue', () => {
+    const h = rendu([a], false);
+    expect(h).toContain('svv-repli-titre svv-repli-titre--alerte'); // même conteneur que les blocs neutres + teinte d'alerte
+    expect(h).not.toContain('svv-repli-titre-nu');                  // la variante « nue » a disparu
+    expect(h).toContain('role="group"');                           // structure accessible conservée
+  });
+
   it('C2 — aria-expanded suit l’état ; le déclencheur est un vrai <button> (clavier)', () => {
     expect(rendu([a], false)).toContain('aria-expanded="false"');
     expect(rendu([a], true)).toContain('aria-expanded="true"');

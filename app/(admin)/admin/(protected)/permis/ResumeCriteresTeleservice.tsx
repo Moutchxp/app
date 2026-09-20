@@ -146,7 +146,7 @@ export function ResumeCriteresTeleservice({ signalRafraichir, onChangement, onAl
     <details style={{ fontSize: 13 }}>
       <summary className="svv-repli-titre">
         <span aria-hidden className="svv-repli-chevron" />
-        <span style={{ flex: 1, minWidth: 0 }}>Critères de sélection des cartes — rail Téléservice</span>
+        <span className="svv-repli-libelle">Critères de sélection des cartes — rail Téléservice</span>
       </summary>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', marginTop: '.5rem' }}>

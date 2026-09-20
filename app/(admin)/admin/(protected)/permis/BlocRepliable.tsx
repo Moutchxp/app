@@ -65,7 +65,7 @@ export function BlocRepliable({ titre, children, onOuvertChange, defautOuvert = 
         className="svv-repli-titre"
       >
         <span aria-hidden className="svv-repli-chevron">{ouvert ? '▾' : '▸'}</span>
-        <span style={{ flex: 1, minWidth: 0 }}>{titre}</span>
+        <span className="svv-repli-libelle">{titre}</span>
       </button>
       {/* Monté SEULEMENT après la 1re ouverture (dejaOuvert) ; caché en CSS quand replié → jamais démonté, donc jamais de refetch. */}
       {dejaOuvert && <div hidden={!ouvert}>{children()}</div>}

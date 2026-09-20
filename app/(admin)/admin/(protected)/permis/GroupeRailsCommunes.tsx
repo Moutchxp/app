@@ -28,11 +28,12 @@ export function GroupeRailsCommunes({ hors, rail, onAction, onOuvrirCommune, sig
   //   ligne (nowrap + ellipsis, texte intégral au survol) ; si l'espace manque, seule la queue se tronque — le décompte reste aussi visible
   //   dans le commutateur au-dessus (① inchangé), donc jamais perdu.
   const texteHors = `hors process : ${sansAdresse} sans adresse${courrier > 0 ? ` · ${courrier} courrier` : ''}`;
+  // Le libellé tient sur UNE ligne (troncature …) grâce à `.svv-repli-libelle` porté par BlocRepliable ; ce span ne fait que porter l'info-bulle
+  //   du texte complet (survol) et le complément atténué (`.svv-repli-complement`), même traitement que « Hors process ».
   const titre = (
-    <span title={`Bascule de rail & carte des communes — ${texteHors}`}
-      style={{ display: 'inline-block', maxWidth: '100%', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', verticalAlign: 'bottom' }}>
+    <span title={`Bascule de rail & carte des communes — ${texteHors}`}>
       Bascule de rail &amp; carte des communes
-      <span style={{ color: 'var(--color-svv-muted)', fontWeight: 400 }}> — {texteHors}</span>
+      <span className="svv-repli-complement"> — {texteHors}</span>
     </span>
   );
 

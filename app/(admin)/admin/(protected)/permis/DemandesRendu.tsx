@@ -131,12 +131,12 @@ export function EncartArbitrages({ arbitrages, ouvert, onToggle, onOuvrirCommune
   if (arbitrages.length === 0) return null; // décompte nul → rien du tout
   const n = arbitrages.length;
   return (
-    <section role="group" aria-label="Arbitrages PRADA à rendre" className="svv-card" style={{ background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)' }}>
-      {/* §2 — ligne de titre repliable UNIFIÉE (variante NUE : la carte ambre porte déjà la boîte et la couleur d'alerte). Chevron muté
-          commun, typo/hauteur ≥44px/focus alignés ; la couleur d'alerte reste sur le titre (color:inherit → ambre). */}
-      <button type="button" aria-expanded={ouvert} aria-controls={ID_CONTENU_ARBITRAGES} onClick={() => onToggle?.()} className="svv-repli-titre-nu">
+    <div role="group" aria-label="Arbitrages PRADA à rendre" className="flex flex-col gap-1" style={{ minWidth: 0 }}>
+      {/* §2 — ligne de titre au RENDU UNIQUE, variante ALERTE (`.svv-repli-titre--alerte`) : MÊME forme que tous les blocs dépliables
+          (bordure, alignement gauche, chevron, hauteur ≥44px), seule la COULEUR change (fond + bord + titre ambre). */}
+      <button type="button" aria-expanded={ouvert} aria-controls={ID_CONTENU_ARBITRAGES} onClick={() => onToggle?.()} className="svv-repli-titre svv-repli-titre--alerte">
         <span aria-hidden="true" className="svv-repli-chevron">{ouvert ? '▾' : '▸'}</span>
-        <strong style={{ flex: 1, minWidth: 0 }}>{n} commune{n > 1 ? 's' : ''} {n > 1 ? 'ont' : 'a'} une PRADA non adoptée</strong>
+        <strong className="svv-repli-libelle">{n} commune{n > 1 ? 's' : ''} {n > 1 ? 'ont' : 'a'} une PRADA non adoptée</strong>
       </button>
       {ouvert && (
         <div id={ID_CONTENU_ARBITRAGES}>
@@ -166,7 +166,7 @@ export function EncartArbitrages({ arbitrages, ouvert, onToggle, onOuvrirCommune
           </ul>
         </div>
       )}
-    </section>
+    </div>
   );
 }
 
@@ -199,22 +199,24 @@ export function CarteInjoignable({ c, children }: { c: CommuneInjoignableAffiche
  * → prefers-reduced-motion sans objet. N.B. : l'encart PRADA de C2 (EncartArbitrages) garde son repliable inline (non touché
  * par ce chantier) ; cette primitive est disponible pour l'y adopter ultérieurement.
  */
-export function BlocRepliable({ ligne, ouvert, onToggle, idContenu, ariaLabel, retour, className = 'svv-card', style, children }: {
+export function BlocRepliable({ ligne, ouvert, onToggle, idContenu, ariaLabel, retour, className, style, children }: {
   ligne: ReactNode; ouvert: boolean; onToggle?: () => void; idContenu: string; ariaLabel: string;
   retour?: ReactNode; className?: string; style?: CSSProperties; children?: ReactNode;
 }) {
   return (
-    <section role="group" aria-label={ariaLabel} className={className} style={style}>
-      {/* §2 — ligne de titre repliable UNIFIÉE (variante NUE : le conteneur `className` — svv-card ou carte d'alerte — porte déjà la boîte
-          et sa couleur). Même chevron muté, même typo/hauteur ≥44px/focus que les autres blocs dépliables. */}
-      <button type="button" aria-expanded={ouvert} aria-controls={idContenu} onClick={() => onToggle?.()} className="svv-repli-titre-nu">
+    // §2 — RENDU UNIQUE : plus de carte enveloppante (pas de double bordure). Le wrapper n'est qu'une colonne ; la LIGNE de titre
+    //   (`.svv-repli-titre`) porte seule la boîte (bordure/fond/rayon/hauteur ≥44px), identique à tous les autres blocs dépliables ; le
+    //   contenu et le slot `retour` se déplient SOUS elle. `className` reste accepté (extension) mais n'ajoute JAMAIS `svv-card` (les appelants
+    //   ne le passent plus) → aucune double bordure.
+    <div role="group" aria-label={ariaLabel} className={['flex flex-col gap-1', className].filter(Boolean).join(' ')} style={{ minWidth: 0, ...style }}>
+      <button type="button" aria-expanded={ouvert} aria-controls={idContenu} onClick={() => onToggle?.()} className="svv-repli-titre">
         <span aria-hidden="true" className="svv-repli-chevron">{ouvert ? '▾' : '▸'}</span>
-        <strong style={{ flex: 1, minWidth: 0 }}>{ligne}</strong>
+        <strong className="svv-repli-libelle">{ligne}</strong>
       </button>
       {/* retour de saisie : TOUJOURS visible (hors du repli) */}
-      {retour ? <div style={{ marginTop: '.4rem' }}>{retour}</div> : null}
-      {ouvert && <div id={idContenu} style={{ marginTop: '.4rem' }}>{children}</div>}
-    </section>
+      {retour ? <div>{retour}</div> : null}
+      {ouvert && <div id={idContenu}>{children}</div>}
+    </div>
   );
 }
 
@@ -236,8 +238,7 @@ export function BlocInjoignables({ injoignables, ouvert, onToggle, retour, child
   if (injoignables.length === 0) return null; // décompte nul → rien du tout
   return (
     <BlocRepliable ariaLabel="Communes sans adresse e-mail à renseigner" idContenu="injoignables-contenu"
-      ligne={libelleInjoignables(injoignables.length)} ouvert={ouvert} onToggle={onToggle} retour={retour}
-      className="svv-card">
+      ligne={libelleInjoignables(injoignables.length)} ouvert={ouvert} onToggle={onToggle} retour={retour}>
       {children}
     </BlocRepliable>
   );
@@ -1249,7 +1250,7 @@ export function BlocStock({
 }) {
   return (
     <BlocRepliable ariaLabel="Stock de permis à demander par commune" idContenu="stock-permis-contenu"
-      ligne={libelleStock(stock, fenetreMois)} ouvert={ouvert} onToggle={onToggle} className="svv-card">
+      ligne={libelleStock(stock, fenetreMois)} ouvert={ouvert} onToggle={onToggle}>
       <p style={aide}>
         Permis d’<strong>immeuble neuf</strong> (et autres types) délivrés sur les <strong>{fenetreMois} derniers mois</strong> et
         <strong> pas encore demandés</strong> : le stock encore à demander, commune par commune, pour savoir combien de courriers reste à envoyer.

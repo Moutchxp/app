@@ -23,9 +23,15 @@ describe('LOT 39 — familles de tokens ambre / bleu / rouge-soft', () => {
     const src = lire(P + 'permis/DemandesRendu.tsx');
     expect(src).toContain("color: 'var(--color-svv-blue)'");        // accusé reçu
     expect(src).toContain("color: 'var(--color-svv-amber)'");       // reçu à classer
-    expect(src).toContain("background: 'var(--color-svv-amber-soft)', color: 'var(--color-svv-amber)'"); // bannière PRADA
+    // Bannière PRADA : l'ambre est passé du style inline à la classe repli UNIFIÉE `.svv-repli-titre--alerte` (tokens définis en CSS).
+    expect(src).toContain('svv-repli-titre--alerte');
     expect(src).not.toContain("'#1a4d8f'");
     expect(src).not.toContain("'#8a5a00'");
+    // La classe d'alerte est définie avec les TOKENS ambre (fond + bord + texte), aucun hex en dur, dans globals.css.
+    const css = lire('app/globals.css').replace(/\s+/g, ' ');
+    expect(css).toContain('.svv-repli-titre--alerte');
+    expect(css).toContain('background:var(--color-svv-amber-soft)');
+    expect(css).toContain('color:var(--color-svv-amber)');
   });
 
   it('ArchivesRendu : ORANGE = token ambre, pastilles origine tokenisées (ambre + rouge-soft)', () => {

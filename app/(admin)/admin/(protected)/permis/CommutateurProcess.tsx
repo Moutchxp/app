@@ -68,12 +68,12 @@ export function CommutateurProcess({ actif, onChoisir, compteurs, onOuvrirCommun
 
       {/* 3e groupe — JAMAIS masqué : ligne persistante + détail dépliable. */}
       <div style={{ fontSize: '.78rem' }}>
-        {/* §2 — ligne de titre repliable UNIFIÉE (variante NUE : ligne persistante du commutateur ; le détail dépliable ci-dessous garde
-            sa carte). Même chevron muté, même typo/hauteur ≥44px/focus que les autres blocs dépliables. Le libellé wrappe proprement (span flex). */}
-        <button type="button" aria-expanded={horsOuvert} onClick={() => setHorsOuvert((v) => !v)} className="svv-repli-titre-nu">
+        {/* §2 — ligne au RENDU UNIQUE (`.svv-repli-titre`), identique à tous les blocs dépliables ; le détail dépliable ci-dessous garde sa
+            carte. Le décompte passe en complément atténué (`.svv-repli-complement`), même traitement que « Bascule de rail ». */}
+        <button type="button" aria-expanded={horsOuvert} onClick={() => setHorsOuvert((v) => !v)} className="svv-repli-titre">
           <span aria-hidden="true" className="svv-repli-chevron">{horsOuvert ? '▾' : '▸'}</span>
-          <span style={{ flex: 1, minWidth: 0 }}>Hors process : {hors?.communesSansAdresse ?? 0} commune(s) sans adresse ni téléservice
-          {hors && hors.courrierDemandes > 0 ? ` · ${hors.courrierDemandes} demande(s) « courrier » (vestige)` : ''}</span>
+          <span className="svv-repli-libelle" title={`Hors process : ${hors?.communesSansAdresse ?? 0} commune(s) sans adresse ni téléservice${hors && hors.courrierDemandes > 0 ? ` · ${hors.courrierDemandes} demande(s) « courrier » (vestige)` : ''}`}>Hors process<span className="svv-repli-complement"> : {hors?.communesSansAdresse ?? 0} commune(s) sans adresse ni téléservice
+          {hors && hors.courrierDemandes > 0 ? ` · ${hors.courrierDemandes} demande(s) « courrier » (vestige)` : ''}</span></span>
         </button>
         {horsOuvert && hors && (
           <div className="svv-card" style={{ marginTop: '.4rem', background: 'var(--color-svv-field)', fontSize: '.76rem' }}>

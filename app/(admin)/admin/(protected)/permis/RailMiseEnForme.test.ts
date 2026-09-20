@@ -199,6 +199,18 @@ describe('Apparence UNIFIÉE des lignes repliables (§2)', () => {
     expect(t?.querySelector('.svv-repli-chevron')).not.toBeNull(); // chevron commun (muté, ▸/▾)
     expect(t?.getAttribute('aria-expanded')).toBe('false');       // toujours un vrai bouton dépliable
   });
+
+  it('UNE SEULE variante : plus aucune occurrence de `svv-repli-titre-nu` (composants du rail + CSS)', () => {
+    const dir = 'app/(admin)/admin/(protected)/permis/';
+    const fichiers = ['DemandesRendu.tsx', 'CommutateurProcess.tsx', 'ResumeCriteresTeleservice.tsx', 'BlocRepliable.tsx', 'GroupeRailsCommunes.tsx', 'ADemanderVue.tsx'];
+    for (const f of fichiers) {
+      const src = readFileSync(join(process.cwd(), dir + f), 'utf8');
+      expect(src.includes('svv-repli-titre-nu'), `${f} ne doit plus contenir svv-repli-titre-nu`).toBe(false);
+    }
+    const css = readFileSync(join(process.cwd(), 'app/globals.css'), 'utf8');
+    expect(css.includes('svv-repli-titre-nu'), 'globals.css ne doit plus définir svv-repli-titre-nu').toBe(false);
+    expect(css).toContain('.svv-repli-titre--alerte'); // la seule teinte alerte est un MODIFICATEUR de l'unique variante
+  });
 });
 
 describe('Placement dans ADemanderVue (§1) — moteur SOUS le carrousel, UNE seule instance', () => {
