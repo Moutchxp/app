@@ -70,7 +70,7 @@ const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '
  * BÂTIMENT (mesurés : repère, altitudes, étages, adresse par corps). Toute écriture est en 'saisie'. Confiance/réserve/motif
  * lus du journal (parCorps + permis). Bornes et liste de nature LUES de la base.
  */
-export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, onAccesEmprise, pied, avecEtatFamilles, etatSection4SansAide, onComptes, onFraicheur, durcirStatutFraicheur }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; onAccesEmprise?: (corpsId: number) => void; pied?: ReactNode; avecEtatFamilles?: boolean; etatSection4SansAide?: boolean; onComptes?: (comptes: ComptesCaracteristiquesPermis) => void; onFraicheur?: (f: FraicheurBatimentsLive) => void; durcirStatutFraicheur?: boolean }) {
+export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, onAccesEmprise, pied, avecEtatFamilles, etatSection4SansAide, onComptes, onFraicheur, durcirStatutFraicheur, sousLignesSurface }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; onAccesEmprise?: (corpsId: number) => void; pied?: ReactNode; avecEtatFamilles?: boolean; etatSection4SansAide?: boolean; onComptes?: (comptes: ComptesCaracteristiquesPermis) => void; onFraicheur?: (f: FraicheurBatimentsLive) => void; durcirStatutFraicheur?: boolean; sousLignesSurface?: boolean }) {
   // BAT-2 / BAT-2b — `avecEtatFamilles` : affiche l'ÉTAT sur les titres des sous-sections PORTEUSES (cohérence des cartes + altitudes),
   //   pour savoir s'il faut ouvrir d'un coup d'œil. Passé par LES CINQ vues qui montent ce bloc (Analyse et projection, Rattachement,
   //   Archives, Réponses, Suivi) — BAT-2b l'a étendu au-delà de la seule Projection. L'état vient TOUJOURS des données PROPRES de ce bloc
@@ -362,6 +362,10 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
   const champSommet = CHAMPS_PERMIS.find((c) => c.cle === 'altitudeSommetNgf')!;
   // N10-C — D : les 4 champs Cerfa du permis sont-ils tous vides ? (avec methode='cerfa' → « scan sans champ lisible »).
   const cerfaTousVides = (['surfacePlancherM2', 'nbLogements', 'nbPlacesStationnement', 'adresseTerrain'] as const).every((k) => (edPermis[k] ?? '').trim() === '');
+  // Mise en forme (page Analyse) — DÉTACHE les 4 sous-cartouches de leur conteneur : leur ligne de titre reçoit `svv-repli-titre--surface`
+  //   (fond surélevé). Passé UNIQUEMENT par ProjectionVue via `sousLignesSurface` → Archives / En cours / Réponses / Rattachement restent
+  //   STRICTEMENT inchangés (prop absente → undefined → aucune classe ajoutée). Ne concerne QUE le titre, jamais le contenu des sous-lignes.
+  const classeSousLigne = sousLignesSurface ? 'svv-repli-titre--surface' : undefined;
 
   return (
     <div className="flex flex-col gap-3" style={{ marginTop: '.6rem' }}>
@@ -370,7 +374,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       {/* CARTOUCHE 1 — Caractéristiques et bâtiments d’origine (faits Sitadel, parcelles, empreinte attendue, bâti au moment de l’analyse).
           BAT-4 — NON BLOQUANTE : information Sitadel PURE, plus d'état coloré sur son titre. L'état (altitude + cohérence du nombre) et le
           champ « changer le nombre » vivent désormais EN SECTION 4, au-dessus des cartes qu'ils pilotent (un état loin de sa commande est illisible). */}
-      <BlocRepliable titre="Caractéristiques et bâtiments d’origine">
+      <BlocRepliable titre="Caractéristiques et bâtiments d’origine" titreClasseExtra={classeSousLigne}>
         {() => (
           <FaitsPermisBloc faits={data.faits} parcelles={data.parcelles} empreinte={data.empreinte} bati={data.bati}
             dossierId={dossierId} onParcelleChange={() => void rafraichir()}
@@ -387,7 +391,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
 
       {/* CARTOUCHE 2 — COMPTE RENDU DU CERFA (CR-2a) : compte rendu LISIBLE reconstitué de ce qui est en base (aucune IA). Remplace le pavé
           de texte brut. Chargé dans la sous-requête DIFFÉRÉE (cerfaRecap=1) — l'ouverture reste instantanée ; monté au 1er dépliage (PERF-1). */}
-      <BlocRepliable titre="Compte rendu du Cerfa">
+      <BlocRepliable titre="Compte rendu du Cerfa" titreClasseExtra={classeSousLigne}>
         {() => (
           <CompteRenduDiffere dossierId={dossierId} faits={data.faits} global={data.global} corps={data.corps}
             journal={data.journal} parcelles={data.parcelles ?? []} lienPiece={lienPiece} />
@@ -395,7 +399,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       </BlocRepliable>
 
       {/* CARTOUCHE 3 — LE PERMIS (déclaré) : vaut pour tout le permis, ne se répète pas. Le titre de section devient le titre du dépliant. */}
-      <BlocRepliable titre={<>Le permis <span style={{ ...styleAide, fontWeight: 400 }}>— déclaré (Cerfa), vaut pour l’ensemble du projet</span></>}>
+      <BlocRepliable titre={<>Le permis <span style={{ ...styleAide, fontWeight: 400 }}>— déclaré (Cerfa), vaut pour l’ensemble du projet</span></>} titreClasseExtra={classeSousLigne}>
         {() => (
       <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
         {/* N10-C — D : ce que contient la section et d'où ça vient. */}
@@ -450,7 +454,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
           BAT-2 / BAT-2b — PORTEUSE : son titre porte l'état des ALTITUDES (aucune carte / manquantes / renseignées) quand `avecEtatFamilles`.
           Le suffixe d'aide « — un par immeuble… » est CONSERVÉ par défaut (créneau `aide` de TitreFamilleEtat, l'état s'ajoute après) ;
           il n'est REMPLACÉ par l'état que dans Projection (`etatSection4SansAide`, qui a déjà la mère au-dessus). */}
-      <BlocRepliable titre={avecEtatFamilles ? <TitreFamilleEtat base="Les futurs bâtiments et leurs altitudes" etat={etatSection4} aide={etatSection4SansAide ? undefined : <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span>} /> : <>Les futurs bâtiments et leurs altitudes <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span></>}>
+      <BlocRepliable titre={avecEtatFamilles ? <TitreFamilleEtat base="Les futurs bâtiments et leurs altitudes" etat={etatSection4} aide={etatSection4SansAide ? undefined : <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span>} /> : <>Les futurs bâtiments et leurs altitudes <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span></>} titreClasseExtra={classeSousLigne}>
         {() => (
       <div className="flex flex-col gap-3">
       {/* BAT-4 — EN TÊTE de la section : « Bâtiments identifiés : N (d'après les pièces) · Changer le nombre : [champ] [Appliquer] », au-dessus

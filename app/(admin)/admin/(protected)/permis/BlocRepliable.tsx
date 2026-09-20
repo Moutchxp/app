@@ -11,7 +11,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
  * `titre` reste visible même replié (il peut porter un bilan léger). Accessible et tactile : vrai `<button>` + `aria-expanded`,
  * aucune interaction au survol seul (exigence transverse mobile §15).
  */
-export function BlocRepliable({ titre, children, onOuvertChange, defautOuvert = false, ouvrirSignal, ouvrirQuand }: {
+export function BlocRepliable({ titre, children, onOuvertChange, defautOuvert = false, ouvrirSignal, ouvrirQuand, titreClasseExtra }: {
   titre: ReactNode;                    // ligne de titre, visible repliée (peut porter un bilan léger)
   children: () => ReactNode;           // RENDER-PROP : évaluée (donc l'enfant monté) UNIQUEMENT une fois le bloc ouvert
   onOuvertChange?: (ouvert: boolean) => void; // notifie le parent (ex. jauge le bouton « Valider » sur l'ouverture des bâtiments)
@@ -26,6 +26,9 @@ export function BlocRepliable({ titre, children, onOuvertChange, defautOuvert = 
   //   manuel : le moteur s'ouvre pour inviter à chercher) SANS pour autant le PILOTER. Absente/undefined → aucun effet (rétro-compatible).
   //   Indépendante de `ouvrirSignal` (nonce ré-armable) : deux mécanismes d'ouverture distincts qui coexistent sans se gêner.
   ouvrirQuand?: boolean;
+  // Classe(s) MODIFICATRICE(S) optionnelle(s) AJOUTÉE(S) à la ligne de titre (ex. `svv-repli-titre--surface`), sans remplacer `svv-repli-titre`.
+  //   Absente/undefined → rendu STRICTEMENT inchangé (tous les autres appelants). Sert à détacher/teinter UNE ligne précise sans toucher au CSS partagé.
+  titreClasseExtra?: string;
 }) {
   const [ouvert, setOuvert] = useState(defautOuvert);
   const [dejaOuvert, setDejaOuvert] = useState(defautOuvert); // resté vrai après la 1re ouverture → l'enfant n'est plus démonté (pas de refetch)
@@ -62,7 +65,7 @@ export function BlocRepliable({ titre, children, onOuvertChange, defautOuvert = 
         type="button"
         onClick={basculer}
         aria-expanded={ouvert}
-        className="svv-repli-titre"
+        className={`svv-repli-titre${titreClasseExtra ? ` ${titreClasseExtra}` : ''}`}
       >
         <span aria-hidden className="svv-repli-chevron">{ouvert ? '▾' : '▸'}</span>
         <span className="svv-repli-libelle">{titre}</span>

@@ -28,6 +28,7 @@
   /* LOT 37 — tokens de SURFACE + sens ajoutés pour le thème sombre. Valeurs CLAIRES ici = état actuel exact (aucun changement en
      clair) ; le bloc `[data-theme='dark']` plus bas (scopé à .svv-adm-root) les bascule. */
   --color-svv-surface: #ffffff;              /* fond des cartes/panneaux/boutons clairs (ex-#fff en dur) */
+  --color-svv-surface-raised: #ffffff;       /* surface « surélevée » : sous-lignes détachées de leur conteneur (Analyse) — BLANC en clair ; en sombre, un cran PLUS CLAIR que le conteneur (field) */
   --color-svv-bg: #ffffff;                   /* fond de page de l'admin */
   --color-svv-line-strong: #d7dbe1;          /* bordure de .svv-btn-outline (ex-#d7dbe1) */
   --color-svv-line-strong-hover: #b7bcc6;    /* survol de la bordure ci-dessus (ex-#b7bcc6) */
@@ -77,6 +78,12 @@
   .svv-repli-titre--alerte{background:var(--color-svv-amber-soft);border-color:var(--color-svv-amber);color:var(--color-svv-amber)}
   .svv-repli-titre--alerte:hover{background:var(--color-svv-amber-soft)}
   .svv-repli-titre--alerte .svv-repli-chevron{color:var(--color-svv-amber)}
+  /* Variante SURFACE (surélevée) : MÊME forme, fond surélevé (token) pour DÉTACHER une sous-ligne de son conteneur (sous-lignes de
+     « Caractéristiques du permis (saisie) », page Analyse). Ce n'est PAS une alerte : elle se pose sur des sous-lignes NEUTRES et n'altère
+     ni la teinte du texte (le rouge d'alerte éventuel reste porté par le contenu) ni le chevron. Fond conservé au survol (comme --alerte),
+     pour ne pas retomber sur le gris du survol par défaut. Modificateur ADDITIF : n'atteint que les lignes qui portent explicitement la classe. */
+  .svv-repli-titre--surface{background:var(--color-svv-surface-raised);border-color:var(--color-svv-line-strong)}
+  .svv-repli-titre--surface:hover{background:var(--color-svv-surface-raised)}
   /* <summary> : neutraliser le marqueur natif PARTOUT (WebKit + standard). */
   summary.svv-repli-titre{list-style:none}
   summary.svv-repli-titre::-webkit-details-marker{display:none}
@@ -166,6 +173,7 @@
   --color-svv-line-strong: #384454;
   --color-svv-line-strong-hover: #4a5a6e;
   --color-svv-field: #242e3c;
+  --color-svv-surface-raised: #2a3442;       /* un cran plus clair que field (#242e3c) → détache les sous-lignes en sombre ; assez sombre pour garder le texte rouge d'alerte ≥ 4,5:1 */
   --color-svv-label: #9aa5b3;
   --color-svv-tip-bg: #313c4c;
   --color-svv-red: #ff6b6b;
@@ -197,6 +205,7 @@
     --color-svv-line-strong: #384454;
     --color-svv-line-strong-hover: #4a5a6e;
     --color-svv-field: #242e3c;
+    --color-svv-surface-raised: #2a3442;       /* identique au bloc [data-theme='dark'] */
     --color-svv-label: #9aa5b3;
     --color-svv-tip-bg: #313c4c;
     --color-svv-red: #ff6b6b;

@@ -335,7 +335,7 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
                   écriture) change le NOMBRE de corps ACTIFS. Le snapshot de la file (source de la ligne FERMÉE et de son décompte « Bâtiments »)
                   devient alors périmé par rapport à l'intérieur LIVE → la ligne oscillait vert (ouvert) / rouge (fermé). On rafraîchit la file ICI
                   aussi (comme `onEmprisesChange`), pour que la ligne fermée et le dossier ouvert lisent le MÊME décompte de bâtiments actifs. */}
-              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles etatSection4SansAide durcirStatutFraicheur onComptes={setComptesLive} onFraicheur={setFraicheurBat} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onAccesEmprise={accederEmprise} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => { setVInstruction((v) => v + 1); void rafraichirFile(); }} pied={rendreCloture('bouton')} />
+              <CaracteristiquesBloc key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`} dossierId={ouvert} avecEtatFamilles etatSection4SansAide durcirStatutFraicheur sousLignesSurface onComptes={setComptesLive} onFraicheur={setFraicheurBat} ancreEmprise={`ancre-bloc-emprise-${ouvert}`} onAccesEmprise={accederEmprise} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} onChange={() => { setVInstruction((v) => v + 1); void rafraichirFile(); }} pied={rendreCloture('bouton')} />
             </div>
           )}
         </BlocRepliable>
