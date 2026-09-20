@@ -115,6 +115,12 @@ export async function figerVersionGel(dossierId: number, gelePar: string): Promi
  *  d'origine posées à l'extraction). Sert de marqueur : la surveillance retrouve sa RÉFÉRENCE par `gele_par LIKE 'validation:%'`. */
 export const PREFIXE_GEL_VALIDATION = 'validation:';
 
+/** RATT-EDIT (lot C1) — préfixe d'une version figée AU MOMENT D'UNE RESTAURATION de la validation d'origine. DISTINCT de `validation:`
+ *  À DESSEIN : une restauration n'est PAS une validation → `versionValidationCourante` (LIKE 'validation:%') l'IGNORE, donc la référence
+ *  de surveillance reste la dernière validation ET le marqueur B3 « à revalider » s'allume après restauration (rule ③). C'est bien une
+ *  entrée d'historique append-only (audit : quand/qui a restauré), restaurable elle-même plus tard. */
+export const PREFIXE_GEL_RESTAURATION = 'restauration:';
+
 /** SURV-1 — version de VALIDATION la plus récente d'un dossier (gele_par préfixé 'validation:') : { id, version } ; null si aucune ou
  *  registre absent. C'est la RÉFÉRENCE géométrique de la surveillance des polygones (permis_gel_bati de cette version). */
 export async function versionValidationCourante(q: RequeteTx, dossierId: number): Promise<VersionGel | null> {
@@ -146,8 +152,10 @@ export async function versionValidationCourante(q: RequeteTx, dossierId: number)
  * Géométries copiées TELLES QUELLES (miroir exact : POLYGON/2154 pour corps.emprise, GEOMETRY/2154 pour emprise.geom). Aucun backfill : les
  * permis déjà validés restent sans détail (C1 verra `versionValidationCourante` = null → rien à restaurer).
  */
-export async function figerVersionValidation(dossierId: number, valPar: string): Promise<ResultatFigerGel> {
+export async function figerVersionValidation(dossierId: number, valPar: string, prefixe: string = PREFIXE_GEL_VALIDATION): Promise<ResultatFigerGel> {
   // VOIS-1 — bâti figé DU PERMIS seul (bâti COURANT ∩ empreinte, filtré par batimentAppartientPermis) : jamais les voisins.
+  // RATT-EDIT (lot C1) — `prefixe` optionnel (défaut PREFIXE_GEL_VALIDATION, callers inchangés) : la RESTAURATION passe PREFIXE_GEL_RESTAURATION
+  //   pour figer l'état RESTAURÉ sans en faire une référence de validation (cf. PREFIXE_GEL_RESTAURATION).
   const permisCleabs = [...await cleabsAppartenantPermis(dossierId, 'batiment')];
   return withTransaction(async (q) => {
     if (!(await gelActif(q))) return { enregistre: false, raison: 'registre de gel indisponible (migration 169 non appliquée)' };
@@ -155,7 +163,7 @@ export async function figerVersionValidation(dossierId: number, valPar: string):
     const { rows: v } = await q<{ prochaine: string | number }>(
       `SELECT COALESCE(max(version), 0) + 1 AS prochaine FROM permis_gel WHERE dossier_id = $1`, [dossierId]);
     const version = Number(v[0]?.prochaine ?? 1);
-    const gelePar = `${PREFIXE_GEL_VALIDATION}${valPar}`;
+    const gelePar = `${prefixe}${valPar}`;
 
     // EN-TÊTE : copie de l'empreinte COURANTE ; VOIS-1 : le résumé bâti = COMPTE du bâti DU PERMIS ∩ empreinte (pas la capture d'origine, pas les voisins).
     const { rows: h } = await q<{ id: string | number }>(

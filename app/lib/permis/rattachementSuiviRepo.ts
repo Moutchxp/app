@@ -21,6 +21,7 @@ import { listerPiecesDossier } from '../sitadel/demandeRepo';
 import type { PieceArchive } from '../sitadel/demandeRepo';
 import { dossiersIncompletsParmi } from './completudeRepo'; // RATT-1 — signal « dossier incomplet » en lot (mémoire, sans IA)
 import { marqueursModifApresValidation } from './modificationApresValidation'; // RATT-EDIT (lot B3) — marqueur+trace « modifié après validation, à revalider » (dérivé, sans migration)
+import { versionsRestaurables, type VersionRestaurable } from './restaurationGel'; // RATT-EDIT (lot C1) — versions de gel restaurables (validation d'origine, revalidations, restaurations)
 import { libelleNatureProjet, aucunSignalGeometriquePossible } from '../sitadel/priorite';
 import { estAFaire, estValidationAcquise, partitionnerSuivi } from './rattachementGroupes'; // L6 — coupure en deux ; LOT 77/LOT COMPLET — validation acquise + partition (source unique)
 import { millesimeEditionCourante, MILLESIME_INCONNU } from './editionBdTopo'; // L8 — millésime bâti AFFICHÉ = registre (autorité), plus le proxy
@@ -383,6 +384,7 @@ export interface DetailSuivi {
   pieces: PieceArchive[];                                      // FUS-3c — pièces jointes consultables (rapatriées d'Archives)
   modifieDepuisValidation: boolean;                            // RATT-EDIT (lot B3) — altitude/emprise MODIFIÉE depuis la dernière validation, pas encore revalidée (dérivé, persistant, visible par tous)
   derniereModif: { parNom: string | null; le: string | null } | null; // RATT-EDIT (lot B3) — trace « qui / quand » de la dernière modification (null si non modifié, ou modif d'emprise seule non attribuable)
+  versionsRestaurables: VersionRestaurable[];                  // RATT-EDIT (lot C1) — versions de gel restaurables (avec snapshot) : [] = aucune (bouton « Restaurer » désactivé, message honnête)
 }
 
 /** BD TOPO : les bâtiments COURANTS présents dans l'empreinte (étages, altitude toit, usages) — pour la colonne BD TOPO du comparatif.
@@ -462,6 +464,8 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
 
   // RATT-EDIT (lot B3) — marqueur PERSISTANT + trace (dérivés, sans migration) : altitude/emprise modifiée depuis la dernière validation ?
   const marqueur = (await marqueursModifApresValidation([dossierId])).get(dossierId) ?? null;
+  // RATT-EDIT (lot C1) — versions de gel restaurables (validation d'origine + revalidations + restaurations). [] pour le stock sans détail.
+  const restaurables = await versionsRestaurables(dossierId);
 
   return {
     dossierId, numDau: b.num_dau, commune: b.commune, codeInsee: b.code_insee,
@@ -474,5 +478,6 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
     nbParcellesOrigine: parcelles.length, nbContoursEmpreinte, streetView, streetViewMotif, pieces,
     modifieDepuisValidation: marqueur !== null,                                      // RATT-EDIT (lot B3) — bannière persistante « à revalider »
     derniereModif: marqueur ? { parNom: marqueur.parNom, le: marqueur.le } : null,   // RATT-EDIT (lot B3) — trace qui/quand de la dernière modification
+    versionsRestaurables: restaurables,                                              // RATT-EDIT (lot C1) — versions restaurables (sélecteur + état du bouton)
   };
 }

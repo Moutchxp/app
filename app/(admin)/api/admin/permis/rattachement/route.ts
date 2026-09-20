@@ -3,6 +3,7 @@ import { exigerAdministrateur, exigerCapaciteModif } from '../../../../../lib/ad
 import { listerSuivi, rechercherSuivi, construireFiltreSuivi, lireDetailSuivi, ouvrirRattachementManuel, cloreRattachementAcheve, type CriteresSuivi } from '../../../../../lib/permis/rattachementSuiviRepo';
 import { lireComparaison, affecterPolygone } from '../../../../../lib/permis/affectationRepo';
 import { validerRattachement, refuserRattachement, retourLidar, revaliderRattachement } from '../../../../../lib/permis/actionsRattachement';
+import { restaurerVersionGel } from '../../../../../lib/permis/restaurationGel'; // RATT-EDIT (lot C1) — restauration d'une version de gel
 import { lireDaactDeclencheurActif, ecrireDaactDeclencheurActif } from '../../../../../lib/permis/rattachementConfig';
 
 /**
@@ -57,7 +58,7 @@ export async function POST(request: Request): Promise<Response> {
   const garde = await exigerAdministrateur(request);
   if ('refus' in garde) return garde.refus;
   try {
-    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number | string; corpsId?: number; cleabs?: string; operation?: 'ajout' | 'retrait'; cotes?: Record<string, number | null>; motif?: string; actif?: boolean };
+    const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number | string; corpsId?: number; cleabs?: string; operation?: 'ajout' | 'retrait'; cotes?: Record<string, number | null>; motif?: string; actif?: boolean; gelId?: number | string };
 
     // RATTACHEMENT — réglage GLOBAL (pas un dossier) : la DAACT comme déclencheur. Traité AVANT la garde `dossierId`.
     if (body.action === 'reglage_daact') {
@@ -120,6 +121,22 @@ export async function POST(request: Request): Promise<Response> {
       if (!res.ok) return Response.json({ erreur: res.motif ?? 'revalidation impossible', manque: res.manque }, { status: 409 });
       const [detail, comparaison] = await Promise.all([lireDetailSuivi(dossierId), lireComparaison(dossierId).catch(() => null)]);
       return Response.json({ ok: true, versionGel: res.versionGel, detail, comparaison });
+    }
+
+    // RATT-EDIT (lot C1) — RESTAURER une version de gel choisie (validation d'origine / revalidation / restauration antérieure). MÊME garde de
+    //   capacité que la modif/revalidation (exigerCapaciteModif, URL directe comprise). La restauration recrée les corps/emprises supprimés,
+    //   n'efface aucune version (append-only) et laisse le permis « à revalider » (marqueur B3). Le permis reste dans Rattachement.
+    if (body.action === 'restaurer') {
+      const refusModif = await exigerCapaciteModif(request);
+      if (refusModif) return refusModif;
+      const gelId = typeof body.gelId === 'number' ? body.gelId : Number(body.gelId);
+      if (!Number.isInteger(gelId)) return Response.json({ erreur: 'version à restaurer invalide' }, { status: 400 });
+      // Auteur = id du compte (résolu en nom dans la liste des versions) ; repli générique en voie de secours (auteur inconnu).
+      const par = ('auteurId' in garde && garde.auteurId != null) ? String(garde.auteurId) : 'admin:decision';
+      const res = await restaurerVersionGel(dossierId, gelId, par);
+      if (!res.ok) return Response.json({ erreur: res.motif ?? 'restauration impossible' }, { status: 409 });
+      const [detail, comparaison] = await Promise.all([lireDetailSuivi(dossierId), lireComparaison(dossierId).catch(() => null)]);
+      return Response.json({ ok: true, versionGel: res.versionGel, nbCorps: res.nbCorps, nbEmprises: res.nbEmprises, detail, comparaison });
     }
 
     return Response.json({ erreur: 'action inconnue' }, { status: 400 });

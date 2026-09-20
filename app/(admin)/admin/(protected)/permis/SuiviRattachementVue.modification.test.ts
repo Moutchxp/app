@@ -120,3 +120,39 @@ describe('B3 — revalidation en place + marqueur persistant + trace', () => {
     expect(projection).not.toContain('PopUpConfirmerRevalidation');
   });
 });
+
+describe('C1 — restauration de la validation d’origine', () => {
+  it('bouton « Restaurer la validation d’origine » gaté par la capacité + pop-up 3', () => {
+    expect(vue).toContain('peutModifierPermis && (');
+    expect(vue).toContain('Restaurer la validation d’origine');
+    expect(vue).toContain('<PopUpConfirmerRestauration');
+    expect(vue).toContain('setPopupRestau(true)');
+  });
+  it('AUCUNE version restaurable → message honnête, jamais un bouton qui échoue', () => {
+    expect(vue).toContain('detail.versionsRestaurables.length === 0');
+    expect(vue).toContain('Aucune validation d’origine enregistrée pour ce permis');
+  });
+  it('sélecteur de version si plusieurs (choix explicite, date + auteur en clair)', () => {
+    expect(vue).toContain('versions.length > 1');
+    expect(vue).toContain('libelleVersionRestaurable');
+    expect(vue).toContain('setVersionRestauId(Number(e.target.value))');
+  });
+  it('la restauration POSTe l’action « restaurer » {gelId} et rafraîchit le détail (marqueur ON, versions à jour)', () => {
+    const iReset = vue.indexOf('const restaurer = useCallback');
+    const bloc = vue.slice(iReset, iReset + 1400);
+    expect(bloc).toContain("action: 'restaurer'");
+    expect(bloc).toContain('gelId');
+    expect(bloc).toContain('if (d.detail) setDetail(d.detail)');
+  });
+  it('la restauration ne déclenche AUCUNE action qui ferait redescendre le permis (valider/refuser/clore/retour)', () => {
+    const iReset = vue.indexOf('const restaurer = useCallback');
+    const bloc = vue.slice(iReset, iReset + 1400);
+    for (const a of ["'valider'", "'refuser'", "'retour_lidar'", "'clore'", "'ouvrir_manuel'"])
+      expect(bloc, `la restauration ne doit pas émettre ${a}`).not.toContain(a);
+  });
+  it('Analyse et projection : AUCUNE contagion de la restauration', () => {
+    expect(projection).not.toContain('restaurer');
+    expect(projection).not.toContain('versionsRestaurables');
+    expect(projection).not.toContain('PopUpConfirmerRestauration');
+  });
+});

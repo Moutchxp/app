@@ -82,6 +82,48 @@ function dateHeureLisible(iso: string | null | undefined): string | null {
   return d.toLocaleString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
 }
 
+export function PopUpConfirmerRestauration({ versionLabel, enCours = false, onConfirmer, onAnnuler }: {
+  versionLabel: string;  // libellé lisible de la version choisie (ex. « Validation d'origine du 7 septembre 2026 »)
+  enCours?: boolean;
+  onConfirmer: () => void;
+  onAnnuler: () => void;
+}) {
+  const refAnnuler = useRef<HTMLButtonElement>(null);
+  useEffect(() => { refAnnuler.current?.focus(); }, []);
+  useEffect(() => {
+    const surTouche = (e: KeyboardEvent) => { if (e.key === 'Escape' && !enCours) onAnnuler(); };
+    window.addEventListener('keydown', surTouche);
+    return () => window.removeEventListener('keydown', surTouche);
+  }, [onAnnuler, enCours]);
+  return (
+    <div style={overlay} role="presentation" onClick={() => { if (!enCours) onAnnuler(); }}>
+      <div style={carte} role="dialog" aria-modal="true" aria-labelledby="titre-restauration" onClick={(e) => e.stopPropagation()}>
+        <strong id="titre-restauration" style={{ fontSize: 16 }}>Restaurer cette validation d’origine ?</strong>
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
+          L’état de travail actuel (<strong>altitude</strong> et <strong>emprise</strong>) sera remplacé par : <strong>{versionLabel}</strong>.
+        </p>
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
+          Les bâtiments et emprises supprimés depuis seront <strong>recréés</strong>. Toutes les versions restent consultables dans
+          l’historique : cette restauration y est <strong>ajoutée</strong>, rien n’est effacé.
+        </p>
+        <p style={{ margin: 0, fontSize: 13, lineHeight: 1.5 }}>
+          Après restauration, le permis sera <strong>« à revalider »</strong> (il reste dans « Rattachement »).
+        </p>
+        <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', marginTop: '.15rem' }}>
+          <button type="button" onClick={onConfirmer} disabled={enCours}
+            style={{ ...btnBase, border: '1px solid var(--color-svv-red)', background: 'var(--color-svv-red)', color: '#fff', opacity: enCours ? 0.6 : 1 }}>
+            {enCours ? 'Restauration…' : 'Restaurer'}
+          </button>
+          <button ref={refAnnuler} type="button" onClick={onAnnuler} disabled={enCours}
+            style={{ ...btnBase, border: '1px solid var(--color-svv-line)', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)' }}>
+            Annuler
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function PopUpConfirmerRevalidation({ modifieParNom, modifieLe, enCours = false, onConfirmer, onAnnuler }: {
   modifieParNom?: string | null; // trace : auteur de la dernière modification (si disponible)
   modifieLe?: string | null;     // trace : date/heure de la dernière modification (ISO, si disponible)

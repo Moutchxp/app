@@ -6,8 +6,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  * transmet en NOMBRE aux fonctions métier — au lieu de le rejeter « requête invalide ». Il aurait échoué avant le correctif.
  * On mocke la garde et les fonctions métier : on teste UNIQUEMENT le passage/validation de la requête, pas le métier.
  */
-// RATT-EDIT (lot B3) — état HOISTÉ configurable : refus de capacité (exigerCapaciteModif) + résultat de revaliderRattachement.
-const H = vi.hoisted(() => ({ refusModif: null as Response | null, revalResult: { ok: true, versionGel: 4 } as { ok: boolean; versionGel?: number; motif?: string; manque?: string } }));
+// RATT-EDIT (lot B3/C1) — état HOISTÉ configurable : refus de capacité (exigerCapaciteModif) + résultats de revaliderRattachement / restaurerVersionGel.
+const H = vi.hoisted(() => ({
+  refusModif: null as Response | null,
+  revalResult: { ok: true, versionGel: 4 } as { ok: boolean; versionGel?: number; motif?: string; manque?: string },
+  restauResult: { ok: true, versionGel: 8, nbCorps: 1, nbEmprises: 1 } as { ok: boolean; versionGel?: number; motif?: string; nbCorps?: number; nbEmprises?: number },
+}));
 vi.mock('server-only', () => ({}));
 vi.mock('../../../../../lib/admin/garde', () => ({
   exigerAdministrateur: async () => ({ admin: { id: 1 } }),
@@ -28,6 +32,9 @@ vi.mock('../../../../../lib/permis/actionsRattachement', () => ({
   retourLidar: vi.fn(async () => ({ ok: true })),
   revaliderRattachement: vi.fn(async () => H.revalResult),
 }));
+vi.mock('../../../../../lib/permis/restaurationGel', () => ({
+  restaurerVersionGel: vi.fn(async () => H.restauResult),
+}));
 vi.mock('../../../../../lib/permis/rattachementConfig', () => ({
   lireDaactDeclencheurActif: async () => true,
   ecrireDaactDeclencheurActif: async () => true,
@@ -37,12 +44,13 @@ import { POST } from './route';
 import { ouvrirRattachementManuel } from '../../../../../lib/permis/rattachementSuiviRepo';
 import { affecterPolygone } from '../../../../../lib/permis/affectationRepo';
 import { validerRattachement, revaliderRattachement } from '../../../../../lib/permis/actionsRattachement';
+import { restaurerVersionGel } from '../../../../../lib/permis/restaurationGel';
 
 const post = (body: unknown) => POST(new Request('http://test.local/api/admin/permis/rattachement', {
   method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
 }));
 
-beforeEach(() => { vi.clearAllMocks(); H.refusModif = null; H.revalResult = { ok: true, versionGel: 4 }; });
+beforeEach(() => { vi.clearAllMocks(); H.refusModif = null; H.revalResult = { ok: true, versionGel: 4 }; H.restauResult = { ok: true, versionGel: 8, nbCorps: 1, nbEmprises: 1 }; });
 
 describe('M5-fix — route POST : dossierId en CHAÎNE (bigint pg) est accepté et transmis en NOMBRE', () => {
   it('ouvrir_manuel { dossierId: "11430" } → 200, et la fonction reçoit 11430 (number)', async () => {
@@ -99,5 +107,34 @@ describe('B3 — action « revalider »', () => {
     const res = await post({ action: 'revalider', dossierId: '531' });
     expect(res.status).toBe(409);
     expect(await res.json()).toMatchObject({ erreur: expect.stringMatching(/enregistrer/i), manque: 'enregistrement' });
+  });
+});
+
+describe('C1 — action « restaurer »', () => {
+  it('avec la capacité + gelId valide → 200, restaurerVersionGel appelé (dossierId + gelId en number), renvoie versionGel/nbCorps/nbEmprises', async () => {
+    const res = await post({ action: 'restaurer', dossierId: '531', gelId: '17' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, versionGel: 8, nbCorps: 1, nbEmprises: 1 });
+    const call = (restaurerVersionGel as unknown as { mock: { calls: unknown[][] } }).mock.calls[0];
+    expect(call[0]).toBe(531); expect(call[1]).toBe(17);
+  });
+
+  it('SANS la capacité → 403, restauration NON tentée (URL directe comprise)', async () => {
+    H.refusModif = Response.json({ erreur: 'ACCES_REVOQUE' }, { status: 403 });
+    const res = await post({ action: 'restaurer', dossierId: '531', gelId: '17' });
+    expect(res.status).toBe(403);
+    expect(restaurerVersionGel).not.toHaveBeenCalled();
+  });
+
+  it('gelId absent/non numérique → 400, restauration non tentée', async () => {
+    const res = await post({ action: 'restaurer', dossierId: '531' });
+    expect(res.status).toBe(400);
+    expect(restaurerVersionGel).not.toHaveBeenCalled();
+  });
+
+  it('refus métier (version introuvable/sans snapshot) → 409', async () => {
+    H.restauResult = { ok: false, motif: 'version de gel introuvable pour ce permis' };
+    const res = await post({ action: 'restaurer', dossierId: '531', gelId: '17' });
+    expect(res.status).toBe(409);
   });
 });

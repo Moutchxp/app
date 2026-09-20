@@ -3,7 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createElement } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { BandeauModificationValidation, PopUpConfirmerModification, PopUpConfirmerRevalidation } from './ModifierValidation';
+import { BandeauModificationValidation, PopUpConfirmerModification, PopUpConfirmerRevalidation, PopUpConfirmerRestauration } from './ModifierValidation';
 
 /**
  * RATT-EDIT (lot B2) — composants PURS du verrou d'édition (montés réellement en jsdom ; aucun réseau) :
@@ -116,5 +116,28 @@ describe('PopUpConfirmerRevalidation — pop-up 2', () => {
     expect(b.disabled).toBe(true);
     act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
     expect(onAnnuler).not.toHaveBeenCalled(); // Échap ignoré pendant l'envoi
+  });
+});
+
+describe('PopUpConfirmerRestauration — pop-up 3', () => {
+  it('dit ce qui est remplacé (version), que les supprimés sont recréés, rien effacé, « à revalider » ; restaurer/annuler câblés', () => {
+    const onConfirmer = vi.fn(), onAnnuler = vi.fn();
+    const c = monter(createElement(PopUpConfirmerRestauration, { versionLabel: 'Validation d’origine du 7 septembre 2026', onConfirmer, onAnnuler }));
+    expect(c.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(c.textContent).toMatch(/Validation d’origine du 7 septembre 2026/);
+    expect(c.textContent).toMatch(/recréés/i);
+    expect(c.textContent).toMatch(/rien n’est effacé/i);
+    expect(c.textContent).toMatch(/à revalider/i);
+    cliquer(boutonTexte(c, /^Restaurer$/) as HTMLButtonElement);
+    expect(onConfirmer).toHaveBeenCalledTimes(1);
+    cliquer(boutonTexte(c, /^Annuler$/) as HTMLButtonElement);
+    expect(onAnnuler).toHaveBeenCalledTimes(1);
+  });
+  it('enCours → « Restauration… » désactivé, Échap bloqué', () => {
+    const onAnnuler = vi.fn();
+    const c = monter(createElement(PopUpConfirmerRestauration, { versionLabel: 'X', enCours: true, onConfirmer: () => {}, onAnnuler }));
+    expect((boutonTexte(c, /Restauration…/) as HTMLButtonElement).disabled).toBe(true);
+    act(() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })));
+    expect(onAnnuler).not.toHaveBeenCalled();
   });
 });

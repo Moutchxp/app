@@ -33,7 +33,7 @@ const detail = (o: Partial<DetailSuivi> = {}): DetailSuivi => ({
     { intitule: 'Nombre de bâtiments', enBase: { texte: '2 corps déclarés', presente: true }, cadastre: { texte: 'sans objet pour cette source', presente: false }, bdTopo: { texte: 'aucun bâtiment dans la parcelle du permis', presente: true } },
   ],
   nbParcellesOrigine: 2, nbContoursEmpreinte: 1, streetView: { lat: 48.87, lng: 2.35 }, streetViewMotif: null, pieces: [],
-  modifieDepuisValidation: false, derniereModif: null,
+  modifieDepuisValidation: false, derniereModif: null, versionsRestaurables: [],
   ...o,
 });
 const critSurface = (o: Partial<CritereSurface> = {}): CritereSurface => ({ applicable: true, ratio: 0.95, seuil: 0.8, franchi: true, ...o });

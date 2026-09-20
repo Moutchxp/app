@@ -22,9 +22,17 @@ const SOURCE_GEL = 'au moment du gel (état des lieux figé)';
 const SOURCE_VIVANTE = 'état actuel (couche BD TOPO)';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
 import { BlocTraceEmprise } from './BlocTraceEmprise'; // RATT-EDIT (lot B2) — éditeur d'emprise, monté SEULEMENT en modification déverrouillée
-import { BandeauModificationValidation, PopUpConfirmerModification, PopUpConfirmerRevalidation } from './ModifierValidation'; // RATT-EDIT (lot B2/B3) — verrou d'édition + pop-up 1 (modifier) + pop-up 2 (revalider)
+import { BandeauModificationValidation, PopUpConfirmerModification, PopUpConfirmerRevalidation, PopUpConfirmerRestauration } from './ModifierValidation'; // RATT-EDIT (lot B2/B3/C1) — verrou + pop-up 1 (modifier) + pop-up 2 (revalider) + pop-up 3 (restaurer)
+import type { VersionRestaurable } from '../../../../lib/permis/restaurationGel'; // RATT-EDIT (lot C1) — TYPE seul (module serveur) : versions de gel restaurables
 import { CellulePieces } from './ArchivesRendu';
 import { recompterSiSucces } from './comptesActions';
+
+/** RATT-EDIT (lot C1) — libellé lisible d'une version de gel restaurable (type + date + auteur en clair), pour le sélecteur et la pop-up 3. */
+function libelleVersionRestaurable(v: VersionRestaurable): string {
+  const type = v.type === 'validation_initiale' ? "Validation d’origine" : v.type === 'revalidation' ? 'Revalidation' : v.type === 'restauration' ? 'Restauration' : 'Version';
+  const date = new Date(v.dateIso).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
+  return `${type} du ${date}${v.auteurNom ? ` par ${v.auteurNom}` : ''}`;
+}
 
 /**
  * FUS-3c — onglet SUIVI DU RATTACHEMENT : au clic sur un permis, TOUT le contenu de décision est sur la même page — détail
@@ -63,6 +71,11 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
   const [popupReval, setPopupReval] = useState(false);
   const [revalEnCours, setRevalEnCours] = useState(false);
   const [revalMsg, setRevalMsg] = useState('');
+  // RATT-EDIT (lot C1) — RESTAURATION : version choisie (null = défaut = validation d'origine), pop-up 3, envoi, message.
+  const [versionRestauId, setVersionRestauId] = useState<number | null>(null);
+  const [popupRestau, setPopupRestau] = useState(false);
+  const [restauEnCours, setRestauEnCours] = useState(false);
+  const [restauMsg, setRestauMsg] = useState('');
   // FUS-3e — décisions
   const [motifRefus, setMotifRefus] = useState('');
   const [accuse, setAccuse] = useState<AccuseValidationData | null>(null); // M8 — accusé de prise en compte (persistant), construit depuis la réponse serveur
@@ -137,6 +150,7 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
       setDetail(null); setComparaison(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); setPleinEcran(null);
       setModifOuverte(false); setPopupModif(false); // B2 — un nouveau dossier s'ouvre TOUJOURS verrouillé (lecture seule), pop-up fermée
       setPopupReval(false); setRevalEnCours(false); setRevalMsg(''); // B3 — reset de la revalidation à chaque changement de dossier
+      setVersionRestauId(null); setPopupRestau(false); setRestauEnCours(false); setRestauMsg(''); // C1 — reset de la restauration à chaque changement de dossier
       setMotifRefus(''); setAccuse(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); setAfficherProjection(false); setEmprisesProjetees([]); setRecapProjection(null); setStatutsLignes([]); setRecouverts([]); setStatutErreur(''); // reset décisions (DANS l'async)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
@@ -286,6 +300,28 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
       }
     } catch { setRevalMsg('Revalidation impossible.'); setPopupReval(false); }
     finally { setRevalEnCours(false); }
+  }, [ouvert, onRecompter]);
+
+  // C1 — RESTAURER une version de gel choisie : POST 'restaurer' {gelId} → réécrit corps/emprises (recrée les supprimés), appende une version
+  //   'restauration:' + événement, laisse le permis « à revalider » (marqueur B3). Le serveur renvoie le détail à jour (versions + marqueur).
+  const restaurer = useCallback(async (gelId: number): Promise<void> => {
+    if (ouvert === null) return;
+    setRestauEnCours(true); setRestauMsg('');
+    try {
+      const res = await fetch('/api/admin/permis/rattachement', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'restaurer', dossierId: ouvert, gelId }) });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string; nbCorps?: number; nbEmprises?: number; detail?: DetailSuivi; comparaison?: ComparaisonRattachement | null };
+      if (res.ok && d.ok) {
+        if (d.detail) setDetail(d.detail);             // détail à jour : marqueur « à revalider » ON, versions restaurables mises à jour
+        if (d.comparaison !== undefined) setComparaison(d.comparaison ?? null);
+        setPopupRestau(false); setModifOuverte(false); setVersionRestauId(null);
+        setRestauMsg(`Validation d’origine restaurée — ${d.nbCorps ?? 0} bâtiment(s) et ${d.nbEmprises ?? 0} emprise(s) rétablis. Le permis est à revalider ; les versions précédentes restent consultables.`);
+        recompterSiSucces(true, onRecompter);
+      } else {
+        setRestauMsg(res.status === 401 ? 'Session expirée : reconnectez-vous.' : (d.erreur ?? 'Restauration impossible.'));
+        setPopupRestau(false);
+      }
+    } catch { setRestauMsg('Restauration impossible.'); setPopupRestau(false); }
+    finally { setRestauEnCours(false); }
   }, [ouvert, onRecompter]);
 
   // ÉTAGE 1 — CLÔTURER un dossier « achevé, à confirmer » (surélévation / surface constante). Aucune injection : constat de workflow.
@@ -515,6 +551,35 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
               </div>
             )}
             {revalMsg && <div role="status" aria-live="polite" style={{ fontSize: 12, color: revalMsg.startsWith('Permis revalidé') ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)', fontWeight: 600 }}>{revalMsg}</div>}
+            {/* C1 — RESTAURER la validation d'origine (gaté par la capacité). AUCUNE version restaurable (cas majoritaire du stock actuel) →
+                message honnête, jamais un bouton qui échoue. Sinon : sélecteur (si plusieurs versions) + bouton → pop-up 3. */}
+            {peutModifierPermis && (
+              <div className="svv-card" style={{ fontSize: 13, display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'center' }}>
+                {detail.versionsRestaurables.length === 0 ? (
+                  <span style={{ color: 'var(--color-svv-muted)' }}>Aucune validation d’origine enregistrée pour ce permis — rien à restaurer.</span>
+                ) : (() => {
+                  const versions = detail.versionsRestaurables;
+                  const parDefaut = versions.find((v) => v.type === 'validation_initiale') ?? versions[0];
+                  const gelIdSel = versionRestauId ?? parDefaut.gelId;
+                  return (
+                    <>
+                      <span style={{ minWidth: 0 }}>Restaurer une validation d’origine :</span>
+                      {versions.length > 1 ? (
+                        <select value={gelIdSel} onChange={(e) => setVersionRestauId(Number(e.target.value))} aria-label="Version à restaurer"
+                          style={{ minHeight: 44, padding: '.35rem .5rem', border: '1px solid var(--color-svv-line-strong)', borderRadius: '.45rem', fontSize: 13, minWidth: 0, flex: '1 1 14rem', maxWidth: '100%', background: 'var(--color-svv-surface)', color: 'var(--color-svv-ink)' }}>
+                          {versions.map((v) => <option key={v.gelId} value={v.gelId}>{libelleVersionRestaurable(v)}</option>)}
+                        </select>
+                      ) : (
+                        <span style={{ color: 'var(--color-svv-muted)' }}>{libelleVersionRestaurable(versions[0])}</span>
+                      )}
+                      <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', minHeight: 44, padding: '.5rem 1rem' }}
+                        disabled={restauEnCours} onClick={() => setPopupRestau(true)}>Restaurer la validation d’origine</button>
+                    </>
+                  );
+                })()}
+              </div>
+            )}
+            {restauMsg && <div role="status" aria-live="polite" style={{ fontSize: 12, color: restauMsg.startsWith('Validation') ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)', fontWeight: 600 }}>{restauMsg}</div>}
             {/* BAT-2b — état des sous-sections (cohérence cartes + altitudes) sur leurs titres, comme dans les 4 autres vues (aide section 4 conservée).
                 B2 — `lectureSeule` VERROUILLE l'édition de l'altitude tant que la modification n'est pas déverrouillée (ferme l'effet de bord : un admin ne modifie plus par inadvertance). */}
             <CaracteristiquesBloc avecEtatFamilles lectureSeule={!modifOuverte} dossierId={detail.dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />
@@ -545,6 +610,16 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
             modifieParNom={detail.derniereModif?.parNom ?? null} modifieLe={detail.derniereModif?.le ?? null}
             enCours={revalEnCours} onConfirmer={() => void revalider()} onAnnuler={() => setPopupReval(false)} />
         )}
+        {/* C1 — POP-UP 3 : confirmation AVANT de restaurer. Dit ce qui est remplacé, par quelle version, que les supprimés sont recréés et que rien n'est effacé. */}
+        {popupRestau && detail.versionsRestaurables.length > 0 && (() => {
+          const versions = detail.versionsRestaurables;
+          const parDefaut = versions.find((v) => v.type === 'validation_initiale') ?? versions[0];
+          const choisie = versions.find((v) => v.gelId === (versionRestauId ?? parDefaut.gelId)) ?? parDefaut;
+          return (
+            <PopUpConfirmerRestauration versionLabel={libelleVersionRestaurable(choisie)} enCours={restauEnCours}
+              onConfirmer={() => void restaurer(choisie.gelId)} onAnnuler={() => setPopupRestau(false)} />
+          );
+        })()}
       </div>
     );
   };
