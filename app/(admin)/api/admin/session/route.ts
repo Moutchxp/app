@@ -1,7 +1,7 @@
 import 'server-only';
 import { cookies } from 'next/headers';
 import { verifier } from '../../../../lib/admin/motDePasse';
-import { trouverCompte, marquerConnexion, permsDuCompte } from '../../../../lib/admin/comptes';
+import { trouverCompte, marquerConnexion, permsDuCompte, capaciteModifPermis } from '../../../../lib/admin/comptes';
 import { NOM_COOKIE, optionsCookie, signerJeton, permsToutes, type SessionAdmin } from '../../../../lib/admin/session';
 import { verifierThrottle, noterEchec, noterSucces } from '../../../../lib/auth/antiBruteforce';
 
@@ -104,7 +104,7 @@ export async function POST(request: Request) {
       await noterEchec(cleThrottle); // audit agrégé de l'échec (la voie secours reste NON throttle-checkée — Lot 7 F1)
       return echec();
     }
-    session = { sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger: false };
+    session = { sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true };
     // ═══ FIN VOIE DE SECOURS ═══
   } else {
     // Voie NOMMÉE : compte de admin_utilisateur. Verify TOUJOURS exécuté (hash réel si trouvé, leurre sinon) →
@@ -123,6 +123,7 @@ export async function POST(request: Request) {
       role: compte.role,
       perms: permsDuCompte(compte),
       doitChanger: compte.doit_changer_mot_de_passe, // M3-4 Lot B : le drapeau entre dans le JWS
+      peutModifierPermis: capaciteModifPermis(compte), // RATT-EDIT lot A3 — capacité EFFECTIVE (subordination incluse) portée dans le JWS
     };
   }
 

@@ -5,7 +5,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * On mocke la garde, le dépôt (`ecrireCaracteristiquesGlobales`) et `query` (lecture des CHECK) : ce test porte sur le COMPORTEMENT
  * de l'action (garde admin, liste blanche des clés, écriture d'UNE seule clé en mode 'saisie'), pas sur le SQL.
  */
-vi.mock('../../../../../lib/admin/garde', () => ({ exigerModule: vi.fn() }));
+vi.mock('../../../../../lib/admin/garde', () => ({ exigerModule: vi.fn(), exigerCapaciteModif: vi.fn() }));
+vi.mock('../../../../../lib/permis/gardeModification', () => ({ dossierPasseEnRattachement: vi.fn(), dossierDuCorps: vi.fn() })); // RATT-EDIT lot A3 — déclencheur contextuel mocké
 vi.mock('../../../../../lib/db/client', () => ({ query: vi.fn(async () => ({ rows: [] })) }));
 vi.mock('../../../../../lib/permis/caracteristiquesRepo', () => ({
   lirePermisCaracteristiques: vi.fn(), ecrireGlobal: vi.fn(), ecrireCorps: vi.fn(async () => ({ ecrits: ['altitudeSommetNgf'], ignores: [] })),
@@ -15,17 +16,20 @@ vi.mock('../../../../../lib/permis/caracteristiquesRepo', () => ({
 }));
 
 import { POST } from './route';
-import { exigerModule } from '../../../../../lib/admin/garde';
+import { exigerModule, exigerCapaciteModif } from '../../../../../lib/admin/garde';
+import { dossierPasseEnRattachement } from '../../../../../lib/permis/gardeModification';
 import { ecrireCaracteristiquesGlobales, validerSommetCorps, ecrireCorps, lireAltitudeDernierPlancherCorps } from '../../../../../lib/permis/caracteristiquesRepo';
 
 const garde = exigerModule as unknown as ReturnType<typeof vi.fn>;
+const capaciteModif = exigerCapaciteModif as unknown as ReturnType<typeof vi.fn>;
+const enRattachement = dossierPasseEnRattachement as unknown as ReturnType<typeof vi.fn>;
 const ecrire = ecrireCaracteristiquesGlobales as unknown as ReturnType<typeof vi.fn>;
 const validerSommet = validerSommetCorps as unknown as ReturnType<typeof vi.fn>;
 const ecrireUnCorps = ecrireCorps as unknown as ReturnType<typeof vi.fn>;
 const lirePlancher = lireAltitudeDernierPlancherCorps as unknown as ReturnType<typeof vi.fn>;
 const req = (body: unknown) => POST(new Request('http://test/api/admin/permis/caracteristiques', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));
 
-beforeEach(() => { vi.clearAllMocks(); garde.mockResolvedValue({ auteurId: 5 }); });
+beforeEach(() => { vi.clearAllMocks(); garde.mockResolvedValue({ auteurId: 5 }); enRattachement.mockResolvedValue(false); capaciteModif.mockResolvedValue(null); }); // RATT-EDIT lot A3 — par défaut : dossier en Analyse (pas de garde modif) et capacité OK
 
 describe('POST declare_champ (PROV-3 point 2)', () => {
   it('non-administrateur → refus, aucune écriture', async () => {
@@ -96,5 +100,29 @@ describe('PÉRIMÈTRE — l’ENREGISTREMENT du bâtiment n’est JAMAIS bloqué
     expect(res.status).toBe(200);
     expect(ecrireUnCorps).toHaveBeenCalledTimes(1);
     expect(lirePlancher).not.toHaveBeenCalled(); // le contrôle de cohérence ne s'applique PAS à l'enregistrement
+  });
+});
+
+describe('RATT-EDIT (lot A3) — garde CONTEXTUELLE « modifier après validation »', () => {
+  it('dossier DÉJÀ passé en Rattachement + sous-droit REFUSÉ → 403, aucune écriture (ferme l’effet de bord)', async () => {
+    enRattachement.mockResolvedValue(true); // permis_projection présent
+    capaciteModif.mockResolvedValue(Response.json({ erreur: 'ACCES_REVOQUE' }, { status: 403 }));
+    const res = await req({ action: 'declare_champ', dossierId: 531, cle: 'nbLogements', valeur: '21' });
+    expect(res.status).toBe(403);
+    expect(ecrire).not.toHaveBeenCalled();
+  });
+
+  it('dossier en Rattachement + sous-droit ACCORDÉ → le geste passe', async () => {
+    enRattachement.mockResolvedValue(true);
+    capaciteModif.mockResolvedValue(null);
+    const res = await req({ action: 'declare_champ', dossierId: 531, cle: 'nbLogements', valeur: '21' });
+    expect(res.status).toBe(200);
+  });
+
+  it('CONTEXTUEL : dossier encore en Analyse (pas de permis_projection) → le sous-droit n’est PAS réclamé', async () => {
+    enRattachement.mockResolvedValue(false);
+    const res = await req({ action: 'declare_champ', dossierId: 531, cle: 'nbLogements', valeur: '21' });
+    expect(res.status).toBe(200);
+    expect(capaciteModif).not.toHaveBeenCalled(); // instruction normale : perm_permis suffit
   });
 });

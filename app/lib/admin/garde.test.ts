@@ -6,7 +6,7 @@ vi.mock('../db/client', () => ({
   query: (...args: unknown[]) => queryMock(...args),
 }));
 
-import { exigerCompteActif, exigerModule, exigerAdministrateur } from './garde';
+import { exigerCompteActif, exigerModule, exigerAdministrateur, exigerCapaciteModif } from './garde';
 import { signerJeton, permsToutes, permsAucune, NOM_COOKIE, type SessionAdmin } from './session';
 
 const SECRET = 'secret-de-test-suffisamment-long-pour-hs256-0123456789';
@@ -25,10 +25,10 @@ async function requete(session: SessionAdmin): Promise<Request> {
   });
 }
 
-const secours = (): SessionAdmin => ({ sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger: false });
-const admin = (): SessionAdmin => ({ sub: 1, identifiant: 'a.jorel@sansvisavis.com', role: 'administrateur', perms: permsToutes(), doitChanger: false });
-const collab = (): SessionAdmin => ({ sub: 3, identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsAucune(), curation: true }, doitChanger: false });
-const collabPermis = (): SessionAdmin => ({ sub: 3, identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsAucune(), permis: true }, doitChanger: false });
+const secours = (): SessionAdmin => ({ sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true });
+const admin = (): SessionAdmin => ({ sub: 1, identifiant: 'a.jorel@sansvisavis.com', role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true });
+const collab = (): SessionAdmin => ({ sub: 3, identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsAucune(), curation: true }, doitChanger: false, peutModifierPermis: false });
+const collabPermis = (): SessionAdmin => ({ sub: 3, identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsAucune(), permis: true }, doitChanger: false, peutModifierPermis: false });
 
 async function corps(res: Response) {
   return res.json();
@@ -130,6 +130,43 @@ describe('RATT-EDIT (lot A2) — routes MAINTENUES admin-only : un collaborateur
   it('… et l’ADMINISTRATEUR passe ces mêmes routes maintenues', async () => {
     queryMock.mockResolvedValue({ rows: [{ actif: true, role: 'administrateur' }] });
     expect(await exigerAdministrateur(await requete(admin()))).toEqual({ auteurId: 1 });
+  });
+});
+
+describe('exigerCapaciteModif — RATT-EDIT (lot A3) : sous-droit « modifier après validation » (garde générique, subordination ①)', () => {
+  it('collaborateur AVEC perm_permis ET perm_permis_modif → autorisé (null)', async () => {
+    queryMock.mockResolvedValue({ rows: [{ actif: true, role: 'collaborateur', permis: true, modif: true }] });
+    expect(await exigerCapaciteModif(await requete(collabPermis()))).toBeNull();
+    expect(String(queryMock.mock.calls[0][0])).toContain('perm_permis AS permis');
+    expect(String(queryMock.mock.calls[0][0])).toContain('perm_permis_modif AS modif');
+  });
+
+  it('collaborateur AVEC perm_permis mais SANS perm_permis_modif → 403', async () => {
+    queryMock.mockResolvedValue({ rows: [{ actif: true, role: 'collaborateur', permis: true, modif: false }] });
+    const res = await exigerCapaciteModif(await requete(collabPermis()));
+    expect(res?.status).toBe(403);
+  });
+
+  it('🔴 SUBORDINATION ① (LE test du lot) : perm_permis_modif SANS perm_permis → AUCUN geste, 403', async () => {
+    // Le sous-droit ne vaut RIEN sans le droit parent — garde SERVEUR, jamais l'interface seule.
+    queryMock.mockResolvedValue({ rows: [{ actif: true, role: 'collaborateur', permis: false, modif: true }] });
+    const res = await exigerCapaciteModif(await requete(collabPermis()));
+    expect(res?.status).toBe(403);
+  });
+
+  it('administrateur → autorisé (permissions implicites, colonnes outrepassées)', async () => {
+    queryMock.mockResolvedValue({ rows: [{ actif: true, role: 'administrateur', permis: false, modif: false }] });
+    expect(await exigerCapaciteModif(await requete(admin()))).toBeNull();
+  });
+
+  it('voie de secours (sub=null) → autorisé (null), AUCUNE requête', async () => {
+    expect(await exigerCapaciteModif(await requete(secours()))).toBeNull();
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('compte désactivé → 403', async () => {
+    queryMock.mockResolvedValue({ rows: [{ actif: false, role: 'collaborateur', permis: true, modif: true }] });
+    expect((await exigerCapaciteModif(await requete(collabPermis())))?.status).toBe(403);
   });
 });
 

@@ -39,7 +39,7 @@ describe('Chip — pastille accessible (ARIA, état par forme)', () => {
 
 const compteCollab = {
   id: 5, identifiant: 'lea@unique.test', prenom: 'Léa', nom: 'M', role: 'collaborateur' as const, actif: true,
-  perms: { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: true, banc_test: false, permis: false },
+  perms: { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: true, banc_test: false, permis: false }, peutModifierPermis: false,
   derniere_connexion_a: '2026-07-09T22:31:35.591Z', cree_a: '2026-06-01T09:00:00.000Z', doit_changer_mot_de_passe: false,
 };
 const noop = () => {};
@@ -49,20 +49,20 @@ describe('DetailContenu — identité affichée UNE seule fois, date formatée',
   it('l’identifiant n’apparaît qu’une fois dans le rendu du détail', () => {
     const html = renderToStaticMarkup(createElement(DetailContenu, {
       compte: compteCollab, perms: compteCollab.perms, collaborateur: true, msg: null, enCours: false, ...idProps,
-      onToggle: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
+      peutModifierPermis: false, onToggle: noop, onToggleModif: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
     }));
     expect((html.match(/lea@unique\.test/g) ?? []).length).toBe(1);
     expect(html).not.toContain('2026-07-09T22:31'); // date formatée, pas l’ISO
     expect(html).toContain('Fermer');
   });
 
-  it('cas administrateur → 7 pastilles forcées cochées et désactivées (RATT-EDIT lot A2 : « Permis de construire » ajouté aux 6)', () => {
+  it('cas administrateur → 8 pastilles forcées cochées et désactivées (7 modules + le sous-droit « modifier après validation », RATT-EDIT lots A2/A3)', () => {
     const html = renderToStaticMarkup(createElement(DetailContenu, {
       compte: { ...compteCollab, role: 'administrateur' as const }, perms: compteCollab.perms, collaborateur: false,
-      msg: null, enCours: false, ...idProps, onToggle: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
+      msg: null, enCours: false, ...idProps, peutModifierPermis: true, onToggle: noop, onToggleModif: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
     }));
-    expect((html.match(/aria-pressed="true"/g) ?? []).length).toBe(7);
-    expect((html.match(/disabled/g) ?? []).length).toBeGreaterThanOrEqual(7);
+    expect((html.match(/aria-pressed="true"/g) ?? []).length).toBe(8); // 7 modules + 1 sous-droit, tous forcés pour l'administrateur
+    expect((html.match(/disabled/g) ?? []).length).toBeGreaterThanOrEqual(8);
   });
 });
 
@@ -70,7 +70,7 @@ describe('DetailContenu — édition d’identité (M3-4 Lot F2, F-1/F-2)', () =
   it('expose deux champs prénom/nom éditables et un bouton « Enregistrer l’identité »', () => {
     const html = renderToStaticMarkup(createElement(DetailContenu, {
       compte: compteCollab, perms: compteCollab.perms, collaborateur: true, msg: null, enCours: false, ...idProps,
-      onToggle: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
+      peutModifierPermis: false, onToggle: noop, onToggleModif: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
     }));
     expect(html).toContain('value="Léa"');
     expect(html).toContain('value="M"');
@@ -80,7 +80,7 @@ describe('DetailContenu — édition d’identité (M3-4 Lot F2, F-1/F-2)', () =
   it('l’identifiant s’affiche en TEXTE (jamais dans un input value), avec la mention d’immuabilité', () => {
     const html = renderToStaticMarkup(createElement(DetailContenu, {
       compte: compteCollab, perms: compteCollab.perms, collaborateur: true, msg: null, enCours: false, ...idProps,
-      onToggle: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
+      peutModifierPermis: false, onToggle: noop, onToggleModif: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
     }));
     expect(html).toContain('<span class="cpt-idval">lea@unique.test</span>'); // texte, pas un champ
     expect(html).not.toContain('value="lea@unique.test"'); // jamais un input désactivé trompeur
@@ -90,7 +90,7 @@ describe('DetailContenu — édition d’identité (M3-4 Lot F2, F-1/F-2)', () =
   it('l’édition d’identité est offerte AUSSI sur un administrateur (F-2)', () => {
     const html = renderToStaticMarkup(createElement(DetailContenu, {
       compte: { ...compteCollab, role: 'administrateur' as const }, perms: compteCollab.perms, collaborateur: false,
-      msg: null, enCours: false, ...idProps, onToggle: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
+      msg: null, enCours: false, ...idProps, peutModifierPermis: true, onToggle: noop, onToggleModif: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
     }));
     expect(html).toContain('Enregistrer l’identité');
     expect(html).toContain('value="Léa"');
@@ -100,7 +100,7 @@ describe('DetailContenu — édition d’identité (M3-4 Lot F2, F-1/F-2)', () =
     const html = renderToStaticMarkup(createElement(DetailContenu, {
       compte: compteCollab, perms: compteCollab.perms, collaborateur: true, msg: null, enCours: false,
       idPrenom: '   ', idNom: 'M', onIdPrenom: noop, onIdNom: noop, onEnregistrerIdentite: noop,
-      onToggle: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
+      peutModifierPermis: false, onToggle: noop, onToggleModif: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
     }));
     // le bouton d’identité porte disabled ; la validation tombe avant tout appel serveur
     expect(html).toMatch(/Enregistrer l’identité/);
@@ -151,5 +151,38 @@ describe('Migration 017 — action changement_identite (M3-4 Lot F1, NON appliqu
     expect(sql).toContain('DROP CONSTRAINT IF EXISTS admin_utilisateur_log_action_check');
     expect(sql).toContain('ADD CONSTRAINT admin_utilisateur_log_action_check');
     expect(sql).toMatch(/BEGIN;[\s\S]*COMMIT;/);
+  });
+});
+
+describe('DetailContenu — sous-case « modifier après validation » (RATT-EDIT lot A3, subordination ② VISIBLE)', () => {
+  const noop2 = () => {};
+  const idProps2 = { idPrenom: 'Léa', idNom: 'M', onIdPrenom: noop2, onIdNom: noop2, onEnregistrerIdentite: noop2 };
+  const rendre = (perms: typeof compteCollab.perms, peutModifierPermis: boolean, collaborateur: boolean) =>
+    renderToStaticMarkup(createElement(DetailContenu, {
+      compte: { ...compteCollab, role: collaborateur ? ('collaborateur' as const) : ('administrateur' as const) },
+      perms, peutModifierPermis, collaborateur, msg: null, enCours: false, ...idProps2,
+      onToggle: noop2, onToggleModif: noop2, onEnregistrer: noop2, onPromouvoir: noop2, onFermer: noop2,
+    }));
+  // Bouton de la sous-case (repéré par son libellé) : la portion du <button> ouvrant jusqu'au libellé porte disabled/aria-pressed.
+  const boutonSousCase = (html: string) => { const i = html.indexOf('Modifier un permis après validation'); return html.slice(html.lastIndexOf('<button', i), i); };
+
+  it('la sous-case est présente et indentée sous « Permis de construire » (conteneur dédié)', () => {
+    const html = rendre({ ...compteCollab.perms, permis: true }, false, true);
+    expect(html).toContain('Modifier un permis après validation');
+    expect(html).toContain('cpt-sous-perm');
+  });
+
+  it('collaborateur SANS « Permis » (parent décoché) → sous-case DÉSACTIVÉE', () => {
+    expect(/disabled/.test(boutonSousCase(rendre({ ...compteCollab.perms, permis: false }, false, true)))).toBe(true);
+  });
+
+  it('collaborateur AVEC « Permis » (parent coché) → sous-case ACTIVE', () => {
+    expect(/disabled/.test(boutonSousCase(rendre({ ...compteCollab.perms, permis: true }, false, true)))).toBe(false);
+  });
+
+  it('administrateur → sous-case forcée cochée ET désactivée (comme les modules)', () => {
+    const b = boutonSousCase(rendre({ ...compteCollab.perms, permis: true }, false, false));
+    expect(/disabled/.test(b)).toBe(true);
+    expect(/aria-pressed="true"/.test(b)).toBe(true);
   });
 });

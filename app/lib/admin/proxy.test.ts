@@ -18,10 +18,10 @@ async function requete(pathname: string, session: SessionAdmin | null): Promise<
   return new NextRequest(new URL(`http://local${pathname}`), { headers });
 }
 
-const collab = (perms = permsAucune(), doitChanger = false): SessionAdmin => ({ sub: 3, identifiant: 'lea', role: 'collaborateur', perms, doitChanger });
-const admin = (doitChanger = false): SessionAdmin => ({ sub: 1, identifiant: 'arno', role: 'administrateur', perms: permsToutes(), doitChanger });
+const collab = (perms = permsAucune(), doitChanger = false): SessionAdmin => ({ sub: 3, identifiant: 'lea', role: 'collaborateur', perms, doitChanger, peutModifierPermis: false });
+const admin = (doitChanger = false): SessionAdmin => ({ sub: 1, identifiant: 'arno', role: 'administrateur', perms: permsToutes(), doitChanger, peutModifierPermis: true });
 /** Voie de secours : sub=null. doitChanger passé en entrée pour PROUVER qu'il est forcé à false par signerJeton. */
-const secours = (doitChanger = false): SessionAdmin => ({ sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger });
+const secours = (doitChanger = false): SessionAdmin => ({ sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger, peutModifierPermis: true });
 
 describe('proxy — garde de permissions (e)', () => {
   it('collaborateur sans perm_curation sur /admin/curation → redirigé vers /admin', async () => {

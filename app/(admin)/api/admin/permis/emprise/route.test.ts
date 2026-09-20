@@ -6,7 +6,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  * reçu tel quel. On vérifie le COMPORTEMENT + les paramètres liés, pas la forme d'un SQL.
  */
 vi.mock('server-only', () => ({}));
-vi.mock('../../../../../lib/admin/garde', () => ({ exigerModule: async () => ({ admin: { id: 1 } }) }));
+vi.mock('../../../../../lib/admin/garde', () => ({ exigerModule: async () => ({ admin: { id: 1 } }), exigerCapaciteModif: async () => null }));
+vi.mock('../../../../../lib/permis/gardeModification', () => ({ dossierPasseEnRattachement: async () => false, dossierDuCorps: async () => null })); // RATT-EDIT lot A3 — dossier en Analyse par défaut → garde contextuelle non déclenchée
 vi.mock('../../../../../lib/permis/empriseReconstruiteRepo', () => ({
   listerEmprises: async () => [{ id: 1, dossierId: 11434, corpsId: 3, libelle: '2D1', anneau: [], surfaceM2: 100, pieceId: 55, page: 2, calage: null, residuM: 0, creeLe: null }],
   listerIgnorees: async () => [{ corpsId: 4, motif: 'déjà bâti' }],

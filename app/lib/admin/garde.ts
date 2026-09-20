@@ -100,6 +100,32 @@ export async function exigerModule(request: Request, module: Module): Promise<Ga
 }
 
 /**
+ * RATT-EDIT (lot A3) — GARDE de la CAPACITÉ « modifier un permis après validation ». À appeler par une route de permis UNIQUEMENT quand le
+ * dossier concerné est DÉJÀ passé en Rattachement (le déclencheur contextuel — présence de permis_projection — est calculé côté permis, pour
+ * garder ce garde générique). Relit la base à chaque appel (retrait immédiat ; le JWT ne fait pas foi seul). 🔴 SUBORDINATION ① : autorise ssi
+ * administrateur, OU (perm_permis ET perm_permis_modif) — le sous-droit ne vaut RIEN sans le parent, EN BASE, jamais via la seule interface.
+ * RÈGLE D'OR : sub === null (voie de secours / legacy) → autorisé sans requête. Renvoie null si autorisé, sinon 403 ACCES_REVOQUE.
+ */
+export async function exigerCapaciteModif(request: Request): Promise<Response | null> {
+  const jeton = lireCookie(request, NOM_COOKIE);
+  const payload = jeton ? await verifierJeton(jeton) : null;
+  if (!payload) return refusRevoque();
+
+  const session = sessionDepuisPayload(payload);
+  if (session.sub === null) return null; // voie de secours / legacy → administrateur
+
+  const { rows } = await query<{ actif: boolean; role: string; permis: boolean; modif: boolean }>(
+    `SELECT actif, role, perm_permis AS permis, perm_permis_modif AS modif FROM admin_utilisateur WHERE id = $1`,
+    [session.sub],
+  );
+  const compte = rows[0];
+  if (!compte || !compte.actif) return refusRevoque();
+  if (compte.role === 'administrateur') return null;      // permissions implicites
+  if (compte.permis && compte.modif) return null;          // 🔴 subordination ① : les DEUX exigés EN BASE
+  return refusRevoque();
+}
+
+/**
  * Révocation IMMÉDIATE sur une route d'ÉCRITURE (M3-0). `proxy.ts` autorise d'après le JWS, figé jusqu'à
  * 8 h ; ce garde relit l'état RÉEL du compte en base à chaque écriture, pour que la désactivation d'un
  * compte ou le retrait d'une permission coupe l'accès au prochain appel — sans attendre l'expiration du jeton.

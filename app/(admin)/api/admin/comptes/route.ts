@@ -68,7 +68,7 @@ export async function POST(request: Request) {
   const motDePasseTemporaire = genererMotDePasseTemporaire();
   try {
     const compte = await creerCompteAdministration({
-      identifiant, prenom, nom, role, perms, motDePasseClair: motDePasseTemporaire, auteurId: garde.auteurId,
+      identifiant, prenom, nom, role, perms, peutModifierPermis: b.permis_modif === true, motDePasseClair: motDePasseTemporaire, auteurId: garde.auteurId, // RATT-EDIT lot A3 — sous-droit lu au niveau racine (subordonné à perms.permis côté repo)
     });
     // Le CLAIR n'est renvoyé QU'ICI, une seule fois. Aucun réaffichage possible → l'admin doit le transmettre.
     return Response.json({ compte, motDePasseTemporaire }, { status: 201 });

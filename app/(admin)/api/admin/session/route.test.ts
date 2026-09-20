@@ -16,7 +16,8 @@ const marquerConnexion = vi.fn();
 vi.mock('../../../../lib/admin/comptes', () => ({
   trouverCompte: (...a: unknown[]) => trouverCompte(...a),
   marquerConnexion: (...a: unknown[]) => marquerConnexion(...a),
-  permsDuCompte: () => ({ pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true }),
+  permsDuCompte: () => ({ pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true }),
+  capaciteModifPermis: () => true, // RATT-EDIT lot A3 — capacité de modif (mock)
 }));
 
 // Anti-force-brute (Lot 7) — mocké : isole la route du pool analytique (pool.ts throw sans DATABASE_URL) et

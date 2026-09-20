@@ -18,7 +18,8 @@ const changerMotDePasseSelf = vi.fn();
 vi.mock('../../../../../lib/admin/comptes', () => ({
   trouverCompteParId: (...a: unknown[]) => trouverCompteParId(...a),
   changerMotDePasseSelf: (...a: unknown[]) => changerMotDePasseSelf(...a),
-  permsDuCompte: () => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: true, banc_test: false }),
+  permsDuCompte: () => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: true, banc_test: false, permis: false }),
+  capaciteModifPermis: () => false, // RATT-EDIT lot A3 — capacité de modif (mock)
 }));
 
 import { POST } from './route';
@@ -51,7 +52,7 @@ function requete(body: unknown): Request {
 const compteLea = (over: Record<string, unknown> = {}) => ({
   id: 5, identifiant: 'lea@x.fr', role: 'collaborateur', actif: true, mot_de_passe: 'HASH:ancien', ...over,
 });
-const sessionLea = (doitChanger = true): SessionAdmin => ({ sub: 5, identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsAucune(), curation: true }, doitChanger });
+const sessionLea = (doitChanger = true): SessionAdmin => ({ sub: 5, identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsAucune(), curation: true }, doitChanger, peutModifierPermis: false });
 
 describe('POST /api/admin/compte/mot-de-passe', () => {
   it('changement réussi → 200, drapeau abaissé (DB), jeton réémis, aucun mot de passe en clair renvoyé', async () => {
@@ -110,7 +111,7 @@ describe('POST /api/admin/compte/mot-de-passe', () => {
   });
 
   it('VOIE DE SECOURS (sub=null) → refus PROPRE 400 (pas de 500), aucun accès compte', async () => {
-    await connecte({ sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger: false });
+    await connecte({ sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true });
     const res = await POST(requete({ ancien: 'x', nouveau: 'nouveau-mot-de-passe-123', confirmation: 'nouveau-mot-de-passe-123' }));
     expect(res.status).toBe(400);
     expect(trouverCompteParId).not.toHaveBeenCalled();

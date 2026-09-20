@@ -34,7 +34,7 @@ export async function POST(request: Request, ctx: Ctx) {
     permis: pb.permis === true, // RATT-EDIT (lot A2) — module « Permis de construire »
   };
 
-  const ok = await modifierPermissions(idNum, perms, garde.auteurId);
+  const ok = await modifierPermissions(idNum, perms, (body as Record<string, unknown>)?.permis_modif === true, garde.auteurId); // RATT-EDIT lot A3 — sous-droit lu au niveau racine (forcé false si perms.permis off, côté repo)
   if (ok) return Response.json({ ok: true });
 
   // 0 ligne : compte absent, ou administrateur (permissions implicites, non éditables).

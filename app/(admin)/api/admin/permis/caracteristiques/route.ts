@@ -1,6 +1,7 @@
 import 'server-only';
 import { query } from '../../../../../lib/db/client';
-import { exigerModule } from '../../../../../lib/admin/garde';
+import { exigerModule, exigerCapaciteModif } from '../../../../../lib/admin/garde';
+import { dossierPasseEnRattachement, dossierDuCorps } from '../../../../../lib/permis/gardeModification'; // RATT-EDIT (lot A3) — déclencheur contextuel du sous-droit « modifier après validation »
 import { parserBornesCheck, parserListeCheck, parserListeArrayCheck, type BornesParColonne } from '../../../../../lib/sitadel/reglagesVeille';
 import { libelleNatureProjet } from '../../../../../lib/sitadel/priorite';
 import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, validerSommetCorps, lireAltitudeDernierPlancherCorps, attribuerNomsRepli, lireCartesPourPlan, retirerCorps, reactiverCorps, lireCorpsRetires, journalBatiments, type ValeursCorps, type CorpsRetire } from '../../../../../lib/permis/caracteristiquesRepo';
@@ -173,6 +174,16 @@ export async function POST(request: Request): Promise<Response> {
   try { body = (await request.json()) as Record<string, unknown>; }
   catch { return Response.json({ erreur: 'corps JSON invalide' }, { status: 422 }); }
   const action = body.action;
+
+  // RATT-EDIT (lot A3) — GARDE CONTEXTUELLE : toute MODIFICATION (POST) d'un dossier DÉJÀ passé en Rattachement (permis_projection) exige
+  //   perm_permis_modif (subordonné à perm_permis). En Analyse (pas de permis_projection) → perm_permis suffit (déjà vérifié). Ferme l'effet de
+  //   bord : jusqu'ici n'importe quel admin pouvait éditer l'altitude d'un permis rattaché sans droit dédié. La cible se résout par dossierId, sinon
+  //   par corpsId (gestes portés par un corps). Cible inconnue → l'action valide elle-même son id ensuite.
+  const dossierCible = estEntier(body.dossierId) ? body.dossierId : (estEntier(body.corpsId) ? await dossierDuCorps(body.corpsId) : null);
+  if (dossierCible !== null && await dossierPasseEnRattachement(dossierCible)) {
+    const refusModif = await exigerCapaciteModif(request);
+    if (refusModif) return refusModif;
+  }
 
   try {
     if (action === 'global') {

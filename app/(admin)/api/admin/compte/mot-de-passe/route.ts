@@ -1,7 +1,7 @@
 import 'server-only';
 import { cookies } from 'next/headers';
 import { verifier, hacher } from '../../../../../lib/admin/motDePasse';
-import { trouverCompteParId, changerMotDePasseSelf, permsDuCompte } from '../../../../../lib/admin/comptes';
+import { trouverCompteParId, changerMotDePasseSelf, permsDuCompte, capaciteModifPermis } from '../../../../../lib/admin/comptes';
 import { NOM_COOKIE, optionsCookie, signerJeton, verifierJeton, sessionDepuisPayload } from '../../../../../lib/admin/session';
 import { LONGUEUR_MIN_MOT_DE_PASSE } from '../../../../../lib/admin/politiqueMdp';
 
@@ -77,6 +77,7 @@ export async function POST(request: Request) {
     role: compte.role,
     perms: permsDuCompte(compte),
     doitChanger: false,
+    peutModifierPermis: capaciteModifPermis(compte), // RATT-EDIT lot A3 — le jeton frais porte la capacité (subordination incluse)
   });
   (await cookies()).set(NOM_COOKIE, jetonFrais, optionsCookie(process.env.NODE_ENV === 'production'));
   return Response.json({ ok: true });

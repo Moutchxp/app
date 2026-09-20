@@ -1,5 +1,6 @@
 import 'server-only';
-import { exigerModule } from '../../../../../lib/admin/garde';
+import { exigerModule, exigerCapaciteModif } from '../../../../../lib/admin/garde';
+import { dossierPasseEnRattachement } from '../../../../../lib/permis/gardeModification'; // RATT-EDIT (lot A3) — sous-droit « modifier après validation » (dossier en Rattachement)
 import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, lireVoisinageContexte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, enregistrerAjustement, supprimerAjustement, ajusterBloc, reinitialiserAjustementBloc, lireProjectionValidee, lireValideeParCorps, lireAltitudeValideeParCorps, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { lireRayonContexteM } from '../../../../../lib/permis/projectionConfig';
 import { lireSelectionInfo, type SelectionInfo } from '../../../../../lib/permis/plancheParcellesRepo'; // PL-C4 — sélection validée pour le bandeau
@@ -187,6 +188,13 @@ export async function POST(request: Request): Promise<Response> {
 
     const dossierId = coercerDossierId(body.dossierId);
     if (dossierId === null) return Response.json({ erreur: 'requête invalide' }, { status: 400 });
+
+    // RATT-EDIT (lot A3) — GARDE CONTEXTUELLE : toute action sur l'emprise/projection d'un dossier DÉJÀ passé en Rattachement
+    //   (permis_projection) exige perm_permis_modif (subordonné à perm_permis). En Analyse → perm_permis suffit (déjà vérifié en tête).
+    if (await dossierPasseEnRattachement(dossierId)) {
+      const refusModif = await exigerCapaciteModif(request);
+      if (refusModif) return refusModif;
+    }
 
     // LOT 61/92 — RETIRER / AJOUTER / RÉINTÉGRER une page du best-of (réversible, grain = LA PAGE). N'affecte NI le document NI la page
     //   en GED : ôte/ajoute seulement de la SÉLECTION. 🔴 MUTUELLEMENT EXCLUSIF : retirer supprime toute inclusion, ajouter supprime toute

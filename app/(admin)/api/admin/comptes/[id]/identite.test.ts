@@ -23,9 +23,9 @@ async function req(session: SessionAdmin | null, body: unknown): Promise<Request
   if (session) headers.cookie = `${NOM_COOKIE}=${await signerJeton(session)}`;
   return new Request('http://local/api/admin/comptes/5/identite', { method: 'POST', headers, body: JSON.stringify(body) });
 }
-const admin = (sub = 1): SessionAdmin => ({ sub, identifiant: 'chef', role: 'administrateur', perms: permsToutes(), doitChanger: false });
-const collab = (): SessionAdmin => ({ sub: 3, identifiant: 'lea', role: 'collaborateur', perms: permsToutes(), doitChanger: false });
-const secours = (): SessionAdmin => ({ sub: null, identifiant: 'secours', role: 'administrateur', perms: permsToutes(), doitChanger: false });
+const admin = (sub = 1): SessionAdmin => ({ sub, identifiant: 'chef', role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true });
+const collab = (): SessionAdmin => ({ sub: 3, identifiant: 'lea', role: 'collaborateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: false });
+const secours = (): SessionAdmin => ({ sub: null, identifiant: 'secours', role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true });
 const gardeAdmin = () => queryMock.mockResolvedValueOnce({ rows: [{ actif: true, role: 'administrateur' }] });
 /** L'appel de modifierIdentite = 2e requête (après la garde). Renvoie sa SQL et ses params. */
 const appelModif = () => ({ sql: String(queryMock.mock.calls[1][0]), params: queryMock.mock.calls[1][1] as unknown[] });
@@ -74,7 +74,7 @@ describe('POST /comptes/[id]/identite — F-2 (édition prénom/nom) + double ba
 
   it('jeton au rôle PÉRIMÉ (JWS administrateur, base collaborateur) → 403', async () => {
     queryMock.mockResolvedValueOnce({ rows: [{ actif: true, role: 'collaborateur' }] });
-    const perime: SessionAdmin = { sub: 9, identifiant: 'ex', role: 'administrateur', perms: permsToutes(), doitChanger: false };
+    const perime: SessionAdmin = { sub: 9, identifiant: 'ex', role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true };
     const res = await POST(await req(perime, { prenom: 'X', nom: 'Y' }), ctx);
     expect(res.status).toBe(403);
     expect(queryMock).toHaveBeenCalledTimes(1);

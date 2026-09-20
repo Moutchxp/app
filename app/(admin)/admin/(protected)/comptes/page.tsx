@@ -12,6 +12,7 @@ interface CompteVue {
   role: RoleAdmin;
   actif: boolean;
   perms: Perms;
+  peutModifierPermis: boolean; // RATT-EDIT (lot A3) — état de la sous-case « modifier après validation » (capacité effective : perm_permis && perm_permis_modif, ou admin)
   derniere_connexion_a: string | null;
   cree_a: string | null; // date de création (fournie par l'API ; NULL toléré)
 }
@@ -65,11 +66,12 @@ export function Chip({ libelle, coche, disabled, onToggle }: { libelle: string; 
  * QU'UNE fois — quand le détail est ouvert, la carte n'affiche que ce contenu, jamais le résumé en plus.
  */
 export function DetailContenu({
-  compte, perms, collaborateur, msg, enCours, idPrenom, idNom, onIdPrenom, onIdNom, onEnregistrerIdentite,
-  onToggle, onEnregistrer, onPromouvoir, onFermer,
+  compte, perms, peutModifierPermis, collaborateur, msg, enCours, idPrenom, idNom, onIdPrenom, onIdNom, onEnregistrerIdentite,
+  onToggle, onToggleModif, onEnregistrer, onPromouvoir, onFermer,
 }: {
   compte: DetailCompte;
   perms: Perms;
+  peutModifierPermis: boolean; // RATT-EDIT (lot A3) — état de la sous-case
   collaborateur: boolean;
   msg: string | null;
   enCours: boolean;
@@ -79,6 +81,7 @@ export function DetailContenu({
   onIdNom: (v: string) => void;
   onEnregistrerIdentite: () => void;
   onToggle: (cle: keyof Perms) => void;
+  onToggleModif: () => void; // RATT-EDIT (lot A3) — bascule de la sous-case « modifier après validation »
   onEnregistrer: () => void;
   onPromouvoir: () => void;
   onFermer: () => void;
@@ -130,6 +133,15 @@ export function DetailContenu({
           <Chip key={m.cle} libelle={m.libelle} coche={collaborateur ? perms[m.cle] : true} disabled={!collaborateur} onToggle={() => onToggle(m.cle)} />
         ))}
       </div>
+      {/* RATT-EDIT (lot A3) — SOUS-DROIT de « Permis de construire », INDENTÉ sous la grille et DÉSACTIVÉ tant que la case parente n'est
+          pas cochée (subordination ② VISIBLE). On ne touche pas la grille des 7 cases : le sous-droit vit dessous, à part. */}
+      <div className="cpt-sous-perm" style={{ marginLeft: '1.5rem', marginTop: '.4rem', maxWidth: '32rem' }}>
+        <Chip libelle="Modifier un permis après validation" coche={collaborateur ? peutModifierPermis : true}
+          disabled={!collaborateur || !perms.permis} onToggle={onToggleModif} />
+        <span className="cpt-note" style={{ display: 'block' }}>
+          Sous-droit de « Permis de construire » : corriger l’emprise et l’altitude d’un permis <strong>déjà validé</strong> (dans Rattachement). Nécessite « Permis de construire ».
+        </span>
+      </div>
 
       {collaborateur ? (
         <div className="cpt-actions">
@@ -155,6 +167,7 @@ export function DetailContenu({
 function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => void; onRafraichir: () => void }) {
   const [d, setD] = useState<DetailCompte | null>(null);
   const [perms, setPerms] = useState<Perms>(PERMS_VIDE());
+  const [peutModifierPermis, setPeutModifierPermis] = useState(false); // RATT-EDIT (lot A3) — sous-droit « modifier après validation »
   const [idPrenom, setIdPrenom] = useState('');
   const [idNom, setIdNom] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
@@ -169,7 +182,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
       if (annule) return;
       if (!res.ok) { setMsg('Détail indisponible.'); return; }
       const body = await res.json();
-      if (!annule) { setD(body.compte); setPerms(body.compte.perms); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom); }
+      if (!annule) { setD(body.compte); setPerms(body.compte.perms); setPeutModifierPermis(body.compte.peutModifierPermis); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom); }
     })();
     return () => { annule = true; };
   }, [id]);
@@ -178,7 +191,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
     const res = await fetch(`/api/admin/comptes/${id}`);
     if (!res.ok) { setMsg('Détail indisponible.'); return; }
     const body = await res.json();
-    setD(body.compte); setPerms(body.compte.perms); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom);
+    setD(body.compte); setPerms(body.compte.perms); setPeutModifierPermis(body.compte.peutModifierPermis); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom);
   }
   async function enregistrerIdentite() {
     const prenom = idPrenom.trim(); const nom = idNom.trim();
@@ -193,7 +206,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
   async function enregistrer() {
     setEnCours(true); setMsg(null);
     try {
-      const res = await fetch(`/api/admin/comptes/${id}/permissions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ perms }) });
+      const res = await fetch(`/api/admin/comptes/${id}/permissions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ perms, permis_modif: peutModifierPermis }) }); // RATT-EDIT lot A3
       if (res.ok) { setMsg('Permissions enregistrées.'); await recharger(); onRafraichir(); } else setMsg('Enregistrement refusé.');
     } finally { setEnCours(false); }
   }
@@ -209,9 +222,10 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
   return (
     <div ref={ref} tabIndex={-1} className="cpt-detail" id={`detail-${id}`} role="region" aria-labelledby={`cpt-tete-${id}`}>
       {d
-        ? <DetailContenu compte={d} perms={perms} collaborateur={d.role === 'collaborateur'} msg={msg} enCours={enCours}
+        ? <DetailContenu compte={d} perms={perms} peutModifierPermis={peutModifierPermis} collaborateur={d.role === 'collaborateur'} msg={msg} enCours={enCours}
             idPrenom={idPrenom} idNom={idNom} onIdPrenom={setIdPrenom} onIdNom={setIdNom} onEnregistrerIdentite={enregistrerIdentite}
-            onToggle={(cle) => setPerms((p) => ({ ...p, [cle]: !p[cle] }))} onEnregistrer={enregistrer} onPromouvoir={promouvoir} onFermer={onFermer} />
+            onToggle={(cle) => { if (cle === 'permis' && perms.permis) setPeutModifierPermis(false); /* subordination ② : décocher « Permis » retire le sous-droit */ setPerms((p) => ({ ...p, [cle]: !p[cle] })); }}
+            onToggleModif={() => setPeutModifierPermis((v) => !v)} onEnregistrer={enregistrer} onPromouvoir={promouvoir} onFermer={onFermer} />
         : (msg ?? 'Chargement…')}
     </div>
   );
@@ -262,6 +276,7 @@ export default function ComptesPage() {
   const [identifiant, setIdentifiant] = useState('');
   const [role, setRole] = useState<RoleAdmin>('collaborateur');
   const [perms, setPerms] = useState<Perms>(PERMS_VIDE());
+  const [peutModifierPermis, setPeutModifierPermis] = useState(false); // RATT-EDIT (lot A3) — sous-droit « modifier après validation »
   const [enCours, setEnCours] = useState(false);
   const admin = role === 'administrateur';
 
@@ -289,11 +304,11 @@ export default function ComptesPage() {
   async function creer(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); setEnCours(true); setErreur(null);
     try {
-      const res = await fetch('/api/admin/comptes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom, identifiant, role, perms }) });
+      const res = await fetch('/api/admin/comptes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom, identifiant, role, perms, permis_modif: peutModifierPermis }) }); // RATT-EDIT lot A3 — perms imbriqué (le serveur lit b.perms) + sous-droit au niveau racine
       const body = await res.json().catch(() => ({}));
       if (res.status === 201) {
         setTemp({ identifiant, motDePasse: body.motDePasseTemporaire });
-        setPrenom(''); setNom(''); setIdentifiant(''); setRole('collaborateur'); setPerms(PERMS_VIDE());
+        setPrenom(''); setNom(''); setIdentifiant(''); setRole('collaborateur'); setPerms(PERMS_VIDE()); setPeutModifierPermis(false);
         await recharger();
       } else setErreur(typeof body?.erreur === 'string' ? body.erreur : 'Création impossible.');
     } catch { setErreur('Création impossible.'); } finally { setEnCours(false); }
@@ -399,8 +414,15 @@ export default function ComptesPage() {
           <div className="cpt-perms-titre" id="perms-creation">Permissions {admin && '(administrateur : toutes, non modifiables)'}</div>
           <div className="cpt-perms" role="group" aria-labelledby="perms-creation">
             {MODULES.map((m) => (
-              <Chip key={m.cle} libelle={m.libelle} coche={admin || perms[m.cle]} disabled={admin} onToggle={() => setPerms((p) => ({ ...p, [m.cle]: !p[m.cle] }))} />
+              <Chip key={m.cle} libelle={m.libelle} coche={admin || perms[m.cle]} disabled={admin}
+                onToggle={() => { if (m.cle === 'permis' && perms.permis) setPeutModifierPermis(false); setPerms((p) => ({ ...p, [m.cle]: !p[m.cle] })); }} />
             ))}
+          </div>
+          {/* RATT-EDIT (lot A3) — SOUS-DROIT indenté, désactivé tant que « Permis de construire » n'est pas coché (subordination ② visible). */}
+          <div className="cpt-sous-perm" style={{ marginLeft: '1.5rem', marginTop: '.4rem', maxWidth: '32rem' }}>
+            <Chip libelle="Modifier un permis après validation" coche={admin || peutModifierPermis}
+              disabled={admin || !perms.permis} onToggle={() => setPeutModifierPermis((v) => !v)} />
+            <span className="cpt-note" style={{ display: 'block' }}>Sous-droit de « Permis de construire » : corriger l’emprise et l’altitude d’un permis <strong>déjà validé</strong>. Nécessite « Permis de construire ».</span>
           </div>
           <button type="submit" className="cpt-btn cpt-btn--primary" disabled={enCours}>{enCours ? 'Création…' : 'Créer le compte'}</button>
         </form>

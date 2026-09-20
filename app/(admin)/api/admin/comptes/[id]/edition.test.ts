@@ -26,8 +26,8 @@ async function req(session: SessionAdmin, body: unknown): Promise<Request> {
     method: 'POST', headers: { cookie: `${NOM_COOKIE}=${jeton}`, 'content-type': 'application/json' }, body: JSON.stringify(body),
   });
 }
-const admin = (): SessionAdmin => ({ sub: 1, identifiant: 'chef', role: 'administrateur', perms: permsToutes(), doitChanger: false });
-const collab = (): SessionAdmin => ({ sub: 3, identifiant: 'lea', role: 'collaborateur', perms: permsToutes(), doitChanger: false });
+const admin = (): SessionAdmin => ({ sub: 1, identifiant: 'chef', role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true });
+const collab = (): SessionAdmin => ({ sub: 3, identifiant: 'lea', role: 'collaborateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: false });
 const gardeAdmin = () => queryMock.mockResolvedValueOnce({ rows: [{ actif: true, role: 'administrateur' }] });
 const cible = (role: string, actif = true) => ({ id: 5, identifiant: 'x@x.fr', prenom: 'X', nom: 'Y', role, actif, perm_pilotage: false, perm_cartes_annee: false, perm_statistiques: false, perm_internautes: false, perm_curation: false, perm_banc_test: false, doit_changer_mot_de_passe: false, derniere_connexion_a: null, cree_a: '2026' });
 
@@ -60,7 +60,7 @@ describe('POST /comptes/[id]/role — R-B (promotion) et R-C (jamais de rétrogr
 
   it('jeton au rôle PÉRIMÉ (JWS administrateur, base collaborateur) → 403', async () => {
     queryMock.mockResolvedValueOnce({ rows: [{ actif: true, role: 'collaborateur' }] });
-    const jwtAdminPerime: SessionAdmin = { sub: 9, identifiant: 'ex', role: 'administrateur', perms: permsToutes(), doitChanger: false };
+    const jwtAdminPerime: SessionAdmin = { sub: 9, identifiant: 'ex', role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true };
     const res = await postRole(await req(jwtAdminPerime, { role: 'administrateur' }), ctx);
     expect(res.status).toBe(403);
   });

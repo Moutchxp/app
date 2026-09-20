@@ -184,7 +184,7 @@ describe('creerCompteAdministration (tuile — M3-4 Lot C)', () => {
       .mockResolvedValueOnce({ rows: [{ id: 7, identifiant: 'lea@x.fr', role: 'collaborateur', actif: true }] });
     await creerCompteAdministration({
       identifiant: 'lea@x.fr', prenom: 'Léa', nom: 'M', role: 'collaborateur',
-      perms: { ...PERMS_VIDE, curation: true }, motDePasseClair: 'TEMP-secret', auteurId: 3,
+      perms: { ...PERMS_VIDE, curation: true }, peutModifierPermis: false, motDePasseClair: 'TEMP-secret', auteurId: 3,
     });
     const [sql, params] = queryMock.mock.calls[1];
     expect(String(sql)).toContain('doit_changer_mot_de_passe');
@@ -201,7 +201,7 @@ describe('creerCompteAdministration (tuile — M3-4 Lot C)', () => {
       .mockResolvedValueOnce({ rows: [{ id: 8, identifiant: 'chef@x.fr', role: 'administrateur', actif: true }] });
     await creerCompteAdministration({
       identifiant: 'chef@x.fr', prenom: 'C', nom: 'H', role: 'administrateur',
-      perms: PERMS_VIDE, motDePasseClair: 'x', auteurId: 3, // perms toutes false en entrée
+      perms: PERMS_VIDE, peutModifierPermis: false, motDePasseClair: 'x', auteurId: 3, // perms toutes false en entrée
     });
     const params = queryMock.mock.calls[1][1] as unknown[];
     // params[5..10] = les 6 perm_* → toutes true pour un administrateur
@@ -212,14 +212,14 @@ describe('creerCompteAdministration (tuile — M3-4 Lot C)', () => {
     queryMock
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ id: 9, identifiant: 'x@x.fr', role: 'collaborateur', actif: true }] });
-    await creerCompteAdministration({ identifiant: 'x@x.fr', prenom: 'X', nom: 'Y', role: 'collaborateur', perms: PERMS_VIDE, motDePasseClair: 'x', auteurId: null });
+    await creerCompteAdministration({ identifiant: 'x@x.fr', prenom: 'X', nom: 'Y', role: 'collaborateur', perms: PERMS_VIDE, peutModifierPermis: false, motDePasseClair: 'x', auteurId: null });
     const params = queryMock.mock.calls[1][1] as unknown[];
     expect(params[params.length - 1]).toBeNull();
   });
 
   it('identifiant déjà pris → ErreurCompte, aucun INSERT', async () => {
     queryMock.mockResolvedValueOnce({ rows: [ligne()] });
-    await expect(creerCompteAdministration({ identifiant: 'arno@x.fr', prenom: 'A', nom: 'B', role: 'collaborateur', perms: PERMS_VIDE, motDePasseClair: 'x', auteurId: 1 }))
+    await expect(creerCompteAdministration({ identifiant: 'arno@x.fr', prenom: 'A', nom: 'B', role: 'collaborateur', perms: PERMS_VIDE, peutModifierPermis: false, motDePasseClair: 'x', auteurId: 1 }))
       .rejects.toBeInstanceOf(ErreurCompte);
     expect(sqlsEmis().some((s) => s.includes('INSERT INTO admin_utilisateur'))).toBe(false);
   });
@@ -280,7 +280,7 @@ describe('reactiverCompte (Lot C)', () => {
 describe('modifierPermissions — collaborateur seulement (Lot D)', () => {
   it('UPDATE conditionnel WHERE role=collaborateur + journal changement_permissions', async () => {
     queryMock.mockResolvedValueOnce({ rows: [{ id: 5 }] });
-    const ok = await modifierPermissions(5, { ...PERMS_VIDE, curation: true }, 3);
+    const ok = await modifierPermissions(5, { ...PERMS_VIDE, curation: true }, false, 3); // RATT-EDIT lot A3 — 3ᵉ arg = peutModifierPermis
     expect(ok).toBe(true);
     const [sql, params] = queryMock.mock.calls[0];
     expect(String(sql)).toContain("WHERE id = $1 AND role = 'collaborateur'"); // jamais un administrateur
@@ -290,7 +290,21 @@ describe('modifierPermissions — collaborateur seulement (Lot D)', () => {
   });
   it('0 ligne (absent ou administrateur → perms implicites) → false', async () => {
     queryMock.mockResolvedValueOnce({ rows: [] });
-    expect(await modifierPermissions(9, PERMS_VIDE, 3)).toBe(false);
+    expect(await modifierPermissions(9, PERMS_VIDE, false, 3)).toBe(false);
+  });
+
+  it('RATT-EDIT lot A3 — SUBORDINATION ① : perm_permis_modif STOCKÉ false si « Permis » (parent) est décoché, MÊME si demandé true', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 5 }] });
+    await modifierPermissions(5, { ...PERMS_VIDE, permis: false }, true, 3); // parent OFF, sous-droit demandé ON
+    const [sql, params] = queryMock.mock.calls[0];
+    expect(String(sql)).toContain('perm_permis_modif = $9');
+    expect(params[8]).toBe(false); // $9 = perm_permis_modif → forcé false (le parent est off)
+  });
+
+  it('RATT-EDIT lot A3 — perm_permis_modif STOCKÉ true si « Permis » (parent) est coché ET le sous-droit demandé', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 5 }] });
+    await modifierPermissions(5, { ...PERMS_VIDE, permis: true }, true, 3);
+    expect(queryMock.mock.calls[0][1][8]).toBe(true); // $9 = perm_permis_modif → true
   });
 });
 

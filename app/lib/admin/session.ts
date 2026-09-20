@@ -18,6 +18,10 @@ export interface SessionAdmin {
   // Drapeau de première connexion (M3-4 Lot B). true ⇒ l'utilisateur DOIT changer son mot de passe avant tout accès
   // (redirection appliquée dans proxy.ts). VOIE DE SECOURS (sub=null) ⇒ TOUJOURS false (jamais piégée, règle d'or).
   doitChanger: boolean;
+  // RATT-EDIT (lot A3) — CAPACITÉ « modifier un permis après validation » (perm_permis_modif && perm_permis, ou administrateur).
+  //   HORS MODULES : ce n'est pas une zone gardée mais un GESTE. Portée dans le JWT pour l'UI (bouton « Modifier » du lot B2). La
+  //   GARDE serveur relit la base à chaque geste (retrait immédiat) — le JWT ne fait pas foi seul. Administrateur → true.
+  peutModifierPermis: boolean;
 }
 
 /** Toutes permissions à true (administrateur, ou voie de secours). */
@@ -71,7 +75,8 @@ function cleSignature(): Uint8Array {
 export async function signerJeton(session: SessionAdmin): Promise<string> {
   // RÈGLE D'OR : sub=null (voie de secours) ⇒ doitChanger FORCÉ à false, jamais lu depuis l'appelant → jamais piégé.
   const doitChanger = session.sub === null ? false : session.doitChanger;
-  const jwt = new SignJWT({ identifiant: session.identifiant, role: session.role, perms: session.perms, doitChanger })
+  // RATT-EDIT (lot A3) — la capacité de modif entre dans le JWS (valeur EFFECTIVE calculée à la connexion : administrateur/secours → true).
+  const jwt = new SignJWT({ identifiant: session.identifiant, role: session.role, perms: session.perms, doitChanger, peutModifierPermis: session.peutModifierPermis })
     .setProtectedHeader({ alg: 'HS256' })
     .setJti(crypto.randomUUID())
     .setIssuedAt()
@@ -119,5 +124,8 @@ export function sessionDepuisPayload(payload: JWTPayload): SessionAdmin {
   // Sinon la valeur signée. Conséquence acceptée (Q1=MVP) : remettre doit_changer=true en base n'affecte pas une
   // session déjà ouverte (le drapeau vit dans le JWS pour ≤ 8 h) ; l'enforcement s'applique dès la prochaine connexion.
   const doitChanger = sub === null ? false : payload.doitChanger === true;
-  return { sub, identifiant, role, perms, doitChanger };
+  // RATT-EDIT (lot A3) — capacité de modif : administrateur (rôle) ⇒ true ; sinon la valeur signée (jeton legacy sans le champ ⇒ false, sûr).
+  //   La GARDE serveur (exigerCapaciteModif) relit la base à chaque geste — cette valeur JWT sert l'UI, jamais seule à autoriser un geste.
+  const peutModifierPermis = role === 'administrateur' ? true : payload.peutModifierPermis === true;
+  return { sub, identifiant, role, perms, doitChanger, peutModifierPermis };
 }

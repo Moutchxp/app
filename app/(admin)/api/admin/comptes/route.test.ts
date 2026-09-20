@@ -26,8 +26,8 @@ async function requete(session: SessionAdmin, body?: unknown): Promise<Request> 
     body: body === undefined ? undefined : JSON.stringify(body),
   });
 }
-const admin = (): SessionAdmin => ({ sub: 1, identifiant: 'chef@x.fr', role: 'administrateur', perms: permsToutes(), doitChanger: false });
-const collab = (): SessionAdmin => ({ sub: 3, identifiant: 'lea@x.fr', role: 'collaborateur', perms: permsToutes(), doitChanger: false });
+const admin = (): SessionAdmin => ({ sub: 1, identifiant: 'chef@x.fr', role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true });
+const collab = (): SessionAdmin => ({ sub: 3, identifiant: 'lea@x.fr', role: 'collaborateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: false });
 
 const corpsCreation = { prenom: 'Léa', nom: 'M', identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsToutes(), pilotage: false } };
 
@@ -51,7 +51,7 @@ describe('POST /api/admin/comptes — double barrière + mot de passe temporaire
 
   it('DOUBLE BARRIÈRE : jeton role=administrateur mais rôle RÉTROGRADÉ en base → 403, aucune création', async () => {
     queryMock.mockResolvedValueOnce({ rows: [{ actif: true, role: 'collaborateur' }] }); // garde lit le rôle RÉEL
-    const jetonAdminPerime: SessionAdmin = { sub: 5, identifiant: 'ex@x.fr', role: 'administrateur', perms: permsToutes(), doitChanger: false };
+    const jetonAdminPerime: SessionAdmin = { sub: 5, identifiant: 'ex@x.fr', role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true };
     const res = await POST(await requete(jetonAdminPerime, corpsCreation));
     expect(res.status).toBe(403);
     expect(await res.json()).toEqual({ erreur: 'INTERDIT' });
