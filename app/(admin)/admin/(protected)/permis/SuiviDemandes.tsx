@@ -84,6 +84,11 @@ async function erreurServeur(res: Response, repli: string): Promise<string> {
 
 export function SuiviDemandes({ categories, perimetre, process, signalRafraichir = 0, onRecompter }: Props) {
   const avecActionsGroupees = perimetre === 'a_demander';
+  // ALLÈGEMENT rail TÉLÉSERVICE, écran « À demander » UNIQUEMENT (garde par périmètre ET par rail actif) : les filtres se réduisent à
+  //   Statut, les gestes de masse au seul « Basculer le profil ». Voir la recon : à ce volume (≤ 12 lignes, 0 brouillon usuel), les
+  //   autres filtres/gestes sont SANS OBJET ou REDONDANTS (annulation par carte au carrousel, détail par ligne). Le rail E-mail et
+  //   l'onglet « En cours » gardent TOUT, à l'identique. Aucune structure/CSS partagé n'est touché : uniquement des rendus conditionnels.
+  const teleserviceADemander = avecActionsGroupees && process === 'formulaire';
   const statutsFiltre = statutsDuPerimetre(perimetre);
   const avecAlertes = statutsFiltre.includes('brouillon'); // alertes d'identité = brouillons → uniquement « à demander »
 
@@ -674,30 +679,44 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
           <select value={choixStatut} onChange={(e) => majFiltre(() => setChoixStatut(e.target.value))} style={styleChamp}>
             <option value="vivants">Actives ({statutsVivants(perimetre).map((s) => STATUT_LIBELLE[s]).join(', ')})</option>
             <option value="tous">Toutes (dont {statutsMorts(perimetre).map((s) => STATUT_LIBELLE[s]).join(', ')})</option>
-            {statutsDuPerimetre(perimetre).map((s) => <option key={s} value={s}>{STATUT_LIBELLE[s]}</option>)}
+            {/* Statut CONSERVÉ sur les deux rails (c'est lui qui révèle les annulées via « Toutes ») ; en téléservice, l'option « prête »
+                disparaît (sans objet : le dépôt part du brouillon, jamais d'une prête). Les autres statuts restent. */}
+            {statutsDuPerimetre(perimetre).filter((s) => !(teleserviceADemander && s === 'prete')).map((s) => <option key={s} value={s}>{STATUT_LIBELLE[s]}</option>)}
           </select>
         </label>
+        {/* Profil · Commune · Référence · Tri · Type de permis : RETIRÉS sur le rail téléservice « À demander » (sans objet à ce volume ;
+            la Référence mairie n'existe pas avant dépôt). INCHANGÉS sur le rail e-mail et dans « En cours ». */}
+        {!teleserviceADemander && (
         <label className="flex flex-col gap-1">Profil
           <select value={fProfil} onChange={(e) => majFiltre(() => setFProfil(e.target.value))} style={styleChamp}>
             <option value="">Tous</option>
             {PROFILS.map((p) => <option key={p} value={p}>{ETIQUETTE_PROFIL[p]}</option>)}
           </select>
         </label>
+        )}
+        {!teleserviceADemander && (
         <label className="flex flex-col gap-1">Commune
           <input value={fCommune} onChange={(e) => majFiltre(() => setFCommune(e.target.value))} placeholder="nom ou code" style={styleChamp} />
         </label>
+        )}
+        {!teleserviceADemander && (
         <label className="flex flex-col gap-1">Référence
           <input value={fReference} onChange={(e) => majFiltre(() => setFReference(e.target.value))} placeholder="mairie, SVAV ou n° permis" style={styleChamp}
             aria-label="Rechercher par référence (mairie, SVAV ou n° de permis)" />
         </label>
+        )}
+        {!teleserviceADemander && (
         <label className="flex flex-col gap-1">Tri
           <select value={cleTri(tri)} onChange={(e) => setTri(triDepuisCle(e.target.value))} style={styleChamp}>
             {OPTIONS_TRI.map((o) => <option key={o.valeur} value={o.valeur}>{o.libelle}</option>)}
           </select>
         </label>
+        )}
+        {!teleserviceADemander && (
         <div style={{ flex: '1 1 100%' }}>
           <FiltreTypes categories={categories} coches={fTypes} onToggle={basculerType} />
         </div>
+        )}
         {avecActionsGroupees && (
           <>
             <span style={{ marginLeft: 'auto' }}>{sel.size} sélectionnée(s)</span>
@@ -706,20 +725,31 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
             {process === 'email' && (
               <button type="button" className="svv-btn svv-btn-primary" style={{ padding: '.35rem .7rem', opacity: sel.size ? 1 : 0.5 }} disabled={sel.size === 0} onClick={() => void transition([...sel], 'prete')}>Passer en prête</button>
             )}
-            <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem', opacity: sel.size ? 1 : 0.5 }} disabled={sel.size === 0} onClick={() => void transition([...sel], 'annulee')}>Annuler la demande</button>
+            {/* §2/allègement — « Annuler la demande » (sélection) : rail E-MAIL uniquement. En téléservice, l'annulation par unité passe
+                par le carrousel (par carte) ET par le panneau détail (bloc ③, conservé) → geste de masse REDONDANT ici, retiré. */}
+            {process === 'email' && (
+              <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem', opacity: sel.size ? 1 : 0.5 }} disabled={sel.size === 0} onClick={() => void transition([...sel], 'annulee')}>Annuler la demande</button>
+            )}
+            {/* « Basculer la sélection en… » (profil) : CONSERVÉ sur les deux rails — seul moyen de changer le profil EN PLACE, il régénère
+                le corps (texte copié-collé vers la mairie). */}
             <label className="flex flex-col gap-1">Basculer la sélection en…
               <select value="" disabled={sel.size === 0} onChange={(e) => { if (e.target.value) setConfBascule({ ids: [...sel], profil: selProfil(e.target.value) }); }} style={{ ...styleChamp, opacity: sel.size ? 1 : 0.5 }}>
                 <option value="">—</option>
                 {PROFILS.map((p) => <option key={p} value={p}>{ETIQUETTE_PROFIL[p]}</option>)}
               </select>
             </label>
-            {/* D1 — geste de MASSE : annule TOUS les brouillons de la vue filtrée (prêtes exclues). Séparé de la sélection ci-dessus. */}
-            <span aria-hidden="true" style={{ width: 1, alignSelf: 'stretch', background: 'var(--color-svv-line)', margin: '0 .2rem' }} />
-            <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem', color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)', opacity: masse.brouillons.length ? 1 : 0.5 }}
-              disabled={masse.brouillons.length === 0} onClick={demarrerToutAnnuler}
-              title="Annuler tous les brouillons de la vue filtrée actuelle (les prêtes sont exclues)">
-              Tout annuler ({masse.brouillons.length} brouillon{masse.brouillons.length > 1 ? 's' : ''})
-            </button>
+            {/* D1 — geste de MASSE : annule TOUS les brouillons de la vue filtrée (prêtes exclues). Séparé de la sélection ci-dessus.
+                §2/allègement — rail E-MAIL uniquement : en téléservice, l'annulation par carte du carrousel suffit (REDONDANT ici). */}
+            {process === 'email' && (
+              <>
+                <span aria-hidden="true" style={{ width: 1, alignSelf: 'stretch', background: 'var(--color-svv-line)', margin: '0 .2rem' }} />
+                <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.35rem .7rem', color: 'var(--color-svv-red)', borderColor: 'var(--color-svv-red)', opacity: masse.brouillons.length ? 1 : 0.5 }}
+                  disabled={masse.brouillons.length === 0} onClick={demarrerToutAnnuler}
+                  title="Annuler tous les brouillons de la vue filtrée actuelle (les prêtes sont exclues)">
+                  Tout annuler ({masse.brouillons.length} brouillon{masse.brouillons.length > 1 ? 's' : ''})
+                </button>
+              </>
+            )}
             {/* D1 — geste DÉDIÉ par demande PRÊTE présente dans la vue : nommée, distincte du geste de masse.
                 §2 — rail E-MAIL uniquement : en téléservice, une prête s'annule depuis son panneau détail (onAnnulerPrete, §1). */}
             {process === 'email' && masse.pretes.map((d) => (
