@@ -173,12 +173,13 @@
   --color-svv-line-strong: #384454;
   --color-svv-line-strong-hover: #4a5a6e;
   --color-svv-field: #242e3c;
-  --color-svv-surface-raised: #2a3442;       /* un cran plus clair que field (#242e3c) → détache les sous-lignes en sombre ; assez sombre pour garder le texte rouge d'alerte ≥ 4,5:1 */
+  --color-svv-surface-raised: #37455a;       /* franchement plus clair que field (#242e3c) → sous-lignes NETTEMENT détachées en sombre (ratio de luminance ≈ 1,41) ; le rouge d'alerte de la 4e sous-ligne y passe à --color-svv-red-raised pour tenir AA */
   --color-svv-label: #9aa5b3;
   --color-svv-tip-bg: #313c4c;
   --color-svv-red: #ff6b6b;
   --color-svv-red-dark: #ff8a8a;
   --color-svv-red-soft: #3a1e21;
+  --color-svv-red-raised: #ff9a9a;           /* rouge d'ALERTE sur la surface surélevée (.svv-repli-titre--surface) en SOMBRE : plus clair que --color-svv-red (#ff6b6b) pour tenir AA (≈ 4,8:1) sur le fond #37455a ; appliqué SEULEMENT à ces sous-lignes (règle scopée plus bas) */
   --color-svv-green: #4ade80;
   --color-svv-green-soft: #16301f;
   --color-svv-green-ink: #7ee2a4;
@@ -193,6 +194,10 @@
   --color-svv-violet-faint: #241a33;
   --color-svv-lien-source: #7db0ff;
 }
+/* Rouge d'ALERTE redéfini SUR la surface surélevée en SOMBRE (le `var(--color-svv-red)` lu inline par TitreFamilleEtat prend alors la variante
+   claire). Scopé à `.svv-repli-titre--surface` (les 4 sous-lignes d'Analyse) : n'altère NI le rouge global, NI les autres lignes. Aucune règle
+   partagée modifiée — on ne fait que redéfinir une variable dans un scope. Le thème CLAIR n'a pas de règle → rouge d'origine inchangé. */
+.svv-adm-root[data-theme='dark'] .svv-repli-titre--surface { --color-svv-red: var(--color-svv-red-raised); }
 /* 'system' → suit le réglage du système d'exploitation (mêmes valeurs quand l'OS est sombre). */
 @media (prefers-color-scheme: dark) {
   .svv-adm-root[data-theme='system'] {
@@ -205,12 +210,13 @@
     --color-svv-line-strong: #384454;
     --color-svv-line-strong-hover: #4a5a6e;
     --color-svv-field: #242e3c;
-    --color-svv-surface-raised: #2a3442;       /* identique au bloc [data-theme='dark'] */
+    --color-svv-surface-raised: #37455a;       /* identique au bloc [data-theme='dark'] */
     --color-svv-label: #9aa5b3;
     --color-svv-tip-bg: #313c4c;
     --color-svv-red: #ff6b6b;
     --color-svv-red-dark: #ff8a8a;
     --color-svv-red-soft: #3a1e21;
+    --color-svv-red-raised: #ff9a9a;           /* identique au bloc [data-theme='dark'] */
     --color-svv-green: #4ade80;
     --color-svv-green-soft: #16301f;
     --color-svv-green-ink: #7ee2a4;
@@ -225,6 +231,7 @@
     --color-svv-violet-faint: #241a33;
     --color-svv-lien-source: #7db0ff;
   }
+  .svv-adm-root[data-theme='system'] .svv-repli-titre--surface { --color-svv-red: var(--color-svv-red-raised); }
 }
 
 body {

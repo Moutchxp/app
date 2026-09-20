@@ -15,6 +15,14 @@ const P = 'app/(admin)/admin/(protected)/permis/';
 const lire = (rel: string): string => readFileSync(join(process.cwd(), rel), 'utf8');
 const compact = (s: string): string => s.replace(/\s+/g, ' ');
 
+// Luminance relative WCAG + ratio de contraste depuis un hex #rrggbb — pour asserter des ÉCARTS CHIFFRÉS (jamais une simple présence).
+const lum = (hex: string): number => {
+  const [r, g, b] = hex.replace('#', '').match(/.{2}/g)!.map((h) => parseInt(h, 16));
+  const f = (c: number): number => { const s = c / 255; return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4); };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+};
+const contraste = (a: string, b: string): number => { const hi = Math.max(lum(a), lum(b)), lo = Math.min(lum(a), lum(b)); return (hi + 0.05) / (lo + 0.05); };
+
 describe('Sous-lignes « surface » (Analyse) — fond surélevé tokenisé et scopé', () => {
   it('globals.css : la variante --surface passe par un TOKEN de surface (zéro hex en dur dans la règle)', () => {
     const css = compact(lire('app/globals.css'));
@@ -23,9 +31,30 @@ describe('Sous-lignes « surface » (Analyse) — fond surélevé tokenisé et s
     const i = css.indexOf('.svv-repli-titre--surface{');
     const regle = css.slice(i, css.indexOf('}', i));
     expect(regle).not.toMatch(/#[0-9a-fA-F]{3,8}/);
-    // token défini en CLAIR (@theme, blanc = demande Arno) ET dans les DEUX blocs sombres (data-theme=dark + system) — plus clair que le conteneur
+    // token défini en CLAIR (@theme) ET dans les DEUX blocs sombres (data-theme=dark + system)
     expect(css).toContain('--color-svv-surface-raised: #ffffff;');
-    expect((css.match(/--color-svv-surface-raised: #2a3442;/g) ?? []).length).toBe(2);
+    expect((css.match(/--color-svv-surface-raised: #37455a;/g) ?? []).length).toBe(2);
+  });
+
+  it('THÈME CLAIR strictement inchangé : blanc (#ffffff), validé par Arno — non touché par ce lot', () => {
+    const css = compact(lire('app/globals.css'));
+    expect(css).toContain('--color-svv-surface-raised: #ffffff;');
+    // le rouge n'est redéfini QU'en sombre : aucune règle scopée pour le clair
+    expect(css).not.toContain("[data-theme='light'] .svv-repli-titre--surface");
+  });
+
+  it('THÈME SOMBRE : le fond surélevé est FRANCHEMENT plus clair que le conteneur (écart chiffré, jamais inversé)', () => {
+    const RAISED = '#37455a', FIELD = '#242e3c'; // valeurs sombres (assertées présentes ci-dessus / dans le bloc de tokens)
+    expect(lum(RAISED)).toBeGreaterThan(lum(FIELD));               // surélevé = PLUS CLAIR que le conteneur (même sens qu'en clair)
+    expect(contraste(RAISED, FIELD)).toBeGreaterThanOrEqual(1.3);  // écart FRANC (mesuré ≈ 1,41), pas une nuance de 2 %
+  });
+
+  it('THÈME SOMBRE : le rouge d’alerte dédié tient AA (≥4,5:1) sur la surface surélevée, appliqué QUE là (règle scopée dark + system)', () => {
+    const css = compact(lire('app/globals.css'));
+    expect(css).toContain('--color-svv-red-raised: #ff9a9a;');
+    expect(contraste('#ff9a9a', '#37455a')).toBeGreaterThanOrEqual(4.5);
+    expect(css).toContain(".svv-adm-root[data-theme='dark'] .svv-repli-titre--surface { --color-svv-red: var(--color-svv-red-raised); }");
+    expect(css).toContain(".svv-adm-root[data-theme='system'] .svv-repli-titre--surface { --color-svv-red: var(--color-svv-red-raised); }");
   });
 
   it('BlocRepliable (unifié) : `titreClasseExtra` est ADDITIF — absent ⇒ `svv-repli-titre` seul (autres appelants inchangés)', () => {
