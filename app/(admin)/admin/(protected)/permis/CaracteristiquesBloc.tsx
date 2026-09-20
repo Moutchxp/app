@@ -14,7 +14,7 @@ import {
 } from './caracteristiquesForm';
 import { FaitsPermisBloc, DeclarationsCerfaBloc, ChampMesureEditeur, CapsuleEtatEmprise, ChampDeclareEditeur, ChampDestinationsEditeur, EditeurRepere, PastilleOrigineValeur, MESSAGE_AUCUN_CORPS, SourcesEnRegard, cerfaEstScanSansChamps, ChampNombreBatiments, LigneNombreBatiments, ConfirmationRetraitCartes, CartesRetirees, type LienPiece, type CartePlanVue } from './CaracteristiquesRendu';
 import { CompteRenduCartouche, type PasseIaCartouche } from './CompteRenduCartouche'; // CR-2a/CR-2b1 — cartouche + lecture IA (informative)
-import { batimentEnregistreAJour, altitudeSommetValideeAJour, CHAMPS_ENREGISTRES_MESURE, type BaseCarte } from './fraicheurBatiment'; // FRAÎCHEUR — bouton « Enregistrer » + remontée au statut des lignes mères
+import { batimentEnregistreAJour, altitudeSommetValideeAJour, estConfirmeHumainement, CHAMPS_ENREGISTRES_MESURE, type BaseCarte } from './fraicheurBatiment'; // FRAÎCHEUR — bouton « Enregistrer » + remontée au statut des lignes mères ; ENR-1 — estConfirmeHumainement pour le compte serveur-équivalent remonté (nbCorpsNonEnregistres)
 import { statutBatimentsProjection, type FraicheurBatimentsLive } from './statutBatimentsProjection'; // (C) — fraîcheur LIVE remontée au parent + durcissement du titre « Les futurs bâtiments »
 import { messageErreurCartouche, type PieceCerfa } from './compteRendu'; // CR-2a — message 401 « session expirée » (jamais « indisponible »)
 import { BlocRepliable } from './BlocRepliable'; // PLI-1 — même dépliant que « Complétude »/« Historique » : chaque cartouche de « Caractéristiques du permis » replié à son titre, ouvrable indépendamment
@@ -143,8 +143,11 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
   //   des sous-sections rouges. `onComptes` DOIT être stable (setState / useCallback) : la dépendance est `data` (change au fetch), jamais un objet recréé.
   useEffect(() => {
     if (!onComptes || !data) return;
-    onComptes({ dossierId, nbCartes: data.corps.length, nbSansAltitude: data.corps.filter((c) => c.altitudeSommetNgf === null).length, nbBatimentsValide: data.nbBatimentsValide ?? null });
-  }, [data, dossierId, onComptes]);
+    // ENR-1 — le compte « à enregistrer » n'est remonté QUE dans « Analyse et projection » (durcirStatutFraicheur) : MÊME critère que le fait
+    //   serveur (estConfirmeHumainement, persisté) → la mère converge repli↔ouvert. Hors Analyse (Réponses/Suivi, sans le drapeau) → 0 → résumé de famille INCHANGÉ.
+    onComptes({ dossierId, nbCartes: data.corps.length, nbSansAltitude: data.corps.filter((c) => c.altitudeSommetNgf === null).length, nbBatimentsValide: data.nbBatimentsValide ?? null,
+      nbCorpsNonEnregistres: durcirStatutFraicheur ? data.corps.filter((c) => !estConfirmeHumainement(originesEnregistrement(c))).length : 0 });
+  }, [data, dossierId, onComptes, durcirStatutFraicheur]);
 
   // (C) — FRAÎCHEUR par bâtiment (état CLIENT, invisible du serveur), SOURCE UNIQUE consommée par le bouton « Enregistrer » (par carte), le
   //   titre « Les futurs bâtiments » (ici) ET remontée au parent pour « Caractéristiques du permis » / « Bâtiments et projection ». Par carte :

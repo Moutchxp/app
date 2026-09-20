@@ -75,20 +75,28 @@ export function etatCoherenceBatimentsTitre(nbCartes: number, nbValide: number |
 
 /**
  * BAT-4 — ÉTAT de la sous-section « Les futurs bâtiments et leurs altitudes », SEULE PORTEUSE de la mère « Caractéristiques du permis ».
- * 🔄 Option A (décision Arno) — elle ne couvre PLUS qu'UN motif : l'ALTITUDE de sommet (≥ 1 carte sans altitude → rouge). L'ancien 2e motif,
- *   « cohérence du nombre » (cartes actives ↔ nombre validé), est RETIRÉ : le nombre de bâtiments EST le nombre de cartes actives, il n'y a
- *   donc plus de nombre stocké à confronter — « validés > cartes » ne peut plus être affiché (impossible par construction). Cas :
+ * 🔄 Option A (décision Arno) — elle couvrait UN motif : l'ALTITUDE de sommet. ENR-1 (LOT 1/2, décision Arno) — elle en couvre désormais DEUX :
+ *   l'ALTITUDE de sommet ET l'ENREGISTREMENT (confirmation humaine des mesures). `nbCorpsNonEnregistres` = fait SERVEUR (miroir de
+ *   `estConfirmeHumainement`, fraicheurBatiment.ts) : il rend la mère HONNÊTE bloc replié, sans dépendre du canal live `fraicheurBat`. Cas :
  *   · 0 carte → ROUGE « aucune carte de bâtiment » ;
  *   · ≥ 1 carte SANS altitude → ROUGE « altitude(s) manquante(s) (X/N) » ;
- *   · ≥ 1 carte, TOUTES renseignées → VERT « altitudes renseignées (N bâtiment(s)) ».
+ *   · ≥ 1 carte NON enregistrée → ROUGE « N bâtiment(s) à enregistrer » (cumulé au motif altitude s'il bloque aussi) ;
+ *   · ≥ 1 carte, altitudes renseignées ET toutes enregistrées → VERT « altitudes renseignées (N bâtiment(s)) ».
+ * 🔴 `nbCorpsNonEnregistres` défaut 0 → hors « Analyse et projection » (Réponses/Suivi, qui ne le renseignent pas), l'état est STRICTEMENT
+ *   celui d'avant (aucune régression). Le durcissement client `statutBatimentsProjection` (nuance live « modifié depuis ») s'AJOUTE par-dessus.
  */
-export function etatSection4Titre(nbCartes: number, nbSansAltitude: number): EtatTitreFamille {
-  // Option A (décision Arno) — le NOMBRE de bâtiments EST le nombre de cartes ACTIVES : il n'existe plus de « nombre validé » distinct à
-  //   confronter, donc plus de motif « cohérence du nombre » (celui-ci ne pouvait afficher « N cartes / M validés » qu'en laissant un nombre
-  //   STOCKÉ dériver au-dessus des cartes actives). « validés > cartes » devient IMPOSSIBLE PAR CONSTRUCTION : il n'y a plus de second nombre.
-  //   La section 4 ne porte donc plus qu'UN motif — l'ALTITUDE de sommet. `etatCoherenceBatimentsTitre` reste défini (pur, testé) mais N'EST
-  //   PLUS COMPOSÉ ici. La domination « aucune carte de bâtiment » (nbCartes ≤ 0) est déjà portée par `etatAltitudesTitre`.
-  return etatAltitudesTitre(nbCartes, nbSansAltitude);
+export function etatSection4Titre(nbCartes: number, nbSansAltitude: number, nbCorpsNonEnregistres = 0): EtatTitreFamille {
+  // Option A (décision Arno) — le NOMBRE de bâtiments EST le nombre de cartes ACTIVES : plus de motif « cohérence du nombre »
+  //   (`etatCoherenceBatimentsTitre` reste défini, pur, testé, mais N'EST PLUS COMPOSÉ ici). La domination « aucune carte » (nbCartes ≤ 0)
+  //   est portée par `etatAltitudesTitre`.
+  const altitude = etatAltitudesTitre(nbCartes, nbSansAltitude);
+  // ENR-1 — défaut (0 non enregistré, ou appelant hors projection) → état d'avant, byte-identique.
+  if (nbCorpsNonEnregistres <= 0) return altitude;
+  const enr = `${nbCorpsNonEnregistres} bâtiment${nbCorpsNonEnregistres > 1 ? 's' : ''} à enregistrer`;
+  // Motif ENREGISTREMENT : cumulé au motif altitude s'il était déjà rouge (jamais un « validé » masquant un reste-à-faire), sinon seul porteur du rouge.
+  return altitude.ton === 'rouge'
+    ? { texte: `${altitude.texte} · ${enr}`, ton: 'rouge' }
+    : { texte: enr, ton: 'rouge' };
 }
 
 /**
@@ -108,8 +116,10 @@ export function etatMereCaracteristiques(porteuses: EtatTitreFamille[]): EtatTit
   return { texte: bloquantes.map((p) => p.texte).join(' · '), ton: 'rouge' };
 }
 
-/** BAT-2c — comptes de caractéristiques d'UN permis (source des états des sous-sections porteuses). Réutilisé côté serveur (payload) et client. */
-export interface ComptesCaracteristiquesPermis { dossierId: number; nbCartes: number; nbSansAltitude: number; nbBatimentsValide: number | null }
+/** BAT-2c — comptes de caractéristiques d'UN permis (source des états des sous-sections porteuses). Réutilisé côté serveur (payload) et client.
+ *  ENR-1 — `nbCorpsNonEnregistres` OPTIONNEL (défaut 0) : nombre de bâtiments ACTIFS non enregistrés (jamais confirmés humainement). Renseigné
+ *  UNIQUEMENT par « Analyse et projection » (file serveur + comptes live) ; absent ailleurs (Réponses/Suivi) → 0 → état d'avant inchangé. */
+export interface ComptesCaracteristiquesPermis { dossierId: number; nbCartes: number; nbSansAltitude: number; nbBatimentsValide: number | null; nbCorpsNonEnregistres?: number }
 
 /**
  * BAT-2c / BAT-4 — état AGRÉGÉ d'UN permis = sa « mère », depuis ses comptes bruts. MÊME agrégat que la ligne mère de Projection
@@ -117,7 +127,7 @@ export interface ComptesCaracteristiquesPermis { dossierId: number; nbCartes: nu
  * porté par la ligne « Permis {numDau} » d'un encart multi-permis, et alimente l'agrégat de la famille.
  */
 export function etatCaracteristiquesPermis(c: ComptesCaracteristiquesPermis): EtatTitreFamille {
-  return etatMereCaracteristiques([etatSection4Titre(c.nbCartes, c.nbSansAltitude)]); // BAT-4 — une seule porteuse (section 4) ; Option A — plus de cohérence de nombre (c.nbBatimentsValide conservé dans le type, remonté partout, mais PLUS lu par l'état)
+  return etatMereCaracteristiques([etatSection4Titre(c.nbCartes, c.nbSansAltitude, c.nbCorpsNonEnregistres ?? 0)]); // BAT-4 — une seule porteuse (section 4) ; ENR-1 — l'enregistrement (fait serveur) entre ICI dans la mère (via etatMereCaracteristiques) ; Option A — plus de cohérence de nombre
 }
 
 /**

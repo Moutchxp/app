@@ -233,6 +233,38 @@ describe('PL-ÉTAT — etatPlancheTitre (ligne « Planche cadastrale »)', () =>
   });
 });
 
+describe('ENR-1 (LOT 1/2) — « enregistré » comme fait SERVEUR dans la mère (honnête bloc replié, sans fraicheurBat)', () => {
+  it('etatSection4Titre : le 3e param `nbCorpsNonEnregistres` par DÉFAUT (0) laisse l’état BYTE-IDENTIQUE (aucune régression hors Analyse)', () => {
+    // Appels À DEUX arguments (Réponses/Suivi, appelants existants) : strictement inchangés.
+    expect(etatSection4Titre(2, 0)).toEqual({ texte: 'altitudes renseignées (2 bâtiments)', ton: 'vert' });
+    expect(etatSection4Titre(2, 1)).toEqual({ texte: 'altitude manquante (1/2)', ton: 'rouge' });
+    // 3e param explicite à 0 = même chose (défaut).
+    expect(etatSection4Titre(2, 0, 0)).toEqual({ texte: 'altitudes renseignées (2 bâtiments)', ton: 'vert' });
+  });
+
+  it('≥ 1 bâtiment NON enregistré (altitudes OK) → ROUGE « N bâtiment(s) à enregistrer » (avant, VERT mensonger)', () => {
+    expect(etatSection4Titre(1, 0, 1)).toEqual({ texte: '1 bâtiment à enregistrer', ton: 'rouge' });
+    expect(etatSection4Titre(3, 0, 2)).toEqual({ texte: '2 bâtiments à enregistrer', ton: 'rouge' });
+  });
+
+  it('altitude manquante ET non enregistré → les DEUX motifs cumulés (jamais un « validé » masquant un reste-à-faire)', () => {
+    expect(etatSection4Titre(2, 1, 1)).toEqual({ texte: 'altitude manquante (1/2) · 1 bâtiment à enregistrer', ton: 'rouge' });
+  });
+
+  it('etatCaracteristiquesPermis (= mère) HONNÊTE bloc replié : nbCorpsNonEnregistres>0 → ROUGE, jamais « complète » ; 0 → « complète »', () => {
+    // 🔴 CAS 07511925V0016 / dossier 470 / corps 293 : altitude renseignée (nbSansAltitude 0) MAIS jamais confirmé humainement (nbCorpsNonEnregistres 1)
+    //   → la mère n'est PLUS « complète » sans dépendre du canal live fraicheurBat (c'est la correction du bug de divergence).
+    expect(etatCaracteristiquesPermis({ dossierId: 470, nbCartes: 1, nbSansAltitude: 0, nbBatimentsValide: 1, nbCorpsNonEnregistres: 1 }))
+      .toEqual({ texte: '1 bâtiment à enregistrer', ton: 'rouge' });
+    // Tous confirmés → mère VERTE (le critère est la CONFIRMATION, pas la complétude des champs — cf. estConfirmeHumainement).
+    expect(etatCaracteristiquesPermis({ dossierId: 470, nbCartes: 1, nbSansAltitude: 0, nbBatimentsValide: 1, nbCorpsNonEnregistres: 0 }))
+      .toEqual({ texte: 'complète', ton: 'vert' });
+    // nbCorpsNonEnregistres ABSENT (appelants hors Analyse) → défaut 0 → « complète » (Réponses/Suivi inchangés).
+    expect(etatCaracteristiquesPermis({ dossierId: 470, nbCartes: 1, nbSansAltitude: 0, nbBatimentsValide: 1 }))
+      .toEqual({ texte: 'complète', ton: 'vert' });
+  });
+});
+
 /**
  * (b) COHÉRENCE HIÉRARCHIQUE de l'onglet « Analyse et projection ». Hiérarchie RÉELLE établie (ProjectionVue) : sous le permis ouvert,
  * trois familles FRÈRES — « Caractéristiques du permis » (mère de l'unique porteuse « Les futurs bâtiments et leurs altitudes »),

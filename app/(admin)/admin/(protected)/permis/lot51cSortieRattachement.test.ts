@@ -88,3 +88,40 @@ describe('LOT 51-C — UI : sortie gardée, condition manquante affichée ; bout
     expect(lire('app/(admin)/api/admin/permis/projection/route.ts')).toContain('manque: res.manque');
   });
 });
+
+describe('ENR-1 (LOT 1/2) — garde dédiée à l’envoi (« enregistré » = fait serveur), estValidationAcquise INCHANGÉ (garde de périmètre)', () => {
+  const repo = lire('app/lib/permis/projectionFileRepo.ts');
+  it('les DEUX chemins d’envoi (validerProjection ET sortirTestVersRattachement) appellent la garde lireCorpsNonEnregistres et refusent manque:enregistrement', () => {
+    const vp = repo.slice(repo.indexOf('export async function validerProjection'), repo.indexOf('export type ResultatSortieTest'));
+    expect(vp).toContain('lireCorpsNonEnregistres');
+    expect(vp).toContain("manque: 'enregistrement'");
+    const st = repo.slice(repo.indexOf('export async function sortirTestVersRattachement'));
+    expect(st).toContain('lireCorpsNonEnregistres');
+    expect(st).toContain("manque: 'enregistrement'");
+  });
+  it('la garde est un MIROIR NULL-safe de estConfirmeHumainement (IS TRUE / IS NOT TRUE), le sommet EXCLU (validé à part)', () => {
+    expect(repo).toContain('IS TRUE AND');
+    expect(repo).toContain('IS NOT TRUE');
+    expect(repo).not.toContain('altitude_sommet_ngf_origine'); // le sommet a son propre geste de validation, hors enregistrement
+  });
+  it('🔴 PÉRIMÈTRE — estValidationAcquise (rattachementGroupes.ts) est INCHANGÉ : 3 args, même corps (regroupement Rattachement/surveillance intacts)', () => {
+    const rg = lire('app/lib/permis/rattachementGroupes.ts');
+    expect(rg).toContain('export function estValidationAcquise(nbCorps: number, nbSansAltitudeValidee: number, nbSansEmpriseValidee: number): boolean {');
+    expect(rg).toContain('return nbCorps >= 1 && nbSansAltitudeValidee === 0 && nbSansEmpriseValidee === 0;');
+    expect(rg).not.toContain('nbCorpsNonEnregistres'); // l'enregistrement n'entre PAS dans ce prédicat partagé (décision Arno)
+  });
+});
+
+describe('ENR-1 (LOT 1/2) — UI ProjectionVue : mère, bandeau et bouton suivent le FAIT SERVEUR (honnête bloc replié)', () => {
+  const s = lire('app/(admin)/admin/(protected)/permis/ProjectionVue.tsx');
+  it('la mère se calcule sur des comptes portant nbCorpsNonEnregistres (repli file), sans dépendre de fraicheurBat', () => {
+    expect(s).toContain('nbCorpsNonEnregistres: row?.nbCorpsNonEnregistres ?? 0');
+  });
+  it('le bandeau + bouton de clôture sont gatés par le fait serveur (jamais un faux « prêt » bloc replié)', () => {
+    expect(s).toContain("(comptesMere.nbCorpsNonEnregistres ?? 0) === 0");
+  });
+  it('la carte « Terminer l’analyse » ajoute la 3e condition « bâtiments enregistrés » et gate le bouton', () => {
+    expect(s).toContain('enregistrementOk');
+    expect(s).toContain('Trois conditions requises');
+  });
+});

@@ -21,6 +21,7 @@ export interface LigneProjectionAffichee {
   nbBatimentsValide: number | null; // BAT-2 — nombre de bâtiments VALIDÉ (BAT-1) ; null = jamais validé → sous-section « Caractéristiques et bâtiments d'origine » (état de cohérence porté par la mère)
   nbCorpsSansAltValidee: number;    // COMPLÉMENT — bâtiments sans altitude de sommet VALIDÉE ; avec le suivant, décide si le n° passe au vert (validable = les deux à 0)
   nbCorpsSansEmpriseValidee: number; // COMPLÉMENT — bâtiments sans emprise VALIDÉE
+  nbCorpsNonEnregistres: number; // ENR-1 — bâtiments ACTIFS NON enregistrés (jamais confirmés humainement) : gate le ✓ « prêt à envoyer » (fait serveur)
   projectionValidee: boolean;   // RATT-1 — projection validée ? (titre « Bâtiments et projection ») — false par construction dans cette file
   testeEnAnalyse: boolean;      // LOT 51 — présent via le marqueur « testé en analyse » (partiel tenu ouvert) → l'UI propose « Renvoyer ce permis dans l'onglet En cours »
   plancheEtat: { selectionValidee: boolean; cas: CasBilanComparatif } | null; // PL-ÉTAT — état SAUVEGARDÉ de la « Planche cadastrale » (ligne visible sans déplier) ; null si indisponible → titre nu
@@ -94,8 +95,12 @@ export function TableProjection({ file, ouvert, onOuvrir, renderDetail, libelleP
           {file.map((l) => {
             const estOuvert = l.dossierId === ouvert;
             // COMPLÉMENT — VALIDABLE (n° vert) ⟺ bouton de clôture disponible : MÊME calcul `clotureVisible`. `tousValides` = état LIVE du
-            //   dossier ouvert (prime) sinon comptes de la file. `dejaPasse` = false par construction (la file exclut les permis passés).
-            const tousValides = (estOuvert && tousValidesOuvert !== null) ? tousValidesOuvert : estValidationAcquise(l.nbBatiments, l.nbCorpsSansAltValidee, l.nbCorpsSansEmpriseValidee);
+            //   dossier ouvert (prime, DÉJÀ gaté par l'enregistrement dans ProjectionVue) sinon comptes de la file. `dejaPasse` = false par construction.
+            // ENR-1 — le ✓ « prêt à envoyer » exige EN PLUS qu'aucun bâtiment ne soit « à enregistrer » (fait serveur `nbCorpsNonEnregistres`). On NE
+            //   touche PAS `estValidationAcquise` (hors périmètre : partagé avec Rattachement/surveillance) — on AJOUTE la condition à côté, ici seulement.
+            const tousValides = (estOuvert && tousValidesOuvert !== null)
+              ? tousValidesOuvert
+              : (estValidationAcquise(l.nbBatiments, l.nbCorpsSansAltValidee, l.nbCorpsSansEmpriseValidee) && l.nbCorpsNonEnregistres === 0);
             const validable = clotureVisible(modePassage, tousValides, l.projectionValidee ?? false);
             return (
               // ① — une ligne DÉPLIÉE se lit EXACTEMENT comme une ligne fermée, au triangle près : les 4 mêmes valeurs, aux MÊMES positions

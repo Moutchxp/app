@@ -126,7 +126,8 @@ describe('BAT-2d / BAT-4 — le bloc remonte des comptes cohérents avec son sou
     expect(/\d+\s*cartes?\s*\/\s*\d+\s*validés?/.test(t)).toBe(false); // plus de cohérence de nombre
     // Le bloc a REMONTÉ ses comptes, reflétant EXACTEMENT ces données (2 cartes, 1 sans altitude ; nbBatimentsValide conservé dans les comptes mais non lu par l'état) :
     const dernier = recu.at(-1);
-    expect(dernier).toEqual({ dossierId: 468, nbCartes: 2, nbSansAltitude: 1, nbBatimentsValide: 1 });
+    // ENR-1 — SANS `durcirStatutFraicheur` (mode Réponses/Suivi), le compte « à enregistrer » n'est PAS remonté (0) → comportement INCHANGÉ.
+    expect(dernier).toEqual({ dossierId: 468, nbCartes: 2, nbSansAltitude: 1, nbBatimentsValide: 1, nbCorpsNonEnregistres: 0 });
     // La MÈRE se calcule sur CES comptes (exactement ce que fait ProjectionVue → etatCaracteristiquesPermis) → ROUGE par l'ALTITUDE, REPREND le sous-titre, jamais « complète » :
     const mere = etatCaracteristiquesPermis(dernier!);
     expect(mere.ton).toBe('rouge');
@@ -139,7 +140,8 @@ describe('BAT-2d / BAT-4 — le bloc remonte des comptes cohérents avec son sou
     const recu: ComptesCaracteristiquesPermis[] = [];
     const c = await monter(etat([corps(5, 100), corps(6, 100)], 2), { avecEtatFamilles: true, onComptes: (x) => recu.push(x) });
     const dernier = recu.at(-1);
-    expect(dernier).toEqual({ dossierId: 468, nbCartes: 2, nbSansAltitude: 0, nbBatimentsValide: 2 });
+    // ENR-1 — SANS `durcirStatutFraicheur` (mode Réponses/Suivi) : compte « à enregistrer » = 0 → mère VERTE « complète » comme avant.
+    expect(dernier).toEqual({ dossierId: 468, nbCartes: 2, nbSansAltitude: 0, nbBatimentsValide: 2, nbCorpsNonEnregistres: 0 });
     expect(etatCaracteristiquesPermis(dernier!)).toEqual({ texte: 'complète', ton: 'vert' });
     c.remove();
   });

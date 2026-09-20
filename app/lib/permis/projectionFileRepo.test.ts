@@ -6,10 +6,16 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 const H = vi.hoisted(() => {
   const calls: { sql: string; params: unknown[] }[] = [];
-  const state = { bats: [] as { id: number; repere: string | null }[], emprises: [] as { corpsId: number | null }[], ignores: [] as { corpsId: number }[], rattInsere: [{ id: 50 }] as { id: number }[] };
+  const state = {
+    bats: [] as { id: number; repere: string | null }[], emprises: [] as { corpsId: number | null }[], ignores: [] as { corpsId: number }[], rattInsere: [{ id: 50 }] as { id: number }[],
+    nonEnr: [] as { id: number; repere: string | null }[], // ENR-1 — corps ACTIFS non enregistrés renvoyés par lireCorpsNonEnregistres
+    altEmp: [] as { id: number; repere: string | null; sans_alt: boolean; sans_emp: boolean }[], // sortirTest — la requête altitude/emprise validées par corps
+  };
   const queryMock = async (sql: string, params?: unknown[]) => {
     calls.push({ sql, params: params ?? [] });
-    if (/FROM permis_corps_batiment WHERE dossier_id/i.test(sql)) return { rows: state.bats };
+    if (/AS sans_alt/i.test(sql)) return { rows: state.altEmp };                              // sortirTest — altitude/emprise VALIDÉES par corps
+    if (/AS id, cb\.repere FROM permis_corps_batiment cb/i.test(sql)) return { rows: state.nonEnr }; // ENR-1 — lireCorpsNonEnregistres (garde d'envoi)
+    if (/FROM permis_corps_batiment WHERE dossier_id/i.test(sql)) return { rows: state.bats };  // evaluerEmpreinte (bats, sans alias)
     if (/INSERT INTO permis_rattachement\b/i.test(sql)) return { rows: state.rattInsere };
     return { rows: [] };
   };
@@ -17,11 +23,12 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock, withTransaction: async (fn: (q: unknown) => unknown) => fn(H.queryMock) }));
 vi.mock('./empriseReconstruiteRepo', () => ({ listerEmprises: async () => H.state.emprises, listerIgnorees: async () => H.state.ignores }));
+vi.mock('./arretRelances', () => ({ arreterToutesRelances: async () => true })); // sortirTest — arrêt des relances (non testé ici : cf. sortieTestRelances.itest)
 
-import { validerProjection, listerFileProjection } from './projectionFileRepo';
+import { validerProjection, sortirTestVersRattachement, listerFileProjection } from './projectionFileRepo';
 
 const ins = (re: RegExp) => H.calls.filter((c) => re.test(c.sql));
-beforeEach(() => { H.calls.length = 0; H.state.bats = [{ id: 1, repere: '2D1' }, { id: 2, repere: '2D2' }]; H.state.emprises = []; H.state.ignores = []; H.state.rattInsere = [{ id: 50 }]; });
+beforeEach(() => { H.calls.length = 0; H.state.bats = [{ id: 1, repere: '2D1' }, { id: 2, repere: '2D2' }]; H.state.emprises = []; H.state.ignores = []; H.state.rattInsere = [{ id: 50 }]; H.state.nonEnr = []; H.state.altEmp = []; });
 
 describe('PROJ-2c — validerProjection', () => {
   it('projection INCOMPLÈTE (1 bâtiment sans emprise ni ignorance) → refus, aucun jalon', async () => {
@@ -107,5 +114,59 @@ describe('GED-1 — listerFileProjection : entrée en Analyse sur la GED (dossie
     expect(sql).toContain('NOT EXISTS');
     expect(sql).toContain('dmp.partiel_le IS NOT NULL AND dmp.partiel_leve_le IS NULL'); // marqueur ACTIF
     expect(sql).toContain('ddp.dossier_id = s.id AND ddp.actif'); // rattaché au dossier de la file, sur une demande active
+  });
+
+  it('ENR-1 — la file COMPTE les bâtiments « à enregistrer » (nb_corps_non_enregistres) via le miroir NULL-safe de estConfirmeHumainement', async () => {
+    await listerFileProjection({} as unknown as Parameters<typeof listerFileProjection>[0]);
+    const sql = ins(/FROM demande_dossier dd/i)[0].sql.replace(/\s+/g, ' ');
+    expect(sql).toContain('AS nb_corps_non_enregistres');
+    // MIROIR de estConfirmeHumainement : ≥1 'saisie' (IS TRUE) ET aucune 'extraite' (IS NOT TRUE) → NON enregistré = la négation. NULL-safe.
+    expect(sql).toContain("IS TRUE AND");
+    expect(sql).toContain("IS NOT TRUE");
+    expect(sql).toContain("b.nb_etages_origine = 'saisie'");   // une des 8 colonnes d'origine
+    expect(sql).toContain("b.adresse_origine = 'extraite'");    // et la branche 'extraite'
+  });
+});
+
+describe('ENR-1 (LOT 1/2) — GARDE D’ENVOI : validerProjection REFUSE tant qu’un bâtiment actif n’est pas confirmé humainement', () => {
+  it('empreinte OK MAIS ≥1 corps « à enregistrer » → refus manque:enregistrement, AUCUN jalon ni marquage suivi', async () => {
+    H.state.emprises = [{ corpsId: 1 }, { corpsId: 2 }]; // empreinte validable
+    H.state.nonEnr = [{ id: 1, repere: '2D1' }];         // mais 1 bâtiment jamais confirmé humainement
+    const r = await validerProjection(11434, 'admin');
+    expect(r.ok).toBe(false);
+    if (!r.ok) { expect(r.manque).toBe('enregistrement'); expect(r.motif).toMatch(/à enregistrer/); }
+    expect(ins(/INSERT INTO permis_projection/i)).toHaveLength(0);      // 🔴 rien n'est envoyé en Rattachement
+    expect(ins(/INSERT INTO permis_rattachement\b/i)).toHaveLength(0);
+  });
+
+  it('empreinte OK ET tous les corps confirmés (aucun « à enregistrer ») → PASSE comme avant (non-régression)', async () => {
+    H.state.emprises = [{ corpsId: 1 }, { corpsId: 2 }];
+    H.state.nonEnr = []; // tous enregistrés
+    const r = await validerProjection(11434, 'admin');
+    expect(r).toEqual({ ok: true, marqueSuivi: true });
+    expect(ins(/INSERT INTO permis_projection/i)).toHaveLength(1);
+  });
+});
+
+describe('ENR-1 (LOT 1/2) — GARDE D’ENVOI : sortirTestVersRattachement REFUSE tant qu’un bâtiment actif n’est pas confirmé humainement', () => {
+  it('empreinte OK, altitudes+emprises VALIDÉES (estValidationAcquise franchi) MAIS 1 corps « à enregistrer » → refus manque:enregistrement, aucun jalon', async () => {
+    H.state.emprises = [{ corpsId: 1 }, { corpsId: 2 }]; // empreinte validable
+    H.state.altEmp = [{ id: 1, repere: '2D1', sans_alt: false, sans_emp: false }, { id: 2, repere: '2D2', sans_alt: false, sans_emp: false }]; // process franchi (alt+emp validées)
+    H.state.nonEnr = [{ id: 2, repere: '2D2' }]; // mais 2D2 jamais confirmé humainement (cas 293 : altitude+emprise validées, mesures jamais confirmées)
+    const r = await sortirTestVersRattachement(470, 'admin:projection');
+    expect(r.ok).toBe(false);
+    if (!r.ok) { expect(r.manque).toBe('enregistrement'); expect(r.motif).toMatch(/à enregistrer/); }
+    expect(ins(/INSERT INTO permis_projection/i)).toHaveLength(0);
+    expect(ins(/DELETE FROM dossier_test_analyse/i)).toHaveLength(0); // la sortie n'a pas eu lieu
+  });
+
+  it('empreinte OK, alt+emp validées ET tous confirmés → SORTIE effectuée (jalon + effacement marqueur test) — non-régression', async () => {
+    H.state.emprises = [{ corpsId: 1 }, { corpsId: 2 }];
+    H.state.altEmp = [{ id: 1, repere: '2D1', sans_alt: false, sans_emp: false }, { id: 2, repere: '2D2', sans_alt: false, sans_emp: false }];
+    H.state.nonEnr = []; // tous enregistrés
+    const r = await sortirTestVersRattachement(470, 'admin:projection');
+    expect(r.ok).toBe(true);
+    expect(ins(/INSERT INTO permis_projection/i)).toHaveLength(1);
+    expect(ins(/DELETE FROM dossier_test_analyse/i)).toHaveLength(1);
   });
 });

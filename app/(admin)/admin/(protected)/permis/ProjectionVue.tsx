@@ -213,13 +213,17 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     //   comptes de la file (`row`) tant que le bloc n'a pas remonté (replié / juste ouvert). Garde dossierId : jamais les comptes d'un autre permis.
     const comptesMere: ComptesCaracteristiquesPermis = (comptesLive && comptesLive.dossierId === ouvert)
       ? comptesLive
-      : { dossierId: ouvert, nbCartes: row?.nbBatiments ?? 0, nbSansAltitude: row?.nbCorpsSansAltitude ?? 0, nbBatimentsValide: row?.nbBatimentsValide ?? null };
+      : { dossierId: ouvert, nbCartes: row?.nbBatiments ?? 0, nbSansAltitude: row?.nbCorpsSansAltitude ?? 0, nbBatimentsValide: row?.nbBatimentsValide ?? null, nbCorpsNonEnregistres: row?.nbCorpsNonEnregistres ?? 0 };
+    // ENR-1 — la base de la mère intègre `nbCorpsNonEnregistres` (fait SERVEUR) → HONNÊTE bloc replié (fraicheurBat null), sans le canal live.
     const etatMereBase = etatCaracteristiquesPermis(comptesMere); // BAT-4 — agrégat de l'unique porteuse (section 4), SOURCE UNIQUE avec le sous-titre du bloc
     // (C) — la mère « Caractéristiques du permis » suit la MÊME règle que sa porteuse « Les futurs bâtiments » (durcie dans CaracteristiquesBloc) :
     //   ① altitude validée à jour + ② enregistré à jour, par bâtiment. Sa base ne teste pas la validation → listes COMPLÈTES (altitudeAValider).
     const fraicheurIci = fraicheurBat && fraicheurBat.dossierId === ouvert ? fraicheurBat : null;
+    // ENR-1 — bloc OUVERT : le durcissement client (NOMS) prime et RENFORCE. On lui passe une base SANS le compte d'enregistrement
+    //   (nbCorpsNonEnregistres:0) pour ne pas DOUBLER le motif « à enregistrer » (compte serveur de la base + noms du durcissement) : les noms
+    //   le disent déjà, en plus précis. Le compte de la base ne sert qu'au REPLI (fraicheurIci null). Le durcissement ne peut que RENFORCER.
     const etatMere = fraicheurIci
-      ? statutBatimentsProjection(etatMereBase, { aEnregistrer: fraicheurIci.aEnregistrer, altitudeAValider: fraicheurIci.altitudeAValider })
+      ? statutBatimentsProjection(etatCaracteristiquesPermis({ ...comptesMere, nbCorpsNonEnregistres: 0 }), { aEnregistrer: fraicheurIci.aEnregistrer, altitudeAValider: fraicheurIci.altitudeAValider })
       : etatMereBase;
     // ③ COMPLÉMENT — l'en-tête dit l'état RÉEL (tous les bâtiments alt+emprise validés → VERT ; sinon ce qui manque), remonté par le bloc
     //   quand il est ouvert (valeur LIVE, prime). REPLI avant ouverture : calculé sur les COMPTES de la ligne (calqué sur estValidationAcquise,
@@ -244,7 +248,10 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
     //   `enteteProjection` quand le bloc est ouvert, sinon REPLI sur les COMPTES de la ligne (estValidationAcquise). Ainsi le BLOC DE
     //   SORTIE (message + bouton) apparaît DÈS l'ouverture de la ligne pour un permis entièrement validé, sans devoir ouvrir « Bâtiments
     //   et projection » d'abord. 0 bâtiment → etatProj ROUGE → pas de bloc de sortie. `dejaPasse` = marqueur (false dans la file).
-    const tousValidesCloture = etatProj.ton === 'vert';
+    // ENR-1 — le bandeau + le bouton « Valider le permis — envoyer en Rattachement » suivent le FAIT SERVEUR : cachés tant qu'un bâtiment est
+    //   « à enregistrer » (`nbCorpsNonEnregistres`), MÊME bloc replié (etatProj reste vert car etatEnteteProjection ignore l'enregistrement,
+    //   hors périmètre). Le durcissement client (etatProj rouge via aEnregistrer) couvre EN PLUS le « modifié depuis » quand le bloc est ouvert.
+    const tousValidesCloture = etatProj.ton === 'vert' && (comptesMere.nbCorpsNonEnregistres ?? 0) === 0;
     const dejaPasseCloture = row?.projectionValidee ?? false;
     const clotureVisibleIci = clotureVisible(modePassage, tousValidesCloture, dejaPasseCloture);
     const rendreCloture = (variante: 'principal' | 'bouton') => (
@@ -280,7 +287,11 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
           //   plus VERT (défaut 7424). Le SERVEUR reste bloqué par l'empreinte (peutValider requiert ≥1 bâtiment, PROJ-3b) — inchangé.
           const condAltitude = conditionAltitudeSortie(row?.nbBatiments ?? 0, row?.nbCorpsSansAltitude ?? 0);
           const empreinteOk = ev.peutValider;             // requiert le dépliage + tracé de « Bâtiments et projection » (PERF-1) ; ev.libelle porte l'invite
-          const pretSortie = pretPourSortie(empreinteOk, condAltitude.etat); // « sans objet » ne débloque JAMAIS la sortie
+          // ENR-1 — 3e condition : aucun bâtiment « à enregistrer » (fait serveur `nbCorpsNonEnregistres`). Aligne le CLIENT sur la garde serveur
+          //   `sortirTestVersRattachement` (manque:'enregistrement') → jamais un bouton actif qui reviendrait en 409. `pretPourSortie` inchangé (couvre empreinte+altitude) ; on AJOUTE la condition à côté.
+          const nbNonEnr = comptesMere.nbCorpsNonEnregistres ?? 0;
+          const enregistrementOk = nbNonEnr === 0;
+          const pretSortie = pretPourSortie(empreinteOk, condAltitude.etat) && enregistrementOk; // « sans objet » ne débloque JAMAIS la sortie
           const ligneOk: React.CSSProperties = { color: 'var(--color-svv-green-ink)' };
           const ligneKo: React.CSSProperties = { color: 'var(--color-svv-red)' };
           const ligneNeutre: React.CSSProperties = { color: 'var(--color-svv-muted)' };
@@ -291,14 +302,15 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
               {/* (A) SORTIE DÉFINITIVE */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.5rem' }}>
                 <strong>Terminer l’analyse et passer en Rattachement</strong>
-                <span style={{ color: 'var(--color-svv-muted)', fontSize: 12 }}>Sortie <strong>DÉFINITIVE</strong> : le permis quitte « En cours » et <strong>toutes les relances programmées sont annulées</strong>. Deux conditions requises :</span>
+                <span style={{ color: 'var(--color-svv-muted)', fontSize: 12 }}>Sortie <strong>DÉFINITIVE</strong> : le permis quitte « En cours » et <strong>toutes les relances programmées sont annulées</strong>. Trois conditions requises :</span>
                 <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: 12, display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
                   <li style={empreinteOk ? ligneOk : ligneKo}>{empreinteOk ? '✓ empreinte des bâtiments validée' : `Empreinte non validée — ${ev.libelle}`}</li>
                   <li style={tonAltitude}>{condAltitude.texte}</li>
+                  <li style={enregistrementOk ? ligneOk : ligneKo}>{enregistrementOk ? '✓ bâtiments enregistrés (saisie confirmée)' : `${nbNonEnr} bâtiment(s) à enregistrer — confirmez la saisie (« Enregistrer ce bâtiment ») dans « Caractéristiques du permis »`}</li>
                 </ul>
                 {pretSortie
                   ? <button type="button" className="svv-btn svv-btn-primary" disabled={enCours} onClick={() => { void sortirVersRattachement(ouvert); }}>Terminer l’analyse et passer en Rattachement</button>
-                  : <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Complétez les deux conditions ci-dessus pour activer la sortie.</span>}
+                  : <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>Complétez les conditions ci-dessus pour activer la sortie.</span>}
               </div>
               {/* (B) RETOUR SANS ENVOI */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', borderTop: '1px solid var(--color-svv-line)', paddingTop: '.5rem' }}>
@@ -381,15 +393,21 @@ export function ProjectionVue({ onRecompter }: { onRecompter?: () => void } = {}
   //   testé (pas de doublon).
   const enTest = file.filter((f) => f.testeEnAnalyse);
   const reste = file.filter((f) => !f.testeEnAnalyse);
+  // ENR-1 — le ✓ « prêt à envoyer » de la LIGNE OUVERTE suit aussi le fait serveur : nombre de bâtiments « à enregistrer » du dossier ouvert
+  //   (live `comptesLive` s'il a remonté, sinon compte de la file), combiné à l'en-tête « Bâtiments et projection » pour `tousValidesOuvert`.
+  const nonEnrOuvert = ouvert === null ? 0
+    : (comptesLive && comptesLive.dossierId === ouvert) ? (comptesLive.nbCorpsNonEnregistres ?? 0)
+    : (file.find((f) => f.dossierId === ouvert)?.nbCorpsNonEnregistres ?? 0);
+  const tousValidesOuvert = enteteProjection ? (enteteProjection.ton === 'vert' && nonEnrOuvert === 0) : null;
   return (
     <div className="flex flex-col gap-3">
       <p style={{ fontSize: 12, color: 'var(--color-svv-muted)', margin: 0 }}>{AIDE_PROJECTION}</p>
       {enTest.length > 0 && (
-        <TableProjection file={enTest} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} libellePermis={'Test permis « En cours »'} modePassage={modePassage} tousValidesOuvert={enteteProjection ? enteteProjection.ton === 'vert' : null} />
+        <TableProjection file={enTest} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} libellePermis={'Test permis « En cours »'} modePassage={modePassage} tousValidesOuvert={tousValidesOuvert} />
       )}
       {/* Reste de la file (hors test). Masqué si tout est en test (sinon « La file est vide » mentirait) ; toujours rendu si la file entière est vide (message normal). */}
       {(reste.length > 0 || file.length === 0) && (
-        <TableProjection file={reste} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} modePassage={modePassage} tousValidesOuvert={enteteProjection ? enteteProjection.ton === 'vert' : null} />
+        <TableProjection file={reste} ouvert={ouvert} onOuvrir={ouvrir} renderDetail={renderDetail} modePassage={modePassage} tousValidesOuvert={tousValidesOuvert} />
       )}
     </div>
   );

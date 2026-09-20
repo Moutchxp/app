@@ -36,6 +36,35 @@ async function colValideeEmpriseExiste(): Promise<boolean> {
   catch { return false; }
 }
 
+// ENR-1 (LOT 1/2) — colonnes d'origine des champs écrits par « Enregistrer ce bâtiment » (repère = sans origine ; sommet EXCLU, validé à part).
+//   🔴 MIROIR SNAKE_CASE de `CHAMPS_ENREGISTRES_MESURE` + adresse (fraicheurBatiment.ts) : si cette liste bouge là-bas, la mettre à jour ICI.
+const ORIGINES_ENREGISTREMENT = [
+  'nb_etages_origine', 'nb_niveaux_sous_sol_origine', 'altitude_dernier_plancher_ngf_origine',
+  'hauteur_max_plu_ngf_origine', 'altitude_plateau_nivellement_ngf_origine', 'hauteur_relative_m_origine',
+  'altitude_terrain_naturel_ngf_origine', 'adresse_origine',
+] as const;
+// ENR-1 — un corps est « NON enregistré » (jamais confirmé humainement) : MIROIR SQL de `estConfirmeHumainement` (fraicheurBatiment.ts) —
+//   confirmé ⟺ AU MOINS une origine est 'saisie' ET AUCUNE n'est 'extraite'. NULL-safe (`IS TRUE` / `IS NOT TRUE`) pour coller à `Array.some()`
+//   (une carte NEUVE, origines toutes NULL, est NON enregistrée — le vide n'est pas une confirmation). `alias` = alias de la table dans la requête.
+//   ⚠️ Ne teste QUE la confirmation persistée (pas la complétude des champs : une carte confirmée dont des champs restent VIDES est enregistrée).
+function fragCorpsNonEnregistre(alias: string): string {
+  const some = (v: string) => `(${ORIGINES_ENREGISTREMENT.map((c) => `${alias}.${c} = '${v}'`).join(' OR ')})`;
+  return `NOT (${some('saisie')} IS TRUE AND ${some('extraite')} IS NOT TRUE)`;
+}
+/** ENR-1 — corps ACTIFS NON enregistrés d'un dossier, nommés (repère sinon « bâtiment {id} »), pour la GARDE d'envoi en Rattachement. LECTURE SEULE. */
+async function lireCorpsNonEnregistres(dossierId: number): Promise<{ id: number; repere: string | null }[]> {
+  const faCb = await fragmentCorpsActif('cb'); // BAT-3 — la garde ne considère que les cartes ACTIVES (retirées invisibles)
+  const { rows } = await query<{ id: number; repere: string | null }>(
+    `SELECT cb.id::int AS id, cb.repere FROM permis_corps_batiment cb
+      WHERE cb.dossier_id = $1${faCb} AND ${fragCorpsNonEnregistre('cb')} ORDER BY cb.id`, [dossierId]);
+  return rows;
+}
+/** ENR-1 — motif de refus « bâtiment(s) à enregistrer » (nommés), commun aux deux chemins d'envoi. */
+function motifEnregistrement(corps: { id: number; repere: string | null }[]): string {
+  const nom = (r: { id: number; repere: string | null }) => (r.repere && r.repere.trim()) ? r.repere.trim() : `bâtiment ${r.id}`;
+  return `Bâtiment(s) à enregistrer avant l’envoi en Rattachement : ${corps.map(nom).join(', ')}. Confirmez la saisie (« Enregistrer ce bâtiment ») dans « Caractéristiques du permis ».`;
+}
+
 export interface LigneProjection {
   dossierId: number;
   numDau: string;
@@ -47,6 +76,7 @@ export interface LigneProjection {
   nbBatimentsValide: number | null; // BAT-2 — nombre de bâtiments VALIDÉ (BAT-1, permis_caracteristique.nb_batiments_valide) ; null = jamais validé (ou 218 absente). Sert à l'état de cohérence de la sous-section « Caractéristiques et bâtiments d'origine » (mère « Caractéristiques du permis »).
   nbCorpsSansAltValidee: number;    // COMPLÉMENT — bâtiments sans altitude de sommet VALIDÉE (confirme_le NULL) : décide si le n° passe au vert (validable). Défaut = nbBatiments (non validable) si lecture indisponible.
   nbCorpsSansEmpriseValidee: number; // COMPLÉMENT — bâtiments sans emprise VALIDÉE (206). Avec le précédent : le permis est VALIDABLE ssi les deux valent 0 (estValidationAcquise).
+  nbCorpsNonEnregistres: number; // ENR-1 — bâtiments ACTIFS NON enregistrés (jamais confirmés humainement). Rend la mère « Caractéristiques du permis » honnête bloc replié et gate le bandeau/bouton/✓ (fait SERVEUR, indépendant de fraicheurBat).
   projectionValidee: boolean;   // RATT-1 — la file EXCLUT par construction les projections validées (jalon NOT EXISTS permis_projection) → TOUJOURS false ici ; champ exposé pour un titre de famille générique et honnête
   testeEnAnalyse: boolean;      // LOT 51 — le dossier est présent en Analyse via le marqueur « testé » (partiel actif tenu ouvert) → l'UI propose « Renvoyer ce permis dans l'onglet En cours » ; false pour un dossier arrivé normalement
   // PL-ÉTAT — état SAUVEGARDÉ de la « Planche cadastrale » lisible SANS déplier (le bloc est en montage paresseux) : la sélection est-elle
@@ -86,12 +116,13 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: b
     dossier_id: number; num_dau: string; commune_nom: string | null; type: 'PC' | 'PD';
     nature_projet_completee: string | null; i_extension: boolean | null; i_surelevation: boolean | null;
     nb_lgt_tot_crees: number | null; surf_creee: string | number | null; nb_batiments: number; satisfait_le: string | null;
-    nb_corps_sans_altitude: number;
+    nb_corps_sans_altitude: number; nb_corps_non_enregistres: number;
   }>(
     `SELECT s.id::int AS dossier_id, s.num_dau, c.nom AS commune_nom, s.type,
             s.nature_projet_completee, s.i_extension, s.i_surelevation, s.nb_lgt_tot_crees, s.surf_creee,
             (SELECT count(*) FROM permis_corps_batiment b WHERE b.dossier_id = s.id${faB})::int AS nb_batiments,
             (SELECT count(*) FROM permis_corps_batiment b WHERE b.dossier_id = s.id${faB} AND b.altitude_sommet_ngf IS NULL)::int AS nb_corps_sans_altitude,
+            (SELECT count(*) FROM permis_corps_batiment b WHERE b.dossier_id = s.id${faB} AND ${fragCorpsNonEnregistre('b')})::int AS nb_corps_non_enregistres,
             max(dd.satisfait_le)::date::text AS satisfait_le
        FROM demande_dossier dd
        JOIN sitadel_dossier s ON s.id = dd.dossier_id
@@ -105,7 +136,9 @@ async function requeteFile(cfg: ConfigVeille, avecJalon: boolean, avecPartiel: b
   return rows.map((r) => {
     const d: DossierClassable = { type: r.type, natureProjetCompletee: r.nature_projet_completee, iExtension: r.i_extension, iSurelevation: r.i_surelevation, nbLgtTotCrees: r.nb_lgt_tot_crees, surfCreee: r.surf_creee === null ? null : Number(r.surf_creee) };
     return { dossierId: r.dossier_id, numDau: r.num_dau, communeNom: r.commune_nom, natureLibelle: classer(d, cfg).libelle, nbBatiments: r.nb_batiments, satisfaitLe: r.satisfait_le,
-      nbCorpsSansAltitude: Number(r.nb_corps_sans_altitude ?? 0), projectionValidee: false, // RATT-1 — false par construction (jalon d'exclusion des validées)
+      nbCorpsSansAltitude: Number(r.nb_corps_sans_altitude ?? 0),
+      nbCorpsNonEnregistres: Number(r.nb_corps_non_enregistres ?? 0), // ENR-1 — fait serveur (compte des cartes actives jamais confirmées humainement)
+      projectionValidee: false, // RATT-1 — false par construction (jalon d'exclusion des validées)
       nbBatimentsValide: null, // BAT-2 — DÉFAUT « non validé » ; `listerFileProjection` renseigne le nombre validé réel (lecture résiliente séparée)
       // COMPLÉMENT — DÉFAUT « non validable » (= tous les bâtiments manquants) : `listerFileProjection` remplace par les vrais comptes (lecture résiliente). Sûr si la lecture échoue (n° reste rouge).
       nbCorpsSansAltValidee: Number(r.nb_batiments), nbCorpsSansEmpriseValidee: Number(r.nb_batiments),
@@ -204,7 +237,7 @@ export async function compterFileProjection(cfg: ConfigVeille): Promise<number> 
 
 export type ResultatValidationProjection =
   | { ok: true; marqueSuivi: boolean }
-  | { ok: false; motif: string };
+  | { ok: false; motif: string; manque?: 'empreinte' | 'enregistrement' }; // ENR-1 — `manque` OPTIONNEL (les consommateurs lisent `motif`) : distingue le refus « à enregistrer » de l'empreinte
 
 /** Évalue la CONDITION D'EMPREINTE (chaîne existante) : chaque bâtiment déclaré a une emprise tracée OU une projection ignorée.
  *  Lectures batchées → verdict pur. Réutilisée par la validation NORMALE et par la SORTIE DU TEST (LOT 51-C). */
@@ -255,15 +288,20 @@ async function ecrireProjectionValidee(q: RequeteTx, dossierId: number, par: str
 }
 
 /**
- * VALIDER la projection d'un dossier (chemin NORMAL, hors test). 🔴 Condition SERVEUR : empreinte validable (verdictProjectionBatiments,
- * jamais la confiance au client). N'EXIGE PAS les altitudes (décision porteur : ne pas changer le comportement des dossiers ordinaires ;
- * l'altitude est le gate de la SEULE sortie du test — cf. sortirTestVersRattachement). N'arrête AUCUNE relance (un dossier normal n'est
- * pas partiel-actif). Si OK : jalon + suivi. Sinon : refus explicite.
+ * VALIDER la projection d'un dossier (chemin NORMAL, hors test). 🔴 Conditions SERVEUR : (1) empreinte validable (verdictProjectionBatiments,
+ * jamais la confiance au client) ; (2) ENR-1 (LOT 1/2, décision Arno) — AUCUN bâtiment ACTIF « à enregistrer » (jamais confirmé humainement).
+ * N'EXIGE PAS les altitudes (décision porteur : ne pas changer le comportement des dossiers ordinaires ; l'altitude est le gate de la SEULE
+ * sortie du test — cf. sortirTestVersRattachement). Cette garde couvre les DEUX déclencheurs de finalisation qui passent par ici : la clôture
+ * manuelle (`valider_permis`) ET l'auto-finalisation en mode automatique (`valider_emprise`). N'arrête AUCUNE relance. Si OK : jalon + suivi.
  */
 export async function validerProjection(dossierId: number, par: string | null): Promise<ResultatValidationProjection> {
   if (!Number.isInteger(dossierId) || dossierId <= 0) return { ok: false, motif: 'dossier invalide' };
   const verdict = await evaluerEmpreinte(dossierId);
-  if (!verdict.peutValider) return { ok: false, motif: motifEmpreinte(verdict) };
+  if (!verdict.peutValider) return { ok: false, motif: motifEmpreinte(verdict), manque: 'empreinte' };
+  // ENR-1 — GARDE DÉDIÉE À L'ENVOI : tant qu'un bâtiment actif n'est pas confirmé humainement, l'envoi en Rattachement est REFUSÉ (blocage dur,
+  //   pas un simple grisage client). DISTINCTE de estValidationAcquise (INCHANGÉ, hors périmètre — regroupement Rattachement/surveillance intacts).
+  const nonEnr = await lireCorpsNonEnregistres(dossierId);
+  if (nonEnr.length > 0) return { ok: false, motif: motifEnregistrement(nonEnr), manque: 'enregistrement' };
   try {
     return await withTransaction(async (q) => ({ ok: true, marqueSuivi: await ecrireProjectionValidee(q, dossierId, par) } as const));
   } catch (e) {
@@ -274,7 +312,7 @@ export async function validerProjection(dossierId: number, par: string | null): 
 
 export type ResultatSortieTest =
   | { ok: true; marqueSuivi: boolean; demandesArretees: number }
-  | { ok: false; manque: 'empreinte' | 'altitude' | 'emprise'; motif: string };
+  | { ok: false; manque: 'empreinte' | 'altitude' | 'emprise' | 'enregistrement'; motif: string }; // ENR-1 — 'enregistrement' : ≥1 bâtiment actif non confirmé humainement
 
 /**
  * LOT 51-C — SORTIE DÉFINITIVE d'un dossier « testé en analyse » vers « Rattachement ». DOUBLE CONDITION, non négociable :
@@ -309,6 +347,10 @@ export async function sortirTestVersRattachement(dossierId: number, par: string 
     if (sansEmp.length) parts.push(`emprise du polygone projeté À VALIDER : ${sansEmp.map(nom).join(', ')}`);
     return { ok: false, manque: sansAlt.length > 0 ? 'altitude' : 'emprise', motif: `Process non franchi — ${parts.join(' ; ')}. Validez ce qui manque avant la sortie.` };
   }
+  // ENR-1 (LOT 1/2, décision Arno) — GARDE DÉDIÉE À L'ENVOI, DISTINCTE de estValidationAcquise (INCHANGÉ) : un corps peut avoir altitude+emprise
+  //   VALIDÉES (donc estValidationAcquise franchi) tout en n'ayant JAMAIS été confirmé humainement (mesures encore 'extraite'/vides) → à enregistrer.
+  const nonEnr = await lireCorpsNonEnregistres(dossierId);
+  if (nonEnr.length > 0) return { ok: false, manque: 'enregistrement', motif: motifEnregistrement(nonEnr) };
   try {
     return await withTransaction(async (q) => {
       const marqueSuivi = await ecrireProjectionValidee(q, dossierId, par);
