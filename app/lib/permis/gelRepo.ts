@@ -26,6 +26,8 @@ export interface ResultatFigerGel {
   gelId?: number;           // permis_gel.id de la version appendée
   nbParcelles?: number;     // parcelles d'origine figées dans cette version
   nbBati?: number;          // footprints de bâti figés dans cette version
+  nbCorps?: number;         // B1 (RATT-EDIT) — corps de bâtiment figés en détail (permis_gel_corps) ; renseigné par figerVersionValidation
+  nbEmprises?: number;      // B1 (RATT-EDIT) — emprises reconstruites figées en détail (permis_gel_emprise) ; renseigné par figerVersionValidation
   raison?: string;          // si non enregistré : pourquoi
 }
 
@@ -133,6 +135,16 @@ export async function versionValidationCourante(q: RequeteTx, dossierId: number)
  * `gele_par` est préfixé `PREFIXE_GEL_VALIDATION` (ex. 'validation:admin:decision', 'validation:moteur:auto') → repérable par la
  * surveillance. Atomique (withTransaction). NO-OP propre si le registre est absent (migration 169 non appliquée). L'UNIQUE (dossier_id,
  * version) EN BASE protège contre deux appends concurrents.
+ *
+ * 🔴 B1 (RATT-EDIT) — CAPTURE DÉTAIL CORPS/EMPRISE : en plus de l'en-tête + parcelles + bâti, cette validation fige DEUX snapshots COMPLETS
+ * (tables 225/226, append-only), suffisants à eux seuls pour RESTAURER l'état de travail au lot C1 — y compris RECRÉER un corps ou une
+ * emprise SUPPRIMÉS depuis (supprimerCorps / supprimerEmprise = DELETE dur) :
+ *   · permis_gel_corps   — une ligne par corps du dossier (permis_corps_batiment), actif OU inactif : sommet + marqueurs (225) + les 7 autres
+ *                          mesures + origines + repère, adresse, emprise, cleabs_affecte, actif, desactive_le/_par, maj_le/_par (226). Toutes colonnes sauf id (→ corps_id) et dossier_id.
+ *   · permis_gel_emprise — une ligne par emprise reconstruite du dossier (permis_emprise_reconstruite) : geom + ajustement + surface + validee
+ *                          (225) + libelle, calage, provenance, reconstitution, piece_id, page, residu_m, cree_le/_par (226). Toutes colonnes sauf id (→ emprise_id) et dossier_id.
+ * Géométries copiées TELLES QUELLES (miroir exact : POLYGON/2154 pour corps.emprise, GEOMETRY/2154 pour emprise.geom). Aucun backfill : les
+ * permis déjà validés restent sans détail (C1 verra `versionValidationCourante` = null → rien à restaurer).
  */
 export async function figerVersionValidation(dossierId: number, valPar: string): Promise<ResultatFigerGel> {
   // VOIS-1 — bâti figé DU PERMIS seul (bâti COURANT ∩ empreinte, filtré par batimentAppartientPermis) : jamais les voisins.
@@ -177,7 +189,41 @@ export async function figerVersionValidation(dossierId: number, valPar: string):
           WHERE pe.geom IS NOT NULL AND b.geom && pe.geom AND ST_Intersects(b.geom, pe.geom) AND b.cleabs = ANY($3)`,
       [dossierId, gelId, permisCleabs]);
 
-    return { enregistre: true, version, gelId, nbParcelles: rp.rowCount ?? 0, nbBati: rb.rowCount ?? 0 };
+    // B1 (RATT-EDIT) — DÉTAIL CORPS : snapshot COMPLET de CHAQUE corps du dossier (actif OU inactif → un corps désactivé/supprimé reste
+    //   restaurable). Copie de TOUTES les colonnes de permis_corps_batiment sauf id (→ corps_id, référence historique) et dossier_id (porté par le gel).
+    const rc = await q(
+      `INSERT INTO permis_gel_corps (gel_id, corps_id,
+              altitude_sommet_ngf, altitude_sommet_ngf_origine, altitude_sommet_ngf_confirme_le, altitude_sommet_ngf_confirme_par,
+              repere, nb_etages, nb_etages_origine, nb_niveaux_sous_sol, nb_niveaux_sous_sol_origine,
+              altitude_dernier_plancher_ngf, altitude_dernier_plancher_ngf_origine, hauteur_relative_m, hauteur_relative_m_origine,
+              altitude_terrain_naturel_ngf, altitude_terrain_naturel_ngf_origine, hauteur_max_plu_ngf, hauteur_max_plu_ngf_origine,
+              altitude_plateau_nivellement_ngf, altitude_plateau_nivellement_ngf_origine, adresse, adresse_origine,
+              emprise, emprise_origine, cleabs_affecte, nom_repli,
+              emprise_validee_id, emprise_validee_le, emprise_validee_par, actif, desactive_le, desactive_par, maj_le, maj_par)
+         SELECT $2, c.id,
+              c.altitude_sommet_ngf, c.altitude_sommet_ngf_origine, c.altitude_sommet_ngf_confirme_le, c.altitude_sommet_ngf_confirme_par,
+              c.repere, c.nb_etages, c.nb_etages_origine, c.nb_niveaux_sous_sol, c.nb_niveaux_sous_sol_origine,
+              c.altitude_dernier_plancher_ngf, c.altitude_dernier_plancher_ngf_origine, c.hauteur_relative_m, c.hauteur_relative_m_origine,
+              c.altitude_terrain_naturel_ngf, c.altitude_terrain_naturel_ngf_origine, c.hauteur_max_plu_ngf, c.hauteur_max_plu_ngf_origine,
+              c.altitude_plateau_nivellement_ngf, c.altitude_plateau_nivellement_ngf_origine, c.adresse, c.adresse_origine,
+              c.emprise, c.emprise_origine, c.cleabs_affecte, c.nom_repli,
+              c.emprise_validee_id, c.emprise_validee_le, c.emprise_validee_par, c.actif, c.desactive_le, c.desactive_par, c.maj_le, c.maj_par
+           FROM permis_corps_batiment c WHERE c.dossier_id = $1`,
+      [dossierId, gelId]);
+
+    // B1 (RATT-EDIT) — DÉTAIL EMPRISE : snapshot COMPLET de CHAQUE emprise reconstruite du dossier (l'ENSEMBLE → restaure aussi
+    //   suppressions/ajouts). Copie de TOUTES les colonnes de permis_emprise_reconstruite sauf id (→ emprise_id) et dossier_id. geom copié tel quel.
+    const re = await q(
+      `INSERT INTO permis_gel_emprise (gel_id, emprise_id, corps_id,
+              geom, ajustement, surface_m2, validee_le, validee_par,
+              libelle, calage, provenance, reconstitution, piece_id, page, residu_m, cree_par, cree_le)
+         SELECT $2, e.id, e.corps_id,
+              e.geom, e.ajustement, e.surface_m2, e.validee_le, e.validee_par,
+              e.libelle, e.calage, e.provenance, e.reconstitution, e.piece_id, e.page, e.residu_m, e.cree_par, e.cree_le
+           FROM permis_emprise_reconstruite e WHERE e.dossier_id = $1`,
+      [dossierId, gelId]);
+
+    return { enregistre: true, version, gelId, nbParcelles: rp.rowCount ?? 0, nbBati: rb.rowCount ?? 0, nbCorps: rc.rowCount ?? 0, nbEmprises: re.rowCount ?? 0 };
   });
 }
 
