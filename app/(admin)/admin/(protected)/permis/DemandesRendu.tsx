@@ -199,9 +199,14 @@ export function CarteInjoignable({ c, children }: { c: CommuneInjoignableAffiche
  * → prefers-reduced-motion sans objet. N.B. : l'encart PRADA de C2 (EncartArbitrages) garde son repliable inline (non touché
  * par ce chantier) ; cette primitive est disponible pour l'y adopter ultérieurement.
  */
-export function BlocRepliable({ ligne, ouvert, onToggle, idContenu, ariaLabel, retour, className, style, children }: {
+export function BlocRepliable({ ligne, ouvert, onToggle, idContenu, ariaLabel, retour, className, style, children, libelleLeger = false }: {
   ligne: ReactNode; ouvert: boolean; onToggle?: () => void; idContenu: string; ariaLabel: string;
   retour?: ReactNode; className?: string; style?: CSSProperties; children?: ReactNode;
+  // Point D (mise en forme) — libellé rendu en <span> (poids 700 hérité de `.svv-repli-titre`) AU LIEU du <strong> par défaut. Le <strong>,
+  //   sous le preflight Tailwind (`strong{font-weight:bolder}`), résout à 900 → titre PLUS gras que les autres lignes repliables (qui, elles,
+  //   passent par le composant unifié en <span>). `libelleLeger` (opt-in) aligne CETTE ligne sur les autres SANS toucher les autres appelants
+  //   (défaut = <strong> STRICTEMENT inchangé pour injoignables e-mail et « État de la relève »).
+  libelleLeger?: boolean;
 }) {
   return (
     // §2 — RENDU UNIQUE : plus de carte enveloppante (pas de double bordure). Le wrapper n'est qu'une colonne ; la LIGNE de titre
@@ -211,7 +216,9 @@ export function BlocRepliable({ ligne, ouvert, onToggle, idContenu, ariaLabel, r
     <div role="group" aria-label={ariaLabel} className={['flex flex-col gap-1', className].filter(Boolean).join(' ')} style={{ minWidth: 0, ...style }}>
       <button type="button" aria-expanded={ouvert} aria-controls={idContenu} onClick={() => onToggle?.()} className="svv-repli-titre">
         <span aria-hidden="true" className="svv-repli-chevron">{ouvert ? '▾' : '▸'}</span>
-        <strong className="svv-repli-libelle">{ligne}</strong>
+        {libelleLeger
+          ? <span className="svv-repli-libelle">{ligne}</span>
+          : <strong className="svv-repli-libelle">{ligne}</strong>}
       </button>
       {/* retour de saisie : TOUJOURS visible (hors du repli) */}
       {retour ? <div>{retour}</div> : null}
@@ -1250,7 +1257,7 @@ export function BlocStock({
 }) {
   return (
     <BlocRepliable ariaLabel="Stock de permis à demander par commune" idContenu="stock-permis-contenu"
-      ligne={libelleStock(stock, fenetreMois)} ouvert={ouvert} onToggle={onToggle}>
+      ligne={libelleStock(stock, fenetreMois)} ouvert={ouvert} onToggle={onToggle} libelleLeger>
       <p style={aide}>
         Permis d’<strong>immeuble neuf</strong> (et autres types) délivrés sur les <strong>{fenetreMois} derniers mois</strong> et
         <strong> pas encore demandés</strong> : le stock encore à demander, commune par commune, pour savoir combien de courriers reste à envoyer.

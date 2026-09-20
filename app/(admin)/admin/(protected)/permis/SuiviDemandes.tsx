@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
 import { ETIQUETTE_PROFIL, type ProfilDemandeur } from '../../../../lib/sitadel/demande';
 import type { DemandeListe, DemandeDetail, AlerteIdentite } from '../../../../lib/sitadel/demandeRepo';
 import { type Tri, type Perimetre, filtrerDemandes, trierDemandes, basculerTri, OPTIONS_TRI, cleTri, triDepuisCle, dansPerimetre, statutsDuPerimetre, statutsVivants, statutsMorts, statutsAffiches, partitionnerParDus, visiblesEnCours, partitionnerAnnulationMasse, CHOIX_STATUT_DEFAUT, categorieEnCours, CATEGORIE_EN_COURS_LIBELLE, demandeEnCoursIncomplete, demandeADeNouvellesPieces } from '../../../../lib/sitadel/demandesListe';
@@ -80,6 +80,32 @@ interface Props {
 async function erreurServeur(res: Response, repli: string): Promise<string> {
   try { const d = (await res.json()) as { erreur?: string }; return d?.erreur && d.erreur.trim() !== '' ? d.erreur : repli; }
   catch { return repli; }
+}
+
+/**
+ * ALLÈGEMENT rail TÉLÉSERVICE « À demander » — CONTENEUR d'une ligne de l'écran. Quand `repliable` (⇔ téléservice « À demander »), la
+ * ligne devient un <details> NATIF (fermé par défaut) stylé `.svv-repli-titre`, EXACTEMENT comme « Critères de sélection des cartes » :
+ * le contenu reste TOUJOURS monté (le navigateur ne masque QUE le corps replié) → aucun démontage, aucun refetch, la valeur du filtre
+ * Statut et la sélection en cours survivent au repli. Le `complement` (compteurs) reste visible sur la ligne de titre même repliée ;
+ * `alerte` teinte la ligne (ambre) via le MODIFICATEUR EXISTANT `.svv-repli-titre--alerte`. Sinon (rail e-mail, onglet « En cours »)
+ * → la carte pleine `svv-card` d'aujourd'hui, à l'identique. On ne convertit AUCUN <details> existant et on ne touche à AUCUNE règle CSS
+ * partagée : on réutilise les classes `.svv-repli-titre` / `-chevron` / `-libelle` / `-complement` / `--alerte`. Cible ≥44px, focus visible
+ * et absence d'interaction hover-only viennent des classes (exigence mobile §15).
+ */
+function LigneRail({ repliable, libelle, complement, alerte = false, carteStyle, children }: {
+  repliable: boolean; libelle: string; complement?: ReactNode; alerte?: boolean; carteStyle?: CSSProperties; children: ReactNode;
+}) {
+  if (!repliable) return <div className="svv-card" style={carteStyle}>{children}</div>;
+  return (
+    <details>
+      <summary className={`svv-repli-titre${alerte ? ' svv-repli-titre--alerte' : ''}`}>
+        <span aria-hidden className="svv-repli-chevron" />
+        <span className="svv-repli-libelle">{libelle}</span>
+        {complement != null && <span className="svv-repli-complement"> — {complement}</span>}
+      </summary>
+      <div style={{ ...carteStyle, marginTop: '.5rem' }}>{children}</div>
+    </details>
+  );
 }
 
 export function SuiviDemandes({ categories, perimetre, process, signalRafraichir = 0, onRecompter }: Props) {
@@ -273,6 +299,10 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
   // T2-C — sansDossier (0 dossier actif) : masquage RÉVÉLABLE de défaut, annoncé avec les morts (« les afficher » = « Toutes »).
   const mortsSansDossier = enCoursDefaut ? [{ statut: 'sans dossier actif', n: partDus.sansDossier.length }] : [];
   const morts = choixStatut === CHOIX_STATUT_DEFAUT ? [...mortsDetail, ...mortsSansDossier] : [];
+  // ALLÈGEMENT téléservice — complément « N annulée(s) masquée(s) » de la ligne de titre repliable (mêmes règles que MentionMasquage :
+  //   n>0 seulement, même phrase). Vide dès que l'utilisateur choisit « Toutes » (morts vide → rien de masqué).
+  const mortsVus = morts.filter((m) => m.n > 0);
+  const complementMorts = mortsVus.length > 0 ? ` · ${mortsVus.map((m) => `${m.n} ${STATUT_LIBELLE[m.statut] ?? m.statut}(s) masquée(s)`).join(' · ')}` : '';
   // T8 — SOLDÉES : exclusion NON RÉVÉLABLE (mention séparée, sans bouton, → Archives), sous TOUT filtre. Jamais confondue avec le masquage révélable.
   const exclusSoldees = perimetre === 'en_cours' && partDus.soldees.length > 0 ? { n: partDus.soldees.length, libelle: 'soldée(s) — voir l’onglet Archives' } : undefined;
   // FUS — 2e registre NON RÉVÉLABLE : demandes à retour, foyer désormais « Réponses ». Même traitement visuel que les soldées.
@@ -564,9 +594,16 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Q6b — compteurs de CE QUI EST AFFICHÉ + mention NON silencieuse des lignes mortes masquées par le défaut. */}
+      {/* Q6b — compteurs de CE QUI EST AFFICHÉ + mention NON silencieuse des lignes mortes masquées par le défaut.
+          ALLÈGEMENT téléservice « À demander » : LIGNE REPLIABLE (via LigneRail — details natif, fermée par défaut, contenu toujours monté).
+          Le complément (compteurs + annulées masquées) reste TOUJOURS visible sur la ligne de titre ; la teinte d'alerte signale les
+          demandes hors process. Ailleurs (e-mail, En cours) : carte pleine inchangée. Le contenu interne est STRICTEMENT le même. */}
       {liste && (
-        <div className="svv-card" style={{ fontSize: 13 }}>
+        <LigneRail repliable={teleserviceADemander}
+          libelle={`État de la liste — Process ${PROCESS_META[process].court}`}
+          complement={`${dansVueAffiche.length} demande(s) · ${dossiersVus} dossier(s)${complementMorts}`}
+          alerte={horsProcessN > 0}
+          carteStyle={{ fontSize: 13 }}>
           <strong>{dansVueAffiche.length} demande(s)</strong> · {dossiersVus} dossier(s) couvert(s) — {compteursVus.map((x) => `${x.n} ${STATUT_LIBELLE[x.s]}`).join(' · ') || 'aucune'}.
           {/* PART-B — ventilation en DEUX catégories (En cours seulement) : 1re demande vs en relance (dossier partiel). Somme = total affiché. */}
           {enCours && categoriesVues.length > 0 && (
@@ -584,7 +621,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
               {horsProcessN} demande(s) au canal « courrier »/inconnu, hors des deux process (voir le bloc hors process du commutateur).
             </div>
           )}
-        </div>
+        </LigneRail>
       )}
 
       {avecAlertes && liste?.alertesIdentite.map((a) => (
@@ -672,8 +709,12 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
 
       {/* U7 — le détail ne s'affiche PLUS ici (en haut) : il est rendu SOUS sa ligne, dans TableDemandes (slot `panneau`). */}
 
-      {/* Filtres + tri (+ actions groupées si le périmètre en a) */}
-      <div className="svv-card" style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'center', fontSize: 12 }}>
+      {/* Filtres + tri (+ actions groupées si le périmètre en a).
+          ALLÈGEMENT téléservice « À demander » : LIGNE REPLIABLE (via LigneRail — details natif, fermée par défaut, contenu toujours monté
+          → le filtre Statut garde sa valeur, la sélection n'est jamais perdue, aucun refetch). Ailleurs (e-mail, En cours) : barre pleine
+          inchangée. Le contenu interne (filtre Statut, sélection, « Basculer la sélection en… ») est STRICTEMENT le même. */}
+      <LigneRail repliable={teleserviceADemander} libelle={"Filtres & gestes de masse"}
+        carteStyle={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'center', fontSize: 12 }}>
         {/* Q6b — le DÉFAUT est « Actives » (vivants), pas « Tous ». Chaque libellé dit ce qu'il montre ; « Toutes » nomme les morts. */}
         <label className="flex flex-col gap-1">Statut
           <select value={choixStatut} onChange={(e) => majFiltre(() => setChoixStatut(e.target.value))} style={styleChamp}>
@@ -761,7 +802,7 @@ export function SuiviDemandes({ categories, perimetre, process, signalRafraichir
             ))}
           </>
         )}
-      </div>
+      </LigneRail>
 
       {liste?.referencesIndisponibles && (
         <div role="status" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>
