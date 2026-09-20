@@ -64,13 +64,26 @@ const styleLabel = { fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)
 const styleAide = { fontSize: 11, color: 'var(--color-svv-muted)', lineHeight: 1.4 } as const;
 const styleInput = { width: '100%', boxSizing: 'border-box' as const, padding: '.35rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14, fontFamily: 'inherit' };
 
+// RATT-EDIT (lot B2) — ZONE ÉDITABLE : enveloppe le contenu d'un cartouche dans un <fieldset disabled> quand `desactive`. Le fieldset natif
+//   DÉSACTIVE tous les contrôles descendants (inputs, boutons, textarea, select) — accessible, clavier compris, sans prop à câbler enfant par
+//   enfant. Reset border/margin/padding (aucune boîte visible) + minInlineSize:0 (un fieldset impose sinon min-inline-size:min-content →
+//   débordement horizontal en portrait). Le TITRE de section (bouton de BlocRepliable) reste HORS du fieldset → déplier/consulter reste possible.
+//   `desactive` absent/false → fieldset non désactivé, rendu inchangé (les 4 vues qui n'utilisent pas lectureSeule ne sont pas affectées).
+function ZoneEditable({ desactive, children }: { desactive?: boolean; children: ReactNode }) {
+  return <fieldset disabled={desactive} style={{ border: 0, margin: 0, padding: 0, minInlineSize: 0 }}>{children}</fieldset>;
+}
+
 /**
  * N3-C/N7-E — bloc « Caractéristiques » du panneau permis. DEUX niveaux SÉPARÉS : (1) LE PERMIS (déclaré : nature, surface,
  * logements, stationnement, adresse, parking, commentaire — vaut pour tout le permis, ne se répète pas) ; (2) LES CORPS DE
  * BÂTIMENT (mesurés : repère, altitudes, étages, adresse par corps). Toute écriture est en 'saisie'. Confiance/réserve/motif
  * lus du journal (parCorps + permis). Bornes et liste de nature LUES de la base.
  */
-export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, onAccesEmprise, pied, avecEtatFamilles, etatSection4SansAide, onComptes, onFraicheur, durcirStatutFraicheur, sousLignesSurface }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; onAccesEmprise?: (corpsId: number) => void; pied?: ReactNode; avecEtatFamilles?: boolean; etatSection4SansAide?: boolean; onComptes?: (comptes: ComptesCaracteristiquesPermis) => void; onFraicheur?: (f: FraicheurBatimentsLive) => void; durcirStatutFraicheur?: boolean; sousLignesSurface?: boolean }) {
+export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmprise, onAccesEmprise, pied, avecEtatFamilles, etatSection4SansAide, onComptes, onFraicheur, durcirStatutFraicheur, sousLignesSurface, lectureSeule }: { dossierId: number; onOuvrir?: (id: number, source: 'reponse' | 'dossier', page?: number) => void; onChange?: () => void; ancreEmprise?: string; onAccesEmprise?: (corpsId: number) => void; pied?: ReactNode; avecEtatFamilles?: boolean; etatSection4SansAide?: boolean; onComptes?: (comptes: ComptesCaracteristiquesPermis) => void; onFraicheur?: (f: FraicheurBatimentsLive) => void; durcirStatutFraicheur?: boolean; sousLignesSurface?: boolean; lectureSeule?: boolean }) {
+  // RATT-EDIT (lot B2) — `lectureSeule` : le bloc est en CONSULTATION (défaut dans Rattachement tant que « Modifier » n'a pas déverrouillé
+  //   l'édition). Les contrôles sont désactivés visuellement (ZoneEditable → <fieldset disabled>) ET toute écriture est neutralisée en
+  //   défense-en-profondeur (garde dans `poster` / `appliquerNbBatiments`) — le vrai garde-fou reste SERVEUR (A3). La LECTURE (GET, dépliage,
+  //   affichage des valeurs) est intacte. Prop absente = éditable comme avant (Analyse et projection, Archives, Réponses, Suivi inchangés).
   // BAT-2 / BAT-2b — `avecEtatFamilles` : affiche l'ÉTAT sur les titres des sous-sections PORTEUSES (cohérence des cartes + altitudes),
   //   pour savoir s'il faut ouvrir d'un coup d'œil. Passé par LES CINQ vues qui montent ce bloc (Analyse et projection, Rattachement,
   //   Archives, Réponses, Suivi) — BAT-2b l'a étendu au-delà de la seule Projection. L'état vient TOUJOURS des données PROPRES de ce bloc
@@ -184,6 +197,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
   useEffect(() => { if (editionNb) { nbInputRef.current?.focus(); nbInputRef.current?.select(); } }, [editionNb]);
 
   const poster = useCallback(async (corps: Record<string, unknown>): Promise<{ ok: boolean; erreur?: string }> => {
+    if (lectureSeule) return { ok: false, erreur: 'lecture seule' }; // B2 — défense en profondeur : aucune écriture tant que l'édition n'est pas déverrouillée (le fieldset désactive déjà l'UI ; le serveur refuse via A3)
     setMessage('');
     try {
       const res = await fetch('/api/admin/permis/caracteristiques', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) });
@@ -191,7 +205,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       if (!res.ok || rep.erreur) return { ok: false, erreur: rep.erreur ?? 'écriture refusée' };
       return { ok: true };
     } catch { return { ok: false, erreur: 'le serveur n’a pas répondu' }; }
-  }, []);
+  }, [lectureSeule]);
 
   // Enregistre LE PERMIS : les 5 champs déclarés (action 'declare') + parking/commentaire (action 'global').
   const enregistrerPermis = useCallback(async () => {
@@ -279,6 +293,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
   //   `besoinConfirmation` + la liste des cartes → on ouvre le récap (rien ne part avant « Confirmer »). Réponse complète lue ICI (le
   //   helper `poster` ne rend que {ok,erreur} — insuffisant pour besoinConfirmation/cartes).
   const appliquerNbBatiments = useCallback(async () => {
+    if (lectureSeule) return; // B2 — défense en profondeur (ce geste écrit via un fetch direct, hors `poster`)
     const brut = edNbBat.trim();
     const n = brut === '' ? NaN : Number(brut);
     if (!Number.isInteger(n) || n < 0) { setMessage('Nombre de bâtiments invalide (entier ≥ 0).'); return; }
@@ -296,7 +311,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       } else setMessage(rep.erreur ?? 'échec');
     } catch { setMessage('le serveur n’a pas répondu'); }
     setEnCours(false);
-  }, [edNbBat, dossierId, rafraichir]);
+  }, [edNbBat, dossierId, rafraichir, lectureSeule]);
 
   // (C) — BOUTON À TROIS TEMPS : repos → ouvre l'édition ; édition + valeur == origine → REFERME (rien à valider) ; édition + valeur différente
   //   et valide → APPLIQUE (métier inchangé : appliquerNbBatiments) et mémorise la valeur soumise pour détecter le succès. Aucune écriture ici.
@@ -379,10 +394,12 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
           champ « changer le nombre » vivent désormais EN SECTION 4, au-dessus des cartes qu'ils pilotent (un état loin de sa commande est illisible). */}
       <BlocRepliable titre="Caractéristiques et bâtiments d’origine" titreClasseExtra={classeSousLigne}>
         {() => (
-          <FaitsPermisBloc faits={data.faits} parcelles={data.parcelles} empreinte={data.empreinte} bati={data.bati}
-            dossierId={dossierId} onParcelleChange={() => void rafraichir()}
-            onExportGeojson={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=1`, '_blank', 'noopener,noreferrer')}
-            onExportEmpreinte={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=empreinte`, '_blank', 'noopener,noreferrer')} />
+          <ZoneEditable desactive={lectureSeule}>
+            <FaitsPermisBloc faits={data.faits} parcelles={data.parcelles} empreinte={data.empreinte} bati={data.bati}
+              dossierId={dossierId} onParcelleChange={() => void rafraichir()}
+              onExportGeojson={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=1`, '_blank', 'noopener,noreferrer')}
+              onExportEmpreinte={() => window.open(`/api/admin/permis/caracteristiques?dossierId=${dossierId}&geojson=empreinte`, '_blank', 'noopener,noreferrer')} />
+          </ZoneEditable>
         )}
       </BlocRepliable>
       {/* BAT-3 — CONFIRMATION de retrait (rendue HORS du cartouche repliable → toujours visible tant qu'elle est ouverte). Rien n'est retiré
@@ -404,6 +421,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
       {/* CARTOUCHE 3 — LE PERMIS (déclaré) : vaut pour tout le permis, ne se répète pas. Le titre de section devient le titre du dépliant. */}
       <BlocRepliable titre={<>Le permis <span style={{ ...styleAide, fontWeight: 400 }}>— déclaré (Cerfa), vaut pour l’ensemble du projet</span></>} titreClasseExtra={classeSousLigne}>
         {() => (
+      <ZoneEditable desactive={lectureSeule}>
       <div className="svv-card flex flex-col gap-2" style={{ minWidth: 0 }}>
         {/* N10-C — D : ce que contient la section et d'où ça vient. */}
         <p style={styleAide}>Ce que le pétitionnaire a <strong>déclaré</strong> dans le Cerfa.</p>
@@ -450,6 +468,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
           <button type="button" className="svv-btn svv-btn-outline" style={{ padding: '.3rem .7rem' }} disabled={enCours} onClick={() => void enregistrerPermis()}>Enregistrer le permis</button>
         </div>
       </div>
+      </ZoneEditable>
         )}
       </BlocRepliable>
 
@@ -459,6 +478,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
           il n'est REMPLACÉ par l'état que dans Projection (`etatSection4SansAide`, qui a déjà la mère au-dessus). */}
       <BlocRepliable titre={avecEtatFamilles ? <TitreFamilleEtat base="Les futurs bâtiments et leurs altitudes" etat={etatSection4} aide={etatSection4SansAide ? undefined : <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span>} /> : <>Les futurs bâtiments et leurs altitudes <span style={{ ...styleAide, fontWeight: 400 }}>— un par immeuble, mesurés sur les plans</span></>} titreClasseExtra={classeSousLigne}>
         {() => (
+      <ZoneEditable desactive={lectureSeule}>
       <div className="flex flex-col gap-3">
       {/* BAT-4 — EN TÊTE de la section : « Bâtiments identifiés : N (d'après les pièces) · Changer le nombre : [champ] [Appliquer] », au-dessus
           des cartes qu'il pilote (déplacé depuis « Caractéristiques et bâtiments d'origine »). Une seule ligne, séparateur « · » clair. */}
@@ -560,6 +580,7 @@ export function CaracteristiquesBloc({ dossierId, onOuvrir, onChange, ancreEmpri
           fiche + bloc « Bâtiments et projection »). Aucune condition d'apparition ni action changée : seul l'emplacement. */}
       {pied}
       </div>
+      </ZoneEditable>
         )}
       </BlocRepliable>
 

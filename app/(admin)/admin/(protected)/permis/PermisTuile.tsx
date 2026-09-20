@@ -33,7 +33,7 @@ const ONGLETS_DEMANDES: readonly CleOnglet[] = ['a_demander', 'en_cours'];
  * Réglages). La barre est PURE (`OngletsPermis`) ; ici on ne gère que l'onglet actif et le montage du corps correspondant.
  * Q5 — l'ex-« Demandes » est scindé : « À demander » (préparation) et « En cours » (suivi), montés indépendamment.
  */
-interface Props { depuisParDefaut: string; categories: { cle: CleCategorie; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; qInitial?: string }
+interface Props { depuisParDefaut: string; categories: { cle: CleCategorie; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; qInitial?: string; peutModifierPermis?: boolean }
 
 interface Comptes { reponses: number; saisines: number; rattachement: number; projection: number; surveillance: number; enCours: number }
 
@@ -46,7 +46,7 @@ function msJusquaProchaineHeure(h: number): number {
   return cible.getTime() - now.getTime();
 }
 
-export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, triLibelle, qInitial }: Props) {
+export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, triLibelle, qInitial, peutModifierPermis = false }: Props) {
   const [onglet, setOnglet] = useState<CleOnglet>('dossiers');
   const [comptes, setComptes] = useState<Comptes | null>(null);
   // D2 — process actif du commutateur (défaut e-mail ; NE persiste PAS entre sessions) + compteurs des viviers.
@@ -130,7 +130,7 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
         </>
       )}
       {onglet === 'dossiers' && <PermisVue depuisParDefaut={depuisParDefaut} categories={categories} qInitial={qInitial} />}
-      {onglet === 'rattachement' && <SuiviRattachementVue vue="rattachement" onRecompter={apresAction} />}
+      {onglet === 'rattachement' && <SuiviRattachementVue vue="rattachement" onRecompter={apresAction} peutModifierPermis={peutModifierPermis} />}
       {onglet === 'sous_surveillance' && <SuiviRattachementVue vue="surveillance" onRecompter={apresAction} />}
       {/* DEPOT-2 — ADemanderVue (préparation + dépôt/annulation via BlocDepot) notifie le foyer unique → compteurs du commutateur à jour. */}
       {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} process={processActif} onBasculerProcess={setProcessActif} onChangement={apresAction} onAllerReglages={() => setOnglet('reglages')} hors={compteursProcess?.hors ?? null} onOuvrirCommune={setCodeCommuneFiche} signalCarte={signalCarte} />}

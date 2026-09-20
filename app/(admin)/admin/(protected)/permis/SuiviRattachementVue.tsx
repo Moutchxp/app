@@ -21,6 +21,8 @@ import type { PointLambert } from '../../../../lib/permis/calageEmprise';
 const SOURCE_GEL = 'au moment du gel (état des lieux figé)';
 const SOURCE_VIVANTE = 'état actuel (couche BD TOPO)';
 import { CaracteristiquesBloc } from './CaracteristiquesBloc';
+import { BlocTraceEmprise } from './BlocTraceEmprise'; // RATT-EDIT (lot B2) — éditeur d'emprise, monté SEULEMENT en modification déverrouillée
+import { BandeauModificationValidation, PopUpConfirmerModification } from './ModifierValidation'; // RATT-EDIT (lot B2) — verrou d'édition + pop-up 1
 import { CellulePieces } from './ArchivesRendu';
 import { recompterSiSucces } from './comptesActions';
 
@@ -32,7 +34,7 @@ import { recompterSiSucces } from './comptesActions';
  * toujours AUCUN bouton valider/refuser, AUCUNE injection d'altitude (FUS-3e). Les pièces sont téléchargeables mais ni supprimables
  * ni ajoutables ici (ça reste dans Archives). Le détail complet est REPLIÉ par défaut (lisible à 20 dossiers).
  */
-export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vue?: 'rattachement' | 'surveillance'; onRecompter?: () => void } = {}) {
+export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutModifierPermis = false }: { vue?: 'rattachement' | 'surveillance'; onRecompter?: () => void; peutModifierPermis?: boolean } = {}) {
   const estSurveillance = vue === 'surveillance'; // « Sous surveillance » = le radar (permis suivis, aucun signal) + recherche ; « Rattachement » = le TRAVAIL (arbitrages à faire)
   const [liste, setListe] = useState<{ lignes: LigneSuivi[]; compteurs: Record<EtatSuivi, number> } | null>(null);
   const [modePassage, setModePassage] = useState<ModePassageRattachement>('automatique'); // COMPLÉMENT — réglage lu du serveur, gouverne l'appartenance à Rattachement (TableSuivi)
@@ -53,6 +55,10 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vu
   const [detailErreur, setDetailErreur] = useState(false);
   const [affErreur, setAffErreur] = useState('');
   const [permisOuvert, setPermisOuvert] = useState(false); // détail complet du permis (caractéristiques + pièces), replié par défaut
+  // RATT-EDIT (lot B2) — VERROU d'édition d'une validation : altitude + emprise en LECTURE SEULE par défaut pour TOUT LE MONDE (admin compris) ;
+  //   « Modifier » + pop-up 1 déverrouillent. Réinitialisés à chaque changement de dossier (jamais un verrou ouvert hérité d'un autre permis).
+  const [modifOuverte, setModifOuverte] = useState(false); // édition déverrouillée ?
+  const [popupModif, setPopupModif] = useState(false);     // pop-up 1 (confirmation avant d'ouvrir la modification) visible ?
   // FUS-3e — décisions
   const [motifRefus, setMotifRefus] = useState('');
   const [accuse, setAccuse] = useState<AccuseValidationData | null>(null); // M8 — accusé de prise en compte (persistant), construit depuis la réponse serveur
@@ -125,6 +131,7 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vu
     let annule = false;
     void (async () => {
       setDetail(null); setComparaison(null); setDetailErreur(false); setAffErreur(''); setPermisOuvert(false); setPleinEcran(null);
+      setModifOuverte(false); setPopupModif(false); // B2 — un nouveau dossier s'ouvre TOUJOURS verrouillé (lecture seule), pop-up fermée
       setMotifRefus(''); setAccuse(null); setActionErreur(''); setMotifOuverture(''); setCleabsMisEnAvant(null); setAfficherProjection(false); setEmprisesProjetees([]); setRecapProjection(null); setStatutsLignes([]); setRecouverts([]); setStatutErreur(''); // reset décisions (DANS l'async)
       try {
         const res = await fetch(`/api/admin/permis/rattachement?dossierId=${ouvert}`, { cache: 'no-store' });
@@ -452,13 +459,34 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter }: { vu
         </div>
         {permisOuvert && (
           <div className="flex flex-col gap-2">
-            {/* BAT-2b — état des sous-sections (cohérence cartes + altitudes) sur leurs titres, comme dans les 4 autres vues (aide section 4 conservée). */}
-            <CaracteristiquesBloc avecEtatFamilles dossierId={detail.dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />
+            {/* B2 — VERROU d'édition d'une validation. Défaut LECTURE SEULE pour tous (admin compris) : « Modifier » (visible avec la
+                capacité peutModifierPermis) ouvre la pop-up 1 ; sa confirmation déverrouille altitude (CaracteristiquesBloc) ET emprise
+                (BlocTraceEmprise, monté seulement ici). Le permis NE redescend PAS en Analyse (aucune action de rattachement déclenchée). */}
+            <BandeauModificationValidation modifOuverte={modifOuverte} peutModifier={peutModifierPermis}
+              onDemander={() => setPopupModif(true)} onVerrouiller={() => setModifOuverte(false)} />
+            {/* BAT-2b — état des sous-sections (cohérence cartes + altitudes) sur leurs titres, comme dans les 4 autres vues (aide section 4 conservée).
+                B2 — `lectureSeule` VERROUILLE l'édition de l'altitude tant que la modification n'est pas déverrouillée (ferme l'effet de bord : un admin ne modifie plus par inadvertance). */}
+            <CaracteristiquesBloc avecEtatFamilles lectureSeule={!modifOuverte} dossierId={detail.dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />
+            {/* B2 — ÉDITEUR d'emprise (polygone) : monté UNIQUEMENT une fois la modification déverrouillée (client lourd pdf.js → jamais chargé
+                en consultation). Verrouillé, l'emprise reste consultable via le schéma figé plus haut (configuration d'origine / projetée). */}
+            {modifOuverte && (
+              <div className="flex flex-col gap-1">
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' }}>Emprise des bâtiments — modification</div>
+                <BlocTraceEmprise dossierId={detail.dossierId} />
+              </div>
+            )}
             <div className="svv-card" style={{ fontSize: 12 }}>
               <div style={{ fontSize: 12, fontWeight: 700, marginBottom: '.3rem' }}>Pièces jointes</div>
               <CellulePieces pieces={detail.pieces} onTelecharger={(id, source) => void telecharger(id, source)} />
             </div>
           </div>
+        )}
+        {/* B2 — POP-UP 1 : confirmation AVANT d'ouvrir la modification d'une validation précédente. Confirmer → déverrouille ; Annuler → rien
+            n'est déverrouillé. (La date/l'auteur de validation ne sont pas exposés au client dans ce lot → message générique honnête.) */}
+        {popupModif && (
+          <PopUpConfirmerModification
+            onConfirmer={() => { setModifOuverte(true); setPopupModif(false); }}
+            onAnnuler={() => setPopupModif(false)} />
         )}
       </div>
     );

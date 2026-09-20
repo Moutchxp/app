@@ -19,7 +19,11 @@ type SearchParams = Promise<{ [key: string]: string | string[] | undefined }>;
 export default async function PermisPage({ searchParams }: { searchParams: SearchParams }) {
   const jeton = (await cookies()).get(NOM_COOKIE)?.value;
   const payload = jeton ? await verifierJeton(jeton) : null;
-  const estAdmin = payload ? sessionDepuisPayload(payload).role === 'administrateur' : false;
+  const session = payload ? sessionDepuisPayload(payload) : null;
+  const estAdmin = session?.role === 'administrateur';
+  // RATT-EDIT (lot B2) — capacité « modifier un permis après validation » (garde A3, incluse dans le JWS). Threadée au client pour
+  //   afficher/masquer le bouton « Modifier » de l'onglet Rattachement. Le vrai garde-fou reste SERVEUR (exigerCapaciteModif sur les routes).
+  const peutModifierPermis = session?.peutModifierPermis ?? false;
   const config = await chargerConfigVeille();
 
   // SURV-1 — lien direct depuis un e-mail d'alerte : `?q=<num_dau>` pré-filtre la liste des dossiers (onglet « Dossiers »).
@@ -39,7 +43,8 @@ export default async function PermisPage({ searchParams }: { searchParams: Searc
       />
       {estAdmin ? (
         <PermisTuile depuisParDefaut={depuisParDefaut} categories={categoriesConnues(config)}
-          ancienneteMaxAnnees={config.ancienneteMaxDemandeAnnees} triLibelle={libelleTriCandidats(config.triCandidats)} qInitial={qInitial} />
+          ancienneteMaxAnnees={config.ancienneteMaxDemandeAnnees} triLibelle={libelleTriCandidats(config.triCandidats)} qInitial={qInitial}
+          peutModifierPermis={peutModifierPermis} />
       ) : (
         <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>
           Cet espace est réservé aux administrateurs.
