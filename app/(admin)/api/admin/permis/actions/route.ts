@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../lib/admin/garde';
 import { chargerSuiviReponses } from '../../../../../lib/veille/reponsesSuivi';
 import { chargerSuiviSaisines } from '../../../../../lib/veille/saisinesSuivi';
 import { listerSuivi } from '../../../../../lib/permis/rattachementSuiviRepo';
@@ -17,7 +17,7 @@ import { ligneEnCoursASignaler } from '../../../../../lib/sitadel/demandesListe'
 export const runtime = 'nodejs';
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   try {
     const config = await chargerConfigVeille();

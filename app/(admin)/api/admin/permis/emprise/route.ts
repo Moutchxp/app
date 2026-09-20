@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../lib/admin/garde';
 import { listerEmprises, enregistrerEmprise, supprimerEmprise, lireContexteEmprise, listerIgnorees, ignorerProjection, retablirProjection, listerBatiments, lirePolygonesEmpreinte, lireVoisinageContexte, listerPolygonesProjetEcartes, ecarterPolygoneProjet, retablirPolygoneProjet, mesurerDebordement, apercuAdoptionEnProjet, apercuAffectations, adopterAffectations, supprimerEmprisesAdoptees, retoucherEmprise, enregistrerAjustement, supprimerAjustement, ajusterBloc, reinitialiserAjustementBloc, lireProjectionValidee, lireValideeParCorps, lireAltitudeValideeParCorps, type AffectationEntree, type CalageTrace } from '../../../../../lib/permis/empriseReconstruiteRepo';
 import { lireRayonContexteM } from '../../../../../lib/permis/projectionConfig';
 import { lireSelectionInfo, type SelectionInfo } from '../../../../../lib/permis/plancheParcellesRepo'; // PL-C4 — sélection validée pour le bandeau
@@ -65,7 +65,7 @@ async function reponseAjustement(dossierId: number, avant: Awaited<ReturnType<ty
 }
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   try {
     const dossierId = coercerDossierId(new URL(request.url).searchParams.get('dossierId'));
@@ -164,7 +164,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   try {
     const body = (await request.json().catch(() => ({}))) as {

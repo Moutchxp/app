@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * PL-C — route /api/admin/permis/planche POST (modification). Test FONCTIONNEL (garde + repos mockés) : sélection vide REFUSÉE,
  * provenance = admin authentifié (auteurDe), appels validerSelection / retirerSelection corrects. Jamais permis_parcelle.
  */
-vi.mock('../../../../../lib/admin/garde', () => ({ exigerAdministrateur: vi.fn(async () => ({ auteurId: 2 })) })); // admin id 2
+vi.mock('../../../../../lib/admin/garde', () => ({ exigerModule: vi.fn(async () => ({ auteurId: 2 })) })); // admin id 2
 vi.mock('../../../../../lib/permis/selectionParcelleRepo', () => ({
   validerSelection: vi.fn(async () => ({ ok: true, nbSelectionnees: 2, nbDemandees: 2, empreinte: null })),
   retirerSelection: vi.fn(async () => ({ ok: true, nbRetirees: 2, empreinte: null })),

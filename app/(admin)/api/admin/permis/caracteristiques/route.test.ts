@@ -5,7 +5,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * On mocke la garde, le dépôt (`ecrireCaracteristiquesGlobales`) et `query` (lecture des CHECK) : ce test porte sur le COMPORTEMENT
  * de l'action (garde admin, liste blanche des clés, écriture d'UNE seule clé en mode 'saisie'), pas sur le SQL.
  */
-vi.mock('../../../../../lib/admin/garde', () => ({ exigerAdministrateur: vi.fn() }));
+vi.mock('../../../../../lib/admin/garde', () => ({ exigerModule: vi.fn() }));
 vi.mock('../../../../../lib/db/client', () => ({ query: vi.fn(async () => ({ rows: [] })) }));
 vi.mock('../../../../../lib/permis/caracteristiquesRepo', () => ({
   lirePermisCaracteristiques: vi.fn(), ecrireGlobal: vi.fn(), ecrireCorps: vi.fn(async () => ({ ecrits: ['altitudeSommetNgf'], ignores: [] })),
@@ -15,10 +15,10 @@ vi.mock('../../../../../lib/permis/caracteristiquesRepo', () => ({
 }));
 
 import { POST } from './route';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../lib/admin/garde';
 import { ecrireCaracteristiquesGlobales, validerSommetCorps, ecrireCorps, lireAltitudeDernierPlancherCorps } from '../../../../../lib/permis/caracteristiquesRepo';
 
-const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
+const garde = exigerModule as unknown as ReturnType<typeof vi.fn>;
 const ecrire = ecrireCaracteristiquesGlobales as unknown as ReturnType<typeof vi.fn>;
 const validerSommet = validerSommetCorps as unknown as ReturnType<typeof vi.fn>;
 const ecrireUnCorps = ecrireCorps as unknown as ReturnType<typeof vi.fn>;

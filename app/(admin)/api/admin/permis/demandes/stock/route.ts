@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../../lib/sitadel/veilleConfig';
 import { stockPermisParCommune, lireDetailPermisCommune } from '../../../../../../lib/sitadel/demandeRepo';
 import { CATEGORIES_STOCK } from '../../../../../../lib/sitadel/stock';
@@ -22,7 +22,7 @@ function typeValide(v: string | null): CleCategorie | null {
 }
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   const url = new URL(request.url);
   const commune = url.searchParams.get('commune');

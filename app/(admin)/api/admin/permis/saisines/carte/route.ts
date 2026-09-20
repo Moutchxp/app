@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../../lib/admin/garde';
 import { chargerDonneesCarteCada } from '../../../../../../lib/veille/carteCadaDonnees';
 import { historiqueCopiesChamps, tracerCopieChamp, reinitialiserCopiesChamps } from '../../../../../../lib/veille/copieChampCada';
 import { messageHistoriqueCopies, CLES_CHAMPS_CADA } from '../../../../../../lib/veille/carteCadaChamps';
@@ -15,7 +15,7 @@ import { messageHistoriqueCopies, CLES_CHAMPS_CADA } from '../../../../../../lib
 export const runtime = 'nodejs';
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   try {
     const saisineId = Number(new URL(request.url).searchParams.get('saisineId'));
@@ -36,7 +36,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   try {
     const c = (await request.json().catch(() => ({}))) as { saisineId?: unknown; champCle?: unknown };
@@ -53,7 +53,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 export async function DELETE(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   try {
     const c = (await request.json().catch(() => ({}))) as { saisineId?: unknown };

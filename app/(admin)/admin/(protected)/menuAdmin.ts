@@ -15,6 +15,9 @@ const MODULES: ReadonlyArray<LienMenu & { perm: keyof Perms }> = [
   { slug: '/admin/internautes', libelle: 'Internautes (BD)', desc: 'Gestion des internautes.', perm: 'internautes' },
   { slug: '/admin/curation', libelle: 'Curation', desc: 'Modération et curation des contenus.', perm: 'curation' },
   { slug: '/admin/banc-test', libelle: 'Banc de test', desc: 'Outils de test et de diagnostic.', perm: 'banc_test' },
+  // RATT-EDIT (lot A2) — « Permis de construire » devient un module GARDÉ (perm_permis, migration 225), au lieu d'être réservé au rôle
+  //   administrateur. Un collaborateur avec le droit coché le voit ; sans le droit, l'entrée disparaît (comme les 6 autres modules).
+  { slug: '/admin/permis', libelle: 'Permis de construire', desc: 'Veille des autorisations d’urbanisme (Sitadel).', perm: 'permis' },
 ];
 
 /** Tuile « Administratif » — réservée au rôle administrateur (pas une permission de module). */
@@ -24,10 +27,8 @@ const ADMINISTRATIF: LienMenu = { slug: '/admin/comptes', libelle: 'Administrati
  *  pas une permission déléguable). Vue AGRÉGÉE : connexions et détection de force brute, sans identité ni IP. */
 const AUDIT: LienMenu = { slug: '/admin/audit', libelle: 'Audit', desc: 'Sécurité : connexions et force brute (agrégé).' };
 
-/** Tuile « Permis de construire » (veille S3) — réservée au rôle administrateur, comme « Audit » (pas une permission de
- *  module : aucune colonne perm_* ajoutée). Le proxy réserve déjà /admin/permis et /api/admin/permis à l'administrateur
- *  par son défaut fail-closed. Veille des autorisations d'urbanisme (Sitadel), en LECTURE SEULE. */
-const PERMIS: LienMenu = { slug: '/admin/permis', libelle: 'Permis de construire', desc: 'Veille des autorisations d’urbanisme (Sitadel).' };
+/** RATT-EDIT (lot A2) — « Permis de construire » N'EST PLUS réservé au rôle administrateur : c'est désormais un MODULE GARDÉ
+ *  (perm 'permis', déclaré dans MODULES ci-dessus + dans proxy.ts). Un collaborateur le voit s'il a le droit `perm_permis`. */
 
 /** Tuile « Sources de données » (fraîcheur lot 1) — réservée au rôle administrateur, comme « Audit »/« Permis ».
  *  État de fraîcheur des données qui font fonctionner l'outil (millésime, âge, surveillance, couverture), en LECTURE
@@ -47,7 +48,9 @@ const SOURCES: LienMenu = { slug: '/admin/sources', libelle: 'Sources de donnée
 export function liensVisibles(role: RoleAdmin, perms: Perms): LienMenu[] {
   const admin = role === 'administrateur';
   const liens: LienMenu[] = MODULES.filter((m) => admin || perms[m.perm]).map(({ slug, libelle, desc }) => ({ slug, libelle, desc }));
-  if (admin) liens.push(ADMINISTRATIF, AUDIT, PERMIS, SOURCES);
+  // RATT-EDIT (lot A2) — PERMIS a quitté cette liste réservée-admin : il est désormais dans MODULES (gardé par perm 'permis'), visible
+  //   selon le droit comme les 6 autres. ADMINISTRATIF/AUDIT/SOURCES restent réservés au RÔLE administrateur (non délégables).
+  if (admin) liens.push(ADMINISTRATIF, AUDIT, SOURCES);
   return liens;
 }
 
@@ -83,7 +86,7 @@ export function ordonner(liens: LienMenu[], ordreStocke: unknown): LienMenu[] {
 
 /** Ensemble des slugs de modules CONNUS (les 6 modules + Administratif + Audit) — source unique pour valider un
  *  ordre reçu. NB : c'est l'univers des slugs EXISTANTS, pas ceux visibles par un rôle donné (cf. `validerOrdreModules`). */
-export const SLUGS_MODULES: ReadonlySet<string> = new Set([...MODULES.map((m) => m.slug), ADMINISTRATIF.slug, AUDIT.slug, PERMIS.slug, SOURCES.slug]);
+export const SLUGS_MODULES: ReadonlySet<string> = new Set([...MODULES.map((m) => m.slug), ADMINISTRATIF.slug, AUDIT.slug, SOURCES.slug]); // RATT-EDIT (lot A2) — le slug /admin/permis vient désormais de MODULES.map (module gardé), plus de la liste réservée-admin
 
 /** Borne anti-DoS du tableau d'ordre reçu (très au-dessus des 8 modules réels) — évite un payload géant. */
 const MAX_ENTREES_ORDRE = 64;

@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../lib/admin/garde';
 import { query } from '../../../../../lib/db/client';
 import { chargerDemandesSuivi } from '../../../../../lib/veille/reponsesSuivi';
 import { compterEnCoursParProcess } from '../../../../../lib/sitadel/demandesListe';
@@ -20,7 +20,7 @@ import { compterEnCoursParProcess } from '../../../../../lib/sitadel/demandesLis
 export const runtime = 'nodejs';
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   try {
     const communes = await query<{ canal: string | null; n: number }>(

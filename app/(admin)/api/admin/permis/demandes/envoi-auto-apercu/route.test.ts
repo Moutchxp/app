@@ -6,19 +6,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * appelé en SIMULATION (`appliquer:false`) ; (2) les chiffres sont RELAYÉS des sources (jamais en dur) ; (3) « communes proposables »
  * ne compte que les communes DISTINCTES du process e-mail ; (4) la fenêtre d'ancienneté est la PLUS LARGE (12 × max annees).
  */
-vi.mock('../../../../../../lib/admin/garde', () => ({ exigerAdministrateur: vi.fn() }));
+vi.mock('../../../../../../lib/admin/garde', () => ({ exigerModule: vi.fn() }));
 vi.mock('../../../../../../lib/sitadel/veilleConfig', () => ({ chargerConfigVeille: vi.fn() }));
 vi.mock('../../../../../../lib/sitadel/demandeRepo', () => ({ proposition: vi.fn() }));
 vi.mock('../../../../../../lib/sitadel/envoiDemande', () => ({ envoyerDemandes: vi.fn() }));
 // process (dansProcess/processDeCanal) NON mocké : on éprouve le VRAI filtre e-mail.
 
 import { GET } from './route';
-import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../../lib/sitadel/veilleConfig';
 import { proposition } from '../../../../../../lib/sitadel/demandeRepo';
 import { envoyerDemandes } from '../../../../../../lib/sitadel/envoiDemande';
 
-const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
+const garde = exigerModule as unknown as ReturnType<typeof vi.fn>;
 const cfg = chargerConfigVeille as unknown as ReturnType<typeof vi.fn>;
 const prop = proposition as unknown as ReturnType<typeof vi.fn>;
 const envoi = envoyerDemandes as unknown as ReturnType<typeof vi.fn>;

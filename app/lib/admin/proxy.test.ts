@@ -247,6 +247,51 @@ describe('proxy — routes de module nouvellement déclarées (statistiques, geo
   });
 });
 
+describe('proxy — RATT-EDIT (lot A2) : « Permis de construire » devient un module gardé (perm_permis)', () => {
+  const avecPermis = () => collab({ ...permsAucune(), permis: true });
+
+  it('/admin/permis (page) : collaborateur SANS perm_permis → redirection /admin (plus admin-only par défaut, mais gardé par le droit)', async () => {
+    const res = await proxy(await requete('/admin/permis', collab()));
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toMatch(/\/admin$/);
+  });
+
+  it('/api/admin/permis (API) : collaborateur SANS perm_permis → 403 (URL saisie à la main comprise)', async () => {
+    for (const p of ['/api/admin/permis', '/api/admin/permis/projection', '/api/admin/permis/caracteristiques']) {
+      const res = await proxy(await requete(p, collab()));
+      expect(res.status, p).toBe(403);
+    }
+  });
+
+  it('/admin/permis + /api/admin/permis/* : collaborateur AVEC perm_permis → passe le proxy', async () => {
+    for (const p of ['/admin/permis', '/api/admin/permis/projection', '/api/admin/permis/caracteristiques']) {
+      const res = await proxy(await requete(p, avecPermis()));
+      expect(res.status, p).not.toBe(403);
+      expect(res.status, p).not.toBe(307);
+    }
+  });
+
+  it('administrateur → /admin/permis et /api/admin/permis/* laissés passer (inchangé fonctionnellement)', async () => {
+    for (const p of ['/admin/permis', '/api/admin/permis', '/api/admin/permis/rattachement']) {
+      const res = await proxy(await requete(p, admin()));
+      expect(res.status, p).not.toBe(403);
+      expect(res.status, p).not.toBe(307);
+    }
+  });
+
+  it('ISOLATION : perm_permis n’ouvre PAS les 6 autres modules (curation reste 403) ; et perm_curation n’ouvre PAS permis', async () => {
+    expect((await proxy(await requete('/api/admin/curation', avecPermis()))).status).toBe(403);
+    const avecCuration = () => collab({ ...permsAucune(), curation: true });
+    expect((await proxy(await requete('/api/admin/permis', avecCuration()))).status).toBe(403);
+  });
+
+  it('VOIE DE SECOURS (sub=null, administrateur) → /api/admin/permis accessible', async () => {
+    const res = await proxy(await requete('/api/admin/permis', secours()));
+    expect(res.status).not.toBe(403);
+    expect(res.status).not.toBe(307);
+  });
+});
+
 describe('proxy — allow-list AUTHENTIFIÉ-SEUL (sans permission de module)', () => {
   it.each([
     '/admin',

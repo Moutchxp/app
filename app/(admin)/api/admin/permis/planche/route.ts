@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../lib/admin/garde';
 import { parcellesVoisines, suggestionsAdresse, bornerRayon, type PlancheParcelles, type CentreMode } from '../../../../../lib/permis/plancheParcellesRepo';
 import { validerSelection, retirerSelection } from '../../../../../lib/permis/selectionParcelleRepo';
 
@@ -24,7 +24,7 @@ const plancheVide = (rayon: number): PlancheParcelles => ({
 });
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   const url = new URL(request.url);
   const dossierId = Number(url.searchParams.get('dossierId'));
@@ -55,7 +55,7 @@ export async function GET(request: Request): Promise<Response> {
 
 /** POST — MODIFICATION (valider / retirer une sélection superposée). L'admin authentifié est l'auteur. Renvoie la planche à jour. */
 export async function POST(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   const auteur = auteurDe(garde);
   const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number; idus?: unknown };

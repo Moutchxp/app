@@ -29,11 +29,26 @@ describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
     expect(liens).toHaveLength(0);
   });
 
-  it('collaborateur avec TOUTES les perms → 6 modules mais JAMAIS Administratif (rôle, pas permission)', () => {
+  it('collaborateur avec TOUTES les perms → 7 modules dont « Permis de construire » (RATT-EDIT lot A2), mais JAMAIS Administratif/Audit/Sources (rôle, pas permission)', () => {
     const slugs = liensVisibles('collaborateur', permsToutes()).map((l) => l.slug);
-    expect(slugs).toHaveLength(6);
+    expect(slugs).toHaveLength(7); // 6 modules historiques + Permis
+    expect(slugs).toContain('/admin/permis'); // RATT-EDIT — désormais un module GARDÉ, visible avec le droit
     expect(slugs).not.toContain('/admin/comptes');
     expect(slugs).not.toContain('/admin/audit');
+    expect(slugs).not.toContain('/admin/sources'); // Sources reste réservé au RÔLE administrateur
+  });
+
+  it('collaborateur SANS perm_permis → « Permis de construire » ABSENT du menu (RATT-EDIT lot A2 : gardé par le droit)', () => {
+    const slugs = liensVisibles('collaborateur', { ...permsAucune(), curation: true }).map((l) => l.slug);
+    expect(slugs).not.toContain('/admin/permis');
+  });
+
+  it('administrateur → voit « Permis de construire » (module) ET Administratif/Audit/Sources (rôle)', () => {
+    const slugs = liensVisibles('administrateur', permsAucune()).map((l) => l.slug); // rôle prime : perms ignorées
+    expect(slugs).toContain('/admin/permis');
+    expect(slugs).toContain('/admin/comptes');
+    expect(slugs).toContain('/admin/audit');
+    expect(slugs).toContain('/admin/sources');
   });
 
   it('chaque lien porte libellé + description (contrat unique menu latéral ET grille du dashboard)', () => {

@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../lib/sitadel/veilleConfig';
 import { listerArchives, deposerDocumentSurPermis, supprimerDocumentDossier } from '../../../../../lib/sitadel/demandeRepo';
 
@@ -23,7 +23,7 @@ function journaliser(contexte: string, e: unknown, extra: Record<string, unknown
 }
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   try {
     return Response.json({ archives: await listerArchives(await chargerConfigVeille()) });
@@ -34,7 +34,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   let dossierCtx: unknown;
   try {
@@ -57,7 +57,7 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 export async function DELETE(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   let documentCtx: unknown;
   try {

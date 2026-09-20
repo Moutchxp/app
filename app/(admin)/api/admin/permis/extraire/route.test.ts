@@ -5,17 +5,17 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * teste le COMPORTEMENT de la route (garde admin, validation dossierId, vision TOUJOURS incluse à la relève, compte rendu relayé,
  * 404/503). L'orchestration elle-même est un module serveur à part.
  */
-vi.mock('../../../../../lib/admin/garde', () => ({ exigerAdministrateur: vi.fn() }));
+vi.mock('../../../../../lib/admin/garde', () => ({ exigerModule: vi.fn() }));
 vi.mock('../../../../../lib/permis/executerExtraction', () => ({ executerExtractionPermis: vi.fn() }));
 // LOT 58 — verrou MOCKÉ : par défaut il exécute `fn` (passe-plat) ; un cas force « occupé » pour le 409. Aucune vraie base.
 vi.mock('../../../../../lib/permis/verrouExtraction', () => ({ avecVerrouDossier: vi.fn() }));
 
 import { POST } from './route';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../lib/admin/garde';
 import { executerExtractionPermis } from '../../../../../lib/permis/executerExtraction';
 import { avecVerrouDossier } from '../../../../../lib/permis/verrouExtraction';
 
-const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
+const garde = exigerModule as unknown as ReturnType<typeof vi.fn>;
 const extraire = executerExtractionPermis as unknown as ReturnType<typeof vi.fn>;
 const verrou = avecVerrouDossier as unknown as ReturnType<typeof vi.fn>;
 const req = (body: unknown) => POST(new Request('http://test/api/admin/permis/extraire', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }));

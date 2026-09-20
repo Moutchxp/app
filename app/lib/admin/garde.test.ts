@@ -6,7 +6,7 @@ vi.mock('../db/client', () => ({
   query: (...args: unknown[]) => queryMock(...args),
 }));
 
-import { exigerCompteActif } from './garde';
+import { exigerCompteActif, exigerModule, exigerAdministrateur } from './garde';
 import { signerJeton, permsToutes, permsAucune, NOM_COOKIE, type SessionAdmin } from './session';
 
 const SECRET = 'secret-de-test-suffisamment-long-pour-hs256-0123456789';
@@ -28,6 +28,7 @@ async function requete(session: SessionAdmin): Promise<Request> {
 const secours = (): SessionAdmin => ({ sub: null, identifiant: null, role: 'administrateur', perms: permsToutes(), doitChanger: false });
 const admin = (): SessionAdmin => ({ sub: 1, identifiant: 'a.jorel@sansvisavis.com', role: 'administrateur', perms: permsToutes(), doitChanger: false });
 const collab = (): SessionAdmin => ({ sub: 3, identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsAucune(), curation: true }, doitChanger: false });
+const collabPermis = (): SessionAdmin => ({ sub: 3, identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsAucune(), permis: true }, doitChanger: false });
 
 async function corps(res: Response) {
   return res.json();
@@ -83,6 +84,52 @@ describe('exigerCompteActif — comptes nommés (relecture base)', () => {
     // Le compte a été promu administrateur en base : autorisé même si perm colonne = false.
     queryMock.mockResolvedValue({ rows: [{ actif: true, role: 'administrateur', perm: false }] });
     expect(await exigerCompteActif(await requete(collab()), 'curation')).toBeNull();
+  });
+});
+
+describe('exigerModule — RATT-EDIT (lot A2) : garde d’un module (perm_permis) avec auteurId (routes CONVERTIES)', () => {
+  it('voie de secours (sub=null) → autorisé {auteurId:null}, AUCUNE requête base', async () => {
+    const g = await exigerModule(await requete(secours()), 'permis');
+    expect(g).toEqual({ auteurId: null });
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('collaborateur AVEC perm_permis → autorisé {auteurId} (SELECT perm_permis)', async () => {
+    queryMock.mockResolvedValue({ rows: [{ actif: true, role: 'collaborateur', perm: true }] });
+    expect(await exigerModule(await requete(collabPermis()), 'permis')).toEqual({ auteurId: 3 });
+    expect(String(queryMock.mock.calls[0][0])).toContain('perm_permis AS perm');
+  });
+
+  it('collaborateur SANS perm_permis (retiré en base) → refus 403 (defense in depth)', async () => {
+    queryMock.mockResolvedValue({ rows: [{ actif: true, role: 'collaborateur', perm: false }] });
+    const g = await exigerModule(await requete(collabPermis()), 'permis');
+    expect('refus' in g).toBe(true);
+    if ('refus' in g) expect(g.refus.status).toBe(403);
+  });
+
+  it('administrateur → autorisé {auteurId} (rôle ⇒ toutes perms, colonne outrepassée)', async () => {
+    queryMock.mockResolvedValue({ rows: [{ actif: true, role: 'administrateur', perm: false }] });
+    expect(await exigerModule(await requete(admin()), 'permis')).toEqual({ auteurId: 1 });
+  });
+
+  it('compte désactivé → refus 403', async () => {
+    queryMock.mockResolvedValue({ rows: [{ actif: false, role: 'collaborateur', perm: true }] });
+    const g = await exigerModule(await requete(collabPermis()), 'permis');
+    expect('refus' in g).toBe(true);
+  });
+});
+
+describe('RATT-EDIT (lot A2) — routes MAINTENUES admin-only : un collaborateur AVEC perm_permis reste REFUSÉ', () => {
+  it('exigerAdministrateur (garde des routes maintenues : reglages/depot/relever/repondre…) refuse un collaborateur même avec perm_permis → 403', async () => {
+    queryMock.mockResolvedValue({ rows: [{ actif: true, role: 'collaborateur' }] }); // role != administrateur
+    const g = await exigerAdministrateur(await requete(collabPermis()));
+    expect('refus' in g).toBe(true);
+    if ('refus' in g) expect(g.refus.status).toBe(403);
+  });
+
+  it('… et l’ADMINISTRATEUR passe ces mêmes routes maintenues', async () => {
+    queryMock.mockResolvedValue({ rows: [{ actif: true, role: 'administrateur' }] });
+    expect(await exigerAdministrateur(await requete(admin()))).toEqual({ auteurId: 1 });
   });
 });
 

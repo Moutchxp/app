@@ -28,6 +28,7 @@ const PERMISSIONS: ReadonlyArray<readonly [string, Module]> = [
   ['/admin/internautes', 'internautes'],
   ['/admin/curation', 'curation'],
   ['/admin/banc-test', 'banc_test'],
+  ['/admin/permis', 'permis'], // RATT-EDIT (lot A2) — « Permis de construire » devient un module gardé (perm_permis) au lieu du défaut fail-closed administrateur-only
   // Routes d'API correspondantes (defense in depth : vérifiées au proxy ET dans chaque handler via garde.ts).
   ['/api/admin/config', 'pilotage'],
   ['/api/admin/cartes-annee', 'cartes_annee'],
@@ -36,6 +37,10 @@ const PERMISSIONS: ReadonlyArray<readonly [string, Module]> = [
   ['/api/admin/curation', 'curation'],
   ['/api/admin/banc-comparer', 'banc_test'],
   ['/api/admin/banc-profil-actif', 'banc_test'],
+  // RATT-EDIT (lot A2) — le préfixe couvre TOUTES les routes /api/admin/permis/* : au proxy, il faut le module 'permis'. Les routes
+  //   MAINTENUES administrateur-only (dépôt, envoi mairie, réglages globaux, comptes…) restent gardées EN PROFONDEUR par leur handler
+  //   (exigerAdministrateur) → un collaborateur avec 'permis' passe le proxy mais reçoit 403 sur ces routes-là. Sans 'permis' : bloqué ici.
+  ['/api/admin/permis', 'permis'],
 ];
 
 /** Permission requise pour un chemin, ou `null` si aucune (chemin authentifié suffit). */

@@ -31,6 +31,7 @@ export async function POST(request: Request, ctx: Ctx) {
     internautes: pb.internautes === true,
     curation: pb.curation === true,
     banc_test: pb.banc_test === true,
+    permis: pb.permis === true, // RATT-EDIT (lot A2) — module « Permis de construire »
   };
 
   const ok = await modifierPermissions(idNum, perms, garde.auteurId);

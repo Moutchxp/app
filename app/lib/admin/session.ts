@@ -1,8 +1,10 @@
 import 'server-only';
 import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 
-/** Modules de la barre latérale = les 6 permissions granulaires (M3). Ordre = ordre du menu. */
-export const MODULES = ['pilotage', 'cartes_annee', 'statistiques', 'internautes', 'curation', 'banc_test'] as const;
+/** Modules de la barre latérale = les permissions granulaires (M3). Ordre = ordre du menu.
+ *  RATT-EDIT (lot A2) : 'permis' rejoint les 6 modules historiques → « Permis de construire » devient un module GARDÉ par
+ *  collaborateur (colonne perm_permis, migration 225), au lieu d'être réservé au rôle administrateur. */
+export const MODULES = ['pilotage', 'cartes_annee', 'statistiques', 'internautes', 'curation', 'banc_test', 'permis'] as const;
 export type Module = (typeof MODULES)[number];
 export type Perms = Record<Module, boolean>;
 export type RoleAdmin = 'administrateur' | 'collaborateur';
@@ -20,12 +22,12 @@ export interface SessionAdmin {
 
 /** Toutes permissions à true (administrateur, ou voie de secours). */
 export function permsToutes(): Perms {
-  return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true };
+  return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true };
 }
 
 /** Toutes permissions à false (collaborateur par défaut ; complétées au Lot 4). */
 export function permsAucune(): Perms {
-  return { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false };
+  return { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false };
 }
 
 /** Nom du cookie de session admin. */

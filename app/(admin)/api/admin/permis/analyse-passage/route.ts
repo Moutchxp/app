@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../lib/admin/garde';
 import { analyserAuPassageEnAnalyse } from '../../../../../lib/permis/analysePassage';
 import { avecVerrouDossier } from '../../../../../lib/permis/verrouExtraction';
 
@@ -13,7 +13,7 @@ import { avecVerrouDossier } from '../../../../../lib/permis/verrouExtraction';
 export const runtime = 'nodejs';
 
 export async function POST(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   let ctx: unknown;
   try {

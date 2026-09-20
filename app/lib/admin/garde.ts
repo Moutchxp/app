@@ -71,6 +71,35 @@ export async function exigerAdministrateur(request: Request): Promise<GardeAdmin
 }
 
 /**
+ * RATT-EDIT (lot A2) — DEUXIÈME BARRIÈRE d'un MODULE gardé, équivalent de `exigerAdministrateur` mais pour une PERMISSION DE MODULE
+ * (`perm_${module}`), avec le MÊME contrat `GardeAdmin` (`{refus}` | `{auteurId}`) → les handlers convertis conservent `garde.auteurId`
+ * (journalisation) SANS changer leur corps : seule la ligne de garde change (`exigerAdministrateur(request)` → `exigerModule(request, 'permis')`).
+ * Relit role/actif/perm EN BASE (le JWS vit ≤ 8 h : un droit retiré coupe l'accès au prochain appel). RÈGLE D'OR : `sub === null`
+ * (voie de secours / jeton legacy) → autorisé SANS requête, `auteurId = null` (jamais de refus « 0 ligne » qui enfermerait Arno dehors).
+ * Administrateur → autorisé (permissions implicites). Collaborateur → autorisé ssi `perm_${module} = true`. `module` ∈ union fermée `Module`
+ * → nom de colonne sûr. Défense en profondeur : le proxy garde déjà le préfixe /api/admin/permis.
+ */
+export async function exigerModule(request: Request, module: Module): Promise<GardeAdmin> {
+  const jeton = lireCookie(request, NOM_COOKIE);
+  const payload = jeton ? await verifierJeton(jeton) : null;
+  if (!payload) return { refus: refusRevoque() };
+
+  const session = sessionDepuisPayload(payload);
+  if (session.sub === null) return { auteurId: null }; // voie de secours / legacy → administrateur, auteur inconnu
+
+  const colonne = `perm_${module}`;
+  const { rows } = await query<{ actif: boolean; role: string; perm: boolean }>(
+    `SELECT actif, role, ${colonne} AS perm FROM admin_utilisateur WHERE id = $1`,
+    [session.sub],
+  );
+  const compte = rows[0];
+  if (!compte || !compte.actif) return { refus: refusRevoque() };
+  if (compte.role === 'administrateur') return { auteurId: session.sub }; // administrateur ⇒ toutes permissions
+  if (!compte.perm) return { refus: refusRevoque() };                    // collaborateur sans le droit
+  return { auteurId: session.sub };
+}
+
+/**
  * Révocation IMMÉDIATE sur une route d'ÉCRITURE (M3-0). `proxy.ts` autorise d'après le JWS, figé jusqu'à
  * 8 h ; ce garde relit l'état RÉEL du compte en base à chaque écriture, pour que la désactivation d'un
  * compte ou le retrait d'une permission coupe l'accès au prochain appel — sans attendre l'expiration du jeton.

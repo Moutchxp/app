@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../../lib/sitadel/veilleConfig';
 import { chargerVivier, communesBloqueesTeleservice, plafondsTeleservice, idsDossiersCartesVirtuelles } from '../../../../../../lib/sitadel/demandeRepo';
 import { rechercherDansVivier, parseTriVivier } from '../../../../../../lib/sitadel/rechercheVivier';
@@ -17,7 +17,7 @@ export const runtime = 'nodejs';
 const CAP = 50; // résultats renvoyés au plus (le total réel est indiqué pour signaler une troncature)
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   const url = new URL(request.url);
   const q = (url.searchParams.get('q') ?? '').trim();

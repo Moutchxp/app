@@ -27,7 +27,7 @@ import {
   ErreurCompte,
 } from './comptes';
 
-const PERMS_VIDE = { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false };
+const PERMS_VIDE = { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false };
 
 /** Ligne compte minimale renvoyée par trouverCompte. */
 function ligne(over: Partial<Record<string, unknown>> = {}): Record<string, unknown> {

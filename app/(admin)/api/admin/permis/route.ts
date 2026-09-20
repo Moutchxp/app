@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../lib/admin/garde';
+import { exigerModule } from '../../../../lib/admin/garde';
 import { lireFiltres, lirePagination } from '../../../../lib/sitadel/priorite';
 import { chargerConfigVeille } from '../../../../lib/sitadel/veilleConfig';
 import { lireVeille } from '../../../../lib/sitadel/veilleRepo';
@@ -7,7 +7,7 @@ import { lireVeille } from '../../../../lib/sitadel/veilleRepo';
 /**
  * GET /api/admin/permis — LISTE FILTRÉE paginée de la veille « Permis de construire » (chantier S3, LECTURE SEULE).
  *
- * PERMISSION : réservé au RÔLE ADMINISTRATEUR (`exigerAdministrateur`, relit role+actif en base). La route n'est PAS
+ * PERMISSION : réservé au RÔLE ADMINISTRATEUR (`exigerModule`, relit role+actif en base). La route n'est PAS
  * déclarée dans `proxy.ts` → le défaut FAIL-CLOSED du proxy la réserve déjà à l'administrateur (les collaborateurs sont
  * refusés) ; ce garde est la seconde barrière (défense en profondeur, comme /api/admin/internautes et /api/admin/audit).
  *
@@ -18,7 +18,7 @@ export const runtime = 'nodejs';
 
 export async function GET(request: Request): Promise<Response> {
   try {
-    const garde = await exigerAdministrateur(request);
+    const garde = await exigerModule(request, 'permis');
     if ('refus' in garde) return garde.refus;
 
     const url = new URL(request.url);

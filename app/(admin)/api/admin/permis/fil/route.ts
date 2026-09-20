@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../lib/admin/garde';
 import { lireFilPermis } from '../../../../../lib/permis/filPermisRepo';
 
 /**
@@ -10,7 +10,7 @@ import { lireFilPermis } from '../../../../../lib/permis/filPermisRepo';
 export const runtime = 'nodejs';
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   const dossierId = Number(new URL(request.url).searchParams.get('dossierId'));
   if (!Number.isInteger(dossierId) || dossierId <= 0) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });

@@ -4,15 +4,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * D3 — GET /vivier-recherche. On MOCKE chargerVivier (+ garde + config) : ce fichier teste le COMPORTEMENT de la route
  * (garde admin, validation du process, requête vide, passe-plat + scoping). La recherche pure est testée dans rechercheVivier.test.ts.
  */
-vi.mock('../../../../../../lib/admin/garde', () => ({ exigerAdministrateur: vi.fn() }));
+vi.mock('../../../../../../lib/admin/garde', () => ({ exigerModule: vi.fn() }));
 vi.mock('../../../../../../lib/sitadel/veilleConfig', () => ({ chargerConfigVeille: vi.fn(async () => ({ ancienneteMaxDemandeAnnees: 1 })) }));
 vi.mock('../../../../../../lib/sitadel/demandeRepo', () => ({ chargerVivier: vi.fn(), communesBloqueesTeleservice: vi.fn(), plafondsTeleservice: vi.fn(), idsDossiersCartesVirtuelles: vi.fn() }));
 
 import { GET } from './route';
-import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../../lib/admin/garde';
 import { chargerVivier, communesBloqueesTeleservice, plafondsTeleservice, idsDossiersCartesVirtuelles } from '../../../../../../lib/sitadel/demandeRepo';
 
-const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
+const garde = exigerModule as unknown as ReturnType<typeof vi.fn>;
 const vivier = chargerVivier as unknown as ReturnType<typeof vi.fn>;
 const bloquees = communesBloqueesTeleservice as unknown as ReturnType<typeof vi.fn>;
 const plafonds = plafondsTeleservice as unknown as ReturnType<typeof vi.fn>;

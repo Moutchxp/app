@@ -1,6 +1,6 @@
 import 'server-only';
 import { query } from '../../../../../lib/db/client';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../lib/admin/garde';
 import { parserBornesCheck, parserListeCheck, parserListeArrayCheck, type BornesParColonne } from '../../../../../lib/sitadel/reglagesVeille';
 import { libelleNatureProjet } from '../../../../../lib/sitadel/priorite';
 import { lirePermisCaracteristiques, ecrireGlobal, ecrireCorps, ecrireCaracteristiquesGlobales, ecrireDestinations, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, validerSommetCorps, lireAltitudeDernierPlancherCorps, attribuerNomsRepli, lireCartesPourPlan, retirerCorps, reactiverCorps, lireCorpsRetires, journalBatiments, type ValeursCorps, type CorpsRetire } from '../../../../../lib/permis/caracteristiquesRepo';
@@ -93,7 +93,7 @@ function horsBornes(valeurs: ValeursCorps, bornes: BornesParColonne): string | n
 }
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   const urlReq = new URL(request.url);
   const dossierId = Number(urlReq.searchParams.get('dossierId'));
@@ -165,7 +165,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   const auteur = auteurDe(garde);
 

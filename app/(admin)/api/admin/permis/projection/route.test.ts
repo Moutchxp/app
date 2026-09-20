@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
  * Garde et repo mockés ; on teste le passage/validation de la requête et le mapping des résultats.
  */
 vi.mock('server-only', () => ({}));
-vi.mock('../../../../../lib/admin/garde', () => ({ exigerAdministrateur: async () => ({ admin: { id: 1 } }) }));
+vi.mock('../../../../../lib/admin/garde', () => ({ exigerModule: async () => ({ admin: { id: 1 } }) }));
 vi.mock('../../../../../lib/sitadel/veilleConfig', () => ({ chargerConfigVeille: async () => ({}) }));
 vi.mock('../../../../../lib/permis/projectionFileRepo', () => ({
   listerFileProjection: async () => [{ dossierId: 11434, numDau: 'PC1', communeNom: 'Paris', natureLibelle: 'Construction neuve', nbBatiments: 2, satisfaitLe: '2026-07-01' }],

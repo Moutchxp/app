@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../lib/admin/garde';
 import { lireCompletude, recalculerCompletude } from '../../../../../lib/permis/completudeRepo';
 
 /**
@@ -14,7 +14,7 @@ import { lireCompletude, recalculerCompletude } from '../../../../../lib/permis/
 export const runtime = 'nodejs';
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   const dossierId = Number(new URL(request.url).searchParams.get('dossierId'));
   if (!Number.isInteger(dossierId) || dossierId <= 0) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });
@@ -27,7 +27,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   const { dossierId } = (await request.json().catch(() => ({}))) as { dossierId?: unknown };
   if (!Number.isInteger(dossierId) || (dossierId as number) <= 0) return Response.json({ erreur: 'dossierId invalide' }, { status: 400 });

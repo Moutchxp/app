@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../../lib/admin/garde';
 import { chargerDonneesCarteCada } from '../../../../../../lib/veille/carteCadaDonnees';
 
 /**
@@ -10,7 +10,7 @@ import { chargerDonneesCarteCada } from '../../../../../../lib/veille/carteCadaD
 export const runtime = 'nodejs';
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   try {
     const saisineId = Number(new URL(request.url).searchParams.get('saisineId'));

@@ -4,14 +4,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  * PART-2 / PERF-2 — routes /permis/completude. On MOCKE la garde + le repo : ce fichier teste le COMPORTEMENT (garde admin,
  * validation dossierId, GET lecture, POST recalcul non bloquant, relais du diagnostic à jour, 503 → le client dira l'échec).
  */
-vi.mock('../../../../../lib/admin/garde', () => ({ exigerAdministrateur: vi.fn() }));
+vi.mock('../../../../../lib/admin/garde', () => ({ exigerModule: vi.fn() }));
 vi.mock('../../../../../lib/permis/completudeRepo', () => ({ lireCompletude: vi.fn(), recalculerCompletude: vi.fn() }));
 
 import { GET, POST } from './route';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../lib/admin/garde';
 import { lireCompletude, recalculerCompletude } from '../../../../../lib/permis/completudeRepo';
 
-const garde = exigerAdministrateur as unknown as ReturnType<typeof vi.fn>;
+const garde = exigerModule as unknown as ReturnType<typeof vi.fn>;
 const lire = lireCompletude as unknown as ReturnType<typeof vi.fn>;
 const recalc = recalculerCompletude as unknown as ReturnType<typeof vi.fn>;
 

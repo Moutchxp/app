@@ -1,5 +1,5 @@
 import 'server-only';
-import { exigerAdministrateur } from '../../../../../lib/admin/garde';
+import { exigerModule } from '../../../../../lib/admin/garde';
 import { chargerConfigVeille } from '../../../../../lib/sitadel/veilleConfig';
 import { listerFileProjection, validerProjection, sortirTestVersRattachement } from '../../../../../lib/permis/projectionFileRepo';
 import { retirerTestAnalyse } from '../../../../../lib/permis/testAnalyseRepo';
@@ -16,7 +16,7 @@ import { retirerTestAnalyse } from '../../../../../lib/permis/testAnalyseRepo';
 export const runtime = 'nodejs';
 
 export async function GET(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   try {
     return Response.json({ file: await listerFileProjection(await chargerConfigVeille()) });
@@ -27,7 +27,7 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function POST(request: Request): Promise<Response> {
-  const garde = await exigerAdministrateur(request);
+  const garde = await exigerModule(request, 'permis');
   if ('refus' in garde) return garde.refus;
   try {
     const body = (await request.json().catch(() => ({}))) as { action?: string; dossierId?: number | string };
