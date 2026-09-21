@@ -59,7 +59,9 @@ export async function exigerAdministrateur(request: Request): Promise<GardeAdmin
   if (!payload) return { refus: refusInterdit() };
 
   const session = sessionDepuisPayload(payload);
-  if (session.sub === null) return { auteurId: null }; // voie de secours = administrateur (auteur inconnu)
+  // FAIL-CLOSED (M1) : la voie de secours doit porter une CLAIM POSITIVE (role administrateur, cf. session/route.ts:107).
+  //   sub null MAIS rôle non-administrateur = jeton mal formé/forgé → refus (jamais admin « par défaut »), sans requête base.
+  if (session.sub === null) return session.role === 'administrateur' ? { auteurId: null } : { refus: refusInterdit() };
 
   const { rows } = await query<{ actif: boolean; role: string }>(
     `SELECT actif, role FROM admin_utilisateur WHERE id = $1`,
@@ -85,7 +87,8 @@ export async function exigerModule(request: Request, module: Module): Promise<Ga
   if (!payload) return { refus: refusRevoque() };
 
   const session = sessionDepuisPayload(payload);
-  if (session.sub === null) return { auteurId: null }; // voie de secours / legacy → administrateur, auteur inconnu
+  // FAIL-CLOSED (M1) : voie de secours = sub null AVEC role administrateur explicite ; sinon (jeton mal formé/forgé) refus.
+  if (session.sub === null) return session.role === 'administrateur' ? { auteurId: null } : { refus: refusRevoque() };
 
   const colonne = `perm_${module}`;
   const { rows } = await query<{ actif: boolean; role: string; perm: boolean }>(
@@ -112,7 +115,8 @@ export async function exigerCapaciteModif(request: Request): Promise<Response | 
   if (!payload) return refusRevoque();
 
   const session = sessionDepuisPayload(payload);
-  if (session.sub === null) return null; // voie de secours / legacy → administrateur
+  // FAIL-CLOSED (M1) : voie de secours = sub null AVEC role administrateur explicite ; sinon (jeton mal formé/forgé) refus.
+  if (session.sub === null) return session.role === 'administrateur' ? null : refusRevoque();
 
   const { rows } = await query<{ actif: boolean; role: string; permis: boolean; modif: boolean }>(
     `SELECT actif, role, perm_permis AS permis, perm_permis_modif AS modif FROM admin_utilisateur WHERE id = $1`,
@@ -146,8 +150,10 @@ export async function exigerCompteActif(request: Request, module: Module): Promi
   if (!payload) return refusRevoque(); // pas de session valide (proxy aurait déjà bloqué ; defense in depth)
 
   const session = sessionDepuisPayload(payload);
-  // RÈGLE D'OR : voie de secours / jeton legacy sans sub → autoriser SANS requête (jamais de refus « 0 ligne »).
-  if (session.sub === null) return null;
+  // RÈGLE D'OR + FAIL-CLOSED (M1) : la VRAIE voie de secours (sub null AVEC role administrateur explicite, cf.
+  //   session/route.ts:107) est autorisée SANS requête (jamais de refus « 0 ligne » qui l'enfermerait dehors) ; un sub
+  //   null SANS ce rôle = jeton mal formé/forgé → refus immédiat (jamais admin par défaut).
+  if (session.sub === null) return session.role === 'administrateur' ? null : refusRevoque();
 
   // Compte nommé : relire l'état RÉEL. `module` appartient à l'union fermée `Module` → nom de colonne sûr.
   const colonne = `perm_${module}`;

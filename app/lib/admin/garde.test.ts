@@ -6,6 +6,7 @@ vi.mock('../db/client', () => ({
   query: (...args: unknown[]) => queryMock(...args),
 }));
 
+import { SignJWT } from 'jose';
 import { exigerCompteActif, exigerModule, exigerAdministrateur, exigerCapaciteModif } from './garde';
 import { signerJeton, permsToutes, permsAucune, NOM_COOKIE, type SessionAdmin } from './session';
 
@@ -184,6 +185,42 @@ describe('exigerCompteActif — session absente/illisible', () => {
     const req = new Request('http://local/x', { method: 'DELETE', headers: { cookie: `${NOM_COOKIE}=${falsifie}` } });
     const res = await exigerCompteActif(req, 'curation');
     expect(res?.status).toBe(403);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('FAIL-CLOSED (M1) — jeton SIGNÉ mais MAL FORMÉ (sub null, sans rôle administrateur) → REFUSÉ, jamais admin', () => {
+  // Forge un jeton VALIDEMENT SIGNÉ (même secret) mais au payload mal formé : ni sub, ni rôle administrateur explicite.
+  //   Simule le rayon d'une fuite du secret de signature : sans claim positive « role: administrateur », aucun accès.
+  async function requeteForgee(payload: Record<string, unknown>): Promise<Request> {
+    const jeton = await new SignJWT(payload).setProtectedHeader({ alg: 'HS256' }).setIssuedAt().setExpirationTime('8h').sign(new TextEncoder().encode(SECRET));
+    return new Request('http://local/api/admin/x', { method: 'DELETE', headers: { cookie: `${NOM_COOKIE}=${jeton}` } });
+  }
+
+  it('payload VIDE {} → exigerAdministrateur REFUSE (403), AUCUNE requête base (plus de raccourci sub-null)', async () => {
+    const g = await exigerAdministrateur(await requeteForgee({}));
+    expect('refus' in g).toBe(true);
+    if ('refus' in g) expect(g.refus.status).toBe(403);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('payload au rôle INCONNU { role:"admin" } → exigerModule REFUSE (403), aucune requête base', async () => {
+    const g = await exigerModule(await requeteForgee({ role: 'admin' }), 'permis');
+    expect('refus' in g).toBe(true);
+    if ('refus' in g) expect(g.refus.status).toBe(403);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('payload VIDE {} → exigerCompteActif ET exigerCapaciteModif REFUSENT (403), aucune requête base', async () => {
+    expect((await exigerCompteActif(await requeteForgee({}), 'curation'))?.status).toBe(403);
+    expect((await exigerCapaciteModif(await requeteForgee({})))?.status).toBe(403);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('NON-RÉGRESSION : la VRAIE voie de secours (sub null AVEC role administrateur) reste AUTORISÉE, sans requête', async () => {
+    expect(await exigerCompteActif(await requete(secours()), 'curation')).toBeNull();
+    expect(await exigerModule(await requete(secours()), 'permis')).toEqual({ auteurId: null });
+    expect(await exigerCapaciteModif(await requete(secours()))).toBeNull();
     expect(queryMock).not.toHaveBeenCalled();
   });
 });

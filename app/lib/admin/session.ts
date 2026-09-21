@@ -107,15 +107,21 @@ function permsDepuis(brut: unknown): Perms {
 }
 
 /**
- * Résout la session EFFECTIVE d'un payload vérifié, de façon TOLÉRANTE :
- *  - `role === 'collaborateur'` → collaborateur, permissions EXPLICITES du jeton ;
- *  - tout le reste (ancien jeton `role:'admin'`, `role:'administrateur'`, ou rôle absent) → ADMINISTRATEUR,
- *    toutes permissions à true. Ainsi un jeton antérieur à M3 (sans sub/perms) reste un administrateur complet
- *    (les sessions ouvertes ne cassent pas), et la voie de secours est un administrateur.
+ * Résout la session EFFECTIVE d'un payload vérifié — FAIL-CLOSED (item M1, audit 21/09) :
+ *  - `role === 'administrateur'` → administrateur, TOUTES permissions ;
+ *  - `role === 'collaborateur'`  → collaborateur, permissions EXPLICITES du jeton ;
+ *  - TOUT LE RESTE (rôle absent, valeur inconnue, ancien `role:'admin'`, payload forgé/vide) → collaborateur SANS
+ *    AUCUNE PERMISSION → les gardes refusent. Un jeton signé mais MAL FORMÉ n'est donc JAMAIS administrateur « par
+ *    défaut » : le rôle administrateur doit être une claim POSITIVE explicite (défense en profondeur : borne le rayon
+ *    d'une fuite du secret de signature). Tous les jetons légitimes portent role 'administrateur'/'collaborateur'
+ *    explicite (signerJeton, y compris la voie de secours — session/route.ts:107) ; les jetons pré-M3 sans rôle sont
+ *    expirés depuis longtemps (TTL 8 h) → le seul effet possible d'un jeton non conforme est une reconnexion.
  */
 export function sessionDepuisPayload(payload: JWTPayload): SessionAdmin {
-  const role: RoleAdmin = payload.role === 'collaborateur' ? 'collaborateur' : 'administrateur';
-  const perms: Perms = role === 'administrateur' ? permsToutes() : permsDepuis(payload.perms);
+  const role: RoleAdmin = payload.role === 'administrateur' ? 'administrateur' : 'collaborateur';
+  const perms: Perms = payload.role === 'administrateur' ? permsToutes()
+    : payload.role === 'collaborateur' ? permsDepuis(payload.perms)
+    : permsAucune(); // rôle inconnu/absent → collaborateur SANS permission (fail-closed) : les gardes refuseront
   const subNum = typeof payload.sub === 'string' && payload.sub !== '' ? Number(payload.sub) : null;
   const sub = subNum !== null && Number.isFinite(subNum) ? subNum : null;
   const identifiant = typeof payload.identifiant === 'string' ? payload.identifiant : null;

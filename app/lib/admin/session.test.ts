@@ -43,9 +43,9 @@ describe('session admin — roundtrip', () => {
   });
 });
 
-describe('session admin — sessionDepuisPayload (tolérance)', () => {
-  it('(d) ANCIEN jeton { role:"admin" } sans sub/perms → administrateur complet, sub null', async () => {
-    // Jeton antérieur à M3 : ni sub, ni perms, role legacy "admin".
+describe('session admin — sessionDepuisPayload (FAIL-CLOSED M1 : rôle administrateur = claim explicite)', () => {
+  it('(d) jeton au rôle INCONNU (legacy { role:"admin" }) → PLUS administrateur : collaborateur SANS permission (fail-closed)', async () => {
+    // Jeton antérieur à M3 (role legacy "admin", ni sub ni perms) : n'est plus promu administrateur « par défaut ».
     const ancien = await new SignJWT({ role: 'admin' })
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
@@ -54,20 +54,20 @@ describe('session admin — sessionDepuisPayload (tolérance)', () => {
     const payload = await verifierJeton(ancien);
     expect(payload).not.toBeNull();
     const session = sessionDepuisPayload(payload!);
-    expect(session.role).toBe('administrateur');
-    expect(session.perms).toEqual(permsToutes());
+    expect(session.role).toBe('collaborateur');   // rôle inconnu → JAMAIS administrateur
+    expect(session.perms).toEqual(permsAucune());  // aucune permission → les gardes refuseront
     expect(session.sub).toBeNull();
   });
 
-  it('jeton sans rôle du tout → administrateur complet (tolérant)', async () => {
+  it('jeton SANS rôle du tout ({}) → PLUS administrateur : collaborateur SANS permission (fail-closed)', async () => {
     const jeton = await new SignJWT({})
       .setProtectedHeader({ alg: 'HS256' })
       .setIssuedAt()
       .setExpirationTime('8h')
       .sign(new TextEncoder().encode(SECRET));
     const session = sessionDepuisPayload((await verifierJeton(jeton))!);
-    expect(session.role).toBe('administrateur');
-    expect(session.perms).toEqual(permsToutes());
+    expect(session.role).toBe('collaborateur');
+    expect(session.perms).toEqual(permsAucune());
   });
 
   it('collaborateur → permissions EXPLICITES du jeton (les autres restent false)', async () => {
