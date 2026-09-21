@@ -71,10 +71,10 @@ une seule personne.**
 
 | ID | Sév. | Effort | Statut | Action | Preuve |
 |----|------|--------|--------|--------|--------|
-| **G1** | 🔴 | S | ⬜ | Mettre `tsc --noEmit` **et** `eslint` dans le contrôle de fin ; corriger l'erreur de type en **production** + les ~42 erreurs lint | `ADemanderVue.tsx:273` (type prod) ; lint concentré `page.tsx` (22), `FaisceauMap.tsx` (11) |
-| **G2** | 🔴 | S | ⬜ | **Sceller le golden dans `npm test`** : assertion pure `analyser(...) === 29.107259068449615` dans un vrai `.test.ts` (sans PostGIS) | golden uniquement dans `app/lib/db/pipeline.itest.ts:42` (suite d'intégration, **hors** `npm test`) |
-| **G3** | 🟠 | S | ⬜ | Durcir les 3 pools : ajouter `pool.on('error', …)` (évite crash process) + timeouts/bornage du pool principal | `db/client.ts:8` (pool nu) ; gabarit déjà présent `analytics/pool.ts:33-41` |
-| **G4** | 🟠 | S | ⬜ | Fermer/valider `/api/check-building` (public, non authentifié, lat/lon interpolés dans Overpass QL, log GPS) + throttle des routes publiques lourdes | `app/api/check-building/route.ts:24-38` ; `/api/analyse` sans throttle |
+| **G1** | 🔴 | S | ✅ | Mettre `tsc --noEmit` **et** `eslint` dans le contrôle de fin ; corriger l'erreur de type en **production** + les ~42 erreurs lint | `ADemanderVue.tsx:273` (type prod) ; lint concentré `page.tsx` (22), `FaisceauMap.tsx` (11) |
+| **G2** | 🔴 | S | ✅ | **Sceller le golden dans `npm test`** : assertion pure `analyser(...) === 29.107259068449615` dans un vrai `.test.ts` (sans PostGIS) | golden uniquement dans `app/lib/db/pipeline.itest.ts:42` (suite d'intégration, **hors** `npm test`) |
+| **G3** | 🟠 | S | ✅ | Durcir les 3 pools : ajouter `pool.on('error', …)` (évite crash process) + timeouts/bornage du pool principal | `db/client.ts:8` (pool nu) ; gabarit déjà présent `analytics/pool.ts:33-41` |
+| **G4** | 🟠 | S | ⬜ | Fermer/valider `/api/check-building` (public, non authentifié, lat/lon interpolés dans Overpass QL, log GPS) + throttle des routes publiques lourdes. ⚠️ **AUCUN appelant trouvé (2026-09-22) → décision requise (suppression ?)** | `app/api/check-building/route.ts:24-38` ; `/api/analyse` sans throttle |
 | **G5** | 🟡 | S | ⬜ | Supprimer le code d'auth mort + purger le secret en clair du `.env` ; dédupliquer `SMTP_PERSONNE_PASS` ; rafraîchir `.env.example` | `app/lib/admin/password.ts` (SHA-256 non salé, 0 importeur) ; `.env` (`ADMIN_PASSWORD` clair, `SMTP_PERSONNE_PASS` en double) |
 
 ### Performance / temps de réaction *(ajouté 2026-09-21 — recon dédiée du chemin chaud)*
@@ -97,7 +97,7 @@ une seule personne.**
 
 | ID | Sév. | Effort | Statut | Action | Preuve |
 |----|------|--------|--------|--------|--------|
-| **M1** | 🟠 | M | ⬜ | **Autorisation fail-closed** : un rôle inconnu/absent doit valoir « collaborateur sans droit », pas administrateur | `app/lib/admin/session.ts:116-118` (rôle ≠ 'collaborateur' → admin `permsToutes()`) |
+| **M1** | 🟠 | M | 🔄 | **Autorisation fail-closed** : un rôle inconnu/absent doit valoir « collaborateur sans droit », pas administrateur. ⚠️ **IMPLÉMENTÉ + testé (2026-09-22), NON committé — attente validation manuelle Arno** | `app/lib/admin/session.ts:116-118` (rôle ≠ 'collaborateur' → admin `permsToutes()`) + les 4 gardes (`garde.ts`, raccourci `sub===null`) |
 | **M2** | 🟠 | M | ⬜ | Retirer ou borner la session « voie de secours » (`sub=null`) — non révocable hors rotation du secret | `garde.ts:150,88,115` ; émission `session/route.ts:93-108` |
 | **M3** | 🟠 | M | ⬜ | Introduire un **registre de migrations** (table `schema_migrations` + mini-runner) → vérité unique sur le schéma déployé ; permet de retirer les ~57 sondes runtime | 226 migrations appliquées à la main, sans ledger ; sondes `information_schema`/`42P01` (169 occ.) |
 | **M4** | 🟠 | M | ⬜ | Trancher les **deux moteurs de score** coexistants (~640 lignes calculées à chaque analyse mais absentes du total) ; réduire la signature `scoreTotal` | `analyse.ts:118,126` calculés ; `scoreTotal.ts:44` n'utilise que `noteDegagement` ; divergence `SPEC_score_qualite_vue.md` (/100) vs code (/80) |
@@ -190,3 +190,4 @@ aucun garde-fou de latence (→ P3), config relue à chaque analyse (→ P4).
 |------|--------|--------------|
 | 2026-09-21 | Diagnostic initial (audit 4 axes, lecture seule) | Création du registre. Tous items ⬜. |
 | 2026-09-21 | Recon performance + notation | Ajout de l'axe **Performance** (items P1-P4), de la **notation /20** (§1), et de la ligne Performance au §5. Verdict global mis à jour (temps de réaction lourd). |
+| 2026-09-22 | Lot « gains rapides » | ✅ **G3** filet pg 3 pools (`4c193ca`) · ✅ **G1** `tsc --noEmit` dans le gate + 6 erreurs de type corrigées + `public/**` hors lint (`d74fe25`) · ✅ **G2** garde golden PUR sans base, égalité stricte (`137b5dc`). 🔄 **M1** fail-closed (session.ts + 4 gardes) IMPLÉMENTÉ + suite verte mais NON committé (attente validation manuelle Arno). ⬜ **G4** check-building : AUCUN appelant → décision requise (suppression ?), aucun code écrit. Les 42 erreurs lint pré-existantes (any/entités/hooks) restent hors périmètre. |
