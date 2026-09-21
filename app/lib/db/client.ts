@@ -7,6 +7,11 @@ if (!process.env.DATABASE_URL) {
 
 export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+// Filet de sûreté pg (robustesse) : un client INACTIF du pool peut émettre 'error' (coupure réseau / arrêt du
+// backend). Sans écouteur, cet 'error' d'EventEmitter est NON CAPTÉ → Node fait tomber TOUT le process. On le
+// journalise ; pg retire le client mort du pool, les requêtes suivantes rouvrent une connexion. Aucun autre effet.
+pool.on('error', (e) => { console.error('[db/client] erreur pool pg (client inactif)', e); });
+
 export function query<R extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: unknown[],

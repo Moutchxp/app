@@ -66,6 +66,10 @@ export const poolMaintenance = new Pool({
   idle_in_transaction_session_timeout: 60_000,
 });
 
+// Filet de sûreté pg (robustesse) : voir app/lib/db/client.ts — un 'error' émis par un client INACTIF et non
+// écouté fait tomber tout le process Node. On le journalise ; le pool recycle le client mort. Aucun autre effet.
+poolMaintenance.on('error', (e) => { console.error('[analytics/maintenance] erreur pool pg (client inactif)', e); });
+
 export async function fermerPoolMaintenance(): Promise<void> {
   await poolMaintenance.end();
 }

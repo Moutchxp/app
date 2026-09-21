@@ -40,6 +40,10 @@ export const poolAnalytics = new Pool({
   idle_in_transaction_session_timeout: IDLE_IN_TX_TIMEOUT_MS,
 });
 
+// Filet de sûreté pg (robustesse) : voir app/lib/db/client.ts — un 'error' émis par un client INACTIF et non
+// écouté fait tomber tout le process Node. On le journalise ; le pool recycle le client mort. Aucun autre effet.
+poolAnalytics.on('error', (e) => { console.error('[analytics/pool] erreur pool pg (client inactif)', e); });
+
 /**
  * Requête analytique — passe TOUJOURS par `poolAnalytics`, jamais par `pool` (applicatif). Mono-
  * instruction auto-commit (jamais de transaction : cela épinglerait une connexion). L'appelant
