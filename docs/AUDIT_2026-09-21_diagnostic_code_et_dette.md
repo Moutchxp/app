@@ -1,10 +1,10 @@
 # AUDIT & REGISTRE DE DETTE — Sans Vis-à-Vis®
 
 > **Statut : DIAGNOSTIC À FROID — lecture seule, AUCUN code modifié par ce document.**
-> Date du diagnostic : **2026-09-21**. Méthode : reconnaissance en lecture seule sur 4 axes
-> (moteur de calcul, couche données/PostGIS, sécurité/auth/RGPD, tests & dette technique), chaque
-> constat ancré `fichier:ligne`. Périmètre : code réel sous `app/app/` (≈ 116 000 lignes de code
-> + 81 000 lignes de tests, mesuré).
+> Date du diagnostic : **2026-09-21**. Méthode : reconnaissance en lecture seule sur 5 axes
+> (moteur de calcul, couche données/PostGIS, sécurité/auth/RGPD, tests & dette technique, **performance
+> & charge de calcul**), chaque constat ancré `fichier:ligne`. Périmètre : code réel sous `app/app/`
+> (≈ 116 000 lignes de code + 81 000 lignes de tests, mesuré).
 >
 > **Comment utiliser ce document (c'est un REGISTRE, pas un rapport figé) :**
 > - Le §2 « Registre priorisé » est la table de travail : chaque item a un **ID**, une **sévérité**,
@@ -24,7 +24,8 @@
 **Actif objectivement solide, nettement au-dessus de la moyenne pour un projet de cette taille et de ce
 mode de construction.** Ce n'est pas un prototype fragile : moteur de calcul, sécurité, RGPD, tests et
 documentation sont pensés et cohérents. **Les vrais risques ne sont pas dans le code métier — ils sont
-autour : le filet de contrôle a des trous, et la connaissance repose sur une seule personne.**
+autour : le filet de contrôle a des trous, le temps de réaction est lourd, et la connaissance repose sur
+une seule personne.**
 
 ### Tableau de bord
 
@@ -33,10 +34,32 @@ autour : le filet de contrôle a des trous, et la connaissance repose sur une se
 | Moteur de calcul (verdict/score) | 🟢 Solide | Calcul pur isolé, label découplé du score, aucun arrondi, invariants tenus |
 | Sécurité & RGPD | 🟢 Solide | Auth sérieuse, anti-fraude, RGPD complet — **1 réserve de conception (fail-open admin)** |
 | Base de données / spatial | 🟢 Solide | SQL 100 % paramétré, PostGIS discipliné — **robustesse des connexions à durcir** |
+| **Efficacité (temps de réaction)** | 🔴 **Faible** | **~132 allers-retours base EN SÉRIE / certification (> 3 s probable)** — plus gros levier unique (P1) |
+| Besoin en calculs | 🟢 Solide | Calcul délégué à PostGIS (set-based), non CPU-bound ; le goulot est dans les round-trips, pas le calcul |
 | Tests (volume & rigueur) | 🟢 Solide | 8 795 cas de test, garde-fous d'architecture exécutables |
 | Dette technique « classique » | 🟢 Très bon | ~6 TODO / 0 FIXME sur 116 k lignes |
 | **Filet de contrôle (le « gate »)** | 🔴 **Faible** | **`tsc` rouge + hors gate ; golden hors `npm test` — point noir technique** |
 | **Pérennité / dépendance humaine** | 🔴 **Faible** | **Bus factor = 1 — point noir stratégique** |
+
+### Notation /20 (2026-09-21)
+
+> Barème français : 16+ excellent · 14-15 très bon · 12-13 bon · 10-11 passable · < 10 insuffisant.
+> Jugements calibrés sur les preuves des audits, pas des mesures live (l'efficacité est une estimation
+> **structurelle**, pas chronométrée).
+
+| Dimension | Note | En bref |
+|---|:---:|---|
+| Qualité de code | **15/20** | Propre, typé, peu de dette — mais `tsc`/lint rouges & hors gate, monolithe `page.tsx` |
+| Architecture | **15/20** | Séparation nette + garde-fous d'imports exécutables — front monolithique, pipeline en série |
+| Robustesse | **13/20** | Défensif & testé — mais pools non durcis (crash possible), requêtes non bornées, golden hors gate |
+| Efficacité (temps de réaction) | **9/20** | ~132 round-trips sériels / certification (> 3 s probable) — corrigeable par **P1** |
+| Besoin en calculs | **14/20** | Appétit élevé (raster LiDAR) mais bien géré (set-based PostGIS) ; goulot = round-trips, pas calcul |
+| *(bonus)* Sécurité | **15/20** | Au-dessus de la moyenne ; réserve = fail-open vers admin (**M1**) |
+| *(bonus)* Pérennité / bus factor | **8/20** | 1 auteur, ~19 commits/j — risque patrimonial n°1 (**F1**) |
+| **GLOBAL** | **~13/20** | **Solide mais perfectible** |
+
+> ⚡ Le levier **P1** (batcher les 61 faisceaux) remonterait à lui seul l'**efficacité de ~9 à ~14** et la
+> **robustesse de +1 à +2** : c'est le meilleur rapport impact/effort du registre.
 
 ---
 
@@ -53,6 +76,22 @@ autour : le filet de contrôle a des trous, et la connaissance repose sur une se
 | **G3** | 🟠 | S | ⬜ | Durcir les 3 pools : ajouter `pool.on('error', …)` (évite crash process) + timeouts/bornage du pool principal | `db/client.ts:8` (pool nu) ; gabarit déjà présent `analytics/pool.ts:33-41` |
 | **G4** | 🟠 | S | ⬜ | Fermer/valider `/api/check-building` (public, non authentifié, lat/lon interpolés dans Overpass QL, log GPS) + throttle des routes publiques lourdes | `app/api/check-building/route.ts:24-38` ; `/api/analyse` sans throttle |
 | **G5** | 🟡 | S | ⬜ | Supprimer le code d'auth mort + purger le secret en clair du `.env` ; dédupliquer `SMTP_PERSONNE_PASS` ; rafraîchir `.env.example` | `app/lib/admin/password.ts` (SHA-256 non salé, 0 importeur) ; `.env` (`ADMIN_PASSWORD` clair, `SMTP_PERSONNE_PASS` en double) |
+
+### Performance / temps de réaction *(ajouté 2026-09-21 — recon dédiée du chemin chaud)*
+
+> Constat : une certification (`/api/analyse` → `pipeline.ts`) enchaîne **~132 allers-retours PostGIS en
+> SÉRIE**, dont **~122 (≈ 90 %) viennent de la boucle des 61 faisceaux** (61 × 2 requêtes séquentielles).
+> Aucun cache sur le chemin chaud, aucun `statement_timeout` sur le pool de calcul. Estimation
+> **structurelle** (non chronométrée) : **certification > 3 s probable** (plancher ~1,5-2 s, sans plafond).
+> La cause n'est **pas** l'intensité de calcul (bien déléguée à PostGIS, set-based) ni le front — c'est le
+> **nombre de round-trips sériels**. **P1 seul devrait ramener une certification en zone « correct » (1-3 s).**
+
+| ID | Sév. | Effort | Statut | Action | Preuve |
+|----|------|--------|--------|--------|--------|
+| **P1** | 🟠 *(fort levier)* | M | ⬜ | **Batcher la détection d'obstacles des 61 faisceaux** (≈ 122 round-trips sériels → ≈ 2) via `unnest(...) WITH ORDINALITY` — **le motif existe déjà juste à côté**. ⚠️ touche le chemin du golden → rejeu Asnières + feu vert + commit séparé | boucle sérielle `faisceaux.ts:40` ; 2 req/faisceau `obstacles.ts:549,629` ; motif batch déjà présent `obstacles.ts:657,770,821` |
+| **P2** | 🟠 | M | ⬜ | Paralléliser les étapes **indépendantes** de `construireEntree` (`Promise.all`) : obstacles principal, `faisceauxAmplitude`, immobilier, monuments, paysage. Seule `resoudreVueNature` reste après `faisceaux` | attentes sérielles indépendantes `pipeline.ts:118,128,146,151,161` ; dépendance réelle `pipeline.ts:140` |
+| **P3** | 🟠 | S | ⬜ | Poser un `statement_timeout` sur le pool de **calcul** (aucun aujourd'hui — seulement sur analytics) + un **garde-fou de latence** (rejeu Asnières chronométré / EXPLAIN). Complète **G3** | `client.ts:8` (pool nu, non borné) vs motif existant `analytics/lecture/requete.ts:30` |
+| **P4** | 🟡 | S | ⬜ | Mémoïser `chargerProfilDegagement` (config singleton `id=1` relue en base à **chaque** analyse) | `profilConfig.ts:58,83` (2 round-trips/analyse pour une config quasi constante) |
 
 ### Priorité 2 — Moyen terme / conception
 
@@ -96,6 +135,8 @@ factor. À garder en tête pour toute décision de priorisation ou de recrutemen
   content-sniffées et **EXIF/GPS retirés** (`app/lib/internaute/photoDepot.ts:31-51`).
 - **Moteur propre** : verdict = calcul pur sans I/O (`verdict.ts:103`), label **structurellement** découplé
   du score (`scoreTotal.ts:43-44`), invariant « aucun arrondi » tenu, `ST_Force2D` + EPSG:2154 partout.
+- **Calcul lourd bien délégué** : balayage raster fait **en SQL** (`ST_Clip`/`ST_PixelAsCentroids` +
+  `max FILTER GROUP BY`, `obstacles.ts:140-145`) ; le JS ne traite que ~400 cellules → pas CPU-bound.
 - **Compteur de certificat vraiment atomique** (`db/certificatNumero.ts:37-58`, `INSERT … ON CONFLICT …
   RETURNING`, rollback → numéro libéré).
 - **Migrations saines** (001→226 sans trou, idempotentes, auto-vérifiantes) et **garde-fous d'architecture
@@ -124,14 +165,22 @@ matériel d'auth mort + `.env` (→ G5), SSRF bornée GED (→ F5).
 (6 `as any` au total, tous dans `page.tsx`). Risques : `tsc` rouge + hors gate (→ G1), lint rouge (→ G1),
 monolithe `page.tsx` (→ F2), tests source-scan fragiles (→ F3), bus factor (→ F1).
 
+**Performance / temps de réaction** — forces : intensité de calcul bien gérée (set-based PostGIS, JS trivial
+sur ~400 cellules) ; le chemin JS-lourd raster (`hauteurLidar.ts:154-165`) n'est **pas** sur le chemin de
+certification (scripts seulement) ; requêtes individuelles déjà optimisées (KNN inliné, précédents
+`validerOrigine` 1919→310 ms). Risques : **~132 round-trips sériels/certification, dont ~122 dans la boucle
+des 61 faisceaux** (→ P1), étapes indépendantes non parallélisées (→ P2), pool de calcul non borné +
+aucun garde-fou de latence (→ P3), config relue à chaque analyse (→ P4).
+
 ---
 
 ## 6. Rappel de méthode pour agir
 
 - **Aucun de ces items n'est un correctif appliqué** : ce document ne fait que diagnostiquer.
-- Ordre conseillé : **G1 → G2 → G3 → G4 → G5**, puis M*, puis F*.
-- G2, M1, M2, M4, F1 touchent des zones **sensibles** (golden, sécurité, score) → feu vert du porteur +
-  relecture humaine + commit séparé.
+- Ordre conseillé : **G1 → G2 → G3 → G4 → G5**, puis **P1 → P2 → P3 → P4** (fort levier perf), puis M*, puis F*.
+- G2, M1, M2, M4, **P1**, F1 touchent des zones **sensibles** (golden, sécurité, score, chemin certifiant) →
+  feu vert du porteur + relecture humaine + commit séparé. Pour P1 : le rejeu Asnières (`pipeline.itest.ts`)
+  est le filet — le résultat par faisceau doit rester **bit-identique**.
 
 ---
 
@@ -140,3 +189,4 @@ monolithe `page.tsx` (→ F2), tests source-scan fragiles (→ F3), bus factor (
 | Date | Auteur | Modification |
 |------|--------|--------------|
 | 2026-09-21 | Diagnostic initial (audit 4 axes, lecture seule) | Création du registre. Tous items ⬜. |
+| 2026-09-21 | Recon performance + notation | Ajout de l'axe **Performance** (items P1-P4), de la **notation /20** (§1), et de la ligne Performance au §5. Verdict global mis à jour (temps de réaction lourd). |
