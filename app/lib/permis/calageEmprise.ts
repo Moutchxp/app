@@ -530,6 +530,22 @@ export function ajustementIdentite(anneaux: PointLambert[][]): Ajustement {
   return { tx: 0, ty: 0, rotDeg: 0, echelle: 1, centre: centroideAnneaux(anneaux) };
 }
 
+/** RATT-EDIT (marqueur sans faux positif) — un delta est une IDENTITÉ (aucun effet géométrique) ssi tx=ty=rot=0 et échelle=1
+ *  (le centre est SANS objet : l'identité ne bouge rien quel que soit le centre). Tolérance ε contre le bruit flottant. PUR. */
+export function estIdentiteAjustement(a: Ajustement, eps = 1e-9): boolean {
+  return Math.abs(a.tx) < eps && Math.abs(a.ty) < eps && Math.abs(a.rotDeg) < eps && Math.abs(a.echelle - 1) < eps;
+}
+
+/** RATT-EDIT (marqueur sans faux positif) — le nouvel ajustement laisse-t-il la GÉOMÉTRIE INCHANGÉE par rapport à l'état posé ? Vrai si
+ *  (a) aucun ajustement posé ET le nouveau est l'identité, ou (b) le nouveau égale (à ε près) le noyau déjà posé (tx,ty,rot,échelle,centre).
+ *  Sert à ne PAS réécrire pose_le (que lit le marqueur) ni dévalider quand « enregistrer » est cliqué sans avoir rien déplacé. PUR. */
+export function ajustementSansEffet(nouveau: Ajustement, stocke: Ajustement | null, eps = 1e-9): boolean {
+  if (stocke == null) return estIdentiteAjustement(nouveau, eps);
+  return Math.abs(nouveau.tx - stocke.tx) < eps && Math.abs(nouveau.ty - stocke.ty) < eps
+      && Math.abs(nouveau.rotDeg - stocke.rotDeg) < eps && Math.abs(nouveau.echelle - stocke.echelle) < eps
+      && Math.abs(nouveau.centre.x - stocke.centre.x) < eps && Math.abs(nouveau.centre.y - stocke.centre.y) < eps;
+}
+
 // ── COMPOSITION de deux deltas (PROJ-3t, lot 3b — mode BLOC) ──────────────────────────────────────────────────────────────────
 // Un delta = similitude p ↦ A·(p − c) + c + t, équivalente à p ↦ A·p + d avec A = échelle·rotation (complexe α = a+ib) et d = c + t − A·c.
 // La composition `externe ∘ interne` (appliquer interne PUIS externe) est encore une similitude : A = A_ext·A_int (produit complexe),

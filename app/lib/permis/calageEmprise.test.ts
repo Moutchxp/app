@@ -5,7 +5,7 @@ import {
   verdictVraisemblance, deriverDebordement, SEUIL_RESIDU_CALAGE_M, residusParPoint,
   levierCalage, etatLevier, inverseSimilitude, SEUIL_LEVIER_RASSURANT_MAX,
   appliquerAjustement, inverseAjustement, appliquerAjustementPoint, ajustementValide,
-  centroideAnneaux, resumeAjustement, ajustementIdentite, composerAjustement, type Ajustement, type PaireCalage,
+  centroideAnneaux, resumeAjustement, ajustementIdentite, composerAjustement, estIdentiteAjustement, ajustementSansEffet, type Ajustement, type PaireCalage,
   cadreDeAnneaux, projeterDansBoite, inverseDepuisBoite, rotePoint, boiteEnglobanteRotee, clicVersBoite, ecranVersCanvas, estClic, type Boite,
 } from './calageEmprise';
 
@@ -480,5 +480,31 @@ describe('PROJ — deriverDebordement : repère indicatif, aucun arrondi, jamais
     const d = deriverDebordement(100, true, 5, 0);
     expect(d.pctHors).toBeCloseTo(5, 9);
     expect(d.decalageLateralM).toBeNull();
+  });
+});
+
+describe('RATT-EDIT (marqueur sans faux positif) — estIdentiteAjustement / ajustementSansEffet (aucun effet géométrique)', () => {
+  const centre = { x: 100, y: 200 };
+  const identite: Ajustement = { tx: 0, ty: 0, rotDeg: 0, echelle: 1, centre };
+  const bouge: Ajustement = { tx: 3, ty: 0, rotDeg: 0, echelle: 1, centre };
+
+  it('estIdentiteAjustement : identité VRAI (centre sans objet) ; tout tx/ty/rot ≠ 0 ou échelle ≠ 1 → FAUX', () => {
+    expect(estIdentiteAjustement(identite)).toBe(true);
+    expect(estIdentiteAjustement({ ...identite, centre: { x: -50, y: 9 } })).toBe(true); // le centre n'a aucun effet sur une identité
+    expect(estIdentiteAjustement(bouge)).toBe(false);
+    expect(estIdentiteAjustement({ ...identite, rotDeg: 0.5 })).toBe(false);
+    expect(estIdentiteAjustement({ ...identite, echelle: 1.01 })).toBe(false);
+  });
+
+  it('ajustementSansEffet : aucun ajustement posé (null) + delta identité → SANS effet (l’emprise reste validée)', () => {
+    expect(ajustementSansEffet(identite, null)).toBe(true);
+    expect(ajustementSansEffet(bouge, null)).toBe(false); // un vrai déplacement depuis l’origine = un changement
+  });
+
+  it('ajustementSansEffet : delta IDENTIQUE au noyau déjà posé → SANS effet ; noyau différent → effet', () => {
+    const pose: Ajustement = { tx: 3, ty: -2, rotDeg: 10, echelle: 1.2, centre };
+    expect(ajustementSansEffet({ ...pose }, pose)).toBe(true);           // enregistrer sans avoir rien déplacé
+    expect(ajustementSansEffet({ ...pose, tx: 3.5 }, pose)).toBe(false); // déplacé → un changement
+    expect(ajustementSansEffet(identite, pose)).toBe(false);            // revenir à l’origine (pose → identité) = un changement
   });
 });

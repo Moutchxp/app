@@ -10,7 +10,7 @@
  * écriture refusée avec motif clair (aucune exception qui remonte). Module PROPRE : n'importe que db/client et le module pur.
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { aireM2, deriverDebordement, appliquerAjustement, ajustementValide, composerAjustement, type PointLambert, type Debordement, type Ajustement } from './calageEmprise';
+import { aireM2, deriverDebordement, appliquerAjustement, ajustementValide, composerAjustement, ajustementSansEffet, estIdentiteAjustement, type PointLambert, type Debordement, type Ajustement } from './calageEmprise';
 import { grouperPolygonesConnexes, grouperParBatiment } from './adoptionEmprise';
 import { lireSeuilMitoyenAireM2, qualifierMitoyennete, batimentAppartientPermis, type QualificationPolygone, type IntersectionParcelleBatiment } from './projectionConfig';
 import { fragmentCorpsActif } from './corpsActif'; // BAT-3 — l'univers du tracé/emprise ne voit que les cartes actives (retirées invisibles)
@@ -227,6 +227,12 @@ export async function enregistrerAjustement(dossierId: number, id: number, ajust
   if (!ajustementValide(ajustement)) return { ok: false, motif: 'ajustement invalide (nombres finis, échelle > 0, centre requis)' };
   const noyau = { tx: ajustement.tx, ty: ajustement.ty, rotDeg: ajustement.rotDeg, echelle: ajustement.echelle, centre: ajustement.centre }; // on ne persiste QUE la transformation ; pose_le/pose_par posés par le serveur
   try {
+    // RATT-EDIT (marqueur sans faux positif) — « enregistrer l'ajustement » SANS avoir rien déplacé (delta identité, ou identique au delta
+    //   déjà posé) NE réécrit rien : ni pose_le (que lit le marqueur « à revalider », modificationApresValidation.ts:71) ni la dévalidation
+    //   « la forme bouge ». L'emprise reste VALIDÉE, le permis « Validé ». Symétrique de « Enregistrer ce bâtiment » à l'identique côté corps.
+    const emprisesAvant = await listerEmprises(dossierId);
+    const cible = emprisesAvant.find((e) => e.id === id);
+    if (cible && ajustementSansEffet(ajustement, cible.ajustement)) return { ok: true, emprises: emprisesAvant };
     const { rowCount } = await query(
       `UPDATE permis_emprise_reconstruite
           SET ajustement = $3::jsonb || jsonb_build_object('pose_le', now(), 'pose_par', $4::text)
@@ -268,6 +274,9 @@ export async function ajusterBloc(dossierId: number, bloc: Ajustement, par: stri
   try {
     const avant = await listerEmprises(dossierId);
     if (avant.length === 0) return { ok: false, motif: 'aucune emprise à ajuster dans ce dossier' };
+    // RATT-EDIT (marqueur sans faux positif) — un geste d'ENSEMBLE IDENTITÉ (aucun déplacement) composé sur chaque emprise les laisse
+    //   TOUTES inchangées : on ne réécrit ni pose_le (marqueur) ni la dévalidation d'ensemble. Rien à faire → état inchangé.
+    if (estIdentiteAjustement(bloc)) return { ok: true, emprises: avant };
     await withTransaction(async (tx) => {
       for (const e of avant) {
         const c = composerAjustement(e.ajustement ?? null, bloc, bloc.centre); // bloc ∘ individuel (individuel conservé)

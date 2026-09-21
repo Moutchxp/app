@@ -37,7 +37,7 @@ const H = vi.hoisted(() => {
 });
 vi.mock('../db/client', () => ({ query: H.queryMock }));
 
-import { repartirEcriture, ecrireCorps, ecrireGlobal, ecrireCaracteristiquesGlobales, ecrireDestinations, lirePermisCaracteristiques, creerCorps, supprimerCorps, definirRepere, validerSommetCorps } from './caracteristiquesRepo';
+import { repartirEcriture, ecrireCorps, ecrireGlobal, ecrireCaracteristiquesGlobales, ecrireDestinations, lirePermisCaracteristiques, creerCorps, supprimerCorps, definirRepere, definirAdresseCorps, validerSommetCorps } from './caracteristiquesRepo';
 
 const norm = (s: string) => s.replace(/\s+/g, ' ');
 const trouver = (re: RegExp) => H.appels.find((a) => re.test(a.sql));
@@ -234,6 +234,64 @@ describe('N10-C/D — invariant confirmé + geste « Valider cette hauteur »', 
     expect(s).toContain('altitude_sommet_ngf = NULL');
     expect(s).toContain('altitude_sommet_ngf_origine = NULL');
     expect(s).toContain('altitude_sommet_ngf_confirme_le = NULL');
+  });
+});
+
+describe('RATT-EDIT (marqueur sans faux positif) — maj_le ne bouge QUE sur un changement réel (IS DISTINCT FROM), origines/validation restent posées', () => {
+  it('ecrireCorps (saisie) : maj_le ET maj_par sous CASE WHEN(… IS DISTINCT FROM …), origine écrite HORS du CASE', async () => {
+    await ecrireCorps(1, { nbEtages: 9 }, 'saisie', 'admin');
+    const s = norm(trouver(/UPDATE\s+permis_corps_batiment/i)!.sql);
+    expect(s).toContain('maj_le = CASE WHEN');
+    expect(s).toContain('nb_etages IS DISTINCT FROM $');            // détection au grain VALEUR (ancienne vs nouvelle)
+    expect(s).toContain('THEN now() ELSE maj_le END');
+    expect(s).toContain('maj_par = CASE WHEN');
+    expect(s).toContain('nb_etages_origine = $');                  // l'origine (enregistrement) reste posée INCONDITIONNELLEMENT
+    expect(s).not.toMatch(/nb_etages_origine = CASE/);             // …jamais conditionnée
+  });
+
+  it('ecrireCorps : la garde couvre TOUTES les valeurs écrites (OR) — deux champs → deux IS DISTINCT FROM', async () => {
+    await ecrireCorps(1, { nbEtages: 3, altitudeDernierPlancherNgf: 12 }, 'saisie', 'admin');
+    const s = norm(trouver(/UPDATE\s+permis_corps_batiment/i)!.sql);
+    expect(s).toContain('nb_etages IS DISTINCT FROM $');
+    expect(s).toContain('altitude_dernier_plancher_ngf IS DISTINCT FROM $');
+    expect(s).toMatch(/CASE WHEN \([^)]*OR[^)]*\) THEN now\(\)/);   // un OR entre les prédicats de changement
+  });
+
+  it('ecrireCorps (emprise) : géométrie CONSERVATRICE (jamais un faux négatif) — écrire une géométrie compte comme un changement (TRUE), effacer aussi (IS NOT NULL)', async () => {
+    await ecrireCorps(1, { emprise: 'POLYGON((0 0,0 1,1 1,1 0,0 0))' }, 'saisie', 'admin');
+    expect(norm(trouver(/UPDATE\s+permis_corps_batiment/i)!.sql)).toContain('CASE WHEN (TRUE) THEN now()');
+    H.appels.length = 0;
+    await ecrireCorps(1, { emprise: null }, 'saisie', 'admin');
+    expect(norm(trouver(/UPDATE\s+permis_corps_batiment/i)!.sql)).toContain('emprise IS NOT NULL');
+  });
+
+  it('definirRepere : maj_le conditionné au repère (NULL-safe), repère TOUJOURS écrit', async () => {
+    await definirRepere(5, 'A', 'admin');
+    const s = norm(trouver(/SET repere =/i)!.sql);
+    expect(s).toContain('repere = $2');
+    expect(s).toContain('maj_le = CASE WHEN repere IS DISTINCT FROM $2 THEN now() ELSE maj_le END');
+    expect(s).toContain('maj_par = CASE WHEN repere IS DISTINCT FROM $2 THEN $3 ELSE maj_par END');
+  });
+
+  it('definirAdresseCorps : adresse_origine posée INCONDITIONNELLEMENT, maj_le conditionné à l’adresse', async () => {
+    await definirAdresseCorps(5, '3 rue X', 'admin');
+    const s = norm(trouver(/SET adresse =/i)!.sql);
+    expect(s).toContain('adresse_origine = $3');                                                 // registration : hors CASE
+    expect(s).toContain('maj_le = CASE WHEN adresse IS DISTINCT FROM $2 THEN now() ELSE maj_le END');
+  });
+
+  it('validerSommetCorps(valeur) : confirme_le/confirme_par posés INCONDITIONNELLEMENT (valider = le geste), maj_le conditionné à l’altitude', async () => {
+    await validerSommetCorps(9, 101, 'admin');
+    const s = norm(trouver(/altitude_sommet_ngf = \$2/i)!.sql);
+    expect(s).toContain('altitude_sommet_ngf_confirme_le = now()');                              // validation TOUJOURS posée (hors CASE)
+    expect(s).not.toMatch(/confirme_le = CASE/);
+    expect(s).toContain('maj_le = CASE WHEN altitude_sommet_ngf IS DISTINCT FROM $2 THEN now() ELSE maj_le END');
+  });
+
+  it('validerSommetCorps(null = effacer) : maj_le bump SEULEMENT si une altitude était posée (IS DISTINCT FROM NULL)', async () => {
+    await validerSommetCorps(9, null, 'admin');
+    const s = norm(trouver(/altitude_sommet_ngf = NULL/i)!.sql);
+    expect(s).toContain('maj_le = CASE WHEN altitude_sommet_ngf IS DISTINCT FROM NULL THEN now() ELSE maj_le END');
   });
 });
 

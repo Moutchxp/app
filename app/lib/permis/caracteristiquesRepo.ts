@@ -156,21 +156,32 @@ export async function ecrireCorps(corpsId: number, valeurs: ValeursCorps, mode: 
 
   const params: unknown[] = [];
   const sets: string[] = [];
+  // RATT-EDIT (marqueur sans faux positif) — `maj_le` (la SEULE estampille que lit le marqueur « à revalider »,
+  //   modificationApresValidation.ts:55) ne bouge QUE si AU MOINS UNE VALEUR change réellement. Un ré-enregistrement à
+  //   l'identique (« Enregistrer ce bâtiment » sans rien modifier) réécrit les origines (confirmation de saisie) mais NE
+  //   touche PAS maj_le → le permis reste « Validé ». Comparaison NULL-safe (IS DISTINCT FROM) : NULL→valeur et valeur→NULL
+  //   comptent, NULL→NULL non. Les origines (`_origine`) restent écrites INCONDITIONNELLEMENT (l'enregistrement = un fait).
+  const changePreds: string[] = [];
   for (const c of ecrits) {
     const col = COLONNE_CORPS[c];
     const v = valeurs[c] ?? null;
     // VALEUR + ORIGINE ENSEMBLE : v null ⇒ origine null (jamais l'une sans l'autre).
     if (c === 'emprise') {
-      if (v === null) sets.push(`${col} = NULL`);
-      else { params.push(v); sets.push(`${col} = ST_GeomFromText($${params.length}, 2154)`); }
+      // Géométrie : `=` de PostGIS compare la BBOX (pas la forme) → `IS DISTINCT FROM` n'est pas fiable ici. On reste CONSERVATEUR (jamais
+      //   de faux négatif) : effacer une emprise posée = changement (`IS NOT NULL`, NULL-safe) ; écrire une géométrie = toujours un changement.
+      if (v === null) { sets.push(`${col} = NULL`); changePreds.push(`${col} IS NOT NULL`); }
+      else { params.push(v); const pV = params.length; sets.push(`${col} = ST_GeomFromText($${pV}, 2154)`); changePreds.push('TRUE'); }
     } else {
-      params.push(v); sets.push(`${col} = $${params.length}`);
+      params.push(v); const pV = params.length; sets.push(`${col} = $${pV}`); changePreds.push(`${col} IS DISTINCT FROM $${pV}`);
     }
     params.push(v === null ? null : mode); sets.push(`${col}_origine = $${params.length}`);
   }
   params.push(majPar); const pMajPar = params.length;
   params.push(corpsId); const pId = params.length;
-  await query(`UPDATE permis_corps_batiment SET ${sets.join(', ')}, maj_le = now(), maj_par = $${pMajPar} WHERE id = $${pId}`, params);
+  // `col IS DISTINCT FROM …` sur le RHS d'un SET compare la valeur ANCIENNE (pré-UPDATE) à la nouvelle : un OR sur toutes les
+  //   colonnes écrites → « au moins une valeur change ». changePreds n'est jamais vide (ecrits.length > 0 garanti plus haut).
+  const garde = `(${changePreds.join(' OR ')})`;
+  await query(`UPDATE permis_corps_batiment SET ${sets.join(', ')}, maj_le = CASE WHEN ${garde} THEN now() ELSE maj_le END, maj_par = CASE WHEN ${garde} THEN $${pMajPar} ELSE maj_par END WHERE id = $${pId}`, params);
   return { ecrits, ignores };
 }
 
@@ -306,15 +317,24 @@ export async function journalBatiments(dossierId: number, corpsId: number | null
   } catch { /* 104 absente / indisponible : trace best-effort (ne fait jamais échouer l'opération ; les colonnes _le/_par portent déjà qui/quand). */ }
 }
 
-/** N3-C — renomme un corps (le `repere` n'a PAS d'origine : c'est un libellé humain, comme le commentaire du global). `null` = anonyme. */
+/** N3-C — renomme un corps (le `repere` n'a PAS d'origine : c'est un libellé humain, comme le commentaire du global). `null` = anonyme.
+ *  RATT-EDIT (marqueur sans faux positif) — `maj_le` ne bouge que si le repère change RÉELLEMENT (IS DISTINCT FROM, NULL-safe). */
 export async function definirRepere(corpsId: number, repere: string | null, majPar: string): Promise<void> {
-  await query(`UPDATE permis_corps_batiment SET repere = $2, maj_le = now(), maj_par = $3 WHERE id = $1`, [corpsId, repere, majPar]);
+  await query(`UPDATE permis_corps_batiment SET repere = $2,
+                 maj_le = CASE WHEN repere IS DISTINCT FROM $2 THEN now() ELSE maj_le END,
+                 maj_par = CASE WHEN repere IS DISTINCT FROM $2 THEN $3 ELSE maj_par END
+               WHERE id = $1`, [corpsId, repere, majPar]);
 }
 
-/** N7-E — écrit À LA MAIN l'adresse déclarée d'un corps (origine 'saisie' ; NULL = vide → origine null). La saisie écrase tout. */
+/** N7-E — écrit À LA MAIN l'adresse déclarée d'un corps (origine 'saisie' ; NULL = vide → origine null). La saisie écrase tout.
+ *  RATT-EDIT (marqueur sans faux positif) — `adresse_origine` reste écrite (confirmation de saisie), mais `maj_le` ne bouge que si
+ *  l'ADRESSE change réellement (IS DISTINCT FROM, NULL-safe) : ré-enregistrer la même adresse ne fait pas passer le permis « à revalider ». */
 export async function definirAdresseCorps(corpsId: number, adresse: string | null, majPar: string): Promise<void> {
   const v = adresse && adresse.trim() !== '' ? adresse.trim() : null;
-  await query(`UPDATE permis_corps_batiment SET adresse = $2, adresse_origine = $3, maj_le = now(), maj_par = $4 WHERE id = $1`,
+  await query(`UPDATE permis_corps_batiment SET adresse = $2, adresse_origine = $3,
+                 maj_le = CASE WHEN adresse IS DISTINCT FROM $2 THEN now() ELSE maj_le END,
+                 maj_par = CASE WHEN adresse IS DISTINCT FROM $2 THEN $4 ELSE maj_par END
+               WHERE id = $1`,
     [corpsId, v, v === null ? null : 'saisie', majPar]);
 }
 
@@ -326,18 +346,25 @@ export async function definirAdresseCorps(corpsId: number, adresse: string | nul
  * valeur 'saisie' (invariant), donc la décision est protégée.
  */
 export async function validerSommetCorps(corpsId: number, valeur: number | null, majPar: string): Promise<void> {
+  // RATT-EDIT (marqueur sans faux positif) — la trace de VALIDATION (`confirme_le`/`confirme_par`) reste posée INCONDITIONNELLEMENT
+  //   (valider est le geste), mais `maj_le` (la seule estampille lue par le marqueur « à revalider ») ne bouge que si l'ALTITUDE change
+  //   réellement (IS DISTINCT FROM, NULL-safe) : revalider la même altitude ne repasse pas le permis « à revalider ».
   if (valeur === null) {
     await query(
       `UPDATE permis_corps_batiment
           SET altitude_sommet_ngf = NULL, altitude_sommet_ngf_origine = NULL,
-              altitude_sommet_ngf_confirme_le = NULL, altitude_sommet_ngf_confirme_par = NULL, maj_le = now(), maj_par = $2
+              altitude_sommet_ngf_confirme_le = NULL, altitude_sommet_ngf_confirme_par = NULL,
+              maj_le = CASE WHEN altitude_sommet_ngf IS DISTINCT FROM NULL THEN now() ELSE maj_le END,
+              maj_par = CASE WHEN altitude_sommet_ngf IS DISTINCT FROM NULL THEN $2 ELSE maj_par END
         WHERE id = $1`, [corpsId, majPar]);
     return;
   }
   await query(
     `UPDATE permis_corps_batiment
         SET altitude_sommet_ngf = $2, altitude_sommet_ngf_origine = 'saisie',
-            altitude_sommet_ngf_confirme_le = now(), altitude_sommet_ngf_confirme_par = $3, maj_le = now(), maj_par = $3
+            altitude_sommet_ngf_confirme_le = now(), altitude_sommet_ngf_confirme_par = $3,
+            maj_le = CASE WHEN altitude_sommet_ngf IS DISTINCT FROM $2 THEN now() ELSE maj_le END,
+            maj_par = CASE WHEN altitude_sommet_ngf IS DISTINCT FROM $2 THEN $3 ELSE maj_par END
       WHERE id = $1`, [corpsId, valeur, majPar]);
 }
 

@@ -267,6 +267,37 @@ describe('PROJ-2 — enregistrerEmprise : n’écrit QUE la table des reconstitu
     expect(H.calls.some((c) => /UPDATE permis_emprise_reconstruite\s+SET ajustement =/i.test(c.sql))).toBe(false);
   });
 
+  // RATT-EDIT (marqueur sans faux positif) — un ajustement SANS EFFET géométrique ne réécrit ni pose_le (marqueur) ni la dévalidation.
+  const idn = (centre = { x: 5, y: 5 }): Ajustement => ({ tx: 0, ty: 0, rotDeg: 0, echelle: 1, centre });
+  it('enregistrerAjustement : delta IDENTITÉ sur emprise sans ajustement → AUCUNE écriture, PAS de dévalidation (reste validée, permis « Validé »)', async () => {
+    H.flags.listeRows = [ligneCarre(null)]; // id 1, aucun ajustement posé
+    const r = await enregistrerAjustement(11434, 1, idn(), 'admin');
+    expect(r.ok).toBe(true);
+    expect(H.calls.some((c) => /UPDATE permis_emprise_reconstruite\s+SET ajustement =/i.test(c.sql))).toBe(false); // pose_le NON réécrit
+    expect(H.calls.some((c) => /validee_le = NULL/i.test(c.sql))).toBe(false);                                    // AUCUNE dévalidation
+  });
+  it('enregistrerAjustement : delta IDENTIQUE au noyau déjà posé (enregistrer sans avoir déplacé) → AUCUNE écriture', async () => {
+    const noyau = { tx: 3, ty: -2, rotDeg: 10, echelle: 1.2, centre: { x: 5, y: 5 } };
+    H.flags.listeRows = [ligneCarre({ ...noyau, pose_le: '2026-09-09T10:00:00Z', pose_par: 'admin' })];
+    const r = await enregistrerAjustement(11434, 1, { ...noyau }, 'admin');
+    expect(r.ok).toBe(true);
+    expect(H.calls.some((c) => /UPDATE permis_emprise_reconstruite\s+SET ajustement =/i.test(c.sql))).toBe(false);
+  });
+  it('enregistrerAjustement : un VRAI déplacement (delta ≠ noyau posé) → écrit ET dévalide (comportement inchangé)', async () => {
+    H.flags.listeRows = [ligneCarre(null)];
+    const r = await enregistrerAjustement(11434, 1, { tx: 2, ty: 0, rotDeg: 0, echelle: 1, centre: { x: 5, y: 5 } }, 'admin');
+    expect(r.ok).toBe(true);
+    expect(H.calls.some((c) => /UPDATE permis_emprise_reconstruite\s+SET ajustement =/i.test(c.sql))).toBe(true);
+    expect(H.calls.some((c) => /validee_le = NULL/i.test(c.sql))).toBe(true);
+  });
+  it('ajusterBloc : geste d’ENSEMBLE IDENTITÉ → AUCUNE écriture, aucune dévalidation d’ensemble', async () => {
+    H.flags.listeRows = [ligneCarre(null)];
+    const r = await ajusterBloc(11434, idn(), 'admin');
+    expect(r.ok).toBe(true);
+    expect(H.calls.some((c) => /UPDATE permis_emprise_reconstruite\s+SET ajustement =/i.test(c.sql))).toBe(false);
+    expect(H.calls.some((c) => /validee_le = NULL WHERE dossier_id/i.test(c.sql))).toBe(false);
+  });
+
   it('reinitialiserAjustementBloc : UPDATE ajustement = NULL sur TOUT le dossier (une requête, scopée)', async () => {
     const r = await reinitialiserAjustementBloc(11434);
     expect(r.ok).toBe(true);
