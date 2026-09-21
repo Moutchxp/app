@@ -69,14 +69,18 @@ describe('Sous-lignes « surface » (Analyse) — fond surélevé tokenisé et s
     expect((src.match(/titreClasseExtra=\{classeSousLigne\}/g) ?? []).length).toBe(4);
   });
 
-  it('SCOPE Analyse : seul ProjectionVue active `sousLignesSurface` ; En cours / Réponses / Archives / Rattachement NON', () => {
-    expect(lire(P + 'ProjectionVue.tsx')).toContain('sousLignesSurface');
-    for (const rel of ['SuiviDemandes.tsx', 'ReponsesVue.tsx', 'ArchivesVue.tsx', 'SuiviRattachementVue.tsx']) {
-      expect(lire(P + rel).includes('sousLignesSurface'), `${rel} ne doit PAS activer le fond surélevé`).toBe(false);
+  it('SCOPE Analyse : le fond surélevé n’est activé QUE via FichePermisBlocs en mode `analyse` ; En cours / Réponses / Archives / Rattachement / ProjectionVue NON (aucun ne l’active directement)', () => {
+    // LOT 1 (parité fiche) — `sousLignesSurface` a MIGRÉ de ProjectionVue dans FichePermisBlocs, GATÉ par le mode : seul 'analyse' l'active
+    //   (en Rattachement, lot 2, la MÊME fiche est montée avec mode='rattachement' → le gate le laisse à false : pas de fond surélevé).
+    expect(lire(P + 'FichePermisBlocs.tsx')).toContain("sousLignesSurface={mode === 'analyse'}");
+    // Les écrans qui montent CaracteristiquesBloc DIRECTEMENT (hors fiche partagée) ne l'activent jamais ; ProjectionVue délègue à la fiche.
+    for (const rel of ['SuiviDemandes.tsx', 'ReponsesVue.tsx', 'ArchivesVue.tsx', 'SuiviRattachementVue.tsx', 'ProjectionVue.tsx']) {
+      expect(lire(P + rel).includes('sousLignesSurface'), `${rel} ne doit PAS activer le fond surélevé directement`).toBe(false);
     }
   });
 
-  it('ligne MÈRE inchangée : ProjectionVue n’ajoute aucun modificateur de titre (le fond surélevé vit dans CaracteristiquesBloc, sur les sous-lignes)', () => {
+  it('ligne MÈRE inchangée : ni ProjectionVue ni FichePermisBlocs n’ajoutent de modificateur de titre (le fond surélevé vit dans CaracteristiquesBloc, sur les sous-lignes)', () => {
     expect(lire(P + 'ProjectionVue.tsx')).not.toContain('titreClasseExtra');
+    expect(lire(P + 'FichePermisBlocs.tsx')).not.toContain('titreClasseExtra');
   });
 });

@@ -45,16 +45,23 @@ describe('oscillation état permis (ligne fermée ↔ dossier ouvert) — INVARI
 });
 
 describe('oscillation état permis — le correctif rafraîchit la file après une mutation de caractéristiques (garde de source)', () => {
-  // ProjectionVue est un composant client « non montable » (fetch au montage, importe BlocTraceEmprise → pdfjs/canvas). On vérifie donc le
-  // CÂBLAGE au niveau de la source (même patron que CartouchesAjustables.test), sur une chaîne à espaces normalisés (jamais la forme exacte).
-  const SRC = readFileSync('app/(admin)/admin/(protected)/permis/ProjectionVue.tsx', 'utf8').replace(/\s+/g, ' ');
+  // Composants clients « non montables » (fetch au montage, BlocTraceEmprise → pdfjs/canvas). On vérifie le CÂBLAGE au niveau de la source
+  //   (même patron que CartouchesAjustables.test), sur une chaîne à espaces normalisés (jamais la forme exacte).
+  // LOT 1 (parité fiche) — les DEUX mutations (caractéristiques + emprise) vivent désormais dans FichePermisBlocs et déclenchent le refresh
+  //   de la file du PARENT via `onRafraichirFile` ; le parent (ProjectionVue) branche ce callback sur `rafraichirFile` (re-fetch de la file).
+  const FICHE = readFileSync('app/(admin)/admin/(protected)/permis/FichePermisBlocs.tsx', 'utf8').replace(/\s+/g, ' ');
+  const PROJ = readFileSync('app/(admin)/admin/(protected)/permis/ProjectionVue.tsx', 'utf8').replace(/\s+/g, ' ');
 
   it('la mutation de caractéristiques (retrait de carte) rafraîchit la file, comme la mutation d’emprise', () => {
-    // onChange de CaracteristiquesBloc : re-instruit l’intérieur ET rafraîchit le snapshot de la file (sinon la ligne fermée reste périmée).
-    expect(SRC).toContain('onChange={() => { setVInstruction((v) => v + 1); void rafraichirFile(); }}');
-    // La mutation d’emprise rafraîchissait déjà la file (patron de référence) — on le garde.
-    expect(SRC).toContain('setVEmprise((v) => v + 1); void rafraichirFile();');
-    // Les DEUX chemins de mutation (caractéristiques + emprise) appellent rafraichirFile → le snapshot ne peut plus rester périmé.
-    expect((SRC.match(/void rafraichirFile\(\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    // onChange de CaracteristiquesBloc : re-instruit l’intérieur ET rafraîchit le snapshot de la file du parent (sinon la ligne fermée reste périmée).
+    expect(FICHE).toContain('onChange={() => { setVInstruction((v) => v + 1); onRafraichirFile?.(); }}');
+    // La mutation d’emprise rafraîchit AUSSI la file (patron de référence) — on le garde.
+    expect(FICHE).toContain('setVEmprise((v) => v + 1); onRafraichirFile?.();');
+    // Les DEUX chemins de mutation (caractéristiques + emprise) appellent onRafraichirFile → le snapshot ne peut plus rester périmé.
+    expect((FICHE.match(/onRafraichirFile\?\.\(\)/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+  it('le parent (ProjectionVue) branche onRafraichirFile sur rafraichirFile (re-fetch de la file autoritative)', () => {
+    expect(PROJ).toContain('onRafraichirFile={rafraichirFile}');   // le pont : les mutations des blocs re-fetchent la file du parent
+    expect(PROJ).toContain('const rafraichirFile = useCallback');  // rafraichirFile re-fetche la file (source autoritative) — inchangé
   });
 });

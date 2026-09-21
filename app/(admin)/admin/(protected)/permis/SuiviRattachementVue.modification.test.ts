@@ -75,14 +75,20 @@ describe('B2 — plomberie de la capacité peutModifierPermis (serveur → tuile
 });
 
 describe('B2 — Analyse et projection STRICTEMENT inchangé', () => {
-  it('ProjectionVue monte CaracteristiquesBloc SANS lectureSeule (l’instruction normale reste éditable)', () => {
-    expect(projection).toContain('<CaracteristiquesBloc');
-    expect(projection).not.toContain('lectureSeule');
+  // LOT 1 (parité fiche) — ProjectionVue délègue désormais les 6 blocs au composant PARTAGÉ FichePermisBlocs, monté en mode 'analyse'. Le
+  //   verrou de saisie (lectureSeule) n'existe QU'en 'rattachement' et n'est activé qu'après « Modifier » (lot 2) → en analyse, jamais.
+  const fiche = readFileSync(join(ici, 'FichePermisBlocs.tsx'), 'utf8');
+  it('Analyse monte la fiche partagée en mode « analyse » → saisie ÉDITABLE (le verrou lectureSeule est gaté par le mode, jamais actif ici)', () => {
+    expect(projection).toContain('mode="analyse"');                 // ProjectionVue → FichePermisBlocs en mode analyse
+    expect(fiche).toContain("mode === 'rattachement' && !edition"); // lectureSeule GATÉ par le mode → false en analyse (instruction normale éditable)
+    expect(projection).not.toContain('lectureSeule');               // le parent Analyse n'a plus à connaître le verrou (il vit dans la fiche, gaté)
   });
-  it('ProjectionVue ne connaît ni le verrou ni la pop-up de modification (aucune contagion)', () => {
-    expect(projection).not.toContain('BandeauModificationValidation');
-    expect(projection).not.toContain('PopUpConfirmerModification');
-    expect(projection).not.toContain('modifOuverte');
+  it('ni ProjectionVue ni la fiche partagée ne connaissent le verrou/la pop-up de modification (aucune contagion du lot B2 dans Analyse)', () => {
+    for (const src of [projection, fiche]) {
+      expect(src).not.toContain('BandeauModificationValidation'); // l'UI d'édition verrouillée vit dans SuiviRattachementVue (Rattachement), pas ici
+      expect(src).not.toContain('PopUpConfirmerModification');
+      expect(src).not.toContain('modifOuverte');
+    }
   });
 });
 

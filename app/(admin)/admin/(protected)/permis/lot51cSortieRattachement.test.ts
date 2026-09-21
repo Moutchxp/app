@@ -115,7 +115,9 @@ describe('ENR-1 (LOT 1/2) — garde dédiée à l’envoi (« enregistré » = f
 describe('ENR-1 (LOT 1/2) — UI ProjectionVue : mère, bandeau et bouton suivent le FAIT SERVEUR (honnête bloc replié)', () => {
   const s = lire('app/(admin)/admin/(protected)/permis/ProjectionVue.tsx');
   it('la mère se calcule sur des comptes portant nbCorpsNonEnregistres (repli file), sans dépendre de fraicheurBat', () => {
-    expect(s).toContain('nbCorpsNonEnregistres: row?.nbCorpsNonEnregistres ?? 0');
+    // LOT 1 (parité fiche) — la composition `comptesMere` (repli file, portant le fait serveur nbCorpsNonEnregistres) a MIGRÉ dans le helper
+    //   PUR `etatsFichePermis`, SOURCE UNIQUE partagée par FichePermisBlocs (titre de la mère) ET ProjectionVue (gate de clôture, ci-dessous).
+    expect(lire('app/(admin)/admin/(protected)/permis/etatsFichePermis.ts')).toContain('nbCorpsNonEnregistres: row?.nbCorpsNonEnregistres ?? 0');
   });
   it('le bandeau + bouton de clôture sont gatés par le fait serveur (jamais un faux « prêt » bloc replié)', () => {
     expect(s).toContain("(comptesMere.nbCorpsNonEnregistres ?? 0) === 0");

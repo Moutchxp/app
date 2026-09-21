@@ -86,10 +86,11 @@ import { join } from 'node:path';
 const lire = (p: string): string => readFileSync(join(process.cwd(), p), 'utf8');
 
 describe('P3 — câblage anti-doublon (garde de source : la donnée /emprise est PARTAGÉE, jamais re-fetchée par un frère)', () => {
-  it('ProjectionVue remonte la donnée du bloc « Bâtiments et projection » et la partage à la liseuse de la planche', () => {
-    const s = lire('app/(admin)/admin/(protected)/permis/ProjectionVue.tsx');
-    expect(s).toContain('onDonneesLiseuse={setDonneesLiseuse}'); // BlocTraceEmprise → ProjectionVue
-    expect(s).toContain('donneesLiseuse={donneesLiseuse}');       // ProjectionVue → PlancheParcelles
+  it('FichePermisBlocs remonte la donnée du bloc « Bâtiments et projection » et la partage à la liseuse de la planche (partage INTERNE)', () => {
+    // LOT 1 (parité fiche) — le partage de la donnée /emprise (Bâtiments → planche) est INTERNE à FichePermisBlocs : le parent ne le porte plus.
+    const s = lire('app/(admin)/admin/(protected)/permis/FichePermisBlocs.tsx');
+    expect(s).toContain('onDonneesLiseuse={setDonneesLiseuse}'); // BlocTraceEmprise → FichePermisBlocs
+    expect(s).toContain('donneesLiseuse={donneesLiseuse}');       // FichePermisBlocs → PlancheParcelles
   });
   it('BlocTraceEmprise partage sa donnée /emprise à sa liseuse embarquée (0 bâtiment)', () => {
     expect(lire('app/(admin)/admin/(protected)/permis/BlocTraceEmprise.tsx')).toContain('donneesPrechargees={donneesLiseuse}');

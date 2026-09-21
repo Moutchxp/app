@@ -126,14 +126,14 @@ describe('PL-H — remontée planche → bloc « Bâtiments et projection » (co
 /** Gardes de CÂBLAGE (lecture de source) : le MÊME canal existant est réutilisé, et le retrait côté bloc bâtiments est INCHANGÉ. */
 // En env jsdom `import.meta.url` n'est pas une URL file: → on lit depuis la racine du projet (process.cwd() = dossier app).
 const DIR = join(process.cwd(), 'app', '(admin)', 'admin', '(protected)', 'permis');
-const SRC_PROJECTION = readFileSync(join(DIR, 'ProjectionVue.tsx'), 'utf8');
+const SRC_FICHE = readFileSync(join(DIR, 'FichePermisBlocs.tsx'), 'utf8'); // LOT 1 (parité fiche) — le canal onEmpreinteRecalculee (planche → tracé) a MIGRÉ de ProjectionVue dans FichePermisBlocs
 const SRC_BLOC = readFileSync(join(DIR, 'BlocTraceEmprise.tsx'), 'utf8');
 const SRC_PLANCHE = readFileSync(join(DIR, 'PlancheParcelles.tsx'), 'utf8');
 
 describe('PL-H — câblage : réutilise le canal existant (vInstruction), retrait inchangé', () => {
   it('la planche appelle onEmpreinteRecalculee après un recompute, et le PARENT le branche sur vInstruction (canal de CaracteristiquesBloc)', () => {
     expect(SRC_PLANCHE).toContain('onEmpreinteRecalculee?.()');                 // appelé dans le handler poster (pas un effet)
-    expect(SRC_PROJECTION).toContain('onEmpreinteRecalculee={() => setVInstruction((v) => v + 1)}'); // MÊME canal que CaracteristiquesBloc.onChange
+    expect(SRC_FICHE).toContain('onEmpreinteRecalculee={() => setVInstruction((v) => v + 1)}'); // MÊME canal que CaracteristiquesBloc.onChange (dans FichePermisBlocs)
   });
   it('(b) le RETRAIT depuis le bandeau du bloc bâtiments est INCHANGÉ (POST retirer /planche puis re-fetch local rechargeLocal)', () => {
     expect(SRC_BLOC).toContain("action: 'retirer'");

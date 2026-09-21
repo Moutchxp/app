@@ -14,7 +14,9 @@ import { fileURLToPath } from 'node:url';
  * La preuve du zéro-requête effectif est fournie par la MESURE navigateur/HTTP du rapport ; ce test empêche une régression de structure.
  */
 const lire = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
-const PROJ = lire('./ProjectionVue.tsx');
+// LOT 1 (parité fiche) — la pile des 6 blocs (et sa structure de chargement paresseux) a MIGRÉ de ProjectionVue.renderDetail vers le
+//   composant partagé FichePermisBlocs. On scanne CE fichier : même garantie PERF-1, source déplacée.
+const PROJ = lire('./FichePermisBlocs.tsx');
 const REPLIABLE = lire('./BlocRepliable.tsx');
 const COMPLETUDE = lire('./BlocCompletude.tsx');
 
@@ -35,7 +37,7 @@ describe('PERF-1 — blocs coûteux montés au dépliage (render-prop)', () => {
   // POLISH-1 / COMPLÉMENT — BlocTraceEmprise reste chargé AU DÉPLIAGE (render-prop lazy) : la requête /emprise ne part qu'au dépliage.
   //   Le bouton global « Valider la projection » a été RETIRÉ (validation par bâtiment). On vérifie que la trace vit dans la render-prop lazy.
   it('BlocTraceEmprise est enfermé dans la render-prop lazy du bloc « Bâtiments et projection » (POLISH-1) ; le bouton global « Valider la projection » a disparu', () => {
-    const bat = PROJ.slice(PROJ.indexOf('onOuvertChange={setBatimentsOuvert}'));
+    const bat = PROJ.slice(PROJ.indexOf('onOuvertChange={onBatimentsOuvert}')); // LOT 1 : l'ouverture est REMONTÉE au parent (onBatimentsOuvert) au lieu d'un setState local
     expect(bat).toContain('{() => ('); // render-prop (lazy) — /emprise seulement au dépliage
     expect(bat.indexOf('<BlocTraceEmprise')).toBeGreaterThan(-1);
     expect(PROJ).not.toContain('<BoutonValiderProjection'); // retiré de l'écran

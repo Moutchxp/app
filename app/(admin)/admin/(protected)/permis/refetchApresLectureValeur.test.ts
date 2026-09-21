@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 const lire = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 const LISEUSE = lire('./LiseusePieces.tsx');
 const TRACE = lire('./BlocTraceEmprise.tsx');
-const PROJECTION = lire('./ProjectionVue.tsx');
+const FICHE = lire('./FichePermisBlocs.tsx'); // LOT 1 (parité fiche) — vValeurLue + la clé carac + onValeurLue ont MIGRÉ de ProjectionVue vers FichePermisBlocs
 const SUIVI = lire('./SuiviDemandes.tsx');
 
 describe('LiseusePieces — signale une valeur lue/annulée par « analyse de la page »', () => {
@@ -42,10 +42,10 @@ describe('BlocTraceEmprise — repasse le signal de sa liseuse embarquée au par
 });
 
 describe('les parents re-fetchent CaracteristiquesBloc via un compteur DÉDIÉ (le lecteur ne bouge pas)', () => {
-  it('ProjectionVue : vValeurLue est dans la clé du bloc, PAS dans celle de la liseuse (embarquée via BlocTraceEmprise)', () => {
-    expect(PROJECTION).toContain('const [vValeurLue, setVValeurLue] = useState(0)');
-    expect(PROJECTION).toContain('key={`carac-${ouvert}-${vAnalyse}-${vValeurLue}-${vEmprise}`}');
-    expect(PROJECTION).toContain('onValeurLue={() => setVValeurLue((v) => v + 1)}');
+  it('FichePermisBlocs (Analyse) : vValeurLue est dans la clé du bloc, PAS dans celle de la liseuse (embarquée via BlocTraceEmprise)', () => {
+    expect(FICHE).toContain('const [vValeurLue, setVValeurLue] = useState(0)');
+    expect(FICHE).toContain('key={`carac-${dossierId}-${vAnalyse}-${vValeurLue}-${vEmprise}`}');
+    expect(FICHE).toContain('onValeurLue={() => setVValeurLue((v) => v + 1)}');
   });
   it('SuiviDemandes : vValeurLue remonte le bloc mais PAS la liseuse standalone (sa clé garde le seul vApresAnalyse)', () => {
     expect(SUIVI).toContain('const [vValeurLue, setVValeurLue] = useState(0)');
