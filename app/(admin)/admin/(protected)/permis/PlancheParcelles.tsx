@@ -47,7 +47,7 @@ const LEGENDE: { cle: string; couleur: string; texte: string }[] = [
   { cle: 'voisine', couleur: 'var(--color-svv-muted)', texte: 'voisine (repère)' },
 ];
 
-export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanche, donneesLiseuse = null }: {
+export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanche, donneesLiseuse = null, lectureSeule = false }: {
   dossierId: number;
   onEmpreinteRecalculee?: () => void; // PL-H — appelé après un valider/retirer RÉUSSI (empreinte+bâti+projection recalculés serveur) → le
                                       //   parent rafraîchit le bloc « Bâtiments et projection » via le canal EXISTANT (vInstruction/rafraichir).
@@ -55,6 +55,10 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
                                                             //   de fonction le dit SANS déplier. null tant que rien n'est chargé. Prime sur l'état sauvegardé côté parent.
   donneesLiseuse?: DonneesLiseuse | null; // P3 (perfo) — données /emprise déjà chargées par le bloc « Bâtiments et projection » : la liseuse
                                           //   de la planche les RÉUTILISE au lieu de refaire le GET /emprise (doublon supprimé). Null → elle charge elle-même.
+  // RATT-EDIT (lot 2) — CONSULTATION : la planche est en LECTURE SEULE (Rattachement tant que « Modifier » n'a pas déverrouillé). Le schéma,
+  //   la légende et les vues (Toutes / Centrer / Adresse) restent ; SEULES l'édition de la composition (clic parcelle) et les actions
+  //   Valider/Réinitialiser/Revenir sont neutralisées. Défaut false → Analyse / Archives / En cours / Réponses STRICTEMENT inchangés (prop absente).
+  lectureSeule?: boolean;
 }) {
   const [data, setData] = useState<PlancheData | null>(null);
   const [etat, setEtat] = useState<'chargement' | 'erreur' | 'ok'>('chargement');
@@ -168,7 +172,7 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
     return () => window.removeEventListener('keydown', onKey);
   }, [schemaPleinEcran]);
 
-  const basculer = (id: string | null) => { if (!id) return; setComposition((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
+  const basculer = (id: string | null) => { if (lectureSeule || !id) return; setComposition((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; }); }; // RATT-EDIT (lot 2) — clic parcelle NEUTRALISÉ en consultation (aucune mutation de composition)
   const reinitialiser = () => { setComposition(new Set(defautIdus)); setMsg(null); };
 
   const poster = async (action: 'valider' | 'retirer', idus?: string[]) => {
@@ -357,7 +361,7 @@ export function PlancheParcelles({ dossierId, onEmpreinteRecalculee, onEtatPlanc
   // (C) — CONTRÔLES DE SÉLECTION (PL-C : état courant + composition + actions Valider/Modifier/Réinitialiser/Revenir). En vue INTÉGRÉE : sous
   //   le schéma. En PLEIN ÉCRAN : REMONTÉS AU-DESSUS du schéma, dans la marge des contrôles (avec « Centrer : » et le curseur « Voisines à »),
   //   jamais en colonne de droite (décision Arno). Rien si rien à dessiner.
-  const controlesSelection = !(data.motif || rienADessiner) ? (
+  const controlesSelection = !lectureSeule && !(data.motif || rienADessiner) ? ( // RATT-EDIT (lot 2) — actions Valider/Réinitialiser/Revenir MASQUÉES en consultation (aucune écriture possible)
       <div style={{ borderTop: '1px solid var(--color-svv-line)', paddingTop: '.4rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
         {/* État courant : DIT clairement automatique vs validé par QUI et QUAND (provenance honnête). */}
         <div aria-live="polite" style={{ fontSize: 12 }}>

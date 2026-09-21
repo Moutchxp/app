@@ -69,13 +69,16 @@ describe('Sous-lignes « surface » (Analyse) — fond surélevé tokenisé et s
     expect((src.match(/titreClasseExtra=\{classeSousLigne\}/g) ?? []).length).toBe(4);
   });
 
-  it('SCOPE Analyse : le fond surélevé n’est activé QUE via FichePermisBlocs en mode `analyse` ; En cours / Réponses / Archives / Rattachement / ProjectionVue NON (aucun ne l’active directement)', () => {
-    // LOT 1 (parité fiche) — `sousLignesSurface` a MIGRÉ de ProjectionVue dans FichePermisBlocs, GATÉ par le mode : seul 'analyse' l'active
-    //   (en Rattachement, lot 2, la MÊME fiche est montée avec mode='rattachement' → le gate le laisse à false : pas de fond surélevé).
-    expect(lire(P + 'FichePermisBlocs.tsx')).toContain("sousLignesSurface={mode === 'analyse'}");
-    // Les écrans qui montent CaracteristiquesBloc DIRECTEMENT (hors fiche partagée) ne l'activent jamais ; ProjectionVue délègue à la fiche.
-    for (const rel of ['SuiviDemandes.tsx', 'ReponsesVue.tsx', 'ArchivesVue.tsx', 'SuiviRattachementVue.tsx', 'ProjectionVue.tsx']) {
-      expect(lire(P + rel).includes('sousLignesSurface'), `${rel} ne doit PAS activer le fond surélevé directement`).toBe(false);
+  it('SCOPE fiche partagée : le fond surélevé est activé dans FichePermisBlocs (Analyse ET Rattachement) ; les 3 écrans plats (En cours / Réponses / Archives) NON', () => {
+    // Décision Arno (lot 2, 21/09) — le fond surélevé vit dans la FICHE PARTAGÉE, montée en Analyse ET en Rattachement (parité visuelle des 6
+    //   lignes). Il n'est donc plus gaté par le mode : `sousLignesSurface` (nu) dans FichePermisBlocs. Les 3 écrans PLATS montent CaracteristiquesBloc
+    //   SANS cette prop → strictement inchangés. ProjectionVue / SuiviRattachementVue délèguent à la fiche : ils reçoivent le fond VIA elle, sans porter le littéral.
+    expect(lire(P + 'FichePermisBlocs.tsx')).toContain('sousLignesSurface'); // la fiche partagée l'active (Analyse + Rattachement)
+    for (const rel of ['SuiviDemandes.tsx', 'ReponsesVue.tsx', 'ArchivesVue.tsx']) {
+      expect(lire(P + rel).includes('sousLignesSurface'), `${rel} (écran plat) ne doit PAS activer le fond surélevé`).toBe(false);
+    }
+    for (const rel of ['ProjectionVue.tsx', 'SuiviRattachementVue.tsx']) {
+      expect(lire(P + rel).includes('sousLignesSurface'), `${rel} délègue à la fiche partagée (ne porte pas le littéral)`).toBe(false);
     }
   });
 

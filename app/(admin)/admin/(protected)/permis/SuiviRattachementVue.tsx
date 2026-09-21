@@ -20,11 +20,9 @@ import type { PointLambert } from '../../../../lib/permis/calageEmprise';
 // L11 — libellés de SOURCE des bulles (constat AVANT travaux). L'origine figée lit le SNAPSHOT ; sinon (et la nouvelle) la couche vivante.
 const SOURCE_GEL = 'au moment du gel (état des lieux figé)';
 const SOURCE_VIVANTE = 'état actuel (couche BD TOPO)';
-import { CaracteristiquesBloc } from './CaracteristiquesBloc';
-import { BlocTraceEmprise } from './BlocTraceEmprise'; // RATT-EDIT (lot B2) — éditeur d'emprise, monté SEULEMENT en modification déverrouillée
+import { FichePermisBlocs } from './FichePermisBlocs'; // RATT-EDIT (lot 2) — fiche PARTAGÉE des 6 blocs (mode='rattachement') : Caractéristiques, éditeur d'emprise (déverrouillé) et pièces y vivent désormais (plus de CaracteristiquesBloc/BlocTraceEmprise/CellulePieces à plat)
 import { BandeauModificationValidation, PopUpConfirmerModification, PopUpConfirmerRevalidation, PopUpConfirmerRestauration } from './ModifierValidation'; // RATT-EDIT (lot B2/B3/C1) — verrou + pop-up 1 (modifier) + pop-up 2 (revalider) + pop-up 3 (restaurer)
 import type { VersionRestaurable } from '../../../../lib/permis/restaurationGel'; // RATT-EDIT (lot C1) — TYPE seul (module serveur) : versions de gel restaurables
-import { CellulePieces } from './ArchivesRendu';
 import { recompterSiSucces } from './comptesActions';
 
 /** RATT-EDIT (lot C1) — libellé lisible d'une version de gel restaurable (type + date + auteur en clair), pour le sélecteur et la pop-up 3. */
@@ -36,11 +34,12 @@ function libelleVersionRestaurable(v: VersionRestaurable): string {
 
 /**
  * FUS-3c — onglet SUIVI DU RATTACHEMENT : au clic sur un permis, TOUT le contenu de décision est sur la même page — détail
- * comparatif « trois sources », Street View, ET le détail complet du permis rapatrié d'Archives (caractéristiques, bâtiments,
- * altitudes, parcelles, pièces jointes CONSULTABLES). Réutilise `CaracteristiquesBloc` et `CellulePieces` (déplacement de rendu,
- * pas de réécriture). FUS-3d ajoute l'AFFECTATION des polygones BD TOPO aux corps (schéma + sélecteurs) — SEULE écriture ici ;
- * toujours AUCUN bouton valider/refuser, AUCUNE injection d'altitude (FUS-3e). Les pièces sont téléchargeables mais ni supprimables
- * ni ajoutables ici (ça reste dans Archives). Le détail complet est REPLIÉ par défaut (lisible à 20 dossiers).
+ * comparatif « trois sources », Street View, ET le détail complet du permis (caractéristiques, bâtiments, altitudes, parcelles,
+ * pièces jointes CONSULTABLES). RATT-EDIT (lot 2) — ce détail est désormais la FICHE PARTAGÉE `FichePermisBlocs` (mode='rattachement',
+ * les 6 mêmes lignes qu'Analyse), ouverte par deux gros boutons « Consulter » (lecture seule) / « Modifier » (pop-up 1 → édition), qui
+ * remplacent l'ancien pli et le bandeau B2 verrouillé. FUS-3d ajoute l'AFFECTATION des polygones BD TOPO aux corps (schéma + sélecteurs)
+ * — SEULE écriture directe ici ; toujours AUCUN bouton valider/refuser, AUCUNE injection d'altitude (FUS-3e). Les pièces sont
+ * téléchargeables mais ni supprimables ni ajoutables ici (ça reste dans Archives).
  */
 export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutModifierPermis = false }: { vue?: 'rattachement' | 'surveillance'; onRecompter?: () => void; peutModifierPermis?: boolean } = {}) {
   const estSurveillance = vue === 'surveillance'; // « Sous surveillance » = le radar (permis suivis, aucun signal) + recherche ; « Rattachement » = le TRAVAIL (arbitrages à faire)
@@ -357,7 +356,6 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
     finally { setEnCours(false); }
   }, [ouvert, motifOuverture, onRecompter]);
 
-  // Téléchargement d'une pièce — MÊME signeur unique qu'Archives (action url_piece de /reponses ; la clé ne transite jamais).
   // Réglage GLOBAL : la DAACT (achèvement déclaré) déclenche-t-elle l'ouverture d'un dossier de rattachement ?
   const basculerDaact = useCallback(async (actif: boolean): Promise<void> => {
     setDaactActif(actif); // optimiste
@@ -366,22 +364,8 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
       if (!res.ok) setDaactActif(!actif); // rétablissement sur échec
     } catch { setDaactActif(!actif); }
   }, []);
-
-  const telecharger = useCallback(async (pieceId: number, source: 'reponse' | 'dossier'): Promise<void> => {
-    try {
-      const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'url_piece', pieceId, source }) });
-      if (res.ok) { const { url } = (await res.json()) as { url: string }; window.open(url, '_blank', 'noopener,noreferrer'); }
-    } catch { /* lien indisponible : silencieux (lecture seule) */ }
-  }, []);
-
-  // N10-B — OUVERTURE d'une pièce À LA PAGE (variante `inline` de url_piece → visionneur, sans forcer le téléchargement) ; le fragment
-  //   #page=N est ajouté ICI, côté client (jamais signé → sécurité intacte). MÊME signeur serveur, la clé ne transite jamais.
-  const ouvrirPiece = useCallback(async (pieceId: number, source: 'reponse' | 'dossier', page?: number): Promise<void> => {
-    try {
-      const res = await fetch('/api/admin/permis/reponses', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'url_piece', pieceId, source, inline: true }) });
-      if (res.ok) { const { url } = (await res.json()) as { url: string }; window.open(page ? `${url}#page=${page}` : url, '_blank', 'noopener,noreferrer'); }
-    } catch { /* lien indisponible : silencieux (lecture seule) */ }
-  }, []);
+  // RATT-EDIT (lot 2) — le téléchargement / l'ouverture des pièces (telecharger, ouvrirPiece) vivent désormais DANS FichePermisBlocs (bloc
+  //   « Pièces du permis », MÊME signeur url_piece de /reponses ; la clé ne transite jamais) : le parent n'a plus à les porter.
 
   if (erreur) return <div className="svv-card" style={{ color: 'var(--color-svv-red)' }}>Suivi indisponible.</div>;
   if (!liste) return <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>Chargement…</div>;
@@ -514,20 +498,30 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
             {actionErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{actionErreur}</div>}
           </>
         )}
-        {/* Détail complet du permis rapatrié d'Archives — replié par défaut. */}
-        <div>
-          <button type="button" className="svv-link" style={{ width: 'auto', padding: '.1rem .4rem' }}
-            aria-expanded={permisOuvert} onClick={() => setPermisOuvert((v) => !v)}>
-            {permisOuvert ? 'masquer' : 'afficher'} le détail complet du permis et ses pièces jointes {permisOuvert ? '▲' : '▼'}
+        {/* RATT-EDIT (lot 2) — DEUX gros boutons (même taille, côte à côte sur ordinateur, empilés sur iPhone via flex-wrap) qui REMPLACENT le
+            pli « afficher le détail complet » ET le bandeau B2 verrouillé « Ce permis est validé… Modifier ». Forme cible du lot 3 (svv-btn-outline
+            / svv-btn-primary). « Modifier » est ABSENT (pas grisé) sans la capacité peutModifierPermis. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ flex: '1 1 16rem', minHeight: 48, fontSize: 14, fontWeight: 600 }}
+            aria-expanded={permisOuvert && !modifOuverte} onClick={() => { setPermisOuvert(true); setModifOuverte(false); }}>
+            Consulter les caractéristiques du permis validé
           </button>
+          {peutModifierPermis && (
+            <button type="button" className="svv-btn svv-btn-primary" style={{ flex: '1 1 16rem', minHeight: 48, fontSize: 14, fontWeight: 600 }}
+              aria-expanded={modifOuverte} onClick={() => setPopupModif(true)}>
+              Modifier les caractéristiques du permis validé
+            </button>
+          )}
         </div>
         {permisOuvert && (
           <div className="flex flex-col gap-2">
-            {/* B2 — VERROU d'édition d'une validation. Défaut LECTURE SEULE pour tous (admin compris) : « Modifier » (visible avec la
-                capacité peutModifierPermis) ouvre la pop-up 1 ; sa confirmation déverrouille altitude (CaracteristiquesBloc) ET emprise
-                (BlocTraceEmprise, monté seulement ici). Le permis NE redescend PAS en Analyse (aucune action de rattachement déclenchée). */}
-            <BandeauModificationValidation modifOuverte={modifOuverte} peutModifier={peutModifierPermis}
-              onDemander={() => setPopupModif(true)} onVerrouiller={() => setModifOuverte(false)} />
+            {/* B2 — bandeau « Modification en cours — non revalidée » + « Verrouiller », UNIQUEMENT en édition (l'état VERROUILLÉ / lecture seule est
+                désormais porté par les deux boutons ci-dessus — plus de bandeau « Ce permis est validé… Modifier »). Le permis NE redescend PAS
+                en Analyse (aucune action de rattachement déclenchée). */}
+            {modifOuverte && (
+              <BandeauModificationValidation modifOuverte={modifOuverte} peutModifier={peutModifierPermis}
+                onDemander={() => setPopupModif(true)} onVerrouiller={() => setModifOuverte(false)} />
+            )}
             {/* B3 — MARQUEUR PERSISTANT (fait SERVEUR, survit au rechargement, vaut pour tout utilisateur) : ce permis a été modifié après sa
                 validation et n'est pas encore revalidé. Visible SANS déplier (bannière en tête + badge sur la ligne fermée). En édition, le
                 bandeau B2 « modification en cours » couvre déjà ce message → on n'affiche celui-ci qu'en lecture seule (évite le doublon). */}
@@ -580,28 +574,27 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
               </div>
             )}
             {restauMsg && <div role="status" aria-live="polite" style={{ fontSize: 12, color: restauMsg.startsWith('Validation') ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)', fontWeight: 600 }}>{restauMsg}</div>}
-            {/* BAT-2b — état des sous-sections (cohérence cartes + altitudes) sur leurs titres, comme dans les 4 autres vues (aide section 4 conservée).
-                B2 — `lectureSeule` VERROUILLE l'édition de l'altitude tant que la modification n'est pas déverrouillée (ferme l'effet de bord : un admin ne modifie plus par inadvertance). */}
-            <CaracteristiquesBloc avecEtatFamilles lectureSeule={!modifOuverte} dossierId={detail.dossierId} onOuvrir={(id, source, page) => void ouvrirPiece(id, source, page)} />
-            {/* B2 — ÉDITEUR d'emprise (polygone) : monté UNIQUEMENT une fois la modification déverrouillée (client lourd pdf.js → jamais chargé
-                en consultation). Verrouillé, l'emprise reste consultable via le schéma figé plus haut (configuration d'origine / projetée). */}
-            {modifOuverte && (
-              <div className="flex flex-col gap-1">
-                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' }}>Emprise des bâtiments — modification</div>
-                <BlocTraceEmprise dossierId={detail.dossierId} />
-              </div>
-            )}
-            <div className="svv-card" style={{ fontSize: 12 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: '.3rem' }}>Pièces jointes</div>
-              <CellulePieces pieces={detail.pieces} onTelecharger={(id, source) => void telecharger(id, source)} />
-            </div>
+            {/* RATT-EDIT (lot 2) — FICHE PARTAGÉE : les 6 lignes d'Analyse (Complétude · Historique · Caractéristiques du permis (saisie) avec sa
+                ligne mère et ses 4 sous-lignes surélevées · Bâtiments et projection · Planche cadastrale · Pièces du permis). `edition={modifOuverte}`
+                → LECTURE SEULE par défaut pour tous (altitude/CaracteristiquesBloc, planche cadastrale et éditeur d'emprise ne s'éditent qu'après
+                « Modifier »). AUCUNE des 4 actions propres à Analyse (valider/envoyer en Rattachement, terminer l'analyse, renvoyer En cours,
+                auto-analyse) n'y est montée. Les pièces (BlocPiecesPermis) affichent la MÊME source qu'avant (listerPiecesDossier + CellulePieces :
+                provenance et « a servi à remplir N champs » conservés). En consultation, le bloc « Bâtiments et projection » renvoie au comparatif
+                « trois sources » ci-dessus (l'éditeur pdf.js n'est chargé qu'en modification — on garde les deux vues). */}
+            <FichePermisBlocs mode="rattachement" edition={modifOuverte} dossierId={detail.dossierId}
+              empriseConsultation={
+                <div className="svv-card" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>
+                  L’emprise des bâtiments est consultable dans le comparatif « trois sources » ci-dessus. Cliquez sur « Modifier les
+                  caractéristiques du permis validé » pour l’éditer.
+                </div>
+              } />
           </div>
         )}
         {/* B2 — POP-UP 1 : confirmation AVANT d'ouvrir la modification d'une validation précédente. Confirmer → déverrouille ; Annuler → rien
             n'est déverrouillé. (La date/l'auteur de validation ne sont pas exposés au client dans ce lot → message générique honnête.) */}
         {popupModif && (
           <PopUpConfirmerModification
-            onConfirmer={() => { setModifOuverte(true); setPopupModif(false); }}
+            onConfirmer={() => { setModifOuverte(true); setPopupModif(false); setPermisOuvert(true); }}
             onAnnuler={() => setPopupModif(false)} />
         )}
         {/* B3 — POP-UP 2 : confirmation AVANT de revalider. Dit ce qui sera enregistré (nouvelle référence) + que la précédente est conservée. */}
