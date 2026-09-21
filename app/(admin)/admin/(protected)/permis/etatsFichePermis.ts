@@ -37,7 +37,13 @@ export interface EtatsFiche {
   etatPlanche: EtatTitreFamille | null;       // titre « Planche cadastrale (parcelles) » ; null → titre nu
 }
 
-export function etatsFichePermis(dossierId: number, row: LigneProjectionAffichee | null, live: EtatsLiveFiche): EtatsFiche {
+/** LOT 3-B — les seuls champs de ligne que consomme le calcul des états (SOUS-ENSEMBLE de LigneProjectionAffichee). En Analyse la ligne de file
+ *  les porte tous ; en Rattachement on n'en fournit qu'une VUE dérivée des données SERVEUR (comptes du détail), jamais l'état de l'éditeur monté. */
+export type RowEtatsFiche = Pick<LigneProjectionAffichee, 'nbBatiments' | 'nbCorpsSansAltitude' | 'nbBatimentsValide' | 'nbCorpsNonEnregistres' | 'nbCorpsSansAltValidee' | 'nbCorpsSansEmpriseValidee' | 'plancheEtat'>;
+/** LOT 3-B — les trois badges de titre SEULS (sans comptesMere) : ce que la fiche affiche. `etatsFichePermis` en renvoie un SUR-ENSEMBLE. */
+export type BadgesFiche = Pick<EtatsFiche, 'etatMere' | 'etatProj' | 'etatPlanche'>;
+
+export function etatsFichePermis(dossierId: number, row: RowEtatsFiche | null, live: EtatsLiveFiche): EtatsFiche {
   const { enteteProjection, comptesLive, fraicheurBat, etatPlancheLive } = live;
 
   // BAT-2d — SOURCE UNIQUE : bloc OUVERT → comptes LIVE (mêmes données que le sous-titre) ; sinon REPLI sur les comptes de la file

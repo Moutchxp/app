@@ -203,3 +203,33 @@ describe('LOT 2 — fiche partagée montée dans Rattachement (Consulter / Modif
     expect(planche).toContain('if (lectureSeule || !id) return');                 // clic parcelle NEUTRALISÉ en consultation
   });
 });
+
+describe('LOT 3-B — badges des titres en Rattachement (données SERVEUR, jamais l’éditeur monté ; jamais de faux rouge)', () => {
+  it('les badges sont calculés via etatsFichePermis à partir des DONNÉES SERVEUR du détail (nbBatiments), et passés à la fiche', () => {
+    expect(vue).toContain('const etatsRattachement: BadgesFiche | null = estSurveillance');
+    expect(vue).toContain('etatsFichePermis(detail.dossierId,');
+    expect(vue).toContain('nbBatiments: detail.nbBatiments');       // donnée SERVEUR (détail), jamais l'état de l'éditeur monté
+    expect(vue).toContain('etatsRattachement={etatsRattachement}'); // passé à FichePermisBlocs
+    // la fiche partagée consomme ce prop pour ses titres en mode rattachement (SOURCE UNIQUE, pas de recalcul interne faux).
+    expect(fiche).toContain('etatsRattachement?: BadgesFiche | null');
+    expect(fiche).toContain(': etatsRattachement;');
+  });
+  it('JAMAIS DE FAUX ROUGE : le permis validé (non modifié) reçoit une VUE de comptes TOUS validés (0) → verts, sans aucun état live', () => {
+    expect(vue).toContain('nbBatiments: detail.nbBatiments, nbCorpsSansAltitude: 0, nbBatimentsValide: detail.nbBatiments, nbCorpsNonEnregistres: 0, nbCorpsSansAltValidee: 0, nbCorpsSansEmpriseValidee: 0, plancheEtat: null');
+    expect(vue).toContain('enteteProjection: null, comptesLive: null, fraicheurBat: null, etatPlancheLive: null'); // éditeur JAMAIS consulté
+  });
+  it('le marqueur B3 « modifié — à revalider » se reflète en ROUGE sur Caractéristiques ET Bâtiments (altitude/emprise)', () => {
+    expect(vue).toContain('detail.modifieDepuisValidation');
+    expect(vue).toContain("texte: 'modifié — à revalider', ton: 'rouge'");
+    expect(vue).toContain('etatMere: aRevalider, etatProj: aRevalider, etatPlanche: null');
+  });
+  it('lignes laissées NUES (un badge absent vaut mieux qu’un badge faux) : Planche TOUJOURS null ; Surveillance → aucun badge', () => {
+    expect(vue).toMatch(/etatsRattachement: BadgesFiche \| null = estSurveillance\s*\n\s*\? null/); // Surveillance (non validé) → aucun badge synthétisé
+    expect(vue).toContain('etatPlanche: null'); // planche : aucun état serveur ici → nue dans les deux branches
+  });
+  it('le SERVEUR alimente nbBatiments (bâtiments ACTIFS) sur le détail de rattachement', () => {
+    const repo = readFileSync(join(ici, '../../../../lib/permis/rattachementSuiviRepo.ts'), 'utf8');
+    expect(repo).toContain('nbBatiments: number;');                 // champ du type DetailSuivi
+    expect(repo).toContain('nbBatiments: carac.corps.length');      // valeur = corps actifs (lirePermisCaracteristiques)
+  });
+});

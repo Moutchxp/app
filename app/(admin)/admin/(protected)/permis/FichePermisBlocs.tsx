@@ -13,7 +13,7 @@ import type { DonneesLiseuse } from './LiseusePieces'; // P3 (perfo) — donnée
 import type { VerdictProjection } from '../../../../lib/permis/projectionBatiments';
 import type { EtatTitreFamille, ComptesCaracteristiquesPermis } from '../../../../lib/permis/etatFamilleProjection';
 import type { FraicheurBatimentsLive } from './statutBatimentsProjection';
-import { etatsFichePermis } from './etatsFichePermis'; // SOURCE UNIQUE des titres de famille (partagée avec ProjectionVue pour la clôture)
+import { etatsFichePermis, type BadgesFiche } from './etatsFichePermis'; // SOURCE UNIQUE des titres de famille (partagée avec ProjectionVue pour la clôture) ; BadgesFiche = titres calculés côté Rattachement (LOT 3-B)
 
 /**
  * LOT 1 (parité fiche permis) — PILE PARTAGÉE des 6 blocs de la fiche d'un permis, EXTRAITE de `ProjectionVue.renderDetail` (jusque-là
@@ -48,6 +48,7 @@ export function FichePermisBlocs({
   piedCaracteristiques,
   piedBatiments,
   empriseConsultation,
+  etatsRattachement = null,
 }: {
   dossierId: number;
   row?: LigneProjectionAffichee | null; // Analyse : la ligne de file (repli des badges). Rattachement : null (titres nus, cf. mode).
@@ -75,6 +76,10 @@ export function FichePermisBlocs({
   //   (client lourd pdf.js) n'est PAS monté tant que « Modifier » n'a pas ouvert l'édition — le parent glisse ici une note de renvoi vers le
   //   comparatif « trois sources » (déjà affiché plus haut). Absent en Analyse (l'éditeur y est toujours monté).
   empriseConsultation?: ReactNode;
+  // LOT 3-B — BADGES des titres en Rattachement, calculés par le PARENT à partir des DONNÉES SERVEUR (etatsFichePermis nourri d'une VUE de
+  //   comptes, JAMAIS l'état de l'éditeur monté) : permis validé non modifié → vert ; « modifié — à revalider » (marqueur B3) → rouge ; ligne
+  //   non calculable côté serveur (ex. planche) → null (titre nu). En Analyse : IGNORÉ (les badges y sont calculés en interne). null → titres nus.
+  etatsRattachement?: BadgesFiche | null;
 }) {
   // ÉTAT PROPRE aux blocs (interne) — jamais consulté par le parent. Réinitialisé au changement de dossier par le REMONTAGE du composant
   //   (la fiche est rendue dans la ligne ouverte, dont la clé = dossierId → un autre permis = un autre montage).
@@ -117,11 +122,14 @@ export function FichePermisBlocs({
   }, [dossierId]);
   const consommerDemandeAcces = useCallback(() => setDemandeAcces(null), []); // stable → n'entre pas en boucle dans l'effet de BlocTraceEmprise
 
-  // BADGES des titres de famille — SEULEMENT en Analyse (SOURCE UNIQUE etatsFichePermis, partagée avec ProjectionVue pour la clôture). En
-  //   Rattachement les titres sont NUS : le permis est déjà validé, et un badge DÉRIVÉ (row=null + éditeur d'emprise non monté en consultation
-  //   → enteteProjection jamais remonté) dirait faussement « aucune carte » sur un permis validé. Les badges de SOUS-SECTION restent, eux, portés
-  //   par CaracteristiquesBloc (`avecEtatFamilles`) dans les DEUX modes — ils lisent les données du bloc lui-même, pas la ligne de file.
-  const etats = mode === 'analyse' ? etatsFichePermis(dossierId, row, { enteteProjection, comptesLive, fraicheurBat, etatPlancheLive }) : null;
+  // BADGES des titres de famille — Analyse : SOURCE UNIQUE etatsFichePermis (état LIVE des blocs, partagée avec ProjectionVue pour la clôture).
+  //   Rattachement (LOT 3-B) : badges fournis par le PARENT (`etatsRattachement`), calculés depuis les données SERVEUR — JAMAIS l'état de
+  //   l'éditeur monté (le calcul interne, qui lirait row=null + un enteteProjection non remonté en consultation, dirait faussement « aucune
+  //   carte » sur un permis validé — d'où le calcul déporté au parent). Les badges de SOUS-SECTION restent, dans les DEUX modes, portés par
+  //   CaracteristiquesBloc (`avecEtatFamilles`) — ils lisent les données du bloc lui-même.
+  const etats: BadgesFiche | null = mode === 'analyse'
+    ? etatsFichePermis(dossierId, row, { enteteProjection, comptesLive, fraicheurBat, etatPlancheLive }) // Analyse : SOURCE UNIQUE interne (état live des blocs)
+    : etatsRattachement; // Rattachement (LOT 3-B) : badges calculés par le parent depuis les données SERVEUR ; null en lot 2 → titres nus
   // RATT-EDIT — 'rattachement' en consultation tant que « Modifier » n'a pas déverrouillé (lot 2). 'analyse' → false (éditable, comme avant).
   const lectureSeule = mode === 'rattachement' && !edition;
   // RATT-EDIT — l'ÉDITEUR d'emprise (BlocTraceEmprise, client lourd pdf.js) n'est monté qu'en Analyse OU après « Modifier » : en consultation

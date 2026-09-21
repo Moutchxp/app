@@ -21,6 +21,8 @@ import type { PointLambert } from '../../../../lib/permis/calageEmprise';
 const SOURCE_GEL = 'au moment du gel (état des lieux figé)';
 const SOURCE_VIVANTE = 'état actuel (couche BD TOPO)';
 import { FichePermisBlocs } from './FichePermisBlocs'; // RATT-EDIT (lot 2) — fiche PARTAGÉE des 6 blocs (mode='rattachement') : Caractéristiques, éditeur d'emprise (déverrouillé) et pièces y vivent désormais (plus de CaracteristiquesBloc/BlocTraceEmprise/CellulePieces à plat)
+import { etatsFichePermis, type BadgesFiche } from './etatsFichePermis'; // LOT 3-B — SOURCE UNIQUE des badges de titre, nourrie ici par les DONNÉES SERVEUR (détail), jamais l'éditeur monté
+import type { EtatTitreFamille } from '../../../../lib/permis/etatFamilleProjection'; // LOT 3-B — badge « modifié — à revalider » (marqueur B3)
 import { BandeauModificationValidation, PopUpConfirmerModification, PopUpConfirmerRevalidation, PopUpConfirmerRestauration } from './ModifierValidation'; // RATT-EDIT (lot B2/B3/C1) — verrou + pop-up 1 (modifier) + pop-up 2 (revalider) + pop-up 3 (restaurer)
 import type { VersionRestaurable } from '../../../../lib/permis/restaurationGel'; // RATT-EDIT (lot C1) — TYPE seul (module serveur) : versions de gel restaurables
 import { recompterSiSucces } from './comptesActions';
@@ -379,6 +381,18 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
     //   seule la clôture est proposée. On coupe donc la surface d'arbitrage (comparaison + ActionsRattachement) pour ces états.
     const estAcheveSansBati = detail.etat === 'acheve_sans_bati';
     const estClos = detail.etat === 'clos_sans_bati';
+    // LOT 3-B — BADGES des titres de la fiche partagée, ALIMENTÉS PAR LES DONNÉES SERVEUR (jamais l'état de l'éditeur monté). JAMAIS de faux rouge :
+    //   · Rattachement, permis validé (condition d'entrée) NON modifié → une VUE de comptes TOUS validés → badges VERTS via la source unique etatsFichePermis ;
+    //   · marqueur B3 « modifié — à revalider » (detail.modifieDepuisValidation) → ROUGE sur « Caractéristiques » ET « Bâtiments et projection » (altitude/emprise) ;
+    //   · Surveillance (permis PAS entièrement validé) : les comptes de validation partiels ne sont pas au détail → on ne synthétise RIEN → titres NUS ;
+    //   · « Planche cadastrale » : aucun état serveur disponible ici → TOUJOURS NUE (un badge absent vaut mieux qu'un badge faux).
+    const etatsRattachement: BadgesFiche | null = estSurveillance
+      ? null
+      : detail.modifieDepuisValidation
+        ? (() => { const aRevalider: EtatTitreFamille = { texte: 'modifié — à revalider', ton: 'rouge' }; return { etatMere: aRevalider, etatProj: aRevalider, etatPlanche: null }; })()
+        : etatsFichePermis(detail.dossierId,
+            { nbBatiments: detail.nbBatiments, nbCorpsSansAltitude: 0, nbBatimentsValide: detail.nbBatiments, nbCorpsNonEnregistres: 0, nbCorpsSansAltValidee: 0, nbCorpsSansEmpriseValidee: 0, plancheEtat: null },
+            { enteteProjection: null, comptesLive: null, fraicheurBat: null, etatPlancheLive: null });
     return (
       <div className="flex flex-col gap-2">
         <DetailSuiviRendu detail={detail} />
@@ -583,6 +597,7 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
                 provenance et « a servi à remplir N champs » conservés). En consultation, le bloc « Bâtiments et projection » renvoie au comparatif
                 « trois sources » ci-dessus (l'éditeur pdf.js n'est chargé qu'en modification — on garde les deux vues). */}
             <FichePermisBlocs mode="rattachement" edition={modifOuverte} dossierId={detail.dossierId}
+              etatsRattachement={etatsRattachement}
               empriseConsultation={
                 <div className="svv-card" style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>
                   L’emprise des bâtiments est consultable dans le comparatif « trois sources » ci-dessus. Cliquez sur « Modifier les

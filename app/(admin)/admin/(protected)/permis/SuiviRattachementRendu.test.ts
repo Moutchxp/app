@@ -18,6 +18,7 @@ const ligne = (o: Partial<LigneSuivi>): LigneSuivi => ({ dossierId: 1, numDau: '
 
 const detail = (o: Partial<DetailSuivi> = {}): DetailSuivi => ({
   dossierId: 1, numDau: '07512025V0035', commune: 'Paris', codeInsee: '75112', type: 'PC', adresse: '5 rue de la Paix', natureTravaux: 'construction neuve', etat: 'suivi_aucun_signal', persiste: false,
+  nbBatiments: 1, // LOT 3-B — nombre de bâtiments actifs (badges de la fiche partagée)
   origineOuverture: 'detection', motifOuverture: null,
   verdict: 'RIEN', regime: 'sans_fusion', motif: 'aucun signal (en attente)',
   criteres: {

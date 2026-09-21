@@ -369,6 +369,7 @@ export interface DetailSuivi {
   dossierId: number; numDau: string; commune: string | null; codeInsee: string;
   type: string; adresse: string | null; natureTravaux: string | null;    // FUS-3c-ter — en-tête : adresse + type + nature
   etat: EtatSuivi; persiste: boolean;
+  nbBatiments: number;                        // LOT 3-B — nombre de bâtiments ACTIFS (permis_corps_batiment) : alimente le badge « Bâtiments et projection » / « Caractéristiques » de la fiche partagée en Rattachement (donnée SERVEUR, jamais l'état de l'éditeur monté).
   origineOuverture: 'detection' | 'manuelle'; // M5 — 'manuelle' = arbitrage ouvert à la main (aucune détection) ; l'écran le DIT
   motifOuverture: string | null;              // M5 — motif saisi à l'ouverture manuelle (null en détection)
   verdict: string; regime: string; motif: string;
@@ -470,7 +471,7 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
   return {
     dossierId, numDau: b.num_dau, commune: b.commune, codeInsee: b.code_insee,
     type: b.type, adresse: b.adresse, natureTravaux: b.nature ? libelleNatureProjet(b.nature) : null,
-    etat, persiste: rr.length > 0, origineOuverture, motifOuverture,
+    etat, persiste: rr.length > 0, nbBatiments: carac.corps.length, origineOuverture, motifOuverture, // LOT 3-B — nbBatiments (bâtiments actifs) pour les badges de la fiche partagée
     verdict: resultat.verdict, regime: resultat.regime, motif: resultat.motif,
     criteres: resultat.criteres, seuils: entrees.seuils, seuilsProvenance: contexte.seuilsProvenance, seuilsBrut: contexte.seuilsBrut,
     millesimeCadastre: contexte.empreinteMillesime, millesimeBati: mEditionBati === MILLESIME_INCONNU ? null : mEditionBati,
