@@ -41,6 +41,10 @@ export const LIBELLE_ETAT_SUIVI: Record<EtatSuivi, string> = {
 export const ORDRE_AFFICHAGE_ETATS: readonly EtatSuivi[] = ['arbitrage_demande', 'acheve_sans_bati', 'en_attente_bati', 'annule_par_lidar', 'valide', 'refuse', 'clos_sans_bati', 'suivi_aucun_signal'];
 
 const styleAide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)', lineHeight: 1.4 };
+// LOT 3 — style COMMUN des boutons d'ACTION de l'écran Rattachement (homogénéité, décision Arno) : même hauteur (≥44 px), même police, même
+//   graisse ; l'arrondi et la couleur viennent des classes svv-btn-* (primary / outline / outline--danger). La LARGEUR est pilotée par bloc
+//   (pleine largeur empilée par défaut via .svv-btn, ou `flex` côte à côte). Partagé avec SuiviRattachementVue (source unique du gabarit).
+export const STYLE_BTN_RATT: CSSProperties = { minHeight: 44, fontSize: 14, fontWeight: 600, padding: '.55rem 1rem' };
 
 /**
  * L7 — panneau de détail inséré dans le flux de la liste : TRAME (fond var(--color-svv-field) + hachures 45° discrètes, accent
@@ -336,10 +340,11 @@ export function PanneauRechercheSuivi({ valeurs, onValeurs, onChercher, onReset,
         <label style={champ}><span style={lib}>au</span>
           <input type="date" value={valeurs.entreeA} onChange={(e) => maj('entreeA', e.target.value)} style={inp} /></label>
         <div style={{ display: 'flex', gap: '.4rem', flex: '1 1 12rem' }}>
-          <button type="submit" className="svv-btn svv-btn-primary" style={{ minHeight: 40, padding: '.4rem .8rem' }} disabled={chargement || !actif}>
+          {/* LOT 3 — bloc « recherche » : action PRINCIPALE (Chercher) en plein, Réinitialiser cadré ; MÊME largeur (flex: 1) et hauteur ≥44 px. */}
+          <button type="submit" className="svv-btn svv-btn-primary" style={{ ...STYLE_BTN_RATT, flex: 1 }} disabled={chargement || !actif}>
             <span aria-hidden="true">🔍</span> Chercher
           </button>
-          <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 40, padding: '.4rem .8rem' }} disabled={chargement} onClick={onReset}>Réinitialiser</button>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ ...STYLE_BTN_RATT, flex: 1 }} disabled={chargement} onClick={onReset}>Réinitialiser</button>
         </div>
       </form>
     </div>
@@ -626,7 +631,7 @@ export function SaisieCotesInjection({ affectation, cotes, onCote, onRecopier, m
             );
           })}
           {c.cleabsAffectes.length > 1 && (
-            <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', alignSelf: 'flex-start' }}
+            <button type="button" className="svv-btn svv-btn-outline" style={{ ...STYLE_BTN_RATT, width: 'auto', alignSelf: 'flex-start' }}
               onClick={() => onRecopier(c.id)}>Recopier la cote du polygone {repereDe(c.cleabsAffectes[0])} sur tous les polygones</button>
           )}
         </fieldset>
@@ -658,7 +663,8 @@ export function OuvertureManuelle({ motif, onMotif, onOuvrir, enCours }: {
           placeholder="ex. vérification d’une affectation"
           style={{ padding: '.3rem .4rem', border: '1px solid var(--color-svv-line)', borderRadius: '.35rem', fontSize: 12, fontFamily: 'inherit' }} />
       </label>
-      <button type="button" className="svv-btn" style={{ width: 'auto', alignSelf: 'flex-start' }}
+      {/* LOT 3 — action du bloc « ouverture manuelle » : bouton cadré (svv-btn-outline), pleine largeur, ≥44 px. */}
+      <button type="button" className="svv-btn svv-btn-outline" style={STYLE_BTN_RATT}
         disabled={enCours || motif.trim() === ''} onClick={onOuvrir}>Ouvrir l’arbitrage manuellement</button>
     </div>
   );
@@ -699,7 +705,8 @@ export function ClotureAcheveSansBati({ clos, onClore, enCours }: { clos: boolea
         dans BD TOPO. Aucune altitude n’est écrite. Confirmez que ce dossier est achevé pour le clore et le retirer des actions à faire.
       </p>
       <div>
-        <button type="button" className="svv-btn" style={{ width: 'auto' }} disabled={enCours} onClick={onClore}>
+        {/* LOT 3 — action du bloc « achèvement » : bouton cadré (svv-btn-outline), pleine largeur, ≥44 px. */}
+        <button type="button" className="svv-btn svv-btn-outline" style={STYLE_BTN_RATT} disabled={enCours} onClick={onClore}>
           Confirmer l’achèvement et clore
         </button>
       </div>
@@ -783,21 +790,22 @@ export function ActionsRattachement({ resume, motifRefus, onMotifRefus, onValide
           {resume.nbVides > 0 ? ` ${resume.nbVides} champ${resume.nbVides > 1 ? 's' : ''} laissé${resume.nbVides > 1 ? 's' : ''} vide${resume.nbVides > 1 ? 's' : ''} : non injecté${resume.nbVides > 1 ? 's' : ''}.` : ''}
           {resume.nbNonAffectes > 0 ? ` ${resume.nbNonAffectes} polygone${resume.nbNonAffectes > 1 ? 's' : ''} non affecté${resume.nbNonAffectes > 1 ? 's' : ''} (bâti hors permis, c’est normal) : laissé de côté.` : ''}
         </div>
-        <button type="button" className="svv-btn" style={{ width: 'auto' }} onClick={onValider} disabled={enCours}>
+        {/* LOT 3 — action PRINCIPALE du bloc « Décision » : bouton PLEIN (svv-btn-primary), pleine largeur. */}
+        <button type="button" className="svv-btn svv-btn-primary" style={STYLE_BTN_RATT} onClick={onValider} disabled={enCours}>
           Valider le rattachement
         </button>
       </div>
-      {/* Refuser (motif obligatoire) */}
+      {/* Refuser (motif obligatoire) — LOT 3 : action « négative » en bouton cadré ROUGE (svv-btn-outline--danger, classe additive). */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
         <textarea value={motifRefus} onChange={(e) => onMotifRefus(e.target.value)} disabled={enCours}
           aria-label="motif de refus" placeholder="motif de refus (obligatoire)…" style={styleTA} />
-        <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={onRefuser} disabled={enCours || !motifRefus.trim()}>
+        <button type="button" className="svv-btn svv-btn-outline svv-btn-outline--danger" style={STYLE_BTN_RATT} onClick={onRefuser} disabled={enCours || !motifRefus.trim()}>
           Refuser le rattachement
         </button>
       </div>
-      {/* Retour LiDAR (filet) */}
-      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'baseline', flexWrap: 'wrap' }}>
-        <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={onRetour} disabled={enCours}>
+      {/* Retour LiDAR (filet) — LOT 3 : bouton cadré (svv-btn-outline), MÊME largeur que les deux autres (colonne) ; l'aide passe dessous. */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+        <button type="button" className="svv-btn svv-btn-outline" style={STYLE_BTN_RATT} onClick={onRetour} disabled={enCours}>
           Retour aux caractéristiques LiDAR d’origine
         </button>
         <span style={styleAide}>Restaure l’altitude LiDAR d’origine des polygones affectés (filet en cas d’erreur d’affectation) ; reste possible après validation.</span>

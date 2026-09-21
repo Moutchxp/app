@@ -6,7 +6,7 @@ import type { LigneSuivi, DetailSuivi, EtatSuivi } from '../../../../lib/permis/
 import type { ModePassageRattachement } from '../../../../lib/permis/rattachementConfig';
 import type { ComparaisonRattachement } from '../../../../lib/permis/affectationRepo';
 import { recopierCote, cotesEnNombres, type ActionAffectation } from '../../../../lib/permis/affectationSchema';
-import { TableSuivi, PanneauRechercheSuivi, FILTRE_SUIVI_VIDE, filtreSuiviActif, DetailSuiviRendu, AffectationBloc, EnteteAffectation, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, type AccuseValidationData, type EmpriseProjetee, type FiltreSuiviValeurs } from './SuiviRattachementRendu';
+import { TableSuivi, PanneauRechercheSuivi, FILTRE_SUIVI_VIDE, filtreSuiviActif, DetailSuiviRendu, AffectationBloc, EnteteAffectation, LegendeAffectation, ActionsRattachement, SaisieCotesInjection, OuvertureManuelle, BandeauOuvertureManuelle, ClotureAcheveSansBati, AccuseValidation, resumeValidation, composerAccuse, SchemaPleinEcran, ComparaisonPleinEcran, InterrupteurReperes, InterrupteurFuturBati, InterrupteurProjection, estFuturBati, descriptionSchemaOrigine, descriptionSchemaNouvelle, NOM_SCHEMA_NOUVELLE, STYLE_BTN_RATT, type AccuseValidationData, type EmpriseProjetee, type FiltreSuiviValeurs } from './SuiviRattachementRendu'; // LOT 3 — STYLE_BTN_RATT : gabarit COMMUN des boutons d'action (homogénéité)
 import { RecapProjectionRattachement } from './ProjectionRecapRattachement';
 // RATT-1 bis — le geste « statuer les polygones existants » réutilise le composant PUR d'Analyse + ses helpers (jamais dupliqué).
 import { BlocProjetRepliable, BlocExistantsRepliable, PanneauRattrapage, attribuerReperes, MiniConfigProjetee, CaseConfigOfficielle } from './TraceEmpriseRendu';
@@ -460,7 +460,7 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
               )}
               {aChange && (
                 <div>
-                  <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto' }} onClick={() => setPleinEcran('comparer')}>Comparer les schémas ⤢</button>
+                  <button type="button" className="svv-btn svv-btn-outline" style={{ ...STYLE_BTN_RATT, width: 'auto' }} onClick={() => setPleinEcran('comparer')}>Comparer les schémas ⤢</button>
                 </div>
               )}
               {pleinEcran === 'origine' && (
@@ -502,12 +502,12 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
             pli « afficher le détail complet » ET le bandeau B2 verrouillé « Ce permis est validé… Modifier ». Forme cible du lot 3 (svv-btn-outline
             / svv-btn-primary). « Modifier » est ABSENT (pas grisé) sans la capacité peutModifierPermis. */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
-          <button type="button" className="svv-btn svv-btn-outline" style={{ flex: '1 1 16rem', minHeight: 48, fontSize: 14, fontWeight: 600 }}
+          <button type="button" className="svv-btn svv-btn-outline" style={{ ...STYLE_BTN_RATT, flex: '1 1 16rem' }}
             aria-expanded={permisOuvert && !modifOuverte} onClick={() => { setPermisOuvert(true); setModifOuverte(false); }}>
             Consulter les caractéristiques du permis validé
           </button>
           {peutModifierPermis && (
-            <button type="button" className="svv-btn svv-btn-primary" style={{ flex: '1 1 16rem', minHeight: 48, fontSize: 14, fontWeight: 600 }}
+            <button type="button" className="svv-btn svv-btn-primary" style={{ ...STYLE_BTN_RATT, flex: '1 1 16rem' }}
               aria-expanded={modifOuverte} onClick={() => setPopupModif(true)}>
               Modifier les caractéristiques du permis validé
             </button>
@@ -540,7 +540,8 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
                 La revalidation N'injecte PAS d'altitude et ne change PAS l'état : le permis reste dans Rattachement. Garde Lot 1 côté serveur. */}
             {peutModifierPermis && (modifOuverte || detail.modifieDepuisValidation) && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'center' }}>
-                <button type="button" className="svv-btn svv-btn-primary" style={{ width: 'auto', minHeight: 44, padding: '.5rem 1rem' }}
+                {/* LOT 3 — action PRINCIPALE du bloc B3 : bouton PLEIN (svv-btn-primary), pleine largeur, gabarit commun. */}
+                <button type="button" className="svv-btn svv-btn-primary" style={STYLE_BTN_RATT}
                   disabled={revalEnCours} onClick={() => setPopupReval(true)}>Revalider ce permis</button>
               </div>
             )}
@@ -566,7 +567,7 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
                       ) : (
                         <span style={{ color: 'var(--color-svv-muted)' }}>{libelleVersionRestaurable(versions[0])}</span>
                       )}
-                      <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', minHeight: 44, padding: '.5rem 1rem' }}
+                      <button type="button" className="svv-btn svv-btn-outline" style={{ ...STYLE_BTN_RATT, width: 'auto' }}
                         disabled={restauEnCours} onClick={() => setPopupRestau(true)}>Restaurer la validation d’origine</button>
                     </>
                   );
@@ -678,9 +679,9 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
               <TableSuivi plat lignes={resultats.lignes} ouvert={ouvert} onOuvrir={(id) => setOuvert(id === ouvert ? null : id)} renderDetail={renderDetail} />
               {resultats.nbPages > 1 && (
                 <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                  <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 40 }} disabled={chargeRecherche || resultats.page <= 1} onClick={() => void chercher(resultats.page - 1)}>‹ Précédent</button>
+                  <button type="button" className="svv-btn svv-btn-outline" style={{ ...STYLE_BTN_RATT, width: 'auto' }} disabled={chargeRecherche || resultats.page <= 1} onClick={() => void chercher(resultats.page - 1)}>‹ Précédent</button>
                   <span style={{ fontSize: 12, color: 'var(--color-svv-muted)' }}>page {resultats.page} / {resultats.nbPages}</span>
-                  <button type="button" className="svv-btn svv-btn-outline" style={{ minHeight: 40 }} disabled={chargeRecherche || resultats.page >= resultats.nbPages} onClick={() => void chercher(resultats.page + 1)}>Suivant ›</button>
+                  <button type="button" className="svv-btn svv-btn-outline" style={{ ...STYLE_BTN_RATT, width: 'auto' }} disabled={chargeRecherche || resultats.page >= resultats.nbPages} onClick={() => void chercher(resultats.page + 1)}>Suivant ›</button>
                 </div>
               )}
             </>

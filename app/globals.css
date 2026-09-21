@@ -55,6 +55,11 @@
   .svv-btn-primary:disabled{background:var(--color-svv-field);color:var(--color-svv-muted);box-shadow:none;cursor:not-allowed}
   .svv-btn-outline{background:var(--color-svv-surface);color:var(--color-svv-ink);border:1px solid var(--color-svv-line-strong)}
   .svv-btn-outline:hover{border-color:var(--color-svv-line-strong-hover)}
+  /* LOT 3 — modificateur ADDITIF de .svv-btn-outline : action « négative » (Refuser le rattachement) cadrée en rouge, sur les jetons EXISTANTS
+     (--color-svv-red), sans style inline. N'altère aucune classe existante ; s'applique en plus de .svv-btn-outline (garde son fond surface). */
+  .svv-btn-outline--danger{color:var(--color-svv-red);border-color:var(--color-svv-red)}
+  .svv-btn-outline--danger:hover{color:var(--color-svv-red-dark);border-color:var(--color-svv-red-dark)}
+  .svv-btn-outline--danger:disabled{color:var(--color-svv-muted);border-color:var(--color-svv-line-strong);cursor:not-allowed}
   .svv-link{display:flex;width:100%;align-items:center;justify-content:center;gap:.4rem;background:none;border:0;color:var(--color-svv-muted);font-weight:600;font-size:.875rem;cursor:pointer;padding:.85rem 0 .15rem}
   .svv-link:hover{color:var(--color-svv-ink)}
   .svv-card{background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:14px;padding:14px 16px}
