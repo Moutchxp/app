@@ -80,7 +80,7 @@ Reviewer adverse, 8 vecteurs attaqués, tous neutralisés :
   d'exécution tracé jusqu'à `proxy.ts:175`). L'ancien `return null` est mort.
 - **(b) Tunnel public intact** : matcher strictement inchangé ; les 7 routes internaute (`/api/mesure`, `/api/origine`,
   `/api/analyse`, `/api/adresses-proches`, `/api/check-building`, `/api/sante`, `/api/analyse-photo`) sont hors
-  matcher → `proxy()` jamais invoqué.
+  matcher → `proxy()` jamais invoqué. *(`/api/check-building` route supprimée le 22/09/2026 — G4 ; ce rapport reflète l'état antérieur.)*
 - **(c) Admin accès total** : rôle nommé ET voie de secours (`sub=null` → `role='administrateur'`) passent partout,
   routes inconnues incluses.
 - **(d) Aucune régression** : matrice exhaustive — chaque route réelle tombe dans un bucket ; un collaborateur avec

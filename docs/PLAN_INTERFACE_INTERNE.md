@@ -93,7 +93,7 @@ supposait.
   `scoreTotal.ts:44`.
 - Incohérence doc **248 vs 250** rattachés Inventaire (`SOURCES_DATA.md:18` vs `ROADMAP:5`).
 - Sécurité : `next.config.ts` autorise `*.trycloudflare.com` (dev) ; email `a.jorel@sansvisavis.com` en
-  dur dans le User-Agent Overpass (`check-building/route.ts:36`).
+  dur dans le User-Agent Overpass (`check-building/route.ts:36`). *(Route supprimée le 22/09/2026 — G4 ; point caduc.)*
 
 ---
 
@@ -559,7 +559,7 @@ Source autoritative : `profilConfig.ts:14-48` (interface) et `:60-71` (SELECT), 
 - Commentaires périmés : `scoreDegagement.ts:74` (« emblématique toujours false »),
   en-tête `coucheDegagement.ts` (« NON BRANCHÉ »).
 - Sécurité : `next.config.ts` tunnels `*.trycloudflare.com` (dev) ; email en dur
-  `check-building/route.ts:36`.
+  `check-building/route.ts:36`. *(Route supprimée le 22/09/2026 — G4 ; point caduc.)*
 
 ---
 
