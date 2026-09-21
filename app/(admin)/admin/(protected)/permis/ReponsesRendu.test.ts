@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
-  IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns, BlocEtatReleve,
+  IndicateurReleve, BadgeEtat, ETAT_LABELS, CompteSatisfaction, BlocARattacher, BlocPropositions, DetailDossiers, RelanceCarte, TableRuns, BlocEtatReleve, BoutonReleverBoite,
   apporteUneNouveaute, SelecteurPeriode, ActionsCloture, messageIci, AIDE_ACTIONS_DOSSIER, AideActionsDossier,
   EtatDemande, RappelObtenusArchives, partitionnerDemandes, partitionnerReponses, comparerUrgenceReponse, demandeADuRetour, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
   BlocLiens, BlocLiensATelecharger, mentionExpiration, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, BlocPiecesNonVersees, tronquerObjet, dedupLiensParUrl,
@@ -123,6 +123,44 @@ describe('U8 — BlocEtatReleve : encart « État de la relève » repliable (re
     expect(h).toContain('<details');                 // T1 inchangé
     expect(h).toContain('id="cumul-periode"');       // T2 sélecteur de période inchangé
     expect(h).toContain('24 dernières heures');
+  });
+});
+
+describe('R-Réponses — BoutonReleverBoite : « Relever la boîte maintenant » réservé administrateur, pleine largeur', () => {
+  const rendu = (over?: Partial<Parameters<typeof BoutonReleverBoite>[0]>) => renderToStaticMarkup(createElement(BoutonReleverBoite, {
+    estAdministrateur: true, enCours: false, msg: null, onCliquer: () => {}, ...over,
+  }));
+
+  it('ADMINISTRATEUR : bouton présent, plein (svv-btn-primary), pleine largeur, cible tactile ≥ 44 px, actif', () => {
+    const h = rendu({ estAdministrateur: true });
+    expect(h).toContain('Relever la boîte maintenant');
+    expect(h).toContain('svv-btn-primary');
+    expect(h).toContain('width:100%');
+    expect(h).toContain('min-height:44px');
+    expect(h).not.toContain('disabled'); // pas de relève en cours → bouton cliquable
+  });
+
+  it('COLLABORATEUR (perm_permis, non administrateur) : AUCUN bouton rendu (il renverrait un refus serveur)', () => {
+    const h = rendu({ estAdministrateur: false });
+    expect(h).toBe('');
+    expect(h).not.toContain('Relever la boîte');
+  });
+
+  it('PENDANT LA RELÈVE : libellé d’attente, désactivé, aria-busy (pas de double déclenchement)', () => {
+    const h = rendu({ enCours: true });
+    expect(h).toContain('Relève en cours…');
+    expect(h).not.toContain('>Relever la boîte maintenant<');
+    expect(h).toContain('disabled');
+    expect(h).toContain('aria-busy="true"');
+  });
+
+  it('MESSAGES HONNÊTES : session expirée = alerte distincte (jamais une panne de boîte) ; succès = statut', () => {
+    const expiree = rendu({ msg: { ton: 'erreur', texte: 'Session expirée, reconnectez-vous.' } });
+    expect(expiree).toContain('role="alert"');
+    expect(expiree).toContain('Session expirée, reconnectez-vous.');
+    const succes = rendu({ msg: { ton: 'ok', texte: 'Relève terminée : 1 message(s) lu(s).' } });
+    expect(succes).toContain('role="status"');
+    expect(succes).toContain('Relève terminée');
   });
 });
 

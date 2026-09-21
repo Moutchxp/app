@@ -8,6 +8,7 @@ import {
   PARAMS_SOURCES, PARAMS_MENTIONS, espaceReglage, type ParamVeille, type BornesParColonne, type ErreurReglage,
 } from '../../../../lib/sitadel/reglagesVeille';
 import { BandeauIdentite, PlageParam, CarteParamVestigial, CarteSection, TITRE_THEME_PREPARATION, TITRE_THEME_REPONSES, TITRE_THEME_ALERTES, TITRE_THEME_CADA, TITRE_THEME_RATTACHEMENT, TITRE_PARAMS_SOURCES, AIDE_PARAMS_SOURCES, TITRE_PARAMS_MENTIONS, AIDE_PARAMS_MENTIONS } from './ReglagesRendu';
+import { useReleveBoite } from './useReleveBoite'; // R1 — logique de relève PARTAGÉE avec l'onglet Réponses (une seule implémentation)
 
 // D4-ter (R2) — l'onglet Réglages est découpé en TROIS espaces (onglets internes) : les deux RAILS (envoi e-mail / téléservice,
 //   chacun autonome, un réglage « Partagé » y apparaît des deux côtés mais reste UNE valeur en base) + le TRANSVERSE (hors rail).
@@ -34,11 +35,6 @@ interface Reglages {
 type ReponsePatch = ({ ok: true } & Reglages) | { erreurs: ErreurReglage[] };
 const PROFILS: ProfilDemandeur[] = ['entreprise', 'personne'];
 
-// R1 — forme de la réponse de /api/admin/permis/relever. Type SEUL, déclaré côté client (jamais importé d'un module serveur :
-// on n'importe d'un serveur qu'un `type`, et ici on n'importe même rien — la forme est locale, à l'abri du bundle client).
-type CompteursReleve = { messagesLus: number; retenus: number; rattaches: number; enregistrees: number; depotsGed: number; echecsDepot: number };
-type ReponseReleve = { resultat: 'ok'; compteurs: CompteursReleve } | { resultat: 'inactif'; message: string } | { resultat: 'erreur'; message: string };
-
 const styleInput: CSSProperties = { width: '100%', boxSizing: 'border-box', padding: '.4rem .5rem', border: '1px solid var(--color-svv-line)', borderRadius: '.45rem', fontSize: 14, fontFamily: 'inherit' };
 const styleLabel: CSSProperties = { fontSize: 12, fontWeight: 700, color: 'var(--color-svv-ink)' };
 const styleAide: CSSProperties = { fontSize: 12, color: 'var(--color-svv-muted)', lineHeight: 1.4 };
@@ -57,9 +53,10 @@ export function ReglagesVue() {
   const [veErreurs, setVeErreurs] = useState<Record<string, string>>({});
   const [veMsg, setVeMsg] = useState<Record<string, string>>({});
 
-  // R1 — relève manuelle de la boîte (ACTION, pas un réglage) : verrou anti-double-clic + résultat affiché en clair.
-  const [releveEnCours, setReleveEnCours] = useState(false);
-  const [releveMsg, setReleveMsg] = useState<{ ton: 'ok' | 'info' | 'erreur'; texte: string } | null>(null);
+  // R1 — relève manuelle de la boîte (ACTION, pas un réglage) : logique PARTAGÉE avec l'onglet Réponses via `useReleveBoite`
+  //   (une seule implémentation, même route `/api/admin/permis/relever`, mêmes messages). Réglages ne passe pas d'`apresReleve` :
+  //   il n'a rien à rafraîchir après une relève (contrairement à l'onglet Réponses).
+  const { releveEnCours, releveMsg, releverBoiteMaintenant } = useReleveBoite();
   // D4-ter (R2) — onglet actif parmi les trois espaces. Événement utilisateur (clic), jamais un setState d'effet.
   const [espace, setEspace] = useState<EspaceOnglet>('email');
 
@@ -121,34 +118,6 @@ export function ReglagesVue() {
   async function basculerBooleen(colonne: string, actif: boolean) {
     setVeMsg((m) => ({ ...m, [colonne]: '' })); setVeErreurs((m) => ({ ...m, [colonne]: '' }));
     await patchVeille(colonne, actif, actif ? 'Activé.' : 'Désactivé.');
-  }
-
-  /**
-   * R1 — lance la relève de la boîte. Verrou `releveEnCours` = pas de double-clic (donc pas de double relève). Le résultat
-   * (compteurs) est affiché en clair, succès comme échec — jamais un silence. Ce bouton NE DÉCLENCHE AUCUN ENVOI (la route
-   * n'appelle que la relève : lecture de la boîte + classement des réponses).
-   */
-  async function releverBoiteMaintenant() {
-    if (releveEnCours) return;
-    setReleveEnCours(true);
-    setReleveMsg(null);
-    try {
-      const res = await fetch('/api/admin/permis/relever', { method: 'POST' });
-      const rep = (await res.json()) as ReponseReleve;
-      if (rep.resultat === 'ok') {
-        const c = rep.compteurs;
-        const suffixe = c.echecsDepot > 0 ? ` — ${c.echecsDepot} pièce(s) non versée(s) (voir les archives).` : '.';
-        setReleveMsg({ ton: 'ok', texte: `Relève terminée : ${c.messagesLus} message(s) lu(s), ${c.rattaches} rattaché(s), ${c.enregistrees} enregistré(s), ${c.depotsGed} pièce(s) versée(s) en GED${suffixe}` });
-      } else if (rep.resultat === 'inactif') {
-        setReleveMsg({ ton: 'info', texte: rep.message });
-      } else {
-        setReleveMsg({ ton: 'erreur', texte: rep.message ?? 'La relève a échoué.' });
-      }
-    } catch {
-      setReleveMsg({ ton: 'erreur', texte: 'Relève impossible : le serveur n’a pas répondu.' });
-    } finally {
-      setReleveEnCours(false);
-    }
   }
 
   if (etat === 'chargement') return <p style={styleAide} aria-live="polite">Chargement des réglages…</p>;

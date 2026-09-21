@@ -33,7 +33,7 @@ const ONGLETS_DEMANDES: readonly CleOnglet[] = ['a_demander', 'en_cours'];
  * Réglages). La barre est PURE (`OngletsPermis`) ; ici on ne gère que l'onglet actif et le montage du corps correspondant.
  * Q5 — l'ex-« Demandes » est scindé : « À demander » (préparation) et « En cours » (suivi), montés indépendamment.
  */
-interface Props { depuisParDefaut: string; categories: { cle: CleCategorie; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; qInitial?: string; peutModifierPermis?: boolean }
+interface Props { depuisParDefaut: string; categories: { cle: CleCategorie; libelle: string; rang: number }[]; ancienneteMaxAnnees: number; triLibelle: string; qInitial?: string; peutModifierPermis?: boolean; estAdministrateur?: boolean }
 
 interface Comptes { reponses: number; saisines: number; rattachement: number; projection: number; surveillance: number; enCours: number }
 
@@ -46,7 +46,7 @@ function msJusquaProchaineHeure(h: number): number {
   return cible.getTime() - now.getTime();
 }
 
-export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, triLibelle, qInitial, peutModifierPermis = false }: Props) {
+export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, triLibelle, qInitial, peutModifierPermis = false, estAdministrateur = false }: Props) {
   const [onglet, setOnglet] = useState<CleOnglet>('dossiers');
   const [comptes, setComptes] = useState<Comptes | null>(null);
   // D2 — process actif du commutateur (défaut e-mail ; NE persiste PAS entre sessions) + compteurs des viviers.
@@ -136,7 +136,7 @@ export function PermisTuile({ depuisParDefaut, categories, ancienneteMaxAnnees, 
       {onglet === 'a_demander' && <ADemanderVue categories={categories} ancienneteMaxAnnees={ancienneteMaxAnnees} triLibelle={triLibelle} process={processActif} onBasculerProcess={setProcessActif} onChangement={apresAction} onAllerReglages={() => setOnglet('reglages')} hors={compteursProcess?.hors ?? null} onOuvrirCommune={setCodeCommuneFiche} signalCarte={signalCarte} />}
       {onglet === 'en_cours' && <EnCoursVue categories={categories} process={processActif} onRecompter={apresAction} />}
       {/* LOT 40 — « Réponses » n'est plus scopé par process : la liste affiche TOUS les rails (e-mail ET téléservice). */}
-      {onglet === 'reponses' && <ReponsesVue onRecompter={apresAction} />}
+      {onglet === 'reponses' && <ReponsesVue onRecompter={apresAction} estAdministrateur={estAdministrateur} />}
       {onglet === 'projection' && <ProjectionVue onRecompter={apresAction} />}
       {onglet === 'archives' && <ArchivesVue />}
       {onglet === 'saisines' && <SaisinesVue onRecompter={apresAction} />}

@@ -334,6 +334,38 @@ export function BlocEtatReleve({ reglages, derniereOkLe, releveDepuisLe, releveP
   );
 }
 
+/**
+ * BOUTON « Relever la boîte maintenant » de l'onglet Réponses, placé AU-DESSUS de « État de la relève ». MÊME action que le bouton de
+ * Réglages (hook partagé `useReleveBoite`, même route `/api/admin/permis/relever`, mêmes messages) ; ici PLEINE LARGEUR et ≥ 44 px
+ * (cible tactile). RÉSERVÉ ADMINISTRATEUR : rendu UNIQUEMENT si `estAdministrateur` — un collaborateur `perm_permis` ne doit pas voir
+ * un bouton qui lui renverrait un refus (la garde SERVEUR `exigerAdministrateur` reste la vraie barrière). PUR : l'état (`enCours`,
+ * `msg`) et le handler viennent de la Vue ; le message (succès / échec de connexion à la boîte / SESSION EXPIRÉE) est décidé par le
+ * hook — ici on ne fait que l'afficher, en distinguant `alert` (erreur) de `status` (ok/info) pour l'accessibilité.
+ */
+export function BoutonReleverBoite({ estAdministrateur, enCours, msg, onCliquer }: {
+  estAdministrateur: boolean;
+  enCours: boolean;
+  msg: { ton: 'ok' | 'info' | 'erreur'; texte: string } | null;
+  onCliquer: () => void;
+}) {
+  if (!estAdministrateur) return null;
+  return (
+    <div className="flex flex-col gap-1">
+      <button type="button" className="svv-btn svv-btn-primary"
+        style={{ width: '100%', minHeight: 44, padding: '.6rem 1rem', fontWeight: 700 }}
+        onClick={onCliquer} disabled={enCours} aria-busy={enCours}>
+        {enCours ? 'Relève en cours…' : 'Relever la boîte maintenant'}
+      </button>
+      {msg && (
+        <span role={msg.ton === 'erreur' ? 'alert' : 'status'} aria-live="polite"
+          style={{ fontSize: 13, fontWeight: 600, color: msg.ton === 'ok' ? 'var(--color-svv-green-ink)' : msg.ton === 'erreur' ? 'var(--color-svv-red)' : 'var(--color-svv-ink)' }}>
+          {msg.texte}
+        </span>
+      )}
+    </div>
+  );
+}
+
 // ── Bloc 2 : états d'échéance (présentation) ──────────────────────────────────
 /** Table de PRÉSENTATION des états (libellés distincts + couleurs). La DÉCISION vient d'etatEcheance (jamais recopiée). */
 export const ETAT_LABELS: Record<EtatEcheance, { libelle: string; fond: string; couleur: string }> = {

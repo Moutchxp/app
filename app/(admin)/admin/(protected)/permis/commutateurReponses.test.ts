@@ -27,15 +27,16 @@ describe('LOT 40 — commutateur retiré de « Réponses »', () => {
 
   it('ReponsesVue est monté SANS prop process (l’onglet n’est plus scopé par rail)', () => {
     const compact = tuile.replace(/\s+/g, ' ');
-    expect(compact).toMatch(/<ReponsesVue onRecompter=\{apresAction\} \/>/);
-    expect(compact).not.toMatch(/<ReponsesVue[^>]*\bprocess=/);
+    expect(compact).toMatch(/<ReponsesVue onRecompter=\{apresAction\}/); // câblé au foyer de recomptage (d'autres props annexes, ex. estAdministrateur, sont permises)
+    expect(compact).not.toMatch(/<ReponsesVue[^>]*\bprocess=/);           // ce qui reste INTERDIT : un scope par rail
   });
 
   it('EFFET DE BORD — ReponsesVue n’a plus de prop process ni de filtre dansProcess (affiche TOUS les rails)', () => {
     const src = lire('ReponsesVue.tsx');
     expect(src).not.toMatch(/dansProcess\s*\(/);                                   // plus de filtre par canal
     expect(src).not.toMatch(/from ['"][^'"]*\/sitadel\/process['"]/);             // import du module process retiré
-    expect(src).toMatch(/export function ReponsesVue\(\{\s*onRecompter\s*\}/);     // signature sans `process`
+    expect(src).toMatch(/export function ReponsesVue\(\{\s*onRecompter\b/);        // onRecompter reste la 1re prop (autres props annexes permises)
+    expect(src).not.toMatch(/export function ReponsesVue\([^)]*\bprocess\b/);      // INTENT LOT 40 : `process` n'est PAS une prop de la signature
     expect(src).not.toMatch(/process === 'formulaire'/);                          // bloc « Dépôts à confirmer » n'est plus gardé par le rail
     expect(src).not.toMatch(/process === 'email'/);                              // bloc « Relances préparées » non plus
     expect(src).toContain('return data.demandes.map((d) =>');                     // la liste part de TOUTES les demandes, sans filtre

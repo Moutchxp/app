@@ -6,10 +6,11 @@ import { echeanceDe, etatEcheance, type EtatEcheance } from '../../../../lib/vei
 import type { ReponsesData } from '../../../../lib/veille/reponsesSuivi';
 import type { FenetreCumul } from '../../../../lib/veille/fenetresCumul';
 import {
-  BlocEtatReleve, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
+  BlocEtatReleve, BoutonReleverBoite, EtatDemande, CompteSatisfaction, DetailDossiers, RappelObtenusArchives,
   partitionnerReponses, comparerUrgenceReponse, messageReponsesVide, aReponseSansDocuments, BadgeReponseSansDocuments,
   BlocARattacher, BlocPropositions, RelanceCarte, ActionsCloture, PhraseVide, BlocLiens, BlocLiensATelecharger, BlocAlertesGed, BlocMessagesAutre, BlocPiecesReponses, formaterDate, trierOptionsDemandes, type RetourCible, type OptionDemande,
 } from './ReponsesRendu';
+import { useReleveBoite } from './useReleveBoite'; // R-Réponses — même logique de relève que Réglages (hook partagé, jamais une copie)
 import { MessageRetour, MentionMasquage } from './DemandesRendu';
 // UNIF-2 — même encart de familles qu'« En cours » (socle UNIF-0/1) + les 4 blocs PER-PERMIS d'« Analyse » (chargés au dépliage).
 import { EncartFamilles, SousSectionsPermis } from './EncartFamilles';
@@ -53,7 +54,7 @@ function Pagination({ page, nbPages, total, onPage }: { page: number; nbPages: n
   );
 }
 
-export function ReponsesVue({ onRecompter }: { onRecompter?: () => void }) {
+export function ReponsesVue({ onRecompter, estAdministrateur = false }: { onRecompter?: () => void; estAdministrateur?: boolean }) {
   const [data, setData] = useState<ReponsesData | null>(null);
   // BAT-2d — comptes LIVE remontés par chaque CaracteristiquesBloc ouvert (par dossierId) → le résumé de famille « Caractéristiques du
   //   permis » et l'état par « Permis {numDau} » se calculent sur les MÊMES données que les sous-titres du bloc (fini la désynchro du
@@ -94,6 +95,13 @@ export function ReponsesVue({ onRecompter }: { onRecompter?: () => void }) {
     })();
     return () => { annule = true; };
   }, [version]);
+
+  // R-Réponses — RELEVER LA BOÎTE (même hook `useReleveBoite` que Réglages : une seule implémentation, même route, mêmes messages).
+  //   Après un SUCCÈS uniquement : on rafraîchit les données de l'onglet (état de la relève, liens à télécharger, suivi des demandes,
+  //   à rattacher, dépôts à confirmer, relances) SANS recharger la page, et on recompte la pastille (foyer unique DEPOT-2 : un compteur
+  //   ne reste jamais périmé). Le bouton lui-même n'est rendu qu'aux administrateurs (BoutonReleverBoite).
+  const apresReleve = useCallback(() => { rafraichir(); onRecompter?.(); }, [rafraichir, onRecompter]);
+  const { releveEnCours, releveMsg, releverBoiteMaintenant } = useReleveBoite(apresReleve);
 
   const demandes = useMemo(() => {
     if (!data) return [];
@@ -227,6 +235,11 @@ export function ReponsesVue({ onRecompter }: { onRecompter?: () => void }) {
   return (
     <div className="flex flex-col gap-4">
       {retourBanniere && <div><MessageRetour r={retourBanniere} /></div>}
+
+      {/* ── R-Réponses : « Relever la boîte maintenant », JUSTE AU-DESSUS de « État de la relève ». Même action que Réglages (hook
+           partagé), réservée aux administrateurs (le composant s'auto-masque pour un collaborateur). Un succès rafraîchit l'onglet
+           sans recharger la page. Session expirée / échec de boîte : messages distincts (jamais un mensonge d'interface). ── */}
+      <BoutonReleverBoite estAdministrateur={estAdministrateur} enCours={releveEnCours} msg={releveMsg} onCliquer={() => void releverBoiteMaintenant()} />
 
       {/* ── Bloc 1 : état de la relève — U8 REPLIABLE (replié = titre + ligne d'état ; le reste, dont sélecteur/total/phrases
            de TableRuns, se déploie). Replié par défaut, aucune mémorisation. La ligne d'état porte son alerte, sans dépliage auto. ── */}

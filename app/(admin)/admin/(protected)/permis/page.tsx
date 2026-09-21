@@ -44,7 +44,7 @@ export default async function PermisPage({ searchParams }: { searchParams: Searc
       {estAdmin ? (
         <PermisTuile depuisParDefaut={depuisParDefaut} categories={categoriesConnues(config)}
           ancienneteMaxAnnees={config.ancienneteMaxDemandeAnnees} triLibelle={libelleTriCandidats(config.triCandidats)} qInitial={qInitial}
-          peutModifierPermis={peutModifierPermis} />
+          peutModifierPermis={peutModifierPermis} estAdministrateur={estAdmin} />
       ) : (
         <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>
           Cet espace est réservé aux administrateurs.
