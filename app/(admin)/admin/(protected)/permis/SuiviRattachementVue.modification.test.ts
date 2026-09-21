@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { etatsFichePermis } from './etatsFichePermis'; // LOT 3-B-fix — source unique des badges : test BEHAVIORAL (jamais de faux vert / faux rouge), pas seulement la forme de la source
 
 /**
  * RATT-EDIT (lot B2) — GARDE PAR LECTURE DE SOURCE du câblage dans SuiviRattachementVue (l'onglet Rattachement monte des composants clients
@@ -204,7 +205,7 @@ describe('LOT 2 — fiche partagée montée dans Rattachement (Consulter / Modif
   });
 });
 
-describe('LOT 3-B — badges des titres en Rattachement (données SERVEUR, jamais l’éditeur monté ; jamais de faux rouge)', () => {
+describe('LOT 3-B / 3-B-fix — badges des titres en Rattachement (données SERVEUR, jamais l’éditeur monté ; ni faux rouge, ni faux vert)', () => {
   it('les badges sont calculés via etatsFichePermis à partir des DONNÉES SERVEUR du détail (nbBatiments), et passés à la fiche', () => {
     expect(vue).toContain('const etatsRattachement: BadgesFiche | null = estSurveillance');
     expect(vue).toContain('etatsFichePermis(detail.dossierId,');
@@ -214,9 +215,34 @@ describe('LOT 3-B — badges des titres en Rattachement (données SERVEUR, jamai
     expect(fiche).toContain('etatsRattachement?: BadgesFiche | null');
     expect(fiche).toContain(': etatsRattachement;');
   });
-  it('JAMAIS DE FAUX ROUGE : le permis validé (non modifié) reçoit une VUE de comptes TOUS validés (0) → verts, sans aucun état live', () => {
-    expect(vue).toContain('nbBatiments: detail.nbBatiments, nbCorpsSansAltitude: 0, nbBatimentsValide: detail.nbBatiments, nbCorpsNonEnregistres: 0, nbCorpsSansAltValidee: 0, nbCorpsSansEmpriseValidee: 0, plancheEtat: null');
+  it('JAMAIS DE FAUX VERT : les comptes de validation sont LUS sur le détail serveur (jamais 0 supposé), à parité avec Analyse', () => {
+    // Bug du 20/09 : supposer « tous validés (0) » peignait « complète » VERT un permis entré en Rattachement AVANT la garde du lot 1 (9e291f8)
+    //   avec des corps jamais enregistrés (7424, 3 corps). On LIT désormais les faits serveur du détail — aucun 0 en dur.
+    expect(vue).not.toContain('nbCorpsNonEnregistres: 0');                              // plus aucun compte à 0 EN DUR
+    expect(vue).not.toContain('nbCorpsSansAltValidee: 0, nbCorpsSansEmpriseValidee: 0');
+    expect(vue).toContain('nbCorpsNonEnregistres: detail.nbCorpsNonEnregistres');       // fait SERVEUR (Caractéristiques)
+    expect(vue).toContain('nbCorpsSansAltitude: detail.nbCorpsSansAltitude');
+    expect(vue).toContain('nbCorpsSansAltValidee: detail.nbCorpsSansAltValidee');       // fait SERVEUR (Bâtiments et projection)
+    expect(vue).toContain('nbCorpsSansEmpriseValidee: detail.nbCorpsSansEmpriseValidee');
     expect(vue).toContain('enteteProjection: null, comptesLive: null, fraicheurBat: null, etatPlancheLive: null'); // éditeur JAMAIS consulté
+  });
+  it('LE TEST QUI COMPTE — un permis en Rattachement avec des corps NON ENREGISTRÉS n’affiche JAMAIS vert (source unique etatsFichePermis)', () => {
+    const live = { enteteProjection: null, comptesLive: null, fraicheurBat: null, etatPlancheLive: null };
+    // 7424 : 3 corps jamais enregistrés (tout le reste « validé ») → ROUGE « 3 bâtiments à enregistrer », JAMAIS vert.
+    const e7424 = etatsFichePermis(7424, { nbBatiments: 3, nbCorpsSansAltitude: 0, nbBatimentsValide: 3, nbCorpsNonEnregistres: 3, nbCorpsSansAltValidee: 0, nbCorpsSansEmpriseValidee: 0, plancheEtat: null }, live);
+    expect(e7424.etatMere.ton).toBe('rouge');
+    expect(e7424.etatMere.texte).toContain('à enregistrer');
+    expect(e7424.etatMere.texte).toContain('3');
+    // 531 régularisé : tout réellement validé → VERT « complète ».
+    const e531 = etatsFichePermis(531, { nbBatiments: 3, nbCorpsSansAltitude: 0, nbBatimentsValide: 3, nbCorpsNonEnregistres: 0, nbCorpsSansAltValidee: 0, nbCorpsSansEmpriseValidee: 0, plancheEtat: null }, live);
+    expect(e531.etatMere).toEqual({ texte: 'complète', ton: 'vert' });
+  });
+  it('Bâtiments et projection : altitude/emprise NON validée (fait serveur) → ROUGE, jamais un faux « Projection validée »', () => {
+    const live = { enteteProjection: null, comptesLive: null, fraicheurBat: null, etatPlancheLive: null };
+    const base = { nbBatiments: 3, nbCorpsSansAltitude: 0, nbBatimentsValide: 3, nbCorpsNonEnregistres: 0, plancheEtat: null };
+    expect(etatsFichePermis(7424, { ...base, nbCorpsSansAltValidee: 3, nbCorpsSansEmpriseValidee: 0 }, live).etatProj.ton).toBe('rouge'); // altitude de sommet non validée
+    expect(etatsFichePermis(7424, { ...base, nbCorpsSansAltValidee: 0, nbCorpsSansEmpriseValidee: 3 }, live).etatProj.ton).toBe('rouge'); // emprise non validée
+    expect(etatsFichePermis(531,  { ...base, nbCorpsSansAltValidee: 0, nbCorpsSansEmpriseValidee: 0 }, live).etatProj.ton).toBe('vert');  // tout validé → vert
   });
   it('le marqueur B3 « modifié — à revalider » se reflète en ROUGE sur Caractéristiques ET Bâtiments (altitude/emprise)', () => {
     expect(vue).toContain('detail.modifieDepuisValidation');
@@ -227,9 +253,12 @@ describe('LOT 3-B — badges des titres en Rattachement (données SERVEUR, jamai
     expect(vue).toMatch(/etatsRattachement: BadgesFiche \| null = estSurveillance\s*\n\s*\? null/); // Surveillance (non validé) → aucun badge synthétisé
     expect(vue).toContain('etatPlanche: null'); // planche : aucun état serveur ici → nue dans les deux branches
   });
-  it('le SERVEUR alimente nbBatiments (bâtiments ACTIFS) sur le détail de rattachement', () => {
+  it('le SERVEUR alimente les comptes de validation (bâtiments ACTIFS) sur le détail de rattachement — LUS, jamais supposés', () => {
     const repo = readFileSync(join(ici, '../../../../lib/permis/rattachementSuiviRepo.ts'), 'utf8');
     expect(repo).toContain('nbBatiments: number;');                 // champ du type DetailSuivi
     expect(repo).toContain('nbBatiments: carac.corps.length');      // valeur = corps actifs (lirePermisCaracteristiques)
+    expect(repo).toContain('nbCorpsNonEnregistres: number;');       // LOT 3-B-fix — fait serveur exposé au type
+    expect(repo).toContain('lireCorpsNonEnregistres(dossierId)).length'); // MÊME garde que la file d'Analyse (miroir estConfirmeHumainement)
+    expect(repo).toContain('nbCorpsSansAltitude, nbCorpsNonEnregistres, nbCorpsSansAltValidee, nbCorpsSansEmpriseValidee'); // exposés au retour du détail
   });
 });

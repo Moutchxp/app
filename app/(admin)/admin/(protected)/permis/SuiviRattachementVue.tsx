@@ -381,17 +381,22 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
     //   seule la clôture est proposée. On coupe donc la surface d'arbitrage (comparaison + ActionsRattachement) pour ces états.
     const estAcheveSansBati = detail.etat === 'acheve_sans_bati';
     const estClos = detail.etat === 'clos_sans_bati';
-    // LOT 3-B — BADGES des titres de la fiche partagée, ALIMENTÉS PAR LES DONNÉES SERVEUR (jamais l'état de l'éditeur monté). JAMAIS de faux rouge :
-    //   · Rattachement, permis validé (condition d'entrée) NON modifié → une VUE de comptes TOUS validés → badges VERTS via la source unique etatsFichePermis ;
-    //   · marqueur B3 « modifié — à revalider » (detail.modifieDepuisValidation) → ROUGE sur « Caractéristiques » ET « Bâtiments et projection » (altitude/emprise) ;
-    //   · Surveillance (permis PAS entièrement validé) : les comptes de validation partiels ne sont pas au détail → on ne synthétise RIEN → titres NUS ;
+    // LOT 3-B / 3-B-fix — BADGES des titres de la fiche partagée, ALIMENTÉS PAR LES DONNÉES SERVEUR (jamais l'état de l'éditeur monté). Les comptes
+    //   de validation sont LUS sur le détail, jamais SUPPOSÉS — un permis entré en Rattachement AVANT la garde du lot 1 (9e291f8) peut avoir des corps
+    //   jamais enregistrés/validés (bug du faux vert du 20/09) : les afficher « complète » serait le même mensonge d'interface. Jamais de faux rouge,
+    //   ET jamais de faux vert :
+    //   · marqueur B3 « modifié — à revalider » (detail.modifieDepuisValidation, borné aux permis VALIDÉS) → ROUGE sur « Caractéristiques » ET
+    //     « Bâtiments et projection » (les deux grandeurs modifiables : altitude / emprise) ;
+    //   · sinon → etatsFichePermis LIT les comptes serveur RÉELS → ROUGE « N bâtiment(s) à enregistrer » / « altitude(s) manquante(s) » / « projection
+    //     non validée » quand un fait le justifie, VERT « complète » / « Projection validée » seulement quand tout est réellement validé (531 régularisé) ;
+    //   · Surveillance (permis PAS entièrement validé) : hors sujet ici → on ne synthétise RIEN → titres NUS ;
     //   · « Planche cadastrale » : aucun état serveur disponible ici → TOUJOURS NUE (un badge absent vaut mieux qu'un badge faux).
     const etatsRattachement: BadgesFiche | null = estSurveillance
       ? null
       : detail.modifieDepuisValidation
         ? (() => { const aRevalider: EtatTitreFamille = { texte: 'modifié — à revalider', ton: 'rouge' }; return { etatMere: aRevalider, etatProj: aRevalider, etatPlanche: null }; })()
         : etatsFichePermis(detail.dossierId,
-            { nbBatiments: detail.nbBatiments, nbCorpsSansAltitude: 0, nbBatimentsValide: detail.nbBatiments, nbCorpsNonEnregistres: 0, nbCorpsSansAltValidee: 0, nbCorpsSansEmpriseValidee: 0, plancheEtat: null },
+            { nbBatiments: detail.nbBatiments, nbCorpsSansAltitude: detail.nbCorpsSansAltitude, nbBatimentsValide: detail.nbBatiments, nbCorpsNonEnregistres: detail.nbCorpsNonEnregistres, nbCorpsSansAltValidee: detail.nbCorpsSansAltValidee, nbCorpsSansEmpriseValidee: detail.nbCorpsSansEmpriseValidee, plancheEtat: null },
             { enteteProjection: null, comptesLive: null, fraicheurBat: null, etatPlancheLive: null });
     return (
       <div className="flex flex-col gap-2">

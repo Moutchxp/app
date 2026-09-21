@@ -14,6 +14,7 @@ import { etatInitialDepuisResultat } from './preseanceAltitude';
 import { resoudreEtatSuivi, MOTIF_DAACT, MOTIF_ACHEVE_SANS_BATI } from './etatSuiviRattachement';
 import { lireDaactDeclencheurActif, lireModePassageRattachement, type ModePassageRattachement } from './rattachementConfig';
 import { lirePermisCaracteristiques } from './caracteristiquesRepo';
+import { lireCorpsNonEnregistres } from './projectionFileRepo'; // LOT 3-B-fix — MÊME garde d'enregistrement que la file d'Analyse (miroir estConfirmeHumainement) : corps actifs jamais confirmés humainement
 import { lireParcellesPermis } from './parcellesRepo';
 import { construireComparatif, type LigneComparative } from './comparatifRattachement';
 import type { ResultatRattachement } from './detectionRattachement';
@@ -370,6 +371,14 @@ export interface DetailSuivi {
   type: string; adresse: string | null; natureTravaux: string | null;    // FUS-3c-ter — en-tête : adresse + type + nature
   etat: EtatSuivi; persiste: boolean;
   nbBatiments: number;                        // LOT 3-B — nombre de bâtiments ACTIFS (permis_corps_batiment) : alimente le badge « Bâtiments et projection » / « Caractéristiques » de la fiche partagée en Rattachement (donnée SERVEUR, jamais l'état de l'éditeur monté).
+  // LOT 3-B-fix — comptes de validation PAR CORPS ACTIF, MÊME sémantique que la file d'Analyse (projectionFileRepo + selectSuivi). LUS, jamais
+  //   SUPPOSÉS : un permis entré en Rattachement AVANT la garde du lot 1 (9e291f8) peut avoir des corps jamais enregistrés/validés → sans ces
+  //   comptes, le badge afficherait un FAUX VERT « complète » (le bug du 20/09). Ils alimentent les badges « Caractéristiques » (à enregistrer /
+  //   altitude manquante) et « Bâtiments et projection » (altitude/emprise non validée) de la fiche partagée.
+  nbCorpsSansAltitude: number;                // corps ACTIFS sans altitude de sommet renseignée (altitude_sommet_ngf NULL) → badge « Caractéristiques »
+  nbCorpsNonEnregistres: number;              // corps ACTIFS jamais confirmés humainement (miroir de lireCorpsNonEnregistres) → « N bâtiment(s) à enregistrer »
+  nbCorpsSansAltValidee: number;              // corps ACTIFS sans altitude de sommet VALIDÉE (confirme_le NULL) → badge « Bâtiments et projection »
+  nbCorpsSansEmpriseValidee: number;          // corps ACTIFS sans emprise VALIDÉE (strict per-emprise, JAMAIS le repli legacy de lireEtatEmprisesPermis) → « Bâtiments et projection »
   origineOuverture: 'detection' | 'manuelle'; // M5 — 'manuelle' = arbitrage ouvert à la main (aucune détection) ; l'écran le DIT
   motifOuverture: string | null;              // M5 — motif saisi à l'ouverture manuelle (null en détection)
   verdict: string; regime: string; motif: string;
@@ -468,10 +477,27 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
   // RATT-EDIT (lot C1) — versions de gel restaurables (validation d'origine + revalidations + restaurations). [] pour le stock sans détail.
   const restaurables = await versionsRestaurables(dossierId);
 
+  // LOT 3-B-fix — comptes de validation PAR CORPS ACTIF pour les badges de la fiche (LUS, jamais supposés : cf. bug du faux vert 20/09). MÊME
+  //   sémantique que la file d'Analyse : altitude renseignée/validée depuis `carac.corps` (déjà filtré ACTIF, colonnes altitude_sommet_ngf /
+  //   altitude_sommet_ngf_confirme_le) ; enregistrement via `lireCorpsNonEnregistres` (garde IDENTIQUE à la validation) ; emprise validée en
+  //   STRICT per-emprise (miroir de `selectSuivi`), JAMAIS le repli legacy per-permis de `lireEtatEmprisesPermis` qui masquerait un faux vert.
+  const nbCorpsSansAltitude = carac.corps.filter((c) => c.altitudeSommetNgf == null).length;
+  const nbCorpsSansAltValidee = carac.corps.filter((c) => c.altitudeSommetNgfConfirmeLe == null).length;
+  const nbCorpsNonEnregistres = (await lireCorpsNonEnregistres(dossierId)).length;
+  const perEmpriseDetail = await colValideeEmpriseExiste(); // 213 appliquée → validation PAR EMPRISE ; sinon repli pointeur corps (206), comme selectSuivi
+  const faCbDetail = await fragmentCorpsActif('cb');         // BAT-3 — cartes ACTIVES seulement (une carte retirée ne pèse dans aucun compte)
+  const empriseNonValideeFiltre = perEmpriseDetail
+    ? `NOT (EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.corps_id = cb.id) AND NOT EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.corps_id = cb.id AND ee.validee_le IS NULL))`
+    : `NOT (cb.emprise_validee_id IS NOT NULL AND EXISTS (SELECT 1 FROM permis_emprise_reconstruite ee WHERE ee.id = cb.emprise_validee_id AND ee.corps_id = cb.id))`;
+  const { rows: empRows } = await query<{ n: number }>(
+    `SELECT count(*) FILTER (WHERE ${empriseNonValideeFiltre})::int AS n FROM permis_corps_batiment cb WHERE cb.dossier_id = $1${faCbDetail}`, [dossierId]);
+  const nbCorpsSansEmpriseValidee = Number(empRows[0]?.n ?? 0);
+
   return {
     dossierId, numDau: b.num_dau, commune: b.commune, codeInsee: b.code_insee,
     type: b.type, adresse: b.adresse, natureTravaux: b.nature ? libelleNatureProjet(b.nature) : null,
     etat, persiste: rr.length > 0, nbBatiments: carac.corps.length, origineOuverture, motifOuverture, // LOT 3-B — nbBatiments (bâtiments actifs) pour les badges de la fiche partagée
+    nbCorpsSansAltitude, nbCorpsNonEnregistres, nbCorpsSansAltValidee, nbCorpsSansEmpriseValidee, // LOT 3-B-fix — comptes de validation LUS (jamais supposés) → badges honnêtes, plus de faux vert
     verdict: resultat.verdict, regime: resultat.regime, motif: resultat.motif,
     criteres: resultat.criteres, seuils: entrees.seuils, seuilsProvenance: contexte.seuilsProvenance, seuilsBrut: contexte.seuilsBrut,
     millesimeCadastre: contexte.empreinteMillesime, millesimeBati: mEditionBati === MILLESIME_INCONNU ? null : mEditionBati,
