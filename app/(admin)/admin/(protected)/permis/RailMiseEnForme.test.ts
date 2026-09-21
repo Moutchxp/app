@@ -9,6 +9,10 @@ import { BandeauReglages } from './DemandesRendu';
 import { BlocRepliable } from './BlocRepliable';
 import { PROCESS_META, type Process } from '../../../../lib/sitadel/process';
 
+/* eslint-disable react/no-children-prop -- fichier .test.ts (sans JSX) : monter un composant à RENDER-PROP via
+   createElement impose de passer `children` (la fonction de rendu) EN PROP — c'est aussi ce qu'exige tsc. Le rendu
+   est strictement identique à la forme JSX <BlocRepliable>{() => …}</BlocRepliable> utilisée en prod. */
+
 /**
  * MISE EN FORME du rail (lot repli) — COMPORTEMENT de la composition RÉELLE montée par ADemanderVue : le moteur de recherche
  * (RechercheVivier) et le bandeau d'ancienneté (BandeauReglages) enveloppés dans le MÊME BlocRepliable que les autres blocs de
@@ -56,9 +60,12 @@ const moteur = (process: Process, transfert?: TransfertRenvoi, ouvrirQuand?: boo
   titre: `Rechercher un permis / une ville — vivier ${PROCESS_META[process].court}`,
   ouvrirSignal: transfert?.jeton,
   ouvrirQuand,
-}, () => createElement(RechercheVivier, {
-  process, categories: CATS, onBasculer: vi.fn(), transfert, mode: 'auto', onPrepared: vi.fn(), signalRafraichir: 0, titreExterne: true,
-}));
+  // render-prop enfant DANS les props (et non en 3e arg de createElement) : BlocRepliable type `children` comme fonction ;
+  //   rendu strictement identique (createElement affecte de toute façon le 3e arg à props.children).
+  children: () => createElement(RechercheVivier, {
+    process, categories: CATS, onBasculer: vi.fn(), transfert, mode: 'auto', onPrepared: vi.fn(), signalRafraichir: 0, titreExterne: true,
+  }),
+});
 const rendreMoteur = async (process: Process, transfert?: TransfertRenvoi, ouvrirQuand?: boolean): Promise<void> => {
   await act(async () => { root.render(moteur(process, transfert, ouvrirQuand)); }); await flush();
 };
@@ -162,8 +169,8 @@ describe('Moteur de recherche — RENVOI (ouvrirSignal) : le repli s’ouvre et 
 });
 
 describe('Bandeau d’ancienneté — REPLIABLE, fermé par défaut, fonctionnel une fois déplié (§3)', () => {
-  const ancienne = () => createElement(BlocRepliable, { titre: 'Ancienneté & ordre d’examen' },
-    () => createElement(BandeauReglages, { ancienneteMaxAnnees: 3, triLibelle: 'Date décroissante', moisSaisie: '36', maxMois: 36, onMois: vi.fn(), onAllerReglages: vi.fn() }));
+  const ancienne = () => createElement(BlocRepliable, { titre: 'Ancienneté & ordre d’examen',
+    children: () => createElement(BandeauReglages, { ancienneteMaxAnnees: 3, triLibelle: 'Date décroissante', moisSaisie: '36', maxMois: 36, onMois: vi.fn(), onAllerReglages: vi.fn() }) });
   const champAnciennete = (): HTMLInputElement | null => container.querySelector('input[aria-label^="Ancienneté à filtrer"]');
 
   it('fermé au montage : titre court présent, champ « Filtrer par ancienneté » non déplié', async () => {
@@ -177,8 +184,8 @@ describe('Bandeau d’ancienneté — REPLIABLE, fermé par défaut, fonctionnel
   it('déplié : le champ d’ancienneté et sa plage autorisée apparaissent et sont fonctionnels', async () => {
     const onMois = vi.fn();
     await act(async () => {
-      root.render(createElement(BlocRepliable, { titre: 'Ancienneté & ordre d’examen' },
-        () => createElement(BandeauReglages, { ancienneteMaxAnnees: 3, triLibelle: 'Date décroissante', moisSaisie: '36', maxMois: 36, onMois, onAllerReglages: vi.fn() })));
+      root.render(createElement(BlocRepliable, { titre: 'Ancienneté & ordre d’examen',
+        children: () => createElement(BandeauReglages, { ancienneteMaxAnnees: 3, triLibelle: 'Date décroissante', moisSaisie: '36', maxMois: 36, onMois, onAllerReglages: vi.fn() }) }));
     });
     await flush();
     await clic(parTexte(/Ancienneté & ordre/)!);

@@ -60,6 +60,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Actifs statiques servés tels quels (vendored/minifiés, ex. pdf.worker.min.mjs) : jamais du code source à
+    // linter → sortis du périmètre ESLint (supprime ~1550 avertissements parasites sur du minifié).
+    "public/**",
   ]),
 ]);
 

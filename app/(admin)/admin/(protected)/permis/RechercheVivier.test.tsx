@@ -512,7 +512,7 @@ describe('§D — renvoi = raccourci : report des critères + exécution + panne
     const [process, setProcess] = useState<'formulaire' | 'email'>(initial);
     const [transfert, setTransfert] = useState<TransfertRenvoi | null>(null);
     const jeton = useRef(0);
-    const onBasculer = (cible: Parameters<typeof setProcess>[0], criteres: CriteresRenvoi): void => {
+    const onBasculer = (cible: 'formulaire' | 'email', criteres: CriteresRenvoi): void => {
       setProcess(cible); jeton.current += 1; setTransfert({ cible, ...criteres, jeton: jeton.current });
     };
     return createElement(RechercheVivier, { process, categories: CATS, onBasculer, transfert, mode: process === 'formulaire' ? 'auto' : modeEmail, onPrepared: vi.fn() });

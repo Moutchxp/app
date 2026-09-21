@@ -45,7 +45,7 @@ export function RechercheVivier({ process, categories, onBasculer, mode = 'auto'
   signalRafraichir?: number;
   /** §D — critères REÇUS de l'autre rail (report). À chaque nouveau `jeton`, le moteur du rail d'ARRIVÉE pré-remplit les champs, EXÉCUTE
    *  la recherche (scope = rail d'arrivée → total = le N annoncé), déplie le panneau si des filtres ont été transférés, et défile jusqu'à lui. */
-  transfert?: TransfertRenvoi;
+  transfert?: TransfertRenvoi | null; // tolère null (le parent peut passer TransfertRenvoi | null) → traité comme « absent » (cf. `!transfert`, §D). Aucun changement de comportement.
   /** Mise en forme (lot repli) : quand le bloc est enveloppé dans une ligne de titre repliable qui PORTE DÉJÀ le libellé, `titreExterne`
    *  masque le `<strong>` interne (le libellé n'est pas RETIRÉ — il est DÉPLACÉ sur la ligne de titre du repli). Le déclencheur « Moteur de
    *  recherche complet » et tout le reste sont inchangés. Défaut `false` → rendu historique STRICTEMENT identique (aucun autre appelant). */
