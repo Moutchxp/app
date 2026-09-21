@@ -370,6 +370,7 @@ export interface DetailSuivi {
   dossierId: number; numDau: string; commune: string | null; codeInsee: string;
   type: string; adresse: string | null; natureTravaux: string | null;    // FUS-3c-ter — en-tête : adresse + type + nature
   etat: EtatSuivi; persiste: boolean;
+  passageAcquis: boolean;                     // RATT-EDIT (statut clair) — le permis est-il VALIDÉ (marqueur permis_projection présent = passé en Rattachement) ? Gate la ligne de statut « Validé / à revalider » (jamais un faux « Validé » sur un permis en arbitrage).
   nbBatiments: number;                        // LOT 3-B — nombre de bâtiments ACTIFS (permis_corps_batiment) : alimente le badge « Bâtiments et projection » / « Caractéristiques » de la fiche partagée en Rattachement (donnée SERVEUR, jamais l'état de l'éditeur monté).
   // LOT 3-B-fix — comptes de validation PAR CORPS ACTIF, MÊME sémantique que la file d'Analyse (projectionFileRepo + selectSuivi). LUS, jamais
   //   SUPPOSÉS : un permis entré en Rattachement AVANT la garde du lot 1 (9e291f8) peut avoir des corps jamais enregistrés/validés → sans ces
@@ -413,10 +414,11 @@ async function lireBatimentsEmpreinte(dossierId: number): Promise<{ etages: (num
 
 /** Détail d'un dossier : verdict/critères/seuils/millésimes (recalculés au runtime) + tableau comparatif « trois sources ». Lecture seule. */
 export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | null> {
-  const { rows: base } = await query<{ num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null }>(
+  const { rows: base } = await query<{ num_dau: string; code_insee: string; commune: string | null; type: string; adresse: string | null; nature: string | null; passage: boolean }>(
     `SELECT s.num_dau, s.code_insee, c.nom AS commune, s.type,
             nullif(btrim(concat_ws(' ', s.adr_num_ter, s.adr_libvoie_ter, s.adr_localite_ter)), '') AS adresse,
-            s.nature_projet_completee AS nature
+            s.nature_projet_completee AS nature,
+            EXISTS (SELECT 1 FROM permis_projection pp WHERE pp.dossier_id = s.id) AS passage
        FROM sitadel_dossier s LEFT JOIN commune c ON c.code_insee = s.code_insee
       WHERE s.id = $1`, [dossierId]);
   const b = base[0];
@@ -496,7 +498,7 @@ export async function lireDetailSuivi(dossierId: number): Promise<DetailSuivi | 
   return {
     dossierId, numDau: b.num_dau, commune: b.commune, codeInsee: b.code_insee,
     type: b.type, adresse: b.adresse, natureTravaux: b.nature ? libelleNatureProjet(b.nature) : null,
-    etat, persiste: rr.length > 0, nbBatiments: carac.corps.length, origineOuverture, motifOuverture, // LOT 3-B — nbBatiments (bâtiments actifs) pour les badges de la fiche partagée
+    etat, persiste: rr.length > 0, passageAcquis: b.passage === true, nbBatiments: carac.corps.length, origineOuverture, motifOuverture, // LOT 3-B — nbBatiments ; RATT-EDIT — passageAcquis (permis validé) pour la ligne de statut
     nbCorpsSansAltitude, nbCorpsNonEnregistres, nbCorpsSansAltValidee, nbCorpsSansEmpriseValidee, // LOT 3-B-fix — comptes de validation LUS (jamais supposés) → badges honnêtes, plus de faux vert
     verdict: resultat.verdict, regime: resultat.regime, motif: resultat.motif,
     criteres: resultat.criteres, seuils: entrees.seuils, seuilsProvenance: contexte.seuilsProvenance, seuilsBrut: contexte.seuilsBrut,

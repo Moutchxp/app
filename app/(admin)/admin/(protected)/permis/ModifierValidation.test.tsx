@@ -3,12 +3,13 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createElement } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { BandeauModificationValidation, PopUpConfirmerModification, PopUpConfirmerRevalidation, PopUpConfirmerRestauration } from './ModifierValidation';
+import { BandeauModificationValidation, LigneStatutValidation, PopUpConfirmerModification, PopUpConfirmerRevalidation, PopUpConfirmerRestauration } from './ModifierValidation';
 
 /**
  * RATT-EDIT (lot B2) — composants PURS du verrou d'édition (montés réellement en jsdom ; aucun réseau) :
  *   · le bouton « Modifier » n'existe QU'AVEC la capacité ; sinon la bannière DIT lecture seule sans jargon ;
- *   · déverrouillé, la bannière signale « modification en cours — non revalidée » + « Verrouiller » (B2 ne revalide pas) ;
+ *   · déverrouillé, le bandeau suit le MARQUEUR : NEUTRE « mode modification ouvert » (rien modifié) ou ROUGE « modifié — à revalider », + « Terminer la modification » (ne revalide pas) ;
+ *   · LigneStatutValidation — statut PERMANENT « Validé … » (vert) / « Modifié … — à revalider » (rouge), dates/auteurs seulement si disponibles ;
  *   · pop-up 1 : « Modifier » → onConfirmer, « Annuler »/Échap → onAnnuler ; date/auteur affichés SI fournis, jamais « null/undefined ».
  */
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -45,16 +46,52 @@ describe('BandeauModificationValidation — verrou par défaut, bouton gaté par
     expect(onDemander).toHaveBeenCalledTimes(1);
   });
 
-  it('DÉVERROUILLÉ : bannière « modification en cours — non revalidée » + « Verrouiller » (onVerrouiller), aucun « Modifier »', () => {
+  it('DÉVERROUILLÉ, RIEN modifié (marqueur éteint) : bandeau NEUTRE « Mode modification ouvert » + « Terminer la modification », aucun ROUGE « à revalider »', () => {
     const onVerrouiller = vi.fn();
-    const c = monter(createElement(BandeauModificationValidation, { modifOuverte: true, peutModifier: true, onDemander: () => {}, onVerrouiller }));
-    expect(c.textContent).toMatch(/modification en cours/i);
-    expect(c.textContent).toMatch(/non revalid/i);
+    const c = monter(createElement(BandeauModificationValidation, { modifOuverte: true, modifie: false, peutModifier: true, onDemander: () => {}, onVerrouiller }));
+    expect(c.textContent).toMatch(/mode modification ouvert/i);
+    expect(c.textContent).toMatch(/reste « Validé »/i);      // dit clairement que rien n'a changé
+    expect(c.textContent).not.toMatch(/à revalider/i);       // JAMAIS de rouge tant que rien n'est modifié
     expect(boutonTexte(c, /^Modifier$/)).toBeNull();
-    const v = boutonTexte(c, /Verrouiller/);
-    expect(v).not.toBeNull();
-    cliquer(v as HTMLButtonElement);
+    const t = boutonTexte(c, /Terminer la modification/);
+    expect(t).not.toBeNull();
+    expect(boutonTexte(c, /Verrouiller/)).toBeNull();        // renommé
+    cliquer(t as HTMLButtonElement);
     expect(onVerrouiller).toHaveBeenCalledTimes(1);
+  });
+
+  it('DÉVERROUILLÉ, une modification RÉELLE enregistrée (marqueur allumé) : bandeau ROUGE « Modifié — à revalider » + « Terminer la modification »', () => {
+    const onVerrouiller = vi.fn();
+    const c = monter(createElement(BandeauModificationValidation, { modifOuverte: true, modifie: true, peutModifier: true, onDemander: () => {}, onVerrouiller }));
+    expect(c.textContent).toMatch(/modifié — à revalider/i);
+    expect(c.textContent).toMatch(/restera « à revalider »/i); // ③ dit ce qui se passe si on termine sans revalider
+    const t = boutonTexte(c, /Terminer la modification/);
+    expect(t).not.toBeNull();
+    cliquer(t as HTMLButtonElement);
+    expect(onVerrouiller).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('LigneStatutValidation — statut permanent « Validé » / « Modifié — à revalider » (jamais un « le null »)', () => {
+  it('marqueur ÉTEINT → VERT « Validé le … par … » quand date/auteur fournis', () => {
+    const c = monter(createElement(LigneStatutValidation, { modifie: false, validationLe: '2026-09-07T10:00:00Z', validationParNom: 'A. Jorel' }));
+    expect(c.textContent).toMatch(/Validé le 7 septembre 2026 par A\. Jorel/);
+    expect(c.textContent).not.toMatch(/à revalider/i);
+  });
+  it('marqueur ÉTEINT sans date ni auteur (permis validé avant B1) → « Validé » NU, jamais « null »/« undefined »', () => {
+    const c = monter(createElement(LigneStatutValidation, { modifie: false, validationLe: null, validationParNom: null }));
+    expect(c.textContent).toMatch(/Validé\./);       // « Validé. » NU (pas de « le … » ni « par … »)
+    expect(c.textContent).not.toMatch(/Validé le|Validé par/);
+    expect(c.textContent).not.toMatch(/null|undefined|NaN|Invalid/);
+  });
+  it('marqueur ALLUMÉ → ROUGE « Modifié par … le … — à revalider » (trace B3)', () => {
+    const c = monter(createElement(LigneStatutValidation, { modifie: true, modifieLe: '2026-09-20T20:22:00Z', modifieParNom: 'Arnaud Jorel' }));
+    expect(c.textContent).toMatch(/Modifié par Arnaud Jorel le 20 septembre 2026.*à revalider/);
+  });
+  it('marqueur ALLUMÉ sans trace (emprise seule) → « Modifié — à revalider » sans qui/quand inventés', () => {
+    const c = monter(createElement(LigneStatutValidation, { modifie: true, modifieLe: null, modifieParNom: null }));
+    expect(c.textContent).toMatch(/Modifié — à revalider/);
+    expect(c.textContent).not.toMatch(/null|undefined|NaN|Invalid/);
   });
 });
 

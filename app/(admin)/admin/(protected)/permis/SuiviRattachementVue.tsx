@@ -23,7 +23,7 @@ const SOURCE_VIVANTE = 'état actuel (couche BD TOPO)';
 import { FichePermisBlocs } from './FichePermisBlocs'; // RATT-EDIT (lot 2) — fiche PARTAGÉE des 6 blocs (mode='rattachement') : Caractéristiques, éditeur d'emprise (déverrouillé) et pièces y vivent désormais (plus de CaracteristiquesBloc/BlocTraceEmprise/CellulePieces à plat)
 import { etatsFichePermis, type BadgesFiche } from './etatsFichePermis'; // LOT 3-B — SOURCE UNIQUE des badges de titre, nourrie ici par les DONNÉES SERVEUR (détail), jamais l'éditeur monté
 import type { EtatTitreFamille } from '../../../../lib/permis/etatFamilleProjection'; // LOT 3-B — badge « modifié — à revalider » (marqueur B3)
-import { BandeauModificationValidation, PopUpConfirmerModification, PopUpConfirmerRevalidation, PopUpConfirmerRestauration } from './ModifierValidation'; // RATT-EDIT (lot B2/B3/C1) — verrou + pop-up 1 (modifier) + pop-up 2 (revalider) + pop-up 3 (restaurer)
+import { BandeauModificationValidation, LigneStatutValidation, PopUpConfirmerModification, PopUpConfirmerRevalidation, PopUpConfirmerRestauration } from './ModifierValidation'; // RATT-EDIT (lot B2/B3/C1 + statut clair) — verrou + pop-up 1/2/3 + ligne de statut permanente
 import type { VersionRestaurable } from '../../../../lib/permis/restaurationGel'; // RATT-EDIT (lot C1) — TYPE seul (module serveur) : versions de gel restaurables
 import { recompterSiSucces } from './comptesActions';
 
@@ -398,6 +398,9 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
         : etatsFichePermis(detail.dossierId,
             { nbBatiments: detail.nbBatiments, nbCorpsSansAltitude: detail.nbCorpsSansAltitude, nbBatimentsValide: detail.nbBatiments, nbCorpsNonEnregistres: detail.nbCorpsNonEnregistres, nbCorpsSansAltValidee: detail.nbCorpsSansAltValidee, nbCorpsSansEmpriseValidee: detail.nbCorpsSansEmpriseValidee, plancheEtat: null },
             { enteteProjection: null, comptesLive: null, fraicheurBat: null, etatPlancheLive: null });
+    // RATT-EDIT (statut clair) — date/auteur de la validation de RÉFÉRENCE courante = dernière version de gel de VALIDATION (versionsRestaurables,
+    //   déjà au détail C1). Absente pour un permis validé AVANT B1 (aucun gel) → la ligne de statut affiche « Validé » nu, sans rien inventer.
+    const validationCourante = [...(detail.versionsRestaurables ?? [])].reverse().find((v) => v.type === 'validation_initiale' || v.type === 'revalidation') ?? null;
     return (
       <div className="flex flex-col gap-2">
         <DetailSuiviRendu detail={detail} />
@@ -517,6 +520,14 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
             {actionErreur && <div role="alert" style={{ fontSize: 12, color: 'var(--color-svv-red)', fontWeight: 600 }}>{actionErreur}</div>}
           </>
         )}
+        {/* RATT-EDIT (statut clair) — LIGNE DE STATUT PERMANENTE, en TÊTE de fiche et visible SANS rien ouvrir : « Validé le … par … » (vert) ou
+            « Modifié le … par … — à revalider » (rouge, marqueur SERVEUR). UNIQUEMENT sur un permis VALIDÉ (passageAcquis) hors Sous surveillance :
+            jamais un faux « Validé » sur un permis en arbitrage ou en veille. */}
+        {!estSurveillance && detail.passageAcquis && (
+          <LigneStatutValidation modifie={detail.modifieDepuisValidation}
+            validationLe={validationCourante?.dateIso ?? null} validationParNom={validationCourante?.auteurNom ?? null}
+            modifieLe={detail.derniereModif?.le ?? null} modifieParNom={detail.derniereModif?.parNom ?? null} />
+        )}
         {/* RATT-EDIT (lot 2) — DEUX gros boutons (même taille, côte à côte sur ordinateur, empilés sur iPhone via flex-wrap) qui REMPLACENT le
             pli « afficher le détail complet » ET le bandeau B2 verrouillé « Ce permis est validé… Modifier ». Forme cible du lot 3 (svv-btn-outline
             / svv-btn-primary). « Modifier » est ABSENT (pas grisé) sans la capacité peutModifierPermis. */}
@@ -534,34 +545,24 @@ export function SuiviRattachementVue({ vue = 'rattachement', onRecompter, peutMo
         </div>
         {permisOuvert && (
           <div className="flex flex-col gap-2">
-            {/* B2 — bandeau « Modification en cours — non revalidée » + « Verrouiller », UNIQUEMENT en édition (l'état VERROUILLÉ / lecture seule est
-                désormais porté par les deux boutons ci-dessus — plus de bandeau « Ce permis est validé… Modifier »). Le permis NE redescend PAS
-                en Analyse (aucune action de rattachement déclenchée). */}
+            {/* RATT-EDIT (statut clair) — BANDEAU du MODE MODIFICATION, en édition seulement. Il suit le MARQUEUR (plus modifOuverte seul) : NEUTRE
+                « Mode modification ouvert » tant que rien n'a été modifié (le permis reste « Validé »), ROUGE « Modifié — à revalider » dès qu'une
+                modification RÉELLE est enregistrée. « Terminer la modification » = retour lecture seule (rien annulé, rien revalidé). L'état
+                permanent « Validé / à revalider » (qui / quand) est porté par la LIGNE DE STATUT en tête de fiche (ci-dessus), plus par une bannière
+                read-only séparée : une seule vérité, moins de bruit. */}
             {modifOuverte && (
-              <BandeauModificationValidation modifOuverte={modifOuverte} peutModifier={peutModifierPermis}
+              <BandeauModificationValidation modifOuverte={modifOuverte} modifie={detail.modifieDepuisValidation} peutModifier={peutModifierPermis}
                 onDemander={() => setPopupModif(true)} onVerrouiller={() => setModifOuverte(false)} />
             )}
-            {/* B3 — MARQUEUR PERSISTANT (fait SERVEUR, survit au rechargement, vaut pour tout utilisateur) : ce permis a été modifié après sa
-                validation et n'est pas encore revalidé. Visible SANS déplier (bannière en tête + badge sur la ligne fermée). En édition, le
-                bandeau B2 « modification en cours » couvre déjà ce message → on n'affiche celui-ci qu'en lecture seule (évite le doublon). */}
-            {detail.modifieDepuisValidation && !modifOuverte && (
-              <div role="status" className="svv-card" style={{ fontSize: 13, borderColor: 'var(--color-svv-red)' }}>
-                <strong style={{ color: 'var(--color-svv-red)' }}>⚠ Modifié après validation, non revalidé.</strong>{' '}
-                {(() => {
-                  const t = detail.derniereModif;
-                  const qui = t?.parNom ? ` par ${t.parNom}` : '';
-                  const quand = t?.le ? ` le ${new Date(t.le).toLocaleString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' })}` : '';
-                  return `L’altitude ou l’emprise a été modifiée${qui}${quand}. Revalidez pour en faire la nouvelle validation de référence.`;
-                })()}
-              </div>
-            )}
-            {/* B3 — REVALIDER (gaté par la capacité) : disponible dès qu'il y a quelque chose à revalider (édition en cours OU marqueur serveur).
-                La revalidation N'injecte PAS d'altitude et ne change PAS l'état : le permis reste dans Rattachement. Garde Lot 1 côté serveur. */}
+            {/* RATT-EDIT (statut clair) — REVALIDER (gaté par la capacité) : présent en édition OU quand le marqueur est allumé, mais DÉSACTIVÉ avec
+                « Aucune modification à revalider » tant que le marqueur est éteint ; ACTIF dès qu'une modification réelle l'allume. La revalidation
+                N'injecte PAS d'altitude et ne change PAS l'état : le permis reste dans Rattachement. Garde Lot 1 côté serveur. */}
             {peutModifierPermis && (modifOuverte || detail.modifieDepuisValidation) && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'center' }}>
-                {/* LOT 3 — action PRINCIPALE du bloc B3 : bouton PLEIN (svv-btn-primary), pleine largeur, gabarit commun. */}
                 <button type="button" className="svv-btn svv-btn-primary" style={STYLE_BTN_RATT}
-                  disabled={revalEnCours} onClick={() => setPopupReval(true)}>Revalider ce permis</button>
+                  disabled={revalEnCours || !detail.modifieDepuisValidation} onClick={() => setPopupReval(true)}>
+                  {detail.modifieDepuisValidation ? 'Revalider ce permis' : 'Aucune modification à revalider'}
+                </button>
               </div>
             )}
             {revalMsg && <div role="status" aria-live="polite" style={{ fontSize: 12, color: revalMsg.startsWith('Permis revalidé') ? 'var(--color-svv-green-ink)' : 'var(--color-svv-red)', fontWeight: 600 }}>{revalMsg}</div>}

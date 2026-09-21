@@ -18,22 +18,37 @@ import { useEffect, useRef, type CSSProperties } from 'react';
 
 const styleBandeau: CSSProperties = { fontSize: 13, display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'center', justifyContent: 'space-between' };
 
-export function BandeauModificationValidation({ modifOuverte, peutModifier, onDemander, onVerrouiller }: {
+export function BandeauModificationValidation({ modifOuverte, modifie = false, peutModifier, onDemander, onVerrouiller }: {
   modifOuverte: boolean;       // édition déverrouillée (après « Modifier » + pop-up 1 confirmée)
+  modifie?: boolean;           // RATT-EDIT (statut clair) — marqueur SERVEUR « à revalider » : une modification RÉELLE a-t-elle été enregistrée ? Pilote NEUTRE vs ROUGE (plus modifOuverte seul).
   peutModifier: boolean;       // capacité peutModifierPermis (JWT) — sinon aucun bouton « Modifier »
   onDemander: () => void;      // clic « Modifier » → le parent ouvre la pop-up 1
-  onVerrouiller: () => void;   // clic « verrouiller » → le parent referme l'édition (retour lecture seule ; N'est PAS une revalidation)
+  onVerrouiller: () => void;   // clic « Terminer la modification » → le parent referme l'édition (retour lecture seule ; N'est PAS une revalidation, N'annule RIEN)
 }) {
   if (modifOuverte) {
-    // DÉVERROUILLÉ — signal LIVE qu'une modification est en cours et NON revalidée (B2 ne revalide pas ; la revalidation tracée est B3).
+    // RATT-EDIT (statut clair) — le bandeau suit le MARQUEUR, plus modifOuverte seul : ROUGE seulement quand une modification RÉELLE est
+    //   enregistrée, sinon NEUTRE (« mode modification ouvert »). « Terminer la modification » = retour lecture seule (rien annulé, rien revalidé).
+    if (modifie) {
+      return (
+        <div role="status" className="svv-card" style={{ ...styleBandeau, borderColor: 'var(--color-svv-red)' }}>
+          <span style={{ minWidth: 0 }}>
+            <strong style={{ color: 'var(--color-svv-red)' }}>Modifié — à revalider.</strong>{' '}
+            Une modification a été enregistrée (au fil de l’eau). Revalidez pour en faire la nouvelle validation de référence ; si vous terminez maintenant, le permis restera « à revalider ».
+          </span>
+          <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', minHeight: 44 }} onClick={onVerrouiller}>
+            Terminer la modification
+          </button>
+        </div>
+      );
+    }
     return (
-      <div role="status" className="svv-card" style={{ ...styleBandeau, borderColor: 'var(--color-svv-red)' }}>
-        <span style={{ minWidth: 0 }}>
-          <strong style={{ color: 'var(--color-svv-red)' }}>Modification en cours — non revalidée.</strong>{' '}
-          L’altitude et l’emprise sont modifiables. Vos changements sont enregistrés au fil de l’eau ; le permis devra ensuite être revalidé.
+      <div role="status" className="svv-card" style={styleBandeau}>
+        <span style={{ minWidth: 0, color: 'var(--color-svv-muted)' }}>
+          <strong style={{ color: 'var(--color-svv-ink)' }}>Mode modification ouvert.</strong>{' '}
+          L’altitude et l’emprise sont modifiables ; vos changements sont enregistrés au fil de l’eau. Tant que rien n’a été modifié, le permis reste « Validé ».
         </span>
         <button type="button" className="svv-btn svv-btn-outline" style={{ width: 'auto', minHeight: 44 }} onClick={onVerrouiller}>
-          Verrouiller
+          Terminer la modification
         </button>
       </div>
     );
@@ -50,6 +65,40 @@ export function BandeauModificationValidation({ modifOuverte, peutModifier, onDe
           Modifier
         </button>
       )}
+    </div>
+  );
+}
+
+/**
+ * RATT-EDIT (statut clair) — LIGNE DE STATUT PERMANENTE d'un permis en Rattachement, en TÊTE de fiche et visible SANS rien ouvrir. Dit,
+ * d'un coup d'œil et sans jargon, si le permis est « Validé » (VERT) ou « Modifié — à revalider » (ROUGE, marqueur SERVEUR). PURE (aucun
+ * réseau). Les dates/auteurs ne s'affichent QUE s'ils sont disponibles (permis validés avant B1 → « Validé » nu, jamais un « le null »).
+ * Remplace l'ancienne bannière read-only « ⚠ Modifié après validation » : même information (qui/quand du marqueur), désormais PERMANENTE et
+ * portant AUSSI l'état positif « Validé » — un sur-ensemble, jamais une perte.
+ */
+export function LigneStatutValidation({ modifie, validationLe, validationParNom, modifieLe, modifieParNom }: {
+  modifie: boolean;                    // marqueur SERVEUR « à revalider » (detail.modifieDepuisValidation)
+  validationLe?: string | null;        // date ISO de la validation de référence courante (si disponible : dernière version de gel de validation)
+  validationParNom?: string | null;    // auteur de cette validation (nom résolu, si disponible)
+  modifieLe?: string | null;           // trace B3 : quand la dernière modification a eu lieu (si disponible)
+  modifieParNom?: string | null;       // trace B3 : qui a modifié (si disponible ; null = emprise seule / non résolu)
+}) {
+  if (modifie) {
+    const quand = dateHeureLisible(modifieLe);
+    const qui = modifieParNom && modifieParNom.trim() !== '' ? modifieParNom.trim() : null;
+    return (
+      <div role="status" className="svv-card" style={{ fontSize: 13, borderColor: 'var(--color-svv-red)' }}>
+        <strong style={{ color: 'var(--color-svv-red)' }}>Modifié{qui ? ` par ${qui}` : ''}{quand ? ` le ${quand}` : ''} — à revalider.</strong>{' '}
+        L’altitude ou l’emprise a changé depuis la dernière validation. Revalidez pour en faire la nouvelle validation de référence.
+      </div>
+    );
+  }
+  const quand = dateLisible(validationLe);
+  const qui = validationParNom && validationParNom.trim() !== '' ? validationParNom.trim() : null;
+  return (
+    <div role="status" className="svv-card" style={{ fontSize: 13, borderColor: 'var(--color-svv-green)' }}>
+      <strong style={{ color: 'var(--color-svv-green-ink)' }}>Validé{quand ? ` le ${quand}` : ''}{qui ? ` par ${qui}` : ''}.</strong>{' '}
+      L’altitude et l’emprise actuelles sont la validation de référence de ce permis.
     </div>
   );
 }

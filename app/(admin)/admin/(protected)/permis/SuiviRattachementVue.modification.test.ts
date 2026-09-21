@@ -186,9 +186,9 @@ describe('LOT 2 — fiche partagée montée dans Rattachement (Consulter / Modif
     expect(vue).toContain('onClick={() => { setPermisOuvert(true); setModifOuverte(false); }}'); // Consulter → ouvre la fiche en lecture seule
     expect(vue).toMatch(/peutModifierPermis && \([\s\S]*?Modifier les caractéristiques du permis validé/); // Modifier gaté par la capacité (absent, pas grisé)
   });
-  it('le pli « afficher le détail complet » a disparu ; le bandeau B2 n’est monté qu’en ÉDITION (Verrouiller conservé)', () => {
+  it('le pli « afficher le détail complet » a disparu ; le bandeau de modification n’est monté qu’en ÉDITION', () => {
     expect(vue).not.toContain('afficher le détail complet du permis');
-    expect(vue).toMatch(/\{modifOuverte && \(\s*<BandeauModificationValidation/); // bandeau « Modification en cours » + Verrouiller SEULEMENT en édition
+    expect(vue).toMatch(/\{modifOuverte && \(\s*<BandeauModificationValidation/); // bandeau du MODE MODIFICATION SEULEMENT en édition
   });
   it('AUCUNE des 4 actions propres à Analyse n’apparaît en Rattachement (clôture, sortie test, retour En cours, auto-analyse)', () => {
     for (const m of ['valider_permis', 'sortir_vers_rattachement', 'retour_en_cours', 'analyse-passage', 'ClotureVersRattachement', 'Renvoyer ce permis'])
@@ -260,5 +260,32 @@ describe('LOT 3-B / 3-B-fix — badges des titres en Rattachement (données SERV
     expect(repo).toContain('nbCorpsNonEnregistres: number;');       // LOT 3-B-fix — fait serveur exposé au type
     expect(repo).toContain('lireCorpsNonEnregistres(dossierId)).length'); // MÊME garde que la file d'Analyse (miroir estConfirmeHumainement)
     expect(repo).toContain('nbCorpsSansAltitude, nbCorpsNonEnregistres, nbCorpsSansAltValidee, nbCorpsSansEmpriseValidee'); // exposés au retour du détail
+  });
+});
+
+describe('RATT-EDIT (statut clair) — ligne de statut permanente, bandeau piloté par le marqueur, Revalider conditionné', () => {
+  it('① LIGNE DE STATUT PERMANENTE, visible SANS ouvrir, UNIQUEMENT sur un permis validé hors surveillance (jamais un faux « Validé »)', () => {
+    expect(vue).toContain('<LigneStatutValidation');
+    expect(vue).toContain('{!estSurveillance && detail.passageAcquis && (');          // gate : validé (passageAcquis) ET pas surveillance
+    expect(vue).toContain('modifie={detail.modifieDepuisValidation}');                // vert/rouge piloté par le marqueur SERVEUR
+    // date/auteur de la validation de RÉFÉRENCE = dernière version de gel de validation (versionsRestaurables), trace B3 pour la modif
+    expect(vue).toMatch(/validationCourante = \[\.\.\.\(detail\.versionsRestaurables[\s\S]*validation_initiale[\s\S]*revalidation/);
+    expect(vue).toContain('validationLe={validationCourante?.dateIso ?? null}');
+    expect(vue).toContain('modifieLe={detail.derniereModif?.le ?? null}');
+    // la ligne est montée AU-DESSUS des deux gros boutons (en tête de fiche)
+    expect(vue.indexOf('<LigneStatutValidation')).toBeLessThan(vue.indexOf('Consulter les caractéristiques du permis validé'));
+  });
+  it('② le bandeau du mode modification reçoit le marqueur (neutre vs rouge), plus modifOuverte seul', () => {
+    expect(vue).toMatch(/<BandeauModificationValidation modifOuverte=\{modifOuverte\} modifie=\{detail\.modifieDepuisValidation\}/);
+  });
+  it('④ « Revalider » DÉSACTIVÉ tant que le marqueur est éteint (« Aucune modification à revalider »), ACTIF dès qu’il s’allume', () => {
+    expect(vue).toContain('disabled={revalEnCours || !detail.modifieDepuisValidation}');
+    expect(vue).toContain("detail.modifieDepuisValidation ? 'Revalider ce permis' : 'Aucune modification à revalider'");
+  });
+  it('SERVEUR : DetailSuivi porte passageAcquis (permis_projection présent) — LU, gate honnête de la ligne de statut', () => {
+    const repo = readFileSync(join(ici, '../../../../lib/permis/rattachementSuiviRepo.ts'), 'utf8');
+    expect(repo).toContain('passageAcquis: boolean;');
+    expect(repo).toContain('passageAcquis: b.passage === true');
+    expect(repo).toMatch(/EXISTS \(SELECT 1 FROM permis_projection pp WHERE pp\.dossier_id = s\.id\) AS passage/);
   });
 });
