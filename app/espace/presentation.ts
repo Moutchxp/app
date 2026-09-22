@@ -73,6 +73,15 @@ export const LIB_TELECHARGER_DOCUMENT = 'Télécharger ce document';
 export const MSG_APERCU_CHARGEMENT = 'Chargement du document…';
 export const MSG_APERCU_INDISPONIBLE = 'Document momentanément indisponible.';
 
+/** Bouton pendant que le document est récupéré (une seule fois, au chargement de l'écran) : visible, mais inactif. */
+export const LIB_PREPARATION = 'Préparation…';
+
+/** Récupération impossible. Deux causes DISTINCTES, deux conduites à tenir — on ne mélange pas. */
+export const MSG_SESSION_EXPIREE = 'Votre session a expiré, reconnectez-vous.';
+export const MSG_DOCUMENT_NON_PREPARE = 'Le document n’a pas pu être préparé. Réessayez.';
+/** Libellé du lien de reconnexion affiché avec `MSG_SESSION_EXPIREE`. */
+export const LIB_SE_RECONNECTER = 'Se reconnecter';
+
 /** Repère sous l'aperçu du nominatif en préparation (le document n'est pas encore déposé → rien à montrer). */
 export const MSG_APERCU_EN_PREPARATION = MSG_NOMINATIF_EN_PREPARATION;
 
