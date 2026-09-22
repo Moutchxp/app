@@ -1,296 +1,294 @@
-> Passation générée le 07/09/2026 à 20h18
+> Passation mise à jour le 22/09/2026 à 15h35
 
 # PASSATION — Application Sans Vis-à-Vis®
 
-Colle ce document au tout début d'une nouvelle conversation avec Claude. Il te donne le projet, les
-rôles, les règles, l'historique et la prochaine action, sans qu'Arno ait à réexpliquer.
+Colle ce document en tête d'une nouvelle conversation Claude : il donne le projet, les rôles, les
+règles, les invariants, l'historique et la prochaine action, sans qu'Arno ait à réexpliquer.
 
 ---
 
 ## 1. Rôles & workflow
 
-> ### 🔒 RÈGLE PERMANENTE D'AUTONOMIE DE L'AGENT — À RECONDUIRE DANS TOUTE PASSATION FUTURE
->
-> **Cette section est PERMANENTE.** Quand cette passation servira de base pour en régénérer une
-> nouvelle, elle DOIT être reportée **telle quelle** — jamais résumée, jamais supprimée, jamais diluée.
->
-> **Arno donne son accord PAR DÉFAUT pour tout.** Il ne veut plus valider des demandes d'autorisation à
-> répétition. L'agent Claude Code travaille **de bout en bout sans solliciter Arno** : édition de
-> fichiers, commandes shell, tests, build, git local, commits — tout passe **sans validation**.
->
-> **DEUX SEULES EXCEPTIONS** ont le droit d'interrompre son travail :
-> 1. une **QUESTION DE CHOIX à trancher** — arbitrage produit, option de design, décision métier :
->    quelque chose dont **Arno seul** a la réponse ;
-> 2. une **DEMANDE D'ACCÈS à un service pour lequel Claude Code n'a pas ENCORE reçu l'accord** d'Arno —
->    service de son ordinateur personnel, ou service externe sur internet. **Une fois l'accord donné
->    pour un service, il n'est plus redemandé.**
->
-> **CONSÉQUENCE À ASSUMER PAR LE CLAUDE ARCHITECTE** : les garde-fous qui reposaient sur une demande de
-> validation (écriture en base *live*, `git push`, commandes destructives) **ne sont plus portés par les
-> permissions**. Ils doivent donc être **ÉCRITS NOIR SUR BLANC DANS LE TEXTE** de chaque cartouche
-> 🔵 PROMPT — « lecture seule stricte », « tu ne pousses pas », « aucun DELETE/TRUNCATE/DROP », « pas
-> d'écriture en base » — et **jamais** confiés à une invite de confirmation qui n'arrivera pas.
->
-> Cette règle est **PERMANENTE** et se reconduit dans toute passation future.
-
-- **Arno** = fondateur **non-développeur** de **Sans Vis-à-Vis** (sansvisavis.com), plateforme de
-  certification immobilière « vue dégagée / sans vis-à-vis » (Paris + petite couronne). Décide seul,
-  tranche le métier.
-- **Claude** = architecte / relecteur / concepteur des chantiers. Communication **en français,
-  tutoiement, direct, sans flagornerie**.
-- **Workflow relais (« vibe coding »)** : Claude rédige des **cartouches d'instructions** → Arno les
-  colle à l'**agent Claude Code dans VS Code** → l'agent **exécute en autonomie** (lecture, édition,
-  shell, tests, build, commits locaux) selon la règle d'autonomie ci-dessus. **Le `git push` reste
-  manuel par Arno**, sauf accord explicite ; chaque cartouche redit ses garde-fous en toutes lettres.
-- **Repo** : github.com/Moutchxp/app — branche `main`. Git user : Moutchxp.
-- **Stack** : Next.js 16.2.9, React 19.2.4, TypeScript 5, Tailwind v4, **PostgreSQL + PostGIS en
-  LOCAL** (plus de Supabase ; driver `pg` sur `DATABASE_URL=postgresql://localhost:5432/sansvisavis`).
-- **Langue du domaine** : français (faisceau, obstacle, point d'observation, corps de bâtiment…).
-- **Taille du dépôt (repère)** : ~185 800 lignes de code applicatif (TS+TSX+SQL+CSS) sur ~1 422
-  fichiers ; `.ts`+`.tsx` ≈ 172 500 lignes à eux seuls. ~218 k lignes tout compris (docs, JSON).
-  Tests : **506 fichiers `*.test.ts`** (collectés par `npm test`) + **33 `*.itest.ts`** (collectés par
-  `npm run test:integration`) — les deux globs sont **séparés volontairement** (cf. §2).
+- **Arno** (a.jorel@sansvisavis.com) = **fondateur non-développeur** de **Sans Vis-à-Vis**
+  (sansvisavis.com), plateforme de **certification immobilière de la vue dégagée** (« sans
+  vis-à-vis »), Paris + petite couronne. Il arbitre le métier ; il ne code pas. Communication
+  **en français, tutoiement, direct, sans flatterie**.
+- **Claude Code = implémente + teste + COMMITTE lui-même en local.** Règles du commit :
+  **`git add` des SEULS fichiers du lot** (jamais `PASSATION.md` en même temps qu'un lot de code,
+  jamais `.env`, jamais les 2 fichiers Gemini) ; **aucune ligne `Co-Authored-By`** ; **JAMAIS de
+  `git push`**. **Arno pousse lui-même depuis l'application Terminal de macOS.**
+- **Tout bloc de commande livré à Arno doit préciser DANS QUEL TERMINAL le coller** (fenêtre MinIO,
+  fenêtre serveur, fenêtre tunnel, ou une fenêtre libre) — il en a plusieurs ouvertes en permanence (§6).
+- **Workflow relais** (quand Claude ne code pas lui-même) : Claude rédige des **cartouches
+  d'instructions (FR)** → Arno les colle à l'agent Claude Code → l'agent produit les diffs, teste,
+  committe → Arno pousse.
+- **Repo** : github.com/Moutchxp/app — branche `main`. **Stack** : Next.js **16.2.9**, React 19,
+  TypeScript 5, Tailwind v4, **PostgreSQL 17 + PostGIS 3.6.4 en LOCAL** (driver `pg` sur
+  `DATABASE_URL` du `.env` ; plus de Supabase). MinIO/S3 pour les fichiers (jamais en base).
+- ⚠️ **`AGENTS.md` en tête de repo** : « This is NOT the Next.js you know » — lire
+  `node_modules/next/dist/docs/` avant d'écrire du code Next (APIs/conventions v16 différentes).
+  Précédent utile : `NextRequest.ip` et `geo` ont été **retirés en v15** — vérifié dans cette doc.
 
 ---
 
 ## 2. Règles de collaboration (impératives)
 
-- **Un chantier = un prompt = une modif logique = un commit.** Après chaque diff : vérifier puis committer.
+- **Un chantier = un prompt = une modif logique = un commit.** Après chaque diff : vérifier, committer.
 - **Recon LECTURE SEULE avant tout write** sur fichier sensible (moteur pur `app/lib/svv/*`, accès
-  données `app/lib/db/*`, front `app/page.tsx`/`MapContent.tsx`, test golden `pipeline.itest.ts`).
-- **Livrables = blocs copiables clairement labellisés** (voir §7). Jamais mélanger un prompt et un commit.
-- **Ne jamais conseiller de faire une pause / d'arrêter.** Arno décide seul. Proposer plusieurs options
-  AVANT d'implémenter sur un choix de design / ressenti.
-- **2 fichiers Gemini HORS staging** : `app/lib/svv/adaptateurIaPhoto.ts` et `app/api/analyse-photo/route.ts`.
-- **CONTRÔLE DE FIN OBLIGATOIRE = `npm test` COMPLET vert** (= `vitest run`, **506 fichiers `*.test.ts`**
-  aujourd'hui, glob `app/**/*.test.ts`). Les suites filtrées par chemin (`vitest run …/internaute`,
-  `…/sitadel`, `…/permis`) sont des contrôles RAPIDES en cours de travail, **jamais** le contrôle de fin :
-  une large majorité des fichiers vivent hors de ces sous-ensembles (précédent : `curation.test.ts` rouge
-  du 14/07 au 03/08/2026, invisible aux contrôles filtrés). **Pas d'alias `test:tout`** — `npm test` fait
-  déjà ça. **Deux globs SÉPARÉS volontairement** (`vitest.config.ts` = `*.test.ts` ; `vitest.integration.config.ts`
-  = `*.itest.ts`) pour que `npm test` ne ramasse pas les itests : le golden + les **33 `*.itest.ts`** (dont
-  `pipeline.itest.ts`) tournent à part via `npm run test:integration`. Un chantier complet lance **les deux**.
-  (Le « ~536 » d'anciennes passations était un arrondi périmé : le vrai partage est **506 + 33 = 539** sur disque.)
-- **Tests : ne jamais figer la FORME d'un SQL émis au runtime** (pas de regex sur le WHERE complet) →
-  asserter le COMPORTEMENT (réponse, paramètres liés) + le SQL par FRAGMENTS sémantiques
-  whitespace-normalisés (`sql.replace(/\s+/g,' ')` + `toContain`). Modèle : `curation.test.ts`.
-- **Un KNN `<->` ne lit JAMAIS son point d'un CTE multi-référencé** (matérialisation → seq scan silencieux) :
-  inliner l'expression du point dans le `ORDER BY`. Vérifier tout nouvel index par `EXPLAIN` sur la
-  requête RÉELLE (le planificateur doit le PRENDRE, pas juste exister).
-- **Flakes connus** → registre versionné `docs/FLAKES_CONNUS.md` (une entrée par flake, niveau de
-  preuve explicite). Pour `certificatPdf.test.ts` : cause **NON ÉTABLIE**, ancien diagnostic « octets
-  non déterministes / timestamp » **RÉFUTÉ** (générateur prouvé déterministe octet à octet). Ne JAMAIS
-  réimprimer « octets non déterministes » ; pointer vers le registre.
-- **Pièges de type `pg`** : le driver `pg` renvoie les colonnes **`numeric` comme des CHAÎNES** (aucun
-  `setTypeParser` dans `app/lib/db/client.ts`). Un `json_build_object`, lui, renvoie des **nombres**.
-  Ne jamais supposer qu'une valeur de journal typée `number` en TS l'est au runtime : coercer
-  (`Number(...)`) au point de comparaison numérique.
+  données `app/lib/db/*`, `app/lib/pdf/*`, `app/lib/email/*`, `app/lib/sitadel/*`, `app/lib/admin/*`,
+  front `app/page.tsx`, golden `app/lib/db/pipeline.itest.ts`).
+- **Livrables : toujours des blocs copiables labellisés** (voir §7). Ne JAMAIS mélanger prompt + commit.
+- **Ne jamais conseiller de faire une pause / d'arrêter ; Arno décide seul.** Proposer plusieurs
+  options AVANT d'implémenter sur un choix de design/ressenti.
+- **2 fichiers Gemini HORS staging** : `app/lib/svv/adaptateurIaPhoto.ts` et
+  `app/api/analyse-photo/route.ts`.
+- **CONTRÔLE DE FIN OBLIGATOIRE = `npm test` COMPLET vert.** `npm test` = `tsc --noEmit && vitest run`
+  (le typecheck est DANS le gate depuis le 22/09). État réel au 22/09 : **596 fichiers de test /
+  7 880 tests** (+ 21 ignorés). Les suites filtrées (internaute / sitadel / permis) sont des contrôles
+  RAPIDES en cours de travail, **JAMAIS** le contrôle de fin : **~114 fichiers vivent hors de ces 3
+  sous-ensembles** (précédent : `curation.test.ts` rouge du 14/07 au 03/08/2026, invisible aux contrôles
+  filtrés). Pas d'alias `test:tout`.
+- **Les tests d'INTÉGRATION sont hors `npm test`** (`vitest.integration.config.ts`). Le golden
+  `pipeline.itest.ts` se rejoue à part : `npx vitest run --config vitest.integration.config.ts
+  app/lib/db/pipeline.itest.ts` (lecture seule, 0 écriture). ⚠️ Ne pas lancer TOUTE la suite
+  d'intégration sans intention : certains `.itest.ts` écrivent en base.
+- **Flakes** : registre versionné `docs/FLAKES_CONNUS.md`, à consulter AVANT de diagnostiquer. Flakes à
+  **relancer** (ne rien corriger) : `serverOnly.guard` (ENOENT `__garde_eslint_tmp__.ts`),
+  `comptes.test.ts`, et les tests jsdom sensibles au timing sous charge → `npx vitest run --maxWorkers=4`.
+- ⚠️ **NE PAS classer « flake connu » un échec qu'on vient de provoquer.** Précédent du 22/09 : après une
+  modification du générateur PDF, ~4 assertions de déterminisme tombaient. Mesure décisive : **4 échecs
+  sur 5 exécutions avec la modification, 0 sur 5 sans** (`git stash` du seul fichier) → c'était un vrai
+  bug introduit, pas le flake historique. **Toujours mesurer la fréquence avec ET sans sa modification.**
+- **Déterminisme du PDF = invariant testé.** `certificatPdf.ts` doit rendre les MÊMES octets pour les
+  mêmes entrées. Deux causes de rupture découvertes le 22/09, à ne pas réintroduire : (1) **mémoïser** un
+  actif et rendre le même objet `Buffer` d'une génération à l'autre ; (2) **palettiser** un PNG à canal
+  alpha — pdfkit décode ces PNG de façon ASYNCHRONE et numérote ses objets dans l'ordre d'achèvement.
+- **Tests : ne jamais figer la FORME d'un SQL émis au runtime** → asserter le COMPORTEMENT (réponse,
+  paramètres liés) + le SQL par FRAGMENTS sémantiques whitespace-normalisés. Idem pour la signature d'un
+  composant dans un source-scan.
+- **Mocks de rejet** : préférer `mockImplementationOnce(async () => { throw … })` à
+  `mockImplementation(…)` permanent — un mock qui rejette indéfiniment produit des rejets non gérés sur
+  des appels ultérieurs et fait échouer le test pour une mauvaise raison (vécu le 22/09).
+- **KNN spatial** : un `<->` ne lit JAMAIS son point d'un CTE multi-référencé (matérialisation → perte
+  d'index silencieuse) → INLINER le point dans l'`ORDER BY`. Vérifier par `EXPLAIN (ANALYZE, BUFFERS)`
+  sur la requête RÉELLE. (JOIN `ST_Intersects`/`ST_DWithin` non concernés.)
 
 ---
 
 ## 3. Objectif à atteindre
 
-- **Objectif GLOBAL** : transformer « sans vis-à-vis » (subjectif) en **norme mesurable, certifiable,
-  auditable** — verdict 100 % géométrique + score de qualité de vue /100 + certificat PDF
-  (`SAVV-AAAA-NNNNNN`, cible non encore implémentée) + estimation de plus-value.
-- **Chantier EN COURS = module interne PERMIS**, phase **RATTACHEMENT & PERF**. Le module instruit les
-  permis de construire (Sitadel + pièces PDF) pour **détecter le bâti neuf** qui invaliderait un
-  certificat, et prépare le futur **contrôle mixte LiDAR/BD TOPO** (voir §5). Série récente : séparation
-  nette de l'onglet **« Sous surveillance » (radar)** et de l'onglet **« Rattachement » (travail)** ;
-  **validation de projection bâtiment par bâtiment** ; **numéro de permis qui passe au vert** quand il
-  est prêt à être envoyé ; puis une **série perf** sur la fiche permis (mémoïsation + persistance du
-  best-of PDF, parallélisation des lectures GED, réutilisation du texte déjà extrait). **Aucun chantier
-  verdict/score en cours** ; tout est resté côté outillage interne (le golden n'a jamais bougé).
+- **Objectif GLOBAL** : certifier automatiquement qu'un logement est « Sans Vis-à-Vis® » (verdict
+  géométrique binaire), produire un **certificat PDF** + une **note de qualité de vue /100**, et à
+  terme une **estimation de plus-value**. Cible : transformer un terme subjectif en **norme mesurable,
+  certifiable, auditable**. Objectif d'architecture verrouillé : **PILOTAGE SANS CODE** (voir §4).
+- **Objectif du chantier EN COURS** : rendre le parcours public **utilisable depuis un vrai téléphone**
+  et **prêt pour une mise en production**. Le lot « gains rapides » de l'audit du 21/09 est **soldé**
+  (G1-G4 ✅, G5 ⬜) ; la journée du 22/09 a traité les défauts constatés en test réel sur iPhone. Reste
+  à alléger le temps d'émission (§6, prochaine action) puis les items de production (T4, T9, T10, T11).
 
 ---
 
 ## 4. Invariants verrouillés (garde-fous permanents)
 
-- **Golden Asnières = `29.107259068449615`** (note Couche 1 /80, scellé `pipeline.itest.ts:42`,
-  hand-verified). Tout ce qui touche le score /100 change le golden → recalcul + validation main +
-  **rescellage en commit SÉPARÉ**.
-- **Verdict binaire = 100 % géométrique** : 1er obstacle réel **≥ 40 m** sur l'axe → `SANS_VIS_A_VIS`,
-  sinon `VIS_A_VIS` (`THRESHOLD_M`). Jamais couplé au score ni à la photo.
-- **Toit = MNS LiDAR lu DIRECTEMENT** (absolu, nettoyé), jamais sol + hauteur côté obstacle ; terrain =
-  MNT LiDAR ; BD TOPO = emprise + identité (`cleabs`) uniquement, jamais l'altimétrie d'un certificat.
-- **Hauteur de vision = FORMULE À PARAMÈTRE VARIABLE** : `etage × (hauteur_sous_plafond + 0,30 dalle)
-  + 1,65 yeux`. Sous-plafond **choisi par l'internaute**, défaut **2,50 m**, fourchette **[2,40 ; 4,50]**
-  pas 0,10. **« 2,80 »** = coefficient du seul cas par défaut (2,50+0,30 = `FLOOR_HEIGHT_M`), **PAS**
-  une constante (le « × 2,90 » comme formule est PÉRIMÉ). **« 2,90 » = `FLOOR_HEIGHT_OBSTACLE_M`**,
-  constante DISTINCTE (estimation immeuble voisin sans hauteur BD TOPO), à ne pas confondre. Œil
-  **1,65 m** = définitif.
-- **Aucun arrondi nulle part** ; distances horizontales autoritatives en **Lambert-93 (EPSG:2154)** ;
-  **`ST_Force2D` jamais retiré** des opérations distance/raster.
-- **Tolérances** : rattachement patrimoine monument→cleabs = **15 m** ; point d'origine hors emprise =
-  **0,30 m** (`ORIGIN_OUTSIDE_TOLERANCE_M`).
-- **`config_scoring`** : 39 colonnes, singleton `id=1`, lues au runtime avec repli sûr
-  `PROFIL_DEGAGEMENT_DEFAUT`. Aucune constante de score en dur dispersée. **`prefers-reduced-motion`**
-  respecté pour toute animation.
-- **EXIGENCE ARCHITECTURE — PILOTAGE SANS CODE** : toute variable de tout moteur de score (Couche 1
-  dégagement, Couche 2 photo, barème familles, cumul, couloir, orientation, bornes années…) DOIT être
-  externalisée en table de config, éditable au runtime, jamais codée en dur. Cible = **interface
-  d'administration native utilisable par un non-développeur (Arno)**. Conséquences dans CHAQUE chantier :
-  * Aucune constante de score en dur (tout en table lue au runtime). Seule exception actée : les
-    libellés d'affichage `SCORE_LABEL` (75/60), à ne pas étendre.
-  * Toute nouvelle variable de moteur naît en table de config avec type, défaut, plage/validation
-    (min/max, liste fermée pour les enums type `mode_combinaison`).
-  * Statut à documenter : VIVE (agit sur le score) / VESTIGIALE (masquée/grisée en lecture seule) /
-    GARDE (éditable mais contrainte à une liste fermée, ex. `mode_combinaison`).
-  * Tout schéma/nommage/loader anticipe cette interface future (lisible/éditable par un non-dev).
-- **EXIGENCE INTERFACE MOBILE** : toute interface d'admin interne pensée **responsive / mobile-first**
-  (lisible et utilisable sur iPhone portrait) ; contenus denses → repli en cartes/accordéons, jamais un
-  débordement horizontal illisible.
-- **RÈGLE ABSOLUE du chantier PERMIS/liseuse** : ZÉRO ligne modifiée dans le **canvas / afficherPage /
-  cliquerPdf / cliquerSchema / aperçu-ratio / viewport / conversion de coordonnées**. **Filets 19/19
-  verts et inchangés** (`tracage.filet` 8 + `agrandissement.filet` 5 + `tracageSchema.filet` 6). Les
-  deux rendus pdf.js (liseuse lecture seule vs `BlocTraceEmprise` surface de dessin) sont des **jumeaux
-  volontairement distincts** (décision Arno 31/08/2026) — ne jamais unifier.
-- **PRÉCALCUL = ACCÉLÉRATEUR, JAMAIS UN PRÉREQUIS** (série fond, cf. §5) : toute route qui lit un résultat
-  pré-calculé garde **intégralement son repli calcul-à-la-volée**. Une ligne de précalcul absente/périmée
-  ne casse jamais l'écran ; elle est juste recalculée.
-- **GARDE `echecTelechargement`** : **jamais** de persistance d'un résultat calculé sur une GED
-  incomplètement téléchargée — pour **aucun** type (best_of comme complétude), ni côté lecteur, ni côté
-  producteur de fond. En cas de doute, on recalcule ; on ne fige jamais un résultat dégradé.
-- **Socle générique `permis_best_of_precalcul`** (migration 209) : clé **`(dossier_id, type)`** ; colonne
-  `type` **NOT NULL SANS DEFAULT** (un default ré-ouvrirait l'écrasement silencieux entre consommateurs) ;
-  **liste fermée par CHECK** (`best_of`, `completude`). `empreinte` = clé d'invalidation **propre au type**.
-- **La part VIVANTE ne se précalcule JAMAIS** : ce qui dépend de `config_veille` (ou d'un autre réglage)
-  est appliqué **au read** (modèle `lireCompletude` : `classements` stables pré-calculés + familles
-  attendues appliquées à la lecture). La **fraîcheur est structurelle**, pas « gérée » : un changement de
-  réglage est reflété immédiatement, jamais au prochain tick.
-- **Avant de généraliser un socle de précalcul pour un nouveau consommateur, VÉRIFIER D'ABORD s'il a déjà
-  sa table dédiée** : la dupliquer créerait une 2ᵉ vérité (leçon de P-fond 4b — la complétude a gardé
-  `permis_completude`, le `type='completude'` du socle reste réservé à un consommateur sans table).
-- **Le lanceur macOS (LaunchAgent `com.sansvisavis.veille`) ne tourne que machine allumée + session
-  ouverte** : le précalcul de fond (étape de `executerVeille`, tick 900 s) peut prendre du retard — d'où
-  le **repli calcul-à-la-volée obligatoire** ci-dessus.
+> Le **code fait foi** (cf. `docs/INVARIANTS_SVAV.md`, prouvés `fichier:ligne`). Ne jamais les modifier
+> sans accord explicite d'Arno.
 
-> Le code fait foi : `docs/INVARIANTS_SVAV.md` prouve chaque invariant `fichier:ligne`. En cas de
-> divergence formulation/doc/code, se référer au code cité.
+- **Golden Asnières = `29.107259068449615`** (note Couche 1 /80), scellé `app/lib/db/pipeline.itest.ts`
+  (rejoue Asnières : lat `48.90693182287072`, lon `2.269431435588249`, azimut 90, étage 2) **et** par un
+  garde PUR sans base `app/lib/svv/golden.test.ts` (égalité STRICTE, dans `npm test`). Tout ce qui touche
+  le score change le golden → recalcul + validation main + **rescellage en commit SÉPARÉ** (jamais pour
+  « faire passer » un test : un écart = ALERTE).
+- **Verdict binaire 100 % géométrique** : 1er obstacle réel ≥ **40 m** sur l'axe → `SANS_VIS_A_VIS`,
+  sinon `VIS_A_VIS` (`THRESHOLD_M`). **Jamais couplé au score ni à la photo.** Toit obstacle = **MNS
+  LiDAR lu DIRECTEMENT** (absolu, nettoyé) ; jamais sol+hauteur côté obstacle. Hors bâtiment / hors
+  LiDAR → INDÉTERMINÉ (pas de certificat).
+- **Hauteur de vision = FORMULE À PARAMÈTRE VARIABLE** : `hauteur_vision = etage × (hauteur_sous_plafond
+  + 0,30 dalle) + 1,65 yeux`. Sous-plafond **choisi par l'internaute**, défaut **2,50 m**, fourchette
+  **[2,40 ; 4,50] m** pas 0,10. **« 2,80 »** = coefficient plancher-à-plancher du SEUL cas par défaut
+  (2,50+0,30 = `FLOOR_HEIGHT_M`), **PAS une constante**. **« 2,90 » = `FLOOR_HEIGHT_OBSTACLE_M`**,
+  constante DISTINCTE (immeuble voisin sans hauteur BD TOPO), à NE PAS confondre. 1,65 = DÉFINITIF.
+- **AUCUN ARRONDI nulle part.** Distances horizontales autoritatives en **Lambert-93 (EPSG:2154)**.
+  **`ST_Force2D` jamais retiré** des opérations distance/raster.
+- **Tolérances** : rattachement patrimoine 15 m ; point d'origine hors emprise 0,30 m.
+- **Certificat** : `SAVV-AAAA-NNNNNN`, compteur **implémenté et atomique** (`db/certificatNumero.ts`)
+  — contrairement à ce que dit encore `CLAUDE.md §6`.
+- **`config_scoring`** : pondérations externalisées (39 colonnes, singleton id=1), lues au runtime,
+  repli sûr `PROFIL_DEGAGEMENT_DEFAUT`.
+- **`prefers-reduced-motion`** respecté pour toute animation.
+- **EXIGENCE ARCHITECTURE — PILOTAGE SANS CODE** : toute variable de tout moteur DOIT être externalisée
+  et éditable au runtime, jamais codée en dur ; toute nouvelle variable naît en table de config (type,
+  défaut, plage validée). Cible : une interface d'administration native pour un non-développeur.
+- **Sécurité auth** : `verifierJeton` épingle HS256 ; cookies httpOnly/secure/SameSite=strict ; gardes
+  qui RELISENT `role/actif/perm` en base à chaque écriture. **Fail-closed depuis le 22/09 (M1)** : le
+  rôle administrateur doit être une **claim POSITIVE explicite** — un jeton signé mais mal formé n'est
+  plus admin par défaut.
+- **NOUVEAUX garde-fous du 22/09 (ne pas défaire) :**
+  - **Aucune URL de stockage ne sort vers un navigateur** dans l'espace client : l'application sert
+    elle-même les octets des 3 documents (`Cache-Control: private, no-store`). Une URL signée porte
+    l'endpoint S3 (injoignable hors du Mac) **et** est un laissez-passer transmissible vers un PDF
+    nominatif.
+  - **Aucune adresse temporaire dans un QR en production** : helper UNIQUE `lib/certificat/siteUrl.ts`
+    (partagé par le PDF, l'e-mail et le visuel). En production, refus de http, localhost, IP privée,
+    `*.trycloudflare.com`, ngrok → document NON fabriqué. En développement : accepté **avec
+    avertissement** en console.
+  - **L'attente de la base est bornée sur le SEUL chemin de l'analyse publique** (pool dédié
+    `svav_analyse_publique`, `statement_timeout` 15 s, connexion 10 s, sélectionné par
+    `AsyncLocalStorage` dans `lib/db/plafondAnalyse.ts`). **Pas de plafond global** sur le pool partagé :
+    imports, veille, relève et scripts sont légitimement longs.
+  - **Le limiteur de cadence ne doit jamais devenir une panne** : toute erreur de sa part LAISSE PASSER
+    la requête.
 
 ---
 
 ## 5. Résumé de l'historique
 
-**Moteur & socle (déjà en place).** Verdict géométrique (LiDAR MNT/MNS, faisceaux, obstacles par
-balayage), score de qualité de vue /100 (50/50 dégagement objectif / qualité paysage, IA photo via
-Gemini — hors staging), `config_scoring` externalisé, golden Asnières scellé. Auditabilité : entité
-centrale « test », rattachements patrimoine (MH/Inventaire/mondial).
+### Le produit & le moteur (déjà en place)
+- **Pipeline d'analyse** `app/lib/db/pipeline.ts` : `construireEntree(params)` (DB/LiDAR/géométrie) →
+  `EntreeComplete` → `analyser(entree, profil)` (**PUR, aucune I/O**). Verdict géométrique + note
+  Couche 1 /80 (61 faisceaux) + cartouches descriptives (score-only).
+- **Gros back-office « Permis de construire »** (≈ 56 % du code) : veille Sitadel, relève IMAP des
+  réponses mairies, GED, rattachement de polygones BD TOPO, projection, registre d'altitudes, saisines
+  CADA, demandes (e-mail + téléservice). Dernier gros fil : **Rattachement** (migration 226).
+- **Auth/RGPD** : argon2id, anti-énumération, voie de secours, consentement historisé + effacement,
+  EXIF/GPS retirés des photos.
 
-**Module PERMIS (gros de l'activité récente, ~centaines de commits).** Ingestion Sitadel, curation,
-rapprochement cadastral (colonne `origine_lien`), empreinte/rattachement des corps de bâtiment,
-surveillance des polygones, complétude des pièces, demandes de pièces manquantes (fil mail
-In-Reply-To/References), GED (`dossier_document`), extraction (journal `permis_extraction_journal` avec
-`origine` auto/manuelle), analyse IA au grain page et fichier, deux process (email/téléservice),
-réglages par rail/commune. **Migrations appliquées jusqu'à 209.** Mémoire projet détaillée dans les
-fichiers `memory/` (MEMORY.md indexe les lots D1→D5, FUS, PARC, RATT, PART, LOT 69→104…).
+### Données (cf. `docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md` — À LIRE avant tout chantier données/verdict/certificat/permis)
+Corpus figé les 25-26/07/2026 (ne rien redécouvrir) :
+- **Couverture LiDAR = 1 km² de test à Asnières (92) seulement.** Rien sur 75/93/78 ni le reste du 92.
+  `mns_bati_propre` VIDE. Aucun millésime LiDAR stocké. **BD TOPO ≈ mars 2026.** Aucune procédure de
+  réingestion. Extension LiDAR : 32 Mo/km² → Paris+92+93 ≈ 16 Go, complet ≈ 90 Go.
+- **Règle de contrôle mixte** : BD TOPO = **détecteur de changement**, jamais mesure du verdict.
+  **Deux régimes** : `altitude_maximale_toit` remplie à 86-95 % sur le bâti MODIFIÉ récent (Régime 1, la
+  règle marche) mais **~7-8 % sur le bâti NEUF** (Régime 2, la règle échoue — le cas le plus dangereux).
+  **Brancher la règle sur la PRÉSENCE DU CHAMP (`IS NOT NULL`), jamais sur un seuil de date.**
+  Décision Régime 2 : ne pas substituer une valeur plus faible → **MARQUER le certificat « à revérifier »**.
+- **Hiérarchie des hauteurs** : CERTIFIER = LiDAR seul ; BORNER = PLU ; TRIER = BD TOPO/DPE ; RELIER = RNB.
+  Permis = recours d'arbitrage, pas source de données.
+- **Conformité Etalab** : mentionner source + date de MàJ. Parcs/jardins : licence IPR à vérifier.
 
-**Série récente — onglet RATTACHEMENT (séparation radar / travail) puis PERF fiche permis.** Du plus
-ancien au plus récent :
-- `d0b834b` **séparer « Sous surveillance » (radar) de « Rattachement » (travail)** — deux onglets
-  distincts. `cdfdc0a` l'entrée en Rattachement = permis **validés** (① signal / ② en veille), les
-  non-validés restent en Sous surveillance. `2c7f452` critère d'entrée **durci** : altitudes **ET**
-  emprises VALIDÉES.
-- `fc56b9e` **migration 206** : validation de projection **au niveau du bâtiment** (colonnes
-  `emprise_validee_*`). `f619517` valider la projection **bâtiment par bâtiment** depuis la capsule du
-  cartouche. `f258c1b`/`b7818ff` capsule d'état d'emprise (jumelle de la capsule d'altitude), **une
-  seule source de vérité** pour l'état emprise/projection d'un bâtiment. `b0afce8` parité test/normal
-  sur « Valider la projection ». `5323da0` chaîne de 3 boutons par bâtiment (enregistrer → valider →
-  modifier), capsule au vert sans rechargement.
-- `0ab1864` **moteur de recherche de l'onglet Rattachement** (6 critères, filtrage en base).
-  `d30a96b` panneau « Sous surveillance » repliable, fermé par défaut. `e5561fd` mode de passage en
-  Rattachement devenu un **réglage** (automatique / clôture manuelle) — **migration 207**.
-- `fbdeb0e`/`a922f67`/`2dc5dce`/`c742dff`/`2056d91` **bouton de clôture** : en-tête « Projection(s)
-  validée(s) » en vert, bouton de clôture posé **en haut** du détail (retrait du « Valider la
-  projection » global), sort du cartouche replié, réduit à trois emplacements (décision Arno : trop de
-  boutons). `0edea3c`/`0d5158b` le **numéro de permis passe au vert** quand il est prêt à être envoyé ;
-  la capsule affiche l'auteur **en nom**, jamais l'identifiant brut.
-- **Série PERF initiale (mémoire + persistance du best-of, jusqu'à `3302284`)** : `b91023a` supprimer le
-  doublon de `GET /emprise` (P3). `5fc1f01` **mémoïser le best-of PDF de `/emprise`** (P1, cause dominante ;
-  invalidation par empreinte de la GED). `582a9f7` la détection Cerfa **réutilise le texte déjà extrait**
-  au lieu de re-télécharger N objets (P2 Lever 1). `a06b967` **paralléliser les lectures de pièces** de
-  `lireGedPermis` à concurrence bornée (P2 Lever 2). `96fc5b8` **persister le best-of PDF** (survit au
-  redémarrage/HMR — **migration 208** `permis_best_of_precalcul`). `3302284` **purger le best-of à l'entrée
-  en Rattachement** (PC-2 — **retiré ensuite par P-fond 2**, voir ci-dessous).
+### Nuit du 21 au 22/09 — fin du lot « gains rapides » (poussé)
+- `4e58530` **M1 — autorisation fail-closed** : seul `role:'administrateur'` explicite donne l'admin ;
+  le raccourci voie de secours l'exige aussi. Validé manuellement par Arno avant commit. `2abf307` coche.
+- `bb8b6e8` **G4 — suppression de `/api/check-building`** (route publique morte, aucun appelant ; accord
+  d'Arno). `4947de1` coche. Résidu d'alors : « throttle des routes publiques » → **soldé le 22/09 (T8)**.
 
-**Série FOND (P-fond 1 → 4b, 6 commits après `3302284`) — profilage d'abord, puis exécution.** Un
-profilage chiffré a établi que l'onglet **Bâtiments** ouvrait à froid en **~9 s** (dominé par pdf.js
-mono-thread + S3, `lireGedPermis` sur ~80 pièces) et que **POST /completude** relisait la GED une **3ᵉ
-fois** (~8,5 s lourd / ~0,75 s léger). La série déplace ce travail en tâche de fond et supprime les
-lectures redondantes :
-- `2a4ed6e` **P-fond 1** — brancher le **producteur de fond** manquant (que la migration 208 annonçait) :
-  une étape de `executerVeille` calcule et persiste le best-of **avant** l'ouverture (`calcule_par='fond'`),
-  univers **borné** (permis sous surveillance/rattachement ∩ GED), **en série**, sous un budget de temps
-  nommé `PRECALCUL_BUDGET_MS` (120 s), garde `echecTelechargement`. Extraction du calcul en source unique
-  `calculerBestOf` (`bestOfCalcul.ts`), partagée route ↔ fond.
-- `a2f6914` **fix fixture** `seedCandidat('avec_alt')` (itest `sortieTestRelances`) au critère d'entrée
-  durci (altitude **et** emprise validées) — la fixture décrivait un monde périmé.
-- `dce5be9` **P-fond 2** — **ne plus purger** le best-of à l'entrée en Rattachement (retrait du DELETE
-  PC-2) : l'entrée ne touche pas la GED → le best-of persisté reste valide et sert **tel quel** → ouverture
-  instantanée pile dans la vue de travail.
-- `cf61a7f` **P-fond 3** — la **shortlist** des confirmations réutilise le texte déjà extrait par
-  `lireGedPermis` (comme le Cerfa en 582a9f7), **zéro re-téléchargement** ; best-of identique octet pour octet.
-- `5b66cf7` **P-fond 4a** — **socle générique** : `permis_best_of_precalcul` passe en clé **`(dossier_id,
-  type)`**, `type` NOT NULL sans default, **liste fermée CHECK** `best_of|completude` (**migration 209**).
-- `d52b0c2` **P-fond 4b** — **mutualiser** la lecture GED : **une seule** `lireGedPermis` alimente le
-  best-of **et** la complétude (pré-remplie dans sa table dédiée `permis_completude`, part `config_veille`
-  appliquée **au read** → fraîcheur immédiate). Le `type='completude'` du socle reste **réservé**.
-- **Gains MESURÉS** : ouverture Bâtiments **~9 s → dizaines de ms** (hit persisté ~0,4 ms + SQL vivant) ;
-  complétude servie **~8,8 s → ~15 ms** (mémoire pré-remplie) ; **une seule lecture GED par dossier au
-  lieu de deux**. Golden **inchangé** ; aucune régression (`npm test` 506 + `test:integration` 33 verts).
-
-**Corpus figé `docs/FRAICHEUR_CONTROLE_MIXTE_ET_PERMIS.md` (25-26/07/2026) — À RELIRE avant tout
-chantier données/verdict/certificat/permis.** Points clés :
-- **État des données réel** : couverture LiDAR = **1 km² de test à Asnières (92)**, rien d'autre ;
-  `mns_bati_propre` VIDE ; **aucun millésime LiDAR** enregistré ; édition BD TOPO **≈ mars 2026**
-  (déduite de `date_modification`, écrite nulle part) ; aucune procédure de réingestion. Chiffrage
-  extension LiDAR : Paris+92+93 ≈ 16 Go, périmètre complet ≈ 90 Go de rasters (+20-30 % index).
-- **Contrôle mixte** : détecter les polygones dont emprise/hauteur change entre 2 éditions BD TOPO.
-  Hauteur inchangée → **on garde le LiDAR** ; hauteur changée → altitude toit BD TOPO devient valeur de
-  contrôle + certificat marqué **CONTRÔLE MIXTE**. L'invariant « toit = MNS LiDAR » n'est PAS modifié :
-  BD TOPO = **détecteur de changement**, jamais mesure du verdict.
-- **Deux régimes** (les taux de remplissage coupent la règle en deux) : **Régime 1** (polygones
-  modifiés récents) `altitude_maximale_toit` bien rempli (86-95 %), la règle marche. **Régime 2** (bâti
-  réellement NEUF, `date_creation` récent) : `altitude_maximale_toit` ~7-8 % seulement → **cas le plus
-  dangereux** (l'immeuble sorti après le vol LiDAR est justement celui qui invalide un certificat).
-  Décision Régime 2 : **ne PAS substituer une valeur plus faible**, **MARQUER le certificat « à
-  revérifier »** (un polygone neuf plus proche que la distance certifiée suffit à re-certifier). Brancher
-  la règle sur la **présence du champ** (`altitude_maximale_toit IS NOT NULL`), **jamais sur un seuil de date**.
-- **Prochain gros chantier (énoncé porteur)** : « mettre à jour en continu la base des maps pour tenir
-  compte des nouveaux permis, et en déduire si on garde le LiDAR ou si on le remplace par les données
-  des permis, le temps d'un nouveau passage LiDAR. » Prérequis identifiés : **index sur `batiment.cleabs`**
-  (absent), **historisation d'une 2ᵉ édition BD TOPO** (table séparée ≈ +426 Mo, lecteurs inchangés),
-  **capture du `cleabs` de l'obstacle du verdict dans le snapshot** (absent aujourd'hui), calibration
-  « vrai changement vs re-numérisation » impossible avant une 2ᵉ édition réelle.
+### Journée du 22/09 — parcours public éprouvé sur iPhone via le tunnel (tout poussé)
+Deux diagnostics en lecture seule ont ouvert la journée : **l'analyse publique qui expirait** et **le QR
+du certificat qui n'ouvrait rien**. Résultats et correctifs :
+1. `eddf022` **attente de la base bornée** sur le seul chemin public (pool dédié, 503 propre). Le
+   diagnostic a prouvé que le calcul tient en **0,15 s à chaud / 0,69 s à froid** (réponse 2 Ko) et
+   qu'aucun plafond pg n'existait : **la défaillance était l'acheminement** (tunnel rapide cloudflared —
+   11 requêtes sans réponse sur 196, 7 reconnexions, 114 flux réinitialisés en 48 min).
+2. `375f77c` **trois messages d'erreur distincts** dans le parcours (429 saturé / 502-503-504-524-530
+   lien coupé / abandon à 60 s), au lieu d'un seul texte qui attribuait tout à la lenteur.
+3. `f3b2ac5` **refus des adresses temporaires dans un QR en production** + les 3 copies de `siteUrl()`
+   factorisées en un helper unique. Cause du QR mort : `SITE_URL` figée sur une ancienne IP locale du Mac,
+   devenue injoignable après renouvellement du bail DHCP.
+4. `87346c3` **documents de l'espace client servis par l'application** (fin de la redirection 302 vers
+   MinIO, injoignable hors du Mac) ; `0fa1dc8` inventorie les 4 autres livraisons par URL signée (T7).
+5. `1cbc327` **écran d'aperçu des 3 documents** avec boutons « Télécharger ce document » et « Retour »
+   (retour sur l'analyse d'où l'on vient, dépliée). Aperçu PDF par **réutilisation de
+   `app/verifier/PdfViewer.tsx`** (canvas PDF.js, build *legacy* choisi pour Safari iOS) — `<embed>` rend
+   mal un PDF sur iPhone. Téléchargement = même route avec `?telecharger=1` (`attachment`).
+6. `6fcbb86` **carte du certificat 8,4 s → ~4 s** : la cause n'était pas les tuiles en échec (8,1 et 8,8 s
+   mesurés avec ZÉRO échec) mais la **rafale de ~100 tuiles lancées d'un coup** — congestion
+   auto-infligée, médiane 1 236-1 460 ms par tuile contre 152-159 ms à **concurrence 8**. Les tuiles
+   « fautives » répondent HTTP 200 en isolé. Budget total 20 s ajouté.
+7. `f6dbb96` **PDF 996 → 360 Kio (−64 %)** : les images « en double » étaient des **masques alpha**
+   (`/SMask`) ; la carte, pourtant opaque, en portait 286 Kio d'inutile. Carte en JPEG q80 (aucune mise à
+   l'échelle : elle était déjà à 314 dpi), logos rééchantillonnés à 300 dpi. **Photo non touchée** (déjà
+   JPEG à 226 dpi). Texte extrait identique caractère pour caractère, 1 page avant/après.
+8. `0890df2` **limitation de cadence** (migration **227**, `config_cadence`) — solde le résidu de G4.
+   `c66005f`, `ff2e6db` : registre d'audit tenu à jour.
 
 ---
 
 ## 6. État courant & prochaine action
 
-- **Working tree** : propre sauf `PASSATION.md` (ce fichier). **HEAD = `d52b0c2`**, branche `main`
-  **À JOUR avec `origin/main`** (la série fond a été poussée).
-- **Dernier chantier** : **série FOND terminée** (P-fond 1 → 4b + fix fixture, cf. §5), `d52b0c2` —
-  committée et poussée. Migrations appliquées jusqu'à **209**. Tous contrôles verts (`npm test` 506,
-  `test:integration` 33, `tsc` 0, `eslint` 0, `next build` OK, golden inchangé).
-- **PROCHAINE ACTION IMMÉDIATE** : **aucune tâche engagée**. Attendre le prochain chantier d'Arno.
-  Candidats naturels : (a) **ergonomie de l'onglet Rattachement / clôture** (retours d'Arno après essai
-  réel) ; (b) le **gros chantier contrôle mixte** (§5) en commençant par ses **prérequis** : index
-  `batiment.cleabs` (absent), **capture du `cleabs` de l'obstacle du verdict dans le snapshot** (absent),
-  puis **historisation d'une 2ᵉ édition BD TOPO**. Rien n'est engagé : demander à Arno ce qu'il veut
-  attaquer avant d'implémenter.
+### Dépôt
+- Branche `main`, **`HEAD = origin/main = ff2e6db`** : **tout est poussé**, rien en attente.
+- Seul fichier modifié non committé : `PASSATION.md` (ce fichier).
+- **Migrations appliquées en local jusqu'à la 227 incluse.**
+
+### Redémarrer la machine de développement (procédure vécue ce matin)
+Depuis `/Users/macbookprom4arnaud/sansvisavis/app`. **Postgres redémarre seul** (service brew
+`postgresql@17`). **MinIO NE redémarre PAS seul.** Trois fenêtres de terminal dédiées :
+
+```
+# fenêtre MinIO
+./.minio/minio server .minio/data --address :9000
+
+# fenêtre serveur
+set -a && source .env && set +a && npm run dev
+
+# fenêtre tunnel
+cloudflared tunnel --url http://localhost:3000
+```
+
+L'adresse `*.trycloudflare.com` rendue par la 3ᵉ fenêtre **CHANGE à chaque lancement**.
+
+### ⚠️ Piège `SITE_URL` (vécu 3 fois le 22/09)
+Pour qu'un **certificat d'essai** ait un QR qui s'ouvre depuis l'iPhone, `SITE_URL` doit valoir
+**l'adresse du tunnel EN COURS**, **puis le serveur doit être REDÉMARRÉ** (Ctrl+C dans la fenêtre
+serveur, puis la commande ci-dessus). Le « Reload env » automatique **ne suffit pas** : la valeur
+exportée dans la fenêtre au démarrage reste prioritaire. Chaque relance du tunnel rend **morts** les QR
+émis avant — normal pour des essais ; la page reste consultable via
+`<adresse du tunnel en cours>/verifier?ref=<référence>&doc=visuel`.
+**NE JAMAIS écrire l'adresse du tunnel du jour comme une valeur durable** (ni en dur, ni en exemple).
+
+### Décisions prises le 22/09 (à respecter, ne pas rouvrir sans Arno)
+- **Arno** — l'adresse publique **`authentification.sansvisavis.com`** et le **tunnel Cloudflare nommé**
+  se feront **LORS DU PASSAGE SUR UN VRAI SERVEUR, pas avant**. (Item T3 du registre ; le domaine porte
+  aussi la messagerie Google Workspace → recon DNS préalable.)
+- **Claude** — le **jeton de vérification passera derrière un fragment `#`** dans l'URL du QR (un
+  fragment n'est jamais transmis au serveur, donc jamais journalisé). **À faire AVANT le premier
+  certificat réel** (item T4 : aujourd'hui `?j=…` se retrouve en clair dans tout journal d'accès, ce qui
+  contredit la règle écrite « le jeton n'apparaît dans AUCUN log »).
+- **Claude** — les **liens des alertes e-mail (T7)** mèneront à la **page du permis dans le back-office**
+  (session admin), **plus jamais à une URL signée** — avec la mise en production.
+- **Claude** — **P1 (batcher les 61 faisceaux) DÉPRIORITISÉ** : le calcul mesuré ne prend que 0,15 à
+  0,7 s. L'estimation « > 3 s » du 21/09 était structurelle et pessimiste.
+
+### Ouverts au registre (`docs/AUDIT_2026-09-21_diagnostic_code_et_dette.md`)
+- **T5-bis** 🟠 — l'**envoi SMTP (~3,4 s) est encore DANS la réponse** d'émission. → prochaine action.
+- **T9** 🟠 — **`CADENCE_ENTETE_IP` à poser avec le tunnel nommé.** Next 16 n'expose plus l'adresse du
+  socket ; la confiance est donc **déclarée**, jamais déduite d'un en-tête. **D'ici là, tous les
+  visiteurs sans compte partagent un même compteur** (sûr, mais grossier à forte affluence). Les
+  titulaires de compte sont comptés par compte et ne sont pas concernés.
+- **T10** 🟠 — **confirmation d'adresse e-mail à l'inscription : choix produit d'Arno, à venir.**
+  Aujourd'hui aucun envoi à la création ; atténué par le jeton-capacité qui impose un vrai parcours.
+- **T11** 🟠 — **Cloudflare Turnstile avec la mise en production** (la cadence borne le rythme mais ne
+  distingue pas un robot patient d'un humain).
+- **Écran de réglage des seuils de cadence : absent** — édition en SQL sur `config_cadence` pour
+  l'instant (l'écran Réglages existant appartient au module permis/veille, domaine différent).
+- **Doublons `SMTP_PERSONNE_USER` / `_PORT` / `_PASS`** dans le `.env` (définis 3 fois chacun, seule la
+  dernière occurrence compte) — **à nettoyer par Arno** (item G5).
+- **Icône `apple-touch-icon` absente.**
+- Autres items inchangés : G5, P1, P2, P4, M2-M5, F1-F5, T3, T4, T7.
+
+### LA prochaine action immédiate, sans ambiguïté
+**T5-bis — faire partir l'envoi du mail APRÈS la réponse d'émission** (best-effort, sur le modèle de
+l'instrumentation analytique déjà différée par `after()` dans `/api/analyse`), pour ramener l'émission
+autour de **4 s**. Point d'entrée : `app/lib/db/certificatEmission.ts` (appel de `publierEnvoiCertificat`
+dans le fil de la réponse). Contrôle de fin : `npm test` complet vert, puis commit sans push.
 
 ---
 
-## 7. Format des livrables (à respecter par le nouveau Claude)
+## 7. Format des livrables (à rappeler au nouveau Claude)
 
-Pour CHAQUE instruction technique, un bloc copiable précédé d'un titre sans équivoque + pastille :
+Pour chaque instruction technique, produire un **bloc copiable** précédé d'un titre sans équivoque avec
+une pastille emoji :
 
-- 🔵 **PROMPT** — prompt de travail en relais manuel (« vibe coding ») : l'agent Claude Code produit un
-  DIFF, Arno vérifie puis commit à la main. **Toujours préciser DANS QUEL TERMINAL** l'envoyer.
-- 🔴 **PROMPT AUTO** — prompt qui DÉCLENCHE L'AUTOMATISATION (lancement de `/svav-build` ou de tout run
-  autonome multi-subagents). Pastille rouge = run en autonomie : vigilance accrue, contrôle a posteriori
-  via le rapport final, commit toujours manuel par Arno.
-- 🟢 **COMMIT** — message de commit à coller dans la boîte de commit de VS Code (Source Control).
+- 🔵 **PROMPT** — prompt de travail en relais manuel : l'agent Claude Code produit un diff, teste,
+  committe. **TOUJOURS préciser DANS QUEL TERMINAL** l'envoyer.
+- 🔴 **PROMPT AUTO** — prompt qui **DÉCLENCHE L'AUTOMATISATION** (`/svav-build` ou tout run autonome
+  multi-subagents). Pastille rouge = vigilance accrue, contrôle a posteriori via le rapport final.
+- 🟢 **COMMIT** — message de commit, si Arno committe lui-même depuis VS Code (Source Control).
 
-Règle : tout prompt lançant un run autonome porte 🔴, jamais 🔵. **Ne JAMAIS mélanger un prompt et un
-commit dans le même bloc.** Messages de commit en Conventional Commits FR, **sans `Co-Authored-By`**.
+**Règles** : tout prompt lançant un run autonome porte 🔴, jamais 🔵. Ne JAMAIS mélanger un prompt et un
+commit dans le même bloc. **L'agent committe lui-même** (`git add` des seuls fichiers du lot, aucune
+ligne `Co-Authored-By`) et **ne pousse jamais** — **Arno pousse depuis l'application Terminal de macOS**.
+
+---
+
+Arno : colle ce bloc au début de ta nouvelle conversation.
