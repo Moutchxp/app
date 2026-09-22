@@ -1,6 +1,9 @@
 import { NextResponse, after } from "next/server";
 import { analyserAdresse } from "../../lib/db/pipeline";
 import { avecPlafondAnalyse, estPlafondAtteint } from "../../lib/db/plafondAnalyse";
+import { verifierCadence, purgerCadence } from "../../lib/cadence/limiteur";
+import { sujetVisiteur } from "../../lib/cadence/ip";
+import { internauteConnecteDepuisCookies } from "../../lib/internaute/gardeEspace";
 import type { ModeOrigine } from "../../lib/svv/config";
 // M2 (LOT 2) — instrumentation best-effort, dans la couche ROUTE (jamais le moteur ; garde anti-couplage OK).
 import { incrementerCompteur } from "../../lib/analytics/writer";
@@ -46,6 +49,23 @@ export async function POST(req: Request) {
   // hauteur sous plafond optionnelle : nombre > 0, sinon undefined → le moteur applique 2,50.
   const hauteurSousPlafondM =
     typeof b.hauteurSousPlafondM === "number" && b.hauteurSousPlafondM > 0 ? b.hauteurSousPlafondM : undefined;
+
+  // ── CADENCE (résidu G4) — APRÈS la validation d'entrée (une requête malformée ne consomme pas de quota),
+  //    AVANT le calcul (c'est lui qu'on protège). Un titulaire de compte est compté PAR COMPTE et n'a aucune
+  //    limite journalière ni totale ; un visiteur sans compte est compté par adresse (cf. `cadence/ip.ts`).
+  let internauteId: string | null = null;
+  try {
+    internauteId = await internauteConnecteDepuisCookies();
+  } catch {
+    internauteId = null; // session illisible → traité comme un visiteur, jamais comme une erreur
+  }
+  const cadence = await verifierCadence("analyse", sujetVisiteur(req), internauteId);
+  if (!cadence.autorise) {
+    return NextResponse.json(
+      { ok: false, code: cadence.code, sansCompte: cadence.sansCompte, erreur: "Trop d'analyses en peu de temps." },
+      { status: 429, headers: { "Retry-After": String(cadence.retryApresS), "Cache-Control": "no-store" } },
+    );
+  }
 
   let sortie: Awaited<ReturnType<typeof analyserAdresse>>;
   try {
@@ -98,6 +118,7 @@ export async function POST(req: Request) {
         const tranche = resultat ? scoreTranche(resultat.score.total) : null;
         const commune = await communeDuPoint(lat, lon);
         await incrementerCompteur({ nom: "resultat", verdict, scoreTranche: tranche, communeInsee: commune });
+        await purgerCadence(); // purge des vieux compteurs, post-réponse et best-effort (aucune tâche planifiée à tenir)
       } catch (e) {
         console.error("[analytics] émission resultat abandonnée", e);
       }

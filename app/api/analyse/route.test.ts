@@ -4,6 +4,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../../lib/db/pipeline', () => ({ analyserAdresse: vi.fn() }));
 vi.mock('../../lib/analytics/writer', () => ({ incrementerCompteur: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../../lib/analytics/commune', () => ({ communeDuPoint: vi.fn().mockResolvedValue(null) }));
+// Cadence + session : mockées pour piloter le verdict sans base (le limiteur a ses propres tests).
+const { verifierCadence, purgerCadence, internauteConnecteDepuisCookies } = vi.hoisted(() => ({
+  verifierCadence: vi.fn(),
+  purgerCadence: vi.fn().mockResolvedValue(undefined),
+  internauteConnecteDepuisCookies: vi.fn().mockResolvedValue(null),
+}));
+vi.mock('../../lib/cadence/limiteur', () => ({ verifierCadence, purgerCadence }));
+vi.mock('../../lib/internaute/gardeEspace', () => ({ internauteConnecteDepuisCookies }));
 // `after()` : on EXÉCUTE le callback (microtâche) pour prouver qu'un throw dedans ne casse jamais la réponse.
 vi.mock('next/server', async (orig) => {
   const actual = (await orig()) as Record<string, unknown>;
@@ -35,7 +43,12 @@ function requete(corps: Record<string, unknown>): Request {
 const CORPS_OK = { lat: 48.90693, lon: 2.269431, azimut: 90, etage: 2, dernierEtage: false };
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  // Par défaut la cadence PASSE : les tests historiques ne changent pas de comportement.
+  verifierCadence.mockResolvedValue({ autorise: true, retryApresS: 0, code: 'cadence_depassee', sansCompte: true });
+  internauteConnecteDepuisCookies.mockResolvedValue(null);
+});
 
 describe('/api/analyse — l’instrumentation ne peut jamais casser la certification', () => {
   it('LE TEST DU LOT : répond 200 même si l’émission analytique ÉCHOUE (commune KO + writer KO)', async () => {
@@ -139,5 +152,65 @@ describe('/api/analyse — plafond d’attente de la base', () => {
     const res = await POST(requete(CORPS_OK));
     expect(res.status).toBe(200);
     expect((await res.json()).resultat).toEqual(RESULTAT_FAKE);
+  });
+});
+
+/**
+ * Cadence (résidu G4) — la route doit rendre un 429 EXPLOITABLE par le parcours : code distinct du 429
+ * générique de saturation, `Retry-After` en secondes, et le repère « sans compte » qui décide de la phrase
+ * d'invitation. Le limiteur lui-même est prouvé dans `lib/cadence/limiteur.test.ts`.
+ */
+describe('/api/analyse — limitation de cadence', () => {
+  const refus = (retryApresS: number, sansCompte: boolean) =>
+    verifierCadence.mockResolvedValueOnce({ autorise: false, retryApresS, code: 'cadence_depassee', sansCompte });
+
+  it('SOUS le seuil → 200, le calcul a bien lieu', async () => {
+    analyser.mockResolvedValue({ validation: { ok: true }, resultat: RESULTAT_FAKE });
+    const res = await POST(requete(CORPS_OK));
+    expect(res.status).toBe(200);
+    expect(analyser).toHaveBeenCalledTimes(1);
+  });
+
+  it('AU seuil → 429 + Retry-After, et le calcul n’est JAMAIS lancé', async () => {
+    refus(360, true);
+    const res = await POST(requete(CORPS_OK));
+    expect(res.status).toBe(429);
+    expect(res.headers.get('Retry-After')).toBe('360');
+    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+    expect(json.code).toBe('cadence_depassee'); // code DISTINCT du 429 générique
+    expect(json.sansCompte).toBe(true);
+    expect(analyser).not.toHaveBeenCalled(); // c'est le calcul qu'on protège
+  });
+
+  it('un 429 de cadence n’émet AUCUN événement analytique', async () => {
+    refus(60, true);
+    await POST(requete(CORPS_OK));
+    await tick();
+    expect(incr).not.toHaveBeenCalled();
+  });
+
+  it('TITULAIRE DE COMPTE au seuil → sansCompte:false (pas d’invitation à créer un compte)', async () => {
+    internauteConnecteDepuisCookies.mockResolvedValue('internaute-A');
+    refus(540, false);
+    const json = await (await POST(requete(CORPS_OK))).json();
+    expect(json.sansCompte).toBe(false);
+    // La cadence est vérifiée POUR CE COMPTE, jamais pour une adresse.
+    expect(verifierCadence).toHaveBeenCalledWith('analyse', expect.any(String), 'internaute-A');
+  });
+
+  it('session illisible → traité comme un visiteur, jamais comme une erreur', async () => {
+    internauteConnecteDepuisCookies.mockRejectedValueOnce(new Error('cookie corrompu'));
+    analyser.mockResolvedValue({ validation: { ok: true }, resultat: RESULTAT_FAKE });
+    const res = await POST(requete(CORPS_OK));
+    expect(res.status).toBe(200);
+    expect(verifierCadence).toHaveBeenCalledWith('analyse', expect.any(String), null);
+  });
+
+  it('une entrée INVALIDE ne consomme pas de quota (400 avant toute vérification)', async () => {
+    const res = await POST(requete({ lat: 'x' }));
+    expect(res.status).toBe(400);
+    expect(verifierCadence).not.toHaveBeenCalled();
   });
 });

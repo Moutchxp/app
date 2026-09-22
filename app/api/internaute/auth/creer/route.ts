@@ -3,6 +3,8 @@ import { cookies } from 'next/headers';
 import { verifierJetonRectification } from '../../../../lib/internaute/jetonRectification';
 import { creerCompteInternaute } from '../../../../lib/internaute/authCompte';
 import { signerSession, optionsCookieClient, NOM_COOKIE_CLIENT } from '../../../../lib/internaute/authSession';
+import { verifierCadence } from '../../../../lib/cadence/limiteur';
+import { sujetVisiteur } from '../../../../lib/cadence/ip';
 
 // Runtime Node explicite (argon2 natif via poserMotDePasse + driver pg). Route PUBLIQUE : hors matcher admin.
 export const runtime = 'nodejs';
@@ -38,6 +40,17 @@ export async function POST(request: Request): Promise<Response> {
   const internauteId = jeton ? await verifierJetonRectification(jeton) : null;
   if (!internauteId) {
     return Response.json({ ok: false, erreur: 'jeton invalide ou expiré' }, { status: 401 });
+  }
+
+  // CADENCE (résidu G4) — APRÈS la vérification du jeton : une création de compte exige déjà un jeton-capacité
+  // frappé par un VRAI parcours, cette limite est une défense en profondeur (par adresse, jamais par compte —
+  // le compte n'existe pas encore). Voir `cadence/ip.ts` pour la règle d'identification.
+  const cadence = await verifierCadence('creation_compte', sujetVisiteur(request), null);
+  if (!cadence.autorise) {
+    return Response.json(
+      { ok: false, code: cadence.code, sansCompte: true, erreur: 'Trop de créations de compte en peu de temps.' },
+      { status: 429, headers: { 'Retry-After': String(cadence.retryApresS), 'Cache-Control': 'no-store' } },
+    );
   }
 
   const motDePasse = typeof b.motDePasse === 'string' ? b.motDePasse : '';

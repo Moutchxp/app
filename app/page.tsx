@@ -2510,9 +2510,27 @@ export default function Home() {
       // On vérifie le statut AVANT de lire le corps (une réponse d'erreur peut ne pas être du JSON).
       if (!r.ok) {
         if (r.status === 429) {
-          // SATURATION déclarée par le service lui-même : la même analyse aboutira telle quelle un
-          // instant plus tard. Distinct d'un lien rompu — on demande d'attendre, pas de vérifier le réseau.
-          setAnalyseErreur("Le service d'analyse est très sollicité en ce moment. Merci de patienter quelques secondes, puis de relancer l'analyse.");
+          // Deux 429 DISTINCTS. (1) CADENCE dépassée : le service va bien, c'est CE visiteur qui a lancé
+          // beaucoup d'analyses — on lui dit dans combien de temps il pourra relancer, lu dans `Retry-After`
+          // (arrondi à la minute SUPÉRIEURE, jamais moins d'une minute : annoncer « 0 minute » serait faux).
+          // (2) Sinon, saturation réelle du service → message générique, inchangé.
+          const codeCadence = await r
+            .clone()
+            .json()
+            .then((d) => (d?.code === "cadence_depassee" ? { sansCompte: d?.sansCompte === true } : null))
+            .catch(() => null);
+          if (codeCadence) {
+            const secondes = Number(r.headers.get("Retry-After"));
+            const minutes = Math.max(1, Math.ceil((Number.isFinite(secondes) && secondes > 0 ? secondes : 60) / 60));
+            setAnalyseErreur(
+              `Vous avez lancé beaucoup d'analyses en peu de temps. Vous pourrez relancer une analyse dans ${minutes} minutes.` +
+                (codeCadence.sansCompte ? " Avec un compte, vous pouvez lancer davantage d'analyses." : ""),
+            );
+          } else {
+            // SATURATION déclarée par le service lui-même : la même analyse aboutira telle quelle un
+            // instant plus tard. Distinct d'un lien rompu — on demande d'attendre, pas de vérifier le réseau.
+            setAnalyseErreur("Le service d'analyse est très sollicité en ce moment. Merci de patienter quelques secondes, puis de relancer l'analyse.");
+          }
         } else if ([502, 503, 504, 524, 530].includes(r.status)) {
           // LIEN ROMPU entre le navigateur et le service (passerelle/tunnel) : le calcul a pu aboutir
           // côté serveur sans que la réponse revienne. 524/530 sont propres à Cloudflare ; 503 est aussi
