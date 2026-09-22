@@ -1,4 +1,4 @@
-> Passation mise à jour le 22/09/2026 à 15h35
+> Passation mise à jour le 22/09/2026 à 17h25
 
 # PASSATION — Application Sans Vis-à-Vis®
 
@@ -83,8 +83,10 @@ règles, les invariants, l'historique et la prochaine action, sans qu'Arno ait �
   certifiable, auditable**. Objectif d'architecture verrouillé : **PILOTAGE SANS CODE** (voir §4).
 - **Objectif du chantier EN COURS** : rendre le parcours public **utilisable depuis un vrai téléphone**
   et **prêt pour une mise en production**. Le lot « gains rapides » de l'audit du 21/09 est **soldé**
-  (G1-G4 ✅, G5 ⬜) ; la journée du 22/09 a traité les défauts constatés en test réel sur iPhone. Reste
-  à alléger le temps d'émission (§6, prochaine action) puis les items de production (T4, T9, T10, T11).
+  (G1-G4 ✅, G5 ⬜) ; la journée du 22/09 a traité les défauts constatés en test réel sur iPhone **et sur
+  Android**. Le temps d'émission a été instruit et **arbitré** (T15, §6) : il reste ~3 s, par choix.
+  Restent les items de mise en production (**T4** jeton dans l'URL du QR, **T3**, **T9**, **T10**, **T11**)
+  et les finitions du certificat (§6).
 
 ---
 
@@ -201,14 +203,34 @@ du certificat qui n'ouvrait rien**. Résultats et correctifs :
 8. `0890df2` **limitation de cadence** (migration **227**, `config_cadence`) — solde le résidu de G4.
    `c66005f`, `ff2e6db` : registre d'audit tenu à jour.
 
+### Après-midi du 22/09 — émission allégée et téléchargement des documents (tout poussé)
+9. `c5c01ed` **T5-bis — le mail d'émission part APRÈS la réponse** (`after()`, comme l'instrumentation
+   de `/api/analyse`). Mesure sur 8 émissions réelles : **2,83 à 3,74 s** (médiane ~3,10 s) retirés de
+   l'attente. Traçabilité inchangée (statut `'envoye'`, `envoye_le`, `derniere_erreur` écrits par la même
+   fonction, après la réponse) ; garde « jamais un 2e mail » conservée avant la réponse. `cd7b1b2` coche.
+10. `2db2cb7` **téléchargement sans attribut `download` + erreurs non mises en cache** (correctifs A et C
+    du diagnostic « 200 puis 401 sur la même URL »). **`SameSite` était hors de cause** : le cookie
+    internaute est `Lax`, pas `strict`. Constat mesuré : un 401 de cette route rend **29 octets de JSON**,
+    enregistrables sous un nom `.png` — d'où `Cache-Control: private, no-store` sur TOUTES ses réponses
+    d'erreur (401, 404, 503, et aussi 400 et 409). `c0c1bb0` coche.
+11. `3d6f159` **le bouton « Télécharger ce document » ouvre la FEUILLE DE PARTAGE native** quand
+    l'appareil la propose (décision d'Arno) ; sinon il télécharge comme avant. A et C n'avaient pas suffi :
+    même sans `download`, Safari iOS AFFICHAIT le PDF et rejouait la requête sans session. Désormais **le
+    document est récupéré UNE SEULE FOIS à l'ouverture de l'aperçu** (`fetch` same-origin, donc avec le
+    cookie) et devient un `File` ; ce même fichier sert à l'aperçu ET au bouton → **aucune requête réseau
+    au clic**, la seconde requête ne peut plus exister. `navigator.share` est appelé **dans l'élan direct
+    du geste, sans aucun `await` avant** (exigence Safari). **Testé en réel sur iPhone ET sur Android.**
+    `96d2253` coche ; **le plan B (jeton de téléchargement à usage unique) est ABANDONNÉ** — sans requête
+    au clic, il n'y a plus rien à authentifier.
+
 ---
 
 ## 6. État courant & prochaine action
 
 ### Dépôt
-- Branche `main`, **`HEAD = origin/main = ff2e6db`** : **tout est poussé**, rien en attente.
-- Seul fichier modifié non committé : `PASSATION.md` (ce fichier).
+- Branche `main`. Dernier commit de code : `3d6f159` ; dernier commit de doc : celui-ci.
 - **Migrations appliquées en local jusqu'à la 227 incluse.**
+- ⚠️ **Arno pousse lui-même** : vérifier `git status` en début de session pour savoir ce qui reste local.
 
 ### Redémarrer la machine de développement (procédure vécue ce matin)
 Depuis `/Users/macbookprom4arnaud/sansvisavis/app`. **Postgres redémarre seul** (service brew
@@ -249,8 +271,23 @@ exportée dans la fenêtre au démarrage reste prioritaire. Chaque relance du tu
 - **Claude** — **P1 (batcher les 61 faisceaux) DÉPRIORITISÉ** : le calcul mesuré ne prend que 0,15 à
   0,7 s. L'estimation « > 3 s » du 21/09 était structurelle et pessimiste.
 
+### Décision d'Arno du 22/09 — l'émission garde ses ~3 s (NE PAS reproposer)
+On **NE sort PAS** la fabrication des documents (carte, PDF) de la réponse d'émission, alors que ce serait
+techniquement possible (répondre dès la frappe du certificat, fabriquer derrière). **Arno a tranché** :
+l'internaute attend ~3 s **mais trouve ses documents PRÊTS immédiatement**, sans jamais rencontrer d'état
+« en préparation ». ⚠️ **C'est un arbitrage produit, pas une dette** : classé ⏸️ *écarté* au registre
+(**T15**) — ne pas le réinscrire comme « à faire ».
+
 ### Ouverts au registre (`docs/AUDIT_2026-09-21_diagnostic_code_et_dette.md`)
-- **T5-bis** 🟠 — l'**envoi SMTP (~3,4 s) est encore DANS la réponse** d'émission. → prochaine action.
+- **Finitions du certificat** (relevées par Claude le 22/09, non traitées) : **chevauchement du pied de
+  page à côté du QR** ; **espace parasite** dans « Denfert -Rochereau » ; **lettres « fi » perdues** dans le
+  texte extractible du PDF (ligature non mappée à l'extraction — l'affichage, lui, est correct).
+  ✅ **Confirmés par Arno, à NE PAS « corriger »** : le siège imprimé **« 191-195 avenue Charles de Gaulle »
+  est correct** ; les **tirets « — »** des blocs *Qualité de vue* et *Nuisances* **restent en l'état**.
+- **T16** 📌 — une émission à **14,5 s** le 22/09 à 16:14 (`SAVV-2026-000029`), **sans défaut de code**
+  (code à jour prouvé par le poids du PDF déposé ; le mail était bien hors de la réponse). Carte et SMTP
+  ont ralenti ENSEMBLE → **hypothèse : dégradation passagère du réseau du Mac**. Rien à corriger ; à
+  rouvrir seulement si le cas se répète sur un réseau sain.
 - **T9** 🟠 — **`CADENCE_ENTETE_IP` à poser avec le tunnel nommé.** Next 16 n'expose plus l'adresse du
   socket ; la confiance est donc **déclarée**, jamais déduite d'un en-tête. **D'ici là, tous les
   visiteurs sans compte partagent un même compteur** (sûr, mais grossier à forte affluence). Les
@@ -266,11 +303,19 @@ exportée dans la fenêtre au démarrage reste prioritaire. Chaque relance du tu
 - **Icône `apple-touch-icon` absente.**
 - Autres items inchangés : G5, P1, P2, P4, M2-M5, F1-F5, T3, T4, T7.
 
-### LA prochaine action immédiate, sans ambiguïté
-**T5-bis — faire partir l'envoi du mail APRÈS la réponse d'émission** (best-effort, sur le modèle de
-l'instrumentation analytique déjà différée par `after()` dans `/api/analyse`), pour ramener l'émission
-autour de **4 s**. Point d'entrée : `app/lib/db/certificatEmission.ts` (appel de `publierEnvoiCertificat`
-dans le fil de la réponse). Contrôle de fin : `npm test` complet vert, puis commit sans push.
+### LA prochaine action immédiate
+**AUCUNE en cours.** Le fil ouvert ce matin (parcours public éprouvé sur téléphone) est allé à son terme :
+analyse, messages d'erreur, QR, livraison et aperçu des documents, émission, cadence — tout est livré et
+poussé. **Demander à Arno ce qu'il veut faire ensuite** plutôt que de choisir à sa place.
+
+Les candidats, tous inscrits au registre (§2 du document d'audit) et AUCUN engagé :
+- **T4** 🔴 le **jeton de vérification voyage dans l'URL du QR** (`?j=…`) et se retrouve en clair dans tout
+  journal d'accès → décision déjà prise (fragment `#`), **à faire AVANT le premier certificat réel** ;
+- **finitions du certificat** ci-dessus (pied de page/QR, espace parasite, ligature « fi ») ;
+- **T3 / T9 / T11** : tunnel nommé + `authentification.sansvisavis.com`, `CADENCE_ENTETE_IP`, Turnstile —
+  tous trois **au passage sur un vrai serveur**, décision d'Arno ;
+- **T10** confirmation d'e-mail à l'inscription — choix produit d'Arno ;
+- **G5** nettoyage du `.env` (doublons `SMTP_PERSONNE_*`) — à faire par Arno.
 
 ---
 
