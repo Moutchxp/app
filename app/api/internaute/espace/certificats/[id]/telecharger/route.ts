@@ -16,6 +16,29 @@ export const runtime = 'nodejs';
  */
 const CACHE_PRIVE = 'private, no-store';
 
+/**
+ * Réponse d'ERREUR de cette route, avec le MÊME en-tête de cache que les documents servis.
+ *
+ * Pourquoi : une réponse d'erreur de cette route peut être enregistrée SOUS LE NOM D'UN DOCUMENT par le
+ * navigateur — constaté le 22/09, un 401 rendait un JSON de 29 octets là où l'internaute attendait un `.png`.
+ * Elle ne doit donc pas non plus être conservée par un cache intermédiaire, qui la resservirait à la place du
+ * document. Aucune garde n'est touchée : ni le statut, ni le corps ne changent.
+ */
+function erreur(corps: Record<string, string>, status: number): Response {
+  return Response.json(corps, { status, headers: { 'Cache-Control': CACHE_PRIVE } });
+}
+
+/**
+ * Même en-tête, posé sur une réponse construite AILLEURS — le 401 de la garde partagée `exigerInternaute`.
+ * On la RECOPIE à l'identique (statut, corps) en ajoutant seulement `Cache-Control` : la garde elle-même reste
+ * inchangée, et son 401 générique (anti-fuite) l'est aussi.
+ */
+function sansCache(reponse: Response): Response {
+  const entetes = new Headers(reponse.headers);
+  entetes.set('Cache-Control', CACHE_PRIVE);
+  return new Response(reponse.body, { status: reponse.status, statusText: reponse.statusText, headers: entetes });
+}
+
 type Ctx = { params: Promise<{ id: string }> };
 
 /**
@@ -64,19 +87,19 @@ const siteUrl = siteUrlCertificat;
  */
 export async function GET(request: Request, ctx: Ctx): Promise<Response> {
   const garde = await exigerInternaute(request);
-  if ('refus' in garde) return garde.refus;
+  if ('refus' in garde) return sansCache(garde.refus); // 401 de la garde — statut et corps inchangés, cache interdit
 
   const parametres = new URL(request.url).searchParams;
   const doc = parametres.get('doc');
   if (doc !== null && doc !== 'nominatif' && doc !== 'anonyme' && doc !== 'visuel') {
-    return Response.json({ erreur: 'document inconnu' }, { status: 400 }); // valeur non prévue → aucun octet, aucune génération
+    return erreur({ erreur: 'document inconnu' }, 400); // valeur non prévue → aucun octet, aucune génération
   }
   // Mode de livraison : aperçu (défaut, `inline`) ou téléchargement (`attachment`). N'affecte QUE l'en-tête
   // `Content-Disposition` — mêmes octets, même garde, même `Cache-Control`.
   const telechargement = parametres.get('telecharger') === '1';
 
   const { id } = await ctx.params;
-  if (!/^\d+$/.test(id)) return Response.json({ erreur: 'introuvable' }, { status: 404 });
+  if (!/^\d+$/.test(id)) return erreur({ erreur: 'introuvable' }, 404);
   const certificatId = Number(id);
 
   // ── GATE DE PROPRIÉTÉ UNIQUE (avant toute génération, pour les 3 valeurs de `doc`) ──
@@ -85,10 +108,10 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
     resolution = await resoudrePdfCertificat(garde.internauteId, certificatId);
   } catch (e) {
     console.error('[espace] résolution certificat indisponible', (e as Error)?.name ?? 'Erreur'); // nom d'erreur seul, jamais d'identifiant
-    return Response.json({ erreur: 'indisponible' }, { status: 503 });
+    return erreur({ erreur: 'indisponible' }, 503);
   }
   if (resolution.statut === 'introuvable') {
-    return Response.json({ erreur: 'introuvable' }, { status: 404 }); // pas à lui / inexistant → aucune fuite
+    return erreur({ erreur: 'introuvable' }, 404); // pas à lui / inexistant → aucune fuite
   }
 
   // ── VOIE ANONYME : PDF régénéré à la volée (indépendant du PDF stocké → servi même si `pdf_absent`) ──
@@ -97,9 +120,9 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
     try {
       pdf = await genererBufferCertificat(certificatId, { anonymise: true, typeDocument: 'anonyme' });
     } catch {
-      return Response.json({ erreur: 'indisponible' }, { status: 503 });
+      return erreur({ erreur: 'indisponible' }, 503);
     }
-    if (!pdf) return Response.json({ erreur: 'indisponible' }, { status: 503 }); // générateur null → sans détail technique
+    if (!pdf) return erreur({ erreur: 'indisponible' }, 503); // générateur null → sans détail technique
     return new Response(new Uint8Array(pdf), {
       headers: {
         'Content-Type': 'application/pdf',
@@ -113,19 +136,19 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
   // ── VOIE VISUEL : PNG régénéré à la volée (indépendant du PDF stocké → servi même si `pdf_absent`) ──
   if (doc === 'visuel') {
     const base = siteUrl();
-    if (!base) return Response.json({ erreur: 'indisponible' }, { status: 503 }); // QR impossible sans base absolue
+    if (!base) return erreur({ erreur: 'indisponible' }, 503); // QR impossible sans base absolue
     let v;
     try {
       v = await resoudreVisuelCertificat(garde.internauteId, certificatId);
     } catch {
-      return Response.json({ erreur: 'indisponible' }, { status: 503 });
+      return erreur({ erreur: 'indisponible' }, 503);
     }
-    if (!v) return Response.json({ erreur: 'introuvable' }, { status: 404 }); // gate passé mais lecture vide → incohérence
+    if (!v) return erreur({ erreur: 'introuvable' }, 404); // gate passé mais lecture vide → incohérence
     let png;
     try {
       png = await genererVisuelPng({ verdict: v.verdict, score: v.score, reference: v.reference, urlBase: base, descriptif: v.descriptif });
     } catch {
-      return Response.json({ erreur: 'indisponible' }, { status: 503 });
+      return erreur({ erreur: 'indisponible' }, 503);
     }
     return new Response(new Uint8Array(png), {
       headers: {
@@ -138,7 +161,7 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
 
   // ── VOIE NOMINATIF (défaut) : PDF STOCKÉ, relu côté serveur et servi en octets (jamais une URL de stockage) ──
   if (resolution.statut === 'pdf_absent') {
-    return Response.json({ erreur: 'PDF pas encore disponible' }, { status: 409 }); // propriétaire, mais PDF non généré
+    return erreur({ erreur: 'PDF pas encore disponible' }, 409); // propriétaire, mais PDF non généré
   }
   let pdf;
   try {
@@ -147,7 +170,7 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
     // Objet absent du stockage, ou stockage non configuré. Le message de l'erreur CONTIENT la clé : on ne
     // journalise que son NOM, et le corps rendu reste générique (aucune clé, aucun identifiant, aucun détail).
     console.error('[espace] document indisponible au stockage', (e as Error)?.name ?? 'Erreur');
-    return Response.json({ erreur: 'téléchargement indisponible' }, { status: 503 });
+    return erreur({ erreur: 'téléchargement indisponible' }, 503);
   }
   return new Response(new Uint8Array(pdf), {
     headers: {

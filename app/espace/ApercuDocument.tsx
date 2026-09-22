@@ -73,9 +73,13 @@ export default function ApercuDocument({
       {/* Actions — pleine largeur, empilées, pouce-compatibles. Ordre : action principale puis retour. */}
       <div className="flex flex-col gap-3">
         {disponible && (
-          // Lien direct (pas de fetch) : le navigateur suit la réponse `attachment` et propose l'enregistrement.
-          // `download` sans valeur → le nom vient du `Content-Disposition` du serveur.
-          <a className="svv-btn svv-btn-primary" href={`${base}&telecharger=1`} download>
+          // Lien direct (pas de fetch) : le SERVEUR pilote l'enregistrement via `Content-Disposition: attachment`,
+          // qui porte déjà le bon nom de fichier.
+          // ⚠️ PAS d'attribut `download` : il était redondant avec cet en-tête, et c'est lui qui engageait le chemin
+          // « téléchargement piloté par le navigateur ». Sur Safari iOS, ce chemin rejoue la requête dans un contexte
+          // qui n'attache pas toujours le cookie de session (`httpOnly`) — journal du 22/09 : un 200 suivi d'un 401 sur
+          // la MÊME URL. Sans `download`, c'est une navigation same-origin ordinaire, donc avec cookie.
+          <a className="svv-btn svv-btn-primary" href={`${base}&telecharger=1`}>
             {LIB_TELECHARGER_DOCUMENT}
           </a>
         )}

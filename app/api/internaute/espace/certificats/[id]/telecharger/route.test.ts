@@ -381,3 +381,70 @@ describe('aperçu (inline) vs téléchargement (attachment)', () => {
     expect(res.headers.get('Content-Disposition')).toMatch(/^inline;/);
   });
 });
+
+/**
+ * Correctif C du 22/09 — les réponses d'ERREUR portent le même `Cache-Control` que les documents.
+ * Motif : une erreur de cette route peut être enregistrée SOUS LE NOM D'UN DOCUMENT par le navigateur (un 401
+ * rendait un JSON de 29 octets là où l'internaute attendait un `.png`). Elle ne doit donc pas être conservée
+ * par un cache intermédiaire, qui la resservirait à la place du document.
+ */
+describe('en-têtes de cache des réponses d’ERREUR', () => {
+  it('401 (non authentifié) — statut et corps INCHANGÉS, cache interdit', async () => {
+    exigerInternaute.mockResolvedValue({ refus: Response.json({ erreur: 'non authentifié' }, { status: 401 }) });
+    const res = await GET(req('visuel'), ctx('5'));
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ erreur: 'non authentifié' }); // la garde n'est pas touchée
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
+  it('404 (pas à lui / inexistant) — cache interdit, 404 toujours indistinguable', async () => {
+    exigerInternaute.mockResolvedValue({ internauteId: 'A' });
+    resoudrePdfCertificat.mockResolvedValue({ statut: 'introuvable' });
+    const res = await GET(req('visuel'), ctx('5'));
+    expect(res.status).toBe(404);
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
+  it('404 (id non numérique) — cache interdit', async () => {
+    exigerInternaute.mockResolvedValue({ internauteId: 'A' });
+    const res = await GET(req('visuel'), ctx('abc'));
+    expect(res.status).toBe(404);
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
+  it('503 (document indisponible au stockage) — cache interdit', async () => {
+    exigerInternaute.mockResolvedValue({ internauteId: 'A' });
+    resoudrePdfCertificat.mockResolvedValue({ statut: 'ok', cle: 'k.pdf', numero: 'SAVV-2026-000023' });
+    recuperer.mockRejectedValue(new Error('objet introuvable ou vide : k.pdf'));
+    const erreurLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(req(), ctx('5'));
+    expect(res.status).toBe(503);
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    erreurLog.mockRestore();
+  });
+
+  it('400 (document inconnu) et 409 (nominatif pas encore prêt) — cache interdit aussi', async () => {
+    exigerInternaute.mockResolvedValue({ internauteId: 'A' });
+    const res400 = await GET(req('espion'), ctx('5'));
+    expect(res400.status).toBe(400);
+    expect(res400.headers.get('Cache-Control')).toBe('private, no-store');
+
+    resoudrePdfCertificat.mockResolvedValue({ statut: 'pdf_absent', numero: 'SAVV-2026-000023' });
+    const res409 = await GET(req('nominatif'), ctx('5'));
+    expect(res409.status).toBe(409);
+    expect(res409.headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
+  it('AUCUNE réponse de cette route ne peut être mise en cache — succès comme erreurs', async () => {
+    exigerInternaute.mockResolvedValue({ internauteId: 'A' });
+    resoudrePdfCertificat.mockResolvedValue({ statut: 'ok', cle: 'k.pdf', numero: 'SAVV-2026-000023' });
+    recuperer.mockResolvedValue(Buffer.from('%PDF'));
+    resoudreVisuelCertificat.mockResolvedValue(visuel);
+    genererVisuelPng.mockResolvedValue(Buffer.from('\x89PNG'));
+    genererBufferCertificat.mockResolvedValue(Buffer.from('%PDF-anonyme'));
+    for (const doc of [undefined, 'nominatif', 'anonyme', 'visuel', 'espion']) {
+      const res = await GET(req(doc), ctx('5'));
+      expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    }
+  });
+});
