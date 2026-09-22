@@ -29,6 +29,9 @@ import { GET } from './route';
 
 const req = (doc?: string) =>
   new Request(`http://localhost/api/internaute/espace/certificats/5/telecharger${doc === undefined ? '' : `?doc=${doc}`}`);
+/** Même route, mode TÉLÉCHARGEMENT (bouton « Télécharger ce document » de l'écran d'aperçu). */
+const reqTelecharger = (doc: string) =>
+  new Request(`http://localhost/api/internaute/espace/certificats/5/telecharger?doc=${doc}&telecharger=1`);
 const ctx = (id: string) => ({ params: Promise.resolve({ id }) });
 
 /** Descriptif minimal réutilisé pour le helper visuel. */
@@ -287,5 +290,94 @@ describe('GET .../certificats/[id]/telecharger — trois documents', () => {
     resoudrePdfCertificat.mockRejectedValue(new Error('db down'));
     const res = await GET(req('anonyme'), ctx('5'));
     expect(res.status).toBe(503);
+  });
+});
+
+/**
+ * Deux modes de livraison. L'ÉCRAN D'APERÇU consomme le mode par défaut (`inline`) et ne doit JAMAIS provoquer
+ * d'invite de téléchargement ; le bouton « Télécharger ce document » ajoute `?telecharger=1` et obtient `attachment`.
+ * Mêmes octets, même garde, même `Cache-Control` dans les deux modes.
+ */
+describe('aperçu (inline) vs téléchargement (attachment)', () => {
+  // Réinitialisation propre à ce bloc (le `beforeEach` du describe voisin ne s'y applique pas).
+  beforeEach(() => {
+    exigerInternaute.mockReset();
+    resoudrePdfCertificat.mockReset();
+    resoudreVisuelCertificat.mockReset();
+    recuperer.mockReset();
+    genererBufferCertificat.mockReset();
+    genererVisuelPng.mockReset();
+    process.env.SITE_URL = 'https://sansvisavis.example';
+  });
+  afterEach(() => {
+    delete process.env.SITE_URL;
+  });
+
+  /** Prépare un propriétaire et les trois documents servis. */
+  function proprietaire() {
+    exigerInternaute.mockResolvedValue({ internauteId: 'A' });
+    resoudrePdfCertificat.mockResolvedValue({ statut: 'ok', cle: 'k.pdf', numero: 'SAVV-2026-000023' });
+    recuperer.mockResolvedValue(Buffer.from('%PDF-nominatif'));
+    genererBufferCertificat.mockResolvedValue(Buffer.from('%PDF-anonyme'));
+    resoudreVisuelCertificat.mockResolvedValue(visuel);
+    genererVisuelPng.mockResolvedValue(Buffer.from('\x89PNG'));
+  }
+
+  /** Nom de fichier attendu pour chaque document — INCHANGÉ entre aperçu et téléchargement. */
+  const NOMS: ReadonlyArray<readonly [string, string]> = [
+    ['nominatif', 'Certificat-SAVV-2026-000023.pdf'],
+    ['anonyme', 'Certificat-anonymise-SAVV-2026-000023.pdf'],
+    ['visuel', 'Visuel-annonce-REF9ABC.png'],
+  ];
+
+  it.each(NOMS)('APERÇU de %s → inline (aucune invite de téléchargement), nom %s', async (doc, nom) => {
+    proprietaire();
+    const res = await GET(req(doc), ctx('5'));
+    expect(res.status).toBe(200);
+    const cd = res.headers.get('Content-Disposition') ?? '';
+    expect(cd).toMatch(/^inline;/);
+    expect(cd).not.toContain('attachment');
+    expect(cd).toContain(nom);
+  });
+
+  it.each(NOMS)('TÉLÉCHARGEMENT de %s → attachment avec le MÊME nom (%s)', async (doc, nom) => {
+    proprietaire();
+    const res = await GET(reqTelecharger(doc), ctx('5'));
+    expect(res.status).toBe(200);
+    const cd = res.headers.get('Content-Disposition') ?? '';
+    expect(cd).toMatch(/^attachment;/);
+    expect(cd).toContain(nom);
+    expect(new Uint8Array(await res.arrayBuffer()).byteLength).toBeGreaterThan(0); // mêmes octets
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store'); // même en-tête de cache
+    expect(res.headers.get('Location')).toBeNull(); // toujours aucune URL de stockage
+  });
+
+  it('LA GARDE VAUT AUSSI EN TÉLÉCHARGEMENT — autre internaute → 404, aucun octet', async () => {
+    exigerInternaute.mockResolvedValue({ internauteId: 'A' });
+    resoudrePdfCertificat.mockResolvedValue({ statut: 'introuvable' });
+    for (const [doc] of NOMS) {
+      const res = await GET(reqTelecharger(doc), ctx('5'));
+      expect(res.status).toBe(404);
+      expect(res.headers.get('Content-Disposition')).toBeNull();
+    }
+    expect(recuperer).not.toHaveBeenCalled();
+    expect(genererBufferCertificat).not.toHaveBeenCalled();
+    expect(genererVisuelPng).not.toHaveBeenCalled();
+  });
+
+  it('LA GARDE VAUT AUSSI EN TÉLÉCHARGEMENT — non connecté → 401, aucun octet', async () => {
+    exigerInternaute.mockResolvedValue({ refus: Response.json({ erreur: 'non authentifié' }, { status: 401 }) });
+    const res = await GET(reqTelecharger('nominatif'), ctx('5'));
+    expect(res.status).toBe(401);
+    expect(resoudrePdfCertificat).not.toHaveBeenCalled();
+  });
+
+  it('une valeur de `telecharger` autre que 1 reste un aperçu (défaut sûr : jamais d’invite surprise)', async () => {
+    proprietaire();
+    const res = await GET(
+      new Request('http://localhost/api/internaute/espace/certificats/5/telecharger?doc=visuel&telecharger=oui'),
+      ctx('5'),
+    );
+    expect(res.headers.get('Content-Disposition')).toMatch(/^inline;/);
   });
 });

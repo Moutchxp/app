@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import type { CSSProperties } from 'react';
 import type { Verdict } from '../lib/internaute/espace';
 import {
@@ -61,23 +62,26 @@ function EnTete({ ligne, chevron }: { ligne: LigneEspace; chevron?: boolean }) {
   );
 }
 
-/** Un document = simple lien same-origin vers la route, avec `download`. La route sert TOUJOURS les octets
- *  elle-même (aucune redirection vers une URL de stockage) → le lien fonctionne d'où que l'on consulte. */
+/** Un document = lien vers son ÉCRAN D'APERÇU (plus d'ouverture directe du fichier, ni d'invite de téléchargement au
+ *  clic) ; le téléchargement est proposé PAR un bouton de cet écran. `Link` = navigation client, retour arrière naturel. */
 function DocLien({ href, doc }: { href: string; doc: { label: string; description: string } }) {
   return (
-    <a className="svv-doc" href={href} download>
+    <Link className="svv-doc" href={href}>
       <span className="svv-doc-label">{doc.label}</span>
       <span className="svv-doc-desc">{doc.description}</span>
-    </a>
+    </Link>
   );
 }
 
-function urlBase(certificatId: number): string {
-  return `/api/internaute/espace/certificats/${certificatId}/telecharger`;
+/** Écran d'aperçu du document. `analyse` n'est qu'un repère d'affichage : au retour, cette analyse est redépliée. */
+function urlApercu(certificatId: number, doc: 'nominatif' | 'anonyme' | 'visuel', analyseId: number): string {
+  return `/espace/certificats/${certificatId}/apercu?doc=${doc}&analyse=${analyseId}`;
 }
 
-export function ListeAnalyses({ lignes }: { lignes: LigneEspace[] }) {
-  const [ouvert, setOuvert] = useState<number | null>(null);
+export function ListeAnalyses({ lignes, analyseOuverte = null }: { lignes: LigneEspace[]; analyseOuverte?: number | null }) {
+  // `analyseOuverte` vient de `?analyse=` (retour depuis un écran d'aperçu) : on rouvre l'analyse d'où l'on venait.
+  // Valeur d'AMORÇAGE seulement — l'internaute reste ensuite libre de plier/déplier ce qu'il veut.
+  const [ouvert, setOuvert] = useState<number | null>(analyseOuverte);
 
   return (
     <ul className="mt-3 flex flex-col gap-3">
@@ -112,12 +116,12 @@ export function ListeAnalyses({ lignes }: { lignes: LigneEspace[] }) {
             <div id={panelId} role="region" aria-label={LIB_DOCUMENTS} hidden={!estOuvert} className="mt-3 flex flex-col gap-2">
               <span className="svv-label">{LIB_DOCUMENTS}</span>
               {ligne.nominatifPret ? (
-                <DocLien href={urlBase(certificatId)} doc={DOC_NOMINATIF} />
+                <DocLien href={urlApercu(certificatId, 'nominatif', ligne.analyseId)} doc={DOC_NOMINATIF} />
               ) : (
                 <p className="text-xs text-svv-muted">{MSG_NOMINATIF_EN_PREPARATION}</p>
               )}
-              <DocLien href={`${urlBase(certificatId)}?doc=anonyme`} doc={DOC_ANONYME} />
-              <DocLien href={`${urlBase(certificatId)}?doc=visuel`} doc={DOC_VISUEL} />
+              <DocLien href={urlApercu(certificatId, 'anonyme', ligne.analyseId)} doc={DOC_ANONYME} />
+              <DocLien href={urlApercu(certificatId, 'visuel', ligne.analyseId)} doc={DOC_VISUEL} />
             </div>
           </li>
         );

@@ -18,6 +18,20 @@ const CACHE_PRIVE = 'private, no-store';
 
 type Ctx = { params: Promise<{ id: string }> };
 
+/**
+ * `Content-Disposition` du document. `inline` par défaut — l'ÉCRAN D'APERÇU affiche le document et ne doit JAMAIS
+ * déclencher d'invite de téléchargement. `?telecharger=1` (bouton « Télécharger ce document ») bascule en `attachment`
+ * avec le MÊME nom de fichier : c'est là, et seulement là, que le navigateur propose d'enregistrer.
+ *
+ * Le nom est nettoyé comme `stockage.dispositionTelechargement` (retrait de `"` `\` et des retours de ligne) :
+ * anti-injection d'en-tête. Les noms réels sont déjà contraints en base (`SAVV-AAAA-NNNNNN`, `SVAV-XXXX-XXXX`) —
+ * ceinture et bretelles.
+ */
+function disposition(nomFichier: string, telechargement: boolean): string {
+  const nom = nomFichier.replace(/[\r\n"\\]/g, '_').trim();
+  return `${telechargement ? 'attachment' : 'inline'}; filename="${nom}"`;
+}
+
 /** Base absolue du site (serveur only), pour le QR du visuel — source UNIQUE partagée avec le PDF et l'envoi.
  *  `null` si absente, mal formée, ou (production seulement) temporaire. */
 const siteUrl = siteUrlCertificat;
@@ -52,10 +66,14 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
   const garde = await exigerInternaute(request);
   if ('refus' in garde) return garde.refus;
 
-  const doc = new URL(request.url).searchParams.get('doc');
+  const parametres = new URL(request.url).searchParams;
+  const doc = parametres.get('doc');
   if (doc !== null && doc !== 'nominatif' && doc !== 'anonyme' && doc !== 'visuel') {
     return Response.json({ erreur: 'document inconnu' }, { status: 400 }); // valeur non prévue → aucun octet, aucune génération
   }
+  // Mode de livraison : aperçu (défaut, `inline`) ou téléchargement (`attachment`). N'affecte QUE l'en-tête
+  // `Content-Disposition` — mêmes octets, même garde, même `Cache-Control`.
+  const telechargement = parametres.get('telecharger') === '1';
 
   const { id } = await ctx.params;
   if (!/^\d+$/.test(id)) return Response.json({ erreur: 'introuvable' }, { status: 404 });
@@ -86,7 +104,7 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
       headers: {
         'Content-Type': 'application/pdf',
         // NUMÉRO imprimé (pas l'id interne) : le fichier atterrit dans les Téléchargements du client, il doit lui parler.
-        'Content-Disposition': `inline; filename="Certificat-anonymise-${resolution.numero}.pdf"`,
+        'Content-Disposition': disposition(`Certificat-anonymise-${resolution.numero}.pdf`, telechargement),
         'Cache-Control': CACHE_PRIVE,
       },
     });
@@ -112,7 +130,7 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
     return new Response(new Uint8Array(png), {
       headers: {
         'Content-Type': 'image/png',
-        'Content-Disposition': `inline; filename="Visuel-annonce-${v.reference}.png"`,
+        'Content-Disposition': disposition(`Visuel-annonce-${v.reference}.png`, telechargement),
         'Cache-Control': CACHE_PRIVE,
       },
     });
@@ -135,7 +153,7 @@ export async function GET(request: Request, ctx: Ctx): Promise<Response> {
     headers: {
       'Content-Type': 'application/pdf',
       // NUMÉRO imprimé (pas l'id interne, pas la clé de stockage) : le fichier doit parler au client.
-      'Content-Disposition': `inline; filename="Certificat-${resolution.numero}.pdf"`,
+      'Content-Disposition': disposition(`Certificat-${resolution.numero}.pdf`, telechargement),
       'Cache-Control': CACHE_PRIVE,
     },
   });

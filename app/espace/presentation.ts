@@ -46,6 +46,36 @@ export const DOC_VISUEL = {
 /** Nominatif pas encore déposé (route → 409) : mention sobre en lieu et place de son lien. */
 export const MSG_NOMINATIF_EN_PREPARATION = 'Certificat en préparation — disponible sous peu.';
 
+/**
+ * Les trois valeurs de `doc` acceptées par l'écran d'aperçu, et le document qu'elles désignent. `doc=nominatif` est
+ * explicite ici (la route, elle, accepte aussi son absence) : un écran d'aperçu a toujours un document nommé.
+ */
+export const DOCUMENTS_APERCU = ['nominatif', 'anonyme', 'visuel'] as const;
+export type DocumentApercu = (typeof DOCUMENTS_APERCU)[number];
+
+/** Vrai si la chaîne est l'un des trois documents — garde d'entrée de l'écran d'aperçu (toute autre valeur → 404). */
+export function estDocumentApercu(v: string | null): v is DocumentApercu {
+  return v !== null && (DOCUMENTS_APERCU as readonly string[]).includes(v);
+}
+
+/** Titre de l'écran d'aperçu : le MÊME libellé que dans la liste, pour que l'internaute se repère. */
+export const TITRE_APERCU: Record<DocumentApercu, string> = {
+  nominatif: DOC_NOMINATIF.label,
+  anonyme: DOC_ANONYME.label,
+  visuel: DOC_VISUEL.label,
+};
+
+/** Bouton SOUS l'aperçu qui livre le fichier. Le second bouton réutilise `LIB_RETOUR_ESPACE` (déjà défini plus bas
+ *  pour « Mon compte », même mot, même geste : revenir à l'espace). */
+export const LIB_TELECHARGER_DOCUMENT = 'Télécharger ce document';
+
+/** États de l'aperçu (aucun détail technique n'est jamais montré à l'internaute). */
+export const MSG_APERCU_CHARGEMENT = 'Chargement du document…';
+export const MSG_APERCU_INDISPONIBLE = 'Document momentanément indisponible.';
+
+/** Repère sous l'aperçu du nominatif en préparation (le document n'est pas encore déposé → rien à montrer). */
+export const MSG_APERCU_EN_PREPARATION = MSG_NOMINATIF_EN_PREPARATION;
+
 /** Bouton de retour vers l'accueil de l'application (racine du site). */
 export const LIB_RETOUR = 'Retour';
 /** Bouton de retour des DESTINATIONS du menu → accueil AVEC le menu rouvert (marqueur `?menu`). */

@@ -18,6 +18,9 @@ vi.mock('../lib/internaute/espace', () => ({ listerAnalyses, listerCertificats, 
 
 import EspacePage from './page';
 
+/** Props d'une page Next 16 : `searchParams` est une PROMESSE. Ici sans paramètre — la garde ne dépend pas de l'URL. */
+const props = (sp: Record<string, string> = {}) => ({ searchParams: Promise.resolve(sp) });
+
 describe('EspacePage — garde serveur (Commit C)', () => {
   beforeEach(() => {
     redirect.mockClear();
@@ -29,7 +32,7 @@ describe('EspacePage — garde serveur (Commit C)', () => {
 
   it('(c) sans session valide → redirige vers /espace/connexion, AUCUNE donnée chargée', async () => {
     internauteConnecteDepuisCookies.mockResolvedValue(null);
-    await expect(EspacePage()).rejects.toThrow('REDIRECT:/espace/connexion');
+    await expect(EspacePage(props())).rejects.toThrow('REDIRECT:/espace/connexion');
     expect(redirect).toHaveBeenCalledWith('/espace/connexion');
     expect(listerAnalyses).not.toHaveBeenCalled(); // pas de fuite : rien n'est lu avant la garde
     expect(listerCertificats).not.toHaveBeenCalled();
@@ -41,7 +44,7 @@ describe('EspacePage — garde serveur (Commit C)', () => {
     lireIdentite.mockResolvedValue({ prenom: 'Jean', nom: 'Dupont' });
     listerAnalyses.mockResolvedValue([]);
     listerCertificats.mockResolvedValue([]);
-    const el = await EspacePage();
+    const el = await EspacePage(props());
     expect(redirect).not.toHaveBeenCalled();
     expect(lireIdentite).toHaveBeenCalledWith('A');
     expect(listerAnalyses).toHaveBeenCalledWith('A');

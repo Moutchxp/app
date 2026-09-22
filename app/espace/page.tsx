@@ -33,9 +33,15 @@ function dateFr(iso: string): string {
  * certificats par `projetId` (le plus récent l'emporte, la liste étant déjà triée `emis_le DESC`), puis on rattache.
  * TOUT le formatage d'affichage (date, score) est fait ICI, côté serveur → le client component ne reçoit que des chaînes.
  */
-export default async function EspacePage() {
+export default async function EspacePage({ searchParams }: { searchParams: Promise<{ [cle: string]: string | string[] | undefined }> }) {
   const internauteId = await internauteConnecteDepuisCookies();
   if (!internauteId) redirect('/espace/connexion');
+
+  // `?analyse=` : retour depuis un écran d'aperçu → on rouvre l'analyse d'où l'on venait. Repère d'AFFICHAGE seulement
+  // (validé en entier), jamais utilisé pour lire des données — la liste reste celle de l'internaute de session.
+  const parametres = await searchParams;
+  const analyseBrute = Array.isArray(parametres.analyse) ? parametres.analyse[0] : parametres.analyse;
+  const analyseOuverte = analyseBrute !== undefined && /^\d+$/.test(analyseBrute) ? Number(analyseBrute) : null;
 
   const [identite, analyses, certificats] = await Promise.all([
     lireIdentite(internauteId),
@@ -79,7 +85,7 @@ export default async function EspacePage() {
           {lignes.length === 0 ? (
             <p className="mt-2 text-sm text-svv-muted">{MSG_AUCUNE_ANALYSE}</p>
           ) : (
-            <ListeAnalyses lignes={lignes} />
+            <ListeAnalyses lignes={lignes} analyseOuverte={analyseOuverte} />
           )}
         </section>
 
