@@ -87,3 +87,57 @@ describe('/api/analyse — l’instrumentation ne peut jamais casser la certific
     expect(incr).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Plafond d'attente de la base (chemin public uniquement). Le pipeline est mocké : on prouve le
+ * COMPORTEMENT de la route face aux deux manifestations d'un plafond atteint, pas le plafond lui-même
+ * (prouvé côté pool dans `lib/db/plafondAnalyse.test.ts`).
+ */
+describe('/api/analyse — plafond d’attente de la base', () => {
+  /** Erreur telle que Postgres la remonte quand `statement_timeout` annule la requête. */
+  function erreurStatementTimeout(): Error {
+    return Object.assign(
+      new Error('canceling statement due to statement timeout\nSELECT b.cleabs, ST_Distance(...) FROM batiment b'),
+      { code: '57014' },
+    );
+  }
+
+  it('statement_timeout (57014) → 503 JSON propre, sans trace technique ni SQL', async () => {
+    analyser.mockRejectedValueOnce(erreurStatementTimeout());
+    const res = await POST(requete(CORPS_OK));
+    expect(res.status).toBe(503);
+    const json = await res.json();
+    expect(json.ok).toBe(false);
+    expect(typeof json.erreur).toBe('string');
+    // Aucune fuite : ni le SQLSTATE, ni le message pg, ni un fragment de requête ne sortent vers l'écran.
+    expect(json.erreur).not.toMatch(/57014|statement timeout|SELECT|ST_Distance|batiment/i);
+  });
+
+  it('attente d’une connexion dépassée → 503 aussi (jamais une attente infinie)', async () => {
+    analyser.mockRejectedValueOnce(new Error('timeout exceeded when trying to connect'));
+    const res = await POST(requete(CORPS_OK));
+    expect(res.status).toBe(503);
+    expect((await res.json()).ok).toBe(false);
+  });
+
+  it('un 503 de plafond n’émet AUCUN événement analytique (la route rend avant after())', async () => {
+    analyser.mockRejectedValueOnce(erreurStatementTimeout());
+    await POST(requete(CORPS_OK));
+    await tick();
+    expect(incr).not.toHaveBeenCalled();
+  });
+
+  it('une erreur ORDINAIRE reste un 500 (chemin d’erreur historique inchangé)', async () => {
+    analyser.mockRejectedValueOnce(new Error('colonne inconnue'));
+    const res = await POST(requete(CORPS_OK));
+    expect(res.status).toBe(500);
+    expect((await res.json()).erreur).toBe('colonne inconnue');
+  });
+
+  it('le chemin NOMINAL passe par le plafond sans rien changer au résultat rendu', async () => {
+    analyser.mockResolvedValue({ validation: { ok: true }, resultat: RESULTAT_FAKE });
+    const res = await POST(requete(CORPS_OK));
+    expect(res.status).toBe(200);
+    expect((await res.json()).resultat).toEqual(RESULTAT_FAKE);
+  });
+});

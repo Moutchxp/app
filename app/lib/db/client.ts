@@ -1,5 +1,6 @@
 import { Pool, QueryResult, QueryResultRow } from "pg";
 import "dotenv/config";
+import { poolContextuel } from "./plafondAnalyse";
 
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL manquant — vérifie le fichier .env à la racine du repo.");
@@ -12,11 +13,20 @@ export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 // journalise ; pg retire le client mort du pool, les requêtes suivantes rouvrent une connexion. Aucun autre effet.
 pool.on('error', (e) => { console.error('[db/client] erreur pool pg (client inactif)', e); });
 
+/**
+ * Porte UNIQUE d'accès à la base pour tout le code applicatif (384 fichiers).
+ *
+ * Routage : par défaut le pool applicatif ci-dessus, SANS plafond — comportement historique, requis par
+ * les opérations légitimement longues (imports BD TOPO/cadastre/Sitadel, veille, relève IMAP, scripts).
+ * EXCEPTION : à l'intérieur de `avecPlafondAnalyse()` (uniquement `POST /api/analyse`), le contexte
+ * asynchrone impose le pool BORNÉ du chemin public — cf. `plafondAnalyse.ts`. Le choix se fait ICI, à la
+ * porte, pour que les 7 modules du chemin public (origine/obstacles/faisceaux/…) restent INTOUCHÉS.
+ */
 export function query<R extends QueryResultRow = QueryResultRow>(
   text: string,
   params?: unknown[],
 ): Promise<QueryResult<R>> {
-  return pool.query<R>(text, params as never);
+  return (poolContextuel() ?? pool).query<R>(text, params as never);
 }
 
 export async function closePool(): Promise<void> {

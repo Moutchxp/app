@@ -1,5 +1,6 @@
 import { NextResponse, after } from "next/server";
 import { analyserAdresse } from "../../lib/db/pipeline";
+import { avecPlafondAnalyse, estPlafondAtteint } from "../../lib/db/plafondAnalyse";
 import type { ModeOrigine } from "../../lib/svv/config";
 // M2 (LOT 2) — instrumentation best-effort, dans la couche ROUTE (jamais le moteur ; garde anti-couplage OK).
 import { incrementerCompteur } from "../../lib/analytics/writer";
@@ -48,15 +49,33 @@ export async function POST(req: Request) {
 
   let sortie: Awaited<ReturnType<typeof analyserAdresse>>;
   try {
-    sortie = await analyserAdresse({
-      point: { lat, lon },
-      azimutPrincipalDeg: azimut,
-      etage,
-      hauteurSousPlafondM,
-      dernierEtage,
-      mode,
-    });
+    // `avecPlafondAnalyse` borne l'attente de la BASE pour ce seul appel (statement_timeout 15 s,
+    // attente d'une connexion 10 s) — cf. `lib/db/plafondAnalyse.ts`. Le calcul, le score et le verdict
+    // sont strictement inchangés : seul le pool qui porte les requêtes change, à l'intérieur de ce try.
+    sortie = await avecPlafondAnalyse(() =>
+      analyserAdresse({
+        point: { lat, lon },
+        azimutPrincipalDeg: azimut,
+        etage,
+        hauteurSousPlafondM,
+        dernierEtage,
+        mode,
+      }),
+    );
   } catch (e) {
+    // Plafond atteint → erreur PROPRE et transitoire (503) : le front affiche un message figé, jamais
+    // une trace technique. On journalise sans détail SQL (le message pg peut contenir la requête).
+    if (estPlafondAtteint(e)) {
+      console.error("[/api/analyse] plafond base atteint (requête 15 s / connexion 10 s) — 503 rendu");
+      return NextResponse.json(
+        {
+          ok: false,
+          erreur:
+            "Le service d'analyse n'a pas pu interroger ses données dans le délai imparti. Merci de relancer l'analyse dans un instant.",
+        },
+        { status: 503 },
+      );
+    }
     console.error("[/api/analyse] échec pipeline:", e);
     return NextResponse.json(
       { ok: false, erreur: e instanceof Error ? e.message : String(e) },
