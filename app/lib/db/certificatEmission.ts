@@ -36,7 +36,8 @@ import { genererJetonVerification } from './certificatJeton';
 import { genererReference } from './certificatReference';
 import { publierCarteOrientation } from '../carte/publierCarteOrientation';
 import { publierCertificatPdf } from '../pdf/publierCertificatPdf';
-import { publierEnvoiCertificat } from '../email/publierEnvoiCertificat';
+// ⚠️ `publierEnvoiCertificat` n'est PLUS importé ici : depuis T5-bis, l'émission ne fait pas partir le mail —
+// elle remonte `envoiADeclencher` et c'est la ROUTE qui envoie, après la réponse (`api/certificat/route.ts`).
 
 /** Nombre de tentatives de tirage d'une référence UNIQUE avant abandon (collision astronomiquement improbable). */
 const MAX_TENTATIVES_REFERENCE = 5;
@@ -78,9 +79,16 @@ export const SQL_EMPREINTE_BAREME = `
 `;
 
 /** Résultat d'une tentative d'émission. Statuts mappés en HTTP par la route. */
+/**
+ * `envoiADeclencher` — id du certificat dont le MAIL reste à envoyer. L'émission ne l'envoie PLUS elle-même :
+ * l'appelant (la route) le fait APRÈS avoir rendu la réponse, via `after()`. Mesure du 22/09 sur 8 émissions
+ * réelles : l'envoi SMTP pesait **2,83 à 3,74 s** (médiane ~3,10 s) d'attente pour l'internaute, alors que son
+ * certificat et ses documents étaient déjà faits. `undefined` = rien à envoyer (refus, ou mail déjà parti).
+ * ⚠️ Champ INTERNE : il ne doit JAMAIS entrer dans le corps d'une réponse HTTP.
+ */
 export type ResultatEmission =
-  | { statut: 'emis'; numero: string; verdict: string; reference: string }
-  | { statut: 'existant'; numero: string; verdict: string; reference: string }
+  | { statut: 'emis'; numero: string; verdict: string; reference: string; envoiADeclencher?: number }
+  | { statut: 'existant'; numero: string; verdict: string; reference: string; envoiADeclencher?: number }
   | { statut: 'projet_absent' } // ownership KO (IDOR) : le projet n'appartient pas au porteur du jeton
   | { statut: 'refus_indetermine' } // verdict INDETERMINE / origine non validable / analyse non rejouable
   | { statut: 'refus_mode_inconnu' } // mode_origine NULL : re-jeu non fidèle → pas de document qui fait foi
@@ -161,8 +169,16 @@ export async function emettreCertificat(projetId: number): Promise<ResultatEmiss
   //    que de rendre 'existant' sans rien faire. Sur le certificat DU projet demandé uniquement (id lu en base).
   const existant = await lireCertificatExistant(projetId);
   if (existant) {
-    await acheminerSiNonEnvoye(internauteId, existant.id, nombreFini(projet.lat), nombreFini(projet.lon), nombreFini(projet.azimut_deg));
-    return { statut: 'existant', numero: existant.numero, verdict: existant.verdict, reference: existant.reference };
+    // Les DOCUMENTS manquants sont refaits ici (avant la réponse) ; seul le MAIL est remonté pour un envoi
+    // post-réponse, comme dans le chemin nominal. Mail déjà parti → `false`, rien à déclencher.
+    const envoiRestant = await acheminerSiNonEnvoye(internauteId, existant.id, nombreFini(projet.lat), nombreFini(projet.lon), nombreFini(projet.azimut_deg));
+    return {
+      statut: 'existant',
+      numero: existant.numero,
+      verdict: existant.verdict,
+      reference: existant.reference,
+      ...(envoiRestant ? { envoiADeclencher: existant.id } : {}),
+    };
   }
 
   // 3) REFUS mode inconnu — sans le mode réellement employé, le re-jeu n'est pas fidèle (voir en-tête).
@@ -302,10 +318,10 @@ export async function emettreCertificat(projetId: number): Promise<ResultatEmiss
       // PUIS le PDF (après la carte : il relit la carte déposée pour l'embarquer, sans la régénérer). Best-effort,
       // ne throw jamais ; un échec laisse le PDF absent (re-fabricable). Le chemin idempotent ci-dessous ne l'atteint pas.
       await publierCertificatPdf(internauteId, res.certificatId);
-      // PUIS l'envoi e-mail (après le PDF : il relit le PDF déposé pour le joindre). Best-effort, ne throw jamais ;
-      // sur échec le statut RESTE 'genere' (retentable). Le chemin idempotent ci-dessous ne l'atteint pas.
-      await publierEnvoiCertificat(res.certificatId);
-      return { statut: 'emis', numero: res.numero, verdict, reference: res.reference };
+      // L'envoi e-mail n'est PLUS fait ici : il coûtait ~3 s d'attente à l'internaute alors que son certificat et
+      // ses documents existaient déjà. On le REMONTE à l'appelant, qui le déclenchera APRÈS la réponse (T5-bis).
+      // La traçabilité est inchangée : `publierEnvoiCertificat` écrit statut/`envoye_le`/`derniere_erreur` comme avant.
+      return { statut: 'emis', numero: res.numero, verdict, reference: res.reference, envoiADeclencher: res.certificatId };
     } catch (e) {
       const err = e as { code?: string; constraint?: string };
       // IDEMPOTENCE (sémantique DISTINCTE) : course sur certificat_projet_unique → un certificat existe DÉJÀ pour ce
@@ -347,9 +363,12 @@ async function lireCertificatExistant(
 /**
  * (R)ACHEMINEMENT d'un certificat DÉJÀ ÉMIS — SÉPARE « émettre » (idempotent, une seule fois : jamais un 2e certificat)
  * de « (r)envoyer le mail ». Si l'acheminement est déjà `'envoye'` → on ne (re)fait RIEN (jamais un 2e mail) ; sinon on
- * (re)génère le PDF s'il MANQUE (pdf_cle NULL) puis on (r)envoie le mail. Best-effort (les `publier*` ne throw jamais).
+ * (re)génère le PDF s'il MANQUE (pdf_cle NULL). Best-effort (les `publier*` ne throw jamais).
  * SÛR : agit UNIQUEMENT sur le certificat passé (dont l'id a été lu en base POUR le projet demandé) → aucun accès à un
  * certificat d'autrui. Le certificat lui-même reste IMMUABLE : on ne touche que son acheminement (table mutable).
+ *
+ * RETOURNE `true` si un MAIL reste à envoyer — l'envoi lui-même est fait par l'appelant APRÈS la réponse (T5-bis).
+ * La garde « jamais un 2e mail » reste ICI, avant la réponse : un acheminement `'envoye'` rend `false`.
  */
 async function acheminerSiNonEnvoye(
   internauteId: string,
@@ -357,13 +376,13 @@ async function acheminerSiNonEnvoye(
   lat: number | null,
   lon: number | null,
   azimut: number | null,
-): Promise<void> {
+): Promise<boolean> {
   const r = await query<{ statut: string; pdf_cle: string | null; carte_orientation_cle: string | null }>(
     `SELECT statut, pdf_cle, carte_orientation_cle FROM certificat_acheminement WHERE certificat_id = $1`,
     [certificatId],
   );
   const ach = r.rows[0];
-  if (!ach || ach.statut === 'envoye') return; // pas d'acheminement, ou DÉJÀ envoyé → on ne (re)fait rien
+  if (!ach || ach.statut === 'envoye') return false; // pas d'acheminement, ou DÉJÀ envoyé → on ne (re)fait rien
   // Carte best-effort si absente ET géométrie disponible (le PDF l'embarque si présente).
   if (!ach.carte_orientation_cle && lat !== null && lon !== null && azimut !== null) {
     await publierCarteOrientation(internauteId, certificatId, lat, lon, azimut);
@@ -372,8 +391,9 @@ async function acheminerSiNonEnvoye(
   if (!ach.pdf_cle) {
     await publierCertificatPdf(internauteId, certificatId);
   }
-  // (R)envoi du mail : publierEnvoiCertificat re-vérifie pdf_cle + destinataire ; sur succès → statut 'envoye'.
-  await publierEnvoiCertificat(certificatId);
+  // Le mail reste à (r)envoyer — l'appelant le fera après la réponse. `publierEnvoiCertificat` re-vérifiera alors
+  // pdf_cle + destinataire et posera le statut 'envoye' comme avant.
+  return true;
 }
 
 /** Données prêtes à l'INSERT (numeric recopiés en chaînes, re-dérivés en nombres JS). */

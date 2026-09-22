@@ -1,9 +1,39 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, after } from 'next/server';
 import { verifierJetonEmission } from '../../lib/internaute/jetonRectification';
 import { emettreCertificat } from '../../lib/db/certificatEmission';
+import { publierEnvoiCertificat } from '../../lib/email/publierEnvoiCertificat';
 
-// Runtime Node explicite (driver `pg` + pipeline LiDAR/raster, jamais l'edge). Comme /api/internaute/*.
+// Runtime Node explicite (driver `pg` + pipeline LiDAR/raster, jamais l'edge). `after()` l'exige aussi.
 export const runtime = 'nodejs';
+
+/**
+ * ENVOI DU MAIL APRÈS LA RÉPONSE (T5-bis) — même modèle que l'instrumentation de `/api/analyse`.
+ *
+ * L'internaute attendait l'aller-retour SMTP alors que son certificat et ses documents étaient déjà faits :
+ * **2,83 à 3,74 s** mesurés sur 8 émissions réelles (écart `genere_le` → `envoye_le`). Son écran dit déjà
+ * « sera envoyé » (futur) — `app/page.tsx:1152` le commente explicitement — donc rien ne ment à l'écran.
+ *
+ * GARANTIES : ne peut JAMAIS retarder la réponse (tout est différé) ; ne peut JAMAIS la faire échouer
+ * (`publierEnvoiCertificat` est best-effort et ne throw pas ; `after()` est lui-même enveloppé) ; la
+ * TRAÇABILITÉ est INCHANGÉE — statut `'envoye'`, `envoye_le` et `derniere_erreur` sont écrits par la même
+ * fonction, simplement après la réponse. Un échec n'est jamais avalé sans trace : soit `publierEnvoiCertificat`
+ * l'inscrit en base et le journalise, soit le filet ci-dessous le journalise.
+ */
+function envoyerApresReponse(certificatId: number): void {
+  try {
+    after(async () => {
+      try {
+        await publierEnvoiCertificat(certificatId);
+      } catch (e) {
+        // Ne devrait pas arriver (fonction best-effort) : on trace le NOM de l'erreur, jamais le destinataire.
+        console.error('[certificat] envoi post-réponse abandonné', (e as Error)?.name ?? 'Erreur');
+      }
+    });
+  } catch (e) {
+    // `after()` indisponible (hors contexte de requête) → le mail reste à (r)envoyer, l'acheminement le dira.
+    console.error('[certificat] after() indisponible — envoi non programmé', (e as Error)?.name ?? 'Erreur');
+  }
+}
 
 /**
  * POST /api/certificat — ÉMISSION du certificat d'un projet (Lot 4). Route SÉPARÉE, JAMAIS dans
@@ -68,9 +98,14 @@ export async function POST(request: Request): Promise<Response> {
       // Hors périmètre : Sans Vis-à-Vis® ne certifie que l'absence de vis-à-vis (décision produit, pas une erreur).
       return NextResponse.json({ ok: false, erreur: 'vis-à-vis détecté', raison: 'vis_a_vis' }, { status: 422 });
     case 'existant':
+      // Mail jamais parti sur un certificat déjà émis → on le programme aussi (la garde « jamais un 2e mail »
+      // a été appliquée en amont : un acheminement déjà 'envoye' ne remonte aucun envoi).
+      if (r.envoiADeclencher !== undefined) envoyerApresReponse(r.envoiADeclencher);
       // `reference` = clé PUBLIQUE (non secrète) → peut sortir du serveur. Le jeton, lui, ne sort jamais.
+      // Corps construit champ par champ : `envoiADeclencher` (interne) n'y entre jamais.
       return NextResponse.json({ ok: true, numero: r.numero, reference: r.reference, verdict: r.verdict, deja: true });
     case 'emis':
+      if (r.envoiADeclencher !== undefined) envoyerApresReponse(r.envoiADeclencher);
       return NextResponse.json({ ok: true, numero: r.numero, reference: r.reference, verdict: r.verdict, deja: false });
   }
 }

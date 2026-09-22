@@ -313,10 +313,18 @@ describe('emettreCertificat — carte d’orientation (après COMMIT)', () => {
     expect(publierCarteOrientation).toHaveBeenCalledWith('internaute-A', 7, 48.90693182287072, 2.269431435588249, 90);
     // PDF publié APRÈS la carte, avec l'internaute (scope de dépôt) + l'id du certificat.
     expect(publierCertificatPdf).toHaveBeenCalledWith('internaute-A', 7);
-    // Envoi APRÈS le PDF, avec l'id du certificat.
-    expect(publierEnvoiCertificat).toHaveBeenCalledWith(7);
     expect(publierCarteOrientation.mock.invocationCallOrder[0]).toBeLessThan(publierCertificatPdf.mock.invocationCallOrder[0]);
-    expect(publierCertificatPdf.mock.invocationCallOrder[0]).toBeLessThan(publierEnvoiCertificat.mock.invocationCallOrder[0]);
+    // T5-bis — CHANGEMENT VOULU : l'émission n'envoie PLUS le mail (elle coûtait ~3 s d'attente à l'internaute).
+    // Elle REMONTE l'id à l'appelant, qui envoie après la réponse (prouvé dans `api/certificat/route.test.ts`).
+    expect(publierEnvoiCertificat).not.toHaveBeenCalled();
+  });
+
+  it('T5-bis : le nominal REMONTE `envoiADeclencher` (l’id du certificat), documents déjà publiés', async () => {
+    installer({});
+    const r = await emettreCertificat(42);
+    expect(r).toMatchObject({ statut: 'emis', envoiADeclencher: 7 });
+    expect(publierCertificatPdf).toHaveBeenCalledWith('internaute-A', 7); // documents faits AVANT la réponse
+    expect(publierEnvoiCertificat).not.toHaveBeenCalled();
   });
 
   it('(c) certificat déjà ENVOYÉ (acheminement envoye) → aucun 2e mail, aucun PDF régénéré', async () => {
@@ -353,12 +361,14 @@ describe('emettreCertificat — SÉPARATION émission / (r)envoi (certificat ém
       acheminement: { statut: 'en_attente', pdf_cle: null, carte_orientation_cle: null },
     });
     const r = await emettreCertificat(77);
-    expect(r).toEqual({ statut: 'existant', numero: 'SAVV-2026-000016', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-AAAA-BBBB' });
+    // T5-bis — CHANGEMENT VOULU : les DOCUMENTS manquants sont toujours refaits avant la réponse ; seul le MAIL
+    // est remonté (`envoiADeclencher`) pour partir après. Le reste du contrat est inchangé.
+    expect(r).toEqual({ statut: 'existant', numero: 'SAVV-2026-000016', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-AAAA-BBBB', envoiADeclencher: 63 });
     expect(withTransaction).not.toHaveBeenCalled(); // 1 projet = 1 certificat : AUCUN 2e certificat frappé
     expect(analyserAdresse).not.toHaveBeenCalled(); // pas de re-jeu du pipeline
     expect(publierCarteOrientation).toHaveBeenCalledWith('internaute-A', 63, 48.90693182287072, 2.269431435588249, 90);
     expect(publierCertificatPdf).toHaveBeenCalledWith('internaute-A', 63); // PDF (re)généré (absent)
-    expect(publierEnvoiCertificat).toHaveBeenCalledWith(63); // mail (r)envoyé
+    expect(publierEnvoiCertificat).not.toHaveBeenCalled();
   });
 
   it('(b-var) acheminement genere + PDF présent, mail non parti → mail (r)envoyé SANS régénérer PDF ni carte', async () => {
@@ -366,10 +376,11 @@ describe('emettreCertificat — SÉPARATION émission / (r)envoi (certificat ém
       certAvant: [{ id: 63, numero: 'SAVV-2026-000016', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-AAAA-BBBB' }],
       acheminement: { statut: 'genere', pdf_cle: 'internautes/a/certificats/x.pdf', carte_orientation_cle: 'c' },
     });
-    await emettreCertificat(77);
+    const r = await emettreCertificat(77);
     expect(publierCarteOrientation).not.toHaveBeenCalled(); // carte déjà présente
     expect(publierCertificatPdf).not.toHaveBeenCalled(); // PDF déjà présent → pas de régénération
-    expect(publierEnvoiCertificat).toHaveBeenCalledWith(63); // seul le mail est (r)envoyé
+    expect(r).toMatchObject({ envoiADeclencher: 63 }); // seul le mail reste à (r)envoyer — après la réponse (T5-bis)
+    expect(publierEnvoiCertificat).not.toHaveBeenCalled();
     expect(withTransaction).not.toHaveBeenCalled();
   });
 
@@ -378,9 +389,10 @@ describe('emettreCertificat — SÉPARATION émission / (r)envoi (certificat ém
       certAvant: [{ id: 63, numero: 'SAVV-2026-000016', verdict: 'SANS_VIS_A_VIS', reference: 'SVAV-AAAA-BBBB' }],
       acheminement: { statut: 'en_attente', pdf_cle: null, carte_orientation_cle: null },
     });
-    await emettreCertificat(77);
-    expect(publierEnvoiCertificat).toHaveBeenCalledWith(63); // l'id du certificat DE CE projet (lu en base), jamais du corps
-    expect(publierEnvoiCertificat).not.toHaveBeenCalledWith(77); // pas l'id du projet ni un autre certificat
+    const r = await emettreCertificat(77);
+    // L'id remonté pour l'envoi est celui du certificat DE CE projet (lu en base), jamais l'id du corps.
+    expect(r).toMatchObject({ envoiADeclencher: 63 });
+    expect(r).not.toMatchObject({ envoiADeclencher: 77 });
   });
 });
 
