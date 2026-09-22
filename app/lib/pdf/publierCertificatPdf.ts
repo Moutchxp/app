@@ -207,6 +207,43 @@ export function assembler(r: LigneJointe, base: string, cartePng: Buffer, photoJ
 }
 
 /** Récupère un objet best-effort (clé null ou lecture en échec → null). */
+/**
+ * Qualité JPEG de la carte embarquée dans le PDF. 80 = réglage usuel « sans perte visible » à l'impression.
+ * Surcharge : `CERTIFICAT_CARTE_QUALITE_JPEG`.
+ */
+const CARTE_QUALITE_JPEG = (() => {
+  const n = Number.parseInt(process.env.CERTIFICAT_CARTE_QUALITE_JPEG ?? '', 10);
+  return Number.isFinite(n) && n > 0 && n <= 100 ? n : 80;
+})();
+
+/**
+ * Compresse la carte POUR L'EMBARQUEMENT dans le PDF (l'objet stocké en PNG n'est pas touché : il reste la
+ * source, re-fabricable et réutilisée telle quelle ailleurs).
+ *
+ * POURQUOI — décomposition du PDF mesurée le 22/09/2026 sur SAVV-2026-000027 (996,4 Kio) : la carte y pesait
+ * 571,8 Kio, soit 57,4 % du document, répartis en DEUX objets de taille égale — l'image et son MASQUE ALPHA
+ * (`/SMask`). Le PNG produit par sharp porte un canal alpha (`channels: 4`) alors que la carte est entièrement
+ * OPAQUE : la moitié de ces 571,8 Kio était un masque qui ne masque rien. `flatten` retire le canal, `jpeg`
+ * compresse le reste.
+ *
+ * SANS PERTE UTILE À L'IMPRESSION : aucune mise à l'échelle. La carte fait 1000×617 px pour un cartouche de
+ * 231,1 × 142,5 pt, soit 312 dpi — déjà la résolution utile à 300 dpi (957 × 594 px). On ne touche donc PAS aux
+ * pixels, seulement à leur encodage.
+ *
+ * BEST-EFFORT : toute erreur de conversion rend le PNG d'origine — un certificat n'est jamais perdu pour un octet.
+ */
+async function carteCompressee(cle: string | null): Promise<Buffer | null> {
+  const png = await recupererSans(cle);
+  if (!png) return null;
+  try {
+    const { default: sharp } = await import('sharp');
+    return await sharp(png).flatten({ background: '#ffffff' }).jpeg({ quality: CARTE_QUALITE_JPEG }).toBuffer();
+  } catch (e) {
+    console.error('[certificat-pdf] compression carte indisponible → PNG d’origine embarqué', (e as Error)?.name ?? 'Erreur');
+    return png;
+  }
+}
+
 async function recupererSans(cle: string | null): Promise<Buffer | null> {
   if (!cle) return null;
   try {
@@ -233,7 +270,7 @@ export async function genererBufferCertificat(
   const r = await query<LigneJointe>(REQUETE, [certificatId]);
   const row = r.rows[0];
   if (!row) return null;
-  const cartePng = await recupererSans(row.carte_orientation_cle); // RELECTURE (pas de régénération IGN)
+  const cartePng = await carteCompressee(row.carte_orientation_cle); // RELECTURE (pas de régénération IGN) + compression d'embarquement
   if (!cartePng) return null; // carte = prérequis du document (comme publierCertificatPdf)
   const photoJpeg = await recupererSans(row.photo_cle);
   const donnees = assembler(row, base, cartePng, photoJpeg);
@@ -256,7 +293,7 @@ export async function publierCertificatPdf(internauteId: string, certificatId: n
       return;
     }
 
-    const cartePng = await recupererSans(row.carte_orientation_cle); // RELECTURE (pas de régénération IGN)
+    const cartePng = await carteCompressee(row.carte_orientation_cle); // RELECTURE (pas de régénération IGN) + compression d'embarquement
     if (!cartePng) {
       // La carte est un prérequis du document (le générateur l'affiche toujours). Absente/illisible → on ne génère
       // PAS le PDF ; carte ET PDF sont re-fabricables. On laisse le statut en l'état (pas un « echec » définitif).

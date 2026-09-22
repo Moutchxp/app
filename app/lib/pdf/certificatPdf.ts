@@ -23,6 +23,53 @@ import { MENTION_EMETTEUR } from './mentions';
 const ACTIFS = join(process.cwd(), 'app', 'lib', 'pdf', 'actifs');
 const A = (nom: string) => readFileSync(join(ACTIFS, nom));
 
+/**
+ * LOGOS RÉÉCHANTILLONNÉS à la résolution utile de leur taille d'affichage, mémoïsés par processus.
+ *
+ * POURQUOI — décomposition mesurée le 22/09/2026 (SAVV-2026-000027, 996,4 Kio) : les deux logos pesaient
+ * 321,6 Kio, soit 32 % du PDF, parce qu'ils sont embarqués en PLEINE définition alors qu'ils s'affichent
+ * petit — `logo-rond` est un 500×500 rendu sur 51 pt (≈ 706 dpi, 2,4× le nécessaire) et `logo-long` un
+ * 900×202 rendu sur 160 pt (≈ 404 dpi). S'y ajoute leur masque alpha, de même poids que l'image.
+ * On les ramène à 300 dpi POUR LEUR TAILLE RÉELLE dans la page — la norme d'impression — et on palettise
+ * (un logo a peu de couleurs). La transparence est CONSERVÉE : c'est elle qui fait ressortir le sceau sur
+ * le bandeau rouge. Les fichiers d'actifs sur disque ne sont PAS touchés : ils restent la source haute
+ * définition, et un simple changement de constante suffirait à remonter la résolution.
+ *
+ * Aucun changement de mise en page, de texte ni de position : seuls les pixels d'un logo changent de finesse.
+ * BEST-EFFORT : si sharp échoue, on embarque l'actif d'origine (un certificat n'est jamais perdu pour un octet).
+ */
+const DPI_IMPRESSION = 300;
+
+/**
+ * ⚠️ AUCUN CACHE ICI, VOLONTAIREMENT. Une première version mémoïsait le résultat par processus ; le
+ * déterminisme octet à octet (invariant testé, ~10 assertions) se rompait alors de façon reproductible à partir
+ * de la 3ᵉ génération — pdfkit ne numérote pas ses objets de la même façon selon qu'il revoit ou non un buffer
+ * déjà vu. `A(nom)` rendait un buffer NEUF à chaque appel ; on conserve exactement cette propriété : aucun état
+ * partagé entre deux générations, conformément à `docs/FLAKES_CONNUS.md` (« ne pas introduire d'état dans le
+ * générateur, il est prouvé sain »). Coût mesuré : ~35 ms par PDF, sans commune mesure avec les ~5 s gagnées
+ * ailleurs sur l'émission.
+ */
+async function actifPourPdf(nom: string, largeurAffichagePt: number): Promise<Buffer> {
+  const source = A(nom);
+  let sortie = source;
+  try {
+    const { default: sharp } = await import('sharp');
+    const cible = Math.ceil((largeurAffichagePt / 72) * DPI_IMPRESSION);
+    const largeurSource = (await sharp(source).metadata()).width;
+    // On ne RÉÉCHANTILLONNE que vers le bas : un actif déjà plus petit que la cible est laissé intact.
+    // RÉÉCHANTILLONNAGE SEUL, format PNG RGBA inchangé. La palettisation (plus légère) a été ÉCARTÉE : elle rompait
+    // le déterminisme octet à octet du générateur (4 échecs sur 5 exécutions contre 0/5 sans elle) — pdfkit décode
+    // les PNG à canal alpha de façon ASYNCHRONE et numérote ses objets dans l'ordre d'achèvement des décodages ;
+    // changer les temps de décodage rend cet ordre variable. Le déterminisme prime sur quelques kilo-octets.
+    if (!largeurSource || largeurSource <= cible) return source;
+    sortie = await sharp(source).resize({ width: cible }).png({ compressionLevel: 9 }).toBuffer();
+  } catch (e) {
+    console.error('[certificat-pdf] optimisation d’un actif indisponible → actif d’origine', (e as Error)?.name ?? 'Erreur');
+    sortie = source;
+  }
+  return sortie;
+}
+
 // ── Charte (globals.css / modèle, en dur : un PDF ne lit pas le CSS) ──
 const ROUGE = '#a30402';
 const NEUTRE = '#f3f4f6';
@@ -143,6 +190,12 @@ function collecter(doc: PDFKit.PDFDocument): Promise<Buffer> {
 export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buffer> {
   // QR — AUTHENTIFIABLE : encode l'URL de vérification (numéro + jeton), INCHANGÉ. ONE-SHOT : QR purement DÉCORATIF —
   // on encode une chaîne NEUTRE non exploitable (JAMAIS le numéro, le jeton ni une URL) et on le teinte en gris clair.
+  // Logos ramenés à la résolution utile de leur affichage (mémoïsés) — préparés ICI car le rendu qui suit est
+  // synchrone. Largeurs d'affichage : logo-long px(48) de haut × 900/202 ; logo-rond = sealS, carré.
+  const [logoLong, logoRond] = await Promise.all([
+    actifPourPdf('logo-long.png', px(48) * (900 / 202)),
+    actifPourPdf('logo-rond.png', px(68)),
+  ]);
   const qrPng = await qrToBuffer(d.aUnCompte ? urlQr(d.urlBase, d.numero, d.jeton, d.typeDocument) : 'SANS-VIS-A-VIS', {
     type: 'png',
     margin: 1,
@@ -203,7 +256,7 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
 
   // ══════════ EN-TÊTE : logo (marque) + identifiants ══════════
   const logoLongH = px(48);
-  doc.image(A('logo-long.png'), X0, y, { height: logoLongH }); // ratio conservé (900×202)
+  doc.image(logoLong, X0, y, { height: logoLongH }); // ratio conservé (900×202)
   // Deux id-blocks alignés à droite.
   const idBox = (labelTxt: string, valeur: string, ref: boolean, rightX: number): number => {
     const fs = px(12);
@@ -250,7 +303,7 @@ export async function genererCertificatPdf(d: DonneesCertificatPdf): Promise<Buf
   const sealS = px(68);
   const sealX = X0 + pad;
   const sealY = y + (hV - sealS) / 2;
-  doc.image(A('logo-rond.png'), sealX, sealY, { width: sealS, height: sealS }); // LOGO = marque
+  doc.image(logoRond, sealX, sealY, { width: sealS, height: sealS }); // LOGO = marque
   // Pastille d'état (SEULE à suivre le verdict).
   const bS = px(23);
   const bx = sealX + sealS - bS + px(3);
