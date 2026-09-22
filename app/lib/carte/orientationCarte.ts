@@ -44,6 +44,35 @@ const MARGE_BAS_M = 24; // dégagement sous l'origine → elle reste au-dessus d
 const SEUIL_ECHEC_TUILES = 0.25; // > 25 % de tuiles perdues → carte jugée non fiable → échec (carte NULL)
 const ATTRIBUTION = '© IGN / Géoplateforme — Plan IGN';
 
+/**
+ * Nombre de tuiles téléchargées EN PARALLÈLE. Une carte demande ~100 tuiles ; les lancer TOUTES d'un coup
+ * sature le serveur WMTS et se retourne contre nous — mesuré le 22/09/2026 sur les 100 tuiles réelles d'un
+ * certificat, trois passages par réglage :
+ *   toutes d'un coup : 8,1-8,8 s au total, MÉDIANE 1236-1460 ms PAR TUILE, la plus lente jusqu'à 8,8 s ;
+ *   concurrence 4    : 6,1 s ;   concurrence 8 : 2,5-2,9 s, médiane 152-159 ms par tuile, zéro échec ;
+ *   concurrence 12   : 2,4 s mais des rejets HTTP 400 reviennent ;  concurrence 16 : 2,3 s, médiane qui remonte.
+ * La médiane par tuile divisée par ~8 entre « tout d'un coup » et « 8 » prouve une congestion AUTO-INFLIGÉE :
+ * le serveur n'est pas lent, c'est la rafale qui le fait ralentir. 8 est le plateau — au-delà on ne gagne plus
+ * rien et les rejets réapparaissent. Surcharge : `CARTE_TUILES_CONCURRENCE`.
+ */
+const CONCURRENCE_TUILES = entierEnv('CARTE_TUILES_CONCURRENCE', 8);
+
+/**
+ * Budget TOTAL (ms) du téléchargement des tuiles. Le délai par tuile (15 s, `fetchTuileReseau`) borne UNE tuile ;
+ * celui-ci borne l'ENSEMBLE : passé ce budget, les tuiles non encore commencées sont comptées manquantes au lieu
+ * d'être attendues. Le comportement aval est INCHANGÉ — une tuile manquante n'empêche pas la carte (seuls la tuile
+ * centrale absente ou plus de 25 % de pertes la font échouer, comme avant). Surcharge : `CARTE_TUILES_BUDGET_MS`.
+ */
+const BUDGET_TUILES_MS = entierEnv('CARTE_TUILES_BUDGET_MS', 20_000);
+
+/** Lecture d'un entier d'environnement, repli sur le défaut si absent/illisible/non positif. */
+function entierEnv(nom: string, defaut: number): number {
+  const brut = process.env[nom];
+  if (brut === undefined) return defaut;
+  const n = Number.parseInt(brut, 10);
+  return Number.isFinite(n) && n > 0 ? n : defaut;
+}
+
 /** Erreur d'une carte trop trouée pour faire foi (tuile centrale absente, ou trop d'échecs). */
 export class ErreurCarteIncomplete extends Error {
   constructor(message: string) {
@@ -214,6 +243,43 @@ export interface OptionsGeneration {
 }
 
 /**
+ * Télécharge les tuiles avec une CONCURRENCE BORNÉE et un BUDGET TOTAL, et rend exactement la même forme que
+ * `Promise.allSettled` (un résultat par tuile, dans l'ordre) — le traitement aval est donc INCHANGÉ.
+ *
+ * `CONCURRENCE_TUILES` ouvriers tirent dans une file commune ; passé `BUDGET_TUILES_MS`, les tuiles non encore
+ * ENTAMÉES sont marquées manquantes sans être demandées (celles déjà en vol gardent leur propre délai de 15 s).
+ * On ne masque rien : une tuile manquante suit le chemin existant (journal + seuils de tuile centrale / 25 %).
+ */
+async function telechargerTuiles(
+  tuiles: { x: number; y: number }[],
+  zSrc: number,
+  fetchTuile: (z: number, x: number, y: number) => Promise<Buffer>,
+): Promise<PromiseSettledResult<Buffer>[]> {
+  const resultats = new Array<PromiseSettledResult<Buffer>>(tuiles.length);
+  const echeance = Date.now() + BUDGET_TUILES_MS;
+  let prochaine = 0;
+  const ouvriers = Math.max(1, Math.min(CONCURRENCE_TUILES, tuiles.length));
+  await Promise.all(
+    Array.from({ length: ouvriers }, async () => {
+      while (prochaine < tuiles.length) {
+        const i = prochaine++;
+        if (Date.now() >= echeance) {
+          resultats[i] = { status: 'rejected', reason: new Error('budget de téléchargement des tuiles dépassé') };
+          continue;
+        }
+        const t = tuiles[i];
+        try {
+          resultats[i] = { status: 'fulfilled', value: await fetchTuile(zSrc, t.x, t.y) };
+        } catch (reason) {
+          resultats[i] = { status: 'rejected', reason };
+        }
+      }
+    }),
+  );
+  return resultats;
+}
+
+/**
  * Génère la carte d'orientation (PNG, VUE EN HAUT). Chaîne : cadrage bbox → mosaïque source (z dérivé) centrée sur
  * l'origine → ROTATION de -azimut (l'axe pointe en haut) → recadrage au ratio du cartouche → overlay (cône/axe/Nord/
  * attribution). La tuile CENTRALE (origine) est OBLIGATOIRE ; au-delà de 25 % de pertes → ErreurCarteIncomplete.
@@ -240,7 +306,7 @@ export async function genererCarteOrientation(
     for (let tx = tMinX; tx <= tMaxX; tx++)
       tuiles.push({ x: tx, y: ty, dx: (tx - tMinX) * TILE_PX, dy: (ty - tMinY) * TILE_PX });
 
-  const resultats = await Promise.allSettled(tuiles.map((t) => fetchTuile(zSrc, t.x, t.y)));
+  const resultats = await telechargerTuiles(tuiles, zSrc, fetchTuile);
   const composites: OverlayOptions[] = [];
   let echecs = 0, centreOk = false;
   resultats.forEach((r, i) => {
