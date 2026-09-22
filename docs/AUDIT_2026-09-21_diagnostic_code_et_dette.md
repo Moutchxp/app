@@ -34,7 +34,7 @@ une seule personne.**
 | Moteur de calcul (verdict/score) | 🟢 Solide | Calcul pur isolé, label découplé du score, aucun arrondi, invariants tenus |
 | Sécurité & RGPD | 🟢 Solide | Auth sérieuse, anti-fraude, RGPD complet — **1 réserve de conception (fail-open admin)** |
 | Base de données / spatial | 🟢 Solide | SQL 100 % paramétré, PostGIS discipliné — **robustesse des connexions à durcir** |
-| **Efficacité (temps de réaction)** | 🔴 **Faible** | **~132 allers-retours base EN SÉRIE / certification (> 3 s probable)** — plus gros levier unique (P1) |
+| **Efficacité (temps de réaction)** | 🔴 **Faible** ⚠️ *(à requalifier)* | **~132 allers-retours base EN SÉRIE / certification** — estimation **structurelle** du 21/09 qui annonçait « > 3 s probable ». **Chronométrée le 22/09 : 0,15 s à chaud / 0,69 s à froid** (§2, encadré Performance). L'estimation était pessimiste ; le temps ressenti venait du **tunnel** (T3), pas du pipeline. Note /20 non revue — un vrai renotage demande une mesure en conditions de production. |
 | Besoin en calculs | 🟢 Solide | Calcul délégué à PostGIS (set-based), non CPU-bound ; le goulot est dans les round-trips, pas le calcul |
 | Tests (volume & rigueur) | 🟢 Solide | 8 795 cas de test, garde-fous d'architecture exécutables |
 | Dette technique « classique » | 🟢 Très bon | ~6 TODO / 0 FIXME sur 116 k lignes |
@@ -75,7 +75,7 @@ une seule personne.**
 | **G2** | 🔴 | S | ✅ | **Sceller le golden dans `npm test`** : assertion pure `analyser(...) === 29.107259068449615` dans un vrai `.test.ts` (sans PostGIS) | golden uniquement dans `app/lib/db/pipeline.itest.ts:42` (suite d'intégration, **hors** `npm test`) |
 | **G3** | 🟠 | S | ✅ | Durcir les 3 pools : ajouter `pool.on('error', …)` (évite crash process) + timeouts/bornage du pool principal | `db/client.ts:8` (pool nu) ; gabarit déjà présent `analytics/pool.ts:33-41` |
 | **G4** | 🟠 | S | ✅ | **`/api/check-building` supprimée** (route publique morte, aucun appelant ; accord Arno 2026-09-22 ; commit `bb8b6e8`). ⚠️ **Résidu NON traité** : throttle des routes publiques lourdes (`/api/analyse`) — à rouvrir. | `app/api/check-building/route.ts` supprimé ; `/api/analyse` sans throttle |
-| **G5** | 🟡 | S | ⬜ | Supprimer le code d'auth mort + purger le secret en clair du `.env` ; dédupliquer `SMTP_PERSONNE_PASS` ; rafraîchir `.env.example` | `app/lib/admin/password.ts` (SHA-256 non salé, 0 importeur) ; `.env` (`ADMIN_PASSWORD` clair, `SMTP_PERSONNE_PASS` en double) |
+| **G5** | 🟡 | S | ⬜ | Supprimer le code d'auth mort + purger le secret en clair du `.env` ; **dédupliquer les variables `SMTP_PERSONNE_*`** ; rafraîchir `.env.example` | `app/lib/admin/password.ts` (SHA-256 non salé, 0 importeur) ; `.env` (`ADMIN_PASSWORD` clair ; **relevé 2026-09-22 : `SMTP_PERSONNE_USER`, `SMTP_PERSONNE_PORT` et `SMTP_PERSONNE_PASS` sont définis 3 fois CHACUN — seule la dernière occurrence compte, les deux premières sont un leurre pour quiconque relit le fichier**) |
 
 ### Performance / temps de réaction *(ajouté 2026-09-21 — recon dédiée du chemin chaud)*
 
@@ -85,13 +85,49 @@ une seule personne.**
 > **structurelle** (non chronométrée) : **certification > 3 s probable** (plancher ~1,5-2 s, sans plafond).
 > La cause n'est **pas** l'intensité de calcul (bien déléguée à PostGIS, set-based) ni le front — c'est le
 > **nombre de round-trips sériels**. **P1 seul devrait ramener une certification en zone « correct » (1-3 s).**
+>
+> 🔬 **Chronométrage réel du 2026-09-22 (mesure, plus une estimation) — l'estimation était PESSIMISTE :**
+> réplique en lecture seule de `construireEntree` sur le point golden d'Asnières, 3 passages :
+> **0,688 s à froid puis 0,154 / 0,159 s à chaud** (`analyserAdresse` bout en bout : 0,645 / 0,157 / 0,167 s ;
+> corps de réponse : **2 036 octets**). Détail du passage à froid : `validerOrigine` 396 ms · `obstaclesSurAxe`
+> 130 ms · `faisceauxAmplitude` (61) 119 ms · `resoudreEpoqueImmobilier` 25 ms · `resoudreMonuments` 12 ms ·
+> reste < 5 ms. **P1/P2/P4 restent des gains réels, mais ne sont PAS une urgence** : le temps de réaction
+> ressenti ne vient pas de là (cf. **T3** — le tunnel). ⚠️ Mesure sur base locale chaude, jeu de données de
+> test : elle ne préjuge pas du comportement en production sur un volume LiDAR national.
 
 | ID | Sév. | Effort | Statut | Action | Preuve |
 |----|------|--------|--------|--------|--------|
 | **P1** | 🟠 *(fort levier)* | M | ⬜ | **Batcher la détection d'obstacles des 61 faisceaux** (≈ 122 round-trips sériels → ≈ 2) via `unnest(...) WITH ORDINALITY` — **le motif existe déjà juste à côté**. ⚠️ touche le chemin du golden → rejeu Asnières + feu vert + commit séparé | boucle sérielle `faisceaux.ts:40` ; 2 req/faisceau `obstacles.ts:549,629` ; motif batch déjà présent `obstacles.ts:657,770,821` |
 | **P2** | 🟠 | M | ⬜ | Paralléliser les étapes **indépendantes** de `construireEntree` (`Promise.all`) : obstacles principal, `faisceauxAmplitude`, immobilier, monuments, paysage. Seule `resoudreVueNature` reste après `faisceaux` | attentes sérielles indépendantes `pipeline.ts:118,128,146,151,161` ; dépendance réelle `pipeline.ts:140` |
-| **P3** | 🟠 | S | ⬜ | Poser un `statement_timeout` sur le pool de **calcul** (aucun aujourd'hui — seulement sur analytics) + un **garde-fou de latence** (rejeu Asnières chronométré / EXPLAIN). Complète **G3** | `client.ts:8` (pool nu, non borné) vs motif existant `analytics/lecture/requete.ts:30` |
+| **P3** | 🟠 | S | ✅ *(résidu)* | **Plafond posé sur le chemin de l'analyse publique** (`eddf022`) : pool dédié `svav_analyse_publique`, `statement_timeout` **15 s** + attente d'une connexion **10 s**, sélectionné par `AsyncLocalStorage` à la porte unique `query()` → les 7 modules du chemin public sont INTOUCHÉS (golden bit-identique). **PAS** de plafond global sur le pool partagé : décision du porteur, il tuerait les imports/veille/relève légitimement longs. Plafond atteint → **503 JSON propre**, jamais d'attente infinie. ⚠️ **Résidu NON traité** : le **garde-fou de latence** (rejeu Asnières chronométré en CI / EXPLAIN de non-régression) — à rouvrir. | `db/plafondAnalyse.ts` ; `client.ts:15-25` (routage contextuel) ; `api/analyse/route.ts` (503) ; `db/plafondAnalyse.test.ts` (preuve que le pool partagé reste SANS plafond) |
 | **P4** | 🟡 | S | ⬜ | Mémoïser `chargerProfilDegagement` (config singleton `id=1` relue en base à **chaque** analyse) | `profilConfig.ts:58,83` (2 round-trips/analyse pour une config quasi constante) |
+
+### Tunnel public & QR de certificat *(ajouté 2026-09-22 — diagnostic double, lecture seule)*
+
+> Deux symptômes rapportés le 22/09 depuis l'iPhone : (1) le parcours public affichait « Le service
+> d'analyse met trop de temps à répondre » un essai sur deux ; (2) le QR d'un certificat reçu n'ouvrait
+> rien. **Aucun des deux n'avait la cause qu'on lui prêtait.**
+>
+> **(1) Ce n'était ni le calcul, ni la base.** Prouvé : le calcul tient en 0,15 s à chaud (ci-dessus) ;
+> aucun plafond pg n'existait sur ce chemin, donc aucun ne pouvait expirer ; et surtout l'analytique du
+> jour montre **3 événements `resultat` pour 3 `analyse_lancee`**, tous `SANS_VIS_A_VIS` en commune INSEE
+> **92004** — le serveur a calculé et produit un verdict **à chacun des trois essais**, y compris ceux où
+> l'écran affichait l'erreur. L'hypothèse « test hors zone LiDAR » est écartée par les données (adresse
+> certifiée : *8 Rue Denfert-Rochereau, Asnières-sur-Seine*). **La défaillance est dans l'acheminement de
+> la réponse**, entre le serveur et le téléphone — métriques du tunnel à l'appui (**T3**).
+>
+> **(2) Le QR pointait vers une machine qui n'existait plus** : `SITE_URL=http://192.168.1.164:3000`, une
+> ancienne IP DHCP du Mac (IP réelle au moment du constat : `192.168.1.14` ; ping 100 % de perte, entrée
+> ARP incomplète, port 3000 fermé). La page de vérification, elle, est en parfait état : `HTTP 200`,
+> « authentique », en 20 ms à chaud, sur les trois formes d'URL (`?n=&j=`, `?ref=&doc=visuel`, jeton faux).
+
+| ID | Sév. | Effort | Statut | Action | Preuve |
+|----|------|--------|--------|--------|--------|
+| **T1** | 🟠 | S | ✅ | **Messages d'analyse distingués** (`375f77c`) : 429 « service saturé » · 502/503/504/524/530 « connexion interrompue » · abandon à 60 s « pas répondu à temps ». Un seul texte couvrait les trois et orientait vers une attente inutile. Délai de 60 s, message de coupure réseau franche et bouton « Réessayer » inchangés. | `page.tsx:2511-2521` (3 branches) ; `page.tsx:2545-2548` (AbortError) ; délai `page.tsx:2502` |
+| **T2** | 🟠 | S | ✅ | **Adresse temporaire refusée dans un QR en production** (`f3b2ac5`) : https exigé, refus de localhost/127.x/::1, IP privées (10/172.16-31/192.168), `*.trycloudflare.com`, ngrok. En développement rien n'est refusé (certificats d'essai) mais un avertissement nomme l'adresse définitive. Les 3 copies de `siteUrl()` sont factorisées en une source unique. | `lib/certificat/siteUrl.ts` ; appelants `pdf/publierCertificatPdf.ts`, `email/publierEnvoiCertificat.ts`, `api/internaute/espace/certificats/[id]/telecharger/route.ts` |
+| **T3** | 🔴 | M | ⬜ **DÉCISION ARNO** | **Le tunnel rapide `cloudflared` perd des réponses** — c'est la cause du symptôme (1). Remède : **tunnel NOMMÉ + `authentification.sansvisavis.com`** (4 connexions redondantes au lieu d'1, URL stable, et l'adresse définitive des QR par la même occasion). ⚠️ **À précéder d'une recon DNS dédiée** : le domaine `sansvisavis.com` porte aussi les e-mails **Google Workspace** (MX/SPF/DKIM/DMARC) et le site actuel — une manipulation DNS à l'aveugle peut couper la messagerie. | Métriques Prometheus locales de `cloudflared` (48 min de fonctionnement) : **196 requêtes, 185 réponses codées → 11 sans réponse rendue** ; `ha_connections=1` ; `register_connection`=8 / `unregister_connection`=7 (7 échecs RPC) ; `quic_client_closed_connections`=9 ; **114 `ResetStream` reçus** ; `tunnel_request_errors`=0 (côté origine : RAS) |
+| **T4** | 🔴 | M | ⬜ | **Le jeton de vérification voyage dans l'URL du QR** (`?j=<16 car>`) : il se retrouve **en clair dans tout journal d'accès** — sortie `next dev` (constaté), et demain reverse proxy, journaux Cloudflare, `Referer`, historique du navigateur, capture d'écran partagée. **Contredit frontalement la règle écrite du code** : « le JETON n'apparaît dans AUCUN log ni AUCUNE erreur : il n'entre que dans le PDF ». **À régler AVANT la mise en production** — un jeton journalisé est un jeton à considérer comme divulgué. Pistes (non tranchées, choix de conception) : jeton dans le fragment `#` (jamais envoyé au serveur) + échange côté client ; ou URL courte `/{référence}` + saisie/échange du jeton ; ou POST depuis une page d'atterrissage. | construction `pdf/certificatPdf.ts:118-122` ; lecture `verifier/page.tsx:155-156` ; règle violée `pdf/publierCertificatPdf.ts:9` |
+| **T5** | 🟠 | M | ⬜ | **Émission d'un certificat lente : `POST /api/certificat` ≈ 11,3 s** (mesure Arno du 22/09). À **profiler** : la génération des documents et l'envoi du mail sont dans la boucle. Corroboré en base sur le certificat `SAVV-2026-000023` : `emis_le` 10:22:52,6 → `genere_le` 10:23:00,0 (**+7,4 s** : PDF nominatif + variante anonymisée + visuel PNG, relecture carte/photo en stockage) → `envoye_le` 10:23:03,1 (**+3,1 s** : SMTP). Piste à instruire : ce qui peut sortir de la réponse (post-réponse `after()`, comme l'analytique) plutôt qu'être accéléré. | `app/api/certificat/route.ts` ; chaîne `pdf/publierCertificatPdf.ts` → `email/publierEnvoiCertificat.ts` ; `certificat_acheminement` (horodatages ci-contre) |
 
 ### Priorité 2 — Moyen terme / conception
 
@@ -169,8 +205,11 @@ monolithe `page.tsx` (→ F2), tests source-scan fragiles (→ F3), bus factor (
 sur ~400 cellules) ; le chemin JS-lourd raster (`hauteurLidar.ts:154-165`) n'est **pas** sur le chemin de
 certification (scripts seulement) ; requêtes individuelles déjà optimisées (KNN inliné, précédents
 `validerOrigine` 1919→310 ms). Risques : **~132 round-trips sériels/certification, dont ~122 dans la boucle
-des 61 faisceaux** (→ P1), étapes indépendantes non parallélisées (→ P2), pool de calcul non borné +
-aucun garde-fou de latence (→ P3), config relue à chaque analyse (→ P4).
+des 61 faisceaux** (→ P1), étapes indépendantes non parallélisées (→ P2), config relue à chaque analyse (→ P4).
+**Requalifié le 2026-09-22 par le chronométrage réel** : une analyse tient en **0,15 s à chaud / 0,69 s à
+froid** — P1/P2/P4 restent des gains, mais le temps de réaction ressenti venait du **tunnel** (→ T3), pas du
+pipeline. Le pool de calcul est désormais borné sur le chemin public (→ P3, `eddf022`) ; le **garde-fou de
+latence** reste à faire. Émission du certificat ≈ **11,3 s**, non instruite (→ T5).
 
 ---
 
@@ -178,6 +217,10 @@ aucun garde-fou de latence (→ P3), config relue à chaque analyse (→ P4).
 
 - **Aucun de ces items n'est un correctif appliqué** : ce document ne fait que diagnostiquer.
 - Ordre conseillé : **G1 → G2 → G3 → G4 → G5**, puis **P1 → P2 → P3 → P4** (fort levier perf), puis M*, puis F*.
+- **Réordonné le 2026-09-22** : **T4** (jeton dans l'URL du QR) et **T3** (tunnel nommé + adresse définitive)
+  passent **avant** P1/P2/P4 — T4 est un verrou de mise en production, T3 est la cause réelle du temps de
+  réaction ressenti, alors que le chronométrage a montré le pipeline à 0,15 s. T3 exige une **décision du
+  porteur** et une **recon DNS préalable** (le domaine porte la messagerie Google Workspace).
 - G2, M1, M2, M4, **P1**, F1 touchent des zones **sensibles** (golden, sécurité, score, chemin certifiant) →
   feu vert du porteur + relecture humaine + commit séparé. Pour P1 : le rejeu Asnières (`pipeline.itest.ts`)
   est le filet — le résultat par faisceau doit rester **bit-identique**.
@@ -191,3 +234,4 @@ aucun garde-fou de latence (→ P3), config relue à chaque analyse (→ P4).
 | 2026-09-21 | Diagnostic initial (audit 4 axes, lecture seule) | Création du registre. Tous items ⬜. |
 | 2026-09-21 | Recon performance + notation | Ajout de l'axe **Performance** (items P1-P4), de la **notation /20** (§1), et de la ligne Performance au §5. Verdict global mis à jour (temps de réaction lourd). |
 | 2026-09-22 | Lot « gains rapides » | ✅ **G3** filet pg 3 pools (`4c193ca`) · ✅ **G1** `tsc --noEmit` dans le gate + 6 erreurs de type corrigées + `public/**` hors lint (`d74fe25`) · ✅ **G2** garde golden PUR sans base, égalité stricte (`137b5dc`). ✅ **M1** fail-closed (session.ts + 4 gardes) committé (`4e58530`) après validation manuelle Arno + `npm test` complet vert (590 fichiers / 7755 tests). ✅ **G4** `/api/check-building` supprimée (aucun appelant ; accord Arno ; commit `bb8b6e8`) ; 3 mentions « route supprimée » ajoutées aux docs ; `npm test` complet vert après purge du cache `.next` périmé. Résidu : throttle routes publiques (`/api/analyse`) NON traité. Les 42 erreurs lint pré-existantes (any/entités/hooks) restent hors périmètre. |
+| 2026-09-22 | Diagnostic double (analyse publique qui expire · QR de certificat mort) + lot de 3 correctifs | **Diagnostic en lecture seule** : le pipeline chronométré (0,154-0,688 s, réponse de 2 036 o) écarte calcul et base ; l'analytique (3 `resultat` pour 3 `analyse_lancee`, INSEE 92004) prouve que le serveur répondait ; les métriques `cloudflared` (11 requêtes sans réponse sur 196, 7 reconnexions, 114 `ResetStream` en 48 min) désignent l'acheminement. Le QR mort s'explique par `SITE_URL` figée sur une ancienne IP DHCP. **Correctifs** : ✅ **P3** plafond base scopé au chemin public + 503 propre (`eddf022`) · ✅ **T1** trois messages d'analyse distincts (`375f77c`) · ✅ **T2** adresse temporaire refusée dans un QR en production, 3 `siteUrl()` factorisées (`f3b2ac5`). **Ajouts au registre** : ⬜ **T3** tunnel nommé + `authentification.sansvisavis.com` (décision porteur, recon DNS préalable) · ⬜ **T4** jeton de vérification en clair dans l'URL du QR, verrou de mise en production · ⬜ **T5** émission ≈ 11,3 s à profiler · **G5** enrichi (`SMTP_PERSONNE_USER/_PORT/_PASS` définis 3 fois chacun). Chapeau Performance et §5 requalifiés par la mesure. `npm test` complet vert à chaque commit (592 fichiers / 7 806 tests au dernier). Dette eslint de `page.tsx` gelée : 22 problèmes avant comme après. |
