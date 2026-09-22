@@ -13,6 +13,7 @@
  * ⚠️ Aucun log ne contient le jeton, ni l'adresse du destinataire, ni le corps du mail.
  */
 import { query } from '../db/client';
+import { siteUrlCertificat } from '../certificat/siteUrl';
 import { recuperer, stockageConfigure } from '../stockage';
 import { signerJetonRetrait } from '../internaute/jetonRectification';
 import { effacerIdentiteLivraisonSiEligible } from '../internaute/cycleVie';
@@ -20,11 +21,10 @@ import { lireConfigEmail, obtenirTransporteur, envoyerCertificat } from './index
 import { genererBufferCertificat } from '../pdf/publierCertificatPdf';
 import { genererVisuelPng } from '../visuel/genererVisuelPng';
 
-/** Base absolue du site (serveur only), pour le lien de vérification du corps. `null` si absente/mal formée. */
-function siteUrl(): string | null {
-  const u = (process.env.SITE_URL ?? '').trim();
-  return /^https?:\/\/.+/.test(u) ? u.replace(/\/+$/, '') : null;
-}
+/** Base absolue du site (serveur only), pour le lien de vérification du corps ET les QR des documents joints
+ *  — source UNIQUE partagée avec `pdf/publierCertificatPdf`. `null` si absente, mal formée, ou (production
+ *  seulement) temporaire. */
+const siteUrl = siteUrlCertificat;
 
 interface LigneEnvoi {
   numero: string;
@@ -70,7 +70,7 @@ export async function publierEnvoiCertificat(certificatId: number): Promise<void
     }
     const base = siteUrl();
     if (!base) {
-      console.error('[certificat-envoi] SITE_URL absente → pas d’envoi (lien de vérification incomplet)');
+      console.error('[certificat-envoi] SITE_URL absente, mal formée ou temporaire → pas d’envoi (lien de vérification incomplet)');
       return;
     }
 

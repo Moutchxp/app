@@ -15,6 +15,7 @@
  * que de régénérer (49 tuiles, ~1,6 s de réseau IGN). Idem la PHOTO (via `certificat.photo_cle`). Décision signalée.
  */
 import { query } from '../db/client';
+import { siteUrlCertificat } from '../certificat/siteUrl';
 import { deposer, recuperer, stockageConfigure } from '../stockage';
 import { genererCertificatPdf, type DonneesCertificatPdf, type LigneKv } from './certificatPdf';
 import { deriverExterieur } from '../certificat/descriptif';
@@ -35,11 +36,9 @@ const PIED = 'Certificat délivré par le système d’analyse géométrique San
 const TIRET = '—'; // valeur affichée quand AUCUNE source moteur/base n'existe (convention du modèle : jamais inventer)
 const TOLERANCE_MESURE = '± 2 m'; // marge de mesure DÉCLARÉE (constante de la méthode, modèle), pas issue d'un calcul
 
-/** Base absolue du site (serveur only). Null si absente/mal formée → PDF non généré (QR faux évité). */
-function siteUrl(): string | null {
-  const u = (process.env.SITE_URL ?? '').trim();
-  return /^https?:\/\/.+/.test(u) ? u.replace(/\/+$/, '') : null;
-}
+/** Base absolue du site (serveur only) — source UNIQUE partagée avec l'envoi et le visuel. Null si absente,
+ *  mal formée, ou (production seulement) temporaire → PDF non généré (QR faux ou périssable évité). */
+const siteUrl = siteUrlCertificat;
 
 /** Ligne jointe (certificat + internaute_projet + internaute + acheminement). numeric → chaînes (driver pg). */
 interface LigneJointe {
@@ -246,7 +245,7 @@ export async function publierCertificatPdf(internauteId: string, certificatId: n
     if (!stockageConfigure()) return; // silencieux (comme le dépôt carte/photo)
     const base = siteUrl();
     if (!base) {
-      console.error('[certificat-pdf] SITE_URL absente ou mal formée → PDF non généré (QR faux évité)');
+      console.error('[certificat-pdf] SITE_URL absente, mal formée ou temporaire → PDF non généré (QR faux évité)');
       return;
     }
 

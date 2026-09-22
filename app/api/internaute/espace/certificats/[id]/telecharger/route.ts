@@ -2,6 +2,7 @@ import 'server-only';
 import { exigerInternaute } from '../../../../../../lib/internaute/authGarde';
 import { resoudrePdfCertificat, resoudreVisuelCertificat } from '../../../../../../lib/internaute/espace';
 import { urlSignee } from '../../../../../../lib/stockage';
+import { siteUrlCertificat } from '../../../../../../lib/certificat/siteUrl';
 import { genererBufferCertificat } from '../../../../../../lib/pdf/publierCertificatPdf';
 import { genererVisuelPng } from '../../../../../../lib/visuel/genererVisuelPng';
 
@@ -13,11 +14,9 @@ const DUREE_URL_S = 120;
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** Base absolue du site (serveur only), pour le QR du visuel. `null` si absente/mal formée. */
-function siteUrl(): string | null {
-  const u = (process.env.SITE_URL ?? '').trim();
-  return /^https?:\/\/.+/.test(u) ? u.replace(/\/+$/, '') : null;
-}
+/** Base absolue du site (serveur only), pour le QR du visuel — source UNIQUE partagée avec le PDF et l'envoi.
+ *  `null` si absente, mal formée, ou (production seulement) temporaire. */
+const siteUrl = siteUrlCertificat;
 
 /**
  * GET /api/internaute/espace/certificats/[id]/telecharger — RE-TÉLÉCHARGEMENT des documents d'un certificat.
