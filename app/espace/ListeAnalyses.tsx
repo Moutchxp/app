@@ -61,7 +61,8 @@ function EnTete({ ligne, chevron }: { ligne: LigneEspace; chevron?: boolean }) {
   );
 }
 
-/** Un document = simple lien same-origin vers la route, avec `download`. La route gère 302 signé OU octets directs. */
+/** Un document = simple lien same-origin vers la route, avec `download`. La route sert TOUJOURS les octets
+ *  elle-même (aucune redirection vers une URL de stockage) → le lien fonctionne d'où que l'on consulte. */
 function DocLien({ href, doc }: { href: string; doc: { label: string; description: string } }) {
   return (
     <a className="svv-doc" href={href} download>

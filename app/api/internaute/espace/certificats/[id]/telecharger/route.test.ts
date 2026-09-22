@@ -5,23 +5,23 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
  *
  * PREUVE CENTRALE (anti-IDOR) : `resoudrePdfCertificat` est LE gate de propriété UNIQUE, appelé EN PREMIER pour les
  * trois valeurs de `doc` ; un certificat d'autrui → 404 UNIFORME et AUCUN octet, quelle que soit la valeur de `doc`,
- * et AUCUN générateur n'est invoqué. Le nominatif (défaut) reste STRICTEMENT le comportement historique (302 vers une
- * URL signée courte). On mocke la garde, la résolution de propriété, le helper visuel, le signeur d'URL et les deux
- * générateurs (purs). Aucun accès réseau/base réel.
+ * et AUCUN générateur n'est invoqué. Les TROIS documents sont servis en OCTETS par l'application — AUCUNE URL de
+ * stockage ne sort de la route (plus de redirection 302 vers MinIO). On mocke la garde, la résolution de propriété,
+ * le helper visuel, la lecture de stockage et les deux générateurs (purs). Aucun accès réseau/base réel.
  */
 const { exigerInternaute } = vi.hoisted(() => ({ exigerInternaute: vi.fn() }));
 const { resoudrePdfCertificat, resoudreVisuelCertificat } = vi.hoisted(() => ({
   resoudrePdfCertificat: vi.fn(),
   resoudreVisuelCertificat: vi.fn(),
 }));
-const { urlSignee } = vi.hoisted(() => ({ urlSignee: vi.fn() }));
+const { recuperer } = vi.hoisted(() => ({ recuperer: vi.fn() }));
 const { genererBufferCertificat } = vi.hoisted(() => ({ genererBufferCertificat: vi.fn() }));
 const { genererVisuelPng } = vi.hoisted(() => ({ genererVisuelPng: vi.fn() }));
 
 vi.mock('server-only', () => ({}));
 vi.mock('../../../../../../lib/internaute/authGarde', () => ({ exigerInternaute }));
 vi.mock('../../../../../../lib/internaute/espace', () => ({ resoudrePdfCertificat, resoudreVisuelCertificat }));
-vi.mock('../../../../../../lib/stockage', () => ({ urlSignee }));
+vi.mock('../../../../../../lib/stockage', () => ({ recuperer }));
 vi.mock('../../../../../../lib/pdf/publierCertificatPdf', () => ({ genererBufferCertificat }));
 vi.mock('../../../../../../lib/visuel/genererVisuelPng', () => ({ genererVisuelPng }));
 
@@ -47,7 +47,7 @@ describe('GET .../certificats/[id]/telecharger — trois documents', () => {
     exigerInternaute.mockReset();
     resoudrePdfCertificat.mockReset();
     resoudreVisuelCertificat.mockReset();
-    urlSignee.mockReset();
+    recuperer.mockReset();
     genererBufferCertificat.mockReset();
     genererVisuelPng.mockReset();
     process.env.SITE_URL = 'https://sansvisavis.example';
@@ -81,7 +81,7 @@ describe('GET .../certificats/[id]/telecharger — trois documents', () => {
       expect(genererBufferCertificat).not.toHaveBeenCalled();
       expect(resoudreVisuelCertificat).not.toHaveBeenCalled();
       expect(genererVisuelPng).not.toHaveBeenCalled();
-      expect(urlSignee).not.toHaveBeenCalled();
+      expect(recuperer).not.toHaveBeenCalled();
     },
   );
 
@@ -90,29 +90,70 @@ describe('GET .../certificats/[id]/telecharger — trois documents', () => {
     resoudrePdfCertificat.mockResolvedValue({ statut: 'introuvable' });
     const res = await GET(req(), ctx('5'));
     expect(res.status).toBe(404);
-    expect(urlSignee).not.toHaveBeenCalled();
+    expect(recuperer).not.toHaveBeenCalled();
   });
 
   // ── (1) propriétaire : 3 valeurs → 3 documents distincts, bons Content-Type ──
-  it('propriétaire + sans doc → 302 URL signée courte (nominatif, comportement historique)', async () => {
+  it('LE TEST DU LOT — propriétaire + sans doc → 200 OCTETS du PDF stocké, jamais une redirection', async () => {
     exigerInternaute.mockResolvedValue({ internauteId: 'A' });
-    resoudrePdfCertificat.mockResolvedValue({ statut: 'ok', cle: 'internautes/A/certificats/x.pdf' });
-    urlSignee.mockResolvedValue('https://minio.local/signed?x=1');
+    resoudrePdfCertificat.mockResolvedValue({ statut: 'ok', cle: 'internautes/A/certificats/x.pdf', numero: 'SAVV-2026-000023' });
+    recuperer.mockResolvedValue(Buffer.from('%PDF-nominatif'));
     const res = await GET(req(), ctx('5'));
-    expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe('https://minio.local/signed?x=1');
-    expect(urlSignee).toHaveBeenCalledWith('internautes/A/certificats/x.pdf', 120);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('application/pdf');
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(res.headers.get('Content-Disposition')).toContain('inline');
+    expect(res.headers.get('Content-Disposition')).toContain('Certificat-SAVV-2026-000023.pdf');
+    expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array(Buffer.from('%PDF-nominatif')));
+    // Les octets viennent du stockage lu CÔTÉ SERVEUR, par la clé résolue derrière le gate de propriété.
+    expect(recuperer).toHaveBeenCalledWith('internautes/A/certificats/x.pdf');
+    // Plus aucune redirection : le navigateur ne part jamais vers un endpoint de stockage.
+    expect(res.headers.get('Location')).toBeNull();
     expect(genererBufferCertificat).not.toHaveBeenCalled();
     expect(genererVisuelPng).not.toHaveBeenCalled();
   });
 
-  it('propriétaire + doc=nominatif explicite → 302 (identique au défaut)', async () => {
+  it('propriétaire + doc=nominatif explicite → 200 octets (identique au défaut)', async () => {
     exigerInternaute.mockResolvedValue({ internauteId: 'A' });
-    resoudrePdfCertificat.mockResolvedValue({ statut: 'ok', cle: 'k.pdf' });
-    urlSignee.mockResolvedValue('https://minio.local/signed?x=2');
+    resoudrePdfCertificat.mockResolvedValue({ statut: 'ok', cle: 'k.pdf', numero: 'SAVV-2026-000023' });
+    recuperer.mockResolvedValue(Buffer.from('%PDF-nominatif'));
     const res = await GET(req('nominatif'), ctx('5'));
-    expect(res.status).toBe(302);
-    expect(res.headers.get('Location')).toBe('https://minio.local/signed?x=2');
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Content-Type')).toBe('application/pdf');
+    expect(res.headers.get('Location')).toBeNull();
+    expect(new Uint8Array(await res.arrayBuffer()).byteLength).toBeGreaterThan(0);
+  });
+
+  it('nominatif : document ABSENT du stockage → 503 propre, sans clé ni trace technique', async () => {
+    exigerInternaute.mockResolvedValue({ internauteId: 'A' });
+    resoudrePdfCertificat.mockResolvedValue({ statut: 'ok', cle: 'internautes/A/certificats/x.pdf', numero: 'SAVV-2026-000023' });
+    // Message RÉEL de `recuperer` : il contient la clé de stockage — elle ne doit jamais atteindre le client.
+    recuperer.mockRejectedValue(new Error('objet introuvable ou vide : internautes/A/certificats/x.pdf'));
+    const erreur = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await GET(req(), ctx('5'));
+    expect(res.status).toBe(503);
+    const corps = await res.text();
+    expect(corps).not.toMatch(/internautes\/|\.pdf|objet introuvable/);
+    // Journal serveur : le NOM de l'erreur seul, jamais son message (qui porte la clé).
+    expect(erreur).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(erreur.mock.calls[0])).not.toMatch(/internautes\/|objet introuvable/);
+    erreur.mockRestore();
+  });
+
+  it('AUCUNE URL de stockage dans une réponse de l’espace client, pour les TROIS documents', async () => {
+    exigerInternaute.mockResolvedValue({ internauteId: 'A' });
+    resoudrePdfCertificat.mockResolvedValue({ statut: 'ok', cle: 'internautes/A/certificats/x.pdf', numero: 'SAVV-2026-000023' });
+    recuperer.mockResolvedValue(Buffer.from('%PDF-nominatif'));
+    genererBufferCertificat.mockResolvedValue(Buffer.from('%PDF-anonyme'));
+    resoudreVisuelCertificat.mockResolvedValue(visuel);
+    genererVisuelPng.mockResolvedValue(Buffer.from('\x89PNG'));
+    for (const doc of [undefined, 'nominatif', 'anonyme', 'visuel']) {
+      const res = await GET(req(doc), ctx('5'));
+      expect(res.status).toBe(200);
+      expect(res.headers.get('Location')).toBeNull(); // aucune redirection
+      expect([...res.headers.values()].join(' ')).not.toMatch(/X-Amz-|localhost:9000|s3|minio/i);
+      expect(res.headers.get('Cache-Control')).toBe('private, no-store'); // jamais mis en cache par un intermédiaire
+    }
   });
 
   it('propriétaire + doc=anonyme → 200 octets application/pdf, nom de fichier = NUMÉRO imprimé', async () => {
@@ -122,12 +163,12 @@ describe('GET .../certificats/[id]/telecharger — trois documents', () => {
     const res = await GET(req('anonyme'), ctx('5'));
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('application/pdf');
-    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
     expect(res.headers.get('Content-Disposition')).toContain('inline');
     expect(res.headers.get('Content-Disposition')).toContain('Certificat-anonymise-SAVV-2026-000016.pdf'); // numéro, pas l'id interne
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array(Buffer.from('%PDF-anonyme')));
     expect(genererBufferCertificat).toHaveBeenCalledWith(5, { anonymise: true, typeDocument: 'anonyme' });
-    expect(urlSignee).not.toHaveBeenCalled();
+    expect(recuperer).not.toHaveBeenCalled();
   });
 
   it('propriétaire + doc=visuel → 200 octets image/png (helper re-scopé par internaute)', async () => {
@@ -138,7 +179,7 @@ describe('GET .../certificats/[id]/telecharger — trois documents', () => {
     const res = await GET(req('visuel'), ctx('5'));
     expect(res.status).toBe(200);
     expect(res.headers.get('Content-Type')).toBe('image/png');
-    expect(res.headers.get('Cache-Control')).toBe('no-store');
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
     expect(res.headers.get('Content-Disposition')).toContain('Visuel-annonce-REF9ABC.png');
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(new Uint8Array(Buffer.from('\x89PNG-visuel')));
     expect(resoudreVisuelCertificat).toHaveBeenCalledWith('A', 5); // SECONDE barrière scopée par l'id de SESSION
@@ -200,7 +241,7 @@ describe('GET .../certificats/[id]/telecharger — trois documents', () => {
     resoudrePdfCertificat.mockResolvedValue({ statut: 'pdf_absent' });
     const res = await GET(req('nominatif'), ctx('5'));
     expect(res.status).toBe(409);
-    expect(urlSignee).not.toHaveBeenCalled();
+    expect(recuperer).not.toHaveBeenCalled();
   });
 
   it('pdf_absent + doc=anonyme → 200 avec octets + numéro dans le nom (indépendant du PDF stocké)', async () => {
