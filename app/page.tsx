@@ -2509,9 +2509,15 @@ export default function Home() {
       });
       // On vérifie le statut AVANT de lire le corps (une réponse d'erreur peut ne pas être du JSON).
       if (!r.ok) {
-        if ([429, 502, 503, 504, 524, 530].includes(r.status)) {
-          // Saturation / indisponibilité transitoire du service → « service lent ».
-          setAnalyseErreur("Le service d'analyse met trop de temps à répondre, il est peut-être très sollicité en ce moment. Merci de patienter quelques secondes, puis de relancer l'analyse.");
+        if (r.status === 429) {
+          // SATURATION déclarée par le service lui-même : la même analyse aboutira telle quelle un
+          // instant plus tard. Distinct d'un lien rompu — on demande d'attendre, pas de vérifier le réseau.
+          setAnalyseErreur("Le service d'analyse est très sollicité en ce moment. Merci de patienter quelques secondes, puis de relancer l'analyse.");
+        } else if ([502, 503, 504, 524, 530].includes(r.status)) {
+          // LIEN ROMPU entre le navigateur et le service (passerelle/tunnel) : le calcul a pu aboutir
+          // côté serveur sans que la réponse revienne. 524/530 sont propres à Cloudflare ; 503 est aussi
+          // rendu par /api/analyse quand le plafond d'attente de la base est atteint.
+          setAnalyseErreur("La connexion avec le service d'analyse a été interrompue. Vérifiez votre connexion, puis relancez l'analyse.");
         } else {
           // Autre statut : tenter de lire un JSON d'erreur { erreur } de façon SÛRE (réponse peut être non-JSON).
           let erreurServeur: string | null = null;
@@ -2537,7 +2543,9 @@ export default function Home() {
     } catch (e) {
       console.error("[front] analyse catch:", (e as Error)?.name, (e as Error)?.message);
       if ((e as Error)?.name === "AbortError") {
-        setAnalyseErreur("Le service d'analyse met trop de temps à répondre, il est peut-être très sollicité en ce moment. Merci de patienter quelques secondes, puis de relancer l'analyse.");
+        // DÉLAI DÉPASSÉ : le délai client de 60 s (ci-dessus) a expiré sans qu'aucune réponse n'arrive.
+        // Ni saturation déclarée, ni coupure vue par le navigateur — on ne peut rien affirmer de plus.
+        setAnalyseErreur("Le service d'analyse n'a pas répondu à temps. Merci de relancer l'analyse.");
       } else {
         setAnalyseErreur("Impossible de joindre le service d'analyse pour le moment. Vérifiez votre connexion, puis réessayez.");
       }
