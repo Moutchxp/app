@@ -83,9 +83,13 @@ describe('le repli dit EXACTEMENT ce que dit la migration 228', () => {
     expect(new RegExp(`conservation_carte_close_mois integer\\s+NOT NULL DEFAULT ${CONFIG_GESTION_DEFAUT.conservationCarteCloseMois}\\b`).test(sql)).toBe(true);
   });
 
-  it('la liste des types acceptés, type par type', () => {
-    for (const t of CONFIG_GESTION_DEFAUT.typesPiecesAcceptes) expect(sql).toContain(t);
-    expect(sql).toContain(`DEFAULT '${CONFIG_GESTION_DEFAUT.typesPiecesAcceptes.join(',')}'`);
+  it('la liste des types acceptés — ceux que 228 a SEMÉS (les deux types calendrier viennent de la 231)', () => {
+    const semesPar228 = CONFIG_GESTION_DEFAUT.typesPiecesAcceptes.filter((t) => t !== 'text/calendar' && t !== 'application/ics');
+    for (const t of semesPar228) expect(sql).toContain(t);
+    expect(sql).toContain(`DEFAULT '${semesPar228.join(',')}'`);
+    // …et la 231 ajoute les deux autres à la suite, sans écraser la liste.
+    const sql231 = readFileSync('db/migrations/231_gestion_uid_et_pieces_calendrier.sql', 'utf8');
+    for (const t of ['text/calendar', 'application/ics']) expect(sql231).toContain(`|| ',${t}'`);
   });
 });
 

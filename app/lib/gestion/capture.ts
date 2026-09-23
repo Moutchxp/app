@@ -53,6 +53,8 @@ export interface MessageBrut {
 
 /** Ce qui sera écrit pour UN message. Construit par la capture, écrit par le dépôt — la frontière est nette. */
 export interface MessageAEcrire {
+  /** LOT 3-quinquies — UID du message dans le dossier. Mémorisé pour qu'une passe suivante le reconnaisse SANS rien lire. */
+  uidImap: number;
   messageId: string;
   inReplyTo: string | null;
   referencesBrut: string | null;
@@ -104,8 +106,18 @@ export interface DepsCapture {
   // ── Base ──
   /** Message-ID déjà en base : le dédoublonnage est ainsi GRATUIT, et toute reprise de rattrapage est sans danger. */
   connus(): Promise<Set<string>>;
-  /** Fin de la dernière passe COMPLÈTE réussie (curseur), et date du message le plus récent déjà capturé. */
-  bornes(): Promise<{ curseurComplet: Date | null; dernierCapture: Date | null }>;
+  /**
+   * LOT 3-quinquies — fin de la dernière passe qui a RÉELLEMENT couvert toute la fenêtre demandée. `depuisRattrapage` est
+   * passé pour que le repo n'accepte QUE les passes dont la fenêtre remontait au moins aussi loin : une passe complète sur
+   * une fenêtre étroite ne certifie pas une fenêtre large.
+   */
+  bornes(depuisRattrapage: Date): Promise<{ curseurComplet: Date | null }>;
+  /**
+   * LOT 3-quinquies — écarte les UID DÉJÀ CONNUS sans rien télécharger de leur contenu (UID mémorisés, à défaut enveloppes
+   * en un aller-retour). C'est CE filtre qui fait avancer un rattrapage : chaque passe prend les plus anciens NON VUS.
+   * Absente → aucun filtre (comportement dégradé, mais le dédoublonnage protège toujours de l'écriture en double).
+   */
+  filtrerNonVus?(uids: number[]): Promise<number[]>;
   resoudreFil(identifiants: string[], cleRacine: string, objet: string | null): Promise<FilResolu>;
   ecrire(m: MessageAEcrire, filId: number): Promise<number | null>; // null = déjà écrit entre-temps (course)
   deposerPieces(messageId: number, pieces: PieceBrute[], config: ConfigGestion): Promise<{ deposees: number; nonDeposees: number }>;
@@ -141,6 +153,9 @@ export interface RapportCapture {
   piecesNonDeposees: number;
   echecsLecture: number;
   parRegle: Record<string, number>;
+  // LOT 3-quinquies — état du RATTRAPAGE.
+  dejaVusEcartes: number;   // UID écartés AVANT tout téléchargement (déjà connus)
+  resteInconnus: number;    // messages de la fenêtre encore JAMAIS lus après cette passe (0 = rattrapage terminé)
   // LOT 3-quater — REPRISES et MESURES.
   reconnexions: number;
   dureeTotaleMs: number;
@@ -186,27 +201,28 @@ export function delaiReconnexion(tentative: number, baseSecondes: number): numbe
 export const MARGE_JOURS = 3;
 
 /**
- * DÉBUT DE LA FENÊTRE — la pièce qui garantit qu'un rattrapage de 90 jours AVANCE passe après passe, sans jamais boucler.
+ * DÉBUT DE LA FENÊTRE.
  *
- *   · aucun repère (premier run) → `maintenant − rattrapage_jours` : le rattrapage complet ;
- *   · sinon → le PLUS RÉCENT des deux repères, moins la marge :
- *       — `curseurComplet` (fin de la dernière passe COMPLÈTE) avance quand tout a été vu, y compris si la boîte est
- *         restée muette pendant six mois — sans lui, la fenêtre resterait figée six mois en arrière et chaque passe
- *         re-téléchargerait tout ;
- *       — `dernierCapture` (message le plus récent déjà capturé) avance quand les passes sont TRONQUÉES par le plafond,
- *         cas où le curseur, lui, reste gelé exprès. C'est ce repère-là qui fait progresser le rattrapage.
- *   Ensemble, ils couvrent les deux régimes : l'un ou l'autre bouge toujours. PUR.
+ * 🔴 LOT 3-quinquies — CE CALCUL A ÉTÉ CORRIGÉ APRÈS UN ABANDON D'HISTORIQUE MESURÉ. Il reposait aussi sur la date du
+ * DERNIER MESSAGE CAPTURÉ, ce qui suppose que l'ordre des UID suit l'ordre des dates. C'EST FAUX : dans une boîte où
+ * l'historique a été importé en bloc, un message de juin peut porter un UID plus grand qu'un message de septembre. La
+ * passe lisait alors les plus petits UID — des messages de SEPTEMBRE —, la date du dernier capturé faisait bondir la
+ * fenêtre au 11 septembre, et ~4 700 messages de fin juin à début septembre sortaient de la fenêtre POUR TOUJOURS.
+ *
+ * La règle est désormais simple et sans supposition : la fenêtre NE BOUGE QUE lorsqu'une passe a RÉELLEMENT couvert
+ * toute la fenêtre demandée (passe non tronquée ET partie d'au moins aussi loin — c'est le repo qui le vérifie). Tant
+ * que le rattrapage est inachevé, le départ reste `maintenant − rattrapage_jours`. La progression, elle, ne vient plus
+ * de la fenêtre mais de la SÉLECTION : chaque passe prend les plus anciens UID NON ENCORE VUS (cf. `filtrerNonVus`).
+ * AUCUNE supposition « UID croissant = date croissante » ne subsiste nulle part. PUR.
  */
 export function fenetreDepuis(
-  bornes: { curseurComplet: Date | null; dernierCapture: Date | null },
+  bornes: { curseurComplet: Date | null },
   config: ConfigGestion,
   maintenant: Date,
 ): Date {
-  const reperes = [bornes.curseurComplet, bornes.dernierCapture].filter((d): d is Date => d instanceof Date);
   const rattrapage = new Date(maintenant.getTime() - config.rattrapageJours * 86_400_000);
-  if (reperes.length === 0) return rattrapage;
-  const plusRecent = new Date(Math.max(...reperes.map((d) => d.getTime())));
-  const avecMarge = new Date(plusRecent.getTime() - MARGE_JOURS * 86_400_000);
+  if (bornes.curseurComplet === null) return rattrapage; // rattrapage inachevé : on repart du début, toujours
+  const avecMarge = new Date(bornes.curseurComplet.getTime() - MARGE_JOURS * 86_400_000);
   // Jamais AVANT le rattrapage configuré : réduire la profondeur en base ne doit pas rouvrir un backlog déjà soldé.
   return avecMarge.getTime() > rattrapage.getTime() ? avecMarge : rattrapage;
 }
@@ -236,6 +252,7 @@ export function preparerMessage(m: MessageBrut, config: ConfigGestion, regles: r
   const indice = indiceAutomatisme(m.deAdresse, m.entetes);
   const exclusion = appliquerRegles(regles, { sens, deAdresse: m.deAdresse, objet: m.objet, entetes: m.entetes });
   return {
+    uidImap: m.uid,
     messageId: m.messageId, inReplyTo: m.inReplyTo,
     referencesBrut: m.references.length > 0 ? m.references.join(' ') : null,
     sens, deAdresse: m.deAdresse, deNom: m.deNom, destinataires: m.destinataires, nbDestinataires: m.nbDestinataires,
@@ -258,7 +275,8 @@ export function preparerMessage(m: MessageBrut, config: ConfigGestion, regles: r
 export async function capturer(deps: DepsCapture, appliquer = false): Promise<RapportCapture> {
   const config = await deps.config();
   const regles = await deps.reglesActives();
-  const bornes = await deps.bornes();
+  const depuisRattrapage = new Date(deps.maintenant().getTime() - config.rattrapageJours * 86_400_000);
+  const bornes = await deps.bornes(depuisRattrapage);
   const depuis = fenetreDepuis(bornes, config, deps.maintenant());
   const connus = await deps.connus();
 
@@ -266,6 +284,7 @@ export async function capturer(deps: DepsCapture, appliquer = false): Promise<Ra
     mode: appliquer ? 'applique' : 'simulation', dossier: config.dossierImap, depuis: depuis.toISOString(),
     uidsServeur: 0, plafondAtteint: false, vus: 0, dejaConnus: 0, captures: 0, recus: 0, envoyes: 0, exclus: 0,
     filsCrees: 0, filsFusionnes: 0, piecesDeposees: 0, piecesNonDeposees: 0, echecsLecture: 0, parRegle: {},
+    dejaVusEcartes: 0, resteInconnus: 0,
     reconnexions: 0, dureeTotaleMs: 0, dureeMedianeMs: 0, dureeMaxMs: 0, octetsLus: 0, lesPlusLents: [],
   };
 
@@ -283,11 +302,18 @@ export async function capturer(deps: DepsCapture, appliquer = false): Promise<Ra
     deps.journal?.('recherche des messages de la fenêtre…');
     const uids = [...await deps.chercherDepuis(depuis)].sort((a, b) => a - b);
     r.uidsServeur = uids.length;
+    // 🔴 LOT 3-quinquies — ON ÉCARTE LES DÉJÀ-CONNUS **AVANT** DE TÉLÉCHARGER. C'est ce filtre, et non la fenêtre, qui fait
+    //   AVANCER le rattrapage : chaque passe prend les plus anciens UID NON ENCORE VUS, donc des messages nouveaux à chaque
+    //   fois, quelle que soit la relation entre UID et dates. Un déjà-connu ne coûte alors que son enveloppe — souvent même
+    //   rien du tout, quand son UID est déjà mémorisé.
+    const nonVus = deps.filtrerNonVus ? await deps.filtrerNonVus(uids) : uids;
+    r.dejaVusEcartes = uids.length - nonVus.length;
     // PLAFOND : on garde les plus ANCIENS, jamais les plus récents. Jeter les vieux les perdrait pour toujours (la
     //   fenêtre ne redescend jamais) ; jeter les récents ne coûte qu'une passe de plus — ils reviendront.
-    const aLire = uids.length > config.plafondParPasse ? uids.slice(0, config.plafondParPasse) : uids;
-    r.plafondAtteint = aLire.length < uids.length;
-    deps.journal?.(`${uids.length} message(s) dans la fenêtre ; ${aLire.length} à lire dans cette passe${r.plafondAtteint ? ` (plafond ${config.plafondParPasse})` : ''}`);
+    const aLire = nonVus.length > config.plafondParPasse ? nonVus.slice(0, config.plafondParPasse) : nonVus;
+    r.plafondAtteint = aLire.length < nonVus.length;
+    r.resteInconnus = nonVus.length - aLire.length;
+    deps.journal?.(`${uids.length} message(s) dans la fenêtre · ${r.dejaVusEcartes} déjà connu(s) écarté(s) sans téléchargement · ${aLire.length} à lire${r.plafondAtteint ? ` (plafond ${config.plafondParPasse}) — ${r.resteInconnus} encore jamais lu(s)` : ''}`);
 
     for (const uid of aLire) {
       r.vus += 1;

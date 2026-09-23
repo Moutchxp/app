@@ -15,6 +15,7 @@ const rapport = (o: Partial<RapportCapture> = {}): RapportCapture => ({
   uidsServeur: 10, plafondAtteint: false, vus: 10, dejaConnus: 2, captures: 8, recus: 5, envoyes: 3, exclus: 4,
   filsCrees: 6, filsFusionnes: 1, piecesDeposees: 2, piecesNonDeposees: 1, echecsLecture: 0,
   parRegle: { 'envoi de logiciel': 3, 'courrier interne': 1 },
+  dejaVusEcartes: 0, resteInconnus: 0,
   reconnexions: 0, dureeTotaleMs: 0, dureeMedianeMs: 0, dureeMaxMs: 0, octetsLus: 0, lesPlusLents: [], ...o,
 });
 const issue = (o: Partial<IssueReleve> = {}): IssueReleve =>
@@ -229,5 +230,25 @@ describe('LOT 3-quater — le bloc de MESURE, c’est-à-dire ce qui manquait au
     expect(poids(800)).toBe('800 o');
     expect(poids(2048)).toBe('2 Ko');
     expect(poids(14_600_000)).toBe('13.9 Mo');
+  });
+});
+
+describe('LOT 3-quinquies — l’état du RATTRAPAGE est dit en clair', () => {
+  it('rattrapage en cours → combien de messages n’ont JAMAIS été lus, et quoi faire', () => {
+    const t = imprimerIssue(issue({ rapport: rapport({ resteInconnus: 4711 }) }), true).join('\n');
+    expect(t).toContain('RATTRAPAGE EN COURS : 4711 message(s) de la fenêtre encore JAMAIS lus');
+    expect(t).toContain('Relancez la même commande');
+  });
+
+  it('rattrapage terminé → on le dit, pour qu’on sache s’arrêter de relancer', () => {
+    const t = imprimerIssue(issue({ rapport: rapport({ resteInconnus: 0 }) }), true).join('\n');
+    expect(t).toContain('RATTRAPAGE TERMINÉ');
+    expect(t).not.toContain('RATTRAPAGE EN COURS');
+  });
+
+  it('les déjà-lus écartés sans téléchargement sont comptés à part des « déjà connus »', () => {
+    const t = imprimerIssue(issue({ rapport: rapport({ dejaVusEcartes: 4800, dejaConnus: 0 }) }), true).join('\n');
+    expect(t).toContain('déjà lus, écartés sans lecture : 4800');
+    expect(t).toContain('déjà connus (ignorés)       : 0');
   });
 });

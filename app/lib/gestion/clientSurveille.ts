@@ -39,6 +39,11 @@ export interface ClientDossier {
     pieces: { nomFichier: string; typeMime: string | null; tailleOctets: number | null }[];
     tailleOctets: number;
   }>;
+  /** LOT 3-quinquies — Message-ID de plusieurs UID en UN aller-retour (enveloppes seules). Sert à écarter les déjà-connus
+   *  AVANT de télécharger quoi que ce soit. Optionnelle : absente, on ne filtre pas, on se contente du dédoublonnage. */
+  messageIdsDesUids?(uids: number[]): Promise<Map<number, string>>;
+  /** LOT 3-quinquies — UIDVALIDITY du dossier ouvert. Un UID mémorisé ne vaut QUE sous elle. */
+  uidValidite?(): string | null;
   fermer(): Promise<void>;
 }
 
@@ -103,6 +108,11 @@ export function surveiller(client: ClientDossier, etat: EtatConnexion): ClientDo
     ...(client.telechargerEntetes
       ? { telechargerEntetes: (uid: number) => garde(`la lecture des en-têtes du message ${uid}`, () => client.telechargerEntetes!(uid)) }
       : {}),
+    ...(client.messageIdsDesUids
+      ? { messageIdsDesUids: (uids: number[]) => garde(`le relevé des identifiants de ${uids.length} message(s)`, () => client.messageIdsDesUids!(uids)) }
+      : {}),
+    // L'UIDVALIDITY est une LECTURE LOCALE (mémorisée à l'ouverture), pas un appel réseau : aucune garde à poser.
+    ...(client.uidValidite ? { uidValidite: () => client.uidValidite!() } : {}),
     // La FERMETURE ne garde rien : refermer une connexion déjà tombée doit rester silencieux, sinon l'erreur de
     //   fermeture masquerait la vraie cause dans le `finally` de la passe.
     fermer: () => client.fermer(),

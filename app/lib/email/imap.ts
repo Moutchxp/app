@@ -302,6 +302,8 @@ export function piecesDeStructure(noeud: unknown): PieceLegere[] {
 
 export function creerClientApprofondi(compte: CompteImap, surErreur?: (e: Error) => void): ClientApprofondi & {
   telechargerEntetes(uid: number): Promise<MessageLeger>;
+  messageIdsDesUids(uids: number[]): Promise<Map<number, string>>;
+  uidValidite(): string | null;
 } {
   const client = new ImapFlow({
     host: compte.host,
@@ -311,6 +313,7 @@ export function creerClientApprofondi(compte: CompteImap, surErreur?: (e: Error)
     logger: false,
   });
   if (surErreur) client.on('error', surErreur); // opt-in : sans cet argument, rien n'est attaché (cf. en-tête)
+  let uidValidity: string | null = null; // renseignée à l'ouverture d'un dossier (cf. ouvrirBoite)
 
   return {
     async ouvrir(): Promise<void> {
@@ -322,7 +325,29 @@ export function creerClientApprofondi(compte: CompteImap, surErreur?: (e: Error)
       return boites.filter((b) => !b.flags.has('\\Noselect')).map((b) => b.path);
     },
     async ouvrirBoite(chemin: string): Promise<void> {
-      await client.mailboxOpen(chemin, { readOnly: true }); // EXAMINE : aucune modification de la boîte
+      const boite = await client.mailboxOpen(chemin, { readOnly: true }); // EXAMINE : aucune modification de la boîte
+      // LOT 3-quinquies — UIDVALIDITY du dossier, mémorisée à l'ouverture. Un UID n'a de sens QUE sous elle : si le serveur
+      //   la change (dossier recréé, migration de boîte), les UID connus deviennent caducs et doivent être ignorés en bloc.
+      uidValidity = boite?.uidValidity !== undefined ? String(boite.uidValidity) : null;
+    },
+    /** UIDVALIDITY du dossier ouvert, en décimal (les UID ne valent que sous elle). `null` tant qu'aucun dossier n'est ouvert. */
+    uidValidite(): string | null {
+      return uidValidity;
+    },
+    /**
+     * LOT 3-quinquies — Message-ID de plusieurs UID EN UN SEUL ALLER-RETOUR (fetch d'ENVELOPPE, jamais le corps). Sert à
+     * écarter les messages DÉJÀ CONNUS avant de décider quoi télécharger : un déjà-connu ne doit coûter que son enveloppe,
+     * jamais son contenu. Même mécanisme que `creerClientBoite.messageIds` (module Permis), ici sur un dossier quelconque.
+     * Lecture stricte (aucun flag posé). Un UID sans Message-ID est absent de la Map.
+     */
+    async messageIdsDesUids(uids: number[]): Promise<Map<number, string>> {
+      const map = new Map<number, string>();
+      if (uids.length === 0) return map;
+      for await (const msg of client.fetch(uids.join(','), { envelope: true }, { uid: true })) {
+        const mid = msg.envelope?.messageId;
+        if (typeof mid === 'string' && mid.trim() !== '') map.set(msg.uid, mid);
+      }
+      return map;
     },
     /**
      * LOT 3-quater — LECTURE LÉGÈRE : en-têtes, structure et taille. Le corps et les pièces ne sont PAS téléchargés, et

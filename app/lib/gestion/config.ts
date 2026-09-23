@@ -35,6 +35,9 @@ export const CONFIG_GESTION_DEFAUT: ConfigGestion = {
   typesPiecesAcceptes: [
     'application/pdf', 'image/jpeg', 'image/png', 'image/gif', 'video/mp4',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/heic',
+    // LOT 3-quinquies (migration 231) — invitations de rendez-vous : une invitation est une pièce comme une autre, et la
+    //   refuser laissait une ligne « type non autorisé » là où il y avait un rendez-vous.
+    'text/calendar', 'application/ics',
   ],
   pieceTailleMaxOctets: 25 * 1024 * 1024,
   conservationCarteCloseMois: 60,

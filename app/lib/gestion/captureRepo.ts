@@ -33,17 +33,61 @@ export async function lireConnus(): Promise<Set<string>> {
 }
 
 /**
- * Les DEUX repères de la fenêtre (cf. `fenetreDepuis`) :
- *   · `curseurComplet` = fin de la dernière passe RÉUSSIE ET COMPLÈTE. `plafond_atteint IS NOT TRUE` est essentiel : une
- *     passe tronquée a délibérément laissé des messages de côté, elle n'a donc rien « certifié vu » ;
- *   · `dernierCapture` = date du message le plus récent déjà capturé — c'est LUI qui fait avancer un rattrapage dont les
- *     passes sont tronquées, puisque le curseur, lui, reste gelé exprès.
+ * LE CURSEUR — fin de la dernière passe qui a RÉELLEMENT couvert la fenêtre demandée. TROIS conditions, et chacune a été
+ * payée par un incident :
+ *   · `resultat = 'ok'` — une passe en échec ne certifie rien ;
+ *   · `plafond_atteint IS NOT TRUE` — une passe tronquée a délibérément laissé des messages de côté ;
+ *   · `fenetre_depuis <= $1` — 🔴 LOT 3-quinquies : une passe COMPLÈTE sur une fenêtre ÉTROITE ne certifie pas une fenêtre
+ *     LARGE. Sans cette condition, les passes déjà enregistrées avec une fenêtre faussement avancée (11/09, 18/09)
+ *     continueraient de faire foi et l'historique de juin-août resterait perdu. Avec elle, le rattrapage se REPREND tout
+ *     seul : aucune ligne d'historique à réécrire, aucune commande spéciale à lancer.
  */
-export async function lireBornes(): Promise<{ curseurComplet: Date | null; dernierCapture: Date | null }> {
-  const { rows: c } = await query<{ t: Date | null }>(
-    `SELECT max(termine_le) AS t FROM gestion_releve_run WHERE resultat = 'ok' AND plafond_atteint IS NOT TRUE`);
-  const { rows: d } = await query<{ t: Date | null }>(`SELECT max(recu_le) AS t FROM gestion_message`);
-  return { curseurComplet: c[0]?.t ?? null, dernierCapture: d[0]?.t ?? null };
+export async function lireBornes(depuisRattrapage: Date): Promise<{ curseurComplet: Date | null }> {
+  const { rows } = await query<{ t: Date | null }>(
+    `SELECT max(termine_le) AS t FROM gestion_releve_run
+      WHERE resultat = 'ok' AND plafond_atteint IS NOT TRUE
+        AND fenetre_depuis IS NOT NULL AND fenetre_depuis <= $1`, [depuisRattrapage]);
+  return { curseurComplet: rows[0]?.t ?? null };
+}
+
+/**
+ * LOT 3-quinquies — ÉCARTE les UID déjà connus, SANS télécharger le moindre contenu. Deux étages, du moins cher au plus cher :
+ *   ① les UID MÉMORISÉS (migration 231) sous la MÊME UIDVALIDITY : coût ZÉRO côté serveur. Une UIDVALIDITY différente
+ *      (dossier recréé, boîte migrée) rend les UID caducs → on les ignore en bloc plutôt que de se tromper ;
+ *   ② pour le reste, les Message-ID en UN aller-retour d'enveloppes : un déjà-connu coûte son enveloppe, jamais son contenu.
+ * Sans la migration 231 (colonne absente) ni fetch groupé, la fonction rend la liste telle quelle : le dédoublonnage par
+ * Message-ID protège toujours de l'écriture en double, seul le coût de lecture n'est pas économisé.
+ */
+export async function filtrerNonVus(client: ClientDossier, uids: number[]): Promise<number[]> {
+  if (uids.length === 0) return [];
+  let restants = uids;
+
+  // ① UID mémorisés, sous la même UIDVALIDITY.
+  const validite = client.uidValidite?.() ?? null;
+  if (validite !== null) {
+    try {
+      const { rows } = await query<{ uid_imap: string }>(
+        `SELECT uid_imap FROM gestion_message WHERE uid_validity = $1 AND uid_imap = ANY($2::bigint[])`,
+        [validite, uids]);
+      const connus = new Set(rows.map((r) => Number(r.uid_imap)));
+      if (connus.size > 0) restants = restants.filter((u) => !connus.has(u));
+    } catch (e) {
+      if ((e as { code?: string }).code !== '42703') throw e; // colonne absente = migration 231 en attente ; tout le reste remonte
+    }
+  }
+
+  // ② Message-ID en un aller-retour, pour ce qui reste.
+  if (client.messageIdsDesUids && restants.length > 0) {
+    const parUid = await client.messageIdsDesUids(restants);
+    const ids = [...new Set([...parUid.values()].map((m) => m.trim()).filter((m) => m !== ''))];
+    if (ids.length > 0) {
+      const { rows } = await query<{ message_id: string }>(
+        `SELECT message_id FROM gestion_message WHERE message_id = ANY($1)`, [ids]);
+      const connus = new Set(rows.map((r) => r.message_id));
+      restants = restants.filter((u) => { const mid = parUid.get(u)?.trim(); return mid === undefined || mid === '' || !connus.has(mid); });
+    }
+  }
+  return restants;
 }
 
 /**
@@ -105,21 +149,32 @@ export async function resoudreFil(identifiants: string[], cleRacine: string, obj
  * « sans suite » le RAMÈNE dans la file (règle d'Arno : rien ne reste écarté pour toujours), et le fait est journalisé —
  * une décision humaine vient d'être défaite par le système, ça ne peut pas rester muet.
  */
-export async function ecrireMessage(m: MessageAEcrire, filId: number): Promise<number | null> {
+export async function ecrireMessage(m: MessageAEcrire, filId: number, uidValidite: string | null = null): Promise<number | null> {
   return withTransaction(async (q) => {
-    const { rows } = await q<{ id: number }>(
-      `INSERT INTO gestion_message
-         (fil_id, message_id, in_reply_to, references_brut, sens, de_adresse, de_nom, destinataires, nb_destinataires,
+    const colonnes = `fil_id, message_id, in_reply_to, references_brut, sens, de_adresse, de_nom, destinataires, nb_destinataires,
           objet, objet_gabarit, recu_le, corps_texte, corps_html, automatique, signaux_automatisme,
-          exclu_le, exclu_par_regle_id, exclu_motif)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
-               CASE WHEN $17::bigint IS NULL THEN NULL ELSE now() END, $17::bigint, $18)
-       ON CONFLICT (message_id) DO NOTHING
-       RETURNING id::int AS id`,
-      [filId, m.messageId, m.inReplyTo, m.referencesBrut, m.sens, m.deAdresse, m.deNom, m.destinataires, m.nbDestinataires,
+          exclu_le, exclu_par_regle_id, exclu_motif`;
+    const valeurs = `$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
+               CASE WHEN $17::bigint IS NULL THEN NULL ELSE now() END, $17::bigint, $18`;
+    const params = [filId, m.messageId, m.inReplyTo, m.referencesBrut, m.sens, m.deAdresse, m.deNom, m.destinataires, m.nbDestinataires,
        m.objet, m.objetGabarit, m.recuLe, m.corpsTexte, m.corpsHtml, m.automatique, m.signauxAutomatisme,
-       m.exclusion?.regleId ?? null, m.exclusion?.motif ?? null],
-    );
+       m.exclusion?.regleId ?? null, m.exclusion?.motif ?? null];
+    // LOT 3-quinquies — on MÉMORISE l'UID et son UIDVALIDITY : la passe suivante reconnaîtra ce message sans rien lire.
+    //   Colonnes absentes (migration 231 en attente) → PostgreSQL répond 42703 et on réécrit sans elles : la relève
+    //   fonctionne exactement comme avant, elle paie seulement une enveloppe par message déjà connu.
+    let rows: { id: number }[];
+    try {
+      ({ rows } = await q<{ id: number }>(
+        `INSERT INTO gestion_message (${colonnes}, uid_imap, uid_validity)
+         VALUES (${valeurs}, $19::bigint, $20::bigint)
+         ON CONFLICT (message_id) DO NOTHING RETURNING id::int AS id`,
+        [...params, m.uidImap, uidValidite]));
+    } catch (e) {
+      if ((e as { code?: string }).code !== '42703') throw e;
+      ({ rows } = await q<{ id: number }>(
+        `INSERT INTO gestion_message (${colonnes}) VALUES (${valeurs})
+         ON CONFLICT (message_id) DO NOTHING RETURNING id::int AS id`, params));
+    }
     if (!rows[0]) return null; // déjà écrit : aucun doublon, aucune erreur
 
     if (m.exclusion === null) {
@@ -278,6 +333,7 @@ export function depsReellesCapture(clientCourant: () => ClientDossier): DepsCapt
       await client.ouvrirBoite(chemin); // readOnly (EXAMINE) : imposé par imap.ts, jamais un choix d'ici
     },
     chercherDepuis: (depuis) => clientCourant().chercher({ depuis }),
+    filtrerNonVus: (uids) => filtrerNonVus(clientCourant(), uids),
     telecharger: async (uid) => versMessageBrut(await clientCourant().telechargerMessage(uid)),
     telechargerLeger: async (uid) => {
       const client = clientCourant();
@@ -288,7 +344,7 @@ export function depsReellesCapture(clientCourant: () => ClientDossier): DepsCapt
     connus: lireConnus,
     bornes: lireBornes,
     resoudreFil,
-    ecrire: ecrireMessage,
+    ecrire: (m, filId) => ecrireMessage(m, filId, clientCourant().uidValidite?.() ?? null),
     deposerPieces: deposerPiecesMessage,
   };
 }

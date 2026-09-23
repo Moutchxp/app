@@ -298,6 +298,8 @@ const EXTENSIONS_GESTION: Record<string, string> = {
   'application/zip': 'zip',
   'text/plain': 'txt',
   'text/csv': 'csv',
+  'text/calendar': 'ics',   // LOT 3-quinquies — invitation de rendez-vous
+  'application/ics': 'ics',
 };
 
 /** Type MIME NORMALISÉ (minuscules, sans paramètre `; charset=…`) — les deux côtés de la comparaison passent par ici. PUR. */

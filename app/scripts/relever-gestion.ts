@@ -94,6 +94,7 @@ export function imprimerIssue(issue: IssueReleve, appliquer: boolean): string[] 
   l.push(`  dossier                     : ${r.dossier}`);
   l.push(`  fenêtre (depuis)            : ${r.depuis}`);
   l.push(`  UID renvoyés par le serveur : ${r.uidsServeur}${r.plafondAtteint ? `  ⚠ PLAFOND ATTEINT → ${r.uidsServeur - r.vus} message(s) pour la passe suivante` : ''}`);
+  l.push(`  déjà lus, écartés sans lecture : ${r.dejaVusEcartes}`);
   l.push(`  messages lus                : ${r.vus}`);
   l.push(`  déjà connus (ignorés)       : ${r.dejaConnus}`);
   l.push(`  illisibles (ignorés)        : ${r.echecsLecture}`);
@@ -105,6 +106,12 @@ export function imprimerIssue(issue: IssueReleve, appliquer: boolean): string[] 
   l.push(`  fils créés / fusionnés      : ${r.filsCrees} / ${r.filsFusionnes}`);
   l.push(`  pièces déposées / refusées  : ${r.piecesDeposees} / ${r.piecesNonDeposees}`);
   l.push(...imprimerMesures(r));
+  l.push('');
+  // LOT 3-quinquies — L'ÉTAT DU RATTRAPAGE, en une phrase. Sans elle, « plafond atteint » ne disait pas s'il restait dix
+  //   messages ou cinq mille, et rien ne disait quand s'arrêter de relancer.
+  l.push(r.resteInconnus > 0
+    ? `  ▸ RATTRAPAGE EN COURS : ${r.resteInconnus} message(s) de la fenêtre encore JAMAIS lus. Relancez la même commande.`
+    : '  ▸ RATTRAPAGE TERMINÉ : plus aucun message de la fenêtre n’est inconnu.');
   if (!appliquer) {
     l.push('');
     l.push('  ⓘ SIMULATION : rien n’a été écrit. Les fils et les pièces ne sont comptés qu’en mode appliqué.');

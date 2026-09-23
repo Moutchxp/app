@@ -34,7 +34,7 @@ function deps(over: {
   messages?: MessageBrut[];
   regles?: RegleExclusion[];
   connus?: string[];
-  bornes?: { curseurComplet: Date | null; dernierCapture: Date | null };
+  bornes?: { curseurComplet: Date | null };
   config?: ConfigGestion;
   telechargerJette?: (uid: number) => boolean;
 } = {}) {
@@ -59,7 +59,7 @@ function deps(over: {
     },
     fermer: async () => { appels.fermetures += 1; },
     connus: async () => new Set(over.connus ?? []),
-    bornes: async () => over.bornes ?? { curseurComplet: null, dernierCapture: null },
+    bornes: async () => over.bornes ?? { curseurComplet: null },
     resoudreFil: async (_ids, cle) => { appels.fils.push(cle); return { filId: prochainFil++, cree: true, fusionnes: 0 }; },
     ecrire: async (m, filId) => {
       appels.ecrits.push({ messageId: m.messageId, filId, exclu: m.exclusion !== null });
@@ -137,34 +137,41 @@ describe('③ nos propres envois sont CAPTURÉS — la différence avec le modul
   });
 });
 
-describe('④ la fenêtre AVANCE et ne peut pas boucler', () => {
-  it('premier run (aucun repère) → rattrapage complet', () => {
-    const d = fenetreDepuis({ curseurComplet: null, dernierCapture: null }, config, MAINTENANT);
+describe('④ la fenêtre ne peut ni boucler, ni ABANDONNER d’historique', () => {
+  it('rattrapage inachevé (aucune passe complète) → on repart TOUJOURS du début de la fenêtre', () => {
+    const d = fenetreDepuis({ curseurComplet: null }, config, MAINTENANT);
     expect(d.toISOString().slice(0, 10)).toBe('2026-06-25'); // 90 jours en arrière
   });
 
-  it('passes TRONQUÉES (curseur gelé) : c’est le dernier message capturé qui fait avancer', () => {
-    const d1 = fenetreDepuis({ curseurComplet: null, dernierCapture: new Date('2026-07-10T00:00:00Z') }, config, MAINTENANT);
-    const d2 = fenetreDepuis({ curseurComplet: null, dernierCapture: new Date('2026-07-20T00:00:00Z') }, config, MAINTENANT);
-    expect(d2.getTime()).toBeGreaterThan(d1.getTime()); // chaque passe part plus loin : le backlog se vide
+  it('🔴 la date du dernier message capturé n’entre PLUS dans le calcul — c’est elle qui abandonnait l’historique', () => {
+    // Avant correctif, capturer un message du 14/09 faisait bondir la fenêtre au 11/09 et perdait juin-août.
+    const avant = fenetreDepuis({ curseurComplet: null }, config, MAINTENANT);
+    const apres = fenetreDepuis({ curseurComplet: null }, config, MAINTENANT);
+    expect(avant.getTime()).toBe(apres.getTime()); // rien de ce qui a été capturé ne peut déplacer la fenêtre
   });
 
-  it('boîte MUETTE six mois (rien de nouveau) : le curseur, lui, avance — sinon on re-téléchargerait tout', () => {
-    const d = fenetreDepuis(
-      { curseurComplet: new Date('2026-09-23T11:00:00Z'), dernierCapture: new Date('2026-03-01T00:00:00Z') },
-      config, MAINTENANT);
-    expect(d.toISOString().slice(0, 10)).toBe('2026-09-20'); // curseur − 3 j, pas mars
+  it('la fenêtre n’avance QU’APRÈS une passe réellement complète', () => {
+    const d = fenetreDepuis({ curseurComplet: new Date('2026-09-23T11:00:00Z') }, config, MAINTENANT);
+    expect(d.toISOString().slice(0, 10)).toBe('2026-09-20'); // curseur − 3 j
   });
 
   it('la marge de 3 jours couvre la granularité du jour, les deux horloges et les retardataires', () => {
     const repere = new Date('2026-09-20T12:00:00Z');
-    const d = fenetreDepuis({ curseurComplet: repere, dernierCapture: null }, config, MAINTENANT);
+    const d = fenetreDepuis({ curseurComplet: repere }, config, MAINTENANT);
     expect(repere.getTime() - d.getTime()).toBe(MARGE_JOURS * 86_400_000);
   });
 
   it('ne redescend JAMAIS sous le rattrapage configuré (réduire la profondeur ne rouvre pas un backlog soldé)', () => {
-    const d = fenetreDepuis({ curseurComplet: new Date('2020-01-01T00:00:00Z'), dernierCapture: null }, config, MAINTENANT);
+    const d = fenetreDepuis({ curseurComplet: new Date('2020-01-01T00:00:00Z') }, config, MAINTENANT);
     expect(d.toISOString().slice(0, 10)).toBe('2026-06-25');
+  });
+
+  it('le rattrapage est demandé au dépôt AVEC la date de début : une passe étroite ne certifie pas une fenêtre large', async () => {
+    const vues: Date[] = [];
+    const { d } = deps();
+    d.bornes = async (depuisRattrapage) => { vues.push(depuisRattrapage); return { curseurComplet: null }; };
+    await capturer(d, false);
+    expect(vues[0].toISOString().slice(0, 10)).toBe('2026-06-25');
   });
 });
 
@@ -519,5 +526,95 @@ describe('LOT 3-quater — la SIMULATION lit léger, et compte pareil', () => {
       expect(b[cle]).toBe(a[cle]);
     }
     expect(b.parRegle).toEqual(a.parRegle);
+  });
+});
+
+describe('LOT 3-quinquies — UID ≠ DATES : le rattrapage va au bout, et n’abandonne RIEN', () => {
+  /**
+   * La boîte d'Arno : l'historique a été importé en bloc le 15/09, si bien que l'ORDRE DES UID NE SUIT PAS l'ordre des
+   * dates — un message de juin peut porter un UID plus grand qu'un message de septembre. C'est cette boîte-là qui faisait
+   * bondir la fenêtre au 11/09 et abandonnait ~4 700 messages.
+   */
+  function boiteDesordonnee(nb = 20) {
+    // UID 1..10 → SEPTEMBRE (récents) ; UID 11..20 → JUIN-AOÛT (l'historique importé). Ordre volontairement inverse.
+    const messages: MessageBrut[] = [];
+    for (let i = 0; i < nb / 2; i++) messages.push(message({ uid: i + 1, recuLe: new Date(`2026-09-${String(10 + i).padStart(2, '0')}T08:00:00Z`) }));
+    for (let i = 0; i < nb / 2; i++) messages.push(message({ uid: nb / 2 + i + 1, recuLe: new Date(`2026-07-${String(1 + i).padStart(2, '0')}T08:00:00Z`) }));
+    return messages;
+  }
+
+  /** Une base FACTICE partagée entre les passes : ce qui a été écrit reste connu d'une passe à l'autre. */
+  function boucle(messages: MessageBrut[], plafond: number) {
+    const ecrits = new Map<string, MessageBrut>();
+    const uidsConnus = new Set<number>();
+    const passe = async () => {
+      const { d } = deps({ config: { ...config, plafondParPasse: plafond } });
+      d.chercherDepuis = async () => messages.map((m) => m.uid);
+      d.telecharger = async (uid) => messages.find((m) => m.uid === uid)!;
+      d.connus = async () => new Set(ecrits.keys());
+      d.bornes = async () => ({ curseurComplet: null }); // rattrapage inachevé : la fenêtre ne bouge jamais
+      // Le filtre réel écarte les UID déjà mémorisés — ici, ceux déjà écrits.
+      d.filtrerNonVus = async (uids) => uids.filter((u) => !uidsConnus.has(u));
+      d.ecrire = async (m) => {
+        const brut = messages.find((x) => x.messageId === m.messageId)!;
+        ecrits.set(m.messageId, brut); uidsConnus.add(m.uidImap);
+        return ecrits.size;
+      };
+      return capturer(d, true);
+    };
+    return { passe, ecrits, uidsConnus };
+  }
+
+  it('en N passes, TOUS les messages sont capturés — aucun n’est sauté', async () => {
+    const messages = boiteDesordonnee(20);
+    const { passe, ecrits } = boucle(messages, 6);
+    const rapports = [];
+    for (let i = 0; i < 5; i++) rapports.push(await passe());
+    expect(ecrits.size).toBe(20);
+    // …y compris TOUS ceux de juin-juillet, qui étaient précisément ceux qu'on perdait.
+    const vieux = messages.filter((m) => m.recuLe.getUTCMonth() === 6);
+    expect(vieux.every((m) => ecrits.has(m.messageId))).toBe(true);
+  });
+
+  it('chaque passe capture des messages NEUFS : le rattrapage avance, il ne piétine pas', async () => {
+    const { passe } = boucle(boiteDesordonnee(20), 6);
+    const captures = [(await passe()).captures, (await passe()).captures, (await passe()).captures, (await passe()).captures];
+    expect(captures).toEqual([6, 6, 6, 2]); // 6+6+6+2 = 20, et jamais un 0 qui ferait boucler
+  });
+
+  it('les déjà-lus sont écartés AVANT tout téléchargement — un déjà-connu ne coûte plus son contenu', async () => {
+    const messages = boiteDesordonnee(20);
+    const { passe } = boucle(messages, 6);
+    await passe();
+    const p2 = await passe();
+    expect(p2.dejaVusEcartes).toBe(6);  // écartés à la sélection
+    expect(p2.vus).toBe(6);             // seuls des messages NEUFS ont été lus
+    expect(p2.dejaConnus).toBe(0);      // plus aucun téléchargement pour rien
+  });
+
+  it('le rapport dit COMBIEN il reste de messages jamais lus, et quand c’est fini', async () => {
+    const { passe } = boucle(boiteDesordonnee(20), 6);
+    expect((await passe()).resteInconnus).toBe(14);
+    expect((await passe()).resteInconnus).toBe(8);
+    expect((await passe()).resteInconnus).toBe(2);
+    const derniere = await passe();
+    expect(derniere.resteInconnus).toBe(0);      // rattrapage terminé
+    expect(derniere.plafondAtteint).toBe(false); // …et la passe est enfin COMPLÈTE, donc le curseur pourra avancer
+  });
+
+  it('sans filtre (dépendance absente), la passe fonctionne encore — seul le coût de lecture n’est pas économisé', async () => {
+    const messages = boiteDesordonnee(4);
+    const { d } = deps({ messages, config: { ...config, plafondParPasse: 10 } });
+    d.chercherDepuis = async () => messages.map((m) => m.uid);
+    d.telecharger = async (uid) => messages.find((m) => m.uid === uid)!;
+    d.filtrerNonVus = undefined;
+    const r = await capturer(d, true);
+    expect(r.captures).toBe(4);
+    expect(r.dejaVusEcartes).toBe(0);
+  });
+
+  it('l’UID est transmis jusqu’à l’écriture — c’est lui qui rendra la passe suivante gratuite', async () => {
+    const m = message({ uid: 4242 });
+    expect(preparerMessage(m, config, []).uidImap).toBe(4242);
   });
 });
