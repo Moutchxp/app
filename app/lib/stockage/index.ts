@@ -272,6 +272,87 @@ export async function deposerPieceEntrante(contenu: Buffer | Uint8Array, typeMim
   return { depose: true, cle, taille: contenu.byteLength, empreinte };
 }
 
+// ── Chemin GESTION LOCATIVE (lot 3) : pièces jointes du courrier de gestion ─────────────────────────────────────────────
+/**
+ * ⚠️ CHEMIN SŒUR, DISTINCT des deux ci-dessus — et c'est VOLONTAIRE. La liste de types du chemin entrant est celle de
+ * l'URBANISME (DWG, ODT, TIFF…) et ne connaît ni HEIC, ni GIF, ni MP4 ; l'élargir aurait changé le comportement du module
+ * Permis pour servir un autre métier. Ici, la liste des types acceptés et la taille maximale viennent de `gestion_config`
+ * (pilotage sans code) : c'est l'APPELANT qui les fournit, ce module n'en code aucune.
+ *
+ * Extensions connues du chemin gestion. Sert UNIQUEMENT à nommer le fichier déposé ; l'autorisation, elle, vient de la
+ * liste de config. Un type autorisé mais absent d'ici est déposé avec l'extension `bin` (jamais refusé pour si peu).
+ */
+const EXTENSIONS_GESTION: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/gif': 'gif',
+  'image/heic': 'heic',
+  'image/heif': 'heif',
+  'image/tiff': 'tiff',
+  'video/mp4': 'mp4',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/msword': 'doc',
+  'application/vnd.ms-excel': 'xls',
+  'application/zip': 'zip',
+  'text/plain': 'txt',
+  'text/csv': 'csv',
+};
+
+/** Type MIME NORMALISÉ (minuscules, sans paramètre `; charset=…`) — les deux côtés de la comparaison passent par ici. PUR. */
+export function typeMimeNormalise(typeMime: string | null): string {
+  return (typeMime ?? '').split(';')[0].trim().toLowerCase();
+}
+
+/** Extension de fichier du chemin gestion pour un type MIME ; `bin` si le type est accepté mais inconnu de la table. PUR. */
+export function extensionGestion(typeMime: string | null): string {
+  return EXTENSIONS_GESTION[typeMimeNormalise(typeMime)] ?? 'bin';
+}
+
+/**
+ * Clé NON ÉNUMÉRABLE d'une pièce de gestion : `gestion/messages/<message_id>/<uuid>.<ext>`. ⚠️ Le nom d'origine du
+ * fichier (fourni par un tiers, potentiellement piégé) n'entre JAMAIS dans la clé — il reste en base pour l'affichage.
+ * Le préfixe par message rend aussi possible un effacement CIBLÉ par `supprimerPrefixe` le jour où il faudra purger.
+ */
+export function construireCleGestion(messageId: number, ext: string): string {
+  return `gestion/messages/${messageId}/${randomUUID()}.${ext}`;
+}
+
+export interface OptionsDepotGestion {
+  messageId: number;
+  typesAcceptes: readonly string[]; // lue dans gestion_config — JAMAIS codée ici
+  tailleMaxOctets: number;          // idem
+}
+
+/**
+ * Dépose UNE pièce jointe de gestion. Ne JETTE jamais pour un cas prévisible : renvoie `{ depose:false, motif }` (type
+ * hors liste, trop volumineuse, stockage non configuré) pour que l'appelant conserve la ligne AVEC sa raison — une pièce
+ * refusée est tracée, jamais perdue en silence, et elle redeviendra déposable si la configuration change.
+ * Aucun parsing du contenu : la pièce vient d'un tiers, on la stocke telle quelle et on ne l'ouvre pas.
+ */
+export async function deposerPieceGestion(
+  contenu: Buffer | Uint8Array, typeMime: string | null, opts: OptionsDepotGestion,
+): Promise<ResultatDepotEntrant> {
+  const type = typeMimeNormalise(typeMime);
+  const acceptes = opts.typesAcceptes.map((t) => t.trim().toLowerCase());
+  if (type === '' || !acceptes.includes(type)) {
+    return { depose: false, motif: `type non autorisé pour la gestion : « ${typeMime ?? '(inconnu)'} »` };
+  }
+  if (contenu.byteLength > opts.tailleMaxOctets) {
+    const mo = (n: number) => (n / (1024 * 1024)).toFixed(1);
+    return { depose: false, motif: `pièce trop volumineuse : ${mo(contenu.byteLength)} Mo (maximum ${mo(opts.tailleMaxOctets)} Mo)` };
+  }
+  const infra = obtenir();
+  if (!infra) return { depose: false, motif: 'stockage non configuré' };
+  const cle = construireCleGestion(opts.messageId, extensionGestion(type));
+  const empreinte = empreinteSha256(contenu);
+  await infra.client.send(
+    new PutObjectCommand({ Bucket: infra.config.bucket, Key: cle, Body: contenu, ContentType: type }),
+  );
+  return { depose: true, cle, taille: contenu.byteLength, empreinte };
+}
+
 /**
  * A1b — clé NON ÉNUMÉRABLE d'un document AJOUTÉ À LA MAIN sur un permis : `dossiers/<dossier_id>/<uuid>.<ext>`. ⚠️ Le nom
  * d'origine du fichier (fourni par l'internaute) n'entre JAMAIS dans la clé (UUID v4 + extension du type MIME) ; il reste en

@@ -6,10 +6,12 @@ import {
   depuis, formaterDateFr, libelleEtat, mentionTroncature, messageErreurHttp, messageEvenementsVide, messageFileVide,
   messageReleve,
 } from '../../../../lib/gestion/ecran';
+import { useReleveGestion } from './useReleveGestion';
 
 /**
- * LOT 2 — l'écran à deux côtés, en LECTURE SEULE. Aucun geste d'écriture ici : affecter un échange à un événement et
- * classer sans suite sont le lot 4. Le seul contrôle est « Rafraîchir », qui relit.
+ * LOT 2/3 — l'écran à deux côtés. Aucun geste de CLASSEMENT ici : affecter un échange à un événement et classer sans
+ * suite sont le lot 4. Deux contrôles seulement : « Rafraîchir », qui relit l'écran, et « Relever maintenant » (lot 3),
+ * qui lance UNE passe de relève de la boîte et recharge l'écran après un vrai succès.
  *
  * MOBILE D'ABORD (exigence transverse §15) : une seule colonne sous 900 px, LA FILE D'ABORD — et c'est l'ordre du DOM
  * qui le garantit, jamais un `order` CSS qui mentirait au clavier et aux lecteurs d'écran. Aucun débordement horizontal
@@ -64,6 +66,9 @@ export function GestionVue() {
     setVue(r);
   }, [lire]);
 
+  // LOT 3 — une passe réussie change ce qui est à l'écran : on recharge, sans recharger la page.
+  const { enCours: releveEnCours, message: releveMsg, releverMaintenant } = useReleveGestion(() => { void charger(); });
+
   if (vue.etat === 'charge') return <><style>{CSS_GESTION}</style><p className="gst-info" role="status">Chargement…</p></>;
   if (vue.etat === 'erreur') {
     return (
@@ -87,8 +92,17 @@ export function GestionVue() {
       {/* BANDEAU D'ÉTAT — toujours présent : un outil qui dit depuis quand il n'a pas regardé reste honnête. */}
       <div className="gst-bandeau" role="status">
         <span>{messageReleve(d, ref)}</span>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void charger()}>Rafraîchir</button>
+        <span className="gst-actions">
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={releveEnCours}
+            onClick={() => void releverMaintenant()}>
+            {releveEnCours ? 'Relève en cours…' : 'Relever maintenant'}
+          </button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={releveEnCours}
+            onClick={() => void charger()}>Rafraîchir</button>
+        </span>
       </div>
+      {/* COMPTE RENDU de la dernière passe — succès comme échec, jamais un silence. */}
+      {releveMsg && <p className={`gst-compte-rendu gst-ton-${releveMsg.ton}`} role="status">{releveMsg.texte}</p>}
 
       {/* ORDRE DU DOM = ordre mobile : la file d'abord, les événements ensuite. */}
       <div className="gst-deux">
@@ -174,6 +188,11 @@ const CSS_GESTION = `
 .gst-compte{display:inline-block;background:var(--color-svv-field);color:var(--color-svv-muted);font-size:12px;font-weight:700;border-radius:999px;padding:2px 9px}
 .gst-bandeau{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.75rem;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px;margin:0 0 1rem;font-size:.85rem;color:var(--color-svv-ink);line-height:1.45}
 .gst-btn{width:auto;flex-shrink:0;min-height:44px;padding:.55rem 1rem;font-size:.85rem;border-radius:.6rem}
+.gst-actions{display:flex;flex-wrap:wrap;gap:.5rem;flex-shrink:0}
+/* Compte rendu de passe : le TON est porté par un mot dans le texte autant que par la couleur (jamais la couleur seule). */
+.gst-compte-rendu{font-size:.85rem;line-height:1.5;margin:0 0 1rem;padding:10px 12px;border-radius:10px;border:1px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink)}
+.gst-ton-erreur{border-color:var(--color-svv-red);color:var(--color-svv-red);font-weight:600}
+.gst-ton-info{color:var(--color-svv-muted)}
 .gst-info,.gst-vide,.gst-tronc{font-size:.85rem;color:var(--color-svv-muted);line-height:1.5;margin:0 0 .5rem}
 .gst-vide{background:var(--color-svv-surface);border:1px dashed var(--color-svv-line-strong);border-radius:10px;padding:14px 16px}
 .gst-erreur{font-size:.9rem;font-weight:600;color:var(--color-svv-red);margin:0 0 .6rem}

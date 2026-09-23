@@ -37,6 +37,7 @@
     "saisines:envoyer": "tsx app/scripts/saisines-envoyer.ts",
     "demandes:relever": "tsx app/scripts/relever-demandes.ts",
     "gestion:sonder": "tsx app/scripts/sonder-gestion.ts",
+    "gestion:relever": "tsx app/scripts/relever-gestion.ts",
     "permis:rattraper-accuses": "tsx app/scripts/rattraper-accuses-teleservice.ts",
     "ged:dump": "tsx app/scripts/dumper-ged.ts",
     "permis:extraire": "tsx app/scripts/extraire-caracteristiques.ts",

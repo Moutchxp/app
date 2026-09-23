@@ -57,7 +57,7 @@ describe('gestion:sonder — garanties de LECTURE STRICTE', () => {
    */
   const modules = src.split('\n')
     .filter((l) => !/^\s*import\s+type\b/.test(l))
-    .flatMap((l) => [...l.matchAll(/(?:from|import\()\s*'([^']+)'/g)].map((m) => m[1]));
+    .flatMap((l) => [...l.matchAll(/(?:from\s*|import\s*\(\s*|^\s*import\s+)'([^']+)'/g)].map((m) => m[1]));
 
   it('n’atteint AUCUN chemin d’écriture : ni base, ni stockage objet, ni envoi', () => {
     expect(modules).toContain('../lib/email/imap'); // le relevé fonctionne (sinon le test passerait pour rien)
