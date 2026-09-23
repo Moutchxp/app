@@ -1,251 +1,332 @@
-# ÉTUDE PRÉALABLE — Module « Gestion locative »
+# ÉTUDE — Module « Gestion locative »
 
-> **Statut : ÉTUDE, LECTURE SEULE. Aucun code, aucune table, aucune migration n'a été créé.**
-> Établie le 2026-09-23 par cinq mandats parallèles : recon du dépôt, métier de la gérance, modèle de
-> données et moteur de classement, Google (Gmail + Drive), et un mandat **contradicteur** chargé d'attaquer
-> la synthèse des quatre autres. Rien n'a été écrit hors ce document.
+> **Statut : ÉTUDE RÉVISÉE, LECTURE SEULE. Aucun code, aucune table, aucune migration n'a été créé.**
+> Version initiale du 2026-09-23 (commit `97f314e`), établie par cinq mandats parallèles dont un
+> **contradicteur**. **Révisée le 2026-09-23** avec les réponses d'Arno aux sept questions ouvertes : ces
+> réponses sont désormais des **faits**, plus des hypothèses, et elles changent la structure du projet — pas
+> seulement ses détails.
 >
-> **Décision déjà prise, non rouverte** : le module est construit **dans** l'application existante (même
-> serveur, même authentification, même base), pas en service séparé.
+> **Décisions cadres, non rouvertes** : le module est construit **dans** l'application existante (même
+> serveur, même authentification, même base). Le logiciel **WIPPIMMO fait foi** pour le référentiel. Tous les
+> messages, envoyés comme reçus, restent **visibles dans la boîte Gmail d'origine**.
 >
 > ⚠️ **Ce document n'est pas un avis juridique.** Les points de droit (RGPD, charges locatives, obligations
-> d'entretien, assurance) sont signalés là où ils apparaissent et **doivent être validés par un professionnel**
-> avant d'être inscrits dans le logiciel. La règle de conception que je retiens partout : **ne pas coder la
-> règle de droit, tracer la décision humaine.**
+> d'entretien) sont signalés là où ils apparaissent et **doivent être validés par un professionnel**. Règle de
+> conception retenue partout : **ne pas coder la règle de droit, tracer la décision humaine.**
 
 ---
 
 ## 0. Résumé pour décideur
 
-**Le besoin est légitime et le dépôt est bien armé pour y répondre** — mais pas dans la forme demandée, et
-pas tout de suite. Quatre conclusions, par ordre d'importance.
+**Les réponses d'Arno ont amélioré le projet sur trois points et l'ont durci sur un quatrième.**
 
-**① Le sujet n'est pas technique, il est d'hébergement.** L'application tourne sur un Mac, et son
-ordonnanceur est un « agent de session » : il ne s'exécute **que machine allumée et session ouverte**. Le
-dépôt l'a déjà écrit noir sur blanc (`ops/README.md:19` : « le 24/24 suppose un hébergement, pas ce Mac »).
-Une veille de permis tolère de dormir une nuit. **Une boîte mail professionnelle, non.** Un outil qui se
-présente comme le registre des interventions alors qu'il est aveugle le week-end est pire qu'une boîte mail
-en désordre : il donne le droit de ne plus regarder ailleurs.
-→ **Parade retenue : ne rien recopier.** Gmail reste la **seule** source de vérité ; le module ne garde que
-des *pointeurs* et le classement. Mac éteint = module indisponible (honnête), au lieu de « disponible et
-faux ». Cette seule décision règle aussi l'essentiel du point ②.
+**① L'envoi depuis une carte n'est pas un risque à repousser : c'est le meilleur signal de classement.**
+J'avais proposé de le reporter, par prudence. Arno a inversé l'arbitrage, et **son raisonnement est meilleur
+que le mien** : un mail envoyé depuis une carte revient tout seul dans cette carte, parce que nous maîtrisons
+le fil de discussion **de bout en bout**. Ce n'est pas une heuristique qui devine après coup — c'est une
+certitude par construction, à 100 %. Le retarder, c'était se priver du signal le plus fiable pour éviter un
+risque qui se traite par des garde-fous. L'envoi remonte donc au **lot 4**, et le risque d'écrire au mauvais
+destinataire est traité par trois verrous (§5, objection 3).
 
-**② Recopier les mails en base serait le point faible juridique du projet.** Une boîte de gérance contient
-des impayés, des situations familiales, parfois de la santé, des pièces d'identité, des RIB. Le dépôt
-s'impose aujourd'hui un standard RGPD élevé sur des données **bien moins** sensibles. Surtout : on ne sait
-pas *effacer* un locataire dont le nom est dans 200 corps de mails, dans les citations et dans les pièces
-jointes. **Si on ne sait pas écrire la fonction « effacer cette personne » avant d'ingérer, on n'ingère pas.**
+**② Monga est passé d'inconnue à atout.** Arno a fourni un vrai mail : la référence a la forme **`MNG-23987`**,
+toujours préfixée, et le message porte **aussi** le titre de l'intervention **et** l'adresse du bien en clair.
+Trois signaux concordants sur le même message, là où j'en supposais un seul et incertain. Conséquence : ce
+flux se classe quasi parfaitement, **et** une référence `MNG-` inconnue peut créer automatiquement une carte.
 
-**③ La demande, telle qu'énoncée, embellit le passé sans piloter le futur.** Retrouver les mails d'un sujet
-est utile ; la question à laquelle une boîte partagée est *structurellement* incapable de répondre est
-autre : **« qu'est-ce qui est en cours, qui s'en occupe, qui attend-on, et qu'est-ce qui dort ? »**. Trois
-manques rendent l'outil abandonnable en deux mois : **une personne responsable par intervention**, une
-**date de prochaine action**, et des **notes internes** (une grande partie de la gérance se passe au
-téléphone — sans elles, le fil *ment* et montre un silence de six jours là où il y a eu trois appels).
+**③ Le volume est modeste, et cela change l'ergonomie.** 320 biens, 10 à 30 mails par jour, soit **220 à 660
+par mois** — environ **16 mails par bien et par an**. Un bien a donc rarement plus d'une intervention ouverte
+à la fois, ce qui rend très fiable le signal « cet expéditeur n'a qu'un seul dossier ouvert ». À ce volume,
+une file « à classer » de 40 à 60 mails par mois se traite en quelques minutes par jour.
+→ **Le taux de classement automatique attendu passe de ~79 % à ~91 %** (§3.4).
 
-**④ Le chiffre qui compte n'est pas celui qu'on croit.** La cascade de classement automatique est estimée à
-~79 % de bons rattachements. Mais pour trois personnes, un mail **non** classé coûte vingt secondes ; un mail
-**mal** classé en silence coûte l'information perdue *et* le risque d'écrire au mauvais locataire. La cible
-de conception est donc **« zéro faux rattachement, le reste à classer à la main »** — ce que le dépôt fait
-déjà avec sa règle « en cas de doute, on ne tranche pas ».
-→ **La meilleure dépense du projet : 1 à 2 jours pour rejouer la cascade hors ligne sur 3 mois de la vraie
-boîte, et compter.** Ce chiffre-là décide du produit, de son ergonomie et de son opportunité. Avant tout code.
+**④ Plusieurs collaborateurs : l'hébergement n'est plus optionnel.** C'était ma réserve bloquante ; elle est
+levée par une décision, pas par une pirouette. L'hébergement devient un **lot à part entière** (lot 3), placé
+avant tout usage réel à plusieurs. Ce qui peut être construit et testé **avant** lui est précisément délimité
+au §6.
 
-**Ce que je recommande** : construire un noyau de **6 tables** (pas 18), sans copie des mails, sans envoi
-depuis l'outil au départ, sans Drive, sur **une** catégorie d'interventions. Et poser à Arno les **sept
-questions du §7** — dont une, la première, peut à elle seule diviser le projet par deux ou le doubler.
+**Ce qui n'a pas changé** : on ne recopie pas les mails en base (Gmail reste la source de vérité, on ne garde
+que des pointeurs) ; on ne touche pas au drapeau « lu » de Gmail (état métier à la place) ; et les trois
+manques que j'avais identifiés — **responsable par intervention**, **date de prochaine action**, **notes
+internes d'appel** — sont validés par Arno et entrent dans le noyau.
+
+**Le chantier tient en 8 lots, ~45 à 70 jours de travail**, le premier service utile arrivant au lot 2.
 
 ---
 
 ## 1. Ce qui existe déjà et qui sert
 
-> Chaque ligne est prouvée `fichier:ligne`. Verdicts : **RÉUTILISABLE** tel quel · **À ÉTENDRE** · **NE CONVIENT PAS**.
+> Chaque ligne est prouvée `fichier:ligne`. Verdicts : **RÉUTILISABLE** · **À ÉTENDRE** · **NE CONVIENT PAS**.
 
-### 1.1 Les cinq briques précieuses
+### 1.1 Les briques précieuses
 
 | Brique | Preuve | Verdict | Ce que ça fait gagner |
 |---|---|---|---|
-| **Cascade de rattachement** | `app/lib/veille/rattachementReponse.ts` (243 l.), règle `:131` | **RÉUTILISABLE** (patron) | La partie la plus difficile du classement automatique est **déjà conçue, écrite et testée** (275 l. de tests). Module « pur » : aucune base, aucun réseau → rejouable hors ligne. |
-| **Client OAuth Google écrit à la main** | `app/lib/permis/drive.ts` (156 l.) + `app/scripts/drive-autoriser.ts` | **RÉUTILISABLE** | Le schéma « identifiant + secret + jeton de rafraîchissement → jeton d'accès → appel REST » existe déjà, sans dépendance lourde. Se transpose tel quel à Gmail. |
-| **Envoi SMTP multi-comptes** | `app/lib/email/index.ts:40-47` (`lireCompteSmtp(infixe)`), `:278-288` (réponse dans le fil) | **RÉUTILISABLE** | Un compte `gestion@` s'ajoute par variables d'environnement. Le `from` est déjà un **paramètre** de chaque envoi (`:118`) — voir la correction en 1.3. |
-| **Tuiles d'administration + droits** | `session.ts:7` (MODULES), `garde.ts:84-103`, `proxy.ts:23-43`, `menuAdmin.ts:11-21` | **À ÉTENDRE** (recette en 7 points) | Tuile gardée, permission déléguable à un collaborateur, révocation en base, défaut *fail-closed*. Zéro sécurité à reconcevoir. |
-| **Dépôt de pièces jointes** | `app/lib/stockage/index.ts:258-273` | **À ÉTENDRE** | Contrat qui ne jette jamais, empreinte SHA-256, clé sans nom d'origine. ⚠️ Sa politique d'échec **silencieux** ne convient pas à la gérance (voir objection 11, §5). |
+| **Cascade de rattachement** | `app/lib/veille/rattachementReponse.ts` (243 l.), règle `:131` | **RÉUTILISABLE** (patron) | La partie la plus difficile du classement est **déjà conçue, écrite et testée** (275 l. de tests). Module « pur » : aucune base, aucun réseau → rejouable hors ligne. |
+| **Client OAuth Google écrit à la main** | `app/lib/permis/drive.ts` (156 l.) + `app/scripts/drive-autoriser.ts` | **RÉUTILISABLE** | Le schéma « identifiant + secret + jeton de rafraîchissement → jeton d'accès → appel REST » existe déjà. Se transpose à Gmail **et** sert déjà pour Drive. |
+| **Tuiles d'administration + droits** | `session.ts:7`, `garde.ts:84-103`, `proxy.ts:23-43`, `menuAdmin.ts:11-21` | **À ÉTENDRE** (recette en 7 points) | Tuile gardée, permission déléguable par collaborateur, révocation en base, défaut *fail-closed*. Zéro sécurité à reconcevoir — et avec **plusieurs collaborateurs**, cette brique devient centrale. |
+| **Import de fichier + journal de run** | `074_releve_auto.sql:40-60`, patrons d'ingestion `app/lib/sitadel/` | **À ÉTENDRE** | Le patron « ligne `en_cours` écrite avant, `ok`/`erreur` après » évite qu'un import interrompu passe pour réussi. Directement utile au lot 1. |
+| **Verrou d'exécution unique** | `verrouVeille.ts:9`, `executerVeille.ts:527` | **RÉUTILISABLE** | Empêche deux imports ou deux synchronisations simultanés. |
 
-### 1.2 Ce qui NE convient pas, et pourquoi
+### 1.2 Ce qui NE convient pas
 
-| Élément | Preuve | Pourquoi c'est disqualifié |
+| Élément | Preuve | Pourquoi |
 |---|---|---|
-| **Le client IMAP en l'état** | `app/lib/email/imap.ts:5-7`, `:79`, `:170`, `:269` | Il est en **lecture stricte** (boîte ouverte en `EXAMINE`) et le fichier déclare cette règle « non négociable » : on ne pose jamais de drapeau, on ne déplace rien. Y toucher pour « gagner du temps » ouvrirait un droit d'écriture sur la boîte du module Permis **par effet de bord**. Module séparé, sans exception. |
-| **La table `demande_reponse`** | `073_demande_reponse.sql:30` (FK obligatoire), `:32`, `096:34` (CHECK métier urbanisme), **`:37-38`** | Trois contraintes propres à l'urbanisme, et surtout : elle **ne stocke que l'expéditeur, aucune colonne destinataire ni copie**. Avec ce schéma, « ne voir que les échanges avec le locataire » serait **impossible** — un mail que *vous* envoyez au locataire a pour expéditeur… vous. Table sœur, pas extension. |
-| **L'état « lu »** | recherche exhaustive sur les 227 migrations : **absent** | Il n'existe que `traite_le` et `repondu_le`, qui sont des états **métier**, pas l'état de lecture d'une messagerie. Les confondre créerait une divergence invisible avec Gmail. |
-| **La recherche** | aucun index plein texte dans les 227 migrations ; `demandeReponseRepo.ts:247-253` | `listerReponses` n'a **ni `LIMIT` ni `OFFSET`** et ne filtre ni par mots-clés ni par période. Reprise telle quelle sur une boîte professionnelle, elle ramènerait tout. |
-| **Les statistiques (`analytics`)** | `writer.ts:9-11` (« perdre un événement est acceptable »), `config.ts:36` (pool max 2) | Modèle **agrégé, approximatif, à rétention courte**. Un indicateur de gérance (« délai moyen de réponse ») doit être une requête **exacte** sur les tables métier, pas un compteur best-effort. |
+| **Le client IMAP** | `imap.ts:5-7`, `:79`, `:170` | **Lecture stricte**, règle déclarée « non négociable ». Et le besoin est désormais tranché : on passe par **l'API Gmail** (§4). Ne jamais y toucher : ce serait ouvrir un droit d'écriture sur la boîte du module Permis par effet de bord. |
+| **L'envoi SMTP existant** | `email/index.ts:40-47`, `:118` | Techniquement réutilisable (le `from` est un paramètre, plusieurs comptes sont gérés) — **mais écarté par une exigence d'Arno** : un envoi SMTP parallèle **n'apparaîtrait pas** dans les « Messages envoyés » de Gmail. Or tous les messages doivent rester visibles dans la boîte d'origine. → **envoi par l'API Gmail**, pas par SMTP. |
+| **La table `demande_reponse`** | `073:30`, `:32`, `096:34`, **`:37-38`** | FK obligatoire vers `demande`, contraintes propres à l'urbanisme, et surtout : **ne stocke que l'expéditeur, aucun destinataire ni copie**. Table sœur, pas extension. |
+| **La recherche existante** | aucun index plein texte dans les 227 migrations ; `demandeReponseRepo.ts:247-253` | Ni `LIMIT`, ni `OFFSET`, ni mots-clés, ni période. |
+| **Les statistiques (`analytics`)** | `writer.ts:9-11`, `config.ts:36` | Modèle agrégé, best-effort (« perdre un événement est acceptable »). Un indicateur de gérance doit être exact. |
 
 ### 1.3 Deux corrections apportées à la recon (le code fait foi)
 
-Le mandat contradicteur a relevé deux affirmations inexactes dans la recon. **Vérification faite, il a raison
-sur les deux** — et je les corrige ici plutôt que de les laisser circuler :
+Le mandat contradicteur a pris la recon en défaut sur deux points. **Vérification faite, il avait raison** :
 
-- **`MAIL_FROM` n'est pas un verrou.** Le `from` est un **paramètre** de chaque fonction d'envoi
-  (`email/index.ts:118`, `:168`…), et `lireCompteSmtp(infixe)` gère déjà un deuxième compte. Envoyer « en tant
-  que » `gestion@` n'exige de toucher à rien d'existant.
-- **`permsToutes()` n'est pas un piège silencieux.** Le type `Perms = Record<Module, boolean>`
-  (`session.ts:9`) fait **échouer `tsc`** si un module est ajouté sans compléter la fonction. Ce piège existait
-  tant que `tsc` était hors du contrôle de fin ; il est **soldé depuis G1**.
+- **`MAIL_FROM` n'est pas un verrou** : le `from` est un **paramètre** de chaque envoi (`email/index.ts:118`).
+  *(Point devenu sans objet : l'envoi passera par l'API Gmail.)*
+- **`permsToutes()` n'est pas un piège silencieux** : `Perms = Record<Module, boolean>` (`session.ts:9`) fait
+  **échouer `tsc`** si un module manque. Ce piège est **soldé depuis G1**.
 
-> **Leçon de méthode, à garder pour la suite** : ce dépôt a un précédent documenté de dérive entre sa
-> documentation et son code. La règle maison « **le code fait foi** » n'est pas une coquetterie. Toute
-> décision prise sur la foi d'un résumé — y compris celui-ci — se re-vérifie dans le code.
+> **Leçon de méthode** : ce dépôt a un précédent documenté de dérive entre documentation et code. La règle
+> maison « **le code fait foi** » n'est pas une coquetterie. Toute décision prise sur la foi d'un résumé — y
+> compris celui-ci — se re-vérifie dans le code.
 
-### 1.4 L'ordonnanceur : le point dur
+### 1.4 Aucun référentiel existant dans le dépôt
 
-`ops/com.sansvisavis.veille.plist` est un **agent de session** : `StartInterval` 900 s, `RunAtLoad false`, et
-son en-tête (`plist:11`) dit : *« ce job ne tourne que MACHINE ALLUMÉE et session ouverte »*. `ops/README.md:19`
-enfonce le clou : *« le 24/24 suppose un hébergement, pas ce Mac »*.
-
-Conséquences concrètes pour une boîte de gérance : la nuit, rien n'entre. Le week-end, rien. Une mise à jour
-macOS redémarre la machine, la session n'est pas rouverte, **et personne n'est prévenu** — un travail qui ne
-tourne pas ne produit pas d'erreur, il produit du silence. Le dépôt avait anticipé le trou (c'est la raison
-d'être du journal `releve_run`, `074_releve_auto.sql:57`), mais pour une veille tolérante, pas pour une
-messagerie. **C'est traité au §5, objection 1, et c'est ce qui commande tout le reste.**
+Vérifié personnellement : **aucune table de biens, propriétaires, locataires ou baux** dans les 227
+migrations. « CRITERIMMO » n'y apparaît que comme raison sociale au RCS, pour les saisines CADA du module
+permis. Le module part donc d'une page blanche côté données — et c'est cohérent avec la réponse d'Arno :
+**la vérité est dans WIPPIMMO, pas ici.**
 
 ---
 
-## 2. Le modèle de données proposé
+## 2. Le référentiel : WIPPIMMO fait foi
 
-### 2.1 L'idée en une phrase
+### 2.1 Le principe, et pourquoi il n'est pas négociable
 
-Trois blocs : **le référentiel** (qui est qui, quel bien) — **le dossier** (l'intervention et sa chronologie)
-— **le courrier** (les mails et le lien entre un mail et un dossier). Le troisième ne touche jamais le
-premier : un mail mal classé se reclasse sans rien casser.
+**WIPPIMMO est la source de vérité** pour les biens, propriétaires, locataires et caractéristiques. Notre
+module en détient une **copie de travail**, jamais une saisie parallèle. La raison est mécanique : la vérité
+est celle qui produit les quittances et les appels de loyer ; c'est elle qu'on met à jour. Une seconde vérité
+n'est jamais mise à jour, devient fausse en trois mois, et le classement des mails — qui s'y adosse — devient
+faux avec elle.
 
-### 2.2 Ce que je retire par rapport à la proposition initiale
+**Conséquence de conception, tranchée ici :** chaque bien, propriétaire et locataire porte une colonne
+`reference_externe` (son identifiant WIPPIMMO). C'est **cette colonne**, et non notre identifiant interne, qui
+fait le lien. Elle est unique, obligatoire pour tout enregistrement importé, et jamais modifiée à la main.
 
-Le mandat modèle proposait **18 tables**. Le contradicteur objecte, à juste titre, que le dépôt compte déjà
-~56 % de code consacré à un premier back-office, que la pérennité est notée 8/20 (un seul auteur), et qu'il
-n'existe aucun registre de migrations — 227 migrations appliquées à la main. **Ajouter 18 tables, c'est
-ajouter 18 occasions de dérive.**
+### 2.2 La source doit être interchangeable
 
-**Je tranche : 6 tables au démarrage.** Sont retirées du premier jet, avec la place prévue pour plus tard :
-le référentiel complet si un logiciel de gérance existe déjà (§7, question 1), les participants normalisés,
-les devis, autorisations et factures, l'assurance détaillée, les charges, les récurrences, et le singleton de
-configuration (du cérémonial pour un module sans utilisateur).
+Arno demande à son contact WIPPIMMO s'il existe une interface de synchronisation en temps réel. **Réponse
+inconnue à ce jour.** Le module est donc conçu pour que la réponse ne change **pas** son architecture :
 
-### 2.3 Les six tables du noyau
+```
+        ┌──────────────────────┐
+        │  Fichier WIPPIMMO    │  ← lot 1 (certain)
+        │  (CSV / Excel)       │
+        └──────────┬───────────┘
+                   │        ┌──────────────────────┐
+                   │        │  Interface WIPPIMMO  │  ← plus tard, si elle existe
+                   │        │  (synchronisation)   │
+                   │        └──────────┬───────────┘
+                   ▼                   ▼
+        ┌────────────────────────────────────────┐
+        │  UN SEUL point d'entrée :              │
+        │  appliquerReferentiel(lignes[])        │  ← la seule fonction qui écrit
+        │  — compare, insère, met à jour,        │
+        │    désactive, journalise               │
+        └────────────────────────────────────────┘
+```
 
-**`loc_bien` — le logement.** L'ancre physique de tout le module : un sujet concerne toujours un bien.
-⚠️ *Sous réserve de la question 1 du §7* : si un logiciel de gérance fait foi, cette table devient une **copie
-en lecture seule** avec l'identifiant externe comme clé, jamais une saisie parallèle.
+**Ce qui change selon que l'interface existe ou non :**
+
+| | **Interface WIPPIMMO disponible** | **Fichier seulement** (hypothèse de travail) |
+|---|---|---|
+| Fraîcheur | Quasi temps réel | Aussi fraîche que le dernier import |
+| Entretien | Automatique | **À la main**, au fil de la vie du portefeuille |
+| Ce qui est en plus | Un lot « connecteur » (~3-5 j) : authentification, appel périodique, gestion des erreurs | Un écran d'import à relancer, et un **rappel visible** si l'import date de plus de N jours |
+| Ce qui ne change PAS | `appliquerReferentiel` — comparaison, mise à jour, désactivation, journal — **écrit une seule fois** | idem |
+| Risque propre | Dépendance à un tiers, format qui évolue sans préavis | **Dérive silencieuse** : un bien vendu reste actif chez nous |
+
+**Le lot 1 construit le chemin « fichier ». Le connecteur, s'il devient possible, se branche par-dessus sans
+refonte** — il appelle la même fonction avec les mêmes données. C'est la seule décision qui rend la réponse de
+WIPPIMMO indifférente au calendrier du projet.
+
+**Garde-fou contre la dérive silencieuse** (cas « fichier seulement ») : l'écran affiche en permanence la date
+du dernier import, **en rouge au-delà de 30 jours**. Un outil qui dit qu'il est périmé reste honnête.
+
+### 2.3 Ce que le fichier doit contenir, au minimum
+
+Arno obtiendra « au minimum un fichier récapitulatif ». Pour que le module fonctionne, il faut, par bien :
+l'**identifiant WIPPIMMO**, l'**adresse complète** (numéro, voie, code postal, ville — l'adresse est un signal
+de classement, elle doit être exacte), le **propriétaire** (identifiant + nom), et le **locataire en place**
+(identifiant + nom + adresse e-mail si disponible). Tout le reste est bienvenu mais non bloquant.
+
+⚠️ **L'adresse e-mail du locataire est le champ le plus précieux du fichier** : c'est lui qui alimente
+l'annuaire, donc le signal « cet expéditeur est le locataire du bien B-0142 ». S'il est absent du fichier,
+l'annuaire se remplit à la main au fil des premiers classements — le module reste utilisable, mais le taux de
+classement automatique démarre plus bas et met deux à trois mois à monter.
+
+---
+
+## 3. Le modèle de données
+
+### 3.1 Sept tables au noyau
+
+La proposition initiale en comptait 18 ; le contradicteur objectait — à raison — que le dépôt compte déjà 227
+migrations appliquées à la main, sans registre, avec un seul auteur. J'avais réduit à 6. **Les réponses
+d'Arno en ajoutent une** (l'occupation, pour savoir qui habitait où à l'époque d'un mail) : **7 tables**.
+
+Restent hors du noyau, avec la place prévue : devis, autorisations de dépense, factures, assurance détaillée,
+répartition des charges, échéances récurrentes.
+
+**`loc_bien`** — le logement. **Copie de WIPPIMMO**, jamais une saisie.
 
 ```sql
 CREATE TABLE IF NOT EXISTS loc_bien (
-  id             bigserial PRIMARY KEY,
-  reference      text UNIQUE NOT NULL,   -- « B-0142 » : lisible, dictable au téléphone
-  reference_externe text,                -- identifiant dans le logiciel de gérance, s'il existe (§7 q.1)
-  libelle        text,                   -- « Studio Voltaire 3e gauche »
-  adresse_ligne1 text NOT NULL,
-  code_postal    text NOT NULL,
-  ville          text NOT NULL,
-  etage          text,                   -- texte : « RDC », « combles » — jamais un entier forcé
-  actif          boolean NOT NULL DEFAULT true,
-  cree_le        timestamptz NOT NULL DEFAULT now(),
-  maj_le         timestamptz NOT NULL DEFAULT now()
+  id                bigserial PRIMARY KEY,
+  reference_externe text NOT NULL UNIQUE,   -- identifiant WIPPIMMO : LE lien avec la source de vérité
+  reference         text UNIQUE NOT NULL,   -- « B-0142 » : lisible, dictable au téléphone
+  libelle           text,
+  adresse_ligne1    text NOT NULL,          -- « 53 avenue des Ternes »
+  adresse_complement text,
+  code_postal       text NOT NULL,
+  ville             text NOT NULL,
+  etage             text,                   -- texte : « RDC », « combles » — jamais un entier forcé
+  actif             boolean NOT NULL DEFAULT true,   -- false = sorti du portefeuille (JAMAIS supprimé)
+  importe_le        timestamptz NOT NULL DEFAULT now(),
+  maj_le            timestamptz NOT NULL DEFAULT now()
 );
 -- Appariement d'une adresse citée dans un mail, sur la forme NORMALISÉE (patron 085_reference_externe.sql:41)
 CREATE INDEX IF NOT EXISTS loc_bien_adresse_norm_idx
   ON loc_bien (upper(regexp_replace(adresse_ligne1 || ' ' || code_postal, '[[:space:],.-]', '', 'g')));
 ```
 
-**`loc_partie` — le carnet d'adresses.** Propriétaires, locataires, artisans, assurances, Monga : tous ceux
-qui écrivent. Une seule table, distingués par un champ `type`, parce qu'ils jouent tous le même rôle vis-à-vis
-du système. *(La proposition initiale en faisait quatre tables ; pour trois personnes, c'est du luxe.)*
+**`loc_partie`** + **`loc_partie_email`** — le carnet d'adresses et l'annuaire. Propriétaires, locataires,
+artisans, assurances, **Monga** : tous ceux qui écrivent. Une seule table, distinguée par `type`.
 
 ```sql
 CREATE TABLE IF NOT EXISTS loc_partie (
-  id        bigserial PRIMARY KEY,
+  id                bigserial PRIMARY KEY,
+  reference_externe text,                   -- identifiant WIPPIMMO ; NULL pour un artisan saisi chez nous
   type      text NOT NULL CONSTRAINT loc_partie_type_chk
               CHECK (type IN ('proprietaire','locataire','artisan','assurance','syndic','intermediaire','autre')),
-  nom       text NOT NULL,               -- nom de famille ou raison sociale
+  nom       text NOT NULL,
   prenom    text,
   telephone text,
   note      text,
   actif     boolean NOT NULL DEFAULT true,
-  desactive_le timestamptz,              -- désactivation, JAMAIS de suppression (patron 062_collaborateur.sql:9)
+  desactive_le timestamptz,                 -- désactivation, JAMAIS de suppression (patron 062_collaborateur.sql:9)
   cree_le   timestamptz NOT NULL DEFAULT now()
 );
+CREATE UNIQUE INDEX IF NOT EXISTS loc_partie_externe_key
+  ON loc_partie (reference_externe) WHERE reference_externe IS NOT NULL;
 
--- L'ANNUAIRE : « telle adresse e-mail appartient à telle personne ». C'est le nerf du classement.
+-- L'ANNUAIRE : « telle adresse e-mail appartient à telle personne ». Le nerf du classement.
 CREATE TABLE IF NOT EXISTS loc_partie_email (
-  id        bigserial PRIMARY KEY,
-  partie_id bigint NOT NULL REFERENCES loc_partie(id) ON DELETE CASCADE,
-  email     text NOT NULL,
-  verifiee_le timestamptz,               -- quand un humain a confirmé « oui, c'est bien lui »
-  cree_le   timestamptz NOT NULL DEFAULT now()
+  id          bigserial PRIMARY KEY,
+  partie_id   bigint NOT NULL REFERENCES loc_partie(id) ON DELETE CASCADE,
+  email       text NOT NULL,
+  verifiee_le timestamptz,                  -- quand un humain a confirmé « oui, c'est bien lui »
+  cree_le     timestamptz NOT NULL DEFAULT now()
 );
 CREATE UNIQUE INDEX IF NOT EXISTS loc_partie_email_key ON loc_partie_email (lower(email));
 ```
 
-**`loc_intervention` — le dossier.** Le sujet : « fuite d'eau du ballon, 12 rue Voltaire, ouverte le 3 mars ».
-Les trois champs marqués ⭐ sont ceux que le métier rend **non négociables** — sans eux, l'outil décrit le
-passé sans piloter le futur.
+**`loc_occupation`** — qui habite où, et depuis quand. Sépare la personne du fait de l'occuper. Règle un
+problème concret : quand M. Durand quitte le T2 et que Mme Martin y entre, un mail de M. Durand daté d'avril
+doit se rattacher au T2 **avec le locataire de l'époque**. Sans cette table, on réécrit l'histoire à chaque
+changement de locataire.
+
+```sql
+CREATE TABLE IF NOT EXISTS loc_occupation (
+  id           bigserial PRIMARY KEY,
+  bien_id      bigint NOT NULL REFERENCES loc_bien(id),
+  partie_id    bigint NOT NULL REFERENCES loc_partie(id),   -- le locataire
+  entree_le    date,
+  sortie_le    date,                        -- NULL = occupation EN COURS
+  cree_le      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS loc_occupation_bien_idx ON loc_occupation (bien_id) WHERE sortie_le IS NULL;
+```
+
+> **Colocation** : je ne pose **pas** de contrainte d'unicité sur l'occupation en cours. Le parc d'Arno n'est
+> pas connu sur ce point, et interdire deux occupants simultanés serait un pari inutile. Plusieurs lignes
+> ouvertes sur le même bien sont donc permises.
+
+**`loc_intervention`** — la carte d'événement. Les trois champs ⭐ sont ceux qu'Arno a validés.
 
 ```sql
 CREATE TABLE IF NOT EXISTS loc_intervention (
   id          bigserial PRIMARY KEY,
-  reference   text UNIQUE NOT NULL,      -- « LOC-2026-000001 », compteur atomique (patron 053_demande.sql:37)
-  bien_id     bigint NOT NULL REFERENCES loc_bien(id),
-  nom         text NOT NULL,             -- nom LIBRE donné à l'ouverture
+  reference   text UNIQUE NOT NULL,         -- « LOC-2026-000001 », compteur atomique (patron 053_demande.sql:37)
+  bien_id     bigint REFERENCES loc_bien(id),   -- NULLABLE : une carte Monga peut naître sans bien identifié
+  nom         text NOT NULL,                -- titre ; par défaut celui de l'intervention Monga (exigence d'Arno)
+  nom_origine text,                         -- le titre Monga d'origine, conservé tel quel pour comparaison
   categorie   text NOT NULL CONSTRAINT loc_intervention_categorie_chk
                 CHECK (categorie IN ('travaux','fuite_eau','administratif','litige')),
   urgence     text NOT NULL DEFAULT 'normale' CONSTRAINT loc_intervention_urgence_chk
                 CHECK (urgence IN ('basse','normale','haute','critique')),
   statut      text NOT NULL DEFAULT 'ouverte' CONSTRAINT loc_intervention_statut_chk
                 CHECK (statut IN ('ouverte','en_cours','en_attente','close','annulee')),
-  assigne_a        bigint REFERENCES collaborateur(id),  -- ⭐ UNE personne responsable, et une seule
-  prochaine_action_le   date,                            -- ⭐ « en attente » sans date est un trou noir
-  prochaine_action_quoi text,                            -- ⭐ « relancer le devis Dupont »
+  assigne_a             bigint REFERENCES collaborateur(id),  -- ⭐ UNE personne responsable
+  prochaine_action_le   date,                                 -- ⭐ « en attente » sans date est un trou noir
+  prochaine_action_quoi text,                                 -- ⭐ « relancer le devis Dupont »
   assurance_impliquee boolean NOT NULL DEFAULT false,
+  origine     text NOT NULL DEFAULT 'manuelle' CONSTRAINT loc_intervention_origine_chk
+                CHECK (origine IN ('manuelle','monga_auto')),
   ouverte_le  timestamptz NOT NULL DEFAULT now(),
   close_le    timestamptz,
   ouverte_par bigint REFERENCES collaborateur(id),
-  ouverte_par_libelle text,              -- nom FIGÉ : lisible des années après (patron 053:44)
+  ouverte_par_libelle text,                 -- nom FIGÉ : lisible des années après (patron 053:44)
   maj_le      timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS loc_intervention_bien_idx ON loc_intervention (bien_id, ouverte_le DESC);
--- Les interventions OUVERTES d'un bien : requête la plus chaude du classement.
 CREATE INDEX IF NOT EXISTS loc_intervention_ouvertes_idx ON loc_intervention (bien_id) WHERE close_le IS NULL;
+-- File des cartes Monga nées sans bien identifié (cas dur n° 1, §4.3)
+CREATE INDEX IF NOT EXISTS loc_intervention_sans_bien_idx ON loc_intervention (ouverte_le DESC) WHERE bien_id IS NULL;
+
+-- Références externes suivant une carte : MNG-…, n° de sinistre, n° de mission.
+-- FORMAT LIBRE → AUCUNE contrainte de forme (doctrine 085_reference_externe.sql:9).
+CREATE TABLE IF NOT EXISTS loc_reference_externe (
+  id              bigserial PRIMARY KEY,
+  intervention_id bigint NOT NULL REFERENCES loc_intervention(id) ON DELETE CASCADE,
+  reference       text NOT NULL,
+  source          text,                     -- 'monga' | 'assurance' | 'artisan' | 'saisie'
+  cree_le         timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT loc_reference_externe_key UNIQUE (intervention_id, reference)
+);
+CREATE INDEX IF NOT EXISTS loc_reference_externe_norm_idx
+  ON loc_reference_externe (upper(regexp_replace(reference, '[[:space:]-]', '', 'g')));
 ```
 
-**`loc_message` — le pointeur vers un mail.** ⚠️ **Le choix structurant de toute l'étude** : on ne recopie
-**pas** le contenu. On garde l'identifiant Gmail, l'identifiant du fil, et le strict minimum pour afficher une
-liste et classer. Le corps est chargé **à la demande** depuis Gmail quand quelqu'un ouvre la fiche.
+**`loc_message`** — le pointeur vers un mail. **On ne recopie pas le contenu.** Le corps est chargé à la
+demande depuis Gmail quand quelqu'un ouvre la fiche.
 
 ```sql
 CREATE TABLE IF NOT EXISTS loc_message (
-  id           bigserial PRIMARY KEY,
-  gmail_id     text NOT NULL UNIQUE,     -- identifiant Gmail : LE pointeur
-  gmail_thread_id text NOT NULL,         -- identifiant du fil, natif Gmail
-  message_id_rfc text,                   -- en-tête Message-ID standard (survit à un changement d'outil)
-  sens         text NOT NULL CONSTRAINT loc_message_sens_chk CHECK (sens IN ('recu','envoye')),
-  de_adresse   text NOT NULL,            -- conservé : nécessaire au classement hors ligne
-  objet        text,                     -- conservé : nécessaire au classement et à la liste
-  date_message timestamptz NOT NULL,
-  classe_le    timestamptz,              -- NULL = file « à classer »
-  cree_le      timestamptz NOT NULL DEFAULT now()
+  id              bigserial PRIMARY KEY,
+  gmail_id        text NOT NULL UNIQUE,     -- identifiant Gmail : LE pointeur
+  gmail_thread_id text NOT NULL,            -- identifiant du fil, natif Gmail
+  message_id_rfc  text,                     -- en-tête standard (survit à un changement d'outil)
+  sens            text NOT NULL CONSTRAINT loc_message_sens_chk CHECK (sens IN ('recu','envoye')),
+  de_adresse      text NOT NULL,            -- conservé : nécessaire au classement
+  objet           text,                     -- conservé : nécessaire au classement et à la liste
+  date_message    timestamptz NOT NULL,
+  -- ÉTAT MÉTIER, en remplacement du « lu/non lu » de Gmail (accord d'Arno)
+  etat            text NOT NULL DEFAULT 'a_traiter' CONSTRAINT loc_message_etat_chk
+                    CHECK (etat IN ('a_traiter','traite')),
+  traite_par      bigint REFERENCES collaborateur(id),
+  traite_par_libelle text,
+  traite_le       timestamptz,
+  classe_le       timestamptz,              -- NULL = file « à classer »
+  cree_le         timestamptz NOT NULL DEFAULT now()
 );
--- La FILE « À CLASSER » : index partiel, petit et ciblé (patron 073:61)
 CREATE INDEX IF NOT EXISTS loc_message_a_classer_idx ON loc_message (date_message DESC) WHERE classe_le IS NULL;
+CREATE INDEX IF NOT EXISTS loc_message_a_traiter_idx ON loc_message (date_message DESC) WHERE etat = 'a_traiter';
+CREATE INDEX IF NOT EXISTS loc_message_thread_idx ON loc_message (gmail_thread_id);
 ```
 
-> **Ce qu'on ne stocke pas, et pourquoi** : ni le corps, ni le HTML, ni les pièces jointes, ni les
-> destinataires nominatifs. Trois bénéfices d'un coup — l'effacement d'une personne redevient trivial (on
-> supprime dans Gmail, le pointeur meurt) ; il n'y a pas de seconde copie à protéger sur un portable ; et la
-> divergence entre Gmail et la copie (mail supprimé, déplacé, fil fusionné) **n'existe pas**.
-
-**`loc_message_rattachement` — le classement.** Une table **séparée**, jamais une colonne. Trois raisons, dans
-l'ordre : un mail peut concerner **deux biens** (deux lignes) ; on veut garder **l'historique** des
-reclassements (une colonne écraserait la décision précédente) ; un mail peut être rattaché au **bien** sans
-qu'on sache encore à quelle intervention.
+**`loc_message_rattachement`** — le classement. Une table **séparée**, jamais une colonne : un mail peut
+concerner **deux biens** (deux lignes) ; on garde **l'historique** des reclassements ; un mail peut être
+rattaché au **bien** sans qu'on sache encore à quelle carte.
 
 ```sql
 CREATE TABLE IF NOT EXISTS loc_message_rattachement (
@@ -254,12 +335,12 @@ CREATE TABLE IF NOT EXISTS loc_message_rattachement (
   bien_id         bigint REFERENCES loc_bien(id),
   intervention_id bigint REFERENCES loc_intervention(id),
   methode         text NOT NULL CONSTRAINT loc_message_rattachement_methode_chk
-                    CHECK (methode IN ('reference_interne','fil_discussion','reference_monga','reference_tiers',
-                                       'adresse_bien','expediteur_unique','manuel','aucun')),
-  motif           text NOT NULL,         -- phrase lisible, TOUJOURS écrite, même en cas de succès (patron :40)
-  actif           boolean NOT NULL DEFAULT true,   -- un reclassement désactive l'ancien : on n'efface jamais
+                    CHECK (methode IN ('fil_sortant','reference_monga','fil_discussion','reference_interne',
+                                       'adresse_bien','expediteur_unique','titre_monga','manuel','aucun')),
+  motif           text NOT NULL,            -- phrase lisible, TOUJOURS écrite, même en cas de succès
+  actif           boolean NOT NULL DEFAULT true,
   rattache_le     timestamptz NOT NULL DEFAULT now(),
-  rattache_par    bigint REFERENCES collaborateur(id),   -- NULL = classement automatique
+  rattache_par    bigint REFERENCES collaborateur(id),   -- NULL = automatique
   rattache_par_libelle text,
   CONSTRAINT loc_message_rattachement_cible_chk CHECK (bien_id IS NOT NULL OR intervention_id IS NOT NULL)
 );
@@ -267,448 +348,594 @@ CREATE INDEX IF NOT EXISTS loc_message_rattachement_interv_idx
   ON loc_message_rattachement (intervention_id, rattache_le DESC) WHERE actif;
 ```
 
-**`loc_journal` — qui a fait quoi, quand.** Append-only, garanti **en base par un déclencheur** (patron
-`118_permis_altitude_journal.sql:60-72`) : on ne corrige pas une ligne, on en émet une nouvelle. C'est le seul
-niveau qui tienne devant un litige — et c'est là que vivent les **notes internes** (les appels téléphoniques).
+**`loc_journal`** — qui a fait quoi, quand. Append-only, garanti **en base par un déclencheur** (patron
+`118_permis_altitude_journal.sql:60-72`). C'est là que vivent les **notes internes d'appel** ⭐.
 
 ```sql
 CREATE TABLE IF NOT EXISTS loc_journal (
-  id         bigserial PRIMARY KEY,
-  entite     text NOT NULL CONSTRAINT loc_journal_entite_chk
-               CHECK (entite IN ('intervention','message','bien','rattachement')),
-  entite_id  bigint NOT NULL,            -- PAS de FK : la trace survit à la purge de l'objet (doctrine 118:30)
-  action     text NOT NULL,              -- 'ouverture','changement_statut','reclassement','note_interne','appel'
+  id           bigserial PRIMARY KEY,
+  entite       text NOT NULL CONSTRAINT loc_journal_entite_chk
+                 CHECK (entite IN ('intervention','message','bien','partie','rattachement','import')),
+  entite_id    bigint NOT NULL,             -- PAS de FK : la trace survit à la purge de l'objet (doctrine 118:30)
+  action       text NOT NULL,               -- 'ouverture','changement_statut','reclassement','note_interne','appel','envoi'
   valeur_avant text,
   valeur_apres text,
-  commentaire  text,                     -- la NOTE INTERNE : « appel du propriétaire, a validé 840 €, 14h20 »
-  survenu_le timestamptz NOT NULL DEFAULT now(),  -- quand ÇA s'est passé (≠ quand on l'a saisi)
-  auteur_id  bigint,
-  auteur_libelle text NOT NULL,          -- nom FIGÉ, ou 'automatique'
-  horodatage timestamptz NOT NULL DEFAULT now()
+  commentaire  text,                        -- ⭐ la NOTE D'APPEL : « propriétaire a validé 840 € par tél., 14h20 »
+  survenu_le   timestamptz NOT NULL DEFAULT now(),   -- quand ÇA s'est passé (≠ quand on l'a saisi)
+  auteur_id    bigint,
+  auteur_libelle text NOT NULL,             -- nom FIGÉ, ou 'automatique'
+  horodatage   timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS loc_journal_entite_idx ON loc_journal (entite, entite_id, horodatage);
 ```
 
-### 2.4 Les trois choix expliqués
+### 3.2 Les trois choix expliqués
 
-**Pourquoi une table de rattachement et pas une colonne ?** Une colonne répond « quel dossier ? » par *un
-seul* nombre. La réalité en dit trois de plus : deux biens possibles, un classement qui évolue, un bien connu
-sans dossier. Une table le fait ; une colonne, non. *(Le même raisonnement de cardinalité est déjà écrit dans
-le dépôt : `104_permis_extraction_journal.sql:4-9`.)*
+**Pourquoi une table de rattachement et pas une colonne ?** Une colonne répond par *un seul* nombre. La
+réalité en dit trois de plus : deux biens possibles, un classement qui évolue, un bien connu sans carte.
 
 **Comment un mail concerne deux biens ?** Deux lignes, même message, deux `bien_id`. Le mail apparaît dans les
-deux dossiers et n'est stocké qu'une fois. À l'écran, il porte un marqueur (« concerne aussi B-0087 ») pour ne
-pas passer pour un doublon.
+deux cartes et n'est stocké qu'une fois ; à l'écran il porte un marqueur pour ne pas passer pour un doublon.
 
-**Comment trace-t-on qui a fait quoi ?** Trois niveaux : l'horodatage et l'auteur sur chaque fait ; le nom
-**figé en texte** à côté de la clé étrangère (lisible même si le collaborateur est désactivé) ; et le journal
-append-only pour tout le reste.
+**Comment trace-t-on qui a fait quoi ?** Horodatage + auteur sur chaque fait ; le **nom figé en texte** à côté
+de la clé étrangère (lisible même si le collaborateur est désactivé) ; et le journal append-only pour le reste.
 
 ---
 
-## 3. La cascade de classement automatique
+## 4. La cascade de classement — révisée
 
-### 3.1 Les trois principes, repris du dépôt
+### 4.1 Ce que les réponses d'Arno changent
 
-1. **On s'arrête au premier signal qui désigne exactement UN dossier.**
-2. **Deux candidats au même niveau → on ne tranche pas, on demande.** (`rattachementReponse.ts:131`)
-3. **On ne classe JAMAIS sur la seule adresse de l'expéditeur** (`:5-6`) — la boîte est partagée, un artisan
-   écrit pour dix immeubles.
+Deux signaux nouveaux, tous deux beaucoup plus forts que ce que j'avais supposé :
 
-Avant la cascade, trois gardes : **déduplication** par identifiant unique ; **message de non-remise** écarté
-(`:221-229`) ; **accusé automatique** marqué mais **jamais jeté** (`:239-243`). ⚠️ Ce dernier point vient d'un
-bug réel et coûteux documenté à `:214-219` : un accusé de réception avait été pris pour un rebond et **supprimé
-en silence**. Transposé ici, cela voudrait dire perdre « votre demande a bien été reçue » de Monga.
+**① Le fil sortant : une certitude, pas une heuristique.** Quand un mail part **depuis une carte**, nous
+connaissons l'identifiant du fil que nous venons de créer. Toute réponse arrive dans **ce** fil. Le
+rattachement n'est pas deviné, il est **su**. C'est l'argument d'Arno, et il est juste : aucun signal *a
+posteriori* n'égale un identifiant que l'on a soi-même émis. **Précision : 100 %, par construction.**
 
-### 3.2 Signal par signal
+**② Monga porte trois signaux concordants.** Le mail fourni par Arno prouve : la référence **`MNG-23987`**
+(préfixe constant `MNG-`), **le titre** de l'intervention (« barre de douche defixer »), et **l'adresse du
+bien en clair** (« 53 avenue des Ternes, 75017 PARIS »). Expéditeur `interventions@monga.io`.
+→ On n'a plus besoin de *deviner* : on peut **exiger la concordance** d'au moins deux des trois. C'est ce qui
+fait tomber le taux d'erreurs silencieuses.
 
-| # | Signal | Ce qu'il attrape | Ce qu'il rate | Ce qu'il risque de mal classer | Précision |
-|---|---|---|---|---|---|
-| 1 | **Notre référence** `LOC-…` citée | Toute réponse à un de nos envois qui conserve l'objet | Tout premier contact ; les objets réécrits | Un vieux mail recopié avec l'ancienne référence ; la référence dans le **texte cité** en bas → ne chercher que dans la partie **non citée** | ~99,5 % |
-| 2 | **Fil de discussion** | La majorité du volume : la conversation continue | Les « réponses » créées comme mails neufs (fréquent sur mobile) ; les clients dont le logiciel casse les en-têtes | **Le fil qui dérive de sujet** — voir 3.3 | ~95 % (bien) / ~88 % (dossier) |
-| 3 | **Référence Monga** | Toute la chaîne Monga, y compris sans aucun de nos identifiants | Les interventions gérées **en interne** sans Monga | Faux positif par sous-chaîne si la référence est courte → plancher de longueur **en configuration** | ~97 % *une fois le format connu* |
-| 4 | **Référence d'un tiers** (n° de sinistre) | Les mails d'assureur et d'expert | Les assureurs qui répondent avant ouverture du dossier | Un sinistre couvrant **deux** interventions (la fuite, puis la remise en état) → la garde « ≥2 » se déclenche, c'est voulu | ~94 % |
-| 5 | **Adresse du bien citée** | Le premier contact : « je vous écris pour le 12 rue Voltaire » | Les adresses approximatives | ⚠️ **Le plus risqué.** La **signature** de l'expéditeur contient son adresse → l'écarter avant d'appliquer le signal. Et exiger **numéro + voie + code postal**, jamais la voie seule (le 12 et le 14) | ~85 % (bien seulement) |
-| 6 | **Expéditeur connu × unicité** | Le locataire dont l'occupation ne porte que sur un bien | Un artisan sur dix immeubles : ne conclut jamais — **et c'est voulu** | Si la fuite est close depuis deux jours et que le locataire y revient, on classerait dans la seule intervention ouverte (le bail) → élargir aux dossiers **clos depuis moins de N jours** | ~90 % (bien) / ~70 % (dossier) |
-| 7 | **File « à classer »** | Tout le reste | — | Rien : c'est la sortie sûre | — |
+⚠️ **Un seul spécimen a été observé.** Le préfixe `MNG-` et la présence des trois éléments sont **prouvés sur
+ce mail-là**, pas sur tous. Le format reste donc **en configuration, jamais codé en dur** (doctrine
+`085_reference_externe.sql:9`) : si Monga passe à `MNG2-…` ou à six chiffres, on change une valeur, pas du code.
 
-**Un écart assumé au dépôt** : le dépôt met le **fil** en premier ; je place la **référence explicite** devant.
-Motif : là-bas, un dossier est mono-sujet par construction ; ici, un fil avec un propriétaire **dérive**
-naturellement. Citer une référence est un **acte volontaire** ; appartenir à un fil est un accident d'usage du
-bouton « Répondre ». *C'est un arbitrage, à valider.*
+### 4.2 La cascade, signal par signal
 
-### 3.3 Les six cas difficiles
+Les gardes d'entrée sont inchangées : déduplication ; message de non-remise écarté ; **accusé automatique
+marqué mais jamais jeté** (`rattachementReponse.ts:239-243` — ce garde-fou vient d'un bug réel où un accusé de
+réception avait été pris pour un rebond et supprimé en silence ; transposé ici, cela voudrait dire perdre
+« votre demande a bien été reçue » de Monga).
 
-**① Le fil qui change de sujet.** On parlait de la fuite ; le propriétaire enchaîne sur le bail. C'est **la
-limite structurelle** de tout classement par fil. Trois couches : référence explicite prioritaire ; détection
-de rupture (objet réécrit, vocabulaire étranger à la catégorie) qui **ne conclut pas** mais classe au **bien**
-seul et envoie le dossier en arbitrage ; et un bouton « détacher ce message et les suivants ». **Franchement :
-on en attrape 60-75 %, pas plus.** Le reste se corrige d'un clic — le mail est dans le bon bien, sur le
-mauvais dossier voisin. C'est une gêne, pas une perte.
+| # | Signal | Ce qu'il attrape | Ce qu'il rate / risque | Précision |
+|---|---|---|---|---|
+| **1** | **Fil que NOUS avons créé depuis une carte** | Toute réponse à un envoi sortant de l'outil | Rien, par construction. Seule limite : ne couvre que les fils que nous avons initiés | **100 %** |
+| **2** | **Référence `MNG-…`** (objet + corps) | Toute la chaîne Monga d'une intervention | Les interventions gérées en interne sans Monga | ~99 % |
+| **3** | **Fil de discussion** (réponse à un mail déjà classé) | La conversation continue | Les « réponses » créées comme mails neufs ; **le fil qui dérive de sujet** (§4.3) | ~95 % |
+| **4** | **Notre référence `LOC-…`** citée | Les réponses qui conservent l'objet | Volume faible une fois le signal 1 en place | ~99 % |
+| **5** | **Adresse du bien citée** | Le premier contact, **et les mails Monga** (qui la portent en clair) | ⚠️ La **signature** de l'expéditeur contient son adresse → l'écarter avant d'appliquer le signal. Exiger **numéro + voie + code postal**, jamais la voie seule | ~90 % (bien) |
+| **6** | **Expéditeur connu × unicité** | Le locataire dont l'occupation ne porte que sur un bien | Un artisan sur dix immeubles : ne conclut jamais — **et c'est voulu** | ~95 % (bien) |
+| **7** | **Titre d'intervention Monga** | Appoint : confirme un candidat, ne le désigne jamais seul | Titre modifié côté Monga (§4.3) | appoint |
+| **8** | **File « à classer »** | Tout le reste | — | — |
 
-**② Un mail qui concerne deux biens.** Ce n'est **pas une ambiguïté, c'est un fait** — et la distinction est
-cruciale. Un signal **énumératif** (deux adresses citées, deux références) = le message parle de deux choses →
-**deux lignes**. Un signal **désignatif** (le fil désigne deux dossiers) = le signal ne sait pas → **on ne
-tranche pas**.
+**Règle d'or conservée** : deux candidats au même niveau → **on ne tranche pas, on demande**
+(`rattachementReponse.ts:131`). Et le **motif est toujours écrit**, y compris en cas de succès.
 
-**③ Un expéditeur lié à plusieurs biens.** C'est là que la doctrine du dépôt sauve la mise : l'expéditeur seul
-ne classe jamais. Pour un propriétaire de trois biens, trois candidats → on demande. La vraie parade est
-**opérationnelle** : si le mail sortant porte la référence dans l'objet, toutes les réponses retombent sur les
-signaux 1 et 2.
+**Règle ajoutée pour Monga** : quand deux des trois signaux Monga **se contredisent** (la référence pointe la
+carte A, l'adresse désigne le bien de la carte B), on **ne classe pas** et on signale la contradiction. Ce cas
+ne devrait jamais survenir ; s'il survient, c'est qu'une référence a été recopiée d'un dossier à l'autre, et
+c'est précisément ce qu'il faut voir.
 
-**④ Réexpéditions et copies.** Un transfert **casse le fil** (mail neuf) **et** son expéditeur est celui qui
-transfère : les signaux 2 et 6 sont aveugles. Parade : détecter le transfert et, **dans ce cas seulement**,
-chercher les références dans le **corps cité** — là où vit l'information d'origine. Précision ~80 %, confiance
-dégradée d'office. Les **copies**, elles, ne posent pas de problème de classement : elles sont le cœur du
-filtre par partie (voir §5, objection 3).
+### 4.3 Les cas durs de Monga (demandés par Arno)
 
-**⑤ La référence Monga absente, tronquée ou changée.** Le format est **inconnu** — et ce n'est pas un
-obstacle, c'est une situation déjà vécue par le dépôt avec les références de mairie :
-`085_reference_externe.sql:9` pose la règle *« format LIBRE, **jamais de contrainte de forme** »*. Donc :
-aucun motif codé en dur, la référence est **apprise** au premier classement manuel ; absente → le signal est
-muet, la cascade continue ; tronquée → **non classé, jamais approximé** (c'est testé : `rattachementReponse.test.ts:82`) ;
-format changé → **rien ne casse**, précisément parce que rien n'est gravé.
+**① Référence `MNG-` inconnue dont l'adresse ne correspond à aucun bien du référentiel.**
+La carte **est créée quand même** (exigence d'Arno : une référence inconnue crée une carte), mais avec
+`bien_id` à NULL, et elle atterrit dans une **file dédiée « cartes sans bien »** (index partiel prévu au §3.1).
+Trois causes possibles, toutes utiles à voir : un bien absent du dernier import WIPPIMMO (import à relancer) ;
+un bien qui n'est pas géré par l'agence (Monga travaille aussi pour d'autres) ; une adresse mal orthographiée.
+→ **Ne jamais créer un bien automatiquement** à partir d'une adresse lue dans un mail : ce serait fabriquer
+une seconde vérité en contradiction directe avec §2.1. Le rattachement du bien se fait à la main, en un clic.
 
-**⑥ Deux signaux qui se contredisent.** Deux candidats au **même** niveau → on ne tranche pas. Deux **niveaux**
-différents qui divergent → **la cascade est ordonnée, le signal le plus haut gagne** (le dépôt le teste trois
-fois). J'ajoute une chose qu'il ne fait pas : **tracer la contradiction** dans le motif (« classé sur la
-référence ; le fil pointait LOC-2026-000038 »). Coût nul, et au bout de deux mois on sait si l'ordre de la
-cascade est le bon.
+**② Deux références `MNG-` pour un même bien.**
+Ce n'est **pas une ambiguïté, c'est un fait** : deux interventions distinctes sur le même logement (la fuite,
+puis la serrure). Chacune a sa carte. Le modèle le permet nativement — `loc_reference_externe` est unique par
+`(intervention_id, reference)`, pas par `reference` seule. En revanche, **une même référence désignant deux
+cartes** est une vraie anomalie → garde « ≥2 » → on ne tranche pas.
 
-### 3.4 Taux attendu — et pourquoi ce n'est pas la bonne cible
+**③ Référence citée dans une réponse sans en-tête de fil.**
+C'est exactement le cas que le signal 2 traite : la référence est cherchée dans **l'objet et dans le corps**,
+indépendamment des en-têtes. Un transfert ou une réponse depuis un autre outil reste classé. ⚠️ Restriction
+importante : ne chercher que dans la partie **non citée** du corps — sans quoi un vieux mail recopié
+ressusciterait une carte close.
 
-| | Régime établi | Premier mois |
-|---|---|---|
-| Classé au bon **bien** | 85-92 % | — |
-| Classé à la bonne **intervention** | **75-85 %** (retenu : ~79 %) | 55-70 % |
-| Erreurs **non détectées** | **2-5 %** | — |
+**④ Titre modifié côté Monga après création.**
+Le titre reste le nôtre. `nom` est notre titre de travail ; `nom_origine` conserve celui de Monga. Si Monga
+change le sien, on **ne l'écrase pas** — un titre édité par un humain est une décision, pas une donnée
+importée — mais on **journalise** le changement et on l'affiche discrètement sur la carte (« Monga a renommé :
+… »). L'exigence d'Arno (« le titre par défaut est celui de Monga, pour un suivi identique des deux côtés »)
+est respectée **à la création** ; ensuite, c'est l'humain qui décide.
 
-**Ce chiffre est une opinion argumentée, pas une mesure** : personne n'a ouvert la vraie boîte. Il dépend, par
-ordre d'impact : (1) **répondez-vous depuis l'outil ?** ±15 points — levier organisationnel, pas technique ;
-(2) la référence Monga est-elle systématique ? ±10 ; (3) **combien d'interventions ouvertes par bien en
-moyenne ?** ±8 — si c'est 1,1 le signal 6 classe presque toujours, si c'est 2,5 presque jamais ; (4) la tenue
-de l'annuaire ±7 ; (5) la part de propriétaires multi-biens ±5.
+### 4.4 Taux de classement attendu — recalculé
 
-**Mais la bonne cible n'est pas 79 %.** Pour trois personnes, un mail **non** classé coûte vingt secondes. Un
-mail **mal** classé en silence coûte l'information perdue *et* le risque d'écrire au mauvais locataire. À 300
-mails/mois, 2-5 % d'erreurs invisibles font **6 à 15 mails mal rangés par mois** — en un trimestre, la
-quasi-certitude qu'un impayé se retrouve sous le mauvais dossier. **La cible est : zéro faux rattachement, le
-reste à classer.** Et si le vrai chiffre est 50 %, ce n'est plus le même produit : c'est un **classement
-manuel assisté**, où la file « à classer » est l'écran principal et non une file d'exception. Cette différence
-d'ergonomie ne se rattrape pas après coup — d'où le lot 0 du §6.
+Avec 320 biens et 10 à 30 mails par jour, soit **220 à 660 par mois**, un bien reçoit environ **16 mails par
+an**. Conséquence directe : **un bien a rarement plus d'une intervention ouverte à la fois**, ce qui rend le
+signal 6 (« expéditeur × unicité ») beaucoup plus efficace que dans mon estimation initiale.
 
----
+| Part du volume | Flux | Précision | Apport |
+|---:|---|---:|---:|
+| 40 % | Monga (trois signaux concordants) | 99 % | 39,6 % |
+| 25 % | Fils initiés depuis une carte | **100 %** | 25,0 % |
+| 15 % | Réponses dans un fil déjà classé | 95 % | 14,3 % |
+| 15 % | Premiers contacts (locataire, propriétaire, artisan) | 65 % | 9,8 % |
+| 5 % | Transferts et divers | 50 % | 2,5 % |
+| | **Total attendu à la bonne intervention** | | **≈ 91 %** |
 
-## 4. Recommandation Google
+**Retenu : 88 à 93 %, valeur centrale ~91 %** en régime établi — contre ~79 % dans l'estimation initiale. Au
+**bien** seul : ~96 %. **Erreurs silencieuses : 1 à 3 %** (contre 2-5 %), grâce à l'exigence de concordance
+sur le flux Monga.
 
-### 4.1 API Gmail plutôt qu'IMAP — et c'est contre-intuitif
+**Premier mois : 70 à 80 %.** L'annuaire des adresses se remplit, aucun fil sortant n'existe encore. La montée
+est une caractéristique du système, pas un défaut — et elle se **mesure** : le taux par méthode se lit
+directement dans `loc_message_rattachement.methode`.
 
-On pourrait croire qu'il faut réutiliser l'IMAP existant. **Non** : sur les sept besoins exprimés, **six sont
-natifs côté API Gmail et sont des machineries à construire côté IMAP.**
+**En volume réel** : à 450 mails/mois, ~91 % laisse **40 mails par mois à classer à la main**, soit deux par
+jour ouvré. C'est tenable pour plusieurs collaborateurs, et cela valide l'ergonomie « file à classer » comme
+file d'exception et non comme écran principal.
 
-| Besoin | IMAP | API Gmail |
-|---|---|---|
-| Suivre les fils | dossiers simulés : un mail à 3 étiquettes apparaît **3 fois** avec 3 numéros → comptage double **silencieux** | `threadId` natif |
-| Savoir ce qui a changé ailleurs | à construire (`UIDVALIDITY`, `UIDNEXT`, drapeaux) — **rien de tel dans le dépôt**, la synchro actuelle est « depuis telle date moins 3 jours » | `history.list` : ajouts, suppressions, étiquettes, en un appel |
-| Recherche mots-clés + période | capricieuse ; correspondance par mot | `q=` — la barre de recherche Gmail, indexée |
-| Pièces jointes sans les télécharger | possible mais l'adaptateur actuel télécharge **tout** le message | nom/type/taille sans un octet de contenu |
-| Robustesse | connexion longue avec état ; le Mac se met en veille, l'état casse | requêtes sans état, rejouables |
-| Réutiliser l'existant | **seul point en faveur d'IMAP** | client OAuth déjà écrit (`permis/drive.ts`) |
-
-**Et surtout** : réutiliser `imap.ts` obligerait à y ouvrir un droit d'écriture, ce que le fichier interdit
-explicitement pour protéger la boîte du module Permis. **L'IMAP ferait gagner deux jours et en coûterait dix.**
-
-### 4.2 Authentification : ce qu'il faut faire, et par qui
-
-**Prérequis n° 0, bloquant** : vérifier que `gestion@criterimmo.fr` est **un vrai compte**, ni un alias, ni un
-groupe. Le dépôt connaît déjà ce piège (`email/index.ts:12-14` : *« un alias ne peut pas s'authentifier »*).
-Un **groupe** n'a ni IMAP ni API Gmail — ce serait une tout autre conception.
-
-**Retenu : OAuth « Interne » avec jeton de rafraîchissement** pour démarrer (le dépôt a déjà le script exact,
-`npm run drive:autoriser`, à dupliquer avec d'autres périmètres), **compte de service avec délégation** comme
-cible quand le module deviendra critique. Écarté : le **mot de passe d'application** — aucun périmètre
-limitable (lecture + écriture + suppression + envoi, tout ou rien), incompatible avec l'API, et avenir non
-garanti.
-
-| Étape | Où | Par qui |
-|---|---|---|
-| Confirmer que `gestion@` est un vrai compte | — | administrateur |
-| Activer les API Gmail (et Drive si retenu) | console Google Cloud | administrateur |
-| Écran de consentement **« Interne »**, puis **publier** | console Google Cloud | administrateur |
-| Créer un identifiant client « Application de bureau » | console Google Cloud | administrateur |
-| Lancer une fois l'autorisation en étant connecté comme `gestion@` | script du dépôt | quiconque a le mot de passe |
-
-⚠️ **Le piège le plus fréquent, et il est silencieux** : si l'écran de consentement reste au statut
-**« Test »**, le jeton **expire au bout de 7 jours**. Il faut **publier** — ce qui, pour une application
-« Interne », ne déclenche aucune revue de Google.
-
-**Périmètres à demander, et rien de plus** : lecture + étiquettes, et envoi. **Ne pas** demander l'accès total.
-
-### 4.3 Drive : retiré du périmètre initial
-
-L'analyse est solide (un **seul** Drive partagé — jamais « Mon Drive », dont le contenu part avec le compte
-d'un salarié ; identifiants mémorisés en base, jamais identifier un dossier par son **nom**, car Drive autorise
-les doublons ; vérifier le drapeau « à la corbeille » avant d'écrire ; corbeille 30 jours puis plus rien sans
-licence d'archivage). Et un lien Drive est **remarquablement durable** : il survit au renommage, au
-déplacement, au changement de propriétaire ; il ne meurt qu'à la suppression définitive ou à la copie.
-
-**Mais je le retire du démarrage**, pour une raison que l'analyse Drive ne voyait pas : ajouté à Gmail et à
-MinIO, il crée une **troisième copie** des mêmes documents, sans vérité unique, et un droit d'effacement qui
-doit désormais atteindre les trois. Le jour où il reviendra, il sera **soit** le stockage, **soit** MinIO —
-jamais les deux. En attendant, le **permalien vers le mail d'origine** suffit pour un usage interne, coûte
-zéro et ne duplique rien. Sa limite, à connaître : il est inutilisable pour un propriétaire externe, et il
-pointe un *message*, pas un *document*.
-
-### 4.4 Notifications : différées
-
-Être prévenu instantanément d'un nouveau mail exige, côté Google, une file de messages Cloud (Pub/Sub) et
-— pour la forme la plus simple — une **adresse web publique et stable**, que le Mac avec tunnel temporaire n'a
-pas. **Interroger toutes les 60 secondes coûte une fraction dérisoire du quota** et évite tout ce chantier. À
-rouvrir le jour de l'hébergement.
+⚠️ **Ce chiffre reste une estimation.** La répartition du volume entre les cinq flux est **supposée**, pas
+mesurée. Le **lot 0** (rejeu hors ligne sur la vraie boîte) reste le moyen de la vérifier, et il est d'autant
+plus utile que le format Monga est maintenant connu : la mesure sera nette.
 
 ---
 
-## 5. Les objections du contradicteur
+## 5. Les objections du contradicteur, revues
 
-> Douze objections retenues sur dix-sept. Pour chacune : la réponse retenue, ou la mention **NON RÉSOLU**.
+> Statut de chacune après les réponses d'Arno.
 
-**1 — BLOQUANT. « Un outil qui dort la nuit ne synchronise pas : il ment par omission. »**
-Le dépôt l'avait déjà écrit (`ops/README.md:19`). Mac éteint = rien n'entre, et **personne n'est prévenu** :
-un travail qui ne tourne pas ne produit pas d'erreur, il produit du silence.
-→ **RETENU, et c'est la décision structurante de l'étude.** On ne synchronise pas : **Gmail reste la seule
-source de vérité**, le module ne garde que des pointeurs et charge le contenu à la demande. Mac éteint =
-module **indisponible**, ce qui est honnête. Et l'écran affiche en permanence la **date de dernière
-synchronisation**, en rouge au-delà de 24 h. *(L'hébergement reste la vraie réponse ; Arno l'a déjà prévu « au
-passage sur un vrai serveur ».)*
+**1 — « Un outil qui dort la nuit ne synchronise pas. »** → **LEVÉE PAR DÉCISION.** Plusieurs collaborateurs
+rendent l'hébergement obligatoire ; il devient le **lot 3** du plan, avant tout usage réel à plusieurs.
+Maintenue comme garde-fou : la date de dernière synchronisation reste affichée en permanence, **en rouge
+au-delà de 24 h**. Un outil qui dit qu'il est aveugle reste honnête.
 
-**2 — BLOQUANT. « Recopier impayés, situations familiales et RIB en clair sur un Mac. »**
-Base légale à établir, durée de conservation absente des propositions, **aucun script de sauvegarde dans tout
-le dépôt**, et surtout : on ne sait pas *effacer* une personne dont le nom est dans 200 corps de mails, les
-citations et les pièces jointes.
-→ **RETENU** : l'option « pointeurs » (objection 1) fait tomber l'essentiel. L'effacement redevient trivial —
-on supprime dans Gmail, le pointeur meurt. **Règle posée : si on ne sait pas écrire « effacer cette personne »
-avant d'ingérer, on n'ingère pas.**
-→ **NON RÉSOLU** : la durée de conservation des *interventions* (qui, elles, restent en base) reste à fixer,
-et c'est un choix métier (§7, question 6).
+**2 — « Recopier impayés et RIB en clair sur un Mac. »** → **RETENUE, réponse inchangée** : on ne recopie
+pas. Gmail reste la source de vérité, le module ne garde que des pointeurs. L'effacement d'une personne
+redevient trivial. **Règle posée : si on ne sait pas écrire « effacer cette personne » avant d'ingérer, on
+n'ingère pas.**
+→ **NON RÉSOLU** : la durée de conservation des **cartes** (qui, elles, restent en base) reste à fixer — c'est
+la question ouverte n° 2 du §8.
 
-**3 — BLOQUANT. « Le premier mail parti au mauvais locataire est un incident à déclarer. »**
-Scénario concret : la cascade rattache par adresse citée un mail du 2e à l'intervention du 4e ; l'opérateur
-répond depuis la fiche ; **le locataire du 2e reçoit l'historique de l'impayé du 4e**, citation comprise.
-Et le contradicteur relève la tension centrale que personne n'avait arbitrée : **« répondre depuis l'outil »
-est à la fois le plus gros levier de classement (+15 points) et le geste le plus dangereux.**
-→ **RETENU en partie.** L'envoi sort du premier jet (lot 6, pas lot 1). Quand il arrivera : destinataires
-résolus depuis **le message auquel on répond**, jamais depuis la fiche ; liste nominative affichée en clair
-avec cases à décocher ; aucun « répondre à tous » par défaut ; refus si le message ne relève pas de
-l'intervention ouverte ; fenêtre d'annulation ; journal d'envoi append-only.
-→ ⚠️ **Arno a explicitement demandé de pouvoir répondre et écrire depuis l'outil.** Le reporter est un choix
-de séquencement, pas un refus — **mais c'est à lui de le valider** (§7, question 2).
+**3 — « Le premier mail parti au mauvais locataire est un incident à déclarer. »** → **RETENUE, mais l'arbitrage
+est inversé par Arno**, et son motif est meilleur que ma prudence : l'envoi depuis une carte est le signal de
+classement le plus fiable. Il remonte au **lot 4**. Le risque est traité par **trois verrous** :
+1. **Envoi impossible sans carte rattachée** — pas de composition « libre » dans le module ;
+2. **Destinataire affiché en clair** avant l'envoi, nominativement (« À : Mme Martin, locataire du B-0142 —
+   martin@… »), avec cases à décocher ; aucun « répondre à tous » par défaut ;
+3. **Traçabilité de l'auteur** : chaque envoi écrit une ligne `loc_journal` avec le collaborateur, l'heure, les
+   destinataires et l'objet.
+J'ajoute deux garde-fous que je tranche moi-même : **refus d'envoi** si le message auquel on répond
+n'appartient pas à la carte ouverte ; et **fenêtre d'annulation de 10 secondes** après le clic.
 
-**5 — GRAVE. « La dépendance à Monga est traitée comme un acquis : personne n'a vu un seul mail. »**
-Le pire n'est pas qu'un changement de format casse, c'est qu'il **casse en silence** : le taux baisse, les
-mails partent en « à classer », et personne ne fait le lien pendant six semaines.
-→ **RETENU** : aucun motif codé en dur (doctrine `085:9`), et surtout **instrumenter le taux de rattachement
-par méthode**, avec alerte sur décrochage. Une cascade sans télémétrie par étage n'est pas maintenable.
+**5 — « La dépendance à Monga est traitée comme un acquis. »** → **LARGEMENT LEVÉE** : le format est prouvé sur
+un mail réel. **Maintenue sur un point** : un seul spécimen observé. D'où le format **en configuration** et
+l'instrumentation du **taux par méthode**, avec alerte sur décrochage — pour qu'un changement de format se
+voie en jours, pas en six semaines.
 
-**6 — GRAVE. « Si un logiciel de gérance existe, 60 % du modèle est mort-né. »**
-La seconde vérité perd toujours : ce n'est pas elle qui produit les quittances, donc ce n'est pas elle qu'on
-met à jour. Trois mois plus tard le référentiel local est faux, et le classement avec lui.
-→ **RETENU, et devenu la question n° 1 du §7.** Selon la réponse, le module garde un référentiel réduit avec
-un identifiant externe opaque, ou il double de taille.
+**6 — « Si un logiciel de gérance existe, 60 % du modèle est mort-né. »** → **CONFIRMÉE PAR LES FAITS** :
+WIPPIMMO existe et fait foi. Le référentiel devient une **copie** avec identifiant externe (§2), jamais une
+saisie parallèle. C'est l'objection qui a le plus changé le projet — et elle avait raison.
 
-**7 — GRAVE. « Les 79 % sont une opinion déguisée en mesure. »**
-Quatre chiffres à la décimale sur un corpus que personne n'a ouvert.
-→ **RETENU** : §3.4 réécrit pour dire que la bonne cible est « zéro faux rattachement », et le **lot 0**
-(rejeu hors ligne sur la vraie boîte) est devenu le premier du plan.
+**7 — « Les 79 % sont une opinion déguisée en mesure. »** → **TOUJOURS VALABLE** pour les 91 % recalculés : la
+répartition du volume reste supposée. Le lot 0 est maintenu.
 
-**8 — GRAVE. « Le "lu/non lu" de Gmail est un piège sur une boîte partagée. »**
-Excellente objection, que les quatre autres mandats avaient manquée : le drapeau est **commun**. Si Arno ouvre
-un mail, il est « lu » pour tout le monde. « Lu » ne veut dire ni « vu par la bonne personne », ni « traité ».
-→ **RETENU** : l'état d'avancement devient **métier** (assigné à + prochaine action), et **on ne touche pas au
-drapeau Gmail** au démarrage. Bénéfice inattendu : le besoin d'**écrire** dans la boîte s'effondre, donc la
-règle de lecture stricte du dépôt est préservée sans exception.
+**8 — « Le lu/non lu de Gmail est un piège sur une boîte partagée. »** → **RETENUE ET VALIDÉE PAR ARNO** :
+remplacé par « à traiter » / « traité par X ». Le drapeau Gmail n'est pas touché.
 
-**9 — GRAVE. « 18 tables pour trois personnes, dans un dépôt à 227 migrations manuelles sans registre. »**
-→ **RETENU** : ramené à **6 tables** (§2.2).
+**9 — « 18 tables pour trois personnes. »** → **RETENUE** : 7 tables (§3.1).
 
-**10 — GRAVE. « 12-13 jours répond à une autre question que "quand Arno peut-il s'en servir". »**
-L'estimation chiffrait la plomberie Google, pas : l'affichage du HTML d'un tiers sans faille (aucun
-assainisseur HTML dans le dépôt), la recherche et la pagination (aucun index plein texte dans les 227
-migrations), la plomberie de permissions, les tests au standard maison, ni les fonctions de recours (classer à
-la main, détacher, fusionner, scinder).
-→ **RETENU** : l'estimation honnête est **35 à 60 jours** hors hébergement et hors référentiel. Le plan du §6
-est découpé pour que **le premier résultat utile arrive au lot 2**, pas au bout des 35 jours.
+**10 — « 12-13 jours répond à une autre question. »** → **RETENUE** : le chiffrage révisé est de **45 à 70
+jours**, hébergement et référentiel compris (§6).
 
-**11 — GRAVE. « `deposerPieceEntrante` ne jette jamais : correct pour la veille, dangereux pour la gérance. »**
-Une pièce de mairie perdue se redemande. **Un constat d'huissier ou un état des lieux signé, non.**
-→ **RETENU** : sans copie des pièces jointes au démarrage (elles restent dans Gmail), le problème ne se pose
-pas. S'il revient : échec de dépôt **visible** (bandeau sur l'intervention) et rejouable.
+**11 — « Un échec de dépôt silencieux est dangereux en gérance. »** → **SANS OBJET au démarrage** (pas de copie
+des pièces jointes). Redeviendra valable au lot 8.
 
-**12 — GRAVE. « Drive crée une troisième copie sans histoire d'effacement. »** → **RETENU**, Drive retiré (§4.3).
+**12 — « Drive crée une troisième copie. »** → **PARTIELLEMENT LEVÉE.** Arno tranche : l'**arborescence** est
+créée tôt (lot 2), la **copie automatique** des documents reste reportée (lot 8). L'objection portait sur la
+copie, pas sur les dossiers : créer une arborescence vide ne duplique rien et prépare le terrain.
 
-**13 — MODÉRÉ. « Rien n'est prévu pour la divergence entre Gmail et le miroir. »**
-→ **RETENU** : sans miroir, la question ne se pose pas.
+**14 — « La synthèse s'appuie sur des documents plutôt que sur le réel. »** → **RETENUE**, et illustrée deux
+fois de plus : le format Monga et l'existence de WIPPIMMO ont été établis par **Arno**, pas par l'analyse.
 
-**14 — MODÉRÉ. « La synthèse s'appuie sur des documents plutôt que sur le réel. »**
-Le contradicteur a trouvé **deux affirmations fausses** dans la recon (corrigées en §1.3). Le dépôt a un
-précédent documenté de dérive entre sa documentation et son code.
-→ **RETENU** : c'est pourquoi le §8 sépare strictement le prouvé du non vérifié.
-
-**16 — MINEUR. « Démarrer par les fuites d'eau est le bon conseil sur le mauvais objet. »**
-Une fuite est le cas **urgent** : l'équipe n'ira pas vérifier dans un outil neuf avec le plombier au
-téléphone. Un pilote tient mieux sur un flux **régulier et non urgent**.
-→ **RETENU** : le pilote portera sur une catégorie tolérante (administratif / entretien), pas sur les fuites.
-
-**Deux objections écartées** : celle sur `MAIL_FROM` et celle sur `permsToutes()` — j'ai vérifié, et c'est le
-contradicteur qui avait raison contre la recon. Les corrections sont en §1.3.
+**16 — « Démarrer par les fuites d'eau est le bon conseil sur le mauvais objet. »** → **RETENUE** : le pilote
+portera sur un flux régulier et tolérant, pas sur l'urgence.
 
 ---
 
-## 6. Plan de construction en lots
+## 6. Google Drive : l'arborescence
 
-> Un lot = un chantier = un prompt = un commit. Ordonné par dépendance. **Le lot 0 n'écrit aucun code de
-> production** et c'est pourtant le plus rentable.
+### 6.1 La structure retenue, et pourquoi elle n'est pas l'évidente
 
-**LOT 0 — Mesurer avant de construire** · *dépend de : rien*
-Exporter 3 mois de la vraie boîte, rejouer la cascade **hors ligne** (fonction pure, sans base ni Gmail — le
-dépôt a exactement ce patron), et compter : taux par signal, part de mails réellement dans un fil, part
-portant une référence Monga, nombre moyen d'interventions ouvertes par bien.
-→ **Visible pour Arno** : un chiffre réel à la place d'une estimation, et la réponse à « ce module vaut-il la
-peine ? ». **Risque** : le chiffre peut être décevant — c'est précisément l'intérêt de le savoir maintenant.
+L'arborescence naturelle serait `/Propriétaire/Bien/`. **Je ne la retiens pas**, pour une raison précise : un
+bien **change de propriétaire** (vente, succession, changement de mandat). Avec l'arborescence naturelle, il
+faudrait alors **déplacer le dossier du bien et tout son historique** — opération risquée, et qui fait que
+l'historique d'un bien suit son propriétaire au lieu de suivre le bien.
 
-**LOT 1 — La tuile et le socle d'accès** · *dépend de : lot 0, et des réponses du §7*
-Permission `perm_gestion_locative` (recette en 7 points), tuile dans le menu, écran vide gardé. Jeton Google
-obtenu, fonction d'authentification **isolée** (le passage au compte de service doit être 40 lignes, pas une
-refonte). Un script de lecture seule affiche les 10 derniers objets de la boîte.
-→ **Visible** : Arno voit sa tuile et la preuve que l'application lit sa boîte. **Risque** : l'écran de
-consentement laissé en « Test » (jeton mort à 7 jours) ; `gestion@` qui serait un alias ou un groupe.
+**Structure retenue** — deux racines, et des **raccourcis** :
 
-**LOT 2 — La liste des mails et la file « à classer »** · *dépend de : lot 1*
-Tables `loc_message` + `loc_message_rattachement`. Balayage initial, index des pointeurs, liste paginée,
-recherche déléguée à Gmail (`q=`), ouverture d'un mail (contenu chargé à la demande).
-→ **Visible, et c'est le premier vrai service** : 100 % des mails consultables et cherchables depuis
-l'application. **Risque** : le volume réel (inconnu) ; la pagination et la recherche sont à construire.
+```
+Drive partagé « Gestion locative »
+├── Biens/
+│   ├── B-0142 — 53 avenue des Ternes 75017/     ← le dossier RÉEL, ne bouge JAMAIS
+│   │   ├── Interventions/
+│   │   │   └── LOC-2026-000001 — barre de douche/
+│   │   ├── Bail et diagnostics/
+│   │   └── Photos et états des lieux/
+│   └── B-0143 — …/
+└── Propriétaires/
+    ├── P-0042 — DUPONT Jean/
+    │   └── → B-0142  (RACCOURCI vers le dossier du bien)
+    └── P-0043 — SCI des Ternes/
+```
 
-**LOT 3 — Les interventions** · *dépend de : lot 2*
-Tables `loc_bien`, `loc_partie`, `loc_intervention`, `loc_journal`. Cartes dépliables, catégories, urgence,
-**assigné à**, **date de prochaine action**, **notes internes**, dates d'ouverture et de clôture. Rattachement
-**manuel** d'un mail à une intervention, et **détachement**.
-→ **Visible** : le registre des interventions existe, alimenté à la main. **Déjà utilisable seul.**
-**Risque** : si le référentiel des biens doit venir d'ailleurs (§7 q.1), ce lot change de forme.
+**Ce que cette structure apporte :**
+- un **changement de propriétaire** = déplacer un **raccourci**. Le dossier du bien, ses fichiers et **tous les
+  liens** restent intacts. L'historique reste attaché au bien, ce qui est la réalité juridique ;
+- un bien en **indivision** apparaît sous plusieurs propriétaires, sans duplication ;
+- un bien qui **sort du portefeuille** : le raccourci est déplacé dans `Propriétaires/P-00xx/Anciens biens/`,
+  le dossier réel **reste** dans `Biens/` et le bien passe `actif = false` en base. **On n'efface rien** — un
+  litige peut survenir deux ans après la fin du mandat.
 
-**LOT 4 — Le classement automatique** · *dépend de : lots 2, 3 et des mesures du lot 0*
-La cascade, signal par signal, en module **pur** et testé. Motif toujours écrit. Télémétrie par méthode.
-→ **Visible** : la file « à classer » se vide toute seule. **Risque** : le principal du projet — un faux
-rattachement silencieux. Mitigation : la règle « en cas de doute, on ne tranche pas », et le taux par méthode
-sous les yeux.
+**Convention de nommage** : `<référence> — <libellé>`, la référence **d'abord**. Elle rend le dossier
+identifiable à l'œil et triable, et surtout elle survit à un renommage partiel. ⚠️ **Mais le nom ne fait jamais
+autorité** : Drive autorise les doublons de nom, deux dossiers « DUPONT » sont indiscernables. **La vérité est
+l'identifiant Drive mémorisé en base**, doublé d'une étiquette technique invisible (`appProperties`,
+p. ex. `bienRef=B-0142`) qui permet de retrouver un dossier renommé à la main.
 
-**LOT 5 — Le pilotage quotidien** · *dépend de : lot 3*
-Une vue unique : ce qui est en retard, ce qui dort, ce qui attend qui. Tri par date, urgence, dernière
+**Droits** : les collaborateurs sont membres du Drive partagé (rôle **Contributeur** : ajouter et modifier,
+pas supprimer définitivement). Un ou deux **Gestionnaires** seulement. Un propriétaire externe à qui l'on
+voudrait donner accès n'est **pas** membre du Drive : il reçoit un partage **sur son dossier**, de préférence
+via un groupe Google plutôt qu'à titre nominatif — ajouter ou retirer quelqu'un devient alors une opération
+d'annuaire, pas une modification de milliers de permissions.
+
+⚠️ **À vérifier avant de promettre un accès externe** : le partage hors du domaine peut être interdit par une
+règle d'administration. *(Non vérifié — aucun accès à la console.)*
+
+### 6.2 Ce qui est fait au lot 2, et ce qui attend
+
+**Lot 2 — créé** : les deux racines, un dossier par bien et par propriétaire, les raccourcis, les sous-dossiers
+types, et la table de correspondance en base. **Lot 8 — reporté** : la copie automatique des pièces jointes.
+Motif maintenu : tant que Gmail garde les documents, les copier ailleurs crée une deuxième source sans vérité
+unique. Un **permalien vers le mail d'origine** suffit entre-temps, coûte zéro et ne duplique rien.
+
+---
+
+## 7. Google Workspace : les prérequis, pas à pas
+
+> Écrit pour être exécuté par une personne non technique disposant des droits d'administration. Chaque étape
+> dit **où aller** et **quoi obtenir**. ⚠️ Google réorganise régulièrement ses menus : les intitulés peuvent
+> différer légèrement. *(Non vérifié en conditions réelles — aucun accès à la console.)*
+
+**Étape 0 — la vérification bloquante.** Dans la console d'administration (`admin.google.com`), rubrique
+**Annuaire → Utilisateurs**, chercher `gestion@criterimmo.fr`. Il doit apparaître comme **utilisateur**, avec
+sa propre licence. S'il apparaît seulement comme **alias** d'un autre compte, ou comme **groupe**
+(Annuaire → Groupes), **tout le reste tombe** : un alias ne peut pas s'authentifier, un groupe n'a pas de
+boîte interrogeable. Le dépôt connaît déjà ce piège (`email/index.ts:12-14`).
+→ *Résultat attendu : « oui, c'est un compte utilisateur à part entière ».*
+
+**Étape 1 — créer le projet technique.** Sur `console.cloud.google.com`, créer un projet (nom libre, par
+exemple « Criterimmo Gestion »). Puis, dans **API et services → Bibliothèque**, activer **Gmail API** et
+**Google Drive API**.
+→ *Résultat attendu : les deux interfaces marquées « activée ».*
+
+**Étape 2 — déclarer l'application comme interne.** Dans **API et services → Écran de consentement OAuth**,
+choisir le type **« Interne »** (réservé aux comptes du domaine). Renseigner un nom et un contact, puis
+**PUBLIER** l'application.
+→ ⚠️ **L'erreur la plus fréquente, et elle est silencieuse** : si l'application reste au statut **« Test »**,
+l'autorisation **expire au bout de 7 jours** et le module s'arrête sans message clair. Il faut voir « En
+production ». Pour une application « Interne », publier ne déclenche **aucune** validation par Google.
+
+**Étape 3 — créer l'identifiant.** Dans **API et services → Identifiants → Créer des identifiants → ID client
+OAuth**, type **« Application de bureau »**. Noter l'**identifiant client** et le **secret**.
+→ *Résultat attendu : deux valeurs à transmettre, à ne jamais publier ni envoyer par messagerie non protégée.*
+
+**Étape 4 — autoriser une fois, en étant connecté comme `gestion@`.** Un script du dépôt ouvre le navigateur
+et demande l'autorisation ; il faut être connecté **avec la boîte `gestion@criterimmo.fr`**, pas avec un
+compte personnel. Le script rend un **jeton de rafraîchissement**.
+→ *Résultat attendu : une longue chaîne de caractères, à ranger dans la configuration du serveur.*
+
+**Étape 5 — le Drive partagé.** Sur `drive.google.com`, créer un Drive partagé nommé **« Gestion locative »**,
+y ajouter `gestion@criterimmo.fr` comme **Gestionnaire de contenu**, et les collaborateurs comme
+**Contributeurs**.
+→ *Vérifier au préalable, dans la console d'administration (**Applications → Google Workspace → Drive et
+Docs**), que la création de Drive partagés est autorisée.*
+
+**Étape 6 — une décision à prendre maintenant, pas après l'incident.** La corbeille d'un Drive partagé
+conserve 30 jours. Au-delà, un dossier supprimé est **définitivement perdu**, sauf si une règle d'archivage
+(Google Vault, selon l'édition souscrite) est active. **À trancher avant la mise en service.**
+
+**Périmètres demandés, et rien de plus** : lecture des messages et gestion des étiquettes ; envoi ; accès aux
+fichiers créés par l'application. **Ne pas** demander l'accès total à la boîte.
+
+**Ce qu'on ne fait pas, et pourquoi** : ni mot de passe d'application (aucun périmètre limitable : lecture,
+écriture, suppression et envoi d'un bloc — et incompatible avec l'interface Gmail), ni compte de service avec
+délégation au domaine **pour l'instant** (il permettrait d'agir au nom de **n'importe quel** compte du
+domaine : trop large tant que l'application vit sur une machine de développement). Le passage au compte de
+service se fera quand le module sera hébergé — et il est prévu pour coûter une quarantaine de lignes, parce
+que l'authentification est isolée derrière **une seule fonction** dès le lot 2.
+
+---
+
+## 8. Plan de construction en lots
+
+> Un lot = un chantier = un prompt = un commit. **Effort total estimé : 45 à 70 jours**, hors délais
+> calendaires (réponses Google, WIPPIMMO, hébergeur).
+
+| Lot | Intitulé | Apport visible pour Arno | Dépend de | Effort |
+|---|---|---|---|---|
+| **0** | **Mesurer avant de construire** | Le vrai taux de classement, à la place d'une estimation | rien | 1-2 j |
+| **1** | **Le référentiel WIPPIMMO** | Les 320 biens consultables et cherchables dans l'application | lot 0 | 5-7 j |
+| **2** | **Accès Gmail + Drive, et l'arborescence** | La boîte est lue ; l'arborescence Drive existe, propre et complète | lot 1 | 6-9 j |
+| **3** | **Hébergement** | L'outil devient accessible à plusieurs, en permanence | lot 2 | 4-6 j |
+| **4** | **Les cartes d'événement, avec envoi** | Le cœur du produit : ouvrir une carte, écrire depuis elle, la réponse revient dedans | lot 3 | 10-14 j |
+| **5** | **Le classement automatique** | La file « à classer » se vide toute seule | lots 2 et 4 | 7-10 j |
+| **6** | **Monga : création automatique de cartes** | Une intervention Monga apparaît sans rien faire | lot 5 | 4-6 j |
+| **7** | **Le pilotage quotidien** | « Qu'est-ce qui dort ? » a enfin une réponse | lot 4 | 5-7 j |
+| **8** | **Documents dans Drive** | Les pièces jointes rangées par bien | lots 2 et 4 | 4-6 j |
+
+### Détail et risques
+
+**LOT 0 — Mesurer.** Exporter 3 mois de la vraie boîte, rejouer la cascade **hors ligne** (fonction pure, sans
+base ni Google — le dépôt a exactement ce patron), et compter : part réelle de chaque flux, part de mails
+Monga, nombre d'interventions ouvertes par bien. → **Risque** : le chiffre peut être décevant ; c'est
+précisément l'intérêt de le savoir avant d'engager 45 jours.
+
+**LOT 1 — Le référentiel.** *Spécification exécutable complète au §10.* → **Risque** : le fichier WIPPIMMO
+peut être incomplet (adresses e-mail manquantes). Le lot reste livrable, l'annuaire se remplit plus lentement.
+
+**LOT 2 — Accès Gmail + Drive.** Authentification isolée derrière **une seule fonction**. Lecture de la boîte,
+pointeurs en base, liste paginée, recherche déléguée à Gmail, ouverture d'un mail (contenu chargé à la
+demande). Création de l'arborescence Drive (§6). → **Risque** : les prérequis du §7 dépendent d'un tiers ;
+l'étape « publier l'application » est celle qui se rate le plus souvent.
+
+**LOT 3 — Hébergement.** Serveur, base, sauvegardes, nom de domaine stable, certificat. **Placé ici et pas
+avant** : les lots 0 à 2 se construisent et se testent très bien en local, et il serait absurde de payer un
+serveur pour écrire un import de fichier. **Placé ici et pas après** : le lot 4 introduit l'usage à plusieurs
+et l'envoi de vrais mails — cela ne peut pas vivre sur un poste qui s'endort. → **Risque** : c'est le lot qui
+déplace les données de locataires sur une machine louée ; sauvegardes chiffrées et accès nominatifs sont
+**dans** le lot, pas après.
+
+**LOT 4 — Les cartes, avec envoi.** Tables `loc_intervention`, `loc_occupation`, `loc_journal`. Cartes
+dépliables, catégories, urgence, **assigné à**, **date de prochaine action**, **notes d'appel**. Rattachement
+manuel d'un mail, détachement. **Et l'envoi depuis une carte**, avec les cinq verrous du §5 objection 3.
+→ **Risque** : le plus élevé du projet (écrire au mauvais destinataire). Les verrous ne sont pas optionnels,
+ils font partie du lot.
+
+**LOT 5 — Le classement automatique.** La cascade du §4, en module **pur** et testé, avec motif toujours écrit
+et télémétrie par méthode. → **Risque** : un faux rattachement silencieux. Mitigation : règle « en cas de
+doute, on ne tranche pas », exigence de concordance sur Monga, et taux par méthode sous les yeux.
+
+**LOT 6 — Monga automatique.** Détection d'une référence `MNG-` inconnue → création d'une carte, titre repris
+de Monga, file « cartes sans bien » pour les cas non rattachables. → **Risque** : créer des cartes en double si
+la détection est trop large. Mitigation : une carte n'est créée que si la référence est **inconnue** et que
+l'expéditeur est Monga.
+
+**LOT 7 — Pilotage.** Vue unique de ce qui est en retard, dort ou attend. Tri par date, urgence, dernière
 interaction. Filtre par partie. Fusion et scission des doublons.
-→ **Visible** : la question « qu'est-ce qui dort ? » a enfin une réponse. **Risque** : le filtre par partie
-suppose de connaître les destinataires — à charger depuis Gmail à l'ouverture, ou à normaliser (table
-retirée du noyau, à rouvrir ici).
 
-**LOT 6 — Écrire depuis l'outil** · *dépend de : lot 5, et de l'accord d'Arno (§7 q.2)*
-Répondre dans le fil et écrire, avec pièces jointes, depuis un compte `gestion@` dédié. **Avec tous les
-garde-fous de l'objection 3** : destinataires issus du message répondu, liste affichée, pas de « répondre à
-tous » par défaut, fenêtre d'annulation, journal d'envoi.
-→ **Visible** : l'outil devient autonome, et le classement gagne ~15 points. **Risque** : le plus élevé du
-projet — écrire au mauvais destinataire. À ne pas avancer dans le plan.
+**LOT 8 — Documents.** Copie des pièces jointes dans l'arborescence du lot 2, avec échec de dépôt **visible**
+(bandeau sur la carte) et rejouable — et non silencieux comme dans le module permis, où une pièce perdue se
+redemande, ce qui n'est pas le cas d'un état des lieux signé.
 
-**LOT 7 et au-delà** — devis / autorisation de dépense / facture ; assurance et n° de sinistre ; relances
-(alerte **interne**, jamais de mail automatique au locataire) ; échéances récurrentes ; export complet d'un
-dossier pour un litige. Chacun est un lot, aucun n'est un préalable.
+**Hors plan, à leur heure** : devis, autorisation de dépense, facture, assurance et n° de sinistre, relances
+(alerte **interne**, jamais de mail automatique au locataire), échéances récurrentes, export d'un dossier
+complet pour un litige.
 
 ---
 
-## 7. Questions ouvertes pour Arno
+## 9. Ce qui est prouvé, et ce qui ne l'est pas
 
-> Sept choix **métier**, aux conséquences concrètes. Les arbitrages techniques, je les ai tranchés moi-même et
-> j'ai dit pourquoi (API Gmail plutôt qu'IMAP ; pointeurs plutôt que copie ; 6 tables plutôt que 18 ; état
-> d'avancement métier plutôt que drapeau Gmail ; Drive différé).
+### 9.1 Prouvé
 
-**1. Qu'est-ce qui fait foi aujourd'hui pour la liste des biens, des propriétaires et des locataires ?**
-*Un logiciel de gérance ? Un tableur ? Rien, tout est dans les têtes et les mails ?*
-→ **La question qui pèse le plus lourd.** Si un logiciel existe, le module ne doit **pas** recréer ce
-référentiel : il l'importe en lecture seule et garde l'identifiant externe. Sinon il devient une seconde
-vérité qui sera fausse en trois mois, et le classement avec elle. Si rien n'existe, le module devient aussi le
-référentiel — et le projet double de taille.
-
-**2. Acceptez-vous que, dans un premier temps, on lise et on classe dans l'outil mais qu'on réponde dans
-Gmail ?**
-→ Vous avez demandé de pouvoir écrire depuis l'outil, et c'est légitime. Mais c'est à la fois le plus gros
-levier de classement automatique **et** le geste le plus dangereux (envoyer l'historique d'un impayé au
-mauvais locataire est un incident à déclarer). Le reporter au lot 6 permet de livrer plus tôt et de construire
-les garde-fous sans pression. **C'est votre appel.**
-
-**3. Combien de biens gérez-vous, et combien de mails arrivent par jour dans cette boîte ?**
-→ 40 lots ou 900, 50 mails/mois ou 800 : ce n'est pas le même produit ni la même ergonomie. Ce chiffre
-change l'ordre des lots.
-
-**4. Voulez-vous **remplacer** Gmail pour la gestion locative, ou **compléter** Gmail ?**
-→ Si c'est compléter, le module n'a pas à gérer le lu/non lu ni l'envoi, et il devient nettement plus simple
-et plus sûr. Si c'est remplacer, il faut l'hébergement d'abord (question 5).
-
-**5. Quand l'application passe-t-elle sur un vrai serveur ?**
-→ Vous avez déjà tranché que le tunnel nommé et l'adresse publique se feraient à ce moment-là. Tant que
-l'application vit sur le Mac, le module sera **indisponible** quand la machine dort — c'est acceptable pour un
-outil de consultation, pas pour un outil dont on attend qu'il n'oublie rien.
-
-**6. Combien de temps doit-on garder la trace d'une intervention close ?**
-→ Il faut une durée, décidée maintenant, et inscrite dès la première migration. Une intervention close en 2026
-n'a pas vocation à rester indéfiniment. *(Point à faire valider juridiquement : les durées varient selon la
-nature des données et les obligations comptables.)*
-
-**7. Qui doit voir cette boîte dans l'application ?**
-→ Tous les collaborateurs, ou seulement certains ? ⚠️ **Avant d'y mettre des données de locataires**, deux
-points du registre d'audit devraient être soldés : la **voie de secours** (mot de passe partagé, non nominatif,
-non révocable sans rotation du secret — item M2, toujours ouvert) et le **nettoyage du `.env`** (item G5). Le
-contradicteur a raison : mettre la messagerie des locataires derrière une porte qui garde une clé partagée
-serait incohérent.
-
----
-
-## 8. Ce qui est prouvé, et ce qui ne l'est pas
-
-### 8.1 Prouvé (vérifié dans le code, `fichier:ligne`)
-
-- Le client IMAP est en **lecture stricte**, règle déclarée non négociable — `imap.ts:5-7`.
-- La cascade de rattachement existe, est **pure et testée**, et sa règle d'ambiguïté est écrite —
-  `rattachementReponse.ts:131`, 275 lignes de tests.
-- `demande_reponse` **ne stocke que l'expéditeur**, sans destinataire ni copie — `073:37-38`.
-- Il n'existe **aucun index plein texte** dans les 227 migrations, et `listerReponses` n'a **ni `LIMIT` ni
-  `OFFSET`** — `demandeReponseRepo.ts:247-253`.
+- Le client IMAP est en **lecture stricte**, règle non négociable — `imap.ts:5-7`.
+- La cascade de rattachement existe, **pure et testée**, règle d'ambiguïté écrite — `rattachementReponse.ts:131`.
+- `demande_reponse` **ne stocke que l'expéditeur** — `073:37-38`.
+- **Aucun index plein texte** dans les 227 migrations ; `listerReponses` sans `LIMIT` — `demandeReponseRepo.ts:247-253`.
 - L'ordonnanceur est un **agent de session** — `plist:11`, `ops/README.md:19`.
-- **Aucun référentiel de biens, propriétaires, locataires ou baux n'existe** dans le dépôt : aucune table de ce
-  domaine dans les 227 migrations. *(Vérifié personnellement.)* Le module part d'une page blanche côté données.
-- Le `from` d'un envoi est un **paramètre**, et `lireCompteSmtp(infixe)` gère déjà plusieurs comptes —
-  `email/index.ts:118`, `:40-47`.
-- `Perms = Record<Module, boolean>` fait échouer `tsc` si un module manque — `session.ts:9`.
+- **Aucun référentiel de biens, propriétaires ou locataires** dans le dépôt *(vérifié personnellement)*.
+- Le `from` d'un envoi est un **paramètre** — `email/index.ts:118`. `Perms = Record<Module, boolean>` protège
+  l'ajout d'un module — `session.ts:9`.
 - Le client OAuth Google et le script d'autorisation existent — `permis/drive.ts`, `scripts/drive-autoriser.ts`.
 
-### 8.2 NON vérifié — et ce que ça changerait
+### 9.2 Établi par Arno (fait, non vérifié par l'analyse)
 
-| Fait non établi | Ce que ça change si la réponse est inattendue |
+- **WIPPIMMO** fait foi pour biens, propriétaires, locataires, caractéristiques.
+- **320 biens**, **10 à 30 mails/jour**, plusieurs collaborateurs.
+- **Monga** : référence `MNG-23987`, préfixe `MNG-`, titre et adresse présents dans le mail, contact
+  `interventions@monga.io` — **sur un spécimen observé**.
+- Tout part de `gestion@criterimmo.fr` ; le Drive partagé existe et son arborescence est **vierge**.
+
+### 9.3 NON vérifié — et ce que ça changerait
+
+| Fait non établi | Ce que ça change |
 |---|---|
-| **Ce qui fait foi pour biens / locataires / propriétaires** | Le plus lourd : divise le projet par deux, ou le double (§7 q.1) |
-| **Le volume réel** de la boîte et le nombre de biens | Change l'ergonomie, l'ordre des lots et le chiffrage |
-| **La part de mails réellement dans un fil**, et la part portant une référence Monga | Ce sont les deux premières marches de la cascade : l'estimation de 79 % en dépend directement |
-| **Le format de la référence Monga** — jamais vu | Aucun motif n'est codé en dur, donc rien ne casse ; mais le signal 3 peut valoir beaucoup moins que prévu |
-| **`gestion@` est-il un vrai compte, un alias ou un groupe ?** | Un groupe n'a ni IMAP ni API Gmail : conception entièrement différente |
-| **L'édition Google Workspace** et qui est super-administrateur | La délégation à l'échelle du domaine n'est pas disponible partout |
-| **Présence d'un assainisseur HTML** dans les dépendances | Afficher le HTML d'un tiers sans faille est un chantier à part entière |
-| **FileVault, sauvegardes, qui accède à `gestion@` aujourd'hui** | Conditionne tout le volet données personnelles |
-| **Politiques Google actuelles** (quotas, durée de validité de l'historique, statut des mots de passe d'application) | Les mandats ont travaillé **sans accès au web** : ces points sont donnés de mémoire et doivent être revérifiés |
+| **L'interface de synchronisation WIPPIMMO existe-t-elle ?** | Rien à l'architecture (§2.2) ; ajoute ou non un lot « connecteur » de 3-5 j, et décide si l'entretien du référentiel est manuel |
+| **Le fichier WIPPIMMO contient-il les adresses e-mail des locataires ?** | Le champ le plus précieux. Absent → le taux démarre plus bas et met 2-3 mois à monter |
+| **La répartition réelle du volume** entre les cinq flux | L'estimation de 91 % en dépend directement → **lot 0** |
+| **La stabilité du format Monga** (un seul spécimen vu) | Format en configuration : un changement se règle sans code, à condition que la télémétrie le signale |
+| **`gestion@` est-il un vrai compte ?** | Bloquant : un groupe n'a pas de boîte interrogeable (§7 étape 0) |
+| **Politiques Google actuelles** (quotas, durée de validité de l'historique, partage externe) | Données **de mémoire**, sans accès au web : à revérifier en console |
+| **Présence d'un assainisseur HTML** dans les dépendances | Afficher le HTML d'un tiers sans faille est un chantier en soi (lot 2) |
+| **Le parc comporte-t-il des colocations ?** | Aucune contrainte d'unicité posée sur l'occupation : le modèle les accepte déjà |
 
-### 8.3 Limites de méthode, assumées
+### 9.4 Les deux questions métier encore ouvertes
 
-Les cinq mandats ont travaillé **en lecture seule et sans accès à internet** : aucun appel à Google, aucune
-recherche web, aucune connexion à la base, aucun mail réel lu. Les éléments métier (pratiques de la gérance,
-réglementation française) et les éléments Google proviennent de connaissances internes et sont signalés comme
-tels là où ils sont incertains. **Deux affirmations « prouvées » se sont révélées fausses à la contre-vérification**
-(§1.3) : c'est l'ordre de grandeur de fiabilité à retenir pour ce qui n'a pas été re-vérifié ligne à ligne.
+**① Le pilote démarre sur quel flux ?** Je recommande un flux **régulier et tolérant** (administratif,
+entretien), pas les fuites d'eau : sur une urgence, l'équipe n'ira pas vérifier dans un outil neuf avec le
+plombier au téléphone. *Conséquence concrète : le choix décide de ce qu'on regarde pendant les deux premières
+semaines, pas de ce qu'on construit.*
+
+**② Combien de temps garde-t-on une carte close ?** Il faut une durée, décidée **avant** le lot 4 et inscrite
+dès la migration. Une intervention close en 2026 n'a pas vocation à rester indéfiniment. *Conséquence
+concrète : trop court, on perd la preuve en cas de litige tardif ; trop long, on conserve des données
+personnelles sans raison.* ⚠️ *À faire valider juridiquement : les durées varient selon la nature des données
+et les obligations comptables.*
 
 ---
 
-**Prochaine étape recommandée** : répondre aux sept questions du §7 — en commençant par la première — puis
-lancer le **lot 0**. Aucun code n'est justifié avant.
+## 10. LOT 1 — Spécification exécutable
+
+> **Objet** : importer le référentiel WIPPIMMO dans l'application, et le rendre consultable. Rien d'autre.
+> Ce lot ne touche **ni Gmail, ni Drive, ni les interventions** : il se construit et se teste **entièrement en
+> local**, sans aucune dépendance à un tiers. C'est le socle de tout le reste.
+
+### 10.1 Périmètre exact
+
+**DANS le lot 1 :**
+1. Une **tuile « Gestion locative »** dans l'administration, gardée par une permission dédiée.
+2. Une **migration** créant `loc_bien`, `loc_partie`, `loc_partie_email`, `loc_occupation`, `loc_journal`.
+3. Un **écran d'import** : on dépose un fichier CSV, on voit un **aperçu avant écriture**, on confirme.
+4. La fonction **`appliquerReferentiel(lignes[])`** — le point d'entrée unique, conçu pour qu'une future
+   synchronisation WIPPIMMO l'appelle sans rien changer.
+5. Un **écran de consultation** : liste des biens, recherche, fiche d'un bien avec son propriétaire et son
+   locataire en place.
+6. Le **journal** de chaque import et de chaque modification.
+
+**HORS du lot 1, explicitement :**
+- Gmail, Drive, OAuth, l'hébergement — aucun accès réseau dans ce lot ;
+- les interventions, les cartes, les messages, le classement ;
+- la saisie manuelle d'un bien ou d'un propriétaire *(la vérité est WIPPIMMO ; on importe, on ne saisit pas)* ;
+- l'édition d'un bien importé *(sauf les champs qui n'existent pas chez WIPPIMMO : note interne)* ;
+- le connecteur de synchronisation WIPPIMMO ;
+- toute statistique ou tableau de bord.
+
+### 10.2 Tables (les cinq du lot)
+
+Reprendre **telles quelles** les définitions du §3.1 pour `loc_bien`, `loc_partie`, `loc_partie_email`,
+`loc_occupation`, `loc_journal`. Trois tables du §3.1 (`loc_intervention`, `loc_message`,
+`loc_message_rattachement`) sont **hors périmètre** et ne sont pas créées ici.
+
+**Conventions imposées** *(patrons prouvés du dépôt)* : migration **additive et idempotente**
+(`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`), en-tête expliquant le pourquoi, bloc de
+vérification en fin de fichier, numéro **suivant le dernier appliqué** (228 au moment de l'écriture, **à
+revérifier**). Contraintes `CHECK` **nommées** et élargissables (`DROP CONSTRAINT IF EXISTS` + `ADD`), jamais
+de type énuméré. Déclencheur append-only sur `loc_journal` (patron `118:60-72`). **Aucun `DROP`, aucun
+`UPDATE` de données existantes.**
+
+### 10.3 Le format du fichier
+
+Une ligne par **bien**. Colonnes attendues, par leur intitulé (l'ordre est indifférent) :
+
+| Colonne | Obligatoire | Usage |
+|---|---|---|
+| `reference_bien` | **oui** | identifiant WIPPIMMO du bien — la clé de rapprochement |
+| `adresse`, `code_postal`, `ville` | **oui** | l'adresse ; sert aussi de signal de classement plus tard |
+| `complement`, `etage`, `libelle` | non | affichage |
+| `reference_proprietaire`, `proprietaire_nom` | **oui** | identifiant WIPPIMMO + nom (ou raison sociale) |
+| `proprietaire_prenom`, `proprietaire_email`, `proprietaire_telephone` | non | annuaire |
+| `reference_locataire`, `locataire_nom` | non | absent si le bien est vacant |
+| `locataire_prenom`, `locataire_email`, `locataire_telephone` | non | **`locataire_email` est le champ le plus précieux** |
+| `locataire_entree_le` | non | date d'entrée (`AAAA-MM-JJ` ou `JJ/MM/AAAA`) |
+
+**Règles de lecture** : encodage UTF-8 **ou** Windows-1252 (détecté, pas supposé — un export français est
+souvent en Windows-1252) ; séparateur `;` ou `,` (détecté sur la ligne d'en-tête) ; espaces de début et de fin
+supprimés partout ; e-mails normalisés en minuscules ; une colonne inconnue est **ignorée sans erreur** ; une
+colonne obligatoire absente **arrête tout l'import** avant écriture.
+
+### 10.4 Règles d'application (`appliquerReferentiel`)
+
+**La règle cardinale : le rapprochement se fait sur `reference_externe`, jamais sur le nom ni sur l'adresse.**
+Deux « DUPONT Jean » sont deux personnes ; un bien dont l'adresse a été corrigée reste le même bien.
+
+Pour chaque ligne :
+1. **Bien** — `reference_bien` connue → mise à jour des champs modifiés ; inconnue → création, avec attribution
+   d'une référence interne `B-NNNN` (compteur atomique, patron `053:37`).
+2. **Propriétaire** — même logique sur `reference_proprietaire`, avec `type = 'proprietaire'`.
+3. **Locataire** — si présent : création ou mise à jour, `type = 'locataire'`.
+4. **Occupation** — si le locataire de la ligne **diffère** de l'occupation en cours : la précédente est
+   **clôturée** (`sortie_le` = date d'import) et une nouvelle est ouverte. **On ne supprime jamais une
+   occupation** : c'est l'historique qui permet de rattacher un vieux mail au bon locataire.
+5. **Adresses e-mail** — ajoutées à l'annuaire si absentes. Une adresse **déjà rattachée à une autre personne**
+   n'est **pas** déplacée : elle est signalée en anomalie (voir 10.6).
+6. **Biens absents du fichier** — passés `actif = false` (**jamais supprimés**), et **seulement** si l'import
+   est déclaré « complet » (voir 10.5).
+
+Chaque création, mise à jour, désactivation et clôture d'occupation écrit une ligne dans `loc_journal`, avec
+l'auteur et l'horodatage. **Tout l'import s'exécute dans une seule transaction** : en cas d'erreur, rien n'est
+écrit.
+
+### 10.5 Les écrans
+
+**Écran « Import du référentiel »**
+- Zone de dépôt du fichier ; case **« Ce fichier est le portefeuille complet »** (décochée par défaut).
+  ⚠️ Cette case commande la désactivation des biens absents — un fichier partiel importé comme complet
+  désactiverait tout le portefeuille. **Case décochée = aucune désactivation.**
+- **Aperçu avant écriture, obligatoire** : « 320 lignes lues — 12 biens nouveaux, 301 inchangés, 7 modifiés,
+  0 désactivé, 3 anomalies ». Le détail des modifications et des anomalies est consultable **avant** de
+  confirmer. Aucune écriture tant que « Confirmer l'import » n'est pas cliqué.
+- Après import : date et heure, auteur, compteurs, et lien vers le journal.
+- **Bandeau permanent** : « Référentiel importé le JJ/MM à HH:MM » — **en rouge au-delà de 30 jours**.
+
+**Écran « Biens »**
+- Liste paginée (50 par page), tri par référence, adresse ou ville ; recherche libre sur référence, adresse,
+  ville, nom du propriétaire, nom du locataire ; filtre « actifs seulement » (coché par défaut).
+- **Fiche d'un bien** : adresse, propriétaire (nom, contacts), locataire en place (nom, contacts), historique
+  des occupations, note interne éditable, et le journal du bien.
+
+**Exigences d'interface** *(transverses au projet)* : **mobile d'abord** — un tableau de 320 lignes doit se
+replier en cartes lisibles sur un téléphone, jamais déborder horizontalement ; charte SVAV (jetons
+`--color-svv-*`, aucune couleur en dur) ; `prefers-reduced-motion` respecté ; cibles tactiles suffisantes.
+
+### 10.6 Cas limites (tous à traiter)
+
+| Cas | Comportement attendu |
+|---|---|
+| Colonne obligatoire absente | **Refus avant écriture**, message nommant la colonne manquante |
+| Fichier vide, ou en-tête seul | Refus, message explicite ; **aucune désactivation** |
+| `reference_bien` en double dans le fichier | Refus avant écriture, en listant les références fautives |
+| Bien présent, propriétaire changé | Mise à jour du lien, **ancien propriétaire conservé** (jamais supprimé), changement journalisé |
+| Locataire changé | Occupation précédente clôturée, nouvelle ouverte, les deux conservées |
+| Bien sans locataire (vacant) | Aucune occupation ouverte ; si une occupation était en cours, elle est clôturée |
+| E-mail déjà rattaché à une autre personne | **Anomalie signalée**, l'import continue, le rattachement existant n'est pas modifié |
+| E-mail mal formé | Ignoré, anomalie signalée, le reste de la ligne est importé |
+| Date d'entrée illisible | Occupation créée **sans** date, anomalie signalée |
+| Bien absent du fichier, case « complet » **décochée** | **Aucune désactivation** |
+| Bien absent du fichier, case « complet » **cochée** | `actif = false`, journalisé |
+| Bien désactivé qui **réapparaît** dans un import | Réactivé (`actif = true`), journalisé |
+| Accents, apostrophes typographiques, casse variable | Conservés tels quels à l'affichage ; **normalisés** pour la recherche et l'appariement |
+| Fichier de 320 lignes | Doit passer en moins de 10 secondes (c'est le volume réel) |
+| Deux imports simultanés | Le second est refusé (verrou, patron `verrouVeille.ts:9`) |
+
+### 10.7 Tests attendus
+
+**Sur la lecture du fichier (fonctions pures, sans base)** : détection du séparateur et de l'encodage ;
+colonne obligatoire manquante → refus ; doublon de référence → refus ; colonne inconnue ignorée ; e-mail mal
+formé signalé sans bloquer ; dates aux deux formats ; accents et Windows-1252 préservés.
+
+**Sur l'application (base mockée, paramètres liés vérifiés — jamais la forme du SQL)** : création d'un bien
+neuf ; mise à jour d'un bien existant **sans** créer de doublon ; changement de propriétaire ; changement de
+locataire → ancienne occupation clôturée **et conservée** ; bien vacant ; **case « complet » décochée → aucune
+désactivation** (le test qui compte le plus) ; case cochée → désactivation des absents ; bien désactivé qui
+réapparaît → réactivé ; e-mail déjà pris → anomalie sans écrasement ; **échec en milieu d'import → aucune
+écriture** (transaction).
+
+**Sur l'aperçu** : les compteurs annoncés correspondent **exactement** à ce que l'import produira ; l'aperçu
+n'écrit **rien** (vérifié par l'absence d'appel d'écriture).
+
+**Sur la garde d'accès** : sans permission → refus ; avec permission → accès ; la route d'import exige en plus
+un compte actif (patron `exigerCompteActif`, `garde.ts:147`).
+
+**Contrôle de fin** : `npm test` complet vert (`tsc --noEmit && vitest run`), conformément à la règle du projet.
+
+### 10.8 Ce que le lot 1 rend visible, et comment le vérifier
+
+À la fin du lot, Arno doit pouvoir : ouvrir la tuile « Gestion locative » ; déposer le fichier WIPPIMMO ; voir
+l'aperçu, le confirmer ; **consulter ses 320 biens**, chercher « Ternes » et trouver le bien du 53 avenue des
+Ternes avec son propriétaire et son locataire ; ouvrir la fiche et lire le journal. Puis **réimporter le même
+fichier** et constater « 0 nouveau, 320 inchangés » — la preuve que l'import est rejouable sans dégât.
+
+---
+
+**Prochaine étape** : trancher les deux questions du §9.4, puis lancer le **lot 0** (mesure) et enchaîner sur
+le **lot 1**, dont la spécification ci-dessus est directement exécutable.
