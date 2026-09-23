@@ -22,7 +22,7 @@ const MAINTENANT = new Date('2026-09-23T12:00:00Z');
 const CARTE = {
   evenementId: 9, reference: 'GES-2026-000009', objet: 'Fuite salle de bain', demandeur: 'Mme M.',
   adresseLibre: '28 avenue Marceau', etat: 'a_traiter' as const, ouvertLe: '2026-09-20T12:00:00Z',
-  dernierEchangeLe: '2026-09-22T12:00:00Z', nbFils: 1, attend: true,
+  dernierEchangeLe: '2026-09-22T12:00:00Z', nbFils: 1, nbMailsDeplaces: 0, attend: true,
 };
 
 // Typés d'après le contrat RÉEL des routes : sans ça, un littéral s'infère trop étroitement (`traiteLe: null` de
@@ -32,6 +32,7 @@ const DETAIL: CarteDetail = {
   demandeurEmail: 'm@exemple.test', adresseLibre: '28 avenue Marceau', etat: 'a_traiter',
   ouvertLe: '2026-09-20T12:00:00Z', ouvertPar: 'arno', traiteLe: null, traitePar: null,
   fils: [{ filId: 5, objet: 'Fuite salle de bain', interlocuteur: 'Mme M.', dernierLe: '2026-09-22T12:00:00Z', nbMessages: 2, nbPieces: 1, attend: true }],
+  mailsDeplaces: [],
 };
 
 const MESSAGES: MessageDeFil[] = [
@@ -55,11 +56,12 @@ let appels: string[];
 let rapports: { message: string; rechargerTout?: boolean }[];
 let patchs: unknown[];
 let posts: { url: string; corps: unknown }[];
+let PARTIS: { messageId: number; objet: string | null; recuLe: string; reference: string; evenementId: number }[];
 let reponseDetail: typeof DETAIL;
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  appels = []; rapports = []; patchs = []; posts = []; reponseDetail = DETAIL;
+  appels = []; rapports = []; patchs = []; posts = []; PARTIS = []; reponseDetail = DETAIL;
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     appels.push(`${init?.method ?? 'GET'} ${u}`);
@@ -69,7 +71,7 @@ beforeEach(() => {
       return ok({ ok: true, evenementId: 42, reference: 'GES-2026-000042' });
     }
     if (init?.method === 'DELETE') return ok({ ok: true });
-    if (u.includes('/messages')) return ok({ messages: MESSAGES });
+    if (u.includes('/messages')) return ok({ messages: MESSAGES, partis: PARTIS });
     // La RECHERCHE d'événement (lot 4d) : deux cartes, dont celle où l'on se trouve déjà.
     if (u.includes('/api/admin/gestion/evenements?')) {
       return ok({ max: 30, evenements: [
@@ -346,5 +348,76 @@ describe('④ LOT 4d — LE MENU DISCRET ET LE DÉPLACEMENT', () => {
     expect(menuDeLEchange()?.getAttribute('aria-expanded')).toBe('false');
     expect(posts).toEqual([]);
     expect(appels.some((a) => a.startsWith('DELETE'))).toBe(false);
+  });
+});
+
+
+describe('⑤ LOT 4d-B2 — DÉPLACER UN MAIL SEUL', () => {
+  const ouvrirFil = async () => {
+    await monter();
+    await cliquer(boutonPar(/Fuite salle de bain/));
+    await cliquer(boutons().find((b) => /2 messages/.test(b.textContent ?? '')));
+  };
+  const menusDeMail = () => [...container.querySelectorAll('button[aria-label="Actions sur ce message"]')] as HTMLButtonElement[];
+
+  it('CHAQUE mail porte son « ⋯ », et rien n’est visible tant qu’il est fermé', async () => {
+    await ouvrirFil();
+    expect(menusDeMail()).toHaveLength(2); // un par message affiché
+    expect(boutonPar(/Déplacer ce mail/)).toBeUndefined();
+  });
+
+  it('le menu d’un mail ouvre ses deux commandes', async () => {
+    await ouvrirFil();
+    await cliquer(menusDeMail()[0]);
+    expect(boutonPar(/^Déplacer ce mail vers un autre événement…$/)).toBeDefined();
+    expect(boutonPar(/^Détacher ce mail$/)).toBeDefined();
+  });
+
+  it('« Déplacer ce mail… » ouvre la MÊME recherche, et rattache le mail choisi', async () => {
+    await ouvrirFil();
+    await cliquer(menusDeMail()[0]);
+    await cliquer(boutonPar(/^Déplacer ce mail vers un autre événement…$/));
+    expect(container.textContent).toContain('Déplacer ce mail vers');
+    await cliquer(resultatPar(/GES-2026-000042/));
+    await cliquer(boutonPar(/^Déplacer$/));
+    expect(posts[0]).toEqual({ url: '/api/admin/gestion/messages/1/affectation', corps: { evenementId: 42 } });
+    expect(rapports[0].message).toContain('GES-2026-000042');
+    expect(rapports[0].message).toContain('échange d’origine'); // l'écran DIT que rien n'est perdu
+    expect(rapports[0].rechargerTout).toBe(true);
+  });
+
+  it('« Détacher ce mail » le remet dans son échange', async () => {
+    await ouvrirFil();
+    await cliquer(menusDeMail()[1]);
+    await cliquer(boutonPar(/^Détacher ce mail$/));
+    expect(appels).toContain('DELETE /api/admin/gestion/messages/2/affectation');
+    expect(rapports[0].message).toContain('remis dans son échange');
+  });
+
+  it('l’échange d’origine ANNONCE les mails partis, et les remet d’un clic', async () => {
+    PARTIS = [{ messageId: 9, objet: 'Fuite', recuLe: '2026-09-21T10:00:00Z', reference: 'GES-2026-000042', evenementId: 42 }];
+    await ouvrirFil();
+    expect(container.textContent).toContain('1 mail déplacé vers');
+    expect(container.textContent).toContain('GES-2026-000042');
+    await cliquer(boutonPar(/^Remettre dans son échange$/));
+    expect(appels).toContain('DELETE /api/admin/gestion/messages/9/affectation');
+  });
+
+  it('les mails venus seuls s’affichent dans la carte, en disant d’où ils sortent', async () => {
+    reponseDetail = {
+      ...DETAIL,
+      mailsDeplaces: [{
+        filId: 77, objetDuFil: 'Préavis de départ',
+        message: {
+          messageId: 12, sens: 'recu' as const, de: 'locataire@exemple.test', deNom: 'Mme M.',
+          recuLe: '2026-09-21T12:00:00Z', objet: 'Fuite', corps: 'Il y a une fuite.', automatique: false, pieces: [],
+        },
+      }],
+    };
+    await monter();
+    await cliquer(boutonPar(/Fuite salle de bain/));
+    expect(container.textContent).toContain('Mails déplacés ici');
+    expect(container.textContent).toContain('Venu de l’échange « Préavis de départ »');
+    expect(container.textContent).toContain('Il y a une fuite.');
   });
 });

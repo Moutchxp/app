@@ -2,6 +2,7 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { lireMessagesDuFil } from '../../../../../../../lib/gestion/carteRepo';
 import { lirePartenairesInternes } from '../../../../../../../lib/gestion/partenaires';
+import { deplacementsDeMailsDisponibles } from '../../../../../../../lib/gestion/schema';
 
 /**
  * /api/admin/gestion/fils/[id]/messages (lot 4c) — LE CONTENU D'UN ÉCHANGE : ses messages dans l'ordre où la
@@ -27,9 +28,11 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
   if (!Number.isInteger(brut) || brut <= 0) return Response.json({ erreur: 'Échange inconnu.' }, { status: 400 });
   try {
     // Le libellé d'un partenaire interne remplace le nom d'expéditeur du mail (« Comptabilité (ADHOC Gestion) »).
-    const messages = await lireMessagesDuFil(brut, await lirePartenairesInternes());
-    if (!messages) return Response.json({ erreur: 'Cet échange n’existe pas.' }, { status: 404 });
-    return Response.json({ messages }, { headers: { 'Cache-Control': 'private, no-store' } });
+    const [partenaires, deplacements] = await Promise.all([lirePartenairesInternes(), deplacementsDeMailsDisponibles()]);
+    const lu = await lireMessagesDuFil(brut, partenaires, deplacements);
+    if (!lu) return Response.json({ erreur: 'Cet échange n’existe pas.' }, { status: 404 });
+    // `partis` : les mails sortis de cet échange. L'écran les annonce, il ne les efface pas.
+    return Response.json(lu, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     console.error('[gestion/messages] lecture impossible', e);
     return Response.json({ erreur: 'Lecture impossible : erreur interne du serveur.' }, { status: 503 });

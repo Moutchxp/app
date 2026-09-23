@@ -419,6 +419,14 @@ const CSS_GESTION = `
 .gst-resultat--nouveau{font-weight:700;color:var(--color-svv-ink);border-style:dashed}
 .gst-resultat-haut{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;justify-content:space-between}
 .gst-resultat-bas{display:flex;flex-wrap:wrap;align-items:baseline;gap:.35rem;font-size:.78rem;color:var(--color-svv-muted)}
+/* LOT 4d-B2 — LES MAILS PARTIS d'un échange : annoncés, et remis d'un clic. Discret, mais jamais tu. */
+.gst-partis{list-style:none;margin:.5rem 0 0;padding:0;display:flex;flex-direction:column;gap:.35rem}
+.gst-parti{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;font-size:.8rem;color:var(--color-svv-muted);
+  border-left:3px solid var(--color-svv-line-strong);padding:.25rem .5rem}
+.gst-lien-bouton{min-height:44px;padding:0;font-size:.8rem;font-weight:600;color:var(--color-svv-red);background:transparent;
+  border:0;text-decoration:underline;cursor:pointer}
+/* Le menu d'un message se range au bout de sa ligne d'en-tête, sans pousser le texte. */
+.gst-msg-menu{margin-left:auto}
 /* CLASSÉS SANS SUITE — replié par défaut : présent sans encombrer. */
 .gst-sans-suite{margin-top:1rem;border-top:1px solid var(--color-svv-line);padding-top:.75rem}
 .gst-sans-suite-titre{display:flex;align-items:center;gap:.5rem;min-height:44px;font-size:13px;font-weight:700;color:var(--color-svv-ink);cursor:pointer}

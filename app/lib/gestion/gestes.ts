@@ -13,8 +13,24 @@
  *    côté de son identifiant : il restera lisible des années après, même si le compte est désactivé.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-import { query, withTransaction } from '../db/client';
+import { query, withTransaction, type RequeteTx } from '../db/client';
 import { adresseProposee, nettoyerObjet } from './objet';
+import { deplacementsDeMailsDisponibles } from './schema';
+
+/**
+ * LOT 4d-B2 — « cette affectation porte sur TOUT l'échange », en SQL.
+ *
+ * Depuis la migration 234, une affectation peut ne porter que sur UN mail. Les gestes d'échange (affecter, détacher)
+ * doivent donc dire explicitement qu'ils ne s'occupent QUE des affectations d'échange — sans ce prédicat, détacher un
+ * échange emporterait au passage les mails qu'on en avait sortis.
+ *
+ * ⚠️ La condition est VIDE tant que la 234 n'est pas appliquée : la colonne n'existe pas encore, et la nommer ferait
+ * échouer la requête. La sonde se fait AVANT la transaction — dans une transaction, PostgreSQL l'abandonne à la
+ * première erreur et aucun repli ne peut plus s'exécuter (piège mesuré au lot 4a).
+ */
+async function seulementLEchange(): Promise<string> {
+  return (await deplacementsDeMailsDisponibles()) ? ' AND message_id IS NULL' : '';
+}
 
 /** Qui agit. `id` null = voie de secours (mot de passe partagé) : le libellé, lui, est TOUJOURS écrit. */
 export interface Auteur { id: number | null; libelle: string }
@@ -82,6 +98,7 @@ export async function affecter(
   if (cible.evenementId === undefined && objetNouveau === null) {
     return { ok: false, motif: 'Indiquez l’événement à rattacher, ou donnez un objet au nouvel événement.' };
   }
+  const surLEchange = await seulementLEchange(); // sondé HORS transaction, cf. le commentaire de la fonction
   return withTransaction(async (q) => {
     const { rows: fil } = await q<{ id: number; etat: string }>(
       `SELECT id::int AS id, etat FROM gestion_fil WHERE id = $1`, [filId]);
@@ -113,7 +130,7 @@ export async function affecter(
     //   Le FOR UPDATE sérialise deux clics simultanés : le second voit l'état laissé par le premier, jamais l'ancien.
     const { rows: active } = await q<{ id: number; evenement_id: number }>(
       `SELECT id::int AS id, evenement_id::int AS evenement_id FROM gestion_affectation
-        WHERE fil_id = $1 AND actif FOR UPDATE`, [filId]);
+        WHERE fil_id = $1 AND actif${surLEchange} FOR UPDATE`, [filId]);
     if (active[0] && active[0].evenement_id === evenementId) {
       return { ok: false, motif: 'Cet échange est déjà rattaché à cet événement.' };
     }
@@ -124,7 +141,7 @@ export async function affecter(
       ? await q<{ id: number; evenement_id: number }>(
         `UPDATE gestion_affectation SET actif = false, detache_le = now(), detache_par = $2, detache_par_libelle = $3,
                 detache_motif = 'réaffecté à un autre événement'
-          WHERE fil_id = $1 AND actif RETURNING id::int AS id, evenement_id::int AS evenement_id`,
+          WHERE fil_id = $1 AND actif${surLEchange} RETURNING id::int AS id, evenement_id::int AS evenement_id`,
         [filId, auteur.id, auteur.libelle])
       : { rows: [] as { id: number; evenement_id: number }[] };
     if (ancienne[0]) {
@@ -148,11 +165,13 @@ export async function affecter(
  * DÉSACTIVÉE et datée — six mois après, on doit pouvoir dire où cet échange a été rangé, et par qui.
  */
 export async function detacher(filId: number, auteur: Auteur, motif?: string | null): Promise<Issue> {
+  // Détacher l'ÉCHANGE ne touche pas aux mails qu'on en avait sortis : ils appartiennent à leur carte, pas à celle-ci.
+  const surLEchange = await seulementLEchange();
   return withTransaction(async (q) => {
     const { rows } = await q<{ id: number; evenement_id: number }>(
       `UPDATE gestion_affectation SET actif = false, detache_le = now(), detache_par = $2, detache_par_libelle = $3,
               detache_motif = $4
-        WHERE fil_id = $1 AND actif RETURNING id::int AS id, evenement_id::int AS evenement_id`,
+        WHERE fil_id = $1 AND actif${surLEchange} RETURNING id::int AS id, evenement_id::int AS evenement_id`,
       [filId, auteur.id, auteur.libelle, texte(motif, MAX_LONG)]);
     if (!rows[0]) return { ok: false, motif: 'Cet échange n’est rattaché à aucun événement.' };
     await q(`UPDATE gestion_fil SET etat = 'a_classer', maj_le = now() WHERE id = $1`, [filId]);
@@ -195,6 +214,118 @@ export async function rouvrir(filId: number, auteur: Auteur): Promise<Issue> {
     await journaliser(q, 'fil', filId, 'reprise', auteur, 'rouvert à la main : l’échange revient dans la file', 'sans_suite', 'a_classer');
     return { ok: true };
   });
+}
+
+/**
+ * DÉPLACE UN SEUL MAIL vers une autre carte que son échange (lot 4d-B2, migration 234).
+ *
+ * POURQUOI : un fil dérive. On parle d'un préavis de départ, et trois messages plus bas quelqu'un signale une fuite.
+ * Sans ce geste, l'une des deux affaires se retrouve rangée sous le titre de l'autre.
+ *
+ * CE QUI SE PASSE VRAIMENT : rien n'est déplacé. Le mail reste EXACTEMENT là où la relève l'a écrit, dans son fil, avec
+ * ses pièces ; on ajoute une affectation qui ne porte que sur LUI et qui prime sur celle de son échange. D'où la
+ * réversibilité intégrale : `remettreMessage` désactive la ligne et tout retrouve sa place.
+ *
+ * ⚠️ LE FIL EST LU SUR LE MESSAGE, jamais reçu de l'appelant : la base ne peut pas vérifier par un CHECK qu'un
+ * `message_id` appartient bien au `fil_id` de la même ligne (un CHECK n'interroge pas une autre table). C'est donc ici
+ * que la cohérence se tient, et un test l'éprouve.
+ *
+ * LES RÉPONSES SUIVENT : voir `suivreLeMailDeplace`, appelée par la capture. Déplacer un mail sans emmener ses
+ * réponses futures produirait, à la relève suivante, une conversation coupée en deux entre deux cartes.
+ */
+export async function deplacerMessage(messageId: number, evenementId: number, auteur: Auteur): Promise<Issue> {
+  return withTransaction(async (q) => {
+    // LIRE AVANT D'ÉCRIRE (withTransaction commite au retour, cf. db/client.ts:52-54) — et verrouiller, pour que deux
+    //   clics simultanés se suivent au lieu de se croiser.
+    const { rows: msg } = await q<{ id: number; fil_id: number; objet: string | null }>(
+      `SELECT id::int AS id, fil_id::int AS fil_id, objet FROM gestion_message WHERE id = $1 FOR UPDATE`, [messageId]);
+    if (!msg[0]) return { ok: false, motif: 'Ce message n’existe pas.' };
+
+    const { rows: ev } = await q<{ reference: string }>(
+      `SELECT reference FROM gestion_evenement WHERE id = $1`, [evenementId]);
+    if (!ev[0]) return { ok: false, motif: 'Cet événement n’existe pas.' };
+
+    const { rows: active } = await q<{ id: number; evenement_id: number }>(
+      `SELECT id::int AS id, evenement_id::int AS evenement_id FROM gestion_affectation
+        WHERE message_id = $1 AND actif FOR UPDATE`, [messageId]);
+    if (active[0] && active[0].evenement_id === evenementId) {
+      return { ok: false, motif: 'Ce mail est déjà rattaché à cet événement.' };
+    }
+
+    if (active[0]) {
+      await q(
+        `UPDATE gestion_affectation SET actif = false, detache_le = now(), detache_par = $2, detache_par_libelle = $3,
+                detache_motif = 'redéplacé vers un autre événement'
+          WHERE id = $1`, [active[0].id, auteur.id, auteur.libelle]);
+      await journaliser(q, 'affectation', active[0].id, 'detachement', auteur,
+        `mail ${messageId} retiré de l’événement ${active[0].evenement_id} (redéplacement)`);
+    }
+
+    const { rows: nouvelle } = await q<{ id: number }>(
+      `INSERT INTO gestion_affectation (fil_id, evenement_id, message_id, motif, affecte_par, affecte_par_libelle)
+       VALUES ($1,$2,$3,$4,$5,$6) RETURNING id::int AS id`,
+      [msg[0].fil_id, evenementId, messageId, 'mail déplacé à la main depuis son échange', auteur.id, auteur.libelle]);
+    await journaliser(q, 'affectation', nouvelle[0].id, 'affectation', auteur,
+      `mail ${messageId} (« ${texte(msg[0].objet) ?? 'sans objet'} ») rattaché à l’événement ${ev[0].reference}, sans son échange`);
+    return { ok: true, evenementId, reference: ev[0].reference };
+  });
+}
+
+/** REMET un mail déplacé dans son échange. L'affectation n'est pas supprimée : désactivée et datée, comme partout ici. */
+export async function remettreMessage(messageId: number, auteur: Auteur): Promise<Issue> {
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ id: number; evenement_id: number }>(
+      `UPDATE gestion_affectation SET actif = false, detache_le = now(), detache_par = $2, detache_par_libelle = $3,
+              detache_motif = 'remis dans son échange'
+        WHERE message_id = $1 AND actif RETURNING id::int AS id, evenement_id::int AS evenement_id`,
+      [messageId, auteur.id, auteur.libelle]);
+    if (!rows[0]) return { ok: false, motif: 'Ce mail n’a pas été déplacé.' };
+    await journaliser(q, 'affectation', rows[0].id, 'detachement', auteur,
+      `mail ${messageId} remis dans son échange (il quitte l’événement ${rows[0].evenement_id})`);
+    return { ok: true, evenementId: rows[0].evenement_id };
+  });
+}
+
+/**
+ * LA RÈGLE QUI ÉVITE LES CONVERSATIONS COUPÉES EN DEUX : un message qui RÉPOND à un mail déplacé va, lui aussi, dans
+ * la carte où ce mail a été rangé. Appelée par la capture après l'écriture d'un message, avec les `Message-ID` que ses
+ * en-têtes `In-Reply-To` et `References` citent.
+ *
+ * Sans elle, on déplace un mail aujourd'hui et la réponse de demain retombe dans l'échange d'origine : deux moitiés
+ * d'une même conversation dans deux cartes, ce qui est pire que de n'avoir rien déplacé du tout.
+ *
+ * SILENCIEUSE PAR CONSTRUCTION : aucune citation, aucun mail déplacé cité, ou un mail déjà rattaché → elle ne fait
+ * rien. Elle ne peut pas non plus écraser un rattachement posé à la main, puisqu'elle ne touche qu'un message SANS
+ * affectation active.
+ */
+export async function suivreLeMailDeplace(
+  q: RequeteTx, messageId: number, filId: number, citations: readonly string[],
+): Promise<{ suivi: boolean; evenementId?: number }> {
+  const cites = citations.map((c) => c.trim()).filter((c) => c !== '').slice(0, 50);
+  if (cites.length === 0) return { suivi: false };
+
+  const { rows } = await q<{ evenement_id: number; reference: string }>(
+    `SELECT a.evenement_id::int AS evenement_id, e.reference
+       FROM gestion_affectation a
+       JOIN gestion_message m ON m.id = a.message_id
+       JOIN gestion_evenement e ON e.id = a.evenement_id
+      WHERE a.actif AND a.message_id IS NOT NULL AND m.message_id = ANY($1::text[])
+      ORDER BY a.affecte_le DESC LIMIT 1`, [cites]);
+  if (!rows[0]) return { suivi: false };
+
+  const { rows: deja } = await q<{ id: number }>(
+    `SELECT id FROM gestion_affectation WHERE message_id = $1 AND actif`, [messageId]);
+  if (deja[0]) return { suivi: false };
+
+  const { rows: nouvelle } = await q<{ id: number }>(
+    `INSERT INTO gestion_affectation (fil_id, evenement_id, message_id, motif, affecte_par_libelle)
+     VALUES ($1,$2,$3,$4,$5) RETURNING id::int AS id`,
+    [filId, rows[0].evenement_id, messageId, 'réponse à un mail déplacé : suit le mail', 'automatique']);
+  await q(
+    `INSERT INTO gestion_journal (entite, entite_id, action, commentaire, auteur_libelle)
+     VALUES ('affectation', $1, 'affectation', $2, 'automatique')`,
+    [nouvelle[0].id, `mail ${messageId} rattaché à ${rows[0].reference} : il répond à un mail déplacé vers cet événement`]);
+  return { suivi: true, evenementId: rows[0].evenement_id };
 }
 
 /** Les champs d'une carte qu'un humain peut corriger. Tous facultatifs : on modifie ce qu'on veut, pas tout à la fois. */

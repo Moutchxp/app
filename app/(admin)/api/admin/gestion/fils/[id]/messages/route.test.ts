@@ -4,6 +4,8 @@ const gardeMock = vi.fn();
 vi.mock('../../../../../../../lib/admin/garde', () => ({ exigerCompteActif: (...a: unknown[]) => gardeMock(...a) }));
 const repo = { lireMessagesDuFil: vi.fn() };
 vi.mock('../../../../../../../lib/gestion/carteRepo', () => ({ lireMessagesDuFil: (...a: unknown[]) => repo.lireMessagesDuFil(...a) }));
+vi.mock('../../../../../../../lib/gestion/partenaires', () => ({ lirePartenairesInternes: async () => [] }));
+vi.mock('../../../../../../../lib/gestion/schema', () => ({ deplacementsDeMailsDisponibles: async () => true }));
 
 import { GET } from './route';
 
@@ -17,7 +19,7 @@ const MESSAGES = [{
 
 beforeEach(() => {
   gardeMock.mockReset(); gardeMock.mockResolvedValue(null);
-  repo.lireMessagesDuFil.mockReset(); repo.lireMessagesDuFil.mockResolvedValue(MESSAGES);
+  repo.lireMessagesDuFil.mockReset(); repo.lireMessagesDuFil.mockResolvedValue({ messages: MESSAGES, partis: [] });
 });
 
 describe('les messages d’un échange', () => {
@@ -42,6 +44,15 @@ describe('les messages d’un échange', () => {
     const texte = await (await GET(new Request('http://local/x'), ctx('5'))).text();
     expect(texte).toContain('"pieceId":7');
     expect(texte).not.toMatch(/cle_?[Ss]tockage|gestion\/\d{4}\/|https?:\/\//);
+  });
+
+  it('annonce les mails SORTIS de cet échange — on ne retire rien en silence', async () => {
+    repo.lireMessagesDuFil.mockResolvedValue({
+      messages: MESSAGES,
+      partis: [{ messageId: 9, objet: 'Fuite', recuLe: '2026-09-21T10:00:00Z', reference: 'GES-2026-000042', evenementId: 42 }],
+    });
+    const corps = await (await GET(new Request('http://local/x'), ctx('5'))).json() as { partis: { reference: string }[] };
+    expect(corps.partis[0].reference).toBe('GES-2026-000042');
   });
 
   it('échange inconnu → 404 ; identifiant absurde → 400 sans lecture', async () => {

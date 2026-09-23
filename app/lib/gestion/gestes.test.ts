@@ -5,10 +5,17 @@ vi.mock('../db/client', () => ({
   query: (...a: unknown[]) => queryMock(...a),
   withTransaction: (fn: (q: (...a: unknown[]) => unknown) => unknown) => fn((...a: unknown[]) => queryMock(...a)),
 }));
+/**
+ * LOT 4d — la sonde de schéma (« la migration 234 est-elle appliquée ? ») est SIMULÉE : elle émet sa propre requête
+ * et décalerait les réponses préparées ici. Par défaut NON appliquée, donc le comportement d'avant ; le cas appliqué
+ * est éprouvé explicitement, là où il compte.
+ */
+const migration234 = vi.fn(async () => false);
+vi.mock('./schema', () => ({ deplacementsDeMailsDisponibles: () => migration234(), oublierSchema: () => {} }));
 
 import {
-  affecter, changerEtatEvenement, classerSansSuite, detacher, estEtat, listerEvenementsOuverts, modifierEvenement,
-  preremplir, rouvrir, texte,
+  affecter, changerEtatEvenement, classerSansSuite, deplacerMessage, detacher, estEtat, listerEvenementsOuverts,
+  modifierEvenement, preremplir, remettreMessage, rouvrir, suivreLeMailDeplace, texte,
 } from './gestes';
 
 /**
@@ -24,7 +31,7 @@ const sqls = () => queryMock.mock.calls.map((c) => c[0]).filter((t): t is string
 const journaux = () => sqls().filter((s) => s.includes('INSERT INTO gestion_journal'));
 const params = (i: number) => queryMock.mock.calls[i][1] as unknown[];
 
-beforeEach(() => { queryMock.mockReset(); queryMock.mockResolvedValue({ rows: [] }); });
+beforeEach(() => { queryMock.mockReset(); queryMock.mockResolvedValue({ rows: [] }); migration234.mockResolvedValue(false); });
 
 describe('③ AUCUN geste ne s’écrit sans laisser QUI et QUAND', () => {
   it('affectation à un événement existant → une ligne de journal nominative', async () => {
@@ -340,5 +347,128 @@ describe('LOT 4c — CHANGER L’ÉTAT d’une carte', () => {
   it('seuls les TROIS états existent — rien d’autre ne franchit la porte', () => {
     expect(estEtat('a_traiter') && estEtat('en_cours') && estEtat('traite')).toBe(true);
     for (const faux of ['archive', 'TRAITE', '', null, 42]) expect(estEtat(faux)).toBe(false);
+  });
+});
+
+/**
+ * LOT 4d-B2 — DÉPLACER UN SEUL MAIL. Le comportement sur une vraie base est éprouvé à part (cluster jetable) ; ici on
+ * tient le contrat : ce qui est LU avant d'écrire, ce qui est écrit, et ce qu'un refus ne fait PAS.
+ */
+describe('déplacer un mail vers une autre carte que son échange', () => {
+  beforeEach(() => { migration234.mockResolvedValue(true); });
+
+  it('le FIL est lu sur le message, jamais reçu de l’appelant — la base ne peut pas le vérifier', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ id: 3, fil_id: 77, objet: 'Fuite' }] })   // le message, verrouillé
+      .mockResolvedValueOnce({ rows: [{ reference: 'GES-2026-000009' }] })        // l'événement
+      .mockResolvedValueOnce({ rows: [] })                                        // aucune affectation de mail active
+      .mockResolvedValue({ rows: [{ id: 55 }] });
+    expect(await deplacerMessage(3, 9, ARNO)).toMatchObject({ ok: true, reference: 'GES-2026-000009' });
+    expect(sqls()[0]).toContain('FROM gestion_message WHERE id = $1 FOR UPDATE');
+    const i = queryMock.mock.calls.findIndex((c) => String(c[0]).includes('INSERT INTO gestion_affectation'));
+    expect(params(i)[0]).toBe(77); // le fil DU MESSAGE
+    expect(params(i)[2]).toBe(3);  // …et le message lui-même
+  });
+
+  it('journalise, en nommant la carte de destination', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ id: 3, fil_id: 77, objet: 'Fuite' }] })
+      .mockResolvedValueOnce({ rows: [{ reference: 'GES-2026-000009' }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValue({ rows: [{ id: 55 }] });
+    await deplacerMessage(3, 9, ARNO);
+    expect(journaux()).toHaveLength(1);
+    const p = params(queryMock.mock.calls.findIndex((c) => String(c[0]).includes('gestion_journal')));
+    expect(String(p[5])).toContain('GES-2026-000009');
+    expect(p).toContain('arno');
+  });
+
+  it('message inconnu, ou carte inconnue → refus, et RIEN n’est écrit', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    expect((await deplacerMessage(3, 9, ARNO)).ok).toBe(false);
+    expect(sqls().filter((s) => /^UPDATE|^INSERT/.test(s))).toEqual([]);
+
+    queryMock.mockReset();
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 3, fil_id: 77, objet: 'x' }] }).mockResolvedValue({ rows: [] });
+    expect(await deplacerMessage(3, 9, ARNO)).toEqual({ ok: false, motif: 'Cet événement n’existe pas.' });
+    expect(sqls().filter((s) => /^UPDATE|^INSERT/.test(s))).toEqual([]);
+  });
+
+  it('déjà rattaché à cette carte → refus, sans détacher quoi que ce soit (le piège du lot 4b)', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ id: 3, fil_id: 77, objet: 'x' }] })
+      .mockResolvedValueOnce({ rows: [{ reference: 'GES-2026-000009' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 55, evenement_id: 9 }] });
+    expect((await deplacerMessage(3, 9, ARNO)).ok).toBe(false);
+    expect(sqls().filter((s) => /^UPDATE|^INSERT/.test(s))).toEqual([]);
+    expect(journaux()).toEqual([]);
+  });
+
+  it('remettre dans son échange DÉSACTIVE, ne supprime pas', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 55, evenement_id: 9 }] }).mockResolvedValue({ rows: [] });
+    expect(await remettreMessage(3, ARNO)).toMatchObject({ ok: true });
+    expect(sqls()[0]).toContain('SET actif = false, detache_le = now()');
+    expect(sqls().some((s) => /DELETE\s+FROM/i.test(s))).toBe(false);
+  });
+
+  it('remettre un mail qui n’a pas bougé → refus lisible', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    expect(await remettreMessage(3, ARNO)).toEqual({ ok: false, motif: 'Ce mail n’a pas été déplacé.' });
+  });
+});
+
+describe('une réponse SUIT le mail déplacé qu’elle cite', () => {
+  const q = (...a: unknown[]) => queryMock(...a);
+
+  it('cite un mail déplacé → elle rejoint la même carte, et c’est journalisé comme automatique', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ evenement_id: 9, reference: 'GES-2026-000009' }] }) // le mail cité
+      .mockResolvedValueOnce({ rows: [] })                                                  // pas déjà rattachée
+      .mockResolvedValue({ rows: [{ id: 56 }] });
+    expect(await suivreLeMailDeplace(q as never, 4, 77, ['<abc@t>'])).toEqual({ suivi: true, evenementId: 9 });
+    const i = queryMock.mock.calls.findIndex((c) => String(c[0]).includes('INSERT INTO gestion_affectation'));
+    expect(params(i)).toContain('automatique');
+    expect(journaux()).toHaveLength(1);
+  });
+
+  it('ne cite rien → ne fait RIEN, et n’émet même pas de requête', async () => {
+    expect(await suivreLeMailDeplace(q as never, 4, 77, [])).toEqual({ suivi: false });
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('cite un mail qui n’a pas été déplacé → ne fait rien', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    expect(await suivreLeMailDeplace(q as never, 4, 77, ['<abc@t>'])).toEqual({ suivi: false });
+    expect(sqls().filter((s) => /^INSERT/.test(s))).toEqual([]);
+  });
+
+  it('n’écrase JAMAIS un rattachement posé à la main', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ evenement_id: 9, reference: 'GES-2026-000009' }] })
+      .mockResolvedValueOnce({ rows: [{ id: 55 }] }); // ce message a DÉJÀ une affectation active
+    expect(await suivreLeMailDeplace(q as never, 4, 77, ['<abc@t>'])).toEqual({ suivi: false });
+    expect(sqls().filter((s) => /^INSERT/.test(s))).toEqual([]);
+  });
+
+  it('borne le nombre de citations — un en-tête References à rallonge ne fabrique pas une requête absurde', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await suivreLeMailDeplace(q as never, 4, 77, Array.from({ length: 500 }, (_, i) => `<m${i}@t>`));
+    expect((params(0)[0] as string[]).length).toBe(50);
+  });
+});
+
+describe('les gestes d’ÉCHANGE ne touchent pas aux mails déplacés', () => {
+  it('une fois la 234 appliquée, détacher l’échange se restreint aux affectations d’échange', async () => {
+    migration234.mockResolvedValue(true);
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 77, evenement_id: 9 }] }).mockResolvedValue({ rows: [] });
+    await detacher(5, ARNO);
+    expect(sqls()[0]).toContain('WHERE fil_id = $1 AND actif AND message_id IS NULL');
+  });
+
+  it('…et tant qu’elle ne l’est pas, le SQL ne nomme pas la colonne absente', async () => {
+    migration234.mockResolvedValue(false);
+    queryMock.mockResolvedValueOnce({ rows: [{ id: 77, evenement_id: 9 }] }).mockResolvedValue({ rows: [] });
+    await detacher(5, ARNO);
+    expect(sqls()[0]).not.toContain('message_id');
   });
 });

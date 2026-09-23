@@ -25,6 +25,13 @@ export interface FilDeCarte {
   attend: boolean;
 }
 
+/** Un mail rattaché à cette carte SANS son échange (lot 4d-B2), avec d'où il vient. */
+export interface MailDeplace {
+  message: MessageDeFil;
+  filId: number;
+  objetDuFil: string | null;
+}
+
 export interface CarteDetail {
   evenementId: number;
   reference: string;
@@ -38,10 +45,14 @@ export interface CarteDetail {
   traiteLe: string | null;
   traitePar: string | null;
   fils: FilDeCarte[];
+  /** Les mails venus seuls. Affichés à part : ce ne sont pas des échanges, et on doit voir d'où ils sortent. */
+  mailsDeplaces: MailDeplace[];
 }
 
 export interface MessageDeFil {
   messageId: number;
+  /** Si ce mail a été déplacé vers une autre carte : sa référence. L'échange d'origine le DIT, il ne l'efface pas. */
+  deplaceVers?: string | null;
   sens: 'recu' | 'envoye';
   de: string;
   deNom: string | null;
@@ -74,7 +85,8 @@ const MAX_CORPS = 20000;
  * une affectation défaite reste en base, mais elle n'est plus la vérité du jour).
  */
 export async function lireCarte(
-  evenementId: number, ctx: { partenaires: readonly PartenaireInterne[]; adresseGestion: string },
+  evenementId: number,
+  ctx: { partenaires: readonly PartenaireInterne[]; adresseGestion: string; deplacements: boolean },
 ): Promise<CarteDetail | null> {
   const { rows } = await query<{
     evenement_id: number; reference: string; objet: string; demandeur_nom: string | null;
@@ -94,20 +106,25 @@ export async function lireCarte(
     fil_id: number; objet: string | null; interlocuteur: string | null; de_adresse: string; dernier_le: string;
     nb_messages: number; nb_pieces: number; attend: boolean;
   }>(
-    `WITH ${ctesAttente('$2', '$3')}
+    `WITH ${ctesAttente('$2', '$3', ctx.deplacements)}
      SELECT f.id::int AS fil_id, f.objet_initial AS objet, d.interlocuteur, d.de_adresse,
             ${INSTANT('d.recu_le')} AS dernier_le,
-            (SELECT count(*) FROM gestion_message m2 WHERE m2.fil_id = f.id AND m2.exclu_le IS NULL)::int AS nb_messages,
+            -- Les compteurs disent ce que l'écran MONTRERA : un mail déplacé vers une autre carte n'est plus ici.
+            (SELECT count(*) FROM gestion_message m2 WHERE m2.fil_id = f.id AND m2.exclu_le IS NULL
+              ${ctx.deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am2 WHERE am2.message_id = m2.id AND am2.actif)' : ''})::int AS nb_messages,
             (SELECT count(*) FROM gestion_piece p JOIN gestion_message m3 ON m3.id = p.message_id
-              WHERE m3.fil_id = f.id AND m3.exclu_le IS NULL)::int AS nb_pieces,
+              WHERE m3.fil_id = f.id AND m3.exclu_le IS NULL
+              ${ctx.deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am3 WHERE am3.message_id = m3.id AND am3.actif)' : ''})::int AS nb_pieces,
             ${ATTEND} AS attend
        FROM gestion_affectation a
        JOIN gestion_fil f ON f.id = a.fil_id
        JOIN dernier d ON d.fil_id = f.id
        ${jointuresAttente('f.id')}
-      WHERE a.evenement_id = $1 AND a.actif
+      WHERE a.evenement_id = $1 AND a.actif${ctx.deplacements ? ' AND a.message_id IS NULL' : ''}
       ORDER BY d.recu_le DESC, f.id DESC`,
     [evenementId, ctx.partenaires.map((p) => p.adresse), ctx.adresseGestion]);
+
+  const mailsDeplaces = ctx.deplacements ? await lireMailsDeplaces(evenementId, ctx.partenaires) : [];
 
   return {
     evenementId: e.evenement_id, reference: e.reference, objet: e.objet,
@@ -120,7 +137,71 @@ export async function lireCarte(
       dernierLe: f.dernier_le,
       nbMessages: f.nb_messages, nbPieces: f.nb_pieces, attend: f.attend === true,
     })),
+    mailsDeplaces,
   };
+}
+
+/**
+ * LES MAILS VENUS SEULS dans cette carte (lot 4d-B2) : le message entier, avec ses pièces, et l'échange d'où il sort.
+ * Ils sont montrés ICI — pas dans leur fil d'origine, qui se contente d'annoncer leur nombre et leur destination.
+ */
+async function lireMailsDeplaces(
+  evenementId: number, partenaires: readonly PartenaireInterne[],
+): Promise<MailDeplace[]> {
+  const { rows } = await query<{
+    message_id: number; fil_id: number; objet_du_fil: string | null; sens: string; de_adresse: string;
+    de_nom: string | null; recu_le: string; objet: string | null; corps: string | null; automatique: boolean;
+  }>(
+    `SELECT m.id::int AS message_id, m.fil_id::int AS fil_id, f.objet_initial AS objet_du_fil,
+            m.sens, m.de_adresse, m.de_nom, ${INSTANT('m.recu_le')} AS recu_le, m.objet,
+            left(coalesce(m.corps_texte, ''), ${MAX_CORPS}) AS corps, m.automatique
+       FROM gestion_affectation a
+       JOIN gestion_message m ON m.id = a.message_id
+       JOIN gestion_fil f ON f.id = m.fil_id
+      WHERE a.evenement_id = $1 AND a.actif AND a.message_id IS NOT NULL AND m.exclu_le IS NULL
+      ORDER BY m.recu_le ASC, m.id ASC
+      LIMIT ${MAX_MESSAGES}`, [evenementId]);
+  if (rows.length === 0) return [];
+
+  const pieces = await lirePiecesDesMessages(rows.map((r) => r.message_id));
+  return rows.map((r) => ({
+    filId: r.fil_id,
+    objetDuFil: r.objet_du_fil,
+    message: {
+      messageId: r.message_id,
+      sens: r.sens === 'envoye' ? 'envoye' : 'recu',
+      de: r.de_adresse,
+      deNom: libelleExpediteur(partenaires, r.de_adresse, r.de_nom) || null,
+      recuLe: r.recu_le, objet: r.objet,
+      corps: r.corps && r.corps.trim() !== '' ? r.corps : null,
+      automatique: r.automatique === true,
+      pieces: pieces.get(r.message_id) ?? [],
+    },
+  }));
+}
+
+/** Les pièces d'un ensemble de messages, rangées par message. Une seule requête, quel que soit le nombre de messages. */
+async function lirePiecesDesMessages(messageIds: readonly number[]): Promise<Map<number, PieceDeMessage[]>> {
+  const parMessage = new Map<number, PieceDeMessage[]>();
+  if (messageIds.length === 0) return parMessage;
+  const { rows } = await query<{
+    piece_id: number; message_id: number; nom_fichier: string; type_mime: string | null;
+    taille_octets: string | number | null; disponible: boolean; motif_non_stocke: string | null;
+  }>(
+    `SELECT p.id::int AS piece_id, p.message_id::int AS message_id, p.nom_fichier, p.type_mime, p.taille_octets,
+            (p.cle_stockage IS NOT NULL) AS disponible, p.motif_non_stocke
+       FROM gestion_piece p WHERE p.message_id = ANY($1::bigint[]) ORDER BY p.id ASC`, [messageIds]);
+  for (const p of rows) {
+    const liste = parMessage.get(p.message_id) ?? [];
+    liste.push({
+      pieceId: p.piece_id, nomFichier: p.nom_fichier, typeMime: p.type_mime,
+      // `bigint` revient en CHAÎNE avec pg : sans conversion, les tailles se compareraient comme du texte.
+      tailleOctets: p.taille_octets === null ? null : Number(p.taille_octets),
+      disponible: p.disponible === true, motifNonStocke: p.motif_non_stocke,
+    });
+    parMessage.set(p.message_id, liste);
+  }
+  return parMessage;
 }
 
 /**
@@ -131,10 +212,14 @@ export async function lireCarte(
  * Le corps est borné : un mail de 400 ko ne traverse pas le réseau pour être lu en diagonale dans un panneau.
  */
 export async function lireMessagesDuFil(
-  filId: number, partenaires: readonly PartenaireInterne[] = [],
-): Promise<MessageDeFil[] | null> {
+  filId: number, partenaires: readonly PartenaireInterne[] = [], deplacements = false,
+): Promise<{ messages: MessageDeFil[]; partis: MailParti[] } | null> {
   const { rows: fil } = await query<{ id: number }>(`SELECT id::int AS id FROM gestion_fil WHERE id = $1`, [filId]);
   if (!fil[0]) return null;
+
+  // LOT 4d-B2 — les mails SORTIS de cet échange. On ne les affiche plus ici (ils vivent dans leur carte), mais on
+  //   annonce leur nombre et leur destination : retirer quelque chose en silence est exactement ce qu'on s'interdit.
+  const partis = deplacements ? await lireMailsPartis(filId) : [];
 
   const { rows } = await query<{
     message_id: number; sens: string; de_adresse: string; de_nom: string | null; recu_le: string;
@@ -144,6 +229,7 @@ export async function lireMessagesDuFil(
             objet, left(coalesce(corps_texte, ''), ${MAX_CORPS}) AS corps, automatique
        FROM gestion_message
       WHERE fil_id = $1 AND exclu_le IS NULL
+        ${deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am WHERE am.message_id = gestion_message.id AND am.actif)' : ''}
       ORDER BY recu_le ASC, id ASC
       LIMIT ${MAX_MESSAGES}`, [filId]);
 
@@ -170,7 +256,7 @@ export async function lireMessagesDuFil(
     parMessage.set(p.message_id, liste);
   }
 
-  return rows.map((m) => ({
+  const messages: MessageDeFil[] = rows.map((m) => ({
     messageId: m.message_id,
     sens: m.sens === 'envoye' ? 'envoye' : 'recu',
     de: m.de_adresse,
@@ -180,6 +266,33 @@ export async function lireMessagesDuFil(
     corps: m.corps && m.corps.trim() !== '' ? m.corps : null,
     automatique: m.automatique === true,
     pieces: parMessage.get(m.message_id) ?? [],
+  }));
+  return { messages, partis };
+}
+
+/** Un mail parti de cet échange vers une carte : ce que l'échange d'origine ANNONCE, sans plus l'afficher. */
+export interface MailParti {
+  messageId: number;
+  objet: string | null;
+  recuLe: string;
+  reference: string;
+  evenementId: number;
+}
+
+async function lireMailsPartis(filId: number): Promise<MailParti[]> {
+  const { rows } = await query<{
+    message_id: number; objet: string | null; recu_le: string; reference: string; evenement_id: number;
+  }>(
+    `SELECT m.id::int AS message_id, m.objet, ${INSTANT('m.recu_le')} AS recu_le,
+            e.reference, e.id::int AS evenement_id
+       FROM gestion_affectation a
+       JOIN gestion_message m ON m.id = a.message_id
+       JOIN gestion_evenement e ON e.id = a.evenement_id
+      WHERE a.fil_id = $1 AND a.actif AND a.message_id IS NOT NULL
+      ORDER BY m.recu_le ASC, m.id ASC`, [filId]);
+  return rows.map((r) => ({
+    messageId: r.message_id, objet: r.objet, recuLe: r.recu_le,
+    reference: r.reference, evenementId: r.evenement_id,
   }));
 }
 

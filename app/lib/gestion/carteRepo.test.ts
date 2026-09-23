@@ -7,7 +7,7 @@ vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }))
 import { lireCarte, lireMessagesDuFil, lirePieceAServir, MAX_MESSAGES } from './carteRepo';
 
 /** LOT 4d — aucun partenaire interne par défaut : le comportement doit être celui d'avant la migration 233. */
-const CTX = { partenaires: [], adresseGestion: 'gestion@criterimmo.fr' };
+const CTX = { partenaires: [], adresseGestion: 'gestion@criterimmo.fr', deplacements: false };
 
 /**
  * LOT 4c — la lecture du côté droit. Trois exigences y sont vérifiées :
@@ -85,7 +85,7 @@ describe('les messages d’un échange', () => {
       .mockResolvedValueOnce({ rows: [
         { piece_id: 7, message_id: 2, nom_fichier: 'constat.pdf', type_mime: 'application/pdf', taille_octets: '120', disponible: true, motif_non_stocke: null },
       ] });
-    const m = await lireMessagesDuFil(5);
+    const m = (await lireMessagesDuFil(5))?.messages;
     expect(m?.[0].pieces).toEqual([]);
     expect(m?.[1].pieces).toEqual([
       { pieceId: 7, nomFichier: 'constat.pdf', typeMime: 'application/pdf', tailleOctets: 120, disponible: true, motifNonStocke: null },
@@ -97,7 +97,7 @@ describe('les messages d’un échange', () => {
       .mockResolvedValueOnce({ rows: [{ id: 5 }] })
       .mockResolvedValueOnce({ rows: [MESSAGE] })
       .mockResolvedValueOnce({ rows: [{ piece_id: 7, message_id: 1, nom_fichier: 'x.pdf', type_mime: null, taille_octets: '4096', disponible: true, motif_non_stocke: null }] });
-    expect((await lireMessagesDuFil(5))?.[0].pieces[0].tailleOctets).toBe(4096);
+    expect((await lireMessagesDuFil(5))?.messages[0].pieces[0].tailleOctets).toBe(4096);
   });
 
   it('une pièce NON déposée est annoncée indisponible AVEC son motif — plutôt qu’un lien qui échouerait', async () => {
@@ -105,7 +105,7 @@ describe('les messages d’un échange', () => {
       .mockResolvedValueOnce({ rows: [{ id: 5 }] })
       .mockResolvedValueOnce({ rows: [MESSAGE] })
       .mockResolvedValueOnce({ rows: [{ piece_id: 8, message_id: 1, nom_fichier: 'video.mov', type_mime: 'video/quicktime', taille_octets: null, disponible: false, motif_non_stocke: 'type refusé' }] });
-    expect((await lireMessagesDuFil(5))?.[0].pieces[0]).toMatchObject({ disponible: false, motifNonStocke: 'type refusé' });
+    expect((await lireMessagesDuFil(5))?.messages[0].pieces[0]).toMatchObject({ disponible: false, motifNonStocke: 'type refusé' });
   });
 
   it('un corps vide devient null — « (message sans texte) » se dit à l’écran, pas par une chaîne vide', async () => {
@@ -113,7 +113,7 @@ describe('les messages d’un échange', () => {
       .mockResolvedValueOnce({ rows: [{ id: 5 }] })
       .mockResolvedValueOnce({ rows: [{ ...MESSAGE, corps: '   ' }] })
       .mockResolvedValue({ rows: [] });
-    expect((await lireMessagesDuFil(5))?.[0].corps).toBeNull();
+    expect((await lireMessagesDuFil(5))?.messages[0].corps).toBeNull();
   });
 
   it('le nombre de messages et la taille des corps sont BORNÉS — un fil pathologique ne fait pas une page de 10 Mo', async () => {

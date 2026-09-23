@@ -10,7 +10,9 @@ import { lireEcran, lireEvenements, lireFile, lireReperes, lireSansSuite, PAGE }
  * LOT 4d — qui est qui. Par défaut AUCUN partenaire interne : c'est l'état d'avant la migration 233, et les requêtes
  * doivent alors se comporter EXACTEMENT comme avant. Les tests du cas partenaire passent leur propre contexte.
  */
-const CTX = { partenaires: [], adresseGestion: 'gestion@criterimmo.fr' };
+const CTX = { partenaires: [], adresseGestion: 'gestion@criterimmo.fr', deplacements: false };
+/** …et le même, une fois la migration 234 appliquée : les mails déplacés sortent du calcul de leur échange. */
+const CTX_234 = { ...CTX, deplacements: true };
 
 /** Tous les SQL émis, espaces normalisés (on assertera par FRAGMENTS SÉMANTIQUES, jamais sur la forme exacte). */
 function sqls(): string[] {
@@ -39,7 +41,7 @@ describe('fileRepo — LECTURE SEULE, sans exception', () => {
       const tables = [...s.matchAll(/\b(?:FROM|JOIN)\s+([a-z_][a-z0-9_]*)/gi)].map((m) => m[1].toLowerCase());
       // Les CTE partagées de `attente.ts` ne sont pas des tables : « le dernier message », « le dernier message hors
       //   partenaire interne », et « les fils où quelqu'un d'extérieur a écrit ».
-      const ctes = ['dernier', 'dernier_hors', 'exterieur'];
+      const ctes = ['dernier', 'dernier_hors', 'exterieur', 'messages_deplaces'];
       for (const t of tables) expect(ctes.includes(t) || t.startsWith('gestion_')).toBe(true);
     }
   });
@@ -116,7 +118,10 @@ describe('fileRepo — les cartes (colonne de droite)', () => {
     expect(sqls().length).toBe(0);
     await lireEvenements(CTX);
     expect(sqls()[0]).toContain('coalesce(bool_or( CASE WHEN ex.fil_id IS NOT NULL');
-    expect(sqls()[0]).toContain('), false) AS attend');
+    // LOT 4d — …ou le dernier mail DÉPLACÉ vers cette carte : sinon déplacer un mail le ferait disparaître des
+    //   choses à traiter, ce qui est exactement le contraire du but.
+    expect(sqls()[0]).toContain("bool_or(md.sens = 'recu' AND NOT md.automatique)");
+    expect(sqls()[0]).toContain('AS attend');
   });
 
   it('trie : ouverts d’abord, puis ce qui attend, puis la PLUS ANCIENNE attente (pas la date d’ouverture)', async () => {
@@ -207,5 +212,44 @@ describe('LOT 4b — la file ne montre que ce qui a BOUGÉ récemment', () => {
     queryMock.mockResolvedValue({ rows: [] });
     const e = await lireEcran();
     expect(e).toMatchObject({ fenetreJours: 30, filsTropAnciens: 0, sansSuite: [], sansSuiteTotal: 0 });
+  });
+});
+
+/**
+ * LOT 4d-B2 — UN MAIL DÉPLACÉ NE COMPTE PLUS POUR SON ÉCHANGE. Sans quoi un fil réclamerait une réponse à une
+ * question partie ailleurs. La bascule est un DRAPEAU, pas une branche de code : tant que la migration 234 n'est pas
+ * appliquée, la colonne n'existe pas et le SQL ne doit surtout pas la nommer.
+ */
+describe('la migration 234, appliquée ou non', () => {
+  it('NON appliquée → le SQL ne nomme JAMAIS la colonne absente (sinon tout l’écran tombe)', async () => {
+    await lireFile(30, CTX);
+    await lireEvenements(CTX);
+    // C'est `gestion_affectation.message_id` qui n'existe pas encore. `gestion_piece.message_id`, lui, est là depuis
+    //   la migration 228 : la nuance est tout l'objet de ce test.
+    for (const s of sqls()) {
+      expect(s).not.toContain('am.message_id');
+      expect(s).not.toContain('a.message_id');
+      expect(s).not.toContain('am2.message_id');
+      expect(s).not.toContain('am3.message_id');
+    }
+  });
+
+  it('appliquée → les mails déplacés sortent du calcul de leur échange', async () => {
+    await lireFile(30, CTX_234);
+    const s = sqls()[0];
+    expect(s).toContain('NOT EXISTS (SELECT 1 FROM gestion_affectation am WHERE am.message_id = m.id AND am.actif)');
+    // …et les compteurs affichés suivent la même règle : ils disent ce que l'écran montrera.
+    expect(s).toContain('am2.message_id = m2.id');
+    expect(s).toContain('am3.message_id = m3.id');
+  });
+
+  it('appliquée → une affectation de MAIL ne compte pas comme un échange rattaché sur une carte', async () => {
+    await lireEvenements(CTX_234);
+    expect(sqls()[0]).toContain('a.actif AND a.message_id IS NULL');
+  });
+
+  it('appliquée → le dernier mail déplacé pèse sur l’attente de la carte', async () => {
+    await lireEvenements(CTX_234);
+    expect(sqls()[0]).toContain("bool_or(md.sens = 'recu' AND NOT md.automatique)");
   });
 });

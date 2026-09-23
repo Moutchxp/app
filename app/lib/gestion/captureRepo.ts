@@ -9,6 +9,7 @@
  */
 import type { PoolClient } from 'pg';
 import { pool, query, withTransaction } from '../db/client';
+import { deplacementsDeMailsDisponibles } from './schema';
 import { chargerConfigGestion, type ConfigGestion } from './config';
 import type { DepsCapture, MessageAEcrire, MessageBrut, PieceBrute, FilResolu } from './capture';
 import type { RegleExclusion } from './regles';
@@ -173,7 +174,7 @@ export async function resoudreFil(identifiants: string[], cleRacine: string, obj
  * une décision humaine vient d'être défaite par le système, ça ne peut pas rester muet.
  */
 export async function ecrireMessage(
-  m: MessageAEcrire, filId: number, uidValidite: string | null = null, avecUid = true,
+  m: MessageAEcrire, filId: number, uidValidite: string | null = null, avecUid = true, avecDeplacements = false,
 ): Promise<number | null> {
   return withTransaction(async (q) => {
     const colonnes = `fil_id, message_id, in_reply_to, references_brut, sens, de_adresse, de_nom, destinataires, nb_destinataires,
@@ -208,8 +209,25 @@ export async function ecrireMessage(
         );
       }
     }
+    // LOT 4d-B2 — UNE RÉPONSE SUIT LE MAIL QU'ELLE CITE. Si ce message répond à un mail qu'on a déplacé vers une
+    //   autre carte, il la rejoint. Sans ça, on déplace un mail aujourd'hui et la réponse de demain retombe dans
+    //   l'échange d'origine : une même conversation coupée en deux entre deux cartes, pire que de n'avoir rien fait.
+    //   Ne s'exécute qu'une fois la migration 234 appliquée ; le drapeau est établi hors transaction.
+    if (avecDeplacements && m.exclusion === null) {
+      const { suivreLeMailDeplace } = await import('./gestes');
+      await suivreLeMailDeplace(q, rows[0].id, filId, citationsDuMessage(m));
+    }
     return rows[0].id;
   });
+}
+
+/**
+ * Les `Message-ID` qu'un message CITE : son `In-Reply-To`, puis ceux de son `References`. C'est le fil d'Ariane des
+ * conversations par mail — le même que celui dont se sert `resoudreFil`. PUR.
+ */
+export function citationsDuMessage(m: { inReplyTo: string | null; referencesBrut: string | null }): string[] {
+  const brut = `${m.inReplyTo ?? ''} ${m.referencesBrut ?? ''}`;
+  return [...new Set((brut.match(/<[^<>\s]+>/g) ?? []).map((c) => c.trim()))];
 }
 
 /**
@@ -368,7 +386,8 @@ export function depsReellesCapture(clientCourant: () => ClientDossier): DepsCapt
     connus: lireConnus,
     bornes: lireBornes,
     resoudreFil,
-    ecrire: async (m, filId) => ecrireMessage(m, filId, clientCourant().uidValidite?.() ?? null, await colonnesUid()),
+    ecrire: async (m, filId) => ecrireMessage(
+      m, filId, clientCourant().uidValidite?.() ?? null, await colonnesUid(), await deplacementsDeMailsDisponibles()),
     deposerPieces: deposerPiecesMessage,
   };
 }

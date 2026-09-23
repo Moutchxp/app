@@ -12,9 +12,10 @@
  * ce qui attend passe devant ce qui n'attend pas, puis du plus ANCIEN au plus récent.
  */
 import { query } from '../db/client';
-import { ATTEND, CTE_DERNIER, ctesAttente, jointuresAttente } from './attente';
+import { ATTEND, ATTEND_CARTE, CTE_MESSAGES_DEPLACES, cteDernier, ctesAttente, jointuresAttente } from './attente';
 import { chargerConfigGestion } from './config';
 import { adressesDe, libelleExpediteur, lirePartenairesInternes, type PartenaireInterne } from './partenaires';
+import { deplacementsDeMailsDisponibles } from './schema';
 
 /** Une ligne de la FILE (colonne de gauche) : un FIL de discussion, jamais un message isolé. */
 export interface LigneFile {
@@ -38,7 +39,9 @@ export interface CarteEvenement {
   ouvertLe: string;               // ISO
   dernierEchangeLe: string | null; // ISO — dernier message non exclu de ses fils, ou null s'il n'en a aucun
   nbFils: number;
-  attend: boolean;                // DÉRIVÉ : au moins un de ses fils attend une réponse
+  /** LOT 4d — des mails isolés, rattachés à cette carte sans leur échange. Comptés à part : ce ne sont pas des échanges. */
+  nbMailsDeplaces: number;
+  attend: boolean;                // DÉRIVÉ : au moins un de ses fils — ou le dernier mail déplacé — attend une réponse
 }
 
 export interface EtatEcran {
@@ -73,6 +76,8 @@ export const PAGE = 50;
 export interface ContexteExpediteurs {
   partenaires: readonly PartenaireInterne[];
   adresseGestion: string;
+  /** La migration 234 est-elle appliquée ? Si non, les mails suivent leur échange, comme avant (cf. `schema.ts`). */
+  deplacements: boolean;
 }
 
 interface LigneFileDB {
@@ -91,14 +96,17 @@ export async function lireFile(
 ): Promise<{ lignes: LigneFile[]; total: number; tropAnciens: number }> {
   const adresses = adressesDe(ctx.partenaires);
   const { rows } = await query<LigneFileDB>(
-    `WITH ${ctesAttente('$3', '$4')}
+    `WITH ${ctesAttente('$3', '$4', ctx.deplacements)}
      SELECT f.id::int AS fil_id,
             f.objet_initial AS objet,
             d.interlocuteur, d.de_adresse,
             to_char(d.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS dernier_le,
-            (SELECT count(*) FROM gestion_message m2 WHERE m2.fil_id = f.id AND m2.exclu_le IS NULL)::int AS nb_messages,
+            -- Les compteurs disent ce que l'écran MONTRERA : un mail déplacé vers une autre carte n'y est plus.
+            (SELECT count(*) FROM gestion_message m2 WHERE m2.fil_id = f.id AND m2.exclu_le IS NULL
+              ${ctx.deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am2 WHERE am2.message_id = m2.id AND am2.actif)' : ''})::int AS nb_messages,
             (SELECT count(*) FROM gestion_piece p JOIN gestion_message m3 ON m3.id = p.message_id
-              WHERE m3.fil_id = f.id AND m3.exclu_le IS NULL)::int AS nb_pieces,
+              WHERE m3.fil_id = f.id AND m3.exclu_le IS NULL
+              ${ctx.deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am3 WHERE am3.message_id = m3.id AND am3.actif)' : ''})::int AS nb_pieces,
             ${ATTEND} AS attend
        FROM gestion_fil f
        JOIN dernier d ON d.fil_id = f.id
@@ -111,7 +119,7 @@ export async function lireFile(
   // DEUX comptes, jamais un seul : ce que la file montre, ET ce qu'elle tait. Le second est affiché à l'écran —
   //   un outil qui cache sans le dire ment ; un outil qui dit ce qu'il ne montre pas reste honnête.
   const { rows: t } = await query<{ dedans: number; trop_anciens: number }>(
-    `WITH dernier AS (${CTE_DERNIER})
+    `WITH dernier AS (${cteDernier(ctx.deplacements)})
      SELECT count(*) FILTER (WHERE d.recu_le >= now() - ($1::int * interval '1 day'))::int AS dedans,
             count(*) FILTER (WHERE d.recu_le <  now() - ($1::int * interval '1 day'))::int AS trop_anciens
        FROM gestion_fil f JOIN dernier d ON d.fil_id = f.id WHERE f.etat = 'a_classer'`,
@@ -152,7 +160,7 @@ export async function lireSansSuite(limite = 20): Promise<{ lignes: LigneSansSui
 
 interface CarteDB {
   evenement_id: number; reference: string; objet: string; demandeur: string | null; adresse_libre: string | null;
-  etat: string; ouvert_le: string; dernier_echange_le: string | null; nb_fils: number; attend: boolean;
+  etat: string; ouvert_le: string; dernier_echange_le: string | null; nb_fils: number; nb_mails: number; attend: boolean;
 }
 
 /**
@@ -163,22 +171,29 @@ interface CarteDB {
  */
 export async function lireEvenements(ctx: ContexteExpediteurs, limite = PAGE): Promise<{ cartes: CarteEvenement[]; total: number }> {
   const { rows } = await query<CarteDB>(
-    `WITH ${ctesAttente('$2', '$3')}
+    `WITH ${ctesAttente('$2', '$3', ctx.deplacements)},
+          messages_deplaces AS (${ctx.deplacements ? CTE_MESSAGES_DEPLACES : 'SELECT NULL::bigint AS evenement_id, NULL::text AS sens, NULL::boolean AS automatique, NULL::timestamptz AS recu_le WHERE false'})
      SELECT e.id::int AS evenement_id, e.reference, e.objet,
             coalesce(nullif(btrim(e.demandeur_nom), ''), e.demandeur_email) AS demandeur,
             e.adresse_libre, e.etat,
             to_char(e.ouvert_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS ouvert_le,
-            to_char(max(d.recu_le) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS dernier_echange_le,
+            -- La dernière activité d'une carte, c'est le plus récent de SES échanges ET des mails qu'on y a déplacés.
+            to_char(greatest(max(d.recu_le), max(md.recu_le)) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS dernier_echange_le,
             count(a.fil_id)::int AS nb_fils,
-            coalesce(bool_or(${ATTEND}), false) AS attend
+            ${ctx.deplacements ? `(SELECT count(*) FROM gestion_affectation am
+                WHERE am.evenement_id = e.id AND am.actif AND am.message_id IS NOT NULL)::int` : '0'} AS nb_mails,
+            ${ATTEND_CARTE} AS attend
        FROM gestion_evenement e
-       LEFT JOIN gestion_affectation a ON a.evenement_id = e.id AND a.actif
+       -- message_id IS NULL : une affectation de MAIL ne compte pas comme un échange rattaché, sans quoi une carte
+       --   annoncerait « 3 échanges » là où elle n'en a qu'un et deux mails isolés.
+       LEFT JOIN gestion_affectation a ON a.evenement_id = e.id AND a.actif${ctx.deplacements ? ' AND a.message_id IS NULL' : ''}
        LEFT JOIN dernier d ON d.fil_id = a.fil_id
+       LEFT JOIN messages_deplaces md ON md.evenement_id = e.id
        ${jointuresAttente('a.fil_id')}
       GROUP BY e.id
       ORDER BY (e.traite_le IS NOT NULL) ASC,
-               coalesce(bool_or(${ATTEND}), false) DESC,
-               coalesce(min(d.recu_le) FILTER (WHERE ${ATTEND}), e.ouvert_le) ASC,
+               ${ATTEND_CARTE} DESC,
+               coalesce(min(d.recu_le) FILTER (WHERE ${ATTEND}), min(md.recu_le), e.ouvert_le) ASC,
                e.id ASC
       LIMIT $1`,
     [limite, adressesDe(ctx.partenaires), ctx.adresseGestion],
@@ -189,7 +204,8 @@ export async function lireEvenements(ctx: ContexteExpediteurs, limite = PAGE): P
       evenementId: r.evenement_id, reference: r.reference, objet: r.objet, demandeur: r.demandeur,
       adresseLibre: r.adresse_libre,
       etat: (r.etat === 'en_cours' || r.etat === 'traite' ? r.etat : 'a_traiter'),
-      ouvertLe: r.ouvert_le, dernierEchangeLe: r.dernier_echange_le, nbFils: r.nb_fils, attend: r.attend === true,
+      ouvertLe: r.ouvert_le, dernierEchangeLe: r.dernier_echange_le,
+      nbFils: r.nb_fils, nbMailsDeplaces: r.nb_mails, attend: r.attend === true,
     })),
     total: t[0]?.n ?? 0,
   };
@@ -217,8 +233,10 @@ export async function lireReperes(): Promise<{ messagesCaptures: number; message
 export async function lireEcran(limite = PAGE): Promise<EtatEcran> {
   // La fenêtre d'activité ET la liste des partenaires internes viennent de la BASE, jamais du code. Les deux sont lues
   //   d'abord : l'attente ne se calcule pas sans savoir qui est qui (lot 4d).
-  const [config, partenaires] = await Promise.all([chargerConfigGestion(), lirePartenairesInternes()]);
-  const ctx: ContexteExpediteurs = { partenaires, adresseGestion: config.adresseGestion };
+  const [config, partenaires, deplacements] = await Promise.all([
+    chargerConfigGestion(), lirePartenairesInternes(), deplacementsDeMailsDisponibles(),
+  ]);
+  const ctx: ContexteExpediteurs = { partenaires, adresseGestion: config.adresseGestion, deplacements };
   const [file, evenements, reperes, sansSuite] = await Promise.all([
     lireFile(config.fenetreActiviteJours, ctx, limite), lireEvenements(ctx), lireReperes(), lireSansSuite(),
   ]);

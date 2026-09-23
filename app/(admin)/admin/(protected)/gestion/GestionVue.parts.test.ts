@@ -21,7 +21,7 @@ const fil = (over: Partial<Parameters<typeof LigneFil>[0]['fil']> = {}) => ({
 const carte = (over: Partial<Parameters<typeof CarteEv>[0]['carte']> = {}) => ({
   evenementId: 1, reference: 'GES-2026-000001', objet: 'Fuite salle de bain', demandeur: 'Mme M.',
   adresseLibre: '53 avenue des Ternes', etat: 'a_traiter' as const, ouvertLe: '2026-09-01T12:00:00Z',
-  dernierEchangeLe: '2026-09-20T12:00:00Z', nbFils: 2, attend: true, ...over,
+  dernierEchangeLe: '2026-09-20T12:00:00Z', nbFils: 2, nbMailsDeplaces: 0, attend: true, ...over,
 });
 
 const rendreFil = (o = {}) => renderToStaticMarkup(createElement(LigneFil, { fil: fil(o), maintenant: MAINTENANT }));
