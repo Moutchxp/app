@@ -6,6 +6,9 @@ vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }))
 
 import { lireCarte, lireMessagesDuFil, lirePieceAServir, MAX_MESSAGES } from './carteRepo';
 
+/** LOT 4d — aucun partenaire interne par défaut : le comportement doit être celui d'avant la migration 233. */
+const CTX = { partenaires: [], adresseGestion: 'gestion@criterimmo.fr' };
+
 /**
  * LOT 4c — la lecture du côté droit. Trois exigences y sont vérifiées :
  *   · LECTURE SEULE (aucun INSERT/UPDATE/DELETE ne sort de ce fichier) ;
@@ -30,9 +33,9 @@ describe('le détail d’une carte', () => {
     queryMock
       .mockResolvedValueOnce({ rows: [EVENEMENT] })
       .mockResolvedValueOnce({ rows: [
-        { fil_id: 5, objet: 'Fuite', interlocuteur: 'Mme M.', dernier_le: '2026-09-20T12:00:00Z', nb_messages: 6, nb_pieces: 2, attend: true },
+        { fil_id: 5, objet: 'Fuite', interlocuteur: 'Mme M.', de_adresse: 'm@x.fr', dernier_le: '2026-09-20T12:00:00Z', nb_messages: 6, nb_pieces: 2, attend: true },
       ] });
-    const carte = await lireCarte(9);
+    const carte = await lireCarte(9, CTX);
     expect(carte).toMatchObject({ evenementId: 9, reference: 'GES-2026-000009', etat: 'en_cours', ouvertPar: 'arno' });
     expect(carte?.fils).toEqual([
       { filId: 5, objet: 'Fuite', interlocuteur: 'Mme M.', dernierLe: '2026-09-20T12:00:00Z', nbMessages: 6, nbPieces: 2, attend: true },
@@ -41,18 +44,18 @@ describe('le détail d’une carte', () => {
 
   it('ne retient que les affectations ACTIVES — un échange détaché n’est plus sur la carte', async () => {
     queryMock.mockResolvedValueOnce({ rows: [EVENEMENT] }).mockResolvedValue({ rows: [] });
-    await lireCarte(9);
+    await lireCarte(9, CTX);
     expect(sqls()[1]).toContain('a.evenement_id = $1 AND a.actif');
   });
 
   it('un état inconnu en base retombe sur « à traiter » plutôt que de casser l’écran', async () => {
     queryMock.mockResolvedValueOnce({ rows: [{ ...EVENEMENT, etat: 'zzz' }] }).mockResolvedValue({ rows: [] });
-    expect((await lireCarte(9))?.etat).toBe('a_traiter');
+    expect((await lireCarte(9, CTX))?.etat).toBe('a_traiter');
   });
 
   it('carte inconnue → null, et AUCUNE seconde requête n’est lancée pour rien', async () => {
     queryMock.mockResolvedValue({ rows: [] });
-    expect(await lireCarte(9)).toBeNull();
+    expect(await lireCarte(9, CTX)).toBeNull();
     expect(queryMock).toHaveBeenCalledTimes(1);
   });
 });
@@ -162,7 +165,10 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
    */
   it('n’importe NI le module de stockage NI de quoi fabriquer une URL signée', () => {
     const imports = [...code.matchAll(/(?:from\s*|import\s*\(\s*)'([^']+)'/g)].map((m) => m[1]);
-    expect(imports).toEqual(['../db/client']);
+    // `attente` et `partenaires` sont des modules FRÈRES, purs ou en lecture seule : les importer ne fait pas de ce
+    //   fichier un manipulateur d'octets. Ce qui est interdit, c'est le module de stockage — et lui seul.
+    expect(imports).toEqual(['../db/client', './attente', './partenaires']);
+    expect(imports).not.toContain('../stockage');
     expect(code).not.toContain('urlSignee');
   });
 });

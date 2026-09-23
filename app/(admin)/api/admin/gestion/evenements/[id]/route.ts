@@ -2,6 +2,8 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../lib/gestion/auteur';
 import { lireCarte } from '../../../../../../lib/gestion/carteRepo';
+import { chargerConfigGestion } from '../../../../../../lib/gestion/config';
+import { lirePartenairesInternes } from '../../../../../../lib/gestion/partenaires';
 import { changerEtatEvenement, estEtat, modifierEvenement } from '../../../../../../lib/gestion/gestes';
 
 /**
@@ -33,7 +35,10 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
   const id = identifiant((await ctx.params).id);
   if (id === null) return Response.json({ erreur: 'Événement inconnu.' }, { status: 400 });
   try {
-    const carte = await lireCarte(id);
+    // Qui est « nous », qui est un partenaire interne : lu en base (migration 233), jamais en dur. Sans ce contexte,
+    //   l'attente affichée sur la carte contredirait celle de la file.
+    const [config, partenaires] = await Promise.all([chargerConfigGestion(), lirePartenairesInternes()]);
+    const carte = await lireCarte(id, { partenaires, adresseGestion: config.adresseGestion });
     if (!carte) return Response.json({ erreur: 'Cet événement n’existe pas.' }, { status: 404 });
     return Response.json(carte, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {

@@ -1,6 +1,7 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { lireMessagesDuFil } from '../../../../../../../lib/gestion/carteRepo';
+import { lirePartenairesInternes } from '../../../../../../../lib/gestion/partenaires';
 
 /**
  * /api/admin/gestion/fils/[id]/messages (lot 4c) — LE CONTENU D'UN ÉCHANGE : ses messages dans l'ordre où la
@@ -25,7 +26,8 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
   const brut = Number((await ctx.params).id);
   if (!Number.isInteger(brut) || brut <= 0) return Response.json({ erreur: 'Échange inconnu.' }, { status: 400 });
   try {
-    const messages = await lireMessagesDuFil(brut);
+    // Le libellé d'un partenaire interne remplace le nom d'expéditeur du mail (« Comptabilité (ADHOC Gestion) »).
+    const messages = await lireMessagesDuFil(brut, await lirePartenairesInternes());
     if (!messages) return Response.json({ erreur: 'Cet échange n’existe pas.' }, { status: 404 });
     return Response.json({ messages }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {

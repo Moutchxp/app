@@ -12,6 +12,8 @@
  * `/api/admin/gestion/pieces/[id]`.
  */
 import { query } from '../db/client';
+import { ATTEND, ctesAttente, jointuresAttente } from './attente';
+import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 
 export interface FilDeCarte {
   filId: number;
@@ -71,7 +73,9 @@ const MAX_CORPS = 20000;
  * LE DÉTAIL D'UNE CARTE : ce qu'elle porte, et les échanges qui lui sont RATTACHÉS (affectations actives seulement —
  * une affectation défaite reste en base, mais elle n'est plus la vérité du jour).
  */
-export async function lireCarte(evenementId: number): Promise<CarteDetail | null> {
+export async function lireCarte(
+  evenementId: number, ctx: { partenaires: readonly PartenaireInterne[]; adresseGestion: string },
+): Promise<CarteDetail | null> {
   const { rows } = await query<{
     evenement_id: number; reference: string; objet: string; demandeur_nom: string | null;
     demandeur_email: string | null; adresse_libre: string | null; etat: string; ouvert_le: string;
@@ -84,28 +88,26 @@ export async function lireCarte(evenementId: number): Promise<CarteDetail | null
   const e = rows[0];
   if (!e) return null;
 
+  // L'attente se calcule avec la MÊME définition que la file (`attente.ts`) : les deux colonnes de l'écran ne
+  //   doivent pas pouvoir se contredire sur un même échange.
   const { rows: fils } = await query<{
-    fil_id: number; objet: string | null; interlocuteur: string | null; dernier_le: string;
+    fil_id: number; objet: string | null; interlocuteur: string | null; de_adresse: string; dernier_le: string;
     nb_messages: number; nb_pieces: number; attend: boolean;
   }>(
-    `WITH dernier AS (
-       SELECT DISTINCT ON (m.fil_id) m.fil_id, m.sens, m.automatique, m.recu_le, m.de_nom, m.de_adresse
-         FROM gestion_message m
-         JOIN gestion_affectation a ON a.fil_id = m.fil_id AND a.actif AND a.evenement_id = $1
-        WHERE m.exclu_le IS NULL
-        ORDER BY m.fil_id, m.recu_le DESC, m.id DESC)
-     SELECT f.id::int AS fil_id, f.objet_initial AS objet,
-            coalesce(nullif(btrim(d.de_nom), ''), d.de_adresse) AS interlocuteur,
+    `WITH ${ctesAttente('$2', '$3')}
+     SELECT f.id::int AS fil_id, f.objet_initial AS objet, d.interlocuteur, d.de_adresse,
             ${INSTANT('d.recu_le')} AS dernier_le,
             (SELECT count(*) FROM gestion_message m2 WHERE m2.fil_id = f.id AND m2.exclu_le IS NULL)::int AS nb_messages,
             (SELECT count(*) FROM gestion_piece p JOIN gestion_message m3 ON m3.id = p.message_id
               WHERE m3.fil_id = f.id AND m3.exclu_le IS NULL)::int AS nb_pieces,
-            (d.sens = 'recu' AND NOT d.automatique) AS attend
+            ${ATTEND} AS attend
        FROM gestion_affectation a
        JOIN gestion_fil f ON f.id = a.fil_id
        JOIN dernier d ON d.fil_id = f.id
+       ${jointuresAttente('f.id')}
       WHERE a.evenement_id = $1 AND a.actif
-      ORDER BY d.recu_le DESC, f.id DESC`, [evenementId]);
+      ORDER BY d.recu_le DESC, f.id DESC`,
+    [evenementId, ctx.partenaires.map((p) => p.adresse), ctx.adresseGestion]);
 
   return {
     evenementId: e.evenement_id, reference: e.reference, objet: e.objet,
@@ -113,7 +115,9 @@ export async function lireCarte(evenementId: number): Promise<CarteDetail | null
     etat: e.etat === 'en_cours' || e.etat === 'traite' ? e.etat : 'a_traiter',
     ouvertLe: e.ouvert_le, ouvertPar: e.ouvert_par, traiteLe: e.traite_le, traitePar: e.traite_par,
     fils: fils.map((f) => ({
-      filId: f.fil_id, objet: f.objet, interlocuteur: f.interlocuteur, dernierLe: f.dernier_le,
+      filId: f.fil_id, objet: f.objet,
+      interlocuteur: libelleExpediteur(ctx.partenaires, f.de_adresse, f.interlocuteur),
+      dernierLe: f.dernier_le,
       nbMessages: f.nb_messages, nbPieces: f.nb_pieces, attend: f.attend === true,
     })),
   };
@@ -126,7 +130,9 @@ export async function lireCarte(evenementId: number): Promise<CarteDetail | null
  *
  * Le corps est borné : un mail de 400 ko ne traverse pas le réseau pour être lu en diagonale dans un panneau.
  */
-export async function lireMessagesDuFil(filId: number): Promise<MessageDeFil[] | null> {
+export async function lireMessagesDuFil(
+  filId: number, partenaires: readonly PartenaireInterne[] = [],
+): Promise<MessageDeFil[] | null> {
   const { rows: fil } = await query<{ id: number }>(`SELECT id::int AS id FROM gestion_fil WHERE id = $1`, [filId]);
   if (!fil[0]) return null;
 
@@ -167,7 +173,10 @@ export async function lireMessagesDuFil(filId: number): Promise<MessageDeFil[] |
   return rows.map((m) => ({
     messageId: m.message_id,
     sens: m.sens === 'envoye' ? 'envoye' : 'recu',
-    de: m.de_adresse, deNom: m.de_nom, recuLe: m.recu_le, objet: m.objet,
+    de: m.de_adresse,
+    // Le libellé du partenaire interne remplace le nom porté par le mail, ici comme partout dans l'écran Gestion.
+    deNom: libelleExpediteur(partenaires, m.de_adresse, m.de_nom) || null,
+    recuLe: m.recu_le, objet: m.objet,
     corps: m.corps && m.corps.trim() !== '' ? m.corps : null,
     automatique: m.automatique === true,
     pieces: parMessage.get(m.message_id) ?? [],

@@ -3,15 +3,18 @@
  * n'émet que des SELECT. Aucun INSERT, aucun UPDATE, aucun DELETE — les gestes (affecter, classer sans suite) sont le lot 4.
  *
  * 🔴 LA RÈGLE QUI COMMANDE CE FICHIER : « ATTEND UNE RÉPONSE DE NOTRE PART » EST DÉRIVÉ, JAMAIS STOCKÉ.
- * Il se lit : « le DERNIER message NON EXCLU du fil est un message REÇU et probablement HUMAIN ». Aucune colonne ne le
- * porte — elle mentirait dès le message suivant. Le calcul se fait ici, à chaque lecture, et s'appuie sur l'index partiel
- * `gestion_message_attente_idx (fil_id, recu_le DESC) WHERE exclu_le IS NULL` posé par la migration 228 exprès pour lui.
+ * Aucune colonne ne le porte — elle mentirait dès le message suivant. Le calcul se fait à chaque lecture et s'appuie sur
+ * l'index partiel `gestion_message_attente_idx (fil_id, recu_le DESC) WHERE exclu_le IS NULL` posé par la migration 228
+ * exprès pour lui. Sa DÉFINITION, elle, vit dans `attente.ts` — une seule, partagée par la file et par les cartes, pour
+ * que les deux colonnes de l'écran ne puissent pas se contredire (lot 4d : trois sortes d'expéditeurs, pas deux).
  *
  * L'ORDRE DEMANDÉ À L'ÉCRAN : ce qui attend une réponse depuis LE PLUS LONGTEMPS d'abord. Donc, dans les deux colonnes :
  * ce qui attend passe devant ce qui n'attend pas, puis du plus ANCIEN au plus récent.
  */
 import { query } from '../db/client';
+import { ATTEND, CTE_DERNIER, ctesAttente, jointuresAttente } from './attente';
 import { chargerConfigGestion } from './config';
+import { adressesDe, libelleExpediteur, lirePartenairesInternes, type PartenaireInterne } from './partenaires';
 
 /** Une ligne de la FILE (colonne de gauche) : un FIL de discussion, jamais un message isolé. */
 export interface LigneFile {
@@ -66,24 +69,14 @@ export interface LigneSansSuite {
 /** Combien de lignes au plus par colonne. Le total réel est renvoyé à côté → l'écran ne ment jamais sur ce qu'il montre. */
 export const PAGE = 50;
 
-/**
- * DERNIER message NON EXCLU de chaque fil. `DISTINCT ON (fil_id) … ORDER BY fil_id, recu_le DESC` se sert exactement de
- * l'index partiel prévu pour ça. Fragment PARTAGÉ par les deux lectures — une seule définition de « le dernier message »,
- * donc aucune divergence possible entre la file et les cartes.
- */
-const DERNIER_MESSAGE = `
-  SELECT DISTINCT ON (m.fil_id)
-         m.fil_id, m.sens, m.automatique, m.recu_le,
-         coalesce(nullif(btrim(m.de_nom), ''), m.de_adresse) AS interlocuteur
-    FROM gestion_message m
-   WHERE m.exclu_le IS NULL
-   ORDER BY m.fil_id, m.recu_le DESC, m.id DESC`;
-
-/** Un fil « attend une réponse de notre part » si son dernier message non exclu est REÇU et probablement HUMAIN. */
-const ATTEND = `(d.sens = 'recu' AND NOT d.automatique)`;
+/** Ce qu'il faut connaître pour trancher « qui parle » : nos partenaires internes, et notre propre adresse. */
+export interface ContexteExpediteurs {
+  partenaires: readonly PartenaireInterne[];
+  adresseGestion: string;
+}
 
 interface LigneFileDB {
-  fil_id: number; objet: string | null; interlocuteur: string | null;
+  fil_id: number; objet: string | null; interlocuteur: string | null; de_adresse: string;
   dernier_le: string; nb_messages: number; nb_pieces: number; attend: boolean;
 }
 
@@ -93,12 +86,15 @@ interface LigneFileDB {
  *  - « non exclus » : la jointure sur le dernier message non exclu écarte d'elle-même un fil dont TOUS les messages ont
  *    été tenus hors de la file par une règle — sans jamais rien supprimer, et le fil revient si la règle s'éteint.
  */
-export async function lireFile(fenetreJours: number, limite = PAGE): Promise<{ lignes: LigneFile[]; total: number; tropAnciens: number }> {
+export async function lireFile(
+  fenetreJours: number, ctx: ContexteExpediteurs, limite = PAGE,
+): Promise<{ lignes: LigneFile[]; total: number; tropAnciens: number }> {
+  const adresses = adressesDe(ctx.partenaires);
   const { rows } = await query<LigneFileDB>(
-    `WITH dernier AS (${DERNIER_MESSAGE})
+    `WITH ${ctesAttente('$3', '$4')}
      SELECT f.id::int AS fil_id,
             f.objet_initial AS objet,
-            d.interlocuteur,
+            d.interlocuteur, d.de_adresse,
             to_char(d.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS dernier_le,
             (SELECT count(*) FROM gestion_message m2 WHERE m2.fil_id = f.id AND m2.exclu_le IS NULL)::int AS nb_messages,
             (SELECT count(*) FROM gestion_piece p JOIN gestion_message m3 ON m3.id = p.message_id
@@ -106,15 +102,16 @@ export async function lireFile(fenetreJours: number, limite = PAGE): Promise<{ l
             ${ATTEND} AS attend
        FROM gestion_fil f
        JOIN dernier d ON d.fil_id = f.id
+       ${jointuresAttente('f.id')}
       WHERE f.etat = 'a_classer' AND d.recu_le >= now() - ($2::int * interval '1 day')
       ORDER BY ${ATTEND} DESC, d.recu_le ASC, f.id ASC
       LIMIT $1`,
-    [limite, fenetreJours],
+    [limite, fenetreJours, adresses, ctx.adresseGestion],
   );
   // DEUX comptes, jamais un seul : ce que la file montre, ET ce qu'elle tait. Le second est affiché à l'écran —
   //   un outil qui cache sans le dire ment ; un outil qui dit ce qu'il ne montre pas reste honnête.
   const { rows: t } = await query<{ dedans: number; trop_anciens: number }>(
-    `WITH dernier AS (${DERNIER_MESSAGE})
+    `WITH dernier AS (${CTE_DERNIER})
      SELECT count(*) FILTER (WHERE d.recu_le >= now() - ($1::int * interval '1 day'))::int AS dedans,
             count(*) FILTER (WHERE d.recu_le <  now() - ($1::int * interval '1 day'))::int AS trop_anciens
        FROM gestion_fil f JOIN dernier d ON d.fil_id = f.id WHERE f.etat = 'a_classer'`,
@@ -122,7 +119,11 @@ export async function lireFile(fenetreJours: number, limite = PAGE): Promise<{ l
   );
   return {
     lignes: rows.map((r) => ({
-      filId: r.fil_id, objet: r.objet, interlocuteur: r.interlocuteur, dernierLe: r.dernier_le,
+      filId: r.fil_id, objet: r.objet,
+      // Le libellé d'un partenaire interne PRIME sur le nom porté par le mail : « Service Gestion » se confondait
+      //   avec notre propre boîte, « Comptabilité (ADHOC Gestion) » dit qui parle et à quel titre.
+      interlocuteur: libelleExpediteur(ctx.partenaires, r.de_adresse, r.interlocuteur),
+      dernierLe: r.dernier_le,
       nbMessages: r.nb_messages, nbPieces: r.nb_pieces, attend: r.attend === true,
     })),
     total: t[0]?.dedans ?? 0,
@@ -160,9 +161,9 @@ interface CarteDB {
  * qui décide du rang, pas la date d'ouverture de la carte — une carte ouverte hier mais dont le locataire attend depuis
  * trois semaines doit passer devant.
  */
-export async function lireEvenements(limite = PAGE): Promise<{ cartes: CarteEvenement[]; total: number }> {
+export async function lireEvenements(ctx: ContexteExpediteurs, limite = PAGE): Promise<{ cartes: CarteEvenement[]; total: number }> {
   const { rows } = await query<CarteDB>(
-    `WITH dernier AS (${DERNIER_MESSAGE})
+    `WITH ${ctesAttente('$2', '$3')}
      SELECT e.id::int AS evenement_id, e.reference, e.objet,
             coalesce(nullif(btrim(e.demandeur_nom), ''), e.demandeur_email) AS demandeur,
             e.adresse_libre, e.etat,
@@ -173,13 +174,14 @@ export async function lireEvenements(limite = PAGE): Promise<{ cartes: CarteEven
        FROM gestion_evenement e
        LEFT JOIN gestion_affectation a ON a.evenement_id = e.id AND a.actif
        LEFT JOIN dernier d ON d.fil_id = a.fil_id
+       ${jointuresAttente('a.fil_id')}
       GROUP BY e.id
       ORDER BY (e.traite_le IS NOT NULL) ASC,
                coalesce(bool_or(${ATTEND}), false) DESC,
                coalesce(min(d.recu_le) FILTER (WHERE ${ATTEND}), e.ouvert_le) ASC,
                e.id ASC
       LIMIT $1`,
-    [limite],
+    [limite, adressesDe(ctx.partenaires), ctx.adresseGestion],
   );
   const { rows: t } = await query<{ n: number }>(`SELECT count(*)::int AS n FROM gestion_evenement`);
   return {
@@ -213,9 +215,12 @@ export async function lireReperes(): Promise<{ messagesCaptures: number; message
 
 /** L'état complet de l'écran, en une fois. LECTURE SEULE de bout en bout. */
 export async function lireEcran(limite = PAGE): Promise<EtatEcran> {
-  const config = await chargerConfigGestion(); // la fenêtre d'activité vient de la base, jamais du code
+  // La fenêtre d'activité ET la liste des partenaires internes viennent de la BASE, jamais du code. Les deux sont lues
+  //   d'abord : l'attente ne se calcule pas sans savoir qui est qui (lot 4d).
+  const [config, partenaires] = await Promise.all([chargerConfigGestion(), lirePartenairesInternes()]);
+  const ctx: ContexteExpediteurs = { partenaires, adresseGestion: config.adresseGestion };
   const [file, evenements, reperes, sansSuite] = await Promise.all([
-    lireFile(config.fenetreActiviteJours, limite), lireEvenements(limite), lireReperes(), lireSansSuite(),
+    lireFile(config.fenetreActiviteJours, ctx, limite), lireEvenements(ctx), lireReperes(), lireSansSuite(),
   ]);
   return {
     file: file.lignes, filsTotal: file.total,
