@@ -102,3 +102,22 @@ export function messageErreurHttp(statut: number): string {
   if (statut === 503) return 'La base n’a pas répondu. Réessayez dans un instant.';
   return 'La lecture a échoué. Réessayez dans un instant.';
 }
+
+/**
+ * LOT 4c — TAILLE D'UNE PIÈCE JOINTE, en français et lisible d'un coup d'œil. PURE.
+ *
+ * Unités décimales (1 ko = 1000 o) : c'est ce qu'affichent le Finder et les boîtes mail, donc ce que l'utilisateur
+ * comparera. Une taille absente se DIT (« taille inconnue ») plutôt que de s'afficher « 0 o », qui ferait croire à
+ * une pièce vide.
+ */
+export function formaterTaille(octets: number | null): string {
+  if (octets === null || !Number.isFinite(octets) || octets < 0) return 'taille inconnue';
+  if (octets < 1000) return `${octets} o`;
+  if (octets < 1000 * 1000) return `${(octets / 1000).toFixed(octets < 10_000 ? 1 : 0)} ko`;
+  return `${(octets / 1_000_000).toFixed(octets < 10_000_000 ? 1 : 0)} Mo`;
+}
+
+/** Qui parle dans un message, du point de vue de l'agence : nous, ou l'autre. Le sens est dit par un MOT. */
+export function libelleSens(sens: 'recu' | 'envoye'): string {
+  return sens === 'envoye' ? 'nous avons écrit' : 'reçu de';
+}

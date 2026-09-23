@@ -197,6 +197,92 @@ export async function rouvrir(filId: number, auteur: Auteur): Promise<Issue> {
   });
 }
 
+/** Les champs d'une carte qu'un humain peut corriger. Tous facultatifs : on modifie ce qu'on veut, pas tout à la fois. */
+export interface ChampsEvenement {
+  objet?: string | null;
+  demandeurNom?: string | null;
+  demandeurEmail?: string | null;
+  adresseLibre?: string | null;
+}
+
+/** Les trois états d'une carte. La liste est COURTE exprès (cf. migration 228) : on n'invente pas de workflow. */
+export type EtatEvenement = 'a_traiter' | 'en_cours' | 'traite';
+const ETATS: readonly EtatEvenement[] = ['a_traiter', 'en_cours', 'traite'];
+export const estEtat = (v: unknown): v is EtatEvenement => typeof v === 'string' && (ETATS as readonly string[]).includes(v);
+
+/**
+ * MODIFIE ce que porte une carte (quoi / qui demande / adresse). Le pré-remplissage ne devine que ce qui est écrit dans
+ * le mail : il fallait donc pouvoir CORRIGER à la main, sinon une proposition approximative serait devenue une vérité.
+ *
+ * Journalisé champ par champ, avec l'ANCIENNE et la NOUVELLE valeur : six mois après, on doit pouvoir dire qui a changé
+ * l'adresse d'une carte, et ce qu'elle disait avant. L'objet ne peut pas être vidé (contrainte en base, et bon sens :
+ * une carte sans titre n'est plus retrouvable) ; les autres champs, si — effacer une donnée fausse est légitime.
+ */
+export async function modifierEvenement(evenementId: number, champs: ChampsEvenement, auteur: Auteur): Promise<Issue> {
+  const demande: [keyof ChampsEvenement, string, string | null][] = [];
+  if (champs.objet !== undefined) {
+    const objet = texte(champs.objet);
+    if (objet === null) return { ok: false, motif: 'Le « quoi » ne peut pas être vide : sans lui la carte devient introuvable.' };
+    demande.push(['objet', 'objet', objet]);
+  }
+  if (champs.demandeurNom !== undefined) demande.push(['demandeurNom', 'demandeur_nom', texte(champs.demandeurNom)]);
+  if (champs.demandeurEmail !== undefined) demande.push(['demandeurEmail', 'demandeur_email', texte(champs.demandeurEmail)]);
+  if (champs.adresseLibre !== undefined) demande.push(['adresseLibre', 'adresse_libre', texte(champs.adresseLibre)]);
+  if (demande.length === 0) return { ok: false, motif: 'Rien à modifier.' };
+
+  return withTransaction(async (q) => {
+    // LIRE AVANT D'ÉCRIRE : `withTransaction` commite au retour (db/client.ts:52-54), donc un refus rendu après une
+    //   écriture serait un refus qui a écrit. Et la lecture sert aussi au journal : sans l'AVANT, une trace ne dit rien.
+    const { rows: avant } = await q<Record<string, string | null>>(
+      `SELECT objet, demandeur_nom, demandeur_email, adresse_libre, reference FROM gestion_evenement
+        WHERE id = $1 FOR UPDATE`, [evenementId]);
+    if (!avant[0]) return { ok: false, motif: 'Cet événement n’existe pas.' };
+
+    // Seuls les champs qui CHANGENT VRAIMENT sont écrits et journalisés : rouvrir un formulaire et le valider sans
+    //   rien toucher ne doit pas remplir le journal de lignes qui ne racontent rien.
+    const changes = demande.filter(([, colonne, valeur]) => (avant[0][colonne] ?? null) !== valeur);
+    if (changes.length === 0) return { ok: true, evenementId };
+
+    const set = changes.map(([, colonne], i) => `${colonne} = $${i + 2}`).join(', ');
+    await q(`UPDATE gestion_evenement SET ${set}, maj_le = now() WHERE id = $1`,
+      [evenementId, ...changes.map(([, , valeur]) => valeur)]);
+    for (const [nom, colonne, valeur] of changes) {
+      await journaliser(q, 'evenement', evenementId, 'modification', auteur,
+        `${nom} modifié sur ${avant[0].reference}`, avant[0][colonne] ?? null, valeur);
+    }
+    return { ok: true, evenementId };
+  });
+}
+
+/**
+ * CHANGE L'ÉTAT d'une carte. « traité » pose la DATE DE TRAITEMENT et le nom de celui qui l'a posée ; revenir en
+ * arrière les efface — la base l'EXIGE (`gestion_evenement_traite_chk` : l'état et la date vont ensemble, migration
+ * 228). Cette contrainte est une bonne nouvelle : elle rend impossible une carte « traitée » sans date, c'est-à-dire
+ * introuvable dans l'historique.
+ *
+ * Revenir de « traité » à « en cours » est un geste NORMAL, pas une réparation : un dossier se rouvre.
+ */
+export async function changerEtatEvenement(evenementId: number, etat: EtatEvenement, auteur: Auteur): Promise<Issue> {
+  return withTransaction(async (q) => {
+    const { rows } = await q<{ etat: string; reference: string }>(
+      `SELECT etat, reference FROM gestion_evenement WHERE id = $1 FOR UPDATE`, [evenementId]);
+    if (!rows[0]) return { ok: false, motif: 'Cet événement n’existe pas.' };
+    if (rows[0].etat === etat) return { ok: false, motif: `Cet événement est déjà « ${etat} ».` };
+
+    await q(
+      `UPDATE gestion_evenement
+          SET etat = $2,
+              traite_le = CASE WHEN $2 = 'traite' THEN now() ELSE NULL END,
+              traite_par = CASE WHEN $2 = 'traite' THEN $3::bigint ELSE NULL END,
+              traite_par_libelle = CASE WHEN $2 = 'traite' THEN $4 ELSE NULL END,
+              maj_le = now()
+        WHERE id = $1`, [evenementId, etat, auteur.id, auteur.libelle]);
+    await journaliser(q, 'evenement', evenementId, 'etat', auteur,
+      `état de ${rows[0].reference} changé à la main`, rows[0].etat, etat);
+    return { ok: true, evenementId };
+  });
+}
+
 /** Les événements OUVERTS, pour le sélecteur « rattacher à un événement existant ». Les plus récents d'abord. */
 export async function listerEvenementsOuverts(limite = 50): Promise<{ id: number; reference: string; objet: string }[]> {
   const { rows } = await query<{ id: number; reference: string; objet: string }>(

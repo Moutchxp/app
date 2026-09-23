@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  depuis, formaterDateFr, libelleEtat, mentionTroncature, messageErreurHttp, messageEvenementsVide, messageFileVide,
-  messageReleve,
+  depuis, formaterDateFr, formaterTaille, libelleEtat, libelleSens, mentionTroncature, messageErreurHttp, messageEvenementsVide, messageFileVide, messageReleve,
 } from './ecran';
 
 /**
@@ -131,5 +130,27 @@ describe('échec de lecture — un refus n’est pas une panne', () => {
 
   it('les cinq messages sont DISTINCTS (sinon la distinction ne servirait à rien)', () => {
     expect(new Set([403, 401, 503, 0, 500].map(messageErreurHttp)).size).toBe(5);
+  });
+});
+
+describe('LOT 4c — taille d’une pièce jointe', () => {
+  it('s’affiche dans l’unité qui parle à l’utilisateur (décimale, comme le Finder et les boîtes mail)', () => {
+    expect(formaterTaille(0)).toBe('0 o');
+    expect(formaterTaille(512)).toBe('512 o');
+    expect(formaterTaille(4096)).toBe('4.1 ko');
+    expect(formaterTaille(120_000)).toBe('120 ko');
+    expect(formaterTaille(2_400_000)).toBe('2.4 Mo');
+    expect(formaterTaille(45_000_000)).toBe('45 Mo');
+  });
+
+  it('une taille absente se DIT — « 0 o » ferait croire à une pièce vide', () => {
+    expect(formaterTaille(null)).toBe('taille inconnue');
+    expect(formaterTaille(-1)).toBe('taille inconnue');
+    expect(formaterTaille(Number.NaN)).toBe('taille inconnue');
+  });
+
+  it('le sens d’un message est dit par un MOT, jamais par une seule couleur', () => {
+    expect(libelleSens('envoye')).toBe('nous avons écrit');
+    expect(libelleSens('recu')).toBe('reçu de');
   });
 });

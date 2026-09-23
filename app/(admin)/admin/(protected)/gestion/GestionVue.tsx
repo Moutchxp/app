@@ -8,6 +8,7 @@ import {
 } from '../../../../lib/gestion/ecran';
 import { useReleveGestion } from './useReleveGestion';
 import { PanneauAffecter } from './PanneauAffecter';
+import { CarteVive } from './CarteVive';
 
 /**
  * LOT 2/3/4b — l'écran à deux côtés, et les DEUX GESTES.
@@ -217,7 +218,20 @@ export function GestionVue() {
           {troncEv && <p className="gst-tronc">{troncEv}</p>}
           {d.evenements.length === 0
             ? <p className="gst-vide">{messageEvenementsVide()}</p>
-            : <ul className="gst-liste">{d.evenements.map((e) => <CarteEv key={e.evenementId} carte={e} maintenant={ref} />)}</ul>}
+            : (
+              <ul className="gst-liste">
+                {d.evenements.map((e) => (
+                  <CarteVive key={e.evenementId} carte={e} maintenant={ref}
+                    onGeste={(message, options) => {
+                      setGeste({ ton: 'ok', texte: message });
+                      // Un détachement change AUSSI la file (l'échange y revient) : là, tout l'écran est relu. Une
+                      //   correction ou un changement d'état ne concernent que la carte — la relire elle seule évite
+                      //   de replier le dossier qu'on est en train de lire.
+                      if (options?.rechargerTout) void charger();
+                    }} />
+                ))}
+              </ul>
+            )}
         </section>
       </div>
     </>
@@ -342,6 +356,34 @@ const CSS_GESTION = `
 /* 16px minimum : en dessous, les navigateurs mobiles zooment à la mise au point du champ. */
 .gst-saisie{min-height:44px;width:100%;box-sizing:border-box;padding:.5rem .7rem;font-size:16px;border:1px solid var(--color-svv-line-strong);border-radius:.6rem;background:var(--color-svv-surface);color:var(--color-svv-ink)}
 .gst-note{margin:0;font-size:.78rem;line-height:1.4;color:var(--color-svv-muted)}
+/* ── LOT 4c : LA CARTE VIVANTE ─────────────────────────────────────────────────────────────────────────────────── */
+/* La ligne de titre d'un bloc repliable est un vrai bouton : on la laisse occuper toute la largeur et respirer. */
+.gst-repli{align-items:flex-start;padding:.6rem .7rem}
+.gst-carte-titre{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;min-width:0}
+.gst-carte-bas{display:flex;flex-wrap:wrap;align-items:baseline;gap:.35rem;flex-basis:100%;font-size:.8rem;font-weight:400;color:var(--color-svv-muted)}
+.gst-corps{display:flex;flex-direction:column;gap:12px;padding:12px 2px 2px}
+.gst-bloc{display:flex;flex-direction:column;gap:8px;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px}
+.gst-sous-titre{margin:.25rem 0 0;font-size:13px;font-weight:700;color:var(--color-svv-ink);display:flex;align-items:center;gap:.5rem}
+/* Fiche d'une carte : deux colonnes au large, une seule sur mobile — jamais un tableau qui déborde. */
+.gst-fiche{display:grid;grid-template-columns:auto 1fr;gap:.35rem .75rem;margin:0;font-size:.85rem}
+.gst-fiche dt{font-weight:700;color:var(--color-svv-muted)}
+.gst-fiche dd{margin:0;color:var(--color-svv-ink);overflow-wrap:anywhere}
+@media (max-width:520px){.gst-fiche{grid-template-columns:1fr;gap:.1rem}.gst-fiche dd{margin-bottom:.4rem}}
+/* Une donnée absente est DITE absente — un blanc laisserait croire à un oubli d'affichage. */
+.gst-absent{color:var(--color-svv-muted);font-style:italic}
+.gst-item--fil{background:var(--color-svv-field)}
+.gst-fil{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+/* Un message : le sens est porté par un MOT (« reçu de » / « nous avons écrit »), la bordure ne fait que l'appuyer. */
+.gst-msg{background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-left:3px solid var(--color-svv-line-strong);border-radius:8px;padding:8px 10px}
+.gst-msg--envoye{border-left-color:var(--color-svv-green)}
+.gst-msg-haut{display:flex;flex-wrap:wrap;align-items:baseline;gap:.35rem;font-size:.78rem;color:var(--color-svv-muted)}
+/* pre-wrap : le texte du mail garde ses paragraphes ; anywhere : une URL à rallonge ne fait pas déborder l'écran. */
+.gst-msg-corps{margin:.4rem 0 0;font-size:.85rem;line-height:1.5;color:var(--color-svv-ink);white-space:pre-wrap;overflow-wrap:anywhere}
+.gst-etiquette{font-size:11px;font-weight:700;color:var(--color-svv-muted);border:1px solid var(--color-svv-line-strong);border-radius:999px;padding:1px 7px}
+.gst-pieces{list-style:none;margin:.5rem 0 0;padding:0;display:flex;flex-direction:column;gap:.3rem}
+.gst-piece{display:flex;flex-wrap:wrap;align-items:baseline;gap:.35rem;font-size:.8rem;color:var(--color-svv-muted)}
+/* Cible tactile : un lien de pièce jointe se clique au doigt comme un bouton. */
+.gst-lien{min-height:44px;display:inline-flex;align-items:center;font-weight:600;color:var(--color-svv-red);text-decoration:underline}
 /* CLASSÉS SANS SUITE — replié par défaut : présent sans encombrer. */
 .gst-sans-suite{margin-top:1rem;border-top:1px solid var(--color-svv-line);padding-top:.75rem}
 .gst-sans-suite-titre{display:flex;align-items:center;gap:.5rem;min-height:44px;font-size:13px;font-weight:700;color:var(--color-svv-ink);cursor:pointer}

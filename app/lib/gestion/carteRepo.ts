@@ -1,0 +1,189 @@
+/**
+ * MODULE « GESTION » — LOT 4c : LE DÉTAIL D'UNE CARTE ET D'UN ÉCHANGE. IMPUR (base), STRICTEMENT EN LECTURE : ce
+ * fichier n'émet que des SELECT. Les écritures du côté droit (modifier une carte, changer son état, détacher un
+ * échange) vivent dans `gestes.ts`, avec leur journal.
+ *
+ * CHARGEMENT PARESSEUX, par construction : rien ici n'est appelé par l'écran d'accueil du module. Une carte jamais
+ * dépliée ne coûte aucune requête, un échange jamais déplié non plus — c'est le patron `BlocRepliable`, et c'est ce qui
+ * rend l'écran tenable avec des centaines de messages capturés.
+ *
+ * ⚠️ AUCUNE CLÉ DE STOCKAGE NE SORT D'ICI vers le navigateur. Les pièces sont désignées par leur IDENTIFIANT en base ;
+ * les octets sont servis par l'application, à chaque ouverture, après vérification du droit. Cf. la route
+ * `/api/admin/gestion/pieces/[id]`.
+ */
+import { query } from '../db/client';
+
+export interface FilDeCarte {
+  filId: number;
+  objet: string | null;
+  interlocuteur: string | null;
+  dernierLe: string;
+  nbMessages: number;
+  nbPieces: number;
+  attend: boolean;
+}
+
+export interface CarteDetail {
+  evenementId: number;
+  reference: string;
+  objet: string;
+  demandeurNom: string | null;
+  demandeurEmail: string | null;
+  adresseLibre: string | null;
+  etat: 'a_traiter' | 'en_cours' | 'traite';
+  ouvertLe: string;
+  ouvertPar: string | null;
+  traiteLe: string | null;
+  traitePar: string | null;
+  fils: FilDeCarte[];
+}
+
+export interface MessageDeFil {
+  messageId: number;
+  sens: 'recu' | 'envoye';
+  de: string;
+  deNom: string | null;
+  recuLe: string;
+  objet: string | null;
+  corps: string | null;
+  automatique: boolean;
+  pieces: PieceDeMessage[];
+}
+
+export interface PieceDeMessage {
+  pieceId: number;
+  nomFichier: string;
+  typeMime: string | null;
+  tailleOctets: number | null;
+  /** Faux quand la pièce n'a PAS pu être déposée : on dit alors POURQUOI, plutôt que d'offrir un lien qui échouerait. */
+  disponible: boolean;
+  motifNonStocke: string | null;
+}
+
+/** Même formatage d'instant que `fileRepo` : une seule façon d'écrire une date dans tout le module. */
+const INSTANT = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')`;
+
+/** Borne de sûreté : un fil pathologique ne doit pas rendre une page de plusieurs mégaoctets. */
+export const MAX_MESSAGES = 200;
+const MAX_CORPS = 20000;
+
+/**
+ * LE DÉTAIL D'UNE CARTE : ce qu'elle porte, et les échanges qui lui sont RATTACHÉS (affectations actives seulement —
+ * une affectation défaite reste en base, mais elle n'est plus la vérité du jour).
+ */
+export async function lireCarte(evenementId: number): Promise<CarteDetail | null> {
+  const { rows } = await query<{
+    evenement_id: number; reference: string; objet: string; demandeur_nom: string | null;
+    demandeur_email: string | null; adresse_libre: string | null; etat: string; ouvert_le: string;
+    ouvert_par: string | null; traite_le: string | null; traite_par: string | null;
+  }>(
+    `SELECT id::int AS evenement_id, reference, objet, demandeur_nom, demandeur_email, adresse_libre, etat,
+            ${INSTANT('ouvert_le')} AS ouvert_le, ouvert_par_libelle AS ouvert_par,
+            ${INSTANT('traite_le')} AS traite_le, traite_par_libelle AS traite_par
+       FROM gestion_evenement WHERE id = $1`, [evenementId]);
+  const e = rows[0];
+  if (!e) return null;
+
+  const { rows: fils } = await query<{
+    fil_id: number; objet: string | null; interlocuteur: string | null; dernier_le: string;
+    nb_messages: number; nb_pieces: number; attend: boolean;
+  }>(
+    `WITH dernier AS (
+       SELECT DISTINCT ON (m.fil_id) m.fil_id, m.sens, m.automatique, m.recu_le, m.de_nom, m.de_adresse
+         FROM gestion_message m
+         JOIN gestion_affectation a ON a.fil_id = m.fil_id AND a.actif AND a.evenement_id = $1
+        WHERE m.exclu_le IS NULL
+        ORDER BY m.fil_id, m.recu_le DESC, m.id DESC)
+     SELECT f.id::int AS fil_id, f.objet_initial AS objet,
+            coalesce(nullif(btrim(d.de_nom), ''), d.de_adresse) AS interlocuteur,
+            ${INSTANT('d.recu_le')} AS dernier_le,
+            (SELECT count(*) FROM gestion_message m2 WHERE m2.fil_id = f.id AND m2.exclu_le IS NULL)::int AS nb_messages,
+            (SELECT count(*) FROM gestion_piece p JOIN gestion_message m3 ON m3.id = p.message_id
+              WHERE m3.fil_id = f.id AND m3.exclu_le IS NULL)::int AS nb_pieces,
+            (d.sens = 'recu' AND NOT d.automatique) AS attend
+       FROM gestion_affectation a
+       JOIN gestion_fil f ON f.id = a.fil_id
+       JOIN dernier d ON d.fil_id = f.id
+      WHERE a.evenement_id = $1 AND a.actif
+      ORDER BY d.recu_le DESC, f.id DESC`, [evenementId]);
+
+  return {
+    evenementId: e.evenement_id, reference: e.reference, objet: e.objet,
+    demandeurNom: e.demandeur_nom, demandeurEmail: e.demandeur_email, adresseLibre: e.adresse_libre,
+    etat: e.etat === 'en_cours' || e.etat === 'traite' ? e.etat : 'a_traiter',
+    ouvertLe: e.ouvert_le, ouvertPar: e.ouvert_par, traiteLe: e.traite_le, traitePar: e.traite_par,
+    fils: fils.map((f) => ({
+      filId: f.fil_id, objet: f.objet, interlocuteur: f.interlocuteur, dernierLe: f.dernier_le,
+      nbMessages: f.nb_messages, nbPieces: f.nb_pieces, attend: f.attend === true,
+    })),
+  };
+}
+
+/**
+ * LES MESSAGES D'UN ÉCHANGE, du plus ancien au plus récent — l'ordre dans lequel une conversation se lit. Les messages
+ * EXCLUS (accusés automatiques, bruit) restent hors de la vue : ils sont en base, mais les afficher ferait de la lecture
+ * d'un fil une corvée, et c'est justement ce que les règles d'exclusion existent pour éviter.
+ *
+ * Le corps est borné : un mail de 400 ko ne traverse pas le réseau pour être lu en diagonale dans un panneau.
+ */
+export async function lireMessagesDuFil(filId: number): Promise<MessageDeFil[] | null> {
+  const { rows: fil } = await query<{ id: number }>(`SELECT id::int AS id FROM gestion_fil WHERE id = $1`, [filId]);
+  if (!fil[0]) return null;
+
+  const { rows } = await query<{
+    message_id: number; sens: string; de_adresse: string; de_nom: string | null; recu_le: string;
+    objet: string | null; corps: string | null; automatique: boolean;
+  }>(
+    `SELECT id::int AS message_id, sens, de_adresse, de_nom, ${INSTANT('recu_le')} AS recu_le,
+            objet, left(coalesce(corps_texte, ''), ${MAX_CORPS}) AS corps, automatique
+       FROM gestion_message
+      WHERE fil_id = $1 AND exclu_le IS NULL
+      ORDER BY recu_le ASC, id ASC
+      LIMIT ${MAX_MESSAGES}`, [filId]);
+
+  const { rows: pieces } = await query<{
+    piece_id: number; message_id: number; nom_fichier: string; type_mime: string | null;
+    taille_octets: string | number | null; disponible: boolean; motif_non_stocke: string | null;
+  }>(
+    `SELECT p.id::int AS piece_id, p.message_id::int AS message_id, p.nom_fichier, p.type_mime, p.taille_octets,
+            (p.cle_stockage IS NOT NULL) AS disponible, p.motif_non_stocke
+       FROM gestion_piece p JOIN gestion_message m ON m.id = p.message_id
+      WHERE m.fil_id = $1 AND m.exclu_le IS NULL
+      ORDER BY p.id ASC`, [filId]);
+
+  const parMessage = new Map<number, PieceDeMessage[]>();
+  for (const p of pieces) {
+    const liste = parMessage.get(p.message_id) ?? [];
+    liste.push({
+      pieceId: p.piece_id, nomFichier: p.nom_fichier, typeMime: p.type_mime,
+      // `bigint` revient en CHAÎNE avec pg : sans conversion, l'écran afficherait « 12345 o » comme du texte et les
+      //   comparaisons de taille mentiraient. Piège connu du dépôt.
+      tailleOctets: p.taille_octets === null ? null : Number(p.taille_octets),
+      disponible: p.disponible === true, motifNonStocke: p.motif_non_stocke,
+    });
+    parMessage.set(p.message_id, liste);
+  }
+
+  return rows.map((m) => ({
+    messageId: m.message_id,
+    sens: m.sens === 'envoye' ? 'envoye' : 'recu',
+    de: m.de_adresse, deNom: m.de_nom, recuLe: m.recu_le, objet: m.objet,
+    corps: m.corps && m.corps.trim() !== '' ? m.corps : null,
+    automatique: m.automatique === true,
+    pieces: parMessage.get(m.message_id) ?? [],
+  }));
+}
+
+/**
+ * Ce qu'il faut pour SERVIR une pièce : sa clé de stockage, son nom et son type. Rien de tout cela ne part vers le
+ * navigateur — la route lit ces champs, va chercher les octets, et rend les octets.
+ */
+export async function lirePieceAServir(pieceId: number): Promise<{
+  cleStockage: string; nomFichier: string; typeMime: string | null;
+} | null> {
+  const { rows } = await query<{ cle_stockage: string | null; nom_fichier: string; type_mime: string | null }>(
+    `SELECT cle_stockage, nom_fichier, type_mime FROM gestion_piece WHERE id = $1`, [pieceId]);
+  const p = rows[0];
+  if (!p || !p.cle_stockage) return null; // pièce inconnue, ou jamais déposée : dans les deux cas, rien à servir
+  return { cleStockage: p.cle_stockage, nomFichier: p.nom_fichier, typeMime: p.type_mime };
+}

@@ -6,7 +6,10 @@ vi.mock('../db/client', () => ({
   withTransaction: (fn: (q: (...a: unknown[]) => unknown) => unknown) => fn((...a: unknown[]) => queryMock(...a)),
 }));
 
-import { affecter, classerSansSuite, detacher, listerEvenementsOuverts, preremplir, rouvrir, texte } from './gestes';
+import {
+  affecter, changerEtatEvenement, classerSansSuite, detacher, estEtat, listerEvenementsOuverts, modifierEvenement,
+  preremplir, rouvrir, texte,
+} from './gestes';
 
 /**
  * LOT 4b — LES DEUX GESTES. Ce qui est vérifié n'est pas « ça marche » mais les TROIS RÈGLES du module :
@@ -250,5 +253,92 @@ describe('bornes de sûreté sur les saisies', () => {
     expect(texte('   ')).toBeNull();
     expect(texte(42)).toBeNull();
     expect(texte('x'.repeat(500))).toHaveLength(300);
+  });
+});
+
+describe('LOT 4c — MODIFIER une carte : corriger ce que le pré-remplissage n’a pu que proposer', () => {
+  const AVANT = { objet: 'Fuite', demandeur_nom: 'Mme M.', demandeur_email: null, adresse_libre: null, reference: 'GES-2026-000001' };
+
+  it('écrit UNIQUEMENT les champs demandés, et journalise l’AVANT et l’APRÈS de chacun', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [AVANT] }).mockResolvedValue({ rows: [] });
+    expect(await modifierEvenement(9, { adresseLibre: '28 avenue Marceau' }, ARNO)).toEqual({ ok: true, evenementId: 9 });
+    const maj = sqls().find((s) => s.startsWith('UPDATE gestion_evenement')) ?? '';
+    expect(maj).toContain('adresse_libre = $2');
+    expect(maj).not.toContain('objet =');       // un champ non demandé n'est pas réécrit
+    expect(journaux()).toHaveLength(1);
+    const p = params(queryMock.mock.calls.findIndex((c) => String(c[0]).includes('gestion_journal')));
+    expect(p).toContain(null);                   // la valeur d'AVANT (l'adresse était vide)
+    expect(p).toContain('28 avenue Marceau');    // …et la valeur d'APRÈS
+    expect(p).toContain('arno');
+  });
+
+  it('une modification qui ne change RIEN n’écrit rien et ne journalise rien', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [AVANT] }).mockResolvedValue({ rows: [] });
+    expect(await modifierEvenement(9, { objet: 'Fuite', demandeurNom: 'Mme M.' }, ARNO)).toEqual({ ok: true, evenementId: 9 });
+    expect(sqls().filter((s) => s.startsWith('UPDATE'))).toEqual([]);
+    expect(journaux()).toEqual([]);
+  });
+
+  it('plusieurs champs d’un coup → une ligne de journal PAR champ, jamais une ligne fourre-tout', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [AVANT] }).mockResolvedValue({ rows: [] });
+    await modifierEvenement(9, { objet: 'Fuite salle de bain', adresseLibre: '3 rue X' }, ARNO);
+    expect(journaux()).toHaveLength(2);
+  });
+
+  it('vider le « quoi » est REFUSÉ — une carte sans titre n’est plus retrouvable — et rien n’est écrit', async () => {
+    queryMock.mockResolvedValue({ rows: [AVANT] });
+    const r = await modifierEvenement(9, { objet: '   ' }, ARNO);
+    expect(r.ok).toBe(false);
+    expect(sqls().filter((s) => /^UPDATE|^INSERT/.test(s))).toEqual([]);
+  });
+
+  it('vider une adresse fausse, en revanche, est LÉGITIME', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ ...AVANT, adresse_libre: '3 rue Fausse' }] }).mockResolvedValue({ rows: [] });
+    expect((await modifierEvenement(9, { adresseLibre: '' }, ARNO)).ok).toBe(true);
+    const i = queryMock.mock.calls.findIndex((c) => String(c[0]).startsWith('UPDATE gestion_evenement'));
+    expect(params(i)).toContain(null);
+  });
+
+  it('carte inconnue → refus, et la lecture qui précède est VERROUILLÉE', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    expect(await modifierEvenement(9, { objet: 'x' }, ARNO)).toEqual({ ok: false, motif: 'Cet événement n’existe pas.' });
+    expect(sqls()[0]).toContain('FOR UPDATE');
+  });
+});
+
+describe('LOT 4c — CHANGER L’ÉTAT d’une carte', () => {
+  it('« traité » pose la date de traitement ET son auteur (la base l’exige : état et date vont ensemble)', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ etat: 'en_cours', reference: 'GES-2026-000001' }] }).mockResolvedValue({ rows: [] });
+    expect(await changerEtatEvenement(9, 'traite', ARNO)).toEqual({ ok: true, evenementId: 9 });
+    const maj = sqls().find((s) => s.startsWith('UPDATE gestion_evenement')) ?? '';
+    expect(maj).toContain("traite_le = CASE WHEN $2 = 'traite' THEN now() ELSE NULL END");
+    expect(maj).toContain('traite_par_libelle');
+  });
+
+  it('revenir en arrière EFFACE la date — un dossier se rouvre, ce n’est pas une réparation', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ etat: 'traite', reference: 'GES-2026-000001' }] }).mockResolvedValue({ rows: [] });
+    expect((await changerEtatEvenement(9, 'en_cours', ARNO)).ok).toBe(true);
+    expect(params(1)).toContain('en_cours'); // le CASE remet traite_le à NULL pour tout état autre que « traite »
+  });
+
+  it('le changement est journalisé avec l’état d’AVANT et celui d’APRÈS', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [{ etat: 'a_traiter', reference: 'GES-2026-000001' }] }).mockResolvedValue({ rows: [] });
+    await changerEtatEvenement(9, 'en_cours', ARNO);
+    expect(journaux()).toHaveLength(1);
+    const p = params(queryMock.mock.calls.findIndex((c) => String(c[0]).includes('gestion_journal')));
+    expect(p).toContain('a_traiter');
+    expect(p).toContain('en_cours');
+  });
+
+  it('remettre l’état qu’elle a déjà → refus, SANS rien écrire', async () => {
+    queryMock.mockResolvedValue({ rows: [{ etat: 'traite', reference: 'GES-2026-000001' }] });
+    const r = await changerEtatEvenement(9, 'traite', ARNO);
+    expect(r.ok).toBe(false);
+    expect(sqls().filter((s) => /^UPDATE|^INSERT/.test(s))).toEqual([]);
+  });
+
+  it('seuls les TROIS états existent — rien d’autre ne franchit la porte', () => {
+    expect(estEtat('a_traiter') && estEtat('en_cours') && estEtat('traite')).toBe(true);
+    for (const faux of ['archive', 'TRAITE', '', null, 42]) expect(estEtat(faux)).toBe(false);
   });
 });
