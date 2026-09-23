@@ -39,7 +39,7 @@ describe('Chip — pastille accessible (ARIA, état par forme)', () => {
 
 const compteCollab = {
   id: 5, identifiant: 'lea@unique.test', prenom: 'Léa', nom: 'M', role: 'collaborateur' as const, actif: true,
-  perms: { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: true, banc_test: false, permis: false }, peutModifierPermis: false,
+  perms: { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: true, banc_test: false, permis: false, gestion: false }, peutModifierPermis: false,
   derniere_connexion_a: '2026-07-09T22:31:35.591Z', cree_a: '2026-06-01T09:00:00.000Z', doit_changer_mot_de_passe: false,
 };
 const noop = () => {};
@@ -61,7 +61,7 @@ describe('DetailContenu — identité affichée UNE seule fois, date formatée',
       compte: { ...compteCollab, role: 'administrateur' as const }, perms: compteCollab.perms, collaborateur: false,
       msg: null, enCours: false, ...idProps, peutModifierPermis: true, onToggle: noop, onToggleModif: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
     }));
-    expect((html.match(/aria-pressed="true"/g) ?? []).length).toBe(8); // 7 modules + 1 sous-droit, tous forcés pour l'administrateur
+    expect((html.match(/aria-pressed="true"/g) ?? []).length).toBe(9); // 8 modules (+ Gestion, lot 2) + 1 sous-droit, tous forcés pour l'administrateur
     expect((html.match(/disabled/g) ?? []).length).toBeGreaterThanOrEqual(8);
   });
 });

@@ -13,7 +13,7 @@ describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
     expect(slugs).toContain('/admin/audit'); // tuile Audit (Lot 7), administrateur uniquement
     expect(slugs).toContain('/admin/permis'); // tuile Permis de construire (veille S3), administrateur uniquement
     expect(slugs).toContain('/admin/sources'); // tuile Sources de données (fraîcheur lot 1), administrateur uniquement
-    expect(liens).toHaveLength(10); // 6 modules + Administratif + Audit + Permis + Sources de données
+    expect(liens).toHaveLength(11); // 6 modules + Administratif + Audit + Permis + Sources de données + Gestion (lot 2)
   });
 
   it('collaborateur → uniquement ses permissions, JAMAIS « Administratif » ni « Audit »', () => {
@@ -31,7 +31,7 @@ describe('liensVisibles — filtrage du menu (M3-4 Lot C)', () => {
 
   it('collaborateur avec TOUTES les perms → 7 modules dont « Permis de construire » (RATT-EDIT lot A2), mais JAMAIS Administratif/Audit/Sources (rôle, pas permission)', () => {
     const slugs = liensVisibles('collaborateur', permsToutes()).map((l) => l.slug);
-    expect(slugs).toHaveLength(7); // 6 modules historiques + Permis
+    expect(slugs).toHaveLength(8); // 6 modules historiques + Permis + Gestion (lot 2)
     expect(slugs).toContain('/admin/permis'); // RATT-EDIT — désormais un module GARDÉ, visible avec le droit
     expect(slugs).not.toContain('/admin/comptes');
     expect(slugs).not.toContain('/admin/audit');
@@ -112,13 +112,13 @@ describe('ordonner — GARDE DE SÉCURITÉ RÔLE (règle c) : un ordre stocké n
     expect(slugs(r)).toEqual(['/admin/curation']);
   });
 
-  it('administrateur : les 10 tuiles restent présentes, réordonnées selon un stockage PARTIEL', () => {
+  it('administrateur : les 11 tuiles restent présentes, réordonnées selon un stockage PARTIEL', () => {
     const visibles = liensVisibles('administrateur', permsToutes()); // 10 tuiles
-    expect(visibles).toHaveLength(10);
+    expect(visibles).toHaveLength(11);
     const r = ordonner(visibles, ['/admin/curation', '/admin/audit']); // ordre partiel
     expect(slugs(r).slice(0, 2)).toEqual(['/admin/curation', '/admin/audit']);
-    expect(r).toHaveLength(10); // aucune tuile perdue (règle b appende le reste)
-    expect(new Set(slugs(r)).size).toBe(10); // aucun doublon
+    expect(r).toHaveLength(11); // aucune tuile perdue (règle b appende le reste)
+    expect(new Set(slugs(r)).size).toBe(11); // aucun doublon
   });
 });
 

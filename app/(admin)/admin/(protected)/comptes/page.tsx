@@ -28,8 +28,9 @@ const MODULES: ReadonlyArray<{ cle: keyof Perms; libelle: string }> = [
   { cle: 'curation', libelle: 'Curation' },
   { cle: 'banc_test', libelle: 'Banc de test' },
   { cle: 'permis', libelle: 'Permis de construire' }, // RATT-EDIT (lot A2) — module gardé (perm_permis) au même rang que les 6
+  { cle: 'gestion', libelle: 'Gestion' }, // GESTION (lot 2) — module gardé (perm_gestion), AJOUTÉ en fin de liste : les cases existantes ne bougent pas
 ];
-const PERMS_VIDE = (): Perms => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false });
+const PERMS_VIDE = (): Perms => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false });
 
 /**
  * Date lisible en français, HEURE LOCALE (Intl, locale fr-FR ; aucune dépendance). « jamais » si absente.

@@ -316,3 +316,54 @@ describe('proxy — allow-list AUTHENTIFIÉ-SEUL (sans permission de module)', (
     expect(res.status).toBe(401);
   });
 });
+
+describe('proxy — module « Gestion » (lot 2) : gardé par perm_gestion, comme les 7 autres', () => {
+  it('/admin/gestion (page) : collaborateur SANS le droit → redirigé vers /admin, jamais la page', async () => {
+    const res = await proxy(await requete('/admin/gestion', collab()));
+    expect(res.status).toBe(307);
+    expect(res.headers.get('location')).toMatch(/\/admin$/);
+  });
+
+  it('/api/admin/gestion (API) : collaborateur SANS le droit → 403, URL saisie à la main comprise', async () => {
+    for (const p of ['/api/admin/gestion', '/api/admin/gestion/quoi-que-ce-soit']) {
+      expect((await proxy(await requete(p, collab()))).status).toBe(403);
+    }
+  });
+
+  it('un autre droit de module n’ouvre PAS la gestion (les permissions ne se transfèrent pas)', async () => {
+    const avecCuration = collab({ ...permsAucune(), curation: true });
+    expect((await proxy(await requete('/admin/gestion', avecCuration))).status).toBe(307);
+    expect((await proxy(await requete('/api/admin/gestion', avecCuration))).status).toBe(403);
+  });
+
+  it('collaborateur AVEC le droit → passe le proxy (page et API)', async () => {
+    const avecGestion = collab({ ...permsAucune(), gestion: true });
+    for (const p of ['/admin/gestion', '/api/admin/gestion']) {
+      const res = await proxy(await requete(p, avecGestion));
+      expect(res.status).not.toBe(307);
+      expect(res.status).not.toBe(403);
+    }
+  });
+
+  it('administrateur et VOIE DE SECOURS → laissés passer (permissions implicites)', async () => {
+    for (const session of [admin(), secours()]) {
+      for (const p of ['/admin/gestion', '/api/admin/gestion']) {
+        const res = await proxy(await requete(p, session));
+        expect(res.status).not.toBe(307);
+        expect(res.status).not.toBe(403);
+      }
+    }
+  });
+
+  it('NON authentifié → login pour la page, 401 pour l’API (aucune donnée de gestion sans session)', async () => {
+    expect((await proxy(await requete('/admin/gestion', null))).headers.get('location')).toMatch(/\/admin\/login$/);
+    expect((await proxy(await requete('/api/admin/gestion', null))).status).toBe(401);
+  });
+
+  it('les modules EXISTANTS ne changent pas de comportement du fait de cet ajout', async () => {
+    const avecGestion = collab({ ...permsAucune(), gestion: true });
+    for (const p of ['/admin/curation', '/admin/permis', '/api/admin/curation', '/api/admin/permis']) {
+      expect((await proxy(await requete(p, avecGestion))).status).toBeGreaterThanOrEqual(307); // toujours refusés
+    }
+  });
+});

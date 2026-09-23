@@ -18,6 +18,10 @@ const MODULES: ReadonlyArray<LienMenu & { perm: keyof Perms }> = [
   // RATT-EDIT (lot A2) — « Permis de construire » devient un module GARDÉ (perm_permis, migration 225), au lieu d'être réservé au rôle
   //   administrateur. Un collaborateur avec le droit coché le voit ; sans le droit, l'entrée disparaît (comme les 6 autres modules).
   { slug: '/admin/permis', libelle: 'Permis de construire', desc: 'Veille des autorisations d’urbanisme (Sitadel).', perm: 'permis' },
+  // GESTION (lot 2) — module GARDÉ (perm_gestion, migration 228). AJOUTÉ EN FIN DE LISTE : l'ordre, la présence et le libellé
+  //   des tuiles existantes sont strictement inchangés, et `ordonner` (règle b) appende toute nouveauté à la fin de l'ordre
+  //   déjà rangé par l'utilisateur — une tuile ajoutée apparaît donc toujours, sans déranger celles d'avant.
+  { slug: '/admin/gestion', libelle: 'Gestion', desc: 'Courrier de gestion locative : file des échanges et événements.', perm: 'gestion' },
 ];
 
 /** Tuile « Administratif » — réservée au rôle administrateur (pas une permission de module). */

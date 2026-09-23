@@ -63,6 +63,7 @@ export async function POST(request: Request) {
     curation: pb.curation === true,
     banc_test: pb.banc_test === true,
     permis: pb.permis === true, // RATT-EDIT (lot A2) — module « Permis de construire »
+    gestion: pb.gestion === true, // GESTION (lot 2) — module « Gestion »
   };
 
   const motDePasseTemporaire = genererMotDePasseTemporaire();

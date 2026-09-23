@@ -24,6 +24,7 @@ export interface CompteDB {
   perm_banc_test: boolean;
   perm_permis: boolean; // RATT-EDIT (lot A2) — accès au module « Permis de construire » (migration 225).
   perm_permis_modif: boolean; // RATT-EDIT (lot A3) — SOUS-DROIT « modifier après validation » (subordonné à perm_permis, cf. capaciteModifPermis).
+  perm_gestion: boolean; // GESTION (lot 2) — accès au module « Gestion » (migration 228), même patron que les 7 autres.
   // Drapeau de première connexion (M3-4). Lu ici pour être DISPONIBLE ; il n'entre PAS encore dans le JWS
   // (ce sera le Lot B — enforcement). Les comptes CLI le portent false ; la future UI (Lot C) le posera true.
   doit_changer_mot_de_passe: boolean;
@@ -46,7 +47,7 @@ export class ErreurCompte extends Error {}
  *  (Objet all-true inline, cohérent avec `permsToutes()` de session.ts — évité ici en import runtime, cf. en-tête.) */
 export function permsDuCompte(c: CompteDB): Perms {
   if (c.role === 'administrateur') {
-    return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true };
+    return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true, gestion: true };
   }
   return {
     pilotage: c.perm_pilotage,
@@ -56,6 +57,7 @@ export function permsDuCompte(c: CompteDB): Perms {
     curation: c.perm_curation,
     banc_test: c.perm_banc_test,
     permis: c.perm_permis,
+    gestion: c.perm_gestion,
   };
 }
 
@@ -70,7 +72,7 @@ export function capaciteModifPermis(c: CompteDB): boolean {
 }
 
 const SELECT_COMPTE = `SELECT id, identifiant, prenom, nom, mot_de_passe, role, actif,
-    perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test, perm_permis, perm_permis_modif,
+    perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test, perm_permis, perm_permis_modif, perm_gestion,
     doit_changer_mot_de_passe, derniere_connexion_a, cree_a
   FROM admin_utilisateur`;
 
@@ -123,7 +125,7 @@ export async function marquerConnexion(id: number): Promise<void> {
 /** Perms de départ selon le rôle (administrateur → toutes true ; collaborateur → toutes false, complétées au Lot 4). */
 function permsInitiales(role: RoleAdmin): boolean[] {
   const t = role === 'administrateur';
-  return [t, t, t, t, t, t, t]; // pilotage, cartes_annee, statistiques, internautes, curation, banc_test, permis (RATT-EDIT lot A2)
+  return [t, t, t, t, t, t, t, t]; // pilotage, cartes_annee, statistiques, internautes, curation, banc_test, permis (A2), gestion (lot 2)
 }
 
 /**
@@ -146,13 +148,13 @@ export async function creerCompte(
     throw new ErreurCompte(`Un compte « ${identifiant} » existe déjà (comparaison insensible à la casse).`);
   }
   const h = await hacher(motDePasseClair);
-  const [pp, pc, ps, pi, pcu, pb, pperm] = permsInitiales(role); // RATT-EDIT lot A2 — 7ᵉ = perm_permis
+  const [pp, pc, ps, pi, pcu, pb, pperm, pgest] = permsInitiales(role); // A2 — 7ᵉ = perm_permis ; lot 2 — 8ᵉ = perm_gestion
   const pmodif = role === 'administrateur'; // RATT-EDIT lot A3 — capacité de modif : administrateur → true, collaborateur → false (défaut)
   const { rows } = await query<ResultatCompte>(
     `WITH nouv AS (
        INSERT INTO admin_utilisateur (identifiant, prenom, nom, mot_de_passe, role, actif,
-         perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test, perm_permis, perm_permis_modif)
-       VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10, $11, $12, $13)
+         perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test, perm_permis, perm_permis_modif, perm_gestion)
+       VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING id, identifiant, role, actif
      ), jrnl AS (
        INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
@@ -160,7 +162,7 @@ export async function creerCompte(
        FROM nouv
      )
      SELECT id, identifiant, role, actif FROM nouv`,
-    [identifiant, prenom, nom, h, role, pp, pc, ps, pi, pcu, pb, pperm, pmodif],
+    [identifiant, prenom, nom, h, role, pp, pc, ps, pi, pcu, pb, pperm, pmodif, pgest],
   );
   return rows[0];
 }
@@ -198,12 +200,12 @@ export async function creerCompteAdministration(p: ParamsCreationAdmin): Promise
   const { rows } = await query<ResultatCompte>(
     `WITH nouv AS (
        INSERT INTO admin_utilisateur (identifiant, prenom, nom, mot_de_passe, role, actif, doit_changer_mot_de_passe,
-         perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test, perm_permis, perm_permis_modif)
-       VALUES ($1, $2, $3, $4, $5, true, true, $6, $7, $8, $9, $10, $11, $12, $13)
+         perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test, perm_permis, perm_permis_modif, perm_gestion)
+       VALUES ($1, $2, $3, $4, $5, true, true, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING id, identifiant, role, actif
      ), jrnl AS (
        INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
-       SELECT 'creation', nouv.id, $14, NULL, jsonb_build_object('identifiant', nouv.identifiant, 'role', nouv.role)
+       SELECT 'creation', nouv.id, $15, NULL, jsonb_build_object('identifiant', nouv.identifiant, 'role', nouv.role)
        FROM nouv
      )
      SELECT id, identifiant, role, actif FROM nouv`,
@@ -213,6 +215,7 @@ export async function creerCompteAdministration(p: ParamsCreationAdmin): Promise
       admin || p.perms.internautes, admin || p.perms.curation, admin || p.perms.banc_test,
       admin || p.perms.permis, // RATT-EDIT lot A2 — perm_permis (administrateur → true forcé)
       admin || (p.perms.permis && p.peutModifierPermis), // RATT-EDIT lot A3 — subordination ① : le sous-droit exige le parent
+      admin || p.perms.gestion, // GESTION (lot 2) — perm_gestion (administrateur → true forcé, comme les autres)
       p.auteurId,
     ],
   );
@@ -316,15 +319,17 @@ export async function modifierPermissions(id: number, perms: Perms, peutModifier
     `WITH maj AS (
        UPDATE admin_utilisateur
           SET perm_pilotage = $2, perm_cartes_annee = $3, perm_statistiques = $4,
-              perm_internautes = $5, perm_curation = $6, perm_banc_test = $7, perm_permis = $8, perm_permis_modif = $9
+              perm_internautes = $5, perm_curation = $6, perm_banc_test = $7, perm_permis = $8, perm_permis_modif = $9,
+              perm_gestion = $10
         WHERE id = $1 AND role = 'collaborateur'
         RETURNING id
      ), jrnl AS (
        INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
-       SELECT 'changement_permissions', maj.id, $10, NULL, $11::jsonb FROM maj
+       SELECT 'changement_permissions', maj.id, $11, NULL, $12::jsonb FROM maj
      )
      SELECT id FROM maj`,
     [id, perms.pilotage, perms.cartes_annee, perms.statistiques, perms.internautes, perms.curation, perms.banc_test, perms.permis, modif,
+     perms.gestion,
      auteurId, JSON.stringify({ ...perms, perm_permis_modif: modif })],
   );
   return rows.length > 0;
@@ -342,7 +347,8 @@ export async function promouvoirAdministrateur(id: number, auteurId: number | nu
     `WITH maj AS (
        UPDATE admin_utilisateur
           SET role = 'administrateur', perm_pilotage = true, perm_cartes_annee = true, perm_statistiques = true,
-              perm_internautes = true, perm_curation = true, perm_banc_test = true, perm_permis = true, perm_permis_modif = true
+              perm_internautes = true, perm_curation = true, perm_banc_test = true, perm_permis = true, perm_permis_modif = true,
+              perm_gestion = true
         WHERE id = $1 AND role = 'collaborateur'
         RETURNING id
      ), jrnl AS (

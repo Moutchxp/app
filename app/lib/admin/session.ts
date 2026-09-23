@@ -3,8 +3,11 @@ import { SignJWT, jwtVerify, type JWTPayload } from 'jose';
 
 /** Modules de la barre latérale = les permissions granulaires (M3). Ordre = ordre du menu.
  *  RATT-EDIT (lot A2) : 'permis' rejoint les 6 modules historiques → « Permis de construire » devient un module GARDÉ par
- *  collaborateur (colonne perm_permis, migration 225), au lieu d'être réservé au rôle administrateur. */
-export const MODULES = ['pilotage', 'cartes_annee', 'statistiques', 'internautes', 'curation', 'banc_test', 'permis'] as const;
+ *  collaborateur (colonne perm_permis, migration 225), au lieu d'être réservé au rôle administrateur.
+ *  GESTION (lot 2) : 'gestion' rejoint la liste sur le MÊME patron (colonne perm_gestion, migration 228). Le module porte des
+ *  données personnelles de locataires — un accès « tout compte authentifié » n'est pas tenable. AJOUT PUR : aucun module
+ *  existant n'est retiré, renommé ni réordonné. */
+export const MODULES = ['pilotage', 'cartes_annee', 'statistiques', 'internautes', 'curation', 'banc_test', 'permis', 'gestion'] as const;
 export type Module = (typeof MODULES)[number];
 export type Perms = Record<Module, boolean>;
 export type RoleAdmin = 'administrateur' | 'collaborateur';
@@ -26,12 +29,12 @@ export interface SessionAdmin {
 
 /** Toutes permissions à true (administrateur, ou voie de secours). */
 export function permsToutes(): Perms {
-  return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true };
+  return { pilotage: true, cartes_annee: true, statistiques: true, internautes: true, curation: true, banc_test: true, permis: true, gestion: true };
 }
 
 /** Toutes permissions à false (collaborateur par défaut ; complétées au Lot 4). */
 export function permsAucune(): Perms {
-  return { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false };
+  return { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false };
 }
 
 /** Nom du cookie de session admin. */

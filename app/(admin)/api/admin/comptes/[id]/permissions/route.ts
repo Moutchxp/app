@@ -32,6 +32,7 @@ export async function POST(request: Request, ctx: Ctx) {
     curation: pb.curation === true,
     banc_test: pb.banc_test === true,
     permis: pb.permis === true, // RATT-EDIT (lot A2) — module « Permis de construire »
+    gestion: pb.gestion === true, // GESTION (lot 2) — module « Gestion »
   };
 
   const ok = await modifierPermissions(idNum, perms, (body as Record<string, unknown>)?.permis_modif === true, garde.auteurId); // RATT-EDIT lot A3 — sous-droit lu au niveau racine (forcé false si perms.permis off, côté repo)
