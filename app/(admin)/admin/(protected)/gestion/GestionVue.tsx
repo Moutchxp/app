@@ -7,11 +7,17 @@ import {
   messageReleve,
 } from '../../../../lib/gestion/ecran';
 import { useReleveGestion } from './useReleveGestion';
+import { PanneauAffecter } from './PanneauAffecter';
 
 /**
- * LOT 2/3 — l'écran à deux côtés. Aucun geste de CLASSEMENT ici : affecter un échange à un événement et classer sans
- * suite sont le lot 4. Deux contrôles seulement : « Rafraîchir », qui relit l'écran, et « Relever maintenant » (lot 3),
- * qui lance UNE passe de relève de la boîte et recharge l'écran après un vrai succès.
+ * LOT 2/3/4b — l'écran à deux côtés, et les DEUX GESTES.
+ *
+ * Chaque geste est RÉVERSIBLE DEPUIS CET ÉCRAN, et c'est une exigence, pas un confort : ce qui se fait d'un clic doit se
+ * défaire d'un clic. « Classer sans suite » a son pendant « Rouvrir », dans une section qui reste visible — sans quoi
+ * écarter un échange serait une suppression déguisée.
+ *
+ * La FILE ne montre que ce qui a bougé récemment (fenêtre réglée en base, 30 jours par défaut). Les échanges plus
+ * anciens ne sont NI supprimés NI masqués en silence : leur nombre est annoncé en toutes lettres.
  *
  * MOBILE D'ABORD (exigence transverse §15) : une seule colonne sous 900 px, LA FILE D'ABORD — et c'est l'ordre du DOM
  * qui le garantit, jamais un `order` CSS qui mentirait au clavier et aux lecteurs d'écran. Aucun débordement horizontal
@@ -69,6 +75,36 @@ export function GestionVue() {
   // LOT 3 — une passe réussie change ce qui est à l'écran : on recharge, sans recharger la page.
   const { enCours: releveEnCours, message: releveMsg, releverMaintenant } = useReleveGestion(() => { void charger(); });
 
+  // LOT 4b — état des GESTES : quel échange a son panneau ouvert, et le compte rendu du dernier geste.
+  const [panneau, setPanneau] = useState<number | null>(null);
+  const [geste, setGeste] = useState<{ ton: 'ok' | 'erreur'; texte: string } | null>(null);
+  const [gesteEnCours, setGesteEnCours] = useState(false);
+
+  /** Un geste = un appel, un compte rendu, un rechargement. Jamais un silence, succès comme échec. */
+  const agir = useCallback(async (url: string, methode: 'POST' | 'DELETE', succes: string, corps?: unknown) => {
+    if (gesteEnCours) return;
+    setGesteEnCours(true);
+    setGeste(null);
+    try {
+      const res = await fetch(url, {
+        method: methode,
+        ...(corps === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps) }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
+      if (!res.ok || !data.ok) {
+        setGeste({ ton: 'erreur', texte: data.erreur ?? (res.status === 403 ? 'Droit retiré : reconnectez-vous.' : 'Geste impossible.') });
+        return;
+      }
+      setGeste({ ton: 'ok', texte: succes });
+      setPanneau(null);
+      await charger();
+    } catch {
+      setGeste({ ton: 'erreur', texte: 'Geste impossible : le serveur n’a pas répondu.' });
+    } finally {
+      setGesteEnCours(false);
+    }
+  }, [gesteEnCours, charger]);
+
   if (vue.etat === 'charge') return <><style>{CSS_GESTION}</style><p className="gst-info" role="status">Chargement…</p></>;
   if (vue.etat === 'erreur') {
     return (
@@ -103,6 +139,7 @@ export function GestionVue() {
       </div>
       {/* COMPTE RENDU de la dernière passe — succès comme échec, jamais un silence. */}
       {releveMsg && <p className={`gst-compte-rendu gst-ton-${releveMsg.ton}`} role="status">{releveMsg.texte}</p>}
+      {geste && <p className={`gst-compte-rendu gst-ton-${geste.ton}`} role="status">{geste.texte}</p>}
 
       {/* ORDRE DU DOM = ordre mobile : la file d'abord, les événements ensuite. */}
       <div className="gst-deux">
@@ -111,9 +148,54 @@ export function GestionVue() {
             À classer <span className="gst-compte">{d.filsTotal}</span>
           </h2>
           {troncFile && <p className="gst-tronc">{troncFile}</p>}
+          {/* FENÊTRE D'ACTIVITÉ — dite en toutes lettres. Un outil qui cache sans le dire ment. */}
+          {d.filsTropAnciens > 0 && (
+            <p className="gst-tronc">
+              {d.filsTropAnciens} échange{d.filsTropAnciens > 1 ? 's' : ''} plus ancien{d.filsTropAnciens > 1 ? 's' : ''} que {d.fenetreJours} jours
+              {' '}ne {d.filsTropAnciens > 1 ? 'sont' : 'est'} pas affiché{d.filsTropAnciens > 1 ? 's' : ''} dans la file.
+              {' '}Rien n’est supprimé : {d.filsTropAnciens > 1 ? 'ils restent' : 'il reste'} en base.
+            </p>
+          )}
           {d.file.length === 0
             ? <p className="gst-vide">{messageFileVide(d)}</p>
-            : <ul className="gst-liste">{d.file.map((f) => <LigneFil key={f.filId} fil={f} maintenant={ref} />)}</ul>}
+            : (
+              <ul className="gst-liste">
+                {d.file.map((f) => (
+                  <LigneFil key={f.filId} fil={f} maintenant={ref}
+                    ouvert={panneau === f.filId}
+                    occupe={gesteEnCours}
+                    onAffecter={() => setPanneau(panneau === f.filId ? null : f.filId)}
+                    onSansSuite={() => void agir(`/api/admin/gestion/fils/${f.filId}/sans-suite`, 'POST', 'Échange classé sans suite. Il reviendra dans la file si un nouveau message y arrive.', {})}
+                    onFait={(m) => { setGeste({ ton: 'ok', texte: m }); setPanneau(null); void charger(); }}
+                    onAnnuler={() => setPanneau(null)} />
+                ))}
+              </ul>
+            )}
+
+          {/* CLASSÉS SANS SUITE — la contrepartie du geste : visible, et réversible d'un clic. */}
+          {d.sansSuiteTotal > 0 && (
+            <details className="gst-sans-suite">
+              <summary className="gst-sans-suite-titre">Classés sans suite <span className="gst-compte">{d.sansSuiteTotal}</span></summary>
+              <ul className="gst-liste">
+                {d.sansSuite.map((f) => (
+                  <li key={f.filId} className="gst-item">
+                    <div className="gst-item-haut"><span className="gst-objet">{f.objet?.trim() || '(sans objet)'}</span></div>
+                    <div className="gst-item-bas">
+                      <span title={formaterDateFr(f.classeLe)}>classé {depuis(f.classeLe, ref)}</span>
+                      {f.classePar && <><span className="gst-sep" aria-hidden="true">·</span><span>par {f.classePar}</span></>}
+                      {f.motif && <><span className="gst-sep" aria-hidden="true">·</span><span>{f.motif}</span></>}
+                    </div>
+                    <div className="gst-actions">
+                      <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={gesteEnCours}
+                        onClick={() => void agir(`/api/admin/gestion/fils/${f.filId}/sans-suite`, 'DELETE', 'Échange rouvert : il est revenu dans la file.')}>
+                        Rouvrir
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
         </section>
 
         <section className="gst-col" aria-labelledby="gst-titre-ev">
@@ -132,7 +214,12 @@ export function GestionVue() {
 
 /** Une ligne de la file = UN ÉCHANGE (pas un message) : à ce volume, six mails ne doivent pas prendre six lignes.
  *  EXPORTÉ pour être rendu en test (contrat visible : mot « attend une réponse », pluriels, jamais de couleur seule). */
-export function LigneFil({ fil, maintenant }: { fil: LigneFile; maintenant: Date }) {
+export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAffecter, onSansSuite, onFait, onAnnuler }: {
+  fil: LigneFile; maintenant: Date;
+  ouvert?: boolean; occupe?: boolean;
+  onAffecter?: () => void; onSansSuite?: () => void;
+  onFait?: (message: string) => void; onAnnuler?: () => void;
+}) {
   return (
     <li className="gst-item">
       <div className="gst-item-haut">
@@ -147,6 +234,22 @@ export function LigneFil({ fil, maintenant }: { fil: LigneFile; maintenant: Date
         <span>{fil.nbMessages} message{fil.nbMessages > 1 ? 's' : ''}</span>
         {fil.nbPieces > 0 && <><span className="gst-sep" aria-hidden="true">·</span><span>{fil.nbPieces} pièce{fil.nbPieces > 1 ? 's' : ''} jointe{fil.nbPieces > 1 ? 's' : ''}</span></>}
       </div>
+      {/* LES DEUX GESTES. Rendus seulement si l'appelant les fournit → la ligne reste rendable en lecture seule. */}
+      {(onAffecter || onSansSuite) && (
+        <div className="gst-actions">
+          {onAffecter && (
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" aria-expanded={ouvert} disabled={occupe} onClick={onAffecter}>
+              {ouvert ? 'Fermer' : 'Affecter à un événement'}
+            </button>
+          )}
+          {onSansSuite && (
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe} onClick={onSansSuite}>
+              Classer sans suite
+            </button>
+          )}
+        </div>
+      )}
+      {ouvert && onFait && onAnnuler && <PanneauAffecter filId={fil.filId} onFait={onFait} onAnnuler={onAnnuler} />}
     </li>
   );
 }
@@ -207,4 +310,18 @@ const CSS_GESTION = `
 .gst-sep{color:var(--color-svv-line-strong)}
 /* L'attente est dite par un MOT, jamais par la seule couleur (lisible en niveaux de gris et aux daltoniens). */
 .gst-attend{flex-shrink:0;font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--color-svv-red);border:1px solid var(--color-svv-red);border-radius:999px;padding:2px 8px}
+/* PANNEAU d'affectation, ouvert sous la ligne. */
+.gst-panneau{margin-top:10px;padding:12px;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:10px;display:flex;flex-direction:column;gap:10px}
+.gst-voies{display:flex;flex-wrap:wrap;gap:.5rem}
+.gst-voie{min-height:44px;padding:.5rem .9rem;font-size:.85rem;font-weight:600;border-radius:.6rem;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);cursor:pointer}
+.gst-voie--active{border-color:var(--color-svv-red);color:var(--color-svv-red)}
+.gst-voie:disabled{opacity:.5;cursor:not-allowed}
+.gst-champs{display:flex;flex-direction:column;gap:10px}
+.gst-champ{display:flex;flex-direction:column;gap:4px}
+/* 16px minimum : en dessous, les navigateurs mobiles zooment à la mise au point du champ. */
+.gst-saisie{min-height:44px;width:100%;box-sizing:border-box;padding:.5rem .7rem;font-size:16px;border:1px solid var(--color-svv-line-strong);border-radius:.6rem;background:var(--color-svv-surface);color:var(--color-svv-ink)}
+.gst-note{margin:0;font-size:.78rem;line-height:1.4;color:var(--color-svv-muted)}
+/* CLASSÉS SANS SUITE — replié par défaut : présent sans encombrer. */
+.gst-sans-suite{margin-top:1rem;border-top:1px solid var(--color-svv-line);padding-top:.75rem}
+.gst-sans-suite-titre{display:flex;align-items:center;gap:.5rem;min-height:44px;font-size:13px;font-weight:700;color:var(--color-svv-ink);cursor:pointer}
 `;

@@ -11,6 +11,7 @@
  * ce qui attend passe devant ce qui n'attend pas, puis du plus ANCIEN au plus récent.
  */
 import { query } from '../db/client';
+import { chargerConfigGestion } from './config';
 
 /** Une ligne de la FILE (colonne de gauche) : un FIL de discussion, jamais un message isolé. */
 export interface LigneFile {
@@ -40,11 +41,26 @@ export interface CarteEvenement {
 export interface EtatEcran {
   file: LigneFile[];
   filsTotal: number;              // total de la file (pour dire honnêtement « N affichés sur M »)
+  // LOT 4b — FENÊTRE D'ACTIVITÉ : ce que la file ne montre pas, et depuis quand. Annoncé à l'écran, jamais tu.
+  fenetreJours: number;
+  filsTropAnciens: number;
+  // LOT 4b — les échanges CLASSÉS SANS SUITE, pour que le geste soit RÉVERSIBLE depuis l'écran et pas seulement en base.
+  sansSuite: LigneSansSuite[];
+  sansSuiteTotal: number;
   evenements: CarteEvenement[];
   evenementsTotal: number;
   messagesCaptures: number;       // TOUS les messages capturés, exclus compris — la preuve que la relève a tourné
   messagesExclus: number;         // tenus hors de la file par une règle (jamais supprimés)
   derniereReleveLe: string | null; // fin de la dernière relève réussie, ou null si aucune n'a jamais tourné
+}
+
+/** Un échange classé sans suite — assez pour le reconnaître et le rouvrir, rien de plus. */
+export interface LigneSansSuite {
+  filId: number;
+  objet: string | null;
+  motif: string | null;
+  classeLe: string;        // ISO
+  classePar: string | null;
 }
 
 /** Combien de lignes au plus par colonne. Le total réel est renvoyé à côté → l'écran ne ment jamais sur ce qu'il montre. */
@@ -77,7 +93,7 @@ interface LigneFileDB {
  *  - « non exclus » : la jointure sur le dernier message non exclu écarte d'elle-même un fil dont TOUS les messages ont
  *    été tenus hors de la file par une règle — sans jamais rien supprimer, et le fil revient si la règle s'éteint.
  */
-export async function lireFile(limite = PAGE): Promise<{ lignes: LigneFile[]; total: number }> {
+export async function lireFile(fenetreJours: number, limite = PAGE): Promise<{ lignes: LigneFile[]; total: number; tropAnciens: number }> {
   const { rows } = await query<LigneFileDB>(
     `WITH dernier AS (${DERNIER_MESSAGE})
      SELECT f.id::int AS fil_id,
@@ -90,20 +106,45 @@ export async function lireFile(limite = PAGE): Promise<{ lignes: LigneFile[]; to
             ${ATTEND} AS attend
        FROM gestion_fil f
        JOIN dernier d ON d.fil_id = f.id
-      WHERE f.etat = 'a_classer'
+      WHERE f.etat = 'a_classer' AND d.recu_le >= now() - ($2::int * interval '1 day')
       ORDER BY ${ATTEND} DESC, d.recu_le ASC, f.id ASC
       LIMIT $1`,
-    [limite],
+    [limite, fenetreJours],
   );
-  const { rows: t } = await query<{ n: number }>(
+  // DEUX comptes, jamais un seul : ce que la file montre, ET ce qu'elle tait. Le second est affiché à l'écran —
+  //   un outil qui cache sans le dire ment ; un outil qui dit ce qu'il ne montre pas reste honnête.
+  const { rows: t } = await query<{ dedans: number; trop_anciens: number }>(
     `WITH dernier AS (${DERNIER_MESSAGE})
-     SELECT count(*)::int AS n FROM gestion_fil f JOIN dernier d ON d.fil_id = f.id WHERE f.etat = 'a_classer'`,
+     SELECT count(*) FILTER (WHERE d.recu_le >= now() - ($1::int * interval '1 day'))::int AS dedans,
+            count(*) FILTER (WHERE d.recu_le <  now() - ($1::int * interval '1 day'))::int AS trop_anciens
+       FROM gestion_fil f JOIN dernier d ON d.fil_id = f.id WHERE f.etat = 'a_classer'`,
+    [fenetreJours],
   );
   return {
     lignes: rows.map((r) => ({
       filId: r.fil_id, objet: r.objet, interlocuteur: r.interlocuteur, dernierLe: r.dernier_le,
       nbMessages: r.nb_messages, nbPieces: r.nb_pieces, attend: r.attend === true,
     })),
+    total: t[0]?.dedans ?? 0,
+    tropAnciens: t[0]?.trop_anciens ?? 0,
+  };
+}
+
+/**
+ * Les échanges CLASSÉS SANS SUITE, les plus récemment classés d'abord. C'est la contrepartie du geste : ce qu'on écarte
+ * doit rester VISIBLE et se rouvrir d'un clic, sinon « classer sans suite » est une suppression déguisée.
+ */
+export async function lireSansSuite(limite = 20): Promise<{ lignes: LigneSansSuite[]; total: number }> {
+  const { rows } = await query<{ fil_id: number; objet: string | null; motif: string | null; classe_le: string; classe_par: string | null }>(
+    `SELECT id::int AS fil_id, objet_initial AS objet, sans_suite_motif AS motif,
+            to_char(sans_suite_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS classe_le,
+            sans_suite_par_libelle AS classe_par
+       FROM gestion_fil WHERE etat = 'sans_suite'
+      ORDER BY sans_suite_le DESC NULLS LAST, id DESC LIMIT $1`, [limite]);
+  const { rows: t } = await query<{ n: number }>(
+    `SELECT count(*)::int AS n FROM gestion_fil WHERE etat = 'sans_suite'`);
+  return {
+    lignes: rows.map((r) => ({ filId: r.fil_id, objet: r.objet, motif: r.motif, classeLe: r.classe_le, classePar: r.classe_par })),
     total: t[0]?.n ?? 0,
   };
 }
@@ -172,9 +213,14 @@ export async function lireReperes(): Promise<{ messagesCaptures: number; message
 
 /** L'état complet de l'écran, en une fois. LECTURE SEULE de bout en bout. */
 export async function lireEcran(limite = PAGE): Promise<EtatEcran> {
-  const [file, evenements, reperes] = await Promise.all([lireFile(limite), lireEvenements(limite), lireReperes()]);
+  const config = await chargerConfigGestion(); // la fenêtre d'activité vient de la base, jamais du code
+  const [file, evenements, reperes, sansSuite] = await Promise.all([
+    lireFile(config.fenetreActiviteJours, limite), lireEvenements(limite), lireReperes(), lireSansSuite(),
+  ]);
   return {
     file: file.lignes, filsTotal: file.total,
+    fenetreJours: config.fenetreActiviteJours, filsTropAnciens: file.tropAnciens,
+    sansSuite: sansSuite.lignes, sansSuiteTotal: sansSuite.total,
     evenements: evenements.cartes, evenementsTotal: evenements.total,
     ...reperes,
   };

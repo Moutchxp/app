@@ -23,6 +23,9 @@ export interface ConfigGestion {
   //   base (qui CROÎT à chaque tentative). `reconnexionsMax = 0` rend exactement le comportement d'avant : arrêt propre.
   reconnexionsMax: number;
   reconnexionDelaiS: number;
+  // LOT 4b — FENÊTRE D'ACTIVITÉ de la file (migration 232). Un échange n'apparaît dans « À classer » que si son dernier
+  //   message date de moins de N jours. Ni suppression, ni masquage silencieux : l'écran annonce ce qu'il ne montre pas.
+  fenetreActiviteJours: number;
 }
 
 /** Repli SÛR — identique aux DEFAULT de la migration 228. */
@@ -43,6 +46,7 @@ export const CONFIG_GESTION_DEFAUT: ConfigGestion = {
   conservationCarteCloseMois: 60,
   reconnexionsMax: 3,
   reconnexionDelaiS: 5,
+  fenetreActiviteJours: 30,
 };
 
 /** Découpe une liste stockée en une colonne texte (virgules), nettoyée et en minuscules. PUR. */
@@ -55,20 +59,25 @@ interface LigneConfig {
   rattrapage_jours: number; plafond_par_passe: number;
   types_pieces_acceptes: string; piece_taille_max_mo: number; conservation_carte_close_mois: number;
   reconnexions_max?: number; reconnexion_delai_s?: number; // migration 230 — absentes tant qu'elle n'est pas appliquée
+  fenetre_activite_jours?: number;                          // migration 232 — idem
 }
 
 const COLONNES_BASE = `dossier_imap, adresse_gestion, domaines_internes, rattrapage_jours, plafond_par_passe,
               types_pieces_acceptes, piece_taille_max_mo, conservation_carte_close_mois`;
 
 /**
- * Lit la ligne de configuration. La migration 230 ajoute deux colonnes ; tant qu'elle n'est PAS appliquée, PostgreSQL répond
- * « colonne inconnue » (42703). On rejoue alors la requête SANS ces deux colonnes, plutôt que de retomber sur TOUS les défauts :
- * une migration en attente ne doit pas faire oublier les réglages déjà en base. Toute AUTRE erreur remonte (jamais de silence).
+ * Lit la ligne de configuration. Les migrations 230 et 232 ajoutent des colonnes ; tant qu'elles ne sont PAS appliquées,
+ * PostgreSQL répond « colonne inconnue » (42703). On rejoue alors la requête SANS elles, plutôt que de retomber sur TOUS les
+ * défauts : une migration en attente ne doit pas faire oublier les réglages déjà en base. Toute AUTRE erreur remonte.
+ *
+ * ⚠️ CE REPLI-CI FONCTIONNE VRAIMENT, et ce n'est pas une évidence : il passe par `query()`, donc en AUTO-COMMIT, hors de
+ * toute transaction. Le même schéma posé À L'INTÉRIEUR d'une transaction ne marche PAS — la première erreur l'aborte et le
+ * repli échoue en 25P02. C'est exactement le piège qui a fait échouer une relève (cf. lot 4a, captureRepo).
  */
 async function lireLigne(): Promise<LigneConfig | undefined> {
   try {
     const { rows } = await query<LigneConfig>(
-      `SELECT ${COLONNES_BASE}, reconnexions_max, reconnexion_delai_s FROM gestion_config WHERE id = 1`);
+      `SELECT ${COLONNES_BASE}, reconnexions_max, reconnexion_delai_s, fenetre_activite_jours FROM gestion_config WHERE id = 1`);
     return rows[0];
   } catch (e) {
     if ((e as { code?: string }).code !== '42703') throw e; // colonne inconnue = migration 230 en attente ; tout le reste remonte
@@ -95,6 +104,7 @@ export async function chargerConfigGestion(): Promise<ConfigGestion> {
       //   et non sur la véracité : `?? ` et non `||`, sans quoi couper la reprise serait impossible.
       reconnexionsMax: r.reconnexions_max ?? CONFIG_GESTION_DEFAUT.reconnexionsMax,
       reconnexionDelaiS: (r.reconnexion_delai_s ?? 0) > 0 ? r.reconnexion_delai_s! : CONFIG_GESTION_DEFAUT.reconnexionDelaiS,
+      fenetreActiviteJours: (r.fenetre_activite_jours ?? 0) > 0 ? r.fenetre_activite_jours! : CONFIG_GESTION_DEFAUT.fenetreActiviteJours,
     };
   } catch {
     return CONFIG_GESTION_DEFAUT; // repli sûr : le module démarre même si la migration 228 n'est pas appliquée

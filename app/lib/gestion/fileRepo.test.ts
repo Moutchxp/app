@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const queryMock = vi.fn();
 vi.mock('../db/client', () => ({ query: (...args: unknown[]) => queryMock(...args) }));
 
-import { lireEcran, lireEvenements, lireFile, lireReperes, PAGE } from './fileRepo';
+import { lireEcran, lireEvenements, lireFile, lireReperes, lireSansSuite, PAGE } from './fileRepo';
 
 /** Tous les SQL émis, espaces normalisés (on assertera par FRAGMENTS SÉMANTIQUES, jamais sur la forme exacte). */
 function sqls(): string[] {
@@ -39,7 +39,7 @@ describe('fileRepo — LECTURE SEULE, sans exception', () => {
 
 describe('fileRepo — la file (colonne de gauche)', () => {
   it('ne retient que les fils À CLASSER qui portent encore un message non exclu', async () => {
-    await lireFile();
+    await lireFile(30);
     const s = sqls()[0];
     expect(s).toContain("WHERE f.etat = 'a_classer'");
     expect(s).toContain('gestion_message m WHERE m.exclu_le IS NULL'); // le dernier message NON EXCLU
@@ -47,32 +47,32 @@ describe('fileRepo — la file (colonne de gauche)', () => {
   });
 
   it('DÉRIVE l’attente (dernier message reçu ET humain) sans lire aucune colonne d’état', async () => {
-    await lireFile();
+    await lireFile(30);
     const s = sqls()[0];
     expect(s).toContain("(d.sens = 'recu' AND NOT d.automatique)");
     expect(/\b(en_attente|attend_reponse|f\.attend)\b/i.test(s)).toBe(false); // aucune colonne stockée n'est lue
   });
 
   it('se sert de l’index prévu : un seul dernier message par fil, le plus récent', async () => {
-    await lireFile();
+    await lireFile(30);
     const s = sqls()[0];
     expect(s).toContain('DISTINCT ON (m.fil_id)');
     expect(s).toContain('ORDER BY m.fil_id, m.recu_le DESC');
   });
 
   it('trie comme demandé : ce qui attend d’abord, du PLUS ANCIEN au plus récent', async () => {
-    await lireFile();
+    await lireFile(30);
     const s = sqls()[0];
     expect(s).toContain("ORDER BY (d.sens = 'recu' AND NOT d.automatique) DESC, d.recu_le ASC");
   });
 
   it('borne le nombre de lignes par un paramètre LIÉ, et renvoie le total à côté', async () => {
-    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ n: 213 }] });
-    const r = await lireFile();
-    expect(params()[0]).toEqual([PAGE]);
+    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ dedans: 213, trop_anciens: 0 }] });
+    const r = await lireFile(30);
+    expect(params()[0]).toEqual([PAGE, 30]);
     expect(r.total).toBe(213); // l'écran peut dire « 50 affichés sur 213 » sans mentir
-    const r2 = await lireFile(7);
-    expect(params()[2]).toEqual([7]);
+    const r2 = await lireFile(30, 7);
+    expect(params()[2]).toEqual([7, 30]);
     expect(r2.lignes).toEqual([]);
   });
 
@@ -80,8 +80,8 @@ describe('fileRepo — la file (colonne de gauche)', () => {
     queryMock.mockResolvedValueOnce({ rows: [{
       fil_id: 4, objet: 'Fuite', interlocuteur: 'Mme M.', dernier_le: '2026-09-20T08:00:00Z',
       nb_messages: 6, nb_pieces: 2, attend: true,
-    }] }).mockResolvedValueOnce({ rows: [{ n: 1 }] });
-    const { lignes } = await lireFile();
+    }] }).mockResolvedValueOnce({ rows: [{ dedans: 1, trop_anciens: 0 }] });
+    const { lignes } = await lireFile(30);
     expect(lignes[0]).toEqual({
       filId: 4, objet: 'Fuite', interlocuteur: 'Mme M.', dernierLe: '2026-09-20T08:00:00Z',
       nbMessages: 6, nbPieces: 2, attend: true,
@@ -90,7 +90,7 @@ describe('fileRepo — la file (colonne de gauche)', () => {
 
   it('total absent (base vide) → 0, jamais NaN ni undefined', async () => {
     queryMock.mockResolvedValue({ rows: [] });
-    expect((await lireFile()).total).toBe(0);
+    expect((await lireFile(30)).total).toBe(0);
   });
 });
 
@@ -149,8 +149,48 @@ describe('fileRepo — l’écran complet', () => {
   it('assemble les trois lectures en un seul état', async () => {
     queryMock.mockResolvedValue({ rows: [] });
     expect(await lireEcran()).toEqual({
-      file: [], filsTotal: 0, evenements: [], evenementsTotal: 0,
+      file: [], filsTotal: 0, fenetreJours: 30, filsTropAnciens: 0,
+      sansSuite: [], sansSuiteTotal: 0, evenements: [], evenementsTotal: 0,
       messagesCaptures: 0, messagesExclus: 0, derniereReleveLe: null,
     });
+  });
+});
+
+describe('LOT 4b — la file ne montre que ce qui a BOUGÉ récemment', () => {
+  it('borne les lignes à la fenêtre, par un paramètre LIÉ (jamais une durée collée dans le SQL)', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await lireFile(30);
+    const s = sqls()[0];
+    expect(s).toContain("d.recu_le >= now() - ($2::int * interval '1 day')");
+    expect(params()[0]).toEqual([PAGE, 30]);
+  });
+
+  it('compte SÉPARÉMENT ce qu’elle montre et ce qu’elle tait — le second est affiché, jamais tu', async () => {
+    queryMock.mockResolvedValueOnce({ rows: [] }).mockResolvedValueOnce({ rows: [{ dedans: 41, trop_anciens: 892 }] });
+    const r = await lireFile(30);
+    expect(r.total).toBe(41);
+    expect(r.tropAnciens).toBe(892);
+    expect(sqls()[1]).toContain('FILTER (WHERE');
+  });
+
+  it('la fenêtre vient de la CONFIGURATION, jamais du code', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    const avant = queryMock.mock.calls.length;
+    await lireEcran();
+    expect(sqls().slice(avant).some((s) => s.includes('gestion_config'))).toBe(true);
+  });
+
+  it('les classés sans suite sont LISIBLES (sinon « classer » serait une suppression déguisée)', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await lireSansSuite();
+    expect(sqls()[0]).toContain("WHERE etat = 'sans_suite'");
+    expect(sqls()[0]).toContain('sans_suite_motif');
+    expect(sqls()[0]).toContain('sans_suite_par_libelle'); // qui l'a classé : le journal n'est pas le seul à le dire
+  });
+
+  it('l’écran complet porte la fenêtre, ce qu’elle écarte, et les classés sans suite', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    const e = await lireEcran();
+    expect(e).toMatchObject({ fenetreJours: 30, filsTropAnciens: 0, sansSuite: [], sansSuiteTotal: 0 });
   });
 });

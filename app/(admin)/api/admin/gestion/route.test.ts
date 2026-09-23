@@ -43,6 +43,9 @@ describe('/api/admin/gestion — ce qu’elle rend', () => {
     expect(await res.json()).toEqual({
       file: [], filsTotal: 0, evenements: [], evenementsTotal: 0,
       messagesCaptures: 0, messagesExclus: 0, derniereReleveLe: null,
+      // LOT 4b — la fenêtre d'activité et ce qu'elle tait font partie de l'écran : les taire serait le masquage
+      //   silencieux que la migration 232 s'interdit explicitement.
+      fenetreJours: 30, filsTropAnciens: 0, sansSuite: [], sansSuiteTotal: 0,
     });
   });
 
