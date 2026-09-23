@@ -2,11 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const gardeMock = vi.fn();
 vi.mock('../../../../../../../lib/admin/garde', () => ({ exigerCompteActif: (...a: unknown[]) => gardeMock(...a) }));
-const gestes = { affecter: vi.fn(), detacher: vi.fn(), listerEvenementsOuverts: vi.fn(), preremplir: vi.fn() };
+const gestes = { affecter: vi.fn(), detacher: vi.fn(), preremplir: vi.fn() };
 vi.mock('../../../../../../../lib/gestion/gestes', () => ({
   affecter: (...a: unknown[]) => gestes.affecter(...a),
   detacher: (...a: unknown[]) => gestes.detacher(...a),
-  listerEvenementsOuverts: (...a: unknown[]) => gestes.listerEvenementsOuverts(...a),
   preremplir: (...a: unknown[]) => gestes.preremplir(...a),
 }));
 vi.mock('../../../../../../../lib/gestion/auteur', () => ({ auteurDeLaRequete: async () => ({ id: 1, libelle: 'arno' }) }));
@@ -28,7 +27,6 @@ beforeEach(() => {
   for (const f of Object.values(gestes)) f.mockReset();
   gestes.affecter.mockResolvedValue({ ok: true, evenementId: 9, reference: 'GES-2026-000009' });
   gestes.detacher.mockResolvedValue({ ok: true, evenementId: 9 });
-  gestes.listerEvenementsOuverts.mockResolvedValue([]);
   gestes.preremplir.mockResolvedValue(null);
 });
 
@@ -109,12 +107,21 @@ describe('détacher — la réversibilité est un verbe à part entière', () =>
   });
 });
 
-describe('le sélecteur (GET)', () => {
-  it('rend les événements ouverts et le pré-remplissage', async () => {
-    gestes.listerEvenementsOuverts.mockResolvedValue([{ id: 9, reference: 'GES-2026-000009', objet: 'Fuite' }]);
+describe('le pré-remplissage (GET)', () => {
+  it('rend ce que l’échange contient', async () => {
     gestes.preremplir.mockResolvedValue({ objet: 'Fuite', demandeurNom: 'Mme M.', demandeurEmail: null, adresseLibre: null });
-    const body = await (await GET(req(), ctx('5'))).json() as { evenements: unknown[]; propositions: unknown };
-    expect(body.evenements).toHaveLength(1);
+    const body = await (await GET(req(), ctx('5'))).json() as { propositions: unknown };
     expect(body.propositions).toMatchObject({ objet: 'Fuite' });
+  });
+
+  /**
+   * LOT 4d — il ne rend PLUS la liste des événements. Le sélecteur est passé à la recherche partagée, qui cherche
+   * aussi par expéditeur et borne ses résultats ; la liste tronquée à 50 qui vivait ici était inutilisable dès la
+   * vingtième carte, et coûtait une requête à chaque ouverture du panneau.
+   */
+  it('ne rend plus de LISTE d’événements — la recherche partagée s’en charge', async () => {
+    gestes.preremplir.mockResolvedValue(null);
+    const body = await (await GET(req(), ctx('5'))).json() as { evenements?: unknown };
+    expect(body.evenements).toBeUndefined();
   });
 });

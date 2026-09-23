@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { BlocRepliable } from '../permis/BlocRepliable';
+import { ChoisirEvenement } from './ChoisirEvenement';
+import { MenuDiscret } from './MenuDiscret';
 import type { CarteDetail, FilDeCarte, MessageDeFil } from '../../../../lib/gestion/carteRepo';
 import type { CarteEvenement } from '../../../../lib/gestion/fileRepo';
 import { depuis, formaterDateFr, formaterTaille, libelleEtat, libelleSens } from '../../../../lib/gestion/ecran';
@@ -170,7 +172,7 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste }: {
         : (
           <ul className="gst-liste">
             {d.fils.map((f) => (
-              <FilRattache key={f.filId} fil={f} maintenant={maintenant} onGeste={onGeste} />
+              <FilRattache key={f.filId} fil={f} evenementId={evenementId} maintenant={maintenant} onGeste={onGeste} />
             ))}
           </ul>
         )}
@@ -257,12 +259,37 @@ function FormulaireCarte({ detail, occupe, onValider, onAnnuler }: {
   );
 }
 
-/** Un échange rattaché : replié, il ne coûte rien ; déplié, il montre la conversation entière. */
-function FilRattache({ fil, maintenant, onGeste }: { fil: FilDeCarte; maintenant: Date; onGeste: Rapport }) {
+/**
+ * Un échange rattaché : replié, il ne coûte rien ; déplié, il montre la conversation entière.
+ *
+ * Ses commandes vivent dans un MENU DISCRET, posé dans le coin — pas dans une rangée de boutons. Le titre d'un
+ * `BlocRepliable` EST un bouton : on n'imbrique donc pas le menu dedans (ce serait un bouton dans un bouton, invalide
+ * et injouable au clavier), il est son VOISIN, placé dans le coin par le CSS.
+ */
+function FilRattache({ fil, evenementId, maintenant, onGeste }: {
+  fil: FilDeCarte; evenementId: number; maintenant: Date; onGeste: Rapport;
+}) {
+  const [deplacer, setDeplacer] = useState(false);
   return (
     <li className="gst-item gst-item--fil">
+      <div className="gst-coin">
+        <MenuDiscret titre="Actions sur cet échange" entrees={[
+          { libelle: 'Déplacer l’échange…', onChoisir: () => setDeplacer(true) },
+          { libelle: 'Détacher l’échange', discrete: true, onChoisir: () => void detacherFil(fil.filId, onGeste) },
+        ]} />
+      </div>
+      {deplacer && (
+        <DeplacerVers
+          titre={`Déplacer l’échange « ${fil.objet?.trim() || '(sans objet)'} » vers`}
+          exclure={evenementId}
+          onAnnuler={() => setDeplacer(false)}
+          onValider={async (cible) => {
+            await deplacerFil(fil.filId, cible, onGeste);
+            setDeplacer(false);
+          }} />
+      )}
       <BlocRepliable
-        titreClasseExtra="gst-repli"
+        titreClasseExtra="gst-repli gst-repli--avec-menu"
         titre={
           <span className="gst-carte-titre">
             <span className="gst-objet">{fil.objet?.trim() || '(sans objet)'}</span>
@@ -281,16 +308,68 @@ function FilRattache({ fil, maintenant, onGeste }: { fil: FilDeCarte; maintenant
           </span>
         }
       >
-        {() => <CorpsFil filId={fil.filId} maintenant={maintenant} onGeste={onGeste} />}
+        {() => <CorpsFil filId={fil.filId} maintenant={maintenant} />}
       </BlocRepliable>
     </li>
   );
 }
 
+/**
+ * DÉPLACER = RATTACHER AILLEURS. Le geste existe déjà côté serveur (`affecter`) et il est atomique : l'ancienne
+ * affectation est désactivée et la nouvelle créée dans UNE transaction, après une lecture verrouillée — il n'existe
+ * aucun instant où l'échange n'a plus de carte. Rien de nouveau n'est écrit ici, seule la manière de le demander change.
+ */
+async function deplacerFil(filId: number, evenementId: number, onGeste: Rapport): Promise<void> {
+  try {
+    const res = await fetch(`/api/admin/gestion/fils/${filId}/affectation`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ evenementId }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; reference?: string; erreur?: string };
+    if (!res.ok || !data.ok) { onGeste(data.erreur ?? 'Déplacement impossible.'); return; }
+    onGeste(`Échange déplacé vers ${data.reference ?? 'l’événement choisi'}.`, { rechargerTout: true });
+  } catch {
+    onGeste('Déplacement impossible : le serveur n’a pas répondu.');
+  }
+}
+
+/** DÉTACHER : l'échange retourne dans la file. Rien n'est supprimé — il y revient avec tous ses messages. */
+async function detacherFil(filId: number, onGeste: Rapport): Promise<void> {
+  try {
+    const res = await fetch(`/api/admin/gestion/fils/${filId}/affectation`, { method: 'DELETE' });
+    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
+    if (!res.ok || !data.ok) { onGeste(data.erreur ?? 'Détachement impossible.'); return; }
+    onGeste('Échange détaché : il est revenu dans la file, avec tous ses messages.', { rechargerTout: true });
+  } catch {
+    onGeste('Détachement impossible : le serveur n’a pas répondu.');
+  }
+}
+
+/** Le petit panneau de destination : la MÊME recherche que partout ailleurs, et rien d'autre. */
+function DeplacerVers({ titre, exclure, onValider, onAnnuler }: {
+  titre: string; exclure: number | null;
+  onValider: (evenementId: number) => Promise<void> | void;
+  onAnnuler: () => void;
+}) {
+  const [choisi, setChoisi] = useState<number | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  return (
+    <div className="gst-panneau">
+      <p className="gst-panneau-titre">{titre}</p>
+      <ChoisirEvenement choisi={choisi} onChoisir={setChoisi} exclure={exclure} autoFocus />
+      <div className="gst-actions">
+        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={choisi === null || enCours}
+          onClick={() => { setEnCours(true); void Promise.resolve(onValider(choisi as number)).finally(() => setEnCours(false)); }}>
+          {enCours ? 'Déplacement…' : 'Déplacer'}
+        </button>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={enCours} onClick={onAnnuler}>Annuler</button>
+      </div>
+    </div>
+  );
+}
+
 /** Les messages d'un échange. Montés au dépliage — un fil jamais ouvert ne traverse jamais le réseau. */
-function CorpsFil({ filId, maintenant, onGeste }: { filId: number; maintenant: Date; onGeste: Rapport }) {
+function CorpsFil({ filId, maintenant }: { filId: number; maintenant: Date }) {
   const [vue, setVue] = useState<{ v: 'charge' } | { v: 'ok'; messages: MessageDeFil[] } | { v: 'erreur'; m: string }>({ v: 'charge' });
-  const [occupe, setOccupe] = useState(false);
 
   useEffect(() => {
     let annule = false;
@@ -301,22 +380,6 @@ function CorpsFil({ filId, maintenant, onGeste }: { filId: number; maintenant: D
     return () => { annule = true; };
   }, [filId]);
 
-  /** DÉTACHER : l'échange retourne dans la file. Rien n'est supprimé, et l'écran entier est relu — la file a changé. */
-  const detacher = useCallback(async () => {
-    if (occupe) return;
-    setOccupe(true);
-    try {
-      const res = await fetch(`/api/admin/gestion/fils/${filId}/affectation`, { method: 'DELETE' });
-      const data = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
-      if (!res.ok || !data.ok) { onGeste(data.erreur ?? 'Détachement impossible.'); return; }
-      onGeste('Échange détaché : il est revenu dans la file, avec tous ses messages.', { rechargerTout: true });
-    } catch {
-      onGeste('Détachement impossible : le serveur n’a pas répondu.');
-    } finally {
-      setOccupe(false);
-    }
-  }, [occupe, filId, onGeste]);
-
   if (vue.v === 'charge') return <p className="gst-info" role="status">Chargement des messages…</p>;
   if (vue.v === 'erreur') return <p className="gst-erreur" role="status">{vue.m}</p>;
 
@@ -325,12 +388,9 @@ function CorpsFil({ filId, maintenant, onGeste }: { filId: number; maintenant: D
       <ol className="gst-fil">
         {vue.messages.map((m) => <Message key={m.messageId} message={m} maintenant={maintenant} />)}
       </ol>
-      <div className="gst-actions">
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={occupe} onClick={() => void detacher()}>
-          {occupe ? 'Détachement…' : 'Détacher de cet événement'}
-        </button>
-      </div>
-      <p className="gst-note">Détacher ne supprime rien : l’échange retourne dans la file avec ses messages et ses pièces.</p>
+      {/* LOT 4d — le gros bouton « Détacher de cet événement » est devenu une entrée du menu « ⋯ » de l'échange :
+          la fonction est CONSERVÉE, seule sa présentation change (décision d'Arno : pas de boutons partout). */}
+      <p className="gst-note">Détacher ou déplacer ne supprime rien : par le menu « ⋯ » de l’échange, il retourne dans la file ou rejoint une autre carte, avec tous ses messages et ses pièces.</p>
     </div>
   );
 }

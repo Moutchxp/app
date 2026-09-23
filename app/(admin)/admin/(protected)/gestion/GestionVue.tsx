@@ -384,6 +384,41 @@ const CSS_GESTION = `
 .gst-piece{display:flex;flex-wrap:wrap;align-items:baseline;gap:.35rem;font-size:.8rem;color:var(--color-svv-muted)}
 /* Cible tactile : un lien de pièce jointe se clique au doigt comme un bouton. */
 .gst-lien{min-height:44px;display:inline-flex;align-items:center;font-weight:600;color:var(--color-svv-red);text-decoration:underline}
+/* ── LOT 4d : LE MENU DISCRET, ET LA RECHERCHE D'ÉVÉNEMENT ─────────────────────────────────────────────────────── */
+/* Le menu se pose dans le coin de l'élément, SANS entrer dans le bouton de titre (un bouton dans un bouton n'existe pas). */
+.gst-coin{position:absolute;top:6px;right:6px;z-index:2}
+/* …et le titre lui réserve sa place, pour qu'aucun texte ne passe sous le menu. */
+.gst-repli--avec-menu{padding-right:52px}
+.gst-item--fil{position:relative}
+.gst-menu{position:relative;display:inline-block}
+/* DISCRET AU REPOS, jamais introuvable : le glyphe est pâle, mais la cible fait 44 px et le focus est très visible. */
+.gst-menu-bouton{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0;
+  font-size:18px;line-height:1;color:var(--color-svv-muted);background:transparent;border:1px solid transparent;
+  border-radius:.5rem;cursor:pointer}
+.gst-menu-bouton:hover{color:var(--color-svv-ink);border-color:var(--color-svv-line)}
+.gst-menu-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px;color:var(--color-svv-ink)}
+.gst-menu-bouton[aria-expanded="true"]{color:var(--color-svv-ink);border-color:var(--color-svv-line-strong)}
+.gst-menu-bouton:disabled{opacity:.4;cursor:not-allowed}
+.gst-menu-liste{position:absolute;top:100%;right:0;z-index:5;min-width:min(260px,80vw);display:flex;flex-direction:column;
+  /* Pas d'ombre portée : elle exigerait une couleur en dur, et la charte n'en a pas. Une bordure franche suffit à
+     détacher le menu du fond, et reste lisible en contraste élevé. */
+  background:var(--color-svv-surface);border:2px solid var(--color-svv-line-strong);border-radius:.6rem;overflow:hidden}
+.gst-menu-entree{min-height:44px;padding:.6rem .8rem;text-align:left;font-size:.85rem;color:var(--color-svv-ink);
+  background:transparent;border:0;border-bottom:1px solid var(--color-svv-line);cursor:pointer}
+.gst-menu-entree:last-child{border-bottom:0}
+.gst-menu-entree:hover,.gst-menu-entree:focus-visible{background:var(--color-svv-field)}
+/* Défaire n'est pas dangereux dans ce module : la teinte est SOBRE, jamais un rouge d'alerte qui ferait hésiter. */
+.gst-menu-entree--discrete{color:var(--color-svv-muted)}
+/* RECHERCHE D'ÉVÉNEMENT — la même partout : file, déplacement d'un échange, déplacement d'un mail. */
+.gst-choix{display:flex;flex-direction:column;gap:8px}
+.gst-resultats{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px;max-height:min(46vh,340px);overflow-y:auto}
+.gst-resultat{width:100%;min-height:44px;display:flex;flex-direction:column;gap:2px;padding:.5rem .6rem;text-align:left;
+  background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:.5rem;cursor:pointer}
+.gst-resultat:hover,.gst-resultat:focus-visible{border-color:var(--color-svv-line-strong)}
+.gst-resultat--choisi{border-color:var(--color-svv-red)}
+.gst-resultat--nouveau{font-weight:700;color:var(--color-svv-ink);border-style:dashed}
+.gst-resultat-haut{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem;justify-content:space-between}
+.gst-resultat-bas{display:flex;flex-wrap:wrap;align-items:baseline;gap:.35rem;font-size:.78rem;color:var(--color-svv-muted)}
 /* CLASSÉS SANS SUITE — replié par défaut : présent sans encombrer. */
 .gst-sans-suite{margin-top:1rem;border-top:1px solid var(--color-svv-line);padding-top:.75rem}
 .gst-sans-suite-titre{display:flex;align-items:center;gap:.5rem;min-height:44px;font-size:13px;font-weight:700;color:var(--color-svv-ink);cursor:pointer}

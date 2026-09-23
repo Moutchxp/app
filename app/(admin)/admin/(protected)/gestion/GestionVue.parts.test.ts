@@ -118,7 +118,24 @@ describe('la feuille de style tient les exigences transverses', () => {
     expect(css).toContain('var(--color-svv-');
   });
 
+  /**
+   * L'exigence §15 interdit une interaction qui dépend du SURVOL SEUL — pas le survol comme APPOINT. Jusqu'au lot 4d
+   * la feuille n'en contenait aucun et le test bannissait le mot ; le menu discret en a besoin (sans lui, une souris
+   * ne reçoit aucun retour en parcourant un menu). Le garde-fou dit donc maintenant la règle elle-même, et il est
+   * PLUS strict qu'avant sur ce qui compte vraiment :
+   *   · aucun survol ne FAIT APPARAÎTRE quoi que ce soit (c'est ça, l'interaction inatteignable au doigt) ;
+   *   · tout ce qui réagit au survol réagit AUSSI au focus clavier.
+   */
   it('aucune interaction dépendante du SURVOL seul (exigence transverse §15)', () => {
-    expect(/:hover/.test(css)).toBe(false);
+    const reglesSurvol = (css.match(/[^}]*:hover[^{]*\{[^}]*\}/g) ?? []);
+    for (const regle of reglesSurvol) {
+      expect(/display\s*:|visibility\s*:|opacity\s*:/.test(regle)).toBe(false);
+    }
+    // Chaque sélecteur qui réagit au survol a son pendant au clavier (soit dans la même règle, soit ailleurs).
+    for (const regle of reglesSurvol) {
+      const selecteur = regle.slice(0, regle.indexOf('{'));
+      const base = selecteur.split(',').map((x) => x.trim().replace(':hover', '')).filter(Boolean)[0];
+      expect(css).toContain(`${base}:focus-visible`);
+    }
   });
 });

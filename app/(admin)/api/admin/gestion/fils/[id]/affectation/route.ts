@@ -1,7 +1,7 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
-import { affecter, detacher, listerEvenementsOuverts, preremplir, type NouvelEvenement } from '../../../../../../../lib/gestion/gestes';
+import { affecter, detacher, preremplir, type NouvelEvenement } from '../../../../../../../lib/gestion/gestes';
 
 /**
  * /api/admin/gestion/fils/[id]/affectation (lot 4b) — RATTACHER un échange à un événement, ou l'en DÉTACHER.
@@ -33,8 +33,11 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
   const id = filId((await ctx.params).id);
   if (id === null) return Response.json({ erreur: 'Échange inconnu.' }, { status: 400 });
   try {
-    const [evenements, propositions] = await Promise.all([listerEvenementsOuverts(), preremplir(id)]);
-    return Response.json({ evenements, propositions });
+    // LOT 4d — le GET ne rend plus la LISTE des événements : le sélecteur est passé à la recherche partagée
+    //   (`/api/admin/gestion/evenements`), qui cherche aussi par expéditeur et qui borne ses résultats. Ne restait ici
+    //   qu'une liste tronquée à 50, inutilisable dès la vingtième carte — et une requête émise à chaque ouverture.
+    const propositions = await preremplir(id);
+    return Response.json({ propositions });
   } catch (e) {
     console.error('[gestion/affectation] lecture impossible', e);
     return Response.json({ erreur: 'Lecture impossible : la base n’a pas répondu.' }, { status: 503 });

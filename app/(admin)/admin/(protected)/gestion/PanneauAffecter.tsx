@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { ChoisirEvenement } from './ChoisirEvenement';
 
 /**
  * LOT 4b — LE PANNEAU « AFFECTER À UN ÉVÉNEMENT », ouvert sous la ligne de l'échange.
@@ -12,8 +13,12 @@ import { useCallback, useEffect, useState } from 'react';
  *
  * Le panneau ne charge ses données qu'à l'OUVERTURE (un échange jamais déplié ne coûte aucune requête), et il rend la
  * main à l'appelant après un succès : c'est lui qui recharge l'écran.
+ *
+ * LOT 4d — la voie « événement existant » n'est plus une liste déroulante mais la MÊME RECHERCHE que partout ailleurs
+ * (`ChoisirEvenement`). Une liste simple tenait tant qu'il y avait trois cartes ; à la vingtième elle devient une
+ * corvée, et à la centième une impasse. On cherche par ce dont on se souvient : le nom du locataire, l'adresse, le
+ * plombier qui a écrit — pas par le rang dans un menu.
  */
-export type EvenementOuvert = { id: number; reference: string; objet: string };
 type Propositions = { objet: string; demandeurNom: string | null; demandeurEmail: string | null; adresseLibre: string | null };
 
 export function PanneauAffecter({ filId, objet: objetDuFil, onFait, onAnnuler }: {
@@ -25,7 +30,6 @@ export function PanneauAffecter({ filId, objet: objetDuFil, onFait, onAnnuler }:
 }) {
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
-  const [evenements, setEvenements] = useState<EvenementOuvert[]>([]);
   const [voie, setVoie] = useState<'nouveau' | 'existant'>('nouveau');
   const [choisi, setChoisi] = useState<number | null>(null);
   const [objet, setObjet] = useState('');
@@ -39,14 +43,11 @@ export function PanneauAffecter({ filId, objet: objetDuFil, onFait, onAnnuler }:
       try {
         const res = await fetch(`/api/admin/gestion/fils/${filId}/affectation`, { cache: 'no-store' });
         if (!res.ok) { if (!annule) { setErreur('Chargement impossible.'); setChargement(false); } return; }
-        const data = (await res.json()) as { evenements: EvenementOuvert[]; propositions: Propositions | null };
+        const data = (await res.json()) as { propositions: Propositions | null };
         if (annule) return;
-        setEvenements(data.evenements);
         setObjet(data.propositions?.objet ?? '');
         setDemandeur(data.propositions?.demandeurNom ?? data.propositions?.demandeurEmail ?? '');
         setAdresse(data.propositions?.adresseLibre ?? '');
-        // S'il n'existe AUCUN événement ouvert, proposer « rattacher à un existant » serait une impasse.
-        setVoie(data.evenements.length === 0 ? 'nouveau' : 'nouveau');
         setChargement(false);
       } catch { if (!annule) { setErreur('Chargement impossible (réseau).'); setChargement(false); } }
     })();
@@ -87,9 +88,8 @@ export function PanneauAffecter({ filId, objet: objetDuFil, onFait, onAnnuler }:
         <button type="button" className={`gst-voie${voie === 'nouveau' ? ' gst-voie--active' : ''}`}
           aria-pressed={voie === 'nouveau'} onClick={() => setVoie('nouveau')}>Nouvel événement</button>
         <button type="button" className={`gst-voie${voie === 'existant' ? ' gst-voie--active' : ''}`}
-          aria-pressed={voie === 'existant'} disabled={evenements.length === 0}
-          onClick={() => setVoie('existant')}>
-          Événement existant{evenements.length === 0 ? ' (aucun)' : ` (${evenements.length})`}
+          aria-pressed={voie === 'existant'} onClick={() => setVoie('existant')}>
+          Événement existant
         </button>
       </div>
 
@@ -113,14 +113,10 @@ export function PanneauAffecter({ filId, objet: objetDuFil, onFait, onAnnuler }:
           <p className="gst-note">Pré-rempli d’après l’échange, entièrement modifiable. L’adresse reste du texte libre : il n’existe pas encore de fichier des lots.</p>
         </div>
       ) : (
-        <label className="gst-champ">
-          <span className="svv-label">Événement</span>
-          <select className="gst-saisie" value={choisi ?? ''} onChange={(e) => setChoisi(e.target.value === '' ? null : Number(e.target.value))}>
-            <option value="">— choisir —</option>
-            {evenements.map((ev) => <option key={ev.id} value={ev.id}>{ev.reference} — {ev.objet}</option>)}
-          </select>
+        <>
+          <ChoisirEvenement choisi={choisi} onChoisir={setChoisi} autoFocus />
           <p className="gst-note">Un événement peut regrouper plusieurs échanges.</p>
-        </label>
+        </>
       )}
 
       <div className="gst-actions">

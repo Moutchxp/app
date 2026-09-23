@@ -54,24 +54,46 @@ let root: Root;
 let appels: string[];
 let rapports: { message: string; rechargerTout?: boolean }[];
 let patchs: unknown[];
+let posts: { url: string; corps: unknown }[];
 let reponseDetail: typeof DETAIL;
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  appels = []; rapports = []; patchs = []; reponseDetail = DETAIL;
+  appels = []; rapports = []; patchs = []; posts = []; reponseDetail = DETAIL;
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     appels.push(`${init?.method ?? 'GET'} ${u}`);
     if (init?.method === 'PATCH') { patchs.push(JSON.parse(String(init.body))); return ok({ ok: true }); }
+    if (init?.method === 'POST') {
+      posts.push({ url: u, corps: JSON.parse(String(init.body)) });
+      return ok({ ok: true, evenementId: 42, reference: 'GES-2026-000042' });
+    }
     if (init?.method === 'DELETE') return ok({ ok: true });
     if (u.includes('/messages')) return ok({ messages: MESSAGES });
+    // La RECHERCHE d'événement (lot 4d) : deux cartes, dont celle où l'on se trouve déjà.
+    if (u.includes('/api/admin/gestion/evenements?')) {
+      return ok({ max: 30, evenements: [
+        { id: 42, reference: 'GES-2026-000042', objet: 'Chaudière', demandeur: 'M. D.', adresseLibre: null, etat: 'a_traiter', nbFils: 1 },
+        { id: 9, reference: 'GES-2026-000009', objet: 'Fuite salle de bain', demandeur: 'Mme M.', adresseLibre: null, etat: 'a_traiter', nbFils: 1 },
+      ] });
+    }
     return ok(reponseDetail);
   }) as unknown as typeof fetch;
 });
 const ok = (corps: unknown) => ({ ok: true, status: 200, json: async () => corps } as unknown as Response);
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
 
-const calmer = async () => { await act(async () => { for (let i = 0; i < 5; i++) await Promise.resolve(); }); };
+/**
+ * Laisse le composant se poser : micro-tâches (promesses des `fetch`) ET macro-tâche (la recherche d'événement est
+ * TEMPORISÉE — sans ce tour de boucle, la liste de résultats serait encore vide au moment du clic).
+ */
+const calmer = async () => {
+  await act(async () => {
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 0));
+    for (let i = 0; i < 5; i++) await Promise.resolve();
+  });
+};
 const monter = async () => {
   await act(async () => {
     root.render(createElement(CarteVive, {
@@ -83,8 +105,13 @@ const monter = async () => {
 };
 const boutons = () => [...container.querySelectorAll('button')] as HTMLButtonElement[];
 const boutonPar = (motif: RegExp) => boutons().find((b) => motif.test(b.textContent ?? ''));
-const cliquer = async (b: HTMLElement | undefined) => { await act(async () => { b?.click(); }); await calmer(); };
+const cliquer = async (b: HTMLElement | null | undefined) => { await act(async () => { b?.click(); }); await calmer(); };
 const liens = () => [...container.querySelectorAll('a')] as HTMLAnchorElement[];
+/** Le « ⋯ » de l'échange : discret à l'œil, mais parfaitement désignable — par son libellé accessible. */
+const menuDeLEchange = () => container.querySelector('button[aria-label="Actions sur cet échange"]') as HTMLButtonElement | null;
+/** Les RÉSULTATS de la recherche, et eux seuls : le titre de la carte porte aussi sa référence. */
+const resultats = () => [...container.querySelectorAll('.gst-resultats button')] as HTMLButtonElement[];
+const resultatPar = (motif: RegExp) => resultats().find((b) => motif.test(b.textContent ?? ''));
 
 describe('① PARESSE — ce qu’on n’ouvre pas ne coûte rien', () => {
   it('une carte repliée n’émet AUCUNE requête', async () => {
@@ -208,20 +235,25 @@ describe('③ LES GESTES', () => {
     expect(boutonPar(/^Enregistrer$/)?.disabled).toBe(true);
   });
 
-  it('détacher rend compte ET demande la relecture de tout l’écran — la file a changé', async () => {
+  /**
+   * LOT 4d — le gros bouton « Détacher de cet événement » est devenu une entrée du menu « ⋯ » de l'échange (décision
+   * d'Arno : des commandes discrètes, pas des boutons partout). La FONCTION est conservée à l'identique — c'est ce que
+   * ce test vérifie : même appel, même compte rendu, même relecture de tout l'écran.
+   */
+  it('détacher, depuis le menu discret, rend compte ET demande la relecture de tout l’écran', async () => {
     await monter();
     await cliquer(boutonPar(/Fuite salle de bain/));
-    await cliquer(boutons().find((b) => /2 messages/.test(b.textContent ?? '')));
-    await cliquer(boutonPar(/Détacher de cet événement/));
+    await cliquer(menuDeLEchange());
+    await cliquer(boutonPar(/^Détacher l’échange$/));
     expect(appels).toContain('DELETE /api/admin/gestion/fils/5/affectation');
     expect(rapports[0]).toEqual({ message: 'Échange détaché : il est revenu dans la file, avec tous ses messages.', rechargerTout: true });
   });
 
-  it('le détachement dit qu’il ne supprime rien — c’est la règle du module, elle se lit à l’écran', async () => {
+  it('l’écran dit que détacher ou déplacer ne supprime rien — c’est la règle du module', async () => {
     await monter();
     await cliquer(boutonPar(/Fuite salle de bain/));
     await cliquer(boutons().find((b) => /2 messages/.test(b.textContent ?? '')));
-    expect(container.textContent).toContain('Détacher ne supprime rien');
+    expect(container.textContent).toContain('ne supprime rien');
   });
 
   it('une carte TRAITÉE affiche sa date de traitement, et reste rouvrable', async () => {
@@ -245,5 +277,74 @@ describe('③ LES GESTES', () => {
     await monter();
     await cliquer(boutonPar(/Fuite salle de bain/));
     expect(container.textContent).toContain('non renseignée');
+  });
+});
+
+
+describe('④ LOT 4d — LE MENU DISCRET ET LE DÉPLACEMENT', () => {
+  const ouvrirCarte = async () => { await monter(); await cliquer(boutonPar(/Fuite salle de bain/)); };
+
+  it('l’échange porte un « ⋯ », pas une rangée de boutons', async () => {
+    await ouvrirCarte();
+    const m = menuDeLEchange();
+    expect(m).not.toBeNull();
+    expect(m?.getAttribute('aria-haspopup')).toBe('menu');
+    expect(m?.getAttribute('aria-expanded')).toBe('false'); // fermé au repos : rien n’encombre
+    // Aucune commande n’est visible tant que le menu est fermé.
+    expect(boutonPar(/Déplacer l’échange/)).toBeUndefined();
+    expect(boutonPar(/Détacher l’échange/)).toBeUndefined();
+  });
+
+  it('il ouvre les deux commandes de l’échange', async () => {
+    await ouvrirCarte();
+    await cliquer(menuDeLEchange());
+    expect(menuDeLEchange()?.getAttribute('aria-expanded')).toBe('true');
+    expect(boutonPar(/^Déplacer l’échange…$/)).toBeDefined();
+    expect(boutonPar(/^Détacher l’échange$/)).toBeDefined();
+  });
+
+  it('« Déplacer… » ouvre la RECHERCHE d’événement, et nomme l’échange déplacé', async () => {
+    await ouvrirCarte();
+    await cliquer(menuDeLEchange());
+    await cliquer(boutonPar(/^Déplacer l’échange…$/));
+    expect(container.textContent).toContain('Déplacer l’échange « Fuite salle de bain » vers');
+    expect(container.querySelector('input[type="search"]')).not.toBeNull();
+    expect(appels).toContain('GET /api/admin/gestion/evenements?q=');
+  });
+
+  it('on ne peut pas déplacer avant d’avoir choisi une destination', async () => {
+    await ouvrirCarte();
+    await cliquer(menuDeLEchange());
+    await cliquer(boutonPar(/^Déplacer l’échange…$/));
+    expect(boutonPar(/^Déplacer$/)?.disabled).toBe(true);
+  });
+
+  it('choisir une carte puis valider RATTACHE AILLEURS, et relit tout l’écran', async () => {
+    await ouvrirCarte();
+    await cliquer(menuDeLEchange());
+    await cliquer(boutonPar(/^Déplacer l’échange…$/));
+    await cliquer(resultatPar(/GES-2026-000042/));
+    await cliquer(boutonPar(/^Déplacer$/));
+    expect(posts[0]).toEqual({ url: '/api/admin/gestion/fils/5/affectation', corps: { evenementId: 42 } });
+    expect(rapports[0]).toMatchObject({ rechargerTout: true });
+    expect(rapports[0].message).toContain('GES-2026-000042');
+  });
+
+  it('la carte où l’on est n’est pas proposée comme destination — s’y déplacer n’a aucun sens', async () => {
+    await ouvrirCarte();
+    await cliquer(menuDeLEchange());
+    await cliquer(boutonPar(/^Déplacer l’échange…$/));
+    expect(resultatPar(/GES-2026-000009/)).toBeUndefined(); // la carte courante
+    expect(resultatPar(/GES-2026-000042/)).toBeDefined();   // une autre
+  });
+
+  it('Échap referme le menu sans rien déclencher', async () => {
+    await ouvrirCarte();
+    await cliquer(menuDeLEchange());
+    await act(async () => { document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); });
+    await calmer();
+    expect(menuDeLEchange()?.getAttribute('aria-expanded')).toBe('false');
+    expect(posts).toEqual([]);
+    expect(appels.some((a) => a.startsWith('DELETE'))).toBe(false);
   });
 });
