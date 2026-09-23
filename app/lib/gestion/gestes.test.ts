@@ -172,13 +172,39 @@ describe('créer un événement depuis un échange', () => {
 
 describe('le pré-remplissage ne devine RIEN au-delà du mail', () => {
   it('propose l’objet du fil et l’interlocuteur du dernier message REÇU (celui qui demande, pas nous)', async () => {
-    queryMock.mockResolvedValue({ rows: [{ objet: 'Fuite', nom: 'Mme M.', email: 'm@x.fr' }] });
+    queryMock.mockResolvedValue({ rows: [{ objet: 'Fuite', nom: 'Mme M.', email: 'm@x.fr', corps: null }] });
     expect(await preremplir(5)).toEqual({ objet: 'Fuite', demandeurNom: 'Mme M.', demandeurEmail: 'm@x.fr', adresseLibre: null });
     expect(sqls()[0]).toContain("m.sens = 'recu'");
   });
 
-  it('l’ADRESSE n’est jamais proposée : il n’existe pas de fichier des lots, on n’en invente pas un', async () => {
-    queryMock.mockResolvedValue({ rows: [{ objet: 'x', nom: null, email: null }] });
+  /**
+   * LOT 4c — l'objet arrive lesté de sa cascade de préfixes. On le nettoie À LA SOURCE : la carte créée depuis cette
+   * proposition NAÎT donc avec un titre propre, et aucune donnée déjà enregistrée n'est réécrite pour autant.
+   */
+  it('l’objet proposé est débarrassé des « Re: / TR: / Fwd: » en cascade', async () => {
+    queryMock.mockResolvedValue({ rows: [{ objet: 'Re: TR: Préavis de départ', nom: null, email: null, corps: null }] });
+    expect((await preremplir(5))?.objet).toBe('Préavis de départ');
+  });
+
+  it('un objet qui n’est QUE des préfixes ne donne pas un titre vide à l’écran', async () => {
+    queryMock.mockResolvedValue({ rows: [{ objet: 'Re: ', nom: null, email: null, corps: null }] });
+    expect((await preremplir(5))?.objet).toBe('(sans objet)');
+  });
+
+  it('l’ADRESSE est proposée quand elle est ÉCRITE dans l’objet — lue, jamais devinée', async () => {
+    queryMock.mockResolvedValue({ rows: [{ objet: 'Re: Lease closure - 28 avenue Marceau 92400 COURBEVOIE', nom: null, email: null, corps: null }] });
+    const p = await preremplir(5);
+    expect(p?.adresseLibre).toBe('28 avenue Marceau 92400 COURBEVOIE');
+    expect(p?.objet).toBe('Lease closure - 28 avenue Marceau 92400 COURBEVOIE'); // l'objet, lui, n'est pas amputé
+  });
+
+  it('à défaut de l’objet, la première ligne utile du CORPS du premier message reçu', async () => {
+    queryMock.mockResolvedValue({ rows: [{ objet: 'Re: Dates travaux', nom: null, email: null, corps: 'Bonjour,\n\n12 rue de la Paix 75002 PARIS\n\nCordialement' }] });
+    expect((await preremplir(5))?.adresseLibre).toBe('12 rue de la Paix 75002 PARIS');
+  });
+
+  it('aucune adresse dans le mail → champ VIDE. Il n’existe pas de fichier des lots, on n’en invente pas un', async () => {
+    queryMock.mockResolvedValue({ rows: [{ objet: 'Re: Dates travaux', nom: null, email: null, corps: 'Bonjour, pouvez-vous confirmer ?' }] });
     expect((await preremplir(5))?.adresseLibre).toBeNull();
   });
 
@@ -191,6 +217,29 @@ describe('le pré-remplissage ne devine RIEN au-delà du mail', () => {
     queryMock.mockResolvedValue({ rows: [{ id: 1, reference: 'GES-2026-000001', objet: 'x' }] });
     await listerEvenementsOuverts();
     expect(sqls()[0]).toContain('WHERE traite_le IS NULL');
+  });
+});
+
+describe('le titre d’une carte NEUVE naît propre — et aucune carte existante n’est réécrite', () => {
+  it('« Re: TR: Fuite » devient « Fuite » à la création', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ id: 5, etat: 'a_classer' }] })
+      .mockResolvedValueOnce({ rows: [{ dernier: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 9 }] })
+      .mockResolvedValue({ rows: [{ id: 78 }] });
+    await affecter(5, { nouveau: { objet: 'Re: TR: Fuite salle de bain' } }, ARNO);
+    const creation = queryMock.mock.calls.findIndex((c) => String(c[0]).includes('INSERT INTO gestion_evenement'));
+    expect(params(creation)).toContain('Fuite salle de bain');
+  });
+
+  it('AUCUN geste ne met à jour l’objet d’un événement déjà enregistré', async () => {
+    queryMock
+      .mockResolvedValueOnce({ rows: [{ id: 5, etat: 'a_classer' }] })
+      .mockResolvedValueOnce({ rows: [{ dernier: 1 }] })
+      .mockResolvedValueOnce({ rows: [{ id: 9 }] })
+      .mockResolvedValue({ rows: [{ id: 78 }] });
+    await affecter(5, { nouveau: { objet: 'Re: Fuite' } }, ARNO);
+    expect(sqls().filter((s) => /^UPDATE gestion_evenement/.test(s))).toEqual([]);
   });
 });
 

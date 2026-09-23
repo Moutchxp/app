@@ -14,6 +14,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query, withTransaction } from '../db/client';
+import { adresseProposee, nettoyerObjet } from './objet';
 
 /** Qui agit. `id` null = voie de secours (mot de passe partagé) : le libellé, lui, est TOUJOURS écrit. */
 export interface Auteur { id: number | null; libelle: string }
@@ -74,7 +75,10 @@ export interface NouvelEvenement {
 export async function affecter(
   filId: number, cible: { evenementId?: number; nouveau?: NouvelEvenement }, auteur: Auteur, motif?: string | null,
 ): Promise<Issue> {
-  const objetNouveau = cible.nouveau ? texte(cible.nouveau.objet) : null;
+  // LOT 4c — le titre d'une carte NEUVE naît nettoyé de sa cascade de « Re: / TR: / Fwd: », quelle que soit la voie
+  //   d'entrée (panneau, ou appel direct de la route). Les cartes DÉJÀ enregistrées gardent le leur : on ne réécrit
+  //   aucune donnée posée, un titre est ce qu'un humain a validé ce jour-là.
+  const objetNouveau = cible.nouveau ? texte(nettoyerObjet(texte(cible.nouveau.objet))) : null;
   if (cible.evenementId === undefined && objetNouveau === null) {
     return { ok: false, motif: 'Indiquez l’événement à rattacher, ou donnez un objet au nouvel événement.' };
   }
@@ -207,16 +211,29 @@ export async function listerEvenementsOuverts(limite = 50): Promise<{ id: number
  * à l'écran : la proposition est une commodité, jamais une vérité.
  */
 export async function preremplir(filId: number): Promise<NouvelEvenement | null> {
-  const { rows } = await query<{ objet: string | null; nom: string | null; email: string | null }>(
+  const { rows } = await query<{ objet: string | null; nom: string | null; email: string | null; corps: string | null }>(
     `SELECT f.objet_initial AS objet,
             (SELECT nullif(btrim(m.de_nom), '') FROM gestion_message m
               WHERE m.fil_id = f.id AND m.sens = 'recu' AND m.exclu_le IS NULL
               ORDER BY m.recu_le DESC LIMIT 1) AS nom,
             (SELECT m.de_adresse FROM gestion_message m
               WHERE m.fil_id = f.id AND m.sens = 'recu' AND m.exclu_le IS NULL
-              ORDER BY m.recu_le DESC LIMIT 1) AS email
+              ORDER BY m.recu_le DESC LIMIT 1) AS email,
+            (SELECT left(m.corps_texte, 2000) FROM gestion_message m
+              WHERE m.fil_id = f.id AND m.sens = 'recu' AND m.exclu_le IS NULL
+              ORDER BY m.recu_le ASC LIMIT 1) AS corps
        FROM gestion_fil f WHERE f.id = $1`, [filId]);
   const r = rows[0];
   if (!r) return null;
-  return { objet: r.objet ?? '(sans objet)', demandeurNom: r.nom, demandeurEmail: r.email, adresseLibre: null };
+  // LOT 4c — l'objet est débarrassé de sa cascade de « Re: / TR: / Fwd: », et l'adresse est LUE dans le mail quand elle
+  //   y est écrite (sinon le champ reste vide). Les deux passent par des fonctions PURES, éprouvées sur des objets réels.
+  //   On nettoie à la SOURCE : la carte créée à partir de cette proposition naît donc avec un titre propre, sans qu'on
+  //   ait jamais à réécrire une donnée déjà enregistrée.
+  const objet = nettoyerObjet(r.objet);
+  return {
+    objet: objet || '(sans objet)',
+    demandeurNom: r.nom,
+    demandeurEmail: r.email,
+    adresseLibre: adresseProposee(r.objet, r.corps),
+  };
 }

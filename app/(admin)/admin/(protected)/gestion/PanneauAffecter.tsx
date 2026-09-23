@@ -16,8 +16,10 @@ import { useCallback, useEffect, useState } from 'react';
 export type EvenementOuvert = { id: number; reference: string; objet: string };
 type Propositions = { objet: string; demandeurNom: string | null; demandeurEmail: string | null; adresseLibre: string | null };
 
-export function PanneauAffecter({ filId, onFait, onAnnuler }: {
+export function PanneauAffecter({ filId, objet: objetDuFil, onFait, onAnnuler }: {
   filId: number;
+  /** L'objet de l'échange visé, RAPPELÉ en tête du panneau : on doit voir sur QUOI on agit, sans remonter des yeux. */
+  objet?: string;
   onFait: (message: string) => void;
   onAnnuler: () => void;
 }) {
@@ -78,6 +80,7 @@ export function PanneauAffecter({ filId, onFait, onAnnuler }: {
 
   return (
     <div className="gst-panneau">
+      {objetDuFil && <p className="gst-panneau-titre">Rattacher <span className="gst-objet">{objetDuFil}</span></p>}
       {erreur && <p className="gst-erreur" role="status">{erreur}</p>}
 
       <div className="gst-voies" role="group" aria-label="Rattacher à">

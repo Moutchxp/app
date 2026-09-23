@@ -36,6 +36,15 @@ export function GestionVue() {
   const [maintenant, setMaintenant] = useState<Date | null>(null);
 
   /**
+   * LOT 4b/4c — état des GESTES. `panneau` retient l'IDENTIFIANT DE L'ÉCHANGE dont le panneau est ouvert, jamais son
+   * rang dans la liste : la file change sous l'écran (relève, rattachement, classement) et un rang ne désigne alors
+   * plus le même échange. Déclaré AVANT `charger`, qui le remet à zéro à chaque relecture.
+   */
+  const [panneau, setPanneau] = useState<number | null>(null);
+  const [geste, setGeste] = useState<{ ton: 'ok' | 'erreur'; texte: string } | null>(null);
+  const [gesteEnCours, setGesteEnCours] = useState(false);
+
+  /**
    * Lit l'écran et RENVOIE le résultat sans toucher à aucun état : c'est l'appelant qui décide quoi en faire. Un refus
    * (403/401) n'est pas une panne, et il est dit pour ce qu'il est — envoyer chercher un bug là où le motif est « pas
    * le droit » fait perdre une demi-journée.
@@ -64,8 +73,16 @@ export function GestionVue() {
     return () => { annule = true; };
   }, [lire]);
 
-  /** Relecture DEMANDÉE (clic) : ici l'indicateur d'attente est attendu par celui qui vient de cliquer. */
+  /**
+   * Relecture DEMANDÉE (clic) : ici l'indicateur d'attente est attendu par celui qui vient de cliquer.
+   *
+   * LOT 4c — elle REFERME tout panneau ouvert, et c'est structurel, pas cosmétique : la liste qu'on vient de relire
+   * n'est plus celle sur laquelle l'utilisateur avait cliqué (un échange rattaché en sort, les suivants remontent).
+   * Le faire ICI plutôt qu'à chaque appelant est le seul moyen qu'aucun chemin ne l'oublie — relève automatique et
+   * bouton « Rafraîchir » compris.
+   */
   const charger = useCallback(async () => {
+    setPanneau(null);
     setVue({ etat: 'charge' });
     const r = await lire();
     setMaintenant(new Date());
@@ -74,11 +91,6 @@ export function GestionVue() {
 
   // LOT 3 — une passe réussie change ce qui est à l'écran : on recharge, sans recharger la page.
   const { enCours: releveEnCours, message: releveMsg, releverMaintenant } = useReleveGestion(() => { void charger(); });
-
-  // LOT 4b — état des GESTES : quel échange a son panneau ouvert, et le compte rendu du dernier geste.
-  const [panneau, setPanneau] = useState<number | null>(null);
-  const [geste, setGeste] = useState<{ ton: 'ok' | 'erreur'; texte: string } | null>(null);
-  const [gesteEnCours, setGesteEnCours] = useState(false);
 
   /** Un geste = un appel, un compte rendu, un rechargement. Jamais un silence, succès comme échec. */
   const agir = useCallback(async (url: string, methode: 'POST' | 'DELETE', succes: string, corps?: unknown) => {
@@ -238,8 +250,11 @@ export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAf
       {(onAffecter || onSansSuite) && (
         <div className="gst-actions">
           {onAffecter && (
-            <button type="button" className="svv-btn svv-btn-primary gst-btn" aria-expanded={ouvert} disabled={occupe} onClick={onAffecter}>
-              {ouvert ? 'Fermer' : 'Affecter à un événement'}
+            // LOT 4c — « Replier », et non « Fermer » : dans un outil de gestion locative, « fermer » se comprend
+            //   comme « clore le dossier ». Le bouton ne fait que replier le panneau ; il le dit maintenant.
+            <button type="button" className={`svv-btn ${ouvert ? 'svv-btn-outline' : 'svv-btn-primary'} gst-btn`}
+              aria-expanded={ouvert} disabled={occupe} onClick={onAffecter}>
+              {ouvert ? 'Replier' : 'Affecter à un événement'}
             </button>
           )}
           {onSansSuite && (
@@ -249,7 +264,11 @@ export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAf
           )}
         </div>
       )}
-      {ouvert && onFait && onAnnuler && <PanneauAffecter filId={fil.filId} onFait={onFait} onAnnuler={onAnnuler} />}
+      {/* Le panneau porte le NOM de l'échange sur lequel il agit : après un geste la liste remonte d'un cran, et un
+          panneau anonyme ouvert à la même place que le précédent ferait rattacher le mauvais échange sans rien dire. */}
+      {ouvert && onFait && onAnnuler && (
+        <PanneauAffecter filId={fil.filId} objet={fil.objet?.trim() || '(sans objet)'} onFait={onFait} onAnnuler={onAnnuler} />
+      )}
     </li>
   );
 }
@@ -312,6 +331,8 @@ const CSS_GESTION = `
 .gst-attend{flex-shrink:0;font-size:11px;font-weight:700;letter-spacing:.02em;color:var(--color-svv-red);border:1px solid var(--color-svv-red);border-radius:999px;padding:2px 8px}
 /* PANNEAU d'affectation, ouvert sous la ligne. */
 .gst-panneau{margin-top:10px;padding:12px;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:10px;display:flex;flex-direction:column;gap:10px}
+/* Sur QUOI on agit, rappelé dans le panneau : la liste bouge sous l'écran, pas la mémoire de celui qui clique. */
+.gst-panneau-titre{margin:0;font-size:.8rem;color:var(--color-svv-muted);line-height:1.4}
 .gst-voies{display:flex;flex-wrap:wrap;gap:.5rem}
 .gst-voie{min-height:44px;padding:.5rem .9rem;font-size:.85rem;font-weight:600;border-radius:.6rem;border:1px solid var(--color-svv-line-strong);background:var(--color-svv-surface);color:var(--color-svv-ink);cursor:pointer}
 .gst-voie--active{border-color:var(--color-svv-red);color:var(--color-svv-red)}
