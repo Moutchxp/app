@@ -86,6 +86,13 @@ export async function filtrerNonVus(client: ClientDossier, uids: number[]): Prom
   if (uids.length === 0) return [];
   let restants = uids;
 
+  // LOT R — Découpe l'étage ② en lots. `messageIdsDesUids` construit un `FETCH <uid>,<uid>,…` : la commande IMAP grandit
+  //   avec le nombre d'UID, et un rattrapage d'historique en demande des DIZAINES DE MILLIERS d'un coup (≈ 300 Ko de
+  //   ligne de commande) — au-delà de ce que les serveurs acceptent. Par lots, la question tient toujours dans une
+  //   commande de taille raisonnable. Le résultat est identique : ce filtre est une intersection, la découper ne change
+  //   rien à ce qu'elle rend.
+  const LOT_ENVELOPPES = 1000;
+
   // ① UID mémorisés, sous la même UIDVALIDITY.
   const validite = client.uidValidite?.() ?? null;
   if (validite !== null) {
@@ -100,9 +107,12 @@ export async function filtrerNonVus(client: ClientDossier, uids: number[]): Prom
     }
   }
 
-  // ② Message-ID en un aller-retour, pour ce qui reste.
+  // ② Message-ID par lots d'enveloppes, pour ce qui reste.
   if (client.messageIdsDesUids && restants.length > 0) {
-    const parUid = await client.messageIdsDesUids(restants);
+    const parUid = new Map<number, string>();
+    for (let i = 0; i < restants.length; i += LOT_ENVELOPPES) {
+      for (const [u, mid] of await client.messageIdsDesUids(restants.slice(i, i + LOT_ENVELOPPES))) parUid.set(u, mid);
+    }
     const ids = [...new Set([...parUid.values()].map((m) => m.trim()).filter((m) => m !== ''))];
     if (ids.length > 0) {
       const { rows } = await query<{ message_id: string }>(

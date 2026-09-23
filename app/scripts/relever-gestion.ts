@@ -12,11 +12,22 @@
  *
  * Aucune boîte configurée → message clair et sortie 0 (ce n'est PAS une erreur — même convention que `demandes:relever`).
  * Une passe déjà en cours → message clair et sortie 0 (le verrou a fait son travail).
+ *
+ * LOT R — TROIS OPTIONS DE RAPATRIEMENT D'HISTORIQUE, toutes PONCTUELLES : aucune n'écrit de réglage, aucune n'est active
+ * par défaut, et sans elles la commande se comporte EXACTEMENT comme avant (fenêtre `rattrapage_jours`, plafond de la
+ * configuration, une seule passe).
+ *   --depuis-origine   remonte à l'ORIGINE du dossier au lieu de `rattrapage_jours` ; la passe est journalisée « rattrapage »
+ *   --plafond=N        plafond de CETTE passe seulement
+ *   --boucler          enchaîne les passes jusqu'à épuisement (--pause=N secondes entre deux, 10 par défaut)
+ * Exemple (rapatriement complet, reprenable à tout moment) :
+ *   npm run gestion:relever -- --appliquer --depuis-origine --boucler --plafond=1000
  */
 import '../lib/chargerEnv';
+import { statfs } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import type { RapportCapture } from '../lib/gestion/capture';
 import type { IssueReleve } from '../lib/gestion/releve';
+import type { OptionsRattrapage } from '../lib/gestion/releveReelle';
 
 /** Durée lisible : secondes en dessous d'une minute, minutes au-delà. PUR. */
 export function duree(ms: number): string {
@@ -55,6 +66,116 @@ export function imprimerMesures(r: RapportCapture): string[] {
 /** Mode demandé. PUR. */
 export function lireAppliquer(argv: readonly string[]): boolean {
   return argv.includes('--appliquer');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+// LOT R — LE RAPATRIEMENT D'HISTORIQUE (opération PONCTUELLE, jamais un réglage)
+//
+// La relève ordinaire ne remonte qu'à `rattrapage_jours` (90 en base) : c'est voulu, et ce lot NE LE CHANGE PAS. Mais une
+// boîte a un passé plus long que sa fenêtre, et l'importer une fois demande trois choses qu'une passe seule n'a pas :
+// remonter à l'origine, enchaîner les passes (le plafond en borne chacune), et survivre à une nuit — coupure réseau,
+// quota du fournisseur, disque qui se remplit. Tout est ici, dans la CLI, et RIEN dans le comportement par défaut.
+// ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+/** Ce que la ligne de commande demande, au-delà du mode. PUR. */
+export interface OptionsCli extends OptionsRattrapage {
+  /** Enchaîner les passes jusqu'à ce qu'il ne reste plus rien à lire (ou qu'une raison d'arrêter survienne). */
+  boucler: boolean;
+  /** Pause entre deux passes réussies, en secondes. */
+  pauseS: number;
+}
+
+/** Entier d'une option `--nom=42`. Absente, vide ou illisible → `defaut`. PUR. */
+export function lireEntier(argv: readonly string[], nom: string, defaut: number): number {
+  const brut = argv.find((a) => a.startsWith(`--${nom}=`))?.slice(nom.length + 3);
+  const n = Number.parseInt(brut ?? '', 10);
+  return Number.isFinite(n) && n > 0 ? n : defaut;
+}
+
+/** Pause par défaut entre deux passes : laisse respirer le serveur sans rallonger la nuit pour rien. */
+export const PAUSE_DEFAUT_S = 10;
+
+/** Options du rattrapage. Aucune n'est active par défaut : sans elles, la commande fait EXACTEMENT ce qu'elle faisait. PUR. */
+export function lireOptions(argv: readonly string[]): OptionsCli {
+  return {
+    depuisOrigine: argv.includes('--depuis-origine'),
+    plafond: lireEntier(argv, 'plafond', 0),
+    boucler: argv.includes('--boucler'),
+    pauseS: lireEntier(argv, 'pause', PAUSE_DEFAUT_S),
+  };
+}
+
+/**
+ * PLANCHER DE DISQUE : en dessous, on n'entame pas une passe de plus. Une pièce jointe se dépose sur le stockage objet,
+ * qui vit sur le même disque que la base : un rapatriement d'historique est la seule opération du module capable de le
+ * remplir. Mieux vaut un import inachevé et REPRENABLE qu'un disque plein, qui casse tout le reste de la machine.
+ */
+export const PLANCHER_DISQUE_OCTETS = 20 * 1024 ** 3;
+
+/** Réglages de l'enchaînement. Constantes de la CLI : une opération ponctuelle n'a pas à peupler `gestion_config`. */
+export interface ReglagesBoucle { pauseS: number; backoffBaseS: number; backoffMaxS: number; echecsMax: number }
+
+/**
+ * Attente après le `n`-ième échec CONSÉCUTIF (1 = le premier), en secondes. CROISSANTE par doublement, et PLAFONNÉE :
+ * un fournisseur qui refuse pour cause de quota journalier ne rendra pas la main plus vite parce qu'on insiste — et
+ * marteler une boîte qui refuse est le meilleur moyen de se faire fermer la porte plus durablement. PUR.
+ */
+export function attenteApresEchec(echecs: number, r: ReglagesBoucle): number {
+  return Math.min(r.backoffBaseS * 2 ** Math.max(0, echecs - 1), r.backoffMaxS);
+}
+
+/** Ce que la boucle retient d'une passe à l'autre. PUR. */
+export interface EtatBoucle {
+  echecsConsecutifs: number;
+  /** `resteInconnus` de la dernière passe ABOUTIE, ou `null` avant la première. Sert à détecter le surplace. */
+  restePrecedent: number | null;
+}
+
+export type SuiteBoucle =
+  | { action: 'continuer'; attendreS: number; motif: string }
+  | { action: 'arreter'; motif: string };
+
+/**
+ * DÉCIDE de la suite après une passe. PUR — c'est le cœur d'un run de plusieurs heures, il doit se lire et se tester
+ * sans boîte ni base. Quatre sorties, et chacune répond à une façon dont une nuit peut mal tourner :
+ *   · plus rien d'inconnu → c'est FINI, on s'arrête (sans quoi la boucle tournerait pour rien jusqu'au matin) ;
+ *   · SURPLACE (le reste ne diminue pas d'une passe à l'autre) → on s'arrête : quelque chose empêche d'avancer, et
+ *     boucler sur place pendant huit heures ne le réparerait pas ;
+ *   · échec → on RÉESSAIE, avec une attente croissante, jusqu'à un budget d'échecs CONSÉCUTIFS. Un échec isolé
+ *     (coupure, quota) ne doit pas finir la nuit ; une panne durable ne doit pas la consumer ;
+ *   · « occupe » / « inactif » → on s'arrête : ce ne sont pas des erreurs, mais rien ne les résoudra tout seul.
+ */
+export function suiteDeLaBoucle(issue: IssueReleve, etat: EtatBoucle, r: ReglagesBoucle): SuiteBoucle {
+  if (issue.resultat === 'erreur') {
+    const echecs = etat.echecsConsecutifs + 1;
+    if (echecs >= r.echecsMax) return { action: 'arreter', motif: `${echecs} échecs consécutifs : on arrête plutôt que d’insister.` };
+    const attendreS = attenteApresEchec(echecs, r);
+    return { action: 'continuer', attendreS, motif: `échec ${echecs}/${r.echecsMax} — nouvelle tentative dans ${attendreS} s.` };
+  }
+  if (issue.resultat !== 'ok') return { action: 'arreter', motif: issue.raison };
+  if (issue.rapport === null) return { action: 'arreter', motif: issue.raison };
+  const reste = issue.rapport.resteInconnus;
+  if (reste === 0) return { action: 'arreter', motif: 'rattrapage TERMINÉ : plus aucun message de la fenêtre n’est inconnu.' };
+  if (etat.restePrecedent !== null && reste >= etat.restePrecedent) {
+    return { action: 'arreter', motif: `surplace : ${reste} message(s) restants comme à la passe précédente — on arrête, une boucle sans progrès ne se répare pas toute seule.` };
+  }
+  return { action: 'continuer', attendreS: r.pauseS, motif: `${reste} message(s) encore jamais lus — passe suivante dans ${r.pauseS} s.` };
+}
+
+/** État de la boucle après une passe. Un succès REMET À ZÉRO le compteur d'échecs : seuls les échecs d'affilée comptent. PUR. */
+export function etatSuivant(issue: IssueReleve, etat: EtatBoucle): EtatBoucle {
+  if (issue.resultat === 'erreur') return { ...etat, echecsConsecutifs: etat.echecsConsecutifs + 1 };
+  return { echecsConsecutifs: 0, restePrecedent: issue.rapport?.resteInconnus ?? etat.restePrecedent };
+}
+
+/** En-tête du rattrapage : ce qui est demandé, en toutes lettres, AVANT toute connexion. PUR. */
+export function enTeteRattrapage(o: OptionsCli): string[] {
+  if (!o.depuisOrigine && !o.boucler && (o.plafond ?? 0) === 0) return [];
+  const l: string[] = ['  ── RAPATRIEMENT D’HISTORIQUE (opération ponctuelle — aucun réglage n’est modifié) ──'];
+  if (o.depuisOrigine) l.push('     fenêtre : depuis l’ORIGINE du dossier (au lieu de rattrapage_jours en base)');
+  if ((o.plafond ?? 0) > 0) l.push(`     plafond : ${o.plafond} message(s) pour CETTE passe (gestion_config n’est pas touchée)`);
+  if (o.boucler) l.push(`     passes  : enchaînées jusqu’à épuisement, ${o.pauseS} s entre chacune`);
+  return l;
 }
 
 /**
@@ -125,20 +246,58 @@ export function imprimerIssue(issue: IssueReleve, appliquer: boolean): string[] 
 /** Cœur du CLI, testable par injection. Renvoie le code de sortie. */
 export async function executerCli(opts: {
   argv: readonly string[];
-  relever: (appliquer: boolean, journal: (ligne: string) => void) => Promise<IssueReleve>;
+  relever: (appliquer: boolean, journal: (ligne: string) => void, options: OptionsRattrapage) => Promise<IssueReleve>;
   log: (s: string) => void;
+  /** Attente entre deux passes. Injectée → les tests ne dorment jamais. */
+  dormir?: (secondes: number) => Promise<void>;
+  /** Octets libres sur le disque du stockage. Absente → aucune garde (comportement d'avant, passe unique). */
+  espaceLibreOctets?: () => Promise<number>;
 }): Promise<number> {
   const appliquer = lireAppliquer(opts.argv);
+  const o = lireOptions(opts.argv);
+  const reglages: ReglagesBoucle = { pauseS: o.pauseS, backoffBaseS: 60, backoffMaxS: 1800, echecsMax: 8 };
+  const dormir = opts.dormir ?? ((s: number) => new Promise<void>((r) => setTimeout(r, s * 1000)));
+
   for (const ligne of enTeteMode(appliquer)) opts.log(ligne);      // AVANT la moindre connexion
-  const issue = await opts.relever(appliquer, (l) => opts.log(`  ${l}`)); // progression, au fil de la passe
-  for (const ligne of imprimerIssue(issue, appliquer)) opts.log(ligne);
-  return issue.resultat === 'erreur' ? 1 : 0; // 'inactif' et 'occupe' ne sont PAS des erreurs
+  for (const ligne of enTeteRattrapage(o)) opts.log(ligne);
+
+  let etat: EtatBoucle = { echecsConsecutifs: 0, restePrecedent: null };
+  let code = 0;
+  for (let passe = 1; ; passe += 1) {
+    // GARDE DISQUE, avant d'entamer une passe : on refuse de COMMENCER ce qu'on ne pourrait pas finir. Un import
+    //   inachevé se reprend ; un disque plein arrête la base, le stockage, et tout le reste de la machine.
+    if (appliquer && opts.espaceLibreOctets) {
+      const libre = await opts.espaceLibreOctets();
+      if (libre < PLANCHER_DISQUE_OCTETS) {
+        opts.log(`\n  ⛔ ARRÊT — garde disque : ${poids(libre)} libres, plancher ${poids(PLANCHER_DISQUE_OCTETS)}.`);
+        opts.log('     Rien n’est perdu : les messages déjà capturés sont acquis, la reprise repart d’elle-même.');
+        return 1;
+      }
+    }
+    if (o.boucler) opts.log(`\n── passe ${passe} ──`);
+    const issue = await opts.relever(appliquer, (l) => opts.log(`  ${l}`), { depuisOrigine: o.depuisOrigine, plafond: o.plafond });
+    for (const ligne of imprimerIssue(issue, appliquer)) opts.log(ligne);
+    code = issue.resultat === 'erreur' ? 1 : 0; // 'inactif' et 'occupe' ne sont PAS des erreurs
+    if (!o.boucler) return code;
+
+    const suite = suiteDeLaBoucle(issue, etat, reglages);
+    etat = etatSuivant(issue, etat);
+    opts.log(`  ▸ ${suite.motif}`);
+    if (suite.action === 'arreter') return code;
+    await dormir(suite.attendreS);
+  }
 }
 
 /** Câblage RÉEL (import dynamique : garde imapflow/pg hors du graphe importé par les tests). */
 async function main(): Promise<void> {
   const { relever } = await import('../lib/gestion/releveReelle');
-  process.exitCode = await executerCli({ argv: process.argv, relever, log: (s) => console.log(s) });
+  process.exitCode = await executerCli({
+    argv: process.argv,
+    relever,
+    log: (s) => console.log(s),
+    // `statfs` est une MESURE, jamais une écriture : on lit l'espace libre du disque où vivent base et stockage.
+    espaceLibreOctets: async () => { const s = await statfs(process.cwd()); return Number(s.bavail) * Number(s.bsize); },
+  });
 }
 
 // Point d'entrée : n'exécute `main()` que si le fichier est lancé DIRECTEMENT, jamais à l'import par un test.

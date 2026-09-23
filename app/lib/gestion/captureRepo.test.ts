@@ -148,3 +148,47 @@ describe('les autres replis de migration sont, eux, HORS transaction — donc va
     await expect(filtrerNonVus(client, [1, 2, 3])).resolves.toEqual([1, 2, 3]); // aucun filtre, mais aucune panne
   });
 });
+
+/**
+ * LOT R — LA QUESTION POSÉE À LA BOÎTE DOIT TENIR DANS UNE COMMANDE. `messageIdsDesUids` construit un `FETCH <uid>,<uid>,…` :
+ * la ligne de commande IMAP grandit avec le nombre d'UID. Sur la fenêtre de 90 jours (≈ 5 500 messages) elle passait ; sur un
+ * rapatriement d'HISTORIQUE (des dizaines de milliers d'un coup, ≈ 300 Ko), elle dépasse ce que les serveurs acceptent —
+ * et le rattrapage échouerait AVANT d'avoir lu le moindre message.
+ */
+describe('LOT R — l’étage des enveloppes est découpé en lots', () => {
+  it('50 000 UID ne partent JAMAIS en une seule commande — mais le résultat est celui d’une seule', async () => {
+    const { filtrerNonVus } = await import('./captureRepo');
+    queryMock.mockReset();
+    const uids = Array.from({ length: 50_000 }, (_, i) => i + 1);
+    const lots: number[] = [];
+    const client = {
+      uidValidite: () => null, // aucun UID mémorisé : tout passe par l'étage des enveloppes
+      messageIdsDesUids: async (u: number[]) => {
+        lots.push(u.length);
+        return new Map(u.map((x) => [x, `<m${x}@x.fr>`]));
+      },
+    } as never;
+    // Seuls les deux premiers Message-ID sont déjà en base : tout le reste doit ressortir.
+    queryMock.mockResolvedValue({ rows: [{ message_id: '<m1@x.fr>' }, { message_id: '<m2@x.fr>' }] });
+
+    const restants = await filtrerNonVus(client, uids);
+    expect(restants).toHaveLength(49_998);
+    expect(restants.slice(0, 2)).toEqual([3, 4]);
+    expect(lots).toHaveLength(50);                      // 50 lots, pas une commande géante
+    expect(Math.max(...lots)).toBeLessThanOrEqual(1000);
+    expect(lots.reduce((t, n) => t + n, 0)).toBe(50_000); // aucun UID oublié au passage
+  });
+
+  it('une poignée d’UID tient toujours dans un seul lot (aucun surcoût pour la relève ordinaire)', async () => {
+    const { filtrerNonVus } = await import('./captureRepo');
+    queryMock.mockReset();
+    const lots: number[] = [];
+    const client = {
+      uidValidite: () => null,
+      messageIdsDesUids: async (u: number[]) => { lots.push(u.length); return new Map(u.map((x) => [x, `<m${x}@x.fr>`])); },
+    } as never;
+    queryMock.mockResolvedValue({ rows: [] });
+    await expect(filtrerNonVus(client, [1, 2, 3])).resolves.toEqual([1, 2, 3]);
+    expect(lots).toEqual([3]);
+  });
+});

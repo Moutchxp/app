@@ -168,6 +168,24 @@ export interface RapportCapture {
 /** Ce qu'a coûté la lecture d'UN message. Jamais d'objet ni d'adresse : un tableau de diagnostic n'a pas à être nominatif. */
 export interface MesureLecture { uid: number; ms: number; octets: number }
 
+/**
+ * LOT R — OPTIONS D'UNE PASSE. Ce sont des réglages PONCTUELS, portés par l'appel, JAMAIS écrits en base : la relève
+ * ordinaire (quotidienne, écran) n'en passe aucune et garde donc exactement le comportement d'avant — fenêtre calculée
+ * par `fenetreDepuis`, plafond lu dans `gestion_config`.
+ *
+ * Elles existent pour UNE opération : rapatrier l'historique COMPLET d'un dossier, une fois, sans toucher au réglage
+ * `rattrapage_jours` (le changer ferait remonter la fenêtre de TOUTES les relèves à venir, pour toujours).
+ */
+export interface OptionsCapture {
+  /**
+   * Début de fenêtre IMPOSÉ, qui remplace le calcul ordinaire. Ne déplace aucun curseur par lui-même : c'est toujours
+   * `lireBornes` qui décide, plus tard, si une passe a réellement couvert ce qu'elle annonçait.
+   */
+  depuisForce?: Date;
+  /** Plafond de CETTE passe seulement. Absent ou ≤ 0 → celui de la configuration, comme toujours. */
+  plafondForce?: number;
+}
+
 /** Au-delà de ce seuil, une lecture est signalée EN DIRECT dans la progression : c'est le symptôme qu'on cherchait à voir. */
 export const SEUIL_LENTEUR_MS = 30_000;
 
@@ -272,12 +290,15 @@ export function preparerMessage(m: MessageBrut, config: ConfigGestion, regles: r
  * La boîte est TOUJOURS refermée (`finally`). Un message illisible est ISOLÉ (compté, jamais fatal) : un MIME cassé ne
  * doit pas faire perdre les 399 autres.
  */
-export async function capturer(deps: DepsCapture, appliquer = false): Promise<RapportCapture> {
+export async function capturer(deps: DepsCapture, appliquer = false, options: OptionsCapture = {}): Promise<RapportCapture> {
   const config = await deps.config();
   const regles = await deps.reglesActives();
   const depuisRattrapage = new Date(deps.maintenant().getTime() - config.rattrapageJours * 86_400_000);
   const bornes = await deps.bornes(depuisRattrapage);
-  const depuis = fenetreDepuis(bornes, config, deps.maintenant());
+  // LOT R — une fenêtre IMPOSÉE court-circuite le calcul ordinaire, et rien d'autre : le curseur, les bornes et le
+  //   dédoublonnage sont EXACTEMENT les mêmes. Sans option, `fenetreDepuis` décide comme avant.
+  const depuis = options.depuisForce ?? fenetreDepuis(bornes, config, deps.maintenant());
+  const plafond = (options.plafondForce ?? 0) > 0 ? options.plafondForce! : config.plafondParPasse;
   const connus = await deps.connus();
 
   const r: RapportCapture = {
@@ -310,10 +331,10 @@ export async function capturer(deps: DepsCapture, appliquer = false): Promise<Ra
     r.dejaVusEcartes = uids.length - nonVus.length;
     // PLAFOND : on garde les plus ANCIENS, jamais les plus récents. Jeter les vieux les perdrait pour toujours (la
     //   fenêtre ne redescend jamais) ; jeter les récents ne coûte qu'une passe de plus — ils reviendront.
-    const aLire = nonVus.length > config.plafondParPasse ? nonVus.slice(0, config.plafondParPasse) : nonVus;
+    const aLire = nonVus.length > plafond ? nonVus.slice(0, plafond) : nonVus;
     r.plafondAtteint = aLire.length < nonVus.length;
     r.resteInconnus = nonVus.length - aLire.length;
-    deps.journal?.(`${uids.length} message(s) dans la fenêtre · ${r.dejaVusEcartes} déjà connu(s) écarté(s) sans téléchargement · ${aLire.length} à lire${r.plafondAtteint ? ` (plafond ${config.plafondParPasse}) — ${r.resteInconnus} encore jamais lu(s)` : ''}`);
+    deps.journal?.(`${uids.length} message(s) dans la fenêtre · ${r.dejaVusEcartes} déjà connu(s) écarté(s) sans téléchargement · ${aLire.length} à lire${r.plafondAtteint ? ` (plafond ${plafond}) — ${r.resteInconnus} encore jamais lu(s)` : ''}`);
 
     for (const uid of aLire) {
       r.vus += 1;

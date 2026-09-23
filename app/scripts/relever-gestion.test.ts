@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { duree, enTeteMode, executerCli, imprimerIssue, imprimerMesures, lireAppliquer, poids } from './relever-gestion';
+import {
+  attenteApresEchec, duree, enTeteMode, enTeteRattrapage, etatSuivant, executerCli, imprimerIssue, imprimerMesures,
+  lireAppliquer, lireEntier, lireOptions, poids, suiteDeLaBoucle, PLANCHER_DISQUE_OCTETS,
+  type EtatBoucle, type ReglagesBoucle,
+} from './relever-gestion';
 import type { IssueReleve } from '../lib/gestion/releve';
 import type { RapportCapture } from '../lib/gestion/capture';
 
@@ -118,7 +122,17 @@ describe('garanties STATIQUES', () => {
     expect(modules).toContain('../lib/gestion/releveReelle');
     // Liste EXHAUSTIVE et voulue : la config d'environnement, le point d'entrée Node, le foyer de relève, et la
     //   fermeture du pool en sortie (une extinction, jamais une écriture). Rien d'autre n'est atteignable.
-    expect(new Set(modules)).toEqual(new Set(['../lib/chargerEnv', 'node:url', '../lib/gestion/releveReelle', '../lib/db/client']));
+    // `node:fs/promises` n'y figure QUE pour `statfs` — une MESURE de l'espace libre (garde disque du lot R). La CLI
+    //   n'écrit toujours aucun fichier : le test suivant le vérifie sur la source.
+    expect(new Set(modules)).toEqual(new Set([
+      '../lib/chargerEnv', 'node:fs/promises', 'node:url', '../lib/gestion/releveReelle', '../lib/db/client',
+    ]));
+  });
+
+  it('de node:fs, elle n’emprunte QUE la mesure d’espace libre — aucune écriture de fichier', () => {
+    expect(/from 'node:fs\/promises'/.test(src)).toBe(true);
+    expect(/import \{ statfs \} from 'node:fs\/promises'/.test(src)).toBe(true);
+    expect(/writeFile|appendFile|mkdir|rm\(|unlink|createWriteStream/.test(src)).toBe(false);
   });
 
   it('n’atteint AUCUN chemin d’envoi vers l’extérieur', () => {
@@ -250,5 +264,184 @@ describe('LOT 3-quinquies — l’état du RATTRAPAGE est dit en clair', () => {
     const t = imprimerIssue(issue({ rapport: rapport({ dejaVusEcartes: 4800, dejaConnus: 0 }) }), true).join('\n');
     expect(t).toContain('déjà lus, écartés sans lecture : 4800');
     expect(t).toContain('déjà connus (ignorés)       : 0');
+  });
+});
+
+/**
+ * LOT R — LE RAPATRIEMENT D'HISTORIQUE. Le point dur n'est pas de remonter loin : c'est que rien de tout cela ne
+ * déborde sur la relève ORDINAIRE. Aucune option active par défaut, aucun réglage écrit, et la passe unique d'avant
+ * reste la passe unique d'avant.
+ */
+describe('LOT R — les options sont PONCTUELLES, et éteintes par défaut', () => {
+  it('sans option, rien n’est demandé : ni origine, ni plafond, ni boucle', () => {
+    const o = lireOptions([]);
+    expect(o.depuisOrigine).toBe(false);
+    expect(o.plafond).toBe(0);
+    expect(o.boucler).toBe(false);
+    expect(o.pauseS).toBe(10);
+  });
+
+  it('chaque option se demande explicitement, et se lit dans la sortie', () => {
+    const o = lireOptions(['--appliquer', '--depuis-origine', '--plafond=1000', '--boucler', '--pause=45']);
+    expect(o).toMatchObject({ depuisOrigine: true, plafond: 1000, boucler: true, pauseS: 45 });
+    const t = enTeteRattrapage(o).join('\n');
+    expect(t).toContain('depuis l’ORIGINE du dossier');
+    expect(t).toContain('1000 message(s) pour CETTE passe');
+    expect(t).toContain('gestion_config n’est pas touchée');
+  });
+
+  it('une relève ordinaire n’affiche AUCUN en-tête de rattrapage (ce serait un bruit trompeur)', () => {
+    expect(enTeteRattrapage(lireOptions(['--appliquer']))).toEqual([]);
+  });
+
+  it('un entier illisible, négatif ou absent retombe sur le défaut — jamais sur NaN', () => {
+    expect(lireEntier(['--plafond=abc'], 'plafond', 7)).toBe(7);
+    expect(lireEntier(['--plafond=-5'], 'plafond', 7)).toBe(7);
+    expect(lireEntier(['--plafond=0'], 'plafond', 7)).toBe(7);
+    expect(lireEntier([], 'plafond', 7)).toBe(7);
+    expect(lireEntier(['--plafond=250'], 'plafond', 7)).toBe(250);
+  });
+
+  it('les options sont TRANSMISES à la relève, telles que demandées', async () => {
+    const vues: unknown[] = [];
+    const { log } = io();
+    await executerCli({
+      argv: ['--appliquer', '--depuis-origine', '--plafond=800'],
+      relever: async (_a, _j, options) => { vues.push(options); return issue(); },
+      log,
+    });
+    expect(vues[0]).toEqual({ depuisOrigine: true, plafond: 800 });
+  });
+});
+
+describe('LOT R — l’enchaînement des passes : quand continuer, quand s’arrêter', () => {
+  const reglages: ReglagesBoucle = { pauseS: 10, backoffBaseS: 60, backoffMaxS: 1800, echecsMax: 8 };
+  const neuf: EtatBoucle = { echecsConsecutifs: 0, restePrecedent: null };
+
+  it('il reste des messages jamais lus → on continue, après la pause', () => {
+    const s = suiteDeLaBoucle(issue({ rapport: rapport({ resteInconnus: 4711 }) }), neuf, reglages);
+    expect(s).toMatchObject({ action: 'continuer', attendreS: 10 });
+    expect(s.motif).toContain('4711');
+  });
+
+  it('plus rien d’inconnu → on s’arrête : boucler jusqu’au matin pour rien serait la pire des fins', () => {
+    const s = suiteDeLaBoucle(issue({ rapport: rapport({ resteInconnus: 0 }) }), neuf, reglages);
+    expect(s.action).toBe('arreter');
+    expect(s.motif).toContain('TERMINÉ');
+  });
+
+  it('SURPLACE (le reste ne diminue pas) → on s’arrête, une boucle sans progrès ne se répare pas seule', () => {
+    const etat: EtatBoucle = { echecsConsecutifs: 0, restePrecedent: 300 };
+    expect(suiteDeLaBoucle(issue({ rapport: rapport({ resteInconnus: 300 }) }), etat, reglages).action).toBe('arreter');
+    expect(suiteDeLaBoucle(issue({ rapport: rapport({ resteInconnus: 299 }) }), etat, reglages).action).toBe('continuer');
+  });
+
+  it('un échec ISOLÉ ne finit pas la nuit : on réessaie, avec une attente croissante', () => {
+    const echec = issue({ resultat: 'erreur', rapport: null });
+    expect(suiteDeLaBoucle(echec, neuf, reglages)).toMatchObject({ action: 'continuer', attendreS: 60 });
+    expect(suiteDeLaBoucle(echec, { ...neuf, echecsConsecutifs: 2 }, reglages)).toMatchObject({ attendreS: 240 });
+  });
+
+  it('l’attente double mais reste PLAFONNÉE — insister ne fait pas rendre la main plus vite', () => {
+    expect(attenteApresEchec(1, reglages)).toBe(60);
+    expect(attenteApresEchec(4, reglages)).toBe(480);
+    expect(attenteApresEchec(9, reglages)).toBe(1800);
+    expect(attenteApresEchec(50, reglages)).toBe(1800);
+  });
+
+  it('une panne DURABLE finit par arrêter la boucle, au budget d’échecs consécutifs', () => {
+    const s = suiteDeLaBoucle(issue({ resultat: 'erreur', rapport: null }), { ...neuf, echecsConsecutifs: 7 }, reglages);
+    expect(s.action).toBe('arreter');
+    expect(s.motif).toContain('8 échecs consécutifs');
+  });
+
+  it('un SUCCÈS remet le compteur d’échecs à zéro : seuls les échecs d’AFFILÉE comptent', () => {
+    const apresEchec = etatSuivant(issue({ resultat: 'erreur', rapport: null }), { ...neuf, echecsConsecutifs: 3 });
+    expect(apresEchec.echecsConsecutifs).toBe(4);
+    expect(etatSuivant(issue({ rapport: rapport({ resteInconnus: 12 }) }), apresEchec))
+      .toEqual({ echecsConsecutifs: 0, restePrecedent: 12 });
+  });
+
+  it('« occupe » et « inactif » arrêtent la boucle : rien ne les résoudra tout seul', () => {
+    for (const r of ['occupe', 'inactif'] as const) {
+      expect(suiteDeLaBoucle(issue({ resultat: r, rapport: null, raison: 'motif' }), neuf, reglages).action).toBe('arreter');
+    }
+  });
+});
+
+describe('LOT R — la boucle, de bout en bout', () => {
+  it('enchaîne les passes jusqu’à épuisement, puis rend la main', async () => {
+    const restes = [900, 500, 0];
+    let n = 0;
+    const { lignes, log } = io();
+    const code = await executerCli({
+      argv: ['--appliquer', '--depuis-origine', '--boucler'],
+      relever: async () => issue({ rapport: rapport({ resteInconnus: restes[n++] }) }),
+      log, dormir: async () => {},
+    });
+    expect(n).toBe(3);
+    expect(code).toBe(0);
+    expect(lignes.join('\n')).toContain('── passe 3 ──');
+  });
+
+  it('SANS --boucler, une seule passe — le comportement d’avant, intact', async () => {
+    let n = 0;
+    const { log } = io();
+    await executerCli({
+      argv: ['--appliquer'],
+      relever: async () => { n += 1; return issue({ rapport: rapport({ resteInconnus: 4711 }) }); },
+      log, dormir: async () => {},
+    });
+    expect(n).toBe(1);
+  });
+
+  it('elle ATTEND réellement entre deux passes (backoff compris) — jamais de martèlement', async () => {
+    const dodos: number[] = [];
+    const restes = [900, 0];
+    let n = 0;
+    const { log } = io();
+    await executerCli({
+      argv: ['--appliquer', '--boucler', '--pause=30'],
+      relever: async () => issue({ rapport: rapport({ resteInconnus: restes[n++] }) }),
+      log, dormir: async (s) => { dodos.push(s); },
+    });
+    expect(dodos).toEqual([30]);
+  });
+
+  it('GARDE DISQUE : sous le plancher, aucune passe n’est entamée, et on le dit en clair', async () => {
+    let n = 0;
+    const { lignes, log } = io();
+    const code = await executerCli({
+      argv: ['--appliquer', '--boucler'],
+      relever: async () => { n += 1; return issue(); },
+      log, dormir: async () => {},
+      espaceLibreOctets: async () => PLANCHER_DISQUE_OCTETS - 1,
+    });
+    expect(n).toBe(0);            // rien n'a même commencé
+    expect(code).toBe(1);
+    expect(lignes.join('\n')).toContain('⛔ ARRÊT — garde disque');
+  });
+
+  it('la garde ne mord pas en SIMULATION : une simulation n’écrit rien, donc ne remplit rien', async () => {
+    let n = 0;
+    const { log } = io();
+    await executerCli({
+      argv: [],
+      relever: async () => { n += 1; return issue(); },
+      log, dormir: async () => {},
+      espaceLibreOctets: async () => 0,
+    });
+    expect(n).toBe(1);
+  });
+
+  it('au-dessus du plancher, la passe part normalement', async () => {
+    let n = 0;
+    const { log } = io();
+    await executerCli({
+      argv: ['--appliquer'],
+      relever: async () => { n += 1; return issue(); },
+      log, espaceLibreOctets: async () => PLANCHER_DISQUE_OCTETS * 2,
+    });
+    expect(n).toBe(1);
   });
 });

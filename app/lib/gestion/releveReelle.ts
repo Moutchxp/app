@@ -7,11 +7,32 @@
  * dossiers et en ouvrir un par son chemin en `readOnly`. Le compte est le compte PAR DÉFAUT — la boîte déjà relevée par
  * la veille des permis, celle qui porte le libellé de gestion. Aucun nouvel identifiant, aucun OAuth.
  */
-import { capturer } from './capture';
+import { capturer, type OptionsCapture } from './capture';
 import { noterErreur, nouvelEtat, surveiller, type ClientDossier } from './clientSurveille';
 import { chargerConfigGestion } from './config';
 import { depsReellesCapture, finaliserRun, insererRun, journaliserReconnexion, verrouGestion } from './captureRepo';
 import { executerReleveGestion, type DepsReleveGestion, type IssueReleve } from './releve';
+
+/**
+ * LOT R — RAPATRIEMENT D'HISTORIQUE. Réglages PONCTUELS d'une passe, portés par l'appel et jamais écrits en base.
+ *
+ * 🔴 POURQUOI ILS NE TOUCHENT PAS `gestion_config` : remonter `rattrapage_jours` à 3 000 jours rapatrierait bien
+ * l'historique, mais ferait aussi repartir de zéro la fenêtre de TOUTES les relèves suivantes, pour toujours. Le
+ * rattrapage est une OPÉRATION, pas un réglage : il vit le temps d'une commande, et la relève quotidienne (écran,
+ * planificateur) continue de lire exactement les mêmes réglages qu'avant.
+ */
+export interface OptionsRattrapage {
+  /** Remonter à l'ORIGINE du dossier plutôt qu'à `rattrapage_jours`. La passe est alors journalisée « rattrapage ». */
+  depuisOrigine?: boolean;
+  /** Plafond de CETTE passe seulement (la configuration n'est pas touchée). */
+  plafond?: number;
+}
+
+/**
+ * L'« origine » d'un dossier IMAP. Aucune boîte n'a de message antérieur, et `SEARCH SINCE` ne connaît de toute façon
+ * que le jour : une date de garde très ancienne vaut mieux qu'un `1970` qui heurte les serveurs comptant en temps Unix.
+ */
+export const ORIGINE_DOSSIER = new Date(Date.UTC(1990, 0, 1));
 
 /**
  * Dépendances RÉELLES de la passe. Le client IMAP n'est construit qu'au moment où on en a besoin.
@@ -22,8 +43,14 @@ import { executerReleveGestion, type DepsReleveGestion, type IssueReleve } from 
  *   ② le client est ENVELOPPÉ (`surveiller`) : dès qu'une erreur de connexion est notée, tout appel suivant échoue vite et
  *      CLAIREMENT — au lieu de laisser la passe compter 397 messages « illisibles » et rendre un faux succès.
  */
-export function depsReellesReleve(journal?: (ligne: string) => void): DepsReleveGestion {
+export function depsReellesReleve(journal?: (ligne: string) => void, options: OptionsRattrapage = {}): DepsReleveGestion {
   const verrou = verrouGestion();
+  // LOT R — options de la passe, calculées UNE fois. Sans option, l'objet est vide et `capturer` se comporte à
+  //   l'identique de ce qu'il faisait avant ce lot.
+  const optionsCapture: OptionsCapture = {
+    ...(options.depuisOrigine === true ? { depuisForce: ORIGINE_DOSSIER } : {}),
+    ...((options.plafond ?? 0) > 0 ? { plafondForce: options.plafond } : {}),
+  };
   // Le client COURANT de la passe. Une reconnexion en installe un NEUF : capturer doit toujours lire celui-là, jamais le
   //   cadavre du précédent — d'où le getter passé à `depsReellesCapture`.
   let courant: ClientDossier | null = null;
@@ -47,7 +74,12 @@ export function depsReellesReleve(journal?: (ligne: string) => void): DepsReleve
     creerClient: async () => { courant = await fabriquer(); return courant; },
     acquerirVerrou: verrou.acquerir,
     libererVerrou: verrou.liberer,
-    insererRun: async (dossier) => { runCourant = await insererRun('manuel', dossier); return runCourant; },
+    // Le DÉCLENCHEUR dit, des mois après, POURQUOI une passe a lu si loin en arrière : « rattrapage » distingue
+    //   l'opération ponctuelle d'historique d'une relève ordinaire, sans quoi le journal des passes serait illisible.
+    insererRun: async (dossier) => {
+      runCourant = await insererRun(options.depuisOrigine === true ? 'rattrapage' : 'manuel', dossier);
+      return runCourant;
+    },
     finaliserRun,
     capturer: (_client, appliquer) => capturer({
       ...depsReellesCapture(() => courant!),
@@ -68,11 +100,13 @@ export function depsReellesReleve(journal?: (ligne: string) => void): DepsReleve
       journaliserReconnexion: async (tentative: number, motif: string) => {
         if (runCourant !== null) await journaliserReconnexion(runCourant, tentative, motif);
       },
-    }, appliquer),
+    }, appliquer, optionsCapture),
   };
 }
 
 /** UNE passe réelle (ou simulée). Ne relance jamais : l'appelant décide quoi faire de l'issue. */
-export function relever(appliquer: boolean, journal?: (ligne: string) => void): Promise<IssueReleve> {
-  return executerReleveGestion(depsReellesReleve(journal), appliquer);
+export function relever(
+  appliquer: boolean, journal?: (ligne: string) => void, options: OptionsRattrapage = {},
+): Promise<IssueReleve> {
+  return executerReleveGestion(depsReellesReleve(journal, options), appliquer);
 }

@@ -193,6 +193,66 @@ describe('le plafond garde les plus ANCIENS', () => {
   });
 });
 
+/**
+ * LOT R — LES OPTIONS D'UNE PASSE. Elles servent au rapatriement d'un historique complet, et le seul risque qu'elles
+ * portent est de DÉBORDER : si l'absence d'option ne rendait pas exactement le comportement d'avant, chaque relève
+ * quotidienne s'en trouverait changée. C'est donc ce qui est testé en premier.
+ */
+describe('LOT R — options ponctuelles : sans elles, RIEN ne change', () => {
+  const cinq = [1, 2, 3, 4, 5].map((uid) => message({ uid }));
+
+  it('aucune option → la fenêtre reste celle de `fenetreDepuis`, et le plafond celui de la configuration', async () => {
+    const { d, appels } = deps({ messages: cinq, config: { ...config, plafondParPasse: 3, rattrapageJours: 90 } });
+    const r = await capturer(d, true);
+    expect(appels.recherches[0]).toEqual(fenetreDepuis({ curseurComplet: null }, { ...config, rattrapageJours: 90 }, MAINTENANT));
+    expect(r.vus).toBe(3);
+  });
+
+  it('un objet d’options VIDE se comporte exactement comme aucune option', async () => {
+    const { d, appels } = deps({ messages: cinq, config: { ...config, plafondParPasse: 3 } });
+    const r = await capturer(d, true, {});
+    expect(appels.recherches[0]).toEqual(fenetreDepuis({ curseurComplet: null }, config, MAINTENANT));
+    expect(r.vus).toBe(3);
+  });
+
+  it('`depuisForce` IMPOSE le début de fenêtre — c’est ce qui permet de remonter à l’origine du dossier', async () => {
+    const origine = new Date('1990-01-01T00:00:00Z');
+    const { d, appels } = deps({ messages: cinq });
+    await capturer(d, true, { depuisForce: origine });
+    expect(appels.recherches).toEqual([origine]);
+  });
+
+  it('une fenêtre imposée ne change NI le dédoublonnage, NI ce qui est écrit', async () => {
+    const { d, appels } = deps({ messages: cinq, connus: ['<m1@orange.fr>', '<m2@orange.fr>'] });
+    const r = await capturer(d, true, { depuisForce: new Date('1990-01-01T00:00:00Z'), plafondForce: 99 });
+    expect(r.dejaConnus).toBe(2);
+    expect(appels.ecrits.map((e) => e.messageId)).toEqual(['<m3@orange.fr>', '<m4@orange.fr>', '<m5@orange.fr>']);
+  });
+
+  it('`plafondForce` ne vaut que pour CETTE passe — la configuration n’est jamais consultée autrement', async () => {
+    const { d } = deps({ messages: cinq, config: { ...config, plafondParPasse: 3 } });
+    const r = await capturer(d, true, { plafondForce: 5 });
+    expect(r.vus).toBe(5);
+    expect(r.plafondAtteint).toBe(false);
+    expect(r.resteInconnus).toBe(0);
+  });
+
+  it('un plafond forcé plus BAS mord, et laisse le reste à la passe suivante', async () => {
+    const { d } = deps({ messages: cinq, config: { ...config, plafondParPasse: 400 } });
+    const r = await capturer(d, true, { plafondForce: 2 });
+    expect(r.vus).toBe(2);
+    expect(r.plafondAtteint).toBe(true);
+    expect(r.resteInconnus).toBe(3);
+  });
+
+  it('un plafond forcé à 0 ou négatif est IGNORÉ : on retombe sur la configuration, jamais sur « aucune lecture »', async () => {
+    for (const plafondForce of [0, -1]) {
+      const { d } = deps({ messages: cinq, config: { ...config, plafondParPasse: 3 } });
+      expect((await capturer(d, true, { plafondForce })).vus).toBe(3);
+    }
+  });
+});
+
 describe('robustesse d’une passe', () => {
   it('un message illisible est ISOLÉ : compté, jamais fatal, les autres passent', async () => {
     const { d, appels } = deps({
