@@ -10,7 +10,7 @@
 import { capturer } from './capture';
 import { noterErreur, nouvelEtat, surveiller, type ClientDossier } from './clientSurveille';
 import { chargerConfigGestion } from './config';
-import { depsReellesCapture, finaliserRun, insererRun, verrouGestion } from './captureRepo';
+import { depsReellesCapture, finaliserRun, insererRun, journaliserReconnexion, verrouGestion } from './captureRepo';
 import { executerReleveGestion, type DepsReleveGestion, type IssueReleve } from './releve';
 
 /**
@@ -24,24 +24,51 @@ import { executerReleveGestion, type DepsReleveGestion, type IssueReleve } from 
  */
 export function depsReellesReleve(journal?: (ligne: string) => void): DepsReleveGestion {
   const verrou = verrouGestion();
+  // Le client COURANT de la passe. Une reconnexion en installe un NEUF : capturer doit toujours lire celui-là, jamais le
+  //   cadavre du précédent — d'où le getter passé à `depsReellesCapture`.
+  let courant: ClientDossier | null = null;
+  let runCourant: number | null = null;
+
+  /** Fabrique un client NEUF : nouvelle connexion, nouvel écouteur d'erreur, nouvelle surveillance. */
+  const fabriquer = async (): Promise<ClientDossier | null> => {
+    const { lireCompteImap } = await import('../email');
+    const compte = lireCompteImap(''); // compte PAR DÉFAUT = la boîte qui porte le libellé de gestion
+    if (compte === null) return null;  // profil inactif : rien à relever, ce n'est pas une erreur
+    const { creerClientApprofondi } = await import('../email/imap');
+    const etat = nouvelEtat();
+    const brut = creerClientApprofondi(compte, noterErreur(etat)) as unknown as ClientDossier;
+    return surveiller(brut, etat);
+  };
+
   return {
     maintenant: () => new Date(),
     journal,
     config: chargerConfigGestion,
-    creerClient: async (): Promise<ClientDossier | null> => {
-      const { lireCompteImap } = await import('../email');
-      const compte = lireCompteImap(''); // compte PAR DÉFAUT = la boîte qui porte le libellé de gestion
-      if (compte === null) return null;  // profil inactif : rien à relever, ce n'est pas une erreur
-      const { creerClientApprofondi } = await import('../email/imap');
-      const etat = nouvelEtat();
-      const brut = creerClientApprofondi(compte, noterErreur(etat)) as unknown as ClientDossier;
-      return surveiller(brut, etat);
-    },
+    creerClient: async () => { courant = await fabriquer(); return courant; },
     acquerirVerrou: verrou.acquerir,
     libererVerrou: verrou.liberer,
-    insererRun: (dossier) => insererRun('manuel', dossier),
+    insererRun: async (dossier) => { runCourant = await insererRun('manuel', dossier); return runCourant; },
     finaliserRun,
-    capturer: (client, appliquer) => capturer({ ...depsReellesCapture(client), journal }, appliquer),
+    capturer: (_client, appliquer) => capturer({
+      ...depsReellesCapture(() => courant!),
+      journal,
+      /**
+       * RECONNEXION : on referme (au mieux — la connexion est probablement déjà morte), on fabrique un client NEUF et on
+       * rouvre le dossier. Réutiliser l'ancienne instance ImapFlow après une coupure n'est pas fiable : on en prend une
+       * autre, avec son propre écouteur d'erreur et son propre état.
+       */
+      reconnecter: async (chemin: string) => {
+        try { await courant?.fermer(); } catch { /* best-effort : refermer un mort ne doit jamais faire échouer la reprise */ }
+        courant = await fabriquer();
+        if (courant === null) throw new Error('reconnexion impossible : aucun compte IMAP configuré');
+        await courant.ouvrir();
+        await courant.ouvrirBoite(chemin);
+      },
+      attendre: (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)),
+      journaliserReconnexion: async (tentative: number, motif: string) => {
+        if (runCourant !== null) await journaliserReconnexion(runCourant, tentative, motif);
+      },
+    }, appliquer),
   };
 }
 

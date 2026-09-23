@@ -258,7 +258,51 @@ export function creerClientEnvoyes(compte: CompteImap): ClientEnvoyes {
  *   STRICTEMENT identique à avant pour le module Permis (relève approfondie) — y compris sa façon d'échouer. Seul un
  *   appelant qui fournit explicitement l'écouteur change de régime. Aucune autre ligne de ce fichier n'est modifiée.
  */
-export function creerClientApprofondi(compte: CompteImap, surErreur?: (e: Error) => void): ClientApprofondi {
+/**
+ * LOT 3-quater — LECTURE LÉGÈRE d'un message : en-têtes + structure + taille, SANS le corps et SANS le contenu des pièces.
+ *
+ * ⚠️ POURQUOI ELLE EXISTE : `telechargerMessage` demande la SOURCE entière (`source: true`) — jusqu'à plusieurs dizaines
+ * de Mo par message quand il porte des pièces. C'est indispensable pour une capture RÉELLE (on dépose les pièces), mais
+ * la SIMULATION, elle, n'en lit pas un octet : elle ne juge que le sens, l'objet, les en-têtes et les règles. Télécharger
+ * des mégaoctets pour les jeter allonge la passe d'autant — et allonge à proportion la fenêtre pendant laquelle une
+ * coupure réseau peut tomber.
+ *
+ * 🔒 STRICTEMENT ADDITIF : c'est une méthode EN PLUS sur l'objet rendu. Le type `ClientApprofondi` (module Permis) n'est
+ * pas modifié, et le module Permis n'appelle JAMAIS cette méthode — son chemin reste celui d'avant, à l'octet près.
+ */
+export interface PieceLegere { nomFichier: string; typeMime: string | null; tailleOctets: number | null }
+export interface MessageLeger {
+  uid: number;
+  recuLe: Date;
+  deNom: string | null;
+  message: MessageEntrant;   // corpsTexte / corpsHtml ABSENTS : ils ne sont pas téléchargés
+  pieces: PieceLegere[];     // nom, type et taille — JAMAIS le contenu
+  tailleOctets: number;      // taille du message entier, telle que le serveur l'annonce
+}
+
+/** Un nœud de la structure est-il une PIÈCE JOINTE ? (disposition explicite, ou un nom de fichier quelque part). */
+function estPieceJointe(noeud: { disposition?: string; dispositionParameters?: Record<string, string>; parameters?: Record<string, string> }): boolean {
+  if ((noeud.disposition ?? '').toLowerCase() === 'attachment') return true;
+  return Boolean(noeud.dispositionParameters?.filename ?? noeud.parameters?.name);
+}
+
+/** Parcourt la structure du message et relève les pièces jointes : nom, type, taille. Aucun octet de contenu n'est lu. PUR. */
+export function piecesDeStructure(noeud: unknown): PieceLegere[] {
+  const n = noeud as { childNodes?: unknown[]; type?: string; size?: number; disposition?: string; dispositionParameters?: Record<string, string>; parameters?: Record<string, string> } | null;
+  if (!n || typeof n !== 'object') return [];
+  if (Array.isArray(n.childNodes) && n.childNodes.length > 0) return n.childNodes.flatMap(piecesDeStructure);
+  if (!estPieceJointe(n)) return [];
+  const nom = n.dispositionParameters?.filename ?? n.parameters?.name ?? '';
+  return [{
+    nomFichier: nom.trim() !== '' ? nom : '(sans nom)',
+    typeMime: n.type ?? null,
+    tailleOctets: typeof n.size === 'number' ? n.size : null,
+  }];
+}
+
+export function creerClientApprofondi(compte: CompteImap, surErreur?: (e: Error) => void): ClientApprofondi & {
+  telechargerEntetes(uid: number): Promise<MessageLeger>;
+} {
   const client = new ImapFlow({
     host: compte.host,
     port: compte.port,
@@ -279,6 +323,26 @@ export function creerClientApprofondi(compte: CompteImap, surErreur?: (e: Error)
     },
     async ouvrirBoite(chemin: string): Promise<void> {
       await client.mailboxOpen(chemin, { readOnly: true }); // EXAMINE : aucune modification de la boîte
+    },
+    /**
+     * LOT 3-quater — LECTURE LÉGÈRE : en-têtes, structure et taille. Le corps et les pièces ne sont PAS téléchargés, et
+     * la lecture pèse alors quelques kilo-octets au lieu de plusieurs méga-octets. Les en-têtes passent par le MÊME
+     * analyseur que la lecture complète (`simpleParser`) : une seule façon de lire un Message-ID, un In-Reply-To ou un
+     * References dans tout le dépôt. Même LECTURE STRICTE : aucun flag posé, rien de déplacé ni supprimé.
+     */
+    async telechargerEntetes(uid: number): Promise<MessageLeger> {
+      const msg = await client.fetchOne(uid, { envelope: true, bodyStructure: true, size: true, headers: true }, { uid: true });
+      if (msg === false || !msg.headers) throw new Error(`message uid ${uid} introuvable ou sans en-têtes`);
+      const parsed = await simpleParser(msg.headers); // en-têtes SEULS : le corps est vide par construction
+      const base = versMessageBoite(parsed, uid);
+      return {
+        uid,
+        recuLe: msg.envelope?.date ?? base.recuLe,
+        deNom: base.deNom,
+        message: { ...base.message, corpsTexte: undefined, corpsHtml: undefined }, // jamais téléchargés : on ne prétend pas les avoir
+        pieces: piecesDeStructure(msg.bodyStructure),
+        tailleOctets: typeof msg.size === 'number' ? msg.size : 0,
+      };
     },
     async chercher(criteres: CritereRecherche): Promise<number[]> {
       const critere: { since: Date; from?: string } = { since: criteres.depuis };

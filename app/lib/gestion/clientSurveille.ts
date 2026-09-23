@@ -31,6 +31,14 @@ export interface ClientDossier {
     message: { messageId: string; inReplyTo?: string; references?: string[]; deAdresse: string; objet?: string; corpsTexte?: string; corpsHtml?: string; entetes: Record<string, string> };
     pieces: { nomFichier: string; typeMime: string | null; tailleOctets: number | null; contenu: Buffer }[];
   }>;
+  /** LOT 3-quater — lecture LÉGÈRE : en-têtes + structure + taille, SANS le corps ni le contenu des pièces. Optionnelle :
+   *  un client qui ne la propose pas fait simplement retomber la simulation sur la lecture complète. */
+  telechargerEntetes?(uid: number): Promise<{
+    uid: number; recuLe: Date; deNom: string | null;
+    message: { messageId: string; inReplyTo?: string; references?: string[]; deAdresse: string; objet?: string; entetes: Record<string, string> };
+    pieces: { nomFichier: string; typeMime: string | null; tailleOctets: number | null }[];
+    tailleOctets: number;
+  }>;
   fermer(): Promise<void>;
 }
 
@@ -91,6 +99,10 @@ export function surveiller(client: ClientDossier, etat: EtatConnexion): ClientDo
     ouvrirBoite: (chemin) => garde(`l'ouverture du dossier « ${chemin} »`, () => client.ouvrirBoite(chemin)),
     chercher: (criteres) => garde('la recherche des messages', () => client.chercher(criteres)),
     telechargerMessage: (uid) => garde(`la lecture du message ${uid}`, () => client.telechargerMessage(uid)),
+    // La lecture légère suit la MÊME garde. Absente du client enveloppé → absente de l'enveloppe : on ne prétend pas savoir faire.
+    ...(client.telechargerEntetes
+      ? { telechargerEntetes: (uid: number) => garde(`la lecture des en-têtes du message ${uid}`, () => client.telechargerEntetes!(uid)) }
+      : {}),
     // La FERMETURE ne garde rien : refermer une connexion déjà tombée doit rester silencieux, sinon l'erreur de
     //   fermeture masquerait la vraie cause dans le `finally` de la passe.
     fermer: () => client.fermer(),

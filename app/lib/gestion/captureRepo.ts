@@ -196,11 +196,18 @@ export function destinatairesDuMessage(entetes: Record<string, string>): { brut:
  */
 export type { ClientDossier } from './clientSurveille';
 
-/** Projette un message lu par l'adaptateur IMAP sur ce dont la capture a besoin. PUR. */
+/**
+ * Projette un message lu par l'adaptateur IMAP sur ce dont la capture a besoin. PUR.
+ * `tailleOctets` est ESTIMÉE ici (somme des parties décodées) : la lecture complète ne rend pas la taille annoncée par le
+ * serveur. La lecture LÉGÈRE, elle, la donne exactement — c'est elle qui sert à la mesure en simulation.
+ */
 export function versMessageBrut(mb: Awaited<ReturnType<ClientDossier['telechargerMessage']>>): MessageBrut {
   const entetes = mb.message.entetes ?? {};
   const dest = destinatairesDuMessage(entetes);
+  const estimee = (mb.message.corpsTexte ?? '').length + (mb.message.corpsHtml ?? '').length
+    + mb.pieces.reduce((t, p) => t + (p.tailleOctets ?? p.contenu.byteLength), 0);
   return {
+    tailleOctets: estimee,
     uid: mb.uid,
     messageId: mb.message.messageId ?? '',
     inReplyTo: mb.message.inReplyTo ?? null,
@@ -218,20 +225,66 @@ export function versMessageBrut(mb: Awaited<ReturnType<ClientDossier['telecharge
   };
 }
 
-/** Dépendances RÉELLES. `ouvrir()` de la connexion est fait ici, à la première ouverture de dossier. */
-export function depsReellesCapture(client: ClientDossier): DepsCapture {
+/**
+ * LOT 3-quater — projection d'une lecture LÉGÈRE. Le corps est ABSENT (il n'a pas été téléchargé) et les pièces n'ont pas de
+ * contenu : on rend donc `pieces: []` plutôt qu'un contenu vide qui mentirait. La simulation n'en lit rien — elle ne juge que
+ * le sens, l'objet, les en-têtes et les règles —, et tous ses compteurs sont IDENTIQUES à ceux d'une lecture complète.
+ */
+export function versMessageBrutLeger(mb: { uid: number; recuLe: Date; deNom: string | null; tailleOctets: number;
+  message: { messageId: string; inReplyTo?: string; references?: string[]; deAdresse: string; objet?: string; entetes: Record<string, string> };
+  pieces: { nomFichier: string; typeMime: string | null; tailleOctets: number | null }[] }): MessageBrut {
+  const entetes = mb.message.entetes ?? {};
+  const dest = destinatairesDuMessage(entetes);
+  return {
+    uid: mb.uid,
+    messageId: mb.message.messageId ?? '',
+    inReplyTo: mb.message.inReplyTo ?? null,
+    references: mb.message.references ?? [],
+    deAdresse: mb.message.deAdresse,
+    deNom: mb.deNom,
+    destinataires: dest.brut,
+    nbDestinataires: dest.nb,
+    objet: mb.message.objet ?? null,
+    corpsTexte: null,   // JAMAIS téléchargé en lecture légère — on ne prétend pas l'avoir
+    corpsHtml: null,
+    recuLe: mb.recuLe,
+    entetes,
+    pieces: [],         // les métadonnées existent (mb.pieces) mais aucun contenu : la simulation n'en a pas l'usage
+    tailleOctets: mb.tailleOctets,
+  };
+}
+
+/** Trace d'une reconnexion (mode RÉEL) : le journal est append-only, une reprise doit s'y lire des mois après. */
+export async function journaliserReconnexion(runId: number, tentative: number, motif: string): Promise<void> {
+  await query(
+    `INSERT INTO gestion_journal (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_libelle)
+     VALUES ('releve', $1, 'reconnexion', 'connexion perdue', 'reconnectée', $2, 'automatique')`,
+    [runId, `tentative ${tentative} : ${motif}`]);
+}
+
+/**
+ * Dépendances RÉELLES. Le client est fourni par un GETTER, et non capturé une fois pour toutes : une reconnexion en
+ * installe un NEUF (nouvelle connexion, nouvel écouteur d'erreur), et la capture doit lire celui-là, pas le cadavre.
+ */
+export function depsReellesCapture(clientCourant: () => ClientDossier): DepsCapture {
   let connecte = false;
   return {
     maintenant: () => new Date(),
     config: chargerConfigGestion,
     reglesActives: lireReglesActives,
     ouvrirDossier: async (chemin) => {
+      const client = clientCourant();
       if (!connecte) { await client.ouvrir(); connecte = true; }
       await client.ouvrirBoite(chemin); // readOnly (EXAMINE) : imposé par imap.ts, jamais un choix d'ici
     },
-    chercherDepuis: (depuis) => client.chercher({ depuis }),
-    telecharger: async (uid) => versMessageBrut(await client.telechargerMessage(uid)),
-    fermer: () => client.fermer(),
+    chercherDepuis: (depuis) => clientCourant().chercher({ depuis }),
+    telecharger: async (uid) => versMessageBrut(await clientCourant().telechargerMessage(uid)),
+    telechargerLeger: async (uid) => {
+      const client = clientCourant();
+      if (!client.telechargerEntetes) return versMessageBrut(await client.telechargerMessage(uid)); // repli : comportement d'avant
+      return versMessageBrutLeger(await client.telechargerEntetes(uid));
+    },
+    fermer: () => clientCourant().fermer(),
     connus: lireConnus,
     bornes: lireBornes,
     resoudreFil,

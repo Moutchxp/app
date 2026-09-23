@@ -46,6 +46,9 @@ export interface MessageBrut {
   recuLe: Date;
   entetes: Record<string, string>;
   pieces: PieceBrute[];
+  /** LOT 3-quater — taille du message, pour la MESURE. Exacte en lecture légère (annoncée par le serveur), estimée en
+   *  lecture complète (somme des parties décodées). Absente → comptée 0 : on ne devine pas. */
+  tailleOctets?: number;
 }
 
 /** Ce qui sera écrit pour UN message. Construit par la capture, écrit par le dépôt — la frontière est nette. */
@@ -84,6 +87,18 @@ export interface DepsCapture {
   ouvrirDossier(chemin: string): Promise<void>;
   chercherDepuis(depuis: Date): Promise<number[]>;
   telecharger(uid: number): Promise<MessageBrut>;
+  /** LOT 3-quater — lecture LÉGÈRE (en-têtes + structure + taille), utilisée en SIMULATION : elle n'a besoin de rien d'autre,
+   *  et ne plus télécharger des mégaoctets pour les jeter raccourcit la passe — donc la fenêtre où une coupure peut tomber.
+   *  Absente → on retombe sur `telecharger`, comportement d'avant. */
+  telechargerLeger?(uid: number): Promise<MessageBrut>;
+  /** LOT 3-quater — referme et rouvre une connexion NEUVE sur le dossier. Absente → aucune reprise (arrêt propre). */
+  reconnecter?(chemin: string): Promise<void>;
+  /** Attente entre deux tentatives. Injectée → les tests ne dorment jamais. */
+  attendre?(ms: number): Promise<void>;
+  /** Horloge de MESURE (millisecondes). Injectée → les durées sont reproductibles en test. Défaut : `Date.now`. */
+  chrono?(): number;
+  /** Trace d'une reconnexion, en mode RÉEL seulement (journal append-only). */
+  journaliserReconnexion?(tentative: number, motif: string): Promise<void>;
   fermer(): Promise<void>;
 
   // ── Base ──
@@ -126,6 +141,41 @@ export interface RapportCapture {
   piecesNonDeposees: number;
   echecsLecture: number;
   parRegle: Record<string, number>;
+  // LOT 3-quater — REPRISES et MESURES.
+  reconnexions: number;
+  dureeTotaleMs: number;
+  dureeMedianeMs: number;
+  dureeMaxMs: number;
+  octetsLus: number;
+  lesPlusLents: MesureLecture[];
+}
+
+/** Ce qu'a coûté la lecture d'UN message. Jamais d'objet ni d'adresse : un tableau de diagnostic n'a pas à être nominatif. */
+export interface MesureLecture { uid: number; ms: number; octets: number }
+
+/** Au-delà de ce seuil, une lecture est signalée EN DIRECT dans la progression : c'est le symptôme qu'on cherchait à voir. */
+export const SEUIL_LENTEUR_MS = 30_000;
+
+/** Médiane (entière) d'une série. 0 si la série est vide. PUR. */
+export function mediane(valeurs: readonly number[]): number {
+  if (valeurs.length === 0) return 0;
+  const t = [...valeurs].sort((a, b) => a - b);
+  const m = Math.floor(t.length / 2);
+  return t.length % 2 === 1 ? t[m] : Math.round((t[m - 1] + t[m]) / 2);
+}
+
+/** Les `n` lectures les plus lentes, de la pire à la moins pire. À égalité, l'UID croissant — donc déterministe. PUR. */
+export function plusLentes(mesures: readonly MesureLecture[], n = 5): MesureLecture[] {
+  return [...mesures].sort((a, b) => b.ms - a.ms || a.uid - b.uid).slice(0, n);
+}
+
+/**
+ * DÉLAI avant la `n`-ième reconnexion (1 = la première), en millisecondes. CROISSANT par doublement : réessayer aussitôt
+ * après une coupure ne fait que retomber dessus, et un serveur qui étrangle une connexion rend la main d'autant plus vite
+ * qu'on le laisse respirer. Base réglée en config (5 s par défaut) → 5 s, 10 s, 20 s. PUR.
+ */
+export function delaiReconnexion(tentative: number, baseSecondes: number): number {
+  return baseSecondes * 1000 * Math.pow(2, Math.max(0, tentative - 1));
 }
 
 /**
@@ -216,7 +266,15 @@ export async function capturer(deps: DepsCapture, appliquer = false): Promise<Ra
     mode: appliquer ? 'applique' : 'simulation', dossier: config.dossierImap, depuis: depuis.toISOString(),
     uidsServeur: 0, plafondAtteint: false, vus: 0, dejaConnus: 0, captures: 0, recus: 0, envoyes: 0, exclus: 0,
     filsCrees: 0, filsFusionnes: 0, piecesDeposees: 0, piecesNonDeposees: 0, echecsLecture: 0, parRegle: {},
+    reconnexions: 0, dureeTotaleMs: 0, dureeMedianeMs: 0, dureeMaxMs: 0, octetsLus: 0, lesPlusLents: [],
   };
+
+  const chrono = deps.chrono ?? (() => Date.now());
+  const attendre = deps.attendre ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  // SIMULATION : lecture LÉGÈRE quand l'adaptateur sait la faire. Elle donne EXACTEMENT ce dont la simulation a besoin
+  //   (en-têtes, objet, structure) — aucun compteur ne change, seule la facture réseau tombe.
+  const lire = !appliquer && deps.telechargerLeger ? deps.telechargerLeger.bind(deps) : deps.telecharger.bind(deps);
+  const mesures: MesureLecture[] = [];
 
   deps.journal?.(`dossier « ${config.dossierImap} » · fenêtre depuis le ${depuis.toISOString().slice(0, 10)} · ${regles.length} règle(s) active(s)`);
   deps.journal?.('connexion à la boîte…');
@@ -234,17 +292,39 @@ export async function capturer(deps: DepsCapture, appliquer = false): Promise<Ra
     for (const uid of aLire) {
       r.vus += 1;
       if (r.vus % 25 === 0) deps.journal?.(`… ${r.vus}/${aLire.length} lus — ${r.captures} capturé(s), ${r.exclus} hors file`);
-      let m: MessageBrut;
-      try {
-        m = await deps.telecharger(uid);
-      } catch (e) {
-        // 🔴 LA DISTINCTION QUI MANQUAIT. Un message ILLISIBLE (MIME cassé, disparu) est isolé : la passe continue. Une
-        //   CONNEXION PERDUE, elle, ferait échouer tous les suivants : sans ce test, une coupure au 4ᵉ message rendait
-        //   « 3 capturés, 397 illisibles » — un rapport d'allure normale, sans aucun signal d'échec. Mesuré.
-        if (e instanceof ErreurConnexion) throw e;
-        r.echecsLecture += 1; // ISOLATION : un message illisible ne fait pas perdre les autres
-        continue;
+      let m: MessageBrut | null = null;
+      // LOT 3-quater — REPRISE : à chaque coupure, on se reconnecte et on REPREND CE MESSAGE. Le budget est GLOBAL à la
+      //   passe (jamais remis à zéro) : une liaison qui tombe sans cesse finit par s'arrêter, elle ne tourne pas sans fin.
+      for (;;) {
+        const t0 = chrono();
+        try {
+          m = await lire(uid);
+          const ms = chrono() - t0;
+          const octets = m.tailleOctets ?? 0;
+          mesures.push({ uid, ms, octets });
+          r.dureeTotaleMs += ms;
+          r.octetsLus += octets;
+          if (ms >= SEUIL_LENTEUR_MS) deps.journal?.(`⚠ message ${uid} lu en ${Math.round(ms / 1000)} s (${Math.round(octets / 1024)} Ko)`);
+          break;
+        } catch (e) {
+          // 🔴 LA DISTINCTION DU LOT 3-ter. Un message ILLISIBLE (MIME cassé, disparu) est isolé : la passe continue. Une
+          //   CONNEXION PERDUE, elle, ferait échouer tous les suivants : sans ce test, une coupure au 4ᵉ message rendait
+          //   « 3 capturés, 397 illisibles » — un rapport d'allure normale, sans aucun signal d'échec. Mesuré.
+          if (!(e instanceof ErreurConnexion)) {
+            r.echecsLecture += 1; // ISOLATION : un message illisible ne fait pas perdre les autres
+            break;
+          }
+          if (deps.reconnecter === undefined || r.reconnexions >= config.reconnexionsMax) throw e; // budget épuisé → arrêt propre
+          r.reconnexions += 1;
+          const delai = delaiReconnexion(r.reconnexions, config.reconnexionDelaiS);
+          deps.journal?.(`⚠ connexion perdue au message ${uid} — reconnexion ${r.reconnexions}/${config.reconnexionsMax} dans ${delai / 1000} s`);
+          if (appliquer) await deps.journaliserReconnexion?.(r.reconnexions, e.message);
+          await attendre(delai);
+          await deps.reconnecter(config.dossierImap);
+          deps.journal?.(`reconnecté — reprise au message ${uid}`);
+        }
       }
+      if (m === null) continue; // message illisible : compté, on passe au suivant
       const mid = m.messageId.trim();
       if (mid === '' || connus.has(mid)) { r.dejaConnus += 1; continue; }
       connus.add(mid); // un même Message-ID deux fois dans la même passe ne s'écrit qu'une fois
@@ -272,9 +352,16 @@ export async function capturer(deps: DepsCapture, appliquer = false): Promise<Ra
         r.piecesNonDeposees += bilan.nonDeposees;
       }
     }
+    r.dureeMedianeMs = mediane(mesures.map((x) => x.ms));
+    r.dureeMaxMs = mesures.reduce((max, x) => Math.max(max, x.ms), 0);
+    r.lesPlusLents = plusLentes(mesures);
     deps.journal?.(`passe terminée : ${r.captures} capturé(s), ${r.exclus} hors file, ${r.dejaConnus} déjà connu(s)`);
   } catch (e) {
-    // La passe s'arrête, mais ce qu'elle avait capturé est ACQUIS et compté : l'erreur emporte le rapport partiel.
+    // La passe s'arrête, mais ce qu'elle avait capturé est ACQUIS et compté : l'erreur emporte le rapport partiel —
+    //   MESURES COMPRISES, puisque c'est précisément après une panne qu'on veut savoir ce qui était lent.
+    r.dureeMedianeMs = mediane(mesures.map((x) => x.ms));
+    r.dureeMaxMs = mesures.reduce((max, x) => Math.max(max, x.ms), 0);
+    r.lesPlusLents = plusLentes(mesures);
     const motif = e instanceof Error ? e.message : String(e);
     deps.journal?.(`⚠ passe interrompue après ${r.vus} message(s) lu(s) : ${motif}`);
     throw new ErreurCapture(motif, r, e);

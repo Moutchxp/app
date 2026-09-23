@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { enTeteMode, executerCli, imprimerIssue, lireAppliquer } from './relever-gestion';
+import { duree, enTeteMode, executerCli, imprimerIssue, imprimerMesures, lireAppliquer, poids } from './relever-gestion';
 import type { IssueReleve } from '../lib/gestion/releve';
 import type { RapportCapture } from '../lib/gestion/capture';
 
@@ -14,7 +14,8 @@ const rapport = (o: Partial<RapportCapture> = {}): RapportCapture => ({
   mode: 'applique', dossier: '_GESTION BOITE MAIL', depuis: '2026-06-25T12:00:00Z',
   uidsServeur: 10, plafondAtteint: false, vus: 10, dejaConnus: 2, captures: 8, recus: 5, envoyes: 3, exclus: 4,
   filsCrees: 6, filsFusionnes: 1, piecesDeposees: 2, piecesNonDeposees: 1, echecsLecture: 0,
-  parRegle: { 'envoi de logiciel': 3, 'courrier interne': 1 }, ...o,
+  parRegle: { 'envoi de logiciel': 3, 'courrier interne': 1 },
+  reconnexions: 0, dureeTotaleMs: 0, dureeMedianeMs: 0, dureeMaxMs: 0, octetsLus: 0, lesPlusLents: [], ...o,
 });
 const issue = (o: Partial<IssueReleve> = {}): IssueReleve =>
   ({ resultat: 'ok', raison: 'ok', runId: 1, rapport: rapport(), ...o });
@@ -95,12 +96,13 @@ describe('le code de sortie', () => {
   });
 
   it('passe bien le mode à la relève — et pas l’inverse', async () => {
-    const relever = vi.fn(async (_appliquer: boolean, _journal: (l: string) => void) => issue());
+    const modes: boolean[] = [];
+    const relever = vi.fn(async (appliquer: boolean, journal: (l: string) => void) => { modes.push(appliquer); journal('lu'); return issue(); });
     const { log } = io();
     await executerCli({ argv: [], relever, log });
-    expect(relever.mock.calls[0][0]).toBe(false);
+    expect(modes[0]).toBe(false);
     await executerCli({ argv: ['--appliquer'], relever, log });
-    expect(relever.mock.calls[1][0]).toBe(true);
+    expect(modes[1]).toBe(true);
   });
 });
 
@@ -174,5 +176,58 @@ describe('LOT 3-ter — un échec est annoncé, mais ses compteurs sont gardés'
   it('le code de sortie reste 1 sur échec, même avec un rapport partiel', async () => {
     const { log } = io();
     expect(await executerCli({ argv: [], relever: async () => issue({ resultat: 'erreur', rapport: partiel }), log })).toBe(1);
+  });
+});
+
+describe('LOT 3-quater — le bloc de MESURE, c’est-à-dire ce qui manquait au diagnostic', () => {
+  const mesure = rapport({
+    vus: 400, dureeTotaleMs: 612_000, dureeMedianeMs: 900, dureeMaxMs: 42_000, octetsLus: 180 * 1024 * 1024,
+    reconnexions: 2,
+    lesPlusLents: [{ uid: 1234, ms: 42_000, octets: 14_600_000 }, { uid: 88, ms: 30_500, octets: 5_000_000 }],
+  });
+
+  it('donne le total, la médiane et le pire — la médiane dit le régime, le pire dit l’incident', () => {
+    const t = imprimerMesures(mesure).join('\n');
+    expect(t).toContain('10 min 12 s au total');
+    expect(t).toContain('médiane 900 ms');
+    expect(t).toContain('pire 42.0 s');
+    expect(t).toContain('180.0 Mo');
+  });
+
+  it('liste les plus lents avec numéro, taille et durée — jamais objet ni adresse', () => {
+    const t = imprimerMesures(mesure).join('\n');
+    expect(t).toContain('les plus lents');
+    expect(t).toContain('message   1234');
+    expect(t).toContain('13.9 Mo');
+    expect(t).not.toContain('@');
+  });
+
+  it('annonce les reconnexions quand il y en a eu, et se tait sinon', () => {
+    expect(imprimerMesures(mesure).join('\n')).toContain('reconnexions                : 2');
+    expect(imprimerMesures(rapport({ vus: 10, reconnexions: 0 })).join('\n')).not.toContain('reconnexions ');
+  });
+
+  it('ne dit rien quand aucun message n’a été lu (une mesure vide serait du bruit)', () => {
+    expect(imprimerMesures(rapport({ vus: 0 }))).toEqual([]);
+  });
+
+  it('les mesures apparaissent aussi sur un ÉCHEC : c’est là qu’on veut savoir ce qui était lent', () => {
+    const t = imprimerIssue(issue({ resultat: 'erreur', raison: 'Socket timeout', rapport: mesure }), true).join('\n');
+    expect(t).toContain('⚠ ÉCHEC');
+    expect(t).toContain('les plus lents');
+  });
+
+  it('la simulation dit qu’elle lit LÉGER (aucun corps, aucune pièce téléchargés)', () => {
+    expect(imprimerIssue(issue(), false).join('\n')).toContain('version LÉGÈRE');
+    expect(imprimerIssue(issue(), true).join('\n')).not.toContain('version LÉGÈRE');
+  });
+
+  it('durées et poids se lisent sans effort', () => {
+    expect(duree(450)).toBe('450 ms');
+    expect(duree(42_000)).toBe('42.0 s');
+    expect(duree(612_000)).toBe('10 min 12 s');
+    expect(poids(800)).toBe('800 o');
+    expect(poids(2048)).toBe('2 Ko');
+    expect(poids(14_600_000)).toBe('13.9 Mo');
   });
 });

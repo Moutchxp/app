@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { capturer, ErreurCapture, fenetreDepuis, MARGE_JOURS, preparerMessage, sensDuMessage, type DepsCapture, type MessageBrut } from './capture';
+import {
+  capturer, delaiReconnexion, ErreurCapture, fenetreDepuis, MARGE_JOURS, mediane, plusLentes, preparerMessage,
+  sensDuMessage, type DepsCapture, type MessageBrut,
+} from './capture';
 import { ErreurConnexion } from './clientSurveille';
 import { CONFIG_GESTION_DEFAUT, type ConfigGestion } from './config';
 import type { RegleExclusion } from './regles';
@@ -334,5 +337,187 @@ describe('LOT 3-ter — la progression est ANNONCÉE (un terminal muet ne dit pa
   it('sans journal fourni, la capture fonctionne exactement pareil (la progression est optionnelle)', async () => {
     const { d } = deps();
     expect((await capturer(d, false)).captures).toBe(1);
+  });
+});
+
+describe('LOT 3-quater — REPRISE automatique après coupure', () => {
+  /** Lecture qui tombe aux UID donnés, puis passe (la reconnexion « répare » la liaison). */
+  function avecCoupures(coupeAux: number[], nbMessages = 10) {
+    const uids = Array.from({ length: nbMessages }, (_, i) => i + 1);
+    const { d, appels } = deps({ messages: uids.map((uid) => message({ uid })), config: { ...config, plafondParPasse: 400 } });
+    const restantes = new Set(coupeAux);
+    const trace: string[] = [];
+    let attentes: number[] = [];
+    d.chercherDepuis = async () => uids;
+    d.telecharger = async (uid) => {
+      if (restantes.has(uid)) { restantes.delete(uid); throw new ErreurConnexion(`connexion à la boîte perdue pendant la lecture du message ${uid} : Socket timeout`); }
+      return message({ uid });
+    };
+    d.reconnecter = async (chemin) => { trace.push(`reconnecté:${chemin}`); };
+    d.attendre = async (ms) => { attentes.push(ms); };
+    d.journal = () => {};
+    return { d, appels, trace, attentes: () => attentes, reinit: () => { attentes = []; } };
+  }
+
+  it('se reconnecte et REPREND LE MESSAGE — aucun message n’est perdu', async () => {
+    const { d, appels, trace } = avecCoupures([3]);
+    const r = await capturer(d, true);
+    expect(r.reconnexions).toBe(1);
+    expect(r.captures).toBe(10);                  // les 10, message 3 compris
+    expect(trace).toEqual(['reconnecté:_GESTION BOITE MAIL']);
+    expect(appels.ecrits).toHaveLength(10);
+  });
+
+  it('le délai entre tentatives CROÎT (5 s, 10 s, 20 s) — réessayer aussitôt retomberait sur la coupure', async () => {
+    const { d, attentes } = avecCoupures([2, 4, 6]);
+    await capturer(d, true);
+    expect(attentes()).toEqual([5000, 10000, 20000]);
+  });
+
+  it('le budget est GLOBAL à la passe : au-delà, arrêt propre avec les compteurs partiels', async () => {
+    const { d } = avecCoupures([2, 4, 6, 8]); // 4 coupures pour un budget de 3
+    const e = await capturer(d, true).catch((x: unknown) => x) as ErreurCapture;
+    expect(e).toBeInstanceOf(ErreurCapture);
+    expect(e.rapport.reconnexions).toBe(3);
+    expect(e.rapport.captures).toBeGreaterThan(0); // ce qui avait été capturé est ACQUIS
+    expect(e.message).toContain('Socket timeout');
+  });
+
+  it('reconnexions_max = 0 rend EXACTEMENT le comportement d’avant : arrêt à la première coupure', async () => {
+    const { d } = avecCoupures([2]);
+    d.config = async () => ({ ...config, plafondParPasse: 400, reconnexionsMax: 0 });
+    const e = await capturer(d, true).catch((x: unknown) => x) as ErreurCapture;
+    expect(e).toBeInstanceOf(ErreurCapture);
+    expect(e.rapport.reconnexions).toBe(0);
+    expect(e.rapport.captures).toBe(1);
+  });
+
+  it('sans dépendance de reconnexion (simulation d’un appelant qui n’en fournit pas), arrêt propre', async () => {
+    const { d } = avecCoupures([2]);
+    d.reconnecter = undefined;
+    await expect(capturer(d, true)).rejects.toBeInstanceOf(ErreurCapture);
+  });
+
+  it('la reprise est JOURNALISÉE en mode réel, et pas en simulation', async () => {
+    const vues: number[] = [];
+    const { d } = avecCoupures([3]);
+    d.journaliserReconnexion = async (n) => { vues.push(n); };
+    await capturer(d, true);
+    expect(vues).toEqual([1]);
+    vues.length = 0;
+    const b = avecCoupures([3]);
+    b.d.journaliserReconnexion = async (n) => { vues.push(n); };
+    await capturer(b.d, false);
+    expect(vues).toEqual([]); // une simulation n'écrit rien, journal compris
+  });
+
+  it('un message ILLISIBLE ne déclenche AUCUNE reconnexion (ce n’est pas la connexion qui est en cause)', async () => {
+    const { d, trace } = avecCoupures([]);
+    d.telecharger = async (uid) => { if (uid === 3) throw new Error('MIME cassé'); return message({ uid }); };
+    const r = await capturer(d, true);
+    expect(r.reconnexions).toBe(0);
+    expect(r.echecsLecture).toBe(1);
+    expect(trace).toEqual([]);
+  });
+
+  it('le délai croissant est une fonction PURE, testable seule', () => {
+    expect(delaiReconnexion(1, 5)).toBe(5000);
+    expect(delaiReconnexion(2, 5)).toBe(10000);
+    expect(delaiReconnexion(3, 5)).toBe(20000);
+    expect(delaiReconnexion(1, 30)).toBe(30000);
+  });
+});
+
+describe('LOT 3-quater — MESURE des lenteurs', () => {
+  /** Horloge injectée : chaque lecture « dure » ce qu'on décide, sans jamais attendre. */
+  function avecDurees(durees: Record<number, number>) {
+    const uids = Object.keys(durees).map(Number);
+    const { d } = deps({ messages: uids.map((uid) => message({ uid })), config: { ...config, plafondParPasse: 400 } });
+    let t = 0;
+    const lignes: string[] = [];
+    d.chercherDepuis = async () => uids;
+    d.chrono = () => t;
+    d.telecharger = async (uid) => { t += durees[uid]; return { ...message({ uid }), tailleOctets: uid * 1000 }; };
+    d.journal = (l) => lignes.push(l);
+    return { d, lignes };
+  }
+
+  it('mesure la durée totale, la médiane et le maximum', async () => {
+    const r = await capturer(avecDurees({ 1: 100, 2: 300, 3: 200 }).d, true);
+    expect(r.dureeTotaleMs).toBe(600);
+    expect(r.dureeMedianeMs).toBe(200);
+    expect(r.dureeMaxMs).toBe(300);
+  });
+
+  it('retient les 5 plus lents, avec leur numéro et leur taille — jamais l’objet ni l’adresse', async () => {
+    const r = await capturer(avecDurees({ 1: 10, 2: 90, 3: 20, 4: 80, 5: 30, 6: 70, 7: 40 }).d, true);
+    expect(r.lesPlusLents.map((m) => m.uid)).toEqual([2, 4, 6, 7, 5]);
+    expect(r.lesPlusLents[0]).toEqual({ uid: 2, ms: 90, octets: 2000 });
+    expect(JSON.stringify(r.lesPlusLents)).not.toContain('@');
+    expect(JSON.stringify(r.lesPlusLents)).not.toContain('chauffage');
+  });
+
+  it('SIGNALE EN DIRECT toute lecture de plus de 30 s — c’est le symptôme qu’on cherchait à voir', async () => {
+    const { d, lignes } = avecDurees({ 1: 1000, 2: 42_000 });
+    await capturer(d, true);
+    expect(lignes.join('\n')).toContain('⚠ message 2 lu en 42 s');
+    expect(lignes.join('\n')).not.toContain('message 1 lu en');
+  });
+
+  it('les mesures survivent à une panne : c’est APRÈS une coupure qu’on veut savoir ce qui était lent', async () => {
+    const { d } = avecDurees({ 1: 100, 2: 500 });
+    d.telecharger = async (uid) => {
+      if (uid === 2) throw new ErreurConnexion('connexion perdue : Socket timeout');
+      return { ...message({ uid }), tailleOctets: 1000 };
+    };
+    d.reconnecter = undefined;
+    const e = await capturer(d, true).catch((x: unknown) => x) as ErreurCapture;
+    expect(e.rapport.dureeMaxMs).toBeGreaterThanOrEqual(0);
+    expect(e.rapport.lesPlusLents).toHaveLength(1); // le seul message lu avant la panne
+  });
+
+  it('médiane et classement sont des fonctions PURES, déterministes', () => {
+    expect(mediane([])).toBe(0);
+    expect(mediane([5])).toBe(5);
+    expect(mediane([1, 2, 3, 4])).toBe(3); // moyenne des deux du milieu, arrondie
+    expect(plusLentes([{ uid: 2, ms: 10, octets: 0 }, { uid: 1, ms: 10, octets: 0 }], 2).map((m) => m.uid)).toEqual([1, 2]);
+  });
+});
+
+describe('LOT 3-quater — la SIMULATION lit léger, et compte pareil', () => {
+  it('utilise la lecture légère quand elle existe, la complète sinon', async () => {
+    const vus: string[] = [];
+    const { d } = deps({ messages: [message({ uid: 1 })] });
+    d.telecharger = async (uid) => { vus.push(`complet:${uid}`); return message({ uid }); };
+    d.telechargerLeger = async (uid) => { vus.push(`leger:${uid}`); return message({ uid }); };
+    await capturer(d, false);
+    expect(vus).toEqual(['leger:1']);
+    vus.length = 0;
+    await capturer(d, true);
+    expect(vus).toEqual(['complet:1']); // en mode RÉEL il faut le contenu des pièces : jamais de lecture légère
+  });
+
+  it('adaptateur sans lecture légère → la simulation retombe sur la lecture complète, sans rien casser', async () => {
+    const { d } = deps({ messages: [message({ uid: 1 })] });
+    d.telechargerLeger = undefined;
+    expect((await capturer(d, false)).captures).toBe(1);
+  });
+
+  it('les COMPTEURS sont identiques en lecture légère et en lecture complète', async () => {
+    const messages = [
+      message({ uid: 1, objet: 'Document CRITERIMMO', deAdresse: 'gestion@criterimmo.fr' }),
+      message({ uid: 2, entetes: { 'list-unsubscribe': '<u>' } }),
+      message({ uid: 3 }),
+    ];
+    const regles: RegleExclusion[] = [{ id: 1, type: 'gabarit_objet', valeur: 'Document CRITERIMMO', sens: 'les_deux', motif: 'logiciel' }];
+    const complet = deps({ messages, regles });
+    const leger = deps({ messages, regles });
+    leger.d.telechargerLeger = async (uid) => ({ ...messages.find((m) => m.uid === uid)!, corpsTexte: null, corpsHtml: null, pieces: [] });
+    const a = await capturer(complet.d, false);
+    const b = await capturer(leger.d, false);
+    for (const cle of ['captures', 'exclus', 'recus', 'envoyes', 'dejaConnus', 'echecsLecture'] as const) {
+      expect(b[cle]).toBe(a[cle]);
+    }
+    expect(b.parRegle).toEqual(a.parRegle);
   });
 });

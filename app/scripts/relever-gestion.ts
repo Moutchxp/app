@@ -15,7 +15,42 @@
  */
 import '../lib/chargerEnv';
 import { pathToFileURL } from 'node:url';
+import type { RapportCapture } from '../lib/gestion/capture';
 import type { IssueReleve } from '../lib/gestion/releve';
+
+/** Durée lisible : secondes en dessous d'une minute, minutes au-delà. PUR. */
+export function duree(ms: number): string {
+  if (ms < 1000) return `${ms} ms`;
+  if (ms < 60_000) return `${(ms / 1000).toFixed(1)} s`;
+  return `${Math.floor(ms / 60_000)} min ${Math.round((ms % 60_000) / 1000)} s`;
+}
+
+/** Poids lisible. PUR. */
+export function poids(octets: number): string {
+  if (octets < 1024) return `${octets} o`;
+  if (octets < 1024 * 1024) return `${Math.round(octets / 1024)} Ko`;
+  return `${(octets / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
+/**
+ * LOT 3-quater — LE BLOC DE MESURE, c'est-à-dire ce qui manquait au diagnostic. Sans lui, « c'est lent » n'est qu'une
+ * impression : on ne sait pas si un message coûte 200 ms ou 90 s, ni si la lenteur est partagée ou concentrée sur
+ * quelques pièces lourdes. La MÉDIANE dit le régime ordinaire, le MAXIMUM dit le pire, et les cinq plus lents disent
+ * s'il s'agit de gros messages ou d'un serveur qui bloque.
+ * ⚠️ Jamais d'objet ni d'adresse : un tableau de diagnostic n'a aucune raison d'être nominatif. PUR.
+ */
+export function imprimerMesures(r: RapportCapture): string[] {
+  if (r.vus === 0) return [];
+  const l: string[] = [];
+  l.push(`  durée de lecture            : ${duree(r.dureeTotaleMs)} au total · médiane ${duree(r.dureeMedianeMs)} · pire ${duree(r.dureeMaxMs)}`);
+  l.push(`  volume lu                   : ${poids(r.octetsLus)}`);
+  if (r.reconnexions > 0) l.push(`  reconnexions                : ${r.reconnexions}  (la passe a repris après coupure)`);
+  if (r.lesPlusLents.length > 0) {
+    l.push('  les plus lents (n° de message, taille, durée) :');
+    for (const m of r.lesPlusLents) l.push(`      message ${String(m.uid).padStart(6, ' ')}  ${poids(m.octets).padStart(8, ' ')}  ${duree(m.ms)}`);
+  }
+  return l;
+}
 
 /** Mode demandé. PUR. */
 export function lireAppliquer(argv: readonly string[]): boolean {
@@ -69,9 +104,11 @@ export function imprimerIssue(issue: IssueReleve, appliquer: boolean): string[] 
   }
   l.push(`  fils créés / fusionnés      : ${r.filsCrees} / ${r.filsFusionnes}`);
   l.push(`  pièces déposées / refusées  : ${r.piecesDeposees} / ${r.piecesNonDeposees}`);
+  l.push(...imprimerMesures(r));
   if (!appliquer) {
     l.push('');
     l.push('  ⓘ SIMULATION : rien n’a été écrit. Les fils et les pièces ne sont comptés qu’en mode appliqué.');
+    l.push('    Les messages sont lus en version LÉGÈRE (en-têtes et structure) : aucun corps, aucune pièce téléchargés.');
     l.push('    Pour exécuter réellement : relancer avec --appliquer');
   }
   l.push('');

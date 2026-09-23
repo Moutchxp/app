@@ -16,7 +16,8 @@ const requete = () => new Request('http://local/api/admin/gestion/relever', { me
 const rapport = (o: Partial<RapportCapture> = {}): RapportCapture => ({
   mode: 'applique', dossier: '_GESTION BOITE MAIL', depuis: '2026-06-25T12:00:00Z',
   uidsServeur: 10, plafondAtteint: false, vus: 10, dejaConnus: 2, captures: 8, recus: 5, envoyes: 3, exclus: 4,
-  filsCrees: 6, filsFusionnes: 1, piecesDeposees: 2, piecesNonDeposees: 1, echecsLecture: 0, parRegle: {}, ...o,
+  filsCrees: 6, filsFusionnes: 1, piecesDeposees: 2, piecesNonDeposees: 1, echecsLecture: 0, parRegle: {},
+  reconnexions: 0, dureeTotaleMs: 0, dureeMedianeMs: 0, dureeMaxMs: 0, octetsLus: 0, lesPlusLents: [], ...o,
 });
 const issue = (o: Partial<IssueReleve> = {}): IssueReleve => ({ resultat: 'ok', raison: 'ok', runId: 1, rapport: rapport(), ...o });
 

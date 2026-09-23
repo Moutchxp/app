@@ -19,6 +19,10 @@ export interface ConfigGestion {
   typesPiecesAcceptes: string[];
   pieceTailleMaxOctets: number;
   conservationCarteCloseMois: number;
+  // LOT 3-quater — REPRISE après coupure réseau (migration 230). Budget GLOBAL de reconnexions pour UNE passe, et délai de
+  //   base (qui CROÎT à chaque tentative). `reconnexionsMax = 0` rend exactement le comportement d'avant : arrêt propre.
+  reconnexionsMax: number;
+  reconnexionDelaiS: number;
 }
 
 /** Repli SÛR — identique aux DEFAULT de la migration 228. */
@@ -34,6 +38,8 @@ export const CONFIG_GESTION_DEFAUT: ConfigGestion = {
   ],
   pieceTailleMaxOctets: 25 * 1024 * 1024,
   conservationCarteCloseMois: 60,
+  reconnexionsMax: 3,
+  reconnexionDelaiS: 5,
 };
 
 /** Découpe une liste stockée en une colonne texte (virgules), nettoyée et en minuscules. PUR. */
@@ -45,16 +51,33 @@ interface LigneConfig {
   dossier_imap: string; adresse_gestion: string; domaines_internes: string;
   rattrapage_jours: number; plafond_par_passe: number;
   types_pieces_acceptes: string; piece_taille_max_mo: number; conservation_carte_close_mois: number;
+  reconnexions_max?: number; reconnexion_delai_s?: number; // migration 230 — absentes tant qu'elle n'est pas appliquée
+}
+
+const COLONNES_BASE = `dossier_imap, adresse_gestion, domaines_internes, rattrapage_jours, plafond_par_passe,
+              types_pieces_acceptes, piece_taille_max_mo, conservation_carte_close_mois`;
+
+/**
+ * Lit la ligne de configuration. La migration 230 ajoute deux colonnes ; tant qu'elle n'est PAS appliquée, PostgreSQL répond
+ * « colonne inconnue » (42703). On rejoue alors la requête SANS ces deux colonnes, plutôt que de retomber sur TOUS les défauts :
+ * une migration en attente ne doit pas faire oublier les réglages déjà en base. Toute AUTRE erreur remonte (jamais de silence).
+ */
+async function lireLigne(): Promise<LigneConfig | undefined> {
+  try {
+    const { rows } = await query<LigneConfig>(
+      `SELECT ${COLONNES_BASE}, reconnexions_max, reconnexion_delai_s FROM gestion_config WHERE id = 1`);
+    return rows[0];
+  } catch (e) {
+    if ((e as { code?: string }).code !== '42703') throw e; // colonne inconnue = migration 230 en attente ; tout le reste remonte
+    const { rows } = await query<LigneConfig>(`SELECT ${COLONNES_BASE} FROM gestion_config WHERE id = 1`);
+    return rows[0];
+  }
 }
 
 /** Lit la configuration. Toute erreur (table absente, base injoignable) ⇒ repli, jamais une exception qui bloquerait l'écran. */
 export async function chargerConfigGestion(): Promise<ConfigGestion> {
   try {
-    const { rows } = await query<LigneConfig>(
-      `SELECT dossier_imap, adresse_gestion, domaines_internes, rattrapage_jours, plafond_par_passe,
-              types_pieces_acceptes, piece_taille_max_mo, conservation_carte_close_mois
-         FROM gestion_config WHERE id = 1`);
-    const r = rows[0];
+    const r = await lireLigne();
     if (!r) return CONFIG_GESTION_DEFAUT;
     return {
       dossierImap: r.dossier_imap?.trim() || CONFIG_GESTION_DEFAUT.dossierImap,
@@ -65,6 +88,10 @@ export async function chargerConfigGestion(): Promise<ConfigGestion> {
       typesPiecesAcceptes: listeDe(r.types_pieces_acceptes).length > 0 ? listeDe(r.types_pieces_acceptes) : CONFIG_GESTION_DEFAUT.typesPiecesAcceptes,
       pieceTailleMaxOctets: (r.piece_taille_max_mo > 0 ? r.piece_taille_max_mo : 25) * 1024 * 1024,
       conservationCarteCloseMois: r.conservation_carte_close_mois > 0 ? r.conservation_carte_close_mois : CONFIG_GESTION_DEFAUT.conservationCarteCloseMois,
+      // 230 en attente ⇒ colonnes absentes ⇒ repli. `0` est une VALEUR VALIDE (aucune reprise), d'où le test sur `undefined`
+      //   et non sur la véracité : `?? ` et non `||`, sans quoi couper la reprise serait impossible.
+      reconnexionsMax: r.reconnexions_max ?? CONFIG_GESTION_DEFAUT.reconnexionsMax,
+      reconnexionDelaiS: (r.reconnexion_delai_s ?? 0) > 0 ? r.reconnexion_delai_s! : CONFIG_GESTION_DEFAUT.reconnexionDelaiS,
     };
   } catch {
     return CONFIG_GESTION_DEFAUT; // repli sûr : le module démarre même si la migration 228 n'est pas appliquée

@@ -88,3 +88,42 @@ describe('le repli dit EXACTEMENT ce que dit la migration 228', () => {
     expect(sql).toContain(`DEFAULT '${CONFIG_GESTION_DEFAUT.typesPiecesAcceptes.join(',')}'`);
   });
 });
+
+describe('LOT 3-quater — les deux réglages de reprise (migration 230)', () => {
+  it('sont lus quand les colonnes existent', async () => {
+    queryMock.mockResolvedValue(ligne({ reconnexions_max: 7, reconnexion_delai_s: 12 }));
+    const c = await chargerConfigGestion();
+    expect(c.reconnexionsMax).toBe(7);
+    expect(c.reconnexionDelaiS).toBe(12);
+  });
+
+  it('⚠️ zéro est une VALEUR VALIDE (aucune reprise) — la couper doit rester possible', async () => {
+    queryMock.mockResolvedValue(ligne({ reconnexions_max: 0 }));
+    expect((await chargerConfigGestion()).reconnexionsMax).toBe(0);
+  });
+
+  it('230 NON appliquée (colonne inconnue) → la requête est REJOUÉE sans ces colonnes, sans perdre le reste', async () => {
+    const erreur = Object.assign(new Error('column "reconnexions_max" does not exist'), { code: '42703' });
+    queryMock
+      .mockRejectedValueOnce(erreur)                                            // 1ère requête : colonnes absentes
+      .mockResolvedValueOnce(ligne({ dossier_imap: 'DOSSIER RÉGLÉ', rattrapage_jours: 45 })); // 2ᵉ : sans elles
+    const c = await chargerConfigGestion();
+    expect(c.dossierImap).toBe('DOSSIER RÉGLÉ'); // les réglages déjà en base ne sont PAS oubliés
+    expect(c.rattrapageJours).toBe(45);
+    expect(c.reconnexionsMax).toBe(CONFIG_GESTION_DEFAUT.reconnexionsMax); // et les nouveaux prennent leur repli
+    expect(c.reconnexionDelaiS).toBe(CONFIG_GESTION_DEFAUT.reconnexionDelaiS);
+    expect(queryMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('toute AUTRE erreur n’est PAS confondue avec une colonne manquante', async () => {
+    queryMock.mockRejectedValue(Object.assign(new Error('connexion refusée'), { code: '08006' }));
+    expect(await chargerConfigGestion()).toEqual(CONFIG_GESTION_DEFAUT); // repli global, et une seule tentative
+    expect(queryMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('le repli dit EXACTEMENT ce que dit la migration 230', () => {
+    const sql = readFileSync('db/migrations/230_gestion_reconnexion.sql', 'utf8');
+    expect(new RegExp(`reconnexions_max integer NOT NULL DEFAULT ${CONFIG_GESTION_DEFAUT.reconnexionsMax}\\b`).test(sql)).toBe(true);
+    expect(new RegExp(`reconnexion_delai_s integer NOT NULL DEFAULT ${CONFIG_GESTION_DEFAUT.reconnexionDelaiS}\\b`).test(sql)).toBe(true);
+  });
+});
