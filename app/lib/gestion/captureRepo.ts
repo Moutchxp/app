@@ -26,6 +26,29 @@ export async function lireReglesActives(): Promise<RegleExclusion[]> {
   }));
 }
 
+/**
+ * LOT 4a — LES COLONNES D'UID EXISTENT-ELLES ? (migration 231 appliquée ou non)
+ *
+ * 🔴 POURQUOI CETTE SONDE, ET POURQUOI ELLE EST HORS TRANSACTION. Le lot 3-quinquies tentait l'écriture AVEC les colonnes
+ * et se rabattait sur le code d'erreur « colonne inconnue » (42703). Ce repli ne pouvait PAS marcher : dans PostgreSQL,
+ * la première erreur d'une transaction l'ABORTE, et tout ordre suivant échoue en 25P02 — « current transaction is
+ * aborted ». La relève a donc échoué au PREMIER message chez Arno, migration 231 non appliquée. Le repli existait et
+ * mentait. On demande désormais AVANT, une seule fois par passe, hors de toute transaction : une question posée au bon
+ * moment vaut mieux qu'un rattrapage impossible.
+ *
+ * Toute erreur (table absente, base injoignable) → `false` : on écrit sans les colonnes, ce qui marche toujours.
+ */
+export async function colonnesUidPresentes(): Promise<boolean> {
+  try {
+    const { rows } = await query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM information_schema.columns
+        WHERE table_name = 'gestion_message' AND column_name IN ('uid_imap', 'uid_validity')`);
+    return (rows[0]?.n ?? 0) === 2; // les DEUX, jamais l'une sans l'autre (un UID sans son UIDVALIDITY est un piège)
+  } catch {
+    return false;
+  }
+}
+
 /** Tous les Message-ID déjà en base. Le dédoublonnage est ainsi gratuit, et toute reprise de rattrapage sans danger. */
 export async function lireConnus(): Promise<Set<string>> {
   const { rows } = await query<{ message_id: string }>(`SELECT message_id FROM gestion_message`);
@@ -149,7 +172,9 @@ export async function resoudreFil(identifiants: string[], cleRacine: string, obj
  * « sans suite » le RAMÈNE dans la file (règle d'Arno : rien ne reste écarté pour toujours), et le fait est journalisé —
  * une décision humaine vient d'être défaite par le système, ça ne peut pas rester muet.
  */
-export async function ecrireMessage(m: MessageAEcrire, filId: number, uidValidite: string | null = null): Promise<number | null> {
+export async function ecrireMessage(
+  m: MessageAEcrire, filId: number, uidValidite: string | null = null, avecUid = true,
+): Promise<number | null> {
   return withTransaction(async (q) => {
     const colonnes = `fil_id, message_id, in_reply_to, references_brut, sens, de_adresse, de_nom, destinataires, nb_destinataires,
           objet, objet_gabarit, recu_le, corps_texte, corps_html, automatique, signaux_automatisme,
@@ -159,22 +184,17 @@ export async function ecrireMessage(m: MessageAEcrire, filId: number, uidValidit
     const params = [filId, m.messageId, m.inReplyTo, m.referencesBrut, m.sens, m.deAdresse, m.deNom, m.destinataires, m.nbDestinataires,
        m.objet, m.objetGabarit, m.recuLe, m.corpsTexte, m.corpsHtml, m.automatique, m.signauxAutomatisme,
        m.exclusion?.regleId ?? null, m.exclusion?.motif ?? null];
-    // LOT 3-quinquies — on MÉMORISE l'UID et son UIDVALIDITY : la passe suivante reconnaîtra ce message sans rien lire.
-    //   Colonnes absentes (migration 231 en attente) → PostgreSQL répond 42703 et on réécrit sans elles : la relève
-    //   fonctionne exactement comme avant, elle paie seulement une enveloppe par message déjà connu.
-    let rows: { id: number }[];
-    try {
-      ({ rows } = await q<{ id: number }>(
-        `INSERT INTO gestion_message (${colonnes}, uid_imap, uid_validity)
-         VALUES (${valeurs}, $19::bigint, $20::bigint)
-         ON CONFLICT (message_id) DO NOTHING RETURNING id::int AS id`,
-        [...params, m.uidImap, uidValidite]));
-    } catch (e) {
-      if ((e as { code?: string }).code !== '42703') throw e;
-      ({ rows } = await q<{ id: number }>(
-        `INSERT INTO gestion_message (${colonnes}) VALUES (${valeurs})
-         ON CONFLICT (message_id) DO NOTHING RETURNING id::int AS id`, params));
-    }
+    // LOT 4a — le choix est fait AVANT d'entrer ici (cf. `colonnesUidPresentes`) : on n'essaie JAMAIS une écriture qu'on
+    //   sait vouée à l'échec. Tenter puis se rabattre était impossible — la première erreur aborte la transaction.
+    const { rows } = avecUid
+      ? await q<{ id: number }>(
+          `INSERT INTO gestion_message (${colonnes}, uid_imap, uid_validity)
+           VALUES (${valeurs}, $19::bigint, $20::bigint)
+           ON CONFLICT (message_id) DO NOTHING RETURNING id::int AS id`,
+          [...params, m.uidImap, uidValidite])
+      : await q<{ id: number }>(
+          `INSERT INTO gestion_message (${colonnes}) VALUES (${valeurs})
+           ON CONFLICT (message_id) DO NOTHING RETURNING id::int AS id`, params);
     if (!rows[0]) return null; // déjà écrit : aucun doublon, aucune erreur
 
     if (m.exclusion === null) {
@@ -323,6 +343,10 @@ export async function journaliserReconnexion(runId: number, tentative: number, m
  */
 export function depsReellesCapture(clientCourant: () => ClientDossier): DepsCapture {
   let connecte = false;
+  // LOT 4a — la sonde des colonnes d'UID est faite UNE FOIS par passe, hors transaction, et mémorisée pour la passe.
+  //   Une passe ne peut donc pas voir le schéma changer en cours de route, et aucune écriture n'est tentée à l'aveugle.
+  let uidDispo: Promise<boolean> | null = null;
+  const colonnesUid = (): Promise<boolean> => (uidDispo ??= colonnesUidPresentes());
   return {
     maintenant: () => new Date(),
     config: chargerConfigGestion,
@@ -344,7 +368,7 @@ export function depsReellesCapture(clientCourant: () => ClientDossier): DepsCapt
     connus: lireConnus,
     bornes: lireBornes,
     resoudreFil,
-    ecrire: (m, filId) => ecrireMessage(m, filId, clientCourant().uidValidite?.() ?? null),
+    ecrire: async (m, filId) => ecrireMessage(m, filId, clientCourant().uidValidite?.() ?? null, await colonnesUid()),
     deposerPieces: deposerPiecesMessage,
   };
 }
