@@ -17,6 +17,10 @@
  * ⚠️ AUCUNE de ces mesures n'écrit quoi que ce soit, nulle part. Le lot 0 ne crée aucune table et ne touche pas au permis.
  */
 import { normaliserMessageId } from '../veille/rapportRejet';
+import {
+  destinatairesDe, indiceAutomatisme, normaliserObjet, palmares, REGLE_ANONYMISATION, REGLE_AUTOMATISME,
+  type Palmares,
+} from './typologie';
 
 // ⚠️ `normaliserMessageId` est IMPORTÉ, pas recopié : c'est la SOURCE UNIQUE de la normalisation d'un Message-ID dans le dépôt
 //   (module PUR — aucune I/O, aucun pg, aucun imapflow : son en-tête le déclare et le graphe d'imports le confirme). Dupliquer
@@ -163,6 +167,21 @@ export function grouperEnFils(messages: readonly MessageSonde[]): MessageSonde[]
 
 export interface SyntheseType { type: string; nb: number; octets: number }
 
+/**
+ * LOT 0-bis — profil d'UN SENS du flux (ce qui sort / ce qui entre). Tout y est un COMPTE ou un GABARIT : aucune adresse
+ * complète, aucun nom. C'est ce bloc qui répond à « la file sera-t-elle noyée ? ».
+ */
+export interface ProfilSens {
+  total: number;
+  automatiques: number;          // indice `indiceAutomatisme` (règle affichée en clair dans le rapport)
+  reponses: number;              // In-Reply-To présent → s'inscrit dans un échange
+  multiDestinataires: number;    // 2 destinataires ou plus (To + Cc), COMPTÉS, jamais rendus
+  sansDestinataireLisible: number; // ni To ni Cc exploitables (liste de diffusion, Bcc…)
+  parSignal: { signal: string; nb: number }[]; // quel signal a classé, et combien de fois — pour juger la règle
+  objets: Palmares;
+  domaines: Palmares | null;     // côté REÇU seulement (côté envoyé, l'expéditeur est constant par construction)
+}
+
 export interface Synthese {
   contexte: ContexteSonde;
   analyses: number;                 // messages RÉELLEMENT lus (l'échantillon, moins les échecs)
@@ -180,6 +199,41 @@ export interface Synthese {
   // pièces
   messagesAvecPieces: number; nbPieces: number; octetsPieces: number; plusGrossePiece: number;
   parType: SyntheseType[];
+  // (d) et (e) — typologie du flux, par sens
+  envois: ProfilSens;
+  recus: ProfilSens;
+  recusMemeDomaine: number;      // reçus venant d'une AUTRE adresse du domaine de la boîte de gestion (courrier interne)
+}
+
+/** Construit le profil d'un sens. PUR : ne compte que ce qu'on lui donne, ne rend jamais une adresse. */
+function profiler(messages: readonly MessageSonde[], avecDomaines: boolean): ProfilSens {
+  const signaux = new Map<string, number>();
+  let automatiques = 0, reponses = 0, multiDestinataires = 0, sansDestinataireLisible = 0;
+  const objets: string[] = [], domaines: string[] = [];
+
+  for (const m of messages) {
+    const indice = indiceAutomatisme(m.deAdresse, m.entetes);
+    if (indice.automatique) automatiques += 1;
+    for (const motif of indice.motifs) signaux.set(motif, (signaux.get(motif) ?? 0) + 1);
+
+    if ((m.inReplyTo ?? '').trim() !== '') reponses += 1;
+
+    const dest = destinatairesDe(m.entetes); // COMPTÉS uniquement — aucune adresse ne sort d'ici
+    if (dest.length === 0) sansDestinataireLisible += 1;
+    else if (dest.length >= 2) multiDestinataires += 1;
+
+    objets.push(normaliserObjet(m.objet));
+    if (avecDomaines) { const d = domaineDe(m.deAdresse); if (d !== '') domaines.push(d); }
+  }
+
+  return {
+    total: messages.length, automatiques, reponses, multiDestinataires, sansDestinataireLisible,
+    parSignal: [...signaux.entries()].map(([signal, nb]) => ({ signal, nb })).sort((a, b) => b.nb - a.nb || a.signal.localeCompare(b.signal)),
+    objets: palmares(objets),
+    // Les DOMAINES ne passent pas par le seuil d'occurrences : un domaine n'identifie personne (orange.fr, monga.io),
+    //   et c'est justement la liste qu'il faut voir en entier pour reconnaître les plateformes.
+    domaines: avecDomaines ? palmares(domaines, 15, 1) : null,
+  };
 }
 
 /** Compose la synthèse. PURE : ne lit rien, n'écrit rien — elle ne fait que compter ce qu'on lui donne. */
@@ -226,9 +280,19 @@ export function synthetiser(contexte: ContexteSonde, messages: readonly MessageS
     }
   }
 
+  // (d)/(e) — partage du flux par SENS. « Envoyé » = expéditeur STRICTEMENT égal à l'adresse de gestion ; tout le reste est
+  //   « reçu ». Le courrier venu d'une AUTRE adresse du même domaine est compté à part : c'est du courrier interne, qui
+  //   gonflerait la file sans être une demande d'un tiers.
+  const envoyes = messages.filter((m) => m.deAdresse.trim().toLowerCase() === adresseSortante);
+  const recus = messages.filter((m) => m.deAdresse.trim().toLowerCase() !== adresseSortante);
+  const domaineGestion = domaineDe(adresseSortante);
+
   return {
     contexte, analyses: messages.length,
     couvertureTotale: messages.length + contexte.echecsTelechargement >= contexte.totalFenetre,
+    envois: profiler(envoyes, false),
+    recus: profiler(recus, true),
+    recusMemeDomaine: domaineGestion === '' ? 0 : recus.filter((m) => domaineDe(m.deAdresse) === domaineGestion).length,
     sortantsEchantillon,
     mngObjet, mngObjetRefs: refsObjet.size, mngCorps, mngRefsToutes: refsToutes.size,
     sansMessageId, domaineIdentifiantConforme, avecEnteteRedirection,
@@ -255,6 +319,38 @@ export function poids(octets: number): string {
   return `${(octets / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
+/** Rend un palmarès, seuil d'affichage compris (ce qui est masqué est ANNONCÉ, jamais escamoté). PUR. */
+function lignesPalmares(p: Palmares, indentation: string): string[] {
+  const l = p.lignes.map((x) => `${indentation}${String(x.nb).padStart(5, ' ')}  ${x.valeur}`);
+  if (p.lignes.length === 0) l.push(`${indentation}(aucune valeur au-dessus du seuil d'affichage)`);
+  if (p.restantes > 0) l.push(`${indentation}… et ${p.restantes} autre(s) gabarit(s) au-dessus du seuil, hors du classement`);
+  if (p.masquees > 0) l.push(`${indentation}(${p.masquees} gabarit(s) vu(s) moins de 3 fois, ${p.masqueesOccurrences} message(s) — comptés, non montrés : anonymisation)`);
+  return l;
+}
+
+/** Rend le profil d'un sens (d ou e). PUR. */
+function bloc(titre: string, precision: string, p: ProfilSens, totalAnalyse: number): string[] {
+  const l: string[] = [];
+  l.push(`──  ${titre} — ${precision}  ${'─'.repeat(Math.max(3, 78 - (titre.length + precision.length + 9)))}`);
+  l.push(`  messages de ce sens dans l'échantillon : ${p.total} sur ${totalAnalyse}  (${part(p.total, totalAnalyse)})`);
+  if (p.total === 0) { l.push('  (rien à profiler dans ce sens)'); return l; }
+  l.push(`  probablement AUTOMATIQUES              : ${p.automatiques}  (${part(p.automatiques, p.total)})`);
+  l.push(`  probablement HUMAINS                   : ${p.total - p.automatiques}  (${part(p.total - p.automatiques, p.total)})`);
+  l.push(`  s'inscrivant dans un échange (In-Reply-To) : ${p.reponses}  (${part(p.reponses, p.total)})`);
+  l.push(`  à PLUSIEURS destinataires (To + Cc)    : ${p.multiDestinataires}  (${part(p.multiDestinataires, p.total)})`);
+  l.push(`  sans destinataire lisible (diffusion, Cci) : ${p.sansDestinataireLisible}  (${part(p.sansDestinataireLisible, p.total)})`);
+  l.push('  signaux qui ont classé « automatique » :');
+  if (p.parSignal.length === 0) l.push('      (aucun)');
+  for (const s of p.parSignal) l.push(`      ${s.signal.padEnd(28, ' ')} ${String(s.nb).padStart(5, ' ')}`);
+  if (p.domaines !== null) {
+    l.push('  domaines d\'expéditeurs les plus fréquents :');
+    l.push(...lignesPalmares(p.domaines, '      '));
+  }
+  l.push('  objets NORMALISÉS les plus fréquents :');
+  l.push(...lignesPalmares(p.objets, '      '));
+  return l;
+}
+
 /**
  * Compose le rapport, ligne à ligne. PUR (aucun `console.log` ici — l'impression est au CLI, donc le rapport est TESTABLE).
  * Les TROIS MESURES DEMANDÉES sont regroupées et nommées : elles décident de l'ergonomie, elles ne doivent pas se chercher.
@@ -264,7 +360,7 @@ export function formaterRapport(s: Synthese): string[] {
   const l: string[] = [];
   l.push('');
   l.push('══════════════════════════════════════════════════════════════════════════════');
-  l.push('  SONDE DU DOSSIER « GESTION » — LECTURE STRICTE (aucune écriture, nulle part)');
+  l.push('  SONDE DE LA BOÎTE DE GESTION — LECTURE STRICTE (aucune écriture, nulle part)');
   l.push('══════════════════════════════════════════════════════════════════════════════');
   l.push(`  dossier IMAP ouvert        : ${c.dossier}`);
   l.push(`  fenêtre                    : ${c.jours} jours (depuis le ${c.depuis.toISOString().slice(0, 10)})`);
@@ -295,12 +391,26 @@ export function formaterRapport(s: Synthese): string[] {
   l.push(`      messages portant un en-tête de redirection     : ${s.avecEnteteRedirection} sur ${s.analyses}  (${part(s.avecEnteteRedirection, s.analyses)})  ← indice « copie par redirection, pas par transfert »`);
   l.push(`      réponses/transferts (objet « Re: », « TR : »)  : ${s.reponses}`);
   l.push(`      …dont In-Reply-To ou References exploitables   : ${s.reponsesAvecAncre}  (${part(s.reponsesAvecAncre, s.reponses)})  ← LA mesure décisive`);
-  l.push(`      fils reconstitués sur l'échantillon            : ${s.nbFils} fils pour ${s.analyses} messages (plus grand fil : ${s.plusGrandFil} messages)`);
+  l.push(`      fils reconstitués sur l'échantillon            : ${s.nbFils} fils pour ${s.analyses} messages (plus grand fil : ${s.plusGrandFil} message(s))`);
   l.push(s.reponses === 0
     ? '      → aucune réponse dans l\'échantillon : indécis, élargir la fenêtre ou l\'échantillon.'
     : s.reponsesAvecAncre * 100 >= s.reponses * 90
       ? '      → en-têtes EXPLOITABLES : « un fil par ligne » se calcule à partir des en-têtes, voie PURE, sans dépendance à Gmail.'
       : '      → en-têtes ABÎMÉS par la recopie : prévoir l\'identifiant de fil natif de Gmail (X-GM-THRID) au lot 3.');
+  l.push('');
+  l.push(...bloc('(d) CE QUI SORT', `émis par ${c.adresseSortante}`, s.envois, s.analyses));
+  l.push('');
+  l.push(...bloc('(e) CE QUI ENTRE', 'tout le reste', s.recus, s.analyses));
+  if (s.recusMemeDomaine > 0) {
+    l.push(`  ⓘ dont ${s.recusMemeDomaine} venu(s) d'une AUTRE adresse du domaine de la gestion : c'est du courrier INTERNE,`);
+    l.push('    qui gonflerait la file sans être la demande d\'un tiers. À écarter ou à marquer, au lot 3.');
+  }
+  l.push('');
+  l.push('──  (f) LA RÈGLE « humain / automatique », EN CLAIR — juge-la  ───────────────');
+  for (const ligne of REGLE_AUTOMATISME) l.push(ligne === '' ? '' : `  ${ligne}`);
+  l.push('');
+  l.push('──  ANONYMISATION — ce que ce rapport ne montre jamais  ──────────────────────');
+  for (const ligne of REGLE_ANONYMISATION) l.push(ligne === '' ? '' : `  ${ligne}`);
   l.push('');
   l.push('──  PIÈCES JOINTES (ce que le stockage devra accepter)  ──────────────────────');
   l.push(`  messages avec pièce(s) : ${s.messagesAvecPieces} sur ${s.analyses}  (${part(s.messagesAvecPieces, s.analyses)})`);

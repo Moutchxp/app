@@ -18,9 +18,13 @@
  * (ce n'est pas une erreur — même convention que `demandes:relever`).
  *
  * Usage :
- *   npm run gestion:sonder                          # dossier GESTION, 90 jours, échantillon de 150 messages
+ *   npm run gestion:sonder                          # « _GESTION BOITE MAIL », 90 jours, échantillon de 400 messages
  *   npm run gestion:sonder -- --lister-dossiers     # ne fait QUE lister les dossiers IMAP, puis sort
- *   npm run gestion:sonder -- --dossier="GESTION" --jours=90 --echantillon=0   # 0 = TOUT analyser (long)
+ *   npm run gestion:sonder -- --dossier="…" --jours=90 --echantillon=0   # 0 = TOUT analyser (long)
+ *
+ * LOT 0-bis — le rapport porte en plus la TYPOLOGIE du flux (ce qui sort / ce qui entre : part automatique, part de
+ * réponses, envois groupés, domaines et gabarits d'objets), avec sa règle de classement et sa règle d'anonymisation
+ * écrites en clair dans le rapport lui-même, pour être jugées. Voir `app/lib/gestion/typologie.ts`.
  */
 import '../lib/chargerEnv';
 import { pathToFileURL } from 'node:url';
@@ -31,10 +35,14 @@ import {
   type ContexteSonde, type MessageSonde,
 } from '../lib/gestion/sonde';
 
-const DOSSIER_DEFAUT = 'GESTION';
+// Dossier PAR DÉFAUT = celui que la sonde du lot 0 a trouvé sur la vraie boîte. C'est un DÉFAUT d'option, pas une valeur en
+//   dur : `--dossier=` le remplace, et le module lira son dossier dans un réglage (jamais dans le code) à partir du lot 1.
+const DOSSIER_DEFAUT = '_GESTION BOITE MAIL';
 const ADRESSE_SORTANTE_DEFAUT = 'gestion@criterimmo.fr';
 const JOURS_DEFAUT = 90;
-const ECHANTILLON_DEFAUT = 150; // borne de confort : ~150 messages se lisent en quelques minutes ; `--echantillon=0` = tout
+// LOT 0-bis : 400 (au lieu de 150). La typologie du flux compte des GABARITS d'objets sous un seuil de 3 occurrences —
+//   trop peu de messages et tout tomberait sous le seuil, donc rien ne s'afficherait. `--echantillon=0` lit tout.
+const ECHANTILLON_DEFAUT = 400;
 
 /**
  * Projette un message lu en la vue MINIMALE que la sonde mesure. ⚠️ Le CONTENU des pièces jointes est ABANDONNÉ ICI (seuls le

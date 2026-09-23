@@ -195,6 +195,91 @@ describe('synthèse — les trois mesures demandées', () => {
   });
 });
 
+describe('typologie du flux — (d) ce qui sort, (e) ce qui entre', () => {
+  /** Un flux de gérance plausible : quittances envoyées par un logiciel, réponses écrites à la main, notifications reçues. */
+  const flux: MessageSonde[] = [
+    // sortants « logiciel » (un X-Mailer se nomme), un seul destinataire
+    ...[1, 2, 3].map((i) => msg({
+      uid: i, deAdresse: 'gestion@criterimmo.fr', objet: `Quittance de loyer septembre 2026 — Mme Martin ${i}`,
+      entetes: { 'x-mailer': 'Logiciel 4.2', to: `loc${i}@orange.fr` },
+    })),
+    // sortants « écrits à la main » : aucun signal, une vraie réponse, deux destinataires
+    ...[4, 5].map((i) => msg({
+      uid: i, deAdresse: 'gestion@criterimmo.fr', objet: 'Re: Fuite salle de bain chez M. Durand',
+      inReplyTo: `<in${i}@orange.fr>`, entetes: { to: 'loc@orange.fr, syndic@abc.fr' },
+    })),
+    // entrants automatiques (adresse sans réponse + désabonnement)
+    ...[6, 7].map((i) => msg({
+      uid: i, deAdresse: 'no-reply@monga.io', objet: `Intervention MNG-${23000 + i}`,
+      entetes: { 'list-unsubscribe': '<https://monga.io/u>', to: 'gestion@criterimmo.fr' },
+    })),
+    // entrants humains
+    ...[8, 9, 10].map((i) => msg({ uid: i, deAdresse: `locataire${i}@orange.fr`, objet: 'Problème de chauffage', entetes: { to: 'gestion@criterimmo.fr' } })),
+    // courrier INTERNE : une autre adresse du même domaine que la gestion
+    msg({ uid: 11, deAdresse: 'a.jorel@criterimmo.fr', objet: 'Point hebdo', entetes: { to: 'gestion@criterimmo.fr' } }),
+  ];
+  const s = synthetiser({ ...CONTEXTE, totalFenetre: 11 }, flux);
+
+  it('partage le flux par SENS sur l’adresse de gestion, à l’exact', () => {
+    expect(s.envois.total).toBe(5);
+    expect(s.recus.total).toBe(6);
+  });
+
+  it('(d) distingue les envois de LOGICIEL des envois écrits à la main, et dit quel signal a tranché', () => {
+    expect(s.envois.automatiques).toBe(3);
+    expect(s.envois.parSignal).toEqual([{ signal: 'x-mailer', nb: 3 }]);
+    expect(s.envois.reponses).toBe(2);           // In-Reply-To présent
+    expect(s.envois.multiDestinataires).toBe(2); // To + Cc ≥ 2
+    expect(s.envois.domaines).toBeNull();        // côté envoi l'expéditeur est constant : aucun intérêt
+  });
+
+  it('(e) classe les entrants et rend les DOMAINES (jamais les adresses)', () => {
+    expect(s.recus.automatiques).toBe(2);
+    expect(s.recus.parSignal).toEqual([{ signal: 'adresse sans réponse', nb: 2 }, { signal: 'list-unsubscribe', nb: 2 }]);
+    expect(s.recus.domaines?.lignes).toEqual([
+      { valeur: 'monga.io', nb: 2 }, { valeur: 'orange.fr', nb: 3 }, { valeur: 'criterimmo.fr', nb: 1 },
+    ].sort((a, b) => b.nb - a.nb || a.valeur.localeCompare(b.valeur)));
+  });
+
+  it('compte à part le courrier INTERNE (autre adresse du même domaine) : il gonflerait la file pour rien', () => {
+    expect(s.recusMemeDomaine).toBe(1);
+    expect(formaterRapport(s).join('\n')).toContain('courrier INTERNE');
+  });
+
+  it('les objets affichés sont des GABARITS : ni nom, ni date, ni référence, ni adresse', () => {
+    const objets = [...s.envois.objets.lignes, ...s.recus.objets.lignes].map((x) => x.valeur);
+    expect(objets).toContain('Quittance de loyer <date>');
+    expect(objets).toContain('Problème de chauffage');
+    for (const o of objets) {
+      expect(o).not.toMatch(/@/);
+      expect(o).not.toMatch(/Martin|Durand|Jorel/);
+      expect(o).not.toMatch(/\d/); // tout chiffre est passé en <n>/<date>/<ref>
+    }
+  });
+
+  it('un gabarit vu moins de 3 fois est COMPTÉ mais jamais montré', () => {
+    // « Re: Fuite… » n'apparaît que 2 fois et « Point hebdo » 1 fois → sous le seuil, donc masqués.
+    const montres = [...s.envois.objets.lignes, ...s.recus.objets.lignes].map((x) => x.valeur);
+    expect(montres).not.toContain('Fuite salle de bain chez <nom>');
+    expect(s.envois.objets.masquees).toBe(1);
+    expect(s.envois.objets.masqueesOccurrences).toBe(2);
+  });
+
+  it('(f) le rapport ÉNONCE sa règle de classement et sa règle d’anonymisation', () => {
+    const texte = formaterRapport(s).join('\n');
+    expect(texte).toContain('(f) LA RÈGLE « humain / automatique », EN CLAIR');
+    expect(texte).toContain('probablement AUTOMATIQUE');
+    expect(texte).toContain('LIMITES CONNUES');
+    expect(texte).toContain('ANONYMISATION — ce que ce rapport ne montre jamais');
+    expect(texte).toContain('AU MOINS 3 FOIS');
+  });
+
+  it('un sens VIDE ne casse rien et le dit', () => {
+    const texte = formaterRapport(synthetiser(CONTEXTE, [msg({ uid: 1 })])).join('\n');
+    expect(texte).toContain('(rien à profiler dans ce sens)');
+  });
+});
+
 describe('rapport', () => {
   it('nomme les trois mesures et conclut sur les en-têtes quand ils sont exploitables', () => {
     const s = synthetiser({ ...CONTEXTE, sortantsGestion: 12 }, [

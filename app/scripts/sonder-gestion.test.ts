@@ -26,7 +26,8 @@ function clientFaux(over: {
   const appels = { ouvrirBoite: [] as string[], fermer: 0, telecharges: [] as number[], recherches: [] as (string | undefined)[] };
   const client: ClientApprofondi = {
     ouvrir: async () => {},
-    listerBoites: async () => over.boites ?? ['INBOX', 'GESTION'],
+    // Le dossier par défaut du CLI est celui trouvé sur la vraie boîte au lot 0 : « _GESTION BOITE MAIL ».
+    listerBoites: async () => over.boites ?? ['INBOX', '_GESTION BOITE MAIL'],
     ouvrirBoite: async (chemin: string) => { appels.ouvrirBoite.push(chemin); },
     chercher: async (c: { depuis: Date; from?: string }) => {
       appels.recherches.push(c.from);
@@ -79,7 +80,7 @@ describe('gestion:sonder — comportement', () => {
   });
 
   it('--lister-dossiers ne fait QUE lister : aucune boîte ouverte, aucun message lu', async () => {
-    const { client, appels } = clientFaux({ boites: ['INBOX', 'GESTION', '[Gmail]/Spam'] });
+    const { client, appels } = clientFaux({ boites: ['INBOX', '_GESTION BOITE MAIL', '[Gmail]/Spam'] });
     const { d, lignes } = deps(client);
     expect(await executerSonde(['--lister-dossiers'], d)).toBe(0);
     expect(appels.ouvrirBoite).toEqual([]);
@@ -100,14 +101,21 @@ describe('gestion:sonder — comportement', () => {
   it('ouvre le dossier demandé (casse résolue), interroge le total PUIS les sortants, et rend le rapport', async () => {
     const { client, appels } = clientFaux({ uidsParRecherche: (from) => (from === undefined ? [10, 11, 12] : [11]) });
     const { d, lignes } = deps(client);
-    expect(await executerSonde(['--dossier=gestion'], d)).toBe(0);
-    expect(appels.ouvrirBoite).toEqual(['GESTION']);
+    expect(await executerSonde(['--dossier=_gestion boite mail'], d)).toBe(0);
+    expect(appels.ouvrirBoite).toEqual(['_GESTION BOITE MAIL']);
     expect(appels.recherches).toEqual([undefined, 'gestion@criterimmo.fr']);
     expect(appels.telecharges).toEqual([10, 11, 12]);
     expect(appels.fermer).toBe(1);
     const texte = lignes.join('\n');
     expect(texte).toContain('LES TROIS MESURES');
     expect(texte).toContain('1 sur 3'); // (a) sortants, comptés côté serveur
+  });
+
+  it('sans --dossier, ouvre celui trouvé sur la vraie boîte au lot 0', async () => {
+    const { client, appels } = clientFaux();
+    const { d } = deps(client);
+    expect(await executerSonde([], d)).toBe(0);
+    expect(appels.ouvrirBoite).toEqual(['_GESTION BOITE MAIL']);
   });
 
   it('referme TOUJOURS la boîte, même quand la recherche échoue', async () => {
