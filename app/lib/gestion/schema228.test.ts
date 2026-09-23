@@ -200,7 +200,13 @@ describe('228 — règle ③ tout ce qui se pilote se pilote sans code', () => {
     expect(sens![1]).toContain("'les_deux'");
   });
 
-  it('la GRAINE est posée : le gabarit prouvé et les domaines internes sont ACTIFS', () => {
+  /**
+   * ⚠️ ÉTAT DU FICHIER 228, PAS ÉTAT DE LA BASE. La migration 229 (lot 3-bis) ÉTEINT ensuite les deux règles de domaine
+   * interne : un collègue du service location transfère à la gestion des mails de locataires, l'expéditeur devient alors
+   * une adresse interne, et ces messages sont de vraies demandes. Une migration appliquée ne se réécrit pas — c'est donc
+   * 229 qui fait foi sur l'état courant (cf. schema229.test.ts). Ce test-ci ne vérifie que ce que 228 a semé.
+   */
+  it('la GRAINE de 228 est posée : le gabarit prouvé et les domaines internes, actifs à l’époque', () => {
     expect(/\('gabarit_objet', 'Document CRITERIMMO', 'les_deux', true,/.test(code)).toBe(true);
     expect(/\('domaine_expediteur', 'criterimmo\.fr', 'recu', true,/.test(code)).toBe(true);
     expect(/\('domaine_expediteur', 'sansvisavis\.com', 'recu', true,/.test(code)).toBe(true);

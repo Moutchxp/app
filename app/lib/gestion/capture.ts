@@ -145,7 +145,17 @@ export function fenetreDepuis(
   return avecMarge.getTime() > rattrapage.getTime() ? avecMarge : rattrapage;
 }
 
-/** Sens d'un message : émis par la boîte de gestion, ou reçu. La comparaison passe par la configuration. PUR. */
+/**
+ * Sens d'un message : émis par la boîte de gestion, ou reçu. La comparaison passe par la configuration. PUR.
+ *
+ * 🔭 LOT ULTÉRIEUR — L'AUTEUR D'ORIGINE D'UN TRANSFERT (cf. migration 229). Un collègue du service location transfère à
+ * la gestion un mail de locataire reçu sur son adresse : l'expéditeur devient alors une adresse interne, et `deAdresse`
+ * désigne le collègue, pas le demandeur. Le corps du message porte pourtant l'information (« ---------- Message
+ * transféré ---------- », avec le De: réel). La lire permettrait d'afficher le VRAI demandeur, puis de relier les
+ * messages suivants par son adresse — rattachement automatique s'il n'a qu'UNE carte ouverte, simple PROPOSITION sinon
+ * (jamais au jugé). Tant que ce lot n'existe pas, ces messages entrent dans la file au nom du collègue : imparfait, mais
+ * VISIBLE — et c'est pour ça que les deux règles de domaine interne sont éteintes.
+ */
 export function sensDuMessage(deAdresse: string, adresseGestion: string): 'recu' | 'envoye' {
   return deAdresse.trim().toLowerCase() === adresseGestion.trim().toLowerCase() ? 'envoye' : 'recu';
 }
