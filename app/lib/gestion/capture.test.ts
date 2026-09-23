@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { capturer, fenetreDepuis, MARGE_JOURS, preparerMessage, sensDuMessage, type DepsCapture, type MessageBrut } from './capture';
+import { capturer, ErreurCapture, fenetreDepuis, MARGE_JOURS, preparerMessage, sensDuMessage, type DepsCapture, type MessageBrut } from './capture';
+import { ErreurConnexion } from './clientSurveille';
 import { CONFIG_GESTION_DEFAUT, type ConfigGestion } from './config';
 import type { RegleExclusion } from './regles';
 
@@ -250,5 +251,88 @@ describe('garantie STATIQUE — ce module ne fait aucune I/O', () => {
       expect(modules.filter((m) => m.includes(interdit))).toEqual([]);
     }
     expect(vi.isMockFunction(vi.fn())).toBe(true); // (garde-fou du harnais, sans effet métier)
+  });
+});
+
+describe('LOT 3-ter — une connexion perdue ARRÊTE la passe (elle ne passe plus pour un succès)', () => {
+  /** 400 messages, la connexion tombe au 4ᵉ. Avant correctif : « 3 capturés, 397 illisibles », rapport d'allure normale. */
+  function passeCoupee() {
+    const uids = Array.from({ length: 400 }, (_, i) => i + 1);
+    // Plafond large : c'est la COUPURE qu'on veut voir mordre, pas le plafond.
+    const { d, appels } = deps({ messages: uids.map((uid) => message({ uid })), config: { ...config, plafondParPasse: 400 } });
+    d.chercherDepuis = async () => uids;
+    d.telecharger = async (uid) => {
+      if (uid >= 4) throw new ErreurConnexion('connexion à la boîte perdue pendant la lecture du message 4 : Socket timeout');
+      return message({ uid });
+    };
+    return { d, appels };
+  }
+
+  it('la passe JETTE au lieu de compter 397 « illisibles »', async () => {
+    const { d } = passeCoupee();
+    await expect(capturer(d, false)).rejects.toBeInstanceOf(ErreurCapture);
+  });
+
+  it('l’erreur PORTE le rapport partiel : ce qui a été capturé avant la panne reste compté', async () => {
+    const { d } = passeCoupee();
+    const e = await capturer(d, true).catch((x: unknown) => x) as ErreurCapture;
+    expect(e.rapport.captures).toBe(3);
+    expect(e.rapport.vus).toBe(4);
+    expect(e.rapport.echecsLecture).toBe(0); // surtout PAS 397 : ce n'étaient pas des messages illisibles
+    expect(e.message).toContain('Socket timeout'); // la vraie cause, pas un symptôme
+  });
+
+  it('la boîte est refermée malgré tout', async () => {
+    const { d, appels } = passeCoupee();
+    await capturer(d, true).catch(() => undefined);
+    expect(appels.fermetures).toBe(1);
+  });
+
+  it('un message ILLISIBLE, lui, laisse toujours la passe continuer — la distinction est le cœur du correctif', async () => {
+    const { d } = deps({
+      messages: [message({ uid: 1 }), message({ uid: 2 }), message({ uid: 3 })],
+      telechargerJette: (uid) => uid === 2,
+    });
+    const r = await capturer(d, true);
+    expect(r.echecsLecture).toBe(1);
+    expect(r.captures).toBe(2);
+  });
+
+  it('une panne d’OUVERTURE est rapportée avec ses compteurs à zéro, jamais avalée', async () => {
+    const { d } = deps();
+    d.ouvrirDossier = async () => { throw new ErreurConnexion('connexion à la boîte perdue avant la connexion : ETIMEOUT'); };
+    const e = await capturer(d, false).catch((x: unknown) => x) as ErreurCapture;
+    expect(e).toBeInstanceOf(ErreurCapture);
+    expect(e.rapport.vus).toBe(0);
+  });
+});
+
+describe('LOT 3-ter — la progression est ANNONCÉE (un terminal muet ne dit pas s’il travaille)', () => {
+  it('annonce le dossier, la fenêtre, le nombre de messages, puis un point tous les 25', async () => {
+    const lignes: string[] = [];
+    const { d } = deps({ messages: Array.from({ length: 60 }, (_, i) => message({ uid: i + 1 })), config: { ...config, plafondParPasse: 400 } });
+    d.journal = (l) => lignes.push(l);
+    await capturer(d, false);
+    const texte = lignes.join('\n');
+    expect(texte).toContain('_GESTION BOITE MAIL');
+    expect(texte).toContain('fenêtre depuis le');
+    expect(texte).toContain('60 message(s) dans la fenêtre');
+    expect(texte).toContain('… 25/60 lus');
+    expect(texte).toContain('… 50/60 lus');
+    expect(texte).toContain('passe terminée');
+  });
+
+  it('annonce aussi l’interruption, avec le nombre de messages déjà lus', async () => {
+    const lignes: string[] = [];
+    const { d } = deps();
+    d.journal = (l) => lignes.push(l);
+    d.chercherDepuis = async () => { throw new Error('boîte indisponible'); };
+    await capturer(d, false).catch(() => undefined);
+    expect(lignes.join('\n')).toContain('⚠ passe interrompue après 0 message(s) lu(s) : boîte indisponible');
+  });
+
+  it('sans journal fourni, la capture fonctionne exactement pareil (la progression est optionnelle)', async () => {
+    const { d } = deps();
+    expect((await capturer(d, false)).captures).toBe(1);
   });
 });

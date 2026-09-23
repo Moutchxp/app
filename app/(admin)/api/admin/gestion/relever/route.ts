@@ -25,7 +25,9 @@ export async function POST(request: Request): Promise<Response> {
   if (refus) return refus;
 
   try {
-    const issue = await relever(true);
+    // Journal SERVEUR de la progression : une passe dure des minutes, et une panne réseau doit laisser une trace
+    //   datée dans les logs, pas seulement un message à l'écran.
+    const issue = await relever(true, (ligne) => console.log('[gestion/relever]', ligne));
     if (issue.resultat === 'erreur') console.error('[gestion/relever] passe en échec :', issue.raison);
     if (issue.resultat === 'ok' && issue.rapport) {
       const r = issue.rapport;

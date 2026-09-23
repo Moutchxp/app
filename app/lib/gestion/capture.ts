@@ -16,6 +16,7 @@
  *    avec les messages déjà capturés (passes tronquées) — donc toujours.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+import { ErreurConnexion } from './clientSurveille';
 import type { ConfigGestion } from './config';
 import { cleDuFil, identifiantsMessage, pourComparaison } from './fil';
 import { appliquerRegles, type Exclusion, type RegleExclusion } from './regles';
@@ -72,6 +73,9 @@ export interface FilResolu { filId: number; cree: boolean; fusionnes: number }
 
 export interface DepsCapture {
   maintenant(): Date;
+  /** LOT 3-ter — avancement, ligne par ligne. Une passe dure des minutes : sans elle, « ça travaille » et « c'est bloqué »
+   *  se ressemblent exactement, et c'est ce qui a fait attendre 25 minutes devant un terminal muet. Optionnelle. */
+  journal?(ligne: string): void;
   config(): Promise<ConfigGestion>;
   /** Règles ACTIVES, par identifiant croissant (ordre déterministe → même trace à chaque relève). */
   reglesActives(): Promise<RegleExclusion[]>;
@@ -90,6 +94,18 @@ export interface DepsCapture {
   resoudreFil(identifiants: string[], cleRacine: string, objet: string | null): Promise<FilResolu>;
   ecrire(m: MessageAEcrire, filId: number): Promise<number | null>; // null = déjà écrit entre-temps (course)
   deposerPieces(messageId: number, pieces: PieceBrute[], config: ConfigGestion): Promise<{ deposees: number; nonDeposees: number }>;
+}
+
+/**
+ * Une passe a échoué, mais elle avait déjà travaillé. L'erreur PORTE le rapport partiel : la ligne de journal écrira
+ * ce qui a réellement été capturé avant la panne, au lieu d'un échec sans chiffres. Tout ce qui est capturé est acquis —
+ * chaque message est écrit au fil de l'eau, jamais à la fin.
+ */
+export class ErreurCapture extends Error {
+  constructor(message: string, readonly rapport: RapportCapture, readonly origine?: unknown) {
+    super(message);
+    this.name = 'ErreurCapture';
+  }
 }
 
 export interface RapportCapture {
@@ -202,21 +218,30 @@ export async function capturer(deps: DepsCapture, appliquer = false): Promise<Ra
     filsCrees: 0, filsFusionnes: 0, piecesDeposees: 0, piecesNonDeposees: 0, echecsLecture: 0, parRegle: {},
   };
 
-  await deps.ouvrirDossier(config.dossierImap);
+  deps.journal?.(`dossier « ${config.dossierImap} » · fenêtre depuis le ${depuis.toISOString().slice(0, 10)} · ${regles.length} règle(s) active(s)`);
+  deps.journal?.('connexion à la boîte…');
   try {
+    await deps.ouvrirDossier(config.dossierImap);
+    deps.journal?.('recherche des messages de la fenêtre…');
     const uids = [...await deps.chercherDepuis(depuis)].sort((a, b) => a - b);
     r.uidsServeur = uids.length;
     // PLAFOND : on garde les plus ANCIENS, jamais les plus récents. Jeter les vieux les perdrait pour toujours (la
     //   fenêtre ne redescend jamais) ; jeter les récents ne coûte qu'une passe de plus — ils reviendront.
     const aLire = uids.length > config.plafondParPasse ? uids.slice(0, config.plafondParPasse) : uids;
     r.plafondAtteint = aLire.length < uids.length;
+    deps.journal?.(`${uids.length} message(s) dans la fenêtre ; ${aLire.length} à lire dans cette passe${r.plafondAtteint ? ` (plafond ${config.plafondParPasse})` : ''}`);
 
     for (const uid of aLire) {
       r.vus += 1;
+      if (r.vus % 25 === 0) deps.journal?.(`… ${r.vus}/${aLire.length} lus — ${r.captures} capturé(s), ${r.exclus} hors file`);
       let m: MessageBrut;
       try {
         m = await deps.telecharger(uid);
-      } catch {
+      } catch (e) {
+        // 🔴 LA DISTINCTION QUI MANQUAIT. Un message ILLISIBLE (MIME cassé, disparu) est isolé : la passe continue. Une
+        //   CONNEXION PERDUE, elle, ferait échouer tous les suivants : sans ce test, une coupure au 4ᵉ message rendait
+        //   « 3 capturés, 397 illisibles » — un rapport d'allure normale, sans aucun signal d'échec. Mesuré.
+        if (e instanceof ErreurConnexion) throw e;
         r.echecsLecture += 1; // ISOLATION : un message illisible ne fait pas perdre les autres
         continue;
       }
@@ -247,8 +272,14 @@ export async function capturer(deps: DepsCapture, appliquer = false): Promise<Ra
         r.piecesNonDeposees += bilan.nonDeposees;
       }
     }
+    deps.journal?.(`passe terminée : ${r.captures} capturé(s), ${r.exclus} hors file, ${r.dejaConnus} déjà connu(s)`);
+  } catch (e) {
+    // La passe s'arrête, mais ce qu'elle avait capturé est ACQUIS et compté : l'erreur emporte le rapport partiel.
+    const motif = e instanceof Error ? e.message : String(e);
+    deps.journal?.(`⚠ passe interrompue après ${r.vus} message(s) lu(s) : ${motif}`);
+    throw new ErreurCapture(motif, r, e);
   } finally {
-    await deps.fermer();
+    await deps.fermer(); // la boîte est TOUJOURS refermée, même quand la connexion est déjà tombée
   }
   return r;
 }

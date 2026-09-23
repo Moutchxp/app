@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { executerReleveGestion, resume, type DepsReleveGestion } from './releve';
 import { CONFIG_GESTION_DEFAUT } from './config';
-import type { RapportCapture } from './capture';
+import { ErreurCapture, type RapportCapture } from './capture';
 import type { ClientDossier } from './captureRepo';
 
 /**
@@ -133,5 +133,48 @@ describe('garantie STATIQUE — le verrou du module Permis n’est jamais touch�
     const { readFileSync } = await import('node:fs');
     const src = readFileSync('app/lib/gestion/captureRepo.ts', 'utf8').replace(/gestion_releve_run/g, 'X');
     expect(/(INSERT INTO|UPDATE|DELETE FROM)\s+releve_run\b/i.test(src)).toBe(false);
+  });
+});
+
+describe('LOT 3-ter — une panne réseau ne perd ni la trace, ni les compteurs', () => {
+  const partiel = rapport({ vus: 137, captures: 120, exclus: 14, dejaConnus: 3 });
+  const panne = () => new ErreurCapture('connexion à la boîte perdue pendant la lecture du message 138 : Socket timeout', partiel);
+
+  it('MODE RÉEL : la passe est journalisée « erreur » AVEC ce qui avait été capturé', async () => {
+    const { d, appels } = deps({ capturer: async () => { throw panne(); } });
+    const issue = await executerReleveGestion(d, true);
+    expect(issue.resultat).toBe('erreur');
+    expect(issue.raison).toContain('Socket timeout');
+    expect(appels.majs[0]).toMatchObject({ resultat: 'erreur', rapport: partiel });
+    expect(issue.rapport).toBe(partiel); // l'écran et la CLI peuvent dire ce qui a été fait
+  });
+
+  it('MODE RÉEL : le verrou est rendu, sinon toutes les passes suivantes seraient bloquées', async () => {
+    const { d, appels } = deps({ capturer: async () => { throw panne(); } });
+    await executerReleveGestion(d, true);
+    expect(appels.verrous).toEqual(['pris', 'rendu']);
+  });
+
+  it('SIMULATION : la panne est rendue telle quelle, AUCUNE ligne de journal n’est écrite', async () => {
+    const { d, appels } = deps({ capturer: async () => { throw panne(); } });
+    const issue = await executerReleveGestion(d, false);
+    expect(issue.resultat).toBe('erreur');
+    expect(issue.rapport).toBe(partiel);
+    expect(appels.runs).toEqual([]);   // une simulation n'écrit rien, même quand elle échoue
+    expect(appels.majs).toEqual([]);
+    expect(appels.verrous).toEqual(['pris', 'rendu']);
+  });
+
+  it('une panne SANS rapport partiel (panne avant toute lecture) reste gérée, sans compteurs inventés', async () => {
+    const { d, appels } = deps({ capturer: async () => { throw new Error('connexion refusée'); } });
+    const issue = await executerReleveGestion(d, true);
+    expect(issue.resultat).toBe('erreur');
+    expect(issue.rapport).toBeNull();
+    expect(appels.majs[0]).toMatchObject({ resultat: 'erreur', erreur: 'connexion refusée' });
+  });
+
+  it('la passe ne relance JAMAIS : c’est l’appelant qui décide (isolation)', async () => {
+    const { d } = deps({ capturer: async () => { throw panne(); } });
+    await expect(executerReleveGestion(d, true)).resolves.toMatchObject({ resultat: 'erreur' });
   });
 });

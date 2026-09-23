@@ -12,6 +12,7 @@ import { pool, query, withTransaction } from '../db/client';
 import { chargerConfigGestion, type ConfigGestion } from './config';
 import type { DepsCapture, MessageAEcrire, MessageBrut, PieceBrute, FilResolu } from './capture';
 import type { RegleExclusion } from './regles';
+import type { ClientDossier } from './clientSurveille';
 import { destinatairesDe } from './typologie';
 import { CLE_VERROU_GESTION } from './verrou';
 
@@ -189,18 +190,11 @@ export function destinatairesDuMessage(entetes: Record<string, string>): { brut:
 /**
  * Câblage RÉEL des dépendances de la capture. Le client IMAP est créé par l'appelant (import dynamique d'imap.ts), pour
  * que ce module reste importable par un test sans charger imapflow.
+ *
+ * Le CONTRAT du client vit dans `clientSurveille.ts` (une seule définition, à côté de l'enveloppe qui le surveille) et
+ * est RÉEXPORTÉ ici pour les appelants historiques.
  */
-export interface ClientDossier {
-  ouvrir(): Promise<void>;
-  ouvrirBoite(chemin: string): Promise<void>;
-  chercher(criteres: { depuis: Date; from?: string }): Promise<number[]>;
-  telechargerMessage(uid: number): Promise<{
-    uid: number; recuLe: Date; deNom: string | null;
-    message: { messageId: string; inReplyTo?: string; references?: string[]; deAdresse: string; objet?: string; corpsTexte?: string; corpsHtml?: string; entetes: Record<string, string> };
-    pieces: { nomFichier: string; typeMime: string | null; tailleOctets: number | null; contenu: Buffer }[];
-  }>;
-  fermer(): Promise<void>;
-}
+export type { ClientDossier } from './clientSurveille';
 
 /** Projette un message lu par l'adaptateur IMAP sur ce dont la capture a besoin. PUR. */
 export function versMessageBrut(mb: Awaited<ReturnType<ClientDossier['telechargerMessage']>>): MessageBrut {

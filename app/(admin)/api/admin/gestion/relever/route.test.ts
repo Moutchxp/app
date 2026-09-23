@@ -42,7 +42,25 @@ describe('garde d’écriture', () => {
 describe('la passe', () => {
   it('lance TOUJOURS le mode appliqué : la route n’est pas un chemin de simulation', async () => {
     await POST(requete());
-    expect(releverMock).toHaveBeenCalledWith(true);
+    expect(releverMock.mock.calls[0][0]).toBe(true);
+  });
+
+  it('fournit un journal de progression : une passe de plusieurs minutes doit laisser une trace serveur', async () => {
+    await POST(requete());
+    expect(typeof releverMock.mock.calls[0][1]).toBe('function');
+  });
+
+  it('une panne réseau rend un message HONNÊTE, jamais un faux succès ni une page cassée', async () => {
+    releverMock.mockResolvedValue(issue({
+      resultat: 'erreur', rapport: null,
+      raison: 'connexion à la boîte perdue pendant la lecture du message 138 : Socket timeout',
+    }));
+    const res = await POST(requete());
+    expect(res.status).toBe(200); // la route répond : l'écran affiche le motif, il ne casse pas
+    const body = await res.json() as { resultat: string; message: string };
+    expect(body.resultat).toBe('erreur');
+    expect(body.message).toContain('Socket timeout');
+    expect(body).not.toHaveProperty('compteurs'); // surtout pas des compteurs qui laisseraient croire à un succès
   });
 
   it('succès → compteurs agrégés et résumé ; aucune donnée de message ne sort', async () => {

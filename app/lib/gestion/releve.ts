@@ -14,7 +14,7 @@
  * L'automatiser est une question d'hébergement, pas de ce lot.
  */
 import type { ConfigGestion } from './config';
-import type { RapportCapture } from './capture';
+import { ErreurCapture, type RapportCapture } from './capture';
 import type { ClientDossier, MajRun } from './captureRepo';
 
 export type ResultatReleve = 'ok' | 'erreur' | 'occupe' | 'inactif';
@@ -31,6 +31,8 @@ export interface DepsReleveGestion {
   config(): Promise<ConfigGestion>;
   /** `null` = aucun compte IMAP configuré. Ce n'est PAS une erreur : il n'y a simplement rien à relever. */
   creerClient(): Promise<ClientDossier | null>;
+  /** LOT 3-ter — avancement transmis à l'appelant (terminal, journal serveur). Optionnel. */
+  journal?(ligne: string): void;
   acquerirVerrou(): Promise<boolean>;
   libererVerrou(): Promise<void>;
   insererRun(dossier: string): Promise<number>;
@@ -58,7 +60,14 @@ export async function executerReleveGestion(deps: DepsReleveGestion, appliquer: 
   try {
     if (!appliquer) {
       // SIMULATION : aucune ligne de journal (ce serait une écriture), aucune écriture en base ni sur le stockage.
-      const rapport = await deps.capturer(client, false);
+      //   Une panne y est rendue TELLE QUELLE à l'appelant, avec le rapport partiel s'il existe — rien à journaliser.
+      let rapport: RapportCapture;
+      try {
+        rapport = await deps.capturer(client, false);
+      } catch (e) {
+        const motif = e instanceof Error ? e.message : String(e);
+        return { resultat: 'erreur', raison: motif, runId: null, rapport: e instanceof ErreurCapture ? e.rapport : null };
+      }
       return { resultat: 'ok', raison: resume(rapport), runId: null, rapport };
     }
 
@@ -68,9 +77,13 @@ export async function executerReleveGestion(deps: DepsReleveGestion, appliquer: 
       await deps.finaliserRun(runId, { resultat: 'ok', termineLe: deps.maintenant(), rapport });
       return { resultat: 'ok', raison: resume(rapport), runId, rapport };
     } catch (e) {
+      // LOT 3-ter — LA PASSE A ÉCHOUÉ, MAIS ELLE AVAIT TRAVAILLÉ. `ErreurCapture` porte le rapport PARTIEL : la ligne de
+      //   journal garde ce qui a réellement été capturé avant la panne, au lieu d'un échec sans chiffres. Ce qui est
+      //   capturé est ACQUIS (chaque message est écrit au fil de l'eau) — la passe suivante reprendra où celle-ci s'arrête.
       const motif = e instanceof Error ? e.message : String(e);
-      await deps.finaliserRun(runId, { resultat: 'erreur', termineLe: deps.maintenant(), erreur: motif });
-      return { resultat: 'erreur', raison: motif, runId, rapport: null };
+      const partiel = e instanceof ErreurCapture ? e.rapport : null;
+      await deps.finaliserRun(runId, { resultat: 'erreur', termineLe: deps.maintenant(), erreur: motif, rapport: partiel ?? undefined });
+      return { resultat: 'erreur', raison: motif, runId, rapport: partiel };
     }
   } finally {
     await deps.libererVerrou(); // rendu quoi qu'il arrive : un verrou oublié bloquerait toutes les passes suivantes

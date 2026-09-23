@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { executerCli, imprimerIssue, lireAppliquer } from './relever-gestion';
+import { enTeteMode, executerCli, imprimerIssue, lireAppliquer } from './relever-gestion';
 import type { IssueReleve } from '../lib/gestion/releve';
 import type { RapportCapture } from '../lib/gestion/capture';
 
@@ -77,7 +77,7 @@ describe('le compte rendu', () => {
 
   it('un échec est signalé comme tel', () => {
     expect(imprimerIssue(issue({ resultat: 'erreur', rapport: null, raison: 'boîte indisponible' }), true).join('\n'))
-      .toContain('⚠ échec : boîte indisponible');
+      .toContain('⚠ ÉCHEC : boîte indisponible');
   });
 });
 
@@ -95,12 +95,12 @@ describe('le code de sortie', () => {
   });
 
   it('passe bien le mode à la relève — et pas l’inverse', async () => {
-    const relever = vi.fn(async () => issue());
+    const relever = vi.fn(async (_appliquer: boolean, _journal: (l: string) => void) => issue());
     const { log } = io();
     await executerCli({ argv: [], relever, log });
-    expect(relever).toHaveBeenCalledWith(false);
+    expect(relever.mock.calls[0][0]).toBe(false);
     await executerCli({ argv: ['--appliquer'], relever, log });
-    expect(relever).toHaveBeenLastCalledWith(true);
+    expect(relever.mock.calls[1][0]).toBe(true);
   });
 });
 
@@ -121,5 +121,58 @@ describe('garanties STATIQUES', () => {
   it('n’atteint AUCUN chemin d’envoi vers l’extérieur', () => {
     expect(modules.some((m) => /nodemailer|email/.test(m))).toBe(false);
     expect(/envoyerDemande|envoyerAlerte|sendMail/.test(src)).toBe(false);
+  });
+});
+
+
+describe('LOT 3-ter — le mode s’affiche AVANT la moindre connexion', () => {
+  it('l’en-tête nomme le mode, dans les deux cas', () => {
+    expect(enTeteMode(false).join('\n')).toContain('SIMULATION (aucune écriture, nulle part)');
+    expect(enTeteMode(true).join('\n')).toContain('APPLIQUÉ (écritures réelles)');
+  });
+
+  it('il est imprimé AVANT que la relève ne soit appelée — un terminal muet ne dit pas s’il travaille', async () => {
+    const { lignes, log } = io();
+    let vuAvant: string[] = [];
+    await executerCli({
+      argv: [],
+      relever: async () => { vuAvant = [...lignes]; return issue(); },
+      log,
+    });
+    expect(vuAvant.join('\n')).toContain('SIMULATION'); // déjà à l'écran quand la passe démarre
+    expect(vuAvant.join('\n')).toContain('démarrage…');
+  });
+
+  it('la PROGRESSION de la passe est imprimée au fil de l’eau', async () => {
+    const { lignes, log } = io();
+    await executerCli({
+      argv: [],
+      relever: async (_a, journal) => { journal('… 25/400 lus'); journal('passe terminée'); return issue(); },
+      log,
+    });
+    expect(lignes.join('\n')).toContain('… 25/400 lus');
+    expect(lignes.join('\n')).toContain('passe terminée');
+  });
+});
+
+describe('LOT 3-ter — un échec est annoncé, mais ses compteurs sont gardés', () => {
+  const partiel = rapport({ vus: 137, captures: 120, exclus: 14 });
+
+  it('⚠ ÉCHEC en tête, ET le détail de ce qui a été capturé avant la panne', () => {
+    const t = imprimerIssue(issue({ resultat: 'erreur', raison: 'Socket timeout', rapport: partiel }), true).join('\n');
+    expect(t).toContain('⚠ ÉCHEC : Socket timeout');
+    expect(t).toContain('CAPTURÉS                    : 120');
+    expect(t).toContain('messages lus                : 137');
+  });
+
+  it('un échec SANS compteurs (panne avant toute lecture) reste lisible', () => {
+    const t = imprimerIssue(issue({ resultat: 'erreur', raison: 'connexion refusée', rapport: null }), true).join('\n');
+    expect(t).toContain('⚠ ÉCHEC : connexion refusée');
+    expect(t).not.toContain('CAPTURÉS');
+  });
+
+  it('le code de sortie reste 1 sur échec, même avec un rapport partiel', async () => {
+    const { log } = io();
+    expect(await executerCli({ argv: [], relever: async () => issue({ resultat: 'erreur', rapport: partiel }), log })).toBe(1);
   });
 });

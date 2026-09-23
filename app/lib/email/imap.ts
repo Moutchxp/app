@@ -246,8 +246,19 @@ export function creerClientEnvoyes(compte: CompteImap): ClientEnvoyes {
  * Client MULTI-BOÎTES pour la relève APPROFONDIE (chantier R6) : liste TOUTES les boîtes et les ouvre une à une, TOUJOURS en
  * `readOnly` (EXAMINE) — INBOX comme indésirables. Même règle de LECTURE STRICTE que `creerClientBoite` : aucun flag posé,
  * rien de déplacé ni supprimé. Les boîtes non sélectionnables (\Noselect, simples conteneurs) sont écartées de la liste.
+ *
+ * `surErreur` (LOT 3-ter, OPTIONNEL) — écouteur de l'événement « error » de l'instance ImapFlow.
+ *   ⚠️ POURQUOI IL A FALLU TOUCHER CE FICHIER : `ImapFlow.emitError` fait `this.emit('error', err)` SANS vérifier qu'un
+ *   écouteur existe (imap-flow.js:509). Un EventEmitter Node qui émet « error » sans écouteur JETTE : le processus meurt.
+ *   L'instance étant créée ICI et jamais exposée, il est IMPOSSIBLE d'attacher l'écouteur depuis l'appelant — d'où ce
+ *   paramètre. Déclencheur observé en conditions réelles : le délai d'INACTIVITÉ du socket (5 min par défaut,
+ *   imap-flow.js:55/325/1235), qui hors IDLE appelle `emitError` immédiatement (:1286-1287).
+ *
+ *   🔒 ADDITIF ET SANS EFFET POUR L'EXISTANT : `surErreur` ABSENT ⇒ AUCUN écouteur n'est attaché, donc comportement
+ *   STRICTEMENT identique à avant pour le module Permis (relève approfondie) — y compris sa façon d'échouer. Seul un
+ *   appelant qui fournit explicitement l'écouteur change de régime. Aucune autre ligne de ce fichier n'est modifiée.
  */
-export function creerClientApprofondi(compte: CompteImap): ClientApprofondi {
+export function creerClientApprofondi(compte: CompteImap, surErreur?: (e: Error) => void): ClientApprofondi {
   const client = new ImapFlow({
     host: compte.host,
     port: compte.port,
@@ -255,6 +266,7 @@ export function creerClientApprofondi(compte: CompteImap): ClientApprofondi {
     auth: { user: compte.user, pass: compte.pass },
     logger: false,
   });
+  if (surErreur) client.on('error', surErreur); // opt-in : sans cet argument, rien n'est attaché (cf. en-tête)
 
   return {
     async ouvrir(): Promise<void> {

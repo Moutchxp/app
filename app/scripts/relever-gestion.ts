@@ -23,6 +23,19 @@ export function lireAppliquer(argv: readonly string[]): boolean {
 }
 
 /**
+ * LOT 3-ter — EN-TÊTE, imprimé AVANT LA MOINDRE CONNEXION. Auparavant la CLI n'affichait rien tant que la passe n'était
+ * pas finie : devant un terminal muet, « ça travaille » et « c'est bloqué » se ressemblaient exactement — d'où 25 minutes
+ * d'attente avant un plantage. Le mode, lui, doit se lire AVANT que quoi que ce soit ne puisse écrire. PUR.
+ */
+export function enTeteMode(appliquer: boolean): string[] {
+  return [
+    '',
+    `[gestion:relever] ${appliquer ? 'APPLIQUÉ (écritures réelles)' : 'SIMULATION (aucune écriture, nulle part)'}`,
+    appliquer ? '  démarrage…' : '  démarrage… (ajouter --appliquer pour exécuter réellement)',
+  ];
+}
+
+/**
  * Compte rendu d'une passe, ligne à ligne. PUR (aucun `console.log` ici) → testable. Le mode est dit EN TÊTE et en
  * toutes lettres : lire « SIMULATION » ou « APPLIQUÉ » ne doit jamais demander un effort.
  */
@@ -32,8 +45,12 @@ export function imprimerIssue(issue: IssueReleve, appliquer: boolean): string[] 
   l.push('');
   l.push(`[gestion:relever] ${mode}`);
 
-  if (issue.resultat !== 'ok' || issue.rapport === null) {
-    l.push(`  ${issue.resultat === 'erreur' ? '⚠ échec' : 'rien à faire'} : ${issue.raison}`);
+  // LOT 3-ter — un ÉCHEC est annoncé comme tel, MAIS ses compteurs sont imprimés quand la passe avait déjà travaillé :
+  //   ce qui a été capturé est acquis, et la passe suivante reprendra où celle-ci s'est arrêtée.
+  if (issue.resultat === 'erreur') l.push(`  ⚠ ÉCHEC : ${issue.raison}`);
+
+  if (issue.rapport === null) {
+    if (issue.resultat !== 'erreur') l.push(`  rien à faire : ${issue.raison}`);
     l.push('');
     return l;
   }
@@ -55,7 +72,7 @@ export function imprimerIssue(issue: IssueReleve, appliquer: boolean): string[] 
   if (!appliquer) {
     l.push('');
     l.push('  ⓘ SIMULATION : rien n’a été écrit. Les fils et les pièces ne sont comptés qu’en mode appliqué.');
-    l.push('    Pour exécuter réellement : ajouter --appliquer');
+    l.push('    Pour exécuter réellement : relancer avec --appliquer');
   }
   l.push('');
   return l;
@@ -64,11 +81,12 @@ export function imprimerIssue(issue: IssueReleve, appliquer: boolean): string[] 
 /** Cœur du CLI, testable par injection. Renvoie le code de sortie. */
 export async function executerCli(opts: {
   argv: readonly string[];
-  relever: (appliquer: boolean) => Promise<IssueReleve>;
+  relever: (appliquer: boolean, journal: (ligne: string) => void) => Promise<IssueReleve>;
   log: (s: string) => void;
 }): Promise<number> {
   const appliquer = lireAppliquer(opts.argv);
-  const issue = await opts.relever(appliquer);
+  for (const ligne of enTeteMode(appliquer)) opts.log(ligne);      // AVANT la moindre connexion
+  const issue = await opts.relever(appliquer, (l) => opts.log(`  ${l}`)); // progression, au fil de la passe
   for (const ligne of imprimerIssue(issue, appliquer)) opts.log(ligne);
   return issue.resultat === 'erreur' ? 1 : 0; // 'inactif' et 'occupe' ne sont PAS des erreurs
 }
