@@ -29,6 +29,12 @@ const ECRAN = (file: ReturnType<typeof ECHANGE>[]) => ({
 /** La file telle qu'Arno l'avait : l'échange qu'il a rattaché, puis celui d'en dessous, qu'il n'a jamais cliqué. */
 const AVANT = [ECHANGE(101, 'Préavis de départ'), ECHANGE(102, 'Re: Dates travaux')];
 const APRES = [ECHANGE(102, 'Re: Dates travaux')]; // rattacher fait SORTIR l'échange de la file
+/**
+ * LOT 4d-C — la file AFFICHE l'objet sans sa cascade de préfixes : « Re: Dates travaux » se lit « Dates travaux ».
+ * L'objet ENREGISTRÉ, lui, garde son « Re: » (les données de capture ne sont jamais réécrites) — d'où l'écart entre
+ * ce que porte le jeu d'essai et ce que le DOM montre.
+ */
+const AFFICHE = 'Dates travaux';
 
 let container: HTMLDivElement;
 let root: Root;
@@ -117,7 +123,7 @@ describe('le panneau d’affectation appartient à UN ÉCHANGE, pas à une posit
     await cliquer(lignes[1].querySelector('button') as HTMLElement);
     const titre = container.querySelector('.gst-panneau-titre')?.textContent ?? '';
     expect(titre).toContain('Rattacher');
-    expect(titre).toContain('Re: Dates travaux');
+    expect(titre).toContain(AFFICHE);
   });
 
   it('« Replier » remplace « Fermer » : replier un panneau n’est pas clore un dossier', async () => {
@@ -134,7 +140,7 @@ describe('le panneau d’affectation appartient à UN ÉCHANGE, pas à une posit
     await monter();
     const lignes = [...container.querySelectorAll('li.gst-item')];
     await cliquer(lignes[1].querySelector('button') as HTMLElement);
-    expect(echangeOuvert()).toBe('Re: Dates travaux');
+    expect(echangeOuvert()).toBe(AFFICHE);
     await cliquer(boutonPar(/^Annuler$/));
     expect(panneaux()).toHaveLength(0);
   });

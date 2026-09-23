@@ -6,6 +6,7 @@ import {
   depuis, formaterDateFr, libelleEtat, mentionTroncature, messageErreurHttp, messageEvenementsVide, messageFileVide,
   messageReleve,
 } from '../../../../lib/gestion/ecran';
+import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { useReleveGestion } from './useReleveGestion';
 import { PanneauAffecter } from './PanneauAffecter';
 import { CarteVive } from './CarteVive';
@@ -192,7 +193,7 @@ export function GestionVue() {
               <ul className="gst-liste">
                 {d.sansSuite.map((f) => (
                   <li key={f.filId} className="gst-item">
-                    <div className="gst-item-haut"><span className="gst-objet">{f.objet?.trim() || '(sans objet)'}</span></div>
+                    <div className="gst-item-haut"><span className="gst-objet">{nettoyerObjet(f.objet) || '(sans objet)'}</span></div>
                     <div className="gst-item-bas">
                       <span title={formaterDateFr(f.classeLe)}>classé {depuis(f.classeLe, ref)}</span>
                       {f.classePar && <><span className="gst-sep" aria-hidden="true">·</span><span>par {f.classePar}</span></>}
@@ -249,7 +250,9 @@ export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAf
   return (
     <li className="gst-item">
       <div className="gst-item-haut">
-        <span className="gst-objet">{fil.objet?.trim() || '(sans objet)'}</span>
+        {/* LOT 4d-C — AFFICHAGE seulement : la cascade de « Re: / TR: / Fwd: » ne dit rien de plus que l'objet,
+            elle dit juste que le mail a beaucoup circulé. L'objet enregistré, lui, n'est pas touché. */}
+        <span className="gst-objet">{nettoyerObjet(fil.objet) || '(sans objet)'}</span>
         {fil.attend && <span className="gst-attend">attend une réponse</span>}
       </div>
       <div className="gst-item-bas">
@@ -281,7 +284,7 @@ export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAf
       {/* Le panneau porte le NOM de l'échange sur lequel il agit : après un geste la liste remonte d'un cran, et un
           panneau anonyme ouvert à la même place que le précédent ferait rattacher le mauvais échange sans rien dire. */}
       {ouvert && onFait && onAnnuler && (
-        <PanneauAffecter filId={fil.filId} objet={fil.objet?.trim() || '(sans objet)'} onFait={onFait} onAnnuler={onAnnuler} />
+        <PanneauAffecter filId={fil.filId} objet={nettoyerObjet(fil.objet) || '(sans objet)'} onFait={onFait} onAnnuler={onAnnuler} />
       )}
     </li>
   );
@@ -427,6 +430,10 @@ const CSS_GESTION = `
   border:0;text-decoration:underline;cursor:pointer}
 /* Le menu d'un message se range au bout de sa ligne d'en-tête, sans pousser le texte. */
 .gst-msg-menu{margin-left:auto}
+/* LOT 4d-C — le texte CITÉ et les images de signature : présents, repliés, jamais supprimés. */
+.gst-cite{margin-top:.4rem}
+.gst-cite-titre{min-height:44px;display:flex;align-items:center;font-size:.78rem;font-weight:600;color:var(--color-svv-muted);cursor:pointer}
+.gst-cite-corps{color:var(--color-svv-muted);border-left:2px solid var(--color-svv-line-strong);padding-left:.6rem}
 /* CLASSÉS SANS SUITE — replié par défaut : présent sans encombrer. */
 .gst-sans-suite{margin-top:1rem;border-top:1px solid var(--color-svv-line);padding-top:.75rem}
 .gst-sans-suite-titre{display:flex;align-items:center;gap:.5rem;min-height:44px;font-size:13px;font-weight:700;color:var(--color-svv-ink);cursor:pointer}

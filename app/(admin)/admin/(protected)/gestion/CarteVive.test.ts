@@ -38,10 +38,14 @@ const DETAIL: CarteDetail = {
 const MESSAGES: MessageDeFil[] = [
   {
     messageId: 1, sens: 'recu' as const, de: 'locataire@exemple.test', deNom: 'Mme M.', recuLe: '2026-09-21T12:00:00Z',
-    objet: 'Fuite', corps: 'Bonjour,\n\nIl y a une fuite sous le lavabo.', automatique: false,
+    objet: 'Fuite',
+    // Un corps RÉEL : signature avec une référence d'image, puis l'historique cité dessous.
+    corps: 'Bonjour,\n\nIl y a une fuite sous le lavabo. [cid:image001.png@01DA]\n\n> Le 20 septembre, Gestion a écrit :\n> Bonjour, avez-vous constaté quelque chose ?',
+    automatique: false,
     pieces: [
       { pieceId: 7, nomFichier: 'constat.pdf', typeMime: 'application/pdf', tailleOctets: 120000, disponible: true, motifNonStocke: null },
       { pieceId: 8, nomFichier: 'video.mov', typeMime: 'video/quicktime', tailleOctets: null, disponible: false, motifNonStocke: 'type refusé' },
+      { pieceId: 9, nomFichier: 'image001.png', typeMime: 'image/png', tailleOctets: 3000, disponible: true, motifNonStocke: null },
     ],
   },
   {
@@ -182,6 +186,31 @@ describe('② les pièces jointes sont SERVIES PAR L’APPLICATION', () => {
     const corps = container.querySelector('.gst-msg-corps');
     expect(corps?.textContent).toContain('Il y a une fuite sous le lavabo.');
     expect(corps?.innerHTML).not.toContain('<');
+  });
+
+  it('LOT 4d-C — la référence technique d’image ne s’affiche pas', async () => {
+    await ouvrirTout();
+    expect(container.textContent).not.toContain('cid:image001.png');
+    expect(container.textContent).toContain('Il y a une fuite sous le lavabo.');
+  });
+
+  it('LOT 4d-C — l’historique cité est REPLIÉ, présent, et consultable d’un clic', async () => {
+    await ouvrirTout();
+    const repli = container.querySelector('.gst-cite') as HTMLDetailsElement | null;
+    expect(repli?.open).toBe(false);                                   // replié au départ
+    expect(container.textContent).toContain('Afficher le message cité');
+    expect(container.textContent).toContain('avez-vous constaté quelque chose ?'); // …mais jamais perdu
+  });
+
+  it('LOT 4d-C — les images de signature sont rangées à part, repliées, et restent consultables', async () => {
+    await ouvrirTout();
+    expect(container.textContent).toContain('1 image de signature');
+    // Elle ne se mêle pas aux vraies pièces…
+    const vraies = [...container.querySelectorAll('.gst-pieces')][0];
+    expect(vraies?.textContent).toContain('constat.pdf');
+    expect(vraies?.textContent).not.toContain('image001.png');
+    // …mais elle est bien là, servie par l'application comme les autres.
+    expect(liens().some((a) => a.getAttribute('href') === '/api/admin/gestion/pieces/9')).toBe(true);
   });
 
   it('un message sans texte le DIT, et le sens de chaque message est dit par un MOT', async () => {

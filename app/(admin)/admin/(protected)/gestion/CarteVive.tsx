@@ -7,6 +7,7 @@ import { MenuDiscret } from './MenuDiscret';
 import type { CarteDetail, FilDeCarte, MailParti, MessageDeFil } from '../../../../lib/gestion/carteRepo';
 import type { CarteEvenement } from '../../../../lib/gestion/fileRepo';
 import { depuis, formaterDateFr, formaterTaille, libelleEtat, libelleSens } from '../../../../lib/gestion/ecran';
+import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
 
 /**
  * LOT 4c — LA CARTE VIVANTE : le côté droit de l'écran cesse d'être une liste pour devenir un dossier qu'on ouvre.
@@ -475,6 +476,8 @@ function Message({ message, maintenant, onDeplacer, onRemettre, panneau }: {
   message: MessageDeFil; maintenant: Date;
   onDeplacer?: () => void; onRemettre?: () => void; panneau?: React.ReactNode;
 }) {
+  const lisible = corpsLisible(message.corps);
+  const { vraies, signatures } = trierPieces(message.pieces);
   return (
     <li className={`gst-msg gst-msg--${message.sens}`}>
       <div className="gst-msg-haut">
@@ -492,12 +495,20 @@ function Message({ message, maintenant, onDeplacer, onRemettre, panneau }: {
           </span>
         )}
       </div>
-      {message.corps
-        ? <p className="gst-msg-corps">{message.corps}</p>
+      {/* LOT 4d-C — références d'images masquées, historique cité REPLIÉ. Rien n'est modifié en base : le corps
+          capturé reste entier, on choisit seulement ce qu'on montre d'emblée. */}
+      {lisible.visible
+        ? <p className="gst-msg-corps">{lisible.visible}</p>
         : <p className="gst-msg-corps gst-absent">(message sans texte)</p>}
-      {message.pieces.length > 0 && (
+      {lisible.cite && (
+        <details className="gst-cite">
+          <summary className="gst-cite-titre">Afficher le message cité</summary>
+          <p className="gst-msg-corps gst-cite-corps">{lisible.cite}</p>
+        </details>
+      )}
+      {vraies.length > 0 && (
         <ul className="gst-pieces">
-          {message.pieces.map((p) => (
+          {vraies.map((p) => (
             <li key={p.pieceId} className="gst-piece">
               {p.disponible ? (
                 <>
@@ -519,6 +530,26 @@ function Message({ message, maintenant, onDeplacer, onRemettre, panneau }: {
             </li>
           ))}
         </ul>
+      )}
+      {/* LES IMAGES DE SIGNATURE, à part et repliées : elles restent consultables, mais ne noient plus les vraies
+          pièces. Trier n'est pas supprimer — elles sont enregistrées et servies comme les autres. */}
+      {signatures.length > 0 && (
+        <details className="gst-cite">
+          <summary className="gst-cite-titre">
+            {signatures.length} image{signatures.length > 1 ? 's' : ''} de signature
+          </summary>
+          <ul className="gst-pieces">
+            {signatures.map((p) => (
+              <li key={p.pieceId} className="gst-piece">
+                {p.disponible
+                  ? <a className="gst-lien" href={`/api/admin/gestion/pieces/${p.pieceId}`} target="_blank" rel="noreferrer">{p.nomFichier}</a>
+                  : <span className="gst-absent">{p.nomFichier} — non conservée</span>}
+                <span className="gst-sep" aria-hidden="true">·</span>
+                <span>{formaterTaille(p.tailleOctets)}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
       {panneau}
     </li>
