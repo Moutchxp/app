@@ -128,14 +128,14 @@ describe('🔴 ② on entre en plein écran sur « À classer », pas dans la r�
   it('le bouton de la colonne de gauche arrive sur le travail du jour', async () => {
     await monter();
     await cliquer(boutons().filter((b) => /^Plein écran$/.test(b.textContent ?? ''))[0]);
-    const active = container.querySelector('.pe-etiq--active');
+    const active = container.querySelector('.cm-entree--active');
     expect(active?.textContent).toContain('À classer');
   });
 
   it('les cinq étiquettes fixes sont là, avec leurs nombres, et les cartes NON VIDES ensuite', async () => {
     window.history.replaceState(null, '', '/admin/gestion?ecran=boite');
     await monter();
-    const etiqs = [...container.querySelectorAll('.pe-etiq')].map((e) => e.textContent ?? '');
+    const etiqs = [...container.querySelectorAll('.cm-entree')].map((e) => e.textContent ?? '');
     expect(etiqs.some((t) => t.includes('À classer') && t.includes('442'))).toBe(true);
     expect(etiqs.some((t) => t.includes('Réception') && t.includes('4944'))).toBe(true);
     expect(etiqs.some((t) => t.includes('Envoyés') && t.includes('3311'))).toBe(true);
@@ -154,14 +154,14 @@ describe('🔴 ③ sous « À classer », c’est le POSTE DE TRI lui-même — 
     expect(texte()).toContain('Préavis de départ');
     expect(texte()).toContain('attend une réponse');
     expect(boutonPar(/^Classer sans suite$/)).toBeDefined();
-    // « Affecter » y est PRÉSENTÉ comme « Classer dans une carte » : même bouton, même route, seul le mot change.
+    // « Affecter » a été remplacé par « Classer dans une carte » : même bouton, même route, seul le mot change.
     expect(boutonPar(/^Classer dans une carte$/)).toBeDefined();
   });
 
-  it('…et dans l’écran partagé le mot d’avant est CONSERVÉ : aucune ligne existante ne change de comportement', async () => {
+  it('🔴 …et l’écran PARTAGÉ dit le MÊME mot : un seul geste, un seul mot (lot 5-FUSION-B)', async () => {
     await monter();
-    expect(boutonPar(/^Affecter à un événement$/)).toBeDefined();
-    expect(boutonPar(/^Classer dans une carte$/)).toBeUndefined();
+    expect(boutonPar(/^Classer dans une carte$/)).toBeDefined();
+    expect(boutonPar(/Affecter/)).toBeUndefined();
   });
 });
 

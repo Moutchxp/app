@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CarteEvenement, EtatEcran, LigneFile } from '../../../../lib/gestion/fileRepo';
 import {
-  depuis, formaterDateFr, libelleEtat, mentionTroncature, messageErreurHttp, messageEvenementsVide, messageFileVide,
-  messageReleve,
+  depuis, formaterDateFr, libelleEtat, LIBELLE_CLASSER, mentionTroncature, messageErreurHttp, messageEvenementsVide,
+  messageFileVide, messageReleve,
 } from '../../../../lib/gestion/ecran';
 import {
   ecrireEtatUrl, ETAT_DEFAUT, ETIQUETTE_ARRIVEE, ETIQUETTE_RECEPTION, lireEtatUrl, memeEtat,
@@ -15,6 +15,7 @@ import { useReleveGestion } from './useReleveGestion';
 import { PanneauAffecter } from './PanneauAffecter';
 import { CarteVive } from './CarteVive';
 import { Conversation } from './Conversation';
+import { ColonneMode } from './ColonneMode';
 import { PleinEcranBoite, type EtiquetteAffichee } from './PleinEcranBoite';
 
 /**
@@ -36,6 +37,7 @@ import { PleinEcranBoite, type EtiquetteAffichee } from './PleinEcranBoite';
  */
 
 type Chargement = { etat: 'charge' } | { etat: 'ok'; data: EtatEcran } | { etat: 'erreur'; message: string };
+
 
 /**
  * LOT 5-FUSION — LES TROIS ÉCRANS, ET LA DISPARITION DES DEUX ONGLETS.
@@ -208,16 +210,15 @@ export function GestionVue() {
   const ref = maintenant ?? new Date();
   const troncFile = mentionTroncature(d.file.length, d.filsTotal);
   const troncEv = mentionTroncature(d.evenements.length, d.evenementsTotal);
-  const enBoite = ecran === 'boite';
-
   /**
    * LE POSTE DE TRI, RENDU UNE SEULE FOIS, et affiché à deux endroits : dans la colonne de gauche de l'écran partagé,
    * et sous l'étiquette « À classer » du plein écran. Un seul rendu, donc un seul comportement — le recopier aurait
    * fait deux files qui divergent au premier changement.
    *
-   * ⚠️ Le seul écart entre les deux endroits est le MOT du bouton : « Affecter à un événement » dans l'écran partagé,
-   * « Classer dans une carte » en plein écran, où les cartes SONT les étiquettes de gauche. Même bouton, même route,
-   * même journal — seul le mot change, comme « Replier » remplaçait « Fermer » au lot 4c.
+   * LOT 5-FUSION-B — le bouton dit « Classer dans une carte » PARTOUT, écran partagé compris (décision d'Arno du
+   * 24/09/2026 ; il disait « Affecter à un événement »). Même bouton, même route, même journal : seul le mot change,
+   * comme « Replier » avait remplacé « Fermer » au lot 4c. Deux mots pour un même geste font douter qu'il s'agisse du
+   * même geste — c'est précisément ce qu'on évite.
    */
   const fileAClasser = d.file.length === 0
     ? <p className="gst-vide">{messageFileVide(d)}</p>
@@ -228,7 +229,6 @@ export function GestionVue() {
             ouvert={panneau === f.filId}
             onOuvrir={() => aller({ ...etatUrl, filOuvert: f.filId })}
             occupe={gesteEnCours}
-            libelleAffecter={enBoite ? 'Classer dans une carte' : undefined}
             onAffecter={() => setPanneau(panneau === f.filId ? null : f.filId)}
             onSansSuite={() => void agir(`/api/admin/gestion/fils/${f.filId}/sans-suite`, 'POST', 'Échange classé sans suite. Il reviendra dans la file si un nouveau message y arrive.', {})}
             onFait={(m) => { setGeste({ ton: 'ok', texte: m }); setPanneau(null); void charger(); }}
@@ -287,15 +287,19 @@ export function GestionVue() {
         /* ÉVÉNEMENTS EN PLEIN ÉCRAN — les MÊMES cartes, avec toutes leurs fonctions : rien n'est retiré, la largeur
            disponible sert seulement à en montrer deux de front au lieu d'une. */
         <div className="pe">
-          <div className="pe-barre">
+          {/* LOT 5-FUSION-B — la colonne du mode prend la place des liens de modules. ⚠️ Elle ne contient QUE ce que
+              la colonne des cartes portait déjà : son titre, son compteur, la mention de troncature, et le retour.
+              La colonne des cartes n'a JAMAIS eu de recherche ni de filtre (la recherche d'événement, elle, vit dans
+              les panneaux « Classer dans une carte » et « Déplacer », et elle y reste) — on n'en invente donc pas. */}
+          <ColonneMode actif panneauMobile="contenu" titre="Événements">
             <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })}>
               ← Écran partagé
             </button>
-            <h2 className="gst-titre pe-titre" id="gst-titre-ev-plein">
+            <h2 className="cm-titre" id="gst-titre-ev-plein">
               Événements <span className="gst-compte">{d.evenementsTotal}</span>
             </h2>
-          </div>
-          {troncEv && <p className="gst-tronc">{troncEv}</p>}
+            {troncEv && <p className="cm-note">{troncEv}</p>}
+          </ColonneMode>
           {filOuvert !== null && (
             <section className="gst-col">
               <Conversation filId={filOuvert} maintenant={ref} onFerme={() => aller({ ...etatUrl, filOuvert: null })}
@@ -425,15 +429,13 @@ export function etiquettesDeLEcran(
 
 /** Une ligne de la file = UN ÉCHANGE (pas un message) : à ce volume, six mails ne doivent pas prendre six lignes.
  *  EXPORTÉ pour être rendu en test (contrat visible : mot « attend une réponse », pluriels, jamais de couleur seule). */
-export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAffecter, onSansSuite, onFait, onAnnuler, onOuvrir, libelleAffecter }: {
+export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAffecter, onSansSuite, onFait, onAnnuler, onOuvrir }: {
   fil: LigneFile; maintenant: Date;
   ouvert?: boolean; occupe?: boolean;
   onAffecter?: () => void; onSansSuite?: () => void;
   onFait?: (message: string) => void; onAnnuler?: () => void;
   /** LOT 5b — ouvrir la CONVERSATION depuis la file de tri. Optionnel : sans lui, la ligne est exactement celle d'avant. */
   onOuvrir?: () => void;
-  /** LOT 5-FUSION — le MOT du bouton d'affectation. Absent = « Affecter à un événement », comme avant ce lot. */
-  libelleAffecter?: string;
 }) {
   return (
     <li className="gst-item">
@@ -463,7 +465,7 @@ export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAf
             //   comme « clore le dossier ». Le bouton ne fait que replier le panneau ; il le dit maintenant.
             <button type="button" className={`svv-btn ${ouvert ? 'svv-btn-outline' : 'svv-btn-primary'} gst-btn`}
               aria-expanded={ouvert} disabled={occupe} onClick={onAffecter}>
-              {ouvert ? 'Replier' : (libelleAffecter ?? 'Affecter à un événement')}
+              {ouvert ? 'Replier' : LIBELLE_CLASSER}
             </button>
           )}
           {onSansSuite && (

@@ -189,3 +189,17 @@ export function dateHeureComplete(iso: string | null | undefined): string {
     hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
   }).format(d).replace(' à ', ' à ');
 }
+
+/**
+ * LOT 5-FUSION-B — LE MOT DU GESTE D'AFFECTATION, une seule fois dans tout le module. Décision d'Arno du 24/09/2026 :
+ * « Classer dans une carte » remplace « Affecter » PARTOUT — écran partagé, plein écran, et menu « ⋯ » d'un échange.
+ *
+ * 🔒 SEUL LE MOT CHANGE : même bouton, même route `/api/admin/gestion/fils/[id]/affectation`, même journal, même
+ * réversibilité (« Détacher l'échange » le défait). Deux mots pour un même geste font douter qu'il s'agisse du même
+ * geste — et c'est ce doute qui fait cliquer deux fois, ou pas du tout.
+ *
+ * ⚠️ IL VIT ICI, dans le module PUR de l'écran, et non dans `GestionVue` : la vue conversation en a besoin, et
+ * `GestionVue` importe déjà la vue conversation. L'inverse aurait créé un cycle d'imports — le défaut qui se
+ * manifeste par un composant « undefined » au premier rendu, longtemps après le commit (cf. `gestesMail.tsx`).
+ */
+export const LIBELLE_CLASSER = 'Classer dans une carte';

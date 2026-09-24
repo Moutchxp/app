@@ -5,7 +5,7 @@ import type { EnTeteFil, MailParti, MessageDeFil, PieceDeMessage } from '../../.
 import {
   etatCorps, lignesDestinataires, mentionHorsFile, messagesDeplies, MENTION_HTML_SEUL,
 } from '../../../../lib/gestion/conversation';
-import { dateHeureComplete, dateHeureCourte, formaterTaille, libelleSens } from '../../../../lib/gestion/ecran';
+import { dateHeureComplete, dateHeureCourte, formaterTaille, libelleSens, LIBELLE_CLASSER } from '../../../../lib/gestion/ecran';
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { MenuDiscret } from './MenuDiscret';
@@ -153,7 +153,9 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           {fil.etat === 'sans_suite' && <span className="cnv-etiquette">classé sans suite</span>}
           <span className="cnv-menu">
             <MenuDiscret titre="Actions sur cet échange" entrees={[
-              ...(rattache ? [] : [{ libelle: 'Affecter à une carte…', onChoisir: () => setAffecter(true) }]),
+              // LOT 5-FUSION-B — « Classer dans une carte » remplace « Affecter » ici aussi : un seul mot pour un
+              //   seul geste, dans tout le module. La route et le journal sont inchangés.
+              ...(rattache ? [] : [{ libelle: `${LIBELLE_CLASSER}…`, onChoisir: () => setAffecter(true) }]),
               ...(rattache ? [{
                 libelle: 'Détacher l’échange',
                 discrete: true,

@@ -91,42 +91,47 @@ describe('🔴 ② et ③ pas d’étiquette vide, sauf celle qu’on regarde', 
   });
 });
 
-describe('exigences transverses de la feuille de style du plein écran', () => {
+describe('exigences transverses des feuilles de style du plein écran', () => {
   const src = readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8');
   const css = src.slice(src.indexOf('const CSS_PLEIN_ECRAN'));
+  // LOT 5-FUSION-B — les étiquettes ont déménagé dans la barre de l'administration : leur habillage vit désormais là.
+  const srcCol = readFileSync('app/(admin)/admin/(protected)/gestion/ColonneMode.tsx', 'utf8');
+  const cssCol = srcCol.slice(srcCol.indexOf('const CSS_COLONNE'));
 
   it('AUCUNE couleur en dur : tout passe par les jetons de la charte', () => {
     expect(css.match(/#[0-9a-f]{3,8}\b|\brgba?\(/gi) ?? []).toEqual([]);
+    expect(cssCol.match(/#[0-9a-f]{3,8}\b|\brgba?\(/gi) ?? []).toEqual([]);
   });
 
   it('AUCUN débordement horizontal : chaque panneau peut rétrécir, le texte casse', () => {
-    for (const c of ['.pe-etiquettes{min-width:0}', '.pe-liste{min-width:0}', '.pe-lecture{min-width:0}']) {
-      expect(css).toContain(c);
-    }
-    expect(css).toContain('overflow-wrap:anywhere');
-  });
-
-  it('🔴 le ruban d’étiquettes défile SEUL sur téléphone — c’est son propre conteneur, jamais la page', () => {
-    expect(css).toContain('overflow-x:auto');
+    for (const c of ['.pe-liste{min-width:0}', '.pe-lecture{min-width:0}']) expect(css).toContain(c);
+    expect(cssCol).toContain('.cm{display:flex;flex-direction:column;gap:8px;min-width:0}');
+    expect(cssCol).toContain('overflow-wrap:anywhere');
   });
 
   it('CIBLES TACTILES : une étiquette se clique au doigt', () => {
-    expect(css).toContain('.pe-etiq{display:flex;align-items:center;justify-content:space-between;gap:.5rem;width:100%;min-height:44px');
+    expect(cssCol).toContain('min-height:44px');
   });
 
   it('l’étiquette ouverte est dite par un MOT et par la FORME, jamais par la seule couleur', () => {
     expect(src).toContain("aria-current={active ? 'true' : undefined}");
-    expect(css).toContain('text-decoration:underline');
+    expect(cssCol).toContain('text-decoration:underline');
   });
 
-  it('MOBILE D’ABORD : une seule colonne par défaut, les trois seulement quand la largeur le permet', () => {
+  it('MOBILE D’ABORD : un seul panneau par défaut, deux quand la largeur le permet', () => {
     expect(css).toContain('.pe-grille{display:grid;grid-template-columns:minmax(0,1fr)');
-    expect(css).toContain('@media (min-width:1200px)');
+    // 1000 px et non 1200 : les étiquettes ayant quitté le contenu, deux panneaux tiennent 200 px plus tôt.
+    expect(css).toContain('@media (min-width:1000px)');
     // …et sur un écran étroit, l'échange ouvert REMPLACE la liste au lieu de la comprimer.
     expect(css).toContain('.pe-grille--lecture .pe-liste{display:none}');
   });
 
-  it('LA SORTIE EST LE PREMIER ÉLÉMENT : un plein écran sans retour évident est un piège', () => {
-    expect(src.indexOf('← Écran partagé')).toBeLessThan(src.indexOf('pe-grille'));
+  it('🔴 sur TÉLÉPHONE, un retour explicite entre la colonne et la liste — et lui seulement là', () => {
+    expect(src).toContain('← Étiquettes');
+    expect(css).toContain('@media (min-width:768px){.pe-retour-colonne{display:none}}');
+  });
+
+  it('LA SORTIE EST LE PREMIER ÉLÉMENT DE LA COLONNE : un plein écran sans retour évident est un piège', () => {
+    expect(src.indexOf('← Écran partagé')).toBeLessThan(src.indexOf('cm-liste'));
   });
 });
