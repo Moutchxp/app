@@ -5,7 +5,7 @@ import type { EnTeteFil, MailParti, MessageDeFil, PieceDeMessage } from '../../.
 import {
   etatCorps, lignesDestinataires, mentionHorsFile, messagesDeplies, MENTION_HTML_SEUL,
 } from '../../../../lib/gestion/conversation';
-import { depuis, formaterDateFr, formaterTaille, libelleSens } from '../../../../lib/gestion/ecran';
+import { dateHeureComplete, dateHeureCourte, formaterTaille, libelleSens } from '../../../../lib/gestion/ecran';
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { MenuDiscret } from './MenuDiscret';
@@ -283,7 +283,8 @@ export function MessageConversation({
         <span className="cnv-ligne-haut">
           {/* Le SENS est dit par un MOT (« reçu de » / « envoyé à ») : il reste lisible en niveaux de gris. */}
           <span className="cnv-qui">{libelleSens(message.sens)} {qui}</span>
-          <span className="cnv-quand" title={formaterDateFr(message.recuLe)}>{depuis(message.recuLe, maintenant)}</span>
+          {/* LOT 5-DIRECT — date ET heure de réception, en heure de Paris. */}
+          <span className="cnv-quand" title={dateHeureComplete(message.recuLe)}>{dateHeureCourte(message.recuLe, maintenant)}</span>
         </span>
         {/* Une mention EN MOTS : elle reste lisible en niveaux de gris et pour un daltonien. */}
         {hors && <span className="cnv-hors">{hors}</span>}
@@ -308,7 +309,7 @@ export function MessageConversation({
               </div>
             ))}
             <dt>Date</dt>
-            <dd>{formaterDateFr(message.recuLe)}</dd>
+            <dd>{dateHeureComplete(message.recuLe)}</dd>
           </dl>
 
           {etat.v === 'texte' && lisible !== null && (

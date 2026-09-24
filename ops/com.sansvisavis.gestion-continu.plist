@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LOT 5-DIRECT — déclencheur launchd de la RELÈVE CONTINUE du courrier de gestion.
+
+  🔴 NON INSTALLÉ. Ce fichier est livré, pas activé : Arno l'activera APRÈS la fin du rapatriement — deux passes en
+  même temps ne se marcheraient pas dessus (le verrou consultatif les en empêche), mais la continue passerait son temps
+  à trouver le verrou pris et n'apporterait rien tant que le rattrapage tourne.
+
+  POURQUOI CE JOB EXISTE. MESURÉ sur la vraie base : entre l'heure d'un message et celle où nous l'avions capturé, la
+  MÉDIANE était de 1 500 minutes — vingt-cinq heures. La relève Gestion n'avait aucun déclencheur automatique : elle ne
+  tournait qu'au clic sur « Relever maintenant ». La veille Sitadel a le sien depuis le chantier S11b ; la gestion non.
+
+  ⚠️ `KeepAlive` ET NON `StartInterval`, contrairement au job de la veille. La différence est voulue : la veille fait
+  une passe et rend la main, donc launchd la rappelle tous les quarts d'heure. Ici le processus est de LONGUE DURÉE —
+  il tient sa propre boucle, relit l'intervalle en base à chaque tour, et garde sa connexion. `KeepAlive` le relance
+  seulement s'il meurt (coupure réseau fatale, machine en veille prolongée, plantage). Mettre `StartInterval` ici
+  lancerait un SECOND processus toutes les N secondes par-dessus le premier.
+
+  ⚠️ launchd N'A PAS DE PATH ni de shell : d'où `/bin/zsh -lc` (shell de LOGIN → PATH complet, node/npm trouvés) et le
+  `cd` vers la racine ABSOLUE du dépôt. Le CLI charge `.env` en absolu (app/lib/chargerEnv.ts).
+  ⚠️ LaunchAgent : ne tourne que machine allumée et session ouverte. Le 24/24 suppose un hébergement — pas ce Mac.
+
+  ACTIVER (après le rapatriement) :
+    cp ops/com.sansvisavis.gestion-continu.plist ~/Library/LaunchAgents/
+    launchctl load  ~/Library/LaunchAgents/com.sansvisavis.gestion-continu.plist
+  VÉRIFIER :
+    launchctl list | grep gestion-continu
+    tail -f ~/Library/Logs/svav-gestion-continu.log
+  ARRÊTER :
+    launchctl unload ~/Library/LaunchAgents/com.sansvisavis.gestion-continu.plist
+  (`unload` envoie SIGTERM : le tour en cours se termine, le verrou est rendu, rien n'est laissé à moitié fait.)
+
+  Chemins à adapter si le dépôt ou l'utilisateur diffèrent (cf. ops/README.md).
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.sansvisavis.gestion-continu</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd /Users/macbookprom4arnaud/sansvisavis/app &amp;&amp; npm run gestion:relever-continu</string>
+  </array>
+
+  <!-- Processus de LONGUE DURÉE : relancé s'il meurt, jamais dupliqué. Voir l'encadré ci-dessus. -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Au chargement, oui : c'est justement le but — que la relève reparte dès l'ouverture de session. -->
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Garde-fou anti-boucle : si le processus meurt aussitôt (mauvaise config), launchd attend au moins 60 s. -->
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/macbookprom4arnaud/Library/Logs/svav-gestion-continu.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/macbookprom4arnaud/Library/Logs/svav-gestion-continu.log</string>
+</dict>
+</plist>

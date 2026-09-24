@@ -40,6 +40,26 @@ function fichiersApp(): string[] {
     .filter((p) => /\.tsx?$/.test(p));
 }
 
+/**
+ * Lit tous ces fichiers, en TOLÉRANT qu'un seul soit momentanément illisible.
+ *
+ * POURQUOI : ce balayage ouvre près de mille fichiers d'affilée pendant que la suite entière tourne en parallèle. Une
+ * lecture peut échouer de façon transitoire (descripteurs épuisés) — c'est arrivé une fois, le 24/09/2026, et un garde
+ * qui rougit au hasard est un garde que plus personne ne croit. On réessaie une fois, puis on saute le fichier.
+ *
+ * ⚠️ SAUTER NE PEUT PAS VIDER LE GARDE : le test de cohérence plus bas exige plus de 50 composants clients et la
+ * présence nommée de `BoiteMail.tsx`. Un balayage qui perdrait la moitié du dépôt rougirait là, et pour la bonne raison.
+ */
+function contenusApp(): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const f of fichiersApp()) {
+    for (let essai = 0; essai < 2; essai++) {
+      try { out.set(f, readFileSync(f, 'utf8')); break; } catch { /* on réessaie une fois, puis on passe */ }
+    }
+  }
+  return out;
+}
+
 /** metafile.inputs → graphe interne (les paquets externes sont ignorés : seuls les fichiers du dépôt comptent). */
 function grapheDepuisMetafile(inputs: Metafile['inputs']): GrapheImports {
   const g: GrapheImports = {};
@@ -55,7 +75,7 @@ let interdits: Set<string>;
 let dureeBuildMs = 0;
 
 beforeAll(async () => {
-  const contenus = new Map(fichiersApp().map((f) => [f, readFileSync(f, 'utf8')]));
+  const contenus = contenusApp();
 
   // Un composant CLIENT est un fichier qui commence par 'use client' — la directive, pas une mention dans un texte.
   composantsClient = [...contenus]

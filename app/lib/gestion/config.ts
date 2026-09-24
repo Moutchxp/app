@@ -23,6 +23,11 @@ export interface ConfigGestion {
   //   base (qui CROÎT à chaque tentative). `reconnexionsMax = 0` rend exactement le comportement d'avant : arrêt propre.
   reconnexionsMax: number;
   reconnexionDelaiS: number;
+  /**
+   * LOT 5-DIRECT — INTERVALLE de la relève CONTINUE, en secondes (migration 238). C'est ce réglage, et lui seul, qui
+   * décide en combien de temps un mail arrivé dans Gmail apparaît dans la boîte. Réglable EN BASE, sans redéploiement.
+   */
+  releveContinueSecondes: number;
   // LOT 4b — FENÊTRE D'ACTIVITÉ de la file (migration 232). Un échange n'apparaît dans « À classer » que si son dernier
   //   message date de moins de N jours. Ni suppression, ni masquage silencieux : l'écran annonce ce qu'il ne montre pas.
   fenetreActiviteJours: number;
@@ -47,7 +52,23 @@ export const CONFIG_GESTION_DEFAUT: ConfigGestion = {
   reconnexionsMax: 3,
   reconnexionDelaiS: 5,
   fenetreActiviteJours: 30,
+  // 60 s : un mail apparaît dans la minute, et Gmail reçoit une interrogation par minute — très en deçà de ce qu'il
+  //   tolère. Descendre plus bas n'améliorerait rien de perceptible et multiplierait les connexions.
+  releveContinueSecondes: 60,
 };
+
+/**
+ * LOT 5-DIRECT — BORNES de l'intervalle. En dessous de 15 s on harcèle Gmail pour un gain que personne ne voit ;
+ * au-delà d'une heure, ce n'est plus une relève continue et le bouton « Relever maintenant » fait mieux.
+ */
+export const RELEVE_CONTINUE_MIN_S = 15;
+export const RELEVE_CONTINUE_MAX_S = 3600;
+
+/** Ramène un intervalle dans ses bornes. Une valeur absente, nulle ou aberrante retombe sur le défaut. PUR. */
+export function intervalleContinuValide(brut: number | null | undefined): number {
+  if (typeof brut !== 'number' || !Number.isFinite(brut) || brut <= 0) return CONFIG_GESTION_DEFAUT.releveContinueSecondes;
+  return Math.min(Math.max(Math.round(brut), RELEVE_CONTINUE_MIN_S), RELEVE_CONTINUE_MAX_S);
+}
 
 /** Découpe une liste stockée en une colonne texte (virgules), nettoyée et en minuscules. PUR. */
 export function listeDe(brut: string | null | undefined): string[] {
@@ -60,6 +81,7 @@ interface LigneConfig {
   types_pieces_acceptes: string; piece_taille_max_mo: number; conservation_carte_close_mois: number;
   reconnexions_max?: number; reconnexion_delai_s?: number; // migration 230 — absentes tant qu'elle n'est pas appliquée
   fenetre_activite_jours?: number;                          // migration 232 — idem
+  releve_continue_secondes?: number;                        // migration 238 — idem
 }
 
 const COLONNES_BASE = `dossier_imap, adresse_gestion, domaines_internes, rattrapage_jours, plafond_par_passe,
@@ -77,7 +99,8 @@ const COLONNES_BASE = `dossier_imap, adresse_gestion, domaines_internes, rattrap
 async function lireLigne(): Promise<LigneConfig | undefined> {
   try {
     const { rows } = await query<LigneConfig>(
-      `SELECT ${COLONNES_BASE}, reconnexions_max, reconnexion_delai_s, fenetre_activite_jours FROM gestion_config WHERE id = 1`);
+      `SELECT ${COLONNES_BASE}, reconnexions_max, reconnexion_delai_s, fenetre_activite_jours, releve_continue_secondes
+         FROM gestion_config WHERE id = 1`);
     return rows[0];
   } catch (e) {
     if ((e as { code?: string }).code !== '42703') throw e; // colonne inconnue = migration 230 en attente ; tout le reste remonte
@@ -105,6 +128,8 @@ export async function chargerConfigGestion(): Promise<ConfigGestion> {
       reconnexionsMax: r.reconnexions_max ?? CONFIG_GESTION_DEFAUT.reconnexionsMax,
       reconnexionDelaiS: (r.reconnexion_delai_s ?? 0) > 0 ? r.reconnexion_delai_s! : CONFIG_GESTION_DEFAUT.reconnexionDelaiS,
       fenetreActiviteJours: (r.fenetre_activite_jours ?? 0) > 0 ? r.fenetre_activite_jours! : CONFIG_GESTION_DEFAUT.fenetreActiviteJours,
+      // 238 en attente ⇒ colonne absente ⇒ 60 s. La relève continue tourne donc AVANT même que la migration soit passée.
+      releveContinueSecondes: intervalleContinuValide(r.releve_continue_secondes),
     };
   } catch {
     return CONFIG_GESTION_DEFAUT; // repli sûr : le module démarre même si la migration 228 n'est pas appliquée

@@ -121,3 +121,71 @@ export function formaterTaille(octets: number | null): string {
 export function libelleSens(sens: 'recu' | 'envoye'): string {
   return sens === 'envoye' ? 'nous avons écrit' : 'reçu de';
 }
+
+/**
+ * LOT 5-DIRECT — L'HORODATAGE FAÇON MESSAGERIE : la date ET l'heure de réception, en heure de Paris.
+ *
+ * POURQUOI PAS « il y a 3 h » (ce que `depuis` rend, et qui reste utilisé ailleurs) : « il y a 3 h » ne dit pas si un
+ * mail est arrivé à 9 h ou à 14 h, et c'est précisément ce qu'on veut savoir d'un courrier professionnel. Toutes les
+ * messageries montrent l'heure du jour, la veille en toutes lettres, puis la date.
+ *
+ *   · aujourd'hui      → « 14:32 »
+ *   · hier             → « hier 18:05 »
+ *   · cette année      → « 12 sept. 09:14 »
+ *   · année différente → « 12 sept. 2025 09:14 »
+ *
+ * 🔴 TOUJOURS EN HEURE DE PARIS, jamais l'heure du serveur ni celle du navigateur : un même mail doit porter la même
+ * heure sur le téléphone d'Arno, sur son Mac et dans un export. `Intl` gère le passage heure d'été / heure d'hiver,
+ * y compris pour un message reçu avant un changement d'heure et lu après. PUR (l'instant de référence est injecté).
+ */
+export const FUSEAU_AFFICHAGE = 'Europe/Paris';
+
+/** Les champs d'une date, lus DANS le fuseau d'affichage — jamais via les getters locaux, qui suivraient la machine. */
+function champsParis(d: Date): { annee: number; mois: number; jour: number; heure: string } {
+  const p = new Intl.DateTimeFormat('fr-FR', {
+    timeZone: FUSEAU_AFFICHAGE, year: 'numeric', month: 'numeric', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(d);
+  const v = (t: string): string => p.find((x) => x.type === t)?.value ?? '';
+  return { annee: Number(v('year')), mois: Number(v('month')), jour: Number(v('day')), heure: `${v('hour')}:${v('minute')}` };
+}
+
+/** Le jour calendaire d'une date, en heure de Paris, sous forme comparable. PUR. */
+function jourParis(d: Date): number {
+  const c = champsParis(d);
+  return c.annee * 10000 + c.mois * 100 + c.jour;
+}
+
+/**
+ * Date et heure de réception, façon messagerie. `iso` absent ou illisible → « — » (jamais une date inventée). PUR.
+ */
+export function dateHeureCourte(iso: string | null | undefined, maintenant: Date): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+
+  const c = champsParis(d);
+  const jour = jourParis(d);
+  const aujourdhui = jourParis(maintenant);
+  // « hier » se calcule sur le CALENDRIER de Paris, pas en retirant 24 h : la nuit du changement d'heure dure 23 ou
+  //   25 heures, et un décompte en heures ferait alors mentir le mot.
+  const veille = jourParis(new Date(maintenant.getTime() - 86_400_000));
+
+  if (jour === aujourdhui) return c.heure;
+  if (jour === veille) return `hier ${c.heure}`;
+
+  const moisCourt = new Intl.DateTimeFormat('fr-FR', { timeZone: FUSEAU_AFFICHAGE, month: 'short' }).format(d);
+  const annee = c.annee === champsParis(maintenant).annee ? '' : ` ${c.annee}`;
+  return `${c.jour} ${moisCourt}${annee} ${c.heure}`;
+}
+
+/** Date complète et heure, pour une infobulle ou un en-tête de message. Toujours en heure de Paris. PUR. */
+export function dateHeureComplete(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return new Intl.DateTimeFormat('fr-FR', {
+    timeZone: FUSEAU_AFFICHAGE, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).format(d).replace(' à ', ' à ');
+}

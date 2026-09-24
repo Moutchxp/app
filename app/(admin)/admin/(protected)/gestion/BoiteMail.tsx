@@ -5,7 +5,7 @@ import type { CurseurBoite, LigneBoite } from '../../../../lib/gestion/boiteRepo
 // 🔴 `rechercheTermes` et NON `rechercheBoite` : le second contient le SQL et tire `pg` → `dns`, que le navigateur
 //   n'a pas. L'importer ici a fait tomber TOUTE l'application le 24/09/2026, page de connexion comprise.
 import { decouperTermes, normaliser } from '../../../../lib/gestion/rechercheTermes';
-import { depuis, formaterDateFr } from '../../../../lib/gestion/ecran';
+import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { corpsLisible } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 
@@ -289,7 +289,9 @@ export function BoiteMail({ onOuvrir }: { onOuvrir: (filId: number) => void }) {
                 <button type="button" className="bte-ligne" onClick={() => onOuvrir(l.filId)}>
                   <span className="bte-haut">
                     <span className="bte-qui">{nomCorrespondant(l)}</span>
-                    <span className="bte-quand" title={formaterDateFr(l.dernierLe)}>{depuis(l.dernierLe, ref)}</span>
+                    {/* LOT 5-DIRECT — la DATE ET L'HEURE de réception, en heure de Paris : « il y a 3 h » ne disait
+                        pas si un mail était arrivé à 9 h ou à 14 h. La date complète reste dans l'infobulle. */}
+                    <span className="bte-quand" title={dateHeureComplete(l.dernierLe)}>{dateHeureCourte(l.dernierLe, ref)}</span>
                   </span>
                   <span className="bte-objet"><Evidence texte={nettoyerObjet(l.objet) || '(sans objet)'} saisie={critere.q} /></span>
                   {apercu(l.extrait) !== '' && (
