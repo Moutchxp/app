@@ -13,6 +13,7 @@ interface CompteVue {
   actif: boolean;
   perms: Perms;
   peutModifierPermis: boolean; // RATT-EDIT (lot A3) — état de la sous-case « modifier après validation » (capacité effective : perm_permis && perm_permis_modif, ou admin)
+  etatEnvoiGestion?: 'oui' | 'non' | 'a_decider' | 'sans_objet'; // LOT 5-DROITS — optionnel : une réponse d'API d'avant ce lot n'en porte pas
   derniere_connexion_a: string | null;
   cree_a: string | null; // date de création (fournie par l'API ; NULL toléré)
 }
@@ -31,6 +32,76 @@ const MODULES: ReadonlyArray<{ cle: keyof Perms; libelle: string }> = [
   { cle: 'gestion', libelle: 'Gestion' }, // GESTION (lot 2) — module gardé (perm_gestion), AJOUTÉ en fin de liste : les cases existantes ne bougent pas
 ];
 const PERMS_VIDE = (): Perms => ({ pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false });
+
+/** LOT 5-DROITS — réponse à la question d'envoi : `null` = pas encore répondu (« à décider »). */
+export type ReponseEnvoi = boolean | null;
+
+/**
+ * LOT 5-DROITS — l'état rendu par le serveur redevient une réponse éditable. `a_decider` et `sans_objet` donnent tous
+ * deux `null` : dans les deux cas personne n'a répondu, et l'écran ne doit surtout pas pré-cocher « non ». PUR.
+ */
+export function envoiDepuisEtat(etat: string | undefined): ReponseEnvoi {
+  if (etat === 'oui') return true;
+  if (etat === 'non') return false;
+  return null;
+}
+
+/**
+ * LOT 5-DROITS — L'ACCÈS GESTION EST-IL DONNÉ SANS RÉPONSE SUR L'ENVOI ? C'est la SEULE condition qui bloque
+ * l'enregistrement (décision b d'Arno). PURE, donc testable sans écran — et c'est la même règle que celle que la route
+ * applique côté serveur : l'écran empêche, le serveur garantit.
+ */
+export function envoiSansReponse(perms: Perms, envoi: ReponseEnvoi): boolean {
+  return perms.gestion && envoi === null;
+}
+
+/** Le message, écrit une fois et réutilisé : l'écran et le serveur doivent dire la MÊME chose. */
+export const MSG_ENVOI_OBLIGATOIRE =
+  'Répondez d’abord à la question « Peut envoyer des mails au nom de gestion@criterimmo.fr » : oui ou non.';
+
+/**
+ * LOT 5-DROITS — CHOIX OUI / NON, sans valeur pré-cochée. Ce n'est pas une case à cocher, et ce n'est pas un détail :
+ * une case décochée RÉPOND « non » à la place d'Arno, alors qu'on veut précisément distinguer « on a dit non » de « on
+ * n'a pas encore décidé ». Deux boutons, aucun sélectionné au départ.
+ *
+ * L'état se lit SANS la couleur seule (règle d'accessibilité du dépôt) : un indicateur de forme ●/○, `aria-pressed` pour
+ * les lecteurs d'écran, et le mot « à décider » écrit en toutes lettres tant que rien n'est choisi.
+ */
+export function ChoixOuiNon({ valeur, disabled, onChoisir, idGroupe }: {
+  valeur: ReponseEnvoi; disabled?: boolean; onChoisir: (v: boolean) => void; idGroupe: string;
+}) {
+  return (
+    <div className="cpt-ouinon" role="group" aria-labelledby={idGroupe}>
+      {([[true, 'Oui'], [false, 'Non']] as const).map(([v, libelle]) => (
+        <button key={libelle} type="button" className="cpt-ouinon__btn" aria-pressed={valeur === v}
+          disabled={disabled} onClick={() => onChoisir(v)}>
+          <span className="cpt-ouinon__ind" aria-hidden="true">{valeur === v ? '●' : '○'}</span>
+          {libelle}
+        </button>
+      ))}
+      {valeur === null && !disabled && <span className="cpt-a-decider">à décider</span>}
+    </div>
+  );
+}
+
+/**
+ * LOT 5-DROITS — UNE TUILE ET SES DROITS COMPLÉMENTAIRES, groupés. Décision c d'Arno : un droit complémentaire ne
+ * s'affiche JAMAIS en liste à plat ; il vit sous sa tuile, en retrait, et il DISPARAÎT quand la tuile n'est pas cochée.
+ *
+ * Le masquage conditionnel vaut aussi pour le droit Permis existant — Arno l'a demandé explicitement. Il ne retire
+ * aucune fonctionnalité : décocher une tuile retire ses droits complémentaires (décision d), donc un droit masqué est
+ * un droit qui ne s'applique pas. Montrer une case sans effet serait le vrai mensonge.
+ */
+export function BlocTuile({ libelle, coche, disabled, onToggle, enfant }: {
+  libelle: string; coche: boolean; disabled?: boolean; onToggle?: () => void; enfant?: React.ReactNode;
+}) {
+  return (
+    <div className="cpt-tuile">
+      <Chip libelle={libelle} coche={coche} disabled={disabled} onToggle={onToggle} />
+      {coche && enfant && <div className="cpt-tuile__sous">{enfant}</div>}
+    </div>
+  );
+}
 
 /**
  * Date lisible en français, HEURE LOCALE (Intl, locale fr-FR ; aucune dépendance). « jamais » si absente.
@@ -67,8 +138,8 @@ export function Chip({ libelle, coche, disabled, onToggle }: { libelle: string; 
  * QU'UNE fois — quand le détail est ouvert, la carte n'affiche que ce contenu, jamais le résumé en plus.
  */
 export function DetailContenu({
-  compte, perms, peutModifierPermis, collaborateur, msg, enCours, idPrenom, idNom, onIdPrenom, onIdNom, onEnregistrerIdentite,
-  onToggle, onToggleModif, onEnregistrer, onPromouvoir, onFermer,
+  compte, perms, peutModifierPermis, envoi, collaborateur, msg, enCours, idPrenom, idNom, onIdPrenom, onIdNom, onEnregistrerIdentite,
+  onToggle, onToggleModif, onChoisirEnvoi, onEnregistrer, onPromouvoir, onFermer,
 }: {
   compte: DetailCompte;
   perms: Perms;
@@ -83,6 +154,8 @@ export function DetailContenu({
   onEnregistrerIdentite: () => void;
   onToggle: (cle: keyof Perms) => void;
   onToggleModif: () => void; // RATT-EDIT (lot A3) — bascule de la sous-case « modifier après validation »
+  envoi: ReponseEnvoi; // LOT 5-DROITS — réponse à la question d'envoi (null = à décider)
+  onChoisirEnvoi: (v: boolean) => void;
   onEnregistrer: () => void;
   onPromouvoir: () => void;
   onFermer: () => void;
@@ -129,24 +202,42 @@ export function DetailContenu({
       <div className="cpt-perms-titre" id={`perms-${compte.id}`}>
         Permissions {!collaborateur && '(administrateur : toutes, non modifiables)'}
       </div>
+      {/* LOT 5-DROITS — UNE TUILE PAR BLOC, ses droits complémentaires EN RETRAIT dessous, et seulement si elle est cochée. */}
       <div className="cpt-perms" role="group" aria-labelledby={`perms-${compte.id}`}>
         {MODULES.map((m) => (
-          <Chip key={m.cle} libelle={m.libelle} coche={collaborateur ? perms[m.cle] : true} disabled={!collaborateur} onToggle={() => onToggle(m.cle)} />
+          <BlocTuile key={m.cle} libelle={m.libelle} coche={collaborateur ? perms[m.cle] : true}
+            disabled={!collaborateur} onToggle={() => onToggle(m.cle)}
+            enfant={m.cle === 'permis' ? (
+              <>
+                <Chip libelle="Modifier un permis après validation" coche={collaborateur ? peutModifierPermis : true}
+                  disabled={!collaborateur} onToggle={onToggleModif} />
+                <span className="cpt-note" style={{ display: 'block' }}>
+                  Corriger l’emprise et l’altitude d’un permis <strong>déjà validé</strong> (dans Rattachement).
+                </span>
+              </>
+            ) : m.cle === 'gestion' ? (
+              <>
+                <div className="cpt-sous-titre" id={`envoi-${compte.id}`}>
+                  Peut envoyer des mails au nom de gestion@criterimmo.fr
+                </div>
+                <ChoixOuiNon valeur={collaborateur ? envoi : true} disabled={!collaborateur}
+                  onChoisir={onChoisirEnvoi} idGroupe={`envoi-${compte.id}`} />
+                <span className="cpt-note" style={{ display: 'block' }}>
+                  Écrire au nom de l’agence n’est pas la même chose que lire et trier le courrier. La réponse est
+                  obligatoire {collaborateur && <>— tant qu’elle n’est pas donnée, l’envoi est <strong>refusé</strong></>}.
+                </span>
+              </>
+            ) : undefined} />
         ))}
       </div>
-      {/* RATT-EDIT (lot A3) — SOUS-DROIT de « Permis de construire », INDENTÉ sous la grille et DÉSACTIVÉ tant que la case parente n'est
-          pas cochée (subordination ② VISIBLE). On ne touche pas la grille des 7 cases : le sous-droit vit dessous, à part. */}
-      <div className="cpt-sous-perm" style={{ marginLeft: '1.5rem', marginTop: '.4rem', maxWidth: '32rem' }}>
-        <Chip libelle="Modifier un permis après validation" coche={collaborateur ? peutModifierPermis : true}
-          disabled={!collaborateur || !perms.permis} onToggle={onToggleModif} />
-        <span className="cpt-note" style={{ display: 'block' }}>
-          Sous-droit de « Permis de construire » : corriger l’emprise et l’altitude d’un permis <strong>déjà validé</strong> (dans Rattachement). Nécessite « Permis de construire ».
-        </span>
-      </div>
+
+      {collaborateur && envoiSansReponse(perms, envoi) && (
+        <p className="cpt-err" role="alert">{MSG_ENVOI_OBLIGATOIRE}</p>
+      )}
 
       {collaborateur ? (
         <div className="cpt-actions">
-          <button type="button" className="cpt-btn cpt-btn--primary" disabled={enCours} onClick={onEnregistrer}>Enregistrer les permissions</button>
+          <button type="button" className="cpt-btn cpt-btn--primary" disabled={enCours || envoiSansReponse(perms, envoi)} onClick={onEnregistrer}>Enregistrer les permissions</button>
           <button type="button" className="cpt-btn cpt-btn--secondary" disabled={enCours} onClick={onPromouvoir}>Promouvoir administrateur</button>
         </div>
       ) : (
@@ -169,6 +260,9 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
   const [d, setD] = useState<DetailCompte | null>(null);
   const [perms, setPerms] = useState<Perms>(PERMS_VIDE());
   const [peutModifierPermis, setPeutModifierPermis] = useState(false); // RATT-EDIT (lot A3) — sous-droit « modifier après validation »
+  // LOT 5-DROITS — `null` tant qu'Arno n'a pas répondu. On NE remplace JAMAIS ce null par false au chargement : ce
+  //   serait répondre « non » à sa place, et effacer la différence entre un refus assumé et une question en attente.
+  const [envoi, setEnvoi] = useState<ReponseEnvoi>(null);
   const [idPrenom, setIdPrenom] = useState('');
   const [idNom, setIdNom] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
@@ -183,7 +277,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
       if (annule) return;
       if (!res.ok) { setMsg('Détail indisponible.'); return; }
       const body = await res.json();
-      if (!annule) { setD(body.compte); setPerms(body.compte.perms); setPeutModifierPermis(body.compte.peutModifierPermis); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom); }
+      if (!annule) { setD(body.compte); setPerms(body.compte.perms); setPeutModifierPermis(body.compte.peutModifierPermis); setEnvoi(envoiDepuisEtat(body.compte.etatEnvoiGestion)); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom); }
     })();
     return () => { annule = true; };
   }, [id]);
@@ -192,7 +286,7 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
     const res = await fetch(`/api/admin/comptes/${id}`);
     if (!res.ok) { setMsg('Détail indisponible.'); return; }
     const body = await res.json();
-    setD(body.compte); setPerms(body.compte.perms); setPeutModifierPermis(body.compte.peutModifierPermis); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom);
+    setD(body.compte); setPerms(body.compte.perms); setPeutModifierPermis(body.compte.peutModifierPermis); setEnvoi(envoiDepuisEtat(body.compte.etatEnvoiGestion)); setIdPrenom(body.compte.prenom); setIdNom(body.compte.nom);
   }
   async function enregistrerIdentite() {
     const prenom = idPrenom.trim(); const nom = idNom.trim();
@@ -207,8 +301,13 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
   async function enregistrer() {
     setEnCours(true); setMsg(null);
     try {
-      const res = await fetch(`/api/admin/comptes/${id}/permissions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ perms, permis_modif: peutModifierPermis }) }); // RATT-EDIT lot A3
-      if (res.ok) { setMsg('Permissions enregistrées.'); await recharger(); onRafraichir(); } else setMsg('Enregistrement refusé.');
+      const res = await fetch(`/api/admin/comptes/${id}/permissions`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ perms, permis_modif: peutModifierPermis, gestion_envoi: envoi }) }); // RATT-EDIT lot A3 ; LOT 5-DROITS — gestion_envoi
+      if (res.ok) { setMsg('Permissions enregistrées.'); await recharger(); onRafraichir(); }
+      else {
+        // Le serveur refuse lui aussi l'accès Gestion sans réponse : on affiche SON message, pas une reformulation.
+        const body = await res.json().catch(() => null);
+        setMsg(typeof body?.erreur === 'string' ? body.erreur : 'Enregistrement refusé.');
+      }
     } finally { setEnCours(false); }
   }
   async function promouvoir() {
@@ -223,10 +322,17 @@ function Detail({ id, onFermer, onRafraichir }: { id: number; onFermer: () => vo
   return (
     <div ref={ref} tabIndex={-1} className="cpt-detail" id={`detail-${id}`} role="region" aria-labelledby={`cpt-tete-${id}`}>
       {d
-        ? <DetailContenu compte={d} perms={perms} peutModifierPermis={peutModifierPermis} collaborateur={d.role === 'collaborateur'} msg={msg} enCours={enCours}
+        ? <DetailContenu compte={d} perms={perms} peutModifierPermis={peutModifierPermis} envoi={envoi} collaborateur={d.role === 'collaborateur'} msg={msg} enCours={enCours}
             idPrenom={idPrenom} idNom={idNom} onIdPrenom={setIdPrenom} onIdNom={setIdNom} onEnregistrerIdentite={enregistrerIdentite}
-            onToggle={(cle) => { if (cle === 'permis' && perms.permis) setPeutModifierPermis(false); /* subordination ② : décocher « Permis » retire le sous-droit */ setPerms((p) => ({ ...p, [cle]: !p[cle] })); }}
-            onToggleModif={() => setPeutModifierPermis((v) => !v)} onEnregistrer={enregistrer} onPromouvoir={promouvoir} onFermer={onFermer} />
+            onToggle={(cle) => {
+              if (cle === 'permis' && perms.permis) setPeutModifierPermis(false); // subordination ② : décocher « Permis » retire le sous-droit
+              // LOT 5-DROITS (décision d) — retirer la tuile Gestion remet la question À DÉCIDER, jamais à « non » :
+              //   si on la rouvre, elle se repose. Aucun droit ne revient — ni ne reste fermé — en silence.
+              if (cle === 'gestion') setEnvoi(null);
+              setPerms((p) => ({ ...p, [cle]: !p[cle] }));
+            }}
+            onToggleModif={() => setPeutModifierPermis((v) => !v)} onChoisirEnvoi={setEnvoi}
+            onEnregistrer={enregistrer} onPromouvoir={promouvoir} onFermer={onFermer} />
         : (msg ?? 'Chargement…')}
     </div>
   );
@@ -278,6 +384,7 @@ export default function ComptesPage() {
   const [role, setRole] = useState<RoleAdmin>('collaborateur');
   const [perms, setPerms] = useState<Perms>(PERMS_VIDE());
   const [peutModifierPermis, setPeutModifierPermis] = useState(false); // RATT-EDIT (lot A3) — sous-droit « modifier après validation »
+  const [envoi, setEnvoi] = useState<ReponseEnvoi>(null); // LOT 5-DROITS — aucune valeur pré-cochée, à la création aussi
   const [enCours, setEnCours] = useState(false);
   const admin = role === 'administrateur';
 
@@ -305,7 +412,7 @@ export default function ComptesPage() {
   async function creer(e: FormEvent<HTMLFormElement>) {
     e.preventDefault(); setEnCours(true); setErreur(null);
     try {
-      const res = await fetch('/api/admin/comptes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom, identifiant, role, perms, permis_modif: peutModifierPermis }) }); // RATT-EDIT lot A3 — perms imbriqué (le serveur lit b.perms) + sous-droit au niveau racine
+      const res = await fetch('/api/admin/comptes', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prenom, nom, identifiant, role, perms, permis_modif: peutModifierPermis, gestion_envoi: envoi }) }); // RATT-EDIT lot A3 — perms imbriqué (le serveur lit b.perms) + sous-droits au niveau racine ; LOT 5-DROITS — gestion_envoi
       const body = await res.json().catch(() => ({}));
       if (res.status === 201) {
         setTemp({ identifiant, motDePasse: body.motDePasseTemporaire });
@@ -413,19 +520,34 @@ export default function ComptesPage() {
             <option value="administrateur">Administrateur</option>
           </select>
           <div className="cpt-perms-titre" id="perms-creation">Permissions {admin && '(administrateur : toutes, non modifiables)'}</div>
+          {/* LOT 5-DROITS — même regroupement qu'au détail : une tuile par bloc, ses droits complémentaires dessous. */}
           <div className="cpt-perms" role="group" aria-labelledby="perms-creation">
             {MODULES.map((m) => (
-              <Chip key={m.cle} libelle={m.libelle} coche={admin || perms[m.cle]} disabled={admin}
-                onToggle={() => { if (m.cle === 'permis' && perms.permis) setPeutModifierPermis(false); setPerms((p) => ({ ...p, [m.cle]: !p[m.cle] })); }} />
+              <BlocTuile key={m.cle} libelle={m.libelle} coche={admin || perms[m.cle]} disabled={admin}
+                onToggle={() => {
+                  if (m.cle === 'permis' && perms.permis) setPeutModifierPermis(false);
+                  if (m.cle === 'gestion') setEnvoi(null); // décision d : rouvrir la tuile repose la question
+                  setPerms((p) => ({ ...p, [m.cle]: !p[m.cle] }));
+                }}
+                enfant={m.cle === 'permis' ? (
+                  <>
+                    <Chip libelle="Modifier un permis après validation" coche={admin || peutModifierPermis}
+                      disabled={admin} onToggle={() => setPeutModifierPermis((v) => !v)} />
+                    <span className="cpt-note" style={{ display: 'block' }}>Corriger l’emprise et l’altitude d’un permis <strong>déjà validé</strong>.</span>
+                  </>
+                ) : m.cle === 'gestion' ? (
+                  <>
+                    <div className="cpt-sous-titre" id="envoi-creation">Peut envoyer des mails au nom de gestion@criterimmo.fr</div>
+                    <ChoixOuiNon valeur={admin ? true : envoi} disabled={admin} onChoisir={setEnvoi} idGroupe="envoi-creation" />
+                    <span className="cpt-note" style={{ display: 'block' }}>
+                      Écrire au nom de l’agence n’est pas la même chose que lire et trier le courrier. La réponse est obligatoire.
+                    </span>
+                  </>
+                ) : undefined} />
             ))}
           </div>
-          {/* RATT-EDIT (lot A3) — SOUS-DROIT indenté, désactivé tant que « Permis de construire » n'est pas coché (subordination ② visible). */}
-          <div className="cpt-sous-perm" style={{ marginLeft: '1.5rem', marginTop: '.4rem', maxWidth: '32rem' }}>
-            <Chip libelle="Modifier un permis après validation" coche={admin || peutModifierPermis}
-              disabled={admin || !perms.permis} onToggle={() => setPeutModifierPermis((v) => !v)} />
-            <span className="cpt-note" style={{ display: 'block' }}>Sous-droit de « Permis de construire » : corriger l’emprise et l’altitude d’un permis <strong>déjà validé</strong>. Nécessite « Permis de construire ».</span>
-          </div>
-          <button type="submit" className="cpt-btn cpt-btn--primary" disabled={enCours}>{enCours ? 'Création…' : 'Créer le compte'}</button>
+          {!admin && envoiSansReponse(perms, envoi) && <p className="cpt-err" role="alert">{MSG_ENVOI_OBLIGATOIRE}</p>}
+          <button type="submit" className="cpt-btn cpt-btn--primary" disabled={enCours || (!admin && envoiSansReponse(perms, envoi))}>{enCours ? 'Création…' : 'Créer le compte'}</button>
         </form>
       </section>
 
@@ -476,7 +598,21 @@ const CSS = `
 .cpt-detail{outline:none}
 .cpt-note{font-size:.8rem;color:var(--color-svv-muted);margin:4px 0 0}
 .cpt-perms-titre{font-size:.8rem;color:var(--color-svv-muted)}
-.cpt-perms{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin:2px 0}
+.cpt-perms{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin:2px 0;align-items:start}
+/* LOT 5-DROITS — une TUILE et ses droits complémentaires forment UN bloc : le rattachement visuel doit tenir même
+   quand la grille passe sur une seule colonne (iPhone portrait), d'où le liseré vertical plutôt qu'une simple marge. */
+.cpt-tuile{display:flex;flex-direction:column;gap:6px;min-width:0}
+.cpt-tuile__sous{display:flex;flex-direction:column;gap:6px;margin-left:12px;padding:8px 0 4px 12px;border-left:2px solid var(--color-svv-line-strong);min-width:0}
+.cpt-sous-titre{font-size:.85rem;font-weight:600;color:var(--color-svv-ink);line-height:1.3}
+/* Oui / Non : deux cibles de 44 px qui passent à la ligne plutôt que de déborder. Aucune dépendance au survol. */
+.cpt-ouinon{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.cpt-ouinon__btn{display:inline-flex;align-items:center;gap:.4rem;min-height:44px;min-width:88px;padding:.5rem .9rem;border-radius:.7rem;border:1.5px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink);font-size:.9rem;font-weight:600;cursor:pointer}
+.cpt-ouinon__btn[aria-pressed="true"]{background:var(--color-svv-green-soft);border-color:var(--color-svv-green-ink);color:var(--color-svv-green-ink)}
+.cpt-ouinon__btn:disabled{cursor:not-allowed;opacity:.85}
+.cpt-ouinon__btn:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.cpt-ouinon__ind{font-size:.9rem;line-height:1}
+/* « à décider » est un MOT, pas une couleur : il reste lisible en niveaux de gris et pour un daltonien. */
+.cpt-a-decider{display:inline-flex;align-items:center;min-height:28px;padding:.15rem .55rem;border-radius:.5rem;border:1px dashed var(--color-svv-red);color:var(--color-svv-red);font-size:.8rem;font-weight:700}
 /* Boutons — hiérarchie stricte, palette du site (aucun bleu), focus rouge visible, cibles >= 44px. */
 .cpt-btn{display:inline-flex;align-items:center;justify-content:center;gap:.4rem;min-height:44px;padding:.6rem 1rem;font-weight:700;font-size:.95rem;line-height:1.1;border-radius:.7rem;border:1.5px solid transparent;background:var(--color-svv-surface);color:var(--color-svv-ink);cursor:pointer;transition:background-color .15s ease,border-color .15s ease}
 .cpt-btn--primary{background:var(--color-svv-red);color:#fff;border-color:var(--color-svv-red)}

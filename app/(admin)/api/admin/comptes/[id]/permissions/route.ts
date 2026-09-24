@@ -35,7 +35,25 @@ export async function POST(request: Request, ctx: Ctx) {
     gestion: pb.gestion === true, // GESTION (lot 2) — module « Gestion »
   };
 
-  const ok = await modifierPermissions(idNum, perms, (body as Record<string, unknown>)?.permis_modif === true, garde.auteurId); // RATT-EDIT lot A3 — sous-droit lu au niveau racine (forcé false si perms.permis off, côté repo)
+  /**
+   * 🔴 LOT 5-DROITS — LA RÉPONSE SUR L'ENVOI EST OBLIGATOIRE DÈS QUE LA TUILE GESTION EST COCHÉE (décision b d'Arno), et
+   * ce refus vit ICI, côté SERVEUR, pas seulement dans l'écran. Un écran qui oblige est un confort ; une route qui refuse
+   * est une garantie — et c'est la seule qui tienne face à un appel direct ou à un formulaire rejoué.
+   *
+   * On n'accepte QUE `true` ou `false`. Ni `undefined`, ni `null`, ni une chaîne : « à décider » n'est pas une réponse
+   * qu'on enregistre volontairement, c'est l'état de ceux à qui on n'a jamais posé la question.
+   */
+  const envoiBrut = (body as Record<string, unknown>)?.gestion_envoi;
+  const envoi = envoiBrut === true ? true : envoiBrut === false ? false : null;
+  if (perms.gestion && envoi === null) {
+    return Response.json({
+      erreur: 'Pour donner l’accès à la tuile Gestion, il faut répondre à la question « Peut envoyer des mails au nom de gestion@criterimmo.fr » : oui ou non.',
+      champ: 'gestion_envoi',
+    }, { status: 422 });
+  }
+
+  // La VALIDATION est faite AVANT toute écriture — jamais après (piège `withTransaction`, qui COMMITE au retour normal).
+  const ok = await modifierPermissions(idNum, perms, (body as Record<string, unknown>)?.permis_modif === true, garde.auteurId, envoi); // RATT-EDIT lot A3 — sous-droit lu au niveau racine (forcé false si perms.permis off, côté repo)
   if (ok) return Response.json({ ok: true });
 
   // 0 ligne : compte absent, ou administrateur (permissions implicites, non éditables).

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 
 // Pool pg mocké (garde + comptes partagent le module). withTransaction route vers queryMock (desactiverCompte).
 const queryMock = vi.fn();
@@ -14,6 +14,12 @@ import { signerJeton, permsToutes, NOM_COOKIE, type SessionAdmin } from '../../.
 
 const SECRET = 'secret-de-test-suffisamment-long-pour-hs256-0123456789';
 const ctx = { params: Promise.resolve({ id: '5' }) };
+
+// LOT 5-DROITS — voir route.test.ts : on préchauffe la sonde de schéma pour qu'elle ne consomme aucun mock séquentiel.
+beforeAll(async () => {
+  queryMock.mockResolvedValueOnce({ rows: [{ n: 1 }] });
+  await (await import('../../../../../lib/admin/schemaDroits')).droitEnvoiGestionDisponible();
+});
 
 beforeEach(() => {
   process.env.ADMIN_SESSION_SECRET = SECRET;

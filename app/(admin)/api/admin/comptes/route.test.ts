@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 
 // Pool pg mocké : garde (exigerAdministrateur) ET comptes partagent le même module client.
 const queryMock = vi.fn();
@@ -12,6 +12,16 @@ import { POST, GET } from './route';
 import { signerJeton, permsToutes, NOM_COOKIE, type SessionAdmin } from '../../../../lib/admin/session';
 
 const SECRET = 'secret-de-test-suffisamment-long-pour-hs256-0123456789';
+
+/**
+ * LOT 5-DROITS — la lecture d'un compte est précédée d'une SONDE DE SCHÉMA, mémorisée pour la vie du processus. On la
+ * fait répondre UNE fois ici, avant tous les tests : ainsi elle ne consomme plus aucun `mockResolvedValueOnce`, et les
+ * séquences de mocks (ainsi que les comptages d'appels) de ce fichier restent exactement celles d'avant.
+ */
+beforeAll(async () => {
+  queryMock.mockResolvedValueOnce({ rows: [{ n: 1 }] });
+  await (await import('../../../../lib/admin/schemaDroits')).droitEnvoiGestionDisponible();
+});
 
 beforeEach(() => {
   process.env.ADMIN_SESSION_SECRET = SECRET;
@@ -29,7 +39,9 @@ async function requete(session: SessionAdmin, body?: unknown): Promise<Request> 
 const admin = (): SessionAdmin => ({ sub: 1, identifiant: 'chef@x.fr', role: 'administrateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: true });
 const collab = (): SessionAdmin => ({ sub: 3, identifiant: 'lea@x.fr', role: 'collaborateur', perms: permsToutes(), doitChanger: false, peutModifierPermis: false });
 
-const corpsCreation = { prenom: 'Léa', nom: 'M', identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsToutes(), pilotage: false } };
+// LOT 5-DROITS — `permsToutes()` inclut la tuile Gestion : la réponse sur l'envoi devient donc OBLIGATOIRE ici aussi.
+//   C'est exactement le contrat voulu — un collaborateur ne reçoit pas l'accès Gestion sans qu'on ait tranché l'envoi.
+const corpsCreation = { prenom: 'Léa', nom: 'M', identifiant: 'lea@x.fr', role: 'collaborateur', perms: { ...permsToutes(), pilotage: false }, gestion_envoi: false };
 
 describe('POST /api/admin/comptes — double barrière + mot de passe temporaire', () => {
   it('administrateur : 201, mot de passe temporaire renvoyé UNE fois, jamais en clair dans le journal', async () => {

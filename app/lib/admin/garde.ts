@@ -130,6 +130,48 @@ export async function exigerCapaciteModif(request: Request): Promise<Response | 
 }
 
 /**
+ * 🔴 LOT 5-DROITS — GARDE UNIQUE de la capacité « ENVOYER AU NOM DE gestion@criterimmo.fr ». C'est LE point de passage
+ * obligé du futur lot 5e : aucune route d'envoi ne doit décider par elle-même qui a le droit d'écrire au nom de l'agence.
+ *
+ * Autorise SSI : administrateur (droits implicites), OU (`perm_gestion` ET `perm_gestion_envoi = true`) — les DEUX exigés
+ * EN BASE, jamais via la seule interface, et RELUS à chaque requête : un droit retiré ferme la porte immédiatement, y
+ * compris pour une session déjà ouverte.
+ *
+ * « À DÉCIDER » (`perm_gestion_envoi IS NULL`) ⇒ REFUS. Un droit qui envoie du courrier au nom de l'agence ne s'ouvre
+ * jamais par défaut. Même chose si la migration 236 n'est pas appliquée : la sonde répond « non », la colonne est lue
+ * comme NULL, et seuls les administrateurs passent. La direction du repli est toujours la même — fermer, jamais ouvrir.
+ *
+ * ⚠️ AUCUNE ÉCRITURE ICI, et c'est délibéré (piège `withTransaction`, qui COMMITE au retour normal) : une route d'envoi
+ * appelle CE garde d'abord, refuse si besoin, et n'écrit qu'ensuite. Lire, puis refuser, puis écrire — jamais l'inverse.
+ *
+ * RÈGLE D'OR : sub === null AVEC rôle administrateur explicite → autorisé sans requête (voie de secours). Renvoie `null`
+ * si autorisé, sinon 403 ACCES_REVOQUE.
+ */
+export async function exigerCapaciteEnvoiGestion(request: Request): Promise<Response | null> {
+  const jeton = lireCookie(request, NOM_COOKIE);
+  const payload = jeton ? await verifierJeton(jeton) : null;
+  if (!payload) return refusRevoque();
+
+  const session = sessionDepuisPayload(payload);
+  // FAIL-CLOSED (M1) : voie de secours = sub null AVEC role administrateur explicite ; sinon (jeton mal formé/forgé) refus.
+  if (session.sub === null) return session.role === 'administrateur' ? null : refusRevoque();
+
+  const { droitEnvoiGestionDisponible } = await import('./schemaDroits');
+  const avecEnvoi = await droitEnvoiGestionDisponible();
+  const { rows } = await query<{ actif: boolean; role: string; gestion: boolean; envoi: boolean | null }>(
+    `SELECT actif, role, perm_gestion AS gestion,
+            ${avecEnvoi ? 'perm_gestion_envoi' : 'NULL::boolean'} AS envoi
+       FROM admin_utilisateur WHERE id = $1`,
+    [session.sub],
+  );
+  const compte = rows[0];
+  if (!compte || !compte.actif) return refusRevoque();
+  if (compte.role === 'administrateur') return null;        // droits implicites, aucune case à cocher
+  if (compte.gestion && compte.envoi === true) return null; // 🔴 les DEUX, et `true` STRICT : NULL (« à décider ») refuse
+  return refusRevoque();
+}
+
+/**
  * Révocation IMMÉDIATE sur une route d'ÉCRITURE (M3-0). `proxy.ts` autorise d'après le JWS, figé jusqu'à
  * 8 h ; ce garde relit l'état RÉEL du compte en base à chaque écriture, pour que la désactivation d'un
  * compte ou le retrait d'une permission coupe l'accès au prochain appel — sans attendre l'expiration du jeton.

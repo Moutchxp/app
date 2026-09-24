@@ -27,6 +27,16 @@ import {
   ErreurCompte,
 } from './comptes';
 
+/**
+ * LOT 5-DROITS — la lecture d'un compte est désormais PRÉCÉDÉE d'une sonde de schéma (`droitEnvoiGestionDisponible`),
+ * mémorisée pour la vie du processus. Les tests qui asserent le SQL du compte doivent donc viser CETTE requête-là, pas
+ * « la première » : chercher par fragment est aussi plus robuste qu'un index positionnel.
+ */
+const sqlDuCompte = () => {
+  const appel = queryMock.mock.calls.find((c) => String(c[0]).includes('FROM admin_utilisateur'));
+  return { sql: String(appel?.[0] ?? ''), params: (appel?.[1] ?? []) as unknown[] };
+};
+
 const PERMS_VIDE = { pilotage: false, cartes_annee: false, statistiques: false, internautes: false, curation: false, banc_test: false, permis: false, gestion: false };
 
 /** Ligne compte minimale renvoyée par trouverCompte. */
@@ -66,9 +76,9 @@ describe('trouverCompte (recherche insensible à la casse)', () => {
   it('compare lower(identifiant) = lower($1) — l’index lower() de 014 sert la casse (critère d)', async () => {
     queryMock.mockResolvedValue({ rows: [ligne()] });
     await trouverCompte('A.Jorel@SansVisAVis.COM');
-    const sql = String(queryMock.mock.calls[0][0]);
+    const { sql, params } = sqlDuCompte();
     expect(sql).toContain('lower(identifiant) = lower($1)');
-    expect((queryMock.mock.calls[0][1] as unknown[])[0]).toBe('A.Jorel@SansVisAVis.COM'); // saisie transmise telle quelle
+    expect(params[0]).toBe('A.Jorel@SansVisAVis.COM'); // saisie transmise telle quelle
   });
 
   it('le SELECT remonte les 3 nouvelles colonnes (prenom, nom, doit_changer_mot_de_passe) — M3-4', async () => {

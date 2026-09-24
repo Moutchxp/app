@@ -25,6 +25,12 @@ export interface CompteDB {
   perm_permis: boolean; // RATT-EDIT (lot A2) — accès au module « Permis de construire » (migration 225).
   perm_permis_modif: boolean; // RATT-EDIT (lot A3) — SOUS-DROIT « modifier après validation » (subordonné à perm_permis, cf. capaciteModifPermis).
   perm_gestion: boolean; // GESTION (lot 2) — accès au module « Gestion » (migration 228), même patron que les 7 autres.
+  /**
+   * LOT 5-DROITS — DROIT COMPLÉMENTAIRE de la tuile Gestion : envoyer au nom de gestion@criterimmo.fr (migration 236).
+   * TROIS états, et le `null` en est un à part entière : `true` = oui, `false` = non, `null` = « à décider » (la
+   * question n'a jamais été posée). Migration 236 en attente ⇒ toujours `null` (cf. `selectCompte`).
+   */
+  perm_gestion_envoi: boolean | null;
   // Drapeau de première connexion (M3-4). Lu ici pour être DISPONIBLE ; il n'entre PAS encore dans le JWS
   // (ce sera le Lot B — enforcement). Les comptes CLI le portent false ; la future UI (Lot C) le posera true.
   doit_changer_mot_de_passe: boolean;
@@ -71,20 +77,65 @@ export function capaciteModifPermis(c: CompteDB): boolean {
   return c.perm_permis && c.perm_permis_modif;
 }
 
-const SELECT_COMPTE = `SELECT id, identifiant, prenom, nom, mot_de_passe, role, actif,
+/** LOT 5-DROITS — où en est la question « cette personne peut-elle écrire au nom de gestion@ ? ». */
+export type EtatEnvoiGestion = 'oui' | 'non' | 'a_decider' | 'sans_objet';
+
+/**
+ * LOT 5-DROITS — L'ÉTAT AFFICHABLE du droit d'envoi. C'est cette fonction, et elle seule, qui sait dire « à décider ».
+ *
+ * `sans_objet` n'est pas un refus : c'est l'absence de question. Sans accès à la tuile Gestion, demander si la personne
+ * peut envoyer n'a pas de sens — et le droit complémentaire ne s'affiche même pas (décision c d'Arno). PUR.
+ */
+export function etatEnvoiGestion(c: CompteDB): EtatEnvoiGestion {
+  if (c.role === 'administrateur') return 'oui';      // droits implicites, aucune case à cocher (décision e)
+  if (!c.perm_gestion) return 'sans_objet';           // pas d'accès à la tuile ⇒ pas de question
+  if (c.perm_gestion_envoi === true) return 'oui';
+  if (c.perm_gestion_envoi === false) return 'non';
+  return 'a_decider';                                  // NULL : personne n'a jamais répondu
+}
+
+/**
+ * 🔴 LOT 5-DROITS — CAPACITÉ EFFECTIVE « envoyer au nom de gestion@criterimmo.fr ». Administrateur ⇒ true (droits
+ * implicites). Collaborateur ⇒ `perm_gestion` ET `perm_gestion_envoi === true` (SUBORDINATION : un droit d'envoi sans
+ * accès à la tuile ne vaut rien).
+ *
+ * « À DÉCIDER » VAUT NON, sans exception et sans exception future : un droit qui envoie du courrier au nom de l'agence
+ * ne s'ouvre jamais par défaut, ni par oubli, ni parce qu'une migration vient de passer. La distinction avec un « non »
+ * assumé existe pour l'ÉCRAN (on signale qu'une décision est en attente), jamais pour l'autorisation. PUR.
+ */
+export function capaciteEnvoiGestion(c: CompteDB): boolean {
+  if (c.role === 'administrateur') return true;
+  return c.perm_gestion && c.perm_gestion_envoi === true;
+}
+
+const COLONNES_COMPTE = `id, identifiant, prenom, nom, mot_de_passe, role, actif,
     perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test, perm_permis, perm_permis_modif, perm_gestion,
-    doit_changer_mot_de_passe, derniere_connexion_a, cree_a
+    doit_changer_mot_de_passe, derniere_connexion_a, cree_a`;
+
+/**
+ * LOT 5-DROITS — le SELECT des comptes, choisi AVANT d'être émis. `trouverCompte` est sur le chemin
+ * d'AUTHENTIFICATION : nommer une colonne pas encore créée y ferait échouer la connexion de tout le monde. La sonde est
+ * mémorisée pour la vie du processus et posée hors transaction (cf. `schemaDroits.ts`).
+ *
+ * Migration 236 en attente ⇒ `NULL::boolean AS perm_gestion_envoi` : tout le monde est « à décider », donc PERSONNE ne
+ * peut envoyer sauf les administrateurs. C'est exactement le repli voulu, et il n'exige aucune branche ailleurs.
+ */
+async function selectCompte(): Promise<string> {
+  const { droitEnvoiGestionDisponible } = await import('./schemaDroits');
+  const avecEnvoi = await droitEnvoiGestionDisponible();
+  return `SELECT ${COLONNES_COMPTE}, ${avecEnvoi ? 'perm_gestion_envoi' : 'NULL::boolean AS perm_gestion_envoi'}
   FROM admin_utilisateur`;
+}
 
 /** Trouve un compte par identifiant, INSENSIBLE à la casse. `null` si absent. */
 export async function trouverCompte(identifiant: string): Promise<CompteDB | null> {
-  const { rows } = await query<CompteDB>(`${SELECT_COMPTE} WHERE lower(identifiant) = lower($1)`, [identifiant]);
+  const { rows } = await query<CompteDB>(`${await selectCompte()} WHERE lower(identifiant) = lower($1)`, [identifiant]);
   return rows[0] ?? null;
 }
 
 /** Trouve un compte par id (clé immuable du JWS `sub`). `null` si absent (compte supprimé). */
 export async function trouverCompteParId(id: number): Promise<CompteDB | null> {
-  const { rows } = await query<CompteDB>(`${SELECT_COMPTE} WHERE id = $1`, [id]);
+  const { rows } = await query<CompteDB>(`${await selectCompte()} WHERE id = $1`, [id]);
   return rows[0] ?? null;
 }
 
@@ -177,6 +228,11 @@ export interface ParamsCreationAdmin {
   perms: Perms;
   /** RATT-EDIT (lot A3) — sous-droit « modifier après validation » soumis. Stocké SUBORDONNÉ à perms.permis (jamais seul). Ignoré si administrateur (forcé true). */
   peutModifierPermis: boolean;
+  /**
+   * LOT 5-DROITS — réponse à « peut envoyer au nom de gestion@ » : `true`, `false`, ou `null` = pas de réponse.
+   * OBLIGATOIRE dès que `perms.gestion` est true (la route refuse `null` dans ce cas). Ignoré si administrateur.
+   */
+  peutEnvoyerGestion?: boolean | null;
   /** Mot de passe TEMPORAIRE en clair : haché ici, jamais stocké ni journalisé en clair. */
   motDePasseClair: string;
   /** `sub` du créateur pour le journal ; `null` pour la voie de secours (auteur inconnu). */
@@ -197,11 +253,15 @@ export async function creerCompteAdministration(p: ParamsCreationAdmin): Promise
   }
   const admin = p.role === 'administrateur';
   const h = await hacher(p.motDePasseClair);
+  // LOT 5-DROITS — même subordination que pour la modification : sans la tuile Gestion, la réponse est `NULL` (sans
+  //   objet, et « à décider » si la tuile s'ouvre un jour). Un administrateur n'a pas de case : ses droits sont implicites.
+  const envoi = admin ? true : (p.perms.gestion ? (p.peutEnvoyerGestion ?? null) : null);
+  const avecEnvoi = await (await import('./schemaDroits')).droitEnvoiGestionDisponible();
   const { rows } = await query<ResultatCompte>(
     `WITH nouv AS (
        INSERT INTO admin_utilisateur (identifiant, prenom, nom, mot_de_passe, role, actif, doit_changer_mot_de_passe,
-         perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test, perm_permis, perm_permis_modif, perm_gestion)
-       VALUES ($1, $2, $3, $4, $5, true, true, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+         perm_pilotage, perm_cartes_annee, perm_statistiques, perm_internautes, perm_curation, perm_banc_test, perm_permis, perm_permis_modif, perm_gestion${avecEnvoi ? ', perm_gestion_envoi' : ''})
+       VALUES ($1, $2, $3, $4, $5, true, true, $6, $7, $8, $9, $10, $11, $12, $13, $14${avecEnvoi ? ', $16::boolean' : ''})
        RETURNING id, identifiant, role, actif
      ), jrnl AS (
        INSERT INTO admin_utilisateur_log (action, cible_id, auteur_id, avant, apres)
@@ -217,6 +277,7 @@ export async function creerCompteAdministration(p: ParamsCreationAdmin): Promise
       admin || (p.perms.permis && p.peutModifierPermis), // RATT-EDIT lot A3 — subordination ① : le sous-droit exige le parent
       admin || p.perms.gestion, // GESTION (lot 2) — perm_gestion (administrateur → true forcé, comme les autres)
       p.auteurId,
+      ...(avecEnvoi ? [envoi] : []),
     ],
   );
   return rows[0];
@@ -311,16 +372,28 @@ export async function desactiverCompte(id: number, auteurId: number | null): Pro
  * — même face à une promotion concurrente entre la lecture et l'écriture. Journalise `changement_permissions`
  * (autorisé par 016) avec l'`apres` = les nouvelles permissions. Renvoie false si aucune ligne (absent ou admin).
  */
-export async function modifierPermissions(id: number, perms: Perms, peutModifierPermis: boolean, auteurId: number | null): Promise<boolean> {
+export async function modifierPermissions(
+  id: number, perms: Perms, peutModifierPermis: boolean, auteurId: number | null,
+  // LOT 5-DROITS — réponse à la question d'envoi : `true` = oui, `false` = non, `null` = pas de réponse (« à décider »).
+  //   La route REFUSE déjà `null` quand la tuile Gestion est cochée ; le défaut garde les appelants existants compilables.
+  peutEnvoyerGestion: boolean | null = null,
+): Promise<boolean> {
   // RATT-EDIT (lot A3) — SUBORDINATION ① : perm_permis_modif n'est stocké true QUE si perm_permis l'est aussi. Décocher « Permis »
   //   force le sous-droit à false en base (jamais un sous-droit orphelin). La garde serveur exige de toute façon les DEUX.
   const modif = perms.permis && peutModifierPermis;
+  // LOT 5-DROITS — MÊME SUBORDINATION, ET UNE NUANCE QUI COMPTE (décision d d'Arno) : retirer la tuile Gestion remet le
+  //   droit d'envoi à `NULL`, pas à `false`. La différence n'est pas cosmétique — si on rouvre la tuile plus tard, l'état
+  //   redevient « à décider » et la question est REPOSÉE. Un `false` aurait répondu « non » d'avance, et un droit
+  //   d'écriture ne doit jamais revenir (ni rester fermé) en silence, sans que personne n'ait tranché.
+  const envoi = perms.gestion ? peutEnvoyerGestion : null;
+  const avecEnvoi = await (await import('./schemaDroits')).droitEnvoiGestionDisponible();
+
   const { rows } = await query<{ id: number }>(
     `WITH maj AS (
        UPDATE admin_utilisateur
           SET perm_pilotage = $2, perm_cartes_annee = $3, perm_statistiques = $4,
               perm_internautes = $5, perm_curation = $6, perm_banc_test = $7, perm_permis = $8, perm_permis_modif = $9,
-              perm_gestion = $10
+              perm_gestion = $10${avecEnvoi ? ', perm_gestion_envoi = $13::boolean' : ''}
         WHERE id = $1 AND role = 'collaborateur'
         RETURNING id
      ), jrnl AS (
@@ -330,7 +403,11 @@ export async function modifierPermissions(id: number, perms: Perms, peutModifier
      SELECT id FROM maj`,
     [id, perms.pilotage, perms.cartes_annee, perms.statistiques, perms.internautes, perms.curation, perms.banc_test, perms.permis, modif,
      perms.gestion,
-     auteurId, JSON.stringify({ ...perms, perm_permis_modif: modif })],
+     auteurId,
+     // Le journal porte l'état COMPLET tel qu'il vient d'être écrit, droits complémentaires compris : c'est cette ligne
+     //   qu'on relira dans six mois pour savoir qui avait accordé quoi, et quand.
+     JSON.stringify({ ...perms, perm_permis_modif: modif, perm_gestion_envoi: envoi }),
+     ...(avecEnvoi ? [envoi] : [])],
   );
   return rows.length > 0;
 }
@@ -476,12 +553,13 @@ export interface CompteListe {
   actif: boolean;
   perms: Perms;
   peutModifierPermis: boolean; // RATT-EDIT (lot A3) — capacité EFFECTIVE (perm_permis && perm_permis_modif, ou admin) : état de la sous-case dans l'UI
+  etatEnvoiGestion: EtatEnvoiGestion; // LOT 5-DROITS — état de la question d'envoi, « à décider » compris
   derniere_connexion_a: string | null;
   cree_a: string | null; // date de création du compte (déjà en base ; NULL toléré pour un compte pré-`cree_a`)
 }
 
 export async function listerComptes(): Promise<CompteListe[]> {
-  const { rows } = await query<CompteDB>(`${SELECT_COMPTE} ORDER BY lower(identifiant)`);
+  const { rows } = await query<CompteDB>(`${await selectCompte()} ORDER BY lower(identifiant)`);
   return rows.map((c) => ({
     id: c.id,
     identifiant: c.identifiant,
@@ -491,6 +569,7 @@ export async function listerComptes(): Promise<CompteListe[]> {
     actif: c.actif,
     perms: permsDuCompte(c),
     peutModifierPermis: capaciteModifPermis(c), // RATT-EDIT lot A3
+    etatEnvoiGestion: etatEnvoiGestion(c), // LOT 5-DROITS — « oui » / « non » / « à décider » / « sans objet »
     derniere_connexion_a: c.derniere_connexion_a,
     cree_a: c.cree_a ?? null,
   }));

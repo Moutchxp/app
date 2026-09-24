@@ -237,6 +237,34 @@ devra porter ses **propres conditions** : le polygone doit être **publié par B
 projeté) **ET** le rattachement **validé** — conditions à coder et à garder, faute de quoi la Garde 2 devra
 être desserrée en connaissance de cause.
 
+## 13. ENVOI DE MAIL AU NOM DE gestion@criterimmo.fr — QUI ENVOIE, ET QUI A LE DROIT
+
+> Invariant posé par le **lot 5-DROITS** (24/09/2026), **avant** que la moindre ligne d'envoi n'existe. Un invariant
+> écrit après coup ne protège rien : celui-ci doit être en place le jour où quelqu'un branchera l'envoi (lot 5e).
+
+**① L'AUTEUR D'UN ENVOI EST TOUJOURS LU DANS LA SESSION, CÔTÉ SERVEUR.** Jamais dans une valeur fournie par le client
+— ni champ de formulaire, ni corps de requête, ni en-tête. Un identifiant d'auteur qui vient du navigateur est une
+signature que n'importe qui peut contrefaire, et un mail parti au nom de l'agence doit pouvoir être imputé sans
+discussion. L'auteur est ensuite enregistré **avec son nom en texte**, selon le patron déjà en place dans le module
+(`auteur_id` + `auteur_libelle`, cf. `gestion_journal`, `gestion_affectation`) : l'identifiant relie, le libellé reste
+lisible même si le compte est un jour supprimé ou renommé.
+
+**② LE DROIT D'ENVOYER PASSE PAR UN GARDE UNIQUE**, `exigerCapaciteEnvoiGestion`
+(`app/lib/admin/garde.ts:150`). Aucune route d'envoi ne décide par elle-même qui a le droit d'écrire au nom de
+l'agence. Le garde relit la base **à chaque requête** (un droit retiré ferme la porte immédiatement, y compris pour
+une session déjà ouverte) et autorise **uniquement** :
+- un **administrateur** (droits implicites, aucune case à cocher) ;
+- un collaborateur qui a **`perm_gestion`** ET **`perm_gestion_envoi = true`** — les deux exigés **en base**.
+
+**③ « À DÉCIDER » VAUT NON.** `perm_gestion_envoi IS NULL` signifie que la question n'a jamais été posée
+(migration 236, colonne volontairement NULLABLE et SANS DEFAULT). Le garde **refuse**, et le refuse aussi quand la
+migration n'est pas appliquée. Un droit qui fait partir du courrier au nom de l'agence ne s'ouvre jamais par défaut :
+la direction du repli est toujours de **fermer**, jamais d'ouvrir.
+
+**④ LIRE, PUIS REFUSER, PUIS ÉCRIRE.** Le garde ne fait **aucune écriture**, et une route d'envoi doit l'appeler
+**avant** d'écrire quoi que ce soit. `withTransaction` valide la transaction au retour normal : un refus rendu *après*
+un `UPDATE` laisse l'écriture en base. Vérifié par test statique (`app/lib/admin/droitEnvoiGestion.test.ts`).
+
 ---
 
 ### Notes de traçabilité

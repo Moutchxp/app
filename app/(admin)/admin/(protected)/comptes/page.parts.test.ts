@@ -43,7 +43,9 @@ const compteCollab = {
   derniere_connexion_a: '2026-07-09T22:31:35.591Z', cree_a: '2026-06-01T09:00:00.000Z', doit_changer_mot_de_passe: false,
 };
 const noop = () => {};
-const idProps = { idPrenom: 'Léa', idNom: 'M', onIdPrenom: noop, onIdNom: noop, onEnregistrerIdentite: noop };
+// LOT 5-DROITS — la réponse d'envoi fait désormais partie des props du détail ; `null` = « à décider ».
+const idProps = { idPrenom: 'Léa', idNom: 'M', onIdPrenom: noop, onIdNom: noop, onEnregistrerIdentite: noop,
+  envoi: null as boolean | null, onChoisirEnvoi: noop };
 
 describe('DetailContenu — identité affichée UNE seule fois, date formatée', () => {
   it('l’identifiant n’apparaît qu’une fois dans le rendu du détail', () => {
@@ -61,7 +63,9 @@ describe('DetailContenu — identité affichée UNE seule fois, date formatée',
       compte: { ...compteCollab, role: 'administrateur' as const }, perms: compteCollab.perms, collaborateur: false,
       msg: null, enCours: false, ...idProps, peutModifierPermis: true, onToggle: noop, onToggleModif: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
     }));
-    expect((html.match(/aria-pressed="true"/g) ?? []).length).toBe(9); // 8 modules (+ Gestion, lot 2) + 1 sous-droit, tous forcés pour l'administrateur
+    // LOT 5-DROITS — 10 et non 9 : le droit d'envoi de Gestion s'ajoute, forcé sur « Oui » et désactivé, exactement comme
+    //   les huit tuiles et le sous-droit Permis. Un administrateur a tous les droits, et aucune case sur laquelle cliquer.
+    expect((html.match(/aria-pressed="true"/g) ?? []).length).toBe(10);
     expect((html.match(/disabled/g) ?? []).length).toBeGreaterThanOrEqual(8);
   });
 });
@@ -100,6 +104,7 @@ describe('DetailContenu — édition d’identité (M3-4 Lot F2, F-1/F-2)', () =
     const html = renderToStaticMarkup(createElement(DetailContenu, {
       compte: compteCollab, perms: compteCollab.perms, collaborateur: true, msg: null, enCours: false,
       idPrenom: '   ', idNom: 'M', onIdPrenom: noop, onIdNom: noop, onEnregistrerIdentite: noop,
+      envoi: null, onChoisirEnvoi: noop,
       peutModifierPermis: false, onToggle: noop, onToggleModif: noop, onEnregistrer: noop, onPromouvoir: noop, onFermer: noop,
     }));
     // le bouton d’identité porte disabled ; la validation tombe avant tout appel serveur
@@ -154,35 +159,90 @@ describe('Migration 017 — action changement_identite (M3-4 Lot F1, NON appliqu
   });
 });
 
-describe('DetailContenu — sous-case « modifier après validation » (RATT-EDIT lot A3, subordination ② VISIBLE)', () => {
+describe('DetailContenu — droits complémentaires GROUPÉS SOUS LEUR TUILE (lot 5-DROITS, décision c d’Arno)', () => {
   const noop2 = () => {};
   const idProps2 = { idPrenom: 'Léa', idNom: 'M', onIdPrenom: noop2, onIdNom: noop2, onEnregistrerIdentite: noop2 };
-  const rendre = (perms: typeof compteCollab.perms, peutModifierPermis: boolean, collaborateur: boolean) =>
+  const rendre = (perms: typeof compteCollab.perms, peutModifierPermis: boolean, collaborateur: boolean, envoi: boolean | null = null) =>
     renderToStaticMarkup(createElement(DetailContenu, {
       compte: { ...compteCollab, role: collaborateur ? ('collaborateur' as const) : ('administrateur' as const) },
       perms, peutModifierPermis, collaborateur, msg: null, enCours: false, ...idProps2,
+      envoi, onChoisirEnvoi: noop2,
       onToggle: noop2, onToggleModif: noop2, onEnregistrer: noop2, onPromouvoir: noop2, onFermer: noop2,
     }));
-  // Bouton de la sous-case (repéré par son libellé) : la portion du <button> ouvrant jusqu'au libellé porte disabled/aria-pressed.
   const boutonSousCase = (html: string) => { const i = html.indexOf('Modifier un permis après validation'); return html.slice(html.lastIndexOf('<button', i), i); };
 
-  it('la sous-case est présente et indentée sous « Permis de construire » (conteneur dédié)', () => {
-    const html = rendre({ ...compteCollab.perms, permis: true }, false, true);
-    expect(html).toContain('Modifier un permis après validation');
-    expect(html).toContain('cpt-sous-perm');
+  /**
+   * 🔴 LE MASQUAGE CONDITIONNEL EST DEMANDÉ PAR ARNO (décision c du 24/09/2026), il ne retire aucune fonctionnalité :
+   * décocher une tuile retire ses droits complémentaires (décision d), donc un droit affiché sous une tuile décochée
+   * serait une case sans effet — c'est CELA qui trompait.
+   */
+  describe('Permis de construire', () => {
+    it('tuile COCHÉE → le droit complémentaire apparaît, en retrait sous sa tuile', () => {
+      const html = rendre({ ...compteCollab.perms, permis: true }, false, true);
+      expect(html).toContain('Modifier un permis après validation');
+      expect(html).toContain('cpt-tuile__sous');
+    });
+
+    it('tuile DÉCOCHÉE → il n’apparaît PAS du tout (et non plus « affiché mais désactivé »)', () => {
+      expect(rendre({ ...compteCollab.perms, permis: false }, false, true)).not.toContain('Modifier un permis après validation');
+    });
+
+    it('son EFFET n’est pas touché : coché, il reste coché et actif', () => {
+      const b = boutonSousCase(rendre({ ...compteCollab.perms, permis: true }, true, true));
+      expect(/aria-pressed="true"/.test(b)).toBe(true);
+      expect(/disabled/.test(b)).toBe(false);
+    });
+
+    it('administrateur → droit forcé coché ET désactivé (droits implicites, décision e)', () => {
+      const b = boutonSousCase(rendre({ ...compteCollab.perms, permis: true }, false, false));
+      expect(/disabled/.test(b)).toBe(true);
+      expect(/aria-pressed="true"/.test(b)).toBe(true);
+    });
   });
 
-  it('collaborateur SANS « Permis » (parent décoché) → sous-case DÉSACTIVÉE', () => {
-    expect(/disabled/.test(boutonSousCase(rendre({ ...compteCollab.perms, permis: false }, false, true)))).toBe(true);
-  });
+  describe('Gestion — le droit d’envoi, et sa réponse OBLIGATOIRE', () => {
+    it('tuile DÉCOCHÉE → aucune question d’envoi n’est posée', () => {
+      const html = rendre({ ...compteCollab.perms, gestion: false }, false, true);
+      expect(html).not.toContain('gestion@criterimmo.fr');
+    });
 
-  it('collaborateur AVEC « Permis » (parent coché) → sous-case ACTIVE', () => {
-    expect(/disabled/.test(boutonSousCase(rendre({ ...compteCollab.perms, permis: true }, false, true)))).toBe(false);
-  });
+    it('tuile COCHÉE → la question apparaît sous elle, avec Oui et Non', () => {
+      const html = rendre({ ...compteCollab.perms, gestion: true }, false, true);
+      expect(html).toContain('Peut envoyer des mails au nom de gestion@criterimmo.fr');
+      expect(html).toContain('Oui');
+      expect(html).toContain('Non');
+    });
 
-  it('administrateur → sous-case forcée cochée ET désactivée (comme les modules)', () => {
-    const b = boutonSousCase(rendre({ ...compteCollab.perms, permis: true }, false, false));
-    expect(/disabled/.test(b)).toBe(true);
-    expect(/aria-pressed="true"/.test(b)).toBe(true);
+    it('🔴 RIEN N’EST PRÉ-COCHÉ, et le mot « à décider » est ÉCRIT (jamais une couleur seule)', () => {
+      const html = rendre({ ...compteCollab.perms, gestion: true }, false, true, null);
+      expect(html).toContain('à décider');
+      // On regarde le groupe Oui/Non LUI-MÊME : aucun de ses deux boutons n'est enfoncé. (Compter les `aria-pressed`
+      //   de toute la page serait fragile — d'autres tuiles du compte de test sont cochées.)
+      const groupe = html.slice(html.indexOf('cpt-ouinon'), html.indexOf('cpt-a-decider'));
+      expect(groupe).not.toContain('aria-pressed="true"');
+    });
+
+    it('sans réponse → le message d’erreur est là ET le bouton d’enregistrement est désactivé', () => {
+      const html = rendre({ ...compteCollab.perms, gestion: true }, false, true, null);
+      expect(html).toContain('Répondez d’abord à la question');
+      const i = html.indexOf('Enregistrer les permissions');
+      expect(/disabled/.test(html.slice(html.lastIndexOf('<button', i), i))).toBe(true);
+    });
+
+    it('réponse donnée → plus d’erreur, enregistrement possible, et « à décider » disparaît', () => {
+      for (const reponse of [true, false]) {
+        const html = rendre({ ...compteCollab.perms, gestion: true }, false, true, reponse);
+        expect(html).not.toContain('Répondez d’abord à la question');
+        expect(html).not.toContain('à décider');
+        const i = html.indexOf('Enregistrer les permissions');
+        expect(/disabled/.test(html.slice(html.lastIndexOf('<button', i), i))).toBe(false);
+      }
+    });
+
+    it('administrateur → la question ne se pose pas : droits implicites, aucune case (décision e)', () => {
+      const html = rendre({ ...compteCollab.perms, gestion: true }, false, false);
+      expect(html).not.toContain('à décider');
+      expect(html).not.toContain('Répondez d’abord à la question');
+    });
   });
 });

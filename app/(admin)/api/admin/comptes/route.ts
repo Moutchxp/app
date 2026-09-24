@@ -66,10 +66,21 @@ export async function POST(request: Request) {
     gestion: pb.gestion === true, // GESTION (lot 2) — module « Gestion »
   };
 
+  // 🔴 LOT 5-DROITS — MÊME EXIGENCE QU'À LA MODIFICATION : cocher la tuile Gestion oblige à répondre sur l'envoi. Créer
+  //   un compte est justement le moment où l'on oublierait le plus facilement de poser la question.
+  const envoiBrut = b.gestion_envoi;
+  const envoi = envoiBrut === true ? true : envoiBrut === false ? false : null;
+  if (role === 'collaborateur' && perms.gestion && envoi === null) {
+    return Response.json({
+      erreur: 'Pour donner l’accès à la tuile Gestion, il faut répondre à la question « Peut envoyer des mails au nom de gestion@criterimmo.fr » : oui ou non.',
+      champ: 'gestion_envoi',
+    }, { status: 422 });
+  }
+
   const motDePasseTemporaire = genererMotDePasseTemporaire();
   try {
     const compte = await creerCompteAdministration({
-      identifiant, prenom, nom, role, perms, peutModifierPermis: b.permis_modif === true, motDePasseClair: motDePasseTemporaire, auteurId: garde.auteurId, // RATT-EDIT lot A3 — sous-droit lu au niveau racine (subordonné à perms.permis côté repo)
+      identifiant, prenom, nom, role, perms, peutModifierPermis: b.permis_modif === true, peutEnvoyerGestion: envoi, motDePasseClair: motDePasseTemporaire, auteurId: garde.auteurId, // RATT-EDIT lot A3 — sous-droit lu au niveau racine (subordonné à perms.permis côté repo)
     });
     // Le CLAIR n'est renvoyé QU'ICI, une seule fois. Aucun réaffichage possible → l'admin doit le transmettre.
     return Response.json({ compte, motDePasseTemporaire }, { status: 201 });
