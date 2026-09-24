@@ -37,8 +37,17 @@ const MAX_LONGUEUR_MOT = 40;
 const ACCENTS = 'àâäáãåÀÂÄÁÃÅéèêëÉÈÊËíìîïÍÌÎÏóòôöõÓÒÔÖÕúùûüÚÙÛÜçÇñÑýÿÝ';
 const SANS____ = 'aaaaaaAAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUcCnNyyY';
 
-/** La normalisation, en SQL. `translate` + `lower` : aucune extension, le même résultat partout. */
-const norm = (expr: string) => `translate(lower(coalesce(${expr}, '')), '${ACCENTS}', '${SANS____}')`;
+/**
+ * La normalisation, en SQL. `translate` + `lower` : aucune extension, le même résultat partout.
+ *
+ * LOT 5c — EXPORTÉE (et rien d'autre n'a changé). La recherche dans le courrier doit normaliser EXACTEMENT comme
+ * celle des cartes, sans quoi « Marceau » se trouverait ici et pas là. Une seule définition, donc une seule vérité.
+ *
+ * ⚠️ Ces deux fonctions sont IMMUTABLE pour PostgreSQL — c'est ce qui rend l'expression INDEXABLE (`unaccent`, lui, ne
+ * l'est pas sans enrobage). Ne pas les remplacer par `unaccent()` sans refaire l'index du lot 5c.
+ */
+export const normSql = (expr: string) => `translate(lower(coalesce(${expr}, '')), '${ACCENTS}', '${SANS____}')`;
+const norm = normSql;
 
 /**
  * La MÊME normalisation, en TypeScript, pour les mots saisis. Les deux doivent rester d'accord : c'est vérifié par un

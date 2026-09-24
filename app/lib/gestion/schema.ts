@@ -57,6 +57,26 @@ export function destinatairesSeparesDisponibles(): Promise<boolean> {
   return memoiser('message.dest_a', () => colonneExiste('gestion_message', 'dest_a'));
 }
 
+/**
+ * LOT 5c — la migration 237 est-elle appliquée ? Elle seule pose l'index plein texte du courrier.
+ *
+ * Tant qu'elle ne l'est pas, la recherche bascule en MODE RÉDUIT (`LIKE`, qui balaie) : plus lente, sans radicaux, mais
+ * elle TROUVE — et l'écran dit qu'elle est réduite. On ne sonde pas la colonne mais l'INDEX : c'est lui, et lui seul,
+ * qui fait la différence entre une recherche instantanée et un balayage de 41 Mo.
+ */
+export function rechercheTexteDisponible(): Promise<boolean> {
+  return memoiser('index.recherche', async () => {
+    try {
+      const { rows } = await query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM pg_indexes
+          WHERE tablename = 'gestion_message' AND indexname = 'gestion_message_recherche_idx'`);
+      return (rows[0]?.n ?? 0) > 0;
+    } catch {
+      return false; // base injoignable : on répond « non », donc le chemin qui marche partout
+    }
+  });
+}
+
 /** Pour les tests : oublie ce qu'on croyait savoir du schéma. N'a aucun effet en production, où rien ne l'appelle. */
 export function oublierSchema(): void {
   cache.clear();

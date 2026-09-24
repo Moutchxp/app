@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { apercu, nomCorrespondant } from './BoiteMail';
+import { apercu, critereActif, morceauxMisEnEvidence, nomCorrespondant, CRITERE_VIDE } from './BoiteMail';
 
 /**
  * LOT 5a — les parties PURES de la boîte mail, et les garanties d'écran qu'on ne veut pas voir se perdre.
@@ -40,6 +40,67 @@ describe('le nom du correspondant', () => {
   it('n’est JAMAIS vide : une ligne sans nom doit rester identifiable', () => {
     expect(nomCorrespondant({ interlocuteur: null })).toBe('(correspondant inconnu)');
     expect(nomCorrespondant({ interlocuteur: '   ' })).toBe('(correspondant inconnu)');
+  });
+});
+
+/**
+ * LOT 5c — LA MISE EN ÉVIDENCE. Deux pièges : rendre le texte NORMALISÉ au lieu de l'original (« Fenêtre » s'afficherait
+ * « fenetre »), et porter la mise en évidence par la seule couleur.
+ */
+describe('LOT 5c — mettre en évidence les mots trouvés', () => {
+  const texteDe = (m: { t: string }[]) => m.map((x) => x.t).join('');
+  const forts = (m: { t: string; fort: boolean }[]) => m.filter((x) => x.fort).map((x) => x.t);
+
+  it('marque le mot cherché, et rend le texte D’ORIGINE intact', () => {
+    const m = morceauxMisEnEvidence('Fuite salle de bain', 'fuite');
+    expect(texteDe(m)).toBe('Fuite salle de bain');
+    expect(forts(m)).toEqual(['Fuite']); // la CASSE d'origine est gardée
+  });
+
+  it('🔴 un accent dans le texte, pas dans la saisie : le mot est marqué SANS être abîmé', () => {
+    const m = morceauxMisEnEvidence('Fenêtre cassée', 'fenetre');
+    expect(texteDe(m)).toBe('Fenêtre cassée'); // l'accent survit à la comparaison
+    expect(forts(m)).toEqual(['Fenêtre']);
+  });
+
+  it('plusieurs mots, plusieurs marques', () => {
+    const m = morceauxMisEnEvidence('fuite avenue Marceau', 'fuite marceau');
+    expect(forts(m)).toEqual(['fuite', 'Marceau']);
+  });
+
+  it('une expression entre guillemets est marquée d’un bloc', () => {
+    expect(forts(morceauxMisEnEvidence('au 28 avenue Marceau hier', '"avenue Marceau"'))).toEqual(['avenue Marceau']);
+  });
+
+  it('toutes les occurrences sont marquées, pas seulement la première', () => {
+    expect(forts(morceauxMisEnEvidence('fuite puis fuite', 'fuite'))).toEqual(['fuite', 'fuite']);
+  });
+
+  it('sans saisie, rien n’est marqué et le texte est rendu tel quel', () => {
+    const m = morceauxMisEnEvidence('Fuite salle de bain', '');
+    expect(m).toEqual([{ t: 'Fuite salle de bain', fort: false }]);
+  });
+
+  it('un mot absent ne marque rien', () => {
+    expect(forts(morceauxMisEnEvidence('Fuite salle de bain', 'chauffage'))).toEqual([]);
+  });
+
+  it('un texte vide ne casse rien', () => {
+    expect(texteDe(morceauxMisEnEvidence('', 'fuite'))).toBe('');
+  });
+});
+
+describe('LOT 5c — quand la recherche se déclenche', () => {
+  it('un critère vide ne cherche pas', () => {
+    expect(critereActif(CRITERE_VIDE)).toBe(false);
+    expect(critereActif({ ...CRITERE_VIDE, q: '   ' })).toBe(false);
+    expect(critereActif({ ...CRITERE_VIDE, q: 'a' })).toBe(false); // une lettre ne filtre rien
+  });
+
+  it('un mot, une date ou un expéditeur suffisent', () => {
+    expect(critereActif({ ...CRITERE_VIDE, q: 'fuite' })).toBe(true);
+    expect(critereActif({ ...CRITERE_VIDE, du: '2026-01-01' })).toBe(true);
+    expect(critereActif({ ...CRITERE_VIDE, de: 'martin' })).toBe(true);
   });
 });
 
@@ -93,5 +154,24 @@ describe('garanties d’écran (statiques)', () => {
 
   it('la boîte ne fait AUCUNE écriture : elle ne connaît que son GET', () => {
     expect(/method:\s*'(POST|PATCH|DELETE|PUT)'/.test(src)).toBe(false);
+  });
+
+  it('LOT 5c — le champ de saisie fait 16 px : en dessous, iOS zoome à chaque clic dedans', () => {
+    expect(src).toContain('font-size:16px');
+  });
+
+  it('LOT 5c — la mise en évidence passe par la GRAISSE, jamais par la seule couleur', () => {
+    expect(src).toContain('.bte-trouve{font-weight:800');
+    expect(src).toContain('<strong');
+  });
+
+  it('LOT 5c — la recherche ne part pas à chaque frappe : elle est validée par un formulaire', () => {
+    expect(src).toContain('onSubmit=');
+    expect(src).toContain("type=\"submit\"");
+  });
+
+  it('LOT 5c — le mode réduit est DIT à l’écran, il ne fait pas semblant', () => {
+    expect(src).toContain('mode réduit');
+    expect(src).toContain('une fois la mise à jour de la');
   });
 });
