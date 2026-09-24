@@ -25,7 +25,11 @@ export type Ecran = 'partage' | 'boite' | 'evenements';
  * ⚠️ PAS D'ÉTIQUETTE « À TRAITER » : l'état par échange n'existe pas encore en base, et une étiquette qui ne
  * s'appuierait sur rien mentirait. Elle viendra avec le lot qui crée cet état.
  */
-export type SorteEtiquette = 'reception' | 'a_classer' | 'envoyes' | 'sans_suite' | 'automatique' | 'carte';
+export type SorteEtiquette =
+  | 'reception' | 'a_classer' | 'envoyes' | 'sans_suite' | 'automatique'
+  /** LOT 5e — les messages commencés et pas envoyés. Ils ne vivent pas dans `gestion_message` : voir `PleinEcranBoite`. */
+  | 'brouillons'
+  | 'carte';
 
 export interface Etiquette {
   sorte: SorteEtiquette;
@@ -48,7 +52,7 @@ export const ETIQUETTE_RECEPTION: Etiquette = { sorte: 'reception', evenementId:
 export const ETAT_DEFAUT: EtatEcranUrl = { ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null };
 
 const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements'];
-const SORTES_FIXES: readonly SorteEtiquette[] = ['reception', 'a_classer', 'envoyes', 'sans_suite', 'automatique'];
+const SORTES_FIXES: readonly SorteEtiquette[] = ['reception', 'a_classer', 'envoyes', 'sans_suite', 'automatique', 'brouillons'];
 
 /** Deux étiquettes désignent-elles la MÊME chose ? Une carte ne se compare pas sans son identifiant. */
 export function memeEtiquette(a: Etiquette, b: Etiquette): boolean {
@@ -123,7 +127,7 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
  * atteindre le dépôt, qui tire `pg` — et donc `dns`, que le navigateur n'a pas (incident du 24/09/2026).
  */
 export function autoImposeParEtiquette(e: Etiquette): boolean | null {
-  if (e.sorte === 'a_classer') return false;
+  if (e.sorte === 'a_classer' || e.sorte === 'brouillons') return false;
   if (e.sorte === 'automatique') return true;
   return null;
 }

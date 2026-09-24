@@ -159,6 +159,11 @@ function sqlEtiquette(e: Etiquette): string {
     //   `comptesBoite`, pour que l'étiquette et son nombre ne racontent jamais deux histoires différentes.
     case 'automatique':
       return `AND NOT EXISTS (SELECT 1 FROM gestion_message ml WHERE ml.fil_id = m.fil_id AND ml.exclu_le IS NULL)`;
+    // LOT 5e — « Brouillons » ne sort PAS de `gestion_message` : un brouillon n'est pas un message reçu. L'écran le
+    //   sert depuis `gestion_brouillon`, et ne demande donc jamais cette liste-ci. Le prédicat impossible est un
+    //   garde-fou : si quelqu'un appelait quand même, il rendrait une liste VIDE plutôt qu'une liste FAUSSE.
+    case 'brouillons':
+      return 'AND false';
     // Une CARTE : ses échanges rattachés. `message_id IS NULL` — une affectation de MAIL isolé n'est pas un échange
     //   rattaché, et la compter ici ferait apparaître dans l'étiquette un échange qui appartient à une autre carte.
     case 'carte':

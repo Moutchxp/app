@@ -28,6 +28,11 @@ export interface ConfigGestion {
    * décide en combien de temps un mail arrivé dans Gmail apparaît dans la boîte. Réglable EN BASE, sans redéploiement.
    */
   releveContinueSecondes: number;
+  /**
+   * LOT 5e — FENÊTRE « ANNULER L'ENVOI », en secondes (migration 241). Elle court depuis le clic sur « Envoyer » ;
+   * passé ce délai, le message part pour de bon. `0` = départ immédiat, et c'est une valeur VALIDE.
+   */
+  annulationEnvoiSecondes: number;
   // LOT 4b — FENÊTRE D'ACTIVITÉ de la file (migration 232). Un échange n'apparaît dans « À classer » que si son dernier
   //   message date de moins de N jours. Ni suppression, ni masquage silencieux : l'écran annonce ce qu'il ne montre pas.
   fenetreActiviteJours: number;
@@ -55,7 +60,23 @@ export const CONFIG_GESTION_DEFAUT: ConfigGestion = {
   // 60 s : un mail apparaît dans la minute, et Gmail reçoit une interrogation par minute — très en deçà de ce qu'il
   //   tolère. Descendre plus bas n'améliorerait rien de perceptible et multiplierait les connexions.
   releveContinueSecondes: 60,
+  // 10 s : le temps de relire l'objet et de se raviser, sans faire douter que le mail soit parti.
+  annulationEnvoiSecondes: 10,
 };
+
+/**
+ * LOT 5e — BORNES de la fenêtre d'annulation. `0` est permis (qui ne veut pas de fenêtre) ; au-delà d'une minute ce
+ * n'est plus une fenêtre mais une file d'attente, et un mail qu'on croit parti depuis deux minutes et qui dort encore
+ * est un piège pire que l'absence de délai.
+ */
+export const ANNULATION_MIN_S = 0;
+export const ANNULATION_MAX_S = 60;
+
+/** Ramène un délai d'annulation dans ses bornes. Absent ou aberrant ⇒ le défaut. `0` est CONSERVÉ. PUR. */
+export function delaiAnnulationValide(brut: number | null | undefined): number {
+  if (typeof brut !== 'number' || !Number.isFinite(brut) || brut < 0) return CONFIG_GESTION_DEFAUT.annulationEnvoiSecondes;
+  return Math.min(Math.max(Math.round(brut), ANNULATION_MIN_S), ANNULATION_MAX_S);
+}
 
 /**
  * LOT 5-DIRECT — BORNES de l'intervalle. En dessous de 15 s on harcèle Gmail pour un gain que personne ne voit ;
@@ -82,6 +103,7 @@ interface LigneConfig {
   reconnexions_max?: number; reconnexion_delai_s?: number; // migration 230 — absentes tant qu'elle n'est pas appliquée
   fenetre_activite_jours?: number;                          // migration 232 — idem
   releve_continue_secondes?: number;                        // migration 238 — idem
+  annulation_envoi_secondes?: number;                       // migration 241 — idem
 }
 
 const COLONNES_BASE = `dossier_imap, adresse_gestion, domaines_internes, rattrapage_jours, plafond_par_passe,
@@ -99,7 +121,8 @@ const COLONNES_BASE = `dossier_imap, adresse_gestion, domaines_internes, rattrap
 async function lireLigne(): Promise<LigneConfig | undefined> {
   try {
     const { rows } = await query<LigneConfig>(
-      `SELECT ${COLONNES_BASE}, reconnexions_max, reconnexion_delai_s, fenetre_activite_jours, releve_continue_secondes
+      `SELECT ${COLONNES_BASE}, reconnexions_max, reconnexion_delai_s, fenetre_activite_jours,
+              releve_continue_secondes, annulation_envoi_secondes
          FROM gestion_config WHERE id = 1`);
     return rows[0];
   } catch (e) {
@@ -130,6 +153,8 @@ export async function chargerConfigGestion(): Promise<ConfigGestion> {
       fenetreActiviteJours: (r.fenetre_activite_jours ?? 0) > 0 ? r.fenetre_activite_jours! : CONFIG_GESTION_DEFAUT.fenetreActiviteJours,
       // 238 en attente ⇒ colonne absente ⇒ 60 s. La relève continue tourne donc AVANT même que la migration soit passée.
       releveContinueSecondes: intervalleContinuValide(r.releve_continue_secondes),
+      // 241 en attente ⇒ colonne absente ⇒ 10 s. La fenêtre d'annulation marche donc avant même la migration.
+      annulationEnvoiSecondes: delaiAnnulationValide(r.annulation_envoi_secondes),
     };
   } catch {
     return CONFIG_GESTION_DEFAUT; // repli sûr : le module démarre même si la migration 228 n'est pas appliquée

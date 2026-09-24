@@ -13,6 +13,8 @@ import {
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { MenuDiscret } from './MenuDiscret';
+import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
+import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
 import { PanneauAffecter } from './PanneauAffecter';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 
@@ -84,7 +86,7 @@ async function geste(url: string, methode: 'POST' | 'DELETE', succes: string, on
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement }: {
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null }: {
   filId: number;
   maintenant: Date;
   onGeste: Rapport;
@@ -110,12 +112,19 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * droite). Sans ce rappel, la barre retombe sur le panneau d'affectation en place — le comportement d'avant.
    */
   onClassement?: (voie: 'nouveau' | 'existant') => void;
+  /**
+   * LOT 5e — ce que l'écran sait de la rédaction : droit, schéma, connexion Google, signature, délai d'annulation.
+   * ABSENT = aucun bouton d'écriture, et la conversation est exactement celle d'avant ce lot.
+   */
+  redaction?: ContexteRedactionEcran | null;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   const [deplies, setDeplies] = useState<Set<number>>(new Set());
   const [corps, setCorps] = useState<Map<number, string | null>>(new Map());
   const [affecter, setAffecter] = useState(false);
   const [deplacer, setDeplacer] = useState<number | null>(null);
+  /** LOT 5e — le brouillon en cours d'écriture sous la conversation. `null` = on ne rédige pas. */
+  const [brouillon, setBrouillon] = useState<BrouillonEcran | null>(null);
 
   const recharger = useCallback(async () => {
     setVue({ v: 'charge' });
@@ -285,6 +294,39 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
         ))}
       </ol>
 
+      {/* ══ LOT 5e — ÉCRIRE, SOUS LA CONVERSATION (façon messagerie) ══════════════════════════════════════════════
+          Les trois boutons ne s'affichent QUE si tout est réuni : base à jour, droit d'envoi, et écran de lecture en
+          pleine page. Chaque manque est DIT, jamais tu — un bouton absent sans explication envoie chercher un bug. */}
+      {barreActions && redaction && (
+        brouillon !== null ? (
+          <Redaction brouillon={brouillon} contexte={redaction}
+            onChange={setBrouillon}
+            onFerme={() => setBrouillon(null)}
+            onEnvoye={() => { setBrouillon(null); void recharger(); }}
+            onGeste={(m) => onGeste(m)} />
+        ) : (
+          <div className="cnv-ecrire">
+            {!redaction.schemaPret && (
+              <p className="gst-tronc">Mise à jour de la base à appliquer avant de pouvoir écrire (migrations 239 à 241).</p>
+            )}
+            {redaction.schemaPret && !redaction.peutEnvoyer && (
+              <p className="gst-tronc">Vous n’avez pas le droit d’envoyer au nom de gestion@.</p>
+            )}
+            {redaction.schemaPret && redaction.peutEnvoyer && (
+              <div className="gst-actions">
+                {/* L'ordre est celui de Gmail : répondre d'abord, parce que c'est ce qu'on fait neuf fois sur dix. */}
+                {(['repondre', 'repondre_tous', 'transferer'] as const).map((voie) => (
+                  <button key={voie} type="button" className="svv-btn svv-btn-outline gst-btn"
+                    onClick={() => setBrouillon(ouvrirRedaction(voie, messages, fil.filId, redaction, maintenant))}>
+                    {voie === 'repondre' ? 'Répondre' : voie === 'repondre_tous' ? 'Répondre à tous' : 'Transférer'}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      )}
+
       {/* La note de réversibilité, CONSERVÉE : ce qui se fait d'un clic doit se défaire d'un clic, et se lire. */}
       <p className="gst-note">Détacher ou déplacer ne supprime rien : par le menu « ⋯ » de l’échange, il retourne dans la file ou rejoint une autre carte, avec tous ses messages et ses pièces.</p>
 
@@ -308,6 +350,28 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
       )}
     </section>
   );
+}
+
+/**
+ * LOT 5e — OUVRE UN BROUILLON à partir du DERNIER message de la conversation. C'est celui auquel on répond quand on
+ * clique « Répondre » sans avoir rien désigné d'autre — le comportement de toute messagerie.
+ *
+ * 🔴 Toute la décision (qui reçoit quoi, quel objet, quelle citation) vit dans `redaction.ts`, module PUR et
+ * entièrement éprouvé. Ici on ne fait que lui passer le message et récupérer le résultat.
+ */
+function ouvrirRedaction(
+  voie: VoieRedaction, messages: readonly MessageDeFil[], filId: number,
+  ctx: ContexteRedactionEcran, maintenant: Date,
+): BrouillonEcran {
+  const dernier = messages.length > 0 ? messages[messages.length - 1] : null;
+  const b = preparerBrouillon(voie, dernier === null ? null : {
+    messageId: dernier.messageId, de: dernier.de, deNom: dernier.deNom, objet: dernier.objet,
+    recuLe: dernier.recuLe, corps: dernier.corps ?? dernier.extrait,
+    destA: dernier.destA, destCc: dernier.destCc, destinatairesFondus: dernier.destinatairesFondus,
+  }, { adresseGestion: ctx.adresseGestion, signature: ctx.signature },
+  { filId, dateLisible: dernier ? dateHeureComplete(dernier.recuLe) : undefined });
+  void maintenant;
+  return { ...b, id: null };
 }
 
 /**
@@ -530,6 +594,8 @@ const CSS_CONVERSATION = `
 .cnv-retour:hover{background:var(--color-svv-field);border-color:var(--color-svv-line)}
 .cnv-retour:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .cnv-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+/* Les trois boutons d'écriture, sous la conversation — là où Gmail les met, et là où l'on regarde après avoir lu. */
+.cnv-ecrire{padding-top:10px;border-top:1px solid var(--color-svv-line)}
 .cnv-ref{font-weight:700;font-size:.85rem;color:var(--color-svv-green-ink)}
 .cnv-etiquette{font-size:.75rem;font-weight:700;padding:.15rem .5rem;border:1px solid var(--color-svv-line-strong);border-radius:.5rem;color:var(--color-svv-muted)}
 .cnv-titre{margin:0;font-size:1.05rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}

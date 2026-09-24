@@ -4,6 +4,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { BoiteMail } from './BoiteMail';
 import { PanneauAffecter } from './PanneauAffecter';
 import { ColonneMode, type PanneauMobile } from './ColonneMode';
+import { Brouillons } from './Brouillons';
+import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
+import { preparerBrouillon } from '../../../../lib/gestion/redaction';
 import { Conversation } from './Conversation';
 import type { Rapport } from './gestesMail';
 import { memeEtiquette, type Etiquette } from '../../../../lib/gestion/ecranUrl';
@@ -57,7 +60,7 @@ export function etiquettesVisibles(
 
 export function PleinEcranBoite({
   etiquette, etiquettes, onEtiquette, filOuvert, onOuvrir, onFermerFil, maintenant, onGeste, onRetour,
-  enfantAClasser, auto, onAuto,
+  enfantAClasser, auto, onAuto, redaction = null,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -72,6 +75,8 @@ export function PleinEcranBoite({
   enfantAClasser: ReactNode;
   auto: boolean;
   onAuto: (v: boolean) => void;
+  /** LOT 5e — droit, schéma, connexion Google, signature, délai. `null` = aucun écran d'écriture. */
+  redaction?: ContexteRedactionEcran | null;
 }) {
   // Sur téléphone, on arrive sur les ÉTIQUETTES : c'est le sommaire, et on ne tombe pas au milieu d'une liste sans
   //   savoir laquelle. Au montage, donc à chaque entrée en plein écran. Sur grand écran, l'attribut ne change rien.
@@ -84,6 +89,8 @@ export function PleinEcranBoite({
   const [classement, setClassement] = useState<'nouveau' | 'existant' | null>(null);
   /** Change après un classement réussi → la conversation est remontée et relue, donc sa barre montre la GES-…. */
   const [versionFil, setVersionFil] = useState(0);
+  /** LOT 5e — le brouillon d'un NOUVEAU message (hors de tout échange). `null` = on ne rédige pas. */
+  const [nouveau, setNouveau] = useState<BrouillonEcran | null>(null);
 
   /**
    * LA POSITION DE DÉFILEMENT DE LA LISTE, retenue à l'ouverture d'un échange et rendue au retour.
@@ -131,6 +138,21 @@ export function PleinEcranBoite({
         {/* LA SORTIE, EN PREMIER ET EN TOUTES LETTRES. Un plein écran sans retour évident est un piège ; celui-ci est
             le premier élément de la colonne, donc la première chose qu'atteignent le clavier et un lecteur d'écran. */}
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onRetour}>← Écran partagé</button>
+        {/* LOT 5e — « NOUVEAU MESSAGE », en haut de la colonne. Il n'apparaît que si tout est réuni (base à jour,
+            droit d'envoi) : un bouton qui échouerait au clic est pire qu'un bouton absent. */}
+        {redaction?.schemaPret && redaction.peutEnvoyer && (
+          <button type="button" className="svv-btn svv-btn-primary gst-btn"
+            onClick={() => {
+              onFermerFil();
+              setNouveau({
+                ...preparerBrouillon('nouveau', null, { adresseGestion: redaction.adresseGestion, signature: redaction.signature }),
+                id: null,
+              });
+              setPanneauMobile('contenu');
+            }}>
+            Nouveau message
+          </button>
+        )}
         <h2 className="cm-titre">Boîte mail</h2>
         <ul className="cm-liste">
           {visibles.map((e) => {
@@ -165,7 +187,18 @@ export function PleinEcranBoite({
         <section className="pe-liste" aria-label={`Échanges — ${titre}`} hidden={filOuvert !== null}>
           {/* SOUS « À CLASSER », C'EST LE POSTE DE TRI QUI S'AFFICHE, tel qu'il est : mêmes gestes, même panneau,
               même compteur. Sous toutes les autres étiquettes, c'est la boîte du lot 5a, filtrée. */}
-          {aClasser ? (
+          {/* LOT 5e — UN NOUVEAU MESSAGE prend la place de la liste : on écrit, on ne parcourt pas en même temps. */}
+          {nouveau !== null ? (
+            <Redaction brouillon={nouveau} contexte={redaction as ContexteRedactionEcran}
+              onChange={setNouveau}
+              onFerme={() => setNouveau(null)}
+              onEnvoye={() => setNouveau(null)}
+              onGeste={(m) => onGeste(m)} />
+          ) : etiquette.sorte === 'brouillons' ? (
+            <Brouillons maintenant={maintenant}
+              onOuvrir={(f) => onOuvrir(f)}
+              onChange={() => onEtiquette(etiquette)} />
+          ) : aClasser ? (
             <>
               <h3 className="gst-titre">
                 {titre} {ouverte?.compte !== null && ouverte !== undefined && <span className="gst-compte">{ouverte.compte}</span>}
@@ -199,7 +232,7 @@ export function PleinEcranBoite({
           <section className="pe-lecture" aria-label="Conversation">
             <Conversation key={`${filOuvert}-${versionFil}`} filId={filOuvert} maintenant={maintenant}
               onFerme={onFermerFil} barreActions onClassement={(voie) => setClassement(voie)}
-              onGeste={onGeste} />
+              redaction={redaction} onGeste={onGeste} />
           </section>
         )}
 

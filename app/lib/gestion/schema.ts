@@ -81,3 +81,34 @@ export function rechercheTexteDisponible(): Promise<boolean> {
 export function oublierSchema(): void {
   cache.clear();
 }
+
+/**
+ * LOT 5e — les migrations 239 et 240 sont-elles appliquées ? Elles seules portent les BROUILLONS et le REGISTRE DES
+ * ENVOIS. Tant qu'elles ne le sont pas : aucun bouton de rédaction ne s'affiche, et l'écran DIT « mise à jour de la
+ * base à appliquer » plutôt que de proposer un geste qui échouerait au clic.
+ *
+ * 🔴 LES DEUX ENSEMBLE, jamais l'une sans l'autre : écrire un brouillon qu'on ne pourrait pas envoyer, ou envoyer sans
+ * pouvoir enregistrer, sont deux demi-fonctions — et une demi-fonction qui s'affiche est une promesse qu'on ne tient pas.
+ */
+export function redactionDisponible(): Promise<boolean> {
+  return memoiser('redaction.tables', async () => {
+    const [b, e] = await Promise.all([tableExiste('gestion_brouillon'), tableExiste('gestion_envoi')]);
+    return b && e;
+  });
+}
+
+async function tableExiste(table: string): Promise<boolean> {
+  try {
+    const { rows } = await query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = $1`, [table]);
+    return (rows[0]?.n ?? 0) > 0;
+  } catch {
+    return false; // base injoignable : on répond « non », donc l'écran se tait au lieu de proposer l'impossible
+  }
+}
+
+/** LOT 5e — la migration 241 (délai d'annulation réglable) est-elle appliquée ? Sinon le délai vaut son défaut. */
+export function delaiAnnulationDisponible(): Promise<boolean> {
+  return memoiser('config.annulation_envoi_secondes', () => colonneExiste('gestion_config', 'annulation_envoi_secondes'));
+}

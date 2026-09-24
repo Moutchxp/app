@@ -125,6 +125,23 @@ export function resumerSignature(html: string | null | undefined, max = 80): str
   return `${(espace > max / 2 ? coupe.slice(0, espace) : coupe).trimEnd()}…`;
 }
 
+/**
+ * LA SIGNATURE ENTIÈRE, en TEXTE. `resumerSignature` n'en donne que les premiers mots pour un contrôle ; celle-ci la
+ * rend complète, en préservant les RETOURS À LA LIGNE — une signature sans ses sauts de ligne n'est plus une
+ * signature, c'est une phrase. Les balises de bloc deviennent des retours, le reste disparaît. PUR.
+ */
+export function signatureEnTexte(html: string | null | undefined): string {
+  return (html ?? '')
+    .replace(/<\s*br\s*\/?>/gi, '\n')
+    .replace(/<\/\s*(p|div|tr|li|h[1-6])\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&#39;|&apos;/gi, '\u2019').replace(/&quot;/gi, '"')
+    .split('\n').map((l) => l.replace(/[ \t]+/g, ' ').trim()).join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // ── Entrées/sorties, toutes injectées ─────────────────────────────────────────────────────────────────────────────
 export interface DepsGoogle { fetch: typeof fetch }
 

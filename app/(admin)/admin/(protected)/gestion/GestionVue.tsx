@@ -18,6 +18,7 @@ import { CarteVive } from './CarteVive';
 import { Conversation } from './Conversation';
 import { ColonneMode } from './ColonneMode';
 import { PleinEcranBoite, type EtiquetteAffichee } from './PleinEcranBoite';
+import type { ContexteRedactionEcran } from './Redaction';
 
 /**
  * LOT 2/3/4b — l'écran à deux côtés, et les DEUX GESTES.
@@ -84,6 +85,13 @@ export function GestionVue({ intro }: {
   const [etatUrl, setEtatUrl] = useState<EtatEcranUrl>(ETAT_DEFAUT);
   const [auto, setAuto] = useState(false);
   const [comptesBoite, setComptesBoite] = useState<{ lisibles: number; automatiques: number; envoyes: number } | null>(null);
+  /**
+   * LOT 5e — CE QUE L'ÉCRAN SAIT DE LA RÉDACTION : base à jour ? droit d'envoyer ? connexion Google ? quelle
+   * signature, quel délai d'annulation. `null` = pas encore demandé. Chargé au montage, une seule fois : ces
+   * réponses ne changent pas pendant qu'on lit un mail.
+   */
+  const [redaction, setRedaction] = useState<ContexteRedactionEcran | null>(null);
+  const [brouillonsTotal, setBrouillonsTotal] = useState<number | null>(null);
   const { ecran, etiquette, filOuvert } = etatUrl;
 
   /**
@@ -155,6 +163,31 @@ export function GestionVue({ intro }: {
 
   // LOT 3 — une passe réussie change ce qui est à l'écran : on recharge, sans recharger la page.
   const { enCours: releveEnCours, message: releveMsg, releverMaintenant } = useReleveGestion(() => { void charger(); });
+
+  /**
+   * LOT 5e — le contexte de rédaction, demandé UNE FOIS au montage. Un échec le laisse à `null` : aucun bouton
+   * d'écriture ne s'affiche alors, et la conversation reste exactement celle d'avant ce lot. Se taire vaut mieux que
+   * proposer un geste dont on ne sait pas s'il aboutira.
+   */
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/gestion/redaction', { cache: 'no-store' });
+        if (!res.ok || annule) return;
+        const c = (await res.json()) as ContexteRedactionEcran & { brouillons?: number };
+        if (annule || typeof c.schemaPret !== 'boolean') return;
+        setRedaction({
+          schemaPret: c.schemaPret, peutEnvoyer: c.peutEnvoyer === true, jetonPresent: c.jetonPresent === true,
+          signature: c.signature ?? '', nomExpediteur: c.nomExpediteur || 'CRITERIMMO',
+          adresseGestion: c.adresseGestion || 'gestion@criterimmo.fr',
+          delaiAnnulationS: typeof c.delaiAnnulationS === 'number' ? c.delaiAnnulationS : 10,
+        });
+        setBrouillonsTotal(typeof c.brouillons === 'number' ? c.brouillons : 0);
+      } catch { /* aucun bouton d'écriture : voir l'encadré */ }
+    })();
+    return () => { annule = true; };
+  }, []);
 
   /**
    * LOT 5-FUSION — les nombres des trois étiquettes qui se calculent sur TOUTE la boîte. Demandés SEULEMENT en entrant
@@ -257,7 +290,7 @@ export function GestionVue({ intro }: {
       }} />
   ));
 
-  const etiquettes = etiquettesDeLEcran(d, comptesBoite);
+  const etiquettes = etiquettesDeLEcran(d, comptesBoite, brouillonsTotal);
 
   return (
     <>
@@ -301,6 +334,7 @@ export function GestionVue({ intro }: {
           onFermerFil={() => aller({ ...etatUrl, filOuvert: null })}
           onRetour={() => aller({ ...ETAT_DEFAUT })}
           onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) void charger(); }}
+          redaction={redaction}
           enfantAClasser={fileAClasser} />
       ) : ecran === 'evenements' ? (
         /* ÉVÉNEMENTS EN PLEIN ÉCRAN — les MÊMES cartes, avec toutes leurs fonctions : rien n'est retiré, la largeur
@@ -428,6 +462,7 @@ export function GestionVue({ intro }: {
  */
 export function etiquettesDeLEcran(
   d: EtatEcran, comptes: { lisibles: number; automatiques: number; envoyes: number } | null,
+  brouillons: number | null = null,
 ): EtiquetteAffichee[] {
   return [
     { etiquette: { sorte: 'a_classer', evenementId: null }, libelle: 'À classer', compte: d.filsTotal },
@@ -435,6 +470,8 @@ export function etiquettesDeLEcran(
     { etiquette: { sorte: 'envoyes', evenementId: null }, libelle: 'Envoyés', compte: comptes?.envoyes ?? null },
     { etiquette: { sorte: 'sans_suite', evenementId: null }, libelle: 'Sans suite', compte: d.sansSuiteTotal },
     { etiquette: { sorte: 'automatique', evenementId: null }, libelle: 'Courrier automatique', compte: comptes?.automatiques ?? null },
+    // LOT 5e — les BROUILLONS. Comme les autres : pas d'étiquette vide, et son nombre vient d'une seule lecture.
+    { etiquette: { sorte: 'brouillons', evenementId: null }, libelle: 'Brouillons', compte: brouillons },
     // Les CARTES, dans l'ordre où la colonne des événements les montre : ce qui attend une réponse depuis le plus
     //   longtemps d'abord. Deux ordres pour une même liste feraient chercher deux fois.
     ...d.evenements.map((e): EtiquetteAffichee => ({

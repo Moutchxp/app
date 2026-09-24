@@ -140,7 +140,10 @@ describe('garanties STATIQUES', () => {
   });
 
   it('il ne connaît ni base, ni React, ni réseau : il ne sait qu’écrire et relire une adresse', () => {
-    const src = readFileSync('app/lib/gestion/ecranUrl.ts', 'utf8');
-    expect(/useState|fetch\(|query\(|gestion_/.test(src)).toBe(false);
+    // Sur les lignes de CODE seulement : un commentaire CITE `gestion_message` pour dire d'où les brouillons ne
+    //   viennent PAS. Une assertion sur la prose rougirait pour une bonne explication.
+    const code = readFileSync('app/lib/gestion/ecranUrl.ts', 'utf8')
+      .split('\n').filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l.trim())).join('\n');
+    expect(/useState|fetch\(|query\(|gestion_/.test(code)).toBe(false);
   });
 });
