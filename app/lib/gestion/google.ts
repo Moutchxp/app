@@ -138,16 +138,41 @@ export function resumerSignature(html: string | null | undefined, max = 80): str
 /**
  * LA SIGNATURE ENTIÈRE, en TEXTE. `resumerSignature` n'en donne que les premiers mots pour un contrôle ; celle-ci la
  * rend complète, en préservant les RETOURS À LA LIGNE — une signature sans ses sauts de ligne n'est plus une
- * signature, c'est une phrase. Les balises de bloc deviennent des retours, le reste disparaît. PUR.
+ * signature, c'est une phrase. PUR.
+ *
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 CORRECTIF DU 24/09/2026 — LA SIGNATURE S'AÉRAIT TOUTE SEULE. Elle arrivait dans le brouillon avec une ligne vide
+ * entre chaque ligne. La cause : on traduisait chaque balise de FERMETURE de bloc par un retour à la ligne. Or Gmail
+ * imbrique ses blocs — <div><div>CRITERIMMO</div><div>01 23 45 67 89</div></div> : la ligne se termine par SON
+ * </div> ET par celui du bloc qui la contient, donc par DEUX retours.
+ *
+ * LA CORRECTION tient à une distinction que le code ne faisait pas :
+ *   · un <br> est un retour VOULU par la personne qui a écrit la signature → il compte, toujours ;
+ *   · une balise de bloc (ouvrante OU fermante) n'est qu'une FRONTIÈRE → elle sépare, elle n'ajoute rien.
+ * On découpe donc sur les frontières, on jette les morceaux vides (l'imbrication n'en produit que des vides), et on
+ * rejoint par un seul retour. Les lignes vides voulues survivent : Gmail les écrit <div><br></div>, dont le morceau
+ * contient précisément un retour voulu.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 export function signatureEnTexte(html: string | null | undefined): string {
-  return (html ?? '')
-    .replace(/<\s*br\s*\/?>/gi, '\n')
-    .replace(/<\/\s*(p|div|tr|li|h[1-6])\s*>/gi, '\n')
+  // Deux marqueurs qui ne peuvent pas apparaître dans du texte de signature : on distingue le retour VOULU (<br>) de
+  //   la simple FRONTIÈRE de bloc, puis on les traite différemment. Ils disparaissent tous les deux à la fin.
+  const RETOUR_VOULU = '\u0001';
+  const FRONTIERE = '\u0002';
+  const morceaux = (html ?? '')
+    .replace(/<\s*br\s*\/?>/gi, RETOUR_VOULU)
+    .replace(/<\s*\/?\s*(p|div|tr|li|h[1-6]|table|tbody|thead|ul|ol|blockquote|section|article)\b[^>]*>/gi, FRONTIERE)
     .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
     .replace(/&#39;|&apos;/gi, '\u2019').replace(/&quot;/gi, '"')
-    .split('\n').map((l) => l.replace(/[ \t]+/g, ' ').trim()).join('\n')
+    .split(FRONTIERE)
+    .map((l) => l.replace(/[ \t]+/g, ' ').trim())
+    // 🔴 LES MORCEAUX VIDES SAUTENT. Ce sont eux, et eux seuls, que l'imbrication des blocs fabriquait — et c'est
+    //   d'eux que venaient les lignes vides. Un morceau qui ne porte qu'un retour voulu n'est PAS vide : il reste.
+    .filter((l) => l !== '');
+  return morceaux.join('\n')
+    .split(RETOUR_VOULU).join('\n')
+    // Trois retours ou plus n'ont jamais de sens : deux disent déjà « on change de bloc ».
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }

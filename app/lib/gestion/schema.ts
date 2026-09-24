@@ -123,3 +123,26 @@ export function delaiAnnulationDisponible(): Promise<boolean> {
 export function identifiantsGmailDisponibles(): Promise<boolean> {
   return memoiser('message.gmail_message_id', () => colonneExiste('gestion_message', 'gmail_message_id'));
 }
+
+/**
+ * CORRECTIF DU 24/09/2026 — la migration 243 est-elle appliquée ? Elle ajoute « envoi » aux entités que
+ * `gestion_journal` accepte. Tant qu'elle ne l'est pas, un envoi RATTACHÉ À UN ÉCHANGE se journalise quand même (sur
+ * l'échange) ; seul un message tout neuf, sans échange, reste sans ligne de journal. Voir `journalEnvoi.ts`.
+ *
+ * On sonde la RÈGLE elle-même, pas une colonne : c'est elle, et elle seule, qui refusait l'écriture.
+ */
+export function journalEnvoiDisponible(): Promise<boolean> {
+  return memoiser('journal.entite_envoi', async () => {
+    try {
+      const { rows } = await query<{ n: number }>(
+        `SELECT count(*)::int AS n
+           FROM pg_constraint
+          WHERE conrelid = to_regclass('public.gestion_journal')
+            AND conname = 'gestion_journal_entite_chk'
+            AND pg_get_constraintdef(oid) LIKE '%''envoi''%'`);
+      return (rows[0]?.n ?? 0) > 0;
+    } catch {
+      return false; // base injoignable : on répond « non », donc le rangement qui marche partout
+    }
+  });
+}

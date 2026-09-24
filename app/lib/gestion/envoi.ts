@@ -13,6 +13,16 @@
  *   ⑥ on FINALISE la ligne — parti, ou refusé avec son motif. Jamais laissée en silence.
  * Écrire la ligne APRÈS l'appel (④ après ⑤) perdrait la trace d'un envoi réussi dont la réponse n'est jamais revenue :
  * on renverrait alors le même mail, et le correspondant le recevrait deux fois.
+ *
+ * 🔴 CORRECTIF DU 24/09/2026 — UNE FOIS QUE GMAIL A ACCEPTÉ, PLUS RIEN NE PEUT FAIRE ÉCHOUER L'ENVOI.
+ * Le 23/09 au soir, le premier vrai message d'Arno est PARTI — et l'écran lui a dit « Envoi impossible ». La cause :
+ * l'écriture du journal, APRÈS l'envoi, a été refusée par la base ; l'exception a remonté jusqu'à la route, qui a
+ * rendu un échec. Arno a donc cru devoir recommencer un geste déjà abouti.
+ * Depuis, les trois gestes qui SUIVENT l'acceptation de Gmail (finaliser la ligne, marquer le brouillon, journaliser)
+ * sont au mieux-effort : chacun est tenté, chacun est signalé s'il échoue — dans le journal DU SERVEUR —, et AUCUN ne
+ * peut plus changer le verdict rendu à l'écran. Le seul fait qui décide de ce verdict est la réponse de Gmail : lui
+ * seul sait si le message est parti. Tout le reste est de la comptabilité, et une comptabilité en retard ne rappelle
+ * pas un mail déjà remis.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  *
  * 🔒 AUCUN CORPS, AUCUNE ADRESSE, AUCUN JETON dans les journaux applicatifs : le registre `gestion_envoi` porte l'objet
@@ -61,11 +71,21 @@ export interface DepsEnvoiComplet {
   finaliser(id: number, maj: { etat: 'envoye' | 'echec'; gmailMessageId?: string | null; erreur?: string | null }): Promise<void>;
   /** Marque le brouillon envoyé (il quitte la liste sans être supprimé). */
   marquerBrouillonEnvoye(id: number): Promise<void>;
-  /** Le journal MÉTIER : qui, à qui, quand, quel objet. */
-  journaliser(l: { auteur: Auteur; objet: string; destinataires: string[]; issue: 'envoye' | 'echec' }): Promise<void>;
+  /** Le journal MÉTIER : qui, à qui, quand, quel objet — et SUR QUOI la ligne se range (`envoiId`). */
+  journaliser(l: {
+    auteur: Auteur; objet: string; destinataires: string[]; issue: 'envoye' | 'echec'; envoiId: number;
+  }): Promise<void>;
+  /**
+   * SIGNALE un geste d'après-envoi qui a échoué — au journal DU SERVEUR, jamais à l'écran. Ne doit RIEN lever : c'est
+   * le dernier filet, et un filet qui se déchire ne sert à rien.
+   */
+  incident(etape: EtapeApresEnvoi, e: unknown): void;
   maintenant(): Date;
   alea(): string;
 }
+
+/** Les gestes qui suivent l'acceptation de Gmail. Nommés, parce qu'un incident doit dire LEQUEL a manqué. */
+export type EtapeApresEnvoi = 'finaliser' | 'brouillon' | 'journal';
 
 export type IssueEnvoi =
   | { ok: true; envoi: EnvoiEnBase; deja: boolean }
@@ -113,13 +133,22 @@ export async function envoyerMessage(d: DemandeEnvoi, auteur: Auteur, deps: Deps
   const issue = await deps.envoyer({ accessToken: jeton, rfc822, cci: d.cci, threadId: ancrage.threadId });
 
   // ⑥ ON FINALISE, dans les deux cas. Une ligne laissée `en_cours` est un envoi dont personne ne saura jamais rien.
+  //   🔴 AU MIEUX-EFFORT, DES DEUX CÔTÉS. Côté échec aussi : si le journal refuse l'écriture, c'est le motif RÉEL du
+  //   refus de Gmail qu'Arno doit lire, pas l'incident de journal qui l'aurait recouvert.
+  const auMieux = async (etape: EtapeApresEnvoi, f: () => Promise<void>): Promise<void> => {
+    try { await f(); } catch (e) { try { deps.incident(etape, e); } catch { /* le filet ne se déchire pas */ } }
+  };
+  const destinataires = [...d.a, ...d.cc, ...d.cci];
+
   if (!issue.ok) {
-    await deps.finaliser(envoi.id, { etat: 'echec', erreur: issue.motif });
-    await deps.journaliser({ auteur, objet: d.objet, destinataires: [...d.a, ...d.cc, ...d.cci], issue: 'echec' });
+    await auMieux('finaliser', () => deps.finaliser(envoi.id, { etat: 'echec', erreur: issue.motif }));
+    await auMieux('journal', () => deps.journaliser({ auteur, objet: d.objet, destinataires, issue: 'echec', envoiId: envoi.id }));
     return { ok: false, code: 'refus_gmail', motif: issue.motif };
   }
-  await deps.finaliser(envoi.id, { etat: 'envoye', gmailMessageId: issue.gmailMessageId });
-  if (d.brouillonId !== null) await deps.marquerBrouillonEnvoye(d.brouillonId);
-  await deps.journaliser({ auteur, objet: d.objet, destinataires: [...d.a, ...d.cc, ...d.cci], issue: 'envoye' });
+
+  // 🔴 À PARTIR D'ICI, LE MESSAGE EST PARTI. Rien de ce qui suit ne peut plus rendre un échec.
+  await auMieux('finaliser', () => deps.finaliser(envoi.id, { etat: 'envoye', gmailMessageId: issue.gmailMessageId }));
+  if (d.brouillonId !== null) await auMieux('brouillon', () => deps.marquerBrouillonEnvoye(d.brouillonId as number));
+  await auMieux('journal', () => deps.journaliser({ auteur, objet: d.objet, destinataires, issue: 'envoye', envoiId: envoi.id }));
   return { ok: true, envoi: { ...envoi, etat: 'envoye' }, deja: false };
 }

@@ -8,11 +8,15 @@ import { envoyerViaGmail } from '../../../../../lib/gestion/envoiGmail';
 import { peutEnvoyerAuNomDeGestion, refusEnvoi } from '../../../../../lib/gestion/gardeEnvoi';
 import { COMPTE_GESTION, lireIdentifiants, rafraichirJeton } from '../../../../../lib/gestion/google';
 import { lireJeton } from '../../../../../lib/gestion/googleJeton';
+import {
+  actionJournalEnvoi, cibleJournalEnvoi, commentaireJournalEnvoi,
+} from '../../../../../lib/gestion/journalEnvoi';
+import { motifLisible, phraseEchecEnvoi } from '../../../../../lib/gestion/motifEchec';
 import { decouperAdresses } from '../../../../../lib/gestion/redaction';
 import {
   finaliserEnvoi, lireEnvoisDuFil, marquerBrouillonEnvoye, ouvrirEnvoi, type Auteur,
 } from '../../../../../lib/gestion/redactionRepo';
-import { redactionDisponible } from '../../../../../lib/gestion/schema';
+import { journalEnvoiDisponible, redactionDisponible } from '../../../../../lib/gestion/schema';
 
 /**
  * /api/admin/gestion/envois (lot 5e) — ENVOYER un message au nom de gestion@criterimmo.fr.
@@ -112,12 +116,31 @@ export async function POST(request: Request): Promise<Response> {
     finaliser: finaliserEnvoi,
     marquerBrouillonEnvoye,
     // LE JOURNAL MÉTIER, celui qu'Arno a demandé : qui, à qui, quand, quel objet. Rien du corps du message.
+    // 🔴 L'ENTITÉ EST DÉCIDÉE, PAS DEVINÉE. Écrire `'envoi'` en dur a fait rendre un échec pour un message parti le
+    //   23/09 : la règle de la table ne connaissait pas ce mot. Voir `journalEnvoi.ts` pour la mesure et le choix.
     journaliser: async (l) => {
+      const cible = cibleJournalEnvoi({
+        envoiId: l.envoiId, filId: entier(corps.filId), repondAMessageId: entier(corps.repondAMessageId),
+        envoiPermis: await journalEnvoiDisponible(),
+      });
+      if (cible === null) {
+        // Aucun rangement à la fois VRAI et permis : on ne fabrique pas une ligne fausse, on le DIT au serveur.
+        console.warn('[gestion/envois] journal métier non écrit : aucune entité permise '
+          + '(applique la migration 243 pour journaliser les messages neufs). envoi=%d', l.envoiId);
+        return;
+      }
       await query(
         `INSERT INTO gestion_journal (entite, entite_id, action, commentaire, auteur_id, auteur_libelle)
-         VALUES ('envoi', $1, $2, $3, $4, $5)`,
-        [entier(corps.filId) ?? 0, l.issue === 'envoye' ? 'envoi' : 'envoi_echec',
-         `« ${l.objet} » à ${l.destinataires.join(', ')}`, l.auteur.id, l.auteur.libelle]);
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [cible.entite, cible.entiteId, actionJournalEnvoi(l.issue),
+         commentaireJournalEnvoi(l), l.auteur.id, l.auteur.libelle]);
+    },
+    // 🔴 LE JOURNAL DU SERVEUR, jamais l'écran. Un geste d'après-envoi manqué est une comptabilité en retard, pas un
+    //   mail perdu : Arno n'a rien à refaire, et c'est nous qui devons le voir.
+    incident: (etape, e) => {
+      const m = motifLisible(e);
+      console.error('[gestion/envois] LE MESSAGE EST PARTI mais « %s » a échoué (%s) — à rattraper à la main : %s',
+        etape, m.etiquette, e instanceof Error ? e.message : String(e));
     },
     maintenant: () => new Date(),
     alea: () => crypto.randomUUID().replace(/-/g, ''),
@@ -142,7 +165,11 @@ export async function POST(request: Request): Promise<Response> {
       { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     // Pas de catch muet : un envoi dont on ne sait rien est pire qu'un envoi refusé. La ligne, elle, est déjà en base.
-    console.error('[gestion/envois] envoi impossible', e);
-    return Response.json({ erreur: 'Envoi impossible : une erreur interne est survenue. Le brouillon est conservé.' }, { status: 503 });
+    // 🔴 ET PAS DE « ERREUR INTERNE » NON PLUS quand la cause est connue : c'est la phrase qu'Arno a lue le 23/09 pour
+    //   un message qui était parti, et elle ne lui a rien appris. Le détail technique va au journal du serveur ; ce
+    //   qui va à l'écran est une raison en français, sur laquelle on peut agir. Voir `motifEchec.ts`.
+    const m = phraseEchecEnvoi(e);
+    console.error('[gestion/envois] envoi impossible (%s)', m.etiquette, e);
+    return Response.json({ erreur: m.phrase, code: 'interne' }, { status: 503 });
   }
 }

@@ -40,10 +40,21 @@ const LIGNE: EnvoiEnBase = {
 function monde(o: Partial<{
   peutEnvoyer: boolean; jeton: string | null; deja: boolean;
   issueGmail: Awaited<ReturnType<DepsEnvoiComplet['envoyer']>>;
+  /** Les gestes d'APRÈS-envoi qu'on fait échouer, pour éprouver qu'aucun ne change le verdict. */
+  casser: ('finaliser' | 'brouillon' | 'journal')[];
 }> = {}) {
   const trace = {
     ouvertures: [] as unknown[], envois: [] as unknown[], finalisations: [] as unknown[],
     journal: [] as unknown[], brouillonsEnvoyes: [] as number[], ordre: [] as string[],
+    incidents: [] as { etape: string; message: string }[],
+  };
+  const casse = (q: 'finaliser' | 'brouillon' | 'journal') => {
+    if (!(o.casser ?? []).includes(q)) return;
+    // Une VRAIE erreur PostgreSQL, code compris : c'est celle qui a fait échouer l'envoi d'Arno le 23/09.
+    const e = Object.assign(new Error('new row violates check constraint'), {
+      code: '23514', constraint: 'gestion_journal_entite_chk',
+    });
+    throw e;
   };
   const deps: DepsEnvoiComplet = {
     peutEnvoyer: async () => { trace.ordre.push('droit'); return o.peutEnvoyer !== false; },
@@ -54,9 +65,10 @@ function monde(o: Partial<{
     }),
     ouvrirEnvoi: async (e) => { trace.ordre.push('ligne'); trace.ouvertures.push(e); return { ...LIGNE, deja: o.deja === true }; },
     envoyer: async (e) => { trace.ordre.push('gmail'); trace.envois.push(e); return o.issueGmail ?? { ok: true, gmailMessageId: 'g-1' }; },
-    finaliser: async (id, maj) => { trace.ordre.push('finalisation'); trace.finalisations.push({ id, ...maj }); },
-    marquerBrouillonEnvoye: async (id) => { trace.brouillonsEnvoyes.push(id); },
-    journaliser: async (l) => { trace.journal.push(l); },
+    finaliser: async (id, maj) => { trace.ordre.push('finalisation'); casse('finaliser'); trace.finalisations.push({ id, ...maj }); },
+    marquerBrouillonEnvoye: async (id) => { casse('brouillon'); trace.brouillonsEnvoyes.push(id); },
+    journaliser: async (l) => { casse('journal'); trace.journal.push(l); },
+    incident: (etape, e) => { trace.incidents.push({ etape, message: e instanceof Error ? e.message : String(e) }); },
     maintenant: () => new Date('2026-09-24T12:00:00Z'),
     alea: () => 'abc123',
   };
@@ -294,5 +306,71 @@ describe('garanties STATIQUES — aucun envoi ne peut partir d’ailleurs', () =
     // Le SEUL `fetch` du fichier est `deps.fetch` — jamais le global.
     expect(/(?<!deps\.)\bfetch\(/.test(code)).toBe(false);
     expect(code.split('\n').filter((l) => /^\s*import\b/.test(l))).toEqual([]);
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 CORRECTIF DU 24/09/2026 — LE PREMIER VRAI ENVOI D'ARNO, RENDU COMME UN ÉCHEC ALORS QU'IL ÉTAIT PARTI.
+ *
+ * Mesuré en base avant d'écrire une ligne de correctif : `gestion_envoi` id 1 en état `envoye`, son `gmail_message_id`
+ * renseigné, le brouillon 7 marqué envoyé — et ZÉRO ligne de journal. La cause : l'écriture du journal, APRÈS l'envoi,
+ * était refusée par la règle `gestion_journal_entite_chk` (code 23514), et l'exception remontait jusqu'à la route.
+ *
+ * Ces épreuves FONT échouer chacun des trois gestes d'après-envoi, l'un après l'autre, et exigent à chaque fois la
+ * même chose : le verdict rendu reste « envoyé ». C'est le seul point qui compte — le message, lui, est chez le
+ * destinataire, et aucune écriture en retard ne le rappellera.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 UNE FOIS GMAIL ACCEPTÉ, PLUS RIEN NE PEUT RENDRE UN ÉCHEC', () => {
+  it('le JOURNAL refusé par la base (le défaut du 23/09) : l’envoi reste un SUCCÈS', async () => {
+    const { deps, trace } = monde({ casser: ['journal'] });
+    const r = await envoyerMessage(DEMANDE, AUTEUR, deps);
+    expect(r).toMatchObject({ ok: true, deja: false });
+    expect(r.ok && r.envoi.etat).toBe('envoye');
+    // L'incident est signalé — au serveur, pas à l'écran — et il NOMME l'étape qui a manqué.
+    expect(trace.incidents.map((i) => i.etape)).toEqual(['journal']);
+  });
+
+  it('la FINALISATION de la ligne refusée : l’envoi reste un succès, et le reste se fait quand même', async () => {
+    const { deps, trace } = monde({ casser: ['finaliser'] });
+    const r = await envoyerMessage(DEMANDE, AUTEUR, deps);
+    expect(r).toMatchObject({ ok: true });
+    expect(trace.incidents.map((i) => i.etape)).toEqual(['finaliser']);
+    // 🔴 Un geste manqué n'annule pas les suivants : le brouillon est marqué, le journal est écrit.
+    expect(trace.brouillonsEnvoyes).toEqual([12]);
+    expect(trace.journal).toHaveLength(1);
+  });
+
+  it('le MARQUAGE du brouillon refusé : l’envoi reste un succès, et le journal est écrit', async () => {
+    const { deps, trace } = monde({ casser: ['brouillon'] });
+    const r = await envoyerMessage(DEMANDE, AUTEUR, deps);
+    expect(r).toMatchObject({ ok: true });
+    expect(trace.incidents.map((i) => i.etape)).toEqual(['brouillon']);
+    expect(trace.journal).toHaveLength(1);
+  });
+
+  it('les TROIS refusés d’un coup : l’envoi reste un succès, et les trois incidents sont signalés', async () => {
+    const { deps, trace } = monde({ casser: ['finaliser', 'brouillon', 'journal'] });
+    const r = await envoyerMessage(DEMANDE, AUTEUR, deps);
+    expect(r).toMatchObject({ ok: true });
+    expect(trace.incidents.map((i) => i.etape)).toEqual(['finaliser', 'brouillon', 'journal']);
+  });
+
+  it('CÔTÉ ÉCHEC AUSSI : un journal refusé ne doit pas recouvrir le motif RÉEL du refus de Gmail', async () => {
+    const { deps, trace } = monde({
+      casser: ['journal', 'finaliser'],
+      issueGmail: { ok: false, motif: 'Gmail a refusé : quota d’envoi dépassé.' },
+    });
+    const r = await envoyerMessage(DEMANDE, AUTEUR, deps);
+    // C'est la raison de GMAIL qu'Arno doit lire, pas l'incident de journal qui l'aurait masquée.
+    expect(r).toMatchObject({ ok: false, code: 'refus_gmail', motif: 'Gmail a refusé : quota d’envoi dépassé.' });
+    expect(trace.incidents.map((i) => i.etape)).toEqual(['finaliser', 'journal']);
+  });
+
+  it('le journal reçoit l’identifiant de la ligne d’envoi — c’est lui qui dit OÙ la ranger', async () => {
+    const { deps, trace } = monde();
+    await envoyerMessage(DEMANDE, AUTEUR, deps);
+    expect(trace.journal[0]).toMatchObject({ envoiId: 55, issue: 'envoye' });
   });
 });

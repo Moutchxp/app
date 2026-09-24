@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import {
   COMPTE_GESTION, echangerCode, estCompteAttendu, lireCompte, lireIdentifiants, lireSignatures, listerDrivesPartages,
-  masquerJeton, PORTEES_GESTION, rafraichirJeton, resumerSignature, urlConsentement,
+  masquerJeton, PORTEES_GESTION, rafraichirJeton, resumerSignature, signatureEnTexte, urlConsentement,
   type IdentifiantsGoogle,
 } from './google';
 import { cheminJeton, lireJeton } from './googleJeton';
@@ -272,5 +272,59 @@ describe('garanties STATIQUES', () => {
     const pkg = JSON.parse(readFileSync('package.json', 'utf8')) as { scripts: Record<string, string> };
     expect(pkg.scripts['gestion:google:autoriser']).toBe('tsx app/scripts/gestion-google-autoriser.ts');
     expect(pkg.scripts['gestion:google:verifier']).toBe('tsx app/scripts/gestion-google-verifier.ts');
+  });
+});
+
+/**
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 CORRECTIF DU 24/09/2026 — LA SIGNATURE QUI S'AÉRAIT TOUTE SEULE.
+ *
+ * Arno : « la signature doit garder la mise en page de Gmail, sans lignes vides ajoutées ». Elle arrivait avec une
+ * ligne vide entre chaque ligne, parce que chaque fermeture de bloc valait un retour — et que Gmail imbrique ses
+ * blocs. Les HTML ci-dessous sont ceux que Gmail écrit réellement.
+ * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 LA SIGNATURE GARDE LA MISE EN PAGE DE GMAIL — SANS LIGNE VIDE AJOUTÉE', () => {
+  it('des blocs IMBRIQUÉS ne doublent plus les retours', () => {
+    const html = '<div dir="ltr"><div><b>CRITERIMMO</b></div><div>Gestion locative</div>'
+      + '<div>01 23 45 67 89</div></div>';
+    expect(signatureEnTexte(html)).toBe('CRITERIMMO\nGestion locative\n01 23 45 67 89');
+  });
+
+  it('une ligne vide VOULUE est conservée — Gmail l’écrit « div br div »', () => {
+    const html = '<div>CRITERIMMO</div><div><br></div><div>01 23 45 67 89</div>';
+    expect(signatureEnTexte(html)).toBe('CRITERIMMO\n\n01 23 45 67 89');
+  });
+
+  it('un « br » au milieu d’un bloc reste un simple retour', () => {
+    expect(signatureEnTexte('<div>CRITERIMMO<br>Gestion locative</div>'))
+      .toBe('CRITERIMMO\nGestion locative');
+  });
+
+  it('un tableau de signature (la forme la plus courante chez les agences) ne s’aère pas non plus', () => {
+    const html = '<table><tbody><tr><td><div>CRITERIMMO</div></td></tr>'
+      + '<tr><td><div>01 23 45 67 89</div></td></tr></tbody></table>';
+    expect(signatureEnTexte(html)).toBe('CRITERIMMO\n01 23 45 67 89');
+  });
+
+  it('AUCUN cas ne produit trois retours de suite', () => {
+    const cas = [
+      '<div><div><div>A</div></div></div><div><div>B</div></div>',
+      '<div><p>A</p></div><div><p>B</p></div>',
+      '<div>A<br><br><br>B</div>',
+      '<ul><li>A</li><li>B</li></ul>',
+    ];
+    for (const html of cas) expect(signatureEnTexte(html)).not.toMatch(/\n{3}/);
+  });
+
+  it('les liens gardent leur TEXTE, et les entités sont rendues lisibles', () => {
+    expect(signatureEnTexte('<div><a href="https://criterimmo.fr">criterimmo.fr</a></div>'))
+      .toBe('criterimmo.fr');
+    expect(signatureEnTexte('<div>Dupont &amp; Fils &nbsp;— l&#39;agence</div>'))
+      .toBe('Dupont & Fils — l’agence');
+  });
+
+  it('une signature vide ou absente rend une chaîne vide, jamais « null »', () => {
+    for (const v of [null, undefined, '', '<div><br></div>']) expect(signatureEnTexte(v)).toBe('');
   });
 });

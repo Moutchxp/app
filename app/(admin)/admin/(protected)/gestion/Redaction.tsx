@@ -58,6 +58,25 @@ export interface BrouillonEcran extends Brouillon { id: number | null }
  *
  * On valide à la VALIDATION (Entrée, virgule, point-virgule, ou perte de focus), pas à chaque lettre : souligner en
  * rouge une adresse qu'on est en train de taper est un reproche permanent adressé à quelqu'un qui n'a rien fait.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 CORRECTIF DU 24/09/2026 — LA SUGGESTION QU'ON NE POUVAIT PAS CHOISIR (défaut constaté par Arno au premier usage).
+ *
+ * LA CAUSE, établie en la rejouant dans `Redaction.suggestions.test.ts` avant d'écrire une ligne de correctif : un clic
+ * sur une suggestion commence par faire PERDRE LE FOCUS au champ. `onBlur` validait alors le texte en cours de frappe
+ * (« a. »), ce qui vidait la saisie — et la liste, conditionnée à deux caractères saisis, disparaissait de la page
+ * AVANT que le clic n'arrive. On obtenait une pastille « a. » marquée incorrecte, et jamais l'adresse choisie.
+ *
+ * LE CORRECTIF tient en deux gestes, et il en faut DEUX parce qu'ils ne protègent pas de la même chose :
+ *   ① `onMouseDown` annule son comportement par défaut → le focus NE QUITTE PAS le champ, donc `onBlur` ne se
+ *      déclenche plus du tout. C'est la correction de la cause.
+ *   ② le choix est fait DÈS `mousedown`, pas au `click` → même si un navigateur (ou un lecteur d'écran, ou un futur
+ *      remaniement) refaisait perdre le focus, l'adresse est déjà entrée. `onClick` reste branché pour les chemins qui
+ *      ne passent pas par la souris, et ajouter deux fois la même adresse ne fait rien : elle est déjà là.
+ *
+ * Et puisqu'on y était : les FLÈCHES parcourent la liste, « Entrée » choisit la proposition mise en avant, « Échap »
+ * referme — au clavier, on ne devrait jamais avoir à viser à la souris.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 export function ChampDestinataires({ libelle, valeurs, onChange, suggestions, onChercher, autoFocus = false }: {
   libelle: string;
@@ -68,24 +87,48 @@ export function ChampDestinataires({ libelle, valeurs, onChange, suggestions, on
   autoFocus?: boolean;
 }) {
   const [saisie, setSaisie] = useState('');
+  // La proposition MISE EN AVANT au clavier. −1 = aucune : « Entrée » vaut alors ce qu'il a toujours valu, la
+  //   validation du texte tapé. On ne met JAMAIS la première en avant d'office — ce serait choisir à la place d'Arno.
+  const [avance, setAvance] = useState(-1);
+  // « Échap » referme la liste sans rien choisir. Taper à nouveau la rouvre.
+  const [repliee, setRepliee] = useState(false);
+  // Les NOMS qu'on a appris en choisissant une suggestion. La valeur transmise reste l'ADRESSE seule (c'est elle qu'on
+  //   envoie) ; le nom ne sert qu'à l'affichage — « Arno Jorel » se relit, « a.jorel@… » se déchiffre.
+  const [noms, setNoms] = useState<Record<string, string>>({});
   const id = `dest-${libelle.toLowerCase().replace(/[^a-z]/g, '')}`;
 
-  const ajouter = (brut: string) => {
+  const ouverte = suggestions.length > 0 && saisie.trim().length >= 2 && !repliee;
+  // Borné à CHAQUE rendu : la liste change pendant qu'on la parcourt (les suggestions arrivent du serveur), et un
+  //   indice resté au-delà de la fin désignerait une proposition qui n'existe plus.
+  const enAvant = ouverte && avance >= 0 && avance < suggestions.length ? avance : -1;
+
+  const ajouter = (brut: string, nom?: string | null) => {
     const nouvelles = decouperAdresses(brut);
-    if (nouvelles.length === 0) return;
     const deja = new Set(valeurs);
-    onChange([...valeurs, ...nouvelles.filter((a) => !deja.has(a))]);
+    const ajouts = nouvelles.filter((a) => !deja.has(a));
+    if (nom && nouvelles.length === 1) setNoms((n) => ({ ...n, [nouvelles[0]]: nom }));
+    setAvance(-1);
+    setRepliee(false);
+    // Rien de neuf (champ vide, ou adresse déjà présente) : on vide quand même la saisie, mais on ne prévient pas le
+    //   parent — un `onChange` qui rend la MÊME liste n'apporte rien et déclenche un enregistrement de brouillon.
+    if (ajouts.length === 0) { if (brut !== '') { setSaisie(''); onChercher(''); } return; }
+    onChange([...valeurs, ...ajouts]);
     setSaisie('');
     onChercher('');
   };
+
+  /** Ce qu'on affiche dans la pastille : le nom s'il est connu, l'adresse sinon. L'adresse reste dans l'infobulle. */
+  const libelleDe = (a: string) => noms[a] ?? a;
+  const infobulleDe = (a: string) => (adresseValide(a) ? a : `Adresse incorrecte : ${a}`);
 
   return (
     <div className="red-champ">
       <label className="red-label" htmlFor={id}>{libelle}</label>
       <div className="red-pastilles">
         {valeurs.map((a) => (
-          <span key={a} className={`red-pastille${adresseValide(a) ? '' : ' red-pastille--fautive'}`}>
-            <span className="red-pastille-texte">{a}</span>
+          <span key={a} className={`red-pastille${adresseValide(a) ? '' : ' red-pastille--fautive'}`}
+            title={infobulleDe(a)}>
+            <span className="red-pastille-texte">{libelleDe(a)}</span>
             {/* Le « × » est un VRAI bouton, de 44 px, avec un libellé accessible : « retirer » doit se dire. */}
             <button type="button" className="red-retirer" aria-label={`Retirer ${a}`}
               onClick={() => onChange(valeurs.filter((x) => x !== a))}>
@@ -95,25 +138,52 @@ export function ChampDestinataires({ libelle, valeurs, onChange, suggestions, on
         ))}
         <input id={id} className="red-saisie" type="text" inputMode="email" autoComplete="off" autoFocus={autoFocus}
           value={saisie}
+          role="combobox" aria-expanded={ouverte} aria-controls={`${id}-liste`} aria-autocomplete="list"
+          aria-activedescendant={enAvant >= 0 ? `${id}-s${enAvant}` : undefined}
           onChange={(e) => {
             const v = e.target.value;
             // Une virgule ou un point-virgule VALIDE l'adresse : c'est le geste qu'on fait sans y penser.
             if (/[,;]$/.test(v)) { ajouter(v); return; }
             setSaisie(v);
+            setAvance(-1);
+            setRepliee(false);
             onChercher(v);
           }}
           onKeyDown={(e) => {
             // ⚠️ « Entrée » AJOUTE UNE ADRESSE — il n'envoie RIEN. `preventDefault` empêche toute soumission.
-            if (e.key === 'Enter') { e.preventDefault(); ajouter(saisie); return; }
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              const choisie = enAvant >= 0 ? suggestions[enAvant] : null;
+              if (choisie) ajouter(choisie.adresse, choisie.nom);
+              else ajouter(saisie);
+              return;
+            }
+            if (ouverte && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+              // On ne sort JAMAIS de la liste par le haut ni par le bas : elle se borne à ses deux extrémités, pour
+              //   qu'une flèche tenue ne ramène pas silencieusement sur la première ligne.
+              e.preventDefault();
+              const pas = e.key === 'ArrowDown' ? 1 : -1;
+              const dernier = suggestions.length - 1;
+              setAvance(Math.min(dernier, Math.max(0, (enAvant < 0 ? -1 : enAvant) + pas)));
+              return;
+            }
+            if (e.key === 'Escape' && ouverte) { e.preventDefault(); setRepliee(true); setAvance(-1); return; }
             if (e.key === 'Backspace' && saisie === '' && valeurs.length > 0) onChange(valeurs.slice(0, -1));
           }}
           onBlur={() => ajouter(saisie)} />
       </div>
-      {suggestions.length > 0 && saisie.trim().length >= 2 && (
-        <ul className="red-suggestions">
-          {suggestions.map((s) => (
-            <li key={s.adresse}>
-              <button type="button" className="red-suggestion" onClick={() => ajouter(s.adresse)}>
+      {ouverte && (
+        <ul className="red-suggestions" id={`${id}-liste`} role="listbox">
+          {suggestions.map((s, i) => (
+            <li key={s.adresse} role="presentation">
+              {/* 🔴 `onMouseDown` : on ANNULE le comportement par défaut (le focus reste dans le champ, donc `onBlur`
+                  ne valide plus le texte à moitié tapé) ET on choisit TOUT DE SUITE. Les deux, pas l'un ou l'autre —
+                  cf. l'encadré en tête de fichier. `onClick` sert les chemins sans souris ; il est sans effet une
+                  seconde fois, l'adresse étant déjà entrée. */}
+              <button type="button" id={`${id}-s${i}`} role="option" aria-selected={i === enAvant}
+                className={`red-suggestion${i === enAvant ? ' red-suggestion--avance' : ''}`}
+                onMouseDown={(e) => { e.preventDefault(); ajouter(s.adresse, s.nom); }}
+                onClick={() => ajouter(s.adresse, s.nom)}>
                 {s.nom ? `${s.nom} — ` : ''}{s.adresse}
               </button>
             </li>
@@ -375,7 +445,12 @@ const CSS_REDACTION = `
 .red-saisie{flex:1 1 8rem;min-width:0;min-height:40px;padding:.35rem .4rem;font-size:16px;border:0;background:transparent;
   color:var(--color-svv-ink)}
 .red-saisie:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px;border-radius:.3rem}
-.red-saisie--pleine{min-height:44px;padding:.5rem .7rem;border:1px solid var(--color-svv-line-strong);border-radius:.6rem;
+/* 🔴 flex:0 0 auto OBLIGATOIRE. La classe red-saisie porte flex:1 1 8rem : dans la barre de destinataires (en LIGNE),
+   ces 8 rem sont une largeur de départ, ce qu'on veut. Mais l'objet vit dans red-champ, qui est une COLONNE — la même
+   base devenait une HAUTEUR, et le champ « Objet » s'affichait haut de 8 rem au lieu d'une ligne (défaut vu par Arno
+   le 24/09/2026). On remet une hauteur dictée par le contenu ; min-height:44px garde la cible tactile. */
+.red-saisie--pleine{flex:0 0 auto;min-height:44px;height:44px;padding:.5rem .7rem;
+  border:1px solid var(--color-svv-line-strong);border-radius:.6rem;
   background:var(--color-svv-surface);width:100%;box-sizing:border-box}
 .red-corps{width:100%;box-sizing:border-box;min-height:180px;padding:.6rem .7rem;font:inherit;font-size:16px;
   line-height:1.5;border:1px solid var(--color-svv-line-strong);border-radius:.6rem;background:var(--color-svv-surface);
@@ -387,6 +462,9 @@ const CSS_REDACTION = `
   color:var(--color-svv-ink);background:var(--color-svv-surface);border:1px solid var(--color-svv-line);
   border-radius:.5rem;cursor:pointer}
 .red-suggestion:hover,.red-suggestion:focus-visible{border-color:var(--color-svv-line-strong);background:var(--color-svv-field)}
+/* La proposition mise en avant AU CLAVIER. Elle se distingue par une bordure ET un fond, pas par la seule teinte :
+   au clavier comme au doigt, il faut voir OÙ l'on est sans avoir à comparer deux nuances de gris. */
+.red-suggestion--avance{border-color:var(--color-svv-red);background:var(--color-svv-field);font-weight:600}
 .red-avertit{color:var(--color-svv-red);font-weight:600}
 .red-etat{margin:0;font-size:.9rem;color:var(--color-svv-ink)}
 /* AUCUNE barre fixée en bas : le clavier d'iOS la recouvrirait, et le bouton « Envoyer » deviendrait inatteignable. */
