@@ -9,7 +9,8 @@ import {
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { useReleveGestion } from './useReleveGestion';
 import { PanneauAffecter } from './PanneauAffecter';
-import { CarteVive } from './CarteVive';
+import { CarteVive, CorpsFil } from './CarteVive';
+import { BoiteMail } from './BoiteMail';
 
 /**
  * LOT 2/3/4b — l'écran à deux côtés, et les DEUX GESTES.
@@ -31,6 +32,14 @@ import { CarteVive } from './CarteVive';
 
 type Chargement = { etat: 'charge' } | { etat: 'ok'; data: EtatEcran } | { etat: 'erreur'; message: string };
 
+/**
+ * LOT 5a — LES DEUX MODES DU MODULE. Ils ne se remplacent pas, ils répondent à deux questions :
+ *   · « tri »   — qu'ai-je À TRAITER ? (le poste de tri existant, fenêtre de 30 jours, gestes de classement) ;
+ *   · « boite » — qu'est-ce qui EXISTE ? (tout le courrier, du plus récent au plus ancien).
+ * Le mode « tri » reste le mode par défaut : on n'arrive pas dans un outil de travail par sa réserve.
+ */
+export type ModeGestion = 'tri' | 'boite';
+
 export function GestionVue() {
   const [vue, setVue] = useState<Chargement>({ etat: 'charge' });
   // Instant de référence des « il y a … », figé au rendu et rafraîchi avec les données. JAMAIS calculé pendant le rendu
@@ -42,6 +51,8 @@ export function GestionVue() {
    * rang dans la liste : la file change sous l'écran (relève, rattachement, classement) et un rang ne désigne alors
    * plus le même échange. Déclaré AVANT `charger`, qui le remet à zéro à chaque relecture.
    */
+  const [mode, setMode] = useState<ModeGestion>('tri');
+  const [filOuvert, setFilOuvert] = useState<number | null>(null); // LOT 5a — échange ouvert depuis la boîte mail
   const [panneau, setPanneau] = useState<number | null>(null);
   const [geste, setGeste] = useState<{ ton: 'ok' | 'erreur'; texte: string } | null>(null);
   const [gesteEnCours, setGesteEnCours] = useState(false);
@@ -155,7 +166,36 @@ export function GestionVue() {
       {releveMsg && <p className={`gst-compte-rendu gst-ton-${releveMsg.ton}`} role="status">{releveMsg.texte}</p>}
       {geste && <p className={`gst-compte-rendu gst-ton-${geste.ton}`} role="status">{geste.texte}</p>}
 
-      {/* ORDRE DU DOM = ordre mobile : la file d'abord, les événements ensuite. */}
+      {/* LOT 5a — LA BASCULE ENTRE LES DEUX MODES. Deux onglets, pleine largeur sur téléphone, l'état actif porté par
+          un MOT (aria-pressed + soulignement), jamais par la seule couleur. Le poste de tri reste le défaut. */}
+      <div className="gst-modes" role="group" aria-label="Mode d’affichage">
+        <button type="button" className="gst-mode" aria-pressed={mode === 'tri'}
+          onClick={() => { setMode('tri'); setFilOuvert(null); }}>
+          Poste de tri
+        </button>
+        <button type="button" className="gst-mode" aria-pressed={mode === 'boite'}
+          onClick={() => { setMode('boite'); setPanneau(null); }}>
+          Boîte mail
+        </button>
+      </div>
+
+      {mode === 'boite' ? (
+        <section className="gst-col">
+          {filOuvert === null
+            ? <BoiteMail onOuvrir={(id) => setFilOuvert(id)} />
+            : (
+              <>
+                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setFilOuvert(null)}>
+                  ← Retour à la boîte
+                </button>
+                {/* Le MÊME chemin de lecture que le poste de tri : deux lectures du même échange finiraient par diverger. */}
+                <CorpsFil filId={filOuvert} maintenant={ref}
+                  onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) void charger(); }} />
+              </>
+            )}
+        </section>
+      ) : (
+      /* ORDRE DU DOM = ordre mobile : la file d'abord, les événements ensuite. */
       <div className="gst-deux">
         <section className="gst-col" aria-labelledby="gst-titre-file">
           <h2 className="gst-titre" id="gst-titre-file">
@@ -168,6 +208,11 @@ export function GestionVue() {
               {d.filsTropAnciens} échange{d.filsTropAnciens > 1 ? 's' : ''} plus ancien{d.filsTropAnciens > 1 ? 's' : ''} que {d.fenetreJours} jours
               {' '}ne {d.filsTropAnciens > 1 ? 'sont' : 'est'} pas affiché{d.filsTropAnciens > 1 ? 's' : ''} dans la file.
               {' '}Rien n’est supprimé : {d.filsTropAnciens > 1 ? 'ils restent' : 'il reste'} en base.
+              {/* LOT 5a — la phrase ne change pas d'un mot ; on lui AJOUTE la sortie qui lui manquait. */}
+              {' '}
+              <button type="button" className="gst-lien-bouton" onClick={() => { setMode('boite'); setPanneau(null); }}>
+                Les voir dans la boîte mail
+              </button>
             </p>
           )}
           {d.file.length === 0
@@ -235,6 +280,7 @@ export function GestionVue() {
             )}
         </section>
       </div>
+      )}
     </>
   );
 }
@@ -320,6 +366,16 @@ export function CarteEv({ carte, maintenant }: { carte: CarteEvenement; maintena
 
 const CSS_GESTION = `
 /* DEUX CÔTÉS au-dessus de 900 px ; UNE colonne en dessous, la file d'abord — par l'ordre du DOM, jamais par un order CSS. */
+.gst-modes{display:flex;gap:8px;margin:0 0 14px}
+.gst-mode{flex:0 0 auto;min-height:44px;padding:.55rem 2rem;border:1px solid var(--color-svv-line);border-radius:.6rem;
+  background:var(--color-svv-surface);color:var(--color-svv-muted);font:inherit;font-weight:600;cursor:pointer}
+.gst-mode[aria-pressed="true"]{background:var(--color-svv-field);color:var(--color-svv-ink);
+  border-color:var(--color-svv-line-strong);text-decoration:underline;text-underline-offset:4px}
+.gst-mode:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* Sur TÉLÉPHONE les deux onglets se partagent la largeur ; au-delà ils gardent leur taille. Point de rupture en
+   max-width, comme le reste de cette feuille — et largeur obtenue par du PADDING, jamais par une largeur minimale en
+   dur, qui est précisément ce qui fait déborder un écran étroit. */
+@media (max-width:599px){.gst-mode{flex:1;padding:.55rem .9rem}}
 .gst-deux{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
 @media (max-width:900px){.gst-deux{grid-template-columns:1fr}}
 .gst-col{min-width:0}  /* sans ça, une grille laisse un enfant déborder de sa colonne */

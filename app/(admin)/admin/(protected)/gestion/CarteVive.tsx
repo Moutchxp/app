@@ -25,7 +25,7 @@ import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
  * couleur en dur — uniquement des jetons `--color-svv-*`.
  */
 
-type Rapport = (message: string, options?: { rechargerTout?: boolean }) => void;
+export type Rapport = (message: string, options?: { rechargerTout?: boolean }) => void;
 
 type VueCarte = { v: 'charge' } | { v: 'ok'; d: CarteDetail } | { v: 'erreur'; m: string };
 
@@ -414,8 +414,13 @@ function DeplacerVers({ titre, exclure, onValider, onAnnuler }: {
   );
 }
 
-/** Les messages d'un échange. Montés au dépliage — un fil jamais ouvert ne traverse jamais le réseau. */
-function CorpsFil({ filId, maintenant, onGeste }: { filId: number; maintenant: Date; onGeste: Rapport }) {
+/**
+ * Les messages d'un échange. Montés au dépliage — un fil jamais ouvert ne traverse jamais le réseau.
+ *
+ * LOT 5a — EXPORTÉ (et rien d'autre n'a changé) pour que la boîte mail ouvre un échange par le MÊME chemin de lecture
+ * que le poste de tri. Deux lectures différentes du même échange finiraient par diverger ; une seule ne le peut pas.
+ */
+export function CorpsFil({ filId, maintenant, onGeste }: { filId: number; maintenant: Date; onGeste: Rapport }) {
   const [vue, setVue] = useState<
     { v: 'charge' } | { v: 'ok'; messages: MessageDeFil[]; partis: MailParti[] } | { v: 'erreur'; m: string }
   >({ v: 'charge' });
