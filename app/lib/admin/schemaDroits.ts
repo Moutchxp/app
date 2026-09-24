@@ -15,9 +15,14 @@
  * une porte.
  */
 import { query } from '../db/client';
+import { creerMemoireSonde } from '../db/sondeSchema';
 
-/** Une réponse par question, retenue pour la vie du processus : le schéma ne change pas sous nos pieds. */
-const cache = new Map<string, Promise<boolean>>();
+/**
+ * 🔴 CORRECTIF DU 24/09/2026 — LA MÉMOIRE NE RETIENT QUE LE « OUI ». Elle retenait AUSSI le « non », pour la vie du
+ * processus : Arno a appliqué ses migrations, rechargé la page, et l'écran a continué d'annoncer « mise à jour à
+ * appliquer » — parce que la première sonde, posée deux jours plus tôt, avait répondu « absent » une fois pour
+ * toutes. Voir `app/lib/db/sondeSchema.ts` pour la mesure et la règle.
+ */
 
 async function colonneExiste(table: string, colonne: string): Promise<boolean> {
   try {
@@ -39,15 +44,10 @@ export function droitEnvoiGestionDisponible(): Promise<boolean> {
   return memoiser('admin_utilisateur.perm_gestion_envoi', () => colonneExiste('admin_utilisateur', 'perm_gestion_envoi'));
 }
 
-function memoiser(cle: string, calcul: () => Promise<boolean>): Promise<boolean> {
-  const dejaLa = cache.get(cle);
-  if (dejaLa) return dejaLa;
-  const promesse = calcul();
-  cache.set(cle, promesse);
-  return promesse;
-}
+const memoire = creerMemoireSonde();
+const memoiser = memoire.memoiser;
 
 /** Pour les tests : oublie ce qu'on croyait savoir du schéma. N'a aucun effet en production, où rien ne l'appelle. */
 export function oublierSchemaDroits(): void {
-  cache.clear();
+  memoire.oublier();
 }
