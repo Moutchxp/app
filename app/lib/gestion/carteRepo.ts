@@ -101,6 +101,12 @@ export interface EnTeteFil {
   /** Référence `GES-…` si l'échange est rattaché à une carte, sinon `null`. */
   reference: string | null;
   evenementId: number | null;
+  /**
+   * LOT 5-STATUT — le TITRE de la carte (« Fuite salle de bain »), pour que le cartouche dise autre chose qu'un
+   * numéro. GRATUIT : il vient de la ligne d'événement que la requête joignait DÉJÀ pour lire la référence — aucune
+   * requête de plus, aucun aller-retour de plus.
+   */
+  evenementObjet: string | null;
 }
 
 /**
@@ -307,9 +313,10 @@ export async function lireMessagesDuFil(
   //   reconstituerait l'état de son côté, et les trois finiraient par diverger.
   const { rows: fil } = await query<{
     id: number; objet: string | null; etat: string; reference: string | null; evenement_id: number | null;
+    evenement_objet: string | null;
   }>(
     `SELECT f.id::int AS id, f.objet_initial AS objet, f.etat,
-            e.reference, e.id::int AS evenement_id
+            e.reference, e.id::int AS evenement_id, e.objet AS evenement_objet
        FROM gestion_fil f
        LEFT JOIN gestion_affectation a ON a.fil_id = f.id AND a.actif AND a.message_id IS NULL
        LEFT JOIN gestion_evenement e ON e.id = a.evenement_id
@@ -403,6 +410,7 @@ export async function lireMessagesDuFil(
       etat: fil[0].etat === 'sans_suite' ? 'sans_suite' : 'a_classer',
       reference: fil[0].reference,
       evenementId: fil[0].evenement_id,
+      evenementObjet: fil[0].evenement_objet,
     },
     messages,
     partis,
@@ -416,14 +424,17 @@ export interface MailParti {
   recuLe: string;
   reference: string;
   evenementId: number;
+  /** LOT 5-STATUT — le titre de la carte d'arrivée. Gratuit : l'événement est déjà joint pour sa référence. */
+  objetEvenement: string | null;
 }
 
 async function lireMailsPartis(filId: number): Promise<MailParti[]> {
   const { rows } = await query<{
     message_id: number; objet: string | null; recu_le: string; reference: string; evenement_id: number;
+    objet_evenement: string | null;
   }>(
     `SELECT m.id::int AS message_id, m.objet, ${INSTANT('m.recu_le')} AS recu_le,
-            e.reference, e.id::int AS evenement_id
+            e.reference, e.id::int AS evenement_id, e.objet AS objet_evenement
        FROM gestion_affectation a
        JOIN gestion_message m ON m.id = a.message_id
        JOIN gestion_evenement e ON e.id = a.evenement_id
@@ -431,7 +442,7 @@ async function lireMailsPartis(filId: number): Promise<MailParti[]> {
       ORDER BY m.recu_le ASC, m.id ASC`, [filId]);
   return rows.map((r) => ({
     messageId: r.message_id, objet: r.objet, recuLe: r.recu_le,
-    reference: r.reference, evenementId: r.evenement_id,
+    reference: r.reference, evenementId: r.evenement_id, objetEvenement: r.objet_evenement,
   }));
 }
 

@@ -6,6 +6,10 @@ import {
   etatCorps, lignesDestinataires, mentionHorsFile, messagesDeplies, MENTION_HTML_SEUL,
 } from '../../../../lib/gestion/conversation';
 import { dateHeureComplete, dateHeureCourte, formaterTaille, libelleSens, LIBELLE_CLASSER } from '../../../../lib/gestion/ecran';
+import {
+  actionsDuStatut, libelleCartouche, lienVersCarte, precisionCartouche, statutDuMessage, tonCartouche,
+  type ActionStatut, type StatutClassement,
+} from '../../../../lib/gestion/statutClassement';
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { MenuDiscret } from './MenuDiscret';
@@ -43,7 +47,7 @@ async function chargerConversation(filId: number): Promise<Vue> {
     const d = (await res.json()) as { fil?: EnTeteFil; messages: MessageDeFil[]; partis?: MailParti[] };
     // Repli SÛR : sans en-tête (réponse d'une version antérieure), on rend quand même la conversation — les fonctions
     //   maison se calment plutôt que de faire écran blanc. Lire le courrier doit toujours rester possible.
-    const fil: EnTeteFil = d.fil ?? { filId, objet: null, etat: 'a_classer', reference: null, evenementId: null };
+    const fil: EnTeteFil = d.fil ?? { filId, objet: null, etat: 'a_classer', reference: null, evenementId: null, evenementObjet: null };
     return { v: 'ok', fil, messages: d.messages ?? [], partis: d.partis ?? [] };
   } catch {
     return { v: 'erreur', m: 'Lecture impossible : le serveur n’a pas répondu.' };
@@ -155,6 +159,24 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
 
   const { fil, messages, partis } = vue;
   const rattache = fil.reference !== null;
+
+  /**
+   * CE QUE LE CARTOUCHE DÉCLENCHE. Chaque geste passe par la route qui EXISTE — rien n'est réécrit, rien n'est
+   * dupliqué : « classer », « changer l'affectation » et « créer » ouvrent le même panneau d'affectation que le
+   * lot 4b (en place, ou dans le partage du plein écran quand l'écran parent en propose un), « classer sans suite »
+   * et « rouvrir » appellent les deux verbes symétriques de `/fils/[id]/sans-suite`.
+   */
+  const agirSurLeStatut = (a: ActionStatut) => {
+    if (a === 'classer' || a === 'changer') { if (onClassement) onClassement('existant'); else setAffecter(true); return; }
+    if (a === 'creer') { if (onClassement) onClassement('nouveau'); else setAffecter(true); return; }
+    if (a === 'sans_suite') {
+      void geste(`/api/admin/gestion/fils/${fil.filId}/sans-suite`, 'POST',
+        'Échange classé sans suite. Il reviendra dans la file si un nouveau message y arrive.', onGeste, () => void recharger());
+      return;
+    }
+    void geste(`/api/admin/gestion/fils/${fil.filId}/sans-suite`, 'DELETE',
+      'Échange rouvert : il est revenu dans la file.', onGeste, () => void recharger());
+  };
   const tousDeplies = messages.length > 0 && messages.every((m) => deplies.has(m.messageId));
 
   return (
@@ -181,49 +203,12 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           {fil.reference && <span className="cnv-ref">{fil.reference}</span>}
           {fil.etat === 'sans_suite' && <span className="cnv-etiquette">classé sans suite</span>}
 
-          {/* ══ LES ACTIONS, EN CLAIR (plein écran seulement) ═══════════════════════════════════════════════════════
-              Elles appellent les MÊMES routes que le menu « ⋯ », qui reste en place juste à côté avec les mêmes
-              entrées : rien n'a été déplacé hors de portée, on a seulement sorti les gestes du menu. */}
-          {barreActions && (
-            <span className="cnv-actions">
-              {!rattache && (
-                <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                  onClick={() => (onClassement ? onClassement('existant') : setAffecter(true))}>
-                  {LIBELLE_CLASSER}
-                </button>
-              )}
-              {rattache && (
-                <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                  onClick={() => (onClassement ? onClassement('existant') : setAffecter(true))}>
-                  Déplacer
-                </button>
-              )}
-              <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                onClick={() => (onClassement ? onClassement('nouveau') : setAffecter(true))}>
-                Créer un événement
-              </button>
-              {rattache && (
-                <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                  onClick={() => void geste(`/api/admin/gestion/fils/${fil.filId}/affectation`, 'DELETE',
-                    'Échange détaché : il est revenu dans la file, avec tous ses messages.', onGeste, () => void recharger())}>
-                  Détacher
-                </button>
-              )}
-              {fil.etat === 'a_classer' ? (
-                <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                  onClick={() => void geste(`/api/admin/gestion/fils/${fil.filId}/sans-suite`, 'POST',
-                    'Échange classé sans suite. Il reviendra dans la file si un nouveau message y arrive.', onGeste, () => void recharger())}>
-                  Classer sans suite
-                </button>
-              ) : (
-                <button type="button" className="svv-btn svv-btn-outline gst-btn"
-                  onClick={() => void geste(`/api/admin/gestion/fils/${fil.filId}/sans-suite`, 'DELETE',
-                    'Échange rouvert : il est revenu dans la file.', onGeste, () => void recharger())}>
-                  Rouvrir
-                </button>
-              )}
-            </span>
-          )}
+          {/* ══ LOT 5-STATUT — LA BARRE NE PORTE PLUS LES TROIS BOUTONS DE CLASSEMENT ═══════════════════════════════
+              « Classer dans une carte », « Créer un événement » et « Classer sans suite » ont quitté cette barre
+              (décision d'Arno du 24/09/2026 — le seul retrait de ce lot). Ils vivent désormais DANS LE CARTOUCHE DE
+              STATUT, à gauche de la date de chaque message : là où l'on voit d'abord où en est l'échange, et donc là
+              où l'on décide de le changer. La flèche de retour et le menu « ⋯ » restent ici, et le menu conserve
+              TOUTES ses entrées — « Détacher » comprise. Rien n'est devenu inatteignable. */}
 
           <span className="cnv-menu">
             <MenuDiscret titre="Actions sur cet échange" entrees={[
@@ -288,6 +273,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             ouvert={deplies.has(m.messageId)}
             corpsCharge={corps.get(m.messageId)}
             onBasculer={() => void basculer(m)}
+            statut={statutDuMessage(fil, m)}
+            onActionStatut={agirSurLeStatut}
             onDeplacer={() => setDeplacer(m.messageId)}
             onRemettre={() => void agirSurLeMail(m.messageId, null, onGeste)}
             panneau={deplacer === m.messageId ? (
@@ -328,13 +315,22 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
  * en-tête complet, son texte et ses pièces. Le texte est rendu TEL QUEL — jamais interprété comme du HTML.
  */
 export function MessageConversation({
-  message, maintenant, ouvert, corpsCharge, onBasculer, onDeplacer, onRemettre, panneau,
+  message, maintenant, ouvert, corpsCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
   corpsCharge?: string | null; onBasculer: () => void;
   /** Gestes par mail, CONSERVÉS du lot 4d : déplacer ce mail vers une autre carte, ou l'en détacher. */
   onDeplacer?: () => void; onRemettre?: () => void; panneau?: React.ReactNode;
+  /**
+   * LOT 5-STATUT — OÙ EN EST CE MESSAGE, juste à gauche de sa date. Absent = aucun cartouche, et le message est
+   * exactement celui d'avant ce lot (c'est le cas des écrans qui n'en ont pas besoin).
+   */
+  statut?: StatutClassement;
+  /** Ce que le cartouche déclenche. Absent = le cartouche n'est qu'un CONSTAT, sans bouton. */
+  onActionStatut?: (a: ActionStatut) => void;
 }) {
+  const [actions, setActions] = useState(false);
+  const propositions = statut ? actionsDuStatut(statut) : { declencheur: null, actions: [] };
   const hors = mentionHorsFile(message);
   const qui = message.deNom?.trim() || message.de;
   const etat = etatCorps(message, corpsCharge);
@@ -346,26 +342,54 @@ export function MessageConversation({
       {/* LE MENU DU MAIL — effacé au repos (décision d'Arno : pas de boutons partout), mais toujours atteignable, y
           compris message REPLIÉ. Il est le VOISIN de la ligne, pas son enfant : la ligne EST un bouton, et un bouton
           dans un bouton est invalide et injouable au clavier. C'est la même solution que pour `BlocRepliable`. */}
-      {(onDeplacer || onRemettre) && (
-        <div className="cnv-msg-menu">
-          <MenuDiscret titre="Actions sur ce message" entrees={[
-            ...(onDeplacer ? [{ libelle: 'Déplacer ce mail vers un autre événement…', onChoisir: onDeplacer }] : []),
-            ...(onRemettre ? [{ libelle: 'Détacher ce mail', discrete: true, onChoisir: onRemettre }] : []),
-          ]} />
-        </div>
-      )}
       {/* La LIGNE REPLIÉE est le bouton : toute la largeur, au moins 44 px, et l'état annoncé par `aria-expanded`. */}
       <button type="button" className="cnv-ligne" aria-expanded={ouvert} onClick={onBasculer}>
-        <span className="cnv-ligne-haut">
-          {/* Le SENS est dit par un MOT (« reçu de » / « envoyé à ») : il reste lisible en niveaux de gris. */}
-          <span className="cnv-qui">{libelleSens(message.sens)} {qui}</span>
-          {/* LOT 5-DIRECT — date ET heure de réception, en heure de Paris. */}
-          <span className="cnv-quand" title={dateHeureComplete(message.recuLe)}>{dateHeureCourte(message.recuLe, maintenant)}</span>
-        </span>
+        {/* Le SENS est dit par un MOT (« reçu de » / « envoyé à ») : il reste lisible en niveaux de gris. */}
+        <span className="cnv-qui">{libelleSens(message.sens)} {qui}</span>
         {/* Une mention EN MOTS : elle reste lisible en niveaux de gris et pour un daltonien. */}
         {hors && <span className="cnv-hors">{hors}</span>}
         {!ouvert && message.extrait && <span className="cnv-extrait">{corpsLisible(message.extrait).visible}</span>}
       </button>
+
+      {/* ══ LE COIN DE L'EN-TÊTE : statut · date · menu ═══════════════════════════════════════════════════════════
+          🔴 VOISIN de la ligne, jamais son enfant. La ligne EST un bouton, et le cartouche en contient (« Modifier »,
+          un lien vers la carte) : un bouton dans un bouton est invalide et injouable au clavier. C'est la solution
+          déjà retenue pour le menu « ⋯ » et pour `BlocRepliable`.
+          L'ORDRE DU DOM est aussi l'ordre mobile : sous la ligne, le cartouche passe donc sous le nom de
+          l'expéditeur quand la place manque — exactement ce qu'Arno a demandé. */}
+      <div className="cnv-coin">
+        {statut && (
+          <CartoucheStatut statut={statut} ouvert={actions}
+            declencheur={propositions.declencheur}
+            onBasculer={onActionStatut ? () => setActions((v) => !v) : undefined} />
+        )}
+        {/* LOT 5-DIRECT — date ET heure de réception, en heure de Paris. */}
+        <span className="cnv-quand" title={dateHeureComplete(message.recuLe)}>{dateHeureCourte(message.recuLe, maintenant)}</span>
+        {/* LE MENU DU MAIL — effacé au repos (décision d'Arno : pas de boutons partout), mais toujours atteignable,
+            y compris message REPLIÉ. Il garde TOUTES ses entrées : « Déplacer ce mail », « Détacher ce mail ». */}
+        {(onDeplacer || onRemettre) && (
+          <MenuDiscret titre="Actions sur ce message" entrees={[
+            ...(onDeplacer ? [{ libelle: 'Déplacer ce mail vers un autre événement…', onChoisir: onDeplacer }] : []),
+            ...(onRemettre ? [{ libelle: 'Détacher ce mail', discrete: true, onChoisir: onRemettre }] : []),
+          ]} />
+        )}
+      </div>
+
+      {/* LES GESTES RÉVÉLÉS — pleine largeur, donc empilés d'eux-mêmes sur téléphone. Ils appellent les routes qui
+          existaient avant ce lot : aucune logique nouvelle, même journal, même réversibilité. */}
+      {statut && onActionStatut && actions && propositions.actions.length > 0 && (
+        <div className="cnv-statut-actions" role="group" aria-label={`Classement — ${libelleCartouche(statut)}`}>
+          {propositions.actions.map((a) => (
+            <button key={a.cle} type="button" className="svv-btn svv-btn-outline gst-btn"
+              onClick={() => { setActions(false); onActionStatut(a.cle); }}>
+              {a.libelle}
+            </button>
+          ))}
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setActions(false)}>
+            Annuler
+          </button>
+        </div>
+      )}
 
       {panneau}
 
@@ -408,6 +432,41 @@ export function MessageConversation({
         </div>
       )}
     </li>
+  );
+}
+
+/**
+ * LOT 5-STATUT — LE CARTOUCHE : où en est ce message, en UN COUP D'ŒIL et EN TOUTES LETTRES.
+ *
+ * 🔴 LE MOT EST TOUJOURS ÉCRIT — « À classer », « Sans suite », « Courrier automatique », ou la référence GES-… avec
+ * le titre de la carte. Le ton (vert pour une carte) ne fait que l'appuyer : seul, il serait muet en niveaux de gris,
+ * pour un daltonien, et pour un lecteur d'écran.
+ *
+ * CLIQUABLE VERS LA CARTE quand il y en a une : le lien mène à la boîte en plein écran, sous l'étiquette de cette
+ * carte — un écran qui existe déjà. Sans identifiant, pas de lien : un lien mort use la confiance plus qu'il ne sert.
+ */
+export function CartoucheStatut({ statut, ouvert, declencheur, onBasculer }: {
+  statut: StatutClassement;
+  ouvert: boolean;
+  /** Le mot du bouton qui révèle les gestes (« Classer », « Modifier »). `null` = ce statut n'en propose aucun. */
+  declencheur: string | null;
+  /** Absent = cartouche de CONSTAT, sans bouton (mail déplacé seul, courrier automatique). */
+  onBasculer?: () => void;
+}) {
+  const mot = libelleCartouche(statut);
+  const precision = precisionCartouche(statut);
+  const lien = lienVersCarte(statut);
+  return (
+    <span className="cnv-statut">
+      {lien
+        ? <a className={`cnv-cartouche cnv-cartouche--${tonCartouche(statut)}`} href={lien} title={precision ?? undefined}>{mot}</a>
+        : <span className={`cnv-cartouche cnv-cartouche--${tonCartouche(statut)}`} title={precision ?? undefined}>{mot}</span>}
+      {declencheur && onBasculer && (
+        <button type="button" className="cnv-statut-bouton" aria-expanded={ouvert} onClick={onBasculer}>
+          {declencheur}
+        </button>
+      )}
+    </span>
   );
 }
 
@@ -476,25 +535,42 @@ const CSS_CONVERSATION = `
 .cnv-titre{margin:0;font-size:1.05rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .cnv-compte{margin:0;font-size:.8rem;color:var(--color-svv-muted)}
 .cnv-fil{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0}
-.cnv-msg{position:relative;border-bottom:1px solid var(--color-svv-line);min-width:0}
+/* L'EN-TÊTE D'UN MESSAGE : la ligne cliquable, puis son COIN (statut · date · menu) — deux frères, jamais imbriqués.
+   Ils s'assoient côte à côte quand il y a la place, et le coin passe SOUS le nom de l'expéditeur quand elle manque. */
+.cnv-msg{display:flex;flex-wrap:wrap;align-items:flex-start;border-bottom:1px solid var(--color-svv-line);min-width:0}
 .cnv-msg--hors{background:var(--color-svv-field)}
-.cnv-ligne{display:flex;flex-direction:column;gap:3px;width:100%;min-height:44px;padding:10px 4px;text-align:left;
-  background:none;border:0;color:inherit;font:inherit;cursor:pointer}
+.cnv-ligne{display:flex;flex-direction:column;gap:3px;flex:1 1 16rem;min-width:0;min-height:44px;padding:10px 4px;
+  text-align:left;background:none;border:0;color:inherit;font:inherit;cursor:pointer}
 .cnv-ligne:hover,.cnv-ligne:focus-visible{background:var(--color-svv-field)}
 .cnv-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
-.cnv-ligne-haut{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;justify-content:space-between}
+.cnv-coin{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;flex:0 1 auto;
+  min-width:0;padding:6px 0}
+/* Les gestes révélés prennent la LARGEUR ENTIÈRE : ils s'empilent donc d'eux-mêmes sur un téléphone. */
+.cnv-statut-actions{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;padding:0 4px 10px}
+.cnv-statut{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0}
+/* LE CARTOUCHE — le MOT d'abord, la couleur ensuite : lisible en niveaux de gris et pour un daltonien. */
+.cnv-cartouche{display:inline-block;max-width:22rem;padding:2px 8px;border-radius:999px;font-size:.72rem;
+  font-weight:700;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  border:1px solid var(--color-svv-line-strong);color:var(--color-svv-muted);background:var(--color-svv-surface)}
+a.cnv-cartouche{text-decoration:underline;text-underline-offset:2px}
+a.cnv-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.cnv-cartouche--succes{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft);border-color:var(--color-svv-green)}
+.cnv-cartouche--attente{color:var(--color-svv-ink);border-color:var(--color-svv-line-strong)}
+.cnv-cartouche--neutre{color:var(--color-svv-muted)}
+/* Le déclencheur (« Classer », « Modifier ») : discret, mais une cible de 44 px et un focus très visible. */
+.cnv-statut-bouton{min-height:44px;padding:0 .4rem;font-size:.75rem;font-weight:700;color:var(--color-svv-red);
+  background:transparent;border:0;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+.cnv-statut-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .cnv-qui{font-weight:700;font-size:.95rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .cnv-quand{font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}
 .cnv-hors{font-size:.75rem;font-weight:700;color:var(--color-svv-muted)}
 .cnv-extrait{font-size:.85rem;color:var(--color-svv-muted);overflow-wrap:anywhere;
   display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
-.cnv-detail{padding:0 4px 12px;min-width:0}
+.cnv-detail{flex-basis:100%;padding:0 4px 12px;min-width:0}
 .cnv-entete{margin:0 0 10px;padding:8px 10px;background:var(--color-svv-field);border-radius:.5rem;font-size:.8rem;min-width:0}
 .cnv-entete dt{font-weight:700;color:var(--color-svv-muted)}
 .cnv-entete dd{margin:0 0 .35rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .cnv-note{color:var(--color-svv-muted);font-style:italic}
-/* Le menu est posé dans le coin, AU-DESSUS de la ligne : la ligne garde sa pleine largeur cliquable, et le menu
-   reste atteignable message replié comme déplié. Marge à droite de la ligne pour qu'ils ne se recouvrent jamais. */
-.cnv-msg-menu{position:absolute;top:4px;right:0;z-index:1}
-.cnv-ligne{padding-right:52px}
+/* Le menu vit désormais DANS le coin, à côté de la date et du cartouche : plus de positionnement absolu, donc plus
+   de largeur réservée en dur sur la ligne — et rien ne peut se recouvrir quand le cartouche est long. */
 `;

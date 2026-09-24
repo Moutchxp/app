@@ -9,6 +9,7 @@ import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 import type { CarteDetail, FilDeCarte, MailParti, MessageDeFil } from '../../../../lib/gestion/carteRepo';
 import type { CarteEvenement } from '../../../../lib/gestion/fileRepo';
 import { depuis, formaterDateFr, formaterTaille, libelleEtat, libelleSens } from '../../../../lib/gestion/ecran';
+import { statutDuMessage } from '../../../../lib/gestion/statutClassement';
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
 
 /**
@@ -200,8 +201,15 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste }: {
                 </p>
                 <ol className="gst-fil">
                   {/* LOT 5b — la MÊME brique que dans une conversation, ouverte d'emblée : un mail venu seul n'a pas
-                      de fil à parcourir, il n'y a rien à replier. Le geste « Détacher ce mail » est conservé. */}
+                      de fil à parcourir, il n'y a rien à replier. Le geste « Détacher ce mail » est conservé.
+                      LOT 5-STATUT — son cartouche montre SA carte, celle où il a été déplacé, et non celle de son
+                      échange d'origine : il est réellement ailleurs, et dire le contraire ferait croire qu'il suit
+                      son fil. Constat sans bouton : ses gestes à lui sont dans son menu « ⋯ », où ils étaient déjà. */}
                   <MessageConversation message={m.message} maintenant={maintenant} ouvert onBasculer={() => {}}
+                    statut={statutDuMessage(
+                      { etat: 'a_classer', reference: null, evenementId: null },
+                      { carteDuMail: { reference: d.reference, libelle: d.objet, evenementId: d.evenementId } },
+                    )}
                     onRemettre={() => void agirSurLeMail(m.message.messageId, null, onGeste)} />
                 </ol>
               </li>

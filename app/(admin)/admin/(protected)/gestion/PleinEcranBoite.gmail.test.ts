@@ -93,6 +93,11 @@ const ligneDe = (objet: string) => [...container.querySelectorAll('.bte-ligne')]
   .find((b) => (b.textContent ?? '').includes(objet));
 const retour = () => container.querySelector('button[aria-label="Retour à la liste"]');
 const url = () => window.location.pathname + window.location.search;
+/**
+ * LOT 5-STATUT — les trois gestes de classement ont QUITTÉ la barre pour le cartouche de statut, à gauche de la date
+ * de chaque message. On y passe donc par son déclencheur (« Classer » / « Modifier »), puis par le geste voulu.
+ */
+const ouvrirStatut = async () => cliquer(container.querySelector('.cnv-statut-bouton'));
 
 describe('① LA LISTE — pleine largeur par défaut, et jamais démontée', () => {
   it('à l’arrivée : la liste est là, aucune conversation ouverte', async () => {
@@ -165,16 +170,26 @@ describe('② L’OUVERTURE EN PLEINE PAGE, et le retour', () => {
 });
 
 describe('③ LA BARRE D’ACTIONS — tout est là, rien n’est inventé', () => {
-  it('échange NON classé : classer, créer, classer sans suite, et le menu « ⋯ »', async () => {
+  it('🔴 LOT 5-STATUT — la barre ne porte PLUS les trois boutons de classement : flèche et menu « ⋯ » seulement', async () => {
     await monter();
     await cliquer(ligneDe('Fuite salle de bain'));
+    const barre = container.querySelector('.cnv-bandeau--barre') as HTMLElement;
+    const dansLaBarre = [...barre.querySelectorAll('button')].map((b) => b.textContent ?? '');
+    for (const mot of ['Classer dans une carte', 'Créer un événement', 'Classer sans suite']) {
+      expect(dansLaBarre.some((t) => t.trim() === mot)).toBe(false);
+    }
+    expect(barre.querySelector('button[aria-label="Retour à la liste"]')).not.toBeNull();
+    expect(barre.querySelector('.gst-menu-bouton')).not.toBeNull();
+  });
+
+  it('…et les trois se trouvent dans le CARTOUCHE, une fois « Classer » ouvert', async () => {
+    await monter();
+    await cliquer(ligneDe('Fuite salle de bain'));
+    await ouvrirStatut();
     expect(boutonPar(/^Classer dans une carte$/)).toBeDefined();
     expect(boutonPar(/^Créer un événement$/)).toBeDefined();
     expect(boutonPar(/^Classer sans suite$/)).toBeDefined();
-    expect(container.querySelector('.gst-menu-bouton')).not.toBeNull();
-    // Pas encore rattaché → ni « Déplacer », ni « Détacher ».
-    expect(boutonPar(/^Déplacer$/)).toBeUndefined();
-    expect(boutonPar(/^Détacher$/)).toBeUndefined();
+    expect(boutonPar(/^Annuler$/)).toBeDefined();
   });
 
   it('🔴 ④ AUCUN bouton d’envoi : « Répondre », « Répondre à tous », « Transférer » n’existent pas encore', async () => {
@@ -190,6 +205,7 @@ describe('④ CLASSER — le partage s’ouvre, et se referme une fois l’écha
   it('« Classer dans une carte » ouvre le partage sur la RECHERCHE d’événements', async () => {
     await monter();
     await cliquer(ligneDe('Fuite salle de bain'));
+    await ouvrirStatut();
     await cliquer(boutonPar(/^Classer dans une carte$/));
     expect(container.querySelector('.pe-classer')).not.toBeNull();
     expect(container.querySelector('.pe-grille--classer')).not.toBeNull();
@@ -201,6 +217,7 @@ describe('④ CLASSER — le partage s’ouvre, et se referme une fois l’écha
   it('« Créer un événement » ouvre le MÊME panneau, sur le formulaire — et les deux voies restent offertes', async () => {
     await monter();
     await cliquer(ligneDe('Fuite salle de bain'));
+    await ouvrirStatut();
     await cliquer(boutonPar(/^Créer un événement$/));
     expect(container.textContent).toContain('Qui demande');
     expect(container.textContent).toContain('Adresse (texte libre)');
@@ -212,20 +229,22 @@ describe('④ CLASSER — le partage s’ouvre, et se referme une fois l’écha
   it('🔴 classer appelle la route EXISTANTE, referme le partage, et la barre affiche la GES-…', async () => {
     await monter();
     await cliquer(ligneDe('Fuite salle de bain'));
+    await ouvrirStatut();
     await cliquer(boutonPar(/^Créer un événement$/));
     await cliquer(boutonPar(/^Rattacher$/));
     const post = appels.find((a) => a.methode === 'POST' && a.url.includes('/affectation'));
     expect(post?.url).toContain('/api/admin/gestion/fils/101/affectation');
     expect(container.querySelector('.pe-classer')).toBeNull();          // le partage s'est refermé
-    expect(container.querySelector('.cnv-ref')?.textContent).toBe('GES-2026-000007');
-    // …et la barre propose désormais les gestes de l'état RATTACHÉ.
-    expect(boutonPar(/^Déplacer$/)).toBeDefined();
-    expect(boutonPar(/^Détacher$/)).toBeDefined();
+    // …et le CARTOUCHE dit maintenant la carte, en toutes lettres et pas seulement en vert.
+    const cartouche = container.querySelector('.cnv-cartouche') as HTMLElement;
+    expect(cartouche.textContent).toContain('GES-2026-000007');
+    expect(cartouche.className).toContain('cnv-cartouche--succes');
   });
 
   it('« Fermer » referme le partage SANS rien faire', async () => {
     await monter();
     await cliquer(ligneDe('Fuite salle de bain'));
+    await ouvrirStatut();
     await cliquer(boutonPar(/^Classer dans une carte$/));
     await cliquer(boutonPar(/^Fermer$/));
     expect(container.querySelector('.pe-classer')).toBeNull();
@@ -236,6 +255,7 @@ describe('④ CLASSER — le partage s’ouvre, et se referme une fois l’écha
   it('🔴 ③ changer d’échange REFERME le partage — sans quoi on classerait le mauvais', async () => {
     await monter();
     await cliquer(ligneDe('Fuite salle de bain'));
+    await ouvrirStatut();
     await cliquer(boutonPar(/^Classer dans une carte$/));
     expect(container.querySelector('.pe-classer')).not.toBeNull();
     await cliquer(retour());
