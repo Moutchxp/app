@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { BoiteMail } from './BoiteMail';
+import { PanneauAffecter } from './PanneauAffecter';
 import { ColonneMode, type PanneauMobile } from './ColonneMode';
 import { Conversation } from './Conversation';
 import type { Rapport } from './gestesMail';
@@ -75,6 +76,43 @@ export function PleinEcranBoite({
   // Sur téléphone, on arrive sur les ÉTIQUETTES : c'est le sommaire, et on ne tombe pas au milieu d'une liste sans
   //   savoir laquelle. Au montage, donc à chaque entrée en plein écran. Sur grand écran, l'attribut ne change rien.
   const [panneauMobile, setPanneauMobile] = useState<PanneauMobile>('colonne');
+  /**
+   * LOT 5-GMAIL — LE PARTAGE « CLASSER ». `null` = fermé. Sinon, la voie par laquelle on y entre : « Classer dans
+   * une carte » ouvre sur la recherche d'événements, « Créer un événement » sur le formulaire. Les deux voies
+   * restent offertes une fois ouvert — c'est le point de départ qui change, pas ce qui est possible.
+   */
+  const [classement, setClassement] = useState<'nouveau' | 'existant' | null>(null);
+  /** Change après un classement réussi → la conversation est remontée et relue, donc sa barre montre la GES-…. */
+  const [versionFil, setVersionFil] = useState(0);
+
+  /**
+   * LA POSITION DE DÉFILEMENT DE LA LISTE, retenue à l'ouverture d'un échange et rendue au retour.
+   *
+   * 🔴 ET LA LISTE RESTE MONTÉE pendant qu'on lit (elle est seulement masquée) : la démonter lui ferait perdre ses
+   * pages chargées par « Voir les échanges plus anciens » et sa recherche en cours, et le retour repartirait de la
+   * première page. C'est le défaut classique d'une ouverture « en pleine page », et il ne se voit qu'après avoir
+   * fait défiler trois pages.
+   */
+  const defilement = useRef(0);
+  useEffect(() => {
+    if (filOuvert !== null) return;
+    const y = defilement.current;
+    if (y <= 0) return;
+    // Après la peinture : la liste vient de réapparaître, sa hauteur n'existe pas encore au moment du rendu.
+    const t = requestAnimationFrame(() => window.scrollTo(0, y));
+    return () => cancelAnimationFrame(t);
+  }, [filOuvert]);
+
+  /**
+   * CHANGER D'ÉCHANGE REFERME LE PARTAGE : il porte sur CET échange, et le traîner sur le suivant ferait classer le
+   * mauvais — le piège exact du panneau d'affectation, corrigé au lot 4c après qu'Arno l'a vu à l'écran.
+   *
+   * Ajusté PENDANT le rendu, et non dans un effet : c'est le patron que React prescrit pour remettre un état à zéro
+   * quand une propriété change. Dans un effet, l'écran afficherait d'abord une image fausse — le partage de l'échange
+   * précédent au-dessus du nouveau — avant de se corriger au tour suivant.
+   */
+  const [filPrecedent, setFilPrecedent] = useState(filOuvert);
+  if (filOuvert !== filPrecedent) { setFilPrecedent(filOuvert); setClassement(null); }
 
   const visibles = etiquettesVisibles(etiquettes, etiquette);
   const ouverte = visibles.find((e) => memeEtiquette(e.etiquette, etiquette));
@@ -122,8 +160,9 @@ export function PleinEcranBoite({
         ← Étiquettes
       </button>
 
-      <div className={`pe-grille${filOuvert !== null ? ' pe-grille--lecture' : ''}`}>
-        <section className="pe-liste" aria-label={`Échanges — ${titre}`}>
+      <div className={`pe-grille${classement !== null ? ' pe-grille--classer' : ''}`}>
+        {/* LA LISTE — pleine largeur par défaut, et MASQUÉE (jamais démontée) pendant qu'on lit un échange. */}
+        <section className="pe-liste" aria-label={`Échanges — ${titre}`} hidden={filOuvert !== null}>
           {/* SOUS « À CLASSER », C'EST LE POSTE DE TRI QUI S'AFFICHE, tel qu'il est : mêmes gestes, même panneau,
               même compteur. Sous toutes les autres étiquettes, c'est la boîte du lot 5a, filtrée. */}
           {aClasser ? (
@@ -148,19 +187,38 @@ export function PleinEcranBoite({
               {enfantAClasser}
             </>
           ) : (
-            <BoiteMail etiquette={etiquette} titre={titre} total={ouverte?.compte ?? null}
-              auto={auto} onAuto={onAuto} filSelectionne={filOuvert} onOuvrir={onOuvrir} />
+            <BoiteMail etiquette={etiquette} titre={titre} total={ouverte?.compte ?? null} dense
+              auto={auto} onAuto={onAuto} filSelectionne={filOuvert}
+              onOuvrir={(id) => { defilement.current = window.scrollY; onOuvrir(id); }} />
           )}
         </section>
 
-        <section className="pe-lecture" aria-label="Conversation">
-          {filOuvert !== null ? (
-            <Conversation filId={filOuvert} maintenant={maintenant} onFerme={onFermerFil}
-              onGeste={(m, o) => { if (o?.rechargerTout) onFermerFil(); onGeste(m, o); }} />
-          ) : (
-            <p className="gst-vide">Choisissez un échange dans la liste pour le lire ici.</p>
-          )}
-        </section>
+        {/* LA CONVERSATION — EN PLEINE PAGE. Elle ne s'ouvre plus « à côté » : elle prend la place de la liste, comme
+            dans une messagerie. Le retour se fait par la flèche de sa barre d'actions, ou par « Précédent ». */}
+        {filOuvert !== null && (
+          <section className="pe-lecture" aria-label="Conversation">
+            <Conversation key={`${filOuvert}-${versionFil}`} filId={filOuvert} maintenant={maintenant}
+              onFerme={onFermerFil} barreActions onClassement={(voie) => setClassement(voie)}
+              onGeste={onGeste} />
+          </section>
+        )}
+
+        {/* LE PARTAGE « CLASSER » — à DROITE de la conversation sur grand écran, À SA PLACE sur téléphone (un écran
+            après l'autre, jamais deux colonnes de 180 px). Le panneau est celui du lot 4b, inchangé : mêmes deux
+            voies, même pré-remplissage lu dans le mail, même route, même compteur GES-AAAA-NNNNNN atomique. */}
+        {filOuvert !== null && classement !== null && (
+          <aside className="pe-classer" aria-label="Classer cet échange">
+            <div className="pe-classer-haut">
+              <h3 className="gst-titre">Classer cet échange</h3>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setClassement(null)}>
+                Fermer
+              </button>
+            </div>
+            <PanneauAffecter filId={filOuvert} voieInitiale={classement}
+              onFait={(m) => { setClassement(null); setVersionFil((v) => v + 1); onGeste(m, { rechargerTout: true }); }}
+              onAnnuler={() => setClassement(null)} />
+          </aside>
+        )}
       </div>
     </div>
   );
@@ -168,20 +226,24 @@ export function PleinEcranBoite({
 
 const CSS_PLEIN_ECRAN = `
 .pe{display:flex;flex-direction:column;gap:12px;min-width:0}
-/* ÉTROIT PAR DÉFAUT : un seul panneau, et l'échange ouvert REMPLACE la liste — sur un téléphone, deux colonnes de
-   180 px ne sont pas deux colonnes, c'est deux colonnes illisibles. */
+/* UNE SEULE COLONNE par défaut : la liste occupe toute la largeur, et l'échange ouvert prend sa place — comme dans
+   une messagerie. Plus de volet de lecture ouvert en permanence, qui coupait la liste en deux pour ne rien montrer. */
 .pe-grille{display:grid;grid-template-columns:minmax(0,1fr);gap:14px;align-items:start}
 .pe-liste{min-width:0}
 .pe-lecture{min-width:0}
-.pe-grille--lecture .pe-liste{display:none}
-.pe-grille:not(.pe-grille--lecture) .pe-lecture{display:none}
+.pe-classer{min-width:0}
+/* SUR TÉLÉPHONE, « classer » est un ÉCRAN DE PLUS, pas une seconde colonne : la conversation s'efface le temps de
+   choisir l'événement, et le bouton « Fermer » la ramène. Deux colonnes de 180 px ne sont pas deux colonnes. */
+.pe-grille--classer .pe-lecture{display:none}
 /* Le retour vers les étiquettes n'existe que là où elles ne sont pas visibles, c'est-à-dire sur téléphone. */
 .pe-retour-colonne{align-self:flex-start}
 @media (min-width:768px){.pe-retour-colonne{display:none}}
-/* Les étiquettes ayant quitté le contenu, deux panneaux tiennent dès 1000 px — contre 1200 px auparavant. */
+.pe-classer-haut{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem;margin-bottom:.5rem}
+.pe-classer-haut .gst-titre{margin:0}
+/* Dès 1000 px, « classer » se met À CÔTÉ de la conversation : on voit le mail pendant qu'on choisit sa carte, ce qui
+   est exactement ce qu'on a besoin de relire à ce moment-là. */
 @media (min-width:1000px){
-  .pe-grille{grid-template-columns:minmax(0,1fr) minmax(0,1.15fr)}
-  .pe-grille--lecture .pe-liste{display:block}
-  .pe-grille:not(.pe-grille--lecture) .pe-lecture{display:block}
+  .pe-grille--classer{grid-template-columns:minmax(0,1fr) minmax(0,22rem)}
+  .pe-grille--classer .pe-lecture{display:block}
 }
 `;

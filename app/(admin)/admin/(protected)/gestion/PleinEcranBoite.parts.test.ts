@@ -118,12 +118,23 @@ describe('exigences transverses des feuilles de style du plein écran', () => {
     expect(cssCol).toContain('text-decoration:underline');
   });
 
-  it('MOBILE D’ABORD : un seul panneau par défaut, deux quand la largeur le permet', () => {
+  it('🔴 LOT 5-GMAIL — UNE SEULE COLONNE : la liste occupe toute la largeur, sans volet de lecture permanent', () => {
     expect(css).toContain('.pe-grille{display:grid;grid-template-columns:minmax(0,1fr)');
-    // 1000 px et non 1200 : les étiquettes ayant quitté le contenu, deux panneaux tiennent 200 px plus tôt.
+    // Le partage à deux colonnes n'existe plus QUE pour « classer », et seulement au-delà de 1000 px.
     expect(css).toContain('@media (min-width:1000px)');
-    // …et sur un écran étroit, l'échange ouvert REMPLACE la liste au lieu de la comprimer.
-    expect(css).toContain('.pe-grille--lecture .pe-liste{display:none}');
+    expect(css).toContain('.pe-grille--classer{grid-template-columns:minmax(0,1fr) minmax(0,22rem)}');
+  });
+
+  it('🔴 sur TÉLÉPHONE, « classer » est un écran DE PLUS, pas une seconde colonne', () => {
+    expect(css).toContain('.pe-grille--classer .pe-lecture{display:none}');
+    // …et il redevient une colonne dès qu'il y a la place pour relire le mail en choisissant sa carte.
+    expect(css).toContain('.pe-grille--classer .pe-lecture{display:block}');
+  });
+
+  it('🔴 la liste reste MONTÉE pendant la lecture : elle ne perd ni ses pages ni sa recherche', () => {
+    expect(src).toContain('hidden={filOuvert !== null}');
+    // …et sa position de défilement est rendue au retour.
+    expect(src).toContain('window.scrollTo(0, y)');
   });
 
   it('🔴 sur TÉLÉPHONE, un retour explicite entre la colonne et la liste — et lui seulement là', () => {

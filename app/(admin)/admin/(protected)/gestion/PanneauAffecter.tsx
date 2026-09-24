@@ -21,16 +21,22 @@ import { ChoisirEvenement } from './ChoisirEvenement';
  */
 type Propositions = { objet: string; demandeurNom: string | null; demandeurEmail: string | null; adresseLibre: string | null };
 
-export function PanneauAffecter({ filId, objet: objetDuFil, onFait, onAnnuler }: {
+export function PanneauAffecter({ filId, objet: objetDuFil, onFait, onAnnuler, voieInitiale = 'nouveau' }: {
   filId: number;
   /** L'objet de l'échange visé, RAPPELÉ en tête du panneau : on doit voir sur QUOI on agit, sans remonter des yeux. */
   objet?: string;
   onFait: (message: string) => void;
   onAnnuler: () => void;
+  /**
+   * LOT 5-GMAIL — par quelle voie on ARRIVE. « Classer dans une carte » ouvre sur la recherche d'événements,
+   * « Créer un événement » sur le formulaire. Les DEUX voies restent offertes dans les deux cas : c'est le point de
+   * départ qui change, jamais ce qui est possible. Absent = `nouveau`, comme avant ce lot.
+   */
+  voieInitiale?: 'nouveau' | 'existant';
 }) {
   const [chargement, setChargement] = useState(true);
   const [erreur, setErreur] = useState<string | null>(null);
-  const [voie, setVoie] = useState<'nouveau' | 'existant'>('nouveau');
+  const [voie, setVoie] = useState<'nouveau' | 'existant'>(voieInitiale);
   const [choisi, setChoisi] = useState<number | null>(null);
   const [objet, setObjet] = useState('');
   const [demandeur, setDemandeur] = useState('');

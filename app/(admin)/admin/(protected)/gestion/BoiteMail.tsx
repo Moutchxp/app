@@ -151,6 +151,7 @@ export function Evidence({ texte, saisie }: { texte: string; saisie: string }) {
 
 export function BoiteMail({
   onOuvrir, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
+  dense = false,
 }: {
   onOuvrir: (filId: number) => void;
   /** LOT 5-FUSION — l'étiquette ouverte. Absente = la boîte entière, exactement le comportement du lot 5a. */
@@ -164,6 +165,12 @@ export function BoiteMail({
   onAuto?: (v: boolean) => void;
   /** L'échange ouvert à côté, pour que la liste dise LEQUEL on lit. */
   filSelectionne?: number | null;
+  /**
+   * LOT 5-GMAIL — présentation DENSE : sur ordinateur, une ligne par échange (correspondant · objet + début du
+   * message · marques · date), comme dans une messagerie. Sur téléphone, RIEN NE CHANGE — la présentation sur
+   * plusieurs lignes est conservée, parce que quatre colonnes sur 375 px ne sont pas quatre colonnes.
+   */
+  dense?: boolean;
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [autoInterne, setAutoInterne] = useState(false);
@@ -333,27 +340,28 @@ export function BoiteMail({
             ? 'Aucun échange ne correspond à cette recherche.'
             : titre === undefined ? 'Aucun échange dans la boîte.' : `Aucun échange sous « ${titre} ».`}</p>
         : (
-          <ul className="gst-liste bte-liste">
+          <ul className={`gst-liste bte-liste${dense ? ' bte-liste--dense' : ''}`}>
             {etat.lignes.map((l) => (
               <li key={l.filId}>
-                {/* L'échange OUVERT à côté est marqué — par un mot pour les lecteurs d'écran (`aria-current`) autant
-                    que par la forme : sur trois colonnes, on doit voir d'un coup d'œil lequel on est en train de lire. */}
+                {/* L'échange OUVERT est marqué — par un mot pour les lecteurs d'écran (`aria-current`) autant que par
+                    la forme. Le CONTENU de la ligne est le même dans les deux présentations : c'est la feuille de
+                    style qui, sur ordinateur, la remet sur une seule ligne. Aucune information n'est retirée. */}
                 <button type="button" className={`bte-ligne${filSelectionne === l.filId ? ' bte-ligne--ouverte' : ''}`}
                   aria-current={filSelectionne === l.filId ? 'true' : undefined}
                   onClick={() => onOuvrir(l.filId)}>
-                  <span className="bte-haut">
-                    <span className="bte-qui">{nomCorrespondant(l)}</span>
-                    {/* LOT 5-DIRECT — la DATE ET L'HEURE de réception, en heure de Paris : « il y a 3 h » ne disait
-                        pas si un mail était arrivé à 9 h ou à 14 h. La date complète reste dans l'infobulle. */}
-                    <span className="bte-quand" title={dateHeureComplete(l.dernierLe)}>{dateHeureCourte(l.dernierLe, ref)}</span>
+                  <span className="bte-qui">{nomCorrespondant(l)}</span>
+                  <span className="bte-sujet">
+                    <span className="bte-objet"><Evidence texte={nettoyerObjet(l.objet) || '(sans objet)'} saisie={critere.q} /></span>
+                    {apercu(l.extrait) !== '' && (
+                      <span className="bte-apercu">
+                        {/* Le tiret ne sépare que sur ORDINATEUR, où l'objet et l'aperçu se suivent sur la même
+                            ligne ; sur téléphone ils restent l'un sous l'autre et il n'a rien à séparer. */}
+                        <span className="bte-tiret" aria-hidden="true"> — </span>
+                        {l.dernierSens === 'envoye' && <span className="bte-vous">Vous : </span>}
+                        <Evidence texte={apercu(l.extrait)} saisie={critere.q} />
+                      </span>
+                    )}
                   </span>
-                  <span className="bte-objet"><Evidence texte={nettoyerObjet(l.objet) || '(sans objet)'} saisie={critere.q} /></span>
-                  {apercu(l.extrait) !== '' && (
-                    <span className="bte-apercu">
-                      {l.dernierSens === 'envoye' && <span className="bte-vous">Vous : </span>}
-                      <Evidence texte={apercu(l.extrait)} saisie={critere.q} />
-                    </span>
-                  )}
                   <span className="bte-bas">
                     <span>{l.nbMessages} message{l.nbMessages > 1 ? 's' : ''}</span>
                     {/* Chaque marque porte un MOT : elle reste lisible en niveaux de gris et pour un daltonien. */}
@@ -362,6 +370,9 @@ export function BoiteMail({
                     {l.sansSuite && <span className="bte-marque">classé sans suite</span>}
                     {l.nbLisibles === 0 && <span className="bte-marque">courrier automatique</span>}
                   </span>
+                  {/* LOT 5-DIRECT — la DATE ET L'HEURE de réception, en heure de Paris : « il y a 3 h » ne disait pas
+                      si un mail était arrivé à 9 h ou à 14 h. La date complète reste dans l'infobulle. */}
+                  <span className="bte-quand" title={dateHeureComplete(l.dernierLe)}>{dateHeureCourte(l.dernierLe, ref)}</span>
                 </button>
               </li>
             ))}
@@ -390,7 +401,6 @@ const CSS_BOITE = `
 .bte-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 /* L'échange ouvert : une BARRE à gauche et un fond, jamais la couleur seule ; aria-current le dit aux lecteurs d'écran. */
 .bte-ligne--ouverte{background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);padding-left:8px}
-.bte-haut{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;justify-content:space-between}
 .bte-qui{font-weight:700;font-size:.95rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .bte-quand{font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}
 .bte-objet{font-size:.9rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
@@ -398,6 +408,23 @@ const CSS_BOITE = `
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .bte-vous{font-weight:600;color:var(--color-svv-ink)}
 .bte-bas{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:.78rem;color:var(--color-svv-muted)}
+/* SUR TÉLÉPHONE, l'objet et l'aperçu restent l'un SOUS l'autre : le tiret qui les relie n'a alors rien à relier. */
+.bte-sujet{display:contents}
+.bte-tiret{display:none}
+/* ── LOT 5-GMAIL : UNE LIGNE PAR ÉCHANGE, SUR ORDINATEUR ────────────────────────────────────────────────────────
+   Quatre colonnes : correspondant · objet + début du message (tronqué d'un « … ») · marques · date. Le MÊME contenu
+   que sur téléphone, à la même place dans le DOM — seule la mise en page change, jamais ce qui est dit.
+   Le point de rupture est celui de la barre de l'administration (768 px) : au-dessous, rien ne bouge. */
+@media (min-width:768px){
+  .bte-liste--dense .bte-ligne{display:grid;align-items:baseline;gap:4px 12px;padding:8px 6px;
+    grid-template-columns:minmax(7rem,12rem) minmax(0,1fr) auto auto}
+  .bte-liste--dense .bte-sujet{display:block;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  /* display:inline : l'objet et l'aperçu coulent dans la MÊME ligne, et le conteneur tronque les deux d'un coup. */
+  .bte-liste--dense .bte-objet,.bte-liste--dense .bte-apercu{display:inline;-webkit-line-clamp:none;overflow:visible}
+  .bte-liste--dense .bte-tiret{display:inline;color:var(--color-svv-line-strong)}
+  .bte-liste--dense .bte-bas{flex-wrap:nowrap;white-space:nowrap}
+  .bte-liste--dense .bte-quand{text-align:right}
+}
 .bte-marque{display:inline-flex;align-items:center;gap:.25rem}
 .bte-ref{font-weight:700;color:var(--color-svv-green-ink)}
 .bte-recherche{display:flex;flex-direction:column;gap:8px;margin:0 0 12px}

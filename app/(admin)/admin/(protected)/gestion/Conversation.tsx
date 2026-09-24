@@ -61,19 +61,26 @@ async function chargerCorps(messageId: number): Promise<string | null | undefine
   }
 }
 
-/** Un geste sur l'échange. Les routes sont CELLES QUI EXISTENT : ce lot ne réécrit aucune logique métier. */
-async function geste(url: string, methode: 'POST' | 'DELETE', succes: string, onGeste: Rapport): Promise<void> {
+/**
+ * Un geste sur l'échange. Les routes sont CELLES QUI EXISTENT : ce lot ne réécrit aucune logique métier.
+ *
+ * LOT 5-GMAIL — il RELIT ensuite la conversation (`apres`). En plein écran on RESTE sur l'échange après un geste :
+ * la barre d'actions doit donc dire la vérité tout de suite (la référence GES-… qui apparaît, « Rouvrir » qui
+ * remplace « Classer sans suite »). Sans cette relecture, la barre continuerait d'annoncer l'état d'avant.
+ */
+async function geste(url: string, methode: 'POST' | 'DELETE', succes: string, onGeste: Rapport, apres?: () => void): Promise<void> {
   try {
     const res = await fetch(url, { method: methode, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
     const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
     if (!res.ok || !d.ok) { onGeste(d.erreur ?? 'Geste impossible.'); return; }
     onGeste(succes, { rechargerTout: true });
+    apres?.();
   } catch {
     onGeste('Geste impossible : le serveur n’a pas répondu.');
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true }: {
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement }: {
   filId: number;
   maintenant: Date;
   onGeste: Rapport;
@@ -85,6 +92,20 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * fonction n'est retirée : elles restent toutes à leur place d'avant, au même endroit et au même clic.
    */
   avecBandeau?: boolean;
+  /**
+   * LOT 5-GMAIL — LA BARRE D'ACTIONS, en plein écran. Les gestes qui vivaient dans le menu « ⋯ » deviennent des
+   * BOUTONS visibles, façon messagerie : flèche de retour tout à gauche, puis les actions maison. Le menu « ⋯ »
+   * reste, avec exactement les mêmes entrées — rien n'a été déplacé hors de portée.
+   *
+   * ⚠️ AUCUN bouton d'envoi (« Répondre », « Transférer ») : ils viendront avec le lot d'envoi. Un bouton grisé
+   * qui promet une fonction inexistante fait perdre plus de temps qu'une absence.
+   */
+  barreActions?: boolean;
+  /**
+   * Classer / créer / déplacer : l'écran PARENT ouvre son propre partage (conversation à gauche, événements à
+   * droite). Sans ce rappel, la barre retombe sur le panneau d'affectation en place — le comportement d'avant.
+   */
+  onClassement?: (voie: 'nouveau' | 'existant') => void;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   const [deplies, setDeplies] = useState<Set<number>>(new Set());
@@ -144,33 +165,86 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           Elles appellent les routes EXISTANTES, sans réécrire une ligne de leur logique — donc même journal, même
           réversibilité, mêmes garanties qu'avant ce lot. */}
       {avecBandeau && (
-      <div className="cnv-bandeau">
+      <div className={`cnv-bandeau${barreActions ? ' cnv-bandeau--barre' : ''}`}>
         <div className="cnv-bandeau-haut">
-          {onFerme && (
-            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme}>← Retour</button>
-          )}
+          {/* LA SORTIE, TOUJOURS EN PREMIER. En plein écran c'est une FLÈCHE, comme dans une messagerie — mais une
+              flèche muette n'est pas un bouton : le libellé accessible est écrit, et la cible fait 44 px. C'est le
+              MÊME geste que le « ← Retour » d'avant, au même endroit. */}
+          {onFerme && (barreActions
+            ? (
+              <button type="button" className="cnv-retour" aria-label="Retour à la liste" title="Retour à la liste"
+                onClick={onFerme}>
+                <span aria-hidden="true">←</span>
+              </button>
+            )
+            : <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme}>← Retour</button>)}
           {fil.reference && <span className="cnv-ref">{fil.reference}</span>}
           {fil.etat === 'sans_suite' && <span className="cnv-etiquette">classé sans suite</span>}
+
+          {/* ══ LES ACTIONS, EN CLAIR (plein écran seulement) ═══════════════════════════════════════════════════════
+              Elles appellent les MÊMES routes que le menu « ⋯ », qui reste en place juste à côté avec les mêmes
+              entrées : rien n'a été déplacé hors de portée, on a seulement sorti les gestes du menu. */}
+          {barreActions && (
+            <span className="cnv-actions">
+              {!rattache && (
+                <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                  onClick={() => (onClassement ? onClassement('existant') : setAffecter(true))}>
+                  {LIBELLE_CLASSER}
+                </button>
+              )}
+              {rattache && (
+                <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                  onClick={() => (onClassement ? onClassement('existant') : setAffecter(true))}>
+                  Déplacer
+                </button>
+              )}
+              <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                onClick={() => (onClassement ? onClassement('nouveau') : setAffecter(true))}>
+                Créer un événement
+              </button>
+              {rattache && (
+                <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                  onClick={() => void geste(`/api/admin/gestion/fils/${fil.filId}/affectation`, 'DELETE',
+                    'Échange détaché : il est revenu dans la file, avec tous ses messages.', onGeste, () => void recharger())}>
+                  Détacher
+                </button>
+              )}
+              {fil.etat === 'a_classer' ? (
+                <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                  onClick={() => void geste(`/api/admin/gestion/fils/${fil.filId}/sans-suite`, 'POST',
+                    'Échange classé sans suite. Il reviendra dans la file si un nouveau message y arrive.', onGeste, () => void recharger())}>
+                  Classer sans suite
+                </button>
+              ) : (
+                <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                  onClick={() => void geste(`/api/admin/gestion/fils/${fil.filId}/sans-suite`, 'DELETE',
+                    'Échange rouvert : il est revenu dans la file.', onGeste, () => void recharger())}>
+                  Rouvrir
+                </button>
+              )}
+            </span>
+          )}
+
           <span className="cnv-menu">
             <MenuDiscret titre="Actions sur cet échange" entrees={[
               // LOT 5-FUSION-B — « Classer dans une carte » remplace « Affecter » ici aussi : un seul mot pour un
               //   seul geste, dans tout le module. La route et le journal sont inchangés.
-              ...(rattache ? [] : [{ libelle: `${LIBELLE_CLASSER}…`, onChoisir: () => setAffecter(true) }]),
+              ...(rattache ? [] : [{ libelle: `${LIBELLE_CLASSER}…`, onChoisir: () => (onClassement ? onClassement('existant') : setAffecter(true)) }]),
               ...(rattache ? [{
                 libelle: 'Détacher l’échange',
                 discrete: true,
                 onChoisir: () => void geste(`/api/admin/gestion/fils/${fil.filId}/affectation`, 'DELETE',
-                  'Échange détaché : il est revenu dans la file, avec tous ses messages.', onGeste),
+                  'Échange détaché : il est revenu dans la file, avec tous ses messages.', onGeste, () => void recharger()),
               }] : []),
               ...(fil.etat === 'a_classer' ? [{
                 libelle: 'Classer sans suite',
                 discrete: true,
                 onChoisir: () => void geste(`/api/admin/gestion/fils/${fil.filId}/sans-suite`, 'POST',
-                  'Échange classé sans suite. Il reviendra dans la file si un nouveau message y arrive.', onGeste),
+                  'Échange classé sans suite. Il reviendra dans la file si un nouveau message y arrive.', onGeste, () => void recharger()),
               }] : [{
                 libelle: 'Rouvrir l’échange',
                 onChoisir: () => void geste(`/api/admin/gestion/fils/${fil.filId}/sans-suite`, 'DELETE',
-                  'Échange rouvert : il est revenu dans la file.', onGeste),
+                  'Échange rouvert : il est revenu dans la file.', onGeste, () => void recharger()),
               }]),
             ]} />
           </span>
@@ -386,6 +460,17 @@ const CSS_CONVERSATION = `
 .cnv-bandeau{display:flex;flex-direction:column;gap:6px;padding-bottom:10px;border-bottom:1px solid var(--color-svv-line)}
 .cnv-bandeau-haut{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .cnv-menu{margin-left:auto}
+/* ── LOT 5-GMAIL : LA BARRE D'ACTIONS ───────────────────────────────────────────────────────────────────────────── */
+/* Elle COLLE en haut : sur une conversation de cent messages, les actions doivent rester sous la main sans remonter. */
+.cnv-bandeau--barre{position:sticky;top:0;z-index:3;background:var(--color-svv-surface);padding-top:6px}
+/* La flèche de retour : une CIBLE de 44 px, un libellé accessible, et un contour au focus bien visible. Un glyphe
+   seul n'est pas un bouton : c'est son libellé accessible qui le rend utilisable au lecteur d'écran. */
+.cnv-retour{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0;
+  font-size:20px;line-height:1;color:var(--color-svv-ink);background:transparent;border:1px solid transparent;
+  border-radius:.5rem;cursor:pointer}
+.cnv-retour:hover{background:var(--color-svv-field);border-color:var(--color-svv-line)}
+.cnv-retour:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.cnv-actions{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
 .cnv-ref{font-weight:700;font-size:.85rem;color:var(--color-svv-green-ink)}
 .cnv-etiquette{font-size:.75rem;font-weight:700;padding:.15rem .5rem;border:1px solid var(--color-svv-line-strong);border-radius:.5rem;color:var(--color-svv-muted)}
 .cnv-titre{margin:0;font-size:1.05rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}

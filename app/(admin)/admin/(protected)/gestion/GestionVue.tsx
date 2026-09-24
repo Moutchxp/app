@@ -11,6 +11,7 @@ import {
   type EtatEcranUrl,
 } from '../../../../lib/gestion/ecranUrl';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
+import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
 import { useReleveGestion } from './useReleveGestion';
 import { PanneauAffecter } from './PanneauAffecter';
 import { CarteVive } from './CarteVive';
@@ -58,7 +59,14 @@ type Chargement = { etat: 'charge' } | { etat: 'ok'; data: EtatEcran } | { etat:
  * à quelqu'un d'autre. On empile une entrée d'historique quand l'écran CHANGE, on remplace sinon — sans quoi trois
  * clics sur la même étiquette demanderaient trois « Précédent ».
  */
-export function GestionVue() {
+export function GestionVue({ intro }: {
+  /**
+   * LOT 5-GMAIL — la phrase de description du module. En plein écran, l'en-tête de la page est COMPACTÉ sur une
+   * ligne : la phrase passe alors dans une info-bulle CLIQUABLE (jamais au survol seul). Elle vient de la page, qui
+   * la donne aussi à `EnTetePage` — une seule phrase, deux endroits, aucune divergence possible.
+   */
+  intro?: string;
+}) {
   const [vue, setVue] = useState<Chargement>({ etat: 'charge' });
   // Instant de référence des « il y a … », figé au rendu et rafraîchi avec les données. JAMAIS calculé pendant le rendu
   //   d'une ligne : deux lignes d'une même page doivent parler du même « maintenant ».
@@ -254,9 +262,20 @@ export function GestionVue() {
   return (
     <>
       <style>{CSS_GESTION}</style>
+      <style>{INFOBULLE_CSS}</style>
 
-      {/* BANDEAU D'ÉTAT — toujours présent : un outil qui dit depuis quand il n'a pas regardé reste honnête. */}
-      <div className="gst-bandeau" role="status">
+      {/* BANDEAU D'ÉTAT — toujours présent : un outil qui dit depuis quand il n'a pas regardé reste honnête.
+          LOT 5-GMAIL — en PLEIN ÉCRAN il devient une ligne compacte qui porte AUSSI le titre du module et sa phrase
+          de description (dans une info-bulle cliquable), parce que l'en-tête de page, lui, est replié pour rendre sa
+          hauteur à la liste. Rien n'est perdu : ni le titre, ni la phrase, ni l'heure de la dernière relève, ni les
+          deux boutons — ce sont exactement les mêmes, sur une ligne au lieu de trois. */}
+      <div className={`gst-bandeau${ecran === 'partage' ? '' : ' gst-bandeau--compact'}`} role="status">
+        {ecran !== 'partage' && (
+          <span className="gst-bandeau-titre">
+            Gestion
+            {intro && <InfoBulle libelle="Le module Gestion" texte={intro} cible="gestion-intro" />}
+          </span>
+        )}
         <span>{messageReleve(d, ref)}</span>
         <span className="gst-actions">
           <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={releveEnCours}
@@ -514,6 +533,15 @@ export function CarteEv({ carte, maintenant }: { carte: CarteEvenement; maintena
 
 const CSS_GESTION = `
 /* DEUX CÔTÉS au-dessus de 900 px ; UNE colonne en dessous, la file d'abord — par l'ordre du DOM, jamais par un order CSS. */
+/* ── LOT 5-GMAIL : LA PAGE, ET SON EN-TÊTE REPLIÉ EN PLEIN ÉCRAN ───────────────────────────────────────────────── */
+/* La largeur de confort de l'écran partagé ; en plein écran, la boîte prend toute la place disponible. */
+.gst-page{max-width:1120px}
+:root[data-gst-plein="1"] .gst-page{max-width:none}
+/* L'en-tête de page (titre + phrase) se replie : son titre et sa phrase repassent dans le bandeau compact, qui les
+   porte l'un à côté de l'autre. Rien n'est retiré — c'est un déménagement, et il est réversible au clic sur retour. */
+:root[data-gst-plein="1"] .svv-page-head{display:none}
+.gst-bandeau--compact{padding:6px 10px;margin-bottom:.6rem;gap:.5rem}
+.gst-bandeau-titre{display:inline-flex;align-items:center;gap:.4rem;font-size:15px;font-weight:700;color:var(--color-svv-ink)}
 /* LOT 5-FUSION — L'EN-TÊTE D'UNE COLONNE : son titre, et son bouton « Plein écran » au bout. Il passe à la ligne sur
    téléphone plutôt que de comprimer le titre — un bouton de 44 px et un titre lisible ne tiennent pas sur 320 px. */
 .gst-entete-col{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem;margin:0 0 .5rem}

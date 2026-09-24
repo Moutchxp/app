@@ -237,6 +237,11 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
     await cliquer(container.querySelector('.gst-objet-bouton') as HTMLElement);
     expect(url()).toBe('/admin/gestion?ecran=boite&fil=101');
     expect(container.querySelector('.cnv')).not.toBeNull();       // la vue conversation du lot 5b, pas une autre
-    expect(boutonPar(/← Retour/)).toBeDefined();
+    // LOT 5-GMAIL — « ← Retour » est devenu la FLÈCHE de la barre d'actions : même geste, libellé accessible écrit.
+    const retour = container.querySelector('button[aria-label="Retour à la liste"]') as HTMLButtonElement;
+    expect(retour).not.toBeNull();
+    expect(retour.getBoundingClientRect).toBeDefined();
+    // …et la liste est MASQUÉE, pas démontée : elle garde ses pages et sa recherche pour le retour.
+    expect(container.querySelector('.pe-liste')?.hasAttribute('hidden')).toBe(true);
   });
 });

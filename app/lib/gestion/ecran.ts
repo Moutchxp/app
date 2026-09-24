@@ -203,3 +203,14 @@ export function dateHeureComplete(iso: string | null | undefined): string {
  * manifeste par un composant « undefined » au premier rendu, longtemps après le commit (cf. `gestesMail.tsx`).
  */
 export const LIBELLE_CLASSER = 'Classer dans une carte';
+
+/**
+ * LOT 5-GMAIL — LA PHRASE DE DESCRIPTION DU MODULE, une seule fois. Elle s'affiche en toutes lettres sous le titre
+ * dans l'écran partagé (`EnTetePage`), et dans une info-bulle CLIQUABLE quand le plein écran compacte l'en-tête.
+ *
+ * ⚠️ Elle vit ICI et non dans la page : deux copies de la même phrase divergent au premier mot changé, et c'est
+ * toujours celle qu'on lit le moins qui garde l'ancienne version.
+ */
+export const INTRO_GESTION =
+  'Courrier de gestion locative : à gauche les échanges à classer, à droite les événements. Un événement est une '
+  + 'demande qui attend une réponse de notre part, quel qu’en soit l’auteur.';

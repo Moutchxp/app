@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers';
 import { NOM_COOKIE, verifierJeton, sessionDepuisPayload } from '../../../../lib/admin/session';
 import { EnTetePage } from '../_composants/EnTetePage';
+import { INTRO_GESTION } from '../../../../lib/gestion/ecran';
 import { GestionVue } from './GestionVue';
 
 /**
@@ -20,13 +21,12 @@ export default async function GestionPage() {
   const session = payload ? sessionDepuisPayload(payload) : null;
   const autorise = session?.perms.gestion === true;
 
+  // LOT 5-GMAIL — une CLASSE, plus une largeur en dur dans l'attribut `style` : en plein écran la boîte doit pouvoir
+  //   prendre toute la place, et une largeur inline ne se laisse pas surcharger par une feuille de style.
   return (
-    <section style={{ maxWidth: 1120 }}>
-      <EnTetePage
-        titre="Gestion"
-        intro="Courrier de gestion locative : à gauche les échanges à classer, à droite les événements. Un événement est une demande qui attend une réponse de notre part, quel qu’en soit l’auteur."
-      />
-      {autorise ? <GestionVue /> : (
+    <section className="gst-page">
+      <EnTetePage titre="Gestion" intro={INTRO_GESTION} />
+      {autorise ? <GestionVue intro={INTRO_GESTION} /> : (
         <div className="svv-card" style={{ color: 'var(--color-svv-muted)' }}>
           Cet espace est réservé aux comptes disposant du droit « Gestion ».
         </div>
