@@ -46,6 +46,17 @@ export function deplacementsDeMailsDisponibles(): Promise<boolean> {
   return memoiser('affectation.message_id', () => colonneExiste('gestion_affectation', 'message_id'));
 }
 
+/**
+ * La migration 235 est-elle appliquée ? Elle seule permet d'écrire les destinataires SÉPARÉS (À / Cc / Cci / Reply-To).
+ * Tant qu'elle ne l'est pas, la capture se comporte exactement comme avant : elle remplit `destinataires` (To et Cc
+ * fondus) et `nb_destinataires`, et n'écrit aucune des quatre colonnes nouvelles.
+ *
+ * On sonde `dest_a`, jamais les quatre : la migration les crée dans UNE transaction, elles arrivent donc ensemble.
+ */
+export function destinatairesSeparesDisponibles(): Promise<boolean> {
+  return memoiser('message.dest_a', () => colonneExiste('gestion_message', 'dest_a'));
+}
+
 /** Pour les tests : oublie ce qu'on croyait savoir du schéma. N'a aucun effet en production, où rien ne l'appelle. */
 export function oublierSchema(): void {
   cache.clear();

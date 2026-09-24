@@ -309,6 +309,39 @@ describe('préparation d’un message — ce qui sera écrit', () => {
     expect(p.automatique).toBe(false);
     expect(p.signauxAutomatisme).toBeNull();
   });
+
+  /**
+   * LOT 5-0 — les destinataires séparés sont lus des en-têtes DÉJÀ TÉLÉCHARGÉS : la préparation ne coûte pas un octet
+   * de réseau, et c'est ce qui permet au rapatriement en cours d'arriver complet sans rien relire.
+   */
+  it('sépare À / Cc / Cci / Reply-To depuis les en-têtes déjà là, sans rien retélécharger', () => {
+    const p = preparerMessage(message({
+      uid: 1,
+      entetes: {
+        to: '=?UTF-8?Q?Ga=C3=ABlle?= <g@d.fr>, "Dupont, Jean" <j@d.fr>',
+        cc: 'compta@adhoc.fr',
+        'reply-to': 'gestion@criterimmo.fr',
+      },
+    }), config, []);
+    expect(p.destinatairesSepares.a).toEqual([
+      { nom: 'Gaëlle', adresse: 'g@d.fr' },
+      { nom: 'Dupont, Jean', adresse: 'j@d.fr' }, // la virgule du nom n'a pas créé un 3ᵉ destinataire
+    ]);
+    expect(p.destinatairesSepares.cc).toEqual([{ nom: null, adresse: 'compta@adhoc.fr' }]);
+    expect(p.destinatairesSepares.cci).toEqual([]);
+    expect(p.destinatairesSepares.repondreA).toEqual([{ nom: null, adresse: 'gestion@criterimmo.fr' }]);
+  });
+
+  it('aucun en-tête de destinataire → QUATRE listes vides (« on a regardé »), jamais une absence', () => {
+    const p = preparerMessage(message({ uid: 1, entetes: {} }), config, []);
+    expect(p.destinatairesSepares).toEqual({ a: [], cc: [], cci: [], repondreA: [] });
+  });
+
+  it('la colonne `destinataires` d’avant (To et Cc fondus) reste calculée à l’identique, à côté', () => {
+    const p = preparerMessage(message({ uid: 1, destinataires: 'gestion@criterimmo.fr', nbDestinataires: 1 }), config, []);
+    expect(p.destinataires).toBe('gestion@criterimmo.fr');
+    expect(p.nbDestinataires).toBe(1);
+  });
 });
 
 describe('garantie STATIQUE — ce module ne fait aucune I/O', () => {

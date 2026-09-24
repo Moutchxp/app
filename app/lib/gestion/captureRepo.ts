@@ -9,7 +9,7 @@
  */
 import type { PoolClient } from 'pg';
 import { pool, query, withTransaction } from '../db/client';
-import { deplacementsDeMailsDisponibles } from './schema';
+import { deplacementsDeMailsDisponibles, destinatairesSeparesDisponibles } from './schema';
 import { chargerConfigGestion, type ConfigGestion } from './config';
 import type { DepsCapture, MessageAEcrire, MessageBrut, PieceBrute, FilResolu } from './capture';
 import type { RegleExclusion } from './regles';
@@ -185,6 +185,7 @@ export async function resoudreFil(identifiants: string[], cleRacine: string, obj
  */
 export async function ecrireMessage(
   m: MessageAEcrire, filId: number, uidValidite: string | null = null, avecUid = true, avecDeplacements = false,
+  avecDestinatairesSepares = false,
 ): Promise<number | null> {
   return withTransaction(async (q) => {
     const colonnes = `fil_id, message_id, in_reply_to, references_brut, sens, de_adresse, de_nom, destinataires, nb_destinataires,
@@ -195,17 +196,31 @@ export async function ecrireMessage(
     const params = [filId, m.messageId, m.inReplyTo, m.referencesBrut, m.sens, m.deAdresse, m.deNom, m.destinataires, m.nbDestinataires,
        m.objet, m.objetGabarit, m.recuLe, m.corpsTexte, m.corpsHtml, m.automatique, m.signauxAutomatisme,
        m.exclusion?.regleId ?? null, m.exclusion?.motif ?? null];
-    // LOT 4a — le choix est fait AVANT d'entrer ici (cf. `colonnesUidPresentes`) : on n'essaie JAMAIS une écriture qu'on
-    //   sait vouée à l'échec. Tenter puis se rabattre était impossible — la première erreur aborte la transaction.
+
+    // LOT 5-0 — les quatre listes séparées, en JSON. Toujours des TABLEAUX, jamais `null` : ici on SAIT (on vient de
+    //   lire les en-têtes). Le `NULL` de la base est réservé aux lignes écrites AVANT ce lot, qu'une passe ultérieure
+    //   pourra reconnaître d'un simple `WHERE dest_a IS NULL` et compléter sans retélécharger un seul corps de mail.
+    const d = m.destinatairesSepares;
+    const separes = avecDestinatairesSepares
+      ? { colonnes: ', dest_a, dest_cc, dest_cci, repondre_a', params: [JSON.stringify(d.a), JSON.stringify(d.cc), JSON.stringify(d.cci), JSON.stringify(d.repondreA)] }
+      : { colonnes: '', params: [] as string[] };
+
+    // LOT 4a — le choix est fait AVANT d'entrer ici (cf. `colonnesUidPresentes`, `destinatairesSeparesDisponibles`) :
+    //   on n'essaie JAMAIS une écriture qu'on sait vouée à l'échec. Tenter puis se rabattre était impossible — la
+    //   première erreur aborte la transaction.
+    const n = params.length;
+    const placeSepares = separes.params.map((_, i) => `$${n + i + 1}::jsonb`).join(', ');
+    const apresSepares = n + separes.params.length;
     const { rows } = avecUid
       ? await q<{ id: number }>(
-          `INSERT INTO gestion_message (${colonnes}, uid_imap, uid_validity)
-           VALUES (${valeurs}, $19::bigint, $20::bigint)
+          `INSERT INTO gestion_message (${colonnes}${separes.colonnes}, uid_imap, uid_validity)
+           VALUES (${valeurs}${placeSepares === '' ? '' : `, ${placeSepares}`}, $${apresSepares + 1}::bigint, $${apresSepares + 2}::bigint)
            ON CONFLICT (message_id) DO NOTHING RETURNING id::int AS id`,
-          [...params, m.uidImap, uidValidite])
+          [...params, ...separes.params, m.uidImap, uidValidite])
       : await q<{ id: number }>(
-          `INSERT INTO gestion_message (${colonnes}) VALUES (${valeurs})
-           ON CONFLICT (message_id) DO NOTHING RETURNING id::int AS id`, params);
+          `INSERT INTO gestion_message (${colonnes}${separes.colonnes})
+           VALUES (${valeurs}${placeSepares === '' ? '' : `, ${placeSepares}`})
+           ON CONFLICT (message_id) DO NOTHING RETURNING id::int AS id`, [...params, ...separes.params]);
     if (!rows[0]) return null; // déjà écrit : aucun doublon, aucune erreur
 
     if (m.exclusion === null) {
@@ -397,7 +412,10 @@ export function depsReellesCapture(clientCourant: () => ClientDossier): DepsCapt
     bornes: lireBornes,
     resoudreFil,
     ecrire: async (m, filId) => ecrireMessage(
-      m, filId, clientCourant().uidValidite?.() ?? null, await colonnesUid(), await deplacementsDeMailsDisponibles()),
+      m, filId, clientCourant().uidValidite?.() ?? null, await colonnesUid(), await deplacementsDeMailsDisponibles(),
+      // LOT 5-0 — sonde mémorisée pour la vie du processus (schema.ts), posée HORS transaction : une migration en
+      //   attente ne doit jamais faire échouer une passe, seulement lui faire écrire le SQL d'avant.
+      await destinatairesSeparesDisponibles()),
     deposerPieces: deposerPiecesMessage,
   };
 }

@@ -39,11 +39,13 @@ vi.mock('../db/client', () => ({
 import { colonnesUidPresentes, ecrireMessage } from './captureRepo';
 import type { MessageAEcrire } from './capture';
 
-const message = (): MessageAEcrire => ({
+const message = (o: Partial<MessageAEcrire> = {}): MessageAEcrire => ({
   uidImap: 42, messageId: '<a@x.fr>', inReplyTo: null, referencesBrut: null, sens: 'recu',
   deAdresse: 'a@x.fr', deNom: null, destinataires: null, nbDestinataires: 0, objet: 'o', objetGabarit: 'o',
   recuLe: new Date('2026-09-20T08:00:00Z'), corpsTexte: null, corpsHtml: null,
   automatique: false, signauxAutomatisme: null, exclusion: null,
+  destinatairesSepares: { a: [], cc: [], cci: [], repondreA: [] },
+  ...o,
 });
 const sqls = () => queryMock.mock.calls.map((c) => c[0]).filter((t): t is string => typeof t === 'string');
 
@@ -155,6 +157,86 @@ describe('les autres replis de migration sont, eux, HORS transaction — donc va
  * rapatriement d'HISTORIQUE (des dizaines de milliers d'un coup, ≈ 300 Ko), elle dépasse ce que les serveurs acceptent —
  * et le rattrapage échouerait AVANT d'avoir lu le moindre message.
  */
+/**
+ * LOT 5-0 — LES DESTINATAIRES SÉPARÉS. La migration 235 est LIVRÉE NON APPLIQUÉE : entre la livraison et son passage,
+ * le code tourne sur un schéma plus ancien que lui. Une écriture qui nommerait `dest_a` avant sa création ferait
+ * échouer la capture AU PREMIER MESSAGE — exactement l'incident du lot 4a, et pour la même raison (la première erreur
+ * ABORTE la transaction, le repli est impossible après coup). D'où le choix fait AVANT, hors transaction.
+ *
+ * On teste le COMPORTEMENT — quelles colonnes sont nommées, quels paramètres sont LIÉS — jamais la forme exacte du SQL.
+ */
+describe('LOT 5-0 — écrire les destinataires séparés, ou pas, selon ce que la base sait faire', () => {
+  const avecMonde = () => message({
+    destinatairesSepares: {
+      a: [{ nom: 'Gaëlle François', adresse: 'g@d.fr' }, { nom: null, adresse: 'm@d.fr' }],
+      cc: [{ nom: 'Comptabilité', adresse: 'compta@adhoc.fr' }],
+      cci: [],
+      repondreA: [{ nom: null, adresse: 'gestion@criterimmo.fr' }],
+    },
+  });
+  /** SQL normalisé (espaces resserrés) : on y cherche des FRAGMENTS de sens, jamais une forme figée. */
+  const sqlNormalise = () => sqls().map((s) => s.replace(/\s+/g, ' '));
+
+  it('🔴 SCHÉMA ANCIEN (235 non appliquée) : aucune des quatre colonnes n’est nommée, et le message passe', async () => {
+    queryMock.mockResolvedValue({ rows: [{ id: 7 }] });
+    expect(await ecrireMessage(avecMonde(), 1, null, false, false, false)).toBe(7);
+    const sql = sqlNormalise()[0];
+    for (const c of ['dest_a', 'dest_cc', 'dest_cci', 'repondre_a']) expect(sql).not.toContain(c);
+    expect(queryMock.mock.calls[0][1]).toHaveLength(18); // les 18 paramètres d'avant, ni plus ni moins
+  });
+
+  it('SCHÉMA À JOUR : les quatre colonnes sont écrites, en JSON, comme paramètres LIÉS', async () => {
+    queryMock.mockResolvedValue({ rows: [{ id: 7 }] });
+    await ecrireMessage(avecMonde(), 1, null, false, false, true);
+    const sql = sqlNormalise()[0];
+    expect(sql).toContain('dest_a, dest_cc, dest_cci, repondre_a');
+    const params = queryMock.mock.calls[0][1] as unknown[];
+    expect(params).toHaveLength(22); // 18 + les 4 listes
+    expect(JSON.parse(params[18] as string)).toEqual([
+      { nom: 'Gaëlle François', adresse: 'g@d.fr' }, { nom: null, adresse: 'm@d.fr' },
+    ]);
+    expect(JSON.parse(params[19] as string)).toEqual([{ nom: 'Comptabilité', adresse: 'compta@adhoc.fr' }]);
+    expect(JSON.parse(params[20] as string)).toEqual([]);   // Cci connu, et vide — pas la même chose que NULL
+    expect(JSON.parse(params[21] as string)).toEqual([{ nom: null, adresse: 'gestion@criterimmo.fr' }]);
+  });
+
+  it('les destinataires séparés cohabitent avec les colonnes d’UID, sans se marcher dessus', async () => {
+    queryMock.mockResolvedValue({ rows: [{ id: 7 }] });
+    await ecrireMessage(avecMonde(), 1, '987654321', true, false, true);
+    const params = queryMock.mock.calls[0][1] as unknown[];
+    expect(params).toHaveLength(24);        // 18 + 4 listes + uid + uidvalidity
+    expect(params[22]).toBe(42);            // l'UID reste le dernier couple, à sa place
+    expect(params[23]).toBe('987654321');
+    expect(sqlNormalise()[0]).toContain('repondre_a, uid_imap, uid_validity');
+  });
+
+  it('avec UID mais SANS la 235 : rien ne bouge par rapport à hier', async () => {
+    queryMock.mockResolvedValue({ rows: [{ id: 7 }] });
+    await ecrireMessage(avecMonde(), 1, '987654321', true, false, false);
+    const params = queryMock.mock.calls[0][1] as unknown[];
+    expect(params).toHaveLength(20);
+    expect(params[19]).toBe('987654321');
+    expect(sqlNormalise()[0]).toContain('uid_imap, uid_validity');
+    expect(sqlNormalise()[0]).not.toContain('dest_a');
+  });
+
+  it('le DÉFAUT est le schéma ancien : un appelant qui ne dit rien n’écrit jamais les nouvelles colonnes', async () => {
+    queryMock.mockResolvedValue({ rows: [{ id: 7 }] });
+    await ecrireMessage(avecMonde(), 1, null, false);
+    expect(sqlNormalise()[0]).not.toContain('dest_a');
+  });
+
+  it('`destinataires` (To et Cc fondus) continue d’être écrit, à côté — rien n’est retiré', async () => {
+    queryMock.mockResolvedValue({ rows: [{ id: 7 }] });
+    await ecrireMessage(message({ destinataires: 'j@d.fr, c@d.fr', nbDestinataires: 2 }), 1, null, false, false, true);
+    const sql = sqlNormalise()[0];
+    expect(sql).toContain('destinataires, nb_destinataires');
+    const params = queryMock.mock.calls[0][1] as unknown[];
+    expect(params[7]).toBe('j@d.fr, c@d.fr');
+    expect(params[8]).toBe(2);
+  });
+});
+
 describe('LOT R — l’étage des enveloppes est découpé en lots', () => {
   it('50 000 UID ne partent JAMAIS en une seule commande — mais le résultat est celui d’une seule', async () => {
     const { filtrerNonVus } = await import('./captureRepo');

@@ -16,6 +16,7 @@
  *    avec les messages déjà capturés (passes tronquées) — donc toujours.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+import { destinatairesSepares, type DestinatairesSepares } from './adresses';
 import { ErreurConnexion } from './clientSurveille';
 import type { ConfigGestion } from './config';
 import { cleDuFil, identifiantsMessage, pourComparaison } from './fil';
@@ -63,6 +64,12 @@ export interface MessageAEcrire {
   deNom: string | null;
   destinataires: string | null;
   nbDestinataires: number;
+  /**
+   * LOT 5-0 — les destinataires SÉPARÉS, lus dans les en-têtes déjà téléchargés. Toujours calculés (c'est gratuit :
+   * les en-têtes sont là) ; ÉCRITS seulement si la migration 235 est appliquée — c'est le dépôt qui en décide, jamais
+   * cette structure. `destinataires` (To et Cc fondus) continue d'être rempli à l'identique, à côté.
+   */
+  destinatairesSepares: DestinatairesSepares;
   objet: string | null;
   objetGabarit: string;
   recuLe: Date;
@@ -274,6 +281,10 @@ export function preparerMessage(m: MessageBrut, config: ConfigGestion, regles: r
     messageId: m.messageId, inReplyTo: m.inReplyTo,
     referencesBrut: m.references.length > 0 ? m.references.join(' ') : null,
     sens, deAdresse: m.deAdresse, deNom: m.deNom, destinataires: m.destinataires, nbDestinataires: m.nbDestinataires,
+    // LOT 5-0 — les en-têtes sont DÉJÀ LÀ (ils servent aux règles et à l'indice d'automatisme) : les lire ne coûte
+    //   aucun octet réseau. C'est ce qui permet au rapatriement en cours d'arriver avec ses destinataires séparés
+    //   sans rien retélécharger.
+    destinatairesSepares: destinatairesSepares(m.entetes),
     objet: m.objet, objetGabarit: normaliserObjet(m.objet), recuLe: m.recuLe,
     corpsTexte: m.corpsTexte, corpsHtml: m.corpsHtml,
     automatique: indice.automatique,
