@@ -34,33 +34,12 @@ export const MAX_RESULTATS = 30;
 const MAX_MOTS = 6;
 const MAX_LONGUEUR_MOT = 40;
 
-const ACCENTS = 'àâäáãåÀÂÄÁÃÅéèêëÉÈÊËíìîïÍÌÎÏóòôöõÓÒÔÖÕúùûüÚÙÛÜçÇñÑýÿÝ';
-const SANS____ = 'aaaaaaAAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUcCnNyyY';
-
-/**
- * La normalisation, en SQL. `translate` + `lower` : aucune extension, le même résultat partout.
- *
- * LOT 5c — EXPORTÉE (et rien d'autre n'a changé). La recherche dans le courrier doit normaliser EXACTEMENT comme
- * celle des cartes, sans quoi « Marceau » se trouverait ici et pas là. Une seule définition, donc une seule vérité.
- *
- * ⚠️ Ces deux fonctions sont IMMUTABLE pour PostgreSQL — c'est ce qui rend l'expression INDEXABLE (`unaccent`, lui, ne
- * l'est pas sans enrobage). Ne pas les remplacer par `unaccent()` sans refaire l'index du lot 5c.
- */
-export const normSql = (expr: string) => `translate(lower(coalesce(${expr}, '')), '${ACCENTS}', '${SANS____}')`;
+// LOT 5c-fix — la table d'accents et la normalisation vivent désormais dans `rechercheTermes.ts`, un module PUR que le
+//   NAVIGATEUR peut charger. Une seule définition pour les deux côtés de la frontière : sans quoi « Marceau » se
+//   trouverait ici et pas là. Ce fichier-ci reste SERVEUR (il importe `db/client`).
+import { normaliser, normSql } from './rechercheTermes';
+export { normaliser, normSql };
 const norm = normSql;
-
-/**
- * La MÊME normalisation, en TypeScript, pour les mots saisis. Les deux doivent rester d'accord : c'est vérifié par un
- * test qui les compare sur les mêmes chaînes, exécuté contre un vrai PostgreSQL.
- */
-export function normaliser(s: string): string {
-  let out = '';
-  for (const c of s.toLowerCase()) {
-    const i = ACCENTS.indexOf(c);
-    out += i === -1 ? c : SANS____[i];
-  }
-  return out;
-}
 
 /** Découpe une saisie en mots normalisés, bornés. Vide si la saisie ne contient rien d'exploitable. PUR. */
 export function motsDe(saisie: string): string[] {

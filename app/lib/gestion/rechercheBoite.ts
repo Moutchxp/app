@@ -18,7 +18,16 @@
 import { query } from '../db/client';
 import type { CurseurBoite, LigneBoite, PageBoite } from './boiteRepo';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
-import { normaliser, normSql } from './recherche';
+import { decouperTermes, normaliser, normSql, type CritereRecherche } from './rechercheTermes';
+
+/**
+ * 🔴 CE FICHIER EST STRICTEMENT SERVEUR : il importe `db/client`, donc le pilote `pg`, donc `dns`. Un composant client
+ * qui l'importerait ferait échouer la construction de TOUTE l'application (incident du 24/09/2026). Ce dont le
+ * navigateur a besoin — découpage de la saisie, normalisation des accents, types — vit dans `rechercheTermes.ts`,
+ * qui n'importe rien. RÉEXPORTÉ ici pour les appelants SERVEUR, jamais à importer depuis un `'use client'`.
+ */
+export { decouperTermes, rechercheUtile } from './rechercheTermes';
+export type { Terme, CritereRecherche } from './rechercheTermes';
 
 /** Combien de résultats par page. Même pas que la boîte : on passe de l'une à l'autre sans changer de rythme. */
 export const PAGE_RECHERCHE = 30;
@@ -55,54 +64,6 @@ const TEXTE_CHERCHABLE = normSql(
         coalesce(m.destinataires, '') || ' ' ||
         coalesce(m.dest_a::text, '') || ' ' || coalesce(m.dest_cc::text, '')`,
 );
-
-/** Ce qu'on cherche. Tous les champs sont facultatifs ; tout ce qui est fourni se COMBINE (ET). */
-export interface CritereRecherche {
-  /** La saisie, telle quelle. Les guillemets y font une expression exacte, comme dans une messagerie. */
-  saisie: string;
-  /** Bornes de période, en ISO (`YYYY-MM-DD`). Incluses toutes les deux. */
-  du?: string | null;
-  au?: string | null;
-  /** Fragment d'adresse ou de nom d'expéditeur. */
-  expediteur?: string | null;
-  /** Comme dans la liste : écarté par défaut, ramené sur demande. */
-  inclureAutomatiques?: boolean;
-}
-
-/** Un terme cherché : un mot, ou une expression entre guillemets. */
-export interface Terme { texte: string; exact: boolean }
-
-/**
- * DÉCOUPE LA SAISIE en termes, comme le ferait une messagerie : ce qui est entre guillemets reste ensemble, le reste se
- * découpe aux espaces. Les termes sont NORMALISÉS (minuscules, accents retirés) — la même normalisation que celle de
- * l'index et que celle des cartes, donc « Marceau », « marceau » et « MARCEAU » sont un seul et même mot.
- *
- * Sert à DEUX choses : le mode réduit (un `LIKE` par terme) et la mise en évidence à l'écran. Le mode plein texte, lui,
- * confie la saisie entière à `websearch_to_tsquery`. PUR.
- */
-export function decouperTermes(saisie: string): Terme[] {
-  const termes: Terme[] = [];
-  // Les guillemets d'abord : ce qu'ils entourent ne se découpe pas.
-  const reste = saisie.replace(/"([^"]*)"/g, (_, contenu: string) => {
-    const t = normaliser(contenu).trim();
-    if (t !== '') termes.push({ texte: t, exact: true });
-    return ' ';
-  });
-  for (const mot of normaliser(reste).split(/\s+/)) {
-    const t = mot.trim();
-    // Un mot d'une seule lettre ne filtre rien et ferait balayer toute la table pour rien.
-    if (t.length >= 2) termes.push({ texte: t, exact: false });
-  }
-  // Borne de sûreté : au-delà, on n'affine plus une recherche, on fabrique une requête coûteuse.
-  return termes.slice(0, 8);
-}
-
-/** Y a-t-il quelque chose à chercher ? Une saisie vide ou faite d'un seul caractère ne lance aucune requête. PUR. */
-export function rechercheUtile(c: CritereRecherche): boolean {
-  return decouperTermes(c.saisie).length > 0
-    || (c.expediteur ?? '').trim() !== ''
-    || (c.du ?? '') !== '' || (c.au ?? '') !== '';
-}
 
 /** Une ligne de résultat : la même forme qu'une ligne de boîte, plus le message qui a fait mouche. */
 export interface LigneResultat extends LigneBoite {

@@ -23,6 +23,14 @@ This version has breaking changes — APIs, conventions, and file structure may 
   « pré-existant » sans jamais le voir dans un jeu de contrôle.
 - Ne PAS créer d'alias `test:tout` : `npm test` fait déjà exactement ça ; un alias serait une 2e vérité à
   maintenir.
+- 🔴 **`npm test` NE PROUVE PAS QUE LES PAGES SE CONSTRUISENT.** Tout lot qui touche un composant client
+  (`'use client'`) se termine par la preuve curl : `curl -s http://localhost:3000/admin/login` ne doit contenir
+  **ni « Module not found » ni « Build Error »**. Précédent qui la justifie : le 24/09/2026, un composant client
+  importait un module qui tire `pg` → `dns` ; webpack a refusé de construire, **toute** l'application est tombée
+  (page de connexion comprise) — avec 8 800 tests au vert. Le garde de graphe
+  `app/lib/garde/clientBoundary.guard.test.ts` attrape désormais ce cas dans la suite ; la preuve curl reste le
+  contrôle de dernier recours, parce qu'elle seule exerce le vrai bundler.
+
 - **Suite rouge par intermittence ?** Consulter `docs/FLAKES_CONNUS.md` (registre des flakes connus avec
   leur niveau de preuve) AVANT de diagnostiquer : un échec déjà instruit — et ses pistes déjà réfutées — y
   figure, avec la conduite à tenir (p. ex. le flake `certificatPdf.test.ts` dumpe ses buffers dans tmpdir).

@@ -244,10 +244,31 @@ describe('garanties STATIQUES', () => {
     expect(/INSERT INTO|UPDATE\s+gestion_|DELETE\s+FROM|withTransaction/i.test(code)).toBe(false);
   });
 
-  it('la normalisation des accents est celle du module, pas une copie', () => {
+  it('la normalisation des accents est celle du module PARTAGÉ, pas une copie', () => {
     const src = readFileSync('app/lib/gestion/rechercheBoite.ts', 'utf8');
-    expect(src).toContain("from './recherche'");
-    // Aucune table d'accents recopiée ici : une seconde copie divergerait un jour.
+    // LOT 5c-fix — elle vient désormais de `rechercheTermes`, le module PUR que le navigateur peut aussi charger :
+    //   une seule table d'accents pour les deux côtés de la frontière, sinon « Marceau » se trouverait d'un seul côté.
+    expect(src).toContain("from './rechercheTermes'");
     expect(src).not.toContain('àâäáãå');
+  });
+
+  /**
+   * 🔴 LOT 5c-fix — LA FRONTIÈRE CLIENT / SERVEUR, après l'incident du 24/09/2026 : ce fichier porte le SQL, donc `pg`,
+   * donc `dns`. Un composant `'use client'` qui l'importe fait échouer la construction de TOUTE l'application.
+   * Le garde de graphe (`clientBoundary.guard.test.ts`) le prouve sur le dépôt entier ; ces deux-ci disent l'intention
+   * à l'endroit où quelqu'un serait tenté de refaire l'erreur.
+   */
+  describe('la frontière client / serveur', () => {
+    it('le module PUR n’importe RIEN — c’est ce qui le rend chargeable par le navigateur', () => {
+      const pur = readFileSync('app/lib/gestion/rechercheTermes.ts', 'utf8');
+      expect(pur.split('\n').filter((l) => /^\s*import\b/.test(l))).toEqual([]);
+    });
+
+    it('le composant de la boîte importe le module PUR, jamais celui qui porte le SQL', () => {
+      const ecran = readFileSync('app/(admin)/admin/(protected)/gestion/BoiteMail.tsx', 'utf8');
+      expect(ecran).toContain("from '../../../../lib/gestion/rechercheTermes'");
+      // Un `import type` serait effacé à la compilation ; un import de VALEUR, non — c'est celui-là qui a tout cassé.
+      expect(/^\s*import\s+(?!type\b)[^;]*from\s+'[^']*rechercheBoite'/m.test(ecran)).toBe(false);
+    });
   });
 });

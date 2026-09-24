@@ -1,3 +1,23 @@
+/**
+ * 🔴 MODULE STRICTEMENT SERVEUR (ou CLI). Il importe le pilote `pg`, donc `dns` et `net` — que le NAVIGATEUR n'a pas.
+ *
+ * UN SEUL COMPOSANT `'use client'` QUI L'ATTEINT, même indirectement, et webpack refuse de construire la page : « Module
+ * not found: Can't resolve 'dns' ». Et comme la construction échoue, c'est TOUTE l'application qui tombe — l'écran de
+ * connexion compris. C'est arrivé le 24/09/2026 (lot 5c) par un simple import de fonction utilitaire.
+ *
+ * ⚠️ POURQUOI PAS `import 'server-only'` ICI, malgré la convention du dépôt : les SCRIPTS CLI (`app/scripts/*.ts`) ont
+ * légitimement besoin de ce module, et `server-only` les ferait mourir au chargement — c'est précisément ce que le lot
+ * F1 avait eu à réparer, et que `serverOnly.guard.test.ts` surveille depuis. La marque serait donc un remède pire que
+ * le mal.
+ *
+ * LA PROTECTION EST AILLEURS : `app/lib/garde/clientBoundary.guard.test.ts` construit le graphe d'imports réel depuis
+ * TOUS les fichiers `'use client'` et échoue si l'un d'eux remonte jusqu'ici. C'est ce garde, et lui seul, qui regarde
+ * ce que le navigateur devra charger — `npm test` ne construit aucune page.
+ *
+ * CE QU'IL FAUT FAIRE quand un écran a besoin de quelque chose qui vit à côté du SQL : sortir la partie PURE (types,
+ * constantes, fonctions sans I/O) dans un module sans aucun import, et n'atteindre le SQL que par une route API.
+ * Exemple en place : `app/lib/gestion/rechercheTermes.ts` (pur) face à `rechercheBoite.ts` (SQL).
+ */
 import { Pool, QueryResult, QueryResultRow } from "pg";
 import "dotenv/config";
 import { poolContextuel } from "./plafondAnalyse";

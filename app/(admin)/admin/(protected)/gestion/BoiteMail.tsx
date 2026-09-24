@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import type { CurseurBoite, LigneBoite } from '../../../../lib/gestion/boiteRepo';
-import { decouperTermes } from '../../../../lib/gestion/rechercheBoite';
+// 🔴 `rechercheTermes` et NON `rechercheBoite` : le second contient le SQL et tire `pg` → `dns`, que le navigateur
+//   n'a pas. L'importer ici a fait tomber TOUTE l'application le 24/09/2026, page de connexion comprise.
+import { decouperTermes, normaliser } from '../../../../lib/gestion/rechercheTermes';
 import { depuis, formaterDateFr } from '../../../../lib/gestion/ecran';
 import { corpsLisible } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
@@ -45,7 +47,7 @@ export function morceauxMisEnEvidence(texte: string, saisie: string): { t: strin
   if (termes.length === 0) return [{ t: texte, fort: false }];
   // On normalise une COPIE pour chercher, et on découpe l'ORIGINAL aux mêmes positions : les deux ont la même longueur
   //   (`translate` remplace caractère par caractère, il ne change jamais le nombre de lettres).
-  const repere = normaliserPourReperage(texte);
+  const repere = normaliser(texte); // la MÊME normalisation que la base, caractère par caractère
   const marques = new Array<boolean>(texte.length).fill(false);
   for (const t of termes) {
     let i = repere.indexOf(t);
@@ -65,14 +67,6 @@ export function morceauxMisEnEvidence(texte: string, saisie: string): { t: strin
   return out;
 }
 
-const ACCENTS = 'àâäáãåÀÂÄÁÃÅéèêëÉÈÊËíìîïÍÌÎÏóòôöõÓÒÔÖÕúùûüÚÙÛÜçÇñÑýÿÝ';
-const SANS____ = 'aaaaaaAAAAAAeeeeEEEEiiiiIIIIoooooOOOOOuuuuUUUUcCnNyyY';
-/** La MÊME normalisation que la base, caractère par caractère : les positions restent alignées sur l'original. PUR. */
-function normaliserPourReperage(s: string): string {
-  let out = '';
-  for (const c of s.toLowerCase()) { const i = ACCENTS.indexOf(c); out += i === -1 ? c : SANS____[i]; }
-  return out;
-}
 interface ReponseBoite {
   lignes: LigneBoite[];
   suivant: CurseurBoite | null;
