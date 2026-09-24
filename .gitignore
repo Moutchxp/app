@@ -87,3 +87,9 @@ docs/.svav-build-state.md
 
 # dumps de sauvegarde locaux (jamais committes)
 sauvegardes/
+
+# LOT 5-GOOGLE — jeton d'autorisation de gestion@criterimmo.fr. Il vit NORMALEMENT hors du dépôt
+# (~/.config/sansvisavis/google-gestion.json) ; cette entrée est un GARDE-FOU au cas où
+# GOOGLE_GESTION_JETON_FICHIER pointerait ici. JAMAIS committé.
+google-gestion.json
+/.config/

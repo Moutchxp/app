@@ -79,7 +79,9 @@
     "mairie:contact:import": "tsx app/scripts/mairie-contact-import.ts",
     "demo:reponse:creer": "tsx app/scripts/demo-reponse.ts creer",
     "demo:reponse:supprimer": "tsx app/scripts/demo-reponse.ts supprimer",
-    "gestion:relever-continu": "tsx app/scripts/relever-gestion-continu.ts"
+    "gestion:relever-continu": "tsx app/scripts/relever-gestion-continu.ts",
+    "gestion:google:autoriser": "tsx app/scripts/gestion-google-autoriser.ts",
+    "gestion:google:verifier": "tsx app/scripts/gestion-google-verifier.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",
