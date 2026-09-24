@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   attenteApresEchec, duree, enTeteMode, enTeteRattrapage, etatSuivant, executerCli, imprimerIssue, imprimerMesures,
-  lireAppliquer, lireEntier, lireOptions, poids, suiteDeLaBoucle, PLANCHER_DISQUE_OCTETS,
+  lireAppliquer, lireEntier, lireOptions, passeMuette, poids, suiteDeLaBoucle, PLANCHER_DISQUE_OCTETS,
   type EtatBoucle, type ReglagesBoucle,
 } from './relever-gestion';
 import type { IssueReleve } from '../lib/gestion/releve';
@@ -366,6 +366,78 @@ describe('LOT R — l’enchaînement des passes : quand continuer, quand s’ar
     for (const r of ['occupe', 'inactif'] as const) {
       expect(suiteDeLaBoucle(issue({ resultat: r, rapport: null, raison: 'motif' }), neuf, reglages).action).toBe('arreter');
     }
+  });
+});
+
+/**
+ * 🔴 LOT R-bis — CE QUE LA NUIT DU 23 AU 24/09/2026 A APPRIS. Le moteur isole un message illisible pour qu'il ne fasse
+ * pas perdre les autres : c'est la bonne règle, et elle ne change pas. Mais 1 000 illisibles d'AFFILÉE ne sont pas
+ * 1 000 MIME cassés — c'est le serveur qui ne sert plus rien. La passe se terminait alors « ok », sans un octet lu ;
+ * l'attente croissante ne s'appliquait pas, et la boucle s'arrêtait sur un constat de surplace. Mesuré : le rapatriement
+ * s'est interrompu à 27 805 messages alors que le serveur resservait les corps dix minutes plus tard.
+ */
+describe('LOT R-bis — une passe MUETTE est un échec à réessayer, pas un succès', () => {
+  const reglages: ReglagesBoucle = { pauseS: 10, backoffBaseS: 60, backoffMaxS: 1800, echecsMax: 8 };
+  const neuf: EtatBoucle = { echecsConsecutifs: 0, restePrecedent: null };
+  const muette = issue({ rapport: rapport({ vus: 1000, echecsLecture: 1000, captures: 0, octetsLus: 0, resteInconnus: 27166 }) });
+
+  it('reconnue : des messages lus, et PAS UN SEUL lisible', () => {
+    expect(passeMuette(muette)).toBe(true);
+  });
+
+  it('une passe qui AVANÇAIT encore n’est jamais muette — 709 illisibles mais 291 capturés, c’est un succès', () => {
+    expect(passeMuette(issue({ rapport: rapport({ vus: 1000, echecsLecture: 709, captures: 291 }) }))).toBe(false);
+  });
+
+  it('une passe normale, et une passe sans rien à lire, ne sont pas muettes', () => {
+    expect(passeMuette(issue({ rapport: rapport({ vus: 1000, echecsLecture: 0 }) }))).toBe(false);
+    expect(passeMuette(issue({ rapport: rapport({ vus: 0, echecsLecture: 0 }) }))).toBe(false);
+    expect(passeMuette(issue({ rapport: null }))).toBe(false);
+  });
+
+  it('elle déclenche l’ATTENTE CROISSANTE, au lieu de conclure au surplace', () => {
+    const s = suiteDeLaBoucle(muette, { echecsConsecutifs: 0, restePrecedent: 27166 }, reglages);
+    expect(s).toMatchObject({ action: 'continuer', attendreS: 60 });
+    expect(s.motif).toContain('muette');
+    expect(s.motif).not.toContain('surplace'); // c'était le diagnostic FAUX de la nuit du 23/09
+  });
+
+  it('elle compte dans le budget d’échecs consécutifs — sinon la boucle patienterait sans fin', () => {
+    expect(etatSuivant(muette, neuf).echecsConsecutifs).toBe(1);
+    expect(etatSuivant(muette, { ...neuf, echecsConsecutifs: 3 }).echecsConsecutifs).toBe(4);
+  });
+
+  it('un SUCCÈS après des passes muettes remet le compteur à zéro', () => {
+    const apres = etatSuivant(muette, { ...neuf, echecsConsecutifs: 2 });
+    expect(etatSuivant(issue({ rapport: rapport({ resteInconnus: 500 }) }), apres))
+      .toEqual({ echecsConsecutifs: 0, restePrecedent: 500 });
+  });
+
+  it('au bout du budget, on s’arrête — et le code de sortie dit que ce n’était PAS une fin normale', () => {
+    const s = suiteDeLaBoucle(muette, { ...neuf, echecsConsecutifs: 7 }, reglages);
+    expect(s).toMatchObject({ action: 'arreter', codeSortie: 1 });
+    expect(s.motif).toContain('passes muettes');
+  });
+
+  it('de bout en bout : la boucle PATIENTE puis repart quand le serveur resert', async () => {
+    const passes = [
+      rapport({ vus: 1000, echecsLecture: 1000, captures: 0, resteInconnus: 27166 }), // muette
+      rapport({ vus: 1000, echecsLecture: 1000, captures: 0, resteInconnus: 27166 }), // muette
+      rapport({ vus: 1000, echecsLecture: 0, captures: 1000, resteInconnus: 26166 }), // le serveur resert
+      rapport({ resteInconnus: 0 }),                                                  // terminé
+    ];
+    const dodos: number[] = [];
+    let n = 0;
+    const { lignes, log } = io();
+    const code = await executerCli({
+      argv: ['--appliquer', '--depuis-origine', '--boucler'],
+      relever: async () => issue({ rapport: passes[n++] }),
+      log, dormir: async (s) => { dodos.push(s); },
+    });
+    expect(n).toBe(4);                        // la boucle n'a PAS abandonné après les deux passes muettes
+    expect(dodos).toEqual([60, 120, 10]);     // attente croissante, puis pause normale une fois le service revenu
+    expect(code).toBe(0);
+    expect(lignes.join('\n')).toContain('TERMINÉ');
   });
 });
 

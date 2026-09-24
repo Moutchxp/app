@@ -133,7 +133,25 @@ export interface EtatBoucle {
 
 export type SuiteBoucle =
   | { action: 'continuer'; attendreS: number; motif: string }
-  | { action: 'arreter'; motif: string };
+  | { action: 'arreter'; motif: string; codeSortie?: number };
+
+/**
+ * UNE PASSE MUETTE : elle a lu des messages, et PAS UN SEUL n'a pu l'être. Le moteur isole un message illisible (MIME
+ * cassé, message disparu) pour qu'il ne fasse pas perdre les autres — c'est la bonne règle, et elle est conservée. Mais
+ * 1 000 messages illisibles D'AFFILÉE ne sont pas 1 000 MIME cassés : c'est le serveur qui ne sert plus rien (quota de
+ * téléchargement, étranglement, connexion morte qui ne se signale pas). Sans ce test, une telle passe se termine « ok »,
+ * le budget de reconnexions n'est jamais consommé, l'attente croissante ne s'applique jamais — et la boucle s'arrête sur
+ * un constat de surplace là où il fallait simplement PATIENTER.
+ *
+ * 🔴 MESURÉ, la nuit du 23 au 24/09/2026 : passe 22 → 999 capturés ; passe 23 → 709 illisibles mais 291 capturés (elle
+ * AVANÇAIT, donc elle n'est pas muette) ; passes 24 et 25 → 1 000 illisibles, 0 octet lu. Le rapatriement s'est arrêté
+ * là, alors qu'une attente de quelques minutes suffisait : le serveur resservait les corps dix minutes plus tard.
+ * D'où le seuil STRICT (tous, pas « beaucoup ») : une passe qui progresse encore n'est jamais traitée comme un échec. PUR.
+ */
+export function passeMuette(issue: IssueReleve): boolean {
+  const r = issue.rapport;
+  return r !== null && r.vus > 0 && r.echecsLecture === r.vus;
+}
 
 /**
  * DÉCIDE de la suite après une passe. PUR — c'est le cœur d'un run de plusieurs heures, il doit se lire et se tester
@@ -146,11 +164,16 @@ export type SuiteBoucle =
  *   · « occupe » / « inactif » → on s'arrête : ce ne sont pas des erreurs, mais rien ne les résoudra tout seul.
  */
 export function suiteDeLaBoucle(issue: IssueReleve, etat: EtatBoucle, r: ReglagesBoucle): SuiteBoucle {
-  if (issue.resultat === 'erreur') {
+  const muette = passeMuette(issue);
+  if (issue.resultat === 'erreur' || muette) {
     const echecs = etat.echecsConsecutifs + 1;
-    if (echecs >= r.echecsMax) return { action: 'arreter', motif: `${echecs} échecs consécutifs : on arrête plutôt que d’insister.` };
+    const quoi = muette ? 'passe muette (aucun message lu — le serveur ne sert plus rien)' : 'échec';
+    if (echecs >= r.echecsMax) {
+      const quoiPluriel = muette ? 'passes muettes consécutives' : 'échecs consécutifs';
+      return { action: 'arreter', codeSortie: 1, motif: `${echecs} ${quoiPluriel} : on arrête plutôt que d’insister.` };
+    }
     const attendreS = attenteApresEchec(echecs, r);
-    return { action: 'continuer', attendreS, motif: `échec ${echecs}/${r.echecsMax} — nouvelle tentative dans ${attendreS} s.` };
+    return { action: 'continuer', attendreS, motif: `${quoi} ${echecs}/${r.echecsMax} — nouvelle tentative dans ${attendreS} s.` };
   }
   if (issue.resultat !== 'ok') return { action: 'arreter', motif: issue.raison };
   if (issue.rapport === null) return { action: 'arreter', motif: issue.raison };
@@ -164,7 +187,9 @@ export function suiteDeLaBoucle(issue: IssueReleve, etat: EtatBoucle, r: Reglage
 
 /** État de la boucle après une passe. Un succès REMET À ZÉRO le compteur d'échecs : seuls les échecs d'affilée comptent. PUR. */
 export function etatSuivant(issue: IssueReleve, etat: EtatBoucle): EtatBoucle {
-  if (issue.resultat === 'erreur') return { ...etat, echecsConsecutifs: etat.echecsConsecutifs + 1 };
+  // Une passe MUETTE compte comme un échec ICI AUSSI : sans ça le compteur ne monterait jamais, l'attente ne
+  //   croîtrait pas, et le budget d'échecs consécutifs ne serait jamais atteint — la boucle patienterait sans fin.
+  if (issue.resultat === 'erreur' || passeMuette(issue)) return { ...etat, echecsConsecutifs: etat.echecsConsecutifs + 1 };
   return { echecsConsecutifs: 0, restePrecedent: issue.rapport?.resteInconnus ?? etat.restePrecedent };
 }
 
@@ -283,7 +308,7 @@ export async function executerCli(opts: {
     const suite = suiteDeLaBoucle(issue, etat, reglages);
     etat = etatSuivant(issue, etat);
     opts.log(`  ▸ ${suite.motif}`);
-    if (suite.action === 'arreter') return code;
+    if (suite.action === 'arreter') return suite.codeSortie ?? code;
     await dormir(suite.attendreS);
   }
 }
