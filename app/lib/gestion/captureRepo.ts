@@ -451,6 +451,26 @@ export async function finaliserRun(id: number, maj: MajRun): Promise<void> {
   );
 }
 
+/**
+ * NOTE, SUR LA LIGNE DE LA DERNIÈRE PASSE, POURQUOI LA BOUCLE S'EST ARRÊTÉE.
+ *
+ * 🔴 POURQUOI EN BASE, ET PAS SEULEMENT À L'ÉCRAN. Un rattrapage tourne la nuit, sans personne devant le terminal ; et
+ * le journal fichier peut être perdu (il l'a été le 24/09/2026). La base est la seule trace qui survive à tout. Sans
+ * elle, on retrouve au matin une boucle arrêtée sans savoir si c'est parce qu'elle avait fini, ou parce que le
+ * fournisseur ne servait plus rien — et ces deux-là ne se traitent pas du tout pareil.
+ *
+ * ⚠️ On écrit dans `erreur`, sur la ligne de la passe qui a DÉCLENCHÉ l'arrêt, et le texte commence par « ARRÊT DE LA
+ * BOUCLE » : `resultat` n'est pas touché, parce que la passe, elle, s'est bien terminée. C'est la BOUCLE qui s'arrête,
+ * pas la passe qui a échoué — et confondre les deux enverrait chercher un bug dans la capture.
+ */
+export async function noterArretBoucle(runId: number, motif: string): Promise<void> {
+  await query(
+    `UPDATE gestion_releve_run
+        SET erreur = left(coalesce(erreur || ' | ', '') || $2, 2000)
+      WHERE id = $1`,
+    [runId, `ARRÊT DE LA BOUCLE : ${motif}`]);
+}
+
 // ── Verrou consultatif PROPRE au module (jamais celui de la veille) ──────────────────────────────────────────────────
 
 /** Verrou SESSION-scoped : pris ET rendu sur la MÊME connexion, tenue le temps de la passe (même schéma que la veille). */

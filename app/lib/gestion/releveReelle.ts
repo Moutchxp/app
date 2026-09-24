@@ -110,3 +110,10 @@ export function relever(
 ): Promise<IssueReleve> {
   return executerReleveGestion(depsReellesReleve(journal, options), appliquer);
 }
+
+/**
+ * NOTER EN BASE POURQUOI LA BOUCLE S'EST ARRÊTÉE. RÉEXPORTÉ ICI, et pas importé directement par la CLI : celle-ci ne
+ * doit atteindre AUCUN dépôt d'écriture — c'est sa garantie depuis le lot 3, et un test la tient sur la liste
+ * EXHAUSTIVE de ses imports. Le foyer de relève reste donc le seul chemin par lequel elle touche la base.
+ */
+export { noterArretBoucle } from './captureRepo';

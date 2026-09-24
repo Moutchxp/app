@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   attenteApresEchec, duree, enTeteMode, enTeteRattrapage, etatSuivant, executerCli, imprimerIssue, imprimerMesures,
   lireAppliquer, lireEntier, lireOptions, passeMuette, poids, suiteDeLaBoucle, PLANCHER_DISQUE_OCTETS,
+  ETAT_BOUCLE_INITIAL, MOTIF_ARRET_MUET, MUETTES_MAX_DEFAUT,
   type EtatBoucle, type ReglagesBoucle,
 } from './relever-gestion';
 import type { IssueReleve } from '../lib/gestion/releve';
@@ -315,8 +316,8 @@ describe('LOT R — les options sont PONCTUELLES, et éteintes par défaut', () 
 });
 
 describe('LOT R — l’enchaînement des passes : quand continuer, quand s’arrêter', () => {
-  const reglages: ReglagesBoucle = { pauseS: 10, backoffBaseS: 60, backoffMaxS: 1800, echecsMax: 8 };
-  const neuf: EtatBoucle = { echecsConsecutifs: 0, restePrecedent: null };
+  const reglages: ReglagesBoucle = { pauseS: 10, backoffBaseS: 60, backoffMaxS: 1800, echecsMax: 8, muettesMax: MUETTES_MAX_DEFAUT };
+  const neuf: EtatBoucle = { ...ETAT_BOUCLE_INITIAL };
 
   it('il reste des messages jamais lus → on continue, après la pause', () => {
     const s = suiteDeLaBoucle(issue({ rapport: rapport({ resteInconnus: 4711 }) }), neuf, reglages);
@@ -331,7 +332,7 @@ describe('LOT R — l’enchaînement des passes : quand continuer, quand s’ar
   });
 
   it('SURPLACE (le reste ne diminue pas) → on s’arrête, une boucle sans progrès ne se répare pas seule', () => {
-    const etat: EtatBoucle = { echecsConsecutifs: 0, restePrecedent: 300 };
+    const etat: EtatBoucle = { ...ETAT_BOUCLE_INITIAL, restePrecedent: 300 };
     expect(suiteDeLaBoucle(issue({ rapport: rapport({ resteInconnus: 300 }) }), etat, reglages).action).toBe('arreter');
     expect(suiteDeLaBoucle(issue({ rapport: rapport({ resteInconnus: 299 }) }), etat, reglages).action).toBe('continuer');
   });
@@ -359,7 +360,7 @@ describe('LOT R — l’enchaînement des passes : quand continuer, quand s’ar
     const apresEchec = etatSuivant(issue({ resultat: 'erreur', rapport: null }), { ...neuf, echecsConsecutifs: 3 });
     expect(apresEchec.echecsConsecutifs).toBe(4);
     expect(etatSuivant(issue({ rapport: rapport({ resteInconnus: 12 }) }), apresEchec))
-      .toEqual({ echecsConsecutifs: 0, restePrecedent: 12 });
+      .toEqual({ echecsConsecutifs: 0, muettesConsecutives: 0, restePrecedent: 12 });
   });
 
   it('« occupe » et « inactif » arrêtent la boucle : rien ne les résoudra tout seul', () => {
@@ -377,8 +378,8 @@ describe('LOT R — l’enchaînement des passes : quand continuer, quand s’ar
  * s'est interrompu à 27 805 messages alors que le serveur resservait les corps dix minutes plus tard.
  */
 describe('LOT R-bis — une passe MUETTE est un échec à réessayer, pas un succès', () => {
-  const reglages: ReglagesBoucle = { pauseS: 10, backoffBaseS: 60, backoffMaxS: 1800, echecsMax: 8 };
-  const neuf: EtatBoucle = { echecsConsecutifs: 0, restePrecedent: null };
+  const reglages: ReglagesBoucle = { pauseS: 10, backoffBaseS: 60, backoffMaxS: 1800, echecsMax: 8, muettesMax: MUETTES_MAX_DEFAUT };
+  const neuf: EtatBoucle = { ...ETAT_BOUCLE_INITIAL };
   const muette = issue({ rapport: rapport({ vus: 1000, echecsLecture: 1000, captures: 0, octetsLus: 0, resteInconnus: 27166 }) });
 
   it('reconnue : des messages lus, et PAS UN SEUL lisible', () => {
@@ -396,32 +397,66 @@ describe('LOT R-bis — une passe MUETTE est un échec à réessayer, pas un suc
   });
 
   it('elle déclenche l’ATTENTE CROISSANTE, au lieu de conclure au surplace', () => {
-    const s = suiteDeLaBoucle(muette, { echecsConsecutifs: 0, restePrecedent: 27166 }, reglages);
+    const s = suiteDeLaBoucle(muette, { ...ETAT_BOUCLE_INITIAL, restePrecedent: 27166 }, reglages);
     expect(s).toMatchObject({ action: 'continuer', attendreS: 60 });
     expect(s.motif).toContain('muette');
     expect(s.motif).not.toContain('surplace'); // c'était le diagnostic FAUX de la nuit du 23/09
   });
 
-  it('elle compte dans le budget d’échecs consécutifs — sinon la boucle patienterait sans fin', () => {
-    expect(etatSuivant(muette, neuf).echecsConsecutifs).toBe(1);
-    expect(etatSuivant(muette, { ...neuf, echecsConsecutifs: 3 }).echecsConsecutifs).toBe(4);
+  /**
+   * 🔴 CORRECTIF DU 24/09/2026 — LE BUDGET DES MUETTES EST DÉSORMAIS LE SIEN, distinct de celui des échecs. MESURÉ ce
+   * soir-là : la boucle a enchaîné QUATRE passes muettes (21 h 55 → 22 h 05) sans s'arrêter, parce qu'elles
+   * consommaient le budget des échecs (8) et que l'attente doublait — elle serait restée deux heures de plus à
+   * demander à un serveur qui ne servait plus rien. Un échec se réessaie ; une passe muette se CONSTATE.
+   */
+  it('elle compte dans SON budget, jamais dans celui des échecs — les deux ne se réparent pas pareil', () => {
+    expect(etatSuivant(muette, neuf).muettesConsecutives).toBe(1);
+    expect(etatSuivant(muette, neuf).echecsConsecutifs).toBe(0);
+    expect(etatSuivant(muette, { ...neuf, muettesConsecutives: 1 }).muettesConsecutives).toBe(2);
   });
 
-  it('un SUCCÈS après des passes muettes remet le compteur à zéro', () => {
-    const apres = etatSuivant(muette, { ...neuf, echecsConsecutifs: 2 });
+  it('un SUCCÈS après des passes muettes remet les DEUX compteurs à zéro', () => {
+    const apres = etatSuivant(muette, { ...neuf, muettesConsecutives: 1, echecsConsecutifs: 2 });
     expect(etatSuivant(issue({ rapport: rapport({ resteInconnus: 500 }) }), apres))
-      .toEqual({ echecsConsecutifs: 0, restePrecedent: 500 });
+      .toEqual({ echecsConsecutifs: 0, muettesConsecutives: 0, restePrecedent: 500 });
   });
 
-  it('au bout du budget, on s’arrête — et le code de sortie dit que ce n’était PAS une fin normale', () => {
-    const s = suiteDeLaBoucle(muette, { ...neuf, echecsConsecutifs: 7 }, reglages);
+  it('🔴 DEUX muettes d’affilée suffisent : on s’arrête, avec le motif en français et le code de sortie', () => {
+    // La première peut être un hasard. La seconde ne l'est plus — et insister ne fait pas rendre la main plus vite.
+    expect(suiteDeLaBoucle(muette, neuf, reglages)).toMatchObject({ action: 'continuer' });
+    const s = suiteDeLaBoucle(muette, { ...neuf, muettesConsecutives: 1 }, reglages);
     expect(s).toMatchObject({ action: 'arreter', codeSortie: 1 });
-    expect(s.motif).toContain('passes muettes');
+    expect(s.motif).toContain(MOTIF_ARRET_MUET);
+    expect(s.motif).toContain('reprendre plus tard');
   });
 
-  it('de bout en bout : la boucle PATIENTE puis repart quand le serveur resert', async () => {
+  it('le seuil est RÉGLABLE par la commande (--muettes=N), et vaut 2 par défaut', () => {
+    expect(MUETTES_MAX_DEFAUT).toBe(2);
+    expect(lireOptions(['--boucler']).muettesMax).toBe(2);
+    expect(lireOptions(['--boucler', '--muettes=5']).muettesMax).toBe(5);
+    // …et avec 5, quatre muettes ne suffisent plus à arrêter.
+    const large: ReglagesBoucle = { ...reglages, muettesMax: 5 };
+    expect(suiteDeLaBoucle(muette, { ...neuf, muettesConsecutives: 3 }, large).action).toBe('continuer');
+    expect(suiteDeLaBoucle(muette, { ...neuf, muettesConsecutives: 4 }, large).action).toBe('arreter');
+  });
+
+  it('🔴 une passe muette ISOLÉE ne casse rien : la suivante qui capture efface l’incident', () => {
+    const apres = etatSuivant(muette, neuf);
+    expect(apres.muettesConsecutives).toBe(1);
+    const reprise = etatSuivant(issue({ rapport: rapport({ vus: 1000, echecsLecture: 0, captures: 1000, resteInconnus: 900 }) }), apres);
+    expect(reprise.muettesConsecutives).toBe(0);
+    // …et repartie de zéro, une nouvelle muette ne fait que PATIENTER.
+    expect(suiteDeLaBoucle(muette, reprise, reglages).action).toBe('continuer');
+  });
+
+  it('le budget des ÉCHECS n’a pas bougé : huit tentatives, comme avant', () => {
+    const echec = issue({ resultat: 'erreur', rapport: null });
+    expect(suiteDeLaBoucle(echec, { ...neuf, echecsConsecutifs: 6 }, reglages).action).toBe('continuer');
+    expect(suiteDeLaBoucle(echec, { ...neuf, echecsConsecutifs: 7 }, reglages).action).toBe('arreter');
+  });
+
+  it('de bout en bout : une muette ISOLÉE fait patienter, puis la boucle repart et va au bout', async () => {
     const passes = [
-      rapport({ vus: 1000, echecsLecture: 1000, captures: 0, resteInconnus: 27166 }), // muette
       rapport({ vus: 1000, echecsLecture: 1000, captures: 0, resteInconnus: 27166 }), // muette
       rapport({ vus: 1000, echecsLecture: 0, captures: 1000, resteInconnus: 26166 }), // le serveur resert
       rapport({ resteInconnus: 0 }),                                                  // terminé
@@ -434,10 +469,82 @@ describe('LOT R-bis — une passe MUETTE est un échec à réessayer, pas un suc
       relever: async () => issue({ rapport: passes[n++] }),
       log, dormir: async (s) => { dodos.push(s); },
     });
-    expect(n).toBe(4);                        // la boucle n'a PAS abandonné après les deux passes muettes
-    expect(dodos).toEqual([60, 120, 10]);     // attente croissante, puis pause normale une fois le service revenu
+    expect(n).toBe(3);                    // la boucle n'a PAS abandonné sur une muette isolée
+    expect(dodos).toEqual([60, 10]);      // une attente d'échec, puis la pause normale une fois le service revenu
     expect(code).toBe(0);
     expect(lignes.join('\n')).toContain('TERMINÉ');
+  });
+
+  /**
+   * 🔴 LE CAS DU 24/09/2026, REJOUÉ. Gmail annonce mille messages et n'en sert aucun, passe après passe. Avant le
+   * correctif, la boucle patientait 60, 120, 240, 480 s… et serait restée deux heures. Maintenant elle CONSTATE, et
+   * s'arrête au deuxième constat en disant quoi faire.
+   */
+  it('🔴 de bout en bout : DEUX muettes d’affilée arrêtent la boucle, avec le message et le code de sortie', async () => {
+    const dodos: number[] = [];
+    let n = 0;
+    const { lignes, log } = io();
+    const code = await executerCli({
+      argv: ['--appliquer', '--depuis-origine', '--boucler'],
+      relever: async () => { n += 1; return issue({ rapport: rapport({ vus: 1000, echecsLecture: 1000, captures: 0, resteInconnus: 20000 }) }); },
+      log, dormir: async (s) => { dodos.push(s); },
+    });
+    expect(n).toBe(2);                    // deux passes, pas huit
+    expect(dodos).toEqual([60]);          // une seule attente : on ne s'acharne pas
+    expect(code).toBe(1);                 // ce n'est PAS une fin normale
+    const sortie = lignes.join('\n');
+    expect(sortie).toContain(MOTIF_ARRET_MUET);
+    expect(sortie).toContain('1000 messages annoncés, aucun servi');
+  });
+
+  it('🔴 l’arrêt est INSCRIT AU JOURNAL DE PASSES en base — la seule trace qui survive à la perte du fichier', async () => {
+    const notes: { runId: number; motif: string }[] = [];
+    const { log } = io();
+    await executerCli({
+      argv: ['--appliquer', '--depuis-origine', '--boucler'],
+      relever: async () => issue({ runId: 4242, rapport: rapport({ vus: 1000, echecsLecture: 1000, captures: 0, resteInconnus: 20000 }) }),
+      log, dormir: async () => {},
+      noterArret: async (runId, motif) => { notes.push({ runId, motif }); },
+    });
+    expect(notes).toHaveLength(1);
+    expect(notes[0].runId).toBe(4242);
+    expect(notes[0].motif).toContain(MOTIF_ARRET_MUET);
+  });
+
+  it('un arrêt NORMAL (rattrapage terminé) n’écrit rien au journal : il n’y a rien à expliquer', async () => {
+    const notes: unknown[] = [];
+    const { log } = io();
+    const code = await executerCli({
+      argv: ['--appliquer', '--depuis-origine', '--boucler'],
+      relever: async () => issue({ runId: 7, rapport: rapport({ resteInconnus: 0 }) }),
+      log, dormir: async () => {},
+      noterArret: async (r, m) => { notes.push({ r, m }); },
+    });
+    expect(code).toBe(0);
+    expect(notes).toEqual([]);
+  });
+
+  it('si l’écriture au journal échoue, l’ARRÊT reste effectif — on ne reste pas coincé pour une note', async () => {
+    const { lignes, log } = io();
+    const code = await executerCli({
+      argv: ['--appliquer', '--depuis-origine', '--boucler'],
+      relever: async () => issue({ runId: 9, rapport: rapport({ vus: 1000, echecsLecture: 1000, captures: 0, resteInconnus: 20000 }) }),
+      log, dormir: async () => {},
+      noterArret: async () => { throw new Error('base injoignable'); },
+    });
+    expect(code).toBe(1);
+    expect(lignes.join('\n')).toContain('l’arrêt, lui, est bien effectif');
+  });
+
+  it('…et `--muettes=N` laisse patienter plus longtemps si on le demande explicitement', async () => {
+    let n = 0;
+    const { log } = io();
+    await executerCli({
+      argv: ['--appliquer', '--depuis-origine', '--boucler', '--muettes=4'],
+      relever: async () => { n += 1; return issue({ rapport: rapport({ vus: 1000, echecsLecture: 1000, captures: 0, resteInconnus: 20000 }) }); },
+      log, dormir: async () => {},
+    });
+    expect(n).toBe(4);
   });
 });
 

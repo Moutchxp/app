@@ -19,6 +19,7 @@
  *   --depuis-origine   remonte à l'ORIGINE du dossier au lieu de `rattrapage_jours` ; la passe est journalisée « rattrapage »
  *   --plafond=N        plafond de CETTE passe seulement
  *   --boucler          enchaîne les passes jusqu'à épuisement (--pause=N secondes entre deux, 10 par défaut)
+ *   --muettes=N        arrêt après N passes MUETTES d'affilée (2 par défaut) — voir `muettesMax`
  * Exemple (rapatriement complet, reprenable à tout moment) :
  *   npm run gestion:relever -- --appliquer --depuis-origine --boucler --plafond=1000
  */
@@ -83,6 +84,8 @@ export interface OptionsCli extends OptionsRattrapage {
   boucler: boolean;
   /** Pause entre deux passes réussies, en secondes. */
   pauseS: number;
+  /** Combien de passes MUETTES d'affilée avant l'arrêt (`--muettes=N`, 2 par défaut). Voir `ReglagesBoucle.muettesMax`. */
+  muettesMax: number;
 }
 
 /** Entier d'une option `--nom=42`. Absente, vide ou illisible → `defaut`. PUR. */
@@ -102,6 +105,7 @@ export function lireOptions(argv: readonly string[]): OptionsCli {
     plafond: lireEntier(argv, 'plafond', 0),
     boucler: argv.includes('--boucler'),
     pauseS: lireEntier(argv, 'pause', PAUSE_DEFAUT_S),
+    muettesMax: lireEntier(argv, 'muettes', MUETTES_MAX_DEFAUT),
   };
 }
 
@@ -113,7 +117,32 @@ export function lireOptions(argv: readonly string[]): OptionsCli {
 export const PLANCHER_DISQUE_OCTETS = 20 * 1024 ** 3;
 
 /** Réglages de l'enchaînement. Constantes de la CLI : une opération ponctuelle n'a pas à peupler `gestion_config`. */
-export interface ReglagesBoucle { pauseS: number; backoffBaseS: number; backoffMaxS: number; echecsMax: number }
+export interface ReglagesBoucle {
+  pauseS: number; backoffBaseS: number; backoffMaxS: number; echecsMax: number;
+  /**
+   * LOT « ARRÊT PROPRE » — BUDGET PROPRE AUX PASSES MUETTES, distinct de celui des échecs. MESURÉ le 24/09/2026 : la
+   * boucle a enchaîné quatre passes muettes (21 h 55 → 22 h 05) sans s'arrêter, parce qu'elles consommaient le budget
+   * des ÉCHECS (8) et que l'attente doublait à chaque fois — elle serait restée deux heures de plus à demander à un
+   * serveur qui ne sert plus rien.
+   *
+   * 🔴 LES DEUX N'ONT RIEN À VOIR. Un échec est un incident : coupure, refus ponctuel, connexion qui tombe — il se
+   * réessaie, et huit tentatives valent la peine. Une passe muette est un CONSTAT : le serveur annonce mille messages
+   * et n'en sert aucun. Insister n'y change rien, et l'hypothèse la plus probable (limite de téléchargement sur
+   * 24 h glissantes) se résout par le TEMPS, pas par la répétition. Deux constats suffisent : le premier peut être un
+   * hasard, le second ne l'est plus.
+   */
+  muettesMax: number;
+}
+
+/** Combien de passes muettes d'affilée avant d'arrêter. Deux : la première peut être un hasard, la seconde non. */
+export const MUETTES_MAX_DEFAUT = 2;
+
+/**
+ * Le message d'arrêt, en toutes lettres et en français — il part à l'écran ET au journal de passes en base.
+ * Il dit l'HYPOTHÈSE (limite probable) et la CONDUITE À TENIR (reprendre plus tard), parce qu'un arrêt qui ne dit que
+ * « échec » envoie chercher un bug là où il n'y a qu'à attendre.
+ */
+export const MOTIF_ARRET_MUET = 'Gmail ne sert plus les messages — limite probable, reprendre plus tard.';
 
 /**
  * Attente après le `n`-ième échec CONSÉCUTIF (1 = le premier), en secondes. CROISSANTE par doublement, et PLAFONNÉE :
@@ -127,9 +156,14 @@ export function attenteApresEchec(echecs: number, r: ReglagesBoucle): number {
 /** Ce que la boucle retient d'une passe à l'autre. PUR. */
 export interface EtatBoucle {
   echecsConsecutifs: number;
+  /** Passes MUETTES d'affilée. Compté à part des échecs : les deux ne se réparent pas de la même façon (cf. `muettesMax`). */
+  muettesConsecutives: number;
   /** `resteInconnus` de la dernière passe ABOUTIE, ou `null` avant la première. Sert à détecter le surplace. */
   restePrecedent: number | null;
 }
+
+/** L'état d'avant la première passe. Exporté : la boucle et les épreuves partent du MÊME point. */
+export const ETAT_BOUCLE_INITIAL: EtatBoucle = { echecsConsecutifs: 0, muettesConsecutives: 0, restePrecedent: null };
 
 export type SuiteBoucle =
   | { action: 'continuer'; attendreS: number; motif: string }
@@ -164,16 +198,29 @@ export function passeMuette(issue: IssueReleve): boolean {
  *   · « occupe » / « inactif » → on s'arrête : ce ne sont pas des erreurs, mais rien ne les résoudra tout seul.
  */
 export function suiteDeLaBoucle(issue: IssueReleve, etat: EtatBoucle, r: ReglagesBoucle): SuiteBoucle {
-  const muette = passeMuette(issue);
-  if (issue.resultat === 'erreur' || muette) {
+  // 🔴 LA PASSE MUETTE D'ABORD, ET SUR SON PROPRE BUDGET. Mêlée aux échecs, elle héritait des huit tentatives et de
+  //   l'attente qui double — deux heures à demander à un serveur qui ne sert plus rien. Voir `muettesMax`.
+  if (passeMuette(issue)) {
+    const muettes = etat.muettesConsecutives + 1;
+    if (muettes >= r.muettesMax) {
+      return {
+        action: 'arreter', codeSortie: 1,
+        motif: `${MOTIF_ARRET_MUET} (${muettes} passes muettes d’affilée : ${issue.rapport?.vus ?? 0} messages annoncés, aucun servi.)`,
+      };
+    }
+    const attendreS = attenteApresEchec(muettes, r);
+    return {
+      action: 'continuer', attendreS,
+      motif: `passe muette ${muettes}/${r.muettesMax} (aucun message lu — le serveur ne sert plus rien) — nouvelle tentative dans ${attendreS} s.`,
+    };
+  }
+  if (issue.resultat === 'erreur') {
     const echecs = etat.echecsConsecutifs + 1;
-    const quoi = muette ? 'passe muette (aucun message lu — le serveur ne sert plus rien)' : 'échec';
     if (echecs >= r.echecsMax) {
-      const quoiPluriel = muette ? 'passes muettes consécutives' : 'échecs consécutifs';
-      return { action: 'arreter', codeSortie: 1, motif: `${echecs} ${quoiPluriel} : on arrête plutôt que d’insister.` };
+      return { action: 'arreter', codeSortie: 1, motif: `${echecs} échecs consécutifs : on arrête plutôt que d’insister.` };
     }
     const attendreS = attenteApresEchec(echecs, r);
-    return { action: 'continuer', attendreS, motif: `${quoi} ${echecs}/${r.echecsMax} — nouvelle tentative dans ${attendreS} s.` };
+    return { action: 'continuer', attendreS, motif: `échec ${echecs}/${r.echecsMax} — nouvelle tentative dans ${attendreS} s.` };
   }
   if (issue.resultat !== 'ok') return { action: 'arreter', motif: issue.raison };
   if (issue.rapport === null) return { action: 'arreter', motif: issue.raison };
@@ -185,12 +232,15 @@ export function suiteDeLaBoucle(issue: IssueReleve, etat: EtatBoucle, r: Reglage
   return { action: 'continuer', attendreS: r.pauseS, motif: `${reste} message(s) encore jamais lus — passe suivante dans ${r.pauseS} s.` };
 }
 
-/** État de la boucle après une passe. Un succès REMET À ZÉRO le compteur d'échecs : seuls les échecs d'affilée comptent. PUR. */
+/**
+ * État de la boucle après une passe. DEUX compteurs, tenus séparément : une passe qui AVANCE remet les deux à zéro —
+ * seuls comptent les incidents d'AFFILÉE. Une passe muette isolée, suivie d'une passe qui capture, ne laisse aucune
+ * trace : c'est exactement ce qui s'est produit la nuit du 23/09 (passe 23 : 709 illisibles, mais 291 capturés). PUR.
+ */
 export function etatSuivant(issue: IssueReleve, etat: EtatBoucle): EtatBoucle {
-  // Une passe MUETTE compte comme un échec ICI AUSSI : sans ça le compteur ne monterait jamais, l'attente ne
-  //   croîtrait pas, et le budget d'échecs consécutifs ne serait jamais atteint — la boucle patienterait sans fin.
-  if (issue.resultat === 'erreur' || passeMuette(issue)) return { ...etat, echecsConsecutifs: etat.echecsConsecutifs + 1 };
-  return { echecsConsecutifs: 0, restePrecedent: issue.rapport?.resteInconnus ?? etat.restePrecedent };
+  if (passeMuette(issue)) return { ...etat, muettesConsecutives: etat.muettesConsecutives + 1 };
+  if (issue.resultat === 'erreur') return { ...etat, echecsConsecutifs: etat.echecsConsecutifs + 1 };
+  return { echecsConsecutifs: 0, muettesConsecutives: 0, restePrecedent: issue.rapport?.resteInconnus ?? etat.restePrecedent };
 }
 
 /** En-tête du rattrapage : ce qui est demandé, en toutes lettres, AVANT toute connexion. PUR. */
@@ -277,16 +327,23 @@ export async function executerCli(opts: {
   dormir?: (secondes: number) => Promise<void>;
   /** Octets libres sur le disque du stockage. Absente → aucune garde (comportement d'avant, passe unique). */
   espaceLibreOctets?: () => Promise<number>;
+  /**
+   * Inscrit au journal de passes EN BASE la raison d'un arrêt anormal. Injectée → les épreuves restent hors base.
+   * Absente → on se contente de l'écran (simulation, essais).
+   */
+  noterArret?: (runId: number, motif: string) => Promise<void>;
 }): Promise<number> {
   const appliquer = lireAppliquer(opts.argv);
   const o = lireOptions(opts.argv);
-  const reglages: ReglagesBoucle = { pauseS: o.pauseS, backoffBaseS: 60, backoffMaxS: 1800, echecsMax: 8 };
+  const reglages: ReglagesBoucle = {
+    pauseS: o.pauseS, backoffBaseS: 60, backoffMaxS: 1800, echecsMax: 8, muettesMax: o.muettesMax,
+  };
   const dormir = opts.dormir ?? ((s: number) => new Promise<void>((r) => setTimeout(r, s * 1000)));
 
   for (const ligne of enTeteMode(appliquer)) opts.log(ligne);      // AVANT la moindre connexion
   for (const ligne of enTeteRattrapage(o)) opts.log(ligne);
 
-  let etat: EtatBoucle = { echecsConsecutifs: 0, restePrecedent: null };
+  let etat: EtatBoucle = { ...ETAT_BOUCLE_INITIAL };
   let code = 0;
   for (let passe = 1; ; passe += 1) {
     // GARDE DISQUE, avant d'entamer une passe : on refuse de COMMENCER ce qu'on ne pourrait pas finir. Un import
@@ -308,18 +365,28 @@ export async function executerCli(opts: {
     const suite = suiteDeLaBoucle(issue, etat, reglages);
     etat = etatSuivant(issue, etat);
     opts.log(`  ▸ ${suite.motif}`);
-    if (suite.action === 'arreter') return suite.codeSortie ?? code;
+    if (suite.action === 'arreter') {
+      // UN ARRÊT ANORMAL LAISSE UNE TRACE EN BASE — la seule qui survive à la perte du journal fichier. Un arrêt
+      //   NORMAL (rattrapage terminé) n'en laisse pas : il n'y a rien à expliquer.
+      if (suite.codeSortie === 1 && issue.runId !== null && opts.noterArret) {
+        try { await opts.noterArret(issue.runId, suite.motif); }
+        catch { opts.log('  ▸ (la raison de l’arrêt n’a pas pu être écrite au journal — l’arrêt, lui, est bien effectif.)'); }
+      }
+      return suite.codeSortie ?? code;
+    }
     await dormir(suite.attendreS);
   }
 }
 
 /** Câblage RÉEL (import dynamique : garde imapflow/pg hors du graphe importé par les tests). */
 async function main(): Promise<void> {
-  const { relever } = await import('../lib/gestion/releveReelle');
+  // `noterArretBoucle` vient du FOYER DE RELÈVE, jamais du dépôt d'écriture : la CLI n'atteint aucun `captureRepo`.
+  const { relever, noterArretBoucle } = await import('../lib/gestion/releveReelle');
   process.exitCode = await executerCli({
     argv: process.argv,
     relever,
     log: (s) => console.log(s),
+    noterArret: noterArretBoucle,
     // `statfs` est une MESURE, jamais une écriture : on lit l'espace libre du disque où vivent base et stockage.
     espaceLibreOctets: async () => { const s = await statfs(process.cwd()); return Number(s.bavail) * Number(s.bsize); },
   });
