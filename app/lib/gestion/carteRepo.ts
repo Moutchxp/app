@@ -51,6 +51,11 @@ export interface CarteDetail {
 
 export interface MessageDeFil {
   messageId: number;
+  /**
+   * LOT 5-FIDÈLE — le `Message-ID` RFC, écrit dans le message lui-même. C'est le PONT vers la vraie boîte Gmail :
+   * l'identifiant Gmail n'existe pas chez nous, celui-ci ne bouge jamais. GRATUIT — la colonne est déjà lue.
+   */
+  messageIdRfc: string;
   /** Si ce mail a été déplacé vers une autre carte : sa référence. L'échange d'origine le DIT, il ne l'efface pas. */
   deplaceVers?: string | null;
   sens: 'recu' | 'envoye';
@@ -209,10 +214,12 @@ async function lireMailsDeplaces(
   evenementId: number, partenaires: readonly PartenaireInterne[],
 ): Promise<MailDeplace[]> {
   const { rows } = await query<{
-    message_id: number; fil_id: number; objet_du_fil: string | null; sens: string; de_adresse: string;
-    de_nom: string | null; recu_le: string; objet: string | null; corps: string | null; automatique: boolean;
+    message_id: number; message_id_rfc: string; fil_id: number; objet_du_fil: string | null; sens: string;
+    de_adresse: string; de_nom: string | null; recu_le: string; objet: string | null; corps: string | null;
+    automatique: boolean;
   }>(
-    `SELECT m.id::int AS message_id, m.fil_id::int AS fil_id, f.objet_initial AS objet_du_fil,
+    `SELECT m.id::int AS message_id, m.message_id AS message_id_rfc, m.fil_id::int AS fil_id,
+            f.objet_initial AS objet_du_fil,
             m.sens, m.de_adresse, m.de_nom, ${INSTANT('m.recu_le')} AS recu_le, m.objet,
             left(coalesce(m.corps_texte, ''), ${MAX_CORPS}) AS corps, m.automatique
        FROM gestion_affectation a
@@ -229,6 +236,7 @@ async function lireMailsDeplaces(
     objetDuFil: r.objet_du_fil,
     message: {
       messageId: r.message_id,
+      messageIdRfc: r.message_id_rfc,
       sens: r.sens === 'envoye' ? 'envoye' : 'recu',
       de: r.de_adresse,
       deNom: libelleExpediteur(partenaires, r.de_adresse, r.de_nom) || null,
@@ -333,13 +341,13 @@ export async function lireMessagesDuFil(
   const { destinatairesSeparesDisponibles } = await import('./schema');
   const avecDest = await destinatairesSeparesDisponibles();
   const { rows } = await query<{
-    message_id: number; sens: string; de_adresse: string; de_nom: string | null; recu_le: string;
+    message_id: number; message_id_rfc: string; sens: string; de_adresse: string; de_nom: string | null; recu_le: string;
     objet: string | null; corps: string | null; extrait: string | null; automatique: boolean;
     hors_file: boolean; motif_hors_file: string | null; html_seul: boolean;
     dest_a: unknown; dest_cc: unknown; destinataires: string | null; est_dernier: boolean;
   }>(
     `WITH msg AS (
-       SELECT id, sens, de_adresse, de_nom, recu_le, objet, corps_texte, corps_html, automatique,
+       SELECT id, message_id, sens, de_adresse, de_nom, recu_le, objet, corps_texte, corps_html, automatique,
               exclu_le, exclu_motif, destinataires${avecDest ? ', dest_a, dest_cc' : ''},
               -- Le DERNIER message est celui qu'on déplie d'emblée : c'est le seul dont le corps part tout de suite.
               (row_number() OVER (ORDER BY recu_le DESC, id DESC) = 1) AS est_dernier
@@ -349,7 +357,8 @@ export async function lireMessagesDuFil(
         ORDER BY recu_le ASC, id ASC
         LIMIT ${MAX_MESSAGES}
      )
-     SELECT id::int AS message_id, sens, de_adresse, de_nom, ${INSTANT('recu_le')} AS recu_le, objet,
+     SELECT id::int AS message_id, message_id AS message_id_rfc, sens, de_adresse, de_nom,
+            ${INSTANT('recu_le')} AS recu_le, objet,
             CASE WHEN est_dernier THEN left(coalesce(corps_texte, ''), ${MAX_CORPS}) END AS corps,
             left(coalesce(corps_texte, ''), ${LONGUEUR_EXTRAIT}) AS extrait,
             automatique,
@@ -386,6 +395,7 @@ export async function lireMessagesDuFil(
 
   const messages: MessageDeFil[] = rows.map((m) => ({
     messageId: m.message_id,
+    messageIdRfc: m.message_id_rfc,
     sens: m.sens === 'envoye' ? 'envoye' : 'recu',
     de: m.de_adresse,
     // Le libellé du partenaire interne remplace le nom porté par le mail, ici comme partout dans l'écran Gestion.

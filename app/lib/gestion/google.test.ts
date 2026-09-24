@@ -44,17 +44,25 @@ function googleSimule(reponses: Record<string, { status?: number; corps: unknown
 describe('🔴 ① LES PORTÉES — exactement trois, et pas la lecture du courrier', () => {
   it('les trois portées demandées sont celles qu’Arno a décidées, mot pour mot', () => {
     expect([...PORTEES_GESTION]).toEqual([
-      'https://www.googleapis.com/auth/gmail.send',
+      'https://www.googleapis.com/auth/gmail.modify',
       'https://www.googleapis.com/auth/gmail.settings.basic',
       'https://www.googleapis.com/auth/drive',
     ]);
   });
 
-  it('🔴 AUCUNE portée de LECTURE du courrier : le courrier est relevé en IMAP, en lecture stricte', () => {
+  /**
+   * 🔴 CHANGEMENT DU LOT 5-FIDÈLE — `gmail.modify` REMPLACE `gmail.send`, sur décision d'Arno. La boîte de l'écran
+   * doit agir sur la VRAIE boîte Gmail de l'équipe : étoiler, marquer non lu, signaler un spam, lire l'original.
+   * Rien de tout cela n'est possible avec `gmail.send`, qui ne sait qu'expédier.
+   *
+   * L'INVARIANT N'A PAS DISPARU, IL S'EST DÉPLACÉ : ce qu'on continue de refuser, c'est la portée qui permettrait
+   * la SUPPRESSION DÉFINITIVE (`https://mail.google.com/`). Tout ce que l'outil fait à la boîte reste défaisable
+   * depuis Gmail — un libellé se retire, un filtre se supprime. Aucun geste ne peut effacer un mail pour de bon.
+   */
+  it('🔴 la portée d’ACCÈS TOTAL — la seule qui permettrait d’effacer — n’est PAS demandée', () => {
     for (const p of PORTEES_GESTION) {
-      expect(p).not.toContain('gmail.readonly');
-      expect(p).not.toContain('gmail.modify');
-      expect(p).not.toContain('mail.google.com'); // la portée « tout Gmail »
+      expect(p).not.toBe('https://mail.google.com/');
+      expect(p).not.toContain('mail.google.com/');
     }
   });
 

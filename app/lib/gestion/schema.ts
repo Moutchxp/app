@@ -112,3 +112,14 @@ async function tableExiste(table: string): Promise<boolean> {
 export function delaiAnnulationDisponible(): Promise<boolean> {
   return memoiser('config.annulation_envoi_secondes', () => colonneExiste('gestion_config', 'annulation_envoi_secondes'));
 }
+
+/**
+ * LOT 5-FIDÈLE — la migration 242 est-elle appliquée ? Elle seule permet de MÉMORISER la correspondance avec Gmail.
+ *
+ * ⚠️ Elle ne conditionne AUCUNE fonctionnalité : sans elle, chaque action Gmail retrouve le message par une recherche
+ * `rfc822msgid:`, ce qui marche — au prix d'une requête de plus. La sonde ne sert donc qu'à éviter d'écrire dans des
+ * colonnes qui n'existent pas encore.
+ */
+export function identifiantsGmailDisponibles(): Promise<boolean> {
+  return memoiser('message.gmail_message_id', () => colonneExiste('gestion_message', 'gmail_message_id'));
+}

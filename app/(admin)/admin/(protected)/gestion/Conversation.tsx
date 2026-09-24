@@ -15,6 +15,8 @@ import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { MenuDiscret } from './MenuDiscret';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
+import { heureGmail } from '../../../../lib/gestion/ecran';
+import { lienGmail, libelleEtoile, menuMessage, type ActionMessage } from '../../../../lib/gestion/gmailMenu';
 import { PanneauAffecter } from './PanneauAffecter';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 
@@ -125,6 +127,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   const [deplacer, setDeplacer] = useState<number | null>(null);
   /** LOT 5e — le brouillon en cours d'écriture sous la conversation. `null` = on ne rédige pas. */
   const [brouillon, setBrouillon] = useState<BrouillonEcran | null>(null);
+  /**
+   * LOT 5-FIDÈLE — l'état de chaque message DANS GMAIL (étoile, non lu). Relu à l'ouverture, jamais mémorisé en base :
+   * quelqu'un de l'équipe peut étoiler depuis son téléphone pendant qu'on regarde l'écran.
+   */
+  const [gmail, setGmail] = useState<Map<number, { etoile: boolean; nonLu: boolean } | null>>(new Map());
 
   const recharger = useCallback(async () => {
     setVue({ v: 'charge' });
@@ -135,6 +142,32 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   }, [filId]);
 
   useEffect(() => { void recharger(); }, [recharger]);
+
+  /**
+   * LOT 5-FIDÈLE — L'ÉTAT GMAIL DE CHAQUE MESSAGE (étoile, non lu), relu À L'OUVERTURE et jamais mémorisé en base :
+   * quelqu'un de l'équipe peut étoiler depuis son téléphone pendant qu'on regarde l'écran.
+   *
+   * ⚠️ EN SÉRIE, ET SEULEMENT DANS LA VUE EN PLEINE PAGE. Chaque message demande une recherche `rfc822msgid:` à
+   * Gmail : cent requêtes en parallèle sur un fil de cent messages feraient étrangler la connexion par Google. Un
+   * échec ne casse rien — l'étoile n'est simplement pas affichée, plutôt que montrée éteinte, ce qui mentirait.
+   */
+  useEffect(() => {
+    if (!barreActions || vue.v !== 'ok') return;
+    let annule = false;
+    const aDemander = vue.messages.slice(0, 25).map((m) => m.messageId);
+    void (async () => {
+      for (const id of aDemander) {
+        if (annule) return;
+        try {
+          const res = await fetch(`/api/admin/gestion/messages/${id}/gmail`, { cache: 'no-store' });
+          if (!res.ok || annule) continue;
+          const d = (await res.json()) as { etat?: { etoile: boolean; nonLu: boolean } | null };
+          if (!annule && d.etat) setGmail((g) => new Map(g).set(id, d.etat ?? null));
+        } catch { /* pas d'étoile affichée : voir l'encadré */ }
+      }
+    })();
+    return () => { annule = true; };
+  }, [barreActions, vue]);
 
   async function basculer(m: MessageDeFil) {
     const ouvert = deplies.has(m.messageId);
@@ -175,6 +208,66 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * lot 4b (en place, ou dans le partage du plein écran quand l'écran parent en propose un), « classer sans suite »
    * et « rouvrir » appellent les deux verbes symétriques de `/fils/[id]/sans-suite`.
    */
+  /**
+   * LOT 5-FIDÈLE — CE QUE FAIT CHAQUE ENTRÉE DU MENU « ⋮ ». Trois natures, et aucune ne fait semblant :
+   *   · `gmail`  — on demande à la vraie boîte (droit d'écriture relu en base côté serveur, et journal) ;
+   *   · `lien`   — l'API de Gmail ne sait pas le faire : on ouvre le message DANS Gmail, et l'entrée le DIT ;
+   *   · `maison` — c'est notre outil qui répond, sans rien demander à Google.
+   */
+  const agirSurLeMessage = async (a: ActionMessage, m: MessageDeFil) => {
+    const ouvrirDansGmail = () => {
+      const lien = lienGmail(redaction?.adresseGestion ?? 'gestion@criterimmo.fr', { messageIdRfc: m.messageIdRfc });
+      if (lien === null) { onGeste('Impossible d’ouvrir ce message dans Gmail : son identifiant est inconnu.'); return; }
+      window.open(lien, '_blank', 'noopener');
+    };
+    switch (a) {
+      case 'repondre': case 'repondre_tous': case 'transferer':
+        if (redaction) setBrouillon(ouvrirRedaction(a, [m], fil.filId, redaction, maintenant));
+        return;
+      // Ces quatre-là, Gmail ne les expose pas : on y emmène, et l'entrée l'annonce déjà en toutes lettres.
+      case 'partager_chat': case 'hameconnage': case 'illegal': case 'traduire':
+        ouvrirDansGmail(); return;
+      case 'filtrer_similaires':
+        onGeste(`Recherche des messages de ${m.de} — ouvrez la boîte et collez « ${m.de} » dans le champ de recherche.`);
+        return;
+      case 'imprimer':
+        window.print(); return;
+      case 'telecharger':
+        window.open(`/api/admin/gestion/messages/${m.messageId}/original?telecharger=1`, '_blank', 'noopener'); return;
+      case 'afficher_original':
+        window.open(`/api/admin/gestion/messages/${m.messageId}/original`, '_blank', 'noopener'); return;
+      default: break;
+    }
+    // Les trois actions qui MODIFIENT Gmail. Une confirmation d'abord quand l'entrée en demande une.
+    const entree = menuMessage({ nomExpediteur: m.deNom?.trim() || m.de }).find((e) => e.cle === a);
+    if (entree?.confirmation && !window.confirm(entree.confirmation)) return;
+    try {
+      const res = await fetch(`/api/admin/gestion/messages/${m.messageId}/gmail`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: a }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; erreur?: string; etat?: { etoile: boolean; nonLu: boolean } | null };
+      if (!res.ok || !d.ok) { onGeste(d.erreur ?? 'Action impossible.'); return; }
+      if (d.etat) setGmail((g) => new Map(g).set(m.messageId, d.etat ?? null));
+      onGeste(d.message ?? 'C’est fait.');
+    } catch {
+      onGeste('Action impossible : le serveur n’a pas répondu.');
+    }
+  };
+
+  /** L'ÉTOILE : elle bascule, exactement comme le clic de Gmail — on ne décide pas à sa place ce qu'elle doit devenir. */
+  const basculerEtoile = async (m: MessageDeFil) => {
+    try {
+      const res = await fetch(`/api/admin/gestion/messages/${m.messageId}/gmail`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'etoile' }),
+      });
+      const d = (await res.json().catch(() => ({}))) as { ok?: boolean; message?: string; erreur?: string; etat?: { etoile: boolean; nonLu: boolean } | null };
+      if (!res.ok || !d.ok) { onGeste(d.erreur ?? 'Action impossible.'); return; }
+      if (d.etat) setGmail((g) => new Map(g).set(m.messageId, d.etat ?? null));
+    } catch {
+      onGeste('Action impossible : le serveur n’a pas répondu.');
+    }
+  };
+
   const agirSurLeStatut = (a: ActionStatut) => {
     if (a === 'classer' || a === 'changer') { if (onClassement) onClassement('existant'); else setAffecter(true); return; }
     if (a === 'creer') { if (onClassement) onClassement('nouveau'); else setAffecter(true); return; }
@@ -284,6 +377,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             onBasculer={() => void basculer(m)}
             statut={statutDuMessage(fil, m)}
             onActionStatut={agirSurLeStatut}
+            gmail={{ etat: gmail.get(m.messageId) ?? null }}
+            onEtoile={barreActions && redaction ? () => void basculerEtoile(m) : undefined}
+            onRepondre={barreActions && redaction ? (voie) => setBrouillon(ouvrirRedaction(voie, [m], fil.filId, redaction, maintenant)) : undefined}
+            onActionMessage={barreActions ? (a) => void agirSurLeMessage(a, m) : undefined}
             onDeplacer={() => setDeplacer(m.messageId)}
             onRemettre={() => void agirSurLeMail(m.messageId, null, onGeste)}
             panneau={deplacer === m.messageId ? (
@@ -313,12 +410,15 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               <p className="gst-tronc">Vous n’avez pas le droit d’envoyer au nom de gestion@.</p>
             )}
             {redaction.schemaPret && redaction.peutEnvoyer && (
-              <div className="gst-actions">
-                {/* L'ordre est celui de Gmail : répondre d'abord, parce que c'est ce qu'on fait neuf fois sur dix. */}
+              /* LOT 5-FIDÈLE — LE PIED DE GMAIL : trois boutons ARRONDIS, avec leur icône, dans l'ordre de Gmail.
+                 Même fonction qu'avant, même route, même rédaction : seule la forme reprend celle que l'équipe
+                 connaît. L'icône ne porte jamais l'information seule — le mot est écrit à côté. */
+              <div className="cnv-pied">
                 {(['repondre', 'repondre_tous', 'transferer'] as const).map((voie) => (
-                  <button key={voie} type="button" className="svv-btn svv-btn-outline gst-btn"
+                  <button key={voie} type="button" className="cnv-pied-bouton"
                     onClick={() => setBrouillon(ouvrirRedaction(voie, messages, fil.filId, redaction, maintenant))}>
-                    {voie === 'repondre' ? 'Répondre' : voie === 'repondre_tous' ? 'Répondre à tous' : 'Transférer'}
+                    <IconeVoie voie={voie} />
+                    <span>{voie === 'repondre' ? 'Répondre' : voie === 'repondre_tous' ? 'Répondre à tous' : 'Transférer'}</span>
                   </button>
                 ))}
               </div>
@@ -353,6 +453,31 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
 }
 
 /**
+ * LOT 5-FIDÈLE — LES TROIS ICÔNES DU PIED, en SVG EN LIGNE : c'est la convention du dépôt (aucune bibliothèque
+ * d'icônes n'y est installée, et en ajouter une pour trois flèches serait une dépendance de plus à suivre).
+ *
+ * ⚠️ `aria-hidden` : l'icône ne dit rien de plus que le mot écrit à côté. La laisser lisible aux lecteurs d'écran
+ * ferait entendre deux fois la même chose.
+ */
+function IconeVoie({ voie }: { voie: VoieRedaction }) {
+  const commun = { viewBox: '0 0 24 24', width: 18, height: 18, 'aria-hidden': true as const,
+    fill: 'none', stroke: 'currentColor', strokeWidth: 1.8, strokeLinecap: 'round' as const, strokeLinejoin: 'round' as const };
+  if (voie === 'transferer') {
+    return (
+      <svg {...commun}><path d="M15 7l5 5-5 5" /><path d="M20 12h-9a6 6 0 00-6 6v1" /></svg>
+    );
+  }
+  if (voie === 'repondre_tous') {
+    return (
+      <svg {...commun}><path d="M8 7l-5 5 5 5" /><path d="M13 7l-5 5 5 5" /><path d="M8 12h7a5 5 0 015 5v1" /></svg>
+    );
+  }
+  return (
+    <svg {...commun}><path d="M9 7l-5 5 5 5" /><path d="M4 12h9a6 6 0 016 6v1" /></svg>
+  );
+}
+
+/**
  * LOT 5e — OUVRE UN BROUILLON à partir du DERNIER message de la conversation. C'est celui auquel on répond quand on
  * clique « Répondre » sans avoir rien désigné d'autre — le comportement de toute messagerie.
  *
@@ -380,6 +505,7 @@ function ouvrirRedaction(
  */
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
+  gmail, onEtoile, onRepondre, onActionMessage,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
   corpsCharge?: string | null; onBasculer: () => void;
@@ -392,6 +518,15 @@ export function MessageConversation({
   statut?: StatutClassement;
   /** Ce que le cartouche déclenche. Absent = le cartouche n'est qu'un CONSTAT, sans bouton. */
   onActionStatut?: (a: ActionStatut) => void;
+  /**
+   * LOT 5-FIDÈLE — l'état du message DANS GMAIL (étoile, non lu), relu à l'ouverture. `null`/absent = pas de
+   * connexion Google : l'étoile n'est pas affichée plutôt que montrée éteinte, ce qui ne voudrait rien dire.
+   */
+  gmail?: { etat: { etoile: boolean; nonLu: boolean } | null } | null;
+  onEtoile?: () => void;
+  onRepondre?: (voie: VoieRedaction) => void;
+  /** Une entrée du menu « ⋮ » qui n'est ni « déplacer » ni « détacher » — celles-là gardent leurs rappels d'origine. */
+  onActionMessage?: (a: ActionMessage) => void;
 }) {
   const [actions, setActions] = useState(false);
   const propositions = statut ? actionsDuStatut(statut) : { declencheur: null, actions: [] };
@@ -421,22 +556,60 @@ export function MessageConversation({
           déjà retenue pour le menu « ⋯ » et pour `BlocRepliable`.
           L'ORDRE DU DOM est aussi l'ordre mobile : sous la ligne, le cartouche passe donc sous le nom de
           l'expéditeur quand la place manque — exactement ce qu'Arno a demandé. */}
+      {/* ══ LOT 5-FIDÈLE — L'EN-TÊTE DE GMAIL, DANS SON ORDRE ═════════════════════════════════════════════════════
+          [statut] · heure · étoile · flèche Répondre · ⋮ — les mêmes places que dans Gmail, parce que l'équipe y
+          travaille toute la journée et ne doit pas réapprendre où viser. */}
       <div className="cnv-coin">
         {statut && (
           <CartoucheStatut statut={statut} ouvert={actions}
             declencheur={propositions.declencheur}
             onBasculer={onActionStatut ? () => setActions((v) => !v) : undefined} />
         )}
-        {/* LOT 5-DIRECT — date ET heure de réception, en heure de Paris. */}
-        <span className="cnv-quand" title={dateHeureComplete(message.recuLe)}>{dateHeureCourte(message.recuLe, maintenant)}</span>
-        {/* LE MENU DU MAIL — effacé au repos (décision d'Arno : pas de boutons partout), mais toujours atteignable,
-            y compris message REPLIÉ. Il garde TOUTES ses entrées : « Déplacer ce mail », « Détacher ce mail ». */}
-        {(onDeplacer || onRemettre) && (
-          <MenuDiscret titre="Actions sur ce message" entrees={[
-            ...(onDeplacer ? [{ libelle: 'Déplacer ce mail vers un autre événement…', onChoisir: onDeplacer }] : []),
-            ...(onRemettre ? [{ libelle: 'Détacher ce mail', discrete: true, onChoisir: onRemettre }] : []),
-          ]} />
+        {/* L'heure façon Gmail : « 19:07 (il y a 3 heures) », « hier 17:24 », « 22 sept. 18:44 ». */}
+        <span className="cnv-quand" title={dateHeureComplete(message.recuLe)}>{heureGmail(message.recuLe, maintenant)}</span>
+
+        {/* L'ÉTOILE — elle bascule le libellé STARRED dans la VRAIE boîte, et son état est relu DANS GMAIL.
+            Sans connexion Google, elle n'est pas affichée : on ne montre pas une étoile éteinte qui ne dirait rien. */}
+        {gmail?.etat && onEtoile && (
+          <button type="button" className={`cnv-etoile${gmail.etat.etoile ? ' cnv-etoile--posee' : ''}`}
+            aria-pressed={gmail.etat.etoile} aria-label={libelleEtoile(gmail.etat.etoile)} title={libelleEtoile(gmail.etat.etoile)}
+            onClick={onEtoile}>
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"
+              fill={gmail.etat.etoile ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.8">
+              <path d="M12 3.5l2.6 5.3 5.9.9-4.2 4.1 1 5.8-5.3-2.8-5.3 2.8 1-5.8-4.2-4.1 5.9-.9z" strokeLinejoin="round" />
+            </svg>
+          </button>
         )}
+
+        {/* LA FLÈCHE RÉPONDRE — le geste le plus fréquent, atteignable sans ouvrir le menu, comme dans Gmail. */}
+        {onRepondre && (
+          <button type="button" className="cnv-icone" aria-label="Répondre" title="Répondre"
+            onClick={() => onRepondre('repondre')}>
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M9 7L4 12l5 5" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M4 12h9a6 6 0 016 6v1" strokeLinecap="round" />
+            </svg>
+          </button>
+        )}
+
+        {/* LE MENU « ⋮ » — mêmes mots, même ordre, mêmes séparateurs que Gmail. Il garde AUSSI nos entrées maison,
+            rangées sous « Gestion » : « Déplacer ce mail », « Détacher ce mail ». */}
+        <MenuDiscret titre="Actions sur ce message" glyphe="⋮" entrees={
+          menuMessage({ nomExpediteur: qui, avecGestes: Boolean(onDeplacer || onRemettre) })
+            .filter((e) => (e.cle === 'deplacer_mail' ? Boolean(onDeplacer) : e.cle === 'detacher_mail' ? Boolean(onRemettre) : true))
+            .map((e) => ({
+              libelle: e.libelle,
+              aide: e.aide,
+              separateurAvant: e.separateurAvant,
+              section: e.section,
+              discrete: e.cle === 'detacher_mail',
+              onChoisir: () => {
+                if (e.cle === 'deplacer_mail') { onDeplacer?.(); return; }
+                if (e.cle === 'detacher_mail') { onRemettre?.(); return; }
+                onActionMessage?.(e.cle);
+              },
+            }))
+        } />
       </div>
 
       {/* LES GESTES RÉVÉLÉS — pleine largeur, donc empilés d'eux-mêmes sur téléphone. Ils appellent les routes qui
@@ -614,6 +787,20 @@ const CSS_CONVERSATION = `
 /* Les gestes révélés prennent la LARGEUR ENTIÈRE : ils s'empilent donc d'eux-mêmes sur un téléphone. */
 .cnv-statut-actions{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;padding:0 4px 10px}
 .cnv-statut{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0}
+/* ── LOT 5-FIDÈLE : l'étoile et les icônes de l'en-tête, aux places de Gmail ──────────────────────────────────── */
+.cnv-etoile,.cnv-icone{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;
+  padding:0;color:var(--color-svv-muted);background:transparent;border:1px solid transparent;border-radius:.5rem;cursor:pointer}
+.cnv-etoile:hover,.cnv-icone:hover{color:var(--color-svv-ink);border-color:var(--color-svv-line)}
+.cnv-etoile:focus-visible,.cnv-icone:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* L'étoile POSÉE : remplie ET colorée. Son libellé accessible change aussi — jamais la couleur seule. */
+.cnv-etoile--posee{color:var(--color-svv-red)}
+/* ── LOT 5-FIDÈLE : le pied de Gmail — trois boutons arrondis, icône puis mot ─────────────────────────────────── */
+.cnv-pied{display:flex;flex-wrap:wrap;gap:8px;padding-top:4px}
+.cnv-pied-bouton{display:inline-flex;align-items:center;gap:.45rem;min-height:44px;padding:.45rem 1.1rem;
+  font:inherit;font-size:.85rem;font-weight:600;color:var(--color-svv-ink);background:var(--color-svv-surface);
+  border:1px solid var(--color-svv-line-strong);border-radius:999px;cursor:pointer}
+.cnv-pied-bouton:hover{background:var(--color-svv-field)}
+.cnv-pied-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 /* LE CARTOUCHE — le MOT d'abord, la couleur ensuite : lisible en niveaux de gris et pour un daltonien. */
 .cnv-cartouche{display:inline-block;max-width:22rem;padding:2px 8px;border-radius:999px;font-size:.72rem;
   font-weight:700;line-height:1.5;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;

@@ -4,6 +4,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  * 🔴 STRICTEMENT EN LECTURE. Trois questions, trois requêtes GET, et rien d'autre :
  *   ① quel compte est connecté (Drive `about`) ;
+ *   ①bis un message LU par son Message-ID (`--message=<id>`), pour confirmer que `gmail.modify` est accordée ;
  *   ② quelles signatures Gmail existent, et leurs premiers mots (`settings/sendAs`) ;
  *   ③ quels Drive partagés sont visibles — LES NOMS SEULEMENT (`drives`).
  * AUCUN envoi, AUCUNE écriture, AUCUN fichier créé, AUCUN fichier listé. Ce script ne peut rien casser : c'est
@@ -16,8 +17,8 @@
  */
 import '../lib/chargerEnv';
 import {
-  COMPTE_GESTION, estCompteAttendu, lireCompte, lireIdentifiants, lireSignatures, listerDrivesPartages,
-  masquerJeton, rafraichirJeton, resumerSignature,
+  COMPTE_GESTION, chercherParMessageId, estCompteAttendu, lireCompte, lireIdentifiants, lireMessageGmail,
+  lireSignatures, listerDrivesPartages, masquerJeton, rafraichirJeton, resumerSignature,
 } from '../lib/gestion/google';
 import { cheminJeton, lireJeton } from '../lib/gestion/googleJeton';
 
@@ -61,6 +62,27 @@ async function main(): Promise<void> {
     console.error(`${P}    ATTENDU : ${COMPTE_GESTION}. Refais l’autorisation avec la bonne boîte.`);
     process.exitCode = 1;
     return;
+  }
+
+  // ── ①bis UN MESSAGE LU, pour confirmer `gmail.modify` ──────────────────────────────────────────────────────────
+  // 🔴 LECTURE SEULE : on cherche le message le plus récent de la boîte et on lit ses MÉTADONNÉES (ses libellés).
+  //   Aucun libellé n'est posé, aucun message n'est modifié. C'est le seul moyen de confirmer que la portée
+  //   `gmail.modify` a bien été accordée — une signature lisible ne le prouve pas (elle relève d'une autre portée).
+  const idMessage = (process.argv.find((a) => a.startsWith('--message=')) ?? '').slice('--message='.length).trim();
+  if (idMessage === '') {
+    console.log(`${P} ①bis Lecture d’un message : non demandée (ajoute --message=<Message-ID> pour l’essayer).`);
+  } else {
+    const trouve = await chercherParMessageId(acces.valeur, idMessage, { fetch });
+    if (!trouve.ok) {
+      console.log(`${P} ①bis Lecture d’un message : ❌ ${trouve.motif}`);
+    } else if (trouve.valeur === null) {
+      console.log(`${P} ①bis Lecture d’un message : aucun message ne porte ce Message-ID dans la boîte.`);
+    } else {
+      const lu = await lireMessageGmail(acces.valeur, trouve.valeur.id, { fetch });
+      console.log(lu.ok
+        ? `${P} ①bis Lecture d’un message : ✅ trouvé, ${lu.valeur.libelles.length} libellé(s) — aucune modification faite.`
+        : `${P} ①bis Lecture d’un message : ❌ ${lu.motif}`);
+    }
   }
 
   // ── ② LES SIGNATURES ───────────────────────────────────────────────────────────────────────────────────────────

@@ -13,7 +13,7 @@ import type { MessageDeFil } from './carteRepo';
  */
 
 const msg = (o: Partial<MessageDeFil> = {}): MessageDeFil => ({
-  messageId: 1, sens: 'recu', de: 'martin@orange.fr', deNom: 'Mme Martin',
+  messageId: 1, messageIdRfc: '<m1@orange.fr>', sens: 'recu', de: 'martin@orange.fr', deNom: 'Mme Martin',
   recuLe: '2026-09-20T08:00:00Z', objet: 'Chauffage', corps: null, extrait: null,
   automatique: false, pieces: [],
   horsFile: false, motifHorsFile: null,

@@ -16,13 +16,14 @@ permission, en cliquant « Autoriser » dans une fenêtre Google. Personne d'aut
 
 | Permission | À quoi elle sert |
 |---|---|
-| Envoyer des mails | Répondre, transférer, écrire depuis l'application |
-| Lire les paramètres Gmail | Récupérer **votre signature**, pour la mettre au bas des mails |
+| Lire, modifier et envoyer des mails | Répondre et transférer ; mettre une **étoile**, marquer **non lu**, signaler un **spam**, retrouver l'**original** d'un message — le tout dans la vraie boîte |
+| Lire les paramètres Gmail | Récupérer **votre signature**, et créer le filtre de **blocage** d'un expéditeur |
 | Google Drive | Ouvrir les pièces jointes, les enregistrer, en joindre depuis le Drive |
 
-> ⚠️ **L'application ne demande PAS le droit de lire votre courrier.** Le courrier est déjà relevé
-> autrement (en lecture stricte). Si un écran Google vous propose « Lire vos e-mails », c'est qu'il y a une
-> erreur : arrêtez-vous et dites-le.
+> 🔴 **CE QUE L'APPLICATION NE PEUT PAS FAIRE, ET C'EST VOULU : supprimer définitivement un mail.**
+> Google réserve cela à une permission « accès total » que nous **ne demandons pas**. Tout ce que l'outil
+> fait à votre boîte se **défait depuis Gmail** : une étoile se retire, un libellé s'enlève, un filtre se
+> supprime. Aucun geste de l'application ne peut effacer un message pour de bon.
 
 ---
 
@@ -87,10 +88,14 @@ bouton **MODIFIER** ou **AJOUTER OU SUPPRIMER DES CHAMPS D'APPLICATION**.
 Dans la zone de recherche, collez ces trois lignes **une par une**, et cochez la case de chacune :
 
 ```
-https://www.googleapis.com/auth/gmail.send
+https://www.googleapis.com/auth/gmail.modify
 https://www.googleapis.com/auth/gmail.settings.basic
 https://www.googleapis.com/auth/drive
 ```
+
+> ⚠️ Si vous aviez déjà ajouté `gmail.send` lors d'une première tentative, **remplacez-la** par
+> `gmail.modify` (retirez l'ancienne). `gmail.modify` fait tout ce que faisait `gmail.send`, **et** permet
+> d'agir sur les messages. Elle ne permet toujours pas la suppression définitive.
 
 Puis **METTRE À JOUR**, puis **ENREGISTRER**.
 
@@ -147,7 +152,10 @@ npm run gestion:google:autoriser
 4. Google vous demande **quel compte utiliser**.
    🔴 **Choisissez `gestion@criterimmo.fr`.** Si vous ne le voyez pas dans la liste, cliquez sur
    **« Utiliser un autre compte »** et connectez-vous avec.
-5. Google affiche ce que l'application demande : **envoi de mails**, **paramètres Gmail**, **Drive**.
+5. Google affiche ce que l'application demande : **lire, rédiger, envoyer et supprimer définitivement vos
+   e-mails** — ⚠️ c'est la formule que Google emploie pour `gmail.modify`, et elle est **plus large que ce
+   que l'application peut réellement faire** : la suppression définitive exige une AUTRE permission, que
+   nous ne demandons pas. Puis **paramètres Gmail** et **Drive**.
    Cliquez **Continuer**, puis **Autoriser**.
    *(Si Google affiche « Google n'a pas validé cette application » : c'est normal pour une application
    maison. Cliquez sur « Paramètres avancés », puis sur « Accéder à … (non sécurisé) ».)*
@@ -200,6 +208,8 @@ Vous pouvez la relancer autant de fois que vous voulez.
 **Les trois lignes à lire :**
 
 - **① le compte** doit être `gestion@criterimmo.fr` avec un ✅ ;
+- **①bis un message lu** : la vérification lit un message de la boîte pour confirmer que la permission
+  `gmail.modify` est bien accordée. Elle ne modifie rien ;
 - **② la signature** doit afficher les premiers mots de **votre vraie signature Gmail**. Si elle dit
   « aucune signature configurée », c'est qu'il n'y en a pas dans Gmail (Paramètres → Signature) — ce n'est pas
   une panne, mais les mails partiront sans signature ;
@@ -217,6 +227,7 @@ Vous pouvez la relancer autant de fois que vous voulez.
 | `Google n'a pas renvoyé de jeton de rafraîchissement` | Cette application a déjà été autorisée par ce compte | Allez sur **myaccount.google.com/permissions**, retirez l'accès de l'application, relancez |
 | `Jeton refusé par Google` | L'autorisation a expiré (souvent : **Externe + Test**, 7 jours) | Refaites l'**étape 1.2**, puis relancez l'étape 2.1 |
 | `Signatures illisibles (HTTP 403)` | La permission « paramètres Gmail » n'a pas été accordée | Refaites l'**étape 1.3**, puis l'étape 2.1 |
+| `Lecture d'un message impossible (HTTP 403)` | La permission `gmail.modify` n'a pas été accordée (ou `gmail.send` est restée à sa place) | Refaites l'**étape 1.3** en remplaçant `gmail.send` par `gmail.modify`, puis l'étape 2.1 |
 | `Drive partagés illisibles` ou liste vide | `gestion@` n'est pas membre du Drive partagé | Sur `drive.google.com`, ajoutez-le comme **Gestionnaire de contenu** |
 | `Google a refusé : access_denied` | Vous avez cliqué « Annuler » | Relancez et cliquez « Autoriser » |
 | Google refuse l'adresse de redirection | Le client OAuth n'accepte pas l'adresse locale | Le Terminal affiche l'adresse EXACTE à déclarer : copiez-la dans **Identifiants → votre client → URI de redirection autorisés** |
@@ -233,9 +244,11 @@ Une fois ces deux commandes passées, je peux écrire les lots suivants :
 - **répondre / répondre à tous / transférer / nouveau message** au nom de `gestion@criterimmo.fr`,
   dans le bon fil Gmail, et visibles dans « Envoyés » ;
 - **la signature Gmail** reprise automatiquement au bas des messages ;
+- l'**étoile**, le **non lu**, le **spam**, le **blocage d'un expéditeur**, l'**original** d'un message et
+  son **téléchargement** — tout cela agissant sur la vraie boîte, et défaisable depuis Gmail ;
 - **les pièces jointes dans le Drive partagé** : les ouvrir, les y enregistrer, en joindre depuis le Drive.
 
-**Rien de tout cela n'existe encore.** Ce guide ne fait que préparer la connexion.
+**Rien de tout cela ne fonctionne tant que l'autorisation n'est pas donnée.** Ce guide la prépare.
 
 ---
 

@@ -214,3 +214,42 @@ export const LIBELLE_CLASSER = 'Classer dans une carte';
 export const INTRO_GESTION =
   'Courrier de gestion locative : à gauche les échanges à classer, à droite les événements. Un événement est une '
   + 'demande qui attend une réponse de notre part, quel qu’en soit l’auteur.';
+
+/**
+ * LOT 5-FIDÈLE — L'HEURE D'UN MESSAGE, ÉCRITE COMME GMAIL L'ÉCRIT.
+ *
+ * Trois formes, et Gmail choisit selon l'ancienneté — c'est ce que l'équipe lit toute la journée :
+ *   · aujourd'hui  → « 19:07 (il y a 3 heures) » — l'heure exacte, et depuis combien de temps ;
+ *   · hier         → « hier 17:24 » ;
+ *   · avant        → « 22 sept. 18:44 » (l'année n'apparaît que si ce n'est pas la nôtre).
+ *
+ * ⚠️ Le « il y a … » n'est mis QUE sur le jour même : au-delà, Gmail donne la date, parce que « il y a 6 jours » ne
+ * dit pas si c'était lundi ou mardi. Toujours en heure de Paris (cf. `FUSEAU_AFFICHAGE`). PUR.
+ */
+export function heureGmail(iso: string | null | undefined, maintenant: Date): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const c = champsParis(d);
+  const jour = jourParis(d);
+  const aujourdhui = jourParis(maintenant);
+  const veille = jourParis(new Date(maintenant.getTime() - 86_400_000));
+
+  if (jour === aujourdhui) {
+    const ecoule = maintenant.getTime() - d.getTime();
+    return `${c.heure} (${depuisCourt(ecoule)})`;
+  }
+  if (jour === veille) return `hier ${c.heure}`;
+  const moisCourt = new Intl.DateTimeFormat('fr-FR', { timeZone: FUSEAU_AFFICHAGE, month: 'short' }).format(d);
+  const annee = c.annee === champsParis(maintenant).annee ? '' : ` ${c.annee}`;
+  return `${c.jour} ${moisCourt}${annee} ${c.heure}`;
+}
+
+/** « il y a 3 heures », « il y a 12 minutes », « à l'instant ». Uniquement pour le jour même. PUR. */
+function depuisCourt(ms: number): string {
+  const minutes = Math.floor(Math.max(0, ms) / 60_000);
+  if (minutes < 1) return 'à l’instant';
+  if (minutes < 60) return `il y a ${minutes} minute${minutes > 1 ? 's' : ''}`;
+  const heures = Math.floor(minutes / 60);
+  return `il y a ${heures} heure${heures > 1 ? 's' : ''}`;
+}

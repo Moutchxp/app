@@ -25,16 +25,22 @@
 export const COMPTE_GESTION = 'gestion@criterimmo.fr';
 
 /**
- * LES TROIS PORTÉES, ET RIEN DE PLUS. Chacune répond à un besoin nommé, et aucune ne donne la lecture du courrier :
- *   · `gmail.send`            — envoyer au nom de gestion@ (réponse, transfert, nouveau message) ;
- *   · `gmail.settings.basic`  — LIRE les signatures configurées dans Gmail (`sendAs`), pour les reprendre à l'identique ;
+ * LES TROIS PORTÉES, ET RIEN DE PLUS. Chacune répond à un besoin nommé :
+ *   · `gmail.modify`          — lire un message, changer ses libellés (étoile, non lu, spam), et ENVOYER ;
+ *   · `gmail.settings.basic`  — lire les signatures (`sendAs`) et créer un filtre de blocage, comme le fait Gmail ;
  *   · `drive`                 — ouvrir, déposer et joindre des pièces dans le Drive partagé.
  *
- * ⚠️ `gmail.readonly` n'y est PAS, et c'est délibéré : le courrier est déjà relevé en IMAP, en lecture stricte. Ajouter
- * la lecture Gmail donnerait un accès total à la boîte pour un besoin qui n'existe pas.
+ * 🔴 LOT 5-FIDÈLE — `gmail.modify` REMPLACE `gmail.send`. La boîte de l'écran doit agir sur la VRAIE boîte Gmail de
+ * l'équipe : mettre une étoile, marquer non lu, signaler un spam, retrouver l'original d'un message. Aucune de ces
+ * actions n'est possible avec `gmail.send`, qui ne sait qu'expédier.
+ *
+ * ⚠️ CE QUE `gmail.modify` NE DONNE PAS, et c'est exactement pourquoi on s'arrête là : **la suppression définitive**.
+ * Google réserve celle-ci à `https://mail.google.com/` (la portée totale), que nous ne demandons PAS. Tout ce que
+ * l'outil peut faire à la boîte est donc RÉVERSIBLE depuis Gmail — mettre à la corbeille se défait, un libellé se
+ * retire, un filtre se supprime. Aucun geste d'ici ne peut effacer un mail pour de bon.
  */
 export const PORTEES_GESTION: readonly string[] = [
-  'https://www.googleapis.com/auth/gmail.send',
+  'https://www.googleapis.com/auth/gmail.modify',
   'https://www.googleapis.com/auth/gmail.settings.basic',
   'https://www.googleapis.com/auth/drive',
 ];
@@ -45,6 +51,10 @@ export const ENDPOINT_REVOCATION = 'https://oauth2.googleapis.com/revoke';
 export const ENDPOINT_DRIVE_ABOUT = 'https://www.googleapis.com/drive/v3/about';
 export const ENDPOINT_DRIVE_PARTAGES = 'https://www.googleapis.com/drive/v3/drives';
 export const ENDPOINT_GMAIL_SENDAS = 'https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs';
+/** LOT 5-FIDÈLE — les messages de la boîte : les chercher, les lire, changer leurs libellés. */
+export const ENDPOINT_GMAIL_MESSAGES = 'https://gmail.googleapis.com/gmail/v1/users/me/messages';
+/** LOT 5-FIDÈLE — les filtres, pour reproduire le blocage d'un expéditeur exactement comme Gmail le fait. */
+export const ENDPOINT_GMAIL_FILTRES = 'https://gmail.googleapis.com/gmail/v1/users/me/settings/filters';
 
 // ── Identifiants du client OAuth ──────────────────────────────────────────────────────────────────────────────────
 export interface IdentifiantsGoogle { clientId: string; clientSecret: string; source: 'gestion' | 'drive' }
@@ -250,4 +260,135 @@ export async function listerDrivesPartages(accessToken: string, deps: DepsGoogle
   if (!res.ok) return { ok: false, motif: `Drive partagés illisibles (HTTP ${res.status}).` };
   const j = (await res.json().catch(() => ({}))) as { drives?: { name?: string }[] };
   return { ok: true, valeur: (j.drives ?? []).map((d) => (d.name ?? '').trim()).filter((n) => n !== '') };
+}
+
+// ══ LOT 5-FIDÈLE — AGIR SUR LA VRAIE BOÎTE GMAIL ══════════════════════════════════════════════════════════════════
+//
+// 🔴 TOUT EST RÉVERSIBLE DEPUIS GMAIL, et rien ici ne demande une suppression définitive : on ne fait que POSER ou
+// RETIRER des libellés (`STARRED`, `UNREAD`, `SPAM`, `INBOX`) et créer un filtre — trois gestes que l'équipe défait
+// elle-même depuis Gmail, avec les commandes qu'elle connaît déjà. La portée totale `mail.google.com`, seule à
+// permettre l'effacement, n'est pas demandée (voir `PORTEES_GESTION`).
+
+/** Ce que Gmail sait d'un message. `libelles` porte l'étoile, le non-lu, le spam — c'est l'état VRAI, pas le nôtre. */
+export interface MessageGmail {
+  id: string;
+  threadId: string;
+  libelles: string[];
+}
+
+/** Les libellés système dont l'écran se sert. Écrits une fois : une faute de frappe ici serait muette côté Gmail. */
+export const LIBELLE_ETOILE = 'STARRED';
+export const LIBELLE_NON_LU = 'UNREAD';
+export const LIBELLE_SPAM = 'SPAM';
+export const LIBELLE_RECEPTION = 'INBOX';
+
+/**
+ * RETROUVE le message Gmail à partir de NOTRE `Message-ID` RFC. C'est le seul pont fiable entre notre base et la
+ * boîte : l'identifiant Gmail n'existe nulle part chez nous tant qu'on ne l'a pas demandé, et le `Message-ID`, lui,
+ * est écrit dans le message lui-même — il ne bouge jamais.
+ *
+ * `rfc822msgid:` est l'opérateur de recherche prévu pour ça. Les chevrons sont retirés : Gmail les refuse.
+ * `null` = introuvable — un message capturé depuis une autre boîte, ou effacé de Gmail. Ce n'est PAS une erreur, et
+ * l'écran doit pouvoir le dire tel quel.
+ */
+export async function chercherParMessageId(
+  accessToken: string, messageIdRfc: string, deps: DepsGoogle,
+): Promise<Resultat<MessageGmail | null>> {
+  const nu = messageIdRfc.trim().replace(/^</, '').replace(/>$/, '');
+  if (nu === '') return { ok: true, valeur: null };
+  const url = `${ENDPOINT_GMAIL_MESSAGES}?q=${encodeURIComponent(`rfc822msgid:${nu}`)}&maxResults=1`;
+  const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return { ok: false, motif: `Recherche Gmail impossible (HTTP ${res.status}).` };
+  const j = (await res.json().catch(() => ({}))) as { messages?: { id?: string; threadId?: string }[] };
+  const trouve = j.messages?.[0];
+  if (!trouve?.id) return { ok: true, valeur: null };
+  return { ok: true, valeur: { id: trouve.id, threadId: trouve.threadId ?? trouve.id, libelles: [] } };
+}
+
+/**
+ * LIT un message Gmail : son fil, et surtout ses LIBELLÉS — c'est de là que viennent l'étoile et le non-lu affichés.
+ * `format=metadata` : on ne rapatrie ni le corps ni les pièces, dont nous avons déjà notre propre copie.
+ */
+export async function lireMessageGmail(
+  accessToken: string, id: string, deps: DepsGoogle,
+): Promise<Resultat<MessageGmail>> {
+  const url = `${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}?format=metadata&metadataHeaders=Message-Id`;
+  const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (res.status === 404) return { ok: false, motif: 'Ce message n’existe plus dans Gmail.' };
+  if (!res.ok) return { ok: false, motif: `Lecture Gmail impossible (HTTP ${res.status}).` };
+  const j = (await res.json().catch(() => ({}))) as { id?: string; threadId?: string; labelIds?: string[] };
+  return { ok: true, valeur: { id: j.id ?? id, threadId: j.threadId ?? id, libelles: j.labelIds ?? [] } };
+}
+
+/**
+ * POSE ou RETIRE des libellés. C'est ce geste, et lui seul, qui porte l'étoile, le « non lu » et le signalement de
+ * spam — exactement comme le clic correspondant dans Gmail, et défaisable de la même façon.
+ *
+ * ⚠️ On ne passe JAMAIS `TRASH` ici : mettre à la corbeille n'est pas demandé par ce lot, et la suppression
+ * définitive n'est pas dans nos portées. Un appel qui le tenterait serait refusé par Google, pas par nous — mais
+ * autant ne pas l'écrire.
+ */
+export async function modifierLibelles(
+  accessToken: string, id: string, o: { ajouter?: readonly string[]; retirer?: readonly string[] }, deps: DepsGoogle,
+): Promise<Resultat<MessageGmail>> {
+  const res = await deps.fetch(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}/modify`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ addLabelIds: o.ajouter ?? [], removeLabelIds: o.retirer ?? [] }),
+  });
+  if (res.status === 404) return { ok: false, motif: 'Ce message n’existe plus dans Gmail.' };
+  if (!res.ok) {
+    const j = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    return { ok: false, motif: `Gmail a refusé la modification : ${j.error?.message ?? `HTTP ${res.status}`}` };
+  }
+  const j = (await res.json().catch(() => ({}))) as { id?: string; threadId?: string; labelIds?: string[] };
+  return { ok: true, valeur: { id: j.id ?? id, threadId: j.threadId ?? id, libelles: j.labelIds ?? [] } };
+}
+
+/**
+ * LE MESSAGE ORIGINAL, tel que Gmail l'a reçu (`format=raw`, base64 « URL-safe »). Sert à deux entrées du menu :
+ * « Afficher l'original » et « Télécharger le message » (.eml). C'est la SOURCE, jamais notre reconstitution — ce
+ * qu'on veut voir quand on cherche pourquoi un mail est arrivé de travers.
+ */
+export async function lireOriginalGmail(
+  accessToken: string, id: string, deps: DepsGoogle,
+): Promise<Resultat<string>> {
+  const res = await deps.fetch(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}?format=raw`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (res.status === 404) return { ok: false, motif: 'Ce message n’existe plus dans Gmail.' };
+  if (!res.ok) return { ok: false, motif: `Original illisible (HTTP ${res.status}).` };
+  const j = (await res.json().catch(() => ({}))) as { raw?: string };
+  if (!j.raw) return { ok: false, motif: 'Gmail n’a pas rendu l’original de ce message.' };
+  return { ok: true, valeur: Buffer.from(j.raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8') };
+}
+
+/**
+ * BLOQUE un expéditeur, en créant dans Gmail le MÊME filtre que le blocage de Gmail : les futurs messages de cette
+ * adresse ne passent plus par la boîte de réception, ils vont dans les indésirables.
+ *
+ * ⚠️ HONNÊTETÉ SUR CE POINT : l'équivalence exacte avec le bouton « Bloquer » de Gmail n'a PAS pu être vérifiée
+ * contre l'API réelle (aucune connexion n'a été faite dans ce lot). Si Google refuse cette combinaison de libellés
+ * dans un filtre, le refus remonte tel quel à l'écran — on ne fait jamais semblant d'avoir bloqué.
+ *
+ * 🔴 RÉVERSIBLE : le filtre se supprime depuis Gmail (Paramètres → Filtres et adresses bloquées), et rien n'est
+ * effacé — les messages déjà reçus ne bougent pas.
+ */
+export async function creerFiltreBlocage(
+  accessToken: string, adresse: string, deps: DepsGoogle,
+): Promise<Resultat<string>> {
+  const res = await deps.fetch(ENDPOINT_GMAIL_FILTRES, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      criteria: { from: adresse },
+      action: { addLabelIds: [LIBELLE_SPAM], removeLabelIds: [LIBELLE_RECEPTION] },
+    }),
+  });
+  if (!res.ok) {
+    const j = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    return { ok: false, motif: `Gmail a refusé le blocage : ${j.error?.message ?? `HTTP ${res.status}`}` };
+  }
+  const j = (await res.json().catch(() => ({}))) as { id?: string };
+  return { ok: true, valeur: j.id ?? '' };
 }

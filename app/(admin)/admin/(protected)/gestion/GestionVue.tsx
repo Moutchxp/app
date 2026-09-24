@@ -679,6 +679,17 @@ const CSS_GESTION = `
 .gst-menu-entree{min-height:44px;padding:.6rem .8rem;text-align:left;font-size:.85rem;color:var(--color-svv-ink);
   background:transparent;border:0;border-bottom:1px solid var(--color-svv-line);cursor:pointer}
 .gst-menu-entree:last-child{border-bottom:0}
+/* LOT 5-FIDÈLE — les séparateurs et les sections de Gmail. Un trait, un titre : on vise sans lire. */
+.gst-menu-groupe{border-top:2px solid var(--color-svv-line-strong)}
+.gst-menu-section{margin:0;padding:.45rem .8rem .1rem;font-size:.7rem;font-weight:700;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--color-svv-muted)}
+.gst-menu-entree{display:flex;flex-direction:column;gap:2px}
+.gst-menu-aide{font-size:.72rem;line-height:1.35;color:var(--color-svv-muted);white-space:normal}
+/* SUR TÉLÉPHONE, le menu est une FEUILLE PLEINE LARGEUR : un menu de 260 px collé à droite déborde de l'écran. */
+@media (max-width:599px){
+  .gst-menu-liste{position:fixed;left:0;right:0;bottom:0;top:auto;min-width:0;width:100%;max-height:75vh;
+    overflow-y:auto;border-radius:.9rem .9rem 0 0;border-width:2px 0 0}
+}
 .gst-menu-entree:hover,.gst-menu-entree:focus-visible{background:var(--color-svv-field)}
 /* Défaire n'est pas dangereux dans ce module : la teinte est SOBRE, jamais un rouge d'alerte qui ferait hésiter. */
 .gst-menu-entree--discrete{color:var(--color-svv-muted)}
