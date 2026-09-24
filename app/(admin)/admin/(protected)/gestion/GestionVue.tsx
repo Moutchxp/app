@@ -6,12 +6,16 @@ import {
   depuis, formaterDateFr, libelleEtat, mentionTroncature, messageErreurHttp, messageEvenementsVide, messageFileVide,
   messageReleve,
 } from '../../../../lib/gestion/ecran';
+import {
+  ecrireEtatUrl, ETAT_DEFAUT, ETIQUETTE_ARRIVEE, ETIQUETTE_RECEPTION, lireEtatUrl, memeEtat,
+  type EtatEcranUrl,
+} from '../../../../lib/gestion/ecranUrl';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { useReleveGestion } from './useReleveGestion';
 import { PanneauAffecter } from './PanneauAffecter';
 import { CarteVive } from './CarteVive';
 import { Conversation } from './Conversation';
-import { BoiteMail } from './BoiteMail';
+import { PleinEcranBoite, type EtiquetteAffichee } from './PleinEcranBoite';
 
 /**
  * LOT 2/3/4b — l'écran à deux côtés, et les DEUX GESTES.
@@ -34,13 +38,24 @@ import { BoiteMail } from './BoiteMail';
 type Chargement = { etat: 'charge' } | { etat: 'ok'; data: EtatEcran } | { etat: 'erreur'; message: string };
 
 /**
- * LOT 5a — LES DEUX MODES DU MODULE. Ils ne se remplacent pas, ils répondent à deux questions :
- *   · « tri »   — qu'ai-je À TRAITER ? (le poste de tri existant, fenêtre de 30 jours, gestes de classement) ;
- *   · « boite » — qu'est-ce qui EXISTE ? (tout le courrier, du plus récent au plus ancien).
- * Le mode « tri » reste le mode par défaut : on n'arrive pas dans un outil de travail par sa réserve.
+ * LOT 5-FUSION — LES TROIS ÉCRANS, ET LA DISPARITION DES DEUX ONGLETS.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LES ONGLETS « POSTE DE TRI » / « BOÎTE MAIL » N'EXISTENT PLUS. C'est le SEUL retrait de ce lot, et c'est une
+ * décision d'Arno : deux onglets obligeaient à choisir entre « ce que j'ai à faire » et « ce qui existe », alors que
+ * les deux servent au même geste. Il n'y a plus qu'une boîte, augmentée : l'écran partagé pour travailler, et le plein
+ * écran pour chercher.
+ *
+ * AUCUNE FONCTION N'A DISPARU AVEC EUX. Ce que montrait l'onglet « Boîte mail » est devenu l'étiquette « Réception »
+ * de la boîte en plein écran, avec sa recherche, ses filtres, son interrupteur de courrier automatique et sa
+ * pagination. Ce que montrait l'onglet « Poste de tri » est resté l'écran d'arrivée, inchangé.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * L'ÉTAT DE L'ÉCRAN VIT DANS L'ADRESSE (`ecranUrl.ts`, module pur) : recharger la page revient où l'on était, le
+ * bouton « Précédent » du navigateur refait le chemin en arrière au lieu de quitter le module, et un écran se copie
+ * à quelqu'un d'autre. On empile une entrée d'historique quand l'écran CHANGE, on remplace sinon — sans quoi trois
+ * clics sur la même étiquette demanderaient trois « Précédent ».
  */
-export type ModeGestion = 'tri' | 'boite';
-
 export function GestionVue() {
   const [vue, setVue] = useState<Chargement>({ etat: 'charge' });
   // Instant de référence des « il y a … », figé au rendu et rafraîchi avec les données. JAMAIS calculé pendant le rendu
@@ -52,11 +67,36 @@ export function GestionVue() {
    * rang dans la liste : la file change sous l'écran (relève, rattachement, classement) et un rang ne désigne alors
    * plus le même échange. Déclaré AVANT `charger`, qui le remet à zéro à chaque relecture.
    */
-  const [mode, setMode] = useState<ModeGestion>('tri');
-  const [filOuvert, setFilOuvert] = useState<number | null>(null); // LOT 5a — échange ouvert depuis la boîte mail
   const [panneau, setPanneau] = useState<number | null>(null);
   const [geste, setGeste] = useState<{ ton: 'ok' | 'erreur'; texte: string } | null>(null);
   const [gesteEnCours, setGesteEnCours] = useState(false);
+  /** LOT 5-FUSION — quel écran, quelle étiquette, quel échange ouvert. Lu et écrit dans l'adresse (voir `ecranUrl`). */
+  const [etatUrl, setEtatUrl] = useState<EtatEcranUrl>(ETAT_DEFAUT);
+  const [auto, setAuto] = useState(false);
+  const [comptesBoite, setComptesBoite] = useState<{ lisibles: number; automatiques: number; envoyes: number } | null>(null);
+  const { ecran, etiquette, filOuvert } = etatUrl;
+
+  /**
+   * L'adresse fait FOI. On la lit au montage — jamais au rendu serveur, où `window` n'existe pas et où une lecture
+   * ferait diverger l'hydratation — puis à chaque « Précédent » / « Suivant » du navigateur.
+   */
+  useEffect(() => {
+    const relire = () => setEtatUrl(lireEtatUrl(window.location.search));
+    relire();
+    window.addEventListener('popstate', relire);
+    return () => window.removeEventListener('popstate', relire);
+  }, []);
+
+  /** Aller à un écran : on l'affiche, ET on l'écrit dans l'adresse. Les deux ensemble, toujours, ou l'un mentirait. */
+  const aller = useCallback((suivant: EtatEcranUrl) => {
+    setEtatUrl(suivant);
+    if (typeof window === 'undefined') return;
+    const url = `${window.location.pathname}${ecrireEtatUrl(suivant)}`;
+    // Empiler une entrée seulement si l'écran CHANGE : sinon « Précédent » demanderait autant de clics qu'on en a
+    //   donné pour rien. `pushState` (et non `router.push`) : aucun aller-retour serveur pour un changement d'écran.
+    if (memeEtat(lireEtatUrl(window.location.search), suivant)) window.history.replaceState(null, '', url);
+    else window.history.pushState(null, '', url);
+  }, []);
 
   /**
    * Lit l'écran et RENVOIE le résultat sans toucher à aucun état : c'est l'appelant qui décide quoi en faire. Un refus
@@ -106,6 +146,28 @@ export function GestionVue() {
   // LOT 3 — une passe réussie change ce qui est à l'écran : on recharge, sans recharger la page.
   const { enCours: releveEnCours, message: releveMsg, releverMaintenant } = useReleveGestion(() => { void charger(); });
 
+  /**
+   * LOT 5-FUSION — les nombres des trois étiquettes qui se calculent sur TOUTE la boîte. Demandés SEULEMENT en entrant
+   * en plein écran : ce regroupement balaie les 56 000 messages, et le faire payer à l'écran d'accueil pour une
+   * colonne qu'on n'y affiche pas serait une lenteur offerte. Un échec laisse les étiquettes SANS nombre plutôt
+   * qu'avec des nombres faux — l'écran reste utilisable, il ne raconte simplement rien qu'il ne sait pas.
+   */
+  useEffect(() => {
+    if (ecran !== 'boite' || comptesBoite !== null) return;
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/gestion/boite/comptes', { cache: 'no-store' });
+        if (!res.ok || annule) return;
+        const c = (await res.json()) as { lisibles?: number; automatiques?: number; envoyes?: number };
+        if (!annule && typeof c.lisibles === 'number') {
+          setComptesBoite({ lisibles: c.lisibles, automatiques: c.automatiques ?? 0, envoyes: c.envoyes ?? 0 });
+        }
+      } catch { /* étiquettes sans nombre : voir l'encadré */ }
+    })();
+    return () => { annule = true; };
+  }, [ecran, comptesBoite]);
+
   /** Un geste = un appel, un compte rendu, un rechargement. Jamais un silence, succès comme échec. */
   const agir = useCallback(async (url: string, methode: 'POST' | 'DELETE', succes: string, corps?: unknown) => {
     if (gesteEnCours) return;
@@ -146,6 +208,48 @@ export function GestionVue() {
   const ref = maintenant ?? new Date();
   const troncFile = mentionTroncature(d.file.length, d.filsTotal);
   const troncEv = mentionTroncature(d.evenements.length, d.evenementsTotal);
+  const enBoite = ecran === 'boite';
+
+  /**
+   * LE POSTE DE TRI, RENDU UNE SEULE FOIS, et affiché à deux endroits : dans la colonne de gauche de l'écran partagé,
+   * et sous l'étiquette « À classer » du plein écran. Un seul rendu, donc un seul comportement — le recopier aurait
+   * fait deux files qui divergent au premier changement.
+   *
+   * ⚠️ Le seul écart entre les deux endroits est le MOT du bouton : « Affecter à un événement » dans l'écran partagé,
+   * « Classer dans une carte » en plein écran, où les cartes SONT les étiquettes de gauche. Même bouton, même route,
+   * même journal — seul le mot change, comme « Replier » remplaçait « Fermer » au lot 4c.
+   */
+  const fileAClasser = d.file.length === 0
+    ? <p className="gst-vide">{messageFileVide(d)}</p>
+    : (
+      <ul className="gst-liste">
+        {d.file.map((f) => (
+          <LigneFil key={f.filId} fil={f} maintenant={ref}
+            ouvert={panneau === f.filId}
+            onOuvrir={() => aller({ ...etatUrl, filOuvert: f.filId })}
+            occupe={gesteEnCours}
+            libelleAffecter={enBoite ? 'Classer dans une carte' : undefined}
+            onAffecter={() => setPanneau(panneau === f.filId ? null : f.filId)}
+            onSansSuite={() => void agir(`/api/admin/gestion/fils/${f.filId}/sans-suite`, 'POST', 'Échange classé sans suite. Il reviendra dans la file si un nouveau message y arrive.', {})}
+            onFait={(m) => { setGeste({ ton: 'ok', texte: m }); setPanneau(null); void charger(); }}
+            onAnnuler={() => setPanneau(null)} />
+        ))}
+      </ul>
+    );
+
+  /** Les cartes, rendues une seule fois elles aussi : mêmes fonctions dans la colonne et en plein écran. */
+  const cartes = d.evenements.map((e) => (
+    <CarteVive key={e.evenementId} carte={e} maintenant={ref}
+      onGeste={(message, options) => {
+        setGeste({ ton: 'ok', texte: message });
+        // Un détachement change AUSSI la file (l'échange y revient) : là, tout l'écran est relu. Une
+        //   correction ou un changement d'état ne concernent que la carte — la relire elle seule évite
+        //   de replier le dossier qu'on est en train de lire.
+        if (options?.rechargerTout) void charger();
+      }} />
+  ));
+
+  const etiquettes = etiquettesDeLEcran(d, comptesBoite);
 
   return (
     <>
@@ -167,36 +271,61 @@ export function GestionVue() {
       {releveMsg && <p className={`gst-compte-rendu gst-ton-${releveMsg.ton}`} role="status">{releveMsg.texte}</p>}
       {geste && <p className={`gst-compte-rendu gst-ton-${geste.ton}`} role="status">{geste.texte}</p>}
 
-      {/* LOT 5a — LA BASCULE ENTRE LES DEUX MODES. Deux onglets, pleine largeur sur téléphone, l'état actif porté par
-          un MOT (aria-pressed + soulignement), jamais par la seule couleur. Le poste de tri reste le défaut. */}
-      <div className="gst-modes" role="group" aria-label="Mode d’affichage">
-        <button type="button" className="gst-mode" aria-pressed={mode === 'tri'}
-          onClick={() => { setMode('tri'); setFilOuvert(null); }}>
-          Poste de tri
-        </button>
-        <button type="button" className="gst-mode" aria-pressed={mode === 'boite'}
-          onClick={() => { setMode('boite'); setPanneau(null); }}>
-          Boîte mail
-        </button>
-      </div>
-
-      {/* LOT 5b — une conversation ouverte occupe l'écran, quel que soit le mode d'où l'on vient : c'est la MÊME vue. */}
-      {filOuvert !== null ? (
+      {/* LOT 5-FUSION — LES TROIS ÉCRANS. Une conversation ouverte occupe l'écran partagé, comme depuis le lot 5b ;
+          en plein écran elle a sa propre colonne. C'est la MÊME vue dans les deux cas. */}
+      {ecran === 'boite' ? (
+        <PleinEcranBoite
+          etiquette={etiquette} etiquettes={etiquettes} filOuvert={filOuvert} maintenant={ref}
+          auto={auto} onAuto={setAuto}
+          onEtiquette={(e) => { setPanneau(null); aller({ ...etatUrl, etiquette: e, filOuvert: null }); }}
+          onOuvrir={(id) => aller({ ...etatUrl, filOuvert: id })}
+          onFermerFil={() => aller({ ...etatUrl, filOuvert: null })}
+          onRetour={() => aller({ ...ETAT_DEFAUT })}
+          onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) void charger(); }}
+          enfantAClasser={fileAClasser} />
+      ) : ecran === 'evenements' ? (
+        /* ÉVÉNEMENTS EN PLEIN ÉCRAN — les MÊMES cartes, avec toutes leurs fonctions : rien n'est retiré, la largeur
+           disponible sert seulement à en montrer deux de front au lieu d'une. */
+        <div className="pe">
+          <div className="pe-barre">
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => aller({ ...ETAT_DEFAUT })}>
+              ← Écran partagé
+            </button>
+            <h2 className="gst-titre pe-titre" id="gst-titre-ev-plein">
+              Événements <span className="gst-compte">{d.evenementsTotal}</span>
+            </h2>
+          </div>
+          {troncEv && <p className="gst-tronc">{troncEv}</p>}
+          {filOuvert !== null && (
+            <section className="gst-col">
+              <Conversation filId={filOuvert} maintenant={ref} onFerme={() => aller({ ...etatUrl, filOuvert: null })}
+                onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
+            </section>
+          )}
+          {d.evenements.length === 0
+            ? <p className="gst-vide">{messageEvenementsVide()}</p>
+            : <ul className="gst-liste gst-cartes-larges">{cartes}</ul>}
+        </div>
+      ) : filOuvert !== null ? (
         <section className="gst-col">
-          <Conversation filId={filOuvert} maintenant={ref} onFerme={() => setFilOuvert(null)}
-            onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { setFilOuvert(null); void charger(); } }} />
-        </section>
-      ) : mode === 'boite' ? (
-        <section className="gst-col">
-          <BoiteMail onOuvrir={(id) => setFilOuvert(id)} />
+          <Conversation filId={filOuvert} maintenant={ref} onFerme={() => aller({ ...etatUrl, filOuvert: null })}
+            onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
         </section>
       ) : (
       /* ORDRE DU DOM = ordre mobile : la file d'abord, les événements ensuite. */
       <div className="gst-deux">
         <section className="gst-col" aria-labelledby="gst-titre-file">
-          <h2 className="gst-titre" id="gst-titre-file">
-            À classer <span className="gst-compte">{d.filsTotal}</span>
-          </h2>
+          {/* LOT 5-FUSION — le plein écran de CETTE colonne, au-dessus d'elle. Il ne remplace rien : la colonne reste
+              exactement ce qu'elle était, il ouvre seulement la même chose en plus grand, avec ses étiquettes. */}
+          <div className="gst-entete-col">
+            <h2 className="gst-titre" id="gst-titre-file">
+              À classer <span className="gst-compte">{d.filsTotal}</span>
+            </h2>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn"
+              onClick={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null }); }}>
+              Plein écran
+            </button>
+          </div>
           {troncFile && <p className="gst-tronc">{troncFile}</p>}
           {/* FENÊTRE D'ACTIVITÉ — dite en toutes lettres. Un outil qui cache sans le dire ment. */}
           {d.filsTropAnciens > 0 && (
@@ -204,29 +333,17 @@ export function GestionVue() {
               {d.filsTropAnciens} échange{d.filsTropAnciens > 1 ? 's' : ''} plus ancien{d.filsTropAnciens > 1 ? 's' : ''} que {d.fenetreJours} jours
               {' '}ne {d.filsTropAnciens > 1 ? 'sont' : 'est'} pas affiché{d.filsTropAnciens > 1 ? 's' : ''} dans la file.
               {' '}Rien n’est supprimé : {d.filsTropAnciens > 1 ? 'ils restent' : 'il reste'} en base.
-              {/* LOT 5a — la phrase ne change pas d'un mot ; on lui AJOUTE la sortie qui lui manquait. */}
+              {/* LOT 5a — la phrase ne change pas d'un mot ; on lui AJOUTE la sortie qui lui manquait.
+                  LOT 5-FUSION — cette sortie mène désormais à l'étiquette « Réception », qui est ce que montrait
+                  l'onglet supprimé : tout le courrier, sans la fenêtre de 30 jours. */}
               {' '}
-              <button type="button" className="gst-lien-bouton" onClick={() => { setMode('boite'); setPanneau(null); }}>
+              <button type="button" className="gst-lien-bouton"
+                onClick={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null }); }}>
                 Les voir dans la boîte mail
               </button>
             </p>
           )}
-          {d.file.length === 0
-            ? <p className="gst-vide">{messageFileVide(d)}</p>
-            : (
-              <ul className="gst-liste">
-                {d.file.map((f) => (
-                  <LigneFil key={f.filId} fil={f} maintenant={ref}
-                    ouvert={panneau === f.filId}
-                    onOuvrir={() => setFilOuvert(f.filId)}
-                    occupe={gesteEnCours}
-                    onAffecter={() => setPanneau(panneau === f.filId ? null : f.filId)}
-                    onSansSuite={() => void agir(`/api/admin/gestion/fils/${f.filId}/sans-suite`, 'POST', 'Échange classé sans suite. Il reviendra dans la file si un nouveau message y arrive.', {})}
-                    onFait={(m) => { setGeste({ ton: 'ok', texte: m }); setPanneau(null); void charger(); }}
-                    onAnnuler={() => setPanneau(null)} />
-                ))}
-              </ul>
-            )}
+          {fileAClasser}
 
           {/* CLASSÉS SANS SUITE — la contrepartie du geste : visible, et réversible d'un clic. */}
           {d.sansSuiteTotal > 0 && (
@@ -255,26 +372,19 @@ export function GestionVue() {
         </section>
 
         <section className="gst-col" aria-labelledby="gst-titre-ev">
-          <h2 className="gst-titre" id="gst-titre-ev">
-            Événements <span className="gst-compte">{d.evenementsTotal}</span>
-          </h2>
+          <div className="gst-entete-col">
+            <h2 className="gst-titre" id="gst-titre-ev">
+              Événements <span className="gst-compte">{d.evenementsTotal}</span>
+            </h2>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn"
+              onClick={() => aller({ ecran: 'evenements', etiquette, filOuvert: null })}>
+              Plein écran
+            </button>
+          </div>
           {troncEv && <p className="gst-tronc">{troncEv}</p>}
           {d.evenements.length === 0
             ? <p className="gst-vide">{messageEvenementsVide()}</p>
-            : (
-              <ul className="gst-liste">
-                {d.evenements.map((e) => (
-                  <CarteVive key={e.evenementId} carte={e} maintenant={ref}
-                    onGeste={(message, options) => {
-                      setGeste({ ton: 'ok', texte: message });
-                      // Un détachement change AUSSI la file (l'échange y revient) : là, tout l'écran est relu. Une
-                      //   correction ou un changement d'état ne concernent que la carte — la relire elle seule évite
-                      //   de replier le dossier qu'on est en train de lire.
-                      if (options?.rechargerTout) void charger();
-                    }} />
-                ))}
-              </ul>
-            )}
+            : <ul className="gst-liste">{cartes}</ul>}
         </section>
       </div>
       )}
@@ -282,15 +392,48 @@ export function GestionVue() {
   );
 }
 
+/**
+ * LOT 5-FUSION — LA COLONNE D'ÉTIQUETTES, construite à partir de ce que l'écran SAIT DÉJÀ. PURE, donc éprouvable.
+ *
+ * 🔴 AUCUN COMPTEUR N'EST RECALCULÉ ICI. « À classer » et « Sans suite » sont ceux du poste de tri, mot pour mot ;
+ * « Réception », « Envoyés » et « Courrier automatique » viennent de l'unique lecture `comptesBoite` ; le nombre
+ * d'échanges d'une carte est celui qu'elle affiche déjà dans sa colonne. Deux calculs auraient donné, tôt ou tard,
+ * deux chiffres différents pour la même chose — et c'est toujours l'écran le moins regardé qui garde le faux.
+ *
+ * ⚠️ AUCUNE ÉTIQUETTE « À TRAITER » : l'état par échange n'existe pas en base (il vient dans un lot dédié), et une
+ * étiquette qui ne s'appuierait sur rien mentirait dès le premier clic.
+ */
+export function etiquettesDeLEcran(
+  d: EtatEcran, comptes: { lisibles: number; automatiques: number; envoyes: number } | null,
+): EtiquetteAffichee[] {
+  return [
+    { etiquette: { sorte: 'a_classer', evenementId: null }, libelle: 'À classer', compte: d.filsTotal },
+    { etiquette: ETIQUETTE_RECEPTION, libelle: 'Réception', compte: comptes?.lisibles ?? null },
+    { etiquette: { sorte: 'envoyes', evenementId: null }, libelle: 'Envoyés', compte: comptes?.envoyes ?? null },
+    { etiquette: { sorte: 'sans_suite', evenementId: null }, libelle: 'Sans suite', compte: d.sansSuiteTotal },
+    { etiquette: { sorte: 'automatique', evenementId: null }, libelle: 'Courrier automatique', compte: comptes?.automatiques ?? null },
+    // Les CARTES, dans l'ordre où la colonne des événements les montre : ce qui attend une réponse depuis le plus
+    //   longtemps d'abord. Deux ordres pour une même liste feraient chercher deux fois.
+    ...d.evenements.map((e): EtiquetteAffichee => ({
+      etiquette: { sorte: 'carte', evenementId: e.evenementId },
+      libelle: e.objet,
+      reference: e.reference,
+      compte: e.nbFils,
+    })),
+  ];
+}
+
 /** Une ligne de la file = UN ÉCHANGE (pas un message) : à ce volume, six mails ne doivent pas prendre six lignes.
  *  EXPORTÉ pour être rendu en test (contrat visible : mot « attend une réponse », pluriels, jamais de couleur seule). */
-export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAffecter, onSansSuite, onFait, onAnnuler, onOuvrir }: {
+export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAffecter, onSansSuite, onFait, onAnnuler, onOuvrir, libelleAffecter }: {
   fil: LigneFile; maintenant: Date;
   ouvert?: boolean; occupe?: boolean;
   onAffecter?: () => void; onSansSuite?: () => void;
   onFait?: (message: string) => void; onAnnuler?: () => void;
   /** LOT 5b — ouvrir la CONVERSATION depuis la file de tri. Optionnel : sans lui, la ligne est exactement celle d'avant. */
   onOuvrir?: () => void;
+  /** LOT 5-FUSION — le MOT du bouton d'affectation. Absent = « Affecter à un événement », comme avant ce lot. */
+  libelleAffecter?: string;
 }) {
   return (
     <li className="gst-item">
@@ -320,7 +463,7 @@ export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAf
             //   comme « clore le dossier ». Le bouton ne fait que replier le panneau ; il le dit maintenant.
             <button type="button" className={`svv-btn ${ouvert ? 'svv-btn-outline' : 'svv-btn-primary'} gst-btn`}
               aria-expanded={ouvert} disabled={occupe} onClick={onAffecter}>
-              {ouvert ? 'Replier' : 'Affecter à un événement'}
+              {ouvert ? 'Replier' : (libelleAffecter ?? 'Affecter à un événement')}
             </button>
           )}
           {onSansSuite && (
@@ -369,17 +512,16 @@ export function CarteEv({ carte, maintenant }: { carte: CarteEvenement; maintena
 
 const CSS_GESTION = `
 /* DEUX CÔTÉS au-dessus de 900 px ; UNE colonne en dessous, la file d'abord — par l'ordre du DOM, jamais par un order CSS. */
-.gst-modes{display:flex;gap:8px;margin:0 0 14px}
-.gst-mode{flex:0 0 auto;min-height:44px;padding:.55rem 2rem;border:1px solid var(--color-svv-line);border-radius:.6rem;
-  background:var(--color-svv-surface);color:var(--color-svv-muted);font:inherit;font-weight:600;cursor:pointer}
-.gst-mode[aria-pressed="true"]{background:var(--color-svv-field);color:var(--color-svv-ink);
-  border-color:var(--color-svv-line-strong);text-decoration:underline;text-underline-offset:4px}
-.gst-mode:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
-/* Sur TÉLÉPHONE les deux onglets se partagent la largeur ; au-delà ils gardent leur taille. Point de rupture en
-   max-width, comme le reste de cette feuille — et largeur obtenue par du PADDING, jamais par une largeur minimale en
-   dur, qui est précisément ce qui fait déborder un écran étroit. */
-@media (max-width:599px){.gst-mode{flex:1;padding:.55rem .9rem}}
+/* LOT 5-FUSION — L'EN-TÊTE D'UNE COLONNE : son titre, et son bouton « Plein écran » au bout. Il passe à la ligne sur
+   téléphone plutôt que de comprimer le titre — un bouton de 44 px et un titre lisible ne tiennent pas sur 320 px. */
+.gst-entete-col{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem;margin:0 0 .5rem}
+.gst-entete-col .gst-titre{margin:0}
 .gst-deux{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+/* Les cartes en plein écran : deux de front quand la largeur le permet, une seule sinon. Aucune fonction n'y change.
+   Point de rupture en max-width, comme tout le reste de cette feuille : c'est la convention du fichier, et elle évite
+   qu'une largeur minimale en dur se glisse dans une règle. */
+.gst-cartes-larges{display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start}
+@media (max-width:1099px){.gst-cartes-larges{grid-template-columns:1fr}}
 @media (max-width:900px){.gst-deux{grid-template-columns:1fr}}
 .gst-col{min-width:0}  /* sans ça, une grille laisse un enfant déborder de sa colonne */
 .gst-titre{display:flex;align-items:center;gap:.5rem;font-size:15px;font-weight:700;color:var(--color-svv-ink);margin:0 0 .5rem}

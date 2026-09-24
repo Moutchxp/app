@@ -28,6 +28,7 @@
  * les deux qui servent existent depuis la migration 228.
  */
 import { query } from '../db/client';
+import { autoImposeParEtiquette, type Etiquette } from './ecranUrl';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 
 /** Combien d'échanges par page. Assez pour remplir un écran de téléphone sans faire attendre. */
@@ -110,22 +111,89 @@ interface LigneDB {
 }
 
 /**
+ * LOT 5-FUSION — LES ÉTIQUETTES DE LA BOÎTE, côté base.
+ *
+ * 🔴 CHAQUE ÉTIQUETTE EST UN FILTRE, JAMAIS UNE COLONNE. Rien n'est écrit nulle part : « Envoyés » ou « Sans suite »
+ * se DÉRIVENT à la lecture, exactement comme « attend une réponse » depuis le lot 2. Une étiquette stockée mentirait
+ * dès le message suivant — et il faudrait alors la rattraper à chaque capture, à chaque déplacement, à chaque
+ * classement. Ici, changer l'état d'un échange change son étiquette sans qu'aucun code ne s'en occupe.
+ *
+ * 🔴 LE FILTRE ENTRE DANS LE CTE `page`, PAS APRÈS. C'est ce qui garde la requête rapide : il restreint le parcours
+ * AVANT que le `LIMIT` compte ses trente lignes. Posé dans le `SELECT` final, il ferait lire trente échanges pour
+ * n'en garder que deux, et la page suivante repartirait du mauvais endroit.
+ *
+ * ⚠️ UN SEUL paramètre lié supplémentaire, toujours `$4`, et seulement pour les deux étiquettes qui en ont besoin :
+ * PostgreSQL REFUSE une requête à qui l'on passe plus de paramètres qu'elle n'en utilise. Voir `parametresEtiquette`.
+ */
+const ETIQUETTE_TOUT: Etiquette = { sorte: 'reception', evenementId: null };
+
+function sqlEtiquette(e: Etiquette): string {
+  switch (e.sorte) {
+    // « Réception » = la boîte telle qu'elle existe depuis le lot 5a : aucun filtre de plus.
+    case 'reception':
+      return '';
+    // « À classer » = la règle du poste de tri : échange encore à classer, et dernier message lisible dans la fenêtre
+    //   d'activité. `m` EST ce dernier message lisible (le parcours ne garde que lui), donc le test de date porte sur
+    //   la même date que `lireFile`. $4 = la fenêtre en jours, lue en base comme là-bas.
+    //   MESURÉ le 24/09/2026 sur la vraie base : 430 échanges des deux côtés, à l'unité.
+    //
+    //   ⚠️ UNE NUANCE, ET IL FAUT LA CONNAÎTRE. `lireFile` cherche le dernier message ENCORE ATTACHÉ à l'échange
+    //   (un mail déplacé vers une carte n'y compte plus) ; le parcours de la boîte, lui, cherche le dernier message
+    //   de l'échange, déplacé ou non — c'est le parcours du lot 5a, commun à TOUTES les étiquettes, et le rendre
+    //   différent pour une seule d'entre elles créerait l'incohérence qu'on veut éviter. Écart mesuré aujourd'hui :
+    //   0 échange (0 mail déplacé actif en base).
+    //
+    //   🔴 ET SURTOUT : L'ÉCRAN N'EMPRUNTE PAS CE CHEMIN. Sous l'étiquette « À classer », le plein écran rend le
+    //   POSTE DE TRI lui-même (voir `PleinEcranBoite`), pas cette lecture. Les deux ne peuvent donc pas se
+    //   contredire devant l'utilisateur. Ce filtre ne sert qu'à qui appellerait la route directement.
+    case 'a_classer':
+      return `AND m.recu_le >= now() - ($4::int * interval '1 day')
+          AND EXISTS (SELECT 1 FROM gestion_fil f0 WHERE f0.id = m.fil_id AND f0.etat = 'a_classer')`;
+    // « Envoyés » = les échanges où NOUS avons écrit. MESURÉ : les 19 551 messages `sens = 'envoye'` de la base
+    //   partent tous de gestion@criterimmo.fr — le sens suffit, il n'y a pas d'autre expéditeur à distinguer.
+    case 'envoyes':
+      return `AND EXISTS (SELECT 1 FROM gestion_message me WHERE me.fil_id = m.fil_id AND me.sens = 'envoye')`;
+    case 'sans_suite':
+      return `AND EXISTS (SELECT 1 FROM gestion_fil f0 WHERE f0.id = m.fil_id AND f0.etat = 'sans_suite')`;
+    // « Courrier automatique » = les échanges dont AUCUN message n'est lisible. Même définition que le compteur
+    //   `comptesBoite`, pour que l'étiquette et son nombre ne racontent jamais deux histoires différentes.
+    case 'automatique':
+      return `AND NOT EXISTS (SELECT 1 FROM gestion_message ml WHERE ml.fil_id = m.fil_id AND ml.exclu_le IS NULL)`;
+    // Une CARTE : ses échanges rattachés. `message_id IS NULL` — une affectation de MAIL isolé n'est pas un échange
+    //   rattaché, et la compter ici ferait apparaître dans l'étiquette un échange qui appartient à une autre carte.
+    case 'carte':
+      return `AND EXISTS (SELECT 1 FROM gestion_affectation a0
+                            WHERE a0.fil_id = m.fil_id AND a0.actif AND a0.message_id IS NULL
+                              AND a0.evenement_id = $4::bigint)`;
+  }
+}
+
+/** Le paramètre `$4` que l'étiquette réclame — au plus un, jamais un de trop (voir l'encadré ci-dessus). */
+export function parametresEtiquette(e: Etiquette, fenetreJours: number): number[] {
+  if (e.sorte === 'a_classer') return [fenetreJours];
+  if (e.sorte === 'carte') return [e.evenementId ?? 0];
+  return [];
+}
+
+/**
  * LE SQL DE LA PAGE, EXTRAIT pour être EXPLAINABLE TEL QUEL. La règle du dépôt est qu'un plan se contrôle sur la
  * requête RÉELLEMENT ÉMISE, jamais sur une copie simplifiée — une copie dérive au premier changement, et la mesure
  * ment alors sans prévenir. `lireBoiteMail` et le banc d'épreuve appellent donc la MÊME fonction.
  * Paramètres liés : $1 = date du curseur, $2 = identifiant du curseur, $3 = nombre de lignes à lire.
  */
-export function sqlPageBoite(inclureAutomatiques: boolean): string {
+export function sqlPageBoite(inclureAutomatiques: boolean, etiquette: Etiquette = ETIQUETTE_TOUT): string {
   // Le filtre s'applique AUX DEUX ÉTAGES du parcours (le message candidat, et le « y a-t-il plus récent ? ») : les
   //   dissocier ferait sortir un échange dont le dernier message est écarté, avec l'avant-dernier comme aperçu.
   const filtreM = inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL';
   const filtreM2 = inclureAutomatiques ? '' : 'AND m2.exclu_le IS NULL';
+  const filtreEtiquette = sqlEtiquette(etiquette);
   return `WITH page AS (
        SELECT m.fil_id, m.id AS message_id, m.recu_le, m.sens, m.de_adresse, m.de_nom, m.destinataires,
               left(coalesce(m.corps_texte, ''), ${LONGUEUR_EXTRAIT}) AS extrait
          FROM gestion_message m
         WHERE (m.recu_le, m.fil_id) < ($1::timestamptz, $2::bigint)
           ${filtreM}
+          ${filtreEtiquette}
           -- ⚠️ « ce message est le DERNIER de son échange ». C'est CE prédicat qui transforme un parcours de messages
           --    en parcours d'échanges, et qui permet au LIMIT d'arrêter le travail. Servi par l'index (fil_id, recu_le).
           AND NOT EXISTS (
@@ -168,6 +236,10 @@ export function sqlPageBoite(inclureAutomatiques: boolean): string {
 export interface OptionsBoite {
   /** Ramener aussi les échanges dont TOUS les messages sont tenus hors de la file par une règle. */
   inclureAutomatiques?: boolean;
+  /** LOT 5-FUSION — l'étiquette choisie dans la colonne de gauche. Absente = « Réception », la boîte entière. */
+  etiquette?: Etiquette;
+  /** La fenêtre d'activité, en jours — utilisée par la seule étiquette « À classer ». Lue en base par l'appelant. */
+  fenetreJours?: number;
 }
 
 /**
@@ -182,14 +254,19 @@ export async function lireBoiteMail(
   limite = PAGE_BOITE,
   options: OptionsBoite = {},
 ): Promise<PageBoite> {
-  const tous = options.inclureAutomatiques === true;
+  const etiquette = options.etiquette ?? ETIQUETTE_TOUT;
+  // L'étiquette prime sur l'interrupteur quand elle ne laisse pas le choix — sans quoi « Courrier automatique »
+  //   afficherait une liste vide, et « À classer » ne serait plus le poste de tri.
+  const impose = autoImposeParEtiquette(etiquette);
+  const tous = impose ?? options.inclureAutomatiques === true;
   // On demande UNE ligne de plus que la page : sa présence dit « il y a une suite », sans compter quoi que ce soit.
   const aLire = Math.min(Math.max(1, limite), 100) + 1;
 
   const { rows } = await query<LigneDB>(
-    sqlPageBoite(tous),
+    sqlPageBoite(tous, etiquette),
     // `infinity` plutôt qu'une date arbitraire : il n'existe aucun message après, quelle que soit l'horloge.
-    [curseur?.dernierLe ?? 'infinity', curseur?.filId ?? '9223372036854775807', aLire],
+    [curseur?.dernierLe ?? 'infinity', curseur?.filId ?? '9223372036854775807', aLire,
+      ...parametresEtiquette(etiquette, options.fenetreJours ?? 30)],
   );
 
   const aSuite = rows.length === aLire;
@@ -216,7 +293,10 @@ export async function lireBoiteMail(
       sansSuite: r.sans_suite === true,
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
-    total: curseur === null ? await compterBoite(tous) : null,
+    // Le total N'EST COMPTÉ QUE pour la boîte entière. Sous une étiquette, c'est la colonne de gauche qui porte le
+    //   nombre — et le recompter ici donnerait deux chiffres pour une seule vérité, donc tôt ou tard deux chiffres
+    //   différents. `null` se lit « demande-le à l'étiquette », pas « zéro ».
+    total: curseur === null && etiquette.sorte === 'reception' ? await compterBoite(tous) : null,
   };
 }
 
@@ -234,11 +314,18 @@ export async function compterBoite(inclureAutomatiques = false): Promise<number>
  * Les DEUX comptes de la boîte, pour que l'écran puisse dire ce qu'il montre ET ce qu'il ne montre pas. Un outil qui
  * cache sans le dire ment ; un outil qui annonce ce qu'il tait reste honnête — c'est la règle du module depuis le lot 4b.
  */
-export async function comptesBoite(): Promise<{ lisibles: number; automatiques: number }> {
-  const { rows } = await query<{ lisibles: number; total: number }>(
-    `SELECT count(*) FILTER (WHERE lisibles > 0)::int AS lisibles, count(*)::int AS total
-       FROM (SELECT fil_id, count(*) FILTER (WHERE exclu_le IS NULL) AS lisibles
+export async function comptesBoite(): Promise<{ lisibles: number; automatiques: number; envoyes: number }> {
+  // ⚠️ UN SEUL parcours pour les TROIS nombres. « Envoyés » est arrivé avec le lot 5-FUSION : il aurait pu être une
+  //   requête de plus, il n'est qu'un `FILTER` de plus sur le regroupement qui existait déjà — même balayage, même
+  //   coût, et surtout aucune chance que les compteurs se contredisent puisqu'ils sortent de la même lecture.
+  const { rows } = await query<{ lisibles: number; total: number; envoyes: number }>(
+    `SELECT count(*) FILTER (WHERE lisibles > 0)::int AS lisibles,
+            count(*)::int AS total,
+            count(*) FILTER (WHERE envoyes > 0)::int AS envoyes
+       FROM (SELECT fil_id,
+                    count(*) FILTER (WHERE exclu_le IS NULL) AS lisibles,
+                    count(*) FILTER (WHERE sens = 'envoye') AS envoyes
                FROM gestion_message GROUP BY fil_id) x`);
   const l = rows[0]?.lisibles ?? 0;
-  return { lisibles: l, automatiques: (rows[0]?.total ?? 0) - l };
+  return { lisibles: l, automatiques: (rows[0]?.total ?? 0) - l, envoyes: rows[0]?.envoyes ?? 0 };
 }

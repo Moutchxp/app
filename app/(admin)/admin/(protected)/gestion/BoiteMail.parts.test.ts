@@ -140,10 +140,32 @@ describe('garanties d’écran (statiques)', () => {
     expect(vue).toContain('Les voir dans la boîte mail');
   });
 
-  it('les deux modes existent, et le poste de tri reste le DÉFAUT', () => {
-    expect(vue).toContain("useState<ModeGestion>('tri')");
-    expect(vue).toContain('Poste de tri');
-    expect(vue).toContain('Boîte mail');
+  /**
+   * 🔴 LOT 5-FUSION — LES DEUX ONGLETS SONT RETIRÉS. C'est le SEUL retrait du lot, et il est décidé par Arno : la
+   * boîte et le poste de tri ne sont plus deux modes qui s'excluent, mais un seul écran.
+   *
+   * CE TEST GARDE LA CONTREPARTIE, qui est la seule chose qui rendait ce retrait acceptable : ce que montrait
+   * l'onglet « Boîte mail » est TOUJOURS ATTEIGNABLE — par le bouton « Plein écran » de la colonne de gauche, qui
+   * ouvre la même liste sous ses étiquettes. Un retrait sans cette porte serait une perte de fonction.
+   */
+  it('🔴 les deux onglets ont disparu — et la boîte reste atteignable par le plein écran', () => {
+    // Sur les lignes de CODE seulement : l'en-tête du fichier CITE les onglets pour expliquer leur retrait et
+    //   nommer ce qui les remplace. Une assertion sur la prose rougirait pour une bonne explication.
+    const code = vue.split('\n').filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l)).join('\n');
+    expect(code).not.toContain('Poste de tri');
+    expect(code).not.toContain('gst-mode');
+    expect(vue).toContain('Plein écran');
+    expect(vue).toContain('<PleinEcranBoite');
+    // …et l'écran partagé reste le point d'entrée : on n'arrive pas dans un outil de travail par sa réserve.
+    expect(vue).toContain("ecran === 'boite'");
+  });
+
+  it('🔴 la liste de la boîte n’a pas été recopiée : le plein écran rend le MÊME composant', () => {
+    const pe = readFileSync('app/(admin)/admin/(protected)/gestion/PleinEcranBoite.tsx', 'utf8');
+    expect(pe).toContain("import { BoiteMail } from './BoiteMail'");
+    expect(pe).toContain("import { Conversation } from './Conversation'");
+    // Aucune lecture à lui : il dispose des composants, il ne va rien chercher tout seul.
+    expect(pe).not.toContain('fetch(');
   });
 
   it('la boîte ouvre un échange par la vue conversation UNIQUE du module (lot 5b)', () => {

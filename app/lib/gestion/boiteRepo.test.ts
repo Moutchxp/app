@@ -167,7 +167,9 @@ describe('③ le courrier automatique : écarté par défaut, jamais supprimé',
 
   it('les deux comptes sont rendus pour que l’écran puisse dire ce qu’il ne montre pas', async () => {
     rendre([]);
-    await expect(comptesBoite()).resolves.toEqual({ lisibles: 4944, automatiques: 17206 - 4944 });
+    // LOT 5-FUSION — « Envoyés » s'est ajouté au MÊME regroupement : trois nombres, une seule lecture, donc trois
+    //   nombres qui ne peuvent pas se contredire. Le jeu d'essai ne rend pas `envoyes` → repli à 0, pas d'exception.
+    await expect(comptesBoite()).resolves.toEqual({ lisibles: 4944, automatiques: 17206 - 4944, envoyes: 0 });
   });
 });
 
@@ -226,5 +228,79 @@ describe('garanties STATIQUES', () => {
   it('la page par défaut tient sur un écran sans faire attendre', () => {
     expect(PAGE_BOITE).toBeGreaterThanOrEqual(20);
     expect(PAGE_BOITE).toBeLessThanOrEqual(50);
+  });
+});
+
+/**
+ * LOT 5-FUSION — LES ÉTIQUETTES. Ce qui casse, et comment on le reconnaît :
+ *   ① le filtre se pose APRÈS le `LIMIT` → la page rend deux lignes au lieu de trente, sans erreur, et la suivante
+ *      repart du mauvais endroit. On vérifie donc qu'il entre dans le PARCOURS, pas dans le `SELECT` final ;
+ *   ② on passe à PostgreSQL un paramètre de plus que la requête n'en utilise → « bind message supplies 4 parameters,
+ *      but prepared statement requires 3 ». On vérifie le compte exact, étiquette par étiquette ;
+ *   ③ « À classer » cesse d'être le poste de tri (fenêtre d'activité oubliée, courrier automatique laissé entrer) →
+ *      deux listes qui portent le même nom et ne disent pas la même chose.
+ */
+describe('④ les étiquettes', () => {
+  const etiq = (sorte: string, evenementId: number | null = null) =>
+    ({ sorte, evenementId }) as Parameters<typeof sqlPageBoite>[1];
+
+  it('🔴 le filtre entre dans le PARCOURS, avant le LIMIT — sinon la page rend moins que ce qu’on a demandé', () => {
+    for (const [sorte, marqueur] of [
+      ['envoyes', "me.sens = 'envoye'"],
+      ['sans_suite', "f0.etat = 'sans_suite'"],
+      ['automatique', 'ml.exclu_le IS NULL'],
+      ['a_classer', "f0.etat = 'a_classer'"],
+    ] as const) {
+      expect(parcours(sqlPageBoite(false, etiq(sorte)))).toContain(marqueur);
+    }
+    expect(parcours(sqlPageBoite(false, etiq('carte', 7)))).toContain('a0.evenement_id = $4::bigint');
+  });
+
+  it('« Réception » n’ajoute AUCUN filtre : c’est la boîte du lot 5a, inchangée', () => {
+    expect(sqlPageBoite(false, etiq('reception'))).toBe(sqlPageBoite(false));
+  });
+
+  it('🔴 le compte des paramètres LIÉS est exact — un de trop et PostgreSQL refuse la requête', async () => {
+    for (const [sorte, id, attendu] of [
+      ['reception', null, 3], ['envoyes', null, 3], ['sans_suite', null, 3], ['automatique', null, 3],
+      ['a_classer', null, 4], ['carte', 7, 4],
+    ] as const) {
+      rendre([]);
+      await lireBoiteMail(null, [], 30, { etiquette: etiq(sorte, id), fenetreJours: 45 });
+      const sql = sqlPage();
+      expect(paramsPage()).toHaveLength(attendu);
+      // …et le SQL n'utilise QUE les paramètres qu'on lui passe : aucun `$5`, jamais un `$4` orphelin.
+      expect(sql.includes('$4')).toBe(attendu === 4);
+      expect(sql).not.toContain('$5');
+    }
+  });
+
+  it('une CARTE porte son identifiant en $4, et ne compte QUE ses échanges (pas les mails isolés)', async () => {
+    rendre([]);
+    await lireBoiteMail(null, [], 30, { etiquette: etiq('carte', 77) });
+    expect(paramsPage()[3]).toBe(77);
+    expect(sqlPage()).toContain('a0.message_id IS NULL');
+  });
+
+  it('🔴 « À classer » EST le poste de tri : sa fenêtre vient de l’appelant, et l’automatique reste dehors', async () => {
+    rendre([]);
+    await lireBoiteMail(null, [], 30, { etiquette: etiq('a_classer'), fenetreJours: 45, inclureAutomatiques: true });
+    expect(paramsPage()[3]).toBe(45);                                  // la fenêtre LUE EN BASE, pas 30 en dur
+    expect(parcours(sqlPage())).toContain('AND m.exclu_le IS NULL');   // …et l'interrupteur n'y peut rien
+  });
+
+  it('🔴 « Courrier automatique » impose l’inverse : sans ça, l’étiquette serait vide par construction', async () => {
+    rendre([]);
+    await lireBoiteMail(null, [], 30, { etiquette: etiq('automatique'), inclureAutomatiques: false });
+    expect(parcours(sqlPage())).not.toContain('AND m.exclu_le IS NULL');
+    expect(parcours(sqlPage())).not.toContain('AND m2.exclu_le IS NULL');
+    expect(parcours(sqlPage())).toContain('NOT EXISTS (SELECT 1 FROM gestion_message ml');
+  });
+
+  it('sous une étiquette, le total n’est PAS recompté : la colonne de gauche le porte déjà', async () => {
+    rendre([ligne(1)], 4944);
+    expect((await lireBoiteMail(null, [], 30, { etiquette: etiq('envoyes') })).total).toBeNull();
+    rendre([ligne(1)], 4944);
+    expect((await lireBoiteMail(null, [])).total).toBe(4944); // la boîte entière, elle, compte comme avant
   });
 });

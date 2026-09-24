@@ -5,6 +5,9 @@ import type { CurseurBoite, LigneBoite } from '../../../../lib/gestion/boiteRepo
 // 🔴 `rechercheTermes` et NON `rechercheBoite` : le second contient le SQL et tire `pg` → `dns`, que le navigateur
 //   n'a pas. L'importer ici a fait tomber TOUTE l'application le 24/09/2026, page de connexion comprise.
 import { decouperTermes, normaliser } from '../../../../lib/gestion/rechercheTermes';
+import {
+  autoImposeParEtiquette, ETIQUETTE_RECEPTION, etiquetteDepuisTexte, texteEtiquette, type Etiquette,
+} from '../../../../lib/gestion/ecranUrl';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { corpsLisible } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
@@ -91,12 +94,16 @@ type Etat =
  * Rapporte, ne décide pas.
  */
 async function chargerPage(
-  curseur: CurseurBoite | null, auto: boolean, critere: Critere,
+  curseur: CurseurBoite | null, auto: boolean, critere: Critere, etiquette: Etiquette,
 ): Promise<ReponseBoite | { erreur: string }> {
   const p = new URLSearchParams();
   if (curseur) { p.set('depuis', curseur.dernierLe); p.set('avant', curseur.filId); }
   if (auto) p.set('auto', '1');
   const cherche = critereActif(critere);
+  // 🔴 L'ÉTIQUETTE NE VA PAS À LA RECHERCHE, et c'est voulu : le lot 5c promet de chercher dans TOUT le courrier de
+  //   gestion. La restreindre à l'étiquette ouverte ferait rater le mail qu'on cherche pour la seule raison qu'on
+  //   regardait ailleurs — le défaut le plus pénible qu'une recherche puisse avoir. L'écran le DIT en toutes lettres.
+  if (!cherche && etiquette.sorte !== 'reception') p.set('etiquette', texteEtiquette(etiquette));
   if (cherche) {
     if (critere.q.trim() !== '') p.set('q', critere.q);
     if (critere.du !== '') p.set('du', critere.du);
@@ -142,9 +149,24 @@ export function Evidence({ texte, saisie }: { texte: string; saisie: string }) {
   return <>{morceaux.map((m, i) => (m.fort ? <strong key={i} className="bte-trouve">{m.t}</strong> : <span key={i}>{m.t}</span>))}</>;
 }
 
-export function BoiteMail({ onOuvrir }: { onOuvrir: (filId: number) => void }) {
+export function BoiteMail({
+  onOuvrir, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
+}: {
+  onOuvrir: (filId: number) => void;
+  /** LOT 5-FUSION — l'étiquette ouverte. Absente = la boîte entière, exactement le comportement du lot 5a. */
+  etiquette?: Etiquette;
+  /** Titre affiché au-dessus de la liste. Absent = « Boîte mail », comme avant. */
+  titre?: string;
+  /** Nombre porté par l'étiquette. Sous une étiquette, la colonne de gauche le connaît déjà : on ne le recompte pas. */
+  total?: number | null;
+  /** Interrupteur du courrier automatique, PILOTÉ par le parent quand il est fourni (sinon il reste interne). */
+  auto?: boolean;
+  onAuto?: (v: boolean) => void;
+  /** L'échange ouvert à côté, pour que la liste dise LEQUEL on lit. */
+  filSelectionne?: number | null;
+}) {
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
-  const [auto, setAuto] = useState(false);
+  const [autoInterne, setAutoInterne] = useState(false);
   const [suite, setSuite] = useState(false);
   const [maintenant, setMaintenant] = useState<Date | null>(null);
   // LOT 5c — la SAISIE en cours, et le critère VALIDÉ. Les deux sont distincts à dessein : on ne lance pas une
@@ -153,12 +175,22 @@ export function BoiteMail({ onOuvrir }: { onOuvrir: (filId: number) => void }) {
   const [critere, setCritere] = useState<Critere>(CRITERE_VIDE);
   const [filtres, setFiltres] = useState(false);
 
+  const cherche = critereActif(critere);
+  // L'interrupteur est PILOTÉ s'il l'est, interne sinon. Et l'étiquette peut l'imposer : voir `autoImposeParEtiquette`.
+  //   ⚠️ Pas PENDANT une recherche : celle-ci traverse les étiquettes, donc l'étiquette n'a plus voix au chapitre et
+  //   l'interrupteur redevient maître — un bouton qui ne fait rien est pire qu'un bouton absent.
+  const impose = cherche ? null : autoImposeParEtiquette(etiquette);
+  const auto = impose ?? autoPilote ?? autoInterne;
+  const basculerAuto = (v: boolean) => { if (onAuto) onAuto(v); else setAutoInterne(v); };
+  // L'étiquette sert de clé de rechargement : changer d'étiquette relit la première page, comme changer de critère.
+  const cleEtiquette = texteEtiquette(etiquette);
+
   // La date de référence n'est posée qu'APRÈS le montage : la calculer au rendu serveur ferait diverger l'hydratation.
   useEffect(() => { setMaintenant(new Date()); }, []);
 
-  const premiere = useCallback(async (avecAuto: boolean, c: Critere) => {
+  const premiere = useCallback(async (avecAuto: boolean, c: Critere, e: Etiquette) => {
     setEtat({ v: 'charge' });
-    const r = await chargerPage(null, avecAuto, c);
+    const r = await chargerPage(null, avecAuto, c, e);
     if ('erreur' in r) { setEtat({ v: 'erreur', m: r.erreur }); return; }
     setEtat({
       v: 'ok', lignes: r.lignes, suivant: r.suivant, total: r.total ?? r.lignes.length, comptes: r.comptes,
@@ -166,12 +198,13 @@ export function BoiteMail({ onOuvrir }: { onOuvrir: (filId: number) => void }) {
     });
   }, []);
 
-  useEffect(() => { void premiere(auto, critere); }, [premiere, auto, critere]);
+  // `cleEtiquette` plutôt que l'objet : deux objets égaux mais distincts relanceraient la lecture à chaque rendu.
+  useEffect(() => { void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette)); }, [premiere, auto, critere, cleEtiquette]);
 
   async function voirPlus() {
     if (etat.v !== 'ok' || etat.suivant === null || suite) return;
     setSuite(true);
-    const r = await chargerPage(etat.suivant, auto, critere);
+    const r = await chargerPage(etat.suivant, auto, critere, etiquette);
     setSuite(false);
     if ('erreur' in r) { setEtat({ v: 'erreur', m: r.erreur }); return; }
     // On CONCATÈNE : « voir plus » allonge la liste, il ne la remplace pas — on ne perd jamais ce qu'on lisait.
@@ -185,18 +218,23 @@ export function BoiteMail({ onOuvrir }: { onOuvrir: (filId: number) => void }) {
     return (
       <div>
         <p className="gst-erreur" role="status">{etat.m}</p>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void premiere(auto, critere)}>Réessayer</button>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void premiere(auto, critere, etiquette)}>Réessayer</button>
       </div>
     );
   }
 
   const ref = maintenant ?? new Date();
-  const cherche = critereActif(critere);
   return (
     <section aria-labelledby="bte-titre">
       <h2 className="gst-titre" id="bte-titre">
-        {cherche ? 'Résultats' : 'Boîte mail'} {!cherche && <span className="gst-compte">{etat.total}</span>}
+        {cherche ? 'Résultats' : (titre ?? 'Boîte mail')}
+        {!cherche && <span className="gst-compte">{total ?? etat.total}</span>}
       </h2>
+      {/* La recherche traverse les étiquettes : le dire ÉVITE de croire qu'un mail n'existe pas parce qu'on regardait
+          ailleurs. C'est la promesse du lot 5c — chercher dans TOUT le courrier de gestion — et elle tient ici. */}
+      {cherche && titre !== undefined && (
+        <p className="gst-tronc">La recherche porte sur tout le courrier de gestion, pas seulement sur « {titre} ».</p>
+      )}
 
       {/* ══ LA RECHERCHE ══════════════════════════════════════════════════════════════════════════════════════════
           Un formulaire, donc « Entrée » cherche et le clavier des téléphones affiche « Rechercher ». La recherche ne
@@ -253,7 +291,7 @@ export function BoiteMail({ onOuvrir }: { onOuvrir: (filId: number) => void }) {
           {' '}ne contien{etat.automatiquesMasques > 1 ? 'nent' : 't'} que du courrier automatique et
           {' '}{etat.automatiquesMasques > 1 ? 'ne sont pas affichés' : 'n’est pas affiché'} ici. Rien n’est supprimé.
           {' '}
-          <button type="button" className="gst-lien-bouton" aria-pressed={auto} onClick={() => setAuto((v) => !v)}>
+          <button type="button" className="gst-lien-bouton" aria-pressed={auto} onClick={() => basculerAuto(!auto)}>
             Afficher aussi le courrier automatique
           </button>
         </p>
@@ -261,32 +299,48 @@ export function BoiteMail({ onOuvrir }: { onOuvrir: (filId: number) => void }) {
       {cherche && auto && (
         <p className="gst-tronc">
           Le courrier automatique est inclus dans les résultats.{' '}
-          <button type="button" className="gst-lien-bouton" aria-pressed onClick={() => setAuto(false)}>
+          <button type="button" className="gst-lien-bouton" aria-pressed onClick={() => basculerAuto(false)}>
             Masquer le courrier automatique
           </button>
         </p>
       )}
 
+      {/* LÀ OÙ L'ÉTIQUETTE DÉCIDE À LA PLACE DE L'INTERRUPTEUR, on le DIT. L'interrupteur lui-même n'a rien perdu : il
+          reste où il a toujours été — sur la boîte entière — et il commande en plus « Envoyés », « Sans suite » et les
+          cartes. (L'étiquette « À classer » n'arrive jamais ici : le plein écran y affiche le poste de tri lui-même.) */}
+      {!cherche && impose === true && (
+        <p className="gst-tronc">
+          Cette étiquette ne rassemble QUE les échanges dont aucun message n’est lisible — d’où l’absence
+          d’interrupteur ici. Le reste du courrier est sous les autres étiquettes, rien n’est supprimé.
+        </p>
+      )}
+
       {/* CE QUE LA LISTE NE MONTRE PAS, dit en toutes lettres — et ramené d'un geste. Jamais un masquage silencieux. */}
-      {!cherche && etat.comptes !== null && etat.comptes.automatiques > 0 && (
+      {!cherche && impose === null && etat.comptes !== null && etat.comptes.automatiques > 0 && (
         <p className="gst-tronc">
           {auto
             ? <>Le courrier automatique est inclus : {etat.comptes.automatiques} échange{etat.comptes.automatiques > 1 ? 's' : ''} ne contien{etat.comptes.automatiques > 1 ? 'nent' : 't'} que des messages tenus hors de la file par une règle.</>
             : <>{etat.comptes.automatiques} échange{etat.comptes.automatiques > 1 ? 's' : ''} ne contien{etat.comptes.automatiques > 1 ? 'nent' : 't'} que du courrier automatique et {etat.comptes.automatiques > 1 ? 'ne sont pas affichés' : 'n’est pas affiché'} ici. Rien n’est supprimé.</>}
           {' '}
-          <button type="button" className="gst-lien-bouton" aria-pressed={auto} onClick={() => setAuto((v) => !v)}>
+          <button type="button" className="gst-lien-bouton" aria-pressed={auto} onClick={() => basculerAuto(!auto)}>
             {auto ? 'Masquer le courrier automatique' : 'Afficher aussi le courrier automatique'}
           </button>
         </p>
       )}
 
       {etat.lignes.length === 0
-        ? <p className="gst-vide">{cherche ? 'Aucun échange ne correspond à cette recherche.' : 'Aucun échange dans la boîte.'}</p>
+        ? <p className="gst-vide">{cherche
+            ? 'Aucun échange ne correspond à cette recherche.'
+            : titre === undefined ? 'Aucun échange dans la boîte.' : `Aucun échange sous « ${titre} ».`}</p>
         : (
           <ul className="gst-liste bte-liste">
             {etat.lignes.map((l) => (
               <li key={l.filId}>
-                <button type="button" className="bte-ligne" onClick={() => onOuvrir(l.filId)}>
+                {/* L'échange OUVERT à côté est marqué — par un mot pour les lecteurs d'écran (`aria-current`) autant
+                    que par la forme : sur trois colonnes, on doit voir d'un coup d'œil lequel on est en train de lire. */}
+                <button type="button" className={`bte-ligne${filSelectionne === l.filId ? ' bte-ligne--ouverte' : ''}`}
+                  aria-current={filSelectionne === l.filId ? 'true' : undefined}
+                  onClick={() => onOuvrir(l.filId)}>
                   <span className="bte-haut">
                     <span className="bte-qui">{nomCorrespondant(l)}</span>
                     {/* LOT 5-DIRECT — la DATE ET L'HEURE de réception, en heure de Paris : « il y a 3 h » ne disait
@@ -334,6 +388,8 @@ const CSS_BOITE = `
   background:none;border:0;border-bottom:1px solid var(--color-svv-line);color:inherit;font:inherit;cursor:pointer}
 .bte-ligne:hover,.bte-ligne:focus-visible{background:var(--color-svv-field)}
 .bte-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
+/* L'échange ouvert : une BARRE à gauche et un fond, jamais la couleur seule ; aria-current le dit aux lecteurs d'écran. */
+.bte-ligne--ouverte{background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);padding-left:8px}
 .bte-haut{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px;justify-content:space-between}
 .bte-qui{font-weight:700;font-size:.95rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .bte-quand{font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}

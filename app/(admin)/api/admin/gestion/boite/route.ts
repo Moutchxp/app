@@ -1,6 +1,8 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { comptesBoite, lireBoiteMail, PAGE_BOITE, type CurseurBoite } from '../../../../../lib/gestion/boiteRepo';
+import { chargerConfigGestion } from '../../../../../lib/gestion/config';
+import { ETIQUETTE_RECEPTION, lireEtatUrl } from '../../../../../lib/gestion/ecranUrl';
 import { lirePartenairesInternes } from '../../../../../lib/gestion/partenaires';
 
 /**
@@ -15,6 +17,10 @@ import { lirePartenairesInternes } from '../../../../../lib/gestion/partenaires'
  *
  * PAGINATION PAR CURSEUR, jamais par `OFFSET` (voir `boiteRepo`). Le client renvoie tel quel le curseur qu'on lui a
  * donné ; il n'a pas à savoir ce qu'il contient.
+ *
+ * LOT 5-FUSION — la route accepte en plus une ÉTIQUETTE (`?etiquette=…`). Elle ne fait que restreindre la même
+ * lecture : aucune nouvelle table, aucun nouvel état en base, et sans le paramètre le comportement est exactement
+ * celui du lot 5a.
  */
 export const runtime = 'nodejs';
 
@@ -35,9 +41,23 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ erreur: 'Curseur incomplet : « depuis » et « avant » vont ensemble.' }, { status: 422 });
   }
 
+  // LOT 5-FUSION — L'ÉTIQUETTE, lue par le MÊME analyseur que l'écran (`lireEtatUrl`) : une seule grammaire pour
+  //   l'adresse du navigateur et pour le paramètre de la route, donc aucune chance qu'elles divergent. Il est
+  //   TOLÉRANT par construction — une étiquette inconnue retombe sur le défaut au lieu de rendre une erreur 422 à
+  //   quelqu'un qui a simplement collé un vieux lien.
+  //   ⚠️ ABSENT ≠ INCONNU : sans paramètre, c'est la boîte ENTIÈRE (« Réception »), comme depuis le lot 5a — les
+  //   appels qui existaient avant ce lot ne changent pas d'un iota. Seule une étiquette écrite est interprétée.
+  const brutEtiquette = url.searchParams.get('etiquette');
+  const etiquette = brutEtiquette === null
+    ? ETIQUETTE_RECEPTION
+    : lireEtatUrl(`etiquette=${encodeURIComponent(brutEtiquette)}`).etiquette;
+
   try {
     const partenaires = await lirePartenairesInternes();
-    const page = await lireBoiteMail(curseur, partenaires, PAGE_BOITE, { inclureAutomatiques });
+    // La fenêtre d'activité vient de la BASE, jamais du code : l'étiquette « À classer » doit dire exactement la même
+    //   chose que le poste de tri, y compris le jour où Arno change ce réglage.
+    const fenetreJours = etiquette.sorte === 'a_classer' ? (await chargerConfigGestion()).fenetreActiviteJours : 30;
+    const page = await lireBoiteMail(curseur, partenaires, PAGE_BOITE, { inclureAutomatiques, etiquette, fenetreJours });
     // Les deux comptes ne sont calculés qu'à la PREMIÈRE page : l'écran doit pouvoir dire ce qu'il montre ET ce qu'il
     //   tait, mais le redemander à chaque « voir plus » le paierait pour rien.
     const comptes = curseur === null ? await comptesBoite() : null;

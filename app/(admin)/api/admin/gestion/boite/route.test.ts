@@ -12,6 +12,7 @@ const exigerCompteActif = vi.fn();
 const lireBoiteMail = vi.fn();
 const comptesBoite = vi.fn();
 const lirePartenairesInternes = vi.fn();
+const chargerConfigGestion = vi.fn();
 
 vi.mock('../../../../../lib/admin/garde', () => ({ exigerCompteActif: (...a: unknown[]) => exigerCompteActif(...a) }));
 vi.mock('../../../../../lib/gestion/boiteRepo', () => ({
@@ -21,6 +22,9 @@ vi.mock('../../../../../lib/gestion/boiteRepo', () => ({
 }));
 vi.mock('../../../../../lib/gestion/partenaires', () => ({
   lirePartenairesInternes: (...a: unknown[]) => lirePartenairesInternes(...a),
+}));
+vi.mock('../../../../../lib/gestion/config', () => ({
+  chargerConfigGestion: (...a: unknown[]) => chargerConfigGestion(...a),
 }));
 
 import { GET } from './route';
@@ -33,6 +37,8 @@ beforeEach(() => {
   lireBoiteMail.mockReset().mockResolvedValue(page);
   comptesBoite.mockReset().mockResolvedValue({ lisibles: 4944, automatiques: 12262 });
   lirePartenairesInternes.mockReset().mockResolvedValue([]);
+  // 45 et non 30 : une valeur DIFFÉRENTE du repli du code, sinon le test passerait même si la base n'était pas lue.
+  chargerConfigGestion.mockReset().mockResolvedValue({ fenetreActiviteJours: 45 });
 });
 
 describe('① le droit', () => {
@@ -52,13 +58,13 @@ describe('① le droit', () => {
 describe('② le curseur', () => {
   it('sans curseur → première page', async () => {
     await GET(req());
-    expect(lireBoiteMail).toHaveBeenCalledWith(null, [], 30, { inclureAutomatiques: false });
+    expect(lireBoiteMail).toHaveBeenCalledWith(null, [], 30, expect.objectContaining({ inclureAutomatiques: false }));
   });
 
   it('curseur complet → transmis tel quel', async () => {
     await GET(req('?depuis=2026-08-01T09:00:00Z&avant=412'));
     expect(lireBoiteMail).toHaveBeenCalledWith(
-      { dernierLe: '2026-08-01T09:00:00Z', filId: '412' }, [], 30, { inclureAutomatiques: false });
+      { dernierLe: '2026-08-01T09:00:00Z', filId: '412' }, [], 30, expect.objectContaining({ inclureAutomatiques: false }));
   });
 
   it('🔴 curseur À MOITIÉ fourni → 422, plutôt qu’une page décalée en silence', async () => {
@@ -80,12 +86,53 @@ describe('② le curseur', () => {
 describe('le courrier automatique', () => {
   it('éteint par défaut', async () => {
     await GET(req());
-    expect(lireBoiteMail).toHaveBeenCalledWith(null, [], 30, { inclureAutomatiques: false });
+    expect(lireBoiteMail).toHaveBeenCalledWith(null, [], 30, expect.objectContaining({ inclureAutomatiques: false }));
   });
 
   it('allumé sur demande explicite', async () => {
     await GET(req('?auto=1'));
-    expect(lireBoiteMail).toHaveBeenCalledWith(null, [], 30, { inclureAutomatiques: true });
+    expect(lireBoiteMail).toHaveBeenCalledWith(null, [], 30, expect.objectContaining({ inclureAutomatiques: true }));
+  });
+});
+
+/**
+ * LOT 5-FUSION — L'ÉTIQUETTE. Elle ne fait que RESTREINDRE la même lecture : la route n'a gagné ni table, ni écriture,
+ * ni second chemin. Ce qui compte ici est qu'ABSENT et INCONNU ne se confondent pas — sans quoi un vieux lien collé
+ * changerait ce que la boîte montre, sans prévenir.
+ */
+describe('l’étiquette', () => {
+  it('ABSENTE → la boîte entière, exactement comme avant ce lot', async () => {
+    await GET(req());
+    expect(lireBoiteMail).toHaveBeenCalledWith(null, [], 30,
+      expect.objectContaining({ etiquette: { sorte: 'reception', evenementId: null } }));
+  });
+
+  it('une étiquette fixe est transmise telle quelle', async () => {
+    await GET(req('?etiquette=envoyes'));
+    expect(lireBoiteMail).toHaveBeenCalledWith(null, [], 30,
+      expect.objectContaining({ etiquette: { sorte: 'envoyes', evenementId: null } }));
+  });
+
+  it('une CARTE porte son identifiant', async () => {
+    await GET(req('?etiquette=carte-77'));
+    expect(lireBoiteMail).toHaveBeenCalledWith(null, [], 30,
+      expect.objectContaining({ etiquette: { sorte: 'carte', evenementId: 77 } }));
+  });
+
+  it('🔴 une étiquette ABÎMÉE ne rend pas une erreur : elle retombe sur le défaut, et l’écran reste utilisable', async () => {
+    for (const qs of ['?etiquette=nimportequoi', '?etiquette=carte-zéro', '?etiquette=']) {
+      lireBoiteMail.mockClear();
+      const res = await GET(req(qs));
+      expect(res.status).toBe(200);
+      expect(lireBoiteMail).toHaveBeenCalledWith(null, [], 30,
+        expect.objectContaining({ etiquette: { sorte: 'a_classer', evenementId: null } }));
+    }
+  });
+
+  it('« À classer » reçoit la fenêtre d’activité LUE EN BASE, jamais une valeur en dur du code', async () => {
+    await GET(req('?etiquette=a_classer'));
+    expect(chargerConfigGestion).toHaveBeenCalled();
+    expect(lireBoiteMail).toHaveBeenCalledWith(null, [], 30, expect.objectContaining({ fenetreJours: 45 }));
   });
 });
 
