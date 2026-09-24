@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { BlocRepliable } from '../permis/BlocRepliable';
 import { ChoisirEvenement } from './ChoisirEvenement';
 import { MenuDiscret } from './MenuDiscret';
+import { Conversation, MessageConversation } from './Conversation';
+import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 import type { CarteDetail, FilDeCarte, MailParti, MessageDeFil } from '../../../../lib/gestion/carteRepo';
 import type { CarteEvenement } from '../../../../lib/gestion/fileRepo';
 import { depuis, formaterDateFr, formaterTaille, libelleEtat, libelleSens } from '../../../../lib/gestion/ecran';
@@ -25,7 +27,9 @@ import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
  * couleur en dur — uniquement des jetons `--color-svv-*`.
  */
 
-export type Rapport = (message: string, options?: { rechargerTout?: boolean }) => void;
+// LOT 5b — `Rapport` vit dans `gestesMail` (brique partagée avec la vue conversation, sans cycle d'imports).
+//   RÉEXPORTÉ ici : aucun import existant ne casse.
+export type { Rapport };
 
 type VueCarte = { v: 'charge' } | { v: 'ok'; d: CarteDetail } | { v: 'erreur'; m: string };
 
@@ -58,26 +62,6 @@ async function chargerMessages(filId: number): Promise<
   }
 }
 
-/** Déplace UN mail vers une autre carte, ou l'y remet. Le mail n'est jamais copié : seul son rattachement change. */
-async function agirSurLeMail(
-  messageId: number, cible: number | null, onGeste: Rapport,
-): Promise<void> {
-  try {
-    const res = cible === null
-      ? await fetch(`/api/admin/gestion/messages/${messageId}/affectation`, { method: 'DELETE' })
-      : await fetch(`/api/admin/gestion/messages/${messageId}/affectation`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ evenementId: cible }),
-      });
-    const data = (await res.json().catch(() => ({}))) as { ok?: boolean; reference?: string; erreur?: string };
-    if (!res.ok || !data.ok) { onGeste(data.erreur ?? 'Geste impossible sur ce mail.'); return; }
-    onGeste(cible === null
-      ? 'Mail remis dans son échange.'
-      : `Mail déplacé vers ${data.reference ?? 'l’événement choisi'} — il reste dans son échange d’origine, qui l’annonce.`,
-    { rechargerTout: true });
-  } catch {
-    onGeste('Geste impossible : le serveur n’a pas répondu.');
-  }
-}
 
 export function CarteVive({ carte, maintenant, onGeste }: {
   carte: CarteEvenement;
@@ -215,7 +199,9 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste }: {
                   Venu de l’échange « {m.objetDuFil?.trim() || '(sans objet)'} », qui l’annonce toujours.
                 </p>
                 <ol className="gst-fil">
-                  <Message message={m.message} maintenant={maintenant}
+                  {/* LOT 5b — la MÊME brique que dans une conversation, ouverte d'emblée : un mail venu seul n'a pas
+                      de fil à parcourir, il n'y a rien à replier. Le geste « Détacher ce mail » est conservé. */}
+                  <MessageConversation message={m.message} maintenant={maintenant} ouvert onBasculer={() => {}}
                     onRemettre={() => void agirSurLeMail(m.message.messageId, null, onGeste)} />
                 </ol>
               </li>
@@ -355,7 +341,7 @@ function FilRattache({ fil, evenementId, maintenant, onGeste }: {
           </span>
         }
       >
-        {() => <CorpsFil filId={fil.filId} maintenant={maintenant} onGeste={onGeste} />}
+        {() => <Conversation filId={fil.filId} maintenant={maintenant} onGeste={onGeste} avecBandeau={false} />}
       </BlocRepliable>
     </li>
   );
@@ -391,172 +377,14 @@ async function detacherFil(filId: number, onGeste: Rapport): Promise<void> {
   }
 }
 
-/** Le petit panneau de destination : la MÊME recherche que partout ailleurs, et rien d'autre. */
-function DeplacerVers({ titre, exclure, onValider, onAnnuler }: {
-  titre: string; exclure: number | null;
-  onValider: (evenementId: number) => Promise<void> | void;
-  onAnnuler: () => void;
-}) {
-  const [choisi, setChoisi] = useState<number | null>(null);
-  const [enCours, setEnCours] = useState(false);
-  return (
-    <div className="gst-panneau">
-      <p className="gst-panneau-titre">{titre}</p>
-      <ChoisirEvenement choisi={choisi} onChoisir={setChoisi} exclure={exclure} autoFocus />
-      <div className="gst-actions">
-        <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={choisi === null || enCours}
-          onClick={() => { setEnCours(true); void Promise.resolve(onValider(choisi as number)).finally(() => setEnCours(false)); }}>
-          {enCours ? 'Déplacement…' : 'Déplacer'}
-        </button>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={enCours} onClick={onAnnuler}>Annuler</button>
-      </div>
-    </div>
-  );
-}
 
 /**
- * Les messages d'un échange. Montés au dépliage — un fil jamais ouvert ne traverse jamais le réseau.
+ * LOT 5b — `CorpsFil`, `Message` et leur ligne de pièce jointe ONT DÉMÉNAGÉ dans `Conversation.tsx`, qui est désormais
+ * la SEULE vue conversation du module — utilisée par la carte, par le poste de tri et par la boîte mail.
  *
- * LOT 5a — EXPORTÉ (et rien d'autre n'a changé) pour que la boîte mail ouvre un échange par le MÊME chemin de lecture
- * que le poste de tri. Deux lectures différentes du même échange finiraient par diverger ; une seule ne le peut pas.
+ * RIEN N'EST PERDU au passage, et c'est la condition pour que ce déménagement soit acceptable : les gestes par message
+ * (déplacer ce mail, le détacher), la liste des mails sortis de l'échange avec leur bouton « Remettre dans son
+ * échange », les pièces servies par l'application, les images de signature repliées et l'historique cité repliable
+ * sont tous dans la nouvelle vue. Elle y AJOUTE l'en-tête complet, le dépliage message par message et les messages
+ * tenus hors de la file.
  */
-export function CorpsFil({ filId, maintenant, onGeste }: { filId: number; maintenant: Date; onGeste: Rapport }) {
-  const [vue, setVue] = useState<
-    { v: 'charge' } | { v: 'ok'; messages: MessageDeFil[]; partis: MailParti[] } | { v: 'erreur'; m: string }
-  >({ v: 'charge' });
-  const [deplacer, setDeplacer] = useState<number | null>(null);
-
-  useEffect(() => {
-    let annule = false;
-    void (async () => {
-      const r = await chargerMessages(filId);
-      if (!annule) setVue(r);
-    })();
-    return () => { annule = true; };
-  }, [filId]);
-
-  if (vue.v === 'charge') return <p className="gst-info" role="status">Chargement des messages…</p>;
-  if (vue.v === 'erreur') return <p className="gst-erreur" role="status">{vue.m}</p>;
-
-  return (
-    <div className="gst-corps">
-      <ol className="gst-fil">
-        {vue.messages.map((m) => (
-          <Message key={m.messageId} message={m} maintenant={maintenant}
-            onDeplacer={() => setDeplacer(m.messageId)}
-            onRemettre={() => void agirSurLeMail(m.messageId, null, onGeste)}
-            panneau={deplacer === m.messageId ? (
-              <DeplacerVers titre="Déplacer ce mail vers" exclure={null}
-                onAnnuler={() => setDeplacer(null)}
-                onValider={async (cible) => { await agirSurLeMail(m.messageId, cible, onGeste); setDeplacer(null); }} />
-            ) : null} />
-        ))}
-      </ol>
-      {/* LES MAILS SORTIS DE CET ÉCHANGE — annoncés, jamais effacés en silence, et remis d'un clic. */}
-      {vue.partis.length > 0 && (
-        <ul className="gst-partis">
-          {vue.partis.map((p) => (
-            <li key={p.messageId} className="gst-parti">
-              <span>
-                1 mail déplacé vers <span className="gst-ref">{p.reference}</span>
-                {p.objet?.trim() ? ` — « ${p.objet.trim()} »` : ''}
-              </span>
-              <button type="button" className="gst-lien-bouton"
-                onClick={() => void agirSurLeMail(p.messageId, null, onGeste)}>
-                Remettre dans son échange
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {/* LOT 4d — le gros bouton « Détacher de cet événement » est devenu une entrée du menu « ⋯ » de l'échange :
-          la fonction est CONSERVÉE, seule sa présentation change (décision d'Arno : pas de boutons partout). */}
-      <p className="gst-note">Détacher ou déplacer ne supprime rien : par le menu « ⋯ » de l’échange, il retourne dans la file ou rejoint une autre carte, avec tous ses messages et ses pièces.</p>
-    </div>
-  );
-}
-
-/** UN message. Le texte est rendu TEL QUEL (jamais interprété comme du HTML) et respecte ses retours à la ligne. */
-function Message({ message, maintenant, onDeplacer, onRemettre, panneau }: {
-  message: MessageDeFil; maintenant: Date;
-  onDeplacer?: () => void; onRemettre?: () => void; panneau?: React.ReactNode;
-}) {
-  const lisible = corpsLisible(message.corps);
-  const { vraies, signatures } = trierPieces(message.pieces);
-  return (
-    <li className={`gst-msg gst-msg--${message.sens}`}>
-      <div className="gst-msg-haut">
-        <span className="gst-qui">{libelleSens(message.sens)} {message.deNom?.trim() || message.de}</span>
-        <span className="gst-sep" aria-hidden="true">·</span>
-        <span title={formaterDateFr(message.recuLe)}>{depuis(message.recuLe, maintenant)}</span>
-        {message.automatique && <span className="gst-etiquette">message automatique</span>}
-        {/* LE MENU DU MAIL — effacé au repos (décision d'Arno : pas de boutons partout), mais toujours atteignable. */}
-        {(onDeplacer || onRemettre) && (
-          <span className="gst-msg-menu">
-            <MenuDiscret titre="Actions sur ce message" entrees={[
-              ...(onDeplacer ? [{ libelle: 'Déplacer ce mail vers un autre événement…', onChoisir: onDeplacer }] : []),
-              ...(onRemettre ? [{ libelle: 'Détacher ce mail', discrete: true, onChoisir: onRemettre }] : []),
-            ]} />
-          </span>
-        )}
-      </div>
-      {/* LOT 4d-C — références d'images masquées, historique cité REPLIÉ. Rien n'est modifié en base : le corps
-          capturé reste entier, on choisit seulement ce qu'on montre d'emblée. */}
-      {lisible.visible
-        ? <p className="gst-msg-corps">{lisible.visible}</p>
-        : <p className="gst-msg-corps gst-absent">(message sans texte)</p>}
-      {lisible.cite && (
-        <details className="gst-cite">
-          <summary className="gst-cite-titre">Afficher le message cité</summary>
-          <p className="gst-msg-corps gst-cite-corps">{lisible.cite}</p>
-        </details>
-      )}
-      {vraies.length > 0 && (
-        <ul className="gst-pieces">
-          {vraies.map((p) => (
-            <li key={p.pieceId} className="gst-piece">
-              {p.disponible ? (
-                <>
-                  {/* Servie par l'application : le droit est relu à chaque ouverture. Aucune URL de stockage ici. */}
-                  <a className="gst-lien" href={`/api/admin/gestion/pieces/${p.pieceId}`} target="_blank" rel="noreferrer">
-                    {p.nomFichier}
-                  </a>
-                  <span className="gst-sep" aria-hidden="true">·</span>
-                  <span>{formaterTaille(p.tailleOctets)}</span>
-                  <span className="gst-sep" aria-hidden="true">·</span>
-                  <a className="gst-lien" href={`/api/admin/gestion/pieces/${p.pieceId}?telecharger=1`}>Télécharger</a>
-                </>
-              ) : (
-                // Pas de lien : une pièce non déposée ne s'ouvrira pas, et un lien mort userait la confiance.
-                <span className="gst-absent">
-                  {p.nomFichier} — non conservée{p.motifNonStocke ? ` (${p.motifNonStocke})` : ''}
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
-      {/* LES IMAGES DE SIGNATURE, à part et repliées : elles restent consultables, mais ne noient plus les vraies
-          pièces. Trier n'est pas supprimer — elles sont enregistrées et servies comme les autres. */}
-      {signatures.length > 0 && (
-        <details className="gst-cite">
-          <summary className="gst-cite-titre">
-            {signatures.length} image{signatures.length > 1 ? 's' : ''} de signature
-          </summary>
-          <ul className="gst-pieces">
-            {signatures.map((p) => (
-              <li key={p.pieceId} className="gst-piece">
-                {p.disponible
-                  ? <a className="gst-lien" href={`/api/admin/gestion/pieces/${p.pieceId}`} target="_blank" rel="noreferrer">{p.nomFichier}</a>
-                  : <span className="gst-absent">{p.nomFichier} — non conservée</span>}
-                <span className="gst-sep" aria-hidden="true">·</span>
-                <span>{formaterTaille(p.tailleOctets)}</span>
-              </li>
-            ))}
-          </ul>
-        </details>
-      )}
-      {panneau}
-    </li>
-  );
-}

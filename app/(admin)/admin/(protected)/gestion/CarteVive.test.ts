@@ -35,8 +35,22 @@ const DETAIL: CarteDetail = {
   mailsDeplaces: [],
 };
 
+/**
+ * LOT 5b — les champs de conversation (extrait, hors-file, destinataires, HTML seul) complètent chaque message. Ils
+ * sont posés ICI une fois pour toutes, avec les valeurs du cas ordinaire, pour que les cas de test ne parlent que de
+ * ce qu'ils éprouvent.
+ */
+const conv = <T extends Partial<MessageDeFil>>(m: T) => ({
+  extrait: typeof m.corps === 'string' ? m.corps.slice(0, 300) : null,
+  horsFile: false, motifHorsFile: null,
+  destA: null, destCc: null, destinatairesFondus: null, htmlSeul: false,
+  ...m,
+}) as MessageDeFil;
+
+const EN_TETE = { filId: 5, objet: 'Fuite salle de bain', etat: 'a_classer' as const, reference: 'GES-2026-000009', evenementId: 9 };
+
 const MESSAGES: MessageDeFil[] = [
-  {
+  conv({
     messageId: 1, sens: 'recu' as const, de: 'locataire@exemple.test', deNom: 'Mme M.', recuLe: '2026-09-21T12:00:00Z',
     objet: 'Fuite',
     // Un corps RÉEL : signature avec une référence d'image, puis l'historique cité dessous.
@@ -47,11 +61,11 @@ const MESSAGES: MessageDeFil[] = [
       { pieceId: 8, nomFichier: 'video.mov', typeMime: 'video/quicktime', tailleOctets: null, disponible: false, motifNonStocke: 'type refusé' },
       { pieceId: 9, nomFichier: 'image001.png', typeMime: 'image/png', tailleOctets: 3000, disponible: true, motifNonStocke: null },
     ],
-  },
-  {
+  }),
+  conv({
     messageId: 2, sens: 'envoye' as const, de: 'gestion@criterimmo.fr', deNom: null, recuLe: '2026-09-22T12:00:00Z',
     objet: 'Re: Fuite', corps: null, automatique: false, pieces: [],
-  },
+  }),
 ];
 
 let container: HTMLDivElement;
@@ -75,7 +89,9 @@ beforeEach(() => {
       return ok({ ok: true, evenementId: 42, reference: 'GES-2026-000042' });
     }
     if (init?.method === 'DELETE') return ok({ ok: true });
-    if (u.includes('/messages')) return ok({ messages: MESSAGES, partis: PARTIS });
+    // LOT 5b — la réponse porte désormais l'EN-TÊTE de l'échange : la vue conversation est ouverte depuis trois
+    //   endroits et doit savoir seule quoi proposer en haut.
+    if (u.includes('/messages')) return ok({ fil: EN_TETE, messages: MESSAGES, partis: PARTIS });
     // La RECHERCHE d'événement (lot 4d) : deux cartes, dont celle où l'on se trouve déjà.
     if (u.includes('/api/admin/gestion/evenements?')) {
       return ok({ max: 30, evenements: [
@@ -152,10 +168,16 @@ describe('① PARESSE — ce qu’on n’ouvre pas ne coûte rien', () => {
 });
 
 describe('② les pièces jointes sont SERVIES PAR L’APPLICATION', () => {
+  /**
+   * LOT 5b — un dépliage de PLUS qu'avant, et c'est voulu : dans la vue conversation, seul le DERNIER message est
+   * ouvert d'emblée (comportement de toutes les messageries). Les tests ci-dessous portent sur le PREMIER message —
+   * ils cliquent donc « Tout déplier ». Rien n'est perdu : tout est là, à un clic.
+   */
   const ouvrirTout = async () => {
     await monter();
     await cliquer(boutonPar(/Fuite salle de bain/));
     await cliquer(boutons().find((b) => /2 messages/.test(b.textContent ?? '')));
+    await cliquer(boutonPar(/^Tout déplier$/));
   };
 
   it('le lien d’une pièce pointe vers l’application, JAMAIS vers le stockage', async () => {
@@ -437,10 +459,10 @@ describe('⑤ LOT 4d-B2 — DÉPLACER UN MAIL SEUL', () => {
       ...DETAIL,
       mailsDeplaces: [{
         filId: 77, objetDuFil: 'Préavis de départ',
-        message: {
+        message: conv({
           messageId: 12, sens: 'recu' as const, de: 'locataire@exemple.test', deNom: 'Mme M.',
           recuLe: '2026-09-21T12:00:00Z', objet: 'Fuite', corps: 'Il y a une fuite.', automatique: false, pieces: [],
-        },
+        }),
       }],
     };
     await monter();

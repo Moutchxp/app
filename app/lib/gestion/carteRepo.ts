@@ -58,9 +58,61 @@ export interface MessageDeFil {
   deNom: string | null;
   recuLe: string;
   objet: string | null;
+  /** LOT 5b — corps COMPLET, présent pour le DERNIER message seulement. Les autres arrivent avec `extrait` et se
+   *  chargent au dépliage (`/api/admin/gestion/messages/[id]/corps`) : un fil de 102 messages ne traverse pas le
+   *  réseau en entier pour qu'on en lise un. */
   corps: string | null;
+  /** LOT 5b — les premières lignes, pour la ligne repliée. Toujours présent quand il y a du texte. */
+  extrait: string | null;
   automatique: boolean;
   pieces: PieceDeMessage[];
+  // ── LOT 5b — ce qu'il fallait pour lire une conversation comme on lit sa messagerie ────────────────────────────
+  /**
+   * Le message est-il tenu HORS DE LA FILE DE TRI par une règle ? Il reste À SA PLACE dans la conversation, signalé
+   * par un MOT — même logique que Gmail, qui range les promotions ailleurs sans les retirer du fil.
+   */
+  horsFile: boolean;
+  /** Le motif de la règle, en clair. `null` quand le message n'est pas écarté. */
+  motifHorsFile: string | null;
+  /** Destinataires en À, quand ils sont CONNUS (migration 235). `null` = jamais analysés (message capturé avant). */
+  destA: AdresseAffichee[] | null;
+  /** Destinataires en copie, même convention. */
+  destCc: AdresseAffichee[] | null;
+  /** La liste FONDUE d'avant (À et Cc mêlés), toujours rendue : c'est le repli quand le détail n'est pas connu. */
+  destinatairesFondus: string | null;
+  /**
+   * Le message n'a QUE du HTML (557 messages en base) : on ne peut pas encore l'afficher (lot 5d), et on le DIT.
+   * Un vide muet ferait croire à un message vide, ce qui est faux.
+   */
+  htmlSeul: boolean;
+}
+
+/** Un destinataire tel que l'écran l'affiche. Même forme que ce que la capture range (`adresses.ts`). */
+export interface AdresseAffichee { nom: string | null; adresse: string }
+
+/**
+ * LOT 5b — L'EN-TÊTE d'un échange : de quoi alimenter le bandeau des fonctions maison, où que la conversation soit
+ * ouverte. C'est ce qui permet d'avoir UNE seule vue au lieu de trois qui divergent.
+ */
+export interface EnTeteFil {
+  filId: number;
+  objet: string | null;
+  etat: 'a_classer' | 'sans_suite';
+  /** Référence `GES-…` si l'échange est rattaché à une carte, sinon `null`. */
+  reference: string | null;
+  evenementId: number | null;
+}
+
+/**
+ * Lit une colonne `jsonb` de destinataires. `null` (colonne jamais analysée, ou migration 235 absente) reste `null` —
+ * l'écran doit pouvoir dire « destinataires non détaillés » plutôt que d'afficher une liste vide qui mentirait. PUR.
+ */
+function adressesDe(brut: unknown): AdresseAffichee[] | null {
+  if (!Array.isArray(brut)) return null;
+  return brut
+    .filter((x): x is { nom?: unknown; adresse?: unknown } => typeof x === 'object' && x !== null)
+    .map((x) => ({ nom: typeof x.nom === 'string' ? x.nom : null, adresse: String(x.adresse ?? '') }))
+    .filter((a) => a.adresse !== '');
 }
 
 export interface PieceDeMessage {
@@ -79,6 +131,8 @@ const INSTANT = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD
 /** Borne de sûreté : un fil pathologique ne doit pas rendre une page de plusieurs mégaoctets. */
 export const MAX_MESSAGES = 200;
 const MAX_CORPS = 20000;
+/** LOT 5b — la ligne REPLIÉE d'un message : assez pour reconnaître de quoi il parle, pas assez pour peser. */
+const LONGUEUR_EXTRAIT = 300;
 
 /**
  * LE DÉTAIL D'UNE CARTE : ce qu'elle porte, et les échanges qui lui sont RATTACHÉS (affectations actives seulement —
@@ -174,10 +228,44 @@ async function lireMailsDeplaces(
       deNom: libelleExpediteur(partenaires, r.de_adresse, r.de_nom) || null,
       recuLe: r.recu_le, objet: r.objet,
       corps: r.corps && r.corps.trim() !== '' ? r.corps : null,
+      // LOT 5b — un mail déplacé est montré SEUL dans sa carte : son corps part en entier (il n'y a pas de fil à
+      //   alléger), et les champs de conversation n'ont pas d'objet ici. Ils sont renseignés honnêtement, jamais
+      //   inventés : `null` veut dire « non analysé », et c'est vrai.
+      extrait: r.corps && r.corps.trim() !== '' ? r.corps.slice(0, LONGUEUR_EXTRAIT) : null,
       automatique: r.automatique === true,
       pieces: pieces.get(r.message_id) ?? [],
+      horsFile: false, // la requête ci-dessus les exclut déjà (`m.exclu_le IS NULL`)
+      motifHorsFile: null,
+      destA: null,
+      destCc: null,
+      destinatairesFondus: null,
+      htmlSeul: false,
     },
   }));
+}
+
+/**
+ * LOT 5b — LE CORPS D'UN SEUL MESSAGE, au dépliage. Le pendant de la lecture allégée d'une conversation : on ne paie
+ * le texte que des messages qu'on ouvre vraiment.
+ *
+ * `htmlSeul` est rendu ICI AUSSI : un message sans texte mais avec du HTML n'est pas un message vide, et l'écran doit
+ * pouvoir le dire (l'affichage de la mise en forme est le lot 5d). `null` = le message n'existe pas.
+ */
+export async function lireCorpsDuMessage(
+  messageId: number,
+): Promise<{ messageId: number; corps: string | null; htmlSeul: boolean } | null> {
+  const { rows } = await query<{ message_id: number; corps: string | null; html_seul: boolean }>(
+    `SELECT id::int AS message_id,
+            left(coalesce(corps_texte, ''), ${MAX_CORPS}) AS corps,
+            (coalesce(btrim(corps_texte), '') = '' AND coalesce(btrim(corps_html), '') <> '') AS html_seul
+       FROM gestion_message WHERE id = $1`, [messageId]);
+  const r = rows[0];
+  if (!r) return null;
+  return {
+    messageId: r.message_id,
+    corps: r.corps && r.corps.trim() !== '' ? r.corps : null,
+    htmlSeul: r.html_seul === true,
+  };
 }
 
 /** Les pièces d'un ensemble de messages, rangées par message. Une seule requête, quel que soit le nombre de messages. */
@@ -213,25 +301,58 @@ async function lirePiecesDesMessages(messageIds: readonly number[]): Promise<Map
  */
 export async function lireMessagesDuFil(
   filId: number, partenaires: readonly PartenaireInterne[] = [], deplacements = false,
-): Promise<{ messages: MessageDeFil[]; partis: MailParti[] } | null> {
-  const { rows: fil } = await query<{ id: number }>(`SELECT id::int AS id FROM gestion_fil WHERE id = $1`, [filId]);
+): Promise<{ fil: EnTeteFil; messages: MessageDeFil[]; partis: MailParti[] } | null> {
+  // LOT 5b — l'EN-TÊTE de l'échange voyage avec ses messages : la vue conversation est ouverte depuis trois endroits
+  //   (boîte mail, poste de tri, carte) et doit savoir seule quoi proposer en haut. Sans ça, chaque appelant
+  //   reconstituerait l'état de son côté, et les trois finiraient par diverger.
+  const { rows: fil } = await query<{
+    id: number; objet: string | null; etat: string; reference: string | null; evenement_id: number | null;
+  }>(
+    `SELECT f.id::int AS id, f.objet_initial AS objet, f.etat,
+            e.reference, e.id::int AS evenement_id
+       FROM gestion_fil f
+       LEFT JOIN gestion_affectation a ON a.fil_id = f.id AND a.actif AND a.message_id IS NULL
+       LEFT JOIN gestion_evenement e ON e.id = a.evenement_id
+      WHERE f.id = $1`, [filId]);
   if (!fil[0]) return null;
 
   // LOT 4d-B2 — les mails SORTIS de cet échange. On ne les affiche plus ici (ils vivent dans leur carte), mais on
   //   annonce leur nombre et leur destination : retirer quelque chose en silence est exactement ce qu'on s'interdit.
   const partis = deplacements ? await lireMailsPartis(filId) : [];
 
+  // LOT 5b — LES MESSAGES ÉCARTÉS SONT DÉSORMAIS RENDUS, à leur place chronologique. Ils restent HORS DE LA FILE DE
+  //   TRI (fileRepo n'est pas touché, ses compteurs non plus) : c'est la logique de Gmail, qui range les promotions
+  //   ailleurs sans les retirer de la conversation. Sans eux, un fil montrait une réponse sans la question.
+  const { destinatairesSeparesDisponibles } = await import('./schema');
+  const avecDest = await destinatairesSeparesDisponibles();
   const { rows } = await query<{
     message_id: number; sens: string; de_adresse: string; de_nom: string | null; recu_le: string;
-    objet: string | null; corps: string | null; automatique: boolean;
+    objet: string | null; corps: string | null; extrait: string | null; automatique: boolean;
+    hors_file: boolean; motif_hors_file: string | null; html_seul: boolean;
+    dest_a: unknown; dest_cc: unknown; destinataires: string | null; est_dernier: boolean;
   }>(
-    `SELECT id::int AS message_id, sens, de_adresse, de_nom, ${INSTANT('recu_le')} AS recu_le,
-            objet, left(coalesce(corps_texte, ''), ${MAX_CORPS}) AS corps, automatique
-       FROM gestion_message
-      WHERE fil_id = $1 AND exclu_le IS NULL
-        ${deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am WHERE am.message_id = gestion_message.id AND am.actif)' : ''}
-      ORDER BY recu_le ASC, id ASC
-      LIMIT ${MAX_MESSAGES}`, [filId]);
+    `WITH msg AS (
+       SELECT id, sens, de_adresse, de_nom, recu_le, objet, corps_texte, corps_html, automatique,
+              exclu_le, exclu_motif, destinataires${avecDest ? ', dest_a, dest_cc' : ''},
+              -- Le DERNIER message est celui qu'on déplie d'emblée : c'est le seul dont le corps part tout de suite.
+              (row_number() OVER (ORDER BY recu_le DESC, id DESC) = 1) AS est_dernier
+         FROM gestion_message
+        WHERE fil_id = $1
+          ${deplacements ? 'AND NOT EXISTS (SELECT 1 FROM gestion_affectation am WHERE am.message_id = gestion_message.id AND am.actif)' : ''}
+        ORDER BY recu_le ASC, id ASC
+        LIMIT ${MAX_MESSAGES}
+     )
+     SELECT id::int AS message_id, sens, de_adresse, de_nom, ${INSTANT('recu_le')} AS recu_le, objet,
+            CASE WHEN est_dernier THEN left(coalesce(corps_texte, ''), ${MAX_CORPS}) END AS corps,
+            left(coalesce(corps_texte, ''), ${LONGUEUR_EXTRAIT}) AS extrait,
+            automatique,
+            (exclu_le IS NOT NULL) AS hors_file,
+            exclu_motif AS motif_hors_file,
+            (coalesce(btrim(corps_texte), '') = '' AND coalesce(btrim(corps_html), '') <> '') AS html_seul,
+            ${avecDest ? 'dest_a, dest_cc' : 'NULL::jsonb AS dest_a, NULL::jsonb AS dest_cc'},
+            destinataires, est_dernier
+       FROM msg
+      ORDER BY recu_le ASC, message_id ASC`, [filId]);
 
   const { rows: pieces } = await query<{
     piece_id: number; message_id: number; nom_fichier: string; type_mime: string | null;
@@ -264,10 +385,28 @@ export async function lireMessagesDuFil(
     deNom: libelleExpediteur(partenaires, m.de_adresse, m.de_nom) || null,
     recuLe: m.recu_le, objet: m.objet,
     corps: m.corps && m.corps.trim() !== '' ? m.corps : null,
+    extrait: m.extrait && m.extrait.trim() !== '' ? m.extrait : null,
     automatique: m.automatique === true,
     pieces: parMessage.get(m.message_id) ?? [],
+    horsFile: m.hors_file === true,
+    motifHorsFile: m.motif_hors_file,
+    // `null` (jamais analysé) et `[]` (analysé, personne) ne se confondent pas — c'est tout l'objet de la migration 235.
+    destA: adressesDe(m.dest_a),
+    destCc: adressesDe(m.dest_cc),
+    destinatairesFondus: m.destinataires && m.destinataires.trim() !== '' ? m.destinataires : null,
+    htmlSeul: m.html_seul === true,
   }));
-  return { messages, partis };
+  return {
+    fil: {
+      filId: fil[0].id,
+      objet: fil[0].objet,
+      etat: fil[0].etat === 'sans_suite' ? 'sans_suite' : 'a_classer',
+      reference: fil[0].reference,
+      evenementId: fil[0].evenement_id,
+    },
+    messages,
+    partis,
+  };
 }
 
 /** Un mail parti de cet échange vers une carte : ce que l'échange d'origine ANNONCE, sans plus l'afficher. */

@@ -9,7 +9,8 @@ import {
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { useReleveGestion } from './useReleveGestion';
 import { PanneauAffecter } from './PanneauAffecter';
-import { CarteVive, CorpsFil } from './CarteVive';
+import { CarteVive } from './CarteVive';
+import { Conversation } from './Conversation';
 import { BoiteMail } from './BoiteMail';
 
 /**
@@ -179,20 +180,15 @@ export function GestionVue() {
         </button>
       </div>
 
-      {mode === 'boite' ? (
+      {/* LOT 5b — une conversation ouverte occupe l'écran, quel que soit le mode d'où l'on vient : c'est la MÊME vue. */}
+      {filOuvert !== null ? (
         <section className="gst-col">
-          {filOuvert === null
-            ? <BoiteMail onOuvrir={(id) => setFilOuvert(id)} />
-            : (
-              <>
-                <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setFilOuvert(null)}>
-                  ← Retour à la boîte
-                </button>
-                {/* Le MÊME chemin de lecture que le poste de tri : deux lectures du même échange finiraient par diverger. */}
-                <CorpsFil filId={filOuvert} maintenant={ref}
-                  onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) void charger(); }} />
-              </>
-            )}
+          <Conversation filId={filOuvert} maintenant={ref} onFerme={() => setFilOuvert(null)}
+            onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { setFilOuvert(null); void charger(); } }} />
+        </section>
+      ) : mode === 'boite' ? (
+        <section className="gst-col">
+          <BoiteMail onOuvrir={(id) => setFilOuvert(id)} />
         </section>
       ) : (
       /* ORDRE DU DOM = ordre mobile : la file d'abord, les événements ensuite. */
@@ -222,6 +218,7 @@ export function GestionVue() {
                 {d.file.map((f) => (
                   <LigneFil key={f.filId} fil={f} maintenant={ref}
                     ouvert={panneau === f.filId}
+                    onOuvrir={() => setFilOuvert(f.filId)}
                     occupe={gesteEnCours}
                     onAffecter={() => setPanneau(panneau === f.filId ? null : f.filId)}
                     onSansSuite={() => void agir(`/api/admin/gestion/fils/${f.filId}/sans-suite`, 'POST', 'Échange classé sans suite. Il reviendra dans la file si un nouveau message y arrive.', {})}
@@ -287,18 +284,24 @@ export function GestionVue() {
 
 /** Une ligne de la file = UN ÉCHANGE (pas un message) : à ce volume, six mails ne doivent pas prendre six lignes.
  *  EXPORTÉ pour être rendu en test (contrat visible : mot « attend une réponse », pluriels, jamais de couleur seule). */
-export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAffecter, onSansSuite, onFait, onAnnuler }: {
+export function LigneFil({ fil, maintenant, ouvert = false, occupe = false, onAffecter, onSansSuite, onFait, onAnnuler, onOuvrir }: {
   fil: LigneFile; maintenant: Date;
   ouvert?: boolean; occupe?: boolean;
   onAffecter?: () => void; onSansSuite?: () => void;
   onFait?: (message: string) => void; onAnnuler?: () => void;
+  /** LOT 5b — ouvrir la CONVERSATION depuis la file de tri. Optionnel : sans lui, la ligne est exactement celle d'avant. */
+  onOuvrir?: () => void;
 }) {
   return (
     <li className="gst-item">
       <div className="gst-item-haut">
         {/* LOT 4d-C — AFFICHAGE seulement : la cascade de « Re: / TR: / Fwd: » ne dit rien de plus que l'objet,
             elle dit juste que le mail a beaucoup circulé. L'objet enregistré, lui, n'est pas touché. */}
-        <span className="gst-objet">{nettoyerObjet(fil.objet) || '(sans objet)'}</span>
+        {/* LOT 5b — l'objet devient la porte d'entrée de la conversation, comme dans n'importe quelle messagerie.
+            Sans `onOuvrir`, il reste le texte simple d'avant : aucune ligne existante ne change de comportement. */}
+        {onOuvrir
+          ? <button type="button" className="gst-objet gst-objet-bouton" onClick={onOuvrir}>{nettoyerObjet(fil.objet) || '(sans objet)'}</button>
+          : <span className="gst-objet">{nettoyerObjet(fil.objet) || '(sans objet)'}</span>}
         {fil.attend && <span className="gst-attend">attend une réponse</span>}
       </div>
       <div className="gst-item-bas">
@@ -396,6 +399,8 @@ const CSS_GESTION = `
 .gst-item{min-height:44px;background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px;overflow-wrap:anywhere}
 .gst-item-haut{display:flex;flex-wrap:wrap;align-items:baseline;gap:.5rem}
 .gst-item-bas{display:flex;flex-wrap:wrap;align-items:baseline;gap:.35rem;font-size:.8rem;color:var(--color-svv-muted);margin-top:4px}
+.gst-objet-bouton{background:none;border:0;padding:0;margin:0;text-align:left;cursor:pointer;color:inherit;font:inherit;font-weight:inherit;min-height:44px;text-decoration:underline;text-underline-offset:3px}
+.gst-objet-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .gst-objet{font-weight:700;font-size:.92rem;color:var(--color-svv-ink);line-height:1.35}
 .gst-qui{font-weight:600;color:var(--color-svv-ink)}
 .gst-ref{font-variant-numeric:tabular-nums;font-weight:600;color:var(--color-svv-ink)}

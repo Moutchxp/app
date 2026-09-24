@@ -69,13 +69,23 @@ describe('les messages d’un échange', () => {
   it('se lisent du PLUS ANCIEN au plus récent — l’ordre d’une conversation', async () => {
     queryMock.mockResolvedValueOnce({ rows: [{ id: 5 }] }).mockResolvedValue({ rows: [] });
     await lireMessagesDuFil(5);
-    expect(sqls()[1]).toContain('ORDER BY recu_le ASC, id ASC');
+    // Repéré par son contenu, pas par sa position : une sonde de schéma précède désormais la lecture (lot 5b).
+    expect(sqls().find((x) => x.includes('WITH msg AS'))).toContain('ORDER BY recu_le ASC, message_id ASC');
   });
 
-  it('les messages EXCLUS restent hors de la vue (ils restent en base)', async () => {
+  /**
+   * 🔴 LOT 5b — CE TEST A CHANGÉ DE SENS, sur décision d'Arno du 24/09/2026, et le changement est le point du lot :
+   * les messages écartés par une règle n'étaient affichés NULLE PART. Ils apparaissent désormais DANS leur
+   * conversation, à leur place chronologique et signalés par un mot — sans jamais revenir dans la FILE DE TRI.
+   * C'est la logique de Gmail : les promotions sont rangées ailleurs, pas retirées du fil.
+   */
+  it('les messages écartés sont DANS la conversation (et toujours hors de la file de tri)', async () => {
     queryMock.mockResolvedValueOnce({ rows: [{ id: 5 }] }).mockResolvedValue({ rows: [] });
     await lireMessagesDuFil(5);
-    expect(sqls()[1]).toContain('exclu_le IS NULL');
+    expect(sqls().find((x) => x.includes('WITH msg AS'))).not.toContain('exclu_le IS NULL');
+    // …et la file de tri, elle, les écarte toujours : les deux lectures sont distinctes et le restent.
+    const { readFileSync } = await import('node:fs');
+    expect(readFileSync('app/lib/gestion/fileRepo.ts', 'utf8')).toContain('exclu_le IS NULL');
   });
 
   it('attache chaque pièce à SON message', async () => {
@@ -167,7 +177,9 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
     const imports = [...code.matchAll(/(?:from\s*|import\s*\(\s*)'([^']+)'/g)].map((m) => m[1]);
     // `attente` et `partenaires` sont des modules FRÈRES, purs ou en lecture seule : les importer ne fait pas de ce
     //   fichier un manipulateur d'octets. Ce qui est interdit, c'est le module de stockage — et lui seul.
-    expect(imports).toEqual(['../db/client', './attente', './partenaires']);
+    // LOT 5b — `./schema` rejoint la liste : c'est la SONDE de schéma (lecture d'`information_schema`), qui ne
+    //   manipule aucun octet de pièce jointe. La règle protégée reste la même : pas de module de stockage ici.
+    expect(imports).toEqual(['../db/client', './attente', './partenaires', './schema']);
     expect(imports).not.toContain('../stockage');
     expect(code).not.toContain('urlSignee');
   });

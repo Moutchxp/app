@@ -85,8 +85,8 @@ describe('garanties d’écran (statiques)', () => {
     expect(vue).toContain('Boîte mail');
   });
 
-  it('la boîte ouvre un échange par le MÊME chemin de lecture que le poste de tri', () => {
-    expect(vue).toContain('CorpsFil');
+  it('la boîte ouvre un échange par la vue conversation UNIQUE du module (lot 5b)', () => {
+    expect(vue).toContain('<Conversation filId={filOuvert}');
     // …et elle ne se recâble pas une lecture à elle : aucun appel direct à la route des messages ici.
     expect(src).not.toContain('/messages');
   });

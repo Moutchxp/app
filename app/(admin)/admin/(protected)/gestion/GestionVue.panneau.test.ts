@@ -66,6 +66,14 @@ const calmer = async () => { await act(async () => { await Promise.resolve(); aw
 const monter = async () => { await act(async () => { root.render(createElement(GestionVue)); }); await calmer(); };
 const boutons = () => [...container.querySelectorAll('button')] as HTMLButtonElement[];
 const boutonPar = (motif: RegExp) => boutons().find((b) => motif.test(b.textContent ?? ''));
+/**
+ * LOT 5b — le bouton d'affectation d'une ligne, désigné par son LIBELLÉ. Auparavant les tests prenaient « le premier
+ * bouton de la ligne » ; depuis que l'objet est cliquable (il ouvre la conversation), cette position ne désigne plus
+ * le même geste. Viser le libellé dit ce qu'on veut vraiment, et ne bougera plus à la prochaine addition.
+ */
+const boutonAffecter = (ligne: Element): HTMLElement =>
+  [...ligne.querySelectorAll('button')].find((b) => /Affecter|Classer/.test(b.textContent ?? '')) as HTMLElement;
+
 const cliquer = async (b: HTMLElement | undefined) => { await act(async () => { b?.click(); }); await calmer(); };
 const panneaux = () => [...container.querySelectorAll('.gst-panneau')];
 /** L'échange dont le panneau est ouvert, lu dans le DOM — la seule vérité qui compte pour l'utilisateur. */
@@ -78,7 +86,7 @@ describe('le panneau d’affectation appartient à UN ÉCHANGE, pas à une posit
   it('s’ouvre sur l’échange cliqué, et sur lui seul', async () => {
     await monter();
     const lignes = [...container.querySelectorAll('li.gst-item')];
-    await cliquer(lignes[0].querySelector('button') as HTMLElement);
+    await cliquer(boutonAffecter(lignes[0]));
     expect(panneaux()).toHaveLength(1);
     expect(echangeOuvert()).toBe('Préavis de départ');
   });
@@ -91,7 +99,7 @@ describe('le panneau d’affectation appartient à UN ÉCHANGE, pas à une posit
   it('après un rattachement réussi, AUCUN panneau n’est ouvert — surtout pas sur l’échange qui a pris la place', async () => {
     await monter();
     const lignes = [...container.querySelectorAll('li.gst-item')];
-    await cliquer(lignes[0].querySelector('button') as HTMLElement);
+    await cliquer(boutonAffecter(lignes[0]));
     expect(echangeOuvert()).toBe('Préavis de départ');
 
     await cliquer(boutonPar(/^Rattacher$/));
@@ -111,7 +119,7 @@ describe('le panneau d’affectation appartient à UN ÉCHANGE, pas à une posit
   it('« Rafraîchir » referme le panneau : la file relue n’est plus celle sur laquelle on avait cliqué', async () => {
     await monter();
     const lignes = [...container.querySelectorAll('li.gst-item')];
-    await cliquer(lignes[0].querySelector('button') as HTMLElement);
+    await cliquer(boutonAffecter(lignes[0]));
     expect(panneaux()).toHaveLength(1);
     await cliquer(boutonPar(/^Rafraîchir$/));
     expect(panneaux()).toHaveLength(0);
@@ -120,7 +128,7 @@ describe('le panneau d’affectation appartient à UN ÉCHANGE, pas à une posit
   it('le panneau NOMME l’échange sur lequel il agit — un panneau anonyme ferait rattacher le mauvais', async () => {
     await monter();
     const lignes = [...container.querySelectorAll('li.gst-item')];
-    await cliquer(lignes[1].querySelector('button') as HTMLElement);
+    await cliquer(boutonAffecter(lignes[1]));
     const titre = container.querySelector('.gst-panneau-titre')?.textContent ?? '';
     expect(titre).toContain('Rattacher');
     expect(titre).toContain(AFFICHE);
@@ -129,7 +137,7 @@ describe('le panneau d’affectation appartient à UN ÉCHANGE, pas à une posit
   it('« Replier » remplace « Fermer » : replier un panneau n’est pas clore un dossier', async () => {
     await monter();
     const lignes = [...container.querySelectorAll('li.gst-item')];
-    await cliquer(lignes[0].querySelector('button') as HTMLElement);
+    await cliquer(boutonAffecter(lignes[0]));
     expect(boutonPar(/^Replier$/)).toBeDefined();
     expect(boutonPar(/^Fermer$/)).toBeUndefined();
     await cliquer(boutonPar(/^Replier$/));
@@ -139,7 +147,7 @@ describe('le panneau d’affectation appartient à UN ÉCHANGE, pas à une posit
   it('le panneau se referme sur l’échange où il était, jamais sur un autre (« Annuler »)', async () => {
     await monter();
     const lignes = [...container.querySelectorAll('li.gst-item')];
-    await cliquer(lignes[1].querySelector('button') as HTMLElement);
+    await cliquer(boutonAffecter(lignes[1]));
     expect(echangeOuvert()).toBe(AFFICHE);
     await cliquer(boutonPar(/^Annuler$/));
     expect(panneaux()).toHaveLength(0);
