@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   etatArchive, etiquetteType, formaterTaille, sortePiece, tronquerNom,
   type PieceAffichee,
 } from '../../../../lib/gestion/pieces';
+import { CSS_SELECTEUR_DRIVE, SelecteurDossierDrive, type CibleDepot } from './SelecteurDossierDrive';
 
 /**
  * LOT 5-PJ-A — LES PIÈCES JOINTES, COMME DANS GMAIL. Composant PARTAGÉ : un seul endroit rend les pièces, partout où
@@ -29,30 +30,142 @@ import {
 /** Les dimensions réservées à la vignette. Fixées ICI et dans le CSS : sans elles, la page saute quand les images arrivent. */
 const VIGNETTE_H = 108;
 
-export function PiecesJointes({ messageId, vraies, signatures }: {
+/** Un dépôt déjà fait, tel que la route le rend. */
+export interface DepotAffiche {
+  pieceId: number;
+  dossierNom: string | null;
+  webViewLink: string | null;
+}
+
+/** Ce que le clic sur un bouton Drive demande : une pièce, ou tout le message. */
+type Demande = { quoi: 'piece'; pieceId: number; nom: string } | { quoi: 'message' };
+
+/** Le verdict d'une pièce, rendu par la route. Jamais un « OK » global — voir `depotDrive.ts`. */
+interface ResultatDepot { pieceId: number; nomFichier: string; etat: 'depose' | 'deja' | 'echec'; lien?: string | null; motif?: string }
+
+export function PiecesJointes({ messageId, filId, vraies, signatures }: {
   messageId: number;
+  /** Sert à rouvrir le sélecteur sur le dernier dossier utilisé pour CET échange. */
+  filId?: number | null;
   vraies: PieceAffichee[];
   signatures: PieceAffichee[];
 }) {
+  const [depots, setDepots] = useState<DepotAffiche[]>([]);
+  const [demande, setDemande] = useState<Demande | null>(null);
+  const [resultats, setResultats] = useState<ResultatDepot[] | null>(null);
+  const [resume, setResume] = useState<string | null>(null);
+  const [enCours, setEnCours] = useState(false);
+  const [indisponible, setIndisponible] = useState<string | null>(null);
+
+  /** Ce qui est DÉJÀ dans le Drive : une requête par message déplié, jamais une par carte. */
+  const relireDepots = useCallback(async (): Promise<void> => {
+    try {
+      const res = await fetch(`/api/admin/gestion/messages/${messageId}/drive`, { cache: 'no-store' });
+      const d = (await res.json()) as { etat?: string; depots?: DepotAffiche[]; message?: string };
+      setDepots(d.depots ?? []);
+      // « sans_schema » n'est pas une panne : la migration n'est simplement pas encore appliquée. On le DIT sur le
+      //   bouton plutôt que de le laisser échouer au clic.
+      setIndisponible(d.etat === 'sans_schema' ? 'Bientôt disponible — une mise à jour de la base est nécessaire' : null);
+    } catch {
+      setDepots([]);
+    }
+  }, [messageId]);
+
+  useEffect(() => { void relireDepots(); }, [relireDepots]);
+
+  const deposer = async (cible: CibleDepot): Promise<void> => {
+    if (demande === null) return;
+    const url = demande.quoi === 'piece'
+      ? `/api/admin/gestion/pieces/${demande.pieceId}/drive`
+      : `/api/admin/gestion/messages/${messageId}/drive`;
+    setEnCours(true);
+    setResultats(null);
+    setResume(null);
+    try {
+      const res = await fetch(url, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dossierId: cible.id }),
+      });
+      const d = (await res.json()) as { etat?: string; message?: string; resultats?: ResultatDepot[]; resume?: string };
+      if (d.etat !== 'ok') {
+        setResume(d.message ?? 'Le dépôt n’a pas abouti.');
+      } else {
+        setResultats(d.resultats ?? []);
+        setResume(d.resume ?? null);
+        await relireDepots();
+      }
+    } catch {
+      setResume('Le dépôt n’a pas abouti : le serveur n’a pas répondu.');
+    } finally {
+      setEnCours(false);
+      setDemande(null);
+    }
+  };
+
   if (vraies.length === 0 && signatures.length === 0) return null;
+  const depotDe = (pieceId: number): DepotAffiche | undefined => depots.find((d) => d.pieceId === pieceId);
+
   return (
     <div className="pj">
-      {vraies.length > 0 && <BlocPieces messageId={messageId} pieces={vraies} />}
+      {vraies.length > 0 && (
+        <BlocPieces
+          messageId={messageId} pieces={vraies} depotDe={depotDe} indisponible={indisponible}
+          onDrive={(d) => { setDemande(d); setResultats(null); setResume(null); }}
+        />
+      )}
       {/* Les images de signature restent À PART et repliées : elles ne doivent pas noyer les vraies pièces (lot 4d-C). */}
       {signatures.length > 0 && (
         <details className="pj-signatures">
           <summary className="pj-signatures-titre">
             {signatures.length} image{signatures.length > 1 ? 's' : ''} de signature
           </summary>
-          <BlocPieces messageId={messageId} pieces={signatures} archive={false} />
+          <BlocPieces
+            messageId={messageId} pieces={signatures} archive={false} depotDe={depotDe} indisponible={indisponible}
+            onDrive={(d) => { setDemande(d); setResultats(null); setResume(null); }}
+          />
         </details>
+      )}
+
+      {demande !== null && (
+        <SelecteurDossierDrive
+          filId={filId ?? null}
+          titre={demande.quoi === 'piece' ? `Ajouter « ${tronquerNom(demande.nom, 34)} » au Drive` : 'Ajouter toutes les pièces au Drive'}
+          onChoisir={(cible) => { void deposer(cible); }}
+          onFermer={() => setDemande(null)}
+        />
+      )}
+
+      {enCours && <p className="pj-info" role="status">Dépôt dans le Drive en cours…</p>}
+
+      {/* ══ LE COMPTE RENDU ══ PIÈCE PAR PIÈCE. Un « OK » global mentirait dès qu'une seule pièce échoue. */}
+      {resume !== null && (
+        <div className="pj-rapport" role="status">
+          <p className="pj-rapport-titre">{resume}</p>
+          {resultats !== null && resultats.length > 0 && (
+            <ul className="pj-rapport-liste">
+              {resultats.map((r) => (
+                <li key={r.pieceId}>
+                  <span className="pj-rapport-nom">{tronquerNom(r.nomFichier, 30)}</span>
+                  {' — '}
+                  {r.etat === 'depose' && 'déposée'}
+                  {r.etat === 'deja' && 'déjà dans ce dossier'}
+                  {r.etat === 'echec' && `échec : ${r.motif ?? 'raison inconnue'}`}
+                  {r.lien ? <> · <a className="pj-lien" href={r.lien} target="_blank" rel="noreferrer">ouvrir</a></> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       )}
     </div>
   );
 }
 
-function BlocPieces({ messageId, pieces, archive = true }: {
+function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, onDrive }: {
   messageId: number; pieces: PieceAffichee[]; archive?: boolean;
+  depotDe: (pieceId: number) => DepotAffiche | undefined;
+  indisponible: string | null;
+  onDrive: (d: Demande) => void;
 }) {
   const dispo = pieces.filter((p) => p.disponible);
   const refusees = pieces.filter((p) => !p.disponible);
@@ -77,12 +190,25 @@ function BlocPieces({ messageId, pieces, archive = true }: {
               // Le bouton DIT pourquoi il ne peut pas, au lieu d'échouer après une minute d'attente.
               <span className="pj-bouton pj-bouton--muet" role="note">Archive impossible : {etat.motif}</span>
             )}
+            {/* LOT 5-PJ-B — la place prévue par le lot A, occupée sans rien déplacer. */}
+            {indisponible === null ? (
+              <button type="button" className="pj-bouton" onClick={() => onDrive({ quoi: 'message' })}>
+                <span aria-hidden="true">▲</span> Tout ajouter au Drive
+              </button>
+            ) : (
+              <span className="pj-bouton pj-bouton--muet" role="note">{indisponible}</span>
+            )}
           </span>
         )}
       </div>
 
       <ul className="pj-grille">
-        {dispo.map((p) => <CartePiece key={p.pieceId} piece={p} />)}
+        {dispo.map((p) => (
+          <CartePiece
+            key={p.pieceId} piece={p} depot={depotDe(p.pieceId)} indisponible={indisponible}
+            onDrive={() => onDrive({ quoi: 'piece', pieceId: p.pieceId, nom: p.nomFichier })}
+          />
+        ))}
       </ul>
 
       {/* ══ LES PIÈCES REFUSÉES À LA CAPTURE ══ Listées À PART, avec leur motif. Elles ne sont jamais silencieusement
@@ -108,7 +234,9 @@ function BlocPieces({ messageId, pieces, archive = true }: {
  * `loading="lazy"` + dimensions réservées : vingt pièces ne déclenchent pas vingt requêtes au chargement, et la page
  * ne saute pas quand les images arrivent.
  */
-function CartePiece({ piece: p }: { piece: PieceAffichee }) {
+function CartePiece({ piece: p, depot, indisponible, onDrive }: {
+  piece: PieceAffichee; depot: DepotAffiche | undefined; indisponible: string | null; onDrive: () => void;
+}) {
   const sorte = sortePiece(p.typeMime, p.nomFichier);
   const [vignetteMorte, setVignetteMorte] = useState(false);
   const avecVignette = sorte !== 'autre' && !vignetteMorte;
@@ -147,6 +275,13 @@ function CartePiece({ piece: p }: { piece: PieceAffichee }) {
       <div className="pj-pied">
         <span className="pj-nom" title={p.nomFichier}>{tronquerNom(p.nomFichier)}</span>
         <span className="pj-taille">{formaterTaille(p.tailleOctets)}</span>
+        {/* DÉJÀ DANS LE DRIVE : dit en MOTS, avec le nom du dossier, et un lien pour y aller. */}
+        {depot && (
+          <span className="pj-drive-mention">
+            Dans le Drive{depot.dossierNom ? ` · ${tronquerNom(depot.dossierNom, 22)}` : ''}
+            {depot.webViewLink ? <> · <a className="pj-lien" href={depot.webViewLink} target="_blank" rel="noreferrer">ouvrir</a></> : null}
+          </span>
+        )}
       </div>
 
       {/* ══ LA RANGÉE D'ACTIONS ══ Toujours visible, jamais au survol. Le bouton « Drive » du lot B viendra ICI, à
@@ -155,6 +290,19 @@ function CartePiece({ piece: p }: { piece: PieceAffichee }) {
         <a className="pj-action" href={`${lien}?telecharger=1`} aria-label={`Télécharger ${p.nomFichier}`} title="Télécharger">
           <span aria-hidden="true">⤓</span>
         </a>
+        {/* LOT 5-PJ-B — l'icône Drive, TOUJOURS visible (jamais au survol), cible de 44 px, à côté du téléchargement. */}
+        {indisponible === null ? (
+          <button
+            type="button" className="pj-action" onClick={onDrive}
+            aria-label={`Ajouter ${p.nomFichier} au Drive`} title="Ajouter au Drive"
+          >
+            <span aria-hidden="true">▲</span>
+          </button>
+        ) : (
+          <span className="pj-action pj-action--muette" role="note" title={indisponible} aria-label={indisponible}>
+            <span aria-hidden="true">▲</span>
+          </span>
+        )}
       </div>
     </li>
   );
@@ -215,7 +363,22 @@ export const CSS_PIECES = `
   display:flex;align-items:center}
 .pj-signatures-titre:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 
+/* ── LOT 5-PJ-B ── */
+.pj-drive-mention{font-size:.72rem;color:var(--color-svv-ink-soft);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pj-lien{color:var(--color-svv-ink);text-decoration:underline}
+.pj-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* Une action indisponible n'est PAS un bouton : elle ne se clique pas, et son titre dit pourquoi. */
+.pj-action--muette{opacity:.55;cursor:default}
+.pj-info{font-size:.8rem;color:var(--color-svv-ink-soft);margin:.4rem 0 0}
+.pj-rapport{margin-top:.5rem;padding:.5rem;border:1px solid var(--color-svv-line);border-radius:.5rem;
+  background:var(--color-svv-field)}
+.pj-rapport-titre{margin:0 0 .3rem;font-size:.82rem;color:var(--color-svv-ink);font-weight:600}
+.pj-rapport-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.2rem;
+  font-size:.78rem;color:var(--color-svv-ink-soft)}
+.pj-rapport-nom{color:var(--color-svv-ink)}
+
 @media (prefers-reduced-motion:reduce){
   .pj-bouton,.pj-action,.pj-apercu{transition:none}
 }
+${CSS_SELECTEUR_DRIVE}
 `;

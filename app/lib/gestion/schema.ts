@@ -89,6 +89,39 @@ export function miniaturesDisponibles(): Promise<boolean> {
   return memoiser('piece.miniature_cle', () => colonneExiste('gestion_piece', 'miniature_cle'));
 }
 
+/**
+ * LOT 5-PJ-B — la migration 245 est-elle appliquée ? Elle seule porte la table des dépôts dans le Google Drive.
+ *
+ * 🔴 CELLE-CI, CONTRAIREMENT À LA 244, CONDITIONNE UNE FONCTIONNALITÉ. Sans elle, on ne peut pas se souvenir d'un
+ * dépôt — donc pas empêcher un doublon, ni afficher « Dans le Drive · ouvrir ». Déposer quand même serait promettre
+ * une mémoire qu'on n'a pas, et le deuxième clic enverrait une seconde copie sans le dire. Les boutons Drive
+ * annoncent donc « bientôt disponible — une mise à jour de la base est nécessaire », ce qui est la vérité.
+ */
+export function depotsDriveDisponibles(): Promise<boolean> {
+  return memoiser('table.gestion_piece_drive', () => tableExiste('gestion_piece_drive'));
+}
+
+/**
+ * LOT 5-PJ-B — le journal accepte-t-il l'entité « piece_drive » ? Élargie par la MÊME migration 245, mais sondée à
+ * part : on sonde la RÈGLE, pas une colonne, parce que c'est elle, et elle seule, qui refuserait l'écriture. Même
+ * précaution que pour `journalEnvoiDisponible` — un journal qui échoue ne doit jamais faire échouer le geste.
+ */
+export function journalPieceDriveDisponible(): Promise<boolean> {
+  return memoiser('journal.entite_piece_drive', async () => {
+    try {
+      const { rows } = await query<{ n: number }>(
+        `SELECT count(*)::int AS n
+           FROM pg_constraint
+          WHERE conrelid = to_regclass('public.gestion_journal')
+            AND conname = 'gestion_journal_entite_chk'
+            AND pg_get_constraintdef(oid) LIKE '%''piece_drive''%'`);
+      return (rows[0]?.n ?? 0) > 0;
+    } catch {
+      return false; // base injoignable : on se range sur l'entité qui marche partout
+    }
+  });
+}
+
 /** Pour les tests : oublie ce qu'on croyait savoir du schéma. N'a aucun effet en production, où rien ne l'appelle. */
 export function oublierSchema(): void {
   memoire.oublier();

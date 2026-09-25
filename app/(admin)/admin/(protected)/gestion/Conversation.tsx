@@ -372,7 +372,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
       {/* ══ LA CONVERSATION ═══════════════════════════════════════════════════════════════════════════════════════ */}
       <ol className="cnv-fil">
         {messages.map((m) => (
-          <MessageConversation key={m.messageId} message={m} maintenant={maintenant}
+          <MessageConversation key={m.messageId} message={m} maintenant={maintenant} filId={filId}
             ouvert={deplies.has(m.messageId)}
             corpsCharge={corps.get(m.messageId)}
             onBasculer={() => void basculer(m)}
@@ -506,9 +506,14 @@ function ouvrirRedaction(
  */
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
-  gmail, onEtoile, onRepondre, onActionMessage,
+  gmail, onEtoile, onRepondre, onActionMessage, filId = null,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
+  /**
+   * LOT 5-PJ-B — l'échange auquel ce message appartient. Sert UNIQUEMENT à rouvrir le sélecteur de dossier Drive sur
+   * le dernier dossier utilisé pour cet échange. Absent = le sélecteur s'ouvre à la racine, et rien d'autre ne change.
+   */
+  filId?: number | null;
   corpsCharge?: string | null; onBasculer: () => void;
   /** Gestes par mail, CONSERVÉS du lot 4d : déplacer ce mail vers une autre carte, ou l'en détacher. */
   onDeplacer?: () => void; onRemettre?: () => void; panneau?: React.ReactNode;
@@ -667,7 +672,7 @@ export function MessageConversation({
           {etat.v === 'vide' && <p className="gst-msg-corps gst-absent">(message sans texte)</p>}
 
           {/* LOT 5-PJ-A — un SEUL composant rend les pièces, partout où un message s'affiche. */}
-          <PiecesJointes messageId={message.messageId} vraies={vraies} signatures={signatures} />
+          <PiecesJointes messageId={message.messageId} filId={filId} vraies={vraies} signatures={signatures} />
         </div>
       )}
     </li>
