@@ -3,9 +3,9 @@
 <!--
   LOT 5-DIRECT — déclencheur launchd de la RELÈVE CONTINUE du courrier de gestion.
 
-  🔴 NON INSTALLÉ. Ce fichier est livré, pas activé : Arno l'activera APRÈS la fin du rapatriement — deux passes en
-  même temps ne se marcheraient pas dessus (le verrou consultatif les en empêche), mais la continue passerait son temps
-  à trouver le verrou pris et n'apporterait rien tant que le rattrapage tourne.
+  ✅ ACTIVÉ LE 25/09/2026, après l'incident du même jour : le rapatriement s'est terminé à 06:32 et RIEN n'a pris le
+  relais — aucune passe entre 06:32 et 16:07, dix heures de courrier absentes de l'application. La décision d'Arno
+  est donc launchd, et NON une fenêtre Terminal à garder ouverte : une fenêtre se ferme par erreur, un job non.
 
   POURQUOI CE JOB EXISTE. MESURÉ sur la vraie base : entre l'heure d'un message et celle où nous l'avions capturé, la
   MÉDIANE était de 1 500 minutes — vingt-cinq heures. La relève Gestion n'avait aucun déclencheur automatique : elle ne
@@ -17,19 +17,39 @@
   seulement s'il meurt (coupure réseau fatale, machine en veille prolongée, plantage). Mettre `StartInterval` ici
   lancerait un SECOND processus toutes les N secondes par-dessus le premier.
 
-  ⚠️ launchd N'A PAS DE PATH ni de shell : d'où `/bin/zsh -lc` (shell de LOGIN → PATH complet, node/npm trouvés) et le
-  `cd` vers la racine ABSOLUE du dépôt. Le CLI charge `.env` en absolu (app/lib/chargerEnv.ts).
+  🔴 AUCUN SHELL, QUE DES CHEMINS ABSOLUS (corrigé le 25/09/2026). L'ancienne version passait par `/bin/zsh -lc … npm
+  run …` : elle dépendait du shell de LOGIN d'Arno pour trouver `node`, et de trois niveaux de relais (zsh → npm →
+  sh → shebang `env node`). Chacun est une panne possible, et une panne d'ordonnanceur est SILENCIEUSE — c'est
+  exactement ce qui vient de coûter dix heures. On appelle donc `node` par son chemin absolu, avec le lanceur `tsx`
+  du dépôt, sur le point d'entrée du dépôt. Zéro dépendance au PATH, zéro shell.
+  (Équivalent exact de `npm run gestion:relever-continu` — cf. package.json ; les deux doivent rester d'accord.)
+
+  🔴 `USER` ET `LOGNAME` SONT DÉCLARÉS, ET CE N'EST PAS DÉCORATIF — MESURÉ le 25/09/2026 : lancé dans un
+  environnement vide (`env -i`), le CLI meurt sur `FATAL 28000 — no PostgreSQL user name specified in startup
+  packet`. Raison : `DATABASE_URL` ne porte PAS de nom d'utilisateur (`postgresql://localhost:5432/sansvisavis`), et
+  le pilote `pg` se rabat alors sur le compte du système, lu dans ces variables. Absentes, il n'envoie aucun nom et
+  PostgreSQL refuse la connexion. Ce ne sont pas des secrets : c'est le nom du compte macOS, déjà écrit dix fois
+  ici dans les chemins.
+
+  🔒 AUCUN SECRET DANS CE FICHIER. `DATABASE_URL` et les accès IMAP restent dans `.env`, que le CLI charge LUI-MÊME
+  en chemin absolu, depuis sa propre position — `app/lib/chargerEnv.ts`, importé en PREMIER par le script
+  (`relever-gestion-continu.ts:20`), donc avant tout module qui touche la base. C'est précisément ce qui permet à un
+  job sans shell et sans CWD garanti de trouver sa configuration.
+
+  🔒 LECTURE STRICTE DE LA BOÎTE : la relève ouvre le dossier en `readOnly` (EXAMINE). Aucun drapeau posé, rien de
+  déplacé, rien de supprimé, aucun envoi.
+
   ⚠️ LaunchAgent : ne tourne que machine allumée et session ouverte. Le 24/24 suppose un hébergement — pas ce Mac.
 
-  ACTIVER (après le rapatriement) :
+  ACTIVER :
     cp ops/com.sansvisavis.gestion-continu.plist ~/Library/LaunchAgents/
-    launchctl load  ~/Library/LaunchAgents/com.sansvisavis.gestion-continu.plist
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.sansvisavis.gestion-continu.plist
   VÉRIFIER :
     launchctl list | grep gestion-continu
     tail -f ~/Library/Logs/svav-gestion-continu.log
   ARRÊTER :
-    launchctl unload ~/Library/LaunchAgents/com.sansvisavis.gestion-continu.plist
-  (`unload` envoie SIGTERM : le tour en cours se termine, le verrou est rendu, rien n'est laissé à moitié fait.)
+    launchctl bootout gui/$(id -u)/com.sansvisavis.gestion-continu
+  (`bootout` envoie SIGTERM : le tour en cours se termine, le verrou est rendu, rien n'est laissé à moitié fait.)
 
   Chemins à adapter si le dépôt ou l'utilisateur diffèrent (cf. ops/README.md).
 -->
@@ -38,12 +58,31 @@
   <key>Label</key>
   <string>com.sansvisavis.gestion-continu</string>
 
+  <!-- node ABSOLU (mesuré : /usr/local/bin/node, v24.16.0) → lanceur tsx DU DÉPÔT → point d'entrée DU DÉPÔT.
+       Aucun shell, aucun PATH à deviner, aucun shebang à résoudre. -->
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/zsh</string>
-    <string>-lc</string>
-    <string>cd /Users/macbookprom4arnaud/sansvisavis/app &amp;&amp; npm run gestion:relever-continu</string>
+    <string>/usr/local/bin/node</string>
+    <string>/Users/macbookprom4arnaud/sansvisavis/app/node_modules/tsx/dist/cli.mjs</string>
+    <string>/Users/macbookprom4arnaud/sansvisavis/app/app/scripts/relever-gestion-continu.ts</string>
   </array>
+
+  <!-- Le CLI n'en dépend pas (il résout `.env` depuis sa propre position), mais un CWD connu rend tout chemin
+       relatif qui apparaîtrait un jour prévisible, et les traces lisibles. -->
+  <key>WorkingDirectory</key>
+  <string>/Users/macbookprom4arnaud/sansvisavis/app</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- Le PATH de launchd ne contient PAS /usr/local/bin : on le remet, pour tout sous-processus éventuel. -->
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    <!-- Sans eux : FATAL 28000, connexion PostgreSQL refusée. Voir l'encadré ci-dessus. -->
+    <key>USER</key>
+    <string>macbookprom4arnaud</string>
+    <key>LOGNAME</key>
+    <string>macbookprom4arnaud</string>
+  </dict>
 
   <!-- Processus de LONGUE DURÉE : relancé s'il meurt, jamais dupliqué. Voir l'encadré ci-dessus. -->
   <key>KeepAlive</key>
@@ -53,7 +92,8 @@
   <key>RunAtLoad</key>
   <true/>
 
-  <!-- Garde-fou anti-boucle : si le processus meurt aussitôt (mauvaise config), launchd attend au moins 60 s. -->
+  <!-- Garde-fou anti-boucle : si le processus meurt aussitôt (mauvaise config), launchd attend au moins 60 s avant
+       de le relancer. Volontairement ALIGNÉ sur l'intervalle de relève : une relance ne coûte jamais plus qu'un tour. -->
   <key>ThrottleInterval</key>
   <integer>60</integer>
 

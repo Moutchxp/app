@@ -61,3 +61,62 @@ launchctl bootout gui/$(id -u)/com.sansvisavis.veille
 # (ancienne syntaxe : launchctl unload ~/Library/LaunchAgents/com.sansvisavis.veille.plist)
 rm ~/Library/LaunchAgents/com.sansvisavis.veille.plist
 ```
+
+---
+
+# Relève continue du courrier de gestion (launchd) — lot 5-DIRECT
+
+`com.sansvisavis.gestion-continu.plist` fait tourner **en permanence** `app/scripts/relever-gestion-continu.ts` :
+une passe de relève **toutes les 60 s** (intervalle lu dans `gestion_config.releve_continue_secondes`, relu à chaque
+tour). La boîte est ouverte en **lecture stricte** (EXAMINE) : aucun drapeau, rien de déplacé, aucun envoi.
+
+> **Pourquoi launchd et pas une fenêtre Terminal.** Le 25/09/2026, le rapatriement s'est terminé à 06:32 et rien n'a
+> pris le relais : **dix heures** de courrier absentes de l'application, sans que rien ne le signale. Une fenêtre se
+> ferme par erreur ; un job launchd repart tout seul, y compris après un plantage ou une réouverture de session.
+
+## Deux différences avec le job de la veille, toutes deux voulues
+
+- **`KeepAlive`, pas `StartInterval`** : le processus est de longue durée et tient sa propre boucle. `StartInterval`
+  empilerait un nouveau processus toutes les N secondes par-dessus le précédent.
+- **Aucun shell, que des chemins absolus** : `node` (absolu) → lanceur `tsx` du dépôt → point d'entrée du dépôt.
+  L'ancienne version passait par `/bin/zsh -lc … npm run …` et dépendait du shell de login pour trouver `node`.
+  Une panne d'ordonnanceur est silencieuse : moins il y a de relais, mieux c'est.
+
+## Un piège mesuré, qui vaut pour tout futur job
+
+`DATABASE_URL` ne porte **pas** de nom d'utilisateur (`postgresql://localhost:5432/sansvisavis`). Le pilote `pg` se
+rabat alors sur le compte du système, qu'il lit dans `USER` / `LOGNAME`. Dans un environnement vide, ces variables
+n'existent pas et la connexion échoue sur `FATAL 28000 — no PostgreSQL user name specified in startup packet`
+(mesuré le 25/09/2026 avec `env -i`). Le plist les déclare donc explicitement. Ce ne sont pas des secrets : les
+secrets restent dans `.env`, que le CLI charge lui-même en chemin absolu (`app/lib/chargerEnv.ts`).
+
+## Installer
+
+```sh
+cp ops/com.sansvisavis.gestion-continu.plist ~/Library/LaunchAgents/
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.sansvisavis.gestion-continu.plist
+```
+
+## Vérifier
+
+```sh
+# tourne-t-elle ? (1re colonne = PID du processus vivant, 2e = 0 si le dernier arrêt était propre)
+launchctl list | grep gestion-continu
+
+# le journal, en direct (stdout ET stderr y sont redirigés)
+tail -n 30 ~/Library/Logs/svav-gestion-continu.log
+```
+
+Une ligne par tour, du type `[2026-09-25T14:11:17.119Z] rien de nouveau — prochaine relève dans 60 s`.
+« Rien de nouveau » est l'état **normal**. La preuve en base se lit dans `gestion_releve_run`
+(une ligne par passe, `declencheur = continu`).
+
+## Arrêter / désinstaller
+
+```sh
+launchctl bootout gui/$(id -u)/com.sansvisavis.gestion-continu   # SIGTERM : le tour en cours se termine proprement
+rm ~/Library/LaunchAgents/com.sansvisavis.gestion-continu.plist   # seulement pour désinstaller pour de bon
+```
+
+> ⚠️ Ne pas lancer **en même temps** `npm run gestion:relever-continu` dans un Terminal : les deux processus ne
+> s'abîmeraient pas (le verrou consultatif les en empêche), mais l'un tournerait pour rien.
