@@ -26,6 +26,16 @@ export interface OptionsRattrapage {
   depuisOrigine?: boolean;
   /** Plafond de CETTE passe seulement (la configuration n'est pas touchée). */
   plafond?: number;
+  /**
+   * LOT 5-VEILLE — la passe vient de l'ORDONNANCEUR (job launchd), pas d'un humain. Elle est alors journalisée
+   * « planifie », valeur que la base acceptait déjà sans que personne ne la pose.
+   *
+   * 🔴 POURQUOI CETTE DISTINCTION EXISTE. Jusqu'au 25/09/2026, les passes automatiques s'enregistraient « manuel »,
+   * exactement comme un clic sur « Relever maintenant » : impossible de savoir, en base, si l'ordonnanceur tournait
+   * encore. Le jour de l'incident — dix heures sans courrier — cette question était précisément celle qu'il fallait
+   * pouvoir poser, et l'écran ne pouvait pas y répondre.
+   */
+  automatique?: boolean;
 }
 
 /**
@@ -33,6 +43,18 @@ export interface OptionsRattrapage {
  * que le jour : une date de garde très ancienne vaut mieux qu'un `1970` qui heurte les serveurs comptant en temps Unix.
  */
 export const ORIGINE_DOSSIER = new Date(Date.UTC(1990, 0, 1));
+
+/**
+ * SOUS QUELLE ÉTIQUETTE une passe est journalisée. PUR, et écrit UNE fois : trois `? :` dispersés finiraient par se
+ * contredire, et c'est le journal des passes — la seule mémoire de ce qui a tourné — qui en paierait le prix.
+ *
+ * L'ordre compte : un rattrapage LANCÉ par l'ordonnanceur resterait un rattrapage. C'est ce qu'il a fait qui le
+ * qualifie (remonter à l'origine du dossier), pas qui l'a lancé.
+ */
+export function declencheurDe(o: OptionsRattrapage): 'manuel' | 'planifie' | 'rattrapage' {
+  if (o.depuisOrigine === true) return 'rattrapage';
+  return o.automatique === true ? 'planifie' : 'manuel';
+}
 
 /**
  * Dépendances RÉELLES de la passe. Le client IMAP n'est construit qu'au moment où on en a besoin.
@@ -76,8 +98,10 @@ export function depsReellesReleve(journal?: (ligne: string) => void, options: Op
     libererVerrou: verrou.liberer,
     // Le DÉCLENCHEUR dit, des mois après, POURQUOI une passe a lu si loin en arrière : « rattrapage » distingue
     //   l'opération ponctuelle d'historique d'une relève ordinaire, sans quoi le journal des passes serait illisible.
+    //   LOT 5-VEILLE — et « planifie » distingue l'ORDONNANCEUR d'un clic humain : c'est la seule chose qui permette
+    //   à l'écran de dire « la relève automatique est arrêtée » plutôt que « personne n'a cliqué depuis dix heures ».
     insererRun: async (dossier) => {
-      runCourant = await insererRun(options.depuisOrigine === true ? 'rattrapage' : 'manuel', dossier);
+      runCourant = await insererRun(declencheurDe(options), dossier);
       return runCourant;
     },
     finaliserRun,

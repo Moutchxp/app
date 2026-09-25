@@ -162,6 +162,18 @@ export function reglageRecentsDisponible(): Promise<boolean> {
   return memoiser('config.drive_dossiers_recents_max', () => colonneExiste('gestion_config', 'drive_dossiers_recents_max'));
 }
 
+/**
+ * LOT 5-VEILLE — la migration 249 est-elle appliquée ? Elle porte la TOLÉRANCE de la veille : combien d'intervalles
+ * de retard avant que l'écran n'annonce que la relève automatique est arrêtée.
+ *
+ * ⚠️ Elle ne conditionne AUCUNE fonctionnalité : sans elle, la tolérance vaut 10 intervalles, exactement le défaut de
+ * la colonne. Sondée À PART plutôt qu'ajoutée à `chargerConfigGestion`, dont le repli est tout-ou-rien et ferait
+ * perdre, en attendant, les réglages des migrations 230 à 241.
+ */
+export function reglageVeilleDisponible(): Promise<boolean> {
+  return memoiser('config.veille_releve_intervalles', () => colonneExiste('gestion_config', 'veille_releve_intervalles'));
+}
+
 /** LOT 5-PJ-C — le registre des dépôts sait-il dire AVEC QUEL COMPTE Google le dépôt a été fait (migration 246) ? */
 export function compteGoogleDuDepotDisponible(): Promise<boolean> {
   return memoiser('piece_drive.compte_google', () => colonneExiste('gestion_piece_drive', 'compte_google'));

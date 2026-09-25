@@ -4,7 +4,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const queryMock = vi.fn();
 vi.mock('../db/client', () => ({ query: (...args: unknown[]) => queryMock(...args) }));
 
-import { lireEcran, lireEvenements, lireFile, lireReperes, lireSansSuite, PAGE } from './fileRepo';
+import {
+  lireDernierePasseAuto, lireEcran, lireEvenements, lireFile, lireReperes, lireSansSuite, lireToleranceVeille, PAGE,
+} from './fileRepo';
 
 /**
  * LOT 4d — qui est qui. Par défaut AUCUN partenaire interne : c'est l'état d'avant la migration 233, et les requêtes
@@ -164,12 +166,18 @@ describe('fileRepo — les repères d’honnêteté', () => {
 });
 
 describe('fileRepo — l’écran complet', () => {
-  it('assemble les trois lectures en un seul état', async () => {
+  it('assemble les lectures en un seul état, COMPLET', async () => {
     queryMock.mockResolvedValue({ rows: [] });
     expect(await lireEcran()).toEqual({
       file: [], filsTotal: 0, fenetreJours: 30, filsTropAnciens: 0,
       sansSuite: [], sansSuiteTotal: 0, evenements: [], evenementsTotal: 0,
       messagesCaptures: 0, messagesExclus: 0, derniereReleveLe: null,
+      // LOT 5-VEILLE — l'état de la relève AUTOMATIQUE fait partie de l'écran : le taire laisserait la vue deviner,
+      //   et c'est exactement ce que le bandeau existe pour empêcher.
+      veille: {
+        derniereLe: null, resultat: null, erreur: null,
+        intervalleS: 60, toleranceIntervalles: 10,
+      },
     });
   });
 });
@@ -251,5 +259,55 @@ describe('la migration 234, appliquée ou non', () => {
   it('appliquée → le dernier mail déplacé pèse sur l’attente de la carte', async () => {
     await lireEvenements(CTX_234);
     expect(sqls()[0]).toContain("bool_or(md.sens = 'recu' AND NOT md.automatique)");
+  });
+});
+
+/**
+ * LOT 5-VEILLE — CE QUI PERMET DE DIRE « LA RELÈVE AUTOMATIQUE EST ARRÊTÉE ».
+ *
+ * 🔴 Le repère est la dernière PASSE de l'ordonnanceur, jamais le dernier message capturé : une boîte calme un
+ * dimanche ne doit rien déclencher. C'est la seule règle qui compte ici, et les assertions portent sur les
+ * FRAGMENTS SÉMANTIQUES de la requête, jamais sur sa forme exacte.
+ */
+describe('la dernière passe AUTOMATIQUE', () => {
+  it('ne regarde que les passes « planifie » — ni un clic, ni un rattrapage', async () => {
+    await lireDernierePasseAuto();
+    const s = sqls()[0];
+    expect(s).toContain("declencheur = 'planifie'");
+    expect(s).toContain('FROM gestion_releve_run');
+    expect(s).toContain('ORDER BY termine_le DESC');
+    expect(s).toContain('LIMIT 1');
+  });
+
+  /** Ne garder que les réussites masquerait le cas qu'il faut justement voir : elle tourne et elle échoue. */
+  it('prend la dernière passe TERMINÉE, réussie OU en échec', async () => {
+    const s0 = (await (async () => { await lireDernierePasseAuto(); return sqls()[0]; })());
+    expect(s0).toContain("resultat IN ('ok', 'erreur')");
+    expect(s0).toContain('termine_le IS NOT NULL'); // une passe « en_cours » n'est pas encore une preuve
+  });
+
+  it('rend l’issue et le motif tels qu’enregistrés', async () => {
+    queryMock.mockResolvedValue({ rows: [{ le: '2026-09-25T14:00:00Z', resultat: 'erreur', erreur: 'Socket timeout' }] });
+    expect(await lireDernierePasseAuto()).toEqual({
+      le: '2026-09-25T14:00:00Z', resultat: 'erreur', erreur: 'Socket timeout',
+    });
+  });
+
+  it('aucune passe automatique → tout à null, et l’écran le DIT autrement', async () => {
+    expect(await lireDernierePasseAuto()).toEqual({ le: null, resultat: null, erreur: null });
+  });
+});
+
+describe('la tolérance de la veille', () => {
+  /** Migration 249 non appliquée : la sonde répond « non » et on se replie, sans jamais nommer la colonne absente. */
+  it('sans la migration 249, le défaut de dix, et aucune requête sur la colonne', async () => {
+    expect(await lireToleranceVeille()).toBe(10);
+    expect(sqls().some((s) => s.includes('veille_releve_intervalles FROM gestion_config'))).toBe(false);
+  });
+
+  it('l’écran complet porte l’état de la veille, cadence comprise', async () => {
+    const e = await lireEcran();
+    expect(e.veille).toMatchObject({ derniereLe: null, resultat: null, toleranceIntervalles: 10 });
+    expect(e.veille.intervalleS).toBeGreaterThan(0);
   });
 });

@@ -46,6 +46,10 @@ describe('/api/admin/gestion — ce qu’elle rend', () => {
       // LOT 4b — la fenêtre d'activité et ce qu'elle tait font partie de l'écran : les taire serait le masquage
       //   silencieux que la migration 232 s'interdit explicitement.
       fenetreJours: 30, filsTropAnciens: 0, sansSuite: [], sansSuiteTotal: 0,
+      // LOT 5-VEILLE — et l'état de la relève AUTOMATIQUE en fait partie aussi : c'est lui qui distingue « rien
+      //   n'est arrivé » de « on ne regarde plus depuis dix heures ». Le taire relancerait exactement l'incident
+      //   du 25/09/2026, où l'écran affichait sereinement une file vide.
+      veille: { derniereLe: null, resultat: null, erreur: null, intervalleS: 60, toleranceIntervalles: 10 },
     });
   });
 

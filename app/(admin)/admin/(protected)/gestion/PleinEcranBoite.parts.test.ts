@@ -17,7 +17,14 @@ import type { EtatEcran } from '../../../../lib/gestion/fileRepo';
 const ecran = (o: Partial<EtatEcran> = {}): EtatEcran => ({
   file: [], filsTotal: 442, fenetreJours: 30, filsTropAnciens: 12,
   sansSuite: [], sansSuiteTotal: 7, evenements: [], evenementsTotal: 0,
-  messagesCaptures: 56000, messagesExclus: 40000, derniereReleveLe: '2026-09-24T10:00:00Z', ...o,
+  messagesCaptures: 56000, messagesExclus: 40000, derniereReleveLe: '2026-09-24T10:00:00Z',
+  // LOT 5-VEILLE — l'état de la relève AUTOMATIQUE fait partie de l'écran depuis ce lot ; il n'entre pas dans le
+  //   calcul des étiquettes, mais un écran de doublure doit rester un écran COMPLET.
+  veille: {
+    derniereLe: '2026-09-24T10:00:00Z', resultat: 'ok', erreur: null,
+    intervalleS: 60, toleranceIntervalles: 10,
+  },
+  ...o,
 });
 const carte = (id: number, nbFils: number) => ({
   evenementId: id, reference: `GES-2026-${String(id).padStart(6, '0')}`, objet: `Dossier ${id}`,

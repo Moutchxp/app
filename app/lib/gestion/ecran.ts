@@ -66,6 +66,131 @@ export function messageReleve(r: ReperesEcran, maintenant: Date): string {
   return `Dernière relève : ${quand}. ${r.messagesCaptures} message${r.messagesCaptures > 1 ? 's' : ''} capturé${r.messagesCaptures > 1 ? 's' : ''}${exclus}.`;
 }
 
+// ── LOT 5-VEILLE — LA RELÈVE AUTOMATIQUE EST-ELLE EN VIE ? ───────────────────────────────────────────────────────────
+
+/**
+ * 🔴 L'INCIDENT QUI A FAIT ÉCRIRE CE BLOC — 25/09/2026. Le rapatriement s'est terminé à 06:32 et rien n'a pris le
+ * relais : DIX HEURES sans courrier. Le bandeau affichait pourtant, en gris, « Dernière relève : 25 septembre 2026,
+ * 06:32 (il y a 9 h) ». Exact, et parfaitement inutile — il manquait deux choses, et elles se tiennent :
+ *   ① aucun SEUIL : le même gris, les mêmes mots, que la dernière passe date de quarante secondes ou de dix heures ;
+ *   ② la CADENCE ATTENDUE n'était écrite nulle part. Sans « une par minute », « il y a 9 h » n'a pas d'étalon, et
+ *      l'œil le lit comme une décoration.
+ *
+ * 🔴 LE REPÈRE EST LA DERNIÈRE PASSE AUTOMATIQUE, JAMAIS LE DERNIER MESSAGE CAPTURÉ. Une boîte calme un dimanche ne
+ * doit déclencher aucune alerte : ne rien trouver est l'état NORMAL de la relève. Ce qui est anormal, c'est qu'elle
+ * ne REGARDE plus — et cela ne se lit que dans le journal des passes.
+ *
+ * 🔴 L'ÉTAT EST DIT EN MOTS, jamais par la seule couleur : « arrêtée depuis 9 h » se lit en niveaux de gris, sur un
+ * écran mal réglé, et par quelqu'un qui distingue mal le rouge du vert.
+ */
+export type NiveauVeille = 'ok' | 'jamais' | 'arretee' | 'echec';
+
+/** Ce que la base sait de la relève AUTOMATIQUE. Les passes manuelles et les rattrapages n'entrent pas ici. */
+export interface VeilleReleve {
+  /** Fin de la dernière passe automatique TERMINÉE (ISO), ou `null` si aucune n'a jamais tourné. */
+  derniereLe: string | null;
+  /** Son issue. `null` quand il n'y en a aucune. */
+  resultat: 'ok' | 'erreur' | null;
+  /** Le motif, quand elle a échoué. */
+  erreur: string | null;
+  /** Cadence attendue, en secondes — `gestion_config.releve_continue_secondes`, jamais un chiffre en dur. */
+  intervalleS: number;
+  /** Combien d'intervalles de retard avant de crier — réglage (migration 249), défaut 10. */
+  toleranceIntervalles: number;
+}
+
+export interface EtatVeille {
+  niveau: NiveauVeille;
+  /** La phrase du bandeau. Elle porte l'état À ELLE SEULE. */
+  texte: string;
+  /** Le geste à faire, ou `null` quand il n'y a rien à faire. */
+  aide: string | null;
+}
+
+/** Bornes du réglage de tolérance. En deçà de 2 intervalles, un simple tour un peu long crierait au loup. */
+export const VEILLE_INTERVALLES_DEFAUT = 10;
+export const VEILLE_INTERVALLES_MIN = 2;
+export const VEILLE_INTERVALLES_MAX = 500;
+
+/** Ramène la tolérance dans ses bornes. Absente ou aberrante ⇒ le défaut. PUR. */
+export function toleranceVeilleValide(brut: number | null | undefined): number {
+  if (typeof brut !== 'number' || !Number.isFinite(brut) || brut <= 0) return VEILLE_INTERVALLES_DEFAUT;
+  return Math.min(Math.max(Math.round(brut), VEILLE_INTERVALLES_MIN), VEILLE_INTERVALLES_MAX);
+}
+
+/** La cadence, dite comme on la dirait à voix haute. « une par minute » vaut mieux que « 60 s ». PUR. */
+export function cadence(intervalleS: number): string {
+  if (intervalleS === 60) return 'une par minute';
+  if (intervalleS < 60) return `une toutes les ${intervalleS} s`;
+  const minutes = Math.round(intervalleS / 60);
+  return `une toutes les ${minutes} min`;
+}
+
+/**
+ * Ancienneté FINE : sous la minute, on compte en secondes. `depuis()` dirait « à l'instant », ce qui est vrai mais
+ * n'apprend rien — or c'est justement ce chiffre-là qui donne son étalon à la cadence annoncée à côté. PUR.
+ */
+export function anciennete(iso: string | null, maintenant: Date): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const secondes = Math.floor((maintenant.getTime() - d.getTime()) / 1000);
+  if (secondes < 0) return 'à l’instant';
+  if (secondes < 60) return `il y a ${secondes} s`;
+  return depuis(iso, maintenant);
+}
+
+/** Le geste à faire quand la relève automatique ne tourne plus. Écrit UNE fois : deux formulations dériveraient. */
+const AIDE_VEILLE =
+  'Le bouton « Relever maintenant » rattrape tout de suite. Pour remettre la relève automatique en route : voir ops/README.md.';
+
+/** Un motif d'échec reste LISIBLE : une trace de pile entière dans un bandeau ne se lit pas. PUR. */
+function motifCourt(erreur: string | null): string {
+  const m = (erreur ?? '').trim().split('\n')[0];
+  if (m === '') return 'motif non enregistré';
+  return m.length > 200 ? `${m.slice(0, 200)}…` : m;
+}
+
+/**
+ * L'ÉTAT DE LA RELÈVE AUTOMATIQUE, en une phrase. PUR — l'instant est injecté, jamais lu dans la fonction.
+ *
+ * Le seuil naît du RÉGLAGE (`intervalleS × toleranceIntervalles`), jamais d'un nombre écrit ici : le jour où la
+ * cadence passera à 30 s, l'alerte suivra sans qu'on touche à ce fichier.
+ */
+export function etatVeille(v: VeilleReleve, maintenant: Date): EtatVeille {
+  const intervalleS = v.intervalleS > 0 ? v.intervalleS : 60;
+  const tolerance = toleranceVeilleValide(v.toleranceIntervalles);
+
+  if (v.derniereLe === null || v.resultat === null) {
+    return {
+      niveau: 'jamais',
+      texte: '⚠ La relève automatique n’a encore jamais tourné : le courrier n’arrive pas tout seul dans l’application.',
+      aide: AIDE_VEILLE,
+    };
+  }
+  if (v.resultat === 'erreur') {
+    return {
+      niveau: 'echec',
+      texte: `⚠ La dernière relève automatique a échoué à ${dateHeureCourte(v.derniereLe, maintenant)} : ${motifCourt(v.erreur)}`,
+      aide: AIDE_VEILLE,
+    };
+  }
+  const retardMs = maintenant.getTime() - new Date(v.derniereLe).getTime();
+  if (retardMs > intervalleS * tolerance * 1000) {
+    return {
+      niveau: 'arretee',
+      texte: `⚠ La relève automatique est arrêtée depuis ${anciennete(v.derniereLe, maintenant)}`
+        + ' — le courrier arrivé depuis n’est pas dans l’application.',
+      aide: AIDE_VEILLE,
+    };
+  }
+  return {
+    niveau: 'ok',
+    texte: `Relève automatique : dernière passe ${anciennete(v.derniereLe, maintenant)} (${cadence(intervalleS)})`,
+    aide: null,
+  };
+}
+
 /**
  * Pourquoi la FILE est vide — quatre situations, quatre phrases. Aucune ne prétend que tout va bien tant qu'on n'en est
  * pas sûr : tant que la relève n'a pas tourné, l'écran dit qu'il est aveugle.

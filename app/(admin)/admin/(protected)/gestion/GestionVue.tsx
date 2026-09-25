@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CarteEvenement, EtatEcran, LigneFile } from '../../../../lib/gestion/fileRepo';
 import {
-  depuis, formaterDateFr, libelleEtat, LIBELLE_CLASSER, mentionTroncature, messageErreurHttp, messageEvenementsVide,
-  messageFileVide, messageReleve,
+  depuis, etatVeille, formaterDateFr, libelleEtat, LIBELLE_CLASSER, mentionTroncature, messageErreurHttp,
+  messageEvenementsVide, messageFileVide, messageReleve,
 } from '../../../../lib/gestion/ecran';
 import {
   ecrireEtatUrl, ETAT_DEFAUT, ETIQUETTE_ARRIVEE, ETIQUETTE_RECEPTION, lireEtatUrl, memeEtat,
@@ -291,6 +291,14 @@ export function GestionVue({ intro }: {
   ));
 
   const etiquettes = etiquettesDeLEcran(d, comptesBoite, brouillonsTotal);
+  // LOT 5-VEILLE — l'état de la relève AUTOMATIQUE, calculé ici pour être rendu à l'identique dans les trois écrans.
+  //   `ref` est l'instant de rendu déjà utilisé par le reste du bandeau : une seule horloge, aucun écart entre deux
+  //   phrases voisines. Le repli couvre une réponse d'API plus ancienne que ce lot — l'écran ne doit jamais tomber
+  //   parce qu'un champ manque.
+  const veille = etatVeille(
+    d.veille ?? { derniereLe: null, resultat: null, erreur: null, intervalleS: 60, toleranceIntervalles: 10 },
+    ref,
+  );
 
   return (
     <>
@@ -319,6 +327,23 @@ export function GestionVue({ intro }: {
             onClick={() => void charger()}>Rafraîchir</button>
         </span>
       </div>
+
+      {/* ══ LOT 5-VEILLE — LA RELÈVE AUTOMATIQUE EST-ELLE EN VIE ? ══
+          Le 25/09/2026, dix heures de courrier ont manqué pendant que le bandeau affichait, en gris, « dernière
+          relève il y a 9 h ». Exact, et illisible : aucun seuil, et la cadence attendue écrite nulle part. Cette
+          ligne-ci dit l'état EN MOTS — « arrêtée depuis 9 h » se lit en niveaux de gris — et, quand il y a un
+          problème, le GESTE qui le répare. Elle est posée SOUS le bandeau, sans rien lui retirer : le compte des
+          messages, l'heure de la dernière passe et les deux boutons restent exactement où ils étaient.
+          `role="alert"` seulement quand ça ne va pas : une lecture d'écran ne doit pas être interrompue pour dire
+          que tout va bien. */}
+      {veille.niveau !== 'ok' ? (
+        <p className="gst-veille gst-veille--alerte" role="alert">
+          <span className="gst-veille-texte">{veille.texte}</span>
+          {veille.aide && <span className="gst-veille-aide">{veille.aide}</span>}
+        </p>
+      ) : (
+        <p className="gst-veille" role="status">{veille.texte}</p>
+      )}
       {/* COMPTE RENDU de la dernière passe — succès comme échec, jamais un silence. */}
       {releveMsg && <p className={`gst-compte-rendu gst-ton-${releveMsg.ton}`} role="status">{releveMsg.texte}</p>}
       {geste && <p className={`gst-compte-rendu gst-ton-${geste.ton}`} role="status">{geste.texte}</p>}
@@ -596,6 +621,19 @@ const CSS_GESTION = `
 .gst-bandeau{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.75rem;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px;margin:0 0 1rem;font-size:.85rem;color:var(--color-svv-ink);line-height:1.45}
 .gst-btn{width:auto;flex-shrink:0;min-height:44px;padding:.55rem 1rem;font-size:.85rem;border-radius:.6rem}
 .gst-actions{display:flex;flex-wrap:wrap;gap:.5rem;flex-shrink:0}
+/* ── LOT 5-VEILLE — l'état de la relève AUTOMATIQUE ──
+   Une seule colonne, qui se replie naturellement à 390 px ; le texte porte l'information À LUI SEUL, la bordure et la
+   couleur ne font que le redire (une information tenue par la seule couleur n'existe pas pour qui ne la distingue pas). */
+.gst-veille{display:flex;flex-direction:column;gap:.2rem;font-size:.82rem;line-height:1.45;margin:-.4rem 0 1rem;
+  padding:8px 12px;border-radius:10px;border:1px solid var(--color-svv-line);background:var(--color-svv-surface);
+  color:var(--color-svv-muted);overflow-wrap:anywhere}
+.gst-veille--alerte{border-color:var(--color-svv-red);color:var(--color-svv-ink);font-weight:600}
+.gst-veille-texte{color:inherit}
+/* L'aide est le GESTE à faire : toujours visible, jamais repliée derrière un survol — il n'y a pas de survol sur un téléphone. */
+.gst-veille-aide{font-weight:400;color:var(--color-svv-muted)}
+/* AUCUNE animation, AUCUNE transition, et pas davantage de clignotement : une alerte qui bouge attire l'œil une fois
+   puis fatigue. La préférence "mouvement réduit" n'a donc rien à neutraliser ici — c'est la façon la plus sûre de la
+   respecter. (Pas d'accent grave dans ce commentaire : il est DANS un littéral gabarit, qu'il terminerait.) */
 /* Compte rendu de passe : le TON est porté par un mot dans le texte autant que par la couleur (jamais la couleur seule). */
 .gst-compte-rendu{font-size:.85rem;line-height:1.5;margin:0 0 1rem;padding:10px 12px;border-radius:10px;border:1px solid var(--color-svv-line);background:var(--color-svv-surface);color:var(--color-svv-ink)}
 .gst-ton-erreur{border-color:var(--color-svv-red);color:var(--color-svv-red);font-weight:600}

@@ -104,7 +104,10 @@ async function main(): Promise<void> {
   const tours = await boucleContinue({
     relever: async () => {
       // `appliquer = true` : c'est une VRAIE passe. Le journal de la passe est écrit par `executerReleveGestion`.
-      const issue = await relever(true);
+      // LOT 5-VEILLE — `automatique` la fait journaliser « planifie ». C'est ce mot, et lui seul, qui permet à
+      //   l'écran de distinguer « l'ordonnanceur tourne » de « quelqu'un a cliqué » — la question qu'on ne pouvait
+      //   pas poser le 25/09, pendant les dix heures sans courrier.
+      const issue = await relever(true, undefined, { automatique: true });
       toursRestants -= 1;
       return { resultat: issue.resultat, captures: issue.rapport?.captures ?? null };
     },

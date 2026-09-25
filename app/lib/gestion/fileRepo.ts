@@ -14,8 +14,9 @@
 import { query } from '../db/client';
 import { ATTEND, ATTEND_CARTE, CTE_MESSAGES_DEPLACES, cteDernier, ctesAttente, jointuresAttente } from './attente';
 import { chargerConfigGestion } from './config';
+import { toleranceVeilleValide, VEILLE_INTERVALLES_DEFAUT, type VeilleReleve } from './ecran';
 import { adressesDe, libelleExpediteur, lirePartenairesInternes, type PartenaireInterne } from './partenaires';
-import { deplacementsDeMailsDisponibles } from './schema';
+import { deplacementsDeMailsDisponibles, reglageVeilleDisponible } from './schema';
 
 /** Une ligne de la FILE (colonne de gauche) : un FIL de discussion, jamais un message isolé. */
 export interface LigneFile {
@@ -58,6 +59,8 @@ export interface EtatEcran {
   messagesCaptures: number;       // TOUS les messages capturés, exclus compris — la preuve que la relève a tourné
   messagesExclus: number;         // tenus hors de la file par une règle (jamais supprimés)
   derniereReleveLe: string | null; // fin de la dernière relève réussie, ou null si aucune n'a jamais tourné
+  /** LOT 5-VEILLE — de quoi dire si la relève AUTOMATIQUE tourne encore. Voir `etatVeille` dans `ecran.ts`. */
+  veille: VeilleReleve;
 }
 
 /** Un échange classé sans suite — assez pour le reconnaître et le rouvrir, rien de plus. */
@@ -229,6 +232,49 @@ export async function lireReperes(): Promise<{ messagesCaptures: number; message
   };
 }
 
+/**
+ * LOT 5-VEILLE — LA DERNIÈRE PASSE AUTOMATIQUE, et elle seule.
+ *
+ * 🔴 `declencheur = 'planifie'` : ni « manuel » (un clic), ni « rattrapage » (une opération d'historique). C'est toute
+ * la question que l'écran doit pouvoir poser — « l'ordonnanceur tourne-t-il encore ? » — et à laquelle un clic humain
+ * répondrait faussement oui.
+ *
+ * 🔴 ON PREND LA DERNIÈRE PASSE TERMINÉE, RÉUSSIE OU NON. Ne regarder que les réussites masquerait exactement le cas
+ * qu'il faut voir : un ordonnanceur qui tourne et qui échoue à chaque tour.
+ *
+ * ⚠️ Les lignes « en_cours » sont écartées : une passe commencée il y a deux secondes n'est pas encore une preuve, et
+ * une passe abandonnée par un plantage brutal resterait « en_cours » pour toujours — elle ne doit pas éteindre
+ * l'alerte à elle seule.
+ */
+export async function lireDernierePasseAuto(): Promise<{ le: string | null; resultat: 'ok' | 'erreur' | null; erreur: string | null }> {
+  const { rows } = await query<{ le: string; resultat: 'ok' | 'erreur'; erreur: string | null }>(
+    `SELECT to_char(termine_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS le, resultat, erreur
+       FROM gestion_releve_run
+      WHERE declencheur = 'planifie' AND resultat IN ('ok', 'erreur') AND termine_le IS NOT NULL
+      ORDER BY termine_le DESC
+      LIMIT 1`);
+  const r = rows[0];
+  return r ? { le: r.le, resultat: r.resultat, erreur: r.erreur } : { le: null, resultat: null, erreur: null };
+}
+
+/**
+ * LOT 5-VEILLE — combien d'intervalles de retard avant de crier. RÉGLAGE (migration 249), jamais un chiffre en dur.
+ *
+ * ⚠️ Lu À PART, et surtout PAS ajouté au SELECT de `chargerConfigGestion` : celui-ci retombe sur un jeu de colonnes
+ * réduit dès qu'UNE colonne manque (42703), ce qui ferait perdre, le temps que la migration soit appliquée, tous les
+ * réglages des migrations 230 à 241 — intervalle de relève compris, c'est-à-dire l'étalon même de cette alerte.
+ */
+export async function lireToleranceVeille(): Promise<number> {
+  if (!await reglageVeilleDisponible()) return VEILLE_INTERVALLES_DEFAUT;
+  try {
+    const { rows } = await query<{ n: number }>(
+      `SELECT veille_releve_intervalles AS n FROM gestion_config WHERE id = 1`);
+    return toleranceVeilleValide(rows[0]?.n);
+  } catch {
+    return VEILLE_INTERVALLES_DEFAUT; // le réglage n'est pas la fonctionnalité : l'écran s'affiche quand même
+  }
+}
+
 /** L'état complet de l'écran, en une fois. LECTURE SEULE de bout en bout. */
 export async function lireEcran(limite = PAGE): Promise<EtatEcran> {
   // La fenêtre d'activité ET la liste des partenaires internes viennent de la BASE, jamais du code. Les deux sont lues
@@ -237,12 +283,19 @@ export async function lireEcran(limite = PAGE): Promise<EtatEcran> {
     chargerConfigGestion(), lirePartenairesInternes(), deplacementsDeMailsDisponibles(),
   ]);
   const ctx: ContexteExpediteurs = { partenaires, adresseGestion: config.adresseGestion, deplacements };
-  const [file, evenements, reperes, sansSuite] = await Promise.all([
+  const [file, evenements, reperes, sansSuite, auto, tolerance] = await Promise.all([
     lireFile(config.fenetreActiviteJours, ctx, limite), lireEvenements(ctx), lireReperes(), lireSansSuite(),
+    lireDernierePasseAuto(), lireToleranceVeille(),
   ]);
   return {
     file: file.lignes, filsTotal: file.total,
     fenetreJours: config.fenetreActiviteJours, filsTropAnciens: file.tropAnciens,
+    // La CADENCE ATTENDUE vient du même réglage que la relève elle-même : l'alerte et la boucle ne peuvent pas
+    //   diverger, et changer `releve_continue_secondes` déplace les deux du même coup.
+    veille: {
+      derniereLe: auto.le, resultat: auto.resultat, erreur: auto.erreur,
+      intervalleS: config.releveContinueSecondes, toleranceIntervalles: tolerance,
+    },
     sansSuite: sansSuite.lignes, sansSuiteTotal: sansSuite.total,
     evenements: evenements.cartes, evenementsTotal: evenements.total,
     ...reperes,
