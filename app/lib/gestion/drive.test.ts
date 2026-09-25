@@ -123,6 +123,22 @@ describe('le fil d’Ariane', () => {
     expect(d.appels.length).toBeLessThanOrEqual(3);
   });
 
+  /**
+   * LOT 5-PJ-D — MESURÉ contre le Drive réel : `files.get` appelle « Drive » la racine de N'IMPORTE quel Drive
+   * partagé. La miette emporte donc l'identifiant du Drive, seul moyen de lui rendre son vrai nom plus haut.
+   */
+  it('la racine d’un Drive partagé emporte son identifiant de Drive ; un dossier ordinaire non', async () => {
+    const d = faussefetch([
+      rep({ id: 'c', name: 'Quittances', parents: ['r'], driveId: 'DRV' }),
+      rep({ id: 'r', name: 'Drive', parents: [], driveId: 'DRV' }),
+    ]);
+    const r = await filAriane('j', 'c', d);
+    expect(r.ok && r.valeur).toEqual([
+      { id: 'r', nom: 'Drive', driveId: 'DRV' },
+      { id: 'c', nom: 'Quittances' },
+    ]);
+  });
+
   it('un dossier disparu le DIT', async () => {
     const d = faussefetch([new Response('', { status: 404 })]);
     const r = await lireDossier('j', 'perdu', d);

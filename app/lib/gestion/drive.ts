@@ -62,8 +62,14 @@ export interface DossierDrive {
   raccourci?: boolean;
 }
 
-/** Une étape du fil d'Ariane, de la racine vers le dossier courant. */
-export interface EtapeAriane { id: string; nom: string }
+/**
+ * Une étape du fil d'Ariane, de la racine vers le dossier courant.
+ *
+ * LOT 5-PJ-D — `driveId` n'est renseigné que sur la RACINE d'un Drive partagé, et sert à une seule chose : lui rendre
+ * son vrai nom. Mesuré le 25/09/2026 : `files.get` appelle « Drive » la racine des dix Drive partagés — le fil
+ * d'Ariane disait donc « Drive › … » pour n'importe lequel, c'est-à-dire ne disait rien.
+ */
+export interface EtapeAriane { id: string; nom: string; driveId?: string }
 
 /**
  * ÉCHAPPE une valeur destinée à une requête Drive (`q=`). Les apostrophes et les antislashs y sont des délimiteurs :
@@ -200,20 +206,63 @@ export async function listerDrivesAvecId(accessToken: string, deps: DepsGoogle):
   };
 }
 
-/** Un dossier, avec ce qu'il faut pour remonter : son parent et son Drive. */
-export interface DossierDetail { id: string; nom: string; parents: string[]; driveId: string | null }
+/**
+ * Un dossier, avec ce qu'il faut pour remonter : son parent et son Drive.
+ *
+ * LOT 5-PJ-D — `mimeType` et `corbeille` s'y ajoutent, et ce ne sont pas des commodités : la vue d'ouverture doit
+ * écarter un dossier RÉCENT qui a été mis à la corbeille ou remplacé par un fichier, et le dépôt doit refuser une
+ * cible qui n'est pas un dossier. Sans ces deux champs, un `files.get` réussi (200) laisserait croire que tout va
+ * bien — la corbeille répond 200, elle aussi.
+ */
+export interface DossierDetail {
+  id: string;
+  nom: string;
+  parents: string[];
+  driveId: string | null;
+  /** Le type Google de l'entrée. `MIME_DOSSIER` pour un vrai dossier (racine de Drive partagé comprise). */
+  mimeType: string | null;
+  /** Vrai si l'entrée est À LA CORBEILLE. Google la rend quand même, avec un 200 : il faut le demander pour le savoir. */
+  corbeille: boolean;
+}
+
+/** Lire UN dossier par son identifiant. Injectable : c'est ce qui rend éprouvables la vue d'ouverture et le dépôt. */
+export type LecteurDossier = (id: string) => Promise<Resultat<DossierDetail>>;
 
 export async function lireDossier(accessToken: string, id: string, deps: DepsGoogle): Promise<Resultat<DossierDetail>> {
-  const p = new URLSearchParams({ fields: 'id,name,parents,driveId', ...PARTAGES });
+  const p = new URLSearchParams({ fields: 'id,name,parents,driveId,mimeType,trashed', ...PARTAGES });
   const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   if (res.status === 404) return { ok: false, motif: 'Ce dossier n’existe plus dans le Drive.' };
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture du dossier') };
-  const j = (await res.json().catch(() => ({}))) as { id?: string; name?: string; parents?: string[]; driveId?: string };
+  const j = (await res.json().catch(() => ({}))) as {
+    id?: string; name?: string; parents?: string[]; driveId?: string; mimeType?: string; trashed?: boolean;
+  };
   return {
     ok: true,
-    valeur: { id: j.id ?? id, nom: (j.name ?? '').trim() || '(sans nom)', parents: j.parents ?? [], driveId: j.driveId ?? null },
+    valeur: {
+      id: j.id ?? id, nom: (j.name ?? '').trim() || '(sans nom)', parents: j.parents ?? [],
+      driveId: j.driveId ?? null, mimeType: j.mimeType ?? null, corbeille: j.trashed === true,
+    },
+  };
+}
+
+/**
+ * LOT 5-PJ-D — MÉMORISE les lectures de dossiers LE TEMPS D'UNE REQUÊTE.
+ *
+ * 🔴 POURQUOI. La vue d'ouverture vérifie six dossiers récents et remonte le chemin de chacun. Dans un Drive de
+ * gestion, ces six dossiers partagent presque toujours leurs ancêtres (« GESTION LOCATIVE › 1 actifs › … ») : sans
+ * mémoire, on redemanderait cinq fois le même dossier à Google. Elle vaut pour UNE requête HTTP et meurt avec elle —
+ * une mémoire qui survivrait ferait afficher un dossier renommé, ou effacé, comme s'il était toujours là.
+ */
+export function memoiserLecture(lire: LecteurDossier): LecteurDossier {
+  const vus = new Map<string, Promise<Resultat<DossierDetail>>>();
+  return (id: string) => {
+    const deja = vus.get(id);
+    if (deja !== undefined) return deja;
+    const p = lire(id);
+    vus.set(id, p);
+    return p;
   };
 }
 
@@ -237,8 +286,12 @@ export async function filAriane(accessToken: string, dossierId: string, deps: De
     vus.add(courant);
     const d: Resultat<DossierDetail> = await lireDossier(accessToken, courant, deps);
     if (!d.ok) return i === 0 ? d : { ok: true, valeur: etapes.reverse() };
-    etapes.push({ id: d.valeur.id, nom: d.valeur.nom });
     courant = d.valeur.parents[0] ?? null;
+    // La RACINE d'un Drive partagé (aucun parent, mais un `driveId`) emporte son identifiant de Drive : c'est le
+    //   seul moyen de lui rendre son nom, `files.get` répondant « Drive » pour tous.
+    etapes.push(courant === null && d.valeur.driveId !== null
+      ? { id: d.valeur.id, nom: d.valeur.nom, driveId: d.valeur.driveId }
+      : { id: d.valeur.id, nom: d.valeur.nom });
   }
   return { ok: true, valeur: etapes.reverse() };
 }

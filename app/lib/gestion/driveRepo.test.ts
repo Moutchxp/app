@@ -5,6 +5,8 @@ const schemaMock = vi.fn();
 const journalMock = vi.fn();
 /** LOT 5-PJ-C — la colonne `compte_google` n'existe qu'après la migration 246 : le dépôt la nomme SOUS SONDE. */
 const compteColonneMock = vi.fn();
+/** LOT 5-PJ-D — le réglage du nombre de dossiers récents n'existe qu'après la migration 248. Même précaution. */
+const reglageRecentsMock = vi.fn();
 vi.mock('../db/client', () => ({
   query: (...a: unknown[]) => queryMock(...a),
   withTransaction: (fn: (q: (...a: unknown[]) => unknown) => unknown) => fn((...a: unknown[]) => queryMock(...a)),
@@ -14,9 +16,12 @@ vi.mock('./schema', () => ({
   depotsDriveDisponibles: () => schemaMock(),
   journalPieceDriveDisponible: () => journalMock(),
   compteGoogleDuDepotDisponible: () => compteColonneMock(),
+  reglageRecentsDisponible: () => reglageRecentsMock(),
 }));
 
-import { dernierDossierDuFil, lireDepotsDesPieces, memoriserDepot } from './driveRepo';
+import {
+  dernierDossierDuFil, dossiersRecentsDeposes, lireDepotsDesPieces, lireMaxDossiersRecents, memoriserDepot,
+} from './driveRepo';
 
 const sql = (i: number): string => String(queryMock.mock.calls[i][0]).replace(/\s+/g, ' ');
 const params = (i: number): unknown[] => queryMock.mock.calls[i][1] as unknown[];
@@ -28,7 +33,9 @@ const aDeposer = {
 
 beforeEach(() => {
   queryMock.mockReset(); schemaMock.mockReset(); journalMock.mockReset(); compteColonneMock.mockReset();
+  reglageRecentsMock.mockReset();
   schemaMock.mockResolvedValue(true); journalMock.mockResolvedValue(true); compteColonneMock.mockResolvedValue(true);
+  reglageRecentsMock.mockResolvedValue(true);
 });
 
 describe('sans la migration 245', () => {
@@ -83,6 +90,67 @@ describe('le dernier dossier de l’échange', () => {
   it('aucun dépôt pour cet échange → null, et le sélecteur s’ouvrira à la racine', async () => {
     queryMock.mockResolvedValue({ rows: [] });
     expect(await dernierDossierDuFil(383)).toBeNull();
+  });
+});
+
+/**
+ * LOT 5-PJ-D — LES DOSSIERS RÉCENTS. Cette liste est DÉRIVÉE de la mémoire des dépôts, jamais tenue à la main : un
+ * dossier y figure parce qu'un fichier y est parti. Elle est commune à toute l'équipe ; les DROITS, eux, sont
+ * vérifiés ensuite, dossier par dossier (cf. `dossiersRecents.ts`).
+ */
+describe('les dossiers récents', () => {
+  it('rend des dossiers DISTINCTS, le plus récent d’abord, et le nombre demandé est LIÉ', async () => {
+    queryMock.mockResolvedValue({ rows: [] });
+    await dossiersRecentsDeposes(18);
+    expect(params(0)).toEqual([18]);
+    expect(sql(0)).toContain('DISTINCT ON (drive_dossier_id)');
+    expect(sql(0)).toContain('ORDER BY dernier DESC');
+    expect(sql(0)).toContain('LIMIT $1');
+  });
+
+  it('rend le nom et le Drive du DERNIER dépôt de chaque dossier', async () => {
+    queryMock.mockResolvedValue({
+      rows: [{ drive_dossier_id: 'DOS', dossier_nom: 'Dupont', drive_id: 'DRV', dernier: '2026-09-25T10:00:00Z' }],
+    });
+    expect(await dossiersRecentsDeposes(6)).toEqual([
+      { id: 'DOS', nom: 'Dupont', driveId: 'DRV', dernierDepot: '2026-09-25T10:00:00Z' },
+    ]);
+  });
+
+  it('sans la migration 245, aucune requête : il ne peut exister aucun dépôt', async () => {
+    schemaMock.mockResolvedValue(false);
+    expect(await dossiersRecentsDeposes(6)).toEqual([]);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('un nombre nul ou négatif n’interroge pas la base', async () => {
+    expect(await dossiersRecentsDeposes(0)).toEqual([]);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+});
+
+describe('le réglage du nombre de dossiers récents', () => {
+  it('sans la migration 248, le défaut de six, et AUCUNE requête sur une colonne absente', async () => {
+    reglageRecentsMock.mockResolvedValue(false);
+    expect(await lireMaxDossiersRecents()).toBe(6);
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('avec la migration, la valeur de la base est lue', async () => {
+    queryMock.mockResolvedValue({ rows: [{ n: 9 }] });
+    expect(await lireMaxDossiersRecents()).toBe(9);
+    expect(sql(0)).toContain('drive_dossiers_recents_max');
+  });
+
+  /** Une valeur aberrante ne doit pas vider l'écran : elle est ramenée dans ses bornes, comme les autres réglages. */
+  it('une valeur hors bornes est ramenée, jamais refusée', async () => {
+    queryMock.mockResolvedValue({ rows: [{ n: 500 }] });
+    expect(await lireMaxDossiersRecents()).toBe(20);
+  });
+
+  it('une base qui refuse la lecture rend le défaut, pas une exception : le sélecteur s’ouvre quand même', async () => {
+    queryMock.mockRejectedValue(new Error('colonne inconnue'));
+    expect(await lireMaxDossiersRecents()).toBe(6);
   });
 });
 

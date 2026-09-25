@@ -1,8 +1,10 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
+import { verifierCibleDepot } from '../../../../../../../lib/gestion/cibleDepot';
 import { depsReellesDepot } from '../../../../../../../lib/gestion/depotDriveReel';
 import { deposerPieces, resumerDepot } from '../../../../../../../lib/gestion/depotDrive';
+import { lireDossier, memoiserLecture } from '../../../../../../../lib/gestion/drive';
 import { jetonPourRequete, messageAcces } from '../../../../../../../lib/gestion/jetonCollaborateur';
 import { depotsDriveDisponibles } from '../../../../../../../lib/gestion/schema';
 
@@ -56,8 +58,16 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
   }
 
   try {
+    // LOT 5-PJ-D — LA CIBLE EST-ELLE UN VRAI DOSSIER ? « Drives partagés » et « Partagés avec moi » sont des
+    //   REGROUPEMENTS : l'écran n'y propose plus « Déposer ici », mais une requête forgée ou un vieil onglet
+    //   arriveraient encore avec. On refuse AVANT de lire 25 Mo, et la lecture est mémorisée : le dépôt, qui a
+    //   besoin du nom du dossier, ne la repaiera pas.
+    const lire = memoiserLecture((id: string) => lireDossier(acces.jeton, id, { fetch }));
+    const cible = await verifierCibleDepot(dossierId, lire);
+    if (!cible.ok) return json({ etat: 'cible_invalide', message: cible.motif }, 400);
+
     const auteur = { ...await auteurDeLaRequete(request), compteGoogle: acces.compteGoogle };
-    const issues = await deposerPieces(depsReellesDepot(), acces.jeton, [pieceId], dossierId, auteur);
+    const issues = await deposerPieces(depsReellesDepot(lire), acces.jeton, [pieceId], dossierId, auteur);
     return json({ etat: 'ok', resultats: issues, resume: resumerDepot(issues) });
   } catch (e) {
     console.error('[gestion/piece/drive] dépôt impossible', e);

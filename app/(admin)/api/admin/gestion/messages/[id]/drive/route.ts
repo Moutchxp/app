@@ -1,8 +1,10 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
+import { verifierCibleDepot } from '../../../../../../../lib/gestion/cibleDepot';
 import { depsReellesDepot, piecesDeposablesDuMessage } from '../../../../../../../lib/gestion/depotDriveReel';
 import { deposerPieces, resumerDepot } from '../../../../../../../lib/gestion/depotDrive';
+import { lireDossier, memoiserLecture } from '../../../../../../../lib/gestion/drive';
 import { lireDepotsDesPieces } from '../../../../../../../lib/gestion/driveRepo';
 import { jetonPourRequete, messageAcces } from '../../../../../../../lib/gestion/jetonCollaborateur';
 import { depotsDriveDisponibles } from '../../../../../../../lib/gestion/schema';
@@ -81,10 +83,17 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
   }
 
   try {
+    // LOT 5-PJ-D — MÊME GARDE QUE POUR UNE PIÈCE SEULE, et au même endroit du parcours : une cible qui n'est pas un
+    //   vrai dossier (les deux regroupements de la racine, un fichier, un dossier à la corbeille) est refusée AVANT
+    //   qu'une seule pièce ne parte. Un refus à mi-parcours laisserait la moitié d'un message dans le Drive.
+    const lire = memoiserLecture((id: string) => lireDossier(acces.jeton, id, { fetch }));
+    const cible = await verifierCibleDepot(dossierId, lire);
+    if (!cible.ok) return json({ etat: 'cible_invalide', message: cible.motif }, 400);
+
     const pieces = await piecesDeposablesDuMessage(messageId);
     if (pieces.length === 0) return json({ etat: 'ok', resultats: [], resume: 'Aucune pièce conservée à déposer.' });
     const auteur = { ...await auteurDeLaRequete(request), compteGoogle: acces.compteGoogle };
-    const issues = await deposerPieces(depsReellesDepot(), acces.jeton, pieces, dossierId, auteur);
+    const issues = await deposerPieces(depsReellesDepot(lire), acces.jeton, pieces, dossierId, auteur);
     return json({ etat: 'ok', resultats: issues, resume: resumerDepot(issues) });
   } catch (e) {
     console.error('[gestion/message/drive] dépôt impossible', e);

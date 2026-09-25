@@ -10,7 +10,10 @@
  * bouton ne promet un geste qui échouerait au clic.
  */
 import { query } from '../db/client';
-import { compteGoogleDuDepotDisponible, depotsDriveDisponibles, journalPieceDriveDisponible } from './schema';
+import { nombreRecentsValide, RECENTS_DEFAUT, type CandidatRecent } from './dossiersRecents';
+import {
+  compteGoogleDuDepotDisponible, depotsDriveDisponibles, journalPieceDriveDisponible, reglageRecentsDisponible,
+} from './schema';
 
 /** Un dépôt, tel que l'écran l'affiche : « Dans le Drive · ouvrir », avec le nom du dossier. */
 export interface DepotDrive {
@@ -71,6 +74,62 @@ export async function dernierDossierDuFil(filId: number): Promise<{ id: string; 
   );
   const r = rows[0];
   return r ? { id: r.drive_dossier_id, nom: r.dossier_nom } : null;
+}
+
+/**
+ * LOT 5-PJ-D — LES DERNIERS DOSSIERS OÙ UN DÉPÔT A RÉUSSI, tous collaborateurs confondus, le plus récent d'abord.
+ *
+ * 🔴 DÉRIVÉ DE LA MÉMOIRE DES DÉPÔTS, comme `dernierDossierDuFil`. Aucune liste de « dossiers favoris » n'est tenue à
+ * la main : un dossier est récent parce qu'un fichier y est parti, et rien d'autre. Une liste entretenue à part
+ * commencerait à mentir le jour où quelqu'un déposerait ailleurs.
+ *
+ * 🔴 TOUS COLLABORATEURS CONFONDUS, ET C'EST VOULU : l'équipe classe dans les mêmes dossiers. Les DROITS, eux, ne
+ * sont pas communs — ils sont vérifiés ensuite, un par un, avec le jeton de la personne qui regarde (cf.
+ * `dossiersRecents.ts`). D'où le mot « candidats » : cette liste n'est PAS ce qui s'affiche.
+ *
+ * `DISTINCT ON` rend, pour chaque dossier, la ligne de son dépôt le PLUS RÉCENT — donc le nom et le Drive connus à ce
+ * moment-là. C'est le nom rendu par Google qui s'affichera ; celui-ci n'est qu'un repli.
+ */
+export async function dossiersRecentsDeposes(limite: number): Promise<CandidatRecent[]> {
+  if (limite <= 0) return [];
+  if (!await depotsDriveDisponibles()) return []; // migration 245 absente : aucun dépôt ne peut exister
+  const { rows } = await query<{
+    drive_dossier_id: string; dossier_nom: string | null; drive_id: string | null; dernier: string;
+  }>(
+    `SELECT drive_dossier_id, dossier_nom, drive_id, dernier
+       FROM (
+         SELECT DISTINCT ON (drive_dossier_id)
+                drive_dossier_id, dossier_nom, drive_id,
+                to_char(depose_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS dernier
+           FROM gestion_piece_drive
+          ORDER BY drive_dossier_id, depose_le DESC
+       ) d
+      ORDER BY dernier DESC
+      LIMIT $1`,
+    [limite],
+  );
+  return rows.map((r) => ({
+    id: r.drive_dossier_id, nom: r.dossier_nom, driveId: r.drive_id, dernierDepot: r.dernier,
+  }));
+}
+
+/**
+ * LOT 5-PJ-D — COMBIEN de dossiers récents la vue d'ouverture propose. RÉGLAGE en base (migration 248), jamais un
+ * chiffre en dur : six est le choix d'Arno aujourd'hui, pas une vérité.
+ *
+ * ⚠️ LU À PART, et surtout PAS ajouté à la requête de `chargerConfigGestion`. Celle-ci retombe sur un SELECT réduit
+ * dès qu'UNE colonne manque (erreur 42703) : y glisser une colonne non encore créée ferait perdre, le temps que la
+ * migration soit appliquée, TOUS les réglages des migrations 230 à 241. Une sonde isolée ne coûte qu'une question.
+ */
+export async function lireMaxDossiersRecents(): Promise<number> {
+  if (!await reglageRecentsDisponible()) return RECENTS_DEFAUT;
+  try {
+    const { rows } = await query<{ n: number }>(
+      `SELECT drive_dossiers_recents_max AS n FROM gestion_config WHERE id = 1`);
+    return nombreRecentsValide(rows[0]?.n);
+  } catch {
+    return RECENTS_DEFAUT; // le réglage n'est pas la fonctionnalité : on ouvre le sélecteur, avec le défaut
+  }
 }
 
 export interface ADeposer {

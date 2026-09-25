@@ -150,6 +150,18 @@ export function journalCompteGoogleDisponible(): Promise<boolean> {
   });
 }
 
+/**
+ * LOT 5-PJ-D — la migration 248 est-elle appliquée ? Elle porte le RÉGLAGE du nombre de dossiers récents proposés à
+ * l'ouverture du sélecteur.
+ *
+ * ⚠️ Elle ne conditionne AUCUNE fonctionnalité : sans elle, la vue d'ouverture propose six dossiers, ce qui est
+ * exactement la valeur par défaut de la colonne. Elle est sondée À PART plutôt qu'ajoutée à `chargerConfigGestion` —
+ * dont le repli est tout-ou-rien et ferait perdre, en attendant, les réglages des migrations 230 à 241.
+ */
+export function reglageRecentsDisponible(): Promise<boolean> {
+  return memoiser('config.drive_dossiers_recents_max', () => colonneExiste('gestion_config', 'drive_dossiers_recents_max'));
+}
+
 /** LOT 5-PJ-C — le registre des dépôts sait-il dire AVEC QUEL COMPTE Google le dépôt a été fait (migration 246) ? */
 export function compteGoogleDuDepotDisponible(): Promise<boolean> {
   return memoiser('piece_drive.compte_google', () => colonneExiste('gestion_piece_drive', 'compte_google'));
