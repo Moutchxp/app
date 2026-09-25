@@ -35,7 +35,7 @@ const ligne = (n: number, o: Record<string, unknown> = {}) => ({
 const rendre = (lignes: unknown[], total = 100) => {
   queryMock.mockReset();
   queryMock.mockImplementation(async (sql: string) => {
-    if (String(sql).includes('count(DISTINCT m.fil_id)')) return { rows: [{ n: total }] };
+    if (String(sql).includes('DISTINCT ON (m.fil_id) m.sens')) return { rows: [{ n: total }] };
     if (String(sql).includes('FILTER (WHERE lisibles > 0)')) return { rows: [{ lisibles: 4944, total: 17206 }] };
     return { rows: lignes };
   });
@@ -185,29 +185,51 @@ describe('③ le courrier automatique : écarté par défaut, jamais supprimé',
  * collègue, s'affichait en tête de Réception. Le `case 'reception'` rendait une chaîne vide : ce n'était pas une
  * étiquette, c'était la boîte entière.
  */
-describe('la règle de Réception', () => {
-  it('exige AU MOINS UN message reçu — c’est la règle de Gmail', async () => {
+/**
+ * LOT 5-BOITE-2 — UNE SEULE BOÎTE PAR ÉCHANGE (décision d'Arno du 25/09, 17h43).
+ *
+ * 🔴 LE DERNIER MESSAGE DÉCIDE. Dernier reçu → Réception ; dernier envoyé → Envoyés ; jamais les deux. L'échange
+ * BASCULE d'une boîte à l'autre à chaque nouveau message, et l'historique complet reste dans la conversation.
+ *
+ * ⚠️ Le filtre est COURT parce que `m` EST déjà le dernier message de son échange — c'est le prédicat « aucun
+ * message plus récent » du CTE `page` qui le garantit. Un EXISTS referait, plus cher, un travail déjà fait.
+ */
+describe('la règle des deux boîtes', () => {
+  it('Réception = le dernier message est REÇU', async () => {
     rendre([]);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'reception', evenementId: null } });
-    expect(sqlPage().replace(/\s+/g, ' ')).toContain("mr.fil_id = m.fil_id AND mr.sens = 'recu'");
+    const sql = parcours(sqlPage()).replace(/\s+/g, ' ');
+    expect(sql).toContain("AND m.sens = 'recu'");
+    expect(sql).not.toContain("AND m.sens = 'envoye'");
   });
 
-  /** Un échange mixte porte un reçu ET un envoi : il reste dans les DEUX étiquettes, comme dans une messagerie. */
-  it('« Envoyés » ne change pas : un échange mixte figure dans les deux', async () => {
+  it('Envoyés = le dernier message est ENVOYÉ — le pendant EXACT, jamais un recouvrement', async () => {
     rendre([]);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'envoyes', evenementId: null } });
-    const sql = sqlPage().replace(/\s+/g, ' ');
-    expect(sql).toContain("me.fil_id = m.fil_id AND me.sens = 'envoye'");
-    // …et surtout, « Envoyés » n'exige AUCUN message reçu : sinon un échange 100 % sortant n'apparaîtrait nulle part.
-    expect(sql).not.toContain("mr.sens = 'recu'");
+    const sql = parcours(sqlPage()).replace(/\s+/g, ' ');
+    expect(sql).toContain("AND m.sens = 'envoye'");
+    expect(sql).not.toContain("AND m.sens = 'recu'");
   });
 
-  it('le TOTAL de la Réception porte la même condition que sa liste', async () => {
+  /** Les deux filtres sont exclusifs par construction : aucun échange ne peut satisfaire les deux à la fois. */
+  it('les deux filtres ne peuvent pas être vrais ensemble : un message a UN sens', async () => {
     rendre([]);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'reception', evenementId: null } });
-    // La dernière requête est le comptage : il doit exiger le message reçu, sinon le compteur annoncerait plus
-    //   d'échanges que la liste n'en montre — et c'est le compteur qu'on croirait.
-    expect(sqls().some((s) => s.includes('count(DISTINCT m.fil_id)') && s.includes("mr.sens = 'recu'"))).toBe(true);
+    const rec = parcours(sqlPage()).replace(/\s+/g, ' ');
+    rendre([]);
+    await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'envoyes', evenementId: null } });
+    const env = parcours(sqlPage()).replace(/\s+/g, ' ');
+    expect(rec).not.toBe(env);
+    // …et le filtre porte sur LE message du parcours (`m`), donc sur le dernier — pas sur un EXISTS quelque part.
+    expect(rec).not.toContain('EXISTS (SELECT 1 FROM gestion_message mr');
+    expect(env).not.toContain('EXISTS (SELECT 1 FROM gestion_message me');
+  });
+
+  it('le TOTAL de chaque boîte porte la même règle que sa liste', async () => {
+    rendre([]);
+    await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'reception', evenementId: null } });
+    // Le comptage prend UNE ligne par échange, la plus récente, et filtre sur son sens : exactement la liste.
+    expect(sqls().some((s) => s.includes('DISTINCT ON (m.fil_id) m.sens') && s.includes('WHERE d.sens = $1'))).toBe(true);
   });
 });
 
@@ -284,7 +306,8 @@ describe('④ les étiquettes', () => {
 
   it('🔴 le filtre entre dans le PARCOURS, avant le LIMIT — sinon la page rend moins que ce qu’on a demandé', () => {
     for (const [sorte, marqueur] of [
-      ['envoyes', "me.sens = 'envoye'"],
+      ['envoyes', "m.sens = 'envoye'"],  // LOT 5-BOITE-2 : le dernier message décide, et `m` EST ce dernier
+      ['reception', "m.sens = 'recu'"],
       ['sans_suite', "f0.etat = 'sans_suite'"],
       ['automatique', 'ml.exclu_le IS NULL'],
       ['a_classer', "f0.etat = 'a_classer'"],
@@ -335,10 +358,28 @@ describe('④ les étiquettes', () => {
     expect(parcours(sqlPage())).toContain('NOT EXISTS (SELECT 1 FROM gestion_message ml');
   });
 
-  it('sous une étiquette, le total n’est PAS recompté : la colonne de gauche le porte déjà', async () => {
+  /**
+   * LOT 5-BOITE-2 — « Envoyés » porte désormais SON total, comme Réception : les deux boîtes sont symétriques et
+   * disjointes, il n'y a plus de raison que l'une sache se compter et pas l'autre. Les AUTRES étiquettes s'en
+   * remettent toujours à la colonne de gauche — la recompter ici donnerait deux chiffres pour une seule vérité.
+   */
+  it('les deux BOÎTES portent leur total ; les autres étiquettes s’en remettent à la colonne de gauche', async () => {
     rendre([ligne(1)], 4944);
-    expect((await lireBoiteMail(null, [], 30, { etiquette: etiq('envoyes') })).total).toBeNull();
+    expect((await lireBoiteMail(null, [], 30, { etiquette: etiq('envoyes') })).total).toBe(4944);
     rendre([ligne(1)], 4944);
-    expect((await lireBoiteMail(null, [])).total).toBe(4944); // la boîte entière, elle, compte comme avant
+    expect((await lireBoiteMail(null, [])).total).toBe(4944);
+    rendre([ligne(1)], 4944);
+    expect((await lireBoiteMail(null, [], 30, { etiquette: etiq('sans_suite') })).total).toBeNull();
+  });
+
+  it('chaque boîte compte AVEC SA RÈGLE : le sens est un paramètre LIÉ, jamais collé dans le SQL', async () => {
+    rendre([ligne(1)], 4944);
+    await lireBoiteMail(null, [], 30, { etiquette: etiq('envoyes') });
+    const appel = queryMock.mock.calls.find((c) => String(c[0]).includes('DISTINCT ON (m.fil_id) m.sens'));
+    expect((appel?.[1] as unknown[])?.[0]).toBe('envoye');
+    rendre([ligne(1)], 4944);
+    await lireBoiteMail(null, []);
+    const appel2 = queryMock.mock.calls.find((c) => String(c[0]).includes('DISTINCT ON (m.fil_id) m.sens'));
+    expect((appel2?.[1] as unknown[])?.[0]).toBe('recu');
   });
 });

@@ -130,27 +130,35 @@ const ETIQUETTE_TOUT: Etiquette = { sorte: 'reception', evenementId: null };
 function sqlEtiquette(e: Etiquette): string {
   switch (e.sorte) {
     /**
-     * « Réception » = les échanges où QUELQU'UN NOUS A ÉCRIT — au moins un message reçu. Règle de Gmail.
+     * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
+     * 🔴 UNE SEULE BOÎTE PAR ÉCHANGE — décision d'Arno du 25/09/2026, 17h43. Elle REMPLACE la règle du lot 5-BOITE
+     * (« au moins un message reçu »), qui laissait un échange mixte dans les DEUX étiquettes.
      *
-     * 🔴 LE DÉFAUT QUE CE FILTRE RÉPARE, constaté par Arno à l'écran le 25/09/2026 à 17h06. Ce `case` rendait une
-     * chaîne VIDE : « Réception » n'était pas une étiquette, c'était la boîte entière. L'échange « Coucou », un seul
-     * message, ENVOYÉ par gestion@ à un collègue, s'affichait donc en tête de Réception — alors que la relève
-     * l'avait parfaitement classé « 1 envoyé, 0 reçu ». Rien n'était faux en base : c'est l'écran qui ne posait
-     * aucune question.
+     * LE DERNIER MESSAGE DÉCIDE, et lui seul : dernier message REÇU → Réception ; dernier message ENVOYÉ →
+     * Envoyés. Jamais les deux. L'échange BASCULE d'une boîte à l'autre à chaque nouveau message — on répond, il
+     * passe dans Envoyés ; l'interlocuteur revient, il repasse en Réception. Rien n'est perdu au passage :
+     * l'historique complet reste dans la conversation, qui s'ouvre des deux côtés.
+     *
+     * CE QUI REND CE FILTRE AUSSI COURT. `m` EST DÉJÀ le dernier message de son échange : c'est le prédicat
+     * « aucun message plus récent » du CTE `page` (voir `sqlPageBoite`) qui transforme un parcours de messages en
+     * parcours d'échanges. Il n'y a donc RIEN à chercher — le sens de `m` est la réponse. Écrire un EXISTS ici
+     * referait, plus cher, un travail déjà fait.
+     *
+     * ⚠️ « DERNIER » SUIT CE QUE LA LISTE MONTRE. Quand le courrier automatique est masqué (le cas par défaut),
+     * `m` est le dernier message LISIBLE ; quand on l'affiche, c'est le dernier tout court. L'étiquette suit donc
+     * toujours le message affiché en aperçu sur la ligne — les deux ne peuvent pas se contredire à l'écran.
      *
      * 🔴 « NOUS », C'EST `gestion_config.adresse_gestion`, ET RIEN D'AUTRE. `sens` porte déjà exactement cette
-     * règle (`sensDuMessage`, capture.ts:266-268) : un collègue de @sansvisavis.com ou @criterimmo.fr qui écrit à
-     * gestion@ est un message REÇU, et son échange est bien en Réception. Confondre « interne » et « nous » ferait
-     * disparaître de la boîte les demandes des collègues — c'est-à-dire une partie du travail.
+     * règle (`sensDuMessage`, capture.ts:266-268) : un collègue de @sansvisavis.com qui écrit à gestion@ est un
+     * message REÇU. Confondre « interne » et « nous » ferait disparaître de la boîte les demandes des collègues.
      *
-     * Un échange MIXTE (on nous écrit, nous répondons) reste dans les DEUX étiquettes, comme dans Gmail : il porte
-     * un reçu, donc Réception ; il porte un envoi, donc Envoyés.
-     *
-     * MESURÉ le 25/09/2026 : 26 128 échanges sur 36 214 ne contiennent aucun message reçu ; 1 644 d'entre eux
-     * portent au moins un message lisible et figuraient donc, à tort, dans la Réception affichée par défaut.
+     * MESURÉ sur la vraie base, avant → après : Réception 8 463 → 5 278, Envoyés 32 736 → 4 831. Les deux boîtes
+     * sont désormais DISJOINTES, et leur somme (10 109) est exactement le nombre d'échanges portant au moins un
+     * message lisible.
+     * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
      */
     case 'reception':
-      return `AND EXISTS (SELECT 1 FROM gestion_message mr WHERE mr.fil_id = m.fil_id AND mr.sens = 'recu')`;
+      return `AND m.sens = 'recu'`;
     // « À classer » = la règle du poste de tri : échange encore à classer, et dernier message lisible dans la fenêtre
     //   d'activité. `m` EST ce dernier message lisible (le parcours ne garde que lui), donc le test de date porte sur
     //   la même date que `lireFile`. $4 = la fenêtre en jours, lue en base comme là-bas.
@@ -168,10 +176,11 @@ function sqlEtiquette(e: Etiquette): string {
     case 'a_classer':
       return `AND m.recu_le >= now() - ($4::int * interval '1 day')
           AND EXISTS (SELECT 1 FROM gestion_fil f0 WHERE f0.id = m.fil_id AND f0.etat = 'a_classer')`;
-    // « Envoyés » = les échanges où NOUS avons écrit. MESURÉ : les 19 551 messages `sens = 'envoye'` de la base
-    //   partent tous de gestion@criterimmo.fr — le sens suffit, il n'y a pas d'autre expéditeur à distinguer.
+    // « Envoyés » = le PENDANT EXACT de Réception : l'échange dont le dernier message est parti de chez nous. Même
+    //   raison d'être aussi court — `m` est déjà ce dernier message. (Avant ce lot : « au moins un message envoyé »,
+    //   ce qui mettait dans Envoyés les 32 736 échanges où nous avions répondu une fois, il y a deux ans.)
     case 'envoyes':
-      return `AND EXISTS (SELECT 1 FROM gestion_message me WHERE me.fil_id = m.fil_id AND me.sens = 'envoye')`;
+      return `AND m.sens = 'envoye'`;
     case 'sans_suite':
       return `AND EXISTS (SELECT 1 FROM gestion_fil f0 WHERE f0.id = m.fil_id AND f0.etat = 'sans_suite')`;
     // « Courrier automatique » = les échanges dont AUCUN message n'est lisible. Même définition que le compteur
@@ -320,7 +329,11 @@ export async function lireBoiteMail(
     // Le total N'EST COMPTÉ QUE pour la boîte entière. Sous une étiquette, c'est la colonne de gauche qui porte le
     //   nombre — et le recompter ici donnerait deux chiffres pour une seule vérité, donc tôt ou tard deux chiffres
     //   différents. `null` se lit « demande-le à l'étiquette », pas « zéro ».
-    total: curseur === null && etiquette.sorte === 'reception' ? await compterBoite(tous) : null,
+    // LOT 5-BOITE-2 — les DEUX boîtes portent désormais leur total, calculé avec leur propre règle. Les autres
+    //   étiquettes s'en remettent toujours à la colonne de gauche (`null` se lit « demande-le à l'étiquette »).
+    total: curseur === null && (etiquette.sorte === 'reception' || etiquette.sorte === 'envoyes')
+      ? await compterBoite(tous, etiquette.sorte === 'envoyes' ? 'envoye' : 'recu')
+      : null,
   };
 }
 
@@ -328,15 +341,18 @@ export async function lireBoiteMail(
  * Combien d'échanges la boîte contient au total. Un échange compte dès qu'il porte AU MOINS un message non écarté —
  * même règle que la liste, pour que le compteur et la liste ne racontent jamais deux histoires différentes.
  */
-export async function compterBoite(inclureAutomatiques = false): Promise<number> {
-  // LOT 5-BOITE — ce total est celui de la RÉCEPTION (c'est la seule étiquette qui l'affiche), et il doit donc porter
-  //   la MÊME condition que son filtre : au moins un message reçu. Sans elle, l'écran annoncerait « 10 103 » au-dessus
-  //   d'une liste qui n'en contient que 8 459 — et c'est le compteur, jamais la liste, qu'on croirait.
+export async function compterBoite(inclureAutomatiques = false, sens: 'recu' | 'envoye' = 'recu'): Promise<number> {
+  // LOT 5-BOITE-2 — ce total porte EXACTEMENT la règle de l'étiquette : c'est le DERNIER message de l'échange qui
+  //   décide. Un compteur calculé autrement annoncerait un nombre que la liste ne montre pas — et c'est toujours le
+  //   compteur qu'on croit. `DISTINCT ON` est ici le bon outil : on veut UNE ligne par échange, la plus récente.
   const { rows } = await query<{ n: number }>(
-    `SELECT count(DISTINCT m.fil_id)::int AS n
-       FROM gestion_message m
-      WHERE EXISTS (SELECT 1 FROM gestion_message mr WHERE mr.fil_id = m.fil_id AND mr.sens = 'recu')
-        ${inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL'}`);
+    `SELECT count(*)::int AS n
+       FROM (SELECT DISTINCT ON (m.fil_id) m.sens
+               FROM gestion_message m
+              ${inclureAutomatiques ? '' : 'WHERE m.exclu_le IS NULL'}
+              ORDER BY m.fil_id, m.recu_le DESC, m.id DESC) d
+      WHERE d.sens = $1`,
+    [sens]);
   return rows[0]?.n ?? 0;
 }
 
@@ -351,15 +367,17 @@ export async function comptesBoite(): Promise<{ lisibles: number; automatiques: 
   const { rows } = await query<{ lisibles: number; total: number; envoyes: number; reception: number }>(
     `SELECT count(*) FILTER (WHERE lisibles > 0)::int AS lisibles,
             count(*)::int AS total,
-            count(*) FILTER (WHERE envoyes > 0)::int AS envoyes,
-            -- LOT 5-BOITE — le compte de RÉCEPTION suit EXACTEMENT le filtre de l'étiquette : au moins un message
-            --   reçu, et au moins un message lisible. Le calculer autrement ferait dire à la colonne de gauche un
-            --   nombre que la liste ne montrerait pas — la contradiction que ce regroupement unique existe pour éviter.
-            count(*) FILTER (WHERE lisibles > 0 AND recus > 0)::int AS reception
+            -- LOT 5-BOITE-2 — les deux boîtes suivent la règle de l'étiquette : LE DERNIER MESSAGE LISIBLE DÉCIDE.
+            --   Elles sont donc DISJOINTES, et leur somme vaut exactement le nombre d'échanges lisibles. Calculées
+            --   par un array_agg ordonné, sur le regroupement qui existait déjà : même balayage, même coût, et
+            --   (pas d'accent grave dans ce commentaire : il est DANS un littéral gabarit, qu'il terminerait)
+            --   aucune chance que les deux nombres se contredisent puisqu'ils sortent de la même lecture.
+            count(*) FILTER (WHERE dernier_lisible = 'envoye')::int AS envoyes,
+            count(*) FILTER (WHERE dernier_lisible = 'recu')::int AS reception
        FROM (SELECT fil_id,
                     count(*) FILTER (WHERE exclu_le IS NULL) AS lisibles,
-                    count(*) FILTER (WHERE sens = 'envoye') AS envoyes,
-                    count(*) FILTER (WHERE sens = 'recu') AS recus
+                    (array_agg(sens ORDER BY recu_le DESC, id DESC)
+                       FILTER (WHERE exclu_le IS NULL))[1] AS dernier_lisible
                FROM gestion_message GROUP BY fil_id) x`);
   const l = rows[0]?.lisibles ?? 0;
   return {
