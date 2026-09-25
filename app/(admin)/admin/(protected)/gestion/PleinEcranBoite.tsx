@@ -71,7 +71,7 @@ export function etiquettesVisibles(
 export function PleinEcranBoite({
   etiquette, etiquettes, onEtiquette, filOuvert, onOuvrir, onFermerFil, maintenant, onGeste, onRetour,
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, corbeilleDisponible = false, peutEcrire = false,
-  piecesDisponibles = false,
+  piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -95,6 +95,18 @@ export function PleinEcranBoite({
   peutEcrire?: boolean;
   /** LOT 5-PJ-ENVOI — la migration 252 est-elle là ? Pilote la seule entrée « Transférer en tant que pièce jointe ». */
   piecesDisponibles?: boolean;
+  /**
+   * LOT ANNUAIRE-1 — une adresse à qui écrire, venue de l'annuaire. Ouvre « Nouveau message » déjà adressé.
+   *
+   * ⚠️ C'EST EXACTEMENT LE MÊME BOUTON « Nouveau message », avec son destinataire pré-rempli — pas un second chemin
+   * d'envoi. Un écran d'écriture qui existerait en deux exemplaires divergerait au premier réglage (signature,
+   * délai d'annulation, pièces jointes).
+   */
+  ecrireA?: string | null;
+  /** Prévient l'écran parent que l'adresse a été consommée : sans quoi revenir ici rouvrirait le même brouillon. */
+  onEcrireAConsomme?: () => void;
+  /** LOT ANNUAIRE-1 — ouvre la fiche d'annuaire d'un expéditeur reconnu, depuis l'encart de la conversation. */
+  onFicheAnnuaire?: (sorte: 'proprietaire' | 'locataire', id: number) => void;
 }) {
   // Sur téléphone, on arrive sur les ÉTIQUETTES : c'est le sommaire, et on ne tombe pas au milieu d'une liste sans
   //   savoir laquelle. Au montage, donc à chaque entrée en plein écran. Sur grand écran, l'attribut ne change rien.
@@ -129,6 +141,29 @@ export function PleinEcranBoite({
   const [versionListe, setVersionListe] = useState(0);
   /** LOT 5e — le brouillon d'un NOUVEAU message (hors de tout échange). `null` = on ne rédige pas. */
   const [nouveau, setNouveau] = useState<BrouillonEcran | null>(null);
+
+  /**
+   * LOT ANNUAIRE-1 — ÉCRIRE À QUELQU'UN TROUVÉ DANS L'ANNUAIRE.
+   *
+   * 🔴 C'EST LE MÊME « Nouveau message », pré-adressé : mêmes conditions (base à jour, droit d'envoi), même
+   * signature, même délai d'annulation, mêmes pièces jointes. Un second écran d'écriture aurait divergé du premier
+   * dès le réglage suivant.
+   *
+   * ⚠️ L'ADRESSE EST CONSOMMÉE AUSSITÔT (`onEcrireAConsomme`) : sans cela, revenir dans la boîte par « Précédent »
+   * rouvrirait un brouillon vide adressé à la même personne, sans qu'on comprenne pourquoi.
+   */
+  useEffect(() => {
+    if (ecrireA === null || ecrireA === '') return;
+    if (!(redaction?.schemaPret && redaction.peutEnvoyer)) { onEcrireAConsomme?.(); return; }
+    onFermerFil();
+    setNouveau({
+      ...preparerBrouillon('nouveau', null, { adresseGestion: redaction.adresseGestion, signature: redaction.signature }),
+      a: [ecrireA],
+      id: null,
+    });
+    setPanneauMobile('contenu');
+    onEcrireAConsomme?.();
+  }, [ecrireA, redaction, onFermerFil, onEcrireAConsomme]);
 
   /**
    * LA POSITION DE DÉFILEMENT DE LA LISTE, retenue à l'ouverture d'un échange et rendue au retour.
@@ -341,6 +376,8 @@ export function PleinEcranBoite({
               voieInitiale={voieDemandee}
               onFerme={onFermerFil} barreActions onClassement={(voie) => setClassement(voie)}
               redaction={redaction} onGeste={onGeste}
+              // LOT ANNUAIRE-1 — l'encart « Propriétaire de … » mène à la fiche, dans l'écran Annuaire.
+              onFicheAnnuaire={onFicheAnnuaire}
               // LOT 5-BOITE — ouvrir (ou marquer non lu) change le gras de la liste, qui l'applique sur place.
               onLecture={(id, lu) => setMarquage((m) => ({ filId: id, nonLu: !lu, cle: m.cle + 1 }))} />
           </section>

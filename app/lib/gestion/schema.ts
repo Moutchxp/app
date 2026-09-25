@@ -247,6 +247,21 @@ async function tableExiste(table: string): Promise<boolean> {
   }
 }
 
+/**
+ * LOT ANNUAIRE-1 — la migration 253 est-elle appliquée ? Elle seule porte l'annuaire WIPPIMMO.
+ *
+ * 🔴 ELLE CONDITIONNE TOUT L'ÉCRAN « ANNUAIRE », et c'est assumé : sans elle il n'y a RIEN à montrer — ni
+ * propriétaire, ni lot, ni locataire. L'entrée du menu reste donc visible mais DIT « annuaire pas encore installé »,
+ * ce qui est la vérité, plutôt que de disparaître (une entrée qui s'évapore donne à croire qu'on l'a rêvée) ou
+ * d'ouvrir un écran vide (qui ferait croire à un annuaire sans personne dedans).
+ *
+ * On sonde la table des propriétaires : les six tables de l'annuaire naissent dans UNE transaction, elles arrivent
+ * donc ensemble.
+ */
+export function annuaireDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_annuaire_proprietaire', () => tableExiste('gestion_annuaire_proprietaire'));
+}
+
 /** LOT 5e — la migration 241 (délai d'annulation réglable) est-elle appliquée ? Sinon le délai vaut son défaut. */
 export function delaiAnnulationDisponible(): Promise<boolean> {
   return memoiser('config.annulation_envoi_secondes', () => colonneExiste('gestion_config', 'annulation_envoi_secondes'));

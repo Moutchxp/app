@@ -18,6 +18,7 @@ import { CarteVive } from './CarteVive';
 import { Conversation } from './Conversation';
 import { ColonneMode } from './ColonneMode';
 import { PleinEcranBoite, type EtiquetteAffichee } from './PleinEcranBoite';
+import { Annuaire } from './Annuaire';
 import type { ContexteRedactionEcran } from './Redaction';
 
 /**
@@ -84,6 +85,16 @@ export function GestionVue({ intro }: {
   /** LOT 5-FUSION — quel écran, quelle étiquette, quel échange ouvert. Lu et écrit dans l'adresse (voir `ecranUrl`). */
   const [etatUrl, setEtatUrl] = useState<EtatEcranUrl>(ETAT_DEFAUT);
   const [auto, setAuto] = useState(false);
+  /**
+   * LOT ANNUAIRE-1 — l'adresse à qui écrire, cliquée dans une fiche de l'annuaire. Elle traverse jusqu'à la boîte,
+   * qui possède le SEUL écran d'écriture du module, puis est aussitôt consommée.
+   *
+   * ⚠️ `consommerEcrireA` est un `useCallback` SANS dépendance, et ce n'est pas un détail : passé tel quel à un
+   * effet de `PleinEcranBoite`, un rappel recréé à chaque rendu relancerait l'effet en boucle — le défaut déjà
+   * mesuré au lot 5-BOITE (`onNonLus`), et dont le seul symptôme visible est un écran qui rame.
+   */
+  const [ecrireA, setEcrireA] = useState<string | null>(null);
+  const consommerEcrireA = useCallback(() => setEcrireA(null), []);
   const [comptesBoite, setComptesBoite] = useState<
     { lisibles: number; automatiques: number; envoyes: number; reception: number; corbeille: number | null } | null
   >(null);
@@ -355,6 +366,14 @@ export function GestionVue({ intro }: {
           </button>
           <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={releveEnCours}
             onClick={() => void charger()}>Rafraîchir</button>
+          {/* LOT ANNUAIRE-1 — L'ANNUAIRE, atteignable depuis N'IMPORTE QUEL écran du module. Il ne remplace rien :
+              c'est un quatrième écran, et son bouton de retour ramène à l'écran partagé. */}
+          {ecran !== 'annuaire' && (
+            <button type="button" className="svv-btn svv-btn-outline gst-btn"
+              onClick={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}>
+              Annuaire
+            </button>
+          )}
         </span>
       </div>
 
@@ -380,8 +399,22 @@ export function GestionVue({ intro }: {
 
       {/* LOT 5-FUSION — LES TROIS ÉCRANS. Une conversation ouverte occupe l'écran partagé, comme depuis le lot 5b ;
           en plein écran elle a sa propre colonne. C'est la MÊME vue dans les deux cas. */}
-      {ecran === 'boite' ? (
+      {ecran === 'annuaire' ? (
+        <Annuaire
+          fiche={etatUrl.fiche ?? null}
+          onFiche={(f) => aller({ ...etatUrl, fiche: f })}
+          onRetour={() => aller({ ...ETAT_DEFAUT })}
+          /* Écrire à quelqu'un trouvé dans l'annuaire : on part dans la boîte, où vit le SEUL écran d'écriture. */
+          onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
+            ? (email) => {
+              setEcrireA(email);
+              aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null });
+            }
+            : undefined} />
+      ) : ecran === 'boite' ? (
         <PleinEcranBoite
+          ecrireA={ecrireA} onEcrireAConsomme={consommerEcrireA}
+          onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
           etiquette={etiquette} etiquettes={etiquettes} filOuvert={filOuvert} maintenant={ref}
           auto={auto} onAuto={setAuto} onNonLus={majNonLus}
           corbeilleDisponible={comptesBoite?.corbeille !== null && comptesBoite?.corbeille !== undefined}
@@ -414,6 +447,7 @@ export function GestionVue({ intro }: {
           {filOuvert !== null && (
             <section className="gst-col">
               <Conversation filId={filOuvert} maintenant={ref} onFerme={() => aller({ ...etatUrl, filOuvert: null })}
+                onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
                 onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
             </section>
           )}
@@ -424,6 +458,7 @@ export function GestionVue({ intro }: {
       ) : filOuvert !== null ? (
         <section className="gst-col">
           <Conversation filId={filOuvert} maintenant={ref} onFerme={() => aller({ ...etatUrl, filOuvert: null })}
+            onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
             onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
         </section>
       ) : (

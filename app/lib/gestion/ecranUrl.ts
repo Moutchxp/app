@@ -16,8 +16,13 @@
  * l'historique du navigateur se remplirait de doublons.
  */
 
-/** Les trois écrans du module. `partage` = l'écran à deux colonnes, qui reste le point d'entrée. */
-export type Ecran = 'partage' | 'boite' | 'evenements';
+/**
+ * Les écrans du module. `partage` = l'écran à deux colonnes, qui reste le point d'entrée.
+ *
+ * LOT ANNUAIRE-1 — `annuaire` s'ajoute aux trois autres. Il n'en remplace aucun et n'en modifie aucun : c'est un
+ * quatrième écran, atteint par son propre bouton, qui se referme sur l'écran partagé.
+ */
+export type Ecran = 'partage' | 'boite' | 'evenements' | 'annuaire';
 
 /**
  * Les étiquettes de la boîte. `carte` est la seule à porter un identifiant : les autres sont des vues fixes.
@@ -37,11 +42,47 @@ export interface Etiquette {
   evenementId: number | null;
 }
 
+/**
+ * LOT ANNUAIRE-1 — la fiche ouverte dans l'annuaire. Elle vit dans l'ADRESSE, comme l'échange ouvert et pour les
+ * mêmes raisons : recharger doit ramener la fiche qu'on lisait, « Précédent » doit revenir à la précédente, et une
+ * fiche doit pouvoir s'envoyer par message à un collègue.
+ *
+ * ⚠️ LE TEXTE TAPÉ DANS LA RECHERCHE, LUI, N'Y EST PAS — c'est la règle du fichier : l'adresse dit OÙ l'on est, pas
+ * ce qu'on est en train de taper.
+ */
+export type SorteFiche = 'proprietaire' | 'lot' | 'locataire';
+export interface FicheUrl { sorte: SorteFiche; id: number }
+
 export interface EtatEcranUrl {
   ecran: Ecran;
   etiquette: Etiquette;
   /** Identifiant de l'échange ouvert, ou `null`. Vaut dans les trois écrans : on ouvre un échange de partout. */
   filOuvert: number | null;
+  /**
+   * LOT ANNUAIRE-1 — la fiche ouverte. `null` ailleurs que dans l'annuaire, et dans l'annuaire sans fiche ouverte.
+   *
+   * ⚠️ FACULTATIVE À L'ÉCRITURE, TOUJOURS RENSEIGNÉE À LA LECTURE. Une trentaine d'appels construisent déjà un état
+   * à la main (`{ ecran: 'boite', etiquette, filOuvert: null }`) : les obliger tous à écrire `fiche: null` pour un
+   * écran qui n'a pas de fiche serait du bruit, et chaque oubli deviendrait une erreur de compilation dans du code
+   * qui n'a rien à voir avec l'annuaire.
+   */
+  fiche?: FicheUrl | null;
+}
+
+const SORTES_FICHE: readonly SorteFiche[] = ['proprietaire', 'lot', 'locataire'];
+
+/** La fiche portée par une adresse (« lot-12 »). Valeur inconnue ⇒ aucune fiche, jamais une erreur. */
+export function ficheDepuisTexte(brut: string | null): FicheUrl | null {
+  if (brut === null) return null;
+  const m = /^([a-z]+)-(\d+)$/.exec(brut);
+  if (m === null || !(SORTES_FICHE as readonly string[]).includes(m[1])) return null;
+  const id = identifiant(m[2]);
+  return id === null ? null : { sorte: m[1] as SorteFiche, id };
+}
+
+/** Comment une fiche s'écrit dans l'adresse. Forme canonique, unique pour une fiche donnée. */
+export function texteFiche(f: FicheUrl): string {
+  return `${f.sorte}-${f.id}`;
 }
 
 /** L'étiquette d'arrivée quand on entre en plein écran depuis l'écran partagé : ce qu'il y a à faire aujourd'hui. */
@@ -49,9 +90,11 @@ export const ETIQUETTE_ARRIVEE: Etiquette = { sorte: 'a_classer', evenementId: n
 export const ETIQUETTE_RECEPTION: Etiquette = { sorte: 'reception', evenementId: null };
 
 /** L'écran par défaut, celui d'une adresse nue : l'écran partagé, sans rien d'ouvert. */
-export const ETAT_DEFAUT: EtatEcranUrl = { ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null };
+export const ETAT_DEFAUT: EtatEcranUrl = {
+  ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null, fiche: null,
+};
 
-const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements'];
+const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire'];
 const SORTES_FIXES: readonly SorteEtiquette[] = [
   'reception', 'a_classer', 'envoyes', 'sans_suite', 'automatique', 'brouillons',
   // LOT 5-BOITE-3 — la corbeille est une étiquette comme les autres : elle vit dans l'adresse, donc elle se
@@ -102,7 +145,13 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
   }
   const brutEcran = p.get('ecran');
   const ecran: Ecran = (ECRANS as readonly string[]).includes(brutEcran ?? '') ? (brutEcran as Ecran) : 'partage';
-  return { ecran, etiquette: etiquetteDepuisTexte(p.get('etiquette')), filOuvert: identifiant(p.get('fil')) };
+  return {
+    ecran,
+    etiquette: etiquetteDepuisTexte(p.get('etiquette')),
+    filOuvert: identifiant(p.get('fil')),
+    // La fiche ne désigne quelque chose QUE dans l'annuaire : la lire ailleurs traînerait un paramètre mort.
+    fiche: ecran === 'annuaire' ? ficheDepuisTexte(p.get('fiche')) : null,
+  };
 }
 
 /**
@@ -117,6 +166,7 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
   if (e.ecran !== 'partage') p.set('ecran', e.ecran);
   if (e.ecran === 'boite' && !memeEtiquette(e.etiquette, ETIQUETTE_ARRIVEE)) p.set('etiquette', texteEtiquette(e.etiquette));
   if (e.filOuvert !== null) p.set('fil', String(e.filOuvert));
+  if (e.ecran === 'annuaire' && e.fiche != null) p.set('fiche', texteFiche(e.fiche));
   const s = p.toString();
   return s === '' ? '' : `?${s}`;
 }
@@ -144,5 +194,7 @@ export function autoImposeParEtiquette(e: Etiquette): boolean | null {
 /** Deux états désignent-ils le même écran ? Sert à ne PAS empiler une entrée d'historique pour rien. */
 export function memeEtat(a: EtatEcranUrl, b: EtatEcranUrl): boolean {
   return a.ecran === b.ecran && a.filOuvert === b.filOuvert
-    && (a.ecran !== 'boite' || memeEtiquette(a.etiquette, b.etiquette));
+    && (a.ecran !== 'boite' || memeEtiquette(a.etiquette, b.etiquette))
+    && (a.ecran !== 'annuaire' || (a.fiche?.sorte ?? null) === (b.fiche?.sorte ?? null)
+      && (a.fiche?.id ?? null) === (b.fiche?.id ?? null));
 }

@@ -19,6 +19,7 @@ import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/r
 import { heureGmail } from '../../../../lib/gestion/ecran';
 import { lienGmail, libelleEtoile, menuMessage, type ActionMessage } from '../../../../lib/gestion/gmailMenu';
 import { PanneauAffecter } from './PanneauAffecter';
+import { EncartAnnuaire } from './EncartAnnuaire';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 
 /**
@@ -117,7 +118,7 @@ async function marquerLecture(
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null }: {
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, onFicheAnnuaire }: {
   filId: number;
   maintenant: Date;
   onGeste: Rapport;
@@ -159,6 +160,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * la personne cliquer une seconde fois — ce qui n'est pas ce qu'on lui a promis.
    */
   voieInitiale?: VoieRedaction | null;
+  /**
+   * LOT ANNUAIRE-1 — ouvre la fiche d'annuaire d'un expéditeur reconnu. Absent = l'encart s'affiche mais ne mène
+   * nulle part (cas d'une conversation rendue DANS une carte, où l'on ne veut pas quitter la carte d'un clic).
+   */
+  onFicheAnnuaire?: (sorte: 'proprietaire' | 'locataire', id: number) => void;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   const [deplies, setDeplies] = useState<Set<number>>(new Set());
@@ -459,6 +465,13 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           </button>
         </p>
       )}
+
+      {/* LOT ANNUAIRE-1 — QUI NOUS ÉCRIT ? Rapproché par l'ADRESSE des expéditeurs REÇUS (jamais par le nom, jamais
+          sur nos propres envois : se dire « propriétaire de… » à soi-même n'a pas de sens). N'affiche rien quand il
+          n'a rien à dire — annuaire non installé, ou expéditeur inconnu. Aucun effet sur le classement. */}
+      <EncartAnnuaire
+        adresses={messages.filter((m) => m.sens === 'recu').map((m) => m.de)}
+        onFiche={onFicheAnnuaire} />
 
       {affecter && (
         <PanneauAffecter filId={fil.filId} objet={fil.objet ?? undefined}
