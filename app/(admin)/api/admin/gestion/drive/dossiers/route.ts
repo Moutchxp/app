@@ -3,8 +3,7 @@ import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import {
   chercherDossiers, filAriane, listerDossiers, listerDrivesAvecId, listerPartagesAvecMoi,
 } from '../../../../../../lib/gestion/drive';
-import { jetonPourRequete } from '../../../../../../lib/gestion/jetonCollaborateur';
-import { messageEtat } from '../../../../../../lib/gestion/googleCollaborateur';
+import { jetonPourRequete, messageAcces } from '../../../../../../lib/gestion/jetonCollaborateur';
 import { dernierDossierDuFil } from '../../../../../../lib/gestion/driveRepo';
 import { depotsDriveDisponibles } from '../../../../../../lib/gestion/schema';
 
@@ -12,8 +11,9 @@ import { depotsDriveDisponibles } from '../../../../../../lib/gestion/schema';
  * /api/admin/gestion/drive/dossiers — LE SÉLECTEUR DE DOSSIER, servi par l'application.
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * 🔴 LOT 5-PJ-C — LE JETON EST CELUI DU COLLABORATEUR CONNECTÉ. C'est donc Google qui applique SES droits, comme
- * dans drive.google.com : chacun voit ce à quoi il a accès, et rien d'autre. Auparavant un seul jeton partagé
+ * 🔴 LOT 5-PJ-C2 — ON AGIT AU NOM DE L'ADRESSE DE SESSION. Le jeton est obtenu par DÉLÉGATION, pour l'adresse avec
+ * laquelle la personne s'est identifiée à l'interface : ni choix de compte, ni écran Google, ni bouton à cliquer.
+ * C'est donc Google qui applique SES droits, comme dans drive.google.com. Auparavant un seul jeton partagé
  * (`gestion@`) servait tout le monde — tout le monde voyait la même chose, ni plus ni moins que ce compte-là.
  * Aucune liste de droits n'est recopiée chez nous : elle serait fausse dès le lendemain.
  *
@@ -64,13 +64,9 @@ export async function GET(request: Request): Promise<Response> {
 
   const acces = await jetonPourRequete(request);
   if (acces.etat !== 'ok') {
-    // On rend l'ÉTAT de la connexion Google, pas seulement un message : l'écran doit pouvoir proposer le BON geste
-    //   (se connecter, ou se reconnecter), et ces deux-là ne se réparent pas de la même façon.
-    return json({
-      etat: acces.etatCollaborateur.etat,
-      message: messageEtat(acces.etatCollaborateur),
-      detail: acces.motif,
-    });
+    // On rend l'ÉTAT, pas seulement un message : « pas encore configuré par l'administrateur » et « votre adresse
+    //   n'a pas d'accès » ne se réparent pas au même endroit, et l'écran doit pouvoir le dire.
+    return json({ etat: acces.acces.etat, message: messageAcces(acces.acces), detail: acces.motif });
   }
   const T = acces.jeton;
 

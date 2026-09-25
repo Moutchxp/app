@@ -1,5 +1,10 @@
 /**
- * MODULE « GESTION » — LOT 5-PJ-C : LE COFFRE. Chiffrement au repos des jetons Google des collaborateurs.
+ * MODULE « GESTION » — LE COFFRE. Chiffrement au repos des jetons Google individuels (lot 5-PJ-C).
+ *
+ * ⚠️ CE MODULE N'EST PLUS UTILISÉ QUE PAR LA PURGE (lot 5-PJ-C2). Depuis qu'on agit au nom de l'adresse de session
+ * (délégation au niveau du domaine), plus aucun jeton individuel n'est écrit. Il reste ici pour une seule raison,
+ * et elle est bonne : RÉVOQUER un ancien jeton chez Google suppose de pouvoir le DÉCHIFFRER. Le supprimer
+ * aujourd'hui rendrait impossible de fermer une porte qu'on aurait ouverte hier.
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  * 🔴 POURQUOI CHIFFRER, ET POURQUOI ICI. Un jeton de rafraîchissement Google n'expire pas : il donne un accès complet

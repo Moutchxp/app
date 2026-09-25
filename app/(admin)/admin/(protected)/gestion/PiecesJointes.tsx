@@ -57,11 +57,11 @@ export function PiecesJointes({ messageId, filId, vraies, signatures }: {
   const [enCours, setEnCours] = useState(false);
   const [indisponible, setIndisponible] = useState<string | null>(null);
   /**
-   * LOT 5-PJ-C — l'état de la connexion Google DU COLLABORATEUR. `null` tant qu'on ne sait pas ; `connecte` = les
-   * boutons Drive agissent ; tout le reste = on propose le BON geste (se connecter, se reconnecter) plutôt qu'un
-   * bouton qui échouerait au clic.
+   * LOT 5-PJ-C2 — l'état de l'accès Drive. `ok` = les boutons agissent, au nom de l'adresse de session ; tout le
+   * reste = un CONSTAT, jamais un geste à faire. Il n'y a plus rien à connecter : on agit avec l'adresse avec
+   * laquelle la personne s'est déjà identifiée.
    */
-  const [google, setGoogle] = useState<{ etat: string; message: string; email: string | null } | null>(null);
+  const [google, setGoogle] = useState<{ etat: string; message: string; adresse: string | null } | null>(null);
 
   /** Ce qui est DÉJÀ dans le Drive : une requête par message déplié, jamais une par carte. */
   const relireDepots = useCallback(async (): Promise<void> => {
@@ -77,32 +77,17 @@ export function PiecesJointes({ messageId, filId, vraies, signatures }: {
     }
   }, [messageId]);
 
-  /** Où en est MA connexion Google ? Aucune écriture, aucun appel à Google : une simple lecture de notre base. */
+  /** Où en est MON accès Drive ? Aucune écriture, aucun appel à Google : une lecture de la session et de la config. */
   const relireGoogle = useCallback(async (): Promise<void> => {
     try {
       const res = await fetch('/api/admin/gestion/google', { cache: 'no-store' });
-      setGoogle((await res.json()) as { etat: string; message: string; email: string | null });
+      setGoogle((await res.json()) as { etat: string; message: string; adresse: string | null });
     } catch {
       setGoogle(null);
     }
   }, []);
 
   useEffect(() => { void relireDepots(); void relireGoogle(); }, [relireDepots, relireGoogle]);
-
-  /** Ouvre l'écran de consentement de Google. On ne redirige pas nous-mêmes depuis un `fetch` : il serait suivi en
-   *  arrière-plan et la personne ne verrait jamais la page de Google. */
-  const connecterGoogle = async (): Promise<void> => {
-    try {
-      const res = await fetch('/api/admin/gestion/google', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'connecter' }),
-      });
-      const d = (await res.json()) as { etat?: string; url?: string; message?: string };
-      if (d.etat === 'ok' && d.url) window.location.href = d.url;
-      else setResume(d.message ?? 'La connexion Google n’a pas pu démarrer.');
-    } catch {
-      setResume('La connexion Google n’a pas pu démarrer : le serveur n’a pas répondu.');
-    }
-  };
 
   const deposer = async (cible: CibleDepot): Promise<void> => {
     if (demande === null) return;
@@ -135,17 +120,16 @@ export function PiecesJointes({ messageId, filId, vraies, signatures }: {
 
   if (vraies.length === 0 && signatures.length === 0) return null;
   const depotDe = (pieceId: number): DepotAffiche | undefined => depots.find((d) => d.pieceId === pieceId);
-  // Deux raisons DIFFÉRENTES de ne pas proposer le Drive, et deux gestes différents pour les réparer : une migration
-  //   à passer (rien à faire pour l'utilisateur), ou un compte Google à relier (un clic, pour lui).
-  const aConnecter = google !== null && google.etat !== 'connecte' && google.etat !== 'sans_schema';
-  const empeche = indisponible ?? (aConnecter ? google.message : null);
+  // LOT 5-PJ-C2 — il n'y a PLUS AUCUN GESTE à proposer : soit l'accès fonctionne au nom de l'adresse de session,
+  //   soit on DIT pourquoi il ne fonctionne pas. « Pas encore configuré par l'administrateur » et « votre adresse
+  //   n'a pas d'accès » sont des constats, pas des boutons — et le téléchargement, lui, reste toujours disponible.
+  const empeche = indisponible ?? (google !== null && google.etat !== 'ok' ? google.message : null);
 
   return (
     <div className="pj">
       {vraies.length > 0 && (
         <BlocPieces
           messageId={messageId} pieces={vraies} depotDe={depotDe} indisponible={empeche}
-          aConnecter={aConnecter} onConnecter={() => { void connecterGoogle(); }}
           onDrive={(d) => { setDemande(d); setResultats(null); setResume(null); }}
         />
       )}
@@ -157,7 +141,6 @@ export function PiecesJointes({ messageId, filId, vraies, signatures }: {
           </summary>
           <BlocPieces
             messageId={messageId} pieces={signatures} archive={false} depotDe={depotDe} indisponible={empeche}
-            aConnecter={aConnecter} onConnecter={() => { void connecterGoogle(); }}
             onDrive={(d) => { setDemande(d); setResultats(null); setResume(null); }}
           />
         </details>
@@ -198,13 +181,11 @@ export function PiecesJointes({ messageId, filId, vraies, signatures }: {
   );
 }
 
-function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, aConnecter, onConnecter, onDrive }: {
+function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, onDrive }: {
   messageId: number; pieces: PieceAffichee[]; archive?: boolean;
   depotDe: (pieceId: number) => DepotAffiche | undefined;
+  /** `null` = les boutons Drive agissent. Sinon, le MOTIF, affiché tel quel : c'est un constat, pas un geste. */
   indisponible: string | null;
-  /** LOT 5-PJ-C — vrai quand il suffit de relier son compte Google : on propose alors le GESTE, pas un constat. */
-  aConnecter: boolean;
-  onConnecter: () => void;
   onDrive: (d: Demande) => void;
 }) {
   const dispo = pieces.filter((p) => p.disponible);
@@ -235,11 +216,6 @@ function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, 
               <button type="button" className="pj-bouton" onClick={() => onDrive({ quoi: 'message' })}>
                 <span aria-hidden="true">▲</span> Tout ajouter au Drive
               </button>
-            ) : aConnecter ? (
-              // Un geste à faire, pas un constat : le bouton EST la réparation.
-              <button type="button" className="pj-bouton" onClick={onConnecter}>
-                <span aria-hidden="true">▲</span> {indisponible}
-              </button>
             ) : (
               <span className="pj-bouton pj-bouton--muet" role="note">{indisponible}</span>
             )}
@@ -251,7 +227,6 @@ function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, 
         {dispo.map((p) => (
           <CartePiece
             key={p.pieceId} piece={p} depot={depotDe(p.pieceId)} indisponible={indisponible}
-            aConnecter={aConnecter} onConnecter={onConnecter}
             onDrive={() => onDrive({ quoi: 'piece', pieceId: p.pieceId, nom: p.nomFichier })}
           />
         ))}
@@ -280,9 +255,8 @@ function BlocPieces({ messageId, pieces, archive = true, depotDe, indisponible, 
  * `loading="lazy"` + dimensions réservées : vingt pièces ne déclenchent pas vingt requêtes au chargement, et la page
  * ne saute pas quand les images arrivent.
  */
-function CartePiece({ piece: p, depot, indisponible, aConnecter, onConnecter, onDrive }: {
-  piece: PieceAffichee; depot: DepotAffiche | undefined; indisponible: string | null;
-  aConnecter: boolean; onConnecter: () => void; onDrive: () => void;
+function CartePiece({ piece: p, depot, indisponible, onDrive }: {
+  piece: PieceAffichee; depot: DepotAffiche | undefined; indisponible: string | null; onDrive: () => void;
 }) {
   const sorte = sortePiece(p.typeMime, p.nomFichier);
   const [vignetteMorte, setVignetteMorte] = useState(false);
@@ -343,11 +317,6 @@ function CartePiece({ piece: p, depot, indisponible, aConnecter, onConnecter, on
             type="button" className="pj-action" onClick={onDrive}
             aria-label={`Ajouter ${p.nomFichier} au Drive`} title="Ajouter au Drive"
           >
-            <span aria-hidden="true">▲</span>
-          </button>
-        ) : aConnecter ? (
-          // LOT 5-PJ-C — pas connecté à Google : le bouton propose de se connecter, il ne se contente pas de refuser.
-          <button type="button" className="pj-action" onClick={onConnecter} aria-label={indisponible} title={indisponible}>
             <span aria-hidden="true">▲</span>
           </button>
         ) : (

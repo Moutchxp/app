@@ -1,116 +1,167 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const schemaMock = vi.fn();
-const coffreMock = vi.fn();
-const auteurMock = vi.fn();
-const compteMock = vi.fn();
-const rafraichirMock = vi.fn();
-const identifiantsMock = vi.fn();
-const partageMock = vi.fn();
-const noterMock = vi.fn();
+const queryMock = vi.fn();
+const verifierMock = vi.fn();
+const sessionMock = vi.fn();
+const delegationMock = vi.fn();
+const jetonSubjectMock = vi.fn();
+const domainesMock = vi.fn();
 
-vi.mock('./schema', () => ({ comptesGoogleDisponibles: () => schemaMock() }));
-vi.mock('./coffre', () => ({ coffreConfigure: () => coffreMock() }));
-vi.mock('./auteur', () => ({ auteurDeLaRequete: () => auteurMock() }));
-vi.mock('./comptesGoogleRepo', () => ({
-  lireCompteDe: (...a: unknown[]) => compteMock(...a),
-  noterErreurCompte: (...a: unknown[]) => noterMock(...a),
-  lireEmailDe: (...a: unknown[]) => compteMock(...a),
+vi.mock('../db/client', () => ({
+  query: (...a: unknown[]) => queryMock(...a),
+  withTransaction: (fn: (q: (...a: unknown[]) => unknown) => unknown) => fn((...a: unknown[]) => queryMock(...a)),
+  pool: { connect: async () => ({ query: async () => ({ rows: [] }), release: () => {} }) },
 }));
-vi.mock('./google', () => ({
-  lireIdentifiants: () => identifiantsMock(),
-  rafraichirJeton: (...a: unknown[]) => rafraichirMock(...a),
+vi.mock('../admin/session', () => ({
+  NOM_COOKIE: 'svav_admin',
+  verifierJeton: (...a: unknown[]) => verifierMock(...a),
+  sessionDepuisPayload: (...a: unknown[]) => sessionMock(...a),
 }));
-vi.mock('./jetonAcces', () => ({ jetonAccesGestion: () => partageMock() }));
+vi.mock('./compteService', () => ({ delegationConfiguree: () => delegationMock() }));
+vi.mock('./driveDelegue', () => ({ jetonPourSubject: (...a: unknown[]) => jetonSubjectMock(...a) }));
+vi.mock('./comptesGoogleRepo', () => ({ lireDomainesAutorises: () => domainesMock() }));
 
-import { jetonPourRequete } from './jetonCollaborateur';
+import { adresseDuCollaborateur, jetonPourRequete, messageAcces } from './jetonCollaborateur';
 
-const REQ = new Request('http://x/y');
+/** Une requête AVEC session. Aucune ne porte d'adresse : c'est justement ce que les tests vérifient. */
+const requete = (url = 'http://x/api/admin/gestion/drive/dossiers'): Request =>
+  new Request(url, { headers: { cookie: 'svav_admin=jeton-signe' } });
 
 beforeEach(() => {
-  for (const m of [schemaMock, coffreMock, auteurMock, compteMock, rafraichirMock, identifiantsMock, partageMock, noterMock]) m.mockReset();
-  schemaMock.mockResolvedValue(true);
-  coffreMock.mockReturnValue(true);
-  auteurMock.mockResolvedValue({ id: 7, libelle: 'Arnaud Jorel' });
-  identifiantsMock.mockReturnValue({ clientId: 'c', clientSecret: 's', source: 'drive' });
-  compteMock.mockResolvedValue({ utilisateurId: 7, email: 'a.jorel@criterimmo.fr', refreshToken: '1//r', derniereErreur: null });
-  rafraichirMock.mockResolvedValue({ ok: true, valeur: 'ACCES' });
-  partageMock.mockResolvedValue({ etat: 'ok', jeton: 'PARTAGE' });
+  for (const m of [queryMock, verifierMock, sessionMock, delegationMock, jetonSubjectMock, domainesMock]) m.mockReset();
+  verifierMock.mockResolvedValue({ sub: '2' });
+  sessionMock.mockReturnValue({ sub: 2, identifiant: 'a.jorel@sansvisavis.com', role: 'administrateur' });
+  queryMock.mockResolvedValue({ rows: [{ identifiant: 'a.jorel@sansvisavis.com', actif: true }] });
+  delegationMock.mockReturnValue(true);
+  jetonSubjectMock.mockResolvedValue({ ok: true, jeton: 'ACCES' });
+  domainesMock.mockResolvedValue('criterimmo.fr,sansvisavis.com');
 });
 
-describe('le jeton employé', () => {
-  /** 🔴 LE CŒUR DU LOT : c'est le jeton DU COLLABORATEUR qui sert, donc ce sont SES droits que Google applique. */
-  it('collaborateur connecté → SON jeton, et SON adresse pour le journal', async () => {
-    const r = await jetonPourRequete(REQ);
-    expect(r).toEqual({ etat: 'ok', jeton: 'ACCES', compteGoogle: 'a.jorel@criterimmo.fr', source: 'collaborateur' });
+describe('l’adresse au nom de laquelle on agit', () => {
+  it('vient de la session, relue en base', async () => {
+    expect(await adresseDuCollaborateur(requete())).toEqual({ etat: 'ok', adresse: 'a.jorel@sansvisavis.com' });
+    // Relue en base, et par l'IDENTIFIANT du compte de session — jamais par autre chose.
+    expect(queryMock.mock.calls[0][1]).toEqual([2]);
   });
 
   /**
-   * Tant que la migration 246 n'est pas appliquée, le comportement est EXACTEMENT celui d'avant : on ne retire
-   * aucune fonction en attendant qu'Arno passe la migration.
+   * 🔴 LE TEST QUI TIENT LA SERRURE DU LOT. La délégation au niveau du domaine est un pouvoir d'usurpation
+   * d'identité sur tout le domaine : si une adresse venue du navigateur pouvait devenir le `subject`, n'importe qui
+   * agirait au nom de n'importe qui. Les paramètres, le corps et les en-têtes sont IGNORÉS, et ils doivent le rester.
    */
-  it('migration absente → comportement d’AVANT, avec le compte partagé', async () => {
-    schemaMock.mockResolvedValue(false);
-    const r = await jetonPourRequete(REQ);
-    expect(r).toMatchObject({ etat: 'ok', jeton: 'PARTAGE', source: 'compte_partage' });
-    expect(compteMock).not.toHaveBeenCalled();
+  it('un paramètre d’URL qui souffle une autre adresse est IGNORÉ', async () => {
+    const r = await adresseDuCollaborateur(
+      requete('http://x/api/admin/gestion/drive/dossiers?subject=patron@sansvisavis.com&email=autre@criterimmo.fr'));
+    expect(r).toEqual({ etat: 'ok', adresse: 'a.jorel@sansvisavis.com' });
   });
 
-  it('migration absente ET compte partagé injoignable → refus, sans prétendre', async () => {
-    schemaMock.mockResolvedValue(false);
-    partageMock.mockResolvedValue({ etat: 'non_connecte', motif: 'pas autorisé' });
-    const r = await jetonPourRequete(REQ);
-    expect(r.etat).toBe('refus');
+  it('un en-tête qui souffle une autre adresse est IGNORÉ', async () => {
+    const req = new Request('http://x/y', {
+      headers: { cookie: 'svav_admin=jeton-signe', 'x-subject': 'patron@sansvisavis.com', from: 'autre@criterimmo.fr' },
+    });
+    expect(await adresseDuCollaborateur(req)).toEqual({ etat: 'ok', adresse: 'a.jorel@sansvisavis.com' });
+  });
+
+  it('l’adresse est ramenée en minuscules — c’est elle qui sert de subject', async () => {
+    queryMock.mockResolvedValue({ rows: [{ identifiant: 'A.Jorel@SansVisAVis.com', actif: true }] });
+    expect(await adresseDuCollaborateur(requete())).toEqual({ etat: 'ok', adresse: 'a.jorel@sansvisavis.com' });
   });
 });
 
-describe('les refus, et le geste qu’ils appellent', () => {
-  /** On n'offre pas de relier un compte si l'on ne saurait pas relire le jeton demain. */
-  it('coffre non configuré → on ne propose PAS de connexion', async () => {
-    coffreMock.mockReturnValue(false);
-    const r = await jetonPourRequete(REQ);
+describe('les refus, et ce qu’ils disent', () => {
+  it('aucune session → on ne sait pas au nom de qui ouvrir', async () => {
+    verifierMock.mockResolvedValue(null);
+    const r = await adresseDuCollaborateur(new Request('http://x/y'));
+    expect(r.etat).toBe('sans_adresse');
+  });
+
+  /** Voie de secours (mot de passe partagé) : aucune identité personnelle, donc aucun Drive personnel. */
+  it('accès de secours → pas d’adresse professionnelle, et c’est dit sans dramatiser', async () => {
+    sessionMock.mockReturnValue({ sub: null, identifiant: null, role: 'administrateur' });
+    const r = await adresseDuCollaborateur(requete());
+    expect(r.etat).toBe('sans_adresse');
+    if (r.etat === 'sans_adresse') expect(r.motif).toContain('n’est rattaché à aucune adresse');
+    expect(queryMock).not.toHaveBeenCalled();
+  });
+
+  it('compte désactivé entre-temps → refus (la base fait foi, pas la session)', async () => {
+    queryMock.mockResolvedValue({ rows: [{ identifiant: 'a.jorel@sansvisavis.com', actif: false }] });
+    expect((await adresseDuCollaborateur(requete())).etat).toBe('sans_adresse');
+  });
+
+  it('identifiant qui n’est pas une adresse → refus lisible', async () => {
+    queryMock.mockResolvedValue({ rows: [{ identifiant: 'arnaud', actif: true }] });
+    const r = await adresseDuCollaborateur(requete());
+    expect(r.etat).toBe('sans_adresse');
+    if (r.etat === 'sans_adresse') expect(r.motif).toContain('adresse professionnelle');
+  });
+
+  /** Le domaine est un RÉGLAGE (lot 5-PJ-C) : un identifiant hors entreprise ne part pas en délégation. */
+  it('domaine hors entreprise → refusé, et le message DIT les domaines acceptés', async () => {
+    queryMock.mockResolvedValue({ rows: [{ identifiant: 'moi@gmail.com', actif: true }] });
+    const r = await adresseDuCollaborateur(requete());
+    expect(r.etat).toBe('sans_adresse');
+    if (r.etat === 'sans_adresse') {
+      expect(r.motif).toContain('criterimmo.fr');
+      expect(r.motif).toContain('sansvisavis.com');
+    }
+  });
+
+  it('aucun domaine configuré → on ne bloque pas sur le domaine (Google tranchera)', async () => {
+    domainesMock.mockResolvedValue('');
+    expect((await adresseDuCollaborateur(requete())).etat).toBe('ok');
+  });
+});
+
+describe('le jeton de la requête', () => {
+  it('est demandé POUR l’adresse de session, et rend cette adresse pour le journal', async () => {
+    const r = await jetonPourRequete(requete());
+    expect(r).toEqual({ etat: 'ok', jeton: 'ACCES', compteGoogle: 'a.jorel@sansvisavis.com' });
+    expect(jetonSubjectMock.mock.calls[0][0]).toBe('a.jorel@sansvisavis.com');
+  });
+
+  /** L'administrateur n'a pas fini : ce n'est pas la faute de l'utilisateur, et le message ne le lui reproche pas. */
+  it('clé du compte de service absente → « pas encore configuré », sans appeler Google', async () => {
+    delegationMock.mockReturnValue(false);
+    const r = await jetonPourRequete(requete());
     expect(r.etat).toBe('refus');
-    if (r.etat === 'refus') expect(r.etatCollaborateur.etat).toBe('coffre_absent');
+    if (r.etat === 'refus') expect(r.acces.etat).toBe('non_configure');
+    expect(jetonSubjectMock).not.toHaveBeenCalled();
   });
 
-  it('aucun compte relié → « jamais connecté », donc un bouton de connexion', async () => {
-    compteMock.mockResolvedValue(null);
-    const r = await jetonPourRequete(REQ);
-    if (r.etat === 'refus') expect(r.etatCollaborateur.etat).toBe('jamais');
+  it('délégation non déclarée côté Google → « pas encore configuré »', async () => {
+    jetonSubjectMock.mockResolvedValue({ ok: false, cause: 'non_configure', motif: 'Drive pas encore configuré par l’administrateur.' });
+    const r = await jetonPourRequete(requete());
+    if (r.etat === 'refus') expect(r.acces.etat).toBe('non_configure');
   });
 
-  /** Voie de secours (mot de passe partagé) : aucune identité personnelle, donc aucun compte Google personnel. */
-  it('accès de secours (sans identité) → aucun compte personnel possible', async () => {
-    auteurMock.mockResolvedValue({ id: null, libelle: 'accès de secours' });
-    const r = await jetonPourRequete(REQ);
-    if (r.etat === 'refus') expect(r.etatCollaborateur.etat).toBe('jamais');
-  });
-
-  /**
-   * 🔴 « JAMAIS CONNECTÉ » ET « EXPIRÉ » NE SE RÉPARENT PAS PAREIL. Le second doit proposer de REFAIRE
-   * l'autorisation, et le refus doit être NOTÉ pour que la fois suivante le dise tout de suite.
-   */
-  it('jeton refusé par Google → « à reconnecter », et le refus est NOTÉ', async () => {
-    rafraichirMock.mockResolvedValue({ ok: false, motif: 'Jeton refusé par Google (invalid_grant).' });
-    const r = await jetonPourRequete(REQ);
+  it('compte inconnu ou suspendu dans l’organisation → « sans accès », avec le motif de Google', async () => {
+    jetonSubjectMock.mockResolvedValue({ ok: false, cause: 'refus', motif: 'Votre adresse n’a pas d’accès Drive dans l’organisation.' });
+    const r = await jetonPourRequete(requete());
     expect(r.etat).toBe('refus');
     if (r.etat === 'refus') {
-      expect(r.etatCollaborateur.etat).toBe('a_reconnecter');
-      expect(r.etatCollaborateur).toMatchObject({ email: 'a.jorel@criterimmo.fr' });
+      expect(r.acces.etat).toBe('sans_acces');
+      expect(r.motif).toContain('pas d’accès Drive');
     }
-    expect(noterMock).toHaveBeenCalledWith(7, expect.stringContaining('invalid_grant'));
   });
 
-  it('jeton illisible en base (clé changée) → « à reconnecter », sans appeler Google', async () => {
-    compteMock.mockResolvedValue({ utilisateurId: 7, email: 'a@criterimmo.fr', refreshToken: '', derniereErreur: 'clé changée' });
-    const r = await jetonPourRequete(REQ);
-    if (r.etat === 'refus') expect(r.etatCollaborateur.etat).toBe('a_reconnecter');
-    expect(rafraichirMock).not.toHaveBeenCalled();
+  it('adresse refusée en amont → on ne demande AUCUN jeton', async () => {
+    queryMock.mockResolvedValue({ rows: [{ identifiant: 'moi@gmail.com', actif: true }] });
+    await jetonPourRequete(requete());
+    expect(jetonSubjectMock).not.toHaveBeenCalled();
   });
+});
 
-  it('Google injoignable → « à reconnecter », jamais une exception qui remonte à l’écran', async () => {
-    rafraichirMock.mockRejectedValue(new Error('réseau'));
-    const r = await jetonPourRequete(REQ);
-    expect(r.etat).toBe('refus');
+describe('les messages affichés', () => {
+  it('chaque état a le sien, et aucun ne demande un geste à l’utilisateur', () => {
+    expect(messageAcces({ etat: 'ok', adresse: 'a@b.fr' })).toContain('a@b.fr');
+    expect(messageAcces({ etat: 'non_configure', motif: 'Drive pas encore configuré par l’administrateur.' }))
+      .toBe('Drive pas encore configuré par l’administrateur.');
+    expect(messageAcces({ etat: 'sans_acces', motif: 'Votre adresse n’a pas d’accès Drive dans l’organisation.' }))
+      .toContain('pas d’accès Drive');
+    // Plus aucun « Connecter mon Google Drive » : le lot 5-PJ-C2 a retiré ce parcours, sur décision d'Arno.
+    for (const e of ['non_configure', 'sans_acces'] as const) {
+      expect(messageAcces({ etat: e, motif: 'x' })).not.toContain('Connecter');
+    }
   });
 });

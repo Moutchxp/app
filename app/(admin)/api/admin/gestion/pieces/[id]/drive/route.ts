@@ -3,8 +3,7 @@ import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import { depsReellesDepot } from '../../../../../../../lib/gestion/depotDriveReel';
 import { deposerPieces, resumerDepot } from '../../../../../../../lib/gestion/depotDrive';
-import { jetonPourRequete } from '../../../../../../../lib/gestion/jetonCollaborateur';
-import { messageEtat } from '../../../../../../../lib/gestion/googleCollaborateur';
+import { jetonPourRequete, messageAcces } from '../../../../../../../lib/gestion/jetonCollaborateur';
 import { depotsDriveDisponibles } from '../../../../../../../lib/gestion/schema';
 
 /**
@@ -51,7 +50,9 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
   //   fichier lui appartient. Un collaborateur non connecté se voit proposer la connexion, jamais une erreur.
   const acces = await jetonPourRequete(request);
   if (acces.etat !== 'ok') {
-    return json({ etat: acces.etatCollaborateur.etat, message: messageEtat(acces.etatCollaborateur), detail: acces.motif }, 409);
+    // LOT 5-PJ-C2 — aucun geste n'est proposé : soit l'administrateur doit finir la configuration, soit cette
+    //   adresse n'a pas d'accès Drive dans l'organisation. Dans les deux cas, un message clair, non technique.
+    return json({ etat: acces.acces.etat, message: messageAcces(acces.acces), detail: acces.motif }, 409);
   }
 
   try {

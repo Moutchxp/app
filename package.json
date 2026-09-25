@@ -82,7 +82,9 @@
     "demo:reponse:supprimer": "tsx app/scripts/demo-reponse.ts supprimer",
     "gestion:relever-continu": "tsx app/scripts/relever-gestion-continu.ts",
     "gestion:google:autoriser": "tsx app/scripts/gestion-google-autoriser.ts",
-    "gestion:google:verifier": "tsx app/scripts/gestion-google-verifier.ts"
+    "gestion:google:verifier": "tsx app/scripts/gestion-google-verifier.ts",
+    "gestion:purger-jetons-google": "tsx app/scripts/purger-jetons-google.ts",
+    "gestion:drive:verifier": "tsx app/scripts/verifier-delegation-drive.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",
