@@ -187,18 +187,18 @@ async function principal(): Promise<void> {
     ['sa seule FIN', fin],
   ] as const) {
     const r = await rechercher(analyserTerme(terme));
-    verifier(`par téléphone — ${quoi}`, r.etat === 'ok' && r.data.length > 0);
+    verifier(`par téléphone — ${quoi}`, r.etat === 'ok' && r.data.lignes.length > 0);
   }
   const parMail = await rechercher(analyserTerme(e.mail.toUpperCase()));
-  verifier('par e-mail, même tapé en MAJUSCULES', parMail.etat === 'ok' && parMail.data.length > 0);
+  verifier('par e-mail, même tapé en MAJUSCULES', parMail.etat === 'ok' && parMail.data.lignes.length > 0);
 
   const sansAccent = e.adresse.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase();
   const parAdresse = await rechercher(analyserTerme(sansAccent));
-  verifier('par adresse, sans accent et en majuscules', parAdresse.etat === 'ok' && parAdresse.data.length > 0);
+  verifier('par adresse, sans accent et en majuscules', parAdresse.etat === 'ok' && parAdresse.data.lignes.length > 0);
   const parCommune = await rechercher(analyserTerme(e.commune));
-  verifier('par commune', parCommune.etat === 'ok' && parCommune.data.length > 0);
+  verifier('par commune', parCommune.etat === 'ok' && parCommune.data.lignes.length > 0);
   const parLot = await rechercher(analyserTerme(e.lot));
-  verifier('par numéro de lot', parLot.etat === 'ok' && parLot.data.some((x) => x.lotNumero === e.lot));
+  verifier('par numéro de lot', parLot.etat === 'ok' && parLot.data.lignes.some((x) => x.lotNumero === e.lot));
 
   // ── ⑧ LES TROIS FICHES ─────────────────────────────────────────────────────────────────────────────────────────
   console.log('\n⑧ les trois fiches se tiennent');

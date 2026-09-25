@@ -38,7 +38,7 @@ type Reponse =
   | { etat: 'charge' }
   | { etat: 'sans_schema' }
   | { etat: 'erreur'; message: string }
-  | { etat: 'ok'; lignes: LigneResultat[]; importe: { le: string } | null };
+  | { etat: 'ok'; lignes: LigneResultat[]; tronque: boolean; importe: { le: string } | null };
 
 type Fiche =
   | { etat: 'charge' }
@@ -73,11 +73,15 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire }: {
       void (async () => {
         try {
           const res = await fetch(`/api/admin/gestion/annuaire?q=${encodeURIComponent(t)}`, { cache: 'no-store' });
-          const d = (await res.json()) as { etat?: string; data?: LigneResultat[]; importe?: { le: string } | null };
+          const d = (await res.json()) as {
+            etat?: string; data?: { lignes?: LigneResultat[]; tronque?: boolean }; importe?: { le: string } | null;
+          };
           if (!vivant) return;
           if (d.etat === 'sans_schema') { setReponse({ etat: 'sans_schema' }); return; }
           if (d.etat !== 'ok') { setReponse({ etat: 'erreur', message: 'La recherche n’a pas abouti.' }); return; }
-          setReponse({ etat: 'ok', lignes: d.data ?? [], importe: d.importe ?? null });
+          setReponse({
+            etat: 'ok', lignes: d.data?.lignes ?? [], tronque: d.data?.tronque === true, importe: d.importe ?? null,
+          });
         } catch {
           if (vivant) setReponse({ etat: 'erreur', message: 'La recherche n’a pas abouti : le serveur n’a pas répondu.' });
         }
@@ -182,8 +186,17 @@ function Resultats({ reponse, terme, ouvrir }: {
   }
   return (
     <>
+      {/* 🔴 UNE LISTE COUPÉE LE DIT. Mesuré le 26/09/2026 sur la vraie base : « puvis » correspond à 76 logements,
+          l'écran en montrait 60 et annonçait « 60 résultats » — 16 disparaissaient sans un mot. C'est exactement ce
+          que le module s'interdit ailleurs (la fenêtre de 30 jours de la file annonce ce qu'elle laisse de côté). */}
       <p className="ann-compte" role="status">
-        {reponse.lignes.length} résultat{reponse.lignes.length > 1 ? 's' : ''}
+        {reponse.tronque
+          ? <>
+            <strong>{reponse.lignes.length} premiers résultats</strong>
+            {' — d’autres correspondent. Précisez votre recherche (une adresse plus complète, une commune, '}
+            {'un nom) pour tous les voir.'}
+          </>
+          : <>{reponse.lignes.length} résultat{reponse.lignes.length > 1 ? 's' : ''}</>}
         {reponse.importe && <> · annuaire importé le {formaterDateIso(reponse.importe.le)}</>}
       </p>
       <ul className="ann-liste">

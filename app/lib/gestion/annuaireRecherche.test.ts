@@ -171,4 +171,25 @@ describe('garanties statiques de l’écran « Annuaire »', () => {
     expect(src).toContain('sans_schema');
     expect(src).toContain('n’est pas encore installé');
   });
+
+  /**
+   * 🔴 CORRECTIF DU 26/09/2026, mesuré à l'écran sur la vraie base : chercher « puvis » correspond à 76 logements,
+   * l'écran en montrait 60 et annonçait « 60 résultats » — 16 disparaissaient sans un mot. Une liste coupée qui ne
+   * le dit pas est un mensonge, et c'est précisément ce que le module s'interdit ailleurs (la fenêtre de 30 jours
+   * de la file annonce ce qu'elle laisse de côté).
+   */
+  it('🔴 une liste COUPÉE le dit, et dit quoi faire pour voir le reste', () => {
+    expect(src).toContain('reponse.tronque');
+    expect(src).toContain('premiers résultats');
+    expect(src).toContain('d’autres correspondent');
+    expect(src).toContain('Précisez votre recherche');
+  });
+
+  it('le dépôt demande UNE ligne de plus que le plafond — c’est elle qui révèle qu’il y en a d’autres', () => {
+    const repo = readFileSync('app/lib/gestion/annuaireRepo.ts', 'utf8');
+    expect(repo).toContain('PLAFOND_RESULTATS + 1');
+    expect(repo).toContain('rows.length > PLAFOND_RESULTATS');
+    // La ligne en trop ne doit JAMAIS être rendue : elle ne sert qu'à compter.
+    expect(repo).toContain('rows.slice(0, PLAFOND_RESULTATS)');
+  });
 });

@@ -449,6 +449,20 @@ export type IssueLecture<T> = { etat: 'ok'; data: T } | { etat: 'sans_schema' } 
 export const PLAFOND_RESULTATS = 60;
 
 /**
+ * Ce qu'une recherche rend : ses lignes, et SI ELLE A ÉTÉ COUPÉE.
+ *
+ * 🔴 CORRECTIF DU 26/09/2026, mesuré à l'écran sur la vraie base : chercher « puvis » ramenait 76 logements, l'écran
+ * en montrait 60 et annonçait « 60 résultats » — 16 disparaissaient sans un mot. C'est exactement ce que le module
+ * s'interdit ailleurs (la fenêtre de 30 jours de la file DIT combien d'échanges elle laisse de côté). On demande
+ * donc UNE ligne de plus que le plafond : si elle arrive, c'est qu'il y en a d'autres, et on le dit.
+ */
+export interface Resultats {
+  lignes: LigneResultat[];
+  /** Vrai quand d'autres lignes correspondent sans être rendues. L'écran l'écrit en toutes lettres. */
+  tronque: boolean;
+}
+
+/**
  * LA RECHERCHE, GROUPÉE PAR LOGEMENT.
  *
  * 🔴 LE LOGEMENT EST L'UNITÉ DE RÉPONSE, parce que c'est la question posée : « qui est qui par rapport à un
@@ -460,13 +474,14 @@ export const PLAFOND_RESULTATS = 60;
  * lot hors gestion). Il est rendu avec `lotId = null` plutôt que passé sous silence — sinon chercher son nom ne
  * donnerait rien alors qu'il est bien dans l'annuaire.
  */
-export async function rechercher(t: TermeRecherche): Promise<IssueLecture<LigneResultat[]>> {
+export async function rechercher(t: TermeRecherche): Promise<IssueLecture<Resultats>> {
   if (!(await annuaireDisponible())) return { etat: 'sans_schema' };
-  if (t.vide) return { etat: 'ok', data: [] };
+  if (t.vide) return { etat: 'ok', data: { lignes: [], tronque: false } };
 
   const motif = `%${t.texte}%`;
   const chiffres = t.chiffres === null ? null : `%${t.chiffres}`;
-  const params = [motif, t.telephone, chiffres, t.email, t.numeroLot, PLAFOND_RESULTATS];
+  // UNE ligne de plus que le plafond : sa présence — et elle seule — dit qu'il y en a d'autres.
+  const params = [motif, t.telephone, chiffres, t.email, t.numeroLot, PLAFOND_RESULTATS + 1];
 
   const { rows } = await query<{
     lot_id: string | null; lot_numero: string | null; adresse: string | null; commune: string | null;
@@ -539,19 +554,23 @@ export async function rechercher(t: TermeRecherche): Promise<IssueLecture<LigneR
      ORDER BY 4 NULLS LAST, 3 NULLS LAST, 8
      LIMIT $6`, params);
 
+  const tronque = rows.length > PLAFOND_RESULTATS;
   return {
     etat: 'ok',
-    data: rows.map((r) => ({
-      lotId: r.lot_id === null ? null : Number(r.lot_id),
-      lotNumero: r.lot_numero,
-      adresse: r.adresse, commune: r.commune, nature: r.nature, typeBien: r.type_bien,
-      proprietaireId: r.proprietaire_id === null ? null : Number(r.proprietaire_id),
-      proprietaireNom: r.proprietaire_nom,
-      locataireId: r.locataire_id === null ? null : Number(r.locataire_id),
-      locataireNom: r.locataire_nom,
-      locataireDepuis: r.locataire_depuis,
-      absent: r.absent,
-    })),
+    data: {
+      tronque,
+      lignes: rows.slice(0, PLAFOND_RESULTATS).map((r) => ({
+        lotId: r.lot_id === null ? null : Number(r.lot_id),
+        lotNumero: r.lot_numero,
+        adresse: r.adresse, commune: r.commune, nature: r.nature, typeBien: r.type_bien,
+        proprietaireId: r.proprietaire_id === null ? null : Number(r.proprietaire_id),
+        proprietaireNom: r.proprietaire_nom,
+        locataireId: r.locataire_id === null ? null : Number(r.locataire_id),
+        locataireNom: r.locataire_nom,
+        locataireDepuis: r.locataire_depuis,
+        absent: r.absent,
+      })),
+    },
   };
 }
 
