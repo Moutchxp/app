@@ -1,4 +1,17 @@
 /**
+ * ⚠️⚠️ CE MODULE N'EST PLUS BRANCHÉ À L'ÉCRAN — LOT 5-BOITE-2, 25/09/2026. ⚠️⚠️
+ *
+ * Arno a tranché : il n'y a qu'UN SEUL lu/non lu, celui de GMAIL, commun à toute l'équipe (voir `lectureGmail.ts`).
+ * L'état personnel décrit ci-dessous a donc cessé d'alimenter le gras, le compteur et le menu.
+ *
+ * IL EST CONSERVÉ, ET RIEN N'EST SUPPRIMÉ : ni ce fichier, ni la table `gestion_message_lu`, ni la migration 250.
+ * D'abord parce que retirer une fonctionnalité livrée se demande, et que ça n'a pas été demandé ; ensuite parce que
+ * l'option « état personnel » reste la seule qui permette à deux personnes de se répartir le courrier sans que l'une
+ * éteigne le gras de l'autre — si l'usage montre que le partage commun gêne, tout est là pour y revenir.
+ * La table est vide (0 ligne mesurée) et ne coûte rien.
+ *
+ * ── ce qui suit décrit le module tel qu'il a été livré le matin du 25/09 ─────────────────────────────────────────
+ *
  * MODULE « GESTION » — LOT 5-BOITE : LU / NON LU, PAR COLLABORATEUR ET PAR MESSAGE.
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════

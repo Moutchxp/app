@@ -13,6 +13,16 @@ const lireBoiteMail = vi.fn();
 const comptesBoite = vi.fn();
 const lirePartenairesInternes = vi.fn();
 const chargerConfigGestion = vi.fn();
+/**
+ * 🔴 LOT 5-BOITE-2 — CE MOCK N'EST PAS DÉCORATIF : SANS LUI, CE TEST APPELLE LE VRAI GMAIL.
+ *
+ * La route lit désormais le lu/non lu dans la boîte Gmail de gestion@. Sans doublure, `npx vitest` rafraîchit un
+ * VRAI jeton OAuth puis interroge l'API Gmail — mesuré le 25/09/2026 : la suite complète est passée de 13 s à plus
+ * de dix minutes, et chaque exécution consommait du quota Google. Les appels en cause étaient en lecture
+ * (`messages.list`, `messages.get`), donc rien n'a été modifié dans la boîte — mais une suite de tests qui sort sur
+ * le réseau est une suite qui ment : elle rougit quand Google est lent, et elle verdit pour de mauvaises raisons.
+ */
+const nonLusGmail = vi.fn();
 
 vi.mock('../../../../../lib/admin/garde', () => ({ exigerCompteActif: (...a: unknown[]) => exigerCompteActif(...a) }));
 vi.mock('../../../../../lib/gestion/boiteRepo', () => ({
@@ -26,6 +36,10 @@ vi.mock('../../../../../lib/gestion/partenaires', () => ({
 vi.mock('../../../../../lib/gestion/config', () => ({
   chargerConfigGestion: (...a: unknown[]) => chargerConfigGestion(...a),
 }));
+vi.mock('../../../../../lib/gestion/lectureGmailReel', () => ({
+  depsNonLusGmail: () => ({}),
+  nonLusGmail: (...a: unknown[]) => nonLusGmail(...a),
+}));
 
 import { GET } from './route';
 
@@ -37,6 +51,7 @@ beforeEach(() => {
   lireBoiteMail.mockReset().mockResolvedValue(page);
   comptesBoite.mockReset().mockResolvedValue({ lisibles: 4944, automatiques: 12262 });
   lirePartenairesInternes.mockReset().mockResolvedValue([]);
+  nonLusGmail.mockReset().mockResolvedValue({ fils: new Set(), total: 0, complet: true, disponible: true });
   // 45 et non 30 : une valeur DIFFÉRENTE du repli du code, sinon le test passerait même si la base n'était pas lue.
   chargerConfigGestion.mockReset().mockResolvedValue({ fenetreActiviteJours: 45 });
 });

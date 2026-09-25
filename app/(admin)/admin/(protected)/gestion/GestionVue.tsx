@@ -90,7 +90,20 @@ export function GestionVue({ intro }: {
    * calculé pour MA session). `null` = on ne sait pas encore, ou le suivi de lecture n'est pas disponible : on
    * n'affiche alors rien, plutôt qu'un « 0 » qui ressemblerait à une bonne nouvelle.
    */
-  const [nonLus, setNonLus] = useState<number | null>(null);
+  const [nonLus, setNonLus] = useState<{ n: number | null; partiel: boolean }>({ n: null, partiel: false });
+  /**
+   * 🔴 STABLE, ET ON NE REMPLACE L'ÉTAT QUE S'IL CHANGE VRAIMENT. Deux pièges se referment ici, et ils s'étaient
+   * refermés en test (rendu en boucle, suite bloquée) :
+   *   ① une fonction recréée à chaque rendu est une NOUVELLE dépendance pour l'effet de la liste, qui la rappelle,
+   *      ce qui refait un rendu — d'où le `useCallback` sans dépendance ;
+   *   ② `setNonLus({ … })` fabrique un objet NEUF même quand les valeurs sont identiques, donc un nouveau rendu à
+   *      chaque appel. On rend la MÊME référence quand rien n'a bougé : c'est ce qui arrête la boucle pour de bon.
+   */
+  const majNonLus = useCallback((n: number | null, partiel?: boolean) => {
+    setNonLus((avant) => (avant.n === n && avant.partiel === (partiel === true)
+      ? avant
+      : { n, partiel: partiel === true }));
+  }, []);
   /**
    * LOT 5e — CE QUE L'ÉCRAN SAIT DE LA RÉDACTION : base à jour ? droit d'envoyer ? connexion Google ? quelle
    * signature, quel délai d'annulation. `null` = pas encore demandé. Chargé au montage, une seule fois : ces
@@ -301,7 +314,7 @@ export function GestionVue({ intro }: {
       }} />
   ));
 
-  const etiquettes = etiquettesDeLEcran(d, comptesBoite, brouillonsTotal, nonLus);
+  const etiquettes = etiquettesDeLEcran(d, comptesBoite, brouillonsTotal, nonLus.n, nonLus.partiel);
   // LOT 5-VEILLE — l'état de la relève AUTOMATIQUE, calculé ici pour être rendu à l'identique dans les trois écrans.
   //   `ref` est l'instant de rendu déjà utilisé par le reste du bandeau : une seule horloge, aucun écart entre deux
   //   phrases voisines. Le repli couvre une réponse d'API plus ancienne que ce lot — l'écran ne doit jamais tomber
@@ -364,7 +377,7 @@ export function GestionVue({ intro }: {
       {ecran === 'boite' ? (
         <PleinEcranBoite
           etiquette={etiquette} etiquettes={etiquettes} filOuvert={filOuvert} maintenant={ref}
-          auto={auto} onAuto={setAuto} onNonLus={setNonLus}
+          auto={auto} onAuto={setAuto} onNonLus={majNonLus}
           onEtiquette={(e) => { setPanneau(null); aller({ ...etatUrl, etiquette: e, filOuvert: null }); }}
           onOuvrir={(id) => aller({ ...etatUrl, filOuvert: id })}
           onFermerFil={() => aller({ ...etatUrl, filOuvert: null })}
@@ -500,6 +513,7 @@ export function etiquettesDeLEcran(
   d: EtatEcran, comptes: { lisibles: number; automatiques: number; envoyes: number; reception?: number } | null,
   brouillons: number | null = null,
   nonLus: number | null = null,
+  nonLusPartiel = false,
 ): EtiquetteAffichee[] {
   return [
     { etiquette: { sorte: 'a_classer', evenementId: null }, libelle: 'À classer', compte: d.filsTotal },
@@ -507,7 +521,7 @@ export function etiquettesDeLEcran(
     //   exactement comme son filtre. `reception` absent = réponse d'API plus ancienne que ce lot ⇒ ancien compte.
     {
       etiquette: ETIQUETTE_RECEPTION, libelle: 'Réception',
-      compte: comptes?.reception ?? comptes?.lisibles ?? null, nonLus,
+      compte: comptes?.reception ?? comptes?.lisibles ?? null, nonLus, nonLusPartiel,
     },
     { etiquette: { sorte: 'envoyes', evenementId: null }, libelle: 'Envoyés', compte: comptes?.envoyes ?? null },
     { etiquette: { sorte: 'sans_suite', evenementId: null }, libelle: 'Sans suite', compte: d.sansSuiteTotal },

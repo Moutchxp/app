@@ -1,25 +1,27 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
-import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
-import { marquerFil } from '../../../../../../../lib/gestion/lectureRepo';
+import { depsMarquageGmail, marquerFilGmail } from '../../../../../../../lib/gestion/lectureGmailReel';
 
 /**
- * POST /api/admin/gestion/fils/[id]/lecture (lot 5-BOITE) — MARQUER UN ÉCHANGE LU, OU NON LU, POUR MOI.
+ * POST /api/admin/gestion/fils/[id]/lecture (lot 5-BOITE-2) — MARQUER UN ÉCHANGE LU, OU NON LU, DANS GMAIL.
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * 🔴 « POUR MOI », ET L'IDENTITÉ VIENT DE LA SESSION — jamais du corps de la requête. Accepter un identifiant envoyé
- * par le navigateur permettrait de marquer lu le courrier de quelqu'un d'autre, c'est-à-dire de le lui faire
- * disparaître du gras sans qu'il l'ait ouvert.
+ * 🔴 UN SEUL ÉTAT, COMMUN À L'ÉQUIPE — choix d'Arno du 25/09/2026. Ce geste écrit donc DANS LA VRAIE BOÎTE : lire un
+ * échange ici le marque lu dans Gmail, sur tous les téléphones de l'équipe. C'est la conséquence assumée du choix ;
+ * l'alternative (un état personnel en base) existait et a été écartée.
  *
- * 🔴 IDEMPOTENT. La vue conversation appelle cette route à CHAQUE ouverture d'échange : elle doit pouvoir être
- * rejouée mille fois sans produire ni doublon, ni erreur, ni ligne de journal. C'est `ON CONFLICT … DO UPDATE` qui
- * le tient, en base (cf. `lectureRepo`).
+ * 🔴 SUR LE FIL GMAIL, ET EN UN APPEL. Un échange de dix messages demanderait vingt appels message par message ; le
+ * fil se retrouve à partir d'un seul message et se modifie d'un coup. C'est aussi ce que fait Gmail lui-même quand
+ * on marque une conversation non lue depuis une liste.
  *
- * 🔒 SEULS LES MESSAGES REÇUS sont touchés, et rien d'autre : aucune écriture sur `gestion_message`, aucun drapeau
- * Gmail posé ni lu (la boîte reste ouverte en lecture stricte par la relève).
+ * 🔴 IDEMPOTENT. La vue conversation appelle cette route à CHAQUE ouverture : poser `UNREAD` sur un fil qui l'a déjà,
+ * ou le retirer d'un fil qui ne l'a pas, ne produit ni erreur ni effet de bord chez Gmail.
  *
- * ⚠️ CE N'EST PAS « TRAITÉ ». « À traiter / traité par X » dit où en est le TRAVAIL et reste commun à l'équipe ;
- * cette route-ci ne touche qu'à « moi, je l'ai ouvert ». Les deux sont volontairement séparés.
+ * ⚠️ CE N'EST PAS « TRAITÉ ». « À traiter / traité par X » dit où en est le TRAVAIL et reste propre à notre outil ;
+ * cette route-ci ne touche qu'à « ce courrier a été lu ». Les deux restent volontairement séparés.
+ *
+ * ⚠️ QUATRE REFUS POSSIBLES, ET ILS NE SE RÉPARENT PAS PAREIL : connexion Google absente, échange introuvable dans
+ * Gmail (il vient d'ailleurs, ou il y a été effacé), refus de Gmail, panne. Chacun a son mot.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 export const runtime = 'nodejs';
@@ -43,17 +45,22 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
   if (typeof corps.lu !== 'boolean') return json({ erreur: 'Préciser « lu » : true ou false.' }, 400);
 
   try {
-    const { id } = await auteurDeLaRequete(request);
-    const issue = await marquerFil(filId, id, corps.lu);
-    if (issue.etat === 'sans_schema') {
-      return json({ etat: 'sans_schema', message: 'Bientôt disponible — une mise à jour de la base est nécessaire.' }, 409);
+    const issue = await marquerFilGmail(depsMarquageGmail(), filId, corps.lu);
+    if (issue.etat === 'sans_connexion') {
+      return json({
+        etat: 'sans_connexion',
+        message: 'Connexion Google de gestion@ pas encore faite : le lu/non lu vient de Gmail.',
+      }, 409);
     }
-    // Accès de secours (mot de passe partagé) : aucune identité personnelle, donc aucun état de lecture personnel.
-    //   Ce n'est pas une panne, c'est la conséquence normale d'un accès qui n'est au nom de personne.
-    if (issue.etat === 'sans_compte') {
-      return json({ etat: 'sans_compte', message: 'Cet accès n’est rattaché à aucun compte : le suivi de lecture est personnel.' }, 409);
+    // Un échange introuvable dans Gmail n'est PAS une panne : il vient d'une autre boîte, ou il y a été effacé.
+    if (issue.etat === 'introuvable') {
+      return json({
+        etat: 'introuvable',
+        message: 'Cet échange n’a pas été retrouvé dans la boîte Gmail de gestion@ (il vient peut-être d’ailleurs).',
+      }, 409);
     }
-    return json({ etat: 'ok', lu: corps.lu, messages: issue.messages });
+    if (issue.etat === 'refus') return json({ etat: 'refus', message: issue.motif }, 409);
+    return json({ etat: 'ok', lu: corps.lu });
   } catch (e) {
     console.error('[gestion/fil/lecture] écriture impossible', e);
     return json({ etat: 'erreur', message: 'Le marquage n’a pas abouti.' }, 503);

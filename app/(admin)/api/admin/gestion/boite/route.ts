@@ -3,8 +3,7 @@ import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { comptesBoite, lireBoiteMail, PAGE_BOITE, type CurseurBoite } from '../../../../../lib/gestion/boiteRepo';
 import { chargerConfigGestion } from '../../../../../lib/gestion/config';
 import { ETIQUETTE_RECEPTION, lireEtatUrl } from '../../../../../lib/gestion/ecranUrl';
-import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
-import { compterFilsNonLus, filsNonLus } from '../../../../../lib/gestion/lectureRepo';
+import { depsNonLusGmail, nonLusGmail } from '../../../../../lib/gestion/lectureGmailReel';
 import { lirePartenairesInternes } from '../../../../../lib/gestion/partenaires';
 
 /**
@@ -63,17 +62,17 @@ export async function GET(request: Request): Promise<Response> {
     // Les deux comptes ne sont calculés qu'à la PREMIÈRE page : l'écran doit pouvoir dire ce qu'il montre ET ce qu'il
     //   tait, mais le redemander à chaque « voir plus » le paierait pour rien.
     const comptes = curseur === null ? await comptesBoite() : null;
-    // LOT 5-BOITE — LE LU/NON LU EST PERSONNEL : il se calcule pour la personne qui REGARDE, jamais « pour la boîte ».
-    //   L'identité vient de la session (`auteurDeLaRequete`), jamais d'un paramètre — une adresse venue du navigateur
-    //   ferait afficher le gras de quelqu'un d'autre. Sans compte personnel (accès de secours) ou sans la migration
-    //   250, `nonLus` est vide et `nonLusTotal` vaut null : l'écran est alors exactement celui d'avant ce lot.
-    const { id: utilisateurId } = await auteurDeLaRequete(request);
-    const [nonLus, nonLusTotal] = await Promise.all([
-      filsNonLus(page.lignes.map((l) => l.filId), utilisateurId),
-      curseur === null ? compterFilsNonLus(utilisateurId) : Promise.resolve(null),
-    ]);
+    // LOT 5-BOITE-2 — LE LU/NON LU VIENT DE GMAIL (choix d'Arno du 25/09) : UN SEUL état, commun à l'équipe. Il est
+    //   donc le même pour qui regarde — c'est justement ce qui permet de se répartir le courrier sans doublon.
+    //   Sans connexion Google, `disponible` est faux : ni gras ni compteur, et l'écran le dit plutôt que de laisser
+    //   croire que tout est lu.
+    const nl = await nonLusGmail(depsNonLusGmail());
     return Response.json(
-      { ...page, comptes, nonLus: [...nonLus], nonLusTotal },
+      {
+        ...page, comptes,
+        nonLus: [...nl.fils], nonLusTotal: nl.disponible ? nl.total : null,
+        nonLusPartiel: nl.disponible && !nl.complet,
+      },
       { headers: { 'Cache-Control': 'private, no-store' } },
     );
   } catch (e) {

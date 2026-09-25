@@ -55,6 +55,8 @@ export const ENDPOINT_GMAIL_SENDAS = 'https://gmail.googleapis.com/gmail/v1/user
 export const ENDPOINT_GMAIL_MESSAGES = 'https://gmail.googleapis.com/gmail/v1/users/me/messages';
 /** LOT 5-FIDÈLE — les filtres, pour reproduire le blocage d'un expéditeur exactement comme Gmail le fait. */
 export const ENDPOINT_GMAIL_FILTRES = 'https://gmail.googleapis.com/gmail/v1/users/me/settings/filters';
+/** LOT 5-BOITE-2 — les FILS Gmail. Un fil se modifie en UN appel, là où ses messages en demanderaient autant. */
+export const ENDPOINT_GMAIL_FILS = 'https://gmail.googleapis.com/gmail/v1/users/me/threads';
 
 // ── Identifiants du client OAuth ──────────────────────────────────────────────────────────────────────────────────
 export interface IdentifiantsGoogle { clientId: string; clientSecret: string; source: 'gestion' | 'drive' }
@@ -328,6 +330,90 @@ export async function chercherParMessageId(
   const trouve = j.messages?.[0];
   if (!trouve?.id) return { ok: true, valeur: null };
   return { ok: true, valeur: { id: trouve.id, threadId: trouve.threadId ?? trouve.id, libelles: [] } };
+}
+
+/**
+ * LOT 5-BOITE-2 — LES MESSAGES NON LUS DE LA BOÎTE, EN UN SEUL APPEL.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 POURQUOI UNE LISTE, ET NON UNE QUESTION PAR MESSAGE. Le lot 5-FIDÈLE lit l'état d'un message à la fois — c'est
+ * juste pour une conversation ouverte (quelques messages), et ruineux pour une liste de trente échanges. Ici on
+ * retourne le problème : on demande à Gmail CE QUI EST NON LU, et on rapproche. MESURÉ le 25/09/2026 sur la vraie
+ * boîte de gestion@ : **14 messages non lus en tout**, rendus en 259 ms. La question tient donc en un appel.
+ *
+ * 🔴 ET ELLE EST PLAFONNÉE. Si l'équipe laissait un jour des centaines de messages non lus, le rapprochement (une
+ * lecture d'en-tête par message, voir `lireEnteteGmail`) coûterait autant d'appels. Le plafond borne le travail, et
+ * l'appelant SAIT si la réponse est complète — un compteur tronqué qui ne le dirait pas serait un compteur faux.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export async function listerNonLus(
+  accessToken: string, deps: DepsGoogle, plafond = 200,
+): Promise<Resultat<{ messages: { id: string; threadId: string }[]; complet: boolean }>> {
+  const max = Math.min(Math.max(1, plafond), 500);
+  const url = `${ENDPOINT_GMAIL_MESSAGES}?q=${encodeURIComponent('is:unread')}&maxResults=${max}`;
+  const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return { ok: false, motif: `Lecture des non-lus impossible (HTTP ${res.status}).` };
+  const j = (await res.json().catch(() => ({}))) as {
+    messages?: { id?: string; threadId?: string }[]; nextPageToken?: string;
+  };
+  const messages = (j.messages ?? [])
+    .filter((m): m is { id: string; threadId?: string } => typeof m.id === 'string')
+    .map((m) => ({ id: m.id, threadId: m.threadId ?? m.id }));
+  // `nextPageToken` présent = Gmail en a d'autres à donner : la réponse est TRONQUÉE, et on le dit.
+  return { ok: true, valeur: { messages, complet: j.nextPageToken === undefined } };
+}
+
+/**
+ * LOT 5-BOITE-2 — L'EN-TÊTE `Message-ID` D'UN MESSAGE GMAIL, le seul point commun entre sa boîte et la nôtre.
+ *
+ * 🔴 POURQUOI IL FAUT CET APPEL. MESURÉ : seuls 51 de nos 56 793 messages connaissent leur identifiant Gmail (la
+ * migration 242 ne le renseigne que sur les messages sur lesquels on a AGI). On ne peut donc pas rapprocher par
+ * identifiant : on rapproche par `Message-ID`, que les deux côtés portent depuis toujours.
+ */
+export async function lireEnteteGmail(
+  accessToken: string, id: string, deps: DepsGoogle,
+): Promise<Resultat<{ id: string; threadId: string; messageIdRfc: string | null }>> {
+  const url = `${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}?format=metadata&metadataHeaders=Message-Id`;
+  const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (res.status === 404) return { ok: false, motif: 'Ce message n’existe plus dans Gmail.' };
+  if (!res.ok) return { ok: false, motif: `Lecture Gmail impossible (HTTP ${res.status}).` };
+  const j = (await res.json().catch(() => ({}))) as {
+    id?: string; threadId?: string; payload?: { headers?: { name?: string; value?: string }[] };
+  };
+  const brut = (j.payload?.headers ?? []).find((h) => (h.name ?? '').toLowerCase() === 'message-id')?.value ?? null;
+  return {
+    ok: true,
+    valeur: { id: j.id ?? id, threadId: j.threadId ?? id, messageIdRfc: normaliserMessageId(brut) },
+  };
+}
+
+/** Un `Message-ID` sans ses chevrons, comparable des deux côtés. `null` reste `null`. PUR. */
+export function normaliserMessageId(brut: string | null | undefined): string | null {
+  const nu = (brut ?? '').trim().replace(/^</, '').replace(/>$/, '');
+  return nu === '' ? null : nu;
+}
+
+/**
+ * LOT 5-BOITE-2 — POSE OU RETIRE UN LIBELLÉ SUR TOUT UN FIL GMAIL, en UN appel.
+ *
+ * ⚠️ Comme `modifierLibelles`, on ne passe JAMAIS `TRASH` : la corbeille n'est pas demandée ici, et la portée qui
+ * permettrait d'effacer n'est pas dans `PORTEES_GESTION`.
+ */
+export async function modifierLibellesFil(
+  accessToken: string, threadId: string, o: { ajouter?: readonly string[]; retirer?: readonly string[] }, deps: DepsGoogle,
+): Promise<Resultat<{ id: string }>> {
+  const res = await deps.fetch(`${ENDPOINT_GMAIL_FILS}/${encodeURIComponent(threadId)}/modify`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ addLabelIds: o.ajouter ?? [], removeLabelIds: o.retirer ?? [] }),
+  });
+  if (res.status === 404) return { ok: false, motif: 'Ce fil n’existe plus dans Gmail.' };
+  if (!res.ok) {
+    const j = (await res.json().catch(() => ({}))) as { error?: { message?: string } };
+    return { ok: false, motif: `Gmail a refusé la modification : ${j.error?.message ?? `HTTP ${res.status}`}` };
+  }
+  const j = (await res.json().catch(() => ({}))) as { id?: string };
+  return { ok: true, valeur: { id: j.id ?? threadId } };
 }
 
 /**

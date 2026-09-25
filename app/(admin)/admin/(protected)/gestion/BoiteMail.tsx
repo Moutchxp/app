@@ -81,8 +81,10 @@ interface ReponseBoite {
    * ou accès sans compte personnel) ⇒ rien n'est en gras, et l'écran est celui d'avant ce lot.
    */
   nonLus?: number[];
-  /** Combien d'échanges de la Réception me restent non lus. `null` = on ne sait pas, et on n'affiche alors rien. */
+  /** Combien d'échanges restent non lus. `null` = on ne sait pas (pas de connexion Google) : on n'affiche rien. */
   nonLusTotal?: number | null;
+  /** LOT 5-BOITE-2 — vrai quand Gmail en avait plus à donner que le plafond : le compte est un MINIMUM, et le dit. */
+  nonLusPartiel?: boolean;
   /** LOT 5c — présent sur une réponse de recherche : `false` quand la migration 237 n'est pas appliquée. */
   pleinTexte?: boolean;
   automatiquesMasques?: number | null;
@@ -93,7 +95,7 @@ type Etat =
   | {
       v: 'ok'; lignes: LigneBoite[]; suivant: CurseurBoite | null; total: number; comptes: ComptesBoite | null;
       pleinTexte: boolean; automatiquesMasques: number | null;
-      nonLus: Set<number>; nonLusTotal: number | null;
+      nonLus: Set<number>; nonLusTotal: number | null; nonLusPartiel: boolean;
     }
   | { v: 'erreur'; m: string };
 
@@ -185,7 +187,7 @@ export function BoiteMail({
    * « Réception » l'affiche à côté de son total. `null` = on ne sait pas (migration 250 absente, ou accès sans
    * compte personnel) : le parent n'affiche alors rien plutôt qu'un zéro qui aurait l'air d'une bonne nouvelle.
    */
-  onNonLus?: (n: number | null) => void;
+  onNonLus?: (n: number | null, partiel?: boolean) => void;
   /**
    * LOT 5-BOITE — un marquage de lecture qui vient d'avoir lieu AILLEURS (la conversation ouverte à côté).
    *
@@ -226,7 +228,7 @@ export function BoiteMail({
     setEtat({
       v: 'ok', lignes: r.lignes, suivant: r.suivant, total: r.total ?? r.lignes.length, comptes: r.comptes,
       pleinTexte: r.pleinTexte !== false, automatiquesMasques: r.automatiquesMasques ?? null,
-      nonLus: new Set(r.nonLus ?? []), nonLusTotal: r.nonLusTotal ?? null,
+      nonLus: new Set(r.nonLus ?? []), nonLusTotal: r.nonLusTotal ?? null, nonLusPartiel: r.nonLusPartiel === true,
     });
   }, []);
 
@@ -255,7 +257,8 @@ export function BoiteMail({
 
   // Le total remonte au parent chaque fois qu'il change — d'où qu'il vienne : première page, ou marquage sur place.
   const totalNonLus = etat.v === 'ok' ? etat.nonLusTotal : null;
-  useEffect(() => { if (onNonLus) onNonLus(totalNonLus); }, [onNonLus, totalNonLus]);
+  const partielNonLus = etat.v === 'ok' && etat.nonLusPartiel;
+  useEffect(() => { if (onNonLus) onNonLus(totalNonLus, partielNonLus); }, [onNonLus, totalNonLus, partielNonLus]);
 
   async function voirPlus() {
     if (etat.v !== 'ok' || etat.suivant === null || suite) return;
@@ -267,7 +270,8 @@ export function BoiteMail({
     setEtat({
       ...etat, lignes: [...etat.lignes, ...r.lignes], suivant: r.suivant, total: etat.total, comptes: etat.comptes,
       // Les non-lus s'ajoutent comme les lignes : « voir plus » allonge, il ne remplace pas.
-      nonLus: new Set([...etat.nonLus, ...(r.nonLus ?? [])]), nonLusTotal: etat.nonLusTotal,
+      nonLus: new Set([...etat.nonLus, ...(r.nonLus ?? [])]),
+      nonLusTotal: etat.nonLusTotal, nonLusPartiel: etat.nonLusPartiel,
     });
   }
 

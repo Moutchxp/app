@@ -50,6 +50,8 @@ export interface EtiquetteAffichee {
    * `null` ou absent = on ne sait pas (migration 250 absente, ou accès sans compte personnel) : on n'affiche rien.
    */
   nonLus?: number | null;
+  /** LOT 5-BOITE-2 — le compte est un MINIMUM (Gmail en avait plus que le plafond) : le libellé le dit. */
+  nonLusPartiel?: boolean;
   reference?: string;
 }
 
@@ -84,7 +86,7 @@ export function PleinEcranBoite({
   /** LOT 5e — droit, schéma, connexion Google, signature, délai. `null` = aucun écran d'écriture. */
   redaction?: ContexteRedactionEcran | null;
   /** LOT 5-BOITE — remonte le nombre d'échanges non lus par la personne connectée, pour l'étiquette « Réception ». */
-  onNonLus?: (n: number | null) => void;
+  onNonLus?: (n: number | null, partiel?: boolean) => void;
 }) {
   // Sur téléphone, on arrive sur les ÉTIQUETTES : c'est le sommaire, et on ne tombe pas au milieu d'une liste sans
   //   savoir laquelle. Au montage, donc à chaque entrée en plein écran. Sur grand écran, l'attribut ne change rien.
@@ -189,7 +191,9 @@ export function PleinEcranBoite({
                   </span>
                   {/* « 3 non lus · 10 103 » : le mot est écrit, jamais une pastille de couleur seule. */}
                   {typeof e.nonLus === 'number' && e.nonLus > 0 && (
-                    <span className="cm-non-lus">{e.nonLus} non lu{e.nonLus > 1 ? 's' : ''}</span>
+                    <span className="cm-non-lus">
+                      {e.nonLusPartiel ? 'au moins ' : ''}{e.nonLus} non lu{e.nonLus > 1 ? 's' : ''}
+                    </span>
                   )}
                   {e.compte !== null && <span className="gst-compte">{e.compte}</span>}
                 </button>
