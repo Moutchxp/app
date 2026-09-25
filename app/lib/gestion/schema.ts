@@ -77,6 +77,18 @@ export function rechercheTexteDisponible(): Promise<boolean> {
   });
 }
 
+/**
+ * LOT 5-PJ-A — la migration 244 est-elle appliquée ? Elle seule permet de MÉMORISER la miniature d'une pièce jointe
+ * (sa clé sur le stockage, ou la raison pour laquelle il n'y en aura pas).
+ *
+ * ⚠️ Elle ne conditionne AUCUNE fonctionnalité visible : sans elle, les cartes de pièces jointes s'affichent avec
+ * leur icône de type, et tout le reste — nom, taille, téléchargement, archive — fonctionne à l'identique. On ne sonde
+ * qu'`miniature_cle` : la migration crée les quatre colonnes dans UNE transaction, elles arrivent donc ensemble.
+ */
+export function miniaturesDisponibles(): Promise<boolean> {
+  return memoiser('piece.miniature_cle', () => colonneExiste('gestion_piece', 'miniature_cle'));
+}
+
 /** Pour les tests : oublie ce qu'on croyait savoir du schéma. N'a aucun effet en production, où rien ne l'appelle. */
 export function oublierSchema(): void {
   memoire.oublier();

@@ -356,6 +356,37 @@ export async function deposerPieceGestion(
 }
 
 /**
+ * LOT 5-PJ-A — clé de la MINIATURE d'une pièce de gestion : `gestion/miniatures/<piece_id>/<uuid>.jpg`.
+ *
+ * 🔴 UN PRÉFIXE DISTINCT DE CELUI DES PIÈCES, ET C'EST TOUT L'ENJEU. Les originaux vivent sous
+ * `gestion/messages/<message_id>/` ; au lot D, ils seront effacés une fois copiés dans le Drive — probablement par un
+ * effacement de préfixe, qui est le geste naturel. Ranger la vignette AILLEURS est ce qui lui permet de survivre :
+ * sinon les cartes se videraient d'elles-mêmes, des mois plus tard, sans que personne fasse le lien.
+ *
+ * ⚠️ L'UUID reste, malgré un identifiant de pièce déjà unique : une clé devinable transformerait une fuite d'identifiant
+ * en fuite de contenu, et rien n'oblige à rendre une vignette énumérable.
+ */
+export function construireCleMiniature(pieceId: number): string {
+  return `gestion/miniatures/${pieceId}/${randomUUID()}.jpg`;
+}
+
+/**
+ * LOT 5-PJ-A — dépose la MINIATURE d'une pièce (toujours du JPEG, fabriqué par nous, jamais un fichier reçu). Ne jette
+ * pas quand le stockage n'est pas configuré : la vignette est un confort, jamais une raison de faire échouer un écran.
+ */
+export async function deposerMiniatureGestion(
+  contenu: Buffer | Uint8Array, pieceId: number,
+): Promise<{ depose: true; cle: string } | { depose: false; motif: string }> {
+  const infra = obtenir();
+  if (!infra) return { depose: false, motif: 'stockage non configuré' };
+  const cle = construireCleMiniature(pieceId);
+  await infra.client.send(
+    new PutObjectCommand({ Bucket: infra.config.bucket, Key: cle, Body: contenu, ContentType: 'image/jpeg' }),
+  );
+  return { depose: true, cle };
+}
+
+/**
  * A1b — clé NON ÉNUMÉRABLE d'un document AJOUTÉ À LA MAIN sur un permis : `dossiers/<dossier_id>/<uuid>.<ext>`. ⚠️ Le nom
  * d'origine du fichier (fourni par l'internaute) n'entre JAMAIS dans la clé (UUID v4 + extension du type MIME) ; il reste en
  * base (`nom_fichier`) pour l'affichage.

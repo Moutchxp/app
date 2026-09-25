@@ -182,7 +182,8 @@ describe('② les pièces jointes sont SERVIES PAR L’APPLICATION', () => {
 
   it('le lien d’une pièce pointe vers l’application, JAMAIS vers le stockage', async () => {
     await ouvrirTout();
-    const piece = liens().find((a) => a.textContent === 'constat.pdf');
+    // LOT 5-PJ-A — le nom vit désormais SOUS la vignette ; le lien, lui, se reconnaît à son libellé accessible.
+    const piece = liens().find((a) => (a.getAttribute('aria-label') ?? '').includes('constat.pdf'));
     expect(piece?.getAttribute('href')).toBe('/api/admin/gestion/pieces/7');
     for (const a of liens()) expect(a.getAttribute('href') ?? '').not.toMatch(/^https?:|minio|amazonaws|X-Amz/i);
   });
@@ -200,6 +201,8 @@ describe('② les pièces jointes sont SERVIES PAR L’APPLICATION', () => {
 
   it('la taille est lisible par un humain', async () => {
     await ouvrirTout();
+    // Le formateur est celui du lot 4c, et lui seul : le lot 5-PJ-A a d'abord introduit un second (« 120 Ko »), que
+    //   ce test a attrapé. Les deux ne doivent jamais coexister dans un même écran.
     expect(container.textContent).toContain('120 ko');
   });
 
@@ -228,7 +231,8 @@ describe('② les pièces jointes sont SERVIES PAR L’APPLICATION', () => {
     await ouvrirTout();
     expect(container.textContent).toContain('1 image de signature');
     // Elle ne se mêle pas aux vraies pièces…
-    const vraies = [...container.querySelectorAll('.gst-pieces')][0];
+    // LOT 5-PJ-A — les vraies pièces sont une GRILLE de cartes ; les signatures ont la leur, dans le repli.
+    const vraies = [...container.querySelectorAll('.pj-grille')][0];
     expect(vraies?.textContent).toContain('constat.pdf');
     expect(vraies?.textContent).not.toContain('image001.png');
     // …mais elle est bien là, servie par l'application comme les autres.

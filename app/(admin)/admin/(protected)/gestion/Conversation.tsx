@@ -11,6 +11,7 @@ import {
   type ActionStatut, type StatutClassement,
 } from '../../../../lib/gestion/statutClassement';
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
+import { CSS_PIECES, PiecesJointes } from './PiecesJointes';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { MenuDiscret } from './MenuDiscret';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
@@ -283,7 +284,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
 
   return (
     <section className="cnv" aria-labelledby={`cnv-titre-${fil.filId}`}>
-      <style>{CSS_CONVERSATION}</style>
+      <style>{CSS_CONVERSATION}{CSS_PIECES}</style>
 
       {/* ══ LE BANDEAU DU HAUT : NOS FONCTIONS MAISON ══════════════════════════════════════════════════════════════
           Elles appellent les routes EXISTANTES, sans réécrire une ligne de leur logique — donc même journal, même
@@ -665,7 +666,8 @@ export function MessageConversation({
           {etat.v === 'html_seul' && <p className="gst-msg-corps gst-absent">{MENTION_HTML_SEUL}</p>}
           {etat.v === 'vide' && <p className="gst-msg-corps gst-absent">(message sans texte)</p>}
 
-          <PiecesDuMessage vraies={vraies} signatures={signatures} />
+          {/* LOT 5-PJ-A — un SEUL composant rend les pièces, partout où un message s'affiche. */}
+          <PiecesJointes messageId={message.messageId} vraies={vraies} signatures={signatures} />
         </div>
       )}
     </li>
@@ -704,50 +706,6 @@ export function CartoucheStatut({ statut, ouvert, declencheur, onBasculer }: {
         </button>
       )}
     </span>
-  );
-}
-
-/** Les pièces d'un message, servies PAR L'APPLICATION — aucune URL de stockage ne sort jamais vers le navigateur. */
-function PiecesDuMessage({ vraies, signatures }: { vraies: PieceDeMessage[]; signatures: PieceDeMessage[] }) {
-  return (
-    <>
-      {vraies.length > 0 && (
-        <ul className="gst-pieces">
-          {vraies.map((p) => <LignePiece key={p.pieceId} piece={p} />)}
-        </ul>
-      )}
-      {/* Les images de signature, à part et repliées : consultables, mais elles ne noient plus les vraies pièces. */}
-      {signatures.length > 0 && (
-        <details className="gst-cite">
-          <summary className="gst-cite-titre">
-            {signatures.length} image{signatures.length > 1 ? 's' : ''} de signature
-          </summary>
-          <ul className="gst-pieces">
-            {signatures.map((p) => <LignePiece key={p.pieceId} piece={p} />)}
-          </ul>
-        </details>
-      )}
-    </>
-  );
-}
-
-function LignePiece({ piece: p }: { piece: PieceDeMessage }) {
-  return (
-    <li className="gst-piece">
-      {p.disponible ? (
-        <>
-          {/* Servie par l'application : le droit est relu à chaque ouverture. Aucune URL de stockage ici. */}
-          <a className="gst-lien" href={`/api/admin/gestion/pieces/${p.pieceId}`} target="_blank" rel="noreferrer">{p.nomFichier}</a>
-          <span className="gst-sep" aria-hidden="true">·</span>
-          <span>{formaterTaille(p.tailleOctets)}</span>
-          <span className="gst-sep" aria-hidden="true">·</span>
-          <a className="gst-lien" href={`/api/admin/gestion/pieces/${p.pieceId}?telecharger=1`}>Télécharger</a>
-        </>
-      ) : (
-        // Pas de lien : une pièce non déposée ne s'ouvrira pas, et un lien mort userait la confiance.
-        <span className="gst-absent">{p.nomFichier} — non conservée{p.motifNonStocke ? ` (${p.motifNonStocke})` : ''}</span>
-      )}
-    </li>
   );
 }
 
