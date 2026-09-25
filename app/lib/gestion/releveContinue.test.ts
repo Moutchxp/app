@@ -173,13 +173,34 @@ describe('garanties STATIQUES — aucune connexion réelle, aucune nouveauté r�
     expect(cli).toContain('arrêt après le tour en cours');
   });
 
-  it('le job launchd est livré mais PAS installé, et il est de type longue durée', () => {
+  /**
+   * ⚠️ CE TEST EXIGEAIT « NON INSTALLÉ », et cette phrase-là est devenue FAUSSE le 25/09/2026 : le job est activé,
+   * par décision d'Arno, après l'incident des dix heures sans relève. On ne garde donc pas l'assertion « pas encore
+   * installé » — figer un état transitoire fait rougir un test pour une bonne nouvelle. Ce qui reste, et qui compte,
+   * c'est la FORME du job : longue durée, sans relais, sans secret.
+   */
+  it('le job launchd est de type LONGUE DURÉE, sans shell, sans secret', () => {
     const plist = readFileSync('ops/com.sansvisavis.gestion-continu.plist', 'utf8');
-    expect(plist).toContain('NON INSTALLÉ');
+    // Les assertions « ne contient PAS » portent sur le PLIST EFFECTIF, jamais sur l'en-tête documentaire : celui-ci
+    //   CITE `/bin/zsh` pour expliquer pourquoi on ne s'en sert plus, et un test qui rougit sur une bonne explication
+    //   finit par être contourné (même arbitrage que pour `imapflow`, plus haut).
+    const effectif = plist.replace(/<!--[\s\S]*?-->/g, '');
     // `KeepAlive` et NON `StartInterval` : ce dernier lancerait un second processus par-dessus le premier.
     expect(plist).toContain('<key>KeepAlive</key>');
-    expect(plist).not.toContain('<key>StartInterval</key>');
-    expect(plist).toContain('npm run gestion:relever-continu');
+    expect(effectif).not.toContain('<key>StartInterval</key>');
+    // Le job vise le MÊME point d'entrée que `npm run gestion:relever-continu` : deux définitions qui divergent, et
+    //   l'ordonnanceur lancerait autre chose que ce qu'on éprouve.
+    expect(effectif).toContain('app/scripts/relever-gestion-continu.ts');
+    // AUCUN SHELL : l'ancienne version passait par `/bin/zsh -lc` et dépendait du shell de login pour trouver `node`.
+    //   Une panne d'ordonnanceur est silencieuse — moins il y a de relais, mieux c'est.
+    expect(effectif).not.toContain('/bin/zsh');
+    // MESURÉ le 25/09/2026 : sans ces deux variables, `pg` n'envoie aucun nom d'utilisateur (le DATABASE_URL n'en
+    //   porte pas) et PostgreSQL refuse la connexion — FATAL 28000.
+    expect(effectif).toContain('<key>USER</key>');
+    expect(effectif).toContain('<key>LOGNAME</key>');
+    // 🔒 AUCUN SECRET : ils restent dans `.env`, que le CLI charge lui-même en chemin absolu.
+    expect(effectif).not.toContain('DATABASE_URL');
+    expect(effectif).not.toContain('postgresql://');
   });
 
   it('le bouton « Relever maintenant » n’est pas touché : il reste le déclencheur manuel', () => {

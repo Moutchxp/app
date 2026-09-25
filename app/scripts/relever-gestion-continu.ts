@@ -36,6 +36,48 @@ export function enTete(unTour: boolean): string[] {
   ];
 }
 
+/**
+ * L'ATTENTE ENTRE DEUX TOURS, et le moyen de l'interrompre.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LA MINUTERIE EST RÉFÉRENCÉE, ET C'EST L'INVERSE DE CE QUI ÉTAIT ÉCRIT ICI. Elle portait un `unref()`, censé
+ * « laisser Node sortir quand on a demandé l'arrêt ». Effet RÉEL, mesuré le 25/09/2026 dans le journal du job
+ * launchd : une minuterie déréférencée ne retient plus rien, et comme la connexion IMAP est refermée entre deux
+ * tours, Node ne voyait plus aucune raison de vivre — il SORTAIT pendant l'attente, proprement (code 0), après UN
+ * SEUL tour. Trois en-têtes et trois PID différents dans le journal l'ont montré en trois minutes.
+ *
+ * CE QUI RENDAIT LE DÉFAUT INVISIBLE : `KeepAlive` relançait le job. Une passe avait bien lieu chaque minute et le
+ * résultat semblait juste — mais le processus de longue durée n'existait plus. Chaque tour repayait le démarrage de
+ * Node, de tsx et de la connexion ; le réglage « relu à chaud » ne servait plus à rien ; et un redémarrage en boucle
+ * ressemblait trait pour trait à un fonctionnement normal.
+ *
+ * L'ARRÊT PROPRE EST OBTENU PAR UN RÉVEIL EXPLICITE, jamais en laissant Node s'échapper : `reveiller()` annule la
+ * minuterie et résout l'attente tout de suite, si bien que SIGTERM rend la main en quelques millisecondes au lieu
+ * d'attendre la fin du délai.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ *
+ * `programmer` / `annuler` sont injectables : c'est ce qui permet d'éprouver l'attente sans attendre.
+ */
+export function creerMinuterie(o: {
+  programmer?: (rappel: () => void, ms: number) => unknown;
+  annuler?: (jeton: unknown) => void;
+} = {}): { attendre: (secondes: number) => Promise<void>; reveiller: () => void } {
+  const programmer = o.programmer ?? ((rappel, ms) => setTimeout(rappel, ms));
+  const annuler = o.annuler ?? ((jeton) => clearTimeout(jeton as ReturnType<typeof setTimeout>));
+  let reveil: (() => void) | null = null;
+  return {
+    attendre: (secondes) => new Promise<void>((resolve) => {
+      let sonne = false;
+      const jeton = programmer(() => { sonne = true; reveil = null; resolve(); }, secondes * 1000);
+      // Si l'horloge a déjà sonné (cas d'une horloge synchrone, en test), il n'y a plus rien à réveiller : poser le
+      //   réveil ici ressusciterait une attente terminée, et un `reveiller()` tardif annulerait une minuterie morte.
+      if (sonne) return;
+      reveil = () => { annuler(jeton); reveil = null; resolve(); };
+    }),
+    reveiller: () => { reveil?.(); },
+  };
+}
+
 /** Câblage RÉEL (imports dynamiques : gardent imapflow et pg hors du graphe importé par les tests). */
 async function main(): Promise<void> {
   const unTour = lireUnTour(process.argv);
@@ -48,10 +90,13 @@ async function main(): Promise<void> {
   // Arrêt PROPRE : on ne coupe pas au milieu d'une passe. Le drapeau est lu entre deux tours, jamais pendant.
   let vivant = true;
   let toursRestants = unTour ? 1 : Number.POSITIVE_INFINITY;
+  const minuterie = creerMinuterie();
   const arreter = (signal: string) => {
     if (!vivant) return;
     vivant = false;
     console.log(`\n[gestion:relever-continu] ${signal} reçu — arrêt après le tour en cours.`);
+    // Sans ce réveil, l'arrêt attendrait la fin du délai — jusqu'à une minute avant de rendre la main.
+    minuterie.reveiller();
   };
   process.on('SIGINT', () => arreter('SIGINT'));
   process.on('SIGTERM', () => arreter('SIGTERM'));
@@ -66,12 +111,8 @@ async function main(): Promise<void> {
     // RELU à chaque tour : `UPDATE gestion_config SET releve_continue_secondes = 30` prend effet au tour suivant,
     //   sans rien redémarrer. Base injoignable ⇒ `chargerConfigGestion` se replie sur 60 s (elle ne jette jamais).
     intervalle: async () => (await chargerConfigGestion()).releveContinueSecondes,
-    attendre: (s) => new Promise<void>((resolve) => {
-      const t = setTimeout(resolve, s * 1000);
-      // `unref` : une attente en cours n'empêche pas Node de sortir quand on a demandé l'arrêt.
-      if (typeof t.unref === 'function') t.unref();
-      if (!vivant) { clearTimeout(t); resolve(); }
-    }),
+    // L'attente RETIENT le processus (voir `creerMinuterie`) ; l'arrêt la réveille au lieu de laisser Node s'échapper.
+    attendre: (s) => (vivant ? minuterie.attendre(s) : Promise.resolve()),
     journal: (l) => console.log(`  ${l}`),
     continuer: () => vivant && toursRestants > 0,
     maintenant: () => new Date(),
