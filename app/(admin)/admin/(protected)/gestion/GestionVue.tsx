@@ -84,7 +84,9 @@ export function GestionVue({ intro }: {
   /** LOT 5-FUSION — quel écran, quelle étiquette, quel échange ouvert. Lu et écrit dans l'adresse (voir `ecranUrl`). */
   const [etatUrl, setEtatUrl] = useState<EtatEcranUrl>(ETAT_DEFAUT);
   const [auto, setAuto] = useState(false);
-  const [comptesBoite, setComptesBoite] = useState<{ lisibles: number; automatiques: number; envoyes: number; reception: number } | null>(null);
+  const [comptesBoite, setComptesBoite] = useState<
+    { lisibles: number; automatiques: number; envoyes: number; reception: number; corbeille: number | null } | null
+  >(null);
   /**
    * LOT 5-BOITE — combien d'échanges me restent NON LUS, remonté par la liste elle-même (elle l'obtient du serveur,
    * calculé pour MA session). `null` = on ne sait pas encore, ou le suivi de lecture n'est pas disponible : on
@@ -221,13 +223,15 @@ export function GestionVue({ intro }: {
       try {
         const res = await fetch('/api/admin/gestion/boite/comptes', { cache: 'no-store' });
         if (!res.ok || annule) return;
-        const c = (await res.json()) as { lisibles?: number; automatiques?: number; envoyes?: number; reception?: number };
+        const c = (await res.json()) as { lisibles?: number; automatiques?: number; envoyes?: number; reception?: number; corbeille?: number | null };
         if (!annule && typeof c.lisibles === 'number') {
           // `reception` est le compte de l'étiquette Réception (au moins un message reçu). Une réponse plus ancienne
           //   que ce lot ne le porte pas : on retombe alors sur `lisibles`, le comportement d'avant.
           setComptesBoite({
             lisibles: c.lisibles, automatiques: c.automatiques ?? 0, envoyes: c.envoyes ?? 0,
             reception: c.reception ?? c.lisibles,
+            // `null` = migration 251 absente : l'étiquette « Corbeille » ne s'affiche pas du tout (voir plus bas).
+            corbeille: c.corbeille ?? null,
           });
         }
       } catch { /* étiquettes sans nombre : voir l'encadré */ }
@@ -378,6 +382,8 @@ export function GestionVue({ intro }: {
         <PleinEcranBoite
           etiquette={etiquette} etiquettes={etiquettes} filOuvert={filOuvert} maintenant={ref}
           auto={auto} onAuto={setAuto} onNonLus={majNonLus}
+          corbeilleDisponible={comptesBoite?.corbeille !== null && comptesBoite?.corbeille !== undefined}
+          peutEcrire={redaction?.peutEnvoyer === true}
           onEtiquette={(e) => { setPanneau(null); aller({ ...etatUrl, etiquette: e, filOuvert: null }); }}
           onOuvrir={(id) => aller({ ...etatUrl, filOuvert: id })}
           onFermerFil={() => aller({ ...etatUrl, filOuvert: null })}
@@ -510,7 +516,8 @@ export function GestionVue({ intro }: {
  * étiquette qui ne s'appuierait sur rien mentirait dès le premier clic.
  */
 export function etiquettesDeLEcran(
-  d: EtatEcran, comptes: { lisibles: number; automatiques: number; envoyes: number; reception?: number } | null,
+  d: EtatEcran,
+  comptes: { lisibles: number; automatiques: number; envoyes: number; reception?: number; corbeille?: number | null } | null,
   brouillons: number | null = null,
   nonLus: number | null = null,
   nonLusPartiel = false,
@@ -526,6 +533,12 @@ export function etiquettesDeLEcran(
     { etiquette: { sorte: 'envoyes', evenementId: null }, libelle: 'Envoyés', compte: comptes?.envoyes ?? null },
     { etiquette: { sorte: 'sans_suite', evenementId: null }, libelle: 'Sans suite', compte: d.sansSuiteTotal },
     { etiquette: { sorte: 'automatique', evenementId: null }, libelle: 'Courrier automatique', compte: comptes?.automatiques ?? null },
+    // LOT 5-BOITE-3 — la CORBEILLE. `null` (migration 251 absente) ⇒ l'étiquette est RETIRÉE de la liste, et non
+    //   montrée à zéro : sans la migration, le geste « Supprimer » n'existe pas non plus, et une corbeille qu'on ne
+    //   peut pas remplir n'a rien à faire dans le sommaire. `filtreEtiquettes` écarte ensuite les étiquettes vides.
+    ...(comptes?.corbeille === null || comptes?.corbeille === undefined
+      ? []
+      : [{ etiquette: { sorte: 'corbeille' as const, evenementId: null }, libelle: 'Corbeille', compte: comptes.corbeille }]),
     // LOT 5e — les BROUILLONS. Comme les autres : pas d'étiquette vide, et son nombre vient d'une seule lecture.
     { etiquette: { sorte: 'brouillons', evenementId: null }, libelle: 'Brouillons', compte: brouillons },
     // Les CARTES, dans l'ordre où la colonne des événements les montre : ce qui attend une réponse depuis le plus

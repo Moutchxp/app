@@ -6,7 +6,9 @@ import { PanneauAffecter } from './PanneauAffecter';
 import { ColonneMode, type PanneauMobile } from './ColonneMode';
 import { Brouillons } from './Brouillons';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
-import { preparerBrouillon } from '../../../../lib/gestion/redaction';
+import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
+import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
+import { gesteCorbeille, marquerLectureLigne } from './gestesLigne';
 import { Conversation } from './Conversation';
 import type { Rapport } from './gestesMail';
 import { memeEtiquette, type Etiquette } from '../../../../lib/gestion/ecranUrl';
@@ -68,7 +70,7 @@ export function etiquettesVisibles(
 
 export function PleinEcranBoite({
   etiquette, etiquettes, onEtiquette, filOuvert, onOuvrir, onFermerFil, maintenant, onGeste, onRetour,
-  enfantAClasser, auto, onAuto, redaction = null, onNonLus,
+  enfantAClasser, auto, onAuto, redaction = null, onNonLus, corbeilleDisponible = false, peutEcrire = false,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -87,6 +89,9 @@ export function PleinEcranBoite({
   redaction?: ContexteRedactionEcran | null;
   /** LOT 5-BOITE — remonte le nombre d'échanges non lus par la personne connectée, pour l'étiquette « Réception ». */
   onNonLus?: (n: number | null, partiel?: boolean) => void;
+  /** LOT 5-BOITE-3 — la migration 251 est-elle là, et peut-on écrire au nom de gestion@ ? Pilote le menu des lignes. */
+  corbeilleDisponible?: boolean;
+  peutEcrire?: boolean;
 }) {
   // Sur téléphone, on arrive sur les ÉTIQUETTES : c'est le sommaire, et on ne tombe pas au milieu d'une liste sans
   //   savoir laquelle. Au montage, donc à chaque entrée en plein écran. Sur grand écran, l'attribut ne change rien.
@@ -110,6 +115,15 @@ export function PleinEcranBoite({
    * chargées, ni la recherche en cours. La liste met son gras à jour SUR PLACE, à partir de ce seul objet.
    */
   const [marquage, setMarquage] = useState<{ filId: number; nonLu: boolean; cle: number }>({ filId: 0, nonLu: false, cle: 0 });
+  /** LOT 5-BOITE-3 — la voie demandée depuis le menu d'une ligne (Répondre / Répondre à tous / Transférer). */
+  const [voieDemandee, setVoieDemandee] = useState<VoieRedaction | null>(null);
+  /**
+   * LOT 5-BOITE-3 — LE BANDEAU « ANNULER ». Un geste réversible doit se défaire LÀ OÙ IL A ÉTÉ FAIT : renvoyer
+   * chercher l'échange dans la corbeille pour le restaurer serait lui faire payer une erreur de clic.
+   */
+  const [corbeilleFaite, setCorbeilleFaite] = useState<{ filId: number } | null>(null);
+  /** Incrémenté après un geste de corbeille : la liste doit être relue, l'échange n'y est plus (ou y revient). */
+  const [versionListe, setVersionListe] = useState(0);
   /** LOT 5e — le brouillon d'un NOUVEAU message (hors de tout échange). `null` = on ne rédige pas. */
   const [nouveau, setNouveau] = useState<BrouillonEcran | null>(null);
 
@@ -122,6 +136,54 @@ export function PleinEcranBoite({
    * fait défiler trois pages.
    */
   const defilement = useRef(0);
+
+  /**
+   * LOT 5-BOITE-3 — CE QUE FAIT UNE ENTRÉE DU MENU D'UNE LIGNE.
+   *
+   * 🔴 LES TROIS VOIES DE RÉDACTION OUVRENT L'ÉCHANGE ET SON ÉDITEUR, sur le dernier message. Ouvrir seulement
+   * l'échange obligerait à cliquer une seconde fois — ce n'est pas ce que le menu promet.
+   *
+   * 🔴 LA CORBEILLE NE DEMANDE AUCUNE CONFIRMATION, et c'est délibéré : le geste est réversible d'un clic, le
+   * bandeau « Annuler » reste affiché, et rien n'est supprimé nulle part. Une question posée avant un geste qu'on
+   * défait en une seconde apprend surtout à cliquer « oui » sans lire.
+   *
+   * 🔴 LE LU/NON LU PASSE PAR LA ROUTE EXISTANTE (lot 5-BOITE-2) : c'est celui de Gmail, commun à l'équipe. On ne
+   * crée pas un second chemin pour le même geste.
+   */
+  const agirSurLigne = async (filId: number, action: ActionLigne): Promise<void> => {
+    if (action === 'repondre' || action === 'repondre_tous' || action === 'transferer') {
+      setVoieDemandee(action);
+      onOuvrir(filId);
+      return;
+    }
+    if (action === 'lu' || action === 'non_lu') {
+      const r = await marquerLectureLigne(filId, action === 'lu');
+      onGeste(r.message);
+      if (r.ok) setMarquage((m) => ({ filId, nonLu: action === 'non_lu', cle: m.cle + 1 }));
+      return;
+    }
+    // ── LA CORBEILLE ──
+    const versLaCorbeille = action === 'corbeille';
+    const r = await gesteCorbeille(filId, versLaCorbeille);
+    if (!r.ok) { onGeste(r.message); return; }
+    // L'échange quitte (ou rejoint) la liste affichée : elle est relue. C'est le SEUL cas où on la relit —
+    //   ailleurs, on met à jour sur place pour ne pas perdre les pages déjà chargées.
+    setVersionListe((v) => v + 1);
+    if (filOuvert === filId) onFermerFil();
+    // Le bandeau porte l'annulation ; une restauration, elle, se dit dans le compte rendu ordinaire.
+    setCorbeilleFaite(versLaCorbeille ? { filId } : null);
+    if (!versLaCorbeille) onGeste(r.message);
+  };
+
+  /** Défaire le dernier « Supprimer », depuis le bandeau. Le même verbe que « Restaurer », pris par l'autre bout. */
+  const annulerCorbeille = async (): Promise<void> => {
+    const fait = corbeilleFaite;
+    if (fait === null) return;
+    setCorbeilleFaite(null);
+    const r = await gesteCorbeille(fait.filId, false);
+    onGeste(r.ok ? 'Échange restauré : il est revenu dans sa boîte.' : r.message);
+    if (r.ok) setVersionListe((v) => v + 1);
+  };
   useEffect(() => {
     if (filOuvert !== null) return;
     const y = defilement.current;
@@ -247,9 +309,23 @@ export function PleinEcranBoite({
               {enfantAClasser}
             </>
           ) : (
-            <BoiteMail etiquette={etiquette} titre={titre} total={ouverte?.compte ?? null} dense
+            <>
+            {/* ══ LOT 5-BOITE-3 — LE BANDEAU « ANNULER » ══ Il reste tant qu'on ne fait pas autre chose : un geste
+                réversible doit se défaire LÀ OÙ IL A ÉTÉ FAIT. `role="status"` et non `alert` — c'est une
+                confirmation, pas un problème, et on n'interrompt pas une lecture d'écran pour ça. */}
+            {corbeilleFaite !== null && (
+              <p className="pe-corbeille" role="status">
+                <span>Échange mis à la corbeille. Rien n’est supprimé : il reste intact dans Gmail.</span>
+                <button type="button" className="pe-corbeille-annuler" onClick={() => void annulerCorbeille()}>
+                  Annuler
+                </button>
+              </p>
+            )}
+            <BoiteMail key={versionListe} etiquette={etiquette} titre={titre} total={ouverte?.compte ?? null} dense
               auto={auto} onAuto={onAuto} filSelectionne={filOuvert} onNonLus={onNonLus} marquage={marquage}
+              corbeille={corbeilleDisponible} peutEcrire={peutEcrire} onActionLigne={agirSurLigne}
               onOuvrir={(id) => { defilement.current = window.scrollY; onOuvrir(id); }} />
+            </>
           )}
         </section>
 
@@ -258,6 +334,7 @@ export function PleinEcranBoite({
         {filOuvert !== null && (
           <section className="pe-lecture" aria-label="Conversation">
             <Conversation key={`${filOuvert}-${versionFil}`} filId={filOuvert} maintenant={maintenant}
+              voieInitiale={voieDemandee}
               onFerme={onFermerFil} barreActions onClassement={(voie) => setClassement(voie)}
               redaction={redaction} onGeste={onGeste}
               // LOT 5-BOITE — ouvrir (ou marquer non lu) change le gras de la liste, qui l'applique sur place.
@@ -287,6 +364,17 @@ export function PleinEcranBoite({
 }
 
 const CSS_PLEIN_ECRAN = `
+/* LOT 5-BOITE-3 — le bandeau « Annuler » d'un geste de corbeille. Une CONFIRMATION, pas une alarme : ton neutre,
+   aucune couleur d'avertissement, et le geste inverse à portée de doigt (cible de 44 px). */
+.pe-corbeille{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 .6rem;padding:10px 12px;
+  border:1px solid var(--color-svv-line-strong);border-radius:10px;background:var(--color-svv-field);
+  font-size:.85rem;line-height:1.45;color:var(--color-svv-ink)}
+.pe-corbeille-annuler{min-height:44px;padding:0 .9rem;border-radius:.5rem;border:1px solid var(--color-svv-line-strong);
+  background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.85rem;font-weight:600;
+  cursor:pointer;margin-left:auto}
+.pe-corbeille-annuler:hover{border-color:var(--color-svv-ink)}
+.pe-corbeille-annuler:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+
 .pe{display:flex;flex-direction:column;gap:12px;min-width:0}
 /* UNE SEULE COLONNE par défaut : la liste occupe toute la largeur, et l'échange ouvert prend sa place — comme dans
    une messagerie. Plus de volet de lecture ouvert en permanence, qui coupait la liste en deux pour ne rien montrer. */

@@ -11,6 +11,8 @@ import {
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { corpsLisible } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
+import { CSS_MENU_LIGNE, MenuLigne } from './MenuLigne';
+import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
 
 /**
  * LOT 5a — LA BOÎTE MAIL. Le second mode du module : tout le courrier, du plus récent au plus ancien, comme on lit sa
@@ -162,7 +164,7 @@ export function Evidence({ texte, saisie }: { texte: string; saisie: string }) {
 
 export function BoiteMail({
   onOuvrir, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
-  dense = false, onNonLus, marquage,
+  dense = false, onNonLus, marquage, onActionLigne, corbeille = false, peutEcrire = false,
 }: {
   onOuvrir: (filId: number) => void;
   /** LOT 5-FUSION — l'étiquette ouverte. Absente = la boîte entière, exactement le comportement du lot 5a. */
@@ -197,6 +199,15 @@ export function BoiteMail({
    * l'écran n'a plus qu'à dire la même chose que lui.
    */
   marquage?: { filId: number; nonLu: boolean; cle: number };
+  /**
+   * LOT 5-BOITE-3 — ce que le menu d'une ligne demande. `undefined` = aucun menu n'est rendu : la liste est alors
+   * EXACTEMENT celle d'avant ce lot (c'est le cas de l'écran partagé, qui n'a pas d'éditeur à ouvrir).
+   */
+  onActionLigne?: (filId: number, action: ActionLigne) => void;
+  /** La migration 251 est-elle là ? Sinon ni « Supprimer » ni « Restaurer » — cf. `menuLigne.ts`. */
+  corbeille?: boolean;
+  /** Le droit d'écrire au nom de gestion@. Sans lui, ni rédaction ni lu/non lu (qui écrit dans Gmail). */
+  peutEcrire?: boolean;
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [autoInterne, setAutoInterne] = useState(false);
@@ -401,7 +412,18 @@ export function BoiteMail({
               //   pour ma session ; la liste ne fait que l'afficher.
               const nonLu = etat.nonLus.has(l.filId);
               return (
-              <li key={l.filId}>
+              <li key={l.filId} className="bte-li">
+                {/* LOT 5-BOITE-3 — LE MENU ENVELOPPE LA LIGNE : c'est sur ELLE que se posent le clic droit et
+                    l'appui long. Mesuré à l'écran : posés sur le seul bouton « ⋯ », ils n'ouvraient rien. Sans
+                    entrée à proposer, `MenuLigne` rend la ligne telle quelle — l'écran d'avant, à l'identique. */}
+                <MenuLigne
+                  titre={`Actions sur l’échange « ${nettoyerObjet(l.objet) || '(sans objet)'} »`}
+                  etat={{
+                    nonLu, enCorbeille: etiquette.sorte === 'corbeille',
+                    corbeilleDisponible: corbeille, peutEcrire: peutEcrire && onActionLigne !== undefined,
+                  }}
+                  onAction={(a) => onActionLigne?.(l.filId, a)}
+                >
                 {/* L'échange OUVERT est marqué — par un mot pour les lecteurs d'écran (`aria-current`) autant que par
                     la forme. Le CONTENU de la ligne est le même dans les deux présentations : c'est la feuille de
                     style qui, sur ordinateur, la remet sur une seule ligne. Aucune information n'est retirée. */}
@@ -440,6 +462,7 @@ export function BoiteMail({
                       si un mail était arrivé à 9 h ou à 14 h. La date complète reste dans l'infobulle. */}
                   <span className="bte-quand" title={dateHeureComplete(l.dernierLe)}>{dateHeureCourte(l.dernierLe, ref)}</span>
                 </button>
+                </MenuLigne>
               </li>
               );
             })}
@@ -462,6 +485,10 @@ export function BoiteMail({
 
 const CSS_BOITE = `
 .bte-liste{display:flex;flex-direction:column;gap:0;border-top:1px solid var(--color-svv-line)}
+/* LOT 5-BOITE-3 — la ligne et son menu sont CÔTE À CÔTE. Le menu ne peut pas être dans le bouton d'ouverture (un
+   bouton dans un bouton est invalide, et le clic ouvrirait l'échange), d'où cette rangée. */
+.bte-li{display:flex;border-bottom:1px solid var(--color-svv-line)}
+.bte-li>.bte-ligne{border-bottom:0;flex:1 1 auto;min-width:0}
 .bte-ligne{display:flex;flex-direction:column;gap:3px;width:100%;min-height:44px;padding:10px 4px;text-align:left;
   background:none;border:0;border-bottom:1px solid var(--color-svv-line);color:inherit;font:inherit;cursor:pointer}
 .bte-ligne:hover,.bte-ligne:focus-visible{background:var(--color-svv-field)}
@@ -514,4 +541,6 @@ const CSS_BOITE = `
 .bte-trouve{font-weight:800;text-decoration:underline;text-underline-offset:2px}
 .bte-plus{margin-top:12px;width:100%}
 @media (min-width:600px){.bte-plus{width:auto}}
+
+${CSS_MENU_LIGNE}
 `;

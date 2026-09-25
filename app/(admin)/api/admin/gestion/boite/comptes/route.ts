@@ -1,6 +1,7 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { comptesBoite } from '../../../../../../lib/gestion/boiteRepo';
+import { compterCorbeille } from '../../../../../../lib/gestion/corbeilleRepo';
 
 /**
  * /api/admin/gestion/boite/comptes (lot 5-FUSION) — LES NOMBRES DE LA COLONNE D'ÉTIQUETTES.
@@ -24,8 +25,11 @@ export async function GET(request: Request): Promise<Response> {
   if (refus) return refus;
 
   try {
-    const comptes = await comptesBoite();
-    return Response.json(comptes, { headers: { 'Cache-Control': 'private, no-store' } });
+    // LOT 5-BOITE-3 — la corbeille est comptée À CÔTÉ : elle ne sort pas du même regroupement (c'est une colonne de
+    //   `gestion_fil`, pas un état de message). `null` = migration 251 absente ⇒ l'étiquette ne s'affiche pas du tout,
+    //   plutôt qu'un zéro qui se lirait « la corbeille est vide ».
+    const [comptes, corbeille] = await Promise.all([comptesBoite(), compterCorbeille()]);
+    return Response.json({ ...comptes, corbeille }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     // Pas de catch muet : des compteurs à zéro feraient croire à une boîte vide. On dit que la lecture a échoué, et
     //   l'écran affiche alors les étiquettes SANS nombre plutôt qu'avec des nombres faux.

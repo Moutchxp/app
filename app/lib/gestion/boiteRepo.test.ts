@@ -383,3 +383,50 @@ describe('④ les étiquettes', () => {
     expect((appel2?.[1] as unknown[])?.[0]).toBe('recu');
   });
 });
+
+/**
+ * LOT 5-BOITE-3 — LA CORBEILLE DANS LE PARCOURS DE LA BOÎTE.
+ *
+ * 🔴 UNE SEULE RÈGLE, DEUX FORMES : l'étiquette « Corbeille » la MONTRE, toutes les autres l'ÉCARTENT. Écrites au
+ * même endroit, elles ne peuvent pas diverger et laisser un échange invisible partout.
+ */
+describe('la corbeille dans le parcours', () => {
+  const etiq2 = (sorte: string) => ({ sorte, evenementId: null }) as Parameters<typeof sqlPageBoite>[1];
+
+  it('sans la migration 251, la colonne n’est JAMAIS nommée — sinon toute la boîte échouerait', () => {
+    for (const sorte of ['reception', 'envoyes', 'a_classer', 'corbeille'] as const) {
+      expect(sqlPageBoite(false, etiq2(sorte), false)).not.toContain('corbeille_le');
+    }
+  });
+
+  it('avec la migration, les autres étiquettes ÉCARTENT la corbeille', () => {
+    for (const sorte of ['reception', 'envoyes', 'a_classer'] as const) {
+      const sql = parcours(sqlPageBoite(false, etiq2(sorte), true)).replace(/\s+/g, ' ');
+      expect(sql).toContain('AND NOT EXISTS (SELECT 1 FROM gestion_fil fc');
+      expect(sql).toContain('fc.corbeille_le >= m.recu_le');
+    }
+  });
+
+  it('…et l’étiquette « Corbeille » la MONTRE, par la forme positive de la même règle', () => {
+    const sql = parcours(sqlPageBoite(false, etiq2('corbeille'), true)).replace(/\s+/g, ' ');
+    expect(sql).toContain('AND EXISTS (SELECT 1 FROM gestion_fil fc');
+    expect(sql).not.toContain('AND NOT EXISTS (SELECT 1 FROM gestion_fil fc');
+  });
+
+  /**
+   * 🔴 LE RETOUR AUTOMATIQUE, ET IL EST GRATUIT : `m` étant le DERNIER message de son échange, comparer le geste à
+   * sa date suffit. Un nouveau message arrive → sa date dépasse celle du geste → l'échange revient dans sa boîte,
+   * sans qu'une seule ligne soit écrite, et sans que la relève ait à savoir que la corbeille existe.
+   */
+  it('la comparaison porte sur le DERNIER message : c’est ce qui fait revenir l’échange tout seul', () => {
+    const sql = parcours(sqlPageBoite(false, etiq2('reception'), true)).replace(/\s+/g, ' ');
+    expect(sql).toContain('fc.corbeille_le >= m.recu_le');
+  });
+
+  it('le total d’une boîte écarte la corbeille par la MÊME règle', async () => {
+    rendre([], 4944);
+    await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: etiq2('reception') });
+    // Sans la migration (la sonde répond « non » sur la base doublée), la colonne n'est pas nommée non plus.
+    expect(sqls().some((s) => s.includes('DISTINCT ON (m.fil_id) m.sens'))).toBe(true);
+  });
+});

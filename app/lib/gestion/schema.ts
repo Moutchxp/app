@@ -163,6 +163,18 @@ export function reglageRecentsDisponible(): Promise<boolean> {
 }
 
 /**
+ * LOT 5-BOITE-3 — la migration 251 est-elle appliquée ? Elle seule porte la CORBEILLE interne.
+ *
+ * 🔴 TANT QU'ELLE MANQUE, LE COMPORTEMENT D'AVANT EST EXACTEMENT CONSERVÉ : l'entrée « Supprimer » n'apparaît pas
+ * dans le menu, l'étiquette « Corbeille » non plus, et aucune requête ne nomme la colonne absente — ce qui ferait
+ * échouer TOUTE la boîte, pas seulement le geste nouveau. Proposer « Supprimer » sans pouvoir s'en souvenir serait
+ * pire : le clic suivant rendrait l'échange comme si de rien n'était.
+ */
+export function corbeilleDisponible(): Promise<boolean> {
+  return memoiser('fil.corbeille_le', () => colonneExiste('gestion_fil', 'corbeille_le'));
+}
+
+/**
  * LOT 5-BOITE — la migration 250 est-elle appliquée ? Elle seule porte le LU / NON LU par collaborateur.
  *
  * 🔴 TANT QU'ELLE MANQUE, LE COMPORTEMENT D'AVANT EST EXACTEMENT CONSERVÉ : aucune ligne n'est en gras, aucun

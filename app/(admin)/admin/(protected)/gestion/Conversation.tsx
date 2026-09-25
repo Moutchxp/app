@@ -117,7 +117,7 @@ async function marquerLecture(
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture }: {
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null }: {
   filId: number;
   maintenant: Date;
   onGeste: Rapport;
@@ -153,6 +153,12 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * parent met alors la liste à jour sur place : il n'a rien à redemander au serveur, qui vient déjà d'écrire.
    */
   onLecture?: (filId: number, lu: boolean) => void;
+  /**
+   * LOT 5-BOITE-3 — la voie demandée AVANT d'ouvrir la conversation : « Répondre » depuis le menu d'une LIGNE ouvre
+   * l'échange ET son éditeur, sur le dernier message. Sans cela, le menu ne ferait qu'ouvrir l'échange et laisserait
+   * la personne cliquer une seconde fois — ce qui n'est pas ce qu'on lui a promis.
+   */
+  voieInitiale?: VoieRedaction | null;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   const [deplies, setDeplies] = useState<Set<number>>(new Set());
@@ -176,6 +182,20 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   }, [filId]);
 
   useEffect(() => { void recharger(); }, [recharger]);
+
+  /**
+   * LOT 5-BOITE-3 — la voie demandée depuis la liste, appliquée UNE FOIS la conversation chargée : le brouillon se
+   * prépare à partir du DERNIER message, qu'il faut donc avoir lu. `deja` empêche de rouvrir l'éditeur à chaque
+   * rendu — et donc d'écraser ce que la personne est en train d'écrire.
+   */
+  const voieFaite = useRef<string | null>(null);
+  useEffect(() => {
+    if (voieInitiale === null || vue.v !== 'ok' || redaction === null) return;
+    const cle = `${filId}:${voieInitiale}`;
+    if (voieFaite.current === cle) return;
+    voieFaite.current = cle;
+    setBrouillon(ouvrirRedaction(voieInitiale, vue.messages, filId, redaction, maintenant));
+  }, [voieInitiale, vue, redaction, filId, maintenant]);
 
   /**
    * LOT 5-BOITE — OUVRIR UN ÉCHANGE LE MARQUE LU, POUR MOI. Comme dans une messagerie : c'est l'ouverture qui vaut

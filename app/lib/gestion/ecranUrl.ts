@@ -26,7 +26,7 @@ export type Ecran = 'partage' | 'boite' | 'evenements';
  * s'appuierait sur rien mentirait. Elle viendra avec le lot qui crée cet état.
  */
 export type SorteEtiquette =
-  | 'reception' | 'a_classer' | 'envoyes' | 'sans_suite' | 'automatique'
+  | 'reception' | 'a_classer' | 'envoyes' | 'sans_suite' | 'automatique' | 'corbeille'
   /** LOT 5e — les messages commencés et pas envoyés. Ils ne vivent pas dans `gestion_message` : voir `PleinEcranBoite`. */
   | 'brouillons'
   | 'carte';
@@ -52,7 +52,12 @@ export const ETIQUETTE_RECEPTION: Etiquette = { sorte: 'reception', evenementId:
 export const ETAT_DEFAUT: EtatEcranUrl = { ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null };
 
 const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements'];
-const SORTES_FIXES: readonly SorteEtiquette[] = ['reception', 'a_classer', 'envoyes', 'sans_suite', 'automatique', 'brouillons'];
+const SORTES_FIXES: readonly SorteEtiquette[] = [
+  'reception', 'a_classer', 'envoyes', 'sans_suite', 'automatique', 'brouillons',
+  // LOT 5-BOITE-3 — la corbeille est une étiquette comme les autres : elle vit dans l'adresse, donc elle se
+  //   recharge, se copie et se retrouve par « Précédent ».
+  'corbeille',
+];
 
 /** Deux étiquettes désignent-elles la MÊME chose ? Une carte ne se compare pas sans son identifiant. */
 export function memeEtiquette(a: Etiquette, b: Etiquette): boolean {
@@ -129,6 +134,10 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
 export function autoImposeParEtiquette(e: Etiquette): boolean | null {
   if (e.sorte === 'a_classer' || e.sorte === 'brouillons') return false;
   if (e.sorte === 'automatique') return true;
+  // LOT 5-BOITE-3 — la CORBEILLE montre TOUT ce qu'elle contient, courrier automatique compris. Sans cela, un
+  //   échange entièrement automatique mis à la corbeille ne serait visible NULLE PART — ni dans ses boîtes, qui
+  //   l'écartent, ni ici. Une corbeille où l'on ne retrouve pas ce qu'on y a mis n'est pas une corbeille.
+  if (e.sorte === 'corbeille') return true;
   return null;
 }
 

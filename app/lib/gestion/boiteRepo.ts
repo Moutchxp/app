@@ -30,6 +30,7 @@
 import { query } from '../db/client';
 import { autoImposeParEtiquette, type Etiquette } from './ecranUrl';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
+import { corbeilleDisponible } from './schema';
 
 /** Combien d'échanges par page. Assez pour remplir un écran de téléphone sans faire attendre. */
 export const PAGE_BOITE = 30;
@@ -127,7 +128,24 @@ interface LigneDB {
  */
 const ETIQUETTE_TOUT: Etiquette = { sorte: 'reception', evenementId: null };
 
-function sqlEtiquette(e: Etiquette): string {
+/**
+ * LOT 5-BOITE-3 — L'ÉCHANGE EST-IL À LA CORBEILLE ? La règle, écrite UNE fois, et entièrement DÉRIVÉE.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 « EN CORBEILLE » = le geste est POSTÉRIEUR OU ÉGAL au dernier message. Comme `m` EST le dernier message de son
+ * échange (prédicat du CTE `page`), la comparaison se fait sur lui — et c'est ce qui donne gratuitement le
+ * comportement de Gmail : UN NOUVEAU MESSAGE FAIT REVENIR L'ÉCHANGE dans sa boîte, tout seul, sans qu'une seule
+ * ligne soit écrite nulle part. Pas de rattrapage à la relève, rien qui puisse se désynchroniser.
+ *
+ * ⚠️ `>=` ET NON `>` : deux messages peuvent porter le même instant à la seconde près, et un geste fait dans la même
+ * seconde que l'arrivée d'un message doit tenir — sinon l'échange ressortirait aussitôt, sans explication.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+const SQL_EN_CORBEILLE = `EXISTS (SELECT 1 FROM gestion_fil fc
+                                   WHERE fc.id = m.fil_id AND fc.corbeille_le IS NOT NULL
+                                     AND fc.corbeille_le >= m.recu_le)`;
+
+function sqlEtiquette(e: Etiquette, corbeille: boolean): string {
   switch (e.sorte) {
     /**
      * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -192,6 +210,14 @@ function sqlEtiquette(e: Etiquette): string {
     //   garde-fou : si quelqu'un appelait quand même, il rendrait une liste VIDE plutôt qu'une liste FAUSSE.
     case 'brouillons':
       return 'AND false';
+    // LOT 5-BOITE-3 — « Corbeille » : le seul endroit qui MONTRE ce que les autres écartent. Le filtre y est donc la
+    //   forme POSITIVE exacte de l'exclusion posée sur toutes les autres étiquettes — écrites au même endroit, elles
+    //   ne peuvent pas diverger et laisser un échange invisible partout.
+    case 'corbeille':
+      // ⚠️ SANS LA MIGRATION 251, ON NE NOMME PAS LA COLONNE — pas même ici. Quelqu'un peut arriver sur cette
+      //   étiquette par une adresse enregistrée : nommer une colonne absente ferait échouer TOUTE la boîte, pas
+      //   seulement cette liste. Le prédicat impossible rend une liste VIDE, comme pour « Brouillons ».
+      return corbeille ? `AND ${SQL_EN_CORBEILLE}` : 'AND false';
     // Une CARTE : ses échanges rattachés. `message_id IS NULL` — une affectation de MAIL isolé n'est pas un échange
     //   rattaché, et la compter ici ferait apparaître dans l'étiquette un échange qui appartient à une autre carte.
     case 'carte':
@@ -214,12 +240,18 @@ export function parametresEtiquette(e: Etiquette, fenetreJours: number): number[
  * ment alors sans prévenir. `lireBoiteMail` et le banc d'épreuve appellent donc la MÊME fonction.
  * Paramètres liés : $1 = date du curseur, $2 = identifiant du curseur, $3 = nombre de lignes à lire.
  */
-export function sqlPageBoite(inclureAutomatiques: boolean, etiquette: Etiquette = ETIQUETTE_TOUT): string {
+export function sqlPageBoite(
+  inclureAutomatiques: boolean, etiquette: Etiquette = ETIQUETTE_TOUT, corbeille = false,
+): string {
   // Le filtre s'applique AUX DEUX ÉTAGES du parcours (le message candidat, et le « y a-t-il plus récent ? ») : les
   //   dissocier ferait sortir un échange dont le dernier message est écarté, avec l'avant-dernier comme aperçu.
   const filtreM = inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL';
   const filtreM2 = inclureAutomatiques ? '' : 'AND m2.exclu_le IS NULL';
-  const filtreEtiquette = sqlEtiquette(etiquette);
+  const filtreEtiquette = sqlEtiquette(etiquette, corbeille);
+  // LOT 5-BOITE-3 — TOUTES les autres étiquettes écartent la corbeille, et la corbeille seule la montre. Sans la
+  //   migration 251, `corbeille` est faux : la colonne n'est PAS nommée — la nommer ferait échouer toute la boîte,
+  //   pas seulement le geste nouveau.
+  const filtreCorbeille = !corbeille || etiquette.sorte === 'corbeille' ? '' : `AND NOT ${SQL_EN_CORBEILLE}`;
   return `WITH page AS (
        SELECT m.fil_id, m.id AS message_id, m.recu_le, m.sens, m.de_adresse, m.de_nom, m.destinataires,
               left(coalesce(m.corps_texte, ''), ${LONGUEUR_EXTRAIT}) AS extrait
@@ -227,6 +259,7 @@ export function sqlPageBoite(inclureAutomatiques: boolean, etiquette: Etiquette 
         WHERE (m.recu_le, m.fil_id) < ($1::timestamptz, $2::bigint)
           ${filtreM}
           ${filtreEtiquette}
+          ${filtreCorbeille}
           -- ⚠️ « ce message est le DERNIER de son échange ». C'est CE prédicat qui transforme un parcours de messages
           --    en parcours d'échanges, et qui permet au LIMIT d'arrêter le travail. Servi par l'index (fil_id, recu_le).
           AND NOT EXISTS (
@@ -295,8 +328,11 @@ export async function lireBoiteMail(
   // On demande UNE ligne de plus que la page : sa présence dit « il y a une suite », sans compter quoi que ce soit.
   const aLire = Math.min(Math.max(1, limite), 100) + 1;
 
+  // LOT 5-BOITE-3 — la corbeille n'entre dans le SQL que si la migration 251 est là. Sonde HORS transaction : une
+  //   colonne nommée alors qu'elle n'existe pas ferait échouer TOUTE la boîte, pas seulement le geste nouveau.
+  const corbeille = await corbeilleDisponible();
   const { rows } = await query<LigneDB>(
-    sqlPageBoite(tous, etiquette),
+    sqlPageBoite(tous, etiquette, corbeille),
     // `infinity` plutôt qu'une date arbitraire : il n'existe aucun message après, quelle que soit l'horloge.
     [curseur?.dernierLe ?? 'infinity', curseur?.filId ?? '9223372036854775807', aLire,
       ...parametresEtiquette(etiquette, options.fenetreJours ?? 30)],
@@ -332,7 +368,7 @@ export async function lireBoiteMail(
     // LOT 5-BOITE-2 — les DEUX boîtes portent désormais leur total, calculé avec leur propre règle. Les autres
     //   étiquettes s'en remettent toujours à la colonne de gauche (`null` se lit « demande-le à l'étiquette »).
     total: curseur === null && (etiquette.sorte === 'reception' || etiquette.sorte === 'envoyes')
-      ? await compterBoite(tous, etiquette.sorte === 'envoyes' ? 'envoye' : 'recu')
+      ? await compterBoite(tous, etiquette.sorte === 'envoyes' ? 'envoye' : 'recu', corbeille)
       : null,
   };
 }
@@ -341,15 +377,23 @@ export async function lireBoiteMail(
  * Combien d'échanges la boîte contient au total. Un échange compte dès qu'il porte AU MOINS un message non écarté —
  * même règle que la liste, pour que le compteur et la liste ne racontent jamais deux histoires différentes.
  */
-export async function compterBoite(inclureAutomatiques = false, sens: 'recu' | 'envoye' = 'recu'): Promise<number> {
+export async function compterBoite(
+  inclureAutomatiques = false, sens: 'recu' | 'envoye' = 'recu', corbeille = false,
+): Promise<number> {
   // LOT 5-BOITE-2 — ce total porte EXACTEMENT la règle de l'étiquette : c'est le DERNIER message de l'échange qui
   //   décide. Un compteur calculé autrement annoncerait un nombre que la liste ne montre pas — et c'est toujours le
   //   compteur qu'on croit. `DISTINCT ON` est ici le bon outil : on veut UNE ligne par échange, la plus récente.
+  // La corbeille est écartée du total comme elle l'est de la liste — et par la MÊME règle, le dernier message
+  //   décidant aussi du retour automatique. Sans la migration 251, la colonne n'est pas nommée.
+  const horsCorbeille = corbeille
+    ? `AND NOT EXISTS (SELECT 1 FROM gestion_fil fc WHERE fc.id = m.fil_id
+                        AND fc.corbeille_le IS NOT NULL AND fc.corbeille_le >= m.recu_le)`
+    : '';
   const { rows } = await query<{ n: number }>(
     `SELECT count(*)::int AS n
        FROM (SELECT DISTINCT ON (m.fil_id) m.sens
                FROM gestion_message m
-              ${inclureAutomatiques ? '' : 'WHERE m.exclu_le IS NULL'}
+              WHERE ${inclureAutomatiques ? 'true' : 'm.exclu_le IS NULL'} ${horsCorbeille}
               ORDER BY m.fil_id, m.recu_le DESC, m.id DESC) d
       WHERE d.sens = $1`,
     [sens]);
