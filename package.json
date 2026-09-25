@@ -86,7 +86,10 @@
     "gestion:purger-jetons-google": "tsx app/scripts/purger-jetons-google.ts",
     "gestion:drive:verifier": "tsx app/scripts/verifier-delegation-drive.ts",
     "gestion:annuaire:importer": "tsx app/scripts/importer-annuaire.ts",
-    "gestion:annuaire:epreuve": "tsx app/scripts/annuaire-epreuve.ts"
+    "gestion:annuaire:epreuve": "tsx app/scripts/annuaire-epreuve.ts",
+    "gestion:drive:construire": "tsx app/scripts/construire-arbre-drive.ts",
+    "gestion:drive:empreinte": "tsx app/scripts/empreinte-drive.ts",
+    "gestion:tri:rapport": "tsx app/scripts/rapport-tri-pieces.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",

@@ -262,6 +262,18 @@ export function annuaireDisponible(): Promise<boolean> {
   return memoiser('table.gestion_annuaire_proprietaire', () => tableExiste('gestion_annuaire_proprietaire'));
 }
 
+/**
+ * LOT DRIVE-1 — la migration 254 est-elle appliquée ? Elle seule porte la MÉMOIRE de l'arborescence Drive, qui est
+ * aussi la LISTE BLANCHE du garde-fou.
+ *
+ * 🔴 SANS ELLE, AUCUNE ÉCRITURE DRIVE N'EST POSSIBLE, et c'est voulu : le garde-fou ② exige que le dossier parent
+ * figure dans une table qui n'existe pas encore. La commande de construction le DIT et s'arrête — elle ne « fait pas
+ * au mieux ». Une arborescence bâtie sans mémoire serait impossible à reprendre et se dédoublerait au second essai.
+ */
+export function arbreDriveDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_drive_arbre', () => tableExiste('gestion_drive_arbre'));
+}
+
 /** LOT 5e — la migration 241 (délai d'annulation réglable) est-elle appliquée ? Sinon le délai vaut son défaut. */
 export function delaiAnnulationDisponible(): Promise<boolean> {
   return memoiser('config.annulation_envoi_secondes', () => colonneExiste('gestion_config', 'annulation_envoi_secondes'));
