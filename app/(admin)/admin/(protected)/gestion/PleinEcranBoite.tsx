@@ -44,6 +44,12 @@ export interface EtiquetteAffichee {
   libelle: string;
   /** `null` = on ne sait pas encore (le compte n'est pas revenu). Une étiquette sans nombre vaut mieux qu'un faux. */
   compte: number | null;
+  /**
+   * LOT 5-BOITE — combien de ces échanges me restent NON LUS. Affiché EN PLUS du total, jamais à sa place : « 3 non
+   * lus » sans le total ne dit pas la taille de la boîte, et le total sans les non-lus ne dit pas ce qui m'attend.
+   * `null` ou absent = on ne sait pas (migration 250 absente, ou accès sans compte personnel) : on n'affiche rien.
+   */
+  nonLus?: number | null;
   reference?: string;
 }
 
@@ -60,7 +66,7 @@ export function etiquettesVisibles(
 
 export function PleinEcranBoite({
   etiquette, etiquettes, onEtiquette, filOuvert, onOuvrir, onFermerFil, maintenant, onGeste, onRetour,
-  enfantAClasser, auto, onAuto, redaction = null,
+  enfantAClasser, auto, onAuto, redaction = null, onNonLus,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -77,6 +83,8 @@ export function PleinEcranBoite({
   onAuto: (v: boolean) => void;
   /** LOT 5e — droit, schéma, connexion Google, signature, délai. `null` = aucun écran d'écriture. */
   redaction?: ContexteRedactionEcran | null;
+  /** LOT 5-BOITE — remonte le nombre d'échanges non lus par la personne connectée, pour l'étiquette « Réception ». */
+  onNonLus?: (n: number | null) => void;
 }) {
   // Sur téléphone, on arrive sur les ÉTIQUETTES : c'est le sommaire, et on ne tombe pas au milieu d'une liste sans
   //   savoir laquelle. Au montage, donc à chaque entrée en plein écran. Sur grand écran, l'attribut ne change rien.
@@ -89,6 +97,17 @@ export function PleinEcranBoite({
   const [classement, setClassement] = useState<'nouveau' | 'existant' | null>(null);
   /** Change après un classement réussi → la conversation est remontée et relue, donc sa barre montre la GES-…. */
   const [versionFil, setVersionFil] = useState(0);
+  /**
+   * LOT 5-BOITE — le DERNIER marquage de lecture, transmis tel quel à la liste.
+   *
+   * 🔴 IL NE TOUCHE SURTOUT PAS À `versionFil`, qui est la CLÉ de la conversation : s'en servir la remonterait, son
+   * effet d'ouverture repartirait, re-marquerait, re-changerait la clé — une boucle sans fin, dont le seul symptôme
+   * visible serait un écran qui rame (mesuré en test avant correction).
+   *
+   * 🔴 ET IL NE FAIT PAS RELIRE LA LISTE : le lot 5-GMAIL garantit qu'ouvrir un échange ne perd ni les pages déjà
+   * chargées, ni la recherche en cours. La liste met son gras à jour SUR PLACE, à partir de ce seul objet.
+   */
+  const [marquage, setMarquage] = useState<{ filId: number; nonLu: boolean; cle: number }>({ filId: 0, nonLu: false, cle: 0 });
   /** LOT 5e — le brouillon d'un NOUVEAU message (hors de tout échange). `null` = on ne rédige pas. */
   const [nouveau, setNouveau] = useState<BrouillonEcran | null>(null);
 
@@ -168,6 +187,10 @@ export function PleinEcranBoite({
                     {e.reference && <span className="gst-ref">{e.reference}</span>}
                     <span className="cm-texte">{e.libelle}</span>
                   </span>
+                  {/* « 3 non lus · 10 103 » : le mot est écrit, jamais une pastille de couleur seule. */}
+                  {typeof e.nonLus === 'number' && e.nonLus > 0 && (
+                    <span className="cm-non-lus">{e.nonLus} non lu{e.nonLus > 1 ? 's' : ''}</span>
+                  )}
                   {e.compte !== null && <span className="gst-compte">{e.compte}</span>}
                 </button>
               </li>
@@ -221,7 +244,7 @@ export function PleinEcranBoite({
             </>
           ) : (
             <BoiteMail etiquette={etiquette} titre={titre} total={ouverte?.compte ?? null} dense
-              auto={auto} onAuto={onAuto} filSelectionne={filOuvert}
+              auto={auto} onAuto={onAuto} filSelectionne={filOuvert} onNonLus={onNonLus} marquage={marquage}
               onOuvrir={(id) => { defilement.current = window.scrollY; onOuvrir(id); }} />
           )}
         </section>
@@ -232,7 +255,9 @@ export function PleinEcranBoite({
           <section className="pe-lecture" aria-label="Conversation">
             <Conversation key={`${filOuvert}-${versionFil}`} filId={filOuvert} maintenant={maintenant}
               onFerme={onFermerFil} barreActions onClassement={(voie) => setClassement(voie)}
-              redaction={redaction} onGeste={onGeste} />
+              redaction={redaction} onGeste={onGeste}
+              // LOT 5-BOITE — ouvrir (ou marquer non lu) change le gras de la liste, qui l'applique sur place.
+              onLecture={(id, lu) => setMarquage((m) => ({ filId: id, nonLu: !lu, cle: m.cle + 1 }))} />
           </section>
         )}
 

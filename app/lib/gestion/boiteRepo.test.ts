@@ -35,7 +35,7 @@ const ligne = (n: number, o: Record<string, unknown> = {}) => ({
 const rendre = (lignes: unknown[], total = 100) => {
   queryMock.mockReset();
   queryMock.mockImplementation(async (sql: string) => {
-    if (String(sql).includes('count(DISTINCT fil_id)')) return { rows: [{ n: total }] };
+    if (String(sql).includes('count(DISTINCT m.fil_id)')) return { rows: [{ n: total }] };
     if (String(sql).includes('FILTER (WHERE lisibles > 0)')) return { rows: [{ lisibles: 4944, total: 17206 }] };
     return { rows: lignes };
   });
@@ -45,6 +45,8 @@ const paramsPage = () => (queryMock.mock.calls.findLast((c) => String(c[0]).incl
  *  toujours les messages lisibles, dans les deux modes — c'est voulu, et ça ne doit pas brouiller l'assertion. */
 const parcours = (sql: string) => sql.slice(sql.indexOf('WITH page AS ('), sql.indexOf('LIMIT $3'));
 const sqlPage = () => String(queryMock.mock.calls.findLast((c) => String(c[0]).includes('WITH page'))?.[0] ?? '');
+/** TOUS les SQL émis, espaces normalisés — on assertera par FRAGMENTS SÉMANTIQUES, jamais sur la forme exacte. */
+const sqls = (): string[] => queryMock.mock.calls.map((c) => String(c[0]).replace(/\s+/g, ' '));
 
 beforeEach(() => queryMock.mockReset());
 
@@ -169,7 +171,43 @@ describe('③ le courrier automatique : écarté par défaut, jamais supprimé',
     rendre([]);
     // LOT 5-FUSION — « Envoyés » s'est ajouté au MÊME regroupement : trois nombres, une seule lecture, donc trois
     //   nombres qui ne peuvent pas se contredire. Le jeu d'essai ne rend pas `envoyes` → repli à 0, pas d'exception.
-    await expect(comptesBoite()).resolves.toEqual({ lisibles: 4944, automatiques: 17206 - 4944, envoyes: 0 });
+    // LOT 5-BOITE — « reception » s'y ajoute de la même façon : un FILTER de plus sur le même regroupement.
+    await expect(comptesBoite()).resolves.toEqual({
+      lisibles: 4944, automatiques: 17206 - 4944, envoyes: 0, reception: 0,
+    });
+  });
+});
+
+/**
+ * LOT 5-BOITE — LA RÉCEPTION NE MONTRE QUE CE QU'ON NOUS A ÉCRIT.
+ *
+ * 🔴 LE DÉFAUT RÉPARÉ, vu à l'écran le 25/09/2026 : l'échange « Coucou », un seul message, ENVOYÉ par gestion@ à un
+ * collègue, s'affichait en tête de Réception. Le `case 'reception'` rendait une chaîne vide : ce n'était pas une
+ * étiquette, c'était la boîte entière.
+ */
+describe('la règle de Réception', () => {
+  it('exige AU MOINS UN message reçu — c’est la règle de Gmail', async () => {
+    rendre([]);
+    await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'reception', evenementId: null } });
+    expect(sqlPage().replace(/\s+/g, ' ')).toContain("mr.fil_id = m.fil_id AND mr.sens = 'recu'");
+  });
+
+  /** Un échange mixte porte un reçu ET un envoi : il reste dans les DEUX étiquettes, comme dans une messagerie. */
+  it('« Envoyés » ne change pas : un échange mixte figure dans les deux', async () => {
+    rendre([]);
+    await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'envoyes', evenementId: null } });
+    const sql = sqlPage().replace(/\s+/g, ' ');
+    expect(sql).toContain("me.fil_id = m.fil_id AND me.sens = 'envoye'");
+    // …et surtout, « Envoyés » n'exige AUCUN message reçu : sinon un échange 100 % sortant n'apparaîtrait nulle part.
+    expect(sql).not.toContain("mr.sens = 'recu'");
+  });
+
+  it('le TOTAL de la Réception porte la même condition que sa liste', async () => {
+    rendre([]);
+    await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'reception', evenementId: null } });
+    // La dernière requête est le comptage : il doit exiger le message reçu, sinon le compteur annoncerait plus
+    //   d'échanges que la liste n'en montre — et c'est le compteur qu'on croirait.
+    expect(sqls().some((s) => s.includes('count(DISTINCT m.fil_id)') && s.includes("mr.sens = 'recu'"))).toBe(true);
   });
 });
 

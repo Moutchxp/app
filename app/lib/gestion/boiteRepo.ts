@@ -129,9 +129,28 @@ const ETIQUETTE_TOUT: Etiquette = { sorte: 'reception', evenementId: null };
 
 function sqlEtiquette(e: Etiquette): string {
   switch (e.sorte) {
-    // « Réception » = la boîte telle qu'elle existe depuis le lot 5a : aucun filtre de plus.
+    /**
+     * « Réception » = les échanges où QUELQU'UN NOUS A ÉCRIT — au moins un message reçu. Règle de Gmail.
+     *
+     * 🔴 LE DÉFAUT QUE CE FILTRE RÉPARE, constaté par Arno à l'écran le 25/09/2026 à 17h06. Ce `case` rendait une
+     * chaîne VIDE : « Réception » n'était pas une étiquette, c'était la boîte entière. L'échange « Coucou », un seul
+     * message, ENVOYÉ par gestion@ à un collègue, s'affichait donc en tête de Réception — alors que la relève
+     * l'avait parfaitement classé « 1 envoyé, 0 reçu ». Rien n'était faux en base : c'est l'écran qui ne posait
+     * aucune question.
+     *
+     * 🔴 « NOUS », C'EST `gestion_config.adresse_gestion`, ET RIEN D'AUTRE. `sens` porte déjà exactement cette
+     * règle (`sensDuMessage`, capture.ts:266-268) : un collègue de @sansvisavis.com ou @criterimmo.fr qui écrit à
+     * gestion@ est un message REÇU, et son échange est bien en Réception. Confondre « interne » et « nous » ferait
+     * disparaître de la boîte les demandes des collègues — c'est-à-dire une partie du travail.
+     *
+     * Un échange MIXTE (on nous écrit, nous répondons) reste dans les DEUX étiquettes, comme dans Gmail : il porte
+     * un reçu, donc Réception ; il porte un envoi, donc Envoyés.
+     *
+     * MESURÉ le 25/09/2026 : 26 128 échanges sur 36 214 ne contiennent aucun message reçu ; 1 644 d'entre eux
+     * portent au moins un message lisible et figuraient donc, à tort, dans la Réception affichée par défaut.
+     */
     case 'reception':
-      return '';
+      return `AND EXISTS (SELECT 1 FROM gestion_message mr WHERE mr.fil_id = m.fil_id AND mr.sens = 'recu')`;
     // « À classer » = la règle du poste de tri : échange encore à classer, et dernier message lisible dans la fenêtre
     //   d'activité. `m` EST ce dernier message lisible (le parcours ne garde que lui), donc le test de date porte sur
     //   la même date que `lireFile`. $4 = la fenêtre en jours, lue en base comme là-bas.
@@ -310,8 +329,14 @@ export async function lireBoiteMail(
  * même règle que la liste, pour que le compteur et la liste ne racontent jamais deux histoires différentes.
  */
 export async function compterBoite(inclureAutomatiques = false): Promise<number> {
+  // LOT 5-BOITE — ce total est celui de la RÉCEPTION (c'est la seule étiquette qui l'affiche), et il doit donc porter
+  //   la MÊME condition que son filtre : au moins un message reçu. Sans elle, l'écran annoncerait « 10 103 » au-dessus
+  //   d'une liste qui n'en contient que 8 459 — et c'est le compteur, jamais la liste, qu'on croirait.
   const { rows } = await query<{ n: number }>(
-    `SELECT count(DISTINCT fil_id)::int AS n FROM gestion_message${inclureAutomatiques ? '' : ' WHERE exclu_le IS NULL'}`);
+    `SELECT count(DISTINCT m.fil_id)::int AS n
+       FROM gestion_message m
+      WHERE EXISTS (SELECT 1 FROM gestion_message mr WHERE mr.fil_id = m.fil_id AND mr.sens = 'recu')
+        ${inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL'}`);
   return rows[0]?.n ?? 0;
 }
 
@@ -319,18 +344,26 @@ export async function compterBoite(inclureAutomatiques = false): Promise<number>
  * Les DEUX comptes de la boîte, pour que l'écran puisse dire ce qu'il montre ET ce qu'il ne montre pas. Un outil qui
  * cache sans le dire ment ; un outil qui annonce ce qu'il tait reste honnête — c'est la règle du module depuis le lot 4b.
  */
-export async function comptesBoite(): Promise<{ lisibles: number; automatiques: number; envoyes: number }> {
+export async function comptesBoite(): Promise<{ lisibles: number; automatiques: number; envoyes: number; reception: number }> {
   // ⚠️ UN SEUL parcours pour les TROIS nombres. « Envoyés » est arrivé avec le lot 5-FUSION : il aurait pu être une
   //   requête de plus, il n'est qu'un `FILTER` de plus sur le regroupement qui existait déjà — même balayage, même
   //   coût, et surtout aucune chance que les compteurs se contredisent puisqu'ils sortent de la même lecture.
-  const { rows } = await query<{ lisibles: number; total: number; envoyes: number }>(
+  const { rows } = await query<{ lisibles: number; total: number; envoyes: number; reception: number }>(
     `SELECT count(*) FILTER (WHERE lisibles > 0)::int AS lisibles,
             count(*)::int AS total,
-            count(*) FILTER (WHERE envoyes > 0)::int AS envoyes
+            count(*) FILTER (WHERE envoyes > 0)::int AS envoyes,
+            -- LOT 5-BOITE — le compte de RÉCEPTION suit EXACTEMENT le filtre de l'étiquette : au moins un message
+            --   reçu, et au moins un message lisible. Le calculer autrement ferait dire à la colonne de gauche un
+            --   nombre que la liste ne montrerait pas — la contradiction que ce regroupement unique existe pour éviter.
+            count(*) FILTER (WHERE lisibles > 0 AND recus > 0)::int AS reception
        FROM (SELECT fil_id,
                     count(*) FILTER (WHERE exclu_le IS NULL) AS lisibles,
-                    count(*) FILTER (WHERE sens = 'envoye') AS envoyes
+                    count(*) FILTER (WHERE sens = 'envoye') AS envoyes,
+                    count(*) FILTER (WHERE sens = 'recu') AS recus
                FROM gestion_message GROUP BY fil_id) x`);
   const l = rows[0]?.lisibles ?? 0;
-  return { lisibles: l, automatiques: (rows[0]?.total ?? 0) - l, envoyes: rows[0]?.envoyes ?? 0 };
+  return {
+    lisibles: l, automatiques: (rows[0]?.total ?? 0) - l, envoyes: rows[0]?.envoyes ?? 0,
+    reception: rows[0]?.reception ?? 0,
+  };
 }

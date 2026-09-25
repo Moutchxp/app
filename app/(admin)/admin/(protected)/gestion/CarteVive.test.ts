@@ -85,6 +85,10 @@ beforeEach(() => {
     appels.push(`${init?.method ?? 'GET'} ${u}`);
     if (init?.method === 'PATCH') { patchs.push(JSON.parse(String(init.body))); return ok({ ok: true }); }
     if (init?.method === 'POST') {
+      // LOT 5-BOITE — ouvrir une conversation la marque LUE pour le collaborateur : c'est un POST de plus, parti
+      //   tout seul, et qui n'a rien à voir avec les gestes éprouvés ici. On le sert et on l'ÉCARTE du relevé,
+      //   plutôt que d'indexer les gestes par leur rang d'arrivée — un rang, ça se décale au premier ajout.
+      if (/\/lecture$/.test(u)) return ok({ etat: 'ok', lu: true, messages: 1 });
       posts.push({ url: u, corps: JSON.parse(String(init.body)) });
       return ok({ ok: true, evenementId: 42, reference: 'GES-2026-000042' });
     }

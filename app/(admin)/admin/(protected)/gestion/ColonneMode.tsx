@@ -101,4 +101,9 @@ const CSS_COLONNE = `
   text-decoration:underline;text-underline-offset:4px}
 .cm-nom{display:flex;flex-direction:column;gap:1px;min-width:0}
 .cm-texte{overflow-wrap:anywhere}
+/* LOT 5-BOITE — « 3 non lus », À CÔTÉ du total et jamais à sa place. Le mot est écrit en toutes lettres : une
+   pastille colorée seule ne dirait rien en niveaux de gris ni à un lecteur d'écran. Le texte se replie avant le
+   nombre total, pour qu'à 390 px ce soit l'information la moins utile qui saute à la ligne. */
+.cm-non-lus{flex:0 1 auto;min-width:0;font-size:.74rem;font-weight:700;color:var(--color-svv-ink);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 `;

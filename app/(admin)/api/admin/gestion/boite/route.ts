@@ -3,6 +3,8 @@ import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { comptesBoite, lireBoiteMail, PAGE_BOITE, type CurseurBoite } from '../../../../../lib/gestion/boiteRepo';
 import { chargerConfigGestion } from '../../../../../lib/gestion/config';
 import { ETIQUETTE_RECEPTION, lireEtatUrl } from '../../../../../lib/gestion/ecranUrl';
+import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
+import { compterFilsNonLus, filsNonLus } from '../../../../../lib/gestion/lectureRepo';
 import { lirePartenairesInternes } from '../../../../../lib/gestion/partenaires';
 
 /**
@@ -61,7 +63,19 @@ export async function GET(request: Request): Promise<Response> {
     // Les deux comptes ne sont calculés qu'à la PREMIÈRE page : l'écran doit pouvoir dire ce qu'il montre ET ce qu'il
     //   tait, mais le redemander à chaque « voir plus » le paierait pour rien.
     const comptes = curseur === null ? await comptesBoite() : null;
-    return Response.json({ ...page, comptes }, { headers: { 'Cache-Control': 'private, no-store' } });
+    // LOT 5-BOITE — LE LU/NON LU EST PERSONNEL : il se calcule pour la personne qui REGARDE, jamais « pour la boîte ».
+    //   L'identité vient de la session (`auteurDeLaRequete`), jamais d'un paramètre — une adresse venue du navigateur
+    //   ferait afficher le gras de quelqu'un d'autre. Sans compte personnel (accès de secours) ou sans la migration
+    //   250, `nonLus` est vide et `nonLusTotal` vaut null : l'écran est alors exactement celui d'avant ce lot.
+    const { id: utilisateurId } = await auteurDeLaRequete(request);
+    const [nonLus, nonLusTotal] = await Promise.all([
+      filsNonLus(page.lignes.map((l) => l.filId), utilisateurId),
+      curseur === null ? compterFilsNonLus(utilisateurId) : Promise.resolve(null),
+    ]);
+    return Response.json(
+      { ...page, comptes, nonLus: [...nonLus], nonLusTotal },
+      { headers: { 'Cache-Control': 'private, no-store' } },
+    );
   } catch (e) {
     // Pas de catch muet : une liste vide ferait croire à une boîte vide. On dit que la lecture a échoué.
     console.error('[api/admin/gestion/boite] lecture impossible', e);

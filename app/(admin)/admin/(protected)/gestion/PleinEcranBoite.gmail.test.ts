@@ -248,7 +248,9 @@ describe('④ CLASSER — le partage s’ouvre, et se referme une fois l’écha
     await cliquer(boutonPar(/^Classer dans une carte$/));
     await cliquer(boutonPar(/^Fermer$/));
     expect(container.querySelector('.pe-classer')).toBeNull();
-    expect(appels.some((a) => a.methode === 'POST')).toBe(false);
+    // « SANS RIEN FAIRE » vise les GESTES sur l'échange. LOT 5-BOITE : ouvrir une conversation la marque lue pour
+    //   le collaborateur — un POST parti tout seul, qui ne classe rien et n'a pas à compter ici.
+    expect(appels.some((a) => a.methode === 'POST' && !a.url.endsWith('/lecture'))).toBe(false);
     expect(container.querySelector('.cnv')).not.toBeNull(); // on est resté sur l'échange
   });
 

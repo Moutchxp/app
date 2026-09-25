@@ -84,7 +84,13 @@ export function GestionVue({ intro }: {
   /** LOT 5-FUSION — quel écran, quelle étiquette, quel échange ouvert. Lu et écrit dans l'adresse (voir `ecranUrl`). */
   const [etatUrl, setEtatUrl] = useState<EtatEcranUrl>(ETAT_DEFAUT);
   const [auto, setAuto] = useState(false);
-  const [comptesBoite, setComptesBoite] = useState<{ lisibles: number; automatiques: number; envoyes: number } | null>(null);
+  const [comptesBoite, setComptesBoite] = useState<{ lisibles: number; automatiques: number; envoyes: number; reception: number } | null>(null);
+  /**
+   * LOT 5-BOITE — combien d'échanges me restent NON LUS, remonté par la liste elle-même (elle l'obtient du serveur,
+   * calculé pour MA session). `null` = on ne sait pas encore, ou le suivi de lecture n'est pas disponible : on
+   * n'affiche alors rien, plutôt qu'un « 0 » qui ressemblerait à une bonne nouvelle.
+   */
+  const [nonLus, setNonLus] = useState<number | null>(null);
   /**
    * LOT 5e — CE QUE L'ÉCRAN SAIT DE LA RÉDACTION : base à jour ? droit d'envoyer ? connexion Google ? quelle
    * signature, quel délai d'annulation. `null` = pas encore demandé. Chargé au montage, une seule fois : ces
@@ -202,9 +208,14 @@ export function GestionVue({ intro }: {
       try {
         const res = await fetch('/api/admin/gestion/boite/comptes', { cache: 'no-store' });
         if (!res.ok || annule) return;
-        const c = (await res.json()) as { lisibles?: number; automatiques?: number; envoyes?: number };
+        const c = (await res.json()) as { lisibles?: number; automatiques?: number; envoyes?: number; reception?: number };
         if (!annule && typeof c.lisibles === 'number') {
-          setComptesBoite({ lisibles: c.lisibles, automatiques: c.automatiques ?? 0, envoyes: c.envoyes ?? 0 });
+          // `reception` est le compte de l'étiquette Réception (au moins un message reçu). Une réponse plus ancienne
+          //   que ce lot ne le porte pas : on retombe alors sur `lisibles`, le comportement d'avant.
+          setComptesBoite({
+            lisibles: c.lisibles, automatiques: c.automatiques ?? 0, envoyes: c.envoyes ?? 0,
+            reception: c.reception ?? c.lisibles,
+          });
         }
       } catch { /* étiquettes sans nombre : voir l'encadré */ }
     })();
@@ -290,7 +301,7 @@ export function GestionVue({ intro }: {
       }} />
   ));
 
-  const etiquettes = etiquettesDeLEcran(d, comptesBoite, brouillonsTotal);
+  const etiquettes = etiquettesDeLEcran(d, comptesBoite, brouillonsTotal, nonLus);
   // LOT 5-VEILLE — l'état de la relève AUTOMATIQUE, calculé ici pour être rendu à l'identique dans les trois écrans.
   //   `ref` est l'instant de rendu déjà utilisé par le reste du bandeau : une seule horloge, aucun écart entre deux
   //   phrases voisines. Le repli couvre une réponse d'API plus ancienne que ce lot — l'écran ne doit jamais tomber
@@ -353,7 +364,7 @@ export function GestionVue({ intro }: {
       {ecran === 'boite' ? (
         <PleinEcranBoite
           etiquette={etiquette} etiquettes={etiquettes} filOuvert={filOuvert} maintenant={ref}
-          auto={auto} onAuto={setAuto}
+          auto={auto} onAuto={setAuto} onNonLus={setNonLus}
           onEtiquette={(e) => { setPanneau(null); aller({ ...etatUrl, etiquette: e, filOuvert: null }); }}
           onOuvrir={(id) => aller({ ...etatUrl, filOuvert: id })}
           onFermerFil={() => aller({ ...etatUrl, filOuvert: null })}
@@ -486,12 +497,18 @@ export function GestionVue({ intro }: {
  * étiquette qui ne s'appuierait sur rien mentirait dès le premier clic.
  */
 export function etiquettesDeLEcran(
-  d: EtatEcran, comptes: { lisibles: number; automatiques: number; envoyes: number } | null,
+  d: EtatEcran, comptes: { lisibles: number; automatiques: number; envoyes: number; reception?: number } | null,
   brouillons: number | null = null,
+  nonLus: number | null = null,
 ): EtiquetteAffichee[] {
   return [
     { etiquette: { sorte: 'a_classer', evenementId: null }, libelle: 'À classer', compte: d.filsTotal },
-    { etiquette: ETIQUETTE_RECEPTION, libelle: 'Réception', compte: comptes?.lisibles ?? null },
+    // LOT 5-BOITE — « Réception » ne compte plus TOUTE la boîte : seulement les échanges où quelqu'un nous a écrit,
+    //   exactement comme son filtre. `reception` absent = réponse d'API plus ancienne que ce lot ⇒ ancien compte.
+    {
+      etiquette: ETIQUETTE_RECEPTION, libelle: 'Réception',
+      compte: comptes?.reception ?? comptes?.lisibles ?? null, nonLus,
+    },
     { etiquette: { sorte: 'envoyes', evenementId: null }, libelle: 'Envoyés', compte: comptes?.envoyes ?? null },
     { etiquette: { sorte: 'sans_suite', evenementId: null }, libelle: 'Sans suite', compte: d.sansSuiteTotal },
     { etiquette: { sorte: 'automatique', evenementId: null }, libelle: 'Courrier automatique', compte: comptes?.automatiques ?? null },

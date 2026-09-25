@@ -163,6 +163,20 @@ export function reglageRecentsDisponible(): Promise<boolean> {
 }
 
 /**
+ * LOT 5-BOITE — la migration 250 est-elle appliquée ? Elle seule porte le LU / NON LU par collaborateur.
+ *
+ * 🔴 TANT QU'ELLE MANQUE, LE COMPORTEMENT D'AVANT EST EXACTEMENT CONSERVÉ : aucune ligne n'est en gras, aucun
+ * compteur de non-lus n'apparaît, et le menu « ⋯ » ne propose pas « Marquer comme non lu ». Rien n'échoue, rien ne
+ * s'affiche à moitié — proposer un geste qui ne pourrait pas être mémorisé serait pire que de ne rien montrer.
+ *
+ * On sonde la TABLE : c'est elle qui porte l'état. Le repère d'historique (`gestion_config.lecture_service_le`)
+ * arrive par la même migration, donc au même moment.
+ */
+export function lectureDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_message_lu', () => tableExiste('gestion_message_lu'));
+}
+
+/**
  * LOT 5-VEILLE — la migration 249 est-elle appliquée ? Elle porte la TOLÉRANCE de la veille : combien d'intervalles
  * de retard avant que l'écran n'annonce que la relève automatique est arrêtée.
  *

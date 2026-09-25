@@ -75,6 +75,14 @@ interface ReponseBoite {
   suivant: CurseurBoite | null;
   total: number | null;
   comptes: ComptesBoite | null;
+  /**
+   * LOT 5-BOITE — les échanges portant au moins un message reçu NON LU PAR MOI. Rendus par le serveur, calculés pour
+   * la personne de la session : le navigateur ne décide pas de ce qui est lu. Absent (migration 250 non appliquée,
+   * ou accès sans compte personnel) ⇒ rien n'est en gras, et l'écran est celui d'avant ce lot.
+   */
+  nonLus?: number[];
+  /** Combien d'échanges de la Réception me restent non lus. `null` = on ne sait pas, et on n'affiche alors rien. */
+  nonLusTotal?: number | null;
   /** LOT 5c — présent sur une réponse de recherche : `false` quand la migration 237 n'est pas appliquée. */
   pleinTexte?: boolean;
   automatiquesMasques?: number | null;
@@ -85,6 +93,7 @@ type Etat =
   | {
       v: 'ok'; lignes: LigneBoite[]; suivant: CurseurBoite | null; total: number; comptes: ComptesBoite | null;
       pleinTexte: boolean; automatiquesMasques: number | null;
+      nonLus: Set<number>; nonLusTotal: number | null;
     }
   | { v: 'erreur'; m: string };
 
@@ -151,7 +160,7 @@ export function Evidence({ texte, saisie }: { texte: string; saisie: string }) {
 
 export function BoiteMail({
   onOuvrir, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
-  dense = false,
+  dense = false, onNonLus, marquage,
 }: {
   onOuvrir: (filId: number) => void;
   /** LOT 5-FUSION — l'étiquette ouverte. Absente = la boîte entière, exactement le comportement du lot 5a. */
@@ -171,6 +180,21 @@ export function BoiteMail({
    * plusieurs lignes est conservée, parce que quatre colonnes sur 375 px ne sont pas quatre colonnes.
    */
   dense?: boolean;
+  /**
+   * LOT 5-BOITE — remonte au parent le nombre d'échanges NON LUS par la personne connectée, pour que l'étiquette
+   * « Réception » l'affiche à côté de son total. `null` = on ne sait pas (migration 250 absente, ou accès sans
+   * compte personnel) : le parent n'affiche alors rien plutôt qu'un zéro qui aurait l'air d'une bonne nouvelle.
+   */
+  onNonLus?: (n: number | null) => void;
+  /**
+   * LOT 5-BOITE — un marquage de lecture qui vient d'avoir lieu AILLEURS (la conversation ouverte à côté).
+   *
+   * 🔴 LA LISTE N'EST PAS RELUE POUR AUTANT, et c'est une garantie du lot 5-GMAIL qu'on ne casse pas : ouvrir un
+   * échange ne doit perdre ni les pages déjà chargées (« voir plus »), ni la recherche en cours, ni la position de
+   * défilement. On met donc à jour le gras SUR PLACE, sans un seul aller-retour réseau — le serveur a déjà écrit,
+   * l'écran n'a plus qu'à dire la même chose que lui.
+   */
+  marquage?: { filId: number; nonLu: boolean; cle: number };
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [autoInterne, setAutoInterne] = useState(false);
@@ -202,11 +226,36 @@ export function BoiteMail({
     setEtat({
       v: 'ok', lignes: r.lignes, suivant: r.suivant, total: r.total ?? r.lignes.length, comptes: r.comptes,
       pleinTexte: r.pleinTexte !== false, automatiquesMasques: r.automatiquesMasques ?? null,
+      nonLus: new Set(r.nonLus ?? []), nonLusTotal: r.nonLusTotal ?? null,
     });
   }, []);
 
   // `cleEtiquette` plutôt que l'objet : deux objets égaux mais distincts relanceraient la lecture à chaque rendu.
   useEffect(() => { void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette)); }, [premiere, auto, critere, cleEtiquette]);
+
+  // LOT 5-BOITE — le gras suit le geste, SUR PLACE. `cle` change à chaque marquage ; le contenu, lui, peut être
+  //   identique deux fois de suite (rouvrir le même échange), d'où une clé plutôt qu'une comparaison de valeurs.
+  const cleMarquage = marquage?.cle ?? 0;
+  useEffect(() => {
+    if (!marquage || cleMarquage === 0) return;
+    setEtat((e) => {
+      if (e.v !== 'ok' || e.nonLus.has(marquage.filId) === marquage.nonLu) return e; // déjà dans cet état : rien à dire
+      const nonLus = new Set(e.nonLus);
+      if (marquage.nonLu) nonLus.add(marquage.filId); else nonLus.delete(marquage.filId);
+      return {
+        ...e, nonLus,
+        // Le compteur bouge du même geste. Il sera de toute façon recalculé par le serveur au prochain changement
+        //   d'étiquette, de filtre ou de recherche : il ne peut donc pas dériver longtemps.
+        nonLusTotal: e.nonLusTotal === null ? null : Math.max(0, e.nonLusTotal + (marquage.nonLu ? 1 : -1)),
+      };
+    });
+    // `marquage` est recréé à chaque rendu du parent : seule la CLÉ doit déclencher, sinon on rejouerait sans fin.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cleMarquage]);
+
+  // Le total remonte au parent chaque fois qu'il change — d'où qu'il vienne : première page, ou marquage sur place.
+  const totalNonLus = etat.v === 'ok' ? etat.nonLusTotal : null;
+  useEffect(() => { if (onNonLus) onNonLus(totalNonLus); }, [onNonLus, totalNonLus]);
 
   async function voirPlus() {
     if (etat.v !== 'ok' || etat.suivant === null || suite) return;
@@ -217,6 +266,8 @@ export function BoiteMail({
     // On CONCATÈNE : « voir plus » allonge la liste, il ne la remplace pas — on ne perd jamais ce qu'on lisait.
     setEtat({
       ...etat, lignes: [...etat.lignes, ...r.lignes], suivant: r.suivant, total: etat.total, comptes: etat.comptes,
+      // Les non-lus s'ajoutent comme les lignes : « voir plus » allonge, il ne remplace pas.
+      nonLus: new Set([...etat.nonLus, ...(r.nonLus ?? [])]), nonLusTotal: etat.nonLusTotal,
     });
   }
 
@@ -341,13 +392,23 @@ export function BoiteMail({
             : titre === undefined ? 'Aucun échange dans la boîte.' : `Aucun échange sous « ${titre} ».`}</p>
         : (
           <ul className={`gst-liste bte-liste${dense ? ' bte-liste--dense' : ''}`}>
-            {etat.lignes.map((l) => (
+            {etat.lignes.map((l) => {
+              // LOT 5-BOITE — « non lu » = au moins un message REÇU que JE n'ai pas ouvert. Le serveur l'a calculé
+              //   pour ma session ; la liste ne fait que l'afficher.
+              const nonLu = etat.nonLus.has(l.filId);
+              return (
               <li key={l.filId}>
                 {/* L'échange OUVERT est marqué — par un mot pour les lecteurs d'écran (`aria-current`) autant que par
                     la forme. Le CONTENU de la ligne est le même dans les deux présentations : c'est la feuille de
                     style qui, sur ordinateur, la remet sur une seule ligne. Aucune information n'est retirée. */}
-                <button type="button" className={`bte-ligne${filSelectionne === l.filId ? ' bte-ligne--ouverte' : ''}`}
+                {/* 🔴 LE GRAS NE PORTE JAMAIS L'INFORMATION À LUI SEUL. Il se perd en niveaux de gris, sur un écran
+                    mal réglé, et n'existe pas du tout pour un lecteur d'écran. La marque « non lu » est donc écrite
+                    EN TOUTES LETTRES parmi les autres marques de la ligne, et le bouton l'annonce dans son libellé
+                    accessible. Le gras n'est qu'un raccourci pour l'œil. */}
+                <button type="button"
+                  className={`bte-ligne${filSelectionne === l.filId ? ' bte-ligne--ouverte' : ''}${nonLu ? ' bte-ligne--non-lu' : ''}`}
                   aria-current={filSelectionne === l.filId ? 'true' : undefined}
+                  aria-label={nonLu ? `Non lu — ${nomCorrespondant(l)} — ${nettoyerObjet(l.objet) || '(sans objet)'}` : undefined}
                   onClick={() => onOuvrir(l.filId)}>
                   <span className="bte-qui">{nomCorrespondant(l)}</span>
                   <span className="bte-sujet">
@@ -369,13 +430,15 @@ export function BoiteMail({
                     {l.reference && <span className="bte-ref">{l.reference}</span>}
                     {l.sansSuite && <span className="bte-marque">classé sans suite</span>}
                     {l.nbLisibles === 0 && <span className="bte-marque">courrier automatique</span>}
+                    {nonLu && <span className="bte-marque bte-marque--non-lu">non lu</span>}
                   </span>
                   {/* LOT 5-DIRECT — la DATE ET L'HEURE de réception, en heure de Paris : « il y a 3 h » ne disait pas
                       si un mail était arrivé à 9 h ou à 14 h. La date complète reste dans l'infobulle. */}
                   <span className="bte-quand" title={dateHeureComplete(l.dernierLe)}>{dateHeureCourte(l.dernierLe, ref)}</span>
                 </button>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
 
@@ -401,7 +464,15 @@ const CSS_BOITE = `
 .bte-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 /* L'échange ouvert : une BARRE à gauche et un fond, jamais la couleur seule ; aria-current le dit aux lecteurs d'écran. */
 .bte-ligne--ouverte{background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);padding-left:8px}
-.bte-qui{font-weight:700;font-size:.95rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* ── LOT 5-BOITE — LE GRAS DIT « NON LU », comme dans toute messagerie ──
+   Le correspondant était TOUJOURS en gras : le gras ne distinguait donc rien. Il devient le repère du non-lu, et le
+   poids par défaut redevient normal — c'est la convention que tout le monde connaît, et elle ne s'apprend pas.
+   ⚠️ Le gras ne porte JAMAIS l'information à lui seul : la ligne écrit aussi « non lu » en toutes lettres parmi ses
+   marques, et son libellé accessible commence par ce mot. Aucune couleur n'entre dans ce repère. */
+.bte-qui{font-weight:500;font-size:.95rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.bte-ligne--non-lu .bte-qui,.bte-ligne--non-lu .bte-objet{font-weight:700}
+/* La marque écrite : même forme que « pièce jointe » ou « classé sans suite », donc lisible en niveaux de gris. */
+.bte-marque--non-lu{font-weight:700;color:var(--color-svv-ink)}
 .bte-quand{font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}
 .bte-objet{font-size:.9rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .bte-apercu{font-size:.85rem;color:var(--color-svv-muted);overflow-wrap:anywhere;

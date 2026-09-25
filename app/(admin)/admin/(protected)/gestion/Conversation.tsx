@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { EnTeteFil, MailParti, MessageDeFil, PieceDeMessage } from '../../../../lib/gestion/carteRepo';
 import {
   etatCorps, lignesDestinataires, mentionHorsFile, messagesDeplies, MENTION_HTML_SEUL,
@@ -89,7 +89,35 @@ async function geste(url: string, methode: 'POST' | 'DELETE', succes: string, on
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null }: {
+/**
+ * LOT 5-BOITE — MARQUER L'ÉCHANGE LU, OU NON LU, POUR MOI.
+ *
+ * ⚠️ Fonction À PART, et non `geste()` : celui-ci envoie un corps vide et attend un `{ ok: true }`, alors que la
+ * route de lecture exige que `lu` soit dit EXPLICITEMENT (deviner « lu » ferait d'un appel malformé un geste
+ * silencieux) et rend un `{ etat: 'ok' }`. Faire entrer l'un dans l'autre aurait demandé d'assouplir les deux.
+ *
+ * Les deux refus possibles sont DITS, parce qu'ils ne se réparent pas pareil : « mise à jour de la base » est
+ * l'affaire d'Arno, « accès sans compte personnel » est la conséquence normale de la voie de secours.
+ */
+async function marquerLecture(
+  filId: number, lu: boolean, onGeste: Rapport, onLecture?: (filId: number, lu: boolean) => void,
+): Promise<void> {
+  try {
+    const res = await fetch(`/api/admin/gestion/fils/${filId}/lecture`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lu }),
+    });
+    const d = (await res.json().catch(() => ({}))) as { etat?: string; message?: string; erreur?: string };
+    if (d.etat !== 'ok') { onGeste(d.message ?? d.erreur ?? 'Marquage impossible.'); return; }
+    onGeste(lu
+      ? 'Échange marqué comme lu.'
+      : 'Échange marqué comme non lu. Il reste en gras dans la liste jusqu’à ce que vous le rouvriez.');
+    onLecture?.(filId, lu);
+  } catch {
+    onGeste('Marquage impossible : le serveur n’a pas répondu.');
+  }
+}
+
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture }: {
   filId: number;
   maintenant: Date;
   onGeste: Rapport;
@@ -120,6 +148,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * ABSENT = aucun bouton d'écriture, et la conversation est exactement celle d'avant ce lot.
    */
   redaction?: ContexteRedactionEcran | null;
+  /**
+   * LOT 5-BOITE — prévient le parent qu'un marquage de lecture a eu lieu, POUR QUEL ÉCHANGE et dans quel sens. Le
+   * parent met alors la liste à jour sur place : il n'a rien à redemander au serveur, qui vient déjà d'écrire.
+   */
+  onLecture?: (filId: number, lu: boolean) => void;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   const [deplies, setDeplies] = useState<Set<number>>(new Set());
@@ -143,6 +176,38 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   }, [filId]);
 
   useEffect(() => { void recharger(); }, [recharger]);
+
+  /**
+   * LOT 5-BOITE — OUVRIR UN ÉCHANGE LE MARQUE LU, POUR MOI. Comme dans une messagerie : c'est l'ouverture qui vaut
+   * lecture, pas un bouton de plus à penser à cliquer.
+   *
+   * 🔴 IDEMPOTENT, ET C'EST INDISPENSABLE : cet effet part à CHAQUE affichage de la conversation. La route rejoue un
+   * `ON CONFLICT … DO UPDATE` en base — ni doublon, ni erreur, ni ligne de journal.
+   *
+   * ⚠️ AUCUNE CONSÉQUENCE SI ÇA ÉCHOUE, et c'est voulu : la migration 250 peut ne pas être appliquée, l'accès peut
+   * être celui de secours (sans compte personnel). Dans les deux cas la route répond « non disponible » et on se
+   * tait — lire un mail ne doit jamais afficher une erreur pour une fonction d'agrément.
+   */
+  /**
+   * ⚠️ LE RAPPEL PASSE PAR UNE RÉFÉRENCE, ET CE N'EST PAS UN DÉTAIL. `onLecture` est une fonction recréée à chaque
+   * rendu du parent : la mettre dans les dépendances relancerait le marquage à chaque rendu, donc une requête par
+   * rendu. L'effet ne dépend QUE de l'échange ouvert — c'est lui, et lui seul, qui définit « j'ai ouvert un mail ».
+   */
+  const rappelLecture = useRef(onLecture);
+  rappelLecture.current = onLecture;
+
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        await fetch(`/api/admin/gestion/fils/${filId}/lecture`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lu: true }),
+        });
+        if (!annule) rappelLecture.current?.(filId, true);
+      } catch { /* silence volontaire : voir l'encadré */ }
+    })();
+    return () => { annule = true; };
+  }, [filId]);
 
   /**
    * LOT 5-FIDÈLE — L'ÉTAT GMAIL DE CHAQUE MESSAGE (étoile, non lu), relu À L'OUVERTURE et jamais mémorisé en base :
@@ -324,6 +389,18 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
                 onChoisir: () => void geste(`/api/admin/gestion/fils/${fil.filId}/affectation`, 'DELETE',
                   'Échange détaché : il est revenu dans la file, avec tous ses messages.', onGeste, () => void recharger()),
               }] : []),
+              // LOT 5-BOITE — LU / NON LU, réversible dans les deux sens. « Marquer comme non lu » est le geste qui
+              //   compte : c'est ainsi qu'on se garde un mail sous le coude après l'avoir ouvert par erreur. Il vit
+              //   dans le menu « ⋯ » de l'échange, à côté des autres gestes réversibles, et n'en déplace aucun.
+              {
+                libelle: 'Marquer comme non lu',
+                onChoisir: () => void marquerLecture(fil.filId, false, onGeste, onLecture),
+              },
+              {
+                libelle: 'Marquer comme lu',
+                discrete: true,
+                onChoisir: () => void marquerLecture(fil.filId, true, onGeste, onLecture),
+              },
               ...(fil.etat === 'a_classer' ? [{
                 libelle: 'Classer sans suite',
                 discrete: true,
