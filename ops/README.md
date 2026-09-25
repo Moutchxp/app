@@ -108,8 +108,14 @@ tail -n 30 ~/Library/Logs/svav-gestion-continu.log
 ```
 
 Une ligne par tour, du type `[2026-09-25T14:11:17.119Z] rien de nouveau — prochaine relève dans 60 s`.
-« Rien de nouveau » est l'état **normal**. La preuve en base se lit dans `gestion_releve_run`
-(une ligne par passe, `declencheur = continu`).
+« Rien de nouveau » est l'état **normal**. La preuve en base se lit dans `gestion_releve_run` : une ligne par tour,
+horodatée, avec son résultat.
+
+> ⚠️ **Ces passes sont enregistrées `declencheur = 'manuel'`**, exactement comme un clic sur « Relever maintenant »
+> (`releveReelle.ts:80` : seul `--depuis-origine` change l'étiquette, en `'rattrapage'`). On ne peut donc pas, en
+> base, distinguer une passe automatique d'un clic. La valeur `'planifie'` existe pourtant déjà dans le type
+> (`captureRepo.ts:426`) : c'est elle qu'il faudra poser le jour où l'on voudra dire « l'ordonnanceur tourne » —
+> une distinction qui manquera au garde-fou « la relève est arrêtée depuis X ».
 
 ## Arrêter / désinstaller
 
