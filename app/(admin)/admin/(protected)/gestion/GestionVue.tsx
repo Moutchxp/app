@@ -203,6 +203,8 @@ export function GestionVue({ intro }: {
           signature: c.signature ?? '', nomExpediteur: c.nomExpediteur || 'CRITERIMMO',
           adresseGestion: c.adresseGestion || 'gestion@criterimmo.fr',
           delaiAnnulationS: typeof c.delaiAnnulationS === 'number' ? c.delaiAnnulationS : 10,
+          // LOT 5-PJ-ENVOI — absent d'une réponse plus ancienne que ce lot ⇒ aucune zone de pièces, comme avant.
+          piecesDisponibles: c.piecesDisponibles === true,
         });
         setBrouillonsTotal(typeof c.brouillons === 'number' ? c.brouillons : 0);
       } catch { /* aucun bouton d'écriture : voir l'encadré */ }
@@ -384,6 +386,7 @@ export function GestionVue({ intro }: {
           auto={auto} onAuto={setAuto} onNonLus={majNonLus}
           corbeilleDisponible={comptesBoite?.corbeille !== null && comptesBoite?.corbeille !== undefined}
           peutEcrire={redaction?.peutEnvoyer === true}
+          piecesDisponibles={redaction?.piecesDisponibles === true}
           onEtiquette={(e) => { setPanneau(null); aller({ ...etatUrl, etiquette: e, filOuvert: null }); }}
           onOuvrir={(id) => aller({ ...etatUrl, filOuvert: id })}
           onFermerFil={() => aller({ ...etatUrl, filOuvert: null })}

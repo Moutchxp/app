@@ -164,7 +164,7 @@ export function Evidence({ texte, saisie }: { texte: string; saisie: string }) {
 
 export function BoiteMail({
   onOuvrir, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
-  dense = false, onNonLus, marquage, onActionLigne, corbeille = false, peutEcrire = false,
+  dense = false, onNonLus, marquage, onActionLigne, corbeille = false, peutEcrire = false, piecesDisponibles = false,
 }: {
   onOuvrir: (filId: number) => void;
   /** LOT 5-FUSION — l'étiquette ouverte. Absente = la boîte entière, exactement le comportement du lot 5a. */
@@ -208,6 +208,8 @@ export function BoiteMail({
   corbeille?: boolean;
   /** Le droit d'écrire au nom de gestion@. Sans lui, ni rédaction ni lu/non lu (qui écrit dans Gmail). */
   peutEcrire?: boolean;
+  /** LOT 5-PJ-ENVOI — la migration 252 est-elle là ? Pilote « Transférer en tant que pièce jointe ». */
+  piecesDisponibles?: boolean;
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [autoInterne, setAutoInterne] = useState(false);
@@ -421,6 +423,7 @@ export function BoiteMail({
                   etat={{
                     nonLu, enCorbeille: etiquette.sorte === 'corbeille',
                     corbeilleDisponible: corbeille, peutEcrire: peutEcrire && onActionLigne !== undefined,
+                    piecesDisponibles,
                   }}
                   onAction={(a) => onActionLigne?.(l.filId, a)}
                 >

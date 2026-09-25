@@ -70,8 +70,14 @@ export function actionJournalEnvoi(issue: 'envoye' | 'echec'): string {
  * LE COMMENTAIRE : qui, à qui, quel objet. 🔒 JAMAIS le corps du message — le journal dit qu'un courrier est parti, il
  * n'en garde pas le contenu.
  */
-export function commentaireJournalEnvoi(l: { objet: string; destinataires: readonly string[] }): string {
+export function commentaireJournalEnvoi(
+  l: { objet: string; destinataires: readonly string[]; pieces?: readonly string[] },
+): string {
   const objet = l.objet.trim() === '' ? '(sans objet)' : l.objet.trim();
   const qui = l.destinataires.length === 0 ? '(aucun destinataire)' : l.destinataires.join(', ');
-  return `« ${objet} » à ${qui}`;
+  // LOT 5-PJ-ENVOI — LES PIÈCES SONT NOMMÉES, pas seulement comptées. Des mois après, « 2 pièces jointes » ne dit
+  //   pas si le bail est parti ; « bail.pdf, état des lieux.pdf » le dit. Le nombre reste, pour lire vite.
+  const noms = (l.pieces ?? []).filter((n) => n.trim() !== '');
+  if (noms.length === 0) return `« ${objet} » à ${qui}`;
+  return `« ${objet} » à ${qui} — ${noms.length} pièce${noms.length > 1 ? 's' : ''} jointe${noms.length > 1 ? 's' : ''} : ${noms.join(', ')}`;
 }

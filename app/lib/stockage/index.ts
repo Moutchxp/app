@@ -356,6 +356,48 @@ export async function deposerPieceGestion(
 }
 
 /**
+ * LOT 5-PJ-ENVOI — clé d'une pièce jointe de BROUILLON : `gestion/brouillons/<brouillon_id>/<uuid>.<ext>`.
+ *
+ * 🔴 UN PRÉFIXE À PART, ET CE N'EST PAS DÉCORATIF. Les pièces REÇUES vivent sous `gestion/messages/` et seront un
+ * jour effacées par préfixe (lot D du Drive). Ce que NOUS envoyons n'a rien à voir avec ce que nous recevons : le
+ * ranger ailleurs est ce qui l'empêche de disparaître dans une purge qui ne le visait pas.
+ *
+ * ⚠️ Le nom d'origine du fichier n'entre JAMAIS dans la clé — il reste en base pour l'affichage et pour l'en-tête du
+ * message. Un nom fourni de l'extérieur n'a rien à faire dans un chemin de stockage.
+ */
+export function construireCleBrouillon(brouillonId: number, ext: string): string {
+  return `gestion/brouillons/${brouillonId}/${randomUUID()}.${ext}`;
+}
+
+/**
+ * LOT 5-PJ-ENVOI — DÉPOSE une pièce jointe que NOUS allons envoyer.
+ *
+ * 🔴 PAS DE LISTE BLANCHE DE TYPES, contrairement à `deposerPieceGestion`, et c'est voulu : celle-ci filtre ce qui
+ * ARRIVE (pour ne pas stocker n'importe quoi venu de l'extérieur). Ici, c'est un collaborateur qui choisit un
+ * fichier sur SON ordinateur pour l'envoyer : lui refuser un `.docx` parce qu'il n'est pas dans la liste des types
+ * reçus n'aurait aucun sens. Le refus se fait sur l'EXTENSION dangereuse (`piecesEnvoi.ts`) et sur la taille —
+ * exactement les deux règles de Gmail.
+ *
+ * Aucun parsing du contenu : on stocke tel quel, on n'ouvre pas.
+ */
+export async function deposerPieceBrouillon(
+  contenu: Buffer | Uint8Array, typeMime: string | null, opts: { brouillonId: number; tailleMaxOctets: number },
+): Promise<ResultatDepotEntrant> {
+  if (contenu.byteLength > opts.tailleMaxOctets) {
+    const mo = (n: number) => (n / (1024 * 1024)).toFixed(1);
+    return { depose: false, motif: `pièce trop volumineuse : ${mo(contenu.byteLength)} Mo (maximum ${mo(opts.tailleMaxOctets)} Mo)` };
+  }
+  const infra = obtenir();
+  if (!infra) return { depose: false, motif: 'stockage non configuré' };
+  const type = typeMimeNormalise(typeMime) || 'application/octet-stream';
+  const cle = construireCleBrouillon(opts.brouillonId, extensionGestion(type));
+  await infra.client.send(
+    new PutObjectCommand({ Bucket: infra.config.bucket, Key: cle, Body: contenu, ContentType: type }),
+  );
+  return { depose: true, cle, taille: contenu.byteLength, empreinte: empreinteSha256(contenu) };
+}
+
+/**
  * LOT 5-PJ-A — clé de la MINIATURE d'une pièce de gestion : `gestion/miniatures/<piece_id>/<uuid>.jpg`.
  *
  * 🔴 UN PRÉFIXE DISTINCT DE CELUI DES PIÈCES, ET C'EST TOUT L'ENJEU. Les originaux vivent sous

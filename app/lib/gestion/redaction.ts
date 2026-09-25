@@ -17,7 +17,18 @@
  */
 
 /** Par quel geste on arrive à l'écran de rédaction. */
-export type VoieRedaction = 'repondre' | 'repondre_tous' | 'transferer' | 'nouveau';
+/**
+ * LOT 5-PJ-ENVOI — une CINQUIÈME voie : `transferer_piece`. Elle se comporte comme « Transférer » pour l'objet et
+ * les destinataires (on choisit à qui), mais l'original n'est PAS cité dans le corps : il est JOINT en entier, en
+ * `message/rfc822` (.eml), tiré de Gmail au moment de l'envoi. C'est ce qu'on fait quand le correspondant doit voir
+ * le message tel qu'il est arrivé — en-têtes compris — et non une recopie.
+ */
+export type VoieRedaction = 'repondre' | 'repondre_tous' | 'transferer' | 'nouveau' | 'transferer_piece';
+
+/** Les deux voies qui transfèrent. Écrit une fois : deux listes finiraient par diverger. PUR. */
+export function estUnTransfert(voie: VoieRedaction): boolean {
+  return voie === 'transferer' || voie === 'transferer_piece';
+}
 
 /** Une adresse telle que la base la rend (migration 235). `nom` peut manquer. */
 export interface AdresseAffichee { adresse: string; nom?: string | null }
@@ -129,10 +140,10 @@ const adressesDe = (l: AdresseAffichee[] | null | undefined): string[] => (l ?? 
 export function prefixerObjet(objet: string | null | undefined, voie: VoieRedaction): string {
   const brut = (objet ?? '').trim();
   if (voie === 'nouveau') return '';
-  const prefixe = voie === 'transferer' ? 'Tr: ' : 'Re: ';
+  const prefixe = estUnTransfert(voie) ? 'Tr: ' : 'Re: ';
   const dejaReponse = /^(re|rép|rep)\s*(\[\d+\])?\s*:\s*/i;
   const dejaTransfert = /^(tr|fwd|fw|transf)\s*(\[\d+\])?\s*:\s*/i;
-  const motif = voie === 'transferer' ? dejaTransfert : dejaReponse;
+  const motif = estUnTransfert(voie) ? dejaTransfert : dejaReponse;
   if (brut === '') return prefixe.trim();
   return motif.test(brut) ? brut : `${prefixe}${brut}`;
 }
@@ -187,6 +198,9 @@ export function preparerBrouillon(
     repondALeMessageId: origine.messageId,
   };
 
+  // LOT 5-PJ-ENVOI — le TRANSFERT EN PIÈCE JOINTE ne CITE PAS l'original : il le joint en entier. Laisser la
+  //   citation ferait lire deux fois la même chose, et laisserait croire que le .eml n'est qu'un doublon.
+  if (voie === 'transferer_piece') return { ...base, citation: null };
   if (voie === 'transferer') return base; // à qui ? personne ne peut le deviner à notre place.
 
   // À : le Reply-To s'il est CONNU (l'expéditeur a demandé qu'on réponde là), sinon l'expéditeur.
@@ -222,9 +236,16 @@ export const MENTION_DESTINATAIRES_APPROXIMATIFS =
 export const MENTION_SANS_SIGNATURE =
   'Aucune signature : la connexion Google de gestion@ n’est pas encore faite.';
 
-/** La phrase affichée sous un transfert, au sujet des pièces. Une seule formulation, partout. */
+/**
+ * La phrase affichée sous un TRANSFERT, au sujet des pièces.
+ *
+ * ⚠️ ELLE A CHANGÉ DE SENS AU LOT 5-PJ-ENVOI, et c'est la seule raison pour laquelle son nom est resté : elle disait
+ * « les pièces ne sont pas transférées » tant que l'éditeur ne savait pas en porter. Il le sait désormais — les
+ * pièces du message d'origine sont REPRISES automatiquement, et retirables une à une. Laisser l'ancienne phrase
+ * aurait fait joindre des pièces en affirmant le contraire, ce qui est pire que de ne rien dire.
+ */
 export const MENTION_PIECES_NON_JOINTES =
-  'Les pièces jointes du message d’origine ne sont pas transférées — elles viendront avec le lot Drive.';
+  'Les pièces jointes du message d’origine ont été reprises ci-dessous : retirez celles que vous ne voulez pas envoyer.';
 
 // ── Ce qu'on peut envoyer, et ce qu'on refuse ─────────────────────────────────────────────────────────────────────
 

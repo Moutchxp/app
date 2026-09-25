@@ -1,5 +1,6 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
+import { reprendrePiecesDuMessage } from '../../../../../lib/gestion/brouillonPieceRepo';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { peutEnvoyerAuNomDeGestion, refusEnvoi } from '../../../../../lib/gestion/gardeEnvoi';
 import { decouperAdresses } from '../../../../../lib/gestion/redaction';
@@ -72,7 +73,9 @@ export async function POST(request: Request): Promise<Response> {
   try { corps = (await request.json()) as Record<string, unknown>; }
   catch { return Response.json({ erreur: 'Requête invalide.' }, { status: 422 }); }
 
-  const voies = ['repondre', 'repondre_tous', 'transferer', 'nouveau'] as const;
+  // LOT 5-PJ-ENVOI — une CINQUIÈME voie. Une voie inconnue retombe sur « nouveau » : c'est la moins engageante,
+  //   et elle ne joint ni ne cite rien qu'on n'aurait pas demandé.
+  const voies = ['repondre', 'repondre_tous', 'transferer', 'nouveau', 'transferer_piece'] as const;
   const voie = voies.find((v) => v === corps.voie) ?? 'nouveau';
   const entier = (x: unknown): number | null =>
     typeof x === 'number' && Number.isInteger(x) && x > 0 ? x : null;
@@ -88,6 +91,28 @@ export async function POST(request: Request): Promise<Response> {
       corps: texte(corps.corps, 200_000),
       citation: typeof corps.citation === 'string' ? corps.citation.slice(0, 200_000) : null,
     }, await auteurDeLaRequete(request));
+
+    /**
+     * LOT 5-PJ-ENVOI — UN TRANSFERT REPREND LES PIÈCES DU MESSAGE D'ORIGINE, comme dans Gmail.
+     *
+     * 🔴 ICI, ET PAS DANS LE NAVIGATEUR : c'est le premier enregistrement qui donne un identifiant au brouillon, et
+     * c'est le seul moment où l'on sait de quel message il transfère. Le faire côté écran demanderait un second
+     * aller-retour, et laisserait un transfert sans ses pièces si la personne fermait entre les deux.
+     *
+     * 🔴 IDEMPOTENT EN BASE (`NOT EXISTS`, cf. `reprendrePiecesDuMessage`) : l'éditeur ré-enregistre à chaque
+     * accalmie de frappe — dix enregistrements ne doivent pas faire dix fois les mêmes pièces. Et une pièce RETIRÉE
+     * ne revient pas : sa ligne existe toujours, elle porte seulement `retire_le`.
+     *
+     * ⚠️ AU MIEUX-EFFORT : un brouillon enregistré ne doit pas échouer parce qu'une pièce n'a pas pu être reprise.
+     * L'écran les affiche, ou ne les affiche pas ; le texte, lui, est sauvé.
+     */
+    if (voie === 'transferer' && brouillon.repondAMessageId !== null) {
+      try {
+        await reprendrePiecesDuMessage(brouillon.id, brouillon.repondAMessageId);
+      } catch (e) {
+        console.error('[gestion/brouillons] pièces du transfert non reprises', e);
+      }
+    }
     return Response.json({ ok: true, brouillon }, { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     console.error('[gestion/brouillons] enregistrement impossible', e);

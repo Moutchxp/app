@@ -71,6 +71,7 @@ export function etiquettesVisibles(
 export function PleinEcranBoite({
   etiquette, etiquettes, onEtiquette, filOuvert, onOuvrir, onFermerFil, maintenant, onGeste, onRetour,
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, corbeilleDisponible = false, peutEcrire = false,
+  piecesDisponibles = false,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -92,6 +93,8 @@ export function PleinEcranBoite({
   /** LOT 5-BOITE-3 — la migration 251 est-elle là, et peut-on écrire au nom de gestion@ ? Pilote le menu des lignes. */
   corbeilleDisponible?: boolean;
   peutEcrire?: boolean;
+  /** LOT 5-PJ-ENVOI — la migration 252 est-elle là ? Pilote la seule entrée « Transférer en tant que pièce jointe ». */
+  piecesDisponibles?: boolean;
 }) {
   // Sur téléphone, on arrive sur les ÉTIQUETTES : c'est le sommaire, et on ne tombe pas au milieu d'une liste sans
   //   savoir laquelle. Au montage, donc à chaque entrée en plein écran. Sur grand écran, l'attribut ne change rien.
@@ -151,7 +154,7 @@ export function PleinEcranBoite({
    * crée pas un second chemin pour le même geste.
    */
   const agirSurLigne = async (filId: number, action: ActionLigne): Promise<void> => {
-    if (action === 'repondre' || action === 'repondre_tous' || action === 'transferer') {
+    if (action === 'repondre' || action === 'repondre_tous' || action === 'transferer' || action === 'transferer_piece') {
       setVoieDemandee(action);
       onOuvrir(filId);
       return;
@@ -323,7 +326,8 @@ export function PleinEcranBoite({
             )}
             <BoiteMail key={versionListe} etiquette={etiquette} titre={titre} total={ouverte?.compte ?? null} dense
               auto={auto} onAuto={onAuto} filSelectionne={filOuvert} onNonLus={onNonLus} marquage={marquage}
-              corbeille={corbeilleDisponible} peutEcrire={peutEcrire} onActionLigne={agirSurLigne}
+              corbeille={corbeilleDisponible} peutEcrire={peutEcrire} piecesDisponibles={piecesDisponibles}
+              onActionLigne={agirSurLigne}
               onOuvrir={(id) => { defilement.current = window.scrollY; onOuvrir(id); }} />
             </>
           )}

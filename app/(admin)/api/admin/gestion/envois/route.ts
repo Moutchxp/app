@@ -5,6 +5,7 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { chargerConfigGestion } from '../../../../../lib/gestion/config';
 import { envoyerMessage, type AncrageFil, type DepsEnvoiComplet } from '../../../../../lib/gestion/envoi';
 import { envoyerViaGmail } from '../../../../../lib/gestion/envoiGmail';
+import { depsPiecesEnvoi, piecesDeLEnvoi } from '../../../../../lib/gestion/piecesEnvoiReel';
 import { peutEnvoyerAuNomDeGestion, refusEnvoi } from '../../../../../lib/gestion/gardeEnvoi';
 import { COMPTE_GESTION, lireIdentifiants, rafraichirJeton } from '../../../../../lib/gestion/google';
 import { lireJeton } from '../../../../../lib/gestion/googleJeton';
@@ -110,6 +111,9 @@ export async function POST(request: Request): Promise<Response> {
       }
     },
     expediteur: async () => ({ adresse: config.adresseGestion || COMPTE_GESTION, nom: NOM_PAR_DEFAUT }),
+    // LOT 5-PJ-ENVOI — LES PIÈCES, lues au dernier moment (voir `envoi.ts`). `deps.jetonAcces` est réemployé tel
+    //   quel : un seul endroit sait rafraîchir le jeton de gestion@, et il n'y en aura jamais deux.
+    pieces: (d) => piecesDeLEnvoi(d, depsPiecesEnvoi(() => deps.jetonAcces())),
     ancrage: ancrageDuMessage,
     ouvrirEnvoi,
     envoyer: (o) => envoyerViaGmail(o, { fetch }),
@@ -155,6 +159,9 @@ export async function POST(request: Request): Promise<Response> {
       a: liste(corps.a), cc: liste(corps.cc), cci: liste(corps.cci),
       objet: typeof corps.objet === 'string' ? corps.objet.slice(0, 500) : '',
       corps: typeof corps.corps === 'string' ? corps.corps.slice(0, 200_000) : '',
+      // LOT 5-PJ-ENVOI — la VOIE ne sert qu'à savoir s'il faut joindre l'original complet. Elle est reprise telle
+      //   quelle du brouillon ; une voie inconnue ne joint rien de plus, elle ne fait pas échouer l'envoi.
+      voie: typeof corps.voie === 'string' ? corps.voie : null,
     }, auteur, deps);
 
     if (!issue.ok) {

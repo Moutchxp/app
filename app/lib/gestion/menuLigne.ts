@@ -14,18 +14,16 @@
  *
  * 🔴 « ARCHIVER » N'Y EST PAS — demande explicite d'Arno. Rien ne l'imite, et aucune entrée n'en tient lieu.
  *
- * ⚠️ « TRANSFÉRER EN TANT QUE PIÈCE JOINTE » N'Y EST PAS NON PLUS, ET C'EST MESURÉ, PAS OUBLIÉ. L'éditeur du lot 5e
- * ne sait pas porter de pièce jointe : `gestion_brouillon` n'a aucune colonne pour cela, `construireRfc822` n'émet
- * qu'un `text/plain` sans partie multipart, et `VoieRedaction` ne connaît que quatre voies. L'entrée existerait
- * donc sans rien derrière — or ce module s'interdit précisément cela (cf. `gmailMenu.ts` : « un bouton qui ne
- * marcherait pas coûte plus cher qu'une absence »). Ce qu'il faudra, le jour venu : une voie de plus, une partie
- * `message/rfc822` dans `construireRfc822`, et l'original tiré de Gmail au moment de l'envoi (`lireOriginalGmail`
- * existe déjà). Rien de plus — mais rien de moins.
+ * ✅ « TRANSFÉRER EN TANT QUE PIÈCE JOINTE » EXISTE DEPUIS LE LOT 5-PJ-ENVOI. Elle manquait au lot précédent parce
+ * que l'éditeur ne savait pas porter de pièce jointe ; il le sait désormais (migration 252, partie multipart dans
+ * `construireRfc822`, cinquième voie). Elle n'apparaît QUE si cette migration est appliquée — sinon elle n'aurait
+ * rien derrière, et ce module s'interdit d'afficher un geste qui ne marcherait pas (cf. `gmailMenu.ts` : « un
+ * bouton qui ne marcherait pas coûte plus cher qu'une absence »).
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
 export type ActionLigne =
-  | 'repondre' | 'repondre_tous' | 'transferer'
+  | 'repondre' | 'repondre_tous' | 'transferer' | 'transferer_piece'
   | 'corbeille' | 'restaurer'
   | 'lu' | 'non_lu';
 
@@ -51,10 +49,16 @@ export interface EtatLigne {
    */
   corbeilleDisponible: boolean;
   /**
-   * Peut-on écrire au nom de gestion@ ? Sans ce droit, ni les trois voies de rédaction, ni le lu/non lu (qui écrit
-   * dans Gmail depuis le lot 5-BOITE-2). On n'affiche pas une entrée que le serveur refuserait.
+   * Peut-on écrire au nom de gestion@ ? Sans ce droit, ni les voies de rédaction, ni le lu/non lu (qui écrit dans
+   * Gmail depuis le lot 5-BOITE-2). On n'affiche pas une entrée que le serveur refuserait.
    */
   peutEcrire: boolean;
+  /**
+   * LOT 5-PJ-ENVOI — la migration 252 est-elle appliquée ? Sans elle, l'éditeur ne sait pas porter de pièce jointe :
+   * « Transférer en tant que pièce jointe » n'aurait rien derrière, et ce module s'interdit d'afficher un geste qui
+   * ne marcherait pas.
+   */
+  piecesDisponibles?: boolean;
 }
 
 /**
@@ -72,6 +76,13 @@ export function menuLigne(etat: EtatLigne): EntreeLigne[] {
       { cle: 'repondre_tous', libelle: 'Répondre à tous' },
       { cle: 'transferer', libelle: 'Transférer' },
     );
+    // Juste APRÈS « Transférer », parce que c'est la même intention — l'une recopie, l'autre joint l'original.
+    if (etat.piecesDisponibles === true) {
+      entrees.push({
+        cle: 'transferer_piece', libelle: 'Transférer en tant que pièce jointe',
+        aide: 'Le message d’origine est joint en entier (.eml), avec ses en-têtes et ses pièces.',
+      });
+    }
   }
 
   if (etat.corbeilleDisponible) {

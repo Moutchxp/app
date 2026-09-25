@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { CSS_PIECES_BROUILLON, PiecesBrouillon } from './PiecesBrouillon';
 import {
   adresseValide, decouperAdresses, MENTION_DESTINATAIRES_APPROXIMATIFS, MENTION_PIECES_NON_JOINTES,
   MENTION_SANS_SIGNATURE, pretAEnvoyer, secondesRestantes,
@@ -33,6 +34,8 @@ import {
 
 export interface ContexteRedactionEcran {
   schemaPret: boolean;
+  /** LOT 5-PJ-ENVOI — la migration 252 est-elle appliquée ? Sinon, aucune zone de pièces jointes n'est rendue. */
+  piecesDisponibles?: boolean;
   peutEnvoyer: boolean;
   jetonPresent: boolean;
   signature: string;
@@ -207,6 +210,8 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
   const [citationOuverte, setCitationOuverte] = useState(false);
   const [suggestions, setSuggestions] = useState<{ adresse: string; nom: string | null }[]>([]);
   const [reste, setReste] = useState(0);
+  /** LOT 5-PJ-ENVOI — combien de pièces sont jointes, remonté par la zone des pièces (pour le bouton d'envoi). */
+  const [piecesJointes, setPiecesJointes] = useState(0);
   // La clé d'idempotence et le minuteur vivent dans des `ref` : un nouveau rendu ne doit ni en tirer une seconde, ni
   //   relancer le compte à rebours.
   const minuteur = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -390,7 +395,13 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
       </div>
 
       {contexte.signature.trim() === '' && <p className="gst-note">{MENTION_SANS_SIGNATURE}</p>}
-      {brouillon.voie === 'transferer' && <p className="gst-note">{MENTION_PIECES_NON_JOINTES}</p>}
+      {brouillon.voie === 'transferer' && piecesJointes > 0 && <p className="gst-note">{MENTION_PIECES_NON_JOINTES}</p>}
+
+      {/* ══ LOT 5-PJ-ENVOI — LES PIÈCES JOINTES ══ Rendues seulement si la base sait les mémoriser : proposer de
+          joindre un fichier qu'on ne saurait pas retenir ferait perdre le fichier ET le message. */}
+      {contexte.piecesDisponibles && (
+        <PiecesBrouillon brouillonId={brouillon.id} onChange={setPiecesJointes} />
+      )}
 
       {/* LA CITATION, REPLIÉE : on écrit au-dessus, on ne relit pas ce qu'on vient de lire. Elle part avec le message. */}
       {brouillon.citation && (
@@ -410,7 +421,7 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
             v: 'compte_a_rebours', clicLe: new Date(),
             cle: `${brouillon.id ?? 'x'}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
           })}>
-          Envoyer
+          Envoyer{piecesJointes > 0 ? ` (${piecesJointes} pièce${piecesJointes > 1 ? 's' : ''} jointe${piecesJointes > 1 ? 's' : ''})` : ''}
         </button>
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme}>
           Garder en brouillon
@@ -469,4 +480,6 @@ const CSS_REDACTION = `
 .red-etat{margin:0;font-size:.9rem;color:var(--color-svv-ink)}
 /* AUCUNE barre fixée en bas : le clavier d'iOS la recouvrirait, et le bouton « Envoyer » deviendrait inatteignable. */
 .red-bas{margin-top:4px}
+
+${CSS_PIECES_BROUILLON}
 `;

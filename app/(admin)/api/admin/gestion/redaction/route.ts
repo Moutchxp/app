@@ -7,7 +7,7 @@ import {
 } from '../../../../../lib/gestion/google';
 import { lireJeton } from '../../../../../lib/gestion/googleJeton';
 import { compterBrouillons } from '../../../../../lib/gestion/redactionRepo';
-import { redactionDisponible } from '../../../../../lib/gestion/schema';
+import { piecesEnvoiDisponibles, redactionDisponible } from '../../../../../lib/gestion/schema';
 
 /**
  * /api/admin/gestion/redaction (lot 5e) — CE QUE L'ÉCRAN A BESOIN DE SAVOIR AVANT DE PROPOSER D'ÉCRIRE.
@@ -64,6 +64,9 @@ export async function GET(request: Request): Promise<Response> {
 
   return Response.json({
     schemaPret, peutEnvoyer, jetonPresent,
+    // LOT 5-PJ-ENVOI — la migration 252 est-elle là ? Sans elle, l'éditeur ne montre aucune zone de pièces jointes
+    //   et l'envoi texte reste exactement celui d'avant. Sonde HORS transaction, comme partout dans ce module.
+    piecesDisponibles: await piecesEnvoiDisponibles(),
     signature, nomExpediteur: NOM_PAR_DEFAUT, adresseGestion: config.adresseGestion || COMPTE_GESTION,
     delaiAnnulationS: config.annulationEnvoiSecondes,
     brouillons,

@@ -29,7 +29,10 @@
  * et les destinataires — c'est le journal MÉTIER, celui qu'Arno a demandé —, et rien d'autre ne sort vers `console`.
  */
 import type { Auteur, EnvoiEnBase } from './redactionRepo';
-import { chainerReferences, construireRfc822, domaineDe, fabriquerMessageId, type ResultatEnvoi } from './envoiGmail';
+import {
+  chainerReferences, construireRfc822, domaineDe, fabriquerMessageId,
+  type PieceAEnvoyer, type ResultatEnvoi,
+} from './envoiGmail';
 import { pretAEnvoyer } from './redaction';
 
 /** Ce que l'envoi a besoin de savoir du message auquel on répond, pour rester dans le bon fil. */
@@ -52,6 +55,11 @@ export interface DemandeEnvoi {
   cci: string[];
   objet: string;
   corps: string;
+  /**
+   * LOT 5-PJ-ENVOI — la voie du brouillon. Elle ne sert qu'à UNE chose ici : savoir s'il faut joindre l'original
+   * complet (`transferer_piece`). Absente ⇒ comportement d'avant ce lot.
+   */
+  voie?: string | null;
 }
 
 export interface DepsEnvoiComplet {
@@ -65,6 +73,18 @@ export interface DepsEnvoiComplet {
   ancrage(repondAMessageId: number | null): Promise<AncrageFil>;
   /** ④ Ouvre la ligne, et tranche le double-clic. */
   ouvrirEnvoi(e: Parameters<typeof import('./redactionRepo').ouvrirEnvoi>[0], auteur: Auteur): Promise<EnvoiEnBase>;
+  /**
+   * LOT 5-PJ-ENVOI — ④bis LES PIÈCES À JOINDRE, lues au dernier moment.
+   *
+   * 🔴 LUES ICI, ET PAS PLUS TÔT : entre l'ouverture du brouillon et le clic sur « Envoyer », une pièce a pu être
+   * retirée. Les lire à l'envoi, c'est joindre ce que la personne voit à l'écran au moment où elle envoie.
+   *
+   * 🔴 ET APRÈS le verrou d'idempotence : un double-clic ne doit pas relire (ni re-télécharger depuis Gmail) les
+   * pièces d'un envoi déjà parti.
+   *
+   * Injectée : `envoi.ts` ne sait ni lire le stockage, ni parler à Gmail. Absente ⇒ aucune pièce, comme avant.
+   */
+  pieces?(d: DemandeEnvoi): Promise<PieceAEnvoyer[]>;
   /** ⑤ Remet le message à Gmail. */
   envoyer(o: { accessToken: string; rfc822: string; cci: readonly string[]; threadId: string | null }): Promise<ResultatEnvoi>;
   /** ⑥ Finalise la ligne. */
@@ -74,6 +94,8 @@ export interface DepsEnvoiComplet {
   /** Le journal MÉTIER : qui, à qui, quand, quel objet — et SUR QUOI la ligne se range (`envoiId`). */
   journaliser(l: {
     auteur: Auteur; objet: string; destinataires: string[]; issue: 'envoye' | 'echec'; envoiId: number;
+    /** LOT 5-PJ-ENVOI — les NOMS des pièces parties avec le message. Vide = aucune. */
+    pieces?: string[];
   }): Promise<void>;
   /**
    * SIGNALE un geste d'après-envoi qui a échoué — au journal DU SERVEUR, jamais à l'écran. Ne doit RIEN lever : c'est
@@ -124,31 +146,47 @@ export async function envoyerMessage(d: DemandeEnvoi, auteur: Auteur, deps: Deps
   // 🔴 DOUBLE-CLIC : la ligne existait déjà. On ne renvoie RIEN — on rend l'issue du premier clic.
   if (envoi.deja) return { ok: true, envoi, deja: true };
 
+  // Les gestes d'après-appel, AU MIEUX-EFFORT. Défini ici parce que la lecture des pièces peut déjà en avoir besoin.
+  const auMieux = async (etape: EtapeApresEnvoi, f: () => Promise<void>): Promise<void> => {
+    try { await f(); } catch (e) { try { deps.incident(etape, e); } catch { /* le filet ne se déchire pas */ } }
+  };
+
+  // ④bis LES PIÈCES, au dernier moment (voir `DepsEnvoiComplet.pieces`).
+  //   ⚠️ UNE LECTURE QUI ÉCHOUE N'ENVOIE PAS UN MESSAGE AMPUTÉ : mieux vaut un refus clair qu'un transfert dont la
+  //   pièce manque sans que personne ne s'en aperçoive avant le correspondant.
+  let pieces: PieceAEnvoyer[] = [];
+  if (deps.pieces) {
+    try {
+      pieces = await deps.pieces(d);
+    } catch (e) {
+      const motif = `Les pièces jointes n’ont pas pu être lues : ${e instanceof Error ? e.message : String(e)}`;
+      await auMieux('finaliser', () => deps.finaliser(envoi.id, { etat: 'echec', erreur: motif }));
+      return { ok: false, code: 'invalide', motif };
+    }
+  }
+
   // ⑤ GMAIL.
   const rfc822 = construireRfc822({
     de: de.adresse, deNom: de.nom, a: d.a, cc: d.cc, cci: d.cci,
     objet: d.objet, corps: d.corps, messageId,
-    inReplyTo: ancrage.messageIdRfc, references,
-  });
+    inReplyTo: ancrage.messageIdRfc, references, pieces,
+  }, deps.alea());
   const issue = await deps.envoyer({ accessToken: jeton, rfc822, cci: d.cci, threadId: ancrage.threadId });
 
   // ⑥ ON FINALISE, dans les deux cas. Une ligne laissée `en_cours` est un envoi dont personne ne saura jamais rien.
   //   🔴 AU MIEUX-EFFORT, DES DEUX CÔTÉS. Côté échec aussi : si le journal refuse l'écriture, c'est le motif RÉEL du
   //   refus de Gmail qu'Arno doit lire, pas l'incident de journal qui l'aurait recouvert.
-  const auMieux = async (etape: EtapeApresEnvoi, f: () => Promise<void>): Promise<void> => {
-    try { await f(); } catch (e) { try { deps.incident(etape, e); } catch { /* le filet ne se déchire pas */ } }
-  };
   const destinataires = [...d.a, ...d.cc, ...d.cci];
 
   if (!issue.ok) {
     await auMieux('finaliser', () => deps.finaliser(envoi.id, { etat: 'echec', erreur: issue.motif }));
-    await auMieux('journal', () => deps.journaliser({ auteur, objet: d.objet, destinataires, issue: 'echec', envoiId: envoi.id }));
+    await auMieux('journal', () => deps.journaliser({ auteur, objet: d.objet, destinataires, issue: 'echec', envoiId: envoi.id, pieces: pieces.map((p) => p.nom) }));
     return { ok: false, code: 'refus_gmail', motif: issue.motif };
   }
 
   // 🔴 À PARTIR D'ICI, LE MESSAGE EST PARTI. Rien de ce qui suit ne peut plus rendre un échec.
   await auMieux('finaliser', () => deps.finaliser(envoi.id, { etat: 'envoye', gmailMessageId: issue.gmailMessageId }));
   if (d.brouillonId !== null) await auMieux('brouillon', () => deps.marquerBrouillonEnvoye(d.brouillonId as number));
-  await auMieux('journal', () => deps.journaliser({ auteur, objet: d.objet, destinataires, issue: 'envoye', envoiId: envoi.id }));
+  await auMieux('journal', () => deps.journaliser({ auteur, objet: d.objet, destinataires, issue: 'envoye', envoiId: envoi.id, pieces: pieces.map((p) => p.nom) }));
   return { ok: true, envoi: { ...envoi, etat: 'envoye' }, deja: false };
 }

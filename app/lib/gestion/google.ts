@@ -461,6 +461,28 @@ export async function modifierLibelles(
  * « Afficher l'original » et « Télécharger le message » (.eml). C'est la SOURCE, jamais notre reconstitution — ce
  * qu'on veut voir quand on cherche pourquoi un mail est arrivé de travers.
  */
+/**
+ * LOT 5-PJ-ENVOI — L'ORIGINAL EN OCTETS, jamais en chaîne.
+ *
+ * 🔴 POURQUOI UNE SECONDE FONCTION PLUTÔT QUE RÉUTILISER `lireOriginalGmail`. Celle-ci décode l'original en UTF-8
+ * pour l'AFFICHER et le télécharger — c'est son usage depuis le lot 5-FIDÈLE, et il est juste. Mais un message brut
+ * n'est pas garanti valide en UTF-8 : un en-tête latin-1, une pièce en 8 bits, et `toString('utf8')` remplace
+ * silencieusement les octets fautifs par des « � ». Joindre CE fichier-là livrerait un .eml subtilement abîmé, que
+ * personne ne verrait avant le correspondant. Pour joindre, on garde donc les OCTETS tels que Gmail les rend.
+ */
+export async function lireOriginalGmailOctets(
+  accessToken: string, id: string, deps: DepsGoogle,
+): Promise<Resultat<Buffer>> {
+  const res = await deps.fetch(`${ENDPOINT_GMAIL_MESSAGES}/${encodeURIComponent(id)}?format=raw`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (res.status === 404) return { ok: false, motif: 'Ce message n’existe plus dans Gmail.' };
+  if (!res.ok) return { ok: false, motif: `Original illisible (HTTP ${res.status}).` };
+  const j = (await res.json().catch(() => ({}))) as { raw?: string };
+  if (!j.raw) return { ok: false, motif: 'Gmail n’a pas rendu l’original de ce message.' };
+  return { ok: true, valeur: Buffer.from(j.raw.replace(/-/g, '+').replace(/_/g, '/'), 'base64') };
+}
+
 export async function lireOriginalGmail(
   accessToken: string, id: string, deps: DepsGoogle,
 ): Promise<Resultat<string>> {

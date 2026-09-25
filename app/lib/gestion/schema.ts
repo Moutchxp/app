@@ -163,6 +163,17 @@ export function reglageRecentsDisponible(): Promise<boolean> {
 }
 
 /**
+ * LOT 5-PJ-ENVOI — la migration 252 est-elle appliquée ? Elle seule porte les PIÈCES JOINTES d'un brouillon.
+ *
+ * 🔴 TANT QU'ELLE MANQUE, L'ÉDITEUR EST EXACTEMENT CELUI D'AVANT : aucun bouton « joindre », aucun glisser-déposer,
+ * aucune entrée « Transférer en tant que pièce jointe », et l'envoi TEXTE fonctionne à l'identique. Proposer de
+ * joindre un fichier qu'on ne saurait pas mémoriser ferait perdre le fichier ET le message.
+ */
+export function piecesEnvoiDisponibles(): Promise<boolean> {
+  return memoiser('table.gestion_brouillon_piece', () => tableExiste('gestion_brouillon_piece'));
+}
+
+/**
  * LOT 5-BOITE-3 — la migration 251 est-elle appliquée ? Elle seule porte la CORBEILLE interne.
  *
  * 🔴 TANT QU'ELLE MANQUE, LE COMPORTEMENT D'AVANT EST EXACTEMENT CONSERVÉ : l'entrée « Supprimer » n'apparaît pas

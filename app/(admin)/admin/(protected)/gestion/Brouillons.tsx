@@ -27,6 +27,8 @@ export interface BrouillonListe {
 
 const LIBELLE_VOIE: Record<VoieRedaction, string> = {
   repondre: 'Réponse', repondre_tous: 'Réponse à tous', transferer: 'Transfert', nouveau: 'Nouveau message',
+  // LOT 5-PJ-ENVOI — dit en toutes lettres : l'original est JOINT, pas recopié. C'est la différence qui compte.
+  transferer_piece: 'Transfert en pièce jointe',
 };
 
 /** De quoi reconnaître SON brouillon quand on en a cinq. Objet, sinon début du message, sinon destinataires. PUR. */
