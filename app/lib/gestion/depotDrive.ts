@@ -45,7 +45,12 @@ export interface DepsDepot {
   infosDossier(jeton: string, dossierId: string): Promise<{ nom: string; driveId: string | null } | null>;
 }
 
-export interface Auteur { id: number | null; libelle: string }
+export interface Auteur {
+  id: number | null;
+  libelle: string;
+  /** LOT 5-PJ-C — le compte Google employé. Journalisé avec le dépôt : c'est lui qui possède le fichier côté Drive. */
+  compteGoogle?: string | null;
+}
 
 /**
  * DÉPOSE une liste de pièces dans UN dossier.
@@ -90,6 +95,7 @@ export async function deposerPieces(
         pieceId, driveFileId: envoi.valeur.id, dossierId,
         dossierNom: infos?.nom ?? null, driveId: infos?.driveId ?? null,
         webViewLink: envoi.valeur.webViewLink, auteurId: auteur.id, auteurLibelle: auteur.libelle,
+        compteGoogle: auteur.compteGoogle ?? null,
       });
       issues.push({
         pieceId, nomFichier: piece.nomFichier,

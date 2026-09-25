@@ -25,18 +25,41 @@ import type { DepsGoogle, Resultat } from './google';
 
 const API_FICHIERS = 'https://www.googleapis.com/drive/v3/files';
 const API_TELEVERSEMENT = 'https://www.googleapis.com/upload/drive/v3/files';
+const ENDPOINT_DRIVES = 'https://www.googleapis.com/drive/v3/drives';
 
 /** Le type MIME d'un dossier Drive. Écrit une fois : une faute de frappe ici rendrait toute navigation vide. */
 export const MIME_DOSSIER = 'application/vnd.google-apps.folder';
+
+/**
+ * LOT 5-PJ-C — le type MIME d'un RACCOURCI.
+ *
+ * 🔴 LE DÉFAUT QU'IL RÉPARE, constaté par Arno le 25/09/2026 : le sélecteur filtrait sur `mimeType = dossier`, et un
+ * raccourci n'est PAS un dossier — son type est `shortcut`. Les raccourcis vers un Drive partagé, qui sont
+ * justement la façon dont on range un accès dans son Drive, étaient donc tout simplement invisibles. Rien
+ * n'échouait : ils n'existaient pas, ce qui est pire, parce qu'on ne cherche pas ce qu'on ne voit pas manquer.
+ */
+export const MIME_RACCOURCI = 'application/vnd.google-apps.shortcut';
+
+/** Ce qu'on demande pour voir DOSSIERS ET RACCOURCIS, et savoir où mènent les seconds. */
+const CHAMPS_DOSSIERS = 'files(id,name,driveId,mimeType,shortcutDetails(targetId,targetMimeType))';
+
+/** Dossiers ET raccourcis, jamais la corbeille. Le tri du bon grain se fait ensuite, sur le type de la CIBLE. */
+const FILTRE_DOSSIERS_ET_RACCOURCIS = `(mimeType = '${MIME_DOSSIER}' or mimeType = '${MIME_RACCOURCI}') and trashed = false`;
 
 /** Les paramètres que TOUTE requête doit porter pour voir les Drive partagés. Oubliés, les dossiers d'équipe sont invisibles. */
 const PARTAGES = { supportsAllDrives: 'true', includeItemsFromAllDrives: 'true' } as const;
 
 export interface DossierDrive {
+  /**
+   * L'identifiant où l'on ENTRE et où l'on DÉPOSE. Pour un raccourci, c'est celui de sa CIBLE — jamais celui du
+   * raccourci lui-même : déposer « dans un raccourci » ne veut rien dire, et Google le refuserait.
+   */
   id: string;
   nom: string;
   /** Identifiant du Drive partagé, ou `null` pour « Mon Drive ». Sert à savoir d'où vient un dossier dans une recherche. */
   driveId: string | null;
+  /** Vrai quand l'entrée est un RACCOURCI : l'écran le dit par une icône ET par le mot « raccourci ». */
+  raccourci?: boolean;
 }
 
 /** Une étape du fil d'Ariane, de la racine vers le dossier courant. */
@@ -51,12 +74,38 @@ export function echapperQ(valeur: string): string {
   return valeur.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
 }
 
-/** Lit une liste de dossiers depuis une réponse de l'API. PUR. */
-function versDossiers(j: unknown): DossierDrive[] {
-  const files = (j as { files?: { id?: string; name?: string; driveId?: string }[] }).files ?? [];
-  return files
-    .filter((f) => typeof f.id === 'string' && f.id !== '')
-    .map((f) => ({ id: f.id as string, nom: (f.name ?? '(sans nom)').trim() || '(sans nom)', driveId: f.driveId ?? null }));
+/** Une entrée brute, telle que l'API la rend. */
+interface FichierBrut {
+  id?: string; name?: string; driveId?: string; mimeType?: string;
+  shortcutDetails?: { targetId?: string; targetMimeType?: string };
+}
+
+/**
+ * Traduit une réponse de l'API en entrées du sélecteur.
+ *
+ * 🔴 DEUX RÈGLES, ET ELLES COMPTENT AUTANT L'UNE QUE L'AUTRE :
+ *   ① un RACCOURCI VERS UN DOSSIER devient une entrée ordinaire, mais son `id` est celui de la CIBLE. Entrer dedans
+ *      ouvre la cible, et « déposer ici » dépose dans la cible. Garder l'identifiant du raccourci ferait échouer le
+ *      dépôt — un raccourci n'a pas d'enfants ;
+ *   ② un RACCOURCI VERS UN FICHIER est IGNORÉ. On choisit une destination : un fichier n'en est pas une, et le
+ *      proposer ne pourrait mener qu'à une erreur au moment du dépôt. PUR.
+ */
+export function versDossiers(j: unknown): DossierDrive[] {
+  const files = (j as { files?: FichierBrut[] }).files ?? [];
+  const out: DossierDrive[] = [];
+  for (const f of files) {
+    const nom = (f.name ?? '(sans nom)').trim() || '(sans nom)';
+    if (f.mimeType === MIME_RACCOURCI) {
+      const cible = f.shortcutDetails?.targetId ?? '';
+      if (cible === '' || f.shortcutDetails?.targetMimeType !== MIME_DOSSIER) continue; // ② vers un fichier : ignoré
+      out.push({ id: cible, nom, driveId: f.driveId ?? null, raccourci: true }); // ① l'id est celui de la CIBLE
+      continue;
+    }
+    if (typeof f.id !== 'string' || f.id === '') continue;
+    if (f.mimeType !== undefined && f.mimeType !== MIME_DOSSIER) continue;
+    out.push({ id: f.id, nom, driveId: f.driveId ?? null });
+  }
+  return out;
 }
 
 /**
@@ -71,8 +120,8 @@ export async function listerDossiers(
   accessToken: string, o: { parentId: string; driveId?: string | null; pageSize?: number }, deps: DepsGoogle,
 ): Promise<Resultat<DossierDrive[]>> {
   const p = new URLSearchParams({
-    q: `'${echapperQ(o.parentId)}' in parents and mimeType = '${MIME_DOSSIER}' and trashed = false`,
-    fields: 'files(id,name,driveId)',
+    q: `'${echapperQ(o.parentId)}' in parents and ${FILTRE_DOSSIERS_ET_RACCOURCIS}`,
+    fields: CHAMPS_DOSSIERS,
     pageSize: String(o.pageSize ?? 200),
     orderBy: 'name',
     ...PARTAGES,
@@ -98,8 +147,8 @@ export async function chercherDossiers(
   const terme = texte.trim();
   if (terme === '') return { ok: true, valeur: [] };
   const p = new URLSearchParams({
-    q: `name contains '${echapperQ(terme)}' and mimeType = '${MIME_DOSSIER}' and trashed = false`,
-    fields: 'files(id,name,driveId)',
+    q: `name contains '${echapperQ(terme)}' and ${FILTRE_DOSSIERS_ET_RACCOURCIS}`,
+    fields: CHAMPS_DOSSIERS,
     pageSize: String(pageSize),
     orderBy: 'name',
     corpora: 'allDrives',
@@ -108,6 +157,47 @@ export async function chercherDossiers(
   const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la recherche de dossiers') };
   return { ok: true, valeur: versDossiers(await res.json().catch(() => ({}))) };
+}
+
+/**
+ * LOT 5-PJ-C — « PARTAGÉS AVEC MOI ». Une troisième entrée à la racine, comme dans Google Drive.
+ *
+ * 🔴 CES DOSSIERS NE SONT ATTEIGNABLES PAR AUCUN `in parents` : ils n'ont pas de parent chez nous, puisqu'ils
+ * appartiennent à quelqu'un d'autre. `sharedWithMe = true` est la SEULE façon de les voir — c'est pourquoi ils
+ * manquaient entièrement au sélecteur, sans que rien n'échoue.
+ */
+export async function listerPartagesAvecMoi(
+  accessToken: string, deps: DepsGoogle, pageSize = 100,
+): Promise<Resultat<DossierDrive[]>> {
+  const p = new URLSearchParams({
+    q: `sharedWithMe = true and ${FILTRE_DOSSIERS_ET_RACCOURCIS}`,
+    fields: CHAMPS_DOSSIERS,
+    pageSize: String(pageSize),
+    orderBy: 'name',
+    ...PARTAGES,
+  });
+  const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture des dossiers partagés avec vous') };
+  return { ok: true, valeur: versDossiers(await res.json().catch(() => ({}))) };
+}
+
+/**
+ * LOT 5-PJ-C — LES DRIVE PARTAGÉS, AVEC LEUR IDENTIFIANT. `listerDrivesPartages` (lot 5-GOOGLE) ne rend que les
+ * NOMS, et c'était son but : confirmer un accès sans faire défiler des noms de locataires. Pour NAVIGUER, il faut
+ * l'identifiant — la racine d'un Drive partagé a pour identifiant celui du Drive lui-même.
+ */
+export async function listerDrivesAvecId(accessToken: string, deps: DepsGoogle): Promise<Resultat<DossierDrive[]>> {
+  const res = await deps.fetch(`${ENDPOINT_DRIVES}?pageSize=100&fields=drives(id,name)`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture des Drive partagés') };
+  const j = (await res.json().catch(() => ({}))) as { drives?: { id?: string; name?: string }[] };
+  return {
+    ok: true,
+    valeur: (j.drives ?? [])
+      .filter((d) => typeof d.id === 'string' && d.id !== '')
+      .map((d) => ({ id: d.id as string, nom: (d.name ?? '(sans nom)').trim() || '(sans nom)', driveId: d.id as string })),
+  };
 }
 
 /** Un dossier, avec ce qu'il faut pour remonter : son parent et son Drive. */

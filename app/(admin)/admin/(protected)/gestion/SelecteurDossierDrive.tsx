@@ -24,12 +24,19 @@ import { useCallback, useEffect, useState } from 'react';
  * MOBILE D'ABORD : une seule colonne, cibles de 44 px, aucune action au survol seul, aucune couleur en dur.
  */
 
-interface Dossier { id: string; nom: string; driveId: string | null }
+interface Dossier {
+  /** L'identifiant où l'on ENTRE et où l'on DÉPOSE. Pour un raccourci, c'est celui de sa CIBLE. */
+  id: string;
+  nom: string;
+  driveId: string | null;
+  /** LOT 5-PJ-C — vrai quand l'entrée est un raccourci : dit par une icône ET par le MOT « raccourci ». */
+  raccourci?: boolean;
+}
 interface Etape { id: string; nom: string }
 
 type Vue =
   | { v: 'charge' }
-  | { v: 'ok'; dossiers: Dossier[]; ariane: Etape[]; mode: 'racines' | 'navigation' | 'recherche' }
+  | { v: 'ok'; dossiers: Dossier[]; ariane: Etape[]; mode: 'racines' | 'navigation' | 'recherche'; compte: string | null }
   | { v: 'indisponible'; message: string };
 
 export interface CibleDepot { id: string; nom: string }
@@ -57,7 +64,7 @@ export function SelecteurDossierDrive({ filId, titre, onChoisir, onFermer }: {
     try {
       const res = await fetch(`/api/admin/gestion/drive/dossiers?${p}`, { cache: 'no-store' });
       const d = (await res.json()) as {
-        etat: string; message?: string; mode?: Vue extends { mode: infer M } ? M : never;
+        etat: string; message?: string; mode?: 'racines' | 'navigation' | 'recherche'; compte?: string | null;
         dossiers?: Dossier[]; ariane?: Etape[]; dernier?: { id: string; nom: string | null } | null;
       };
       if (d.etat !== 'ok') {
@@ -72,7 +79,7 @@ export function SelecteurDossierDrive({ filId, titre, onChoisir, onFermer }: {
         return; // le rechargement est déclenché par le changement de `parent`
       }
       const ariane = d.ariane ?? [];
-      setVue({ v: 'ok', dossiers: d.dossiers ?? [], ariane, mode: (d.mode ?? 'racines') as 'racines' });
+      setVue({ v: 'ok', dossiers: d.dossiers ?? [], ariane, mode: d.mode ?? 'racines', compte: d.compte ?? null });
       const dernier = ariane[ariane.length - 1];
       setCourant(dernier ? { id: dernier.id, nom: dernier.nom } : null);
     } catch {
@@ -86,6 +93,9 @@ export function SelecteurDossierDrive({ filId, titre, onChoisir, onFermer }: {
     <div className="dsel" role="dialog" aria-label={titre} aria-modal="true">
       <div className="dsel-barre">
         <strong className="dsel-titre">{titre}</strong>
+        {/* LOT 5-PJ-C — AVEC QUEL COMPTE on regarde. Deux personnes ne voient pas la même chose : le dire évite de
+            chercher pendant dix minutes un dossier auquel on n'a simplement pas accès. */}
+        {vue.v === 'ok' && vue.compte && <span className="dsel-compte">{vue.compte}</span>}
         <button type="button" className="dsel-fermer" onClick={onFermer} aria-label="Fermer le sélecteur">✕</button>
       </div>
 
@@ -142,7 +152,9 @@ export function SelecteurDossierDrive({ filId, titre, onChoisir, onFermer }: {
                   type="button" className="dsel-ouvrir"
                   onClick={() => { setRecherche(''); setSaisie(''); setParent({ id: d.id, driveId: d.driveId }); }}
                 >
-                  <span aria-hidden="true">📁</span> {d.nom}
+                  <span aria-hidden="true">{d.raccourci ? '🔗' : '📁'}</span> {d.nom}
+                  {/* L'information n'est JAMAIS portée par la seule icône : le mot est là aussi. */}
+                  {d.raccourci && <span className="dsel-raccourci"> · raccourci</span>}
                 </button>
                 <button type="button" className="dsel-choisir" onClick={() => onChoisir({ id: d.id, nom: d.nom })}>
                   Déposer ici
@@ -212,4 +224,8 @@ export const CSS_SELECTEUR_DRIVE = `
 .dsel-info{font-size:.8rem;color:var(--color-svv-ink-soft);margin:0}
 /* Une indisponibilité est dite par un MOT, jamais par une seule couleur. */
 .dsel-info--stop{color:var(--color-svv-ink);font-weight:600}
+/* ── LOT 5-PJ-C ── */
+.dsel-compte{margin-left:auto;font-size:.72rem;color:var(--color-svv-ink-soft);overflow:hidden;
+  text-overflow:ellipsis;white-space:nowrap;max-width:14rem}
+.dsel-raccourci{color:var(--color-svv-ink-soft);font-size:.74rem}
 `;

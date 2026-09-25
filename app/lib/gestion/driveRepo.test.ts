@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const queryMock = vi.fn();
 const schemaMock = vi.fn();
 const journalMock = vi.fn();
+/** LOT 5-PJ-C — la colonne `compte_google` n'existe qu'après la migration 246 : le dépôt la nomme SOUS SONDE. */
+const compteColonneMock = vi.fn();
 vi.mock('../db/client', () => ({
   query: (...a: unknown[]) => queryMock(...a),
   withTransaction: (fn: (q: (...a: unknown[]) => unknown) => unknown) => fn((...a: unknown[]) => queryMock(...a)),
@@ -11,6 +13,7 @@ vi.mock('../db/client', () => ({
 vi.mock('./schema', () => ({
   depotsDriveDisponibles: () => schemaMock(),
   journalPieceDriveDisponible: () => journalMock(),
+  compteGoogleDuDepotDisponible: () => compteColonneMock(),
 }));
 
 import { dernierDossierDuFil, lireDepotsDesPieces, memoriserDepot } from './driveRepo';
@@ -24,8 +27,8 @@ const aDeposer = {
 };
 
 beforeEach(() => {
-  queryMock.mockReset(); schemaMock.mockReset(); journalMock.mockReset();
-  schemaMock.mockResolvedValue(true); journalMock.mockResolvedValue(true);
+  queryMock.mockReset(); schemaMock.mockReset(); journalMock.mockReset(); compteColonneMock.mockReset();
+  schemaMock.mockResolvedValue(true); journalMock.mockResolvedValue(true); compteColonneMock.mockResolvedValue(true);
 });
 
 describe('sans la migration 245', () => {
@@ -109,6 +112,28 @@ describe('mémoriser un dépôt', () => {
     await memoriserDepot(aDeposer);
     expect(params(0)).toContain('Arnaud Jorel');
     expect(params(0)).toContain(3);
+  });
+
+  /**
+   * LOT 5-PJ-C — on sait AVEC QUEL COMPTE GOOGLE le fichier est parti. C'est ce compte-là qui en est propriétaire
+   * côté Drive : sans lui, on saurait qui a cliqué sans savoir sous quelle identité.
+   */
+  it('avec la migration 246, le compte Google employé est enregistré ET journalisé', async () => {
+    queryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    await memoriserDepot({ ...aDeposer, compteGoogle: 'a.jorel@criterimmo.fr' });
+    expect(sql(0)).toContain('compte_google');
+    expect(params(0)).toContain('a.jorel@criterimmo.fr');
+    // Le commentaire du journal est le 4e paramètre lié (entite, entite_id, valeur_apres, COMMENTAIRE, …).
+    expect(String(params(1)[3])).toContain('a.jorel@criterimmo.fr');
+  });
+
+  /** Sans la 246, NOMMER la colonne ferait échouer toute la requête — et le fichier, lui, est déjà dans le Drive. */
+  it('sans la migration 246, la colonne n’est pas nommée, et le dépôt s’enregistre quand même', async () => {
+    compteColonneMock.mockResolvedValue(false);
+    queryMock.mockResolvedValue({ rowCount: 1, rows: [] });
+    expect(await memoriserDepot({ ...aDeposer, compteGoogle: 'a@criterimmo.fr' })).toEqual({ etat: 'enregistre' });
+    expect(sql(0)).not.toContain('compte_google');
+    expect(params(0)).not.toContain('a@criterimmo.fr');
   });
 
   /**

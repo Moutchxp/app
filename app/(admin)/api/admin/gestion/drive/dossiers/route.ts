@@ -1,32 +1,40 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
-import { chercherDossiers, filAriane, listerDossiers } from '../../../../../../lib/gestion/drive';
-import { listerDrivesPartages } from '../../../../../../lib/gestion/google';
-import { jetonAccesGestion } from '../../../../../../lib/gestion/jetonAcces';
+import {
+  chercherDossiers, filAriane, listerDossiers, listerDrivesAvecId, listerPartagesAvecMoi,
+} from '../../../../../../lib/gestion/drive';
+import { jetonPourRequete } from '../../../../../../lib/gestion/jetonCollaborateur';
+import { messageEtat } from '../../../../../../lib/gestion/googleCollaborateur';
 import { dernierDossierDuFil } from '../../../../../../lib/gestion/driveRepo';
 import { depotsDriveDisponibles } from '../../../../../../lib/gestion/schema';
 
 /**
- * /api/admin/gestion/drive/dossiers (lot 5-PJ-B) — LE SÉLECTEUR DE DOSSIER, servi par l'application.
+ * /api/admin/gestion/drive/dossiers — LE SÉLECTEUR DE DOSSIER, servi par l'application.
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * 🔒 LE JETON GOOGLE NE SORT JAMAIS D'ICI. Le navigateur ne parle jamais à Google : il demande à l'application, qui
- * relit le droit `gestion` à chaque requête, puis interroge le Drive avec un jeton qui reste côté serveur. Donner le
- * jeton au navigateur reviendrait à lui donner un accès complet au Drive de l'agence, sans limite ni révocation.
+ * 🔴 LOT 5-PJ-C — LE JETON EST CELUI DU COLLABORATEUR CONNECTÉ. C'est donc Google qui applique SES droits, comme
+ * dans drive.google.com : chacun voit ce à quoi il a accès, et rien d'autre. Auparavant un seul jeton partagé
+ * (`gestion@`) servait tout le monde — tout le monde voyait la même chose, ni plus ni moins que ce compte-là.
+ * Aucune liste de droits n'est recopiée chez nous : elle serait fausse dès le lendemain.
  *
- * 🔒 LECTURE SEULE DU DRIVE. Cette route ne fait que LISTER et CHERCHER des dossiers. Aucune création, aucun
- * renommage, aucun déplacement, aucun partage — le Drive existant n'est jamais modifié.
+ * 🔒 LE JETON NE SORT JAMAIS D'ICI. Le navigateur ne parle jamais à Google : il demande à l'application, qui relit
+ * le droit `gestion` à chaque requête, puis interroge le Drive.
  *
- * TROIS QUESTIONS, une par paramètre :
- *   · `?parent=<id>`   les dossiers de ce dossier (navigation), avec son fil d'Ariane ;
- *   · `?q=<texte>`     les dossiers dont le nom contient ce texte, tous Drive confondus ;
- *   · rien             les racines : Mon Drive et les Drive partagés, plus le dernier dossier utilisé pour l'échange
- *                      (`?fil=<id>`), sur lequel le sélecteur s'ouvre.
+ * 🔒 LECTURE SEULE DU DRIVE : lister et chercher. Aucune création, aucun renommage, aucun déplacement, aucun partage.
+ *
+ * LA RACINE A TROIS ENTRÉES, comme Google Drive : « Mon Drive », les « Drives partagés », et « Partagés avec moi ».
+ * La troisième n'est atteignable par AUCUN `in parents` (ces dossiers appartiennent à quelqu'un d'autre) : elle
+ * manquait donc entièrement, sans que rien n'échoue.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 export const runtime = 'nodejs';
 
 const SANS_CACHE = 'private, no-store';
+
+/** Les identifiants des trois entrées de racine. Des mots à nous, jamais des identifiants Google. */
+export const RACINE_MON_DRIVE = 'root';
+export const RACINE_DRIVES_PARTAGES = 'svav:drives';
+export const RACINE_PARTAGES_AVEC_MOI = 'svav:partages';
 
 function json(corps: unknown, status = 200): Response {
   return Response.json(corps, { status, headers: { 'Cache-Control': SANS_CACHE } });
@@ -48,61 +56,78 @@ export async function GET(request: Request): Promise<Response> {
   const driveId = (url.searchParams.get('drive') ?? '').trim() || null;
   const filId = Number(url.searchParams.get('fil') ?? '');
 
-  // La migration D'ABORD : inutile d'aller chercher un jeton Google pour une fonctionnalité qui ne pourrait pas
+  // La migration des DÉPÔTS d'abord : inutile d'aller chercher un jeton pour une fonctionnalité qui ne pourrait pas
   //   mémoriser son résultat. L'écran affiche alors « bientôt disponible », ce qui est la vérité.
   if (!await depotsDriveDisponibles()) {
     return json({ etat: 'sans_schema', message: 'Bientôt disponible — une mise à jour de la base est nécessaire.' });
   }
 
-  const acces = await jetonAccesGestion();
-  if (acces.etat !== 'ok') return json({ etat: acces.etat, message: acces.motif });
+  const acces = await jetonPourRequete(request);
+  if (acces.etat !== 'ok') {
+    // On rend l'ÉTAT de la connexion Google, pas seulement un message : l'écran doit pouvoir proposer le BON geste
+    //   (se connecter, ou se reconnecter), et ces deux-là ne se réparent pas de la même façon.
+    return json({
+      etat: acces.etatCollaborateur.etat,
+      message: messageEtat(acces.etatCollaborateur),
+      detail: acces.motif,
+    });
+  }
+  const T = acces.jeton;
 
   try {
+    // ── LA RECHERCHE, tous Drive confondus (raccourcis compris) ──
     if (recherche !== '') {
-      const r = await chercherDossiers(acces.jeton, recherche, { fetch });
+      const r = await chercherDossiers(T, recherche, { fetch });
       if (!r.ok) return json({ etat: 'erreur', message: r.motif }, 502);
-      return json({ etat: 'ok', mode: 'recherche', dossiers: r.valeur });
+      return json({ etat: 'ok', mode: 'recherche', compte: acces.compteGoogle, dossiers: r.valeur });
     }
 
+    // ── LES DRIVE PARTAGÉS, présentés comme un dossier qu'on ouvre ──
+    if (parent === RACINE_DRIVES_PARTAGES) {
+      const r = await listerDrivesAvecId(T, { fetch });
+      if (!r.ok) return json({ etat: 'erreur', message: r.motif }, 502);
+      return json({
+        etat: 'ok', mode: 'navigation', compte: acces.compteGoogle, dossiers: r.valeur,
+        ariane: [{ id: RACINE_DRIVES_PARTAGES, nom: 'Drives partagés' }],
+      });
+    }
+
+    // ── « PARTAGÉS AVEC MOI » ──
+    if (parent === RACINE_PARTAGES_AVEC_MOI) {
+      const r = await listerPartagesAvecMoi(T, { fetch });
+      if (!r.ok) return json({ etat: 'erreur', message: r.motif }, 502);
+      return json({
+        etat: 'ok', mode: 'navigation', compte: acces.compteGoogle, dossiers: r.valeur,
+        ariane: [{ id: RACINE_PARTAGES_AVEC_MOI, nom: 'Partagés avec moi' }],
+      });
+    }
+
+    // ── UN DOSSIER ORDINAIRE ──
     if (parent !== '') {
       const [liste, ariane] = await Promise.all([
-        listerDossiers(acces.jeton, { parentId: parent, driveId }, { fetch }),
-        filAriane(acces.jeton, parent, { fetch }),
+        listerDossiers(T, { parentId: parent, driveId }, { fetch }),
+        filAriane(T, parent, { fetch }),
       ]);
       if (!liste.ok) return json({ etat: 'erreur', message: liste.motif }, 502);
       return json({
-        etat: 'ok', mode: 'navigation', dossiers: liste.valeur,
+        etat: 'ok', mode: 'navigation', compte: acces.compteGoogle, dossiers: liste.valeur,
         ariane: ariane.ok ? ariane.valeur : [],
       });
     }
 
-    // ── LES RACINES ── Mon Drive et les Drive partagés, présentés comme des dossiers ordinaires.
-    const drives = await listerDrivesPartages(acces.jeton, { fetch });
-    const racines = [
-      { id: 'root', nom: 'Mon Drive', driveId: null },
-      ...(drives.ok ? await identifiantsDesDrives(acces.jeton) : []),
-    ];
+    // ── LA RACINE : trois entrées, comme dans Google Drive ──
     const dernier = Number.isInteger(filId) && filId > 0 ? await dernierDossierDuFil(filId) : null;
-    return json({ etat: 'ok', mode: 'racines', dossiers: racines, dernier });
+    return json({
+      etat: 'ok', mode: 'racines', compte: acces.compteGoogle,
+      dossiers: [
+        { id: RACINE_MON_DRIVE, nom: 'Mon Drive', driveId: null },
+        { id: RACINE_DRIVES_PARTAGES, nom: 'Drives partagés', driveId: null },
+        { id: RACINE_PARTAGES_AVEC_MOI, nom: 'Partagés avec moi', driveId: null },
+      ],
+      dernier,
+    });
   } catch (e) {
     console.error('[gestion/drive/dossiers] lecture impossible', e);
     return json({ etat: 'erreur', message: 'Le Drive n’a pas répondu.' }, 503);
   }
-}
-
-/**
- * Les Drive partagés AVEC leur identifiant. `listerDrivesPartages` (lot 5-GOOGLE) ne rend que les NOMS — c'était son
- * but : confirmer un accès sans faire défiler des noms de locataires. Ici il faut l'identifiant pour y naviguer, donc
- * on redemande le champ. On ne modifie pas la fonction existante, dont un test tient le contrat.
- */
-async function identifiantsDesDrives(jeton: string): Promise<{ id: string; nom: string; driveId: string }[]> {
-  const res = await fetch('https://www.googleapis.com/drive/v3/drives?pageSize=100&fields=drives(id,name)', {
-    headers: { Authorization: `Bearer ${jeton}` },
-  });
-  if (!res.ok) return [];
-  const j = (await res.json().catch(() => ({}))) as { drives?: { id?: string; name?: string }[] };
-  return (j.drives ?? [])
-    .filter((d) => typeof d.id === 'string' && d.id !== '')
-    // La racine d'un Drive partagé a pour identifiant celui du Drive lui-même : le parent et le Drive coïncident.
-    .map((d) => ({ id: d.id as string, nom: (d.name ?? '(sans nom)').trim(), driveId: d.id as string }));
 }

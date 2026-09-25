@@ -10,7 +10,7 @@
  * bouton ne promet un geste qui échouerait au clic.
  */
 import { query } from '../db/client';
-import { depotsDriveDisponibles, journalPieceDriveDisponible } from './schema';
+import { compteGoogleDuDepotDisponible, depotsDriveDisponibles, journalPieceDriveDisponible } from './schema';
 
 /** Un dépôt, tel que l'écran l'affiche : « Dans le Drive · ouvrir », avec le nom du dossier. */
 export interface DepotDrive {
@@ -82,6 +82,11 @@ export interface ADeposer {
   webViewLink: string | null;
   auteurId: number | null;
   auteurLibelle: string;
+  /**
+   * LOT 5-PJ-C — l'adresse Google AVEC LAQUELLE le dépôt part. C'est elle qui apparaîtra comme propriétaire du
+   * fichier dans le Drive : sans elle, on saurait qui a cliqué sans savoir sous quelle identité le fichier est parti.
+   */
+  compteGoogle?: string | null;
 }
 
 /** Ce que l'écriture rapporte. `doublon` = la base a refusé : le fichier était déjà là, et c'est une bonne nouvelle. */
@@ -103,12 +108,17 @@ export type IssueMemorisation =
  */
 export async function memoriserDepot(d: ADeposer): Promise<IssueMemorisation> {
   if (!await depotsDriveDisponibles()) return { etat: 'sans_schema' };
+  // La colonne `compte_google` n'existe qu'après la migration 246 : on ne la NOMME que si elle est là, sinon la
+  //   requête échouerait tout entière — et le dépôt, lui, a bien eu lieu dans le Drive.
+  const avecCompte = await compteGoogleDuDepotDisponible();
   const { rowCount } = await query(
     `INSERT INTO gestion_piece_drive
-       (piece_id, drive_file_id, drive_dossier_id, dossier_nom, drive_id, web_view_link, depose_par, depose_par_libelle)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       (piece_id, drive_file_id, drive_dossier_id, dossier_nom, drive_id, web_view_link, depose_par, depose_par_libelle${avecCompte ? ', compte_google' : ''})
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8${avecCompte ? ', $9' : ''})
      ON CONFLICT (piece_id, drive_dossier_id) DO NOTHING`,
-    [d.pieceId, d.driveFileId, d.dossierId, d.dossierNom, d.driveId, d.webViewLink, d.auteurId, d.auteurLibelle],
+    avecCompte
+      ? [d.pieceId, d.driveFileId, d.dossierId, d.dossierNom, d.driveId, d.webViewLink, d.auteurId, d.auteurLibelle, d.compteGoogle ?? null]
+      : [d.pieceId, d.driveFileId, d.dossierId, d.dossierNom, d.driveId, d.webViewLink, d.auteurId, d.auteurLibelle],
   );
   if ((rowCount ?? 0) === 0) return { etat: 'doublon' };
 
@@ -123,7 +133,8 @@ export async function memoriserDepot(d: ADeposer): Promise<IssueMemorisation> {
         entite,
         entite === 'piece_drive' ? d.pieceId : await messageDeLaPiece(d.pieceId),
         `dossier ${d.dossierNom ?? d.dossierId}`,
-        `Une copie de la pièce jointe a été déposée dans le Google Drive, dossier « ${d.dossierNom ?? d.dossierId} ». `
+        `Une copie de la pièce jointe a été déposée dans le Google Drive, dossier « ${d.dossierNom ?? d.dossierId} »`
+          + `${d.compteGoogle ? `, avec le compte Google ${d.compteGoogle}` : ''}. `
           + `L'original reste dans l'application : rien n'a été effacé.`,
         d.auteurId,
         d.auteurLibelle,

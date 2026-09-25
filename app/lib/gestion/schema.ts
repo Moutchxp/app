@@ -122,6 +122,39 @@ export function journalPieceDriveDisponible(): Promise<boolean> {
   });
 }
 
+/**
+ * LOT 5-PJ-C — la migration 246 est-elle appliquée ? Elle seule porte les comptes Google PERSONNELS.
+ *
+ * 🔴 TANT QU'ELLE MANQUE, LE COMPORTEMENT D'AVANT EST CONSERVÉ : le sélecteur continue d'utiliser le jeton de
+ * `gestion@`, exactement comme aujourd'hui. On ne retire rien, on n'affiche pas un bouton qui échouerait — on ajoute
+ * seulement, une fois la table là, la possibilité pour chacun de relier son propre compte.
+ */
+export function comptesGoogleDisponibles(): Promise<boolean> {
+  return memoiser('table.gestion_google_compte', () => tableExiste('gestion_google_compte'));
+}
+
+/** LOT 5-PJ-C — le journal accepte-t-il « compte_google » ? On sonde la RÈGLE, pas une colonne (cf. lot 5e). */
+export function journalCompteGoogleDisponible(): Promise<boolean> {
+  return memoiser('journal.entite_compte_google', async () => {
+    try {
+      const { rows } = await query<{ n: number }>(
+        `SELECT count(*)::int AS n
+           FROM pg_constraint
+          WHERE conrelid = to_regclass('public.gestion_journal')
+            AND conname = 'gestion_journal_entite_chk'
+            AND pg_get_constraintdef(oid) LIKE '%''compte_google''%'`);
+      return (rows[0]?.n ?? 0) > 0;
+    } catch {
+      return false;
+    }
+  });
+}
+
+/** LOT 5-PJ-C — le registre des dépôts sait-il dire AVEC QUEL COMPTE Google le dépôt a été fait (migration 246) ? */
+export function compteGoogleDuDepotDisponible(): Promise<boolean> {
+  return memoiser('piece_drive.compte_google', () => colonneExiste('gestion_piece_drive', 'compte_google'));
+}
+
 /** Pour les tests : oublie ce qu'on croyait savoir du schéma. N'a aucun effet en production, où rien ne l'appelle. */
 export function oublierSchema(): void {
   memoire.oublier();

@@ -4,7 +4,8 @@ import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import { depsReellesDepot, piecesDeposablesDuMessage } from '../../../../../../../lib/gestion/depotDriveReel';
 import { deposerPieces, resumerDepot } from '../../../../../../../lib/gestion/depotDrive';
 import { lireDepotsDesPieces } from '../../../../../../../lib/gestion/driveRepo';
-import { jetonAccesGestion } from '../../../../../../../lib/gestion/jetonAcces';
+import { jetonPourRequete } from '../../../../../../../lib/gestion/jetonCollaborateur';
+import { messageEtat } from '../../../../../../../lib/gestion/googleCollaborateur';
 import { depotsDriveDisponibles } from '../../../../../../../lib/gestion/schema';
 
 /**
@@ -71,13 +72,17 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
   if (!await depotsDriveDisponibles()) {
     return json({ etat: 'sans_schema', message: 'Bientôt disponible — une mise à jour de la base est nécessaire.' }, 409);
   }
-  const acces = await jetonAccesGestion();
-  if (acces.etat !== 'ok') return json({ etat: acces.etat, message: acces.motif }, 409);
+  // LOT 5-PJ-C — le dépôt part avec le jeton DU COLLABORATEUR : c'est Google qui applique ses droits, et le
+  //   fichier lui appartient. Un collaborateur non connecté se voit proposer la connexion, jamais une erreur.
+  const acces = await jetonPourRequete(request);
+  if (acces.etat !== 'ok') {
+    return json({ etat: acces.etatCollaborateur.etat, message: messageEtat(acces.etatCollaborateur), detail: acces.motif }, 409);
+  }
 
   try {
     const pieces = await piecesDeposablesDuMessage(messageId);
     if (pieces.length === 0) return json({ etat: 'ok', resultats: [], resume: 'Aucune pièce conservée à déposer.' });
-    const auteur = await auteurDeLaRequete(request);
+    const auteur = { ...await auteurDeLaRequete(request), compteGoogle: acces.compteGoogle };
     const issues = await deposerPieces(depsReellesDepot(), acces.jeton, pieces, dossierId, auteur);
     return json({ etat: 'ok', resultats: issues, resume: resumerDepot(issues) });
   } catch (e) {

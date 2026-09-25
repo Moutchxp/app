@@ -258,10 +258,29 @@ describe('garanties STATIQUES', () => {
       .filter((p) => /\.tsx?$/.test(p))
       .filter((p) => { try { return /^\s*(['"])use client\1/.test(readFileSync(p, 'utf8')); } catch { return false; } });
     expect(clients.length).toBeGreaterThan(50); // témoin : la découverte fonctionne
+
+    /**
+     * 🔴 ON MATCHE LES IMPORTS, PAS LE TEXTE — correction du 25/09/2026 (lot 5-PJ-C).
+     *
+     * La version d'avant cherchait la SOUS-CHAÎNE « gestion/google » n'importe où dans le fichier. Elle a refusé un
+     * composant qui ne faisait qu'APPELER la route `/api/admin/gestion/google` : une adresse d'API, pas un import,
+     * donc aucun risque pour le navigateur. Un garde qui crie au loup sur du texte anodin finit par être contourné —
+     * et c'est ainsi qu'on perd un garde utile.
+     *
+     * Le motif ci-dessous vise ce qui compte vraiment : `import … from '…/gestion/google…'`, `import('…')` et
+     * `require('…')`. C'est PLUS strict sur le vrai danger (il attrape aussi l'import dynamique, que la version
+     * textuelle manquait dès que le chemin était construit) et muet sur le reste.
+     */
+    const IMPORT_INTERDIT = /(?:from\s*|import\s*\(\s*|require\s*\(\s*)(['"])[^'"]*gestion\/google[^'"]*\1/;
     for (const c of clients) {
-      expect(readFileSync(c, 'utf8'), c).not.toContain('gestion/googleJeton');
-      expect(readFileSync(c, 'utf8'), c).not.toContain('gestion/google');
+      const src = readFileSync(c, 'utf8');
+      expect(IMPORT_INTERDIT.test(src), `${c} importe un module gestion/google*`).toBe(false);
     }
+
+    // Témoin : le motif attrape bien ce qu'il doit attraper, et laisse passer une simple adresse d'API.
+    expect(IMPORT_INTERDIT.test("import { x } from '../../lib/gestion/googleJeton';")).toBe(true);
+    expect(IMPORT_INTERDIT.test("await import('../../lib/gestion/google');")).toBe(true);
+    expect(IMPORT_INTERDIT.test("fetch('/api/admin/gestion/google')")).toBe(false);
   });
 
   it('le jeton absent n’est pas une panne : on rend `null`, et l’écran le dit', () => {
