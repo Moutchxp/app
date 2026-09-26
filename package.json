@@ -89,7 +89,9 @@
     "gestion:annuaire:epreuve": "tsx app/scripts/annuaire-epreuve.ts",
     "gestion:drive:construire": "tsx app/scripts/construire-arbre-drive.ts",
     "gestion:drive:empreinte": "tsx app/scripts/empreinte-drive.ts",
-    "gestion:tri:rapport": "tsx app/scripts/rapport-tri-pieces.ts"
+    "gestion:tri:rapport": "tsx app/scripts/rapport-tri-pieces.ts",
+    "gestion:drive:copier-pieces": "tsx app/scripts/copier-pieces-drive.ts",
+    "gestion:drive:copie-etat": "tsx app/scripts/etat-copie-drive.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",

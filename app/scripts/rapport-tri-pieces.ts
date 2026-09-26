@@ -19,32 +19,23 @@ import { pathToFileURL } from 'node:url';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
-import { query } from '../lib/db/client';
 import { annuaireDisponible } from '../lib/gestion/schema';
-import { nomBien, nomProprietaire } from '../lib/gestion/driveArbre';
+import { cheminDestination, trierPieces, type Decision } from '../lib/gestion/triPieces';
 import {
-  cheminDestination, trierPieces, type AnnuaireTri, type Decision, type PieceATrier,
-} from '../lib/gestion/triPieces';
+  ADRESSE_AGENCE_DEFAUT, chargerContexteTri, type PieceAvecTaille,
+} from '../lib/gestion/triPiecesRepo';
 
 const P = '[gestion:tri:rapport]';
 export const SORTIE_DEFAUT = join(homedir(), 'Desktop', 'rapport-tri-pieces');
 
-/** Le corps est tronqué : une adresse citée l'est en tête, et 26 000 corps entiers ne tiennent pas en mémoire. */
-const CORPS_MAX = 4000;
 /** Débit de copie supposé pour l'estimation du lot 2. SUPPOSÉ, pas mesuré — le rapport le dit. */
 export const DEBIT_SUPPOSE_MO_S = 2.5;
 
 /**
- * 🔴 L'ADRESSE POSTALE DE L'AGENCE — celle qui figure dans la SIGNATURE de chaque mail sortant.
- *
- * MESURÉ le 26/09/2026 : sans cette exclusion, la règle c.2 reconnaissait cette adresse dans le corps de tous nos
- * envois et y expédiait **1 853 pièces**, toutes à tort (49 % de ce que la règle c rattachait). Une signature dit
- * qui envoie, pas de quoi le mail parle.
- *
- * Elle est ici plutôt qu'en base parce que la signature vient de Google, pas de `gestion_config`. Si l'agence
- * déménage, `--adresse-agence=` la remplace sans toucher au code.
+ * 🔴 L'ADRESSE DE L'AGENCE est définie dans `triPiecesRepo` — le MÊME endroit que pour la copie réelle. La
+ * ré-exporter ici plutôt que de la redéclarer garantit que le rapport et la copie excluent exactement la même.
  */
-export const ADRESSE_AGENCE_DEFAUT = '2 rue Mars et Roty';
+export { ADRESSE_AGENCE_DEFAUT };
 
 export function tailleLisible(octets: number): string {
   if (octets >= 1024 ** 3) return `${(octets / 1024 ** 3).toFixed(1)} Go`;
@@ -78,21 +69,20 @@ async function principal(): Promise<void> {
     return;
   }
 
-  console.log(`\n${P} lecture de l’annuaire…`);
-  const annuaire = await lireAnnuaire(adresseAgence);
-  console.log(`${P}   ${annuaire.contacts.length} contacts · ${annuaire.lots.length} lots · `
-    + `${annuaire.occupations.length} baux · ${annuaire.proprietaires.length} propriétaires`);
+  console.log(`\n${P} lecture de l’annuaire et des pièces (même chargement que la copie réelle)…`);
+  const ctx = await chargerContexteTri(adresseAgence);
+  console.log(`${P}   ${ctx.annuaire.contacts.length} contacts · ${ctx.annuaire.lots.length} lots · `
+    + `${ctx.annuaire.occupations.length} baux · ${ctx.annuaire.proprietaires.length} propriétaires`);
   console.log(`${P}   adresse de l’agence EXCLUE des rapprochements par adresse : « ${adresseAgence} »`);
-
-  console.log(`${P} lecture des pièces jointes…`);
-  const { pieces, tailles } = await lirePieces();
-  console.log(`${P}   ${pieces.length} pièces`);
+  console.log(`${P}   ${ctx.pieces.length} pièces`);
 
   console.log(`${P} tri (aucune copie)…`);
-  const decisions = trierPieces(pieces, annuaire);
+  const decisions = trierPieces(ctx.pieces, ctx.annuaire);
 
-  const nomsBiens = new Map(annuaire.lots.map((l) => [l.cle, l.nomAffiche]));
-  const nomsProps = new Map(annuaire.proprietaires.map((p) => [p.cle, p.nomAffiche]));
+  const pieces = ctx.pieces;
+  const tailles = new Map(ctx.pieces.map((p) => [p.pieceId, p.taille]));
+  const nomsBiens = ctx.nomsBiens;
+  const nomsProps = ctx.nomsProprietaires;
 
   mkdirSync(sortie, { recursive: true });
   ecrireCsv(join(sortie, 'decisions.csv'), decisions, pieces, tailles, nomsBiens, nomsProps);
@@ -103,121 +93,10 @@ async function principal(): Promise<void> {
   console.log(`${P} ✅ ${join(sortie, 'decisions.csv')}`);
 }
 
-// ── LECTURES ──────────────────────────────────────────────────────────────────────────────────────────────────────
-
-interface LotAffiche { cle: string; proprietaireCle: string | null; adresse: string | null; codePostal: string | null; commune: string | null; nomAffiche: string }
-interface PropAffiche { id: number; cle: string; nomNormalise: string; lots: string[]; nomAffiche: string }
-/**
- * ⚠️ `Omit` et non une intersection : `AnnuaireTri & { lots: LotAffiche[] }` donnerait à `lots` un type INTERSECTÉ
- * dont TypeScript résout les propriétés sur la première déclaration — `nomAffiche` y devient invisible.
- */
-type AnnuaireRapport = Omit<AnnuaireTri, 'lots' | 'proprietaires'> & {
-  lots: LotAffiche[]; proprietaires: PropAffiche[];
-};
-
-async function lireAnnuaire(adresseAgence: string): Promise<AnnuaireRapport> {
-  const { rows: contacts } = await query<{ sujet: string; sujet_id: string; valeur: string }>(
-    `SELECT sujet, sujet_id, valeur FROM gestion_annuaire_contact
-      WHERE sorte = 'email' AND absent_le IS NULL`);
-
-  const { rows: lots } = await query<{
-    cle: string; prop: string | null; adresse: string | null; cp: string | null; commune: string | null;
-    nature: string | null; type_bien: string | null;
-  }>(`SELECT lo.wippimmo_id AS cle, pr.wippimmo_id AS prop, lo.adresse, lo.code_postal AS cp, lo.commune,
-             lo.nature, lo.type_bien
-        FROM gestion_annuaire_lot lo
-        LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id`);
-
-  const { rows: props } = await query<{ id: string; cle: string; nom_normalise: string; nom_complet: string }>(
-    'SELECT id, wippimmo_id AS cle, nom_normalise, nom_complet FROM gestion_annuaire_proprietaire');
-
-  const { rows: locs } = await query<{ id: string; nom_normalise: string }>(
-    'SELECT id, nom_normalise FROM gestion_annuaire_locataire');
-
-  const { rows: occs } = await query<{
-    locataire_id: string; lot: string | null; prop: string | null; entree: string | null; sortie: string | null;
-  }>(`SELECT o.locataire_id, lo.wippimmo_id AS lot, pr.wippimmo_id AS prop, o.entree::text, o.sortie::text
-        FROM gestion_annuaire_occupation o
-        LEFT JOIN gestion_annuaire_lot lo ON lo.id = o.lot_id
-        LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id`);
-
-  const { rows: cfg } = await query<{ adresse: string | null }>(
-    'SELECT adresse_gestion AS adresse FROM gestion_config WHERE id = 1').catch(() => ({ rows: [] as { adresse: string | null }[] }));
-
-  const parLot = new Map<string, string[]>();
-  const lotsAffiches: LotAffiche[] = lots.map((l) => {
-    if (l.prop !== null) parLot.set(l.prop, [...(parLot.get(l.prop) ?? []), l.cle]);
-    return {
-      cle: l.cle, proprietaireCle: l.prop, adresse: l.adresse, codePostal: l.cp, commune: l.commune,
-      nomAffiche: nomBien({
-        wippimmoId: l.cle, proprietaireWippimmoId: l.prop, adresse: l.adresse, codePostal: l.cp,
-        commune: l.commune, nature: l.nature, typeBien: l.type_bien,
-      }),
-    };
-  });
-
-  return {
-    adressesMaison: [cfg[0]?.adresse ?? 'gestion@criterimmo.fr'],
-    // 🔴 Notre propre adresse postale n'est pas une clé : elle est dans la signature de chaque envoi.
-    adressesPostalesMaison: adresseAgence.trim() === '' ? [] : [adresseAgence],
-    contacts: contacts.map((c) => ({
-      email: c.valeur, role: c.sujet as 'proprietaire' | 'locataire', sujetId: Number(c.sujet_id),
-    })),
-    lots: lotsAffiches,
-    proprietaires: props.map((p) => ({
-      id: Number(p.id), cle: p.cle, nomNormalise: p.nom_normalise, lots: parLot.get(p.cle) ?? [],
-      nomAffiche: nomProprietaire({ wippimmoId: p.cle, nomComplet: p.nom_complet }),
-    })),
-    locataires: locs.map((l) => ({ id: Number(l.id), nomNormalise: l.nom_normalise })),
-    occupations: occs.map((o) => ({
-      locataireId: Number(o.locataire_id), lotCle: o.lot, proprietaireCle: o.prop,
-      entree: o.entree, sortie: o.sortie,
-    })),
-  };
-}
-
-async function lirePieces(): Promise<{ pieces: PieceATrier[]; tailles: Map<number, number> }> {
-  const { rows } = await query<{
-    piece_id: string; taille: string; stockee: boolean; message_id: string; fil_id: string | null;
-    recu_le: string; sens: string; de_adresse: string; dest_a: string | null; dest_cc: string | null;
-    objet: string | null; corps: string | null; evenement_adresse: string | null;
-  }>(
-    `SELECT p.id AS piece_id, p.taille_octets::text AS taille, (p.cle_stockage IS NOT NULL) AS stockee,
-            m.id AS message_id, m.fil_id, m.recu_le::text, m.sens, m.de_adresse,
-            m.dest_a::text, m.dest_cc::text, m.objet, left(coalesce(m.corps_texte, ''), $1) AS corps,
-            ev.adresse_libre AS evenement_adresse
-       FROM gestion_piece p
-       JOIN gestion_message m ON m.id = p.message_id
-       LEFT JOIN gestion_affectation af ON af.fil_id = m.fil_id AND af.detache_le IS NULL
-       LEFT JOIN gestion_evenement ev ON ev.id = af.evenement_id
-      ORDER BY p.id`, [CORPS_MAX]);
-
-  const adresses = (brut: string | null): string[] => {
-    if (brut === null || brut.trim() === '') return [];
-    try {
-      const j = JSON.parse(brut) as unknown;
-      return Array.isArray(j) ? j.map((x) => String(x)) : [];
-    } catch { return []; }
-  };
-
-  const tailles = new Map<number, number>();
-  const pieces = rows.map((r) => {
-    tailles.set(Number(r.piece_id), Number(r.taille));
-    return {
-      pieceId: Number(r.piece_id), messageId: Number(r.message_id),
-      filId: r.fil_id === null ? null : Number(r.fil_id),
-      date: r.recu_le, sens: r.sens === 'envoye' ? 'envoye' as const : 'recu' as const,
-      expediteur: r.de_adresse, destinataires: [...adresses(r.dest_a), ...adresses(r.dest_cc)],
-      objet: r.objet ?? '', corps: r.corps ?? '', evenementAdresse: r.evenement_adresse, stockee: r.stockee,
-    };
-  });
-  return { pieces, tailles };
-}
-
 // ── ÉCRITURES (sur le Bureau, jamais dans le dépôt) ───────────────────────────────────────────────────────────────
 
 function ecrireCsv(
-  chemin: string, decisions: readonly Decision[], pieces: readonly PieceATrier[],
+  chemin: string, decisions: readonly Decision[], pieces: readonly PieceAvecTaille[],
   tailles: ReadonlyMap<number, number>, biens: ReadonlyMap<string, string>, props: ReadonlyMap<string, string>,
 ): void {
   const parPiece = new Map(pieces.map((p) => [p.pieceId, p]));
@@ -234,7 +113,7 @@ function ecrireCsv(
 }
 
 function ecrireRapport(
-  chemin: string, decisions: readonly Decision[], pieces: readonly PieceATrier[],
+  chemin: string, decisions: readonly Decision[], pieces: readonly PieceAvecTaille[],
   tailles: ReadonlyMap<number, number>, biens: ReadonlyMap<string, string>, props: ReadonlyMap<string, string>,
 ): void {
   const parPiece = new Map(pieces.map((p) => [p.pieceId, p]));
@@ -362,7 +241,7 @@ au-delà de quelques dizaines d'écritures par seconde. À mesurer sur les 100 p
 }
 
 function expediteursFrequents(
-  decisions: readonly Decision[], parPiece: ReadonlyMap<number, PieceATrier>,
+  decisions: readonly Decision[], parPiece: ReadonlyMap<number, PieceAvecTaille>,
 ): { adresse: string; compte: number }[] {
   const m = new Map<string, number>();
   for (const d of decisions) {

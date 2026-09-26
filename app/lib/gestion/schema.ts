@@ -274,6 +274,21 @@ export function arbreDriveDisponible(): Promise<boolean> {
   return memoiser('table.gestion_drive_arbre', () => tableExiste('gestion_drive_arbre'));
 }
 
+/**
+ * LOT DRIVE-2 — la migration 255 est-elle appliquée ? Elle seule porte la VÉRIFICATION des copies (`verifie_le`) et
+ * le journal des passes, qui sert aussi de verrou.
+ *
+ * 🔴 SANS ELLE, LA COPIE DE MASSE NE DÉMARRE PAS, et c'est voulu : sans `verifie_le`, « copié » ne voudrait rien
+ * dire — on ne saurait pas distinguer une copie contrôlée d'un envoi accepté par Drive mais corrompu, ni quoi
+ * refaire au passage suivant. Le geste MANUEL du lot 5-PJ-B, lui, continue de fonctionner exactement comme avant :
+ * il n'écrit aucune des colonnes nouvelles.
+ *
+ * On sonde `verifie_le` : la migration ajoute les six colonnes dans UNE transaction, elles arrivent ensemble.
+ */
+export function copiePiecesDisponible(): Promise<boolean> {
+  return memoiser('piece_drive.verifie_le', () => colonneExiste('gestion_piece_drive', 'verifie_le'));
+}
+
 /** LOT 5e — la migration 241 (délai d'annulation réglable) est-elle appliquée ? Sinon le délai vaut son défaut. */
 export function delaiAnnulationDisponible(): Promise<boolean> {
   return memoiser('config.annulation_envoi_secondes', () => colonneExiste('gestion_config', 'annulation_envoi_secondes'));

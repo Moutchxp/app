@@ -245,18 +245,30 @@ export function verifierCreationRacine(
  */
 export const NOM_MAX = 120;
 
-export function nettoyerNom(brut: string): string {
+/**
+ * NETTOIE un nom SANS le borner : caractères de contrôle retirés, espaces multiples réduits.
+ *
+ * ⚠️ SÉPARÉE DE LA BORNE, et ce n'est pas un raffinement. `nomFichierDrive` (lot DRIVE-2) tronque lui-même, en
+ * GARDANT l'extension du fichier. Quand la borne vivait dans `nettoyerNom`, elle s'appliquait APRÈS cette
+ * troncature soignée et coupait l'extension — un fichier qui ne s'ouvre plus au double-clic. Défaut trouvé par
+ * `copiePieces.test.ts` ; la borne appartient donc à l'appelant, qui seul sait ce qu'il ne faut pas couper.
+ */
+export function nettoyerTexteNom(brut: string): string {
   const propre = (brut ?? '')
-    // Les caractères de contrôle : ils rendent un nom illisible et cassent les exports.
     // eslint-disable-next-line no-control-regex
     .replace(/[\u0000-\u001f\u007f]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-  if (propre === '') return 'sans nom';
+  return propre === '' ? 'sans nom' : propre;
+}
+
+export function nettoyerNom(brut: string): string {
+  const propre = nettoyerTexteNom(brut);
   if (propre.length <= NOM_MAX) return propre;
   // On coupe sur un espace quand c'est possible : un nom tronqué au milieu d'un mot se lit mal.
   const coupe = propre.slice(0, NOM_MAX - 1);
   const espace = coupe.lastIndexOf(' ');
   return `${(espace > NOM_MAX / 2 ? coupe.slice(0, espace) : coupe).trimEnd()}…`;
 }
+
 
