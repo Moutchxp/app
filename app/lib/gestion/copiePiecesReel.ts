@@ -73,6 +73,11 @@ export async function copierPiece(
   o: {
     parentDriveId: string; nom: string; description: string;
     typeMime: string | null; octets: Uint8Array; md5Attendu: string;
+    /**
+     * LOT DRIVE-2-bis — la trace portée par le fichier lui-même (`appProperties`). La base reste la source de
+     * vérité ; ceci en est une SAUVEGARDE, lisible même si la base disparaissait.
+     */
+    proprietes?: Record<string, string>;
   },
   index: IndexArbre,
   jeton: string,
@@ -86,7 +91,10 @@ export async function copierPiece(
 
   const type = (o.typeMime ?? '').trim() || 'application/octet-stream';
   const champs = 'id,name,webViewLink,md5Checksum,size';
-  const metadonnees = { name: nettoyerNom(o.nom), description: o.description, parents: [o.parentDriveId] };
+  const metadonnees: Record<string, unknown> = {
+    name: nettoyerNom(o.nom), description: o.description, parents: [o.parentDriveId],
+  };
+  if (o.proprietes !== undefined) metadonnees.appProperties = bornerProprietes(o.proprietes);
 
   // ── LE CHEMIN COURT : une seule requête, pour l'écrasante majorité des pièces. ──
   if (o.octets.byteLength <= SEUIL_MULTIPART_OCTETS) {
@@ -305,3 +313,147 @@ function tampon(vue: Uint8Array): ArrayBuffer {
 
 /** La pause entre deux copies, respectée par la boucle. */
 export const respirerCopie = (deps: DepsCopie, ms: number): Promise<void> => (deps.attendre ?? dormir)(ms);
+
+// ══ LOT DRIVE-2-bis ════════════════════════════════════════════════════════════════════════════════════════════
+
+/**
+ * 🔴 DRIVE BORNE LES `appProperties` : 124 octets par clé+valeur, 30 clés au plus. Dépasser fait échouer TOUT
+ * l'envoi — pas seulement la propriété fautive. On tronque donc PROPREMENT, en le disant par une ellipse, plutôt
+ * que de laisser Google refuser une pièce parce qu'un échange comptait trente destinataires.
+ *
+ * La liste complète des adresses reste EN BASE : ces propriétés sont une sauvegarde, pas la source de vérité.
+ */
+export const PROPRIETE_MAX_OCTETS = 124;
+export const PROPRIETES_MAX = 30;
+
+export function bornerProprietes(p: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [cle, valeurBrute] of Object.entries(p).slice(0, PROPRIETES_MAX)) {
+    const place = PROPRIETE_MAX_OCTETS - Buffer.byteLength(cle, 'utf8');
+    if (place <= 1) continue;   // une clé si longue qu'il ne reste pas de place : on l'omet plutôt que de mentir
+    let v = (valeurBrute ?? '').trim();
+    if (Buffer.byteLength(v, 'utf8') > place) {
+      // 🔴 L'ELLIPSE PÈSE TROIS OCTETS, pas un. N'en réserver qu'un faisait dépasser la borne de deux octets —
+      //   et Drive refuse alors TOUT l'envoi, pas seulement la propriété. Défaut trouvé par le test.
+      const ellipse = Buffer.byteLength('…', 'utf8');
+      // On coupe caractère par caractère : tronquer des OCTETS couperait un accent en deux.
+      let coupe = '';
+      for (const c of v) {
+        if (Buffer.byteLength(coupe + c, 'utf8') > place - ellipse) break;
+        coupe += c;
+      }
+      v = `${coupe}…`;
+    }
+    out[cle] = v;
+  }
+  return out;
+}
+
+/**
+ * DÉPLACE UN FICHIER d'un dossier à un autre DANS NOTRE ARBORESCENCE. Changement de parent, pas de recopie.
+ *
+ * 🔴 TROIS CONDITIONS, TOUTES VÉRIFIÉES PAR LE GARDE-FOU : le dossier de DÉPART est à nous, le dossier d'ARRIVÉE
+ * est à nous, et le fichier lui-même a été créé par ce programme (l'appelant relit sa ligne en base avant
+ * d'appeler). C'est ce qui rend ce geste acceptable : on ne déplace que ce qu'on a posé soi-même, à l'intérieur de
+ * ce qu'on a construit soi-même.
+ *
+ * ⚠️ `addParents` + `removeParents` DANS LA MÊME REQUÊTE : en deux temps, une coupure entre les deux laisserait le
+ * fichier dans les DEUX dossiers, ou dans aucun.
+ */
+export async function deplacerFichier(
+  o: { driveFileId: string; deDriveId: string; versDriveId: string; proprietes?: Record<string, string> },
+  index: IndexArbre,
+  jeton: string,
+  deps: DepsCopie,
+): Promise<{ ok: true; parents: string[] } | { ok: false; refuse: boolean; motif: string }> {
+  for (const [parent, quoi] of [[o.deDriveId, 'de départ'], [o.versDriveId, 'd’arrivée']] as const) {
+    const verdict = verifierEcriture({ operation: 'modifier', parentDriveId: parent, cibleDriveId: undefined }, index);
+    if (!verdict.ok) {
+      await journaliserRefus(
+        { operation: 'modifier', parentDriveId: parent, cibleDriveId: o.driveFileId }, verdict, 'déplacement');
+      return { ok: false, refuse: true, motif: `dossier ${quoi} refusé — ${verdict.motif}` };
+    }
+  }
+
+  const p = new URLSearchParams({
+    addParents: o.versDriveId, removeParents: o.deDriveId,
+    supportsAllDrives: 'true', fields: 'id,parents,md5Checksum,size,name',
+  });
+  const corps: Record<string, unknown> = {};
+  if (o.proprietes !== undefined) corps.appProperties = bornerProprietes(o.proprietes);
+
+  const res = await deps.fetch(`${API}/files/${o.driveFileId}?${p}`, {
+    method: 'PATCH',
+    headers: { Authorization: `Bearer ${jeton}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(corps),
+  });
+  if (!res.ok) return { ok: false, refuse: false, motif: await motif(res, 'le déplacement') };
+  const j = (await res.json()) as { parents?: string[] };
+  return { ok: true, parents: j.parents ?? [] };
+}
+
+/** Relit un fichier Drive : sert à VÉRIFIER un déplacement, et à rien d'autre. LECTURE SEULE. */
+export async function relireFichier(
+  driveFileId: string, jeton: string, deps: DepsCopie,
+): Promise<{ ok: true; parents: string[]; md5: string | null; taille: number | null; nom: string } | { ok: false; motif: string }> {
+  const res = await deps.fetch(
+    `${API}/files/${driveFileId}?supportsAllDrives=true&fields=id,name,parents,md5Checksum,size,trashed`,
+    { headers: { Authorization: `Bearer ${jeton}` } });
+  if (!res.ok) return { ok: false, motif: await motif(res, 'la relecture du fichier') };
+  const j = (await res.json()) as { parents?: string[]; md5Checksum?: string; size?: string; name?: string; trashed?: boolean };
+  if (j.trashed === true) return { ok: false, motif: 'ce fichier est à la corbeille' };
+  return {
+    ok: true, parents: j.parents ?? [], md5: j.md5Checksum ?? null,
+    taille: j.size === undefined ? null : Number(j.size), nom: j.name ?? '',
+  };
+}
+
+/**
+ * INVENTAIRE RÉCURSIF D'UN DOSSIER DE PRODUCTION — MÉTADONNÉES SEULEMENT.
+ *
+ * 🔒 « Documents clients scannés » est en production et INTOUCHABLE. On ne fait que des `files.list` : aucun
+ * contenu n'est téléchargé, aucune écriture n'est émise, et ce dossier n'entre JAMAIS dans la liste blanche —
+ * le garde-fou continuerait donc de refuser toute écriture s'il en venait une.
+ */
+export async function inventorierDossier(
+  o: { racineId: string; driveId: string },
+  jeton: string,
+  deps: DepsCopie,
+  surFichier: (f: { id: string; nom: string; md5: string | null; taille: number | null; chemin: string }) => Promise<void>,
+): Promise<{ ok: true; fichiers: number; dossiers: number } | { ok: false; motif: string }> {
+  const aVoir: { id: string; chemin: string }[] = [{ id: o.racineId, chemin: '' }];
+  let fichiers = 0;
+  let dossiers = 0;
+
+  while (aVoir.length > 0) {
+    const courant = aVoir.pop() as { id: string; chemin: string };
+    dossiers += 1;
+    let page: string | null = null;
+    do {
+      const p = new URLSearchParams({
+        q: `'${courant.id}' in parents and trashed = false`,
+        supportsAllDrives: 'true', includeItemsFromAllDrives: 'true',
+        corpora: 'drive', driveId: o.driveId, pageSize: '1000',
+        fields: 'nextPageToken, files(id,name,mimeType,md5Checksum,size)',
+      });
+      if (page !== null) p.set('pageToken', page);
+      const res = await deps.fetch(`${API}/files?${p}`, { headers: { Authorization: `Bearer ${jeton}` } });
+      if (!res.ok) return { ok: false, motif: await motif(res, 'l’inventaire de production') };
+      const j = (await res.json()) as {
+        nextPageToken?: string;
+        files?: { id: string; name: string; mimeType: string; md5Checksum?: string; size?: string }[];
+      };
+      for (const f of j.files ?? []) {
+        const chemin = `${courant.chemin}/${f.name}`;
+        if (f.mimeType === MIME_DOSSIER) { aVoir.push({ id: f.id, chemin }); continue; }
+        fichiers += 1;
+        await surFichier({
+          id: f.id, nom: f.name, md5: f.md5Checksum ?? null,
+          taille: f.size === undefined ? null : Number(f.size), chemin,
+        });
+      }
+      page = j.nextPageToken ?? null;
+    } while (page !== null);
+  }
+  return { ok: true, fichiers, dossiers };
+}

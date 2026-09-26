@@ -2,9 +2,16 @@
  * CLI `gestion:drive:copier-pieces` — MODULE « GESTION », LOT DRIVE-2.
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * CE QU'ELLE FAIT : copie les pièces jointes vers « Base de données locative », à la destination décidée par le
- * moteur de tri du lot DRIVE-1 — LE MÊME CODE que le rapport à blanc, recalculé au moment de la copie. Une seule
- * source de vérité : si le rapport dit « ce fichier ira là », c'est là qu'il ira.
+ * CE QU'ELLE FAIT : copie les pièces jointes dans UN dossier d'arrivée — « 00 Arrivée des mails / AAAA / MM »,
+ * d'après la date du mail — et MÉMORISE, pour chacune, une PROPOSITION de rangement.
+ *
+ * 🔴 DÉCISION D'ARNO DU 26/09 : LA COPIE NE RANGE PLUS. Les dossiers des biens et des propriétaires restent vides ;
+ * le classement sera un geste séparé, plus tard, après analyse. Trois raisons : éprouver le tri avant de s'y fier,
+ * préparer la déduplication avec « Documents clients scannés », et libérer au plus vite le stockage.
+ *
+ * 🔴 LA PROPOSITION S'APPUIE SUR LES ADRESSES DE TOUT L'ÉCHANGE (lot DRIVE-2-bis), pas seulement du mail qui porte
+ * la pièce : une quittance envoyée par un syndic dans un fil où le locataire a écrit trois fois se rattache au bien
+ * de ce locataire, alors que le mail du syndic, pris seul, ne dit rien.
  *
  * 🔴 COPIE SEULEMENT. Aucun effacement sur MinIO : `supprimer` n'est même pas importé. Le vidage est le lot DRIVE-3.
  *
@@ -38,15 +45,24 @@ import { jetonPourSubject } from '../lib/gestion/driveDelegue';
 import { copiePiecesDisponible } from '../lib/gestion/schema';
 import { indexer, type NoeudArbre } from '../lib/gestion/driveGardeFou';
 import { lireArbre } from '../lib/gestion/driveArbreRepo';
-import { cheminDestination, trierPieces, type Decision, type Destination } from '../lib/gestion/triPieces';
+import { trierPieces, type Decision } from '../lib/gestion/triPieces';
+import { adressesMessagesDisponibles } from '../lib/gestion/schema';
+import { adressesParFil } from '../lib/gestion/adressesRepo';
+import {
+  propositionCourte, proposerPourPiece, type Proposition,
+} from '../lib/gestion/propositionTri';
+import { ARRIVEE_NOM, CLE_ARRIVEE, dossierArrivee } from '../lib/gestion/arriveeDrive';
 import {
   attenteApresEchec, conduiteAtenir, descriptionFichierDrive, dureeFr, ECHECS_CONSECUTIFS_MAX, ligneAvancement,
   motifArret, nomFichierDrive, PAUSE_COPIE_MS, tailleFr,
 } from '../lib/gestion/copiePieces';
 import {
-  copierPiece, corbeillerFichier, depotsConnus, dossierPeriode, enregistrerCopie, octetsDeLaPiece, respirerCopie,
+  copierPiece, corbeillerFichier, depotsConnus, enregistrerCopie, octetsDeLaPiece, respirerCopie,
   type DepsCopie,
 } from '../lib/gestion/copiePiecesReel';
+import { creerDossier } from '../lib/gestion/driveEcriture';
+import { enregistrerNoeud } from '../lib/gestion/driveArbreRepo';
+import { dernieresPropositions, enregistrerProposition } from '../lib/gestion/propositionRepo';
 import { chargerContexteTri, type PieceAvecTaille } from '../lib/gestion/triPiecesRepo';
 
 const P = '[gestion:drive:copier-pieces]';
@@ -68,22 +84,6 @@ export function lireOptions(argv: readonly string[]): OptionsCopie {
     appliquer: argv.includes('--appliquer'),
     limite: Number.isInteger(n) && n > 0 ? n : null,
   };
-}
-
-/**
- * LE DOSSIER D'ARRIVÉE d'une décision, dans l'arborescence mémorisée.
- *
- * 🔴 UN BIEN OU UN PROPRIÉTAIRE MÈNE À SON « En attente », jamais au dossier lui-même : aucun tri automatique ne
- * va dans « Travaux », « Assurances » ou « Litige » — ces trois-là demandent de lire le document.
- *
- * Rend `null` quand le dossier n'est pas (encore) mémorisé : l'appelant le CRÉE pour les périodes, et signale
- * l'anomalie pour un bien ou un propriétaire — un dossier manquant veut dire que l'arborescence est incomplète,
- * ce qui se répare en relançant `gestion:drive:construire`, pas en déposant ailleurs.
- */
-export function cleDossier(d: Destination): { sorte: string; cle: string } | null {
-  if (d.sorte === 'bien') return { sorte: 'en_attente', cle: `bien|${d.cle}` };
-  if (d.sorte === 'proprietaire') return { sorte: 'en_attente', cle: `prop|${d.cle}` };
-  return null;   // « 00 Non rattachés » : ses sous-dossiers AAAA/MM se créent à la demande
 }
 
 async function principal(): Promise<void> {
@@ -114,14 +114,21 @@ async function principal(): Promise<void> {
     if (n !== undefined) parCle.set(`${c.sorte}|${c.cle}`, n);
   }
   const racine = noeuds.find((n) => n.sorte === 'racine');
-  const nonRattaches = parCle.get('non_rattaches|non_rattaches');
-  if (racine === undefined || nonRattaches === undefined) {
+  if (racine === undefined) {
     console.error(`\n${P} ❌ L’arborescence n’est pas construite. Lancez d’abord :`);
     console.error(`${P}    npm run gestion:drive:construire -- --appliquer\n`);
     process.exitCode = 1;
     return;
   }
   console.log(`${P} arborescence : ${noeuds.length} dossiers mémorisés`);
+
+  if (!(await adressesMessagesDisponibles())) {
+    console.error(`\n${P} ❌ La migration 256 n’est pas appliquée : la copie n’aurait nulle part où écrire la`);
+    console.error(`${P}    PROPOSITION de rangement, qui est tout le travail que ce lot lui demande.`);
+    console.error(`${P}    psql -v ON_ERROR_STOP=1 "$DATABASE_URL" -f db/migrations/256_gestion_arrivee_adresses.sql\n`);
+    process.exitCode = 1;
+    return;
+  }
 
   // ── LE TRI, PAR LE MÊME CODE QUE LE RAPPORT ─────────────────────────────────────────────────────────────────
   const ctx = await chargerContexteTri();
@@ -147,15 +154,19 @@ async function principal(): Promise<void> {
   console.log(`${P} ${decisions.length} pièces décidées · ${deja} déjà copiées et vérifiées · ${sansContenu} sans contenu stocké`);
   console.log(`${P} À COPIER : ${aFaire.length} pièces · ${tailleFr(octetsAFaire)}${aRefaire > 0 ? ` (dont ${aRefaire} copies douteuses à refaire)` : ''}`);
 
-  const parDest = new Map<string, { n: number; octets: number }>();
+  // 🔴 TOUTES vont dans « 00 Arrivée des mails / AAAA / MM » : la répartition n'est plus par dossier de bien,
+  //   mais par PÉRIODE. C'est la décision d'Arno : la copie dépose, elle ne range pas.
+  const parPeriode = new Map<string, { n: number; octets: number }>();
   for (const d of aFaire) {
-    const chemin = cheminDestination(d.destination, ctx.nomsBiens, ctx.nomsProprietaires);
-    const e = parDest.get(chemin) ?? { n: 0, octets: 0 };
-    parDest.set(chemin, { n: e.n + 1, octets: e.octets + (parPiece.get(d.pieceId)?.taille ?? 0) });
+    const p = parPiece.get(d.pieceId);
+    const per = (p?.date ?? '').slice(0, 7) || 'date inconnue';
+    const e = parPeriode.get(per) ?? { n: 0, octets: 0 };
+    parPeriode.set(per, { n: e.n + 1, octets: e.octets + (p?.taille ?? 0) });
   }
-  const top = [...parDest.entries()].sort((a, b) => b[1].n - a[1].n);
-  console.log(`${P} réparties sur ${parDest.size} dossiers ; les 10 plus chargés :`);
-  for (const [chemin, e] of top.slice(0, 10)) console.log(`${P}   ${String(e.n).padStart(5)} · ${tailleFr(e.octets).padStart(8)} · ${chemin}`);
+  console.log(`${P} destination : « ${ARRIVEE_NOM} / AAAA / MM » · ${parPeriode.size} périodes`);
+  for (const [per, e] of [...parPeriode.entries()].sort((a, b) => b[1].n - a[1].n).slice(0, 8)) {
+    console.log(`${P}   ${String(e.n).padStart(5)} · ${tailleFr(e.octets).padStart(8)} · ${per}`);
+  }
 
   if (!o.appliquer) {
     console.log('');
@@ -192,7 +203,23 @@ async function principal(): Promise<void> {
     return;
   }
 
+  // ── LE DOSSIER D'ARRIVÉE, et les adresses de TOUS les échanges concernés ────────────────────────────────────
   const deps: DepsCopie = { fetch };
+  const racineArrivee = await assurerArrivee(racine, noeuds, parCle, jeton.jeton, deps);
+  if (racineArrivee === null) {
+    await clore(passeId, 'echec', `« ${ARRIVEE_NOM} » n’a pas pu être créé`, compteurs);
+    process.exitCode = 1;
+    return;
+  }
+
+  const filsConcernes = [...new Set(aFaire
+    .map((d) => parPiece.get(d.pieceId)?.filId)
+    .filter((x): x is number => typeof x === 'number'))];
+  const adressesDesFils = await adressesParFil(filsConcernes);
+  const precedentes = await dernieresPropositions(aFaire.map((d) => d.pieceId));
+  console.log(`${P} adresses relevées pour ${adressesDesFils.size} échanges · `
+    + `${precedentes.size} proposition(s) déjà connue(s)`);
+
   const debut = Date.now();
   let echecsConsecutifs = 0;
   let octetsRestants = octetsAFaire;
@@ -215,9 +242,12 @@ async function principal(): Promise<void> {
     const p = parPiece.get(d.pieceId);
     if (p === undefined || p.cleStockage === null) { compteurs.sansContenu += 1; continue; }
 
-    // ── Le dossier d'arrivée ──
-    const dossier = await resoudreDossier(d.destination, parCle, nonRattaches, noeuds, jeton.jeton, deps, compteurs);
+    // ── Le dossier d'arrivée de CETTE période ──
+    const arrivee = await dossierArrivee(
+      p.date, racineArrivee, noeuds, parCle, jeton.jeton, deps, () => { compteurs.dossiers += 1; });
+    const dossier = arrivee.ok ? arrivee.dossier : null;
     if (dossier === null) {
+      if (!arrivee.ok) console.error(`${P}   ❌ ${arrivee.motif}`);
       compteurs.echecs += 1;
       echecsConsecutifs += 1;
       console.error(`${P}   ❌ pièce ${d.pieceId} : dossier d’arrivée introuvable (arborescence incomplète ?)`);
@@ -251,14 +281,27 @@ async function principal(): Promise<void> {
       continue;
     }
 
+    // ── LA PROPOSITION, fondée sur les adresses de TOUT l'échange ──
+    const proposition = proposerPourPiece({
+      messageId: d.messageId,
+      adressesEchange: p.filId === null ? [] : adressesDesFils.get(p.filId) ?? [],
+      // Les RENFORTS (carte d'événement, adresse citée, nom dans l'objet) restent au moteur du lot DRIVE-1 ;
+      // ils seront rebranchés au lot RATTACHEMENT-1, quand le classement deviendra un geste. Ici, la proposition
+      // se fonde sur les ADRESSES, qui sont la clé la plus sûre — et la seule que ce lot ait outillée.
+      renforts: null,
+    });
+
     const nom = nomFichierDrive({ date: p.date, expediteur: p.expediteur, nomOrigine: p.nomFichier });
     const description = descriptionFichierDrive({
       pieceId: d.pieceId, messageId: d.messageId, objet: p.objet, date: p.date, expediteur: p.expediteur,
-      regle: d.regle, confiance: d.confiance, motif: d.motif,
+      regle: proposition.regle, confiance: proposition.confiance, motif: proposition.motif,
     });
 
     const r = await copierPiece(
-      { parentDriveId: dossier.driveId, nom, description, typeMime: p.typeMime, octets, md5Attendu: md5 },
+      {
+        parentDriveId: dossier.driveId, nom, description, typeMime: p.typeMime, octets, md5Attendu: md5,
+        proprietes: proprietesPiece(d.pieceId, d.messageId, p, proposition),
+      },
       indexer(noeuds), jeton.jeton, deps);
 
     if (!r.ok) {
@@ -272,10 +315,13 @@ async function principal(): Promise<void> {
     }
 
     echecsConsecutifs = 0;
+    if (await enregistrerProposition(d.pieceId, proposition, precedentes.get(d.pieceId))) {
+      compteurs.propositions += 1;
+    }
     await enregistrerCopie({
       pieceId: d.pieceId, driveFileId: r.driveFileId, driveDossierId: dossier.driveId, dossierNom: dossier.nom,
       lien: r.lien, md5: r.md5, taille: r.taille, verifie: r.verification.ok,
-      regle: d.regle, confiance: d.confiance, compte: o.compte,
+      regle: proposition.regle, confiance: proposition.confiance, compte: o.compte,
     });
     if (r.verification.ok) {
       compteurs.copiees += 1;
@@ -310,37 +356,59 @@ async function principal(): Promise<void> {
 }
 
 /** Les compteurs de la passe, partagés par la boucle et la clôture. */
-const compteurs = { copiees: 0, octets: 0, echecs: 0, refaites: 0, dossiers: 0, sansContenu: 0, vues: 0 };
+const compteurs = {
+  copiees: 0, octets: 0, echecs: 0, refaites: 0, dossiers: 0, sansContenu: 0, vues: 0, propositions: 0,
+};
 
 /**
- * LE DOSSIER D'ARRIVÉE, en créant « AAAA » puis « MM » sous « 00 Non rattachés » quand il le faut.
+ * LES `appProperties` DU FICHIER DRIVE — une sauvegarde de ce que la base sait, portée par le fichier lui-même.
  *
- * ⚠️ CES DOSSIERS PASSENT PAR LE MÊME CHEMIN QUE TOUS LES AUTRES : garde-fou, création, enregistrement dans la
- * liste blanche. Sans l'enregistrement, le mois suivant ne pourrait rien y déposer.
+ * 🔴 LA BASE RESTE LA SOURCE DE VÉRITÉ. Ces propriétés servent le jour où l'on regarde un fichier dans Drive sans
+ * avoir l'outil sous la main — ou, au pire, si la base disparaissait. Elles sont bornées par Drive (124 octets par
+ * couple clé/valeur) : la liste complète des adresses reste en base, ici elle est tronquée proprement. PUR.
  */
-async function resoudreDossier(
-  d: Destination, parCle: Map<string, NoeudArbre>, nonRattaches: NoeudArbre,
-  noeuds: NoeudArbre[], jeton: string, deps: DepsCopie, c: typeof compteurs,
-): Promise<NoeudArbre | null> {
-  if (d.sorte !== 'non_rattache') {
-    const cle = cleDossier(d);
-    return cle === null ? null : parCle.get(`${cle.sorte}|${cle.cle}`) ?? null;
-  }
-
-  const creer = async (parent: NoeudArbre, nom: string, cle: string, chemin: string): Promise<NoeudArbre | null> => {
-    const deja = parCle.get(`periode|${cle}`);
-    if (deja !== undefined) return deja;
-    const r = await dossierPeriode({ parentDriveId: parent.driveId, nom, cle, chemin }, noeuds, jeton, deps);
-    if (!r.ok) { console.error(`${P}   ❌ dossier « ${nom} » non créé — ${r.motif}`); return null; }
-    const n: NoeudArbre = { driveId: r.driveId, parentDriveId: parent.driveId, sorte: 'periode', nom, chemin };
-    parCle.set(`periode|${cle}`, n);
-    c.dossiers += 1;
-    return n;
+export function proprietesPiece(
+  pieceId: number, messageId: number,
+  p: { expediteur: string; destinataires: readonly string[] },
+  proposition: Proposition,
+): Record<string, string> {
+  return {
+    piece_id: String(pieceId),
+    message_id: String(messageId),
+    expediteur: p.expediteur,
+    destinataires: p.destinataires.join(' '),
+    adresses_echange: proposition.adressesFondatrices.join(' '),
+    proposition: propositionCourte(proposition),
   };
+}
 
-  const annee = await creer(nonRattaches, d.annee, d.annee, `/00 Non rattachés/${d.annee}`);
-  if (annee === null) return null;
-  return creer(annee, d.mois, `${d.annee}|${d.mois}`, `/00 Non rattachés/${d.annee}/${d.mois}`);
+/**
+ * S'ASSURE QUE « 00 Arrivée des mails » EXISTE, et le crée sinon — par le chemin gardé, comme tout le reste.
+ *
+ * ⚠️ IL NAÎT SOUS LA RACINE, à côté de « 00 Non rattachés » (qu'on laisse tel quel : il porte déjà les 16 pièces
+ * de l'essai précédent, et on ne défait pas ce qu'on n'a pas demandé de défaire).
+ */
+async function assurerArrivee(
+  racine: NoeudArbre, noeuds: NoeudArbre[], parCle: Map<string, NoeudArbre>,
+  jeton: string, deps: DepsCopie,
+): Promise<NoeudArbre | null> {
+  const deja = parCle.get(`arrivee|${CLE_ARRIVEE}`);
+  if (deja !== undefined) return deja;
+
+  const r = await creerDossier({ parentDriveId: racine.driveId, nom: ARRIVEE_NOM }, indexer(noeuds), jeton, deps);
+  if (!r.ok) {
+    console.error(`${P} ${r.refuse ? '🔴 REFUSÉ' : '❌'} création de « ${ARRIVEE_NOM} » — ${r.motif}`);
+    return null;
+  }
+  const chemin = `/${ARRIVEE_NOM}`;
+  await enregistrerNoeud({
+    driveId: r.id, parentDriveId: racine.driveId, sorte: 'arrivee', cle: CLE_ARRIVEE, nom: r.nom, chemin,
+  });
+  const n: NoeudArbre = { driveId: r.id, parentDriveId: racine.driveId, sorte: 'arrivee', nom: r.nom, chemin };
+  noeuds.push(n);
+  parCle.set(`arrivee|${CLE_ARRIVEE}`, n);
+  console.log(`${P}   ✅ dossier d’arrivée créé : ${r.nom} [${r.id}]`);
+  return n;
 }
 
 /** Clôt la passe : compteurs, résultat, motif. Libère le verrou. */

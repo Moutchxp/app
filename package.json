@@ -91,7 +91,10 @@
     "gestion:drive:empreinte": "tsx app/scripts/empreinte-drive.ts",
     "gestion:tri:rapport": "tsx app/scripts/rapport-tri-pieces.ts",
     "gestion:drive:copier-pieces": "tsx app/scripts/copier-pieces-drive.ts",
-    "gestion:drive:copie-etat": "tsx app/scripts/etat-copie-drive.ts"
+    "gestion:drive:copie-etat": "tsx app/scripts/etat-copie-drive.ts",
+    "gestion:adresses:relever": "tsx app/scripts/relever-adresses.ts",
+    "gestion:drive:deplacer-vers-arrivee": "tsx app/scripts/deplacer-vers-arrivee.ts",
+    "gestion:drive:empreintes-production": "tsx app/scripts/empreintes-production-drive.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",

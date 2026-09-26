@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
-import { cleDossier, COMPTE_DEFAUT, lireOptions } from './copier-pieces-drive';
+import { COMPTE_DEFAUT, lireOptions, proprietesPiece } from './copier-pieces-drive';
 import { processusVivant } from './etat-copie-drive';
 
 /**
@@ -33,25 +33,37 @@ describe('la ligne de commande', () => {
   });
 });
 
-describe('🔴 le dossier d’arrivée d’une décision', () => {
-  it('un BIEN mène à SON « En attente », jamais au dossier du bien lui-même', () => {
-    expect(cleDossier({ sorte: 'bien', cle: '315' })).toEqual({ sorte: 'en_attente', cle: 'bien|315' });
+/**
+ * 🔴 DÉCISION D'ARNO DU 26/09 : la copie ne range plus. Toutes les pièces vont dans « 00 Arrivée des mails »,
+ * et la destination proposée n'est plus qu'une TRACE. Ce qui suit vérifie que le fichier porte bien cette trace.
+ */
+describe('🔴 les appProperties : une sauvegarde de ce que la base sait', () => {
+  const p = proprietesPiece(4242, 77,
+    { expediteur: 'jean@fictif.fr', destinataires: ['gestion@criterimmo.fr', 'claire@fictif.fr'] },
+    {
+      destination: { sorte: 'bien', cle: '315' }, regle: 'a', confiance: 'haute', motif: 'x',
+      adressesFondatrices: ['alice@fictif.fr', 'bob@fictif.fr'],
+    });
+
+  it('elles portent de quoi retrouver le mail : piece_id et message_id', () => {
+    expect(p.piece_id).toBe('4242');
+    expect(p.message_id).toBe('77');
   });
 
-  it('un PROPRIÉTAIRE mène au sien', () => {
-    expect(cleDossier({ sorte: 'proprietaire', cle: '223' })).toEqual({ sorte: 'en_attente', cle: 'prop|223' });
+  it('elles portent l’expéditeur, les destinataires et les adresses de l’échange', () => {
+    expect(p.expediteur).toBe('jean@fictif.fr');
+    expect(p.destinataires).toContain('claire@fictif.fr');
+    expect(p.adresses_echange).toBe('alice@fictif.fr bob@fictif.fr');
   });
 
-  it('🔴 aucune décision ne mène à « Travaux », « Assurances » ni « Litige »', () => {
-    for (const d of [{ sorte: 'bien' as const, cle: '1' }, { sorte: 'proprietaire' as const, cle: '2' }]) {
-      const c = cleDossier(d);
-      expect(JSON.stringify(c)).not.toMatch(/Travaux|Assurances|Litige|Locataires/);
-      expect(c?.sorte).toBe('en_attente');
-    }
+  it('la proposition s’écrit en une forme courte et lisible', () => {
+    expect(p.proposition).toBe('bien:315');
   });
 
-  it('« 00 Non rattachés » n’a pas de clé fixe : ses dossiers AAAA/MM se créent à la demande', () => {
-    expect(cleDossier({ sorte: 'non_rattache', annee: '2024', mois: '06' })).toBeNull();
+  it('les six clés attendues, et pas davantage — Drive en borne le nombre', () => {
+    expect(Object.keys(p).sort()).toEqual([
+      'adresses_echange', 'destinataires', 'expediteur', 'message_id', 'piece_id', 'proposition',
+    ]);
   });
 });
 

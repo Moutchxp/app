@@ -289,6 +289,20 @@ export function copiePiecesDisponible(): Promise<boolean> {
   return memoiser('piece_drive.verifie_le', () => colonneExiste('gestion_piece_drive', 'verifie_le'));
 }
 
+/**
+ * LOT DRIVE-2-bis — la migration 256 est-elle appliquée ? Elle porte la TRACE MAIL EXHAUSTIVE, les propositions de
+ * tri et l'inventaire de production.
+ *
+ * 🔴 SANS ELLE, LA COPIE NE DÉMARRE PAS — non par prudence excessive, mais parce que la décision d'Arno du 26/09
+ * est que la copie DÉPOSE dans un dossier d'arrivée en mémorisant une PROPOSITION. Sans table où l'écrire, la
+ * copie perdrait le seul travail que ce lot lui demande de faire, et il faudrait tout recommencer.
+ *
+ * On sonde la table des adresses : la migration crée les trois tables dans UNE transaction, elles arrivent ensemble.
+ */
+export function adressesMessagesDisponibles(): Promise<boolean> {
+  return memoiser('table.gestion_message_adresse', () => tableExiste('gestion_message_adresse'));
+}
+
 /** LOT 5e — la migration 241 (délai d'annulation réglable) est-elle appliquée ? Sinon le délai vaut son défaut. */
 export function delaiAnnulationDisponible(): Promise<boolean> {
   return memoiser('config.annulation_envoi_secondes', () => colonneExiste('gestion_config', 'annulation_envoi_secondes'));
