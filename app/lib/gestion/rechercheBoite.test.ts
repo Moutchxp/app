@@ -11,7 +11,12 @@ import { readFileSync } from 'node:fs';
 
 const queryMock = vi.fn();
 vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
-vi.mock('./schema', () => ({ rechercheTexteDisponible: async () => pleinTexte }));
+// LOT ENVOI-DIAG — `nonRemiseDisponible: false` : la recherche demande les avis de non-remise de ses résultats, et
+//   migration absente elle n'émet aucune requête. Les assertions portent donc sur le SQL d'avant ce lot.
+vi.mock('./schema', () => ({
+  rechercheTexteDisponible: async () => pleinTexte,
+  nonRemiseDisponible: async () => false,
+}));
 
 let pleinTexte = true;
 

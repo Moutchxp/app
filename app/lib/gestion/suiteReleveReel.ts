@@ -83,17 +83,44 @@ export async function enchainerApresReleve(journal?: (ligne: string) => void): P
   const c: ComptesSuite = { ...COMPTES_SUITE_VIDES };
 
   try {
+    /**
+     * ── ⓪ LES AVIS DE NON-REMISE ──────────────────────────────────────────────────────────────────────────────
+     * 🔴 AVANT TOUS LES RETOURS ANTICIPÉS, ET CE N'EST PAS UN DÉTAIL D'ORDRE. Une passe qui ne rapporte rien de
+     * nouveau à rattacher sort plus bas par `ignore` — or c'est exactement le cas où un avis de non-remise arrive :
+     * le mail est parti il y a dix minutes, aucun message neuf n'est là, et le serveur d'en face vient de le
+     * refuser. Ranger ce pas après les retours l'aurait rendu muet précisément quand il sert.
+     *
+     * ⚠️ IL NE PEUT PAS FAIRE ÉCHOUER LE RESTE : sans la migration 261, `lireAvisEnAttente` rend ses comptes à zéro
+     * sans émettre une seule requête.
+     */
+    const { lireAvisEnAttente } = await import('./nonRemiseRepo');
+    const avis = await lireAvisEnAttente();
+    c.avisLus = avis.inscrits;
+    c.avisRattaches = avis.rattaches;
+    if (avis.inscrits > 0) {
+      journal?.(`suite : ${avis.inscrits} avis de non-remise lu(s), ${avis.rattaches} rattaché(s)`
+        + `${avis.orphelins > 0 ? `, ${avis.orphelins} sans message connu` : ''}`);
+    }
+
+    /**
+     * ⚠️ « A-T-ON FAIT QUELQUE CHOSE ? » TIENT COMPTE DES AVIS. Les deux sorties ci-dessous rendaient `ignore` —
+     * « rien à faire, et ce n'est pas une erreur ». Depuis ce lot, une passe peut n'avoir rien à rattacher ET avoir
+     * lu un avis de non-remise : la classer `ignore` mettrait « rien de nouveau » dans le journal de la passe alors
+     * qu'un mail vient d'être refusé. On rend alors `ok`, et le détail dit ce qui a été lu.
+     */
+    const issueSansRattachement = (detail: string): IssueSuite => ({
+      resultat: c.avisLus > 0 ? 'ok' : 'ignore',
+      ms: Date.now() - debut,
+      comptes: c,
+      detail: c.avisLus > 0 ? resumeSuite(c) : detail,
+    });
+
     if (!(await adressesMessagesDisponibles())) {
-      return {
-        resultat: 'ignore', ms: Date.now() - debut, comptes: c,
-        detail: 'migration 256 non appliquée : aucune trace d’adresses à tenir à jour',
-      };
+      return issueSansRattachement('migration 256 non appliquée : aucune trace d’adresses à tenir à jour');
     }
 
     const aFaire = await messagesSansAdresses();
-    if (aFaire.messages.length === 0) {
-      return { resultat: 'ignore', ms: Date.now() - debut, comptes: c, detail: 'rien de nouveau à rattacher' };
-    }
+    if (aFaire.messages.length === 0) return issueSansRattachement('rien de nouveau à rattacher');
 
     // ── ① LES ADRESSES DES MESSAGES NOUVEAUX ────────────────────────────────────────────────────────────────────
     const annuaire = await chargerAnnuaireAdresses();

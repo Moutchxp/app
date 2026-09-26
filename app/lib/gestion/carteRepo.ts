@@ -18,6 +18,9 @@ import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 //   milieu d'une fonction (lot 5b) : deux façons d'importer le même module, donc deux endroits à tenir. Le garde
 //   d'imports de ce fichier a attrapé le doublon dès qu'un second besoin de sonde est apparu (lot DRIVE-3).
 import { copiePiecesDisponible, destinatairesSeparesDisponibles, vidageDisponible } from './schema';
+// LOT ENVOI-DIAG — lecture seule elle aussi (SELECT sur `gestion_non_remise`). Elle rejoint la liste blanche du
+//   garde d'imports de ce fichier pour la même raison que `./schema` : elle ne manipule aucun octet de pièce jointe.
+import { nonRemisesDesMessages, type MentionNonRemise } from './nonRemiseRepo';
 
 export interface FilDeCarte {
   filId: number;
@@ -83,6 +86,16 @@ export interface MessageDeFil {
   horsFile: boolean;
   /** Le motif de la règle, en clair. `null` quand le message n'est pas écarté. */
   motifHorsFile: string | null;
+  /**
+   * LOT ENVOI-DIAG — CE MESSAGE N'EST PAS ARRIVÉ, et le serveur d'en face l'a dit.
+   *
+   * 🔴 VIDE DANS LE CAS ORDINAIRE, et c'est la seule chose qui compte : un mail dont personne ne se plaint est
+   * arrivé. Non vide, il porte une phrase par avis reçu — un mail à cinq destinataires dont deux échouent en rend
+   * deux, et il faut les deux : n'en montrer qu'un cacherait qu'une seule des cinq personnes n'a pas reçu.
+   *
+   * ⚠️ TOUJOURS `[]` SANS LA MIGRATION 261 : le fil s'affiche exactement comme avant.
+   */
+  nonRemises: MentionNonRemise[];
   /** Destinataires en À, quand ils sont CONNUS (migration 235). `null` = jamais analysés (message capturé avant). */
   destA: AdresseAffichee[] | null;
   /** Destinataires en copie, même convention. */
@@ -235,6 +248,9 @@ async function lireMailsDeplaces(
   if (rows.length === 0) return [];
 
   const pieces = await lirePiecesDesMessages(rows.map((r) => r.message_id));
+  // LOT ENVOI-DIAG — un mail déplacé vers une carte garde son avis de non-remise : déplacer un mail ne le fait pas
+  //   arriver. L'oublier ici ferait du déplacement un moyen involontaire de faire disparaître l'alerte.
+  const avisPartis = await nonRemisesDesMessages(rows.map((r) => r.message_id));
   return rows.map((r) => ({
     filId: r.fil_id,
     objetDuFil: r.objet_du_fil,
@@ -254,6 +270,7 @@ async function lireMailsDeplaces(
       pieces: pieces.get(r.message_id) ?? [],
       horsFile: false, // la requête ci-dessus les exclut déjà (`m.exclu_le IS NULL`)
       motifHorsFile: null,
+      nonRemises: avisPartis.get(r.message_id) ?? [],
       destA: null,
       destCc: null,
       destinatairesFondus: null,
@@ -396,6 +413,14 @@ export async function lireMessagesDuFil(
     parMessage.set(p.message_id, liste);
   }
 
+  /**
+   * LOT ENVOI-DIAG — LES AVIS DE NON-REMISE DU FIL, en une requête pour tous les messages.
+   *
+   * ⚠️ UN SEUL ALLER-RETOUR, pas un par message : un fil de cent messages ne doit pas coûter cent requêtes pour
+   * découvrir que rien n'a été refusé — ce qui est le cas général.
+   */
+  const avisParMessage = await nonRemisesDesMessages(rows.map((m) => m.message_id));
+
   const messages: MessageDeFil[] = rows.map((m) => ({
     messageId: m.message_id,
     messageIdRfc: m.message_id_rfc,
@@ -410,6 +435,7 @@ export async function lireMessagesDuFil(
     pieces: parMessage.get(m.message_id) ?? [],
     horsFile: m.hors_file === true,
     motifHorsFile: m.motif_hors_file,
+    nonRemises: avisParMessage.get(m.message_id) ?? [],
     // `null` (jamais analysé) et `[]` (analysé, personne) ne se confondent pas — c'est tout l'objet de la migration 235.
     destA: adressesDe(m.dest_a),
     destCc: adressesDe(m.dest_cc),

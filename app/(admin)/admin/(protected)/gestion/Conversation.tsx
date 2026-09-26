@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { EnTeteFil, MailParti, MessageDeFil, PieceDeMessage } from '../../../../lib/gestion/carteRepo';
 import {
-  etatCorps, lignesDestinataires, mentionHorsFile, messagesDeplies, MENTION_HTML_SEUL,
+  etatCorps, lignesDestinataires, mentionHorsFile, mentionNonRemise, messagesDeplies, MENTION_HTML_SEUL,
 } from '../../../../lib/gestion/conversation';
 import { dateHeureComplete, dateHeureCourte, formaterTaille, libelleSens, LIBELLE_CLASSER } from '../../../../lib/gestion/ecran';
 import {
@@ -703,13 +703,26 @@ export function MessageConversation({
   const [actions, setActions] = useState(false);
   const propositions = statut ? actionsDuStatut(statut) : { declencheur: null, actions: [] };
   const hors = mentionHorsFile(message);
+  // LOT ENVOI-DIAG — ce message n'est pas arrivé. Rien de plus important à dire sur un message, donc rien au-dessus.
+  const echec = mentionNonRemise(message);
   const qui = message.deNom?.trim() || message.de;
   const etat = etatCorps(message, corpsCharge);
   const lisible = etat.v === 'texte' ? corpsLisible(etat.texte) : null;
   const { vraies, signatures } = trierPieces(message.pieces);
 
   return (
-    <li className={`cnv-msg${message.horsFile ? ' cnv-msg--hors' : ''}`}>
+    <li className={`cnv-msg${message.horsFile ? ' cnv-msg--hors' : ''}${echec?.definitif ? ' cnv-msg--echoue' : ''}`}>
+      {/* ══ LOT ENVOI-DIAG — CE MESSAGE N'EST PAS ARRIVÉ ══════════════════════════════════════════════════════════
+          🔴 AU-DESSUS DE TOUT LE RESTE, EN MOTS, ET HORS DU BOUTON. Au-dessus parce que c'est l'information qui
+          change la suite (il faut réécrire, ou appeler) ; en mots parce qu'une couleur seule ne se lit ni en niveaux
+          de gris ni pour un daltonien ; hors du bouton parce que la ligne repliée EST un bouton, et qu'un bouton
+          dans un bouton est invalide et injouable au clavier — la même raison que pour le cartouche de statut.
+          `role="status"` : un lecteur d'écran l'annonce sans qu'on lui vole le focus. */}
+      {echec && (
+        <p className={`cnv-nonremise${echec.definitif ? ' cnv-nonremise--definitif' : ''}`} role="status">
+          {echec.definitif ? '⚠ ' : ''}{echec.texte}
+        </p>
+      )}
       {/* LE MENU DU MAIL — effacé au repos (décision d'Arno : pas de boutons partout), mais toujours atteignable, y
           compris message REPLIÉ. Il est le VOISIN de la ligne, pas son enfant : la ligne EST un bouton, et un bouton
           dans un bouton est invalide et injouable au clavier. C'est la même solution que pour `BlocRepliable`. */}
@@ -954,6 +967,16 @@ a.cnv-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-off
 .cnv-qui{font-weight:700;font-size:.95rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .cnv-quand{font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}
 .cnv-hors{font-size:.75rem;font-weight:700;color:var(--color-svv-muted)}
+/* ══ LOT ENVOI-DIAG — « CE MESSAGE N'EST PAS ARRIVÉ » ════════════════════════════════════════════════════════════
+   Un bandeau, au-dessus du message, avec un filet à gauche : la même grammaire visuelle que les alertes du module.
+   🔴 LA COULEUR N'EST QU'UN RENFORT — la phrase dit tout, et reste lisible en niveaux de gris comme pour un
+   daltonien. Un échec DÉFINITIF est en gras et sur fond teinté ; un RETARD reste discret, parce que le message peut
+   encore arriver et qu'affoler pour rien pousse à réécrire deux fois au même locataire. */
+.cnv-nonremise{margin:0 0 .4rem;padding:.35rem .5rem;font-size:.8rem;line-height:1.35;
+  border-left:3px solid var(--color-svv-muted);color:var(--color-svv-muted);background:transparent}
+.cnv-nonremise--definitif{font-weight:700;color:var(--color-svv-red);border-left-color:var(--color-svv-red);
+  background:color-mix(in srgb, var(--color-svv-red) 7%, transparent)}
+.cnv-msg--echoue{background:color-mix(in srgb, var(--color-svv-red) 3%, transparent)}
 .cnv-extrait{font-size:.85rem;color:var(--color-svv-muted);overflow-wrap:anywhere;
   display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
 .cnv-detail{flex-basis:100%;padding:0 4px 12px;min-width:0}

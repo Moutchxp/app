@@ -335,6 +335,17 @@ export function vidageDisponible(): Promise<boolean> {
 }
 
 /**
+ * LOT ENVOI-DIAG — la migration 261 est-elle appliquée ? Elle porte les AVIS DE NON-REMISE lus et rattachés.
+ *
+ * 🔴 TANT QU'ELLE MANQUE, LE COMPORTEMENT D'AVANT EST EXACTEMENT CONSERVÉ : aucune mention « non distribué »
+ * n'apparaît, aucune requête ne nomme la table, et la relève ne tente aucune lecture d'avis. Les avis restent ce
+ * qu'ils étaient — des messages ordinaires dans la boîte, visibles comme tels.
+ */
+export function nonRemiseDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_non_remise', () => tableExiste('gestion_non_remise'));
+}
+
+/**
  * LOT COPIE-SURV — la migration 259 est-elle appliquée ? Elle porte les MOTIFS d'échec de la copie, un par ligne.
  *
  * 🔴 ELLE NE CONDITIONNE RIEN, ET C'EST ESSENTIEL. Une passe de copie tourne peut-être en ce moment, avec le code

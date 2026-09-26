@@ -17,6 +17,8 @@ const msg = (o: Partial<MessageDeFil> = {}): MessageDeFil => ({
   recuLe: '2026-09-20T08:00:00Z', objet: 'Chauffage', corps: null, extrait: null,
   automatique: false, pieces: [],
   horsFile: false, motifHorsFile: null,
+  // LOT ENVOI-DIAG — vide par défaut : un message dont personne ne s'est plaint est arrivé.
+  nonRemises: [],
   destA: null, destCc: null, destinatairesFondus: null, htmlSeul: false,
   ...o,
 });

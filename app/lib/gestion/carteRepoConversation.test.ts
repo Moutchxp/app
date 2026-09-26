@@ -13,6 +13,10 @@ vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }))
 vi.mock('./schema', () => ({
   deplacementsDeMailsDisponibles: async () => false,
   destinatairesSeparesDisponibles: async () => avecDest,
+  // LOT ENVOI-DIAG — la conversation demande désormais les avis de non-remise de ses messages. Ici la migration 261
+  //   est déclarée ABSENTE : `nonRemisesDesMessages` rend une carte vide sans émettre une seule requête, et les
+  //   assertions de ce fichier portent donc exactement sur le SQL d'avant ce lot.
+  nonRemiseDisponible: async () => false,
 }));
 
 let avecDest = true;

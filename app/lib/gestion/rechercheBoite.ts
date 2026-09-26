@@ -18,6 +18,7 @@
 import { query } from '../db/client';
 import type { CurseurBoite, LigneBoite, PageBoite } from './boiteRepo';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
+import { nonRemisesDesFils } from './nonRemiseRepo';
 import { decouperTermes, normaliser, normSql, type CritereRecherche } from './rechercheTermes';
 
 /**
@@ -185,6 +186,10 @@ export async function chercherDansLeCourrier(
   const gardees = aSuite ? rows.slice(0, aLire - 1) : rows;
   const dernier = gardees[gardees.length - 1];
 
+  // LOT ENVOI-DIAG — un envoi refusé se voit AUSSI dans un résultat de recherche. Le signaler dans la liste et pas
+  //   ici aurait fait d'une recherche le seul endroit où un mail non distribué a l'air normal.
+  const avis = await nonRemisesDesFils(gardees.map((r) => Number(r.fil_id)));
+
   return {
     lignes: gardees.map((r) => ({
       // ⚠️ `pg` rend les `bigint` en CHAÎNE : sans conversion, les clés React et les comparaisons mentiraient.
@@ -203,6 +208,7 @@ export async function chercherDansLeCourrier(
       aPiece: r.a_piece === true,
       reference: r.reference,
       sansSuite: r.sans_suite === true,
+      nonRemise: avis.get(Number(r.fil_id)) ?? null,
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
     total: null, // compter TOUS les résultats coûterait le prix de la recherche une seconde fois, pour un chiffre

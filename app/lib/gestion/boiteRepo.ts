@@ -30,6 +30,7 @@
 import { query } from '../db/client';
 import { autoImposeParEtiquette, type Etiquette } from './ecranUrl';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
+import { nonRemisesDesFils, type MentionNonRemise } from './nonRemiseRepo';
 import { corbeilleDisponible } from './schema';
 
 /** Combien d'échanges par page. Assez pour remplir un écran de téléphone sans faire attendre. */
@@ -69,6 +70,14 @@ export interface LigneBoite {
   reference: string | null;
   /** L'échange a-t-il été classé sans suite ? L'écran le DIT : la boîte montre tout, elle n'efface rien. */
   sansSuite: boolean;
+  /**
+   * LOT ENVOI-DIAG — un message de cet échange n'est pas arrivé, et le serveur d'en face l'a dit.
+   *
+   * 🔴 C'EST LA SEULE CHOSE QU'ON NE PEUT PAS APPRENDRE EN OUVRANT L'ÉCHANGE PLUS TARD : un envoi refusé se voit sur
+   * la LIGNE, sans quoi il faut ouvrir les 6 580 échanges d'Envoyés pour espérer tomber dessus. `null` = rien à
+   * signaler, ce qui est le cas général — et le cas où la migration 261 n'est pas appliquée.
+   */
+  nonRemise: MentionNonRemise | null;
 }
 
 export interface PageBoite {
@@ -94,6 +103,37 @@ const SQL_INTERLOCUTEUR = `
      ORDER BY r.recu_le DESC, r.id DESC
      LIMIT 1
   ) i ON true`;
+
+/**
+ * LOT BOITE-SENS — LE SENS QUE L'ÉTIQUETTE IMPOSE AU MESSAGE AFFICHÉ SUR LA LIGNE. PUR.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 CETTE FONCTION EST TOUTE LA NOUVELLE RÈGLE — décision d'Arno du 26/09/2026, qui REMPLACE l'exclusivité du
+ * 25/09 (« un échange ne va que dans une seule boîte, selon son dernier message »). Cette règle-là était fausse :
+ * répondre à un mail le faisait DISPARAÎTRE de la Réception, alors qu'il y est toujours arrivé. Gmail ne fait pas
+ * ça, et personne ne s'attend à ce qu'une réponse effface la question.
+ *
+ * LA RÈGLE, MAINTENANT, EST CELLE DE GMAIL :
+ *   · Réception = tout échange contenant AU MOINS UN message reçu. La ligne montre le DERNIER message REÇU.
+ *   · Envoyés   = tout échange contenant AU MOINS UN message envoyé. La ligne montre le DERNIER message ENVOYÉ.
+ *   · Un échange où l'on a reçu ET répondu est dans LES DEUX, chacune avec SON message.
+ *
+ * 🔴 ET CE N'EST PAS UN FILTRE DE PLUS : c'est le même parcours, borné au sens. Le prédicat « ce message est le
+ * dernier de son échange » devient « le dernier de son échange DANS CE SENS » — le sens entre aux DEUX étages
+ * (`m` et `m2`), et c'est ce qui fait qu'une ligne de Réception ne peut pas emprunter la date, l'expéditeur ni
+ * l'extrait d'un message que nous avons écrit. Les mettre au même endroit est ce qui rend la chose vraie : les
+ * dissocier ferait ressortir un échange sur son dernier message reçu tout en le triant sur un envoi.
+ *
+ * ⚠️ LES AUTRES ÉTIQUETTES NE SONT PAS TOUCHÉES (`null`). « À classer », « Sans suite », « Courrier automatique »,
+ * « Corbeille » et les cartes continuent de raisonner sur le dernier message de l'échange, quel qu'en soit le sens
+ * — c'est leur définition, et elle n'a pas changé.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function sensDeLEtiquette(e: Etiquette): 'recu' | 'envoye' | null {
+  if (e.sorte === 'reception') return 'recu';
+  if (e.sorte === 'envoyes') return 'envoye';
+  return null;
+}
 
 interface LigneDB {
   fil_id: string;
@@ -149,34 +189,24 @@ function sqlEtiquette(e: Etiquette, corbeille: boolean): string {
   switch (e.sorte) {
     /**
      * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
-     * 🔴 UNE SEULE BOÎTE PAR ÉCHANGE — décision d'Arno du 25/09/2026, 17h43. Elle REMPLACE la règle du lot 5-BOITE
-     * (« au moins un message reçu »), qui laissait un échange mixte dans les DEUX étiquettes.
+     * 🔴 RÉCEPTION ET ENVOYÉS N'ONT PLUS DE FILTRE ICI — LOT BOITE-SENS, 26/09/2026.
      *
-     * LE DERNIER MESSAGE DÉCIDE, et lui seul : dernier message REÇU → Réception ; dernier message ENVOYÉ →
-     * Envoyés. Jamais les deux. L'échange BASCULE d'une boîte à l'autre à chaque nouveau message — on répond, il
-     * passe dans Envoyés ; l'interlocuteur revient, il repasse en Réception. Rien n'est perdu au passage :
-     * l'historique complet reste dans la conversation, qui s'ouvre des deux côtés.
+     * Leur règle est devenue celle de `sensDeLEtiquette` : elle borne le PARCOURS au sens, aux deux étages, au
+     * lieu de poser une condition sur le dernier message de l'échange. Écrire ici `AND m.sens = 'recu'` en plus
+     * serait la même chose dite deux fois — donc, un jour, deux choses différentes.
      *
-     * CE QUI REND CE FILTRE AUSSI COURT. `m` EST DÉJÀ le dernier message de son échange : c'est le prédicat
-     * « aucun message plus récent » du CTE `page` (voir `sqlPageBoite`) qui transforme un parcours de messages en
-     * parcours d'échanges. Il n'y a donc RIEN à chercher — le sens de `m` est la réponse. Écrire un EXISTS ici
-     * referait, plus cher, un travail déjà fait.
+     * CE QUE CETTE PLACE VIDE REMPLACE. Du 25 au 26/09, elle portait l'EXCLUSIVITÉ : « le dernier message décide,
+     * jamais les deux boîtes ». Cette règle faisait disparaître un échange de la Réception dès qu'on y répondait,
+     * alors qu'il y est toujours arrivé — Arno a demandé de la remplacer, et c'est le seul retrait de ce lot.
      *
-     * ⚠️ « DERNIER » SUIT CE QUE LA LISTE MONTRE. Quand le courrier automatique est masqué (le cas par défaut),
-     * `m` est le dernier message LISIBLE ; quand on l'affiche, c'est le dernier tout court. L'étiquette suit donc
-     * toujours le message affiché en aperçu sur la ligne — les deux ne peuvent pas se contredire à l'écran.
-     *
-     * 🔴 « NOUS », C'EST `gestion_config.adresse_gestion`, ET RIEN D'AUTRE. `sens` porte déjà exactement cette
-     * règle (`sensDuMessage`, capture.ts:266-268) : un collègue de @sansvisavis.com qui écrit à gestion@ est un
-     * message REÇU. Confondre « interne » et « nous » ferait disparaître de la boîte les demandes des collègues.
-     *
-     * MESURÉ sur la vraie base, avant → après : Réception 8 463 → 5 278, Envoyés 32 736 → 4 831. Les deux boîtes
-     * sont désormais DISJOINTES, et leur somme (10 109) est exactement le nombre d'échanges portant au moins un
-     * message lisible.
+     * 🔴 « NOUS », C'EST `gestion_config.adresse_gestion`, ET RIEN D'AUTRE — cela n'a pas changé. `sens` porte
+     * déjà exactement cette règle (`sensDuMessage`, capture.ts) : un collègue de @sansvisavis.com qui écrit à
+     * gestion@ est un message REÇU. Confondre « interne » et « nous » ferait disparaître de la boîte les
+     * demandes des collègues.
      * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
      */
     case 'reception':
-      return `AND m.sens = 'recu'`;
+      return '';
     // « À classer » = la règle du poste de tri : échange encore à classer, et dernier message lisible dans la fenêtre
     //   d'activité. `m` EST ce dernier message lisible (le parcours ne garde que lui), donc le test de date porte sur
     //   la même date que `lireFile`. $4 = la fenêtre en jours, lue en base comme là-bas.
@@ -194,11 +224,9 @@ function sqlEtiquette(e: Etiquette, corbeille: boolean): string {
     case 'a_classer':
       return `AND m.recu_le >= now() - ($4::int * interval '1 day')
           AND EXISTS (SELECT 1 FROM gestion_fil f0 WHERE f0.id = m.fil_id AND f0.etat = 'a_classer')`;
-    // « Envoyés » = le PENDANT EXACT de Réception : l'échange dont le dernier message est parti de chez nous. Même
-    //   raison d'être aussi court — `m` est déjà ce dernier message. (Avant ce lot : « au moins un message envoyé »,
-    //   ce qui mettait dans Envoyés les 32 736 échanges où nous avions répondu une fois, il y a deux ans.)
+    // « Envoyés » : le PENDANT EXACT de Réception, et pour la même raison sans filtre ici. Voir ci-dessus.
     case 'envoyes':
-      return `AND m.sens = 'envoye'`;
+      return '';
     case 'sans_suite':
       return `AND EXISTS (SELECT 1 FROM gestion_fil f0 WHERE f0.id = m.fil_id AND f0.etat = 'sans_suite')`;
     // « Courrier automatique » = les échanges dont AUCUN message n'est lisible. Même définition que le compteur
@@ -248,31 +276,74 @@ export function sqlPageBoite(
   const filtreM = inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL';
   const filtreM2 = inclureAutomatiques ? '' : 'AND m2.exclu_le IS NULL';
   const filtreEtiquette = sqlEtiquette(etiquette, corbeille);
+  /**
+   * LOT BOITE-SENS — LE SENS, AUX DEUX ÉTAGES. `null` (toutes les autres étiquettes) ⇒ chaînes vides, et la
+   * requête est alors mot pour mot celle d'avant ce lot.
+   *
+   * 🔴 LE MÊME SENS DANS `m` ET DANS `m2`, ET C'EST LE POINT ENTIER DU LOT. Dans `m2` — le prédicat « existe-t-il
+   * plus récent ? » —, il transforme « le dernier message de l'échange » en « le dernier message de l'échange DANS
+   * CE SENS ». Sans lui, un échange auquel on a répondu n'aurait plus aucun candidat en Réception : son dernier
+   * message reçu serait écarté par l'envoi qui le suit, et l'échange sortirait de la boîte — le défaut même qu'on
+   * répare. Le mettre dans `m` seul, à l'inverse, rendrait la ligne sur le bon message mais triée sur le mauvais.
+   */
+  const sens = sensDeLEtiquette(etiquette);
+  const filtreSensM = sens === null ? '' : `AND m.sens = '${sens}'`;
+  const filtreSensM2 = sens === null ? '' : `AND m2.sens = '${sens}'`;
+  /**
+   * L'INTERLOCUTEUR SUIT LE MESSAGE AFFICHÉ, et il ne peut plus en être autrement.
+   *
+   * · Réception : `p` EST le dernier message reçu, donc son expéditeur EST l'interlocuteur. On le lit directement
+   *   sur `p` — la jointure latérale qui allait le chercher n'a plus rien à chercher, et disparaît.
+   * · Envoyés : `p` est le dernier message envoyé, donc l'autre partie est son DESTINATAIRE (« À : … »).
+   * · Les autres étiquettes gardent la jointure latérale : là, `p` peut être un envoi comme une réception.
+   */
+  const colonnesInterlocuteur = sens === 'recu'
+    ? `coalesce(nullif(btrim(p.de_nom), ''), p.de_adresse) AS interlocuteur,
+            p.de_adresse AS interlocuteur_adresse,`
+    : sens === 'envoye'
+      /**
+       * `dest_a -> 0` : la première adresse « À », pour que le libellé d'un partenaire interne s'applique aussi
+       * dans Envoyés.
+       *
+       * ⚠️ ET LE NOM DE LA PERSONNE, PAS SEULEMENT SON ADRESSE. Nos propres envois écrivent `To: adresse` sans nom
+       * — la ligne afficherait donc « a.jorel@sansvisavis.com » là où la Réception affiche « Arnaud », pour la même
+       * personne et le même échange. On prend, dans l'ordre : le nom écrit dans « À » s'il y en a un ; sinon le nom
+       * sous lequel CETTE personne nous a écrit DANS CET ÉCHANGE (c'est le cas d'une réponse, donc le cas courant) ;
+       * sinon le texte brut des destinataires, qui porte tout le monde.
+       */
+      ? `coalesce(nullif(btrim(p.dest_a -> 0 ->> 'nom'), ''),
+                   CASE WHEN i.de_adresse = (p.dest_a -> 0 ->> 'adresse')
+                        THEN nullif(btrim(i.de_nom), '') END,
+                   nullif(btrim(p.destinataires), '')) AS interlocuteur,
+            (p.dest_a -> 0 ->> 'adresse') AS interlocuteur_adresse,`
+      : `coalesce(nullif(btrim(i.de_nom), ''), i.de_adresse, nullif(btrim(p.destinataires), '')) AS interlocuteur,
+            i.de_adresse AS interlocuteur_adresse,`;
   // LOT 5-BOITE-3 — TOUTES les autres étiquettes écartent la corbeille, et la corbeille seule la montre. Sans la
   //   migration 251, `corbeille` est faux : la colonne n'est PAS nommée — la nommer ferait échouer toute la boîte,
   //   pas seulement le geste nouveau.
   const filtreCorbeille = !corbeille || etiquette.sorte === 'corbeille' ? '' : `AND NOT ${SQL_EN_CORBEILLE}`;
   return `WITH page AS (
-       SELECT m.fil_id, m.id AS message_id, m.recu_le, m.sens, m.de_adresse, m.de_nom, m.destinataires,
+       SELECT m.fil_id, m.id AS message_id, m.recu_le, m.sens, m.de_adresse, m.de_nom, m.destinataires, m.dest_a,
               left(coalesce(m.corps_texte, ''), ${LONGUEUR_EXTRAIT}) AS extrait
          FROM gestion_message m
         WHERE (m.recu_le, m.fil_id) < ($1::timestamptz, $2::bigint)
           ${filtreM}
+          ${filtreSensM}
           ${filtreEtiquette}
           ${filtreCorbeille}
-          -- ⚠️ « ce message est le DERNIER de son échange ». C'est CE prédicat qui transforme un parcours de messages
-          --    en parcours d'échanges, et qui permet au LIMIT d'arrêter le travail. Servi par l'index (fil_id, recu_le).
+          -- ⚠️ « ce message est le DERNIER de son échange » — ET, sous Réception ou Envoyés, le dernier DANS SON
+          --    SENS. C'est CE prédicat qui transforme un parcours de messages en parcours d'échanges, et qui permet
+          --    au LIMIT d'arrêter le travail. Servi par l'index (fil_id, recu_le).
           AND NOT EXISTS (
                 SELECT 1 FROM gestion_message m2
-                 WHERE m2.fil_id = m.fil_id ${filtreM2}
+                 WHERE m2.fil_id = m.fil_id ${filtreM2} ${filtreSensM2}
                    AND (m2.recu_le, m2.id) > (m.recu_le, m.id))
         ORDER BY m.recu_le DESC, m.fil_id DESC
         LIMIT $3
      )
      SELECT p.fil_id::text AS fil_id,
             f.objet_initial AS objet,
-            coalesce(nullif(btrim(i.de_nom), ''), i.de_adresse, nullif(btrim(p.destinataires), '')) AS interlocuteur,
-            i.de_adresse AS interlocuteur_adresse,
+            ${colonnesInterlocuteur}
             p.sens AS dernier_sens,
             to_char(p.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS dernier_le,
             p.extrait,
@@ -284,7 +355,12 @@ export function sqlPageBoite(
               WHERE a.fil_id = p.fil_id AND a.actif AND a.message_id IS NULL LIMIT 1) AS reference,
             (f.etat = 'sans_suite') AS sans_suite
        FROM page p JOIN gestion_fil f ON f.id = p.fil_id
-       ${SQL_INTERLOCUTEUR}
+       -- La jointure latérale sert encore : aux autres étiquettes (où le message de la ligne peut être un envoi
+       --   comme une réception) pour trouver le correspondant, et à Envoyés pour retrouver le NOM du destinataire.
+       --   Elle ne sert plus à Réception, où le message de la ligne EST le dernier reçu : rien à chercher.
+       --   (Aucun accent GRAVE ici : ce commentaire vit DANS un littéral gabarit, qu'un seul accent grave
+       --    terminerait — piège consigné trois fois dans ce dépôt, dont une fois dans ce fichier même.)
+       ${sens === 'recu' ? '' : SQL_INTERLOCUTEUR}
       ORDER BY p.recu_le DESC, p.fil_id DESC`;
 }
 
@@ -342,6 +418,15 @@ export async function lireBoiteMail(
   const gardees = aSuite ? rows.slice(0, aLire - 1) : rows;
   const dernier = gardees[gardees.length - 1];
 
+  /**
+   * LOT ENVOI-DIAG — LES AVIS DE NON-REMISE DES ÉCHANGES DE CETTE PAGE, en UNE requête.
+   *
+   * ⚠️ APRÈS le découpage, jamais avant : demander les avis des trente-et-une lignes lues pour n'en afficher trente
+   * serait payer une ligne pour rien à chaque page. Et une seule requête pour les trente : une par ligne ferait
+   * trente allers-retours pour découvrir, presque toujours, que rien n'a été refusé.
+   */
+  const avis = await nonRemisesDesFils(gardees.map((r) => Number(r.fil_id)));
+
   return {
     lignes: gardees.map((r) => ({
       // ⚠️ `pg` rend les `bigint` en CHAÎNE : sans cette conversion, l'écran comparerait des chaînes à des nombres et
@@ -360,6 +445,7 @@ export async function lireBoiteMail(
       aPiece: r.a_piece === true,
       reference: r.reference,
       sansSuite: r.sans_suite === true,
+      nonRemise: avis.get(Number(r.fil_id)) ?? null,
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
     // Le total N'EST COMPTÉ QUE pour la boîte entière. Sous une étiquette, c'est la colonne de gauche qui porte le
@@ -380,22 +466,34 @@ export async function lireBoiteMail(
 export async function compterBoite(
   inclureAutomatiques = false, sens: 'recu' | 'envoye' = 'recu', corbeille = false,
 ): Promise<number> {
-  // LOT 5-BOITE-2 — ce total porte EXACTEMENT la règle de l'étiquette : c'est le DERNIER message de l'échange qui
-  //   décide. Un compteur calculé autrement annoncerait un nombre que la liste ne montre pas — et c'est toujours le
-  //   compteur qu'on croit. `DISTINCT ON` est ici le bon outil : on veut UNE ligne par échange, la plus récente.
-  // La corbeille est écartée du total comme elle l'est de la liste — et par la MÊME règle, le dernier message
-  //   décidant aussi du retour automatique. Sans la migration 251, la colonne n'est pas nommée.
+  /**
+   * LOT BOITE-SENS — CE TOTAL EST LA LISTE, SANS LE CURSEUR NI LE `LIMIT`.
+   *
+   * 🔴 IL EST ÉCRIT AVEC LE MÊME PRÉDICAT, EXPRÈS. Un compteur calculé « autrement mais équivalent » annonce tôt ou
+   * tard un nombre que la liste ne montre pas — et c'est toujours le compteur qu'on croit. Compter les messages qui
+   * sont le DERNIER DE LEUR SENS dans leur échange, c'est compter exactement une ligne par échange qui en contient
+   * au moins un : la nouvelle règle, sans la réénoncer.
+   *
+   * ⚠️ AVANT CE LOT c'était un `DISTINCT ON (fil_id)` qui ne gardait que le dernier message de l'échange, tous sens
+   * confondus : la forme même de l'exclusivité. Elle ne convient plus, et la garder « parce qu'elle marchait »
+   * aurait donné deux boîtes dont les totaux ne sont pas ceux des listes.
+   */
   const horsCorbeille = corbeille
     ? `AND NOT EXISTS (SELECT 1 FROM gestion_fil fc WHERE fc.id = m.fil_id
                         AND fc.corbeille_le IS NOT NULL AND fc.corbeille_le >= m.recu_le)`
     : '';
   const { rows } = await query<{ n: number }>(
     `SELECT count(*)::int AS n
-       FROM (SELECT DISTINCT ON (m.fil_id) m.sens
-               FROM gestion_message m
-              WHERE ${inclureAutomatiques ? 'true' : 'm.exclu_le IS NULL'} ${horsCorbeille}
-              ORDER BY m.fil_id, m.recu_le DESC, m.id DESC) d
-      WHERE d.sens = $1`,
+       FROM gestion_message m
+      WHERE m.sens = $1
+        ${inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL'}
+        ${horsCorbeille}
+        -- « aucun message plus récent DU MÊME SENS dans cet échange » : exactement le prédicat de la liste.
+        AND NOT EXISTS (
+              SELECT 1 FROM gestion_message m2
+               WHERE m2.fil_id = m.fil_id AND m2.sens = m.sens
+                 ${inclureAutomatiques ? '' : 'AND m2.exclu_le IS NULL'}
+                 AND (m2.recu_le, m2.id) > (m.recu_le, m.id))`,
     [sens]);
   return rows[0]?.n ?? 0;
 }
@@ -405,24 +503,37 @@ export async function compterBoite(
  * cache sans le dire ment ; un outil qui annonce ce qu'il tait reste honnête — c'est la règle du module depuis le lot 4b.
  */
 export async function comptesBoite(): Promise<{ lisibles: number; automatiques: number; envoyes: number; reception: number }> {
-  // ⚠️ UN SEUL parcours pour les TROIS nombres. « Envoyés » est arrivé avec le lot 5-FUSION : il aurait pu être une
-  //   requête de plus, il n'est qu'un `FILTER` de plus sur le regroupement qui existait déjà — même balayage, même
-  //   coût, et surtout aucune chance que les compteurs se contredisent puisqu'ils sortent de la même lecture.
+  /**
+   * LOT BOITE-SENS — LES DEUX BOÎTES NE SONT PLUS DISJOINTES, ET LEUR SOMME NE VEUT PLUS RIEN DIRE.
+   *
+   * Un échange où l'on a reçu ET répondu compte dans les deux. `reception + envoyes` dépasse donc le nombre
+   * d'échanges lisibles, et c'est normal : ce sont deux vues du même courrier, pas deux moitiés d'un tout. Rien
+   * dans l'écran n'additionne ces deux nombres — et personne ne devrait s'y mettre.
+   *
+   * 🔴 LA CORBEILLE EST ÉCARTÉE ICI AUSSI, et par la MÊME règle que la liste : le geste doit être postérieur au
+   * dernier message DU SENS affiché. Sans cela, la colonne de gauche et l'en-tête de la liste — qui sort de
+   * `compterBoite` — annonceraient deux nombres différents pour la même boîte, et c'est celui de gauche qu'on
+   * lit. Sans la migration 251, la colonne n'est pas nommée et le comportement est celui d'avant.
+   *
+   * ⚠️ UN SEUL parcours pour les quatre nombres : quatre `FILTER` sur le regroupement qui existait déjà. Même
+   * balayage, même coût, et aucune chance que les compteurs se contredisent puisqu'ils sortent d'une seule lecture.
+   */
+  const corbeille = await corbeilleDisponible();
+  const geste = corbeille ? 'f.corbeille_le' : 'NULL::timestamptz';
   const { rows } = await query<{ lisibles: number; total: number; envoyes: number; reception: number }>(
     `SELECT count(*) FILTER (WHERE lisibles > 0)::int AS lisibles,
             count(*)::int AS total,
-            -- LOT 5-BOITE-2 — les deux boîtes suivent la règle de l'étiquette : LE DERNIER MESSAGE LISIBLE DÉCIDE.
-            --   Elles sont donc DISJOINTES, et leur somme vaut exactement le nombre d'échanges lisibles. Calculées
-            --   par un array_agg ordonné, sur le regroupement qui existait déjà : même balayage, même coût, et
-            --   (pas d'accent grave dans ce commentaire : il est DANS un littéral gabarit, qu'il terminerait)
-            --   aucune chance que les deux nombres se contredisent puisqu'ils sortent de la même lecture.
-            count(*) FILTER (WHERE dernier_lisible = 'envoye')::int AS envoyes,
-            count(*) FILTER (WHERE dernier_lisible = 'recu')::int AS reception
-       FROM (SELECT fil_id,
-                    count(*) FILTER (WHERE exclu_le IS NULL) AS lisibles,
-                    (array_agg(sens ORDER BY recu_le DESC, id DESC)
-                       FILTER (WHERE exclu_le IS NULL))[1] AS dernier_lisible
-               FROM gestion_message GROUP BY fil_id) x`);
+            count(*) FILTER (WHERE dernier_envoye IS NOT NULL
+                               AND (geste IS NULL OR geste < dernier_envoye))::int AS envoyes,
+            count(*) FILTER (WHERE dernier_recu IS NOT NULL
+                               AND (geste IS NULL OR geste < dernier_recu))::int AS reception
+       FROM (SELECT x.fil_id, x.lisibles, x.dernier_recu, x.dernier_envoye, ${geste} AS geste
+               FROM (SELECT fil_id,
+                            count(*) FILTER (WHERE exclu_le IS NULL) AS lisibles,
+                            max(recu_le) FILTER (WHERE exclu_le IS NULL AND sens = 'recu') AS dernier_recu,
+                            max(recu_le) FILTER (WHERE exclu_le IS NULL AND sens = 'envoye') AS dernier_envoye
+                       FROM gestion_message GROUP BY fil_id) x
+               LEFT JOIN gestion_fil f ON f.id = x.fil_id) y`);
   const l = rows[0]?.lisibles ?? 0;
   return {
     lisibles: l, automatiques: (rows[0]?.total ?? 0) - l, envoyes: rows[0]?.envoyes ?? 0,

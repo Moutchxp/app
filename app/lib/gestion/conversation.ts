@@ -80,6 +80,34 @@ export function mentionHorsFile(m: Pick<MessageDeFil, 'horsFile' | 'motifHorsFil
 }
 
 /**
+ * LOT ENVOI-DIAG — CE QU'ON ÉCRIT SUR UN MESSAGE QUI N'EST PAS ARRIVÉ. PUR.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 EN MOTS, JAMAIS EN COULEUR SEULE, et au-dessus du message. C'est l'information la plus importante qu'un fil
+ * puisse porter : tout le reste de l'écran raconte une conversation qui a eu lieu, et cette ligne dit qu'une moitié
+ * n'a pas été entendue. La mettre en petit, ou en rouge sans texte, reviendrait à la cacher.
+ *
+ * ⚠️ PLUSIEURS AVIS SE DISENT TOUS. Un mail à cinq destinataires dont deux échouent en produit deux : n'en montrer
+ * qu'un ferait croire qu'une seule personne n'a pas reçu. On les joint, l'échec définitif d'abord.
+ *
+ * ⚠️ `null` DANS LE CAS ORDINAIRE — et c'est le cas de la quasi-totalité des messages. Rendre une chaîne vide
+ * obligerait chaque appelant à la tester ; `null` dit « il n'y a rien à afficher ».
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export function mentionNonRemise(m: Pick<MessageDeFil, 'nonRemises'>): {
+  texte: string; definitif: boolean;
+} | null {
+  const avis = m.nonRemises ?? [];
+  if (avis.length === 0) return null;
+  // L'échec définitif d'abord : c'est lui qui demande une action.
+  const ordonnes = [...avis].sort((a, b) => Number(b.sorte === 'permanent') - Number(a.sorte === 'permanent'));
+  return {
+    texte: ordonnes.map((a) => a.phrase).filter((p) => p !== '').join(' · '),
+    definitif: ordonnes.some((a) => a.sorte === 'permanent'),
+  };
+}
+
+/**
  * LE MESSAGE A-T-IL QUELQUE CHOSE À MONTRER, et sinon pourquoi ? Trois réponses possibles, et aucune n'est le silence :
  * un écran vide laisse croire à un message vide, ce qui est faux 557 fois en base.
  */

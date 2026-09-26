@@ -100,7 +100,9 @@
     "gestion:copie:epreuve": "tsx app/scripts/copie-epreuve.ts",
     "gestion:drive:vider-stockage": "tsx app/scripts/vider-stockage.ts",
     "gestion:vidage:epreuve": "tsx app/scripts/vidage-epreuve.ts",
-    "gestion:vidage:preuve-drive": "tsx app/scripts/vidage-preuve-drive.ts"
+    "gestion:vidage:preuve-drive": "tsx app/scripts/vidage-preuve-drive.ts",
+    "gestion:non-remise:rattraper": "tsx app/scripts/rattraper-non-remises.ts",
+    "gestion:boite:epreuve": "tsx app/scripts/boite-epreuve.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",

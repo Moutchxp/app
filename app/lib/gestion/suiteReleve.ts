@@ -63,11 +63,21 @@ export interface ComptesSuite {
   resteAFaire: number;
   /** Décisions humaines rencontrées et laissées intactes. */
   respectes: number;
+  /**
+   * LOT ENVOI-DIAG — avis de non-remise LUS pendant cette passe, et combien ont trouvé leur message d'origine.
+   *
+   * ⚠️ CE PAS TOURNE MÊME QUAND IL N'Y A RIEN D'AUTRE À FAIRE. C'est le seul de l'enchaînement dans ce cas, et c'est
+   * voulu : un avis de non-remise arrive dans une passe qui, par ailleurs, n'a souvent rien rapporté de nouveau à
+   * rattacher. Le ranger après les retours anticipés l'aurait rendu muet précisément quand il sert.
+   */
+  avisLus: number;
+  avisRattaches: number;
 }
 
 export const COMPTES_SUITE_VIDES: ComptesSuite = {
   messagesReleves: 0, adressesEcrites: 0, filsReexamines: 0, messagesExamines: 0,
   liensPoses: 0, candidatsPoses: 0, resteAFaire: 0, respectes: 0,
+  avisLus: 0, avisRattaches: 0,
 };
 
 export interface IssueSuite {
@@ -81,7 +91,13 @@ export interface IssueSuite {
 
 /** Le résumé d'un enchaînement réussi, en une phrase. PUR. */
 export function resumeSuite(c: ComptesSuite): string {
-  if (c.messagesReleves === 0 && c.filsReexamines === 0) return 'rien de nouveau à rattacher';
+  // 🔴 UN AVIS DE NON-REMISE LU EST TOUJOURS DIT, même seul. « rien de nouveau » alors qu'un mail vient d'être
+  //   refusé serait le silence exact qu'on répare avec ce lot.
+  const avis = c.avisLus === 0 ? '' : `${c.avisLus} avis de non-remise lu(s)`
+    + `${c.avisRattaches > 0 ? `, dont ${c.avisRattaches} rattaché(s) à leur message` : ''}`;
+  if (c.messagesReleves === 0 && c.filsReexamines === 0) {
+    return avis === '' ? 'rien de nouveau à rattacher' : avis;
+  }
   const bouts = [
     `${c.messagesReleves} message(s) relevé(s)`,
     `${c.adressesEcrites} adresse(s)`,
@@ -90,6 +106,7 @@ export function resumeSuite(c: ComptesSuite): string {
     `${c.candidatsPoses} candidat(s)`,
   ];
   if (c.respectes > 0) bouts.push(`${c.respectes} décision(s) humaine(s) respectée(s)`);
+  if (avis !== '') bouts.push(avis);
   if (c.resteAFaire > 0) bouts.push(`${c.resteAFaire} message(s) pour la passe suivante`);
   return bouts.join(', ');
 }

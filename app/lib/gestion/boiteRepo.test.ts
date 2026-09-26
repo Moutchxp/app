@@ -31,15 +31,26 @@ const ligne = (n: number, o: Record<string, unknown> = {}) => ({
   sans_suite: false,
   ...o,
 });
-/** Le 1er appel est la page, le 2e (s'il existe) le total. */
+/**
+ * Le 1er appel est la page, le 2e (s'il existe) le total.
+ *
+ * ⚠️ LES MARQUEURS SONT DES FRAGMENTS SÉMANTIQUES, pas la forme du SQL — règle du dépôt. `compterBoite` se
+ * reconnaît à ce qu'il compte (`count(*)::int AS n` sur `gestion_message`), pas à la façon dont il regroupe :
+ * c'est justement ce regroupement qui a changé au lot BOITE-SENS.
+ */
+const COMPTE_BOITE = 'count(*)::int AS n';
 const rendre = (lignes: unknown[], total = 100) => {
   queryMock.mockReset();
   queryMock.mockImplementation(async (sql: string) => {
-    if (String(sql).includes('DISTINCT ON (m.fil_id) m.sens')) return { rows: [{ n: total }] };
-    if (String(sql).includes('FILTER (WHERE lisibles > 0)')) return { rows: [{ lisibles: 4944, total: 17206 }] };
+    const s = String(sql);
+    if (s.includes(COMPTE_BOITE) && !s.includes('WITH page')) return { rows: [{ n: total }] };
+    if (s.includes('FILTER (WHERE lisibles > 0)')) return { rows: [{ lisibles: 4944, total: 17206 }] };
     return { rows: lignes };
   });
 };
+/** L'appel qui compte une boîte (`compterBoite`), quel qu'en soit le rang. */
+const appelCompte = () => queryMock.mock.calls.find(
+  (c) => String(c[0]).includes(COMPTE_BOITE) && !String(c[0]).includes('WITH page'));
 const paramsPage = () => (queryMock.mock.calls.findLast((c) => String(c[0]).includes('WITH page'))?.[1] ?? []) as unknown[];
 /** Le PARCOURS seul (le CTE `page`) : c'est lui que le mode « courrier automatique » change. Le reste du SELECT compte
  *  toujours les messages lisibles, dans les deux modes — c'est voulu, et ça ne doit pas brouiller l'assertion. */
@@ -186,33 +197,41 @@ describe('③ le courrier automatique : écarté par défaut, jamais supprimé',
  * étiquette, c'était la boîte entière.
  */
 /**
- * LOT 5-BOITE-2 — UNE SEULE BOÎTE PAR ÉCHANGE (décision d'Arno du 25/09, 17h43).
+ * LOT BOITE-SENS — LA RÈGLE DE GMAIL (décision d'Arno du 26/09/2026), qui REMPLACE l'exclusivité du 25/09.
  *
- * 🔴 LE DERNIER MESSAGE DÉCIDE. Dernier reçu → Réception ; dernier envoyé → Envoyés ; jamais les deux. L'échange
- * BASCULE d'une boîte à l'autre à chaque nouveau message, et l'historique complet reste dans la conversation.
+ * 🔴 UN ÉCHANGE EST DANS LES DEUX BOÎTES s'il porte du courrier dans les deux sens. Réception montre son dernier
+ * message REÇU, Envoyés son dernier message ENVOYÉ. Répondre ne fait plus disparaître un mail de la Réception —
+ * c'était le défaut signalé, et c'est le seul retrait de ce lot.
  *
- * ⚠️ Le filtre est COURT parce que `m` EST déjà le dernier message de son échange — c'est le prédicat « aucun
- * message plus récent » du CTE `page` qui le garantit. Un EXISTS referait, plus cher, un travail déjà fait.
+ * ⚠️ CE QUI EST PROTÉGÉ ICI : que le sens entre aux DEUX étages du parcours. Dans `m2` seul il manquerait l'essentiel
+ * (l'échange sortirait de la Réception dès qu'on répond) ; dans `m` seul, la ligne serait sur le bon message mais
+ * triée sur le mauvais.
  */
 describe('la règle des deux boîtes', () => {
-  it('Réception = le dernier message est REÇU', async () => {
+  it('Réception = le dernier message REÇU de l’échange, aux DEUX étages du parcours', async () => {
     rendre([]);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'reception', evenementId: null } });
     const sql = parcours(sqlPage()).replace(/\s+/g, ' ');
     expect(sql).toContain("AND m.sens = 'recu'");
-    expect(sql).not.toContain("AND m.sens = 'envoye'");
+    expect(sql).toContain("AND m2.sens = 'recu'");
+    expect(sql).not.toContain("'envoye'");
   });
 
-  it('Envoyés = le dernier message est ENVOYÉ — le pendant EXACT, jamais un recouvrement', async () => {
+  it('Envoyés = le dernier message ENVOYÉ, le pendant EXACT', async () => {
     rendre([]);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'envoyes', evenementId: null } });
     const sql = parcours(sqlPage()).replace(/\s+/g, ' ');
     expect(sql).toContain("AND m.sens = 'envoye'");
-    expect(sql).not.toContain("AND m.sens = 'recu'");
+    expect(sql).toContain("AND m2.sens = 'envoye'");
+    expect(sql).not.toContain("'recu'");
   });
 
-  /** Les deux filtres sont exclusifs par construction : aucun échange ne peut satisfaire les deux à la fois. */
-  it('les deux filtres ne peuvent pas être vrais ensemble : un message a UN sens', async () => {
+  /**
+   * 🔴 LE TEST QUI DIT QUE L'EXCLUSIVITÉ EST BIEN PARTIE. Il n'existe AUCUNE condition, dans le parcours de
+   * Réception, qui exclurait un échange au motif qu'il contient aussi un envoi — et réciproquement. C'est
+   * exactement ce qu'on a retiré, et ce qu'on ne doit pas voir revenir « par optimisation ».
+   */
+  it('aucune des deux boîtes n’exclut l’autre : les listes se RECOUVRENT désormais', async () => {
     rendre([]);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'reception', evenementId: null } });
     const rec = parcours(sqlPage()).replace(/\s+/g, ' ');
@@ -220,16 +239,57 @@ describe('la règle des deux boîtes', () => {
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'envoyes', evenementId: null } });
     const env = parcours(sqlPage()).replace(/\s+/g, ' ');
     expect(rec).not.toBe(env);
-    // …et le filtre porte sur LE message du parcours (`m`), donc sur le dernier — pas sur un EXISTS quelque part.
-    expect(rec).not.toContain('EXISTS (SELECT 1 FROM gestion_message mr');
-    expect(env).not.toContain('EXISTS (SELECT 1 FROM gestion_message me');
+    // Ni un NOT EXISTS sur le sens contraire, ni une condition sur le dernier message tous sens confondus.
+    expect(rec).not.toContain("NOT EXISTS (SELECT 1 FROM gestion_message m3");
+    expect(env).not.toContain("NOT EXISTS (SELECT 1 FROM gestion_message m3");
+  });
+
+  it('l’interlocuteur suit le message AFFICHÉ, jamais l’autre sens', async () => {
+    rendre([]);
+    await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'reception', evenementId: null } });
+    // Réception : l'expéditeur du message de la ligne, lu directement — la jointure latérale n'a plus rien à chercher.
+    expect(sqlPage()).toContain('p.de_adresse AS interlocuteur_adresse');
+    expect(sqlPage()).not.toContain("r.sens = 'recu'");
+    rendre([]);
+    await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'envoyes', evenementId: null } });
+    // Envoyés : le DESTINATAIRE du message de la ligne, jamais un expéditeur.
+    expect(sqlPage()).toContain("(p.dest_a -> 0 ->> 'adresse') AS interlocuteur_adresse");
+  });
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴 LOT ENVOI-DIAG — « ENVOYÉS » NE MONTRE QUE DU COURRIER RÉELLEMENT PARTI.
+   *
+   * Arno a demandé que l'application n'affiche JAMAIS « envoyé » avant que le serveur d'envoi ait accepté. C'est
+   * vrai aujourd'hui, mais par ARCHITECTURE et non par intention : la liste sort de `gestion_message`, que seule la
+   * relève alimente en relisant le dossier « Envoyés » de Gmail — un message refusé n'y est jamais entré.
+   * `gestion_envoi`, qui porte les tentatives (`en_cours`, `echec`), n'est pas lu ici.
+   *
+   * Sans ce test, la propriété tiendrait par chance : il suffirait qu'un jour quelqu'un joigne `gestion_envoi` à la
+   * liste « pour montrer les envois en cours » pour qu'un mail refusé apparaisse comme envoyé — précisément le
+   * mensonge signalé le 26/09/2026.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it('🔴 la liste ne lit JAMAIS la table des tentatives d’envoi : un envoi refusé n’y paraît pas', async () => {
+    rendre([]);
+    await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'envoyes', evenementId: null } });
+    for (const s of sqls()) {
+      expect(s).not.toContain('gestion_envoi');
+      expect(s).not.toContain('gestion_brouillon');
+      // Et aucune trace des états de tentative, qui n'existent que dans cette table-là.
+      expect(s).not.toContain("'en_cours'");
+    }
   });
 
   it('le TOTAL de chaque boîte porte la même règle que sa liste', async () => {
     rendre([]);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'reception', evenementId: null } });
-    // Le comptage prend UNE ligne par échange, la plus récente, et filtre sur son sens : exactement la liste.
-    expect(sqls().some((s) => s.includes('DISTINCT ON (m.fil_id) m.sens') && s.includes('WHERE d.sens = $1'))).toBe(true);
+    // Le comptage compte les messages qui sont le dernier DE LEUR SENS : une ligne par échange, exactement la liste.
+    const sql = (appelCompte()?.[0] as string).replace(/\s+/g, ' ');
+    expect(sql).toContain('m2.sens = m.sens');
+    expect(sql).toContain('WHERE m.sens = $1');
+    // 🔴 Et plus aucune trace du regroupement de l'exclusivité, qui comptait le dernier message TOUS SENS CONFONDUS.
+    expect(sql).not.toContain('DISTINCT ON (m.fil_id)');
   });
 });
 
@@ -375,12 +435,10 @@ describe('④ les étiquettes', () => {
   it('chaque boîte compte AVEC SA RÈGLE : le sens est un paramètre LIÉ, jamais collé dans le SQL', async () => {
     rendre([ligne(1)], 4944);
     await lireBoiteMail(null, [], 30, { etiquette: etiq('envoyes') });
-    const appel = queryMock.mock.calls.find((c) => String(c[0]).includes('DISTINCT ON (m.fil_id) m.sens'));
-    expect((appel?.[1] as unknown[])?.[0]).toBe('envoye');
+    expect((appelCompte()?.[1] as unknown[])?.[0]).toBe('envoye');
     rendre([ligne(1)], 4944);
     await lireBoiteMail(null, []);
-    const appel2 = queryMock.mock.calls.find((c) => String(c[0]).includes('DISTINCT ON (m.fil_id) m.sens'));
-    expect((appel2?.[1] as unknown[])?.[0]).toBe('recu');
+    expect((appelCompte()?.[1] as unknown[])?.[0]).toBe('recu');
   });
 });
 
@@ -414,11 +472,12 @@ describe('la corbeille dans le parcours', () => {
   });
 
   /**
-   * 🔴 LE RETOUR AUTOMATIQUE, ET IL EST GRATUIT : `m` étant le DERNIER message de son échange, comparer le geste à
-   * sa date suffit. Un nouveau message arrive → sa date dépasse celle du geste → l'échange revient dans sa boîte,
-   * sans qu'une seule ligne soit écrite, et sans que la relève ait à savoir que la corbeille existe.
+   * 🔴 LE RETOUR AUTOMATIQUE, ET IL EST GRATUIT : le message de la ligne étant le DERNIER de son échange (au lot
+   * BOITE-SENS : le dernier DANS SON SENS), comparer le geste à sa date suffit. Un nouveau message arrive → sa date
+   * dépasse celle du geste → l'échange revient dans sa boîte, sans qu'une seule ligne soit écrite, et sans que la
+   * relève ait à savoir que la corbeille existe.
    */
-  it('la comparaison porte sur le DERNIER message : c’est ce qui fait revenir l’échange tout seul', () => {
+  it('la comparaison porte sur le message AFFICHÉ : c’est ce qui fait revenir l’échange tout seul', () => {
     const sql = parcours(sqlPageBoite(false, etiq2('reception'), true)).replace(/\s+/g, ' ');
     expect(sql).toContain('fc.corbeille_le >= m.recu_le');
   });
@@ -426,7 +485,10 @@ describe('la corbeille dans le parcours', () => {
   it('le total d’une boîte écarte la corbeille par la MÊME règle', async () => {
     rendre([], 4944);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: etiq2('reception') });
-    // Sans la migration (la sonde répond « non » sur la base doublée), la colonne n'est pas nommée non plus.
-    expect(sqls().some((s) => s.includes('DISTINCT ON (m.fil_id) m.sens'))).toBe(true);
+    const sql = (appelCompte()?.[0] as string).replace(/\s+/g, ' ');
+    expect(sql).toContain('m2.sens = m.sens');
+    // 🔴 LA MÊME FORMULE QUE LA LISTE, mot pour mot : le geste comparé à la date du message affiché. Deux écritures
+    //   différentes du même filtre donneraient un total que la liste ne montre pas — et c'est le total qu'on croit.
+    expect(sql).toContain('fc.corbeille_le >= m.recu_le');
   });
 });

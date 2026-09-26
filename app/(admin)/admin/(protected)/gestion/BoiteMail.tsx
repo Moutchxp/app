@@ -530,6 +530,16 @@ export function BoiteMail({
                     {l.sansSuite && <span className="bte-marque">classé sans suite</span>}
                     {l.nbLisibles === 0 && <span className="bte-marque">courrier automatique</span>}
                     {nonLu && <span className="bte-marque bte-marque--non-lu">non lu</span>}
+                    {/* ══ LOT ENVOI-DIAG — UN MESSAGE DE CET ÉCHANGE N'EST PAS ARRIVÉ ═══════════════════════════
+                        🔴 SUR LA LIGNE, pas seulement dans l'échange ouvert : sinon il faudrait ouvrir les 6 580
+                        échanges d'Envoyés pour espérer tomber dessus. La marque porte le MOTIF, parce que « échec »
+                        seul ne dit pas s'il faut corriger une adresse ou rappeler quelqu'un. */}
+                    {l.nonRemise && (
+                      <span className={`bte-marque bte-marque--echec${
+                        l.nonRemise.sorte === 'permanent' ? ' bte-marque--echec-definitif' : ''}`}>
+                        <span aria-hidden="true">⚠ </span>{l.nonRemise.phrase}
+                      </span>
+                    )}
                   </span>
                   {/* LOT 5-DIRECT — la DATE ET L'HEURE de réception, en heure de Paris : « il y a 3 h » ne disait pas
                       si un mail était arrivé à 9 h ou à 14 h. La date complète reste dans l'infobulle. */}
@@ -577,6 +587,11 @@ const CSS_BOITE = `
 .bte-ligne--non-lu .bte-qui,.bte-ligne--non-lu .bte-objet{font-weight:700}
 /* La marque écrite : même forme que « pièce jointe » ou « classé sans suite », donc lisible en niveaux de gris. */
 .bte-marque--non-lu{font-weight:700;color:var(--color-svv-ink)}
+/* LOT ENVOI-DIAG — la marque « non distribué ». La COULEUR n'est qu'un renfort : le texte porte déjà le motif, et il
+   reste lisible en niveaux de gris. Un échec DÉFINITIF passe en gras ; un retard garde le poids ordinaire, parce que
+   le message peut encore arriver. */
+.bte-marque--echec{color:var(--color-svv-red)}
+.bte-marque--echec-definitif{font-weight:700}
 .bte-quand{font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}
 .bte-objet{font-size:.9rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .bte-apercu{font-size:.85rem;color:var(--color-svv-muted);overflow-wrap:anywhere;

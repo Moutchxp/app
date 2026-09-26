@@ -187,7 +187,9 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
     //   fichier un manipulateur d'octets. Ce qui est interdit, c'est le module de stockage — et lui seul.
     // LOT 5b — `./schema` rejoint la liste : c'est la SONDE de schéma (lecture d'`information_schema`), qui ne
     //   manipule aucun octet de pièce jointe. La règle protégée reste la même : pas de module de stockage ici.
-    expect(imports).toEqual(['../db/client', './attente', './partenaires', './schema']);
+    // LOT ENVOI-DIAG — `./nonRemiseRepo` rejoint la liste : lecture seule (SELECT sur `gestion_non_remise`), et elle
+    //   ne manipule aucun octet de pièce jointe. La règle protégée reste la même : pas de module de stockage ici.
+    expect(imports).toEqual(['../db/client', './attente', './partenaires', './schema', './nonRemiseRepo']);
     expect(imports).not.toContain('../stockage');
     expect(code).not.toContain('urlSignee');
   });

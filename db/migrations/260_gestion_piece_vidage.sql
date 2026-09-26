@@ -108,14 +108,24 @@ COMMENT ON COLUMN gestion_piece_vidage.drive_md5 IS
   'l''égalité des deux, au lieu de l''affirmer.';
 
 -- ── LE JOURNAL DU MODULE ────────────────────────────────────────────────────────────────────────────────────────
-ALTER TABLE gestion_journal DROP CONSTRAINT IF EXISTS gestion_journal_entite_chk;
-ALTER TABLE gestion_journal
-  ADD CONSTRAINT gestion_journal_entite_chk
-  CHECK (entite = ANY (ARRAY[
-    'message', 'fil', 'evenement', 'affectation', 'regle', 'config', 'releve', 'partenaire',
-    'envoi', 'piece_drive', 'compte_google', 'annuaire', 'drive_arbre', 'copie_piece',
-    'adresses_messages', 'production_drive', 'rattachement',
-    'vidage_stockage'   -- 260 : une passe de vidage du stockage de l'application
-  ]));
+-- 🔴 ON AJOUTE À LA LISTE EXISTANTE, ON NE LA RÉÉCRIT PAS — corrigé le 26/09/2026, avant application.
+--   Cette migration recopiait la liste entière en dur, comme toutes les précédentes. Avec DEUX migrations en attente
+--   (celle-ci pour « vidage_stockage », la 261 pour « non_remise »), la seconde appliquée EFFAÇAIT la valeur ajoutée
+--   par la première : une écriture de journal légitime se serait mise à être refusée, le jour où la fonctionnalité
+--   sert, sans que rien ne prévienne. Lire la contrainte en place et y insérer la valeur rend l'ordre d'application
+--   indifférent et le geste réexécutable.
+DO $$
+DECLARE def text;
+BEGIN
+  SELECT pg_get_constraintdef(oid) INTO def
+    FROM pg_constraint WHERE conname = 'gestion_journal_entite_chk' AND conrelid = 'gestion_journal'::regclass;
+  IF def IS NULL THEN
+    RAISE EXCEPTION 'La contrainte gestion_journal_entite_chk est introuvable : le module gestion est-il installé ?';
+  END IF;
+  IF position('''vidage_stockage''' IN def) > 0 THEN RETURN; END IF;
+  EXECUTE 'ALTER TABLE gestion_journal DROP CONSTRAINT gestion_journal_entite_chk';
+  EXECUTE 'ALTER TABLE gestion_journal ADD CONSTRAINT gestion_journal_entite_chk '
+          || replace(def, 'ARRAY[', 'ARRAY[''vidage_stockage''::text, ');
+END $$;
 
 COMMIT;
