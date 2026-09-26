@@ -172,8 +172,14 @@ export function conduiteAtenir(connu: DepotConnu | null): Conduite {
 
 // ── LE RYTHME ET L'ARRÊT PROPRE ───────────────────────────────────────────────────────────────────────────────────
 
-/** Pause entre deux copies. Drive tolère confortablement cette cadence pour un utilisateur délégué. */
-export const PAUSE_COPIE_MS = 250;
+/**
+ * Pause entre deux copies.
+ *
+ * ⚠️ MESURÉ le 26/09/2026 : un aller-retour vers Google coûte déjà 226 ms, qui espacent naturellement les
+ * écritures. La pause n'a donc pas à refaire ce travail — 250 ms ajoutaient une heure et demie sur les 26 396
+ * pièces pour rien. 80 ms suffisent à garder une marge sous le plafond par utilisateur.
+ */
+export const PAUSE_COPIE_MS = 80;
 /** Au-delà, on s'arrête : insister sur une panne durable ne fait qu'allonger la liste des échecs. */
 export const ECHECS_CONSECUTIFS_MAX = 10;
 /** Première attente après un ralentissement de Google ; elle double à chaque essai. */

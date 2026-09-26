@@ -32,6 +32,21 @@ const API_TELEVERSEMENT = 'https://www.googleapis.com/upload/drive/v3/files';
 /** Morceau d'envoi reprenable. Multiple de 256 Kio exigé par l'API ; 8 Mio est le compromis usuel. */
 export const MORCEAU_OCTETS = 8 * 1024 * 1024;
 
+/**
+ * 🔴 EN DESSOUS DE CE SEUIL, ON ENVOIE EN UNE SEULE REQUÊTE (« multipart »). MESURÉ le 26/09/2026 sur les vraies
+ * pièces : un aller-retour vers Google coûte 226 ms, la lecture MinIO 5 ms. L'envoi REPRENABLE en fait DEUX — et
+ * vers deux hôtes différents (l'ouverture de session répond une URL sur un autre domaine), donc deux poignées de
+ * main TLS. Résultat mesuré : 2,4 s par pièce, soit 17 h pour les 26 396 — une nuit n'y suffit pas.
+ *
+ * Or la pièce MÉDIANE fait 96 Ko et seules 416 dépassent 5 Mo : payer un protocole de reprise pour 96 Ko, c'est
+ * payer la sécurité d'une coupure sur un transfert qui dure un dixième de seconde. Au-dessus du seuil, l'envoi
+ * reprenable reprend tous ses droits — c'est là qu'il sert vraiment.
+ *
+ * ⚠️ LA VÉRIFICATION EST LA MÊME DANS LES DEUX CAS : md5 et taille rendus par Drive, comparés à l'original. Le
+ * chemin d'envoi change, la garantie non.
+ */
+export const SEUIL_MULTIPART_OCTETS = 8 * 1024 * 1024;
+
 export interface DepsCopie {
   fetch: typeof fetch;
   attendre?: (ms: number) => Promise<void>;
@@ -70,9 +85,31 @@ export async function copierPiece(
   }
 
   const type = (o.typeMime ?? '').trim() || 'application/octet-stream';
+  const champs = 'id,name,webViewLink,md5Checksum,size';
+  const metadonnees = { name: nettoyerNom(o.nom), description: o.description, parents: [o.parentDriveId] };
+
+  // ── LE CHEMIN COURT : une seule requête, pour l'écrasante majorité des pièces. ──
+  if (o.octets.byteLength <= SEUIL_MULTIPART_OCTETS) {
+    const frontiere = `svav-${Math.random().toString(36).slice(2)}-${Date.now().toString(36)}`;
+    const tete = `--${frontiere}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n`
+      + `${JSON.stringify(metadonnees)}\r\n--${frontiere}\r\nContent-Type: ${type}\r\n\r\n`;
+    const pied = `\r\n--${frontiere}--\r\n`;
+    const corps = Buffer.concat([Buffer.from(tete, 'utf8'), Buffer.from(o.octets), Buffer.from(pied, 'utf8')]);
+
+    const res = await deps.fetch(
+      `${API_TELEVERSEMENT}?uploadType=multipart&supportsAllDrives=true&fields=${champs}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${jeton}`, 'Content-Type': `multipart/related; boundary=${frontiere}` },
+        body: tampon(corps),
+      });
+    if (!res.ok) return { ok: false, refuse: false, motif: await motif(res, 'le dépôt') };
+    return conclure((await res.json().catch(() => ({}))) as Record<string, unknown>, o.octets.byteLength, o.md5Attendu);
+  }
+
   const p = new URLSearchParams({
     uploadType: 'resumable',
-    fields: 'id,name,webViewLink,md5Checksum,size',
+    fields: champs,
     supportsAllDrives: 'true',
   });
 
@@ -85,7 +122,7 @@ export async function copierPiece(
       'X-Upload-Content-Type': type,
       'X-Upload-Content-Length': String(o.octets.byteLength),
     },
-    body: JSON.stringify({ name: nettoyerNom(o.nom), description: o.description, parents: [o.parentDriveId] }),
+    body: JSON.stringify(metadonnees),
   });
   if (!ouverture.ok) {
     return { ok: false, refuse: false, motif: await motif(ouverture, 'l’ouverture du dépôt') };
@@ -127,19 +164,23 @@ export async function copierPiece(
     }
   }
 
-  const driveFileId = typeof corpsFinal.id === 'string' ? corpsFinal.id : '';
+  return conclure(corpsFinal, total, o.md5Attendu);
+}
+
+/**
+ * CE QUE DRIVE A RENDU, VÉRIFIÉ. Commun aux deux chemins d'envoi — c'est ce qui garantit que le raccourci du
+ * chemin court n'affaiblit AUCUNE garantie.
+ */
+function conclure(corps: Record<string, unknown>, tailleEnvoyee: number, md5Attendu: string): IssueCopie {
+  const driveFileId = typeof corps.id === 'string' ? corps.id : '';
   if (driveFileId === '') return { ok: false, refuse: false, motif: 'Drive n’a pas rendu d’identifiant de fichier.' };
 
-  const md5Rendu = typeof corpsFinal.md5Checksum === 'string' ? corpsFinal.md5Checksum : null;
-  const tailleRendue = corpsFinal.size === undefined ? null : Number(corpsFinal.size);
-  const verification = verifierCopie({
-    md5Attendu: o.md5Attendu, md5Rendu, tailleAttendue: total, tailleRendue,
-  });
-
+  const md5Rendu = typeof corps.md5Checksum === 'string' ? corps.md5Checksum : null;
+  const tailleRendue = corps.size === undefined ? null : Number(corps.size);
   return {
-    ok: true, driveFileId, md5: md5Rendu, taille: tailleRendue ?? total,
-    lien: typeof corpsFinal.webViewLink === 'string' ? corpsFinal.webViewLink : null,
-    verification,
+    ok: true, driveFileId, md5: md5Rendu, taille: tailleRendue ?? tailleEnvoyee,
+    lien: typeof corps.webViewLink === 'string' ? corps.webViewLink : null,
+    verification: verifierCopie({ md5Attendu, md5Rendu, tailleAttendue: tailleEnvoyee, tailleRendue }),
   };
 }
 

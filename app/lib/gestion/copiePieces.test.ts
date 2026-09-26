@@ -302,11 +302,31 @@ describe('🔴 les garanties de sécurité, lues dans la source', () => {
   });
 
   it('la copie demande EXPLICITEMENT md5Checksum et size — sans quoi Drive ne les rend pas', () => {
-    expect(reel).toContain('md5Checksum');
-    expect(reel).toContain("fields: 'id,name,webViewLink,md5Checksum,size'");
+    expect(reel).toContain("const champs = 'id,name,webViewLink,md5Checksum,size'");
+    // Et les DEUX chemins d'envoi les demandent : le court par l'URL, le long par le paramètre.
+    expect(reel).toContain('fields=${champs}');
+    expect(reel).toContain('fields: champs');
   });
 
-  it('l’envoi est REPRENABLE, et repart de ce que Drive dit avoir reçu', () => {
+  /**
+   * 🔴 DEUX CHEMINS D'ENVOI, UNE SEULE GARANTIE. Mesuré le 26/09/2026 : l'envoi reprenable coûte deux allers-retours
+   * (226 ms chacun) vers deux hôtes, soit 2,4 s par pièce et 17 h au total — une nuit n'y suffit pas, alors que la
+   * pièce médiane fait 96 Ko. Le chemin court envoie en UNE requête ; ce qu'il ne doit surtout pas raccourcir,
+   * c'est la vérification. Les deux passent donc par la MÊME fonction de conclusion.
+   */
+  it('🔴 les deux chemins d’envoi concluent par la MÊME vérification', () => {
+    expect(reel).toContain('function conclure(');
+    // Deux appels : un par chemin. S'il n'y en avait qu'un, l'autre chemin ne vérifierait rien.
+    expect((reel.match(/return conclure\(/g) ?? []).length).toBe(2);
+    expect(reel).toContain('verification: verifierCopie(');
+  });
+
+  it('le chemin COURT ne sert qu’aux petites pièces ; au-dessus, l’envoi reste REPRENABLE', () => {
+    expect(reel).toContain('o.octets.byteLength <= SEUIL_MULTIPART_OCTETS');
+    expect(reel).toContain("uploadType=multipart");
+  });
+
+  it('l’envoi reprenable repart de ce que Drive dit avoir reçu', () => {
     expect(reel).toContain("uploadType: 'resumable'");
     expect(reel).toContain('res.status === 308');
     expect(reel).toContain("headers.get('range')");
