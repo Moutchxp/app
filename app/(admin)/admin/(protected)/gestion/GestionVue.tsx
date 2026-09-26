@@ -21,6 +21,7 @@ import { PleinEcranBoite, type EtiquetteAffichee } from './PleinEcranBoite';
 import { Annuaire } from './Annuaire';
 import { FileATrier } from './FileATrier';
 import { etatSuite } from '../../../../lib/gestion/suiteReleve';
+import { etatCopie } from '../../../../lib/gestion/copieArretee';
 import { HistoriqueCible } from './HistoriqueCible';
 import { cibleDepuisTexte, texteCible } from '../../../../lib/gestion/historique';
 import type { ContexteRedactionEcran } from './Redaction';
@@ -349,6 +350,13 @@ export function GestionVue({ intro }: {
   const suite = etatSuite(d.suite ?? { resultat: null, detail: null, ms: null });
 
   /**
+   * LOT COPIE-SURV — la COPIE des pièces vers le Drive. Trois tons, et la différence n'est pas cosmétique : une
+   * alerte pour un arrêt SUBI que personne n'a voulu ni vu, une ligne calme pour un arrêt VOULU dont il reste du
+   * travail, et rien du tout pendant qu'elle tourne ou quand tout est copié.
+   */
+  const copie = etatCopie(d.copie ?? { derniere: null, restantes: null, motifs: [] });
+
+  /**
    * LOT RATTACHEMENT-2 — la cible de l'historique, LUE ici et nulle part ailleurs. `ecranUrl` la garde en texte brut
    * (c'est un module sans aucun import, c'est sa garantie) ; c'est `cibleDepuisTexte` qui juge si elle désigne
    * quelque chose, et une valeur illisible rend `null` plutôt qu'un écran blanc.
@@ -429,6 +437,19 @@ export function GestionVue({ intro }: {
           <span className="gst-veille-texte">{suite.texte}</span>
           {suite.aide && <span className="gst-veille-aide">{suite.aide}</span>}
         </p>
+      )}
+      {/* ══ LOT COPIE-SURV — LA COPIE DES PIÈCES EST-ELLE ARRÊTÉE ? ═══════════════════════════════════════════════
+          Le 26/09/2026 elle s'est arrêtée sur dix échecs d'affilée alors qu'il restait 24 000 pièces, et AUCUN écran
+          ne le disait : l'arrêt a été découvert par hasard deux heures plus tard. `role="alert"` SEULEMENT pour un
+          arrêt subi — un arrêt qu'on a demandé n'a pas à interrompre une lecture d'écran. */}
+      {copie.niveau === 'alerte' && (
+        <p className="gst-veille gst-veille--alerte" role="alert">
+          <span className="gst-veille-texte">{copie.texte}</span>
+          {copie.aide && <span className="gst-veille-aide gst-veille-commande">{copie.aide}</span>}
+        </p>
+      )}
+      {copie.niveau === 'calme' && (
+        <p className="gst-veille" role="status">{copie.texte}</p>
       )}
       {/* COMPTE RENDU de la dernière passe — succès comme échec, jamais un silence. */}
       {releveMsg && <p className={`gst-compte-rendu gst-ton-${releveMsg.ton}`} role="status">{releveMsg.texte}</p>}
@@ -781,6 +802,9 @@ const CSS_GESTION = `
 .gst-veille-texte{color:inherit}
 /* L'aide est le GESTE à faire : toujours visible, jamais repliée derrière un survol — il n'y a pas de survol sur un téléphone. */
 .gst-veille-aide{font-weight:400;color:var(--color-svv-muted)}
+/* LOT COPIE-SURV — l'aide de l'alerte de copie porte une COMMANDE à recopier : elle doit rester lisible et
+   sélectionnable au doigt, et casser proprement sur un téléphone plutôt que déborder. */
+.gst-veille-commande{font-size:.78rem;overflow-wrap:anywhere;user-select:all}
 /* AUCUNE animation, AUCUNE transition, et pas davantage de clignotement : une alerte qui bouge attire l'œil une fois
    puis fatigue. La préférence "mouvement réduit" n'a donc rien à neutraliser ici — c'est la façon la plus sûre de la
    respecter. (Pas d'accent grave dans ce commentaire : il est DANS un littéral gabarit, qu'il terminerait.) */

@@ -54,7 +54,12 @@ export interface DepsCopie {
 
 export type IssueCopie =
   | { ok: true; driveFileId: string; md5: string | null; taille: number; lien: string | null; verification: Verification }
-  | { ok: false; refuse: boolean; motif: string };
+  /**
+   * LOT COPIE-SURV — `code` porte le STATUT HTTP quand Google a répondu, et rien sinon (garde-fou, stockage,
+   * réseau). Il est capté À LA SOURCE, jamais relu dans le texte du motif : un message et un code déduits l'un de
+   * l'autre seraient deux vérités, et la première correction du texte casserait le chiffre en silence.
+   */
+  | { ok: false; refuse: boolean; motif: string; code?: number };
 
 const dormir = (ms: number): Promise<void> => new Promise((r) => { setTimeout(r, ms); });
 
@@ -111,7 +116,7 @@ export async function copierPiece(
         headers: { Authorization: `Bearer ${jeton}`, 'Content-Type': `multipart/related; boundary=${frontiere}` },
         body: tampon(corps),
       });
-    if (!res.ok) return { ok: false, refuse: false, motif: await motif(res, 'le dépôt') };
+    if (!res.ok) return { ok: false, refuse: false, code: res.status, motif: await motif(res, 'le dépôt') };
     return conclure((await res.json().catch(() => ({}))) as Record<string, unknown>, o.octets.byteLength, o.md5Attendu);
   }
 
@@ -133,7 +138,7 @@ export async function copierPiece(
     body: JSON.stringify(metadonnees),
   });
   if (!ouverture.ok) {
-    return { ok: false, refuse: false, motif: await motif(ouverture, 'l’ouverture du dépôt') };
+    return { ok: false, refuse: false, code: ouverture.status, motif: await motif(ouverture, 'l’ouverture du dépôt') };
   }
   const session = ouverture.headers.get('location') ?? ouverture.headers.get('Location');
   if (session === null) return { ok: false, refuse: false, motif: 'Google n’a pas ouvert de session de dépôt.' };
@@ -144,7 +149,7 @@ export async function copierPiece(
 
   if (total === 0) {
     const res = await deps.fetch(session, { method: 'PUT', headers: { 'Content-Range': 'bytes */0' }, body: tampon(new Uint8Array(0)) });
-    if (!res.ok) return { ok: false, refuse: false, motif: await motif(res, 'le dépôt') };
+    if (!res.ok) return { ok: false, refuse: false, code: res.status, motif: await motif(res, 'le dépôt') };
     corpsFinal = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   } else {
     let debut = 0;
@@ -163,7 +168,7 @@ export async function copierPiece(
         debut = Number.isFinite(borne) ? borne + 1 : fin;
         continue;
       }
-      if (!res.ok) return { ok: false, refuse: false, motif: await motif(res, 'le dépôt') };
+      if (!res.ok) return { ok: false, refuse: false, code: res.status, motif: await motif(res, 'le dépôt') };
       corpsFinal = (await res.json().catch(() => ({}))) as Record<string, unknown>;
       break;
     }
@@ -232,7 +237,7 @@ export async function dossierPeriode(
   noeuds: NoeudArbre[],
   jeton: string,
   deps: DepsCopie,
-): Promise<{ ok: true; driveId: string } | { ok: false; refuse: boolean; motif: string }> {
+): Promise<{ ok: true; driveId: string } | { ok: false; refuse: boolean; motif: string; code?: number }> {
   const index = indexer(noeuds);
   const verdict = verifierEcriture({ operation: 'creer_dossier', parentDriveId: o.parentDriveId }, index);
   if (!verdict.ok) {
@@ -245,7 +250,7 @@ export async function dossierPeriode(
     headers: { Authorization: `Bearer ${jeton}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: nettoyerNom(o.nom), mimeType: MIME_DOSSIER, parents: [o.parentDriveId] }),
   });
-  if (!res.ok) return { ok: false, refuse: false, motif: await motif(res, 'la création du dossier de période') };
+  if (!res.ok) return { ok: false, refuse: false, code: res.status, motif: await motif(res, 'la création du dossier de période') };
   const j = (await res.json()) as { id?: string; name?: string };
   const id = j.id ?? '';
   if (id === '') return { ok: false, refuse: false, motif: 'Drive n’a pas rendu d’identifiant pour ce dossier.' };
@@ -407,7 +412,7 @@ export async function deplacerFichier(
   index: IndexArbre,
   jeton: string,
   deps: DepsCopie,
-): Promise<{ ok: true; parents: string[] } | { ok: false; refuse: boolean; motif: string }> {
+): Promise<{ ok: true; parents: string[] } | { ok: false; refuse: boolean; motif: string; code?: number }> {
   for (const [parent, quoi] of [[o.deDriveId, 'de départ'], [o.versDriveId, 'd’arrivée']] as const) {
     const verdict = verifierEcriture({ operation: 'modifier', parentDriveId: parent, cibleDriveId: undefined }, index);
     if (!verdict.ok) {
@@ -429,7 +434,7 @@ export async function deplacerFichier(
     headers: { Authorization: `Bearer ${jeton}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(corps),
   });
-  if (!res.ok) return { ok: false, refuse: false, motif: await motif(res, 'le déplacement') };
+  if (!res.ok) return { ok: false, refuse: false, code: res.status, motif: await motif(res, 'le déplacement') };
   const j = (await res.json()) as { parents?: string[] };
   return { ok: true, parents: j.parents ?? [] };
 }
@@ -451,15 +456,32 @@ export async function relireFichier(
 }
 
 /**
+ * UN FOURNISSEUR DE JETON, plutôt qu'un jeton.
+ *
+ * 🔴 LOT COPIE-SURV — POURQUOI CE TYPE EXISTE. Un jeton d'accès Google vaut 3 600 secondes. Une chaîne prise une
+ * fois et promenée pendant tout un parcours meurt donc au bout d'une heure — c'est exactement ce qui a tué la passe
+ * de copie n° 4 le 26/09/2026, à la seconde près. Un parcours long doit REDEMANDER son jeton, et `jetonPourSubject`
+ * sert son cache : redemander ne coûte rien, sauf une fois par heure.
+ *
+ * `null` = le jeton n'a pas pu être obtenu (délégation retirée, Google injoignable) : l'appelant s'arrête proprement
+ * avec un motif, au lieu de partir avec une chaîne vide que Google refuserait sans expliquer pourquoi.
+ */
+export type FournisseurJeton = () => Promise<string | null>;
+
+/**
  * INVENTAIRE RÉCURSIF D'UN DOSSIER DE PRODUCTION — MÉTADONNÉES SEULEMENT.
  *
  * 🔒 « Documents clients scannés » est en production et INTOUCHABLE. On ne fait que des `files.list` : aucun
  * contenu n'est téléchargé, aucune écriture n'est émise, et ce dossier n'entre JAMAIS dans la liste blanche —
  * le garde-fou continuerait donc de refuser toute écriture s'il en venait une.
+ *
+ * 🔴 LE JETON EST UN FOURNISSEUR, PAS UNE CHAÎNE, et il est redemandé À CHAQUE PAGE. Un parcours de 32 026 fichiers
+ * a duré 30 minutes le 26/09/2026 : il est passé sous la barre de l'heure par chance, pas par construction. Un
+ * dossier une fois et demie plus gros serait mort en route, exactement comme la copie.
  */
 export async function inventorierDossier(
   o: { racineId: string; driveId: string },
-  jeton: string,
+  jeton: FournisseurJeton,
   deps: DepsCopie,
   surFichier: (f: { id: string; nom: string; md5: string | null; taille: number | null; chemin: string }) => Promise<void>,
 ): Promise<{ ok: true; fichiers: number; dossiers: number } | { ok: false; motif: string }> {
@@ -479,9 +501,13 @@ export async function inventorierDossier(
         fields: 'nextPageToken, files(id,name,mimeType,md5Checksum,size)',
       });
       if (page !== null) p.set('pageToken', page);
+      // 🔴 UN JETON FRAIS À CHAQUE PAGE (voir `FournisseurJeton`) : lu au cache, renouvelé de lui-même une fois par
+      //   heure. Sans cela, un parcours de plus d'une heure meurt en 401 sans que rien ne le dise.
+      const frais = await jeton();
+      if (frais === null) return { ok: false, motif: 'inventaire interrompu — jeton Drive indisponible' };
       // 🔴 PAR `appeler`, ET NON PAR UN `fetch` NU : c'est lui qui réessaie sur coupure réseau et sur 429/5xx.
       //   Un parcours d'un quart d'heure DOIT absorber une connexion qui tombe.
-      const r = await appelerAvecReessai(`${API}/files?${p}`, { method: 'GET', headers: { Authorization: `Bearer ${jeton}` } }, deps);
+      const r = await appelerAvecReessai(`${API}/files?${p}`, { method: 'GET', headers: { Authorization: `Bearer ${frais}` } }, deps);
       if (!r.ok) return { ok: false, motif: `inventaire interrompu — ${r.motif}` };
       const j = r.corps as {
         nextPageToken?: string;

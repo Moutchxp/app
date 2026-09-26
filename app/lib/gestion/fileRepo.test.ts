@@ -182,6 +182,9 @@ describe('fileRepo — l’écran complet', () => {
       //   Tout à `null` veut dire « on ne sait pas » (migration 258 absente, ou aucune passe depuis ce lot) — et non
       //   « tout va bien » : c'est la distinction que le bandeau lit pour se taire plutôt que pour rassurer.
       suite: { resultat: null, detail: null, ms: null },
+      // LOT COPIE-SURV — l'état de la copie des pièces en fait partie aussi : `derniere: null` veut dire
+      //   « aucune passe n'a jamais tourné », donc bandeau muet — et non « tout est copié ».
+      copie: { derniere: null, restantes: null, motifs: [] },
     });
   });
 });

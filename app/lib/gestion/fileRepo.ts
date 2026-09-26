@@ -18,6 +18,8 @@ import { toleranceVeilleValide, VEILLE_INTERVALLES_DEFAUT, type VeilleReleve } f
 import { adressesDe, libelleExpediteur, lirePartenairesInternes, type PartenaireInterne } from './partenaires';
 import { deplacementsDeMailsDisponibles, reglageVeilleDisponible, suiteReleveDisponible } from './schema';
 import type { SuiteVue } from './suiteReleve';
+import type { CopieVue } from './copieArretee';
+import { lireEtatCopie } from './copieArreteeRepo';
 
 /** Une ligne de la FILE (colonne de gauche) : un FIL de discussion, jamais un message isolé. */
 export interface LigneFile {
@@ -67,6 +69,15 @@ export interface EtatEcran {
    * Tout à `null` = migration 258 absente, ou aucune passe depuis ce lot : le bandeau se tait. Voir `etatSuite`.
    */
   suite: SuiteVue;
+  /**
+   * LOT COPIE-SURV — l'état de la COPIE des pièces vers le Drive. `derniere: null` = migration 255 absente, ou aucune
+   * passe n'a jamais tourné : le bandeau se tait. Voir `etatCopie`.
+   *
+   * 🔴 POURQUOI DANS L'ÉCRAN, ET PAS SEULEMENT DANS UNE COMMANDE. Le 26/09/2026 la copie s'est arrêtée sur dix échecs
+   * d'affilée alors qu'il restait 24 000 pièces, et AUCUN écran ne le disait : l'arrêt a été découvert par hasard
+   * deux heures plus tard. Une fonction qui s'arrête sans le dire est une fonction qu'on croit tourner.
+   */
+  copie: CopieVue;
 }
 
 /** Un échange classé sans suite — assez pour le reconnaître et le rouvrir, rien de plus. */
@@ -316,9 +327,9 @@ export async function lireEcran(limite = PAGE): Promise<EtatEcran> {
     chargerConfigGestion(), lirePartenairesInternes(), deplacementsDeMailsDisponibles(),
   ]);
   const ctx: ContexteExpediteurs = { partenaires, adresseGestion: config.adresseGestion, deplacements };
-  const [file, evenements, reperes, sansSuite, auto, tolerance, suite] = await Promise.all([
+  const [file, evenements, reperes, sansSuite, auto, tolerance, suite, copie] = await Promise.all([
     lireFile(config.fenetreActiviteJours, ctx, limite), lireEvenements(ctx), lireReperes(), lireSansSuite(),
-    lireDernierePasseAuto(), lireToleranceVeille(), lireSuiteDernierePasse(),
+    lireDernierePasseAuto(), lireToleranceVeille(), lireSuiteDernierePasse(), lireEtatCopie(),
   ]);
   return {
     file: file.lignes, filsTotal: file.total,
@@ -330,6 +341,7 @@ export async function lireEcran(limite = PAGE): Promise<EtatEcran> {
       intervalleS: config.releveContinueSecondes, toleranceIntervalles: tolerance,
     },
     suite,
+    copie,
     sansSuite: sansSuite.lignes, sansSuiteTotal: sansSuite.total,
     evenements: evenements.cartes, evenementsTotal: evenements.total,
     ...reperes,

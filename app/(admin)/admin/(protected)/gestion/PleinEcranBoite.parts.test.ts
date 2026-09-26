@@ -27,6 +27,9 @@ const ecran = (o: Partial<EtatEcran> = {}): EtatEcran => ({
   // LOT RATTACHEMENT-2 — idem pour l'enchaînement qui suit la relève : il n'entre pas dans le calcul des étiquettes,
   //   mais un écran de doublure doit rester COMPLET, sinon le test ne prouve plus rien de l'écran réel.
   suite: { resultat: 'ok', detail: 'rien de nouveau à rattacher', ms: 5 },
+  // LOT COPIE-SURV — l'état de la COPIE des pièces vers le Drive : `derniere: null` rend le bandeau MUET, ce qui est
+  //   l'état d'un écran de doublure. Il doit y figurer quand même — un écran de doublure incomplet ne prouve plus rien.
+  copie: { derniere: null, restantes: null, motifs: [] },
   ...o,
 });
 const carte = (id: number, nbFils: number) => ({

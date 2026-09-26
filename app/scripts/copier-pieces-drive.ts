@@ -34,7 +34,18 @@
  * EXEMPLES :
  *   npm run gestion:drive:copier-pieces
  *   npm run gestion:drive:copier-pieces -- --limite=20 --appliquer
- *   npm run gestion:drive:copier-pieces -- --appliquer
+ *
+ * 🔴 LA COMMANDE DE LA NUIT — EN AJOUT (`>>`), JAMAIS EN ÉCRASEMENT (`>`) :
+ *   nohup caffeinate -i npm run gestion:drive:copier-pieces -- --appliquer >> ~/Desktop/copie-pieces.log 2>&1 &
+ *
+ * MESURÉ LE 26/09/2026, ET C'EST POURQUOI LE DOUBLE CHEVRON EST ÉCRIT ICI EN TOUTES LETTRES : la relance du soir
+ * était écrite avec un seul `>`. Elle a donc effacé le journal de la passe précédente — celle qui venait de
+ * s'arrêter sur onze échecs — et avec lui les onze motifs qui l'expliquaient. Le diagnostic a dû se reconstituer par
+ * déduction. Les motifs vont maintenant AUSSI en base (migration 259), mais un journal qui s'écrase reste un piège :
+ * il emporte l'avancement, les dossiers créés et les avertissements, qui n'y sont pas.
+ *
+ * Chaque passe écrit en tête du journal une ligne `=== passe n° X démarrée … ===`, pour qu'un fichier qui s'ajoute
+ * reste lisible.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import '../lib/chargerEnv';
@@ -63,6 +74,7 @@ import {
 import { creerDossier } from '../lib/gestion/driveEcriture';
 import { enregistrerNoeud } from '../lib/gestion/driveArbreRepo';
 import { dernieresPropositions, enregistrerProposition } from '../lib/gestion/propositionRepo';
+import { noterEchec } from '../lib/gestion/copieEchecRepo';
 import { chargerContexteTri, type PieceAvecTaille } from '../lib/gestion/triPiecesRepo';
 
 const P = '[gestion:drive:copier-pieces]';
@@ -192,6 +204,16 @@ async function principal(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  /**
+   * 🔴 LOT COPIE-SURV — L'EN-TÊTE HORODATÉE DE LA PASSE, EN TÊTE DU JOURNAL.
+   *
+   * La commande du soir écrit désormais en AJOUT (`>>`) et non en écrasement (`>`) : le 26/09/2026, la relance a
+   * effacé le journal de la passe précédente, et avec lui les onze motifs qui expliquaient son arrêt. Un journal
+   * qui s'ajoute a besoin d'un séparateur pour rester lisible — sans quoi trois passes se confondent en une.
+   */
+  console.log('');
+  console.log(`${P} === passe n° ${passeId} démarrée ${new Date().toISOString()} · pid ${process.pid} `
+    + `· hôte ${hostname()} ===`);
   console.log(`${P} passe ${passeId} ouverte (verrou posé) · pid ${process.pid}`);
 
   // ── LE JETON ────────────────────────────────────────────────────────────────────────────────────────────────
@@ -277,6 +299,7 @@ async function principal(): Promise<void> {
       compteurs.echecs += 1;
       echecsConsecutifs += 1;
       console.error(`${P}   ❌ pièce ${d.pieceId} : jeton Drive indisponible — ${jt.motif}`);
+      await noterEchec({ passeId, pieceId: d.pieceId, etape: 'jeton', motif: jt.motif, rang: echecsConsecutifs });
       if (echecsConsecutifs >= ECHECS_CONSECUTIFS_MAX) { arret = motifArret({ echecsConsecutifs, restantes: 0, limiteAtteinte: false }) ?? 'trop d’échecs'; break; }
       await respirerCopie(deps, attenteApresEchec(echecsConsecutifs));
       continue;
@@ -291,6 +314,12 @@ async function principal(): Promise<void> {
       compteurs.echecs += 1;
       echecsConsecutifs += 1;
       console.error(`${P}   ❌ pièce ${d.pieceId} : dossier d’arrivée introuvable (arborescence incomplète ?)`);
+      // ⚠️ PAS DE CODE HTTP ICI : `dossierArrivee` rend une phrase, pas un statut — elle enchaîne plusieurs appels
+      //   (année, puis mois) et le code du dernier ne dirait pas lequel a cassé. Le motif, lui, le dit.
+      await noterEchec({
+        passeId, pieceId: d.pieceId, etape: 'dossier', rang: echecsConsecutifs,
+        motif: arrivee.ok ? 'dossier d’arrivée introuvable (arborescence incomplète ?)' : arrivee.motif,
+      });
       if (echecsConsecutifs >= ECHECS_CONSECUTIFS_MAX) { arret = motifArret({ echecsConsecutifs, restantes: 0, limiteAtteinte: false }) ?? 'trop d’échecs'; break; }
       continue;
     }
@@ -302,8 +331,14 @@ async function principal(): Promise<void> {
       const r = await corbeillerFichier(
         { driveFileId: c.corbeille, parentDriveId: ancien?.driveDossierId ?? dossier.driveId },
         indexer(noeuds), jt.jeton, deps);
-      if (!r.ok) console.error(`${P}   ⚠️ pièce ${d.pieceId} : ancienne copie non mise à la corbeille — ${r.motif}`);
-      else compteurs.refaites += 1;
+      if (!r.ok) {
+        console.error(`${P}   ⚠️ pièce ${d.pieceId} : ancienne copie non mise à la corbeille — ${r.motif}`);
+        // Consigné même s'il ne compte pas comme un échec : c'est un fichier douteux qui reste dans le Drive.
+        await noterEchec({
+          passeId, pieceId: d.pieceId, etape: 'corbeille', rang: 0,
+          motif: r.motif ?? 'mise à la corbeille refusée, sans motif rendu',
+        });
+      } else compteurs.refaites += 1;
     }
 
     // ── Les octets, lus sur MinIO (jamais effacés) ──
@@ -317,6 +352,9 @@ async function principal(): Promise<void> {
       compteurs.echecs += 1;
       echecsConsecutifs += 1;
       console.error(`${P}   ❌ pièce ${d.pieceId} : contenu illisible sur le stockage — ${(e as Error).message}`);
+      await noterEchec({
+        passeId, pieceId: d.pieceId, etape: 'stockage', motif: (e as Error).message, rang: echecsConsecutifs,
+      });
       if (echecsConsecutifs >= ECHECS_CONSECUTIFS_MAX) { arret = motifArret({ echecsConsecutifs, restantes: 0, limiteAtteinte: false }) ?? 'trop d’échecs'; break; }
       continue;
     }
@@ -348,6 +386,10 @@ async function principal(): Promise<void> {
       compteurs.echecs += 1;
       echecsConsecutifs += 1;
       console.error(`${P}   ${r.refuse ? '🔴 REFUSÉ PAR LE GARDE-FOU' : '❌'} pièce ${d.pieceId} — ${r.motif}`);
+      await noterEchec({
+        passeId, pieceId: d.pieceId, etape: 'envoi', motif: r.motif, codeHttp: r.code ?? null,
+        refuse: r.refuse, rang: echecsConsecutifs,
+      });
       if (r.refuse) { arret = 'le garde-fou a refusé une écriture : on s’arrête, c’est une anomalie'; break; }
       if (echecsConsecutifs >= ECHECS_CONSECUTIFS_MAX) { arret = motifArret({ echecsConsecutifs, restantes: 0, limiteAtteinte: false }) ?? 'trop d’échecs'; break; }
       await respirerCopie(deps, attenteApresEchec(echecsConsecutifs));

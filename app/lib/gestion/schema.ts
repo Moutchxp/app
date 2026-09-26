@@ -320,6 +320,18 @@ export function rattachementsDisponibles(): Promise<boolean> {
 }
 
 /**
+ * LOT COPIE-SURV — la migration 259 est-elle appliquée ? Elle porte les MOTIFS d'échec de la copie, un par ligne.
+ *
+ * 🔴 ELLE NE CONDITIONNE RIEN, ET C'EST ESSENTIEL. Une passe de copie tourne peut-être en ce moment, avec le code
+ * d'avant ce lot : elle ne doit être gênée d'aucune façon. Sans la migration, les motifs continuent d'aller au
+ * terminal, exactement comme avant, et la copie se comporte à l'identique. La sonde est consultée AVANT chaque
+ * écriture — jamais au milieu d'une transaction, où un repli ne pourrait plus s'exécuter.
+ */
+export function copieEchecsDisponibles(): Promise<boolean> {
+  return memoiser('table.gestion_drive_copie_echec', () => tableExiste('gestion_drive_copie_echec'));
+}
+
+/**
  * LOT RATTACHEMENT-2 — la migration 258 est-elle appliquée ? Elle porte le VERDICT de l'enchaînement qui suit une
  * passe de relève (relevé des adresses, puis rattachement), dans trois colonnes distinctes de celles de la relève.
  *

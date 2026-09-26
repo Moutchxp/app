@@ -59,6 +59,26 @@ async function principal(): Promise<void> {
     return;
   }
 
+  /**
+   * 🔴 UN FOURNISSEUR DE JETON, REDEMANDÉ À CHAQUE PAGE — pas une chaîne prise une fois.
+   *
+   * ═══ LE DÉFAUT, MESURÉ AILLEURS AVANT DE L'ÊTRE ICI ══════════════════════════════════════════════════════════
+   * Le 26/09/2026, la passe de COPIE n° 4 est morte à la seconde près après une heure : son jeton d'accès Google
+   * valait 3 600 secondes et était pris une seule fois. Cet inventaire-ci avait exactement le même motif. Il n'est
+   * pas tombé — son parcours de 32 026 fichiers a duré 30 minutes — mais il est passé sous la barre PAR CHANCE, pas
+   * par construction : un dossier une fois et demie plus gros l'aurait tué en route, et l'échec se serait présenté
+   * comme une panne réseau.
+   *
+   * ⚠️ REDEMANDER NE COÛTE RIEN : `jetonPourSubject` garde le jeton en mémoire avec une marge de 60 secondes. Sur un
+   * parcours de mille pages, elle ne parlera à Google qu'une fois par heure.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const jetonFrais = async (): Promise<string | null> => {
+    const j = await jetonPourSubject(compte, { fetch });
+    return j.ok ? j.jeton : null;
+  };
+
+  // Le premier appel sert aussi de contrôle : une délégation absente doit s'annoncer tout de suite, avec son motif.
   const jeton = await jetonPourSubject(compte, { fetch });
   if (!jeton.ok) { console.error(`${P} ❌ ${jeton.motif}`); process.exitCode = 1; return; }
   const cible = await trouverProduction(jeton.jeton);
@@ -76,7 +96,7 @@ async function principal(): Promise<void> {
   let octets = 0;
 
   const r = await inventorierDossier(
-    { racineId: cible.dossierId, driveId: cible.driveId }, jeton.jeton, deps,
+    { racineId: cible.dossierId, driveId: cible.driveId }, jetonFrais, deps,
     async (f) => {
       vus += 1;
       if (f.md5 === null) sansMd5 += 1;

@@ -17,19 +17,18 @@ import { pathToFileURL } from 'node:url';
 import { query, closePool } from '../lib/db/client';
 import { copiePiecesDisponible } from '../lib/gestion/schema';
 import { dureeFr, tailleFr } from '../lib/gestion/copiePieces';
+import { motifCourtCopie } from '../lib/gestion/copieArretee';
+import { motifsEchec } from '../lib/gestion/copieArreteeRepo';
 
 const P = '[gestion:drive:copie-etat]';
 
-/** Le processus `pid` tourne-t-il encore SUR CETTE MACHINE ? `null` = on ne peut pas savoir (autre hôte). PUR-ish. */
-export function processusVivant(pid: number | null, hote: string | null, hoteLocal: string): boolean | null {
-  if (pid === null || hote === null || hote !== hoteLocal) return null;
-  try {
-    process.kill(pid, 0);   // signal 0 : ne tue rien, vérifie seulement l'existence
-    return true;
-  } catch {
-    return false;
-  }
-}
+/**
+ * LOT COPIE-SURV — `processusVivant` a DÉMÉNAGÉ dans `copieArretee.ts`, le module pur, parce que le bandeau de
+ * l'écran en a besoin aussi : l'importer depuis ce script-ci aurait tiré `chargerEnv` dans le graphe de la page.
+ * Elle est RÉEXPORTÉE ici, à son ancienne adresse — le code et les tests qui la connaissaient là ne changent pas.
+ */
+export { processusVivant } from '../lib/gestion/copieArretee';
+import { processusVivant } from '../lib/gestion/copieArretee';
 
 async function principal(): Promise<void> {
   const debloquer = process.argv.includes('--debloquer');
@@ -85,6 +84,26 @@ async function principal(): Promise<void> {
     console.log(`${P}     ${p.copiees} copiées (${tailleFr(Number(p.octets))}) · ${p.echecs} échec(s) · `
       + `${p.refaites} refaite(s) · ${p.dossiers} dossier(s) créé(s)`);
     if (p.motif !== null) console.log(`${P}     motif d’arrêt : ${p.motif}`);
+
+    /**
+     * 🔴 LOT COPIE-SURV — LES CINQ DERNIERS MOTIFS D'ÉCHEC, LUS EN BASE.
+     *
+     * Le 26/09/2026, les onze motifs qui expliquaient l'arrêt de la passe n° 4 n'existaient que dans le journal
+     * texte, et la relance du soir (`>` au lieu de `>>`) l'a écrasé. Le diagnostic a dû se reconstituer par
+     * déduction. Ils sont désormais en base — et cette commande les montre là où l'on regarde déjà.
+     *
+     * ⚠️ RIEN SANS LA MIGRATION 259 : `motifsEchec` rend une liste vide, et cette commande se comporte exactement
+     * comme avant ce lot.
+     */
+    if (p.echecs > 0) {
+      const motifs = await motifsEchec(Number(p.id));
+      for (const m of motifs) {
+        console.log(`${P}       ${m.survenuLe.slice(11, 19)} · ${motifCourtCopie(m)}`);
+      }
+      if (motifs.length === 0) {
+        console.log(`${P}       (motifs non enregistrés : migration 259 non appliquée au moment de cette passe)`);
+      }
+    }
   }
 
   // ── LE VERROU ───────────────────────────────────────────────────────────────────────────────────────────────
