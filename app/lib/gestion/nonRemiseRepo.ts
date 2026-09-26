@@ -136,6 +136,24 @@ export async function lireAvisEnAttente(
   return c;
 }
 
+/**
+ * LA DATE D'UN AVIS — ET CE N'EST PAS `constate_le`.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 DÉFAUT TROUVÉ AU PREMIER RATTRAPAGE RÉEL, le 27/09/2026 à 01:28. `constate_le` porte l'instant où NOUS avons lu
+ * l'avis, pas celui où le serveur distant l'a envoyé. Le rattrapage a lu 74 avis étalés du 09/01/2025 au 26/09/2026
+ * — et leur a donné à tous le même `constate_le`, à la seconde près. Trier là-dessus, c'est trier par ordre
+ * d'insertion : « l'avis le plus récent de cet échange » devenait « celui dont l'identifiant est le plus grand ».
+ *
+ * La date d'un avis est celle du MESSAGE qui le porte (`recu_le`), et elle ne bouge jamais. `constate_le` garde son
+ * sens — quand nous l'avons su, ce qui sert à mesurer notre propre retard — et n'ordonne plus rien.
+ *
+ * ⚠️ AUCUNE MIGRATION POUR ÇA : la donnée juste était déjà là, dans `gestion_message`. Ajouter une colonne aurait
+ * créé une seconde vérité à tenir, alors qu'il suffisait d'aller lire la bonne.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+const DATE_DE_L_AVIS = 'a.recu_le';
+
 /** Ce qu'un avis rattaché fait dire à l'écran, sur le message concerné comme sur la ligne de liste. */
 export interface MentionNonRemise {
   sorte: SorteNonRemise;
@@ -171,10 +189,11 @@ export async function nonRemisesDesMessages(messageIds: readonly number[]): Prom
   const { rows } = await query<{
     origine_message_id: string; sorte: string; motif: string; destinataire: string | null; avis_message_id: string;
   }>(
-    `SELECT origine_message_id, sorte, motif, destinataire, avis_message_id
-       FROM gestion_non_remise
-      WHERE origine_message_id = ANY($1::bigint[])
-      ORDER BY constate_le DESC`, [[...messageIds]]);
+    `SELECT n.origine_message_id, n.sorte, n.motif, n.destinataire, n.avis_message_id
+       FROM gestion_non_remise n
+       JOIN gestion_message a ON a.id = n.avis_message_id
+      WHERE n.origine_message_id = ANY($1::bigint[])
+      ORDER BY ${DATE_DE_L_AVIS} DESC`, [[...messageIds]]);
   for (const r of rows) {
     const cle = Number(r.origine_message_id);
     const liste = m.get(cle) ?? [];
@@ -197,13 +216,15 @@ export async function nonRemisesDesFils(filIds: readonly number[]): Promise<Map<
   const { rows } = await query<{
     origine_fil_id: string; sorte: string; motif: string; destinataire: string | null; avis_message_id: string;
   }>(
-    `SELECT DISTINCT ON (origine_fil_id)
-            origine_fil_id, sorte, motif, destinataire, avis_message_id
-       FROM gestion_non_remise
-      WHERE origine_fil_id = ANY($1::bigint[])
-      ORDER BY origine_fil_id,
-               -- le permanent d'abord, puis le plus récent : exactement la règle énoncée au-dessus
-               (sorte = 'permanent') DESC, constate_le DESC`, [[...filIds]]);
+    `SELECT DISTINCT ON (n.origine_fil_id)
+            n.origine_fil_id, n.sorte, n.motif, n.destinataire, n.avis_message_id
+       FROM gestion_non_remise n
+       JOIN gestion_message a ON a.id = n.avis_message_id
+      WHERE n.origine_fil_id = ANY($1::bigint[])
+      ORDER BY n.origine_fil_id,
+               -- le permanent d'abord, puis le plus récent : exactement la règle énoncée au-dessus.
+               -- La date est celle de l'AVIS, pas celle de sa lecture par nous. Voir DATE_DE_L_AVIS.
+               (n.sorte = 'permanent') DESC, ${DATE_DE_L_AVIS} DESC`, [[...filIds]]);
   for (const r of rows) m.set(Number(r.origine_fil_id), mention(r));
   return m;
 }

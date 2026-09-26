@@ -264,6 +264,46 @@ async function principal(): Promise<void> {
     deAdresse: 'collegue@exemple.invalid', objet: 'Re: Delivery Status Notification (Failure)', corps: 'Salut,',
   }));
 
+  /**
+   * ⑪ 🔴 « LE PLUS RÉCENT » SUIT LA DATE DE L'AVIS, PAS L'ORDRE D'INSERTION.
+   *
+   * Défaut trouvé au premier rattrapage réel (27/09/2026) : 74 avis étalés sur vingt mois avaient tous le même
+   * `constate_le`, à la seconde près. On sème donc ici l'ordre CONTRAIRE — l'avis le plus RÉCENT est inscrit en
+   * PREMIER, donc porte le plus petit identifiant. Un tri sur l'insertion choisirait l'autre.
+   */
+  console.log('\n⑪ 🔴 entre DEUX avis, c’est la DATE DE L’AVIS qui tranche — pas l’ordre où on les a lus');
+  const deuxAvis = await semer('epreuve-deux-avis', 'relance double', [
+    { sens: 'envoye', quand: '2026-09-01T09:00:00Z', de: 'gestion@exemple.invalid', dest: 'deux@exemple.invalid', messageId: '<envoye-4@exemple.invalid>' },
+  ]);
+  await semer('epreuve-avis-recent', 'Delivery Status Notification (Delay)', [{
+    // LE PLUS RÉCENT, semé d'abord : identifiant le plus PETIT.
+    sens: 'recu', quand: '2026-09-25T10:00:00Z', de: 'mailer-daemon@googlemail.com', dest: 'gestion@exemple.invalid',
+    messageId: '<avis-recent@exemple.invalid>',
+    corps: corpsAvis({
+      destinataire: 'deux@exemple.invalid', statut: '4.2.2', action: 'delayed',
+      diagnostic: '452 4.2.2 boite pleine AUJOURD-HUI', origine: '<envoye-4@exemple.invalid>',
+    }),
+  }]);
+  await semer('epreuve-avis-ancien', 'Delivery Status Notification (Delay)', [{
+    // LE PLUS ANCIEN, semé ensuite : identifiant le plus GRAND. C'est lui qu'un tri sur l'insertion choisirait.
+    sens: 'recu', quand: '2026-09-02T10:00:00Z', de: 'mailer-daemon@googlemail.com', dest: 'gestion@exemple.invalid',
+    messageId: '<avis-ancien@exemple.invalid>',
+    corps: corpsAvis({
+      destinataire: 'deux@exemple.invalid', statut: '4.4.1', action: 'delayed',
+      diagnostic: 'timed out IL Y A LONGTEMPS', origine: '<envoye-4@exemple.invalid>',
+    }),
+  }]);
+  await lireAvisEnAttente(4000, 500);
+
+  const ligneDeux = dans(await liste('envoyes'), deuxAvis.filId);
+  verifier('la ligne montre l’avis le plus RÉCENT (boîte pleine), pas le plus anciennement daté',
+    (ligneDeux?.nonRemise?.phrase ?? '').includes('pleine'), ligneDeux?.nonRemise?.phrase ?? '—');
+  const filDeux = await lireMessagesDuFil(deuxAvis.filId, [], false);
+  const mDeux = filDeux?.messages.find((x) => x.messageIdRfc === '<envoye-4@exemple.invalid>');
+  verifier('le message porte LES DEUX avis : aucun n’est perdu', (mDeux?.nonRemises ?? []).length === 2,
+    `${(mDeux?.nonRemises ?? []).length}`);
+  verifier('et le plus récent est en tête', (mDeux?.nonRemises ?? [])[0]?.phrase.includes('pleine') === true);
+
   console.log('');
   if (echecs === 0) console.log('╚══ ✅ ÉPREUVE PASSÉE — les deux listes et les avis tiennent sur de vraies lignes.\n');
   else { console.log(`╚══ ❌ ${echecs} ÉCHEC(S).\n`); process.exitCode = 1; }

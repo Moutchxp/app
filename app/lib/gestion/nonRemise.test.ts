@@ -359,6 +359,31 @@ describe('les garanties du lot', () => {
     expect(new Set(ecritures)).toEqual(new Set(['gestion_non_remise']));
   });
 
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴 DÉFAUT TROUVÉ AU PREMIER RATTRAPAGE RÉEL (27/09/2026, 01:28). `constate_le` porte l'instant où NOUS avons lu
+   * l'avis. Le rattrapage a lu 74 avis étalés du 09/01/2025 au 26/09/2026 et leur a donné à tous le même
+   * `constate_le`, à la seconde près : trier là-dessus revenait à trier par ordre d'insertion, et « l'avis le plus
+   * récent de cet échange » devenait « celui dont l'identifiant est le plus grand ».
+   *
+   * La date d'un avis est celle du message qui le porte. Aucune migration n'a été nécessaire : la donnée juste était
+   * déjà en base — il suffisait d'aller lire la bonne, au lieu d'ajouter une seconde vérité à tenir.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it('🔴 les lectures ordonnent sur la date de l’AVIS, jamais sur celle de sa lecture par nous', () => {
+    const repo = sans(readFileSync('app/lib/gestion/nonRemiseRepo.ts', 'utf8'));
+    // La date de référence est déclarée UNE fois, et c'est celle du message porteur.
+    expect(repo).toContain("const DATE_DE_L_AVIS = 'a.recu_le'");
+    // Aucun ORDER BY sur `constate_le` : c'est précisément ce qui aplatissait vingt mois d'avis sur une seconde.
+    expect(repo).not.toMatch(/ORDER BY[^;]*constate_le/i);
+    // Et les deux lectures joignent bien le message de l'avis pour disposer de sa date.
+    expect(repo.match(/JOIN gestion_message a ON a\.id = n\.avis_message_id/g) ?? []).toHaveLength(2);
+    // La commande de rattrapage aussi : son rapport annonçait « les cinq derniers » et montrait les cinq insérés.
+    const cli = sans(readFileSync('app/scripts/rattraper-non-remises.ts', 'utf8'));
+    expect(cli).toContain('ORDER BY a.recu_le DESC');
+    expect(cli).not.toMatch(/ORDER BY[^;]*constate_le/i);
+  });
+
   it('🔴 le rattachement n’accepte qu’un message que NOUS avons envoyé', () => {
     // Sans ce garde, un identifiant malencontreusement partagé collerait « non distribué » sur le mail d'un locataire.
     expect(sans(readFileSync('app/lib/gestion/nonRemiseRepo.ts', 'utf8'))).toContain("sens = 'envoye'");

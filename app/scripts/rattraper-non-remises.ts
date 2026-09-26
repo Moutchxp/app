@@ -88,12 +88,20 @@ async function principal(): Promise<void> {
     console.log(`${P}   rattachés / orphelins ... ${t.rattaches} / ${t.orphelins}`);
   }
 
-  // Les cinq derniers échecs définitifs rattachés : de quoi vérifier d'un coup d'œil que le rattachement est juste.
+  /**
+   * Les cinq derniers échecs définitifs rattachés : de quoi vérifier d'un coup d'œil que le rattachement est juste.
+   *
+   * 🔴 ORDONNÉS SUR LA DATE DE L'AVIS, pas sur `constate_le`. Au premier rattrapage, les 74 avis — étalés sur vingt
+   * mois — ont tous reçu le même `constate_le` à la seconde près : « les cinq derniers » était en réalité « les cinq
+   * derniers insérés ». La date qui a du sens est celle du message qui porte l'avis.
+   */
   const { rows } = await query<{ objet: string | null; destinataire: string | null; motif: string; le: string }>(
-    `SELECT m.objet, n.destinataire, n.motif, to_char(n.constate_le, 'DD/MM/YYYY HH24:MI') AS le
-       FROM gestion_non_remise n JOIN gestion_message m ON m.id = n.origine_message_id
+    `SELECT m.objet, n.destinataire, n.motif, to_char(a.recu_le, 'DD/MM/YYYY HH24:MI') AS le
+       FROM gestion_non_remise n
+       JOIN gestion_message m ON m.id = n.origine_message_id
+       JOIN gestion_message a ON a.id = n.avis_message_id
       WHERE n.sorte = 'permanent'
-      ORDER BY n.constate_le DESC LIMIT 5`);
+      ORDER BY a.recu_le DESC LIMIT 5`);
   if (rows.length > 0) {
     console.log(`\n${P} ── DERNIERS ÉCHECS DÉFINITIFS RATTACHÉS ──`);
     for (const r of rows) {
