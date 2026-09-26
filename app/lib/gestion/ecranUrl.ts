@@ -22,7 +22,15 @@
  * LOT ANNUAIRE-1 — `annuaire` s'ajoute aux trois autres. Il n'en remplace aucun et n'en modifie aucun : c'est un
  * quatrième écran, atteint par son propre bouton, qui se referme sur l'écran partagé.
  */
-export type Ecran = 'partage' | 'boite' | 'evenements' | 'annuaire';
+/**
+ * LOT RATTACHEMENT-1 — `a_trier` s'ajoute aux quatre autres. Il n'en remplace aucun et n'en modifie aucun : c'est un
+ * cinquième écran, atteint par son propre bouton, qui se referme sur l'écran partagé.
+ *
+ * ⚠️ NE PAS CONFONDRE avec l'ÉTIQUETTE `a_classer` de la boîte. « À classer » = quels ÉCHANGES restent à poser sur une
+ * carte (flux de travail). « À trier » = quels MAILS n'ont pas de rattachement certain à un logement (archivage). Deux
+ * questions différentes, deux écrans, et c'est justement pour cela qu'on n'a pas ajouté une étiquette de plus.
+ */
+export type Ecran = 'partage' | 'boite' | 'evenements' | 'annuaire' | 'a_trier';
 
 /**
  * Les étiquettes de la boîte. `carte` est la seule à porter un identifiant : les autres sont des vues fixes.
@@ -94,7 +102,7 @@ export const ETAT_DEFAUT: EtatEcranUrl = {
   ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null, fiche: null,
 };
 
-const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire'];
+const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier'];
 const SORTES_FIXES: readonly SorteEtiquette[] = [
   'reception', 'a_classer', 'envoyes', 'sans_suite', 'automatique', 'brouillons',
   // LOT 5-BOITE-3 — la corbeille est une étiquette comme les autres : elle vit dans l'adresse, donc elle se

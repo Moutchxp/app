@@ -19,6 +19,7 @@ import { Conversation } from './Conversation';
 import { ColonneMode } from './ColonneMode';
 import { PleinEcranBoite, type EtiquetteAffichee } from './PleinEcranBoite';
 import { Annuaire } from './Annuaire';
+import { FileATrier } from './FileATrier';
 import type { ContexteRedactionEcran } from './Redaction';
 
 /**
@@ -374,6 +375,15 @@ export function GestionVue({ intro }: {
               Annuaire
             </button>
           )}
+          {/* LOT RATTACHEMENT-1 — LA FILE « À TRIER », atteignable depuis n'importe quel écran, comme l'annuaire. Elle
+              ne remplace rien : ni l'étiquette « À classer » de la boîte (quels ÉCHANGES poser sur une carte), ni les
+              cartes. Elle répond à une autre question : quels MAILS n'ont pas de rattachement certain. */}
+          {ecran !== 'a_trier' && (
+            <button type="button" className="svv-btn svv-btn-outline gst-btn"
+              onClick={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'a_trier' }); }}>
+              À trier
+            </button>
+          )}
         </span>
       </div>
 
@@ -399,7 +409,13 @@ export function GestionVue({ intro }: {
 
       {/* LOT 5-FUSION — LES TROIS ÉCRANS. Une conversation ouverte occupe l'écran partagé, comme depuis le lot 5b ;
           en plein écran elle a sa propre colonne. C'est la MÊME vue dans les deux cas. */}
-      {ecran === 'annuaire' ? (
+      {ecran === 'a_trier' ? (
+        <FileATrier
+          onRetour={() => aller({ ...ETAT_DEFAUT })}
+          /* Lire l'échange avant de trancher : on part dans la boîte, où vit la conversation en pleine page. */
+          onOuvrirFil={(id) => aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id })}
+          onGeste={(m) => setGeste({ ton: 'ok', texte: m })} />
+      ) : ecran === 'annuaire' ? (
         <Annuaire
           fiche={etatUrl.fiche ?? null}
           onFiche={(f) => aller({ ...etatUrl, fiche: f })}

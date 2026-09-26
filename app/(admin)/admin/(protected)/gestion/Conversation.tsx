@@ -20,6 +20,9 @@ import { heureGmail } from '../../../../lib/gestion/ecran';
 import { lienGmail, libelleEtoile, menuMessage, type ActionMessage } from '../../../../lib/gestion/gmailMenu';
 import { PanneauAffecter } from './PanneauAffecter';
 import { EncartAnnuaire } from './EncartAnnuaire';
+// Le bandeau porte son propre CSS en ligne, comme `EncartAnnuaire` : rien à ajouter à `CSS_CONVERSATION`.
+import { EncartRattachement } from './EncartRattachement';
+import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 
 /**
@@ -178,6 +181,12 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * quelqu'un de l'équipe peut étoiler depuis son téléphone pendant qu'on regarde l'écran.
    */
   const [gmail, setGmail] = useState<Map<number, { etoile: boolean; nonLu: boolean } | null>>(new Map());
+  /**
+   * LOT RATTACHEMENT-1 — les liens de CHAQUE mail de l'échange, demandés en UNE requête pour tout le monde.
+   * `null` = migration 257 absente, ou lecture en échec : le bandeau ne s'affiche alors pas du tout, et le reste de
+   * la conversation est exactement celui d'avant ce lot.
+   */
+  const [rattachements, setRattachements] = useState<Map<number, LienAffiche[]> | null>(null);
 
   const recharger = useCallback(async () => {
     setVue({ v: 'charge' });
@@ -188,6 +197,31 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   }, [filId]);
 
   useEffect(() => { void recharger(); }, [recharger]);
+
+  /**
+   * LES RATTACHEMENTS DE L'ÉCHANGE, en une requête.
+   *
+   * ⚠️ SILENCE VOLONTAIRE EN CAS D'ÉCHEC. Le rattachement est un renseignement ici : une erreur rouge au-dessus d'un
+   * mail ferait croire que le mail lui-même a un problème. Le bandeau disparaît, et rien d'autre ne change.
+   */
+  const chargerRattachements = useCallback(async (ids: readonly number[]) => {
+    if (ids.length === 0) { setRattachements(new Map()); return; }
+    try {
+      const res = await fetch(`/api/admin/gestion/rattachements?messages=${ids.join(',')}`, { cache: 'no-store' });
+      const d = (await res.json()) as { etat?: string; data?: Record<string, LienAffiche[]> };
+      if (d.etat !== 'ok') { setRattachements(null); return; }
+      setRattachements(new Map(Object.entries(d.data ?? {}).map(([k, v]) => [Number(k), v])));
+    } catch {
+      setRattachements(null);
+    }
+  }, []);
+
+  const idsMessages = vue.v === 'ok' ? vue.messages.map((m) => m.messageId) : [];
+  // Une clé STABLE : sans elle, un tableau recréé à chaque rendu relancerait la requête en boucle.
+  const cleMessages = idsMessages.join(',');
+  useEffect(() => {
+    void chargerRattachements(cleMessages === '' ? [] : cleMessages.split(',').map(Number));
+  }, [cleMessages, chargerRattachements]);
 
   /**
    * LOT 5-BOITE-3 — la voie demandée depuis la liste, appliquée UNE FOIS la conversation chargée : le brouillon se
@@ -494,6 +528,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             onActionMessage={barreActions ? (a) => void agirSurLeMessage(a, m) : undefined}
             onDeplacer={() => setDeplacer(m.messageId)}
             onRemettre={() => void agirSurLeMail(m.messageId, null, onGeste)}
+            /* LOT RATTACHEMENT-1 — « Rattaché à … », dans le mail OUVERT. `null` = 257 absente : aucun bandeau. */
+            rattachements={rattachements === null ? null : (rattachements.get(m.messageId) ?? [])}
+            onRattachement={() => chargerRattachements(idsMessages)}
+            onGesteRattachement={(t) => onGeste(t)}
             panneau={deplacer === m.messageId ? (
               <DeplacerVers titre="Déplacer ce mail vers" exclure={null}
                 onAnnuler={() => setDeplacer(null)}
@@ -617,6 +655,7 @@ function ouvrirRedaction(
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null,
+  rattachements = null, onRattachement, onGesteRattachement,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
   /**
@@ -643,6 +682,14 @@ export function MessageConversation({
   onRepondre?: (voie: VoieRedaction) => void;
   /** Une entrée du menu « ⋮ » qui n'est ni « déplacer » ni « détacher » — celles-là gardent leurs rappels d'origine. */
   onActionMessage?: (a: ActionMessage) => void;
+  /**
+   * LOT RATTACHEMENT-1 — les liens de CE mail, déjà chargés par la conversation. `null` (le défaut) = aucun bandeau :
+   * c'est le cas des écrans qui n'ont pas besoin des rattachements, et celui d'une migration 257 non appliquée.
+   */
+  rattachements?: readonly LienAffiche[] | null;
+  /** Recharge les liens de l'échange après un geste. Absent = le bandeau reste en lecture. */
+  onRattachement?: () => void | Promise<void>;
+  onGesteRattachement?: (message: string) => void;
 }) {
   const [actions, setActions] = useState(false);
   const propositions = statut ? actionsDuStatut(statut) : { declencheur: null, actions: [] };
@@ -764,6 +811,14 @@ export function MessageConversation({
             <dt>Date</dt>
             <dd>{dateHeureComplete(message.recuLe)}</dd>
           </dl>
+
+          {/* LOT RATTACHEMENT-1 — DE QUOI CE MAIL PARLE-T-IL ? Juste sous l'en-tête, avant le texte : c'est une
+              donnée du mail, pas un commentaire sur son contenu. Il ne s'affiche que si la conversation a pu lire les
+              rattachements (migration 257 appliquée) — sinon rien, et le message est exactement celui d'avant. */}
+          {onRattachement && (
+            <EncartRattachement messageId={message.messageId} liens={rattachements}
+              onChange={onRattachement} onGeste={onGesteRattachement} />
+          )}
 
           {etat.v === 'texte' && lisible !== null && (
             <>

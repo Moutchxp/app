@@ -406,12 +406,22 @@ export interface ContactAffiche { sorte: 'telephone' | 'email'; valeur: string; 
 
 export interface LigneResultat {
   lotId: number | null;
+  /** La clé WIPPIMMO du lot — c'est elle, et non `lotId`, qui sert de cible de rattachement (lot RATTACHEMENT-1). */
   lotNumero: string | null;
   adresse: string | null;
   commune: string | null;
   nature: string | null;
   typeBien: string | null;
   proprietaireId: number | null;
+  /**
+   * LOT RATTACHEMENT-1 — la clé WIPPIMMO du propriétaire. AJOUTÉE, rien n'est retiré : `proprietaireId`
+   * (l'identifiant interne, qui ouvre la fiche) reste à sa place et garde exactement le même usage.
+   *
+   * 🔴 POURQUOI LES DEUX. Une cible de rattachement se désigne par sa clé WIPPIMMO, la seule identité qui survive à
+   * un ré-import de l'annuaire — un identifiant interne, lui, peut changer. Sans cette colonne, l'écran devrait
+   * deviner la clé, ou faire une requête de plus par ligne de résultat.
+   */
+  proprietaireCle: string | null;
   proprietaireNom: string;
   locataireId: number | null;
   locataireNom: string | null;
@@ -487,6 +497,7 @@ export async function rechercher(t: TermeRecherche): Promise<IssueLecture<Result
     lot_id: string | null; lot_numero: string | null; adresse: string | null; commune: string | null;
     nature: string | null; type_bien: string | null; proprietaire_id: string | null; proprietaire_nom: string;
     locataire_id: string | null; locataire_nom: string | null; locataire_depuis: string | null; absent: boolean;
+    proprietaire_cle: string | null;
   }>(
     `WITH contacts_trouves AS (
        SELECT sujet, sujet_id FROM gestion_annuaire_contact
@@ -527,7 +538,10 @@ export async function rechercher(t: TermeRecherche): Promise<IssueLecture<Result
             lo.type_bien, pr.id::text AS proprietaire_id,
             coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom,
             oc.locataire_id::text AS locataire_id, oc.nom AS locataire_nom, oc.entree::text AS locataire_depuis,
-            (lo.absent_le IS NOT NULL) AS absent
+            (lo.absent_le IS NOT NULL) AS absent,
+            -- LOT RATTACHEMENT-1 — la clé WIPPIMMO du propriétaire, ajoutée EN DERNIER : l'ORDER BY positionnel
+            --   plus bas (4, 3, 8) reste donc valable, et les trois branches de l'UNION gardent le même alignement.
+            pr.wippimmo_id AS proprietaire_cle
        FROM gestion_annuaire_lot lo
        JOIN lots_vises v ON v.id = lo.id
        LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
@@ -536,7 +550,7 @@ export async function rechercher(t: TermeRecherche): Promise<IssueLecture<Result
      UNION ALL
      -- ② LES PROPRIÉTAIRES SANS AUCUN LOT qui répondent quand même : ils sont dans l'annuaire, on les montre.
      SELECT NULL, NULL, pr.adresse, pr.commune, NULL, NULL, pr.id::text, pr.nom_complet,
-            NULL, NULL, NULL, (pr.absent_le IS NOT NULL)
+            NULL, NULL, NULL, (pr.absent_le IS NOT NULL), pr.wippimmo_id
        FROM gestion_annuaire_proprietaire pr
       WHERE NOT EXISTS (SELECT 1 FROM gestion_annuaire_lot x WHERE x.proprietaire_id = pr.id)
         AND (pr.nom_normalise LIKE $1 OR pr.adresse_normalisee LIKE $1
@@ -545,7 +559,7 @@ export async function rechercher(t: TermeRecherche): Promise<IssueLecture<Result
      UNION ALL
      -- ③ LES LOCATAIRES DONT AUCUN BAIL NE VISE UN LOT CONNU (lot hors gestion) : même raison.
      SELECT NULL, NULL, lc.adresse, lc.commune, NULL, NULL, NULL, '',
-            lc.id::text, lc.nom, NULL, (lc.absent_le IS NOT NULL)
+            lc.id::text, lc.nom, NULL, (lc.absent_le IS NOT NULL), NULL
        FROM gestion_annuaire_locataire lc
       WHERE NOT EXISTS (SELECT 1 FROM gestion_annuaire_occupation o WHERE o.locataire_id = lc.id AND o.lot_id IS NOT NULL)
         AND (lc.nom_normalise LIKE $1 OR lc.adresse_normalisee LIKE $1
@@ -564,6 +578,7 @@ export async function rechercher(t: TermeRecherche): Promise<IssueLecture<Result
         lotNumero: r.lot_numero,
         adresse: r.adresse, commune: r.commune, nature: r.nature, typeBien: r.type_bien,
         proprietaireId: r.proprietaire_id === null ? null : Number(r.proprietaire_id),
+        proprietaireCle: r.proprietaire_cle,
         proprietaireNom: r.proprietaire_nom,
         locataireId: r.locataire_id === null ? null : Number(r.locataire_id),
         locataireNom: r.locataire_nom,

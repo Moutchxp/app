@@ -303,6 +303,22 @@ export function adressesMessagesDisponibles(): Promise<boolean> {
   return memoiser('table.gestion_message_adresse', () => tableExiste('gestion_message_adresse'));
 }
 
+/**
+ * LOT RATTACHEMENT-1 — la migration 257 est-elle appliquée ? Elle seule porte les RATTACHEMENTS d'un mail (lots,
+ * propriétaires, événements) et le mémo d'examen qui alimente la file de tri.
+ *
+ * 🔴 TANT QU'ELLE MANQUE, LE MODULE EST EXACTEMENT CELUI D'AVANT. Le bandeau « Rattaché à » ne s'affiche pas, la
+ * file « À trier » dit « pas encore installée », et AUCUNE requête ne nomme les tables absentes — ce qui ferait
+ * échouer toute la conversation, pas seulement le bandeau nouveau (incident du 24/09/2026). Rien n'est retiré :
+ * l'affectation aux cartes, le classement, les pièces jointes, l'annuaire fonctionnent à l'identique.
+ *
+ * On sonde la table des rattachements : la migration crée les deux tables dans UNE transaction, elles arrivent
+ * donc ensemble.
+ */
+export function rattachementsDisponibles(): Promise<boolean> {
+  return memoiser('table.gestion_rattachement', () => tableExiste('gestion_rattachement'));
+}
+
 /** LOT 5e — la migration 241 (délai d'annulation réglable) est-elle appliquée ? Sinon le délai vaut son défaut. */
 export function delaiAnnulationDisponible(): Promise<boolean> {
   return memoiser('config.annulation_envoi_secondes', () => colonneExiste('gestion_config', 'annulation_envoi_secondes'));
