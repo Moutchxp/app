@@ -190,6 +190,43 @@ describe('🔴 les garanties des commandes du lot', () => {
     expect(releve).not.toMatch(/method:\s*'(POST|PATCH|PUT|DELETE)'/);
   });
 
+  /**
+   * ═══ 🔴 LE DÉFAUT DU 26/09/2026 : UNE PASSE QUI MEURT AU BOUT D'UNE HEURE ══════════════════════════════════════
+   * La passe n° 4 a démarré à 12:45:06, copié 2 199 pièces sans une seule erreur, réussi sa dernière à 13:45:07 —
+   * UNE HEURE ET UNE SECONDE plus tard — puis échoué onze fois de suite et s'est arrêtée. Un jeton d'accès Google
+   * vaut 3 600 secondes ; il était pris UNE FOIS avant la boucle, et sa chaîne promenée jusqu'à la dernière requête.
+   *
+   * CE QUI RENDAIT LE DÉFAUT INVISIBLE : les passes d'essai étaient bornées à 20 pièces et duraient moins d'une
+   * minute. Il ne pouvait apparaître qu'à la première passe faite pour DURER — celle de la nuit, qui doit tenir
+   * seize heures. Elle serait morte seize fois, et chaque fois après avoir travaillé une heure pour rien.
+   *
+   * CE TEST EST CELUI QUI L'AURAIT ATTRAPÉ : il exige que le jeton soit redemandé DANS la boucle, et que les appels
+   * Drive de chaque pièce emploient CELUI-LÀ. Redemander ne coûte rien — `jetonPourSubject` sert son cache et ne
+   * parle à Google qu'une fois par heure (éprouvé dans `driveDelegue.test.ts`).
+   */
+  it('🔴 la copie REDEMANDE son jeton à chaque pièce — un jeton Google ne vaut qu’une heure', () => {
+    const copie = sansCommentaires(readFileSync('app/scripts/copier-pieces-drive.ts', 'utf8'));
+    expect(copie).toContain('const jetonFrais =');
+
+    /**
+     * ⚠️ ON ANCRE SUR LA BOUCLE DE COPIE, ET PAS SUR LA PREMIÈRE `for (const d of aFaire)` DU FICHIER : il y en a
+     * DEUX, et la première ne fait que compter les pièces par période. Couper au premier `for` faisait entrer dans
+     * la tranche la ligne d'`assurerArrivee`, qui emploie légitimement le jeton du début — le test échouait alors
+     * sur du code correct. L'arrêt propre est le repère immédiat de la vraie boucle.
+     */
+    const boucle = copie.slice(copie.indexOf("process.on('SIGTERM', () => surSignal('SIGTERM'));"));
+    expect(boucle).toContain('await jetonFrais()');
+
+    // 🔴 ET LES APPELS DRIVE DE LA BOUCLE EMPLOIENT LE JETON FRAIS, jamais celui pris avant la boucle.
+    expect(boucle).not.toContain('jeton.jeton');
+    for (const appel of ['dossierArrivee(', 'corbeillerFichier(', 'copierPiece(']) {
+      const i = boucle.indexOf(appel);
+      expect(i, appel).toBeGreaterThan(0);
+      // Le jeton frais apparaît dans les quelques lignes qui suivent l'appel (ses arguments).
+      expect(boucle.slice(i, i + 400), appel).toContain('jt.jeton');
+    }
+  });
+
   it('aucune de ces commandes n’efface quoi que ce soit sur MinIO', () => {
     for (const [nom, src] of [['production', production], ['deplacer', deplacer], ['releve', releve]] as const) {
       const imports = src.match(/import\s*\{[^}]*\}\s*from\s*'[^']*stockage[^']*'/g) ?? [];

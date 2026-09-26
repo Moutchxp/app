@@ -195,7 +195,36 @@ async function principal(): Promise<void> {
   console.log(`${P} passe ${passeId} ouverte (verrou posé) · pid ${process.pid}`);
 
   // ── LE JETON ────────────────────────────────────────────────────────────────────────────────────────────────
-  const jeton = await jetonPourSubject(o.compte, { fetch });
+  /**
+   * 🔴 UN JETON DEMANDÉ À CHAQUE PIÈCE, ET NON UNE FOIS POUR TOUTE LA PASSE.
+   *
+   * ═══ LE DÉFAUT, MESURÉ LE 26/09/2026 ════════════════════════════════════════════════════════════════════════
+   * La passe n° 4 a démarré à 12:45:06, copié 2 199 pièces (1,2 Go) sans une seule erreur, réussi sa dernière à
+   * 13:45:07 — soit UNE HEURE ET UNE SECONDE plus tard — puis échoué onze fois de suite et s'est arrêtée. Un jeton
+   * d'accès Google vaut 3 600 secondes. Il était pris une seule fois, ici, et sa CHAÎNE était promenée jusqu'à la
+   * dernière requête : passé la première heure, chaque envoi partait avec un jeton périmé.
+   *
+   * CE QUI RENDAIT LE DÉFAUT INVISIBLE : les passes n° 1 à 3 étaient bornées à 20 pièces et duraient moins d'une
+   * minute. Le défaut ne pouvait apparaître qu'à la première passe faite pour durer — celle de la nuit, justement,
+   * qui doit tourner seize heures. Elle serait morte seize fois.
+   *
+   * CE QUI LE PROUVE : les pièces sur lesquelles la passe n° 4 a échoué (2297 et suivantes) ont été copiées sans
+   * difficulté par la passe n° 5 deux heures plus tard, avec un jeton neuf. Ce n'était donc ni une pièce fautive,
+   * ni un quota, ni un droit refusé ; et le Mac n'a pas dormi (`caffeinate` a tenu 1 h 07 d'affilée).
+   *
+   * ⚠️ REDEMANDER NE COÛTE RIEN. `jetonPourSubject` garde le jeton en mémoire avec une marge de 60 secondes : sur
+   * 24 000 pièces, elle ne signera une attestation et ne parlera à Google qu'une fois par heure. Les 23 999 autres
+   * appels sont une lecture de cache.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const jetonFrais = async (): Promise<{ ok: true; jeton: string } | { ok: false; motif: string }> => {
+    const j = await jetonPourSubject(o.compte, { fetch });
+    return j.ok ? { ok: true, jeton: j.jeton } : { ok: false, motif: j.motif };
+  };
+
+  // Le premier appel sert aussi de contrôle : une délégation mal configurée doit arrêter la passe TOUT DE SUITE,
+  //   avec son motif, plutôt qu'au bout de dix échecs.
+  const jeton = await jetonFrais();
   if (!jeton.ok) {
     await clore(passeId, 'echec', jeton.motif, compteurs);
     console.error(`\n${P} ❌ ${jeton.motif}\n`);
@@ -242,9 +271,20 @@ async function principal(): Promise<void> {
     const p = parPiece.get(d.pieceId);
     if (p === undefined || p.cleStockage === null) { compteurs.sansContenu += 1; continue; }
 
+    // ── LE JETON DE CETTE PIÈCE — lu au cache, renouvelé de lui-même une fois par heure (voir `jetonFrais`) ──
+    const jt = await jetonFrais();
+    if (!jt.ok) {
+      compteurs.echecs += 1;
+      echecsConsecutifs += 1;
+      console.error(`${P}   ❌ pièce ${d.pieceId} : jeton Drive indisponible — ${jt.motif}`);
+      if (echecsConsecutifs >= ECHECS_CONSECUTIFS_MAX) { arret = motifArret({ echecsConsecutifs, restantes: 0, limiteAtteinte: false }) ?? 'trop d’échecs'; break; }
+      await respirerCopie(deps, attenteApresEchec(echecsConsecutifs));
+      continue;
+    }
+
     // ── Le dossier d'arrivée de CETTE période ──
     const arrivee = await dossierArrivee(
-      p.date, racineArrivee, noeuds, parCle, jeton.jeton, deps, () => { compteurs.dossiers += 1; });
+      p.date, racineArrivee, noeuds, parCle, jt.jeton, deps, () => { compteurs.dossiers += 1; });
     const dossier = arrivee.ok ? arrivee.dossier : null;
     if (dossier === null) {
       if (!arrivee.ok) console.error(`${P}   ❌ ${arrivee.motif}`);
@@ -261,7 +301,7 @@ async function principal(): Promise<void> {
       const ancien = connus.get(d.pieceId);
       const r = await corbeillerFichier(
         { driveFileId: c.corbeille, parentDriveId: ancien?.driveDossierId ?? dossier.driveId },
-        indexer(noeuds), jeton.jeton, deps);
+        indexer(noeuds), jt.jeton, deps);
       if (!r.ok) console.error(`${P}   ⚠️ pièce ${d.pieceId} : ancienne copie non mise à la corbeille — ${r.motif}`);
       else compteurs.refaites += 1;
     }
@@ -302,7 +342,7 @@ async function principal(): Promise<void> {
         parentDriveId: dossier.driveId, nom, description, typeMime: p.typeMime, octets, md5Attendu: md5,
         proprietes: proprietesPiece(d.pieceId, d.messageId, p, proposition),
       },
-      indexer(noeuds), jeton.jeton, deps);
+      indexer(noeuds), jt.jeton, deps);
 
     if (!r.ok) {
       compteurs.echecs += 1;
