@@ -320,6 +320,21 @@ export function rattachementsDisponibles(): Promise<boolean> {
 }
 
 /**
+ * LOT DRIVE-3 — la migration 260 est-elle appliquée ? Elle porte le REGISTRE du vidage : quelles pièces n'ont plus
+ * leur contenu dans MinIO, et vers quel fichier Drive l'application doit lire à leur place.
+ *
+ * 🔴 SANS ELLE, L'APPLICATION SERT LES PIÈCES DEPUIS MinIO EXACTEMENT COMME AVANT, et la commande de vidage refuse
+ * de s'exécuter — elle n'aurait nulle part où inscrire la preuve de ce qu'elle efface, et un effacement sans preuve
+ * est un effacement qu'on ne peut pas défendre.
+ *
+ * ⚠️ LA SONDE EST CONSULTÉE AVANT CHAQUE LECTURE DE PIÈCE. Elle ne mémorise que le « oui » (cf. `sondeSchema`) : la
+ * migration peut être appliquée pendant que l'écran est ouvert, et le téléchargement suivant en tiendra compte.
+ */
+export function vidageDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_piece_vidage', () => tableExiste('gestion_piece_vidage'));
+}
+
+/**
  * LOT COPIE-SURV — la migration 259 est-elle appliquée ? Elle porte les MOTIFS d'échec de la copie, un par ligne.
  *
  * 🔴 ELLE NE CONDITIONNE RIEN, ET C'EST ESSENTIEL. Une passe de copie tourne peut-être en ce moment, avec le code

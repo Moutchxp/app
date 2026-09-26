@@ -144,7 +144,15 @@ describe('servir une pièce', () => {
   it('rend la clé de stockage au SERVEUR (c’est lui qui ira chercher les octets)', async () => {
     queryMock.mockResolvedValue({ rows: [{ cle_stockage: 'gestion/2026/09/c.pdf', nom_fichier: 'c.pdf', type_mime: 'application/pdf' }] });
     expect(await lirePieceAServir(7)).toEqual({ cleStockage: 'gestion/2026/09/c.pdf', nomFichier: 'c.pdf', typeMime: 'application/pdf' });
-    expect(params(0)).toEqual([7]);
+    /**
+     * LOT DRIVE-3 — ON CHERCHE LA REQUÊTE QUI LIT LA PIÈCE, pas la première émise. Les SONDES DE SCHÉMA
+     * (`vidageDisponible`, `copiePiecesDisponible`) passent d'abord, sans paramètre : figer l'indice 0 revenait à
+     * figer le nombre de sondes, et le test cassait à chaque sonde ajoutée sans rien apprendre sur le comportement.
+     * Ce qui compte est que l'identifiant demandé soit bien celui qu'on a reçu — et qu'il ne soit demandé qu'une fois.
+     */
+    const demandes = queryMock.mock.calls.filter((c) => JSON.stringify(c[1]) === '[7]');
+    expect(demandes).toHaveLength(1);
+    expect(sqls().find((s) => s.includes('gestion_piece'))).toBeDefined();
   });
 
   it('pièce jamais déposée (aucune clé) → null : il n’y a rien à servir, et on ne prétend pas le contraire', async () => {

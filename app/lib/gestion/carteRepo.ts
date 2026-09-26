@@ -14,6 +14,10 @@
 import { query } from '../db/client';
 import { ATTEND, ctesAttente, jointuresAttente } from './attente';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
+// ⚠️ UN SEUL IMPORT DE `./schema`, STATIQUE. `destinatairesSeparesDisponibles` était chargée dynamiquement au
+//   milieu d'une fonction (lot 5b) : deux façons d'importer le même module, donc deux endroits à tenir. Le garde
+//   d'imports de ce fichier a attrapé le doublon dès qu'un second besoin de sonde est apparu (lot DRIVE-3).
+import { copiePiecesDisponible, destinatairesSeparesDisponibles, vidageDisponible } from './schema';
 
 export interface FilDeCarte {
   filId: number;
@@ -338,7 +342,6 @@ export async function lireMessagesDuFil(
   // LOT 5b — LES MESSAGES ÉCARTÉS SONT DÉSORMAIS RENDUS, à leur place chronologique. Ils restent HORS DE LA FILE DE
   //   TRI (fileRepo n'est pas touché, ses compteurs non plus) : c'est la logique de Gmail, qui range les promotions
   //   ailleurs sans les retirer de la conversation. Sans eux, un fil montrait une réponse sans la question.
-  const { destinatairesSeparesDisponibles } = await import('./schema');
   const avecDest = await destinatairesSeparesDisponibles();
   const { rows } = await query<{
     message_id: number; message_id_rfc: string; sens: string; de_adresse: string; de_nom: string | null; recu_le: string;
@@ -462,10 +465,46 @@ async function lireMailsPartis(filId: number): Promise<MailParti[]> {
  */
 export async function lirePieceAServir(pieceId: number): Promise<{
   cleStockage: string; nomFichier: string; typeMime: string | null;
+  /**
+   * LOT DRIVE-3 — le contenu a-t-il quitté MinIO ? Vrai ⇒ la route lit dans le Drive, à la même adresse et sous le
+   * même nom. `cleStockage` est TOUJOURS rendue : elle n'est jamais effacée de la base, et elle sert au journal.
+   */
+  stockageVide: boolean;
+  /** L'identifiant du fichier Drive vers lequel lire. Renseigné dès qu'une copie VÉRIFIÉE existe. */
+  driveFileId: string | null;
+  /** L'empreinte enregistrée à la copie — la route la compare à ce que Drive lui rend. */
+  md5Attendu: string | null;
 } | null> {
-  const { rows } = await query<{ cle_stockage: string | null; nom_fichier: string; type_mime: string | null }>(
-    `SELECT cle_stockage, nom_fichier, type_mime FROM gestion_piece WHERE id = $1`, [pieceId]);
+  /**
+   * 🔴 UNE SEULE REQUÊTE, ET DEUX SONDES AVANT ELLE. `gestion_piece_vidage` (migration 260) et la colonne
+   * `origine` de `gestion_piece_drive` (migration 255) peuvent manquer : nommer l'une ou l'autre sans l'avoir
+   * sondée ferait échouer TOUT téléchargement, y compris ceux qui marchaient la minute d'avant.
+   *
+   * 🔒 LA COPIE LUE EST CELLE QUE NOUS AVONS FAITE (`origine = 'copie'`), et elle seule. Un dépôt manuel dans un
+   * dossier client n'autorise AUCUNE lecture de remplacement : rien ne garantit qu'il soit encore là, et surtout il
+   * peut vivre dans « Documents clients scannés », que ce lot ne touche sous aucune forme.
+   */
+  const avecVidage = await vidageDisponible();
+  const avecCopie = await copiePiecesDisponible();
+
+  const { rows } = await query<{
+    cle_stockage: string | null; nom_fichier: string; type_mime: string | null;
+    vide: boolean; drive_file_id: string | null; md5: string | null;
+  }>(
+    `SELECT p.cle_stockage, p.nom_fichier, p.type_mime,
+            ${avecVidage ? 'EXISTS (SELECT 1 FROM gestion_piece_vidage v WHERE v.piece_id = p.id)' : 'false'} AS vide,
+            ${avecCopie ? 'd.drive_file_id' : 'NULL::text'} AS drive_file_id,
+            ${avecCopie ? 'd.md5' : 'NULL::text'} AS md5
+       FROM gestion_piece p
+       ${avecCopie
+    ? `LEFT JOIN gestion_piece_drive d
+                ON d.piece_id = p.id AND d.origine = 'copie' AND d.verifie_le IS NOT NULL`
+    : ''}
+      WHERE p.id = $1`, [pieceId]);
   const p = rows[0];
   if (!p || !p.cle_stockage) return null; // pièce inconnue, ou jamais déposée : dans les deux cas, rien à servir
-  return { cleStockage: p.cle_stockage, nomFichier: p.nom_fichier, typeMime: p.type_mime };
+  return {
+    cleStockage: p.cle_stockage, nomFichier: p.nom_fichier, typeMime: p.type_mime,
+    stockageVide: p.vide, driveFileId: p.drive_file_id, md5Attendu: p.md5,
+  };
 }

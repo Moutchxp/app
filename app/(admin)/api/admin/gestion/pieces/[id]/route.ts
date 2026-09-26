@@ -2,6 +2,10 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { lirePieceAServir } from '../../../../../../lib/gestion/carteRepo';
 import { recuperer } from '../../../../../../lib/stockage';
+import { jetonPourSubject } from '../../../../../../lib/gestion/driveDelegue';
+import {
+  lienDrive, lireContenuDrive, messageIndisponible,
+} from '../../../../../../lib/gestion/pieceDriveLecture';
 
 /**
  * /api/admin/gestion/pieces/[id] (lot 4c) — LES OCTETS D'UNE PIÈCE JOINTE, servis PAR L'APPLICATION.
@@ -21,12 +25,32 @@ import { recuperer } from '../../../../../../lib/stockage';
  *
  * `inline` par défaut (on consulte sans rien enregistrer) ; `?telecharger=1` bascule en `attachment` avec le MÊME nom.
  * Runtime Node (driver pg + client S3).
+ *
+ * ═══ 🔴 LOT DRIVE-3 — LE CONTENU PEUT VENIR DU DRIVE, ET L'UTILISATEUR NE LE VOIT PAS ════════════════════════════
+ * Quand le contenu d'une pièce a quitté MinIO parce que sa copie Drive est prouvée, cette route lit dans le Drive et
+ * sert exactement la même chose : même nom, même type, mêmes octets, même contrôle d'accès. Tout au plus un délai.
+ *
+ * 🔒 ELLE NE LIT QUE NOS PROPRES COPIES. L'identifiant vient de `gestion_piece_drive` avec `origine = 'copie'` —
+ * des fichiers que le programme a créés dans « 00 Arrivée des mails », derrière le double garde-fou. « Documents
+ * clients scannés » n'est jamais approché, et aucune écriture Drive n'est émise d'ici.
+ *
+ * ⚠️ `?depuis=drive` FORCE LA LECTURE CÔTÉ DRIVE même si MinIO a encore le contenu. C'est ce qui permet d'éprouver ce
+ * chemin AVANT le premier vidage, sur une pièce présente aux deux endroits — et de comparer les deux empreintes.
+ *
+ * 🔴 UNE LECTURE DRIVE QUI ÉCHOUE NE DIT JAMAIS « INTROUVABLE ». La pièce existe, sa copie existe : ce qui a échoué
+ * est la lecture, à l'instant. On le dit, avec le lien vers la copie, pour que la personne puisse aller la chercher
+ * elle-même plutôt que de croire le document perdu.
  */
 export const runtime = 'nodejs';
 
 const CACHE_PRIVE = 'private, no-store';
 /** Type par défaut : un type inconnu ne doit pas être INTERPRÉTÉ par le navigateur (pas d'exécution d'un HTML piégé). */
 const TYPE_PAR_DEFAUT = 'application/octet-stream';
+/**
+ * Au nom de qui lire le Drive. La MÊME adresse que la copie (`copier-pieces-drive.ts`) : c'est elle qui a créé les
+ * fichiers, c'est elle qui peut les relire. Écrite une fois — deux valeurs finiraient par diverger.
+ */
+const COMPTE_DRIVE = 'gestion@criterimmo.fr';
 
 type Contexte = { params: Promise<{ id: string }> };
 
@@ -47,6 +71,42 @@ function disposition(nomFichier: string, telechargement: boolean): string {
   return `${telechargement ? 'attachment' : 'inline'}; filename="${nom}"`;
 }
 
+/**
+ * LES OCTETS, LUS DANS LE DRIVE. Rend un `Buffer`, ou de quoi expliquer l'échec à un humain.
+ *
+ * 🔒 L'IDENTIFIANT VIENT DE NOTRE REGISTRE DE COPIES, jamais d'une requête. C'est ce qui garantit qu'on ne lit que
+ * dans « 00 Arrivée des mails ».
+ */
+async function lireDepuisDrive(piece: {
+  driveFileId: string | null; md5Attendu: string | null; nomFichier: string;
+}): Promise<Buffer | { message: string; lien: string | null }> {
+  if (piece.driveFileId === null) {
+    return {
+      message: 'Pièce momentanément indisponible : aucune copie Drive vérifiée n’est enregistrée pour elle.',
+      lien: null,
+    };
+  }
+  const jeton = await jetonPourSubject(COMPTE_DRIVE, { fetch });
+  if (!jeton.ok) return { message: messageIndisponible(piece.driveFileId, jeton.motif), lien: lienDrive(piece.driveFileId) };
+
+  const r = await lireContenuDrive(piece.driveFileId, jeton.jeton, { fetch });
+  if (!r.ok) return { message: messageIndisponible(piece.driveFileId, r.motif), lien: lienDrive(piece.driveFileId) };
+
+  /**
+   * 🔴 ON COMPARE L'EMPREINTE DE CE QU'ON VIENT DE RECEVOIR à celle enregistrée lors de la copie. Un fichier
+   * remplacé dans le Drive depuis la copie donnerait des octets différents sous le même nom : les servir sans
+   * rien dire serait le pire des silences. On les refuse, et on renvoie vers la copie.
+   */
+  if (piece.md5Attendu !== null && r.md5.toLowerCase() !== piece.md5Attendu.toLowerCase()) {
+    return {
+      message: messageIndisponible(
+        piece.driveFileId, 'le fichier du Drive ne porte plus la même empreinte que la pièce d’origine'),
+      lien: lienDrive(piece.driveFileId),
+    };
+  }
+  return r.octets;
+}
+
 export async function GET(request: Request, ctx: Contexte): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return sansCache(refus);
@@ -59,8 +119,22 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
     // Pièce inconnue ET pièce jamais déposée donnent le MÊME 404 : la réponse ne renseigne pas sur ce qui existe.
     if (!piece) return erreur('Cette pièce jointe n’est pas disponible.', 404);
 
-    const octets = await recuperer(piece.cleStockage);
-    const telechargement = new URL(request.url).searchParams.get('telecharger') === '1';
+    const params = new URL(request.url).searchParams;
+    const telechargement = params.get('telecharger') === '1';
+    // `?depuis=drive` : éprouver le chemin Drive sur une pièce encore présente dans les deux endroits.
+    const forcerDrive = params.get('depuis') === 'drive';
+
+    const octets = (piece.stockageVide || forcerDrive)
+      ? await lireDepuisDrive(piece)
+      : await recuperer(piece.cleStockage);
+
+    // 🔴 LA LECTURE DRIVE A ÉCHOUÉ : on le DIT, avec le lien. Jamais un 404, jamais un écran vide.
+    if (!(octets instanceof Buffer) && !(octets instanceof Uint8Array)) {
+      return Response.json(
+        { erreur: octets.message, lienDrive: octets.lien },
+        { status: 503, headers: { 'Cache-Control': CACHE_PRIVE } });
+    }
+
     return new Response(new Uint8Array(octets), {
       headers: {
         'Content-Type': piece.typeMime || TYPE_PAR_DEFAUT,
@@ -68,6 +142,8 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
         'Cache-Control': CACHE_PRIVE,
         // Le navigateur ne doit pas re-deviner le type : un `.txt` renommé ne devient pas du HTML exécutable.
         'X-Content-Type-Options': 'nosniff',
+        // D'où viennent les octets. Utile pour éprouver le chemin, et pour comprendre un délai inhabituel.
+        'X-Source-Contenu': (piece.stockageVide || forcerDrive) ? 'drive' : 'stockage',
       },
     });
   } catch (e) {

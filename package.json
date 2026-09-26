@@ -97,7 +97,10 @@
     "gestion:drive:empreintes-production": "tsx app/scripts/empreintes-production-drive.ts",
     "gestion:rattachement:proposer": "tsx app/scripts/proposer-rattachements.ts",
     "gestion:rattachement:epreuve": "tsx app/scripts/rattachement-epreuve.ts",
-    "gestion:copie:epreuve": "tsx app/scripts/copie-epreuve.ts"
+    "gestion:copie:epreuve": "tsx app/scripts/copie-epreuve.ts",
+    "gestion:drive:vider-stockage": "tsx app/scripts/vider-stockage.ts",
+    "gestion:vidage:epreuve": "tsx app/scripts/vidage-epreuve.ts",
+    "gestion:vidage:preuve-drive": "tsx app/scripts/vidage-preuve-drive.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",
