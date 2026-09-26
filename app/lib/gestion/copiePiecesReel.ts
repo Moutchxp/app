@@ -296,6 +296,48 @@ export async function depotsConnus(): Promise<Map<number, { driveFileId: string;
   return m;
 }
 
+/**
+ * UN APPEL À DRIVE QUI RÉESSAIE CE QUI SE RÉPARE EN ATTENDANT.
+ *
+ * 🔴 CORRECTIF DU 26/09/2026, MESURÉ : l'inventaire de production s'est arrêté net à 22 000 fichiers sur un
+ * `ECONNRESET` — une connexion TLS tombée après un quart d'heure de parcours. La panne a duré une seconde et a
+ * coûté quinze minutes de travail. Une exception de `fetch` (connexion coupée, DNS, délai dépassé) est aussi
+ * transitoire qu'un 429 : elle mérite le même réessai, avec la même attente croissante.
+ *
+ * ⚠️ ON NE RÉESSAIE QUE CE QUI SE RÉPARE. Un 403 « droit refusé » ou un 404 ne deviendront pas vrais parce qu'on
+ * insiste — insister masquerait le vrai motif.
+ */
+async function appelerAvecReessai(
+  url: string, init: RequestInit, deps: DepsCopie,
+): Promise<{ ok: true; corps: Record<string, unknown> } | { ok: false; motif: string }> {
+  const attendre = deps.attendre ?? dormir;
+  let attente = 1_000;
+
+  for (let essai = 0; essai <= 5; essai += 1) {
+    let reponse: Response;
+    try {
+      reponse = await deps.fetch(url, init);
+    } catch (e) {
+      if (essai === 5) return { ok: false, motif: `Drive injoignable après 6 essais : ${(e as Error).message}` };
+      await attendre(attente);
+      attente *= 2;
+      continue;
+    }
+    if (reponse.ok) return { ok: true, corps: (await reponse.json()) as Record<string, unknown> };
+
+    const texte = await reponse.text().catch(() => '');
+    const ralenti = reponse.status === 429
+      || (reponse.status === 403 && /rateLimitExceeded|userRateLimitExceeded|quotaExceeded/i.test(texte))
+      || reponse.status >= 500;
+    if (!ralenti || essai === 5) {
+      return { ok: false, motif: `Drive a répondu ${reponse.status} : ${texte.slice(0, 200)}` };
+    }
+    await attendre(attente);
+    attente *= 2;
+  }
+  return { ok: false, motif: 'Drive n’a pas répondu après plusieurs essais.' };
+}
+
 /** Un motif LISIBLE, avec le début du corps de la réponse : « HTTP 403 » seul n'apprend rien. */
 async function motif(res: Response, quoi: string): Promise<string> {
   const texte = await res.text().catch(() => '');
@@ -437,9 +479,11 @@ export async function inventorierDossier(
         fields: 'nextPageToken, files(id,name,mimeType,md5Checksum,size)',
       });
       if (page !== null) p.set('pageToken', page);
-      const res = await deps.fetch(`${API}/files?${p}`, { headers: { Authorization: `Bearer ${jeton}` } });
-      if (!res.ok) return { ok: false, motif: await motif(res, 'l’inventaire de production') };
-      const j = (await res.json()) as {
+      // 🔴 PAR `appeler`, ET NON PAR UN `fetch` NU : c'est lui qui réessaie sur coupure réseau et sur 429/5xx.
+      //   Un parcours d'un quart d'heure DOIT absorber une connexion qui tombe.
+      const r = await appelerAvecReessai(`${API}/files?${p}`, { method: 'GET', headers: { Authorization: `Bearer ${jeton}` } }, deps);
+      if (!r.ok) return { ok: false, motif: `inventaire interrompu — ${r.motif}` };
+      const j = r.corps as {
         nextPageToken?: string;
         files?: { id: string; name: string; mimeType: string; md5Checksum?: string; size?: string }[];
       };

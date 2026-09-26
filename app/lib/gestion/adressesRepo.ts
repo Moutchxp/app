@@ -13,7 +13,7 @@
 import { query } from '../db/client';
 import { adressesMessagesDisponibles } from './schema';
 import {
-  reconnaitre, releverAdresses, type ContactConnu, type OccupationConnue,
+  adressesDuChamp, reconnaitre, releverAdresses, type ContactConnu, type OccupationConnue,
 } from './adressesMessage';
 import type { AdresseEchange } from './propositionTri';
 
@@ -74,17 +74,6 @@ export async function chargerAnnuaireAdresses(): Promise<{
   };
 }
 
-/** Une colonne JSON lue sans jamais lever : une valeur abîmée ne doit pas arrêter 56 000 messages. */
-function adresses(brut: string | null): string[] {
-  if (brut === null || brut.trim() === '') return [];
-  try {
-    const j = JSON.parse(brut) as unknown;
-    return Array.isArray(j) ? j.map((x) => String(x)) : [];
-  } catch {
-    return [];
-  }
-}
-
 /**
  * RELÈVE LES ADRESSES D'UN PAQUET DE MESSAGES, à partir de `depuis` (exclu). Rend le dernier identifiant traité,
  * ou `null` quand il n'y a plus rien.
@@ -110,9 +99,9 @@ export async function releverPaquet(
   for (const m of rows) {
     const relevees = releverAdresses({
       de: m.de,
-      destA: adresses(m.dest_a),
-      destCc: adresses(m.dest_cc),
-      repondreA: adresses(m.repondre_a),
+      destA: adressesDuChamp(m.dest_a),
+      destCc: adressesDuChamp(m.dest_cc),
+      repondreA: adressesDuChamp(m.repondre_a),
       corps: m.corps ?? '',
     }, annuaire.adresseGestion, annuaire.partenaires);
 

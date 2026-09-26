@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  adresseDe, estInterne, expediteurTransfere, reconnaitre, releverAdresses,
+  adresseDe, adressesDuChamp, estInterne, expediteurTransfere, reconnaitre, releverAdresses,
   type AdresseRelevee, type ContactConnu, type OccupationConnue,
 } from './adressesMessage';
 
@@ -33,6 +33,56 @@ describe('🔴 ① extraire une adresse, sous toutes ses formes', () => {
   it('ce qui n’est pas une adresse rend null', () => {
     for (const non of ['', '   ', 'Jean Dupont', 'sans arobase', '@fictif.fr', 'jean@']) {
       expect(adresseDe(non), non).toBeNull();
+    }
+  });
+});
+
+/**
+ * 🔴 CORRECTIF DU 26/09/2026, TROUVÉ EN MESURANT SUR LES VRAIES DONNÉES. Les colonnes `dest_a`, `dest_cc` et
+ * `repondre_a` contiennent des OBJETS `{nom, adresse}`, pas des chaînes. Le code faisait `String(x)`, ce qui
+ * donnait « [object Object] » : les 56 789 messages qui ont un destinataire n'en avaient AUCUN de relevé, et le
+ * moteur de tri du lot précédent ne pouvait jamais juger un mail ENVOYÉ (qui n'est jugé que sur eux).
+ * Le défaut était SILENCIEUX — aucune erreur, juste un tableau vide. Ce test l'interdit désormais.
+ */
+describe('🔴 lire une colonne jsonb de destinataires', () => {
+  it('la forme RÉELLE : des objets { nom, adresse }', () => {
+    expect(adressesDuChamp('[{"nom": "Jean PONS", "adresse": "jb.pons@fictif.fr"}]'))
+      .toEqual(['Jean PONS <jb.pons@fictif.fr>']);
+    expect(adresseDe(adressesDuChamp('[{"nom": "Jean PONS", "adresse": "jb.pons@fictif.fr"}]')[0]))
+      .toBe('jb.pons@fictif.fr');
+  });
+
+  it('un objet SANS nom donne l’adresse nue', () => {
+    expect(adressesDuChamp('[{"adresse": "a@fictif.fr"}]')).toEqual(['a@fictif.fr']);
+    expect(adressesDuChamp('[{"nom": "  ", "adresse": "a@fictif.fr"}]')).toEqual(['a@fictif.fr']);
+  });
+
+  it('la forme CHAÎNE est acceptée aussi — si la capture change un jour, rien ne casse', () => {
+    expect(adressesDuChamp('["a@fictif.fr", "Jean <b@fictif.fr>"]'))
+      .toEqual(['a@fictif.fr', 'Jean <b@fictif.fr>']);
+  });
+
+  it('plusieurs destinataires sont tous rendus, dans l’ordre', () => {
+    expect(adressesDuChamp('[{"adresse":"a@f.fr"},{"adresse":"b@f.fr"},{"adresse":"c@f.fr"}]'))
+      .toHaveLength(3);
+  });
+
+  it('une clé « email » plutôt que « adresse » est acceptée', () => {
+    expect(adressesDuChamp('[{"email": "a@fictif.fr"}]')).toEqual(['a@fictif.fr']);
+  });
+
+  it('🔴 ne lève JAMAIS : vide, nul, JSON abîmé, objet sans adresse, valeur non tableau', () => {
+    for (const non of ['', '   ', 'null', '[]', '{pas du json', '{"a":1}', '["", null]', '[{"nom":"X"}]', '[42]']) {
+      expect(() => adressesDuChamp(non), non).not.toThrow();
+      expect(adressesDuChamp(non), non).toEqual(expect.any(Array));
+    }
+    expect(adressesDuChamp(null)).toEqual([]);
+    expect(adressesDuChamp(undefined)).toEqual([]);
+  });
+
+  it('🔴 un objet ne donne JAMAIS « [object Object] » — c’était tout le défaut', () => {
+    for (const a of adressesDuChamp('[{"nom":"X","adresse":"x@fictif.fr"}]')) {
+      expect(a).not.toContain('[object Object]');
     }
   });
 });

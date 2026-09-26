@@ -63,6 +63,43 @@ export function adresseDe(brut: string): string | null {
   return trouve === null ? null : normaliserEmail(trouve[0]);
 }
 
+/**
+ * LES ADRESSES D'UNE COLONNE `jsonb` DE DESTINATAIRES.
+ *
+ * 🔴 CORRECTIF DU 26/09/2026, MESURÉ SUR LES VRAIES DONNÉES. Ces colonnes (`dest_a`, `dest_cc`, `repondre_a`) ne
+ * contiennent PAS des chaînes mais des OBJETS : `[{"nom": "Jean PONS", "adresse": "jb.pons@…"}]`. Le code lisait
+ * `String(x)`, ce qui donnait « [object Object] » — et les 56 789 messages qui ont un destinataire n'en ont donc
+ * jamais eu aucun de relevé. Le défaut était SILENCIEUX : aucune erreur, juste un tableau vide.
+ *
+ * Les DEUX formes sont acceptées ici, définitivement : une chaîne, ou un objet qui porte une `adresse`. Si le
+ * jour vient où la capture écrit des chaînes, rien ne cassera.
+ *
+ * ⚠️ NE LÈVE JAMAIS : une valeur abîmée ne doit pas arrêter le relevé de 56 000 messages.
+ */
+export function adressesDuChamp(brut: string | null | undefined): string[] {
+  const s = (brut ?? '').trim();
+  if (s === '' || s === 'null' || s === '[]') return [];
+  let j: unknown;
+  try {
+    j = JSON.parse(s);
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(j)) return [];
+  const out: string[] = [];
+  for (const x of j) {
+    if (typeof x === 'string') { out.push(x); continue; }
+    if (x !== null && typeof x === 'object') {
+      const o = x as { adresse?: unknown; email?: unknown; nom?: unknown };
+      const a = typeof o.adresse === 'string' ? o.adresse : typeof o.email === 'string' ? o.email : null;
+      if (a === null) continue;
+      // Le NOM est recollé quand il existe : `adresseDe` en tire l'adresse, et `adresseBrute` garde le tout.
+      out.push(typeof o.nom === 'string' && o.nom.trim() !== '' ? `${o.nom} <${a}>` : a);
+    }
+  }
+  return out;
+}
+
 /** Une de NOS adresses ? Le partenaire interne (comptabilité externalisée) en fait partie : il est des deux côtés. */
 export function estInterne(adresse: string, adresseGestion: string, partenaires: readonly string[] = []): boolean {
   const a = adresse.trim().toLowerCase();

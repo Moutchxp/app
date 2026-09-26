@@ -16,6 +16,7 @@
  */
 import { query } from '../db/client';
 import { nomBien, nomProprietaire } from './driveArbre';
+import { adressesDuChamp } from './adressesMessage';
 import type { AnnuaireTri, LotTri, PieceATrier, ProprietaireTri } from './triPieces';
 
 /**
@@ -49,16 +50,12 @@ export interface ContexteTri {
   nomsProprietaires: Map<string, string>;
 }
 
-/** Une colonne JSON de destinataires, lue sans jamais lever : une valeur abîmée ne doit pas arrêter 26 000 pièces. */
-function adresses(brut: string | null): string[] {
-  if (brut === null || brut.trim() === '') return [];
-  try {
-    const j = JSON.parse(brut) as unknown;
-    return Array.isArray(j) ? j.map((x) => String(x)) : [];
-  } catch {
-    return [];
-  }
-}
+/**
+ * 🔴 CORRECTIF DU 26/09/2026 : la lecture des destinataires vit désormais dans `adressesMessage`, et elle accepte
+ * la forme RÉELLE de ces colonnes — des objets `{nom, adresse}`, pas des chaînes. Le code précédent produisait
+ * « [object Object] » et perdait SILENCIEUSEMENT tous les destinataires : la règle (a) du tri ne pouvait donc
+ * jamais s'appliquer à un mail ENVOYÉ, qui n'est jugé que sur eux.
+ */
 
 /** CHARGE TOUT ce que le tri demande. LECTURE SEULE. */
 export async function chargerContexteTri(adresseAgence = ADRESSE_AGENCE_DEFAUT): Promise<ContexteTri> {
@@ -143,7 +140,7 @@ export async function chargerContexteTri(adresseAgence = ADRESSE_AGENCE_DEFAUT):
     pieceId: Number(r.piece_id), messageId: Number(r.message_id),
     filId: r.fil_id === null ? null : Number(r.fil_id),
     date: r.recu_le, sens: r.sens === 'envoye' ? 'envoye' : 'recu',
-    expediteur: r.de_adresse, destinataires: [...adresses(r.dest_a), ...adresses(r.dest_cc)],
+    expediteur: r.de_adresse, destinataires: [...adressesDuChamp(r.dest_a), ...adressesDuChamp(r.dest_cc)],
     objet: r.objet ?? '', corps: r.corps ?? '', evenementAdresse: r.evenement_adresse,
     stockee: r.cle_stockage !== null,
     taille: Number(r.taille), cleStockage: r.cle_stockage, nomFichier: r.nom_fichier, typeMime: r.type_mime,

@@ -138,6 +138,21 @@ describe('🔴 les garanties des commandes du lot', () => {
   const releve = sansCommentaires(readFileSync('app/scripts/relever-adresses.ts', 'utf8'));
   const reel = sansCommentaires(readFileSync('app/lib/gestion/copiePiecesReel.ts', 'utf8'));
 
+  /**
+   * 🔴 MESURÉ le 26/09/2026 : l'inventaire s'est arrêté à 22 000 fichiers sur un `ECONNRESET`. Un parcours d'un
+   * quart d'heure doit absorber une connexion qui tombe — sinon une panne d'une seconde coûte tout le travail.
+   */
+  it('🔴 l’inventaire réessaie les coupures RÉSEAU, pas seulement les codes HTTP', () => {
+    expect(reel).toContain('appelerAvecReessai');
+    // La branche `catch` du fetch doit réessayer, et non rendre un échec immédiat.
+    const bloc = reel.slice(reel.indexOf('async function appelerAvecReessai'));
+    expect(bloc.slice(0, bloc.indexOf('if (reponse.ok)'))).toContain('continue;');
+    // Et l'inventaire l'emploie, plutôt qu'un `fetch` nu.
+    const inv = reel.slice(reel.indexOf('export async function inventorierDossier'));
+    expect(inv).toContain('appelerAvecReessai');
+    expect(inv.slice(0, inv.indexOf('return { ok: true, fichiers'))).not.toContain('deps.fetch(');
+  });
+
   it('🔒 l’inventaire de production n’émet AUCUNE écriture Drive', () => {
     expect(production).not.toMatch(/method:\s*'(POST|PATCH|PUT|DELETE)'/);
     // Et il ne demande que des métadonnées : jamais `alt=media`, qui téléchargerait le contenu.
