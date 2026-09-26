@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CarteEvenement, EtatEcran, LigneFile } from '../../../../lib/gestion/fileRepo';
 import {
   depuis, etatVeille, formaterDateFr, libelleEtat, LIBELLE_CLASSER, mentionTroncature, messageErreurHttp,
@@ -22,6 +22,9 @@ import { Annuaire } from './Annuaire';
 import { FileATrier } from './FileATrier';
 import { etatSuite } from '../../../../lib/gestion/suiteReleve';
 import { etatCopie } from '../../../../lib/gestion/copieArretee';
+import {
+  aRafraichir, empreinteSuivante, peutBattre, PERIODE_BATTEMENT_MS, type Empreinte,
+} from '../../../../lib/gestion/rafraichir';
 import { HistoriqueCible } from './HistoriqueCible';
 import { cibleDepuisTexte, texteCible } from '../../../../lib/gestion/historique';
 import type { ContexteRedactionEcran } from './Redaction';
@@ -198,8 +201,99 @@ export function GestionVue({ intro }: {
     setVue(r);
   }, [lire]);
 
+  /**
+   * ══ LOT ÉCRAN-VIVANT — LE RAFRAÎCHISSEMENT DISCRET ═══════════════════════════════════════════════════════════
+   * Le MÊME chargement que `charger`, MOINS les deux choses qui se voient :
+   *   · il ne referme AUCUN panneau ouvert — personne n'a cliqué, rien ne doit se replier sous les doigts ;
+   *   · il ne passe PAS par « chargement » — sinon l'écran clignoterait toutes les 30 secondes.
+   * Il remplace les données en place, et c'est tout. Un mail ouvert, un brouillon en cours, une recherche tapée
+   * vivent dans des composants enfants qui ne sont pas remontés : rien de cela n'est touché.
+   */
+  const rafraichirDiscret = useCallback(async () => {
+    const r = await lire();
+    setMaintenant(new Date());
+    // ⚠️ ON N'ÉCRASE PAS UN ÉCHEC PAR UN ÉCHEC : si la lecture rate alors que l'écran affiche déjà des données,
+    //   on garde ce qui est affiché. Un battement qui échoue ne doit pas vider l'écran de quelqu'un qui travaille.
+    setVue((avant) => (r.etat === 'ok' || avant.etat !== 'ok' ? r : avant));
+  }, [lire]);
+
   // LOT 3 — une passe réussie change ce qui est à l'écran : on recharge, sans recharger la page.
   const { enCours: releveEnCours, message: releveMsg, releverMaintenant } = useReleveGestion(() => { void charger(); });
+
+  /**
+   * ══ 🔴 LOT ÉCRAN-VIVANT — LE BATTEMENT : L'ÉCRAN SE MET À JOUR TOUT SEUL ══════════════════════════════════════
+   * LE DÉFAUT RÉPARÉ, constaté le 26/09/2026. Arno signale « la relève automatique ne fonctionne pas ». Elle
+   * fonctionnait : 83 messages étiquetés depuis la veille, 83 en base, aucun manquant. C'est cet écran qui ne
+   * bougeait pas — chargé UNE FOIS au montage, et plus jamais. Il répétait « dernière passe il y a 46 s » une heure
+   * durant, et la Réception restait figée sur le dernier mail connu au chargement.
+   *
+   * ⚠️ DEUX HORLOGES, ET IL FAUT LES DEUX :
+   *   · `maintenant` avance à CHAQUE battement, même quand rien n'a changé — sans quoi « il y a 46 s » reste écrit
+   *     indéfiniment. Il ne coûte aucune requête ;
+   *   · les DONNÉES ne se relisent que si l'empreinte a changé (1,2 ms mesuré, contre une lecture complète de la
+   *     file, des cartes, des compteurs, de la veille et de la copie).
+   *
+   * 🔴 CE QUI EMPÊCHE LA BOUCLE DE RENDU QUI A SATURÉ LA MÉMOIRE DANS `BoiteMail` :
+   *   ① `empreinteSuivante` rend la MÊME référence quand rien n'a bougé — aucun rendu inutile, aucun effet relancé ;
+   *   ② l'empreinte vit dans une RÉFÉRENCE (`useRef`), pas dans un état : la comparer ne déclenche aucun rendu ;
+   *   ③ l'effet ne dépend QUE de fonctions mémoïsées et d'une période constante — il est posé UNE fois, et son
+   *      `clearInterval` est rendu dans tous les cas ;
+   *   ④ rien ne s'accumule : on remplace, on n'ajoute jamais.
+   */
+  const empreinte = useRef<Empreinte | null>(null);
+  const enVol = useRef(false);
+  /** Ce que le battement a vu arriver sans pouvoir le montrer. Remis à zéro dès que la liste se recharge. */
+  const [courrierNouveau, setCourrierNouveau] = useState(0);
+
+  useEffect(() => {
+    let vivant = true;
+
+    const battre = async (): Promise<void> => {
+      if (!vivant || enVol.current) return;
+      if (!peutBattre({
+        visible: typeof document === 'undefined' || document.visibilityState !== 'hidden',
+        chargementEnCours: false, gesteEnCours, releveEnCours,
+      })) return;
+
+      enVol.current = true;
+      try {
+        const res = await fetch('/api/admin/gestion/empreinte', { cache: 'no-store' });
+        if (!res.ok || !vivant) return;
+        const apres = (await res.json()) as Empreinte;
+        if (!vivant || typeof apres.messageMax !== 'number') return;
+
+        const avant = empreinte.current;
+        const quoi = aRafraichir(avant, apres);
+        empreinte.current = avant === null ? apres : empreinteSuivante(avant, apres);
+
+        // L'HEURE AVANCE À CHAQUE BATTEMENT. C'est le correctif du « il y a 46 s » figé, et il ne coûte rien.
+        setMaintenant(new Date());
+        if (quoi.donnees) {
+          if (avant !== null && apres.messageMax > avant.messageMax) {
+            setCourrierNouveau((n) => n + (apres.messageMax - avant.messageMax));
+          }
+          await rafraichirDiscret();
+        }
+      } catch {
+        // Silence volontaire : l'écran garde ce qu'il affiche. Un battement raté n'est pas une panne à annoncer.
+      } finally {
+        enVol.current = false;
+      }
+    };
+
+    const minuterie = setInterval(() => { void battre(); }, PERIODE_BATTEMENT_MS);
+    // Un onglet qui redevient visible a peut-être manqué des battements (le navigateur les ralentit) : on rattrape
+    //   tout de suite, sinon l'heure affichée serait fausse au retour.
+    const surVisibilite = (): void => { if (document.visibilityState === 'visible') void battre(); };
+    document.addEventListener('visibilitychange', surVisibilite);
+    void battre();   // une première mesure, pour avoir un point de comparaison
+
+    return () => {
+      vivant = false;
+      clearInterval(minuterie);
+      document.removeEventListener('visibilitychange', surVisibilite);
+    };
+  }, [rafraichirDiscret, gesteEnCours, releveEnCours]);
 
   /**
    * LOT 5e — le contexte de rédaction, demandé UNE FOIS au montage. Un échec le laisse à `null` : aucun bouton
@@ -500,6 +594,9 @@ export function GestionVue({ intro }: {
           ecrireA={ecrireA} onEcrireAConsomme={consommerEcrireA}
           onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
           onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
+          /* LOT ÉCRAN-VIVANT — le battement a vu du courrier : la liste se relit si elle peut le faire sans rien
+             perdre, sinon elle l'annonce. Le compteur retombe à zéro dès qu'elle s'est relue. */
+          versionDonnees={courrierNouveau} onListeRelue={() => setCourrierNouveau(0)}
           etiquette={etiquette} etiquettes={etiquettes} filOuvert={filOuvert} maintenant={ref}
           auto={auto} onAuto={setAuto} onNonLus={majNonLus}
           corbeilleDisponible={comptesBoite?.corbeille !== null && comptesBoite?.corbeille !== undefined}

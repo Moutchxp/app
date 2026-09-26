@@ -5,6 +5,7 @@ import type { CurseurBoite, LigneBoite } from '../../../../lib/gestion/boiteRepo
 // 🔴 `rechercheTermes` et NON `rechercheBoite` : le second contient le SQL et tire `pg` → `dns`, que le navigateur
 //   n'a pas. L'importer ici a fait tomber TOUTE l'application le 24/09/2026, page de connexion comprise.
 import { decouperTermes, normaliser } from '../../../../lib/gestion/rechercheTermes';
+import { listePeutSeRecharger, mentionCourrierNouveau } from '../../../../lib/gestion/rafraichir';
 import {
   autoImposeParEtiquette, ETIQUETTE_RECEPTION, etiquetteDepuisTexte, texteEtiquette, type Etiquette,
 } from '../../../../lib/gestion/ecranUrl';
@@ -165,6 +166,7 @@ export function Evidence({ texte, saisie }: { texte: string; saisie: string }) {
 export function BoiteMail({
   onOuvrir, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
   dense = false, onNonLus, marquage, onActionLigne, corbeille = false, peutEcrire = false, piecesDisponibles = false,
+  versionDonnees = 0, onListeRelue,
 }: {
   onOuvrir: (filId: number) => void;
   /** LOT 5-FUSION — l'étiquette ouverte. Absente = la boîte entière, exactement le comportement du lot 5a. */
@@ -210,6 +212,20 @@ export function BoiteMail({
   peutEcrire?: boolean;
   /** LOT 5-PJ-ENVOI — la migration 252 est-elle là ? Pilote « Transférer en tant que pièce jointe ». */
   piecesDisponibles?: boolean;
+  /**
+   * ══ 🔴 LOT ÉCRAN-VIVANT — LE SIGNAL DE FRAÎCHEUR ═════════════════════════════════════════════════════════════
+   * Un nombre que l'écran parent INCRÉMENTE quand il a constaté du courrier nouveau. La liste se relit alors d'
+   * elle-même — mais SEULEMENT si elle peut le faire sans rien détruire.
+   *
+   * ⚠️ CE QU'ON NE DÉTRUIT JAMAIS : une recherche tapée, des pages chargées par « Voir plus ». Dans ces cas la liste
+   * ne bouge pas et l'écran ANNONCE le courrier, en laissant la personne décider. Écraser le travail de quelqu'un
+   * pour lui montrer un mail de plus serait un mauvais échange.
+   *
+   * `0` (le défaut) = aucun battement : la liste se comporte exactement comme avant ce lot.
+   */
+  versionDonnees?: number;
+  /** Prévient le parent que la liste vient de se relire — il peut oublier ce qu'il avait à annoncer. */
+  onListeRelue?: () => void;
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'charge' });
   const [autoInterne, setAutoInterne] = useState(false);
@@ -220,8 +236,27 @@ export function BoiteMail({
   const [saisie, setSaisie] = useState<Critere>(CRITERE_VIDE);
   const [critere, setCritere] = useState<Critere>(CRITERE_VIDE);
   const [filtres, setFiltres] = useState(false);
+  /**
+   * LOT ÉCRAN-VIVANT — combien de pages ont été déroulées par « Voir plus ».
+   *
+   * ⚠️ ON COMPTE LE GESTE, PAS LE NOMBRE DE LIGNES. Déduire « il y a des pages en plus » d'un nombre de lignes
+   * supposerait de connaître la taille d'une page — une constante qui vit dans `boiteRepo`, lequel tire `pg` et ne
+   * peut donc PAS être importé par ce composant client (c'est l'incident du 24/09/2026 qui a fait tomber toute
+   * l'application). Le geste, lui, est ici, et il ne mentira jamais.
+   */
+  const [dePlus, setDePlus] = useState(0);
 
   const cherche = critereActif(critere);
+  /**
+   * LOT ÉCRAN-VIVANT — la liste peut-elle se relire sans détruire le travail en cours ? UNE seule définition, lue par
+   * l'effet ET par la mention : deux conditions finiraient par diverger, et l'écran annoncerait du courrier qu'il
+   * vient d'afficher.
+   */
+  const peutSeRecharger = listePeutSeRecharger({
+    rechercheEnCours: cherche,
+    pagesSupplementaires: dePlus > 0,
+    selectionEnCours: false,   // la liste ne porte pas encore de sélection multiple
+  });
   // L'interrupteur est PILOTÉ s'il l'est, interne sinon. Et l'étiquette peut l'imposer : voir `autoImposeParEtiquette`.
   //   ⚠️ Pas PENDANT une recherche : celle-ci traverse les étiquettes, donc l'étiquette n'a plus voix au chapitre et
   //   l'interrupteur redevient maître — un bouton qui ne fait rien est pire qu'un bouton absent.
@@ -236,6 +271,8 @@ export function BoiteMail({
 
   const premiere = useCallback(async (avecAuto: boolean, c: Critere, e: Etiquette) => {
     setEtat({ v: 'charge' });
+    // LOT ÉCRAN-VIVANT — on repart de la première page : ce qui avait été déroulé par « Voir plus » ne l'est plus.
+    setDePlus(0);
     const r = await chargerPage(null, avecAuto, c, e);
     if ('erreur' in r) { setEtat({ v: 'erreur', m: r.erreur }); return; }
     setEtat({
@@ -247,6 +284,25 @@ export function BoiteMail({
 
   // `cleEtiquette` plutôt que l'objet : deux objets égaux mais distincts relanceraient la lecture à chaque rendu.
   useEffect(() => { void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette)); }, [premiere, auto, critere, cleEtiquette]);
+
+  /**
+   * ══ 🔴 LOT ÉCRAN-VIVANT — LA LISTE SE RELIT QUAND DU COURRIER ARRIVE, SI ELLE PEUT LE FAIRE SANS RIEN PERDRE ══
+   *
+   * ⚠️ `pagesSupplementaires` SE DÉDUIT DU NOMBRE DE LIGNES AFFICHÉES : au-delà d'une page, c'est que quelqu'un a
+   * cliqué « Voir plus ». Relire la première page lui reprendrait tout ce qu'il a déroulé.
+   *
+   * 🔴 AUCUN RISQUE DE BOUCLE : cet effet ne dépend que de `versionDonnees` (un nombre qui ne change que sur décision
+   * du parent) et de valeurs dérivées stables. Il n'écrit jamais `versionDonnees`, et `premiere` est mémoïsée sans
+   * dépendance. La boucle qui a saturé la mémoire venait d'un état recréé à chaque rendu ; il n'y en a aucun ici.
+   */
+  useEffect(() => {
+    if (!versionDonnees) return;                                  // 0 ou absent : comportement d'avant ce lot
+    if (!peutSeRecharger) return;
+    void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette)).then(() => onListeRelue?.());
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : SEUL `versionDonnees` déclenche ce
+    //   rafraîchissement. Ajouter `critere`, `auto` ou `cleEtiquette` ferait doublon avec l'effet ci-dessus, qui les
+    //   surveille déjà — et relirait deux fois la même page à chaque changement d'étiquette.
+  }, [versionDonnees]);
 
   // LOT 5-BOITE — le gras suit le geste, SUR PLACE. `cle` change à chaque marquage ; le contenu, lui, peut être
   //   identique deux fois de suite (rouvrir le même échange), d'où une clé plutôt qu'une comparaison de valeurs.
@@ -276,6 +332,7 @@ export function BoiteMail({
   async function voirPlus() {
     if (etat.v !== 'ok' || etat.suivant === null || suite) return;
     setSuite(true);
+    setDePlus((n) => n + 1);
     const r = await chargerPage(etat.suivant, auto, critere, etiquette);
     setSuite(false);
     if ('erreur' in r) { setEtat({ v: 'erreur', m: r.erreur }); return; }
@@ -307,6 +364,19 @@ export function BoiteMail({
       </h2>
       {/* La recherche traverse les étiquettes : le dire ÉVITE de croire qu'un mail n'existe pas parce qu'on regardait
           ailleurs. C'est la promesse du lot 5c — chercher dans TOUT le courrier de gestion — et elle tient ici. */}
+      {/* ══ 🔴 LOT ÉCRAN-VIVANT — DU COURRIER EST ARRIVÉ, MAIS ON NE PEUT PAS RECHARGER SANS RIEN PERDRE ═════════
+          Une recherche tapée ou des pages déroulées par « Voir plus » disparaîtraient d'un rechargement de la
+          première page. On l'ANNONCE donc, et on laisse la personne décider — ce qui est aussi utile, et jamais
+          brutal. Le bouton fait exactement ce que « Rafraîchir » fait, ni plus ni moins. */}
+      {versionDonnees > 0 && !peutSeRecharger && (
+        <p className="gst-tronc" role="status">
+          {mentionCourrierNouveau(1).replace('Un message est', 'Du courrier est')}{' '}
+          <button type="button" className="gst-lien-bouton"
+            onClick={() => { void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette)).then(() => onListeRelue?.()); }}>
+            Afficher la liste à jour
+          </button>
+        </p>
+      )}
       {cherche && titre !== undefined && (
         <p className="gst-tronc">La recherche porte sur tout le courrier de gestion, pas seulement sur « {titre} ».</p>
       )}

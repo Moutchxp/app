@@ -73,6 +73,7 @@ export function PleinEcranBoite({
   etiquette, etiquettes, onEtiquette, filOuvert, onOuvrir, onFermerFil, maintenant, onGeste, onRetour,
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique,
+  versionDonnees = 0, onListeRelue,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -110,6 +111,9 @@ export function PleinEcranBoite({
   onFicheAnnuaire?: (sorte: 'proprietaire' | 'locataire', id: number) => void;
   /** LOT RATTACHEMENT-2 — ouvre l'historique complet d'une cible, depuis le bandeau « Rattaché à » d'un mail. */
   onHistorique?: (cible: Cible) => void;
+  /** LOT ÉCRAN-VIVANT — incrémenté par l'écran quand du courrier est arrivé. La liste se relit si elle le peut. */
+  versionDonnees?: number;
+  onListeRelue?: () => void;
 }) {
   // Sur téléphone, on arrive sur les ÉTIQUETTES : c'est le sommaire, et on ne tombe pas au milieu d'une liste sans
   //   savoir laquelle. Au montage, donc à chaque entrée en plein écran. Sur grand écran, l'attribut ne change rien.
@@ -366,6 +370,7 @@ export function PleinEcranBoite({
               auto={auto} onAuto={onAuto} filSelectionne={filOuvert} onNonLus={onNonLus} marquage={marquage}
               corbeille={corbeilleDisponible} peutEcrire={peutEcrire} piecesDisponibles={piecesDisponibles}
               onActionLigne={agirSurLigne}
+              versionDonnees={versionDonnees} onListeRelue={onListeRelue}
               onOuvrir={(id) => { defilement.current = window.scrollY; onOuvrir(id); }} />
             </>
           )}
