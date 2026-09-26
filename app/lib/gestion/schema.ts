@@ -319,6 +319,19 @@ export function rattachementsDisponibles(): Promise<boolean> {
   return memoiser('table.gestion_rattachement', () => tableExiste('gestion_rattachement'));
 }
 
+/**
+ * LOT RATTACHEMENT-2 — la migration 258 est-elle appliquée ? Elle porte le VERDICT de l'enchaînement qui suit une
+ * passe de relève (relevé des adresses, puis rattachement), dans trois colonnes distinctes de celles de la relève.
+ *
+ * ⚠️ ELLE NE CONDITIONNE PAS L'ENCHAÎNEMENT LUI-MÊME : celui-ci tourne sans elle, et son issue est alors consignée
+ * dans `gestion_journal` (entité « rattachement », action « suite »). Ce qui manque en son absence, et seulement
+ * cela : la ligne de bandeau qui signale un échec. On sonde `suite_resultat` — les trois colonnes naissent dans UNE
+ * transaction, elles arrivent donc ensemble.
+ */
+export function suiteReleveDisponible(): Promise<boolean> {
+  return memoiser('releve_run.suite_resultat', () => colonneExiste('gestion_releve_run', 'suite_resultat'));
+}
+
 /** LOT 5e — la migration 241 (délai d'annulation réglable) est-elle appliquée ? Sinon le délai vaut son défaut. */
 export function delaiAnnulationDisponible(): Promise<boolean> {
   return memoiser('config.annulation_envoi_secondes', () => colonneExiste('gestion_config', 'annulation_envoi_secondes'));

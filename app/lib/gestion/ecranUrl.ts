@@ -17,20 +17,22 @@
  */
 
 /**
- * Les écrans du module. `partage` = l'écran à deux colonnes, qui reste le point d'entrée.
+ * LES ÉCRANS DU MODULE. `partage` = l'écran à deux colonnes, qui reste le point d'entrée. Chaque lot en a AJOUTÉ un ;
+ * aucun n'en a jamais remplacé ni modifié un autre, et chacun se referme sur l'écran partagé.
  *
- * LOT ANNUAIRE-1 — `annuaire` s'ajoute aux trois autres. Il n'en remplace aucun et n'en modifie aucun : c'est un
- * quatrième écran, atteint par son propre bouton, qui se referme sur l'écran partagé.
- */
-/**
- * LOT RATTACHEMENT-1 — `a_trier` s'ajoute aux quatre autres. Il n'en remplace aucun et n'en modifie aucun : c'est un
- * cinquième écran, atteint par son propre bouton, qui se referme sur l'écran partagé.
+ *   · `partage`, `boite`, `evenements` — lot 5-FUSION ;
+ *   · `annuaire`   — lot ANNUAIRE-1, atteint par son propre bouton ;
+ *   · `a_trier`    — lot RATTACHEMENT-1 : les mails sans rattachement certain ;
+ *   · `historique` — lot RATTACHEMENT-2 : tout ce qui s'est dit à propos d'une cible.
  *
- * ⚠️ NE PAS CONFONDRE avec l'ÉTIQUETTE `a_classer` de la boîte. « À classer » = quels ÉCHANGES restent à poser sur une
- * carte (flux de travail). « À trier » = quels MAILS n'ont pas de rattachement certain à un logement (archivage). Deux
- * questions différentes, deux écrans, et c'est justement pour cela qu'on n'a pas ajouté une étiquette de plus.
+ * ⚠️ NE PAS CONFONDRE `a_trier` AVEC L'ÉTIQUETTE `a_classer` DE LA BOÎTE. « À classer » = quels ÉCHANGES restent à
+ * poser sur une carte (flux de travail). « À trier » = quels MAILS n'ont pas de rattachement certain à un logement
+ * (archivage). Deux questions différentes, deux écrans — c'est pour cela qu'on n'a pas ajouté une étiquette de plus.
+ *
+ * ⚠️ `historique` PORTE UNE CIBLE (`&cible=lot-282`), sans laquelle il ne désigne rien : une adresse
+ * `?ecran=historique` nue rend un écran sans cible, que la vue traite comme toute valeur illisible.
  */
-export type Ecran = 'partage' | 'boite' | 'evenements' | 'annuaire' | 'a_trier';
+export type Ecran = 'partage' | 'boite' | 'evenements' | 'annuaire' | 'a_trier' | 'historique';
 
 /**
  * Les étiquettes de la boîte. `carte` est la seule à porter un identifiant : les autres sont des vues fixes.
@@ -75,6 +77,18 @@ export interface EtatEcranUrl {
    * qui n'a rien à voir avec l'annuaire.
    */
   fiche?: FicheUrl | null;
+  /**
+   * LOT RATTACHEMENT-2 — la cible de l'historique, écrite `lot-282` / `proprio-339` / `carte-12`. `null` ailleurs que
+   * dans l'écran `historique`.
+   *
+   * ⚠️ FACULTATIVE À L'ÉCRITURE, comme `fiche`, et pour la même raison : une trentaine d'appels construisent déjà un
+   * état à la main, et les obliger tous à écrire `cible: null` pour un écran qui n'en a pas serait du bruit — chaque
+   * oubli devenant une erreur de compilation dans du code sans rapport.
+   *
+   * ⚠️ TYPÉE `string | null` ET NON `Cible` : `ecranUrl` est un module PUR sans aucun import, c'est sa garantie depuis
+   * le lot 5-FUSION. La lecture de la cible vit dans `historique.ts` (`cibleDepuisTexte`), qui en est le seul juge.
+   */
+  cible?: string | null;
 }
 
 const SORTES_FICHE: readonly SorteFiche[] = ['proprietaire', 'lot', 'locataire'];
@@ -99,10 +113,10 @@ export const ETIQUETTE_RECEPTION: Etiquette = { sorte: 'reception', evenementId:
 
 /** L'écran par défaut, celui d'une adresse nue : l'écran partagé, sans rien d'ouvert. */
 export const ETAT_DEFAUT: EtatEcranUrl = {
-  ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null, fiche: null,
+  ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null, fiche: null, cible: null,
 };
 
-const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier'];
+const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier', 'historique'];
 const SORTES_FIXES: readonly SorteEtiquette[] = [
   'reception', 'a_classer', 'envoyes', 'sans_suite', 'automatique', 'brouillons',
   // LOT 5-BOITE-3 — la corbeille est une étiquette comme les autres : elle vit dans l'adresse, donc elle se
@@ -159,7 +173,20 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
     filOuvert: identifiant(p.get('fil')),
     // La fiche ne désigne quelque chose QUE dans l'annuaire : la lire ailleurs traînerait un paramètre mort.
     fiche: ecran === 'annuaire' ? ficheDepuisTexte(p.get('fiche')) : null,
+    // LOT RATTACHEMENT-2 — idem pour la cible de l'historique. Elle est rendue TELLE QUELLE (bornée) : c'est
+    //   `cibleDepuisTexte` dans `historique.ts` qui juge si elle désigne quelque chose, et lui seul.
+    cible: ecran === 'historique' ? cibleBrute(p.get('cible')) : null,
   };
+}
+
+/**
+ * La cible portée par une adresse, BORNÉE et sans plus d'interprétation. Une valeur absurde rend `null`, jamais une
+ * erreur. On refuse ce qui ne peut pas être une cible — mais on ne cherche pas à savoir laquelle : ce n'est pas le
+ * rôle de ce fichier, qui doit rester sans aucun import.
+ */
+function cibleBrute(brut: string | null): string | null {
+  const s = (brut ?? '').trim();
+  return s !== '' && s.length <= 70 && /^[A-Za-z0-9_.:+-]+$/.test(s) ? s : null;
 }
 
 /**
@@ -175,6 +202,7 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
   if (e.ecran === 'boite' && !memeEtiquette(e.etiquette, ETIQUETTE_ARRIVEE)) p.set('etiquette', texteEtiquette(e.etiquette));
   if (e.filOuvert !== null) p.set('fil', String(e.filOuvert));
   if (e.ecran === 'annuaire' && e.fiche != null) p.set('fiche', texteFiche(e.fiche));
+  if (e.ecran === 'historique' && e.cible != null && e.cible !== '') p.set('cible', e.cible);
   const s = p.toString();
   return s === '' ? '' : `?${s}`;
 }
@@ -204,5 +232,6 @@ export function memeEtat(a: EtatEcranUrl, b: EtatEcranUrl): boolean {
   return a.ecran === b.ecran && a.filOuvert === b.filOuvert
     && (a.ecran !== 'boite' || memeEtiquette(a.etiquette, b.etiquette))
     && (a.ecran !== 'annuaire' || (a.fiche?.sorte ?? null) === (b.fiche?.sorte ?? null)
-      && (a.fiche?.id ?? null) === (b.fiche?.id ?? null));
+      && (a.fiche?.id ?? null) === (b.fiche?.id ?? null))
+    && (a.ecran !== 'historique' || (a.cible ?? null) === (b.cible ?? null));
 }

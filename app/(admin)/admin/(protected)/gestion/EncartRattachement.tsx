@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { ChoisirCible, CSS_CHOISIR_CIBLE, type CibleChoisie } from './ChoisirCible';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
-import type { Statut } from '../../../../lib/gestion/rattachement';
+import type { Cible, Statut } from '../../../../lib/gestion/rattachement';
 
 /**
  * LOT RATTACHEMENT-1 — « RATTACHÉ À … », DANS CHAQUE MAIL OUVERT.
@@ -30,7 +30,7 @@ import type { Statut } from '../../../../lib/gestion/rattachement';
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` : les types passent par `import type`, effacé à la compilation.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-export function EncartRattachement({ messageId, liens, onChange, onGeste }: {
+export function EncartRattachement({ messageId, liens, onChange, onGeste, onHistorique }: {
   messageId: number;
   /** Les liens vivants de CE mail, chargés par la conversation. `null` = migration 257 absente ou lecture en échec. */
   liens: readonly LienAffiche[] | null;
@@ -38,6 +38,11 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste }: {
   onChange: () => void | Promise<void>;
   /** Prévient l'écran parent qu'un geste a eu lieu, pour son compte rendu. */
   onGeste?: (message: string) => void;
+  /**
+   * LOT RATTACHEMENT-2 — ouvre TOUT l'historique de cette cible. Absent = l'étiquette reste du texte : c'est le cas
+   * d'une conversation rendue DANS une carte, où l'on ne veut pas quitter la carte d'un clic involontaire.
+   */
+  onHistorique?: (cible: Cible) => void;
 }) {
   const [ajout, setAjout] = useState(false);
   const [occupe, setOccupe] = useState(false);
@@ -98,7 +103,16 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste }: {
           {vivants.map((l) => (
             <li key={l.id} className="ert-ligne">
               <span className="ert-sorte">{motSorte(l.cible.sorte)}</span>
-              <span className="ert-nom">{l.libelle}</span>
+              {/* LOT RATTACHEMENT-2 — L'ÉTIQUETTE EST LE POINT D'ENTRÉE de l'historique : un clic, et l'on voit tout
+                  ce qui s'est dit à propos de ce logement. C'est le chemin le plus court depuis un mail qu'on lit. */}
+              {onHistorique
+                ? (
+                  <button type="button" className="ert-lien" onClick={() => onHistorique(l.cible)}
+                    title={`Tout l’historique — ${l.libelle}`}>
+                    {l.libelle}
+                  </button>
+                )
+                : <span className="ert-nom">{l.libelle}</span>}
               {/* D'OÙ VIENT LE LIEN, écrit : le moteur peut se tromper, une personne engage sa décision. */}
               <span className="ert-source">{l.parUnHumain ? 'à la main' : 'automatique'}</span>
               {l.pieceId !== null && <span className="ert-source">cette pièce seulement</span>}
@@ -204,6 +218,10 @@ export const CSS_ENCART_RATTACHEMENT = `
 .ert-sorte{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;
   color:var(--color-svv-muted);flex:0 0 auto}
 .ert-nom{font-weight:700}
+.ert-lien{background:none;border:0;padding:0;margin:0;font:inherit;font-size:.85rem;font-weight:700;
+  color:var(--color-svv-ink);text-decoration:underline;text-underline-offset:3px;cursor:pointer;min-height:44px;
+  text-align:left;overflow-wrap:anywhere}
+.ert-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .ert-source,.ert-motif{font-size:.74rem;color:var(--color-svv-muted)}
 .ert-motif{font-style:italic}
 .ert-defait{font-size:.8rem;font-style:italic;color:var(--color-svv-muted)}

@@ -125,15 +125,27 @@ export async function curseurPasse(): Promise<number> {
 
 export interface MessageDuPaquet { id: number; filId: number }
 
-/** Les messages des `nbFils` fils suivant `depuis`, et toutes les adresses de ces fils. LECTURE SEULE. */
-export async function chargerPaquet(depuis: number, nbFils: number): Promise<{
+export interface Paquet {
   fils: number[];
   messages: MessageDuPaquet[];
   adresses: Map<number, AdresseEchange[]>;
-}> {
+}
+
+/** Les messages des `nbFils` fils suivant `depuis`, et toutes les adresses de ces fils. LECTURE SEULE. */
+export async function chargerPaquet(depuis: number, nbFils: number): Promise<Paquet> {
   const { rows: fils } = await query<{ fil_id: string }>(
     'SELECT DISTINCT fil_id FROM gestion_message WHERE fil_id > $1 ORDER BY fil_id LIMIT $2', [depuis, nbFils]);
-  const ids = fils.map((f) => Number(f.fil_id));
+  return chargerFils(fils.map((f) => Number(f.fil_id)));
+}
+
+/**
+ * LES MESSAGES ET LES ADRESSES DE FILS NOMMÉS UN PAR UN. LECTURE SEULE.
+ *
+ * 🔴 C'EST LE POINT D'ENTRÉE DE LA RELÈVE CONTINUE (lot RATTACHEMENT-2). Elle ne connaît pas de curseur : elle sait
+ * quels fils viennent d'être touchés, et veut les réexaminer ENTIÈREMENT — pas seulement les messages nouveaux. La
+ * raison est la règle b : une réponse qui arrive aujourd'hui peut lever l'ambiguïté d'un mail d'hier resté « proposé ».
+ */
+export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
   if (ids.length === 0) return { fils: [], messages: [], adresses: new Map() };
 
   const { rows: msgs } = await query<{ id: string; fil_id: string }>(
@@ -165,7 +177,7 @@ export async function chargerPaquet(depuis: number, nbFils: number): Promise<{
     });
     adresses.set(fil, liste);
   }
-  return { fils: ids, messages: msgs.map((m) => ({ id: Number(m.id), filId: Number(m.fil_id) })), adresses };
+  return { fils: [...ids], messages: msgs.map((m) => ({ id: Number(m.id), filId: Number(m.fil_id) })), adresses };
 }
 
 // ── L'ÉCRITURE D'UN LIEN ────────────────────────────────────────────────────────────────────────────────────────
@@ -269,7 +281,29 @@ export async function examinerPaquet(
 ): Promise<number | null> {
   const paquet = await chargerPaquet(depuis, nbFils);
   if (paquet.fils.length === 0) return null;
+  await examinerLePaquet(paquet, libelles, c, appliquer);
+  return paquet.fils[paquet.fils.length - 1];
+}
 
+/**
+ * EXAMINE DES FILS NOMMÉS UN PAR UN — le chemin de la relève continue (lot RATTACHEMENT-2).
+ *
+ * 🔴 ELLE RÉEXAMINE LES FILS ENTIERS, pas seulement les messages nouveaux, et c'est le point. Une réponse qui arrive
+ * aujourd'hui peut lever l'ambiguïté d'un mail d'hier resté « proposé » par la règle b. Réexaminer un message déjà
+ * rattaché ne coûte rien (une mise à jour qui ne change rien) et ne défait rien : les garde-fous d'`ecrireLienMoteur`
+ * sont les mêmes pour les deux chemins, parce que c'est la MÊME fonction.
+ */
+export async function examinerFilsPrecis(
+  filIds: readonly number[], libelles: LibellesCibles, c: ComptesPasse, appliquer: boolean,
+): Promise<void> {
+  if (filIds.length === 0) return;
+  await examinerLePaquet(await chargerFils(filIds), libelles, c, appliquer);
+}
+
+/** LE CORPS COMMUN aux deux chemins. Une seule règle d'écriture, donc pas deux comportements possibles. */
+async function examinerLePaquet(
+  paquet: Paquet, libelles: LibellesCibles, c: ComptesPasse, appliquer: boolean,
+): Promise<void> {
   for (const m of paquet.messages) {
     const examen = examinerMessage({
       messageId: m.id,
@@ -322,7 +356,6 @@ export async function examinerPaquet(
   }
 
   c.filsVus += paquet.fils.length;
-  return paquet.fils[paquet.fils.length - 1];
 }
 
 // ── LA LECTURE : LE BANDEAU D'UN MAIL ───────────────────────────────────────────────────────────────────────────

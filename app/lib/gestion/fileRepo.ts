@@ -16,7 +16,8 @@ import { ATTEND, ATTEND_CARTE, CTE_MESSAGES_DEPLACES, cteDernier, ctesAttente, j
 import { chargerConfigGestion } from './config';
 import { toleranceVeilleValide, VEILLE_INTERVALLES_DEFAUT, type VeilleReleve } from './ecran';
 import { adressesDe, libelleExpediteur, lirePartenairesInternes, type PartenaireInterne } from './partenaires';
-import { deplacementsDeMailsDisponibles, reglageVeilleDisponible } from './schema';
+import { deplacementsDeMailsDisponibles, reglageVeilleDisponible, suiteReleveDisponible } from './schema';
+import type { SuiteVue } from './suiteReleve';
 
 /** Une ligne de la FILE (colonne de gauche) : un FIL de discussion, jamais un message isolé. */
 export interface LigneFile {
@@ -61,6 +62,11 @@ export interface EtatEcran {
   derniereReleveLe: string | null; // fin de la dernière relève réussie, ou null si aucune n'a jamais tourné
   /** LOT 5-VEILLE — de quoi dire si la relève AUTOMATIQUE tourne encore. Voir `etatVeille` dans `ecran.ts`. */
   veille: VeilleReleve;
+  /**
+   * LOT RATTACHEMENT-2 — ce que la dernière passe automatique a fait APRÈS l'import (adresses, rattachement).
+   * Tout à `null` = migration 258 absente, ou aucune passe depuis ce lot : le bandeau se tait. Voir `etatSuite`.
+   */
+  suite: SuiteVue;
 }
 
 /** Un échange classé sans suite — assez pour le reconnaître et le rouvrir, rien de plus. */
@@ -258,6 +264,33 @@ export async function lireDernierePasseAuto(): Promise<{ le: string | null; resu
 }
 
 /**
+ * LOT RATTACHEMENT-2 — CE QUE LA DERNIÈRE PASSE AUTOMATIQUE A FAIT *APRÈS* AVOIR RELEVÉ LE COURRIER.
+ *
+ * ⚠️ LU À PART, et surtout PAS ajouté au SELECT de `lireDernierePasseAuto` : celui-ci nomme trois colonnes qui
+ * existent depuis toujours, et y glisser une colonne de la migration 258 ferait échouer la requête — donc perdre
+ * l'alerte de veille elle-même — le temps que la migration soit appliquée. Même précaution que pour
+ * `lireToleranceVeille`, et pour la même raison.
+ *
+ * ⚠️ MIGRATION 258 ABSENTE ⇒ TOUT À `null`, ce qui veut dire « on ne sait pas » et non « tout va bien » : le bandeau
+ * se tait alors, il ne rassure pas.
+ */
+export async function lireSuiteDernierePasse(): Promise<SuiteVue> {
+  if (!await suiteReleveDisponible()) return { resultat: null, detail: null, ms: null };
+  try {
+    const { rows } = await query<{ r: 'ok' | 'erreur' | 'ignore' | null; d: string | null; ms: number | null }>(
+      `SELECT suite_resultat AS r, suite_detail AS d, suite_ms AS ms
+         FROM gestion_releve_run
+        WHERE declencheur = 'planifie' AND resultat IN ('ok', 'erreur') AND termine_le IS NOT NULL
+        ORDER BY termine_le DESC
+        LIMIT 1`);
+    const r = rows[0];
+    return r ? { resultat: r.r, detail: r.d, ms: r.ms } : { resultat: null, detail: null, ms: null };
+  } catch {
+    return { resultat: null, detail: null, ms: null }; // le bandeau se tait plutôt que d'empêcher l'écran de s'afficher
+  }
+}
+
+/**
  * LOT 5-VEILLE — combien d'intervalles de retard avant de crier. RÉGLAGE (migration 249), jamais un chiffre en dur.
  *
  * ⚠️ Lu À PART, et surtout PAS ajouté au SELECT de `chargerConfigGestion` : celui-ci retombe sur un jeu de colonnes
@@ -283,9 +316,9 @@ export async function lireEcran(limite = PAGE): Promise<EtatEcran> {
     chargerConfigGestion(), lirePartenairesInternes(), deplacementsDeMailsDisponibles(),
   ]);
   const ctx: ContexteExpediteurs = { partenaires, adresseGestion: config.adresseGestion, deplacements };
-  const [file, evenements, reperes, sansSuite, auto, tolerance] = await Promise.all([
+  const [file, evenements, reperes, sansSuite, auto, tolerance, suite] = await Promise.all([
     lireFile(config.fenetreActiviteJours, ctx, limite), lireEvenements(ctx), lireReperes(), lireSansSuite(),
-    lireDernierePasseAuto(), lireToleranceVeille(),
+    lireDernierePasseAuto(), lireToleranceVeille(), lireSuiteDernierePasse(),
   ]);
   return {
     file: file.lignes, filsTotal: file.total,
@@ -296,6 +329,7 @@ export async function lireEcran(limite = PAGE): Promise<EtatEcran> {
       derniereLe: auto.le, resultat: auto.resultat, erreur: auto.erreur,
       intervalleS: config.releveContinueSecondes, toleranceIntervalles: tolerance,
     },
+    suite,
     sansSuite: sansSuite.lignes, sansSuiteTotal: sansSuite.total,
     evenements: evenements.cartes, evenementsTotal: evenements.total,
     ...reperes,

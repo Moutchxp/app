@@ -50,6 +50,10 @@ describe('/api/admin/gestion — ce qu’elle rend', () => {
       //   n'est arrivé » de « on ne regarde plus depuis dix heures ». Le taire relancerait exactement l'incident
       //   du 25/09/2026, où l'écran affichait sereinement une file vide.
       veille: { derniereLe: null, resultat: null, erreur: null, intervalleS: 60, toleranceIntervalles: 10 },
+      // LOT RATTACHEMENT-2 — ce que la passe a fait APRÈS l'import (adresses, rattachement) en fait partie aussi.
+      //   Tout à `null` veut dire « on ne sait pas » (migration 258 absente, ou aucune passe depuis ce lot) — et non
+      //   « tout va bien » : c'est la distinction que le bandeau lit pour se taire plutôt que pour rassurer.
+      suite: { resultat: null, detail: null, ms: null },
     });
   });
 

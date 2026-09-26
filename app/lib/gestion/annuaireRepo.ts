@@ -430,7 +430,14 @@ export interface LigneResultat {
 }
 
 export interface FicheProprietaire {
-  id: number; nom: string; civilite: string | null;
+  id: number;
+  /**
+   * LOT RATTACHEMENT-2 — la clé WIPPIMMO. AJOUTÉE, rien n'est retiré : `id` (l'identifiant interne, qui ouvre la
+   * fiche) reste à sa place. C'est la clé, et non l'identifiant, qui désigne une CIBLE de rattachement — la seule
+   * identité qui survive à un ré-import de l'annuaire.
+   */
+  cle: string;
+  nom: string; civilite: string | null;
   adresse: string | null; commune: string | null; codePostal: string | null;
   relationDepuis: string | null; absent: boolean;
   contacts: ContactAffiche[];
@@ -442,7 +449,10 @@ export interface FicheLot {
   id: number; numero: string; nature: string | null; typeBien: string | null; immeuble: string | null;
   adresse: string | null; commune: string | null; codePostal: string | null;
   debut: string | null; fin: string | null; absent: boolean;
-  proprietaireId: number | null; proprietaireNom: string;
+  proprietaireId: number | null;
+  /** LOT RATTACHEMENT-2 — la clé WIPPIMMO du propriétaire. Ajoutée, comme `FicheProprietaire.cle` et pour la même raison. */
+  proprietaireCle: string | null;
+  proprietaireNom: string;
   occupations: { locataireId: number; nom: string; entree: string | null; sortie: string | null; encours: boolean }[];
 }
 
@@ -605,9 +615,10 @@ const contactsDe = async (sujet: 'proprietaire' | 'locataire', sujetId: number):
 export async function ficheProprietaire(id: number): Promise<IssueLecture<FicheProprietaire>> {
   if (!(await annuaireDisponible())) return { etat: 'sans_schema' };
   const { rows } = await query<{
-    id: string; nom_complet: string; civilite: string | null; adresse: string | null; commune: string | null;
-    code_postal: string | null; relation_depuis: string | null; absent_le: string | null;
-  }>(`SELECT id, nom_complet, civilite, adresse, commune, code_postal, relation_depuis::text, absent_le::text
+    id: string; wippimmo_id: string; nom_complet: string; civilite: string | null; adresse: string | null;
+    commune: string | null; code_postal: string | null; relation_depuis: string | null; absent_le: string | null;
+  }>(`SELECT id, wippimmo_id, nom_complet, civilite, adresse, commune, code_postal, relation_depuis::text,
+             absent_le::text
         FROM gestion_annuaire_proprietaire WHERE id = $1`, [id]);
   const p = rows[0];
   if (p === undefined) return { etat: 'inconnu' };
@@ -631,7 +642,8 @@ export async function ficheProprietaire(id: number): Promise<IssueLecture<FicheP
   return {
     etat: 'ok',
     data: {
-      id: Number(p.id), nom: p.nom_complet, civilite: p.civilite, adresse: p.adresse, commune: p.commune,
+      id: Number(p.id), cle: p.wippimmo_id, nom: p.nom_complet, civilite: p.civilite, adresse: p.adresse,
+      commune: p.commune,
       codePostal: p.code_postal, relationDepuis: p.relation_depuis, absent: p.absent_le !== null,
       contacts: await contactsDe('proprietaire', Number(p.id)),
       lots: lots.map((l) => ({
@@ -648,11 +660,13 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
   const { rows } = await query<{
     id: string; wippimmo_id: string; nature: string | null; type_bien: string | null; immeuble: string | null;
     adresse: string | null; commune: string | null; code_postal: string | null; gestion_debut: string | null;
-    gestion_fin: string | null; absent_le: string | null; proprietaire_id: string | null; proprietaire_nom: string;
+    gestion_fin: string | null; absent_le: string | null; proprietaire_id: string | null;
+    proprietaire_cle: string | null; proprietaire_nom: string;
   }>(
     `SELECT lo.id, lo.wippimmo_id, lo.nature, lo.type_bien, lo.immeuble, lo.adresse, lo.commune, lo.code_postal,
             lo.gestion_debut::text, lo.gestion_fin::text, lo.absent_le::text,
-            pr.id::text AS proprietaire_id, coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom
+            pr.id::text AS proprietaire_id, pr.wippimmo_id AS proprietaire_cle,
+            coalesce(pr.nom_complet, lo.proprietaire_texte) AS proprietaire_nom
        FROM gestion_annuaire_lot lo
        LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
       WHERE lo.id = $1`, [id]);
@@ -676,6 +690,7 @@ export async function ficheLot(id: number): Promise<IssueLecture<FicheLot>> {
       adresse: l.adresse, commune: l.commune, codePostal: l.code_postal,
       debut: l.gestion_debut, fin: l.gestion_fin, absent: l.absent_le !== null,
       proprietaireId: l.proprietaire_id === null ? null : Number(l.proprietaire_id),
+      proprietaireCle: l.proprietaire_cle,
       proprietaireNom: l.proprietaire_nom,
       occupations: occ.map((o) => ({
         locataireId: Number(o.locataire_id), nom: o.nom, entree: o.entree, sortie: o.sortie,

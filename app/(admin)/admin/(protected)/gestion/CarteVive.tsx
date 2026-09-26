@@ -8,6 +8,7 @@ import { Conversation, MessageConversation } from './Conversation';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 import type { CarteDetail, FilDeCarte, MailParti, MessageDeFil } from '../../../../lib/gestion/carteRepo';
 import type { CarteEvenement } from '../../../../lib/gestion/fileRepo';
+import type { Cible } from '../../../../lib/gestion/rattachement';
 import { depuis, formaterDateFr, formaterTaille, libelleEtat, libelleSens } from '../../../../lib/gestion/ecran';
 import { statutDuMessage } from '../../../../lib/gestion/statutClassement';
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
@@ -64,10 +65,15 @@ async function chargerMessages(filId: number): Promise<
 }
 
 
-export function CarteVive({ carte, maintenant, onGeste }: {
+export function CarteVive({ carte, maintenant, onGeste, onHistorique }: {
   carte: CarteEvenement;
   maintenant: Date;
   onGeste: Rapport;
+  /**
+   * LOT RATTACHEMENT-2 — ouvre TOUT l'historique de cette carte : ses échanges affectés ET les mails qui lui ont été
+   * rattachés à la main. Absent = aucun bouton, et la carte est exactement celle d'avant ce lot.
+   */
+  onHistorique?: (cible: Cible) => void;
 }) {
   // Le détail, une fois chargé, fait foi sur le résumé : après une correction du « quoi », le titre replié doit dire
   //   le nouveau libellé sans attendre un rechargement de tout l'écran.
@@ -97,15 +103,19 @@ export function CarteVive({ carte, maintenant, onGeste }: {
           </span>
         }
       >
-        {() => <CorpsCarte evenementId={carte.evenementId} maintenant={maintenant} onDetail={setDetail} onGeste={onGeste} />}
+        {() => (
+          <CorpsCarte evenementId={carte.evenementId} maintenant={maintenant} onDetail={setDetail} onGeste={onGeste}
+            onHistorique={onHistorique} />
+        )}
       </BlocRepliable>
     </li>
   );
 }
 
 /** Le contenu d'une carte dépliée. Monté au PREMIER dépliage — c'est là, et seulement là, que la requête part. */
-function CorpsCarte({ evenementId, maintenant, onDetail, onGeste }: {
+function CorpsCarte({ evenementId, maintenant, onDetail, onGeste, onHistorique }: {
   evenementId: number; maintenant: Date; onDetail: (d: CarteDetail) => void; onGeste: Rapport;
+  onHistorique?: (cible: Cible) => void;
 }) {
   const [etatVue, setEtatVue] = useState<VueCarte>({ v: 'charge' });
   const [occupe, setOccupe] = useState(false);
@@ -173,6 +183,15 @@ function CorpsCarte({ evenementId, maintenant, onDetail, onGeste }: {
             onValider={(champs) => void agir(champs, `Événement ${d.reference} mis à jour.`)}
             onAnnuler={() => setEdition(false)} />
         : <ResumeCarte detail={d} maintenant={maintenant} onModifier={() => setEdition(true)} occupe={occupe} />}
+
+      {/* LOT RATTACHEMENT-2 — TOUT L'HISTORIQUE DE CETTE CARTE, d'un clic : ses échanges affectés et les mails qui
+          lui ont été rattachés à la main, sur une seule frise, avec leurs pièces et le filtre par interlocuteur. */}
+      {onHistorique && (
+        <button type="button" className="svv-btn svv-btn-outline gst-btn gst-histo"
+          onClick={() => onHistorique({ sorte: 'evenement', cle: null, id: evenementId })}>
+          Tout l’historique des échanges →
+        </button>
+      )}
 
       <h3 className="gst-sous-titre">
         Échanges rattachés <span className="gst-compte">{d.fils.length}</span>

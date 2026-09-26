@@ -8,6 +8,7 @@ import type {
   FicheLocataire, FicheLot, FicheProprietaire, LigneResultat, ContactAffiche,
 } from '../../../../lib/gestion/annuaireRepo';
 import type { FicheUrl } from '../../../../lib/gestion/ecranUrl';
+import type { Cible } from '../../../../lib/gestion/rattachement';
 
 /**
  * LOT ANNUAIRE-1 — L'ÉCRAN « ANNUAIRE ».
@@ -51,12 +52,17 @@ type Fiche =
  *  long pour ne pas lancer une requête par lettre. */
 const ATTENTE_FRAPPE_MS = 250;
 
-export function Annuaire({ fiche, onFiche, onRetour, onEcrire }: {
+export function Annuaire({ fiche, onFiche, onRetour, onEcrire, onHistorique }: {
   fiche: FicheUrl | null;
   onFiche: (f: FicheUrl | null) => void;
   onRetour: () => void;
   /** Ouvre « Nouveau message » de la tuile avec ce destinataire. Absent = le lien `mailto:` du système. */
   onEcrire?: (email: string) => void;
+  /**
+   * LOT RATTACHEMENT-2 — ouvre TOUT l'historique des échanges d'un logement ou d'un propriétaire. Absent = le bouton
+   * ne s'affiche pas : la fiche reste exactement celle du lot ANNUAIRE-1.
+   */
+  onHistorique?: (cible: Cible) => void;
 }) {
   const [terme, setTerme] = useState('');
   const [reponse, setReponse] = useState<Reponse>({ etat: 'repos' });
@@ -146,9 +152,10 @@ export function Annuaire({ fiche, onFiche, onRetour, onEcrire }: {
           </button>
           {detail === null || detail.etat === 'charge' ? <p className="gst-info" role="status">Chargement…</p>
             : detail.etat === 'erreur' ? <p className="gst-erreur" role="status">{detail.message}</p>
-              : detail.etat === 'proprietaire' ? <VueProprietaire f={detail.data} ouvrir={ouvrir} onEcrire={onEcrire} />
-                : detail.etat === 'lot' ? <VueLot f={detail.data} ouvrir={ouvrir} />
-                  : <VueLocataire f={detail.data} ouvrir={ouvrir} onEcrire={onEcrire} />}
+              : detail.etat === 'proprietaire'
+                ? <VueProprietaire f={detail.data} ouvrir={ouvrir} onEcrire={onEcrire} onHistorique={onHistorique} />
+                : detail.etat === 'lot' ? <VueLot f={detail.data} ouvrir={ouvrir} onHistorique={onHistorique} />
+                  : <VueLocataire f={detail.data} ouvrir={ouvrir} onEcrire={onEcrire} onHistorique={onHistorique} />}
         </section>
       ) : (
         <Resultats reponse={reponse} terme={terme} ouvrir={ouvrir} />
@@ -265,13 +272,15 @@ function Contacts({ contacts, onEcrire }: { contacts: ContactAffiche[]; onEcrire
 
 // ══ LES TROIS FICHES ════════════════════════════════════════════════════════════════════════════════════════════
 
-function VueProprietaire({ f, ouvrir, onEcrire }: {
+function VueProprietaire({ f, ouvrir, onEcrire, onHistorique }: {
   f: FicheProprietaire; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onEcrire?: (email: string) => void;
+  onHistorique?: (cible: Cible) => void;
 }) {
   return (
     <>
       <h3 className="ann-fiche-titre">{f.civilite ? `${f.civilite} ` : ''}{f.nom}</h3>
       <p className="ann-fiche-sous">Propriétaire{f.absent && ' · absent du dernier export'}</p>
+      <BoutonHistorique cible={{ sorte: 'proprietaire', cle: f.cle, id: null }} onHistorique={onHistorique} />
       <dl className="ann-dl">
         <dt>Début de la relation</dt>
         <dd>
@@ -310,7 +319,9 @@ function VueProprietaire({ f, ouvrir, onEcrire }: {
   );
 }
 
-function VueLot({ f, ouvrir }: { f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void }) {
+function VueLot({ f, ouvrir, onHistorique }: {
+  f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onHistorique?: (cible: Cible) => void;
+}) {
   const actuels = f.occupations.filter((o) => o.encours);
   const passes = f.occupations.filter((o) => !o.encours);
   return (
@@ -320,6 +331,7 @@ function VueLot({ f, ouvrir }: { f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id:
         Lot n° {f.numero}{f.nature ? ` · ${f.nature}` : ''}{f.typeBien ? ` · ${f.typeBien}` : ''}
         {f.absent && ' · absent du dernier export'}
       </p>
+      <BoutonHistorique cible={{ sorte: 'lot', cle: f.numero, id: null }} onHistorique={onHistorique} />
       <dl className="ann-dl">
         {f.immeuble && <><dt>Immeuble</dt><dd>{f.immeuble}</dd></>}
         {f.codePostal && <><dt>Code postal</dt><dd>{f.codePostal}</dd></>}
@@ -368,8 +380,9 @@ function VueLot({ f, ouvrir }: { f: FicheLot; ouvrir: (s: FicheUrl['sorte'], id:
   );
 }
 
-function VueLocataire({ f, ouvrir, onEcrire }: {
+function VueLocataire({ f, ouvrir, onEcrire, onHistorique }: {
   f: FicheLocataire; ouvrir: (s: FicheUrl['sorte'], id: number) => void; onEcrire?: (email: string) => void;
+  onHistorique?: (cible: Cible) => void;
 }) {
   return (
     <>
@@ -393,6 +406,11 @@ function VueLocataire({ f, ouvrir, onEcrire }: {
               {/* Un bail dont le lot n'est pas dans l'export Lots : on le GARDE, et on dit pourquoi il est nu. */}
               {o.horsGestion && <span className="ann-etiq ann-etiq--absent">lot hors gestion</span>}
             </div>
+            {/* LOT RATTACHEMENT-2 — un LOCATAIRE n'est pas une cible de rattachement (il déménage ; le logement, non) :
+                l'entrée passe donc par chacun de ses logements, et jamais par lui. */}
+            {!o.horsGestion && (
+              <BoutonHistorique cible={{ sorte: 'lot', cle: o.numero, id: null }} onHistorique={onHistorique} />
+            )}
             <div className="ann-item-ligne"><span className="ann-role">Occupation</span><span>{periodeOccupation(o.entree, o.sortie)}</span></div>
           </li>
         ))}
@@ -401,9 +419,26 @@ function VueLocataire({ f, ouvrir, onEcrire }: {
   );
 }
 
+/**
+ * LOT RATTACHEMENT-2 — LE POINT D'ENTRÉE DE L'HISTORIQUE, sur une fiche.
+ *
+ * ⚠️ IL NE S'AFFICHE QUE SI LE PARENT SAIT OÙ ALLER (`onHistorique` fourni) et si la cible a une clé. Un bouton qui
+ * n'irait nulle part est pire qu'un bouton absent : on clique, rien ne se passe, et on cherche la panne.
+ */
+function BoutonHistorique({ cible, onHistorique }: { cible: Cible; onHistorique?: (c: Cible) => void }) {
+  if (onHistorique === undefined || cible.cle === null || cible.cle === '') return null;
+  return (
+    <button type="button" className="svv-btn svv-btn-outline gst-btn ann-histo"
+      onClick={() => onHistorique(cible)}>
+      Tout l’historique des échanges →
+    </button>
+  );
+}
+
 export const CSS_ANNUAIRE = `
 /* MOBILE D'ABORD : une seule colonne, aucune table, aucun débordement horizontal — tout casse en fin de ligne. */
 .ann{display:flex;flex-direction:column;gap:.75rem;min-width:0}
+.ann-histo{align-self:flex-start;margin:.2rem 0 .4rem}
 .ann-entete{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem}
 .ann-titre{margin:0;font-size:15px;font-weight:700;color:var(--color-svv-ink)}
 .ann-chercher{display:flex;flex-direction:column;gap:.3rem}

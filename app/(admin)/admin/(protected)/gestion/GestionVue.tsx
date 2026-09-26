@@ -20,6 +20,9 @@ import { ColonneMode } from './ColonneMode';
 import { PleinEcranBoite, type EtiquetteAffichee } from './PleinEcranBoite';
 import { Annuaire } from './Annuaire';
 import { FileATrier } from './FileATrier';
+import { etatSuite } from '../../../../lib/gestion/suiteReleve';
+import { HistoriqueCible } from './HistoriqueCible';
+import { cibleDepuisTexte, texteCible } from '../../../../lib/gestion/historique';
 import type { ContexteRedactionEcran } from './Redaction';
 
 /**
@@ -323,6 +326,8 @@ export function GestionVue({ intro }: {
   /** Les cartes, rendues une seule fois elles aussi : mêmes fonctions dans la colonne et en plein écran. */
   const cartes = d.evenements.map((e) => (
     <CarteVive key={e.evenementId} carte={e} maintenant={ref}
+      /* LOT RATTACHEMENT-2 — la carte est le troisième point d'entrée de l'historique, avec l'annuaire et le bandeau. */
+      onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
       onGeste={(message, options) => {
         setGeste({ ton: 'ok', texte: message });
         // Un détachement change AUSSI la file (l'échange y revient) : là, tout l'écran est relu. Une
@@ -337,6 +342,19 @@ export function GestionVue({ intro }: {
   //   `ref` est l'instant de rendu déjà utilisé par le reste du bandeau : une seule horloge, aucun écart entre deux
   //   phrases voisines. Le repli couvre une réponse d'API plus ancienne que ce lot — l'écran ne doit jamais tomber
   //   parce qu'un champ manque.
+  /**
+   * LOT RATTACHEMENT-2 — l'enchaînement qui suit la relève (adresses, rattachement). Il se TAIT quand tout va bien :
+   * une ligne de plus qui répète « tout va bien » chaque minute finirait par cacher celle qui dit le contraire.
+   */
+  const suite = etatSuite(d.suite ?? { resultat: null, detail: null, ms: null });
+
+  /**
+   * LOT RATTACHEMENT-2 — la cible de l'historique, LUE ici et nulle part ailleurs. `ecranUrl` la garde en texte brut
+   * (c'est un module sans aucun import, c'est sa garantie) ; c'est `cibleDepuisTexte` qui juge si elle désigne
+   * quelque chose, et une valeur illisible rend `null` plutôt qu'un écran blanc.
+   */
+  const cibleHistorique = cibleDepuisTexte(etatUrl.cible ?? null);
+
   const veille = etatVeille(
     d.veille ?? { derniereLe: null, resultat: null, erreur: null, intervalleS: 60, toleranceIntervalles: 10 },
     ref,
@@ -403,13 +421,40 @@ export function GestionVue({ intro }: {
       ) : (
         <p className="gst-veille" role="status">{veille.texte}</p>
       )}
+      {/* LOT RATTACHEMENT-2 — LE COURRIER EST ARRIVÉ, MAIS SON RATTACHEMENT A ÉCHOUÉ. Une ligne SÉPARÉE de celle de
+          la veille, et c'est tout le point : mélanger les deux verdicts ferait crier l'alerte de relève pour une
+          raison qui n'est pas la sienne, et on apprendrait à l'ignorer. Elle n'apparaît QUE sur échec. */}
+      {suite.niveau === 'echec' && (
+        <p className="gst-veille gst-veille--alerte" role="alert">
+          <span className="gst-veille-texte">{suite.texte}</span>
+          {suite.aide && <span className="gst-veille-aide">{suite.aide}</span>}
+        </p>
+      )}
       {/* COMPTE RENDU de la dernière passe — succès comme échec, jamais un silence. */}
       {releveMsg && <p className={`gst-compte-rendu gst-ton-${releveMsg.ton}`} role="status">{releveMsg.texte}</p>}
       {geste && <p className={`gst-compte-rendu gst-ton-${geste.ton}`} role="status">{geste.texte}</p>}
 
       {/* LOT 5-FUSION — LES TROIS ÉCRANS. Une conversation ouverte occupe l'écran partagé, comme depuis le lot 5b ;
           en plein écran elle a sa propre colonne. C'est la MÊME vue dans les deux cas. */}
-      {ecran === 'a_trier' ? (
+      {/* LOT RATTACHEMENT-2 — L'HISTORIQUE D'UNE CIBLE. Atteint par un clic depuis l'annuaire, depuis une étiquette du
+          bandeau « Rattaché à » d'un mail, ou depuis une carte d'événement. Sans cible lisible dans l'adresse, on
+          n'affiche pas un écran vide : on revient à l'écran partagé, comme pour toute valeur illisible. */}
+      {ecran === 'historique' ? (
+        cibleHistorique !== null ? (
+          <HistoriqueCible cible={cibleHistorique} maintenant={ref}
+            onRetour={() => aller({ ...ETAT_DEFAUT })}
+            onCible={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
+            onOuvrirFil={(id) => aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id })}
+            onGeste={(m) => setGeste({ ton: 'ok', texte: m })} />
+        ) : (
+          <p className="gst-tronc">
+            L’adresse ne désigne aucun logement, propriétaire ni événement.{' '}
+            <button type="button" className="gst-lien-bouton" onClick={() => aller({ ...ETAT_DEFAUT })}>
+              Revenir à l’écran partagé
+            </button>
+          </p>
+        )
+      ) : ecran === 'a_trier' ? (
         <FileATrier
           onRetour={() => aller({ ...ETAT_DEFAUT })}
           /* Lire l'échange avant de trancher : on part dans la boîte, où vit la conversation en pleine page. */
@@ -420,6 +465,8 @@ export function GestionVue({ intro }: {
           fiche={etatUrl.fiche ?? null}
           onFiche={(f) => aller({ ...etatUrl, fiche: f })}
           onRetour={() => aller({ ...ETAT_DEFAUT })}
+          /* LOT RATTACHEMENT-2 — « Tout l'historique des échanges » depuis une fiche de logement ou de propriétaire. */
+          onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
           /* Écrire à quelqu'un trouvé dans l'annuaire : on part dans la boîte, où vit le SEUL écran d'écriture. */
           onEcrire={redaction?.schemaPret && redaction.peutEnvoyer
             ? (email) => {
@@ -431,6 +478,7 @@ export function GestionVue({ intro }: {
         <PleinEcranBoite
           ecrireA={ecrireA} onEcrireAConsomme={consommerEcrireA}
           onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
+          onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
           etiquette={etiquette} etiquettes={etiquettes} filOuvert={filOuvert} maintenant={ref}
           auto={auto} onAuto={setAuto} onNonLus={majNonLus}
           corbeilleDisponible={comptesBoite?.corbeille !== null && comptesBoite?.corbeille !== undefined}
@@ -464,6 +512,7 @@ export function GestionVue({ intro }: {
             <section className="gst-col">
               <Conversation filId={filOuvert} maintenant={ref} onFerme={() => aller({ ...etatUrl, filOuvert: null })}
                 onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
+                onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
                 onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
             </section>
           )}
@@ -475,6 +524,7 @@ export function GestionVue({ intro }: {
         <section className="gst-col">
           <Conversation filId={filOuvert} maintenant={ref} onFerme={() => aller({ ...etatUrl, filOuvert: null })}
             onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
+            onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
             onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
         </section>
       ) : (
@@ -722,6 +772,8 @@ const CSS_GESTION = `
 /* ── LOT 5-VEILLE — l'état de la relève AUTOMATIQUE ──
    Une seule colonne, qui se replie naturellement à 390 px ; le texte porte l'information À LUI SEUL, la bordure et la
    couleur ne font que le redire (une information tenue par la seule couleur n'existe pas pour qui ne la distingue pas). */
+/* LOT RATTACHEMENT-2 — le bouton d'entrée de l'historique, sur une carte dépliée. */
+.gst-histo{align-self:flex-start;margin:.2rem 0 .4rem}
 .gst-veille{display:flex;flex-direction:column;gap:.2rem;font-size:.82rem;line-height:1.45;margin:-.4rem 0 1rem;
   padding:8px 12px;border-radius:10px;border:1px solid var(--color-svv-line);background:var(--color-svv-surface);
   color:var(--color-svv-muted);overflow-wrap:anywhere}

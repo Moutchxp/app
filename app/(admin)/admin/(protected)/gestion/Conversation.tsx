@@ -23,6 +23,7 @@ import { EncartAnnuaire } from './EncartAnnuaire';
 // Le bandeau porte son propre CSS en ligne, comme `EncartAnnuaire` : rien à ajouter à `CSS_CONVERSATION`.
 import { EncartRattachement } from './EncartRattachement';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
+import type { Cible } from '../../../../lib/gestion/rattachement';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
 
 /**
@@ -121,7 +122,7 @@ async function marquerLecture(
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, onFicheAnnuaire }: {
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, onFicheAnnuaire, onHistorique }: {
   filId: number;
   maintenant: Date;
   onGeste: Rapport;
@@ -168,6 +169,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * nulle part (cas d'une conversation rendue DANS une carte, où l'on ne veut pas quitter la carte d'un clic).
    */
   onFicheAnnuaire?: (sorte: 'proprietaire' | 'locataire', id: number) => void;
+  /**
+   * LOT RATTACHEMENT-2 — ouvre TOUT l'historique d'une cible, depuis une étiquette du bandeau « Rattaché à ». Absent =
+   * les étiquettes restent du texte (cas d'une conversation rendue DANS une carte, d'où l'on ne veut pas partir).
+   */
+  onHistorique?: (cible: Cible) => void;
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   const [deplies, setDeplies] = useState<Set<number>>(new Set());
@@ -532,6 +538,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             rattachements={rattachements === null ? null : (rattachements.get(m.messageId) ?? [])}
             onRattachement={() => chargerRattachements(idsMessages)}
             onGesteRattachement={(t) => onGeste(t)}
+            onHistorique={onHistorique}
             panneau={deplacer === m.messageId ? (
               <DeplacerVers titre="Déplacer ce mail vers" exclure={null}
                 onAnnuler={() => setDeplacer(null)}
@@ -655,7 +662,7 @@ function ouvrirRedaction(
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null,
-  rattachements = null, onRattachement, onGesteRattachement,
+  rattachements = null, onRattachement, onGesteRattachement, onHistorique,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
   /**
@@ -690,6 +697,8 @@ export function MessageConversation({
   /** Recharge les liens de l'échange après un geste. Absent = le bandeau reste en lecture. */
   onRattachement?: () => void | Promise<void>;
   onGesteRattachement?: (message: string) => void;
+  /** LOT RATTACHEMENT-2 — ouvre l'historique d'une cible depuis son étiquette. Absent = étiquette non cliquable. */
+  onHistorique?: (cible: Cible) => void;
 }) {
   const [actions, setActions] = useState(false);
   const propositions = statut ? actionsDuStatut(statut) : { declencheur: null, actions: [] };
@@ -817,7 +826,7 @@ export function MessageConversation({
               rattachements (migration 257 appliquée) — sinon rien, et le message est exactement celui d'avant. */}
           {onRattachement && (
             <EncartRattachement messageId={message.messageId} liens={rattachements}
-              onChange={onRattachement} onGeste={onGesteRattachement} />
+              onChange={onRattachement} onGeste={onGesteRattachement} onHistorique={onHistorique} />
           )}
 
           {etat.v === 'texte' && lisible !== null && (

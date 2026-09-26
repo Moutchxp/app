@@ -24,6 +24,9 @@ const ecran = (o: Partial<EtatEcran> = {}): EtatEcran => ({
     derniereLe: '2026-09-24T10:00:00Z', resultat: 'ok', erreur: null,
     intervalleS: 60, toleranceIntervalles: 10,
   },
+  // LOT RATTACHEMENT-2 — idem pour l'enchaînement qui suit la relève : il n'entre pas dans le calcul des étiquettes,
+  //   mais un écran de doublure doit rester COMPLET, sinon le test ne prouve plus rien de l'écran réel.
+  suite: { resultat: 'ok', detail: 'rien de nouveau à rattacher', ms: 5 },
   ...o,
 });
 const carte = (id: number, nbFils: number) => ({

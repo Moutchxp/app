@@ -11,6 +11,7 @@ import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
 import { gesteCorbeille, marquerLectureLigne } from './gestesLigne';
 import { Conversation } from './Conversation';
 import type { Rapport } from './gestesMail';
+import type { Cible } from '../../../../lib/gestion/rattachement';
 import { memeEtiquette, type Etiquette } from '../../../../lib/gestion/ecranUrl';
 
 /**
@@ -71,7 +72,7 @@ export function etiquettesVisibles(
 export function PleinEcranBoite({
   etiquette, etiquettes, onEtiquette, filOuvert, onOuvrir, onFermerFil, maintenant, onGeste, onRetour,
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, corbeilleDisponible = false, peutEcrire = false,
-  piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire,
+  piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -107,6 +108,8 @@ export function PleinEcranBoite({
   onEcrireAConsomme?: () => void;
   /** LOT ANNUAIRE-1 — ouvre la fiche d'annuaire d'un expéditeur reconnu, depuis l'encart de la conversation. */
   onFicheAnnuaire?: (sorte: 'proprietaire' | 'locataire', id: number) => void;
+  /** LOT RATTACHEMENT-2 — ouvre l'historique complet d'une cible, depuis le bandeau « Rattaché à » d'un mail. */
+  onHistorique?: (cible: Cible) => void;
 }) {
   // Sur téléphone, on arrive sur les ÉTIQUETTES : c'est le sommaire, et on ne tombe pas au milieu d'une liste sans
   //   savoir laquelle. Au montage, donc à chaque entrée en plein écran. Sur grand écran, l'attribut ne change rien.
@@ -378,6 +381,8 @@ export function PleinEcranBoite({
               redaction={redaction} onGeste={onGeste}
               // LOT ANNUAIRE-1 — l'encart « Propriétaire de … » mène à la fiche, dans l'écran Annuaire.
               onFicheAnnuaire={onFicheAnnuaire}
+              // LOT RATTACHEMENT-2 — une étiquette du bandeau « Rattaché à » ouvre TOUT l'historique de la cible.
+              onHistorique={onHistorique}
               // LOT 5-BOITE — ouvrir (ou marquer non lu) change le gras de la liste, qui l'applique sur place.
               onLecture={(id, lu) => setMarquage((m) => ({ filId: id, nonLu: !lu, cle: m.cle + 1 }))} />
           </section>

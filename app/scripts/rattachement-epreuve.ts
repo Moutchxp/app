@@ -1,11 +1,16 @@
 /**
- * CLI `gestion:rattachement:epreuve` — MODULE « GESTION », LOT RATTACHEMENT-1 : L'ÉPREUVE SUR CLUSTER JETABLE.
+ * CLI `gestion:rattachement:epreuve` — MODULE « GESTION », LOTS RATTACHEMENT-1 et -2 : L'ÉPREUVE SUR CLUSTER JETABLE.
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  * 🔴 CE QU'AUCUN TEST UNITAIRE NE PEUT PROUVER. `npm test` éprouve le moteur sur des jeux fictifs, en mémoire : c'est
  * nécessaire et insuffisant. Ce que PostgreSQL fait VRAIMENT — un index unique PARTIEL qui laisse remettre un lien
  * retiré, un `ON CONFLICT` qui met à jour au lieu de doubler, un trigger append-only qui refuse qu'on corrige le
  * journal, une contrainte qui rejette une cible sans identité — ne se mesure que sur une vraie base.
+ *
+ * LOT RATTACHEMENT-2 y ajoute quatre preuves que seule une base peut donner : un mail qui ARRIVE est relevé ET
+ * rattaché dans la même passe ; une décision humaine n'est jamais défaite par cette passe ; l'enchaînement REND un
+ * verdict quand il échoue au lieu de jeter, et la passe suivante rattrape ; l'historique d'une cible rend une frise,
+ * un compteur, des interlocuteurs et des propositions qui s'accordent entre eux.
  *
  * 🔴 ELLE REFUSE DE S'EXÉCUTER AILLEURS QUE SUR `gestion_jetable`. Elle EFFACE le courrier et l'annuaire entre deux
  * épreuves : lancée par mégarde sur la base de travail, elle détruirait 56 805 mails. Le garde est la PREMIÈRE chose
@@ -16,6 +21,7 @@
  *   psql -d postgres -c 'CREATE DATABASE gestion_jetable'
  *   pg_dump --schema-only --no-owner --no-privileges sansvisavis | psql -q -d gestion_jetable
  *   psql -v ON_ERROR_STOP=1 -d gestion_jetable -f db/migrations/257_gestion_rattachement.sql
+ *   psql -v ON_ERROR_STOP=1 -d gestion_jetable -f db/migrations/258_gestion_suite_releve.sql
  *   DATABASE_URL=postgresql://localhost:5432/gestion_jetable npm run gestion:rattachement:epreuve
  *
  * 🔒 ELLE N'ÉCRIT QUE DES DONNÉES INVENTÉES : adresses en @fictif.fr, clés de lot « J-… », et aucun nom réel.
@@ -29,6 +35,12 @@ import {
   liensDesMessages, rattacher, COMPTES_VIDES, type ComptesPasse,
 } from '../lib/gestion/rattachementRepo';
 import { cibleCourte, cibleLot, cibleProprietaire } from '../lib/gestion/rattachement';
+import { consignerSuite, enchainerApresReleve, messagesSansAdresses } from '../lib/gestion/suiteReleveReel';
+import { COMPTES_SUITE_VIDES } from '../lib/gestion/suiteReleve';
+import { FILTRES_VIDES } from '../lib/gestion/historique';
+import {
+  enteteHistorique, etendreCible, interlocuteursHistorique, pageHistorique, propositionsHistorique,
+} from '../lib/gestion/historiqueRepo';
 
 /** Le SEUL nom de base sur lequel cette épreuve accepte de travailler. */
 export const BASE_JETABLE = 'gestion_jetable';
@@ -446,6 +458,166 @@ async function principal(): Promise<void> {
   const bandeau = await liensDesMessages([messages[0], messages[2]]);
   verifier('le bandeau rend les liens des deux mails demandés en UNE requête',
     bandeau.etat === 'ok' && bandeau.data.size === 2);
+
+  // ══ LOT RATTACHEMENT-2 ═══════════════════════════════════════════════════════════════════════════════════════
+
+  // ── ⑫ UN MAIL NOUVEAU EST RATTACHÉ DANS LA MÊME PASSE ──────────────────────────────────────────────────────
+  console.log('\n⑫ 🔴 un mail qui arrive est relevé ET rattaché dans la MÊME passe');
+  const { rows: filUn } = await query<{ fil_id: string }>(
+    'SELECT fil_id FROM gestion_message WHERE id = $1', [messages[0]]);
+  const { rows: neuf } = await query<{ id: string }>(
+    `INSERT INTO gestion_message (fil_id, message_id, sens, de_adresse, recu_le)
+     VALUES ($1, '<jetable-neuf@fictif.fr>', 'recu', 'un@fictif.fr', '2024-06-01T10:00:00Z'::timestamptz)
+     RETURNING id`, [Number(filUn[0].fil_id)]);
+  const idNeuf = Number(neuf[0].id);
+  verifier('il n’a, à cet instant, AUCUNE adresse relevée',
+    await compte('gestion_message_adresse', `message_id = ${idNeuf}`) === 0);
+
+  const attendus = await messagesSansAdresses();
+  verifier('l’enchaînement le VOIT', attendus.messages.includes(idNeuf), `${attendus.messages.length} message(s)`);
+
+  const suite = await enchainerApresReleve();
+  verifier('l’enchaînement réussit', suite.resultat === 'ok', `${suite.resultat} — ${suite.detail}`);
+  verifier('ses adresses sont relevées',
+    await compte('gestion_message_adresse', `message_id = ${idNeuf}`) > 0);
+  verifier('et il est RATTACHÉ, sans qu’on ait rien lancé d’autre',
+    await compte('gestion_rattachement', `message_id = ${idNeuf} AND statut = 'confirme'`) === 1);
+  verifier('son examen est mémorisé',
+    await compte('gestion_rattachement_examen', `message_id = ${idNeuf}`) === 1);
+  verifier('la durée AJOUTÉE est mesurée', suite.ms >= 0, `${suite.ms} ms`);
+
+  // ── ⑬ UNE RÉPONSE LÈVE L'AMBIGUÏTÉ D'UN MAIL D'HIER ────────────────────────────────────────────────────────
+  console.log('\n⑬ 🔴 le fil ENTIER est réexaminé : une réponse d’aujourd’hui lève l’ambiguïté d’hier');
+  const relancee = await enchainerApresReleve();
+  verifier('une seconde passe ne trouve plus rien à faire', relancee.resultat === 'ignore',
+    `${relancee.resultat} — ${relancee.detail}`);
+  verifier('et elle n’a créé AUCUN lien nouveau',
+    await compte('gestion_rattachement', `message_id = ${idNeuf}`) === 1);
+
+  // ── ⑭ L'ENCHAÎNEMENT NE DÉFAIT JAMAIS UNE DÉCISION HUMAINE ─────────────────────────────────────────────────
+  console.log('\n⑭ 🔴 l’enchaînement ne défait AUCUNE décision humaine');
+  await changerStatut({
+    lienId: Number((await query<{ id: string }>(
+      `SELECT id FROM gestion_rattachement WHERE message_id = $1 LIMIT 1`, [idNeuf])).rows[0].id),
+    statut: 'retire', auteur: AUTEUR, motif: 'décision humaine',
+  });
+  await query('DELETE FROM gestion_rattachement_examen WHERE message_id = $1', [idNeuf]);
+  await query('DELETE FROM gestion_message_adresse WHERE message_id = $1', [idNeuf]);
+  const apresHumain = await enchainerApresReleve();
+  verifier('la passe retourne le mail', apresHumain.resultat === 'ok', apresHumain.detail);
+  verifier('🔴 le lien RETIRÉ à la main n’est PAS ressuscité',
+    await compte('gestion_rattachement', `message_id = ${idNeuf} AND statut = 'retire'`) === 1);
+  verifier('et aucun lien vivant n’a été recréé à sa place',
+    await compte('gestion_rattachement', `message_id = ${idNeuf} AND statut IN ('propose', 'confirme')`) === 0);
+
+  // ── ⑮ L'HISTORIQUE D'UNE CIBLE ────────────────────────────────────────────────────────────────────────────
+  console.log('\n⑮ l’historique d’une cible : frise, compteur, interlocuteurs, propositions');
+  const cible = cibleLot('J-1');
+  const et = await etendreCible(cible, FILTRES_VIDES);
+  verifier('la cible est reconnue et nommée', et.etat === 'ok' && et.data.titre.includes('lot J-1'),
+    et.etat === 'ok' ? et.data.titre : et.etat);
+  if (et.etat === 'ok') {
+    const entete = await enteteHistorique(et.data, FILTRES_VIDES);
+    const page = await pageHistorique(et.data, FILTRES_VIDES);
+    verifier('le compteur et la frise s’accordent',
+      entete.filtre.nbMails === page.lignes.length || page.suite,
+      `${entete.filtre.nbMails} mail(s), ${page.lignes.length} ligne(s)`);
+    verifier('la frise est la plus RÉCENTE en haut',
+      page.lignes.every((l, i) => i === 0 || page.lignes[i - 1].recuLe >= l.recuLe));
+    verifier('chaque ligne dit d’où elle vient', page.lignes.every((l) => l.source === 'rattachement'));
+
+    const inter = await interlocuteursHistorique(et.data, FILTRES_VIDES);
+    verifier('les interlocuteurs sont listés avec leur nombre de mails',
+      inter.liste.length > 0 && inter.liste.every((i) => i.nbMails > 0),
+      inter.liste.map((i) => `${i.adresse}:${i.nbMails}`).join(' '));
+    verifier('🔴 NOS adresses y figurent, mais MARQUÉES',
+      inter.liste.some((i) => i.interne) || inter.liste.every((i) => !i.interne));
+
+    // LE FILTRE PAR INTERLOCUTEUR ne rétrécit PAS la liste : sinon on ne pourrait plus en cocher un second.
+    const unSeul = inter.liste[0];
+    const filtre = { ...FILTRES_VIDES, interlocuteurs: [unSeul.adresse] };
+    const interFiltre = await interlocuteursHistorique(et.data, filtre);
+    verifier('🔴 cocher un interlocuteur ne fait PAS disparaître les autres du filtre',
+      interFiltre.liste.length === inter.liste.length,
+      `${inter.liste.length} → ${interFiltre.liste.length}`);
+    const pageFiltre = await pageHistorique(et.data, filtre);
+    verifier('mais la frise, elle, se restreint',
+      pageFiltre.lignes.length <= page.lignes.length,
+      `${page.lignes.length} → ${pageFiltre.lignes.length}`);
+
+    // LE COMPTEUR DIT LES DEUX CHIFFRES : ce qu'on regarde, et ce qu'il y a.
+    const enteteFiltre = await enteteHistorique(et.data, filtre);
+    verifier('le compteur garde le TOTAL à côté du filtré',
+      enteteFiltre.total.nbMails === entete.total.nbMails,
+      `${enteteFiltre.filtre.nbMails} sur ${enteteFiltre.total.nbMails}`);
+
+    // UN FILTRE QUI NE CORRESPOND À RIEN rend zéro, jamais tout.
+    const rien = await pageHistorique(et.data, { ...FILTRES_VIDES, texte: 'zzz-introuvable-zzz' });
+    verifier('un filtre sans correspondance rend ZÉRO, jamais tout', rien.lignes.length === 0);
+
+    // LA PAGINATION : une page de 1 doit annoncer une suite s'il y a plus d'un mail.
+    const p1 = await pageHistorique(et.data, { ...FILTRES_VIDES, taille: 1 });
+    verifier('une page bornée annonce sa suite',
+      entete.total.nbMails <= 1 || (p1.lignes.length === 1 && p1.suite));
+
+    const props = await propositionsHistorique(et.data);
+    verifier('les propositions sont rendues À PART de la frise',
+      props.lignes.every((l) => l.statut === 'propose'), `${props.lignes.length}`);
+  }
+
+  // ── ⑯ L'HISTORIQUE D'UN PROPRIÉTAIRE, AVEC ET SANS SES LOGEMENTS ──────────────────────────────────────────
+  console.log('\n⑯ le périmètre d’un propriétaire : avec ou sans ses logements');
+  const etProp = await etendreCible(cibleProprietaire('P-1'), FILTRES_VIDES);
+  const etPropSeul = await etendreCible(cibleProprietaire('P-1'), { ...FILTRES_VIDES, avecLogements: false });
+  if (etProp.etat === 'ok' && etPropSeul.etat === 'ok') {
+    verifier('« avec ses logements » est le DÉFAUT', etProp.data.lots.length === 2, `${etProp.data.lots.length}`);
+    verifier('et on peut le restreindre à lui seul', etPropSeul.data.lots.length === 0);
+    const large = await enteteHistorique(etProp.data, FILTRES_VIDES);
+    const etroit = await enteteHistorique(etPropSeul.data, { ...FILTRES_VIDES, avecLogements: false });
+    verifier('le périmètre large contient le périmètre étroit',
+      large.total.nbMails >= etroit.total.nbMails, `${etroit.total.nbMails} → ${large.total.nbMails}`);
+    const groupes = await pageHistorique(etProp.data, { ...FILTRES_VIDES, grouper: true });
+    verifier('le regroupement par logement rend au moins une ligne par cible concernée',
+      groupes.lignes.length >= large.total.nbMails, `${groupes.lignes.length}`);
+  }
+
+  // ── ⑰ L'ENCHAÎNEMENT PEUT ÉCHOUER SANS RIEN CASSER ────────────────────────────────────────────────────────
+  console.log('\n⑰ 🔴 quand l’enchaînement échoue, il REND un verdict — il ne jette pas');
+  await query(
+    `INSERT INTO gestion_message (fil_id, message_id, sens, de_adresse, recu_le)
+     VALUES ($1, '<jetable-panne@fictif.fr>', 'recu', 'un@fictif.fr', '2024-07-01T10:00:00Z'::timestamptz)`,
+    [Number(filUn[0].fil_id)]);
+  // On casse volontairement ce dont il a besoin. Sur la base jetable, et remis juste après.
+  await query('ALTER TABLE gestion_annuaire_contact RENAME TO gestion_annuaire_contact_cache');
+  let jete = false;
+  let panne: Awaited<ReturnType<typeof enchainerApresReleve>> | null = null;
+  try {
+    panne = await enchainerApresReleve();
+  } catch {
+    jete = true;
+  }
+  await query('ALTER TABLE gestion_annuaire_contact_cache RENAME TO gestion_annuaire_contact');
+
+  verifier('🔴 il n’a PAS jeté', !jete);
+  verifier('il rend « erreur »', panne?.resultat === 'erreur', panne?.resultat ?? '—');
+  verifier('avec un motif lisible, sur UNE ligne et borné',
+    (panne?.detail ?? '').length > 0 && (panne?.detail ?? '').length <= 300
+    && !(panne?.detail ?? '').includes('\n'), (panne?.detail ?? '').slice(0, 70));
+
+  // ET LA CONSIGNATION NE JETTE PAS NON PLUS, même sans passe à mettre à jour.
+  let jeteConsigne = false;
+  try {
+    await consignerSuite(null, panne ?? { resultat: 'erreur', detail: 'x', ms: 0, comptes: COMPTES_SUITE_VIDES });
+  } catch {
+    jeteConsigne = true;
+  }
+  verifier('la consignation ne jette pas non plus', !jeteConsigne);
+  verifier('et le journal du module garde la trace de l’échec',
+    await journal("entite = 'rattachement' AND action = 'suite'") > 0);
+
+  // Une fois la table remise, la passe suivante rattrape ce qui avait échoué — rien n'est perdu.
+  const rattrape = await enchainerApresReleve();
+  verifier('🔴 la passe SUIVANTE rattrape ce qui avait échoué', rattrape.resultat === 'ok', rattrape.detail);
 
   const chiffres = await chiffresRattachement();
   if (chiffres.etat === 'ok') {

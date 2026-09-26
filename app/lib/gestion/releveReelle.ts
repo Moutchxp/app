@@ -128,11 +128,36 @@ export function depsReellesReleve(journal?: (ligne: string) => void, options: Op
   };
 }
 
-/** UNE passe réelle (ou simulée). Ne relance jamais : l'appelant décide quoi faire de l'issue. */
-export function relever(
+/**
+ * UNE passe réelle (ou simulée). Ne relance jamais : l'appelant décide quoi faire de l'issue.
+ *
+ * ═══ 🔴 LOT RATTACHEMENT-2 — CE QUI SUIT L'IMPORT, ET POURQUOI C'EST ICI ═════════════════════════════════════════
+ * Une passe APPLIQUÉE enchaîne désormais, après l'import : le relevé des adresses des messages nouveaux, puis le
+ * rattachement des échanges touchés. C'est branché ICI et non dans la seule boucle continue, pour que les TROIS voies
+ * d'une vraie passe — le job launchd, le bouton « Relever maintenant », `gestion:relever --appliquer` — se comportent
+ * de la même façon. Trois comportements pour une même passe finiraient par diverger, et c'est toujours celui qu'on
+ * regarde le moins qui garde le défaut.
+ *
+ * 🔴 L'ENCHAÎNEMENT NE PEUT PAS FAIRE ÉCHOUER LA RELÈVE. `enchainerApresReleve` attrape tout et rend un verdict ;
+ * l'issue de la relève, elle, n'est pas touchée. Le courrier qui entre est la fonction vitale ; le rattachement est
+ * un confort, et un confort ne met jamais la fonction vitale en péril.
+ *
+ * ⚠️ RIEN EN SIMULATION, ET RIEN QUAND LA PASSE A ÉCHOUÉ. Une simulation n'écrit pas — ce serait sa seule écriture ;
+ * une passe ratée n'a rien importé de fiable à rattacher.
+ *
+ * ⚠️ IMPORT DYNAMIQUE, comme le reste de ce fichier : il garde le graphe des rattachements hors des tests qui
+ * n'importent que la relève.
+ */
+export async function relever(
   appliquer: boolean, journal?: (ligne: string) => void, options: OptionsRattrapage = {},
 ): Promise<IssueReleve> {
-  return executerReleveGestion(depsReellesReleve(journal, options), appliquer);
+  const issue = await executerReleveGestion(depsReellesReleve(journal, options), appliquer);
+  if (!appliquer || issue.resultat !== 'ok') return issue;
+
+  const { consignerSuite, enchainerApresReleve } = await import('./suiteReleveReel');
+  const suite = await enchainerApresReleve(journal);
+  await consignerSuite(issue.runId, suite);
+  return issue;
 }
 
 /**
