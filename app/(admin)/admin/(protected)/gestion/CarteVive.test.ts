@@ -212,8 +212,15 @@ describe('② les pièces jointes sont SERVIES PAR L’APPLICATION', () => {
 
   it('le texte du message est rendu TEL QUEL, jamais interprété comme du HTML', async () => {
     await ouvrirTout();
-    const corps = container.querySelector('.gst-msg-corps');
-    expect(corps?.textContent).toContain('Il y a une fuite sous le lavabo.');
+    /**
+     * ⚠️ LOT FIL-LECTURE — ON NE VISE PLUS « LE PREMIER CORPS DU DOM ». Depuis ce lot, la conversation s'affiche du
+     * plus RÉCENT au plus ancien : le premier corps rendu n'est plus celui du premier message du jeu d'essai. Ce
+     * test ne porte pas sur l'ordre — il porte sur le fait qu'un texte n'est jamais interprété comme du HTML — donc
+     * il cherche le corps QUI CONTIENT le texte attendu, et vérifie l'échappement sur celui-là.
+     */
+    const corps = [...container.querySelectorAll('.gst-msg-corps')]
+      .find((p) => (p.textContent ?? '').includes('Il y a une fuite sous le lavabo.'));
+    expect(corps).toBeDefined();
     expect(corps?.innerHTML).not.toContain('<');
   });
 
@@ -418,6 +425,17 @@ describe('⑤ LOT 4d-B2 — DÉPLACER UN MAIL SEUL', () => {
     await cliquer(boutons().find((b) => /2 messages/.test(b.textContent ?? '')));
   };
   const menusDeMail = () => [...container.querySelectorAll('button[aria-label="Actions sur ce message"]')] as HTMLButtonElement[];
+  /**
+   * ⚠️ LOT FIL-LECTURE — LE MENU DU MESSAGE **1**, DÉSIGNÉ PAR SON MESSAGE ET NON PAR SA POSITION.
+   *
+   * Depuis ce lot la conversation s'affiche du plus RÉCENT au plus ancien : `menusDeMail()[0]` désignait le message 1
+   * hier et le message 2 aujourd'hui, et les deux tests qui suivent se sont mis à agir sur le mauvais mail — ce que
+   * leurs assertions ont immédiatement montré (`/messages/2/` au lieu de `/messages/1/`). Viser la POSITION dans une
+   * liste dont l'ordre est un réglage d'écran, c'est écrire un test qui changera de sens sans prévenir. On remonte
+   * donc du corps du message à sa ligne, et de sa ligne à son menu.
+   */
+  const menuDuMail = (messageId: number): HTMLButtonElement =>
+    container.querySelector(`li[data-message="${messageId}"] button[aria-label="Actions sur ce message"]`) as HTMLButtonElement;
 
   it('CHAQUE mail porte son « ⋯ », et rien n’est visible tant qu’il est fermé', async () => {
     await ouvrirFil();
@@ -434,7 +452,7 @@ describe('⑤ LOT 4d-B2 — DÉPLACER UN MAIL SEUL', () => {
 
   it('« Déplacer ce mail… » ouvre la MÊME recherche, et rattache le mail choisi', async () => {
     await ouvrirFil();
-    await cliquer(menusDeMail()[0]);
+    await cliquer(menuDuMail(1));
     await cliquer(boutonPar(/^Déplacer ce mail vers un autre événement…$/));
     expect(container.textContent).toContain('Déplacer ce mail vers');
     await cliquer(resultatPar(/GES-2026-000042/));
@@ -447,7 +465,7 @@ describe('⑤ LOT 4d-B2 — DÉPLACER UN MAIL SEUL', () => {
 
   it('« Détacher ce mail » le remet dans son échange', async () => {
     await ouvrirFil();
-    await cliquer(menusDeMail()[1]);
+    await cliquer(menuDuMail(2));
     await cliquer(boutonPar(/^Détacher ce mail$/));
     expect(appels).toContain('DELETE /api/admin/gestion/messages/2/affectation');
     expect(rapports[0].message).toContain('remis dans son échange');

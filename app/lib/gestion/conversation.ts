@@ -141,3 +141,70 @@ export function etatCorps(
 /** La phrase affichée quand un message n'a que de la mise en forme. Le lot 5d la fera disparaître. */
 export const MENTION_HTML_SEUL =
   'Contenu disponible en mise en forme uniquement — affichage à venir.';
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT FIL-LECTURE — DANS QUEL ORDRE ON LIT UNE CONVERSATION
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** « recent » = le plus récent en haut (le défaut) ; « ancien » = l'ordre chronologique, celui d'avant ce lot. */
+export type OrdreFil = 'recent' | 'ancien';
+
+/**
+ * 🔴 LE PLUS RÉCENT D'ABORD, PAR DÉFAUT. Demande d'Arno du 27/09/2026 : ce qu'on vient lire est la dernière
+ * nouvelle, et elle était en bas d'un échange de douze messages — il fallait dérouler pour la trouver.
+ */
+export const ORDRE_FIL_DEFAUT: OrdreFil = 'recent';
+
+/**
+ * L'ordre d'affichage. Le serveur rend TOUJOURS les messages du plus ancien au plus récent : c'est l'ordre du
+ * stockage, et il ne change pas. On ne fait que le retourner pour l'œil — aucune requête, aucun tri par date qui
+ * pourrait diverger de celui de la base. PUR.
+ *
+ * ⚠️ UNE COPIE, JAMAIS `reverse()` SUR PLACE : la liste vient de l'état React ; la retourner en place muterait cet
+ * état sans que React le sache, et deux rendus successifs donneraient deux ordres différents pour le même état.
+ */
+export function ordonnerMessages<T>(messages: readonly T[], ordre: OrdreFil): T[] {
+  return ordre === 'recent' ? [...messages].reverse() : [...messages];
+}
+
+/** Le mot du sélecteur, pour l'ordre en cours. PUR. */
+export function libelleOrdre(ordre: OrdreFil): string {
+  return ordre === 'recent' ? 'Plus récent d’abord' : 'Plus ancien d’abord';
+}
+
+/** L'autre ordre — ce que le clic va donner. PUR. */
+export function ordreSuivant(ordre: OrdreFil): OrdreFil {
+  return ordre === 'recent' ? 'ancien' : 'recent';
+}
+
+/**
+ * ══ LA MÉMOIRE DU CHOIX ══════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 `localStorage`, ET NON UNE PRÉFÉRENCE EN BASE — choix assumé, et voici pourquoi. Une préférence par
+ * collaborateur demanderait une table, une migration, une route, et un geste de plus à chaque lecture de la
+ * conversation. Or c'est un pli de lecture, pas une donnée du métier : personne n'a besoin de le retrouver sur un
+ * autre poste, et personne n'a besoin de l'auditer. Le navigateur suffit, et il ne coûte rien.
+ *
+ * ⚠️ TOUT EST SOUS `try/catch`, DANS LES DEUX SENS. `localStorage` peut lever à la simple LECTURE : navigation
+ * privée, cookies bloqués, quota plein. Une conversation ne doit jamais refuser de s'afficher parce qu'un navigateur
+ * n'a pas voulu se souvenir d'un ordre de lecture.
+ *
+ * ⚠️ ET UNE VALEUR INCONNUE VAUT LE DÉFAUT : ce qui est lu là vient du disque de quelqu'un, pas de notre code.
+ */
+export const CLE_ORDRE_FIL = 'svv.gestion.ordreFil';
+
+export function lireOrdreMemorise(): OrdreFil {
+  try {
+    const v = globalThis.localStorage?.getItem(CLE_ORDRE_FIL);
+    return v === 'recent' || v === 'ancien' ? v : ORDRE_FIL_DEFAUT;
+  } catch {
+    return ORDRE_FIL_DEFAUT; // stockage refusé : on lit dans l'ordre par défaut, et on n'en parle pas
+  }
+}
+
+export function memoriserOrdre(ordre: OrdreFil): void {
+  try {
+    globalThis.localStorage?.setItem(CLE_ORDRE_FIL, ordre);
+  } catch {
+    // Rien à dire : le choix vaut pour cet écran, il ne survivra simplement pas au rechargement.
+  }
+}

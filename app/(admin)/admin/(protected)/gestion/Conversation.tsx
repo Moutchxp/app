@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { EnTeteFil, MailParti, MessageDeFil, PieceDeMessage } from '../../../../lib/gestion/carteRepo';
 import {
   etatCorps, lignesDestinataires, mentionHorsFile, mentionNonRemise, messagesDeplies, MENTION_HTML_SEUL,
+  libelleOrdre, lireOrdreMemorise, memoriserOrdre, ordonnerMessages, ordreSuivant, ORDRE_FIL_DEFAUT,
+  type OrdreFil,
 } from '../../../../lib/gestion/conversation';
 import { dateHeureComplete, dateHeureCourte, formaterTaille, libelleSens, LIBELLE_CLASSER } from '../../../../lib/gestion/ecran';
 import {
@@ -177,6 +179,22 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   const [deplies, setDeplies] = useState<Set<number>>(new Set());
+  /**
+   * ══ 🔴 LOT FIL-LECTURE — DANS QUEL ORDRE ON LIT ═══════════════════════════════════════════════════════════════
+   * Le plus récent en haut par défaut : c'est la dernière nouvelle qu'on vient lire, et elle était au BAS d'un
+   * échange de douze messages. Le choix est mémorisé dans le navigateur (voir `lireOrdreMemorise`).
+   *
+   * ⚠️ LU APRÈS LE MONTAGE, PAS PENDANT. `localStorage` n'existe pas au rendu serveur : le lire à l'initialisation
+   * ferait diverger l'hydratation (le serveur rendrait un ordre, le navigateur l'autre) et React s'en plaindrait.
+   * On part donc du défaut, et on applique la mémoire dès qu'on est côté navigateur.
+   */
+  const [ordre, setOrdre] = useState<OrdreFil>(ORDRE_FIL_DEFAUT);
+  useEffect(() => { setOrdre(lireOrdreMemorise()); }, []);
+  const changerOrdre = () => {
+    const suivant = ordreSuivant(ordre);
+    setOrdre(suivant);
+    memoriserOrdre(suivant);
+  };
   const [corps, setCorps] = useState<Map<number, string | null>>(new Map());
   const [affecter, setAffecter] = useState(false);
   const [deplacer, setDeplacer] = useState<number | null>(null);
@@ -490,6 +508,16 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
                 onClick={() => (tousDeplies ? setDeplies(new Set()) : void toutDeplier(messages))}>
                 {tousDeplies ? 'Tout replier' : 'Tout déplier'}
               </button>
+              {/* ══ LOT FIL-LECTURE — LE SÉLECTEUR D'ORDRE, discret, à côté de « Tout déplier » ════════════════
+                  Il DIT l'ordre en cours plutôt que l'ordre qu'il donnerait : un bouton qui annonce ce qu'il va
+                  faire oblige à réfléchir à chaque lecture. `aria-pressed` porte la même information au clavier. */}
+              {' · '}
+              <button type="button" className="gst-lien-bouton cnv-ordre"
+                aria-pressed={ordre === 'recent'}
+                title="Changer l’ordre de lecture des messages"
+                onClick={changerOrdre}>
+                {libelleOrdre(ordre)}
+              </button>
             </>
           )}
         </p>
@@ -502,6 +530,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           <button type="button" className="gst-lien-bouton"
             onClick={() => (tousDeplies ? setDeplies(new Set()) : void toutDeplier(messages))}>
             {tousDeplies ? 'Tout replier' : 'Tout déplier'}
+          </button>
+          {' · '}
+          <button type="button" className="gst-lien-bouton cnv-ordre" aria-pressed={ordre === 'recent'}
+            title="Changer l’ordre de lecture des messages" onClick={changerOrdre}>
+            {libelleOrdre(ordre)}
           </button>
         </p>
       )}
@@ -520,8 +553,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
       )}
 
       {/* ══ LA CONVERSATION ═══════════════════════════════════════════════════════════════════════════════════════ */}
+      {/* 🔴 L'ORDRE EST UNE AFFAIRE D'AFFICHAGE, ET RIEN D'AUTRE. Le serveur rend toujours du plus ancien au plus
+          récent ; `ordonnerMessages` ne fait que retourner la liste pour l'œil. Aucune requête ne change, et le
+          message déplié à l'ouverture reste EXACTEMENT le même (le dernier lisible) — il est simplement en haut. */}
       <ol className="cnv-fil">
-        {messages.map((m) => (
+        {ordonnerMessages(messages, ordre).map((m) => (
           <MessageConversation key={m.messageId} message={m} maintenant={maintenant} filId={filId}
             ouvert={deplies.has(m.messageId)}
             corpsCharge={corps.get(m.messageId)}
@@ -569,15 +605,30 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               /* LOT 5-FIDÈLE — LE PIED DE GMAIL : trois boutons ARRONDIS, avec leur icône, dans l'ordre de Gmail.
                  Même fonction qu'avant, même route, même rédaction : seule la forme reprend celle que l'équipe
                  connaît. L'icône ne porte jamais l'information seule — le mot est écrit à côté. */
-              <div className="cnv-pied">
-                {(['repondre', 'repondre_tous', 'transferer'] as const).map((voie) => (
-                  <button key={voie} type="button" className="cnv-pied-bouton"
-                    onClick={() => setBrouillon(ouvrirRedaction(voie, messages, fil.filId, redaction, maintenant))}>
-                    <IconeVoie voie={voie} />
-                    <span>{voie === 'repondre' ? 'Répondre' : voie === 'repondre_tous' ? 'Répondre à tous' : 'Transférer'}</span>
-                  </button>
-                ))}
-              </div>
+              <>
+                {/* ══ 🔴 LOT FIL-LECTURE — CE PIED RÉPOND AU MESSAGE LE PLUS RÉCENT, ET IL LE DIT ════════════════
+                    Il l'a toujours fait, et ce n'était pas ambigu tant que le plus récent était juste au-dessus.
+                    Depuis que l'ordre est un réglage, ce pied peut se trouver sous le message le plus ANCIEN : sans
+                    cette mention, on croirait répondre à celui qu'on vient de lire. Les boutons de CHAQUE message,
+                    eux, portent sur leur message — c'est là qu'il faut cliquer pour répondre à un ancien.
+                    ⚠️ La mention n'apparaît que s'il y a plus d'un message : sur un échange d'un seul message, il n'y
+                    a aucune confusion possible et la phrase serait du bruit. */}
+                {messages.length > 1 && (
+                  <p className="gst-note cnv-pied-note">
+                    Ces trois boutons répondent au message le plus récent. Pour répondre à un autre, servez-vous des
+                    boutons situés sous ce message.
+                  </p>
+                )}
+                <div className="cnv-pied">
+                  {(['repondre', 'repondre_tous', 'transferer'] as const).map((voie) => (
+                    <button key={voie} type="button" className="cnv-pied-bouton"
+                      onClick={() => setBrouillon(ouvrirRedaction(voie, messages, fil.filId, redaction, maintenant))}>
+                      <IconeVoie voie={voie} />
+                      <span>{voie === 'repondre' ? 'Répondre' : voie === 'repondre_tous' ? 'Répondre à tous' : 'Transférer'}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
           </div>
         )
@@ -711,7 +762,17 @@ export function MessageConversation({
   const { vraies, signatures } = trierPieces(message.pieces);
 
   return (
-    <li className={`cnv-msg${message.horsFile ? ' cnv-msg--hors' : ''}${echec?.definitif ? ' cnv-msg--echoue' : ''}`}>
+    /**
+     * LOT FIL-LECTURE — `data-message` : QUEL message est cette ligne.
+     *
+     * 🔴 POURQUOI IL EXISTE. L'ordre d'affichage est devenu un RÉGLAGE (plus récent d'abord, ou l'inverse) : plus
+     * rien ne garantit qu'un message occupe la même position d'un écran à l'autre. Tout ce qui désignait un message
+     * « par sa place dans la liste » — au premier chef les tests — désignait donc un message différent selon le
+     * réglage, sans rien dire. Deux tests s'y sont pris les pieds le jour même. L'attribut rend l'identité lisible
+     * dans le DOM, pour les tests comme pour qui inspecte l'écran.
+     */
+    <li data-message={message.messageId}
+      className={`cnv-msg${message.horsFile ? ' cnv-msg--hors' : ''}${echec?.definitif ? ' cnv-msg--echoue' : ''}`}>
       {/* ══ LOT ENVOI-DIAG — CE MESSAGE N'EST PAS ARRIVÉ ══════════════════════════════════════════════════════════
           🔴 AU-DESSUS DE TOUT LE RESTE, EN MOTS, ET HORS DU BOUTON. Au-dessus parce que c'est l'information qui
           change la suite (il faut réécrire, ou appeler) ; en mots parce qu'une couleur seule ne se lit ni en niveaux
@@ -730,6 +791,9 @@ export function MessageConversation({
       <button type="button" className="cnv-ligne" aria-expanded={ouvert} onClick={onBasculer}>
         {/* Le SENS est dit par un MOT (« reçu de » / « envoyé à ») : il reste lisible en niveaux de gris. */}
         <span className="cnv-qui">{libelleSens(message.sens)} {qui}</span>
+        {/* LOT FIL-LECTURE — L'OBJET DE CE MESSAGE, à côté de l'expéditeur. Dans un échange où l'objet a changé en
+            route (« Re: … » devenu autre chose), la ligne repliée ne disait plus de quoi elle parlait. */}
+        <span className="cnv-objet">{nettoyerObjet(message.objet) || '(sans objet)'}</span>
         {/* Une mention EN MOTS : elle reste lisible en niveaux de gris et pour un daltonien. */}
         {hors && <span className="cnv-hors">{hors}</span>}
         {!ouvert && message.extrait && <span className="cnv-extrait">{corpsLisible(message.extrait).visible}</span>}
@@ -817,9 +881,28 @@ export function MessageConversation({
 
       {ouvert && (
         <div className="cnv-detail">
+          {/* ══ 🔴 LOT FIL-LECTURE — L'EN-TÊTE COMPACT : UN INTITULÉ, UNE LIGNE ═══════════════════════════════
+              Avant ce lot, l'intitulé était au-dessus de sa valeur : quatre intitulés faisaient huit lignes, pour
+              cinq mots d'information. Chaque ligne porte désormais son intitulé à gauche et sa valeur à droite,
+              et les destinataires multiples restent sur la MÊME ligne, séparés par des virgules — ils ne passent
+              à la ligne que si la largeur ne suffit pas (c'est la feuille de style qui le décide, pas nous).
+
+              ⚠️ TOUTES LES LIGNES PASSENT PAR LE MÊME ENVELOPPE `div` — y compris « De » et « Date », qui ne
+              l'avaient pas. Sans cela, une ligne sur deux aurait une grammaire différente et la mise en colonnes
+              ne tiendrait que pour la moitié d'entre elles. (Un `div` groupant `dt`/`dd` dans un `dl` est du HTML
+              parfaitement valide.)
+
+              🔴 L'OBJET EN PREMIÈRE LIGNE — demande d'Arno. Un message repris six mois plus tard n'a pas forcément
+              l'objet du fil : c'est le sien qu'il faut lire, et il n'était affiché nulle part. */}
           <dl className="cnv-entete">
-            <dt>De</dt>
-            <dd>{message.deNom?.trim() ? `${message.deNom.trim()} <${message.de}>` : message.de}</dd>
+            <div className="cnv-entete-ligne">
+              <dt>Objet</dt>
+              <dd>{nettoyerObjet(message.objet) || '(sans objet)'}</dd>
+            </div>
+            <div className="cnv-entete-ligne">
+              <dt>De</dt>
+              <dd>{message.deNom?.trim() ? `${message.deNom.trim()} <${message.de}>` : message.de}</dd>
+            </div>
             {lignesDestinataires(message).map((l, i) => (
               <div key={`${l.champ ?? 'fondu'}-${i}`} className="cnv-entete-ligne">
                 <dt>{l.champ ?? 'À'}</dt>
@@ -830,8 +913,10 @@ export function MessageConversation({
                 </dd>
               </div>
             ))}
-            <dt>Date</dt>
-            <dd>{dateHeureComplete(message.recuLe)}</dd>
+            <div className="cnv-entete-ligne">
+              <dt>Date</dt>
+              <dd>{dateHeureComplete(message.recuLe)}</dd>
+            </div>
           </dl>
 
           {/* LOT RATTACHEMENT-1 — DE QUOI CE MAIL PARLE-T-IL ? Juste sous l'en-tête, avant le texte : c'est une
@@ -860,6 +945,31 @@ export function MessageConversation({
 
           {/* LOT 5-PJ-A — un SEUL composant rend les pièces, partout où un message s'affiche. */}
           <PiecesJointes messageId={message.messageId} filId={filId} vraies={vraies} signatures={signatures} />
+
+          {/* ══ 🔴 LOT FIL-LECTURE — RÉPONDRE À **CE** MESSAGE, PAS AU DERNIER DU FIL ═══════════════════════════
+              Les trois gestes sous CHAQUE message déplié, et non plus seulement la flèche du coin. Chacun porte sur
+              le message sous lequel il se trouve : `onRepondre` est déjà appelé par la conversation avec CE
+              message-là (`ouvrirRedaction(voie, [m], …)`), donc destinataires, citation, objet « Re:/Fwd: » et
+              en-têtes In-Reply-To / References se calculent à partir de lui.
+
+              🔴 CE QUE ÇA RÉPARE. Répondre à un message d'il y a trois semaines rédigeait jusqu'ici une réponse au
+              DERNIER message de l'échange : mauvais destinataires, mauvaise citation, et une réponse qui se
+              raccrochait au mauvais endroit du fil chez le correspondant. Personne ne l'aurait vu avant l'envoi.
+
+              ⚠️ Ils n'apparaissent QUE si la conversation sait rédiger (`onRepondre` fourni) : sans droit d'écriture
+              ou sans contexte de rédaction, l'écran est exactement celui d'avant ce lot. */}
+          {onRepondre && (
+            <div className="cnv-repondre" role="group" aria-label="Répondre à ce message">
+              {([['repondre', 'Répondre'], ['repondre_tous', 'Répondre à tous'], ['transferer', 'Transférer']] as const)
+                .map(([voie, mot]) => (
+                  <button key={voie} type="button" className="svv-btn svv-btn-outline gst-btn"
+                    onClick={() => onRepondre(voie)}>
+                    <IconeVoie voie={voie} />
+                    <span>{mot}</span>
+                  </button>
+                ))}
+            </div>
+          )}
         </div>
       )}
     </li>
@@ -980,9 +1090,24 @@ a.cnv-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-off
 .cnv-extrait{font-size:.85rem;color:var(--color-svv-muted);overflow-wrap:anywhere;
   display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
 .cnv-detail{flex-basis:100%;padding:0 4px 12px;min-width:0}
+/* ══ LOT FIL-LECTURE — L'EN-TÊTE COMPACT : UN INTITULÉ, UNE LIGNE ════════════════════════════════════════════════
+   Chaque ligne est une rangée : l'intitulé à gauche (largeur fixe, il ne se coupe jamais), la valeur à droite. Les
+   destinataires multiples tiennent sur la MÊME ligne et ne passent à la ligne que si la largeur ne suffit pas —
+   c'est overflow-wrap qui en décide, jamais un retour écrit en dur.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un littéral gabarit. */
 .cnv-entete{margin:0 0 10px;padding:8px 10px;background:var(--color-svv-field);border-radius:.5rem;font-size:.8rem;min-width:0}
-.cnv-entete dt{font-weight:700;color:var(--color-svv-muted)}
-.cnv-entete dd{margin:0 0 .35rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.cnv-entete-ligne{display:flex;align-items:baseline;gap:.5rem;margin:0 0 .2rem}
+.cnv-entete-ligne:last-child{margin-bottom:0}
+.cnv-entete dt{flex:0 0 auto;min-width:2.6rem;font-weight:700;color:var(--color-svv-muted)}
+.cnv-entete dt::after{content:' :'}
+.cnv-entete dd{flex:1 1 auto;margin:0;min-width:0;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* L'objet du message, sur la ligne repliée, à côté de l'expéditeur. Il se coupe au besoin plutôt que de pousser la
+   date hors de la ligne : c'est l'expéditeur et la date qu'on lit d'abord dans une liste. */
+.cnv-objet{font-size:.85rem;font-weight:600;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* Les trois gestes sous un message déplié. Pleine largeur sur téléphone, en ligne dès qu'il y a la place. */
+.cnv-repondre{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.cnv-repondre .gst-btn{display:inline-flex;align-items:center;gap:.4rem}
+.cnv-pied-note{margin:0 0 .4rem}
 .cnv-note{color:var(--color-svv-muted);font-style:italic}
 /* Le menu vit désormais DANS le coin, à côté de la date et du cartouche : plus de positionnement absolu, donc plus
    de largeur réservée en dur sur la ligne — et rien ne peut se recouvrir quand le cartouche est long. */
