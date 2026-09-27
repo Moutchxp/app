@@ -384,6 +384,12 @@ export function BoiteMail({
    * ce qu'on regarde. Le relier à eux ferait une requête à chaque clic dans la colonne, pour une réponse identique.
    */
   const [cleRelecture, setCleRelecture] = useState(0);
+  /**
+   * 🔴 QUELLE LIGNE DEMANDE CONFIRMATION D'UNE MISE À LA CORBEILLE — au plus UNE, et c'est tout l'intérêt de la
+   * tenir ici plutôt que dans chaque barre. La confirmation est le seul cas où une barre reste visible sans que la
+   * souris soit dessus ; gardée par chaque barre, deux lignes pouvaient rester allumées en même temps.
+   */
+  const [confirmeSur, setConfirmeSur] = useState<number | null>(null);
   useEffect(() => {
     let annule = false;
     void (async () => {
@@ -903,6 +909,8 @@ export function BoiteMail({
                       etoileDisponible: etoiles,
                       nonLu, corbeilleDisponible: corbeille,
                     }}
+                    confirme={confirmeSur === l.filId}
+                    onConfirmer={(ouvrir) => setConfirmeSur(ouvrir ? l.filId : null)}
                     onEtoile={(e) => void basculerEtoile(l.filId, e)}
                     onLecture={(lu) => onActionLigne(l.filId, lu ? 'lu' : 'non_lu')}
                     onCorbeille={() => onActionLigne(l.filId, 'corbeille')}

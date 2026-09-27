@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 
 /**
  * LOT LISTE-GMAIL — LA BARRE D'ACTIONS D'UNE LIGNE, AU SURVOL.
@@ -40,29 +39,47 @@ export interface EtatBarreLigne {
   corbeilleDisponible: boolean;
 }
 
-export function BarreLigne({ etat, onEtoile, onLecture, onCorbeille, onClasser }: {
+export function BarreLigne({ etat, confirme, onConfirmer, onEtoile, onLecture, onCorbeille, onClasser }: {
   etat: EtatBarreLigne;
+  /**
+   * 🔴 LA CONFIRMATION DE CORBEILLE EST PILOTÉE PAR LA LISTE, pas gardée ici. C'est ce qui garantit qu'il n'y en a
+   * JAMAIS DEUX : ouvrir celle d'une ligne referme celle d'une autre. Gardée en propre, chaque barre pouvait rester
+   * ouverte de son côté, et deux lignes montraient leur barre en même temps.
+   */
+  confirme: boolean;
+  onConfirmer: (ouvrir: boolean) => void;
   onEtoile: (etoilee: boolean) => void;
   onLecture: (lu: boolean) => void;
   onCorbeille: () => void;
   onClasser: () => void;
 }) {
-  const [confirme, setConfirme] = useState(false);
-
   /**
-   * 🔴 LE MÊME TRAITEMENT POUR TOUS LES BOUTONS DE LA BARRE : on arrête la propagation AVANT d'agir. La ligne qui
-   * nous porte est un bouton ; sans cela, chaque geste de la barre ouvrirait aussi le mail.
+   * ══ 🔴 LE MÊME TRAITEMENT POUR TOUS LES BOUTONS DE LA BARRE ═══════════════════════════════════════════════════
+   * ① on ARRÊTE LA PROPAGATION avant d'agir : la ligne qui nous porte est un bouton, et sans cela chaque geste de
+   *    la barre ouvrirait aussi le mail ;
+   * ② on REND LE FOCUS après un clic SOURIS. Défaut constaté par Arno le 27/09/2026 : le bouton cliqué gardait le
+   *    focus, la rangée restait « focus-within », et la barre restait affichée une fois la souris partie — sur
+   *    plusieurs lignes à la fois. Le bouton n'a aucune raison de garder le focus après un clic de souris.
+   *
+   * ⚠️ `e.detail > 0` DISTINGUE LA SOURIS DU CLAVIER : une activation au clavier (Entrée, Espace) rend `detail: 0`.
+   * On ne lui retire donc JAMAIS le focus — ce serait rendre la barre inutilisable au clavier, exactement ce qu'on
+   * veut préserver.
    */
-  const geste = (f: () => void) => (e: React.MouseEvent) => { e.stopPropagation(); e.preventDefault(); f(); };
+  const geste = (f: () => void) => (e: React.MouseEvent) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (e.detail > 0) (e.currentTarget as HTMLElement).blur();
+    f();
+  };
 
   if (confirme) {
     return (
       <span className="brl brl--confirme" role="group" aria-label="Confirmer la mise à la corbeille"
         onClick={(e) => e.stopPropagation()}>
         <span className="brl-question">Mettre cet échange à la corbeille ?</span>
-        <button type="button" className="brl-bouton" onClick={geste(() => setConfirme(false))}>Annuler</button>
+        <button type="button" className="brl-bouton" onClick={geste(() => onConfirmer(false))}>Annuler</button>
         <button type="button" className="brl-bouton brl-bouton--rouge"
-          onClick={geste(() => { setConfirme(false); onCorbeille(); })}>
+          onClick={geste(() => { onConfirmer(false); onCorbeille(); })}>
           Confirmer
         </button>
       </span>
@@ -102,7 +119,7 @@ export function BarreLigne({ etat, onEtoile, onLecture, onCorbeille, onClasser }
       {etat.corbeilleDisponible && (
         <button type="button" className="brl-icone"
           aria-label="Mettre à la corbeille" title="Mettre à la corbeille"
-          onClick={geste(() => setConfirme(true))}>
+          onClick={geste(() => onConfirmer(true))}>
           <Corbeille />
         </button>
       )}
@@ -156,7 +173,13 @@ export const CSS_BARRE_LIGNE = `
   display:inline-flex;align-items:center;gap:2px;padding:2px 4px;border-radius:8px;
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line);
   box-shadow:0 1px 4px rgba(17,19,24,.12);opacity:0;pointer-events:none;transition:opacity .08s ease-out}
-.bte-li:hover .brl,.bte-li:focus-within .brl{opacity:1;pointer-events:auto}
+/* 🔴 SURVOL, OU FOCUS VENU DU CLAVIER — ET RIEN D'AUTRE. La règle focus-within gardait la barre allumée après un
+   clic SOURIS, parce que le bouton cliqué conservait le focus : la barre restait sur la ligne une fois la souris
+   partie, et sur plusieurs lignes à la fois. focus-visible ne s'allume, lui, que pour une navigation au clavier —
+   c'est exactement la distinction demandée. Le blur() posé côté script en est la ceinture (voir le composant).
+   ⚠️ LA CONFIRMATION DE CORBEILLE FAIT EXCEPTION et reste visible jusqu'à Annuler ou Confirmer (règle plus bas).
+   ⚠️ AUCUN ACCENT GRAVE ICI : littéral gabarit. */
+.bte-li:hover .brl,.bte-li:has(:focus-visible) .brl{opacity:1;pointer-events:auto}
 @media (prefers-reduced-motion:reduce){.brl{transition:none}}
 /* Sur écran tactile, il n'y a pas de survol : la barre est montrée en permanence plutôt qu'inatteignable. */
 @media (pointer:coarse){.brl{opacity:1;pointer-events:auto;position:static;transform:none;box-shadow:none}}

@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
 import { BoiteMail } from './BoiteMail';
 
 /**
@@ -194,5 +195,70 @@ describe('la bascule lu / non lu', () => {
     expect(boutonBarre('Marquer comme non lu')).not.toBeNull();
     await cliquer(boutonBarre('Marquer comme non lu'));
     expect(actions).toEqual([{ filId: 7, action: 'non_lu' }]);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LA BARRE NE SURVIT PAS AU CLIC — défaut signalé par Arno le 27/09/2026
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 la barre ne reste pas allumée après un clic souris', () => {
+  /**
+   * 🔴 LA CAUSE. La barre s'affichait au survol OU quand le focus était dans la rangée (`:focus-within`). Après un
+   * clic SOURIS, le bouton cliqué garde le focus : la rangée restait donc « focus-within », et la barre restait
+   * affichée une fois la souris partie — sur plusieurs lignes à la fois, comme sur la capture d'Arno.
+   *
+   * DEUX CORRECTIFS, ET ILS SE COMPLÈTENT :
+   *   · le script rend le focus après un clic de SOURIS (`e.detail > 0`), jamais après une activation au clavier ;
+   *   · la règle CSS passe de `:focus-within` à `:has(:focus-visible)`, que seul le clavier allume.
+   */
+  it('un clic SOURIS rend le focus : plus rien ne retient la barre', async () => {
+    await monter();
+    const b = boutonBarre('Marquer comme non lu') as HTMLButtonElement;
+    // `detail: 1` = un vrai clic de souris. C'est ce que le navigateur envoie, et ce que le composant regarde.
+    await act(async () => { b.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 1 })); });
+    await calmer();
+    expect(document.activeElement).not.toBe(b);
+  });
+
+  /** 🔴 ET SURTOUT PAS AU CLAVIER : `detail: 0` = activation par Entrée ou Espace. Lui retirer le focus rendrait la
+   *  barre inutilisable au clavier — exactement ce qu'on veut préserver. */
+  it('une activation au CLAVIER garde le focus sur le bouton', async () => {
+    await monter();
+    const b = boutonBarre('Marquer comme non lu') as HTMLButtonElement;
+    b.focus();
+    await act(async () => { b.dispatchEvent(new MouseEvent('click', { bubbles: true, detail: 0 })); });
+    await calmer();
+    expect(document.activeElement).toBe(b);
+  });
+
+  it('la règle d’affichage ne parle plus de « focus-within », mais de « focus-visible »', () => {
+    const css = readFileSync('app/(admin)/admin/(protected)/gestion/BarreLigne.tsx', 'utf8');
+    expect(css).toContain('.bte-li:hover .brl,.bte-li:has(:focus-visible) .brl{opacity:1');
+    expect(css).not.toContain('.bte-li:focus-within .brl');
+  });
+
+  /**
+   * L'EXCEPTION VOULUE : pendant la confirmation de corbeille, la barre reste visible jusqu'à Annuler ou Confirmer
+   * — sans quoi la question disparaîtrait au moindre mouvement de souris, et on répondrait à côté.
+   */
+  it('la confirmation reste visible sans survol', () => {
+    const css = readFileSync('app/(admin)/admin/(protected)/gestion/BarreLigne.tsx', 'utf8');
+    expect(css).toContain('.brl--confirme{opacity:1;pointer-events:auto');
+  });
+
+  /** 🔴 UNE SEULE BARRE À LA FOIS : la confirmation est tenue par la LISTE, donc une seule ligne peut l'ouvrir. */
+  it('ouvrir la confirmation d’une ligne ferme celle d’une autre', async () => {
+    const css = readFileSync('app/(admin)/admin/(protected)/gestion/BoiteMail.tsx', 'utf8');
+    expect(css).toContain('const [confirmeSur, setConfirmeSur]');
+    expect(css).toContain('confirme={confirmeSur === l.filId}');
+    // …et la barre ne garde plus d'état de confirmation en propre.
+    const barre = readFileSync('app/(admin)/admin/(protected)/gestion/BarreLigne.tsx', 'utf8');
+    expect(barre).not.toContain('useState');
+  });
+
+  it('sur écran tactile, la barre reste montrée en permanence — comportement inchangé', () => {
+    const css = readFileSync('app/(admin)/admin/(protected)/gestion/BarreLigne.tsx', 'utf8');
+    expect(css.replace(/\s+/g, ' ')).toContain('@media (pointer:coarse){.brl{opacity:1;pointer-events:auto');
   });
 });
