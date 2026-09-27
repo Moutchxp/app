@@ -262,3 +262,37 @@ describe('🔴 la barre ne reste pas allumée après un clic souris', () => {
     expect(css.replace(/\s+/g, ' ')).toContain('@media (pointer:coarse){.brl{opacity:1;pointer-events:auto');
   });
 });
+
+describe('🔴 la barre laisse le « ⋯ » atteignable', () => {
+  /**
+   * 🔴 LE DÉFAUT SIGNALÉ PAR ARNO. Collée au bord droit, la barre passait PAR-DESSUS le bouton « ⋯ » de la ligne
+   * (mesuré : le menu occupe 44 px collés au bord, la barre le recouvrait sur 38 px). Le menu devenait impossible à
+   * cliquer dès que la barre était affichée — c'est-à-dire précisément quand on survolait la ligne pour l'utiliser.
+   *
+   * Le retrait vaut la largeur du menu plus un peu d'air, et il est écrit en `calc()` à partir de la cible tactile
+   * de 44 px : les deux bougeront ensemble le jour où cette cible change.
+   */
+  it('elle s’arrête avant le menu, d’une largeur de bouton et d’un espace', () => {
+    const css = readFileSync('app/(admin)/admin/(protected)/gestion/BarreLigne.tsx', 'utf8');
+    expect(css).toContain('right:calc(44px + 8px)');
+    expect(css).not.toContain('.brl{position:absolute;right:6px');
+  });
+
+  /**
+   * ET LE MENU RÉPOND PENDANT QUE LA BARRE EST LÀ. On ne peut pas éprouver un recouvrement en jsdom (aucune mise en
+   * page), mais on peut éprouver ce qui compte vraiment : que le « ⋯ » soit un VOISIN de la barre — donc jamais
+   * masqué par elle dans l'ordre du DOM — et qu'un clic l'ouvre bien.
+   */
+  it('le « ⋯ » est un voisin de la barre, et son clic ouvre le menu', async () => {
+    await monter();
+    const rangee = container.querySelector('.bte-li');
+    const menu = rangee?.querySelector('button[aria-label^="Actions sur l"]') as HTMLButtonElement;
+    expect(menu).not.toBeNull();
+    // Voisins : ni l'un ni l'autre n'est contenu dans l'autre.
+    expect(rangee?.querySelector('.brl')?.contains(menu)).toBe(false);
+    expect(menu.closest('.brl')).toBeNull();
+    await cliquer(menu);
+    expect(menu.getAttribute('aria-expanded')).toBe('true');
+    expect(container.querySelector('[role="menu"]')).not.toBeNull();
+  });
+});

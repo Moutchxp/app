@@ -169,7 +169,14 @@ export const CSS_BARRE_LIGNE = `
    ⚠️ ELLE RESTE DANS LE FLUX DU CLAVIER : hidden ou display:none la rendraient inatteignable à la tabulation. On
    la masque par l'opacité, et la rangée la révèle au survol comme au focus (voir la liste).
    ⚠️⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un littéral gabarit, qu'un seul backtick refermerait. */
-.brl{position:absolute;right:6px;top:50%;transform:translateY(-50%);z-index:2;
+/* ══ 🔴 LA BARRE S'ARRÊTE AVANT LE « ⋯ » ════════════════════════════════════════════════════════════════════════
+   Défaut signalé par Arno : collée à 6 px du bord, la barre recouvrait le bouton « ⋯ » de la ligne, qui devenait
+   impossible à cliquer tant qu'elle était affichée. Mesuré : le menu occupe 1448–1492 (44 px, collé au bord) et la
+   barre 1329–1486 — elle passait par-dessus sur 38 px.
+   Le retrait vaut donc la LARGEUR DU MENU (44 px, la cible tactile minimale, imposée par .mlg-bouton) plus 8 px
+   d'air. Écrit en calc() et non en 52px figés, pour que les deux bougent ensemble le jour où la cible change.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : littéral gabarit. */
+.brl{position:absolute;right:calc(44px + 8px);top:50%;transform:translateY(-50%);z-index:2;
   display:inline-flex;align-items:center;gap:2px;padding:2px 4px;border-radius:8px;
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line);
   box-shadow:0 1px 4px rgba(17,19,24,.12);opacity:0;pointer-events:none;transition:opacity .08s ease-out}
