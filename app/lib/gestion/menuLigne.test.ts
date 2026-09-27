@@ -23,16 +23,39 @@ const cles = (e: EtatLigne): string[] => menuLigne(e).map((x) => x.cle);
 const libelles = (e: EtatLigne): string[] => menuLigne(e).map((x) => x.libelle);
 
 describe('🔴 ① l’ordre, et rien que lui', () => {
-  it('Répondre · Répondre à tous · Transférer · Supprimer · Marquer comme non lu', () => {
+  /**
+   * 🔴 « SUPPRIMER » EN DERNIER — ordre demandé par Arno le 27/09/2026. Le geste le plus lourd, celui qui retire
+   * l'échange de la vue, se trouve au BOUT du menu : on n'y arrive plus par inadvertance en visant « Marquer comme
+   * lu ». Les libellés et les textes d'aide, eux, n'ont pas bougé.
+   */
+  it('Répondre · Répondre à tous · Transférer · Marquer comme non lu · Supprimer', () => {
     expect(libelles(etat())).toEqual([
-      'Répondre', 'Répondre à tous', 'Transférer', 'Supprimer', 'Marquer comme non lu',
+      'Répondre', 'Répondre à tous', 'Transférer', 'Marquer comme non lu', 'Supprimer',
     ]);
   });
 
-  /** Le trait sépare « ce qui répond » de « ce qui agit sur l'échange » — l'équipe s'en sert pour viser sans lire. */
+  it('avec les pièces jointes, « Transférer en tant que pièce jointe » reste collé à « Transférer »', () => {
+    expect(libelles(etat({ piecesDisponibles: true }))).toEqual([
+      'Répondre', 'Répondre à tous', 'Transférer', 'Transférer en tant que pièce jointe',
+      'Marquer comme non lu', 'Supprimer',
+    ]);
+  });
+
+  /**
+   * Le trait sépare « ce qui répond » de « ce qui agit sur l'échange » — l'équipe s'en sert pour viser sans lire.
+   * ⚠️ IL SUIT LA TÊTE DU SECOND GROUPE, QUELLE QU'ELLE SOIT : c'est « Marquer comme… » qui le porte depuis que
+   * « Supprimer » est passé en dernier. L'ancienne écriture le posait deux fois, avec une condition croisée qui se
+   * contredisait au premier changement d'ordre — c'est-à-dire ici.
+   */
   it('un trait avant ce qui agit sur l’échange, et un seul', () => {
     const avec = menuLigne(etat()).filter((e) => e.separateurAvant);
-    expect(avec.map((e) => e.cle)).toEqual(['corbeille']);
+    expect(avec.map((e) => e.cle)).toEqual(['non_lu']);
+  });
+
+  it('…et sans le droit d’écrire, c’est « Supprimer » qui ouvre le groupe — sans trait, il est premier', () => {
+    const m = menuLigne(etat({ peutEcrire: false }));
+    expect(m.map((e) => e.cle)).toEqual(['corbeille']);
+    expect(m[0].separateurAvant).not.toBe(true);
   });
 });
 

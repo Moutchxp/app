@@ -91,26 +91,41 @@ export function menuLigne(etat: EtatLigne): EntreeLigne[] {
     }
   }
 
+  /**
+   * ══ 🔴 LE SECOND GROUPE : CE QUI AGIT SUR L'ÉCHANGE, ET « SUPPRIMER » EN DERNIER ══════════════════════════════
+   * Ordre demandé par Arno le 27/09/2026 : « Marquer comme lu / non lu », PUIS « Supprimer ». Le geste le plus
+   * lourd — celui qui retire l'échange de la vue — se trouve désormais au bout du menu, là où l'on n'arrive pas par
+   * inadvertance. « Restaurer » prend la même place que « Supprimer » : c'est le même geste, pris par l'autre bout.
+   *
+   * 🔴 LE SÉPARATEUR SE POSE SUR LE PREMIER DE CE GROUPE, QUEL QU'IL SOIT. Il était écrit deux fois, avec une
+   * condition croisée (`&& !etat.corbeilleDisponible`) qui disait « mets le trait ici sauf si l'autre l'a déjà mis ».
+   * Cette forme-là se contredit au premier changement d'ordre — c'est-à-dire aujourd'hui. On construit donc le
+   * groupe, puis on pose le trait sur sa tête : une seule règle, qui reste vraie quel que soit l'ordre.
+   */
+  const surLEchange: EntreeLigne[] = [];
+
+  if (etat.peutEcrire) {
+    surLEchange.push({
+      cle: etat.nonLu ? 'lu' : 'non_lu',
+      libelle: etat.nonLu ? 'Marquer comme lu' : 'Marquer comme non lu',
+      aide: 'Le lu/non lu est celui de Gmail : il vaut pour toute l’équipe.',
+    });
+  }
+
   if (etat.corbeilleDisponible) {
-    entrees.push(etat.enCorbeille
+    surLEchange.push(etat.enCorbeille
       ? {
-        cle: 'restaurer', libelle: 'Restaurer', separateurAvant: entrees.length > 0,
+        cle: 'restaurer', libelle: 'Restaurer',
         aide: 'L’échange revient dans sa boîte, avec tous ses messages.',
       }
       : {
-        cle: 'corbeille', libelle: 'Supprimer', separateurAvant: entrees.length > 0, discrete: true,
+        cle: 'corbeille', libelle: 'Supprimer', discrete: true,
         aide: 'Rien n’est supprimé : l’échange part à la corbeille, reste intact dans Gmail, et revient tout seul si un nouveau message arrive.',
       });
   }
 
-  if (etat.peutEcrire) {
-    entrees.push({
-      cle: etat.nonLu ? 'lu' : 'non_lu',
-      libelle: etat.nonLu ? 'Marquer comme lu' : 'Marquer comme non lu',
-      separateurAvant: entrees.length > 0 && !etat.corbeilleDisponible,
-      aide: 'Le lu/non lu est celui de Gmail : il vaut pour toute l’équipe.',
-    });
-  }
+  if (surLEchange.length > 0 && entrees.length > 0) surLEchange[0].separateurAvant = true;
+  entrees.push(...surLEchange);
 
   return entrees;
 }
