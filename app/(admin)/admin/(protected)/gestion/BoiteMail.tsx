@@ -200,7 +200,7 @@ type Etat =
  */
 async function chargerPage(
   curseur: CurseurBoite | null, auto: boolean, critere: Critere, etiquette: Etiquette,
-  filtre: 'non-lus' | null = null,
+  filtre: 'non-lus' | null = null, etoile = false,
 ): Promise<ReponseBoite | { erreur: string }> {
   const p = new URLSearchParams();
   if (curseur) { p.set('depuis', curseur.dernierLe); p.set('avant', curseur.filId); }
@@ -209,6 +209,9 @@ async function chargerPage(
   //   l'écrire ferait une seconde adresse pour la même demande. Il ne part PAS avec une recherche : celle-ci
   //   traverse les étiquettes et n'a pas de notion de « non lu » (voir la note sur l'étiquette ci-dessous).
   if (filtre === 'non-lus' && !critereActif(critere)) p.set('filtre', 'non-lus');
+  // LOT FILTRE-ETOILE — il se COMBINE avec tout le reste, recherche comprise : c'est une restriction de plus, pas
+  //   un mode à part. Seul `1` s'écrit — « tous » est le défaut, et un défaut écrit n'est plus un défaut.
+  if (etoile) p.set('etoile', '1');
   const cherche = critereActif(critere);
   // 🔴 L'ÉTIQUETTE NE VA PAS À LA RECHERCHE, et c'est voulu : le lot 5c promet de chercher dans TOUT le courrier de
   //   gestion. La restreindre à l'étiquette ouverte ferait rater le mail qu'on cherche pour la seule raison qu'on
@@ -268,6 +271,7 @@ export function BoiteMail({
   onOuvrir, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
   dense = false, onNonLus, marquage, onActionLigne, corbeille = false, peutEcrire = false, piecesDisponibles = false,
   versionDonnees = 0, onListeRelue, onRelever, releveEnCours = false, filtre = null,
+  etoile = false, onEtoileFiltre,
 }: {
   onOuvrir: (filId: number) => void;
   /** LOT 5-FUSION — l'étiquette ouverte. Absente = la boîte entière, exactement le comportement du lot 5a. */
@@ -337,6 +341,17 @@ export function BoiteMail({
    * rafraîchissement automatique de 30 s et l'icône « Relever et actualiser » le respectent d'eux-mêmes.
    */
   filtre?: 'non-lus' | null;
+  /**
+   * LOT FILTRE-ETOILE — ne montrer que les échanges étoilés. Il entre dans la CLÉ de rechargement, donc le
+   * rafraîchissement automatique de 30 s et « Relever et actualiser » le respectent d'eux-mêmes — et un échange
+   * dont on retire l'étoile disparaît de la liste à la relecture suivante.
+   */
+  etoile?: boolean;
+  /**
+   * Bascule le filtre. ABSENT ⇒ aucun bouton n'est rendu : la liste est alors exactement celle d'avant ce lot
+   * (c'est le cas de l'écran partagé, qui n'a pas d'adresse où inscrire le choix).
+   */
+  onEtoileFiltre?: (actif: boolean) => void;
   /** Prévient le parent que la liste vient de se relire — il peut oublier ce qu'il avait à annoncer. */
   onListeRelue?: () => void;
 }) {
@@ -442,14 +457,16 @@ export function BoiteMail({
   // La date de référence n'est posée qu'APRÈS le montage : la calculer au rendu serveur ferait diverger l'hydratation.
   useEffect(() => { setMaintenant(new Date()); }, []);
 
-  const premiere = useCallback(async (avecAuto: boolean, c: Critere, e: Etiquette, f: 'non-lus' | null = null) => {
+  const premiere = useCallback(async (
+    avecAuto: boolean, c: Critere, e: Etiquette, f: 'non-lus' | null = null, et = false,
+  ) => {
     setEtat({ v: 'charge' });
     // Une lecture de la première page = une occasion de revoir ce que la base sait faire (cf. l'encadré de
     //   `cleRelecture`). Cela ne coûte rien de plus : la route des comptes est déjà appelée ici.
     setCleRelecture((n) => n + 1);
     // LOT ÉCRAN-VIVANT — on repart de la première page : ce qui avait été déroulé par « Voir plus » ne l'est plus.
     setDePlus(0);
-    const r = await chargerPage(null, avecAuto, c, e, f);
+    const r = await chargerPage(null, avecAuto, c, e, f, et);
     if ('erreur' in r) { setEtat({ v: 'erreur', m: r.erreur }); return; }
     setEtat({
       v: 'ok', lignes: r.lignes, suivant: r.suivant, total: r.total ?? r.lignes.length, comptes: r.comptes,
@@ -461,8 +478,8 @@ export function BoiteMail({
 
   // `cleEtiquette` plutôt que l'objet : deux objets égaux mais distincts relanceraient la lecture à chaque rendu.
   // `filtre` entre dans les dépendances : changer de sélecteur relit la première page, comme changer d'étiquette.
-  useEffect(() => { void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette), filtre); },
-    [premiere, auto, critere, cleEtiquette, filtre]);
+  useEffect(() => { void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette), filtre, etoile); },
+    [premiere, auto, critere, cleEtiquette, filtre, etoile]);
 
   /**
    * ══ 🔴 LOT ÉCRAN-VIVANT — LA LISTE SE RELIT QUAND DU COURRIER ARRIVE, SI ELLE PEUT LE FAIRE SANS RIEN PERDRE ══
@@ -477,7 +494,7 @@ export function BoiteMail({
   useEffect(() => {
     if (!versionDonnees) return;                                  // 0 ou absent : comportement d'avant ce lot
     if (!peutSeRecharger) return;
-    void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette), filtre).then(() => onListeRelue?.());
+    void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette), filtre, etoile).then(() => onListeRelue?.());
     // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : SEUL `versionDonnees` déclenche ce
     //   rafraîchissement. Ajouter `critere`, `auto` ou `cleEtiquette` ferait doublon avec l'effet ci-dessus, qui les
     //   surveille déjà — et relirait deux fois la même page à chaque changement d'étiquette.
@@ -512,7 +529,7 @@ export function BoiteMail({
     if (etat.v !== 'ok' || etat.suivant === null || suite) return;
     setSuite(true);
     setDePlus((n) => n + 1);
-    const r = await chargerPage(etat.suivant, auto, critere, etiquette, filtre);
+    const r = await chargerPage(etat.suivant, auto, critere, etiquette, filtre, etoile);
     setSuite(false);
     if ('erreur' in r) { setEtat({ v: 'erreur', m: r.erreur }); return; }
     // On CONCATÈNE : « voir plus » allonge la liste, il ne la remplace pas — on ne perd jamais ce qu'on lisait.
@@ -532,7 +549,7 @@ export function BoiteMail({
     return (
       <div>
         <p className="gst-erreur" role="status">{etat.m}</p>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void premiere(auto, critere, etiquette, filtre)}>Réessayer</button>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void premiere(auto, critere, etiquette, filtre, etoile)}>Réessayer</button>
       </div>
     );
   }
@@ -542,13 +559,33 @@ export function BoiteMail({
     <section aria-labelledby="bte-titre">
       <h2 className="gst-titre" id="bte-titre">
         {cherche ? 'Résultats' : (titre ?? 'Boîte mail')}
-        {!cherche && <span className="gst-compte">{total ?? etat.total}</span>}
+        {/* 🔴 FILTRE ACTIF ⇒ LE COMPTE DE LA PAGE, PAS CELUI DE LA COLONNE. `total` est le nombre porté par
+            l'étiquette (calculé par la colonne de gauche, sans filtre) ; `etat.total` est celui que le serveur
+            vient de compter POUR CETTE LISTE, filtre compris. Vu à l'écran : le titre annonçait 8 471 au-dessus de
+            deux lignes étoilées. Le compteur doit compter ce qu'on voit. */}
+        {!cherche && <span className="gst-compte">{etoile ? etat.total : (total ?? etat.total)}</span>}
         {/* ══ LOT ERGO-BOITE — UNE SEULE ICÔNE À LA PLACE DE DEUX BOUTONS ═══════════════════════════════════════
             « Relever maintenant » et « Rafraîchir » faisaient deux choses qu'on veut toujours ensemble : aller
             chercher le courrier, puis montrer ce qu'on a trouvé. Relever sans rafraîchir laissait l'écran sur
             l'image d'avant — c'est exactement ce qui a fait croire, le 26/09, que la relève ne fonctionnait pas.
             🔴 L'ICÔNE N'EST PAS SEULE : `aria-label` et `title` portent la phrase « Relever et actualiser ». Une
             icône sans nom n'existe pas pour un lecteur d'écran, et ne s'apprend pas au survol sur un téléphone. */}
+        {/* ══ 🔴 LOT FILTRE-ETOILE — L'ÉTOILE DU TITRE : montrer SEULEMENT les échanges étoilés ═══════════════
+            Entre le compteur et l'icône de relève, dans le même bouton rond : c'est une bascule d'affichage, pas un
+            geste sur un échange. Rouge et pleine quand elle filtre, grise et en contour sinon — deux marques, dont
+            la FORME, qui survit aux niveaux de gris et au daltonisme.
+
+            🔴 ELLE NE S'AFFICHE QUE SI L'ÉTOILE EXISTE (migration 264) : filtrer sur un état qu'on ne sait pas lire
+            rendrait une liste vide sans raison compréhensible. Et `aria-pressed` dit l'état au clavier. */}
+        {onEtoileFiltre && etoiles && (
+          <button type="button" className={`bte-relever bte-filtre-etoile${etoile ? ' bte-filtre-etoile--actif' : ''}`}
+            aria-pressed={etoile}
+            aria-label={etoile ? 'Afficher tous les messages' : 'Afficher les messages étoilés'}
+            title={etoile ? 'Afficher tous les messages' : 'Afficher les messages étoilés'}
+            onClick={() => onEtoileFiltre(!etoile)}>
+            <Etoile pleine={etoile} />
+          </button>
+        )}
         {onRelever && (
           <button type="button" className={`bte-relever${releveEnCours ? ' bte-relever--tourne' : ''}`}
             onClick={onRelever} disabled={releveEnCours}
@@ -591,7 +628,7 @@ export function BoiteMail({
         <p className="gst-tronc" role="status">
           {mentionCourrierNouveau(1).replace('Un message est', 'Du courrier est')}{' '}
           <button type="button" className="gst-lien-bouton"
-            onClick={() => { void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette), filtre).then(() => onListeRelue?.()); }}>
+            onClick={() => { void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette), filtre, etoile).then(() => onListeRelue?.()); }}>
             Afficher la liste à jour
           </button>
         </p>
@@ -794,9 +831,12 @@ export function BoiteMail({
       )}
 
       {etat.lignes.length === 0 && !(cherche && etat.brouillons.lignes.length > 0)
-        ? <p className="gst-vide">{cherche
-            ? 'Aucun échange ne correspond à cette recherche.'
-            : titre === undefined ? 'Aucun échange dans la boîte.' : `Aucun échange sous « ${titre} ».`}</p>
+        ? <p className="gst-vide">{
+            /* LOT FILTRE-ETOILE — le filtre passe AVANT les autres messages : « aucun échange sous Réception »
+               serait faux et inquiétant alors qu'il y en a 8 471, dont aucun d'étoilé. */
+            etoile ? 'Aucun message étoilé dans cette liste.'
+              : cherche ? 'Aucun échange ne correspond à cette recherche.'
+                : titre === undefined ? 'Aucun échange dans la boîte.' : `Aucun échange sous « ${titre} ».`}</p>
         : (
           <ul className={`gst-liste bte-liste${dense ? ' bte-liste--dense' : ''}`}>
             {etat.lignes.map((l) => {
@@ -1015,6 +1055,9 @@ const CSS_BOITE = `
    ⚠️ ELLE PEUT PASSER À LA LIGNE. Sur un écran étroit, le titre garde sa place et la mention descend dessous
    (le h2 a flex-wrap:wrap) : mieux vaut deux lignes qu'un texte écrasé ou tronqué.
    ⚠️⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un littéral gabarit. Septième fois sur ce module. */
+/* LOT FILTRE-ETOILE — le MÊME bouton rond que la relève ; seule la couleur change quand il filtre. La forme de
+   l'étoile (pleine / en contour) porte l'information autant que la couleur. */
+.bte-filtre-etoile--actif{color:var(--color-svv-red)}
 .bte-tait{margin-left:auto;text-align:right;font-size:.72rem;font-weight:400;line-height:1.35;
   color:var(--color-svv-muted);flex:0 1 auto;min-width:0}
 .bte-marque{display:inline-flex;align-items:center;gap:.25rem}

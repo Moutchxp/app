@@ -195,3 +195,31 @@ describe('⑤ la RECHERCHE : « Spam » est une case, cochée par défaut', () =
     expect(sql).not.toContain('spam_le');
   });
 });
+
+describe('LOT FILTRE-ETOILE — ne garder que les échanges étoilés', () => {
+  /**
+   * 🔴 LA LISTE ET SON COMPTEUR PARTAGENT LE MÊME PRÉDICAT. Un compteur calculé « autrement mais équivalent »
+   * annonce tôt ou tard un nombre que la liste ne montre pas — et c'est toujours le compteur qu'on croit.
+   */
+  it('le filtre pose le même prédicat dans la liste et dans le compteur', async () => {
+    await lireBoiteMail(null, [], 30, { etiquette: etiq('reception'), etoilesSeules: true });
+    const page = sqls().find((s) => s.includes('WITH page')) ?? '';
+    const compte = sqls().find((s) => s.includes('count(*)::int AS n')) ?? '';
+    for (const sql of [page, compte]) {
+      expect(sql).toContain('EXISTS (SELECT 1 FROM gestion_fil_etoile fe WHERE fe.fil_id = m.fil_id AND fe.etoilee)');
+    }
+  });
+
+  it('sans le filtre, la table des étoiles n’est NOMMÉE nulle part', async () => {
+    await lireBoiteMail(null, [], 30, { etiquette: etiq('reception') });
+    expect(sqls().join(' ')).not.toContain('gestion_fil_etoile');
+  });
+
+  /** ⚠️ IL SE COMBINE : sous « Réception », on garde le sens ET l'étoile. C'est une restriction de plus. */
+  it('il s’ajoute au filtre de l’étiquette, il ne le remplace pas', async () => {
+    await lireBoiteMail(null, [], 30, { etiquette: etiq('reception'), etoilesSeules: true });
+    const page = sqls().find((s) => s.includes('WITH page')) ?? '';
+    expect(page).toContain("m.sens = 'recu'");
+    expect(page).toContain('fe.etoilee');
+  });
+});

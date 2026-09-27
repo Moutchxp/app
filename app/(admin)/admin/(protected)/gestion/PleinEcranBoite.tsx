@@ -77,7 +77,7 @@ export function PleinEcranBoite({
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique,
   versionDonnees = 0, onListeRelue,
   onRattacher, aRattacher = null, aRattacherSansCandidat = null, onAnnuaire, etatDiscret = null,
-  onRelever, releveEnCours = false, filtre = null, onFiltre,
+  onRelever, releveEnCours = false, filtre = null, onFiltre, etoile = false, onEtoileFiltre,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -145,6 +145,9 @@ export function PleinEcranBoite({
   filtre?: 'non-lus' | null;
   /** Change le sélecteur. ABSENT ⇒ aucun sélecteur n'est rendu : la colonne est alors celle d'avant ce lot. */
   onFiltre?: (f: 'non-lus' | null) => void;
+  /** LOT FILTRE-ETOILE — ne montrer que les échanges étoilés, et la bascule qui l'allume. */
+  etoile?: boolean;
+  onEtoileFiltre?: (actif: boolean) => void;
   /** Relève immédiate PUIS rafraîchissement — un seul geste, une seule icône. */
   onRelever?: () => void;
   releveEnCours?: boolean;
@@ -571,6 +574,7 @@ export function PleinEcranBoite({
             )}
             <BoiteMail key={versionListe} etiquette={etiquette} titre={titre} total={ouverte?.compte ?? null} dense
               onRelever={onRelever} releveEnCours={releveEnCours} filtre={filtre}
+              etoile={etoile} onEtoileFiltre={onEtoileFiltre}
               auto={auto} onAuto={onAuto} filSelectionne={filOuvert} onNonLus={onNonLus} marquage={marquage}
               corbeille={corbeilleDisponible} peutEcrire={peutEcrire} piecesDisponibles={piecesDisponibles}
               onActionLigne={agirSurLigne}

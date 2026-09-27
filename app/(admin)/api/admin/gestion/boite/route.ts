@@ -74,8 +74,14 @@ export async function GET(request: Request): Promise<Response> {
     const filsRetenus = url.searchParams.get('filtre') === 'non-lus' && etiquette.sorte === 'reception' && nl.disponible
       ? [...nl.fils]
       : undefined;
+    /**
+     * LOT FILTRE-ETOILE — le filtre « étoilés » n'est demandé que si la migration 264 est là. Sans elle, la table
+     * n'existe pas : la nommer ferait échouer toute la liste, alors que l'écran n'affiche même pas le bouton.
+     */
+    const etoilesSeules = url.searchParams.get('etoile') === '1'
+      && await (await import('../../../../../lib/gestion/schema')).etoileDisponible();
     const page = await lireBoiteMail(curseur, partenaires, PAGE_BOITE, {
-      inclureAutomatiques, etiquette, fenetreJours, filsRetenus,
+      inclureAutomatiques, etiquette, fenetreJours, filsRetenus, etoilesSeules,
     });
     // Les deux comptes ne sont calculés qu'à la PREMIÈRE page : l'écran doit pouvoir dire ce qu'il montre ET ce qu'il
     //   tait, mais le redemander à chaque « voir plus » le paierait pour rien.

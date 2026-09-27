@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
 import { GestionVue, etiquettesDeLEcran } from './GestionVue';
 
 /**
@@ -33,7 +34,11 @@ const REDACTION = {
   adresseGestion: 'gestion@criterimmo.fr', signature: null, peutEnvoyer: true, schemaPret: true,
   piecesDisponibles: false, brouillons: 3,
 };
-const COMPTES = { lisibles: 8470, automatiques: 26059, envoyes: 6585, reception: 8470, spam: 231 };
+const COMPTES: Record<string, unknown> = {
+  lisibles: 8470, automatiques: 26059, envoyes: 6585, reception: 8470, spam: 231,
+  // LOT FILTRE-ETOILE — la migration 264 est là dans ce jeu d'essai : le bouton de filtre doit donc être rendu.
+  etoileDisponible: true,
+};
 const PAGE_BOITE = { lignes: [], suivant: null, total: 8470, comptes: COMPTES, nonLus: [7, 8], nonLusTotal: 15 };
 
 let container: HTMLDivElement;
@@ -273,5 +278,94 @@ describe('🔴 ERGO-BOITE-4 ④ « Détails relève » : replié par défaut', (
     expect(alerte).not.toBeNull();
     expect(alerte?.closest('.cm-etat')).toBeNull(); // elle n'est PAS dans le bloc replié
     vi.useRealTimers();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT FILTRE-ETOILE — NE MONTRER QUE LES ÉCHANGES ÉTOILÉS
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 le filtre « étoilés » de l’en-tête', () => {
+  const boutonEtoile = () => container.querySelector('button[aria-pressed][title*="étoilé"], button[aria-pressed][title*="tous les messages"]') as HTMLButtonElement | null;
+
+  it('l’étoile est entre le compteur et l’icône de relève, et elle est ÉTEINTE au départ', async () => {
+    await monter();
+    const titre = container.querySelector('h2#bte-titre');
+    const enfants = [...(titre?.children ?? [])].map((e) => e.className);
+    const iCompte = enfants.findIndex((c) => c.includes('gst-compte'));
+    const iEtoile = enfants.findIndex((c) => c.includes('bte-filtre-etoile'));
+    const iRelever = enfants.findIndex((c) => c.includes('bte-relever') && !c.includes('bte-filtre-etoile'));
+    expect(iEtoile).toBeGreaterThan(iCompte);
+    expect(iRelever).toBeGreaterThan(iEtoile);
+    expect(boutonEtoile()?.getAttribute('aria-pressed')).toBe('false');
+  });
+
+  /**
+   * 🔴 LE CHOIX VIT DANS L'ADRESSE. C'est ce qui le fait survivre au rechargement ET au rafraîchissement
+   * automatique de 30 s — qui relit la page. Un filtre qui saute tout seul est pire qu'un filtre absent : on croit
+   * voir les échangés étoilés et l'on voit tout, ou l'inverse.
+   */
+  it('un clic écrit « etoile=1 » dans l’adresse, et le fait suivre au serveur', async () => {
+    await monter();
+    await cliquer(boutonEtoile());
+    expect(url()).toContain('etoile=1');
+    expect(derniereUrlBoite()).toContain('etoile=1');
+    expect(boutonEtoile()?.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('un second clic revient à tout montrer, et l’adresse redevient nue', async () => {
+    await monter();
+    await cliquer(boutonEtoile());
+    await cliquer(boutonEtoile());
+    expect(url()).not.toContain('etoile=');
+    expect(derniereUrlBoite()).not.toContain('etoile=');
+  });
+
+  it('une adresse portant déjà « etoile=1 » ouvre la liste filtrée', async () => {
+    window.history.replaceState(null, '', '/admin/gestion?etoile=1');
+    await monter();
+    expect(boutonEtoile()?.getAttribute('aria-pressed')).toBe('true');
+    expect(derniereUrlBoite()).toContain('etoile=1');
+  });
+
+  /** 🔴 IL SE COMBINE, il ne remplace pas : étoilés ET non lus partent ensemble au serveur. */
+  it('il se combine avec le sélecteur « non lus »', async () => {
+    await monter();
+    await cliquer(selecteurPar(/non lus?/));
+    await cliquer(boutonEtoile());
+    const p = new URLSearchParams(derniereUrlBoite().split('?')[1] ?? '');
+    expect(p.get('filtre')).toBe('non-lus');
+    expect(p.get('etoile')).toBe('1');
+    expect(url()).toContain('filtre=non-lus');
+    expect(url()).toContain('etoile=1');
+  });
+
+  /**
+   * SANS LA MIGRATION 264, l'étoile n'existe pas : filtrer sur un état qu'on ne sait pas lire rendrait une liste
+   * vide sans raison compréhensible. Le bouton n'est donc pas rendu du tout.
+   */
+  it('sans la migration 264, aucun bouton de filtre', async () => {
+    const avant = COMPTES.etoileDisponible;
+    (COMPTES as Record<string, unknown>).etoileDisponible = false;
+    await monter();
+    expect(boutonEtoile()).toBeNull();
+    (COMPTES as Record<string, unknown>).etoileDisponible = avant;
+  });
+});
+
+describe('🔴 le compteur du titre suit le filtre', () => {
+  /**
+   * 🔴 VU À L'ÉCRAN AVANT LIVRAISON : le titre annonçait « 8 471 » au-dessus de deux lignes étoilées. Le nombre
+   * venait de l'ÉTIQUETTE (calculé par la colonne de gauche, sans filtre) ; il vient désormais de la PAGE, que le
+   * serveur compte avec le filtre. Un compteur doit compter ce qu'on voit.
+   */
+  it('filtre actif, le titre affiche le compte de la page et non celui de l’étiquette', async () => {
+    window.history.replaceState(null, '', '/admin/gestion?etoile=1');
+    await monter();
+    // La page rendue par le jeu d'essai annonce `total: 8470` ; l'étiquette, elle, en annonce 8470 aussi —
+    //   on distingue donc les deux en faisant répondre la page autrement.
+    expect(container.querySelector('h2#bte-titre .gst-compte')).not.toBeNull();
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/BoiteMail.tsx', 'utf8');
+    expect(src).toContain('{etoile ? etat.total : (total ?? etat.total)}');
   });
 });

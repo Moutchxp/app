@@ -193,6 +193,12 @@ const ETIQUETTE_TOUT: Etiquette = { sorte: 'reception', evenementId: null };
  * seconde que l'arrivée d'un message doit tenir — sinon l'échange ressortirait aussitôt, sans explication.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+/**
+ * LOT FILTRE-ETOILE — « cet échange porte l'étoile de l'équipe ». Écrit UNE fois, lu par la liste ET par le
+ * compteur : un compteur qui compterait autrement finirait par annoncer un nombre que la liste ne montre pas.
+ */
+const SQL_ETOILE = `EXISTS (SELECT 1 FROM gestion_fil_etoile fe WHERE fe.fil_id = m.fil_id AND fe.etoilee)`;
+
 const SQL_EN_CORBEILLE = `EXISTS (SELECT 1 FROM gestion_fil fc
                                    WHERE fc.id = m.fil_id AND fc.corbeille_le IS NOT NULL
                                      AND fc.corbeille_le >= m.recu_le)`;
@@ -297,6 +303,8 @@ export function sqlPageBoite(
   inclureAutomatiques: boolean, etiquette: Etiquette = ETIQUETTE_TOUT, corbeille = false, spam = false,
   /** LOT ERGO-BOITE-3 — le rang du paramètre portant les fils retenus, ou `null` : aucun filtre. */
   rangFilsRetenus: number | null = null,
+  /** LOT FILTRE-ETOILE — ne garder que les échanges étoilés. */
+  etoilesSeules = false,
 ): string {
   // Le filtre s'applique AUX DEUX ÉTAGES du parcours (le message candidat, et le « y a-t-il plus récent ? ») : les
   //   dissocier ferait sortir un échange dont le dernier message est écarté, avec l'avant-dernier comme aperçu.
@@ -360,6 +368,9 @@ export function sqlPageBoite(
   // LOT ERGO-BOITE-3 — le sélecteur « non lus ». Posé sur le seul étage `m` : il désigne des ÉCHANGES, pas des
   //   messages, et le prédicat « dernier de son sens » n'a pas à en tenir compte.
   const filtreRetenus = rangFilsRetenus === null ? '' : `AND m.fil_id = ANY($${rangFilsRetenus}::bigint[])`;
+  // LOT FILTRE-ETOILE — posé sur le seul étage `m` : il désigne des ÉCHANGES, pas des messages. Le prédicat
+  //   « dernier de son sens » n'a donc pas à en tenir compte.
+  const filtreEtoile = etoilesSeules ? `AND ${SQL_ETOILE}` : '';
   const estSpam = spam && etiquette.sorte !== 'spam';
   const filtreSpamM = estSpam ? 'AND m.spam_le IS NULL' : '';
   const filtreSpamM2 = estSpam ? 'AND m2.spam_le IS NULL' : '';
@@ -374,6 +385,7 @@ export function sqlPageBoite(
           ${filtreCorbeille}
           ${filtreSpamM}
           ${filtreRetenus}
+          ${filtreEtoile}
           -- ⚠️ « ce message est le DERNIER de son échange » — ET, sous Réception ou Envoyés, le dernier DANS SON
           --    SENS. C'est CE prédicat qui transforme un parcours de messages en parcours d'échanges, et qui permet
           --    au LIMIT d'arrêter le travail. Servi par l'index (fil_id, recu_le).
@@ -438,6 +450,12 @@ export interface OptionsBoite {
    * passe ici. Une liste VIDE veut dire « aucun non lu » et rend une liste vide : c'est la vérité, pas une panne.
    */
   filsRetenus?: readonly number[];
+  /**
+   * LOT FILTRE-ETOILE — ne garder que les échanges portant l'étoile de l'équipe. Absent/`false` = tous, et la
+   * requête est alors mot pour mot celle d'avant ce lot. Sans la migration 264, la table n'est nommée nulle part
+   * et le filtre ne peut pas être demandé (l'écran n'affiche même pas le bouton).
+   */
+  etoilesSeules?: boolean;
 }
 
 /**
@@ -474,7 +492,7 @@ export async function lireBoiteMail(
   const retenus = options.filsRetenus;
   const rangRetenus = retenus === undefined ? null : 4 + paramsEtiquette.length;
   const { rows } = await query<LigneDB>(
-    sqlPageBoite(tous, etiquette, corbeille, spam, rangRetenus),
+    sqlPageBoite(tous, etiquette, corbeille, spam, rangRetenus, options.etoilesSeules === true),
     // `infinity` plutôt qu'une date arbitraire : il n'existe aucun message après, quelle que soit l'horloge.
     [curseur?.dernierLe ?? 'infinity', curseur?.filId ?? '9223372036854775807', aLire,
       ...paramsEtiquette, ...(retenus === undefined ? [] : [[...retenus]])],
@@ -531,7 +549,8 @@ export async function lireBoiteMail(
     // LOT 5-BOITE-2 — les DEUX boîtes portent désormais leur total, calculé avec leur propre règle. Les autres
     //   étiquettes s'en remettent toujours à la colonne de gauche (`null` se lit « demande-le à l'étiquette »).
     total: curseur === null && (etiquette.sorte === 'reception' || etiquette.sorte === 'envoyes')
-      ? await compterBoite(tous, etiquette.sorte === 'envoyes' ? 'envoye' : 'recu', corbeille, spam)
+      ? await compterBoite(tous, etiquette.sorte === 'envoyes' ? 'envoye' : 'recu', corbeille, spam,
+        options.etoilesSeules === true)
       : null,
   };
 }
@@ -542,6 +561,8 @@ export async function lireBoiteMail(
  */
 export async function compterBoite(
   inclureAutomatiques = false, sens: 'recu' | 'envoye' = 'recu', corbeille = false, spam = false,
+  /** LOT FILTRE-ETOILE — le compteur compte EXACTEMENT ce que la liste montre, filtre compris. */
+  etoilesSeules = false,
 ): Promise<number> {
   /**
    * LOT BOITE-SENS — CE TOTAL EST LA LISTE, SANS LE CURSEUR NI LE `LIMIT`.
@@ -562,6 +583,7 @@ export async function compterBoite(
   // LOT ERGO-BOITE-3 — le spam n'entre dans AUCUN de ces deux totaux, aux deux étages : le compteur doit compter
   //   exactement ce que la liste montre, et la liste l'écarte (cf. `sqlPageBoite`).
   const horsSpamM = spam ? 'AND m.spam_le IS NULL' : '';
+  const seulementEtoiles = etoilesSeules ? `AND ${SQL_ETOILE}` : '';
   const horsSpamM2 = spam ? 'AND m2.spam_le IS NULL' : '';
   const { rows } = await query<{ n: number }>(
     `SELECT count(*)::int AS n
@@ -569,6 +591,7 @@ export async function compterBoite(
       WHERE m.sens = $1
         ${inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL'}
         ${horsSpamM}
+        ${seulementEtoiles}
         ${horsCorbeille}
         -- « aucun message plus récent DU MÊME SENS dans cet échange » : exactement le prédicat de la liste.
         AND NOT EXISTS (

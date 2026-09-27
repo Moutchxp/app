@@ -770,6 +770,10 @@ export function GestionVue({ intro }: {
              de 30 s et l'icône « Relever et actualiser » le conservent sans que rien n'ait à s'en souvenir. */
           filtre={etatUrl.filtre ?? null}
           onFiltre={(f) => aller({ ...etatUrl, filtre: f, filOuvert: null })}
+          /* LOT FILTRE-ETOILE — comme le sélecteur des non-lus, le filtre vit dans l'ADRESSE : il survit au
+             rechargement, au « Précédent » et au rafraîchissement automatique de 30 s. */
+          etoile={etatUrl.etoile === true}
+          onEtoileFiltre={(actif) => aller({ ...etatUrl, etoile: actif, filOuvert: null })}
           onRattacher={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'a_trier' }); }}
           aRattacher={aRattacher === null ? null : aRattacher.aTrancher}
           aRattacherSansCandidat={aRattacher === null ? null : aRattacher.sansCandidat}

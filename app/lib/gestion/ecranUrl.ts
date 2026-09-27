@@ -108,6 +108,13 @@ export interface EtatEcranUrl {
    * construisent déjà un état à la main, et les obliger tous à écrire `filtre: null` serait du bruit.
    */
   filtre?: 'non-lus' | null;
+  /**
+   * LOT FILTRE-ETOILE — ne montrer que les échanges étoilés. `false` (le défaut) ne s'écrit jamais dans l'adresse.
+   *
+   * 🔴 IL SE COMBINE, il ne remplace pas. Étoilés ET non lus, étoilés sous « Envoyés », étoilés dans une
+   * recherche : ce sont des restrictions qui s'additionnent, comme les cases du panneau avancé.
+   */
+  etoile?: boolean;
 }
 
 const SORTES_FICHE: readonly SorteFiche[] = ['proprietaire', 'lot', 'locataire'];
@@ -143,6 +150,7 @@ export const ETIQUETTE_RECEPTION: Etiquette = { sorte: 'reception', evenementId:
  */
 export const ETAT_DEFAUT: EtatEcranUrl = {
   ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, fiche: null, cible: null, filtre: null,
+  etoile: false,
 };
 
 const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier', 'historique'];
@@ -240,6 +248,9 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
      * `non-lus` vaut « tous » — une adresse abîmée doit montrer TOUT, jamais moins.
      */
     filtre: ecran === 'boite' && p.get('filtre') === 'non-lus' ? 'non-lus' : null,
+    // Comme le filtre des non-lus : il ne désigne quelque chose que dans la boîte, et toute autre valeur vaut
+    //   « non » — une adresse abîmée doit montrer TOUT, jamais moins.
+    etoile: ecran === 'boite' && p.get('etoile') === '1',
   };
 }
 
@@ -272,6 +283,7 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
   if (e.ecran === 'historique' && e.cible != null && e.cible !== '') p.set('cible', e.cible);
   // Seul `non-lus` s'écrit : « tous » est le défaut, et un défaut écrit dans l'adresse n'est plus un défaut.
   if (e.ecran === 'boite' && e.filtre === 'non-lus') p.set('filtre', 'non-lus');
+  if (e.ecran === 'boite' && e.etoile === true) p.set('etoile', '1');
   const s = p.toString();
   return s === '' ? '' : `?${s}`;
 }
