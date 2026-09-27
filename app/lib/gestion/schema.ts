@@ -435,3 +435,18 @@ export function classementDisponible(): Promise<boolean> {
 export function spamDisponible(): Promise<boolean> {
   return memoiser('message.spam_le', () => colonneExiste('gestion_message', 'spam_le'));
 }
+
+/**
+ * LOT LISTE-GMAIL — la migration 264 est-elle appliquée ? Elle porte `gestion_fil_etoile`, l'étoile de l'ÉQUIPE
+ * sur un échange.
+ *
+ * 🔴 CE N'EST PAS L'ÉTOILE DE GMAIL. Celle-là (libellé STARRED sur un MESSAGE) existe déjà et n'a pas besoin de
+ * migration. Celle-ci est un état de NOTRE application, posé sur un ÉCHANGE, partagé et daté.
+ *
+ * Tant que la sonde répond « non » : la table n'est nommée nulle part, aucun échange n'est rendu étoilé, et le
+ * bouton de la barre d'actions est rendu DÉSACTIVÉ avec une info-bulle qui dit pourquoi — plutôt qu'absent, ce qui
+ * enverrait chercher un bug, ou actif, ce qui promettrait un geste impossible.
+ */
+export function etoileDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_fil_etoile', () => tableExiste('gestion_fil_etoile'));
+}

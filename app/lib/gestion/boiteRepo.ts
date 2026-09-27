@@ -32,6 +32,7 @@ import { autoImposeParEtiquette, type Etiquette } from './ecranUrl';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils, type MentionNonRemise } from './nonRemiseRepo';
 import { corbeilleDisponible, spamDisponible } from './schema';
+import { etoilesDesFils } from './etoileRepo';
 
 /** Combien d'échanges par page. Assez pour remplir un écran de téléphone sans faire attendre. */
 export const PAGE_BOITE = 30;
@@ -66,6 +67,17 @@ export interface LigneBoite {
   /** Messages LISIBLES aujourd'hui (non écartés par une règle). `0` = tout l'échange est du courrier automatique. */
   nbLisibles: number;
   aPiece: boolean;
+  /**
+   * LOT LISTE-GMAIL — COMBIEN de pièces jointes porte l'échange. La ligne affiche « 📎 2 » : un trombone sans
+   * nombre ne disait pas s'il y avait une pièce ou douze. `aPiece` reste — c'est lui qui décide d'AFFICHER le
+   * trombone, et il est vrai dès la première pièce.
+   */
+  nbPieces: number;
+  /**
+   * LOT LISTE-GMAIL — l'échange porte-t-il l'étoile de l'ÉQUIPE ? (Pas celle de Gmail : voir `etoileRepo`.)
+   * Toujours `false` sans la migration 264 — on ne prétend pas savoir ce qu'on n'a pas lu.
+   */
+  etoilee: boolean;
   /** Référence `GES-…` de la carte si l'échange y est affecté, sinon `null`. */
   reference: string | null;
   /** L'échange a-t-il été classé sans suite ? L'écran le DIT : la boîte montre tout, elle n'efface rien. */
@@ -146,7 +158,7 @@ interface LigneDB {
   extrait: string | null;
   nb_messages: number;
   nb_lisibles: number;
-  a_piece: boolean;
+  nb_pieces: number;
   reference: string | null;
   sans_suite: boolean;
 }
@@ -380,8 +392,10 @@ export function sqlPageBoite(
             p.extrait,
             (SELECT count(*) FROM gestion_message c WHERE c.fil_id = p.fil_id)::int AS nb_messages,
             (SELECT count(*) FROM gestion_message c WHERE c.fil_id = p.fil_id AND c.exclu_le IS NULL)::int AS nb_lisibles,
-            EXISTS (SELECT 1 FROM gestion_message pm JOIN gestion_piece pc ON pc.message_id = pm.id
-                     WHERE pm.fil_id = p.fil_id) AS a_piece,
+            -- LOT LISTE-GMAIL — le NOMBRE de pièces de l'échange, et non plus seulement « y en a-t-il ? ». Une
+            --   seule lecture, servie par l'index (message_id) de gestion_piece ; le booléen s'en déduit.
+            (SELECT count(*) FROM gestion_message pm JOIN gestion_piece pc ON pc.message_id = pm.id
+              WHERE pm.fil_id = p.fil_id)::int AS nb_pieces,
             (SELECT e.reference FROM gestion_affectation a JOIN gestion_evenement e ON e.id = a.evenement_id
               WHERE a.fil_id = p.fil_id AND a.actif AND a.message_id IS NULL LIMIT 1) AS reference,
             (f.etat = 'sans_suite') AS sans_suite
@@ -477,7 +491,16 @@ export async function lireBoiteMail(
    * serait payer une ligne pour rien à chaque page. Et une seule requête pour les trente : une par ligne ferait
    * trente allers-retours pour découvrir, presque toujours, que rien n'a été refusé.
    */
-  const avis = await nonRemisesDesFils(gardees.map((r) => Number(r.fil_id)));
+  const filsDeLaPage = gardees.map((r) => Number(r.fil_id));
+  /**
+   * LOT LISTE-GMAIL — les étoiles de la page, en UNE requête, comme les avis de non-remise juste à côté. Une
+   * requête par ligne se verrait à l'écran ; sans la migration 264, `etoilesDesFils` rend un ensemble vide sans
+   * rien demander à la base.
+   */
+  const [avis, etoiles] = await Promise.all([
+    nonRemisesDesFils(filsDeLaPage),
+    etoilesDesFils(filsDeLaPage),
+  ]);
 
   return {
     lignes: gardees.map((r) => ({
@@ -494,10 +517,12 @@ export async function lireBoiteMail(
       extrait: r.extrait && r.extrait.trim() !== '' ? r.extrait : null,
       nbMessages: r.nb_messages,
       nbLisibles: r.nb_lisibles,
-      aPiece: r.a_piece === true,
+      aPiece: r.nb_pieces > 0,
+      nbPieces: r.nb_pieces,
       reference: r.reference,
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,
+      etoilee: etoiles.has(Number(r.fil_id)),
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
     // Le total N'EST COMPTÉ QUE pour la boîte entière. Sous une étiquette, c'est la colonne de gauche qui porte le

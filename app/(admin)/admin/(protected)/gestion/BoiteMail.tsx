@@ -16,6 +16,7 @@ import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecra
 import { corpsLisible } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { CSS_MENU_LIGNE, MenuLigne } from './MenuLigne';
+import { BarreLigne, CSS_BARRE_LIGNE, Etoile } from './BarreLigne';
 import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
 
 /**
@@ -357,6 +358,42 @@ export function BoiteMail({
    * l'application). Le geste, lui, est ici, et il ne mentira jamais.
    */
   const [dePlus, setDePlus] = useState(0);
+  /**
+   * ══ LOT LISTE-GMAIL — L'ÉTOILE DE L'ÉQUIPE ════════════════════════════════════════════════════════════════════
+   * `etoiles` dit si le GESTE est possible (migration 264) ; `etoilees` porte l'état de la page, mis à jour SUR
+   * PLACE après un clic. On ne relit pas la liste pour une étoile : relire perdrait les pages déroulées par « Voir
+   * plus » et la position de défilement, pour un booléen que le serveur vient de confirmer.
+   */
+  const [etoiles, setEtoiles] = useState(false);
+  const [etoilees, setEtoilees] = useState<Map<number, boolean>>(new Map());
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/gestion/boite/comptes', { cache: 'no-store' });
+        if (!res.ok || annule) return;
+        const c = (await res.json()) as { etoileDisponible?: boolean };
+        if (!annule) setEtoiles(c.etoileDisponible === true);
+      } catch { /* étoile indisponible : le bouton le dira lui-même, en info-bulle */ }
+    })();
+    return () => { annule = true; };
+  }, []);
+  /**
+   * 🔴 L'ÉTAT DEMANDÉ EST ENVOYÉ, JAMAIS « L'INVERSE DE CE QUI EST LÀ » — et il est posé À L'ÉCRAN AVANT la
+   * réponse, puis DÉFAIT si le serveur refuse. Une étoile qui met une seconde à apparaître donne l'impression que
+   * le clic n'a pas porté ; une étoile qui reste allumée après un refus est un mensonge.
+   */
+  const basculerEtoile = async (filId: number, etoilee: boolean) => {
+    setEtoilees((m) => new Map(m).set(filId, etoilee));
+    try {
+      const res = await fetch(`/api/admin/gestion/fils/${filId}/etoile`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ etoilee }),
+      });
+      if (!res.ok) setEtoilees((m) => new Map(m).set(filId, !etoilee));
+    } catch {
+      setEtoilees((m) => new Map(m).set(filId, !etoilee));
+    }
+  };
 
   const cherche = critereActif(critere);
   /**
@@ -765,6 +802,14 @@ export function BoiteMail({
                   aria-current={filSelectionne === l.filId ? 'true' : undefined}
                   aria-label={nonLu ? `Non lu — ${nomCorrespondant(l)} — ${nettoyerObjet(l.objet) || '(sans objet)'}` : undefined}
                   onClick={() => onOuvrir(l.filId)}>
+                  {/* 🔴 L'ÉTOILE POSÉE, AU DÉBUT DE LA LIGNE ET EN PERMANENCE — lot LISTE-GMAIL. Une étoile
+                      ÉTEINTE ne s'affiche nulle part hors survol : elle ne dirait rien et alourdirait chaque
+                      ligne. Celle qui est posée, elle, doit se voir sans survoler — c'est tout son intérêt. */}
+                  {(etoilees.get(l.filId) ?? l.etoilee) && (
+                    <span className="bte-etoile" title="Échange étoilé par l’équipe" aria-label="Échange étoilé">
+                      <Etoile pleine />
+                    </span>
+                  )}
                   <span className="bte-qui">{nomCorrespondant(l)}</span>
                   <span className="bte-sujet">
                     <span className="bte-objet"><Evidence texte={nettoyerObjet(l.objet) || '(sans objet)'} saisie={critere.q} /></span>
@@ -779,9 +824,18 @@ export function BoiteMail({
                     )}
                   </span>
                   <span className="bte-bas">
-                    <span>{l.nbMessages} message{l.nbMessages > 1 ? 's' : ''}</span>
-                    {/* Chaque marque porte un MOT : elle reste lisible en niveaux de gris et pour un daltonien. */}
-                    {l.aPiece && <span className="bte-marque"><span aria-hidden="true">📎</span> pièce jointe</span>}
+                    {/* ⚠️ LE NOMBRE DE MESSAGES A QUITTÉ CETTE PLACE — lot LISTE-GMAIL. Il vit dans la barre
+                        d'actions, tout à droite, à l'endroit où Gmail le met. Le laisser ici aussi l'afficherait
+                        deux fois. */}
+                    {/* LOT LISTE-GMAIL — le trombone porte le NOMBRE, sans le mot : « 📎 2 » se lit d'un coup
+                        d'œil, là où « pièce jointe » prenait la moitié de la ligne sans dire combien. Le nombre
+                        EST le mot : il reste lisible en niveaux de gris et pour un lecteur d'écran (le titre). */}
+                    {l.aPiece && (
+                      <span className="bte-marque"
+                        title={`${l.nbPieces} pièce${l.nbPieces > 1 ? 's' : ''} jointe${l.nbPieces > 1 ? 's' : ''}`}>
+                        <span aria-hidden="true">📎</span> {l.nbPieces}
+                      </span>
+                    )}
                     {l.reference && <span className="bte-ref">{l.reference}</span>}
                     {l.sansSuite && <span className="bte-marque">classé sans suite</span>}
                     {l.nbLisibles === 0 && <span className="bte-marque">courrier automatique</span>}
@@ -809,6 +863,24 @@ export function BoiteMail({
                       si un mail était arrivé à 9 h ou à 14 h. La date complète reste dans l'infobulle. */}
                   <span className="bte-quand" title={dateHeureComplete(l.dernierLe)}>{dateHeureCourte(l.dernierLe, ref)}</span>
                 </button>
+                {/* ══ 🔴 LOT LISTE-GMAIL — LA BARRE D'ACTIONS, VOISINE DE LA LIGNE ET NON SON ENFANT ═══════════
+                    La ligne EST un bouton, et la barre en contient cinq : un bouton dans un bouton est invalide et
+                    injouable au clavier. Elle est donc posée À CÔTÉ, et la feuille de style la place par-dessus la
+                    date. C'est la même solution que pour le menu « ⋯ » et pour le coin d'un message.
+                    ⚠️ ELLE N'APPARAÎT QUE SI L'ÉCRAN SAIT AGIR (`onActionLigne` fourni) : sur l'écran partagé, qui
+                    n'a pas d'éditeur ni de panneau de classement, la liste est exactement celle d'avant ce lot. */}
+                {onActionLigne && (
+                  <BarreLigne
+                    etat={{
+                      nbMessages: l.nbMessages, etoilee: etoilees.get(l.filId) ?? l.etoilee,
+                      etoileDisponible: etoiles,
+                      nonLu, corbeilleDisponible: corbeille,
+                    }}
+                    onEtoile={(e) => void basculerEtoile(l.filId, e)}
+                    onLecture={(lu) => onActionLigne(l.filId, lu ? 'lu' : 'non_lu')}
+                    onCorbeille={() => onActionLigne(l.filId, 'corbeille')}
+                    onClasser={() => onActionLigne(l.filId, 'classer')} />
+                )}
                 </MenuLigne>
               </li>
               );
@@ -826,6 +898,7 @@ export function BoiteMail({
       )}
 
       <style>{CSS_BOITE}</style>
+      <style>{CSS_BARRE_LIGNE}</style>
     </section>
   );
 }

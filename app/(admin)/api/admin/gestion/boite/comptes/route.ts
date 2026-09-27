@@ -28,8 +28,13 @@ export async function GET(request: Request): Promise<Response> {
     // LOT 5-BOITE-3 — la corbeille est comptée À CÔTÉ : elle ne sort pas du même regroupement (c'est une colonne de
     //   `gestion_fil`, pas un état de message). `null` = migration 251 absente ⇒ l'étiquette ne s'affiche pas du tout,
     //   plutôt qu'un zéro qui se lirait « la corbeille est vide ».
-    const [comptes, corbeille] = await Promise.all([comptesBoite(), compterCorbeille()]);
-    return Response.json({ ...comptes, corbeille }, { headers: { 'Cache-Control': 'private, no-store' } });
+    // LOT LISTE-GMAIL — la sonde de l'étoile voyage avec les comptes : c'est la seule requête que la liste fait
+    //   déjà au chargement, et la sonde est mémoïsée (elle ne coûte qu'au premier appel du processus).
+    const [comptes, corbeille, etoileDisponible] = await Promise.all([
+      comptesBoite(), compterCorbeille(), (await import('../../../../../../lib/gestion/schema')).etoileDisponible(),
+    ]);
+    return Response.json({ ...comptes, corbeille, etoileDisponible },
+      { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     // Pas de catch muet : des compteurs à zéro feraient croire à une boîte vide. On dit que la lecture a échoué, et
     //   l'écran affiche alors les étiquettes SANS nombre plutôt qu'avec des nombres faux.

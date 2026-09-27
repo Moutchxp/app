@@ -25,7 +25,13 @@
 export type ActionLigne =
   | 'repondre' | 'repondre_tous' | 'transferer' | 'transferer_piece'
   | 'corbeille' | 'restaurer'
-  | 'lu' | 'non_lu';
+  | 'lu' | 'non_lu'
+  /**
+   * LOT LISTE-GMAIL — « Classer » depuis la barre d'actions d'une ligne : ouvre le MÊME module d'affectation que
+   * le lien « Classer » du mail ouvert. Il n'entre PAS dans le menu au clic droit (`menuLigne` ne le propose pas) :
+   * ce menu recopie celui de Gmail, et « Classer » est à nous. Le type, lui, est commun aux deux chemins.
+   */
+  | 'classer';
 
 export interface EntreeLigne {
   cle: ActionLigne;

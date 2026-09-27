@@ -126,8 +126,13 @@ describe('① LA LISTE — pleine largeur par défaut, et jamais démontée', ()
     const l = ligneDe('Fuite salle de bain')?.textContent ?? '';
     expect(l).toContain('Mme Martin');
     expect(l).toContain('robinet fuit');
-    expect(l).toContain('pièce jointe');
-    expect(l).toContain('3 messages');
+    /**
+     * LOT LISTE-GMAIL — DEUX MARQUES ONT CHANGÉ DE FORME, aucune n'a disparu :
+     *   · « 📎 pièce jointe » devient « 📎 2 » — le trombone porte le NOMBRE, qui dit ce que le mot ne disait pas ;
+     *   · « 3 messages » quitte le bas de la ligne pour la BARRE D'ACTIONS, tout à droite, comme dans Gmail.
+     */
+    expect(l).toContain('📎');
+    expect(container.querySelector('.brl-compte')?.textContent).toBe('3');
   });
 });
 

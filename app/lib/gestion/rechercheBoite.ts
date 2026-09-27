@@ -94,7 +94,7 @@ interface LigneDB {
   fil_id: string; message_id: number; objet: string | null; objet_trouve: string | null;
   interlocuteur: string | null; interlocuteur_adresse: string | null;
   dernier_sens: string; dernier_le: string; extrait: string | null;
-  nb_messages: number; nb_lisibles: number; a_piece: boolean; reference: string | null; sans_suite: boolean;
+  nb_messages: number; nb_lisibles: number; nb_pieces: number; reference: string | null; sans_suite: boolean;
   provenance: string;
 }
 
@@ -266,8 +266,10 @@ export async function chercherDansLeCourrier(
             t.extrait, t.provenance,
             (SELECT count(*) FROM gestion_message c WHERE c.fil_id = t.fil_id)::int AS nb_messages,
             (SELECT count(*) FROM gestion_message c WHERE c.fil_id = t.fil_id AND c.exclu_le IS NULL)::int AS nb_lisibles,
-            EXISTS (SELECT 1 FROM gestion_message pm JOIN gestion_piece pc ON pc.message_id = pm.id
-                     WHERE pm.fil_id = t.fil_id) AS a_piece,
+            -- LOT LISTE-GMAIL — le NOMBRE, comme dans la liste : les deux écrans montrent la même ligne, ils
+            --   doivent la calculer pareil.
+            (SELECT count(*) FROM gestion_message pm JOIN gestion_piece pc ON pc.message_id = pm.id
+              WHERE pm.fil_id = t.fil_id)::int AS nb_pieces,
             (SELECT e.reference FROM gestion_affectation a JOIN gestion_evenement e ON e.id = a.evenement_id
               WHERE a.fil_id = t.fil_id AND a.actif AND a.message_id IS NULL LIMIT 1) AS reference,
             (f.etat = 'sans_suite') AS sans_suite
@@ -290,7 +292,13 @@ export async function chercherDansLeCourrier(
 
   // LOT ENVOI-DIAG — un envoi refusé se voit AUSSI dans un résultat de recherche. Le signaler dans la liste et pas
   //   ici aurait fait d'une recherche le seul endroit où un mail non distribué a l'air normal.
-  const avis = await nonRemisesDesFils(gardees.map((r) => Number(r.fil_id)));
+  const filsDeLaPage = gardees.map((r) => Number(r.fil_id));
+  // LOT LISTE-GMAIL — les mêmes lignes que la liste, donc les mêmes étoiles : un résultat de recherche et une ligne
+  //   de boîte montrent le même échange et ne doivent pas se contredire.
+  const [avis, etoiles] = await Promise.all([
+    nonRemisesDesFils(filsDeLaPage),
+    (await import('./etoileRepo')).etoilesDesFils(filsDeLaPage),
+  ]);
 
   return {
     lignes: gardees.map((r) => ({
@@ -310,10 +318,12 @@ export async function chercherDansLeCourrier(
       extrait: r.extrait && r.extrait.trim() !== '' ? r.extrait : null,
       nbMessages: r.nb_messages,
       nbLisibles: r.nb_lisibles,
-      aPiece: r.a_piece === true,
+      aPiece: r.nb_pieces > 0,
+      nbPieces: r.nb_pieces,
       reference: r.reference,
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,
+      etoilee: etoiles.has(Number(r.fil_id)),
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
     total: null, // compter TOUS les résultats coûterait le prix de la recherche une seconde fois, pour un chiffre

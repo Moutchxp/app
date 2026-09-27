@@ -359,7 +359,15 @@ export const CSS_PIECES = `
 .pj-apercu{display:flex;align-items:center;justify-content:center;height:${VIGNETTE_H}px;
   background:var(--color-svv-field);border-bottom:1px solid var(--color-svv-line);text-decoration:none;overflow:hidden}
 .pj-apercu:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
-.pj-vignette{max-width:100%;height:${VIGNETTE_H}px;object-fit:contain;display:block}
+/* ══ 🔴 LOT LISTE-GMAIL — LA VIGNETTE REMPLIT SON CADRE, RECADRÉE PAR LE HAUT ════════════════════════════════════
+   object-fit:contain laissait des bandes vides à gauche et à droite d'une page A4 : la carte annonçait une image, on
+   voyait surtout du fond. cover remplit les deux dimensions, et object-position:top choisit CE QU'ON GARDE — le HAUT
+   du document, c'est-à-dire l'en-tête, l'expéditeur, l'objet : ce qui permet de reconnaître une pièce sans l'ouvrir.
+   Le bas est coupé, et c'est voulu.
+   ⚠️ width:100% est indispensable avec cover : sans largeur imposée, l'image garde sa largeur naturelle et cover
+   n'a rien à remplir.
+   ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un littéral gabarit. */
+.pj-vignette{width:100%;height:${VIGNETTE_H}px;object-fit:cover;object-position:top;display:block}
 /* L'étiquette de TYPE en toutes lettres : elle reste lisible en niveaux de gris, là où une icône seule ne dirait rien. */
 .pj-type{font-size:.95rem;font-weight:600;letter-spacing:.06em;color:var(--color-svv-ink-soft)}
 

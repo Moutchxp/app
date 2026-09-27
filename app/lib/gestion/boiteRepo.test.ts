@@ -26,7 +26,8 @@ const ligne = (n: number, o: Record<string, unknown> = {}) => ({
   extrait: 'bonjour',
   nb_messages: 3,
   nb_lisibles: 3,
-  a_piece: false,
+  // LOT LISTE-GMAIL — la base rend désormais un NOMBRE de pièces ; `aPiece` s'en déduit (> 0).
+  nb_pieces: 0,
   reference: null,
   sans_suite: false,
   ...o,
@@ -303,13 +304,22 @@ describe('ce que chaque ligne porte', () => {
     expect(typeof p.lignes[0].filId).toBe('number');
   });
 
-  it('le correspondant, la date, le nombre de messages, la pièce jointe et la référence de carte', async () => {
-    rendre([ligne(1, { reference: 'GES-2026-000012', a_piece: true, nb_messages: 7 })]);
+  it('le correspondant, la date, le nombre de messages, les pièces jointes et la référence de carte', async () => {
+    rendre([ligne(1, { reference: 'GES-2026-000012', nb_pieces: 2, nb_messages: 7 })]);
     const [l] = (await lireBoiteMail(null, [])).lignes;
     expect(l.interlocuteur).toBe('Mme Martin');
     expect(l.nbMessages).toBe(7);
+    // LOT LISTE-GMAIL — la ligne affiche « 📎 2 » : le NOMBRE, pas seulement « il y en a ».
+    expect(l.nbPieces).toBe(2);
     expect(l.aPiece).toBe(true);
     expect(l.reference).toBe('GES-2026-000012');
+  });
+
+  it('aucune pièce : le trombone ne s’affiche pas, et le compte est 0', async () => {
+    rendre([ligne(1, { nb_pieces: 0 })]);
+    const [l] = (await lireBoiteMail(null, [])).lignes;
+    expect(l.nbPieces).toBe(0);
+    expect(l.aPiece).toBe(false);
   });
 
   it('un extrait vide devient `null` — l’écran n’affiche pas une ligne d’aperçu creuse', async () => {

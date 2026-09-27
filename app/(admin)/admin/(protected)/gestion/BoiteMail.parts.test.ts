@@ -174,8 +174,27 @@ describe('garanties d’écran (statiques)', () => {
     expect(src).not.toContain('/messages');
   });
 
-  it('la boîte ne fait AUCUNE écriture : elle ne connaît que son GET', () => {
-    expect(/method:\s*'(POST|PATCH|DELETE|PUT)'/.test(src)).toBe(false);
+  /**
+   * 🔴 LOT LISTE-GMAIL — LA GARANTIE CHANGE DE FORME, ELLE NE DISPARAÎT PAS.
+   *
+   * Jusqu'ici la liste n'écrivait RIEN : tout geste passait par le parent. L'étoile de l'équipe, demandée par Arno,
+   * est la PREMIÈRE exception — elle vit sur la ligne, elle doit répondre au clic sans relire la page, et le
+   * remonter au parent n'aurait fait qu'ajouter un intermédiaire à un geste d'un seul booléen.
+   *
+   * La garantie devient donc : UNE seule écriture, et on dit laquelle. Aucun PATCH, aucun PUT, aucun DELETE — ce
+   * sont eux qui feraient disparaître quelque chose, et ils restent interdits ici. Le seul POST est celui de
+   * l'étoile ; tout autre POST qui s'ajouterait un jour rougira ce test.
+   */
+  it('la boîte n’écrit QU’UNE chose : l’étoile — jamais de PATCH, PUT ni DELETE', () => {
+    expect(/method:\s*'(PATCH|DELETE|PUT)'/.test(src)).toBe(false);
+    /**
+     * ⚠️ PAS DE DRAPEAU `s` : la cible de compilation du dépôt ne l'accepte pas (TS1501). On travaille donc sur une
+     * source dont les sauts de ligne sont normalisés — même résultat, sans dépendre d'un drapeau d'expression.
+     */
+    const plat = src.replace(/\s+/g, ' ');
+    const posts = [...plat.matchAll(/fetch\(([^)]*?)\{[^}]*?method: 'POST'/g)].map((m) => m[1]);
+    expect(posts).toHaveLength(1);
+    expect(posts[0]).toContain('/etoile');
   });
 
   it('LOT 5c — le champ de saisie fait 16 px : en dessous, iOS zoome à chaque clic dedans', () => {

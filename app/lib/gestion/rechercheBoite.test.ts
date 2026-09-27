@@ -19,6 +19,9 @@ vi.mock('./schema', () => ({
   // LOT ERGO-BOITE-3 — par défaut « migration 263 absente » : les assertions de ce fichier portent donc sur le SQL
   //   d'avant ce lot, et les cas de spam sont éprouvés là où ils sont posés explicitement.
   spamDisponible: async () => spamConnu,
+  // LOT LISTE-GMAIL — migration 264 absente par défaut : `etoilesDesFils` rend alors un ensemble vide SANS rien
+  //   demander à la base, et les assertions de ce fichier portent donc sur le SQL d'avant ce lot.
+  etoileDisponible: async () => false,
 }));
 
 let pleinTexte = true;
@@ -201,7 +204,7 @@ describe('un résultat = UN ÉCHANGE, pas un message', () => {
       fil_id: '4242', message_id: 7, objet: 'Fuite', objet_trouve: 'Re: Fuite',
       interlocuteur: 'Mme M.', interlocuteur_adresse: 'm@x.fr', dernier_sens: 'recu',
       dernier_le: '2026-09-20T08:00:00Z', extrait: 'bonjour', nb_messages: 3, nb_lisibles: 3,
-      a_piece: false, reference: null, sans_suite: false,
+      nb_pieces: 0, reference: null, sans_suite: false,
     }]);
     const p = await chercherDansLeCourrier({ saisie: 'fuite' }, null, []);
     expect(p.lignes[0].filId).toBe(4242);

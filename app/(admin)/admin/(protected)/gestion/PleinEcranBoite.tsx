@@ -248,6 +248,18 @@ export function PleinEcranBoite({
       onOuvrir(filId);
       return;
     }
+    /**
+     * LOT LISTE-GMAIL — « CLASSER » depuis la barre d'une ligne. Il ouvre le MÊME panneau d'affectation que le mail
+     * ouvert : on ne réécrit pas le geste, on ouvre l'échange et on demande l'affectation. C'est aussi ce qui fait
+     * qu'on voit ce qu'on classe — classer un échange sans l'avoir sous les yeux serait une erreur en attente.
+     */
+    if (action === 'classer') {
+      onOuvrir(filId);
+      // `existant` = le panneau s'ouvre sur la recherche d'une carte, exactement comme le lien « Classer » du mail
+      //   ouvert. C'est la même voie, le même panneau, la même route.
+      setClassement('existant');
+      return;
+    }
     if (action === 'lu' || action === 'non_lu') {
       const r = await marquerLectureLigne(filId, action === 'lu');
       onGeste(r.message);
