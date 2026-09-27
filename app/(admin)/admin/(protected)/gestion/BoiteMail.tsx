@@ -852,10 +852,18 @@ const CSS_BOITE = `
 .bte-li>.bte-ligne{border-bottom:0;flex:1 1 auto;min-width:0}
 .bte-ligne{display:flex;flex-direction:column;gap:3px;width:100%;min-height:44px;padding:10px 4px;text-align:left;
   background:none;border:0;border-bottom:1px solid var(--color-svv-line);color:inherit;font:inherit;cursor:pointer}
-.bte-ligne:hover,.bte-ligne:focus-visible{background:var(--color-svv-field)}
+/* ══ 🔴 LOT FIL-LECTURE-2 — UNE LIGNE, UN SEUL FOND ══════════════════════════════════════════════════════════════
+   Le fond de survol était posé sur le BOUTON de la ligne, qui n'en occupe pas toute la largeur : le « ⋯ » de droite
+   restait blanc pendant que le reste devenait gris. Deux fonds sur une même ligne donnent à voir deux objets là où
+   il n'y en a qu'un. Il passe donc sur la RANGÉE entière, boutons compris.
+   focus-within plutôt que focus-visible : tabuler jusqu'au menu de droite allume la même rangée qu'un survol. */
+.bte-li:hover,.bte-li:focus-within{background:var(--color-svv-field)}
 .bte-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
-/* L'échange ouvert : une BARRE à gauche et un fond, jamais la couleur seule ; aria-current le dit aux lecteurs d'écran. */
-.bte-ligne--ouverte{background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);padding-left:8px}
+/* L'échange OUVERT : une BARRE à gauche et un fond, jamais la couleur seule ; aria-current le dit aux lecteurs
+   d'écran. Le fond est porté par la rangée — même règle que le survol, pour que la ligne sélectionnée ne soit pas,
+   elle non plus, grise à moitié. */
+.bte-li:has(>.bte-ligne--ouverte),.bte-li:has(.bte-ligne--ouverte){background:var(--color-svv-field)}
+.bte-ligne--ouverte{border-left:3px solid var(--color-svv-red);padding-left:8px}
 /* ── LOT 5-BOITE — LE GRAS DIT « NON LU », comme dans toute messagerie ──
    Le correspondant était TOUJOURS en gras : le gras ne distinguait donc rien. Il devient le repère du non-lu, et le
    poids par défaut redevient normal — c'est la convention que tout le monde connaît, et elle ne s'apprend pas.

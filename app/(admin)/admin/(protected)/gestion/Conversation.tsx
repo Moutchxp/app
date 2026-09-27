@@ -787,13 +787,27 @@ export function MessageConversation({
       {/* LE MENU DU MAIL — effacé au repos (décision d'Arno : pas de boutons partout), mais toujours atteignable, y
           compris message REPLIÉ. Il est le VOISIN de la ligne, pas son enfant : la ligne EST un bouton, et un bouton
           dans un bouton est invalide et injouable au clavier. C'est la même solution que pour `BlocRepliable`. */}
+      {/* ══ 🔴 LOT FIL-LECTURE-2 — UNE LIGNE, UN SEUL FOND ═══════════════════════════════════════════════════
+          Le survol était posé sur le seul bouton de gauche : la moitié gauche de la ligne devenait grise, la
+          moitié droite (statut, heure, étoile, ⋮) restait blanche. Deux fonds sur une même ligne donnent à voir
+          deux objets là où il n'y en a qu'un.
+
+          🔴 L'ENVELOPPE N'EST PAS UN BOUTON — elle en contient (le cartouche, l'étoile, le menu), et un bouton dans
+          un bouton est invalide et injouable au clavier. Elle porte le FOND, rien d'autre : `:hover` et
+          `:focus-within` la colorent d'un bloc, et le bouton de gauche n'a plus de fond propre.
+
+          ⚠️ ELLE N'ENVELOPPE QUE L'EN-TÊTE, pas le message déplié : survoler le corps d'un mail ne doit pas
+          allumer sa ligne de titre. */}
+      <div className="cnv-rangee">
       {/* La LIGNE REPLIÉE est le bouton : toute la largeur, au moins 44 px, et l'état annoncé par `aria-expanded`. */}
       <button type="button" className="cnv-ligne" aria-expanded={ouvert} onClick={onBasculer}>
         {/* Le SENS est dit par un MOT (« reçu de » / « envoyé à ») : il reste lisible en niveaux de gris. */}
         <span className="cnv-qui">{libelleSens(message.sens)} {qui}</span>
         {/* LOT FIL-LECTURE — L'OBJET DE CE MESSAGE, à côté de l'expéditeur. Dans un échange où l'objet a changé en
             route (« Re: … » devenu autre chose), la ligne repliée ne disait plus de quoi elle parlait. */}
-        <span className="cnv-objet">{nettoyerObjet(message.objet) || '(sans objet)'}</span>
+        <span className="cnv-objet">
+          <span className="cnv-objet-mot">Objet :</span> {nettoyerObjet(message.objet) || '(sans objet)'}
+        </span>
         {/* Une mention EN MOTS : elle reste lisible en niveaux de gris et pour un daltonien. */}
         {hors && <span className="cnv-hors">{hors}</span>}
         {!ouvert && message.extrait && <span className="cnv-extrait">{corpsLisible(message.extrait).visible}</span>}
@@ -860,6 +874,7 @@ export function MessageConversation({
             }))
         } />
       </div>
+      </div>
 
       {/* LES GESTES RÉVÉLÉS — pleine largeur, donc empilés d'eux-mêmes sur téléphone. Ils appellent les routes qui
           existaient avant ce lot : aucune logique nouvelle, même journal, même réversibilité. */}
@@ -895,10 +910,11 @@ export function MessageConversation({
               🔴 L'OBJET EN PREMIÈRE LIGNE — demande d'Arno. Un message repris six mois plus tard n'a pas forcément
               l'objet du fil : c'est le sien qu'il faut lire, et il n'était affiché nulle part. */}
           <dl className="cnv-entete">
-            <div className="cnv-entete-ligne">
-              <dt>Objet</dt>
-              <dd>{nettoyerObjet(message.objet) || '(sans objet)'}</dd>
-            </div>
+            {/* ⚠️ PAS DE LIGNE « OBJET » ICI — LOT FIL-LECTURE-2. Elle y a vécu une journée : l'objet apparaissait
+                alors DEUX fois, sous « reçu de … » et dans cet en-tête, à trois centimètres d'écart. Celui du haut
+                a gagné : il est visible message replié comme déplié, alors que celui-ci ne l'était que déplié.
+                Une information affichée deux fois n'est pas deux fois plus lue — elle fait douter qu'il s'agisse
+                de la même. */}
             <div className="cnv-entete-ligne">
               <dt>De</dt>
               <dd>{message.deNom?.trim() ? `${message.deNom.trim()} <${message.de}>` : message.de}</dd>
@@ -1040,7 +1056,13 @@ const CSS_CONVERSATION = `
 .cnv-msg--hors{background:var(--color-svv-field)}
 .cnv-ligne{display:flex;flex-direction:column;gap:3px;flex:1 1 16rem;min-width:0;min-height:44px;padding:10px 4px;
   text-align:left;background:none;border:0;color:inherit;font:inherit;cursor:pointer}
-.cnv-ligne:hover,.cnv-ligne:focus-visible{background:var(--color-svv-field)}
+/* 🔴 LE FOND EST SUR LA RANGÉE, PLUS SUR LE BOUTON. focus-within couvre le clavier : tabuler jusqu'à l'étoile ou
+   au menu allume la même rangée qu'un survol de la souris.
+   ⚠️ AUCUN ACCENT GRAVE ICI : littéral gabarit. */
+.cnv-rangee{display:flex;flex-wrap:wrap;align-items:flex-start;gap:0;flex:1 1 100%;min-width:0;border-radius:6px}
+.cnv-rangee:hover,.cnv-rangee:focus-within{background:var(--color-svv-field)}
+.cnv-rangee>.cnv-ligne{flex:1 1 16rem}
+.cnv-rangee>.cnv-coin{flex:0 1 auto}
 .cnv-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:-2px}
 .cnv-coin{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:6px;flex:0 1 auto;
   min-width:0;padding:6px 0}

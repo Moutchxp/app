@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, createElement } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { readFileSync } from 'node:fs';
 import { Conversation } from './Conversation';
 import { CLE_ORDRE_FIL, ordonnerMessages, libelleOrdre, ordreSuivant, ORDRE_FIL_DEFAUT } from '../../../../lib/gestion/conversation';
 
@@ -84,6 +85,7 @@ const cliquer = async (b: Element | null | undefined) => { await act(async () =>
  * lui, reste vide pour en AJOUTER un). Lire les seules valeurs de champs faisait donc conclure « aucun destinataire »
  * alors qu'ils étaient à l'écran. On lit donc les deux : les valeurs saisies et le texte rendu.
  */
+const boutonPar = (motif: RegExp) => [...container.querySelectorAll('button')].find((b) => motif.test(b.textContent ?? ''));
 const editeur = (): string => {
   const bloc = container.querySelector('.red') ?? container;
   const champs = [...bloc.querySelectorAll('input, textarea')]
@@ -184,14 +186,27 @@ describe('🔴 ② répondre à N’IMPORTE QUEL message, et à celui-là seulem
 });
 
 describe('🔴 ③ l’objet de chaque message est visible, et l’en-tête tient en lignes', () => {
-  it('l’en-tête déplié porte l’objet EN PREMIÈRE ligne, puis De, À, Cc, Date', async () => {
+  /**
+   * 🔴 LOT FIL-LECTURE-2 — L'OBJET N'EST PLUS DANS L'EN-TÊTE GRIS. Il y a vécu une journée, et s'affichait alors
+   * DEUX fois : sous « reçu de … » et ici, à trois centimètres d'écart. Celui du haut a gagné — il est visible
+   * message replié comme déplié. Ce test garde donc la garantie inverse : l'en-tête gris ne le répète pas.
+   */
+  it('l’en-tête déplié porte De, À, Cc, Date — et PLUS l’objet', async () => {
     await monter();
     await cliquer(ligne(11)?.querySelector('.cnv-ligne'));
     const intitules = [...(ligne(11)?.querySelectorAll('.cnv-entete-ligne dt') ?? [])].map((d) => d.textContent);
-    expect(intitules[0]).toBe('Objet');
-    expect(intitules).toContain('De');
+    expect(intitules).not.toContain('Objet');
+    expect(intitules[0]).toBe('De');
     expect(intitules).toContain('Cc');
     expect(intitules[intitules.length - 1]).toBe('Date');
+  });
+
+  /** 🔴 UNE SEULE FOIS DANS TOUT LE MESSAGE, déplié compris : c'est la demande d'Arno, et c'est vérifiable. */
+  it('l’objet n’apparaît qu’UNE fois par message, même déplié', async () => {
+    await monter();
+    await cliquer(ligne(11)?.querySelector('.cnv-ligne'));
+    const occurrences = (ligne(11)?.textContent ?? '').split('Fuite salle de bain').length - 1;
+    expect(occurrences).toBe(1);
   });
 
   /** Chaque intitulé a sa valeur SUR SA LIGNE : une rangée = un `dt` + un `dd`, et rien d'autre. */
@@ -205,9 +220,11 @@ describe('🔴 ③ l’objet de chaque message est visible, et l’en-tête tien
 
   it('l’objet du message s’affiche AUSSI sur la ligne repliée', async () => {
     await monter();
-    expect(ligne(12)?.querySelector('.cnv-objet')?.textContent).toBe('Fuite salle de bain');
+    // LOT FIL-LECTURE-2 — précédé de « Objet : », puisque c'est désormais le SEUL endroit où il s'affiche.
+    expect(ligne(12)?.querySelector('.cnv-objet')?.textContent).toContain('Objet :');
+    expect(ligne(12)?.querySelector('.cnv-objet')?.textContent).toContain('Fuite salle de bain');
     // ⚠️ « Re: » est retiré à l'AFFICHAGE seulement : l'objet enregistré, lui, n'est jamais réécrit.
-    expect(ligne(13)?.querySelector('.cnv-objet')?.textContent).toBe('Devis plomberie');
+    expect(ligne(13)?.querySelector('.cnv-objet')?.textContent).toContain('Devis plomberie');
   });
 
   /**
@@ -225,8 +242,7 @@ describe('🔴 ③ l’objet de chaque message est visible, et l’en-tête tien
       return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
     });
     await monter();
-    expect(ligne(11)?.querySelector('.cnv-objet')?.textContent).toBe('(sans objet)');
-    expect(ligne(11)?.querySelector('.cnv-entete-ligne dd')?.textContent).toBe('(sans objet)');
+    expect(ligne(11)?.querySelector('.cnv-objet')?.textContent).toContain('(sans objet)');
   });
 });
 
@@ -267,5 +283,161 @@ describe('🔴 le pied de conversation dit à QUI il répond', () => {
     const vu = editeur();
     expect(vu).toContain('syndic@immeuble.fr');   // l'expéditeur du message 13, le plus récent
     expect(vu).not.toContain('martin@orange.fr'); // et non celui du message affiché juste au-dessus du pied
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT FIL-LECTURE-2 — UN SEUL FOND PAR LIGNE, ET « MODIFIER » UN RATTACHEMENT
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 une ligne de message n’a qu’UN fond, sur toute sa largeur', () => {
+  /**
+   * 🔴 LE DÉFAUT VU PAR ARNO. Le fond de survol était posé sur le BOUTON de gauche, qui n'occupe pas toute la
+   * largeur : la moitié gauche devenait grise, la moitié droite (statut, heure, étoile, ⋮) restait blanche. Deux
+   * fonds sur une même ligne donnent à voir deux objets là où il n'y en a qu'un.
+   *
+   * On éprouve la STRUCTURE, pas la couleur : jsdom n'applique pas les feuilles de style, mais il dit qui contient
+   * quoi. Le fond ne peut être unique que si la ligne et son coin vivent dans la MÊME enveloppe.
+   */
+  it('la ligne et ses boutons de droite sont dans la même enveloppe', async () => {
+    await monter();
+    const rangee = ligne(13)?.querySelector('.cnv-rangee');
+    expect(rangee).not.toBeNull();
+    expect(rangee?.querySelector('.cnv-ligne')).not.toBeNull();
+    expect(rangee?.querySelector('.cnv-coin')).not.toBeNull();
+  });
+
+  /** Et l'enveloppe n'englobe PAS le message déplié : survoler le corps ne doit pas allumer la ligne de titre. */
+  it('l’enveloppe s’arrête à l’en-tête : le corps du message est dehors', async () => {
+    await monter();
+    expect(ligne(13)?.querySelector('.cnv-rangee .cnv-detail')).toBeNull();
+    expect(ligne(13)?.querySelector('.cnv-detail')).not.toBeNull();
+  });
+
+  /** 🔴 ET LE BOUTON N'A PLUS DE FOND PROPRE : deux règles de fond, c'est tôt ou tard deux fonds. */
+  it('le fond de survol est écrit sur la rangée, jamais sur le bouton', async () => {
+    const css = readFileSync('app/(admin)/admin/(protected)/gestion/Conversation.tsx', 'utf8');
+    expect(css).toContain('.cnv-rangee:hover,.cnv-rangee:focus-within{background:var(--color-svv-field)}');
+    expect(css).not.toContain('.cnv-ligne:hover');
+  });
+
+  /** La même règle dans la LISTE des mails, où le défaut se retrouvait à l'identique. */
+  it('dans la liste de la boîte aussi, le fond est sur la rangée', () => {
+    const css = readFileSync('app/(admin)/admin/(protected)/gestion/BoiteMail.tsx', 'utf8');
+    expect(css).toContain('.bte-li:hover,.bte-li:focus-within{background:var(--color-svv-field)}');
+    expect(css).not.toContain('.bte-ligne:hover');
+  });
+});
+
+describe('🔴 « Modifier » un rattachement : comprendre, puis remplacer', () => {
+  const LIEN = {
+    id: 77, messageId: 13, pieceId: null,
+    cible: { sorte: 'proprietaire', cle: 'DENIS-PHILIPPE', id: null },
+    libelle: 'DENIS Philippe (25)', origine: 'automatique', statut: 'confirme',
+    confiance: 'certaine', regle: 'adresse de l’expéditeur', motif: 'p.denis@orange.fr reconnu',
+    adresses: ['p.denis@orange.fr'], parUnHumain: false,
+    creeLe: '2026-09-20T10:00:00Z', creePar: 'automatique', statutLe: null, statutPar: null,
+  };
+  /** Les appels d'écriture, dans l'ordre : c'est là qu'on lit ce que la validation a vraiment fait. */
+  let ecritures: { methode: string; corps: Record<string, unknown> }[];
+
+  beforeEach(() => {
+    ecritures = [];
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      const methode = init?.method ?? 'GET';
+      if (u.includes('/rattachements') && methode !== 'GET') {
+        ecritures.push({ methode, corps: JSON.parse(String(init?.body ?? '{}')) });
+        return { ok: true, json: async () => ({ ok: true, id: 78 }) } as unknown as Response;
+      }
+      if (u.includes('/rattachements')) {
+        return { ok: true, json: async () => ({ etat: 'ok', data: { 13: [LIEN] } }) } as unknown as Response;
+      }
+      // ⚠️ DEUX CONSOMMATEURS de la même route : le SÉLECTEUR de cible interroge `?q=…`, et l'encart « qui nous
+      //   écrit » interroge `?emails=…` avec une tout autre forme de réponse. Ne pas les distinguer faisait
+      //   planter le rendu sur `indices.map is not a function` — une panne sans rapport avec ce qu'on éprouve.
+      if (u.includes('/annuaire') && u.includes('emails=')) {
+        return { ok: true, json: async () => ({ etat: 'ok', data: [] }) } as unknown as Response;
+      }
+      if (u.includes('/annuaire')) {
+        return {
+          ok: true,
+          // ⚠️ LA FORME DE L'ANNUAIRE, pas celle des cibles : c'est `ciblesDeLaLigne` qui dérive les cibles d'une
+          //   ligne de résultat. Un jeu d'essai « déjà transformé » faisait planter le sélecteur sur
+          //   `l.proprietaireNom.trim is not a function` — une panne du jeu d'essai, pas du composant.
+          json: async () => ({ etat: 'ok', data: { lignes: [
+            {
+              lotNumero: 'LOT-4RUEX', adresse: '4 rue X', commune: 'Puteaux',
+              proprietaireCle: null, proprietaireNom: '', locataireId: null, locataireNom: null,
+            },
+          ], tronque: false } }),
+        } as unknown as Response;
+      }
+      if (u.includes('/messages')) return { ok: true, json: async () => ({ fil: FIL, messages: MESSAGES, partis: [] }) } as unknown as Response;
+      return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
+    }) as unknown as typeof fetch;
+  });
+
+  const ouvrirModale = async () => {
+    await monter();
+    await cliquer(boutonPar(/^Modifier$/));
+  };
+
+  it('la fenêtre montre CE QUI A JUSTIFIÉ le lien : règle, adresses, origine, date', async () => {
+    await ouvrirModale();
+    const modale = container.querySelector('[role="dialog"]');
+    expect(modale).not.toBeNull();
+    const vu = modale?.textContent ?? '';
+    expect(vu).toContain('DENIS Philippe (25)');
+    expect(vu).toContain('adresse de l’expéditeur');
+    expect(vu).toContain('p.denis@orange.fr');
+    expect(vu).toContain('posé automatiquement');
+    expect(vu).toContain('Propriétaire');
+  });
+
+  /** 🔴 UNE FENÊTRE OUVERTE PAR CURIOSITÉ NE DOIT PAS POUVOIR ÉCRIRE. */
+  it('« Valider » est éteint tant que rien n’a changé, et « Annuler » n’écrit RIEN', async () => {
+    await ouvrirModale();
+    const valider = boutonPar(/^Valider la modification$/) as HTMLButtonElement;
+    expect(valider.disabled).toBe(true);
+    await cliquer(boutonPar(/^Annuler$/));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(ecritures).toHaveLength(0);
+  });
+
+  /**
+   * 🔴 REMPLACER = RETIRER PUIS POSER, DANS CET ORDRE. L'ancien n'est jamais supprimé : il passe au statut
+   * « retiré », reste consultable et se remet d'un clic. Le nouveau est posé à la main, donc confirmé.
+   */
+  it('valider retire l’ancien PUIS pose le nouveau, avec un motif qui dit pourquoi', async () => {
+    await ouvrirModale();
+    await cliquer(boutonPar(/Choisir une autre cible/));
+    /**
+     * ⚠️ IL FAUT TAPER, PUIS ATTENDRE. Le sélecteur ne cherche qu'à partir de DEUX caractères, et APRÈS une pause
+     * (une requête par frappe ferait dix requêtes pour un mot de dix lettres). Sans ces deux étapes, la liste reste
+     * vide et il n'y a rien à cocher — c'est ce qui faisait échouer ce test, et non le composant.
+     */
+    const champ = container.querySelector('input[aria-label="Chercher dans l’annuaire"]') as HTMLInputElement;
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(champ, '4 rue');
+    await act(async () => { champ.dispatchEvent(new Event('input', { bubbles: true })); });
+    await act(async () => { await new Promise((r) => setTimeout(r, 400)); });
+    await calmer();
+    // Le sélecteur de cible COCHE puis VALIDE — c'est le même composant que « + Rattacher à… », et on s'en sert
+    //   exactement comme une personne s'en sert : on coche la ligne, puis on confirme le choix.
+    const coche = [...container.querySelectorAll('label')]
+      .find((l) => /4 rue X/.test(l.textContent ?? ''))?.querySelector('input[type="checkbox"]');
+    await cliquer(coche);
+    await cliquer(boutonPar(/^Rattacher$/));
+    const valider = () => boutonPar(/^Valider la modification$/) as HTMLButtonElement;
+    expect(valider().disabled).toBe(false);
+    await cliquer(valider());
+
+    expect(ecritures).toHaveLength(2);
+    expect(ecritures[0].methode).toBe('PATCH');
+    expect(ecritures[0].corps).toMatchObject({ lienId: 77, statut: 'retire' });
+    expect(String(ecritures[0].corps.motif)).toContain('4 rue X');
+    expect(ecritures[1].methode).toBe('POST');
+    expect(ecritures[1].corps).toMatchObject({ messageId: 13, cible: { sorte: 'lot', cle: 'LOT-4RUEX' } });
+    expect(String(ecritures[1].corps.motif)).toContain('DENIS Philippe');
   });
 });

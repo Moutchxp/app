@@ -395,6 +395,16 @@ export interface LienAffiche {
   adresses: string[];
   /** Vrai quand un humain a touché le statut : le bandeau le dit, pour qu'on ne cherche pas l'erreur du moteur. */
   parUnHumain: boolean;
+  /**
+   * LOT FIL-LECTURE-2 — QUI ET QUAND. Lus tels quels pour la fenêtre « Modifier » : avant de changer un
+   * rattachement, on veut savoir s'il vient du moteur d'il y a six mois ou d'un collègue de ce matin.
+   * `creePar` vaut « automatique » pour un lien posé par le moteur — c'est la valeur par défaut de la colonne.
+   */
+  creeLe: string | null;
+  creePar: string | null;
+  /** Quand le statut a été touché la dernière fois, et par qui. `null` = jamais touché depuis la pose. */
+  statutLe: string | null;
+  statutPar: string | null;
 }
 
 export type Issue2<T> = { etat: 'ok'; data: T } | { etat: 'sans_schema' };
@@ -403,6 +413,7 @@ function ligneVersLien(r: {
   id: string; message_id: string; piece_id: string | null; cible_sorte: string; cible_cle: string | null;
   cible_id: string | null; cible_libelle: string | null; origine: string; statut: string;
   confiance: string | null; regle: string | null; motif: string | null; adresses: string | null;
+  cree_le?: string | null; cree_par_libelle?: string | null; statut_le?: string | null;
   statut_par_libelle: string | null;
 }): LienAffiche {
   const cible: Cible = {
@@ -419,11 +430,22 @@ function ligneVersLien(r: {
     confiance: r.confiance, regle: r.regle, motif: r.motif,
     adresses: (r.adresses ?? '').split(' ').filter((a) => a !== ''),
     parUnHumain: r.statut_par_libelle !== null,
+    creeLe: r.cree_le ?? null,
+    creePar: r.cree_par_libelle ?? null,
+    statutLe: r.statut_le ?? null,
+    statutPar: r.statut_par_libelle,
   };
 }
 
+/**
+ * LOT FIL-LECTURE-2 — QUATRE CHAMPS DE PLUS, tous déjà en base : qui a posé le lien et quand, qui a touché son
+ * statut et quand. Ils ne servent qu'à la fenêtre « Modifier », qui doit pouvoir dire d'où vient un rattachement
+ * avant qu'on le change. Lecture seule, aucune migration : ces colonnes existent depuis la 257.
+ */
 const CHAMPS_LIEN = `id, message_id, piece_id, cible_sorte, cible_cle, cible_id, cible_libelle,
-  origine, statut, confiance, regle, motif, adresses, statut_par_libelle`;
+  origine, statut, confiance, regle, motif, adresses, statut_par_libelle,
+  to_char(cree_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS cree_le, cree_par_libelle,
+  to_char(statut_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS statut_le`;
 
 /**
  * LES LIENS VIVANTS DE PLUSIEURS MAILS, pour le bandeau d'une conversation. LECTURE SEULE.

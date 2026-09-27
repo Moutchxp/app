@@ -472,6 +472,12 @@ export async function propositionsHistorique(c: CibleEtendue): Promise<{
         statut: 'propose', confiance: r.confiance, regle: r.regle, motif: r.motif,
         adresses: (r.adresses ?? '').split(' ').filter((a) => a !== ''),
         parUnHumain: r.statut_par_libelle !== null,
+        /**
+         * LOT FIL-LECTURE-2 — CET ÉCRAN NE LES DEMANDE PAS, et ne les demandera pas : c'est la liste des
+         * PROPOSITIONS d'une cible, pas la fiche d'un rattachement. `null` se lit « non chargé ici » ; les lire
+         * quand même coûterait quatre colonnes à chaque ligne de tous les historiques, pour rien.
+         */
+        creeLe: null, creePar: null, statutLe: null, statutPar: r.statut_par_libelle,
         objet: r.objet, recuLe: r.recu_le, de: r.de, nbPieces: Number(r.nb),
       };
     }),

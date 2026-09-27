@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { ChoisirCible, CSS_CHOISIR_CIBLE, type CibleChoisie } from './ChoisirCible';
+import { ModifierRattachement } from './ModifierRattachement';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 import type { Cible, Statut } from '../../../../lib/gestion/rattachement';
 
@@ -45,6 +46,8 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
   onHistorique?: (cible: Cible) => void;
 }) {
   const [ajout, setAjout] = useState(false);
+  /** LOT FIL-LECTURE-2 — le rattachement dont on a ouvert la fenêtre « Modifier ». `null` = aucune fenêtre. */
+  const [modifie, setModifie] = useState<LienAffiche | null>(null);
   const [occupe, setOccupe] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   /** Les liens défaits pendant cette visite : on garde le bouton « Remettre » sous la main, sans recharger. */
@@ -93,10 +96,14 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
       <style>{CSS_ENCART_RATTACHEMENT}</style>
       <style>{CSS_CHOISIR_CIBLE}</style>
 
+      {/* ══ LOT FIL-LECTURE-2 — TOUT SUR UNE LIGNE QUAND ÇA TIENT ═════════════════════════════════════════════
+          « RATTACHÉ À · PROPRIÉTAIRE DENIS Philippe · automatique · Modifier · Retirer · + Rattacher à… ». Le
+          titre, la liste et le bouton d'ajout étaient trois blocs empilés, séparés par des marges : six lignes de
+          hauteur pour une information qui en tient une. Ils sont maintenant dans le MÊME conteneur souple, qui ne
+          passe à la ligne que si la largeur ne suffit pas. Rien n'est retiré — seuls les blancs le sont. */}
       <div className="ert-tete">
         <span className="ert-titre">Rattaché à</span>
         {vivants.length === 0 && <span className="ert-vide">rien pour l’instant</span>}
-      </div>
 
       {vivants.length > 0 && (
         <ul className="ert-liste">
@@ -116,6 +123,13 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
               {/* D'OÙ VIENT LE LIEN, écrit : le moteur peut se tromper, une personne engage sa décision. */}
               <span className="ert-source">{l.parUnHumain ? 'à la main' : 'automatique'}</span>
               {l.pieceId !== null && <span className="ert-source">cette pièce seulement</span>}
+              {/* LOT FIL-LECTURE-2 — « Modifier » AVANT « Retirer », et de la même couleur : ce sont les deux
+                  gestes qui touchent ce lien, et changer de cible est presque toujours ce qu'on veut faire quand
+                  on est tenté de retirer. La fenêtre ne modifie rien tant qu'on n'a pas validé. */}
+              <button type="button" className="gst-lien-bouton" disabled={occupe}
+                onClick={() => setModifie(l)}>
+                Modifier
+              </button>
               <button type="button" className="gst-lien-bouton" disabled={occupe}
                 onClick={() => void changer(l, 'retire', `Rattachement retiré : ${l.libelle}`)}>
                 Retirer
@@ -124,6 +138,16 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
           ))}
         </ul>
       )}
+
+      {/* LE BOUTON D'AJOUT VIT DANS LA MÊME LIGNE, à la suite des gestes du lien : c'est la fin de la même phrase.
+          Quand le sélecteur est ouvert, il prend la largeur entière — on ne cherche pas à le comprimer. */}
+      {!ajout && (
+        <button type="button" className="gst-lien-bouton ert-ajouter" disabled={occupe}
+          onClick={() => setAjout(true)}>
+          + Rattacher à…
+        </button>
+      )}
+      </div>
 
       {candidats.length > 0 && (
         <>
@@ -169,7 +193,7 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
 
       {erreur !== null && <p className="gst-tronc" role="alert">{erreur}</p>}
 
-      {ajout ? (
+      {ajout && (
         <ChoisirCible titre="Rattacher ce mail à…"
           dejaLa={[...vivants, ...candidats].map((l) => l.cible)}
           onAnnuler={() => setAjout(false)}
@@ -183,11 +207,13 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
             }
             if (faits > 0) setAjout(false);
           }} />
-      ) : (
-        <button type="button" className="gst-lien-bouton ert-ajouter" disabled={occupe}
-          onClick={() => setAjout(true)}>
-          + Rattacher à…
-        </button>
+      )}
+
+      {modifie !== null && (
+        <ModifierRattachement lien={modifie} messageId={messageId}
+          onGeste={onGeste}
+          onAnnuler={() => setModifie(null)}
+          onFait={async () => { setModifie(null); await onChange(); }} />
       )}
     </div>
   );
@@ -203,28 +229,40 @@ export function motSorte(s: 'lot' | 'proprietaire' | 'evenement'): string {
 export const CSS_ENCART_RATTACHEMENT = `
 /* Un encart de RENSEIGNEMENT, jamais une alerte. La sorte est écrite, l'origine aussi : rien ne tient à une couleur.
    Mobile d'abord : chaque ligne s'enroule, les boutons font au moins 44 px de haut. */
-.ert{display:flex;flex-direction:column;gap:.35rem;margin:.6rem 0;padding:10px 12px;border-radius:10px;
+/* ══ LOT FIL-LECTURE-2 — COMPACT : les blancs partent, rien d'autre ══════════════════════════════════════════════
+   Marges intérieures réduites (10/12 px puis 6/10), plus d'espace entre les blocs empilés, et surtout la tête, la
+   liste et le bouton d'ajout sur une SEULE rangée souple. Les tailles de texte, elles, ne bougent pas : on gagne
+   sur le vide, jamais sur la lisibilité. */
+.ert{display:flex;flex-direction:column;gap:.2rem;margin:.5rem 0;padding:6px 10px;border-radius:10px;
   border:1px solid var(--color-svv-line);background:var(--color-svv-field);overflow-wrap:anywhere}
-.ert-tete{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem}
+/* La rangée unique : titre, liste et bouton d'ajout s'y suivent, et n'enroulent que si la largeur manque. */
+.ert-tete{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem .5rem}
+.ert-tete>.ert-liste{flex:1 1 auto;min-width:0}
 .ert-titre{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;color:var(--color-svv-muted)}
 .ert-vide{font-size:.8rem;font-style:italic;color:var(--color-svv-muted)}
 .ert-sous-titre{margin:.3rem 0 0;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;
   color:var(--color-svv-muted)}
-.ert-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+.ert-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0}
 .ert-ligne{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem;font-size:.85rem;color:var(--color-svv-ink);
-  line-height:1.5;padding:2px 0}
+  line-height:1.4;padding:0}
 .ert-ligne--propose{padding:4px 6px;border-radius:8px;border:1px dashed var(--color-svv-line)}
 .ert-liste--defaits{opacity:.75}
 .ert-sorte{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;
   color:var(--color-svv-muted);flex:0 0 auto}
 .ert-nom{font-weight:700}
 .ert-lien{background:none;border:0;padding:0;margin:0;font:inherit;font-size:.85rem;font-weight:700;
-  color:var(--color-svv-ink);text-decoration:underline;text-underline-offset:3px;cursor:pointer;min-height:44px;
+  color:var(--color-svv-ink);text-decoration:underline;text-underline-offset:3px;cursor:pointer;min-height:32px;
   text-align:left;overflow-wrap:anywhere}
+@media (pointer:coarse){.ert-lien{min-height:38px}}
 .ert-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .ert-source,.ert-motif{font-size:.74rem;color:var(--color-svv-muted)}
 .ert-motif{font-style:italic}
 .ert-defait{font-size:.8rem;font-style:italic;color:var(--color-svv-muted)}
-.ert-ajouter{align-self:flex-start}
-.ert .gst-lien-bouton{min-height:44px}
+.ert-ajouter{align-self:baseline;flex:0 0 auto}
+/* 🔴 LA CIBLE TACTILE : on ne descend pas sous 44 px de HAUTEUR TOTALE, on la répartit autrement. Les trois liens
+   (« Modifier », « Retirer », « + Rattacher à… ») gardaient chacun 44 px de hauteur propre, ce qui empilait trois
+   pavés dans un encart qui doit tenir sur une ligne. Ils gardent une hauteur confortable et un padding horizontal
+   qui élargit la zone cliquable — la surface reste atteignable au doigt, la hauteur ne triple plus. */
+.ert .gst-lien-bouton{min-height:32px;padding:0 .2rem}
+@media (pointer:coarse){.ert .gst-lien-bouton{min-height:38px;padding:0 .35rem}}
 `;
