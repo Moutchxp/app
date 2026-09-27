@@ -408,3 +408,14 @@ export function journalEnvoiDisponible(): Promise<boolean> {
     }
   });
 }
+
+/**
+ * LOT CLASSEMENT-1 — la migration 262 est-elle appliquée ? Elle porte le REGISTRE DES DÉPLACEMENTS de pièces.
+ *
+ * 🔴 ELLE NE CONDITIONNE PAS LE PLAN. La simulation (`gestion:classement:plan`) ne lit que l'existant et n'écrit
+ * rien : elle tourne sans cette table, et le rapport de nuit du 27/09/2026 a été produit sans elle. La sonde ne sert
+ * qu'au jour où les déplacements réels seront autorisés — sans la table, aucune écriture n'est tentée.
+ */
+export function classementDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_piece_classement', () => tableExiste('gestion_piece_classement'));
+}
