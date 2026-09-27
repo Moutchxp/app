@@ -113,8 +113,16 @@ export function FileATrier({ onRetour, onOuvrirFil, onGeste }: {
 
       <div className="fat-entete">
         <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onRetour}>← Écran partagé</button>
+        {/* 🔴 LOT ERGO-BOITE-2 — LE COMPTEUR DU TITRE COMPTE LES MAILS À TRANCHER, et dit les autres À CÔTÉ.
+            Il affichait `aTrier + sansCandidat`, soit 19 108 là où 3 261 mails seulement ont une proposition à
+            confirmer ou rejeter. Un seul nombre pour deux travaux très différents (trancher d'un clic / inventer
+            un rattachement à la main) ne renseignait sur aucun des deux. Les deux sont maintenant NOMMÉS — rien
+            n'a disparu de l'écran, et le filtre « Sans candidat » les liste toujours. */}
         <h2 className="fat-titre" id="fat-titre">
-          À trier <span className="gst-compte">{data.totaux.aTrier + data.totaux.sansCandidat}</span>
+          À trier <span className="gst-compte">{data.totaux.aTrier}</span>
+          {data.totaux.sansCandidat > 0 && (
+            <span className="fat-titre-suite"> + {data.totaux.sansCandidat} sans candidat</span>
+          )}
         </h2>
       </div>
 
@@ -294,6 +302,7 @@ export const CSS_FILE_A_TRIER = `
 .fat{display:flex;flex-direction:column;gap:.6rem;min-width:0}
 .fat-entete{display:flex;flex-wrap:wrap;align-items:baseline;gap:.6rem}
 .fat-titre{margin:0;font-size:1.05rem;font-weight:700;color:var(--color-svv-ink)}
+.fat-titre-suite{font-size:.8rem;font-weight:500;color:var(--color-svv-muted)}
 .fat-chiffres{margin:0;font-size:.82rem;color:var(--color-svv-muted);line-height:1.5;overflow-wrap:anywhere}
 .fat-code{font-size:.78rem;padding:1px 4px;border-radius:4px;background:var(--color-svv-field);
   border:1px solid var(--color-svv-line)}

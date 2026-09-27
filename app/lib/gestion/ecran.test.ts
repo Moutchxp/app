@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  depuis, formaterDateFr, formaterTaille, libelleEtat, libelleSens, mentionTroncature, messageErreurHttp, messageEvenementsVide, messageFileVide, messageReleve,
-} from './ecran';
+  depuis, formaterDateFr, formaterTaille, libelleEtat, libelleSens, mentionTroncature, messageErreurHttp, messageEvenementsVide, messageFileVide, messageReleve, titreARattacher} from './ecran';
 
 /**
  * LOT 2 — ce que l'écran DIT. Les phrases du vide sont testées AU MÊME TITRE que le reste : c'est là que se joue la
@@ -179,5 +178,28 @@ describe('LOT 4c — taille d’une pièce jointe', () => {
   it('le sens d’un message est dit par un MOT, jamais par une seule couleur', () => {
     expect(libelleSens('envoye')).toBe('nous avons écrit');
     expect(libelleSens('recu')).toBe('reçu de');
+  });
+});
+
+describe('🔴 ERGO-BOITE-2 — l’info-bulle d’« À rattacher » dit ce que le nombre compte', () => {
+  /**
+   * LE DÉFAUT QUI JUSTIFIE CE BLOC. Le compteur affichait 19 108 alors que la file n’offrait à trancher que 3 261
+   * mails : il additionnait « à trancher » et « sans aucun candidat », deux travaux qui n’ont rien à voir. Le nombre
+   * ne compte plus que le premier ; la bulle est ce qui empêche le second de disparaître de l’écran.
+   */
+  it('nomme les deux populations, jamais leur somme', () => {
+    const t = titreARattacher(3261, 15847) ?? '';
+    expect(t).toContain('3261 mail(s) avec au moins une proposition à trancher');
+    expect(t).toContain('15847 sans aucun candidat');
+    expect(t).not.toContain('19108'); // la somme ne doit apparaître NULLE PART
+  });
+
+  it('ne parle pas des sans-candidat quand il n’y en a aucun', () => {
+    expect(titreARattacher(4, 0)).toBe('4 mail(s) avec au moins une proposition à trancher');
+    expect(titreARattacher(4, null)).toBe('4 mail(s) avec au moins une proposition à trancher');
+  });
+
+  it('un nombre pas encore mesuré ne fabrique AUCUNE phrase', () => {
+    expect(titreARattacher(null, 15847)).toBeUndefined();
   });
 });

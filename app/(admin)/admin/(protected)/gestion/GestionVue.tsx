@@ -114,13 +114,23 @@ export function GestionVue({ intro }: {
    */
   const [nonLus, setNonLus] = useState<{ n: number | null; partiel: boolean }>({ n: null, partiel: false });
   /**
-   * LOT ERGO-BOITE — COMBIEN DE MAILS ATTENDENT UN RATTACHEMENT, pour l'entrée « À rattacher » de la colonne.
+   * LOT ERGO-BOITE-2 — COMBIEN DE MAILS ATTENDENT UNE DÉCISION DE RATTACHEMENT, pour l'entrée « À rattacher ».
    *
-   * ⚠️ C'EST LE MÊME NOMBRE QUE L'ÉCRAN « À rattacher » AFFICHE EN TITRE (`aTrier + sansCandidat`), lu à la même
-   * source. Un second calcul donnerait tôt ou tard deux nombres pour une seule vérité. `null` = pas encore connu,
-   * ou migration 257 absente : on n'affiche alors aucun compteur plutôt qu'un zéro qu'on n'a pas mesuré.
+   * 🔴 C'EST `aTrier` SEUL, PAS `aTrier + sansCandidat`. Première version : la somme des deux, soit 19 108, alors
+   * que la file de tri n'offre à trancher que 3 261 mails. Les 15 847 autres n'ont AUCUN candidat : il n'y a rien à
+   * confirmer ni à rejeter pour eux, seulement un rattachement à inventer à la main, un par un. Les additionner
+   * annonçait six fois le travail réel — Arno l'a vu en comparant au chiffre de la file. Un compteur doit compter
+   * ce qu'un clic permet de faire.
+   *
+   * ⚠️ `sansCandidat` N'EST PAS PERDU pour autant : il voyage à côté, sert l'info-bulle de l'entrée, et l'écran de
+   * la file continue de l'afficher en clair et de les lister (onglet « Sans candidat »). Rien n'est masqué ; c'est
+   * l'addition qui était fausse, pas la donnée.
+   *
+   * ⚠️ MÊME SOURCE QUE L'ÉCRAN, toujours : un second calcul donnerait tôt ou tard deux nombres pour une vérité.
+   * `null` = pas encore connu, ou migration 257 absente : on n'affiche alors aucun compteur plutôt qu'un zéro
+   * qu'on n'a pas mesuré.
    */
-  const [aRattacher, setARattacher] = useState<number | null>(null);
+  const [aRattacher, setARattacher] = useState<{ aTrancher: number; sansCandidat: number } | null>(null);
   /**
    * ⚠️ IL SE CHARGE AU MONTAGE, PAS DANS `charger`. Première version : l'appel vivait dans `charger`, qui ne tourne
    * QUE sur un geste explicite — les données de l'écran, elles, arrivent par un effet. Le compteur restait donc
@@ -135,7 +145,9 @@ export function GestionVue({ intro }: {
       if (!res.ok) { setARattacher(null); return; }
       const j = (await res.json()) as { etat?: string; data?: { aTrier?: number; sansCandidat?: number } };
       const c = j.etat === 'ok' ? j.data : undefined;
-      setARattacher(typeof c?.aTrier === 'number' ? c.aTrier + (c.sansCandidat ?? 0) : null);
+      setARattacher(typeof c?.aTrier === 'number'
+        ? { aTrancher: c.aTrier, sansCandidat: c.sansCandidat ?? 0 }
+        : null);
     } catch {
       // Un échec laisse le compteur à `null` : l'entrée s'affiche sans nombre, ce qui vaut mieux qu'un écran vide.
       setARattacher(null);
@@ -736,7 +748,8 @@ export function GestionVue({ intro }: {
              s'en remettre à lui ferait un bouton de retour qui ne sort de nulle part. */
           onRetour={() => aller({ ...ETAT_DEFAUT, ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE })}
           onRattacher={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'a_trier' }); }}
-          aRattacher={aRattacher}
+          aRattacher={aRattacher === null ? null : aRattacher.aTrancher}
+          aRattacherSansCandidat={aRattacher === null ? null : aRattacher.sansCandidat}
           onAnnuaire={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}
           etatDiscret={etatDiscret}
           /* UN SEUL GESTE : `releverMaintenant` relève PUIS rappelle `charger()` — c'est déjà ainsi qu'il est câblé. */

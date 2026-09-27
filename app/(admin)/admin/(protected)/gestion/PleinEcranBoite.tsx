@@ -7,6 +7,8 @@ import { ColonneMode, type PanneauMobile } from './ColonneMode';
 import { Brouillons } from './Brouillons';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
+// `ecran` est un module PUR (aucun import) : le faire venir dans un composant client ne tire pas `pg`.
+import { titreARattacher } from '../../../../lib/gestion/ecran';
 import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
 import { gesteCorbeille, marquerLectureLigne } from './gestesLigne';
 import { Conversation } from './Conversation';
@@ -74,7 +76,8 @@ export function PleinEcranBoite({
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique,
   versionDonnees = 0, onListeRelue,
-  onRattacher, aRattacher = null, onAnnuaire, etatDiscret = null, onRelever, releveEnCours = false,
+  onRattacher, aRattacher = null, aRattacherSansCandidat = null, onAnnuaire, etatDiscret = null,
+  onRelever, releveEnCours = false,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -120,8 +123,17 @@ export function PleinEcranBoite({
    */
   /** Ouvre la file de rattachement. Absent ⇒ l'entrée n'est pas rendue. */
   onRattacher?: () => void;
-  /** Combien de mails attendent un rattachement. `null` = pas encore connu : on n'affiche alors aucun nombre. */
+  /**
+   * Combien de mails ATTENDENT UNE DÉCISION — ils ont au moins une proposition à confirmer ou à rejeter. `null` =
+   * pas encore connu : on n'affiche alors aucun nombre. 🔴 Ce n'est PAS le nombre de mails non rattachés (voir
+   * `aRattacherSansCandidat`) : cf. le commentaire de `GestionVue`.
+   */
   aRattacher?: number | null;
+  /**
+   * Combien de mails n'ont AUCUN candidat à proposer. Ils ne sont pas dans le compteur — rien ne s'y confirme d'un
+   * clic — mais ils existent, l'info-bulle les nomme, et l'écran de la file les liste. `null`/`0` = on n'en parle pas.
+   */
+  aRattacherSansCandidat?: number | null;
   onAnnuaire?: () => void;
   /** Les lignes d'état ORDINAIRE, en petit. Une alerte ne passe jamais par ici. */
   etatDiscret?: readonly string[] | null;
@@ -331,13 +343,18 @@ export function PleinEcranBoite({
         </ul>
 
         {/* ══ LOT ERGO-BOITE — « À RATTACHER », juste sous les entrées de la boîte ═══════════════════════════════
-            C'est l'ancien bouton « À trier », déplacé et renommé : même écran, même fonction, même compteur (le
-            nombre de mails qui attendent un rattachement à un logement ou un propriétaire). Il est SOUS la boîte et
-            non dedans, parce qu'il ne désigne pas un dossier de courrier mais un travail à faire. */}
+            C'est l'ancien bouton « À trier », déplacé et renommé : même écran, même fonction. Il est SOUS la boîte
+            et non dedans, parce qu'il ne désigne pas un dossier de courrier mais un travail à faire.
+
+            🔴 LOT ERGO-BOITE-2 — LE COMPTEUR DIT LES MAILS À TRANCHER, et eux seuls. Il affichait la somme
+            « à trancher + sans candidat » : 19 108 pour 3 261 mails réellement décidables. Les mails sans candidat
+            restent atteignables (l'écran de la file les liste et les compte en clair) et l'info-bulle les nomme
+            ici — mais ils ne gonflent plus un nombre qui annonce du travail au clic. */}
         {onRattacher && (
           <ul className="cm-liste cm-liste--apres">
             <li>
-              <button type="button" className="cm-entree" onClick={() => { onRattacher(); setPanneauMobile('contenu'); }}>
+              <button type="button" className="cm-entree" onClick={() => { onRattacher(); setPanneauMobile('contenu'); }}
+                title={titreARattacher(aRattacher, aRattacherSansCandidat)}>
                 <span className="cm-nom"><span className="cm-texte">À rattacher</span></span>
                 {aRattacher !== null && <span className="gst-compte">{aRattacher}</span>}
               </button>

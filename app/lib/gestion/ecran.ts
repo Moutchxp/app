@@ -297,6 +297,24 @@ export function mentionTroncature(affiches: number, total: number): string | nul
 }
 
 /**
+ * LOT ERGO-BOITE-2 — L'INFO-BULLE DE L'ENTRÉE « À rattacher », qui dit CE QUE LE NOMBRE COMPTE.
+ *
+ * 🔴 POURQUOI ELLE EXISTE. Le compteur ne montre plus que les mails à trancher (ceux qui ont au moins une
+ * proposition). Les mails SANS aucun candidat n'y sont plus — ils ne se règlent pas d'un clic — mais les taire
+ * serait les faire disparaître : ils sont bien plus nombreux, et c'est souvent le courrier d'un nouvel
+ * interlocuteur. L'info-bulle les nomme donc ici, et l'écran de la file les liste (onglet « Sans candidat »).
+ *
+ * `null` pour le nombre à trancher = on ne l'a pas encore mesuré : aucune bulle plutôt qu'une phrase inventée.
+ */
+export function titreARattacher(aTrancher: number | null, sansCandidat: number | null): string | undefined {
+  if (aTrancher === null) return undefined;
+  const debut = `${aTrancher} mail(s) avec au moins une proposition à trancher`;
+  // `0` se dit comme « aucun » : il n'y a alors rien à mentionner, pas une phrase à moitié vide.
+  if (sansCandidat === null || sansCandidat <= 0) return debut;
+  return `${debut} · ${sansCandidat} sans aucun candidat, à rattacher à la main (onglet « Sans candidat »)`;
+}
+
+/**
  * Message d'échec de lecture. Un REFUS n'est pas une PANNE : dire « erreur » là où le vrai motif est « ce compte n'a
  * pas le droit » envoie chercher un bug qui n'existe pas. `0` = aucune réponse HTTP du tout (réseau coupé).
  */
