@@ -112,6 +112,6 @@ export const CSS_CHAMP_CLASSEMENT = `
 .ccl-retirer{display:inline-flex;align-items:center;justify-content:center;min-width:28px;min-height:28px;padding:0;
   font:inherit;font-size:1rem;line-height:1;color:inherit;background:transparent;border:0;border-radius:50%;
   cursor:pointer}
-.ccl-retirer:hover{background:rgba(0,0,0,.07)}
+.ccl-retirer:hover{background:color-mix(in srgb, var(--color-svv-ink) 8%, transparent)}
 .ccl-retirer:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
 `;

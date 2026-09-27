@@ -245,6 +245,18 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
   const [lien, setLien] = useState<{ texte: string; url: string } | null>(null);
   /** La confirmation de suppression du brouillon. Un brouillon se supprime EXPRÈS, jamais par un clic au passage. */
   const [supprime, setSupprime] = useState(false);
+  /**
+   * ══ 🔴 LOT REDACTION-GMAIL — LA RÉPONSE EN PLACE PASSE EN PLEIN ÉCRAN ═════════════════════════════════════════
+   * Demande d'Arno (A8). Une réponse s'écrit sous le message auquel elle répond — c'est bien pour les trois lignes
+   * qu'on écrit neuf fois sur dix, et c'est étroit pour la dixième.
+   *
+   * 🔴 LE COMPOSANT N'EST PAS DÉMONTÉ : seule sa classe change. C'est la garantie qui compte — démonter puis
+   * remonter perdrait le texte non encore enregistré, une pièce en cours de dépôt, et un compte à rebours d'envoi
+   * en train de courir. On déplace un CADRE, jamais l'éditeur.
+   *
+   * ⚠️ SANS EFFET DANS UNE FENÊTRE : celle-ci a déjà son propre bouton de plein écran, dans sa barre de titre.
+   */
+  const [plein, setPlein] = useState(false);
   /** Remonte la zone des pièces après un ajout venu du Drive : elle relit alors la liste. */
   const [versionPieces, setVersionPieces] = useState(0);
   /** De quoi insérer un lien ou une pièce Drive à la position du curseur. Posé par l'éditeur quand il est prêt. */
@@ -589,7 +601,8 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
   }
 
   return (
-    <section className={`red${ouvre ? ' red--ouvre' : ''}`} aria-label={titre} ref={racine}>
+    <section className={`red${ouvre ? ' red--ouvre' : ''}${plein ? ' red--plein' : ''}`}
+      aria-label={titre} ref={racine}>
       <style>{CSS_REDACTION}</style>
       <style>{CSS_EDITEUR_RICHE}</style>
       <style>{CSS_CHAMP_CLASSEMENT}</style>
@@ -600,6 +613,13 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
       {!dansFenetre && (
         <div className="red-haut">
           <h3 className="gst-titre">{titre}</h3>
+          {/* 🔴 LOT REDACTION-GMAIL — le plein écran de la réponse en place. Le MOT change avec l'état : une
+              icône seule ne dirait pas dans quel sens elle agit. */}
+          <button type="button" className="svv-btn svv-btn-outline gst-btn"
+            aria-pressed={plein}
+            onClick={() => setPlein((v) => !v)}>
+            {plein ? 'Réduire' : 'Plein écran'}
+          </button>
           <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void fermer()}>Fermer</button>
         </div>
       )}
@@ -801,6 +821,15 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
 }
 
 const CSS_REDACTION = `
+/* ══ 🔴 LOT REDACTION-GMAIL — LA REPONSE EN PLACE, EN PLEIN ECRAN ════════════════════════════════════════════════
+   Le composant n'est PAS demonte : seule sa classe change. Demonter perdrait le texte non enregistre, une piece
+   en cours de depot et un compte a rebours d'envoi. On deplace un CADRE, jamais l'editeur.
+   ⚠️ Le voile est un pseudo-element : pas de noeud de plus dans le DOM, donc rien a demonter non plus. */
+.red--plein{position:fixed;top:4vh;bottom:4vh;left:50%;transform:translateX(-50%);z-index:60;
+  width:min(900px, calc(100vw - 32px));overflow-y:auto;padding:14px 16px;
+  background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);border-radius:.7rem}
+.red--plein::before{content:'';position:fixed;inset:0;z-index:-1;background:color-mix(in srgb, var(--color-svv-ink) 42%, transparent)}
+@media (max-width: 640px){ .red--plein{inset:0;width:100%;transform:none;border-radius:0} }
 /* ══ LOT REDACTION-GMAIL — le corps mis en forme, les outils du bas, le lien, la suppression ══════════════════════ */
 .red-corps-riche{border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-surface);
   padding:2px 6px;min-width:0}

@@ -190,10 +190,10 @@ export function SelecteurFichierDrive({ onChoisir, onFermer }: {
 
 export const CSS_SELECTEUR_FICHIER = `
 .sfd-voile{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:16px;
-  background:rgba(0,0,0,.38)}
+  background:color-mix(in srgb, var(--color-svv-ink) 38%, transparent)}
 .sfd{display:flex;flex-direction:column;gap:10px;width:min(640px,100%);max-height:86vh;overflow-y:auto;padding:16px;
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:.8rem;
-  box-shadow:0 10px 40px rgba(0,0,0,.2)}
+  box-shadow:0 10px 40px color-mix(in srgb, var(--color-svv-ink) 20%, transparent)}
 .sfd-titre{margin:0;font-size:1.05rem;font-weight:700;color:var(--color-svv-ink)}
 .sfd-ariane{display:flex;flex-wrap:wrap;align-items:center;font-size:.82rem;color:var(--color-svv-muted)}
 .sfd-fleche{color:var(--color-svv-line-strong)}

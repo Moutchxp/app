@@ -42,7 +42,14 @@ export const TAILLES: readonly { valeur: string; mot: string }[] = [
   { valeur: '6', mot: 'Très grande' },
 ];
 
-/** Les couleurs de texte. Bornées, et toutes lisibles sur fond blanc — un jaune clair ne se lit pas dans un mail. */
+/**
+ * LES COULEURS DE TEXTE. Bornées, et toutes lisibles sur fond blanc — un jaune clair ne se lit pas dans un mail.
+ *
+ * ⚠️ ÉCRITES EN DUR, ET C'EST LA SEULE FORME POSSIBLE. Ce ne sont pas des couleurs d'INTERFACE mais des valeurs de
+ * CONTENU : elles partent dans le HTML du message, chez le destinataire. Un jeton de charte (`var(--color-svv-…)`)
+ * n'y voudrait rien dire — la feuille de style de notre application n'existe pas dans sa messagerie, et le texte
+ * arriverait sans couleur du tout. Le rouge est celui de la charte, recopié ici pour cette raison précise.
+ */
 export const COULEURS: readonly { valeur: string; mot: string }[] = [
   { valeur: '#202124', mot: 'Noir' },
   { valeur: '#a30402', mot: 'Rouge SVAV' },
@@ -270,7 +277,7 @@ export const CSS_EDITEUR_RICHE = `
 .edr-trait{display:block;width:12px;height:3px;margin-left:2px;background:currentColor;border-radius:2px}
 .edr-palette{position:absolute;top:100%;left:0;z-index:5;display:flex;gap:4px;padding:5px;
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:.4rem;
-  box-shadow:0 4px 14px rgba(0,0,0,.12)}
+  box-shadow:0 4px 14px color-mix(in srgb, var(--color-svv-ink) 12%, transparent)}
 .edr-pastille{width:22px;height:22px;padding:0;border:1px solid var(--color-svv-line);border-radius:50%;cursor:pointer}
 .edr-pastille:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 /* La zone d'ecriture. overflow-wrap:anywhere : une URL collee ne doit pas elargir la fenetre. */

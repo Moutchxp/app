@@ -141,10 +141,10 @@ export const CSS_FENETRES = `
 :root{--fre-largeur:min(520px, calc(100vw - 32px))}
 /* Le voile du plein ecran. Il n'intercepte PAS le clic (pointer-events:none) : cliquer a cote ne doit pas fermer
    une fenetre ou l'on est en train d'ecrire. On revient par le bouton, jamais par megarde. */
-.fre-voile{position:fixed;inset:0;z-index:58;background:rgba(0,0,0,.42);pointer-events:none}
+.fre-voile{position:fixed;inset:0;z-index:58;background:color-mix(in srgb, var(--color-svv-ink) 42%, transparent);pointer-events:none}
 .fre{position:fixed;z-index:60;display:flex;flex-direction:column;width:var(--fre-largeur);
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line-strong);
-  border-radius:.7rem .7rem 0 0;box-shadow:0 -2px 22px rgba(0,0,0,.2);overflow:hidden}
+  border-radius:.7rem .7rem 0 0;box-shadow:0 -2px 22px color-mix(in srgb, var(--color-svv-ink) 20%, transparent);overflow:hidden}
 .fre--ouverte,.fre--reduite{bottom:0}
 .fre--ouverte{max-height:min(78vh, 720px)}
 /* REDUITE : la barre de titre, et rien d'autre. Le brouillon vit toujours derriere. */
@@ -159,7 +159,7 @@ export const CSS_FENETRES = `
 .fre-boutons{display:flex;gap:0}
 .fre-bouton{display:inline-flex;align-items:center;justify-content:center;min-width:34px;min-height:34px;padding:0;
   font:inherit;color:inherit;background:transparent;border:0;border-radius:.3rem;cursor:pointer}
-.fre-bouton:hover{background:rgba(255,255,255,.16)}
+.fre-bouton:hover{background:color-mix(in srgb, var(--color-svv-surface) 18%, transparent)}
 .fre-bouton:focus-visible{outline:2px solid var(--color-svv-surface);outline-offset:-2px}
 .fre-corps{flex:1 1 auto;min-height:0;overflow-y:auto;padding:10px 12px 12px}
 /* ⚠️ SUR TELEPHONE, une fenetre flottante n'a pas de sens : elle prend tout l'ecran, comme dans Gmail. */
