@@ -48,6 +48,75 @@ export interface Empreinte {
 export const EMPREINTE_VIDE: Empreinte = { messageMax: 0, filMax: 0, passeId: 0 };
 
 /**
+ * ══ 🔴 LOT VEILLE-VIVE — CE QUE LE BATTEMENT RAPPORTE DE LA RELÈVE, ET POURQUOI IL LE FAUT ══════════════════════
+ *
+ * LE DÉFAUT RÉPARÉ, prouvé le 27/09/2026 par Arno. Le bandeau annonçait « la relève automatique est arrêtée depuis
+ * 12 min » à 01:43, alors que le journal montre une passe CHAQUE MINUTE de 01:05 à 01:45 sans un seul trou, et que
+ * la base porte les 41 lignes correspondantes. La relève n'était pas arrêtée ; le bandeau mentait.
+ *
+ * LA CAUSE, ET ELLE EST ENTIÈREMENT DANS L'ÉCRAN. Le battement du lot ÉCRAN-VIVANT fait avancer l'horloge à chaque
+ * tour, mais ne relit les DONNÉES que si un message ou un échange est apparu. `aRafraichir` distinguait déjà les
+ * deux besoins et rendait un drapeau `bandeau` pour exactement ce cas — **et personne ne le consommait**. Pendant
+ * une accalmie, `veille.derniereLe` restait donc gelée à l'heure du dernier chargement de page tandis que
+ * `maintenant` continuait d'avancer : au bout de dix intervalles, le seuil était franchi et l'écran criait.
+ *
+ * Un drapeau calculé que personne ne lit est pire qu'un drapeau absent : il donne l'impression que le cas est traité.
+ *
+ * ⚠️ POURQUOI PAS UNE NOUVELLE TABLE DE BATTEMENT. `gestion_releve_run` porte DÉJÀ une ligne par passe, vide ou non
+ * — 41 lignes pour 41 minutes, vérifié. La donnée juste existait ; ce qui manquait, c'était de la relire. Ajouter un
+ * second registre aurait créé une seconde vérité à tenir pour un fait déjà enregistré.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export interface VeilleVive {
+  /**
+   * Fin de la dernière passe AUTOMATIQUE terminée, réussie ou non. C'est la seule chose qui répond à « l'ordonnanceur
+   * tourne-t-il encore ? ». `null` = aucune n'a jamais tourné.
+   */
+  derniereLe: string | null;
+  resultat: 'ok' | 'erreur' | null;
+  /**
+   * 🔴 DATE DU DERNIER MAIL CAPTURÉ — UNE AUTRE QUESTION, ET C'EST TOUT L'INTÉRÊT DE LA SÉPARER. « La relève tourne »
+   * et « du courrier arrive » sont deux faits indépendants : une boîte calme un dimanche donne des passes toutes les
+   * minutes et aucun mail pendant des heures. Les avoir mêlés dans une seule phrase est ce qui rendait l'écran
+   * illisible — on ne pouvait pas distinguer un ordonnanceur mort d'une boîte tranquille.
+   */
+  dernierMailLe: string | null;
+}
+
+export const VEILLE_VIVE_VIDE: VeilleVive = { derniereLe: null, resultat: null, dernierMailLe: null };
+
+/** Deux états de veille disent-ils la même chose ? PUR. */
+export function memeVeille(a: VeilleVive, b: VeilleVive): boolean {
+  return a.derniereLe === b.derniereLe && a.resultat === b.resultat && a.dernierMailLe === b.dernierMailLe;
+}
+
+/**
+ * L'ÉTAT DE VEILLE À GARDER, en rendant la MÊME RÉFÉRENCE quand rien n'a changé. PUR.
+ *
+ * 🔴 MÊME DISCIPLINE QUE `empreinteSuivante`, ET POUR LA MÊME RAISON. C'est ce détail qui empêche la boucle de rendu
+ * qui a saturé la mémoire dans `BoiteMail` : on ne rend un objet NEUF que si la valeur a CHANGÉ.
+ */
+export function veilleSuivante(avant: VeilleVive | null, apres: VeilleVive): VeilleVive {
+  return avant !== null && memeVeille(avant, apres) ? avant : apres;
+}
+
+/**
+ * L'ÉTAT DE VEILLE LE PLUS FRAIS DONT ON DISPOSE. PUR.
+ *
+ * 🔴 CE QUE LE BATTEMENT A VU L'EMPORTE TOUJOURS sur ce que la page portait à son chargement — c'est précisément
+ * l'inversion qui manquait. Mais un champ que le battement ne sait pas remplir ne doit pas EFFACER celui de la page :
+ * on retombe champ par champ, jamais objet par objet.
+ */
+export function veilleAAfficher(page: VeilleVive, vive: VeilleVive | null): VeilleVive {
+  if (vive === null) return page;
+  return {
+    derniereLe: vive.derniereLe ?? page.derniereLe,
+    resultat: vive.resultat ?? page.resultat,
+    dernierMailLe: vive.dernierMailLe ?? page.dernierMailLe,
+  };
+}
+
+/**
  * PÉRIODE DU BATTEMENT. 30 secondes : la relève tourne chaque minute, donc un battement deux fois plus rapide voit
  * chaque passe au plus 30 secondes après elle. Plus court ne rendrait rien de plus ; plus long laisserait le bandeau
  * annoncer « il y a 2 min » quand la passe a une minute.

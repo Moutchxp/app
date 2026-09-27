@@ -60,7 +60,10 @@ describe('🔴 ② l’ordonnanceur s’est tu : on le DIT, et on dit quoi faire
   it('au-delà du seuil, l’alerte est en toutes lettres — jamais une simple couleur', () => {
     const e = etatVeille(veille({ derniereLe: il_y_a(32_400) }), T0); // 9 h, le cas réel du 25/09
     expect(e.niveau).toBe('arretee');
-    expect(e.texte).toContain('La relève automatique est arrêtée depuis il y a 9 h');
+    // 🔴 « depuis 9 h », et non « depuis IL Y A 9 h » : ce test gravait le charabia que l'écran affichait
+    //   réellement. Une durée n'est pas une ancienneté — voir `duree` dans `ecran.ts`.
+    expect(e.texte).toContain('La relève automatique est arrêtée depuis 9 h');
+    expect(e.texte).not.toContain('depuis il y a');
     expect(e.texte).toContain('le courrier arrivé depuis n’est pas dans l’application');
   });
 
@@ -175,5 +178,52 @@ describe('l’étiquette des passes — c’est elle qui rend la question posabl
   /** Ce qu'une passe a FAIT la qualifie, pas qui l'a lancée : un rattrapage reste un rattrapage. */
   it('un rattrapage lancé par l’ordonnanceur reste un « rattrapage »', () => {
     expect(declencheurDe({ depuisOrigine: true, automatique: true })).toBe('rattrapage');
+  });
+});
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 ⑤ LOT VEILLE-VIVE — « JE NE SAIS PAS » N'EST PAS « C'EST ARRÊTÉ ».
+ *
+ * La fausse alerte du 27/09/2026 venait d'une horloge vivante comparée à une heure gelée. Le battement le répare —
+ * mais il reste un cas où l'heure regèle sans que personne le sache : le battement lui-même échoue (serveur
+ * injoignable, session expirée, ordinateur qui sort de veille). Sans ce garde, l'écran se remettrait à vieillir en
+ * silence et redirait « arrêtée » par la même mécanique, par une autre porte.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 ⑤ quand l’écran ne peut plus vérifier, il le DIT — au lieu d’accuser la relève', () => {
+  it('mesure plus vieille que le seuil ⇒ « impossible de vérifier », jamais « arrêtée »', () => {
+    // La dernière passe connue date de 40 s — mais cette information a été mesurée il y a 20 min.
+    const e = etatVeille(veille({ mesureLe: il_y_a(1_200) }), T0);
+    expect(e.niveau).toBe('inconnu');
+    expect(e.texte).toContain('Impossible de vérifier');
+    expect(e.texte).not.toContain('arrêtée');
+    // Et le geste proposé désigne la BONNE cause : la connexion, pas la relève.
+    expect(e.aide).toContain('Rafraîchissez');
+    expect(e.aide).toContain('pas la relève');
+  });
+
+  it('une mesure FRAÎCHE ne change rien : on juge la relève normalement', () => {
+    expect(etatVeille(veille({ mesureLe: il_y_a(30) }), T0).niveau).toBe('ok');
+    // Relève réellement arrêtée, mais mesure fraîche : l'alerte doit bien sortir.
+    expect(etatVeille(veille({ derniereLe: il_y_a(1_800), mesureLe: il_y_a(10) }), T0).niveau).toBe('arretee');
+  });
+
+  it('CHAMP ABSENT ⇒ comportement d’avant, à l’identique : on suppose la mesure fraîche', () => {
+    // Indispensable : la route et les fixtures qui ne fournissent pas `mesureLe` ne doivent rien voir changer.
+    expect(etatVeille(veille(), T0).niveau).toBe('ok');
+    expect(etatVeille(veille({ derniereLe: il_y_a(1_800) }), T0).niveau).toBe('arretee');
+    expect(etatVeille(veille({ mesureLe: null }), T0).niveau).toBe('ok');
+  });
+
+  it('une date de mesure illisible ne bloque pas le jugement', () => {
+    // Mieux vaut juger sur ce qu'on a que rester muet parce qu'une chaîne est abîmée.
+    expect(etatVeille(veille({ derniereLe: il_y_a(1_800), mesureLe: 'pas-une-date' }), T0).niveau).toBe('arretee');
+  });
+
+  it('🔴 « jamais tourné » et « échec » passent AVANT : ils sont plus informatifs que l’ignorance', () => {
+    expect(etatVeille(veille({ derniereLe: null, mesureLe: il_y_a(9_999) }), T0).niveau).toBe('jamais');
+    expect(etatVeille(veille({ resultat: 'erreur', erreur: 'IMAP refusé', mesureLe: il_y_a(9_999) }), T0).niveau)
+      .toBe('echec');
   });
 });

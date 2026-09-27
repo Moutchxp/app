@@ -43,21 +43,48 @@ describe('bandeau d’état — un outil qui dit depuis quand il n’a pas regar
     const m = messageReleve({ derniereReleveLe: '2026-09-23T11:00:00Z', messagesCaptures: 0, messagesExclus: 0 }, MAINTENANT);
     expect(m).toContain('Dernière relève');
     expect(m).toContain('il y a 1 h');
-    expect(m).toContain('aucun message');
+    expect(m).toContain('Aucun message en base');
   });
 
-  it('annonce les messages tenus hors de la file, et rappelle qu’ils ne sont pas supprimés', () => {
+  /**
+   * 🔴 LOT VEILLE-VIVE — « EN BASE », ET PLUS « CAPTURÉS ». La phrase disait « Dernière relève : 01:31. 56 805
+   * messages capturés », ce qui se lit « cette passe a capturé 56 805 messages » alors que c'est le total de
+   * toujours. Le nombre n'a pas changé ; ce qu'on en dit, oui.
+   */
+  it('annonce le total EN BASE, les messages tenus hors de la file, et qu’ils ne sont pas supprimés', () => {
     const m = messageReleve({ derniereReleveLe: '2026-09-23T11:00:00Z', messagesCaptures: 120, messagesExclus: 87 }, MAINTENANT);
-    expect(m).toContain('120 messages capturés');
+    expect(m).toContain('120 messages en base');
+    expect(m).not.toContain('120 messages capturés'); // la lecture fautive qu'on a retirée
     expect(m).toContain('87 tenus hors de la file');
     expect(m).toContain('jamais supprimés');
   });
 
   it('accorde le singulier (un seul message, un seul écarté)', () => {
     const m = messageReleve({ derniereReleveLe: '2026-09-23T11:00:00Z', messagesCaptures: 1, messagesExclus: 1 }, MAINTENANT);
-    expect(m).toContain('1 message capturé');
+    expect(m).toContain('1 message en base');
     expect(m).toContain('1 tenu hors de la file');
     expect(m).toContain('(jamais supprimé).');
+  });
+
+  /**
+   * 🔴 LOT VEILLE-VIVE — DEUX FAITS, DEUX PHRASES. « La relève tourne » et « du courrier arrive » sont indépendants :
+   * un dimanche calme donne une passe par minute et pas un mail pendant six heures. Les mêler est ce qui a fait
+   * conclure à tort, le 27/09/2026, que la relève ne fonctionnait pas.
+   */
+  it('🔴 l’heure du dernier MAIL est dite À PART de celle de la dernière PASSE', () => {
+    const m = messageReleve({
+      derniereReleveLe: '2026-09-23T12:00:00Z', dernierMailLe: '2026-09-23T11:00:00Z',
+      messagesCaptures: 120, messagesExclus: 0,
+    }, MAINTENANT);
+    expect(m).toContain('Dernière relève : 23 septembre 2026, 14:00 (à l’instant)');
+    expect(m).toContain('Dernier mail reçu : 23 septembre 2026, 13:00 (il y a 1 h)');
+  });
+
+  it('sans date de dernier mail, on se TAIT plutôt que d’écrire « jamais »', () => {
+    const m = messageReleve({
+      derniereReleveLe: '2026-09-23T11:00:00Z', dernierMailLe: null, messagesCaptures: 120, messagesExclus: 0,
+    }, MAINTENANT);
+    expect(m).not.toContain('Dernier mail');
   });
 
   it('ne parle pas des exclus quand il n’y en a aucun (une précision inutile est du bruit)', () => {

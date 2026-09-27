@@ -18,6 +18,8 @@ const ecran = (o: Partial<EtatEcran> = {}): EtatEcran => ({
   file: [], filsTotal: 442, fenetreJours: 30, filsTropAnciens: 12,
   sansSuite: [], sansSuiteTotal: 7, evenements: [], evenementsTotal: 0,
   messagesCaptures: 56000, messagesExclus: 40000, derniereReleveLe: '2026-09-24T10:00:00Z',
+  // LOT VEILLE-VIVE — l'heure du dernier MAIL, distincte de celle de la dernière PASSE.
+  dernierMailLe: '2026-09-24T09:42:00Z',
   // LOT 5-VEILLE — l'état de la relève AUTOMATIQUE fait partie de l'écran depuis ce lot ; il n'entre pas dans le
   //   calcul des étiquettes, mais un écran de doublure doit rester un écran COMPLET.
   veille: {

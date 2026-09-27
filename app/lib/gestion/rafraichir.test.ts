@@ -1,9 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  aRafraichir, empreinteSuivante, listePeutSeRecharger, memeEmpreinte, mentionCourrierNouveau, peutBattre,
-  EMPREINTE_VIDE, PERIODE_BATTEMENT_MS, type Empreinte,
+  aRafraichir, empreinteSuivante, listePeutSeRecharger, memeEmpreinte, memeVeille, mentionCourrierNouveau,
+  peutBattre, veilleAAfficher, veilleSuivante,
+  EMPREINTE_VIDE, PERIODE_BATTEMENT_MS, VEILLE_VIVE_VIDE, type Empreinte, type VeilleVive,
 } from './rafraichir';
+import { etatVeille } from './ecran';
 
 /**
  * LOT ÉCRAN-VIVANT — L'ÉCRAN SE MET-IL À JOUR TOUT SEUL, SANS RIEN CASSER NI RIEN DÉTRUIRE ?
@@ -216,5 +218,130 @@ describe('les garanties du battement dans l’écran', () => {
 
   it('le bouton « Rafraîchir » n’a pas été retiré', () => {
     expect(vue).toContain('Rafraîchir');
+  });
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴 LE DRAPEAU `bandeau` EST CONSOMMÉ — ET C'EST LE CŒUR DU CORRECTIF DU 27/09/2026.
+   *
+   * `aRafraichir` le calculait déjà pour exactement le bon cas (« une passe a eu lieu, mais aucun message n'est
+   * arrivé »), et RIEN ne le lisait. L'horloge avançait toutes les 30 s, l'heure de la dernière passe restait celle
+   * du chargement de la page, et au bout de dix intervalles le bandeau annonçait « arrêtée » alors que la relève
+   * tournait chaque minute. Un drapeau calculé que personne ne lit est pire qu'un drapeau absent : il donne
+   * l'impression que le cas est traité.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it('🔴 le battement met à jour l’état de veille À CHAQUE tour, hors de la branche « les données ont changé »', () => {
+    expect(battement).toContain('setVeilleVive(');
+    const avantBranche = battement.slice(0, battement.indexOf('if (quoi.donnees)'));
+    expect(avantBranche).toContain('setVeilleVive(');
+    // Et par `veilleSuivante`, qui garde la même référence quand rien n'a changé : pas de rendu inutile.
+    expect(battement).toContain('veilleSuivante(v, apres.veille');
+  });
+
+  it('🔴 le bandeau ET l’en-tête jugent sur la valeur FRAÎCHE, pas sur celle du chargement', () => {
+    // Une seule source pour les deux : c'est ce qui a manqué le 27/09, où l'en-tête disait « 01:31 » à côté d'un
+    // bandeau « arrêtée depuis 12 min » — deux lectures du même fait, l'une gelée, l'autre vivante.
+    expect(vue).toContain('veilleAAfficher(');
+    // Par FRAGMENTS, pas sur la forme exacte de l'appel : `mesureLe` s'y est ajouté, et le figer aurait cassé sans
+    //   rien apprendre. Ce qui compte est que la valeur fraîche entre dans le calcul et dans l'en-tête.
+    expect(vue).toMatch(/etatVeille\(\{[^}]*\.\.\.veilleFraiche/);
+    expect(vue).toContain('derniereReleveLe: veilleFraiche.derniereLe ?? d.derniereReleveLe');
+    // 🔴 Et la date du dernier battement RÉUSSI voyage avec, sans quoi « je ne sais pas » ne pourrait pas être dit.
+    expect(vue).toMatch(/etatVeille\(\{[^}]*mesureLe/);
+    expect(vue).toContain('setMesureLe(new Date().toISOString())');
+  });
+
+  it('la route du battement rapporte l’état de veille, sans requête de plus', () => {
+    const route = readFileSync('app/(admin)/api/admin/gestion/empreinte/route.ts', 'utf8');
+    expect(route).toContain('WITH derniere AS');
+    expect(route).toContain('passe_le');
+    expect(route).toContain('mail_le');
+    /**
+     * 🔒 TOUJOURS AUCUNE DONNÉE PERSONNELLE. On inspecte le SQL ÉMIS, pas le texte du fichier : le mot « objet »
+     * figure légitimement dans le commentaire qui explique justement qu'on ne le lit pas. Un garde qui crie sur ses
+     * propres commentaires finit par être désarmé.
+     */
+    const sql = (/const \{ rows \} = await query<[\s\S]*?>\(\s*`([\s\S]*?)`\)/.exec(route)?.[1] ?? '')
+      .split('\n').filter((l) => !l.trimStart().startsWith('--')).join('\n');
+    expect(sql.length).toBeGreaterThan(200); // le SQL a bien été retrouvé : sinon le test ne prouverait rien
+    for (const interdit of ['objet', 'de_adresse', 'corps_texte', 'destinataires']) {
+      expect(sql, interdit).not.toContain(interdit);
+    }
+  });
+});
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LE TEST QUI AURAIT ATTRAPÉ LA FAUSSE ALERTE DU 27/09/2026 — demandé par Arno.
+ *
+ * Preuve à l'appui de son côté : `svv-gestion-continu.log` montre une passe CHAQUE MINUTE de 01:05 à 01:45 sans un
+ * seul trou, et `gestion_releve_run` porte les 41 lignes correspondantes. Le bandeau annonçait pourtant « arrêtée
+ * depuis 12 min ». Aucun test ne pouvait le voir, parce qu'aucun ne faisait avancer l'HORLOGE et les PASSES ensemble.
+ *
+ * Les deux scénarios ci-dessous sont donc joués tour par tour, comme le battement les vit réellement.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 quinze minutes de passes vides, et onze minutes sans passe', () => {
+  const T0 = Date.parse('2026-09-27T01:05:00Z');
+  const REGLAGES = { erreur: null, intervalleS: 60, toleranceIntervalles: 10 };
+
+  /**
+   * Joue `minutes` minutes de battements (deux par minute, comme en vrai : 30 s de période).
+   * `passeAvance` dit si l'ordonnanceur tourne. Rend l'état du bandeau à la FIN.
+   */
+  const jouer = (minutes: number, passeAvance: boolean) => {
+    // Ce que la PAGE portait à son chargement : la passe de T0. Elle ne sera plus jamais relue.
+    const page = { derniereLe: new Date(T0).toISOString(), resultat: 'ok' as const, dernierMailLe: null };
+    let vive: VeilleVive | null = null;
+    let empreinteVue: Empreinte | null = null;
+    let maintenant = T0;
+
+    for (let tour = 1; tour <= minutes * 2; tour += 1) {
+      maintenant = T0 + tour * 30_000;
+      const passeNum = passeAvance ? Math.floor(tour / 2) : 0;
+      // La charge utile que la route rend à ce battement. Aucun message n'arrive JAMAIS : messageMax est constant.
+      const apres: Empreinte = { messageMax: 100, filMax: 50, passeId: 1000 + passeNum };
+      const veilleRoute: VeilleVive = {
+        derniereLe: new Date(T0 + passeNum * 60_000).toISOString(),
+        resultat: 'ok',
+        dernierMailLe: null,
+      };
+      aRafraichir(empreinteVue, apres);          // appelé comme dans le battement, pour la forme exacte
+      empreinteVue = empreinteVue === null ? apres : empreinteSuivante(empreinteVue, apres);
+      // 🔴 CE PAS EST LE CORRECTIF. Avant, il n'existait pas : `vive` restait `null` et le bandeau jugeait `page`.
+      vive = veilleSuivante(vive, veilleRoute);
+    }
+    return etatVeille({ ...REGLAGES, ...veilleAAfficher(page, vive) }, new Date(maintenant));
+  };
+
+  it('🔴 QUINZE MINUTES DE PASSES VIDES → AUCUN BANDEAU. C’est le défaut signalé', () => {
+    const e = jouer(15, true);
+    expect(e.niveau).toBe('ok');
+    expect(e.texte).not.toContain('arrêtée');
+    // Et la phrase dit une ancienneté FRAÎCHE, pas quinze minutes.
+    expect(e.texte).toContain('dernière passe');
+  });
+
+  it('🔴 ONZE MINUTES SANS AUCUNE PASSE → BANDEAU. L’alerte doit rester capable de crier', () => {
+    const e = jouer(11, false);
+    expect(e.niveau).toBe('arretee');
+    expect(e.texte).toContain('arrêtée depuis');
+  });
+
+  it('à dix intervalles pile, on ne crie pas encore : le seuil est un dépassement, pas une égalité', () => {
+    expect(jouer(10, false).niveau).toBe('ok');
+  });
+
+  /**
+   * ⚠️ ET LA PREUVE QUE LE TEST EST BIEN CALIBRÉ : sans le pas `veilleSuivante` — c'est-à-dire le code d'AVANT —
+   * quinze minutes de passes vides déclenchent le bandeau. Un test qui passerait aussi sur le code fautif ne
+   * prouverait rien.
+   */
+  it('🔴 sans la mise à jour du battement, les mêmes quinze minutes CRIENT — le code d’avant', () => {
+    const page = { derniereLe: new Date(T0).toISOString(), resultat: 'ok' as const, dernierMailLe: null };
+    const avant = etatVeille({ ...REGLAGES, ...page }, new Date(T0 + 15 * 60_000));
+    expect(avant.niveau).toBe('arretee');
+    expect(avant.texte).toContain('arrêtée depuis 15 min');
   });
 });

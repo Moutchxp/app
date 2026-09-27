@@ -62,6 +62,11 @@ export interface EtatEcran {
   messagesCaptures: number;       // TOUS les messages capturés, exclus compris — la preuve que la relève a tourné
   messagesExclus: number;         // tenus hors de la file par une règle (jamais supprimés)
   derniereReleveLe: string | null; // fin de la dernière relève réussie, ou null si aucune n'a jamais tourné
+  /**
+   * LOT VEILLE-VIVE — DATE DU DERNIER MAIL CAPTURÉ. Une autre question que « quand la dernière passe a-t-elle eu
+   * lieu » : les mêler dans une phrase unique est ce qui a fait conclure à tort que la relève était arrêtée.
+   */
+  dernierMailLe: string | null;
   /** LOT 5-VEILLE — de quoi dire si la relève AUTOMATIQUE tourne encore. Voir `etatVeille` dans `ecran.ts`. */
   veille: VeilleReleve;
   /**
@@ -236,16 +241,32 @@ export async function lireEvenements(ctx: ContexteExpediteurs, limite = PAGE): P
  * dernière relève a réussi. Sans eux, une page vide est ambiguë — « rien n'est arrivé » et « on n'a jamais relevé » se
  * ressemblent, et c'est exactement la confusion que le journal des passes existe pour lever.
  */
-export async function lireReperes(): Promise<{ messagesCaptures: number; messagesExclus: number; derniereReleveLe: string | null }> {
+export async function lireReperes(): Promise<{
+  messagesCaptures: number; messagesExclus: number; derniereReleveLe: string | null; dernierMailLe: string | null;
+}> {
   const { rows } = await query<{ captures: number; exclus: number }>(
     `SELECT count(*)::int AS captures, count(exclu_le)::int AS exclus FROM gestion_message`);
   const { rows: r } = await query<{ le: string | null }>(
     `SELECT to_char(max(termine_le) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS le
        FROM gestion_releve_run WHERE resultat = 'ok'`);
+  /**
+   * LOT VEILLE-VIVE — LA DATE DU DERNIER MAIL CAPTURÉ, au chargement de la page.
+   *
+   * 🔴 ELLE RÉPOND À UNE AUTRE QUESTION QUE L'HEURE DE LA DERNIÈRE PASSE, et c'est pour les avoir mêlées que l'écran
+   * était illisible : un dimanche calme donne une passe par minute et pas un mail pendant six heures. Le battement
+   * la rafraîchit ensuite (route `empreinte`) ; ici on la donne pour que l'en-tête soit juste AVANT le premier
+   * battement, c'est-à-dire pendant les trente premières secondes.
+   *
+   * ⚠️ PAR L'IDENTIFIANT LE PLUS GRAND, pas par `max(recu_le)` : la clé primaire est indexée, la date non.
+   */
+  const { rows: m } = await query<{ le: string | null }>(
+    `SELECT to_char(recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS le
+       FROM gestion_message ORDER BY id DESC LIMIT 1`);
   return {
     messagesCaptures: rows[0]?.captures ?? 0,
     messagesExclus: rows[0]?.exclus ?? 0,
     derniereReleveLe: r[0]?.le ?? null,
+    dernierMailLe: m[0]?.le ?? null,
   };
 }
 

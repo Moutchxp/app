@@ -148,14 +148,29 @@ describe('fileRepo — les repères d’honnêteté', () => {
   it('compte les messages capturés ET ceux tenus hors de la file, et date la dernière relève RÉUSSIE', async () => {
     queryMock
       .mockResolvedValueOnce({ rows: [{ captures: 120, exclus: 87 }] })
-      .mockResolvedValueOnce({ rows: [{ le: '2026-09-23T11:00:00Z' }] });
-    expect(await lireReperes()).toEqual({ messagesCaptures: 120, messagesExclus: 87, derniereReleveLe: '2026-09-23T11:00:00Z' });
+      .mockResolvedValueOnce({ rows: [{ le: '2026-09-23T11:00:00Z' }] })
+      .mockResolvedValueOnce({ rows: [{ le: '2026-09-23T10:58:00Z' }] });
+    expect(await lireReperes()).toEqual({
+      messagesCaptures: 120, messagesExclus: 87, derniereReleveLe: '2026-09-23T11:00:00Z',
+      // LOT VEILLE-VIVE — la date du dernier MAIL, distincte de celle de la dernière PASSE.
+      dernierMailLe: '2026-09-23T10:58:00Z',
+    });
     expect(sqls()[1]).toContain("WHERE resultat = 'ok'"); // une passe en erreur ne « date » rien
+  });
+
+  it('🔴 le dernier mail est lu par l’IDENTIFIANT le plus grand, jamais par un max() sur la date', async () => {
+    // La clé primaire est indexée, `recu_le` non : un `max(recu_le)` balaierait 56 000 lignes toutes les 30 s.
+    queryMock.mockResolvedValue({ rows: [] });
+    await lireReperes();
+    expect(sqls()[2]).toContain('ORDER BY id DESC LIMIT 1');
+    expect(sqls()[2]).not.toContain('max(recu_le)');
   });
 
   it('aucune relève jamais lancée → null, et surtout pas une date inventée', async () => {
     queryMock.mockResolvedValue({ rows: [] });
-    expect(await lireReperes()).toEqual({ messagesCaptures: 0, messagesExclus: 0, derniereReleveLe: null });
+    expect(await lireReperes()).toEqual({
+      messagesCaptures: 0, messagesExclus: 0, derniereReleveLe: null, dernierMailLe: null,
+    });
   });
 
   it('lit le journal des passes du module, JAMAIS celui du module Permis', async () => {
@@ -171,7 +186,7 @@ describe('fileRepo — l’écran complet', () => {
     expect(await lireEcran()).toEqual({
       file: [], filsTotal: 0, fenetreJours: 30, filsTropAnciens: 0,
       sansSuite: [], sansSuiteTotal: 0, evenements: [], evenementsTotal: 0,
-      messagesCaptures: 0, messagesExclus: 0, derniereReleveLe: null,
+      messagesCaptures: 0, messagesExclus: 0, derniereReleveLe: null, dernierMailLe: null,
       // LOT 5-VEILLE — l'état de la relève AUTOMATIQUE fait partie de l'écran : le taire laisserait la vue deviner,
       //   et c'est exactement ce que le bandeau existe pour empêcher.
       veille: {

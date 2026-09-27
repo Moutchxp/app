@@ -47,23 +47,49 @@ export interface ReperesEcran {
   derniereReleveLe: string | null;
   messagesCaptures: number;
   messagesExclus: number;
+  /**
+   * LOT VEILLE-VIVE — DATE DU DERNIER MAIL CAPTURÉ. `null` = aucun, ou on ne sait pas encore.
+   *
+   * 🔴 SÉPARÉE DE L'HEURE DE LA DERNIÈRE PASSE, et c'est le point. Voir `messageReleve`.
+   */
+  dernierMailLe?: string | null;
 }
 
 /**
- * BANDEAU D'ÉTAT : ce que le module sait de lui-même, dit en une phrase. Toujours affiché, y compris quand tout va bien —
- * un outil qui dit depuis quand il n'a pas regardé reste honnête, alors qu'un outil muet laisse confondre « rien n'est
- * arrivé » et « on n'a pas relevé depuis dix jours ».
+ * BANDEAU D'ÉTAT : ce que le module sait de lui-même. Toujours affiché, y compris quand tout va bien — un outil qui dit
+ * depuis quand il n'a pas regardé reste honnête, alors qu'un outil muet laisse confondre « rien n'est arrivé » et
+ * « on n'a pas relevé depuis dix jours ».
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 DEUX FAITS, DEUX PHRASES — LOT VEILLE-VIVE, 27/09/2026. Cette ligne disait « Dernière relève : 01:31. 56 805
+ * messages capturés », ce qui se lit « la passe de 01:31 a capturé 56 805 messages » alors que ce nombre est le TOTAL
+ * en base depuis toujours. Et surtout elle ne disait nulle part depuis quand plus aucun mail n'arrivait.
+ *
+ * « La relève tourne » et « du courrier arrive » sont deux faits INDÉPENDANTS : un dimanche calme donne une passe par
+ * minute et pas un mail pendant six heures. Les mêler dans une phrase unique est ce qui a rendu l'écran illisible —
+ * on ne pouvait pas distinguer un ordonnanceur mort d'une boîte tranquille, et c'est exactement la confusion qui a
+ * fait conclure à tort que « la relève ne fonctionne pas ».
+ *
+ * ⚠️ « DERNIÈRE RELÈVE » EST L'HEURE DE LA DERNIÈRE PASSE, capturée ou non. Un clic sur « Relever maintenant » n'est
+ * pas ce que cette ligne suit : la question à laquelle elle répond est « l'ordonnanceur tourne-t-il ? », et un clic
+ * humain y répondrait faussement oui. C'est la même règle que le bandeau de veille, et volontairement la même source.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 export function messageReleve(r: ReperesEcran, maintenant: Date): string {
   if (r.derniereReleveLe === null) {
     return 'La relève du courrier n’a encore jamais tourné : aucun message n’a été capturé.';
   }
-  const quand = `${formaterDateFr(r.derniereReleveLe)} (${depuis(r.derniereReleveLe, maintenant)})`;
-  if (r.messagesCaptures === 0) return `Dernière relève : ${quand}. Elle n’a capturé aucun message.`;
+  const passe = `Dernière relève : ${formaterDateFr(r.derniereReleveLe)} (${depuis(r.derniereReleveLe, maintenant)}).`;
+  // LE DERNIER MAIL, à part. `undefined`/`null` = on ne sait pas : on se taît plutôt que d'écrire « jamais ».
+  const mail = r.dernierMailLe
+    ? ` Dernier mail reçu : ${formaterDateFr(r.dernierMailLe)} (${depuis(r.dernierMailLe, maintenant)}).`
+    : '';
+  if (r.messagesCaptures === 0) return `${passe}${mail} Aucun message en base.`;
   const exclus = r.messagesExclus > 0
     ? `, dont ${r.messagesExclus} tenu${r.messagesExclus > 1 ? 's' : ''} hors de la file par une règle (jamais supprimé${r.messagesExclus > 1 ? 's' : ''})`
     : '';
-  return `Dernière relève : ${quand}. ${r.messagesCaptures} message${r.messagesCaptures > 1 ? 's' : ''} capturé${r.messagesCaptures > 1 ? 's' : ''}${exclus}.`;
+  // « en base » et non « capturés » : ce nombre est le total de toujours, pas la moisson de la dernière passe.
+  return `${passe}${mail} ${r.messagesCaptures} message${r.messagesCaptures > 1 ? 's' : ''} en base${exclus}.`;
 }
 
 // ── LOT 5-VEILLE — LA RELÈVE AUTOMATIQUE EST-ELLE EN VIE ? ───────────────────────────────────────────────────────────
@@ -83,7 +109,7 @@ export function messageReleve(r: ReperesEcran, maintenant: Date): string {
  * 🔴 L'ÉTAT EST DIT EN MOTS, jamais par la seule couleur : « arrêtée depuis 9 h » se lit en niveaux de gris, sur un
  * écran mal réglé, et par quelqu'un qui distingue mal le rouge du vert.
  */
-export type NiveauVeille = 'ok' | 'jamais' | 'arretee' | 'echec';
+export type NiveauVeille = 'ok' | 'jamais' | 'arretee' | 'echec' | 'inconnu';
 
 /** Ce que la base sait de la relève AUTOMATIQUE. Les passes manuelles et les rattrapages n'entrent pas ici. */
 export interface VeilleReleve {
@@ -97,6 +123,20 @@ export interface VeilleReleve {
   intervalleS: number;
   /** Combien d'intervalles de retard avant de crier — réglage (migration 249), défaut 10. */
   toleranceIntervalles: number;
+  /**
+   * ══ 🔴 LOT VEILLE-VIVE — QUAND CES VALEURS ONT-ELLES ÉTÉ MESURÉES ? ═════════════════════════════════════════════
+   * Absent ⇒ comportement d'avant : on suppose la mesure fraîche.
+   *
+   * POURQUOI CE CHAMP EXISTE. Le défaut du 27/09/2026 était une horloge vivante comparée à une heure gelée. Le
+   * battement le répare — mais il reste un cas où l'heure regèle sans que personne le sache : le battement lui-même
+   * échoue (serveur injoignable, session expirée, ordinateur qui sort de veille). L'écran se remettrait alors à
+   * vieillir en silence et redirait « arrêtée » par la même mécanique, par une autre porte.
+   *
+   * On ne peut pas conclure « la relève est arrêtée » à partir d'une mesure qu'on n'a pas pu rafraîchir : on ne sait
+   * pas. C'est un état distinct, et le dire ainsi est la seule réponse honnête.
+   * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  mesureLe?: string | null;
 }
 
 export interface EtatVeille {
@@ -140,6 +180,28 @@ export function anciennete(iso: string | null, maintenant: Date): string {
   return depuis(iso, maintenant);
 }
 
+/**
+ * UNE DURÉE NUE — « 15 min », « 3 h », « 2 jours » — sans « il y a ». PUR.
+ *
+ * 🔴 POURQUOI ELLE EXISTE. Le bandeau écrivait « arrêtée depuis ${anciennete(…)} », et `anciennete` rend « il y a
+ * 15 min » : l'écran affichait donc « La relève automatique est arrêtée depuis IL Y A 15 MIN ». C'est ce que lisait
+ * Arno le 27/09/2026. La phrase a besoin d'une durée, pas d'une ancienneté — deux choses différentes, et les
+ * confondre produit du charabia dans la ligne la plus importante de l'écran.
+ */
+export function duree(iso: string | null, maintenant: Date): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  const minutes = Math.floor((maintenant.getTime() - d.getTime()) / 60_000);
+  if (minutes < 1) return 'moins d’une minute';
+  if (minutes < 60) return `${minutes} min`;
+  const heures = Math.floor(minutes / 60);
+  if (heures < 24) return `${heures} h`;
+  const jours = Math.floor(heures / 24);
+  if (jours < 31) return `${jours} jour${jours > 1 ? 's' : ''}`;
+  return `${Math.floor(jours / 30)} mois`;
+}
+
 /** Le geste à faire quand la relève automatique ne tourne plus. Écrit UNE fois : deux formulations dériveraient. */
 const AIDE_VEILLE =
   'Le bouton « Relever maintenant » rattrape tout de suite. Pour remettre la relève automatique en route : voir ops/README.md.';
@@ -175,11 +237,29 @@ export function etatVeille(v: VeilleReleve, maintenant: Date): EtatVeille {
       aide: AIDE_VEILLE,
     };
   }
+  const seuilMs = intervalleS * tolerance * 1000;
+  /**
+   * 🔴 AVANT DE CONCLURE, VÉRIFIER QU'ON SAIT. Si la mesure elle-même est plus vieille que le seuil, l'écran n'a pas
+   * pu se rafraîchir : il n'a AUCUN moyen de savoir si des passes ont eu lieu depuis. Dire « arrêtée » serait
+   * reproduire, par une autre porte, la fausse alerte du 27/09/2026.
+   */
+  if (v.mesureLe) {
+    const mesure = new Date(v.mesureLe).getTime();
+    if (!Number.isNaN(mesure) && maintenant.getTime() - mesure > seuilMs) {
+      return {
+        niveau: 'inconnu',
+        texte: `⚠ Impossible de vérifier la relève automatique : cet écran n’a pas pu se mettre à jour depuis `
+          + `${duree(v.mesureLe, maintenant)}.`,
+        aide: 'Rafraîchissez la page. Si le problème persiste, la connexion au serveur est en cause, pas la relève.',
+      };
+    }
+  }
   const retardMs = maintenant.getTime() - new Date(v.derniereLe).getTime();
-  if (retardMs > intervalleS * tolerance * 1000) {
+  if (retardMs > seuilMs) {
     return {
       niveau: 'arretee',
-      texte: `⚠ La relève automatique est arrêtée depuis ${anciennete(v.derniereLe, maintenant)}`
+      // « depuis 15 min », et non « depuis il y a 15 min » : voir `duree`.
+      texte: `⚠ La relève automatique est arrêtée depuis ${duree(v.derniereLe, maintenant)}`
         + ' — le courrier arrivé depuis n’est pas dans l’application.',
       aide: AIDE_VEILLE,
     };

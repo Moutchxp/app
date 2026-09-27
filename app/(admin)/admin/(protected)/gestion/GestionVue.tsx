@@ -23,7 +23,8 @@ import { FileATrier } from './FileATrier';
 import { etatSuite } from '../../../../lib/gestion/suiteReleve';
 import { etatCopie } from '../../../../lib/gestion/copieArretee';
 import {
-  aRafraichir, empreinteSuivante, peutBattre, PERIODE_BATTEMENT_MS, type Empreinte,
+  aRafraichir, empreinteSuivante, peutBattre, PERIODE_BATTEMENT_MS, veilleAAfficher, veilleSuivante,
+  type Empreinte, type VeilleVive,
 } from '../../../../lib/gestion/rafraichir';
 import { HistoriqueCible } from './HistoriqueCible';
 import { cibleDepuisTexte, texteCible } from '../../../../lib/gestion/historique';
@@ -242,6 +243,20 @@ export function GestionVue({ intro }: {
    */
   const empreinte = useRef<Empreinte | null>(null);
   const enVol = useRef(false);
+  /**
+   * LOT VEILLE-VIVE — l'état de la relève tel que le BATTEMENT l'a vu, et non tel que la page l'a chargé.
+   *
+   * ⚠️ UN ÉTAT, PAS UNE RÉFÉRENCE — contrairement à l'empreinte. L'empreinte sert à DÉCIDER (comparer sans provoquer
+   * de rendu) ; celui-ci est AFFICHÉ, donc un rendu est exactement ce qu'on veut quand il change. `veilleSuivante`
+   * garantit qu'il ne change que lorsque la valeur change vraiment.
+   */
+  const [veilleVive, setVeilleVive] = useState<VeilleVive | null>(null);
+  /**
+   * LOT VEILLE-VIVE — QUAND LE DERNIER BATTEMENT A-T-IL RÉUSSI ? Initialisé au montage : la page vient d'être servie,
+   * ses valeurs sont donc fraîches. Mis à jour à chaque battement RÉUSSI, jamais à un battement raté — c'est tout
+   * l'objet du champ : distinguer « la relève est arrêtée » de « je ne peux plus le vérifier ».
+   */
+  const [mesureLe, setMesureLe] = useState<string>(() => new Date().toISOString());
   /** Ce que le battement a vu arriver sans pouvoir le montrer. Remis à zéro dès que la liste se recharge. */
   const [courrierNouveau, setCourrierNouveau] = useState(0);
 
@@ -259,7 +274,7 @@ export function GestionVue({ intro }: {
       try {
         const res = await fetch('/api/admin/gestion/empreinte', { cache: 'no-store' });
         if (!res.ok || !vivant) return;
-        const apres = (await res.json()) as Empreinte;
+        const apres = (await res.json()) as Empreinte & { veille?: VeilleVive };
         if (!vivant || typeof apres.messageMax !== 'number') return;
 
         const avant = empreinte.current;
@@ -268,6 +283,24 @@ export function GestionVue({ intro }: {
 
         // L'HEURE AVANCE À CHAQUE BATTEMENT. C'est le correctif du « il y a 46 s » figé, et il ne coûte rien.
         setMaintenant(new Date());
+
+        /**
+         * ══ 🔴 LOT VEILLE-VIVE — ET L'ÉTAT DE LA RELÈVE AVANCE AVEC ELLE ════════════════════════════════════════
+         * C'EST LE CORRECTIF DU BANDEAU MENTEUR, prouvé le 27/09/2026 : « arrêtée depuis 12 min » à 01:43 alors que
+         * le journal montre une passe chaque minute de 01:05 à 01:45. `aRafraichir` rendait déjà un drapeau
+         * `bandeau` pour exactement ce cas — et RIEN ne le lisait. L'horloge avançait, l'heure de la dernière passe
+         * restait celle du chargement de la page, et le seuil des dix intervalles finissait par être franchi.
+         *
+         * ⚠️ ON MET À JOUR SANS RECHARGER L'ÉCRAN. Une passe vide ne justifie pas de relire la file, les cartes et
+         * les compteurs — mais elle change l'heure de la dernière passe, et c'est tout ce qu'il faut suivre.
+         * `veilleSuivante` garde la MÊME référence quand rien n'a changé : aucun rendu inutile, et la boucle qui a
+         * saturé la mémoire dans `BoiteMail` ne peut pas revenir par ici.
+         */
+        if (apres.veille) setVeilleVive((v) => veilleSuivante(v, apres.veille as VeilleVive));
+        // ⚠️ SEULEMENT SUR UN BATTEMENT RÉUSSI. Un `catch` plus bas laisse donc cette date vieillir, et le bandeau
+        //   passe à « impossible de vérifier » au lieu d'accuser la relève d'être arrêtée.
+        setMesureLe(new Date().toISOString());
+
         if (quoi.donnees) {
           if (avant !== null && apres.messageMax > avant.messageMax) {
             setCourrierNouveau((n) => n + (apres.messageMax - avant.messageMax));
@@ -457,10 +490,21 @@ export function GestionVue({ intro }: {
    */
   const cibleHistorique = cibleDepuisTexte(etatUrl.cible ?? null);
 
-  const veille = etatVeille(
-    d.veille ?? { derniereLe: null, resultat: null, erreur: null, intervalleS: 60, toleranceIntervalles: 10 },
-    ref,
+  /**
+   * ══ 🔴 LOT VEILLE-VIVE — LE BANDEAU JUGE SUR CE QUE LE BATTEMENT A VU ═══════════════════════════════════════════
+   * L'heure de la dernière passe vient du BATTEMENT quand il en a une, de la page sinon. Sans cette inversion, le
+   * bandeau comparait une horloge vivante (`ref`, qui avance toutes les 30 s) à une heure gelée au chargement — et
+   * annonçait « arrêtée » au bout de dix intervalles d'accalmie, pendant que la relève tournait chaque minute.
+   *
+   * Les deux RÉGLAGES (cadence attendue, tolérance) continuent de venir de la page : ils ne changent pas d'une
+   * minute à l'autre, et les faire voyager à chaque battement serait payer pour rien.
+   */
+  const veillePage = d.veille ?? { derniereLe: null, resultat: null, erreur: null, intervalleS: 60, toleranceIntervalles: 10 };
+  const veilleFraiche = veilleAAfficher(
+    { derniereLe: veillePage.derniereLe, resultat: veillePage.resultat, dernierMailLe: d.dernierMailLe ?? null },
+    veilleVive,
   );
+  const veille = etatVeille({ ...veillePage, ...veilleFraiche, mesureLe }, ref);
 
   return (
     <>
@@ -479,7 +523,14 @@ export function GestionVue({ intro }: {
             {intro && <InfoBulle libelle="Le module Gestion" texte={intro} cible="gestion-intro" />}
           </span>
         )}
-        <span>{messageReleve(d, ref)}</span>
+        {/* LOT VEILLE-VIVE — l'en-tête lit les MÊMES valeurs fraîches que le bandeau de veille : une seule source,
+            donc aucune chance qu'ils annoncent deux heures différentes — ce qu'ils ont fait le 27/09 (« Dernière
+            relève : 01:31 » à côté de « arrêtée depuis 12 min »). */}
+        <span>{messageReleve({
+          ...d,
+          derniereReleveLe: veilleFraiche.derniereLe ?? d.derniereReleveLe,
+          dernierMailLe: veilleFraiche.dernierMailLe,
+        }, ref)}</span>
         <span className="gst-actions">
           <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={releveEnCours}
             onClick={() => void releverMaintenant()}>
