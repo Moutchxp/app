@@ -274,7 +274,16 @@ export function BoiteMail({
   versionDonnees = 0, onListeRelue, onRelever, releveEnCours = false, filtre = null,
   etoile = false, onEtoileFiltre,
 }: {
-  onOuvrir: (filId: number) => void;
+  /**
+   * ══ 🔴 LOT MESSAGE-CLIQUÉ — ON OUVRE L'ÉCHANGE **ET** LE MESSAGE DE LA LIGNE ══════════════════════════════════
+   * Le second argument est le message que la ligne représentait : le dernier reçu sous « Réception », le dernier
+   * envoyé sous « Envoyés », le message trouvé dans une recherche. La conversation le déplie et l'amène à l'écran.
+   *
+   * ⚠️ FACULTATIF, et `null` vaut « le défaut » — le dernier message lisible de l'échange, comportement d'avant ce
+   * lot. C'est ce qui permet aux appelants qui ne savent PAS quel message montrer (un brouillon, le menu
+   * « Répondre » d'une ligne) de continuer à n'ouvrir qu'un échange, sans rien inventer.
+   */
+  onOuvrir: (filId: number, messageId?: number | null) => void;
   /** LOT 5-FUSION — l'étiquette ouverte. Absente = la boîte entière, exactement le comportement du lot 5a. */
   etiquette?: Etiquette;
   /** Titre affiché au-dessus de la liste. Absent = « Boîte mail », comme avant. */
@@ -869,7 +878,11 @@ export function BoiteMail({
                   className={`bte-ligne${filSelectionne === l.filId ? ' bte-ligne--ouverte' : ''}${nonLu ? ' bte-ligne--non-lu' : ''}`}
                   aria-current={filSelectionne === l.filId ? 'true' : undefined}
                   aria-label={nonLu ? `Non lu — ${nomCorrespondant(l)} — ${nettoyerObjet(l.objet) || '(sans objet)'}` : undefined}
-                  onClick={() => onOuvrir(l.filId)}>
+                  /* 🔴 LOT MESSAGE-CLIQUÉ — ON OUVRE LE MESSAGE DE CETTE LIGNE, pas le dernier du fil. `l`
+                     répond déjà à la question : `messageAffiche` EST le message dont la ligne montre la date,
+                     l'expéditeur et l'extrait. `?? null` parce qu'une réponse plus ancienne que ce lot ne porte
+                     pas le champ — la conversation retombe alors sur son dernier message, comme avant. */
+                  onClick={() => onOuvrir(l.filId, l.messageAffiche ?? null)}>
                   {/* 🔴 L'ÉTOILE POSÉE, AU DÉBUT DE LA LIGNE ET EN PERMANENCE — lot LISTE-GMAIL. Une étoile
                       ÉTEINTE ne s'affiche nulle part hors survol : elle ne dirait rien et alourdirait chaque
                       ligne. Celle qui est posée, elle, doit se voir sans survoler — c'est tout son intérêt.
@@ -901,15 +914,6 @@ export function BoiteMail({
                     {/* ⚠️ LE NOMBRE DE MESSAGES A QUITTÉ CETTE PLACE — lot LISTE-GMAIL. Il vit dans la barre
                         d'actions, tout à droite, à l'endroit où Gmail le met. Le laisser ici aussi l'afficherait
                         deux fois. */}
-                    {/* LOT LISTE-GMAIL — le trombone porte le NOMBRE, sans le mot : « 📎 2 » se lit d'un coup
-                        d'œil, là où « pièce jointe » prenait la moitié de la ligne sans dire combien. Le nombre
-                        EST le mot : il reste lisible en niveaux de gris et pour un lecteur d'écran (le titre). */}
-                    {l.aPiece && (
-                      <span className="bte-marque"
-                        title={`${l.nbPieces} pièce${l.nbPieces > 1 ? 's' : ''} jointe${l.nbPieces > 1 ? 's' : ''}`}>
-                        <span aria-hidden="true">📎</span> {l.nbPieces}
-                      </span>
-                    )}
                     {l.reference && <span className="bte-ref">{l.reference}</span>}
                     {l.sansSuite && <span className="bte-marque">classé sans suite</span>}
                     {l.nbLisibles === 0 && <span className="bte-marque">courrier automatique</span>}
@@ -926,7 +930,8 @@ export function BoiteMail({
                         échanges d'Envoyés pour espérer tomber dessus. La marque porte le MOTIF, parce que « échec »
                         seul ne dit pas s'il faut corriger une adresse ou rappeler quelqu'un.
 
-                        🔴 RETOUCHE CAPSULE-STATUT — ELLE PASSE AVANT LA CAPSULE, jamais entre elle et l'heure.
+                        🔴 RETOUCHE CAPSULE-STATUT — ELLE PASSE AVANT LE COUPLE TROMBONE + CAPSULE, jamais entre
+                        eux ni entre la capsule et l'heure.
                         Elle reste ENTIÈREMENT VISIBLE tant qu'il y a la place, et se TRONQUE d'un « … » quand il
                         n'y en a plus — c'est elle qui cède, parce qu'elle est la seule marque assez longue pour
                         chasser la capsule de la fin de ligne. Le texte complet reste lu dans l'info-bulle. */}
@@ -938,16 +943,38 @@ export function BoiteMail({
                         <span className="bte-echec-texte">{l.nonRemise.phrase}</span>
                       </span>
                     )}
+                    {/* ══ 🔴 LE TROMBONE, COLLÉ À LA CAPSULE — retouche demandée par Arno ════════════════════════
+                        LOT LISTE-GMAIL — le trombone porte le NOMBRE, sans le mot : « 📎 2 » se lit d'un coup
+                        d'œil, là où « pièce jointe » prenait la moitié de la ligne sans dire combien. Le nombre
+                        EST le mot : il reste lisible en niveaux de gris et pour un lecteur d'écran (le titre).
+
+                        🔴 IL A QUITTÉ LE DÉBUT DE LA RANGÉE pour venir JUSTE À GAUCHE DE LA CAPSULE : les deux
+                        repères qu'on cherche des yeux en parcourant la liste — « y a-t-il une pièce ? » et « est-ce
+                        rangé ? » — sont maintenant côte à côte, à la même place sur toutes les lignes. Les marques
+                        VARIABLES (référence, « classé sans suite », « courrier automatique », provenance,
+                        avertissement) restent devant : ce sont elles qui bougent d'une ligne à l'autre, et c'est
+                        pour cela qu'elles ne doivent pas s'intercaler dans ce bloc de fin. */}
+                    {l.aPiece && (
+                      <span className="bte-marque bte-marque--pieces"
+                        title={`${l.nbPieces} pièce${l.nbPieces > 1 ? 's' : ''} jointe${l.nbPieces > 1 ? 's' : ''}`}>
+                        <span aria-hidden="true">📎</span> {l.nbPieces}
+                      </span>
+                    )}
                     {/* ══ 🔴 LOT CAPSULE-STATUT — LA CAPSULE, TOUJOURS COLLÉE À GAUCHE DE L'HEURE ═══════════════
                         Elle répond à la question qu'on se pose en parcourant la liste : « ce courrier est-il
                         rangé ? ». Trois réponses, trois mots ÉCRITS — la couleur ne fait que les appuyer, elle ne
                         dit rien toute seule.
 
-                        🔴 RETOUCHE (demande d'Arno) : ELLE EST LA DERNIÈRE MARQUE DE LA LIGNE, SANS EXCEPTION.
-                        L'ordre de bout de ligne est : trombone · avertissement éventuel · capsule · heure · « ⋯ ».
-                        Elle était posée avant l'avertissement de non-remise, qui s'intercalait donc entre elle et
+                        🔴 RETOUCHE (demandes d'Arno) : ELLE EST LA DERNIÈRE MARQUE DE LA LIGNE, SANS EXCEPTION, ET
+                        LE TROMBONE LUI EST COLLÉ. L'ordre de bout de ligne est, sur TOUTES les lignes :
+
+                            [avertissement de non-remise éventuel, tronqué] · [📎 n] · [capsule] · [heure] · [⋯]
+
+                        La capsule était d'abord posée avant l'avertissement, qui s'intercalait donc entre elle et
                         l'heure sur les seules lignes qui en portent un : on la cherchait à deux endroits selon la
-                        ligne. TOUTE marque nouvelle s'ajoute DONC AU-DESSUS de ce bloc, jamais en dessous.
+                        ligne. Puis le trombone est venu se coller à elle, pour que les deux repères qu'on balaie du
+                        regard tiennent ensemble. TOUTE marque nouvelle s'ajoute DONC AU-DESSUS du trombone, jamais
+                        entre le trombone et la capsule, et jamais après la capsule.
 
                         🔴 « non lu » A QUITTÉ CETTE PLACE (retrait autorisé par Arno). L'information n'est PAS
                         perdue : la ligne d'un échange non lu reste en GRAS, comme dans toute messagerie, et le
@@ -1120,6 +1147,9 @@ const CSS_BOITE = `
 .bte-tait{margin-left:auto;text-align:right;font-size:.72rem;font-weight:400;line-height:1.35;
   color:var(--color-svv-muted);flex:0 1 auto;min-width:0}
 .bte-marque{display:inline-flex;align-items:center;gap:.25rem}
+/* 🔴 LE TROMBONE NE RÉTRÉCIT PAS, comme la capsule à laquelle il est collé : quand la ligne manque de place, c'est
+   l'avertissement de non-remise qui se tronque. Un « 📎 12 » réduit à « 📎 1 » mentirait. */
+.bte-marque--pieces{flex:0 0 auto}
 .bte-ref{font-weight:700;color:var(--color-svv-green-ink)}
 .bte-recherche{display:flex;flex-direction:column;gap:8px;margin:0 0 12px}
 .bte-champ-ligne{display:flex;flex-wrap:wrap;gap:8px}

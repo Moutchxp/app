@@ -72,7 +72,7 @@ export function etiquettesVisibles(
 }
 
 export function PleinEcranBoite({
-  etiquette, etiquettes, onEtiquette, filOuvert, onOuvrir, onFermerFil, maintenant, onGeste, onRetour,
+  etiquette, etiquettes, onEtiquette, filOuvert, messageOuvert = null, onOuvrir, onFermerFil, maintenant, onGeste, onRetour,
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique,
   versionDonnees = 0, onListeRelue,
@@ -83,7 +83,13 @@ export function PleinEcranBoite({
   etiquettes: readonly EtiquetteAffichee[];
   onEtiquette: (e: Etiquette) => void;
   filOuvert: number | null;
-  onOuvrir: (filId: number) => void;
+  /**
+   * LOT MESSAGE-CLIQUÉ — QUEL MESSAGE de l'échange ouvert on venait lire. Vient de l'adresse (`?fil=…&message=…`) et
+   * repart tel quel à la conversation, qui le déplie et l'amène à l'écran. `null` (le défaut) = le dernier message
+   * lisible, comportement d'avant ce lot.
+   */
+  messageOuvert?: number | null;
+  onOuvrir: (filId: number, messageId?: number | null) => void;
   onFermerFil: () => void;
   maintenant: Date;
   onGeste: Rapport;
@@ -579,7 +585,9 @@ export function PleinEcranBoite({
               corbeille={corbeilleDisponible} peutEcrire={peutEcrire} piecesDisponibles={piecesDisponibles}
               onActionLigne={agirSurLigne}
               versionDonnees={versionDonnees} onListeRelue={onListeRelue}
-              onOuvrir={(id) => { defilement.current = window.scrollY; onOuvrir(id); }} />
+              /* LOT MESSAGE-CLIQUÉ — le message de la ligne voyage avec l'échange, sans quoi la conversation
+                 ouvrirait son dernier message et non celui qu'on vient de cliquer. */
+              onOuvrir={(id, messageId) => { defilement.current = window.scrollY; onOuvrir(id, messageId); }} />
             </>
           )}
         </section>
@@ -589,6 +597,8 @@ export function PleinEcranBoite({
         {filOuvert !== null && (
           <section className="pe-lecture" aria-label="Conversation">
             <Conversation key={`${filOuvert}-${versionFil}`} filId={filOuvert} maintenant={maintenant}
+              /* LOT MESSAGE-CLIQUÉ — le message de la ligne cliquée : déplié et amené à l'écran. */
+              messageVise={messageOuvert}
               voieInitiale={voieDemandee}
               onFerme={onFermerFil} barreActions onClassement={(voie) => setClassement(voie)}
               redaction={redaction} onGeste={onGeste}

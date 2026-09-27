@@ -18,6 +18,8 @@ import { comptesBoite, lireBoiteMail, sqlPageBoite, PAGE_BOITE } from './boiteRe
 /** Une ligne telle que PostgreSQL la rend : `fil_id` en CHAÎNE (piège `bigint` du dépôt). */
 const ligne = (n: number, o: Record<string, unknown> = {}) => ({
   fil_id: String(n),
+  // LOT MESSAGE-CLIQUÉ — le message que la ligne représente, en CHAÎNE comme tout bigint rendu par pg.
+  message_id: String(n * 10),
   objet: `Objet ${n}`,
   interlocuteur: 'Mme Martin',
   interlocuteur_adresse: 'martin@orange.fr',
@@ -341,6 +343,35 @@ describe('ce que chaque ligne porte', () => {
   it('un échange classé sans suite est RENDU, et signalé — la boîte montre tout', async () => {
     rendre([ligne(1, { sans_suite: true })]);
     expect((await lireBoiteMail(null, [])).lignes[0].sansSuite).toBe(true);
+  });
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴 LOT MESSAGE-CLIQUÉ — LA LIGNE DIT QUEL MESSAGE ELLE REPRÉSENTE.
+   *
+   * C'est ce que l'écran ouvrira au clic. Le message est CELUI DU PARCOURS (`p.message_id`), c'est-à-dire celui que
+   * le prédicat « dernier de son échange, dans ce sens » a désigné pour construire toute la ligne — sa date, son
+   * expéditeur, son extrait. Le prendre ailleurs donnerait une ligne qui montre un message et en ouvre un autre :
+   * c'est exactement le défaut qu'Arno a relevé sur le fil 354.
+   *
+   * (Que le parcours soit bien borné au sens sous Réception et sous Envoyés est éprouvé plus haut, dans
+   * « la règle des deux boîtes » : ces deux blocs se tiennent, et aucun ne vaut sans l'autre.)
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it('🔴 la ligne porte SON message — et en NOMBRE (piège `bigint` de pg)', async () => {
+    rendre([ligne(354, { message_id: '8123' })]);
+    const [l] = (await lireBoiteMail(null, [])).lignes;
+    expect(l.messageAffiche).toBe(8123);
+    expect(typeof l.messageAffiche).toBe('number');
+  });
+
+  it('c’est le message DU PARCOURS qui est rendu, celui-là même qui a fourni la ligne', async () => {
+    rendre([]);
+    await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'reception', evenementId: null } });
+    const sql = sqlPage().replace(/\s+/g, ' ');
+    // Le CTE le désigne déjà ; le SELECT final ne fait que cesser de le jeter — aucune seconde lecture.
+    expect(sql).toContain('m.id AS message_id');
+    expect(sql).toContain('p.message_id::text AS message_id');
   });
 });
 

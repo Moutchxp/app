@@ -71,7 +71,7 @@ export function HistoriqueCible({ cible, maintenant, onRetour, onOuvrirFil, onCi
   maintenant: Date;
   onRetour: () => void;
   /** Ouvrir l'échange d'un mail, comme aujourd'hui : dans la boîte, en pleine page. */
-  onOuvrirFil?: (filId: number) => void;
+  onOuvrirFil?: (filId: number, messageId?: number | null) => void;
   /** Sauter à l'historique d'une AUTRE cible (le propriétaire du logement, un logement du propriétaire). */
   onCible?: (c: Cible) => void;
   onGeste?: (message: string) => void;
@@ -392,7 +392,7 @@ function Frise({ lignes, maintenant, deplie, setDeplie, onOuvrirFil, avecCible }
   maintenant: Date;
   deplie: Set<number>;
   setDeplie: (s: Set<number>) => void;
-  onOuvrirFil?: (filId: number) => void;
+  onOuvrirFil?: (filId: number, messageId?: number | null) => void;
   libelles: Record<string, string>;
   /** Afficher sous quelle cible le mail entre dans l'historique (utile chez un propriétaire, inutile dans un groupe). */
   avecCible: boolean;
@@ -445,8 +445,10 @@ function Frise({ lignes, maintenant, deplie, setDeplie, onOuvrirFil, avecCible }
               )
             )}
 
+            {/* LOT MESSAGE-CLIQUÉ — on ouvre l'échange SUR CE MAIL-LÀ, celui qu'on était en train de lire dans la
+                frise, et non sur le dernier de la conversation : c'est ce mail qui a fait cliquer. */}
             {onOuvrirFil && (
-              <button type="button" className="gst-lien-bouton hst-ouvrir" onClick={() => onOuvrirFil(l.filId)}>
+              <button type="button" className="gst-lien-bouton hst-ouvrir" onClick={() => onOuvrirFil(l.filId, l.messageId)}>
                 Ouvrir l’échange
               </button>
             )}

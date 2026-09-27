@@ -180,6 +180,11 @@ export function GestionVue({ intro }: {
   const [redaction, setRedaction] = useState<ContexteRedactionEcran | null>(null);
   const [brouillonsTotal, setBrouillonsTotal] = useState<number | null>(null);
   const { ecran, etiquette, filOuvert } = etatUrl;
+  /**
+   * LOT MESSAGE-CLIQUÉ — le message visé. Lu ici, et NON dans chaque écran : l'adresse fait foi, et `filOuvert`
+   * commande — sans échange ouvert, un message visé ne désigne rien (voir `ecranUrl`).
+   */
+  const messageOuvert = filOuvert === null ? null : (etatUrl.messageOuvert ?? null);
 
   /**
    * L'adresse fait FOI. On la lit au montage — jamais au rendu serveur, où `window` n'existe pas et où une lecture
@@ -193,7 +198,15 @@ export function GestionVue({ intro }: {
   }, []);
 
   /** Aller à un écran : on l'affiche, ET on l'écrit dans l'adresse. Les deux ensemble, toujours, ou l'un mentirait. */
-  const aller = useCallback((suivant: EtatEcranUrl) => {
+  const aller = useCallback((brut: EtatEcranUrl) => {
+    /**
+     * 🔴 LOT MESSAGE-CLIQUÉ — UN MESSAGE VISÉ NE SURVIT JAMAIS À SON ÉCHANGE. Une trentaine d'appels construisent
+     * leur état par `{ ...etatUrl, filOuvert: null }` : sans cette remise à zéro, le message de l'échange qu'on
+     * vient de fermer resterait dans l'état, et le prochain échange ouvert sans message précisé s'ouvrirait sur un
+     * message qui n'est pas le sien. On le nettoie ICI, en un seul endroit, plutôt que dans chacun des appels — un
+     * oubli parmi trente ne se verrait pas.
+     */
+    const suivant = brut.filOuvert === null ? { ...brut, messageOuvert: null } : brut;
     setEtatUrl(suivant);
     if (typeof window === 'undefined') return;
     const url = `${window.location.pathname}${ecrireEtatUrl(suivant)}`;
@@ -712,7 +725,7 @@ export function GestionVue({ intro }: {
              lui ferait un bouton de retour qui ne sort de nulle part. */
           onRetour={() => aller({ ...ETAT_DEFAUT, ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE })}
             onCible={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
-            onOuvrirFil={(id) => aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id })}
+            onOuvrirFil={(id, messageId) => aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id, messageOuvert: messageId ?? null })}
             onGeste={(m) => setGeste({ ton: 'ok', texte: m })} />
         ) : (
           <p className="gst-tronc">
@@ -729,7 +742,7 @@ export function GestionVue({ intro }: {
              l'écran partagé reste à un clic depuis la colonne. */
           onRetour={() => aller({ ...ETAT_DEFAUT })}
           /* Lire l'échange avant de trancher : on part dans la boîte, où vit la conversation en pleine page. */
-          onOuvrirFil={(id) => aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id })}
+          onOuvrirFil={(id, messageId) => aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id, messageOuvert: messageId ?? null })}
           onGeste={(m) => setGeste({ ton: 'ok', texte: m })} />
       ) : ecran === 'annuaire' ? (
         <Annuaire
@@ -755,12 +768,14 @@ export function GestionVue({ intro }: {
              perdre, sinon elle l'annonce. Le compteur retombe à zéro dès qu'elle s'est relue. */
           versionDonnees={courrierNouveau} onListeRelue={() => setCourrierNouveau(0)}
           etiquette={etiquette} etiquettes={etiquettes} filOuvert={filOuvert} maintenant={ref}
+          /* LOT MESSAGE-CLIQUÉ — le message que la ligne cliquée représentait, lu dans l'adresse. */
+          messageOuvert={messageOuvert}
           auto={auto} onAuto={setAuto} onNonLus={majNonLus}
           corbeilleDisponible={comptesBoite?.corbeille !== null && comptesBoite?.corbeille !== undefined}
           peutEcrire={redaction?.peutEnvoyer === true}
           piecesDisponibles={redaction?.piecesDisponibles === true}
           onEtiquette={(e) => { setPanneau(null); aller({ ...etatUrl, etiquette: e, filOuvert: null }); }}
-          onOuvrir={(id) => aller({ ...etatUrl, filOuvert: id })}
+          onOuvrir={(id, messageId) => aller({ ...etatUrl, filOuvert: id, messageOuvert: messageId ?? null })}
           onFermerFil={() => aller({ ...etatUrl, filOuvert: null })}
           /* ⚠️ « ← Écran partagé » DOIT NOMMER SON ÉCRAN. Depuis le lot ERGO-BOITE, `ETAT_DEFAUT` EST la boîte :
              s'en remettre à lui ferait un bouton de retour qui ne sort de nulle part. */
@@ -803,7 +818,8 @@ export function GestionVue({ intro }: {
           </ColonneMode>
           {filOuvert !== null && (
             <section className="gst-col">
-              <Conversation filId={filOuvert} maintenant={ref} onFerme={() => aller({ ...etatUrl, filOuvert: null })}
+              <Conversation filId={filOuvert} maintenant={ref} messageVise={messageOuvert}
+                onFerme={() => aller({ ...etatUrl, filOuvert: null })}
                 onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
                 onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
                 onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />
@@ -815,7 +831,8 @@ export function GestionVue({ intro }: {
         </div>
       ) : filOuvert !== null ? (
         <section className="gst-col">
-          <Conversation filId={filOuvert} maintenant={ref} onFerme={() => aller({ ...etatUrl, filOuvert: null })}
+          <Conversation filId={filOuvert} maintenant={ref} messageVise={messageOuvert}
+            onFerme={() => aller({ ...etatUrl, filOuvert: null })}
             onFicheAnnuaire={(sorte, id) => aller({ ...ETAT_DEFAUT, ecran: 'annuaire', fiche: { sorte, id } })}
             onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
             onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) { aller({ ...etatUrl, filOuvert: null }); void charger(); } }} />

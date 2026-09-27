@@ -24,6 +24,8 @@ const LIGNE = (o: Record<string, unknown> = {}) => ({
   filId: 7, objet: 'Fuite salle de bain', interlocuteur: 'Mme Martin', interlocuteurAdresse: 'martin@orange.fr',
   dernierSens: 'recu', dernierLe: '2026-09-20T12:00:00Z', extrait: 'Le robinet fuit.',
   nbMessages: 3, nbLisibles: 3, aPiece: true, nbPieces: 2, reference: null, sansSuite: false,
+  // LOT MESSAGE-CLIQUE — le message que la ligne represente : c'est lui que le clic doit ouvrir.
+  messageAffiche: 8123,
   nonRemise: null, etoilee: false, ...o,
 });
 const COMPTES = { lisibles: 10, automatiques: 2, envoyes: 3, reception: 10, corbeille: 0, etoileDisponible: true };
@@ -31,7 +33,7 @@ const COMPTES = { lisibles: 10, automatiques: 2, envoyes: 3, reception: 10, corb
 let container: HTMLDivElement;
 let root: Root;
 let ecritures: { url: string; methode: string; corps: unknown }[];
-let ouverts: number[];
+let ouverts: (number | null | undefined)[][];
 let actions: { filId: number; action: string }[];
 let ligneCourante: Record<string, unknown>;
 let comptes: Record<string, unknown>;
@@ -61,7 +63,7 @@ const calmer = async () => { await act(async () => { for (let i = 0; i < 8; i++)
 const monter = async (props: Record<string, unknown> = {}) => {
   await act(async () => {
     root.render(createElement(BoiteMail, {
-      onOuvrir: (id: number) => ouverts.push(id),
+      onOuvrir: (id: number, messageId?: number | null) => ouverts.push([id, messageId]),
       onActionLigne: (filId: number, action: string) => actions.push({ filId, action }),
       corbeille: true, dense: true, ...props,
     } as never));
@@ -88,7 +90,31 @@ describe('🔴 ① un clic dans la barre n’ouvre PAS le mail', () => {
   it('un clic sur la ligne, lui, ouvre bien le mail', async () => {
     await monter();
     await cliquer(container.querySelector('.bte-ligne'));
-    expect(ouverts).toEqual([7]);
+    expect(ouverts).toEqual([[7, 8123]]);
+  });
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴 LOT MESSAGE-CLIQUÉ — LE CLIC EMPORTE LE MESSAGE DE LA LIGNE, pas seulement l'échange.
+   *
+   * Sans cela, la conversation s'ouvre sur le dernier message du fil : en Réception, cliquer sur une question reçue
+   * à 12 h 37 ouvrait notre propre réponse de 15 h 58 (fil 354). C'est ICI que la chaîne commence — la ligne sait
+   * quel message elle montre, et elle doit le DIRE à qui ouvre.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it('🔴 le clic dit QUEL message ouvrir — celui que la ligne représente', async () => {
+    ligneCourante = LIGNE({ messageAffiche: 8123 });
+    await monter();
+    await cliquer(container.querySelector('.bte-ligne'));
+    expect(ouverts).toEqual([[7, 8123]]);
+  });
+
+  /** Une réponse plus ancienne que ce lot ne porte pas le champ : on ouvre l'échange, et le dernier message. */
+  it('sans le champ, on ouvre l’échange sans rien prétendre du message', async () => {
+    ligneCourante = LIGNE({ messageAffiche: undefined });
+    await monter();
+    await cliquer(container.querySelector('.bte-ligne'));
+    expect(ouverts).toEqual([[7, null]]);
   });
 });
 
@@ -335,10 +361,34 @@ describe('🔴 LOT CAPSULE-STATUT — la capsule sur la ligne, et le gras conser
   });
 
   /**
+   * 🔴 RETOUCHE (demande d'Arno) — LE TROMBONE EST COLLÉ À LA CAPSULE, juste à sa gauche. Les deux repères qu'on
+   * balaie du regard en parcourant la liste — « y a-t-il une pièce ? » et « est-ce rangé ? » — doivent tenir
+   * ensemble, à la même place sur toutes les lignes. Le trombone était en TÊTE de la rangée : toute marque
+   * variable (référence, « classé sans suite », provenance…) s'insérait entre lui et la capsule.
+   */
+  it('🔴 le trombone est le VOISIN IMMÉDIAT de la capsule, même avec des marques entre-deux', async () => {
+    ligneCourante = LIGNE({
+      classement: { nbActifs: 1, parUnHumain: false, detail: null },
+      // Trois marques variables à la fois : ce sont elles qui s'intercalaient.
+      reference: 'GES-2026-000012', sansSuite: true, nbLisibles: 0,
+    });
+    await monter();
+    const bas = container.querySelector('.bte-bas');
+    const pieces = bas?.querySelector('.bte-marque--pieces');
+    expect(pieces).not.toBeNull();
+    expect(pieces?.nextElementSibling).toBe(capsule());   // rien ne s'insère entre les deux
+    expect(bas?.lastElementChild).toBe(capsule());        // et la capsule ferme toujours la rangée
+    // Les marques variables sont bien là, et elles sont toutes AVANT le trombone.
+    const rangee = [...(bas?.children ?? [])];
+    expect(rangee.length).toBeGreaterThan(4);
+    expect(rangee.indexOf(pieces as Element)).toBe(rangee.length - 2);
+  });
+
+  /**
    * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
    * 🔴 RETOUCHE (demande d'Arno) — LA CAPSULE EST TOUJOURS LA DERNIÈRE MARQUE, SANS EXCEPTION.
    *
-   * Ordre de bout de ligne : trombone · avertissement éventuel · CAPSULE · heure · « ⋯ ».
+   * Ordre de bout de ligne : avertissement éventuel · trombone · CAPSULE · heure · « ⋯ ».
    *
    * CE QUE CE TEST ATTRAPE, et qu'aucune relecture ne montre : l'avertissement de non-remise était rendu APRÈS la
    * capsule, et s'intercalait donc entre elle et l'heure — sur les SEULES lignes qui en portent un. La capsule

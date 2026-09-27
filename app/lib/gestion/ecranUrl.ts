@@ -75,6 +75,26 @@ export interface EtatEcranUrl {
   /** Identifiant de l'échange ouvert, ou `null`. Vaut dans les trois écrans : on ouvre un échange de partout. */
   filOuvert: number | null;
   /**
+   * ══ 🔴 LOT MESSAGE-CLIQUÉ — QUEL MESSAGE DE CET ÉCHANGE ON VENAIT LIRE ════════════════════════════════════════
+   * Le message que la LIGNE cliquée représentait : le dernier reçu sous « Réception », le dernier envoyé sous
+   * « Envoyés », le message trouvé dans une recherche, celui de la ligne dans l'historique. La conversation le
+   * déplie et l'amène à l'écran ; les autres restent au-dessus et en dessous, repliés et cliquables.
+   *
+   * 🔴 POURQUOI DANS L'ADRESSE, et pas dans un état de composant. C'est la règle du fichier depuis le lot 5-FUSION :
+   * ce qu'on REGARDE s'écrit dans l'adresse, seul endroit qu'un navigateur sait relire, garder dans son historique et
+   * copier. Sans cela, recharger la page — ou revenir par « Précédent » — rouvrirait le fil sur son dernier message
+   * et non sur celui qu'on lisait ; et un échange ne pourrait pas s'envoyer à un collègue ouvert au bon endroit.
+   *
+   * ⚠️ IL NE VAUT RIEN SANS `filOuvert`, et c'est vérifié aux deux bouts : ni lu ni écrit quand aucun échange n'est
+   * ouvert. Un `?message=` orphelin ne désigne rien — le traîner mettrait dans l'historique deux adresses pour un
+   * seul écran, exactement ce que `fiche`, `cible` et `filtre` évitent déjà.
+   *
+   * ⚠️ FACULTATIF À L'ÉCRITURE, comme ses voisins : une trentaine d'appels construisent déjà un état à la main, et
+   * les obliger tous à écrire `messageOuvert: null` serait du bruit. `null` = « le défaut », c'est-à-dire le dernier
+   * message lisible de l'échange — le comportement d'avant ce lot, mot pour mot.
+   */
+  messageOuvert?: number | null;
+  /**
    * LOT ANNUAIRE-1 — la fiche ouverte. `null` ailleurs que dans l'annuaire, et dans l'annuaire sans fiche ouverte.
    *
    * ⚠️ FACULTATIVE À L'ÉCRITURE, TOUJOURS RENSEIGNÉE À LA LECTURE. Une trentaine d'appels construisent déjà un état
@@ -149,8 +169,8 @@ export const ETIQUETTE_RECEPTION: Etiquette = { sorte: 'reception', evenementId:
  * `?ecran=partage`, `?etiquette=envoyes`, `?fil=123` ouvrent exactement ce qu'ils visent (voir `lireEtatUrl`).
  */
 export const ETAT_DEFAUT: EtatEcranUrl = {
-  ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, fiche: null, cible: null, filtre: null,
-  etoile: false,
+  ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, messageOuvert: null, fiche: null, cible: null,
+  filtre: null, etoile: false,
 };
 
 const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier', 'historique'];
@@ -215,6 +235,9 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
     return ETAT_DEFAUT;
   }
   const brutEcran = p.get('ecran');
+  // LOT MESSAGE-CLIQUÉ — le message visé n'existe QUE s'il y a un échange ouvert : un `?message=` orphelin ne
+  //   désigne rien, et le garder mettrait deux adresses dans l'historique pour un seul écran.
+  const filOuvert = identifiant(p.get('fil'));
   // LOT ERGO-BOITE — sans paramètre, c'est la boîte (voir `ETAT_DEFAUT`). Un `ecran=` écrit, lui, fait toujours foi.
   const ecran: Ecran = (ECRANS as readonly string[]).includes(brutEcran ?? '')
     ? (brutEcran as Ecran) : ETAT_DEFAUT.ecran;
@@ -236,7 +259,8 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
     etiquette: ecran !== 'partage' && !etiquetteReconnue(p.get('etiquette'))
       ? ETAT_DEFAUT.etiquette
       : etiquetteDepuisTexte(p.get('etiquette')),
-    filOuvert: identifiant(p.get('fil')),
+    filOuvert,
+    messageOuvert: filOuvert === null ? null : identifiant(p.get('message')),
     // La fiche ne désigne quelque chose QUE dans l'annuaire : la lire ailleurs traînerait un paramètre mort.
     fiche: ecran === 'annuaire' ? ficheDepuisTexte(p.get('fiche')) : null,
     // LOT RATTACHEMENT-2 — idem pour la cible de l'historique. Elle est rendue TELLE QUELLE (bornée) : c'est
@@ -279,6 +303,9 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
   if (e.ecran !== ETAT_DEFAUT.ecran) p.set('ecran', e.ecran);
   if (e.ecran === 'boite' && !memeEtiquette(e.etiquette, ETAT_DEFAUT.etiquette)) p.set('etiquette', texteEtiquette(e.etiquette));
   if (e.filOuvert !== null) p.set('fil', String(e.filOuvert));
+  // LOT MESSAGE-CLIQUÉ — écrit UNIQUEMENT avec son échange, et jamais seul : voir `messageOuvert`. Ainsi le
+  //   rechargement et le bouton « Précédent » rouvrent le message qu'on lisait, pas le dernier du fil.
+  if (e.filOuvert !== null && e.messageOuvert != null) p.set('message', String(e.messageOuvert));
   if (e.ecran === 'annuaire' && e.fiche != null) p.set('fiche', texteFiche(e.fiche));
   if (e.ecran === 'historique' && e.cible != null && e.cible !== '') p.set('cible', e.cible);
   // Seul `non-lus` s'écrit : « tous » est le défaut, et un défaut écrit dans l'adresse n'est plus un défaut.
@@ -308,9 +335,16 @@ export function autoImposeParEtiquette(e: Etiquette): boolean | null {
   return null;
 }
 
-/** Deux états désignent-ils le même écran ? Sert à ne PAS empiler une entrée d'historique pour rien. */
+/**
+ * Deux états désignent-ils le même écran ? Sert à ne PAS empiler une entrée d'historique pour rien.
+ *
+ * ⚠️ LOT MESSAGE-CLIQUÉ — LE MESSAGE VISÉ ENTRE DANS LA COMPARAISON. Deux messages différents du même échange sont
+ * deux endroits différents : sans cela, passer de l'un à l'autre écraserait l'entrée d'historique, et « Précédent »
+ * ne ramènerait pas au message d'où l'on vient. Il n'est comparé que dans la boîte, où il existe.
+ */
 export function memeEtat(a: EtatEcranUrl, b: EtatEcranUrl): boolean {
   return a.ecran === b.ecran && a.filOuvert === b.filOuvert
+    && (a.filOuvert === null || (a.messageOuvert ?? null) === (b.messageOuvert ?? null))
     && (a.ecran !== 'boite' || memeEtiquette(a.etiquette, b.etiquette))
     && (a.ecran !== 'annuaire' || (a.fiche?.sorte ?? null) === (b.fiche?.sorte ?? null)
       && (a.fiche?.id ?? null) === (b.fiche?.id ?? null))

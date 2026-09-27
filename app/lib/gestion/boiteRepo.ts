@@ -59,6 +59,18 @@ export interface LigneBoite {
   objet: string | null;
   /** Le correspondant : jamais nous. Voir `SQL_INTERLOCUTEUR`. */
   interlocuteur: string | null;
+  /**
+   * ══ 🔴 LOT MESSAGE-CLIQUÉ — LE MESSAGE QUE CETTE LIGNE REPRÉSENTE ═══════════════════════════════════════════
+   * Celui dont la ligne montre la date, l'expéditeur et l'extrait : sous « Réception » le dernier message REÇU,
+   * sous « Envoyés » le dernier ENVOYÉ, ailleurs le dernier de l'échange (voir `sensDeLEtiquette`). C'est LUI que
+   * le clic doit ouvrir déplié — jusqu'ici la conversation ouvrait toujours son dernier message, si bien qu'en
+   * Réception on cliquait sur une question reçue à 12 h 37 et on tombait sur notre propre réponse de 15 h 58.
+   *
+   * ⚠️ IL SORT DÉJÀ DU CTE `page` (`m.id AS message_id`) : le prédicat « dernier de son échange, dans ce sens »
+   * l'a désigné pour construire toute la ligne. On ne le CHERCHE donc pas, on cesse simplement de le jeter — une
+   * seconde requête pour le retrouver donnerait deux vérités qui finiraient par diverger.
+   */
+  messageAffiche: number;
   /** Sens du DERNIER message — l'écran dit « Vous : … » quand c'est nous qui avons écrit en dernier. */
   dernierSens: 'recu' | 'envoye';
   dernierLe: string;
@@ -154,6 +166,12 @@ export function sensDeLEtiquette(e: Etiquette): 'recu' | 'envoye' | null {
 
 interface LigneDB {
   fil_id: string;
+  /**
+   * LOT MESSAGE-CLIQUÉ — le message de la ligne, rendu en CHAÎNE comme tout `bigint` par `pg`. Typé `string` pour
+   * que la conversion soit obligatoire : le piège du dépôt (« dossierId bigint = chaîne ») a déjà fait comparer des
+   * chaînes à des nombres, et ici la valeur sert à désigner un message dans le DOM.
+   */
+  message_id: string;
   objet: string | null;
   interlocuteur: string | null;
   /** Adresse de l'interlocuteur (dernier message REÇU), ou `null` si l'échange ne contient que des envois. */
@@ -437,6 +455,9 @@ export function sqlPageBoite(
         LIMIT $3
      )
      SELECT p.fil_id::text AS fil_id,
+            -- LOT MESSAGE-CLIQUÉ — le message que la ligne représente, déjà désigné par le CTE. En texte : c'est un
+            --   bigint, et pg le rendrait en chaîne de toute façon ; l'écrire ici le dit à qui lit la requête.
+            p.message_id::text AS message_id,
             f.objet_initial AS objet,
             ${colonnesInterlocuteur}
             p.sens AS dernier_sens,
@@ -569,6 +590,7 @@ export async function lireBoiteMail(
       // ⚠️ `pg` rend les `bigint` en CHAÎNE : sans cette conversion, l'écran comparerait des chaînes à des nombres et
       //    les clés React comme les comparaisons d'identifiant mentiraient. Piège connu du dépôt.
       filId: Number(r.fil_id),
+      messageAffiche: Number(r.message_id),
       objet: r.objet,
       // Le libellé d'un partenaire interne PRIME sur le nom porté par le mail, ici comme partout dans le module.
       interlocuteur: r.interlocuteur_adresse === null

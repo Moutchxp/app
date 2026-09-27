@@ -10,14 +10,32 @@
 import type { AdresseAffichee, MessageDeFil } from './carteRepo';
 
 /**
- * QUI EST DÉPLIÉ À L'OUVERTURE. Le DERNIER message, et lui seul — c'est ce qu'on vient lire, et c'est le comportement
- * de toutes les messageries. Les autres sont repliés sur une ligne, dépliables un par un.
+ * ══ QUI EST DÉPLIÉ À L'OUVERTURE ═════════════════════════════════════════════════════════════════════════════════
+ *
+ * 🔴 LOT MESSAGE-CLIQUÉ — LE MESSAGE VISÉ L'EMPORTE SUR TOUT. Demande d'Arno : un clic sur une ligne doit ouvrir
+ * EXACTEMENT le message que cette ligne représente — le dernier REÇU sous « Réception », le dernier ENVOYÉ sous
+ * « Envoyés », le message TROUVÉ dans une recherche, celui de la ligne dans l'historique. Jusqu'ici la conversation
+ * dépliait toujours son dernier message, quel qu'il soit : en Réception, cliquer sur un mail reçu à 12 h 37 ouvrait
+ * la réponse que NOUS avions écrite à 15 h 58. On lisait sa propre prose à la place de la question posée.
+ *
+ * ⚠️ LE VISÉ PASSE MÊME DEVANT LA RÈGLE « HORS FILE » ci-dessous, et c'est délibéré : cette règle protège un CHOIX
+ * PAR DÉFAUT, elle n'a pas à contredire une désignation explicite. Qui clique sur la ligne d'un accusé automatique
+ * demande à voir cet accusé.
+ *
+ * ⚠️ UN VISÉ INTROUVABLE NE VIDE PAS L'ÉCRAN : adresse copiée d'un fil dont le message a depuis été déplacé,
+ * identifiant abîmé à la main. On retombe alors sur le défaut, sans rien dire — l'échange s'ouvre normalement.
+ *
+ * À DÉFAUT DE VISÉ : le DERNIER message, et lui seul — c'est ce qu'on vient lire, et c'est le comportement de toutes
+ * les messageries. Les autres sont repliés sur une ligne, dépliables un par un.
  *
  * 🔴 UN MESSAGE TENU HORS DE LA FILE N'EST JAMAIS DÉPLIÉ D'EMBLÉE, même s'il est le dernier : c'est presque toujours
  * un accusé automatique, et déplier un « votre demande a bien été reçue » à la place de la vraie conversation serait
  * un contresens. Il reste À SA PLACE, visible et dépliable — on ne le cache pas, on ne le met juste pas en avant. PUR.
  */
-export function messagesDeplies(messages: readonly MessageDeFil[]): Set<number> {
+export function messagesDeplies(
+  messages: readonly MessageDeFil[], messageVise: number | null = null,
+): Set<number> {
+  if (messageVise !== null && messages.some((m) => m.messageId === messageVise)) return new Set([messageVise]);
   const lisibles = messages.filter((m) => !m.horsFile);
   const dernier = lisibles[lisibles.length - 1] ?? null;
   return dernier === null ? new Set() : new Set([dernier.messageId]);

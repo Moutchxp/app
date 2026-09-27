@@ -124,8 +124,19 @@ async function marquerLecture(
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, onFicheAnnuaire, onHistorique }: {
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, onFicheAnnuaire, onHistorique }: {
   filId: number;
+  /**
+   * ══ 🔴 LOT MESSAGE-CLIQUÉ — LE MESSAGE QU'ON VENAIT LIRE ═══════════════════════════════════════════════════════
+   * Celui que la ligne cliquée représentait : le dernier reçu sous « Réception », le dernier envoyé sous
+   * « Envoyés », le message trouvé dans une recherche, celui de la frise dans l'historique. Il est DÉPLIÉ, son corps
+   * est chargé s'il ne l'est pas déjà, et il est AMENÉ À L'ÉCRAN. Les autres messages du fil restent au-dessus et en
+   * dessous, repliés et cliquables, dans l'ordre de lecture choisi.
+   *
+   * ⚠️ `null` (le défaut) = le dernier message lisible, mot pour mot le comportement d'avant ce lot. C'est le cas de
+   * tous les écrans qui ouvrent une conversation sans savoir quel message montrer (une carte, un brouillon).
+   */
+  messageVise?: number | null;
   maintenant: Date;
   onGeste: Rapport;
   /** Optionnel : la boîte mail affiche un retour, une carte n'en a pas besoin. */
@@ -233,11 +244,53 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     setVue({ v: 'charge' });
     const r = await chargerConversation(filId);
     setVue(r);
-    // Le dernier message est déplié d'emblée — et son corps est DÉJÀ là (le serveur l'envoie avec la conversation).
-    if (r.v === 'ok') setDeplies(messagesDeplies(r.messages));
-  }, [filId]);
+    if (r.v !== 'ok') return;
+    /**
+     * 🔴 LOT MESSAGE-CLIQUÉ — ON DÉPLIE LE MESSAGE VISÉ, et à défaut le dernier (voir `messagesDeplies`).
+     *
+     * ⚠️ ET ON VA CHERCHER SON CORPS. Le serveur n'envoie le texte complet QUE du dernier message : pour tous les
+     * autres, `corps` est `null`, ce qui ne veut pas dire « vide » mais « pas encore demandé ». Sans cette lecture,
+     * viser un message qui n'est pas le dernier l'ouvrirait sur un corps vide — l'écran donnerait donc une réponse
+     * FAUSSE (« ce message n'a pas de texte ») là où il suffisait d'aller le chercher. `basculer` fait déjà
+     * exactement cela quand on déplie à la main ; on ne fait ici que l'appliquer à l'ouverture.
+     */
+    const deplie = messagesDeplies(r.messages, messageVise);
+    setDeplies(deplie);
+    const aCharger = r.messages.filter((m) => deplie.has(m.messageId) && etatCorps(m).v === 'a_charger');
+    for (const m of aCharger) {
+      const c = await chargerCorps(m.messageId);
+      setCorps((s) => new Map(s).set(m.messageId, c ?? null));
+    }
+  }, [filId, messageVise]);
 
   useEffect(() => { void recharger(); }, [recharger]);
+
+  /**
+   * ══ 🔴 LOT MESSAGE-CLIQUÉ — AMENER LE MESSAGE VISÉ À L'ÉCRAN ════════════════════════════════════════════════════
+   * Le déplier ne suffit pas : dans un fil de douze messages, celui qu'on vient de cliquer peut être à mi-hauteur —
+   * et il l'est d'autant plus que l'ordre de lecture est réglable (plus récent ou plus ancien d'abord), donc que sa
+   * position n'est jamais celle qu'on croit. On le fait donc défiler jusqu'à lui.
+   *
+   * ⚠️ `block: 'nearest'` : la page ne bouge PAS si le message est déjà visible. Un défilement systématique
+   * secouerait l'écran à chaque ouverture, y compris quand il n'y avait rien à faire.
+   * ⚠️ APRÈS LA PEINTURE (`requestAnimationFrame`) : au moment de l'effet, le message vient d'être déplié et sa
+   * hauteur définitive n'existe pas encore — on défilerait vers une position périmée.
+   * ⚠️ TOUT EST FACULTATIF (`?.`) : `scrollIntoView` et `requestAnimationFrame` n'existent pas dans tous les
+   * environnements de rendu (jsdom des tests, rendu serveur). Une conversation ne doit jamais refuser de s'afficher
+   * parce qu'elle n'a pas pu défiler.
+   */
+  const filRef = useRef<HTMLOListElement | null>(null);
+  const viseAmene = useRef<string | null>(null);
+  useEffect(() => {
+    if (messageVise === null || vue.v !== 'ok') return;
+    const cle = `${filId}:${messageVise}`;
+    if (viseAmene.current === cle) return;
+    viseAmene.current = cle;
+    const t = globalThis.requestAnimationFrame?.(() => {
+      filRef.current?.querySelector(`[data-message="${messageVise}"]`)?.scrollIntoView?.({ block: 'nearest' });
+    });
+    return () => { if (t !== undefined) globalThis.cancelAnimationFrame?.(t); };
+  }, [messageVise, vue, filId]);
 
   /**
    * LES RATTACHEMENTS DE L'ÉCHANGE, en une requête.
@@ -573,7 +626,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
       {/* 🔴 L'ORDRE EST UNE AFFAIRE D'AFFICHAGE, ET RIEN D'AUTRE. Le serveur rend toujours du plus ancien au plus
           récent ; `ordonnerMessages` ne fait que retourner la liste pour l'œil. Aucune requête ne change, et le
           message déplié à l'ouverture reste EXACTEMENT le même (le dernier lisible) — il est simplement en haut. */}
-      <ol className="cnv-fil">
+      <ol className="cnv-fil" ref={filRef}>
         {ordonnerMessages(messages, ordre).map((m) => (
           <MessageConversation key={m.messageId} message={m} maintenant={maintenant} filId={filId}
             ouvert={deplies.has(m.messageId)}

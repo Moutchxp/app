@@ -35,7 +35,11 @@ const VIDE: PageFile = {
 export function FileATrier({ onRetour, onOuvrirFil, onGeste }: {
   onRetour: () => void;
   /** Ouvrir l'échange du mail, pour le lire avant de trancher. Absent = pas de lien. */
-  onOuvrirFil?: (filId: number) => void;
+  /**
+   * LOT MESSAGE-CLIQUÉ — on ouvre l'échange SUR LE MAIL DE LA LIGNE, celui qu'on est en train de départager, et non
+   * sur le dernier de la conversation : c'est ce mail-là qu'on veut lire avant de trancher.
+   */
+  onOuvrirFil?: (filId: number, messageId?: number | null) => void;
   onGeste?: (message: string) => void;
 }) {
   const [etat, setEtat] = useState<'charge' | 'ok' | 'sans_schema' | 'erreur'>('charge');
@@ -226,7 +230,7 @@ export function FileATrier({ onRetour, onOuvrirFil, onGeste }: {
                     {l.motif && <p className="fat-motif">{l.motif}</p>}
                   </div>
                   {onOuvrirFil && (
-                    <button type="button" className="gst-lien-bouton" onClick={() => onOuvrirFil(l.filId)}>
+                    <button type="button" className="gst-lien-bouton" onClick={() => onOuvrirFil(l.filId, l.messageId)}>
                       Lire l’échange
                     </button>
                   )}

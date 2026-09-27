@@ -40,6 +40,50 @@ describe('① qui est déplié à l’ouverture', () => {
     expect([...messagesDeplies([msg({ messageId: 1, horsFile: true })])]).toEqual([]);
     expect([...messagesDeplies([])]).toEqual([]);
   });
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴 LOT MESSAGE-CLIQUÉ — LE MESSAGE VISÉ L'EMPORTE (demande d'Arno).
+   *
+   * LE DÉFAUT RÉEL, relevé sur le fil 354 : en Réception, la ligne représente le dernier message REÇU (25 sept.
+   * 12 h 37) ; l'écran s'ouvrait sur le dernier message du fil, qui était NOTRE réponse de 15 h 58. On cliquait sur
+   * une question et on lisait sa propre prose.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it('🔴 RÉCEPTION : le message REÇU de la ligne, et non notre réponse plus récente', () => {
+    // La forme du fil 354 : une question reçue, puis notre réponse le même jour.
+    const fil = [msg({ messageId: 1, sens: 'recu' }), msg({ messageId: 2, sens: 'envoye' })];
+    expect([...messagesDeplies(fil, 1)]).toEqual([1]);
+    // …et sans visée, le comportement d'avant ce lot est intact : le dernier.
+    expect([...messagesDeplies(fil)]).toEqual([2]);
+  });
+
+  it('ENVOYÉS : le message ENVOYÉ de la ligne, même si un mail est arrivé depuis', () => {
+    const fil = [msg({ messageId: 1, sens: 'envoye' }), msg({ messageId: 2, sens: 'recu' })];
+    expect([...messagesDeplies(fil, 1)]).toEqual([1]);
+  });
+
+  it('RECHERCHE : le message TROUVÉ, fût-il au milieu du fil', () => {
+    const fil = [msg({ messageId: 7 }), msg({ messageId: 8 }), msg({ messageId: 9 })];
+    expect([...messagesDeplies(fil, 8)]).toEqual([8]);
+  });
+
+  /**
+   * 🔴 LE VISÉ PASSE DEVANT LA RÈGLE « HORS FILE ». Cette règle protège un CHOIX PAR DÉFAUT ; elle n'a pas à
+   * contredire une désignation explicite. Qui clique sur la ligne d'un accusé automatique demande à le voir.
+   */
+  it('un message HORS FILE explicitement visé est tout de même déplié', () => {
+    const fil = [msg({ messageId: 1 }), msg({ messageId: 2, horsFile: true })];
+    expect([...messagesDeplies(fil, 2)]).toEqual([2]);
+    expect([...messagesDeplies(fil)]).toEqual([1]); // sans visée, la règle d'avant tient toujours
+  });
+
+  /** Adresse copiée d'un fil dont le message a depuis été déplacé : on retombe sur le défaut, sans rien casser. */
+  it('un visé INTROUVABLE ne vide pas l’écran — on retombe sur le dernier', () => {
+    const fil = [msg({ messageId: 1 }), msg({ messageId: 2 })];
+    expect([...messagesDeplies(fil, 999)]).toEqual([2]);
+    expect([...messagesDeplies([], 999)]).toEqual([]);
+  });
 });
 
 describe('② les destinataires — savoir, et savoir qu’on ne sait pas', () => {

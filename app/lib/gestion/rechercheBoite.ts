@@ -304,7 +304,14 @@ export async function chercherDansLeCourrier(
     lignes: gardees.map((r) => ({
       // ⚠️ `pg` rend les `bigint` en CHAÎNE : sans conversion, les clés React et les comparaisons mentiraient.
       filId: Number(r.fil_id),
-      messageTrouveId: r.message_id,
+      messageTrouveId: Number(r.message_id),
+      /**
+       * LOT MESSAGE-CLIQUÉ — DANS UNE RECHERCHE, LE MESSAGE DE LA LIGNE EST LE MESSAGE TROUVÉ. La même valeur sous
+       * les deux noms, et c'est voulu : `messageAffiche` est la question que l'ÉCRAN pose à toute ligne de liste
+       * (« lequel dois-je ouvrir ? »), à laquelle chaque liste répond selon sa règle ; `messageTrouveId` est ce que
+       * la RECHERCHE sait dire d'elle-même. L'écran n'a ainsi qu'une seule chose à lire, d'où qu'il vienne.
+       */
+      messageAffiche: Number(r.message_id),
       objet: r.objet,
       objetTrouve: r.objet_trouve,
       // La base rend un mot d'un ensemble fermé ; on le REFUSE s'il n'en fait pas partie plutôt que de le croire.

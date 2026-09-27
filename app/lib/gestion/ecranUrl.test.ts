@@ -184,6 +184,57 @@ describe('quand empiler une entrée d’historique, et quand ne pas le faire', (
   });
 });
 
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT MESSAGE-CLIQUÉ — `?fil=354&message=…`
+ *
+ * CE QUE CE BLOC PROTÈGE : que le message qu'on lisait SURVIVE au rechargement et au bouton « Précédent ». Sans ce
+ * paramètre, l'adresse ne désigne que l'échange, et recharger rouvrirait son dernier message — pas celui qu'on
+ * était venu lire, ni celui qu'on vient d'envoyer à un collègue.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 le message visé dans l’adresse', () => {
+  it('lu et rendu tel quel quand un échange est ouvert', () => {
+    const e = lireEtatUrl('?fil=354&message=8123');
+    expect(e.filOuvert).toBe(354);
+    expect(e.messageOuvert).toBe(8123);
+  });
+
+  it('écrit avec son échange — le rechargement rouvre le MÊME message', () => {
+    expect(ecrireEtatUrl(etat({ ecran: 'boite', filOuvert: 354, messageOuvert: 8123 })))
+      .toBe('?fil=354&message=8123');
+    // Aller-retour : lire puis réécrire redonne exactement la même adresse (règle ② du fichier).
+    expect(ecrireEtatUrl(lireEtatUrl('?fil=354&message=8123'))).toBe('?fil=354&message=8123');
+  });
+
+  /** ⚠️ IL NE VAUT RIEN SANS SON ÉCHANGE, et c'est vérifié aux deux bouts : ni lu, ni écrit. */
+  it('un `?message=` ORPHELIN ne désigne rien — ni à la lecture, ni à l’écriture', () => {
+    expect(lireEtatUrl('?message=8123').messageOuvert).toBeNull();
+    expect(ecrireEtatUrl(etat({ ecran: 'boite', filOuvert: null, messageOuvert: 8123 }))).toBe('');
+  });
+
+  it('absent ou abîmé → aucun message visé, jamais une erreur : l’échange s’ouvre normalement', () => {
+    expect(lireEtatUrl('?fil=354').messageOuvert).toBeNull();
+    expect(lireEtatUrl('?fil=354&message=0').messageOuvert).toBeNull();
+    expect(lireEtatUrl('?fil=354&message=abc').messageOuvert).toBeNull();
+    expect(lireEtatUrl('?fil=354&message=-3').messageOuvert).toBeNull();
+    // …et l'échange, lui, reste bel et bien ouvert dans les quatre cas.
+    expect(lireEtatUrl('?fil=354&message=abc').filOuvert).toBe(354);
+  });
+
+  /**
+   * 🔴 DEUX MESSAGES DU MÊME ÉCHANGE SONT DEUX ENDROITS DIFFÉRENTS. Sans cela, passer de l'un à l'autre écraserait
+   * l'entrée d'historique (`replaceState`) et « Précédent » ne ramènerait pas au message d'où l'on vient.
+   */
+  it('changer de message visé CHANGE l’écran — « Précédent » doit y ramener', () => {
+    const a = etat({ ecran: 'boite', filOuvert: 354, messageOuvert: 8123 });
+    expect(memeEtat(a, etat({ ecran: 'boite', filOuvert: 354, messageOuvert: 8124 }))).toBe(false);
+    expect(memeEtat(a, etat({ ecran: 'boite', filOuvert: 354, messageOuvert: 8123 }))).toBe(true);
+    // Sans échange ouvert, il ne désigne rien : il ne doit pas non plus distinguer deux écrans.
+    expect(memeEtat(etat({ filOuvert: null, messageOuvert: 1 }), etat({ filOuvert: null, messageOuvert: 2 }))).toBe(true);
+  });
+});
+
 describe('garanties STATIQUES', () => {
   it('🔴 module PUR : aucun import, donc rien qui puisse tirer `pg` jusque dans le navigateur', () => {
     const src = readFileSync('app/lib/gestion/ecranUrl.ts', 'utf8');
