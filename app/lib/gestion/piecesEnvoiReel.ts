@@ -1,7 +1,7 @@
 import 'server-only';
 import { lireOriginalGmailOctets, chercherParMessageId } from './google';
 import { listerPiecesPourEnvoi } from './brouillonPieceRepo';
-import { ancreDuFil } from './lectureGmail';
+import { ancresDuFil } from './lectureGmail';
 import { recuperer } from '../stockage';
 import { query } from '../db/client';
 import type { PieceAEnvoyer } from './envoiGmail';
@@ -104,5 +104,5 @@ export function depsPiecesEnvoi(jeton: () => Promise<string | null>): DepsPieces
   };
 }
 
-/** Réexporté pour que rien d'autre n'ait à connaître `lectureGmail` : une seule porte vers l'ancre d'un fil. */
-export { ancreDuFil };
+/** Réexporté pour que rien d'autre n'ait à connaître `lectureGmail` : une seule porte vers les ancres d'un fil. */
+export { ancresDuFil };

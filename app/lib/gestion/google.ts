@@ -323,7 +323,20 @@ export async function chercherParMessageId(
 ): Promise<Resultat<MessageGmail | null>> {
   const nu = messageIdRfc.trim().replace(/^</, '').replace(/>$/, '');
   if (nu === '') return { ok: true, valeur: null };
-  const url = `${ENDPOINT_GMAIL_MESSAGES}?q=${encodeURIComponent(`rfc822msgid:${nu}`)}&maxResults=1`;
+  /**
+   * ══ 🔴 « in:anywhere » — CORRECTION DU 27/09/2026, MESURÉE ═══════════════════════════════════════════════════
+   * La recherche Gmail EXCLUT LE SPAM ET LA CORBEILLE par défaut. Un avis de non-remise rangé par Gmail dans la
+   * corbeille était donc déclaré « introuvable », et le lu/non lu de tout son échange devenait impossible — avec un
+   * bandeau qui laissait croire que le courrier venait d'une autre boîte.
+   *
+   * VÉRIFIÉ sur la vraie boîte, le message <6ab82696…@mx.google.com> :
+   *   · « rfc822msgid:… »              → rien
+   *   · « in:anywhere rfc822msgid:… »  → trouvé, libellés TRASH, et MÊME FIL que le message envoyé de l'échange.
+   *
+   * ⚠️ CELA N'ÉLARGIT AUCUN DROIT : on cherche toujours un Message-ID précis, dans la boîte de gestion@, et l'on ne
+   * lit que son identifiant de fil. On cesse simplement d'ignorer deux dossiers de cette même boîte.
+   */
+  const url = `${ENDPOINT_GMAIL_MESSAGES}?q=${encodeURIComponent(`in:anywhere rfc822msgid:${nu}`)}&maxResults=1`;
   const res = await deps.fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: `Recherche Gmail impossible (HTTP ${res.status}).` };
   const j = (await res.json().catch(() => ({}))) as { messages?: { id?: string; threadId?: string }[] };

@@ -366,6 +366,24 @@ export function BoiteMail({
    */
   const [etoiles, setEtoiles] = useState(false);
   const [etoilees, setEtoilees] = useState<Map<number, boolean>>(new Map());
+  /**
+   * ══ 🔴 RELU À CHAQUE LECTURE DE LA PREMIÈRE PAGE, ET NON UNE SEULE FOIS AU MONTAGE ════════════════════════════
+   * DÉFAUT CONSTATÉ PAR ARNO le 27/09/2026 : la migration 264 appliquée, l'étoile restait grisée avec « mise à jour
+   * de la base à appliquer ».
+   *
+   * 🔴 LA SONDE DE SCHÉMA N'Y ÉTAIT POUR RIEN, et c'est ce qu'il fallait vérifier avant de la toucher : elle ne
+   * mémorise JAMAIS un « non » (règle posée le 24/09 après le même symptôme, `sondeSchema.ts`), elle le réessaie au
+   * bout de cinq secondes. Mesuré ce jour-là : la route répondait bien `etoileDisponible: true`.
+   *
+   * C'était CE drapeau-ci, lu une seule fois au montage et jamais revu : une page ouverte AVANT la migration
+   * gardait « absente » jusqu'au rechargement. On le relit donc à chaque première page — donc au rafraîchissement
+   * automatique de 30 s et à « Relever et actualiser ». Une migration appliquée à chaud est prise en compte en
+   * moins d'une minute, sans recharger la page et sans redémarrer le serveur.
+   *
+   * ⚠️ `cleRelecture` NE DÉPEND PAS de l'étiquette ni du critère : ce drapeau est une propriété de la BASE, pas de
+   * ce qu'on regarde. Le relier à eux ferait une requête à chaque clic dans la colonne, pour une réponse identique.
+   */
+  const [cleRelecture, setCleRelecture] = useState(0);
   useEffect(() => {
     let annule = false;
     void (async () => {
@@ -377,7 +395,7 @@ export function BoiteMail({
       } catch { /* étoile indisponible : le bouton le dira lui-même, en info-bulle */ }
     })();
     return () => { annule = true; };
-  }, []);
+  }, [cleRelecture]);
   /**
    * 🔴 L'ÉTAT DEMANDÉ EST ENVOYÉ, JAMAIS « L'INVERSE DE CE QUI EST LÀ » — et il est posé À L'ÉCRAN AVANT la
    * réponse, puis DÉFAIT si le serveur refuse. Une étoile qui met une seconde à apparaître donne l'impression que
@@ -420,6 +438,9 @@ export function BoiteMail({
 
   const premiere = useCallback(async (avecAuto: boolean, c: Critere, e: Etiquette, f: 'non-lus' | null = null) => {
     setEtat({ v: 'charge' });
+    // Une lecture de la première page = une occasion de revoir ce que la base sait faire (cf. l'encadré de
+    //   `cleRelecture`). Cela ne coûte rien de plus : la route des comptes est déjà appelée ici.
+    setCleRelecture((n) => n + 1);
     // LOT ÉCRAN-VIVANT — on repart de la première page : ce qui avait été déroulé par « Voir plus » ne l'est plus.
     setDePlus(0);
     const r = await chargerPage(null, avecAuto, c, e, f);
@@ -804,13 +825,19 @@ export function BoiteMail({
                   onClick={() => onOuvrir(l.filId)}>
                   {/* 🔴 L'ÉTOILE POSÉE, AU DÉBUT DE LA LIGNE ET EN PERMANENCE — lot LISTE-GMAIL. Une étoile
                       ÉTEINTE ne s'affiche nulle part hors survol : elle ne dirait rien et alourdirait chaque
-                      ligne. Celle qui est posée, elle, doit se voir sans survoler — c'est tout son intérêt. */}
-                  {(etoilees.get(l.filId) ?? l.etoilee) && (
-                    <span className="bte-etoile" title="Échange étoilé par l’équipe" aria-label="Échange étoilé">
-                      <Etoile pleine />
-                    </span>
-                  )}
-                  <span className="bte-qui">{nomCorrespondant(l)}</span>
+                      ligne. Celle qui est posée, elle, doit se voir sans survoler — c'est tout son intérêt.
+
+                      ⚠️ ELLE VIT DANS LA CELLULE DU CORRESPONDANT, pas à côté. Posée en voisine, elle prenait une
+                      COLONNE de la grille dense : l'adresse du correspondant se retrouvait dans une colonne d'un
+                      caractère de large et descendait sur vingt lignes. Vu à l'écran le 27/09/2026. */}
+                  <span className="bte-qui">
+                    {(etoilees.get(l.filId) ?? l.etoilee) && (
+                      <span className="bte-etoile" title="Échange étoilé par l’équipe" aria-label="Échange étoilé">
+                        <Etoile pleine />
+                      </span>
+                    )}
+                    {nomCorrespondant(l)}
+                  </span>
                   <span className="bte-sujet">
                     <span className="bte-objet"><Evidence texte={nettoyerObjet(l.objet) || '(sans objet)'} saisie={critere.q} /></span>
                     {apercu(l.extrait) !== '' && (

@@ -179,5 +179,8 @@ export const CSS_BARRE_LIGNE = `
 .brl-question{font-size:.76rem;color:var(--color-svv-ink)}
 /* 🔴 L'ÉTOILE POSÉE, AU DÉBUT DE LA LIGNE, EN PERMANENCE — hors barre, donc visible sans survol. Une étoile
    éteinte, elle, ne s'affiche nulle part : elle ne dirait rien et alourdirait chaque ligne. */
-.bte-etoile{flex:0 0 auto;display:inline-flex;align-items:center;color:var(--color-svv-red);margin-right:.3rem}
+/* ⚠️ L'ÉTOILE EST DANS LA CELLULE DU CORRESPONDANT, à côté de son texte. Posée en voisine, elle prenait une colonne
+   de la grille dense et réduisait l'adresse à un caractère de large — vu à l'écran le 27/09/2026.
+   ⚠️ AUCUN ACCENT GRAVE ICI : littéral gabarit. */
+.bte-etoile{display:inline-flex;align-items:center;vertical-align:-2px;color:var(--color-svv-red);margin-right:.25rem}
 `;

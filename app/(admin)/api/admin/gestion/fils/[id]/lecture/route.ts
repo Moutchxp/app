@@ -52,11 +52,23 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
         message: 'Connexion Google de gestion@ pas encore faite : le lu/non lu vient de Gmail.',
       }, 409);
     }
-    // Un échange introuvable dans Gmail n'est PAS une panne : il vient d'une autre boîte, ou il y a été effacé.
+    /**
+     * ══ 🔴 UN ÉCHANGE INTROUVABLE N'EST PAS UNE PANNE, ET LE MESSAGE DOIT DIRE CE QUI A ÉTÉ FAIT ═══════════════
+     * L'ancienne phrase — « il vient peut-être d'ailleurs » — était une hypothèse, et elle était FAUSSE dans le cas
+     * signalé par Arno le 27/09 : l'échange venait bien de gestion@, mais son message d'ancrage était dans la
+     * CORBEILLE, que la recherche Gmail exclut par défaut. Les deux causes sont corrigées (`in:anywhere`, et
+     * plusieurs ancres essayées dont les messages ENVOYÉS).
+     *
+     * Ce qui reste, après ces corrections, ce sont les échanges dont AUCUN message n'existe plus dans Gmail. Le
+     * message le dit alors franchement : ce qui n'a PAS changé, et pourquoi — sans alarme, et sans prétendre
+     * connaître la raison.
+     */
     if (issue.etat === 'introuvable') {
       return json({
         etat: 'introuvable',
-        message: 'Cet échange n’a pas été retrouvé dans la boîte Gmail de gestion@ (il vient peut-être d’ailleurs).',
+        message: 'Rien n’a changé : aucun message de cet échange n’existe plus dans Gmail (effacé définitivement, '
+          + 'ou jamais passé par gestion@). Le lu/non lu vient de Gmail — il n’y a donc rien à y marquer. '
+          + 'L’échange et ses messages restent intacts ici.',
       }, 409);
     }
     if (issue.etat === 'refus') return json({ etat: 'refus', message: issue.motif }, 409);

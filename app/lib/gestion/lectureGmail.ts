@@ -127,8 +127,15 @@ export type IssueMarquage =
 
 export interface DepsMarquageGmail {
   jeton(): Promise<string | null>;
-  /** Le `Message-ID` du dernier message REÇU de l'échange — le point d'entrée vers le fil Gmail. */
-  ancre(filId: number): Promise<string | null>;
+  /**
+   * Les `Message-ID` par lesquels on peut entrer dans le fil Gmail, du plus prometteur au moins prometteur.
+   *
+   * 🔴 PLUSIEURS, ET PLUS SEULEMENT LE DERNIER REÇU — correction du 27/09/2026. L'ancre unique était le dernier
+   * message REÇU : quand celui-là n'était pas retrouvable, l'échange entier était déclaré absent de Gmail, alors
+   * qu'un autre de ses messages y menait très bien. Mesuré : **26 086 échanges sur 36 413** n'ont AUCUN message
+   * reçu — ils n'avaient donc jamais d'ancre du tout, et leur lu/non lu était impossible depuis toujours.
+   */
+  ancres(filId: number): Promise<string[]>;
   /** Retrouve le message dans Gmail, et donc son FIL. */
   chercher(jeton: string, messageIdRfc: string): Promise<Resultat<{ id: string; threadId: string } | null>>;
   /** Pose ou retire `UNREAD` sur tout le fil, en un appel. */
@@ -151,24 +158,48 @@ export async function marquerFilGmail(
   const jeton = await deps.jeton();
   if (jeton === null) return { etat: 'sans_connexion' };
 
-  const ancre = normaliserMessageId(await deps.ancre(filId));
-  if (ancre === null) return { etat: 'introuvable' };
-
-  const trouve = await deps.chercher(jeton, ancre);
-  if (!trouve.ok) return { etat: 'refus', motif: trouve.motif };
-  if (trouve.valeur === null) return { etat: 'introuvable' };
-
-  const r = await deps.modifierFil(jeton, trouve.valeur.threadId,
-    lu ? { retirer: ['UNREAD'] } : { ajouter: ['UNREAD'] });
-  return r.ok ? { etat: 'ok', lu } : { etat: 'refus', motif: r.motif };
+  /**
+   * 🔴 ON ESSAIE LES ANCRES DANS L'ORDRE, ET ON S'ARRÊTE À LA PREMIÈRE QUI MÈNE AU FIL. Un seul message retrouvé
+   * suffit : Gmail rend son `threadId`, et c'est le fil entier qu'on modifie ensuite, en un appel.
+   *
+   * ⚠️ UN REFUS DE GMAIL ARRÊTE TOUT, une ABSENCE non. Les deux ne se réparent pas pareil : un refus (droit, quota,
+   * panne) se répétera à l'identique sur les ancres suivantes et doit être dit tel quel ; une absence, elle, veut
+   * seulement dire « pas celui-là », et l'ancre suivante a toutes ses chances.
+   */
+  for (const brute of await deps.ancres(filId)) {
+    const ancre = normaliserMessageId(brute);
+    if (ancre === null) continue;
+    const trouve = await deps.chercher(jeton, ancre);
+    if (!trouve.ok) return { etat: 'refus', motif: trouve.motif };
+    if (trouve.valeur === null) continue;
+    const r = await deps.modifierFil(jeton, trouve.valeur.threadId,
+      lu ? { retirer: ['UNREAD'] } : { ajouter: ['UNREAD'] });
+    return r.ok ? { etat: 'ok', lu } : { etat: 'refus', motif: r.motif };
+  }
+  return { etat: 'introuvable' };
 }
 
-/** Le `Message-ID` du dernier message REÇU d'un échange. C'est lui qui sert d'ancre vers le fil Gmail. */
-export async function ancreDuFil(filId: number): Promise<string | null> {
-  const { rows } = await query<{ message_id: string | null }>(
+/**
+ * LES `Message-ID` D'UN ÉCHANGE, du plus prometteur au moins prometteur — autant de portes d'entrée vers son fil
+ * Gmail.
+ *
+ * L'ORDRE N'EST PAS ARBITRAIRE :
+ *   ① les messages dont on connaît DÉJÀ l'identifiant Gmail (`gmail_message_id`) : on sait qu'ils y sont ;
+ *   ② puis les REÇUS, du plus récent au plus ancien — c'était l'unique ancre d'avant, et c'est souvent la bonne ;
+ *   ③ puis les ENVOYÉS. Un message que NOUS avons envoyé est dans la boîte de gestion@ (libellé SENT) et mène au
+ *      même fil : c'est ce qui rend le lu/non lu possible sur les 26 086 échanges qui n'ont aucun message reçu.
+ *
+ * ⚠️ BORNÉ À CINQ. Chaque ancre coûte une recherche Gmail ; au-delà de cinq, on paie un aller-retour par message
+ * pour un échange que Gmail ne connaît visiblement pas. Cinq couvre tous les cas observés.
+ */
+export const ANCRES_MAX = 5;
+
+export async function ancresDuFil(filId: number): Promise<string[]> {
+  const { rows } = await query<{ message_id: string }>(
     `SELECT message_id FROM gestion_message
-      WHERE fil_id = $1 AND sens = 'recu' AND message_id IS NOT NULL
-      ORDER BY recu_le DESC, id DESC LIMIT 1`,
+      WHERE fil_id = $1 AND message_id IS NOT NULL
+      ORDER BY (gmail_message_id IS NOT NULL) DESC, (sens = 'recu') DESC, recu_le DESC, id DESC
+      LIMIT ${ANCRES_MAX}`,
     [filId]);
-  return rows[0]?.message_id ?? null;
+  return rows.map((r) => r.message_id);
 }
