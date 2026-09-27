@@ -336,6 +336,45 @@ describe('les garanties du lot', () => {
     expect(boucle.indexOf('if (!o.appliquer) continue;')).toBeLessThan(boucle.indexOf('await supprimer('));
   });
 
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴 LE PLAFOND EST VÉRIFIÉ DANS LA BOUCLE DES PIÈCES — DÉFAUT DE PRODUCTION DU 27/09/2026.
+   *
+   * `--limite=200` a effacé 489 pièces. Le test du plafond n'existait qu'AU-DESSUS de la boucle intérieure : la
+   * commande chargeait 500 candidates et les traitait TOUTES avant de reprendre la main. La limite avait donc une
+   * granularité de 500 — et sur un effacement définitif, c'est la faute la plus grave que ce fichier pouvait
+   * contenir. Le comportement est éprouvé de bout en bout par `gestion:vidage:epreuve` (--limite=7 → 7 exactement) ;
+   * ce test-ci garde la FORME, parce que l'épreuve n'est pas dans `npm test` et qu'une régression ici coûte des
+   * octets qu'on ne récupère pas.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it('🔴 le plafond est testé DANS la boucle des pièces, avant tout effacement', () => {
+    const boucle = cmd.slice(cmd.indexOf('for (const p of lot)'));
+    const test = boucle.indexOf('limiteAtteinte()');
+    expect(test).toBeGreaterThanOrEqual(0);                       // il y a bien un test dans la boucle
+    expect(test).toBeLessThan(boucle.indexOf('await supprimer(')); // et il vient AVANT l'effacement
+  });
+
+  it('🔴 le plafond compte ce que la passe FAIT, pas ce qu’elle trouve', () => {
+    // Il comparait `effacables` (les candidates jugées) et non `effacees` : en simulation les deux diffèrent, donc
+    // l'option ne voulait pas dire la même chose selon le mode.
+    expect(cmd).toContain('const fait = (): number => (o.appliquer ? c.effacees : c.effacables)');
+    expect(cmd).not.toContain('c.effacables >= o.limite');
+  });
+
+  it('🔴 le motif d’arrêt est construit à partir du COMPTEUR RÉEL', () => {
+    // Il annonçait « limite de 200 pièces atteinte » à côté de « 489 vidées ». Le nombre vient désormais de `fait()`.
+    expect(cmd).toContain('const motifLimite = ()');
+    expect(cmd).toMatch(/motifLimite = \(\): string =>[\s\S]{0,200}\$\{fait\(\)\}/);
+  });
+
+  it('le curseur avance PIÈCE PAR PIÈCE : une reprise ne saute personne', () => {
+    // Avancé sur la fin du lot, il aurait désigné la pièce 500 alors qu'on s'arrête à la 200.
+    const boucle = cmd.slice(cmd.indexOf('for (const p of lot)'));
+    expect(boucle).toContain('depuis = p.pieceId');
+    expect(cmd).not.toContain('depuis = lot[lot.length - 1].pieceId');
+  });
+
   it('🔴 elle efface PUIS inscrit la preuve — jamais l’inverse', () => {
     const boucle = cmd.slice(cmd.indexOf('for (const p of lot)'));
     expect(boucle.indexOf('await supprimer(')).toBeLessThan(boucle.indexOf('await noterVidage('));

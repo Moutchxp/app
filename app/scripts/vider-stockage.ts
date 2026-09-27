@@ -194,13 +194,48 @@ async function principal(): Promise<void> {
   let depuis = o.depuis;
   let arret: string | null = null;
 
+  /**
+   * ══ 🔴 CE QUE LA LIMITE COMPTE, ET POURQUOI IL A FALLU L'ÉCRIRE ICI ═══════════════════════════════════════════
+   * DÉFAUT CONSTATÉ EN PRODUCTION LE 27/09/2026 : `--limite=200` a effacé 489 pièces. Deux fautes, distinctes :
+   *
+   *   ① LE CONTRÔLE N'ÉTAIT FAIT QU'ENTRE DEUX LOTS. `chargerCandidates` en charge 500, et la boucle intérieure les
+   *      traitait TOUTES avant que le test du haut ne reprenne la main. La limite avait donc une granularité de 500
+   *      pièces : demander 200 en effaçait jusqu'à 500. Sur un effacement définitif, c'est la faute la plus grave
+   *      que ce fichier pouvait contenir — il vaut mieux une limite qui coupe trop tôt qu'une qui coupe trop tard.
+   *
+   *   ② ELLE COMPTAIT `effacables`, PAS `effacees`. En simulation les deux diffèrent (rien n'est effacé, donc
+   *      `effacees` reste à zéro) : l'option ne voulait pas dire la même chose dans les deux modes. Elle compte
+   *      désormais CE QUE LA PASSE FAIT — des effacements quand on applique, des candidates trouvées sinon — et
+   *      cette phrase est écrite une seule fois, ici.
+   */
+  const fait = (): number => (o.appliquer ? c.effacees : c.effacables);
+  const limiteAtteinte = (): boolean => o.limite > 0 && fait() >= o.limite;
+  /** Le motif d'arrêt, construit À PARTIR DU COMPTEUR RÉEL — il ne peut donc pas contredire le rapport. */
+  const motifLimite = (): string =>
+    `limite de ${o.limite} atteinte (${fait()} ${o.appliquer ? 'vidée(s)' : 'effaçable(s) trouvée(s)'})`;
+
   for (;;) {
-    if (c.effacables >= o.limite && o.limite > 0) { arret = `limite de ${o.limite} pièces atteinte`; break; }
-    const lot = await chargerCandidates(depuis, 500);
+    if (limiteAtteinte()) { arret = motifLimite(); break; }
+    /**
+     * ⚠️ ON NE CHARGE QUE CE QU'ON PEUT ENCORE TRAITER. Demander 500 candidates pour n'en vider que dix, c'est
+     * payer 490 lectures de base et, surtout, s'exposer à les traiter quand même si un test du haut est oublié.
+     * La borne du lot est donc la limite restante — jamais plus.
+     */
+    const reste = o.limite > 0 ? Math.max(0, o.limite - fait()) : LOT_VIDAGE;
+    const lot = await chargerCandidates(depuis, Math.min(LOT_VIDAGE, Math.max(reste, 1)));
     if (lot.length === 0) break;
-    depuis = lot[lot.length - 1].pieceId;
 
     for (const p of lot) {
+      /**
+       * 🔴 LE CONTRÔLE QUI MANQUAIT, ET IL EST ICI — dans la boucle des PIÈCES, avant tout effacement. C'est le
+       * seul endroit où « au plus N » peut être vrai : partout ailleurs, il reste un lot entier à traiter.
+       */
+      if (limiteAtteinte()) { arret = motifLimite(); break; }
+      /**
+       * ⚠️ LE CURSEUR AVANCE PIÈCE PAR PIÈCE, plus par lot entier. Avancé d'avance sur la fin du lot, il aurait
+       * désigné la pièce 500 alors qu'on s'arrête à la 200 — et une reprise `--depuis=` l'aurait crue traitée.
+       */
+      depuis = p.pieceId;
       // ── ① CE QUE LA BASE SUFFIT À TRANCHER, sans déranger Google ──
       const base = verdictBase(p);
       if (base !== null) {
@@ -255,7 +290,17 @@ async function principal(): Promise<void> {
         console.log(`${P}   ${c.effacees} vidées · ${tailleFr(c.octetsEffaces)} libérés · pièce ${p.pieceId}`);
       }
     }
+    // La boucle intérieure a pu s'arrêter sur la limite : on ne recharge pas un lot de plus pour rien.
+    if (arret !== null) break;
   }
+
+  /**
+   * 🔴 LA DERNIÈRE PIÈCE RÉELLEMENT TRAITÉE, pour qu'une reprise ne saute personne. Dite seulement quand on s'est
+   * arrêté avant la fin : sinon il n'y a rien à reprendre.
+   */
+  const reprise = arret === null ? null
+    : `npm run gestion:drive:vider-stockage -- ${o.appliquer ? `--appliquer ${CONFIRMATION} ` : ''}`
+      + `--depuis=${depuis} --limite=${o.limite}`;
 
   // ── LE RAPPORT ────────────────────────────────────────────────────────────────────────────────────────────────
   console.log('');
@@ -264,6 +309,7 @@ async function principal(): Promise<void> {
   if (!o.appliquer) console.log(`${P} volume libérable ........... ${tailleFr(c.octetsEffacables)}`);
   else console.log(`${P} volume libéré .............. ${tailleFr(c.octetsEffaces)}`);
   if (arret !== null) console.log(`${P} motif d’arrêt : ${arret}`);
+  if (reprise !== null) console.log(`${P} pour continuer où l’on s’est arrêté :\n${P}    ${reprise}`);
 
   if (o.exemples > 0) {
     for (const [cle, lignes] of [...exemples.entries()].sort()) {

@@ -34,7 +34,7 @@ import { CreateBucketCommand, S3Client } from '@aws-sdk/client-s3';
 import { query, closePool } from '../lib/db/client';
 import { oublierSchema, vidageDisponible } from '../lib/gestion/schema';
 import { chargerCandidates, chiffresVidage, copieEnCours, journaliserPasseVidage, noterVidage } from '../lib/gestion/vidageRepo';
-import { verdict, verdictBase } from '../lib/gestion/vidageStockage';
+import { CONFIRMATION, verdict, verdictBase } from '../lib/gestion/vidageStockage';
 import { deposerPieceGestion, recuperer, supprimer } from '../lib/stockage';
 import { lireConfigStockage } from '../lib/stockage/config';
 
@@ -78,6 +78,143 @@ async function deuxPieces(): Promise<number[]> {
             ($1, 'epreuve-b.pdf', 'application/pdf', 'gestion/2026/09/epreuve-b.pdf', 2048, now())
      RETURNING id`, [msg[0].id]);
   return rows.map((r) => Number(r.id));
+}
+
+/**
+ * ══ 🔴 ⑩ LE PLAFOND `--limite=N` — L'ÉPREUVE DU DÉFAUT DU 27/09/2026 ════════════════════════════════════════════
+ * CE QUI S'EST PASSÉ EN PRODUCTION. Arno lance le vidage avec `--limite=200`. Résultat : **489 pièces effacées**, et
+ * un motif d'arrêt qui annonce « limite de 200 pièces atteinte » à côté du chiffre 489. Deux fautes :
+ *   ① le plafond n'était vérifié qu'ENTRE DEUX LOTS de 500 — sa granularité réelle était donc de 500 pièces ;
+ *   ② il comptait les candidates trouvées, pas les effacements faits.
+ * Sur un effacement définitif, c'est la faute la plus grave que ce fichier pouvait contenir.
+ *
+ * CE TEST LANCE LA VRAIE COMMANDE, avec `--appliquer`, sur le bucket JETABLE et la base JETABLE, et vérifie qu'elle
+ * s'arrête EXACTEMENT au plafond. Un test qui appellerait une fonction extraite ne prouverait rien : le défaut était
+ * dans l'enchaînement des deux boucles, pas dans une règle.
+ *
+ * ⚠️ POURQUOI DE VRAIS IDENTIFIANTS DRIVE. La commande relit les métadonnées de chaque candidate avant d'effacer —
+ * c'est le garde-fou du lot. Des identifiants inventés feraient toutes les candidates « illisibles », et la commande
+ * n'effacerait rien : le test passerait sans avoir rien éprouvé. On emprunte donc 25 tuples
+ * (piece_id, drive_file_id, md5, taille) à la base de travail par une connexion EXPLICITEMENT EN LECTURE SEULE,
+ * d'un seul SELECT. Aucune donnée personnelle ne traverse : ni nom de fichier, ni adresse, ni contenu.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+async function epreuveDuPlafond(bucket: string): Promise<void> {
+  console.log(`\n⑩ 🔴 LE PLAFOND « --limite=N » N'EFFACE JAMAIS PLUS DE N PIÈCES`);
+
+  // ── Les tuples réels, lus dans la base de travail. UN SEUL SELECT, aucune écriture possible. ──
+  const { Client } = await import('pg');
+  const lecture = new Client({ connectionString: 'postgresql://localhost:5432/sansvisavis' });
+  await lecture.connect();
+  let reels: { drive_file_id: string; md5: string; taille_octets: string }[] = [];
+  let arbre: {
+    drive_id: string; parent_drive_id: string | null; sorte: string; cle: string; nom: string; chemin: string;
+  }[] = [];
+  try {
+    const r = await lecture.query<{ drive_file_id: string; md5: string; taille_octets: string }>(
+      `SELECT d.drive_file_id, d.md5, d.taille_octets::text
+         FROM gestion_piece_drive d
+        WHERE d.origine = 'copie' AND d.verifie_le IS NOT NULL AND d.md5 IS NOT NULL
+        ORDER BY d.piece_id DESC LIMIT 25`);
+    reels = r.rows;
+    /**
+     * 🔴 ET L'ARBORESCENCE MÉMORISÉE, SANS QUOI LE TEST NE PROUVERAIT RIEN. Le garde-fou de descendance remonte
+     * l'arbre jusqu'à « Base de données locative » : sur une base jetable où cet arbre est VIDE, toutes les pièces
+     * sont jugées « hors racine » et la commande n'efface rien — le test passerait alors sans avoir éprouvé le
+     * plafond. C'est exactement ce qui est arrivé en écrivant cette épreuve, et c'est instructif : un test qui
+     * n'efface rien ne peut pas attraper un défaut d'effacement.
+     *
+     * 🔒 Aucune donnée personnelle : des dossiers de période (« 00 Arrivée des mails / AAAA / MM »).
+     */
+    const a = await lecture.query<typeof arbre[number]>(
+      `SELECT drive_id, parent_drive_id, sorte, cle, nom, chemin
+         FROM gestion_drive_arbre WHERE absent_le IS NULL`);
+    arbre = a.rows;
+  } finally {
+    await lecture.end();
+  }
+  // Un seul INSERT pour les 3 720 dossiers : 3 720 allers-retours seraient absurdes.
+  await query(
+    `INSERT INTO gestion_drive_arbre (drive_id, parent_drive_id, sorte, cle, nom, chemin)
+     SELECT * FROM unnest($1::text[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[])
+     ON CONFLICT DO NOTHING`,
+    [arbre.map((x) => x.drive_id), arbre.map((x) => x.parent_drive_id), arbre.map((x) => x.sorte),
+      arbre.map((x) => x.cle), arbre.map((x) => x.nom), arbre.map((x) => x.chemin)]);
+  verifier('l’arborescence Drive est recopiée sur la base jetable', arbre.length > 0, `${arbre.length} dossier(s)`);
+  if (reels.length < 25) {
+    verifier('25 copies Drive vérifiées disponibles pour l’épreuve', false, `${reels.length}`);
+    return;
+  }
+
+  // ── On sème 25 pièces effaçables : un objet RÉEL dans le bucket jetable, et la copie Drive réelle en face. ──
+  const { rows: fil } = await query<{ id: string }>(
+    `INSERT INTO gestion_fil (cle, objet_initial) VALUES ('epreuve-plafond', 'plafond')
+     ON CONFLICT (cle) DO UPDATE SET cle = EXCLUDED.cle RETURNING id`);
+  const { rows: msg } = await query<{ id: string }>(
+    `INSERT INTO gestion_message (fil_id, message_id, sens, de_adresse, destinataires, nb_destinataires, objet, recu_le)
+     VALUES ($1, '<plafond@exemple.invalid>', 'recu', 'plafond@exemple.invalid', 'gestion@exemple.invalid', 1,
+             'plafond', now())
+     ON CONFLICT (message_id) DO UPDATE SET fil_id = EXCLUDED.fil_id RETURNING id`, [fil[0].id]);
+  const messageId = Number(msg[0].id);
+
+  const cles: string[] = [];
+  for (const r of reels) {
+    const depot = await deposerPieceGestion(Buffer.from(`objet jetable ${r.drive_file_id}`), 'application/pdf', {
+      messageId, typesAcceptes: ['application/pdf'], tailleMaxOctets: 1_000_000,
+    });
+    if (!depot.depose) { verifier('dépôt de l’objet jetable', false, depot.motif); return; }
+    cles.push(depot.cle);
+    const { rows: p } = await query<{ id: string }>(
+      `INSERT INTO gestion_piece (message_id, nom_fichier, type_mime, cle_stockage, taille_octets, cree_le)
+       VALUES ($1, 'plafond.pdf', 'application/pdf', $2, $3, now()) RETURNING id`,
+      [messageId, depot.cle, r.taille_octets]);
+    await query(
+      `INSERT INTO gestion_piece_drive
+         (piece_id, drive_file_id, drive_dossier_id, origine, md5, taille_octets, verifie_le, depose_le,
+          depose_par_libelle, compte_google)
+       VALUES ($1, $2, 'DOSSIER-JETABLE', 'copie', $3, $4, now(), now(), 'épreuve', 'epreuve@exemple.invalid')`,
+      [p[0].id, r.drive_file_id, r.md5, r.taille_octets]);
+  }
+  verifier('25 pièces effaçables semées, avec de vraies copies Drive', cles.length === 25, `${cles.length}`);
+
+  const avant = Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_piece_vidage')).rows[0].n);
+
+  // ── LA VRAIE COMMANDE, avec --limite=7 ──
+  const { execFileSync } = await import('node:child_process');
+  const sortie = execFileSync('npx', ['tsx', 'app/scripts/vider-stockage.ts',
+    '--appliquer', CONFIRMATION, '--limite=7', '--exemples=0'], {
+    encoding: 'utf8',
+    env: { ...process.env, DATABASE_URL: 'postgresql://localhost:5432/gestion_jetable', S3_BUCKET: bucket },
+  });
+
+  const apres = Number((await query<{ n: string }>('SELECT count(*)::text AS n FROM gestion_piece_vidage')).rows[0].n);
+  const videes = apres - avant;
+  verifier('🔴 EXACTEMENT 7 effacements — jamais un de plus', videes === 7, `${videes} effacement(s)`);
+
+  // Et les octets ont bien quitté le bucket : 7 absents, 18 encore là.
+  let absents = 0; let presents = 0;
+  for (const cle of cles) {
+    try { await recuperer(cle); presents += 1; } catch { absents += 1; }
+  }
+  verifier('7 objets réellement effacés du bucket jetable, 18 intacts',
+    absents === 7 && presents === 18, `${absents} absents / ${presents} présents`);
+
+  // 🔴 ET LE MOTIF D'ARRÊT DIT LA VÉRITÉ — c'est la seconde moitié du défaut.
+  const motif = /motif d’arrêt : (.*)/.exec(sortie)?.[1]?.trim() ?? '';
+  verifier('le motif d’arrêt cite la limite ET le compte réel', motif.includes('limite de 7') && motif.includes('7'),
+    motif || '(aucun motif)');
+  /**
+   * 🔴 LE MOTIF ET LE RAPPORT NE PEUVENT PLUS SE CONTREDIRE — c'est la seconde moitié du défaut du 27/09 : le motif
+   * annonçait « limite de 200 pièces atteinte » à côté de « 489 vidées ». On extrait donc le nombre que le motif
+   * cite entre parenthèses et on le compare au compte réel : s'ils divergent un jour, ce test le dira.
+   */
+  const citeDansLeMotif = /\((\d+) /.exec(motif)?.[1] ?? '';
+  verifier('🔴 le nombre cité dans le motif EST le nombre réellement vidé',
+    citeDansLeMotif === String(videes), `motif cite « ${citeDansLeMotif} », base dit « ${videes} »`);
+  const rapport = /pièces VIDÉES \.+ (\d+)/.exec(sortie)?.[1] ?? '';
+  verifier('le rapport annonce 7, comme la base', rapport === '7', rapport || '(illisible)');
+  // La commande dit où reprendre, sur la dernière pièce RÉELLEMENT traitée.
+  verifier('elle donne la commande de reprise', /--depuis=\d+/.test(sortie));
 }
 
 async function principal(): Promise<void> {
@@ -268,6 +405,9 @@ async function principal(): Promise<void> {
     verifier('🔴 la même pièce, sortie de la racine ⇒ CONSERVÉE',
       !verdict(complete, { ok: true, md5: 'ddeeff', taille: 2048, sousLaRacine: false }).effacable);
   }
+
+  // ── ⑩ 🔴 LE PLAFOND `--limite=N` : AU PLUS N EFFACEMENTS ───────────────────────────────────────────────────
+  await epreuveDuPlafond(config.bucket);
 
   console.log('');
   if (echecs === 0) console.log('╚══ ✅ ÉPREUVE PASSÉE — la base et le stockage tiennent ce que le code leur demande.\n');
