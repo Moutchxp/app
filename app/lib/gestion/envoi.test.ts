@@ -41,14 +41,15 @@ function monde(o: Partial<{
   peutEnvoyer: boolean; jeton: string | null; deja: boolean;
   issueGmail: Awaited<ReturnType<DepsEnvoiComplet['envoyer']>>;
   /** Les gestes d'APRÈS-envoi qu'on fait échouer, pour éprouver qu'aucun ne change le verdict. */
-  casser: ('finaliser' | 'brouillon' | 'journal')[];
+  casser: ('finaliser' | 'brouillon' | 'journal' | 'classement')[];
 }> = {}) {
   const trace = {
     ouvertures: [] as unknown[], envois: [] as unknown[], finalisations: [] as unknown[],
     journal: [] as unknown[], brouillonsEnvoyes: [] as number[], ordre: [] as string[],
     incidents: [] as { etape: string; message: string }[],
+    classements: [] as unknown[],
   };
-  const casse = (q: 'finaliser' | 'brouillon' | 'journal') => {
+  const casse = (q: 'finaliser' | 'brouillon' | 'journal' | 'classement') => {
     if (!(o.casser ?? []).includes(q)) return;
     // Une VRAIE erreur PostgreSQL, code compris : c'est celle qui a fait échouer l'envoi d'Arno le 23/09.
     const e = Object.assign(new Error('new row violates check constraint'), {
@@ -68,6 +69,8 @@ function monde(o: Partial<{
     finaliser: async (id, maj) => { trace.ordre.push('finalisation'); casse('finaliser'); trace.finalisations.push({ id, ...maj }); },
     marquerBrouillonEnvoye: async (id) => { casse('brouillon'); trace.brouillonsEnvoyes.push(id); },
     journaliser: async (l) => { casse('journal'); trace.journal.push(l); },
+    // LOT REDACTION-GMAIL — le classement demandé pendant l'écriture. Espionné comme le reste.
+    classer: async (c) => { casse('classement'); trace.classements.push(c); },
     incident: (etape, e) => { trace.incidents.push({ etape, message: e instanceof Error ? e.message : String(e) }); },
     maintenant: () => new Date('2026-09-24T12:00:00Z'),
     alea: () => 'abc123',
@@ -372,5 +375,80 @@ describe('🔴 UNE FOIS GMAIL ACCEPTÉ, PLUS RIEN NE PEUT RENDRE UN ÉCHEC', () 
     const { deps, trace } = monde();
     await envoyerMessage(DEMANDE, AUTEUR, deps);
     expect(trace.journal[0]).toMatchObject({ envoiId: 55, issue: 'envoye' });
+  });
+});
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT REDACTION-GMAIL — LE HTML QUI PART, ET LE CLASSEMENT DEMANDÉ PENDANT L'ÉCRITURE.
+ *
+ * CE QUE CE BLOC PROTÈGE :
+ *   ① le corps HTML arrive bien dans le message, en `multipart/alternative` — sinon la mise en forme se perd en
+ *      silence entre l'écran et Gmail, et personne ne s'en aperçoit avant le destinataire ;
+ *   ② sans HTML, l'envoi est EXACTEMENT celui d'avant ce lot. Aucun envoi existant ne change de forme ;
+ *   ③ le classement est posé APRÈS l'envoi réussi, jamais avant — et JAMAIS sur un envoi refusé ;
+ *   ④ 🔴 un classement qui échoue NE CHANGE PAS LE VERDICT. Une fois que Gmail a accepté, plus rien ne peut rendre
+ *      un échec : c'est la règle du 24/09/2026, née d'un vrai message parti qu'on a cru perdu.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 LOT REDACTION-GMAIL — le HTML et le classement', () => {
+  const CIBLES = [{ sorte: 'lot', cle: '513', id: null, libelle: 'Lot 513 — 12 rue des Lilas' }];
+
+  it('① le corps HTML arrive dans le message remis à Gmail', async () => {
+    const { deps, trace } = monde();
+    await envoyerMessage({ ...DEMANDE, corpsHtml: '<p>Bonjour <b>Madame</b></p>' }, AUTEUR, deps);
+    const rfc = (trace.envois[0] as { rfc822: string }).rfc822;
+    expect(rfc).toContain('multipart/alternative');
+    expect(rfc.indexOf('text/plain')).toBeLessThan(rfc.indexOf('text/html'));
+  });
+
+  it('② SANS html : l’envoi est exactement celui d’avant ce lot', async () => {
+    const { deps, trace } = monde();
+    await envoyerMessage(DEMANDE, AUTEUR, deps);
+    const rfc = (trace.envois[0] as { rfc822: string }).rfc822;
+    expect(rfc).not.toContain('text/html');
+    expect(rfc).toContain('Content-Type: text/plain');
+  });
+
+  it('③ le classement est posé APRÈS l’envoi réussi, avec l’auteur', async () => {
+    const { deps, trace } = monde();
+    const r = await envoyerMessage({ ...DEMANDE, cibles: CIBLES }, AUTEUR, deps);
+    expect(r.ok).toBe(true);
+    expect(trace.classements).toHaveLength(1);
+    expect(trace.classements[0]).toMatchObject({
+      envoiId: 55, gmailMessageId: 'g-1', cibles: CIBLES, auteur: AUTEUR,
+    });
+  });
+
+  /** 🔴 JAMAIS sur un envoi refusé : on classerait un message qui n'existe pas. */
+  it('🔴 ③ AUCUN classement quand Gmail refuse', async () => {
+    const { deps, trace } = monde({ issueGmail: { ok: false, motif: 'adresse invalide' } });
+    const r = await envoyerMessage({ ...DEMANDE, cibles: CIBLES }, AUTEUR, deps);
+    expect(r.ok).toBe(false);
+    expect(trace.classements).toEqual([]);
+  });
+
+  it('sans cible demandée, on n’appelle même pas la pose', async () => {
+    const { deps, trace } = monde();
+    await envoyerMessage(DEMANDE, AUTEUR, deps);
+    expect(trace.classements).toEqual([]);
+  });
+
+  /**
+   * 🔴 ④ LA RÈGLE DU 24/09/2026, ÉTENDUE AU CLASSEMENT. Une fois que Gmail a accepté, le message EST parti :
+   * aucune comptabilité en retard ne doit faire croire le contraire, sous peine de faire renvoyer le même mail.
+   */
+  it('🔴 ④ un classement qui ÉCHOUE ne change PAS le verdict — et l’incident est signalé', async () => {
+    const { deps, trace } = monde({ casser: ['classement'] });
+    const r = await envoyerMessage({ ...DEMANDE, cibles: CIBLES }, AUTEUR, deps);
+    expect(r.ok).toBe(true);
+    expect(trace.incidents.map((i) => i.etape)).toContain('classement');
+  });
+
+  it('le classement vient APRÈS le journal : c’est la pièce la moins critique, et la plus facile à refaire', async () => {
+    const { deps, trace } = monde();
+    await envoyerMessage({ ...DEMANDE, cibles: CIBLES }, AUTEUR, deps);
+    expect(trace.journal).toHaveLength(1);
+    expect(trace.classements).toHaveLength(1);
   });
 });

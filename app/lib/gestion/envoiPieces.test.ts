@@ -236,3 +236,102 @@ describe('ce qu’on refuse de joindre, et pourquoi', () => {
     expect(totalJoint([{ taille: 10 }, { taille: 5 }])).toBe(15);
   });
 });
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT REDACTION-GMAIL — LE MESSAGE EN DEUX VERSIONS (`multipart/alternative`).
+ *
+ * CE QUE CE BLOC PROTÈGE, et qui ne se voit PAS depuis chez nous (on écrit en HTML, donc on voit toujours le HTML) :
+ *   ① l'ORDRE des deux parties. La RFC 2046 impose « de la moins riche à la plus riche » : le TEXTE D'ABORD. À
+ *      l'envers, Gmail affiche le texte brut au destinataire — et personne chez nous ne s'en aperçoit ;
+ *   ② `alternative` et non `mixed` : avec `mixed`, le destinataire lit le message DEUX FOIS, l'une sous l'autre ;
+ *   ③ avec des PIÈCES, l'alternative est IMBRIQUÉE dans le `mixed` — la structure de Gmail et d'Outlook ;
+ *   ④ SANS HTML, le message est exactement celui d'avant ce lot. Rien ne change pour les envois existants.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 LOT REDACTION-GMAIL — multipart/alternative', () => {
+  const base = {
+    de: 'gestion@criterimmo.fr', deNom: 'CRITERIMMO', a: ['jean@exemple.fr'], cc: [], cci: [],
+    objet: 'Fuite', corps: 'Bonjour,\nLe plombier passera.', messageId: '<m1@criterimmo.fr>',
+  };
+
+  it('④ SANS html : le message d’avant ce lot, en texte seul', () => {
+    const r = construireRfc822({ ...base });
+    expect(r).toContain('Content-Type: text/plain; charset="UTF-8"');
+    expect(r).not.toContain('multipart/alternative');
+    expect(r).not.toContain('text/html');
+  });
+
+  it('② avec html et sans pièce : un multipart/ALTERNATIVE à la racine', () => {
+    const r = construireRfc822({ ...base, corpsHtml: '<p>Bonjour,<br />Le plombier passera.</p>' });
+    expect(r).toContain('Content-Type: multipart/alternative;');
+    expect(r).not.toContain('multipart/mixed');
+  });
+
+  /** 🔴 L'ORDRE : texte d'abord, HTML ensuite. À l'envers, le destinataire lit du texte brut. */
+  it('🔴 ① le TEXTE vient AVANT le HTML', () => {
+    const r = construireRfc822({ ...base, corpsHtml: '<p>a</p>' });
+    expect(r.indexOf('text/plain')).toBeLessThan(r.indexOf('text/html'));
+  });
+
+  it('les deux parties portent bien les DEUX versions du même message', () => {
+    const r = construireRfc822({ ...base, corps: 'Bonjour texte', corpsHtml: '<p>Bonjour <b>riche</b></p>' });
+    const decode = (s: string) => Buffer.from(s.replace(/\r\n/g, ''), 'base64').toString('utf8');
+    const parties = r.split(/--\S*svav\S*/).filter((p) => p.includes('Content-Transfer-Encoding: base64'));
+    const corps = parties.map((p) => decode(p.split('\r\n\r\n').slice(1).join('\r\n\r\n')));
+    expect(corps.some((c) => c.includes('Bonjour texte'))).toBe(true);
+    expect(corps.some((c) => c.includes('<b>riche</b>'))).toBe(true);
+  });
+
+  it('🔴 ③ avec des PIÈCES : l’alternative est IMBRIQUÉE dans le mixed', () => {
+    const r = construireRfc822({
+      ...base, corpsHtml: '<p>a</p>',
+      pieces: [{ nom: 'devis.pdf', typeMime: 'application/pdf', octets: Buffer.from('%PDF') }],
+    });
+    // Le conteneur est un `mixed` (il porte des pièces), et il contient une `alternative`.
+    expect(r.indexOf('multipart/mixed')).toBeLessThan(r.indexOf('multipart/alternative'));
+    expect(r).toContain('Content-Disposition: attachment');
+    // Les deux frontières sont DISTINCTES : une seule ferait terminer le mixed au premier « -- » de l'alternative.
+    const mixed = /multipart\/mixed; boundary="([^"]+)"/.exec(r)?.[1];
+    const alt = /multipart\/alternative; boundary="([^"]+)"/.exec(r)?.[1];
+    expect(mixed).toBeTruthy();
+    expect(alt).toBeTruthy();
+    expect(alt).not.toBe(mixed);
+  });
+
+  it('un corpsHtml vide ou blanc vaut ABSENT — pas de partie vide', () => {
+    for (const vide of ['', '   ', null, undefined]) {
+      const r = construireRfc822({ ...base, corpsHtml: vide });
+      expect(r, String(vide)).not.toContain('text/html');
+    }
+  });
+
+  /**
+   * 🔴 LA PREUVE LA PLUS FORTE : on RELIT le message avec un vrai analyseur MIME, comme le ferait le client du
+   * destinataire. Les assertions sur les chaînes ci-dessus disent que le message a la bonne ALLURE ; celle-ci dit
+   * qu'il est réellement LISIBLE — frontières correctement fermées, encodage base64 valide, accents intacts.
+   */
+  it('🔴 relu par un vrai analyseur MIME : les deux versions arrivent, accents compris', async () => {
+    const r = construireRfc822({
+      ...base,
+      corps: 'Bonjour Madame,\n\n- robinet\n- joint\n\nCordialement',
+      corpsHtml: '<p>Bonjour Madame,</p><ul><li>robinet</li><li>joint</li></ul><p>Cordialement</p>',
+      pieces: [{ nom: 'devis é.pdf', typeMime: 'application/pdf', octets: Buffer.from('%PDF-1.4') }],
+    });
+    const lu = await simpleParser(r);
+    expect(lu.text).toContain('Bonjour Madame,');
+    expect(lu.text).toContain('- robinet');
+    expect(lu.html).toContain('<li>robinet</li>');
+    expect(lu.subject).toBe('Fuite');
+    // La pièce est bien là, à côté — pas à la place du message.
+    expect(lu.attachments).toHaveLength(1);
+    expect(lu.attachments[0].filename).toBe('devis é.pdf');
+  });
+
+  /** ⚠️ `Bcc` ne s'écrit JAMAIS dans le message, HTML ou non : c'est la fuite qu'une copie cachée existe pour éviter. */
+  it('la copie cachée reste hors du message, même en HTML', () => {
+    const r = construireRfc822({ ...base, cci: ['secret@exemple.fr'], corpsHtml: '<p>a</p>' });
+    expect(r).not.toContain('secret@exemple.fr');
+    expect(r).not.toContain('Bcc:');
+  });
+});

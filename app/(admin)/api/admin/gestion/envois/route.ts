@@ -1,4 +1,6 @@
 import 'server-only';
+// LOT REDACTION-GMAIL — module PUR, le MÊME que celui de l'écran : une seule liste blanche pour tout le module.
+import { assainirHtml } from '../../../../../lib/gestion/htmlMail';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { query } from '../../../../../lib/db/client';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
@@ -69,6 +71,30 @@ export async function GET(request: Request): Promise<Response> {
     console.error('[gestion/envois] lecture impossible', e);
     return Response.json({ erreur: 'Lecture impossible : la base n’a pas répondu.' }, { status: 503 });
   }
+}
+
+/**
+ * LES CIBLES DE CLASSEMENT DEMANDÉES, bornées et normalisées. PUR.
+ *
+ * ⚠️ ON REFUSE CE QU'ON NE RECONNAÎT PAS plutôt que de le transmettre : une sorte inconnue produirait une ligne de
+ * rattachement que rien ne saurait lire ensuite. Et on BORNE le nombre — un écran modifié ne doit pas pouvoir
+ * demander cinq cents rattachements en un envoi.
+ */
+const SORTES_CLASSEMENT = ['lot', 'proprietaire', 'locataire', 'evenement'];
+const CIBLES_MAX = 20;
+
+export function ciblesDemandees(brut: unknown): { sorte: string; cle: string | null; id: number | null; libelle: string }[] {
+  if (!Array.isArray(brut)) return [];
+  return brut
+    .filter((c): c is Record<string, unknown> => typeof c === 'object' && c !== null)
+    .map((c) => ({
+      sorte: typeof c.sorte === 'string' ? c.sorte : '',
+      cle: typeof c.cle === 'string' && c.cle.trim() !== '' ? c.cle.trim().slice(0, 200) : null,
+      id: Number.isSafeInteger(c.id) && (c.id as number) > 0 ? (c.id as number) : null,
+      libelle: typeof c.libelle === 'string' ? c.libelle.slice(0, 300) : '',
+    }))
+    .filter((c) => SORTES_CLASSEMENT.includes(c.sorte) && (c.cle !== null || c.id !== null))
+    .slice(0, CIBLES_MAX);
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -162,6 +188,20 @@ export async function POST(request: Request): Promise<Response> {
       // LOT 5-PJ-ENVOI — la VOIE ne sert qu'à savoir s'il faut joindre l'original complet. Elle est reprise telle
       //   quelle du brouillon ; une voie inconnue ne joint rien de plus, elle ne fait pas échouer l'envoi.
       voie: typeof corps.voie === 'string' ? corps.voie : null,
+      /**
+       * ══ 🔴 LOT REDACTION-GMAIL — LE HTML EST ASSAINI ICI, ET C'EST L'ASSAINISSEMENT QUI COMPTE ════════════════
+       * L'écran nettoie déjà au collage, pour que la personne VOIE ce qu'elle envoie. Mais un écran se modifie :
+       * cette ligne-ci est la seule qu'un navigateur ne puisse pas contourner, et c'est elle qui décide de ce qui
+       * part réellement chez le destinataire. Le MÊME module pur (`htmlMail`) dans les deux cas : une seule règle,
+       * une seule liste blanche, un seul jeu de tests.
+       *
+       * ⚠️ VIDE ⇒ `null` : le message part alors en texte seul, exactement comme avant ce lot.
+       */
+      corpsHtml: typeof corps.corpsHtml === 'string' && corps.corpsHtml.trim() !== ''
+        ? assainirHtml(corps.corpsHtml.slice(0, 500_000))
+        : null,
+      /** LOT REDACTION-GMAIL — les cibles de « Classer ce mail », bornées et normalisées. */
+      cibles: ciblesDemandees(corps.cibles),
     }, auteur, deps);
 
     if (!issue.ok) {

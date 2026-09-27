@@ -6,6 +6,8 @@ import { PanneauAffecter } from './PanneauAffecter';
 import { ColonneMode, type PanneauMobile } from './ColonneMode';
 import { Brouillons } from './Brouillons';
 import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './Redaction';
+// LOT REDACTION-GMAIL — les fenêtres flottantes qui encadrent CE MÊME éditeur (jamais un second).
+import { FenetresRedaction, useFenetresRedaction } from './FenetresRedaction';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
 // `ecran` est un module PUR (aucun import) : le faire venir dans un composant client ne tire pas `pg`.
 import { titreARattacher } from '../../../../lib/gestion/ecran';
@@ -202,8 +204,24 @@ export function PleinEcranBoite({
   const [corbeilleFaite, setCorbeilleFaite] = useState<{ filId: number } | null>(null);
   /** Incrémenté après un geste de corbeille : la liste doit être relue, l'échange n'y est plus (ou y revient). */
   const [versionListe, setVersionListe] = useState(0);
-  /** LOT 5e — le brouillon d'un NOUVEAU message (hors de tout échange). `null` = on ne rédige pas. */
-  const [nouveau, setNouveau] = useState<BrouillonEcran | null>(null);
+  /**
+   * ══ 🔴 LOT REDACTION-GMAIL — « NOUVEAU MESSAGE » OUVRE UNE FENÊTRE FLOTTANTE ═══════════════════════════════════
+   * Il prenait la place de la LISTE : on écrivait, et l'on ne voyait plus ce à quoi on répondait. Désormais la
+   * fenêtre s'ancre en bas à droite, la liste reste vivante derrière, et deux messages peuvent s'écrire côte à
+   * côte. La règle (deux au plus, réduite, plein écran) vit dans un module PUR, éprouvé sans écran.
+   *
+   * ⚠️ `nouveau` N'EXISTE PLUS comme état à part : c'est une fenêtre parmi les autres. Rien n'est retiré — la
+   * rédaction, ses pièces jointes, son compte à rebours d'annulation et son enregistrement automatique sont
+   * exactement ceux d'avant ce lot ; seul leur cadre a changé.
+   */
+  const fen = useFenetresRedaction();
+  /** Le refus d'une troisième fenêtre, dit en toutes lettres. `null` = rien à signaler. */
+  const [refusFenetre, setRefusFenetre] = useState<string | null>(null);
+  /** Ouvre (ou rétablit) une fenêtre de rédaction, et DIT pourquoi quand elle est refusée. */
+  const ouvrirRedaction = (cle: string, b: BrouillonEcran): void => {
+    const motif = fen.ouvrirFenetre(cle, b);
+    setRefusFenetre(motif);
+  };
 
   /**
    * LOT ANNUAIRE-1 — ÉCRIRE À QUELQU'UN TROUVÉ DANS L'ANNUAIRE.
@@ -218,13 +236,11 @@ export function PleinEcranBoite({
   useEffect(() => {
     if (ecrireA === null || ecrireA === '') return;
     if (!(redaction?.schemaPret && redaction.peutEnvoyer)) { onEcrireAConsomme?.(); return; }
-    onFermerFil();
-    setNouveau({
+    ouvrirRedaction(`nouveau:${ecrireA}`, {
       ...preparerBrouillon('nouveau', null, { adresseGestion: redaction.adresseGestion, signature: redaction.signature }),
       a: [ecrireA],
       id: null,
     });
-    setPanneauMobile('contenu');
     onEcrireAConsomme?.();
   }, [ecrireA, redaction, onFermerFil, onEcrireAConsomme]);
 
@@ -327,6 +343,28 @@ export function PleinEcranBoite({
 
   return (
     <div className="pe">
+      {/* ══ 🔴 LOT REDACTION-GMAIL — LES FENÊTRES DE RÉDACTION ════════════════════════════════════════════════
+          Ancrées en bas à droite, au-dessus de tout le reste. Deux au plus, côte à côte ; la troisième demande
+          rend un message qui dit quoi faire. Elles vivent ICI, au niveau de l'écran, et non dans la liste : une
+          fenêtre ne doit pas disparaître parce qu'on a changé d'étiquette ou ouvert un échange. */}
+      {refusFenetre !== null && (
+        <p className="pe-refus" role="alert">
+          {refusFenetre}{' '}
+          <button type="button" className="gst-lien-bouton" onClick={() => setRefusFenetre(null)}>J’ai compris</button>
+        </p>
+      )}
+      {redaction !== null && fen.fenetres.length > 0 && (
+        <FenetresRedaction
+          fenetres={fen.fenetres}
+          brouillons={fen.brouillons}
+          contexte={redaction}
+          onChange={fen.majBrouillon}
+          onEtat={fen.changerLEtat}
+          onFermer={fen.fermerLa}
+          onEnvoye={(cle) => { fen.fermerLa(cle); }}
+          onGeste={onGeste} />
+      )}
+
       <style>{CSS_PLEIN_ECRAN}</style>
 
       {/* ══ LA COLONNE, POSÉE DANS LA BARRE DE L'ADMINISTRATION ═══════════════════════════════════════════════════ */}
@@ -339,12 +377,11 @@ export function PleinEcranBoite({
         {redaction?.schemaPret && redaction.peutEnvoyer && (
           <button type="button" className="svv-btn svv-btn-primary gst-btn"
             onClick={() => {
-              onFermerFil();
-              setNouveau({
+              // ⚠️ ON NE FERME PLUS L'ÉCHANGE OUVERT : écrire ne doit plus faire perdre ce qu'on lisait.
+              ouvrirRedaction(`nouveau:${Date.now()}`, {
                 ...preparerBrouillon('nouveau', null, { adresseGestion: redaction.adresseGestion, signature: redaction.signature }),
                 id: null,
               });
-              setPanneauMobile('contenu');
             }}>
             Nouveau message
           </button>
@@ -521,14 +558,10 @@ export function PleinEcranBoite({
         <section className="pe-liste" aria-label={`Échanges — ${titre}`} hidden={filOuvert !== null}>
           {/* SOUS « À CLASSER », C'EST LE POSTE DE TRI QUI S'AFFICHE, tel qu'il est : mêmes gestes, même panneau,
               même compteur. Sous toutes les autres étiquettes, c'est la boîte du lot 5a, filtrée. */}
-          {/* LOT 5e — UN NOUVEAU MESSAGE prend la place de la liste : on écrit, on ne parcourt pas en même temps. */}
-          {nouveau !== null ? (
-            <Redaction brouillon={nouveau} contexte={redaction as ContexteRedactionEcran}
-              onChange={setNouveau}
-              onFerme={() => setNouveau(null)}
-              onEnvoye={() => setNouveau(null)}
-              onGeste={(m) => onGeste(m)} />
-          ) : etiquette.sorte === 'brouillons' ? (
+          {/* 🔴 LOT REDACTION-GMAIL — UN NOUVEAU MESSAGE NE PREND PLUS LA PLACE DE LA LISTE. Il s'ouvre dans une
+              FENÊTRE flottante, en bas à droite (voir `FenetresRedaction`) : on écrit EN VOYANT ce à quoi on
+              répond, et deux messages peuvent s'écrire côte à côte. La liste reste donc à sa place, vivante. */}
+          {etiquette.sorte === 'brouillons' ? (
             <Brouillons maintenant={maintenant}
               onOuvrir={(f) => onOuvrir(f)}
               onChange={() => onEtiquette(etiquette)} />
@@ -644,6 +677,10 @@ const CSS_PLEIN_ECRAN = `
 .pe-corbeille-annuler:hover{border-color:var(--color-svv-ink)}
 .pe-corbeille-annuler:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 
+/* LOT REDACTION-GMAIL — le refus d'une troisieme fenetre. En MOTS, avec la sortie ; jamais un clic sans effet. */
+.pe-refus{position:fixed;left:16px;bottom:16px;z-index:61;max-width:min(420px, calc(100vw - 32px));margin:0;
+  padding:10px 12px;font-size:.85rem;color:var(--color-svv-ink);background:var(--color-svv-surface);
+  border:1px solid var(--color-svv-line-strong);border-left:3px solid var(--color-svv-red);border-radius:.5rem}
 .pe{display:flex;flex-direction:column;gap:12px;min-width:0}
 /* UNE SEULE COLONNE par défaut : la liste occupe toute la largeur, et l'échange ouvert prend sa place — comme dans
    une messagerie. Plus de volet de lecture ouvert en permanence, qui coupait la liste en deux pour ne rien montrer. */

@@ -488,15 +488,23 @@ describe('🔴 l’éditeur s’ouvre SOUS le message, se montre, et prend le cu
     expect(defilements[0].options).toMatchObject({ block: 'start' });
   });
 
-  /** Le curseur au TOUT DÉBUT du message : `focus()` seul le poserait à la fin, sous la signature et la citation. */
+  /**
+   * Le curseur au TOUT DÉBUT du message : `focus()` seul le poserait à la fin, sous la signature et la citation.
+   *
+   * ⚠️ LOT REDACTION-GMAIL — LE CORPS N'EST PLUS UN `textarea` mais une zone de texte MIS EN FORME
+   * (`contentEditable`). La garantie, elle, est la même et c'est elle qu'on éprouve : le focus est dans le corps,
+   * et le point d'insertion est au premier caractère.
+   */
   it('le curseur est dans le champ MESSAGE, à la position 0', async () => {
     await monter();
     await cliquer(ligne(11)?.querySelector('.cnv-ligne'));
     await cliquer(repondreDe(11, /^Répondre$/));
-    const corps = container.querySelector('#red-corps') as HTMLTextAreaElement;
+    const corps = container.querySelector('.edr-zone') as HTMLElement;
+    expect(corps).not.toBeNull();
     expect(document.activeElement).toBe(corps);
-    expect(corps.selectionStart).toBe(0);
-    expect(corps.selectionEnd).toBe(0);
+    const sel = document.getSelection();
+    expect(sel?.anchorOffset).toBe(0);
+    expect(sel?.isCollapsed).toBe(true);
   });
 
   /** Pour un TRANSFERT, il n'y a pas de destinataire : c'est le champ « À » qu'il faut remplir d'abord. */
@@ -506,7 +514,7 @@ describe('🔴 l’éditeur s’ouvre SOUS le message, se montre, et prend le cu
     const actif = document.activeElement as HTMLInputElement;
     expect(actif.tagName).toBe('INPUT');
     expect(actif.value).toBe('');
-    expect(container.querySelector('#red-corps')).not.toBe(actif);
+    expect(container.querySelector('.edr-zone')).not.toBe(actif);
   });
 
   it('un repère visuel confirme l’ouverture, et s’efface', async () => {
@@ -565,11 +573,21 @@ describe('🔴 aucun brouillon tant que rien n’est saisi', () => {
   const laisserEnregistrer = async () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(1600); });
   };
+  /**
+   * ⚠️ LOT REDACTION-GMAIL — ON TAPE DANS UNE ZONE `contentEditable`, plus dans un `textarea`. On écrit donc son
+   * `innerHTML` puis on émet `input`, exactement ce que fait le navigateur à la frappe. Le texte est enveloppé
+   * d'un `<p>` : c'est ce que produit l'éditeur, et c'est ce qui repart dans le message.
+   */
   const taperDansLeMessage = async (texte: string) => {
-    const corps = container.querySelector('#red-corps') as HTMLTextAreaElement;
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(corps, texte);
+    const corps = container.querySelector('.edr-zone') as HTMLElement;
+    corps.innerHTML = texte === '' ? '' : `<p>${texte.replace(/&/g, '&amp;').replace(/</g, '&lt;').split('\n').join('<br />')}</p>`;
     await act(async () => { corps.dispatchEvent(new Event('input', { bubbles: true })); });
     await calmer();
+  };
+  /** Ce que l'éditeur affiche, en TEXTE — l'équivalent de l'ancien `.value` du `textarea`. */
+  const texteDuMessage = (): string => {
+    const corps = container.querySelector('.edr-zone') as HTMLElement | null;
+    return corps?.textContent ?? '';
   };
 
   /**
@@ -608,7 +626,7 @@ describe('🔴 aucun brouillon tant que rien n’est saisi', () => {
   it('écrire, tout effacer, puis fermer : le brouillon est abandonné', async () => {
     await monter();
     await cliquer(repondreDe(13, /^Répondre$/));
-    const original = (container.querySelector('#red-corps') as HTMLTextAreaElement).value;
+    const original = texteDuMessage();
     await taperDansLeMessage(`Bonjour.${original}`);
     await laisserEnregistrer();
     expect(brouillons.filter((b) => b.methode === 'POST')).toHaveLength(1);
@@ -624,7 +642,7 @@ describe('🔴 aucun brouillon tant que rien n’est saisi', () => {
   it('fermer un brouillon qui a du contenu ne l’abandonne PAS', async () => {
     await monter();
     await cliquer(repondreDe(13, /^Répondre$/));
-    const original = (container.querySelector('#red-corps') as HTMLTextAreaElement).value;
+    const original = texteDuMessage();
     await taperDansLeMessage(`Bonjour.${original}`);
     await laisserEnregistrer();
     await cliquer(boutonPar(/^Fermer$/));

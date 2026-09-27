@@ -7,7 +7,11 @@ import {
 } from '../../../../../lib/gestion/google';
 import { lireJeton } from '../../../../../lib/gestion/googleJeton';
 import { compterBrouillons } from '../../../../../lib/gestion/redactionRepo';
-import { piecesEnvoiDisponibles, redactionDisponible } from '../../../../../lib/gestion/schema';
+import {
+  brouillonCibleDisponible, brouillonHtmlDisponible, piecesEnvoiDisponibles, redactionDisponible,
+} from '../../../../../lib/gestion/schema';
+// LOT REDACTION-GMAIL — la signature Gmail est du HTML venu d'un réglage : elle s'assainit comme tout le reste.
+import { assainirHtml } from '../../../../../lib/gestion/htmlMail';
 
 /**
  * /api/admin/gestion/redaction (lot 5e) — CE QUE L'ÉCRAN A BESOIN DE SAVOIR AVANT DE PROPOSER D'ÉCRIRE.
@@ -37,6 +41,20 @@ export async function GET(request: Request): Promise<Response> {
   ]);
 
   let signature = '';
+  /**
+   * ══ 🔴 LOT REDACTION-GMAIL — LA SIGNATURE GMAIL EN HTML, AVEC SON LOGO ════════════════════════════════════════
+   * Elle est lisible AVEC LA PORTÉE DÉJÀ ACCORDÉE (`gmail.settings.basic`, cf. `google.ts`) : rien de nouveau à
+   * autoriser, rien à connecter. On prend donc le HTML TEL QUE GMAIL LE REND, on l'assainit, et l'éditeur riche
+   * l'affiche comme elle apparaît dans Gmail — logo compris, quand il est porté par une image distante.
+   *
+   * ⚠️ LA VERSION TEXTE RESTE CALCULÉE ET RENDUE. Ce n'est pas un doublon : elle part dans la moitié texte du
+   * `multipart/alternative`, et elle est le repli quand le HTML n'est pas disponible. Les deux sont tenues
+   * d'accord par le même code que le reste du corps.
+   *
+   * ⚠️ UN LOGO PORTÉ PAR UNE IMAGE DISTANTE (`https://…`) est conservé tel quel ; un logo en `cid:` renverrait à
+   * une pièce que NOUS devrions joindre — ce que ce lot ne fait pas encore. Voir le rapport de nuit.
+   */
+  let signatureHtml = '';
   let jetonPresent = false;
   // La signature ne se demande à Google QUE si la connexion existe. Sans jeton, on ne tente rien : une tentative
   //   vouée à l'échec ajouterait une seconde d'attente à chaque ouverture de l'écran, pour rien.
@@ -51,6 +69,8 @@ export async function GET(request: Request): Promise<Response> {
         if (sigs.ok) {
           const nôtre = sigs.valeur.find((s) => estCompteAttendu(s.adresse)) ?? sigs.valeur.find((s) => s.parDefaut);
           signature = signatureEnTexte(nôtre?.signature ?? '');
+          // 🔴 ASSAINIE ICI, comme tout HTML qui entre : la signature vient d'un réglage Gmail, donc de l'extérieur.
+          signatureHtml = assainirHtml(nôtre?.signature ?? '');
         }
       } else {
         jetonPresent = false; // jeton périmé : l'écran doit le traiter comme une absence de connexion
@@ -67,7 +87,15 @@ export async function GET(request: Request): Promise<Response> {
     // LOT 5-PJ-ENVOI — la migration 252 est-elle là ? Sans elle, l'éditeur ne montre aucune zone de pièces jointes
     //   et l'envoi texte reste exactement celui d'avant. Sonde HORS transaction, comme partout dans ce module.
     piecesDisponibles: await piecesEnvoiDisponibles(),
-    signature, nomExpediteur: NOM_PAR_DEFAUT, adresseGestion: config.adresseGestion || COMPTE_GESTION,
+    signature, signatureHtml,
+    /**
+     * LOT REDACTION-GMAIL — la migration 265 est-elle appliquée ? Deux sondes SÉPARÉES : le brouillon garde-t-il sa
+     * mise en forme, et peut-on mémoriser les cibles de « Classer ce mail » ? Sans elles, l'éditeur riche
+     * fonctionne quand même et l'envoi part bien en HTML ; seul l'ENREGISTREMENT du brouillon est limité.
+     */
+    htmlDisponible: await brouillonHtmlDisponible(),
+    classementDisponible: await brouillonCibleDisponible(),
+    nomExpediteur: NOM_PAR_DEFAUT, adresseGestion: config.adresseGestion || COMPTE_GESTION,
     delaiAnnulationS: config.annulationEnvoiSecondes,
     brouillons,
   }, { headers: { 'Cache-Control': 'private, no-store' } });

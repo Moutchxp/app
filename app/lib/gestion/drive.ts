@@ -394,3 +394,150 @@ export function motifHttp(status: number, quoi: string): string {
   if (status === 429 || status >= 500) return `Le Drive n’a pas répondu (${quoi}) — à réessayer dans un moment.`;
   return `Google a refusé ${quoi} (code ${status}).`;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT REDACTION-GMAIL — LIRE DES FICHIERS (et non plus seulement des dossiers), POUR LES JOINDRE À UN MAIL
+   🔒 STRICTEMENT EN LECTURE : `files.list` et `files.get`. Aucune création, aucune modification, aucun partage.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Ce qu'on demande d'un FICHIER : de quoi l'afficher, le juger et, le cas échéant, le joindre. */
+const CHAMPS_FICHIERS =
+  'files(id,name,driveId,mimeType,size,modifiedTime,webViewLink,shortcutDetails(targetId,targetMimeType))';
+
+export interface FichierDrive {
+  id: string;
+  nom: string;
+  driveId: string | null;
+  typeMime: string;
+  /** En octets. `null` pour un document Google natif, qui n'a pas de taille tant qu'on ne l'exporte pas. */
+  tailleOctets: number | null;
+  modifieLe: string | null;
+  /** L'adresse à ouvrir dans un navigateur — c'est elle qu'« Insérer un lien » met dans le message. */
+  lien: string | null;
+  dossier: boolean;
+}
+
+function versFichiers(j: unknown): FichierDrive[] {
+  const brut = (j as { files?: unknown[] })?.files ?? [];
+  return brut.map((f) => {
+    const o = f as {
+      id?: string; name?: string; driveId?: string | null; mimeType?: string; size?: string;
+      modifiedTime?: string; webViewLink?: string;
+      shortcutDetails?: { targetId?: string; targetMimeType?: string };
+    };
+    // Un RACCOURCI est suivi jusqu'à sa cible : c'est elle qu'on affiche, qu'on joint ou qu'on lie.
+    const cible = o.shortcutDetails?.targetId;
+    const type = o.shortcutDetails?.targetMimeType ?? o.mimeType ?? '';
+    return {
+      id: cible ?? o.id ?? '',
+      nom: (o.name ?? '').trim() || '(sans nom)',
+      driveId: o.driveId ?? null,
+      typeMime: type,
+      tailleOctets: o.size === undefined ? null : Number(o.size),
+      modifieLe: o.modifiedTime ?? null,
+      lien: o.webViewLink ?? null,
+      dossier: type === MIME_DOSSIER,
+    };
+  }).filter((f) => f.id !== '');
+}
+
+/**
+ * LE CONTENU D'UN DOSSIER : ses sous-dossiers ET ses fichiers, dans cet ordre. LECTURE SEULE.
+ *
+ * ⚠️ `orderBy: 'folder,name'` — Google range les dossiers avant les fichiers quand on le lui demande ainsi. C'est
+ * l'ordre de n'importe quel explorateur, et celui qu'on attend sans y penser.
+ */
+export async function listerContenu(
+  accessToken: string, o: { parentId: string; driveId?: string | null; pageSize?: number }, deps: DepsGoogle,
+): Promise<Resultat<FichierDrive[]>> {
+  const p = new URLSearchParams({
+    q: `'${echapperQ(o.parentId)}' in parents and trashed = false`,
+    fields: CHAMPS_FICHIERS,
+    pageSize: String(o.pageSize ?? 200),
+    orderBy: 'folder,name',
+    ...PARTAGES,
+  });
+  if (o.driveId) { p.set('driveId', o.driveId); p.set('corpora', 'drive'); }
+  const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture du dossier') };
+  return { ok: true, valeur: versFichiers(await res.json().catch(() => ({}))) };
+}
+
+/** Les MÉTADONNÉES d'un élément : nom, type, taille, parents. LECTURE SEULE — jamais le contenu. */
+export async function lireMetadonnees(
+  accessToken: string, id: string, deps: DepsGoogle,
+): Promise<Resultat<{ id: string; nom: string; typeMime: string; tailleOctets: number | null; parents: string[]; lien: string | null }>> {
+  const p = new URLSearchParams({
+    fields: 'id,name,mimeType,size,parents,webViewLink,trashed',
+    ...PARTAGES,
+  });
+  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture du fichier') };
+  const b = await res.json().catch(() => ({})) as {
+    id?: string; name?: string; mimeType?: string; size?: string; parents?: string[];
+    webViewLink?: string; trashed?: boolean;
+  };
+  if (b.trashed === true) return { ok: false, motif: 'Ce fichier est à la corbeille du Drive.' };
+  return {
+    ok: true,
+    valeur: {
+      id: b.id ?? id,
+      nom: (b.name ?? '').trim() || '(sans nom)',
+      typeMime: b.mimeType ?? '',
+      tailleOctets: b.size === undefined ? null : Number(b.size),
+      parents: b.parents ?? [],
+      lien: b.webViewLink ?? null,
+    },
+  };
+}
+
+/**
+ * ══ 🔴🔴 LA CHAÎNE DES PARENTS D'UN ÉLÉMENT, jusqu'en haut. LECTURE SEULE (métadonnées uniquement). ══════════════
+ *
+ * C'est ELLE qui permet de répondre à « ce fichier est-il sous “Documents clients scannés” ? ». On ne se fie ni au
+ * nom du fichier, ni à celui de son dossier immédiat : on REMONTE. Un fichier rangé douze niveaux sous le dossier
+ * interdit est sous le dossier interdit.
+ *
+ * ⚠️ BORNÉE, et ELLE S'ARRÊTE SUR ERREUR SANS PRÉTENDRE AVOIR FINI. Le verdict (`peutJoindre`) refuse quand la
+ * chaîne est incomplète — c'est exactement ce qu'on veut : ne pas savoir vaut interdit.
+ */
+export async function chaineParents(
+  accessToken: string, depart: string, deps: DepsGoogle, max = 32,
+): Promise<{ id: string; nom: string; parentId: string | null }[]> {
+  const chaine: { id: string; nom: string; parentId: string | null }[] = [];
+  const vus = new Set<string>();
+  let courant: string | null = depart;
+  for (let i = 0; i < max && courant !== null; i += 1) {
+    if (vus.has(courant)) break;
+    vus.add(courant);
+    const m: Resultat<{ nom: string; parents: string[] }> = await lireMetadonnees(accessToken, courant, deps);
+    if (!m.ok) break;
+    const parent = m.valeur.parents[0] ?? null;
+    chaine.push({ id: courant, nom: m.valeur.nom, parentId: parent });
+    courant = parent;
+  }
+  return chaine;
+}
+
+/**
+ * LE CONTENU D'UN FICHIER, en octets. LECTURE SEULE (`alt=media`).
+ *
+ * 🔴🔴 CETTE FONCTION NE VÉRIFIE RIEN ELLE-MÊME, et c'est délibéré : elle ne sait pas où le fichier est rangé.
+ * C'est l'APPELANT qui doit avoir obtenu le verdict de `peutJoindre` AVANT de l'appeler — et la route qui l'emploie
+ * le fait, avec un test qui le prouve. Mélanger la règle et la lecture ferait une fonction qui décide ET qui agit :
+ * la règle deviendrait alors invérifiable sans réseau.
+ */
+export async function lireContenuFichier(
+  accessToken: string, id: string, deps: DepsGoogle, tailleMax: number,
+): Promise<Resultat<Buffer>> {
+  const p = new URLSearchParams({ alt: 'media', ...PARTAGES });
+  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'le téléchargement du fichier') };
+  const octets = Buffer.from(await res.arrayBuffer());
+  if (octets.byteLength > tailleMax) {
+    return { ok: false, motif: `Ce fichier dépasse la taille autorisée pour une pièce jointe.` };
+  }
+  return { ok: true, valeur: octets };
+}

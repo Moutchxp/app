@@ -60,6 +60,19 @@ export interface DemandeEnvoi {
    * complet (`transferer_piece`). Absente ⇒ comportement d'avant ce lot.
    */
   voie?: string | null;
+  /**
+   * LOT REDACTION-GMAIL — le corps en HTML, DÉJÀ ASSAINI PAR LA ROUTE. Présent ⇒ le message part en
+   * `multipart/alternative` (texte + HTML) ; absent ou vide ⇒ texte seul, exactement comme avant ce lot.
+   *
+   * ⚠️ CE MODULE NE L'ASSAINIT PAS LUI-MÊME, et c'est délibéré : il est déjà responsable de l'ORDRE des gestes,
+   * qui est sa vraie fonction. L'assainissement est fait par la route, en un seul endroit, avec un test dédié.
+   */
+  corpsHtml?: string | null;
+  /**
+   * LOT REDACTION-GMAIL — les cibles de « Classer ce mail ». Après un envoi RÉUSSI, chacune devient un
+   * rattachement MANUEL confirmé du message envoyé. Vide ou absent ⇒ rien à classer.
+   */
+  cibles?: readonly { sorte: string; cle: string | null; id: number | null; libelle: string }[];
 }
 
 export interface DepsEnvoiComplet {
@@ -91,6 +104,22 @@ export interface DepsEnvoiComplet {
   finaliser(id: number, maj: { etat: 'envoye' | 'echec'; gmailMessageId?: string | null; erreur?: string | null }): Promise<void>;
   /** Marque le brouillon envoyé (il quitte la liste sans être supprimé). */
   marquerBrouillonEnvoye(id: number): Promise<void>;
+  /**
+   * ══ LOT REDACTION-GMAIL — POSER LES RATTACHEMENTS DEMANDÉS PENDANT L'ÉCRITURE ═════════════════════════════════
+   * Appelée APRÈS un envoi réussi, et au MIEUX-EFFORT comme tout ce qui suit l'acceptation de Gmail : une fois le
+   * message parti, plus rien ne peut rendre un échec (règle du 24/09/2026). Un rattachement qui n'a pas pu
+   * s'écrire se rattrape ; un mail renvoyé parce qu'on a cru qu'il n'était pas parti, non.
+   *
+   * ⚠️ ELLE A BESOIN DU MESSAGE EN BASE. Or il n'y est pas encore : c'est la relève qui le capturera. La mise en
+   * œuvre l'attache donc à l'identifiant GMAIL de l'envoi, et la pose se fait quand le message est capturé.
+   * Injectée : ce module ne sait pas écrire en base. Absente ⇒ rien n'est posé, comme avant ce lot.
+   */
+  classer?(o: {
+    envoiId: number;
+    gmailMessageId: string | null;
+    cibles: readonly { sorte: string; cle: string | null; id: number | null; libelle: string }[];
+    auteur: Auteur;
+  }): Promise<void>;
   /** Le journal MÉTIER : qui, à qui, quand, quel objet — et SUR QUOI la ligne se range (`envoiId`). */
   journaliser(l: {
     auteur: Auteur; objet: string; destinataires: string[]; issue: 'envoye' | 'echec'; envoiId: number;
@@ -107,7 +136,7 @@ export interface DepsEnvoiComplet {
 }
 
 /** Les gestes qui suivent l'acceptation de Gmail. Nommés, parce qu'un incident doit dire LEQUEL a manqué. */
-export type EtapeApresEnvoi = 'finaliser' | 'brouillon' | 'journal';
+export type EtapeApresEnvoi = 'finaliser' | 'brouillon' | 'journal' | 'classement';
 
 export type IssueEnvoi =
   | { ok: true; envoi: EnvoiEnBase; deja: boolean }
@@ -168,7 +197,7 @@ export async function envoyerMessage(d: DemandeEnvoi, auteur: Auteur, deps: Deps
   // ⑤ GMAIL.
   const rfc822 = construireRfc822({
     de: de.adresse, deNom: de.nom, a: d.a, cc: d.cc, cci: d.cci,
-    objet: d.objet, corps: d.corps, messageId,
+    objet: d.objet, corps: d.corps, corpsHtml: d.corpsHtml ?? null, messageId,
     inReplyTo: ancrage.messageIdRfc, references, pieces,
   }, deps.alea());
   const issue = await deps.envoyer({ accessToken: jeton, rfc822, cci: d.cci, threadId: ancrage.threadId });
@@ -188,5 +217,16 @@ export async function envoyerMessage(d: DemandeEnvoi, auteur: Auteur, deps: Deps
   await auMieux('finaliser', () => deps.finaliser(envoi.id, { etat: 'envoye', gmailMessageId: issue.gmailMessageId }));
   if (d.brouillonId !== null) await auMieux('brouillon', () => deps.marquerBrouillonEnvoye(d.brouillonId as number));
   await auMieux('journal', () => deps.journaliser({ auteur, objet: d.objet, destinataires, issue: 'envoye', envoiId: envoi.id, pieces: pieces.map((p) => p.nom) }));
+  /**
+   * LOT REDACTION-GMAIL — LE CLASSEMENT DEMANDÉ PENDANT L'ÉCRITURE, posé en dernier et AU MIEUX-EFFORT. Il vient
+   * après le journal exprès : c'est la pièce la moins critique de la série, et la seule qu'on puisse refaire à la
+   * main en deux clics si elle manque.
+   */
+  const cibles = d.cibles ?? [];
+  if (deps.classer && cibles.length > 0) {
+    await auMieux('classement', () => (deps.classer as NonNullable<DepsEnvoiComplet['classer']>)({
+      envoiId: envoi.id, gmailMessageId: issue.gmailMessageId ?? null, cibles, auteur,
+    }));
+  }
   return { ok: true, envoi: { ...envoi, etat: 'envoye' }, deja: false };
 }

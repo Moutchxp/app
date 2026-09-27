@@ -67,6 +67,14 @@ export interface Brouillon {
   /** Le message d'origine, cité, REPLIÉ à l'écran. `null` pour un nouveau message. */
   citation: string | null;
   /**
+   * LOT REDACTION-GMAIL — la citation en HTML, quand on la connaît sous cette forme (demande d'Arno : « la citation
+   * du message d'origine est conservée en HTML »). `null` ⇒ on cite la version texte, comme avant ce lot.
+   *
+   * ⚠️ LES DEUX CITATIONS PARTENT ENSEMBLE, dans les deux versions du message. Ne mettre la citation que dans le
+   * HTML ferait disparaître le message d'origine pour qui lit en texte — et l'inverse pour qui lit en HTML.
+   */
+  citationHtml?: string | null;
+  /**
    * 🔴 Les destinataires d'origine n'étaient pas détaillés : la liste proposée est une APPROXIMATION, et l'écran doit
    * le dire avant qu'on envoie. Voir la règle ③.
    */
@@ -75,6 +83,37 @@ export interface Brouillon {
   filId: number | null;
   /** Le message auquel on répond, pour In-Reply-To / References. `null` = nouveau message. */
   repondALeMessageId: number | null;
+  /**
+   * ══ 🔴 LOT REDACTION-GMAIL — LE CORPS EN TEXTE MIS EN FORME ═══════════════════════════════════════════════════
+   * `null` ou vide ⇒ ce brouillon n'a que du texte : c'est le cas des 2 400 brouillons d'avant ce lot, et celui
+   * d'un message écrit sans toucher à la barre d'outils.
+   *
+   * 🔴 `corps` RESTE LA VÉRITÉ TEXTE, et n'est pas un sous-produit : le message part en `multipart/alternative`,
+   * et une partie des destinataires — tous les lecteurs d'écran en mode texte — ne verra QUE cette version-là.
+   * Les deux sont tenues d'accord par `htmlVersTexte` à chaque frappe.
+   */
+  corpsHtml?: string | null;
+  /**
+   * LOT REDACTION-GMAIL — les cibles choisies dans « Classer ce mail ». À l'envoi, chacune devient un rattachement
+   * MANUEL confirmé du message envoyé. Vide ou absent ⇒ aucun classement demandé, comportement d'avant ce lot.
+   *
+   * ⚠️ NOUVEAU MESSAGE SEULEMENT (demande d'Arno) : une réponse hérite du classement de son échange, et proposer
+   * de le refaire donnerait deux vérités sur la même conversation.
+   */
+  cibles?: CibleBrouillon[];
+}
+
+/** Une cible de classement choisie pendant l'écriture. Même forme que `gestion_rattachement` : à l'envoi, on COPIE. */
+export interface CibleBrouillon {
+  sorte: 'lot' | 'proprietaire' | 'locataire' | 'evenement';
+  cle: string | null;
+  id: number | null;
+  libelle: string;
+}
+
+/** Deux cibles désignent-elles la même chose ? Sert à ne pas en poser deux fois la même. PUR. */
+export function memeCibleBrouillon(a: CibleBrouillon, b: CibleBrouillon): boolean {
+  return a.sorte === b.sorte && (a.cle ?? '') === (b.cle ?? '') && (a.id ?? 0) === (b.id ?? 0);
 }
 
 // ── Adresses ──────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -155,6 +194,39 @@ export function prefixerObjet(objet: string | null | undefined, voie: VoieRedact
  * trente ans — c'est ce que les clients des correspondants savent replier. Rendu REPLIÉ à l'écran : on écrit
  * au-dessus, on ne relit pas ce qu'on vient de lire. PUR.
  */
+/**
+ * ══ 🔴 LOT REDACTION-GMAIL — LA CITATION EN HTML ═════════════════════════════════════════════════════════════════
+ *
+ * La MÊME citation, dans la forme que toutes les messageries emploient : une introduction, puis le message d'origine
+ * dans un `blockquote` à barre verticale. C'est ce qui permet au destinataire de replier la citation d'un clic —
+ * avec des « > » en début de ligne, son client ne sait pas où elle commence.
+ *
+ * ⚠️ ELLE N'INVENTE RIEN : le corps d'origine est ÉCHAPPÉ (`echapperTexte`) puis ses sauts de ligne deviennent des
+ * `<br>`. On ne réinterprète jamais le message de quelqu'un d'autre comme du HTML — ce serait rouvrir, à l'endroit
+ * exact où on ne l'attend pas, tout ce que l'assainisseur existe pour fermer.
+ *
+ * ⚠️ `null` QUAND `citerMessage` REND `null` : une seule décision, prise au même endroit. PUR.
+ */
+export function citerMessageHtml(m: MessageOrigine, dateLisible?: string, corpsHtml?: string | null): string | null {
+  const texte = citerMessage(m, dateLisible);
+  if (texte === null) return null;
+  const qui = (m.deNom ?? '').trim() !== '' ? `${(m.deNom ?? '').trim()} <${m.de}>` : m.de;
+  const quand = (dateLisible ?? '').trim();
+  const intro = quand === '' ? `${qui} a écrit :` : `Le ${quand}, ${qui} a écrit :`;
+  const echapper = (v: string) => v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  /**
+   * 🔴 LE HTML D'ORIGINE EST PRÉFÉRÉ QUAND ON L'A — c'est la demande d'Arno (« la citation est conservée en
+   * HTML ») : citer la version texte d'un message qui était mis en forme perd ses listes, ses liens et ses gras.
+   * L'appelant DOIT l'avoir déjà assaini : ce module est pur et ne peut pas le faire lui-même.
+   */
+  const dedans = (corpsHtml ?? '').trim() !== ''
+    ? (corpsHtml as string)
+    : echapper((m.corps ?? '').replace(/\r\n/g, '\n').trimEnd()).split('\n').join('<br />');
+  const corpsCite = dedans.trim() === '' ? '' :
+    `<blockquote style="margin: 0 0 0 0.5rem; padding-left: 0.8rem; border-left: 2px solid #cccccc">${dedans}</blockquote>`;
+  return `<div>${echapper(intro)}</div>${corpsCite}`;
+}
+
 export function citerMessage(m: MessageOrigine, dateLisible?: string): string | null {
   const corps = (m.corps ?? '').replace(/\r\n/g, '\n').trimEnd();
   const qui = (m.deNom ?? '').trim() !== '' ? `${(m.deNom ?? '').trim()} <${m.de}>` : m.de;
@@ -180,7 +252,7 @@ export function citerMessage(m: MessageOrigine, dateLisible?: string): string | 
  */
 export function preparerBrouillon(
   voie: VoieRedaction, origine: MessageOrigine | null, ctx: ContexteRedaction,
-  o: { filId?: number | null; dateLisible?: string } = {},
+  o: { filId?: number | null; dateLisible?: string; origineHtml?: string | null } = {},
 ): Brouillon {
   const nous = ctx.adresseGestion;
   const signature = (ctx.signature ?? '').trim();
@@ -195,12 +267,14 @@ export function preparerBrouillon(
     ...vide,
     objet: prefixerObjet(origine.objet, voie),
     citation: citerMessage(origine, o.dateLisible),
+    // LOT REDACTION-GMAIL — la même citation, en HTML. `origineHtml` doit arriver DÉJÀ ASSAINI (module pur).
+    citationHtml: citerMessageHtml(origine, o.dateLisible, o.origineHtml),
     repondALeMessageId: origine.messageId,
   };
 
   // LOT 5-PJ-ENVOI — le TRANSFERT EN PIÈCE JOINTE ne CITE PAS l'original : il le joint en entier. Laisser la
   //   citation ferait lire deux fois la même chose, et laisserait croire que le .eml n'est qu'un doublon.
-  if (voie === 'transferer_piece') return { ...base, citation: null };
+  if (voie === 'transferer_piece') return { ...base, citation: null, citationHtml: null };
   if (voie === 'transferer') return base; // à qui ? personne ne peut le deviner à notre place.
 
   // À : le Reply-To s'il est CONNU (l'expéditeur a demandé qu'on réponde là), sinon l'expéditeur.
@@ -309,13 +383,23 @@ export function secondesRestantes(clicLe: Date, maintenant: Date, delaiS: number
  * PUR : aucune I/O, aucune horloge. C'est une décision, elle doit pouvoir se rejouer.
  */
 export function brouillonTouche(
-  origine: Pick<Brouillon, 'a' | 'cc' | 'cci' | 'objet' | 'corps'>,
-  courant: Pick<Brouillon, 'a' | 'cc' | 'cci' | 'objet' | 'corps'>,
+  origine: Pick<Brouillon, 'a' | 'cc' | 'cci' | 'objet' | 'corps'> & { cibles?: CibleBrouillon[] },
+  courant: Pick<Brouillon, 'a' | 'cc' | 'cci' | 'objet' | 'corps'> & { cibles?: CibleBrouillon[] },
   avecPieces = false,
 ): boolean {
   if (avecPieces) return true;
   if (courant.corps !== origine.corps) return true;
   if (courant.objet !== origine.objet) return true;
+  /**
+   * LOT REDACTION-GMAIL — CHOISIR UNE CIBLE DE CLASSEMENT EST UNE SAISIE. Sans cette ligne, ouvrir « Nouveau
+   * message », classer le mail puis fermer perdrait le classement sans rien dire : le brouillon aurait été jugé
+   * « pas touché », donc jamais enregistré.
+   *
+   * ⚠️ ON NE REGARDE PAS `corpsHtml` : il est DÉRIVÉ de `corps` à chaque frappe (l'un est le rendu texte de
+   * l'autre). Le comparer ferait déclarer « touché » un brouillon simplement rouvert, puisque la conversion
+   * texte → HTML d'un corps hérité ne redonne pas octet pour octet le HTML d'origine.
+   */
+  if ((courant.cibles ?? []).length !== (origine.cibles ?? []).length) return true;
   return !memesAdresses(origine.a, courant.a)
     || !memesAdresses(origine.cc, courant.cc)
     || !memesAdresses(origine.cci, courant.cci);

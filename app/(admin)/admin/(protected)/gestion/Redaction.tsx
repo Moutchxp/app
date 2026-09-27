@@ -1,7 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CSS_PIECES_BROUILLON, PiecesBrouillon } from './PiecesBrouillon';
+// LOT REDACTION-GMAIL — le corps en texte mis en forme, et le nettoyage du HTML collé (module PUR, partagé serveur).
+import { CSS_EDITEUR_RICHE, EditeurRiche, type ApiEditeur } from './EditeurRiche';
+import { htmlVersTexte, texteVersHtml } from '../../../../lib/gestion/htmlMail';
+import { SelecteurFichierDrive, CSS_SELECTEUR_FICHIER } from './SelecteurFichierDrive';
+import { ChampClassement, CSS_CHAMP_CLASSEMENT } from './ChampClassement';
 import {
   adresseValide, decouperAdresses, MENTION_DESTINATAIRES_APPROXIMATIFS, MENTION_PIECES_NON_JOINTES,
   MENTION_SANS_SIGNATURE, pretAEnvoyer, secondesRestantes,
@@ -41,6 +46,22 @@ export interface ContexteRedactionEcran {
   nomExpediteur: string;
   adresseGestion: string;
   delaiAnnulationS: number;
+  /**
+   * LOT REDACTION-GMAIL — la migration 265 est-elle appliquée ? Deux sondes SÉPARÉES (elles peuvent diverger si la
+   * migration est appliquée à moitié) :
+   *   · `htmlDisponible`     : le brouillon ENREGISTRÉ garde-t-il sa mise en forme ? Sinon on l'écrit à l'écran —
+   *     l'éditeur riche fonctionne quand même, et l'ENVOI part bien en HTML (il lit l'écran, pas la base) ;
+   *   · `classementDisponible` : peut-on garder les cibles de « Classer ce mail » ? Sinon le champ n'est PAS
+   *     affiché — proposer un classement qui se perdrait au rechargement serait pire qu'une fonction absente.
+   */
+  htmlDisponible?: boolean;
+  classementDisponible?: boolean;
+  /**
+   * LOT REDACTION-GMAIL — la signature Gmail de gestion@, EN HTML (logo compris), déjà assainie par la route.
+   * Vide ⇒ on garde la signature TEXTE, exactement comme avant ce lot. Lisible avec la portée déjà accordée
+   * (`gmail.settings.basic`) : rien de nouveau n'a été autorisé pour l'obtenir.
+   */
+  signatureHtml?: string;
 }
 
 type Etat =
@@ -196,13 +217,19 @@ export function ChampDestinataires({ libelle, valeurs, onChange, suggestions, on
   );
 }
 
-export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, onGeste }: {
+export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, onGeste, dansFenetre = false }: {
   brouillon: BrouillonEcran;
   contexte: ContexteRedactionEcran;
   onChange: (b: BrouillonEcran) => void;
   onFerme: () => void;
   onEnvoye: () => void;
   onGeste: (message: string) => void;
+  /**
+   * LOT REDACTION-GMAIL — l'éditeur est-il rendu DANS une fenêtre flottante ? Alors la fenêtre porte déjà le titre
+   * et la croix : on ne les répète pas. `false` (le défaut) = rendu en place, sous un message — l'en-tête reste,
+   * exactement comme avant ce lot.
+   */
+  dansFenetre?: boolean;
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'ecriture' });
   const [copies, setCopies] = useState(brouillon.cc.length > 0 || brouillon.cci.length > 0);
@@ -211,6 +238,17 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
   const [reste, setReste] = useState(0);
   /** LOT 5-PJ-ENVOI — combien de pièces sont jointes, remonté par la zone des pièces (pour le bouton d'envoi). */
   const [piecesJointes, setPiecesJointes] = useState(0);
+  /** LOT REDACTION-GMAIL — la barre de mise en forme est-elle dépliée ? Le bouton « Aa » la bascule, comme Gmail. */
+  const [barreOutils, setBarreOutils] = useState(true);
+  /** Le sélecteur de fichier Drive, et la petite fenêtre « insérer un lien ». `null` = fermés. */
+  const [drive, setDrive] = useState(false);
+  const [lien, setLien] = useState<{ texte: string; url: string } | null>(null);
+  /** La confirmation de suppression du brouillon. Un brouillon se supprime EXPRÈS, jamais par un clic au passage. */
+  const [supprime, setSupprime] = useState(false);
+  /** Remonte la zone des pièces après un ajout venu du Drive : elle relit alors la liste. */
+  const [versionPieces, setVersionPieces] = useState(0);
+  /** De quoi insérer un lien ou une pièce Drive à la position du curseur. Posé par l'éditeur quand il est prêt. */
+  const editeur = useRef<ApiEditeur | null>(null);
   // La clé d'idempotence et le minuteur vivent dans des `ref` : un nouveau rendu ne doit ni en tirer une seconde, ni
   //   relancer le compte à rebours.
   const minuteur = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -234,7 +272,6 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
    * pendant qu'on écrit, et le curseur reviendrait au début du texte.
    */
   const racine = useRef<HTMLElement | null>(null);
-  const corpsRef = useRef<HTMLTextAreaElement | null>(null);
   const [ouvre, setOuvre] = useState(true);
   const cleOuverture = `${brouillon.voie}:${brouillon.id ?? 'neuf'}`;
   useEffect(() => {
@@ -288,10 +325,8 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
      * ⚠️ PAS POUR UN TRANSFERT NI UN MESSAGE NEUF : là, le champ « À » est vide et c'est lui qu'il faut remplir
      * d'abord. Il porte déjà `autoFocus` — on ne lui reprend donc pas le curseur.
      */
-    if (brouillon.voie === 'repondre' || brouillon.voie === 'repondre_tous') {
-      const t = corpsRef.current;
-      if (t) { t.focus(); t.setSelectionRange(0, 0); }
-    }
+    // ⚠️ LE CURSEUR EST POSÉ PAR L'ÉDITEUR LUI-MÊME depuis le lot REDACTION-GMAIL (`autoFocus`) : le corps n'est
+    //   plus un `textarea` mais une zone de texte mis en forme, dont seul l'éditeur sait placer le point d'insertion.
     const fin = setTimeout(() => setOuvre(false), 1100);
     return () => {
       clearTimeout(fin);
@@ -304,6 +339,27 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
   }, [cleOuverture]);
 
   const modifier = (p: Partial<BrouillonEcran>) => onChange({ ...brouillon, ...p });
+
+  /**
+   * ══ LE CORPS À L'OUVERTURE, EN HTML ══════════════════════════════════════════════════════════════════════════
+   * Trois cas, dans cet ordre :
+   *   ① le brouillon a DÉJÀ du HTML (rouvert, ou déjà tapé) → on le reprend tel quel ;
+   *   ② on connaît la signature GMAIL en HTML → le corps naît vide, deux lignes, puis la signature AVEC son logo,
+   *      comme dans Gmail. Le curseur se pose au-dessus (voir `autoFocus`) ;
+   *   ③ à défaut → le corps texte converti, c'est-à-dire le comportement d'avant ce lot.
+   *
+   * ⚠️ CALCULÉ UNE SEULE FOIS PAR BROUILLON (`useMemo` sur sa clé) : recalculé à chaque rendu, il remonterait
+   * l'éditeur et effacerait ce qu'on est en train d'écrire.
+   */
+  const cleCorps = `${brouillon.voie}:${brouillon.id ?? 'neuf'}:${brouillon.repondALeMessageId ?? 0}`;
+  const corpsInitialHtml = useMemo(() => {
+    if ((brouillon.corpsHtml ?? '').trim() !== '') return brouillon.corpsHtml as string;
+    const sig = (contexte.signatureHtml ?? '').trim();
+    if (sig !== '') return `<p><br /></p><p><br /></p>${sig}`;
+    return texteVersHtml(brouillon.corps);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : SEUL un changement de brouillon doit
+    //   reconstruire le corps initial. Le suivre ferait remonter l'éditeur à chaque frappe.
+  }, [cleCorps]);
 
   // ── ENREGISTREMENT AUTOMATIQUE. 🔴 Il n'envoie JAMAIS rien : la route des brouillons n'importe aucun chemin
   //    d'envoi (un test statique le vérifie). On attend que la frappe se calme — enregistrer à chaque lettre ferait
@@ -375,6 +431,52 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
    * doute — l'appel échoue, le réseau tombe — on ferme quand même et on ne touche à rien. Perdre un brouillon écrit
    * serait bien pire que d'en laisser un vide.
    */
+  /**
+   * ══ JOINDRE UN FICHIER VENU DU DRIVE ═════════════════════════════════════════════════════════════════════════
+   * Les octets sont déjà chez nous (la route les a lus, APRÈS avoir vérifié que le fichier n'est pas sous
+   * « Documents clients scannés »). On les dépose par la MÊME porte que les pièces venues du Mac : la route des
+   * pièces d'un brouillon. Un second chemin de dépôt aurait deux limites de taille, deux listes d'extensions et,
+   * un jour, deux comportements.
+   *
+   * ⚠️ IL FAUT UN BROUILLON EN BASE pour y attacher une pièce. Si l'enregistrement automatique n'a pas encore eu
+   * lieu, on le DIT plutôt que de perdre le fichier en silence.
+   */
+  const joindreDepuisDrive = async (f: { nom: string; typeMime: string; contenuBase64: string }): Promise<void> => {
+    const id = aEnregistrer.current.id ?? brouillon.id;
+    if (id === null) {
+      onGeste('Écrivez d’abord quelques mots : la pièce a besoin d’un brouillon enregistré pour s’y attacher.');
+      return;
+    }
+    try {
+      const binaire = Uint8Array.from(atob(f.contenuBase64), (c) => c.charCodeAt(0));
+      const corps = new FormData();
+      corps.append('fichier', new File([binaire], f.nom, { type: f.typeMime || 'application/octet-stream' }));
+      const res = await fetch(`/api/admin/gestion/brouillons/${id}/pieces`, { method: 'POST', body: corps });
+      const d = (await res.json()) as { etat?: string; message?: string };
+      onGeste(d.etat === 'ok' ? `« ${f.nom} » joint depuis le Drive.` : (d.message ?? 'Cette pièce n’a pas pu être jointe.'));
+      // La zone des pièces se relit d'elle-même : on la remonte par la clé, comme après un dépôt ordinaire.
+      setVersionPieces((v) => v + 1);
+    } catch {
+      onGeste('La pièce n’a pas pu être jointe : le serveur n’a pas répondu.');
+    }
+  };
+
+  /**
+   * SUPPRIMER LE BROUILLON, sur confirmation. C'est le geste d'ABANDON qui existe déjà (`DELETE`), celui qui DATE
+   * la ligne sans rien effacer en base — pas une suppression réelle. Le mot « Supprimer » est celui de Gmail ; ce
+   * qu'il fait chez nous est plus prudent, et c'est tant mieux.
+   */
+  const supprimerBrouillon = async (): Promise<void> => {
+    const id = aEnregistrer.current.id ?? brouillon.id;
+    if (id !== null) {
+      try { await fetch(`/api/admin/gestion/brouillons?id=${id}`, { method: 'DELETE' }); }
+      catch { /* silence : on ferme de toute façon */ }
+    }
+    setSupprime(false);
+    onGeste('Brouillon supprimé.');
+    onFerme();
+  };
+
   const fermer = async () => {
     if (!touche && brouillon.id !== null) {
       try {
@@ -408,6 +510,18 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
           a: b.a, cc: b.cc, cci: b.cci, objet: b.objet,
           // La citation part À LA SUITE du message : ce qu'on a écrit d'abord, ce qu'on cite ensuite.
           corps: b.citation ? `${b.corps}\n\n${b.citation}` : b.corps,
+          /**
+           * 🔴 LOT REDACTION-GMAIL — LA VERSION HTML PART AVEC. Le serveur la RÉASSAINIT avant de la mettre dans le
+           * message : l'écran nettoie pour qu'on voie ce qu'on envoie, le serveur nettoie parce que lui seul ne
+           * peut pas être contourné. Vide ⇒ le message part en texte seul, exactement comme avant ce lot.
+           *
+           * ⚠️ LA CITATION EST AJOUTÉE DANS LES DEUX VERSIONS, et dans le même ordre : sans cela, le destinataire
+           * qui lit en HTML verrait la citation et celui qui lit en texte ne la verrait pas (ou l'inverse).
+           */
+          corpsHtml: (b.corpsHtml ?? '').trim() === '' ? null
+            : (b.citationHtml ? `${b.corpsHtml}<br /><br />${b.citationHtml}` : b.corpsHtml),
+          /** LOT REDACTION-GMAIL — les cibles de « Classer ce mail » : elles deviennent des rattachements manuels. */
+          cibles: (b.cibles ?? []).length > 0 ? b.cibles : undefined,
         }),
       });
       const d = (await res.json().catch(() => ({}))) as { ok?: boolean; erreur?: string };
@@ -477,11 +591,18 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
   return (
     <section className={`red${ouvre ? ' red--ouvre' : ''}`} aria-label={titre} ref={racine}>
       <style>{CSS_REDACTION}</style>
+      <style>{CSS_EDITEUR_RICHE}</style>
+      <style>{CSS_CHAMP_CLASSEMENT}</style>
 
-      <div className="red-haut">
-        <h3 className="gst-titre">{titre}</h3>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void fermer()}>Fermer</button>
-      </div>
+      {/* ⚠️ DANS UNE FENÊTRE, CET EN-TÊTE N'EXISTE PAS : la barre de titre de la fenêtre porte déjà le même mot et
+          la même croix. Les afficher tous les deux donnait deux « Nouveau message » et deux façons de fermer, à
+          deux centimètres l'un de l'autre — vu à l'écran avant livraison. */}
+      {!dansFenetre && (
+        <div className="red-haut">
+          <h3 className="gst-titre">{titre}</h3>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void fermer()}>Fermer</button>
+        </div>
+      )}
 
       <p className="gst-note">De : {contexte.nomExpediteur} &lt;{contexte.adresseGestion}&gt;</p>
 
@@ -528,11 +649,38 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
           onChange={(e) => modifier({ objet: e.target.value })} />
       </div>
 
+      {/* ══ 🔴 LOT REDACTION-GMAIL — LE CORPS EN TEXTE MIS EN FORME ══════════════════════════════════════════════
+          L'éditeur tient les DEUX versions d'accord à chaque frappe : `corpsHtml` est ce qu'on voit, `corps` est son
+          rendu texte fidèle. Les deux partent dans le message (`multipart/alternative`), et la version texte n'est
+          pas un sous-produit : une partie des destinataires ne verra qu'elle.
+
+          ⚠️ L'ÉDITEUR N'EST PAS « CONTRÔLÉ » : il lit son contenu initial UNE fois. La `key` le remonte quand on
+          change de brouillon — sans elle, répondre à un autre message rouvrirait l'ancien texte. */}
       <div className="red-champ">
-        <label className="red-label" htmlFor="red-corps">Message</label>
-        <textarea id="red-corps" className="red-corps" rows={10} value={brouillon.corps} ref={corpsRef}
-          onChange={(e) => modifier({ corps: e.target.value })} />
+        <label className="red-label" id="red-corps-label">Message</label>
+        <div className="red-corps-riche">
+          <EditeurRiche
+            key={cleCorps}
+            htmlInitial={corpsInitialHtml}
+            barreVisible={barreOutils}
+            ariaLabel="Message"
+            /* ⚠️ LE CURSEUR DANS LE MESSAGE POUR UNE RÉPONSE, au tout début — règle du lot REPONSE-VISIBLE,
+               reprise telle quelle. Pour un transfert ou un message neuf, c'est le champ « À » qui le prend :
+               il est vide, et c'est lui qu'il faut remplir d'abord. */
+            autoFocus={brouillon.voie === 'repondre' || brouillon.voie === 'repondre_tous'}
+            onPret={(api) => { editeur.current = api; }}
+            onChange={(v) => modifier({ corpsHtml: v.html, corps: v.texte })} />
+        </div>
       </div>
+
+      {/* ══ LOT REDACTION-GMAIL — CLASSER DÈS L'ÉCRITURE (nouveau message sans historique UNIQUEMENT) ═════════════
+          🔴 POURQUOI SEULEMENT LÀ (demande d'Arno) : une réponse hérite du classement de son échange. Reproposer
+          le geste donnerait deux vérités sur la même conversation, et la seconde n'aurait aucune raison d'être la
+          bonne. Un message NEUF, lui, ne se rattache à rien — et c'est au moment de l'écrire qu'on sait de quoi
+          il parle. */}
+      {brouillon.voie === 'nouveau' && contexte.classementDisponible === true && (
+        <ChampClassement cibles={brouillon.cibles ?? []} onChange={(cibles) => modifier({ cibles })} />
+      )}
 
       {contexte.signature.trim() === '' && <p className="gst-note">{MENTION_SANS_SIGNATURE}</p>}
       {brouillon.voie === 'transferer' && piecesJointes > 0 && <p className="gst-note">{MENTION_PIECES_NON_JOINTES}</p>}
@@ -540,7 +688,7 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
       {/* ══ LOT 5-PJ-ENVOI — LES PIÈCES JOINTES ══ Rendues seulement si la base sait les mémoriser : proposer de
           joindre un fichier qu'on ne saurait pas retenir ferait perdre le fichier ET le message. */}
       {contexte.piecesDisponibles && (
-        <PiecesBrouillon brouillonId={brouillon.id} onChange={setPiecesJointes} />
+        <PiecesBrouillon key={versionPieces} brouillonId={brouillon.id} onChange={setPiecesJointes} />
       )}
 
       {/* LA CITATION, REPLIÉE : on écrit au-dessus, on ne relit pas ce qu'on vient de lire. Elle part avec le message. */}
@@ -553,6 +701,59 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
 
       {!pret.pret && <p className="gst-note red-avertit">{pret.motif}</p>}
 
+      {/* ══ 🔴 LOT REDACTION-GMAIL — LA PETITE FENÊTRE « INSÉRER UN LIEN » ════════════════════════════════════════
+          Deux champs — le TEXTE affiché, et l'ADRESSE. C'est la forme de Gmail, et elle évite le défaut que
+          produirait un champ unique : un mail truffé d'URL nues, illisible et impossible à relire. */}
+      {lien !== null && (
+        <div className="red-lien" role="group" aria-label="Insérer un lien">
+          <div className="red-champ">
+            <label className="red-label" htmlFor="red-lien-texte">Texte affiché</label>
+            <input id="red-lien-texte" className="red-saisie red-saisie--pleine" value={lien.texte}
+              placeholder="le contrat de location"
+              onChange={(e) => setLien({ ...lien, texte: e.target.value })} />
+          </div>
+          <div className="red-champ">
+            <label className="red-label" htmlFor="red-lien-url">Adresse</label>
+            <input id="red-lien-url" className="red-saisie red-saisie--pleine" value={lien.url}
+              placeholder="https://…" inputMode="url"
+              onChange={(e) => setLien({ ...lien, url: e.target.value })} />
+          </div>
+          <div className="gst-actions">
+            {/* ⚠️ `insererLien` ASSAINIT l'adresse : un `javascript:` collé ici ne devient jamais un lien. */}
+            <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={lien.url.trim() === ''}
+              onClick={() => { editeur.current?.insererLien(lien.texte, lien.url.trim()); setLien(null); }}>
+              Insérer
+            </button>
+            <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => setLien(null)}>
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ══ 🔴🔴 LE SÉLECTEUR DRIVE ══ « Joindre » y est INTERDIT sous « Documents clients scannés » ; seul le lien
+          y est proposé. La route refuse de son côté — l'écran explique, le serveur protège. */}
+      {drive && (
+        <SelecteurFichierDrive
+          onFermer={() => setDrive(false)}
+          onChoisir={(c) => {
+            setDrive(false);
+            if (c.lien) { editeur.current?.insererLien(c.lien.nom, c.lien.url); return; }
+            if (c.joint) void joindreDepuisDrive(c.joint);
+          }} />
+      )}
+
+      {/* La confirmation de SUPPRESSION. Un brouillon se supprime EXPRÈS : la corbeille de la barre du bas est à
+          côté d'« Envoyer », et un clic de trop ne doit pas effacer ce qu'on vient d'écrire. */}
+      {supprime && (
+        <p className="red-supprime" role="alert">
+          Supprimer ce brouillon ? Le texte sera perdu.{' '}
+          <button type="button" className="gst-lien-bouton" onClick={() => void supprimerBrouillon()}>Supprimer</button>
+          {' · '}
+          <button type="button" className="gst-lien-bouton" onClick={() => setSupprime(false)}>Annuler</button>
+        </p>
+      )}
+
       <div className="gst-actions red-bas">
         {/* 🔴 LE SEUL CHEMIN D'ENVOI : ce clic, et lui seul. Il n'envoie même pas tout de suite — il ouvre la fenêtre
             d'annulation. Aucun `type="submit"`, aucun formulaire : « Entrée » ne peut pas déclencher cela. */}
@@ -563,6 +764,31 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
           })}>
           Envoyer{piecesJointes > 0 ? ` (${piecesJointes} pièce${piecesJointes > 1 ? 's' : ''} jointe${piecesJointes > 1 ? 's' : ''})` : ''}
         </button>
+
+        {/* ══ LOT REDACTION-GMAIL — LES OUTILS, À CÔTÉ D'« ENVOYER », comme dans Gmail ══════════════════════════
+            Chacun porte un MOT dans son libellé accessible et son info-bulle : une rangée d'icônes muettes est
+            inutilisable au lecteur d'écran, et devinette pour tout le monde. */}
+        <span className="red-outils" role="group" aria-label="Outils du message">
+          <button type="button" className="red-outil" title="Mise en forme du texte"
+            aria-label="Afficher ou masquer la barre de mise en forme" aria-pressed={barreOutils}
+            onClick={() => setBarreOutils((v) => !v)}>
+            <span aria-hidden="true">Aa</span>
+          </button>
+          <button type="button" className="red-outil" title="Insérer un lien" aria-label="Insérer un lien"
+            onClick={() => setLien({ texte: '', url: '' })}>
+            <span aria-hidden="true">🔗</span>
+          </button>
+          <button type="button" className="red-outil" title="Insérer depuis Google Drive"
+            aria-label="Insérer un fichier depuis Google Drive" onClick={() => setDrive(true)}>
+            <span aria-hidden="true">▲</span>
+          </button>
+          {/* ⚠️ LA CORBEILLE EST LA DERNIÈRE, et elle DEMANDE confirmation : c'est le seul geste de cette rangée
+              qui détruit quelque chose. */}
+          <button type="button" className="red-outil red-outil--rouge" title="Supprimer le brouillon"
+            aria-label="Supprimer le brouillon" onClick={() => setSupprime(true)}>
+            <span aria-hidden="true">🗑</span>
+          </button>
+        </span>
         {/* ⚠️ « GARDER EN BROUILLON » PASSE PAR LA MÊME PORTE. Son mot promet de garder ; si rien n'a été saisi,
             il n'y a rien à garder, et laisser une ligne vide en base ne tiendrait pas cette promesse — ce serait
             la contourner. `fermer` ne touche qu'aux brouillons restés vides. */}
@@ -575,6 +801,23 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
 }
 
 const CSS_REDACTION = `
+/* ══ LOT REDACTION-GMAIL — le corps mis en forme, les outils du bas, le lien, la suppression ══════════════════════ */
+.red-corps-riche{border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-surface);
+  padding:2px 6px;min-width:0}
+/* Les outils vivent A COTE d'« Envoyer », comme dans Gmail. Ils passent a la ligne plutot que de deborder. */
+.red-outils{display:inline-flex;flex-wrap:wrap;align-items:center;gap:2px;margin-left:.2rem}
+.red-outil{display:inline-flex;align-items:center;justify-content:center;min-width:40px;min-height:40px;padding:0;
+  font:inherit;font-size:.9rem;color:var(--color-svv-muted);background:transparent;border:1px solid transparent;
+  border-radius:.4rem;cursor:pointer}
+.red-outil:hover{background:var(--color-svv-field);color:var(--color-svv-ink)}
+.red-outil:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
+.red-outil[aria-pressed="true"]{background:var(--color-svv-field);color:var(--color-svv-ink)}
+.red-outil--rouge:hover{color:var(--color-svv-red)}
+.red-lien{display:flex;flex-direction:column;gap:6px;padding:10px;margin:6px 0;
+  border:1px solid var(--color-svv-line);border-radius:.5rem;background:var(--color-svv-field)}
+.red-supprime{margin:6px 0;padding:8px 10px;font-size:.85rem;color:var(--color-svv-ink);
+  background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);border-radius:0 .4rem .4rem 0}
+
 /* ══ LOT REPONSE-VISIBLE — L'ÉDITEUR S'ANNONCE ══════════════════════════════════════════════════════════════════
    scroll-margin-top : le petit espace au-dessus quand on l'amène en haut de la zone visible. Écrit ici plutôt que
    calculé en pixels dans le code — c'est le navigateur qui sait où commence la zone visible.

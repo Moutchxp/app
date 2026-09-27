@@ -450,3 +450,27 @@ export function spamDisponible(): Promise<boolean> {
 export function etoileDisponible(): Promise<boolean> {
   return memoiser('table.gestion_fil_etoile', () => tableExiste('gestion_fil_etoile'));
 }
+
+/**
+ * ══ LOT REDACTION-GMAIL — LA MIGRATION 265 EST-ELLE APPLIQUÉE ? ════════════════════════════════════════════════
+ * Elle porte DEUX choses indépendantes, et elles se sondent SÉPARÉMENT : l'une peut exister sans l'autre si
+ * quelqu'un applique la migration à moitié, et une sonde unique mentirait alors dans un sens ou dans l'autre.
+ *
+ * ① `gestion_brouillon.corps_html` — le corps en texte mis en forme.
+ * Tant que la sonde répond « non » : l'éditeur riche fonctionne À L'ÉCRAN et l'envoi part bien en HTML (il lit ce
+ * qui est à l'écran, pas la base), mais le brouillon ENREGISTRÉ ne garde que sa version texte. L'éditeur le DIT,
+ * plutôt que de laisser croire que la mise en forme survivra au rechargement.
+ */
+export function brouillonHtmlDisponible(): Promise<boolean> {
+  return memoiser('brouillon.corps_html', () => colonneExiste('gestion_brouillon', 'corps_html'));
+}
+
+/**
+ * ② `gestion_brouillon_cible` — les cibles de « Classer ce mail », gardées avec le brouillon.
+ *
+ * Tant que la sonde répond « non » : le champ n'est PAS affiché du tout. Proposer un classement qu'on ne saurait
+ * pas garder serait promettre un geste qui se perdrait au premier rechargement — pire qu'une fonction absente.
+ */
+export function brouillonCibleDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_brouillon_cible', () => tableExiste('gestion_brouillon_cible'));
+}
