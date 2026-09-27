@@ -76,17 +76,68 @@ export function decouperTermes(saisie: string): Terme[] {
   return termes.slice(0, MAX_TERMES);
 }
 
+/**
+ * ══ LOT RECHERCHE-AVANCEE — LES LISTES OÙ L'ON CHERCHE ════════════════════════════════════════════════════════════
+ * Les quatre mêmes que la colonne de gauche. Elles sont TOUTES cochées par défaut : une recherche qui oublierait
+ * silencieusement une liste ferait conclure qu'un mail n'existe pas.
+ *
+ * ⚠️ CE N'EST PAS UN CHOIX EXCLUSIF mais un ENSEMBLE : on peut chercher dans « Réception + Envoyés » sans le courrier
+ * automatique, ce qui est justement le réglage le plus utile au quotidien.
+ */
+export type SorteListe = 'reception' | 'envoyes' | 'automatique' | 'brouillons';
+export const LISTES_TOUTES: readonly SorteListe[] = ['reception', 'envoyes', 'automatique', 'brouillons'];
+
+/** Le filtre « pièce jointe ». `indifferent` par défaut : on ne restreint que si on l'a demandé. */
+export type FiltrePiece = 'indifferent' | 'avec' | 'sans';
+
 /** Ce qu'on cherche. Tous les champs sont facultatifs ; tout ce qui est fourni se COMBINE (ET). */
 export interface CritereRecherche {
   /** La saisie, telle quelle. Les guillemets y font une expression exacte, comme dans une messagerie. */
   saisie: string;
+  /**
+   * LOT RECHERCHE-AVANCEE — « NE CONTIENT PAS ». Les mots sont pris en OU : un mail est écarté dès qu'il contient
+   * L'UN d'eux. C'est ce qu'on attend d'une exclusion — « sans facture ni relance » doit retirer les deux.
+   */
+  sansMots?: string | null;
   /** Bornes de période, en ISO (`AAAA-MM-JJ`). Incluses toutes les deux. */
   du?: string | null;
   au?: string | null;
   /** Fragment d'adresse ou de nom d'expéditeur. */
   expediteur?: string | null;
-  /** Comme dans la liste : écarté par défaut, ramené sur demande. */
+  /** LOT RECHERCHE-AVANCEE — avec / sans pièce jointe. Absent = indifférent. */
+  piece?: FiltrePiece;
+  /**
+   * LOT RECHERCHE-AVANCEE — dans quelles listes chercher. ABSENT ≠ AUCUNE : absent veut dire « on ne s'est pas
+   * prononcé », et le critère se comporte alors EXACTEMENT comme avant ce lot (cf. `automatiquesInclus`). C'est ce
+   * qui laisse intacts tous les appels qui existaient.
+   */
+  listes?: readonly SorteListe[];
+  /**
+   * Comme dans la liste : écarté par défaut, ramené sur demande.
+   *
+   * ⚠️ N'EST PLUS LU DIRECTEMENT quand `listes` est fourni — `automatiquesInclus` tranche, et lui seul. Deux champs
+   * qui disent le même fait finissent par se contredire ; celui-ci reste pour les appelants d'avant le lot.
+   */
   inclureAutomatiques?: boolean;
+}
+
+/**
+ * LES LISTES RETENUES. Absent ⇒ toutes : un critère qui ne dit rien cherche partout, jamais nulle part. PUR.
+ */
+export function listesChoisies(c: CritereRecherche): readonly SorteListe[] {
+  return c.listes === undefined ? LISTES_TOUTES : c.listes;
+}
+
+/**
+ * LE COURRIER AUTOMATIQUE EST-IL INCLUS ? UNE SEULE RÉPONSE, pour l'écran comme pour le SQL.
+ *
+ * 🔴 POURQUOI UNE FONCTION ET PAS DEUX CHAMPS. Le fait « on veut aussi l'automatique » s'écrivait `inclureAutomatiques`
+ * ; le panneau avancé l'écrit maintenant par une case de `listes`. Deux écritures d'un même fait, c'est deux vérités
+ * qui divergeront — ici, la case l'emporte dès qu'elle existe, et l'ancien champ sert quand elle n'existe pas. PUR.
+ */
+export function automatiquesInclus(c: CritereRecherche): boolean {
+  if (c.listes !== undefined) return c.listes.includes('automatique');
+  return c.inclureAutomatiques === true;
 }
 
 /**
@@ -97,4 +148,22 @@ export function rechercheUtile(c: CritereRecherche): boolean {
   return decouperTermes(c.saisie).length > 0
     || (c.expediteur ?? '').trim() !== ''
     || (c.du ?? '') !== '' || (c.au ?? '') !== '';
+}
+
+/**
+ * 🔴 CE QUI NE SUFFIT PAS À LANCER UNE RECHERCHE, ET POURQUOI. « Ne contient pas », le filtre de pièce jointe et les
+ * cases de listes sont des RESTRICTIONS : seuls, ils ne désignent rien, ils retranchent. Chercher « tout le courrier
+ * sauf le mot facture » rendrait 50 000 résultats et coûterait un balayage complet pour une réponse que personne ne
+ * lira. Ils n'entrent donc PAS dans `rechercheUtile` — ils affinent une recherche, ils ne la déclenchent pas.
+ *
+ * MAIS ILS DOIVENT SE VOIR quand ils sont posés : un filtre oublié qui cache des mails est exactement le défaut que
+ * la pastille de l'engrenage signale. C'est à cela que sert cette fonction — dire qu'un réglage AUTRE que les mots
+ * est actif, sans rien déclencher. PUR.
+ */
+export function filtresAvancesActifs(c: CritereRecherche): boolean {
+  return decouperTermes(c.sansMots ?? '').length > 0
+    || (c.expediteur ?? '').trim() !== ''
+    || (c.du ?? '') !== '' || (c.au ?? '') !== ''
+    || (c.piece !== undefined && c.piece !== 'indifferent')
+    || listesChoisies(c).length !== LISTES_TOUTES.length;
 }

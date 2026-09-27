@@ -277,3 +277,129 @@ describe('garanties STATIQUES', () => {
     });
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT RECHERCHE-AVANCEE — LES QUATRE RÉGLAGES DU PANNEAU, ÉPROUVÉS SUR LE COMPORTEMENT
+
+   ⚠️ ON N'ASSERTE PAS LA FORME DU SQL. Ni regex sur le WHERE complet, ni ordre des conditions : ce sont des choses
+   qui changent au premier reformatage. On éprouve (1) ce qui est passé en PARAMÈTRE LIÉ, (2) la présence de
+   FRAGMENTS SÉMANTIQUES sur une chaîne dont les espaces sont normalisés. C'est la règle d'écriture du dépôt.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+const plat = (sql: string) => sql.replace(/\s+/g, ' ');
+
+describe('LOT RECHERCHE-AVANCEE — « ne contient pas »', () => {
+  /**
+   * 🔴 LE TEST QUI PROTÈGE LA PERFORMANCE, pas seulement le résultat. Écrite en deux conditions séparées
+   * (`… @@ 'fuite'` puis `NOT (… @@ 'facture')`), cette recherche prenait 2,8 s : la négation ne peut pas être
+   * servie par l'index GIN, donc `to_tsvector` était RECALCULÉ sur 100 000 caractères par candidat. Fondue dans la
+   * même `websearch_to_tsquery` (`fuite -facture`), elle prend 11 ms — mesuré sur les 56 000 messages réels.
+   * Si quelqu'un rescinde un jour les deux conditions, ce test rougit AVANT que la lenteur ne revienne.
+   */
+  it('voyage DANS la même requête indexée que l’inclusion, jamais dans un NOT séparé', () => {
+    const { sql, params } = conditions({ saisie: 'fuite', sansMots: 'facture' }, true);
+    expect(params).toContain('fuite -facture');
+    expect(plat(sql.join(' '))).toContain('websearch_to_tsquery');
+    // La marque du défaut qu'on ne veut plus : une négation posée à part.
+    expect(plat(sql.join(' '))).not.toContain('NOT (to_tsvector');
+  });
+
+  it('plusieurs mots exclus s’additionnent en « ni l’un ni l’autre »', () => {
+    const { params } = conditions({ saisie: 'bail', sansMots: 'facture relance' }, true);
+    expect(params).toContain('bail -facture -relance');
+  });
+
+  it('une expression exacte exclue garde ses guillemets', () => {
+    const { params } = conditions({ saisie: 'bail', sansMots: '"sans suite"' }, true);
+    expect(params).toContain('bail -"sans suite"');
+  });
+
+  /**
+   * SANS AUCUN MOT POSITIF, l'exclusion ne peut pas voyager avec quoi que ce soit : elle passe alors par `LIKE`,
+   * MÊME en plein texte. Une `tsquery` purement négative n'est servie par aucun index et ferait revenir la lenteur.
+   */
+  it('sans mot à inclure, l’exclusion passe par LIKE — jamais par une tsquery purement négative', () => {
+    const { sql, params } = conditions({ saisie: '', sansMots: 'facture', du: '2026-01-01' }, true);
+    const s = plat(sql.join(' '));
+    expect(s).toContain('NOT (');
+    expect(s).not.toContain('websearch_to_tsquery');
+    expect(params).toContain('facture');
+  });
+
+  it('en mode réduit aussi, l’exclusion retire dès qu’UN mot est présent (OU nié, pas ET)', () => {
+    const { sql } = conditions({ saisie: 'bail', sansMots: 'facture relance' }, false);
+    const negation = plat(sql.join(' ')).match(/NOT \((.*?)\)\s*$/)?.[1] ?? plat(sql.join(' '));
+    expect(negation).toContain(' OR ');
+  });
+});
+
+describe('LOT RECHERCHE-AVANCEE — les listes où chercher', () => {
+  it('sans listes, le critère se comporte EXACTEMENT comme avant le lot', () => {
+    expect(plat(conditions({ saisie: 'fuite' }, true).sql.join(' '))).toContain('m.exclu_le IS NULL');
+    expect(plat(conditions({ saisie: 'fuite', inclureAutomatiques: true }, true).sql.join(' ')))
+      .not.toContain('m.exclu_le IS NULL');
+  });
+
+  it('« Réception » seule ne ramène que du courrier reçu et ordinaire', () => {
+    const s = plat(conditions({ saisie: 'fuite', listes: ['reception'] }, true).sql.join(' '));
+    expect(s).toContain("m.sens = 'recu'");
+    expect(s).not.toContain("m.sens = 'envoye'");
+    expect(s).toContain('m.exclu_le IS NULL');
+  });
+
+  it('« Courrier automatique » coché ramène ce que les règles ont écarté, quel qu’en soit le sens', () => {
+    const s = plat(conditions({ saisie: 'fuite', listes: ['automatique'] }, true).sql.join(' '));
+    expect(s).toContain('m.exclu_le IS NOT NULL');
+    expect(s).not.toContain("m.sens =");
+  });
+
+  it('deux listes se cumulent en OU, pas en ET — sinon aucun message ne pourrait être les deux', () => {
+    const s = plat(conditions({ saisie: 'fuite', listes: ['reception', 'envoyes'] }, true).sql.join(' '));
+    expect(s).toMatch(/recu.*OR.*envoye/);
+  });
+
+  /** 🔴 AUCUNE CASE ⇒ AUCUN RÉSULTAT. Rendre « tout » ferait le contraire exact de ce qui est demandé. */
+  it('aucune liste cochée ne ramène RIEN, et ne ramène pas « tout »', () => {
+    expect(plat(conditions({ saisie: 'fuite', listes: [] }, true).sql.join(' '))).toContain('false');
+  });
+
+  /** « Brouillons » ne vit pas dans cette table : cocher lui seul ne rend aucun MESSAGE, et c'est juste. */
+  it('« Brouillons » seul ne ramène aucun message de la table des messages', () => {
+    expect(plat(conditions({ saisie: 'fuite', listes: ['brouillons'] }, true).sql.join(' '))).toContain('false');
+  });
+});
+
+describe('LOT RECHERCHE-AVANCEE — pièce jointe et période', () => {
+  it('« Avec » exige une pièce, « Sans » l’interdit, « Indifférent » n’écrit rien', () => {
+    expect(plat(conditions({ saisie: 'bail', piece: 'avec' }, true).sql.join(' ')))
+      .toContain('EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id)');
+    expect(plat(conditions({ saisie: 'bail', piece: 'sans' }, true).sql.join(' ')))
+      .toContain('NOT EXISTS (SELECT 1 FROM gestion_piece p WHERE p.message_id = m.id)');
+    expect(plat(conditions({ saisie: 'bail', piece: 'indifferent' }, true).sql.join(' ')))
+      .not.toContain('gestion_piece');
+  });
+
+  it('la période est INCLUSE des deux côtés, et ses bornes sont des paramètres liés', () => {
+    const { sql, params } = conditions({ saisie: 'bail', du: '2026-01-01', au: '2026-03-31' }, true);
+    const s = plat(sql.join(' '));
+    expect(s).toContain('m.recu_le >=');
+    expect(s).toContain("interval '1 day'"); // le dernier jour compte en ENTIER
+    expect(params).toContain('2026-01-01');
+    expect(params).toContain('2026-03-31');
+  });
+});
+
+describe('LOT RECHERCHE-AVANCEE — le compte du courrier automatique masqué suit les CASES', () => {
+  /**
+   * 🔴 LE DÉFAUT QU'IL ATTRAPE. Le compte se fait en comparant deux critères, l'un « avec » et l'autre « sans »
+   * automatique. Tant qu'on ne touchait que `inclureAutomatiques`, un critère portant des `listes` ne bougeait pas
+   * d'un iota (`automatiquesInclus` lit la case en priorité) : les deux comptes étaient identiques et l'écran
+   * annonçait éternellement « 0 résultat masqué », en silence. C'est le pire genre de défaut — celui qui se tait.
+   */
+  it('les deux comptes diffèrent quand les listes portent la décision', async () => {
+    repond([]);
+    await chercherDansLeCourrier({ saisie: 'fuite', listes: ['reception'] }, null, [], 5);
+    const comptes = queryMock.mock.calls.filter((c) => String(c[0]).includes('count(DISTINCT')).map((c) => plat(String(c[0])));
+    expect(comptes).toHaveLength(2);
+    expect(comptes.filter((s) => s.includes('m.exclu_le IS NOT NULL'))).toHaveLength(1);
+  });
+});

@@ -273,11 +273,17 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
     expect(boutonPar(/Écran partagé/)).toBeDefined();
   });
 
-  it('la recherche de la boîte et ses filtres sont là, sous chaque étiquette', async () => {
+  it('la recherche de la boîte et sa recherche avancée sont là, sous chaque étiquette', async () => {
     window.history.replaceState(null, '', '/admin/gestion?ecran=boite&etiquette=reception');
     await monter();
     expect(container.querySelector('input[type="search"]')).not.toBeNull();
-    expect(boutonPar(/Filtres \(période, expéditeur\)/)).toBeDefined();
+    /**
+     * LOT RECHERCHE-AVANCEE — le lien « Filtres (période, expéditeur) » est devenu une ICÔNE d'engrenage dans le
+     * champ. La FONCTION est la même et ce test la garde : on la désigne par son nom accessible, qui est ce
+     * qu'une personne — ou un lecteur d'écran — cherche réellement. Viser le libellé visible d'hier reviendrait à
+     * figer une forme ; viser le nom accessible, c'est exiger qu'elle reste trouvable.
+     */
+    expect(container.querySelector('button[aria-label="Recherche avancée"]')).not.toBeNull();
     expect(boutonPar(/^Chercher$/)).toBeDefined();
   });
 

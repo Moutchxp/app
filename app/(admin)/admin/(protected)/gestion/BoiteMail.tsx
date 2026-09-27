@@ -4,7 +4,10 @@ import { useCallback, useEffect, useState } from 'react';
 import type { CurseurBoite, LigneBoite } from '../../../../lib/gestion/boiteRepo';
 // 🔴 `rechercheTermes` et NON `rechercheBoite` : le second contient le SQL et tire `pg` → `dns`, que le navigateur
 //   n'a pas. L'importer ici a fait tomber TOUTE l'application le 24/09/2026, page de connexion comprise.
-import { decouperTermes, normaliser } from '../../../../lib/gestion/rechercheTermes';
+import {
+  decouperTermes, filtresAvancesActifs, LISTES_TOUTES, normaliser, rechercheUtile,
+  type CritereRecherche, type FiltrePiece, type SorteListe,
+} from '../../../../lib/gestion/rechercheTermes';
 import { listePeutSeRecharger, mentionCourrierNouveau } from '../../../../lib/gestion/rafraichir';
 import {
   autoImposeParEtiquette, ETIQUETTE_RECEPTION, etiquetteDepuisTexte, texteEtiquette, type Etiquette,
@@ -31,13 +34,75 @@ import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
 
 interface ComptesBoite { lisibles: number; automatiques: number }
 
-/** LOT 5c — ce que le champ de recherche et ses filtres demandent. Vide = on affiche la liste ordinaire. */
-export interface Critere { q: string; du: string; au: string; de: string }
-export const CRITERE_VIDE: Critere = { q: '', du: '', au: '', de: '' };
+/**
+ * LOT 5c, étendu par le LOT RECHERCHE-AVANCEE — ce que le champ de recherche et son panneau demandent. Vide = on
+ * affiche la liste ordinaire.
+ *
+ * ⚠️ LES NOMS DIFFÈRENT DE CEUX DU MODULE PUR (`q` ici, `saisie` là-bas) parce que ce sont AUSSI les noms des
+ * paramètres de l'adresse. `enCritereRecherche` est le seul passage entre les deux — une seule traduction, donc
+ * jamais deux façons de lire le même champ.
+ */
+export interface Critere {
+  q: string;
+  /** « Ne contient pas » : les mails portant l'UN de ces mots sont écartés. */
+  sansMots: string;
+  du: string;
+  au: string;
+  de: string;
+  pj: FiltrePiece;
+  /** Les listes où chercher. TOUTES par défaut — une recherche ne doit jamais oublier une liste en silence. */
+  listes: readonly SorteListe[];
+}
+export const CRITERE_VIDE: Critere = {
+  q: '', sansMots: '', du: '', au: '', de: '', pj: 'indifferent', listes: LISTES_TOUTES,
+};
 
-/** Y a-t-il quelque chose à chercher ? Un champ vide n'envoie AUCUNE requête. PUR. */
+/**
+ * Les quatre listes cherchables, avec le mot qui les désigne à l'écran — LES MÊMES que la colonne de gauche. Une
+ * liste nommée autrement ici ferait douter qu'il s'agisse de la même.
+ */
+export const LISTES_CHERCHABLES: readonly (readonly [SorteListe, string])[] = [
+  ['reception', 'Réception'], ['envoyes', 'Envoyés'],
+  ['automatique', 'Courrier automatique'], ['brouillons', 'Brouillons'],
+];
+
+/**
+ * Coche ou décoche une liste, en gardant l'ORDRE de référence. Sans cet ordre, décocher puis recocher « Réception »
+ * la renverrait en fin de liste et l'adresse changerait sans que rien n'ait changé. PUR.
+ */
+export function basculerListe(
+  listes: readonly SorteListe[], cle: SorteListe, coche: boolean,
+): readonly SorteListe[] {
+  const voulues = new Set(listes);
+  if (coche) voulues.add(cle); else voulues.delete(cle);
+  return LISTES_TOUTES.filter((l) => voulues.has(l));
+}
+
+/** Le mot qui désigne une liste à l'écran. Une seule table, lue par les cases à cocher ET par les résultats. PUR. */
+export function motDeLaListe(l: SorteListe): string {
+  return LISTES_CHERCHABLES.find(([cle]) => cle === l)?.[1] ?? l;
+}
+
+/** Le même critère, dans la forme que comprennent le module pur et la route. PUR. */
+export function enCritereRecherche(c: Critere): CritereRecherche {
+  return { saisie: c.q, sansMots: c.sansMots, du: c.du, au: c.au, expediteur: c.de, piece: c.pj, listes: c.listes };
+}
+
+/**
+ * Y a-t-il quelque chose à chercher ? Un champ vide n'envoie AUCUNE requête. On délègue au module PUR, qui sert
+ * aussi la route : la question « faut-il chercher ? » ne peut pas recevoir deux réponses selon le côté. PUR.
+ */
 export function critereActif(c: Critere): boolean {
-  return decouperTermes(c.q).length > 0 || c.de.trim() !== '' || c.du !== '' || c.au !== '';
+  return rechercheUtile(enCritereRecherche(c));
+}
+
+/**
+ * LOT RECHERCHE-AVANCEE — UN FILTRE AUTRE QUE LES MOTS EST-IL POSÉ ? C'est ce que la pastille de l'engrenage
+ * signale, panneau fermé : un filtre oublié qui cache des mails est exactement ce qu'on ne veut pas laisser
+ * invisible. PUR.
+ */
+export function filtresPoses(c: Critere): boolean {
+  return filtresAvancesActifs(enCritereRecherche(c));
 }
 
 /**
@@ -73,8 +138,15 @@ export function morceauxMisEnEvidence(texte: string, saisie: string): { t: strin
   return out;
 }
 
+/**
+ * LOT RECHERCHE-AVANCEE — une ligne, telle que l'écran la reçoit. `provenance` n'existe QUE sur un résultat de
+ * recherche (la liste ordinaire sait déjà de quelle étiquette elle vient) : elle est donc facultative, et son
+ * absence ne change rien à l'affichage d'avant ce lot.
+ */
+type LigneEcran = LigneBoite & { provenance?: SorteListe };
+
 interface ReponseBoite {
-  lignes: LigneBoite[];
+  lignes: LigneEcran[];
   suivant: CurseurBoite | null;
   total: number | null;
   comptes: ComptesBoite | null;
@@ -91,13 +163,27 @@ interface ReponseBoite {
   /** LOT 5c — présent sur une réponse de recherche : `false` quand la migration 237 n'est pas appliquée. */
   pleinTexte?: boolean;
   automatiquesMasques?: number | null;
+  /** LOT RECHERCHE-AVANCEE — les brouillons trouvés, cherchés à part (ils ne vivent pas dans la même table). */
+  brouillons?: { lignes: BrouillonTrouveEcran[]; tronque: boolean };
+}
+
+/** Un brouillon trouvé, tel que la route le rend. Type recopié : importer le dépôt tirerait `pg` dans le navigateur. */
+export interface BrouillonTrouveEcran {
+  brouillonId: number;
+  filId: number | null;
+  objet: string | null;
+  destinataire: string | null;
+  majLe: string;
+  extrait: string | null;
+  aPiece: boolean;
 }
 
 type Etat =
   | { v: 'charge' }
   | {
-      v: 'ok'; lignes: LigneBoite[]; suivant: CurseurBoite | null; total: number; comptes: ComptesBoite | null;
+      v: 'ok'; lignes: LigneEcran[]; suivant: CurseurBoite | null; total: number; comptes: ComptesBoite | null;
       pleinTexte: boolean; automatiquesMasques: number | null;
+      brouillons: { lignes: BrouillonTrouveEcran[]; tronque: boolean };
       nonLus: Set<number>; nonLusTotal: number | null; nonLusPartiel: boolean;
     }
   | { v: 'erreur'; m: string };
@@ -123,6 +209,11 @@ async function chargerPage(
     if (critere.du !== '') p.set('du', critere.du);
     if (critere.au !== '') p.set('au', critere.au);
     if (critere.de.trim() !== '') p.set('de', critere.de);
+    // LOT RECHERCHE-AVANCEE — les réglages du panneau. ⚠️ `listes` n'est écrit que s'il DIFFÈRE du défaut : une
+    //   adresse sans ce paramètre garde exactement le sens qu'elle avait avant ce lot (cf. la route).
+    if (critere.sansMots.trim() !== '') p.set('sans', critere.sansMots);
+    if (critere.pj !== 'indifferent') p.set('pj', critere.pj);
+    if (critere.listes.length !== LISTES_TOUTES.length) p.set('listes', critere.listes.join(','));
   }
   try {
     const url = cherche ? '/api/admin/gestion/boite/recherche' : '/api/admin/gestion/boite';
@@ -284,6 +375,7 @@ export function BoiteMail({
     setEtat({
       v: 'ok', lignes: r.lignes, suivant: r.suivant, total: r.total ?? r.lignes.length, comptes: r.comptes,
       pleinTexte: r.pleinTexte !== false, automatiquesMasques: r.automatiquesMasques ?? null,
+      brouillons: r.brouillons ?? { lignes: [], tronque: false },
       nonLus: new Set(r.nonLus ?? []), nonLusTotal: r.nonLusTotal ?? null, nonLusPartiel: r.nonLusPartiel === true,
     });
   }, []);
@@ -348,6 +440,9 @@ export function BoiteMail({
       // Les non-lus s'ajoutent comme les lignes : « voir plus » allonge, il ne remplace pas.
       nonLus: new Set([...etat.nonLus, ...(r.nonLus ?? [])]),
       nonLusTotal: etat.nonLusTotal, nonLusPartiel: etat.nonLusPartiel,
+      // Les brouillons ne sont rendus qu'à la première page : on GARDE ceux qu'on a, sans quoi « voir plus » les
+      //   ferait disparaître de l'écran alors qu'ils correspondent toujours.
+      brouillons: etat.brouillons,
     });
   }
 
@@ -407,39 +502,116 @@ export function BoiteMail({
       {/* ══ LA RECHERCHE ══════════════════════════════════════════════════════════════════════════════════════════
           Un formulaire, donc « Entrée » cherche et le clavier des téléphones affiche « Rechercher ». La recherche ne
           part PAS à chaque frappe : sur 56 000 messages, ce serait une requête par lettre. */}
-      <form className="bte-recherche" role="search" onSubmit={(e) => { e.preventDefault(); setCritere(saisie); }}>
+      {/* ÉCHAP REFERME LE PANNEAU, où qu'on soit dedans : c'est le geste qu'on essaie d'abord, et il ne doit jamais
+          effacer ce qui est saisi — il replie, il n'annule pas. `stopPropagation` parce que l'écran qui nous
+          contient écoute lui aussi Échap (pour fermer la conversation) : replier le panneau ne doit pas, du même
+          coup, fermer le mail qu'on lisait. */}
+      <form className="bte-recherche" role="search"
+        onSubmit={(e) => { e.preventDefault(); setCritere(saisie); }}
+        onKeyDown={(e) => { if (e.key === 'Escape' && filtres) { e.stopPropagation(); setFiltres(false); } }}>
         <div className="bte-champ-ligne">
-          <input type="search" className="bte-champ" value={saisie.q} placeholder="Chercher dans le courrier"
-            aria-label="Chercher dans le courrier"
-            onChange={(e) => setSaisie({ ...saisie, q: e.target.value })} />
+          {/* ══ LOT RECHERCHE-AVANCEE — L'ENGRENAGE VIT DANS LE CHAMP, à droite, juste avant « Chercher » ═══════
+              Le lien rouge « Filtres (période, expéditeur) » qu'il remplace disait sa fonction mais prenait une
+              ligne entière sous le champ, et n'annonçait rien quand un filtre était resté posé. L'icône, elle,
+              porte une PASTILLE dès qu'un réglage autre que les mots est actif : un filtre oublié cache des
+              mails, et c'est le pire silence d'une recherche.
+              🔴 L'ICÔNE N'EST PAS SEULE : `aria-label` et `title` portent « Recherche avancée », et
+              `aria-expanded` dit si le panneau est ouvert. Une icône sans nom n'existe pas pour un lecteur
+              d'écran et ne s'apprend pas au survol sur un téléphone. */}
+          <span className="bte-champ-boite">
+            <input type="search" className="bte-champ bte-champ--q" value={saisie.q}
+              placeholder="Chercher dans le courrier" aria-label="Chercher dans le courrier"
+              onChange={(e) => setSaisie({ ...saisie, q: e.target.value })} />
+            <button type="button" className={`bte-engrenage${filtresPoses(saisie) ? ' bte-engrenage--pose' : ''}`}
+              aria-label="Recherche avancée" title="Recherche avancée"
+              aria-expanded={filtres} aria-controls="bte-avancee"
+              onClick={() => setFiltres((v) => !v)}>
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"
+                fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.09A1.65 1.65 0 0 0 10 3.09V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v.09a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+              {/* La pastille est DOUBLÉE d'un mot lu par les lecteurs d'écran : une forme seule n'informe personne
+                  qui ne la voit pas. */}
+              {filtresPoses(saisie) && <span className="bte-pastille" aria-hidden="true" />}
+              {filtresPoses(saisie) && <span className="bte-sr">— des filtres sont actifs</span>}
+            </button>
+          </span>
           <button type="submit" className="svv-btn svv-btn-primary gst-btn">Chercher</button>
         </div>
-        <div className="bte-outils">
-          <button type="button" className="gst-lien-bouton" aria-expanded={filtres} onClick={() => setFiltres((v) => !v)}>
-            {filtres ? 'Masquer les filtres' : 'Filtres (période, expéditeur)'}
-          </button>
-          {cherche && (
+        {cherche && (
+          <div className="bte-outils">
             <button type="button" className="gst-lien-bouton"
               onClick={() => { setSaisie(CRITERE_VIDE); setCritere(CRITERE_VIDE); }}>
               Effacer la recherche
             </button>
-          )}
-        </div>
+          </div>
+        )}
         {filtres && (
-          <div className="bte-filtres">
-            <label className="bte-filtre">
-              <span>Du</span>
-              <input type="date" className="bte-champ" value={saisie.du} onChange={(e) => setSaisie({ ...saisie, du: e.target.value })} />
-            </label>
-            <label className="bte-filtre">
-              <span>Au</span>
-              <input type="date" className="bte-champ" value={saisie.au} onChange={(e) => setSaisie({ ...saisie, au: e.target.value })} />
-            </label>
-            <label className="bte-filtre">
-              <span>Expéditeur</span>
-              <input type="text" className="bte-champ" value={saisie.de} placeholder="nom ou adresse"
-                onChange={(e) => setSaisie({ ...saisie, de: e.target.value })} />
-            </label>
+          <div className="bte-avancee" id="bte-avancee">
+            <div className="bte-avancee-ligne">
+              {/* 🔴 « CONTIENT LES MOTS » EST LE MÊME CHAMP QUE CELUI DU HAUT — pas une copie qu'on recopierait au
+                  bon moment. Les deux lisent et écrivent `saisie.q` : taper dans l'un met l'autre à jour à la
+                  frappe, dans les deux sens, et le panehau s'ouvre déjà rempli. Deux états auraient fini par
+                  diverger, et on aurait cherché autre chose que ce qu'on lisait. */}
+              <label className="bte-f bte-f--large">
+                <span className="bte-f-nom">Contient les mots</span>
+                <input type="text" className="bte-champ" value={saisie.q}
+                  onChange={(e) => setSaisie({ ...saisie, q: e.target.value })} />
+              </label>
+              <label className="bte-f bte-f--large">
+                <span className="bte-f-nom">Ne contient pas</span>
+                <input type="text" className="bte-champ" value={saisie.sansMots}
+                  onChange={(e) => setSaisie({ ...saisie, sansMots: e.target.value })} />
+              </label>
+            </div>
+            <div className="bte-avancee-ligne">
+              <label className="bte-f bte-f--moyen">
+                <span className="bte-f-nom">Expéditeur</span>
+                <input type="text" className="bte-champ" value={saisie.de} placeholder="nom ou adresse"
+                  onChange={(e) => setSaisie({ ...saisie, de: e.target.value })} />
+              </label>
+              <label className="bte-f bte-f--date">
+                <span className="bte-f-nom">Du</span>
+                <input type="date" className="bte-champ" value={saisie.du}
+                  onChange={(e) => setSaisie({ ...saisie, du: e.target.value })} />
+              </label>
+              <label className="bte-f bte-f--date">
+                <span className="bte-f-nom">Au</span>
+                <input type="date" className="bte-champ" value={saisie.au}
+                  onChange={(e) => setSaisie({ ...saisie, au: e.target.value })} />
+              </label>
+              <label className="bte-f bte-f--court">
+                <span className="bte-f-nom">Pièce jointe</span>
+                <select className="bte-champ" value={saisie.pj}
+                  onChange={(e) => setSaisie({ ...saisie, pj: e.target.value as FiltrePiece })}>
+                  <option value="indifferent">Indifférent</option>
+                  <option value="avec">Avec</option>
+                  <option value="sans">Sans</option>
+                </select>
+              </label>
+            </div>
+            <div className="bte-avancee-ligne bte-avancee-ligne--bas">
+              <fieldset className="bte-listes">
+                <legend className="bte-f-nom">Chercher dans</legend>
+                {LISTES_CHERCHABLES.map(([cle, mot]) => (
+                  <label key={cle} className="bte-case">
+                    <input type="checkbox" checked={saisie.listes.includes(cle)}
+                      onChange={(e) => setSaisie({ ...saisie, listes: basculerListe(saisie.listes, cle, e.target.checked) })} />
+                    <span>{mot}</span>
+                  </label>
+                ))}
+              </fieldset>
+              <span className="bte-avancee-boutons">
+                {/* « Effacer les filtres » remet TOUT par défaut, y compris les mots : c'est ce que dit le mot
+                    « effacer ». Il ne relance pas la recherche — on efface pour recommencer, pas pour partir. */}
+                <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                  onClick={() => setSaisie(CRITERE_VIDE)}>
+                  Effacer les filtres
+                </button>
+                <button type="submit" className="svv-btn svv-btn-primary gst-btn">Chercher</button>
+              </span>
+            </div>
           </div>
         )}
         {/* La recherche marche SANS la migration, en plus lent — et elle le DIT plutôt que de faire semblant. */}
@@ -496,7 +668,44 @@ export function BoiteMail({
         </p>
       )}
 
-      {etat.lignes.length === 0
+      {/* ══ 🔴 LOT RECHERCHE-AVANCEE — LES BROUILLONS TROUVÉS, DANS LEUR PROPRE BLOC ═══════════════════════════
+          Pourquoi à part et pas mêlés aux résultats : un brouillon n'est pas un échange. Il peut n'appartenir à
+          AUCUNE conversation, il n'a ni expéditeur ni date de réception, et la liste des résultats se pagine sur
+          la date de réception — deux horloges différentes se mêleraient mal, et la pagination mentirait.
+
+          ⚠️ UN BROUILLON HORS CONVERSATION N'EST PAS CLIQUABLE ICI : il n'y a pas d'échange à rouvrir, exactement
+          comme dans la liste « Brouillons » (qui se comporte ainsi depuis le lot 5e). On le MONTRE quand même — le
+          cacher reviendrait à dire qu'il n'existe pas — et on dit où le retrouver. */}
+      {cherche && etat.brouillons.lignes.length > 0 && (
+        <div className="bte-brouillons">
+          <p className="bte-brouillons-titre">
+            Brouillons ({etat.brouillons.lignes.length}{etat.brouillons.tronque ? ' affichés, il y en a d’autres' : ''})
+          </p>
+          <ul className="gst-liste">
+            {etat.brouillons.lignes.map((b) => {
+              const mot = `${nettoyerObjet(b.objet ?? '') || '(sans objet)'}${b.destinataire ? ` — à ${b.destinataire}` : ''}`;
+              return (
+                <li key={b.brouillonId}>
+                  {b.filId === null ? (
+                    <span className="bte-brouillon bte-brouillon--muet">
+                      <Evidence texte={mot} saisie={critere.q} />
+                      {' · '}courrier neuf, à rouvrir dans « Brouillons »
+                      {b.aPiece && <span className="bte-marque"> <span aria-hidden="true">📎</span> pièce jointe</span>}
+                    </span>
+                  ) : (
+                    <button type="button" className="bte-brouillon" onClick={() => onOuvrir(b.filId as number)}>
+                      <Evidence texte={mot} saisie={critere.q} />
+                      {b.aPiece && <span className="bte-marque"> <span aria-hidden="true">📎</span> pièce jointe</span>}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+
+      {etat.lignes.length === 0 && !(cherche && etat.brouillons.lignes.length > 0)
         ? <p className="gst-vide">{cherche
             ? 'Aucun échange ne correspond à cette recherche.'
             : titre === undefined ? 'Aucun échange dans la boîte.' : `Aucun échange sous « ${titre} ».`}</p>
@@ -552,6 +761,14 @@ export function BoiteMail({
                     {l.reference && <span className="bte-ref">{l.reference}</span>}
                     {l.sansSuite && <span className="bte-marque">classé sans suite</span>}
                     {l.nbLisibles === 0 && <span className="bte-marque">courrier automatique</span>}
+                    {/* ══ LOT RECHERCHE-AVANCEE — D'OÙ VIENT CE RÉSULTAT ══════════════════════════════════════
+                        Seulement en recherche, et seulement si PLUSIEURS listes sont cochées : avec une seule,
+                        la réponse est déjà écrite dans le panneau et la répéter sur chaque ligne serait du bruit.
+                        C'est le MESSAGE trouvé qui la donne, pas l'échange — une conversation vit à la fois dans
+                        « Réception » et dans « Envoyés ». */}
+                    {cherche && l.provenance !== undefined && critere.listes.length > 1 && (
+                      <span className="bte-marque bte-provenance">{motDeLaListe(l.provenance)}</span>
+                    )}
                     {nonLu && <span className="bte-marque bte-marque--non-lu">non lu</span>}
                     {/* ══ LOT ENVOI-DIAG — UN MESSAGE DE CET ÉCHANGE N'EST PAS ARRIVÉ ═══════════════════════════
                         🔴 SUR LA LIGNE, pas seulement dans l'échange ouvert : sinon il faudrait ouvrir les 6 580
@@ -661,8 +878,58 @@ const CSS_BOITE = `
   border:1px solid var(--color-svv-line);border-radius:.6rem;background:var(--color-svv-surface);color:var(--color-svv-ink)}
 .bte-champ:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .bte-outils{display:flex;flex-wrap:wrap;gap:6px 14px}
-.bte-filtres{display:flex;flex-wrap:wrap;gap:8px}
-.bte-filtre{display:flex;flex-direction:column;gap:2px;flex:1 1 9rem;min-width:0;font-size:.78rem;color:var(--color-svv-muted)}
+
+/* ══ LOT RECHERCHE-AVANCEE — L'ENGRENAGE DANS LE CHAMP, ET LE PANNEAU SOUS LUI ═══════════════════════════════════
+   ⚠️ LES CHAMPS SONT COMPACTS, chacun à la largeur de ce qu'il attend : une date n'a pas besoin de la place d'une
+   phrase. C'est la demande d'Arno, et c'est ce qui permet de tenir sur trois lignes au lieu de huit.
+   ⚠️ 16 px MINIMUM sur tout champ de saisie, y compris ici : en dessous, iOS zoome au premier clic et l'écran part
+   de travers. La compacité se gagne sur la LARGEUR et les marges, jamais sur la taille du texte.
+   ⚠️ 44 px de haut sur l'engrenage : c'est la cible tactile minimale. Le bouton reste dans le champ. */
+.bte-champ-boite{position:relative;display:flex;flex:1 1 14rem;min-width:0}
+.bte-champ--q{padding-right:2.6rem}
+.bte-engrenage{position:absolute;right:.25rem;top:50%;transform:translateY(-50%);display:inline-flex;
+  align-items:center;justify-content:center;width:36px;height:36px;padding:0;border:0;border-radius:.5rem;
+  background:transparent;color:var(--color-svv-muted);cursor:pointer}
+.bte-engrenage:hover{background:var(--color-svv-field);color:var(--color-svv-ink)}
+.bte-engrenage[aria-expanded="true"]{background:var(--color-svv-field);color:var(--color-svv-ink)}
+.bte-engrenage:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.bte-engrenage--pose{color:var(--color-svv-red)}
+/* La pastille DOUBLE un mot lu par les lecteurs d'écran : une forme seule n'informe pas qui ne la voit pas. */
+.bte-pastille{position:absolute;top:4px;right:4px;width:7px;height:7px;border-radius:50%;
+  background:var(--color-svv-red);border:1px solid var(--color-svv-surface)}
+.bte-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0 0 0 0);
+  white-space:nowrap;border:0}
+.bte-avancee{display:flex;flex-direction:column;gap:8px;padding:10px;border:1px solid var(--color-svv-line);
+  border-radius:.6rem;background:var(--color-svv-field)}
+.bte-avancee-ligne{display:flex;flex-wrap:wrap;align-items:flex-end;gap:8px}
+.bte-avancee-ligne--bas{justify-content:space-between}
+.bte-f{display:flex;flex-direction:column;gap:2px;min-width:0;font-size:.78rem;color:var(--color-svv-muted)}
+/* 🔴 flex:0 0 auto EST LE CORRECTIF, PAS UNE COQUETTERIE. La classe .bte-champ porte flex:1 1 12rem pour la ligne
+   de recherche, où l'axe principal est HORIZONTAL : 12rem y est une largeur. Dans .bte-f, qui est une COLONNE, le
+   même flex-basis devient une HAUTEUR — chaque champ du panneau faisait 12rem de haut. Vu à l'écran avant
+   livraison : six champs géants là où on demandait des champs d'une ligne. On rend donc la base au contenu, et la
+   hauteur reste celle d'une ligne de texte.
+   ⚠️ LA TAILLE DU TEXTE NE BAISSE PAS : .bte-champ garde ses 16 px, sans quoi iOS zoome au premier clic. La
+   compacité se gagne sur la largeur et les marges, jamais sur la lisibilité.
+   ⚠️⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un littéral gabarit, qu'un seul backtick refermerait.
+   Le piège s'est refermé SIX fois sur ce module — ici même, entre un tsc au vert et le rechargement de la page. */
+.bte-f .bte-champ{flex:0 0 auto;min-height:34px;height:34px;padding:.2rem .5rem}
+.bte-f--large{flex:1 1 13rem}
+.bte-f--moyen{flex:1 1 10rem}
+.bte-f--date{flex:0 1 9.5rem}
+.bte-f--court{flex:0 1 8.5rem}
+.bte-f-nom{font-size:.78rem;color:var(--color-svv-muted)}
+.bte-listes{display:flex;flex-wrap:wrap;align-items:center;gap:4px 12px;margin:0;padding:0;border:0;min-width:0}
+.bte-case{display:inline-flex;align-items:center;gap:.3rem;font-size:.82rem;color:var(--color-svv-ink);
+  min-height:32px;cursor:pointer}
+.bte-avancee-boutons{display:flex;flex-wrap:wrap;gap:8px;margin-left:auto}
+/* La provenance d'un résultat : discrète, mais un MOT — jamais une couleur seule. */
+.bte-provenance{color:var(--color-svv-muted)}
+.bte-brouillons{margin:0 0 10px;padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem}
+.bte-brouillons-titre{margin:0 0 6px;font-size:.82rem;font-weight:700;color:var(--color-svv-ink)}
+.bte-brouillon{display:block;width:100%;text-align:left;padding:.35rem 0;font-size:.85rem;
+  background:transparent;border:0;color:var(--color-svv-ink)}
+.bte-brouillon--muet{cursor:default;color:var(--color-svv-muted)}
 .bte-trouve{font-weight:800;text-decoration:underline;text-underline-offset:2px}
 .bte-plus{margin-top:12px;width:100%}
 @media (min-width:600px){.bte-plus{width:auto}}
