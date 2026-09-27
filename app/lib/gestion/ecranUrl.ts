@@ -44,6 +44,12 @@ export type SorteEtiquette =
   | 'reception' | 'a_classer' | 'envoyes' | 'sans_suite' | 'automatique' | 'corbeille'
   /** LOT 5e — les messages commencés et pas envoyés. Ils ne vivent pas dans `gestion_message` : voir `PleinEcranBoite`. */
   | 'brouillons'
+  /**
+   * LOT ERGO-BOITE-3 — le courrier que GMAIL a classé en spam. Ce n'est pas notre jugement : on le constate, on le
+   * garde (Gmail, lui, le supprime au bout de 30 jours), et on ne le laisse entrer nulle part ailleurs. Sans la
+   * migration 263, l'étiquette existe et sa liste est vide — jamais fausse.
+   */
+  | 'spam'
   | 'carte';
 
 export interface Etiquette {
@@ -89,6 +95,19 @@ export interface EtatEcranUrl {
    * le lot 5-FUSION. La lecture de la cible vit dans `historique.ts` (`cibleDepuisTexte`), qui en est le seul juge.
    */
   cible?: string | null;
+  /**
+   * ══ LOT ERGO-BOITE-3 — LE SÉLECTEUR DE « RÉCEPTION » : tous les échanges reçus, ou seulement les non lus ══════
+   * `null` = tous (le défaut, et la valeur qui ne s'écrit jamais dans l'adresse). `'non-lus'` = seulement les
+   * échanges portant un message reçu que JE n'ai pas ouvert.
+   *
+   * 🔴 POURQUOI DANS L'ADRESSE. Sans cela, un rechargement — ou le rafraîchissement automatique de 30 s, qui relit
+   * la page — ramènerait la liste entière sans prévenir, alors qu'on venait de demander les non lus. Un filtre qui
+   * saute tout seul est pire qu'un filtre absent : on croit voir le tout, on ne voit qu'une partie, ou l'inverse.
+   *
+   * ⚠️ FACULTATIF À L'ÉCRITURE, comme `fiche` et `cible`, et pour la même raison : une trentaine d'appels
+   * construisent déjà un état à la main, et les obliger tous à écrire `filtre: null` serait du bruit.
+   */
+  filtre?: 'non-lus' | null;
 }
 
 const SORTES_FICHE: readonly SorteFiche[] = ['proprietaire', 'lot', 'locataire'];
@@ -123,12 +142,12 @@ export const ETIQUETTE_RECEPTION: Etiquette = { sorte: 'reception', evenementId:
  * `?ecran=partage`, `?etiquette=envoyes`, `?fil=123` ouvrent exactement ce qu'ils visent (voir `lireEtatUrl`).
  */
 export const ETAT_DEFAUT: EtatEcranUrl = {
-  ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, fiche: null, cible: null,
+  ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, fiche: null, cible: null, filtre: null,
 };
 
 const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier', 'historique'];
 const SORTES_FIXES: readonly SorteEtiquette[] = [
-  'reception', 'a_classer', 'envoyes', 'sans_suite', 'automatique', 'brouillons',
+  'reception', 'a_classer', 'envoyes', 'sans_suite', 'automatique', 'brouillons', 'spam',
   // LOT 5-BOITE-3 — la corbeille est une étiquette comme les autres : elle vit dans l'adresse, donc elle se
   //   recharge, se copie et se retrouve par « Précédent ».
   'corbeille',
@@ -215,6 +234,12 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
     // LOT RATTACHEMENT-2 — idem pour la cible de l'historique. Elle est rendue TELLE QUELLE (bornée) : c'est
     //   `cibleDepuisTexte` dans `historique.ts` qui juge si elle désigne quelque chose, et lui seul.
     cible: ecran === 'historique' ? cibleBrute(p.get('cible')) : null,
+    /**
+     * Le filtre ne désigne quelque chose QUE dans la boîte, sous « Réception » : ailleurs il n'y a pas de non-lus à
+     * distinguer, et le traîner mettrait dans l'historique deux adresses pour un seul écran. Toute valeur autre que
+     * `non-lus` vaut « tous » — une adresse abîmée doit montrer TOUT, jamais moins.
+     */
+    filtre: ecran === 'boite' && p.get('filtre') === 'non-lus' ? 'non-lus' : null,
   };
 }
 
@@ -245,6 +270,8 @@ export function ecrireEtatUrl(e: EtatEcranUrl): string {
   if (e.filOuvert !== null) p.set('fil', String(e.filOuvert));
   if (e.ecran === 'annuaire' && e.fiche != null) p.set('fiche', texteFiche(e.fiche));
   if (e.ecran === 'historique' && e.cible != null && e.cible !== '') p.set('cible', e.cible);
+  // Seul `non-lus` s'écrit : « tous » est le défaut, et un défaut écrit dans l'adresse n'est plus un défaut.
+  if (e.ecran === 'boite' && e.filtre === 'non-lus') p.set('filtre', 'non-lus');
   const s = p.toString();
   return s === '' ? '' : `?${s}`;
 }

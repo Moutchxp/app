@@ -21,7 +21,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { rattachementsDisponibles } from './schema';
+import { rattachementsDisponibles, spamDisponible} from './schema';
 import { nomBien, nomProprietaire } from './driveArbre';
 import {
   cibleCourte, examinerMessage, memeCible, type Cible, type Candidat, type Issue, type Statut,
@@ -131,10 +131,26 @@ export interface Paquet {
   adresses: Map<number, AdresseEchange[]>;
 }
 
+/**
+ * LOT ERGO-BOITE-3 — LE SPAM N'EST JAMAIS EXAMINÉ.
+ *
+ * 🔴 POURQUOI C'EST ICI, ET PAS DANS LE MOTEUR. Le moteur de rattachement est PUR : il rapproche des adresses de
+ * l'annuaire, sans savoir d'où vient un message. C'est donc à la LECTURE qu'on écarte le spam — au seul endroit où
+ * il est encore reconnaissable. Sans cela, 231 messages indésirables entreraient dans « À rattacher » et le
+ * programme chercherait à quel propriétaire rattacher une publicité.
+ *
+ * ⚠️ Sans la migration 263, la colonne n'est pas nommée : la clause est vide et le comportement est celui d'avant.
+ */
+async function clauseHorsSpam(alias: string): Promise<string> {
+  return (await spamDisponible()) ? `AND ${alias}.spam_le IS NULL` : '';
+}
+
 /** Les messages des `nbFils` fils suivant `depuis`, et toutes les adresses de ces fils. LECTURE SEULE. */
 export async function chargerPaquet(depuis: number, nbFils: number): Promise<Paquet> {
+  const horsSpam = await clauseHorsSpam('m');
   const { rows: fils } = await query<{ fil_id: string }>(
-    'SELECT DISTINCT fil_id FROM gestion_message WHERE fil_id > $1 ORDER BY fil_id LIMIT $2', [depuis, nbFils]);
+    `SELECT DISTINCT m.fil_id FROM gestion_message m
+      WHERE m.fil_id > $1 ${horsSpam} ORDER BY m.fil_id LIMIT $2`, [depuis, nbFils]);
   return chargerFils(fils.map((f) => Number(f.fil_id)));
 }
 
@@ -148,8 +164,12 @@ export async function chargerPaquet(depuis: number, nbFils: number): Promise<Paq
 export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
   if (ids.length === 0) return { fils: [], messages: [], adresses: new Map() };
 
+  // Un fil peut mêler du courrier ordinaire et un spam (Gmail range par conversation) : on écarte le MESSAGE, pas
+  //   le fil — sinon un spam égaré ferait disparaître de la file un échange parfaitement légitime.
+  const horsSpam = await clauseHorsSpam('m');
   const { rows: msgs } = await query<{ id: string; fil_id: string }>(
-    'SELECT id, fil_id FROM gestion_message WHERE fil_id = ANY($1::bigint[]) ORDER BY id', [ids]);
+    `SELECT m.id, m.fil_id FROM gestion_message m
+      WHERE m.fil_id = ANY($1::bigint[]) ${horsSpam} ORDER BY m.id`, [ids]);
 
   const { rows: adr } = await query<{
     fil_id: string; message_id: string; adresse: string; interne: boolean; partie: string | null;

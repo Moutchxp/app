@@ -102,7 +102,9 @@ interface LigneDB {
  * Construit les conditions de filtrage et leurs paramètres LIÉS. Chaque valeur saisie devient un `$n`, jamais un
  * morceau de SQL — c'est la seule façon de rendre une injection impossible, et pas seulement improbable. PUR.
  */
-export function conditions(c: CritereRecherche, pleinTexte: boolean): { sql: string[]; params: unknown[] } {
+export function conditions(
+  c: CritereRecherche, pleinTexte: boolean, spamConnu = false,
+): { sql: string[]; params: unknown[] } {
   const sql: string[] = [];
   const params: unknown[] = [];
   const lier = (v: unknown): string => { params.push(v); return `$${params.length}`; };
@@ -131,6 +133,17 @@ export function conditions(c: CritereRecherche, pleinTexte: boolean): { sql: str
     if (c.listes.includes('automatique')) branches.push('m.exclu_le IS NOT NULL');
     sql.push(branches.length === 0 ? 'false' : `(${branches.join(' OR ')})`);
   }
+  /**
+   * 🔴 LOT ERGO-BOITE-3 — LE SPAM EST UNE DIMENSION À PART, PAS UNE BRANCHE DE PLUS.
+   *
+   * Un spam a un sens (reçu) et peut être exclu par une règle : le mettre en OU avec les autres listes l'aurait fait
+   * ressortir sous « Réception » dès que cette case était cochée — c'est-à-dire par défaut. La règle est donc :
+   * « Spam » décochée ⇒ on EXCLUT le spam ; cochée ⇒ on ne dit rien, et il s'ajoute à ce que les autres cases ont
+   * retenu. C'est la même grammaire que l'écran, où le spam est une liste séparée et jamais un sous-ensemble.
+   *
+   * ⚠️ `spamConnu` faux (migration 263 absente) ⇒ aucune colonne nommée, aucune condition : comportement d'avant.
+   */
+  if (spamConnu && c.listes !== undefined && !c.listes.includes('spam')) sql.push('m.spam_le IS NULL');
 
   const termes = decouperTermes(c.saisie);
   const negatifs = decouperTermes(c.sansMots ?? '');
@@ -218,11 +231,11 @@ export async function chercherDansLeCourrier(
   partenaires: readonly PartenaireInterne[] = [],
   limite = PAGE_RECHERCHE,
 ): Promise<PageRecherche> {
-  const { rechercheTexteDisponible } = await import('./schema');
-  const pleinTexte = await rechercheTexteDisponible();
+  const { rechercheTexteDisponible, spamDisponible } = await import('./schema');
+  const [pleinTexte, spamConnu] = await Promise.all([rechercheTexteDisponible(), spamDisponible()]);
   const aLire = Math.min(Math.max(1, limite), 100) + 1;
 
-  const { sql: filtres, params } = conditions(critere, pleinTexte);
+  const { sql: filtres, params } = conditions(critere, pleinTexte, spamConnu);
   const lier = (v: unknown): string => { params.push(v); return `$${params.length}`; };
   const where = filtres.length > 0 ? `WHERE ${filtres.join(' AND ')}` : '';
   const curseurSql = curseur === null ? '' :
@@ -238,7 +251,8 @@ export async function chercherDansLeCourrier(
               --   que redéduit par l'écran : le navigateur ne connaît ni exclu_le ni la règle qui l'écrit.
               -- ⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un littéral gabarit, qu'un seul backtick
               --   refermerait (TS1005). Le piège s'est refermé cinq fois sur ce module.
-              CASE WHEN m.exclu_le IS NOT NULL THEN 'automatique'
+              CASE WHEN ${spamConnu ? 'm.spam_le IS NOT NULL' : 'false'} THEN 'spam'
+                   WHEN m.exclu_le IS NOT NULL THEN 'automatique'
                    WHEN m.sens = 'envoye' THEN 'envoyes' ELSE 'reception' END AS provenance
          FROM gestion_message m
          ${where}
@@ -286,7 +300,7 @@ export async function chercherDansLeCourrier(
       objet: r.objet,
       objetTrouve: r.objet_trouve,
       // La base rend un mot d'un ensemble fermé ; on le REFUSE s'il n'en fait pas partie plutôt que de le croire.
-      provenance: (['reception', 'envoyes', 'automatique'] as const).includes(r.provenance as 'reception')
+      provenance: (['reception', 'envoyes', 'automatique', 'spam'] as const).includes(r.provenance as 'reception')
         ? (r.provenance as SorteListe) : 'reception',
       interlocuteur: r.interlocuteur_adresse === null
         ? r.interlocuteur
@@ -306,7 +320,7 @@ export async function chercherDansLeCourrier(
     pleinTexte,
     // Combien de résultats la règle « pas de courrier automatique » écarte : dit en toutes lettres, comme dans la liste.
     automatiquesMasques: curseur === null && critere.inclureAutomatiques !== true
-      ? await compterAutomatiquesMasques(critere, pleinTexte)
+      ? await compterAutomatiquesMasques(critere, pleinTexte, spamConnu)
       : null,
   };
 }
@@ -327,9 +341,11 @@ function avecAutomatiques(c: CritereRecherche, oui: boolean): CritereRecherche {
  * Combien d'échanges la recherche aurait rendus EN PLUS avec le courrier automatique. Calculé seulement à la première
  * page : c'est une phrase d'écran, pas une donnée dont dépend la suite.
  */
-async function compterAutomatiquesMasques(critere: CritereRecherche, pleinTexte: boolean): Promise<number> {
-  const avec = conditions(avecAutomatiques(critere, true), pleinTexte);
-  const sans = conditions(avecAutomatiques(critere, false), pleinTexte);
+async function compterAutomatiquesMasques(
+  critere: CritereRecherche, pleinTexte: boolean, spamConnu = false,
+): Promise<number> {
+  const avec = conditions(avecAutomatiques(critere, true), pleinTexte, spamConnu);
+  const sans = conditions(avecAutomatiques(critere, false), pleinTexte, spamConnu);
   const compte = async (c: { sql: string[]; params: unknown[] }): Promise<number> => {
     const where = c.sql.length > 0 ? `WHERE ${c.sql.join(' AND ')}` : '';
     const { rows } = await query<{ n: number }>(

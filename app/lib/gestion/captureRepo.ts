@@ -9,7 +9,7 @@
  */
 import type { PoolClient } from 'pg';
 import { pool, query, withTransaction } from '../db/client';
-import { deplacementsDeMailsDisponibles, destinatairesSeparesDisponibles } from './schema';
+import { deplacementsDeMailsDisponibles, destinatairesSeparesDisponibles, spamDisponible} from './schema';
 import { chargerConfigGestion, type ConfigGestion } from './config';
 import type { DepsCapture, MessageAEcrire, MessageBrut, PieceBrute, FilResolu } from './capture';
 import type { RegleExclusion } from './regles';
@@ -185,7 +185,7 @@ export async function resoudreFil(identifiants: string[], cleRacine: string, obj
  */
 export async function ecrireMessage(
   m: MessageAEcrire, filId: number, uidValidite: string | null = null, avecUid = true, avecDeplacements = false,
-  avecDestinatairesSepares = false,
+  avecDestinatairesSepares = false, avecSpam = false,
 ): Promise<number | null> {
   return withTransaction(async (q) => {
     const colonnes = `fil_id, message_id, in_reply_to, references_brut, sens, de_adresse, de_nom, destinataires, nb_destinataires,
@@ -193,6 +193,15 @@ export async function ecrireMessage(
           exclu_le, exclu_par_regle_id, exclu_motif`;
     const valeurs = `$1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,
                CASE WHEN $17::bigint IS NULL THEN NULL ELSE now() END, $17::bigint, $18`;
+    /**
+     * LOT ERGO-BOITE-3 — LA CONSTATATION DE SPAM. Colonne ajoutée SEULEMENT si la migration 263 est là ET si ce
+     * message vient du dossier de spam : aucune passe ordinaire n'écrit cette colonne, et une base sans la
+     * migration ne la voit jamais nommée. `now()` — l'instant où NOUS l'avons constaté, pas une date de Gmail que
+     * nous n'avons pas.
+     */
+    const spam = avecSpam && m.spam === true
+      ? { colonnes: ', spam_le', valeurs: ', now()' }
+      : { colonnes: '', valeurs: '' };
     const params = [filId, m.messageId, m.inReplyTo, m.referencesBrut, m.sens, m.deAdresse, m.deNom, m.destinataires, m.nbDestinataires,
        m.objet, m.objetGabarit, m.recuLe, m.corpsTexte, m.corpsHtml, m.automatique, m.signauxAutomatisme,
        m.exclusion?.regleId ?? null, m.exclusion?.motif ?? null];
@@ -213,17 +222,23 @@ export async function ecrireMessage(
     const apresSepares = n + separes.params.length;
     const { rows } = avecUid
       ? await q<{ id: number }>(
-          `INSERT INTO gestion_message (${colonnes}${separes.colonnes}, uid_imap, uid_validity)
-           VALUES (${valeurs}${placeSepares === '' ? '' : `, ${placeSepares}`}, $${apresSepares + 1}::bigint, $${apresSepares + 2}::bigint)
+          `INSERT INTO gestion_message (${colonnes}${separes.colonnes}${spam.colonnes}, uid_imap, uid_validity)
+           VALUES (${valeurs}${placeSepares === '' ? '' : `, ${placeSepares}`}${spam.valeurs}, $${apresSepares + 1}::bigint, $${apresSepares + 2}::bigint)
            ON CONFLICT (message_id) DO NOTHING RETURNING id::int AS id`,
           [...params, ...separes.params, m.uidImap, uidValidite])
       : await q<{ id: number }>(
-          `INSERT INTO gestion_message (${colonnes}${separes.colonnes})
-           VALUES (${valeurs}${placeSepares === '' ? '' : `, ${placeSepares}`})
+          `INSERT INTO gestion_message (${colonnes}${separes.colonnes}${spam.colonnes})
+           VALUES (${valeurs}${placeSepares === '' ? '' : `, ${placeSepares}`}${spam.valeurs})
            ON CONFLICT (message_id) DO NOTHING RETURNING id::int AS id`, [...params, ...separes.params]);
     if (!rows[0]) return null; // déjà écrit : aucun doublon, aucune erreur
 
-    if (m.exclusion === null) {
+    /**
+     * 🔴 LOT ERGO-BOITE-3 — UN SPAM NE RAMÈNE RIEN DANS LA FILE, et c'est un garde-fou, pas un détail. Sans le
+     * `m.spam !== true`, un spam arrivant dans un échange classé sans suite l'aurait fait basculer en « à classer » :
+     * du courrier indésirable rouvrirait un dossier qu'un humain avait décidé de clore. Il ne déclenche pas non plus
+     * le suivi d'un mail déplacé, plus bas, pour la même raison.
+     */
+    if (m.exclusion === null && m.spam !== true) {
       const { rowCount } = await q(
         `UPDATE gestion_fil SET etat = 'a_classer', maj_le = now() WHERE id = $1 AND etat = 'sans_suite'`, [filId]);
       if ((rowCount ?? 0) > 0) {
@@ -238,7 +253,7 @@ export async function ecrireMessage(
     //   autre carte, il la rejoint. Sans ça, on déplace un mail aujourd'hui et la réponse de demain retombe dans
     //   l'échange d'origine : une même conversation coupée en deux entre deux cartes, pire que de n'avoir rien fait.
     //   Ne s'exécute qu'une fois la migration 234 appliquée ; le drapeau est établi hors transaction.
-    if (avecDeplacements && m.exclusion === null) {
+    if (avecDeplacements && m.exclusion === null && m.spam !== true) {
       const { suivreLeMailDeplace } = await import('./gestes');
       await suivreLeMailDeplace(q, rows[0].id, filId, citationsDuMessage(m));
     }
@@ -415,7 +430,10 @@ export function depsReellesCapture(clientCourant: () => ClientDossier): DepsCapt
       m, filId, clientCourant().uidValidite?.() ?? null, await colonnesUid(), await deplacementsDeMailsDisponibles(),
       // LOT 5-0 — sonde mémorisée pour la vie du processus (schema.ts), posée HORS transaction : une migration en
       //   attente ne doit jamais faire échouer une passe, seulement lui faire écrire le SQL d'avant.
-      await destinatairesSeparesDisponibles()),
+      await destinatairesSeparesDisponibles(),
+      // LOT ERGO-BOITE-3 — même patron : sonde mémorisée, posée HORS transaction. Sans la migration 263, la colonne
+      //   n'est pas nommée et la passe de spam n'a de toute façon pas lieu (cf. `releveReelle`).
+      await spamDisponible()),
     deposerPieces: deposerPiecesMessage,
   };
 }

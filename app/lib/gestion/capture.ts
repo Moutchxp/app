@@ -78,6 +78,11 @@ export interface MessageAEcrire {
   automatique: boolean;
   signauxAutomatisme: string | null;
   exclusion: Exclusion | null;
+  /**
+   * LOT ERGO-BOITE-3 — Gmail tenait ce message pour du spam au moment où on l'a lu. Écrit tel quel dans `spam_le`
+   * (migration 263) ; sans la migration, la colonne n'est pas nommée et ce champ n'a aucun effet.
+   */
+  spam?: boolean;
 }
 
 /** Le fil auquel un message se rattache, une fois résolu en base. */
@@ -191,6 +196,19 @@ export interface OptionsCapture {
   depuisForce?: Date;
   /** Plafond de CETTE passe seulement. Absent ou ≤ 0 → celui de la configuration, comme toujours. */
   plafondForce?: number;
+  /**
+   * LOT ERGO-BOITE-3 — DOSSIER IMPOSÉ, qui remplace `config.dossierImap`. Sert à la passe de SPAM, qui lit
+   * « [Gmail]/Spam » au lieu du libellé de gestion. Absent ⇒ le dossier de la configuration, comme toujours.
+   */
+  dossierForce?: string;
+  /**
+   * LOT ERGO-BOITE-3 — les messages de CETTE passe sont du spam constaté chez Gmail.
+   *
+   * 🔴 C'EST UNE CONSTATATION, PAS UN JUGEMENT. On ne décide pas qu'un message est du spam : on note que Gmail le
+   * tenait pour tel, à l'instant où on l'a lu. Le dossier lu EST la preuve — d'où ce drapeau, posé par l'appelant
+   * qui a choisi le dossier, et jamais déduit du contenu.
+   */
+  marquerSpam?: boolean;
 }
 
 /** Au-delà de ce seuil, une lecture est signalée EN DIRECT dans la progression : c'est le symptôme qu'on cherchait à voir. */
@@ -272,7 +290,9 @@ export function sensDuMessage(deAdresse: string, adresseGestion: string): 'recu'
  * le tient hors de la file — s'il y en a une. N'ÉCRIT RIEN. PUR : c'est la fonction qu'on rejoue pour comprendre, des
  * mois après, pourquoi un message n'était pas dans la file.
  */
-export function preparerMessage(m: MessageBrut, config: ConfigGestion, regles: readonly RegleExclusion[]): MessageAEcrire {
+export function preparerMessage(
+  m: MessageBrut, config: ConfigGestion, regles: readonly RegleExclusion[], spam = false,
+): MessageAEcrire {
   const sens = sensDuMessage(m.deAdresse, config.adresseGestion);
   const indice = indiceAutomatisme(m.deAdresse, m.entetes);
   const exclusion = appliquerRegles(regles, { sens, deAdresse: m.deAdresse, objet: m.objet, entetes: m.entetes });
@@ -290,6 +310,7 @@ export function preparerMessage(m: MessageBrut, config: ConfigGestion, regles: r
     automatique: indice.automatique,
     signauxAutomatisme: indice.motifs.length > 0 ? indice.motifs.join(',') : null,
     exclusion,
+    spam,
   };
 }
 
@@ -309,11 +330,15 @@ export async function capturer(deps: DepsCapture, appliquer = false, options: Op
   // LOT R — une fenêtre IMPOSÉE court-circuite le calcul ordinaire, et rien d'autre : le curseur, les bornes et le
   //   dédoublonnage sont EXACTEMENT les mêmes. Sans option, `fenetreDepuis` décide comme avant.
   const depuis = options.depuisForce ?? fenetreDepuis(bornes, config, deps.maintenant());
+  // LOT ERGO-BOITE-3 — le dossier de CETTE passe. Sans option, c'est celui de la configuration : la passe ordinaire
+  //   ne change pas d'un iota. Il est lu UNE fois et utilisé partout (ouverture, reconnexion, journal, rapport) —
+  //   trois lectures dispersées finiraient par désigner deux dossiers différents dans la même passe.
+  const dossier = options.dossierForce ?? config.dossierImap;
   const plafond = (options.plafondForce ?? 0) > 0 ? options.plafondForce! : config.plafondParPasse;
   const connus = await deps.connus();
 
   const r: RapportCapture = {
-    mode: appliquer ? 'applique' : 'simulation', dossier: config.dossierImap, depuis: depuis.toISOString(),
+    mode: appliquer ? 'applique' : 'simulation', dossier, depuis: depuis.toISOString(),
     uidsServeur: 0, plafondAtteint: false, vus: 0, dejaConnus: 0, captures: 0, recus: 0, envoyes: 0, exclus: 0,
     filsCrees: 0, filsFusionnes: 0, piecesDeposees: 0, piecesNonDeposees: 0, echecsLecture: 0, parRegle: {},
     dejaVusEcartes: 0, resteInconnus: 0,
@@ -327,10 +352,10 @@ export async function capturer(deps: DepsCapture, appliquer = false, options: Op
   const lire = !appliquer && deps.telechargerLeger ? deps.telechargerLeger.bind(deps) : deps.telecharger.bind(deps);
   const mesures: MesureLecture[] = [];
 
-  deps.journal?.(`dossier « ${config.dossierImap} » · fenêtre depuis le ${depuis.toISOString().slice(0, 10)} · ${regles.length} règle(s) active(s)`);
+  deps.journal?.(`dossier « ${dossier} » · fenêtre depuis le ${depuis.toISOString().slice(0, 10)} · ${regles.length} règle(s) active(s)`);
   deps.journal?.('connexion à la boîte…');
   try {
-    await deps.ouvrirDossier(config.dossierImap);
+    await deps.ouvrirDossier(dossier);
     deps.journal?.('recherche des messages de la fenêtre…');
     const uids = [...await deps.chercherDepuis(depuis)].sort((a, b) => a - b);
     r.uidsServeur = uids.length;
@@ -378,7 +403,7 @@ export async function capturer(deps: DepsCapture, appliquer = false, options: Op
           deps.journal?.(`⚠ connexion perdue au message ${uid} — reconnexion ${r.reconnexions}/${config.reconnexionsMax} dans ${delai / 1000} s`);
           if (appliquer) await deps.journaliserReconnexion?.(r.reconnexions, e.message);
           await attendre(delai);
-          await deps.reconnecter(config.dossierImap);
+          await deps.reconnecter(dossier);
           deps.journal?.(`reconnecté — reprise au message ${uid}`);
         }
       }
@@ -387,7 +412,7 @@ export async function capturer(deps: DepsCapture, appliquer = false, options: Op
       if (mid === '' || connus.has(mid)) { r.dejaConnus += 1; continue; }
       connus.add(mid); // un même Message-ID deux fois dans la même passe ne s'écrit qu'une fois
 
-      const prepare = preparerMessage(m, config, regles);
+      const prepare = preparerMessage(m, config, regles, options.marquerSpam === true);
       if (prepare.sens === 'envoye') r.envoyes += 1; else r.recus += 1;
       if (prepare.exclusion !== null) {
         r.exclus += 1;

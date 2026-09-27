@@ -269,22 +269,26 @@ describe('④ CLASSER — le partage s’ouvre, et se referme une fois l’écha
 
 describe('⑤ L’EN-TÊTE COMPACT, et l’écran partagé qui ne bouge pas', () => {
   /**
-   * 🔴 LOT ERGO-BOITE — L'EN-TÊTE COMPACT NE GARDE QUE LE TITRE. L'heure de relève est descendue dans la colonne, en
-   * petit, et les deux boutons sont devenus UNE icône à côté du titre de la liste. Rien n'est perdu : les deux
-   * informations et le geste sont toujours à l'écran, ailleurs — et c'est ce que ce test vérifie, pièce par pièce.
+   * 🔴 LOT ERGO-BOITE-3 — DANS LA BOÎTE, IL N'Y A PLUS D'EN-TÊTE DU TOUT. Le bloc gris « Gestion ⓘ » est supprimé
+   * (retrait demandé par Arno le 27/09/2026) : il ne portait plus que le titre du module, au-dessus d'une boîte
+   * mail qui dit déjà ce qu'elle est.
+   *
+   * 🔴 CE QUE CE TEST PROTÈGE MAINTENANT, et c'est le plus important : ce qui vivait dans ce bloc n'a pas disparu
+   * de l'écran, il a CHANGÉ DE PLACE. L'heure de relève est dans la colonne, en petit ; le geste est devenu une
+   * icône nommée à côté du titre de la liste. Pièce par pièce, comme avant.
    */
-  it('en plein écran : le titre, la phrase en info-bulle, l’état DANS LA COLONNE et l’icône de relève', async () => {
+  it('en plein écran : aucun en-tête, l’état DANS LA COLONNE et l’icône de relève', async () => {
     await monter();
-    expect(container.querySelector('.gst-bandeau--compact')).not.toBeNull();
-    expect(container.querySelector('.gst-bandeau-titre')?.textContent).toContain('Gestion');
+    // Le bloc gris n'existe plus dans la boîte — ni compact, ni entier.
+    expect(container.querySelector('.gst-bandeau')).toBeNull();
+    expect(container.querySelector('.gst-bandeau-titre')).toBeNull();
     // Les deux boutons ont quitté le bandeau…
     expect(boutonPar(/^Relever maintenant$/)).toBeUndefined();
     expect(boutonPar(/^Rafraîchir$/)).toBeUndefined();
     // …remplacés par une icône NOMMÉE, à côté du titre de la liste.
     expect(container.querySelector('.bte-relever')?.getAttribute('aria-label')).toBe('Relever et actualiser');
-    // …et l'heure de relève est dans la colonne, en petit, pas dans le bandeau.
+    // …et l'heure de relève est dans la colonne, en petit.
     expect(container.querySelector('.cm-etat')?.textContent).toContain('Dernière relève');
-    expect(container.querySelector('.gst-bandeau')?.textContent).not.toContain('Dernière relève');
   });
 
   it('…et l’en-tête de page est REPLIÉ par une règle, jamais supprimé du document', () => {

@@ -64,6 +64,10 @@ export const CRITERE_VIDE: Critere = {
 export const LISTES_CHERCHABLES: readonly (readonly [SorteListe, string])[] = [
   ['reception', 'Réception'], ['envoyes', 'Envoyés'],
   ['automatique', 'Courrier automatique'], ['brouillons', 'Brouillons'],
+  // LOT ERGO-BOITE-3 — cochée par défaut comme les autres (elle est dans `LISTES_TOUTES`). Le spam ne sort de nulle
+  //   part ailleurs : si la recherche l'excluait aussi par défaut, un mail qu'on cherche et que Gmail a mal classé
+  //   serait introuvable PARTOUT — exactement le défaut qu'une recherche ne doit pas avoir.
+  ['spam', 'Spam'],
 ];
 
 /**
@@ -195,10 +199,15 @@ type Etat =
  */
 async function chargerPage(
   curseur: CurseurBoite | null, auto: boolean, critere: Critere, etiquette: Etiquette,
+  filtre: 'non-lus' | null = null,
 ): Promise<ReponseBoite | { erreur: string }> {
   const p = new URLSearchParams();
   if (curseur) { p.set('depuis', curseur.dernierLe); p.set('avant', curseur.filId); }
   if (auto) p.set('auto', '1');
+  // LOT ERGO-BOITE-3 — le sélecteur « non lus » de Réception. Seul `non-lus` s'écrit : « tous » est le défaut, et
+  //   l'écrire ferait une seconde adresse pour la même demande. Il ne part PAS avec une recherche : celle-ci
+  //   traverse les étiquettes et n'a pas de notion de « non lu » (voir la note sur l'étiquette ci-dessous).
+  if (filtre === 'non-lus' && !critereActif(critere)) p.set('filtre', 'non-lus');
   const cherche = critereActif(critere);
   // 🔴 L'ÉTIQUETTE NE VA PAS À LA RECHERCHE, et c'est voulu : le lot 5c promet de chercher dans TOUT le courrier de
   //   gestion. La restreindre à l'étiquette ouverte ferait rater le mail qu'on cherche pour la seule raison qu'on
@@ -257,7 +266,7 @@ export function Evidence({ texte, saisie }: { texte: string; saisie: string }) {
 export function BoiteMail({
   onOuvrir, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
   dense = false, onNonLus, marquage, onActionLigne, corbeille = false, peutEcrire = false, piecesDisponibles = false,
-  versionDonnees = 0, onListeRelue, onRelever, releveEnCours = false,
+  versionDonnees = 0, onListeRelue, onRelever, releveEnCours = false, filtre = null,
 }: {
   onOuvrir: (filId: number) => void;
   /** LOT 5-FUSION — l'étiquette ouverte. Absente = la boîte entière, exactement le comportement du lot 5a. */
@@ -321,6 +330,12 @@ export function BoiteMail({
    */
   onRelever?: () => void;
   releveEnCours?: boolean;
+  /**
+   * LOT ERGO-BOITE-3 — le sélecteur de « Réception » : `'non-lus'` restreint la liste aux échanges portant un
+   * message reçu non lu, `null` (le défaut) les montre tous. Il entre dans la CLÉ de rechargement, donc le
+   * rafraîchissement automatique de 30 s et l'icône « Relever et actualiser » le respectent d'eux-mêmes.
+   */
+  filtre?: 'non-lus' | null;
   /** Prévient le parent que la liste vient de se relire — il peut oublier ce qu'il avait à annoncer. */
   onListeRelue?: () => void;
 }) {
@@ -366,11 +381,11 @@ export function BoiteMail({
   // La date de référence n'est posée qu'APRÈS le montage : la calculer au rendu serveur ferait diverger l'hydratation.
   useEffect(() => { setMaintenant(new Date()); }, []);
 
-  const premiere = useCallback(async (avecAuto: boolean, c: Critere, e: Etiquette) => {
+  const premiere = useCallback(async (avecAuto: boolean, c: Critere, e: Etiquette, f: 'non-lus' | null = null) => {
     setEtat({ v: 'charge' });
     // LOT ÉCRAN-VIVANT — on repart de la première page : ce qui avait été déroulé par « Voir plus » ne l'est plus.
     setDePlus(0);
-    const r = await chargerPage(null, avecAuto, c, e);
+    const r = await chargerPage(null, avecAuto, c, e, f);
     if ('erreur' in r) { setEtat({ v: 'erreur', m: r.erreur }); return; }
     setEtat({
       v: 'ok', lignes: r.lignes, suivant: r.suivant, total: r.total ?? r.lignes.length, comptes: r.comptes,
@@ -381,7 +396,9 @@ export function BoiteMail({
   }, []);
 
   // `cleEtiquette` plutôt que l'objet : deux objets égaux mais distincts relanceraient la lecture à chaque rendu.
-  useEffect(() => { void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette)); }, [premiere, auto, critere, cleEtiquette]);
+  // `filtre` entre dans les dépendances : changer de sélecteur relit la première page, comme changer d'étiquette.
+  useEffect(() => { void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette), filtre); },
+    [premiere, auto, critere, cleEtiquette, filtre]);
 
   /**
    * ══ 🔴 LOT ÉCRAN-VIVANT — LA LISTE SE RELIT QUAND DU COURRIER ARRIVE, SI ELLE PEUT LE FAIRE SANS RIEN PERDRE ══
@@ -396,7 +413,7 @@ export function BoiteMail({
   useEffect(() => {
     if (!versionDonnees) return;                                  // 0 ou absent : comportement d'avant ce lot
     if (!peutSeRecharger) return;
-    void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette)).then(() => onListeRelue?.());
+    void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette), filtre).then(() => onListeRelue?.());
     // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : SEUL `versionDonnees` déclenche ce
     //   rafraîchissement. Ajouter `critere`, `auto` ou `cleEtiquette` ferait doublon avec l'effet ci-dessus, qui les
     //   surveille déjà — et relirait deux fois la même page à chaque changement d'étiquette.
@@ -431,7 +448,7 @@ export function BoiteMail({
     if (etat.v !== 'ok' || etat.suivant === null || suite) return;
     setSuite(true);
     setDePlus((n) => n + 1);
-    const r = await chargerPage(etat.suivant, auto, critere, etiquette);
+    const r = await chargerPage(etat.suivant, auto, critere, etiquette, filtre);
     setSuite(false);
     if ('erreur' in r) { setEtat({ v: 'erreur', m: r.erreur }); return; }
     // On CONCATÈNE : « voir plus » allonge la liste, il ne la remplace pas — on ne perd jamais ce qu'on lisait.
@@ -451,7 +468,7 @@ export function BoiteMail({
     return (
       <div>
         <p className="gst-erreur" role="status">{etat.m}</p>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void premiere(auto, critere, etiquette)}>Réessayer</button>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void premiere(auto, critere, etiquette, filtre)}>Réessayer</button>
       </div>
     );
   }
@@ -490,7 +507,7 @@ export function BoiteMail({
         <p className="gst-tronc" role="status">
           {mentionCourrierNouveau(1).replace('Un message est', 'Du courrier est')}{' '}
           <button type="button" className="gst-lien-bouton"
-            onClick={() => { void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette)).then(() => onListeRelue?.()); }}>
+            onClick={() => { void premiere(auto, critere, etiquetteDepuisTexte(cleEtiquette), filtre).then(() => onListeRelue?.()); }}>
             Afficher la liste à jour
           </button>
         </p>

@@ -7,7 +7,7 @@
  * dossiers et en ouvrir un par son chemin en `readOnly`. Le compte est le compte PAR DÉFAUT — la boîte déjà relevée par
  * la veille des permis, celle qui porte le libellé de gestion. Aucun nouvel identifiant, aucun OAuth.
  */
-import { capturer, type OptionsCapture } from './capture';
+import { capturer, type OptionsCapture, type RapportCapture } from './capture';
 import { noterErreur, nouvelEtat, surveiller, type ClientDossier } from './clientSurveille';
 import { chargerConfigGestion } from './config';
 import { depsReellesCapture, finaliserRun, insererRun, journaliserReconnexion, verrouGestion } from './captureRepo';
@@ -105,7 +105,44 @@ export function depsReellesReleve(journal?: (ligne: string) => void, options: Op
       return runCourant;
     },
     finaliserRun,
-    capturer: (_client, appliquer) => capturer({
+    /**
+     * ══ 🔴 LOT ERGO-BOITE-3 — DEUX DOSSIERS DANS UNE SEULE PASSE ═══════════════════════════════════════════════
+     * La relève lit d'abord le libellé de gestion, comme elle l'a toujours fait, puis — et seulement si la
+     * migration 263 est appliquée — le dossier de SPAM de Gmail. Les deux rapports sont ADDITIONNÉS : une seule
+     * ligne de journal des passes, un seul verrou, un seul run. C'est ce qui évite de perturber la veille, qui
+     * compte les passes pour savoir si la relève tourne encore.
+     *
+     * 🔴 LA PASSE DE SPAM NE PEUT PAS FAIRE ÉCHOUER LA RELÈVE. Elle est enveloppée : si le dossier n'existe pas
+     * (boîte non Gmail, nom local différent) ou si la connexion tombe, on le DIT dans le journal et on rend le
+     * rapport principal intact. Le courrier ordinaire est la fonction vitale ; le spam est un confort.
+     *
+     * 🔒 LECTURE SEULE, comme tout le reste : `ouvrirBoite` ouvre en EXAMINE (cf. imap.ts, non modifié). Rien
+     * n'est marqué lu, rien ne sort du spam, aucun libellé n'est posé. Gmail effacera son spam au bout de
+     * 30 jours ; ce que nous avons relevé, nous le gardons.
+     */
+    capturer: async (_client, appliquer) => {
+      /**
+       * ══ 🔴 CHAQUE PASSE A SA PROPRE CONNEXION, et ce n'est pas un choix de confort ═══════════════════════════
+       * Deux tentatives, deux échecs MESURÉS en lançant la chose pour de vrai — aucun test ne pouvait les voir, le
+       * client y est simulé :
+       *   ① dépendances NEUVES, même client : `depsReellesCapture` garde un drapeau « déjà connecté » qu'un objet
+       *      neuf croit à faux ; il rappelle `ouvrir()` sur la même instance ImapFlow, qui refuse net
+       *      (« Can not re-use ImapFlow instance ») ;
+       *   ② dépendances PARTAGÉES : `capturer` referme TOUJOURS la boîte dans son `finally` — c'est une garantie du
+       *      lot 3-ter, et elle ferme la connexion entière. La seconde passe trouvait alors « Connection not
+       *      available », avec un drapeau qui la croyait connectée.
+       * La seule forme qui tienne est donc celle que la RECONNEXION utilisait déjà : un client NEUF, avec son propre
+       * écouteur d'erreur et sa propre surveillance, et des dépendances neuves par-dessus.
+       */
+      const principal = await capturer(depsCapture(), appliquer, optionsCapture);
+      const spam = await capturerSpam(async () => { courant = await fabriquer(); return depsCapture(); }, appliquer, journal);
+      return spam === null ? principal : additionnerRapports(principal, spam);
+    },
+  };
+
+  /** Les dépendances de capture : elles lisent le client COURANT par un getter, jamais un cadavre de reconnexion. */
+  function depsCapture(): Parameters<typeof capturer>[0] {
+    return {
       ...depsReellesCapture(() => courant!),
       journal,
       /**
@@ -124,7 +161,78 @@ export function depsReellesReleve(journal?: (ligne: string) => void, options: Op
       journaliserReconnexion: async (tentative: number, motif: string) => {
         if (runCourant !== null) await journaliserReconnexion(runCourant, tentative, motif);
       },
-    }, appliquer, optionsCapture),
+    };
+  }
+}
+
+/**
+ * LA FENÊTRE DE LA PASSE DE SPAM : 33 jours, et rien d'autre.
+ *
+ * 🔴 POURQUOI ELLE NE SUIT PAS LE CURSEUR ORDINAIRE. Le curseur de la relève avance avec le libellé de gestion ;
+ * appliqué au spam, il ferait sauter les spams plus anciens que la dernière passe — c'est-à-dire tous ceux du
+ * premier jour. Or GMAIL SUPPRIME LUI-MÊME SON SPAM AU BOUT DE 30 JOURS : au-delà, il n'y a rien à lire. Une
+ * fenêtre fixe de 30 jours + la marge habituelle de 3 couvre donc TOUT ce qui existe, à chaque passe, pour un coût
+ * dérisoire — le dédoublonnage par Message-ID et le filtre des UID déjà vus font le reste.
+ */
+export const SPAM_JOURS = 33;
+
+/** Le dossier de spam d'une boîte Gmail. Relevé sur la vraie boîte le 27/09/2026 : « [Gmail]/Spam ». */
+export const DOSSIER_SPAM = '[Gmail]/Spam';
+
+/**
+ * LA PASSE DE SPAM. Rend `null` quand elle n'a pas eu lieu — migration absente, ou dossier introuvable — et jamais
+ * une exception : l'appelant garde alors son rapport principal tel quel.
+ */
+async function capturerSpam(
+  neufDeps: () => Promise<Parameters<typeof capturer>[0]>, appliquer: boolean, journal?: (l: string) => void,
+): Promise<RapportCapture | null> {
+  const { spamDisponible } = await import('./schema');
+  if (!await spamDisponible()) {
+    journal?.('spam : ignoré (migration 263 non appliquée — rien à écrire, rien à lire)');
+    return null;
+  }
+  try {
+    journal?.(`spam : lecture du dossier « ${DOSSIER_SPAM} » (lecture seule)`);
+    return await capturer(await neufDeps(), appliquer, {
+      dossierForce: DOSSIER_SPAM,
+      depuisForce: new Date(Date.now() - SPAM_JOURS * 86_400_000),
+      marquerSpam: true,
+    });
+  } catch (e) {
+    // On le DIT. Un spam non relevé n'est pas grave ; un échec muet le serait.
+    journal?.(`spam : passe ignorée (${e instanceof Error ? e.message : String(e)})`);
+    return null;
+  }
+}
+
+/**
+ * ADDITIONNE deux rapports de capture. Les compteurs se somment, le dossier annonce les deux, et les MESURES de
+ * lenteur gardent les pires des deux — c'est précisément après une passe lente qu'on veut savoir laquelle l'était.
+ * PUR.
+ */
+export function additionnerRapports(a: RapportCapture, b: RapportCapture): RapportCapture {
+  const parRegle: Record<string, number> = { ...a.parRegle };
+  for (const [k, v] of Object.entries(b.parRegle)) parRegle[k] = (parRegle[k] ?? 0) + v;
+  return {
+    ...a,
+    dossier: `${a.dossier} + ${b.dossier}`,
+    // La fenêtre annoncée reste la PLUS ANCIENNE des deux : c'est ce que la passe a réellement couvert au plus loin.
+    //   `null` se lit « pas de fenêtre annoncée » et ne doit pas gagner par accident dans une comparaison.
+    depuis: a.depuis === null ? b.depuis : b.depuis === null ? a.depuis : (a.depuis < b.depuis ? a.depuis : b.depuis),
+    uidsServeur: a.uidsServeur + b.uidsServeur,
+    plafondAtteint: a.plafondAtteint || b.plafondAtteint,
+    vus: a.vus + b.vus, dejaConnus: a.dejaConnus + b.dejaConnus, captures: a.captures + b.captures,
+    recus: a.recus + b.recus, envoyes: a.envoyes + b.envoyes, exclus: a.exclus + b.exclus,
+    filsCrees: a.filsCrees + b.filsCrees, filsFusionnes: a.filsFusionnes + b.filsFusionnes,
+    piecesDeposees: a.piecesDeposees + b.piecesDeposees, piecesNonDeposees: a.piecesNonDeposees + b.piecesNonDeposees,
+    echecsLecture: a.echecsLecture + b.echecsLecture, parRegle,
+    dejaVusEcartes: a.dejaVusEcartes + b.dejaVusEcartes, resteInconnus: a.resteInconnus + b.resteInconnus,
+    reconnexions: a.reconnexions + b.reconnexions,
+    dureeTotaleMs: a.dureeTotaleMs + b.dureeTotaleMs,
+    dureeMedianeMs: Math.max(a.dureeMedianeMs, b.dureeMedianeMs),
+    dureeMaxMs: Math.max(a.dureeMaxMs, b.dureeMaxMs),
+    octetsLus: a.octetsLus + b.octetsLus,
+    lesPlusLents: [...a.lesPlusLents, ...b.lesPlusLents].sort((x, y) => y.ms - x.ms).slice(0, a.lesPlusLents.length || 3),
   };
 }
 

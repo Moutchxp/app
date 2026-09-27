@@ -168,7 +168,7 @@ const LONGUEUR_EXTRAIT = 300;
  */
 export async function lireCarte(
   evenementId: number,
-  ctx: { partenaires: readonly PartenaireInterne[]; adresseGestion: string; deplacements: boolean },
+  ctx: { partenaires: readonly PartenaireInterne[]; adresseGestion: string; deplacements: boolean; spam?: boolean },
 ): Promise<CarteDetail | null> {
   const { rows } = await query<{
     evenement_id: number; reference: string; objet: string; demandeur_nom: string | null;
@@ -188,7 +188,7 @@ export async function lireCarte(
     fil_id: number; objet: string | null; interlocuteur: string | null; de_adresse: string; dernier_le: string;
     nb_messages: number; nb_pieces: number; attend: boolean;
   }>(
-    `WITH ${ctesAttente('$2', '$3', ctx.deplacements)}
+    `WITH ${ctesAttente('$2', '$3', ctx.deplacements, ctx.spam === true)}
      SELECT f.id::int AS fil_id, f.objet_initial AS objet, d.interlocuteur, d.de_adresse,
             ${INSTANT('d.recu_le')} AS dernier_le,
             -- Les compteurs disent ce que l'écran MONTRERA : un mail déplacé vers une autre carte n'est plus ici.

@@ -58,7 +58,25 @@ export async function GET(request: Request): Promise<Response> {
     // La fenêtre d'activité vient de la BASE, jamais du code : l'étiquette « À classer » doit dire exactement la même
     //   chose que le poste de tri, y compris le jour où Arno change ce réglage.
     const fenetreJours = etiquette.sorte === 'a_classer' ? (await chargerConfigGestion()).fenetreActiviteJours : 30;
-    const page = await lireBoiteMail(curseur, partenaires, PAGE_BOITE, { inclureAutomatiques, etiquette, fenetreJours });
+    /**
+     * ══ 🔴 LOT ERGO-BOITE-3 — LE SÉLECTEUR « NON LUS » DE « RÉCEPTION » ═══════════════════════════════════════
+     * Le lu/non lu vient de GMAIL, pas de notre base (choix d'Arno, lot 5-BOITE-2 : un seul état, commun à
+     * l'équipe). La base ne peut donc pas filtrer toute seule : on demande d'abord à Gmail QUELS échanges sont non
+     * lus, puis on borne la page à ceux-là.
+     *
+     * ⚠️ L'ORDRE A CHANGÉ POUR CETTE RAISON : `nonLusGmail` était appelé APRÈS la page ; il l'est maintenant avant,
+     * puisque la page en dépend. Sans filtre, rien ne change — la même valeur sert ensuite au gras de la liste.
+     *
+     * ⚠️ FILTRE DEMANDÉ MAIS GMAIL INJOIGNABLE (`disponible` faux) : on ne filtre PAS, et la liste entière
+     * s'affiche. Rendre une liste vide laisserait croire qu'il n'y a plus rien à lire — le contraire de la vérité.
+     */
+    const nl = await nonLusGmail(depsNonLusGmail());
+    const filsRetenus = url.searchParams.get('filtre') === 'non-lus' && etiquette.sorte === 'reception' && nl.disponible
+      ? [...nl.fils]
+      : undefined;
+    const page = await lireBoiteMail(curseur, partenaires, PAGE_BOITE, {
+      inclureAutomatiques, etiquette, fenetreJours, filsRetenus,
+    });
     // Les deux comptes ne sont calculés qu'à la PREMIÈRE page : l'écran doit pouvoir dire ce qu'il montre ET ce qu'il
     //   tait, mais le redemander à chaque « voir plus » le paierait pour rien.
     const comptes = curseur === null ? await comptesBoite() : null;
@@ -66,7 +84,6 @@ export async function GET(request: Request): Promise<Response> {
     //   donc le même pour qui regarde — c'est justement ce qui permet de se répartir le courrier sans doublon.
     //   Sans connexion Google, `disponible` est faux : ni gras ni compteur, et l'écran le dit plutôt que de laisser
     //   croire que tout est lu.
-    const nl = await nonLusGmail(depsNonLusGmail());
     return Response.json(
       {
         ...page, comptes,

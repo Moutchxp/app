@@ -16,7 +16,7 @@ import { ATTEND, ATTEND_CARTE, CTE_MESSAGES_DEPLACES, cteDernier, ctesAttente, j
 import { chargerConfigGestion } from './config';
 import { toleranceVeilleValide, VEILLE_INTERVALLES_DEFAUT, type VeilleReleve } from './ecran';
 import { adressesDe, libelleExpediteur, lirePartenairesInternes, type PartenaireInterne } from './partenaires';
-import { deplacementsDeMailsDisponibles, reglageVeilleDisponible, suiteReleveDisponible } from './schema';
+import { deplacementsDeMailsDisponibles, reglageVeilleDisponible, suiteReleveDisponible, spamDisponible} from './schema';
 import type { SuiteVue } from './suiteReleve';
 import type { CopieVue } from './copieArretee';
 import { lireEtatCopie } from './copieArreteeRepo';
@@ -103,6 +103,12 @@ export interface ContexteExpediteurs {
   adresseGestion: string;
   /** La migration 234 est-elle appliquée ? Si non, les mails suivent leur échange, comme avant (cf. `schema.ts`). */
   deplacements: boolean;
+  /**
+   * LOT ERGO-BOITE-3 — la migration 263 est-elle appliquée ? Si oui, le spam est écarté du poste de tri ; si non, la
+   * colonne n'est nommée nulle part et tout se comporte comme avant. Facultatif : un contexte d'avant ce lot vaut
+   * « non », ce qui est exactement le comportement d'une base sans la migration.
+   */
+  spam?: boolean;
 }
 
 interface LigneFileDB {
@@ -121,7 +127,7 @@ export async function lireFile(
 ): Promise<{ lignes: LigneFile[]; total: number; tropAnciens: number }> {
   const adresses = adressesDe(ctx.partenaires);
   const { rows } = await query<LigneFileDB>(
-    `WITH ${ctesAttente('$3', '$4', ctx.deplacements)}
+    `WITH ${ctesAttente('$3', '$4', ctx.deplacements, ctx.spam === true)}
      SELECT f.id::int AS fil_id,
             f.objet_initial AS objet,
             d.interlocuteur, d.de_adresse,
@@ -144,7 +150,7 @@ export async function lireFile(
   // DEUX comptes, jamais un seul : ce que la file montre, ET ce qu'elle tait. Le second est affiché à l'écran —
   //   un outil qui cache sans le dire ment ; un outil qui dit ce qu'il ne montre pas reste honnête.
   const { rows: t } = await query<{ dedans: number; trop_anciens: number }>(
-    `WITH dernier AS (${cteDernier(ctx.deplacements)})
+    `WITH dernier AS (${cteDernier(ctx.deplacements, ctx.spam === true)})
      SELECT count(*) FILTER (WHERE d.recu_le >= now() - ($1::int * interval '1 day'))::int AS dedans,
             count(*) FILTER (WHERE d.recu_le <  now() - ($1::int * interval '1 day'))::int AS trop_anciens
        FROM gestion_fil f JOIN dernier d ON d.fil_id = f.id WHERE f.etat = 'a_classer'`,
@@ -196,7 +202,7 @@ interface CarteDB {
  */
 export async function lireEvenements(ctx: ContexteExpediteurs, limite = PAGE): Promise<{ cartes: CarteEvenement[]; total: number }> {
   const { rows } = await query<CarteDB>(
-    `WITH ${ctesAttente('$2', '$3', ctx.deplacements)},
+    `WITH ${ctesAttente('$2', '$3', ctx.deplacements, ctx.spam === true)},
           messages_deplaces AS (${ctx.deplacements ? CTE_MESSAGES_DEPLACES : 'SELECT NULL::bigint AS evenement_id, NULL::text AS sens, NULL::boolean AS automatique, NULL::timestamptz AS recu_le WHERE false'})
      SELECT e.id::int AS evenement_id, e.reference, e.objet,
             coalesce(nullif(btrim(e.demandeur_nom), ''), e.demandeur_email) AS demandeur,
@@ -344,10 +350,10 @@ export async function lireToleranceVeille(): Promise<number> {
 export async function lireEcran(limite = PAGE): Promise<EtatEcran> {
   // La fenêtre d'activité ET la liste des partenaires internes viennent de la BASE, jamais du code. Les deux sont lues
   //   d'abord : l'attente ne se calcule pas sans savoir qui est qui (lot 4d).
-  const [config, partenaires, deplacements] = await Promise.all([
-    chargerConfigGestion(), lirePartenairesInternes(), deplacementsDeMailsDisponibles(),
+  const [config, partenaires, deplacements, spam] = await Promise.all([
+    chargerConfigGestion(), lirePartenairesInternes(), deplacementsDeMailsDisponibles(), spamDisponible(),
   ]);
-  const ctx: ContexteExpediteurs = { partenaires, adresseGestion: config.adresseGestion, deplacements };
+  const ctx: ContexteExpediteurs = { partenaires, adresseGestion: config.adresseGestion, deplacements, spam };
   const [file, evenements, reperes, sansSuite, auto, tolerance, suite, copie] = await Promise.all([
     lireFile(config.fenetreActiviteJours, ctx, limite), lireEvenements(ctx), lireReperes(), lireSansSuite(),
     lireDernierePasseAuto(), lireToleranceVeille(), lireSuiteDernierePasse(), lireEtatCopie(),

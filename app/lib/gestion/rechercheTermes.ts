@@ -78,14 +78,15 @@ export function decouperTermes(saisie: string): Terme[] {
 
 /**
  * ══ LOT RECHERCHE-AVANCEE — LES LISTES OÙ L'ON CHERCHE ════════════════════════════════════════════════════════════
- * Les quatre mêmes que la colonne de gauche. Elles sont TOUTES cochées par défaut : une recherche qui oublierait
+ * Les cinq mêmes que la colonne de gauche. Elles sont TOUTES cochées par défaut : une recherche qui oublierait
  * silencieusement une liste ferait conclure qu'un mail n'existe pas.
  *
  * ⚠️ CE N'EST PAS UN CHOIX EXCLUSIF mais un ENSEMBLE : on peut chercher dans « Réception + Envoyés » sans le courrier
  * automatique, ce qui est justement le réglage le plus utile au quotidien.
  */
-export type SorteListe = 'reception' | 'envoyes' | 'automatique' | 'brouillons';
-export const LISTES_TOUTES: readonly SorteListe[] = ['reception', 'envoyes', 'automatique', 'brouillons'];
+export type SorteListe = 'reception' | 'envoyes' | 'automatique' | 'brouillons' | 'spam';
+export const LISTES_TOUTES: readonly SorteListe[] =
+  ['reception', 'envoyes', 'automatique', 'brouillons', 'spam'];
 
 /** Le filtre « pièce jointe ». `indifferent` par défaut : on ne restreint que si on l'a demandé. */
 export type FiltrePiece = 'indifferent' | 'avec' | 'sans';

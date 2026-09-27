@@ -183,7 +183,12 @@ describe('🔴 ② on entre en plein écran sur « À classer », pas dans la r�
     const ordinaires = [...container.querySelectorAll('.gst-veille')]
       .filter((p) => !p.classList.contains('gst-veille--alerte'));
     expect(ordinaires).toHaveLength(0);
-    expect(container.querySelector('.gst-bandeau')?.textContent).not.toContain('Dernière relève');
+    /**
+     * LOT ERGO-BOITE-3 — le bloc gris n'existe PLUS du tout dans la boîte : l'assertion « il ne contient pas la
+     * ligne » n'a plus d'objet, et `?.textContent` rendait `undefined`, ce que `not.toContain` refuse. On affirme
+     * donc la chose plus forte, qui est aussi celle qu'Arno a demandée : il n'y a pas d'en-tête ici.
+     */
+    expect(container.querySelector('.gst-bandeau')).toBeNull();
   });
 
   it('🔴 « À rattacher » et « Annuaire » sont sous les entrées de la boîte', async () => {

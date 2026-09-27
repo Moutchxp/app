@@ -53,16 +53,28 @@ export const MESSAGE_DEPLACE = `
  * cette colonne ferait échouer TOUT l'écran. Tant qu'elle est absente, on rend la condition d'AVANT — et rien ne
  * change. Le drapeau est établi une fois, hors transaction, par `schema.ts`.
  */
-export const messageCompte = (avecDeplacements: boolean): string =>
-  avecDeplacements ? `m.exclu_le IS NULL AND NOT ${MESSAGE_DEPLACE}` : 'm.exclu_le IS NULL';
+export const messageCompte = (avecDeplacements: boolean, avecSpam = false): string => {
+  /**
+   * 🔴 LOT ERGO-BOITE-3 — LE SPAM NE COMPTE NULLE PART, et c'est ICI qu'on l'écrit, une seule fois. Ce fragment est
+   * la définition de « un message qui compte » pour TOUT le poste de tri : le dernier message d'un fil, le dernier
+   * hors partenaire, l'existence d'un correspondant extérieur. L'écarter ici l'écarte des trois d'un coup — le
+   * répéter dans chaque requête serait le meilleur moyen de l'oublier dans la quatrième.
+   *
+   * ⚠️ `avecSpam` faux (migration 263 absente) ⇒ le fragment est EXACTEMENT celui d'avant ce lot.
+   */
+  const horsSpam = avecSpam ? ' AND m.spam_le IS NULL' : '';
+  return avecDeplacements
+    ? `m.exclu_le IS NULL AND NOT ${MESSAGE_DEPLACE}${horsSpam}`
+    : `m.exclu_le IS NULL${horsSpam}`;
+};
 
 /** Le dernier message non exclu d'un fil, tous expéditeurs. Donne aussi la DATE D'ACTIVITÉ (fenêtre de la file). */
-export const cteDernier = (avecDeplacements: boolean): string => `
+export const cteDernier = (avecDeplacements: boolean, avecSpam = false): string => `
   SELECT DISTINCT ON (m.fil_id)
          m.fil_id, m.sens, m.automatique, m.recu_le, m.de_adresse,
          coalesce(nullif(btrim(m.de_nom), ''), m.de_adresse) AS interlocuteur
     FROM gestion_message m
-   WHERE ${messageCompte(avecDeplacements)}
+   WHERE ${messageCompte(avecDeplacements, avecSpam)}
    ORDER BY m.fil_id, m.recu_le DESC, m.id DESC`;
 
 /**
@@ -70,18 +82,18 @@ export const cteDernier = (avecDeplacements: boolean): string => `
  * Liste vide → `<> ALL('{}')` vaut VRAI pour tout le monde : le fragment redevient identique au précédent, et le
  * comportement est CELUI D'AVANT LA MIGRATION. C'est ce qui permet de livrer la 233 non appliquée sans rien casser.
  */
-export const cteDernierHorsPartenaire = (p: string, avecDeplacements = false): string => `
+export const cteDernierHorsPartenaire = (p: string, avecDeplacements = false, avecSpam = false): string => `
   SELECT DISTINCT ON (m.fil_id)
          m.fil_id, m.sens, m.automatique
     FROM gestion_message m
-   WHERE ${messageCompte(avecDeplacements)} AND lower(btrim(m.de_adresse)) <> ALL (${p}::text[])
+   WHERE ${messageCompte(avecDeplacements, avecSpam)} AND lower(btrim(m.de_adresse)) <> ALL (${p}::text[])
    ORDER BY m.fil_id, m.recu_le DESC, m.id DESC`;
 
 /** Les fils où quelqu'un d'EXTÉRIEUR a écrit : ni nous (`$n`), ni un partenaire interne (`$p`). */
-export const cteExterieur = (p: string, n: string, avecDeplacements = false): string => `
+export const cteExterieur = (p: string, n: string, avecDeplacements = false, avecSpam = false): string => `
   SELECT DISTINCT m.fil_id
     FROM gestion_message m
-   WHERE ${messageCompte(avecDeplacements)}
+   WHERE ${messageCompte(avecDeplacements, avecSpam)}
      AND lower(btrim(m.de_adresse)) <> ALL (${p}::text[])
      AND lower(btrim(m.de_adresse)) <> lower(btrim(${n}))`;
 
@@ -109,10 +121,10 @@ export const jointuresAttente = (filCol: string): string => `
  * Les trois CTE, prêtes à être collées derrière un WITH. `p` et `n` sont les placeholders des paramètres liés ;
  * `avecDeplacements` dit si la migration 234 est appliquée (cf. `schema.ts`).
  */
-export function ctesAttente(p: string, n: string, avecDeplacements = false): string {
-  return `dernier AS (${cteDernier(avecDeplacements)}),
-     dernier_hors AS (${cteDernierHorsPartenaire(p, avecDeplacements)}),
-     exterieur AS (${cteExterieur(p, n, avecDeplacements)})`;
+export function ctesAttente(p: string, n: string, avecDeplacements = false, avecSpam = false): string {
+  return `dernier AS (${cteDernier(avecDeplacements, avecSpam)}),
+     dernier_hors AS (${cteDernierHorsPartenaire(p, avecDeplacements, avecSpam)}),
+     exterieur AS (${cteExterieur(p, n, avecDeplacements, avecSpam)})`;
 }
 
 /**

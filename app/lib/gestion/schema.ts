@@ -419,3 +419,19 @@ export function journalEnvoiDisponible(): Promise<boolean> {
 export function classementDisponible(): Promise<boolean> {
   return memoiser('table.gestion_piece_classement', () => tableExiste('gestion_piece_classement'));
 }
+
+/**
+ * LOT ERGO-BOITE-3 — la migration 263 est-elle appliquée ? Elle porte `gestion_message.spam_le`, le seul endroit où
+ * l'on note qu'un message était du spam chez Gmail.
+ *
+ * 🔴 CE QU'ELLE COMMANDE, ET C'EST BEAUCOUP. Tant qu'elle répond « non » :
+ *   · la relève N'OUVRE PAS le dossier de spam — écrire la constatation serait impossible, la lire n'aurait pas de
+ *     sens, et ouvrir un dossier pour rien coûterait une connexion à chaque passe ;
+ *   · la colonne n'est NOMMÉE NULLE PART, ni en lecture ni en écriture. C'est la leçon de la migration 251 : nommer
+ *     une colonne absente ne casse pas la fonction nouvelle, il casse TOUTE la boîte, y compris pour qui arrive par
+ *     une vieille adresse ;
+ *   · l'entrée « Spam » reste visible mais sans compteur, et sa liste est vide plutôt que fausse.
+ */
+export function spamDisponible(): Promise<boolean> {
+  return memoiser('message.spam_le', () => colonneExiste('gestion_message', 'spam_le'));
+}

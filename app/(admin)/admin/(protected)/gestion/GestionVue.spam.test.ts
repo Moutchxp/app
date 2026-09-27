@@ -1,0 +1,164 @@
+// @vitest-environment jsdom
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, createElement } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { GestionVue, etiquettesDeLEcran } from './GestionVue';
+
+/**
+ * LOT ERGO-BOITE-3 — CE QUE LA COLONNE MONTRE, ET CE QUE SES SÉLECTEURS FONT.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 TROIS DEMANDES D'ARNO, éprouvées à l'écran monté plutôt qu'en lisant le code :
+ *   ① une entrée « Spam » APRÈS « Brouillons », avec son compteur ;
+ *   ② le titre de la colonne nomme la boîte : « Mail gestion@criterimmo.fr » ;
+ *   ③ « N non lus » et le total de « Réception » sont deux SÉLECTEURS cliquables, le total actif par défaut, et le
+ *      choix vit dans l'ADRESSE — sans quoi le rafraîchissement automatique de 30 s le ferait sauter sans prévenir.
+ *
+ * 🔴 ET LE RETRAIT DU BLOC « GESTION ⓘ », qui est le seul retrait autorisé de ce lot : on vérifie qu'il est parti ET
+ * que le bandeau d'ALERTE, lui, garde sa place en haut. Un retrait qui emporterait l'alerte serait une régression
+ * silencieuse — celle-là même qui a coûté dix heures de courrier le 25/09/2026.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const ECRAN = {
+  file: [], filsTotal: 0, fenetreJours: 30, filsTropAnciens: 0,
+  sansSuite: [], sansSuiteTotal: 0, evenements: [], evenementsTotal: 0,
+  messagesCaptures: 56821, messagesExclus: 30851, derniereReleveLe: '2026-09-27T15:00:00Z',
+};
+/** Le contexte de rédaction vient de SA PROPRE route : c'est de là que le titre de la colonne tire l'adresse. */
+const REDACTION = {
+  adresseGestion: 'gestion@criterimmo.fr', signature: null, peutEnvoyer: true, schemaPret: true,
+  piecesDisponibles: false,
+};
+const COMPTES = { lisibles: 8470, automatiques: 26059, envoyes: 6585, reception: 8470, spam: 231 };
+const PAGE_BOITE = { lignes: [], suivant: null, total: 8470, comptes: COMPTES, nonLus: [7, 8], nonLusTotal: 15 };
+
+let container: HTMLDivElement;
+let root: Root;
+let urlsBoite: string[];
+
+beforeEach(() => {
+  window.history.replaceState(null, '', '/admin/gestion');
+  container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+  urlsBoite = [];
+  global.fetch = vi.fn(async (url: string | URL | Request) => {
+    const u = String(url);
+    if (u.includes('/boite/comptes')) return { ok: true, json: async () => COMPTES } as unknown as Response;
+    if (u.includes('/boite')) { urlsBoite.push(u); return { ok: true, json: async () => PAGE_BOITE } as unknown as Response; }
+    if (u.includes('/redaction')) return { ok: true, json: async () => REDACTION } as unknown as Response;
+    if (u.includes('/brouillons')) return { ok: true, json: async () => ({ liste: [] }) } as unknown as Response;
+    if (u.includes('/messages')) return { ok: true, json: async () => ({ messages: [], partis: [] }) } as unknown as Response;
+    return { ok: true, json: async () => ECRAN } as unknown as Response;
+  }) as unknown as typeof fetch;
+});
+afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
+
+const calmer = async () => { await act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); }); };
+const monter = async () => { await act(async () => { root.render(createElement(GestionVue)); }); await calmer(); };
+const cliquer = async (e: Element | null | undefined) => { await act(async () => { (e as HTMLElement)?.click(); }); await calmer(); };
+const url = () => window.location.pathname + window.location.search;
+/** Les entrées de la colonne, dans l'ordre où on les lit. */
+const entrees = () => [...container.querySelectorAll('.cm-liste .cm-entree')].map((b) => b.textContent ?? '');
+const selecteurs = () => [...container.querySelectorAll('.cm-sel')] as HTMLButtonElement[];
+const selecteurPar = (motif: RegExp) => selecteurs().find((b) => motif.test(b.textContent ?? ''));
+const derniereUrlBoite = () => urlsBoite[urlsBoite.length - 1] ?? '';
+
+describe('🔴 ① « Spam » est dans la colonne, après « Brouillons »', () => {
+  it('l’entrée existe, porte son compteur, et suit « Brouillons »', async () => {
+    await monter();
+    const liste = entrees();
+    const iBrouillons = liste.findIndex((t) => t.includes('Brouillons'));
+    const iSpam = liste.findIndex((t) => t.includes('Spam'));
+    expect(iSpam).toBeGreaterThan(-1);
+    expect(iSpam).toBeGreaterThan(iBrouillons);
+    expect(liste[iSpam]).toContain('231');
+  });
+
+  it('un clic ouvre la liste « Spam », et l’adresse le dit', async () => {
+    await monter();
+    await cliquer([...container.querySelectorAll('.cm-entree')].find((b) => /Spam/.test(b.textContent ?? '')));
+    expect(url()).toContain('etiquette=spam');
+    expect(derniereUrlBoite()).toContain('etiquette=spam');
+  });
+
+  /**
+   * Sans la migration 263, la route ne rend aucun compte de spam : l'entrée est alors ÉCARTÉE comme toute étiquette
+   * vide (règle d'avant ce lot), plutôt que montrée à zéro — un zéro qu'on n'a pas mesuré est un mensonge poli.
+   */
+  it('sans compte de spam, l’entrée n’est pas montrée à zéro : elle n’est pas montrée', () => {
+    const sans = etiquettesDeLEcran(
+      { ...ECRAN, filsTotal: 0 } as unknown as Parameters<typeof etiquettesDeLEcran>[0],
+      { lisibles: 1, automatiques: 1, envoyes: 1 }, null, null, false, null);
+    expect(sans.find((e) => e.etiquette.sorte === 'spam')?.compte).toBeNull();
+  });
+});
+
+describe('🔴 ② le titre de la colonne nomme la boîte', () => {
+  it('il porte l’adresse de gestion, lue dans la configuration', async () => {
+    await monter();
+    expect(container.querySelector('.cm-titre')?.textContent).toBe('Mail gestion@criterimmo.fr');
+  });
+});
+
+describe('🔴 ③ « Réception » : deux sélecteurs, le total actif par défaut', () => {
+  it('les deux nombres sont des BOUTONS, et le total est actif au départ', async () => {
+    await monter();
+    const nonLus = selecteurPar(/non lus?/);
+    const total = selecteurPar(/^8470$/);
+    expect(nonLus).toBeDefined();
+    expect(total).toBeDefined();
+    expect(total?.getAttribute('aria-pressed')).toBe('true');
+    expect(nonLus?.getAttribute('aria-pressed')).toBe('false');
+    expect(total?.className).toContain('cm-sel--actif');
+    expect(nonLus?.className).not.toContain('cm-sel--actif');
+  });
+
+  /**
+   * 🔴 LE CHOIX VIT DANS L'ADRESSE. C'est ce qui le fait survivre à un rechargement — et au rafraîchissement
+   * automatique de 30 s, qui relit la page. Un filtre qui saute tout seul est pire qu'un filtre absent : on croit
+   * voir tout le courrier alors qu'on n'en voit qu'une part, ou l'inverse.
+   */
+  it('cliquer « non lus » écrit le choix dans l’adresse ET le fait suivre au serveur', async () => {
+    await monter();
+    await cliquer(selecteurPar(/non lus?/));
+    expect(url()).toContain('filtre=non-lus');
+    expect(derniereUrlBoite()).toContain('filtre=non-lus');
+    expect(selecteurPar(/non lus?/)?.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('cliquer le total revient à tout montrer — et l’adresse redevient nue', async () => {
+    await monter();
+    await cliquer(selecteurPar(/non lus?/));
+    await cliquer(selecteurPar(/^8470$/));
+    expect(url()).not.toContain('filtre=');
+    expect(derniereUrlBoite()).not.toContain('filtre=');
+  });
+
+  it('une adresse portant déjà « filtre=non-lus » ouvre la liste filtrée', async () => {
+    window.history.replaceState(null, '', '/admin/gestion?filtre=non-lus');
+    await monter();
+    expect(selecteurPar(/non lus?/)?.getAttribute('aria-pressed')).toBe('true');
+    expect(derniereUrlBoite()).toContain('filtre=non-lus');
+  });
+});
+
+describe('🔴 le bloc « Gestion ⓘ » est parti, l’ALERTE reste', () => {
+  it('aucun en-tête gris dans la boîte', async () => {
+    await monter();
+    expect(container.querySelector('.gst-bandeau')).toBeNull();
+    expect(container.querySelector('.gst-bandeau-titre')).toBeNull();
+  });
+
+  /**
+   * L'alerte de veille est rendue par un `<p className="gst-veille--alerte">` INDÉPENDANT du bloc retiré. Le jeu
+   * d'essai ci-dessus annonce une relève à 15:00 pour une horloge de test bien plus tardive : la veille juge donc
+   * « arrêtée », et l'alerte doit être là — en haut de page, dans la boîte comme ailleurs.
+   */
+  it('l’alerte de relève arrêtée s’affiche toujours en haut de page', async () => {
+    vi.setSystemTime(new Date('2026-09-28T04:00:00Z'));
+    await monter();
+    expect(container.querySelector('.gst-veille--alerte')).not.toBeNull();
+    vi.useRealTimers();
+  });
+});

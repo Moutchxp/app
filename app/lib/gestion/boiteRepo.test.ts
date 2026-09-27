@@ -183,8 +183,10 @@ describe('③ le courrier automatique : écarté par défaut, jamais supprimé',
     // LOT 5-FUSION — « Envoyés » s'est ajouté au MÊME regroupement : trois nombres, une seule lecture, donc trois
     //   nombres qui ne peuvent pas se contredire. Le jeu d'essai ne rend pas `envoyes` → repli à 0, pas d'exception.
     // LOT 5-BOITE — « reception » s'y ajoute de la même façon : un FILTER de plus sur le même regroupement.
+    // LOT ERGO-BOITE-3 — et « spam » aussi. Le jeu d'essai ne le rend pas → repli à 0, jamais une exception : c'est
+    //   exactement ce que rend une base sans la migration 263.
     await expect(comptesBoite()).resolves.toEqual({
-      lisibles: 4944, automatiques: 17206 - 4944, envoyes: 0, reception: 0,
+      lisibles: 4944, automatiques: 17206 - 4944, envoyes: 0, reception: 0, spam: 0,
     });
   });
 });

@@ -31,7 +31,7 @@ import { query } from '../db/client';
 import { autoImposeParEtiquette, type Etiquette } from './ecranUrl';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils, type MentionNonRemise } from './nonRemiseRepo';
-import { corbeilleDisponible } from './schema';
+import { corbeilleDisponible, spamDisponible } from './schema';
 
 /** Combien d'échanges par page. Assez pour remplir un écran de téléphone sans faire attendre. */
 export const PAGE_BOITE = 30;
@@ -185,7 +185,14 @@ const SQL_EN_CORBEILLE = `EXISTS (SELECT 1 FROM gestion_fil fc
                                    WHERE fc.id = m.fil_id AND fc.corbeille_le IS NOT NULL
                                      AND fc.corbeille_le >= m.recu_le)`;
 
-function sqlEtiquette(e: Etiquette, corbeille: boolean): string {
+/**
+ * LOT ERGO-BOITE-3 — « CE MESSAGE EST DU SPAM ». Écrit UNE fois, lu partout : l'étiquette « Spam » en prend la forme
+ * positive, toutes les autres sa négation. Deux écritures finiraient par se contredire et laisseraient un message
+ * invisible partout — ou, pire, un spam en Réception.
+ */
+const SQL_EST_SPAM = 'm.spam_le IS NOT NULL';
+
+function sqlEtiquette(e: Etiquette, corbeille: boolean, spam: boolean): string {
   switch (e.sorte) {
     /**
      * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════
@@ -238,6 +245,12 @@ function sqlEtiquette(e: Etiquette, corbeille: boolean): string {
     //   garde-fou : si quelqu'un appelait quand même, il rendrait une liste VIDE plutôt qu'une liste FAUSSE.
     case 'brouillons':
       return 'AND false';
+    // LOT ERGO-BOITE-3 — « Spam » : la forme POSITIVE de l'exclusion posée sur toutes les autres étiquettes.
+    //   ⚠️ SANS LA MIGRATION 263, ON NE NOMME PAS LA COLONNE — même raison que la corbeille ci-dessous : quelqu'un
+    //   peut arriver ici par une adresse enregistrée, et nommer une colonne absente ferait échouer TOUTE la boîte.
+    //   Le prédicat impossible rend une liste VIDE, ce qui est vrai tant que rien n'a été relevé.
+    case 'spam':
+      return spam ? `AND ${SQL_EST_SPAM}` : 'AND false';
     // LOT 5-BOITE-3 — « Corbeille » : le seul endroit qui MONTRE ce que les autres écartent. Le filtre y est donc la
     //   forme POSITIVE exacte de l'exclusion posée sur toutes les autres étiquettes — écrites au même endroit, elles
     //   ne peuvent pas diverger et laisser un échange invisible partout.
@@ -269,13 +282,15 @@ export function parametresEtiquette(e: Etiquette, fenetreJours: number): number[
  * Paramètres liés : $1 = date du curseur, $2 = identifiant du curseur, $3 = nombre de lignes à lire.
  */
 export function sqlPageBoite(
-  inclureAutomatiques: boolean, etiquette: Etiquette = ETIQUETTE_TOUT, corbeille = false,
+  inclureAutomatiques: boolean, etiquette: Etiquette = ETIQUETTE_TOUT, corbeille = false, spam = false,
+  /** LOT ERGO-BOITE-3 — le rang du paramètre portant les fils retenus, ou `null` : aucun filtre. */
+  rangFilsRetenus: number | null = null,
 ): string {
   // Le filtre s'applique AUX DEUX ÉTAGES du parcours (le message candidat, et le « y a-t-il plus récent ? ») : les
   //   dissocier ferait sortir un échange dont le dernier message est écarté, avec l'avant-dernier comme aperçu.
   const filtreM = inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL';
   const filtreM2 = inclureAutomatiques ? '' : 'AND m2.exclu_le IS NULL';
-  const filtreEtiquette = sqlEtiquette(etiquette, corbeille);
+  const filtreEtiquette = sqlEtiquette(etiquette, corbeille, spam);
   /**
    * LOT BOITE-SENS — LE SENS, AUX DEUX ÉTAGES. `null` (toutes les autres étiquettes) ⇒ chaînes vides, et la
    * requête est alors mot pour mot celle d'avant ce lot.
@@ -322,6 +337,20 @@ export function sqlPageBoite(
   //   migration 251, `corbeille` est faux : la colonne n'est PAS nommée — la nommer ferait échouer toute la boîte,
   //   pas seulement le geste nouveau.
   const filtreCorbeille = !corbeille || etiquette.sorte === 'corbeille' ? '' : `AND NOT ${SQL_EN_CORBEILLE}`;
+  /**
+   * ══ 🔴 LOT ERGO-BOITE-3 — LE SPAM NE SORT DE NULLE PART, SAUF DE SON ÉTIQUETTE ═══════════════════════════════
+   * Il est écarté AUX DEUX ÉTAGES du parcours, comme le courrier automatique et pour la même raison : posé sur le
+   * seul message candidat, il laisserait un spam masquer le dernier vrai message d'un échange — la ligne
+   * disparaîtrait de la Réception sans que rien ne l'explique.
+   *
+   * ⚠️ `spam` FAUX (migration 263 absente) ⇒ chaînes vides : la requête est alors mot pour mot celle d'avant ce lot.
+   */
+  // LOT ERGO-BOITE-3 — le sélecteur « non lus ». Posé sur le seul étage `m` : il désigne des ÉCHANGES, pas des
+  //   messages, et le prédicat « dernier de son sens » n'a pas à en tenir compte.
+  const filtreRetenus = rangFilsRetenus === null ? '' : `AND m.fil_id = ANY($${rangFilsRetenus}::bigint[])`;
+  const estSpam = spam && etiquette.sorte !== 'spam';
+  const filtreSpamM = estSpam ? 'AND m.spam_le IS NULL' : '';
+  const filtreSpamM2 = estSpam ? 'AND m2.spam_le IS NULL' : '';
   return `WITH page AS (
        SELECT m.fil_id, m.id AS message_id, m.recu_le, m.sens, m.de_adresse, m.de_nom, m.destinataires, m.dest_a,
               left(coalesce(m.corps_texte, ''), ${LONGUEUR_EXTRAIT}) AS extrait
@@ -331,12 +360,14 @@ export function sqlPageBoite(
           ${filtreSensM}
           ${filtreEtiquette}
           ${filtreCorbeille}
+          ${filtreSpamM}
+          ${filtreRetenus}
           -- ⚠️ « ce message est le DERNIER de son échange » — ET, sous Réception ou Envoyés, le dernier DANS SON
           --    SENS. C'est CE prédicat qui transforme un parcours de messages en parcours d'échanges, et qui permet
           --    au LIMIT d'arrêter le travail. Servi par l'index (fil_id, recu_le).
           AND NOT EXISTS (
                 SELECT 1 FROM gestion_message m2
-                 WHERE m2.fil_id = m.fil_id ${filtreM2} ${filtreSensM2}
+                 WHERE m2.fil_id = m.fil_id ${filtreM2} ${filtreSensM2} ${filtreSpamM2}
                    AND (m2.recu_le, m2.id) > (m.recu_le, m.id))
         ORDER BY m.recu_le DESC, m.fil_id DESC
         LIMIT $3
@@ -382,6 +413,17 @@ export interface OptionsBoite {
   etiquette?: Etiquette;
   /** La fenêtre d'activité, en jours — utilisée par la seule étiquette « À classer ». Lue en base par l'appelant. */
   fenetreJours?: number;
+  /**
+   * ══ LOT ERGO-BOITE-3 — NE GARDER QUE CES ÉCHANGES-LÀ ══════════════════════════════════════════════════════════
+   * La liste des échanges NON LUS, quand le sélecteur de « Réception » le demande. `undefined` = aucun filtre, et
+   * la requête est alors mot pour mot celle d'avant ce lot.
+   *
+   * 🔴 POURQUOI UNE LISTE D'IDENTIFIANTS ET NON UNE CONDITION SQL. Le lu/non lu ne vit PAS dans notre base : il vit
+   * chez Gmail, et c'est un choix d'Arno (lot 5-BOITE-2) — un seul état, commun à l'équipe, pour se répartir le
+   * courrier sans doublon. La base ne peut donc pas le calculer ; c'est la route qui l'obtient de Gmail, puis le
+   * passe ici. Une liste VIDE veut dire « aucun non lu » et rend une liste vide : c'est la vérité, pas une panne.
+   */
+  filsRetenus?: readonly number[];
 }
 
 /**
@@ -407,11 +449,21 @@ export async function lireBoiteMail(
   // LOT 5-BOITE-3 — la corbeille n'entre dans le SQL que si la migration 251 est là. Sonde HORS transaction : une
   //   colonne nommée alors qu'elle n'existe pas ferait échouer TOUTE la boîte, pas seulement le geste nouveau.
   const corbeille = await corbeilleDisponible();
+  // LOT ERGO-BOITE-3 — même règle pour le spam et pour la même raison : sans la migration 263, la colonne n'est
+  //   nommée nulle part. Les deux sondes sont posées ENSEMBLE, en parallèle : elles sont mémoïsées et ne coûtent
+  //   qu'au premier appel.
+  const spam = await spamDisponible();
+  // LOT ERGO-BOITE-3 — les fils retenus arrivent APRÈS les paramètres de l'étiquette : leur rang dépend donc de
+  //   l'étiquette ouverte, et il est calculé ici plutôt que deviné. Poser un paramètre puis calculer son rang à
+  //   partir de `params.length` est le décalage d'un cran qui s'est déjà produit dans ce dépôt.
+  const paramsEtiquette = parametresEtiquette(etiquette, options.fenetreJours ?? 30);
+  const retenus = options.filsRetenus;
+  const rangRetenus = retenus === undefined ? null : 4 + paramsEtiquette.length;
   const { rows } = await query<LigneDB>(
-    sqlPageBoite(tous, etiquette, corbeille),
+    sqlPageBoite(tous, etiquette, corbeille, spam, rangRetenus),
     // `infinity` plutôt qu'une date arbitraire : il n'existe aucun message après, quelle que soit l'horloge.
     [curseur?.dernierLe ?? 'infinity', curseur?.filId ?? '9223372036854775807', aLire,
-      ...parametresEtiquette(etiquette, options.fenetreJours ?? 30)],
+      ...paramsEtiquette, ...(retenus === undefined ? [] : [[...retenus]])],
   );
 
   const aSuite = rows.length === aLire;
@@ -454,7 +506,7 @@ export async function lireBoiteMail(
     // LOT 5-BOITE-2 — les DEUX boîtes portent désormais leur total, calculé avec leur propre règle. Les autres
     //   étiquettes s'en remettent toujours à la colonne de gauche (`null` se lit « demande-le à l'étiquette »).
     total: curseur === null && (etiquette.sorte === 'reception' || etiquette.sorte === 'envoyes')
-      ? await compterBoite(tous, etiquette.sorte === 'envoyes' ? 'envoye' : 'recu', corbeille)
+      ? await compterBoite(tous, etiquette.sorte === 'envoyes' ? 'envoye' : 'recu', corbeille, spam)
       : null,
   };
 }
@@ -464,7 +516,7 @@ export async function lireBoiteMail(
  * même règle que la liste, pour que le compteur et la liste ne racontent jamais deux histoires différentes.
  */
 export async function compterBoite(
-  inclureAutomatiques = false, sens: 'recu' | 'envoye' = 'recu', corbeille = false,
+  inclureAutomatiques = false, sens: 'recu' | 'envoye' = 'recu', corbeille = false, spam = false,
 ): Promise<number> {
   /**
    * LOT BOITE-SENS — CE TOTAL EST LA LISTE, SANS LE CURSEUR NI LE `LIMIT`.
@@ -482,17 +534,23 @@ export async function compterBoite(
     ? `AND NOT EXISTS (SELECT 1 FROM gestion_fil fc WHERE fc.id = m.fil_id
                         AND fc.corbeille_le IS NOT NULL AND fc.corbeille_le >= m.recu_le)`
     : '';
+  // LOT ERGO-BOITE-3 — le spam n'entre dans AUCUN de ces deux totaux, aux deux étages : le compteur doit compter
+  //   exactement ce que la liste montre, et la liste l'écarte (cf. `sqlPageBoite`).
+  const horsSpamM = spam ? 'AND m.spam_le IS NULL' : '';
+  const horsSpamM2 = spam ? 'AND m2.spam_le IS NULL' : '';
   const { rows } = await query<{ n: number }>(
     `SELECT count(*)::int AS n
        FROM gestion_message m
       WHERE m.sens = $1
         ${inclureAutomatiques ? '' : 'AND m.exclu_le IS NULL'}
+        ${horsSpamM}
         ${horsCorbeille}
         -- « aucun message plus récent DU MÊME SENS dans cet échange » : exactement le prédicat de la liste.
         AND NOT EXISTS (
               SELECT 1 FROM gestion_message m2
                WHERE m2.fil_id = m.fil_id AND m2.sens = m.sens
                  ${inclureAutomatiques ? '' : 'AND m2.exclu_le IS NULL'}
+                 ${horsSpamM2}
                  AND (m2.recu_le, m2.id) > (m.recu_le, m.id))`,
     [sens]);
   return rows[0]?.n ?? 0;
@@ -502,7 +560,9 @@ export async function compterBoite(
  * Les DEUX comptes de la boîte, pour que l'écran puisse dire ce qu'il montre ET ce qu'il ne montre pas. Un outil qui
  * cache sans le dire ment ; un outil qui annonce ce qu'il tait reste honnête — c'est la règle du module depuis le lot 4b.
  */
-export async function comptesBoite(): Promise<{ lisibles: number; automatiques: number; envoyes: number; reception: number }> {
+export async function comptesBoite(): Promise<{
+  lisibles: number; automatiques: number; envoyes: number; reception: number; spam: number;
+}> {
   /**
    * LOT BOITE-SENS — LES DEUX BOÎTES NE SONT PLUS DISJOINTES, ET LEUR SOMME NE VEUT PLUS RIEN DIRE.
    *
@@ -518,10 +578,34 @@ export async function comptesBoite(): Promise<{ lisibles: number; automatiques: 
    * ⚠️ UN SEUL parcours pour les quatre nombres : quatre `FILTER` sur le regroupement qui existait déjà. Même
    * balayage, même coût, et aucune chance que les compteurs se contredisent puisqu'ils sortent d'une seule lecture.
    */
-  const corbeille = await corbeilleDisponible();
+  const [corbeille, spam] = await Promise.all([corbeilleDisponible(), spamDisponible()]);
   const geste = corbeille ? 'f.corbeille_le' : 'NULL::timestamptz';
-  const { rows } = await query<{ lisibles: number; total: number; envoyes: number; reception: number }>(
-    `SELECT count(*) FILTER (WHERE lisibles > 0)::int AS lisibles,
+  /**
+   * LOT ERGO-BOITE-3 — LE CINQUIÈME NOMBRE, ET L'EXCLUSION DES QUATRE AUTRES.
+   *
+   * 🔴 LE SPAM SE COMPTE EN MESSAGES, PAS EN ÉCHANGES, et c'est délibéré. Un spam n'ouvre pas de conversation : le
+   * regrouper par échange donnerait un nombre plus petit que ce que la liste montre, pour une raison que personne
+   * n'aurait envie de comprendre. La liste « Spam » affiche un spam par ligne ; le compteur en dit autant.
+   *
+   * ⚠️ Sans la migration 263, la colonne n'est nommée nulle part : `0` est alors la vérité — rien n'a été relevé.
+   */
+  /**
+   * 🔴 L'EXPRESSION ENTIÈRE, PAS SEULEMENT L'AGRÉGAT — défaut vu à l'écran le 27/09/2026, et il faut le raconter.
+   * Première version : `(SELECT ${compteSpam} FROM gestion_message)` avec `compteSpam` valant `'0'` sans la
+   * migration. Cela donnait `(SELECT 0 FROM gestion_message)` — une sous-requête SCALAIRE qui rend 56 821 lignes.
+   * PostgreSQL répond « more than one row returned by a subquery used as an expression », la route rend 503, et
+   * TOUS les compteurs de la colonne disparaissent — pas seulement celui du spam. Les tests unitaires ne l'ont pas
+   * vu : ils vérifiaient qu'aucune colonne absente n'était nommée, ce qui était vrai. Seul l'écran l'a montré.
+   * La règle qui en sort : quand une sonde peut faire disparaître le `FROM`, c'est l'EXPRESSION COMPLÈTE qu'on
+   * choisit, jamais un morceau qu'on emboîte ensuite.
+   */
+  const compteSpam = spam
+    ? '(SELECT count(*) FILTER (WHERE spam_le IS NOT NULL)::int FROM gestion_message)'
+    : '0::int';
+  const horsSpam = spam ? 'WHERE spam_le IS NULL' : '';
+  const { rows } = await query<{ lisibles: number; total: number; envoyes: number; reception: number; spam: number }>(
+    `SELECT ${compteSpam} AS spam,
+            count(*) FILTER (WHERE lisibles > 0)::int AS lisibles,
             count(*)::int AS total,
             count(*) FILTER (WHERE dernier_envoye IS NOT NULL
                                AND (geste IS NULL OR geste < dernier_envoye))::int AS envoyes,
@@ -532,11 +616,11 @@ export async function comptesBoite(): Promise<{ lisibles: number; automatiques: 
                             count(*) FILTER (WHERE exclu_le IS NULL) AS lisibles,
                             max(recu_le) FILTER (WHERE exclu_le IS NULL AND sens = 'recu') AS dernier_recu,
                             max(recu_le) FILTER (WHERE exclu_le IS NULL AND sens = 'envoye') AS dernier_envoye
-                       FROM gestion_message GROUP BY fil_id) x
+                       FROM gestion_message ${horsSpam} GROUP BY fil_id) x
                LEFT JOIN gestion_fil f ON f.id = x.fil_id) y`);
   const l = rows[0]?.lisibles ?? 0;
   return {
     lisibles: l, automatiques: (rows[0]?.total ?? 0) - l, envoyes: rows[0]?.envoyes ?? 0,
-    reception: rows[0]?.reception ?? 0,
+    reception: rows[0]?.reception ?? 0, spam: rows[0]?.spam ?? 0,
   };
 }

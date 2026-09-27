@@ -105,7 +105,12 @@ export function GestionVue({ intro }: {
   const [ecrireA, setEcrireA] = useState<string | null>(null);
   const consommerEcrireA = useCallback(() => setEcrireA(null), []);
   const [comptesBoite, setComptesBoite] = useState<
-    { lisibles: number; automatiques: number; envoyes: number; reception: number; corbeille: number | null } | null
+    {
+      lisibles: number; automatiques: number; envoyes: number; reception: number; corbeille: number | null;
+      /** LOT ERGO-BOITE-3 — absent tant que la migration 263 n'est pas appliquée : l'entrée « Spam » reste alors
+       *  sans nombre, et `etiquettesVisibles` l'écarte, comme toute étiquette vide. */
+      spam?: number;
+    } | null
   >(null);
   /**
    * LOT 5-BOITE — combien d'échanges me restent NON LUS, remonté par la liste elle-même (elle l'obtient du serveur,
@@ -410,7 +415,10 @@ export function GestionVue({ intro }: {
       try {
         const res = await fetch('/api/admin/gestion/boite/comptes', { cache: 'no-store' });
         if (!res.ok || annule) return;
-        const c = (await res.json()) as { lisibles?: number; automatiques?: number; envoyes?: number; reception?: number; corbeille?: number | null };
+        const c = (await res.json()) as {
+          lisibles?: number; automatiques?: number; envoyes?: number; reception?: number; corbeille?: number | null;
+          spam?: number;
+        };
         if (!annule && typeof c.lisibles === 'number') {
           // `reception` est le compte de l'étiquette Réception (au moins un message reçu). Une réponse plus ancienne
           //   que ce lot ne le porte pas : on retombe alors sur `lisibles`, le comportement d'avant.
@@ -419,6 +427,10 @@ export function GestionVue({ intro }: {
             reception: c.reception ?? c.lisibles,
             // `null` = migration 251 absente : l'étiquette « Corbeille » ne s'affiche pas du tout (voir plus bas).
             corbeille: c.corbeille ?? null,
+            // LOT ERGO-BOITE-3 — `undefined` (réponse plus ancienne, ou migration 263 absente) se PROPAGE tel quel :
+            //   l'entrée « Spam » reste alors sans nombre et disparaît de la colonne, au lieu d'annoncer un zéro
+            //   qu'on n'a pas mesuré. Un `?? 0` ici aurait été le mensonge poli.
+            spam: c.spam,
           });
         }
       } catch { /* étiquettes sans nombre : voir l'encadré */ }
@@ -579,43 +591,48 @@ export function GestionVue({ intro }: {
           de description (dans une info-bulle cliquable), parce que l'en-tête de page, lui, est replié pour rendre sa
           hauteur à la liste. Rien n'est perdu : ni le titre, ni la phrase, ni l'heure de la dernière relève, ni les
           deux boutons — ce sont exactement les mêmes, sur une ligne au lieu de trois. */}
+      {/* ══ 🔴 LOT ERGO-BOITE-3 — LE BLOC « GESTION ⓘ » EST SUPPRIMÉ ═══════════════════════════════════════════
+          Retrait demandé explicitement par Arno le 27/09/2026. Le titre du module et son icône d'information
+          occupaient une bande grise en haut de chaque écran, au-dessus d'une boîte mail qui dit déjà ce qu'elle est.
+
+          🔴 CE QUI RESTE, ET POURQUOI LE BLOC N'EST PAS RAYÉ PARTOUT. Sur les écrans AUTRES que la boîte, la même
+          bande porte encore l'heure de la dernière relève et les boutons « Relever maintenant », « Rafraîchir »,
+          « Annuaire » et « À rattacher » : les supprimer là retirerait des fonctions, ce qui n'est pas demandé (et
+          la boîte, elle, a son icône et sa colonne pour les remplacer). Le bloc disparaît donc entièrement de la
+          BOÎTE — où il ne portait plus que le titre — et perd son titre et son icône partout ailleurs.
+
+          🔴 LE BANDEAU D'ALERTE N'EST PAS CELUI-CI. « Relève arrêtée », « copie arrêtée » vivent dans le `<p
+          className="gst-veille--alerte">` juste en dessous, sur TOUS les écrans, boîte comprise. C'est même ce
+          retrait qui lui rend le haut de page. */}
+      {ecran !== 'boite' && (
       <div className={`gst-bandeau${ecran === 'partage' ? '' : ' gst-bandeau--compact'}`} role="status">
-        {ecran !== 'partage' && (
-          <span className="gst-bandeau-titre">
-            Gestion
-            {intro && <InfoBulle libelle="Le module Gestion" texte={intro} cible="gestion-intro" />}
-          </span>
-        )}
         {/* ══ 🔴 LOT ERGO-BOITE — EN PLEIN ÉCRAN, CE BANDEAU NE PORTE PLUS QUE LE TITRE ═══════════════════════════
             L'heure de la dernière relève et l'état de la copie sont descendus dans la colonne (`etatDiscret`), et
             les deux boutons sont devenus UNE icône à côté du titre de la liste. Sur l'ÉCRAN PARTAGÉ, qui n'a pas de
             colonne de gestion, ils restent ici : les y retirer aurait supprimé une fonction, ce qui n'est pas
             demandé. */}
-        {ecran !== 'boite' && (
-          <span>{messageReleve({
-            ...d,
-            derniereReleveLe: veilleFraiche.derniereLe ?? d.derniereReleveLe,
-            dernierMailLe: veilleFraiche.dernierMailLe,
-          }, ref)}</span>
-        )}
+        {/* ⚠️ PLUS DE `ecran !== 'boite'` ICI : depuis le lot ERGO-BOITE-3, tout ce bloc ne s'affiche PLUS dans la
+            boîte (voir ci-dessus). La condition était devenue toujours vraie — TypeScript l'a dit, et une
+            condition qui ne peut pas être fausse est un piège pour qui la relira. */}
+        <span>{messageReleve({
+          ...d,
+          derniereReleveLe: veilleFraiche.derniereLe ?? d.derniereReleveLe,
+          dernierMailLe: veilleFraiche.dernierMailLe,
+        }, ref)}</span>
         <span className="gst-actions">
-          {/* ⚠️ « ecran !== 'boite' » ET NON « ecran === 'partage' » : la première version retirait aussi les deux
-              boutons de l'écran des ÉVÉNEMENTS et de l'annuaire, où aucune icône ne les remplace — il n'y serait
-              plus resté aucun moyen de relever. Seule la boîte a le titre de liste qui porte l'icône. */}
-          {ecran !== 'boite' && (
-            <>
-              <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={releveEnCours}
-                onClick={() => void releverMaintenant()}>
-                {releveEnCours ? 'Relève en cours…' : 'Relever maintenant'}
-              </button>
-              <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={releveEnCours}
-                onClick={() => void charger()}>Rafraîchir</button>
-            </>
-          )}
+          {/* Les deux boutons restent sur les écrans qui n'ont pas la colonne de la boîte — événements, annuaire,
+              file de rattachement : là, aucune icône ne les remplace, et sans eux il n'y aurait plus aucun moyen de
+              relever. Dans la boîte, c'est l'icône « Relever et actualiser » qui fait les deux. */}
+          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={releveEnCours}
+            onClick={() => void releverMaintenant()}>
+            {releveEnCours ? 'Relève en cours…' : 'Relever maintenant'}
+          </button>
+          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={releveEnCours}
+            onClick={() => void charger()}>Rafraîchir</button>
           {/* LOT ANNUAIRE-1 — L'ANNUAIRE, atteignable depuis N'IMPORTE QUEL écran du module. Il ne remplace rien :
               c'est un quatrième écran, et son bouton de retour ramène à l'écran partagé.
               LOT ERGO-BOITE — en plein écran il vit dans la colonne ; ailleurs, il reste ici. */}
-          {ecran !== 'annuaire' && ecran !== 'boite' && (
+          {ecran !== 'annuaire' && (
             <button type="button" className="svv-btn svv-btn-outline gst-btn"
               onClick={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}>
               Annuaire
@@ -626,7 +643,7 @@ export function GestionVue({ intro }: {
               carte), ni les cartes. Elle répond à une autre question : quels MAILS n'ont pas de rattachement certain.
               LOT ERGO-BOITE — renommée « À rattacher », ce qui dit ce qu'elle fait ; en plein écran elle vit dans la
               colonne, avec son compteur. Même écran, même fonction. */}
-          {ecran !== 'a_trier' && ecran !== 'boite' && (
+          {ecran !== 'a_trier' && (
             <button type="button" className="svv-btn svv-btn-outline gst-btn"
               onClick={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'a_trier' }); }}>
               À rattacher
@@ -634,6 +651,7 @@ export function GestionVue({ intro }: {
           )}
         </span>
       </div>
+      )}
 
       {/* ══ LOT 5-VEILLE — LA RELÈVE AUTOMATIQUE EST-ELLE EN VIE ? ══
           Le 25/09/2026, dix heures de courrier ont manqué pendant que le bandeau affichait, en gris, « dernière
@@ -747,6 +765,11 @@ export function GestionVue({ intro }: {
           /* ⚠️ « ← Écran partagé » DOIT NOMMER SON ÉCRAN. Depuis le lot ERGO-BOITE, `ETAT_DEFAUT` EST la boîte :
              s'en remettre à lui ferait un bouton de retour qui ne sort de nulle part. */
           onRetour={() => aller({ ...ETAT_DEFAUT, ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE })}
+          /* LOT ERGO-BOITE-3 — le sélecteur « non lus / total » de Réception. Il passe par l'ADRESSE, comme
+             l'étiquette et l'échange ouvert : un rechargement, un « Précédent », le rafraîchissement automatique
+             de 30 s et l'icône « Relever et actualiser » le conservent sans que rien n'ait à s'en souvenir. */
+          filtre={etatUrl.filtre ?? null}
+          onFiltre={(f) => aller({ ...etatUrl, filtre: f, filOuvert: null })}
           onRattacher={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'a_trier' }); }}
           aRattacher={aRattacher === null ? null : aRattacher.aTrancher}
           aRattacherSansCandidat={aRattacher === null ? null : aRattacher.sansCandidat}
@@ -887,7 +910,10 @@ export function GestionVue({ intro }: {
  */
 export function etiquettesDeLEcran(
   d: EtatEcran,
-  comptes: { lisibles: number; automatiques: number; envoyes: number; reception?: number; corbeille?: number | null } | null,
+  comptes: {
+    lisibles: number; automatiques: number; envoyes: number; reception?: number; corbeille?: number | null;
+    spam?: number;
+  } | null,
   brouillons: number | null = null,
   nonLus: number | null = null,
   nonLusPartiel = false,
@@ -918,6 +944,16 @@ export function etiquettesDeLEcran(
       : [{ etiquette: { sorte: 'corbeille' as const, evenementId: null }, libelle: 'Corbeille', compte: comptes.corbeille }]),
     // LOT 5e — les BROUILLONS. Comme les autres : pas d'étiquette vide, et son nombre vient d'une seule lecture.
     { etiquette: { sorte: 'brouillons', evenementId: null }, libelle: 'Brouillons', compte: brouillons },
+    /**
+     * ══ LOT ERGO-BOITE-3 — « SPAM », APRÈS BROUILLONS (place demandée par Arno) ═══════════════════════════════
+     * Le courrier que GMAIL a classé indésirable. Ce n'est pas notre jugement : on le constate, on le garde — Gmail,
+     * lui, l'efface au bout de 30 jours — et on ne le laisse entrer nulle part ailleurs (ni Réception, ni À classer,
+     * ni À rattacher, et aucune proposition de rattachement).
+     *
+     * ⚠️ `undefined` (réponse d'API plus ancienne, ou migration 263 absente) ⇒ `null` : l'entrée est alors écartée
+     * par `etiquettesVisibles` comme toute étiquette vide, au lieu d'afficher un zéro qu'on n'a pas mesuré.
+     */
+    { etiquette: { sorte: 'spam', evenementId: null }, libelle: 'Spam', compte: comptes?.spam ?? null },
     /**
      * ⚠️ « Sans suite » ET « Corbeille » VIENNENT APRÈS LES CINQ, et ne sont PAS retirées. Arno a donné l'ordre des
      * cinq entrées qu'il regarde ; il a aussi écrit « rien d'autre n'est retiré ». Elles gardent donc leur place, à

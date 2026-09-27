@@ -77,7 +77,7 @@ export function PleinEcranBoite({
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique,
   versionDonnees = 0, onListeRelue,
   onRattacher, aRattacher = null, aRattacherSansCandidat = null, onAnnuaire, etatDiscret = null,
-  onRelever, releveEnCours = false,
+  onRelever, releveEnCours = false, filtre = null, onFiltre,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -137,6 +137,14 @@ export function PleinEcranBoite({
   onAnnuaire?: () => void;
   /** Les lignes d'état ORDINAIRE, en petit. Une alerte ne passe jamais par ici. */
   etatDiscret?: readonly string[] | null;
+  /**
+   * LOT ERGO-BOITE-3 — le sélecteur de « Réception » : `null` = tous les échanges reçus, `'non-lus'` = seulement
+   * ceux qui portent un message reçu non lu. Il vit dans l'ADRESSE (cf. `ecranUrl`), pour qu'un rechargement et le
+   * rafraîchissement automatique de 30 s le conservent.
+   */
+  filtre?: 'non-lus' | null;
+  /** Change le sélecteur. ABSENT ⇒ aucun sélecteur n'est rendu : la colonne est alors celle d'avant ce lot. */
+  onFiltre?: (f: 'non-lus' | null) => void;
   /** Relève immédiate PUIS rafraîchissement — un seul geste, une seule icône. */
   onRelever?: () => void;
   releveEnCours?: boolean;
@@ -314,10 +322,68 @@ export function PleinEcranBoite({
             Nouveau message
           </button>
         )}
-        <h2 className="cm-titre">Boîte mail</h2>
+        {/* ══ LOT ERGO-BOITE-3 — LE TITRE DIT DE QUELLE BOÎTE IL S'AGIT ══════════════════════════════════════
+            « Boîte mail » ne disait pas laquelle : plusieurs collaborateurs partagent ce poste, et l'adresse est
+            précisément ce qu'on veut lire avant d'écrire.
+
+            🔴 LA FORME COURTE, ET C'EST MESURÉ. Arno demandait « Boîte mail <adresse> », et « Mail <adresse> » s'il
+            n'y a pas la place. Mesuré dans le navigateur sur la vraie colonne : la forme longue fait 210 px pour
+            une colonne de 215 — elle « tient » à cinq pixels près, c'est-à-dire qu'elle ne tient pas. Une police
+            légèrement différente, un zoom, une adresse d'un caractère de plus, et elle déborde. On prend donc la
+            forme courte, celle qu'Arno autorise exactement pour ce cas.
+
+            ⚠️ L'ADRESSE VIENT DE LA CONFIGURATION (`adresseGestion`), jamais d'une constante recopiée : le jour où
+            elle change, ce titre change avec elle. Sans contexte de rédaction (compte sans droit d'écriture), on
+            retombe sur « Boîte mail » — un titre sans adresse vaut mieux qu'un titre à trou. */}
+        <h2 className="cm-titre">
+          {redaction?.adresseGestion ? `Mail ${redaction.adresseGestion}` : 'Boîte mail'}
+        </h2>
         <ul className="cm-liste">
           {visibles.map((e) => {
             const active = memeEtiquette(e.etiquette, etiquette);
+            /**
+             * ══ 🔴 LOT ERGO-BOITE-3 — « RÉCEPTION » PORTE DEUX SÉLECTEURS ═══════════════════════════════════════
+             * « N non lus » et le total deviennent CLIQUABLES : l'un restreint la liste aux échanges portant un
+             * message reçu non lu, l'autre la rend entière. L'actif est en gras et souligné, l'autre en gris clair
+             * et souligné — deux états lisibles en niveaux de gris, jamais une couleur seule.
+             *
+             * 🔴 POURQUOI DES BOUTONS FRÈRES ET NON IMBRIQUÉS. Un `<button>` dans un `<button>` est du HTML
+             * invalide : le navigateur défait l'imbrication, et le clic devient imprévisible. L'entrée garde donc
+             * son bouton (le NOM, qui ouvre la liste) et les deux sélecteurs vivent à côté, dans la même ligne.
+             *
+             * ⚠️ SEULE « RÉCEPTION » EST CONCERNÉE : ailleurs, le balisage est EXACTEMENT celui d'avant ce lot.
+             * Un sélecteur de non-lus sous « Envoyés » ne voudrait rien dire (on a écrit ces messages).
+             */
+            const avecSelecteurs = onFiltre !== undefined && e.etiquette.sorte === 'reception'
+              && typeof e.nonLus === 'number' && e.nonLus > 0;
+            if (avecSelecteurs) {
+              const nonLus = e.nonLus as number;
+              return (
+                <li key="reception" className="cm-li-sel">
+                  <button type="button" className={`cm-entree cm-entree--nom${active ? ' cm-entree--active' : ''}`}
+                    aria-current={active ? 'true' : undefined}
+                    onClick={() => { onEtiquette(e.etiquette); setPanneauMobile('contenu'); }}>
+                    <span className="cm-nom"><span className="cm-texte">{e.libelle}</span></span>
+                  </button>
+                  <span className="cm-sels">
+                    <button type="button"
+                      className={`cm-sel${filtre === 'non-lus' ? ' cm-sel--actif' : ''}`}
+                      aria-pressed={filtre === 'non-lus'}
+                      onClick={() => { onEtiquette(e.etiquette); onFiltre('non-lus'); setPanneauMobile('contenu'); }}>
+                      {e.nonLusPartiel ? 'au moins ' : ''}{nonLus} non lu{nonLus > 1 ? 's' : ''}
+                    </button>
+                    {e.compte !== null && (
+                      <button type="button"
+                        className={`cm-sel${filtre === null ? ' cm-sel--actif' : ''}`}
+                        aria-pressed={filtre === null}
+                        onClick={() => { onEtiquette(e.etiquette); onFiltre(null); setPanneauMobile('contenu'); }}>
+                        {e.compte}
+                      </button>
+                    )}
+                  </span>
+                </li>
+              );
+            }
             return (
               <li key={`${e.etiquette.sorte}-${e.etiquette.evenementId ?? 0}`}>
                 <button type="button" className={`cm-entree${active ? ' cm-entree--active' : ''}`}
@@ -450,7 +516,7 @@ export function PleinEcranBoite({
               </p>
             )}
             <BoiteMail key={versionListe} etiquette={etiquette} titre={titre} total={ouverte?.compte ?? null} dense
-              onRelever={onRelever} releveEnCours={releveEnCours}
+              onRelever={onRelever} releveEnCours={releveEnCours} filtre={filtre}
               auto={auto} onAuto={onAuto} filSelectionne={filOuvert} onNonLus={onNonLus} marquage={marquage}
               corbeille={corbeilleDisponible} peutEcrire={peutEcrire} piecesDisponibles={piecesDisponibles}
               onActionLigne={agirSurLigne}

@@ -178,7 +178,7 @@ describe('🔴 chaque réglage atteint vraiment le serveur', () => {
    * 🔴 LES LISTES : ABSENT ≠ AUCUNE. Tant que les quatre sont cochées, le paramètre N'EST PAS écrit — une adresse
    * sans lui garde exactement le sens qu'elle avait avant ce lot, et les liens déjà envoyés continuent de marcher.
    */
-  it('les quatre cases cochées n’écrivent aucun paramètre ; en décocher une l’écrit', async () => {
+  it('toutes les cases cochées n’écrivent aucun paramètre ; en décocher une l’écrit', async () => {
     await monter();
     await cliquer(engrenage());
     await taper(champDuPanneau('Contient les mots') as HTMLInputElement, 'bail');
@@ -187,14 +187,14 @@ describe('🔴 chaque réglage atteint vraiment le serveur', () => {
 
     await cliquer(caseListe('Courrier automatique'));
     await chercher();
-    expect(derniersParams().get('listes')).toBe('reception,envoyes,brouillons');
+    expect(derniersParams().get('listes')).toBe('reception,envoyes,brouillons,spam');
   });
 
   it('tout décocher part quand même : c’est « nulle part », pas « partout »', async () => {
     await monter();
     await cliquer(engrenage());
     await taper(champDuPanneau('Contient les mots') as HTMLInputElement, 'bail');
-    for (const mot of ['Réception', 'Envoyés', 'Courrier automatique', 'Brouillons']) await cliquer(caseListe(mot));
+    for (const mot of ['Réception', 'Envoyés', 'Courrier automatique', 'Brouillons', 'Spam']) await cliquer(caseListe(mot));
     await chercher();
     expect(derniersParams().get('listes')).toBe('');
   });
@@ -238,9 +238,10 @@ describe('🔴 la pastille : un filtre posé ne se cache pas derrière un pannea
 
 describe('les aides pures du panneau', () => {
   it('basculer une liste garde l’ordre de référence — recocher ne renvoie pas en fin de file', () => {
-    const sans = basculerListe(['reception', 'envoyes', 'automatique', 'brouillons'], 'reception', false);
-    expect(sans).toEqual(['envoyes', 'automatique', 'brouillons']);
-    expect(basculerListe(sans, 'reception', true)).toEqual(['reception', 'envoyes', 'automatique', 'brouillons']);
+    const toutes = ['reception', 'envoyes', 'automatique', 'brouillons', 'spam'] as const;
+    const sans = basculerListe(toutes, 'reception', false);
+    expect(sans).toEqual(['envoyes', 'automatique', 'brouillons', 'spam']);
+    expect(basculerListe(sans, 'reception', true)).toEqual([...toutes]);
   });
 
   it('un critère vide ne pose AUCUN filtre ; chaque réglage en pose un', () => {

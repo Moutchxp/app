@@ -16,9 +16,13 @@ vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }))
 vi.mock('./schema', () => ({
   rechercheTexteDisponible: async () => pleinTexte,
   nonRemiseDisponible: async () => false,
+  // LOT ERGO-BOITE-3 — par défaut « migration 263 absente » : les assertions de ce fichier portent donc sur le SQL
+  //   d'avant ce lot, et les cas de spam sont éprouvés là où ils sont posés explicitement.
+  spamDisponible: async () => spamConnu,
 }));
 
 let pleinTexte = true;
+let spamConnu = false;
 
 import { chercherDansLeCourrier, conditions, decouperTermes, rechercheUtile, EXPRESSION_INDEXEE } from './rechercheBoite';
 
@@ -30,7 +34,7 @@ const repond = (lignes: unknown[] = []) => {
     (String(sql).includes('count(DISTINCT') ? { rows: [{ n: 0 }] } : { rows: lignes }));
 };
 
-beforeEach(() => { pleinTexte = true; queryMock.mockReset(); });
+beforeEach(() => { pleinTexte = true; spamConnu = false; queryMock.mockReset(); });
 
 describe('① découper la saisie, comme une messagerie', () => {
   it('plusieurs mots → plusieurs termes, tous exigés', () => {

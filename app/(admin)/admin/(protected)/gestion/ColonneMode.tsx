@@ -90,6 +90,18 @@ const CSS_COLONNE = `
 .cm-titre{margin:.25rem 0 0;font-size:13px;font-weight:700;color:var(--color-svv-ink);display:flex;align-items:center;gap:.5rem}
 .cm-note{margin:0;font-size:.75rem;line-height:1.4;color:var(--color-svv-muted)}
 .cm-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+/* ══ LOT ERGO-BOITE-3 — LA LIGNE « RÉCEPTION » ET SES DEUX SÉLECTEURS ═══════════════════════════════════════════
+   Le nom prend la place qu'il faut, les deux nombres sont collés à droite. L'ACTIF est en gras ET souligné, l'autre
+   en gris clair ET souligné : deux marques par état, dont une qui survit aux niveaux de gris et au daltonisme.
+   Le soulignement des deux dit « c'est cliquable » — un nombre souligné n'a jamais l'air d'un simple compteur. */
+.cm-li-sel{display:flex;align-items:center;gap:2px}
+.cm-entree--nom{flex:1 1 auto;min-width:0}
+.cm-sels{display:inline-flex;align-items:center;gap:8px;padding-right:8px;flex:0 0 auto}
+.cm-sel{background:transparent;border:0;padding:2px 0;font-size:11px;cursor:pointer;
+  text-decoration:underline;text-underline-offset:2px;color:var(--color-svv-muted);font-weight:500}
+.cm-sel:hover{color:var(--color-svv-ink)}
+.cm-sel--actif{color:var(--color-svv-ink);font-weight:800}
+.cm-sel:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px;border-radius:3px}
 /* ══ LOT ERGO-BOITE — CE QUI SUIT LES ENTRÉES DE LA BOÎTE ═══════════════════════════════════════════════════════
    « À rattacher » et « Annuaire » sont des gestes, pas des dossiers de courrier : un filet les sépare des entrées,
    sans les reléguer. */
