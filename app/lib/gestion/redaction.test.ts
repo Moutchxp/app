@@ -3,8 +3,7 @@ import { readFileSync } from 'node:fs';
 import {
   adresseValide, citerMessage, decouperAdresses, encoreAnnulable, extraireAdresse, nettoyerDestinataires,
   prefixerObjet, preparerBrouillon, pretAEnvoyer, secondesRestantes,
-  type ContexteRedaction, type MessageOrigine,
-} from './redaction';
+  type ContexteRedaction, type MessageOrigine, brouillonTouche} from './redaction';
 
 /**
  * LOT 5e — QUI REÇOIT QUOI. Module PUR, donc éprouvé ENTIÈREMENT — et c'est exactement ce qu'on veut pour le geste le
@@ -238,5 +237,70 @@ describe('garanties STATIQUES', () => {
     const code = readFileSync('app/lib/gestion/redaction.ts', 'utf8')
       .split('\n').filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l.trim())).join('\n');
     expect(/fetch\(|query\(|googleapis|gmail/i.test(code)).toBe(false);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT BROUILLON-SILENCIEUX — À PARTIR DE QUAND UN BROUILLON EXISTE-T-IL ?
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 « a-t-on saisi quelque chose ? » — et non « est-ce vide ? »', () => {
+  /** Une RÉPONSE telle qu'elle naît : objet préfixé, destinataire repris, corps contenant la signature. */
+  const NEE = {
+    a: ['martin@orange.fr'], cc: [], cci: [],
+    objet: 'Re: Fuite salle de bain',
+    corps: '\n\nService Gestion\n2 rue Mars et Roty',
+  };
+
+  /**
+   * 🔴 LE DÉFAUT RÉPARÉ. L'ancien test gardait tout brouillon dont l'objet, le corps OU les destinataires
+   * n'étaient pas vides — c'est-à-dire TOUTE réponse, dès la première seconde. Ouvrir puis fermer « Répondre »
+   * laissait donc un brouillon vide derrière soi : douze en une heure d'essais.
+   */
+  it('une réponse qui vient de s’ouvrir n’a RIEN de saisi', () => {
+    expect(brouillonTouche(NEE, { ...NEE })).toBe(false);
+  });
+
+  it('écrire au-dessus de la signature compte', () => {
+    expect(brouillonTouche(NEE, { ...NEE, corps: `Bonjour,${NEE.corps}` })).toBe(true);
+  });
+
+  /** ⚠️ SANS `trim()` : une ligne vide ajoutée au-dessus de la signature EST un début de message. */
+  it('même une ligne blanche ajoutée compte — on est en train d’écrire', () => {
+    expect(brouillonTouche(NEE, { ...NEE, corps: `\n${NEE.corps}` })).toBe(true);
+  });
+
+  it('ajouter, retirer ou changer un destinataire compte — À, Cc ou Cci', () => {
+    expect(brouillonTouche(NEE, { ...NEE, a: ['martin@orange.fr', 'autre@x.fr'] })).toBe(true);
+    expect(brouillonTouche(NEE, { ...NEE, a: [] })).toBe(true);
+    expect(brouillonTouche(NEE, { ...NEE, a: ['quelquun@x.fr'] })).toBe(true);
+    expect(brouillonTouche(NEE, { ...NEE, cc: ['copie@x.fr'] })).toBe(true);
+    expect(brouillonTouche(NEE, { ...NEE, cci: ['cache@x.fr'] })).toBe(true);
+  });
+
+  it('modifier l’objet compte ; le laisser tel quel, non', () => {
+    expect(brouillonTouche(NEE, { ...NEE, objet: 'Re: Fuite salle de bain — urgent' })).toBe(true);
+    expect(brouillonTouche(NEE, { ...NEE, objet: 'Re: Fuite salle de bain' })).toBe(false);
+  });
+
+  it('une pièce jointe compte à elle seule, même sans un mot écrit', () => {
+    expect(brouillonTouche(NEE, { ...NEE }, true)).toBe(true);
+  });
+
+  /**
+   * 🔴 SYMÉTRIQUE, DONC RÉVERSIBLE. Effacer ce qu'on venait d'écrire ramène « non touché » — c'est ce qui permet
+   * d'abandonner à la fermeture un brouillon redevenu vide, sans mémoriser qu'il a été rempli un jour.
+   */
+  it('effacer ce qu’on avait écrit ramène « rien de saisi »', () => {
+    const ecrit = { ...NEE, corps: `Bonjour,${NEE.corps}` };
+    expect(brouillonTouche(NEE, ecrit)).toBe(true);
+    expect(brouillonTouche(NEE, { ...ecrit, corps: NEE.corps })).toBe(false);
+  });
+
+  /** Un message NEUF naît entièrement vide : la même règle s'y applique sans cas particulier. */
+  it('un message neuf : rien tant qu’on n’a ni destinataire, ni objet, ni texte', () => {
+    const neuf = { a: [], cc: [], cci: [], objet: '', corps: '' };
+    expect(brouillonTouche(neuf, { ...neuf })).toBe(false);
+    expect(brouillonTouche(neuf, { ...neuf, a: ['x@y.fr'] })).toBe(true);
   });
 });

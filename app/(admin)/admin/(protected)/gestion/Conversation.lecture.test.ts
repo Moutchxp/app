@@ -537,3 +537,97 @@ describe('🔴 l’éditeur s’ouvre SOUS le message, se montre, et prend le cu
     expect(ligne(13)?.querySelector('.red')).not.toBeNull();
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT BROUILLON-SILENCIEUX — OUVRIR N'EST PAS ÉCRIRE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 aucun brouillon tant que rien n’est saisi', () => {
+  /** Tous les appels à la route des brouillons, avec leur méthode : c'est la seule preuve qui compte. */
+  let brouillons: { methode: string; url: string }[];
+
+  beforeEach(() => {
+    brouillons = [];
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const vrai = global.fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/brouillons')) {
+        brouillons.push({ methode: init?.method ?? 'GET', url: u });
+        return { ok: true, json: async () => ({ brouillon: { id: 501 } }) } as unknown as Response;
+      }
+      return vrai(url as string, init);
+    }) as unknown as typeof fetch;
+  });
+  afterEach(() => { vi.useRealTimers(); });
+
+  /** L'enregistrement automatique attend 1,2 s de calme : on laisse passer ce temps, exprès. */
+  const laisserEnregistrer = async () => {
+    await act(async () => { await vi.advanceTimersByTimeAsync(1600); });
+  };
+  const taperDansLeMessage = async (texte: string) => {
+    const corps = container.querySelector('#red-corps') as HTMLTextAreaElement;
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(corps, texte);
+    await act(async () => { corps.dispatchEvent(new Event('input', { bubbles: true })); });
+    await calmer();
+  };
+
+  /**
+   * 🔴 LE DÉFAUT RÉPARÉ, ET IL VENAIT DE MES PROPRES ESSAIS : douze brouillons vides créés en une heure, rien
+   * qu'en ouvrant « Répondre » pour vérifier le défilement. Une réponse naît remplie (objet « Re: … »,
+   * destinataire, signature) : l'ancien test « est-ce vide ? » était vrai dès la première seconde.
+   */
+  it('ouvrir « Répondre » et attendre n’enregistre RIEN', async () => {
+    await monter();
+    await cliquer(repondreDe(13, /^Répondre$/));
+    await laisserEnregistrer();
+    expect(brouillons).toHaveLength(0);
+  });
+
+  it('ouvrir puis fermer sans rien saisir n’enregistre ni n’abandonne rien', async () => {
+    await monter();
+    await cliquer(repondreDe(13, /^Répondre$/));
+    await cliquer(boutonPar(/^Fermer$/));
+    await laisserEnregistrer();
+    expect(brouillons).toHaveLength(0);
+    expect(container.querySelector('.red')).toBeNull();
+  });
+
+  it('dès qu’on écrit, le brouillon est enregistré', async () => {
+    await monter();
+    await cliquer(repondreDe(13, /^Répondre$/));
+    await taperDansLeMessage('Bonjour, je vous confirme.');
+    await laisserEnregistrer();
+    expect(brouillons.filter((b) => b.methode === 'POST')).toHaveLength(1);
+  });
+
+  /**
+   * 🔴 UN BROUILLON REDEVENU VIDE EST ABANDONNÉ À LA FERMETURE — et l'abandon est le geste EXISTANT (`DELETE`),
+   * qui date la ligne et ne supprime rien.
+   */
+  it('écrire, tout effacer, puis fermer : le brouillon est abandonné', async () => {
+    await monter();
+    await cliquer(repondreDe(13, /^Répondre$/));
+    const original = (container.querySelector('#red-corps') as HTMLTextAreaElement).value;
+    await taperDansLeMessage(`Bonjour.${original}`);
+    await laisserEnregistrer();
+    expect(brouillons.filter((b) => b.methode === 'POST')).toHaveLength(1);
+
+    await taperDansLeMessage(original); // on efface ce qu'on venait d'écrire
+    await cliquer(boutonPar(/^Fermer$/));
+    const abandons = brouillons.filter((b) => b.methode === 'DELETE');
+    expect(abandons).toHaveLength(1);
+    expect(abandons[0].url).toContain('id=501');
+  });
+
+  /** 🔴 ET UN BROUILLON AVEC DU CONTENU N'EST JAMAIS PERDU : fermer ne l'abandonne pas. */
+  it('fermer un brouillon qui a du contenu ne l’abandonne PAS', async () => {
+    await monter();
+    await cliquer(repondreDe(13, /^Répondre$/));
+    const original = (container.querySelector('#red-corps') as HTMLTextAreaElement).value;
+    await taperDansLeMessage(`Bonjour.${original}`);
+    await laisserEnregistrer();
+    await cliquer(boutonPar(/^Fermer$/));
+    expect(brouillons.filter((b) => b.methode === 'DELETE')).toHaveLength(0);
+  });
+});

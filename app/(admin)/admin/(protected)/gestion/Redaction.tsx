@@ -5,8 +5,7 @@ import { CSS_PIECES_BROUILLON, PiecesBrouillon } from './PiecesBrouillon';
 import {
   adresseValide, decouperAdresses, MENTION_DESTINATAIRES_APPROXIMATIFS, MENTION_PIECES_NON_JOINTES,
   MENTION_SANS_SIGNATURE, pretAEnvoyer, secondesRestantes,
-  type Brouillon,
-} from '../../../../lib/gestion/redaction';
+  type Brouillon, brouillonTouche} from '../../../../lib/gestion/redaction';
 
 /**
  * LOT 5e — ÉCRIRE UN MESSAGE. Composant CLIENT.
@@ -309,15 +308,45 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
   // ── ENREGISTREMENT AUTOMATIQUE. 🔴 Il n'envoie JAMAIS rien : la route des brouillons n'importe aucun chemin
   //    d'envoi (un test statique le vérifie). On attend que la frappe se calme — enregistrer à chaque lettre ferait
   //    une requête par caractère.
+  /**
+   * ══ 🔴 LOT BROUILLON-SILENCIEUX — LE BROUILLON TEL QU'IL EST NÉ ═══════════════════════════════════════════════
+   * Gardé à l'ouverture, et jamais remplacé ensuite : c'est l'étalon auquel on compare pour savoir si quelqu'un a
+   * réellement saisi quelque chose. Une réponse naît remplie (objet « Re: … », destinataire, signature) — sans cet
+   * étalon, « ce n'est pas vide » se confondait avec « on a écrit », et ouvrir puis fermer « Répondre » laissait un
+   * brouillon derrière soi. Mes essais du lot précédent en ont créé douze.
+   *
+   * ⚠️ `useRef` ET NON `useState` : c'est une mémoire, pas un affichage. Et il n'est repris QUE lorsque l'éditeur
+   * change de brouillon (autre voie, autre message) — s'il suivait le brouillon courant, l'écart serait toujours
+   * nul et la règle ne dirait plus rien.
+   */
+  const origine = useRef<BrouillonEcran>(brouillon);
+  const cleBrouillon = `${brouillon.voie}:${brouillon.filId ?? 0}:${brouillon.repondALeMessageId ?? 0}`;
+  const cleOrigine = useRef(cleBrouillon);
+  if (cleOrigine.current !== cleBrouillon) { cleOrigine.current = cleBrouillon; origine.current = brouillon; }
+
+  /** A-t-on saisi quelque chose ? La seule question qui décide qu'un brouillon mérite d'exister. */
+  const touche = brouillonTouche(origine.current, brouillon, piecesJointes > 0);
+
   const aEnregistrer = useRef<BrouillonEcran>(brouillon);
   // Le ref suit le brouillon DANS UN EFFET, jamais pendant le rendu : React interdit d'écrire un ref au rendu, et
   //   le faire quand même casse le rendu concurrent (l'état lu n'est alors plus celui qu'on affiche).
   useEffect(() => { aEnregistrer.current = brouillon; }, [brouillon]);
+  /** Le même jugement, lisible par l'effet différé — qui s'exécute bien après le rendu qui l'a armé. */
+  const toucheRef = useRef(touche);
+  useEffect(() => { toucheRef.current = touche; }, [touche]);
   useEffect(() => {
     if (!contexte.schemaPret || !contexte.peutEnvoyer) return;
     const t = setTimeout(() => {
       const b = aEnregistrer.current;
-      if (b.objet.trim() === '' && b.corps.trim() === '' && b.a.length === 0) return; // rien à garder
+      /**
+       * 🔴 RIEN N'A ÉTÉ SAISI ⇒ RIEN N'EST ENREGISTRÉ. Ni à l'ouverture, ni jamais. L'ancien test (« objet, corps
+       * et destinataires tous vides ») était toujours faux pour une réponse, qui naît remplie : il laissait donc
+       * passer chaque ouverture. Celui-ci compare à ce que l'éditeur a lui-même pré-rempli.
+       *
+       * ⚠️ ET SI LE BROUILLON EXISTE DÉJÀ, ON NE LE MET PAS À JOUR NON PLUS : il redeviendrait « vide en base »
+       * sans l'être vraiment. C'est la fermeture qui l'abandonnera (voir `fermer`) — un seul endroit décide.
+       */
+      if (!toucheRef.current) return;
       void (async () => {
         try {
           const res = await fetch('/api/admin/gestion/brouillons', {
@@ -336,6 +365,24 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
     }, 1200);
     return () => clearTimeout(t);
   }, [brouillon, contexte.schemaPret, contexte.peutEnvoyer, onChange]);
+
+  /**
+   * ══ 🔴 FERMER : UN BROUILLON REDEVENU VIDE EST ABANDONNÉ ══════════════════════════════════════════════════════
+   * On écrit trois lignes, on les efface, on ferme : il ne doit rien rester. L'abandon est le geste EXISTANT de la
+   * route (`DELETE`), qui date la ligne et ne supprime rien — elle reste en base, consultable.
+   *
+   * 🔴 ET UN BROUILLON AVEC DU CONTENU N'EST JAMAIS PERDU : on n'abandonne QUE si rien n'a été saisi. En cas de
+   * doute — l'appel échoue, le réseau tombe — on ferme quand même et on ne touche à rien. Perdre un brouillon écrit
+   * serait bien pire que d'en laisser un vide.
+   */
+  const fermer = async () => {
+    if (!touche && brouillon.id !== null) {
+      try {
+        await fetch(`/api/admin/gestion/brouillons?id=${brouillon.id}`, { method: 'DELETE' });
+      } catch { /* silence : on ferme de toute façon, et la ligne restera simplement en base */ }
+    }
+    onFerme();
+  };
 
   const chercherCorrespondants = useCallback((q: string) => {
     if (q.trim().length < 2) { setSuggestions([]); return; }
@@ -433,7 +480,7 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
 
       <div className="red-haut">
         <h3 className="gst-titre">{titre}</h3>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme}>Fermer</button>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void fermer()}>Fermer</button>
       </div>
 
       <p className="gst-note">De : {contexte.nomExpediteur} &lt;{contexte.adresseGestion}&gt;</p>
@@ -516,7 +563,10 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
           })}>
           Envoyer{piecesJointes > 0 ? ` (${piecesJointes} pièce${piecesJointes > 1 ? 's' : ''} jointe${piecesJointes > 1 ? 's' : ''})` : ''}
         </button>
-        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onFerme}>
+        {/* ⚠️ « GARDER EN BROUILLON » PASSE PAR LA MÊME PORTE. Son mot promet de garder ; si rien n'a été saisi,
+            il n'y a rien à garder, et laisser une ligne vide en base ne tiendrait pas cette promesse — ce serait
+            la contourner. `fermer` ne touche qu'aux brouillons restés vides. */}
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={() => void fermer()}>
           Garder en brouillon
         </button>
       </div>

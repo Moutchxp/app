@@ -281,3 +281,50 @@ export function secondesRestantes(clicLe: Date, maintenant: Date, delaiS: number
   const reste = delaiS * 1000 - (maintenant.getTime() - clicLe.getTime());
   return reste <= 0 ? 0 : Math.ceil(reste / 1000);
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT BROUILLON-SILENCIEUX — À PARTIR DE QUAND UN BROUILLON EXISTE-T-IL ?
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * 🔴 LE DÉFAUT RÉPARÉ, ET IL VENAIT DE MOI. L'enregistrement automatique gardait tout brouillon dont l'objet, le
+ * corps OU les destinataires n'étaient pas vides. Or une RÉPONSE naît déjà remplie : objet « Re: … », destinataire
+ * repris du message, corps contenant la signature. Le test était donc vrai dès la première seconde, et ouvrir puis
+ * fermer « Répondre » laissait un brouillon vide derrière soi. Mes essais du lot REPONSE-VISIBLE en ont créé douze.
+ *
+ * LA BONNE QUESTION N'EST PAS « EST-CE VIDE ? » MAIS « QUELQU'UN A-T-IL ÉCRIT QUELQUE CHOSE ? » — c'est-à-dire :
+ * l'état courant s'écarte-t-il de celui que l'éditeur a PRÉ-REMPLI ? On compare donc au brouillon d'origine, et à
+ * lui seul. Quatre écarts comptent, ceux qu'Arno a nommés :
+ *   · le CORPS diffère (du texte en plus de la signature et de la citation) ;
+ *   · un DESTINATAIRE a été ajouté, retiré ou changé — À, Cc ou Cci ;
+ *   · l'OBJET a été modifié ;
+ *   · une PIÈCE JOINTE a été ajoutée (elle ne vit pas dans le brouillon : l'appelant la signale).
+ *
+ * ⚠️ SYMÉTRIQUE, DONC RÉVERSIBLE. Effacer ce qu'on venait d'écrire ramène « non touché » : c'est ce qui permet
+ * d'abandonner à la fermeture un brouillon redevenu vide, sans avoir à mémoriser qu'il a été rempli un jour.
+ *
+ * ⚠️ ON COMPARE LE TEXTE BRUT, SANS `trim()`. Ajouter une ligne vide au-dessus de la signature EST une saisie — on
+ * est en train d'écrire. La comparer à sa version rognée reviendrait à perdre ce début de message.
+ *
+ * PUR : aucune I/O, aucune horloge. C'est une décision, elle doit pouvoir se rejouer.
+ */
+export function brouillonTouche(
+  origine: Pick<Brouillon, 'a' | 'cc' | 'cci' | 'objet' | 'corps'>,
+  courant: Pick<Brouillon, 'a' | 'cc' | 'cci' | 'objet' | 'corps'>,
+  avecPieces = false,
+): boolean {
+  if (avecPieces) return true;
+  if (courant.corps !== origine.corps) return true;
+  if (courant.objet !== origine.objet) return true;
+  return !memesAdresses(origine.a, courant.a)
+    || !memesAdresses(origine.cc, courant.cc)
+    || !memesAdresses(origine.cci, courant.cci);
+}
+
+/**
+ * Deux listes d'adresses sont-elles les mêmes ? L'ORDRE COMPTE, et c'est voulu : réordonner les destinataires est
+ * un geste de l'utilisateur, donc une saisie. PUR.
+ */
+function memesAdresses(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((x, i) => x === b[i]);
+}
