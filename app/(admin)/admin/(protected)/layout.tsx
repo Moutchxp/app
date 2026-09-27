@@ -2,6 +2,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { NOM_COOKIE, verifierJeton, sessionDepuisPayload } from '../../../lib/admin/session';
 import { trouverCompteParId, lireOrdreModules } from '../../../lib/admin/comptes';
+import { BoutonDeconnexion } from './BoutonDeconnexion';
 import { Sidebar } from './Sidebar';
 import { RevocationWatcher } from './RevocationWatcher';
 
@@ -41,11 +42,18 @@ export default async function AdminProtectedLayout({ children }: { children: Rea
           <span>
             <strong>{identite}</strong> · {roleLbl}
           </span>
-          {!secours && (
-            <a href="/admin/compte/mot-de-passe" style={{ marginLeft: 'auto', color: 'var(--color-svv-ink)', fontWeight: 600 }}>
-              Changer mon mot de passe
-            </a>
-          )}
+          {/* LOT ERGO-BOITE — les deux gestes de COMPTE, ensemble, en haut à droite. « Déconnexion » arrive du bas
+              de la colonne de gauche, où il voisinait les modules : il n'y est pas supprimé, il est déplacé.
+              `marginLeft: auto` est porté par le premier des deux, pour que la paire reste collée à droite même
+              quand le lien de mot de passe est absent (voie de secours). */}
+          <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '.75rem' }}>
+            {!secours && (
+              <a href="/admin/compte/mot-de-passe" style={{ color: 'var(--color-svv-ink)', fontWeight: 600 }}>
+                Changer mon mot de passe
+              </a>
+            )}
+            <BoutonDeconnexion />
+          </span>
         </div>
         <main className="svv-adm-main">{children}</main>
       </div>

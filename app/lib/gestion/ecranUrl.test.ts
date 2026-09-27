@@ -24,14 +24,24 @@ describe('🔴 ① une adresse abîmée ne casse jamais l’écran', () => {
   });
 
   it('un écran inconnu retombe sur l’écran partagé, il n’invente pas un quatrième écran', () => {
-    expect(lireEtatUrl('?ecran=plein').ecran).toBe('partage');
-    expect(lireEtatUrl('?ecran=BOITE').ecran).toBe('partage'); // la casse compte : une seule forme canonique
+    // LOT ERGO-BOITE — l'écran par défaut est la BOÎTE : un écran inconnu y retombe, il n'en invente pas un autre.
+    expect(lireEtatUrl('?ecran=plein').ecran).toBe('boite');
+    expect(lireEtatUrl('?ecran=BOITE').ecran).toBe('boite'); // la casse compte : une seule forme canonique
   });
 
-  it('une étiquette inconnue retombe sur l’étiquette d’arrivée', () => {
-    for (const s of ['nimportequoi', 'carte', 'carte-', 'carte-0', 'carte-zéro', 'carte--3']) {
-      expect(lireEtatUrl(`?etiquette=${encodeURIComponent(s)}`).etiquette).toEqual(ETIQUETTE_ARRIVEE);
+  /**
+   * 🔴 LOT ERGO-BOITE — ABSENTE, VIDE OU ABÎMÉE : LE MÊME REPLI, « Réception ». Avant ce lot, `?etiquette=` ouvrait
+   * « Réception » et `?etiquette=nimportequoi` ouvrait « À classer » : deux replis pour une seule situation — une
+   * adresse qui ne désigne rien. Sur l'écran partagé, en revanche, le repli reste sa file de tri.
+   */
+  it('une étiquette inconnue, vide ou absente retombe sur l’étiquette par défaut de l’écran', () => {
+    for (const s of ['nimportequoi', 'carte', 'carte-', 'carte-0', 'carte-zéro', 'carte--3', '']) {
+      expect(lireEtatUrl(`?etiquette=${encodeURIComponent(s)}`).etiquette, s).toEqual(ETIQUETTE_RECEPTION);
+      expect(lireEtatUrl(`?ecran=partage&etiquette=${encodeURIComponent(s)}`).etiquette, s).toEqual(ETIQUETTE_ARRIVEE);
     }
+    // …et une étiquette qui EXISTE est respectée, dans les deux écrans.
+    expect(lireEtatUrl('?etiquette=carte-12').etiquette).toEqual({ sorte: 'carte', evenementId: 12 });
+    expect(lireEtatUrl('?etiquette=a_classer').etiquette).toEqual(ETIQUETTE_ARRIVEE);
   });
 
   it('🔴 un identifiant qui n’en est pas un vaut `null`, jamais `NaN` ni `0` — la requête ne part pas pour rien', () => {
@@ -47,9 +57,14 @@ describe('🔴 ① une adresse abîmée ne casse jamais l’écran', () => {
 });
 
 describe('🔴 ② lire puis écrire redonne la MÊME adresse', () => {
+  /**
+   * LOT ERGO-BOITE — LES FORMES CANONIQUES ONT CHANGÉ AVEC LE DÉFAUT. La boîte sur « Réception » est désormais
+   * l'adresse NUE ; l'écran partagé, lui, s'écrit. Ce qui est éprouvé reste le même : écrire ce qu'on vient de lire
+   * doit redonner exactement la même adresse.
+   */
   const adresses = [
-    '', '?ecran=boite', '?ecran=boite&etiquette=envoyes', '?ecran=boite&etiquette=carte-77&fil=412',
-    '?ecran=evenements', '?fil=9', '?ecran=boite&etiquette=sans_suite',
+    '', '?ecran=partage', '?etiquette=envoyes', '?etiquette=carte-77&fil=412',
+    '?ecran=evenements', '?fil=9', '?etiquette=sans_suite', '?etiquette=a_classer',
   ];
 
   it('aller-retour stable sur toutes les formes canoniques', () => {
@@ -65,25 +80,60 @@ describe('🔴 ② lire puis écrire redonne la MÊME adresse', () => {
 });
 
 describe('🔴 ③ l’adresse nue du module reste nue', () => {
-  it('l’écran par défaut n’écrit RIEN — pas « ?ecran=partage&etiquette=a_classer »', () => {
+  it('l’écran par défaut n’écrit RIEN — et le défaut est la BOÎTE sur « Réception »', () => {
     expect(ecrireEtatUrl(ETAT_DEFAUT)).toBe('');
+    expect(ETAT_DEFAUT.ecran).toBe('boite');
+    expect(ETAT_DEFAUT.etiquette).toEqual(ETIQUETTE_RECEPTION);
+  });
+
+  /**
+   * 🔴 LOT ERGO-BOITE — L'ÉCRAN PARTAGÉ S'ÉCRIT DÉSORMAIS. Il n'est plus le défaut : sans ce paramètre, on ouvrirait
+   * la boîte. Le taire ferait d'un lien vers l'écran partagé un lien vers la boîte, ce qui est pire qu'un paramètre
+   * de plus dans l'adresse.
+   */
+  it('« ← Écran partagé » produit une adresse qui le DIT', () => {
+    expect(ecrireEtatUrl(etat({ ecran: 'partage' }))).toBe('?ecran=partage');
+    expect(lireEtatUrl('?ecran=partage').ecran).toBe('partage');
   });
 
   it('l’étiquette n’est écrite que dans la boîte : ailleurs elle ne désigne rien', () => {
     expect(ecrireEtatUrl(etat({ ecran: 'evenements', etiquette: carte(3) }))).toBe('?ecran=evenements');
-    expect(ecrireEtatUrl(etat({ ecran: 'partage', etiquette: ETIQUETTE_RECEPTION }))).toBe('');
+    expect(ecrireEtatUrl(etat({ ecran: 'partage', etiquette: ETIQUETTE_RECEPTION }))).toBe('?ecran=partage');
   });
 
-  it('…et l’étiquette d’arrivée non plus : entrer en plein écran donne « ?ecran=boite », rien de plus', () => {
-    expect(ecrireEtatUrl(etat({ ecran: 'boite' }))).toBe('?ecran=boite');
-    expect(ecrireEtatUrl(etat({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION }))).toBe('?ecran=boite&etiquette=reception');
+  it('…et l’étiquette par défaut non plus : la boîte sur « Réception » est l’adresse NUE', () => {
+    expect(ecrireEtatUrl(etat({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION }))).toBe('');
+    // Toute AUTRE étiquette de la boîte, elle, s'écrit : c'est elle qui rend le lien partageable.
+    expect(ecrireEtatUrl(etat({ ecran: 'boite', etiquette: ETIQUETTE_ARRIVEE }))).toBe('?etiquette=a_classer');
+    expect(ecrireEtatUrl(etat({ ecran: 'boite', etiquette: { sorte: 'envoyes', evenementId: null } })))
+      .toBe('?etiquette=envoyes');
+  });
+
+  /**
+   * 🔴 UN LIEN DIRECT L'EMPORTE TOUJOURS SUR LE DÉFAUT — c'est la condition posée par Arno en changeant l'écran
+   * d'arrivée : « un lien vers un autre dossier ou un mail précis continue d'ouvrir ce qu'il vise ».
+   */
+  it('un lien qui désigne quelque chose ouvre ce qu’il vise, jamais « Réception »', () => {
+    expect(lireEtatUrl('?etiquette=envoyes').etiquette).toEqual({ sorte: 'envoyes', evenementId: null });
+    expect(lireEtatUrl('?etiquette=carte-12').etiquette).toEqual({ sorte: 'carte', evenementId: 12 });
+    expect(lireEtatUrl('?fil=4321').filOuvert).toBe(4321);
+    expect(lireEtatUrl('?ecran=annuaire').ecran).toBe('annuaire');
+    // …et l'étiquette par défaut ne s'applique qu'à la boîte : l'écran partagé garde « À classer ».
+    expect(lireEtatUrl('?ecran=partage').etiquette).toEqual(ETIQUETTE_ARRIVEE);
   });
 });
 
 describe('l’étiquette d’arrivée, et ce qu’elle promet', () => {
-  it('entrer en plein écran mène à « À classer » : on arrive sur ce qu’il y a à faire, pas sur la réserve', () => {
+  /**
+   * 🔴 LOT ERGO-BOITE — ON ARRIVE DÉSORMAIS SUR « RÉCEPTION », plus sur « À classer ». Décision d'Arno du
+   * 27/09/2026 : c'est le courrier reçu qu'il ouvre en arrivant. `ETIQUETTE_ARRIVEE` garde son sens — c'est
+   * l'étiquette de l'ÉCRAN PARTAGÉ, la file de tri — et n'est plus celle de la boîte.
+   */
+  it('entrer dans la boîte mène à « Réception » ; l’écran partagé garde « À classer »', () => {
     expect(ETIQUETTE_ARRIVEE).toEqual({ sorte: 'a_classer', evenementId: null });
-    expect(lireEtatUrl('?ecran=boite').etiquette).toEqual(ETIQUETTE_ARRIVEE);
+    expect(lireEtatUrl('?ecran=boite').etiquette).toEqual(ETIQUETTE_RECEPTION);
+    expect(lireEtatUrl('').etiquette).toEqual(ETIQUETTE_RECEPTION);
+    expect(lireEtatUrl('?ecran=partage').etiquette).toEqual(ETIQUETTE_ARRIVEE);
   });
 
   it('une carte se lit et se réécrit avec son identifiant, jamais sans', () => {
@@ -122,7 +172,9 @@ describe('quand empiler une entrée d’historique, et quand ne pas le faire', (
   });
 
   it('changer d’étiquette, d’écran ou d’échange ouvert change l’écran', () => {
-    expect(memeEtat(etat({ ecran: 'boite' }), etat({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION }))).toBe(false);
+    // LOT ERGO-BOITE — `etat()` part du défaut, qui EST « Réception » : on compare donc à une AUTRE étiquette,
+    //   sans quoi le test comparerait un état avec lui-même et passerait pour de mauvaises raisons.
+    expect(memeEtat(etat({ ecran: 'boite' }), etat({ ecran: 'boite', etiquette: ETIQUETTE_ARRIVEE }))).toBe(false);
     expect(memeEtat(etat({ ecran: 'boite' }), etat({ ecran: 'evenements' }))).toBe(false);
     expect(memeEtat(etat({ ecran: 'boite' }), etat({ ecran: 'boite', filOuvert: 3 }))).toBe(false);
   });

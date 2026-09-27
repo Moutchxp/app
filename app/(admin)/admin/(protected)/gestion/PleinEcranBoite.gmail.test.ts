@@ -136,7 +136,8 @@ describe('② L’OUVERTURE EN PLEINE PAGE, et le retour', () => {
     await monter();
     await cliquer(ligneDe('Fuite salle de bain'));
     expect(container.querySelector('.cnv')).not.toBeNull();
-    expect(url()).toBe('/admin/gestion?ecran=boite&etiquette=reception&fil=101');
+    // LOT ERGO-BOITE — la boîte sur « Réception » EST l'adresse nue : seul le fil ouvert s'y écrit.
+    expect(url()).toBe('/admin/gestion?fil=101');
   });
 
   it('la flèche de retour REMPLACE « ← Retour » : même geste, libellé accessible, cible d’au moins 44 px', async () => {
@@ -153,7 +154,7 @@ describe('② L’OUVERTURE EN PLEINE PAGE, et le retour', () => {
     await cliquer(ligneDe('Fuite salle de bain'));
     await cliquer(retour());
     expect(container.querySelector('.cnv')).toBeNull();
-    expect(url()).toBe('/admin/gestion?ecran=boite&etiquette=reception');
+    expect(url()).toBe('/admin/gestion');
   });
 
   it('🔴 ② « Précédent » du navigateur ramène AUSSI à la liste', async () => {
@@ -267,13 +268,23 @@ describe('④ CLASSER — le partage s’ouvre, et se referme une fois l’écha
 });
 
 describe('⑤ L’EN-TÊTE COMPACT, et l’écran partagé qui ne bouge pas', () => {
-  it('en plein écran : le titre, la phrase en info-bulle CLIQUABLE, l’heure de relève et les deux boutons', async () => {
+  /**
+   * 🔴 LOT ERGO-BOITE — L'EN-TÊTE COMPACT NE GARDE QUE LE TITRE. L'heure de relève est descendue dans la colonne, en
+   * petit, et les deux boutons sont devenus UNE icône à côté du titre de la liste. Rien n'est perdu : les deux
+   * informations et le geste sont toujours à l'écran, ailleurs — et c'est ce que ce test vérifie, pièce par pièce.
+   */
+  it('en plein écran : le titre, la phrase en info-bulle, l’état DANS LA COLONNE et l’icône de relève', async () => {
     await monter();
     expect(container.querySelector('.gst-bandeau--compact')).not.toBeNull();
     expect(container.querySelector('.gst-bandeau-titre')?.textContent).toContain('Gestion');
-    expect(boutonPar(/^Relever maintenant$/)).toBeDefined();
-    expect(boutonPar(/^Rafraîchir$/)).toBeDefined();
-    expect(container.textContent).toContain('Dernière relève');
+    // Les deux boutons ont quitté le bandeau…
+    expect(boutonPar(/^Relever maintenant$/)).toBeUndefined();
+    expect(boutonPar(/^Rafraîchir$/)).toBeUndefined();
+    // …remplacés par une icône NOMMÉE, à côté du titre de la liste.
+    expect(container.querySelector('.bte-relever')?.getAttribute('aria-label')).toBe('Relever et actualiser');
+    // …et l'heure de relève est dans la colonne, en petit, pas dans le bandeau.
+    expect(container.querySelector('.cm-etat')?.textContent).toContain('Dernière relève');
+    expect(container.querySelector('.gst-bandeau')?.textContent).not.toContain('Dernière relève');
   });
 
   it('…et l’en-tête de page est REPLIÉ par une règle, jamais supprimé du document', () => {
@@ -283,7 +294,7 @@ describe('⑤ L’EN-TÊTE COMPACT, et l’écran partagé qui ne bouge pas', ()
   });
 
   it('🔴 L’ÉCRAN PARTAGÉ N’A PAS BOUGÉ : deux colonnes, bandeau ordinaire, aucun partage « classer »', async () => {
-    window.history.replaceState(null, '', '/admin/gestion');
+    window.history.replaceState(null, '', '/admin/gestion?ecran=partage');
     await monter();
     expect(container.querySelector('.gst-deux')).not.toBeNull();
     expect(container.querySelector('.gst-bandeau--compact')).toBeNull();

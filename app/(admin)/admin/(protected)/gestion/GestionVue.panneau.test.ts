@@ -63,7 +63,15 @@ beforeEach(() => {
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
 
 const calmer = async () => { await act(async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); }); };
-const monter = async () => { await act(async () => { root.render(createElement(GestionVue)); }); await calmer(); };
+/**
+ * 🔴 LOT ERGO-BOITE — ON PART DE L'ÉCRAN PARTAGÉ. Ces tests éprouvent le POSTE DE TRI et son panneau, qui vivent sur
+ * l'écran partagé ; depuis ce lot, l'adresse nue ouvre la boîte, où il n'y a ni ligne de file ni panneau à cliquer.
+ */
+const monter = async () => {
+  window.history.replaceState(null, '', '/admin/gestion?ecran=partage');
+  await act(async () => { root.render(createElement(GestionVue)); });
+  await calmer();
+};
 const boutons = () => [...container.querySelectorAll('button')] as HTMLButtonElement[];
 const boutonPar = (motif: RegExp) => boutons().find((b) => motif.test(b.textContent ?? ''));
 /**

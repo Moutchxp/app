@@ -139,8 +139,11 @@ describe('l’étiquette', () => {
       lireBoiteMail.mockClear();
       const res = await GET(req(qs));
       expect(res.status).toBe(200);
+      // LOT ERGO-BOITE — le repli est « Réception », comme dans la boîte : absente, vide ou abîmée, une étiquette
+      //   qui ne désigne rien mène au même endroit. Avant, `?etiquette=` et `?etiquette=nimportequoi` menaient à
+      //   deux écrans différents.
       expect(lireBoiteMail).toHaveBeenCalledWith(null, [], 30,
-        expect.objectContaining({ etiquette: { sorte: 'a_classer', evenementId: null } }));
+        expect.objectContaining({ etiquette: { sorte: 'reception', evenementId: null } }));
     }
   });
 

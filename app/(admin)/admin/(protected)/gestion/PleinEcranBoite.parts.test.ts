@@ -63,11 +63,23 @@ describe('🔴 ① les compteurs viennent d’où ils sont DÉJÀ calculés, jam
     expect(par(sans, 'a_classer')?.compte).toBe(442); // celui-là, lui, est connu d'emblée
   });
 
-  it('une carte porte sa RÉFÉRENCE, son titre et son nombre d’échanges — ceux de sa colonne', () => {
-    const avec = etiquettesDeLEcran(ecran({ evenements: [carte(12, 3)] }), COMPTES);
+  /**
+   * 🔴 LOT ERGO-BOITE — LES CARTES NE SONT PLUS DANS LA COLONNE, sauf celle qu'on regarde.
+   * Retrait demandé par Arno : une carte n'est pas un dossier de courrier, et un long titre occupait à lui seul le
+   * quart de la colonne. L'exception existe pour ne pas dégrader un chemin existant — le cartouche d'une
+   * conversation classée mène à `?etiquette=carte-12`, et cette liste doit rester NOMMÉE et sélectionnée.
+   */
+  it('🔴 aucune carte dans la colonne… sauf celle qu’on regarde, qui garde sa référence et son nombre', () => {
+    const sansOuverte = etiquettesDeLEcran(ecran({ evenements: [carte(12, 3)] }), COMPTES);
+    expect(sansOuverte.some((e) => e.etiquette.sorte === 'carte')).toBe(false);
+
+    const ouverte: Etiquette = { sorte: 'carte', evenementId: 12 };
+    const avec = etiquettesDeLEcran(ecran({ evenements: [carte(12, 3)] }), COMPTES, null, null, false, ouverte);
     const c = avec.find((e) => e.etiquette.sorte === 'carte');
     expect(c).toMatchObject({ libelle: 'Dossier 12', reference: 'GES-2026-000012', compte: 3 });
     expect(c?.etiquette.evenementId).toBe(12);
+    // …et UNE SEULE : les autres cartes restent hors de la colonne.
+    expect(avec.filter((e) => e.etiquette.sorte === 'carte')).toHaveLength(1);
   });
 
   it('🔴 aucune étiquette « À traiter » : l’état par échange n’existe pas en base, elle mentirait', () => {
@@ -76,8 +88,16 @@ describe('🔴 ① les compteurs viennent d’où ils sont DÉJÀ calculés, jam
 });
 
 describe('🔴 ② et ③ pas d’étiquette vide, sauf celle qu’on regarde', () => {
-  const brutes = (): EtiquetteAffichee[] => etiquettesDeLEcran(
-    ecran({ filsTotal: 0, sansSuiteTotal: 0, evenements: [carte(1, 0), carte(2, 5)] }), COMPTES);
+  /**
+   * ⚠️ LES CARTES SONT FOURNIES EXPLICITEMENT depuis le lot ERGO-BOITE : `etiquettesDeLEcran` ne les produit plus.
+   * Ce que ces tests protègent — la règle de VISIBILITÉ de `etiquettesVisibles` — n'a pas changé et continue de
+   * servir à la carte ouverte.
+   */
+  const brutes = (): EtiquetteAffichee[] => [
+    ...etiquettesDeLEcran(ecran({ filsTotal: 0, sansSuiteTotal: 0 }), COMPTES),
+    { etiquette: { sorte: 'carte', evenementId: 1 }, libelle: 'Dossier 1', reference: 'GES-2026-000001', compte: 0 },
+    { etiquette: { sorte: 'carte', evenementId: 2 }, libelle: 'Dossier 2', reference: 'GES-2026-000002', compte: 5 },
+  ];
 
   it('une carte sans échange ne prend pas une ligne dans la colonne', () => {
     const vus = etiquettesVisibles(brutes(), ETIQUETTE_RECEPTION);

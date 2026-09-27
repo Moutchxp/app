@@ -166,7 +166,7 @@ export function Evidence({ texte, saisie }: { texte: string; saisie: string }) {
 export function BoiteMail({
   onOuvrir, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
   dense = false, onNonLus, marquage, onActionLigne, corbeille = false, peutEcrire = false, piecesDisponibles = false,
-  versionDonnees = 0, onListeRelue,
+  versionDonnees = 0, onListeRelue, onRelever, releveEnCours = false,
 }: {
   onOuvrir: (filId: number) => void;
   /** LOT 5-FUSION — l'étiquette ouverte. Absente = la boîte entière, exactement le comportement du lot 5a. */
@@ -224,6 +224,12 @@ export function BoiteMail({
    * `0` (le défaut) = aucun battement : la liste se comporte exactement comme avant ce lot.
    */
   versionDonnees?: number;
+  /**
+   * LOT ERGO-BOITE — UN SEUL GESTE : relever le courrier PUIS rafraîchir l'écran. Absent ⇒ aucune icône, et la liste
+   * est exactement celle d'avant ce lot (c'est le cas de la recherche et des écrans qui n'ont rien à relever).
+   */
+  onRelever?: () => void;
+  releveEnCours?: boolean;
   /** Prévient le parent que la liste vient de se relire — il peut oublier ce qu'il avait à annoncer. */
   onListeRelue?: () => void;
 }) {
@@ -361,6 +367,23 @@ export function BoiteMail({
       <h2 className="gst-titre" id="bte-titre">
         {cherche ? 'Résultats' : (titre ?? 'Boîte mail')}
         {!cherche && <span className="gst-compte">{total ?? etat.total}</span>}
+        {/* ══ LOT ERGO-BOITE — UNE SEULE ICÔNE À LA PLACE DE DEUX BOUTONS ═══════════════════════════════════════
+            « Relever maintenant » et « Rafraîchir » faisaient deux choses qu'on veut toujours ensemble : aller
+            chercher le courrier, puis montrer ce qu'on a trouvé. Relever sans rafraîchir laissait l'écran sur
+            l'image d'avant — c'est exactement ce qui a fait croire, le 26/09, que la relève ne fonctionnait pas.
+            🔴 L'ICÔNE N'EST PAS SEULE : `aria-label` et `title` portent la phrase « Relever et actualiser ». Une
+            icône sans nom n'existe pas pour un lecteur d'écran, et ne s'apprend pas au survol sur un téléphone. */}
+        {onRelever && (
+          <button type="button" className={`bte-relever${releveEnCours ? ' bte-relever--tourne' : ''}`}
+            onClick={onRelever} disabled={releveEnCours}
+            aria-label="Relever et actualiser" title="Relever et actualiser">
+            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"
+              fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+              <path d="M20 4v4h-4" />
+            </svg>
+          </button>
+        )}
       </h2>
       {/* La recherche traverse les étiquettes : le dire ÉVITE de croire qu'un mail n'existe pas parce qu'on regardait
           ailleurs. C'est la promesse du lot 5c — chercher dans TOUT le courrier de gestion — et elle tient ici. */}
@@ -567,6 +590,20 @@ export function BoiteMail({
 }
 
 const CSS_BOITE = `
+/* ══ LOT ERGO-BOITE — L'ICÔNE « RELEVER ET ACTUALISER » ════════════════════════════════════════════════════════
+   Elle remplace « Relever maintenant » et « Rafraîchir », qui faisaient deux choses qu'on veut toujours ensemble.
+   🔴 ELLE TOURNE PENDANT L'OPÉRATION : c'est le seul retour visuel qu'un geste est en cours, et sans lui on
+   reclique. L'animation est coupée pour qui a demandé moins de mouvement (prefers-reduced-motion) — l'icône reste
+   alors simplement estompée, donc l'information passe quand même.
+   (Aucun accent grave dans ce commentaire : il vit DANS un littéral gabarit, qu'un seul terminerait.) */
+.bte-relever{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;margin-left:.4rem;
+  vertical-align:middle;border:1px solid var(--color-svv-line);border-radius:999px;background:transparent;
+  color:var(--color-svv-ink);cursor:pointer}
+.bte-relever:hover{background:var(--color-svv-field)}
+.bte-relever:disabled{opacity:.55;cursor:default}
+.bte-relever--tourne svg{animation:bte-tourne 1s linear infinite}
+@keyframes bte-tourne{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion: reduce){.bte-relever--tourne svg{animation:none}}
 .bte-liste{display:flex;flex-direction:column;gap:0;border-top:1px solid var(--color-svv-line)}
 /* LOT 5-BOITE-3 — la ligne et son menu sont CÔTE À CÔTE. Le menu ne peut pas être dans le bouton d'ouverture (un
    bouton dans un bouton est invalide, et le clic ouvrirait l'échange), d'où cette rangée. */

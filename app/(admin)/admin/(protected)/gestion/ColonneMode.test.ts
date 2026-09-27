@@ -67,7 +67,13 @@ afterEach(() => {
 
 const calmer = async () => { await act(async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); }); };
 /** La coquille de l'admin, en réduction : la barre, puis l'écran — exactement l'ordre du vrai `layout.tsx`. */
-const monter = async () => {
+/**
+ * 🔴 LOT ERGO-BOITE — ON PART DE L'ÉCRAN PARTAGÉ, ET IL FAUT LE DIRE. Depuis ce lot, le module s'ouvre sur la BOÎTE :
+ * monter sans rien préciser entrerait donc directement en plein écran, et ces tests-ci — qui éprouvent précisément
+ * la transition entre l'écran partagé et le plein écran — n'auraient plus rien à observer.
+ */
+const monter = async (adresse = '?ecran=partage') => {
+  window.history.replaceState(null, '', `/admin/gestion${adresse}`);
   await act(async () => {
     root.render(createElement(Fragment, null,
       createElement(Sidebar, { role: 'administrateur', perms: permsToutes() }),
@@ -134,13 +140,26 @@ describe('🔴 PLEIN ÉCRAN — la colonne du mode remplace les liens de modules
     expect(apres.outerHTML).toBe(htmlAvant); // même rendu, au caractère près
   });
 
-  it('🔴 ② « Déconnexion » reste atteignable, et elle DÉCONNECTE vraiment', async () => {
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴 LOT ERGO-BOITE — « DÉCONNEXION » A QUITTÉ CETTE COLONNE, ET C'EST VOULU.
+   *
+   * Ce test garantissait qu'elle restait atteignable EN PLEIN ÉCRAN, à l'époque où la colonne du mode remplaçait la
+   * navigation de l'administration et aurait pu l'emporter avec elle. Arno a demandé de la déplacer en haut à
+   * droite, à côté de « Changer mon mot de passe » : elle n'est donc plus dans la colonne — et elle n'a plus à y
+   * être, puisque la barre du haut, elle, n'est jamais remplacée.
+   *
+   * 🔴 LA GARANTIE N'EST PAS PERDUE, ELLE A CHANGÉ D'ENDROIT : `BoutonDeconnexion.test.ts` éprouve que le bouton
+   * existe et appelle vraiment `DELETE /api/admin/session`. Ce test-ci ne garde que sa moitié locale — qu'aucune
+   * déconnexion ne traîne dans la colonne, où deux boutons identiques finiraient par diverger.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it('🔴 ② « Déconnexion » n’est plus dans la colonne : elle vit en haut à droite', async () => {
     await monter();
     await entrerEnPleinEcran();
-    const sortir = boutonPar(/^Déconnexion$/);
-    expect(sortir).toBeDefined();
-    await cliquer(sortir);
-    expect(appels.some((a) => a.url.includes('/api/admin/session') && a.methode === 'DELETE')).toBe(true);
+    expect(boutonPar(/^Déconnexion$/)).toBeUndefined();
+    // …et elle n'est pas non plus restée dans la navigation de l'administration, qui la portait avant ce lot.
+    expect(container.querySelector('.svv-adm-logout')).toBeNull();
   });
 
   it('🔴 ③ le choix du thème reste atteignable, et ses trois valeurs répondent', async () => {

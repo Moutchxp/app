@@ -90,6 +90,16 @@ const CSS_COLONNE = `
 .cm-titre{margin:.25rem 0 0;font-size:13px;font-weight:700;color:var(--color-svv-ink);display:flex;align-items:center;gap:.5rem}
 .cm-note{margin:0;font-size:.75rem;line-height:1.4;color:var(--color-svv-muted)}
 .cm-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
+/* ══ LOT ERGO-BOITE — CE QUI SUIT LES ENTRÉES DE LA BOÎTE ═══════════════════════════════════════════════════════
+   « À rattacher » et « Annuaire » sont des gestes, pas des dossiers de courrier : un filet les sépare des entrées,
+   sans les reléguer. */
+.cm-liste--apres{margin-top:.5rem;padding-top:.5rem;border-top:1px solid var(--color-svv-line)}
+/* L'ÉTAT ORDINAIRE, EN PETIT ET EN BAS. Il se consulte, il ne se lit pas : c'est pour cela qu'il descend ici, et
+   c'est ce qui redonne au bandeau d'alerte, resté en haut de page, le pouvoir de se faire remarquer. */
+.cm-etat{margin-top:.75rem;padding-top:.6rem;border-top:1px solid var(--color-svv-line);
+  font-size:.7rem;line-height:1.45;color:var(--color-svv-muted)}
+.cm-etat-ligne{margin:0 0 .35rem}
+.cm-etat-ligne:last-child{margin-bottom:0}
 /* Une entrée de colonne : cible tactile confortable, texte qui casse plutôt que de déborder. */
 .cm-entree{display:flex;align-items:center;justify-content:space-between;gap:.5rem;width:100%;min-height:44px;
   padding:.45rem .6rem;text-align:left;font:inherit;font-size:.85rem;color:var(--color-svv-ink);cursor:pointer;

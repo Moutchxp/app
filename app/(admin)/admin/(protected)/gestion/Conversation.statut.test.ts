@@ -90,7 +90,7 @@ describe('LES CINQ CARTOUCHES — le mot est écrit, jamais la couleur seule', (
     expect(c.textContent).toBe('GES-2026-000012 · Fuite salle de bain');
     expect(c.className).toContain('cnv-cartouche--succes');
     expect(c.tagName).toBe('A');
-    expect(c.getAttribute('href')).toBe('/admin/gestion?ecran=boite&etiquette=carte-12');
+    expect(c.getAttribute('href')).toBe(/* LOT ERGO-BOITE — la boîte est l'écran par défaut : `ecran=boite` ne s'écrit plus. */ '/admin/gestion?etiquette=carte-12');
     expect(declencheur()?.textContent).toBe('Modifier');
   });
 

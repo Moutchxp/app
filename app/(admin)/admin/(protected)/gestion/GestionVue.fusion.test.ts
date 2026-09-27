@@ -43,7 +43,7 @@ let root: Root;
 let urlsBoite: string[];
 
 beforeEach(() => {
-  window.history.replaceState(null, '', '/admin/gestion');
+  window.history.replaceState(null, '', '/admin/gestion?ecran=partage');
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   urlsBoite = [];
   global.fetch = vi.fn(async (url: string | URL | Request) => {
@@ -58,6 +58,8 @@ beforeEach(() => {
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
 
 const calmer = async () => { await act(async () => { for (let i = 0; i < 6; i++) await Promise.resolve(); }); };
+// 🔴 LOT ERGO-BOITE — ces tests éprouvent le passage écran partagé → plein écran : ils doivent donc PARTIR de
+  //   l'écran partagé, que l'adresse nue ne désigne plus (le défaut est la boîte).
 const monter = async () => { await act(async () => { root.render(createElement(GestionVue)); }); await calmer(); };
 const boutons = () => [...container.querySelectorAll('button')] as HTMLButtonElement[];
 const boutonPar = (motif: RegExp) => boutons().find((b) => motif.test(b.textContent ?? ''));
@@ -89,20 +91,26 @@ describe('🔴 les deux onglets sont partis, et rien d’autre', () => {
 });
 
 describe('🔴 ① l’adresse suit l’écran, et l’écran suit l’adresse', () => {
-  it('l’adresse nue reste nue : l’écran partagé n’écrit rien', async () => {
+  it('l’adresse nue ouvre la BOÎTE, et reste nue', async () => {
+    // LOT ERGO-BOITE — le défaut est la boîte sur « Réception » : l'adresse nue la désigne, donc n'écrit rien.
+    window.history.replaceState(null, '', '/admin/gestion');
     await monter();
     expect(url()).toBe('/admin/gestion');
+    expect(container.querySelector('.cm-entree')).not.toBeNull();   // la colonne de la boîte est là
+    expect(container.querySelector('.gst-deux')).toBeNull();        // …et pas l'écran partagé
   });
 
   it('entrer en plein écran l’écrit dans l’adresse, et « Précédent » ramène à l’écran partagé', async () => {
     await monter();
     await cliquer(boutons().filter((b) => /^Plein écran$/.test(b.textContent ?? ''))[0]);
-    expect(url()).toBe('/admin/gestion?ecran=boite');
+    // LOT ERGO-BOITE — la boîte étant le défaut, entrer en plein écran depuis « À classer » écrit l'ÉTIQUETTE et
+    //   non l'écran : c'est elle qui s'écarte du défaut, pas lui.
+    expect(url()).toBe('/admin/gestion?etiquette=a_classer');
 
     // ⚠️ On ne se sert PAS de `history.back()` : jsdom le traite de façon asynchrone, hors des tours de `act`, et la
     //   navigation retomberait au milieu d'un AUTRE test. Ce qui est éprouvé ici est exactement ce que le lot ajoute :
     //   l'écran ÉCOUTE `popstate` et se relit depuis l'adresse. Le navigateur, lui, sait faire le reste.
-    window.history.replaceState(null, '', '/admin/gestion');
+    window.history.replaceState(null, '', '/admin/gestion?ecran=partage');
     await act(async () => { window.dispatchEvent(new PopStateEvent('popstate')); });
     await calmer();
     expect(container.querySelector('.gst-deux')).not.toBeNull();
@@ -116,10 +124,10 @@ describe('🔴 ① l’adresse suit l’écran, et l’écran suit l’adresse',
   });
 
   it('choisir une étiquette l’écrit, et la liste la DEMANDE au serveur', async () => {
-    window.history.replaceState(null, '', '/admin/gestion?ecran=boite');
+    window.history.replaceState(null, '', '/admin/gestion');
     await monter();
     await cliquer(boutonPar(/^Envoyés/));
-    expect(url()).toBe('/admin/gestion?ecran=boite&etiquette=envoyes');
+    expect(url()).toBe('/admin/gestion?etiquette=envoyes');
     expect(urlsBoite.some((u) => u.includes('etiquette=envoyes'))).toBe(true);
   });
 });
@@ -132,24 +140,68 @@ describe('🔴 ② on entre en plein écran sur « À classer », pas dans la r�
     expect(active?.textContent).toContain('À classer');
   });
 
-  it('les cinq étiquettes fixes sont là, avec leurs nombres, et les cartes NON VIDES ensuite', async () => {
-    window.history.replaceState(null, '', '/admin/gestion?ecran=boite');
+  /**
+   * 🔴 LOT ERGO-BOITE — L'ORDRE DES ENTRÉES EST CELUI D'ARNO, et les CARTES ont quitté la colonne.
+   * L'ordre n'est pas décoratif : il va du plus lu au moins lu, et c'est la seule justification qui vaille pour une
+   * colonne de navigation. Les cartes d'événement, elles, ne sont pas des dossiers de courrier — elles restent sur
+   * l'écran partagé, avec leur propre colonne.
+   */
+  it('les entrées sont dans l’ordre demandé, avec leurs nombres, et SANS carte d’événement', async () => {
+    window.history.replaceState(null, '', '/admin/gestion');
     await monter();
     const etiqs = [...container.querySelectorAll('.cm-entree')].map((e) => e.textContent ?? '');
+    const rang = (mot: string) => etiqs.findIndex((t) => t.includes(mot));
+    expect(rang('Réception')).toBeLessThan(rang('Envoyés'));
+    expect(rang('Envoyés')).toBeLessThan(rang('Courrier automatique'));
+    expect(rang('Courrier automatique')).toBeLessThan(rang('À classer'));
+    expect(rang('À classer')).toBeLessThan(rang('Brouillons'));
+    // …et les nombres sont bien ceux du serveur.
     expect(etiqs.some((t) => t.includes('À classer') && t.includes('442'))).toBe(true);
     expect(etiqs.some((t) => t.includes('Réception') && t.includes('4944'))).toBe(true);
     expect(etiqs.some((t) => t.includes('Envoyés') && t.includes('3311'))).toBe(true);
     expect(etiqs.some((t) => t.includes('Sans suite') && t.includes('7'))).toBe(true);
     expect(etiqs.some((t) => t.includes('Courrier automatique') && t.includes('12262'))).toBe(true);
-    // La carte à 3 échanges est listée avec sa référence ; celle à 0 échange ne prend pas de place.
-    expect(etiqs.some((t) => t.includes('GES-2026-000012'))).toBe(true);
-    expect(etiqs.some((t) => t.includes('GES-2026-000013'))).toBe(false);
+    // 🔴 AUCUNE CARTE dans la colonne — ni celle à 3 échanges, ni aucune autre.
+    expect(etiqs.some((t) => t.includes('GES-2026-'))).toBe(false);
+  });
+
+  /**
+   * 🔴 LOT ERGO-BOITE — L'ÉTAT ORDINAIRE N'EST QU'À UN SEUL ENDROIT. Première version : les lignes descendaient dans
+   * la colonne SANS être retirées du haut de page — elles s'affichaient donc DEUX FOIS, ce qui est exactement le
+   * défaut qu'on voulait corriger (des pavés gris permanents à force desquels on ne lit plus rien). Constaté à
+   * l'écran avant livraison.
+   */
+  it('🔴 dans la boîte, l’état ordinaire est dans la colonne et NULLE PART ailleurs', async () => {
+    window.history.replaceState(null, '', '/admin/gestion');
+    await monter();
+    expect(container.querySelector('.cm-etat')?.textContent).toContain('Dernière relève');
+    /**
+     * …et plus aucune ligne ORDINAIRE en haut de page. On ne compte pas TOUS les `.gst-veille` : une ALERTE en est
+     * un aussi, et elle doit rester en haut — c'est même tout l'intérêt du déplacement. On compte donc ceux qui ne
+     * portent PAS `--alerte`.
+     */
+    const ordinaires = [...container.querySelectorAll('.gst-veille')]
+      .filter((p) => !p.classList.contains('gst-veille--alerte'));
+    expect(ordinaires).toHaveLength(0);
+    expect(container.querySelector('.gst-bandeau')?.textContent).not.toContain('Dernière relève');
+  });
+
+  it('🔴 « À rattacher » et « Annuaire » sont sous les entrées de la boîte', async () => {
+    window.history.replaceState(null, '', '/admin/gestion');
+    await monter();
+    const etiqs = [...container.querySelectorAll('.cm-entree')].map((e) => e.textContent ?? '');
+    expect(etiqs.some((t) => t.includes('À rattacher'))).toBe(true);
+    expect(etiqs.some((t) => t.includes('Annuaire'))).toBe(true);
+    // Ils viennent APRÈS « Brouillons » : ce sont des gestes, pas des dossiers de courrier.
+    expect(etiqs.findIndex((t) => t.includes('Brouillons')))
+      .toBeLessThan(etiqs.findIndex((t) => t.includes('À rattacher')));
   });
 });
 
 describe('🔴 ③ sous « À classer », c’est le POSTE DE TRI lui-même — avec ses gestes', () => {
   it('la ligne de file, son échange, ses gestes et son panneau sont là', async () => {
-    window.history.replaceState(null, '', '/admin/gestion?ecran=boite');
+    // LOT ERGO-BOITE — « À classer » n'est plus l'étiquette d'arrivée de la boîte : on la DÉSIGNE.
+    window.history.replaceState(null, '', '/admin/gestion?etiquette=a_classer');
     await monter();
     expect(texte()).toContain('Préavis de départ');
     expect(texte()).toContain('attend une réponse');
@@ -169,14 +221,28 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
   // Un `it` par écran, et non une boucle qui démonte puis remonte dans la même racine : deux racines successives dans
   //   un même test laissent derrière elles un montage à moitié défait, et ce sont les tests SUIVANTS qui rougissent.
   for (const [nom, adresse] of [
-    ['partagé', '/admin/gestion'], ['boîte en plein écran', '/admin/gestion?ecran=boite'],
+    ['partagé', '/admin/gestion?ecran=partage'], ['boîte en plein écran', '/admin/gestion'],
     ['événements en plein écran', '/admin/gestion?ecran=evenements'],
   ] as const) {
-    it(`« Relever maintenant » et « Rafraîchir » sont présents dans l’écran ${nom}`, async () => {
+    /**
+     * 🔴 LOT ERGO-BOITE — DEUX BOUTONS DEVENUS UNE ICÔNE, mais SEULEMENT dans la boîte. Ils faisaient deux choses
+     * qu'on veut toujours ensemble : aller chercher le courrier, puis montrer ce qu'on a trouvé. Sur l'écran
+     * partagé, qui n'a pas de colonne de gestion ni de titre de liste où poser l'icône, ils restent tels quels :
+     * les y retirer aurait supprimé une fonction, ce qui n'a pas été demandé.
+     */
+    it(`le geste « relever puis actualiser » est atteignable dans l’écran ${nom}`, async () => {
       window.history.replaceState(null, '', adresse);
       await monter();
-      expect(boutonPar(/^Relever maintenant$/)).toBeDefined();
-      expect(boutonPar(/^Rafraîchir$/)).toBeDefined();
+      if (nom !== 'boîte en plein écran') {
+        expect(boutonPar(/^Relever maintenant$/)).toBeDefined();
+        expect(boutonPar(/^Rafraîchir$/)).toBeDefined();
+      } else {
+        const icone = container.querySelector('.bte-relever');
+        expect(icone).not.toBeNull();
+        // 🔴 UNE ICÔNE SANS NOM N'EXISTE PAS pour un lecteur d'écran, et ne s'apprend pas au survol sur téléphone.
+        expect(icone?.getAttribute('aria-label')).toBe('Relever et actualiser');
+        expect(icone?.getAttribute('title')).toBe('Relever et actualiser');
+      }
     });
   }
 
@@ -188,7 +254,8 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
     expect(sortie).toBeDefined();
     // …et elle mène à « Réception », c'est-à-dire à ce que montrait l'onglet supprimé : tout le courrier.
     await cliquer(sortie);
-    expect(url()).toBe('/admin/gestion?ecran=boite&etiquette=reception');
+    // LOT ERGO-BOITE — « Réception » dans la boîte EST l'adresse nue.
+    expect(url()).toBe('/admin/gestion');
   });
 
   it('« Classés sans suite » et son bouton « Rouvrir » restent dans l’écran partagé', async () => {
@@ -222,20 +289,22 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
   });
 
   it('…et là où l’étiquette décide à sa place, on le DIT, avec la sortie', async () => {
-    window.history.replaceState(null, '', '/admin/gestion?ecran=boite');
+    // LOT ERGO-BOITE — cette phrase appartient au POSTE DE TRI, donc à l'étiquette « À classer », qu'on désigne.
+    window.history.replaceState(null, '', '/admin/gestion?etiquette=a_classer');
     await monter();
     expect(texte()).toContain('Le poste de tri n’a jamais montré le courrier automatique');
     expect(boutonPar(/Voir l’étiquette « Courrier automatique »/)).toBeDefined();
     // …et la sortie mène bien à l'étiquette qui les rassemble, sans rien masquer au passage.
     await cliquer(boutonPar(/Voir l’étiquette « Courrier automatique »/));
-    expect(url()).toBe('/admin/gestion?ecran=boite&etiquette=automatique');
+    expect(url()).toBe('/admin/gestion?etiquette=automatique');
   });
 
   it('ouvrir un échange mène à la vue conversation UNIQUE du module, et l’adresse le retient', async () => {
-    window.history.replaceState(null, '', '/admin/gestion?ecran=boite');
+    // LOT ERGO-BOITE — le poste de tri, qui porte les lignes cliquables `.gst-objet-bouton`, vit sous « À classer ».
+    window.history.replaceState(null, '', '/admin/gestion?etiquette=a_classer');
     await monter();
     await cliquer(container.querySelector('.gst-objet-bouton') as HTMLElement);
-    expect(url()).toBe('/admin/gestion?ecran=boite&fil=101');
+    expect(url()).toBe('/admin/gestion?etiquette=a_classer&fil=101');
     expect(container.querySelector('.cnv')).not.toBeNull();       // la vue conversation du lot 5b, pas une autre
     // LOT 5-GMAIL — « ← Retour » est devenu la FLÈCHE de la barre d'actions : même geste, libellé accessible écrit.
     const retour = container.querySelector('button[aria-label="Retour à la liste"]') as HTMLButtonElement;

@@ -74,6 +74,7 @@ export function PleinEcranBoite({
   enfantAClasser, auto, onAuto, redaction = null, onNonLus, corbeilleDisponible = false, peutEcrire = false,
   piecesDisponibles = false, ecrireA = null, onEcrireAConsomme, onFicheAnnuaire, onHistorique,
   versionDonnees = 0, onListeRelue,
+  onRattacher, aRattacher = null, onAnnuaire, etatDiscret = null, onRelever, releveEnCours = false,
 }: {
   etiquette: Etiquette;
   etiquettes: readonly EtiquetteAffichee[];
@@ -107,6 +108,26 @@ export function PleinEcranBoite({
   ecrireA?: string | null;
   /** Prévient l'écran parent que l'adresse a été consommée : sans quoi revenir ici rouvrirait le même brouillon. */
   onEcrireAConsomme?: () => void;
+  /**
+   * ══ LOT ERGO-BOITE — CE QUI REJOINT LA COLONNE ════════════════════════════════════════════════════════════════
+   * Quatre choses, toutes déplacées depuis le haut de la page — aucune n'est nouvelle, aucune n'est retirée :
+   *   · « À rattacher » : l'ancien bouton « À trier », avec son compteur (nombre de mails à rattacher) ;
+   *   · « Annuaire » : le même bouton, à un endroit cohérent avec la nouvelle disposition ;
+   *   · l'état discret : heure de la dernière relève, dernier mail, cadence, copie des pièces. Ces lignes étaient
+   *     en haut de page, en grand ; elles n'ont pas à l'être. Le BANDEAU D'ALERTE, lui, reste en haut (voir
+   *     `GestionVue`) : c'est justement parce que l'ordinaire descend ici que l'exceptionnel se voit ;
+   *   · l'icône « Relever et actualiser », rendue à côté du titre de la liste.
+   */
+  /** Ouvre la file de rattachement. Absent ⇒ l'entrée n'est pas rendue. */
+  onRattacher?: () => void;
+  /** Combien de mails attendent un rattachement. `null` = pas encore connu : on n'affiche alors aucun nombre. */
+  aRattacher?: number | null;
+  onAnnuaire?: () => void;
+  /** Les lignes d'état ORDINAIRE, en petit. Une alerte ne passe jamais par ici. */
+  etatDiscret?: readonly string[] | null;
+  /** Relève immédiate PUIS rafraîchissement — un seul geste, une seule icône. */
+  onRelever?: () => void;
+  releveEnCours?: boolean;
   /** LOT ANNUAIRE-1 — ouvre la fiche d'annuaire d'un expéditeur reconnu, depuis l'encart de la conversation. */
   onFicheAnnuaire?: (sorte: 'proprietaire' | 'locataire', id: number) => void;
   /** LOT RATTACHEMENT-2 — ouvre l'historique complet d'une cible, depuis le bandeau « Rattaché à » d'un mail. */
@@ -308,6 +329,39 @@ export function PleinEcranBoite({
             );
           })}
         </ul>
+
+        {/* ══ LOT ERGO-BOITE — « À RATTACHER », juste sous les entrées de la boîte ═══════════════════════════════
+            C'est l'ancien bouton « À trier », déplacé et renommé : même écran, même fonction, même compteur (le
+            nombre de mails qui attendent un rattachement à un logement ou un propriétaire). Il est SOUS la boîte et
+            non dedans, parce qu'il ne désigne pas un dossier de courrier mais un travail à faire. */}
+        {onRattacher && (
+          <ul className="cm-liste cm-liste--apres">
+            <li>
+              <button type="button" className="cm-entree" onClick={() => { onRattacher(); setPanneauMobile('contenu'); }}>
+                <span className="cm-nom"><span className="cm-texte">À rattacher</span></span>
+                {aRattacher !== null && <span className="gst-compte">{aRattacher}</span>}
+              </button>
+            </li>
+            {onAnnuaire && (
+              <li>
+                <button type="button" className="cm-entree" onClick={() => { onAnnuaire(); setPanneauMobile('contenu'); }}>
+                  <span className="cm-nom"><span className="cm-texte">Annuaire</span></span>
+                </button>
+              </li>
+            )}
+          </ul>
+        )}
+
+        {/* ══ L'ÉTAT ORDINAIRE, EN PETIT ET EN BAS ══════════════════════════════════════════════════════════════
+            Heure de la dernière relève, dernier mail reçu, cadence, copie des pièces. C'était un pavé en haut de
+            page ; ce sont des informations qu'on consulte, pas qu'on lit. Les descendre ici est ce qui redonne au
+            BANDEAU D'ALERTE, resté en haut, le pouvoir de se faire remarquer.
+            `role="status"` : annoncé sans voler le focus. */}
+        {etatDiscret !== null && etatDiscret.length > 0 && (
+          <div className="cm-etat" role="status">
+            {etatDiscret.map((l) => <p key={l} className="cm-etat-ligne">{l}</p>)}
+          </div>
+        )}
       </ColonneMode>
 
       {/* Le retour vers les étiquettes n'existe que là où elles ne sont pas visibles, c'est-à-dire sur téléphone. */}
@@ -336,6 +390,18 @@ export function PleinEcranBoite({
             <>
               <h3 className="gst-titre">
                 {titre} {ouverte?.compte !== null && ouverte !== undefined && <span className="gst-compte">{ouverte.compte}</span>}
+                {/* LA MÊME ICÔNE que sur la boîte : le poste de tri a autant besoin d'être rafraîchi. */}
+                {onRelever && (
+                  <button type="button" className={`bte-relever${releveEnCours ? ' bte-relever--tourne' : ''}`}
+                    onClick={onRelever} disabled={releveEnCours}
+                    aria-label="Relever et actualiser" title="Relever et actualiser">
+                    <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"
+                      fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+                      <path d="M20 4v4h-4" />
+                    </svg>
+                  </button>
+                )}
               </h3>
               {/* CE QUE CETTE LISTE NE MONTRE PAS, dit en toutes lettres, avec la sortie — comme partout dans le
                   module depuis le lot 4b. Le poste de tri n'a jamais montré le courrier automatique ; maintenant il
@@ -367,6 +433,7 @@ export function PleinEcranBoite({
               </p>
             )}
             <BoiteMail key={versionListe} etiquette={etiquette} titre={titre} total={ouverte?.compte ?? null} dense
+              onRelever={onRelever} releveEnCours={releveEnCours}
               auto={auto} onAuto={onAuto} filSelectionne={filOuvert} onNonLus={onNonLus} marquage={marquage}
               corbeille={corbeilleDisponible} peutEcrire={peutEcrire} piecesDisponibles={piecesDisponibles}
               onActionLigne={agirSurLigne}

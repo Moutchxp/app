@@ -8,7 +8,7 @@ import {
 } from '../../../../lib/gestion/ecran';
 import {
   ecrireEtatUrl, ETAT_DEFAUT, ETIQUETTE_ARRIVEE, ETIQUETTE_RECEPTION, lireEtatUrl, memeEtat,
-  type EtatEcranUrl,
+  type EtatEcranUrl, type Etiquette,
 } from '../../../../lib/gestion/ecranUrl';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { InfoBulle, INFOBULLE_CSS } from '../InfoBulle';
@@ -114,6 +114,35 @@ export function GestionVue({ intro }: {
    */
   const [nonLus, setNonLus] = useState<{ n: number | null; partiel: boolean }>({ n: null, partiel: false });
   /**
+   * LOT ERGO-BOITE — COMBIEN DE MAILS ATTENDENT UN RATTACHEMENT, pour l'entrée « À rattacher » de la colonne.
+   *
+   * ⚠️ C'EST LE MÊME NOMBRE QUE L'ÉCRAN « À rattacher » AFFICHE EN TITRE (`aTrier + sansCandidat`), lu à la même
+   * source. Un second calcul donnerait tôt ou tard deux nombres pour une seule vérité. `null` = pas encore connu,
+   * ou migration 257 absente : on n'affiche alors aucun compteur plutôt qu'un zéro qu'on n'a pas mesuré.
+   */
+  const [aRattacher, setARattacher] = useState<number | null>(null);
+  /**
+   * ⚠️ IL SE CHARGE AU MONTAGE, PAS DANS `charger`. Première version : l'appel vivait dans `charger`, qui ne tourne
+   * QUE sur un geste explicite — les données de l'écran, elles, arrivent par un effet. Le compteur restait donc
+   * vide à l'ouverture, et personne ne l'aurait su sans le regarder. Constaté à l'écran avant livraison.
+   *
+   * ⚠️ ET LES NOMBRES SONT SOUS `data` : la route rend `{ etat, data }` — la forme du module, qui distingue
+   * « migration absente » d'un vrai résultat. Les lire à la racine rendait `undefined`, donc aucun compteur.
+   */
+  const chargerARattacher = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/gestion/rattachements?chiffres=1', { cache: 'no-store' });
+      if (!res.ok) { setARattacher(null); return; }
+      const j = (await res.json()) as { etat?: string; data?: { aTrier?: number; sansCandidat?: number } };
+      const c = j.etat === 'ok' ? j.data : undefined;
+      setARattacher(typeof c?.aTrier === 'number' ? c.aTrier + (c.sansCandidat ?? 0) : null);
+    } catch {
+      // Un échec laisse le compteur à `null` : l'entrée s'affiche sans nombre, ce qui vaut mieux qu'un écran vide.
+      setARattacher(null);
+    }
+  }, []);
+  useEffect(() => { void chargerARattacher(); }, [chargerARattacher]);
+  /**
    * 🔴 STABLE, ET ON NE REMPLACE L'ÉTAT QUE S'IL CHANGE VRAIMENT. Deux pièges se referment ici, et ils s'étaient
    * refermés en test (rendu en boucle, suite bloquée) :
    *   ① une fonction recréée à chaque rendu est une NOUVELLE dépendance pour l'effet de la liste, qui la rappelle,
@@ -197,10 +226,11 @@ export function GestionVue({ intro }: {
   const charger = useCallback(async () => {
     setPanneau(null);
     setVue({ etat: 'charge' });
+    void chargerARattacher();   // un geste a pu rattacher un mail : le compteur suit
     const r = await lire();
     setMaintenant(new Date());
     setVue(r);
-  }, [lire]);
+  }, [lire, chargerARattacher]);
 
   /**
    * ══ LOT ÉCRAN-VIVANT — LE RAFRAÎCHISSEMENT DISCRET ═══════════════════════════════════════════════════════════
@@ -465,7 +495,7 @@ export function GestionVue({ intro }: {
       }} />
   ));
 
-  const etiquettes = etiquettesDeLEcran(d, comptesBoite, brouillonsTotal, nonLus.n, nonLus.partiel);
+  const etiquettes = etiquettesDeLEcran(d, comptesBoite, brouillonsTotal, nonLus.n, nonLus.partiel, etiquette);
   // LOT 5-VEILLE — l'état de la relève AUTOMATIQUE, calculé ici pour être rendu à l'identique dans les trois écrans.
   //   `ref` est l'instant de rendu déjà utilisé par le reste du bandeau : une seule horloge, aucun écart entre deux
   //   phrases voisines. Le repli couvre une réponse d'API plus ancienne que ce lot — l'écran ne doit jamais tomber
@@ -506,6 +536,27 @@ export function GestionVue({ intro }: {
   );
   const veille = etatVeille({ ...veillePage, ...veilleFraiche, mesureLe }, ref);
 
+  /**
+   * ══ 🔴 LOT ERGO-BOITE — L'ORDINAIRE DESCEND, L'EXCEPTIONNEL RESTE EN HAUT ══════════════════════════════════════
+   * Trois informations occupaient le haut de la page : l'heure de la dernière relève, la cadence, l'état de la copie
+   * des pièces. Elles se CONSULTENT — on veut pouvoir y jeter un œil —, elles ne se LISENT pas à chaque ouverture.
+   * Les descendre en petit dans la colonne rend au bandeau d'alerte, resté en haut, le pouvoir de se faire
+   * remarquer : à force de trois pavés gris permanents, on n'en lisait plus aucun.
+   *
+   * 🔴 SEUL L'ORDINAIRE DESCEND. Une relève arrêtée, une copie arrêtée sur échec, un rattachement en échec : ces
+   * trois-là s'affichent en haut de page, en rouge, comme aujourd'hui. C'est le partage qui fait tout l'intérêt du
+   * déplacement, et c'est pour cela que la condition est écrite ici plutôt que dans la colonne.
+   */
+  const etatDiscret: string[] = [
+    messageReleve({
+      ...d,
+      derniereReleveLe: veilleFraiche.derniereLe ?? d.derniereReleveLe,
+      dernierMailLe: veilleFraiche.dernierMailLe,
+    }, ref),
+    ...(veille.niveau === 'ok' ? [veille.texte] : []),
+    ...(copie.niveau === 'calme' ? [copie.texte] : []),
+  ];
+
   return (
     <>
       <style>{CSS_GESTION}</style>
@@ -523,36 +574,50 @@ export function GestionVue({ intro }: {
             {intro && <InfoBulle libelle="Le module Gestion" texte={intro} cible="gestion-intro" />}
           </span>
         )}
-        {/* LOT VEILLE-VIVE — l'en-tête lit les MÊMES valeurs fraîches que le bandeau de veille : une seule source,
-            donc aucune chance qu'ils annoncent deux heures différentes — ce qu'ils ont fait le 27/09 (« Dernière
-            relève : 01:31 » à côté de « arrêtée depuis 12 min »). */}
-        <span>{messageReleve({
-          ...d,
-          derniereReleveLe: veilleFraiche.derniereLe ?? d.derniereReleveLe,
-          dernierMailLe: veilleFraiche.dernierMailLe,
-        }, ref)}</span>
+        {/* ══ 🔴 LOT ERGO-BOITE — EN PLEIN ÉCRAN, CE BANDEAU NE PORTE PLUS QUE LE TITRE ═══════════════════════════
+            L'heure de la dernière relève et l'état de la copie sont descendus dans la colonne (`etatDiscret`), et
+            les deux boutons sont devenus UNE icône à côté du titre de la liste. Sur l'ÉCRAN PARTAGÉ, qui n'a pas de
+            colonne de gestion, ils restent ici : les y retirer aurait supprimé une fonction, ce qui n'est pas
+            demandé. */}
+        {ecran !== 'boite' && (
+          <span>{messageReleve({
+            ...d,
+            derniereReleveLe: veilleFraiche.derniereLe ?? d.derniereReleveLe,
+            dernierMailLe: veilleFraiche.dernierMailLe,
+          }, ref)}</span>
+        )}
         <span className="gst-actions">
-          <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={releveEnCours}
-            onClick={() => void releverMaintenant()}>
-            {releveEnCours ? 'Relève en cours…' : 'Relever maintenant'}
-          </button>
-          <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={releveEnCours}
-            onClick={() => void charger()}>Rafraîchir</button>
+          {/* ⚠️ « ecran !== 'boite' » ET NON « ecran === 'partage' » : la première version retirait aussi les deux
+              boutons de l'écran des ÉVÉNEMENTS et de l'annuaire, où aucune icône ne les remplace — il n'y serait
+              plus resté aucun moyen de relever. Seule la boîte a le titre de liste qui porte l'icône. */}
+          {ecran !== 'boite' && (
+            <>
+              <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={releveEnCours}
+                onClick={() => void releverMaintenant()}>
+                {releveEnCours ? 'Relève en cours…' : 'Relever maintenant'}
+              </button>
+              <button type="button" className="svv-btn svv-btn-outline gst-btn" disabled={releveEnCours}
+                onClick={() => void charger()}>Rafraîchir</button>
+            </>
+          )}
           {/* LOT ANNUAIRE-1 — L'ANNUAIRE, atteignable depuis N'IMPORTE QUEL écran du module. Il ne remplace rien :
-              c'est un quatrième écran, et son bouton de retour ramène à l'écran partagé. */}
-          {ecran !== 'annuaire' && (
+              c'est un quatrième écran, et son bouton de retour ramène à l'écran partagé.
+              LOT ERGO-BOITE — en plein écran il vit dans la colonne ; ailleurs, il reste ici. */}
+          {ecran !== 'annuaire' && ecran !== 'boite' && (
             <button type="button" className="svv-btn svv-btn-outline gst-btn"
               onClick={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}>
               Annuaire
             </button>
           )}
-          {/* LOT RATTACHEMENT-1 — LA FILE « À TRIER », atteignable depuis n'importe quel écran, comme l'annuaire. Elle
-              ne remplace rien : ni l'étiquette « À classer » de la boîte (quels ÉCHANGES poser sur une carte), ni les
-              cartes. Elle répond à une autre question : quels MAILS n'ont pas de rattachement certain. */}
-          {ecran !== 'a_trier' && (
+          {/* LOT RATTACHEMENT-1 — LA FILE des mails sans rattachement certain, atteignable depuis n'importe quel
+              écran. Elle ne remplace rien : ni l'étiquette « À classer » de la boîte (quels ÉCHANGES poser sur une
+              carte), ni les cartes. Elle répond à une autre question : quels MAILS n'ont pas de rattachement certain.
+              LOT ERGO-BOITE — renommée « À rattacher », ce qui dit ce qu'elle fait ; en plein écran elle vit dans la
+              colonne, avec son compteur. Même écran, même fonction. */}
+          {ecran !== 'a_trier' && ecran !== 'boite' && (
             <button type="button" className="svv-btn svv-btn-outline gst-btn"
               onClick={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'a_trier' }); }}>
-              À trier
+              À rattacher
             </button>
           )}
         </span>
@@ -566,12 +631,16 @@ export function GestionVue({ intro }: {
           messages, l'heure de la dernière passe et les deux boutons restent exactement où ils étaient.
           `role="alert"` seulement quand ça ne va pas : une lecture d'écran ne doit pas être interrompue pour dire
           que tout va bien. */}
+      {/* 🔴 LOT ERGO-BOITE — EN HAUT, SEULEMENT CE QUI ALERTE. Dans la boîte, la ligne ORDINAIRE (« dernière passe il
+          y a 47 s ») est descendue dans la colonne : la laisser aussi ici l'afficherait DEUX FOIS, ce qui est
+          exactement ce qu'on cherchait à éviter — trois pavés gris permanents à force desquels on ne lit plus rien.
+          L'alerte, elle, reste en haut sur TOUS les écrans. */}
       {veille.niveau !== 'ok' ? (
         <p className="gst-veille gst-veille--alerte" role="alert">
           <span className="gst-veille-texte">{veille.texte}</span>
           {veille.aide && <span className="gst-veille-aide">{veille.aide}</span>}
         </p>
-      ) : (
+      ) : ecran !== 'boite' && (
         <p className="gst-veille" role="status">{veille.texte}</p>
       )}
       {/* LOT RATTACHEMENT-2 — LE COURRIER EST ARRIVÉ, MAIS SON RATTACHEMENT A ÉCHOUÉ. Une ligne SÉPARÉE de celle de
@@ -593,7 +662,8 @@ export function GestionVue({ intro }: {
           {copie.aide && <span className="gst-veille-aide gst-veille-commande">{copie.aide}</span>}
         </p>
       )}
-      {copie.niveau === 'calme' && (
+      {/* Même partage pour la copie : l'arrêt SUBI crie en haut, l'avancement ordinaire descend dans la colonne. */}
+      {copie.niveau === 'calme' && ecran !== 'boite' && (
         <p className="gst-veille" role="status">{copie.texte}</p>
       )}
       {/* COMPTE RENDU de la dernière passe — succès comme échec, jamais un silence. */}
@@ -608,7 +678,9 @@ export function GestionVue({ intro }: {
       {ecran === 'historique' ? (
         cibleHistorique !== null ? (
           <HistoriqueCible cible={cibleHistorique} maintenant={ref}
-            onRetour={() => aller({ ...ETAT_DEFAUT })}
+            /* ⚠️ « ← » DOIT NOMMER SON ÉCRAN. Depuis le lot ERGO-BOITE, `ETAT_DEFAUT` EST la boîte : s'en remettre à
+             lui ferait un bouton de retour qui ne sort de nulle part. */
+          onRetour={() => aller({ ...ETAT_DEFAUT, ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE })}
             onCible={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
             onOuvrirFil={(id) => aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id })}
             onGeste={(m) => setGeste({ ton: 'ok', texte: m })} />
@@ -622,6 +694,9 @@ export function GestionVue({ intro }: {
         )
       ) : ecran === 'a_trier' ? (
         <FileATrier
+          /* LOT ERGO-BOITE — le retour mène à la BOÎTE, d'où l'on vient maintenant (entrée « À rattacher » de la
+             colonne). Auparavant il menait à l'écran partagé, parce que le bouton y vivait. Rien n'est perdu :
+             l'écran partagé reste à un clic depuis la colonne. */
           onRetour={() => aller({ ...ETAT_DEFAUT })}
           /* Lire l'échange avant de trancher : on part dans la boîte, où vit la conversation en pleine page. */
           onOuvrirFil={(id) => aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: id })}
@@ -630,6 +705,7 @@ export function GestionVue({ intro }: {
         <Annuaire
           fiche={etatUrl.fiche ?? null}
           onFiche={(f) => aller({ ...etatUrl, fiche: f })}
+          /* Même raison que pour « À rattacher » : on revient là d'où l'on est parti. */
           onRetour={() => aller({ ...ETAT_DEFAUT })}
           /* LOT RATTACHEMENT-2 — « Tout l'historique des échanges » depuis une fiche de logement ou de propriétaire. */
           onHistorique={(c) => aller({ ...ETAT_DEFAUT, ecran: 'historique', cible: texteCible(c) })}
@@ -656,7 +732,15 @@ export function GestionVue({ intro }: {
           onEtiquette={(e) => { setPanneau(null); aller({ ...etatUrl, etiquette: e, filOuvert: null }); }}
           onOuvrir={(id) => aller({ ...etatUrl, filOuvert: id })}
           onFermerFil={() => aller({ ...etatUrl, filOuvert: null })}
-          onRetour={() => aller({ ...ETAT_DEFAUT })}
+          /* ⚠️ « ← Écran partagé » DOIT NOMMER SON ÉCRAN. Depuis le lot ERGO-BOITE, `ETAT_DEFAUT` EST la boîte :
+             s'en remettre à lui ferait un bouton de retour qui ne sort de nulle part. */
+          onRetour={() => aller({ ...ETAT_DEFAUT, ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE })}
+          onRattacher={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'a_trier' }); }}
+          aRattacher={aRattacher}
+          onAnnuaire={() => { setPanneau(null); aller({ ...ETAT_DEFAUT, ecran: 'annuaire' }); }}
+          etatDiscret={etatDiscret}
+          /* UN SEUL GESTE : `releverMaintenant` relève PUIS rappelle `charger()` — c'est déjà ainsi qu'il est câblé. */
+          onRelever={() => void releverMaintenant()} releveEnCours={releveEnCours}
           onGeste={(m, o) => { setGeste({ ton: 'ok', texte: m }); if (o?.rechargerTout) void charger(); }}
           redaction={redaction}
           enfantAClasser={fileAClasser} />
@@ -794,9 +878,16 @@ export function etiquettesDeLEcran(
   brouillons: number | null = null,
   nonLus: number | null = null,
   nonLusPartiel = false,
+  /**
+   * LOT ERGO-BOITE — L'ÉTIQUETTE OUVERTE, quand c'en est une. Sert à UNE seule chose : garder dans la colonne la
+   * carte qu'on regarde. Absente ⇒ aucune carte, ce qui est le cas ordinaire.
+   */
+  ouverte: Etiquette | null = null,
 ): EtiquetteAffichee[] {
   return [
-    { etiquette: { sorte: 'a_classer', evenementId: null }, libelle: 'À classer', compte: d.filsTotal },
+    // ══ LOT ERGO-BOITE — L'ORDRE EST CELUI D'ARNO, du plus lu au moins lu ════════════════════════════════════════
+    //   Réception, Envoyés, Courrier automatique, À classer, Brouillons. Il ne se déduit d'aucune règle : c'est
+    //   l'ordre dans lequel il travaille, et c'est la seule justification qui vaille pour une colonne de navigation.
     // LOT 5-BOITE — « Réception » ne compte plus TOUTE la boîte : seulement les échanges où quelqu'un nous a écrit,
     //   exactement comme son filtre. `reception` absent = réponse d'API plus ancienne que ce lot ⇒ ancien compte.
     {
@@ -804,8 +895,8 @@ export function etiquettesDeLEcran(
       compte: comptes?.reception ?? comptes?.lisibles ?? null, nonLus, nonLusPartiel,
     },
     { etiquette: { sorte: 'envoyes', evenementId: null }, libelle: 'Envoyés', compte: comptes?.envoyes ?? null },
-    { etiquette: { sorte: 'sans_suite', evenementId: null }, libelle: 'Sans suite', compte: d.sansSuiteTotal },
     { etiquette: { sorte: 'automatique', evenementId: null }, libelle: 'Courrier automatique', compte: comptes?.automatiques ?? null },
+    { etiquette: { sorte: 'a_classer', evenementId: null }, libelle: 'À classer', compte: d.filsTotal },
     // LOT 5-BOITE-3 — la CORBEILLE. `null` (migration 251 absente) ⇒ l'étiquette est RETIRÉE de la liste, et non
     //   montrée à zéro : sans la migration, le geste « Supprimer » n'existe pas non plus, et une corbeille qu'on ne
     //   peut pas remplir n'a rien à faire dans le sommaire. `filtreEtiquettes` écarte ensuite les étiquettes vides.
@@ -814,14 +905,38 @@ export function etiquettesDeLEcran(
       : [{ etiquette: { sorte: 'corbeille' as const, evenementId: null }, libelle: 'Corbeille', compte: comptes.corbeille }]),
     // LOT 5e — les BROUILLONS. Comme les autres : pas d'étiquette vide, et son nombre vient d'une seule lecture.
     { etiquette: { sorte: 'brouillons', evenementId: null }, libelle: 'Brouillons', compte: brouillons },
-    // Les CARTES, dans l'ordre où la colonne des événements les montre : ce qui attend une réponse depuis le plus
-    //   longtemps d'abord. Deux ordres pour une même liste feraient chercher deux fois.
-    ...d.evenements.map((e): EtiquetteAffichee => ({
-      etiquette: { sorte: 'carte', evenementId: e.evenementId },
-      libelle: e.objet,
-      reference: e.reference,
-      compte: e.nbFils,
-    })),
+    /**
+     * ⚠️ « Sans suite » ET « Corbeille » VIENNENT APRÈS LES CINQ, et ne sont PAS retirées. Arno a donné l'ordre des
+     * cinq entrées qu'il regarde ; il a aussi écrit « rien d'autre n'est retiré ». Elles gardent donc leur place, à
+     * la suite — et `etiquettesVisibles` les écarte d'elle-même quand elles sont vides, comme avant ce lot.
+     */
+    { etiquette: { sorte: 'sans_suite', evenementId: null }, libelle: 'Sans suite', compte: d.sansSuiteTotal },
+    /**
+     * ══ 🔴 LOT ERGO-BOITE — LES CARTES D'ÉVÉNEMENT NE SONT PLUS DANS CETTE COLONNE ═══════════════════════════════
+     * Retrait demandé explicitement par Arno. Une carte n'est pas un dossier de courrier : la mettre parmi
+     * « Réception » et « Envoyés » faisait cohabiter deux choses de nature différente, et une carte au long titre
+     * (« GES-2026-000001 Re: NOTE INFORMATION RESIDENCE DE L'ORNE — CHANGEMENT DES CODES… ») occupait à elle seule
+     * le quart de la colonne.
+     *
+     * 🔴 AUCUN ÉVÉNEMENT N'EST SUPPRIMÉ NI MASQUÉ. Ils restent sur l'écran partagé, dans leur propre colonne
+     * « Événements », avec son bouton « Plein écran » — et le bouton « ← Écran partagé », premier élément de cette
+     * colonne-ci, y ramène en un clic. `EtatEcran.evenements` n'est pas touché, et l'étiquette `carte` reste
+     * parfaitement valide : un lien direct `?etiquette=carte-12` continue d'ouvrir la carte 12.
+     *
+     * ⚠️ UNE SEULE EXCEPTION : LA CARTE QU'ON REGARDE. Un lien `?etiquette=carte-12` — celui que produit le cartouche
+     * d'une conversation classée — doit continuer d'ouvrir une liste NOMMÉE, avec son entrée sélectionnée dans la
+     * colonne. Sans cette exception, le lien marcherait encore mais l'écran s'intitulerait « Boîte mail » et aucune
+     * entrée ne serait active : on ne saurait plus ce qu'on regarde. Elle n'ajoute jamais qu'UNE ligne, et seulement
+     * pendant qu'on est dessus.
+     */
+    ...(ouverte?.sorte === 'carte'
+      ? d.evenements
+        .filter((e) => e.evenementId === ouverte.evenementId)
+        .map((e): EtiquetteAffichee => ({
+          etiquette: { sorte: 'carte', evenementId: e.evenementId },
+          libelle: e.objet, reference: e.reference, compte: e.nbFils,
+        }))
+      : []),
   ];
 }
 

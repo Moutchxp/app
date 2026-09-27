@@ -112,8 +112,18 @@ export const ETIQUETTE_ARRIVEE: Etiquette = { sorte: 'a_classer', evenementId: n
 export const ETIQUETTE_RECEPTION: Etiquette = { sorte: 'reception', evenementId: null };
 
 /** L'écran par défaut, celui d'une adresse nue : l'écran partagé, sans rien d'ouvert. */
+/**
+ * ══ 🔴 LOT ERGO-BOITE — CE QU'ON VOIT EN OUVRANT LE MODULE ══════════════════════════════════════════════════════
+ * LA BOÎTE, SUR « RÉCEPTION ». Demande d'Arno du 27/09/2026 : c'est le courrier reçu qu'il ouvre en arrivant, pas la
+ * file de tri. Jusqu'ici le module s'ouvrait sur l'écran partagé, à l'étiquette « À classer » — deux gestes avant
+ * d'atteindre ce qu'on venait lire.
+ *
+ * ⚠️ RIEN N'EST RETIRÉ : l'écran partagé reste à un clic (« ← Écran partagé », premier élément de la colonne), avec
+ * ses événements et sa file de tri. Et une adresse qui DÉSIGNE quelque chose l'emporte toujours sur ce défaut —
+ * `?ecran=partage`, `?etiquette=envoyes`, `?fil=123` ouvrent exactement ce qu'ils visent (voir `lireEtatUrl`).
+ */
 export const ETAT_DEFAUT: EtatEcranUrl = {
-  ecran: 'partage', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null, fiche: null, cible: null,
+  ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, fiche: null, cible: null,
 };
 
 const ECRANS: readonly Ecran[] = ['partage', 'boite', 'evenements', 'annuaire', 'a_trier', 'historique'];
@@ -149,6 +159,18 @@ export function etiquetteDepuisTexte(brut: string | null): Etiquette {
   return id === null ? ETIQUETTE_ARRIVEE : { sorte: 'carte', evenementId: id };
 }
 
+/**
+ * L'ADRESSE DÉSIGNE-T-ELLE UNE ÉTIQUETTE QUI EXISTE ? PUR.
+ *
+ * ⚠️ `etiquetteDepuisTexte` ne peut pas répondre : elle rend « À classer » aussi bien pour `a_classer` que pour une
+ * valeur absurde. Distinguer les deux est nécessaire pour savoir s'il faut appliquer un repli — voir `lireEtatUrl`.
+ */
+export function etiquetteReconnue(brut: string | null): boolean {
+  const t = (brut ?? '').trim();
+  if (t === '') return false;
+  return (SORTES_FIXES as readonly string[]).includes(t) || (/^carte-(\d+)$/.test(t) && identifiant(t.slice(6)) !== null);
+}
+
 /** Comment une étiquette s'écrit dans l'adresse. Forme canonique, unique pour une étiquette donnée. */
 export function texteEtiquette(e: Etiquette): string {
   return e.sorte === 'carte' ? `carte-${e.evenementId ?? 0}` : e.sorte;
@@ -166,10 +188,27 @@ export function lireEtatUrl(recherche: string): EtatEcranUrl {
     return ETAT_DEFAUT;
   }
   const brutEcran = p.get('ecran');
-  const ecran: Ecran = (ECRANS as readonly string[]).includes(brutEcran ?? '') ? (brutEcran as Ecran) : 'partage';
+  // LOT ERGO-BOITE — sans paramètre, c'est la boîte (voir `ETAT_DEFAUT`). Un `ecran=` écrit, lui, fait toujours foi.
+  const ecran: Ecran = (ECRANS as readonly string[]).includes(brutEcran ?? '')
+    ? (brutEcran as Ecran) : ETAT_DEFAUT.ecran;
   return {
     ecran,
-    etiquette: etiquetteDepuisTexte(p.get('etiquette')),
+    /**
+     * ⚠️ L'ÉTIQUETTE PAR DÉFAUT DÉPEND DE L'ÉCRAN, et c'est le point délicat de ce lot. Dans la boîte, c'est
+     * « Réception » ; sur l'écran partagé, c'est « À classer », qui est la liste qu'il montre depuis toujours.
+     * Donner « Réception » à l'écran partagé changerait la liste de gauche sans que personne l'ait demandé.
+     */
+    /**
+     * ⚠️ ABSENTE, VIDE OU ABÎMÉE : LE MÊME REPLI. `URLSearchParams.get` rend `''` et non `null` pour `?etiquette=`,
+     * et `etiquetteDepuisTexte` rend « À classer » pour une valeur qu'elle ne reconnaît pas. Sans ce traitement
+     * unifié, `?etiquette=` ouvrait « Réception » et `?etiquette=nimportequoi` ouvrait « À classer » — deux replis
+     * différents pour la même situation : une adresse qui ne désigne rien.
+     *
+     * Hors de la boîte, on garde `etiquetteDepuisTexte` : l'écran partagé arrive sur sa file de tri, comme toujours.
+     */
+    etiquette: ecran !== 'partage' && !etiquetteReconnue(p.get('etiquette'))
+      ? ETAT_DEFAUT.etiquette
+      : etiquetteDepuisTexte(p.get('etiquette')),
     filOuvert: identifiant(p.get('fil')),
     // La fiche ne désigne quelque chose QUE dans l'annuaire : la lire ailleurs traînerait un paramètre mort.
     fiche: ecran === 'annuaire' ? ficheDepuisTexte(p.get('fiche')) : null,
@@ -198,8 +237,11 @@ function cibleBrute(brut: string | null): string | null {
  */
 export function ecrireEtatUrl(e: EtatEcranUrl): string {
   const p = new URLSearchParams();
-  if (e.ecran !== 'partage') p.set('ecran', e.ecran);
-  if (e.ecran === 'boite' && !memeEtiquette(e.etiquette, ETIQUETTE_ARRIVEE)) p.set('etiquette', texteEtiquette(e.etiquette));
+  // LOT ERGO-BOITE — ON N'ÉCRIT QUE CE QUI S'ÉCARTE DU DÉFAUT, et le défaut a changé : c'est désormais la boîte sur
+  //   « Réception ». L'adresse nue du module désigne donc cela, et `?ecran=partage` s'écrit maintenant en toutes
+  //   lettres. Les deux tests se lisent sur `ETAT_DEFAUT` et non sur des valeurs recopiées : une seule vérité.
+  if (e.ecran !== ETAT_DEFAUT.ecran) p.set('ecran', e.ecran);
+  if (e.ecran === 'boite' && !memeEtiquette(e.etiquette, ETAT_DEFAUT.etiquette)) p.set('etiquette', texteEtiquette(e.etiquette));
   if (e.filOuvert !== null) p.set('fil', String(e.filOuvert));
   if (e.ecran === 'annuaire' && e.fiche != null) p.set('fiche', texteFiche(e.fiche));
   if (e.ecran === 'historique' && e.cible != null && e.cible !== '') p.set('cible', e.cible);

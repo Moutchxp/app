@@ -149,5 +149,8 @@ export function actionsDuStatut(s: StatutClassement): { declencheur: string | nu
  */
 export function lienVersCarte(s: StatutClassement): string | null {
   if (s.sorte !== 'carte' || s.evenementId === null) return null;
-  return `/admin/gestion?ecran=boite&etiquette=carte-${s.evenementId}`;
+  // LOT ERGO-BOITE — la boîte est désormais l'écran par défaut : `ecran=boite` ne s'écrit plus. Ce module est PUR
+  //   (aucun import), la grammaire de l'adresse y est donc recopiée — et `statutClassement.test.ts` la compare à
+  //   `ecrireEtatUrl` pour que les deux ne divergent jamais. C'est ce test qui a attrapé ce changement.
+  return `/admin/gestion?etiquette=carte-${s.evenementId}`;
 }

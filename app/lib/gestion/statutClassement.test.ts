@@ -121,8 +121,9 @@ describe('🔴 ③ ce que chaque statut PROPOSE — rien de plus que ce qui exis
 });
 
 describe('le lien vers la carte', () => {
-  it('mène à la boîte en plein écran, sous l’étiquette de cette carte', () => {
-    expect(lienVersCarte(statutDuMessage(CLASSE))).toBe('/admin/gestion?ecran=boite&etiquette=carte-12');
+  it('mène à la boîte, sous l’étiquette de cette carte', () => {
+    // LOT ERGO-BOITE — la boîte est l'écran par défaut : `ecran=boite` ne s'écrit plus dans l'adresse.
+    expect(lienVersCarte(statutDuMessage(CLASSE))).toBe('/admin/gestion?etiquette=carte-12');
   });
 
   it('🔴 …et cette adresse est EXACTEMENT celle que l’écran sait relire — sinon le lien ouvrirait autre chose', () => {

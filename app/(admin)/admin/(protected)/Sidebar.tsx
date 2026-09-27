@@ -26,14 +26,6 @@ export function Sidebar({ role, perms, ordreModules }: { role: RoleAdmin; perms:
   // CONFORT uniquement ; proxy.ts reste la seule autorité. `ordonner` ne peut jamais élargir au-delà du rôle.
   const MODULES = ordonner(liensVisibles(role, perms), ordreModules);
 
-  async function deconnexion() {
-    try {
-      await fetch('/api/admin/session', { method: 'DELETE' });
-    } finally {
-      window.location.assign('/admin/login');
-    }
-  }
-
   return (
     <>
       <style>{CSS}</style>
@@ -83,9 +75,13 @@ export function Sidebar({ role, perms, ordreModules }: { role: RoleAdmin; perms:
             );
           })}
 
-          <button type="button" className="svv-adm-logout" onClick={deconnexion}>
-            Déconnexion
-          </button>
+          {/* ══ LOT ERGO-BOITE — « DÉCONNEXION » A QUITTÉ CETTE COLONNE ══════════════════════════════════════════
+              Il n'est PAS supprimé : il vit désormais en haut à droite, à côté de « Changer mon mot de passe », avec
+              lequel il forme une paire évidente (voir `BoutonDeconnexion`). Ici, il voisinait les modules — donc la
+              navigation ordinaire —, et en plein écran de gestion il occupait le bas d'une colonne qui sert à lire
+              son courrier. Plusieurs collaborateurs partagent ce poste : le bouton reste indispensable.
+              La fonction qui appelait `DELETE /api/admin/session` est partie avec lui : elle n'avait plus d'appelant
+              ici, et la garder « au cas où » aurait laissé deux chemins de déconnexion à tenir. */}
 
           {/* LOT 37 — bascule de thème (Clair/Sombre/Système). Dans la nav : sur mobile elle vit dans le menu burger, sur desktop en pied de sidebar. */}
           <div className="svv-adm-theme">
