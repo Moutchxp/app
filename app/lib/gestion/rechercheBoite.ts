@@ -324,6 +324,13 @@ export async function chercherDansLeCourrier(
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,
       etoilee: etoiles.has(Number(r.fil_id)),
+      /**
+       * LOT CAPSULE-STATUT — PAS DE CAPSULE DANS LES RÉSULTATS DE RECHERCHE, et c'est un choix. La recherche
+       * traverse toutes les listes, y compris les brouillons et le spam, où la capsule n'a pas de sens (demande
+       * d'Arno : « pas dans Brouillons ni Spam »). Lui ajouter une jointure la ralentirait pour une information
+       * qu'on ne saurait pas toujours afficher. `null` se lit « non chargé ici », pas « à classer ».
+       */
+      classement: null,
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
     total: null, // compter TOUS les résultats coûterait le prix de la recherche une seconde fois, pour un chiffre

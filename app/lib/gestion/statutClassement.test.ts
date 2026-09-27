@@ -2,8 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   actionsDuStatut, libelleCartouche, lienVersCarte, precisionCartouche, statutDuMessage, tonCartouche,
-  type EtatFil, type StatutClassement,
-} from './statutClassement';
+  type EtatFil, type StatutClassement, capsuleStatut, motCapsule, bulleCapsule} from './statutClassement';
 import { ecrireEtatUrl } from './ecranUrl';
 
 /**
@@ -148,5 +147,64 @@ describe('garanties STATIQUES', () => {
   it('il ne connaît ni base, ni React, ni réseau : il ne sait que trancher un statut', () => {
     const src = readFileSync('app/lib/gestion/statutClassement.ts', 'utf8');
     expect(/useState|fetch\(|query\(|gestion_/.test(src)).toBe(false);
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT CAPSULE-STATUT — LES TROIS STATUTS D'UNE LIGNE DE LISTE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 la capsule d’une ligne : Classé > Auto > À classer', () => {
+  it('aucun rattachement confirmé ⇒ « À classer », en rouge', () => {
+    expect(capsuleStatut({ nbActifs: 0, parUnHumain: false })).toBe('a_classer');
+    expect(motCapsule('a_classer')).toBe('À classer');
+  });
+
+  it('rattaché par le seul moteur ⇒ « Auto »', () => {
+    expect(capsuleStatut({ nbActifs: 1, parUnHumain: false })).toBe('auto');
+    expect(motCapsule('auto')).toBe('Auto');
+  });
+
+  /**
+   * 🔴 LE GESTE HUMAIN L'EMPORTE. Un échange dont UN mail a été rattaché à la main est CLASSÉ, même si dix autres
+   * n'ont qu'un rattachement automatique : quelqu'un a tranché, et c'est l'information qui compte.
+   */
+  it('dès qu’un humain a tranché ⇒ « Classé », quelle que soit la part d’automatique', () => {
+    expect(capsuleStatut({ nbActifs: 1, parUnHumain: true })).toBe('classe');
+    expect(capsuleStatut({ nbActifs: 11, parUnHumain: true })).toBe('classe');
+    expect(motCapsule('classe')).toBe('Classé');
+  });
+
+  /**
+   * 🔴 UNE PROPOSITION NON CONFIRMÉE NE CLASSE RIEN. Elle n'entre pas dans `nbActifs` — la requête ne compte que
+   * les rattachements `confirme` —, donc l'échange reste « à classer », ce qui est exactement ce qu'il est.
+   */
+  it('une proposition en attente laisse l’échange « À classer »', () => {
+    // C'est le SQL qui l'exclut ; ici on éprouve que la règle ne rattrape pas ce qu'il a écarté.
+    expect(capsuleStatut({ nbActifs: 0, parUnHumain: true })).toBe('a_classer');
+  });
+
+  it('l’info-bulle dit POURQUOI c’est rouge, et détaille sinon', () => {
+    expect(bulleCapsule('a_classer', null)).toContain('Aucun rattachement confirmé');
+    expect(bulleCapsule('a_classer', null)).toContain('proposition non confirmée ne compte pas');
+    expect(bulleCapsule('auto', 'lot 513 — automatique')).toBe('lot 513 — automatique');
+    // Détail manquant : on ne rend pas une bulle vide, qui aurait l'air d'un défaut.
+    expect(bulleCapsule('classe', null)).toBe('Rattaché.');
+    expect(bulleCapsule('classe', '   ')).toBe('Rattaché.');
+  });
+});
+
+describe('🔴 la capsule ne dit PAS la même chose que l’entrée « À classer » de la colonne', () => {
+  /**
+   * Mesuré sur la vraie base le 27/09/2026 : 474 échanges sans ÉVÉNEMENT (l'entrée de la colonne), 9 631 sans
+   * RATTACHEMENT (la capsule rouge). Deux questions différentes, deux nombres, et aucun ne remplace l'autre. Ce
+   * test ne vérifie pas les nombres — ils bougent chaque jour — mais que les deux notions restent SÉPARÉES dans le
+   * code : la capsule ne regarde jamais l'état du fil, et l'étiquette ne regarde jamais les rattachements.
+   */
+  it('la capsule ignore l’état du fil (« a_classer », « affecte », « sans_suite »)', () => {
+    const src = readFileSync('app/lib/gestion/statutClassement.ts', 'utf8');
+    const bloc = src.slice(src.indexOf('export function capsuleStatut'));
+    expect(bloc).not.toContain('sans_suite');
+    expect(bloc).not.toContain('evenement');
   });
 });

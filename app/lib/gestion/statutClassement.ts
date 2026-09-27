@@ -154,3 +154,53 @@ export function lienVersCarte(s: StatutClassement): string | null {
   //   `ecrireEtatUrl` pour que les deux ne divergent jamais. C'est ce test qui a attrapé ce changement.
   return `/admin/gestion?etiquette=carte-${s.evenementId}`;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT CAPSULE-STATUT — LA CAPSULE D'UNE LIGNE DE LISTE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * Où en est le RATTACHEMENT d'un échange, vu de la liste.
+ *
+ * 🔴 CE N'EST PAS LA MÊME QUESTION QUE L'ENTRÉE « À classer » DE LA COLONNE DE GAUCHE, et la confusion coûterait
+ * cher. Celle-ci demande « ce courrier est-il rattaché à un logement ou à un propriétaire ? » ; celle-là demande
+ * « cet échange est-il posé sur un ÉVÉNEMENT ? ». Mesuré le 27/09/2026 : 474 échanges sans événement, 9 631 sans
+ * rattachement. Deux questions, deux nombres, et aucun des deux ne remplace l'autre.
+ */
+export type CapsuleStatut = 'classe' | 'auto' | 'a_classer';
+
+/**
+ * LE STATUT D'UN ÉCHANGE, à partir de ce que la requête a compté. PUR.
+ *
+ * PRIORITÉ : Classé > Auto > À classer — c'est-à-dire « le geste humain l'emporte ». Un échange dont un mail a été
+ * rattaché à la main par un collègue est CLASSÉ, même si dix autres de ses mails n'ont qu'un rattachement
+ * automatique : quelqu'un a tranché, et c'est l'information qui compte.
+ *
+ * ⚠️ UNE PROPOSITION NON CONFIRMÉE NE CLASSE RIEN. Elle n'entre pas dans `nbActifs` (la requête ne compte que les
+ * rattachements `confirme`) : un candidat que personne n'a validé laisse l'échange « à classer », ce qui est
+ * exactement ce qu'il est.
+ */
+export function capsuleStatut(o: { nbActifs: number; parUnHumain: boolean }): CapsuleStatut {
+  if (o.nbActifs > 0 && o.parUnHumain) return 'classe';
+  if (o.nbActifs > 0) return 'auto';
+  return 'a_classer';
+}
+
+/** Le MOT de la capsule — toujours écrit, jamais porté par la seule couleur. PUR. */
+export function motCapsule(s: CapsuleStatut): string {
+  if (s === 'classe') return 'Classé';
+  if (s === 'auto') return 'Auto';
+  return 'À classer';
+}
+
+/**
+ * L'INFO-BULLE : le détail des rattachements, tel que la requête l'a assemblé. Quand il n'y en a aucun, on dit
+ * POURQUOI la capsule est rouge plutôt que de laisser une bulle vide. PUR.
+ */
+export function bulleCapsule(s: CapsuleStatut, detail: string | null): string {
+  if (s === 'a_classer') {
+    return 'Aucun rattachement confirmé à un logement ou à un propriétaire '
+      + '(une proposition non confirmée ne compte pas).';
+  }
+  return detail && detail.trim() !== '' ? detail : 'Rattaché.';
+}

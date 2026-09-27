@@ -296,3 +296,71 @@ describe('🔴 la barre laisse le « ⋯ » atteignable', () => {
     expect(container.querySelector('[role="menu"]')).not.toBeNull();
   });
 });
+
+describe('🔴 LOT CAPSULE-STATUT — la capsule sur la ligne, et le gras conservé', () => {
+  const capsule = () => container.querySelector('.bte-capsule');
+
+  it('« Auto » quand seul le moteur a rattaché', async () => {
+    ligneCourante = LIGNE({ classement: { nbActifs: 1, parUnHumain: false, detail: 'lot 513 — automatique' } });
+    await monter();
+    expect(capsule()?.textContent).toBe('Auto');
+    expect(capsule()?.className).toContain('bte-capsule--auto');
+    expect(capsule()?.getAttribute('title')).toBe('lot 513 — automatique');
+  });
+
+  it('« Classé » dès qu’un humain a tranché', async () => {
+    ligneCourante = LIGNE({ classement: { nbActifs: 2, parUnHumain: true, detail: 'lot 513 — à la main' } });
+    await monter();
+    expect(capsule()?.textContent).toBe('Classé');
+    expect(capsule()?.className).toContain('bte-capsule--classe');
+  });
+
+  it('« À classer » sans rattachement confirmé, avec la raison en info-bulle', async () => {
+    ligneCourante = LIGNE({ classement: { nbActifs: 0, parUnHumain: false, detail: null } });
+    await monter();
+    expect(capsule()?.textContent).toBe('À classer');
+    expect(capsule()?.className).toContain('bte-capsule--a_classer');
+    expect(capsule()?.getAttribute('title')).toContain('Aucun rattachement confirmé');
+  });
+
+  /** ⚠️ Elle se place APRÈS le trombone et AVANT l'heure — c'est là qu'on la cherche des yeux. */
+  it('elle est après les pièces jointes et avant la date', async () => {
+    ligneCourante = LIGNE({ classement: { nbActifs: 1, parUnHumain: false, detail: null } });
+    await monter();
+    const ligne = container.querySelector('.bte-ligne');
+    const ordre = [...(ligne?.querySelectorAll('.bte-marque, .bte-capsule, .bte-quand') ?? [])]
+      .map((e) => (e.className.includes('capsule') ? 'capsule' : e.className.includes('quand') ? 'date' : 'marque'));
+    expect(ordre.indexOf('capsule')).toBeGreaterThan(ordre.indexOf('marque'));
+    expect(ordre.indexOf('date')).toBeGreaterThan(ordre.indexOf('capsule'));
+  });
+
+  /**
+   * 🔴 « NON LU » A QUITTÉ LA LIGNE — retrait autorisé par Arno — MAIS L'INFORMATION RESTE : le gras, et le
+   * libellé accessible qui l'écrit en toutes lettres. Une information portée par la seule graisse serait perdue
+   * pour un lecteur d'écran ; c'est pour cela que les deux doivent tenir ensemble.
+   */
+  it('plus de mention « non lu », mais le gras et le libellé accessible demeurent', async () => {
+    ligneCourante = LIGNE({ classement: { nbActifs: 1, parUnHumain: false, detail: null } });
+    await monter({ });
+    // Le jeu d'essai ne rend aucun non-lu : on le pose par la réponse de la route.
+    expect(container.querySelector('.bte-marque--non-lu')).toBeNull();
+    const src = readFileSync('app/(admin)/admin/(protected)/gestion/BoiteMail.tsx', 'utf8');
+    expect(src).toContain("bte-ligne--non-lu");                       // le gras est toujours posé
+    expect(src).toContain('aria-label={nonLu ?');                     // …et le mot est toujours écrit
+    expect(src).not.toContain("bte-marque--non-lu\">non lu");         // la mention de bout de ligne est partie
+  });
+
+  it('aucune capsule dans « Spam » ni dans « Brouillons »', async () => {
+    ligneCourante = LIGNE({ classement: { nbActifs: 0, parUnHumain: false, detail: null } });
+    await monter({ etiquette: { sorte: 'spam', evenementId: null } });
+    expect(capsule()).toBeNull();
+  });
+
+  /** Une réponse plus ancienne que ce lot ne porte pas le champ : la liste doit tenir, sans capsule. */
+  it('sans le champ, aucune capsule — et surtout aucune ligne cassée', async () => {
+    ligneCourante = LIGNE();
+    await monter();
+    expect(capsule()).toBeNull();
+    expect(container.querySelectorAll('.bte-li')).toHaveLength(1);
+  });
+});

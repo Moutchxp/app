@@ -31,7 +31,7 @@ import { query } from '../db/client';
 import { autoImposeParEtiquette, type Etiquette } from './ecranUrl';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils, type MentionNonRemise } from './nonRemiseRepo';
-import { corbeilleDisponible, spamDisponible } from './schema';
+import { corbeilleDisponible, spamDisponible, rattachementsDisponibles} from './schema';
 import { etoilesDesFils } from './etoileRepo';
 
 /** Combien d'échanges par page. Assez pour remplir un écran de téléphone sans faire attendre. */
@@ -78,6 +78,11 @@ export interface LigneBoite {
    * Toujours `false` sans la migration 264 — on ne prétend pas savoir ce qu'on n'a pas lu.
    */
   etoilee: boolean;
+  /**
+   * LOT CAPSULE-STATUT — où en est le RATTACHEMENT de cet échange. `null` = migration 257 absente : aucune capsule
+   * n'est rendue, plutôt qu'une capsule rouge qui accuserait à tort.
+   */
+  classement: { nbActifs: number; parUnHumain: boolean; detail: string | null } | null;
   /** Référence `GES-…` de la carte si l'échange y est affecté, sinon `null`. */
   reference: string | null;
   /** L'échange a-t-il été classé sans suite ? L'écran le DIT : la boîte montre tout, elle n'efface rien. */
@@ -161,6 +166,10 @@ interface LigneDB {
   nb_pieces: number;
   reference: string | null;
   sans_suite: boolean;
+  /** LOT CAPSULE-STATUT — rendus par la jointure latérale ; tous `null` quand la migration 257 est absente. */
+  cl_n: number | null;
+  cl_humain: boolean | null;
+  cl_detail: string | null;
 }
 
 /**
@@ -305,6 +314,8 @@ export function sqlPageBoite(
   rangFilsRetenus: number | null = null,
   /** LOT FILTRE-ETOILE — ne garder que les échanges étoilés. */
   etoilesSeules = false,
+  /** LOT CAPSULE-STATUT — la migration 257 est-elle là ? Sinon aucune capsule, et pas une table nommée. */
+  rattachements = false,
 ): string {
   // Le filtre s'applique AUX DEUX ÉTAGES du parcours (le message candidat, et le « y a-t-il plus récent ? ») : les
   //   dissocier ferait sortir un échange dont le dernier message est écarté, avec l'avant-dernier comme aperçu.
@@ -371,6 +382,35 @@ export function sqlPageBoite(
   // LOT FILTRE-ETOILE — posé sur le seul étage `m` : il désigne des ÉCHANGES, pas des messages. Le prédicat
   //   « dernier de son sens » n'a donc pas à en tenir compte.
   const filtreEtoile = etoilesSeules ? `AND ${SQL_ETOILE}` : '';
+  /**
+   * ══ 🔴 LOT CAPSULE-STATUT — LE STATUT DANS LA MÊME REQUÊTE, PAS UNE PAR LIGNE ═════════════════════════════════
+   * Une jointure LATÉRALE sur les 30 lignes de la page, et rien de plus. Trente requêtes — une par ligne — se
+   * verraient à l'écran ; c'est la règle du module depuis le bandeau « Rattaché à » de la conversation.
+   *
+   * ⚠️ ON NE COMPTE QUE LES RATTACHEMENTS `confirme`, ET SEULEMENT VERS UN LOGEMENT OU UN PROPRIÉTAIRE. Une
+   * PROPOSITION que personne n'a validée laisse l'échange « à classer » — c'est exactement ce qu'il est. Les
+   * rattachements vers un ÉVÉNEMENT ne comptent pas non plus : c'est l'autre question, celle de la colonne de
+   * gauche (mesuré le 27/09 : 474 échanges sans événement, 9 631 sans rattachement — deux nombres distincts).
+   *
+   * ⚠️ « À LA MAIN » = origine manuelle OU statut touché par quelqu'un. Les deux chemins mènent au même fait : un
+   * humain a tranché. Ne regarder que `origine` raterait toutes les propositions confirmées d'un clic.
+   *
+   * ⚠️ Sans la migration 257, la table n'est NOMMÉE NULLE PART et la requête est mot pour mot celle d'avant.
+   */
+  const jointureClassement = !rattachements ? '' : `LEFT JOIN LATERAL (
+         SELECT count(*)::int AS n,
+                bool_or(r.origine = 'manuel' OR r.statut_par_libelle IS NOT NULL) AS humain,
+                string_agg(
+                  coalesce(nullif(btrim(r.cible_libelle), ''), r.cible_cle, 'cible ' || r.cible_id::text)
+                  || CASE WHEN r.origine = 'manuel' OR r.statut_par_libelle IS NOT NULL
+                          THEN ' — à la main' ELSE ' — automatique' END,
+                  ' · ' ORDER BY r.id) AS detail
+           FROM gestion_rattachement r
+           JOIN gestion_message rm ON rm.id = r.message_id
+          WHERE rm.fil_id = p.fil_id AND r.statut = 'confirme'
+            AND r.cible_sorte IN ('lot', 'proprietaire')
+       ) cl ON true`;
+
   const estSpam = spam && etiquette.sorte !== 'spam';
   const filtreSpamM = estSpam ? 'AND m.spam_le IS NULL' : '';
   const filtreSpamM2 = estSpam ? 'AND m2.spam_le IS NULL' : '';
@@ -410,8 +450,10 @@ export function sqlPageBoite(
               WHERE pm.fil_id = p.fil_id)::int AS nb_pieces,
             (SELECT e.reference FROM gestion_affectation a JOIN gestion_evenement e ON e.id = a.evenement_id
               WHERE a.fil_id = p.fil_id AND a.actif AND a.message_id IS NULL LIMIT 1) AS reference,
-            (f.etat = 'sans_suite') AS sans_suite
+            (f.etat = 'sans_suite') AS sans_suite,
+            cl.n AS cl_n, cl.humain AS cl_humain, cl.detail AS cl_detail
        FROM page p JOIN gestion_fil f ON f.id = p.fil_id
+       ${jointureClassement}
        -- La jointure latérale sert encore : aux autres étiquettes (où le message de la ligne peut être un envoi
        --   comme une réception) pour trouver le correspondant, et à Envoyés pour retrouver le NOM du destinataire.
        --   Elle ne sert plus à Réception, où le message de la ligne EST le dernier reçu : rien à chercher.
@@ -485,6 +527,8 @@ export async function lireBoiteMail(
   //   nommée nulle part. Les deux sondes sont posées ENSEMBLE, en parallèle : elles sont mémoïsées et ne coûtent
   //   qu'au premier appel.
   const spam = await spamDisponible();
+  // LOT CAPSULE-STATUT — même patron que les autres sondes : mémoïsée, posée hors transaction.
+  const rattachements = await rattachementsDisponibles();
   // LOT ERGO-BOITE-3 — les fils retenus arrivent APRÈS les paramètres de l'étiquette : leur rang dépend donc de
   //   l'étiquette ouverte, et il est calculé ici plutôt que deviné. Poser un paramètre puis calculer son rang à
   //   partir de `params.length` est le décalage d'un cran qui s'est déjà produit dans ce dépôt.
@@ -492,7 +536,7 @@ export async function lireBoiteMail(
   const retenus = options.filsRetenus;
   const rangRetenus = retenus === undefined ? null : 4 + paramsEtiquette.length;
   const { rows } = await query<LigneDB>(
-    sqlPageBoite(tous, etiquette, corbeille, spam, rangRetenus, options.etoilesSeules === true),
+    sqlPageBoite(tous, etiquette, corbeille, spam, rangRetenus, options.etoilesSeules === true, rattachements),
     // `infinity` plutôt qu'une date arbitraire : il n'existe aucun message après, quelle que soit l'horloge.
     [curseur?.dernierLe ?? 'infinity', curseur?.filId ?? '9223372036854775807', aLire,
       ...paramsEtiquette, ...(retenus === undefined ? [] : [[...retenus]])],
@@ -541,6 +585,9 @@ export async function lireBoiteMail(
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,
       etoilee: etoiles.has(Number(r.fil_id)),
+      classement: r.cl_n === null && r.cl_humain === null && r.cl_detail === null
+        ? null
+        : { nbActifs: r.cl_n ?? 0, parUnHumain: r.cl_humain === true, detail: r.cl_detail },
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
     // Le total N'EST COMPTÉ QUE pour la boîte entière. Sous une étiquette, c'est la colonne de gauche qui porte le

@@ -15,6 +15,7 @@ import {
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { corpsLisible } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
+import { bulleCapsule, capsuleStatut, motCapsule } from '../../../../lib/gestion/statutClassement';
 import { CSS_MENU_LIGNE, MenuLigne } from './MenuLigne';
 import { BarreLigne, CSS_BARRE_LIGNE, Etoile } from './BarreLigne';
 import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
@@ -920,7 +921,29 @@ export function BoiteMail({
                     {cherche && l.provenance !== undefined && critere.listes.length > 1 && (
                       <span className="bte-marque bte-provenance">{motDeLaListe(l.provenance)}</span>
                     )}
-                    {nonLu && <span className="bte-marque bte-marque--non-lu">non lu</span>}
+                    {/* ══ 🔴 LOT CAPSULE-STATUT — LA CAPSULE, APRÈS LE TROMBONE ET AVANT L'HEURE ════════════
+                        Elle répond à la question qu'on se pose en parcourant la liste : « ce courrier est-il
+                        rangé ? ». Trois réponses, trois mots ÉCRITS — la couleur ne fait que les appuyer, elle ne
+                        dit rien toute seule.
+
+                        🔴 « non lu » A QUITTÉ CETTE PLACE (retrait autorisé par Arno). L'information n'est PAS
+                        perdue : la ligne d'un échange non lu reste en GRAS, comme dans toute messagerie, et le
+                        libellé accessible du bouton l'écrit toujours en toutes lettres pour les lecteurs d'écran.
+
+                        ⚠️ NI DANS BROUILLONS NI DANS SPAM : un brouillon n'est pas rattachable, et un spam n'a
+                        rien à classer. `classement === null` couvre aussi la migration 257 absente — aucune
+                        capsule, plutôt qu'une capsule rouge qui accuserait à tort. */}
+                    {/* ⚠️ `l.classement ?` ET NON `!== null`. Une réponse plus ancienne que ce lot ne porte pas
+                        du tout le champ : `undefined !== null` est VRAI, et la liste ENTIÈRE tombait sur
+                        « Cannot read properties of undefined ». Un écran ne doit jamais s'écrouler parce qu'un
+                        serveur lui parle un langage d'hier — c'est la règle qui vaut déjà pour `nonLus` et
+                        `pleinTexte`. Attrapé par la suite de tests avant livraison. */}
+                    {l.classement && etiquette.sorte !== 'spam' && etiquette.sorte !== 'brouillons' && (
+                      <span className={`bte-capsule bte-capsule--${capsuleStatut(l.classement)}`}
+                        title={bulleCapsule(capsuleStatut(l.classement), l.classement.detail)}>
+                        {motCapsule(capsuleStatut(l.classement))}
+                      </span>
+                    )}
                     {/* ══ LOT ENVOI-DIAG — UN MESSAGE DE CET ÉCHANGE N'EST PAS ARRIVÉ ═══════════════════════════
                         🔴 SUR LA LIGNE, pas seulement dans l'échange ouvert : sinon il faudrait ouvrir les 6 580
                         échanges d'Envoyés pour espérer tomber dessus. La marque porte le MOTIF, parce que « échec »
@@ -1057,6 +1080,17 @@ const CSS_BOITE = `
    ⚠️⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un littéral gabarit. Septième fois sur ce module. */
 /* LOT FILTRE-ETOILE — le MÊME bouton rond que la relève ; seule la couleur change quand il filtre. La forme de
    l'étoile (pleine / en contour) porte l'information autant que la couleur. */
+/* ══ LOT CAPSULE-STATUT — TROIS CAPSULES, UN SEUL GABARIT ═══════════════════════════════════════════════════════
+   Même forme, même taille, même graisse : seul le ton change. Le MOT est toujours écrit — « À classer », « Classé »,
+   « Auto » — donc la capsule reste lisible en niveaux de gris, pour un daltonien, et pour un lecteur d'écran.
+   white-space:nowrap : « À classer » ne doit pas se couper en deux au milieu d'une ligne dense. */
+.bte-capsule{display:inline-flex;align-items:center;padding:.05rem .4rem;border-radius:999px;
+  font-size:.7rem;font-weight:700;line-height:1.5;white-space:nowrap;border:1px solid transparent}
+.bte-capsule--a_classer{color:var(--color-svv-red);border-color:var(--color-svv-red);background:transparent}
+.bte-capsule--classe{color:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink);background:transparent}
+/* « Auto » est vert lui aussi — c'est rangé — mais en aplat plus discret : le geste humain doit rester le plus
+   visible des deux, sans pour autant faire passer l'automatique pour un problème. */
+.bte-capsule--auto{color:var(--color-svv-green-ink);border-color:transparent;background:var(--color-svv-green-soft)}
 .bte-filtre-etoile--actif{color:var(--color-svv-red)}
 .bte-tait{margin-left:auto;text-align:right;font-size:.72rem;font-weight:400;line-height:1.35;
   color:var(--color-svv-muted);flex:0 1 auto;min-width:0}
