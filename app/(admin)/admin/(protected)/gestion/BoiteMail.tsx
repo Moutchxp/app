@@ -921,10 +921,33 @@ export function BoiteMail({
                     {cherche && l.provenance !== undefined && critere.listes.length > 1 && (
                       <span className="bte-marque bte-provenance">{motDeLaListe(l.provenance)}</span>
                     )}
-                    {/* ══ 🔴 LOT CAPSULE-STATUT — LA CAPSULE, APRÈS LE TROMBONE ET AVANT L'HEURE ════════════
+                    {/* ══ LOT ENVOI-DIAG — UN MESSAGE DE CET ÉCHANGE N'EST PAS ARRIVÉ ═══════════════════════════
+                        🔴 SUR LA LIGNE, pas seulement dans l'échange ouvert : sinon il faudrait ouvrir les 6 580
+                        échanges d'Envoyés pour espérer tomber dessus. La marque porte le MOTIF, parce que « échec »
+                        seul ne dit pas s'il faut corriger une adresse ou rappeler quelqu'un.
+
+                        🔴 RETOUCHE CAPSULE-STATUT — ELLE PASSE AVANT LA CAPSULE, jamais entre elle et l'heure.
+                        Elle reste ENTIÈREMENT VISIBLE tant qu'il y a la place, et se TRONQUE d'un « … » quand il
+                        n'y en a plus — c'est elle qui cède, parce qu'elle est la seule marque assez longue pour
+                        chasser la capsule de la fin de ligne. Le texte complet reste lu dans l'info-bulle. */}
+                    {l.nonRemise && (
+                      <span className={`bte-marque bte-marque--echec${
+                        l.nonRemise.sorte === 'permanent' ? ' bte-marque--echec-definitif' : ''}`}
+                        title={l.nonRemise.phrase}>
+                        <span aria-hidden="true">⚠ </span>
+                        <span className="bte-echec-texte">{l.nonRemise.phrase}</span>
+                      </span>
+                    )}
+                    {/* ══ 🔴 LOT CAPSULE-STATUT — LA CAPSULE, TOUJOURS COLLÉE À GAUCHE DE L'HEURE ═══════════════
                         Elle répond à la question qu'on se pose en parcourant la liste : « ce courrier est-il
                         rangé ? ». Trois réponses, trois mots ÉCRITS — la couleur ne fait que les appuyer, elle ne
                         dit rien toute seule.
+
+                        🔴 RETOUCHE (demande d'Arno) : ELLE EST LA DERNIÈRE MARQUE DE LA LIGNE, SANS EXCEPTION.
+                        L'ordre de bout de ligne est : trombone · avertissement éventuel · capsule · heure · « ⋯ ».
+                        Elle était posée avant l'avertissement de non-remise, qui s'intercalait donc entre elle et
+                        l'heure sur les seules lignes qui en portent un : on la cherchait à deux endroits selon la
+                        ligne. TOUTE marque nouvelle s'ajoute DONC AU-DESSUS de ce bloc, jamais en dessous.
 
                         🔴 « non lu » A QUITTÉ CETTE PLACE (retrait autorisé par Arno). L'information n'est PAS
                         perdue : la ligne d'un échange non lu reste en GRAS, comme dans toute messagerie, et le
@@ -942,16 +965,6 @@ export function BoiteMail({
                       <span className={`bte-capsule bte-capsule--${capsuleStatut(l.classement)}`}
                         title={bulleCapsule(capsuleStatut(l.classement), l.classement.detail)}>
                         {motCapsule(capsuleStatut(l.classement))}
-                      </span>
-                    )}
-                    {/* ══ LOT ENVOI-DIAG — UN MESSAGE DE CET ÉCHANGE N'EST PAS ARRIVÉ ═══════════════════════════
-                        🔴 SUR LA LIGNE, pas seulement dans l'échange ouvert : sinon il faudrait ouvrir les 6 580
-                        échanges d'Envoyés pour espérer tomber dessus. La marque porte le MOTIF, parce que « échec »
-                        seul ne dit pas s'il faut corriger une adresse ou rappeler quelqu'un. */}
-                    {l.nonRemise && (
-                      <span className={`bte-marque bte-marque--echec${
-                        l.nonRemise.sorte === 'permanent' ? ' bte-marque--echec-definitif' : ''}`}>
-                        <span aria-hidden="true">⚠ </span>{l.nonRemise.phrase}
                       </span>
                     )}
                   </span>
@@ -1047,8 +1060,14 @@ const CSS_BOITE = `
 /* LOT ENVOI-DIAG — la marque « non distribué ». La COULEUR n'est qu'un renfort : le texte porte déjà le motif, et il
    reste lisible en niveaux de gris. Un échec DÉFINITIF passe en gras ; un retard garde le poids ordinaire, parce que
    le message peut encore arriver. */
-.bte-marque--echec{color:var(--color-svv-red)}
+.bte-marque--echec{color:var(--color-svv-red);min-width:0;flex:0 1 auto}
 .bte-marque--echec-definitif{font-weight:700}
+/* 🔴 RETOUCHE CAPSULE-STATUT — C'EST L'AVERTISSEMENT QUI CÈDE LA PLACE, PAS LA CAPSULE. Il est la seule marque assez
+   longue pour repousser la capsule loin de l'heure ; il se tronque donc d'un « … », et son info-bulle (posée sur la
+   marque entière) dit le texte complet. L'ellipsis exige un bloc : le texte vit dans son propre span, parce qu'un
+   nœud de texte nu dans un conteneur flex ne se tronque pas. Sur téléphone, .bte-bas passe à la ligne et il n'y a
+   rien à tronquer — la troncature ne vaut que dans la ligne dense, plus bas. */
+.bte-echec-texte{min-width:0}
 .bte-quand{font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}
 .bte-objet{font-size:.9rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .bte-apercu{font-size:.85rem;color:var(--color-svv-muted);overflow-wrap:anywhere;
@@ -1069,7 +1088,11 @@ const CSS_BOITE = `
   /* display:inline : l'objet et l'aperçu coulent dans la MÊME ligne, et le conteneur tronque les deux d'un coup. */
   .bte-liste--dense .bte-objet,.bte-liste--dense .bte-apercu{display:inline;-webkit-line-clamp:none;overflow:visible}
   .bte-liste--dense .bte-tiret{display:inline;color:var(--color-svv-line-strong)}
-  .bte-liste--dense .bte-bas{flex-wrap:nowrap;white-space:nowrap}
+  .bte-liste--dense .bte-bas{flex-wrap:nowrap;white-space:nowrap;min-width:0}
+  /* 🔴 L'AVERTISSEMENT EST BORNÉ, pour que la capsule et l'heure restent à leur place quel que soit le motif renvoyé
+     par le serveur distant (certains tiennent deux lignes). Au-delà, il se tronque ; l'info-bulle dit tout. */
+  .bte-liste--dense .bte-marque--echec{max-width:20rem}
+  .bte-liste--dense .bte-echec-texte{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .bte-liste--dense .bte-quand{text-align:right}
 }
 /* ══ LOT ERGO-BOITE-4 — LA MENTION « COURRIER AUTOMATIQUE », SUR LA LIGNE DU TITRE ═══════════════════════════════
@@ -1084,7 +1107,9 @@ const CSS_BOITE = `
    Même forme, même taille, même graisse : seul le ton change. Le MOT est toujours écrit — « À classer », « Classé »,
    « Auto » — donc la capsule reste lisible en niveaux de gris, pour un daltonien, et pour un lecteur d'écran.
    white-space:nowrap : « À classer » ne doit pas se couper en deux au milieu d'une ligne dense. */
-.bte-capsule{display:inline-flex;align-items:center;padding:.05rem .4rem;border-radius:999px;
+   flex:0 0 auto : la capsule NE RÉTRÉCIT JAMAIS. Quand la ligne manque de place, c'est l'avertissement de non-remise
+   qui se tronque — la capsule garde sa taille et sa place, juste à gauche de l'heure. */
+.bte-capsule{display:inline-flex;align-items:center;padding:.05rem .4rem;border-radius:999px;flex:0 0 auto;
   font-size:.7rem;font-weight:700;line-height:1.5;white-space:nowrap;border:1px solid transparent}
 .bte-capsule--a_classer{color:var(--color-svv-red);border-color:var(--color-svv-red);background:transparent}
 .bte-capsule--classe{color:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink);background:transparent}

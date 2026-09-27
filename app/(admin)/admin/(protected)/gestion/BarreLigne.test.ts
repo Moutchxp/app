@@ -335,6 +335,49 @@ describe('🔴 LOT CAPSULE-STATUT — la capsule sur la ligne, et le gras conser
   });
 
   /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴 RETOUCHE (demande d'Arno) — LA CAPSULE EST TOUJOURS LA DERNIÈRE MARQUE, SANS EXCEPTION.
+   *
+   * Ordre de bout de ligne : trombone · avertissement éventuel · CAPSULE · heure · « ⋯ ».
+   *
+   * CE QUE CE TEST ATTRAPE, et qu'aucune relecture ne montre : l'avertissement de non-remise était rendu APRÈS la
+   * capsule, et s'intercalait donc entre elle et l'heure — sur les SEULES lignes qui en portent un. La capsule
+   * changeait de place selon la ligne, et il fallait la chercher à deux endroits. L'assertion porte sur le DERNIER
+   * enfant de la rangée de marques, pas sur le couple capsule/avertissement : c'est la seule forme qui vaut aussi
+   * pour toute marque future — elles s'ajoutent toutes AU-DESSUS de la capsule.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  const AVIS = {
+    sorte: 'temporaire', destinataire: 'm.dupont@exemple.fr', avisMessageId: 42,
+    phrase: 'remise retardée à m.dupont@exemple.fr : la boîte du destinataire est pleine',
+  };
+
+  it('🔴 l’avertissement de non-remise ne s’intercale plus entre la capsule et l’heure', async () => {
+    ligneCourante = LIGNE({ classement: { nbActifs: 0, parUnHumain: false, detail: null }, nonRemise: AVIS });
+    await monter();
+    const bas = container.querySelector('.bte-bas');
+    const rangee = [...(bas?.children ?? [])];
+    const avis = bas?.querySelector('.bte-marque--echec');
+    expect(avis).not.toBeNull();                                        // l'avertissement reste VISIBLE
+    expect(bas?.lastElementChild).toBe(capsule());                      // …et la capsule ferme la rangée
+    expect(rangee.indexOf(avis as Element)).toBeLessThan(rangee.indexOf(capsule() as Element));
+    // La date suit la rangée de marques, comme sur n'importe quelle autre ligne.
+    const ligne = container.querySelector('.bte-ligne');
+    const ordre = [...(ligne?.querySelectorAll('.bte-capsule, .bte-quand') ?? [])]
+      .map((e) => (e.className.includes('capsule') ? 'capsule' : 'date'));
+    expect(ordre).toEqual(['capsule', 'date']);
+  });
+
+  /** L'avertissement peut être tronqué à l'écran : son texte ENTIER doit rester lisible dans l'info-bulle. */
+  it('l’avertissement tronqué dit tout son texte dans l’info-bulle', async () => {
+    ligneCourante = LIGNE({ classement: { nbActifs: 1, parUnHumain: true, detail: null }, nonRemise: AVIS });
+    await monter();
+    const avis = container.querySelector('.bte-marque--echec');
+    expect(avis?.getAttribute('title')).toBe(AVIS.phrase);
+    expect(avis?.querySelector('.bte-echec-texte')?.textContent).toBe(AVIS.phrase);
+  });
+
+  /**
    * 🔴 « NON LU » A QUITTÉ LA LIGNE — retrait autorisé par Arno — MAIS L'INFORMATION RESTE : le gras, et le
    * libellé accessible qui l'écrit en toutes lettres. Une information portée par la seule graisse serait perdue
    * pour un lecteur d'écran ; c'est pour cela que les deux doivent tenir ensemble.
