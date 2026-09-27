@@ -276,6 +276,49 @@ export function citationsDuMessage(m: { inReplyTo: string | null; referencesBrut
  * trop lourde, stockage indisponible) garde sa LIGNE et son MOTIF — jamais perdue en silence, et redéposable si la
  * configuration change ; l'échec d'UNE pièce ne fait pas échouer les autres.
  */
+/**
+ * ══ 🔴 LOT MINIATURES-COMPLÈTES — L'APERÇU EST FABRIQUÉ DÈS L'ARRIVÉE DE LA PIÈCE ═══════════════════════════════
+ *
+ * POURQUOI ICI, ET PAS SEULEMENT À L'AFFICHAGE. La vignette était fabriquée PARESSEUSEMENT, au premier affichage
+ * (route `/pieces/[id]/miniature`). Deux conséquences, mesurées le 27/09/2026 : 26 023 pièces affichables n'avaient
+ * JAMAIS reçu d'aperçu faute d'avoir été regardées ; et surtout, 4 058 d'entre elles ont depuis été VIDÉES de MinIO
+ * vers le Drive — leur contenu a quitté le stockage AVANT que quiconque ouvre le message. Pour celles-là, la
+ * fabrication paresseuse est arrivée trop tard : la route lit une clé qui n'existe plus et rend un 503, à chaque
+ * affichage, pour toujours.
+ *
+ * ICI, LES OCTETS SONT DÉJÀ EN MÉMOIRE — ils viennent d'être déposés. Fabriquer l'aperçu maintenant ne coûte AUCUNE
+ * lecture supplémentaire, et garantit que toute pièce reçue désormais a son aperçu AVANT tout vidage possible. Le
+ * problème rétroactif est traité par `gestion:miniatures:completer` ; celui-ci ferme la porte pour la suite.
+ *
+ * ⚠️ JAMAIS BLOQUANT, JAMAIS SONORE. Une miniature est un confort : elle ne doit pas pouvoir faire échouer une
+ * relève, ni même la ralentir de façon visible. Tout est sous `try/catch`, l'échec est mémorisé quand le FICHIER est
+ * en cause (on ne redécodera pas un PDF illisible à chaque affichage) et passé sous silence sinon.
+ *
+ * ⚠️ IMPORTS DYNAMIQUES : `sharp` et le rasteriseur WebAssembly ne doivent pas entrer dans le graphe d'un test de
+ * capture, ni dans celui du client IMAP. Même règle que pour le SDK S3 juste au-dessus.
+ */
+async function miniatureALArrivee(
+  pieceId: number, contenu: Buffer, typeMime: string | null, nomFichier: string,
+): Promise<void> {
+  try {
+    const { peutAvoirMiniature, echecDefinitif } = await import('./miniatureCompletion');
+    if (!peutAvoirMiniature(typeMime, nomFichier)) return; // un .xml n'a pas d'aperçu : rien à tenter, rien à inscrire
+    const { genererMiniature } = await import('./miniature');
+    const { memoriserMiniature, memoriserEchecMiniature } = await import('./piecesRepo');
+    const issue = await genererMiniature(contenu, typeMime, nomFichier);
+    if (!issue.ok) {
+      // Transitoire (stockage indisponible, délai) : on n'inscrit RIEN, la complétion reprendra la pièce plus tard.
+      if (echecDefinitif(issue.motif)) await memoriserEchecMiniature(pieceId, issue.motif);
+      return;
+    }
+    const { deposerMiniatureGestion } = await import('../stockage');
+    const depot = await deposerMiniatureGestion(issue.octets, pieceId);
+    if (depot.depose) await memoriserMiniature(pieceId, depot.cle);
+  } catch {
+    /* silence volontaire : voir l'encadré. La pièce garde son icône, la complétion la reprendra. */
+  }
+}
+
 export async function deposerPiecesMessage(
   messageId: number, pieces: readonly PieceBrute[], config: ConfigGestion,
 ): Promise<{ deposees: number; nonDeposees: number }> {
@@ -287,11 +330,13 @@ export async function deposerPiecesMessage(
         messageId, typesAcceptes: config.typesPiecesAcceptes, tailleMaxOctets: config.pieceTailleMaxOctets,
       });
       if (res.depose) {
-        await query(
+        const { rows } = await query<{ id: string }>(
           `INSERT INTO gestion_piece (message_id, nom_fichier, type_mime, taille_octets, cle_stockage, empreinte_sha256, stocke_le)
-           VALUES ($1,$2,$3,$4,$5,$6, now())`,
+           VALUES ($1,$2,$3,$4,$5,$6, now()) RETURNING id::text`,
           [messageId, p.nomFichier, p.typeMime, res.taille, res.cle, res.empreinte]);
         deposees += 1;
+        // 🔴 LOT MINIATURES-COMPLÈTES — L'APERÇU EST FABRIQUÉ ICI, TOUT DE SUITE. Voir l'encadré de `miniatureALArrivee`.
+        await miniatureALArrivee(Number(rows[0].id), p.contenu, p.typeMime, p.nomFichier);
       } else {
         await query(
           `INSERT INTO gestion_piece (message_id, nom_fichier, type_mime, taille_octets, motif_non_stocke)

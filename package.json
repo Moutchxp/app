@@ -104,7 +104,8 @@
     "gestion:non-remise:rattraper": "tsx app/scripts/rattraper-non-remises.ts",
     "gestion:boite:epreuve": "tsx app/scripts/boite-epreuve.ts",
     "gestion:classement:plan": "tsx app/scripts/plan-classement.ts",
-    "gestion:vidage:audit": "tsx app/scripts/audit-vidage.ts"
+    "gestion:vidage:audit": "tsx app/scripts/audit-vidage.ts",
+    "gestion:miniatures:completer": "tsx app/scripts/completer-miniatures.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1087.0",
