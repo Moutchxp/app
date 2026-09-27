@@ -439,13 +439,36 @@ export async function deplacerFichier(
   return { ok: true, parents: j.parents ?? [] };
 }
 
-/** Relit un fichier Drive : sert à VÉRIFIER un déplacement, et à rien d'autre. LECTURE SEULE. */
+/**
+ * Relit un fichier Drive : sert à VÉRIFIER un déplacement, et à rien d'autre. LECTURE SEULE.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 UNE COUPURE RÉSEAU NE DOIT PAS TUER LA PASSE — CORRECTIF DU 27/09/2026, CONSTATÉ EN PRODUCTION.
+ *
+ * Le premier lot de vidage est mort après 1 571 pièces sur 2 000, sur un `read ECONNRESET` : `deps.fetch` JETAIT, et
+ * l'exception traversait toute la commande. Un aller-retour réseau sur 26 000 se casse forcément un jour ; sur une
+ * passe de plusieurs heures, c'est une certitude, pas un risque.
+ *
+ * On attrape donc l'échec et on le rend comme un REFUS ordinaire. La conséquence est exactement celle qu'on veut : la
+ * pièce est conservée (motif « drive_illisible »), la passe continue, et la pièce sera réexaminée au lot suivant. Le
+ * doute ne fait jamais effacer — il fait passer son tour.
+ *
+ * ⚠️ AUCUNE NOUVELLE TENTATIVE ICI, et c'est délibéré. Réessayer dans cette fonction cacherait la fréquence réelle des
+ * coupures, et une passe qui insiste sur un réseau en panne met des heures à s'en apercevoir. Conserver la pièce coûte
+ * un second examen de quelques millisecondes au lot suivant : c'est moins cher, et ça se voit dans le rapport.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
 export async function relireFichier(
   driveFileId: string, jeton: string, deps: DepsCopie,
 ): Promise<{ ok: true; parents: string[]; md5: string | null; taille: number | null; nom: string } | { ok: false; motif: string }> {
-  const res = await deps.fetch(
-    `${API}/files/${driveFileId}?supportsAllDrives=true&fields=id,name,parents,md5Checksum,size,trashed`,
-    { headers: { Authorization: `Bearer ${jeton}` } });
+  let res: Response;
+  try {
+    res = await deps.fetch(
+      `${API}/files/${driveFileId}?supportsAllDrives=true&fields=id,name,parents,md5Checksum,size,trashed`,
+      { headers: { Authorization: `Bearer ${jeton}` } });
+  } catch (e) {
+    return { ok: false, motif: `Drive n’a pas répondu (réseau) : ${e instanceof Error ? e.message : String(e)}` };
+  }
   if (!res.ok) return { ok: false, motif: await motif(res, 'la relecture du fichier') };
   const j = (await res.json()) as { parents?: string[]; md5Checksum?: string; size?: string; name?: string; trashed?: boolean };
   if (j.trashed === true) return { ok: false, motif: 'ce fichier est à la corbeille' };

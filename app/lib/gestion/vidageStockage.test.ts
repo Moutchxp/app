@@ -426,3 +426,41 @@ describe('les garanties du lot', () => {
     expect(bloc.slice(0, 400)).toContain('lienDrive');
   });
 });
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 UNE COUPURE RÉSEAU NE TUE PLUS LA PASSE — DÉFAUT CONSTATÉ EN PRODUCTION LE 27/09/2026.
+ *
+ * Le premier lot de vidage autorisé par Arno est mort après 1 571 pièces sur 2 000, sur un `read ECONNRESET` :
+ * `relireFichier` appelait `fetch` sans filet, et l'exception traversait toute la commande. Sur 26 000 allers-retours,
+ * une coupure n'est pas un risque mais une certitude.
+ *
+ * Vérifié après l'incident : AUCUN orphelin — les 104 pièces de la fenêtre sans preuve avaient toutes encore leur
+ * contenu dans MinIO. L'interruption a eu lieu pendant une LECTURE, jamais entre l'effacement et la preuve. C'est
+ * l'ordre « effacer puis inscrire » qui rend cette vérification possible.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 la relecture Drive survit à une coupure réseau', () => {
+  it('un `fetch` qui JETTE devient un refus ordinaire, pas une exception', async () => {
+    const { relireFichier } = await import('./copiePiecesReel');
+    const casse = vi.fn(async () => { throw new Error('read ECONNRESET'); });
+    const r = await relireFichier('ID-1', 'jeton', { fetch: casse as unknown as typeof fetch });
+    expect(r.ok).toBe(false);
+    expect(r.ok === false && r.motif).toContain('réseau');
+    expect(r.ok === false && r.motif).toContain('ECONNRESET');
+  });
+
+  it('🔴 et ce refus CONSERVE la pièce : le doute ne fait jamais effacer', () => {
+    // Le motif réseau ne contient pas « corbeille », donc `verdict` retient « drive_illisible » — et conserve.
+    const v = verdict(piece(), { ok: false, motif: 'Drive n’a pas répondu (réseau) : read ECONNRESET' });
+    expect(v).toEqual({ effacable: false, motif: 'drive_illisible' });
+  });
+
+  it('l’audit réessaie AVANT de conclure, et borne ses tentatives', () => {
+    const audit = readFileSync('app/scripts/audit-vidage.ts', 'utf8');
+    expect(audit).toContain('essai <= 3');
+    expect(audit).toContain('Drive INJOIGNABLE après 3 essais');
+    // 🔴 Une coupure ne doit pas être comptée comme un fichier illisible : deux motifs distincts.
+    expect(audit).toContain('copie Drive ILLISIBLE');
+  });
+});
