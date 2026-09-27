@@ -111,6 +111,53 @@ describe('sûreté du fichier servi', () => {
     repo.lirePieceAServir.mockResolvedValue({ ...PIECE, nomFichier: '' });
     expect((await GET(requete(), ctx('7'))).headers.get('Content-Disposition')).toBe('inline; filename="piece-jointe"');
   });
+
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴 DÉFAUT TROUVÉ DANS LA NUIT DU 27/09/2026, en éprouvant la route par le VRAI chemin de l'application (requête
+   * HTTP depuis la page, avec la session réelle). Deux pièces sur dix arrivaient sous un nom ABÎMÉ :
+   * « mandat de gestion signé.pdf » était reçu « mandat de gestion signÃ©.pdf » — vérifié octet par octet, l'en-tête
+   * portait l'UTF-8 brut que HTTP relit en ISO-8859-1.
+   *
+   * Aucun test ne pouvait le voir : tous n'employaient que des noms ASCII, sur lesquels le défaut est invisible. Or
+   * une gestion locative française nomme ses pièces « signé », « état des lieux », « Thaïs »…
+   *
+   * ⚠️ LE DÉFAUT ÉTAIT ANTÉRIEUR AU VIDAGE : il frappait aussi les pièces servies depuis MinIO. Ce n'est donc pas la
+   * lecture Drive qui l'a introduit — c'est elle qui l'a fait découvrir.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it('🔴 un nom ACCENTUÉ arrive intact : les deux formes, dont `filename*=UTF-8`', async () => {
+    repo.lirePieceAServir.mockResolvedValue({ ...PIECE, nomFichier: 'mandat de gestion signé.pdf' });
+    const d = (await GET(requete(), ctx('7'))).headers.get('Content-Disposition') ?? '';
+    // La forme qui l'emporte chez tous les clients modernes : le nom EXACT, encodé.
+    expect(d).toContain("filename*=UTF-8''mandat%20de%20gestion%20sign%C3%A9.pdf");
+    // Et le repli translittéré pour les clients anciens : lisible, sans caractère inventé.
+    expect(d).toContain('filename="mandat de gestion signe.pdf"');
+    // 🔴 ET SURTOUT : plus jamais d'UTF-8 BRUT dans l'en-tête, qui est ce qui produisait le mojibake.
+    expect(d).not.toContain('signé.pdf');
+    // Un en-tête HTTP ne porte que de l'ASCII imprimable.
+    expect(d).toMatch(/^[\x20-\x7E]*$/);
+  });
+
+  it('un nom purement ASCII reste ÉCRIT EN CLAIR : on n’encode pas ce qui n’en a pas besoin', async () => {
+    // Un en-tête lisible se diagnostique à l'œil dans un journal ; encoder par réflexe le rendrait illisible.
+    repo.lirePieceAServir.mockResolvedValue({ ...PIECE, nomFichier: 'constat.pdf' });
+    expect((await GET(requete(), ctx('7'))).headers.get('Content-Disposition'))
+      .toBe('inline; filename="constat.pdf"');
+  });
+
+  it('un nom accentué ET piégé : l’anti-injection passe AVANT l’encodage', async () => {
+    repo.lirePieceAServir.mockResolvedValue({ ...PIECE, nomFichier: 'bail signé"\r\nX-Injecte: 1.pdf' });
+    const d = (await GET(requete(), ctx('7'))).headers.get('Content-Disposition') ?? '';
+    expect(d).not.toMatch(/[\r\n]/);
+    // 🔴 EXACTEMENT DEUX GUILLEMETS : ceux qui délimitent `filename="…"`. Le guillemet injecté a été neutralisé, et
+    //   il n'a donc pas pu refermer la valeur pour ajouter un en-tête de son cru.
+    expect((d.match(/"/g) ?? []).length).toBe(2);
+    expect(d).toContain("filename*=UTF-8''");
+    // L'accent est encodé dans la forme RFC 2231, et translittéré dans le repli — jamais d'UTF-8 brut.
+    expect(d).toContain('sign%C3%A9');
+    expect(d).not.toContain('signé');
+  });
 });
 
 describe('ce que le CODE de la route s’interdit, vérifiable', () => {

@@ -6,6 +6,8 @@ import { jetonPourSubject } from '../../../../../../lib/gestion/driveDelegue';
 import {
   lienDrive, lireContenuDrive, messageIndisponible,
 } from '../../../../../../lib/gestion/pieceDriveLecture';
+// Le nom de fichier selon la RFC 2231, écrit UNE fois pour tout le module (voir `disposition` plus bas).
+import { parametreNomFichier } from '../../../../../../lib/gestion/envoiGmail';
 
 /**
  * /api/admin/gestion/pieces/[id] (lot 4c) — LES OCTETS D'UNE PIÈCE JOINTE, servis PAR L'APPLICATION.
@@ -65,10 +67,33 @@ function sansCache(reponse: Response): Response {
   return new Response(reponse.body, { status: reponse.status, statusText: reponse.statusText, headers: entetes });
 }
 
-/** Anti-injection d'en-tête : guillemets, antislashs et retours de ligne ne franchissent pas un `Content-Disposition`. */
+/**
+ * L'EN-TÊTE `Content-Disposition` D'UNE PIÈCE.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 DÉFAUT TROUVÉ DANS LA NUIT DU 27/09/2026, en éprouvant la route par le VRAI chemin de l'application. Cette
+ * fonction écrivait le nom tel quel : `filename="mandat de gestion signé.pdf"`. Or un en-tête HTTP ne transporte pas
+ * d'UTF-8 — il est lu en ISO-8859-1. Le navigateur recevait donc, mesuré et vérifié octet par octet,
+ * `mandat de gestion signé.pdf` relu comme « signÃ©.pdf » : le fichier s'enregistrait sous un nom abîmé.
+ *
+ * Deux pièces sur dix étaient touchées dans l'échantillon d'épreuve — toutes celles dont le nom porte un accent, soit
+ * une bonne part des pièces d'une gestion locative française (« signé », « Thaïs », « état des lieux »…). Le défaut
+ * est ANTÉRIEUR au vidage : il frappait aussi les pièces servies depuis MinIO. Il ne se voyait pas parce que rien ne
+ * comparait le nom reçu au nom attendu.
+ *
+ * ⚠️ LA CORRECTION RÉEMPLOIE `parametreNomFichier`, écrite pour les pièces jointes des mails sortants : c'est la même
+ * question (RFC 2231, reprise par la RFC 6266 pour HTTP) et il n'y a aucune raison d'en avoir deux implémentations.
+ * Elle rend les DEUX formes — `filename="translittéré"` pour les clients anciens, `filename*=UTF-8''…` pour tous les
+ * autres, qui l'emportent — et ne touche pas aux noms purement ASCII, qui restent lisibles à l'œil dans un journal.
+ *
+ * 🔒 L'ANTI-INJECTION RESTE EN PREMIER : guillemets, antislashs et retours de ligne sont retirés avant tout encodage.
+ * `parametreNomFichier` retire déjà `[\r\n"]` ; on enlève aussi l'antislash, qu'elle laisse passer et qui n'a rien à
+ * faire dans un nom de fichier servi.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
 function disposition(nomFichier: string, telechargement: boolean): string {
-  const nom = (nomFichier || 'piece-jointe').replace(/[\r\n"\\]/g, '_').trim();
-  return `${telechargement ? 'attachment' : 'inline'}; filename="${nom}"`;
+  const propre = (nomFichier || 'piece-jointe').replace(/[\r\n"\\]/g, '_').trim() || 'piece-jointe';
+  return `${telechargement ? 'attachment' : 'inline'}; ${parametreNomFichier(propre)}`;
 }
 
 /**
