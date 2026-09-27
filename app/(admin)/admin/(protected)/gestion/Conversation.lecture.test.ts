@@ -441,3 +441,99 @@ describe('🔴 « Modifier » un rattachement : comprendre, puis remplacer', () 
     expect(String(ecritures[1].corps.motif)).toContain('DENIS Philippe');
   });
 });
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT REPONSE-VISIBLE — UN CLIC SUR « RÉPONDRE » DOIT SE VOIR
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 l’éditeur s’ouvre SOUS le message, se montre, et prend le curseur', () => {
+  /** jsdom ne connaît pas `scrollIntoView` : on la pose pour l'OBSERVER, jamais pour la simuler à moitié. */
+  let defilements: { cible: Element; options: unknown }[];
+
+  beforeEach(() => {
+    defilements = [];
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true, writable: true,
+      value(this: Element, options: unknown) { defilements.push({ cible: this, options }); },
+    });
+  });
+
+  /**
+   * 🔴 LE DÉFAUT D'ARNO. L'éditeur était rendu à la FIN de la conversation : sous douze messages, il s'ouvrait hors
+   * de l'écran, et le bouton avait l'air de n'avoir rien fait. Il s'ouvre maintenant DANS le message auquel on
+   * répond — c'est la seule place où on le voit sans le chercher.
+   */
+  it('le bloc de réponse est rendu DANS le message auquel on répond', async () => {
+    await monter();
+    await cliquer(ligne(11)?.querySelector('.cnv-ligne'));
+    await cliquer(repondreDe(11, /^Répondre$/));
+    expect(ligne(11)?.querySelector('.red')).not.toBeNull();
+    // …et nulle part ailleurs : un second éditeur, c'est un brouillon qu'on croit perdu.
+    expect(container.querySelectorAll('.red')).toHaveLength(1);
+    expect(ligne(13)?.querySelector('.red')).toBeNull();
+  });
+
+  it('l’écran défile jusqu’au bloc, calé en HAUT de la zone visible', async () => {
+    await monter();
+    await cliquer(ligne(11)?.querySelector('.cnv-ligne'));
+    await cliquer(repondreDe(11, /^Répondre$/));
+    /**
+     * ⚠️ UNE IMAGE DE RETARD, EXPRÈS. Le défilement attend la mise en page : appelé tout de suite, il partait
+     * pendant que l'éditeur prenait encore sa hauteur, et le bloc finissait 83 px trop bas (mesuré dans le
+     * navigateur). Le test attend donc, lui aussi, ce que le composant attend.
+     */
+    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    expect(defilements).toHaveLength(1);
+    expect(defilements[0].cible.classList.contains('red')).toBe(true);
+    expect(defilements[0].options).toMatchObject({ block: 'start' });
+  });
+
+  /** Le curseur au TOUT DÉBUT du message : `focus()` seul le poserait à la fin, sous la signature et la citation. */
+  it('le curseur est dans le champ MESSAGE, à la position 0', async () => {
+    await monter();
+    await cliquer(ligne(11)?.querySelector('.cnv-ligne'));
+    await cliquer(repondreDe(11, /^Répondre$/));
+    const corps = container.querySelector('#red-corps') as HTMLTextAreaElement;
+    expect(document.activeElement).toBe(corps);
+    expect(corps.selectionStart).toBe(0);
+    expect(corps.selectionEnd).toBe(0);
+  });
+
+  /** Pour un TRANSFERT, il n'y a pas de destinataire : c'est le champ « À » qu'il faut remplir d'abord. */
+  it('pour « Transférer », le curseur est dans le champ « À », qui est vide', async () => {
+    await monter();
+    await cliquer(repondreDe(13, /^Transférer$/));
+    const actif = document.activeElement as HTMLInputElement;
+    expect(actif.tagName).toBe('INPUT');
+    expect(actif.value).toBe('');
+    expect(container.querySelector('#red-corps')).not.toBe(actif);
+  });
+
+  it('un repère visuel confirme l’ouverture, et s’efface', async () => {
+    await monter();
+    await cliquer(repondreDe(13, /^Répondre$/));
+    expect(container.querySelector('.red')?.classList.contains('red--ouvre')).toBe(true);
+  });
+
+  /** Le pied de conversation, lui, garde sa place : il répond au plus récent et s'ouvre en bas, comme avant. */
+  it('le pied de conversation ouvre l’éditeur à SA place, hors des messages', async () => {
+    await monter();
+    await cliquer([...container.querySelectorAll('.cnv-pied-bouton')].find((b) => /^Répondre$/.test(b.textContent ?? '')));
+    expect(container.querySelector('.red')).not.toBeNull();
+    expect(container.querySelector('li[data-message] .red')).toBeNull();
+  });
+
+  /**
+   * 🔴 ON NE PERD JAMAIS CE QUI EST ÉCRIT. Rouvrir « Répondre » ailleurs ne doit pas fabriquer un second éditeur :
+   * il n'y en a qu'un, qui se déplace. Le brouillon, lui, est enregistré par sa propre route, indépendamment de
+   * l'endroit où l'éditeur est rendu.
+   */
+  it('il n’y a JAMAIS deux éditeurs à l’écran', async () => {
+    await monter();
+    await cliquer(ligne(11)?.querySelector('.cnv-ligne'));
+    await cliquer(repondreDe(11, /^Répondre$/));
+    await cliquer(repondreDe(13, /^Répondre$/));
+    expect(container.querySelectorAll('.red')).toHaveLength(1);
+    expect(ligne(13)?.querySelector('.red')).not.toBeNull();
+  });
+});

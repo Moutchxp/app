@@ -216,6 +216,94 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
   //   relancer le compte à rebours.
   const minuteur = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  /**
+   * ══ 🔴 LOT REPONSE-VISIBLE — L'ÉDITEUR SE MONTRE, ET IL SE MONTRE OÙ IL FAUT ═══════════════════════════════════
+   * Constat d'Arno : on cliquait « Répondre » et il ne se passait rien — l'éditeur s'ouvrait bien, mais hors de
+   * l'écran, sous une conversation de douze messages. Un bouton dont l'effet est invisible est un bouton cassé.
+   *
+   * Trois choses à l'ouverture, et elles vont ensemble :
+   *   ① on AMÈNE l'éditeur en haut de la zone visible (`block: 'start'`, avec la marge de `scroll-margin-top`) ;
+   *   ② on met le curseur là où l'on va taper — dans le MESSAGE, au tout DÉBUT, donc au-dessus de la signature ;
+   *      pour un transfert, dans le champ « À », qui est vide et qu'il faut remplir d'abord ;
+   *   ③ un bref surlignage confirme que quelque chose s'est ouvert, pour l'œil qui suivait le curseur ailleurs.
+   *
+   * ⚠️ `prefers-reduced-motion` COUPE LE DÉFILEMENT DOUX, pas le défilement : on arrive au même endroit, d'un coup.
+   * Le surlignage, lui, est une animation CSS que la même requête média neutralise.
+   *
+   * ⚠️ UNE SEULE FOIS PAR OUVERTURE. L'effet ne dépend que de la VOIE et de l'identifiant du brouillon : il ne se
+   * rejoue ni à la frappe, ni à l'enregistrement automatique — sans quoi l'écran sauterait toutes les deux secondes
+   * pendant qu'on écrit, et le curseur reviendrait au début du texte.
+   */
+  const racine = useRef<HTMLElement | null>(null);
+  const corpsRef = useRef<HTMLTextAreaElement | null>(null);
+  const [ouvre, setOuvre] = useState(true);
+  const cleOuverture = `${brouillon.voie}:${brouillon.id ?? 'neuf'}`;
+  useEffect(() => {
+    const doux = !globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    /**
+     * 🔴 APRÈS LA MISE EN PAGE, PAS PENDANT. Mesuré dans le navigateur : appelé dans l'effet, le défilement partait
+     * alors que l'éditeur n'avait pas encore sa hauteur définitive (la zone des pièces et le bloc de citation
+     * s'installent juste après) — le bloc finissait 83 px trop bas au lieu des 12 px voulus. Une image de retard
+     * suffit à le faire arriver pile.
+     *
+     * ⚠️ ON VÉRIFIE QUE LA MÉTHODE EXISTE. `scrollIntoView` est une fonction du navigateur : elle manque dans
+     * jsdom, et rien ne garantit qu'un futur environnement la fournisse. Sans ce test, l'ouverture de l'éditeur
+     * JETTE — c'est-à-dire que le geste le plus fréquent du module tombe pour une raison qui n'a rien à voir avec
+     * lui. Amener l'éditeur sous les yeux est un confort ; écrire ne l'est pas.
+     */
+    const caler = () => {
+      const el = racine.current;
+      if (typeof el?.scrollIntoView === 'function') {
+        el.scrollIntoView({ block: 'start', behavior: doux ? 'smooth' : 'auto' });
+      }
+    };
+    const apresMiseEnPage = (f: () => void): ReturnType<typeof setTimeout> | number =>
+      (typeof globalThis.requestAnimationFrame === 'function'
+        ? globalThis.requestAnimationFrame(f)
+        : setTimeout(f, 0));
+    const image = apresMiseEnPage(caler);
+    /**
+     * ══ 🔴 DEUX RECALAGES, ET VOICI POURQUOI ILS SONT NÉCESSAIRES ═════════════════════════════════════════════
+     * MESURÉ dans le navigateur, et ce n'est pas ce que je croyais au départ. Le bloc finissait 83 px trop bas au
+     * lieu de 12, et il n'y restait pas par erreur de calcul : **le navigateur avait défilé au maximum possible à
+     * cet instant-là**. Au moment du premier appel, l'éditeur n'a pas encore sa hauteur définitive — la zone des
+     * pièces jointes et les suggestions arrivent après leur requête — donc la PAGE est plus courte, et son bas
+     * arrive avant la position visée. Quand la page s'allonge ensuite, plus rien ne redéplace la vue : le bloc
+     * reste là où il s'était arrêté. Échantillonné toutes les 200 ms : position figée à 83 px, défilement à 1470
+     * pour un maximum de 1558.
+     *
+     * On rappelle donc le calage deux fois, une fois le contenu arrivé. ⚠️ EN DÉFILEMENT INSTANTANÉ (`auto`) : un
+     * second défilement DOUX interromprait le premier et donnerait une glissade en deux temps, visible et laide.
+     *
+     * ⚠️ BORNÉ, ET COURT. Deux rappels, terminés avant que le surlignage s'efface (1,1 s). Recaler plus longtemps
+     * ferait sauter l'écran pendant qu'on écrit — le bloc change de hauteur à chaque ligne tapée.
+     */
+    const recalages = [250, 700].map((ms) => setTimeout(() => {
+      const el = racine.current;
+      if (typeof el?.scrollIntoView === 'function') el.scrollIntoView({ block: 'start', behavior: 'auto' });
+    }, ms));
+    /**
+     * LE CURSEUR DANS LE MESSAGE, À LA POSITION 0. `focus()` seul poserait le curseur à la FIN — c'est-à-dire sous
+     * la signature et sous la citation, là où personne n'écrit une réponse.
+     *
+     * ⚠️ PAS POUR UN TRANSFERT NI UN MESSAGE NEUF : là, le champ « À » est vide et c'est lui qu'il faut remplir
+     * d'abord. Il porte déjà `autoFocus` — on ne lui reprend donc pas le curseur.
+     */
+    if (brouillon.voie === 'repondre' || brouillon.voie === 'repondre_tous') {
+      const t = corpsRef.current;
+      if (t) { t.focus(); t.setSelectionRange(0, 0); }
+    }
+    const fin = setTimeout(() => setOuvre(false), 1100);
+    return () => {
+      clearTimeout(fin);
+      for (const t of recalages) clearTimeout(t);
+      if (typeof globalThis.cancelAnimationFrame === 'function') globalThis.cancelAnimationFrame(image as number);
+      else clearTimeout(image as ReturnType<typeof setTimeout>);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : SEULE une nouvelle ouverture doit
+    //   déclencher tout cela. Ajouter `brouillon` ferait sauter l'écran à chaque frappe.
+  }, [cleOuverture]);
+
   const modifier = (p: Partial<BrouillonEcran>) => onChange({ ...brouillon, ...p });
 
   // ── ENREGISTREMENT AUTOMATIQUE. 🔴 Il n'envoie JAMAIS rien : la route des brouillons n'importe aucun chemin
@@ -340,7 +428,7 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
   }
 
   return (
-    <section className="red" aria-label={titre}>
+    <section className={`red${ouvre ? ' red--ouvre' : ''}`} aria-label={titre} ref={racine}>
       <style>{CSS_REDACTION}</style>
 
       <div className="red-haut">
@@ -359,8 +447,13 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
       )}
       {etat.v === 'echec' && <p className="gst-compte-rendu gst-ton-erreur" role="status">{etat.motif}</p>}
 
+      {/* ⚠️ LOT REPONSE-VISIBLE — PLUS D'AUTOFOCUS SUR UNE RÉPONSE. Le champ « À » d'une réponse est DÉJÀ rempli :
+          y poser le curseur obligeait à en sortir avant d'écrire. Il le garde là où il est vide et où il faut
+          commencer — un transfert, un message neuf. Pour une réponse, c'est le corps qui prend le curseur (voir
+          l'encadré de l'effet d'ouverture). */}
       <ChampDestinataires libelle="À" valeurs={brouillon.a} onChange={(a) => modifier({ a })}
-        suggestions={suggestions} onChercher={chercherCorrespondants} autoFocus={brouillon.a.length === 0} />
+        suggestions={suggestions} onChercher={chercherCorrespondants}
+        autoFocus={brouillon.a.length === 0 && brouillon.voie !== 'repondre' && brouillon.voie !== 'repondre_tous'} />
 
       {/* Cc et Cci REPLIÉS par défaut : neuf messages sur dix n'en ont pas, et deux champs vides de plus font croire
           qu'il faut les remplir. Le bouton dit combien il en cache, pour qu'on ne les oublie pas. */}
@@ -390,7 +483,7 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
 
       <div className="red-champ">
         <label className="red-label" htmlFor="red-corps">Message</label>
-        <textarea id="red-corps" className="red-corps" rows={10} value={brouillon.corps}
+        <textarea id="red-corps" className="red-corps" rows={10} value={brouillon.corps} ref={corpsRef}
           onChange={(e) => modifier({ corps: e.target.value })} />
       </div>
 
@@ -432,7 +525,16 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
 }
 
 const CSS_REDACTION = `
-.red{display:flex;flex-direction:column;gap:10px;min-width:0;padding:12px 0;border-top:1px solid var(--color-svv-line)}
+/* ══ LOT REPONSE-VISIBLE — L'ÉDITEUR S'ANNONCE ══════════════════════════════════════════════════════════════════
+   scroll-margin-top : le petit espace au-dessus quand on l'amène en haut de la zone visible. Écrit ici plutôt que
+   calculé en pixels dans le code — c'est le navigateur qui sait où commence la zone visible.
+   Le surlignage dure 1 s et s'estompe. Il ne porte AUCUNE information : il confirme un geste, rien de plus, et une
+   personne qui ne le voit pas n'a rien perdu (le curseur est déjà dans le champ). */
+.red{display:flex;flex-direction:column;gap:10px;min-width:0;padding:12px 0;border-top:1px solid var(--color-svv-line);
+  scroll-margin-top:12px;border-radius:8px}
+.red--ouvre{animation:red-ouvre 1s ease-out}
+@keyframes red-ouvre{from{background:var(--color-svv-field)}to{background:transparent}}
+@media (prefers-reduced-motion:reduce){.red--ouvre{animation:none}}
 .red-apres{align-items:flex-start}
 .red-haut{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem}
 .red-haut .gst-titre{margin:0}

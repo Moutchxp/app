@@ -201,6 +201,23 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   /** LOT 5e — le brouillon en cours d'écriture sous la conversation. `null` = on ne rédige pas. */
   const [brouillon, setBrouillon] = useState<BrouillonEcran | null>(null);
   /**
+   * ══ 🔴 LOT REPONSE-VISIBLE — SOUS QUEL MESSAGE L'ÉDITEUR S'OUVRE ══════════════════════════════════════════════
+   * `null` = sous la conversation entière, à la fin — c'est la place du pied de page, qui répond au message le plus
+   * récent et le dit. Un identifiant = l'éditeur se rend DANS ce message, juste après son contenu : on répond à ce
+   * qu'on est en train de lire, et on le voit sans avoir à chercher.
+   *
+   * 🔴 IL NE SE PERD RIEN. C'est le MÊME état `brouillon` qui voyage : changer de place ne crée pas un second
+   * éditeur et n'efface pas ce qui est saisi. L'enregistrement automatique des brouillons, lui, n'a jamais dépendu
+   * de l'endroit où l'éditeur est rendu.
+   */
+  const [brouillonSous, setBrouillonSous] = useState<number | null>(null);
+  /** Ouvre la rédaction pour UN message précis, et la place sous lui. Un seul endroit pour les deux décisions. */
+  const repondreA = (voie: VoieRedaction, m: MessageDeFil) => {
+    if (redaction === null) return;
+    setBrouillon(ouvrirRedaction(voie, [m], filId, redaction, maintenant));
+    setBrouillonSous(m.messageId);
+  };
+  /**
    * LOT 5-FIDÈLE — l'état de chaque message DANS GMAIL (étoile, non lu). Relu à l'ouverture, jamais mémorisé en base :
    * quelqu'un de l'équipe peut étoiler depuis son téléphone pendant qu'on regarde l'écran.
    */
@@ -372,7 +389,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     };
     switch (a) {
       case 'repondre': case 'repondre_tous': case 'transferer':
-        if (redaction) setBrouillon(ouvrirRedaction(a, [m], fil.filId, redaction, maintenant));
+        repondreA(a, m);
         return;
       // Ces quatre-là, Gmail ne les expose pas : on y emmène, et l'entrée l'annonce déjà en toutes lettres.
       case 'partager_chat': case 'hameconnage': case 'illegal': case 'traduire':
@@ -566,7 +583,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             onActionStatut={agirSurLeStatut}
             gmail={{ etat: gmail.get(m.messageId) ?? null }}
             onEtoile={barreActions && redaction ? () => void basculerEtoile(m) : undefined}
-            onRepondre={barreActions && redaction ? (voie) => setBrouillon(ouvrirRedaction(voie, [m], fil.filId, redaction, maintenant)) : undefined}
+            onRepondre={barreActions && redaction ? (voie) => repondreA(voie, m) : undefined}
             onActionMessage={barreActions ? (a) => void agirSurLeMessage(a, m) : undefined}
             onDeplacer={() => setDeplacer(m.messageId)}
             onRemettre={() => void agirSurLeMail(m.messageId, null, onGeste)}
@@ -579,6 +596,15 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
               <DeplacerVers titre="Déplacer ce mail vers" exclure={null}
                 onAnnuler={() => setDeplacer(null)}
                 onValider={async (cible) => { await agirSurLeMail(m.messageId, cible, onGeste); setDeplacer(null); }} />
+            ) : null}
+            /* 🔴 L'ÉDITEUR, JUSTE SOUS CE MESSAGE — lot REPONSE-VISIBLE. Il ne s'ouvre ici que s'il a été demandé
+               DEPUIS ce message ; sinon il reste à sa place historique, en pied de conversation. */
+            piedMessage={brouillon !== null && brouillonSous === m.messageId && redaction ? (
+              <Redaction brouillon={brouillon} contexte={redaction}
+                onChange={setBrouillon}
+                onFerme={() => { setBrouillon(null); setBrouillonSous(null); }}
+                onEnvoye={() => { setBrouillon(null); setBrouillonSous(null); void recharger(); }}
+                onGeste={(t) => onGeste(t)} />
             ) : null} />
         ))}
       </ol>
@@ -587,13 +613,13 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
           Les trois boutons ne s'affichent QUE si tout est réuni : base à jour, droit d'envoi, et écran de lecture en
           pleine page. Chaque manque est DIT, jamais tu — un bouton absent sans explication envoie chercher un bug. */}
       {barreActions && redaction && (
-        brouillon !== null ? (
+        brouillon !== null && brouillonSous === null ? (
           <Redaction brouillon={brouillon} contexte={redaction}
             onChange={setBrouillon}
             onFerme={() => setBrouillon(null)}
             onEnvoye={() => { setBrouillon(null); void recharger(); }}
             onGeste={(m) => onGeste(m)} />
-        ) : (
+        ) : brouillon !== null ? null : (
           <div className="cnv-ecrire">
             {!redaction.schemaPret && (
               <p className="gst-tronc">Mise à jour de la base à appliquer avant de pouvoir écrire (migrations 239 à 241).</p>
@@ -622,7 +648,10 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
                 <div className="cnv-pied">
                   {(['repondre', 'repondre_tous', 'transferer'] as const).map((voie) => (
                     <button key={voie} type="button" className="cnv-pied-bouton"
-                      onClick={() => setBrouillon(ouvrirRedaction(voie, messages, fil.filId, redaction, maintenant))}>
+                      onClick={() => {
+                        setBrouillon(ouvrirRedaction(voie, messages, fil.filId, redaction, maintenant));
+                        setBrouillonSous(null); // le pied répond au plus récent : il s'ouvre à SA place, en bas
+                      }}>
                       <IconeVoie voie={voie} />
                       <span>{voie === 'repondre' ? 'Répondre' : voie === 'repondre_tous' ? 'Répondre à tous' : 'Transférer'}</span>
                     </button>
@@ -712,7 +741,7 @@ function ouvrirRedaction(
  */
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
-  gmail, onEtoile, onRepondre, onActionMessage, filId = null,
+  gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null,
   rattachements = null, onRattachement, onGesteRattachement, onHistorique,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
@@ -724,6 +753,12 @@ export function MessageConversation({
   corpsCharge?: string | null; onBasculer: () => void;
   /** Gestes par mail, CONSERVÉS du lot 4d : déplacer ce mail vers une autre carte, ou l'en détacher. */
   onDeplacer?: () => void; onRemettre?: () => void; panneau?: React.ReactNode;
+  /**
+   * LOT REPONSE-VISIBLE — ce qui se rend À LA FIN de ce message, après son contenu et ses pièces : l'éditeur de
+   * réponse, quand il a été ouvert depuis CE message. Absent (le défaut) ⇒ rien, et le message est exactement celui
+   * d'avant ce lot. Distinct de `panneau`, qui se rend AU-DESSUS du détail et sert au déplacement d'un mail.
+   */
+  piedMessage?: React.ReactNode;
   /**
    * LOT 5-STATUT — OÙ EN EST CE MESSAGE, juste à gauche de sa date. Absent = aucun cartouche, et le message est
    * exactement celui d'avant ce lot (c'est le cas des écrans qui n'en ont pas besoin).
@@ -988,6 +1023,9 @@ export function MessageConversation({
           )}
         </div>
       )}
+      {/* L'ÉDITEUR, S'IL APPARTIENT À CE MESSAGE. En dernier, après les pièces jointes : on répond sous ce qu'on
+          vient de lire, pas au milieu. */}
+      {piedMessage}
     </li>
   );
 }
