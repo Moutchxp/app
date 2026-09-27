@@ -198,7 +198,12 @@ export function motStatut(s: string): string {
   return s;
 }
 
-const CSS_MODIFIER_RATTACHEMENT = `
+/**
+ * ⚠️ EXPORTÉE DEPUIS LE LOT BARRE-STATUT : la fenêtre « Visualiser / Modifier » (`RattachementsDuFil`) réutilise le
+ * MÊME voile et la MÊME boîte. Recopier ces règles ailleurs aurait donné deux fenêtres qui se ressemblent presque,
+ * et qui divergeraient au premier ajustement.
+ */
+export const CSS_MODIFIER_RATTACHEMENT = `
 /* Le voile : il ferme au clic à côté, comme toutes les fenêtres du module. Le contenu défile si l'écran est court —
    une fenêtre plus haute que l'écran cacherait ses propres boutons. */
 .mrt-voile{position:fixed;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;padding:16px;

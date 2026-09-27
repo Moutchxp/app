@@ -2,7 +2,7 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import {
-  changerStatut, chiffresRattachement, fileATrier, liensDeLaPiece, liensDesMessages, rattacher,
+  changerStatut, chiffresRattachement, fileATrier, liensDeLaPiece, liensDesMessages, liensDuFil, rattacher,
 } from '../../../../../lib/gestion/rattachementRepo';
 import type { Cible, Issue, Statut } from '../../../../../lib/gestion/rattachement';
 
@@ -16,6 +16,7 @@ import type { Cible, Issue, Statut } from '../../../../../lib/gestion/rattacheme
  *
  * LES QUESTIONS, EN LECTURE :
  *   · `?messages=1,2,3`   les liens vivants de ces mails — le bandeau d'une conversation, en UNE requête
+ *   · `?fil=N`            TOUS les liens vivants d'un échange — la fenêtre ouverte depuis une ligne de liste
  *   · `?piece=N`          les liens d'une pièce : ceux de son mail (hérités) ET les siens
  *   · `?file=1&page=0`    la file « À trier », avec ses totaux
  *   · `?chiffres=1`       l'état d'ensemble
@@ -92,6 +93,13 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const piece = identifiant(url.searchParams.get('piece'));
     if (piece !== null) return Response.json(await liensDeLaPiece(piece), { headers: ENTETES });
+
+    /**
+     * LOT BARRE-STATUT — TOUS LES LIENS D'UN ÉCHANGE. Depuis une ligne de liste on ne connaît que l'échange : sans
+     * cette question, il faudrait charger toute la conversation pour ouvrir une fenêtre de consultation.
+     */
+    const fil = identifiant(url.searchParams.get('fil'));
+    if (fil !== null) return Response.json(await liensDuFil(fil), { headers: ENTETES });
 
     if (url.searchParams.get('chiffres') !== null) {
       return Response.json(await chiffresRattachement(), { headers: ENTETES });

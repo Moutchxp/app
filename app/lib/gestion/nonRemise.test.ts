@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
   candidatsMessageId, estAvisNonRemise, lireAvis, motifNonRemise, phraseNonRemise, sorteAvis,
+  texteHumainAvis,
 } from './nonRemise';
 import { mentionNonRemise } from './conversation';
 import type { MessageDeFil } from './carteRepo';
@@ -387,5 +388,149 @@ describe('les garanties du lot', () => {
   it('🔴 le rattachement n’accepte qu’un message que NOUS avons envoyé', () => {
     // Sans ce garde, un identifiant malencontreusement partagé collerait « non distribué » sur le mail d'un locataire.
     expect(sans(readFileSync('app/lib/gestion/nonRemiseRepo.ts', 'utf8'))).toContain("sens = 'envoye'");
+  });
+});
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT AVIS-LISIBLE — LE PASSAGE LISIBLE D'UN AVIS, ISOLÉ DE SA PARTIE TECHNIQUE (demande d'Arno).
+ *
+ * CE QUE CE BLOC PROTÈGE, et qu'aucune relecture ne montre :
+ *   ① la phrase humaine sort ENTIÈRE, en français comme en anglais — c'est elle qu'on vient lire en ouvrant l'avis ;
+ *   ② la coupe se fait AVANT le marqueur technique, jamais après : un « Reporting-MTA » ou un `Received:` dans le
+ *      bandeau rouge, et l'alerte devient un mur qu'on cesse de lire ;
+ *   ③ rien n'est PERDU : ce qui n'est pas en rouge reste affiché dessous, mot pour mot ;
+ *   ④ « Consultez les informations techniques ci-dessous » N'EST PAS un marqueur : c'est la fin d'une phrase
+ *      humaine, et couper là ampute l'avis de sa moitié utile.
+ *
+ * Les corps ci-dessous sont RECOPIÉS de la base (fil 35848 message 57056, et deux autres avis réels).
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 le passage lisible d’un avis de non-remise', () => {
+  /** L'exemple exact donné par Arno : fil 35848, message 57056. */
+  const AVIS_FR = [
+    '** Boîte de réception du destinataire pleine **',
+    '',
+    "Votre message n'a pas pu être distribué à rishikadsingh@gmail.com. Sa boîte de réception est pleine ou elle reçoit un trop grand nombre de messages actuellement.",
+    '',
+    'Cliquez ici pour en savoir plus : https://support.google.com/mail/?p=OverQuotaTemp',
+    '',
+    'La réponse était :',
+    '',
+    "452 4.2.2 The recipient's inbox is out of storage space.",
+    '',
+    'Reporting-MTA: dns; googlemail.com',
+    'Final-Recipient: rfc822; rishikadsingh@gmail.com',
+    'Action: failed',
+    'Status: 4.2.2',
+  ].join('\n');
+
+  it('🔴 FRANÇAIS : le titre ET la phrase, en entier — et rien de technique', () => {
+    const { humain } = texteHumainAvis(AVIS_FR);
+    expect(humain).toBe(
+      '** Boîte de réception du destinataire pleine **\n'
+      + "Votre message n'a pas pu être distribué à rishikadsingh@gmail.com. Sa boîte de réception est pleine ou elle reçoit un trop grand nombre de messages actuellement.");
+  });
+
+  it('la partie technique est CONSERVÉE, et commence au marqueur', () => {
+    const { technique } = texteHumainAvis(AVIS_FR);
+    expect(technique.startsWith('Cliquez ici pour en savoir plus')).toBe(true);
+    expect(technique).toContain('Reporting-MTA: dns; googlemail.com');
+    expect(technique).toContain('Final-Recipient: rfc822; rishikadsingh@gmail.com');
+  });
+
+  /** ④ Le piège : cette phrase ANNONCE la technique mais EST du texte humain. La couper amputerait l'avis. */
+  it('🔴 « Consultez les informations techniques ci-dessous » reste DANS le texte humain', () => {
+    const { humain } = texteHumainAvis([
+      '** Message non distribué **',
+      '',
+      "Un problème est survenu lors de la distribution de votre message à yves.godeau@club-internet.fr. Consultez les informations techniques ci-dessous.",
+      '',
+      'Réponse du serveur distant :',
+      '550 5.7.1 Email rejected per SPAM policy',
+    ].join('\n'));
+    expect(humain).toContain('Consultez les informations techniques ci-dessous.');
+    expect(humain).not.toContain('550');
+    expect(humain).not.toContain('Réponse du serveur distant');
+  });
+
+  it('ANGLAIS : « Address not found » / « couldn’t be delivered » sont traités pareil', () => {
+    const { humain, technique } = texteHumainAvis([
+      "Your message to daniel.raimundo@lumileds.com couldn't be delivered.",
+      "daniel.raimundo wasn't found at lumileds.com.",
+      '',
+      'How to Fix It',
+      'The address may be misspelled or may not exist.',
+      '________________________________',
+      'More Info for Email Admins',
+      'Status code 554 5.4.14',
+    ].join('\n'));
+    expect(humain).toContain("couldn't be delivered");
+    expect(humain).toContain('How to Fix It');
+    // ② La partie administrateur N'ENTRE PAS dans le rouge.
+    expect(humain).not.toContain('More Info for Email Admins');
+    expect(technique).toContain('More Info for Email Admins');
+  });
+
+  /**
+   * 🔴 LE DÉFAUT VU EN VÉRIFIANT LA FONCTION SUR LES 77 AVIS DE LA BASE : sans marqueur sur les en-têtes recopiés,
+   * la coupe se faisait au premier `Content-Type:` — très bas — et le bandeau rouge avalait `Received:`, `Subject:`
+   * et le `Message-ID:` du message d'origine.
+   */
+  it('🔴 les EN-TÊTES RECOPIÉS de l’original n’entrent jamais dans le rouge', () => {
+    const { humain } = texteHumainAvis([
+      'Your message could not be delivered to the recipient.',
+      'The address was rejected by the server.',
+      'Received: from WIN-V9LIVL9JLSI ([51.83.111.8])',
+      'Subject: Document CRITERIMMO - Quittance',
+      'Message-ID: <ONHMEY9NTSU4@win-v9livl9jlsi>',
+    ].join('\n'));
+    expect(humain).not.toContain('Received:');
+    expect(humain).not.toContain('Subject:');
+    expect(humain).not.toContain('Message-ID:');
+  });
+
+  it('les lignes vides et les URL nues ne polluent pas le bandeau', () => {
+    const { humain } = texteHumainAvis([
+      '[https://products.office.com/en-us/CMSImages/Office365Logo_Orange.png?version=b8d]',
+      'Your message to someone@example.com could not be delivered today.',
+      '',
+      'Reporting-MTA: dns; googlemail.com',
+    ].join('\n'));
+    expect(humain).toBe('Your message to someone@example.com could not be delivered today.');
+  });
+
+  /**
+   * 🔴 LE REPLI : un avis qui commence directement par son rapport machine ne donne rien de lisible. On rend `null`,
+   * et l'écran se rabat sur le motif déjà extrait pour la ligne de liste — jamais un bandeau rouge vide.
+   */
+  it('🔴 rien d’isolable ⇒ `null`, jamais une chaîne vide', () => {
+    expect(texteHumainAvis('Reporting-MTA: dns; googlemail.com\nAction: failed').humain).toBeNull();
+    expect(texteHumainAvis('gestion').humain).toBeNull(); // trop court pour apprendre quoi que ce soit
+    expect(texteHumainAvis(null).humain).toBeNull();
+    expect(texteHumainAvis('').humain).toBeNull();
+  });
+
+  /** ③ Un avis SANS partie technique garde tout de même son corps : on ne rend jamais une technique vide par erreur. */
+  it('un avis entièrement humain : tout en rouge, et rien ne manque', () => {
+    const r = texteHumainAvis('Votre message n’a pas pu être remis au destinataire indiqué.');
+    expect(r.humain).toBe('Votre message n’a pas pu être remis au destinataire indiqué.');
+    expect(r.technique).toBe('');
+  });
+
+  /**
+   * ⚠️ LE PLAFOND — un avis Office 365 fait suivre son constat d'un mode d'emploi de plusieurs milliers de signes.
+   * Tout passer en rouge ferait un mur qu'on cesserait de lire. Ce qui dépasse N'EST PAS PERDU : il redescend dans
+   * la partie normale, et la coupe se fait sur une FIN DE LIGNE.
+   */
+  it('🔴 un avis très long est borné, et le surplus redescend — jamais jeté', () => {
+    const ligne = 'Une ligne d’explication qui prend de la place dans le bandeau rouge.';
+    const long = Array.from({ length: 60 }, () => ligne).join('\n');
+    const r = texteHumainAvis(long);
+    expect((r.humain ?? '').length).toBeLessThanOrEqual(1200);
+    expect(r.humain).not.toContain('\n\n');            // coupé sur une fin de ligne, pas au milieu d'un mot
+    // Tout le texte est encore là, réparti entre les deux parties.
+    const total = `${r.humain ?? ''}\n${r.technique}`.replace(/\s+/g, ' ');
+    expect(total.split(ligne).length - 1).toBe(60);
   });
 });

@@ -13,6 +13,8 @@ import {
   type ActionStatut, type StatutClassement,
 } from '../../../../lib/gestion/statutClassement';
 import { corpsLisible, trierPieces } from '../../../../lib/gestion/lisibilite';
+// LOT AVIS-LISIBLE — module PUR (aucune base) : lire un avis de non-remise et en isoler le passage humain.
+import { estAvisNonRemise, lireAvis, motifNonRemise, texteHumainAvis } from '../../../../lib/gestion/nonRemise';
 import { CSS_PIECES, PiecesJointes } from './PiecesJointes';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { MenuDiscret } from './MenuDiscret';
@@ -24,6 +26,8 @@ import { PanneauAffecter } from './PanneauAffecter';
 import { EncartAnnuaire } from './EncartAnnuaire';
 // Le bandeau porte son propre CSS en ligne, comme `EncartAnnuaire` : rien à ajouter à `CSS_CONVERSATION`.
 import { EncartRattachement } from './EncartRattachement';
+// LOT BARRE-STATUT — la fenêtre « Visualiser / Modifier », partagée avec la liste.
+import { RattachementsDuFil } from './RattachementsDuFil';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 import type { Cible } from '../../../../lib/gestion/rattachement';
 import { agirSurLeMail, DeplacerVers, type Rapport } from './gestesMail';
@@ -840,7 +844,25 @@ export function MessageConversation({
   onHistorique?: (cible: Cible) => void;
 }) {
   const [actions, setActions] = useState(false);
+  /** LOT BARRE-STATUT — la fenêtre « Visualiser / Modifier », ouverte depuis l'en-tête de CE message. */
+  const [voirRattachements, setVoirRattachements] = useState(false);
   const propositions = statut ? actionsDuStatut(statut) : { declencheur: null, actions: [] };
+  /**
+   * ══ 🔴 LOT BARRE-STATUT — LE LIEN DE L'EN-TÊTE SUIT LA MÊME RÈGLE QUE LA BARRE D'UNE LIGNE ════════════════════
+   * Demande d'Arno. Rattachement CONFIRMÉ vers un logement ou un propriétaire ⇒ « Visualiser / Modifier », en vert,
+   * qui ouvre la fenêtre des rattachements. Sinon, le lien d'avant, inchangé.
+   *
+   * ⚠️ C'EST LA QUESTION DE LA CAPSULE, PAS CELLE DU CARTOUCHE, et il ne faut surtout pas les confondre : le
+   * CARTOUCHE dit si l'échange est posé sur une CARTE (un événement) ; la capsule dit s'il est rattaché à un
+   * LOGEMENT ou à un PROPRIÉTAIRE. Deux questions, deux nombres — mesurés le 27/09 : 474 contre 9 631. On ne
+   * touche donc PAS au mot du cartouche ; on ne remplace que son bouton, et seulement sur la seconde question.
+   *
+   * ⚠️ `rattachements === null` (migration 257 absente, ou écran qui ne les charge pas) ⇒ on ne sait rien, et on
+   * garde le lien d'avant. On ne devine pas un état qu'on n'a pas lu.
+   */
+  const rattacheConfirme = (rattachements ?? []).some(
+    (l) => l.statut === 'confirme' && (l.cible.sorte === 'lot' || l.cible.sorte === 'proprietaire'));
+  const visualisable = rattachements !== null && rattacheConfirme && filId !== null;
   const hors = mentionHorsFile(message);
   // LOT ENVOI-DIAG — ce message n'est pas arrivé. Rien de plus important à dire sur un message, donc rien au-dessus.
   const echec = mentionNonRemise(message);
@@ -848,6 +870,29 @@ export function MessageConversation({
   const etat = etatCorps(message, corpsCharge);
   const lisible = etat.v === 'texte' ? corpsLisible(etat.texte) : null;
   const { vraies, signatures } = trierPieces(message.pieces);
+
+  /**
+   * ══ 🔴 LOT AVIS-LISIBLE — CE MESSAGE EST LUI-MÊME UN AVIS DE NON-REMISE ══════════════════════════════════════
+   * Celui qui produit la ligne rouge dans la liste. En l'ouvrant, on veut LA PHRASE, tout de suite et en entier :
+   * « Sa boîte de réception est pleine ». Elle était noyée entre un code SMTP, un `Reporting-MTA` et un
+   * `Diagnostic-Code` replié sur trois lignes — et la ligne de liste, elle, n'en donnait qu'une version tronquée.
+   *
+   * ⚠️ C'EST L'AVIS LUI-MÊME, PAS LE MESSAGE QUI A ÉCHOUÉ. Les deux portent du rouge et il ne faut pas les
+   * confondre : `echec` (juste au-dessus) marque le mail QUE NOUS AVONS ENVOYÉ et qui n'est pas arrivé ; ceci
+   * marque le mail DU SERVEUR qui nous l'annonce.
+   *
+   * ⚠️ RIEN N'EST CACHÉ : la partie technique reste affichée dessous, en couleur normale, mot pour mot.
+   */
+  const avis = etat.v === 'texte'
+    && estAvisNonRemise({ deAdresse: message.de, objet: message.objet, corps: etat.texte })
+    ? texteHumainAvis(etat.texte) : null;
+  /**
+   * 🔴 LE REPLI DEMANDÉ PAR ARNO : quand le texte humain ne peut pas être isolé (un avis qui commence directement
+   * par son rapport machine), on met en rouge LE MOTIF DÉJÀ EXTRAIT pour la ligne de liste. Un bandeau vide serait
+   * pire que pas de bandeau : on croirait que l'avis ne dit rien.
+   */
+  const avisRouge = avis === null ? null
+    : avis.humain ?? motifNonRemise(lireAvis(etat.v === 'texte' ? etat.texte : null));
 
   return (
     /**
@@ -861,6 +906,14 @@ export function MessageConversation({
      */
     <li data-message={message.messageId}
       className={`cnv-msg${message.horsFile ? ' cnv-msg--hors' : ''}${echec?.definitif ? ' cnv-msg--echoue' : ''}`}>
+      {/* LOT BARRE-STATUT — la fenêtre des rattachements, ouverte depuis « Visualiser / Modifier » de l'en-tête.
+          Elle se rend AU NIVEAU DU MESSAGE, jamais dans son en-tête : celui-ci est une rangée serrée de boutons. */}
+      {voirRattachements && filId !== null && (
+        <RattachementsDuFil filId={filId} titre={nettoyerObjet(message.objet ?? '') || null}
+          onFerme={() => setVoirRattachements(false)}
+          onGeste={() => { setVoirRattachements(false); void onRattachement?.(); }} />
+      )}
+
       {/* ══ LOT ENVOI-DIAG — CE MESSAGE N'EST PAS ARRIVÉ ══════════════════════════════════════════════════════════
           🔴 AU-DESSUS DE TOUT LE RESTE, EN MOTS, ET HORS DU BOUTON. Au-dessus parce que c'est l'information qui
           change la suite (il faut réécrire, ou appeler) ; en mots parce qu'une couleur seule ne se lit ni en niveaux
@@ -913,8 +966,11 @@ export function MessageConversation({
       <div className="cnv-coin">
         {statut && (
           <CartoucheStatut statut={statut} ouvert={actions}
-            declencheur={propositions.declencheur}
-            onBasculer={onActionStatut ? () => setActions((v) => !v) : undefined} />
+            declencheur={visualisable ? 'Visualiser / Modifier' : propositions.declencheur}
+            vert={visualisable}
+            onBasculer={visualisable
+              ? () => setVoirRattachements(true)
+              : (onActionStatut ? () => setActions((v) => !v) : undefined)} />
         )}
         {/* L'heure façon Gmail : « 19:07 (il y a 3 heures) », « hier 17:24 », « 22 sept. 18:44 ». */}
         <span className="cnv-quand" title={dateHeureComplete(message.recuLe)}>{heureGmail(message.recuLe, maintenant)}</span>
@@ -1031,9 +1087,17 @@ export function MessageConversation({
               onChange={onRattachement} onGeste={onGesteRattachement} onHistorique={onHistorique} />
           )}
 
+          {/* ══ 🔴 LOT AVIS-LISIBLE — LE PASSAGE LISIBLE DE L'AVIS, EN ROUGE, EN HAUT DU CORPS ════════════════════
+              `role="status"` et non `alert` : un lecteur d'écran l'annonce sans interrompre la lecture en cours.
+              La COULEUR N'EST QU'UN RENFORT — le texte dit tout, et reste lisible en niveaux de gris. */}
+          {avisRouge !== null && avisRouge.trim() !== '' && (
+            <p className="gst-msg-corps cnv-avis" role="status">{avisRouge}</p>
+          )}
           {etat.v === 'texte' && lisible !== null && (
             <>
-              <p className="gst-msg-corps">{lisible.visible || '(message sans texte)'}</p>
+              {/* Quand l'avis a été isolé, le corps reprend À LA PARTIE TECHNIQUE : la répéter au-dessus en rouge
+                  PUIS en noir afficherait deux fois la même phrase. Sinon, le corps entier, comme avant ce lot. */}
+              <p className="gst-msg-corps">{(avis !== null ? avis.technique : lisible.visible) || '(message sans texte)'}</p>
               {lisible.cite && (
                 <details className="gst-cite">
                   <summary className="gst-cite-titre">Afficher le message cité</summary>
@@ -1093,13 +1157,18 @@ export function MessageConversation({
  * CLIQUABLE VERS LA CARTE quand il y en a une : le lien mène à la boîte en plein écran, sous l'étiquette de cette
  * carte — un écran qui existe déjà. Sans identifiant, pas de lien : un lien mort use la confiance plus qu'il ne sert.
  */
-export function CartoucheStatut({ statut, ouvert, declencheur, onBasculer }: {
+export function CartoucheStatut({ statut, ouvert, declencheur, onBasculer, vert = false }: {
   statut: StatutClassement;
   ouvert: boolean;
   /** Le mot du bouton qui révèle les gestes (« Classer », « Modifier »). `null` = ce statut n'en propose aucun. */
   declencheur: string | null;
   /** Absent = cartouche de CONSTAT, sans bouton (mail déplacé seul, courrier automatique). */
   onBasculer?: () => void;
+  /**
+   * LOT BARRE-STATUT — le déclencheur passe au VERT quand l'échange porte un rattachement confirmé, exactement
+   * comme le bouton de la barre d'une ligne. Le MOT change avec lui : la couleur ne porte jamais l'information.
+   */
+  vert?: boolean;
 }) {
   const mot = libelleCartouche(statut);
   const precision = precisionCartouche(statut);
@@ -1110,7 +1179,8 @@ export function CartoucheStatut({ statut, ouvert, declencheur, onBasculer }: {
         ? <a className={`cnv-cartouche cnv-cartouche--${tonCartouche(statut)}`} href={lien} title={precision ?? undefined}>{mot}</a>
         : <span className={`cnv-cartouche cnv-cartouche--${tonCartouche(statut)}`} title={precision ?? undefined}>{mot}</span>}
       {declencheur && onBasculer && (
-        <button type="button" className="cnv-statut-bouton" aria-expanded={ouvert} onClick={onBasculer}>
+        <button type="button" className={`cnv-statut-bouton${vert ? ' cnv-statut-bouton--vert' : ''}`}
+          aria-expanded={ouvert} onClick={onBasculer}>
           {declencheur}
         </button>
       )}
@@ -1160,6 +1230,14 @@ const CSS_CONVERSATION = `
 /* Les gestes révélés prennent la LARGEUR ENTIÈRE : ils s'empilent donc d'eux-mêmes sur un téléphone. */
 .cnv-statut-actions{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;padding:0 4px 10px}
 .cnv-statut{display:inline-flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0}
+/* ══ 🔴 LOT AVIS-LISIBLE — LE PASSAGE LISIBLE D'UN AVIS DE NON-REMISE ════════════════════════════════════════════
+   La COULEUR N'EST QU'UN RENFORT : le texte dit tout, et il reste lisible en niveaux de gris comme pour un
+   daltonien. Le gras appuie la premiere ligne, qui porte le titre de l'avis.
+   white-space:pre-line : les retours a la ligne du serveur sont CONSERVES (titre, puis phrase) ; les espaces
+   multiples, eux, sont replies — un avis recopie d'un rapport machine en contient beaucoup. */
+.cnv-avis{color:var(--color-svv-red);font-weight:600;white-space:pre-line;margin:0 0 10px;
+  padding:8px 10px;border-left:3px solid var(--color-svv-red);
+  background:color-mix(in srgb, var(--color-svv-red) 4%, transparent);border-radius:0 .4rem .4rem 0}
 /* ── LOT 5-FIDÈLE : l'étoile et les icônes de l'en-tête, aux places de Gmail ──────────────────────────────────── */
 .cnv-etoile,.cnv-icone{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;
   padding:0;color:var(--color-svv-muted);background:transparent;border:1px solid transparent;border-radius:.5rem;cursor:pointer}
@@ -1187,6 +1265,8 @@ a.cnv-cartouche:focus-visible{outline:2px solid var(--color-svv-red);outline-off
 .cnv-statut-bouton{min-height:44px;padding:0 .4rem;font-size:.75rem;font-weight:700;color:var(--color-svv-red);
   background:transparent;border:0;text-decoration:underline;text-underline-offset:3px;cursor:pointer}
 .cnv-statut-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* LOT BARRE-STATUT — le MEME vert que la capsule d'une ligne : le lien parle de la meme question qu'elle. */
+.cnv-statut-bouton--vert{color:var(--color-svv-green-ink)}
 .cnv-qui{font-weight:700;font-size:.95rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .cnv-quand{font-size:.8rem;color:var(--color-svv-muted);white-space:nowrap}
 .cnv-hors{font-size:.75rem;font-weight:700;color:var(--color-svv-muted)}

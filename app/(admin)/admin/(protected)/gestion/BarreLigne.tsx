@@ -1,5 +1,7 @@
 'use client';
 
+// LOT BARRE-STATUT — le statut de la capsule décide du dernier bouton. Module PUR : aucun import qui tire `pg`.
+import type { CapsuleStatut } from '../../../../lib/gestion/statutClassement';
 
 /**
  * LOT LISTE-GMAIL — LA BARRE D'ACTIONS D'UNE LIGNE, AU SURVOL.
@@ -37,9 +39,15 @@ export interface EtatBarreLigne {
   nonLu: boolean;
   /** La corbeille est-elle disponible (migration 251) ? Sinon, pas de bouton — le geste n'existe pas. */
   corbeilleDisponible: boolean;
+  /**
+   * LOT BARRE-STATUT — LE STATUT DE LA CAPSULE de cette ligne, qui décide du dernier bouton de la barre.
+   * `undefined` = pas de capsule (Brouillons, Spam, ou réponse de serveur plus ancienne que le lot CAPSULE-STATUT) :
+   * on garde alors « Classer », parce qu'on ne devine pas un état qu'on n'a pas lu.
+   */
+  statut?: CapsuleStatut;
 }
 
-export function BarreLigne({ etat, confirme, onConfirmer, onEtoile, onLecture, onCorbeille, onClasser }: {
+export function BarreLigne({ etat, confirme, onConfirmer, onEtoile, onLecture, onCorbeille, onClasser, onVisualiser }: {
   etat: EtatBarreLigne;
   /**
    * 🔴 LA CONFIRMATION DE CORBEILLE EST PILOTÉE PAR LA LISTE, pas gardée ici. C'est ce qui garantit qu'il n'y en a
@@ -52,6 +60,11 @@ export function BarreLigne({ etat, confirme, onConfirmer, onEtoile, onLecture, o
   onLecture: (lu: boolean) => void;
   onCorbeille: () => void;
   onClasser: () => void;
+  /**
+   * LOT BARRE-STATUT — ouvre la fenêtre « Visualiser / Modifier » des rattachements. N'est appelé que quand la
+   * capsule est VERTE. Absent = on retombe sur `onClasser` : un bouton ne promet jamais un geste qui n'existe pas.
+   */
+  onVisualiser?: () => void;
 }) {
   /**
    * ══ 🔴 LE MÊME TRAITEMENT POUR TOUS LES BOUTONS DE LA BARRE ═══════════════════════════════════════════════════
@@ -124,11 +137,25 @@ export function BarreLigne({ etat, confirme, onConfirmer, onEtoile, onLecture, o
         </button>
       )}
 
-      {/* e. « CLASSER » — le MÊME module d'affectation que le mail ouvert : rattacher l'échange et ses pièces à un
-             logement, un propriétaire ou un événement. En rouge, comme dans la conversation. */}
-      <button type="button" className="brl-bouton brl-bouton--rouge" onClick={geste(onClasser)}>
-        Classer
-      </button>
+      {/* ══ 🔴 e. LE BOUTON DE FIN DE BARRE SUIT LA CAPSULE — lot BARRE-STATUT, demande d'Arno ═══════════════════
+             · capsule ROUGE « À classer » → « Classer », en ROUGE : le MÊME module d'affectation que le mail
+               ouvert, pour rattacher l'échange et ses pièces. C'est le comportement d'avant ce lot, inchangé ;
+             · capsule VERTE « Classé » ou « Auto » → « Visualiser / Modifier », dans le MÊME vert que la capsule.
+               Proposer « Classer » sur un échange déjà rangé posait une question à laquelle la ligne répondait
+               déjà deux centimètres plus à gauche ; ce qu'on veut alors, c'est VOIR où il est rangé.
+             ⚠️ LE BOUTON NE DISPARAÎT JAMAIS : la barre garde exactement le même nombre de commandes, à la même
+             place. Seuls le mot et le ton changent — la cible du clic ne se déplace pas sous le doigt.
+             ⚠️ SANS CAPSULE (`statut` absent : Brouillons, Spam, réponse de serveur plus ancienne que le lot
+             CAPSULE-STATUT), on garde « Classer ». On ne devine pas un état qu'on n'a pas lu. */}
+      {etat.statut === 'classe' || etat.statut === 'auto' ? (
+        <button type="button" className="brl-bouton brl-bouton--vert" onClick={geste(onVisualiser ?? onClasser)}>
+          Visualiser / Modifier
+        </button>
+      ) : (
+        <button type="button" className="brl-bouton brl-bouton--rouge" onClick={geste(onClasser)}>
+          Classer
+        </button>
+      )}
     </span>
   );
 }
@@ -203,6 +230,10 @@ export const CSS_BARRE_LIGNE = `
 .brl-bouton:hover{background:var(--color-svv-field)}
 .brl-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
 .brl-bouton--rouge{color:var(--color-svv-red)}
+/* LOT BARRE-STATUT — le MEME vert que la capsule « Classé » / « Auto » (var(--color-svv-green-ink)), pour qu'on
+   lise d'un coup que le bouton parle de la capsule qui est juste a cote. Le MOT change aussi, toujours : la
+   couleur seule resterait muette en niveaux de gris et pour un daltonien. */
+.brl-bouton--vert{color:var(--color-svv-green-ink)}
 /* La confirmation prend la place de la barre, sans quitter la liste : on décide là où l'on a cliqué. */
 .brl--confirme{opacity:1;pointer-events:auto;gap:.4rem}
 .bte-li .brl--confirme{opacity:1;pointer-events:auto}

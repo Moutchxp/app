@@ -36,6 +36,8 @@ let ecritures: { url: string; methode: string; corps: unknown }[];
 let ouverts: (number | null | undefined)[][];
 let actions: { filId: number; action: string }[];
 let ligneCourante: Record<string, unknown>;
+/** Ce que la route des rattachements répond. Piloté par le test. */
+let rattachements: Record<string, unknown>;
 let comptes: Record<string, unknown>;
 
 beforeEach(() => {
@@ -43,6 +45,7 @@ beforeEach(() => {
   ecritures = []; ouverts = []; actions = [];
   ligneCourante = LIGNE();
   comptes = COMPTES;
+  rattachements = { etat: 'ok', data: [] };
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     const methode = init?.method ?? 'GET';
@@ -51,6 +54,8 @@ beforeEach(() => {
       return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
     }
     if (u.includes('/boite/comptes')) return { ok: true, json: async () => comptes } as unknown as Response;
+    // LOT BARRE-STATUT — les rattachements de l'échange, tels que la fenêtre « Visualiser / Modifier » les demande.
+    if (u.includes('/rattachements')) return { ok: true, json: async () => rattachements } as unknown as Response;
     return {
       ok: true,
       json: async () => ({ lignes: [ligneCourante], suivant: null, total: 1, comptes, nonLus: [], nonLusTotal: 0 }),
@@ -455,5 +460,130 @@ describe('🔴 LOT CAPSULE-STATUT — la capsule sur la ligne, et le gras conser
     await monter();
     expect(capsule()).toBeNull();
     expect(container.querySelectorAll('.bte-li')).toHaveLength(1);
+  });
+});
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT BARRE-STATUT — LE DERNIER BOUTON DE LA BARRE SUIT LA CAPSULE (demande d'Arno).
+ *
+ * CE QUE CE BLOC PROTÈGE :
+ *   ① capsule ROUGE ⇒ « Classer », en rouge — le comportement d'avant ce lot, qui ne doit pas bouger ;
+ *   ② capsule VERTE (« Classé » ou « Auto ») ⇒ « Visualiser / Modifier », en vert, qui OUVRE LA FENÊTRE des
+ *      rattachements — et surtout N'OUVRE PAS l'échange : on ne perd pas sa place dans la liste pour une question
+ *      à laquelle on répond en deux secondes ;
+ *   ③ sans capsule (Brouillons, Spam, réponse de serveur plus ancienne que le lot CAPSULE-STATUT) ⇒ « Classer ».
+ *      On ne devine pas un état qu'on n'a pas lu.
+ *   ④ LA BARRE GARDE LE MÊME NOMBRE DE BOUTONS : seuls le mot et le ton changent, la cible ne se déplace pas.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', () => {
+  const boutonFin = () => [...container.querySelectorAll('.brl .brl-bouton')].at(-1) as HTMLButtonElement | undefined;
+  const CLASSE = { nbActifs: 2, parUnHumain: true, detail: 'lot 513 — à la main' };
+  const AUTO = { nbActifs: 1, parUnHumain: false, detail: 'lot 513 — automatique' };
+  const A_CLASSER = { nbActifs: 0, parUnHumain: false, detail: null };
+
+  it('① capsule ROUGE : « Classer », en rouge', async () => {
+    ligneCourante = LIGNE({ classement: A_CLASSER });
+    await monter();
+    expect(boutonFin()?.textContent).toBe('Classer');
+    expect(boutonFin()?.className).toContain('brl-bouton--rouge');
+  });
+
+  it('② capsule « Classé » : « Visualiser / Modifier », en vert', async () => {
+    ligneCourante = LIGNE({ classement: CLASSE });
+    await monter();
+    expect(boutonFin()?.textContent).toBe('Visualiser / Modifier');
+    expect(boutonFin()?.className).toContain('brl-bouton--vert');
+  });
+
+  it('② capsule « Auto » : le même bouton vert — rangé reste rangé', async () => {
+    ligneCourante = LIGNE({ classement: AUTO });
+    await monter();
+    expect(boutonFin()?.textContent).toBe('Visualiser / Modifier');
+    expect(boutonFin()?.className).toContain('brl-bouton--vert');
+  });
+
+  it('③ sans capsule : « Classer », comme avant ce lot', async () => {
+    ligneCourante = LIGNE();                      // aucune réponse de classement
+    await monter();
+    expect(boutonFin()?.textContent).toBe('Classer');
+  });
+
+  it('③ dans « Spam », pas de capsule donc pas de bouton vert', async () => {
+    ligneCourante = LIGNE({ classement: CLASSE });
+    await monter({ etiquette: { sorte: 'spam', evenementId: null } });
+    expect(boutonFin()?.textContent).toBe('Classer');
+  });
+
+  it('④ la barre garde exactement le même nombre de boutons', async () => {
+    ligneCourante = LIGNE({ classement: A_CLASSER });
+    await monter();
+    const avant = container.querySelectorAll('.brl button').length;
+    act(() => { root.unmount(); });
+    container.remove();
+    container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
+    ligneCourante = LIGNE({ classement: CLASSE });
+    await monter();
+    expect(container.querySelectorAll('.brl button').length).toBe(avant);
+  });
+
+  /**
+   * 🔴 LE CLIC OUVRE LA FENÊTRE, ET NE DEMANDE AUCUN GESTE SUR LA LIGNE. Si « Visualiser » passait par
+   * `onActionLigne(filId, 'classer')`, il ouvrirait l'échange ET son panneau d'affectation — exactement ce qu'on
+   * remplace. Le test le vérifie par l'ABSENCE d'action et l'ABSENCE d'ouverture.
+   */
+  it('🔴 « Visualiser / Modifier » ouvre la FENÊTRE, sans ouvrir l’échange ni demander de geste', async () => {
+    ligneCourante = LIGNE({ classement: CLASSE });
+    await monter();
+    await cliquer(boutonFin());
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Rattachements de l’échange');
+    expect(ouverts).toEqual([]);   // la liste reste en place
+    expect(actions).toEqual([]);   // et aucun « classer » n'est demandé
+  });
+
+  /** 🔴 PLUSIEURS RATTACHEMENTS SE LISTENT TOUS : n'en montrer qu'un ferait modifier le mauvais. */
+  it('🔴 la fenêtre liste TOUS les rattachements, avec leur statut écrit en toutes lettres', async () => {
+    const lien = (id: number, libelle: string, statut: string, sorte = 'lot') => ({
+      id, messageId: 900 + id, pieceId: null, cible: { sorte, cle: `c${id}`, id },
+      libelle, origine: 'automatique', statut, confiance: null, regle: 'adresse',
+      motif: null, adresses: [], parUnHumain: false, creeLe: null, creePar: null, statutLe: null, statutPar: null,
+    });
+    rattachements = {
+      etat: 'ok',
+      data: [lien(1, 'Lot 513 — 12 rue des Lilas', 'confirme'),
+        lien(2, 'M. Bentz', 'propose', 'proprietaire')],
+    };
+    ligneCourante = LIGNE({ classement: CLASSE });
+    await monter();
+    await cliquer(boutonFin());
+    const items = [...container.querySelectorAll('.rdf-item')];
+    expect(items).toHaveLength(2);
+    expect(items[0].textContent).toContain('Lot 513 — 12 rue des Lilas');
+    expect(items[0].textContent).toContain('confirmé');
+    expect(items[1].textContent).toContain('M. Bentz');
+    expect(items[1].textContent).toContain('proposé');
+    // Le MAIL dont vient chaque lien est dit : c'est lui qui est rattaché, jamais l'échange.
+    expect(items[0].textContent).toContain('mail nº 901');
+    // Et chacun mène à la fenêtre « Modifier » existante.
+    expect(items.every((i) => /Modifier ce rattachement/.test(i.textContent ?? ''))).toBe(true);
+  });
+
+  /** ⚠️ La migration 257 absente est un ÉTAT, pas une panne : on le DIT plutôt que de montrer une liste vide. */
+  it('sans la migration 257, la fenêtre le dit — elle ne montre pas une liste vide', async () => {
+    rattachements = { etat: 'sans_schema' };
+    ligneCourante = LIGNE({ classement: CLASSE });
+    await monter();
+    await cliquer(boutonFin());
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('pas encore installés');
+  });
+
+  it('la fenêtre demande les rattachements de L’ÉCHANGE, pas d’un message', async () => {
+    ligneCourante = LIGNE({ classement: AUTO });
+    await monter();
+    await cliquer(boutonFin());
+    const appels = (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
+    expect(appels.some((u) => u.includes('/rattachements?fil=7'))).toBe(true);
   });
 });

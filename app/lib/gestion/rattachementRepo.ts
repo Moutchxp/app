@@ -471,6 +471,31 @@ export async function liensDesMessages(messageIds: readonly number[]): Promise<I
 }
 
 /**
+ * ══ 🔴 LOT BARRE-STATUT — TOUS LES LIENS D'UN ÉCHANGE, EN UNE REQUÊTE. LECTURE SEULE. ════════════════════════════
+ *
+ * POURQUOI ELLE EXISTE, alors que `liensDesMessages` est juste au-dessus. Depuis une LIGNE DE LISTE, on ne connaît
+ * que l'échange : on n'a pas les identifiants de ses messages, et aller les chercher demanderait de charger toute
+ * la conversation — trente requêtes pour afficher une fenêtre de consultation. La question posée par la capsule
+ * verte est « à quoi cet ÉCHANGE est-il rattaché ? » : on la pose donc telle quelle, en une fois.
+ *
+ * ⚠️ LE MÊME PÉRIMÈTRE QUE LA CAPSULE, et ce n'est pas un détail : `propose` ET `confirme`, tous deux vivants. La
+ * capsule, elle, ne compte QUE les `confirme` (une proposition que personne n'a validée ne classe rien) — la
+ * fenêtre, elle, montre aussi les propositions, parce qu'on l'ouvre justement pour les trancher. Les deux
+ * répondent à deux moments différents du même geste.
+ *
+ * ⚠️ L'ORDRE EST CELUI DE LA LECTURE : le plus récent message d'abord, puis les confirmés avant les proposés.
+ */
+export async function liensDuFil(filId: number): Promise<Issue2<LienAffiche[]>> {
+  if (!(await rattachementsDisponibles())) return { etat: 'sans_schema' };
+  const { rows } = await query<Parameters<typeof ligneVersLien>[0]>(
+    `SELECT ${CHAMPS_LIEN} FROM gestion_rattachement r
+      WHERE r.statut IN ('propose', 'confirme')
+        AND r.message_id IN (SELECT m.id FROM gestion_message m WHERE m.fil_id = $1::bigint)
+      ORDER BY r.message_id DESC, r.statut DESC, r.cible_sorte, r.id`, [filId]);
+  return { etat: 'ok', data: rows.map(ligneVersLien) };
+}
+
+/**
  * LES LIENS D'UNE PIÈCE : ceux de son mail (hérités) ET les siens. LECTURE SEULE.
  *
  * 🔴 L'HÉRITAGE EST LA RÈGLE, pas une commodité d'affichage : c'est ce qui fait qu'un mail rattaché suffit, et qu'on

@@ -193,3 +193,115 @@ export function phraseNonRemise(o: { sorte: SorteNonRemise; destinataire: string
     ? `non distribué${a} : ${o.motif}`
     : `remise retardée${a} : ${o.motif}`;
 }
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT AVIS-LISIBLE — CE QU'UN AVIS DIT À UN HUMAIN, ET CE QU'IL DIT À UNE MACHINE
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ⚠️ LES MARQUEURS QUI OUVRENT LA PARTIE TECHNIQUE. On coupe À LA PREMIÈRE ligne qui en porte un, marqueur EXCLU.
+ *
+ * 🔴 CE QUI N'EST PAS UN MARQUEUR, et qu'il serait tentant d'y mettre : « Consultez les informations techniques
+ * ci-dessous ». C'est la FIN d'une phrase humaine (« Un problème est survenu lors de la distribution de votre
+ * message à X. Consultez les informations techniques ci-dessous. ») — couper là amputerait l'avis de sa moitié
+ * utile. Un marqueur doit ANNONCER la technique, pas la commenter.
+ */
+const OUVERTURES_TECHNIQUES: readonly RegExp[] = [
+  // Français — Gmail et la plupart des serveurs francophones.
+  /^\s*Cliquez ici pour en savoir plus\b/i,
+  /^\s*La réponse était\s*:?\s*$/i,
+  /^\s*Réponse du serveur distant\s*:?\s*$/i,
+  /^\s*Informations? de diagnostic/i,
+  // Anglais — Gmail, Office 365, Exchange, Postfix.
+  /^\s*(Learn more here|LEARN MORE)\b/i,
+  /^\s*The response (was|from the remote server was)\s*:?\s*$/i,
+  /^\s*Diagnostic information for administrators/i,
+  /^\s*(Original message|Reporting-MTA|Final-Recipient|Diagnostic-Code|Received-From-MTA|Arrival-Date|X-Original-Message-ID|Action|Status|Last-Attempt-Date|Will-Retry-Until|Remote-MTA)\s*:/i,
+  /^\s*-{2,}\s*(Original Message|Forwarded message|Message d.origine)/i,
+  /^\s*Content-Type\s*:/i,
+  /**
+   * ⚠️ OFFICE 365 / EXCHANGE, appris sur les avis réels de la base : la partie destinée aux administrateurs s'ouvre
+   * par une longue ligne de soulignés, puis « More Info for Email Admins ». Sans ces marqueurs, la coupe se faisait
+   * beaucoup plus bas (au premier `Content-Type:`) et le bandeau rouge avalait les EN-TÊTES RECOPIÉS du message
+   * d'origine — `Received:`, `Subject:`, `Message-ID:`… Vu en vérifiant la fonction sur les 77 avis en base.
+   */
+  /^\s*More Info for Email Admins\b/i,
+  /^\s*Original Message Headers\b/i,
+  /^_{10,}\s*$/,
+  /**
+   * Les en-têtes RECOPIÉS de l'original. Aucun de ceux-là n'apparaît jamais dans de la prose : ils ne peuvent
+   * désigner que le début d'un bloc technique. `From:` et `To:` sont volontairement ABSENTS — trop proches de
+   * tournures possibles — et les lignes ci-dessus les précèdent de toute façon dans tous les avis observés.
+   */
+  /^\s*(Received|Return-Path|MIME-Version|Content-Transfer-Encoding|Authentication-Results|DKIM-Signature|ARC-[A-Za-z]+|Message-ID|Subject)\s*:/i,
+  // Le code SMTP posé seul en tête de ligne : « 550 5.7.1 … », « 452-4.2.2 … ».
+  /^\s*[45]\d\d[-\s]\d\.\d\.\d+\b/,
+];
+
+/** Une ligne qui n'apprend rien à un humain : une URL nue, une image d'en-tête, une ligne de tabulation vide. */
+const LIGNES_SANS_INTERET: readonly RegExp[] = [
+  /^\s*\[?https?:\/\/\S+\]?\s*$/i,
+  /^\s*$/,
+];
+
+/**
+ * ══ 🔴 LE PASSAGE LISIBLE D'UN AVIS DE NON-REMISE, EN ENTIER. PUR. ═══════════════════════════════════════════════
+ *
+ * POURQUOI. Un avis de non-remise s'ouvrait comme n'importe quel mail : un mur de texte où la phrase qui compte
+ * (« Sa boîte de réception est pleine ») était noyée entre un code SMTP, un `Reporting-MTA` et un `Diagnostic-Code`
+ * replié sur trois lignes. La ligne de liste, elle, disait déjà le motif — mais en UNE ligne tronquée. Ouvrir le
+ * message devait donner la phrase ENTIÈRE, tout de suite, et en rouge.
+ *
+ * LA RÈGLE : tout ce qui précède la première OUVERTURE TECHNIQUE, marqueur exclu. Le reste n'est pas jeté — il
+ * s'affiche dessous, en couleur normale : un administrateur a besoin du texte exact.
+ *
+ * ⚠️ RIEN N'EST REFORMULÉ NI TRADUIT. On rend le texte du serveur TEL QU'IL L'A ÉCRIT, français ou anglais. Une
+ * reformulation ferait de nous l'auteur d'un message dont nous ne savons rien.
+ *
+ * ⚠️ `humain: null` QUAND ON NE SAIT PAS ISOLER. Un avis qui commence directement par son rapport machine, ou dont
+ * la tête ne contient que des URL, ne donne rien de lisible : l'appelant se rabat alors sur le motif déjà extrait
+ * pour la ligne de liste (`motifNonRemise`). Rendre une chaîne vide obligerait chaque appelant à la tester.
+ */
+export function texteHumainAvis(corps: string | null): { humain: string | null; technique: string } {
+  const c = (corps ?? '').replace(/\r\n?/g, '\n');
+  if (c.trim() === '') return { humain: null, technique: '' };
+
+  const lignes = c.split('\n');
+  let coupe = lignes.length;
+  for (let i = 0; i < lignes.length; i += 1) {
+    if (OUVERTURES_TECHNIQUES.some((r) => r.test(lignes[i]))) { coupe = i; break; }
+  }
+
+  const tete = lignes.slice(0, coupe)
+    .filter((l) => !LIGNES_SANS_INTERET.some((r) => r.test(l)))
+    .map((l) => l.trim());
+  const technique = lignes.slice(coupe).join('\n').trim();
+
+  /**
+   * ⚠️ DEUX LIGNES AU MOINS, OU RIEN. Un avis Office 365 commence par une ligne d'image suivie d'un titre : garder
+   * une tête d'UN seul mot (« gestion », « Action Required ») donnerait un bandeau rouge qui n'apprend rien. On
+   * exige donc un minimum de substance — et à défaut, l'appelant a toujours le motif de la ligne de liste.
+   */
+  const humain = tete.join('\n').trim();
+  if (humain.length < SUBSTANCE_MIN) return { humain: null, technique: technique === '' ? c.trim() : technique };
+
+  /**
+   * ⚠️ UN PLAFOND, ET CE QUI DÉPASSE N'EST PAS PERDU — il redescend dans la partie normale. Les avis Gmail, qui
+   * sont la quasi-totalité du courrier ici, tiennent en deux ou trois phrases : ils s'affichent ENTIERS, comme
+   * demandé. Un avis Office 365, lui, fait suivre son constat d'un mode d'emploi de plusieurs milliers de signes
+   * (« How to Fix It », six puces) : tout passer en rouge ferait un mur qu'on cesserait de lire — c'est-à-dire
+   * l'exact contraire du but. On coupe donc sur une FIN DE LIGNE, jamais au milieu d'un mot.
+   */
+  if (humain.length <= ROUGE_MAX) return { humain, technique: technique === '' ? '' : technique };
+  const coupure = humain.lastIndexOf('\n', ROUGE_MAX);
+  const bord = coupure > SUBSTANCE_MIN ? coupure : ROUGE_MAX;
+  return {
+    humain: humain.slice(0, bord).trim(),
+    technique: [humain.slice(bord).trim(), technique].filter((x) => x !== '').join('\n\n'),
+  };
+}
+
+/** En deçà, la tête d'un avis n'apprend rien (« gestion », « Action Required ») : mieux vaut le motif de la liste. */
+const SUBSTANCE_MIN = 20;
+/** Au-delà, le rouge cesse d'être une alerte et devient un mur. Le surplus reste affiché, en couleur normale. */
+const ROUGE_MAX = 1200;

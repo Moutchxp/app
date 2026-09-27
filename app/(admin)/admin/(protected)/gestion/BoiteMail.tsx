@@ -16,6 +16,8 @@ import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecra
 import { corpsLisible } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
 import { bulleCapsule, capsuleStatut, motCapsule } from '../../../../lib/gestion/statutClassement';
+// LOT BARRE-STATUT — la fenêtre « Visualiser / Modifier », ouverte par-dessus la liste.
+import { RattachementsDuFil } from './RattachementsDuFil';
 import { CSS_MENU_LIGNE, MenuLigne } from './MenuLigne';
 import { BarreLigne, CSS_BARRE_LIGNE, Etoile } from './BarreLigne';
 import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
@@ -415,6 +417,12 @@ export function BoiteMail({
    * souris soit dessus ; gardée par chaque barre, deux lignes pouvaient rester allumées en même temps.
    */
   const [confirmeSur, setConfirmeSur] = useState<number | null>(null);
+  /**
+   * LOT BARRE-STATUT — l'échange dont on regarde les rattachements. `null` = aucune fenêtre ouverte.
+   * ⚠️ Gardé ICI, dans la liste, et non dans chaque barre : c'est ce qui garantit qu'il n'y en a jamais DEUX
+   *    ouvertes — même règle que la confirmation de corbeille juste au-dessus.
+   */
+  const [rattachementsDe, setRattachementsDe] = useState<{ filId: number; objet: string | null } | null>(null);
   useEffect(() => {
     let annule = false;
     void (async () => {
@@ -1011,13 +1019,22 @@ export function BoiteMail({
                       nbMessages: l.nbMessages, etoilee: etoilees.get(l.filId) ?? l.etoilee,
                       etoileDisponible: etoiles,
                       nonLu, corbeilleDisponible: corbeille,
+                      /* LOT BARRE-STATUT — la capsule décide du dernier bouton : « Classer » en rouge quand rien
+                         n'est rattaché, « Visualiser / Modifier » en vert sinon. Pas de capsule (Brouillons, Spam,
+                         réponse de serveur d'hier) ⇒ `undefined`, et la barre garde « Classer ». */
+                      statut: l.classement && etiquette.sorte !== 'spam' && etiquette.sorte !== 'brouillons'
+                        ? capsuleStatut(l.classement) : undefined,
                     }}
                     confirme={confirmeSur === l.filId}
                     onConfirmer={(ouvrir) => setConfirmeSur(ouvrir ? l.filId : null)}
                     onEtoile={(e) => void basculerEtoile(l.filId, e)}
                     onLecture={(lu) => onActionLigne(l.filId, lu ? 'lu' : 'non_lu')}
                     onCorbeille={() => onActionLigne(l.filId, 'corbeille')}
-                    onClasser={() => onActionLigne(l.filId, 'classer')} />
+                    onClasser={() => onActionLigne(l.filId, 'classer')}
+                    /* 🔴 VISUALISER N'EST PAS CLASSER : on n'ouvre pas l'échange, on ouvre une fenêtre de
+                       CONSULTATION par-dessus la liste. Ouvrir l'échange ferait perdre la place dans la liste
+                       pour une question à laquelle on répond en deux secondes. */
+                    onVisualiser={() => setRattachementsDe({ filId: l.filId, objet: l.objet })} />
                 )}
                 </MenuLigne>
               </li>
@@ -1033,6 +1050,18 @@ export function BoiteMail({
       )}
       {etat.suivant === null && etat.lignes.length > 0 && (
         <p className="gst-tronc">Vous avez atteint le plus ancien message de la boîte.</p>
+      )}
+
+      {/* ══ 🔴 LOT BARRE-STATUT — « VISUALISER / MODIFIER » ════════════════════════════════════════════════════
+          Une fenêtre PAR-DESSUS la liste : on ne quitte pas sa place pour aller voir où un échange est rangé.
+          Elle liste TOUS les rattachements vivants de l'échange, et passe la main à la fenêtre « Modifier »
+          existante — laquelle garde sa validation obligatoire. */}
+      {rattachementsDe !== null && (
+        <RattachementsDuFil filId={rattachementsDe.filId} titre={nettoyerObjet(rattachementsDe.objet ?? '') || null}
+          onFerme={() => setRattachementsDe(null)}
+          /* Un rattachement vient de changer : la CAPSULE de la ligne n'est plus à jour. On relit la première
+             page — c'est le seul endroit qui la calcule, et la recalculer à la main ici donnerait deux vérités. */
+          onGeste={() => { setRattachementsDe(null); void premiere(auto, critere, etiquette, filtre, etoile); }} />
       )}
 
       <style>{CSS_BOITE}</style>
