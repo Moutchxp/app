@@ -1097,7 +1097,10 @@ const CSS_GESTION = `
 @media (max-width:1099px){.gst-cartes-larges{grid-template-columns:1fr}}
 @media (max-width:900px){.gst-deux{grid-template-columns:1fr}}
 .gst-col{min-width:0}  /* sans ça, une grille laisse un enfant déborder de sa colonne */
-.gst-titre{display:flex;align-items:center;gap:.5rem;font-size:15px;font-weight:700;color:var(--color-svv-ink);margin:0 0 .5rem}
+/* LOT ERGO-BOITE-4 — flex-wrap : la mention « courrier automatique » vit maintenant sur cette ligne, poussée à
+   droite. Sur un écran étroit elle doit pouvoir descendre sous le titre plutôt que l'écraser.
+   ⚠️ AUCUN ACCENT GRAVE ICI : littéral gabarit. */
+.gst-titre{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;font-size:15px;font-weight:700;color:var(--color-svv-ink);margin:0 0 .5rem}
 .gst-compte{display:inline-block;background:var(--color-svv-field);color:var(--color-svv-muted);font-size:12px;font-weight:700;border-radius:999px;padding:2px 9px}
 .gst-bandeau{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.75rem;background:var(--color-svv-field);border:1px solid var(--color-svv-line);border-radius:10px;padding:10px 12px;margin:0 0 1rem;font-size:.85rem;color:var(--color-svv-ink);line-height:1.45}
 .gst-btn{width:auto;flex-shrink:0;min-height:44px;padding:.55rem 1rem;font-size:.85rem;border-radius:.6rem}

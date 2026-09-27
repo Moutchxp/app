@@ -22,14 +22,16 @@ import { GestionVue, etiquettesDeLEcran } from './GestionVue';
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const ECRAN = {
-  file: [], filsTotal: 0, fenetreJours: 30, filsTropAnciens: 0,
+  // ⚠️ DES COMPTEURS NON NULS : une étiquette vide est écartée de la colonne (règle d'avant ce lot). Sans « À
+  //   classer » ni « Brouillons », la vérification « Spam est juste sous Brouillons » n'aurait rien à comparer.
+  file: [], filsTotal: 478, fenetreJours: 30, filsTropAnciens: 0,
   sansSuite: [], sansSuiteTotal: 0, evenements: [], evenementsTotal: 0,
   messagesCaptures: 56821, messagesExclus: 30851, derniereReleveLe: '2026-09-27T15:00:00Z',
 };
 /** Le contexte de rédaction vient de SA PROPRE route : c'est de là que le titre de la colonne tire l'adresse. */
 const REDACTION = {
   adresseGestion: 'gestion@criterimmo.fr', signature: null, peutEnvoyer: true, schemaPret: true,
-  piecesDisponibles: false,
+  piecesDisponibles: false, brouillons: 3,
 };
 const COMPTES = { lisibles: 8470, automatiques: 26059, envoyes: 6585, reception: 8470, spam: 231 };
 const PAGE_BOITE = { lignes: [], suivant: null, total: 8470, comptes: COMPTES, nonLus: [7, 8], nonLusTotal: 15 };
@@ -159,6 +161,117 @@ describe('🔴 le bloc « Gestion ⓘ » est parti, l’ALERTE reste', () => {
     vi.setSystemTime(new Date('2026-09-28T04:00:00Z'));
     await monter();
     expect(container.querySelector('.gst-veille--alerte')).not.toBeNull();
+    vi.useRealTimers();
+  });
+});
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LOT ERGO-BOITE-4 — LES RETOUCHES D'ARNO, ÉPROUVÉES À L'ÉCRAN MONTÉ
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+describe('🔴 ERGO-BOITE-4 ① les sélecteurs sont DANS l’entrée « Réception »', () => {
+  it('les deux nombres vivent à l’intérieur de l’entrée, pas à côté', async () => {
+    await monter();
+    const entree = container.querySelector('.cm-entree--recep');
+    expect(entree).not.toBeNull();
+    expect(entree?.querySelectorAll('.cm-sel')).toHaveLength(2);
+    // Le nom est dans la même enveloppe : pour l'œil, une seule entrée.
+    expect(entree?.querySelector('.cm-nom-bouton')?.textContent).toBe('Réception');
+  });
+
+  /**
+   * 🔴 AUCUN BOUTON DANS UN BOUTON. C'est du HTML invalide : le navigateur défait l'imbrication et le clic devient
+   * imprévisible. L'enveloppe porte l'apparence, les trois gestes sont trois boutons frères. Ce test l'interdit
+   * pour de bon — c'est précisément la contrainte qui avait fait sortir les sélecteurs de l'entrée au lot précédent.
+   */
+  it('l’enveloppe n’est PAS un bouton : aucun bouton n’en contient un autre', async () => {
+    await monter();
+    for (const b of container.querySelectorAll('button')) {
+      expect(b.querySelector('button')).toBeNull();
+    }
+    expect(container.querySelector('.cm-entree--recep')?.tagName).toBe('DIV');
+  });
+
+  it('le comportement n’a pas changé : total actif par défaut, « non lus » écrit dans l’adresse', async () => {
+    await monter();
+    expect(selecteurPar(/^8470$/)?.getAttribute('aria-pressed')).toBe('true');
+    await cliquer(selecteurPar(/non lus?/));
+    expect(url()).toContain('filtre=non-lus');
+    expect(derniereUrlBoite()).toContain('filtre=non-lus');
+  });
+});
+
+describe('🔴 ERGO-BOITE-4 ② « Spam » est juste sous « Brouillons »', () => {
+  it('rien entre les deux', async () => {
+    await monter();
+    const liste = entrees();
+    expect(liste.findIndex((t) => t.includes('Spam')) - liste.findIndex((t) => t.includes('Brouillons'))).toBe(1);
+  });
+});
+
+describe('🔴 ERGO-BOITE-4 ③ la mention du courrier automatique est sur la ligne du titre', () => {
+  it('elle vit DANS le titre de la liste, à côté du compteur et de l’icône', async () => {
+    await monter();
+    const titre = container.querySelector('h2#bte-titre');
+    expect(titre?.querySelector('.bte-tait')).not.toBeNull();
+    expect(titre?.querySelector('.bte-tait')?.textContent).toContain('courrier automatique');
+    // Le titre, son compteur et l'icône de relève n'ont pas bougé.
+    expect(titre?.textContent).toContain('Réception');
+    expect(titre?.querySelector('.gst-compte')).not.toBeNull();
+    expect(titre?.querySelector('.bte-relever')).not.toBeNull();
+  });
+
+  /** ⚠️ Un `<p>` dans un `<h2>` serait invalide : la mention doit être un élément en ligne. */
+  it('c’est un span, jamais un paragraphe', async () => {
+    await monter();
+    expect(container.querySelector('.bte-tait')?.tagName).toBe('SPAN');
+    expect(container.querySelector('h2#bte-titre p')).toBeNull();
+  });
+
+  /** RIEN N'EST RACCOURCI : le nombre tu et le geste qui le ramène sont toujours là, mot pour mot. */
+  it('elle dit toujours COMBIEN elle tait, et le ramène d’un clic', async () => {
+    await monter();
+    const t = container.querySelector('.bte-tait');
+    expect(t?.textContent).toContain('26059');
+    expect(t?.textContent).toContain('Rien n’est supprimé');
+    expect(t?.querySelector('button')?.textContent).toBe('Afficher aussi le courrier automatique');
+  });
+});
+
+describe('🔴 ERGO-BOITE-4 ④ « Détails relève » : replié par défaut', () => {
+  const bouton = () => [...container.querySelectorAll('.cm-details')][0] as HTMLButtonElement | undefined;
+  const detail = () => container.querySelector('#cm-details-relevé') as HTMLElement | null;
+
+  it('le texte est là, mais caché, et le bouton le dit', async () => {
+    await monter();
+    expect(bouton()?.textContent).toContain('Détails relève');
+    expect(bouton()?.getAttribute('aria-expanded')).toBe('false');
+    expect(detail()?.hidden).toBe(true);
+    // ⚠️ CACHÉ, PAS SUPPRIMÉ : le texte reste dans le document, donc trouvable par la recherche du navigateur.
+    expect(detail()?.textContent).toContain('Dernière relève');
+  });
+
+  it('un clic déplie, un second replie', async () => {
+    await monter();
+    await cliquer(bouton());
+    expect(bouton()?.getAttribute('aria-expanded')).toBe('true');
+    expect(detail()?.hidden).toBe(false);
+    await cliquer(bouton());
+    expect(detail()?.hidden).toBe(true);
+  });
+
+  /**
+   * 🔴 LE PLI NE PEUT PAS CACHER UNE ALERTE. Le bandeau « relève arrêtée » vit en haut de page, pas dans ce bloc :
+   * c'est toute la raison d'être de la séparation faite au lot ERGO-BOITE. On le vérifie ici, sur le même écran,
+   * pour que personne ne replie un jour l'alerte avec l'ordinaire.
+   */
+  it('l’alerte reste en haut de page, dépliée ou non', async () => {
+    vi.setSystemTime(new Date('2026-09-28T04:00:00Z'));
+    await monter();
+    expect(detail()?.hidden).toBe(true);
+    const alerte = container.querySelector('.gst-veille--alerte');
+    expect(alerte).not.toBeNull();
+    expect(alerte?.closest('.cm-etat')).toBeNull(); // elle n'est PAS dans le bloc replié
     vi.useRealTimers();
   });
 });

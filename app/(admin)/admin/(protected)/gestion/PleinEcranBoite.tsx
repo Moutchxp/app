@@ -158,6 +158,12 @@ export function PleinEcranBoite({
 }) {
   // Sur téléphone, on arrive sur les ÉTIQUETTES : c'est le sommaire, et on ne tombe pas au milieu d'une liste sans
   //   savoir laquelle. Au montage, donc à chaque entrée en plein écran. Sur grand écran, l'attribut ne change rien.
+  /**
+   * LOT ERGO-BOITE-4 — le bloc « Détails relève » est-il déplié ? REPLIÉ par défaut, et l'état n'est PAS mis dans
+   * l'adresse : c'est un pli de lecture, pas un endroit où l'on est. Le mettre dans l'URL polluerait l'historique
+   * du navigateur d'un « Précédent » qui ne ferait que replier un texte.
+   */
+  const [detailsOuverts, setDetailsOuverts] = useState(false);
   const [panneauMobile, setPanneauMobile] = useState<PanneauMobile>('colonne');
   /**
    * LOT 5-GMAIL — LE PARTAGE « CLASSER ». `null` = fermé. Sinon, la voie par laquelle on y entre : « Classer dans
@@ -359,28 +365,42 @@ export function PleinEcranBoite({
             if (avecSelecteurs) {
               const nonLus = e.nonLus as number;
               return (
-                <li key="reception" className="cm-li-sel">
-                  <button type="button" className={`cm-entree cm-entree--nom${active ? ' cm-entree--active' : ''}`}
-                    aria-current={active ? 'true' : undefined}
-                    onClick={() => { onEtiquette(e.etiquette); setPanneauMobile('contenu'); }}>
-                    <span className="cm-nom"><span className="cm-texte">{e.libelle}</span></span>
-                  </button>
-                  <span className="cm-sels">
-                    <button type="button"
-                      className={`cm-sel${filtre === 'non-lus' ? ' cm-sel--actif' : ''}`}
-                      aria-pressed={filtre === 'non-lus'}
-                      onClick={() => { onEtiquette(e.etiquette); onFiltre('non-lus'); setPanneauMobile('contenu'); }}>
-                      {e.nonLusPartiel ? 'au moins ' : ''}{nonLus} non lu{nonLus > 1 ? 's' : ''}
+                <li key="reception">
+                  {/**
+                   * ══ 🔴 LOT ERGO-BOITE-4 — LES DEUX SÉLECTEURS SONT DANS L'ENTRÉE, PAS À CÔTÉ ═════════════════
+                   * Arno les voulait DEDANS, à droite, comme les compteurs des autres entrées. Au lot précédent ils
+                   * vivaient à l'extérieur, et la ligne se lisait comme deux objets distincts au lieu d'une entrée.
+                   *
+                   * 🔴 POURQUOI UN `div` ET NON UN `button`. Un `<button>` dans un `<button>` est du HTML invalide :
+                   * le navigateur défait l'imbrication et le clic devient imprévisible. L'ENVELOPPE porte donc
+                   * l'apparence de l'entrée (fond, bordure, coins, survol) et ne fait rien ; les TROIS gestes —
+                   * ouvrir la liste, choisir « non lus », choisir le total — sont trois vrais boutons côte à côte.
+                   * Pour l'œil c'est une seule entrée ; pour le clavier et les lecteurs d'écran, trois commandes
+                   * nommées, ce qui est exactement la vérité.
+                   */}
+                  <div className={`cm-entree cm-entree--recep${active ? ' cm-entree--active' : ''}`}>
+                    <button type="button" className="cm-nom-bouton"
+                      aria-current={active ? 'true' : undefined}
+                      onClick={() => { onEtiquette(e.etiquette); setPanneauMobile('contenu'); }}>
+                      <span className="cm-nom"><span className="cm-texte">{e.libelle}</span></span>
                     </button>
-                    {e.compte !== null && (
+                    <span className="cm-sels">
                       <button type="button"
-                        className={`cm-sel${filtre === null ? ' cm-sel--actif' : ''}`}
-                        aria-pressed={filtre === null}
-                        onClick={() => { onEtiquette(e.etiquette); onFiltre(null); setPanneauMobile('contenu'); }}>
-                        {e.compte}
+                        className={`cm-sel${filtre === 'non-lus' ? ' cm-sel--actif' : ''}`}
+                        aria-pressed={filtre === 'non-lus'}
+                        onClick={() => { onEtiquette(e.etiquette); onFiltre('non-lus'); setPanneauMobile('contenu'); }}>
+                        {e.nonLusPartiel ? 'au moins ' : ''}{nonLus} non lu{nonLus > 1 ? 's' : ''}
                       </button>
-                    )}
-                  </span>
+                      {e.compte !== null && (
+                        <button type="button"
+                          className={`cm-sel cm-sel--total${filtre === null ? ' cm-sel--actif' : ''}`}
+                          aria-pressed={filtre === null}
+                          onClick={() => { onEtiquette(e.etiquette); onFiltre(null); setPanneauMobile('contenu'); }}>
+                          {e.compte}
+                        </button>
+                      )}
+                    </span>
+                  </div>
                 </li>
               );
             }
@@ -440,9 +460,31 @@ export function PleinEcranBoite({
             page ; ce sont des informations qu'on consulte, pas qu'on lit. Les descendre ici est ce qui redonne au
             BANDEAU D'ALERTE, resté en haut, le pouvoir de se faire remarquer.
             `role="status"` : annoncé sans voler le focus. */}
+        {/**
+          * ══ 🔴 LOT ERGO-BOITE-4 — REPLIÉ DERRIÈRE « DÉTAILS RELÈVE » ═══════════════════════════════════════════
+          * Trois paragraphes gris occupaient le bas de la colonne en permanence. Ce sont des informations qu'on
+          * CONSULTE — l'heure de la dernière passe, la cadence, l'état de la copie des pièces — pas des
+          * informations qu'on lit à chaque ouverture. Repliées, elles ne coûtent plus qu'une ligne ; dépliées, elles
+          * sont exactement les mêmes, mot pour mot.
+          *
+          * 🔴 RIEN N'EST RETIRÉ, ET SURTOUT PAS L'ALERTE. Le bandeau « relève arrêtée » / « copie arrêtée » vit en
+          * HAUT DE PAGE, dans `GestionVue`, et n'a jamais transité par ici : c'est même tout l'intérêt de la
+          * séparation — l'ordinaire se replie, l'exceptionnel se voit. Replier ceci ne peut donc pas cacher une
+          * alerte.
+          *
+          * ⚠️ `hidden` PLUTÔT QU'UN DÉMONTAGE : le texte reste dans le document, donc trouvable par la recherche du
+          * navigateur, et `aria-expanded` dit l'état au lecteur d'écran.
+          */}
         {etatDiscret !== null && etatDiscret.length > 0 && (
-          <div className="cm-etat" role="status">
-            {etatDiscret.map((l) => <p key={l} className="cm-etat-ligne">{l}</p>)}
+          <div className="cm-etat">
+            <button type="button" className="cm-details" aria-expanded={detailsOuverts}
+              aria-controls="cm-details-relevé" onClick={() => setDetailsOuverts((v) => !v)}>
+              <span className="cm-details-fleche" aria-hidden="true">{detailsOuverts ? '▾' : '▸'}</span>
+              Détails relève
+            </button>
+            <div id="cm-details-relevé" role="status" hidden={!detailsOuverts}>
+              {etatDiscret.map((l) => <p key={l} className="cm-etat-ligne">{l}</p>)}
+            </div>
           </div>
         )}
       </ColonneMode>

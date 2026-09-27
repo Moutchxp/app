@@ -496,6 +496,26 @@ export function BoiteMail({
             </svg>
           </button>
         )}
+        {/* ══ 🔴 LOT ERGO-BOITE-4 — CE QUE LA LISTE NE MONTRE PAS, SUR LA LIGNE DU TITRE ═══════════════════════
+            La phrase occupait une ligne entière sous la recherche. Elle remonte ici, poussée à droite et en plus
+            petit : elle reste lue, elle ne prend plus de hauteur. Le titre et l'icône, eux, ne bougent pas.
+
+            🔴 ELLE N'EST PAS RACCOURCIE. Un outil qui cache sans le dire ment ; celui-ci dit COMBIEN il tait, et le
+            ramène d'un clic. C'est la règle du module depuis le lot 4b, et la place ne la change pas.
+
+            ⚠️ UN `span`, PAS UN `p` : ce bloc vit dans un `h2`, et un paragraphe dans un titre est du HTML
+            invalide. Le bouton, lui, y est parfaitement légitime. */}
+        {!cherche && impose === null && etat.comptes !== null && etat.comptes.automatiques > 0 && (
+          <span className="bte-tait">
+            {auto
+              ? <>Le courrier automatique est inclus : {etat.comptes.automatiques} échange{etat.comptes.automatiques > 1 ? 's' : ''} ne contien{etat.comptes.automatiques > 1 ? 'nent' : 't'} que des messages tenus hors de la file par une règle.</>
+              : <>{etat.comptes.automatiques} échange{etat.comptes.automatiques > 1 ? 's' : ''} ne contien{etat.comptes.automatiques > 1 ? 'nent' : 't'} que du courrier automatique et {etat.comptes.automatiques > 1 ? 'ne sont pas affichés' : 'n’est pas affiché'} ici. Rien n’est supprimé.</>}
+            {' '}
+            <button type="button" className="gst-lien-bouton" aria-pressed={auto} onClick={() => basculerAuto(!auto)}>
+              {auto ? 'Masquer le courrier automatique' : 'Afficher aussi le courrier automatique'}
+            </button>
+          </span>
+        )}
       </h2>
       {/* La recherche traverse les étiquettes : le dire ÉVITE de croire qu'un mail n'existe pas parce qu'on regardait
           ailleurs. C'est la promesse du lot 5c — chercher dans TOUT le courrier de gestion — et elle tient ici. */}
@@ -669,19 +689,6 @@ export function BoiteMail({
         <p className="gst-tronc">
           Cette étiquette ne rassemble QUE les échanges dont aucun message n’est lisible — d’où l’absence
           d’interrupteur ici. Le reste du courrier est sous les autres étiquettes, rien n’est supprimé.
-        </p>
-      )}
-
-      {/* CE QUE LA LISTE NE MONTRE PAS, dit en toutes lettres — et ramené d'un geste. Jamais un masquage silencieux. */}
-      {!cherche && impose === null && etat.comptes !== null && etat.comptes.automatiques > 0 && (
-        <p className="gst-tronc">
-          {auto
-            ? <>Le courrier automatique est inclus : {etat.comptes.automatiques} échange{etat.comptes.automatiques > 1 ? 's' : ''} ne contien{etat.comptes.automatiques > 1 ? 'nent' : 't'} que des messages tenus hors de la file par une règle.</>
-            : <>{etat.comptes.automatiques} échange{etat.comptes.automatiques > 1 ? 's' : ''} ne contien{etat.comptes.automatiques > 1 ? 'nent' : 't'} que du courrier automatique et {etat.comptes.automatiques > 1 ? 'ne sont pas affichés' : 'n’est pas affiché'} ici. Rien n’est supprimé.</>}
-          {' '}
-          <button type="button" className="gst-lien-bouton" aria-pressed={auto} onClick={() => basculerAuto(!auto)}>
-            {auto ? 'Masquer le courrier automatique' : 'Afficher aussi le courrier automatique'}
-          </button>
         </p>
       )}
 
@@ -886,6 +893,14 @@ const CSS_BOITE = `
   .bte-liste--dense .bte-bas{flex-wrap:nowrap;white-space:nowrap}
   .bte-liste--dense .bte-quand{text-align:right}
 }
+/* ══ LOT ERGO-BOITE-4 — LA MENTION « COURRIER AUTOMATIQUE », SUR LA LIGNE DU TITRE ═══════════════════════════════
+   margin-left:auto la colle à droite ; la taille descend à .72rem pour qu'elle tienne à côté du titre. Elle garde
+   sa graisse normale — c'est une note, pas un titre — et le lien qu'elle porte reste un vrai bouton.
+   ⚠️ ELLE PEUT PASSER À LA LIGNE. Sur un écran étroit, le titre garde sa place et la mention descend dessous
+   (le h2 a flex-wrap:wrap) : mieux vaut deux lignes qu'un texte écrasé ou tronqué.
+   ⚠️⚠️ AUCUN ACCENT GRAVE DANS CE COMMENTAIRE : il vit dans un littéral gabarit. Septième fois sur ce module. */
+.bte-tait{margin-left:auto;text-align:right;font-size:.72rem;font-weight:400;line-height:1.35;
+  color:var(--color-svv-muted);flex:0 1 auto;min-width:0}
 .bte-marque{display:inline-flex;align-items:center;gap:.25rem}
 .bte-ref{font-weight:700;color:var(--color-svv-green-ink)}
 .bte-recherche{display:flex;flex-direction:column;gap:8px;margin:0 0 12px}

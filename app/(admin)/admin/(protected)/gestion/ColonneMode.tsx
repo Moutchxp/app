@@ -87,20 +87,31 @@ export function ColonneMode({ actif, panneauMobile, titre, children }: {
 
 const CSS_COLONNE = `
 .cm{display:flex;flex-direction:column;gap:8px;min-width:0}
-.cm-titre{margin:.25rem 0 0;font-size:13px;font-weight:700;color:var(--color-svv-ink);display:flex;align-items:center;gap:.5rem}
+/* LOT ERGO-BOITE-4 — LE TITRE S'ALIGNE SUR LE TEXTE DES ENTRÉES, pas sur le bord de la colonne. Le retrait est
+   celui d'une entrée : son padding horizontal (.6rem) plus le trait de sa bordure (1px). Écrit en calc() et non en
+   valeur figée, pour que les deux bougent ensemble le jour où l'entrée change de gabarit.
+   ⚠️ AUCUN ACCENT GRAVE ICI : ce commentaire vit dans un littéral gabarit, qu'un seul backtick refermerait. */
+.cm-titre{margin:.25rem 0 0;padding-left:calc(.6rem + 1px);font-size:13px;font-weight:700;
+  color:var(--color-svv-ink);display:flex;align-items:center;gap:.5rem}
 .cm-note{margin:0;font-size:.75rem;line-height:1.4;color:var(--color-svv-muted)}
 .cm-liste{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:4px}
 /* ══ LOT ERGO-BOITE-3 — LA LIGNE « RÉCEPTION » ET SES DEUX SÉLECTEURS ═══════════════════════════════════════════
    Le nom prend la place qu'il faut, les deux nombres sont collés à droite. L'ACTIF est en gras ET souligné, l'autre
    en gris clair ET souligné : deux marques par état, dont une qui survit aux niveaux de gris et au daltonisme.
    Le soulignement des deux dit « c'est cliquable » — un nombre souligné n'a jamais l'air d'un simple compteur. */
-.cm-li-sel{display:flex;align-items:center;gap:2px}
-.cm-entree--nom{flex:1 1 auto;min-width:0}
-.cm-sels{display:inline-flex;align-items:center;gap:8px;padding-right:8px;flex:0 0 auto}
+/* LOT ERGO-BOITE-4 — l'enveloppe porte l'APPARENCE de l'entrée (voir .cm-entree plus bas) ; le nom, lui, est un
+   bouton nu qui prend toute la place restante, pour que cliquer n'importe où à gauche ouvre la liste. */
+.cm-entree--recep{padding-right:.45rem}
+.cm-nom-bouton{flex:1 1 auto;min-width:0;display:flex;align-items:center;min-height:34px;padding:0;
+  background:transparent;border:0;text-align:left;font:inherit;color:inherit;cursor:pointer}
+.cm-nom-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px;border-radius:4px}
+.cm-sels{display:inline-flex;align-items:center;gap:8px;flex:0 0 auto}
 .cm-sel{background:transparent;border:0;padding:2px 0;font-size:11px;cursor:pointer;
   text-decoration:underline;text-underline-offset:2px;color:var(--color-svv-muted);font-weight:500}
 .cm-sel:hover{color:var(--color-svv-ink)}
 .cm-sel--actif{color:var(--color-svv-ink);font-weight:800}
+/* Le total garde la taille des autres compteurs de la colonne : c'est le même nombre, il doit se lire pareil. */
+.cm-sel--total{font-size:.78rem}
 .cm-sel:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px;border-radius:3px}
 /* ══ LOT ERGO-BOITE — CE QUI SUIT LES ENTRÉES DE LA BOÎTE ═══════════════════════════════════════════════════════
    « À rattacher » et « Annuaire » sont des gestes, pas des dossiers de courrier : un filet les sépare des entrées,
@@ -110,13 +121,22 @@ const CSS_COLONNE = `
    c'est ce qui redonne au bandeau d'alerte, resté en haut de page, le pouvoir de se faire remarquer. */
 .cm-etat{margin-top:.75rem;padding-top:.6rem;border-top:1px solid var(--color-svv-line);
   font-size:.7rem;line-height:1.45;color:var(--color-svv-muted)}
-.cm-etat-ligne{margin:0 0 .35rem}
+/* LOT ERGO-BOITE-4 — le bouton de pli. Discret : la taille et la couleur du texte qu'il cache, pas plus. */
+.cm-details{display:inline-flex;align-items:center;gap:.35rem;padding:.2rem 0;background:transparent;border:0;
+  font:inherit;font-size:.72rem;color:var(--color-svv-muted);cursor:pointer;text-align:left}
+.cm-details:hover{color:var(--color-svv-ink)}
+.cm-details:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px;border-radius:3px}
+.cm-details-fleche{font-size:.7rem;line-height:1}
+.cm-etat-ligne{margin:.35rem 0 0}
 .cm-etat-ligne:last-child{margin-bottom:0}
 /* Une entrée de colonne : cible tactile confortable, texte qui casse plutôt que de déborder. */
 .cm-entree{display:flex;align-items:center;justify-content:space-between;gap:.5rem;width:100%;min-height:44px;
   padding:.45rem .6rem;text-align:left;font:inherit;font-size:.85rem;color:var(--color-svv-ink);cursor:pointer;
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:.6rem}
 .cm-entree:hover{border-color:var(--color-svv-line-strong)}
+/* L'enveloppe de « Réception » n'est pas focalisable : c'est l'un de ses trois boutons qui l'est. On montre donc le
+   focus SUR L'ENVELOPPE quand il est quelque part dedans — sans quoi la ligne entière paraîtrait inerte au clavier. */
+.cm-entree--recep:focus-within{border-color:var(--color-svv-line-strong)}
 .cm-entree:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 /* L'entrée ouverte est dite par un MOT (aria-current) autant que par la forme : lisible en niveaux de gris. */
 .cm-entree--active{background:var(--color-svv-field);border-color:var(--color-svv-line-strong);font-weight:700;
