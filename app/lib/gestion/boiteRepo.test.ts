@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 
 /**
  * LOT 5a — LA BOÎTE MAIL. Ce qui est protégé ici tient en trois points, et chacun casse d'une façon reconnaissable :
@@ -265,25 +266,57 @@ describe('la règle des deux boîtes', () => {
    * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
    * 🔴 LOT ENVOI-DIAG — « ENVOYÉS » NE MONTRE QUE DU COURRIER RÉELLEMENT PARTI.
    *
-   * Arno a demandé que l'application n'affiche JAMAIS « envoyé » avant que le serveur d'envoi ait accepté. C'est
-   * vrai aujourd'hui, mais par ARCHITECTURE et non par intention : la liste sort de `gestion_message`, que seule la
-   * relève alimente en relisant le dossier « Envoyés » de Gmail — un message refusé n'y est jamais entré.
-   * `gestion_envoi`, qui porte les tentatives (`en_cours`, `echec`), n'est pas lu ici.
+   * Arno a demandé que l'application n'affiche JAMAIS « envoyé » avant que le serveur d'envoi ait accepté. La
+   * liste sort de `gestion_message`, que seule la relève alimente en relisant le dossier « Envoyés » de Gmail :
+   * un message refusé n'y est jamais entré.
    *
-   * Sans ce test, la propriété tiendrait par chance : il suffirait qu'un jour quelqu'un joigne `gestion_envoi` à la
-   * liste « pour montrer les envois en cours » pour qu'un mail refusé apparaisse comme envoyé — précisément le
-   * mensonge signalé le 26/09/2026.
+   * ═══ 🔴 CE QUI A CHANGÉ AU LOT LIGNE-NON-ENVOYE, ET POURQUOI CE N'EST PAS UN RECUL ═════════════════════════════
+   * Ce test interdisait toute lecture de `gestion_envoi_file` dans la liste, et il avait raison de le faire : le
+   * danger était qu'un mail REFUSÉ apparaisse comme ENVOYÉ. Arno demande maintenant l'inverse exact — qu'un mail
+   * refusé apparaisse, en ROUGE, marqué « Non envoyé ».
+   *
+   * La propriété protégée n'était donc pas « ne pas lire la table » ; c'était « ne jamais faire passer un refus
+   * pour un envoi ». C'est ELLE qu'on tient désormais, et plus strictement qu'avant :
+   *   · la liste des messages sort toujours de `gestion_message` SEUL — la requête de page ne joint rien d'autre ;
+   *   · ce qui vient de la file arrive par une lecture SÉPARÉE, et porte une mention `nonEnvoye` qui ne peut se
+   *     rendre qu'en capsule rouge. Aucune ligne de la file ne peut donc se présenter comme un envoi réussi.
    * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
    */
-  it('🔴 la liste ne lit JAMAIS la table des tentatives d’envoi : un envoi refusé n’y paraît pas', async () => {
+  it('🔴 la requête de PAGE ne joint jamais la table des tentatives : la liste sort de gestion_message seul', async () => {
     rendre([]);
     await lireBoiteMail(null, [], PAGE_BOITE, { etiquette: { sorte: 'envoyes', evenementId: null } });
-    for (const s of sqls()) {
-      expect(s).not.toContain('gestion_envoi');
-      expect(s).not.toContain('gestion_brouillon');
-      // Et aucune trace des états de tentative, qui n'existent que dans cette table-là.
-      expect(s).not.toContain("'en_cours'");
-    }
+    // La requête de page (la première émise) reste la lecture des messages, et elle seule.
+    expect(sqlPage()).not.toContain('gestion_envoi');
+    expect(sqlPage()).not.toContain('gestion_brouillon');
+    expect(sqlPage()).not.toContain("'en_cours'");
+  });
+
+  /**
+   * 🔴🔴 ET CE QUI REMONTE DE LA FILE NE PEUT PAS PASSER POUR UN ENVOI RÉUSSI : on ne lit QUE les lignes en
+   * `echec`, jamais celles en `envoye` ni en `attente`. C'est la protection réelle, celle que le test précédent
+   * cherchait à obtenir par l'absence de lecture.
+   */
+  it('🔴🔴 seules les lignes en ÉCHEC sont lues — jamais un envoi en cours, jamais un envoi réussi', async () => {
+    const src = readFileSync('app/lib/gestion/fileEnvoiRepo.ts', 'utf8');
+    const bloc = src.slice(src.indexOf('const SQL_ECHEC_NON_RESOLU'), src.indexOf('interface LigneEchec'));
+    expect(bloc).toContain("f.etat = 'echec'");
+    expect(bloc).not.toContain("f.etat = 'attente'");
+    expect(bloc).not.toContain("f.etat = 'en_cours'");
+  });
+
+  /**
+   * 🔴 ET LA CAPSULE DISPARAÎT AU RENVOI RÉUSSI (demande d'Arno). La règle vit dans la REQUÊTE — un échec dont le
+   * même brouillon a, depuis, un envoi réussi n'est plus rendu. Rien n'est réécrit : cette tentative-là a bien
+   * échoué, et une table qui dirait le contraire mentirait sur ce qui s'est passé.
+   */
+  it('🔴 un échec RÉPARÉ n’est plus rendu : la règle est dans la requête, pas dans une réécriture', () => {
+    const src = readFileSync('app/lib/gestion/fileEnvoiRepo.ts', 'utf8');
+    const bloc = src.slice(src.indexOf('const SQL_ECHEC_NON_RESOLU'), src.indexOf('interface LigneEchec'));
+    expect(bloc).toContain('NOT EXISTS');
+    expect(bloc).toContain("f2.etat = 'envoye'");
+    expect(bloc).toContain('f2.demande_le > f.demande_le');
+    // ⚠️ Deux échecs SANS brouillon ne doivent pas se répondre l'un l'autre.
+    expect(bloc).toContain('f2.brouillon_id IS NOT NULL');
   });
 
   it('le TOTAL de chaque boîte porte la même règle que sa liste', async () => {

@@ -190,6 +190,82 @@ export function doitAlerter(l: { etat: EtatFile; alerteLe: Date | null; estUneAl
 }
 
 /**
+ * ══ 🔴 LOT LIGNE-NON-ENVOYE — CE QU'UNE LIGNE DE LISTE DOIT DIRE D'UN MAIL QUI N'EST PAS PARTI ═══════════════════
+ *
+ * Demande d'Arno : la capsule rouge « Non envoyé » doit se voir DANS « Envoyés » et DANS le fil, pas seulement
+ * dans un bandeau en tête. La raison est la même que pour les avis de non-remise (lot ENVOI-DIAG) : c'est la seule
+ * chose qu'on ne peut pas apprendre en ouvrant l'échange plus tard. Sans elle, il faudrait ouvrir les 6 580
+ * échanges d'« Envoyés » pour espérer tomber sur celui qui n'est pas parti.
+ */
+export interface MentionNonEnvoye {
+  /** La ligne de file d'où vient la mention. Sert de clé d'affichage — deux échecs sur le même fil sont possibles. */
+  fileId: number;
+  /** L'échange concerné. `null` = message NEUF : il n'a pas encore de fil, donc pas de ligne où s'accrocher. */
+  filId: number | null;
+  objet: string;
+  destinataires: string[];
+  /** La cause, EN FRANÇAIS, déjà rédigée par le travailleur (`causeEnFrancais`). */
+  cause: string | null;
+  /** L'heure du clic, en ISO. C'est elle qui donne sa place chronologique à la ligne. */
+  demandeLe: string;
+  /** Le brouillon où le message est retourné. C'est lui qu'ouvre « Rouvrir le brouillon ». */
+  brouillonId: number | null;
+}
+
+/**
+ * ══ 🔴 FUSIONNER LES ÉCHECS DANS UNE LISTE D'ÉCHANGES. PUR. ═════════════════════════════════════════════════════
+ *
+ * Deux cas, et ils ne se traitent pas de la même façon :
+ *   ① L'ÉCHEC PORTE UN FIL DÉJÀ PRÉSENT dans la page → on POSE la mention sur cette ligne. C'est le cas courant
+ *      (une réponse qui ne part pas), et il ne faut surtout pas créer une seconde ligne : l'échange apparaîtrait
+ *      deux fois dans la liste, une fois normal et une fois en rouge.
+ *   ② L'ÉCHEC N'A PAS DE FIL, ou son fil n'est pas sur cette page → on INSÈRE une ligne, à sa place
+ *      CHRONOLOGIQUE. Un message neuf qui ne part pas n'a aucun échange où se ranger : sans cette ligne, il
+ *      n'apparaîtrait nulle part, et c'est exactement le mail qu'on croit envoyé.
+ *
+ * ⚠️ L'ORDRE DE LA LISTE EST CELUI DE LA LISTE, et on ne le recalcule pas : on insère chaque échec devant la
+ * première ligne plus ANCIENNE que lui. Trier l'ensemble ferait bouger des lignes qui n'ont pas changé, et la page
+ * suivante (qui se demande avec un curseur) ne correspondrait plus.
+ */
+export function fusionnerNonEnvoyes<T extends { filId: number; dernierLe: string }>(
+  lignes: readonly T[],
+  echecs: readonly MentionNonEnvoye[],
+  fabriquer: (e: MentionNonEnvoye) => T,
+): (T & { nonEnvoye?: MentionNonEnvoye | null })[] {
+  if (echecs.length === 0) return [...lignes];
+
+  const presents = new Set(lignes.map((l) => l.filId));
+  const parFil = new Map<number, MentionNonEnvoye>();
+  const orphelins: MentionNonEnvoye[] = [];
+  for (const e of echecs) {
+    if (e.filId !== null && presents.has(e.filId)) {
+      // ⚠️ LE PLUS RÉCENT GAGNE si deux échecs portent le même fil : une ligne ne peut porter qu'une capsule, et
+      //   c'est le dernier état qui intéresse.
+      const deja = parFil.get(e.filId);
+      if (!deja || deja.demandeLe < e.demandeLe) parFil.set(e.filId, e);
+    } else {
+      orphelins.push(e);
+    }
+  }
+
+  const avecMention = lignes.map((l) => {
+    const m = parFil.get(l.filId);
+    return m ? { ...l, nonEnvoye: m } : l;
+  });
+
+  // Les orphelins, du plus récent au plus ancien : on les insère un par un, chacun devant la première ligne
+  //   plus ancienne que lui. La liste étant déjà décroissante, l'insertion garde l'ordre.
+  const sortis = [...orphelins].sort((a, b) => (a.demandeLe < b.demandeLe ? 1 : -1));
+  const sortie: (T & { nonEnvoye?: MentionNonEnvoye | null })[] = [...avecMention];
+  for (const e of sortis) {
+    const rang = sortie.findIndex((l) => l.dernierLe <= e.demandeLe);
+    const ligne = { ...fabriquer(e), nonEnvoye: e };
+    if (rang < 0) sortie.push(ligne); else sortie.splice(rang, 0, ligne);
+  }
+  return sortie;
+}
+
+/**
  * LE PLAFOND DE TAILLE, TRANCHÉ AU CLIC. PUR.
  *
  * 🔴 SUR LES TAILLES ANNONCÉES PAR LE DRIVE, et c'est le point délicat de ce lot : on accepte une pièce AVANT

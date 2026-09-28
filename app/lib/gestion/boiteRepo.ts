@@ -31,6 +31,9 @@ import { query } from '../db/client';
 import { autoImposeParEtiquette, type Etiquette } from './ecranUrl';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils, type MentionNonRemise } from './nonRemiseRepo';
+// LOT LIGNE-NON-ENVOYE — les mails qui ne sont pas partis, à montrer dans « Envoyés » et dans le fil.
+import { nonEnvoyesAMontrer, nonEnvoyesDesFils } from './fileEnvoiRepo';
+import { fusionnerNonEnvoyes, type MentionNonEnvoye } from './fileEnvoi';
 import { corbeilleDisponible, spamDisponible, rattachementsDisponibles, horsGestionDisponible } from './schema';
 import { etoilesDesFils } from './etoileRepo';
 
@@ -115,6 +118,17 @@ export interface LigneBoite {
    * signaler, ce qui est le cas général — et le cas où la migration 261 n'est pas appliquée.
    */
   nonRemise: MentionNonRemise | null;
+  /**
+   * 🔴 LOT LIGNE-NON-ENVOYE — un mail de cet échange N'EST PAS PARTI, et il est retourné en brouillon.
+   *
+   * MÊME RAISON QUE `nonRemise` juste au-dessus : c'est une chose qu'on ne peut pas apprendre en ouvrant
+   * l'échange plus tard. Sans elle, il faudrait ouvrir les 6 580 échanges d'« Envoyés » pour espérer tomber sur
+   * celui qui n'est pas parti. `null` = rien à signaler — le cas général, et celui où la migration 271 manque.
+   *
+   * ⚠️ ELLE DISPARAÎT D'ELLE-MÊME quand le message est renvoyé avec succès : la règle est dans la requête
+   * (`SQL_ECHEC_NON_RESOLU`), pas dans une écriture au moment du renvoi.
+   */
+  nonEnvoye?: MentionNonEnvoye | null;
 }
 
 export interface PageBoite {
@@ -616,13 +630,29 @@ export async function lireBoiteMail(
    * requête par ligne se verrait à l'écran ; sans la migration 264, `etoilesDesFils` rend un ensemble vide sans
    * rien demander à la base.
    */
-  const [avis, etoiles] = await Promise.all([
+  /**
+   * 🔴 LOT LIGNE-NON-ENVOYE — les mails qui ne sont PAS partis.
+   *
+   * Deux lectures, et elles ne répondent pas à la même question :
+   *   · `nonEnvoyesDesFils` — « un échange de cette page a-t-il un envoi en échec ? » → la capsule se POSE sur sa
+   *     ligne, qui existe déjà. C'est le cas courant : une réponse qui ne part pas ;
+   *   · `nonEnvoyesAMontrer` — « y a-t-il des échecs SANS échange, ou dont l'échange n'est pas sur cette page ? »
+   *     → il leur faut une ligne à eux, sinon un message neuf qui ne part pas n'apparaît NULLE PART.
+   *
+   * ⚠️ LA SECONDE N'EST DEMANDÉE QUE SOUS « ENVOYÉS », ET QU'À LA PREMIÈRE PAGE. Ailleurs elle n'aurait pas de
+   * sens (un mail non parti n'est pas du courrier reçu) ; et insérer des lignes au milieu d'une pagination par
+   * curseur ferait sauter des échanges d'une page à l'autre.
+   */
+  const premierePage = curseur === null;
+  const montrerEchecs = etiquette.sorte === 'envoyes' && premierePage;
+  const [avis, etoiles, echecsDesFils, echecsOrphelins] = await Promise.all([
     nonRemisesDesFils(filsDeLaPage),
     etoilesDesFils(filsDeLaPage),
+    nonEnvoyesDesFils(filsDeLaPage),
+    montrerEchecs ? nonEnvoyesAMontrer() : Promise.resolve([] as MentionNonEnvoye[]),
   ]);
 
-  return {
-    lignes: gardees.map((r) => ({
+  const lignes: LigneBoite[] = gardees.map((r) => ({
       // ⚠️ `pg` rend les `bigint` en CHAÎNE : sans cette conversion, l'écran comparerait des chaînes à des nombres et
       //    les clés React comme les comparaisons d'identifiant mentiraient. Piège connu du dépôt.
       filId: Number(r.fil_id),
@@ -632,7 +662,7 @@ export async function lireBoiteMail(
       interlocuteur: r.interlocuteur_adresse === null
         ? r.interlocuteur
         : libelleExpediteur(partenaires, r.interlocuteur_adresse, r.interlocuteur) || r.interlocuteur,
-      dernierSens: r.dernier_sens === 'envoye' ? 'envoye' : 'recu',
+      dernierSens: r.dernier_sens === 'envoye' ? ('envoye' as const) : ('recu' as const),
       dernierLe: r.dernier_le,
       extrait: r.extrait && r.extrait.trim() !== '' ? r.extrait : null,
       nbMessages: r.nb_messages,
@@ -642,6 +672,8 @@ export async function lireBoiteMail(
       reference: r.reference,
       sansSuite: r.sans_suite === true,
       nonRemise: avis.get(Number(r.fil_id)) ?? null,
+      // 🔴 LA CAPSULE « Non envoyé », sur la ligne de l'échange concerné. `null` = rien à signaler.
+      nonEnvoye: echecsDesFils.get(Number(r.fil_id)) ?? null,
       etoilee: etoiles.has(Number(r.fil_id)),
       classement: r.cl_n === null && r.cl_humain === null && r.cl_detail === null
         ? null
@@ -649,6 +681,40 @@ export async function lireBoiteMail(
       // LOT STATUT-HORS-GESTION — `false` quand la migration 266 manque : aucune capsule grise, jamais par défaut.
       horsGestion: r.hg_marque === true,
       motifHorsGestion: r.hg_motif,
+  }));
+
+  return {
+    /**
+     * 🔴 LOT LIGNE-NON-ENVOYE — LES ÉCHECS SANS LIGNE OBTIENNENT LA LEUR, À LEUR PLACE CHRONOLOGIQUE.
+     *
+     * La règle de fusion vit dans le module PUR (`fusionnerNonEnvoyes`), où elle est éprouvée entièrement : un
+     * échange déjà présent reçoit la MENTION et jamais une seconde ligne ; un message neuf, qui n'a pas d'échange,
+     * obtient une ligne à lui. Ici, on ne fait que fournir de quoi fabriquer cette ligne.
+     *
+     * ⚠️ `filId` NÉGATIF pour une ligne fabriquée : elle ne désigne AUCUN échange, et un `0` ou un identifiant
+     * inventé enverrait le clic ouvrir une conversation qui n'existe pas. Le signe rend l'absence lisible partout,
+     * y compris dans une clé React.
+     */
+    lignes: fusionnerNonEnvoyes(lignes, echecsOrphelins, (e) => ({
+      filId: -e.fileId,
+      messageAffiche: 0,
+      objet: e.objet,
+      interlocuteur: e.destinataires[0] ?? null,
+      dernierSens: 'envoye' as const,
+      dernierLe: e.demandeLe,
+      extrait: e.cause,
+      nbMessages: 1,
+      nbLisibles: 1,
+      aPiece: false,
+      nbPieces: 0,
+      reference: null,
+      sansSuite: false,
+      nonRemise: null,
+      nonEnvoye: e,
+      etoilee: false,
+      classement: null,
+      horsGestion: false,
+      motifHorsGestion: null,
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
     // Le total N'EST COMPTÉ QUE pour la boîte entière. Sous une étiquette, c'est la colonne de gauche qui porte le

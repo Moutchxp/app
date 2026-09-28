@@ -27,6 +27,8 @@ import { PanneauAffecter } from './PanneauAffecter';
 import { EncartAnnuaire } from './EncartAnnuaire';
 // Le bandeau porte son propre CSS en ligne, comme `EncartAnnuaire` : rien à ajouter à `CSS_CONVERSATION`.
 import { EncartRattachement } from './EncartRattachement';
+// LOT LIGNE-NON-ENVOYE — la capsule « Non envoyé » de cet échange, avec sa cause et le retour au brouillon.
+import { BandeauEnvois } from './BandeauEnvois';
 // LOT BARRE-STATUT — la fenêtre « Visualiser / Modifier », partagée avec la liste.
 import { RattachementsDuFil } from './RattachementsDuFil';
 // LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail » : portée, biens, parties à la date du mail.
@@ -137,8 +139,14 @@ async function marquerLecture(
   }
 }
 
-export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, onFicheAnnuaire, onHistorique }: {
+export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau = true, barreActions = false, onClassement, redaction = null, onLecture, voieInitiale = null, messageVise = null, onFicheAnnuaire, onHistorique, onRouvrirBrouillon }: {
   filId: number;
+  /**
+   * 🔴 LOT LIGNE-NON-ENVOYE — rouvre le brouillon d'un mail de cet échange qui n'est pas parti. Absent ⇒ la
+   * capsule s'affiche quand même, avec sa cause : savoir qu'un mail manque vaut mieux que ne rien savoir, même
+   * sans le geste pour le reprendre.
+   */
+  onRouvrirBrouillon?: (brouillonId: number) => void;
   /**
    * ══ 🔴 LOT MESSAGE-CLIQUÉ — LE MESSAGE QU'ON VENAIT LIRE ═══════════════════════════════════════════════════════
    * Celui que la ligne cliquée représentait : le dernier reçu sous « Réception », le dernier envoyé sous
@@ -683,6 +691,17 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
       {/* 🔴 L'ORDRE EST UNE AFFAIRE D'AFFICHAGE, ET RIEN D'AUTRE. Le serveur rend toujours du plus ancien au plus
           récent ; `ordonnerMessages` ne fait que retourner la liste pour l'œil. Aucune requête ne change, et le
           message déplié à l'ouverture reste EXACTEMENT le même (le dernier lisible) — il est simplement en haut. */}
+      {/* ══ 🔴 LOT LIGNE-NON-ENVOYE — UN MAIL DE CET ÉCHANGE N'EST PAS PARTI ═══════════════════════════════════
+          Demande d'Arno : la même capsule que dans « Envoyés », mais ICI posée sur le message, avec la CAUSE et
+          le lien « Rouvrir le brouillon ».
+
+          🔴 EN TÊTE DU FIL, et non à la place où le message aurait dû être : il n'existe pas. Un message qui n'est
+          jamais parti n'a ni date de remise, ni identifiant, ni place dans la conversation — lui en inventer une
+          reviendrait à faire croire qu'il a existé. On DIT qu'il manque, là où on le cherche.
+
+          ⚠️ ELLE DISPARAÎT D'ELLE-MÊME au renvoi réussi : la règle est dans la requête, pas ici. */}
+      <BandeauEnvois filId={filId} onRouvrir={onRouvrirBrouillon} />
+
       <ol className="cnv-fil" ref={filRef}>
         {ordonnerMessages(messages, ordre).map((m) => (
           <MessageConversation key={m.messageId} message={m} maintenant={maintenant} filId={filId}

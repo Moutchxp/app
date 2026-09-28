@@ -620,6 +620,12 @@ export function PleinEcranBoite({
               auto={auto} onAuto={onAuto} filSelectionne={filOuvert} onNonLus={onNonLus} marquage={marquage}
               corbeille={corbeilleDisponible} peutEcrire={peutEcrire} piecesDisponibles={piecesDisponibles}
               onActionLigne={agirSurLigne}
+              /**
+               * 🔴 LOT LIGNE-NON-ENVOYE — une ligne FABRIQUÉE (message neuf qui n'est pas parti) ne désigne aucun
+               * échange : son clic conduit là où le travail est retourné, les Brouillons. Ouvrir une conversation
+               * inexistante donnerait un écran vide, et l'on chercherait le mail perdu.
+               */
+              onRouvrirBrouillon={() => onEtiquette({ sorte: 'brouillons', evenementId: null })}
               versionDonnees={versionDonnees} onListeRelue={onListeRelue}
               /* LOT MESSAGE-CLIQUÉ — le message de la ligne voyage avec l'échange, sans quoi la conversation
                  ouvrirait son dernier message et non celui qu'on vient de cliquer. */
@@ -633,6 +639,12 @@ export function PleinEcranBoite({
         {filOuvert !== null && (
           <section className="pe-lecture" aria-label="Conversation">
             <Conversation key={`${filOuvert}-${versionFil}`} filId={filOuvert} maintenant={maintenant}
+              /**
+               * 🔴 LOT LIGNE-NON-ENVOYE — le brouillon d'un mail de cet échange qui n'est pas parti. On va là où
+               * le travail est RETOURNÉ : les Brouillons. C'est le même geste que depuis la liste, et le même que
+               * le lien de l'alerte — un seul endroit où reprendre un envoi manqué.
+               */
+              onRouvrirBrouillon={() => onEtiquette({ sorte: 'brouillons', evenementId: null })}
               /* LOT MESSAGE-CLIQUÉ — le message de la ligne cliquée : déplié et amené à l'écran. */
               messageVise={messageOuvert}
               voieInitiale={voieDemandee}

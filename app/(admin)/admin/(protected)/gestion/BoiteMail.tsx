@@ -290,7 +290,7 @@ export function Evidence({ texte, saisie }: { texte: string; saisie: string }) {
 }
 
 export function BoiteMail({
-  onOuvrir, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
+  onOuvrir, onRouvrirBrouillon, etiquette = ETIQUETTE_RECEPTION, titre, total, auto: autoPilote, onAuto, filSelectionne = null,
   dense = false, onNonLus, marquage, onActionLigne, corbeille = false, peutEcrire = false, piecesDisponibles = false,
   versionDonnees = 0, onListeRelue, onRelever, releveEnCours = false, filtre = null,
   etoile = false, onEtoileFiltre,
@@ -305,6 +305,11 @@ export function BoiteMail({
    * « Répondre » d'une ligne) de continuer à n'ouvrir qu'un échange, sans rien inventer.
    */
   onOuvrir: (filId: number, messageId?: number | null) => void;
+  /**
+   * 🔴 LOT LIGNE-NON-ENVOYE — rouvre le brouillon d'un mail qui n'est pas parti. Absent ⇒ la ligne fabriquée
+   * n'est pas cliquable, ce qui vaut mieux qu'un clic qui n'ouvre rien.
+   */
+  onRouvrirBrouillon?: (brouillonId: number | null) => void;
   /** LOT 5-FUSION — l'étiquette ouverte. Absente = la boîte entière, exactement le comportement du lot 5a. */
   etiquette?: Etiquette;
   /** Titre affiché au-dessus de la liste. Absent = « Boîte mail », comme avant. */
@@ -909,7 +914,15 @@ export function BoiteMail({
                      répond déjà à la question : `messageAffiche` EST le message dont la ligne montre la date,
                      l'expéditeur et l'extrait. `?? null` parce qu'une réponse plus ancienne que ce lot ne porte
                      pas le champ — la conversation retombe alors sur son dernier message, comme avant. */
-                  onClick={() => onOuvrir(l.filId, l.messageAffiche ?? null)}>
+                  /**
+                   * 🔴 LOT LIGNE-NON-ENVOYE — UNE LIGNE FABRIQUÉE NE DÉSIGNE AUCUN ÉCHANGE (`filId` négatif) :
+                   * c'est un message NEUF qui n'est pas parti, et qui n'a donc pas de conversation. Le clic ouvre
+                   * son BROUILLON, là où le travail est retourné — ouvrir une conversation inexistante donnerait
+                   * un écran vide, et l'on chercherait le mail perdu.
+                   */
+                  onClick={() => (l.filId < 0
+                    ? onRouvrirBrouillon?.(l.nonEnvoye?.brouillonId ?? null)
+                    : onOuvrir(l.filId, l.messageAffiche ?? null))}>
                   {/* 🔴 L'ÉTOILE POSÉE, AU DÉBUT DE LA LIGNE ET EN PERMANENCE — lot LISTE-GMAIL. Une étoile
                       ÉTEINTE ne s'affiche nulle part hors survol : elle ne dirait rien et alourdirait chaque
                       ligne. Celle qui est posée, elle, doit se voir sans survoler — c'est tout son intérêt.
@@ -968,6 +981,26 @@ export function BoiteMail({
                         title={l.nonRemise.phrase}>
                         <span aria-hidden="true">⚠ </span>
                         <span className="bte-echec-texte">{l.nonRemise.phrase}</span>
+                      </span>
+                    )}
+                    {/* ══ 🔴 LOT LIGNE-NON-ENVOYE — CE MAIL N'EST PAS PARTI ════════════════════════════════════
+                        Demande d'Arno. Même raison que l'avertissement de non-remise juste au-dessus : c'est une
+                        chose qu'on ne peut pas apprendre en ouvrant l'échange plus tard, et il faudrait sinon
+                        ouvrir les 6 580 échanges d'« Envoyés » pour espérer tomber dessus.
+
+                        🔴 SA PLACE : dans le bloc de fin de ligne, À GAUCHE DE L'HEURE comme les autres capsules,
+                        mais AVANT le trombone — la règle écrite ci-dessous vaut aussi pour elle : rien ne
+                        s'intercale entre le trombone et la capsule de classement, qui sont les deux repères qu'on
+                        balaie du regard et qui doivent rester à la même place sur toutes les lignes.
+
+                        🔴 LE MOT PORTE L'INFORMATION, jamais la couleur seule : « Non envoyé » se lit en niveaux
+                        de gris comme il se lit par un daltonien. L'info-bulle donne la CAUSE, en français.
+
+                        ⚠️ ELLE DISPARAÎT D'ELLE-MÊME au renvoi réussi : la règle est dans la requête, pas ici. */}
+                    {l.nonEnvoye && (
+                      <span className="bte-capsule bte-capsule--non-envoye"
+                        title={l.nonEnvoye.cause ?? 'Ce message n’est pas parti ; il est retourné en brouillon.'}>
+                        Non envoyé
                       </span>
                     )}
                     {/* ══ 🔴 LE TROMBONE, COLLÉ À LA CAPSULE — retouche demandée par Arno ════════════════════════
@@ -1193,6 +1226,18 @@ const CSS_BOITE = `
 .bte-capsule{display:inline-flex;align-items:center;padding:.05rem .4rem;border-radius:999px;flex:0 0 auto;
   font-size:.7rem;font-weight:700;line-height:1.5;white-space:nowrap;border:1px solid transparent}
 .bte-capsule--a_classer{color:var(--color-svv-red);border-color:var(--color-svv-red);background:transparent}
+/* 🔴 LOT LIGNE-NON-ENVOYE — « Non envoyé » : la seule capsule à fond ROUGE PLEIN de la liste, parce que c'est la
+   seule qui dise qu'un geste a ÉCHOUÉ. « À classer » est un travail qui reste à faire, et son cadre rouge suffit ;
+   un mail qui n'est pas parti est un fait accompli, et il doit se distinguer d'un travail en attente. Le MOT porte
+   l'information dans les deux cas — la couleur ne fait que hiérarchiser.
+
+   ⚠️ LE TEXTE PREND LE JETON DE SURFACE, PAS UN BLANC EN DUR. En theme SOMBRE le rouge de la charte est CLAIR :
+   du blanc dessus tomberait a environ 2,1:1, illisible. La surface, elle, y est sombre — on remonte vers 7:1 — et
+   en clair elle EST blanche, donc le rendu ne bouge pas. Meme regle que la surbrillance de selection
+   (lot COULEUR-ROUGE). C'est aussi pourquoi ce fichier n'ecrit AUCUNE couleur en dur, pas meme en commentaire :
+   le garde ci-contre ne sait pas distinguer une valeur d'une explication, et il a raison de ne pas essayer. */
+.bte-capsule--non-envoye{color:var(--color-svv-surface);border-color:var(--color-svv-red);
+  background:var(--color-svv-red);font-weight:700}
 .bte-capsule--classe{color:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink);background:transparent}
 /* « Auto » est vert lui aussi — c'est rangé — mais en aplat plus discret : le geste humain doit rester le plus
    visible des deux, sans pour autant faire passer l'automatique pour un problème. */

@@ -2,7 +2,7 @@ import { query, withTransaction } from '../db/client';
 import { attenteAvantReprise, BAIL_SECONDES, ESSAIS_MAX } from './fileEnvoi';
 import { fileEnvoiDisponible } from './schema';
 import type { LigneFile, PieceAFond } from './travailleurEnvoi';
-import type { EtatPiece } from './fileEnvoi';
+import type { EtatPiece, MentionNonEnvoye } from './fileEnvoi';
 
 /**
  * MODULE « GESTION » — LOT ENVOI-ARRIERE-PLAN : LA FILE D'ENVOI EN BASE. Accès base, lecture et écriture.
@@ -26,6 +26,32 @@ import type { EtatPiece } from './fileEnvoi';
  * tenue par `app/lib/garde/clientBoundary.guard.test.ts`.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
+
+/**
+ * ══ 🔴🔴 QUAND UN ÉCHEC CESSE-T-IL DE SE VOIR ? ═════════════════════════════════════════════════════════════════
+ *
+ * Demande d'Arno : « quand il est renvoyé avec succès, la capsule disparaît et la ligne redevient normale ».
+ *
+ * 🔴 ON NE RÉÉCRIT PAS L'HISTOIRE POUR AUTANT. La ligne échouée garde `etat = 'echec'` : cette tentative-là A
+ * échoué, et une table qui dirait le contraire mentirait sur ce qui s'est passé. Ce qu'on demande n'est pas
+ * « efface l'échec », c'est « cesse de le montrer quand il est réparé ».
+ *
+ * ⇒ On EXCLUT donc les échecs dont le MÊME BROUILLON a, depuis, un envoi réussi. Aucune colonne de plus, aucune
+ * écriture au moment du renvoi : la question se pose au moment de l'affichage, et elle se lit dans les faits.
+ *
+ * ⚠️ `brouillon_id IS NOT NULL` DANS LA SOUS-REQUÊTE : sans cette condition, deux échecs SANS brouillon (deux
+ * alertes, par exemple) se répondraient l'un l'autre — `NULL = NULL` ne vaut rien en SQL, mais la jointure sur
+ * `IS NOT DISTINCT FROM` en ferait des jumeaux. On ne compare donc que des brouillons réels.
+ */
+const SQL_ECHEC_NON_RESOLU = `
+  f.etat = 'echec'
+  AND NOT EXISTS (
+    SELECT 1 FROM gestion_envoi_file f2
+     WHERE f2.brouillon_id IS NOT NULL
+       AND f2.brouillon_id = f.brouillon_id
+       AND f2.etat = 'envoye'
+       AND f2.demande_le > f.demande_le
+  )`;
 
 /** Ce qu'on met en file : exactement ce que l'envoi synchrone recevait. */
 export interface DemandeEnFile {
@@ -285,13 +311,25 @@ export async function etatDesPieces(
  */
 export async function envoisEnCours(filId?: number | null): Promise<LigneFileAffichee[]> {
   if (!(await fileEnvoiDisponible())) return [];
+  /**
+   * 🔴 LOT LIGNE-NON-ENVOYE — UN ÉCHEC RÉPARÉ NE S'AFFICHE PLUS ICI NON PLUS.
+   *
+   * Trouvé en essayant : après un renvoi réussi, la LISTE avait bien retiré la capsule et le BANDEAU la montrait
+   * encore. Deux écrans, deux vérités sur le même fait — et c'est le bandeau qu'on croit, puisqu'il est en tête.
+   * La règle d'exclusion est donc la MÊME que celle de la liste (`SQL_ECHEC_NON_RESOLU`), et elle vit à un seul
+   * endroit : une seconde copie divergerait le jour où l'une des deux changerait.
+   *
+   * ⚠️ ELLE NE S'APPLIQUE QU'AUX ÉCHECS : un envoi encore en route (`attente`, `en_cours`) n'a rien à réparer, et
+   * doit se montrer tel quel — c'est lui qui comble l'intervalle entre le clic et la capture par la relève.
+   */
   const { rows } = await query<LigneBrute>(
-    `SELECT id::text, cle_idempotence, brouillon_id::text, fil_id::text, objet,
-            dest_a, dest_cc, dest_cci, demande_le::text, essais, alerte_le::text, etat, derniere_erreur
-       FROM gestion_envoi_file
-      WHERE etat <> 'envoye'
-        AND ($1::bigint IS NULL OR fil_id = $1)
-      ORDER BY demande_le DESC
+    `SELECT f.id::text, f.cle_idempotence, f.brouillon_id::text, f.fil_id::text, f.objet,
+            f.dest_a, f.dest_cc, f.dest_cci, f.demande_le::text AS demande_le, f.essais,
+            f.alerte_le::text AS alerte_le, f.etat, f.derniere_erreur
+       FROM gestion_envoi_file f
+      WHERE (f.etat IN ('attente', 'en_cours') OR (${SQL_ECHEC_NON_RESOLU}))
+        AND ($1::bigint IS NULL OR f.fil_id = $1)
+      ORDER BY f.demande_le DESC
       LIMIT 50`,
     [filId ?? null]);
   return rows.map((r) => ({
@@ -337,3 +375,77 @@ export async function lireDemande(id: number): Promise<(DemandeEnFile & {
 
 /** Le nombre d'essais au-delà duquel on renonce — exposé pour que l'écran puisse l'expliquer. */
 export { ESSAIS_MAX };
+
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT LIGNE-NON-ENVOYE — LA CAPSULE ROUGE DANS « ENVOYÉS » ET DANS LE FIL
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+interface LigneEchec {
+  id: string;
+  fil_id: string | null;
+  objet: string;
+  dest_a: unknown;
+  dest_cc: unknown;
+  derniere_erreur: string | null;
+  demande_le: string;
+  brouillon_id: string | null;
+}
+
+function versMention(r: LigneEchec): MentionNonEnvoye {
+  return {
+    fileId: Number(r.id),
+    filId: r.fil_id === null ? null : Number(r.fil_id),
+    objet: r.objet,
+    destinataires: [...listeDe(r.dest_a), ...listeDe(r.dest_cc)],
+    cause: r.derniere_erreur,
+    demandeLe: r.demande_le,
+    brouillonId: r.brouillon_id === null ? null : Number(r.brouillon_id),
+  };
+}
+
+const CHAMPS_ECHEC = `f.id::text, f.fil_id::text, f.objet, f.dest_a, f.dest_cc, f.derniere_erreur,
+  f.demande_le::text AS demande_le, f.brouillon_id::text`;
+
+/**
+ * LES MAILS NON ENVOYÉS À MONTRER DANS « ENVOYÉS ».
+ *
+ * ⚠️ BORNÉ, ET C'EST VOLONTAIRE. Une file saine n'a aucun échec ; une file malade en a quelques-uns. Si elle en
+ * avait deux cents, les afficher tous ferait une page illisible — et le bandeau en tête, lui, les porte déjà.
+ *
+ * ⚠️ SANS LA MIGRATION 271, aucune requête n'est émise et la liste est vide : les écrans sont alors EXACTEMENT
+ * ceux d'avant, sans capsule et sans ligne de plus.
+ */
+export async function nonEnvoyesAMontrer(limite = 30): Promise<MentionNonEnvoye[]> {
+  if (!(await fileEnvoiDisponible())) return [];
+  const { rows } = await query<LigneEchec>(
+    `SELECT ${CHAMPS_ECHEC}
+       FROM gestion_envoi_file f
+      WHERE ${SQL_ECHEC_NON_RESOLU}
+      ORDER BY f.demande_le DESC
+      LIMIT $1`, [Math.min(Math.max(1, limite), 100)]);
+  return rows.map(versMention);
+}
+
+/**
+ * LES MAILS NON ENVOYÉS D'UN ÉCHANGE — pour la capsule POSÉE SUR LE MESSAGE, dans le fil.
+ *
+ * ⚠️ UNE SEULE REQUÊTE POUR TOUTE LA PAGE, comme les avis de non-remise juste à côté : une requête par ligne se
+ * verrait à l'écran, pour découvrir presque toujours qu'il n'y a rien à dire.
+ */
+export async function nonEnvoyesDesFils(filIds: readonly number[]): Promise<Map<number, MentionNonEnvoye>> {
+  const ids = [...new Set(filIds.filter((n) => Number.isSafeInteger(n) && n > 0))];
+  if (ids.length === 0 || !(await fileEnvoiDisponible())) return new Map();
+  const { rows } = await query<LigneEchec>(
+    `SELECT ${CHAMPS_ECHEC}
+       FROM gestion_envoi_file f
+      WHERE ${SQL_ECHEC_NON_RESOLU} AND f.fil_id = ANY ($1::bigint[])
+      ORDER BY f.demande_le`, [ids]);
+  // Le PLUS RÉCENT gagne (l'ordre croissant fait que le dernier écrit écrase) : une ligne ne porte qu'une capsule,
+  //   et c'est le dernier état qui intéresse.
+  const parFil = new Map<number, MentionNonEnvoye>();
+  for (const r of rows) {
+    const m = versMention(r);
+    if (m.filId !== null) parFil.set(m.filId, m);
+  }
+  return parFil;
+}

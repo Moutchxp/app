@@ -1,8 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  attenteAvantReprise, bailExpire, BAIL_SECONDES, causeEnFrancais, corpsAlerte, doitAlerter, ESSAIS_MAX, heureFr,
-  motEtatFile, objetAlerte, placePourLaPiece, tonEtatFile, verdictPieces,
+  attenteAvantReprise, bailExpire, BAIL_SECONDES, causeEnFrancais, corpsAlerte, doitAlerter, ESSAIS_MAX,
+  fusionnerNonEnvoyes, heureFr, motEtatFile, objetAlerte, placePourLaPiece, tonEtatFile, verdictPieces,
+  type MentionNonEnvoye,
 } from './fileEnvoi';
 
 /**
@@ -226,5 +227,104 @@ describe('garanties STATIQUES', () => {
     const code = readFileSync('app/lib/gestion/fileEnvoi.ts', 'utf8')
       .split('\n').filter((l) => !/^\s*(\*|\/\/|\/\*)/.test(l.trim())).join('\n');
     expect(/Date\.now\(\)|new Date\(\)|Math\.random/.test(code)).toBe(false);
+  });
+});
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT LIGNE-NON-ENVOYE — LA CAPSULE ROUGE DANS « ENVOYÉS », À SA PLACE.
+ *
+ * Demande d'Arno. La raison est celle des avis de non-remise : c'est la seule chose qu'on ne peut pas apprendre en
+ * ouvrant l'échange plus tard. Sans elle, il faudrait ouvrir les 6 580 échanges d'« Envoyés » pour espérer tomber
+ * sur celui qui n'est pas parti.
+ *
+ * Ce qui est protégé ici :
+ *   ① 🔴 UN ÉCHANGE DÉJÀ DANS LA LISTE reçoit la MENTION, jamais une seconde ligne — sinon il apparaîtrait deux
+ *      fois, une fois normal et une fois en rouge ;
+ *   ② 🔴 UN MESSAGE NEUF, qui n'a pas de fil, obtient une LIGNE à lui — sans quoi il n'apparaîtrait nulle part,
+ *      et c'est exactement le mail qu'on croit envoyé ;
+ *   ③ la ligne s'insère à sa PLACE CHRONOLOGIQUE, et l'ordre des autres ne bouge pas.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 LOT LIGNE-NON-ENVOYE — fusionner les échecs dans « Envoyés »', () => {
+  const ligne = (filId: number, dernierLe: string) => ({ filId, dernierLe, objet: `fil ${filId}` });
+  const echec = (o: Partial<MentionNonEnvoye> = {}): MentionNonEnvoye => ({
+    fileId: 1, filId: null, objet: 'Relance loyer', destinataires: ['x@y.fr'],
+    cause: 'la pièce « bail.pdf » n’a pas pu être récupérée depuis le Drive.',
+    demandeLe: '2026-09-28T18:00:00Z', brouillonId: 42, ...o,
+  });
+  /** Ce que l'écran fabriquerait pour un message neuf : une ligne sans échange. */
+  const fabriquer = (e: MentionNonEnvoye) => ({ filId: -e.fileId, dernierLe: e.demandeLe, objet: e.objet });
+
+  it('sans échec, la liste est rendue telle quelle', () => {
+    const l = [ligne(1, '2026-09-28T17:00:00Z')];
+    expect(fusionnerNonEnvoyes(l, [], fabriquer)).toEqual(l);
+  });
+
+  it('🔴 ① un échange DÉJÀ présent reçoit la mention, et la liste ne s’allonge PAS', () => {
+    const l = [ligne(7, '2026-09-28T17:00:00Z'), ligne(8, '2026-09-28T16:00:00Z')];
+    const r = fusionnerNonEnvoyes(l, [echec({ filId: 7 })], fabriquer);
+    expect(r).toHaveLength(2);
+    expect(r[0].nonEnvoye?.cause).toContain('bail.pdf');
+    expect(r[1].nonEnvoye).toBeUndefined();
+  });
+
+  it('🔴 ② un message NEUF (sans fil) obtient une ligne à lui', () => {
+    const l = [ligne(7, '2026-09-28T17:00:00Z')];
+    const r = fusionnerNonEnvoyes(l, [echec({ filId: null, demandeLe: '2026-09-28T18:00:00Z' })], fabriquer);
+    expect(r).toHaveLength(2);
+    expect(r[0].objet).toBe('Relance loyer');
+    expect(r[0].nonEnvoye).toBeDefined();
+  });
+
+  /** ⚠️ Un échec dont le fil est sur une AUTRE page doit quand même se voir : on ne le fait pas disparaître. */
+  it('🔴 un échec dont le fil n’est PAS sur cette page obtient aussi sa ligne', () => {
+    const l = [ligne(7, '2026-09-28T17:00:00Z')];
+    const r = fusionnerNonEnvoyes(l, [echec({ filId: 999, demandeLe: '2026-09-28T18:00:00Z' })], fabriquer);
+    expect(r).toHaveLength(2);
+    expect(r[0].nonEnvoye?.filId).toBe(999);
+  });
+
+  it('🔴 ③ la ligne s’insère à sa PLACE chronologique, pas en tête par défaut', () => {
+    const l = [
+      ligne(1, '2026-09-28T19:00:00Z'),
+      ligne(2, '2026-09-28T17:00:00Z'),
+      ligne(3, '2026-09-28T15:00:00Z'),
+    ];
+    const r = fusionnerNonEnvoyes(l, [echec({ demandeLe: '2026-09-28T18:00:00Z' })], fabriquer);
+    expect(r.map((x) => x.objet)).toEqual(['fil 1', 'Relance loyer', 'fil 2', 'fil 3']);
+  });
+
+  it('un échec plus ancien que toute la page se range à la FIN', () => {
+    const l = [ligne(1, '2026-09-28T19:00:00Z'), ligne(2, '2026-09-28T17:00:00Z')];
+    const r = fusionnerNonEnvoyes(l, [echec({ demandeLe: '2020-01-01T00:00:00Z' })], fabriquer);
+    expect(r.map((x) => x.objet)).toEqual(['fil 1', 'fil 2', 'Relance loyer']);
+  });
+
+  it('plusieurs orphelins restent dans l’ordre, du plus récent au plus ancien', () => {
+    const l = [ligne(1, '2026-09-28T12:00:00Z')];
+    const r = fusionnerNonEnvoyes(l, [
+      echec({ fileId: 1, objet: 'ancien', demandeLe: '2026-09-28T13:00:00Z' }),
+      echec({ fileId: 2, objet: 'récent', demandeLe: '2026-09-28T15:00:00Z' }),
+    ], fabriquer);
+    expect(r.map((x) => x.objet)).toEqual(['récent', 'ancien', 'fil 1']);
+  });
+
+  /** ⚠️ Une ligne ne porte qu'UNE capsule : c'est le dernier état qui intéresse. */
+  it('deux échecs sur le MÊME fil : le plus récent l’emporte', () => {
+    const l = [ligne(7, '2026-09-28T17:00:00Z')];
+    const r = fusionnerNonEnvoyes(l, [
+      echec({ fileId: 1, filId: 7, cause: 'ancienne cause', demandeLe: '2026-09-28T10:00:00Z' }),
+      echec({ fileId: 2, filId: 7, cause: 'cause récente', demandeLe: '2026-09-28T16:00:00Z' }),
+    ], fabriquer);
+    expect(r).toHaveLength(1);
+    expect(r[0].nonEnvoye?.cause).toBe('cause récente');
+  });
+
+  it('🔴 l’ORIGINAL n’est pas modifié : la fusion rend une NOUVELLE liste', () => {
+    const l = [ligne(7, '2026-09-28T17:00:00Z')];
+    const copie = JSON.parse(JSON.stringify(l));
+    fusionnerNonEnvoyes(l, [echec({ filId: 7 })], fabriquer);
+    expect(l).toEqual(copie);
   });
 });
