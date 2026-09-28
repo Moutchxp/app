@@ -73,12 +73,18 @@ async function chargerConversation(filId: number): Promise<Vue> {
   }
 }
 
-/** Le corps d'UN message, au dépliage. `null` = rien à afficher ; `undefined` = la lecture a échoué. */
-async function chargerCorps(messageId: number): Promise<string | null | undefined> {
+/**
+ * Le corps d'UN message, au dépliage. `null` = rien à afficher ; `undefined` = la lecture a échoué.
+ *
+ * 🔴 LOT BIEN-RATTACHE — ELLE RAMÈNE AUSSI LE HTML, DÉJÀ ASSAINI PAR LE SERVEUR. 1 180 mails en base n'ont QUE de
+ * la mise en forme ; ils affichaient « affichage à venir » au lieu de leur contenu.
+ */
+async function chargerCorps(messageId: number): Promise<{ texte: string | null; html: string | null } | undefined> {
   try {
     const res = await fetch(`/api/admin/gestion/messages/${messageId}/corps`, { cache: 'no-store' });
     if (!res.ok) return undefined;
-    return ((await res.json()) as { corps: string | null }).corps;
+    const d = (await res.json()) as { corps?: string | null; html?: string | null };
+    return { texte: d.corps ?? null, html: d.html ?? null };
   } catch {
     return undefined;
   }
@@ -213,7 +219,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     setOrdre(suivant);
     memoriserOrdre(suivant);
   };
-  const [corps, setCorps] = useState<Map<number, string | null>>(new Map());
+  /**
+   * 🔴 LOT BIEN-RATTACHE — LA CARTE PORTE LE TEXTE **ET** LE HTML ASSAINI. Un mail sans texte n'est pas un mail
+   * vide : 1 180 en base n'ont que de la mise en forme, et c'est elle qu'il faut montrer.
+   */
+  const [corps, setCorps] = useState<Map<number, { texte: string | null; html: string | null }>>(new Map());
   const [affecter, setAffecter] = useState(false);
   const [deplacer, setDeplacer] = useState<number | null>(null);
   /** LOT 5e — le brouillon en cours d'écriture sous la conversation. `null` = on ne rédige pas. */
@@ -269,10 +279,19 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
      */
     const deplie = messagesDeplies(r.messages, messageVise);
     setDeplies(deplie);
-    const aCharger = r.messages.filter((m) => deplie.has(m.messageId) && etatCorps(m).v === 'a_charger');
+    /**
+     * 🔴 LOT BIEN-RATTACHE — ET LA MISE EN FORME AUSSI. Un mail dont le corps n'existe qu'en HTML tombait ici dans
+     * `html_a_charger` et n'était JAMAIS demandé : l'écran restait sur sa mention d'attente. C'est exactement ce
+     * qu'Arno a vu sur le fil 36494 — 1 487 caractères de HTML en base, et rien à l'écran.
+     */
+    const aCharger = r.messages.filter((m) => {
+      if (!deplie.has(m.messageId)) return false;
+      const e = etatCorps(m);
+      return e.v === 'a_charger' || e.v === 'html_a_charger';
+    });
     for (const m of aCharger) {
       const c = await chargerCorps(m.messageId);
-      setCorps((s) => new Map(s).set(m.messageId, c ?? null));
+      setCorps((s) => new Map(s).set(m.messageId, c ?? { texte: null, html: null }));
     }
   }, [filId, messageVise]);
 
@@ -419,19 +438,26 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
     const ouvert = deplies.has(m.messageId);
     setDeplies((s) => { const n = new Set(s); if (ouvert) n.delete(m.messageId); else n.add(m.messageId); return n; });
     // On ne va chercher un corps qu'UNE fois, et seulement s'il en manque un : replier puis redéplier ne recharge rien.
-    if (!ouvert && etatCorps(m, corps.get(m.messageId)).v === 'a_charger') {
+    const chargeDe = (id: number) => corps.get(id);
+    const e = etatCorps(m, chargeDe(m.messageId)?.texte, chargeDe(m.messageId)?.html);
+    // 🔴 DEUX ÉTATS DEMANDENT UNE LECTURE : le texte pas encore arrivé, et la mise en forme pas encore demandée.
+    if (!ouvert && (e.v === 'a_charger' || e.v === 'html_a_charger')) {
       const c = await chargerCorps(m.messageId);
-      setCorps((s) => new Map(s).set(m.messageId, c ?? null));
+      setCorps((s) => new Map(s).set(m.messageId, c ?? { texte: null, html: null }));
     }
   }
 
   async function toutDeplier(messages: readonly MessageDeFil[]) {
     setDeplies(new Set(messages.map((m) => m.messageId)));
-    const manquants = messages.filter((m) => etatCorps(m, corps.get(m.messageId)).v === 'a_charger');
+    const manquants = messages.filter((m) => {
+      const c = corps.get(m.messageId);
+      const e = etatCorps(m, c?.texte, c?.html);
+      return e.v === 'a_charger' || e.v === 'html_a_charger';
+    });
     // En série, pas en parallèle : 102 requêtes d'un coup mettraient le serveur à genoux pour un geste de confort.
     for (const m of manquants) {
       const c = await chargerCorps(m.messageId);
-      setCorps((s) => new Map(s).set(m.messageId, c ?? null));
+      setCorps((s) => new Map(s).set(m.messageId, c ?? { texte: null, html: null }));
     }
   }
 
@@ -661,7 +687,8 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
         {ordonnerMessages(messages, ordre).map((m) => (
           <MessageConversation key={m.messageId} message={m} maintenant={maintenant} filId={filId}
             ouvert={deplies.has(m.messageId)}
-            corpsCharge={corps.get(m.messageId)}
+            corpsCharge={corps.get(m.messageId)?.texte}
+            htmlCharge={corps.get(m.messageId)?.html}
             onBasculer={() => void basculer(m)}
             /* 🔴 LOT CONTACTS-ET-EVENEMENT — LE CARTOUCHE REFLÈTE LE BLOC « Événement rattaché », y compris quand
                la carte est posée SUR CE MAIL SEUL. `partis` porte déjà ces mails (le serveur les rend depuis
@@ -829,7 +856,7 @@ function ouvrirRedaction(
  * en-tête complet, son texte et ses pièces. Le texte est rendu TEL QUEL — jamais interprété comme du HTML.
  */
 export function MessageConversation({
-  message, maintenant, ouvert, corpsCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
+  message, maintenant, ouvert, corpsCharge, htmlCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null,
   rattachements = null, horsGestion = null, onRattachement, onGesteRattachement, onHistorique,
 }: {
@@ -839,7 +866,10 @@ export function MessageConversation({
    * le dernier dossier utilisé pour cet échange. Absent = le sélecteur s'ouvre à la racine, et rien d'autre ne change.
    */
   filId?: number | null;
-  corpsCharge?: string | null; onBasculer: () => void;
+  corpsCharge?: string | null;
+  /** LOT BIEN-RATTACHE — le HTML du message, DÉJÀ ASSAINI par le serveur. `undefined` = pas encore demandé. */
+  htmlCharge?: string | null;
+  onBasculer: () => void;
   /** Gestes par mail, CONSERVÉS du lot 4d : déplacer ce mail vers une autre carte, ou l'en détacher. */
   onDeplacer?: () => void; onRemettre?: () => void; panneau?: React.ReactNode;
   /**
@@ -927,7 +957,7 @@ export function MessageConversation({
   // LOT ENVOI-DIAG — ce message n'est pas arrivé. Rien de plus important à dire sur un message, donc rien au-dessus.
   const echec = mentionNonRemise(message);
   const qui = message.deNom?.trim() || message.de;
-  const etat = etatCorps(message, corpsCharge);
+  const etat = etatCorps(message, corpsCharge, htmlCharge);
   const lisible = etat.v === 'texte' ? corpsLisible(etat.texte) : null;
   const { vraies, signatures } = trierPieces(message.pieces);
 
@@ -1201,8 +1231,22 @@ export function MessageConversation({
             </>
           )}
           {etat.v === 'a_charger' && <p className="gst-info" role="status">Chargement du message…</p>}
-          {/* 557 messages en base n'ont QUE de la mise en forme. Un vide muet ferait croire à un message vide. */}
-          {etat.v === 'html_seul' && <p className="gst-msg-corps gst-absent">{MENTION_HTML_SEUL}</p>}
+
+          {/* ══ 🔴 LOT BIEN-RATTACHE — LE CORPS EN MISE EN FORME, AFFICHÉ ═══════════════════════════════════════
+              1 180 mails en base n'ont QUE du HTML (les avis d'appel de provisions d'un syndic, par exemple) :
+              l'écran leur opposait « affichage à venir ». Ils s'affichent désormais.
+
+              🔴 LE HTML POSÉ ICI EST DÉJÀ ASSAINI PAR LE SERVEUR (`lireCorpsDuMessage` → `assainirHtml`) : ni
+              script, ni attribut d'événement, ni `<style>`, et les images selon la règle déjà en place. Le
+              navigateur ne voit jamais le HTML brut — c'est ce qui rend ce `dangerouslySetInnerHTML` acceptable,
+              et rien d'autre. Assainir côté client aurait suffi à une réponse forgée pour poser ce qu'elle veut.
+
+              ⚠️ `cnv-html` BORNE CE QU'IL REÇOIT : largeur maximale, images contenues, tableaux qui défilent dans
+              leur propre cadre. Sans cela, un mail de syndic large de 900 px pousse toute la conversation. */}
+          {etat.v === 'html' && (
+            <div className="cnv-html" dangerouslySetInnerHTML={{ __html: etat.html }} />
+          )}
+          {etat.v === 'html_a_charger' && <p className="gst-info" role="status">{MENTION_HTML_SEUL}</p>}
           {etat.v === 'vide' && <p className="gst-msg-corps gst-absent">(message sans texte)</p>}
 
           {/* LOT 5-PJ-A — un SEUL composant rend les pièces, partout où un message s'affiche. */}
@@ -1338,6 +1382,18 @@ const CSS_CONVERSATION = `
 .cnv-capsule--auto{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
 /* LOT STATUT-HORS-GESTION — le GRIS : une decision prise, pas un travail en attente. Le MOT est ecrit. */
 .cnv-capsule--hors_gestion{color:var(--color-svv-muted);border-color:var(--color-svv-line-strong)}
+/* ══ 🔴 LOT BIEN-RATTACHE — LE CORPS EN MISE EN FORME ══════════════════════════════════════════════════════════
+   Le HTML vient d'un TIERS : il faut le BORNER, sinon un mail de syndic large de 900 px pousse toute la
+   conversation, et une image de 2 000 px la déborde. On ne le reformate pas — on l'empêche seulement de sortir
+   de son cadre. Les tableaux, eux, defilent DANS leur propre boite : les couper perdrait des colonnes. */
+.cnv-html{max-width:100%;overflow-x:auto;font-size:.9rem;line-height:1.5;color:var(--color-svv-ink);
+  overflow-wrap:anywhere}
+.cnv-html img{max-width:100%;height:auto}
+.cnv-html table{max-width:100%;border-collapse:collapse}
+.cnv-html td,.cnv-html th{padding:.15rem .3rem;vertical-align:top}
+/* Le mail apporte ses propres couleurs de contenu (legitimes) ; on ne force que ce qui casserait la page. */
+.cnv-html a{text-decoration:underline;text-underline-offset:2px;overflow-wrap:anywhere}
+.cnv-html blockquote{margin:.4rem 0;padding-left:.6rem;border-left:2px solid var(--color-svv-line)}
 .cnv-capsule:hover{filter:brightness(.94)}
 .cnv-capsule:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 /* ══ 🔴 LOT AVIS-LISIBLE — LE PASSAGE LISIBLE D'UN AVIS DE NON-REMISE ════════════════════════════════════════════

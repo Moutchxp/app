@@ -178,6 +178,22 @@ export function echapperTexte(v: string): string {
   return v.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+/**
+ * 🔴 LE TEXTE D'UN HTML QU'ON ASSAINIT : ses entités sont DÉCODÉES avant d'être ré-échappées. PUR.
+ *
+ * LE DÉFAUT, VU PAR ARNO SUR LE FIL 36494 : le corps s'affichait « copropri&eacute;t&eacute; situ&eacute;e » et
+ * « Madame,&nbsp; ». `echapperTexte` échappe le `&` — donc `&eacute;` devenait `&amp;eacute;`, que le navigateur
+ * affiche tel quel. On décode d'abord (`&eacute;` → « é »), on ré-échappe ensuite : le résultat est le MÊME
+ * niveau de sûreté, et le texte est enfin lisible.
+ *
+ * ⚠️ L'ORDRE COMPTE, ET IL EST SÛR. `decoderEntites` ne produit que des CARACTÈRES ; `echapperTexte` reprend
+ * ensuite `&`, `<` et `>`. Un `&lt;script&gt;` écrit en entités redevient donc `&lt;script&gt;` — du texte, jamais
+ * une balise. C'est précisément ce que vérifie le test « une balise écrite en entités reste du texte ».
+ */
+export function texteAssaini(v: string): string {
+  return echapperTexte(decoderEntites(v));
+}
+
 /** Au-delà, on tronque : un mail n'a pas à porter un mégaoctet de balises, et une boucle bornée ne se fige pas. */
 export const HTML_MAX = 500_000;
 
@@ -199,8 +215,8 @@ export function assainirHtml(brut: string | null | undefined): string {
 
   while (i < entree.length) {
     const lt = entree.indexOf('<', i);
-    if (lt < 0) { sortie += echapperTexte(entree.slice(i)); break; }
-    sortie += echapperTexte(entree.slice(i, lt));
+    if (lt < 0) { sortie += texteAssaini(entree.slice(i)); break; }
+    sortie += texteAssaini(entree.slice(i, lt));
 
     // ── Un commentaire : jeté en entier. `<!--[if mso]>` d'Outlook cache du HTML complet dans un commentaire. ──
     if (entree.startsWith('<!--', lt)) {
@@ -216,7 +232,7 @@ export function assainirHtml(brut: string | null | undefined): string {
     }
 
     const gt = entree.indexOf('>', lt + 1);
-    if (gt < 0) { sortie += echapperTexte(entree.slice(lt)); break; }
+    if (gt < 0) { sortie += texteAssaini(entree.slice(lt)); break; }
     const dedans = entree.slice(lt + 1, gt);
     const fermante = dedans.startsWith('/');
     const nom = (fermante ? dedans.slice(1) : dedans).match(/^[a-zA-Z][a-zA-Z0-9]*/)?.[0]?.toLowerCase() ?? '';

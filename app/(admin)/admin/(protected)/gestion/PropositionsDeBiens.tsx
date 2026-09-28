@@ -201,7 +201,7 @@ export function PropositionsDeBiens({ messageId, occupe, onChange, onGeste, onCl
  * 🔴 LES CARACTÉRISTIQUES VIENNENT DU MODULE PUR, pas d'un calcul fait ici : c'est lui qui sait ce que l'import
  * porte vraiment, et qui écarte les champs vides. L'écran ne fait que les rendre.
  */
-function ColonneBien({ bien, coche, fige, onBasculer }: {
+export function ColonneBien({ bien, coche, fige, onBasculer }: {
   bien: BienProposable; coche: boolean; fige: boolean; onBasculer: () => void;
 }) {
   return (
@@ -247,7 +247,7 @@ function ColonneBien({ bien, coche, fige, onBasculer }: {
  * 🔴 « VACANT À CETTE DATE » EST UNE RÉPONSE. Une colonne vide se lirait « on n'a pas regardé » ; or on a regardé,
  * et la base dit qu'aucun bail ne couvrait ce jour-là. C'est une information qui change la façon de traiter le mail.
  */
-function ColonneLocataires({ bien }: { bien: BienProposable }) {
+export function ColonneLocataires({ bien }: { bien: BienProposable }) {
   const locataires = locatairesDuBien(bien);
   return (
     <div className="pdb-col pdb-col--loc">

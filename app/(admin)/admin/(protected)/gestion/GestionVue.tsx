@@ -182,6 +182,20 @@ export function GestionVue({ intro }: {
   const [redaction, setRedaction] = useState<ContexteRedactionEcran | null>(null);
   const [brouillonsTotal, setBrouillonsTotal] = useState<number | null>(null);
   const { ecran, etiquette, filOuvert } = etatUrl;
+
+  /**
+   * ══ 🔴 LOT BIEN-RATTACHE — LE COMPTE RENDU S'EFFACE À LA NAVIGATION ═══════════════════════════════════════════
+   *
+   * LE DÉFAUT, VU PAR ARNO SUR LE FIL 36494 : l'écran affichait « Mail lié à l'événement. » au-dessus d'un mail
+   * dont la capsule disait « Événement : aucun ». Vérification en base : ce fil et ce mail n'ont JAMAIS porté
+   * d'affectation — aucune ligne, aucun journal. Le bandeau venait d'un geste fait **sur un autre échange**
+   * (mail 57111, lié puis délié à 15:51), et il était resté à l'écran pendant qu'on naviguait ailleurs.
+   *
+   * 🔴 UN COMPTE RENDU PARLE DE CE QU'ON VIENT DE FAIRE, ET DE RIEN D'AUTRE. Survivant à la navigation, il devient
+   * une affirmation sur le mail qu'on regarde maintenant — et il est alors faux. Changer d'écran, d'étiquette ou
+   * d'échange l'efface donc, sans exception.
+   */
+  useEffect(() => { setGeste(null); }, [ecran, etiquette.sorte, etiquette.evenementId, filOuvert]);
   /**
    * LOT MESSAGE-CLIQUÉ — le message visé. Lu ici, et NON dans chaque écran : l'adresse fait foi, et `filOuvert`
    * commande — sans échange ouvert, un message visé ne désigne rien (voir `ecranUrl`).

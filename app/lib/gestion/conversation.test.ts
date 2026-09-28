@@ -152,9 +152,36 @@ describe('le corps d’un message — ne jamais dire « vide » à tort', () => 
       .toEqual({ v: 'texte', texte: 'bonjour tout le monde' });
   });
 
-  it('HTML SEUL (557 messages en base) : une mention honnête, jamais un vide muet', () => {
-    expect(etatCorps(msg({ corps: null, extrait: null, htmlSeul: true }))).toEqual({ v: 'html_seul' });
-    expect(MENTION_HTML_SEUL).toContain('affichage à venir');
+  /**
+   * ══ 🔴 LOT BIEN-RATTACHE — UN MAIL SANS TEXTE N'EST PLUS UN MAIL ILLISIBLE ═══════════════════════════════════
+   * Demande d'Arno, sur le fil 36494 (avis d'appel de provisions d'un syndic) : l'écran affichait « Contenu
+   * disponible en mise en forme uniquement — affichage à venir » au lieu du contenu. Mesuré le 28/09/2026 :
+   * 1 180 mails en base n'ont QUE du HTML. Ils s'affichent désormais, en HTML assaini par le SERVEUR.
+   */
+  it('🔴 HTML SEUL, pas encore demandé : un état TRANSITOIRE, et on va le chercher', () => {
+    expect(etatCorps(msg({ corps: null, extrait: null, htmlSeul: true }))).toEqual({ v: 'html_a_charger' });
+    // 🔴 La mention n'annonce plus une fonctionnalité future : elle annonce une lecture en cours, qui aboutit.
+    expect(MENTION_HTML_SEUL).not.toContain('affichage à venir');
+    expect(MENTION_HTML_SEUL).toContain('lecture');
+  });
+
+  it('🔴 HTML SEUL, une fois chargé : on AFFICHE la mise en forme', () => {
+    expect(etatCorps(msg({ corps: null, extrait: null, htmlSeul: true }), null, '<p>Bonjour</p>'))
+      .toEqual({ v: 'html', html: '<p>Bonjour</p>' });
+  });
+
+  it('🔴 le TEXTE prime toujours sur le HTML : c’est lui qu’on lit le mieux', () => {
+    expect(etatCorps(msg({ corps: 'Bonjour', extrait: 'Bonjour', htmlSeul: false }), 'Bonjour', '<p>x</p>'))
+      .toEqual({ v: 'texte', texte: 'Bonjour' });
+  });
+
+  it('un HTML chargé mais VIDE (que des balises) ne prétend pas être un contenu', () => {
+    expect(etatCorps(msg({ corps: null, extrait: null, htmlSeul: true }), null, '')).toEqual({ v: 'vide' });
+    expect(etatCorps(msg({ corps: null, extrait: null, htmlSeul: true }), null, null)).toEqual({ v: 'vide' });
+  });
+
+  it('un mail qui a un EXTRAIT va d’abord chercher son texte, pas sa mise en forme', () => {
+    expect(etatCorps(msg({ corps: null, extrait: 'Bonjour', htmlSeul: true })).v).toBe('a_charger');
   });
 
   it('un message RÉELLEMENT vide est dit vide', () => {

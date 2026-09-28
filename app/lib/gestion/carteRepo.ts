@@ -12,6 +12,8 @@
  * `/api/admin/gestion/pieces/[id]`.
  */
 import { query } from '../db/client';
+// LOT BIEN-RATTACHE — le HTML d'un mail est assaini CÔTÉ SERVEUR, jamais dans le navigateur (voir `lireCorpsDuMessage`).
+import { assainirHtml, htmlVide } from './htmlMail';
 import { ATTEND, ctesAttente, jointuresAttente } from './attente';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 // ⚠️ UN SEUL IMPORT DE `./schema`, STATIQUE. `destinatairesSeparesDisponibles` était chargée dynamiquement au
@@ -159,6 +161,12 @@ const INSTANT = (col: string) => `to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD
 /** Borne de sûreté : un fil pathologique ne doit pas rendre une page de plusieurs mégaoctets. */
 export const MAX_MESSAGES = 200;
 const MAX_CORPS = 20000;
+/**
+ * 🔴 LE HTML EST BORNÉ PLUS LARGEMENT QUE LE TEXTE, et c'est nécessaire : un mail de syndic fait couramment
+ * 60 à 150 ko de balises pour trois paragraphes utiles. Couper à 20 000 rendrait un tableau à moitié fermé.
+ * `assainirHtml` referme de toute façon les balises laissées ouvertes, et borne lui aussi à `HTML_MAX`.
+ */
+const MAX_HTML = 400000;
 /** LOT 5b — la ligne REPLIÉE d'un message : assez pour reconnaître de quoi il parle, pas assez pour peser. */
 const LONGUEUR_EXTRAIT = 300;
 
@@ -288,10 +296,13 @@ async function lireMailsDeplaces(
  */
 export async function lireCorpsDuMessage(
   messageId: number,
-): Promise<{ messageId: number; corps: string | null; htmlSeul: boolean } | null> {
-  const { rows } = await query<{ message_id: number; corps: string | null; html_seul: boolean }>(
+): Promise<{ messageId: number; corps: string | null; html: string | null; htmlSeul: boolean } | null> {
+  const { rows } = await query<{
+    message_id: number; corps: string | null; corps_html: string | null; html_seul: boolean;
+  }>(
     `SELECT id::int AS message_id,
             left(coalesce(corps_texte, ''), ${MAX_CORPS}) AS corps,
+            left(coalesce(corps_html, ''), ${MAX_HTML}) AS corps_html,
             (coalesce(btrim(corps_texte), '') = '' AND coalesce(btrim(corps_html), '') <> '') AS html_seul
        FROM gestion_message WHERE id = $1`, [messageId]);
   const r = rows[0];
@@ -299,8 +310,31 @@ export async function lireCorpsDuMessage(
   return {
     messageId: r.message_id,
     corps: r.corps && r.corps.trim() !== '' ? r.corps : null,
+    /**
+     * 🔴 LOT BIEN-RATTACHE — LE HTML EST ASSAINI **ICI**, CÔTÉ SERVEUR, ET JAMAIS DANS LE NAVIGATEUR.
+     *
+     * Demande d'Arno : 1 180 mails en base n'ont QUE du HTML, et l'écran leur opposait « Contenu disponible en
+     * mise en forme uniquement — affichage à venir ». Un avis d'appel de provisions illisible est un avis perdu.
+     *
+     * 🔴 POURQUOI CÔTÉ SERVEUR. Le composant le pose ensuite par `dangerouslySetInnerHTML` : si l'assainissement
+     * vivait dans le navigateur, il suffirait d'une réponse forgée pour poser du HTML brut dans la page. Ici, ce
+     * qui sort de la base ne peut PAS quitter cette fonction sans être passé par `assainirHtml` — pas de script,
+     * pas d'attribut d'événement, et les images selon la règle déjà en place (`PROTOCOLES_IMAGE`).
+     */
+    html: htmlAffichable(r.corps_html),
     htmlSeul: r.html_seul === true,
   };
+}
+
+/**
+ * LE HTML PRÊT À POSER DANS LA PAGE, ou `null` quand il ne reste rien à montrer. PUR (délègue au module `htmlMail`).
+ *
+ * ⚠️ `htmlVide` APRÈS assainissement, et non avant : un HTML fait de balises de mise en page sans texte ni image
+ * donnerait un cadre blanc, ce qui se lit « message vide » — alors qu'il n'y avait rien à lire dès le départ.
+ */
+export function htmlAffichable(brut: string | null | undefined): string | null {
+  const propre = assainirHtml(brut);
+  return htmlVide(propre) ? null : propre;
 }
 
 /** Les pièces d'un ensemble de messages, rangées par message. Une seule requête, quel que soit le nombre de messages. */

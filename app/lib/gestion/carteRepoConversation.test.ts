@@ -87,9 +87,9 @@ describe('le chargement paresseux des corps', () => {
   });
 
   it('le corps d’un seul message se lit à part, avec son identifiant LIÉ', async () => {
-    queryMock.mockResolvedValue({ rows: [{ message_id: 42, corps: 'bonjour', html_seul: false }] });
+    queryMock.mockResolvedValue({ rows: [{ message_id: 42, corps: 'bonjour', corps_html: null, html_seul: false }] });
     const r = await lireCorpsDuMessage(42);
-    expect(r).toEqual({ messageId: 42, corps: 'bonjour', htmlSeul: false });
+    expect(r).toEqual({ messageId: 42, corps: 'bonjour', html: null, htmlSeul: false });
     expect(queryMock.mock.calls[0][1]).toEqual([42]);
   });
 
@@ -98,9 +98,38 @@ describe('le chargement paresseux des corps', () => {
     await expect(lireCorpsDuMessage(999)).resolves.toBeNull();
   });
 
-  it('un corps vide mais du HTML : la lecture le DIT', async () => {
-    queryMock.mockResolvedValue({ rows: [{ message_id: 5, corps: '', html_seul: true }] });
-    await expect(lireCorpsDuMessage(5)).resolves.toEqual({ messageId: 5, corps: null, htmlSeul: true });
+  /**
+   * ══ 🔴 LOT BIEN-RATTACHE — UN CORPS VIDE MAIS DU HTML : ON LE REND, ASSAINI ════════════════════════════════
+   * Demande d'Arno, sur le fil 36494 : l'écran affichait « affichage à venir » au lieu du contenu. 1 180 mails en
+   * base n'ont QUE du HTML. La lecture le rend désormais — et l'assainissement se fait ICI, côté serveur, pour
+   * que le navigateur ne voie jamais le HTML brut.
+   */
+  it('🔴 un corps vide mais du HTML : la lecture rend le HTML ASSAINI', async () => {
+    queryMock.mockResolvedValue({
+      rows: [{ message_id: 5, corps: '', corps_html: '<p>Bonjour</p>', html_seul: true }],
+    });
+    await expect(lireCorpsDuMessage(5))
+      .resolves.toEqual({ messageId: 5, corps: null, html: '<p>Bonjour</p>', htmlSeul: true });
+  });
+
+  it('🔴 le script est ÔTÉ avant de sortir de la base — jamais au navigateur de s’en charger', async () => {
+    queryMock.mockResolvedValue({
+      rows: [{
+        message_id: 6, corps: '', html_seul: true,
+        corps_html: '<p>Bonjour<script>alert(1)</script><img src="x" onerror="alert(2)"></p>',
+      }],
+    });
+    const r = await lireCorpsDuMessage(6);
+    expect(r?.html).not.toContain('<script');
+    expect(r?.html).not.toContain('onerror');
+    expect(r?.html).toContain('Bonjour');
+  });
+
+  it('un HTML qui ne porte QUE des balises ne prétend pas être un contenu', async () => {
+    queryMock.mockResolvedValue({
+      rows: [{ message_id: 7, corps: '', corps_html: '<div><span></span></div>', html_seul: true }],
+    });
+    expect((await lireCorpsDuMessage(7))?.html).toBeNull();
   });
 });
 

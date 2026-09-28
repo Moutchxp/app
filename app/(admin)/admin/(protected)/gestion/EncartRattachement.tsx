@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { ChoisirCible, CSS_CHOISIR_CIBLE, type CibleChoisie } from './ChoisirCible';
+import { CSS_CHOISIR_CIBLE } from './ChoisirCible';
+// LOT BIEN-RATTACHE — le menu fusionné : propositions + recherche libre + une seule validation.
+import { MenuRattachementBien } from './MenuRattachementBien';
 import { ModifierRattachement } from './ModifierRattachement';
 // LOT AFFECTATION-PAR-BIEN — la fenêtre de classement complète, partagée : une seule implémentation du geste.
 import { ClasserMail } from './ClasserMail';
-import { PropositionsDeBiens } from './PropositionsDeBiens';
 // LOT CONTACTS-ET-EVENEMENT — le bloc « Événement rattaché », en tête de l'encart.
 import { BlocEvenement } from './BlocEvenement';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
@@ -134,7 +135,7 @@ export function EncartRattachement({ messageId, filId, liens, onChange, onGeste,
           devenu le bloc de l'ÉVÉNEMENT ci-dessus. RIEN N'EST PERDU : ils restent visibles, en tête des
           propositions, avec « Modifier » et « Retirer » comme avant, et la recherche manuelle juste en dessous. */}
       <div className="ert-tete">
-        <span className="ert-titre">Bien(s) classé(s) :</span>
+        <span className="ert-titre">Bien(s) rattaché(s) :</span>
         {vivants.length === 0 && <span className="ert-vide">rien pour l’instant</span>}
 
       {vivants.length > 0 && (
@@ -173,32 +174,26 @@ export function EncartRattachement({ messageId, filId, liens, onChange, onGeste,
 
       {/* LE BOUTON D'AJOUT VIT DANS LA MÊME LIGNE, à la suite des gestes du lien : c'est la fin de la même phrase.
           Quand le sélecteur est ouvert, il prend la largeur entière — on ne cherche pas à le comprimer. */}
+      {/* 🔴 LOT BIEN-RATTACHE — UNE SEULE ENTRÉE. Il y avait deux portes pour la même question : ce lien, et le
+          bloc des propositions ouvert en permanence. On cochait dans l'un, on validait dans l'autre. */}
       {!ajout && (
         <button type="button" className="gst-lien-bouton ert-ajouter" disabled={occupe}
           onClick={() => setAjout(true)}>
-          + Rattacher à…
+          Rattacher à un bien
         </button>
       )}
       </div>
 
-      {/* ══ 🔴 LOT FICHE-PROPOSITION — LA RECHERCHE S'OUVRE JUSTE SOUS SA LIGNE ═══════════════════════════════
-          Demande d'Arno. Elle s'ouvrait tout en bas de l'encart, après les propositions et les liens défaits :
-          on cliquait « + Rattacher à… » en haut, et le champ de saisie apparaissait hors du regard — parfois hors
-          de l'écran. Elle est maintenant le VOISIN IMMÉDIAT de la ligne qui l'appelle. */}
+      {/* ══ 🔴 LOT BIEN-RATTACHE — LE MENU S'OUVRE JUSTE SOUS SA LIGNE ═══════════════════════════════════════
+          Il porte les DEUX zones — les propositions de l'automatisation, puis la recherche libre — et UNE seule
+          validation. Il est le VOISIN IMMÉDIAT de la ligne qui l'appelle : un panneau qui s'ouvre en bas de page
+          apparaît hors du regard, parfois hors de l'écran. */}
       {ajout && (
-        <ChoisirCible titre="Rattacher ce mail à…"
-          dejaLa={[...vivants, ...candidats].map((l) => l.cible)}
-          onAnnuler={() => setAjout(false)}
-          onValider={async (choix: CibleChoisie[]) => {
-            let faits = 0;
-            for (const c of choix) {
-              // UN PAR UN, et non en lot : si le troisième échoue, les deux premiers restent posés — c'est ce qu'on
-              //   veut. Un envoi groupé qui échoue en bloc perdrait un travail de saisie déjà fait.
-              const ok = await agir({ messageId, cible: c.cible }, 'POST', `Rattaché à ${c.libelle}`);
-              if (ok) faits += 1;
-            }
-            if (faits > 0) setAjout(false);
-          }} />
+        <MenuRattachementBien messageId={messageId} filId={filId ?? null}
+          onFerme={() => setAjout(false)}
+          onGeste={onGeste}
+          onChange={onChange}
+          onHorsGestion={() => { setAjout(false); setClasser(true); }} />
       )}
 
       {/* ══ 🔴 LOT AFFECTATION-PAR-BIEN — LES PROPOSITIONS SONT DES BIENS, TOUJOURS ══════════════════════════
@@ -210,9 +205,15 @@ export function EncartRattachement({ messageId, filId, liens, onChange, onGeste,
           🔴 LES PROPOSITIONS ANCIENNES DE TYPE PROPRIÉTAIRE SONT MONTRÉES COMME LA LISTE DE LEURS BIENS, et RIEN
           n'est réécrit en base tant que personne n'a validé : une ligne ancienne n'est pas fausse, elle est écrite
           dans un vocabulaire qu'on n'emploie plus. */}
-      {candidats.length > 0 && (
-        <PropositionsDeBiens messageId={messageId} occupe={occupe}
-          onGeste={onGeste} onChange={onChange} onClasser={() => setClasser(true)} />
+      {/* 🔴 LOT BIEN-RATTACHE — LES PROPOSITIONS SONT DANS LE MENU, PLUS À L'ÉCRAN EN PERMANENCE. Demande
+          d'Arno : une seule entrée. Quand il y en a, la ligne le DIT — sinon on ne saurait pas qu'il y a
+          quelque chose à ouvrir, et l'automatisation travaillerait pour personne. */}
+      {!ajout && candidats.length > 0 && (
+        <p className="ert-motif ert-propositions">
+          {candidats.length === 1
+            ? 'Une proposition de l’automatisation à trancher.'
+            : `${candidats.length} propositions de l’automatisation à trancher.`}
+        </p>
       )}
 
       {/* Les propositions qui ne sont PAS des biens (une carte proposée) gardent leurs deux gestes, inchangés :
@@ -320,6 +321,9 @@ export const CSS_ENCART_RATTACHEMENT = `
 .ert-motif{font-style:italic}
 .ert-defait{font-size:.8rem;font-style:italic;color:var(--color-svv-muted)}
 .ert-ajouter{align-self:baseline;flex:0 0 auto}
+/* LOT BIEN-RATTACHE — la mention qui dit qu'il y a quelque chose a ouvrir. Sans elle, l'automatisation
+   travaillerait pour personne : on ne saurait pas qu'un menu porte des propositions. */
+.ert-propositions{margin:.2rem 0 0;font-weight:600;color:var(--color-svv-ink)}
 /* 🔴 LA CIBLE TACTILE : on ne descend pas sous 44 px de HAUTEUR TOTALE, on la répartit autrement. Les trois liens
    (« Modifier », « Retirer », « + Rattacher à… ») gardaient chacun 44 px de hauteur propre, ce qui empilait trois
    pavés dans un encart qui doit tenir sur une ligne. Ils gardent une hauteur confortable et un padding horizontal

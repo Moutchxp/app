@@ -284,3 +284,41 @@ describe('⑥ vide, et aller-retour texte', () => {
     expect(htmlVersTexte(assainirHtml('<p><b>a</b> <a href="https://x.fr">b</a></p>'))).not.toMatch(/<[a-z]/i);
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT BIEN-RATTACHE — LES ENTITÉS D'UN MAIL SONT LISIBLES, ET RESTENT SÛRES
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe('🔴 les entités HTML d’un mail reçu', () => {
+  /**
+   * LE DÉFAUT, VU PAR ARNO SUR LE FIL 36494 : le corps s'affichait « copropri&eacute;t&eacute; situ&eacute;e » et
+   * « Madame,&nbsp; ». `echapperTexte` échappait le `&`, donc `&eacute;` devenait `&amp;eacute;` — affiché tel quel.
+   */
+  it('🔴 une entité nommée redevient son caractère, au lieu d’être affichée telle quelle', () => {
+    expect(assainirHtml('<p>copropri&eacute;t&eacute; situ&eacute;e</p>')).toBe('<p>copropriété située</p>');
+    expect(assainirHtml('<p>Madame,&nbsp;</p>')).toContain('Madame,');
+    expect(assainirHtml('<p>Madame,&nbsp;</p>')).not.toContain('&amp;');
+  });
+
+  it('une entité NUMÉRIQUE aussi — « &#8203; » ne doit pas s’écrire en toutes lettres', () => {
+    expect(assainirHtml('<p>a&#8203;b</p>')).not.toContain('&#8203;');
+    expect(assainirHtml('<p>2&#8364;</p>')).toContain('€');
+  });
+
+  /**
+   * 🔴 ET LA SÛRETÉ NE BOUGE PAS. On décode d'abord, on ré-échappe ensuite : une balise écrite en entités
+   * redevient du TEXTE échappé, jamais une balise. C'est la seule chose qui rendait ce changement acceptable.
+   */
+  it('🔴 une BALISE écrite en entités reste du TEXTE, et ne devient jamais du code', () => {
+    const r = assainirHtml('<p>&lt;script&gt;alert(1)&lt;/script&gt;</p>');
+    expect(r).not.toContain('<script');
+    expect(r).toContain('&lt;script&gt;');
+  });
+
+  it('🔴 une entité qui cache un « & » ne casse pas l’échappement du texte qui suit', () => {
+    expect(assainirHtml('<p>a &amp; b &lt; c</p>')).toBe('<p>a &amp; b &lt; c</p>');
+  });
+
+  it('un « & » nu reste échappé — il n’y a pas d’entité à décoder', () => {
+    expect(assainirHtml('<p>Dupont & Fils</p>')).toBe('<p>Dupont &amp; Fils</p>');
+  });
+});

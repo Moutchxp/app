@@ -131,7 +131,13 @@ export function mentionNonRemise(m: Pick<MessageDeFil, 'nonRemises'>): {
  */
 export type EtatCorps =
   | { v: 'texte'; texte: string }
-  | { v: 'html_seul' }
+  /**
+   * 🔴 LOT BIEN-RATTACHE — LE MAIL N'A QUE DU HTML, ET ON L'AFFICHE. Le `html` porté ici est DÉJÀ ASSAINI par le
+   * serveur (`lireCorpsDuMessage`) : le composant se contente de le poser. 1 180 mails en base sont dans ce cas.
+   */
+  | { v: 'html'; html: string }
+  /** Le mail n'a que du HTML, mais on ne l'a pas encore demandé. C'était l'ancien `html_seul`, devenu transitoire. */
+  | { v: 'html_a_charger' }
   | { v: 'vide' }
   | { v: 'a_charger' };
 
@@ -146,19 +152,38 @@ export type EtatCorps =
  * `corpsCharge` est ce que la lecture paresseuse a ramené — `undefined` tant qu'on n'a rien demandé. PUR.
  */
 export function etatCorps(
-  m: Pick<MessageDeFil, 'corps' | 'extrait' | 'htmlSeul'>, corpsCharge?: string | null,
+  m: Pick<MessageDeFil, 'corps' | 'extrait' | 'htmlSeul'>,
+  corpsCharge?: string | null,
+  /** Le HTML DÉJÀ ASSAINI par le serveur. `undefined` = on ne l'a pas encore demandé. */
+  htmlCharge?: string | null,
 ): EtatCorps {
   const texte = corpsCharge !== undefined ? corpsCharge : m.corps;
   if (texte !== null && texte !== undefined && texte.trim() !== '') return { v: 'texte', texte };
+  /**
+   * 🔴 LE HTML PASSE AVANT « À CHARGER » ET AVANT « VIDE ». C'est le défaut corrigé par le lot BIEN-RATTACHE : un
+   * mail dont le corps n'existe qu'en mise en forme affichait « affichage à venir » — pour 1 180 mails en base.
+   */
+  if (htmlCharge !== undefined && htmlCharge !== null && htmlCharge.trim() !== '') {
+    return { v: 'html', html: htmlCharge };
+  }
   // Pas de corps sous la main, mais un extrait : le texte existe, il n'est simplement pas encore arrivé.
   if (corpsCharge === undefined && m.extrait !== null && m.extrait.trim() !== '') return { v: 'a_charger' };
-  if (m.htmlSeul) return { v: 'html_seul' };
+  /**
+   * ⚠️ `htmlCharge === undefined` : on SAIT qu'il y a du HTML (`htmlSeul`), mais on ne l'a pas encore demandé.
+   * C'est un état transitoire — et non une fin de non-recevoir comme l'était l'ancien `html_seul`.
+   */
+  if (m.htmlSeul && htmlCharge === undefined) return { v: 'html_a_charger' };
   return { v: 'vide' };
 }
 
-/** La phrase affichée quand un message n'a que de la mise en forme. Le lot 5d la fera disparaître. */
-export const MENTION_HTML_SEUL =
-  'Contenu disponible en mise en forme uniquement — affichage à venir.';
+/**
+ * La phrase affichée pendant qu'on va CHERCHER la mise en forme.
+ *
+ * 🔴 ELLE NE DIT PLUS « affichage à venir ». Ce texte-là annonçait une fonctionnalité future ; celui-ci annonce
+ * une lecture en cours, qui aboutit. Si elle reste affichée, c'est que la lecture a échoué — et c'est alors une
+ * information, pas une excuse.
+ */
+export const MENTION_HTML_SEUL = 'Mise en forme en cours de lecture…';
 
 /* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
    LOT FIL-LECTURE — DANS QUEL ORDRE ON LIT UNE CONVERSATION

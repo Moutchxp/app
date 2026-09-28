@@ -85,10 +85,10 @@ const cliquer = async (e: Element | null | undefined) => {
 const ligneBiens = () => container.querySelector('.ert-tete:not(.bev-tete)');
 const ligneEvenement = () => container.querySelector('.ert-tete.bev-tete');
 
-describe('🔴 ④ la ligne des biens s’intitule « Bien(s) classé(s) : »', () => {
+describe('🔴 la ligne des biens s’intitule « Bien(s) rattaché(s) : »', () => {
   it('le titre est celui des BIENS, et plus « Rattaché à »', async () => {
     await monter([lien()]);
-    expect(ligneBiens()?.querySelector('.ert-titre')?.textContent).toBe('Bien(s) classé(s) :');
+    expect(ligneBiens()?.querySelector('.ert-titre')?.textContent).toBe('Bien(s) rattaché(s) :');
   });
 
   it('🔴 il ne parle PAS d’événement : c’est l’autre question du module', async () => {
@@ -100,7 +100,7 @@ describe('🔴 ④ la ligne des biens s’intitule « Bien(s) classé(s) : »', 
   it('sans aucun lien, la ligne dit « rien pour l’instant » et garde son bouton', async () => {
     await monter([]);
     expect(ligneBiens()?.querySelector('.ert-vide')?.textContent).toBe('rien pour l’instant');
-    expect(boutonPar(/\+ Rattacher à…/)).toBeDefined();
+    expect(boutonPar(/^Rattacher à un bien$/)).toBeDefined();
   });
 
   it('🔴 RIEN N’EST RETIRÉ : le lien garde « Modifier » et « Retirer »', async () => {
@@ -110,15 +110,19 @@ describe('🔴 ④ la ligne des biens s’intitule « Bien(s) classé(s) : »', 
   });
 });
 
-describe('🔴 ④ la recherche s’ouvre JUSTE SOUS la ligne', () => {
-  it('elle n’est pas là au repos', async () => {
+describe('🔴 le MENU s’ouvre JUSTE SOUS la ligne', () => {
+  it('il n’est pas là au repos', async () => {
     await monter([lien()]);
-    expect(container.querySelector('.ccb')).toBeNull();
+    expect(container.querySelector('.mrb')).toBeNull();
   });
 
-  it('🔴 au clic, elle apparaît — et son VOISIN PRÉCÉDENT est la ligne elle-même', async () => {
+  /**
+   * 🔴 LOT BIEN-RATTACHE — UNE SEULE ENTRÉE. Il y avait deux portes pour la même question : ce lien, et le bloc
+   * des propositions ouvert en permanence. On cochait dans l'un, on validait dans l'autre.
+   */
+  it('🔴 au clic, il apparaît — et son VOISIN PRÉCÉDENT est la ligne elle-même', async () => {
     await monter([lien()]);
-    await cliquer(boutonPar(/\+ Rattacher à…/));
+    await cliquer(boutonPar(/^Rattacher à un bien$/));
 
     const tete = ligneBiens();
     expect(tete).not.toBeNull();
@@ -129,17 +133,17 @@ describe('🔴 ④ la recherche s’ouvre JUSTE SOUS la ligne', () => {
      */
     const suivant = tete?.nextElementSibling;
     expect(suivant).not.toBeNull();
-    expect(suivant?.querySelector('input, [role="dialog"], .ccb') ?? suivant?.textContent)
-      .toBeTruthy();
-    expect(suivant?.textContent ?? '').toContain('Rattacher ce mail à…');
+    expect(suivant?.classList.contains('mrb')).toBe(true);
+    // 🔴 ET IL PORTE LA RECHERCHE : c'est la fusion des deux anciennes portes.
+    expect(suivant?.textContent ?? '').toContain('Chercher un autre bien');
   });
 
-  it('elle se referme, et la ligne reprend son bouton', async () => {
+  it('il se referme, et la ligne reprend son lien', async () => {
     await monter([lien()]);
-    await cliquer(boutonPar(/\+ Rattacher à…/));
-    expect(boutonPar(/\+ Rattacher à…/)).toBeUndefined();
+    await cliquer(boutonPar(/^Rattacher à un bien$/));
+    expect(boutonPar(/^Rattacher à un bien$/)).toBeUndefined();
     await cliquer(boutonPar(/^Annuler$/));
-    expect(boutonPar(/\+ Rattacher à…/)).toBeDefined();
+    expect(boutonPar(/^Rattacher à un bien$/)).toBeDefined();
   });
 });
 
@@ -150,7 +154,7 @@ describe('🔴 B1 — le bloc « Événement rattaché » est EN TÊTE', () => {
   it('il précède la ligne des biens : c’est la première question qu’on se pose', async () => {
     await monter([lien()]);
     const html = container.innerHTML;
-    expect(html.indexOf('Événement rattaché')).toBeLessThan(html.indexOf('Bien(s) classé(s)'));
+    expect(html.indexOf('Événement rattaché')).toBeLessThan(html.indexOf('Bien(s) rattaché(s)'));
   });
 
   it('🔴 sans événement, il dit « aucun » ET que c’est FACULTATIF — pas un travail en retard', async () => {
@@ -293,6 +297,6 @@ describe('🔴 B3 — rien n’est perdu', () => {
 
   it('la recherche manuelle d’un bien reste accessible', async () => {
     await monter([lien()]);
-    expect(boutonPar(/\+ Rattacher à…/)).toBeDefined();
+    expect(boutonPar(/^Rattacher à un bien$/)).toBeDefined();
   });
 });

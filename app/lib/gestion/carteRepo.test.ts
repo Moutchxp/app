@@ -189,7 +189,12 @@ describe('LECTURE SEULE, vérifiable dans le code', () => {
     //   manipule aucun octet de pièce jointe. La règle protégée reste la même : pas de module de stockage ici.
     // LOT ENVOI-DIAG — `./nonRemiseRepo` rejoint la liste : lecture seule (SELECT sur `gestion_non_remise`), et elle
     //   ne manipule aucun octet de pièce jointe. La règle protégée reste la même : pas de module de stockage ici.
-    expect(imports).toEqual(['../db/client', './attente', './partenaires', './schema', './nonRemiseRepo']);
+    // LOT BIEN-RATTACHE — `./htmlMail` rejoint la liste : module PUR (aucune base, aucun réseau) qui ASSAINIT le
+    //   HTML d'un mail avant de le rendre. Il ne manipule aucun octet de pièce jointe, et c'est justement son
+    //   passage OBLIGÉ ici qui garantit que le navigateur ne reçoit jamais de HTML brut.
+    expect(imports).toEqual([
+      '../db/client', './htmlMail', './attente', './partenaires', './schema', './nonRemiseRepo',
+    ]);
     expect(imports).not.toContain('../stockage');
     expect(code).not.toContain('urlSignee');
   });
