@@ -109,7 +109,9 @@ export function rendreRapport(plan: PlanImport, c: ComptesImport, o: OptionsImpo
   l.push(bloc('lots', c.lotsCrees, c.lotsMajs, c.lotsInchanges));
   l.push(bloc('locataires', c.locatairesCrees, c.locatairesMajs, c.locatairesInchanges));
   l.push(bloc('baux', c.occupationsCreees, c.occupationsMajs, c.occupationsInchangees));
-  l.push(`  · contacts       ${String(c.contactsCrees).padStart(5)} ajouté(s)  `
+  // LOT CONTACTS-ET-EVENEMENT — les MISES À JOUR sont dites à part : « 0 ajouté » cachait 1 793 libellés vides.
+  l.push(`  · contacts       ${String(c.contactsCrees).padStart(5)} ajouté(s) `
+    + `${String(c.contactsMajs).padStart(5)} mis à jour  `
     + `${String(c.contactsRetires).padStart(5)} marqué(s) « retiré de l’export »`);
   l.push('');
   l.push(`DISPARUS DU DERNIER EXPORT (marqués, JAMAIS effacés) : ${c.disparus}`);

@@ -32,7 +32,13 @@ export interface ComptesImport {
   lotsCrees: number; lotsMajs: number; lotsInchanges: number;
   locatairesCrees: number; locatairesMajs: number; locatairesInchanges: number;
   occupationsCreees: number; occupationsMajs: number; occupationsInchangees: number;
-  contactsCrees: number; contactsRetires: number;
+  contactsCrees: number;
+  /**
+   * 🔴 LOT CONTACTS-ET-EVENEMENT — les contacts DÉJÀ EN BASE dont le libellé de colonne d'origine a changé (ou
+   * manquait). Compté à part des créations : « 0 ajouté » était vrai et trompeur à la fois le 28/09/2026.
+   */
+  contactsMajs: number;
+  contactsRetires: number;
   disparus: number; revenus: number;
 }
 
@@ -41,7 +47,7 @@ export const COMPTES_VIDES: ComptesImport = {
   lotsCrees: 0, lotsMajs: 0, lotsInchanges: 0,
   locatairesCrees: 0, locatairesMajs: 0, locatairesInchanges: 0,
   occupationsCreees: 0, occupationsMajs: 0, occupationsInchangees: 0,
-  contactsCrees: 0, contactsRetires: 0, disparus: 0, revenus: 0,
+  contactsCrees: 0, contactsMajs: 0, contactsRetires: 0, disparus: 0, revenus: 0,
 };
 
 export type IssueImport =
@@ -326,7 +332,13 @@ async function ecrireOccupations(
  * 🔴 UN CONTACT QUI DISPARAÎT DE L'EXPORT EST MARQUÉ, PAS EFFACÉ (`absent_le`). Un numéro retiré de WIPPIMMO par
  * erreur reste ainsi lisible, avec sa mention — et un export qui le ramène le réveille.
  */
-async function ecrireContacts(
+/**
+ * 🔴 EXPORTÉE POUR ÊTRE ÉPROUVÉE. La réconciliation des contacts est l'endroit où un import idempotent se trompe
+ * le plus cher : elle décide, pour 1 793 lignes, laquelle est « inchangée ». Le 28/09/2026 elle en a déclaré 1 793
+ * inchangées alors que leur libellé de colonne était vide — et le rapport annonçait « 0 ajouté », ce qui était
+ * exact et trompeur. On la tient donc sous test directement, avec un `q` factice.
+ */
+export async function ecrireContacts(
   q: RequeteTx, plan: PlanImport, idsProprietaires: ReadonlyMap<string, number>,
   idsLocataires: ReadonlyMap<string, number>, appliquer: boolean, c: ComptesImport,
 ): Promise<void> {
@@ -345,15 +357,45 @@ async function ecrireContacts(
 
   // LOT CONTACTS-ET-EVENEMENT — la 267 est-elle là ? Sinon la colonne n'est nommée nulle part, et rien ne change.
   const avecLibelle = await libelleSourceContactDisponible();
-  const { rows } = await q<{ sujet: string; sujet_id: string; sorte: string; valeur: string; absent_le: string | null }>(
-    `SELECT sujet, sujet_id, sorte, valeur, absent_le::text FROM gestion_annuaire_contact`);
-  const existants = new Set(rows.filter((r) => r.absent_le === null)
-    .map((r) => `${r.sujet}|${r.sujet_id}|${r.sorte}|${r.valeur}`));
-  const voulus = new Set(attendus.map((a) => `${a.sujet}|${a.sujetId}|${a.contact.sorte}|${a.contact.valeur}`));
+  /**
+   * 🔴 ON RELIT LE LIBELLÉ, PAS SEULEMENT L'IDENTITÉ — DÉFAUT MESURÉ LE 28/09/2026.
+   *
+   * L'état « existant » ne portait que (sujet, sujet_id, sorte, valeur) : un contact déjà en base était donc réputé
+   * INCHANGÉ quoi qu'il arrive, et la boucle le sautait AVANT d'écrire. Conséquence observée par Arno : la
+   * migration 267 appliquée, l'import relancé avec `--appliquer` annonçait « contacts : 0 ajouté(s) » et les
+   * 1 793 libellés restaient VIDES. Le rapport disait vrai sur ce qu'il faisait, et faux sur ce qu'il fallait faire.
+   *
+   * ⚠️ LA LEÇON : un import idempotent doit comparer TOUT CE QU'IL ÉCRIT. Le jour où l'on ajoute une colonne, la
+   * clé de comparaison doit l'apprendre — sinon la colonne neuve ne se remplit jamais, en silence.
+   */
+  const { rows } = await q<{
+    sujet: string; sujet_id: string; sorte: string; valeur: string; absent_le: string | null;
+    libelle_source: string | null;
+  }>(
+    `SELECT sujet, sujet_id, sorte, valeur, absent_le::text,
+            ${avecLibelle ? 'libelle_source' : 'NULL::text AS libelle_source'}
+       FROM gestion_annuaire_contact`);
+  const identite = (sujet: string, sujetId: string | number, sorte: string, valeur: string): string =>
+    `${sujet}|${sujetId}|${sorte}|${valeur}`;
+  /** L'état VIVANT de chaque contact : son identité → le libellé qu'il porte aujourd'hui. */
+  const existants = new Map(rows.filter((r) => r.absent_le === null)
+    .map((r) => [identite(r.sujet, r.sujet_id, r.sorte, r.valeur), r.libelle_source ?? '']));
+  const voulus = new Set(attendus.map((a) => identite(a.sujet, String(a.sujetId), a.contact.sorte, a.contact.valeur)));
 
   for (const a of attendus) {
-    if (a.sujetId !== null && existants.has(`${a.sujet}|${a.sujetId}|${a.contact.sorte}|${a.contact.valeur}`)) continue;
-    c.contactsCrees += 1;
+    const cle = a.sujetId === null ? null : identite(a.sujet, a.sujetId, a.contact.sorte, a.contact.valeur);
+    const dejaLa = cle !== null && existants.has(cle);
+    if (dejaLa) {
+      /**
+       * Déjà là : on n'écrit QUE si quelque chose a changé — et le libellé en fait partie depuis la 267. Sans la
+       * migration, rien ne peut changer et on passe, exactement comme avant.
+       */
+      const libelleVoulu = avecLibelle ? (a.contact.libelleSource ?? '') : '';
+      if (!avecLibelle || existants.get(cle as string) === libelleVoulu) continue;
+      c.contactsMajs += 1;
+    } else {
+      c.contactsCrees += 1;
+    }
     if (!appliquer || a.sujetId === null) continue;
     /**
      * ⚠️ SANS LA MIGRATION 267, LA COLONNE N'EST NOMMÉE NULLE PART et l'ordre est mot pour mot celui d'avant.
@@ -377,7 +419,8 @@ async function ecrireContacts(
         : [a.sujet, a.sujetId, a.contact.sorte, a.contact.valeur, a.contact.valeurBrute, a.contact.rang]);
   }
 
-  for (const cle of existants) {
+  // ⚠️ `existants` est désormais une CARTE (identité → libellé) : on n'en parcourt que les CLÉS.
+  for (const cle of existants.keys()) {
     if (voulus.has(cle)) continue;
     c.contactsRetires += 1;
     if (!appliquer) continue;
