@@ -802,3 +802,59 @@ describe('🔴 LOT STATUT-HORS-GESTION — la capsule grise et son geste', () =>
     expect(ecritures()).toEqual([]);
   });
 });
+
+/**
+ * ══ 🔴 LOT CONTACTS-ET-EVENEMENT — B2 : LE CARTOUCHE REFLÈTE LE BLOC « ÉVÉNEMENT RATTACHÉ » ═══════════════════
+ * Y COMPRIS quand la carte est posée sur CE MAIL SEUL. Avant ce lot, on liait un mail à une carte et son cartouche
+ * continuait d'afficher celle de l'échange — ou « aucun ».
+ *
+ * 🔴 B4 — ET LA CAPSULE DE STATUT NE BOUGE JAMAIS : elle dit le rattachement à un BIEN, l'événement est facultatif.
+ */
+describe('🔴 B2/B4 — le cartouche suit l’événement du mail, la capsule ne bouge pas', () => {
+  const capsule = () => container.querySelector('.cnv-capsule') as HTMLElement | null;
+  const lienBien = () => ({
+    id: 1, messageId: 900, pieceId: null, cible: { sorte: 'lot', cle: '445', id: 445 },
+    libelle: 'Lot 445', origine: 'manuel', statut: 'confirme', confiance: null, regle: 'adresse',
+    motif: null, adresses: [], parUnHumain: true, creeLe: null, creePar: null, statutLe: null, statutPar: null,
+  });
+
+  it('un mail lié à SA carte affiche CETTE carte, pas celle de son échange', async () => {
+    filCourant = FIL({ reference: 'GES-2026-000001', evenementId: 1, evenementObjet: 'Carte de l’échange' });
+    const avant = global.fetch as unknown as typeof fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/messages')) {
+        return {
+          ok: true,
+          json: async () => ({
+            fil: filCourant, messages,
+            // Le serveur rend déjà les mails « partis » d'un fil : c'est ce que le cartouche doit lire.
+            partis: [{
+              messageId: 900, objet: 'Fuite', recuLe: '2026-09-20T12:00:00Z',
+              reference: 'GES-2026-000042', evenementId: 42, objetEvenement: 'Fuite salle de bain',
+            }],
+          }),
+        } as unknown as Response;
+      }
+      return avant(url, init);
+    }) as unknown as typeof fetch;
+
+    await monter();
+    expect(cartouche()?.textContent).toBe('Événement : GES-2026-000042 · Fuite salle de bain');
+  });
+
+  it('🔴 B4 — et la CAPSULE reste celle du BIEN : l’événement ne la change jamais', async () => {
+    liensParMessage = { '900': [lienBien()] };
+    filCourant = FIL({ reference: 'GES-2026-000001', evenementId: 1, evenementObjet: 'Une carte' });
+    await monter();
+    // Une carte posée, un bien rattaché à la main : la capsule dit le BIEN, et rien que lui.
+    expect(capsule()?.textContent).toBe('Classé');
+  });
+
+  it('🔴 B4 — sans aucun bien, une carte posée ne verdit PAS la capsule', async () => {
+    liensParMessage = { '900': [] };
+    filCourant = FIL({ reference: 'GES-2026-000001', evenementId: 1, evenementObjet: 'Une carte' });
+    await monter();
+    expect(capsule()?.textContent).toBe('À classer');
+  });
+});

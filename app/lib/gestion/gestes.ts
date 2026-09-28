@@ -15,7 +15,8 @@
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { adresseProposee, nettoyerObjet } from './objet';
-import { deplacementsDeMailsDisponibles } from './schema';
+import { deplacementsDeMailsDisponibles, evenementQualifieDisponible } from './schema';
+import { categorieValide, urgenceValide, type EvenementDuMail } from './evenementQualite';
 
 /**
  * LOT 4d-B2 — « cette affectation porte sur TOUT l'échange », en SQL.
@@ -77,7 +78,30 @@ export interface NouvelEvenement {
   demandeurNom?: string | null;
   demandeurEmail?: string | null;
   adresseLibre?: string | null;
+  /**
+   * 🔴 LOT CONTACTS-ET-EVENEMENT — DE QUOI S'AGIT-IL, ET EST-CE URGENT ? Écrits SEULEMENT si la migration 268 est
+   * appliquée ; sinon ils sont ignorés en silence et la carte est celle d'avant. Une valeur hors liste est refusée
+   * par la base autant que par `categorieValide` : deux gardes pour la même règle.
+   */
+  categorie?: string | null;
+  urgence?: string | null;
+  /**
+   * 🔴 SUR QUOI PORTE CETTE CARTE : le bien, son propriétaire, son locataire, tels que la fiche les a identifiés.
+   * Demande d'Arno : « le nouvel événement est rattaché au bien identifié, à son propriétaire et à son locataire ».
+   */
+  parties?: readonly { sorte: 'lot' | 'proprietaire' | 'locataire'; cle: string; libelle?: string | null }[];
 }
+
+/**
+ * 🔴 LES CATÉGORIES, LES URGENCES ET LEURS MOTS VIVENT DANS UN MODULE PUR (`evenementQualite.ts`), et sont
+ * seulement RÉEXPORTÉS ici pour les appelants serveur. Ils sont lus des deux côtés de la frontière : le bloc
+ * « Événement rattaché » est un composant de NAVIGATEUR, et importer ce fichier-ci le ferait remonter jusqu'à
+ * `pg`, donc jusqu'à `dns` — webpack refuserait alors de construire TOUTE l'application (incident du 24/09/2026).
+ */
+export {
+  CATEGORIES_EVENEMENT, URGENCES_EVENEMENT, categorieValide, urgenceValide, motCategorie, motUrgence,
+} from './evenementQualite';
+export type { EvenementDuMail } from './evenementQualite';
 
 /**
  * AFFECTE un échange à un événement : un EXISTANT (`evenementId`) ou un NOUVEAU (`nouveau`). Tout se fait dans UNE
@@ -88,6 +112,55 @@ export interface NouvelEvenement {
  * L'unicité « un fil n'a qu'UNE affectation active » est tenue EN BASE par un index unique partiel : même deux clics
  * simultanés ne peuvent pas en créer deux.
  */
+/**
+ * 🔴 OUVRE UNE CARTE, DANS LA TRANSACTION DE L'APPELANT. Partagée par les DEUX portées — « toute la conversation »
+ * (`affecter`) et « ce mail seul » (`deplacerMessageVersNouveau`).
+ *
+ * Elle est partagée et non recopiée : deux créations d'événement finiraient par deux formes de carte, et c'est
+ * exactement le genre de divergence qu'on ne voit qu'au moment où il faut réparer les deux.
+ *
+ * ⚠️ SANS LA MIGRATION 268, `categorie`, `urgence` et les PARTIES ne sont nommées nulle part, et la carte créée est
+ * mot pour mot celle d'avant ce lot.
+ */
+async function creerEvenementDansTransaction(
+  q: RequeteTx, n: NouvelEvenement, auteur: Auteur, qualifie: boolean,
+): Promise<{ id: number; reference: string }> {
+  const objet = texte(nettoyerObjet(texte(n.objet)));
+  const reference = await prochaineReference(q, new Date().getFullYear());
+  const { rows } = await q<{ id: number }>(
+    qualifie
+      ? `INSERT INTO gestion_evenement (reference, objet, demandeur_nom, demandeur_email, adresse_libre,
+           categorie, urgence, ouvert_par, ouvert_par_libelle)
+         VALUES ($1,$2,$3,$4,$5,$8,$9,$6,$7) RETURNING id::int AS id`
+      : `INSERT INTO gestion_evenement (reference, objet, demandeur_nom, demandeur_email, adresse_libre, ouvert_par, ouvert_par_libelle)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id::int AS id`,
+    qualifie
+      ? [reference, objet, texte(n.demandeurNom), texte(n.demandeurEmail), texte(n.adresseLibre),
+        auteur.id, auteur.libelle, categorieValide(n.categorie), urgenceValide(n.urgence)]
+      : [reference, objet, texte(n.demandeurNom), texte(n.demandeurEmail), texte(n.adresseLibre),
+        auteur.id, auteur.libelle]);
+  const id = rows[0].id;
+  await journaliser(q, 'evenement', id, 'ouverture', auteur, `carte ${reference} ouverte depuis un échange`);
+
+  /**
+   * 🔴 SUR QUOI PORTE CETTE CARTE : le bien, son propriétaire, son locataire — demande d'Arno. Ce n'est pas un
+   * ornement : c'est ce qui permettra, la fois d'après, de proposer « les événements de ce bien » en tête de la
+   * recherche, au lieu de faire relire tous les objets.
+   */
+  if (qualifie) {
+    for (const partie of n.parties ?? []) {
+      const cle = texte(partie.cle);
+      if (cle === null) continue;
+      await q(
+        `INSERT INTO gestion_evenement_partie (evenement_id, sorte, cle, libelle, cree_par, cree_par_libelle)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (evenement_id, sorte, cle) WHERE retire_le IS NULL DO NOTHING`,
+        [id, partie.sorte, cle, texte(partie.libelle) ?? '', auteur.id, auteur.libelle]);
+    }
+  }
+  return { id, reference };
+}
+
 export async function affecter(
   filId: number, cible: { evenementId?: number; nouveau?: NouvelEvenement }, auteur: Auteur, motif?: string | null,
 ): Promise<Issue> {
@@ -99,6 +172,8 @@ export async function affecter(
     return { ok: false, motif: 'Indiquez l’événement à rattacher, ou donnez un objet au nouvel événement.' };
   }
   const surLEchange = await seulementLEchange(); // sondé HORS transaction, cf. le commentaire de la fonction
+  // LOT CONTACTS-ET-EVENEMENT — la 268 est-elle là ? Sondée HORS transaction, pour la même raison.
+  const qualifie = await evenementQualifieDisponible();
   return withTransaction(async (q) => {
     const { rows: fil } = await q<{ id: number; etat: string }>(
       `SELECT id::int AS id, etat FROM gestion_fil WHERE id = $1`, [filId]);
@@ -108,13 +183,9 @@ export async function affecter(
     let reference: string | undefined;
     if (evenementId === undefined) {
       const n = cible.nouveau!;
-      reference = await prochaineReference(q, new Date().getFullYear());
-      const { rows } = await q<{ id: number }>(
-        `INSERT INTO gestion_evenement (reference, objet, demandeur_nom, demandeur_email, adresse_libre, ouvert_par, ouvert_par_libelle)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id::int AS id`,
-        [reference, objetNouveau, texte(n.demandeurNom), texte(n.demandeurEmail), texte(n.adresseLibre), auteur.id, auteur.libelle]);
-      evenementId = rows[0].id;
-      await journaliser(q, 'evenement', evenementId, 'ouverture', auteur, `carte ${reference} ouverte depuis un échange`);
+      const cree = await creerEvenementDansTransaction(q, n, auteur, qualifie);
+      evenementId = cree.id;
+      reference = cree.reference;
     } else {
       const { rows } = await q<{ reference: string }>(
         `SELECT reference FROM gestion_evenement WHERE id = $1`, [evenementId]);
@@ -234,7 +305,35 @@ export async function rouvrir(filId: number, auteur: Auteur): Promise<Issue> {
  * réponses futures produirait, à la relève suivante, une conversation coupée en deux entre deux cartes.
  */
 export async function deplacerMessage(messageId: number, evenementId: number, auteur: Auteur): Promise<Issue> {
+  return withTransaction(async (q) => lierLeMail(q, messageId, evenementId, auteur));
+}
+
+/**
+ * 🔴 LIE CE MAIL À UNE CARTE NEUVE, en UNE transaction — portée « ce mail seul » du bloc « Événement rattaché ».
+ *
+ * Elle existe pour qu'une création suivie d'un lien ne puisse pas s'arrêter au milieu : une carte ouverte dont
+ * aucun mail ne dépend est une carte vide que personne n'a demandée, et il faudrait aller la fermer à la main.
+ *
+ * ⚠️ ELLE NE RECOPIE NI LA CRÉATION NI LE LIEN : elle appelle les deux fonctions que les autres chemins appellent.
+ */
+export async function deplacerMessageVersNouveau(
+  messageId: number, nouveau: NouvelEvenement, auteur: Auteur,
+): Promise<Issue> {
+  if (texte(nouveau.objet) === null) {
+    return { ok: false, motif: 'Donnez un objet au nouvel événement.' };
+  }
+  const qualifie = await evenementQualifieDisponible(); // sondé HORS transaction, comme partout dans ce fichier
   return withTransaction(async (q) => {
+    const cree = await creerEvenementDansTransaction(q, nouveau, auteur, qualifie);
+    return lierLeMail(q, messageId, cree.id, auteur);
+  });
+}
+
+/** LE CORPS COMMUN du lien mail ↔ carte. Une seule règle d'écriture, donc pas deux comportements possibles. */
+async function lierLeMail(
+  q: RequeteTx, messageId: number, evenementId: number, auteur: Auteur,
+): Promise<Issue> {
+  {
     // LIRE AVANT D'ÉCRIRE (withTransaction commite au retour, cf. db/client.ts:52-54) — et verrouiller, pour que deux
     //   clics simultanés se suivent au lieu de se croiser.
     const { rows: msg } = await q<{ id: number; fil_id: number; objet: string | null }>(
@@ -268,7 +367,7 @@ export async function deplacerMessage(messageId: number, evenementId: number, au
     await journaliser(q, 'affectation', nouvelle[0].id, 'affectation', auteur,
       `mail ${messageId} (« ${texte(msg[0].objet) ?? 'sans objet'} ») rattaché à l’événement ${ev[0].reference}, sans son échange`);
     return { ok: true, evenementId, reference: ev[0].reference };
-  });
+  }
 }
 
 /** REMET un mail déplacé dans son échange. L'affectation n'est pas supprimée : désactivée et datée, comme partout ici. */
@@ -452,5 +551,57 @@ export async function preremplir(filId: number): Promise<NouvelEvenement | null>
     demandeurNom: r.nom,
     demandeurEmail: r.email,
     adresseLibre: adresseProposee(r.objet, r.corps),
+  };
+}
+
+/**
+ * 🔴 LOT CONTACTS-ET-EVENEMENT — L'ÉVÉNEMENT EFFECTIF D'UN MAIL. LECTURE SEULE.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 « EFFECTIF » PARCE QU'IL Y EN A DEUX SOURCES, ET QU'ELLES NE DISENT PAS LA MÊME CHOSE :
+ *   · l'affectation de CE MAIL (migration 234) — elle prime, parce qu'elle a été posée SUR lui ;
+ *   · à défaut, celle de son ÉCHANGE — le cas ordinaire.
+ * Afficher l'une pour l'autre ferait croire qu'un mail déplacé est resté avec son fil, ou l'inverse. La `portee`
+ * rendue dit donc toujours LAQUELLE des deux on regarde : c'est ce que l'écran affiche, et ce qu'il faut savoir
+ * avant de délier.
+ *
+ * ⚠️ SANS LA MIGRATION 234, la colonne `message_id` n'est nommée nulle part : on ne lit que l'échange, et la
+ * portée rendue est toujours `conversation` — exactement le comportement d'avant ce lot.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+export async function evenementDuMail(messageId: number): Promise<EvenementDuMail | null> {
+  if (!Number.isSafeInteger(messageId) || messageId <= 0) return null;
+  const surLeMail = await deplacementsDeMailsDisponibles();
+  const qualifie = await evenementQualifieDisponible();
+  const colonnes = qualifie ? 'e.categorie, e.urgence' : 'NULL::text AS categorie, NULL::text AS urgence';
+
+  if (surLeMail) {
+    const { rows } = await query<{
+      id: string; reference: string; objet: string; etat: string; categorie: string | null; urgence: string | null;
+    }>(
+      `SELECT e.id::text, e.reference, e.objet, e.etat, ${colonnes}
+         FROM gestion_affectation a JOIN gestion_evenement e ON e.id = a.evenement_id
+        WHERE a.message_id = $1 AND a.actif LIMIT 1`, [messageId]);
+    if (rows[0]) {
+      return {
+        evenementId: Number(rows[0].id), reference: rows[0].reference, objet: rows[0].objet,
+        etat: rows[0].etat, portee: 'mail', categorie: rows[0].categorie, urgence: rows[0].urgence,
+      };
+    }
+  }
+
+  const { rows } = await query<{
+    id: string; reference: string; objet: string; etat: string; categorie: string | null; urgence: string | null;
+  }>(
+    `SELECT e.id::text, e.reference, e.objet, e.etat, ${colonnes}
+       FROM gestion_message m
+       JOIN gestion_affectation a ON a.fil_id = m.fil_id AND a.actif ${surLeMail ? 'AND a.message_id IS NULL' : ''}
+       JOIN gestion_evenement e ON e.id = a.evenement_id
+      WHERE m.id = $1 LIMIT 1`, [messageId]);
+  if (!rows[0]) return null;
+  return {
+    evenementId: Number(rows[0].id), reference: rows[0].reference, objet: rows[0].objet,
+    etat: rows[0].etat, portee: 'conversation', categorie: rows[0].categorie, urgence: rows[0].urgence,
   };
 }

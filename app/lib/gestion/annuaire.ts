@@ -143,6 +143,16 @@ export interface ContactAnnuaire {
   valeurBrute: string;
   /** L'ordre dans la cellule. Le rang 0 est le principal. */
   rang: number;
+  /**
+   * 🔴 LOT CONTACTS-ET-EVENEMENT — LE LIBELLÉ EXACT DE LA COLONNE WIPPIMMO d'où sort cette coordonnée, numéroté
+   * quand la cellule en portait plusieurs : « Mobile 1 », « Mobile 2 », « Email », « Télécoms ».
+   *
+   * 🔴 IL DIT D'OÙ ELLE SORT, ET RIEN DE PLUS. La reconnaissance du 28/09/2026 a établi que l'export ne permet
+   * PAS de relier une coordonnée à une personne : une seule personne par ligne, des cellules à plusieurs valeurs,
+   * et un ordre qui s'inverse d'une colonne à l'autre (SARL MACJ, 850). Apparier par position fabriquerait des
+   * attributions fausses. Le libellé est donc la seule chose vraie qu'on puisse écrire à côté d'un numéro.
+   */
+  libelleSource: string;
 }
 
 /**
@@ -153,23 +163,52 @@ export interface ContactAnnuaire {
  * et quelqu'un pourra le corriger dans WIPPIMMO. Le silence, lui, ne se corrige pas.
  */
 export function contactsDeCellules(
-  cellules: { sorte: 'telephone' | 'email'; texte: string | null | undefined }[],
+  cellules: { sorte: 'telephone' | 'email'; texte: string | null | undefined; colonne?: string }[],
 ): ContactAnnuaire[] {
   const out: ContactAnnuaire[] = [];
   const vus = new Set<string>();
-  for (const { sorte, texte } of cellules) {
-    for (const brut of decouperCellule(texte)) {
+  for (const { sorte, texte, colonne } of cellules) {
+    const valeurs = decouperCellule(texte);
+    /**
+     * 🔴 ON NE NUMÉROTE QUE QUAND LA CELLULE EN PORTE PLUSIEURS. « Mobile » se lit mieux que « Mobile 1 » quand
+     * il n'y en a qu'un — et le numéro, lui, doit rester le signe qu'il y avait un choix à faire.
+     *
+     * ⚠️ LE RANG COMPTE LES VALEURS DE LA CELLULE, pas celles déjà retenues : un doublon écarté (« 0667698249 ;
+     * 0667698249 ») ne doit pas décaler la numérotation de ce qui suit.
+     */
+    const plusieurs = valeurs.length > 1;
+    valeurs.forEach((brut, i) => {
       const valeur = sorte === 'email'
         ? normaliserEmail(brut)
         : normaliserTelephone(brut) ?? repliTelephone(brut);
-      if (valeur === null) continue;
+      if (valeur === null) return;
       const cle = `${sorte}:${valeur}`;
-      if (vus.has(cle)) continue;          // « 0667698249 ; 0667698249 » ne fait qu'une ligne
+      if (vus.has(cle)) return;            // « 0667698249 ; 0667698249 » ne fait qu'une ligne
       vus.add(cle);
-      out.push({ sorte, valeur, valeurBrute: brut, rang: out.filter((c) => c.sorte === sorte).length });
-    }
+      const source = (colonne ?? '').trim();
+      out.push({
+        sorte, valeur, valeurBrute: brut, rang: out.filter((c) => c.sorte === sorte).length,
+        libelleSource: source === '' ? '' : (plusieurs ? `${source} ${i + 1}` : source),
+      });
+    });
   }
   return out;
+}
+
+/**
+ * LE LIBELLÉ À AFFICHER À CÔTÉ D'UNE COORDONNÉE. PUR.
+ *
+ * 🔴 IL N'EST JAMAIS VIDE. Sans la migration 267 — ou pour un import antérieur — on n'a pas la colonne d'origine :
+ * on retombe alors sur la sorte, numérotée par le rang (« E-mail », « E-mail 2 »). Une coordonnée sans nom NI
+ * libellé est précisément ce qu'Arno a signalé ; elle ne doit plus pouvoir exister.
+ */
+export function libelleContact(
+  c: { sorte: 'telephone' | 'email' | string; rang: number; libelleSource?: string | null },
+): string {
+  const source = (c.libelleSource ?? '').trim();
+  if (source !== '') return source;
+  const generique = c.sorte === 'email' ? 'E-mail' : 'Téléphone';
+  return c.rang > 0 ? `${generique} ${c.rang + 1}` : generique;
 }
 
 /** Repli d'un téléphone illisible : les seuls chiffres (avec un « + » de tête s'il y était). `null` si aucun

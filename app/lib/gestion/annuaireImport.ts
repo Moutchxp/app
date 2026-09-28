@@ -245,10 +245,15 @@ function lireBailleurs(feuille: FeuilleLue, rejets: Rejet[]): ProprietairePlan[]
       codePostal: ouNull(cellule(l, iCp)),
       adresseNormalisee: normaliserTexte([adresse, commune].filter((x) => x !== null).join(' ')),
       relationDepuis: null,   // dérivée plus tard, une fois les lots lus
+      /**
+       * 🔴 LOT CONTACTS-ET-EVENEMENT — LE TITRE EXACT DE LA COLONNE VOYAGE AVEC LA VALEUR. L'export ne permet pas
+       * de dire À QUI est un numéro (une seule personne par ligne, cellules multi-valeurs, ordre inversé d'une
+       * colonne à l'autre) : le seul fait vrai qu'on puisse écrire à côté, c'est d'où il sort.
+       */
       contacts: contactsDeCellules([
-        { sorte: 'telephone', texte: cellule(l, iTel) },
-        { sorte: 'telephone', texte: cellule(l, iMob) },
-        { sorte: 'email', texte: cellule(l, iMail) },
+        { sorte: 'telephone', texte: cellule(l, iTel), colonne: 'Télécoms' },
+        { sorte: 'telephone', texte: cellule(l, iMob), colonne: 'Mobile' },
+        { sorte: 'email', texte: cellule(l, iMail), colonne: 'Email' },
       ]),
     });
   });
@@ -358,8 +363,8 @@ function lireLocataires(feuille: FeuilleLue, idsLots: ReadonlySet<string>, rejet
     vus.add(id);
 
     const contacts = contactsDeCellules([
-      { sorte: 'telephone', texte: cellule(l, iMob) },
-      { sorte: 'email', texte: cellule(l, iMail) },
+      { sorte: 'telephone', texte: cellule(l, iMob), colonne: 'Mobile' },
+      { sorte: 'email', texte: cellule(l, iMail), colonne: 'Email' },
     ]);
     const normalise = normaliserTexte(nom);
     const cle = clePersonne(normalise, contacts, id);

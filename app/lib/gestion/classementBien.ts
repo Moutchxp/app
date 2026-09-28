@@ -1,11 +1,15 @@
 import { query } from '../db/client';
-import { annuaireDisponible, rattachementsDisponibles, miniaturesDisponibles } from './schema';
+import {
+  annuaireDisponible, rattachementsDisponibles, miniaturesDisponibles, libelleSourceContactDisponible,
+} from './schema';
 // LOT AFFECTATION-PAR-BIEN — le moteur des propositions est PUR : il décide, et il s'éprouve sans base.
 import { proposerBiens, type AdresseVue } from './propositionsBien';
 // LOT FICHE-PROPOSITION — ce qui s'affiche, et sous quel mot : un module PUR, éprouvé sans base ni écran.
 import {
-  adresseComplete, caracteristiquesDuLot, type CaracteristiqueLot, type PersonneFiche,
+  adresseComplete, caracteristiquesDuLot,
+  type CaracteristiqueLot, type Coordonnee, type PersonneFiche,
 } from './ficheBien';
+import { libelleContact } from './annuaire';
 
 /**
  * MODULE « GESTION » — LOT STATUT-PAR-MAIL : CE QU'IL FAUT SAVOIR POUR CLASSER UN MAIL DANS UN BIEN. LECTURE SEULE.
@@ -121,7 +125,7 @@ const SQL_PARTIES = `
 
 interface LotDB {
   id: string; cle: string; adresse: string | null; commune: string | null; type_bien: string | null;
-  proprietaire_cle: string | null; proprietaire_nom: string | null;
+  proprietaire_cle: string | null; proprietaire_nom: string | null; proprietaire_civilite: string | null;
   // LOT FICHE-PROPOSITION — les colonnes que l'import remplit vraiment (voir l'en-tête de `ficheBien.ts`).
   code_postal: string | null; immeuble: string | null; nature: string | null;
   gestion_debut: string | null; gestion_fin: string | null;
@@ -142,16 +146,19 @@ interface LotDB {
  * ⚠️ L'ORDRE EST CELUI DE L'IMPORT (`rang`) : la première adresse est celle que WIPPIMMO donne en premier, et
  * c'est en général la bonne. Trier par ordre alphabétique remonterait une adresse secondaire en tête.
  */
-const SQL_CONTACTS = `
-  SELECT sujet, sujet_id::text AS sujet_id, sorte, valeur
+function sqlContacts(avecLibelle: boolean): string {
+  return `
+  SELECT sujet, sujet_id::text AS sujet_id, sorte, valeur, rang,
+         ${avecLibelle ? 'libelle_source' : "NULL::text AS libelle_source"}
     FROM gestion_annuaire_contact
    WHERE absent_le IS NULL
      AND ((sujet = 'proprietaire' AND sujet_id = ANY($1::bigint[]))
        OR (sujet = 'locataire'    AND sujet_id = ANY($2::bigint[])))
    ORDER BY sorte, rang, id`;
+}
 
-/** Les contacts d'une personne, rangés par sorte. `null` quand on n'a rien lu pour elle. */
-type CarteContacts = Map<string, { emails: string[]; telephones: string[] }>;
+/** Les contacts d'une personne, rangés par sorte, chacun avec le libellé de sa colonne d'origine. */
+type CarteContacts = Map<string, { emails: Coordonnee[]; telephones: Coordonnee[] }>;
 
 /** La clé d'une personne dans la carte des contacts : sa sorte et son identifiant interne. PUR. */
 function cleContact(sujet: string, sujetId: string | number): string { return `${sujet}|${sujetId}`; }
@@ -233,7 +240,7 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
             lo.code_postal, lo.immeuble, lo.nature,
             lo.gestion_debut::text AS gestion_debut, lo.gestion_fin::text AS gestion_fin,
             lo.proprietaire_id::text AS proprietaire_id,
-            pr.wippimmo_id AS proprietaire_cle, pr.nom_complet AS proprietaire_nom
+            pr.wippimmo_id AS proprietaire_cle, pr.nom_complet AS proprietaire_nom, pr.civilite AS proprietaire_civilite
        FROM gestion_annuaire_lot lo
        LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
       ORDER BY lo.commune NULLS LAST, lo.adresse NULLS LAST, lo.wippimmo_id`);
@@ -313,17 +320,25 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
 
   const contacts: CarteContacts = new Map();
   if (idsProprios.length > 0 || idsLocataires.length > 0) {
-    const { rows: cts } = await query<{ sujet: string; sujet_id: string; sorte: string; valeur: string }>(
-      SQL_CONTACTS, [idsProprios, idsLocataires]);
+    // LOT CONTACTS-ET-EVENEMENT — la 267 est-elle là ? Sinon la colonne n'est nommée nulle part (repli générique).
+    const avecLibelle = await libelleSourceContactDisponible();
+    const { rows: cts } = await query<{
+      sujet: string; sujet_id: string; sorte: string; valeur: string; rang: number; libelle_source: string | null;
+    }>(sqlContacts(avecLibelle), [idsProprios, idsLocataires]);
     for (const c of cts) {
       const k = cleContact(c.sujet, c.sujet_id);
       const e = contacts.get(k) ?? { emails: [], telephones: [] };
-      if (c.sorte === 'email') e.emails.push(c.valeur);
-      else if (c.sorte === 'telephone') e.telephones.push(c.valeur);
+      // 🔴 LE LIBELLÉ N'EST JAMAIS VIDE : `libelleContact` retombe sur la sorte numérotée par le rang.
+      const coord: Coordonnee = {
+        valeur: c.valeur,
+        libelle: libelleContact({ sorte: c.sorte, rang: c.rang, libelleSource: c.libelle_source }),
+      };
+      if (c.sorte === 'email') e.emails.push(coord);
+      else if (c.sorte === 'telephone') e.telephones.push(coord);
       contacts.set(k, e);
     }
   }
-  const contactsDe = (sujet: string, id: string | null): { emails: string[]; telephones: string[] } =>
+  const contactsDe = (sujet: string, id: string | null): { emails: Coordonnee[]; telephones: Coordonnee[] } =>
     (id === null ? undefined : contacts.get(cleContact(sujet, id))) ?? { emails: [], telephones: [] };
 
   const biens: BienProposable[] = [];
@@ -335,7 +350,7 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
       const c = contactsDe('proprietaire', l.proprietaire_id);
       parties.push({
         role: 'proprietaire', cle: l.proprietaire_cle, nom: l.proprietaire_nom ?? '(sans nom)',
-        emails: c.emails, telephones: c.telephones,
+        civilite: l.proprietaire_civilite, emails: c.emails, telephones: c.telephones,
       });
     }
     for (const x of occupations.get(cle) ?? []) {

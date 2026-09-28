@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   adresseComplete, caracteristiquesDuLot, dateFr, groupesParProprietaire, lienTelephone, locatairesDuBien,
-  periodeOccupation, valeurVide, type LotFiche, type PersonneFiche,
+  periodeOccupation, titreCarte, valeurVide, type LotFiche, type PersonneFiche,
 } from './ficheBien';
 
 /**
@@ -148,11 +148,17 @@ describe('🔴 ③ ④ les groupes de propriétaires', () => {
   it('🔴 une indivision reste UNE carte, avec tous ses contacts', () => {
     const indivision = personne('proprietaire', 'P9', {
       nom: 'MOTTAIS GRAINDORGE Didier et Sandrine',
-      emails: ['didier@x.fr', 'sandrine@x.fr'], telephones: ['+33600000000'],
+      emails: [{ valeur: 'didier@x.fr', libelle: 'Email 1' }, { valeur: 'sandrine@x.fr', libelle: 'Email 2' }],
+      telephones: [{ valeur: '+33600000000', libelle: 'Mobile' }],
     });
     const g = groupesParProprietaire([{ cle: '1', parties: [indivision] }]);
     expect(g[0].personnes).toHaveLength(1);
-    expect(g[0].personnes[0].emails).toEqual(['didier@x.fr', 'sandrine@x.fr']);
+    /**
+     * 🔴 LOT CONTACTS-ET-EVENEMENT — ET CHAQUE ADRESSE PORTE LE LIBELLÉ DE SA COLONNE. C'est tout ce que l'export
+     * permet de dire : il ne relie aucune des deux à Didier ou à Sandrine.
+     */
+    expect(g[0].personnes[0].emails.map((e) => `${e.libelle} : ${e.valeur}`))
+      .toEqual(['Email 1 : didier@x.fr', 'Email 2 : sandrine@x.fr']);
   });
 
   it('si l’annuaire porte VRAIMENT deux enregistrements, deux cartes sont rendues', () => {
@@ -191,5 +197,25 @@ describe('le lien d’appel d’un téléphone', () => {
     expect(lienTelephone('')).toBeNull();
     expect(lienTelephone('n° inconnu')).toBeNull();
     expect(lienTelephone('12345')).toBeNull();
+  });
+});
+
+describe('🔴 LOT CONTACTS-ET-EVENEMENT — le titre d’une carte de personne', () => {
+  it('une SOCIÉTÉ est dite comme telle : sans cela, on cherche un prénom qui n’existe pas', () => {
+    expect(titreCarte({ nom: 'MARS AVENIR', civilite: 'Sté' })).toEqual({ nom: 'MARS AVENIR', qualite: 'Société' });
+    expect(titreCarte({ nom: 'SARL MACJ', civilite: 'SARL' })).toEqual({ nom: 'SARL MACJ', qualite: 'Société' });
+  });
+
+  it('une civilité ordinaire est rendue telle quelle', () => {
+    expect(titreCarte({ nom: 'DUPONT Jean', civilite: 'M.' })).toEqual({ nom: 'DUPONT Jean', qualite: 'M.' });
+  });
+
+  it('aucune civilité ⇒ aucune qualité inventée', () => {
+    expect(titreCarte({ nom: 'DUPONT Jean', civilite: null })).toEqual({ nom: 'DUPONT Jean', qualite: null });
+    expect(titreCarte({ nom: 'DUPONT Jean', civilite: '  ' }).qualite).toBeNull();
+  });
+
+  it('🔴 le nom n’est JAMAIS recomposé : c’est celui que l’import a écrit, et que WIPPIMMO emploie partout', () => {
+    expect(titreCarte({ nom: 'JULLIEN - GARRIDO Cédric', civilite: 'M.' }).nom).toBe('JULLIEN - GARRIDO Cédric');
   });
 });

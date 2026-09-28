@@ -446,6 +446,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
   }
 
   const { fil, messages, partis } = vue;
+  /** La carte posée sur CE MAIL SEUL, quand il y en a une. `null` = il suit son échange, le cas ordinaire. */
+  const carteDe = (messageId: number): { reference: string; libelle: string | null; evenementId: number | null } | null => {
+    const p = partis.find((x) => x.messageId === messageId);
+    return p === undefined ? null : { reference: p.reference, libelle: p.objetEvenement, evenementId: p.evenementId };
+  };
   const rattache = fil.reference !== null;
 
   /**
@@ -658,7 +663,11 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             ouvert={deplies.has(m.messageId)}
             corpsCharge={corps.get(m.messageId)}
             onBasculer={() => void basculer(m)}
-            statut={statutDuMessage(fil, m)}
+            /* 🔴 LOT CONTACTS-ET-EVENEMENT — LE CARTOUCHE REFLÈTE LE BLOC « Événement rattaché », y compris quand
+               la carte est posée SUR CE MAIL SEUL. `partis` porte déjà ces mails (le serveur les rend depuis
+               toujours) ; sans cette ligne, on liait un mail à une carte et son cartouche continuait d'afficher
+               celle de l'échange — ou « aucun ». `statutDuMessage` sait déjà trancher : le mail prime sur son fil. */
+            statut={statutDuMessage(fil, { ...m, carteDuMail: carteDe(m.messageId) })}
             onActionStatut={agirSurLeStatut}
             gmail={{ etat: gmail.get(m.messageId) ?? null }}
             onEtoile={barreActions && redaction ? () => void basculerEtoile(m) : undefined}
@@ -1168,7 +1177,7 @@ export function MessageConversation({
               donnée du mail, pas un commentaire sur son contenu. Il ne s'affiche que si la conversation a pu lire les
               rattachements (migration 257 appliquée) — sinon rien, et le message est exactement celui d'avant. */}
           {onRattachement && (
-            <EncartRattachement messageId={message.messageId} liens={rattachements}
+            <EncartRattachement messageId={message.messageId} filId={filId} liens={rattachements}
               onChange={onRattachement} onGeste={onGesteRattachement} onHistorique={onHistorique} />
           )}
 

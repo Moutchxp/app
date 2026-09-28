@@ -11,7 +11,13 @@ vi.mock('../db/client', () => ({
  * est éprouvé explicitement, là où il compte.
  */
 const migration234 = vi.fn(async () => false);
-vi.mock('./schema', () => ({ deplacementsDeMailsDisponibles: () => migration234(), oublierSchema: () => {} }));
+/** LOT CONTACTS-ET-EVENEMENT — la 268 est pilotée à part : les deux migrations n'arrivent pas ensemble. */
+const migration268 = vi.fn(async () => false);
+vi.mock('./schema', () => ({
+  deplacementsDeMailsDisponibles: () => migration234(),
+  evenementQualifieDisponible: () => migration268(),
+  oublierSchema: () => {},
+}));
 
 import {
   affecter, changerEtatEvenement, classerSansSuite, deplacerMessage, detacher, estEtat, listerEvenementsOuverts,

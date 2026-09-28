@@ -52,10 +52,18 @@ export function ChoisirEvenement({ choisi, onChoisir, onNouveau, exclure, autoFo
           const res = await fetch(`/api/admin/gestion/evenements?q=${encodeURIComponent(saisie)}`, { cache: 'no-store' });
           if (annule) return;
           if (!res.ok) { setEtat('erreur'); return; }
-          const data = (await res.json()) as { evenements: EvenementTrouve[]; max: number };
+          const data = (await res.json()) as { evenements?: EvenementTrouve[]; max?: number };
           if (annule) return;
-          setResultats(data.evenements);
-          setPlein(data.evenements.length >= data.max);
+          /**
+           * ⚠️ `?? []` ET NON `data.evenements` NU. Une réponse qui ne porte pas le champ — un serveur plus ancien,
+           * une route en erreur douce — donnait `undefined`, et le `.filter` du rendu faisait tomber TOUT l'encart
+           * au-dessus du mail. Un écran ne doit jamais s'écrouler parce qu'un serveur lui parle un langage d'hier :
+           * c'est la règle déjà appliquée à `classement`, `nonLus` et `pleinTexte`. Attrapé par la suite de tests
+           * pendant le lot CONTACTS-ET-EVENEMENT.
+           */
+          const evenements = data.evenements ?? [];
+          setResultats(evenements);
+          setPlein(evenements.length >= (data.max ?? Number.POSITIVE_INFINITY));
           setEtat('ok');
         } catch {
           if (!annule) setEtat('erreur');

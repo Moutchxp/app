@@ -20,7 +20,7 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
-import { annuaireDisponible } from './schema';
+import { annuaireDisponible, libelleSourceContactDisponible } from './schema';
 import type { ContactAnnuaire } from './annuaire';
 import type { PlanImport } from './annuaireImport';
 import type { TermeRecherche } from './annuaireRecherche';
@@ -343,6 +343,8 @@ async function ecrireContacts(
     for (const contact of p.contacts) attendus.push({ sujet: 'locataire', sujetId: id, contact });
   }
 
+  // LOT CONTACTS-ET-EVENEMENT — la 267 est-elle là ? Sinon la colonne n'est nommée nulle part, et rien ne change.
+  const avecLibelle = await libelleSourceContactDisponible();
   const { rows } = await q<{ sujet: string; sujet_id: string; sorte: string; valeur: string; absent_le: string | null }>(
     `SELECT sujet, sujet_id, sorte, valeur, absent_le::text FROM gestion_annuaire_contact`);
   const existants = new Set(rows.filter((r) => r.absent_le === null)
@@ -353,12 +355,26 @@ async function ecrireContacts(
     if (a.sujetId !== null && existants.has(`${a.sujet}|${a.sujetId}|${a.contact.sorte}|${a.contact.valeur}`)) continue;
     c.contactsCrees += 1;
     if (!appliquer || a.sujetId === null) continue;
+    /**
+     * ⚠️ SANS LA MIGRATION 267, LA COLONNE N'EST NOMMÉE NULLE PART et l'ordre est mot pour mot celui d'avant.
+     * C'est la règle du module : les migrations sont livrées non appliquées, et le code tourne sans elles.
+     */
     await q(
-      `INSERT INTO gestion_annuaire_contact (sujet, sujet_id, sorte, valeur, valeur_brute, rang, absent_le, importe_le)
-       VALUES ($1,$2,$3,$4,$5,$6,NULL,now())
-       ON CONFLICT (sujet, sujet_id, sorte, valeur) DO UPDATE SET
-         valeur_brute = EXCLUDED.valeur_brute, rang = EXCLUDED.rang, absent_le = NULL, importe_le = now()`,
-      [a.sujet, a.sujetId, a.contact.sorte, a.contact.valeur, a.contact.valeurBrute, a.contact.rang]);
+      avecLibelle
+        ? `INSERT INTO gestion_annuaire_contact
+             (sujet, sujet_id, sorte, valeur, valeur_brute, rang, libelle_source, absent_le, importe_le)
+           VALUES ($1,$2,$3,$4,$5,$6,nullif($7,''),NULL,now())
+           ON CONFLICT (sujet, sujet_id, sorte, valeur) DO UPDATE SET
+             valeur_brute = EXCLUDED.valeur_brute, rang = EXCLUDED.rang,
+             libelle_source = EXCLUDED.libelle_source, absent_le = NULL, importe_le = now()`
+        : `INSERT INTO gestion_annuaire_contact (sujet, sujet_id, sorte, valeur, valeur_brute, rang, absent_le, importe_le)
+           VALUES ($1,$2,$3,$4,$5,$6,NULL,now())
+           ON CONFLICT (sujet, sujet_id, sorte, valeur) DO UPDATE SET
+             valeur_brute = EXCLUDED.valeur_brute, rang = EXCLUDED.rang, absent_le = NULL, importe_le = now()`,
+      avecLibelle
+        ? [a.sujet, a.sujetId, a.contact.sorte, a.contact.valeur, a.contact.valeurBrute, a.contact.rang,
+          a.contact.libelleSource ?? '']
+        : [a.sujet, a.sujetId, a.contact.sorte, a.contact.valeur, a.contact.valeurBrute, a.contact.rang]);
   }
 
   for (const cle of existants) {

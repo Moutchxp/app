@@ -487,3 +487,29 @@ export function brouillonCibleDisponible(): Promise<boolean> {
 export function horsGestionDisponible(): Promise<boolean> {
   return memoiser('table.gestion_hors_gestion', () => tableExiste('gestion_hors_gestion'));
 }
+
+/**
+ * 🔴 LOT CONTACTS-ET-EVENEMENT — la migration 267 est-elle appliquée ? Elle porte le LIBELLÉ DE LA COLONNE
+ * WIPPIMMO d'où vient chaque coordonnée (« Mobile 1 », « Email 2 »).
+ *
+ * 🔴 TANT QU'ELLE MANQUE, la fiche retombe sur un libellé générique dérivé de la sorte et du rang
+ * (« E-mail », « E-mail 2 ») : jamais une coordonnée orpheline, et jamais une attribution inventée — la
+ * reconnaissance du 28/09/2026 a établi que l'export ne permet PAS de relier une coordonnée à une personne.
+ */
+export function libelleSourceContactDisponible(): Promise<boolean> {
+  return memoiser('contact.libelle_source', () => colonneExiste('gestion_annuaire_contact', 'libelle_source'));
+}
+
+/**
+ * 🔴 LOT CONTACTS-ET-EVENEMENT — la migration 268 est-elle appliquée ? Elle qualifie un événement (catégorie,
+ * urgence) et dit SUR QUOI il porte (le bien, son propriétaire, son locataire — `gestion_evenement_partie`).
+ *
+ * 🔴 TANT QU'ELLE MANQUE, LE MODULE EST EXACTEMENT CELUI D'AVANT : l'écran ne propose ni catégorie ni urgence,
+ * la recherche d'événements ne peut pas mettre en tête ceux du bien (elle reste la recherche d'avant, qui marche),
+ * et AUCUNE requête ne nomme les colonnes ni la table absentes — ce qui ferait échouer tout l'écran.
+ *
+ * On sonde la TABLE : la migration crée les colonnes et la table dans UNE transaction, elles arrivent ensemble.
+ */
+export function evenementQualifieDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_evenement_partie', () => tableExiste('gestion_evenement_partie'));
+}

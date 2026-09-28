@@ -29,24 +29,44 @@ const lien = (o: Record<string, unknown> = {}) => ({
   creeLe: null, creePar: null, statutLe: null, statutPar: null, ...o,
 });
 
+/** LOT CONTACTS-ET-EVENEMENT — ce que la route rend pour l'événement de ce mail. Piloté par le test. */
+let evenementDuMail: Record<string, unknown> | null;
+let appels: { url: string; methode: string; corps: unknown }[];
+
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
-  global.fetch = vi.fn(async (url: string | URL | Request) => {
+  evenementDuMail = null;
+  appels = [];
+  global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
+    const methode = init?.method ?? 'GET';
+    appels.push({
+      url: u, methode,
+      corps: typeof init?.body === 'string' ? JSON.parse(init.body) : null,
+    });
+    // L'événement effectif du mail : c'est le sujet des tests de la partie B.
+    if (u.includes('/affectation')) {
+      if (methode === 'GET') {
+        return { ok: true, json: async () => ({ etat: 'ok', evenement: evenementDuMail }) } as unknown as Response;
+      }
+      return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
+    }
     // La recherche de l'annuaire, et le contexte des propositions : ni l'une ni l'autre n'est le sujet ici.
     if (u.includes('/classement?message=')) {
       return { ok: true, json: async () => ({ etat: 'ok', contexte: { disponible: true, biens: [] } }) } as unknown as Response;
     }
+    // La recherche d'événements : volontairement VIDE ici, et SANS le champ `evenements` — c'est le cas qui
+    //   faisait tomber le sélecteur avant ce lot, et qu'on veut donc garder sous le test.
     return { ok: true, json: async () => ({ etat: 'ok', data: [] }) } as unknown as Response;
   }) as unknown as typeof fetch;
 });
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
 
 const calmer = async () => { await act(async () => { for (let i = 0; i < 8; i++) await Promise.resolve(); }); };
-const monter = async (liens: unknown[]) => {
+const monter = async (liens: unknown[], props: Record<string, unknown> = {}) => {
   await act(async () => {
     root.render(createElement(EncartRattachement, {
-      messageId: 900, liens, onChange: () => {},
+      messageId: 900, filId: 101, liens, onChange: () => {}, ...props,
     } as never));
   });
   await calmer();
@@ -57,20 +77,29 @@ const cliquer = async (e: Element | null | undefined) => {
   await act(async () => { (e as HTMLElement | undefined)?.click(); }); await calmer();
 };
 
-describe('🔴 ④ la ligne s’intitule « Bien(s) rattaché(s) : »', () => {
+/**
+ * 🔴 LOT CONTACTS-ET-EVENEMENT — DEUX LIGNES, ET IL FAUT LES DISTINGUER. L'encart porte maintenant le bloc
+ * « Événement rattaché : » EN TÊTE, puis « Bien(s) classé(s) : ». Les deux partagent la mise en page (`ert-tete`) :
+ * un sélecteur qui les confondrait désignerait un jour l'autre. `bev-tete` marque celle de l'événement.
+ */
+const ligneBiens = () => container.querySelector('.ert-tete:not(.bev-tete)');
+const ligneEvenement = () => container.querySelector('.ert-tete.bev-tete');
+
+describe('🔴 ④ la ligne des biens s’intitule « Bien(s) classé(s) : »', () => {
   it('le titre est celui des BIENS, et plus « Rattaché à »', async () => {
     await monter([lien()]);
-    expect(container.querySelector('.ert-titre')?.textContent).toBe('Bien(s) rattaché(s) :');
+    expect(ligneBiens()?.querySelector('.ert-titre')?.textContent).toBe('Bien(s) classé(s) :');
   });
 
   it('🔴 il ne parle PAS d’événement : c’est l’autre question du module', async () => {
     await monter([lien()]);
-    expect((container.querySelector('.ert-titre')?.textContent ?? '').toLowerCase()).not.toContain('événement');
+    expect((ligneBiens()?.querySelector('.ert-titre')?.textContent ?? '').toLowerCase())
+      .not.toContain('événement');
   });
 
   it('sans aucun lien, la ligne dit « rien pour l’instant » et garde son bouton', async () => {
     await monter([]);
-    expect(container.querySelector('.ert-vide')?.textContent).toBe('rien pour l’instant');
+    expect(ligneBiens()?.querySelector('.ert-vide')?.textContent).toBe('rien pour l’instant');
     expect(boutonPar(/\+ Rattacher à…/)).toBeDefined();
   });
 
@@ -91,7 +120,7 @@ describe('🔴 ④ la recherche s’ouvre JUSTE SOUS la ligne', () => {
     await monter([lien()]);
     await cliquer(boutonPar(/\+ Rattacher à…/));
 
-    const tete = container.querySelector('.ert-tete');
+    const tete = ligneBiens();
     expect(tete).not.toBeNull();
     /**
      * 🔴 LA PREUVE DE POSITION, et non une preuve de présence. Avant ce lot, le sélecteur existait aussi — mais
@@ -110,6 +139,160 @@ describe('🔴 ④ la recherche s’ouvre JUSTE SOUS la ligne', () => {
     await cliquer(boutonPar(/\+ Rattacher à…/));
     expect(boutonPar(/\+ Rattacher à…/)).toBeUndefined();
     await cliquer(boutonPar(/^Annuler$/));
+    expect(boutonPar(/\+ Rattacher à…/)).toBeDefined();
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT CONTACTS-ET-EVENEMENT — PARTIE B : LE BLOC « ÉVÉNEMENT RATTACHÉ »
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe('🔴 B1 — le bloc « Événement rattaché » est EN TÊTE', () => {
+  it('il précède la ligne des biens : c’est la première question qu’on se pose', async () => {
+    await monter([lien()]);
+    const html = container.innerHTML;
+    expect(html.indexOf('Événement rattaché')).toBeLessThan(html.indexOf('Bien(s) classé(s)'));
+  });
+
+  it('🔴 sans événement, il dit « aucun » ET que c’est FACULTATIF — pas un travail en retard', async () => {
+    await monter([lien()]);
+    expect(ligneEvenement()?.textContent).toContain('aucun');
+    expect(ligneEvenement()?.textContent).toContain('facultatif');
+  });
+
+  it('avec un événement, il le nomme et dit SUR QUOI il est posé', async () => {
+    evenementDuMail = {
+      evenementId: 12, reference: 'GES-2026-000012', objet: 'Fuite salle de bain', etat: 'a_traiter',
+      portee: 'mail', categorie: 'fuite_eau', urgence: 'haute',
+    };
+    await monter([lien()]);
+    const l = ligneEvenement()?.textContent ?? '';
+    expect(l).toContain('GES-2026-000012');
+    expect(l).toContain('Fuite salle de bain');
+    expect(l).toContain('posé sur ce mail');
+    // La catégorie et l'urgence sont écrites en MOTS, jamais portées par une couleur seule.
+    expect(l).toContain('Fuite d’eau');
+    expect(l).toContain('Urgence : Haute');
+  });
+
+  it('un événement hérité de l’échange est dit comme tel', async () => {
+    evenementDuMail = {
+      evenementId: 12, reference: 'GES-2026-000012', objet: 'X', etat: 'a_traiter',
+      portee: 'conversation', categorie: null, urgence: null,
+    };
+    await monter([lien()]);
+    expect(ligneEvenement()?.textContent).toContain('posé sur la conversation');
+  });
+});
+
+describe('🔴 B1 — lier, créer, délier', () => {
+  it('« Délier » n’apparaît PAS quand il n’y a rien à délier', async () => {
+    await monter([lien()]);
+    expect(boutonPar(/^Délier$/)).toBeUndefined();
+  });
+
+  it('…et il apparaît dès qu’un événement est lié', async () => {
+    evenementDuMail = { evenementId: 12, reference: 'R', objet: 'X', etat: 'a_traiter', portee: 'mail',
+      categorie: null, urgence: null };
+    await monter([lien()]);
+    expect(boutonPar(/^Délier$/)).toBeDefined();
+  });
+
+  it('🔴 « Lier à un événement » ouvre la recherche JUSTE SOUS la ligne de l’événement', async () => {
+    await monter([lien()]);
+    const ouvrir = boutons().find((b) => (b.textContent ?? '').trim() === 'Lier à un événement');
+    await cliquer(ouvrir);
+    const suivant = ligneEvenement()?.nextElementSibling;
+    // La portée d'abord, puis la recherche : les deux sont sous la ligne, jamais en bas de page.
+    expect(suivant?.textContent ?? '').toContain('Portée');
+    expect(suivant?.nextElementSibling?.textContent ?? '').toContain('Lier à un événement');
+  });
+
+  it('la PORTÉE est le même choix que pour le classement, « ce mail » par défaut', async () => {
+    await monter([lien()]);
+    await cliquer(boutonPar(/^Créer un événement$/));
+    const radios = [...container.querySelectorAll('input[name="bev-portee"]')] as HTMLInputElement[];
+    expect(radios).toHaveLength(2);
+    expect(radios[0].checked).toBe(true);
+    expect(container.textContent).toContain('Ce mail uniquement');
+    expect(container.textContent).toContain('Toute la conversation');
+  });
+
+  it('🔴 RIEN n’est écrit tant qu’on n’a pas validé : ouvrir le formulaire n’écrit pas', async () => {
+    await monter([lien()]);
+    await cliquer(boutonPar(/^Créer un événement$/));
+    expect(appels.filter((a) => a.methode !== 'GET')).toEqual([]);
+  });
+
+  it('🔴 créer un événement le rattache AU BIEN, à son propriétaire et à son locataire', async () => {
+    await monter([lien()]);
+    await cliquer(boutonPar(/^Créer un événement$/));
+    await cliquer(boutonPar(/^Créer et lier$/));
+
+    const ecriture = appels.find((a) => a.methode === 'POST');
+    expect(ecriture).toBeDefined();
+    // Portée « ce mail » ⇒ la route du MESSAGE, jamais celle de l'échange.
+    expect(ecriture?.url).toContain('/messages/900/affectation');
+    const nouveau = (ecriture?.corps as { nouveau?: { objet?: string; parties?: unknown[] } }).nouveau;
+    // Le titre est pré-rempli par le bien classé : c'est ce qu'on écrirait à la main neuf fois sur dix.
+    expect(nouveau?.objet).toContain('lot 442');
+    expect(nouveau?.parties).toContainEqual(
+      { sorte: 'lot', cle: '442', libelle: '22 Boulevard Richard Wallace, PUTEAUX — lot 442' });
+  });
+
+  it('la portée « toute la conversation » écrit sur l’ÉCHANGE, l’autre chemin', async () => {
+    await monter([lien()]);
+    await cliquer(boutonPar(/^Créer un événement$/));
+    const radios = [...container.querySelectorAll('input[name="bev-portee"]')] as HTMLInputElement[];
+    await cliquer(radios[1]);
+    await cliquer(boutonPar(/^Créer et lier$/));
+    expect(appels.find((a) => a.methode === 'POST')?.url).toContain('/fils/101/affectation');
+  });
+
+  it('un titre vide est refusé, et rien n’est écrit', async () => {
+    await monter([]);   // aucun bien classé ⇒ le titre n'est pas pré-rempli
+    await cliquer(boutonPar(/^Créer un événement$/));
+    await cliquer(boutonPar(/^Créer et lier$/));
+    expect(appels.filter((a) => a.methode === 'POST')).toEqual([]);
+    expect(container.textContent).toContain('Donnez un titre');
+  });
+
+  it('🔴 « Délier » passe par un DELETE — rien n’est supprimé, l’affectation reste datée en base', async () => {
+    evenementDuMail = { evenementId: 12, reference: 'R', objet: 'X', etat: 'a_traiter', portee: 'mail',
+      categorie: null, urgence: null };
+    await monter([lien()]);
+    await cliquer(boutonPar(/^Délier$/));
+    expect(appels.find((a) => a.methode === 'DELETE')?.url).toContain('/messages/900/affectation');
+  });
+
+  it('sans la migration 268, ni catégorie ni urgence ne sont proposées — et on DIT pourquoi', async () => {
+    await monter([lien()], { evenementQualifie: false });
+    await cliquer(boutonPar(/^Créer un événement$/));
+    expect(container.querySelectorAll('select')).toHaveLength(0);
+    expect(container.textContent).toContain('268 à appliquer');
+  });
+
+  it('avec la migration 268, les quatre catégories d’Arno et les trois urgences sont offertes', async () => {
+    await monter([lien()], { evenementQualifie: true });
+    await cliquer(boutonPar(/^Créer un événement$/));
+    const options = [...container.querySelectorAll('option')].map((o) => o.textContent);
+    expect(options).toContain('Travaux');
+    expect(options).toContain('Fuite d’eau');
+    expect(options).toContain('Administratif');
+    expect(options).toContain('Litige');
+    expect(options).toContain('Critique');
+  });
+});
+
+describe('🔴 B3 — rien n’est perdu', () => {
+  it('les biens déjà classés restent visibles, avec Modifier et Retirer', async () => {
+    await monter([lien()]);
+    expect(ligneBiens()?.textContent).toContain('22 Boulevard Richard Wallace');
+    expect(boutonPar(/^Modifier$/)).toBeDefined();
+    expect(boutonPar(/^Retirer$/)).toBeDefined();
+  });
+
+  it('la recherche manuelle d’un bien reste accessible', async () => {
+    await monter([lien()]);
     expect(boutonPar(/\+ Rattacher à…/)).toBeDefined();
   });
 });

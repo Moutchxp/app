@@ -1,7 +1,9 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
-import { deplacerMessage, remettreMessage } from '../../../../../../../lib/gestion/gestes';
+import {
+  deplacerMessage, deplacerMessageVersNouveau, evenementDuMail, remettreMessage, type NouvelEvenement,
+} from '../../../../../../../lib/gestion/gestes';
 import { deplacementsDeMailsDisponibles } from '../../../../../../../lib/gestion/schema';
 
 /**
@@ -27,22 +29,56 @@ function messageId(brut: string): number | null {
 
 const PAS_ENCORE = 'Le déplacement d’un mail seul n’est pas encore activé sur cette base (migration 234 à appliquer).';
 
+/**
+ * 🔴 LOT CONTACTS-ET-EVENEMENT — L'ÉVÉNEMENT EFFECTIF DE CE MAIL, pour le bloc « Événement rattaché ».
+ *
+ * `null` se lit « aucun », et c'est une RÉPONSE : l'événement est FACULTATIF (règle du lot STATUT-HORS-GESTION),
+ * il ne change jamais la capsule de statut, qui dépend du bien.
+ */
+export async function GET(request: Request, ctx: Contexte): Promise<Response> {
+  const refus = await exigerCompteActif(request, 'gestion');
+  if (refus) return refus;
+  const id = messageId((await ctx.params).id);
+  if (id === null) return Response.json({ erreur: 'Message inconnu.' }, { status: 400 });
+  try {
+    return Response.json({ etat: 'ok', evenement: await evenementDuMail(id) },
+      { headers: { 'Cache-Control': 'private, no-store' } });
+  } catch (e) {
+    // Pas de catch muet : « aucun » se lirait « pas d'événement », ce qui serait un mensonge.
+    console.error('[gestion/message] lecture de l’événement impossible', e);
+    return Response.json({ erreur: 'Lecture impossible : la base n’a pas répondu.' }, { status: 503 });
+  }
+}
+
 export async function POST(request: Request, ctx: Contexte): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
   const id = messageId((await ctx.params).id);
   if (id === null) return Response.json({ erreur: 'Message inconnu.' }, { status: 400 });
 
-  let evenementId: unknown;
-  try { evenementId = ((await request.json()) as { evenementId?: unknown }).evenementId; }
+  let corps: { evenementId?: unknown; nouveau?: unknown };
+  try { corps = (await request.json()) as typeof corps; }
   catch { return Response.json({ erreur: 'Demande illisible.' }, { status: 422 }); }
-  if (!Number.isInteger(evenementId) || (evenementId as number) <= 0) {
-    return Response.json({ erreur: 'Indiquez l’événement de destination.' }, { status: 400 });
+  const evenementId = corps.evenementId;
+  /**
+   * 🔴 LOT CONTACTS-ET-EVENEMENT — CE VERBE OUVRE AUSSI UNE CARTE NEUVE (`nouveau`), pour la portée « ce mail
+   * seul » du bloc « Événement rattaché ». En DEUX appels — créer puis lier —, un échec du second laisserait une
+   * carte vide que personne n'a demandée ; `deplacerMessageVersNouveau` fait les deux dans UNE transaction.
+   */
+  const nouveau = corps.nouveau && typeof corps.nouveau === 'object'
+    ? (corps.nouveau as NouvelEvenement) : undefined;
+  const versExistant = Number.isInteger(evenementId) && (evenementId as number) > 0;
+  if (!versExistant && nouveau === undefined) {
+    return Response.json(
+      { erreur: 'Indiquez l’événement de destination, ou donnez un objet au nouvel événement.' }, { status: 400 });
   }
 
   try {
     if (!(await deplacementsDeMailsDisponibles())) return Response.json({ erreur: PAS_ENCORE }, { status: 503 });
-    const issue = await deplacerMessage(id, evenementId as number, await auteurDeLaRequete(request));
+    const auteur = await auteurDeLaRequete(request);
+    const issue = versExistant
+      ? await deplacerMessage(id, evenementId as number, auteur)
+      : await deplacerMessageVersNouveau(id, nouveau as NouvelEvenement, auteur);
     if (!issue.ok) return Response.json({ erreur: issue.motif }, { status: 409 });
     return Response.json({ ok: true, reference: issue.reference, evenementId: issue.evenementId });
   } catch (e) {

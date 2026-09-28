@@ -26,18 +26,53 @@
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
+/**
+ * 🔴 LOT CONTACTS-ET-EVENEMENT — UNE COORDONNÉE, ET LE LIBELLÉ DE SA COLONNE D'ORIGINE.
+ *
+ * Le constat d'Arno (fil 36488, lot 494) : sous « MARS AVENIR », deux téléphones et deux e-mails en vrac, sans
+ * qu'on puisse savoir à qui appartenait chacun. La reconnaissance des exports a établi que l'export NE PERMET PAS
+ * de le savoir — une seule personne par ligne, des cellules à plusieurs valeurs, et un ordre qui s'inverse d'une
+ * colonne à l'autre. On n'invente donc aucune attribution : on écrit d'où sort chaque valeur.
+ */
+export interface Coordonnee {
+  valeur: string;
+  /** « Mobile 1 », « Email 2 », « Télécoms »… JAMAIS vide : voir `libelleContact` dans `annuaire.ts`. */
+  libelle: string;
+}
+
 /** Une personne de l'annuaire, avec ses moyens de contact. Le même objet pour un propriétaire et un locataire. */
 export interface PersonneFiche {
   role: 'proprietaire' | 'locataire';
   /** La clé WIPPIMMO : la seule identité qui survive à un ré-import de l'annuaire. */
   cle: string;
   nom: string;
+  /**
+   * 🔴 LA CIVILITÉ, quand l'export la donne. « Sté » y désigne une SOCIÉTÉ : la carte porte alors la mention
+   * « Société » au lieu d'un prénom qui n'existe pas.
+   */
+  civilite?: string | null;
   /** Dans l'ordre de l'import (`rang`) : la première adresse est celle que WIPPIMMO donne en premier. */
-  emails: string[];
-  telephones: string[];
+  emails: Coordonnee[];
+  telephones: Coordonnee[];
   /** Renseignés pour un locataire : la période d'occupation qui couvre la date du mail. */
   depuis?: string | null;
   jusqua?: string | null;
+}
+
+/**
+ * LE TITRE D'UNE CARTE DE PERSONNE. PUR.
+ *
+ * 🔴 UNE SOCIÉTÉ EST DITE COMME TELLE. L'export marque `Civilité = « Sté »` : sans cette mention, « MARS AVENIR »
+ * se lit comme un patronyme, et l'on cherche un prénom qui n'existera jamais. La raison sociale reste le titre —
+ * c'est le nom sous lequel on l'appelle — et « Société » la qualifie.
+ *
+ * ⚠️ LE NOM N'EST JAMAIS RECOMPOSÉ ICI. `nom_complet` porte déjà « NOM Prénom » tel que l'import l'a écrit, et
+ * c'est la forme que WIPPIMMO emploie partout : la réécrire ferait diverger l'écran de l'annuaire.
+ */
+export function titreCarte(p: Pick<PersonneFiche, 'nom' | 'civilite'>): { nom: string; qualite: string | null } {
+  const civ = (p.civilite ?? '').trim();
+  const societe = /^st[ée]?\.?$/i.test(civ) || /^soci[ée]t[ée]$/i.test(civ) || /^s\.?a\.?r\.?l\.?$/i.test(civ);
+  return { nom: p.nom, qualite: societe ? 'Société' : (civ === '' ? null : civ) };
 }
 
 /** Une caractéristique de lot, telle qu'elle s'affiche : un intitulé, une valeur. */

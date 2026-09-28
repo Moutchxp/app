@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { planClassement } from '../../../../lib/gestion/gesteClassement';
 import {
-  groupesParProprietaire, lienTelephone, locatairesDuBien, periodeOccupation, type PersonneFiche,
+  groupesParProprietaire, lienTelephone, locatairesDuBien, periodeOccupation, titreCarte, type PersonneFiche,
 } from '../../../../lib/gestion/ficheBien';
 import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
 import type { BienProposable, ContexteClassement } from '../../../../lib/gestion/classementBien';
@@ -279,31 +279,38 @@ function ColonneLocataires({ bien }: { bien: BienProposable }) {
  */
 export function CartePersonne({ personne }: { personne: PersonneFiche }) {
   const periode = periodeOccupation(personne.depuis, personne.jusqua);
+  const titre = titreCarte(personne);
   const emails = personne.emails ?? [];
   const telephones = personne.telephones ?? [];
   return (
     <li className="pdb-carte">
-      <p className="pdb-personne">{personne.nom}</p>
+      <p className="pdb-personne">
+        {titre.nom}
+        {/* 🔴 UNE SOCIÉTÉ EST DITE COMME TELLE : sans ce mot, « MARS AVENIR » se lit comme un patronyme, et l'on
+            cherche un prénom qui n'existe pas dans l'export. */}
+        {titre.qualite !== null && <span className="pdb-qualite">{titre.qualite}</span>}
+      </p>
       {periode !== null && <p className="pdb-periode">{periode}</p>}
 
       {telephones.map((t) => {
-        const lien = lienTelephone(t);
+        const lien = lienTelephone(t.valeur);
         return (
-          <p className="pdb-contact" key={`tel-${t}`}>
-            <span className="pdb-contact-sorte" aria-hidden="true">☎</span>
-            {/* Un lien d'appel SEULEMENT quand le numéro en est un : un `tel:` mort vaut moins qu'un texte. */}
-            {lien === null ? <span className="pdb-valeur">{t}</span>
-              : <a className="pdb-valeur pdb-lien" href={lien}>{t}</a>}
-            <BoutonCopier valeur={t} quoi={`le téléphone de ${personne.nom}`} />
+          <p className="pdb-contact" key={`tel-${t.valeur}`}>
+            {/* 🔴 LE LIBELLÉ DE LA COLONNE D'ORIGINE — « Mobile 1 », « Mobile 2 ». L'export ne dit PAS à qui est
+                le numéro (voir `ficheBien.ts`) : le libellé dit d'où il sort, et c'est tout ce qui est vrai. */}
+            <span className="pdb-etiquette">{t.libelle}</span>
+            {lien === null ? <span className="pdb-valeur">{t.valeur}</span>
+              : <a className="pdb-valeur pdb-lien" href={lien}>{t.valeur}</a>}
+            <BoutonCopier valeur={t.valeur} quoi={`${t.libelle} de ${titre.nom}`} />
           </p>
         );
       })}
 
       {emails.map((e) => (
-        <p className="pdb-contact" key={`mail-${e}`}>
-          <span className="pdb-contact-sorte" aria-hidden="true">✉</span>
-          <a className="pdb-valeur pdb-lien" href={`mailto:${e}`}>{e}</a>
-          <BoutonCopier valeur={e} quoi={`l’adresse e-mail de ${personne.nom}`} />
+        <p className="pdb-contact" key={`mail-${e.valeur}`}>
+          <span className="pdb-etiquette">{e.libelle}</span>
+          <a className="pdb-valeur pdb-lien" href={`mailto:${e.valeur}`}>{e.valeur}</a>
+          <BoutonCopier valeur={e.valeur} quoi={`${e.libelle} de ${titre.nom}`} />
         </p>
       ))}
 
@@ -328,9 +335,14 @@ export const CSS_PROPOSITIONS_BIENS = `
 .pdb-carte{flex:1 1 15rem;min-width:0;padding:6px 8px;border:1px solid var(--color-svv-line);border-radius:.5rem;
   background:var(--color-svv-surface)}
 .pdb-personne{margin:0;font-size:.86rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
+/* LOT CONTACTS-ET-EVENEMENT — « Société » quand l'export le dit, jamais un prenom invente. */
+.pdb-qualite{margin-left:.4rem;padding:.05rem .35rem;border-radius:999px;font-size:.66rem;font-weight:700;
+  color:var(--color-svv-muted);border:1px solid var(--color-svv-line-strong)}
+/* L'ETIQUETTE DE LA COLONNE D'ORIGINE : « Mobile 1 », « Email 2 ». Jamais vide. */
+.pdb-etiquette{flex:0 0 5.2rem;min-width:0;font-size:.7rem;font-weight:700;color:var(--color-svv-muted);
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pdb-periode{margin:.1rem 0 0;font-size:.76rem;color:var(--color-svv-muted)}
 .pdb-contact{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:.25rem 0 0;font-size:.8rem;min-width:0}
-.pdb-contact-sorte{flex:0 0 auto;color:var(--color-svv-muted)}
 .pdb-valeur{flex:1 1 8rem;min-width:0;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .pdb-lien{text-decoration:underline;text-underline-offset:2px}
 .pdb-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}

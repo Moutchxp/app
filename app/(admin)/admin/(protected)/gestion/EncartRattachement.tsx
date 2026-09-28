@@ -6,6 +6,8 @@ import { ModifierRattachement } from './ModifierRattachement';
 // LOT AFFECTATION-PAR-BIEN — la fenêtre de classement complète, partagée : une seule implémentation du geste.
 import { ClasserMail } from './ClasserMail';
 import { PropositionsDeBiens } from './PropositionsDeBiens';
+// LOT CONTACTS-ET-EVENEMENT — le bloc « Événement rattaché », en tête de l'encart.
+import { BlocEvenement } from './BlocEvenement';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 import type { Cible, Statut } from '../../../../lib/gestion/rattachement';
 
@@ -34,8 +36,12 @@ import type { Cible, Statut } from '../../../../lib/gestion/rattachement';
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` : les types passent par `import type`, effacé à la compilation.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-export function EncartRattachement({ messageId, liens, onChange, onGeste, onHistorique }: {
+export function EncartRattachement({ messageId, filId, liens, onChange, onGeste, onHistorique, evenementQualifie = false }: {
   messageId: number;
+  /** L'échange de ce mail, pour la portée « toute la conversation » du bloc « Événement rattaché ». */
+  filId?: number | null;
+  /** LOT CONTACTS-ET-EVENEMENT — la migration 268 est-elle appliquée ? Sinon ni catégorie ni urgence. */
+  evenementQualifie?: boolean;
   /** Les liens vivants de CE mail, chargés par la conversation. `null` = migration 257 absente ou lecture en échec. */
   liens: readonly LienAffiche[] | null;
   /** Recharge les liens de toute la conversation. Appelé après chaque geste réussi. */
@@ -113,11 +119,22 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
           titre, la liste et le bouton d'ajout étaient trois blocs empilés, séparés par des marges : six lignes de
           hauteur pour une information qui en tient une. Ils sont maintenant dans le MÊME conteneur souple, qui ne
           passe à la ligne que si la largeur ne suffit pas. Rien n'est retiré — seuls les blancs le sont. */}
-      {/* 🔴 LOT FICHE-PROPOSITION — « Bien(s) rattaché(s) : » ET NON PLUS « Rattaché à ». Demande d'Arno : cette
-          ligne parle des BIENS, jamais des événements, et son ancien intitulé ne le disait pas — on pouvait la lire
-          comme « rattaché à une carte », qui est l'autre question du module. Le reste de la ligne ne bouge pas. */}
+      {/* ══ 🔴 LOT CONTACTS-ET-EVENEMENT — LE BLOC « ÉVÉNEMENT RATTACHÉ », EN TÊTE ════════════════════════════
+          L'événement est FACULTATIF et ne change jamais la capsule de statut (qui dépend du bien) : « aucun » est
+          une réponse normale. Lier, créer et délier sont ici, et leurs panneaux s'ouvrent JUSTE SOUS la ligne. */}
+      <BlocEvenement messageId={messageId} filId={filId ?? null}
+        biens={vivants
+          .filter((l) => l.cible.sorte === 'lot' && l.cible.cle !== null)
+          .map((l) => ({ cle: l.cible.cle as string, libelle: l.libelle, parties: [] }))}
+        qualifieDisponible={evenementQualifie}
+        onGeste={onGeste}
+        onChange={onChange} />
+
+      {/* 🔴 LOT CONTACTS-ET-EVENEMENT — « Bien(s) classé(s) : ». Ils étaient sous « Bien(s) rattaché(s) », qui est
+          devenu le bloc de l'ÉVÉNEMENT ci-dessus. RIEN N'EST PERDU : ils restent visibles, en tête des
+          propositions, avec « Modifier » et « Retirer » comme avant, et la recherche manuelle juste en dessous. */}
       <div className="ert-tete">
-        <span className="ert-titre">Bien(s) rattaché(s) :</span>
+        <span className="ert-titre">Bien(s) classé(s) :</span>
         {vivants.length === 0 && <span className="ert-vide">rien pour l’instant</span>}
 
       {vivants.length > 0 && (

@@ -25,9 +25,17 @@ let root: Root;
 let appels: { url: string; methode: string }[];
 let contexte: Record<string, unknown> | null;
 
-/** Une personne de l'annuaire. LOT FICHE-PROPOSITION : elle porte désormais ses moyens de contact. */
+/**
+ * Une personne de l'annuaire. LOT FICHE-PROPOSITION : elle porte ses moyens de contact.
+ * LOT CONTACTS-ET-EVENEMENT : chaque coordonnée porte le LIBELLÉ de sa colonne d'origine. Le raccourci ci-dessous
+ * accepte une simple chaîne et lui donne un libellé numéroté, comme le fait l'import.
+ */
+const coord = (l: string) => (v: unknown, i: number) => (typeof v === 'string'
+  ? { valeur: v, libelle: `${l} ${i + 1}` } : v);
 const partie = (role: string, nom: string, o: Record<string, unknown> = {}) => ({
-  role, cle: nom, nom, emails: [], telephones: [], ...o,
+  role, cle: nom, nom, ...o,
+  emails: ((o.emails as unknown[]) ?? []).map(coord('Email')),
+  telephones: ((o.telephones as unknown[]) ?? []).map(coord('Mobile')),
 });
 const bien = (cle: string, o: Record<string, unknown> = {}) => ({
   cle, libelle: `18 rue Danton, Levallois-Perret — lot ${cle}`, adresse: '18 rue Danton',
@@ -409,5 +417,97 @@ describe('🔴 ③ le bouton « Copier », en face de chaque contact', () => {
     expect([...container.querySelectorAll('a')].some((a) => (a.getAttribute('href') ?? '').startsWith('tel:')))
       .toBe(false);
     expect(container.textContent).toContain('n° inconnu');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT CONTACTS-ET-EVENEMENT — A3 : UNE CARTE PAR PERSONNE, AUCUNE COORDONNÉE ORPHELINE
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe('🔴 A3 — chaque coordonnée porte un NOM et un LIBELLÉ', () => {
+  /** Le cas d'Arno : fil 36488, lot 494, « MARS AVENIR » avec deux téléphones et deux e-mails en vrac. */
+  const marsAvenir = () => CONTEXTE({
+    biens: [bien('494', {
+      libelle: '2 Rue Mars et Roty, PUTEAUX — lot 494',
+      adresseComplete: '2 Rue Mars et Roty, 92800 PUTEAUX',
+      parties: [
+        { ...partie('proprietaire', 'MARS AVENIR'), civilite: 'Sté',
+          telephones: [{ valeur: '+33669142807', libelle: 'Mobile 1' },
+            { valeur: '+33760201010', libelle: 'Mobile 2' }],
+          emails: [{ valeur: 'a.jorel@sansvisavis.com', libelle: 'Email 1' },
+            { valeur: 'c.jullien@sansvisavis.com', libelle: 'Email 2' }] },
+        { ...partie('locataire', 'SARL MACJ'),
+          telephones: [{ valeur: '+33760201010', libelle: 'Mobile 1' }],
+          emails: [{ valeur: 'c.jullien@sansvisavis.com', libelle: 'Email 1' }] },
+      ],
+    })],
+  });
+
+  it('🔴 CHAQUE coordonnée est sous un nom ET porte le libellé de sa colonne — plus rien en vrac', async () => {
+    contexte = marsAvenir();
+    await monter();
+    const carte = container.querySelector('.pdb-proprios .pdb-carte');
+    expect(carte?.textContent).toContain('MARS AVENIR');
+    expect(carte?.textContent).toContain('Mobile 1');
+    expect(carte?.textContent).toContain('+33669142807');
+    expect(carte?.textContent).toContain('Mobile 2');
+    expect(carte?.textContent).toContain('Email 2');
+    expect(carte?.textContent).toContain('c.jullien@sansvisavis.com');
+  });
+
+  it('🔴 AUCUNE coordonnée n’est rendue sans étiquette — c’est le défaut signalé', async () => {
+    contexte = marsAvenir();
+    await monter();
+    const contacts = [...container.querySelectorAll('.pdb-contact')];
+    expect(contacts.length).toBeGreaterThan(0);
+    for (const c of contacts) {
+      const etiquette = c.querySelector('.pdb-etiquette')?.textContent ?? '';
+      expect(etiquette.trim(), c.textContent ?? '').not.toBe('');
+    }
+  });
+
+  it('🔴 chaque contact est dans une CARTE qui porte un nom : aucune coordonnée orpheline', async () => {
+    contexte = marsAvenir();
+    await monter();
+    for (const c of [...container.querySelectorAll('.pdb-contact')]) {
+      const carte = c.closest('.pdb-carte');
+      expect(carte).not.toBeNull();
+      expect((carte?.querySelector('.pdb-personne')?.textContent ?? '').trim()).not.toBe('');
+    }
+  });
+
+  it('une SOCIÉTÉ est dite « Société » : on ne cherche pas un prénom qui n’existe pas', async () => {
+    contexte = marsAvenir();
+    await monter();
+    expect(container.querySelector('.pdb-proprios .pdb-qualite')?.textContent).toBe('Société');
+  });
+
+  it('le bouton Copier nomme la coordonnée QU’IL copie, libellé compris', async () => {
+    contexte = marsAvenir();
+    await monter();
+    const libelles = boutons().map((b) => b.getAttribute('aria-label') ?? '');
+    expect(libelles).toContain('Copier Mobile 1 de MARS AVENIR');
+    expect(libelles).toContain('Copier Email 2 de MARS AVENIR');
+  });
+
+  it('le locataire suit la même règle, dans sa colonne', async () => {
+    contexte = marsAvenir();
+    await monter();
+    const droite = container.querySelector('.pdb-col--loc');
+    expect(droite?.textContent).toContain('SARL MACJ');
+    expect(droite?.textContent).toContain('Mobile 1');
+    expect(droite?.textContent).toContain('+33760201010');
+  });
+
+  it('🔴 sans la migration 267, le libellé reste écrit : générique, mais jamais vide', async () => {
+    // C'est ce que rend `libelleContact` côté serveur quand la colonne d'origine est inconnue.
+    contexte = CONTEXTE({
+      biens: [bien('1', {
+        parties: [{ ...partie('proprietaire', 'DUPONT Jean'),
+          emails: [{ valeur: 'a@x.fr', libelle: 'E-mail' }, { valeur: 'b@x.fr', libelle: 'E-mail 2' }] }],
+      })],
+    });
+    await monter();
+    const etiquettes = [...container.querySelectorAll('.pdb-etiquette')].map((e) => e.textContent);
+    expect(etiquettes).toEqual(['E-mail', 'E-mail 2']);
   });
 });

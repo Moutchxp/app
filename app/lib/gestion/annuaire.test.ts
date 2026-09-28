@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  clePersonne, cleProprietaire, contactsDeCellules, decouperCellule, lireDateFr, nomComplet,
-  normaliserEmail, normaliserTelephone, normaliserTexte, plusAncienne,
+  clePersonne, cleProprietaire, contactsDeCellules, decouperCellule, libelleContact, lireDateFr, nomComplet, normaliserEmail, normaliserTelephone, normaliserTexte, plusAncienne,
 } from './annuaire';
 
 /**
@@ -103,15 +102,41 @@ describe('🔴 ② une cellule, plusieurs valeurs', () => {
 
   it('deux téléphones et deux e-mails sortent normalisés, numérotés dans l’ordre de saisie', () => {
     const c = contactsDeCellules([
-      { sorte: 'telephone', texte: '06.99.99.12.34 ; 06 99 99 56 78' },
-      { sorte: 'email', texte: 'A@Fictif.FR;b@fictif.fr' },
+      { sorte: 'telephone', texte: '06.99.99.12.34 ; 06 99 99 56 78', colonne: 'Mobile' },
+      { sorte: 'email', texte: 'A@Fictif.FR;b@fictif.fr', colonne: 'Email' },
     ]);
+    /**
+     * 🔴 LOT CONTACTS-ET-EVENEMENT — CHAQUE VALEUR PORTE LE LIBELLÉ EXACT DE SA COLONNE, numéroté parce que la
+     * cellule en portait plusieurs. C'est tout ce que l'export permet de dire : il ne relie AUCUNE coordonnée à
+     * une personne nommée (une seule personne par ligne, et un ordre qui s'inverse d'une colonne à l'autre).
+     */
     expect(c).toEqual([
-      { sorte: 'telephone', valeur: '+33699991234', valeurBrute: '06.99.99.12.34', rang: 0 },
-      { sorte: 'telephone', valeur: '+33699995678', valeurBrute: '06 99 99 56 78', rang: 1 },
-      { sorte: 'email', valeur: 'a@fictif.fr', valeurBrute: 'A@Fictif.FR', rang: 0 },
-      { sorte: 'email', valeur: 'b@fictif.fr', valeurBrute: 'b@fictif.fr', rang: 1 },
+      { sorte: 'telephone', valeur: '+33699991234', valeurBrute: '06.99.99.12.34', rang: 0, libelleSource: 'Mobile 1' },
+      { sorte: 'telephone', valeur: '+33699995678', valeurBrute: '06 99 99 56 78', rang: 1, libelleSource: 'Mobile 2' },
+      { sorte: 'email', valeur: 'a@fictif.fr', valeurBrute: 'A@Fictif.FR', rang: 0, libelleSource: 'Email 1' },
+      { sorte: 'email', valeur: 'b@fictif.fr', valeurBrute: 'b@fictif.fr', rang: 1, libelleSource: 'Email 2' },
     ]);
+  });
+
+  it('🔴 une SEULE valeur dans la cellule n’est PAS numérotée : le numéro est le signe qu’il y avait un choix', () => {
+    const c = contactsDeCellules([{ sorte: 'email', texte: 'seul@fictif.fr', colonne: 'Email' }]);
+    expect(c[0].libelleSource).toBe('Email');
+  });
+
+  it('🔴 un doublon écarté ne DÉCALE PAS la numérotation de ce qui suit', () => {
+    const c = contactsDeCellules([
+      { sorte: 'telephone', texte: '0699991234 ; 0699991234 ; 0699995678', colonne: 'Mobile' },
+    ]);
+    expect(c.map((x) => x.libelleSource)).toEqual(['Mobile 1', 'Mobile 3']);
+  });
+
+  it('🔴 le libellé n’est JAMAIS vide à l’affichage — c’est le défaut qu’Arno a signalé', () => {
+    expect(libelleContact({ sorte: 'email', rang: 0, libelleSource: 'Email 2' })).toBe('Email 2');
+    // Sans la migration 267 (ou pour un import antérieur), on retombe sur la sorte, numérotée par le rang.
+    expect(libelleContact({ sorte: 'email', rang: 0, libelleSource: null })).toBe('E-mail');
+    expect(libelleContact({ sorte: 'email', rang: 1 })).toBe('E-mail 2');
+    expect(libelleContact({ sorte: 'telephone', rang: 0, libelleSource: '  ' })).toBe('Téléphone');
+    expect(libelleContact({ sorte: 'telephone', rang: 2 })).toBe('Téléphone 3');
   });
 
   it('le même numéro écrit deux fois dans la cellule ne fait qu’une ligne', () => {
