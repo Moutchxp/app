@@ -40,7 +40,7 @@ import {
  * passe par `import type`, effacé à la compilation.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-export function BlocEvenement({ messageId, filId, biens, qualifieDisponible, onGeste, onChange }: {
+export function BlocEvenement({ messageId, filId, biens, onGeste, onChange }: {
   messageId: number;
   /** L'échange, pour la portée « toute la conversation ». `null` = seule la portée « ce mail » est offerte. */
   filId: number | null;
@@ -50,13 +50,25 @@ export function BlocEvenement({ messageId, filId, biens, qualifieDisponible, onG
    * permis — un mail hors gestion peut mériter une carte.
    */
   biens: readonly { cle: string; libelle: string; parties: readonly { role: string; cle: string; nom: string }[] }[];
-  /** La migration 268 est-elle appliquée ? Sinon ni catégorie ni urgence ne sont proposées. */
-  qualifieDisponible: boolean;
   onGeste?: (message: string) => void;
   /** Recharge la conversation après un geste : la capsule « Événement : … » en haut doit suivre. */
   onChange: () => void | Promise<void>;
 }) {
-  const [etat, setEtat] = useState<{ v: 'charge' } | { v: 'ok'; evenement: EvenementDuMail | null }>({ v: 'charge' });
+  /**
+   * 🔴 CORRECTIF DU 28/09/2026 — LA 268 SE DEMANDE AU SERVEUR, ELLE NE SE REÇOIT PLUS EN PROPRIÉTÉ.
+   *
+   * Le bloc annonçait « mise à jour 268 à appliquer » sur une base où elle était appliquée. La sonde était juste ;
+   * c'est le chemin qui manquait : `qualifieDisponible` était une propriété FACULTATIVE que la conversation ne
+   * passait pas, et sa valeur par défaut — `false` — se lisait « migration absente ». Un composant affirmait donc
+   * quelque chose de la base sans le lui avoir demandé. Désormais la réponse d'`/affectation`, celle-là même qui
+   * porte l'événement du mail, porte aussi `qualifie` : la donnée et sa condition arrivent ENSEMBLE, ou pas du tout.
+   *
+   * ⚠️ `false` TANT QU'ON N'A PAS RÉPONDU, et c'est volontaire : on ne propose pas un champ qu'on ne saurait
+   * peut-être pas écrire. Mais c'est un « pas encore », pas un « non » — et il ne dure que le temps du chargement.
+   */
+  const [etat, setEtat] = useState<
+    { v: 'charge' } | { v: 'ok'; evenement: EvenementDuMail | null; qualifie: boolean }
+  >({ v: 'charge' });
   const [panneau, setPanneau] = useState<'aucun' | 'lier' | 'creer'>('aucun');
   const [portee, setPortee] = useState<'mail' | 'conversation'>('mail');
   const [occupe, setOccupe] = useState(false);
@@ -70,11 +82,15 @@ export function BlocEvenement({ messageId, filId, biens, qualifieDisponible, onG
   const charger = useCallback(async () => {
     try {
       const res = await fetch(`/api/admin/gestion/messages/${messageId}/affectation`, { cache: 'no-store' });
-      const d = (await res.json()) as { etat?: string; evenement?: EvenementDuMail | null };
-      setEtat({ v: 'ok', evenement: d.etat === 'ok' ? (d.evenement ?? null) : null });
+      const d = (await res.json()) as { etat?: string; evenement?: EvenementDuMail | null; qualifie?: boolean };
+      setEtat({
+        v: 'ok',
+        evenement: d.etat === 'ok' ? (d.evenement ?? null) : null,
+        qualifie: d.etat === 'ok' && d.qualifie === true,
+      });
     } catch {
       // Silence volontaire : une erreur rouge au-dessus d'un mail ferait croire que le mail a un problème.
-      setEtat({ v: 'ok', evenement: null });
+      setEtat({ v: 'ok', evenement: null, qualifie: false });
     }
   }, [messageId]);
 
@@ -140,6 +156,7 @@ export function BlocEvenement({ messageId, filId, biens, qualifieDisponible, onG
   };
 
   const ev = etat.v === 'ok' ? etat.evenement : null;
+  const qualifieDisponible = etat.v === 'ok' && etat.qualifie;
 
   return (
     <div className="bev">

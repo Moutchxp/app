@@ -4,7 +4,9 @@ import { auteurDeLaRequete } from '../../../../../../../lib/gestion/auteur';
 import {
   deplacerMessage, deplacerMessageVersNouveau, evenementDuMail, remettreMessage, type NouvelEvenement,
 } from '../../../../../../../lib/gestion/gestes';
-import { deplacementsDeMailsDisponibles } from '../../../../../../../lib/gestion/schema';
+import {
+  deplacementsDeMailsDisponibles, evenementQualifieDisponible,
+} from '../../../../../../../lib/gestion/schema';
 
 /**
  * /api/admin/gestion/messages/[id]/affectation (lot 4d-B2) — DÉPLACER UN SEUL MAIL vers une autre carte que son
@@ -34,6 +36,17 @@ const PAS_ENCORE = 'Le déplacement d’un mail seul n’est pas encore activé 
  *
  * `null` se lit « aucun », et c'est une RÉPONSE : l'événement est FACULTATIF (règle du lot STATUT-HORS-GESTION),
  * il ne change jamais la capsule de statut, qui dépend du bien.
+ *
+ * 🔴 CORRECTIF DU 28/09/2026 — LA RÉPONSE DIT AUSSI SI LA 268 EST LÀ (`qualifie`).
+ *
+ * Elle ne le disait pas, et l'écran annonçait « mise à jour 268 à appliquer » sur une base où elle L'ÉTAIT. La
+ * sonde n'y était pour rien : elle répondait juste. Le défaut était qu'AUCUNE réponse ne la portait jusqu'au
+ * navigateur — `BlocEvenement` recevait la nouvelle par une PROPRIÉTÉ que personne ne lui passait, et dont la
+ * valeur par défaut était `false`. Un écran affirmait donc quelque chose de la base sans jamais le lui demander.
+ *
+ * ⇒ RÈGLE QUI EN DÉCOULE : une sonde de schéma voyage AVEC les données qu'elle conditionne, dans la même réponse.
+ *   Une propriété facultative qui vaut `false` par défaut ne se distingue pas d'un câblage oublié — et c'est
+ *   exactement ce qui est arrivé ici.
  */
 export async function GET(request: Request, ctx: Contexte): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
@@ -41,7 +54,8 @@ export async function GET(request: Request, ctx: Contexte): Promise<Response> {
   const id = messageId((await ctx.params).id);
   if (id === null) return Response.json({ erreur: 'Message inconnu.' }, { status: 400 });
   try {
-    return Response.json({ etat: 'ok', evenement: await evenementDuMail(id) },
+    const [evenement, qualifie] = await Promise.all([evenementDuMail(id), evenementQualifieDisponible()]);
+    return Response.json({ etat: 'ok', evenement, qualifie },
       { headers: { 'Cache-Control': 'private, no-store' } });
   } catch (e) {
     // Pas de catch muet : « aucun » se lirait « pas d'événement », ce qui serait un mensonge.

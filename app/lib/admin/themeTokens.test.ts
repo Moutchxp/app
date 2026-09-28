@@ -48,3 +48,54 @@ describe('thème sombre — palette scopée à l’admin', () => {
     expect(compact).toContain('.svv-btn-primary{background:var(--color-svv-red);color:#fff');
   });
 });
+
+/**
+ * 🔴 LOT COULEUR-ROUGE (28/09/2026) — LE BLEU DU NAVIGATEUR EST REPRIS PAR LA CHARTE.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * Cases à cocher, boutons radio et curseurs ne sont peints par AUCUNE de nos règles : le navigateur les dessine avec
+ * SA couleur. Ils ont donc traversé toute la charte sans jamais apparaître dans une relecture de nos fichiers — c'est
+ * exactement ce que ce garde empêche de recommencer.
+ *
+ * Ce qui est tenu ici :
+ *   ① `accent-color` suit le TOKEN, pas une teinte écrite à la main : les trois thèmes sont servis par la même ligne ;
+ *   ② la règle est SCOPÉE à `.svv-adm-root` — le tunnel public et le PDF du certificat restent hors d'atteinte ;
+ *   ③ `color-scheme` est posé sur les DEUX chemins sombres ('dark' ET 'system'), sinon le navigateur dessine des
+ *      commandes claires sur notre fond sombre ;
+ *   ④ 🔴 la surbrillance de sélection prend le texte de la SURFACE, jamais `#fff` : en sombre le rouge est clair, et
+ *      du blanc dessus serait illisible.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 LOT COULEUR-ROUGE — les commandes natives prennent le rouge de la charte', () => {
+  it('① `accent-color` lit le TOKEN rouge, et n’écrit aucune teinte en dur', () => {
+    expect(compact).toContain('.svv-adm-root { accent-color: var(--color-svv-red); }');
+    // Une teinte écrite à la main ne suivrait pas le thème sombre, où le rouge vaut #ff6b6b.
+    expect(compact).not.toMatch(/accent-color:\s*#/);
+  });
+
+  it('② la règle est SCOPÉE à l’admin — jamais `:root`, sinon le tunnel public la prendrait aussi', () => {
+    expect(compact).not.toMatch(/:root\s*\{[^}]*accent-color/);
+  });
+
+  it('③ `color-scheme: dark` couvre les DEUX chemins sombres : le choix explicite ET le suivi du système', () => {
+    const dark = compact.slice(compact.indexOf(".svv-adm-root[data-theme='dark'] {"));
+    expect(dark.slice(0, dark.indexOf('}'))).toContain('color-scheme: dark;');
+    const systeme = compact.slice(compact.indexOf(".svv-adm-root[data-theme='system'] {"));
+    expect(systeme.slice(0, systeme.indexOf('}'))).toContain('color-scheme: dark;');
+  });
+
+  it('🔴 ④ la sélection de texte est lisible dans les DEUX thèmes : texte = surface, jamais #fff', () => {
+    expect(compact).toContain(
+      '.svv-adm-root ::selection { background: var(--color-svv-red); color: var(--color-svv-surface); }');
+  });
+
+  it('l’anneau de focus des commandes natives est au rouge de la charte', () => {
+    expect(compact).toMatch(/input\[type='checkbox'\][^}]*:focus-visible \{ outline: 2px solid var\(--color-svv-red\)/);
+  });
+
+  it('🔴 les liens du CORPS D’UN MAIL REÇU ne sont PAS repeints — c’est le contenu de l’expéditeur', () => {
+    // `accent-color` ne colore aucun texte : c'est ce qui rend la règle sûre ici. Le jour où l'on serait tenté
+    // d'ajouter une règle `a { color: … }` à la racine de l'admin, elle atteindrait `.cnv-html a`. Ce garde le dit.
+    expect(compact).not.toMatch(/\.svv-adm-root a\s*\{[^}]*color:/);
+  });
+});

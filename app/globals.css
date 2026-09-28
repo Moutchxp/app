@@ -162,6 +162,55 @@
    ========================================================================== */
 .svv-adm-root { background: var(--color-svv-bg); color: var(--color-svv-ink); min-height: 100dvh; }
 
+/* ==========================================================================
+   LOT COULEUR-ROUGE (28/09/2026) — LE BLEU D'INTERFACE PASSE AU ROUGE DE LA CHARTE
+   Demande d'Arno : « remplace tous les boutons avec couleurs bleu par le rouge
+   de notre société ».
+
+   🔴 CE QUI ÉTAIT BLEU, ET POURQUOI ON NE L'AVAIT PAS VU. Les cases à cocher, les
+   boutons radio et les curseurs ne sont pas peints par nos feuilles de style : le
+   NAVIGATEUR les dessine, avec SA couleur, un bleu qui n'appartient à personne ici.
+   Aucune règle CSS ne les nommait, donc aucune relecture de nos fichiers ne pouvait
+   les trouver — c'est ce qui explique qu'ils aient survécu à toute la charte. Une
+   seule propriété les reprend : `accent-color`, posée UNE fois sur la racine de
+   l'admin. Elle suit `--color-svv-red`, donc les trois thèmes sont servis d'un coup,
+   sans nouvelle teinte et sans dupliquer la valeur.
+
+   ⚠️ SCOPÉ À `.svv-adm-root`, comme tout le thème : le tunnel public et le PDF du
+   certificat ne sont pas touchés.
+
+   🔴 CE QUI RESTE BLEU, ET C'EST VOULU :
+     · les liens du CORPS D'UN MAIL REÇU (`.cnv-html a`) — c'est le contenu de
+       l'expéditeur, pas notre interface. `accent-color` ne colore aucun texte, donc
+       ils ne risquent rien ici ;
+     · les couleurs de SENS : `--color-svv-blue` (« accusé reçu », « best-of »,
+       pastille d'analyse), les badges « info » / « miroir » / famille MH, et les
+       géométries des cartes et schémas (voisin, parcelle de contexte, « en projet »
+       IGN, cône du faisceau). Les repeindre en rouge ferait lire « alerte » là où il
+       est écrit « information », et le rouge sert DÉJÀ d'alerte à deux pas.
+   ========================================================================== */
+.svv-adm-root { accent-color: var(--color-svv-red); }
+
+/* Le pendant CLAIR, écrit noir sur blanc plutôt que laissé au défaut : un jour où une
+   feuille parente déclarerait `color-scheme: dark`, le thème Clair de l'admin se
+   retrouverait avec des commandes sombres sans que personne ait rien demandé. */
+.svv-adm-root[data-theme='light'] { color-scheme: light; }
+
+/* L'anneau de focus des commandes natives : le navigateur en dessine un à lui (bleu
+   sous Safari). Les 77 autres anneaux de l'admin sont déjà au rouge de la charte —
+   ceux-là manquaient à l'appel, faute d'une règle qui les nomme. */
+.svv-adm-root :is(input[type='checkbox'], input[type='radio'], input[type='range'],
+  input[type='date'], select):focus-visible {
+  outline: 2px solid var(--color-svv-red);
+  outline-offset: 2px;
+}
+
+/* La surbrillance de sélection de texte : bleu du système partout ailleurs.
+   ⚠️ LE TEXTE PASSE À `--color-svv-surface`, PAS À `#fff` : en SOMBRE le rouge est
+   clair (#ff6b6b), et du blanc dessus tomberait à ~2,1:1. Avec la surface (#1b232f)
+   on est à ~7,3:1 ; en clair, la surface EST blanche et le rendu ne bouge pas. */
+.svv-adm-root ::selection { background: var(--color-svv-red); color: var(--color-svv-surface); }
+
 /* Aucune transition de COULEUR au changement de thème : le sélecteur pose brièvement
    cette classe le temps de la bascule (évite tout fondu des fonds/bordures), puis la retire
    (les transitions de survol .15s reprennent normalement). Couvre aussi prefers-reduced-motion. */
@@ -169,6 +218,13 @@
 
 /* --- Palette sombre (valeurs mesurées, cf. message de commit) --- */
 .svv-adm-root[data-theme='dark'] {
+  /* 🔴 LOT COULEUR-ROUGE — SANS CECI, LE THÈME SOMBRE RESTAIT CLAIR SOUS LES COMMANDES.
+     Le navigateur dessine une case à cocher, un menu déroulant ou un ascenseur avec la
+     palette qu'il CROIT être celle de la page : faute de `color-scheme`, il suppose un
+     fond blanc et pose des boîtes blanches sur notre fond #10151c (visible sur la
+     capture « avant » en Sombre). On le lui dit, et il dessine sombre — le rouge de
+     `accent-color` gagne alors le contraste qu'il n'avait pas. */
+  color-scheme: dark;
   --color-svv-surface: #1b232f;
   --color-svv-bg: #10151c;
   --color-svv-ink: #e8ebef;
@@ -206,6 +262,7 @@
 /* 'system' → suit le réglage du système d'exploitation (mêmes valeurs quand l'OS est sombre). */
 @media (prefers-color-scheme: dark) {
   .svv-adm-root[data-theme='system'] {
+    color-scheme: dark;                        /* identique au bloc [data-theme='dark'] */
     --color-svv-surface: #1b232f;
     --color-svv-bg: #10151c;
     --color-svv-ink: #e8ebef;

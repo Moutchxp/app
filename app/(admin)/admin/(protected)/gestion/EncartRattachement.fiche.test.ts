@@ -31,11 +31,21 @@ const lien = (o: Record<string, unknown> = {}) => ({
 
 /** LOT CONTACTS-ET-EVENEMENT — ce que la route rend pour l'événement de ce mail. Piloté par le test. */
 let evenementDuMail: Record<string, unknown> | null;
+/**
+ * 🔴 CORRECTIF DU 28/09/2026 — LA 268 VIENT DE LA RÉPONSE DU SERVEUR, plus d'une propriété du composant.
+ *
+ * Ces deux tests passaient `evenementQualifie` en propriété. Ils prouvaient donc le composant… mais pas le
+ * CÂBLAGE : dans l'application, personne ne passait cette propriété, et sa valeur par défaut `false` faisait
+ * annoncer « 268 à appliquer » sur une base à jour. On pilote désormais le drapeau par la RÉPONSE de la route,
+ * c'est-à-dire par le chemin réel.
+ */
+let migration268: boolean;
 let appels: { url: string; methode: string; corps: unknown }[];
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
   evenementDuMail = null;
+  migration268 = true;
   appels = [];
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
@@ -47,7 +57,9 @@ beforeEach(() => {
     // L'événement effectif du mail : c'est le sujet des tests de la partie B.
     if (u.includes('/affectation')) {
       if (methode === 'GET') {
-        return { ok: true, json: async () => ({ etat: 'ok', evenement: evenementDuMail }) } as unknown as Response;
+        return {
+          ok: true, json: async () => ({ etat: 'ok', evenement: evenementDuMail, qualifie: migration268 }),
+        } as unknown as Response;
       }
       return { ok: true, json: async () => ({ ok: true }) } as unknown as Response;
     }
@@ -269,14 +281,27 @@ describe('🔴 B1 — lier, créer, délier', () => {
   });
 
   it('sans la migration 268, ni catégorie ni urgence ne sont proposées — et on DIT pourquoi', async () => {
-    await monter([lien()], { evenementQualifie: false });
+    migration268 = false;
+    await monter([lien()]);
     await cliquer(boutonPar(/^Créer un événement$/));
     expect(container.querySelectorAll('select')).toHaveLength(0);
     expect(container.textContent).toContain('268 à appliquer');
   });
 
+  it('🔴 LA 268 SE DEMANDE AU SERVEUR : aucune propriété à passer, sinon l’écran parle d’une base qu’il n’a pas lue',
+    async () => {
+      // C'est le défaut du 28/09/2026 : `evenementQualifie` valait `false` par défaut, la conversation ne le
+      // passait pas, et le bloc annonçait « 268 à appliquer » sur une base à jour. Le montage ci-dessous ne passe
+      // AUCUNE propriété de migration — et le choix doit quand même apparaître, parce que la ROUTE l'a dit.
+      migration268 = true;
+      await monter([lien()]);
+      await cliquer(boutonPar(/^Créer un événement$/));
+      expect(container.textContent).not.toContain('268 à appliquer');
+      expect(container.querySelectorAll('select').length).toBeGreaterThan(0);
+    });
+
   it('avec la migration 268, les quatre catégories d’Arno et les trois urgences sont offertes', async () => {
-    await monter([lien()], { evenementQualifie: true });
+    await monter([lien()]);
     await cliquer(boutonPar(/^Créer un événement$/));
     const options = [...container.querySelectorAll('option')].map((o) => o.textContent);
     expect(options).toContain('Travaux');

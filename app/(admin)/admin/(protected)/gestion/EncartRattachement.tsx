@@ -37,12 +37,16 @@ import type { Cible, Statut } from '../../../../lib/gestion/rattachement';
  * ⚠️ AUCUN IMPORT QUI TIRE `pg` : les types passent par `import type`, effacé à la compilation.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-export function EncartRattachement({ messageId, filId, liens, onChange, onGeste, onHistorique, evenementQualifie = false }: {
+/**
+ * ⚠️ PAS DE PROPRIÉTÉ `evenementQualifie` ICI — elle a existé, et elle a menti. C'était une propriété facultative
+ * à `false` par défaut, que la conversation ne passait pas : le bloc « Événement » annonçait donc « mise à jour 268
+ * à appliquer » sur une base où elle l'était. `BlocEvenement` demande maintenant la réponse au serveur, avec les
+ * données qu'elle conditionne. Ne pas la réintroduire ici : elle retraverserait deux composants pour rien.
+ */
+export function EncartRattachement({ messageId, filId, liens, onChange, onGeste, onHistorique }: {
   messageId: number;
   /** L'échange de ce mail, pour la portée « toute la conversation » du bloc « Événement rattaché ». */
   filId?: number | null;
-  /** LOT CONTACTS-ET-EVENEMENT — la migration 268 est-elle appliquée ? Sinon ni catégorie ni urgence. */
-  evenementQualifie?: boolean;
   /** Les liens vivants de CE mail, chargés par la conversation. `null` = migration 257 absente ou lecture en échec. */
   liens: readonly LienAffiche[] | null;
   /** Recharge les liens de toute la conversation. Appelé après chaque geste réussi. */
@@ -127,7 +131,6 @@ export function EncartRattachement({ messageId, filId, liens, onChange, onGeste,
         biens={vivants
           .filter((l) => l.cible.sorte === 'lot' && l.cible.cle !== null)
           .map((l) => ({ cle: l.cible.cle as string, libelle: l.libelle, parties: [] }))}
-        qualifieDisponible={evenementQualifie}
         onGeste={onGeste}
         onChange={onChange} />
 
