@@ -89,6 +89,13 @@ export async function POST(request: Request): Promise<Response> {
       a: adresses(corps.a), cc: adresses(corps.cc), cci: adresses(corps.cci),
       objet: texte(corps.objet, 500),
       corps: texte(corps.corps, 200_000),
+      /**
+       * 🔴 LOT EDITEUR-PJ — LA MISE EN FORME EST ENFIN GARDÉE AVEC LE BROUILLON. La colonne existait depuis la
+       * migration 265 et rien ne l'écrivait : un brouillon rouvert revenait en texte brut, sans le moindre
+       * message. Le dépôt réassainit ce HTML — l'écran nettoie pour qu'on voie ce qu'on écrit, le serveur nettoie
+       * parce que lui seul ne peut pas être contourné.
+       */
+      corpsHtml: typeof corps.corpsHtml === 'string' ? corps.corpsHtml.slice(0, 200_000) : null,
       citation: typeof corps.citation === 'string' ? corps.citation.slice(0, 200_000) : null,
     }, await auteurDeLaRequete(request));
 

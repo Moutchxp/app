@@ -20,6 +20,9 @@
  */
 import { query, withTransaction } from '../db/client';
 import type { VoieRedaction } from './redaction';
+// LOT EDITEUR-PJ — le brouillon garde enfin sa mise en forme. Sondé, et réassaini côté serveur.
+import { brouillonHtmlDisponible } from './schema';
+import { assainirHtml } from './htmlMail';
 
 export interface Auteur { id: number | null; libelle: string }
 
@@ -33,6 +36,17 @@ export interface BrouillonEnBase {
   cci: string[];
   objet: string;
   corps: string;
+  /**
+   * 🔴 LOT EDITEUR-PJ — LE CORPS EN TEXTE MIS EN FORME, ENFIN GARDÉ.
+   *
+   * La colonne existait depuis la migration 265, et RIEN NE L'ÉCRIVAIT : on enregistrait la version texte seule.
+   * Un brouillon rouvert revenait donc en texte brut — gras, couleurs, listes et retraits perdus, sans le moindre
+   * message. La mise en forme était juste à l'écran, juste dans le mail envoyé, et perdue entre les deux.
+   *
+   * `null` = brouillon d'avant ce lot, ou migration 265 absente : l'éditeur retombe sur `corps`, exactement comme
+   * il le faisait déjà (`texteVersHtml`).
+   */
+  corpsHtml: string | null;
   citation: string | null;
   auteurLibelle: string;
   majLe: string;
@@ -43,10 +57,20 @@ const INSTANT = (c: string) => `to_char(${c} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"H
 const CHAMPS_BROUILLON = `id::int AS id, fil_id::int AS fil_id, repond_a_message_id::int AS repond_a_message_id,
   voie, dest_a, dest_cc, dest_cci, objet, corps, citation, auteur_libelle, ${INSTANT('maj_le')} AS maj_le`;
 
+/**
+ * 🔴 LOT EDITEUR-PJ — LES CHAMPS, AVEC OU SANS LA COLONNE `corps_html` (migration 265).
+ *
+ * ⚠️ LA COLONNE N'EST NOMMÉE QUE SI ELLE EXISTE. La sonder puis choisir le SQL est la règle de tout le module :
+ * nommer une colonne absente ferait échouer la lecture des brouillons ENTIÈRE, pas seulement la mise en forme.
+ */
+function champs(avecHtml: boolean): string {
+  return avecHtml ? `${CHAMPS_BROUILLON}, corps_html` : `${CHAMPS_BROUILLON}, NULL::text AS corps_html`;
+}
+
 interface LigneBrouillon {
   id: number; fil_id: number | null; repond_a_message_id: number | null; voie: string;
   dest_a: unknown; dest_cc: unknown; dest_cci: unknown; objet: string; corps: string;
-  citation: string | null; auteur_libelle: string; maj_le: string;
+  citation: string | null; auteur_libelle: string; maj_le: string; corps_html: string | null;
 }
 
 /** Une colonne `jsonb` de chaînes, rendue sûre : tout ce qui n'est pas un tableau de textes devient une liste vide. PUR. */
@@ -60,7 +84,7 @@ function versBrouillon(r: LigneBrouillon): BrouillonEnBase {
     id: r.id, filId: r.fil_id, repondAMessageId: r.repond_a_message_id,
     voie: (voies as string[]).includes(r.voie) ? (r.voie as VoieRedaction) : 'nouveau',
     a: listeDe(r.dest_a), cc: listeDe(r.dest_cc), cci: listeDe(r.dest_cci),
-    objet: r.objet, corps: r.corps, citation: r.citation,
+    objet: r.objet, corps: r.corps, corpsHtml: r.corps_html, citation: r.citation,
     auteurLibelle: r.auteur_libelle, majLe: r.maj_le,
   };
 }
@@ -74,9 +98,24 @@ function versBrouillon(r: LigneBrouillon): BrouillonEnBase {
  */
 export async function enregistrerBrouillon(
   b: { id?: number | null; filId: number | null; repondAMessageId: number | null; voie: VoieRedaction;
-       a: string[]; cc: string[]; cci: string[]; objet: string; corps: string; citation: string | null },
+       a: string[]; cc: string[]; cci: string[]; objet: string; corps: string; corpsHtml?: string | null;
+       citation: string | null },
   auteur: Auteur,
 ): Promise<BrouillonEnBase> {
+  /**
+   * 🔴 LOT EDITEUR-PJ — LE HTML EST ENREGISTRÉ, s'il y a une colonne pour l'accueillir (migration 265).
+   *
+   * ⚠️ SONDÉ HORS TRANSACTION, comme partout dans ce module : une requête qui nommerait une colonne absente ferait
+   * échouer TOUT l'enregistrement du brouillon, pas seulement la mise en forme. Sans la colonne, on enregistre ce
+   * qu'on enregistrait avant — la version texte — et rien ne casse.
+   *
+   * ⚠️ RÉASSAINI ICI AUSSI. L'écran assainit déjà, mais c'est le serveur qui ne peut pas être contourné : la même
+   * règle qu'à l'envoi, au même endroit du raisonnement.
+   */
+  const avecHtml = await brouillonHtmlDisponible();
+  const html = avecHtml
+    ? (typeof b.corpsHtml === 'string' && b.corpsHtml.trim() !== '' ? assainirHtml(b.corpsHtml) : null)
+    : null;
   const valeurs = [
     b.filId, b.repondAMessageId, b.voie,
     JSON.stringify(b.a), JSON.stringify(b.cc), JSON.stringify(b.cci),
@@ -88,25 +127,27 @@ export async function enregistrerBrouillon(
     const { rows } = await query<LigneBrouillon>(
       `UPDATE gestion_brouillon
           SET fil_id = $2, repond_a_message_id = $3, voie = $4, dest_a = $5::jsonb, dest_cc = $6::jsonb,
-              dest_cci = $7::jsonb, objet = $8, corps = $9, citation = $10, maj_le = now()
+              dest_cci = $7::jsonb, objet = $8, corps = $9, citation = $10${avecHtml ? ', corps_html = $11' : ''},
+              maj_le = now()
         WHERE id = $1 AND abandonne_le IS NULL AND envoye_le IS NULL
-        RETURNING ${CHAMPS_BROUILLON}`,
-      [b.id, ...valeurs.slice(0, 9)]);
+        RETURNING ${champs(avecHtml)}`,
+      avecHtml ? [b.id, ...valeurs.slice(0, 9), html] : [b.id, ...valeurs.slice(0, 9)]);
     if (rows[0]) return versBrouillon(rows[0]);
     // Le brouillon visé n'existe plus (envoyé, abandonné) : on en ouvre un neuf plutôt que de perdre ce qui est écrit.
   }
   const { rows } = await query<LigneBrouillon>(
     `INSERT INTO gestion_brouillon
-       (fil_id, repond_a_message_id, voie, dest_a, dest_cc, dest_cci, objet, corps, citation, auteur_id, auteur_libelle)
-     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
-     RETURNING ${CHAMPS_BROUILLON}`, valeurs);
+       (fil_id, repond_a_message_id, voie, dest_a, dest_cc, dest_cci, objet, corps, citation, auteur_id,
+        auteur_libelle${avecHtml ? ', corps_html' : ''})
+     VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11${avecHtml ? ', $12' : ''})
+     RETURNING ${champs(avecHtml)}`, avecHtml ? [...valeurs, html] : valeurs);
   return versBrouillon(rows[0]);
 }
 
 /** Le brouillon VIVANT d'un échange, s'il y en a un. Le plus récemment touché fait foi. */
 export async function lireBrouillonDuFil(filId: number): Promise<BrouillonEnBase | null> {
   const { rows } = await query<LigneBrouillon>(
-    `SELECT ${CHAMPS_BROUILLON} FROM gestion_brouillon
+    `SELECT ${champs(await brouillonHtmlDisponible())} FROM gestion_brouillon
       WHERE fil_id = $1 AND abandonne_le IS NULL AND envoye_le IS NULL
       ORDER BY maj_le DESC, id DESC LIMIT 1`, [filId]);
   return rows[0] ? versBrouillon(rows[0]) : null;
@@ -115,7 +156,7 @@ export async function lireBrouillonDuFil(filId: number): Promise<BrouillonEnBase
 /** Tous les brouillons vivants — ce que montre le libellé « Brouillons ». Borné : une liste se lit, elle ne défile pas. */
 export async function listerBrouillons(limite = 50): Promise<BrouillonEnBase[]> {
   const { rows } = await query<LigneBrouillon>(
-    `SELECT ${CHAMPS_BROUILLON} FROM gestion_brouillon
+    `SELECT ${champs(await brouillonHtmlDisponible())} FROM gestion_brouillon
       WHERE abandonne_le IS NULL AND envoye_le IS NULL
       ORDER BY maj_le DESC, id DESC LIMIT $1`, [Math.min(Math.max(1, limite), 200)]);
   return rows.map(versBrouillon);

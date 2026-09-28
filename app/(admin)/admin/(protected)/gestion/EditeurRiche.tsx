@@ -58,6 +58,49 @@ export const COULEURS: readonly { valeur: string; mot: string }[] = [
   { valeur: '#6b6b6b', mot: 'Gris' },
 ];
 
+/**
+ * ══ 🔴 LOT EDITEUR-PJ — « AUTOMATIQUE », LA SORTIE QUI MANQUAIT ══════════════════════════════════════════════════════
+ *
+ * LE DÉFAUT, CONSTATÉ PAR ARNO. En thème sombre, le texte s'écrit en clair — non pas parce qu'on a choisi du blanc,
+ * mais parce qu'AUCUNE couleur n'est posée : il hérite de celle de l'écran. Dès qu'on choisit une couleur, cet état
+ * « aucune couleur » disparaît, et RIEN dans la palette ne permettait d'y revenir. Une porte sans retour.
+ *
+ * 🔴 CETTE PASTILLE NE POSE PAS DE COULEUR : ELLE EN RETIRE UNE. C'est toute la différence, et c'est ce qui la rend
+ * juste. Ajouter du blanc aurait « marché » à l'écran sombre et envoyé du BLANC SUR BLANC chez le destinataire —
+ * un message invisible. Ici, le HTML repart sans la moindre déclaration `color`, donc :
+ *   · à l'écran, le texte suit le thème (clair sur fond sombre, sombre sur fond clair) ;
+ *   · dans le mail, il prend la couleur par défaut du lecteur, c'est-à-dire du noir.
+ *
+ * ⚠️ SA PASTILLE EST PEINTE AVEC `--color-svv-ink` — le seul cas où une couleur de cette barre est un jeton de
+ * charte, et c'est cohérent : elle ne représente pas une couleur de CONTENU, elle montre l'état « la couleur de
+ * l'écran ». Elle est donc noire en thème clair et blanche en thème sombre, ce qui est exactement ce qu'elle promet.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+export const MOT_COULEUR_AUTOMATIQUE = 'Automatique (couleur du thème)';
+
+/** Les surlignages. Tous PÂLES : un fond saturé rend le texte noir illisible chez le destinataire. */
+export const SURLIGNAGES: readonly { valeur: string; mot: string }[] = [
+  { valeur: '#fff2a8', mot: 'Jaune' },
+  { valeur: '#c9f0d2', mot: 'Vert pâle' },
+  { valeur: '#cfe2ff', mot: 'Bleu pâle' },
+  { valeur: '#ffd6d4', mot: 'Rose' },
+];
+
+/**
+ * 🔴 UNE DÉCLARATION `color: …` EST-ELLE DU BLANC, OU PRESQUE ? PUR.
+ *
+ * Garde-fou du lot EDITEUR-PJ : « en aucun cas du blanc en dur ne doit partir dans un mail ». Du texte blanc arrive
+ * noir sur blanc chez le destinataire — c'est-à-dire invisible. Aucune couleur de la palette n'est blanche, mais
+ * cette fonction existe pour que la règle soit VÉRIFIABLE et non seulement respectée par habitude.
+ */
+export function estPresqueBlanc(valeur: string): boolean {
+  const v = valeur.trim().toLowerCase();
+  if (v === 'white' || /^#(f{3}|f{6})$/.test(v)) return true;
+  const rgb = /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/.exec(v);
+  if (!rgb) return false;
+  return [rgb[1], rgb[2], rgb[3]].every((n) => Number(n) >= 245);
+}
+
 export interface ValeurCorps { html: string; texte: string }
 
 export function EditeurRiche({
@@ -77,6 +120,7 @@ export function EditeurRiche({
   /** La sélection au moment où l'on quitte le champ : sans elle, un clic sur un bouton la perd avant d'agir. */
   const selection = useRef<Range | null>(null);
   const [couleurOuverte, setCouleurOuverte] = useState(false);
+  const [surlignageOuvert, setSurlignageOuvert] = useState(false);
 
   // ── LE CONTENU INITIAL, POSÉ UNE SEULE FOIS ──────────────────────────────────────────────────────────────────
   const pose = useRef(false);
@@ -133,6 +177,41 @@ export function EditeurRiche({
     remonter();
   }, [remonter, retenirSelection]);
 
+  /**
+   * ══ 🔴 REMETTRE LA COULEUR « AUTOMATIQUE » ═══════════════════════════════════════════════════════════════════
+   *
+   * En deux temps, et il en faut deux :
+   *   ① `foreColor` à `inherit` — c'est LUI qui fait le travail difficile : normaliser une sélection qui traverse
+   *      plusieurs éléments, défaire un `<font color>` venu d'un collage, découper les nœuds aux bonnes bornes.
+   *      Écrire cela à la main sur des `Range` serait un projet à part, et chaque bogue se verrait dans un mail.
+   *   ② on RETIRE ensuite les `color: inherit` que la première étape a posés. Sans ce second temps, le mail
+   *      partirait avec `color: inherit` — inoffensif, mais c'est une déclaration qui ne dit rien et qu'un lecteur
+   *      de mail n'a pas à interpréter. « Aucune couleur » doit vouloir dire aucune couleur.
+   *
+   * ⚠️ ON NE TOUCHE QUE `inherit`, jamais une couleur choisie : la valeur exacte `inherit` est la signature de
+   * l'étape ①, et elle ne peut pas venir d'ailleurs — aucune entrée de la palette ne la produit.
+   *
+   * ⚠️ ET LA BALISE VIDÉE DISPARAÎT : un `<span>` dont il ne reste plus aucun attribut est déballé. Le laisser
+   * empilerait un `<span>` par passage, et trois allers-retours donneraient un mail imbriqué sur dix niveaux.
+   */
+  const retirerCouleur = useCallback(() => {
+    agir('foreColor', 'inherit');
+    const el = zone.current;
+    if (el === null) return;
+    for (const n of [...el.querySelectorAll<HTMLElement>('[style]')]) {
+      const style = n.getAttribute('style') ?? '';
+      if (!/(^|;)\s*color\s*:\s*inherit\s*(;|$)/i.test(style)) continue;
+      const reste = style.split(';')
+        .filter((d) => !/^\s*color\s*:\s*inherit\s*$/i.test(d) && d.trim() !== '')
+        .join('; ');
+      if (reste === '') n.removeAttribute('style'); else n.setAttribute('style', reste);
+      // Un `span` réduit à rien n'est plus qu'une enveloppe : on le remplace par son contenu.
+      if (n.tagName === 'SPAN' && n.attributes.length === 0) n.replaceWith(...n.childNodes);
+    }
+    retenirSelection();
+    remonter();
+  }, [agir, remonter, retenirSelection]);
+
   useEffect(() => {
     onPret?.({
       insererHtml: (html: string) => agir('insertHTML', assainirHtml(html)),
@@ -141,6 +220,12 @@ export function EditeurRiche({
         agir('insertHTML', assainirHtml(`<a href="${url.replace(/"/g, '&quot;')}">${t.replace(/</g, '&lt;')}</a>`));
       },
       focus: () => zone.current?.focus(),
+      /**
+       * 🔴 LE TEXTE SÉLECTIONNÉ, pour que « Insérer un lien » n'oblige pas à le retaper. On sélectionne « le
+       * contrat », on clique, et le champ « Texte affiché » est déjà rempli : c'est le geste de Gmail, et sans lui
+       * on obtient des mails truffés d'URL nues parce que retaper le libellé est une corvée.
+       */
+      texteSelectionne: () => (selection.current?.toString() ?? '').trim(),
     });
   }, [agir, onPret]);
 
@@ -196,15 +281,22 @@ export function EditeurRiche({
           {bouton('barre', 'Barré', <s>S</s>, 'strikeThrough')}
 
           <span className="edr-sep" aria-hidden="true" />
-          {/* LA COULEUR : un menu de cinq couleurs NOMMÉES. Un sélecteur libre donnerait du jaune sur blanc. */}
+          {/* LA COULEUR : un menu de couleurs NOMMÉES. Un sélecteur libre donnerait du jaune sur blanc. */}
           <span className="edr-couleur">
             <button type="button" className="edr-bouton" title="Couleur du texte" aria-label="Couleur du texte"
               aria-expanded={couleurOuverte}
-              onMouseDown={(e) => e.preventDefault()} onClick={() => setCouleurOuverte((v) => !v)}>
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { setSurlignageOuvert(false); setCouleurOuverte((v) => !v); }}>
               <span aria-hidden="true">A</span><span className="edr-trait" aria-hidden="true" />
             </button>
             {couleurOuverte && (
               <span className="edr-palette" role="menu" aria-label="Couleurs">
+                {/* 🔴 « AUTOMATIQUE » EN PREMIÈRE POSITION, et c'est la seule place qui convienne : c'est l'état
+                    de départ du texte, celui où l'on revient. Voir l'encadré de `MOT_COULEUR_AUTOMATIQUE`. */}
+                <button type="button" role="menuitem" className="edr-pastille edr-pastille--auto"
+                  title={MOT_COULEUR_AUTOMATIQUE} aria-label={MOT_COULEUR_AUTOMATIQUE}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => { retirerCouleur(); setCouleurOuverte(false); }} />
                 {COULEURS.map((c) => (
                   <button key={c.valeur} type="button" role="menuitem" className="edr-pastille"
                     title={c.mot} aria-label={c.mot} style={{ background: c.valeur }}
@@ -215,10 +307,37 @@ export function EditeurRiche({
             )}
           </span>
 
+          {/* LE SURLIGNAGE. Il MANQUAIT à cette barre — d'où « des options ne marchent pas » : elles n'existaient
+              pas. `hiliteColor` produit un `background-color`, que l'assainissement laisse passer. */}
+          <span className="edr-couleur">
+            <button type="button" className="edr-bouton" title="Surlignage" aria-label="Surlignage"
+              aria-expanded={surlignageOuvert}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { setCouleurOuverte(false); setSurlignageOuvert((v) => !v); }}>
+              <span aria-hidden="true">🖍</span>
+            </button>
+            {surlignageOuvert && (
+              <span className="edr-palette" role="menu" aria-label="Surlignages">
+                {/* « Aucun » retire le fond : la même porte de sortie que pour la couleur du texte. */}
+                <button type="button" role="menuitem" className="edr-pastille edr-pastille--aucun"
+                  title="Aucun surlignage" aria-label="Aucun surlignage"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => { agir('hiliteColor', 'transparent'); setSurlignageOuvert(false); }} />
+                {SURLIGNAGES.map((c) => (
+                  <button key={c.valeur} type="button" role="menuitem" className="edr-pastille"
+                    title={c.mot} aria-label={`Surligner en ${c.mot.toLowerCase()}`} style={{ background: c.valeur }}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => { agir('hiliteColor', c.valeur); setSurlignageOuvert(false); }} />
+                ))}
+              </span>
+            )}
+          </span>
+
           <span className="edr-sep" aria-hidden="true" />
           {bouton('gauche', 'Aligner à gauche', '⯇', 'justifyLeft')}
           {bouton('centre', 'Centrer', '≡', 'justifyCenter')}
           {bouton('droite', 'Aligner à droite', '⯈', 'justifyRight')}
+          {bouton('justifie', 'Justifier', '☰', 'justifyFull')}
 
           <span className="edr-sep" aria-hidden="true" />
           {bouton('numerotee', 'Liste numérotée', '1.', 'insertOrderedList')}
@@ -229,6 +348,13 @@ export function EditeurRiche({
 
           <span className="edr-sep" aria-hidden="true" />
           {bouton('net', 'Effacer la mise en forme', '⌫', 'removeFormat')}
+
+          {/* ANNULER / RÉTABLIR. Ils MANQUAIENT aussi. ⚠️ Ils doivent passer par `agir`, donc par le rétablissement
+              de la sélection : `execCommand('undo')` appliqué hors du champ défait la frappe d'ailleurs dans la
+              page, ou ne fait rien du tout. Le raccourci clavier du navigateur continue de fonctionner en plus. */}
+          <span className="edr-sep" aria-hidden="true" />
+          {bouton('annuler', 'Annuler', '↶', 'undo')}
+          {bouton('retablir', 'Rétablir', '↷', 'redo')}
         </div>
       )}
 
@@ -258,6 +384,8 @@ export interface ApiEditeur {
   insererHtml: (html: string) => void;
   insererLien: (texte: string, url: string) => void;
   focus: () => void;
+  /** Le texte actuellement sélectionné, pour pré-remplir le libellé d'un lien. Vide s'il n'y a pas de sélection. */
+  texteSelectionne: () => string;
 }
 
 export const CSS_EDITEUR_RICHE = `
@@ -280,6 +408,16 @@ export const CSS_EDITEUR_RICHE = `
   box-shadow:0 4px 14px color-mix(in srgb, var(--color-svv-ink) 12%, transparent)}
 .edr-pastille{width:22px;height:22px;padding:0;border:1px solid var(--color-svv-line);border-radius:50%;cursor:pointer}
 .edr-pastille:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+/* 🔴 « Automatique » : peinte avec la couleur de TEXTE du theme — noire en clair, blanche en sombre. C'est le seul
+   endroit de cette barre ou un jeton de charte est juste : elle ne montre pas une couleur, elle montre l'etat
+   « celle de l'ecran ». Le liseré plus marque la distingue d'une pastille de couleur ordinaire. */
+.edr-pastille--auto{background:var(--color-svv-ink);border-color:var(--color-svv-line-strong);border-width:2px}
+/* « Aucun surlignage » : un damier clair, qui dit « rien » sans etre une 5e couleur. */
+.edr-pastille--aucun{background:
+  linear-gradient(45deg,var(--color-svv-line) 25%,transparent 25%,transparent 75%,var(--color-svv-line) 75%),
+  linear-gradient(45deg,var(--color-svv-line) 25%,transparent 25%,transparent 75%,var(--color-svv-line) 75%),
+  var(--color-svv-surface);
+  background-size:10px 10px;background-position:0 0,5px 5px}
 /* La zone d'ecriture. overflow-wrap:anywhere : une URL collee ne doit pas elargir la fenetre. */
 .edr-zone{padding:8px 2px;overflow-wrap:anywhere;overflow-y:auto;max-height:46vh}
 .edr-zone:focus{outline:none}

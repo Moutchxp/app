@@ -463,6 +463,43 @@ export async function listerContenu(
   return { ok: true, valeur: versFichiers(await res.json().catch(() => ({}))) };
 }
 
+/**
+ * ══ 🔴 LOT EDITEUR-PJ — CHERCHER UN FICHIER PAR SON NOM, DANS TOUT LE DRIVE. LECTURE SEULE. ═══════════════════════
+ *
+ * POURQUOI IL EN FALLAIT UNE. Le Drive du cabinet fait ~15 000 dossiers sur 13 niveaux (mesuré le 25/09/2026).
+ * Retrouver « bail 2024 signé » en descendant treize dossiers est un travail ; le nom, lui, on s'en souvient.
+ *
+ * 🔴🔴 CE QUE CETTE RECHERCHE NE CHANGE PAS : LE DROIT DE JOINDRE. Elle rend des noms, dans tout le Drive — comme
+ * la navigation, qui laisse déjà voir le contenu de « Documents clients scannés ». Le verdict, lui, se prononce
+ * TOUJOURS au moment de lire les octets, en remontant la chaîne des parents du fichier lui-même
+ * (`/api/admin/gestion/drive/fichiers?fichier=…&contenu=1`). Un fichier protégé peut donc apparaître dans une
+ * liste de résultats ; il ne peut pas en sortir. C'est la même règle qu'ailleurs, appliquée au même endroit.
+ *
+ * ⚠️ LES DOSSIERS SONT ÉCARTÉS : on cherche ici ce qu'on va JOINDRE. Chercher un dossier existe déjà
+ * (`chercherDossiers`), pour le sélecteur de dépôt, et les deux listes n'ont pas le même usage.
+ *
+ * ⚠️ `echapperQ` — une apostrophe dans un nom (« Bail d'habitation ») fermerait la chaîne de la requête Google et
+ * ferait échouer la recherche, ou pire, en changerait le sens.
+ */
+export async function chercherFichiers(
+  accessToken: string, texte: string, deps: DepsGoogle, pageSize = 40,
+): Promise<Resultat<FichierDrive[]>> {
+  const terme = texte.trim();
+  // Deux caractères, comme partout ailleurs dans le module : une lettre seule remonterait la moitié du Drive.
+  if (terme.length < 2) return { ok: true, valeur: [] };
+  const p = new URLSearchParams({
+    q: `name contains '${echapperQ(terme)}' and mimeType != '${MIME_DOSSIER}' and trashed = false`,
+    fields: CHAMPS_FICHIERS,
+    pageSize: String(pageSize),
+    orderBy: 'modifiedTime desc',
+    corpora: 'allDrives',
+    ...PARTAGES,
+  });
+  const res = await deps.fetch(`${API_FICHIERS}?${p}`, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la recherche de fichiers') };
+  return { ok: true, valeur: versFichiers(await res.json().catch(() => ({}))) };
+}
+
 /** Les MÉTADONNÉES d'un élément : nom, type, taille, parents. LECTURE SEULE — jamais le contenu. */
 export async function lireMetadonnees(
   accessToken: string, id: string, deps: DepsGoogle,

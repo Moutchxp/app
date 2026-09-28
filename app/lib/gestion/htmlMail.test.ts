@@ -204,6 +204,85 @@ describe('④ ce qui doit survivre — la mise en forme de la barre d’outils',
 
 /**
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT EDITEUR-PJ — CE QUE LA BARRE D'OUTILS PRODUIT VRAIMENT, ET QUI SE PERDAIT À L'ENVOI.
+ *
+ * Arno : « des options ne marchent pas ». Chaque commande a été exercée dans Chrome le 28/09/2026 et le HTML
+ * RÉELLEMENT produit a été relevé — c'est lui qui est éprouvé ici, pas une forme idéale écrite de mémoire. Deux
+ * mises en forme étaient justes à l'écran et fausses dans le mail :
+ *
+ *   ① LA POLICE. `font-family: Georgia, "Times New Roman", serif` est sérialisé par le navigateur en
+ *      `&quot;…&quot;`. Cette entité SE TERMINE PAR UN POINT-VIRGULE : le découpage des déclarations coupait en
+ *      plein milieu du nom de police, et il ne partait que `font-family: Georgia, &quot`. « Serif » et « Largeur
+ *      fixe » n'arrivaient donc jamais chez le destinataire.
+ *
+ *   ② LE RETRAIT. « Augmenter le retrait » produit un `blockquote` avec `border: none`. `border` n'étant pas
+ *      autorisé, seul lui tombait — et le destinataire voyait le TRAIT VERTICAL DE CITATION que sa messagerie
+ *      ajoute d'office à un `blockquote` nu. On demandait un retrait, on envoyait une citation.
+ *
+ * 🔴 ET LE DÉCODAGE REND LE FILTRE PLUS STRICT, PAS PLUS PERMISSIF : `expression&#40;…` passait sous son nez.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 LOT EDITEUR-PJ — les formes EXACTES relevées dans Chrome', () => {
+  /** Les six commandes qui produisent un `span` de style : relevées telles quelles dans le navigateur. */
+  it('gras, italique, souligné, barré, taille et couleur survivent tels que Chrome les écrit', () => {
+    const cas: [string, string][] = [
+      ['font-weight: bold', '<p><span style="font-weight: bold;">x</span></p>'],
+      ['font-style: italic', '<p><span style="font-style: italic;">x</span></p>'],
+      // ⚠️ Chrome écrit `text-decoration-line`, PAS `text-decoration` : les deux doivent être autorisés.
+      ['text-decoration-line: underline', '<p><span style="text-decoration-line: underline;">x</span></p>'],
+      ['text-decoration-line: line-through', '<p><span style="text-decoration-line: line-through;">x</span></p>'],
+      ['font-size: xx-large', '<p><span style="font-size: xx-large;">x</span></p>'],
+      ['color: rgb(163, 4, 2)', '<p><span style="color: rgb(163, 4, 2);">x</span></p>'],
+      // Le SURLIGNAGE, ajouté à la barre par ce lot : `hiliteColor` produit un `background-color`.
+      ['background-color: rgb(255, 242, 168)', '<p><span style="background-color: rgb(255, 242, 168);">x</span></p>'],
+    ];
+    for (const [attendu, html] of cas) expect(assainirHtml(html), attendu).toContain(attendu);
+  });
+
+  it('🔴 ① LA POLICE ARRIVE ENTIÈRE — le `;` de `&quot;` ne coupe plus le nom en deux', () => {
+    const chrome = '<p><span style="font-family: Georgia, &quot;Times New Roman&quot;, serif;">x</span></p>';
+    const r = assainirHtml(chrome);
+    expect(r).toContain('Times New Roman');
+    expect(r).toContain('serif');
+    // Le défaut se reconnaissait à cette chaîne exacte : la déclaration tronquée juste après l'entité.
+    expect(r).not.toContain('&amp;quot');
+  });
+
+  it('…et la police à largeur fixe aussi, qui porte le même guillemet', () => {
+    const r = assainirHtml('<span style="font-family: &quot;Courier New&quot;, Courier, monospace;">x</span>');
+    expect(r).toContain('Courier New');
+    expect(r).toContain('monospace');
+  });
+
+  it('🔴 ② LE RETRAIT RESTE UN RETRAIT : `border: none` survit, donc pas de trait de citation chez le destinataire', () => {
+    const chrome = '<blockquote style="margin: 0px 0px 0px 40px; border: none; padding: 0px;"><p>x</p></blockquote>';
+    const r = assainirHtml(chrome);
+    expect(r).toContain('border: none');
+    expect(r).toContain('margin: 0px 0px 0px 40px');
+  });
+
+  it('les alignements, y compris « justifier », partent sur le bloc', () => {
+    for (const v of ['left', 'center', 'right', 'justify']) {
+      expect(assainirHtml(`<p style="text-align: ${v};">x</p>`)).toContain(`text-align: ${v}`);
+    }
+  });
+
+  it('🔴 le décodage RESSERRE le filtre : une propriété dangereuse écrite en entités est maintenant vue et refusée', () => {
+    // Avant le décodage, `expression&#40;` n'était pas reconnu comme `expression(` et traversait le filtre.
+    expect(styleSur(decoderEntites('color: expression&#40;alert(1)&#41;'))).toBe('');
+    expect(styleSur(decoderEntites('background-color: url&#40;//espion.fr/p.gif&#41;'))).toBe('');
+    // …et une déclaration honnête n'est pas touchée pour autant.
+    expect(styleSur(decoderEntites('color: #a30402'))).toBe('color: #a30402');
+  });
+
+  it('🔴 aucune bordure ne peut aller chercher une image au dehors', () => {
+    expect(assainirHtml('<p style="border-image: url(//espion.fr/p.gif);">x</p>')).not.toContain('espion');
+    expect(assainirHtml('<p style="border: 1px solid url(//espion.fr/p.gif);">x</p>')).not.toContain('espion');
+  });
+});
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  * 🔴 ⑤ LA VERSION TEXTE — celle que reçoit une partie des destinataires.
  *
  * Un `multipart/alternative` laisse le client choisir : beaucoup de gens verront CETTE version. Une version bâclée

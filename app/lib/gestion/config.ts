@@ -60,8 +60,18 @@ export const CONFIG_GESTION_DEFAUT: ConfigGestion = {
   // 60 s : un mail apparaît dans la minute, et Gmail reçoit une interrogation par minute — très en deçà de ce qu'il
   //   tolère. Descendre plus bas n'améliorerait rien de perceptible et multiplierait les connexions.
   releveContinueSecondes: 60,
-  // 10 s : le temps de relire l'objet et de se raviser, sans faire douter que le mail soit parti.
-  annulationEnvoiSecondes: 10,
+  /**
+   * 🔴 3 s — DEMANDE D'ARNO (28/09/2026), en remplacement des 10 s d'origine.
+   *
+   * Le raisonnement d'alors — « le temps de relire l'objet » — se trompait sur ce qu'on fait pendant ce délai : on
+   * ne relit rien, on attend. Quand on se ravise, on le sait DÉJÀ au moment du clic, et trois secondes suffisent à
+   * porter la main sur « Annuler ». Dix secondes, c'est dix secondes passées à regarder un message ne pas partir,
+   * dix fois par jour.
+   *
+   * ⚠️ CETTE CONSTANTE N'EST QU'UN REPLI : la valeur qui s'applique est celle de `gestion_config`. Le défaut ne
+   * sert que si la colonne manque ou porte une valeur aberrante — voir `delaiAnnulationValide`.
+   */
+  annulationEnvoiSecondes: 3,
 };
 
 /**

@@ -513,3 +513,15 @@ export function libelleSourceContactDisponible(): Promise<boolean> {
 export function evenementQualifieDisponible(): Promise<boolean> {
   return memoiser('table.gestion_evenement_partie', () => tableExiste('gestion_evenement_partie'));
 }
+
+/**
+ * 🔴 LOT EDITEUR-PJ — la migration 269 est-elle appliquée ? Elle tient l'historique des pièces et des dossiers
+ * qu'une personne a réellement joints à un mail (`gestion_piece_recente`).
+ *
+ * 🔴 TANT QU'ELLE MANQUE, LES DEUX ÉCRANS SONT EXACTEMENT CEUX D'AVANT : la section « Récents » ne s'affiche pas —
+ * ni dans le sélecteur Drive, ni sous « Joindre un fichier » — et AUCUNE requête ne nomme la table absente. On
+ * navigue dossier par dossier et l'on passe par le sélecteur du Mac, comme aujourd'hui.
+ */
+export function piecesRecentesDisponibles(): Promise<boolean> {
+  return memoiser('table.gestion_piece_recente', () => tableExiste('gestion_piece_recente'));
+}

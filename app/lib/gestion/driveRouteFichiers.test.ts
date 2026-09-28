@@ -107,6 +107,64 @@ describe('les autres garanties de la route', () => {
 });
 
 /**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴🔴 LOT EDITEUR-PJ — LA RECHERCHE PAR NOM, ET L'HISTORIQUE « RÉCENTS ».
+ *
+ * Deux ajouts qui touchent au Drive, et deux garanties à tenir :
+ *   ① LA RECHERCHE NE CRÉE AUCUNE PORTE. Elle LIT des noms dans tout le Drive — comme la navigation, qui laisse
+ *      déjà voir le contenu de « Documents clients scannés ». Le refus, lui, reste prononcé au même endroit :
+ *      sur le FICHIER, avant de lire ses octets. Ce test vérifie que la recherche est bien AVANT ce contrôle dans
+ *      le flux, et qu'elle n'y touche pas.
+ *   ② L'HISTORIQUE N'ÉCRIT RIEN DANS LE DRIVE. Il vit dans notre base. Un test statique, parce que ce qu'on veut
+ *      garantir est une NON-ACTION.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴🔴 la recherche par nom ne déplace aucune barrière', () => {
+  it('elle n’utilise qu’une lecture : `chercherFichiers`, jamais une écriture', () => {
+    const c = code();
+    expect(c).toContain('chercherFichiers');
+    expect(/files\.create|files\.update|files\.delete|permissions\.create/.test(c)).toBe(false);
+  });
+
+  /**
+   * 🔴 L'ORDRE EST LA GARANTIE. La branche de recherche rend la liste et SORT ; elle ne peut donc pas atteindre
+   * la lecture de contenu. Celle-ci reste gardée par `verdict(` comme avant — c'est déjà vérifié plus haut.
+   */
+  it('🔴 la branche de recherche ne lit JAMAIS le contenu d’un fichier', () => {
+    const c = code();
+    const debut = c.indexOf("recherche !== ''");
+    const fin = c.indexOf('const meta = await lireMetadonnees');
+    expect(debut).toBeGreaterThan(-1);
+    expect(fin).toBeGreaterThan(debut);
+    expect(c.slice(debut, fin)).not.toContain('lireContenuFichier');
+  });
+
+  /** La requête Google échappe le terme : une apostrophe dans un nom ne doit pas en changer le sens. */
+  it('le terme cherché est échappé avant d’entrer dans la requête Google', () => {
+    const drive = readFileSync('app/lib/gestion/drive.ts', 'utf8');
+    const bloc = drive.slice(drive.indexOf('export async function chercherFichiers'));
+    expect(bloc.slice(0, 1400)).toContain('echapperQ(terme)');
+  });
+});
+
+describe('🔴🔴 l’historique « Récents » n’écrit rien dans le Drive', () => {
+  it('sa route ne parle jamais à Google', () => {
+    const c = code('app/(admin)/api/admin/gestion/pieces-recentes/route.ts');
+    expect(/googleapis|drive\.google|jetonPourRequete|files\.list/.test(c)).toBe(false);
+    expect(/method:\s*'(POST|PATCH|PUT|DELETE)'/.test(c)).toBe(false);
+    expect(c).toContain('export async function GET');
+    expect(/export async function (POST|PUT|PATCH|DELETE)/.test(c)).toBe(false);
+  });
+
+  /** 🔒 Le compte vient de la SESSION, jamais d'un paramètre : l'historique d'autrui ne se demande pas. */
+  it('🔒 le compte est lu dans la session, pas dans la requête', () => {
+    const c = code('app/(admin)/api/admin/gestion/pieces-recentes/route.ts');
+    expect(c).toContain('auteurDeLaRequete(request)');
+    expect(c).not.toMatch(/searchParams\.get\(\s*'compte/);
+  });
+});
+
+/**
  * 🔴 LE SÉLECTEUR À L'ÉCRAN N'EST PAS LA BARRIÈRE — mais il doit tout de même EXPLIQUER, et ne pas offrir un bouton
  * que la route refusera. Un bouton qui échoue au clic apprend à ignorer les refus.
  */

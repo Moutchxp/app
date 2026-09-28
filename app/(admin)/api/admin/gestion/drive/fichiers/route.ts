@@ -1,8 +1,8 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import {
-  chaineParents, listerContenu, listerDrivesAvecId, listerPartagesAvecMoi, lireContenuFichier, lireMetadonnees,
-  MIME_DOSSIER,
+  chaineParents, chercherFichiers, listerContenu, listerDrivesAvecId, listerPartagesAvecMoi, lireContenuFichier,
+  lireMetadonnees, MIME_DOSSIER,
 } from '../../../../../../lib/gestion/drive';
 import { jetonPourRequete } from '../../../../../../lib/gestion/jetonCollaborateur';
 import { indexerMaillons, peutJoindre } from '../../../../../../lib/gestion/driveLectureFichier';
@@ -74,9 +74,33 @@ export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const fichier = (url.searchParams.get('fichier') ?? '').trim();
   const dossier = (url.searchParams.get('dossier') ?? '').trim();
+  const recherche = (url.searchParams.get('recherche') ?? '').trim();
   const veutContenu = url.searchParams.get('contenu') === '1';
 
   try {
+    /**
+     * ── 🔴 LOT EDITEUR-PJ — LA RECHERCHE PAR NOM, dans tout le Drive ──────────────────────────────────────────
+     *
+     * 🔴🔴 LE VERDICT N'EST PAS RENDU POUR LA LISTE, ET C'EST ASSUMÉ. Ailleurs, il est calculé une fois pour le
+     * DOSSIER courant (voir ① ci-dessous) et vaut pour ses fichiers. Des résultats venus de tout le Drive n'ont
+     * aucun dossier commun : il faudrait remonter la chaîne des parents de quarante fichiers, soit des centaines
+     * d'appels Google pour afficher une liste.
+     *
+     * 🔴 CE N'EST PAS UN TROU, PARCE QUE LA BARRIÈRE N'A JAMAIS ÉTÉ LÀ. Le refus se prononce en ②, sur le fichier
+     * lui-même, au moment de lire les octets — et il vaut pour cette liste comme pour toutes les autres. Un
+     * fichier de « Documents clients scannés » peut donc apparaître dans une recherche (son NOM est déjà visible
+     * en navigation) ; ses octets, eux, ne sortiront pas. L'écran le dit d'avance, plutôt que de le laisser
+     * découvrir au clic.
+     */
+    if (recherche !== '' && fichier === '') {
+      const trouves = await chercherFichiers(jeton.jeton, recherche, { fetch });
+      if (!trouves.ok) return json({ etat: 'indisponible', message: trouves.motif }, 200);
+      return json({
+        etat: 'ok', fichiers: trouves.valeur, recherche: true,
+        joindreAutorise: true, motifRefus: null,
+      });
+    }
+
     /**
      * ── ⓪ LA RACINE : LES TROIS ENTRÉES DE GOOGLE DRIVE ───────────────────────────────────────────────────────
      * « Mon Drive », les « Drives partagés », « Partagés avec moi ». Les mêmes que le sélecteur de DOSSIER (lot

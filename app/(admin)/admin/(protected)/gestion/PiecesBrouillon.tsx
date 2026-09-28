@@ -21,21 +21,45 @@ import {
  * 🔒 AUCUNE URL DE STOCKAGE N'ARRIVE ICI. La liste porte un nom, un type, une taille — jamais de quoi aller chercher
  * les octets ailleurs que par nos routes.
  *
- * ⚠️ UNE PIÈCE NE PEUT ÊTRE JOINTE QU'À UN BROUILLON DÉJÀ ENREGISTRÉ : il faut un identifiant pour l'y rattacher.
- * L'éditeur enregistre tout seul après une seconde de silence ; en attendant, la zone le DIT plutôt que d'avaler un
- * fichier qui n'irait nulle part.
+ * ═══ 🔴 LOT EDITEUR-PJ — LE BOUTON NE RESTE PLUS GRISÉ ══════════════════════════════════════════════════════════════
+ * Il l'était avec « Le brouillon s'enregistre… vous pourrez joindre un fichier dans un instant », et cet instant
+ * n'arrivait JAMAIS sur un message neuf : l'enregistrement automatique ne part que si l'on a SAISI quelque chose
+ * (règle du lot BROUILLON-SILENCIEUX, qui évite de semer des brouillons vides), or on veut souvent joindre AVANT
+ * d'écrire. Deux règles justes qui, ensemble, faisaient une impasse — et une promesse que l'écran ne tenait pas.
+ *
+ * 🔴 LA SORTIE : JOINDRE EST UNE SAISIE. On ne joint pas un fichier par accident. Le bouton est donc actif dès
+ * l'ouverture, et c'est LUI qui fait créer le brouillon (`onBesoinDeBrouillon`) au moment où l'on s'en sert.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
-export function PiecesBrouillon({ brouillonId, onChange }: {
-  /** `null` = le brouillon n'est pas encore enregistré : on ne peut rien y rattacher, et on le dit. */
+
+/** Une pièce déjà envoyée depuis l'ordinateur, telle que la route des « Récents » la rend. */
+interface PieceRecente {
+  cle: string;
+  libelle: string;
+  detail: string | null;
+  tailleOctets: number | null;
+}
+
+export function PiecesBrouillon({ brouillonId, onChange, onBesoinDeBrouillon, actions }: {
+  /** `null` = le brouillon n'est pas encore enregistré. Il le sera à la première pièce (voir l'encadré). */
   brouillonId: number | null;
   /** Prévient l'éditeur du nombre de pièces (il l'affiche à côté du bouton « Envoyer »). */
   onChange?: (n: number) => void;
+  /**
+   * 🔴 CRÉE LE BROUILLON S'IL N'EXISTE PAS ENCORE, et rend son identifiant. Absent ⇒ comportement d'avant ce lot :
+   * le bouton attend qu'un brouillon existe.
+   */
+  onBesoinDeBrouillon?: () => Promise<number | null>;
+  /** Les outils qui partagent cette barre : le Drive et le lien (lot EDITEUR-PJ). */
+  actions?: React.ReactNode;
 }) {
   const [pieces, setPieces] = useState<PieceBrouillonAffichee[]>([]);
   const [message, setMessage] = useState<string | null>(null);
   const [occupe, setOccupe] = useState(false);
   const [survol, setSurvol] = useState(false);
+  const [recentsOuverts, setRecentsOuverts] = useState(false);
+  /** `null` = pas encore lus. `disponible: false` = migration 269 absente ⇒ la section n'existe pas. */
+  const [recents, setRecents] = useState<{ lignes: PieceRecente[]; disponible: boolean } | null>(null);
   const champ = useRef<HTMLInputElement | null>(null);
 
   const relire = useCallback(async (): Promise<void> => {
@@ -51,21 +75,65 @@ export function PiecesBrouillon({ brouillonId, onChange }: {
   // Le compte remonte à l'éditeur À CHAQUE changement — y compris après un retrait.
   useEffect(() => { if (onChange) onChange(pieces.length); }, [onChange, pieces.length]);
 
+  /**
+   * ══ 🔴 « RÉCENTS » — LES PIÈCES DÉJÀ ENVOYÉES DEPUIS L'ORDINATEUR ════════════════════════════════════════════
+   *
+   * ⚠️ POURQUOI ELLES VIENNENT DE CHEZ NOUS, ET PAS DU DISQUE. Un navigateur n'a PAS accès à l'historique des
+   * fichiers du Mac, et c'est une protection, pas un manque : une page web qui saurait ce que vous avez ouvert en
+   * saurait beaucoup trop. On s'appuie donc sur NOS propres pièces, celles qui sont déjà passées par ici.
+   */
+  useEffect(() => {
+    let annule = false;
+    void (async () => {
+      try {
+        const res = await fetch('/api/admin/gestion/pieces-recentes?sorte=locale', { cache: 'no-store' });
+        const d = (await res.json()) as { etat?: string; lignes?: PieceRecente[]; disponible?: boolean };
+        if (annule) return;
+        setRecents(d.etat === 'ok'
+          ? { lignes: d.lignes ?? [], disponible: d.disponible !== false }
+          : { lignes: [], disponible: false });
+      } catch { if (!annule) setRecents({ lignes: [], disponible: false }); }
+    })();
+    return () => { annule = true; };
+  }, []);
+
   const total = totalJoint(pieces);
 
+  /** L'identifiant du brouillon, créé à la demande s'il n'existe pas encore. Voir l'encadré du composant. */
+  const brouillonPret = async (): Promise<number | null> => {
+    if (brouillonId !== null) return brouillonId;
+    return (await onBesoinDeBrouillon?.()) ?? null;
+  };
+
   const ajouter = async (fichiers: FileList | File[]): Promise<void> => {
-    if (brouillonId === null) return;
+    /**
+     * 🔴 LA LISTE EST COPIÉE AVANT TOUT `await`, ET CE N'EST PAS UNE PRÉCAUTION DÉCORATIVE.
+     *
+     * Le champ natif est remis à zéro juste après cet appel (`e.target.value = ''`, indispensable pour pouvoir
+     * redéposer deux fois le même fichier) — et vider la valeur d'un `<input type="file">` VIDE AUSSI son
+     * `FileList`, qui est une vue vivante, pas une copie. Tant que rien n'était attendu avant la boucle, celle-ci
+     * tournait dans le même temps d'exécution et ne voyait pas le vidage. Depuis que le brouillon est créé à la
+     * demande, il y a un `await` avant : sans cette copie, la liste était VIDE au moment de la lire, aucune
+     * requête ne partait, et l'écran n'affichait ni pièce ni erreur. Mesuré dans Chrome avant correction.
+     */
+    const lot = Array.from(fichiers);
     setOccupe(true);
     setMessage(null);
+    const id = await brouillonPret();
+    if (id === null) {
+      setMessage('Le brouillon n’a pas pu être créé : la pièce n’a pas été jointe.');
+      setOccupe(false);
+      return;
+    }
     let courant = total;
-    for (const f of Array.from(fichiers)) {
+    for (const f of lot) {
       // ① LA RÈGLE, AVANT L'ENVOI : inutile de pousser 30 Mo pour se les faire refuser.
       const verdict = verifierPiece({ nom: f.name, taille: f.size, dejaJoint: courant });
       if (!verdict.ok) { setMessage(verdict.motif); continue; }
       const corps = new FormData();
       corps.append('fichier', f);
       try {
-        const res = await fetch(`/api/admin/gestion/brouillons/${brouillonId}/pieces`, { method: 'POST', body: corps });
+        const res = await fetch(`/api/admin/gestion/brouillons/${id}/pieces`, { method: 'POST', body: corps });
         const d = (await res.json()) as { etat?: string; message?: string };
         if (d.etat !== 'ok') { setMessage(d.message ?? 'Cette pièce n’a pas pu être jointe.'); continue; }
         courant += f.size;
@@ -74,6 +142,38 @@ export function PiecesBrouillon({ brouillonId, onChange }: {
       }
     }
     await relire();
+    setOccupe(false);
+  };
+
+  /**
+   * REJOINDRE UNE PIÈCE DÉJÀ ENVOYÉE. Les octets sont chez nous : on ne redemande rien au Mac.
+   *
+   * 🔴 LA CLÉ N'EST PAS CRUE SUR PAROLE PAR LE SERVEUR : la route vérifie qu'elle figure dans l'historique DE CE
+   * COMPTE avant de relire le moindre octet. Sans cela, une clé de stockage envoyée d'ici ferait de n'importe quel
+   * objet du seau une pièce jointe.
+   */
+  const rejoindre = async (r: PieceRecente): Promise<void> => {
+    setOccupe(true);
+    setMessage(null);
+    const id = await brouillonPret();
+    if (id === null) {
+      setMessage('Le brouillon n’a pas pu être créé : la pièce n’a pas été jointe.');
+      setOccupe(false);
+      return;
+    }
+    const verdict = verifierPiece({ nom: r.libelle, taille: r.tailleOctets ?? 0, dejaJoint: total });
+    if (!verdict.ok) { setMessage(verdict.motif); setOccupe(false); return; }
+    try {
+      const corps = new FormData();
+      corps.append('recent', r.cle);
+      const res = await fetch(`/api/admin/gestion/brouillons/${id}/pieces`, { method: 'POST', body: corps });
+      const d = (await res.json()) as { etat?: string; message?: string };
+      if (d.etat !== 'ok') setMessage(d.message ?? 'Cette pièce n’a pas pu être jointe.');
+    } catch {
+      setMessage('La pièce n’a pas pu être jointe : le serveur n’a pas répondu.');
+    }
+    await relire();
+    setRecentsOuverts(false);
     setOccupe(false);
   };
 
@@ -99,24 +199,53 @@ export function PiecesBrouillon({ brouillonId, onChange }: {
     >
       <div className="pjb-barre">
         <span className="red-label">Pièces jointes</span>
+        {/* 🔴 ACTIF DÈS L'OUVERTURE. Le brouillon est créé au moment du clic, s'il n'existe pas encore : joindre
+            un fichier EST une saisie, et le brouillon a désormais quelque chose à garder. */}
         <button
-          type="button" className="pjb-ajouter" disabled={brouillonId === null || occupe}
+          type="button" className="pjb-ajouter" disabled={occupe}
           onClick={() => champ.current?.click()}
         >
           {occupe ? 'Ajout en cours…' : '📎 Joindre un fichier'}
         </button>
+        {/* ⚠️ `multiple` : la sélection multiple du sélecteur du Mac. Elle existait déjà et reste acquise. */}
         <input
           ref={champ} type="file" multiple className="pjb-champ" tabIndex={-1} aria-hidden="true"
           onChange={(e) => { if (e.target.files) void ajouter(e.target.files); e.target.value = ''; }}
         />
+        {/* 🔴 LOT EDITEUR-PJ — les deux icônes venues de la barre du bas : le Drive, puis le lien. Même hauteur
+            que « Joindre un fichier », parce que c'est le même geste avec une autre source. */}
+        {actions}
+        {/* « Récents » : un panneau, pas une liste toujours ouverte — la zone des pièces doit rester courte. */}
+        {recents?.disponible === true && recents.lignes.length > 0 && (
+          <button type="button" className="pjb-recents-bouton" aria-expanded={recentsOuverts} disabled={occupe}
+            onClick={() => setRecentsOuverts((v) => !v)}>
+            Récents ({recents.lignes.length})
+          </button>
+        )}
       </div>
+
+      {/* ══ 🔴 LES PIÈCES DÉJÀ ENVOYÉES DEPUIS L'ORDINATEUR ══════════════════════════════════════════════════ */}
+      {recentsOuverts && recents?.disponible === true && (
+        <ul className="pjb-recents" aria-label="Pièces récentes">
+          {recents.lignes.map((r) => (
+            <li key={r.cle} className="pjb-recent">
+              <button type="button" className="pjb-recent-bouton" disabled={occupe}
+                onClick={() => void rejoindre(r)} title={`Rejoindre ${r.libelle}`}>
+                📎 {r.libelle}
+                {r.tailleOctets !== null && (
+                  <span className="pjb-taille"> · {taillePourHumain(r.tailleOctets)}</span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {/* Le glisser-déposer ne se devine pas : on l'écrit. Et le total joint est TOUJOURS visible — on découvre
           sinon la limite au moment où l'on croyait envoyer. */}
       <p className="pjb-aide">
-        {brouillonId === null
-          ? 'Le brouillon s’enregistre… vous pourrez joindre un fichier dans un instant.'
-          : <>Glissez vos fichiers ici, ou utilisez le bouton. {taillePourHumain(total)} joints sur {taillePourHumain(TAILLE_MAX_TOTALE)} au maximum.</>}
+        Glissez vos fichiers ici, ou utilisez le bouton. {taillePourHumain(total)} joints
+        sur {taillePourHumain(TAILLE_MAX_TOTALE)} au maximum.
       </p>
 
       {pieces.length > 0 && (
@@ -157,6 +286,25 @@ export const CSS_PIECES_BROUILLON = `
 .pjb-ajouter:disabled{opacity:.55;cursor:default}
 /* Le champ natif est masqué mais JAMAIS retiré du DOM : c'est lui qui ouvre le sélecteur du système. */
 .pjb-champ{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+/* 🔴 LOT EDITEUR-PJ — le Drive et le lien, venus de la barre du bas. MÊME HAUTEUR que « Joindre un fichier »
+   (44 px) pour que la rangée s'aligne : c'etait la demande, et une icone plus petite se rate au doigt. */
+.pjb-outil{display:inline-flex;align-items:center;justify-content:center;min-width:44px;min-height:44px;padding:0;
+  font:inherit;font-size:1.05rem;color:var(--color-svv-ink);background:var(--color-svv-field);
+  border:1px solid var(--color-svv-line-strong);border-radius:.5rem;cursor:pointer}
+.pjb-outil:hover:not(:disabled){border-color:var(--color-svv-ink)}
+.pjb-outil:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.pjb-recents-bouton{min-height:44px;padding:0 .7rem;border-radius:.5rem;border:1px solid var(--color-svv-line-strong);
+  background:var(--color-svv-surface);color:var(--color-svv-ink);font:inherit;font-size:.8rem;cursor:pointer}
+.pjb-recents-bouton:hover:not(:disabled){border-color:var(--color-svv-ink)}
+.pjb-recents-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.pjb-recents{list-style:none;margin:0;padding:6px;display:flex;flex-direction:column;gap:2px;
+  background:var(--color-svv-field);border-radius:.5rem}
+.pjb-recent{min-width:0}
+.pjb-recent-bouton{width:100%;min-height:40px;padding:0 .4rem;text-align:left;font:inherit;font-size:.82rem;
+  color:var(--color-svv-ink);background:transparent;border:1px solid transparent;border-radius:.4rem;cursor:pointer;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pjb-recent-bouton:hover:not(:disabled){background:var(--color-svv-surface);border-color:var(--color-svv-line)}
+.pjb-recent-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .pjb-aide{margin:0;font-size:.76rem;color:var(--color-svv-muted);line-height:1.4}
 .pjb-liste{list-style:none;margin:2px 0 0;padding:0;display:flex;flex-direction:column;gap:3px}
 .pjb-item{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-height:44px;padding:4px 6px;border-radius:8px;

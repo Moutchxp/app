@@ -4,6 +4,8 @@ import {
   adresseValide, citerMessage, decouperAdresses, encoreAnnulable, extraireAdresse, nettoyerDestinataires,
   prefixerObjet, preparerBrouillon, pretAEnvoyer, secondesRestantes,
   type ContexteRedaction, type MessageOrigine, brouillonTouche} from './redaction';
+// LOT EDITEUR-PJ — le REPLI du délai d'annulation vit dans la configuration, et c'est lui qu'on tient ici.
+import { CONFIG_GESTION_DEFAUT, delaiAnnulationValide } from './config';
 
 /**
  * LOT 5e — QUI REÇOIT QUOI. Module PUR, donc éprouvé ENTIÈREMENT — et c'est exactement ce qu'on veut pour le geste le
@@ -207,17 +209,39 @@ describe('LA FENÊTRE D’ANNULATION', () => {
   const clic = new Date('2026-09-24T12:00:00Z');
   const plus = (s: number) => new Date(clic.getTime() + s * 1000);
 
+  /**
+   * 🔴 LOT EDITEUR-PJ — LE DÉLAI EST DE 3 SECONDES (demande d'Arno du 28/09/2026), au lieu de 10.
+   *
+   * ⚠️ LE DÉFAUT DU CODE N'EST QU'UN REPLI : ce qui s'applique est la valeur de `gestion_config`. Ce test tient le
+   * repli ; la valeur en base, elle, est portée par la migration livrée avec ce lot.
+   */
+  it('🔴 le défaut est de 3 secondes', () => {
+    expect(CONFIG_GESTION_DEFAUT.annulationEnvoiSecondes).toBe(3);
+    // …et il reste dans les bornes que la base accepte, sinon l'écran et la base ne diraient pas la même chose.
+    expect(delaiAnnulationValide(CONFIG_GESTION_DEFAUT.annulationEnvoiSecondes)).toBe(3);
+  });
+
   it('annulable tant que le délai n’est pas écoulé, plus après', () => {
-    expect(encoreAnnulable(clic, plus(0), 10)).toBe(true);
-    expect(encoreAnnulable(clic, plus(9.9), 10)).toBe(true);
-    expect(encoreAnnulable(clic, plus(10), 10)).toBe(false);
+    expect(encoreAnnulable(clic, plus(0), 3)).toBe(true);
+    expect(encoreAnnulable(clic, plus(2.9), 3)).toBe(true);
+    expect(encoreAnnulable(clic, plus(3), 3)).toBe(false);
   });
 
   it('le compte à rebours s’arrondit AU-DESSUS : on n’affiche jamais « 0 » alors qu’il reste du temps', () => {
-    expect(secondesRestantes(clic, plus(0), 10)).toBe(10);
-    expect(secondesRestantes(clic, plus(0.1), 10)).toBe(10);
-    expect(secondesRestantes(clic, plus(9.1), 10)).toBe(1);
-    expect(secondesRestantes(clic, plus(10), 10)).toBe(0);
+    expect(secondesRestantes(clic, plus(0), 3)).toBe(3);
+    expect(secondesRestantes(clic, plus(0.1), 3)).toBe(3);
+    expect(secondesRestantes(clic, plus(2.1), 3)).toBe(1);
+    expect(secondesRestantes(clic, plus(3), 3)).toBe(0);
+  });
+
+  /**
+   * ⚠️ LE DÉLAI EST UN ARGUMENT, PAS UNE CONSTANTE CACHÉE. Arno peut le régler en base ; si la fonction lisait un
+   * chiffre écrit en dur, le réglage n'aurait aucun effet et personne ne s'en apercevrait avant un mail parti trop
+   * tôt. On l'éprouve donc à une valeur qui n'est PAS le défaut.
+   */
+  it('une autre valeur de réglage est bien respectée', () => {
+    expect(secondesRestantes(clic, plus(0), 30)).toBe(30);
+    expect(encoreAnnulable(clic, plus(29.9), 30)).toBe(true);
   });
 
   it('un délai de 0 part immédiatement — et c’est une valeur VALIDE', () => {

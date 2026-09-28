@@ -79,6 +79,19 @@ const PROPRIETES = new Set([
   'text-decoration', 'text-decoration-line', 'text-align',
   'margin-left', 'margin-right', 'padding-left', 'padding-right',
   'border-left', 'padding', 'margin', 'line-height', 'white-space',
+  /**
+   * 🔴 LA FAMILLE `border`, AJOUTÉE AU LOT EDITEUR-PJ — et pas par goût de la complétude.
+   *
+   * MESURÉ dans Chrome le 28/09/2026 : « Augmenter le retrait » produit
+   * `<blockquote style="margin: 0 0 0 40px; border: none; padding: 0">`. Sans `border` dans cette liste, seul le
+   * `border: none` tombait — et le destinataire recevait un `blockquote` nu, que sa messagerie décore d'un TRAIT
+   * VERTICAL DE CITATION. Autrement dit : on demandait un retrait, on envoyait une citation. La mise en forme était
+   * juste à l'écran et fausse dans le mail — exactement le défaut que ce lot cherchait.
+   *
+   * ⚠️ AUCUNE DE CES PROPRIÉTÉS NE VA CHERCHER QUOI QUE CE SOIT AU DEHORS : `border-image` n'y est PAS, et le
+   * filtre sur `url(` plus bas reste la barrière — une bordure ne doit pas pouvoir devenir une balise espion.
+   */
+  'border', 'border-color', 'border-style', 'border-width', 'border-radius',
 ]);
 
 /** Les protocoles qu'un lien a le droit de porter. Tout le reste — `javascript:`, `vbscript:`, `file:`, `data:` — non. */
@@ -117,7 +130,27 @@ export function urlAcceptable(brut: string, protocoles: readonly string[] = PROT
   return protocoles.some((p) => v.startsWith(p));
 }
 
-/** Le contenu d'un `style=`, propriété par propriété. Rend `''` quand rien ne survit. PUR. */
+/**
+ * Le contenu d'un `style=`, propriété par propriété. Rend `''` quand rien ne survit. PUR.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LA VALEUR ARRIVE DÉCODÉE (voir `attributsSurs`), ET C'EST INDISPENSABLE POUR DEUX RAISONS.
+ *
+ * ① LA POLICE ÉTAIT CASSÉE, ET PERSONNE NE POUVAIT LE VOIR DANS NOS FICHIERS. Choisir « Serif » produit
+ *    `font-family: Georgia, "Times New Roman", serif`. Sérialisé par le navigateur, le guillemet devient `&quot;` —
+ *    une entité qui SE TERMINE PAR UN POINT-VIRGULE. Le découpage ci-dessous, qui sépare les déclarations sur `;`,
+ *    coupait donc en plein milieu du nom de police : il ne restait que `font-family: Georgia, &quot`, et la police
+ *    du mail retombait sur celle par défaut. Mesuré le 28/09/2026 : « Serif » et « Largeur fixe » ne partaient pas.
+ *
+ * ② ET C'EST PLUS SÛR, PAS MOINS. Le filtre ci-dessous cherche `url(`, `expression(`, `javascript:`. Écrits en
+ *    entités (`expression&#40;…`), ils passaient sous son nez. Décoder AVANT de juger, c'est juger ce que le
+ *    navigateur du destinataire lira vraiment — la même règle que pour les URL (`decoderPourJuger`).
+ *
+ * ⚠️ CE QUI RESTE IMPARFAIT, ET QU'ON ASSUME : un `;` à l'intérieur d'une valeur entre guillemets couperait encore.
+ * Aucune propriété de cette liste blanche n'en produit ; écrire un analyseur CSS complet pour ce cas serait un
+ * projet à part, et chaque bogue s'y verrait dans un mail parti.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
 export function styleSur(brut: string): string {
   const gardees: string[] = [];
   for (const decl of brut.split(';')) {
@@ -149,7 +182,9 @@ function attributsSurs(balise: string, brut: string): string {
     if (nom.startsWith('on')) continue;
     if (nom === 'style') {
       if (!STYLE_PARTOUT) continue;
-      const s = styleSur(valeur);
+      // 🔴 DÉCODÉ AVANT D'ÊTRE JUGÉ : le `;` de `&quot;` coupait les noms de police en deux, et un `expression&#40;`
+      //   passait le filtre. Voir l'encadré de `styleSur`. `echapperAttribut` ré-échappe ensuite pour la sortie.
+      const s = styleSur(decoderEntites(valeur));
       if (s !== '') sortie.push(`style="${echapperAttribut(s)}"`);
       continue;
     }

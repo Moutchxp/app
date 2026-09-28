@@ -5,7 +5,9 @@ import { CSS_PIECES_BROUILLON, PiecesBrouillon } from './PiecesBrouillon';
 // LOT REDACTION-GMAIL — le corps en texte mis en forme, et le nettoyage du HTML collé (module PUR, partagé serveur).
 import { CSS_EDITEUR_RICHE, EditeurRiche, type ApiEditeur } from './EditeurRiche';
 import { htmlVersTexte, texteVersHtml } from '../../../../lib/gestion/htmlMail';
-import { SelecteurFichierDrive, CSS_SELECTEUR_FICHIER } from './SelecteurFichierDrive';
+import {
+  SelecteurFichierDrive, CSS_SELECTEUR_FICHIER, type ChoixFichierDrive,
+} from './SelecteurFichierDrive';
 import { ChampClassement, CSS_CHAMP_CLASSEMENT } from './ChampClassement';
 import {
   adresseValide, decouperAdresses, MENTION_DESTINATAIRES_APPROXIMATIFS, MENTION_PIECES_NON_JOINTES,
@@ -422,6 +424,9 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
             body: JSON.stringify({
               id: b.id, filId: b.filId, repondAMessageId: b.repondALeMessageId, voie: b.voie,
               a: b.a, cc: b.cc, cci: b.cci, objet: b.objet, corps: b.corps, citation: b.citation,
+              // 🔴 LOT EDITEUR-PJ — LA MISE EN FORME PART AVEC. Elle ne partait pas : un brouillon rouvert
+              //   revenait en texte brut, gras et couleurs perdus, sans que rien ne le dise.
+              corpsHtml: b.corpsHtml ?? null,
             }),
           });
           const d = (await res.json().catch(() => ({}))) as { brouillon?: { id: number } };
@@ -453,16 +458,77 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
    * ⚠️ IL FAUT UN BROUILLON EN BASE pour y attacher une pièce. Si l'enregistrement automatique n'a pas encore eu
    * lieu, on le DIT plutôt que de perdre le fichier en silence.
    */
-  const joindreDepuisDrive = async (f: { nom: string; typeMime: string; contenuBase64: string }): Promise<void> => {
-    const id = aEnregistrer.current.id ?? brouillon.id;
+  /**
+   * ══ 🔴 LOT EDITEUR-PJ — LE BROUILLON EST CRÉÉ À LA DEMANDE ════════════════════════════════════════════════════
+   *
+   * LE DÉFAUT, CONSTATÉ PAR ARNO : « Joindre un fichier » restait grisé avec « Le brouillon s'enregistre… », et ne
+   * s'activait JAMAIS. Ce n'était pas une lenteur, c'était une impasse. L'enregistrement automatique ne part que si
+   * quelque chose a été SAISI (règle du lot BROUILLON-SILENCIEUX, qui évite de semer des brouillons vides à chaque
+   * ouverture) — or sur un message neuf, on veut souvent joindre AVANT d'écrire. Les deux règles se contredisaient,
+   * et c'est l'attente qui perdait : le message promettait un enregistrement qui n'arriverait pas.
+   *
+   * 🔴 LA SORTIE N'EST PAS DE RELÂCHER LA RÈGLE — ce serait recréer les brouillons fantômes. C'est de dire que
+   * JOINDRE EST UNE SAISIE : on ne joint pas un fichier par accident. Le brouillon est donc créé À CE MOMENT-LÀ,
+   * parce qu'il y a désormais quelque chose à garder.
+   *
+   * ⚠️ RÉENTRANT : deux clics rapprochés ne doivent pas créer deux brouillons. La promesse en cours est mémorisée
+   * et partagée — le second appel attend le premier au lieu d'en lancer un second.
+   */
+  const creationEnCours = useRef<Promise<number | null> | null>(null);
+  const assurerBrouillon = useCallback(async (): Promise<number | null> => {
+    const deja = aEnregistrer.current.id ?? brouillon.id;
+    if (deja !== null) return deja;
+    if (creationEnCours.current !== null) return creationEnCours.current;
+    const p = (async (): Promise<number | null> => {
+      const b = aEnregistrer.current;
+      try {
+        const res = await fetch('/api/admin/gestion/brouillons', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: null, filId: b.filId, repondAMessageId: b.repondALeMessageId, voie: b.voie,
+            a: b.a, cc: b.cc, cci: b.cci, objet: b.objet, corps: b.corps, citation: b.citation,
+            corpsHtml: b.corpsHtml ?? null,
+          }),
+        });
+        const d = (await res.json().catch(() => ({}))) as { brouillon?: { id: number } };
+        if (!res.ok || !d.brouillon) return null;
+        onChange({ ...aEnregistrer.current, id: d.brouillon.id });
+        aEnregistrer.current = { ...aEnregistrer.current, id: d.brouillon.id };
+        return d.brouillon.id;
+      } catch {
+        return null;
+      } finally {
+        creationEnCours.current = null;
+      }
+    })();
+    creationEnCours.current = p;
+    return p;
+  }, [brouillon.id, onChange]);
+
+  const joindreDepuisDrive = async (c: ChoixFichierDrive): Promise<void> => {
+    const f = c.joint;
+    if (!f) return;
+    const id = await assurerBrouillon();
     if (id === null) {
-      onGeste('Écrivez d’abord quelques mots : la pièce a besoin d’un brouillon enregistré pour s’y attacher.');
+      onGeste('La pièce n’a pas pu être jointe : le brouillon n’a pas pu être créé.');
       return;
     }
     try {
-      const binaire = Uint8Array.from(atob(f.contenuBase64), (c) => c.charCodeAt(0));
+      const binaire = Uint8Array.from(atob(f.contenuBase64), (c2) => c2.charCodeAt(0));
       const corps = new FormData();
       corps.append('fichier', new File([binaire], f.nom, { type: f.typeMime || 'application/octet-stream' }));
+      /**
+       * 🔴 D'OÙ VIENT LA PIÈCE, pour l'historique « Récents » (migration 269). Ces identifiants Drive ne donnent
+       * AUCUN droit : les rouvrir repasse par la route, qui remonte la chaîne des parents et refuse tout ce qui
+       * est sous « Documents clients scannés ». Un fichier de ce dossier ne peut d'ailleurs jamais arriver ici :
+       * la route aurait refusé d'en lire les octets.
+       */
+      if (c.origine) {
+        corps.append('driveFichier', c.origine.fichierId);
+        corps.append('driveNom', f.nom);
+        if (c.origine.dossierId) corps.append('driveDossier', c.origine.dossierId);
+        if (c.origine.dossierNom) corps.append('driveDossierNom', c.origine.dossierNom);
+      }
       const res = await fetch(`/api/admin/gestion/brouillons/${id}/pieces`, { method: 'POST', body: corps });
       const d = (await res.json()) as { etat?: string; message?: string };
       onGeste(d.etat === 'ok' ? `« ${f.nom} » joint depuis le Drive.` : (d.message ?? 'Cette pièce n’a pas pu être jointe.'));
@@ -708,7 +774,29 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
       {/* ══ LOT 5-PJ-ENVOI — LES PIÈCES JOINTES ══ Rendues seulement si la base sait les mémoriser : proposer de
           joindre un fichier qu'on ne saurait pas retenir ferait perdre le fichier ET le message. */}
       {contexte.piecesDisponibles && (
-        <PiecesBrouillon key={versionPieces} brouillonId={brouillon.id} onChange={setPiecesJointes} />
+        <PiecesBrouillon key={versionPieces} brouillonId={brouillon.id} onChange={setPiecesJointes}
+          onBesoinDeBrouillon={assurerBrouillon}
+          /**
+           * 🔴 LOT EDITEUR-PJ — LES DEUX ICÔNES REJOIGNENT LA ZONE DES PIÈCES (demande d'Arno). Elles vivaient en
+           * bas, à côté d'« Envoyer », parmi les outils du message. Or « joindre depuis le Drive » et « joindre un
+           * fichier » sont LE MÊME geste avec deux sources : les séparer de trente centimètres obligeait à chercher.
+           * Le Drive d'abord, le lien ensuite — l'ordre demandé.
+           *
+           * ⚠️ RIEN N'EST RETIRÉ : ce sont les mêmes boutons, avec les mêmes libellés et les mêmes actions. Seul
+           * leur emplacement change, et leur taille (alignée sur « Joindre un fichier »).
+           */
+          actions={(
+            <>
+              <button type="button" className="pjb-outil" title="Insérer depuis Google Drive"
+                aria-label="Insérer un fichier depuis Google Drive" onClick={() => setDrive(true)}>
+                <span aria-hidden="true">▲</span>
+              </button>
+              <button type="button" className="pjb-outil" title="Insérer un lien" aria-label="Insérer un lien"
+                onClick={() => setLien({ texte: editeur.current?.texteSelectionne() ?? '', url: '' })}>
+                <span aria-hidden="true">🔗</span>
+              </button>
+            </>
+          )} />
       )}
 
       {/* LA CITATION, REPLIÉE : on écrit au-dessus, on ne relit pas ce qu'on vient de lire. Elle part avec le message. */}
@@ -753,13 +841,15 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
 
       {/* ══ 🔴🔴 LE SÉLECTEUR DRIVE ══ « Joindre » y est INTERDIT sous « Documents clients scannés » ; seul le lien
           y est proposé. La route refuse de son côté — l'écran explique, le serveur protège. */}
+      {/* 🔴 LOT EDITEUR-PJ — LA FENÊTRE NE SE FERME PLUS À CHAQUE PIÈCE : on en prend autant qu'on veut, dans
+          autant de dossiers qu'on veut, et c'est « Terminé » qui ferme. Insérer un LIEN, en revanche, referme :
+          c'est un geste qui finit dans le corps du message, et l'on veut voir où il a atterri. */}
       {drive && (
         <SelecteurFichierDrive
           onFermer={() => setDrive(false)}
-          onChoisir={(c) => {
-            setDrive(false);
-            if (c.lien) { editeur.current?.insererLien(c.lien.nom, c.lien.url); return; }
-            if (c.joint) void joindreDepuisDrive(c.joint);
+          onChoisir={async (c) => {
+            if (c.lien) { setDrive(false); editeur.current?.insererLien(c.lien.nom, c.lien.url); return; }
+            await joindreDepuisDrive(c);
           }} />
       )}
 
@@ -794,14 +884,8 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
             onClick={() => setBarreOutils((v) => !v)}>
             <span aria-hidden="true">Aa</span>
           </button>
-          <button type="button" className="red-outil" title="Insérer un lien" aria-label="Insérer un lien"
-            onClick={() => setLien({ texte: '', url: '' })}>
-            <span aria-hidden="true">🔗</span>
-          </button>
-          <button type="button" className="red-outil" title="Insérer depuis Google Drive"
-            aria-label="Insérer un fichier depuis Google Drive" onClick={() => setDrive(true)}>
-            <span aria-hidden="true">▲</span>
-          </button>
+          {/* ⚠️ LE DRIVE ET LE LIEN ONT DÉMÉNAGÉ dans la zone PIÈCES JOINTES (lot EDITEUR-PJ) : ils y sont à côté
+              de « Joindre un fichier », qui est le même geste avec une autre source. Rien n'a été retiré. */}
           {/* ⚠️ LA CORBEILLE EST LA DERNIÈRE, et elle DEMANDE confirmation : c'est le seul geste de cette rangée
               qui détruit quelque chose. */}
           <button type="button" className="red-outil red-outil--rouge" title="Supprimer le brouillon"
