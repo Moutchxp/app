@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { formaterTaille } from '../../../../lib/gestion/ecran';
+// LOT DRIVE-DOSSIER-DU-BIEN — le dossier du propriétaire du bien rattaché, proposé en première position.
+import {
+  dossiersPrioritaires, mentionNbBiens, titreDossierPrioritaire, type BienDuMail, type DossierPrioritaire,
+} from '../../../../lib/gestion/dossierDuBien';
 
 /**
  * LOT REDACTION-GMAIL — CHOISIR UN FICHIER DU DRIVE, POUR LE JOINDRE OU POUR EN INSÉRER LE LIEN.
@@ -80,10 +84,20 @@ export interface ChoixFichierDrive {
   lien?: { nom: string; url: string };
 }
 
-export function SelecteurFichierDrive({ onChoisir, onFermer }: {
+export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots = [] }: {
   /** Ajoute la pièce au brouillon. ⚠️ NE FERME PAS la fenêtre : c'est « Terminé » qui ferme. */
   onChoisir: (c: ChoixFichierDrive) => void | Promise<void>;
   onFermer: () => void;
+  /**
+   * 🔴 LOT DRIVE-DOSSIER-DU-BIEN — de quoi savoir à quel(s) bien(s) ce mail est relié.
+   *
+   * `filId` : l'échange auquel on répond — ses rattachements vivants donnent les biens.
+   * `lots`  : les lots choisis À L'ÉCRITURE (« Classer ce mail »), pour un message neuf qui n'a pas d'échange.
+   *
+   * Les deux absents ⇒ aucune ligne prioritaire, et le sélecteur est exactement celui d'avant ce lot.
+   */
+  filId?: number | null;
+  lots?: readonly string[];
 }) {
   const [vue, setVue] = useState<Vue>({ v: 'charge' });
   /** Le fil d'Ariane : deux dossiers « Documents » à deux endroits sont la règle, pas l'exception. */
@@ -97,6 +111,8 @@ export function SelecteurFichierDrive({ onChoisir, onFermer }: {
   const [recents, setRecents] = useState<{ lignes: Recent[]; disponible: boolean } | null>(null);
   /** Le terme de la recherche d'où l'on est entré dans un dossier. `null` = on n'en vient pas. */
   const [rechercheOuverte, setRechercheOuverte] = useState<string | null>(null);
+  /** 🔴 LOT DRIVE-DOSSIER-DU-BIEN — les dossiers des biens rattachés, en tête. Vide = rien à proposer. */
+  const [prioritaires, setPrioritaires] = useState<DossierPrioritaire[]>([]);
   const champ = useRef<HTMLInputElement | null>(null);
 
   const charger = useCallback(async (dossierId: string) => {
@@ -145,6 +161,40 @@ export function SelecteurFichierDrive({ onChoisir, onFermer }: {
     })();
     return () => { annule = true; };
   }, []);
+
+  /**
+   * ══ 🔴 LOT DRIVE-DOSSIER-DU-BIEN — LE DOSSIER DU BIEN, EN PREMIÈRE POSITION ══════════════════════════════════
+   *
+   * Demande d'Arno : « lorsqu'un mail est déjà relié à un bien, le drive doit nous emmener directement sur le
+   * dossier du bien correspondant en proposition prioritaire ».
+   *
+   * 🔴 AUCUN APPEL AU DRIVE POUR CELA. La correspondance est déjà en base depuis le lot 253 (le dossier du
+   * propriétaire, par clé WIPPIMMO) : on ne cherche rien chez Google, et l'ouverture du sélecteur ne coûte pas
+   * une requête de plus.
+   *
+   * ⚠️ AUCUN BIEN (message neuf sans classement, échange « Hors gestion ») ⇒ liste vide ⇒ aucune ligne. « Rien ne
+   * change », mot pour mot.
+   */
+  useEffect(() => {
+    if (filId === null && lots.length === 0) return undefined;
+    let annule = false;
+    void (async () => {
+      try {
+        const p = new URLSearchParams();
+        if (filId !== null) p.set('fil', String(filId));
+        if (lots.length > 0) p.set('lots', lots.join(','));
+        const res = await fetch(`/api/admin/gestion/drive/dossier-du-bien?${p}`, { cache: 'no-store' });
+        const d = (await res.json()) as { etat?: string; biens?: BienDuMail[]; dossiers?: DossierPrioritaire[] };
+        if (annule || d.etat !== 'ok') return;
+        // ⚠️ LE REGROUPEMENT VIENT DU MODULE PUR, et le serveur l'a déjà fait : on le refait ici SEULEMENT si le
+        //   serveur ne l'a pas rendu, pour qu'un ancien serveur ne fasse pas disparaître la fonction en silence.
+        setPrioritaires(d.dossiers ?? dossiersPrioritaires(d.biens ?? []));
+      } catch { /* un raccourci absent n'est pas une panne : le sélecteur reste entièrement utilisable */ }
+    })();
+    return () => { annule = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `lots` est un tableau littéral côté appelant : le
+    //   suivre relancerait la lecture à chaque rendu. Sa CLÉ suffit, et elle ne change qu'avec son contenu.
+  }, [filId, lots.join(',')]);
 
   /**
    * LA RECHERCHE, TEMPORISÉE (250 ms). ⚠️ `annule` couvre les DEUX cas : fenêtre refermée, et réponse PÉRIMÉE —
@@ -321,6 +371,33 @@ export function SelecteurFichierDrive({ onChoisir, onFermer }: {
           ))}
         </nav>
 
+        {/* ══ 🔴 LOT DRIVE-DOSSIER-DU-BIEN — LE DOSSIER DU BIEN, EN TÊTE ════════════════════════════════════════
+            Demande d'Arno : première ligne, en évidence, AU-DESSUS de Récents. C'est l'endroit où l'on va neuf
+            fois sur dix quand on répond à un mail déjà rattaché — le mettre après les Récents obligerait à lire
+            une liste pour trouver l'entrée la plus sûre.
+
+            🔴 LA LIGNE DIT DE QUI EST LE DOSSIER. Il est rangé par PROPRIÉTAIRE, pas par logement : 58 bailleurs
+            portent plusieurs lots. Annoncer « dossier du bien » tout court ferait croire à un rangement par
+            logement qui n'existe pas, et l'on croirait s'être trompé de dossier en l'ouvrant.
+
+            ⚠️ ELLE NE S'AFFICHE QUE PENDANT LA NAVIGATION ORDINAIRE : dans des résultats de recherche, elle
+            n'aurait rien à voir avec ce qu'on regarde. */}
+        {prioritaires.length > 0 && ariane.length === 0 && saisie.trim().length < 2 && (
+          <section className="sfd-prio" aria-label="Dossier du bien">
+            {prioritaires.map((d) => (
+              <button key={d.dossierId} type="button" className="sfd-prio-ligne"
+                onClick={() => entrer({ id: d.dossierId, nom: d.dossierNom || d.libelle })}>
+                <span className="sfd-prio-titre">
+                  <span aria-hidden="true">📁</span> {titreDossierPrioritaire(d)}
+                </span>
+                <span className="sfd-prio-bien">{d.libelle}</span>
+                {/* Le nombre n'est dit QUE s'il y en a plusieurs : « 1 bien » est du bruit. */}
+                {mentionNbBiens(d) !== null && <span className="sfd-mention">{mentionNbBiens(d)}</span>}
+              </button>
+            ))}
+          </section>
+        )}
+
         {/* ══ 🔴 « RÉCENTS » — ce qu'on a réellement joint, le plus récent en premier ═══════════════════════════ */}
         {montrerRecents && (
           <section className="sfd-recents" aria-label="Récents">
@@ -469,6 +546,18 @@ export const CSS_SELECTEUR_FICHIER = `
   border-bottom:1px solid var(--color-svv-line)}
 .sfd-mention{font-size:.74rem;color:var(--color-svv-muted);white-space:nowrap;margin-left:auto}
 .sfd-groupe{display:flex;flex-direction:column;gap:2px;min-width:0}
+/* 🔴 LA LIGNE PRIORITAIRE — en EVIDENCE, parce qu'elle est la bonne reponse neuf fois sur dix. Le liseré rouge
+   la distingue sans crier : ce n'est pas une alerte, c'est un raccourci. Cible pleine largeur, 44 px au moins. */
+.sfd-prio{display:flex;flex-direction:column;gap:4px;min-width:0;padding-bottom:8px;
+  border-bottom:1px solid var(--color-svv-line)}
+.sfd-prio-ligne{display:flex;flex-direction:column;gap:1px;width:100%;min-height:44px;padding:8px 10px;
+  text-align:left;font:inherit;color:var(--color-svv-ink);background:var(--color-svv-field);
+  border:1px solid var(--color-svv-line);border-left:3px solid var(--color-svv-red);border-radius:.5rem;
+  cursor:pointer;min-width:0}
+.sfd-prio-ligne:hover{border-color:var(--color-svv-ink);border-left-color:var(--color-svv-red)}
+.sfd-prio-ligne:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.sfd-prio-titre{font-size:.88rem;font-weight:700;overflow-wrap:anywhere}
+.sfd-prio-bien{font-size:.8rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .sfd-retour{align-self:flex-start;font-size:.82rem}
 /* 🔴🔴 Le dossier interdit : dit en MOTS, avec un fond qui le distingue — jamais la couleur seule. */
 .sfd-interdit{margin:0;padding:8px 10px;font-size:.82rem;color:var(--color-svv-ink);

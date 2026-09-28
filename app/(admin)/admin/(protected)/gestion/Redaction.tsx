@@ -841,6 +841,20 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
           c'est un geste qui finit dans le corps du message, et l'on veut voir où il a atterri. */}
       {drive && (
         <SelecteurFichierDrive
+          /**
+           * 🔴 LOT DRIVE-DOSSIER-DU-BIEN — DE QUOI SAVOIR À QUEL BIEN CE MAIL EST RELIÉ.
+           *
+           * Deux sources, et elles ne se recouvrent pas :
+           *   · l'ÉCHANGE auquel on répond — ses rattachements vivants donnent les biens ;
+           *   · les LOTS CHOISIS À L'ÉCRITURE (« Classer ce mail »), pour un message neuf qui n'a pas d'échange.
+           *
+           * ⚠️ UN ÉCHANGE « HORS GESTION » N'A AUCUN RATTACHEMENT VIVANT : il ne produit donc aucune ligne
+           * prioritaire, sans qu'aucune règle de plus soit écrite ici.
+           */
+          filId={brouillon.filId ?? null}
+          lots={(brouillon.cibles ?? [])
+            .filter((c) => c.sorte === 'lot' && typeof c.cle === 'string' && c.cle !== '')
+            .map((c) => c.cle as string)}
           onFermer={() => setDrive(false)}
           onChoisir={async (c) => {
             if (c.lien) { setDrive(false); editeur.current?.insererLien(c.lien.nom, c.lien.url); return; }

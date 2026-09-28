@@ -28,6 +28,7 @@ let choisis: unknown[];
 let fermetures: number;
 let contenu: Record<string, unknown>;
 let recents: Record<string, unknown>;
+let prioritaires: Record<string, unknown>;
 let appels: string[];
 
 const fichier = (id: string, nom: string, dossier = false) => ({
@@ -43,9 +44,11 @@ beforeEach(() => {
     fichiers: [fichier('d1', 'Artisans', true), fichier('f1', 'bail.pdf'), fichier('f2', 'devis.pdf')],
   };
   recents = { etat: 'ok', disponible: false, lignes: [] };
+  prioritaires = { etat: 'ok', biens: [], dossiers: [] };
   global.fetch = vi.fn(async (url: string | URL) => {
     const u = String(url);
     appels.push(u);
+    if (u.includes('/dossier-du-bien')) return { ok: true, json: async () => prioritaires } as unknown as Response;
     if (u.includes('/pieces-recentes')) return { ok: true, json: async () => recents } as unknown as Response;
     if (u.includes('contenu=1')) {
       return { ok: true, json: async () => ({ etat: 'ok', contenuBase64: 'AAAA' }) } as unknown as Response;
@@ -285,5 +288,143 @@ describe('🔴 ⑤ « Récents » sans la migration 269', () => {
     await cliquer(b);
     expect(choisis).toHaveLength(0);
     expect(appels.some((u) => u.includes('dossier=d9'))).toBe(true);
+  });
+});
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT DRIVE-DOSSIER-DU-BIEN — LE DOSSIER DU BIEN, EN PREMIÈRE POSITION.
+ *
+ * Demande d'Arno : « lorsqu'un mail est déjà relié à un bien, le drive doit nous emmener directement sur le dossier
+ * du bien correspondant en proposition prioritaire (1re position) ».
+ *
+ * Ce qui est protégé ici :
+ *   ① 🔴 LA LIGNE EST AU-DESSUS DE « RÉCENTS » — c'est l'entrée la plus sûre, la chercher sous une liste serait
+ *      la perdre ;
+ *   ② un clic OUVRE le dossier dans la MÊME fenêtre, qui ne se ferme pas ;
+ *   ③ 🔴 MAIL SANS BIEN (message neuf sans classement, échange « Hors gestion ») ⇒ AUCUNE ligne, et rien ne change ;
+ *   ④ aucune requête n'est même émise quand le mail n'a ni échange ni lot.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
+  const dossier = (o: Record<string, unknown> = {}) => ({
+    dossierId: 'd-garreau', dossierNom: 'GARREAU Gabrielle (289)',
+    libelle: '28 Avenue Marceau, 92400 Courbevoie — lot 421',
+    cles: ['421'], proprietaire: 'GARREAU Gabrielle', ...o,
+  });
+  const monterAvecBien = async (props: Record<string, unknown> = {}) => {
+    await act(async () => {
+      root.render(createElement(SelecteurFichierDrive, {
+        onChoisir: (c: unknown) => { choisis.push(c); }, onFermer: () => { fermetures += 1; },
+        filId: 101, ...props,
+      } as never));
+    });
+    await calmer();
+  };
+
+  it('🔴 ① la ligne s’affiche, et AU-DESSUS de « Récents »', async () => {
+    prioritaires = { etat: 'ok', dossiers: [dossier()] };
+    recents = {
+      etat: 'ok', disponible: true,
+      lignes: [{ sorte: 'drive_dossier', cle: 'd9', libelle: 'MACJ', detail: null, tailleOctets: null }],
+    };
+    await monterAvecBien();
+    const prio = container.querySelector('.sfd-prio');
+    const rec = container.querySelector('.sfd-recents');
+    expect(prio).not.toBeNull();
+    expect(rec).not.toBeNull();
+    /**
+     * ⚠️ ON COMPARE LA POSITION DANS LE DOCUMENT, pas dans `innerHTML` : la feuille de style embarquée cite les
+     * deux classes bien avant le contenu, et une comparaison de chaînes mesurerait l'ordre du CSS, jamais celui
+     * des blocs à l'écran. Le premier jet de ce test s'y est laissé prendre.
+     */
+    expect(prio!.compareDocumentPosition(rec!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('🔴 elle NOMME le propriétaire et le bien — le dossier est rangé par propriétaire, pas par logement', async () => {
+    prioritaires = { etat: 'ok', dossiers: [dossier()] };
+    await monterAvecBien();
+    const bloc = container.querySelector('.sfd-prio');
+    expect(bloc?.textContent).toContain('GARREAU Gabrielle');
+    expect(bloc?.textContent).toContain('lot 421');
+  });
+
+  it('🔴 ② un clic OUVRE le dossier, et la fenêtre ne se ferme pas', async () => {
+    prioritaires = { etat: 'ok', dossiers: [dossier()] };
+    await monterAvecBien();
+    await cliquer(container.querySelector('.sfd-prio-ligne'));
+    expect(appels.some((u) => u.includes('dossier=d-garreau'))).toBe(true);
+    expect(fermetures).toBe(0);
+    expect(container.querySelector('.sfd')).not.toBeNull();
+  });
+
+  it('deux biens du même propriétaire : UNE ligne, qui dit combien', async () => {
+    prioritaires = {
+      etat: 'ok',
+      dossiers: [dossier({ cles: ['421', '422'], libelle: '28 Av. Marceau — lot 421 · 30 Av. Marceau — lot 422' })],
+    };
+    await monterAvecBien();
+    expect(container.querySelectorAll('.sfd-prio-ligne')).toHaveLength(1);
+    expect(container.querySelector('.sfd-prio')?.textContent).toContain('2 biens dans ce dossier');
+  });
+
+  it('deux propriétaires : DEUX lignes, dans l’ordre rendu par le serveur', async () => {
+    prioritaires = {
+      etat: 'ok',
+      dossiers: [
+        dossier({ dossierId: 'd-a', proprietaire: 'ZOLA', libelle: 'B1', cles: ['1'] }),
+        dossier({ dossierId: 'd-b', proprietaire: 'ABEL', libelle: 'B2', cles: ['2'] }),
+      ],
+    };
+    await monterAvecBien();
+    const lignes = [...container.querySelectorAll('.sfd-prio-ligne')];
+    expect(lignes).toHaveLength(2);
+    expect(lignes[0].textContent).toContain('ZOLA');
+    expect(lignes[1].textContent).toContain('ABEL');
+  });
+
+  /** 🔴 « Mail non relié à un bien, ou Hors gestion : comportement actuel inchangé » — demande d'Arno. */
+  it('🔴 ③ aucun bien ⇒ AUCUNE ligne, et le reste du sélecteur est intact', async () => {
+    prioritaires = { etat: 'ok', dossiers: [] };
+    await monterAvecBien();
+    expect(container.querySelector('.sfd-prio')).toBeNull();
+    expect(container.textContent).not.toContain('Dossier du bien');
+    // …et tout le reste marche comme avant.
+    expect(joindreDe('bail.pdf')).toBeDefined();
+    expect(boutonPar(/^Terminé$/)).toBeDefined();
+  });
+
+  it('🔴 ④ sans échange NI lot, aucune requête n’est même émise', async () => {
+    await monter();   // ni filId ni lots
+    expect(appels.some((u) => u.includes('/dossier-du-bien'))).toBe(false);
+    expect(container.querySelector('.sfd-prio')).toBeNull();
+  });
+
+  it('les lots choisis à l’écriture sont transmis, pour un message neuf sans échange', async () => {
+    prioritaires = { etat: 'ok', dossiers: [dossier()] };
+    await act(async () => {
+      root.render(createElement(SelecteurFichierDrive, {
+        onChoisir: () => {}, onFermer: () => {}, filId: null, lots: ['421', '494'],
+      } as never));
+    });
+    await calmer();
+    expect(appels.some((u) => u.includes('lots=421%2C494'))).toBe(true);
+  });
+
+  /** ⚠️ Dans des résultats de recherche, la ligne n'aurait rien à voir avec ce qu'on regarde. */
+  it('elle disparaît pendant une recherche, et revient quand on l’efface', async () => {
+    prioritaires = { etat: 'ok', dossiers: [dossier()] };
+    contenu = { ...contenu, recherche: true };
+    await monterAvecBien();
+    expect(container.querySelector('.sfd-prio')).not.toBeNull();
+    const champ = container.querySelector('.sfd-saisie') as HTMLInputElement;
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      set?.call(champ, 'bail');
+      champ.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await act(async () => { await new Promise((r) => setTimeout(r, 320)); });
+    await calmer();
+    expect(container.querySelector('.sfd-prio')).toBeNull();
   });
 });
