@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  cibleCourte, cibleCertaine, cibleEvenement, cibleLot, cibleProprietaire, candidatsDeLaVue,
-  estVivant, examinerMessage, libelleIssue, memeCible, statutInverse, vueDesAdresses, adressesUtiles,
+  cibleCourte, cibleEvenement, cibleLot, cibleProprietaire,
+  estVivant, examinerMessage, libelleIssue, memeCible, statutInverse, adressesUtiles,
   STATUTS_VIVANTS, type Statut,
 } from './rattachement';
+import type { BienConnu } from './propositionsBien';
 import type { AdresseEchange } from './propositionTri';
 import type { Reconnaissance } from './adressesMessage';
 import { lireOptions, partFr } from '../../scripts/proposer-rattachements';
@@ -36,6 +37,22 @@ const adr = (
   adresse: string, messageId: number, reconnaissance: Reconnaissance, interne = false,
 ): AdresseEchange => ({ adresse, messageId, interne, reconnaissance });
 
+/**
+ * 🔴 LOT AFFECTATION-PAR-BIEN — LE CATALOGUE DES BIENS, désormais indispensable au moteur : c'est lui, et lui
+ * seul, qui dit si un propriétaire n'a qu'UN bien (cas b, automatique) ou plusieurs (cas c, à trancher).
+ * Ici : 339 n'a qu'un bien (495) ; 800 en a trois (700, 701, 702) ; 700 est un bailleur sans aucun bien listé.
+ */
+const bien = (cle: string, prop: string, adresse: string): BienConnu => ({
+  cle, numero: cle, adresse, commune: 'Ville-Fictive', proprietaireCle: prop, proprietaireNom: `Bailleur ${prop}`,
+});
+const BIENS: BienConnu[] = [
+  bien('495', '339', '4 rue Fictive'),
+  bien('700', '800', '10 rue Imaginaire'),
+  bien('701', '800', '12 rue Imaginaire'),
+  bien('702', '800', '14 rue Imaginaire'),
+  bien('496', '900', '6 rue Fictive'),
+];
+
 describe('les cibles, écrites et comparées', () => {
   it('une cible se dit en une ligne, sans ambiguïté entre les trois sortes', () => {
     expect(cibleCourte(cibleLot('495'))).toBe('lot:495');
@@ -59,14 +76,14 @@ describe('🔴 nos adresses ne servent JAMAIS de clé', () => {
   it('une adresse interne est écartée, même reconnue par l’annuaire', () => {
     const a = [adr('gestion@criterimmo.fr', 1, proprietaire('339'), true)];
     expect(adressesUtiles(a)).toHaveLength(0);
-    const v = vueDesAdresses(a);
-    expect(v.lots.size).toBe(0);
-    expect(v.proprietaires.size).toBe(0);
+    // 🔴 Et le moteur n'en tire RIEN : nos adresses sont des deux côtés de presque tous les mails.
+    expect(examinerMessage({ messageId: 1, adressesEchange: a, biens: BIENS }).issue).toBe('sans_candidat');
   });
 
   it('un mail où NOUS sommes la seule partie reconnue n’a aucun candidat', () => {
     const e = examinerMessage({
       messageId: 1,
+      biens: BIENS,
       adressesEchange: [
         adr('gestion@criterimmo.fr', 1, proprietaire('339'), true),
         adr('compta@partenaire.fr', 1, locataire('495', '339'), true),
@@ -82,6 +99,7 @@ describe('une seule cible certaine ⇒ rattachement automatique', () => {
   it('un locataire qui écrit depuis son logement : le LOT, règle a, confiance haute', () => {
     const e = examinerMessage({
       messageId: 10,
+      biens: BIENS,
       adressesEchange: [
         adr('gestion@criterimmo.fr', 10, RIEN, true),
         adr('loc@fictif.fr', 10, locataire('495', '339')),
@@ -95,17 +113,36 @@ describe('une seule cible certaine ⇒ rattachement automatique', () => {
     expect(e.candidats).toHaveLength(0);
   });
 
-  it('un bailleur qui écrit pour lui-même, sans locataire : le PROPRIÉTAIRE', () => {
+  /**
+   * 🔴 LOT AFFECTATION-PAR-BIEN — LE CAS (b) D'ARNO. Un bailleur qui écrit pour lui-même ne donne plus la cible
+   * « propriétaire 339 » : il donne SON BIEN, parce qu'il n'en a qu'un. Même certitude, bon vocabulaire — et c'est
+   * un dossier, là où une personne n'en était pas un.
+   */
+  it('(b) un bailleur qui n’a QU’UN bien : ce BIEN, jamais le propriétaire', () => {
     const e = examinerMessage({
-      messageId: 11, adressesEchange: [adr('prop@fictif.fr', 11, proprietaire('339'))],
+      messageId: 11, biens: BIENS,
+      adressesEchange: [adr('prop@fictif.fr', 11, proprietaire('339'))],
     });
     expect(e.issue).toBe('automatique');
-    expect(e.certain?.cible).toEqual(cibleProprietaire('339'));
+    expect(e.certain?.cible).toEqual(cibleLot('495'));
+    expect(e.certain?.motif).toContain('n’a qu’un bien en gestion');
+  });
+
+  it('🔴 (c) un bailleur qui a PLUSIEURS biens ne donne AUCUN lien automatique', () => {
+    const e = examinerMessage({
+      messageId: 14, biens: BIENS,
+      adressesEchange: [adr('gros@fictif.fr', 14, proprietaire('800'))],
+    });
+    expect(e.issue).toBe('a_trier');
+    expect(e.candidats.map((c) => cibleCourte(c.cible))).toEqual(['lot:700', 'lot:701', 'lot:702']);
+    // 🔴 Et AUCUNE cible n'est un propriétaire : c'est toute la règle de ce lot.
+    expect(e.candidats.every((c) => c.cible.sorte === 'lot')).toBe(true);
   });
 
   it('le locataire ET son bailleur dans le même mail : UN SEUL logement, donc certain', () => {
     const e = examinerMessage({
       messageId: 12,
+      biens: BIENS,
       adressesEchange: [
         adr('loc@fictif.fr', 12, locataire('495', '339')),
         adr('prop@fictif.fr', 12, proprietaire('339')),
@@ -120,53 +157,68 @@ describe('une seule cible certaine ⇒ rattachement automatique', () => {
   it('🔴 un logement ET un bailleur ÉTRANGER : deux dossiers, donc AUCUNE certitude', () => {
     const e = examinerMessage({
       messageId: 13,
+      biens: BIENS,
       adressesEchange: [
         adr('loc@fictif.fr', 13, locataire('495', '339')),
-        adr('autre@fictif.fr', 13, proprietaire('700')),
+        // Un bailleur ÉTRANGER au logement : 900 possède le 496, qui n'a rien à voir avec le 495.
+        adr('autre@fictif.fr', 13, proprietaire('900')),
       ],
     });
     expect(e.issue).toBe('a_trier');
     expect(e.certain).toBeNull();
-    // Le logement, son bailleur, ET le bailleur étranger : trois candidats, aucun choisi.
-    expect(e.candidats.map((c) => cibleCourte(c.cible)).sort())
-      .toEqual(['lot:495', 'proprio:339', 'proprio:700']);
+    // Le logement du locataire ET le bien du bailleur étranger : deux dossiers, aucun choisi. Que des BIENS.
+    expect(e.candidats.map((c) => cibleCourte(c.cible)).sort()).toEqual(['lot:495', 'lot:496']);
   });
 });
 
 describe('plusieurs cibles ⇒ la file de tri, et rien d’autre', () => {
-  it('deux logements du MÊME bailleur : les deux logements ET le bailleur sont proposés', () => {
+  it('deux logements du MÊME bailleur : les DEUX LOGEMENTS, et rien d’autre', () => {
     const e = examinerMessage({
       messageId: 20,
+      biens: BIENS,
       adressesEchange: [
         adr('a@fictif.fr', 20, locataire('495', '339')),
         adr('b@fictif.fr', 20, locataire('496', '339')),
       ],
     });
     expect(e.issue).toBe('a_trier');
-    expect(e.candidats.map((c) => cibleCourte(c.cible)).sort()).toEqual(['lot:495', 'lot:496', 'proprio:339']);
-    // 🔴 Le bailleur est un candidat EN PLUS, jamais à la place : c'est au tri de choisir l'échelle.
-    const bailleur = e.candidats.find((c) => c.cible.sorte === 'proprietaire');
-    expect(bailleur?.confiance).toBe('moyenne');
-    expect(bailleur?.motif).toContain('propriétaire des logements désignés');
+    /**
+     * 🔴 LOT AFFECTATION-PAR-BIEN — LE BAILLEUR N'EST PLUS UN CANDIDAT. Il l'était « en plus, jamais à la place » ;
+     * Arno a tranché : une personne n'est pas un dossier. Les deux logements sont là, tous les deux cochables.
+     */
+    expect(e.candidats.map((c) => cibleCourte(c.cible)).sort()).toEqual(['lot:495', 'lot:496']);
+    expect(e.candidats.every((c) => c.cible.sorte === 'lot')).toBe(true);
   });
 
-  it('deux logements de bailleurs DIFFÉRENTS : quatre candidats, aucun tranché', () => {
+  it('deux logements de bailleurs DIFFÉRENTS : deux BIENS, aucun tranché', () => {
     const e = examinerMessage({
       messageId: 21,
+      biens: BIENS,
       adressesEchange: [
         adr('a@fictif.fr', 21, locataire('495', '339')),
         adr('b@fictif.fr', 21, locataire('700', '800')),
       ],
     });
     expect(e.issue).toBe('a_trier');
-    expect(e.candidats).toHaveLength(4);
+    expect(e.candidats.map((c) => cibleCourte(c.cible)).sort()).toEqual(['lot:495', 'lot:700']);
   });
 
-  it('un candidat PROPRIÉTAIRE n’est jamais « haute » : il est moins précis qu’un logement', () => {
-    const v = vueDesAdresses([adr('a@fictif.fr', 1, locataire('495', '339'))]);
-    const cands = candidatsDeLaVue(v, 'a', 'haute', 'essai');
-    expect(cands.find((c) => c.cible.sorte === 'lot')?.confiance).toBe('haute');
-    expect(cands.find((c) => c.cible.sorte === 'proprietaire')?.confiance).toBe('moyenne');
+  /**
+   * 🔴 LOT AFFECTATION-PAR-BIEN — CE TEST A CHANGÉ DE SUJET, PARCE QUE LA RÈGLE A CHANGÉ. Il vérifiait qu'un
+   * candidat PROPRIÉTAIRE portait une confiance moindre qu'un logement. Il n'existe plus de candidat propriétaire :
+   * la cible est TOUJOURS un bien. Ce qui reste à protéger, c'est que la confiance suive la certitude du cas.
+   */
+  it('la confiance suit le cas : quasi certain ⇒ « haute », à trancher ⇒ « moyenne »', () => {
+    const certain = examinerMessage({
+      messageId: 1, biens: BIENS, adressesEchange: [adr('a@fictif.fr', 1, locataire('495', '339'))],
+    });
+    expect(certain.certain?.confiance).toBe('haute');
+
+    const aTrancher = examinerMessage({
+      messageId: 2, biens: BIENS, adressesEchange: [adr('b@fictif.fr', 2, proprietaire('800'))],
+    });
+    expect(aTrancher.issue).toBe('a_trier');
+    expect(aTrancher.candidats.every((c) => c.confiance === 'moyenne')).toBe(true);
   });
 });
 
@@ -174,6 +226,7 @@ describe('🔴 la règle b — l’échange — ne devient JAMAIS automatique', 
   it('le mail d’un tiers dans un fil clair donne un CANDIDAT, pas un lien', () => {
     const e = examinerMessage({
       messageId: 31,
+      biens: BIENS,
       adressesEchange: [
         // Le mail 31 est celui d'un syndic : aucune de ses adresses n'est à l'annuaire.
         adr('syndic@fictif.fr', 31, RIEN),
@@ -184,10 +237,13 @@ describe('🔴 la règle b — l’échange — ne devient JAMAIS automatique', 
     });
     expect(e.issue).toBe('a_trier');
     expect(e.certain).toBeNull();
-    // TOUS les candidats viennent de la règle b, et AUCUN n'a la confiance « haute ».
+    /**
+     * 🔴 CE QUI COMPTE ICI N'EST PAS LA LETTRE DE LA RÈGLE, C'EST QU'AUCUN LIEN NE SOIT POSÉ D'OFFICE. Le mail d'un
+     * tiers ne doit jamais hériter du logement du voisin de fil — règle mesurée au lot RATTACHEMENT-1, reprise
+     * telle quelle par le moteur des biens.
+     */
     expect(e.candidats.length).toBeGreaterThan(0);
-    expect(e.candidats.every((c) => c.regle === 'b')).toBe(true);
-    expect(e.candidats.every((c) => c.confiance !== 'haute')).toBe(true);
+    expect(e.candidats.every((c) => c.cible.sorte === 'lot')).toBe(true);
     expect(e.motif).toContain('à confirmer à la main');
   });
 
@@ -196,14 +252,15 @@ describe('🔴 la règle b — l’échange — ne devient JAMAIS automatique', 
       adr('syndic@fictif.fr', 31, RIEN),
       adr('loc@fictif.fr', 30, locataire('495', '339')),
     ];
-    expect(examinerMessage({ messageId: 30, adressesEchange: adresses }).issue).toBe('automatique');
-    expect(examinerMessage({ messageId: 31, adressesEchange: adresses }).issue).toBe('a_trier');
+    expect(examinerMessage({ messageId: 30, adressesEchange: adresses, biens: BIENS }).issue).toBe('automatique');
+    expect(examinerMessage({ messageId: 31, adressesEchange: adresses, biens: BIENS }).issue).toBe('a_trier');
   });
 
   it('l’échange n’est consulté QUE si le mail lui-même ne dit rien', () => {
     // Le mail 40 désigne le lot 1 ; le fil en porte un autre. Le mail gagne, sans arbitrage.
     const e = examinerMessage({
       messageId: 40,
+      biens: BIENS,
       adressesEchange: [
         adr('a@fictif.fr', 40, locataire('1', '10')),
         adr('b@fictif.fr', 41, locataire('2', '20')),
@@ -221,7 +278,8 @@ describe('🔴 LE LOT OCCUPÉ À LA DATE DU MAIL — pas celui d’aujourd’hui
       partie: 'locataire', proprietaireCle: null, locataireId: 7, lotCle: null,
       motif: 'locataire, mais aucun bail en cours à la date du mail',
     };
-    const e = examinerMessage({ messageId: 50, adressesEchange: [adr('parti@fictif.fr', 50, parti)] });
+    const e = examinerMessage({ messageId: 50, biens: BIENS,
+      adressesEchange: [adr('parti@fictif.fr', 50, parti)] });
     expect(e.issue).toBe('sans_candidat');
     // 🔴 ET LE MOTIF NE MENT PAS : il dit qu'une adresse EST reconnue. Le premier rapport annonçait
     //   « aucune adresse connue » en ayant lui-même compté 1 reconnue — contradiction corrigée le 26/09/2026.
@@ -231,35 +289,51 @@ describe('🔴 LE LOT OCCUPÉ À LA DATE DU MAIL — pas celui d’aujourd’hui
   });
 
   it('le même locataire, à une date où son bail courait, désigne son logement', () => {
-    const e = examinerMessage({ messageId: 51, adressesEchange: [adr('parti@fictif.fr', 51, locataire('495', '339'))] });
+    const e = examinerMessage({ messageId: 51, biens: BIENS,
+      adressesEchange: [adr('parti@fictif.fr', 51, locataire('495', '339'))] });
     expect(e.issue).toBe('automatique');
     expect(e.certain?.cible).toEqual(cibleLot('495'));
   });
 
-  it('un locataire de DEUX logements à la même date ne tranche pas : son bailleur commun est proposé', () => {
-    // `reconnaitre` rend lotCle nul et le bailleur commun quand il y en a un. Le moteur en fait un lien certain
-    // sur le BAILLEUR — c'est le plus précis dont on soit sûr, et c'est réversible.
+  /**
+   * 🔴 LOT AFFECTATION-PAR-BIEN — CE CAS A CHANGÉ DE RÉPONSE, ET C'EST UNE AMÉLIORATION. Le moteur posait un lien
+   * certain sur le BAILLEUR (« le plus précis dont on soit sûr »). Il propose désormais ses BIENS : c'est plus
+   * précis encore, et surtout c'est rangeable — un propriétaire n'est pas un dossier.
+   */
+  it('un locataire de DEUX logements à la même date ne tranche pas : les biens du bailleur sont proposés', () => {
     const deuxLots: Reconnaissance = {
-      partie: 'locataire', proprietaireCle: '339', locataireId: 9, lotCle: null,
+      partie: 'locataire', proprietaireCle: '800', locataireId: 9, lotCle: null,
       motif: 'locataire de 2 biens à cette date — aucun lot n’est tranché',
     };
-    const e = examinerMessage({ messageId: 52, adressesEchange: [adr('deux@fictif.fr', 52, deuxLots)] });
-    expect(e.issue).toBe('automatique');
-    expect(e.certain?.cible).toEqual(cibleProprietaire('339'));
+    const e = examinerMessage({ messageId: 52, biens: BIENS,
+      adressesEchange: [adr('deux@fictif.fr', 52, deuxLots)] });
+    expect(e.issue).toBe('a_trier');
+    expect(e.candidats.map((c) => cibleCourte(c.cible))).toEqual(['lot:700', 'lot:701', 'lot:702']);
   });
 });
 
-describe('la cible certaine, prise isolément', () => {
-  it('aucune adresse utile ⇒ aucune cible certaine', () => {
-    expect(cibleCertaine(vueDesAdresses([adr('x@fictif.fr', 1, RIEN)]))).toBeNull();
+/**
+ * 🔴 LOT AFFECTATION-PAR-BIEN — `cibleCertaine`, `vueDesAdresses` et `candidatsDeLaVue` ONT ÉTÉ RETIRÉES du moteur.
+ * Elles portaient la règle abandonnée : proposer un PROPRIÉTAIRE comme cible. Ce qu'elles protégeaient — « deux
+ * logements ne donnent jamais une certitude » — est protégé ici, sur le moteur lui-même.
+ */
+describe('la certitude, prise isolément', () => {
+  it('aucune adresse utile ⇒ aucune certitude', () => {
+    const e = examinerMessage({ messageId: 1, biens: BIENS, adressesEchange: [adr('x@fictif.fr', 1, RIEN)] });
+    expect(e.certain).toBeNull();
+    expect(e.issue).toBe('sans_candidat');
   });
 
-  it('deux logements ⇒ aucune cible certaine, même avec un bailleur commun', () => {
-    const v = vueDesAdresses([
-      adr('a@fictif.fr', 1, locataire('1', '10')),
-      adr('b@fictif.fr', 1, locataire('2', '10')),
-    ]);
-    expect(cibleCertaine(v)).toBeNull();
+  it('deux logements ⇒ aucune certitude, même avec un bailleur commun', () => {
+    const e = examinerMessage({
+      messageId: 1, biens: BIENS,
+      adressesEchange: [
+        adr('a@fictif.fr', 1, locataire('700', '800')),
+        adr('b@fictif.fr', 1, locataire('701', '800')),
+      ],
+    });
+    expect(e.certain).toBeNull();
+    expect(e.issue).toBe('a_trier');
   });
 });
 

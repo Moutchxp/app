@@ -27,7 +27,7 @@ import { pathToFileURL } from 'node:url';
 import { query, closePool } from '../lib/db/client';
 import { rattachementsDisponibles, adressesMessagesDisponibles } from '../lib/gestion/schema';
 import {
-  chargerLibelles, chargerPaquet, curseurPasse, examinerPaquet, libelleCible, AUTEUR_MOTEUR,
+  chargerCatalogueBiens, chargerLibelles, chargerPaquet, curseurPasse, examinerPaquet, libelleCible, AUTEUR_MOTEUR,
   COMPTES_VIDES, PAQUET_FILS, type ComptesPasse, type LibellesCibles,
 } from '../lib/gestion/rattachementRepo';
 import { examinerMessage, type Issue } from '../lib/gestion/rattachement';
@@ -143,6 +143,8 @@ const MOT_SOUS_CAS: Record<SousCas, string> = {
 async function exemplesSimules(combien: number, libelles: LibellesCibles): Promise<Record<Issue, string[]>> {
   const out: Record<Issue, string[]> = { automatique: [], a_trier: [], sans_candidat: [] };
   if (combien === 0) return out;
+  // LOT AFFECTATION-PAR-BIEN — le MÊME catalogue que la passe réelle : c'est lui qui distingue (b) de (c).
+  const catalogue = await chargerCatalogueBiens();
 
   const seaux: Record<SousCas, string[]> = { certain: [], a: [], b: [], inconnu: [], sans_cible: [] };
   const plafond = (s: SousCas): number => (s === 'certain' ? combien : Math.ceil(combien / 2));
@@ -158,7 +160,10 @@ async function exemplesSimules(combien: number, libelles: LibellesCibles): Promi
     if (paquet.fils.length === 0) break;
     // Les plus récents d'abord à l'intérieur du paquet aussi.
     for (const m of [...paquet.messages].reverse()) {
-      const examen = examinerMessage({ messageId: m.id, adressesEchange: paquet.adresses.get(m.filId) ?? [] });
+      const examen = examinerMessage({
+        messageId: m.id, adressesEchange: paquet.adresses.get(m.filId) ?? [], biens: catalogue,
+        textes: { objet: m.objet, corps: m.corps, pieces: m.pieces },
+      });
       const s = sousCasDe(examen);
       if (seaux[s].length >= plafond(s)) continue;
       const cibles = examen.certain !== null
@@ -235,8 +240,9 @@ async function principal(): Promise<void> {
   console.log(`${P} mails examinés ............. ${m}`);
   console.log(`${P} ① rattachés automatiquement  ${c.automatiques} (${partFr(c.automatiques, m)})`);
   console.log(`${P} ② à trier .................. ${c.aTrier} (${partFr(c.aTrier, m)})`);
-  console.log(`${P}     · le mail désigne PLUSIEURS cibles (règle a) ... ${c.aTrierParLeMail}`);
-  console.log(`${P}     · le mail ne dit rien, l’échange oui (règle b) . ${c.aTrierParLEchange}`);
+  // LOT AFFECTATION-PAR-BIEN — les deux sous-comptes disent désormais LE CAS, puisque c'est lui qui décide.
+  console.log(`${P}     · biens désignés par les adresses du mail (a/b) . ${c.aTrierParLeMail}`);
+  console.log(`${P}     · biens d’un propriétaire, ou cités (c/d) ....... ${c.aTrierParLEchange}`);
   console.log(`${P} ③ sans aucun candidat ...... ${c.sansCandidat} (${partFr(c.sansCandidat, m)})`);
   console.log(`${P}     · aucune adresse connue de l’annuaire .......... ${c.sansCandidatInconnu}`);
   console.log(`${P}     · reconnues, mais AUCUN lot à la date du mail .. ${c.sansCandidatSansCible}`);

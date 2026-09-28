@@ -39,11 +39,26 @@ export interface LienExistant {
  */
 export type GesteHorsGestion = { geste: 'marquer'; motif?: string | null } | { geste: 'annuler' };
 
+/**
+ * 🔴 LOT AFFECTATION-PAR-BIEN — L'AFFECTATION D'UNE PIÈCE JOINTE À UN BIEN PRÉCIS.
+ *
+ * `cle: null` = la pièce SUIT le mail, c'est-à-dire tous les biens cochés. C'est le DÉFAUT et la règle d'avant ce
+ * lot (une ligne sans `piece_id` vaut pour le mail et toutes ses pièces) : on n'écrit alors rien de plus.
+ * Une clé = cette pièce-là va dans CE bien, et elle seule — un relevé de charges qui porte deux quittances, une par
+ * appartement, est un cas courant et n'avait aucune façon d'être rangé correctement.
+ */
+export interface PieceAffectee { pieceId: number; cle: string | null }
+
 export interface PlanClassement {
   /** Les mails que la validation va toucher, dans l'ordre, sans doublon. */
   messages: number[];
   /** Les rattachements à POSER : un `POST` par entrée, qui vaut aussi confirmation d'une proposition déjà là. */
   aPoser: { messageId: number; cle: string }[];
+  /**
+   * 🔴 Les rattachements PAR PIÈCE JOINTE. Ils ne portent que sur le mail OUVERT : ses pièces sont les siennes, et
+   * la portée élargie n'a aucun sens ici — les autres mails ont d'autres pièces.
+   */
+  aPoserPieces: { messageId: number; pieceId: number; cle: string }[];
   /** Les liens à faire passer au statut « retiré » (`PATCH`). JAMAIS une suppression. */
   aRetirer: number[];
   /** Les mails à MARQUER hors gestion (`POST`). Vide quand ce n'est pas le geste demandé. */
@@ -87,6 +102,8 @@ export function planClassement(o: {
   horsGestion?: GesteHorsGestion | null;
   /** Les mails qui portent DÉJÀ une marque vivante. Sert à ne compter que ce qui change réellement. */
   dejaHorsGestion?: readonly number[];
+  /** LOT AFFECTATION-PAR-BIEN — les pièces jointes rangées chacune dans SON bien. Vide = elles suivent le mail. */
+  pieces?: readonly PieceAffectee[];
 }): PlanClassement {
   const messages = mailsVises(o.messageId, o.portee, o.mailsSansManuel);
   const deja = new Set(o.dejaHorsGestion ?? []);
@@ -102,7 +119,7 @@ export function planClassement(o: {
     const aRetirer = o.existants.filter((l) => l.messageId === o.messageId).map((l) => l.id);
     const aMarquer = messages.filter((m) => !deja.has(m));
     return {
-      messages, aPoser: [], aRetirer, aMarquerHorsGestion: aMarquer, aAnnulerHorsGestion: [],
+      messages, aPoser: [], aPoserPieces: [], aRetirer, aMarquerHorsGestion: aMarquer, aAnnulerHorsGestion: [],
       motifHorsGestion: hg.motif ?? null,
       resume: resumeHorsGestion('marquer', aMarquer.length, hg.motif ?? null, aRetirer.length),
     };
@@ -112,7 +129,7 @@ export function planClassement(o: {
   if (hg?.geste === 'annuler') {
     const aAnnuler = messages.filter((m) => deja.has(m));
     return {
-      messages, aPoser: [], aRetirer: [], aMarquerHorsGestion: [], aAnnulerHorsGestion: aAnnuler,
+      messages, aPoser: [], aPoserPieces: [], aRetirer: [], aMarquerHorsGestion: [], aAnnulerHorsGestion: aAnnuler,
       motifHorsGestion: null,
       resume: resumeHorsGestion('annuler', aAnnuler.length, null, 0),
     };
@@ -142,9 +159,20 @@ export function planClassement(o: {
    */
   const aAnnulerHorsGestion = voulues.length === 0 ? [] : messages.filter((m) => deja.has(m));
 
+  /**
+   * 🔴 LES PIÈCES RANGÉES À PART — seulement sur le mail ouvert, et seulement vers un bien COCHÉ. Une pièce
+   * envoyée vers un bien qu'on vient de décocher serait un rattachement orphelin : on l'ignore plutôt que de le
+   * poser dans un dossier que l'écran n'affiche plus.
+   */
+  const aPoserPieces = (o.pieces ?? [])
+    .filter((p) => p.cle !== null && voulues.includes(p.cle))
+    .map((p) => ({ messageId: o.messageId, pieceId: p.pieceId, cle: p.cle as string }));
+
   return {
-    messages, aPoser, aRetirer, aMarquerHorsGestion: [], aAnnulerHorsGestion, motifHorsGestion: null,
-    resume: resumeClassement(messages.length, voulues.length, aRetirer.length, aAnnulerHorsGestion.length),
+    messages, aPoser, aPoserPieces, aRetirer, aMarquerHorsGestion: [], aAnnulerHorsGestion,
+    motifHorsGestion: null,
+    resume: resumeClassement(messages.length, voulues.length, aRetirer.length, aAnnulerHorsGestion.length,
+      aPoserPieces.length),
   };
 }
 
@@ -156,7 +184,7 @@ export function planClassement(o: {
  * accorder à la main.
  */
 export function resumeClassement(
-  nbMails: number, nbBiens: number, nbRetraits: number, nbMarquesLevees = 0,
+  nbMails: number, nbBiens: number, nbRetraits: number, nbMarquesLevees = 0, nbPieces = 0,
 ): string {
   if (nbBiens === 0 && nbRetraits === 0) return 'Aucun bien sélectionné : rien ne sera classé.';
   const morceaux: string[] = [];
@@ -170,6 +198,11 @@ export function resumeClassement(
   // 🔴 ON LE DIT AVANT DE LE FAIRE : la marque grise disparaît, et c'est une conséquence, pas un effet de bord muet.
   if (nbMarquesLevees === 1) morceaux.push('marque « hors gestion » levée');
   else if (nbMarquesLevees > 1) morceaux.push(`${nbMarquesLevees} marques « hors gestion » levées`);
+  // LOT AFFECTATION-PAR-BIEN — on ANNONCE les pièces rangées à part : c'est un classement de plus, pas un détail.
+  if (nbPieces > 0) {
+    morceaux.push(`${nbPieces} pièce${nbPieces > 1 ? 's' : ''} jointe${nbPieces > 1 ? 's' : ''}`
+      + ` classée${nbPieces > 1 ? 's' : ''} séparément`);
+  }
   return `${morceaux.join(', ')}.`;
 }
 

@@ -65,6 +65,14 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
    */
   const [reponse, setReponse] = useState<'biens' | 'hors_gestion'>('biens');
   const [motifHg, setMotifHg] = useState<string>('');
+  /**
+   * 🔴 LOT AFFECTATION-PAR-BIEN — LE CLASSEMENT PIÈCE PAR PIÈCE. Éteint par DÉFAUT : la règle d'avant ce lot, où
+   * les pièces suivent leur mail, reste la règle. On ne l'allume que pour le cas qui le justifie — un même envoi
+   * qui porte une quittance par appartement.
+   */
+  const [parPiece, setParPiece] = useState(false);
+  /** Par pièce : la clé du bien choisi, ou `''` = « tous les biens cochés » (le défaut). */
+  const [affectations, setAffectations] = useState<Record<number, string>>({});
   const [envoi, setEnvoi] = useState<{ en_cours: boolean; message: string | null }>({ en_cours: false, message: null });
 
   const charger = useCallback(async () => {
@@ -150,10 +158,14 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
   const plan = useMemo(() => etat.v !== 'ok' ? null : planClassement({
     messageId, portee, mailsSansManuel: etat.mailsSansManuel, selection, existants: etat.existants,
     horsGestion: gesteHg, dejaHorsGestion: etat.dejaHorsGestion,
-  }), [etat, messageId, portee, selection, gesteHg]);
+    pieces: !parPiece ? [] : (etat.contexte.pieces ?? []).map((p) => ({
+      pieceId: p.pieceId, cle: affectations[p.pieceId] === undefined || affectations[p.pieceId] === ''
+        ? null : affectations[p.pieceId],
+    })),
+  }), [etat, messageId, portee, selection, gesteHg, parPiece, affectations]);
 
   /** Y a-t-il quelque chose à faire ? La validation est INACTIVE tant que non — et la phrase du bas le DIT. */
-  const aFaire = plan !== null && (plan.aPoser.length > 0 || plan.aRetirer.length > 0
+  const aFaire = plan !== null && (plan.aPoser.length > 0 || plan.aPoserPieces.length > 0 || plan.aRetirer.length > 0
     || plan.aMarquerHorsGestion.length > 0 || plan.aAnnulerHorsGestion.length > 0);
 
   const basculer = (cle: string) => setCoches((c) => {
@@ -189,6 +201,24 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
         if (res.ok) faits += 1;
         else ratés.push(`mail nº ${p.messageId}`);
       } catch { ratés.push(`mail nº ${p.messageId}`); }
+    }
+    /**
+     * LES PIÈCES RANGÉES À PART — après les rattachements du mail, et par la MÊME porte, avec `pieceId`. Une ligne
+     * avec `piece_id` AJOUTE de la précision pour cette pièce ; elle ne retire jamais celle du mail (convention du
+     * lot RATTACHEMENT-1). Elles sont donc journalisées et réversibles comme toutes les autres.
+     */
+    for (const p of plan.aPoserPieces) {
+      try {
+        const res = await fetch('/api/admin/gestion/rattachements', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messageId: p.messageId, pieceId: p.pieceId, cible: { sorte: 'lot', cle: p.cle },
+            motif: 'pièce jointe classée séparément à la main',
+          }),
+        });
+        if (res.ok) faits += 1;
+        else ratés.push(`pièce nº ${p.pieceId}`);
+      } catch { ratés.push(`pièce nº ${p.pieceId}`); }
     }
     for (const id of plan.aRetirer) {
       try {
@@ -377,12 +407,16 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
                         onChange={() => basculer(b.cle)} />
                       <span className="clm-bien-nom">{b.libelle}</span>
                     </label>
-                    {/* 🔴 LE MOT EST ÉCRIT : on doit savoir POURQUOI une case est cochée. */}
+                    {/* 🔴 LE MOTIF EST ÉCRIT EN CLAIR, TOUJOURS — lot AFFECTATION-PAR-BIEN. On doit savoir
+                        POURQUOI ce bien est proposé, et pourquoi sa case est cochée ou non, sans rouvrir le code. */}
                     <p className="clm-marques">
-                      {b.recommande && <span className="clm-marque clm-marque--reco">Recommandé (automatique)</span>}
+                      <span className={`clm-marque${b.certitude === 'quasi_certaine' ? ' clm-marque--reco' : ''}`}>
+                        {b.certitude === 'quasi_certaine' ? 'Quasi certain' : 'À trancher'}
+                      </span>
                       {b.dejaRattache && <span className="clm-marque">déjà rattaché à ce mail</span>}
                       {b.typeBien && <span className="clm-marque clm-marque--muet">{b.typeBien}</span>}
                     </p>
+                    <p className="clm-motif-bien">{b.motif}</p>
                     <ul className="clm-parties">
                       {b.parties.length === 0 && <li className="clm-partie">aucune partie connue à cette date</li>}
                       {b.parties.map((p) => (
@@ -398,6 +432,56 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
                 ))}
               </ul>
             </fieldset>
+
+            {/* ══ 🔴 LOT AFFECTATION-PAR-BIEN — CLASSER CHAQUE PIÈCE JOINTE SÉPARÉMENT ═══════════════════════
+                Proposé SEULEMENT quand la question se pose : plusieurs biens cochés, et au moins une pièce. Sinon
+                l'option n'aurait aucun sens et encombrerait la fenêtre.
+                🔴 ÉTEINT PAR DÉFAUT : la règle d'avant ce lot — les pièces suivent leur mail, donc tous les biens
+                cochés — reste la règle. On ne l'allume que pour le cas qui le justifie. */}
+            {/* ⚠️ `contexte.pieces ?? []` ET NON `contexte.pieces` : une réponse de serveur plus ancienne que ce
+                lot ne porte pas du tout le champ, et `undefined.length` ferait tomber TOUTE la fenêtre. Un écran ne
+                doit jamais s'écrouler parce qu'un serveur lui parle un langage d'hier — c'est le piège déjà
+                rencontré sur `classement`, `nonLus` et `pleinTexte`, attrapé chaque fois par la suite de tests. */}
+            {reponse === 'biens' && selection.length > 1 && (contexte.pieces ?? []).length > 0 && (
+              <fieldset className="clm-bloc">
+                <legend className="clm-legende">Pièces jointes</legend>
+                <label className="clm-choix">
+                  <input type="checkbox" checked={parPiece} onChange={() => setParPiece((v) => !v)} />
+                  <span>
+                    Classer chaque pièce jointe séparément
+                    <span className="clm-note"> — par défaut, elles suivent le mail et vont dans tous les biens cochés.</span>
+                  </span>
+                </label>
+                {parPiece && (
+                  <ul className="clm-pieces">
+                    {(contexte.pieces ?? []).map((pj) => (
+                      <li key={pj.pieceId} className="clm-piece">
+                        {/* La VIGNETTE quand elle existe ; sinon rien, jamais une image cassée. */}
+                        {pj.miniature
+                          // eslint-disable-next-line @next/next/no-img-element -- fichier privé servi par une route
+                          ? <img className="clm-vignette" alt=""
+                            src={`/api/admin/gestion/pieces/${pj.pieceId}/miniature`}
+                            loading="lazy" decoding="async" />
+                          : <span className="clm-vignette clm-vignette--vide" aria-hidden="true">PJ</span>}
+                        <span className="clm-piece-nom">{pj.nom}</span>
+                        <label className="clm-piece-choix">
+                          <span className="clm-piece-label">Bien</span>
+                          <select className="clm-select" value={affectations[pj.pieceId] ?? ''}
+                            onChange={(e) => setAffectations((a) => ({ ...a, [pj.pieceId]: e.target.value }))}>
+                            {/* « Tous » EST le défaut, et il est écrit : une liste qui s'ouvre sur un bien précis
+                                ferait croire qu'un choix a déjà été fait. */}
+                            <option value="">tous les biens cochés</option>
+                            {contexte.biens.filter((b) => selection.includes(b.cle)).map((b) => (
+                              <option key={b.cle} value={b.cle}>{b.libelle}</option>
+                            ))}
+                          </select>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </fieldset>
+            )}
 
             {reponse === 'hors_gestion' && (
               <p className="clm-note clm-note--large">
@@ -448,6 +532,8 @@ export const CSS_CLASSER_MAIL = `
   font-size:.7rem;font-weight:700;color:var(--color-svv-muted)}
 .clm-marque--reco{color:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink)}
 .clm-marque--muet{font-weight:400}
+/* LOT AFFECTATION-PAR-BIEN — le motif, en clair, sous les marques. Jamais une couleur seule ne dit pourquoi. */
+.clm-motif-bien{margin:.25rem 0 0 1.6rem;font-size:.78rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .clm-parties{display:flex;flex-direction:column;gap:2px;margin:.35rem 0 0 1.6rem;padding:0;list-style:none}
 .clm-partie{font-size:.8rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
 .clm-role{font-size:.72rem;font-weight:700;letter-spacing:.03em;color:var(--color-svv-muted)}
@@ -464,6 +550,17 @@ export const CSS_CLASSER_MAIL = `
   background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:.4rem}
 .clm-select:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 .clm-note--large{margin:0 0 12px}
+/* LOT AFFECTATION-PAR-BIEN — les pieces jointes, une par ligne : vignette, nom, et le bien choisi. */
+.clm-pieces{display:flex;flex-direction:column;gap:8px;margin:.5rem 0 0;padding:0;list-style:none}
+.clm-piece{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:6px 8px;min-width:0;
+  border:1px solid var(--color-svv-line);border-radius:.6rem;background:var(--color-svv-surface)}
+.clm-vignette{flex:0 0 auto;width:34px;height:44px;object-fit:cover;border-radius:.3rem;
+  border:1px solid var(--color-svv-line);background:var(--color-svv-field)}
+.clm-vignette--vide{display:inline-flex;align-items:center;justify-content:center;font-size:.65rem;font-weight:700;
+  color:var(--color-svv-muted)}
+.clm-piece-nom{flex:1 1 10rem;min-width:0;font-size:.82rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.clm-piece-choix{display:flex;align-items:center;gap:.4rem;flex:0 1 auto;min-width:0}
+.clm-piece-label{font-size:.72rem;font-weight:700;color:var(--color-svv-muted)}
 .clm-resume{margin:0 0 12px;padding:8px 10px;border-radius:8px;border:1px solid var(--color-svv-line);
   background:var(--color-svv-field);font-size:.85rem;font-weight:600;color:var(--color-svv-ink)}
 `;

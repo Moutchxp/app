@@ -3,6 +3,9 @@
 import { useState } from 'react';
 import { ChoisirCible, CSS_CHOISIR_CIBLE, type CibleChoisie } from './ChoisirCible';
 import { ModifierRattachement } from './ModifierRattachement';
+// LOT AFFECTATION-PAR-BIEN — la fenêtre de classement complète, partagée : une seule implémentation du geste.
+import { ClasserMail } from './ClasserMail';
+import { PropositionsDeBiens } from './PropositionsDeBiens';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 import type { Cible, Statut } from '../../../../lib/gestion/rattachement';
 
@@ -49,6 +52,8 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
   /** LOT FIL-LECTURE-2 — le rattachement dont on a ouvert la fenêtre « Modifier ». `null` = aucune fenêtre. */
   const [modifie, setModifie] = useState<LienAffiche | null>(null);
   const [occupe, setOccupe] = useState(false);
+  /** LOT AFFECTATION-PAR-BIEN — la fenêtre complète (portée, hors gestion, pièces), ouverte depuis le bloc. */
+  const [classer, setClasser] = useState(false);
   const [erreur, setErreur] = useState<string | null>(null);
   /** Les liens défaits pendant cette visite : on garde le bouton « Remettre » sous la main, sans recharger. */
   const [defaits, setDefaits] = useState<Map<number, LienAffiche>>(new Map());
@@ -89,6 +94,13 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
 
   const vivants = liens.filter((l) => l.statut === 'confirme');
   const candidats = liens.filter((l) => l.statut === 'propose');
+  /**
+   * 🔴 LOT AFFECTATION-PAR-BIEN — les propositions qui visent un BIEN (logement) ou un PROPRIÉTAIRE sont rendues
+   * par le bloc des biens : c'est LUI qui traduit une ancienne proposition « propriétaire » en la liste de ses
+   * biens. Les autres — une carte proposée — gardent le rendu d'avant, mot pour mot.
+   */
+  const candidatsHorsBien = candidats.filter(
+    (l) => l.cible.sorte !== 'lot' && l.cible.sorte !== 'proprietaire');
   const remettables = [...defaits.values()].filter((l) => !liens.some((x) => x.id === l.id));
 
   return (
@@ -149,13 +161,29 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
       )}
       </div>
 
+      {/* ══ 🔴 LOT AFFECTATION-PAR-BIEN — LES PROPOSITIONS SONT DES BIENS, TOUJOURS ══════════════════════════
+          Demande d'Arno, sur un cas réel : « Contestation de la retenue de 450 € sur dépôt de garantie » proposait
+          « PROPRIÉTAIRE MARTY Jean-François (310) ». Un propriétaire n'est pas un dossier — c'est une PARTIE d'un
+          dossier. Le bloc présente donc des BIENS (adresse + lot), chacun avec son propriétaire et son locataire À
+          LA DATE DU MAIL, son motif en clair, et une case à cocher.
+
+          🔴 LES PROPOSITIONS ANCIENNES DE TYPE PROPRIÉTAIRE SONT MONTRÉES COMME LA LISTE DE LEURS BIENS, et RIEN
+          n'est réécrit en base tant que personne n'a validé : une ligne ancienne n'est pas fausse, elle est écrite
+          dans un vocabulaire qu'on n'emploie plus. */}
       {candidats.length > 0 && (
+        <PropositionsDeBiens messageId={messageId} occupe={occupe}
+          onGeste={onGeste} onChange={onChange} onClasser={() => setClasser(true)} />
+      )}
+
+      {/* Les propositions qui ne sont PAS des biens (une carte proposée) gardent leurs deux gestes, inchangés :
+          rien n'est retiré, et ce bloc-ci ne sait rien des événements. */}
+      {candidatsHorsBien.length > 0 && (
         <>
           <p className="ert-sous-titre">
-            {candidats.length === 1 ? 'Une proposition à trancher' : `${candidats.length} propositions à trancher`}
+            {candidatsHorsBien.length === 1 ? 'Une autre proposition' : `${candidatsHorsBien.length} autres propositions`}
           </p>
           <ul className="ert-liste">
-            {candidats.map((l) => (
+            {candidatsHorsBien.map((l) => (
               <li key={l.id} className="ert-ligne ert-ligne--propose">
                 <span className="ert-sorte">{motSorte(l.cible.sorte)}</span>
                 <span className="ert-nom">{l.libelle}</span>
@@ -207,6 +235,15 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
             }
             if (faits > 0) setAjout(false);
           }} />
+      )}
+
+      {/* LOT AFFECTATION-PAR-BIEN — « Hors gestion » et les cas fins (portée, pièces) passent par LA fenêtre de
+          classement, jamais par une seconde implémentation : deux chemins finiraient par deux comportements. */}
+      {classer && (
+        <ClasserMail messageId={messageId} filId={null}
+          onFerme={() => setClasser(false)}
+          onGeste={onGeste}
+          onFait={async () => { await onChange(); }} />
       )}
 
       {modifie !== null && (

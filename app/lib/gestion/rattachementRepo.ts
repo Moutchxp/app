@@ -25,6 +25,7 @@ import { rattachementsDisponibles, spamDisponible} from './schema';
 // LOT STATUT-HORS-GESTION — rattacher un bien lève la marque « hors gestion » du mail (réversibilité naturelle).
 import { leverHorsGestionApresRattachement } from './horsGestionRepo';
 import { nomBien, nomProprietaire } from './driveArbre';
+import type { BienConnu } from './propositionsBien';
 import {
   cibleCourte, examinerMessage, memeCible, type Cible, type Candidat, type Issue, type Statut,
 } from './rattachement';
@@ -103,6 +104,28 @@ export async function chargerLibelles(): Promise<LibellesCibles> {
   };
 }
 
+/**
+ * 🔴 LOT AFFECTATION-PAR-BIEN — LE CATALOGUE DES BIENS, lu UNE FOIS PAR PASSE. LECTURE SEULE.
+ *
+ * C'est lui qui permet de distinguer le cas (b) — un propriétaire qui n'a QU'UN bien, donc un lien automatique —
+ * du cas (c) — plusieurs biens, donc des propositions. Mesuré le 28/09/2026 : 365 lots. Le relire à chaque message
+ * coûterait 57 000 requêtes pour une information qui ne bouge pas pendant la passe.
+ */
+export async function chargerCatalogueBiens(): Promise<BienConnu[]> {
+  const { rows } = await query<{
+    cle: string; adresse: string | null; commune: string | null;
+    proprietaire_cle: string | null; proprietaire_nom: string | null;
+  }>(
+    `SELECT lo.wippimmo_id AS cle, lo.adresse, lo.commune,
+            pr.wippimmo_id AS proprietaire_cle, pr.nom_complet AS proprietaire_nom
+       FROM gestion_annuaire_lot lo
+       LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id`);
+  return rows.map((r) => ({
+    cle: r.cle, numero: r.cle, adresse: r.adresse, commune: r.commune,
+    proprietaireCle: r.proprietaire_cle, proprietaireNom: r.proprietaire_nom,
+  }));
+}
+
 /** Le nom lisible d'une cible, ou sa forme courte quand l'annuaire ne la connaît pas (encore). PUR. */
 export function libelleCible(c: Cible, l: LibellesCibles): string {
   if (c.sorte === 'lot') return l.lots.get(c.cle ?? '') ?? `lot ${c.cle ?? '?'}`;
@@ -125,7 +148,19 @@ export async function curseurPasse(): Promise<number> {
   return Number(rows[0]?.n ?? 0);
 }
 
-export interface MessageDuPaquet { id: number; filId: number }
+export interface MessageDuPaquet {
+  id: number;
+  filId: number;
+  /**
+   * 🔴 LOT AFFECTATION-PAR-BIEN — l'objet et le corps du mail, matière des cas (c) et (d) : « adresse du bien ou
+   * n° de lot cité dans l'objet ou le corps ». Sans eux, les mails de comptabilité et de syndic — qui n'ont AUCUNE
+   * adresse à l'annuaire mais citent le logement en toutes lettres — resteraient sans aucune proposition.
+   */
+  objet: string | null;
+  corps: string | null;
+  /** Les noms des pièces jointes : « Quittance 12 rue Danton.pdf » désigne un bien aussi sûrement qu'un objet. */
+  pieces: string[];
+}
 
 export interface Paquet {
   fils: number[];
@@ -169,8 +204,14 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
   // Un fil peut mêler du courrier ordinaire et un spam (Gmail range par conversation) : on écarte le MESSAGE, pas
   //   le fil — sinon un spam égaré ferait disparaître de la file un échange parfaitement légitime.
   const horsSpam = await clauseHorsSpam('m');
-  const { rows: msgs } = await query<{ id: string; fil_id: string }>(
-    `SELECT m.id, m.fil_id FROM gestion_message m
+  const { rows: msgs } = await query<{
+    id: string; fil_id: string; objet: string | null; corps: string | null; pieces: string[] | null;
+  }>(
+    // ⚠️ LES PIÈCES EN UNE FOIS, par agrégat : une requête par message coûterait des milliers d'accès sur une passe
+    //    complète. Le corps est borné — on y cherche une adresse ou un n° de lot, pas un roman.
+    `SELECT m.id, m.fil_id, m.objet, left(coalesce(m.corps_texte, ''), 4000) AS corps,
+            (SELECT array_agg(p.nom_fichier) FROM gestion_piece p WHERE p.message_id = m.id) AS pieces
+       FROM gestion_message m
       WHERE m.fil_id = ANY($1::bigint[]) ${horsSpam} ORDER BY m.id`, [ids]);
 
   const { rows: adr } = await query<{
@@ -199,7 +240,13 @@ export async function chargerFils(ids: readonly number[]): Promise<Paquet> {
     });
     adresses.set(fil, liste);
   }
-  return { fils: [...ids], messages: msgs.map((m) => ({ id: Number(m.id), filId: Number(m.fil_id) })), adresses };
+  return {
+    fils: [...ids],
+    messages: msgs.map((m) => ({
+      id: Number(m.id), filId: Number(m.fil_id), objet: m.objet, corps: m.corps, pieces: m.pieces ?? [],
+    })),
+    adresses,
+  };
 }
 
 // ── L'ÉCRITURE D'UN LIEN ────────────────────────────────────────────────────────────────────────────────────────
@@ -326,10 +373,15 @@ export async function examinerFilsPrecis(
 async function examinerLePaquet(
   paquet: Paquet, libelles: LibellesCibles, c: ComptesPasse, appliquer: boolean,
 ): Promise<void> {
+  // ⚠️ UNE SEULE LECTURE DU CATALOGUE POUR TOUT LE PAQUET : il ne bouge pas pendant la passe.
+  const catalogue = await chargerCatalogueBiens();
   for (const m of paquet.messages) {
     const examen = examinerMessage({
       messageId: m.id,
       adressesEchange: paquet.adresses.get(m.filId) ?? [],
+      // LOT AFFECTATION-PAR-BIEN — le catalogue et les textes : sans eux, les cas (b), (c) et (d) ne jouent pas.
+      biens: catalogue,
+      textes: { objet: m.objet, corps: m.corps, pieces: m.pieces },
     });
 
     c.messagesVus += 1;
@@ -337,7 +389,11 @@ async function examinerLePaquet(
       c.automatiques += 1;
     } else if (examen.issue === 'a_trier') {
       c.aTrier += 1;
-      // La règle qui a conclu se lit sur les candidats : 'a' = le mail lui-même, 'b' = tout l'échange.
+      /**
+       * LOT AFFECTATION-PAR-BIEN — la règle portée par les candidats dit LE CAS : 'a' = les adresses du mail ont
+       * désigné plusieurs biens quasi certains (cas a/b) ; 'c' = les biens d'un propriétaire qui en a plusieurs ;
+       * 'd' = un bien cité dans le texte, sans aucune adresse reconnue.
+       */
       if (examen.candidats[0]?.regle === 'a') c.aTrierParLeMail += 1; else c.aTrierParLEchange += 1;
     } else {
       c.sansCandidat += 1;

@@ -1,0 +1,319 @@
+/**
+ * MODULE « GESTION » — LOT AFFECTATION-PAR-BIEN : QUELS BIENS CE MAIL PEUT-IL CONCERNER ? Module PUR.
+ *
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴🔴 LA RÈGLE, DEMANDÉE PAR ARNO LE 28/09/2026 : LA CIBLE D'UN CLASSEMENT EST TOUJOURS UN BIEN.
+ *
+ * Le défaut qu'elle corrige, sur un cas réel : le mail « Contestation de la retenue de 450 € sur dépôt de garantie »
+ * (Comptabilité ADHOC, 28/09 13:30) proposait « PROPRIÉTAIRE MARTY Jean-François (310) ». Ce n'est pas une réponse :
+ * on ne range pas un litige de dépôt de garantie « chez un propriétaire », on le range dans LE LOGEMENT dont le
+ * dépôt est contesté. Un propriétaire n'est pas un dossier — c'est une PARTIE d'un dossier.
+ *
+ * 🔴 LE PROPRIÉTAIRE ET LE LOCATAIRE SONT DÉRIVÉS, JAMAIS SAISIS. Rattacher un bien entraîne, à l'affichage et dans
+ * l'historique, son propriétaire et son locataire EN PLACE À LA DATE DU MAIL. Il n'y a donc plus rien à saisir de
+ * ce côté, et plus aucune façon de se tromper de couple : la base d'occupations fait foi.
+ *
+ * ═══ LES CINQ CAS, DANS L'ORDRE DE FIABILITÉ (le motif est affiché en clair, toujours) ═══════════════════════════
+ *   (a) une adresse de LOCATAIRE est dans l'échange           → SON bien (occupé à la date du mail). Quasi certain.
+ *   (b) une adresse de PROPRIÉTAIRE qui n'a QU'UN bien        → ce bien. Quasi certain.
+ *   (c) une adresse de PROPRIÉTAIRE qui a PLUSIEURS biens     → TOUS ses biens, à cocher, AUCUN pré-coché…
+ *                                                               …sauf si l'adresse ou le n° de lot de l'un d'eux est
+ *                                                               cité dans l'objet, le corps ou le nom d'une pièce.
+ *   (d) aucune adresse reconnue                               → les biens dont l'adresse ou le n° de lot est cité.
+ *   (e) NOS adresses (gestion@, la maison, la compta externalisée) ne servent JAMAIS de clé — mais les adresses
+ *       TIERCES qu'elles citent (copie, transfert, corps) restent pleinement utilisables.
+ *
+ * 🔴 PLUSIEURS BIENS SE COCHENT DANS TOUS LES CAS. Un mail parle parfois de deux appartements du même bailleur — un
+ * appel de fonds, un relevé de charges. Rien ici ne limite un mail à un bien.
+ *
+ * 🔴 CE QUI DEVIENT « AUTO » EST STRICTEMENT (a) ET (b), ET RIEN D'AUTRE. Un rattachement automatique est une
+ * décision que personne ne relit : il ne se pose que lorsqu'il n'existe qu'UNE lecture possible. Dans les cas (c) et
+ * (d), le moteur PROPOSE et l'humain tranche — c'est un clic contre une erreur silencieuse dans l'historique d'un
+ * client, et le second coûte infiniment plus cher.
+ *
+ * Aucun import, aucune base, aucun React : tous les cas se rejouent ici sans rien brancher.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+
+/** Un bien de la gestion, réduit à ce qui permet de le proposer et de le reconnaître dans un texte. */
+export interface BienConnu {
+  /** La clé WIPPIMMO du lot : la seule identité qui survive à un ré-import de l'annuaire. */
+  cle: string;
+  /** Le n° de lot lisible, tel qu'on l'écrit dans un mail (« lot 445 »). Souvent identique à la clé. */
+  numero: string | null;
+  adresse: string | null;
+  commune: string | null;
+  proprietaireCle: string | null;
+  proprietaireNom: string | null;
+}
+
+/** Une adresse vue dans le mail ou dans l'échange, avec ce que l'annuaire en dit À LA DATE DU MAIL. */
+export interface AdresseVue {
+  adresse: string;
+  /** 🔴 Nos adresses : écartées comme SOURCE (cas e). Elles restent dans la liste, on ne les efface pas. */
+  interne: boolean;
+  partie: 'locataire' | 'proprietaire' | null;
+  lotCle: string | null;
+  proprietaireCle: string | null;
+  /** Vient-elle du mail lui-même, ou d'un autre message de l'échange ? Le mail prime toujours. */
+  duMail: boolean;
+}
+
+export type CasProposition = 'a' | 'b' | 'c' | 'd';
+
+export interface PropositionBien {
+  cle: string;
+  cas: CasProposition;
+  /** Le motif, EN CLAIR, tel qu'il s'affiche. Sans lui, on ne peut pas trancher sans rouvrir le code. */
+  motif: string;
+  /** `quasi_certaine` = cas (a) et (b) ; `a_trancher` = cas (c) et (d). */
+  certitude: 'quasi_certaine' | 'a_trancher';
+  /** L'écran coche cette case d'avance. Jamais silencieusement : le motif dit toujours pourquoi. */
+  preCoche: boolean;
+  /** Les adresses qui fondent la proposition. Vide au cas (d), qui ne vient pas d'une adresse. */
+  adresses: string[];
+}
+
+export interface ExamenBiens {
+  /**
+   * `automatique` = UN seul bien, par (a) ou (b) : le moteur pose le lien. `a_trancher` = des propositions, un
+   * humain choisit. `sans_candidat` = on ne sait pas, et on le DIT.
+   */
+  issue: 'automatique' | 'a_trancher' | 'sans_candidat';
+  propositions: PropositionBien[];
+  motif: string;
+}
+
+/** Les textes du mail où chercher une adresse ou un n° de lot (cas c et d). */
+export interface TextesDuMail {
+  objet?: string | null;
+  corps?: string | null;
+  /** Les noms des pièces jointes : « Quittance 12 rue Danton.pdf » désigne un bien aussi sûrement qu'un objet. */
+  pieces?: readonly string[];
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LA RECONNAISSANCE D'UN BIEN DANS UN TEXTE
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * NORMALISER POUR COMPARER : minuscules, accents ôtés, ponctuation réduite à des espaces. PUR.
+ *
+ * ⚠️ ON NE COMPARE JAMAIS DEUX TEXTES BRUTS. « 12 Rue Danton » et « 12 rue danton, » sont le même lieu, et
+ * « GÉRHARD » s'écrit « Gerhard » une fois sur deux dans les mails. Sans normalisation, la moitié des citations
+ * passeraient à travers — et on ne le verrait pas, parce qu'une proposition manquante ne fait pas de bruit.
+ */
+export function normaliser(t: string | null | undefined): string {
+  return (t ?? '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+/** Les mots d'une adresse qui servent à la reconnaître : le numéro, et les mots du nom de voie. PUR. */
+function motsSignificatifs(adresse: string): string[] {
+  const VIDES = new Set(['rue', 'avenue', 'av', 'boulevard', 'bd', 'place', 'allee', 'impasse', 'chemin',
+    'route', 'quai', 'square', 'cours', 'de', 'du', 'des', 'la', 'le', 'les', 'l', 'd', 'bis', 'ter']);
+  return normaliser(adresse).split(' ').filter((m) => m !== '' && !VIDES.has(m));
+}
+
+/**
+ * 🔴 L'ADRESSE DE CE BIEN EST-ELLE CITÉE DANS CE TEXTE ? PUR.
+ *
+ * ⚠️ IL FAUT LE NUMÉRO **ET** LE NOM DE VOIE. « rue Danton » seul désigne toute une rue — et nous gérons parfois
+ * trois immeubles dans la même. Exiger les deux évite de proposer le logement du voisin, ce qui est exactement
+ * l'erreur qu'on ne veut jamais commettre dans un dossier client.
+ *
+ * ⚠️ UN NOM DE VOIE D'UNE SEULE LETTRE OU D'UN SEUL CHIFFRE NE COMPTE PAS : il apparaîtrait partout.
+ */
+export function adresseCitee(bien: BienConnu, texte: string): boolean {
+  const mots = motsSignificatifs(bien.adresse ?? '');
+  const numero = mots.find((m) => /^\d+$/.test(m)) ?? null;
+  const voie = mots.filter((m) => !/^\d+$/.test(m) && m.length >= 3);
+  if (numero === null || voie.length === 0) return false;
+  const t = ` ${texte} `;
+  return t.includes(` ${numero} `) && voie.every((m) => t.includes(m));
+}
+
+/**
+ * 🔴 LE N° DE LOT DE CE BIEN EST-IL CITÉ ? PUR.
+ *
+ * ⚠️ LE NOMBRE SEUL NE SUFFIT PAS, ET C'EST ESSENTIEL. « 450 » apparaît dans « retenue de 450 € » ; un mail de
+ * comptabilité est plein de nombres. On exige donc le MOT « lot » (ou « logement ») juste avant — c'est ainsi
+ * qu'on l'écrit quand on le désigne vraiment.
+ */
+export function lotCite(bien: BienConnu, texte: string): boolean {
+  const n = normaliser(bien.numero ?? bien.cle);
+  if (n === '' || !/^\d+$/.test(n)) return false;
+  return new RegExp(`(?:^| )(?:lot|logement|lot n|logement n) ${n}(?: |$)`).test(` ${texte} `);
+}
+
+/** Le bien est-il cité, d'une façon ou d'une autre ? Et par quoi — le motif le dira. PUR. */
+export function citationDuBien(bien: BienConnu, texte: string): 'adresse' | 'lot' | null {
+  if (adresseCitee(bien, texte)) return 'adresse';
+  return lotCite(bien, texte) ? 'lot' : null;
+}
+
+/** Tous les textes du mail, normalisés en une seule chaîne à fouiller. PUR. */
+export function texteCherchable(t: TextesDuMail): string {
+  return normaliser([t.objet ?? '', t.corps ?? '', ...(t.pieces ?? [])].join(' '));
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   L'EXAMEN
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Le nom d'un bien, en une ligne, pour les motifs. PUR. */
+function nomCourt(b: BienConnu): string {
+  const lieu = [b.adresse, b.commune].filter((x) => x !== null && x !== '').join(', ');
+  return lieu === '' ? `lot ${b.numero ?? b.cle}` : `${lieu} — lot ${b.numero ?? b.cle}`;
+}
+
+/**
+ * 🔴 LES BIENS PROPOSABLES POUR CE MAIL. PUR — aucune écriture, aucun effet : il DÉCRIT ce qu'on peut proposer.
+ *
+ * L'ORDRE DES CAS EST L'ORDRE DE FIABILITÉ, et il n'est pas indifférent : un bien trouvé par le locataire (a) ne
+ * doit pas être noyé au milieu des huit biens du bailleur (c). Le premier motif rencontré pour un bien est celui
+ * qu'on garde — c'est le plus sûr, puisqu'on descend la liste.
+ */
+export function proposerBiens(o: {
+  /** Les adresses du mail ET de l'échange. Celles du mail portent `duMail: true`. */
+  adresses: readonly AdresseVue[];
+  textes?: TextesDuMail;
+  /** Le catalogue des biens utiles : ceux des propriétaires vus, plus ceux que le texte pourrait citer. */
+  biens: readonly BienConnu[];
+}): ExamenBiens {
+  const biensDuProprietaire = new Map<string, BienConnu[]>();
+  for (const b of o.biens) {
+    if (b.proprietaireCle === null || b.proprietaireCle === '') continue;
+    biensDuProprietaire.set(b.proprietaireCle, [...(biensDuProprietaire.get(b.proprietaireCle) ?? []), b]);
+  }
+
+  /** 🔴 CAS (e) — NOS ADRESSES NE SONT JAMAIS UNE SOURCE. Les tierces qu'elles citent, si : elles sont dans la liste. */
+  const utiles = o.adresses.filter((a) => !a.interne);
+  // Le MAIL prime sur l'échange : on l'examine d'abord, et on ne descend que s'il ne dit rien.
+  const duMail = utiles.filter((a) => a.duMail);
+
+  const texte = texteCherchable(o.textes ?? {});
+  const propositions: PropositionBien[] = [];
+  const vus = new Set<string>();
+  const ajouter = (p: PropositionBien) => { if (!vus.has(p.cle)) { vus.add(p.cle); propositions.push(p); } };
+
+  const examinerGroupe = (groupe: readonly AdresseVue[], provenance: string) => {
+    // ── (a) UNE ADRESSE DE LOCATAIRE DÉSIGNE SON BIEN ────────────────────────────────────────────────────────────
+    for (const a of groupe) {
+      if (a.partie !== 'locataire' || a.lotCle === null || a.lotCle === '') continue;
+      ajouter({
+        cle: a.lotCle, cas: 'a', certitude: 'quasi_certaine', preCoche: true,
+        motif: `locataire en place à la date du mail (${a.adresse})${provenance}`,
+        adresses: [a.adresse],
+      });
+    }
+
+    // ── (b) et (c) — UN PROPRIÉTAIRE : UN SEUL BIEN, OU TOUS SES BIENS ──────────────────────────────────────────
+    const proprios = new Map<string, string[]>();
+    for (const a of groupe) {
+      const cle = a.proprietaireCle;
+      if (cle === null || cle === '') continue;
+      /**
+       * Une adresse de LOCATAIRE porte aussi la clé de son bailleur. Quand elle a DÉJÀ donné son bien en (a), on
+       * s'arrête là : ouvrir toute la liste du bailleur par-dessus noierait la proposition sûre.
+       *
+       * ⚠️ MAIS QUAND ELLE N'A RIEN DONNÉ, ELLE COMPTE. C'est le cas d'un locataire de DEUX logements à la même
+       * date : la reconnaissance ne tranche aucun lot (`lotCle` nul) et rend le bailleur commun. Sans cette
+       * nuance, ce mail-là n'aurait aucune proposition du tout — alors qu'on sait parfaitement chez qui chercher.
+       */
+      if (a.partie === 'locataire' && a.lotCle !== null && a.lotCle !== '') continue;
+      proprios.set(cle, [...(proprios.get(cle) ?? []), a.adresse]);
+    }
+    for (const [cle, adresses] of proprios) {
+      const siens = biensDuProprietaire.get(cle) ?? [];
+      const nom = siens[0]?.proprietaireNom ?? cle;
+      if (siens.length === 1) {
+        ajouter({
+          cle: siens[0].cle, cas: 'b', certitude: 'quasi_certaine', preCoche: true,
+          motif: `${nom} n’a qu’un bien en gestion${provenance}`,
+          adresses,
+        });
+        continue;
+      }
+      /**
+       * 🔴 CAS (c) — PLUSIEURS BIENS : ON LES PROPOSE TOUS, ET ON N'EN COCHE AUCUN. Choisir « le premier » serait
+       * ranger au hasard le courrier d'un bailleur de huit lots. La SEULE exception est la citation explicite dans
+       * le mail : là, on coche, et on écrit pourquoi.
+       */
+      for (const b of siens) {
+        const cite = citationDuBien(b, texte);
+        ajouter({
+          cle: b.cle, cas: 'c', certitude: 'a_trancher', preCoche: cite !== null,
+          motif: cite !== null
+            ? `${cite === 'adresse' ? 'adresse' : 'n° de lot'} cité dans le mail — un des ${siens.length} biens de ${nom}`
+            : `un des ${siens.length} biens de ${nom}${provenance}`,
+          adresses,
+        });
+      }
+    }
+  };
+
+  examinerGroupe(duMail, '');
+  /**
+   * 🔴 LE MAIL N'A RIEN DIT : ON REGARDE TOUT L'ÉCHANGE — MAIS ON NE POSE JAMAIS RIEN D'OFFICE.
+   *
+   * C'est une règle déjà mesurée dans ce dépôt (lot RATTACHEMENT-1) et elle ne se rediscute pas : les mails que ce
+   * second passage doit sauver sont ceux d'un TIERS — syndic, artisan, assureur — dont aucune adresse n'est à
+   * l'annuaire. Leur rattacher d'office le logement du voisin de fil, c'est écrire dans le dossier d'un client une
+   * pièce qui n'est peut-être pas la sienne, sans que personne le voie. Un clic contre une erreur invisible.
+   */
+  const depuisLEchange = propositions.length === 0;
+  if (depuisLEchange) examinerGroupe(utiles, ' (vu ailleurs dans l’échange)');
+
+  /**
+   * ── (d) AUCUNE ADRESSE RECONNUE : LE TEXTE, ET LUI SEUL ──────────────────────────────────────────────────────
+   * Les mails de comptabilité ou d'un syndic n'ont aucune adresse à l'annuaire, et citent pourtant le logement en
+   * toutes lettres. C'est le dernier filet — et il ne donne JAMAIS un rattachement automatique.
+   */
+  if (propositions.length === 0 && texte !== '') {
+    for (const b of o.biens) {
+      const cite = citationDuBien(b, texte);
+      if (cite === null) continue;
+      ajouter({
+        cle: b.cle, cas: 'd', certitude: 'a_trancher', preCoche: true,
+        motif: `aucune adresse connue ; ${cite === 'adresse' ? 'adresse' : 'n° de lot'} cité dans le mail `
+          + `(${nomCourt(b)})`,
+        adresses: [],
+      });
+    }
+  }
+
+  if (propositions.length === 0) {
+    return {
+      issue: 'sans_candidat', propositions: [],
+      motif: utiles.length === 0
+        ? 'aucune adresse de l’échange n’est connue de l’annuaire, et le mail ne cite aucun bien'
+        : `${utiles.length} adresse(s) reconnue(s), mais aucune ne désigne de bien à la date du mail `
+          + '(bail hors période, ou lot hors gestion)',
+    };
+  }
+
+  /**
+   * 🔴 « AUTO » EXIGE UNE LECTURE UNIQUE : UN seul bien, et par (a) ou (b). Deux biens quasi certains, c'est deux
+   * dossiers — et personne ne doit trancher à notre place en silence.
+   */
+  const quasi = propositions.filter((p) => p.certitude === 'quasi_certaine');
+  if (propositions.length === 1 && quasi.length === 1 && !depuisLEchange) {
+    return {
+      issue: 'automatique', propositions,
+      motif: `un seul bien certain — ${propositions[0].motif}`,
+    };
+  }
+
+  return {
+    issue: 'a_trancher', propositions,
+    motif: depuisLEchange
+      ? 'aucune adresse connue dans ce mail ; l’échange, lui, en porte — à confirmer à la main'
+      : quasi.length > 1
+        ? `${quasi.length} biens quasi certains : le mail concerne plusieurs dossiers, à trancher`
+        : `${propositions.length} bien(s) proposé(s), à trancher`,
+  };
+}

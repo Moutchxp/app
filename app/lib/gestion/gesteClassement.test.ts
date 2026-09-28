@@ -279,3 +279,67 @@ describe('🔴 LOT STATUT-HORS-GESTION — la phrase du résumé', () => {
     expect(resumeHorsGestion('annuler', 3, null)).toContain('ils reviennent dans la file');
   });
 });
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT AFFECTATION-PAR-BIEN — LES PIÈCES JOINTES, CHACUNE DANS SON BIEN
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe('🔴 LOT AFFECTATION-PAR-BIEN — classer chaque pièce jointe séparément', () => {
+  it('par DÉFAUT, aucune pièce n’est rangée à part : elles suivent le mail', () => {
+    const p = planClassement({
+      messageId: 900, portee: 'mail', mailsSansManuel: [900], selection: ['445', '446'], existants: [],
+    });
+    expect(p.aPoserPieces).toEqual([]);
+    expect(p.resume).toBe('1 mail classé sur 2 biens.');
+  });
+
+  it('« tous les biens cochés » (clé nulle) ne pose rien de plus non plus', () => {
+    const p = planClassement({
+      messageId: 900, portee: 'mail', mailsSansManuel: [900], selection: ['445', '446'], existants: [],
+      pieces: [{ pieceId: 10, cle: null }, { pieceId: 11, cle: null }],
+    });
+    expect(p.aPoserPieces).toEqual([]);
+  });
+
+  it('🔴 une pièce affectée à UN bien donne un rattachement de pièce, et le résumé le DIT', () => {
+    const p = planClassement({
+      messageId: 900, portee: 'mail', mailsSansManuel: [900], selection: ['445', '446'], existants: [],
+      pieces: [{ pieceId: 10, cle: '445' }, { pieceId: 11, cle: '446' }],
+    });
+    expect(p.aPoserPieces).toEqual([
+      { messageId: 900, pieceId: 10, cle: '445' },
+      { messageId: 900, pieceId: 11, cle: '446' },
+    ]);
+    expect(p.resume).toContain('2 pièces jointes classées séparément');
+  });
+
+  it('🔴 une pièce envoyée vers un bien DÉCOCHÉ est ignorée : pas de rattachement orphelin', () => {
+    const p = planClassement({
+      messageId: 900, portee: 'mail', mailsSansManuel: [900], selection: ['445'], existants: [],
+      pieces: [{ pieceId: 10, cle: '445' }, { pieceId: 11, cle: '999' }],
+    });
+    expect(p.aPoserPieces).toEqual([{ messageId: 900, pieceId: 10, cle: '445' }]);
+  });
+
+  it('🔴 les pièces ne suivent JAMAIS la portée élargie : ce sont celles du mail ouvert', () => {
+    const p = planClassement({
+      messageId: 900, portee: 'conversation', mailsSansManuel: [900, 901, 902], selection: ['445'], existants: [],
+      pieces: [{ pieceId: 10, cle: '445' }],
+    });
+    // Le rattachement du BIEN va sur les trois mails ; celui de la PIÈCE ne va que sur le sien.
+    expect(p.aPoser).toHaveLength(3);
+    expect(p.aPoserPieces).toEqual([{ messageId: 900, pieceId: 10, cle: '445' }]);
+  });
+
+  it('« hors gestion » ne range aucune pièce : les deux réponses s’excluent', () => {
+    const p = planClassement({
+      messageId: 900, portee: 'mail', mailsSansManuel: [900], selection: ['445'], existants: [],
+      pieces: [{ pieceId: 10, cle: '445' }], horsGestion: { geste: 'marquer' },
+    });
+    expect(p.aPoserPieces).toEqual([]);
+  });
+
+  it('le résumé cumule tout dans une seule phrase lisible', () => {
+    expect(resumeClassement(1, 2, 0, 0, 2)).toBe('1 mail classé sur 2 biens, 2 pièces jointes classées séparément.');
+    expect(resumeClassement(1, 1, 0, 0, 1)).toBe('1 mail classé sur 1 bien, 1 pièce jointe classée séparément.');
+  });
+});

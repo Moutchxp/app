@@ -534,6 +534,8 @@ describe('🔴 LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail »', () =>
   const bien = (cle: string, o: Record<string, unknown> = {}) => ({
     cle, libelle: `Lot ${cle} — 127 rue Gerhard, Puteaux`, adresse: '127 rue Gerhard', commune: 'Puteaux',
     typeBien: 'appartement', recommande: false, dejaRattache: false,
+    // LOT AFFECTATION-PAR-BIEN — le motif est désormais rendu EN CLAIR à côté de chaque bien.
+    motif: 'un des 2 biens de EKAMAI', cas: 'c', certitude: 'a_trancher',
     parties: [
       { role: 'proprietaire', cle: 'VMI', nom: 'VM IMMO INVEST' },
       { role: 'locataire', cle: 'TH', nom: 'THIRION Stéphane', depuis: '2025-05-19', jusqua: '2026-10-02' },
@@ -563,7 +565,13 @@ describe('🔴 LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail »', () =>
   const CONTEXTE = (o: Record<string, unknown> = {}) => ({
     messageId: 900, filId: 101, dateMail: '2026-08-10T09:00:00Z', nbMailsDuFil: 3,
     proprietaire: { cle: 'VMI', nom: 'VM IMMO INVEST' },
-    biens: [bien('445', { recommande: true })], disponible: true, ...o,
+    examen: { issue: 'a_trancher', motif: '2 bien(s) proposé(s), à trancher' },
+    pieces: [],
+    biens: [bien('445', {
+      recommande: true, cas: 'a', certitude: 'quasi_certaine',
+      motif: 'locataire en place à la date du mail (thirion@gmail.com)',
+    })],
+    disponible: true, ...o,
   });
 
   it('① la portée par défaut est « Ce mail uniquement »', async () => {
@@ -575,11 +583,17 @@ describe('🔴 LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail »', () =>
     expect(container.textContent).toContain('Toute la conversation');
   });
 
-  it('④ le bien recommandé est PRÉ-COCHÉ et le dit en mots', async () => {
+  /**
+   * 🔴 LOT AFFECTATION-PAR-BIEN — LE VOCABULAIRE A CHANGÉ, ET C'EST LE CHANGEMENT DEMANDÉ. « Recommandé
+   * (automatique) » ne disait pas POURQUOI. Chaque bien porte désormais sa certitude (« Quasi certain » / « À
+   * trancher ») ET son motif en clair — c'est ce qui permet de trancher sans rouvrir le code.
+   */
+  it('④ le bien recommandé est PRÉ-COCHÉ, et le MOTIF est écrit en clair', async () => {
     await ouvrir(CONTEXTE());
     expect(cases()).toHaveLength(1);
     expect(cases()[0].checked).toBe(true);
-    expect(container.textContent).toContain('Recommandé (automatique)');
+    expect(container.textContent).toContain('Quasi certain');
+    expect(container.textContent).toContain('locataire en place à la date du mail');
   });
 
   it('les parties du bien sont celles de la DATE DU MAIL — propriétaire ET locataire', async () => {
