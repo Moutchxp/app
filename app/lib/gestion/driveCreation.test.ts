@@ -212,7 +212,8 @@ describe('🔴🔴 ② et ③ — ce que le module NE SAIT PAS FAIRE', () => {
   /** L'aperçu est une LECTURE de contenu : il doit passer par la MÊME règle que « Joindre », pas par une variante. */
   it('la route d’aperçu passe par le verdict de lecture, et ne sert qu’une liste blanche de types', () => {
     const code = sansCommentaires(routeApercu);
-    expect(code).toContain('verdictJoindre(');
+    // ⚠️ LOT APERCU-RAPIDE — même verdict, nom plus précis : il rend aussi les métadonnées qu'il vient de lire.
+    expect(code).toContain('verdictJoindreFichier(');
     expect(code).toContain('typeServi(');
     expect(code).toContain('nosniff');
   });

@@ -251,8 +251,14 @@ describe('🔴 le droit de créer voyage AVEC le contenu du dossier', () => {
     const partage = code('app/lib/gestion/driveVerdict.ts');
     expect(partage).toContain('peutCreerDossier');
     // Dans `verdictsDossier`, la chaîne n'est lue qu'une fois.
+    /**
+     * ⚠️ LOT APERCU-RAPIDE — LA REMONTÉE PASSE PAR LA MÉMOIRE COURTE (`chaineDuDossierMemo`), qui appelle
+     * `chaineParents` pour son compte. La propriété protégée n'a pas changé : UNE SEULE remontée pour les deux
+     * verdicts. Elle se lit désormais sur l'appel mémoïsé, qui est le seul chemin vers le réseau.
+     */
     const bloc = partage.slice(partage.indexOf('export async function verdictsDossier'));
-    expect(bloc.match(/chaineParents\(/g) ?? []).toHaveLength(1);
+    expect(bloc.match(/chaineDuDossierMemo\(/g) ?? []).toHaveLength(1);
+    expect(bloc).not.toContain('chaineParents(');
   });
 });
 
@@ -265,18 +271,29 @@ describe('🔴 l’écran n’offre pas « Visualiser » là où la route refuse
    */
   it('« Visualiser » est conditionné au MÊME verdict que « Joindre »', () => {
     const c = code(ECRAN);
-    const i = c.indexOf('Visualiser');
+    // ⚠️ La dernière occurrence : le lot APERCU-RAPIDE a ajouté des commentaires qui nomment le mot plus haut.
+    const i = c.lastIndexOf('Visualiser');
     expect(i).toBeGreaterThan(0);
-    expect(c.slice(Math.max(0, i - 400), i)).toContain('joindreAutorise');
+    expect(c.slice(Math.max(0, i - 900), i)).toContain('joindreAutorise');
   });
 
   /** Et la route de l'aperçu prononce le verdict elle-même : l'écran explique, le serveur protège. */
+  /**
+   * ⚠️ LOT APERCU-RAPIDE — LE VERDICT A CHANGÉ DE NOM, PAS DE NATURE. `verdictJoindreFichier` remonte la MÊME
+   * chaîne (le fichier, puis les ancêtres de son dossier) et la soumet au MÊME module pur ; il rend en plus les
+   * métadonnées, qu'il venait de lire pour connaître le parent. La propriété protégée est intacte : le refus est
+   * prononcé AVANT qu'un seul octet de contenu ne soit demandé — flux, export et vignette compris.
+   */
   it('…et la route de l’aperçu le prononce aussi, sur la chaîne des parents', () => {
     const c = code('app/(admin)/api/admin/gestion/drive/apercu/route.ts');
-    expect(c).toContain('verdictJoindre(');
-    // Le refus vient AVANT toute lecture d'octets.
-    expect(c.indexOf('verdictJoindre(')).toBeLessThan(c.indexOf('lireContenuFichier('));
-    expect(c.indexOf('verdictJoindre(')).toBeLessThan(c.indexOf('exporterEnPdf('));
+    expect(c).toContain('verdictJoindreFichier(');
+    const partage = code('app/lib/gestion/driveVerdict.ts');
+    expect(partage).toContain('peutJoindre');
+    // Le refus vient AVANT toute lecture de contenu — les trois portes en sont en aval.
+    const iVerdict = c.indexOf('verdictJoindreFichier(');
+    for (const apres of ['ouvrirFluxFichier(', 'ouvrirFluxExportPdf(', 'ouvrirFluxVignette(']) {
+      expect(iVerdict, apres).toBeLessThan(c.indexOf(apres));
+    }
   });
 
   /**

@@ -126,3 +126,90 @@ export function motifTropGros(tailleOctets: number): string {
   return `Ce fichier fait ${String(mo).replace('.', ',')} Mo : au-delà de `
     + `${APERCU_TAILLE_MAX / (1024 * 1024)} Mo, l’aperçu n’est pas ouvert. Vous pouvez le joindre au message.`;
 }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT APERCU-RAPIDE — « PRÉCÉDENT / SUIVANT » : LE PÉRIMÈTRE, ET RIEN QUE LE PÉRIMÈTRE
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LA RÈGLE D'ARNO : on parcourt LE DOSSIER DU DOCUMENT AFFICHÉ, jamais d'un dossier à un autre.
+     · ouvert depuis un dossier → les fichiers visualisables de CE dossier, dans l'ordre de la liste, sans ses
+       sous-dossiers ;
+     · ouvert depuis des résultats de recherche → seulement ceux de la liste qui ont LE MÊME dossier parent.
+
+   🔴 POURQUOI CETTE SECONDE CLAUSE EST INDISPENSABLE. Une recherche rend quarante fichiers venus de quarante
+   endroits. « Suivant » y ferait passer, sans prévenir, du bail d'un logement à la pièce d'identité d'un autre
+   client — et la seconde peut être sous « Documents clients scannés ». Borner au dossier n'est pas un confort de
+   navigation : c'est ce qui empêche l'aperçu de sortir de l'endroit où l'on avait le droit de regarder.
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Un voisin possible, réduit à ce qui permet de décider s'il fait partie du parcours. */
+export interface VoisinPossible {
+  id: string;
+  nom: string;
+  typeMime: string;
+  dossier: boolean;
+  /** Le dossier qui le contient. `null` = inconnu (une liste qui ne le porte pas) : il ne fera pas partie du tour. */
+  parentId: string | null;
+}
+
+/**
+ * ══ 🔴 LES VOISINS QU'ON PEUT PARCOURIR, DANS L'ORDRE DE LA LISTE AFFICHÉE. PUR. ═════════════════════════════════
+ *
+ * 🔴 TROIS FILTRES, ET CHACUN A SA RAISON :
+ *   ① les DOSSIERS sont écartés — on parcourt des documents, pas l'arborescence ;
+ *   ② les types SANS APERÇU sont SAUTÉS (demande d'Arno), SVG compris : « Suivant » doit montrer quelque chose,
+ *      sinon on cliquerait trois fois pour traverser trois archives zip ;
+ *   ③ le PARENT doit être celui du document ouvert. Quand la liste vient d'un dossier, tous le partagent et le
+ *      filtre ne retire rien ; quand elle vient d'une recherche, il est la barrière.
+ *
+ * ⚠️ LE DOCUMENT OUVERT EST TOUJOURS DANS LE TOUR, même si la liste ne le porte pas (on l'a ouvert depuis
+ * « Récents », d'où l'on ne connaît aucun parent) : sans lui, le compteur dirait « 0 / 0 » en le montrant à
+ * l'écran. Il est alors seul, et les deux boutons sont éteints — ce qui est la vérité.
+ *
+ * ⚠️ L'ORDRE EST CELUI DE LA LISTE, jamais un tri : c'est l'ordre qu'on a sous les yeux, et le seul auquel on
+ * s'attende en cliquant « Suivant ».
+ */
+export function voisinsVisualisables(
+  liste: readonly VoisinPossible[], ouvert: { id: string; typeMime: string; parentId: string | null },
+): VoisinPossible[] {
+  const retenus = liste.filter((f) => !f.dossier
+    && sorteApercu(f.typeMime) !== 'aucun'
+    && f.parentId !== null && f.parentId === ouvert.parentId);
+  if (retenus.some((f) => f.id === ouvert.id)) return retenus;
+  /**
+   * Le document ouvert n'est pas dans la liste retenue : soit la liste ne le porte pas, soit son parent est
+   * inconnu. On rend un tour qui ne contient que lui — jamais une liste où il n'apparaîtrait pas, qui ferait
+   * afficher « 3 / 7 » pour un document absent des sept.
+   */
+  return [{ id: ouvert.id, nom: '', typeMime: ouvert.typeMime, dossier: false, parentId: ouvert.parentId }];
+}
+
+/** La position du document ouvert dans le tour, à partir de 1. `0` s'il n'y est pas — ce qui ne devrait pas arriver. PUR. */
+export function positionDans(voisins: readonly { id: string }[], id: string): number {
+  return voisins.findIndex((v) => v.id === id) + 1;
+}
+
+/**
+ * LE COMPTEUR, ÉCRIT. PUR.
+ *
+ * ⚠️ IL NE COMPTE QUE LES FICHIERS VISUALISABLES (demande d'Arno) : afficher « 3 / 12 » alors que neuf des douze
+ * sont des archives que « Suivant » saute ferait croire à des documents perdus en route.
+ */
+export function motCompteur(position: number, total: number): string {
+  return total <= 0 ? '—' : `${Math.max(position, 1)} / ${total}`;
+}
+
+/**
+ * OÙ MÈNE UN PAS ? Rend l'identifiant du voisin, ou `null` quand il n'y en a pas. PUR.
+ *
+ * 🔴 ON NE BOUCLE PAS (demande d'Arno) : au premier, « Précédent » est éteint ; au dernier, « Suivant » l'est.
+ * Une liste qui reboucle fait perdre le compte de ce qu'on a déjà vu, et l'on retraverse le même dossier sans s'en
+ * apercevoir.
+ */
+export function voisinVers(
+  voisins: readonly { id: string }[], id: string, pas: -1 | 1,
+): string | null {
+  const i = voisins.findIndex((v) => v.id === id);
+  if (i === -1) return null;
+  const j = i + pas;
+  return j >= 0 && j < voisins.length ? voisins[j].id : null;
+}

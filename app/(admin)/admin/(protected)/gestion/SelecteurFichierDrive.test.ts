@@ -30,16 +30,21 @@ let contenu: Record<string, unknown>;
 let recents: Record<string, unknown>;
 let prioritaires: Record<string, unknown>;
 let appels: string[];
-/** Ce que la route d'aperçu rend : des octets, ou un refus avec son motif. */
-let apercu: { ok: boolean; corps?: Blob; message?: string; statut?: number };
+/** Ce que `?info=1` rend : le feu vert (avec ou sans vignette), ou un refus avec son motif. */
+let apercu: { ok: boolean; vignette?: boolean; message?: string; statut?: number };
 /** Ce que la route de création rend, au GET (préparation) puis au POST (création). */
 let dossierNeuf: { get: Record<string, unknown>; post: Record<string, unknown>; statut: number };
 let urlsCreees: number;
 let urlsRevoquees: number;
 
-const fichier = (id: string, nom: string, dossier = false) => ({
+/**
+ * ⚠️ LOT APERCU-RAPIDE — `parentId` FAIT PARTIE DE LA LIGNE, comme dans la vraie réponse : la route demande
+ * `parents` à Drive depuis ce lot. C'est lui qui borne « Précédent / Suivant » au dossier du document affiché.
+ */
+const fichier = (id: string, nom: string, dossier = false, parentId: string | null = 'D1') => ({
   id, nom, typeMime: dossier ? 'application/vnd.google-apps.folder' : 'application/pdf',
   tailleOctets: dossier ? null : 2048, modifieLe: null, lien: `https://drive.google.com/${id}`, dossier,
+  parentId,
 });
 
 beforeEach(() => {
@@ -51,7 +56,7 @@ beforeEach(() => {
   };
   recents = { etat: 'ok', disponible: false, lignes: [] };
   prioritaires = { etat: 'ok', biens: [], dossiers: [] };
-  apercu = { ok: true, corps: new Blob(['%PDF-1.4'], { type: 'application/pdf' }) };
+  apercu = { ok: true, vignette: true };
   dossierNeuf = {
     get: { etat: 'ok', nom: 'Travaux 2026', chemin: 'Mon Drive › Artisans › Travaux 2026',
       phrase: 'Le dossier sera créé ici : Mon Drive › Artisans › Travaux 2026' },
@@ -64,10 +69,21 @@ beforeEach(() => {
     if (u.includes('/dossier-du-bien')) return { ok: true, json: async () => prioritaires } as unknown as Response;
     if (u.includes('/pieces-recentes')) return { ok: true, json: async () => recents } as unknown as Response;
     // 🔴 L'APERÇU rend des OCTETS, pas du JSON — sauf quand il refuse, et c'est ce que le test doit pouvoir simuler.
+    /**
+     * 🔴 LOT APERCU-RAPIDE — L'APERÇU DEMANDE D'ABORD `?info=1`, court, qui porte le verdict et le type. Les OCTETS,
+     * eux, ne passent plus par `fetch` : le cadre pointe directement sur la route, pour que le lecteur PDF affiche
+     * les premières pages pendant que le reste arrive. C'est pour cela que ce double ne rend plus de `blob`.
+     */
     if (u.includes('/drive/apercu')) {
       return apercu.ok
-        ? { ok: true, status: 200, blob: async () => apercu.corps } as unknown as Response
-        : { ok: false, status: apercu.statut ?? 415, json: async () => ({ message: apercu.message }) } as unknown as Response;
+        ? {
+          ok: true, status: 200,
+          json: async () => ({ etat: 'ok', nom: 'bail.pdf', sorte: 'pdf', vignette: apercu.vignette !== false }),
+        } as unknown as Response
+        : {
+          ok: (apercu.statut ?? 415) < 400, status: apercu.statut ?? 415,
+          json: async () => ({ etat: apercu.statut === 403 ? 'refus' : 'sans_apercu', message: apercu.message }),
+        } as unknown as Response;
     }
     if (u.includes('/drive/dossier')) {
       const creation = (init?.method ?? 'GET') === 'POST' ? dossierNeuf.post : dossierNeuf.get;
@@ -524,13 +540,29 @@ describe('🔴🔴 ① « Visualiser » n’interrompt jamais la navigation', ()
     expect(fermetures).toBe(0);
   });
 
-  /** 🔒 Les octets du document d'un client ne restent pas en mémoire de l'onglet. */
-  it('🔒 l’URL locale de l’aperçu est RÉVOQUÉE à la fermeture', async () => {
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴🔴 LOT APERCU-RAPIDE — CE TEST A ÉTÉ RÉÉCRIT, ET IL FAUT DIRE POURQUOI.
+   *
+   * Il vérifiait qu'on RÉVOQUAIT le `blob:` de l'aperçu à la fermeture. Ce `blob:` n'existe plus : il imposait de
+   * télécharger le fichier ENTIER en mémoire de la page avant d'afficher le premier pixel — jusqu'à 9 secondes pour
+   * 2,8 Mo (mesuré le 29/09/2026). Le cadre pointe désormais sur la route, et le lecteur PDF affiche les premières
+   * pages pendant que le reste arrive.
+   *
+   * ⚠️ LA PROPRIÉTÉ PROTÉGÉE EST LA MÊME, EN PLUS FORTE : rien du document ne s'accumule en mémoire de l'onglet.
+   * Elle ne se vérifie plus par une révocation, mais par l'ABSENCE de toute URL d'objet.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it('🔒 aucun `blob:` n’est créé : les octets traversent, ils ne s’accumulent pas', async () => {
     await monter();
     await cliquer(visualiserDe('bail.pdf'));
-    expect(urlsCreees).toBe(1);
+    expect(urlsCreees).toBe(0);
+    // Le cadre pointe sur NOTRE route — jamais sur Google, jamais sur une URL d'objet.
+    const cadre = container.querySelector('.apd-cadre') as HTMLIFrameElement | null;
+    expect(cadre?.getAttribute('src')).toContain('/api/admin/gestion/drive/apercu?fichier=f1');
+    expect(cadre?.getAttribute('src')).not.toContain('blob:');
     await cliquer(container.querySelector('.apd-croix'));
-    expect(urlsRevoquees).toBe(1);
+    expect(urlsRevoquees).toBe(0);
   });
 
   it('② les trois liens sont dans l’ordre : Visualiser, Joindre, Insérer un lien', async () => {
@@ -749,5 +781,186 @@ describe('🔴 ⑤ « + Nouveau dossier »', () => {
     };
     await cliquer(boutonPar(/^Créer$/));
     expect(container.querySelector('.sfd-creer-fait')?.textContent).toContain('journal');
+  });
+});
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT APERCU-RAPIDE — NAVIGUER DANS L'APERÇU, ET NE PAS ATTENDRE.
+ *
+ * Ce qui est tenu ici, à l'écran monté pour de vrai :
+ *   ① « ◀ Précédent » et « Suivant ▶ », leur compteur, et les flèches du clavier ;
+ *   ② les extrémités GRISÉES — on ne boucle pas ;
+ *   ③ « Joindre » depuis l'aperçu suit le document AFFICHÉ, et ne ferme pas l'aperçu ;
+ *   ④ 🔒 AUCUN préchargement sous « Documents clients scannés » — ni au survol, ni par la navigation.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 LOT APERCU-RAPIDE — « Précédent / Suivant » dans l’aperçu', () => {
+  const visualiserDe = (nom: string) => {
+    const li = [...container.querySelectorAll('.sfd-item')].find((x) => (x.textContent ?? '').includes(nom));
+    return [...(li?.querySelectorAll('button') ?? [])].find((b) => /^Visualiser$/.test((b.textContent ?? '').trim()));
+  };
+  const boutonNav = (m: RegExp) => [...container.querySelectorAll('.apd-nav button')]
+    .find((b) => m.test(b.textContent ?? '')) as HTMLButtonElement | undefined;
+  const fleche = async (key: string) => {
+    await act(async () => { window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })); });
+    await calmer();
+  };
+
+  /** Trois PDF et une archive : l'archive doit être sautée, et ne pas compter. */
+  const listeMelangee = () => {
+    contenu = {
+      ...contenu,
+      fichiers: [
+        fichier('f1', 'bail.pdf'),
+        { ...fichier('zz', 'archive.zip'), typeMime: 'application/zip' },
+        fichier('f2', 'devis.pdf'),
+        fichier('f3', 'quittance.pdf'),
+      ],
+    };
+  };
+
+  it('① le compteur dit la position, et les flèches du clavier changent de document', async () => {
+    listeMelangee();
+    await monter();
+    await cliquer(visualiserDe('bail.pdf'));
+    expect(container.querySelector('.apd-compteur-n')?.textContent).toBe('1 / 3');
+    expect(container.querySelector('.apd-compteur-nom')?.textContent).toBe('bail.pdf');
+
+    await fleche('ArrowRight');
+    expect(container.querySelector('.apd-compteur-n')?.textContent).toBe('2 / 3');
+    expect(container.querySelector('.apd-compteur-nom')?.textContent).toBe('devis.pdf');
+
+    await fleche('ArrowLeft');
+    expect(container.querySelector('.apd-compteur-n')?.textContent).toBe('1 / 3');
+  });
+
+  it('① les BOUTONS font la même chose que les flèches', async () => {
+    listeMelangee();
+    await monter();
+    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer(boutonNav(/Suivant/));
+    expect(container.querySelector('.apd-compteur-nom')?.textContent).toBe('devis.pdf');
+    await cliquer(boutonNav(/Précédent/));
+    expect(container.querySelector('.apd-compteur-nom')?.textContent).toBe('bail.pdf');
+  });
+
+  /** 🔴 L'archive n'est ni comptée, ni traversée : « Suivant » passe de devis.pdf à quittance.pdf. */
+  it('🔴 les fichiers non visualisables sont SAUTÉS, et ne comptent pas', async () => {
+    listeMelangee();
+    await monter();
+    await cliquer(visualiserDe('bail.pdf'));
+    await fleche('ArrowRight');
+    await fleche('ArrowRight');
+    expect(container.querySelector('.apd-compteur-n')?.textContent).toBe('3 / 3');
+    expect(container.querySelector('.apd-compteur-nom')?.textContent).toBe('quittance.pdf');
+    // Et « archive.zip » n'a jamais été affichée.
+    expect(container.querySelector('.apd')?.textContent).not.toContain('archive.zip');
+  });
+
+  it('🔴 ② aux extrémités, le bouton correspondant est GRISÉ — on ne boucle pas', async () => {
+    listeMelangee();
+    await monter();
+    await cliquer(visualiserDe('bail.pdf'));
+    expect(boutonNav(/Précédent/)?.disabled).toBe(true);
+    expect(boutonNav(/Suivant/)?.disabled).toBe(false);
+
+    await fleche('ArrowRight');
+    await fleche('ArrowRight');
+    expect(boutonNav(/Suivant/)?.disabled).toBe(true);
+    expect(boutonNav(/Précédent/)?.disabled).toBe(false);
+    // Une flèche de plus ne fait RIEN : elle ne ramène pas au premier.
+    await fleche('ArrowRight');
+    expect(container.querySelector('.apd-compteur-nom')?.textContent).toBe('quittance.pdf');
+  });
+
+  /** Un document seul ne mérite pas deux boutons éteints et un « 1 / 1 » qui n'apprend rien. */
+  it('la navigation n’apparaît pas quand il n’y a qu’un document', async () => {
+    contenu = { ...contenu, fichiers: [fichier('f1', 'bail.pdf')] };
+    await monter();
+    await cliquer(visualiserDe('bail.pdf'));
+    expect(container.querySelector('.apd')).not.toBeNull();
+    expect(container.querySelector('.apd-nav')).toBeNull();
+  });
+
+  it('🔴 ③ « Joindre » depuis l’aperçu suit le document AFFICHÉ, et ne ferme pas l’aperçu', async () => {
+    listeMelangee();
+    await monter();
+    await cliquer(visualiserDe('bail.pdf'));
+    await fleche('ArrowRight');   // on est sur devis.pdf
+    await cliquer([...container.querySelectorAll('.apd button')]
+      .find((b) => /Joindre ce fichier/.test(b.textContent ?? '')));
+    expect((choisis[0] as { drive?: { fichierId: string; nom: string } }).drive)
+      .toMatchObject({ fichierId: 'f2', nom: 'devis.pdf' });
+    // L'aperçu reste ouvert et DIT que c'est ajouté ; le sélecteur n'a pas bougé non plus.
+    expect(container.querySelector('.apd')).not.toBeNull();
+    expect(container.querySelector('.apd-pied')?.textContent).toContain('ajouté');
+    expect(fermetures).toBe(0);
+  });
+
+  /** ⑤ Le « ✓ ajouté » suit le document affiché : revenir au précédent, non joint, rend le bouton. */
+  it('③ le « ✓ ajouté » suit le document, pas la fenêtre', async () => {
+    listeMelangee();
+    await monter();
+    await cliquer(visualiserDe('bail.pdf'));
+    await fleche('ArrowRight');
+    await cliquer([...container.querySelectorAll('.apd button')]
+      .find((b) => /Joindre ce fichier/.test(b.textContent ?? '')));
+    expect(container.querySelector('.apd-pied')?.textContent).toContain('ajouté');
+    await fleche('ArrowLeft');   // retour sur bail.pdf, qui n'est pas joint
+    expect([...container.querySelectorAll('.apd button')]
+      .some((b) => /Joindre ce fichier/.test(b.textContent ?? ''))).toBe(true);
+  });
+
+  /** ⑥ La fermeture ramène la liste EXACTEMENT comme avant — c'est la promesse du lot précédent, toujours tenue. */
+  it('la fermeture ramène le même dossier, le même compteur et les mêmes « ✓ ajouté »', async () => {
+    listeMelangee();
+    await monter();
+    await cliquer(joindreDe('bail.pdf'));
+    const compteurAvant = container.querySelector('.sfd-compteur')?.textContent;
+    await cliquer(visualiserDe('devis.pdf'));
+    await fleche('ArrowRight');
+    await cliquer(container.querySelector('.apd-croix'));
+    expect(container.querySelector('.apd')).toBeNull();
+    expect(container.querySelector('.sfd-compteur')?.textContent).toBe(compteurAvant);
+    expect(joindreDe('bail.pdf')).toBeUndefined();          // toujours marqué « ajouté »
+    expect(container.textContent).toContain('devis.pdf');
+  });
+});
+
+describe('🔒 LOT APERCU-RAPIDE — aucun préchargement là où la lecture est refusée', () => {
+  /**
+   * 🔒 SOUS « DOCUMENTS CLIENTS SCANNÉS », il n'y a ni lien « Visualiser », ni survol qui amorce quoi que ce soit.
+   * La règle est tenue par la route ; ici on vérifie que l'écran ne va même pas frapper à la porte — un
+   * préchargement massif sur l'archive serait une lecture de masse, même refusée.
+   */
+  it('🔒 ni « Visualiser », ni aucun appel d’aperçu au survol', async () => {
+    contenu = {
+      ...contenu, joindreAutorise: false,
+      motifRefus: 'Ce fichier est dans « Documents clients scannés » : son contenu n’est jamais lu.',
+    };
+    await monter();
+    const li = [...container.querySelectorAll('.sfd-item')].find((x) => (x.textContent ?? '').includes('bail.pdf'));
+    expect([...(li?.querySelectorAll('button') ?? [])]
+      .some((b) => /^Visualiser$/.test((b.textContent ?? '').trim()))).toBe(false);
+
+    const avant = appels.length;
+    await act(async () => { li?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    await calmer();
+    expect(appels.slice(avant).some((u) => u.includes('/drive/apercu'))).toBe(false);
+  });
+
+  /** ⚠️ Et un type sans aperçu n'est pas amorcé non plus : on connaît déjà la réponse. */
+  it('un format hors liste blanche n’est jamais préchargé', async () => {
+    contenu = {
+      ...contenu,
+      fichiers: [{ ...fichier('zz', 'archive.zip'), typeMime: 'application/zip' }],
+    };
+    await monter();
+    const avant = appels.length;
+    const li = container.querySelector('.sfd-item');
+    await act(async () => { li?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); });
+    await calmer();
+    expect(appels.slice(avant).some((u) => u.includes('/drive/apercu'))).toBe(false);
   });
 });

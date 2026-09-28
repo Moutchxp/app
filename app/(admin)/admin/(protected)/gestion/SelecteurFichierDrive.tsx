@@ -7,7 +7,8 @@ import {
   dossiersPrioritaires, mentionNbBiens, titreDossierPrioritaire, type BienDuMail, type DossierPrioritaire,
 } from '../../../../lib/gestion/dossierDuBien';
 // LOT DRIVE-VISUALISER-ET-DOSSIERS — voir un fichier sans le joindre, et créer un dossier là où l'on est.
-import { ApercuFichierDrive, type FichierAVoir } from './ApercuFichierDrive';
+import { ApercuFichierDrive, adresseApercu, type FichierAVoir } from './ApercuFichierDrive';
+import { sorteApercu } from '../../../../lib/gestion/apercuDrive';
 import { NOM_DOSSIER_MAX } from '../../../../lib/gestion/dossierNouveau';
 
 /**
@@ -51,6 +52,11 @@ interface Fichier {
   modifieLe: string | null;
   lien: string | null;
   dossier: boolean;
+  /**
+   * 🔴 LOT APERCU-RAPIDE — LE DOSSIER QUI CONTIENT CE FICHIER. Il borne « Précédent / Suivant » de l'aperçu.
+   * Dans une liste de dossier il est le même pour tous ; dans une recherche, il est la barrière.
+   */
+  parentId?: string | null;
 }
 
 type Vue =
@@ -146,10 +152,37 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
   /** Ce qu'on annonce APRÈS une création réussie — dont le défaut de journal, s'il y en a eu un. */
   const [motDeLaCreation, setMotDeLaCreation] = useState<string | null>(null);
   const champ = useRef<HTMLInputElement | null>(null);
+  /**
+   * ══ 🔴 LOT APERCU-RAPIDE — LE PRÉCHARGEMENT AU SURVOL ═══════════════════════════════════════════════════════
+   *
+   * Ce qui coûte cher à l'ouverture d'un aperçu n'est pas le document : c'est le VERDICT (remonter la chaîne des
+   * parents, 1,7 à 2,4 s mesurés le 29/09/2026) et les métadonnées. Les deux sont mémorisés 60 s côté serveur.
+   * Un survol suffit donc à les payer d'avance, et le clic ne trouve plus rien à attendre.
+   *
+   * ⚠️ `amorces` RETIENT CE QU'ON A DÉJÀ DEMANDÉ : sans elle, promener la souris sur une liste de quarante lignes
+   * lancerait quarante requêtes, puis quarante de plus au retour. Un fichier n'est amorcé qu'une fois par ouverture.
+   *
+   * ⚠️ ET LE NOMBRE EST BORNÉ (demande d'Arno). Au-delà, on n'amorce plus : mieux vaut un aperçu qui attend un
+   * tiers de seconde qu'un navigateur qui tient trente requêtes ouvertes pendant qu'on cherche autre chose.
+   *
+   * 🔒 AUCUN PRÉCHARGEMENT LÀ OÙ LA LECTURE EST REFUSÉE : l'appel n'est posé que sur les lignes d'un dossier où
+   * `joindreAutorise` est vrai. Et même s'il partait, il ne rendrait que le refus de la route — `info` prononce le
+   * MÊME verdict que les octets, et ne lit pas un seul octet du document.
+   */
+  const amorces = useRef<Set<string>>(new Set());
+  const AMORCES_MAX = 12;
+  const amorcer = useCallback((f: { id: string; typeMime: string; dossier: boolean }) => {
+    if (f.dossier || sorteApercu(f.typeMime) === 'aucun') return;
+    if (amorces.current.has(f.id) || amorces.current.size >= AMORCES_MAX) return;
+    amorces.current.add(f.id);
+    void fetch(adresseApercu(f.id, 'info'), { cache: 'no-store' }).catch(() => {});
+  }, []);
 
   const charger = useCallback(async (dossierId: string) => {
     setVue({ v: 'charge' });
     setErreur(null);
+    // Changer de dossier remet le compteur d'amorces à zéro : ce ne sont plus les mêmes fichiers.
+    amorces.current.clear();
     try {
       const res = await fetch(`/api/admin/gestion/drive/fichiers?dossier=${encodeURIComponent(dossierId)}`,
         { cache: 'no-store' });
@@ -660,7 +693,8 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
             {vue.recherche && vue.dossiers.length > 0 && <p className="sfd-section">Fichiers</p>}
             <ul className="sfd-liste">
               {vue.fichiers.map((f) => (
-                <li key={f.id} className="sfd-item">
+                <li key={f.id} className="sfd-item"
+                  onMouseEnter={() => { if (!f.dossier && vue.joindreAutorise) amorcer(f); }}>
                   {f.dossier ? (
                     <button type="button" className="sfd-dossier" onClick={() => entrer(f)}>
                       <span aria-hidden="true">📁</span> {f.nom}
@@ -684,8 +718,17 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
                             que la règle interdit. Le motif est affiché au-dessus, une fois pour la liste entière. */}
                         {vue.joindreAutorise && (
                           <button type="button" className="gst-lien-bouton"
+                            /**
+                             * 🔴 LOT APERCU-RAPIDE — LE SURVOL AMORCE LE TRAVAIL. Au moment du clic, le verdict et
+                             * les métadonnées sont déjà mémorisés côté serveur : c'est la part la plus chère de
+                             * l'ouverture (1,7 à 2,4 s mesurés le 29/09/2026), et elle est payée pendant qu'on
+                             * approche la souris.
+                             */
+                            onMouseEnter={() => amorcer(f)}
+                            onFocus={() => amorcer(f)}
                             onClick={() => setAVoir({
                               id: f.id, nom: f.nom, typeMime: f.typeMime, lien: f.lien,
+                              parentId: f.parentId ?? (vue.recherche ? null : dossierCourant?.id ?? null),
                             })}>
                             Visualiser
                           </button>
@@ -734,12 +777,28 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
     {aVoir !== null && (
       <ApercuFichierDrive
         fichier={aVoir}
+        /**
+         * 🔴 LOT APERCU-RAPIDE — LA LISTE AFFICHÉE, TELLE QUELLE. C'est le module pur `voisinsVisualisables` qui en
+         * tire le périmètre : les dossiers écartés, les types sans aperçu sautés, et surtout RIEN qui n'ait le même
+         * dossier parent que le document ouvert. Filtrer ici aurait mis cette règle dans l'écran.
+         *
+         * ⚠️ ON PASSE LES DEUX GROUPES d'une recherche (dossiers ET fichiers) : le module écarte les dossiers
+         * lui-même, et lui cacher la moitié de la liste l'empêcherait de compter juste.
+         */
+        voisinage={vue.v === 'ok'
+          ? [...vue.dossiers, ...vue.fichiers].map((f) => ({
+            id: f.id, nom: f.nom, typeMime: f.typeMime, dossier: f.dossier,
+            // Dans un DOSSIER, la route ne renseigne pas le parent de chaque ligne : c'est le dossier courant.
+            parentId: f.parentId ?? (vue.recherche ? null : dossierCourant?.id ?? null),
+          }))
+          : []}
         joindreAutorise={vue.v === 'ok' ? vue.joindreAutorise : false}
-        deja={ajoutes.includes(aVoir.id)}
-        onJoindre={() => {
+        /** 🔴 « ✓ ajouté » SUIT LE DOCUMENT AFFICHÉ, pas celui par lequel on est entré : on navigue dedans. */
+        estDeja={(id) => ajoutes.includes(id)}
+        onJoindre={(f) => {
           void joindre({
-            id: aVoir.id, nom: aVoir.nom, typeMime: aVoir.typeMime, tailleOctets: null,
-            modifieLe: null, lien: aVoir.lien, dossier: false,
+            id: f.id, nom: f.nom, typeMime: f.typeMime, tailleOctets: null,
+            modifieLe: null, lien: f.lien, dossier: false,
           });
         }}
         onFermer={() => setAVoir(null)} />

@@ -402,7 +402,8 @@ export function motifHttp(status: number, quoi: string): string {
 
 /** Ce qu'on demande d'un FICHIER : de quoi l'afficher, le juger et, le cas échéant, le joindre. */
 const CHAMPS_FICHIERS =
-  'files(id,name,driveId,mimeType,size,modifiedTime,webViewLink,shortcutDetails(targetId,targetMimeType))';
+  'files(id,name,driveId,mimeType,size,modifiedTime,webViewLink,parents,'
+  + 'shortcutDetails(targetId,targetMimeType))';
 
 export interface FichierDrive {
   id: string;
@@ -415,6 +416,18 @@ export interface FichierDrive {
   /** L'adresse à ouvrir dans un navigateur — c'est elle qu'« Insérer un lien » met dans le message. */
   lien: string | null;
   dossier: boolean;
+  /**
+   * 🔴 LOT APERCU-RAPIDE — LE DOSSIER QUI CONTIENT CE FICHIER. Il voyage avec la ligne, et il sert à UNE chose :
+   * borner « Précédent / Suivant » de l'aperçu au dossier du document affiché.
+   *
+   * ⚠️ INDISPENSABLE DANS UNE RECHERCHE, et seulement là. Une liste de dossier a un parent commun, évident ;
+   * quarante résultats venus de tout le Drive n'en ont aucun, et sans cette colonne « Suivant » emmènerait d'un
+   * dossier à un autre — exactement ce que la règle interdit.
+   *
+   * ⚠️ POUR UN RACCOURCI, c'est le parent DU RACCOURCI, pas celui de sa cible : c'est là qu'on l'a vu, et c'est
+   * dans cette liste-là qu'on navigue.
+   */
+  parentId: string | null;
 }
 
 function versFichiers(j: unknown): FichierDrive[] {
@@ -422,7 +435,7 @@ function versFichiers(j: unknown): FichierDrive[] {
   return brut.map((f) => {
     const o = f as {
       id?: string; name?: string; driveId?: string | null; mimeType?: string; size?: string;
-      modifiedTime?: string; webViewLink?: string;
+      modifiedTime?: string; webViewLink?: string; parents?: string[];
       shortcutDetails?: { targetId?: string; targetMimeType?: string };
     };
     // Un RACCOURCI est suivi jusqu'à sa cible : c'est elle qu'on affiche, qu'on joint ou qu'on lie.
@@ -437,6 +450,7 @@ function versFichiers(j: unknown): FichierDrive[] {
       modifieLe: o.modifiedTime ?? null,
       lien: o.webViewLink ?? null,
       dossier: type === MIME_DOSSIER,
+      parentId: o.parents?.[0] ?? null,
     };
   }).filter((f) => f.id !== '');
 }
@@ -500,12 +514,34 @@ export async function chercherFichiers(
   return { ok: true, valeur: versFichiers(await res.json().catch(() => ({}))) };
 }
 
-/** Les MÉTADONNÉES d'un élément : nom, type, taille, parents. LECTURE SEULE — jamais le contenu. */
+/** Ce que `lireMetadonnees` rend. La VIGNETTE y a rejoint le reste au lot APERCU-RAPIDE — voir ci-dessous. */
+export interface MetaFichier {
+  id: string;
+  nom: string;
+  typeMime: string;
+  tailleOctets: number | null;
+  parents: string[];
+  lien: string | null;
+  /**
+   * 🔴 LOT APERCU-RAPIDE — L'ADRESSE DE LA VIGNETTE DE LA 1re PAGE, telle que Drive la calcule pour nous.
+   *
+   * ⚠️ ELLE EST DEMANDÉE ICI, DANS LE MÊME `files.get` QUE LE RESTE, et c'est tout l'intérêt : mesuré le
+   * 29/09/2026, un `files.get` coûte 270 à 440 ms. En demander un SECOND juste pour la vignette aurait doublé ce
+   * prix pour un champ que le premier appel savait déjà rendre. Un champ de plus ne coûte rien ; un aller-retour
+   * de plus coûte un tiers de seconde.
+   *
+   * ⚠️ `null` EST NORMAL : Drive ne fabrique pas de vignette pour tout (fichiers neufs, types exotiques). L'écran
+   * passe alors directement au document, sans rien annoncer — une vignette absente n'est pas une panne.
+   */
+  vignette: string | null;
+}
+
+/** Les MÉTADONNÉES d'un élément : nom, type, taille, parents, vignette. LECTURE SEULE — jamais le contenu. */
 export async function lireMetadonnees(
   accessToken: string, id: string, deps: DepsGoogle,
-): Promise<Resultat<{ id: string; nom: string; typeMime: string; tailleOctets: number | null; parents: string[]; lien: string | null }>> {
+): Promise<Resultat<MetaFichier>> {
   const p = new URLSearchParams({
-    fields: 'id,name,mimeType,size,parents,webViewLink,trashed',
+    fields: 'id,name,mimeType,size,parents,webViewLink,trashed,thumbnailLink',
     ...PARTAGES,
   });
   const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
@@ -513,7 +549,7 @@ export async function lireMetadonnees(
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture du fichier') };
   const b = await res.json().catch(() => ({})) as {
     id?: string; name?: string; mimeType?: string; size?: string; parents?: string[];
-    webViewLink?: string; trashed?: boolean;
+    webViewLink?: string; trashed?: boolean; thumbnailLink?: string;
   };
   if (b.trashed === true) return { ok: false, motif: 'Ce fichier est à la corbeille du Drive.' };
   return {
@@ -525,6 +561,7 @@ export async function lireMetadonnees(
       tailleOctets: b.size === undefined ? null : Number(b.size),
       parents: b.parents ?? [],
       lien: b.webViewLink ?? null,
+      vignette: b.thumbnailLink ?? null,
     },
   };
 }
@@ -581,8 +618,86 @@ export async function exporterEnPdf(
   return { ok: true, valeur: octets };
 }
 
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT APERCU-RAPIDE — LIRE EN FLUX PLUTÔT QU'EN UN BLOC, ET POURQUOI C'ÉTAIT LE DÉFAUT PRINCIPAL
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   MESURÉ le 29/09/2026 sur trois PDF réels, avec la route telle qu'elle était écrite :
+
+     fichier    téléchargement COMPLET en mémoire     premier morceau d'octets
+     0,14 Mo             873 ms                              678 ms
+     1,35 Mo           1 291 ms                              896 ms
+     2,84 Mo           8 976 ms                              708 ms
+
+   Le premier octet arrive TOUJOURS en moins d'une seconde. C'est l'attente du DERNIER qui coûte — et elle grandit
+   avec le fichier, sans rien apporter : le lecteur PDF du navigateur sait afficher les premières pages bien avant
+   d'avoir tout reçu. On rendait donc l'écran muet pendant neuf secondes pour lui livrer d'un coup ce qu'il aurait
+   affiché progressivement.
+
+   ⇒ CES DEUX FONCTIONS NE LISENT PAS LES OCTETS : elles ouvrent le robinet et rendent le corps de la réponse tel
+   quel, à faire suivre au navigateur. Rien ne s'accumule en mémoire du serveur — ni pour 3 Mo, ni pour dix aperçus
+   simultanés.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/** Un flux ouvert chez Google, prêt à être relayé. `corps` est `null` si Google n'a rien renvoyé. */
+export interface FluxDrive { corps: ReadableStream<Uint8Array> | null; typeMime: string | null }
+
+/** OUVRE le flux des octets d'un fichier (`alt=media`). LECTURE SEULE. Ne lit RIEN : rend le robinet. */
+export async function ouvrirFluxFichier(
+  accessToken: string, id: string, deps: DepsGoogle,
+): Promise<Resultat<FluxDrive>> {
+  const p = new URLSearchParams({ alt: 'media', ...PARTAGES });
+  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'le téléchargement du fichier') };
+  return { ok: true, valeur: { corps: res.body, typeMime: res.headers.get('content-type') } };
+}
+
+/**
+ * OUVRE le flux de l'EXPORT PDF d'un document Google. LECTURE SEULE (un GET), rien n'est créé dans le Drive.
+ *
+ * ⚠️ AUCUNE BORNE DE TAILLE ICI, et il n'y en avait déjà pas de vraie : un document Google n'annonce aucune taille
+ * tant qu'il n'est pas exporté. L'ancienne version bornait APRÈS avoir tout téléchargé — c'est-à-dire qu'elle
+ * refusait un document dont elle venait de payer le prix entier. La borne utile est celle des fichiers ORDINAIRES,
+ * qui, eux, annoncent leur taille avant.
+ */
+export async function ouvrirFluxExportPdf(
+  accessToken: string, id: string, deps: DepsGoogle,
+): Promise<Resultat<FluxDrive>> {
+  const p = new URLSearchParams({ mimeType: 'application/pdf', ...PARTAGES });
+  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}/export?${p}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture de ce document Google') };
+  return { ok: true, valeur: { corps: res.body, typeMime: 'application/pdf' } };
+}
+
+/**
+ * OUVRE le flux de la VIGNETTE de la 1re page, à l'adresse que Drive a donnée dans les métadonnées.
+ *
+ * 🔒 AUCUN JETON N'EST ENVOYÉ, ET IL NE FAUT PAS EN ENVOYER : `thumbnailLink` est une adresse signée, de courte
+ * vie, qui s'ouvre telle quelle. Y ajouter l'en-tête d'autorisation la ferait refuser par Google.
+ *
+ * 🔒 ET ELLE NE SORT PAS D'ICI. L'adresse signée reste côté serveur ; le navigateur, lui, demande la vignette à
+ * NOTRE route, qui a d'abord prononcé le verdict. La livrer au navigateur reviendrait à donner une clé d'accès
+ * directe au contenu, hors de toute règle.
+ *
+ * ⚠️ `=s<taille>` EST RÉÉCRIT : Drive propose par défaut une miniature de liste, illisible en grand. On demande
+ * une largeur utile — mesuré le 29/09/2026 : ~950 ko en `s1600`, nettement moins en `s1000`, pour une première
+ * page parfaitement lisible.
+ */
+export async function ouvrirFluxVignette(
+  lienVignette: string, deps: DepsGoogle, largeur = 1000,
+): Promise<Resultat<FluxDrive>> {
+  const adresse = lienVignette.replace(/=s\d+(-c)?$/, `=s${largeur}`);
+  const res = await deps.fetch(adresse);
+  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture de la vignette') };
+  return { ok: true, valeur: { corps: res.body, typeMime: res.headers.get('content-type') ?? 'image/jpeg' } };
+}
+
 /**
  * LE CONTENU D'UN FICHIER, en octets. LECTURE SEULE (`alt=media`).
+ *
+ * ⚠️ TOUJOURS EMPLOYÉE POUR LES PIÈCES JOINTES, qui doivent bien être assemblées en entier avant de partir dans un
+ * mail. L'APERÇU, lui, est passé au flux (`ouvrirFluxFichier`) au lot APERCU-RAPIDE : regarder n'est pas envoyer.
  *
  * 🔴🔴 CETTE FONCTION NE VÉRIFIE RIEN ELLE-MÊME, et c'est délibéré : elle ne sait pas où le fichier est rangé.
  * C'est l'APPELANT qui doit avoir obtenu le verdict de `peutJoindre` AVANT de l'appeler — et la route qui l'emploie

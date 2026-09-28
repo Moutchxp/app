@@ -212,7 +212,7 @@ export async function GET(request: Request): Promise<Response> {
        * la même chaîne de parents — jusqu'à vingt-six `files.get` au lieu de treize pour afficher une page, sur une
        * arborescence qui fait treize niveaux (mesuré le 25/09/2026). La règle, elle, est la même dans les deux cas.
        */
-      const { joindre: v, creer: c } = await verdictsDossier(jeton.jeton, parent);
+      const { joindre: v, creer: c } = await verdictsDossier(jeton.compteGoogle, jeton.jeton, parent);
       return json({
         etat: 'ok', fichiers: liste.valeur, joindreAutorise: v.joindre, motifRefus: v.motif,
         // 🔴 LE JOURNAL D'ABORD : sans la migration 272, on ne crée rien, même là où la règle du Drive le permettrait.
