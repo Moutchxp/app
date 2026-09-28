@@ -6,6 +6,9 @@ import { formaterTaille } from '../../../../lib/gestion/ecran';
 import {
   dossiersPrioritaires, mentionNbBiens, titreDossierPrioritaire, type BienDuMail, type DossierPrioritaire,
 } from '../../../../lib/gestion/dossierDuBien';
+// LOT DRIVE-VISUALISER-ET-DOSSIERS — voir un fichier sans le joindre, et créer un dossier là où l'on est.
+import { ApercuFichierDrive, type FichierAVoir } from './ApercuFichierDrive';
+import { NOM_DOSSIER_MAX } from '../../../../lib/gestion/dossierNouveau';
 
 /**
  * LOT REDACTION-GMAIL — CHOISIR UN FICHIER DU DRIVE, POUR LE JOINDRE OU POUR EN INSÉRER LE LIEN.
@@ -56,8 +59,32 @@ type Vue =
     v: 'ok'; fichiers: Fichier[]; joindreAutorise: boolean; motifRefus: string | null; recherche: boolean;
     /** 🔴 LES DOSSIERS TROUVÉS, séparés des fichiers : ils s'affichent en PREMIER (demande d'Arno). */
     dossiers: Fichier[];
+    /**
+     * 🔴 LOT DRIVE-VISUALISER-ET-DOSSIERS — peut-on créer un dossier ICI, et sinon pourquoi.
+     *
+     * ⚠️ LES DEUX VIENNENT DE LA MÊME RÉPONSE QUE LE CONTENU, jamais d'un appel à part : une sonde de schéma voyage
+     * avec la donnée qu'elle conditionne (règle tirée du défaut du 28/09/2026, où un `false` par défaut avait fait
+     * disparaître une fonction pourtant en place, sans qu'aucune erreur ne s'affiche).
+     */
+    creerAutorise: boolean;
+    motifCreation: string | null;
   }
   | { v: 'indisponible'; message: string };
+
+/**
+ * ══ 🔴 L'ÉTAT DE « + NOUVEAU DOSSIER » — quatre temps, et le troisième est celui qui protège. ═════════════════════
+ *
+ * `ferme` → `saisie` (on tape un nom) → `confirme` (le SERVEUR a rendu le chemin complet) → création.
+ *
+ * 🔴 LE CHEMIN DE LA CONFIRMATION VIENT DU SERVEUR, jamais du fil d'Ariane affiché. Demande d'Arno : « une
+ * confirmation affiche le nom et le chemin complet ». Le recomposer ici le ferait dire par l'écran — c'est-à-dire
+ * par la partie qu'on vérifie — et il serait faux précisément dans le cas qui compte : quand on est entré dans un
+ * dossier trouvé par une recherche, où l'écran ne connaît qu'un maillon du chemin.
+ */
+type Creation =
+  | { c: 'ferme' }
+  | { c: 'saisie'; nom: string; occupe: boolean; erreur: string | null }
+  | { c: 'confirme'; nom: string; chemin: string; phrase: string; occupe: boolean; erreur: string | null };
 
 /** Une entrée de l'historique « Récents », telle que la route la rend. */
 interface Recent {
@@ -113,6 +140,11 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
   const [rechercheOuverte, setRechercheOuverte] = useState<string | null>(null);
   /** 🔴 LOT DRIVE-DOSSIER-DU-BIEN — les dossiers des biens rattachés, en tête. Vide = rien à proposer. */
   const [prioritaires, setPrioritaires] = useState<DossierPrioritaire[]>([]);
+  /** 🔴 LOT DRIVE-VISUALISER-ET-DOSSIERS — le fichier qu'on REGARDE. `null` = aucun aperçu ouvert. */
+  const [aVoir, setAVoir] = useState<FichierAVoir | null>(null);
+  const [creation, setCreation] = useState<Creation>({ c: 'ferme' });
+  /** Ce qu'on annonce APRÈS une création réussie — dont le défaut de journal, s'il y en a eu un. */
+  const [motDeLaCreation, setMotDeLaCreation] = useState<string | null>(null);
   const champ = useRef<HTMLInputElement | null>(null);
 
   const charger = useCallback(async (dossierId: string) => {
@@ -123,6 +155,7 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
         { cache: 'no-store' });
       const d = (await res.json()) as {
         etat?: string; message?: string; fichiers?: Fichier[]; joindreAutorise?: boolean; motifRefus?: string | null;
+        creerAutorise?: boolean; motifCreation?: string | null;
       };
       if (d.etat !== 'ok') { setVue({ v: 'indisponible', message: d.message ?? 'Drive indisponible.' }); return; }
       setVue({
@@ -130,6 +163,10 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
         joindreAutorise: d.joindreAutorise !== false,
         motifRefus: d.motifRefus ?? null,
         recherche: false,
+        // ⚠️ `=== true` et non `!== false` : un serveur qui ne dirait rien ne doit pas laisser croire qu'on peut
+        //   créer. Le défaut, pour une ÉCRITURE, est « non » — l'inverse de ce qu'on fait pour une lecture.
+        creerAutorise: d.creerAutorise === true,
+        motifCreation: d.motifCreation ?? null,
       });
     } catch {
       setVue({ v: 'indisponible', message: 'Le Drive n’a pas répondu.' });
@@ -219,6 +256,9 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
             v: 'ok', fichiers: d.fichiers ?? [], dossiers: d.dossiers ?? [],
             joindreAutorise: d.joindreAutorise !== false,
             motifRefus: null, recherche: true,
+            // 🔴 PAS DE CRÉATION DANS DES RÉSULTATS : quarante lignes venues de quarante dossiers ne sont pas un
+            //   endroit. On entre dans un dossier trouvé, PUIS on y crée.
+            creerAutorise: false, motifCreation: null,
           });
         } catch { if (!annule) setVue({ v: 'indisponible', message: 'Le Drive n’a pas répondu.' }); }
       })();
@@ -228,13 +268,22 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
 
   const dossierCourant = ariane.at(-1) ?? null;
 
+  /**
+   * ⚠️ TOUTE NAVIGATION REFERME LA CRÉATION EN COURS. Un nom tapé pour « GESTION LOCATIVE » qui survivrait à l'entrée
+   * dans un sous-dossier ferait créer au bon nom, au mauvais endroit — la faute que toute cette fonction cherche à
+   * empêcher. Le mot de la dernière création, lui, part aussi : il ne vaut que pour l'endroit où il a été dit.
+   */
+  const oublierCreation = () => { setCreation({ c: 'ferme' }); setMotDeLaCreation(null); };
+
   const entrer = (f: { id: string; nom: string }) => {
     setSaisie('');
+    oublierCreation();
     setAriane((a) => [...a, { id: f.id, nom: f.nom }]);
     void charger(f.id);
   };
   const remonter = (i: number) => {
     setSaisie('');
+    oublierCreation();
     const coupe = ariane.slice(0, i);
     setAriane(coupe);
     void charger(coupe.at(-1)?.id ?? '');
@@ -312,9 +361,69 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
     void charger(f.id);
   };
 
+  /**
+   * ══ 🔴 « + NOUVEAU DOSSIER », TEMPS 2 : DEMANDER LE CHEMIN AU SERVEUR. Aucune écriture encore. ════════════════
+   *
+   * Le serveur vérifie tout (le dossier interdit, le nom, le doublon) et rend le CHEMIN COMPLET. C'est ce chemin
+   * qu'on affichera, et c'est lui qui vaut confirmation : il vient de Google, pas de notre affichage.
+   */
+  const preparerDossier = async (nom: string) => {
+    const parent = dossierCourant?.id ?? '';
+    setCreation({ c: 'saisie', nom, occupe: true, erreur: null });
+    try {
+      const p = new URLSearchParams({ parent, nom });
+      const res = await fetch(`/api/admin/gestion/drive/dossier?${p}`, { cache: 'no-store' });
+      const d = (await res.json()) as { etat?: string; message?: string; nom?: string; chemin?: string; phrase?: string };
+      if (d.etat !== 'ok' || typeof d.chemin !== 'string') {
+        setCreation({ c: 'saisie', nom, occupe: false, erreur: d.message ?? 'Ce nom n’a pas pu être vérifié.' });
+        return;
+      }
+      setCreation({
+        c: 'confirme', nom: d.nom ?? nom, chemin: d.chemin,
+        phrase: d.phrase ?? `Le dossier sera créé ici : ${d.chemin}`, occupe: false, erreur: null,
+      });
+    } catch {
+      setCreation({ c: 'saisie', nom, occupe: false, erreur: 'Le Drive n’a pas répondu.' });
+    }
+  };
+
+  /**
+   * ══ 🔴🔴 « + NOUVEAU DOSSIER », TEMPS 3 : CRÉER. La seule écriture Drive de tout l'éditeur de mail. ═══════════
+   *
+   * ⚠️ LE SERVEUR REVÉRIFIE TOUT. Le temps 2 est une courtoisie pour l'écran, pas une autorisation.
+   *
+   * 🔴 APRÈS LA CRÉATION, LE NOUVEAU DOSSIER S'OUVRE (demande d'Arno) : on y va pour y ranger quelque chose, donc
+   * l'y conduire est la suite naturelle du geste — et c'est aussi la preuve visible qu'il existe.
+   */
+  const creerDossier = async (etat: Extract<Creation, { c: 'confirme' }>) => {
+    const parent = dossierCourant?.id ?? '';
+    setCreation({ ...etat, occupe: true, erreur: null });
+    try {
+      const res = await fetch('/api/admin/gestion/drive/dossier', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parent, nom: etat.nom }),
+      });
+      const d = (await res.json()) as {
+        etat?: string; message?: string; journalise?: boolean;
+        dossier?: { id: string; nom: string };
+      };
+      if (d.etat !== 'ok' || !d.dossier) {
+        setCreation({ ...etat, occupe: false, erreur: d.message ?? 'Le dossier n’a pas pu être créé.' });
+        return;
+      }
+      // ⚠️ `entrer` remet la création à zéro : on pose donc le message APRÈS, sinon il serait effacé aussitôt.
+      entrer({ id: d.dossier.id, nom: d.dossier.nom });
+      setMotDeLaCreation(d.message ?? `Dossier « ${d.dossier.nom} » créé. Vous y êtes.`);
+    } catch {
+      setCreation({ ...etat, occupe: false, erreur: 'Le Drive n’a pas répondu.' });
+    }
+  };
+
   const revenirAuxResultats = () => {
     const terme = rechercheOuverte;
     setRechercheOuverte(null);
+    oublierCreation();
     setAriane([]);
     // ⚠️ On repose la saisie TELLE QUELLE : c'est elle qui relance la recherche (effet temporisé ci-dessus).
     setSaisie('');
@@ -327,6 +436,7 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
     && recents?.disponible === true && recentsDrive.length > 0;
 
   return (
+    <>
     <div className="sfd-voile" role="presentation" onClick={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
       <style>{CSS_SELECTEUR_FICHIER}</style>
       <div className="sfd" role="dialog" aria-modal="true" aria-labelledby="sfd-titre"
@@ -370,6 +480,82 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
             </span>
           ))}
         </nav>
+
+        {/* ══ 🔴 « + NOUVEAU DOSSIER » — sous le chemin, parce qu'il crée DANS ce chemin ════════════════════════
+            🔴🔴 LE BOUTON N'EXISTE PAS LÀ OÙ LA CRÉATION EST INTERDITE — sous « Documents clients scannés » et
+            tous ses sous-dossiers, dans les résultats de recherche, à la racine du sélecteur, et tant que la
+            migration 272 n'est pas appliquée. Dans ce dernier cas il est MONTRÉ, désactivé, avec son motif : la
+            fonction existe et attend quelque chose, ce qui n'est pas la même information qu'une règle qui
+            l'interdit. Quand c'est la RÈGLE qui interdit, le motif est déjà affiché plus haut (« 🔒 … »), et
+            aligner en plus un bouton mort n'ajouterait rien. */}
+        {vue.v === 'ok' && !vue.recherche && (vue.creerAutorise || vue.motifCreation !== null) && (
+          <section className="sfd-creer" aria-label="Créer un dossier">
+            {creation.c === 'ferme' && (
+              vue.creerAutorise
+                ? (
+                  <button type="button" className="gst-lien-bouton sfd-creer-ouvrir"
+                    onClick={() => setCreation({ c: 'saisie', nom: '', occupe: false, erreur: null })}>
+                    + Nouveau dossier
+                  </button>
+                )
+                : (
+                  <p className="sfd-creer-motif">
+                    <button type="button" className="gst-lien-bouton" disabled
+                      title={vue.motifCreation ?? undefined}>+ Nouveau dossier</button>
+                    <span className="sfd-mention sfd-mention--bloc">{vue.motifCreation}</span>
+                  </p>
+                )
+            )}
+
+            {/* ── TEMPS 1 : LE NOM. Entrée = continuer, comme partout ailleurs dans le module. ──────────────── */}
+            {creation.c === 'saisie' && (
+              <div className="sfd-creer-corps">
+                <label className="sfd-champ">
+                  <span className="svv-label">Nom du nouveau dossier</span>
+                  <input className="sfd-saisie" type="text" value={creation.nom} autoComplete="off"
+                    maxLength={NOM_DOSSIER_MAX} autoFocus disabled={creation.occupe}
+                    placeholder="ex. « Travaux 2026 »"
+                    onChange={(e) => setCreation({ c: 'saisie', nom: e.target.value, occupe: false, erreur: null })}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); void preparerDossier(creation.nom); }
+                    }} />
+                </label>
+                {creation.erreur !== null && <p className="gst-tronc" role="alert">{creation.erreur}</p>}
+                <div className="sfd-creer-boutons">
+                  <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={creation.occupe}
+                    onClick={() => void preparerDossier(creation.nom)}>
+                    {creation.occupe ? 'Vérification…' : 'Continuer'}
+                  </button>
+                  <button type="button" className="gst-lien-bouton" onClick={oublierCreation}>Annuler</button>
+                </div>
+              </div>
+            )}
+
+            {/* ── 🔴🔴 TEMPS 2 : LA CONFIRMATION. Le NOM et le CHEMIN COMPLET, rendus par le serveur ────────────
+                C'est la seule protection contre la faute la plus probable de tout ce lot : le bon nom, au mauvais
+                endroit. Deux dossiers « Documents » à deux endroits sont la règle, pas l'exception, dans un Drive
+                construit à la main pendant des années. */}
+            {creation.c === 'confirme' && (
+              <div className="sfd-creer-corps">
+                <p className="sfd-creer-chemin">
+                  <span className="sfd-creer-nom">📁 {creation.nom}</span>
+                  <span className="sfd-mention sfd-mention--bloc">{creation.phrase}</span>
+                </p>
+                {creation.erreur !== null && <p className="gst-tronc" role="alert">{creation.erreur}</p>}
+                <div className="sfd-creer-boutons">
+                  <button type="button" className="svv-btn svv-btn-primary gst-btn" disabled={creation.occupe}
+                    onClick={() => void creerDossier(creation)}>
+                    {creation.occupe ? 'Création…' : 'Créer'}
+                  </button>
+                  <button type="button" className="gst-lien-bouton" onClick={oublierCreation}>Annuler</button>
+                </div>
+              </div>
+            )}
+          </section>
+        )}
+
+        {/* Ce qu'on a fait, dit après coup : y compris le cas — rare mais possible — d'un journal qui a échoué. */}
+        {motDeLaCreation !== null && <p className="sfd-creer-fait" role="status">{motDeLaCreation}</p>}
 
         {/* ══ 🔴 LOT DRIVE-DOSSIER-DU-BIEN — LE DOSSIER DU BIEN, EN TÊTE ════════════════════════════════════════
             Demande d'Arno : première ligne, en évidence, AU-DESSUS de Récents. C'est l'endroit où l'on va neuf
@@ -488,6 +674,22 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
                         )}
                       </span>
                       <span className="sfd-gestes">
+                        {/* ══ 🔴 « VISUALISER », EN PREMIER (demande d'Arno) ═════════════════════════════════════
+                            L'ordre dit l'usage : on REGARDE, puis on joint, puis — à défaut — on met un lien. Avant
+                            ce lot, pour savoir si « Devis 2.pdf » était le bon devis, il fallait le joindre et
+                            l'envoyer. On joignait donc au hasard.
+
+                            🔴🔴 IL EST ABSENT SOUS « DOCUMENTS CLIENTS SCANNÉS », exactement comme « Joindre » :
+                            afficher un avis d'imposition à l'écran, c'est le LIRE, et c'est la lecture du contenu
+                            que la règle interdit. Le motif est affiché au-dessus, une fois pour la liste entière. */}
+                        {vue.joindreAutorise && (
+                          <button type="button" className="gst-lien-bouton"
+                            onClick={() => setAVoir({
+                              id: f.id, nom: f.nom, typeMime: f.typeMime, lien: f.lien,
+                            })}>
+                            Visualiser
+                          </button>
+                        )}
                         {/* 🔴🔴 « Joindre » N'EXISTE PAS sous « Documents clients scannés ». Le motif est affiché
                             au-dessus : on n'aligne pas un bouton grisé qu'on ne saurait pas expliquer ligne à ligne. */}
                         {vue.joindreAutorise && (
@@ -520,6 +722,29 @@ export function SelecteurFichierDrive({ onChoisir, onFermer, filId = null, lots 
         </div>
       </div>
     </div>
+
+    {/* ══ 🔴🔴 L'APERÇU — FRÈRE DU SÉLECTEUR, PAS SON ENFANT ═══════════════════════════════════════════════════
+        C'est ce qui garantit la demande d'Arno : « on revient exactement au même dossier, avec la même recherche, le
+        même compteur et les mêmes ✓ ajouté ». Le sélecteur n'est pas démonté, donc son état ne bouge pas — fermer
+        l'aperçu ne « revient » nulle part, on n'était jamais parti.
+
+        ⚠️ ET NON DANS `.sfd-voile`, pour une seconde raison : le sélecteur ferme sur Échap et sur un clic hors de
+        lui. Dedans, l'aperçu aurait fait remonter ses Échap et ses clics jusqu'à lui — une croix qui ferme deux
+        fenêtres au lieu d'une. */}
+    {aVoir !== null && (
+      <ApercuFichierDrive
+        fichier={aVoir}
+        joindreAutorise={vue.v === 'ok' ? vue.joindreAutorise : false}
+        deja={ajoutes.includes(aVoir.id)}
+        onJoindre={() => {
+          void joindre({
+            id: aVoir.id, nom: aVoir.nom, typeMime: aVoir.typeMime, tailleOctets: null,
+            modifieLe: null, lien: aVoir.lien, dossier: false,
+          });
+        }}
+        onFermer={() => setAVoir(null)} />
+    )}
+    </>
   );
 }
 
@@ -559,6 +784,26 @@ export const CSS_SELECTEUR_FICHIER = `
 .sfd-prio-titre{font-size:.88rem;font-weight:700;overflow-wrap:anywhere}
 .sfd-prio-bien{font-size:.8rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .sfd-retour{align-self:flex-start;font-size:.82rem}
+/* 🔴 « + NOUVEAU DOSSIER » — discret au repos, net quand il s'ouvre : c'est un geste rare, et le seul qui ÉCRIT. */
+.sfd-creer{display:flex;flex-direction:column;gap:6px;min-width:0}
+.sfd-creer-ouvrir{align-self:flex-start;font-size:.84rem;font-weight:700}
+.sfd-creer-motif{display:flex;flex-direction:column;gap:2px;margin:0;min-width:0}
+/* 🔴 UN BOUTON DÉSACTIVÉ DOIT SE VOIR. Défaut constaté à l'écran le 28/09/2026 : « .gst-lien-bouton » n'a aucune
+   règle « :disabled », si bien que le bouton du mode dégradé s'affichait EXACTEMENT comme un bouton actif — rouge,
+   souligné, avec un curseur de main. On cliquait, rien ne se passait, et l'on cherchait une panne.
+   ⚠️ RÈGLE POSÉE ICI, PAS SUR LA CLASSE GLOBALE : celle-ci sert sur une dizaine d'écrans, où « disabled » ne dure
+   que le temps d'un envoi. La changer partout dépasserait ce lot, et on ne l'a pas demandé. */
+.sfd-creer .gst-lien-bouton:disabled{color:var(--color-svv-muted);text-decoration:none;cursor:default}
+.sfd-creer-corps{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px;
+  background:var(--color-svv-field);border:1px solid var(--color-svv-line);
+  border-left:3px solid var(--color-svv-red);border-radius:0 .5rem .5rem 0}
+.sfd-creer-boutons{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.sfd-creer-chemin{display:flex;flex-direction:column;gap:2px;margin:0;min-width:0}
+.sfd-creer-nom{font-size:.92rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.sfd-creer-fait{margin:0;padding:6px 10px;font-size:.82rem;font-weight:700;color:var(--color-svv-ink);
+  background:var(--color-svv-field);border-left:3px solid var(--color-svv-green);border-radius:0 .4rem .4rem 0}
+/* La mention passe sous le libellé quand elle est une PHRASE et non une étiquette : sinon elle se coupe à droite. */
+.sfd-mention--bloc{margin-left:0;white-space:normal;overflow-wrap:anywhere}
 /* 🔴🔴 Le dossier interdit : dit en MOTS, avec un fond qui le distingue — jamais la couleur seule. */
 .sfd-interdit{margin:0;padding:8px 10px;font-size:.82rem;color:var(--color-svv-ink);
   background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);border-radius:0 .4rem .4rem 0}

@@ -205,3 +205,90 @@ describe('🔴 l’écran n’offre pas « Joindre » là où la route refusera'
     expect(c.slice(Math.max(0, i - 200), i)).not.toContain('joindreAutorise');
   });
 });
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT DRIVE-VISUALISER-ET-DOSSIERS — CE QUE LA ROUTE DES FICHIERS DIT DÉSORMAIS DE LA CRÉATION.
+ *
+ * Elle ne crée rien : elle dit seulement si l'on POURRAIT créer dans le dossier qu'elle affiche. Deux propriétés
+ * comptent, et aucune n'est vérifiable en l'exécutant sans un vrai Drive.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴 le droit de créer voyage AVEC le contenu du dossier', () => {
+  /**
+   * 🔴 RÈGLE TIRÉE D'UN DÉFAUT DE CE MODULE (lot COULEUR-ROUGE, 28/09/2026) : une sonde de schéma voyage avec la
+   * donnée qu'elle conditionne, dans la MÊME réponse. Un appel séparé arrive plus tard, parfois jamais, et l'écran
+   * prend alors sa valeur par défaut — ce jour-là, un `false` par défaut avait fait disparaître une fonction
+   * pourtant en place, sans qu'aucune erreur ne s'affiche.
+   */
+  it('la sonde de la migration 272 est rendue dans la même réponse que les fichiers', () => {
+    const c = code();
+    expect(c).toContain('journalDossierDriveDisponible()');
+    expect(c).toContain('journalDisponible');
+    expect(c).toContain('creerAutorise');
+  });
+
+  /** ⚠️ La route continue de n'exposer que GET : dire qu'on pourrait créer n'est pas créer. */
+  it('…et elle n’a toujours AUCUN verbe d’écriture', () => {
+    expect(/method:\s*'(POST|PATCH|PUT|DELETE)'/.test(code())).toBe(false);
+    expect(/export async function (POST|PUT|PATCH|DELETE)/.test(code())).toBe(false);
+  });
+
+  /**
+   * 🔴🔴 « LE BOUTON N'Y EST PAS AFFICHÉ » — demande d'Arno, mot pour mot, pour « Documents clients scannés ». Le
+   * motif n'est donc renseigné QUE si la règle aurait permis de créer : sous l'archive, `creer` est faux et le
+   * motif reste nul, donc l'écran n'affiche rien du tout. Un bouton grisé y laisserait croire qu'un réglage
+   * pourrait un jour l'activer, alors que c'est une règle.
+   */
+  it('🔴🔴 le motif n’est donné que si la RÈGLE aurait permis de créer', () => {
+    expect(code()).toContain('!journalDisponible && c.creer ? MOTIF_SANS_JOURNAL : null');
+  });
+
+  /** Une seule remontée de la chaîne des parents pour les deux verdicts : treize `files.get`, pas vingt-six. */
+  it('les deux verdicts sont obtenus d’UNE SEULE remontée des parents', () => {
+    const c = code();
+    expect(c).toContain('verdictsDossier(');
+    const partage = code('app/lib/gestion/driveVerdict.ts');
+    expect(partage).toContain('peutCreerDossier');
+    // Dans `verdictsDossier`, la chaîne n'est lue qu'une fois.
+    const bloc = partage.slice(partage.indexOf('export async function verdictsDossier'));
+    expect(bloc.match(/chaineParents\(/g) ?? []).toHaveLength(1);
+  });
+});
+
+describe('🔴 l’écran n’offre pas « Visualiser » là où la route refusera', () => {
+  const ECRAN = 'app/(admin)/admin/(protected)/gestion/SelecteurFichierDrive.tsx';
+
+  /**
+   * 🔴🔴 VISUALISER EST UNE LECTURE DE CONTENU. Afficher un avis d'imposition à l'écran, c'est le lire : le geste
+   * tombe donc sous la même règle que « Joindre », et sous le même verdict — pas sous une variante.
+   */
+  it('« Visualiser » est conditionné au MÊME verdict que « Joindre »', () => {
+    const c = code(ECRAN);
+    const i = c.indexOf('Visualiser');
+    expect(i).toBeGreaterThan(0);
+    expect(c.slice(Math.max(0, i - 400), i)).toContain('joindreAutorise');
+  });
+
+  /** Et la route de l'aperçu prononce le verdict elle-même : l'écran explique, le serveur protège. */
+  it('…et la route de l’aperçu le prononce aussi, sur la chaîne des parents', () => {
+    const c = code('app/(admin)/api/admin/gestion/drive/apercu/route.ts');
+    expect(c).toContain('verdictJoindre(');
+    // Le refus vient AVANT toute lecture d'octets.
+    expect(c.indexOf('verdictJoindre(')).toBeLessThan(c.indexOf('lireContenuFichier('));
+    expect(c.indexOf('verdictJoindre(')).toBeLessThan(c.indexOf('exporterEnPdf('));
+  });
+
+  /**
+   * 🔴🔴 LE TYPE SERVI EST LE NÔTRE. Le contenu sort sur notre origine, dans un cadre de notre page : un `.html`
+   * rangé dans le Drive s'exécuterait avec nos cookies de session. L'en-tête porte donc la valeur de la LISTE
+   * BLANCHE, jamais celle que le fichier prétend avoir.
+   */
+  it('🔴🔴 l’aperçu ne sert JAMAIS le type déclaré par le fichier', () => {
+    const c = code('app/(admin)/api/admin/gestion/drive/apercu/route.ts');
+    expect(c).toContain("'Content-Type': type");
+    expect(c).toContain('typeServi(');
+    // Le type du fichier n'est jamais recopié dans l'en-tête.
+    expect(c).not.toMatch(/'Content-Type':\s*meta\.valeur\.typeMime/);
+  });
+});

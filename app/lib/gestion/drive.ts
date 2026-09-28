@@ -558,6 +558,30 @@ export async function chaineParents(
 }
 
 /**
+ * ══ 🔴 LOT DRIVE-VISUALISER-ET-DOSSIERS — EXPORTER UN DOCUMENT GOOGLE EN PDF, POUR L'APERÇU. LECTURE SEULE. ═══════
+ *
+ * 🔴 UN DOCUMENT GOOGLE N'A PAS D'OCTETS : `alt=media` le refuse, parce qu'un Doc n'est pas un fichier — c'est une
+ * base de données chez Google. `files.export` en rend une REPRÉSENTATION, calculée à la volée.
+ *
+ * 🔒 C'EST UNE LECTURE, malgré le mot « export ». La méthode est un GET, rien n'est créé, rien n'est converti dans
+ * le Drive, et il n'y reste AUCUNE COPIE — exigence d'Arno pour ce lot. Le PDF ne vit que le temps de la réponse.
+ */
+export async function exporterEnPdf(
+  accessToken: string, id: string, deps: DepsGoogle, tailleMax: number,
+): Promise<Resultat<Buffer>> {
+  const p = new URLSearchParams({ mimeType: 'application/pdf', ...PARTAGES });
+  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}/export?${p}`,
+    { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture de ce document Google') };
+  const octets = Buffer.from(await res.arrayBuffer());
+  // ⚠️ La taille n'est connue qu'APRÈS : un document Google n'annonce aucune taille tant qu'il n'est pas exporté.
+  if (octets.byteLength > tailleMax) {
+    return { ok: false, motif: 'Ce document est trop volumineux pour être affiché en aperçu.' };
+  }
+  return { ok: true, valeur: octets };
+}
+
+/**
  * LE CONTENU D'UN FICHIER, en octets. LECTURE SEULE (`alt=media`).
  *
  * 🔴🔴 CETTE FONCTION NE VÉRIFIE RIEN ELLE-MÊME, et c'est délibéré : elle ne sait pas où le fichier est rangé.

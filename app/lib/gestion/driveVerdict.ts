@@ -1,5 +1,5 @@
 import { chaineParents } from './drive';
-import { indexerMaillons, peutJoindre } from './driveLectureFichier';
+import { indexerMaillons, peutCreerDossier, peutJoindre } from './driveLectureFichier';
 
 /**
  * MODULE « GESTION » — LE VERDICT « PEUT-ON JOINDRE CE FICHIER ? », EN UN SEUL ENDROIT.
@@ -28,6 +28,11 @@ export interface VerdictJoindre {
   motif: string | null;
 }
 
+export interface VerdictCreer {
+  creer: boolean;
+  motif: string | null;
+}
+
 /**
  * LE VERDICT POUR UN ÉLÉMENT, obtenu en REMONTANT ses parents.
  *
@@ -38,4 +43,35 @@ export async function verdictJoindre(jeton: string, id: string): Promise<Verdict
   const chaine = await chaineParents(jeton, id, { fetch });
   const v = peutJoindre(id, indexerMaillons(chaine));
   return v.joindre ? { joindre: true, motif: null } : { joindre: false, motif: v.motif };
+}
+
+/**
+ * ══ 🔴 LOT DRIVE-VISUALISER-ET-DOSSIERS — LE VERDICT DE CRÉATION, pour un DOSSIER. ═══════════════════════════════
+ *
+ * Même remontée, même règle, autre geste : rien ne se crée sous « Documents clients scannés », à aucune profondeur.
+ */
+export async function verdictCreer(jeton: string, parentId: string): Promise<VerdictCreer> {
+  const chaine = await chaineParents(jeton, parentId, { fetch });
+  const v = peutCreerDossier(parentId, indexerMaillons(chaine));
+  return v.creer ? { creer: true, motif: null } : { creer: false, motif: v.motif };
+}
+
+/**
+ * ══ 🔴 LES DEUX VERDICTS D'UN COUP, SUR UNE SEULE REMONTÉE. ══════════════════════════════════════════════════════
+ *
+ * 🔴 POURQUOI ILS VOYAGENT ENSEMBLE. L'écran du sélecteur a besoin des deux pour le dossier qu'il affiche : peut-on
+ * y joindre, peut-on y créer. Les demander séparément remonterait DEUX FOIS la même chaîne de parents — c'est-à-dire
+ * jusqu'à vingt-six `files.get` au lieu de treize pour afficher une page, sur une arborescence qui fait treize
+ * niveaux (mesuré le 25/09/2026). Le réseau est la seule chose coûteuse ici ; la règle, elle, est gratuite.
+ */
+export async function verdictsDossier(
+  jeton: string, id: string,
+): Promise<{ joindre: VerdictJoindre; creer: VerdictCreer }> {
+  const index = indexerMaillons(await chaineParents(jeton, id, { fetch }));
+  const j = peutJoindre(id, index);
+  const c = peutCreerDossier(id, index);
+  return {
+    joindre: j.joindre ? { joindre: true, motif: null } : { joindre: false, motif: j.motif },
+    creer: c.creer ? { creer: true, motif: null } : { creer: false, motif: c.motif },
+  };
 }

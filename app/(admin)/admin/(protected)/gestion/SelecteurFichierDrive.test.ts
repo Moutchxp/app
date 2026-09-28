@@ -30,6 +30,12 @@ let contenu: Record<string, unknown>;
 let recents: Record<string, unknown>;
 let prioritaires: Record<string, unknown>;
 let appels: string[];
+/** Ce que la route d'aperçu rend : des octets, ou un refus avec son motif. */
+let apercu: { ok: boolean; corps?: Blob; message?: string; statut?: number };
+/** Ce que la route de création rend, au GET (préparation) puis au POST (création). */
+let dossierNeuf: { get: Record<string, unknown>; post: Record<string, unknown>; statut: number };
+let urlsCreees: number;
+let urlsRevoquees: number;
 
 const fichier = (id: string, nom: string, dossier = false) => ({
   id, nom, typeMime: dossier ? 'application/vnd.google-apps.folder' : 'application/pdf',
@@ -45,16 +51,41 @@ beforeEach(() => {
   };
   recents = { etat: 'ok', disponible: false, lignes: [] };
   prioritaires = { etat: 'ok', biens: [], dossiers: [] };
-  global.fetch = vi.fn(async (url: string | URL) => {
+  apercu = { ok: true, corps: new Blob(['%PDF-1.4'], { type: 'application/pdf' }) };
+  dossierNeuf = {
+    get: { etat: 'ok', nom: 'Travaux 2026', chemin: 'Mon Drive › Artisans › Travaux 2026',
+      phrase: 'Le dossier sera créé ici : Mon Drive › Artisans › Travaux 2026' },
+    post: { etat: 'ok', dossier: { id: 'dn', nom: 'Travaux 2026', lien: null }, journalise: true, message: null },
+    statut: 200,
+  };
+  global.fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
     const u = String(url);
-    appels.push(u);
+    appels.push(`${init?.method ?? 'GET'} ${u}`);
     if (u.includes('/dossier-du-bien')) return { ok: true, json: async () => prioritaires } as unknown as Response;
     if (u.includes('/pieces-recentes')) return { ok: true, json: async () => recents } as unknown as Response;
+    // 🔴 L'APERÇU rend des OCTETS, pas du JSON — sauf quand il refuse, et c'est ce que le test doit pouvoir simuler.
+    if (u.includes('/drive/apercu')) {
+      return apercu.ok
+        ? { ok: true, status: 200, blob: async () => apercu.corps } as unknown as Response
+        : { ok: false, status: apercu.statut ?? 415, json: async () => ({ message: apercu.message }) } as unknown as Response;
+    }
+    if (u.includes('/drive/dossier')) {
+      const creation = (init?.method ?? 'GET') === 'POST' ? dossierNeuf.post : dossierNeuf.get;
+      return {
+        ok: dossierNeuf.statut < 400, status: dossierNeuf.statut, json: async () => creation,
+      } as unknown as Response;
+    }
     if (u.includes('contenu=1')) {
       return { ok: true, json: async () => ({ etat: 'ok', contenuBase64: 'AAAA' }) } as unknown as Response;
     }
     return { ok: true, json: async () => contenu } as unknown as Response;
   }) as unknown as typeof fetch;
+  // jsdom n'a pas d'URL d'objet : l'aperçu en crée une pour le cadre, et la révoque à la fermeture.
+  urlsCreees = 0; urlsRevoquees = 0;
+  (URL as unknown as { createObjectURL: (b: Blob) => string }).createObjectURL = () => {
+    urlsCreees += 1; return `blob:essai/${urlsCreees}`;
+  };
+  (URL as unknown as { revokeObjectURL: (u: string) => void }).revokeObjectURL = () => { urlsRevoquees += 1; };
 });
 afterEach(() => { act(() => { root.unmount(); }); container.remove(); vi.restoreAllMocks(); });
 
@@ -426,5 +457,297 @@ describe('🔴 LOT DRIVE-DOSSIER-DU-BIEN — la ligne prioritaire', () => {
     await act(async () => { await new Promise((r) => setTimeout(r, 320)); });
     await calmer();
     expect(container.querySelector('.sfd-prio')).toBeNull();
+  });
+});
+
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴 LOT DRIVE-VISUALISER-ET-DOSSIERS — « VISUALISER », ET « + NOUVEAU DOSSIER ».
+ *
+ * Ce qui est protégé ici :
+ *   ① 🔴🔴 « VISUALISER » NE FERME PAS LA NAVIGATION : même dossier, même recherche, même compteur, mêmes
+ *      « ✓ ajouté » à la fermeture de l'aperçu. C'est la demande la plus précise d'Arno sur ce lot ;
+ *   ② l'ordre des trois liens : Visualiser, puis Joindre, puis Insérer un lien ;
+ *   ③ 🔴🔴 sous « Documents clients scannés », « Visualiser » N'EXISTE PAS — comme « Joindre » ;
+ *   ④ un format sans aperçu le DIT, et propose quand même de joindre ;
+ *   ⑤ 🔴 « + Nouveau dossier » : confirmation avec le CHEMIN COMPLET avant d'écrire, doublon refusé, et bouton
+ *      DÉSACTIVÉ AVEC SON MOTIF tant que la migration 272 manque.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+describe('🔴🔴 ① « Visualiser » n’interrompt jamais la navigation', () => {
+  const visualiserDe = (nom: string) => {
+    const li = [...container.querySelectorAll('.sfd-item')].find((x) => (x.textContent ?? '').includes(nom));
+    return [...(li?.querySelectorAll('button') ?? [])].find((b) => /^Visualiser$/.test((b.textContent ?? '').trim()));
+  };
+
+  it('ouvre un aperçu PAR-DESSUS, sans démonter le sélecteur', async () => {
+    await monter();
+    await cliquer(visualiserDe('bail.pdf'));
+    expect(container.querySelector('.apd')).not.toBeNull();
+    // Le sélecteur est toujours là, entier : c'est CE point qui garantit « on revient au même endroit ».
+    expect(container.querySelector('.sfd')).not.toBeNull();
+    expect(container.textContent).toContain('devis.pdf');
+    expect(fermetures).toBe(0);
+  });
+
+  it('🔴 à la fermeture : même dossier, même compteur, mêmes « ✓ ajouté »', async () => {
+    await monter();
+    // On entre dans un dossier, on joint une pièce — l'état à préserver.
+    await cliquer([...container.querySelectorAll('.sfd-dossier')].find((b) => /Artisans/.test(b.textContent ?? '')));
+    await cliquer(joindreDe('bail.pdf'));
+    const arianeAvant = container.querySelector('.sfd-ariane')?.textContent;
+    const compteurAvant = container.querySelector('.sfd-compteur')?.textContent;
+    const appelsAvant = appels.length;
+
+    await cliquer(visualiserDe('devis.pdf'));
+    await cliquer(container.querySelector('.apd-croix'));
+
+    expect(container.querySelector('.apd')).toBeNull();
+    expect(container.querySelector('.sfd-ariane')?.textContent).toBe(arianeAvant);
+    expect(container.querySelector('.sfd-compteur')?.textContent).toBe(compteurAvant);
+    expect(joindreDe('bail.pdf')).toBeUndefined();          // toujours marqué « ajouté »
+    expect(container.textContent).toContain('ajouté');
+    // 🔴 ET AUCUN RECHARGEMENT DU DOSSIER : on n'en était jamais parti. Seul l'aperçu a parlé au serveur.
+    expect(appels.slice(appelsAvant).every((u) => u.includes('/drive/apercu'))).toBe(true);
+  });
+
+  /** Échap ferme l'APERÇU, et lui seul : une croix qui ferme deux fenêtres serait pire qu'une croix absente. */
+  it('🔴 Échap ferme l’aperçu SANS fermer le sélecteur', async () => {
+    await monter();
+    await cliquer(visualiserDe('bail.pdf'));
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    await calmer();
+    expect(container.querySelector('.apd')).toBeNull();
+    expect(container.querySelector('.sfd')).not.toBeNull();
+    expect(fermetures).toBe(0);
+  });
+
+  /** 🔒 Les octets du document d'un client ne restent pas en mémoire de l'onglet. */
+  it('🔒 l’URL locale de l’aperçu est RÉVOQUÉE à la fermeture', async () => {
+    await monter();
+    await cliquer(visualiserDe('bail.pdf'));
+    expect(urlsCreees).toBe(1);
+    await cliquer(container.querySelector('.apd-croix'));
+    expect(urlsRevoquees).toBe(1);
+  });
+
+  it('② les trois liens sont dans l’ordre : Visualiser, Joindre, Insérer un lien', async () => {
+    await monter();
+    const li = [...container.querySelectorAll('.sfd-item')].find((x) => (x.textContent ?? '').includes('bail.pdf'));
+    const mots = [...(li?.querySelectorAll('.sfd-gestes button') ?? [])].map((b) => (b.textContent ?? '').trim());
+    expect(mots).toEqual(['Visualiser', 'Joindre', 'Insérer un lien']);
+  });
+
+  it('« Joindre » DANS l’aperçu ajoute la pièce, sans refermer la navigation', async () => {
+    await monter();
+    await cliquer(visualiserDe('bail.pdf'));
+    await cliquer([...container.querySelectorAll('.apd button')]
+      .find((b) => /Joindre ce fichier/.test(b.textContent ?? '')));
+    expect(choisis).toHaveLength(1);
+    expect((choisis[0] as { drive?: { fichierId: string } }).drive?.fichierId).toBe('f1');
+    // L'aperçu reste ouvert et DIT que c'est ajouté : on peut continuer à regarder.
+    expect(container.querySelector('.apd')?.textContent).toContain('ajouté');
+    expect(fermetures).toBe(0);
+  });
+
+  it('🔴🔴 ③ sous « Documents clients scannés », « Visualiser » N’EXISTE PAS', async () => {
+    contenu = {
+      ...contenu, joindreAutorise: false,
+      motifRefus: 'Ce fichier est dans « Documents clients scannés » : son contenu n’est jamais lu.',
+    };
+    await monter();
+    expect(visualiserDe('bail.pdf')).toBeUndefined();
+    expect(joindreDe('bail.pdf')).toBeUndefined();
+    // Le motif est écrit, et le lien reste : la sortie est dite.
+    expect(container.querySelector('.sfd-interdit')?.textContent).toContain('Documents clients scannés');
+    expect(boutonPar(/Insérer un lien/)).toBeDefined();
+  });
+
+  it('④ un refus du serveur s’affiche EN FRANÇAIS dans l’aperçu, jamais en JSON brut', async () => {
+    apercu = { ok: false, statut: 415, message: 'Aperçu indisponible pour ce type de fichier.' };
+    await monter();
+    await cliquer(visualiserDe('bail.pdf'));
+    expect(container.querySelector('.apd-sans')?.textContent).toContain('Aperçu indisponible');
+    expect(container.querySelector('.apd-cadre')).toBeNull();
+    // Un FORMAT sans aperçu laisse la sortie ouverte : on peut toujours joindre.
+    expect([...container.querySelectorAll('.apd button')]
+      .some((b) => /Joindre ce fichier/.test(b.textContent ?? ''))).toBe(true);
+  });
+
+  /**
+   * 🔴🔴 DÉFAUT TROUVÉ À L'ÉCRAN LE 28/09/2026, sur « 5_trois dernières quittances de loyer.pdf ».
+   *
+   * Dans des résultats de recherche, l'écran ne connaît pas l'emplacement des fichiers — ils viennent de tout le
+   * Drive — donc il affiche les trois liens et c'est le SERVEUR qui tranche au clic. L'aperçu affichait bien le
+   * refus (« son contenu n'est jamais lu »)… et proposait « Joindre ce fichier » juste en dessous. Deux lignes qui
+   * se contredisent, et un clic que le serveur aurait refusé de toute façon.
+   */
+  it('🔴🔴 un refus par LA RÈGLE ne propose plus rien — pas même « Joindre »', async () => {
+    apercu = {
+      ok: false, statut: 403,
+      message: 'Ce fichier est dans « Documents clients scannés » : son contenu n’est jamais lu. …',
+    };
+    await monter();
+    await cliquer(visualiserDe('bail.pdf'));
+    expect(container.querySelector('.apd-sans')?.textContent).toContain('Documents clients scannés');
+    expect([...container.querySelectorAll('.apd button')]
+      .some((b) => /Joindre ce fichier/.test(b.textContent ?? ''))).toBe(false);
+    // …et l'on peut toujours refermer : un cul-de-sac sans porte serait pire que le refus.
+    expect([...container.querySelectorAll('.apd button')]
+      .some((b) => /Fermer l’aperçu/.test(b.textContent ?? ''))).toBe(true);
+  });
+
+  /** Un format hors liste blanche est tranché SANS appeler le serveur : on sait déjà la réponse. */
+  it('④ un format sans aperçu le dit sans même interroger le serveur, et propose de joindre', async () => {
+    contenu = {
+      ...contenu,
+      fichiers: [{
+        id: 'z', nom: 'archive.zip', typeMime: 'application/zip', tailleOctets: 900,
+        modifieLe: null, lien: 'https://drive.google.com/z', dossier: false,
+      }],
+    };
+    await monter();
+    const avant = appels.length;
+    await cliquer(visualiserDe('archive.zip'));
+    expect(container.querySelector('.apd-sans')?.textContent).toContain('Aperçu indisponible pour ce type de fichier');
+    expect(appels.slice(avant).some((u) => u.includes('/drive/apercu'))).toBe(false);
+    expect([...container.querySelectorAll('.apd button')]
+      .some((b) => /Joindre ce fichier/.test(b.textContent ?? ''))).toBe(true);
+  });
+});
+
+describe('🔴 ⑤ « + Nouveau dossier »', () => {
+  const avecCreation = { ...{}, creerAutorise: true, motifCreation: null };
+  const monterCreable = async () => {
+    contenu = { ...contenu, ...avecCreation };
+    await monter();
+    // On entre dans un dossier : on ne crée pas à la racine du sélecteur, qui n'est pas un endroit du Drive.
+    await cliquer([...container.querySelectorAll('.sfd-dossier')].find((b) => /Artisans/.test(b.textContent ?? '')));
+  };
+
+  it('le bouton n’apparaît pas là où le serveur ne dit rien — le défaut, pour une ÉCRITURE, est « non »', async () => {
+    await monter();
+    expect(boutonPar(/Nouveau dossier/)).toBeUndefined();
+  });
+
+  /**
+   * 🔴 SANS LA MIGRATION 272, LE BOUTON EST MONTRÉ MAIS DÉSACTIVÉ, AVEC SON MOTIF. C'est différent d'une règle qui
+   * interdit : la fonction existe et attend quelque chose, et le dire évite qu'on la croie disparue.
+   */
+  it('🔴 sans la migration 272 : bouton DÉSACTIVÉ, motif écrit, et rien d’autre ne change', async () => {
+    contenu = {
+      ...contenu, creerAutorise: false,
+      motifCreation: 'La création de dossiers attend une mise à jour de la base (272) : …',
+    };
+    await monter();
+    const b = boutonPar(/Nouveau dossier/);
+    expect(b).toBeDefined();
+    expect(b?.disabled).toBe(true);
+    expect(container.querySelector('.sfd-creer')?.textContent).toContain('272');
+    // …et tout le reste du sélecteur marche exactement comme avant.
+    expect(joindreDe('bail.pdf')).toBeDefined();
+    expect(boutonPar(/^Terminé$/)).toBeDefined();
+  });
+
+  /**
+   * 🔴🔴 LA CONFIRMATION MONTRE LE CHEMIN COMPLET, ET IL VIENT DU SERVEUR. C'est la seule protection contre la
+   * faute la plus probable de tout ce lot : le bon nom, au mauvais endroit.
+   */
+  it('🔴🔴 confirme avec le NOM et le CHEMIN COMPLET avant d’écrire quoi que ce soit', async () => {
+    await monterCreable();
+    await cliquer(boutonPar(/Nouveau dossier/));
+    const champNom = container.querySelector('.sfd-creer-corps .sfd-saisie') as HTMLInputElement;
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      set?.call(champNom, 'Travaux 2026');
+      champNom.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await cliquer(boutonPar(/^Continuer$/));
+
+    expect(container.querySelector('.sfd-creer-chemin')?.textContent).toContain('Travaux 2026');
+    expect(container.querySelector('.sfd-creer-chemin')?.textContent)
+      .toContain('Mon Drive › Artisans › Travaux 2026');
+    // 🔴 AUCUNE ÉCRITURE ENCORE : la préparation est un GET.
+    expect(appels.filter((u) => u.startsWith('POST') && u.includes('/drive/dossier'))).toHaveLength(0);
+    expect(boutonPar(/^Créer$/)).toBeDefined();
+    expect(boutonPar(/^Annuler$/)).toBeDefined();
+  });
+
+  const allerJusquALaConfirmation = async () => {
+    await monterCreable();
+    await cliquer(boutonPar(/Nouveau dossier/));
+    const champNom = container.querySelector('.sfd-creer-corps .sfd-saisie') as HTMLInputElement;
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      set?.call(champNom, 'Travaux 2026');
+      champNom.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await cliquer(boutonPar(/^Continuer$/));
+  };
+
+  it('« Créer » écrit, puis OUVRE le nouveau dossier', async () => {
+    await allerJusquALaConfirmation();
+    await cliquer(boutonPar(/^Créer$/));
+    expect(appels.some((u) => u.startsWith('POST') && u.includes('/drive/dossier'))).toBe(true);
+    // Le nouveau dossier s'ouvre : on y va pour y ranger quelque chose.
+    expect(appels.some((u) => u.includes('dossier=dn'))).toBe(true);
+    expect(container.querySelector('.sfd-ariane')?.textContent).toContain('Travaux 2026');
+    expect(container.querySelector('.sfd-creer-fait')?.textContent).toContain('Travaux 2026');
+    expect(fermetures).toBe(0);
+  });
+
+  it('« Annuler » referme la création sans rien écrire', async () => {
+    await allerJusquALaConfirmation();
+    await cliquer(boutonPar(/^Annuler$/));
+    expect(container.querySelector('.sfd-creer-corps')).toBeNull();
+    expect(appels.filter((u) => u.startsWith('POST'))).toHaveLength(0);
+    expect(boutonPar(/Nouveau dossier/)).toBeDefined();
+  });
+
+  /** 🔴 « Il n'y a jamais de doublon silencieux » : le refus du serveur s'affiche, et rien n'est écrit. */
+  it('🔴 un doublon est refusé, avec son motif, et la création n’a pas lieu', async () => {
+    await monterCreable();
+    dossierNeuf = {
+      ...dossierNeuf, statut: 409,
+      get: { etat: 'refus', message: 'Un dossier « Travaux 2026 » existe déjà à cet endroit : ouvrez-le plutôt…' },
+    };
+    await cliquer(boutonPar(/Nouveau dossier/));
+    const champNom = container.querySelector('.sfd-creer-corps .sfd-saisie') as HTMLInputElement;
+    await act(async () => {
+      const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      set?.call(champNom, 'Travaux 2026');
+      champNom.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await cliquer(boutonPar(/^Continuer$/));
+    expect(container.querySelector('.sfd-creer-corps')?.textContent).toContain('existe déjà');
+    expect(boutonPar(/^Créer$/)).toBeUndefined();
+    expect(appels.filter((u) => u.startsWith('POST'))).toHaveLength(0);
+  });
+
+  /**
+   * ⚠️ NAVIGUER REFERME LA CRÉATION EN COURS. Un nom tapé pour un dossier qui survivrait à l'entrée dans un autre
+   * ferait créer au bon nom, au mauvais endroit — la faute que toute cette fonction cherche à empêcher.
+   */
+  it('changer de dossier ABANDONNE la création en cours', async () => {
+    await allerJusquALaConfirmation();
+    await cliquer([...container.querySelectorAll('.sfd-ariane button')][0]);   // retour à « Mon Drive »
+    expect(container.querySelector('.sfd-creer-corps')).toBeNull();
+    expect(appels.filter((u) => u.startsWith('POST'))).toHaveLength(0);
+  });
+
+  /** ⚠️ Un dossier créé mais non consigné : on le DIT. Supprimer pour « rattraper » est interdit dans ce lot. */
+  it('dit franchement qu’un dossier créé n’a pas pu être consigné', async () => {
+    await allerJusquALaConfirmation();
+    dossierNeuf = {
+      ...dossierNeuf,
+      post: {
+        etat: 'ok', dossier: { id: 'dn', nom: 'Travaux 2026', lien: null }, journalise: false,
+        message: 'Le dossier est créé, mais la ligne de journal n’a pas pu être écrite. Signalez-le : …',
+      },
+    };
+    await cliquer(boutonPar(/^Créer$/));
+    expect(container.querySelector('.sfd-creer-fait')?.textContent).toContain('journal');
   });
 });

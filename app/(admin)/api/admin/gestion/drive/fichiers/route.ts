@@ -5,10 +5,12 @@ import {
   lireMetadonnees, MIME_DOSSIER,
 } from '../../../../../../lib/gestion/drive';
 import { jetonPourRequete } from '../../../../../../lib/gestion/jetonCollaborateur';
-import { verdictJoindre } from '../../../../../../lib/gestion/driveVerdict';
+import { verdictJoindre, verdictsDossier } from '../../../../../../lib/gestion/driveVerdict';
 import {
   RACINE_DRIVES_PARTAGES, RACINE_MON_DRIVE, RACINE_PARTAGES_AVEC_MOI,
 } from '../../../../../../lib/gestion/cibleDepot';
+import { journalDossierDriveDisponible } from '../../../../../../lib/gestion/schema';
+import { MOTIF_SANS_JOURNAL } from '../../../../../../lib/gestion/dossierNouveau';
 
 /**
  * /api/admin/gestion/drive/fichiers — LOT REDACTION-GMAIL : CHOISIR UN FICHIER DU DRIVE POUR UN MAIL.
@@ -63,6 +65,28 @@ function json(corps: unknown, status = 200): Response {
  */
 const verdict = verdictJoindre;
 
+/**
+ * ══ 🔴 LOT DRIVE-VISUALISER-ET-DOSSIERS — LE DROIT DE CRÉER VOYAGE AVEC LE CONTENU DU DOSSIER ════════════════════
+ *
+ * Trois champs s'ajoutent à la réponse : `creerAutorise`, `motifCreation`, `journalDisponible`.
+ *
+ * 🔴 POURQUOI DANS CETTE RÉPONSE, ET PAS DANS UN APPEL À PART. Règle tirée d'un défaut de ce module (lot
+ * COULEUR-ROUGE, 28/09/2026) : une SONDE DE SCHÉMA VOYAGE AVEC LA DONNÉE QU'ELLE CONDITIONNE, dans la même réponse.
+ * Un appel séparé arrive plus tard, parfois jamais, et l'écran prend alors sa valeur par défaut — ce jour-là, un
+ * `false` par défaut avait fait disparaître une fonction pourtant en place, sans qu'aucune erreur ne s'affiche.
+ *
+ * 🔴🔴 ET `motifCreation` N'EST RENSEIGNÉ QUE DANS UN SEUL CAS : la migration 272 manque, LÀ OÙ LA RÈGLE AURAIT
+ * PERMIS DE CRÉER. Partout ailleurs il vaut `null`, et l'écran n'affiche alors AUCUN bouton — ni actif, ni grisé.
+ *
+ * Les deux absences ne disent pas la même chose, et c'est tout l'objet de cette distinction :
+ *   · sous « Documents clients scannés », « le bouton n'y est pas affiché » (demande d'Arno, mot pour mot) : un
+ *     bouton grisé y laisserait croire qu'un réglage pourrait un jour l'activer, alors que c'est une règle ;
+ *   · à la racine du sélecteur ou dans des résultats de recherche, il n'y a pas d'endroit où créer : annoncer une
+ *     fonction indisponible à chaque ouverture du Drive serait du bruit permanent ;
+ *   · sans la migration, en revanche, la fonction EXISTE et attend quelque chose. Là, et là seulement, on montre
+ *     le bouton désactivé avec son motif — sinon on la croirait disparue.
+ */
+
 export async function GET(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
   if (refus) return refus;
@@ -75,6 +99,17 @@ export async function GET(request: Request): Promise<Response> {
   const dossier = (url.searchParams.get('dossier') ?? '').trim();
   const recherche = (url.searchParams.get('recherche') ?? '').trim();
   const veutContenu = url.searchParams.get('contenu') === '1';
+  /**
+   * ⚠️ LA SONDE EST LUE UNE FOIS, ICI, pour toutes les branches — et elle ne coûte rien (mémoïsée par processus,
+   * et le « non » n'est jamais retenu : correctif du 24/09/2026, `sondeSchema.ts`).
+   */
+  const journalDisponible = await journalDossierDriveDisponible();
+  /**
+   * Ce que dit toute réponse où la création N'A PAS D'ENDROIT : la racine du sélecteur, les deux regroupements,
+   * des résultats de recherche. Aucun motif : il n'y a rien à expliquer, et répéter une indisponibilité à chaque
+   * ouverture du Drive serait du bruit permanent.
+   */
+  const sansCreation = { creerAutorise: false, motifCreation: null, journalDisponible };
 
   try {
     /**
@@ -110,6 +145,12 @@ export async function GET(request: Request): Promise<Response> {
       if (!fichiers.ok) return json({ etat: 'indisponible', message: fichiers.motif }, 200);
       return json({
         etat: 'ok', recherche: true, joindreAutorise: true, motifRefus: null,
+        /**
+         * ⚠️ PAS DE CRÉATION DANS DES RÉSULTATS DE RECHERCHE : ils ne sont PAS un endroit. Quarante lignes venues de
+         * quarante dossiers différents — « créer ici » n'aurait aucun sens, et ce serait la meilleure façon de créer
+         * un dossier ailleurs qu'où l'on croit. On entre dans un dossier trouvé, PUIS on y crée.
+         */
+        ...sansCreation,
         // Les DOSSIERS d'abord dans la charge utile : l'écran les groupe, mais l'ordre de la route est déjà le bon.
         dossiers: dossiers.ok
           ? dossiers.valeur.map((d) => ({
@@ -131,7 +172,7 @@ export async function GET(request: Request): Promise<Response> {
      */
     if (fichier === '' && dossier === '') {
       return json({
-        etat: 'ok', joindreAutorise: true, motifRefus: null,
+        etat: 'ok', joindreAutorise: true, motifRefus: null, ...sansCreation,
         fichiers: [
           { id: RACINE_MON_DRIVE, nom: 'Mon Drive', driveId: null, typeMime: MIME_DOSSIER, tailleOctets: null, modifieLe: null, lien: null, dossier: true },
           { id: RACINE_DRIVES_PARTAGES, nom: 'Drives partagés', driveId: null, typeMime: MIME_DOSSIER, tailleOctets: null, modifieLe: null, lien: null, dossier: true },
@@ -147,7 +188,7 @@ export async function GET(request: Request): Promise<Response> {
         : await listerPartagesAvecMoi(jeton.jeton, { fetch });
       if (!r.ok) return json({ etat: 'indisponible', message: r.motif }, 200);
       return json({
-        etat: 'ok', joindreAutorise: true, motifRefus: null,
+        etat: 'ok', joindreAutorise: true, motifRefus: null, ...sansCreation,
         fichiers: r.valeur.map((d) => ({
           id: d.id, nom: d.nom, driveId: d.driveId ?? null, typeMime: MIME_DOSSIER,
           tailleOctets: null, modifieLe: null, lien: null, dossier: true,
@@ -166,8 +207,24 @@ export async function GET(request: Request): Promise<Response> {
        * Drive pour afficher une page. L'écran s'en sert pour n'afficher « Joindre » que là où c'est permis ; la
        * lecture de contenu, elle, revérifie TOUJOURS sur le fichier lui-même (② ci-dessous).
        */
-      const v = await verdict(jeton.jeton, parent);
-      return json({ etat: 'ok', fichiers: liste.valeur, joindreAutorise: v.joindre, motifRefus: v.motif });
+      /**
+       * ⚠️ UNE SEULE REMONTÉE POUR LES DEUX VERDICTS (`verdictsDossier`). Les demander séparément relirait DEUX FOIS
+       * la même chaîne de parents — jusqu'à vingt-six `files.get` au lieu de treize pour afficher une page, sur une
+       * arborescence qui fait treize niveaux (mesuré le 25/09/2026). La règle, elle, est la même dans les deux cas.
+       */
+      const { joindre: v, creer: c } = await verdictsDossier(jeton.jeton, parent);
+      return json({
+        etat: 'ok', fichiers: liste.valeur, joindreAutorise: v.joindre, motifRefus: v.motif,
+        // 🔴 LE JOURNAL D'ABORD : sans la migration 272, on ne crée rien, même là où la règle du Drive le permettrait.
+        creerAutorise: journalDisponible && c.creer,
+        /**
+         * 🔴🔴 UN MOTIF DANS UN SEUL CAS : la règle permettrait, et c'est la migration qui manque. Sous
+         * « Documents clients scannés », `c.creer` est faux et le motif reste `null` — « le bouton n'y est pas
+         * affiché » (demande d'Arno). Un bouton grisé y laisserait croire qu'un réglage pourrait l'activer.
+         */
+        motifCreation: !journalDisponible && c.creer ? MOTIF_SANS_JOURNAL : null,
+        journalDisponible,
+      });
     }
 
     // ── ② UN FICHIER : métadonnées, verdict, et éventuellement les octets ─────────────────────────────────────

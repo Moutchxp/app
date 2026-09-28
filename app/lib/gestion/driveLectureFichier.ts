@@ -57,42 +57,102 @@ export type VerdictFichier =
   | { joindre: false; motif: string };
 
 /**
+ * ══ 🔴🔴 L'ASCENSION, ET ELLE NE SERT PLUS QU'À UNE SEULE QUESTION : SOMMES-NOUS SOUS LE DOSSIER INTERDIT ? PUR.
+ *
+ * 🔴 POURQUOI ELLE A ÉTÉ EXTRAITE (lot DRIVE-VISUALISER-ET-DOSSIERS). Deux gestes s'y appuient désormais : LIRE un
+ * fichier (joindre, visualiser) et CRÉER un dossier. Écrire deux fois la même remontée aurait donné deux
+ * remontées — et le jour où l'une gagne un cas que l'autre n'a pas, l'un des deux gestes passe là où l'autre
+ * refuse. Une seule traversée, deux verdicts qui l'interprètent.
+ *
+ * ⚠️ L'INCERTITUDE EST UN RÉSULTAT À PART ENTIÈRE, distinct de « dehors ». Chaîne trouée, cycle, profondeur
+ * dépassée, départ vide : on ne sait pas, et NE PAS SAVOIR VAUT INTERDIT pour les deux gestes. Les fondre dans
+ * « dehors » ouvrirait la porte à tout ce qu'on n'a pas su lire.
+ */
+type Ascension =
+  | { ou: 'dedans' }
+  | { ou: 'dehors' }
+  | { ou: 'inconnu'; cause: 'depart' | 'trou' | 'cycle' | 'profondeur' };
+
+function remonterJusquEnHaut(depart: string | null, index: ReadonlyMap<string, Maillon>): Ascension {
+  if (depart === null || depart === '') return { ou: 'inconnu', cause: 'depart' };
+  const vus = new Set<string>();
+  let courant: string | null = depart;
+  for (let i = 0; i < PROFONDEUR_MAX && courant !== null; i += 1) {
+    if (vus.has(courant)) return { ou: 'inconnu', cause: 'cycle' };
+    vus.add(courant);
+    const m: Maillon | undefined = index.get(courant);
+    if (m === undefined) return { ou: 'inconnu', cause: 'trou' };
+    if (normaliser(m.nom) === INTERDIT_NORMALISE) return { ou: 'dedans' };
+    courant = m.parentId;
+  }
+  // On n'est « dehors » qu'après avoir vu le HAUT de la chaîne : tant qu'il reste un parent à lire, on ne sait pas.
+  return courant === null ? { ou: 'dehors' } : { ou: 'inconnu', cause: 'profondeur' };
+}
+
+/**
  * ══ 🔴 PEUT-ON JOINDRE CE FICHIER ? PUR. ═════════════════════════════════════════════════════════════════════════
  *
- * `chaine` va du fichier (ou de son dossier) vers la racine. `index` permet de continuer à remonter quand la chaîne
- * fournie s'arrête. Les deux formes existent parce que Drive rend les parents par un identifiant : l'appelant a
- * parfois déjà tout le chemin, parfois seulement le premier parent.
+ * `depart` est le fichier (ou son dossier). `index` porte les maillons connus : Drive rend les parents par un
+ * identifiant, et l'appelant a parfois déjà tout le chemin, parfois seulement le premier parent.
  *
  * ⚠️ « JOINDRE » N'EST AUTORISÉ QUE SI L'ON A PU REMONTER JUSQU'À UNE RACINE. Tant qu'on n'a pas vu le haut de la
  * chaîne, on ne peut pas affirmer qu'on n'est pas sous le dossier interdit.
  */
 export function peutJoindre(depart: string | null, index: ReadonlyMap<string, Maillon>): VerdictFichier {
-  if (depart === null || depart === '') {
-    return { joindre: false, motif: 'Emplacement inconnu : par précaution, seul le lien est proposé.' };
+  const a = remonterJusquEnHaut(depart, index);
+  if (a.ou === 'dehors') return { joindre: true };
+  if (a.ou === 'dedans') {
+    return {
+      joindre: false,
+      motif: `Ce fichier est dans « ${DOSSIER_INTERDIT_LECTURE} » : son contenu n’est jamais lu. `
+        + 'Vous pouvez en insérer le lien — le destinataire l’ouvrira avec ses propres droits Google.',
+    };
   }
-  const vus = new Set<string>();
-  let courant: string | null = depart;
-  for (let i = 0; i < PROFONDEUR_MAX && courant !== null; i += 1) {
-    if (vus.has(courant)) {
-      return { joindre: false, motif: 'Arborescence incohérente : par précaution, seul le lien est proposé.' };
-    }
-    vus.add(courant);
-    const m: Maillon | undefined = index.get(courant);
-    if (m === undefined) {
-      return { joindre: false, motif: 'Emplacement incomplet : par précaution, seul le lien est proposé.' };
-    }
-    if (normaliser(m.nom) === INTERDIT_NORMALISE) {
-      return {
-        joindre: false,
-        motif: `Ce fichier est dans « ${DOSSIER_INTERDIT_LECTURE} » : son contenu n’est jamais lu. `
-          + 'Vous pouvez en insérer le lien — le destinataire l’ouvrira avec ses propres droits Google.',
-      };
-    }
-    courant = m.parentId;
+  const mot = a.cause === 'depart' ? 'Emplacement inconnu'
+    : a.cause === 'trou' ? 'Emplacement incomplet'
+      : a.cause === 'cycle' ? 'Arborescence incohérente'
+        : 'Arborescence trop profonde';
+  return { joindre: false, motif: `${mot} : par précaution, seul le lien est proposé.` };
+}
+
+export type VerdictCreationDossier =
+  | { creer: true }
+  | { creer: false; motif: string };
+
+/**
+ * ══ 🔴🔴 PEUT-ON CRÉER UN DOSSIER DANS CE DOSSIER ? PUR. ═════════════════════════════════════════════════════════
+ *
+ * 🔴 LA RÈGLE D'ARNO, LOT DRIVE-VISUALISER-ET-DOSSIERS, CODÉE EN DUR : « aucune création dans “Documents clients
+ * scannés” ni dans aucun de ses sous-dossiers, à n'importe quelle profondeur ». Elle se vérifie ICI, sur toute la
+ * chaîne des parents — jamais sur le nom du dossier affiché, qui ne dit rien de l'endroit où il est rangé.
+ *
+ * 🔴 ET LE MOTIF DIT « ARCHIVE », PAS « INTERDIT ». Un refus qui n'explique pas se lit comme une panne, et l'on
+ * cherche alors à contourner ce qu'on prend pour un bogue. Ici la phrase dit ce qu'est ce dossier et pourquoi
+ * l'application n'y écrit rien : il n'y a plus rien à contourner.
+ *
+ * ⚠️ AUCUN « SEUL LE LIEN EST PROPOSÉ » ICI : il n'y a pas de sortie de secours à la création d'un dossier. Le
+ * refus est un refus, et on le dit sans faire croire à une porte à côté.
+ */
+export function peutCreerDossier(
+  parent: string | null, index: ReadonlyMap<string, Maillon>,
+): VerdictCreationDossier {
+  const a = remonterJusquEnHaut(parent, index);
+  if (a.ou === 'dehors') return { creer: true };
+  if (a.ou === 'dedans') {
+    return {
+      creer: false,
+      motif: `« ${DOSSIER_INTERDIT_LECTURE} » est l’archive du cabinet : l’application n’y crée aucun dossier, `
+        + 'ni dans ce dossier ni dans aucun de ses sous-dossiers, à quelque profondeur que ce soit.',
+    };
   }
-  // On est remonté jusqu'en haut sans rencontrer le dossier interdit : la lecture est permise.
-  if (courant === null) return { joindre: true };
-  return { joindre: false, motif: 'Arborescence trop profonde : par précaution, seul le lien est proposé.' };
+  const mot = a.cause === 'depart' ? 'Aucun dossier n’est indiqué'
+    : a.cause === 'trou' ? 'Cet emplacement n’a pas pu être situé entièrement'
+      : a.cause === 'cycle' ? 'L’arborescence de cet emplacement est incohérente'
+        : 'Cet emplacement est trop profond pour être vérifié';
+  return {
+    creer: false,
+    motif: `${mot} : par précaution, aucun dossier n’y est créé — on ne crée pas là où l’on ne sait pas où l’on est.`,
+  };
 }
 
 /**

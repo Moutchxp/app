@@ -541,3 +541,20 @@ export function piecesRecentesDisponibles(): Promise<boolean> {
 export function fileEnvoiDisponible(): Promise<boolean> {
   return memoiser('table.gestion_envoi_file', () => tableExiste('gestion_envoi_file'));
 }
+
+/**
+ * 🔴🔴 LOT DRIVE-VISUALISER-ET-DOSSIERS — la migration 272 est-elle appliquée ? Elle porte le JOURNAL des dossiers
+ * créés dans le Drive (`gestion_drive_dossier_cree`) : qui, quand, quel nom, quel identifiant, dans quel parent.
+ *
+ * 🔴 CETTE SONDE EST DIFFÉRENTE DE TOUTES LES AUTRES DU MODULE, et il faut le dire : ailleurs, une migration
+ * manquante ne fait que rendre l'écran à ce qu'il était. Ici elle conditionne une ÉCRITURE DANS LE DRIVE DU CABINET.
+ * Tant qu'elle manque, le bouton « + Nouveau dossier » est DÉSACTIVÉ avec son motif, et la route refuse même si on
+ * l'appelle directement — on ne crée pas dans le Drive ce qu'on ne saurait pas consigner. Un dossier apparu sans
+ * ligne de journal serait un dossier que personne ne pourrait expliquer.
+ *
+ * ⚠️ TOUT LE RESTE EST INCHANGÉ : « Visualiser », « Joindre », « Insérer un lien », la navigation, la recherche et
+ * les lignes prioritaires ne dépendent pas d'elle — elle ne concerne que la création.
+ */
+export function journalDossierDriveDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_drive_dossier_cree', () => tableExiste('gestion_drive_dossier_cree'));
+}
