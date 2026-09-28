@@ -53,7 +53,26 @@ describe('🔴🔴 le garde-fou est posé AVANT toute lecture de contenu', () =>
   it('🔴 le verdict est demandé AVANT `lireContenuFichier`', () => {
     const c = code();
     expect(c.indexOf('verdict(')).toBeLessThan(c.indexOf('lireContenuFichier('));
-    expect(c).toContain('peutJoindre');
+  });
+
+  /**
+   * ⚠️ LA RÈGLE A DÉMÉNAGÉ AU LOT ENVOI-ARRIERE-PLAN, elle n'a pas disparu. Deux routes la prononcent désormais
+   * (celle-ci, et celle qui inscrit une pièce dans un brouillon) : la garder en deux copies était le vrai danger —
+   * le jour où elles divergent, c'est un avis d'imposition qui part chez un artisan. Le test suit donc la règle
+   * jusqu'à son unique domicile, `driveVerdict.ts`, au lieu de figer l'endroit où elle se trouvait.
+   */
+  it('🔴 et il vient du module PARTAGÉ, qui remonte bien la chaîne des parents', () => {
+    expect(code()).toContain('verdictJoindre');
+    const partage = code('app/lib/gestion/driveVerdict.ts');
+    expect(partage).toContain('chaineParents');
+    expect(partage).toContain('peutJoindre');
+  });
+
+  /** 🔴🔴 LES DEUX ROUTES APPELLENT LA MÊME FONCTION : c'est ce qui garantit qu'il n'y a qu'une seule règle. */
+  it('🔴🔴 la route qui INSCRIT une pièce prononce le MÊME verdict, avant d’inscrire quoi que ce soit', () => {
+    const c = code('app/(admin)/api/admin/gestion/brouillons/[id]/pieces/route.ts');
+    expect(c).toContain('verdictJoindre');
+    expect(c.indexOf('verdictJoindre(')).toBeLessThan(c.indexOf('inscrirePieceDrive('));
   });
 
   it('le refus est explicite, et rendu en 403', () => {
@@ -63,15 +82,13 @@ describe('🔴🔴 le garde-fou est posé AVANT toute lecture de contenu', () =>
   });
 
   /** ⚠️ Le verdict vient d'un module PUR, sans réseau : c'est ce qui permet de l'éprouver exhaustivement. */
-  it('la règle vient du module PUR, elle n’est pas réécrite ici', () => {
-    const src = readFileSync(CHEMIN, 'utf8');
-    expect(src).toContain("from '../../../../../../lib/gestion/driveLectureFichier'");
-    // Le nom du dossier interdit n'est PAS recopié dans la route : une seconde copie finirait par diverger.
+  it('la règle vient du module PUR, elle n’est pas réécrite', () => {
+    expect(readFileSync('app/lib/gestion/driveVerdict.ts', 'utf8'))
+      .toContain("from './driveLectureFichier'");
+    // 🔴 Le nom du dossier interdit n'est recopié dans AUCUNE des deux routes : une seconde copie divergerait.
     expect(code()).not.toContain('Documents clients scannés');
-  });
-
-  it('la chaîne des parents est réellement remontée — on ne juge pas sur le dossier immédiat', () => {
-    expect(code()).toContain('chaineParents');
+    expect(code('app/(admin)/api/admin/gestion/brouillons/[id]/pieces/route.ts'))
+      .not.toContain('Documents clients scannés');
   });
 });
 

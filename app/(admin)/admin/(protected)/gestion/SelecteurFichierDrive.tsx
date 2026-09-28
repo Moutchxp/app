@@ -48,7 +48,11 @@ interface Fichier {
 
 type Vue =
   | { v: 'charge' }
-  | { v: 'ok'; fichiers: Fichier[]; joindreAutorise: boolean; motifRefus: string | null; recherche: boolean }
+  | {
+    v: 'ok'; fichiers: Fichier[]; joindreAutorise: boolean; motifRefus: string | null; recherche: boolean;
+    /** 🔴 LES DOSSIERS TROUVÉS, séparés des fichiers : ils s'affichent en PREMIER (demande d'Arno). */
+    dossiers: Fichier[];
+  }
   | { v: 'indisponible'; message: string };
 
 /** Une entrée de l'historique « Récents », telle que la route la rend. */
@@ -61,15 +65,19 @@ interface Recent {
 }
 
 export interface ChoixFichierDrive {
-  /** Le fichier joint : ses octets sont déjà chez nous, prêts à devenir une pièce du brouillon. */
-  joint?: { nom: string; typeMime: string; contenuBase64: string };
+  /**
+   * ══ 🔴🔴 LOT ENVOI-ARRIERE-PLAN — ON NE TRANSPORTE PLUS LES OCTETS ═══════════════════════════════════════════
+   *
+   * Avant, « Joindre » faisait : le navigateur demande les octets, le serveur les tire du Drive, les renvoie en
+   * base64, le navigateur les repousse. Trois allers-retours pendant lesquels l'écran était BLOQUÉ. Pour six
+   * pièces, six attentes — le constat d'Arno.
+   *
+   * Désormais on ne passe que l'IDENTIFIANT. Le serveur lit les métadonnées (un appel court), inscrit la pièce, et
+   * tire les octets en tâche de fond. Le « Joindre » suivant est cliquable immédiatement.
+   */
+  drive?: { fichierId: string; nom: string; dossierId: string | null; dossierNom: string | null };
   /** Le lien inséré : rien n'a été lu du contenu. */
   lien?: { nom: string; url: string };
-  /**
-   * 🔴 D'OÙ VIENT CETTE PIÈCE, pour l'historique « Récents ». L'identifiant Drive ne donne AUCUN droit : le
-   * rouvrir repassera par la route, qui revérifie. Voir la migration 269.
-   */
-  origine?: { fichierId: string; dossierId: string | null; dossierNom: string | null };
 }
 
 export function SelecteurFichierDrive({ onChoisir, onFermer }: {
@@ -87,6 +95,8 @@ export function SelecteurFichierDrive({ onChoisir, onFermer }: {
   const [saisie, setSaisie] = useState('');
   /** L'historique. `null` = pas encore lu ; liste vide = rien à proposer ; `disponible: false` = migration absente. */
   const [recents, setRecents] = useState<{ lignes: Recent[]; disponible: boolean } | null>(null);
+  /** Le terme de la recherche d'où l'on est entré dans un dossier. `null` = on n'en vient pas. */
+  const [rechercheOuverte, setRechercheOuverte] = useState<string | null>(null);
   const champ = useRef<HTMLInputElement | null>(null);
 
   const charger = useCallback(async (dossierId: string) => {
@@ -100,7 +110,7 @@ export function SelecteurFichierDrive({ onChoisir, onFermer }: {
       };
       if (d.etat !== 'ok') { setVue({ v: 'indisponible', message: d.message ?? 'Drive indisponible.' }); return; }
       setVue({
-        v: 'ok', fichiers: d.fichiers ?? [],
+        v: 'ok', fichiers: d.fichiers ?? [], dossiers: [],
         joindreAutorise: d.joindreAutorise !== false,
         motifRefus: d.motifRefus ?? null,
         recherche: false,
@@ -151,12 +161,13 @@ export function SelecteurFichierDrive({ onChoisir, onFermer }: {
           const res = await fetch(`/api/admin/gestion/drive/fichiers?recherche=${encodeURIComponent(terme)}`,
             { cache: 'no-store' });
           const d = (await res.json()) as {
-            etat?: string; message?: string; fichiers?: Fichier[]; joindreAutorise?: boolean;
+            etat?: string; message?: string; fichiers?: Fichier[]; dossiers?: Fichier[]; joindreAutorise?: boolean;
           };
           if (annule) return;
           if (d.etat !== 'ok') { setVue({ v: 'indisponible', message: d.message ?? 'Drive indisponible.' }); return; }
           setVue({
-            v: 'ok', fichiers: d.fichiers ?? [], joindreAutorise: d.joindreAutorise !== false,
+            v: 'ok', fichiers: d.fichiers ?? [], dossiers: d.dossiers ?? [],
+            joindreAutorise: d.joindreAutorise !== false,
             motifRefus: null, recherche: true,
           });
         } catch { if (!annule) setVue({ v: 'indisponible', message: 'Le Drive n’a pas répondu.' }); }
@@ -185,31 +196,38 @@ export function SelecteurFichierDrive({ onChoisir, onFermer }: {
    * 🔴 LA FENÊTRE NE SE FERME PAS, et le dossier courant ne bouge pas : c'est tout l'objet de ce lot. On marque
    * seulement le fichier comme ajouté, pour qu'un second clic ne l'envoie pas en double.
    */
+  /**
+   * ══ 🔴🔴 LOT ENVOI-ARRIERE-PLAN — « JOINDRE » N'ATTEND PLUS RIEN ════════════════════════════════════════════
+   *
+   * LE CONSTAT D'ARNO : après un clic sur « Joindre », il fallait attendre la fin du téléchargement avant de
+   * pouvoir sélectionner une autre pièce. Très pénible — et pour six pièces, six attentes.
+   *
+   * 🔴 LA PIÈCE EST MARQUÉE AJOUTÉE TOUT DE SUITE, avant même la réponse du serveur. C'est ce qui rend le clic
+   * suivant immédiat. Le serveur, lui, ne fait qu'un appel court (les métadonnées) puis inscrit la ligne ; les
+   * octets sont tirés derrière, en tâche de fond.
+   *
+   * ⚠️ ET SI LE SERVEUR REFUSE (« Documents clients scannés », document Google natif, 25 Mo dépassés), LA MARQUE
+   * EST RETIRÉE et le motif s'affiche. Une marque optimiste qui resterait après un refus ferait croire qu'une
+   * pièce est jointe alors qu'elle ne l'est pas — c'est-à-dire exactement le mensonge que ce lot interdit.
+   *
+   * ⚠️ AUCUN SABLIER, AUCUNE BARRE DE PROGRESSION : demande d'Arno. « L'utilisateur ne doit JAMAIS voir qu'une
+   * pièce se télécharge encore. »
+   */
   const joindre = async (f: Fichier) => {
     if (ajoutes.includes(f.id)) return;
-    setOccupe(f.id);
     setErreur(null);
+    setAjoutes((a) => (a.includes(f.id) ? a : [...a, f.id]));
     try {
-      const res = await fetch(`/api/admin/gestion/drive/fichiers?fichier=${encodeURIComponent(f.id)}&contenu=1`,
-        { cache: 'no-store' });
-      const d = (await res.json()) as { etat?: string; message?: string; contenuBase64?: string };
-      if (d.etat !== 'ok' || !d.contenuBase64) {
-        setErreur(d.message ?? 'Ce fichier n’a pas pu être joint.');
-        return;
-      }
       await onChoisir({
-        joint: { nom: f.nom, typeMime: f.typeMime, contenuBase64: d.contenuBase64 },
-        origine: {
-          fichierId: f.id,
+        drive: {
+          fichierId: f.id, nom: f.nom,
           dossierId: dossierCourant?.id ?? null,
           dossierNom: dossierCourant?.nom ?? null,
         },
       });
-      setAjoutes((a) => (a.includes(f.id) ? a : [...a, f.id]));
-    } catch {
-      setErreur('Le Drive n’a pas répondu.');
-    } finally {
-      setOccupe(null);
+    } catch (e) {
+      setAjoutes((a) => a.filter((x) => x !== f.id));
+      setErreur(e instanceof Error ? e.message : 'Ce fichier n’a pas pu être joint.');
     }
   };
 
@@ -226,6 +244,31 @@ export function SelecteurFichierDrive({ onChoisir, onFermer }: {
       id: r.cle, nom: r.libelle, typeMime: r.detail ?? '', tailleOctets: r.tailleOctets,
       modifieLe: null, lien: null, dossier: false,
     });
+  };
+
+  /**
+   * ══ 🔴 LOT ENVOI-ARRIERE-PLAN — ENTRER DANS UN DOSSIER TROUVÉ, SANS PERDRE LA RECHERCHE ═════════════════════
+   *
+   * Demande d'Arno : « un lien ← Résultats de la recherche ramène à la liste sans perdre la saisie ». On garde
+   * donc le terme DANS le fil d'Ariane, comme une étape : c'est ce qui rend le retour naturel, et ce qui laisse le
+   * chemin cohérent quand on descend de deux niveaux dans le dossier trouvé.
+   *
+   * ⚠️ `ajoutes` ET LE COMPTEUR NE SONT PAS TOUCHÉS : ils vivent au-dessus de la navigation, donc les marques
+   * « ✓ ajouté » restent justes quand on passe des résultats à un dossier puis qu'on revient.
+   */
+  const entrerDepuisRecherche = (f: Fichier) => {
+    setRechercheOuverte(saisie.trim());
+    setAriane([{ id: f.id, nom: f.nom }]);
+    void charger(f.id);
+  };
+
+  const revenirAuxResultats = () => {
+    const terme = rechercheOuverte;
+    setRechercheOuverte(null);
+    setAriane([]);
+    // ⚠️ On repose la saisie TELLE QUELLE : c'est elle qui relance la recherche (effet temporisé ci-dessus).
+    setSaisie('');
+    setTimeout(() => setSaisie(terme ?? ''), 0);
   };
 
   const recentsDrive = (recents?.lignes ?? []).filter((r) => r.sorte !== 'locale');
@@ -259,6 +302,14 @@ export function SelecteurFichierDrive({ onChoisir, onFermer }: {
               if (v.trim().length < 2) void charger(dossierCourant?.id ?? '');
             }} />
         </label>
+
+        {/* 🔴 LE RETOUR AUX RÉSULTATS, demandé par Arno : on entre dans un dossier trouvé, on y joint ce qu'on
+            veut, et l'on revient à la liste SANS perdre la saisie. Sans ce lien, il faudrait retaper le terme. */}
+        {rechercheOuverte !== null && (
+          <button type="button" className="gst-lien-bouton sfd-retour" onClick={revenirAuxResultats}>
+            ← Résultats de la recherche « {rechercheOuverte} »
+          </button>
+        )}
 
         <nav className="sfd-ariane" aria-label="Chemin">
           <button type="button" className="gst-lien-bouton" onClick={() => remonter(0)}>Mon Drive</button>
@@ -311,50 +362,79 @@ export function SelecteurFichierDrive({ onChoisir, onFermer }: {
           </p>
         )}
 
-        {vue.v === 'ok' && vue.fichiers.length === 0 && (
+        {vue.v === 'ok' && vue.fichiers.length === 0 && vue.dossiers.length === 0 && (
           <p className="gst-tronc">
-            {vue.recherche ? `Aucun fichier trouvé pour « ${saisie.trim()} ».` : 'Ce dossier est vide.'}
+            {vue.recherche ? `Aucun dossier ni fichier trouvé pour « ${saisie.trim()} ».` : 'Ce dossier est vide.'}
           </p>
         )}
 
-        {vue.v === 'ok' && vue.fichiers.length > 0 && (
-          <ul className="sfd-liste">
-            {vue.fichiers.map((f) => (
-              <li key={f.id} className="sfd-item">
-                {f.dossier ? (
-                  <button type="button" className="sfd-dossier" onClick={() => entrer(f)}>
+        {/* ══ 🔴 LES DOSSIERS TROUVÉS, EN PREMIER (demande d'Arno) ═══════════════════════════════════════════
+            Ce qu'on cherche, neuf fois sur dix, c'est LE DOSSIER d'un lot ou d'un locataire — pour y prendre
+            ensuite deux ou trois pièces. Les mettre après les fichiers obligerait à faire défiler pour trouver
+            l'entrée la plus utile.
+
+            🔴 UN GROUPE VIDE N'EST PAS AFFICHÉ : un titre suivi de rien se lit comme une panne. */}
+        {vue.v === 'ok' && vue.dossiers.length > 0 && (
+          <section className="sfd-groupe" aria-label="Dossiers trouvés">
+            <p className="sfd-section">Dossiers</p>
+            <ul className="sfd-liste">
+              {vue.dossiers.map((f) => (
+                <li key={f.id} className="sfd-item">
+                  <button type="button" className="sfd-dossier" onClick={() => entrerDepuisRecherche(f)}>
                     <span aria-hidden="true">📁</span> {f.nom}
                   </button>
-                ) : (
-                  <>
-                    <span className="sfd-nom" title={f.nom}>
-                      <span aria-hidden="true">📄</span> {f.nom}
-                      {f.tailleOctets !== null && <span className="sfd-taille"> · {formaterTaille(f.tailleOctets)}</span>}
-                    </span>
-                    <span className="sfd-gestes">
-                      {/* 🔴🔴 « Joindre » N'EXISTE PAS sous « Documents clients scannés ». Le motif est affiché
-                          au-dessus : on n'aligne pas un bouton grisé qu'on ne saurait pas expliquer ligne à ligne. */}
-                      {vue.joindreAutorise && (
-                        ajoutes.includes(f.id)
-                          // 🔴 PAS DE DOUBLON : le bouton laisse place à une MENTION. Un bouton encore cliquable
-                          //   enverrait deux fois la même pièce ; un bouton grisé n'expliquerait pas pourquoi.
-                          ? <span className="sfd-ajoute">✓ ajouté</span>
-                          : (
-                            <button type="button" className="gst-lien-bouton" disabled={occupe !== null}
-                              onClick={() => void joindre(f)}>
-                              {occupe === f.id ? 'Téléchargement…' : 'Joindre'}
-                            </button>
-                          )
-                      )}
-                      <button type="button" className="gst-lien-bouton" onClick={() => lier(f)}>
-                        Insérer un lien
-                      </button>
-                    </span>
-                  </>
-                )}
-              </li>
-            ))}
-          </ul>
+                  <span className="sfd-mention">ouvrir</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {vue.v === 'ok' && vue.fichiers.length > 0 && (
+          <section className="sfd-groupe" aria-label={vue.recherche ? 'Fichiers trouvés' : 'Contenu du dossier'}>
+            {/* Le titre « Fichiers » n'a de sens que FACE à un autre groupe : dans un dossier ordinaire, la liste
+                se suffit à elle-même et un titre de plus ne ferait qu'occuper la hauteur. */}
+            {vue.recherche && vue.dossiers.length > 0 && <p className="sfd-section">Fichiers</p>}
+            <ul className="sfd-liste">
+              {vue.fichiers.map((f) => (
+                <li key={f.id} className="sfd-item">
+                  {f.dossier ? (
+                    <button type="button" className="sfd-dossier" onClick={() => entrer(f)}>
+                      <span aria-hidden="true">📁</span> {f.nom}
+                    </button>
+                  ) : (
+                    <>
+                      <span className="sfd-nom" title={f.nom}>
+                        <span aria-hidden="true">📄</span> {f.nom}
+                        {f.tailleOctets !== null && (
+                          <span className="sfd-taille"> · {formaterTaille(f.tailleOctets)}</span>
+                        )}
+                      </span>
+                      <span className="sfd-gestes">
+                        {/* 🔴🔴 « Joindre » N'EXISTE PAS sous « Documents clients scannés ». Le motif est affiché
+                            au-dessus : on n'aligne pas un bouton grisé qu'on ne saurait pas expliquer ligne à ligne. */}
+                        {vue.joindreAutorise && (
+                          ajoutes.includes(f.id)
+                            // 🔴 PAS DE DOUBLON : le bouton laisse place à une MENTION. Un bouton encore cliquable
+                            //   enverrait deux fois la même pièce ; un bouton grisé n'expliquerait pas pourquoi.
+                            ? <span className="sfd-ajoute">✓ ajouté</span>
+                            : (
+                              // 🔴 AUCUN SABLIER : le clic marque la pièce et rend la main. Voir `joindre`.
+                              <button type="button" className="gst-lien-bouton" onClick={() => void joindre(f)}>
+                                Joindre
+                              </button>
+                            )
+                        )}
+                        <button type="button" className="gst-lien-bouton" onClick={() => lier(f)}>
+                          Insérer un lien
+                        </button>
+                      </span>
+                    </>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
         )}
 
         <div className="sfd-boutons">
@@ -388,6 +468,8 @@ export const CSS_SELECTEUR_FICHIER = `
 .sfd-recents{display:flex;flex-direction:column;gap:2px;min-width:0;padding-bottom:6px;
   border-bottom:1px solid var(--color-svv-line)}
 .sfd-mention{font-size:.74rem;color:var(--color-svv-muted);white-space:nowrap;margin-left:auto}
+.sfd-groupe{display:flex;flex-direction:column;gap:2px;min-width:0}
+.sfd-retour{align-self:flex-start;font-size:.82rem}
 /* 🔴🔴 Le dossier interdit : dit en MOTS, avec un fond qui le distingue — jamais la couleur seule. */
 .sfd-interdit{margin:0;padding:8px 10px;font-size:.82rem;color:var(--color-svv-ink);
   background:var(--color-svv-field);border-left:3px solid var(--color-svv-red);border-radius:0 .4rem .4rem 0}

@@ -53,6 +53,15 @@ export async function peutEnvoyerAuNomDeGestion(request: Request): Promise<boole
   }
 }
 
+/**
+ * 🔴 LOT ENVOI-ARRIERE-PLAN — LA MÊME GARDE, POUR UN ENVOI DIFFÉRÉ, vit dans `gardeEnvoiCompte.ts`.
+ *
+ * ⚠️ PAS ICI, ET CE N'EST PAS UN CAPRICE DE RANGEMENT : ce fichier porte `import 'server-only'` (il lit un cookie
+ * de session), et le travailleur de fond tourne aussi sous `tsx`. `server-only` LÈVE hors du bundle react-server :
+ * la relève continue mourrait au chargement. Le garde `serverOnly.guard.test.ts` l'a attrapé pendant ce lot.
+ */
+export { compteePeutEnvoyer } from './gardeEnvoiCompte';
+
 /** La réponse de refus, telle quelle. 403 : le compte est connu, c'est le DROIT qui manque — jamais un 401 trompeur. */
 export function refusEnvoi(): Response {
   return Response.json({ erreur: MENTION_SANS_DROIT_ENVOI }, { status: 403 });

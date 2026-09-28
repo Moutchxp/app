@@ -30,6 +30,7 @@ export function enTete(unTour: boolean): string[] {
   return [
     '',
     '[gestion:relever-continu] RELÈVE CONTINUE — la boîte est relue en boucle, en LECTURE STRICTE.',
+    '  + file d’envoi : les mails en attente partent, et les pièces du Drive sont récupérées (lot ENVOI-ARRIERE-PLAN).',
     unTour ? '  mode : UN SEUL TOUR (--un-tour), puis sortie.' : '  mode : en continu. Ctrl-C pour arrêter proprement.',
     '  intervalle : lu dans gestion_config.releve_continue_secondes (60 s par défaut), relu à chaque tour.',
     '',
@@ -103,6 +104,31 @@ async function main(): Promise<void> {
 
   const tours = await boucleContinue({
     relever: async () => {
+      /**
+       * ══ 🔴 LOT ENVOI-ARRIERE-PLAN — LA FILE D'ENVOI, AVANT LA RELÈVE ═══════════════════════════════════════
+       *
+       * C'est le FILET DE SÉCURITÉ demandé par Arno, et il couvre trois cas que rien d'autre ne couvre :
+       *   · le processus Next.js est mort entre le clic et l'envoi (redémarrage, déploiement, plantage) ;
+       *   · une pièce du Drive n'était pas encore prête à la passe précédente ;
+       *   · une erreur passagère a fait reporter l'envoi, et il faut réessayer.
+       *
+       * 🔴 AVANT LA RELÈVE, ET PAS APRÈS. La relève IMAP prend plusieurs secondes ; faire attendre un mail déjà
+       * écrit derrière elle ajouterait ce délai à chaque envoi. La file passe d'abord — elle est presque toujours
+       * vide, donc elle ne coûte rien.
+       *
+       * ⚠️ ELLE NE PEUT PAS FAIRE ÉCHOUER LA RELÈVE : `passeFileEnvoi` ne jette jamais (elle rend `null` en cas de
+       * problème). Un courrier non relevé parce qu'un mail n'a pas pu partir serait un second défaut pour le prix
+       * d'un.
+       */
+      const { passeFileEnvoi } = await import('../lib/gestion/travailleurEnvoiReel');
+      const { resumePasse } = await import('../lib/gestion/travailleurEnvoi');
+      const file = await passeFileEnvoi();
+      if (file !== null) {
+        const ligne = resumePasse(file);
+        // Une passe qui n'a rien fait ne DIT rien : un journal bavard ne se lit plus.
+        if (ligne !== null) console.log(`  ${ligne}`);
+      }
+
       // `appliquer = true` : c'est une VRAIE passe. Le journal de la passe est écrit par `executerReleveGestion`.
       // LOT 5-VEILLE — `automatique` la fait journaliser « planifie ». C'est ce mot, et lui seul, qui permet à
       //   l'écran de distinguer « l'ordonnanceur tourne » de « quelqu'un a cliqué » — la question qu'on ne pouvait

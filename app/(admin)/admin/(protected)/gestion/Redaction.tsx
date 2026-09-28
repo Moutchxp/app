@@ -505,38 +505,33 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
     return p;
   }, [brouillon.id, onChange]);
 
+  /**
+   * ══ 🔴🔴 LOT ENVOI-ARRIERE-PLAN — JOINDRE UNE PIÈCE DU DRIVE, SANS ATTENDRE SES OCTETS ═══════════════════════
+   *
+   * On n'envoie plus que l'IDENTIFIANT Drive. Le serveur lit les métadonnées (un appel court), inscrit la pièce et
+   * rend la main ; les octets sont tirés derrière, par le travailleur de fond. C'est ce qui rend le « Joindre »
+   * suivant cliquable immédiatement — le constat d'Arno.
+   *
+   * 🔴 ON LÈVE EN CAS DE REFUS, et c'est délibéré : le sélecteur a marqué la pièce « ajoutée » par avance pour que
+   * le clic suivant soit instantané. C'est l'exception qui lui dit de RETIRER cette marque. Rendre silencieusement
+   * laisserait une pièce marquée jointe alors qu'elle ne l'est pas.
+   */
   const joindreDepuisDrive = async (c: ChoixFichierDrive): Promise<void> => {
-    const f = c.joint;
+    const f = c.drive;
     if (!f) return;
     const id = await assurerBrouillon();
-    if (id === null) {
-      onGeste('La pièce n’a pas pu être jointe : le brouillon n’a pas pu être créé.');
-      return;
-    }
-    try {
-      const binaire = Uint8Array.from(atob(f.contenuBase64), (c2) => c2.charCodeAt(0));
-      const corps = new FormData();
-      corps.append('fichier', new File([binaire], f.nom, { type: f.typeMime || 'application/octet-stream' }));
-      /**
-       * 🔴 D'OÙ VIENT LA PIÈCE, pour l'historique « Récents » (migration 269). Ces identifiants Drive ne donnent
-       * AUCUN droit : les rouvrir repasse par la route, qui remonte la chaîne des parents et refuse tout ce qui
-       * est sous « Documents clients scannés ». Un fichier de ce dossier ne peut d'ailleurs jamais arriver ici :
-       * la route aurait refusé d'en lire les octets.
-       */
-      if (c.origine) {
-        corps.append('driveFichier', c.origine.fichierId);
-        corps.append('driveNom', f.nom);
-        if (c.origine.dossierId) corps.append('driveDossier', c.origine.dossierId);
-        if (c.origine.dossierNom) corps.append('driveDossierNom', c.origine.dossierNom);
-      }
-      const res = await fetch(`/api/admin/gestion/brouillons/${id}/pieces`, { method: 'POST', body: corps });
-      const d = (await res.json()) as { etat?: string; message?: string };
-      onGeste(d.etat === 'ok' ? `« ${f.nom} » joint depuis le Drive.` : (d.message ?? 'Cette pièce n’a pas pu être jointe.'));
-      // La zone des pièces se relit d'elle-même : on la remonte par la clé, comme après un dépôt ordinaire.
-      setVersionPieces((v) => v + 1);
-    } catch {
-      onGeste('La pièce n’a pas pu être jointe : le serveur n’a pas répondu.');
-    }
+    if (id === null) throw new Error('Le brouillon n’a pas pu être créé : la pièce n’a pas été jointe.');
+
+    const corps = new FormData();
+    corps.append('drive', f.fichierId);
+    if (f.dossierId) corps.append('driveDossier', f.dossierId);
+    if (f.dossierNom) corps.append('driveDossierNom', f.dossierNom);
+
+    const res = await fetch(`/api/admin/gestion/brouillons/${id}/pieces`, { method: 'POST', body: corps });
+    const d = (await res.json().catch(() => ({}))) as { etat?: string; message?: string };
+    if (d.etat !== 'ok') throw new Error(d.message ?? 'Cette pièce n’a pas pu être jointe.');
+    // La zone des pièces se relit d'elle-même : on la remonte par la clé, comme après un dépôt ordinaire.
+    setVersionPieces((v) => v + 1);
   };
 
   /**

@@ -1,11 +1,11 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import {
-  chaineParents, chercherFichiers, listerContenu, listerDrivesAvecId, listerPartagesAvecMoi, lireContenuFichier,
+  chercherDossiers, chercherFichiers, listerContenu, listerDrivesAvecId, listerPartagesAvecMoi, lireContenuFichier,
   lireMetadonnees, MIME_DOSSIER,
 } from '../../../../../../lib/gestion/drive';
 import { jetonPourRequete } from '../../../../../../lib/gestion/jetonCollaborateur';
-import { indexerMaillons, peutJoindre } from '../../../../../../lib/gestion/driveLectureFichier';
+import { verdictJoindre } from '../../../../../../lib/gestion/driveVerdict';
 import {
   RACINE_DRIVES_PARTAGES, RACINE_MON_DRIVE, RACINE_PARTAGES_AVEC_MOI,
 } from '../../../../../../lib/gestion/cibleDepot';
@@ -55,14 +55,13 @@ function json(corps: unknown, status = 200): Response {
 }
 
 /**
- * LE VERDICT POUR UN ÉLÉMENT, obtenu en REMONTANT ses parents. Le module qui tranche est PUR et sans réseau
- * (`driveLectureFichier`) : c'est ce qui permet de l'éprouver exhaustivement, ce que fait son test.
+ * LE VERDICT POUR UN ÉLÉMENT, obtenu en REMONTANT ses parents.
+ *
+ * ⚠️ DÉPLACÉ DANS `driveVerdict.ts` AU LOT ENVOI-ARRIERE-PLAN : deux routes le prononcent désormais (celle-ci, et
+ * celle qui inscrit une pièce dans un brouillon). Deux copies de la règle divergeraient un jour — et ce jour-là,
+ * c'est un avis d'imposition qui part chez un artisan. Une seule copie, partagée.
  */
-async function verdict(jeton: string, id: string): Promise<{ joindre: boolean; motif: string | null }> {
-  const chaine = await chaineParents(jeton, id, { fetch });
-  const v = peutJoindre(id, indexerMaillons(chaine));
-  return v.joindre ? { joindre: true, motif: null } : { joindre: false, motif: v.motif };
-}
+const verdict = verdictJoindre;
 
 export async function GET(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
@@ -93,11 +92,32 @@ export async function GET(request: Request): Promise<Response> {
      * découvrir au clic.
      */
     if (recherche !== '' && fichier === '') {
-      const trouves = await chercherFichiers(jeton.jeton, recherche, { fetch });
-      if (!trouves.ok) return json({ etat: 'indisponible', message: trouves.motif }, 200);
+      /**
+       * 🔴 LOT ENVOI-ARRIERE-PLAN — LES DOSSIERS AUSSI, ET D'ABORD (demande d'Arno).
+       *
+       * Chercher « tagavi » et ne trouver que des fichiers oblige à savoir d'avance dans quel dossier ranger son
+       * regard. Or ce qu'on cherche, neuf fois sur dix, c'est LE DOSSIER d'un lot ou d'un locataire — pour y
+       * prendre ensuite deux ou trois pièces. Les deux recherches partent ENSEMBLE (`Promise.all`) : les faire
+       * l'une après l'autre doublerait l'attente pour un résultat identique.
+       *
+       * ⚠️ UN GROUPE VIDE N'EST PAS RENDU VIDE ICI : c'est l'écran qui ne l'affiche pas. La route dit ce qu'elle a
+       * trouvé ; décider de ce qui se montre est le travail de l'écran.
+       */
+      const [dossiers, fichiers] = await Promise.all([
+        chercherDossiers(jeton.jeton, recherche, { fetch }, 30),
+        chercherFichiers(jeton.jeton, recherche, { fetch }),
+      ]);
+      if (!fichiers.ok) return json({ etat: 'indisponible', message: fichiers.motif }, 200);
       return json({
-        etat: 'ok', fichiers: trouves.valeur, recherche: true,
-        joindreAutorise: true, motifRefus: null,
+        etat: 'ok', recherche: true, joindreAutorise: true, motifRefus: null,
+        // Les DOSSIERS d'abord dans la charge utile : l'écran les groupe, mais l'ordre de la route est déjà le bon.
+        dossiers: dossiers.ok
+          ? dossiers.valeur.map((d) => ({
+            id: d.id, nom: d.nom, driveId: d.driveId ?? null, typeMime: MIME_DOSSIER,
+            tailleOctets: null, modifieLe: null, lien: null, dossier: true,
+          }))
+          : [],
+        fichiers: fichiers.valeur,
       });
     }
 

@@ -107,22 +107,86 @@ describe('🔴 ① la fenêtre reste ouverte, et le dossier courant ne bouge pas
     expect(fermetures).toBe(1);
   });
 
-  it('l’origine de la pièce accompagne le choix, pour l’historique', async () => {
+  /**
+   * 🔴🔴 LOT ENVOI-ARRIERE-PLAN — ON NE TRANSPORTE PLUS LES OCTETS, SEULEMENT L'IDENTIFIANT.
+   *
+   * Ce test passait `joint` (le contenu en base64) et `origine`. Ce couple n'existe plus, et c'était le défaut :
+   * le navigateur demandait les octets, le serveur les tirait du Drive, les renvoyait, le navigateur les
+   * repoussait — trois allers-retours pendant lesquels l'écran était bloqué. Désormais un seul champ, `drive`,
+   * et le serveur fait le reste en tâche de fond.
+   */
+  it('🔴 seul l’IDENTIFIANT Drive est transmis — jamais les octets', async () => {
     await monter();
     await cliquer(joindreDe('bail.pdf'));
-    const c = choisis[0] as { origine?: { fichierId: string; dossierId: string | null } };
-    expect(c.origine?.fichierId).toBe('f1');
+    const c = choisis[0] as { drive?: { fichierId: string; nom: string; dossierId: string | null } };
+    expect(c.drive?.fichierId).toBe('f1');
+    expect(c.drive?.nom).toBe('bail.pdf');
     // À la racine il n'y a pas de dossier courant : on ne l'invente pas.
-    expect(c.origine?.dossierId).toBeNull();
+    expect(c.drive?.dossierId).toBeNull();
+    // 🔴 AUCUN CONTENU NE TRANSITE : c'est ce qui rend le clic instantané.
+    expect(JSON.stringify(c)).not.toContain('base64');
+    expect(JSON.stringify(c)).not.toContain('contenu');
   });
 
   it('…et il porte le DOSSIER courant dès qu’on est entré quelque part', async () => {
     await monter();
     await cliquer([...container.querySelectorAll('.sfd-dossier')].find((b) => /Artisans/.test(b.textContent ?? '')));
     await cliquer(joindreDe('bail.pdf'));
-    const c = choisis[0] as { origine?: { dossierId: string | null; dossierNom: string | null } };
-    expect(c.origine?.dossierId).toBe('d1');
-    expect(c.origine?.dossierNom).toBe('Artisans');
+    const c = choisis[0] as { drive?: { dossierId: string | null; dossierNom: string | null } };
+    expect(c.drive?.dossierId).toBe('d1');
+    expect(c.drive?.dossierNom).toBe('Artisans');
+  });
+
+  /**
+   * 🔴🔴 LE CONSTAT D'ARNO, MIS SOUS TEST : « après un clic sur Joindre, il faut attendre la fin du
+   * téléchargement avant de pouvoir sélectionner une autre pièce ». On vérifie donc qu'un second « Joindre » est
+   * cliquable ALORS QUE le premier n'a pas encore rendu sa réponse.
+   */
+  it('🔴🔴 le « Joindre » suivant est cliquable SANS attendre le précédent', async () => {
+    let debloquer: () => void = () => {};
+    const enCours = new Promise<void>((r) => { debloquer = r; });
+    await act(async () => {
+      root.render(createElement(SelecteurFichierDrive, {
+        onChoisir: async (c: unknown) => { choisis.push(c); await enCours; },
+        onFermer: () => { fermetures += 1; },
+      } as never));
+    });
+    await calmer();
+
+    // Le premier ajout reste EN VOL (sa promesse n'est pas résolue)…
+    void joindreDe('bail.pdf')?.click();
+    await calmer();
+    // …et pourtant le second est là, actif, cliquable.
+    const second = joindreDe('devis.pdf');
+    expect(second).toBeDefined();
+    expect(second?.disabled).toBe(false);
+    await cliquer(second);
+    expect(choisis).toHaveLength(2);
+    debloquer();
+  });
+
+  /** 🔴 AUCUN SABLIER : demande d'Arno — « l'utilisateur ne doit jamais voir qu'une pièce se télécharge encore ». */
+  it('🔴 aucun « Téléchargement… » ne s’affiche jamais', async () => {
+    await monter();
+    await cliquer(joindreDe('bail.pdf'));
+    expect(container.textContent).not.toContain('Téléchargement');
+  });
+
+  /**
+   * ⚠️ LA MARQUE EST OPTIMISTE, MAIS ELLE SE RETIRE. Une pièce refusée (dossier interdit, 25 Mo dépassés) qui
+   * resterait marquée « ajoutée » ferait croire qu'elle est jointe alors qu'elle ne l'est pas.
+   */
+  it('🔴 un refus du serveur RETIRE la marque « ajouté » et dit pourquoi', async () => {
+    await act(async () => {
+      root.render(createElement(SelecteurFichierDrive, {
+        onChoisir: async () => { throw new Error('Cette pièce ferait dépasser la limite.'); },
+        onFermer: () => {},
+      } as never));
+    });
+    await calmer();
+    await cliquer(joindreDe('bail.pdf'));
+    expect(container.textContent).toContain('ferait dépasser la limite');
+    expect(joindreDe('bail.pdf')).toBeDefined();   // le bouton est revenu : on peut réessayer
   });
 });
 

@@ -5,7 +5,9 @@ import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { query } from '../../../../../lib/db/client';
 import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import { chargerConfigGestion } from '../../../../../lib/gestion/config';
-import { envoyerMessage, type AncrageFil, type DepsEnvoiComplet } from '../../../../../lib/gestion/envoi';
+import { envoyerMessage, type DepsEnvoiComplet } from '../../../../../lib/gestion/envoi';
+// LOT ENVOI-ARRIERE-PLAN — l'ancrage dans le fil est PARTAGÉ avec le travailleur de fond : une seule lecture.
+import { ancrageDuMessage } from '../../../../../lib/gestion/envoiReel';
 import { envoyerViaGmail } from '../../../../../lib/gestion/envoiGmail';
 import { depsPiecesEnvoi, piecesDeLEnvoi } from '../../../../../lib/gestion/piecesEnvoiReel';
 import { peutEnvoyerAuNomDeGestion, refusEnvoi } from '../../../../../lib/gestion/gardeEnvoi';
@@ -19,7 +21,11 @@ import { decouperAdresses } from '../../../../../lib/gestion/redaction';
 import {
   finaliserEnvoi, lireEnvoisDuFil, marquerBrouillonEnvoye, ouvrirEnvoi, type Auteur,
 } from '../../../../../lib/gestion/redactionRepo';
-import { journalEnvoiDisponible, redactionDisponible } from '../../../../../lib/gestion/schema';
+import { fileEnvoiDisponible, journalEnvoiDisponible, redactionDisponible } from '../../../../../lib/gestion/schema';
+// LOT ENVOI-ARRIERE-PLAN — la file d'envoi persistante, et le travailleur qui la vide.
+import { mettreEnFile } from '../../../../../lib/gestion/fileEnvoiRepo';
+import { lancerPasseEnFond } from '../../../../../lib/gestion/travailleurEnvoiReel';
+import { pretAEnvoyer } from '../../../../../lib/gestion/redaction';
 
 /**
  * /api/admin/gestion/envois (lot 5e) — ENVOYER un message au nom de gestion@criterimmo.fr.
@@ -42,21 +48,6 @@ export const runtime = 'nodejs';
 
 /** Le nom affiché par défaut, quand Gmail ne nous en donne pas — décision d'Arno. */
 const NOM_PAR_DEFAUT = 'CRITERIMMO';
-
-/**
- * CE À QUOI ON RÉPOND, lu dans le message d'origine : son `Message-ID`, sa chaîne `References`. C'est ce qui range la
- * réponse DANS le fil chez le correspondant — sans quoi le mail arrive orphelin, et personne ne voit de quoi on parle.
- */
-async function ancrageDuMessage(messageId: number | null): Promise<AncrageFil> {
-  if (messageId === null) return { messageIdRfc: null, references: null, threadId: null };
-  const { rows } = await query<{ message_id: string | null; references_brut: string | null }>(
-    `SELECT message_id, references_brut FROM gestion_message WHERE id = $1`, [messageId]);
-  return {
-    messageIdRfc: rows[0]?.message_id?.trim() || null,
-    references: rows[0]?.references_brut?.trim() || null,
-    threadId: null, // Gmail retrouve le fil par les en-têtes ; on ne stocke pas encore son identifiant de fil.
-  };
-}
 
 export async function GET(request: Request): Promise<Response> {
   const refus = await exigerCompteActif(request, 'gestion');
@@ -119,6 +110,78 @@ export async function POST(request: Request): Promise<Response> {
     Array.isArray(x) ? decouperAdresses(x.filter((v): v is string => typeof v === 'string').join(',')) : [];
 
   const auteur: Auteur = await auteurDeLaRequete(request);
+
+  const demande = {
+    cleIdempotence: cle,
+    brouillonId: entier(corps.brouillonId),
+    filId: entier(corps.filId),
+    repondAMessageId: entier(corps.repondAMessageId),
+    a: liste(corps.a), cc: liste(corps.cc), cci: liste(corps.cci),
+    objet: typeof corps.objet === 'string' ? corps.objet.slice(0, 500) : '',
+    corpsTexte: typeof corps.corps === 'string' ? corps.corps.slice(0, 200_000) : '',
+    voie: typeof corps.voie === 'string' ? corps.voie : null,
+    /**
+     * ══ 🔴 LOT REDACTION-GMAIL — LE HTML EST ASSAINI ICI, ET C'EST L'ASSAINISSEMENT QUI COMPTE ══════════════════
+     * L'écran nettoie déjà au collage, pour que la personne VOIE ce qu'elle envoie. Mais un écran se modifie :
+     * cette ligne-ci est la seule qu'un navigateur ne puisse pas contourner, et c'est elle qui décide de ce qui
+     * part réellement chez le destinataire. Le MÊME module pur (`htmlMail`) dans les deux cas.
+     */
+    corpsHtml: typeof corps.corpsHtml === 'string' && corps.corpsHtml.trim() !== ''
+      ? assainirHtml(corps.corpsHtml.slice(0, 500_000))
+      : null,
+    cibles: ciblesDemandees(corps.cibles),
+  };
+
+  /**
+   * ══ 🔴🔴 LOT ENVOI-ARRIERE-PLAN — LA FILE, QUAND LA BASE SAIT LA TENIR ═══════════════════════════════════════
+   *
+   * On MET EN FILE et l'on rend la main tout de suite. Le mail quitte les Brouillons, la fenêtre se ferme, et le
+   * serveur fait le reste : récupérer les pièces encore en route, puis remettre le message à Gmail.
+   *
+   * 🔴 CE QUI EST DIFFÉRÉ, C'EST L'ATTENTE — PAS LA DÉCISION. Le droit vient d'être relu en base, et la validité du
+   * brouillon est tranchée ICI, pendant que la personne est là pour l'entendre. On ne met jamais en file un envoi
+   * qu'on sait déjà impossible : ce serait transformer un refus immédiat en alerte différée.
+   *
+   * 🔴 LE BROUILLON EST MARQUÉ ENVOYÉ AVANT LA RÉPONSE. Sans cela, il resterait dans les Brouillons quelques
+   * secondes de plus, et l'on croirait que le clic n'a rien fait. En cas d'échec, le travailleur l'y remet —
+   * c'est la seule façon de rendre l'attente invisible sans mentir sur le résultat.
+   *
+   * ⚠️ SANS LA MIGRATION 271, RIEN DE TOUT CELA : on tombe dans l'envoi synchrone ci-dessous, c'est-à-dire
+   * exactement le comportement d'avant ce lot, attente visible comprise.
+   */
+  if (await fileEnvoiDisponible()) {
+    const pret = pretAEnvoyer({
+      a: demande.a, cc: demande.cc, cci: demande.cci, objet: demande.objet, corps: demande.corpsTexte,
+    } as never);
+    if (!pret.pret) return Response.json({ erreur: pret.motif, code: 'invalide' }, { status: 422 });
+    try {
+      const id = await mettreEnFile({
+        cleIdempotence: demande.cleIdempotence,
+        brouillonId: demande.brouillonId, filId: demande.filId,
+        repondAMessageId: demande.repondAMessageId, voie: demande.voie,
+        a: demande.a, cc: demande.cc, cci: demande.cci,
+        objet: demande.objet, corps: demande.corpsTexte, corpsHtml: demande.corpsHtml,
+        cibles: demande.cibles,
+      }, auteur);
+      // `null` = la clé existait déjà : c'est un doublon (double-clic, requête rejouée), et c'est le bon résultat.
+      if (demande.brouillonId !== null) {
+        try { await marquerBrouillonEnvoye(demande.brouillonId); }
+        catch (e) { console.error('[gestion/envois] brouillon non marqué', e); }
+      }
+      // 🔴 SANS ATTENDRE : la réponse part maintenant, la passe tourne derrière. Si le processus meurt avant la
+      //   fin, la ligne reste en base et la relève la reprendra — c'est ce contre quoi la file existe.
+      lancerPasseEnFond();
+      return Response.json({ ok: true, enFile: true, fileId: id, deja: id === null },
+        { headers: { 'Cache-Control': 'private, no-store' } });
+    } catch (e) {
+      // La mise en file a échoué : on NE tombe PAS dans l'envoi synchrone, qui pourrait doubler un envoi déjà mis
+      //   en file par une requête concurrente. On le DIT, et le brouillon reste où il est.
+      const m = phraseEchecEnvoi(e);
+      console.error('[gestion/envois] mise en file impossible (%s)', m.etiquette, e);
+      return Response.json({ erreur: m.phrase, code: 'interne' }, { status: 503 });
+    }
+  }
+
   const config = await chargerConfigGestion();
   const identifiants = lireIdentifiants();
 
@@ -177,31 +240,19 @@ export async function POST(request: Request): Promise<Response> {
   };
 
   try {
+    // ⚠️ LA MÊME `demande` QUE LA FILE : une seule normalisation des entrées, donc un seul comportement. La voie
+    //   ne sert qu'à savoir s'il faut joindre l'original complet ; une voie inconnue ne fait pas échouer l'envoi.
     const issue = await envoyerMessage({
-      cleIdempotence: cle,
-      brouillonId: entier(corps.brouillonId),
-      filId: entier(corps.filId),
-      repondAMessageId: entier(corps.repondAMessageId),
-      a: liste(corps.a), cc: liste(corps.cc), cci: liste(corps.cci),
-      objet: typeof corps.objet === 'string' ? corps.objet.slice(0, 500) : '',
-      corps: typeof corps.corps === 'string' ? corps.corps.slice(0, 200_000) : '',
-      // LOT 5-PJ-ENVOI — la VOIE ne sert qu'à savoir s'il faut joindre l'original complet. Elle est reprise telle
-      //   quelle du brouillon ; une voie inconnue ne joint rien de plus, elle ne fait pas échouer l'envoi.
-      voie: typeof corps.voie === 'string' ? corps.voie : null,
-      /**
-       * ══ 🔴 LOT REDACTION-GMAIL — LE HTML EST ASSAINI ICI, ET C'EST L'ASSAINISSEMENT QUI COMPTE ════════════════
-       * L'écran nettoie déjà au collage, pour que la personne VOIE ce qu'elle envoie. Mais un écran se modifie :
-       * cette ligne-ci est la seule qu'un navigateur ne puisse pas contourner, et c'est elle qui décide de ce qui
-       * part réellement chez le destinataire. Le MÊME module pur (`htmlMail`) dans les deux cas : une seule règle,
-       * une seule liste blanche, un seul jeu de tests.
-       *
-       * ⚠️ VIDE ⇒ `null` : le message part alors en texte seul, exactement comme avant ce lot.
-       */
-      corpsHtml: typeof corps.corpsHtml === 'string' && corps.corpsHtml.trim() !== ''
-        ? assainirHtml(corps.corpsHtml.slice(0, 500_000))
-        : null,
-      /** LOT REDACTION-GMAIL — les cibles de « Classer ce mail », bornées et normalisées. */
-      cibles: ciblesDemandees(corps.cibles),
+      cleIdempotence: demande.cleIdempotence,
+      brouillonId: demande.brouillonId,
+      filId: demande.filId,
+      repondAMessageId: demande.repondAMessageId,
+      a: demande.a, cc: demande.cc, cci: demande.cci,
+      objet: demande.objet,
+      corps: demande.corpsTexte,
+      voie: demande.voie,
+      corpsHtml: demande.corpsHtml,
+      cibles: demande.cibles,
     }, auteur, deps);
 
     if (!issue.ok) {

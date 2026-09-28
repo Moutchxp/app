@@ -1,8 +1,14 @@
 import 'server-only';
 import { exigerCompteActif } from '../../../../../../../lib/admin/garde';
 import {
-  ajouterPieceFichier, listerPieces, retirerPiece,
+  ajouterPieceFichier, inscrirePieceDrive, listerPieces, retirerPiece,
 } from '../../../../../../../lib/gestion/brouillonPieceRepo';
+// LOT ENVOI-ARRIERE-PLAN — la pièce du Drive s'inscrit tout de suite, ses octets suivent en tâche de fond.
+import { lireMetadonnees } from '../../../../../../../lib/gestion/drive';
+import { jetonPourRequete } from '../../../../../../../lib/gestion/jetonCollaborateur';
+import { verdictJoindre } from '../../../../../../../lib/gestion/driveVerdict';
+import { placePourLaPiece } from '../../../../../../../lib/gestion/fileEnvoi';
+import { lancerPasseEnFond } from '../../../../../../../lib/gestion/travailleurEnvoiReel';
 import { TAILLE_MAX_TOTALE, totalJoint, verifierPiece } from '../../../../../../../lib/gestion/piecesEnvoi';
 import { piecesEnvoiDisponibles } from '../../../../../../../lib/gestion/schema';
 import { deposerPieceBrouillon, recuperer } from '../../../../../../../lib/stockage';
@@ -108,6 +114,78 @@ export async function POST(request: Request, ctx: Contexte): Promise<Response> {
         detail: connu.detail, tailleOctets: octets.byteLength,
       });
       return json({ etat: 'ok', piece });
+    }
+
+    /**
+     * ══ 🔴🔴 LOT ENVOI-ARRIERE-PLAN — UNE PIÈCE DU DRIVE, SANS ATTENDRE SES OCTETS ═══════════════════════════
+     *
+     * Le navigateur n'envoie plus que l'identifiant Drive. On lit les MÉTADONNÉES (un appel court), on inscrit la
+     * ligne, et l'on rend la main : l'écran affiche la pièce dans la seconde et le « Joindre » suivant reste
+     * cliquable. Les octets sont tirés derrière, par le travailleur de fond.
+     *
+     * 🔴🔴 LE VERDICT « JOINDRE » EST PRONONCÉ ICI, AVANT D'INSCRIRE QUOI QUE CE SOIT. C'est la même barrière
+     * qu'avant — la chaîne des parents remontée, et un refus pour tout ce qui est sous « Documents clients
+     * scannés ». Elle DOIT rester ici : après ce point, plus personne ne la repose, et une pièce inscrite serait
+     * récupérée par le travailleur sans autre contrôle.
+     *
+     * 🔴 LE PLAFOND DE 25 Mo EST TRANCHÉ ICI AUSSI, sur la taille annoncée par le Drive — pendant que la personne
+     * est là pour l'entendre. Différer ce refus le transformerait en alerte, une minute plus tard, pour quelque
+     * chose qu'on savait déjà.
+     */
+    const driveId = champ('drive');
+    if (driveId !== '') {
+      const jeton = await jetonPourRequete(request);
+      if (jeton.etat !== 'ok') return json({ etat: 'refuse', message: jeton.motif }, 409);
+
+      const v = await verdictJoindre(jeton.jeton, driveId);
+      if (!v.joindre) {
+        return json({ etat: 'refuse', message: v.motif ?? 'Le contenu de ce fichier ne peut pas être lu.' }, 403);
+      }
+
+      const meta = await lireMetadonnees(jeton.jeton, driveId, { fetch });
+      if (!meta.ok) return json({ etat: 'refuse', message: meta.motif }, 409);
+      if (meta.valeur.typeMime.startsWith('application/vnd.google-apps')) {
+        return json({
+          etat: 'refuse',
+          message: 'C’est un document Google (Docs, Sheets…) : il n’a pas de fichier à joindre. '
+            + 'Insérez plutôt son lien.',
+        }, 409);
+      }
+
+      const dejaJoint = totalJoint(await listerPieces(brouillonId));
+      const place = placePourLaPiece({
+        dejaJoint, taillePiece: meta.valeur.tailleOctets ?? -1, plafond: TAILLE_MAX_TOTALE,
+      });
+      if (!place.ok) return json({ etat: 'refuse', message: place.motif }, 422);
+
+      const piece = await inscrirePieceDrive(brouillonId, {
+        nom: meta.valeur.nom, typeMime: meta.valeur.typeMime || null,
+        taille: meta.valeur.tailleOctets ?? 0, driveId,
+        // 🔴 L'ADRESSE DU DEMANDEUR : c'est en SON nom que les octets seront lus, jamais au nom de gestion@.
+        compte: jeton.compteGoogle,
+      });
+      if (piece === null) {
+        return json({
+          etat: 'sans_schema',
+          message: 'Bientôt disponible — une mise à jour de la base est nécessaire.',
+        }, 409);
+      }
+      if (auteur.id !== null) {
+        await noterRecent({
+          compteId: auteur.id, sorte: 'drive_fichier', cle: driveId, libelle: meta.valeur.nom,
+          detail: meta.valeur.typeMime || null, tailleOctets: meta.valeur.tailleOctets ?? null,
+        });
+        const dossier = champ('driveDossier');
+        if (dossier !== '') {
+          await noterRecent({
+            compteId: auteur.id, sorte: 'drive_dossier', cle: dossier,
+            libelle: champ('driveDossierNom') || 'Dossier', detail: null, tailleOctets: null,
+          });
+        }
+      }
+      // Les octets, tout de suite et en tâche de fond : sans attendre la relève, et sans faire attendre l'écran.
+      lancerPasseEnFond();
+      return json({ etat: 'ok', piece, enFond: true });
     }
 
     const fichier = formulaire.get('fichier');

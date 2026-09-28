@@ -525,3 +525,19 @@ export function evenementQualifieDisponible(): Promise<boolean> {
 export function piecesRecentesDisponibles(): Promise<boolean> {
   return memoiser('table.gestion_piece_recente', () => tableExiste('gestion_piece_recente'));
 }
+
+/**
+ * 🔴 LOT ENVOI-ARRIERE-PLAN — la migration 271 est-elle appliquée ? Elle porte la FILE D'ENVOI persistante
+ * (`gestion_envoi_file`) et l'ÉTAT des pièces d'un brouillon (`gestion_brouillon_piece.etat`).
+ *
+ * 🔴 TANT QU'ELLE MANQUE, LE MODULE EST EXACTEMENT CELUI D'AVANT :
+ *   · l'envoi reste SYNCHRONE — la requête du navigateur attend la remise à Gmail, attente visible comprise ;
+ *   · une pièce du Drive se joint en un seul temps : le navigateur attend les octets, comme aujourd'hui ;
+ *   · et AUCUNE requête ne nomme la table ni les colonnes absentes, ce qui ferait échouer tout l'écran.
+ *
+ * ⚠️ UNE SEULE SONDE POUR LES DEUX, parce que la migration les crée dans UNE transaction : elles arrivent
+ * ensemble ou pas du tout. On sonde la TABLE, qui est le morceau le plus visible.
+ */
+export function fileEnvoiDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_envoi_file', () => tableExiste('gestion_envoi_file'));
+}

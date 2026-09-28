@@ -16,6 +16,8 @@ import { useReleveGestion } from './useReleveGestion';
 import { PanneauAffecter } from './PanneauAffecter';
 import { CarteVive } from './CarteVive';
 import { Conversation } from './Conversation';
+// LOT ENVOI-ARRIERE-PLAN — les mails encore en route, et ceux qui ne sont PAS partis.
+import { BandeauEnvois } from './BandeauEnvois';
 // LOT STATUT-PAR-MAIL — la colonne de gauche montre les MAILS reçus, un par ligne.
 import { BoiteReception } from './BoiteReception';
 import { ColonneMode } from './ColonneMode';
@@ -726,6 +728,11 @@ export function GestionVue({ intro }: {
         <p className="gst-veille" role="status">{copie.texte}</p>
       )}
       {/* COMPTE RENDU de la dernière passe — succès comme échec, jamais un silence. */}
+      {/* ══ 🔴 LOT ENVOI-ARRIERE-PLAN — CE QUI N'EST PAS (ENCORE) PARTI ═══════════════════════════════════════
+          En TÊTE du module, et pas au fond d'un écran : un mail qui n'est pas parti doit se voir là où l'on
+          travaille, quel que soit l'écran ouvert. Il ne s'affiche que s'il a quelque chose à dire — un bandeau
+          permanent cesse d'être lu, et le jour où il parle, personne ne le voit. */}
+      <BandeauEnvois />
       {releveMsg && <p className={`gst-compte-rendu gst-ton-${releveMsg.ton}`} role="status">{releveMsg.texte}</p>}
       {geste && <p className={`gst-compte-rendu gst-ton-${geste.ton}`} role="status">{geste.texte}</p>}
 
