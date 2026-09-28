@@ -22,22 +22,38 @@ const ligne = (p: Partial<LigneResultat>): LigneResultat => ({
   locataireDepuis: null, absent: false, ...p,
 });
 
+/**
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴🔴 LOT FICHE-RATTACHEMENT — TROIS TESTS DE CE BLOC ONT ÉTÉ RÉÉCRITS, ET IL FAUT DIRE POURQUOI.
+ *
+ * Ils figeaient l'ancienne règle : « un logement avec son propriétaire propose DEUX cibles », « un bailleur sans
+ * lot en propose une (lui-même) », « la route accepte une cible de propriétaire ». C'était vrai, et ce ne l'est
+ * plus : depuis le 28/09/2026, la cible d'un classement est TOUJOURS un bien, et le 28/09 au soir cette règle est
+ * devenue un verrou — plus aucune voie ne peut écrire un lien « personne ».
+ *
+ * ⚠️ ON NE LES A PAS SUPPRIMÉS. Un test qui disparaît ne prouve plus rien, et c'est précisément sur ces points
+ * qu'on veut une garantie : ils disent désormais la propriété INVERSE, qui est celle qu'on tient.
+ * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
 describe('les cibles qu’une ligne de recherche propose', () => {
-  it('un logement avec son propriétaire en propose DEUX', () => {
+  it('🔴 un logement avec son propriétaire n’en propose QU’UNE : le logement', () => {
     const c = ciblesDeLaLigne(ligne({
       lotNumero: '100', adresse: '4 rue Fictive', commune: 'PUTEAUX',
       proprietaireCle: '12', proprietaireNom: 'DUPONT Jean (12)',
     }));
-    expect(c).toHaveLength(2);
+    expect(c).toHaveLength(1);
     expect(c[0].cible).toEqual({ sorte: 'lot', cle: '100', id: null });
     expect(c[0].libelle).toBe('4 rue Fictive, PUTEAUX — lot 100');
-    expect(c[1].cible).toEqual({ sorte: 'proprietaire', cle: '12', id: null });
+    // Le nom du bailleur reste dans la recherche (on cherche souvent par lui) ; il n'est plus une destination.
+    expect(c.some((x) => x.cible.sorte !== 'lot')).toBe(false);
   });
 
-  it('un bailleur SANS lot n’en propose qu’un', () => {
-    const c = ciblesDeLaLigne(ligne({ proprietaireCle: '12', proprietaireNom: 'DUPONT Jean (12)' }));
-    expect(c).toHaveLength(1);
-    expect(c[0].cible.sorte).toBe('proprietaire');
+  /**
+   * 🔴 UN BAILLEUR DONT ON NE GÈRE AUCUN BIEN NE PROPOSE PLUS RIEN, et sa ligne ne s'affiche pas. Cocher son nom
+   * ne rangerait le mail nulle part : c'est exactement le défaut que la règle « bien » corrige.
+   */
+  it('🔴 un bailleur SANS lot n’en propose AUCUNE', () => {
+    expect(ciblesDeLaLigne(ligne({ proprietaireCle: '12', proprietaireNom: 'DUPONT Jean (12)' }))).toHaveLength(0);
   });
 
   it('un locataire hors gestion n’en propose AUCUNE — on ne montre pas une ligne inerte', () => {
@@ -74,9 +90,19 @@ describe('ce que la route accepte de lire', () => {
     expect(lireMessages(Array.from({ length: 500 }, (_, i) => i + 1).join(','))).toHaveLength(MESSAGES_MAX);
   });
 
-  it('une cible de lot ou de propriétaire, par sa CLÉ', () => {
+  it('une cible de LOT, par sa CLÉ', () => {
     expect(lireCible({ sorte: 'lot', cle: '100' })).toEqual({ sorte: 'lot', cle: '100', id: null });
-    expect(lireCible({ sorte: 'proprietaire', cle: ' 12 ' })).toEqual({ sorte: 'proprietaire', cle: '12', id: null });
+    expect(lireCible({ sorte: 'lot', cle: ' 12 ' })).toEqual({ sorte: 'lot', cle: '12', id: null });
+  });
+
+  /**
+   * 🔴🔴 LA PORTE EST FERMÉE À LA LECTURE MÊME DE LA REQUÊTE. Ce n'est pas un refus poli plus loin dans la route :
+   * la cible n'est même pas construite, donc rien en aval ne peut la recevoir par erreur. Un vieil onglet, une
+   * requête forgée ou un script rejoué arriveront encore avec `proprietaire` — ils repartiront avec un refus.
+   */
+  it('🔴🔴 une cible de PROPRIÉTAIRE ou de LOCATAIRE est refusée à la lecture', () => {
+    expect(lireCible({ sorte: 'proprietaire', cle: '12' })).toBeNull();
+    expect(lireCible({ sorte: 'locataire', cle: '12' })).toBeNull();
   });
 
   it('une cible d’événement, par son IDENTIFIANT', () => {

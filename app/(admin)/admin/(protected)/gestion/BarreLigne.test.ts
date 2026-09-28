@@ -36,8 +36,14 @@ let ecritures: { url: string; methode: string; corps: unknown }[];
 let ouverts: (number | null | undefined)[][];
 let actions: { filId: number; action: string }[];
 let ligneCourante: Record<string, unknown>;
-/** Ce que la route des rattachements répond. Piloté par le test. */
+/** Ce que la route des rattachements répond à `?fil=` (les liens bruts). Piloté par le test. */
 let rattachements: Record<string, unknown>;
+/**
+ * 🔴 LOT FICHE-RATTACHEMENT — ce que la MÊME route répond à `?fiche=` : la fiche de l'échange, c'est-à-dire ses
+ * BIENS et leurs personnes. Les deux questions vivent dans la même route, mais ne rendent pas la même chose : les
+ * confondre dans le double ferait passer un tableau là où l'écran attend un objet.
+ */
+let ficheFil: Record<string, unknown>;
 let comptes: Record<string, unknown>;
 
 beforeEach(() => {
@@ -46,6 +52,13 @@ beforeEach(() => {
   ligneCourante = LIGNE();
   comptes = COMPTES;
   rattachements = { etat: 'ok', data: [] };
+  ficheFil = {
+    etat: 'ok',
+    data: {
+      filId: 7, objet: 'Fuite salle de bain', nbMailsDuFil: 3, biens: [], horsGestion: false,
+      messageRecentId: 8123, disponible: true,
+    },
+  };
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     const methode = init?.method ?? 'GET';
@@ -55,7 +68,13 @@ beforeEach(() => {
     }
     if (u.includes('/boite/comptes')) return { ok: true, json: async () => comptes } as unknown as Response;
     // LOT BARRE-STATUT — les rattachements de l'échange, tels que la fenêtre « Visualiser / Modifier » les demande.
+    // LOT FICHE-RATTACHEMENT — `?fiche=` d'abord : `?fil=` serait sinon attrapé par la même condition.
+    if (u.includes('/rattachements?fiche=')) return { ok: true, json: async () => ficheFil } as unknown as Response;
     if (u.includes('/rattachements')) return { ok: true, json: async () => rattachements } as unknown as Response;
+    // Le raccourci vers le dossier Drive du bien : un CONFORT, doublé à vide ici.
+    if (u.includes('/drive/dossier-du-bien')) {
+      return { ok: true, json: async () => ({ etat: 'ok', dossiers: [] }) } as unknown as Response;
+    }
     return {
       ok: true,
       json: async () => ({ lignes: [ligneCourante], suivant: null, total: 1, comptes, nonLus: [], nonLusTotal: 0 }),
@@ -538,36 +557,102 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
     await monter();
     await cliquer(boutonFin());
     expect(container.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Rattachements de l’échange');
+    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) de cet échange');
+    // 🔴 LOT FICHE-RATTACHEMENT — l'objet et le nombre de mails en tête (demande d'Arno).
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('Fuite salle de bain');
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('3 mails dans la conversation');
     expect(ouverts).toEqual([]);   // la liste reste en place
     expect(actions).toEqual([]);   // et aucun « classer » n'est demandé
   });
 
-  /** 🔴 PLUSIEURS RATTACHEMENTS SE LISTENT TOUS : n'en montrer qu'un ferait modifier le mauvais. */
-  it('🔴 la fenêtre liste TOUS les rattachements, avec leur statut écrit en toutes lettres', async () => {
-    const lien = (id: number, libelle: string, statut: string, sorte = 'lot') => ({
-      id, messageId: 900 + id, pieceId: null, cible: { sorte, cle: `c${id}`, id },
-      libelle, origine: 'automatique', statut, confiance: null, regle: 'adresse',
+  /**
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   * 🔴🔴 LOT FICHE-RATTACHEMENT — CE TEST A ÉTÉ RÉÉCRIT, ET IL FAUT DIRE POURQUOI.
+   *
+   * Il figeait la fenêtre d'avant : une ligne par LIEN, dont l'une portait « M. Bentz » — un nom de personne
+   * annoncé comme un rattachement. Cette fenêtre-là n'existe plus. Elle montre désormais un bloc par BIEN, avec
+   * l'adresse, le lot, la nature, le type, la surface, le statut, puis les personnes du bien et leurs
+   * coordonnées ; les liens bruts restent accessibles sous « Voir le détail par mail ».
+   *
+   * ⚠️ ON NE L'A PAS SUPPRIMÉ : ce qu'il protégeait — « plusieurs rattachements se listent TOUS, n'en montrer
+   * qu'un ferait modifier le mauvais » — reste vrai et reste éprouvé, sur la forme nouvelle.
+   * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   */
+  it('🔴 la fenêtre montre UN BLOC PAR BIEN, avec ses personnes et leurs coordonnées', async () => {
+    const lien = (id: number, messageId: number) => ({
+      id, messageId, pieceId: null, cible: { sorte: 'lot', cle: `c${id}`, id },
+      libelle: `lien ${id}`, origine: 'automatique', statut: 'confirme', confiance: null, regle: 'a',
       motif: null, adresses: [], parUnHumain: false, creeLe: null, creePar: null, statutLe: null, statutPar: null,
     });
-    rattachements = {
+    rattachements = { etat: 'ok', data: [lien(1, 901), lien(2, 902)] };
+    ficheFil = {
       etat: 'ok',
-      data: [lien(1, 'Lot 513 — 12 rue des Lilas', 'confirme'),
-        lien(2, 'M. Bentz', 'propose', 'proprietaire')],
+      data: {
+        filId: 7, objet: 'Fuite salle de bain', nbMailsDuFil: 3, horsGestion: false, messageRecentId: 8123,
+        disponible: true,
+        biens: [
+          {
+            cle: '513', adresseComplete: '12 rue des Lilas, 92400 COURBEVOIE', numeroLot: '513',
+            nature: 'Appartement', typeBien: 'Type 2', surfaceM2: null, statut: 'classe',
+            dateMail: '2026-09-20', nbMails: 1, dossierDriveId: null, lienIds: [1],
+            personnes: [{
+              role: 'proprietaire', cle: 'P1', id: 12, nom: 'BENTZ Marc', civilite: null,
+              telephones: [{ valeur: '06 11 22 33 44', libelle: 'Mobile 1' }],
+              emails: [{ valeur: 'bentz@fictif.fr', libelle: 'Email 1' }],
+              expediteur: true,
+            }],
+          },
+          {
+            cle: '514', adresseComplete: '14 rue des Lilas, 92400 COURBEVOIE', numeroLot: '514',
+            nature: null, typeBien: null, surfaceM2: null, statut: 'a_trancher',
+            dateMail: '2026-09-20', nbMails: 1, dossierDriveId: null, lienIds: [2], personnes: [],
+          },
+        ],
+      },
     };
     ligneCourante = LIGNE({ classement: CLASSE });
     await monter();
     await cliquer(boutonFin());
+
     const items = [...container.querySelectorAll('.rdf-item')];
     expect(items).toHaveLength(2);
-    expect(items[0].textContent).toContain('Lot 513 — 12 rue des Lilas');
-    expect(items[0].textContent).toContain('confirmé');
-    expect(items[1].textContent).toContain('M. Bentz');
-    expect(items[1].textContent).toContain('proposé');
-    // Le MAIL dont vient chaque lien est dit : c'est lui qui est rattaché, jamais l'échange.
+    expect(items[0].textContent).toContain('12 rue des Lilas, 92400 COURBEVOIE');
+    expect(items[0].textContent).toContain('lot 513');
+    expect(items[0].textContent).toContain('Classé');
+    // 🔴 LA SURFACE ABSENTE EST DITE, jamais devinée d'après le type.
+    expect(items[0].textContent).toContain('surface non renseignée');
+    // 🔴 LES PERSONNES, AVEC LE LIBELLÉ DE LA COLONNE D'ORIGINE et un bouton Copier par coordonnée.
+    expect(items[0].textContent).toContain('BENTZ Marc');
+    expect(items[0].textContent).toContain('Mobile 1');
+    expect(items[0].textContent).toContain('06 11 22 33 44');
+    expect(items[0].querySelectorAll('.rdf-contact')).toHaveLength(2);
+    // 🔴 L'EXPÉDITEUR est dit par un MOT, jamais par la seule couleur.
+    expect(items[0].textContent).toContain('Expéditeur');
+    // 🔴 « VACANT À CETTE DATE » est une RÉPONSE, pas un vide.
+    expect(items[0].textContent).toContain('Vacant à cette date');
+    expect(items[1].textContent).toContain('À trancher');
+
+    // Le MAIL dont vient chaque lien reste dit, sous le détail : c'est lui qui est rattaché, jamais l'échange.
     expect(items[0].textContent).toContain('mail nº 901');
-    // Et chacun mène à la fenêtre « Modifier » existante.
     expect(items.every((i) => /Modifier ce rattachement/.test(i.textContent ?? ''))).toBe(true);
+  });
+
+  /** 🔴 HORS GESTION OU AUCUN BIEN : on le DIT, et le geste pour en sortir est là. */
+  it('🔴 un échange « Hors gestion » le dit, avec « Rattacher à un bien »', async () => {
+    ficheFil = {
+      etat: 'ok',
+      data: {
+        filId: 7, objet: 'Publicité', nbMailsDuFil: 1, biens: [], horsGestion: true,
+        messageRecentId: 8123, disponible: true,
+      },
+    };
+    ligneCourante = LIGNE({ classement: CLASSE });
+    await monter();
+    await cliquer(boutonFin());
+    const boite = container.querySelector('[role="dialog"]');
+    expect(boite?.textContent).toContain('Hors gestion');
+    expect([...container.querySelectorAll('button')]
+      .some((b) => /Rattacher à un bien/.test(b.textContent ?? ''))).toBe(true);
   });
 
   /** ⚠️ La migration 257 absente est un ÉTAT, pas une panne : on le DIT plutôt que de montrer une liste vide. */
@@ -585,5 +670,7 @@ describe('🔴 LOT BARRE-STATUT — le bouton de fin de barre suit la capsule', 
     await cliquer(boutonFin());
     const appels = (global.fetch as unknown as { mock: { calls: unknown[][] } }).mock.calls.map((c) => String(c[0]));
     expect(appels.some((u) => u.includes('/rattachements?fil=7'))).toBe(true);
+    // LOT FICHE-RATTACHEMENT — et la FICHE du même échange, dans la même route.
+    expect(appels.some((u) => u.includes('/rattachements?fiche=7'))).toBe(true);
   });
 });

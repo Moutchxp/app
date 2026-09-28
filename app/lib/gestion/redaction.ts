@@ -103,9 +103,15 @@ export interface Brouillon {
   cibles?: CibleBrouillon[];
 }
 
-/** Une cible de classement choisie pendant l'écriture. Même forme que `gestion_rattachement` : à l'envoi, on COPIE. */
+/**
+ * Une cible de classement choisie pendant l'écriture. Même forme que `gestion_rattachement` : à l'envoi, on COPIE.
+ *
+ * 🔴 LOT FICHE-RATTACHEMENT — `proprietaire` et `locataire` sont sorties du type. Ce n'est pas un resserrement de
+ * confort : c'était une VOIE DE CRÉATION de liens « personne », qui ne s'ouvrait qu'au moment de l'envoi. Le type
+ * la ferme à la compilation, la route la ferme à l'exécution, et la base la fermera (migration 273).
+ */
 export interface CibleBrouillon {
-  sorte: 'lot' | 'proprietaire' | 'locataire' | 'evenement';
+  sorte: 'lot' | 'evenement';
   cle: string | null;
   id: number | null;
   libelle: string;

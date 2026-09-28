@@ -27,7 +27,8 @@ import { leverHorsGestionApresRattachement } from './horsGestionRepo';
 import { nomBien, nomProprietaire } from './driveArbre';
 import type { BienConnu } from './propositionsBien';
 import {
-  cibleCourte, examinerMessage, memeCible, type Cible, type Candidat, type Issue, type Statut,
+  cibleCourte, examinerMessage, memeCible, motifSorteRefusee, sortePermise,
+  type Cible, type Candidat, type Issue, type Statut,
 } from './rattachement';
 import type { AdresseEchange } from './propositionTri';
 
@@ -270,6 +271,21 @@ const OU_IDENTITE = `message_id = $1 AND coalesce(piece_id, 0) = $2
 async function ecrireLienMoteur(
   q: RequeteTx, messageId: number, c: Cible, statut: 'propose' | 'confirme', cand: Candidat, libelle: string,
 ): Promise<'ecrit' | 'maj' | 'respecte'> {
+  /**
+   * 🔴🔴 LOT FICHE-RATTACHEMENT — LE MOTEUR NE PEUT PLUS ÉCRIRE UNE PERSONNE, MÊME SI ON LE LUI DEMANDE.
+   *
+   * En l'état du code, ce refus est INATTEIGNABLE : `examinerMessage` n'émet que des `cibleLot`. Il est là pour le
+   * jour où quelqu'un branchera un autre moteur sur cette fonction — et ce jour-là, il vaudra mieux que le mail ne
+   * soit pas rattaché du tout qu'annoncé « rattaché au propriétaire X » dans l'historique d'un client.
+   *
+   * ⚠️ IL NE LÈVE PAS : une passe de 37 000 liens ne doit pas s'arrêter sur un cas. On le DIT au journal du
+   * serveur, qui est l'endroit où l'on regarde quand un chiffre surprend, et on passe au suivant.
+   */
+  if (!sortePermise(c.sorte)) {
+    console.error('[gestion/rattachement] cible refusée par la règle « bien » : message=%d cible=%s',
+      messageId, cibleCourte(c));
+    return 'respecte';
+  }
   const id = identite(messageId, null, c);
   const maj = await q(
     `UPDATE gestion_rattachement
@@ -710,6 +726,19 @@ export async function rattacher(o: {
 }): Promise<IssueGeste> {
   if (!(await rattachementsDisponibles())) {
     return { ok: false, motif: 'Mise à jour de la base à appliquer (migration 257).' };
+  }
+  /**
+   * 🔴🔴 LOT FICHE-RATTACHEMENT — MÊME LE GESTE MANUEL NE RATTACHE PLUS UNE PERSONNE.
+   *
+   * ⚠️ CE REFUS RETIRE BIEN QUELQUE CHOSE QU'ON POUVAIT FAIRE HIER, et c'est demandé noir sur blanc : « aucune voie
+   * ne peut plus créer un lien propriétaire ou locataire direct ». Le geste utile n'est pas perdu — il est
+   * DÉPLACÉ : on rattache le bien, et le propriétaire en découle. Le motif le dit à l'écran.
+   *
+   * ⚠️ LES LIENS DÉJÀ POSÉS À LA MAIN NE SONT PAS TOUCHÉS. Ce refus vaut pour l'écriture NOUVELLE ; ce qui existe
+   * reste lisible, modifiable et réversible comme avant.
+   */
+  if (!sortePermise(o.cible.sorte)) {
+    return { ok: false, motif: motifSorteRefusee(o.cible.sorte) };
   }
   const libelles = await chargerLibellesDe(o.cible);
   const pieceId = o.pieceId ?? null;

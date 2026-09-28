@@ -17,6 +17,8 @@ import {
   actionJournalEnvoi, cibleJournalEnvoi, commentaireJournalEnvoi,
 } from '../../../../../lib/gestion/journalEnvoi';
 import { motifLisible, phraseEchecEnvoi } from '../../../../../lib/gestion/motifEchec';
+// LOT FICHE-RATTACHEMENT — la liste blanche des cibles vit à UN seul endroit, et c'est un module pur.
+import { SORTES_RATTACHEMENT_PERMISES } from '../../../../../lib/gestion/rattachement';
 import { decouperAdresses } from '../../../../../lib/gestion/redaction';
 import {
   finaliserEnvoi, lireEnvoisDuFil, marquerBrouillonEnvoye, ouvrirEnvoi, type Auteur,
@@ -71,7 +73,16 @@ export async function GET(request: Request): Promise<Response> {
  * rattachement que rien ne saurait lire ensuite. Et on BORNE le nombre — un écran modifié ne doit pas pouvoir
  * demander cinq cents rattachements en un envoi.
  */
-const SORTES_CLASSEMENT = ['lot', 'proprietaire', 'locataire', 'evenement'];
+/**
+ * 🔴🔴 LOT FICHE-RATTACHEMENT — `proprietaire` ET `locataire` SONT SORTIES DE CETTE LISTE.
+ *
+ * Elles y figuraient depuis le lot REDACTION-GMAIL : une cible choisie dans « Classer ce mail » pendant l'écriture
+ * devient, à l'envoi, un rattachement du message parti. C'était donc une voie de création de liens « personne » —
+ * muette, parce qu'elle ne s'ouvre qu'au moment de l'envoi, et qu'on n'y pense pas en relisant le moteur.
+ *
+ * La liste vient du module PUR : une seconde copie ici dirait un jour autre chose que la première.
+ */
+const SORTES_CLASSEMENT: readonly string[] = SORTES_RATTACHEMENT_PERMISES;
 const CIBLES_MAX = 20;
 
 export function ciblesDemandees(brut: unknown): { sorte: string; cle: string | null; id: number | null; libelle: string }[] {

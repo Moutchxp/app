@@ -103,7 +103,24 @@ export function EncartRattachement({ messageId, filId, liens, onChange, onGeste,
 
   if (liens === null) return null;
 
-  const vivants = liens.filter((l) => l.statut === 'confirme');
+  /**
+   * ══ 🔴🔴 LOT FICHE-RATTACHEMENT — UN NOM DE PERSONNE N'EST JAMAIS PRÉSENTÉ COMME UN BIEN RATTACHÉ ════════════
+   *
+   * LE DÉFAUT EXACT, vu par Arno le 28/09/2026 au soir sur le mail « modification adresse mail » d'Isabelle MENN :
+   * sous le titre « BIEN(S) RATTACHÉ(S) : », l'encart affichait « PROPRIÉTAIRE BALIABINE épouse MENN Isabelle
+   * (234) — automatique ». Un nom de personne, annoncé comme un bien. On cherchait le logement dans la phrase.
+   *
+   * 🔴 LE TITRE DIT DES BIENS : IL N'Y AURA DONC QUE DES BIENS DESSOUS. Plus aucune voie ne crée de lien
+   * « personne » (le moteur, les deux routes, et la base avec la migration 273), mais 17 en sont nés le 28/09 au
+   * soir par un processus qui tournait avec l'ancien code — et rien n'interdit qu'un cas semblable ressurgisse
+   * d'une vieille ligne. S'il en reste un, il est montré À PART, avec ce qu'il est et le geste pour le corriger.
+   *
+   * ⚠️ IL EST MONTRÉ, PAS CACHÉ. Le masquer laisserait un mail classé sous une personne sans que personne ne le
+   * voie ni ne puisse le reprendre — c'est-à-dire exactement le défaut, en pire : silencieux.
+   */
+  const confirmes = liens.filter((l) => l.statut === 'confirme');
+  const vivants = confirmes.filter((l) => l.cible.sorte !== 'proprietaire' && l.cible.sorte !== 'locataire');
+  const ancienModele = confirmes.filter((l) => l.cible.sorte === 'proprietaire' || l.cible.sorte === 'locataire');
   const candidats = liens.filter((l) => l.statut === 'propose');
   /**
    * 🔴 LOT AFFECTATION-PAR-BIEN — les propositions qui visent un BIEN (logement) ou un PROPRIÉTAIRE sont rendues
@@ -186,6 +203,36 @@ export function EncartRattachement({ messageId, filId, liens, onChange, onGeste,
         </button>
       )}
       </div>
+
+      {/* ══ 🔴🔴 UN RESTE D'ANCIEN MODÈLE : DIT POUR CE QU'IL EST, ET JAMAIS SOUS LE TITRE DES BIENS ═════════
+          Il porte les mêmes gestes qu'avant — « Modifier » mène au sélecteur de bien, « Retirer » l'enlève — mais
+          la phrase ne laisse plus croire que cette personne EST le bien du mail. */}
+      {ancienModele.length > 0 && (
+        <>
+          <p className="ert-sous-titre ert-ancien-titre">
+            Rattachement d’avant la règle « bien » — à reprendre
+          </p>
+          <ul className="ert-liste">
+            {ancienModele.map((l) => (
+              <li key={l.id} className="ert-ligne ert-ligne--ancien">
+                <span className="ert-sorte">{motSorte(l.cible.sorte)}</span>
+                <span className="ert-nom">{l.libelle}</span>
+                <span className="ert-motif">
+                  ce mail est rangé sous une PERSONNE ; un mail se classe dans un BIEN — choisissez le logement
+                </span>
+                <button type="button" className="gst-lien-bouton" disabled={occupe}
+                  onClick={() => setModifie(l)}>
+                  Modifier
+                </button>
+                <button type="button" className="gst-lien-bouton" disabled={occupe}
+                  onClick={() => void changer(l, 'retire', `Rattachement retiré : ${l.libelle}`)}>
+                  Retirer
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
 
       {/* ══ 🔴 LOT BIEN-RATTACHE — LE MENU S'OUVRE JUSTE SOUS SA LIGNE ═══════════════════════════════════════
           Il porte les DEUX zones — les propositions de l'automatisation, puis la recherche libre — et UNE seule
@@ -284,10 +331,17 @@ export function EncartRattachement({ messageId, filId, liens, onChange, onGeste,
   );
 }
 
-/** Le mot de la sorte, écrit en toutes lettres. PUR. */
-export function motSorte(s: 'lot' | 'proprietaire' | 'evenement'): string {
+/**
+ * Le mot de la sorte, écrit en toutes lettres. PUR.
+ *
+ * ⚠️ « Propriétaire » et « Locataire » RESTENT ICI, alors qu'on n'en écrit plus : 19 555 lignes historiques les
+ * portent, et elles doivent rester LISIBLES. Ce qui a changé, c'est l'endroit où elles s'affichent — jamais sous
+ * le titre « Bien(s) rattaché(s) ».
+ */
+export function motSorte(s: 'lot' | 'proprietaire' | 'locataire' | 'evenement'): string {
   if (s === 'lot') return 'Logement';
   if (s === 'proprietaire') return 'Propriétaire';
+  if (s === 'locataire') return 'Locataire';
   return 'Événement';
 }
 
@@ -311,6 +365,11 @@ export const CSS_ENCART_RATTACHEMENT = `
 .ert-ligne{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem;font-size:.85rem;color:var(--color-svv-ink);
   line-height:1.4;padding:0}
 .ert-ligne--propose{padding:4px 6px;border-radius:8px;border:1px dashed var(--color-svv-line)}
+/* 🔴🔴 UN RESTE D'ANCIEN MODÈLE. Le liseré rouge le distingue du reste — mais ce sont les MOTS du titre et du
+   motif qui portent l'information, jamais la couleur seule : la règle du module depuis la première capsule. */
+.ert-ancien-titre{color:var(--color-svv-red)}
+.ert-ligne--ancien{padding:4px 6px;border-radius:0 8px 8px 0;border-left:3px solid var(--color-svv-red);
+  background:var(--color-svv-field)}
 .ert-liste--defaits{opacity:.75}
 .ert-sorte{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.02em;
   color:var(--color-svv-muted);flex:0 0 auto}

@@ -34,9 +34,13 @@ let root: Root;
 let appels: { url: string; methode: string }[];
 let filCourant: Record<string, unknown>;
 let messages: Record<string, unknown>[];
-/** LOT BARRE-STATUT — ce que les deux lectures de rattachements répondent. Pilotées par le test. */
+/**
+ * LOT BARRE-STATUT — ce que les deux lectures de rattachements répondent. Pilotées par le test.
+ * LOT FICHE-RATTACHEMENT — une TROISIÈME lecture s'y ajoute : `?fiche=`, qui rend les BIENS de l'échange.
+ */
 let liensParMessage: Record<string, unknown[]>;
 let rattachementsDuFil: Record<string, unknown>;
+let ficheDuFil: Record<string, unknown>;
 /**
  * 🔴 LOT STATUT-HORS-GESTION — ce que la route des marques répond. `null` = migration 266 absente (`sans_schema`),
  * et l'écran doit alors griser l'option au lieu de la proposer.
@@ -50,6 +54,13 @@ beforeEach(() => {
   messages = [MESSAGE()];
   liensParMessage = {};
   rattachementsDuFil = { etat: 'ok', data: [] };
+  ficheDuFil = {
+    etat: 'ok',
+    data: {
+      filId: 5, objet: 'Fuite', nbMailsDuFil: 1, biens: [], horsGestion: false, messageRecentId: 900,
+      disponible: true,
+    },
+  };
   marquesHorsGestion = {};
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
@@ -73,6 +84,9 @@ beforeEach(() => {
       } as unknown as Response;
     }
     // LOT BARRE-STATUT — les rattachements du mail (bandeau) puis ceux de l'échange (fenêtre).
+    // ⚠️ `?fiche=` AVANT `?fil=` : les deux vivent dans la même route, et la seconde condition attraperait tout.
+    if (u.includes('/rattachements?fiche=')) return { ok: true, json: async () => ficheDuFil } as unknown as Response;
+    if (u.includes('/drive/dossier-du-bien')) return { ok: true, json: async () => ({ etat: 'ok', dossiers: [] }) } as unknown as Response;
     if (u.includes('/rattachements?fil=')) return { ok: true, json: async () => rattachementsDuFil } as unknown as Response;
     if (u.includes('/rattachements')) return { ok: true, json: async () => ({ etat: 'ok', data: liensParMessage }) } as unknown as Response;
     if (u.includes('/messages')) return { ok: true, json: async () => ({ fil: filCourant, messages, partis: [] }) } as unknown as Response;
@@ -310,10 +324,22 @@ describe('🔴 LOT BARRE-STATUT — « Visualiser / Modifier » dans l’en-têt
   it('🔴 le clic ouvre la FENÊTRE des rattachements, pas le menu de classement', async () => {
     liensParMessage = { '900': [lien()] };
     rattachementsDuFil = { etat: 'ok', data: [lien()] };
+    ficheDuFil = {
+      etat: 'ok',
+      data: {
+        filId: 5, objet: 'Fuite', nbMailsDuFil: 1, horsGestion: false, messageRecentId: 900, disponible: true,
+        biens: [{
+          cle: '513', adresseComplete: '12 rue des Lilas, 92400 COURBEVOIE', numeroLot: '513',
+          nature: 'Appartement', typeBien: 'Type 2', surfaceM2: null, statut: 'auto',
+          dateMail: '2026-09-20', nbMails: 1, dossierDriveId: null, lienIds: [1], personnes: [],
+        }],
+      },
+    };
     await monter();
     await cliquer(declencheur());
-    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Rattachements de l’échange');
-    expect(container.querySelector('.rdf-item')?.textContent).toContain('Lot 513 — 12 rue des Lilas');
+    // 🔴 LOT FICHE-RATTACHEMENT — le titre dit des BIENS, parce qu'il n'y a plus que des biens dessous.
+    expect(container.querySelector('#rdf-titre')?.textContent).toBe('Bien(s) de cet échange');
+    expect(container.querySelector('.rdf-item')?.textContent).toContain('12 rue des Lilas, 92400 COURBEVOIE');
     // …et surtout PAS le panneau de classement, qui répond à l'autre question.
     expect(classements).toEqual([]);
   });

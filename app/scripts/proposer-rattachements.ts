@@ -20,6 +20,7 @@
  *   --depuis=N             reprend après le fil N, au lieu du curseur calculé
  *   --recommencer          repart de zéro (curseur ignoré). N'EFFACE RIEN : tout est idempotent.
  *   --exemples=N           combien d'exemples de chaque catégorie afficher (défaut 10, 0 pour aucun)
+ *   --fils=1,2,3           n'examine QUE ces échanges — une passe de RATTRAPAGE, bornée et vérifiable
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 import '../lib/chargerEnv';
@@ -27,7 +28,8 @@ import { pathToFileURL } from 'node:url';
 import { query, closePool } from '../lib/db/client';
 import { rattachementsDisponibles, adressesMessagesDisponibles } from '../lib/gestion/schema';
 import {
-  chargerCatalogueBiens, chargerLibelles, chargerPaquet, curseurPasse, examinerPaquet, libelleCible, AUTEUR_MOTEUR,
+  chargerCatalogueBiens, chargerLibelles, chargerPaquet, curseurPasse, examinerFilsPrecis, examinerPaquet,
+  libelleCible, AUTEUR_MOTEUR,
   COMPTES_VIDES, PAQUET_FILS, type ComptesPasse, type LibellesCibles,
 } from '../lib/gestion/rattachementRepo';
 import { examinerMessage, type Issue } from '../lib/gestion/rattachement';
@@ -49,6 +51,18 @@ export interface Options {
    * signer « moteur de rattachement » les aurait rendus indiscernables du bruit quotidien.
    */
   auteurRetrait: string | null;
+  /**
+   * 🔴 LOT FICHE-RATTACHEMENT — LES ÉCHANGES À REPRENDRE, ET EUX SEULS (`--fils=1,2,3`).
+   *
+   * POURQUOI CETTE OPTION EXISTE. Le 28/09/2026 au soir, 17 liens « propriétaire » étaient nés d'un processus de
+   * relève qui tournait depuis la veille avec l'ancien moteur en mémoire. Les reprendre demandait de réexaminer
+   * SIX échanges — pas les 36 000 de la base. Relancer une passe complète aurait marché, mais aurait mêlé le
+   * rattrapage à trente minutes de bruit, et rendu ses chiffres illisibles.
+   *
+   * ⚠️ C'EST LE MÊME MOTEUR, LA MÊME ÉCRITURE ET LES MÊMES GARDE-FOUS qu'une passe ordinaire : seule la LISTE des
+   * fils change. Un second chemin de rattrapage aurait pu, lui, se tromper là où la passe ordinaire a raison.
+   */
+  fils: number[] | null;
 }
 
 /** Ce que la ligne de commande demande. PUR. */
@@ -74,6 +88,15 @@ export function lireOptions(argv: readonly string[]): Options {
     recommencer: argv.includes('--recommencer'),
     exemples: nombre('--exemples=', 10) ?? 10,
     auteurRetrait: texteApres('--auteur-retrait='),
+    // ⚠️ Les valeurs absurdes sont ÉCARTÉES, jamais transformées en zéro : un « 0 » désignerait le fil 0, qui
+    //   n'existe pas, et la passe dirait « rien à faire » au lieu de dire « votre liste est fausse ».
+    fils: (() => {
+      const brut = texteApres('--fils=');
+      if (brut === null) return null;
+      const ids = brut.split(',').map((x) => Number(x.trim()))
+        .filter((n) => Number.isSafeInteger(n) && n > 0);
+      return ids.length === 0 ? null : [...new Set(ids)];
+    })(),
   };
 }
 
@@ -236,18 +259,28 @@ async function principal(): Promise<void> {
   const debut = Date.now();
   const c: ComptesPasse = { ...COMPTES_VIDES };
 
-  let depuis = o.recommencer ? 0 : (o.depuis ?? (schemaPret ? await curseurPasse() : 0));
-  if (depuis > 0) console.log(`${P} reprise après le fil ${depuis}`);
+  const retrait = o.auteurRetrait === null ? undefined
+    : { auteur: o.auteurRetrait, motif: 'le moteur ne propose plus cette cible (changement de règle)' };
 
-  for (;;) {
-    if (o.limite !== null && c.filsVus >= o.limite) break;
-    const reste = o.limite === null ? PAQUET_FILS : Math.min(PAQUET_FILS, o.limite - c.filsVus);
-    const suivant = await examinerPaquet(depuis, reste, libelles, c, o.appliquer,
-      o.auteurRetrait === null ? undefined
-        : { auteur: o.auteurRetrait, motif: 'le moteur ne propose plus cette cible (changement de règle)' });
-    if (suivant === null) break;
-    depuis = suivant;
-    if (c.filsVus % (PAQUET_FILS * 5) === 0) console.log(ligneAvancement(c, filsTotal, depuis));
+  if (o.fils !== null) {
+    /**
+     * 🔴 LA PASSE DE RATTRAPAGE : les fils nommés, et eux seuls. Le CURSEUR N'EST PAS TOUCHÉ — ni lu, ni avancé.
+     * Une reprise bornée ne doit pas faire croire à la passe ordinaire qu'elle a déjà vu ces fils-là.
+     */
+    console.log(`${P} RATTRAPAGE borné : ${o.fils.length} échange(s) — ${o.fils.join(', ')}`);
+    await examinerFilsPrecis(o.fils, libelles, c, o.appliquer, retrait);
+  } else {
+    let depuis = o.recommencer ? 0 : (o.depuis ?? (schemaPret ? await curseurPasse() : 0));
+    if (depuis > 0) console.log(`${P} reprise après le fil ${depuis}`);
+
+    for (;;) {
+      if (o.limite !== null && c.filsVus >= o.limite) break;
+      const reste = o.limite === null ? PAQUET_FILS : Math.min(PAQUET_FILS, o.limite - c.filsVus);
+      const suivant = await examinerPaquet(depuis, reste, libelles, c, o.appliquer, retrait);
+      if (suivant === null) break;
+      depuis = suivant;
+      if (c.filsVus % (PAQUET_FILS * 5) === 0) console.log(ligneAvancement(c, filsTotal, depuis));
+    }
   }
 
   // ── LE RAPPORT ────────────────────────────────────────────────────────────────────────────────────────────────

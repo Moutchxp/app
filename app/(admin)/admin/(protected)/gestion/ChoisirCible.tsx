@@ -33,27 +33,26 @@ export function cleChoix(c: Cible): string {
 }
 
 /**
- * LES CIBLES QU'UNE LIGNE DE RÉSULTAT PROPOSE : son logement, et son propriétaire. PUR.
+ * LES CIBLES QU'UNE LIGNE DE RÉSULTAT PROPOSE : SON LOGEMENT, ET RIEN D'AUTRE. PUR.
  *
- * ⚠️ UNE LIGNE SANS LOT (un bailleur dont on ne gère rien) ne propose QUE le propriétaire ; une ligne de locataire
- * hors gestion n'en propose aucune, et on ne l'affiche pas plutôt que d'afficher une ligne inerte.
+ * 🔴🔴 LOT FICHE-RATTACHEMENT — LA CASE « PROPRIÉTAIRE » A ÉTÉ RETIRÉE D'ICI, et c'est le dernier endroit de
+ * l'interface d'où l'on pouvait encore rattacher un mail à une personne. On cherche « Menn », on trouve sa ligne,
+ * et l'on coche désormais SON LOGEMENT — le propriétaire en découle, à l'affichage comme dans l'historique.
+ *
+ * ⚠️ UNE LIGNE SANS LOT (un bailleur dont on ne gère aucun bien, un locataire hors gestion) ne propose donc plus
+ * RIEN, et n'est pas affichée. C'est voulu : une ligne qu'on ne peut pas cocher se lit comme une panne, et cocher
+ * son propriétaire ne rangerait le mail nulle part.
+ *
+ * ⚠️ LE NOM DU PROPRIÉTAIRE RESTE DANS LE LIBELLÉ DE LA LIGNE, parce qu'on cherche souvent par lui. Il identifie
+ * le bien ; il n'est plus une destination.
  */
 export function ciblesDeLaLigne(l: LigneResultat): CibleChoisie[] {
-  const out: CibleChoisie[] = [];
-  if (l.lotNumero !== null && l.lotNumero !== '') {
-    const lieu = [l.adresse, l.commune].map((x) => (x ?? '').trim()).filter((x) => x !== '').join(', ');
-    out.push({
-      cible: { sorte: 'lot', cle: l.lotNumero, id: null },
-      libelle: `${lieu === '' ? 'Adresse non renseignée' : lieu} — lot ${l.lotNumero}`,
-    });
-  }
-  if (l.proprietaireCle !== null && l.proprietaireCle !== '') {
-    out.push({
-      cible: { sorte: 'proprietaire', cle: l.proprietaireCle, id: null },
-      libelle: l.proprietaireNom.trim() === '' ? `propriétaire ${l.proprietaireCle}` : l.proprietaireNom,
-    });
-  }
-  return out;
+  if (l.lotNumero === null || l.lotNumero === '') return [];
+  const lieu = [l.adresse, l.commune].map((x) => (x ?? '').trim()).filter((x) => x !== '').join(', ');
+  return [{
+    cible: { sorte: 'lot', cle: l.lotNumero, id: null },
+    libelle: `${lieu === '' ? 'Adresse non renseignée' : lieu} — lot ${l.lotNumero}`,
+  }];
 }
 
 export function ChoisirCible({ titre, dejaLa, onValider, onAnnuler }: {
@@ -146,8 +145,9 @@ export function ChoisirCible({ titre, dejaLa, onValider, onAnnuler }: {
                 <label className={`chc-ligne${verrou ? ' chc-ligne--verrou' : ''}`}>
                   <input type="checkbox" checked={verrou || choisis.has(cle)} disabled={verrou}
                     onChange={() => basculer(c)} />
-                  {/* La SORTE est écrite en toutes lettres : « Logement » ou « Propriétaire ». Aucune couleur seule. */}
-                  <span className="chc-sorte">{c.cible.sorte === 'lot' ? 'Logement' : 'Propriétaire'}</span>
+                  {/* La SORTE est écrite en toutes lettres. Depuis le lot FICHE-RATTACHEMENT, il n'y en a plus
+                      qu'une : un mail se classe dans un LOGEMENT, jamais chez une personne. */}
+                  <span className="chc-sorte">Logement</span>
                   <span className="chc-nom">{c.libelle}</span>
                   {verrou && <span className="chc-note">déjà rattaché</span>}
                 </label>

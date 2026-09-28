@@ -378,7 +378,23 @@ describe('la ligne de commande', () => {
   it('sans option : SIMULATION, aucune limite, dix exemples, et le moteur signe ses retraits', () => {
     expect(lireOptions([])).toEqual({
       appliquer: false, limite: null, depuis: null, recommencer: false, exemples: 10, auteurRetrait: null,
+      // LOT FICHE-RATTACHEMENT — sans `--fils=`, la passe parcourt tout depuis le curseur, comme avant.
+      fils: null,
     });
+  });
+
+  /**
+   * 🔴 LOT FICHE-RATTACHEMENT — `--fils=` BORNE LA PASSE À DES ÉCHANGES NOMMÉS. C'est la forme d'un RATTRAPAGE :
+   * le 28/09/2026 au soir, 17 liens « propriétaire » nés d'un processus resté sur l'ancien moteur tenaient en six
+   * échanges. Relancer les 36 000 aurait noyé leurs chiffres dans trente minutes de bruit.
+   */
+  it('« --fils= » borne la passe à des échanges nommés, et écarte les valeurs absurdes', () => {
+    expect(lireOptions(['--fils=36475,334,307']).fils).toEqual([36475, 334, 307]);
+    // Doublons réduits, zéro et non-numérique écartés — jamais transformés en identifiant 0.
+    expect(lireOptions(['--fils=7, 7 ,0,abc,-3,9']).fils).toEqual([7, 9]);
+    // Une liste qui ne contient rien d'exploitable vaut « pas de liste » : la passe ordinaire reprend la main.
+    expect(lireOptions(['--fils=abc,0']).fils).toBeNull();
+    expect(lireOptions(['--fils=']).fils).toBeNull();
   });
 
   /**

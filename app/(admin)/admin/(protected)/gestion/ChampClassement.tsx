@@ -92,12 +92,15 @@ export function ChampClassement({ cibles, onChange }: {
   );
 }
 
-/** Le mot de la sorte, écrit en toutes lettres — jamais une couleur ni une icône seule. PUR. */
+/**
+ * Le mot de la sorte, écrit en toutes lettres — jamais une couleur ni une icône seule. PUR.
+ *
+ * 🔴 LOT FICHE-RATTACHEMENT — « Propriétaire » et « Locataire » ont disparu d'ici parce qu'elles ont disparu du
+ * TYPE : un mail ne se classe plus chez une personne. Les deux branches n'étaient pas mortes par hasard, elles
+ * l'étaient par décision, et TypeScript l'a dit à la compilation.
+ */
 function motSorte(s: CibleBrouillon['sorte']): string {
-  if (s === 'lot') return 'Logement';
-  if (s === 'proprietaire') return 'Propriétaire';
-  if (s === 'locataire') return 'Locataire';
-  return 'Événement';
+  return s === 'lot' ? 'Logement' : 'Événement';
 }
 
 export const CSS_CHAMP_CLASSEMENT = `

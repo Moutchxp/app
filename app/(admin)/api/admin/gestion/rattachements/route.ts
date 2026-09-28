@@ -4,6 +4,9 @@ import { auteurDeLaRequete } from '../../../../../lib/gestion/auteur';
 import {
   changerStatut, chiffresRattachement, fileATrier, liensDeLaPiece, liensDesMessages, liensDuFil, rattacher,
 } from '../../../../../lib/gestion/rattachementRepo';
+import { SORTES_RATTACHEMENT_PERMISES } from '../../../../../lib/gestion/rattachement';
+// LOT FICHE-RATTACHEMENT — la fiche d'un échange : ses biens, leurs parties, leurs coordonnées. Lecture seule.
+import { ficheRattachementDuFil } from '../../../../../lib/gestion/ficheRattachementRepo';
 import type { Cible, Issue, Statut } from '../../../../../lib/gestion/rattachement';
 
 /**
@@ -53,7 +56,15 @@ export function lireMessages(brut: string | null): number[] {
     .filter((x): x is number => x !== null).slice(0, MESSAGES_MAX);
 }
 
-const SORTES: readonly Cible['sorte'][] = ['lot', 'proprietaire', 'evenement'];
+/**
+ * 🔴🔴 LOT FICHE-RATTACHEMENT — LA LISTE VIENT DU MODULE PUR, elle n'est plus recopiée ici.
+ *
+ * `proprietaire` en est sortie. Elle y figurait encore le 28/09 au soir, et c'était la dernière porte par laquelle
+ * un lien « personne » pouvait naître d'un geste d'écran. La liste vit désormais à UN seul endroit
+ * (`rattachement.SORTES_RATTACHEMENT_PERMISES`) : une seconde copie ici finirait par dire autre chose, et ce
+ * serait cette copie-là qui commanderait, puisque c'est elle que la requête rencontre en premier.
+ */
+const SORTES: readonly Cible['sorte'][] = SORTES_RATTACHEMENT_PERMISES;
 const STATUTS: readonly Statut[] = ['propose', 'confirme', 'rejete', 'retire'];
 
 /**
@@ -100,6 +111,24 @@ export async function GET(request: Request): Promise<Response> {
      */
     const fil = identifiant(url.searchParams.get('fil'));
     if (fil !== null) return Response.json(await liensDuFil(fil), { headers: ENTETES });
+
+    /**
+     * 🔴 LOT FICHE-RATTACHEMENT — LA FICHE COMPLÈTE D'UN ÉCHANGE : ses biens, et tout ce qu'il faut savoir de
+     * chacun pour agir sans rouvrir WIPPIMMO (adresse, lot, nature, type, surface, statut, propriétaire et
+     * locataires à la date du mail avec leurs coordonnées, dossier Drive).
+     *
+     * ⚠️ ELLE VIT DANS LA MÊME ROUTE QUE `?fil=`, et non dans une route à part : « la SEULE porte des
+     * rattachements » est la promesse de ce fichier depuis le lot RATTACHEMENT-1. Une seconde route signifierait
+     * un second contrôle d'accès à tenir à jour, et c'est toujours le second qu'on oublie.
+     *
+     * 🔒 LECTURE SEULE. Aucune écriture n'est faite pour la construire — ni en base, ni dans le Drive : le lien
+     * vers le dossier est une ADRESSE que le navigateur ouvrira, jamais un appel de l'application à Google.
+     */
+    const fiche = identifiant(url.searchParams.get('fiche'));
+    if (fiche !== null) {
+      const f = await ficheRattachementDuFil(fiche);
+      return Response.json({ etat: f.disponible ? 'ok' : 'sans_schema', data: f }, { headers: ENTETES });
+    }
 
     if (url.searchParams.get('chiffres') !== null) {
       return Response.json(await chiffresRattachement(), { headers: ENTETES });

@@ -182,10 +182,16 @@ function Ligne({ intitule, valeur, fort = false }: { intitule: string; valeur: s
   );
 }
 
-/** Le mot du type, en toutes lettres. PUR. */
-export function motSorteLong(s: 'lot' | 'proprietaire' | 'evenement'): string {
+/**
+ * Le mot du type, en toutes lettres. PUR.
+ *
+ * ⚠️ « Propriétaire » et « Locataire » restent lisibles ici alors qu'on n'en écrit plus : des lignes d'avant la
+ * règle « bien » (28/09/2026) en portent encore, et c'est justement dans cette fenêtre qu'on vient les corriger.
+ */
+export function motSorteLong(s: 'lot' | 'proprietaire' | 'locataire' | 'evenement'): string {
   if (s === 'lot') return 'Logement';
   if (s === 'proprietaire') return 'Propriétaire';
+  if (s === 'locataire') return 'Locataire';
   return 'Événement';
 }
 

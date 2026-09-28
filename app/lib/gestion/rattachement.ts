@@ -34,7 +34,20 @@ import type { AdresseEchange } from './propositionTri';
 // LOT AFFECTATION-PAR-BIEN — la cible d'un classement est TOUJOURS un bien : le moteur de ce lot est le seul.
 import { proposerBiens, type BienConnu, type PropositionBien, type TextesDuMail } from './propositionsBien';
 
-export type CibleSorte = 'lot' | 'proprietaire' | 'evenement';
+/**
+ * LES SORTES DE CIBLE QU'UNE LIGNE DE `gestion_rattachement` PEUT PORTER, à la LECTURE.
+ *
+ * 🔴 `proprietaire` EST UNE SORTE D'HISTOIRE, PAS D'ÉCRITURE. 19 555 lignes la portent (toutes RETIRÉES depuis le
+ * rattrapage du 28/09 au soir) et doivent rester LISIBLES : les retirer du type ferait disparaître ces lignes de
+ * l'écran sans les avoir corrigées. Aucune voie ne peut plus les écrire — voir `SORTES_RATTACHEMENT_PERMISES`.
+ *
+ * ⚠️ `locataire` N'A JAMAIS EXISTÉ EN BASE : la contrainte `gestion_rattachement_sorte_chk` (migration 257) ne l'a
+ * jamais admise, et le compte est de 0 ligne. Elle figure ici — et dans les refus — parce que d'autres parties du
+ * module la nomment (`statutClassement.SORTES_BIEN`, le SQL de `classementBien`) et qu'Arno l'a explicitement
+ * visée : « aucune voie ne peut plus créer un lien propriétaire OU LOCATAIRE direct ». Interdire une chose qui
+ * n'est pas arrivée coûte une ligne ; l'oublier le jour où quelqu'un élargit la contrainte coûte un dossier client.
+ */
+export type CibleSorte = 'lot' | 'proprietaire' | 'locataire' | 'evenement';
 
 /**
  * CE À QUOI ON RATTACHE. Un lot ou un propriétaire par leur clé WIPPIMMO — la seule identité qui survive à un
@@ -85,6 +98,53 @@ export function cibleCourte(c: Cible): string {
 export function cibleLot(cle: string): Cible { return { sorte: 'lot', cle, id: null }; }
 export function cibleProprietaire(cle: string): Cible { return { sorte: 'proprietaire', cle, id: null }; }
 export function cibleEvenement(id: number): Cible { return { sorte: 'evenement', cle: null, id }; }
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LOT FICHE-RATTACHEMENT — LA LISTE BLANCHE DES CIBLES, ET POURQUOI ELLE EST ICI ET NULLE PART AILLEURS
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   LE DÉFAUT QU'ELLE FERME, constaté par Arno le 28/09/2026 au soir. Le mail « modification adresse mail »
+   d'Isabelle MENN (19:41) portait « BIEN(S) RATTACHÉ(S) : PROPRIÉTAIRE BALIABINE épouse MENN Isabelle (234) ».
+   Un nom de personne annoncé comme un bien rattaché — exactement la règle abandonnée le matin même.
+
+   🔴 LA CAUSE N'ÉTAIT PAS DANS LE CODE SUR LE DISQUE, ET C'EST TOUTE LA LEÇON. Le code de la relève appelait déjà
+   `proposerBiens`, qui ne rend que des lots. Mais le PROCESSUS de relève continue tournait depuis le 27/09 à
+   16h41 — soit AVANT la conversion du 28/09 à 14h26 — et exécutait, minute après minute, l'ancien moteur chargé
+   en mémoire. 17 liens « propriétaire » sont nés ainsi entre 15h23 et 23h11.
+
+   ⇒ D'OÙ CETTE LISTE, ET LE GARDE-FOU DE BASE QUI L'ACCOMPAGNE (migration 273). Un garde écrit en TypeScript ne
+   protège que le code qu'on vient de charger ; il ne peut rien contre un processus qui tourne depuis la veille.
+   Seule une contrainte dans la base arrête les deux. Les deux existent donc, et disent la même chose.
+
+   🔴 L'ÉVÉNEMENT RESTE UNE CIBLE, et ce n'est pas une exception à la règle : une carte d'événement n'est pas une
+   PERSONNE, c'est un dossier de travail. La règle d'Arno vise les personnes — « on ne range pas un litige chez un
+   propriétaire » —, pas les cartes.
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * LES SEULES SORTES DE CIBLE QU'UN RATTACHEMENT PEUT PORTER, par quelque voie que ce soit. PUR.
+ *
+ * ⚠️ `proprietaire` RESTE DANS LE TYPE `CibleSorte`, et c'est délibéré : 19 555 lignes historiques la portent et
+ * doivent rester LISIBLES. On n'efface pas le passé, on cesse d'en écrire.
+ */
+export const SORTES_RATTACHEMENT_PERMISES: readonly CibleSorte[] = ['lot', 'evenement'];
+
+/** Cette sorte peut-elle être écrite aujourd'hui ? PUR. */
+export function sortePermise(sorte: string): boolean {
+  return (SORTES_RATTACHEMENT_PERMISES as readonly string[]).includes(sorte);
+}
+
+/**
+ * LE MOTIF DU REFUS, EN TOUTES LETTRES, écrit UNE fois.
+ *
+ * 🔴 IL DIT QUOI FAIRE À LA PLACE. Un refus qui se contente d'interdire laisse devant un écran bloqué ; celui-ci
+ * nomme le geste juste — rattacher le BIEN — et rappelle que le propriétaire en découle tout seul.
+ */
+export function motifSorteRefusee(sorte: string): string {
+  const quoi = sorte === 'proprietaire' ? 'un propriétaire' : sorte === 'locataire' ? 'un locataire' : `« ${sorte} »`;
+  return `Un mail ne se rattache pas à ${quoi} : la cible d’un classement est toujours un BIEN. `
+    + 'Choisissez le logement concerné — son propriétaire et son locataire à la date du mail en découlent, '
+    + 'et n’ont donc rien à saisir.';
+}
 
 /** Les adresses UTILISABLES comme clé : ni les nôtres, ni celles que l'annuaire ne connaît pas. PUR. */
 export function adressesUtiles(adresses: readonly AdresseEchange[]): AdresseEchange[] {
