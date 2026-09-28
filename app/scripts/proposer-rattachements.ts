@@ -41,10 +41,25 @@ export interface Options {
   depuis: number | null;
   recommencer: boolean;
   exemples: number;
+  /**
+   * 🔴 L'ÉTIQUETTE DES RETRAITS DE CETTE PASSE (`--auteur-retrait=…`). Vide = le moteur signe, comme toujours.
+   *
+   * Elle sert aux passes de CONVERSION, quand une RÈGLE change : le 28/09/2026, la cible d'un classement est
+   * devenue un BIEN et non plus une personne, et 19 538 liens « propriétaire » se sont retirés d'un coup. Les
+   * signer « moteur de rattachement » les aurait rendus indiscernables du bruit quotidien.
+   */
+  auteurRetrait: string | null;
 }
 
 /** Ce que la ligne de commande demande. PUR. */
 export function lireOptions(argv: readonly string[]): Options {
+  /** La valeur d'une option textuelle, débarrassée de ses guillemets éventuels. PUR. */
+  const texteApres = (prefixe: string): string | null => {
+    const a = argv.find((x) => x.startsWith(prefixe));
+    if (a === undefined) return null;
+    const v = a.slice(prefixe.length).replace(/^["']|["']$/g, '').trim();
+    return v === '' ? null : v;
+  };
   const nombre = (prefixe: string, defaut: number | null): number | null => {
     const a = argv.find((x) => x.startsWith(prefixe));
     if (a === undefined) return defaut;
@@ -58,6 +73,7 @@ export function lireOptions(argv: readonly string[]): Options {
     depuis: nombre('--depuis=', null),
     recommencer: argv.includes('--recommencer'),
     exemples: nombre('--exemples=', 10) ?? 10,
+    auteurRetrait: texteApres('--auteur-retrait='),
   };
 }
 
@@ -226,7 +242,9 @@ async function principal(): Promise<void> {
   for (;;) {
     if (o.limite !== null && c.filsVus >= o.limite) break;
     const reste = o.limite === null ? PAQUET_FILS : Math.min(PAQUET_FILS, o.limite - c.filsVus);
-    const suivant = await examinerPaquet(depuis, reste, libelles, c, o.appliquer);
+    const suivant = await examinerPaquet(depuis, reste, libelles, c, o.appliquer,
+      o.auteurRetrait === null ? undefined
+        : { auteur: o.auteurRetrait, motif: 'le moteur ne propose plus cette cible (changement de règle)' });
     if (suivant === null) break;
     depuis = suivant;
     if (c.filsVus % (PAQUET_FILS * 5) === 0) console.log(ligneAvancement(c, filsTotal, depuis));

@@ -375,10 +375,27 @@ describe('les statuts : rien ne disparaît, tout se défait', () => {
 });
 
 describe('la ligne de commande', () => {
-  it('sans option : SIMULATION, aucune limite, dix exemples', () => {
+  it('sans option : SIMULATION, aucune limite, dix exemples, et le moteur signe ses retraits', () => {
     expect(lireOptions([])).toEqual({
-      appliquer: false, limite: null, depuis: null, recommencer: false, exemples: 10,
+      appliquer: false, limite: null, depuis: null, recommencer: false, exemples: 10, auteurRetrait: null,
     });
+  });
+
+  /**
+   * 🔴 L'ÉTIQUETTE DES RETRAITS — pour les passes de CONVERSION, quand une RÈGLE change. Sans elle, les 19 538
+   * liens « propriétaire » retirés le 28/09/2026 auraient été signés « moteur de rattachement », donc
+   * indiscernables du bruit quotidien dans le journal.
+   */
+  it('« --auteur-retrait= » étiquette les retraits, guillemets compris', () => {
+    expect(lireOptions(['--auteur-retrait=conversion règle bien 28/09']).auteurRetrait)
+      .toBe('conversion règle bien 28/09');
+    expect(lireOptions(['--auteur-retrait="conversion règle bien 28/09"']).auteurRetrait)
+      .toBe('conversion règle bien 28/09');
+  });
+
+  it('une étiquette vide vaut « pas d’étiquette » : le moteur signe, comme toujours', () => {
+    expect(lireOptions(['--auteur-retrait=']).auteurRetrait).toBeNull();
+    expect(lireOptions(['--auteur-retrait=   ']).auteurRetrait).toBeNull();
   });
 
   it('🔴 « --appliquer » est la SEULE façon d’écrire, et rien qui y ressemble ne l’active', () => {

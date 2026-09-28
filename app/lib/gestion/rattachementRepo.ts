@@ -302,6 +302,16 @@ async function ecrireLienMoteur(
  */
 async function retirerLiensPerimes(
   q: RequeteTx, messageId: number, gardees: readonly Cible[],
+  /**
+   * 🔴 QUI RETIRE, ET POURQUOI — étiquetable pour une passe de CONVERSION. Le défaut est le moteur, et c'est ce
+   * qu'on veut pour les passes ordinaires. Mais quand une RÈGLE change — le 28/09/2026, la cible d'un classement
+   * est devenue un BIEN et non plus une personne —, 19 538 liens se retirent d'un coup : les signer « moteur de
+   * rattachement » les rendrait indiscernables du bruit quotidien, et personne ne saurait, six mois après,
+   * pourquoi tous les rattachements « propriétaire » ont disparu le même jour.
+   */
+  retrait: { auteur: string; motif: string } = {
+    auteur: AUTEUR_MOTEUR.libelle, motif: 'le moteur ne propose plus cette cible',
+  },
 ): Promise<number> {
   const { rows } = await q<{ id: string; cible_sorte: string; cible_cle: string | null; cible_id: string | null }>(
     `SELECT id, cible_sorte, cible_cle, cible_id FROM gestion_rattachement
@@ -318,9 +328,8 @@ async function retirerLiensPerimes(
 
   const maj = await q(
     `UPDATE gestion_rattachement
-        SET statut = 'retire', statut_le = now(), statut_par_libelle = $2,
-            statut_motif = 'le moteur ne propose plus cette cible'
-      WHERE id = ANY($1::bigint[])`, [perimes, AUTEUR_MOTEUR.libelle]);
+        SET statut = 'retire', statut_le = now(), statut_par_libelle = $2, statut_motif = $3
+      WHERE id = ANY($1::bigint[])`, [perimes, retrait.auteur, retrait.motif]);
 
   /**
    * 🔴 CELUI-CI SE JOURNALISE, alors que la POSE d'un lien automatique ne se journalise pas. La différence n'est pas
@@ -336,7 +345,7 @@ async function retirerLiensPerimes(
       `INSERT INTO gestion_journal
          (entite, entite_id, action, valeur_avant, valeur_apres, commentaire, auteur_libelle)
        VALUES ('rattachement', $1, 'retirer', NULL, 'retire', $2, $3)`,
-      [id, 'le moteur ne propose plus cette cible', AUTEUR_MOTEUR.libelle]);
+      [id, retrait.motif, retrait.auteur]);
   }
   return maj.rowCount ?? 0;
 }
@@ -347,10 +356,12 @@ async function retirerLiensPerimes(
  */
 export async function examinerPaquet(
   depuis: number, nbFils: number, libelles: LibellesCibles, c: ComptesPasse, appliquer: boolean,
+  /** L'étiquette des retraits de cette passe. Absente = le moteur signe, comme toujours. */
+  retrait?: { auteur: string; motif: string },
 ): Promise<number | null> {
   const paquet = await chargerPaquet(depuis, nbFils);
   if (paquet.fils.length === 0) return null;
-  await examinerLePaquet(paquet, libelles, c, appliquer);
+  await examinerLePaquet(paquet, libelles, c, appliquer, retrait);
   return paquet.fils[paquet.fils.length - 1];
 }
 
@@ -364,14 +375,16 @@ export async function examinerPaquet(
  */
 export async function examinerFilsPrecis(
   filIds: readonly number[], libelles: LibellesCibles, c: ComptesPasse, appliquer: boolean,
+  retrait?: { auteur: string; motif: string },
 ): Promise<void> {
   if (filIds.length === 0) return;
-  await examinerLePaquet(await chargerFils(filIds), libelles, c, appliquer);
+  await examinerLePaquet(await chargerFils(filIds), libelles, c, appliquer, retrait);
 }
 
 /** LE CORPS COMMUN aux deux chemins. Une seule règle d'écriture, donc pas deux comportements possibles. */
 async function examinerLePaquet(
   paquet: Paquet, libelles: LibellesCibles, c: ComptesPasse, appliquer: boolean,
+  retrait?: { auteur: string; motif: string },
 ): Promise<void> {
   // ⚠️ UNE SEULE LECTURE DU CATALOGUE POUR TOUT LE PAQUET : il ne bouge pas pendant la passe.
   const catalogue = await chargerCatalogueBiens();
@@ -421,7 +434,7 @@ async function examinerLePaquet(
         else if (statut === 'confirme') c.liensEcrits += 1;
         else c.candidatsEcrits += 1;
       }
-      c.liensRetires += await retirerLiensPerimes(q, m.id, aEcrire.map((x) => x.cand.cible));
+      c.liensRetires += await retirerLiensPerimes(q, m.id, aEcrire.map((x) => x.cand.cible), retrait);
 
       await q(
         `INSERT INTO gestion_rattachement_examen (message_id, issue, candidats, adresses_utiles, motif, examine_le)
