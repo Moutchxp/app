@@ -113,8 +113,11 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
           titre, la liste et le bouton d'ajout étaient trois blocs empilés, séparés par des marges : six lignes de
           hauteur pour une information qui en tient une. Ils sont maintenant dans le MÊME conteneur souple, qui ne
           passe à la ligne que si la largeur ne suffit pas. Rien n'est retiré — seuls les blancs le sont. */}
+      {/* 🔴 LOT FICHE-PROPOSITION — « Bien(s) rattaché(s) : » ET NON PLUS « Rattaché à ». Demande d'Arno : cette
+          ligne parle des BIENS, jamais des événements, et son ancien intitulé ne le disait pas — on pouvait la lire
+          comme « rattaché à une carte », qui est l'autre question du module. Le reste de la ligne ne bouge pas. */}
       <div className="ert-tete">
-        <span className="ert-titre">Rattaché à</span>
+        <span className="ert-titre">Bien(s) rattaché(s) :</span>
         {vivants.length === 0 && <span className="ert-vide">rien pour l’instant</span>}
 
       {vivants.length > 0 && (
@@ -160,6 +163,26 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
         </button>
       )}
       </div>
+
+      {/* ══ 🔴 LOT FICHE-PROPOSITION — LA RECHERCHE S'OUVRE JUSTE SOUS SA LIGNE ═══════════════════════════════
+          Demande d'Arno. Elle s'ouvrait tout en bas de l'encart, après les propositions et les liens défaits :
+          on cliquait « + Rattacher à… » en haut, et le champ de saisie apparaissait hors du regard — parfois hors
+          de l'écran. Elle est maintenant le VOISIN IMMÉDIAT de la ligne qui l'appelle. */}
+      {ajout && (
+        <ChoisirCible titre="Rattacher ce mail à…"
+          dejaLa={[...vivants, ...candidats].map((l) => l.cible)}
+          onAnnuler={() => setAjout(false)}
+          onValider={async (choix: CibleChoisie[]) => {
+            let faits = 0;
+            for (const c of choix) {
+              // UN PAR UN, et non en lot : si le troisième échoue, les deux premiers restent posés — c'est ce qu'on
+              //   veut. Un envoi groupé qui échoue en bloc perdrait un travail de saisie déjà fait.
+              const ok = await agir({ messageId, cible: c.cible }, 'POST', `Rattaché à ${c.libelle}`);
+              if (ok) faits += 1;
+            }
+            if (faits > 0) setAjout(false);
+          }} />
+      )}
 
       {/* ══ 🔴 LOT AFFECTATION-PAR-BIEN — LES PROPOSITIONS SONT DES BIENS, TOUJOURS ══════════════════════════
           Demande d'Arno, sur un cas réel : « Contestation de la retenue de 450 € sur dépôt de garantie » proposait
@@ -220,22 +243,6 @@ export function EncartRattachement({ messageId, liens, onChange, onGeste, onHist
       )}
 
       {erreur !== null && <p className="gst-tronc" role="alert">{erreur}</p>}
-
-      {ajout && (
-        <ChoisirCible titre="Rattacher ce mail à…"
-          dejaLa={[...vivants, ...candidats].map((l) => l.cible)}
-          onAnnuler={() => setAjout(false)}
-          onValider={async (choix: CibleChoisie[]) => {
-            let faits = 0;
-            for (const c of choix) {
-              // UN PAR UN, et non en lot : si le troisième échoue, les deux premiers restent posés — c'est ce qu'on
-              //   veut. Un envoi groupé qui échoue en bloc perdrait un travail de saisie déjà fait.
-              const ok = await agir({ messageId, cible: c.cible }, 'POST', `Rattaché à ${c.libelle}`);
-              if (ok) faits += 1;
-            }
-            if (faits > 0) setAjout(false);
-          }} />
-      )}
 
       {/* LOT AFFECTATION-PAR-BIEN — « Hors gestion » et les cas fins (portée, pièces) passent par LA fenêtre de
           classement, jamais par une seconde implémentation : deux chemins finiraient par deux comportements. */}

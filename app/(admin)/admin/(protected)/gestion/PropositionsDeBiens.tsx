@@ -2,33 +2,41 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { planClassement } from '../../../../lib/gestion/gesteClassement';
-import type { ContexteClassement } from '../../../../lib/gestion/classementBien';
+import {
+  groupesParProprietaire, lienTelephone, locatairesDuBien, periodeOccupation, type PersonneFiche,
+} from '../../../../lib/gestion/ficheBien';
+import { BoutonCopier, CSS_BOUTON_COPIER } from './BoutonCopier';
+import type { BienProposable, ContexteClassement } from '../../../../lib/gestion/classementBien';
 
 /**
- * 🔴 LOT AFFECTATION-PAR-BIEN — « UNE PROPOSITION À TRANCHER » : DES BIENS, ET RIEN QUE DES BIENS.
+ * 🔴 LOT FICHE-PROPOSITION — L'ENCART D'UNE PROPOSITION DE BIEN, EN FICHE COMPLÈTE.
  *
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
- * LE DÉFAUT QU'ON CORRIGE, sur un cas réel vu par Arno le 28/09/2026 : le mail « Contestation de la retenue de 450 €
- * sur dépôt de garantie » (Comptabilité ADHOC) proposait « PROPRIÉTAIRE MARTY Jean-François (310) ». Ce n'est pas
- * une réponse : on ne range pas un litige de dépôt de garantie « chez un propriétaire », on le range dans LE
- * LOGEMENT dont le dépôt est contesté. Un propriétaire n'est pas un dossier — c'est une PARTIE d'un dossier.
+ * 🔴 CE QUE LE LOT PRÉCÉDENT AVAIT ÉTABLI, ET QUI NE BOUGE PAS : la cible d'un classement est TOUJOURS un BIEN. Le
+ * mail « Contestation de la retenue de 450 € » proposait « PROPRIÉTAIRE MARTY Jean-François » ; il propose
+ * désormais « 6 Rue Edouard Detaille — lot 449 ». Un propriétaire n'est pas un dossier, c'est une PARTIE d'un
+ * dossier — et c'est précisément pour cela qu'il a maintenant sa place, EN HAUT, comme information de contexte.
  *
- * 🔴 CHAQUE LIGNE EST UN BIEN, avec sous lui son PROPRIÉTAIRE et son LOCATAIRE À LA DATE DU MAIL (« vacant » quand
- * il n'y en a pas), et son MOTIF en clair. Le couple n'est jamais saisi : il est dérivé de la base d'occupations,
- * donc il ne peut pas se tromper de période.
+ * 🔴 CE QUE CE LOT-CI AJOUTE (demande d'Arno) : la fiche qu'on avait sous les yeux ne suffisait pas pour AGIR.
+ * Classer un mail, c'est presque toujours rappeler quelqu'un dans la foulée — et il fallait rouvrir WIPPIMMO dans
+ * un autre onglet pour trouver un numéro. L'encart porte donc :
+ *   ① EN HAUT, le ou les PROPRIÉTAIRES : une carte par personne, nom, téléphones, e-mails. Plusieurs bailleurs
+ *      candidats ⇒ un bloc par groupe de biens — un seul bandeau ferait croire qu'ils sont tous au même.
+ *   ② EN DESSOUS, un bloc PAR BIEN, en DEUX COLONNES ÉGALES : à gauche le bien (case à cocher, adresse complète,
+ *      n° de lot, caractéristiques de l'import, certitude, motif) ; à droite ses LOCATAIRES à la date du mail
+ *      (nom, téléphones, e-mails, période), ou « Vacant à cette date ».
+ *   ③ un bouton « Copier » en face de CHAQUE adresse et de CHAQUE numéro.
  *
- * 🔴 LES PROPOSITIONS ANCIENNES DE TYPE PROPRIÉTAIRE SONT MONTRÉES COMME LA LISTE DE LEURS BIENS, et RIEN n'est
- * réécrit en base tant que personne n'a validé. Une ligne ancienne n'est pas fausse : elle est seulement écrite
- * dans un vocabulaire qu'on n'emploie plus.
+ * ⚠️ SUR ÉCRAN ÉTROIT, LES DEUX COLONNES PASSENT L'UNE SOUS L'AUTRE (`grid-template-columns: 1fr` sous 720 px).
+ * L'exigence transverse du dépôt : tout écran d'administration doit être pleinement utilisable sur un téléphone.
  *
- * 🔴 VALIDATION OBLIGATOIRE, et c'est le SEUL moment où la base bouge. Cocher, décocher, changer d'avis, replier :
- * aucune écriture. Le plan de ce qui sera fait est calculé par un module PUR (`planClassement`), le même que celui
- * de la fenêtre de classement — deux implémentations donneraient un jour deux comportements.
+ * 🔴 RIEN N'EST RETIRÉ. « Valider », « Hors gestion », le classement par pièce et la portée mail/conversation sont
+ * exactement là où ils étaient, et font exactement ce qu'ils faisaient.
  *
- * ⚠️ IL NE CHARGE QU'UNE FOIS, ET SEULEMENT QUAND IL Y A QUELQUE CHOSE À TRANCHER : l'encart n'est rendu que pour
- * un message OUVERT, et l'appelant ne le monte que si ce message porte des propositions.
+ * 🔴 VALIDATION OBLIGATOIRE : cocher, décocher, changer d'avis, replier — aucune écriture. Le plan de ce qui sera
+ * fait vient du module PUR `planClassement`, le même que la fenêtre de classement.
  *
- * ⚠️ AUCUN IMPORT QUI TIRE `pg` : le type passe par `import type`, effacé à la compilation.
+ * ⚠️ AUCUN IMPORT QUI TIRE `pg` : les types passent par `import type`, effacés à la compilation.
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 export function PropositionsDeBiens({ messageId, occupe, onChange, onGeste, onClasser }: {
@@ -119,52 +127,61 @@ export function PropositionsDeBiens({ messageId, occupe, onChange, onGeste, onCl
   };
 
   const nb = contexte.biens.length;
+  const groupes = groupesParProprietaire(contexte.biens);
+  const fige = occupe || envoi.en_cours;
+
   return (
     <>
       <style>{CSS_PROPOSITIONS_BIENS}</style>
+      <style>{CSS_BOUTON_COPIER}</style>
       <p className="ert-sous-titre">
         {nb === 1 ? 'Une proposition à trancher' : `${nb} propositions à trancher`}
         {/* CE QUE LE MOTEUR CONCLUT, en une ligne : on doit pouvoir juger la proposition sans rouvrir le code. */}
         {contexte.examen && <span className="pdb-examen"> — {contexte.examen.motif}</span>}
       </p>
 
-      <ul className="pdb-liste">
-        {contexte.biens.map((b) => {
-          const proprio = b.parties.find((p) => p.role === 'proprietaire');
-          const locataires = b.parties.filter((p) => p.role === 'locataire');
-          return (
-            <li key={b.cle} className="pdb-item">
-              <label className="pdb-tete">
-                <input type="checkbox" checked={selection.includes(b.cle)} disabled={occupe || envoi.en_cours}
-                  onChange={() => basculer(b.cle)} />
-                <span className="pdb-nom">{b.libelle}</span>
-                <span className={`pdb-certitude${b.certitude === 'quasi_certaine' ? ' pdb-certitude--sure' : ''}`}>
-                  {b.certitude === 'quasi_certaine' ? 'Quasi certain' : 'À trancher'}
-                </span>
-                {b.dejaRattache && <span className="pdb-certitude">déjà rattaché</span>}
-              </label>
-              {/* 🔴 LE COUPLE DU BIEN, DÉRIVÉ DE LA DATE DU MAIL. « vacant » est une réponse : un blanc n'en est pas une. */}
-              <p className="pdb-parties">
-                <span className="pdb-role">Propriétaire :</span> {proprio?.nom ?? '(inconnu)'}
-                <span className="pdb-sep" aria-hidden="true"> · </span>
-                <span className="pdb-role">Locataire :</span>{' '}
-                {locataires.length === 0
-                  ? 'vacant à la date du mail'
-                  : locataires.map((l) => l.nom).join(', ')}
-              </p>
-              <p className="pdb-motif">{b.motif}</p>
-            </li>
-          );
-        })}
-      </ul>
+      {groupes.map((g, i) => (
+        <section className="pdb-groupe" key={g.cle === '' ? `sans-proprio-${i}` : g.cle}
+          aria-label={`Biens de ${g.personnes.map((p) => p.nom).join(', ') || 'propriétaire inconnu'}`}>
+
+          {/* ══ ① EN HAUT : LE OU LES PROPRIÉTAIRES ═══════════════════════════════════════════════════════════ */}
+          <div className="pdb-proprios">
+            <p className="pdb-groupe-titre">
+              {g.personnes.length > 1 ? 'Propriétaires' : 'Propriétaire'}
+              {g.biens.length > 1 && <span className="pdb-compte"> · {g.biens.length} biens</span>}
+            </p>
+            {g.personnes.length === 0
+              // Dire qu'on ne sait pas est une information ; un blanc n'en est pas une.
+              ? <p className="pdb-vide">Aucun propriétaire à l’annuaire pour ce bien.</p>
+              : (
+                <ul className="pdb-cartes">
+                  {g.personnes.map((p) => <CartePersonne key={`${p.role}|${p.cle}`} personne={p} />)}
+                </ul>
+              )}
+          </div>
+
+          {/* ══ ② UN BLOC PAR BIEN, EN DEUX COLONNES ÉGALES ═══════════════════════════════════════════════════ */}
+          <ul className="pdb-liste">
+            {g.biens.map((b) => (
+              <li key={b.cle} className="pdb-item">
+                <div className="pdb-deux">
+                  <ColonneBien bien={b} coche={selection.includes(b.cle)} fige={fige}
+                    onBasculer={() => basculer(b.cle)} />
+                  <ColonneLocataires bien={b} />
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
 
       <div className="pdb-boutons">
         <button type="button" className="svv-btn svv-btn-primary gst-btn"
-          disabled={occupe || envoi.en_cours || !aFaire} onClick={() => void valider()}>
+          disabled={fige || !aFaire} onClick={() => void valider()}>
           {envoi.en_cours ? 'Enregistrement…' : 'Valider'}
         </button>
         {/* « Hors gestion » et les cas fins passent par LA fenêtre de classement — une seule implémentation. */}
-        <button type="button" className="gst-lien-bouton" disabled={occupe || envoi.en_cours} onClick={onClasser}>
+        <button type="button" className="gst-lien-bouton" disabled={fige} onClick={onClasser}>
           Hors gestion, ou classer autrement…
         </button>
         <span className="pdb-resume" role="status">
@@ -177,22 +194,173 @@ export function PropositionsDeBiens({ messageId, occupe, onChange, onGeste, onCl
   );
 }
 
+/**
+ * LA COLONNE DE GAUCHE — LE BIEN. Case à cocher, adresse complète, n° de lot, caractéristiques de l'import,
+ * certitude et motif.
+ *
+ * 🔴 LES CARACTÉRISTIQUES VIENNENT DU MODULE PUR, pas d'un calcul fait ici : c'est lui qui sait ce que l'import
+ * porte vraiment, et qui écarte les champs vides. L'écran ne fait que les rendre.
+ */
+function ColonneBien({ bien, coche, fige, onBasculer }: {
+  bien: BienProposable; coche: boolean; fige: boolean; onBasculer: () => void;
+}) {
+  return (
+    <div className="pdb-col pdb-col--bien">
+      <label className="pdb-tete">
+        <input type="checkbox" checked={coche} disabled={fige} onChange={onBasculer} />
+        {/* ⚠️ LE N° DE LOT N'EST AJOUTÉ QU'À L'ADRESSE COMPLÈTE. Le `libelle` de repli le porte DÉJÀ
+            (« … — lot 442 ») : l'ajouter par-dessus écrivait « — lot 442 — lot 442 ». */}
+        <span className="pdb-nom">
+          {bien.adresseComplete
+            ? <>{bien.adresseComplete}<span className="pdb-lot"> — lot {bien.cle}</span></>
+            : bien.libelle}
+        </span>
+      </label>
+
+      <p className="pdb-marques">
+        <span className={`pdb-certitude${bien.certitude === 'quasi_certaine' ? ' pdb-certitude--sure' : ''}`}>
+          {bien.certitude === 'quasi_certaine' ? 'Quasi certain' : 'À trancher'}
+        </span>
+        {bien.dejaRattache && <span className="pdb-certitude">déjà rattaché</span>}
+      </p>
+
+      {/* ⚠️ UN CHAMP VIDE N'EST PAS DANS LA LISTE : le module pur l'a déjà écarté. Pas de tiret, pas de « inconnu ». */}
+      {(bien.caracteristiques ?? []).length > 0 && (
+        <dl className="pdb-carac">
+          {(bien.caracteristiques ?? []).map((c) => (
+            <div className="pdb-carac-ligne" key={c.libelle}>
+              <dt>{c.libelle}</dt>
+              <dd>{c.valeur}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+
+      <p className="pdb-motif">{bien.motif}</p>
+    </div>
+  );
+}
+
+/**
+ * LA COLONNE DE DROITE — LE OU LES LOCATAIRES À LA DATE DU MAIL.
+ *
+ * 🔴 « VACANT À CETTE DATE » EST UNE RÉPONSE. Une colonne vide se lirait « on n'a pas regardé » ; or on a regardé,
+ * et la base dit qu'aucun bail ne couvrait ce jour-là. C'est une information qui change la façon de traiter le mail.
+ */
+function ColonneLocataires({ bien }: { bien: BienProposable }) {
+  const locataires = locatairesDuBien(bien);
+  return (
+    <div className="pdb-col pdb-col--loc">
+      <p className="pdb-groupe-titre">
+        {locataires.length > 1 ? 'Locataires' : 'Locataire'}
+        <span className="pdb-compte"> · à la date du mail</span>
+      </p>
+      {locataires.length === 0
+        ? <p className="pdb-vide">Vacant à cette date.</p>
+        : (
+          <ul className="pdb-cartes">
+            {locataires.map((p) => <CartePersonne key={`${p.role}|${p.cle}`} personne={p} />)}
+          </ul>
+        )}
+    </div>
+  );
+}
+
+/**
+ * UNE CARTE DE PERSONNE : son nom, sa période s'il y en a une, puis ses moyens de contact.
+ *
+ * 🔴 UNE CARTE PAR PERSONNE, ET LE NOM N'EST JAMAIS DÉCOUPÉ. L'annuaire ne porte qu'un enregistrement par
+ * propriétaire, même pour une indivision (« MOTTAIS GRAINDORGE Didier et Sandrine ») : deux e-mails et un
+ * téléphone appartiennent alors au couple. Deviner lequel est à qui fabriquerait deux fiches fausses.
+ *
+ * 🔴 CHAQUE CONTACT EST CLIQUABLE **ET** COPIABLE. Cliquable pour agir tout de suite (`mailto:` ouvre l'éditeur,
+ * `tel:` compose sur un téléphone) ; copiable parce que, neuf fois sur dix, on colle l'adresse ailleurs — et
+ * qu'une adresse sélectionnée à la souris rate un caractère une fois sur trois.
+ */
+export function CartePersonne({ personne }: { personne: PersonneFiche }) {
+  const periode = periodeOccupation(personne.depuis, personne.jusqua);
+  const emails = personne.emails ?? [];
+  const telephones = personne.telephones ?? [];
+  return (
+    <li className="pdb-carte">
+      <p className="pdb-personne">{personne.nom}</p>
+      {periode !== null && <p className="pdb-periode">{periode}</p>}
+
+      {telephones.map((t) => {
+        const lien = lienTelephone(t);
+        return (
+          <p className="pdb-contact" key={`tel-${t}`}>
+            <span className="pdb-contact-sorte" aria-hidden="true">☎</span>
+            {/* Un lien d'appel SEULEMENT quand le numéro en est un : un `tel:` mort vaut moins qu'un texte. */}
+            {lien === null ? <span className="pdb-valeur">{t}</span>
+              : <a className="pdb-valeur pdb-lien" href={lien}>{t}</a>}
+            <BoutonCopier valeur={t} quoi={`le téléphone de ${personne.nom}`} />
+          </p>
+        );
+      })}
+
+      {emails.map((e) => (
+        <p className="pdb-contact" key={`mail-${e}`}>
+          <span className="pdb-contact-sorte" aria-hidden="true">✉</span>
+          <a className="pdb-valeur pdb-lien" href={`mailto:${e}`}>{e}</a>
+          <BoutonCopier valeur={e} quoi={`l’adresse e-mail de ${personne.nom}`} />
+        </p>
+      ))}
+
+      {/* Dire qu'on n'a AUCUN contact est une information : on sait alors qu'il faudra chercher ailleurs. */}
+      {telephones.length === 0 && emails.length === 0 && (
+        <p className="pdb-vide">Aucun contact à l’annuaire.</p>
+      )}
+    </li>
+  );
+}
+
 export const CSS_PROPOSITIONS_BIENS = `
 .pdb-examen{font-weight:400;color:var(--color-svv-muted)}
-.pdb-liste{display:flex;flex-direction:column;gap:6px;margin:4px 0 8px;padding:0;list-style:none}
-.pdb-item{padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem;
-  background:var(--color-svv-surface);min-width:0}
-.pdb-tete{display:flex;flex-wrap:wrap;align-items:center;gap:8px;min-height:32px;cursor:pointer;min-width:0}
-.pdb-nom{flex:1 1 12rem;min-width:0;font-size:.9rem;font-weight:600;color:var(--color-svv-ink);
+/* UN GROUPE = un propriétaire (ou un groupe de co-propriétaires) et SES biens. */
+.pdb-groupe{margin:0 0 10px;min-width:0}
+.pdb-proprios{padding:8px 10px;border:1px solid var(--color-svv-line);border-radius:.6rem .6rem 0 0;
+  border-bottom:0;background:var(--color-svv-field);min-width:0}
+.pdb-groupe-titre{margin:0 0 .3rem;font-size:.72rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;
+  color:var(--color-svv-muted)}
+.pdb-compte{font-weight:400;letter-spacing:0;text-transform:none}
+.pdb-cartes{display:flex;flex-wrap:wrap;gap:8px;margin:0;padding:0;list-style:none}
+.pdb-carte{flex:1 1 15rem;min-width:0;padding:6px 8px;border:1px solid var(--color-svv-line);border-radius:.5rem;
+  background:var(--color-svv-surface)}
+.pdb-personne{margin:0;font-size:.86rem;font-weight:700;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.pdb-periode{margin:.1rem 0 0;font-size:.76rem;color:var(--color-svv-muted)}
+.pdb-contact{display:flex;flex-wrap:wrap;align-items:center;gap:.4rem;margin:.25rem 0 0;font-size:.8rem;min-width:0}
+.pdb-contact-sorte{flex:0 0 auto;color:var(--color-svv-muted)}
+.pdb-valeur{flex:1 1 8rem;min-width:0;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.pdb-lien{text-decoration:underline;text-underline-offset:2px}
+.pdb-lien:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.pdb-vide{margin:.15rem 0 0;font-size:.78rem;font-style:italic;color:var(--color-svv-muted)}
+.pdb-liste{display:flex;flex-direction:column;gap:0;margin:0 0 8px;padding:0;list-style:none}
+.pdb-item{border:1px solid var(--color-svv-line);border-top:0;background:var(--color-svv-surface);min-width:0}
+.pdb-item:last-child{border-radius:0 0 .6rem .6rem}
+/* 🔴 DEUX COLONNES ÉGALES — et l'une SOUS l'autre des qu'on manque de place (exigence mobile du depot). */
+.pdb-deux{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:8px 10px;min-width:0}
+@media (max-width:720px){.pdb-deux{grid-template-columns:1fr}}
+.pdb-col{min-width:0}
+.pdb-col--loc{border-left:1px solid var(--color-svv-line);padding-left:10px}
+@media (max-width:720px){.pdb-col--loc{border-left:0;border-top:1px solid var(--color-svv-line);
+  padding-left:0;padding-top:8px}}
+.pdb-tete{display:flex;align-items:flex-start;gap:8px;min-height:32px;cursor:pointer;min-width:0}
+.pdb-tete input{margin-top:.25rem;flex:0 0 auto}
+.pdb-nom{flex:1 1 auto;min-width:0;font-size:.9rem;font-weight:600;color:var(--color-svv-ink);
   overflow-wrap:anywhere}
+.pdb-lot{font-weight:400;color:var(--color-svv-muted);white-space:nowrap}
+.pdb-marques{display:flex;flex-wrap:wrap;gap:6px;margin:.25rem 0 0 1.6rem}
 /* Le MOT est toujours ecrit : la couleur ne fait que l'appuyer. */
 .pdb-certitude{flex:0 0 auto;padding:.05rem .4rem;border-radius:999px;font-size:.7rem;font-weight:700;
   line-height:1.5;color:var(--color-svv-muted);border:1px solid var(--color-svv-line-strong)}
 .pdb-certitude--sure{color:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink)}
-.pdb-parties{margin:.25rem 0 0 1.6rem;font-size:.8rem;color:var(--color-svv-ink);overflow-wrap:anywhere}
-.pdb-role{font-size:.72rem;font-weight:700;letter-spacing:.03em;color:var(--color-svv-muted)}
-.pdb-sep{color:var(--color-svv-muted)}
-.pdb-motif{margin:.15rem 0 0 1.6rem;font-size:.78rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
+.pdb-carac{margin:.35rem 0 0 1.6rem;font-size:.78rem}
+.pdb-carac-ligne{display:flex;align-items:baseline;gap:.4rem;margin:0}
+.pdb-carac dt{flex:0 0 8.5rem;font-weight:700;color:var(--color-svv-muted)}
+.pdb-carac dt::after{content:' :'}
+.pdb-carac dd{flex:1 1 auto;margin:0;min-width:0;color:var(--color-svv-ink);overflow-wrap:anywhere}
+.pdb-motif{margin:.3rem 0 0 1.6rem;font-size:.78rem;color:var(--color-svv-muted);overflow-wrap:anywhere}
 .pdb-boutons{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:8px}
 .pdb-resume{font-size:.78rem;color:var(--color-svv-muted)}
 `;

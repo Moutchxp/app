@@ -25,10 +25,16 @@ let root: Root;
 let appels: { url: string; methode: string }[];
 let contexte: Record<string, unknown> | null;
 
-const partie = (role: string, nom: string, o: Record<string, unknown> = {}) => ({ role, cle: nom, nom, ...o });
+/** Une personne de l'annuaire. LOT FICHE-PROPOSITION : elle porte désormais ses moyens de contact. */
+const partie = (role: string, nom: string, o: Record<string, unknown> = {}) => ({
+  role, cle: nom, nom, emails: [], telephones: [], ...o,
+});
 const bien = (cle: string, o: Record<string, unknown> = {}) => ({
   cle, libelle: `18 rue Danton, Levallois-Perret — lot ${cle}`, adresse: '18 rue Danton',
   commune: 'Levallois-Perret', typeBien: 'appartement',
+  // LOT FICHE-PROPOSITION — l'adresse COMPLÈTE et les caractéristiques de l'import, calculées côté serveur.
+  adresseComplete: '18 rue Danton, 92300 Levallois-Perret',
+  caracteristiques: [{ libelle: 'Nature', valeur: 'Appartement' }, { libelle: 'Type', valeur: 'Type 4' }],
   parties: [partie('proprietaire', 'MARTY Jean-François'), partie('locataire', 'DUPONT Claire')],
   recommande: false, dejaRattache: false,
   motif: 'un des 2 biens de MARTY Jean-François', cas: 'c', certitude: 'a_trancher', ...o,
@@ -79,7 +85,8 @@ describe('🔴 ① chaque ligne est un BIEN, jamais une personne', () => {
   it('le bloc annonce des biens, avec leur adresse et leur n° de lot', async () => {
     await monter();
     expect(container.textContent).toContain('2 propositions à trancher');
-    expect(container.textContent).toContain('18 rue Danton, Levallois-Perret — lot 310a');
+    expect(container.textContent).toContain('18 rue Danton, 92300 Levallois-Perret');
+    expect(container.textContent).toContain('— lot 310a');
     expect(cases()).toHaveLength(2);
   });
 
@@ -91,18 +98,21 @@ describe('🔴 ① chaque ligne est un BIEN, jamais une personne', () => {
 });
 
 describe('🔴 ② ③ le couple du bien, à la date du mail, et le motif en clair', () => {
-  it('propriétaire ET locataire sont écrits sous chaque bien', async () => {
+  /**
+   * 🔴 LOT FICHE-PROPOSITION — LA MISE EN PAGE A CHANGÉ, ET C'EST LE CHANGEMENT DEMANDÉ. Le couple tenait sur une
+   * ligne « Propriétaire : … · Locataire : … ». Il est désormais STRUCTURÉ : le propriétaire en tête du groupe,
+   * les locataires dans la colonne de droite du bien, chacun avec ses contacts.
+   */
+  it('le propriétaire est en tête du groupe, le locataire dans la colonne de droite', async () => {
     await monter();
-    expect(container.textContent).toContain('Propriétaire :');
-    expect(container.textContent).toContain('MARTY Jean-François');
-    expect(container.textContent).toContain('Locataire :');
-    expect(container.textContent).toContain('DUPONT Claire');
+    expect(container.querySelector('.pdb-proprios')?.textContent).toContain('MARTY Jean-François');
+    expect(container.querySelector('.pdb-col--loc')?.textContent).toContain('DUPONT Claire');
   });
 
   it('🔴 un bien sans locataire à cette date est dit « vacant » — un blanc n’est pas une réponse', async () => {
     contexte = CONTEXTE({ biens: [bien('310a', { parties: [partie('proprietaire', 'MARTY Jean-François')] })] });
     await monter();
-    expect(container.textContent).toContain('vacant à la date du mail');
+    expect(container.querySelector('.pdb-col--loc')?.textContent).toContain('Vacant à cette date');
   });
 
   it('le motif est affiché tel quel, et la certitude aussi', async () => {
@@ -200,5 +210,204 @@ describe('les états où le bloc ne rend rien', () => {
     contexte = { messageId: 900, disponible: true };
     await monter();
     expect(container.querySelector('.pdb-liste')).toBeNull();
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT FICHE-PROPOSITION — LA FICHE : PROPRIÉTAIRES EN HAUT, DEUX COLONNES, BOUTONS « COPIER »
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe('🔴 ① les propriétaires, en haut, une carte par personne', () => {
+  it('le bloc propriétaire précède les biens, avec nom, téléphone et e-mail', async () => {
+    contexte = CONTEXTE({
+      biens: [bien('310a', {
+        parties: [
+          partie('proprietaire', 'MARTY Jean-François', {
+            emails: ['martyj.f@wanadoo.fr'], telephones: ['+33603050703'],
+          }),
+          partie('locataire', 'DUPONT Claire'),
+        ],
+      })],
+    });
+    await monter();
+    const haut = container.querySelector('.pdb-proprios');
+    expect(haut?.textContent).toContain('MARTY Jean-François');
+    expect(haut?.textContent).toContain('martyj.f@wanadoo.fr');
+    expect(haut?.textContent).toContain('+33603050703');
+    // …et il est bien AVANT la liste des biens dans le DOM.
+    const html = container.innerHTML;
+    expect(html.indexOf('pdb-proprios')).toBeLessThan(html.indexOf('pdb-liste'));
+  });
+
+  it('🔴 DEUX propriétaires différents ⇒ DEUX blocs : un seul ferait croire au même bailleur', async () => {
+    contexte = CONTEXTE({
+      biens: [
+        bien('1', { parties: [partie('proprietaire', 'BAILLEUR A')] }),
+        bien('2', { parties: [partie('proprietaire', 'BAILLEUR B')] }),
+      ],
+    });
+    await monter();
+    const blocs = [...container.querySelectorAll('.pdb-proprios')];
+    expect(blocs).toHaveLength(2);
+    expect(blocs[0].textContent).toContain('BAILLEUR A');
+    expect(blocs[1].textContent).toContain('BAILLEUR B');
+  });
+
+  it('🔴 une INDIVISION reste UNE carte, avec ses deux adresses : découper le nom ferait deux fiches fausses', async () => {
+    contexte = CONTEXTE({
+      biens: [bien('1', {
+        parties: [partie('proprietaire', 'MOTTAIS GRAINDORGE Didier et Sandrine', {
+          emails: ['didier@x.fr', 'sandrine@x.fr'], telephones: ['+33600000000'],
+        })],
+      })],
+    });
+    await monter();
+    const cartes = [...container.querySelectorAll('.pdb-proprios .pdb-carte')];
+    expect(cartes).toHaveLength(1);
+    expect(cartes[0].textContent).toContain('didier@x.fr');
+    expect(cartes[0].textContent).toContain('sandrine@x.fr');
+  });
+
+  it('aucun propriétaire à l’annuaire : on le DIT, on ne laisse pas un blanc', async () => {
+    contexte = CONTEXTE({ biens: [bien('1', { parties: [] })] });
+    await monter();
+    expect(container.querySelector('.pdb-proprios')?.textContent).toContain('Aucun propriétaire à l’annuaire');
+  });
+
+  it('une personne sans aucun contact : on le DIT aussi', async () => {
+    await monter();
+    expect(container.querySelector('.pdb-proprios')?.textContent).toContain('Aucun contact à l’annuaire');
+  });
+});
+
+describe('🔴 ② les deux colonnes : le bien à gauche, ses locataires à droite', () => {
+  it('chaque bien a ses deux colonnes', async () => {
+    await monter();
+    expect(container.querySelectorAll('.pdb-deux')).toHaveLength(2);
+    expect(container.querySelectorAll('.pdb-col--bien')).toHaveLength(2);
+    expect(container.querySelectorAll('.pdb-col--loc')).toHaveLength(2);
+  });
+
+  it('la colonne de gauche porte la case à cocher, l’adresse complète, le lot et les caractéristiques', async () => {
+    await monter();
+    const gauche = container.querySelector('.pdb-col--bien');
+    expect(gauche?.querySelector('input[type="checkbox"]')).not.toBeNull();
+    expect(gauche?.textContent).toContain('18 rue Danton, 92300 Levallois-Perret');
+    expect(gauche?.textContent).toContain('lot 310a');
+    expect(gauche?.textContent).toContain('Nature');
+    expect(gauche?.textContent).toContain('Appartement');
+    expect(gauche?.textContent).toContain('Type 4');
+  });
+
+  it('🔴 les CHAMPS ABSENTS de l’import ne sont pas affichés — pas même sous un tiret', async () => {
+    contexte = CONTEXTE({ biens: [bien('310a', { caracteristiques: [] })] });
+    await monter();
+    const gauche = container.querySelector('.pdb-col--bien');
+    expect(gauche?.querySelector('.pdb-carac')).toBeNull();
+    expect(gauche?.textContent).not.toContain('Nature');
+    // 🔴 Et surtout : rien d'inventé. La surface et l'étage ne sont pas dans l'import.
+    expect((gauche?.textContent ?? '').toLowerCase()).not.toContain('surface');
+    expect((gauche?.textContent ?? '').toLowerCase()).not.toContain('étage');
+  });
+
+  it('une réponse de serveur sans `caracteristiques` ne fait pas tomber l’écran', async () => {
+    contexte = CONTEXTE({ biens: [{ ...bien('310a'), caracteristiques: undefined }] });
+    await monter();
+    expect(container.querySelector('.pdb-col--bien')).not.toBeNull();
+  });
+
+  it('la colonne de droite porte le locataire À LA DATE DU MAIL, sa période et ses contacts', async () => {
+    contexte = CONTEXTE({
+      biens: [bien('310a', {
+        parties: [
+          partie('proprietaire', 'MARTY Jean-François'),
+          partie('locataire', 'ABIDI Aymen', {
+            depuis: '2024-07-31', jusqua: '2026-09-12',
+            emails: ['abidiaymen05@gmail.com'], telephones: ['+33605678857'],
+          }),
+        ],
+      })],
+    });
+    await monter();
+    const droite = container.querySelector('.pdb-col--loc');
+    expect(droite?.textContent).toContain('à la date du mail');
+    expect(droite?.textContent).toContain('ABIDI Aymen');
+    expect(droite?.textContent).toContain('du 31/07/2024 au 12/09/2026');
+    expect(droite?.textContent).toContain('abidiaymen05@gmail.com');
+    expect(droite?.textContent).toContain('+33605678857');
+  });
+
+  it('une COLOCATION rend DEUX cartes : n’en garder qu’une choisirait au hasard', async () => {
+    contexte = CONTEXTE({
+      biens: [bien('310a', {
+        parties: [partie('locataire', 'L1'), partie('locataire', 'L2')],
+      })],
+    });
+    await monter();
+    expect(container.querySelectorAll('.pdb-col--loc .pdb-carte')).toHaveLength(2);
+  });
+});
+
+describe('🔴 ③ le bouton « Copier », en face de chaque contact', () => {
+  const contexteAvecContacts = () => CONTEXTE({
+    biens: [bien('310a', {
+      parties: [
+        partie('proprietaire', 'MARTY Jean-François', {
+          emails: ['martyj.f@wanadoo.fr'], telephones: ['+33603050703'],
+        }),
+        partie('locataire', 'DUPONT Claire', { emails: ['claire@x.fr'] }),
+      ],
+    })],
+  });
+
+  it('il y a un bouton par adresse ET par numéro', async () => {
+    contexte = contexteAvecContacts();
+    await monter();
+    expect(boutons().filter((b) => /^Copier$/.test(b.textContent ?? ''))).toHaveLength(3);
+  });
+
+  it('🔴 un clic met la valeur dans le presse-papiers, et le DIT', async () => {
+    const ecrit: string[] = [];
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async (t: string) => { ecrit.push(t); } },
+    });
+    contexte = contexteAvecContacts();
+    await monter();
+    const premier = boutons().find((b) => /^Copier$/.test(b.textContent ?? ''));
+    await cliquer(premier);
+    expect(ecrit).toEqual(['+33603050703']);
+    // 🔴 LE RETOUR EST ÉCRIT : sans lui on reclique, et on ne sait jamais si le presse-papiers a pris.
+    expect(premier?.textContent).toBe('Copié');
+  });
+
+  it('🔴 un presse-papiers qui refuse est DIT « Échec », jamais annoncé comme copié', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText: async () => { throw new Error('refusé'); } },
+    });
+    // `execCommand` n'existe pas dans jsdom : le second chemin échoue lui aussi, ce qui est le cas éprouvé ici.
+    contexte = contexteAvecContacts();
+    await monter();
+    const premier = boutons().find((b) => /^Copier$/.test(b.textContent ?? ''));
+    await cliquer(premier);
+    expect(premier?.textContent).toBe('Échec');
+  });
+
+  it('les contacts sont aussi CLIQUABLES : `mailto:` pour écrire, `tel:` pour appeler', async () => {
+    contexte = contexteAvecContacts();
+    await monter();
+    const liens = [...container.querySelectorAll('a')].map((a) => a.getAttribute('href'));
+    expect(liens).toContain('mailto:martyj.f@wanadoo.fr');
+    expect(liens).toContain('tel:+33603050703');
+  });
+
+  it('un numéro qui n’en est pas un reste du texte : un lien d’appel mort vaut moins que rien', async () => {
+    contexte = CONTEXTE({
+      biens: [bien('310a', { parties: [partie('proprietaire', 'X', { telephones: ['n° inconnu'] })] })],
+    });
+    await monter();
+    expect([...container.querySelectorAll('a')].some((a) => (a.getAttribute('href') ?? '').startsWith('tel:')))
+      .toBe(false);
+    expect(container.textContent).toContain('n° inconnu');
   });
 });

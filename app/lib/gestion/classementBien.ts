@@ -2,6 +2,10 @@ import { query } from '../db/client';
 import { annuaireDisponible, rattachementsDisponibles, miniaturesDisponibles } from './schema';
 // LOT AFFECTATION-PAR-BIEN — le moteur des propositions est PUR : il décide, et il s'éprouve sans base.
 import { proposerBiens, type AdresseVue } from './propositionsBien';
+// LOT FICHE-PROPOSITION — ce qui s'affiche, et sous quel mot : un module PUR, éprouvé sans base ni écran.
+import {
+  adresseComplete, caracteristiquesDuLot, type CaracteristiqueLot, type PersonneFiche,
+} from './ficheBien';
 
 /**
  * MODULE « GESTION » — LOT STATUT-PAR-MAIL : CE QU'IL FAUT SAVOIR POUR CLASSER UN MAIL DANS UN BIEN. LECTURE SEULE.
@@ -29,16 +33,14 @@ import { proposerBiens, type AdresseVue } from './propositionsBien';
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
 
-/** Une partie d'un bien, à la date du mail. */
-export interface PartieBien {
-  role: 'proprietaire' | 'locataire';
-  /** La clé WIPPIMMO : la seule identité qui survive à un ré-import de l'annuaire. C'est elle, la cible. */
-  cle: string;
-  nom: string;
-  /** Renseignés pour un locataire : la période d'occupation qui couvre la date du mail. */
-  depuis?: string | null;
-  jusqua?: string | null;
-}
+/**
+ * Une partie d'un bien, à la date du mail.
+ *
+ * 🔴 LOT FICHE-PROPOSITION — elle porte désormais SES MOYENS DE CONTACT. Classer un mail sans avoir le téléphone
+ * du locataire sous les yeux obligeait à rouvrir WIPPIMMO dans un autre onglet pour la moitié des gestes qui
+ * suivent (rappeler, transférer, relancer). C'est `PersonneFiche` du module pur `ficheBien.ts`.
+ */
+export type PartieBien = PersonneFiche;
 
 /** Un bien proposé au classement, avec ses parties à la date du mail. */
 export interface BienProposable {
@@ -48,6 +50,13 @@ export interface BienProposable {
   adresse: string | null;
   commune: string | null;
   typeBien: string | null;
+  /**
+   * 🔴 LOT FICHE-PROPOSITION — TOUT CE QUE L'IMPORT WIPPIMMO PORTE POUR CE LOT, et rien d'autre. Les champs vides
+   * ne sont pas dans la liste : c'est `caracteristiquesDuLot` (module PUR) qui décide, pas l'écran.
+   */
+  caracteristiques: CaracteristiqueLot[];
+  /** L'adresse COMPLÈTE : voie, code postal, commune. Une adresse sans code postal n'est pas une adresse. */
+  adresseComplete: string;
   /** Le propriétaire et le ou les locataires du bien À LA DATE DU MAIL. */
   parties: PartieBien[];
   /**
@@ -101,7 +110,8 @@ export interface ContexteClassement {
  * choisirait arbitrairement lequel des deux existe.
  */
 const SQL_PARTIES = `
-  SELECT l.wippimmo_id AS cle, l.nom, o.entree::text AS depuis, o.sortie::text AS jusqua
+  SELECT l.id::text AS locataire_id, l.wippimmo_id AS cle, l.nom,
+         o.entree::text AS depuis, o.sortie::text AS jusqua
     FROM gestion_annuaire_occupation o
     JOIN gestion_annuaire_locataire l ON l.id = o.locataire_id
    WHERE o.lot_id = $1
@@ -112,7 +122,39 @@ const SQL_PARTIES = `
 interface LotDB {
   id: string; cle: string; adresse: string | null; commune: string | null; type_bien: string | null;
   proprietaire_cle: string | null; proprietaire_nom: string | null;
+  // LOT FICHE-PROPOSITION — les colonnes que l'import remplit vraiment (voir l'en-tête de `ficheBien.ts`).
+  code_postal: string | null; immeuble: string | null; nature: string | null;
+  gestion_debut: string | null; gestion_fin: string | null;
+  /** L'identifiant interne du propriétaire : c'est par lui qu'on retrouve ses contacts, en UNE requête. */
+  proprietaire_id: string | null;
 }
+
+/**
+ * ══ 🔴 LOT FICHE-PROPOSITION — LES MOYENS DE CONTACT, EN UNE SEULE REQUÊTE ═══════════════════════════════════════
+ *
+ * ⚠️ UNE REQUÊTE POUR TOUTES LES PERSONNES DE LA FICHE, jamais une par carte. Un mail d'un bailleur à huit lots
+ * affiche neuf personnes : neuf requêtes se verraient à l'écran, et c'est la règle du module depuis le bandeau
+ * « Rattaché à ».
+ *
+ * ⚠️ `absent_le IS NULL` : un contact disparu d'un ré-import n'est pas supprimé, il est DATÉ. L'afficher ferait
+ * appeler un numéro que WIPPIMMO ne donne plus.
+ *
+ * ⚠️ L'ORDRE EST CELUI DE L'IMPORT (`rang`) : la première adresse est celle que WIPPIMMO donne en premier, et
+ * c'est en général la bonne. Trier par ordre alphabétique remonterait une adresse secondaire en tête.
+ */
+const SQL_CONTACTS = `
+  SELECT sujet, sujet_id::text AS sujet_id, sorte, valeur
+    FROM gestion_annuaire_contact
+   WHERE absent_le IS NULL
+     AND ((sujet = 'proprietaire' AND sujet_id = ANY($1::bigint[]))
+       OR (sujet = 'locataire'    AND sujet_id = ANY($2::bigint[])))
+   ORDER BY sorte, rang, id`;
+
+/** Les contacts d'une personne, rangés par sorte. `null` quand on n'a rien lu pour elle. */
+type CarteContacts = Map<string, { emails: string[]; telephones: string[] }>;
+
+/** La clé d'une personne dans la carte des contacts : sa sorte et son identifiant interne. PUR. */
+function cleContact(sujet: string, sujetId: string | number): string { return `${sujet}|${sujetId}`; }
 
 /** Le libellé d'un bien, écrit UNE fois : deux formulations finiraient par se contredire d'un écran à l'autre. */
 export function libelleBien(l: { adresse: string | null; commune: string | null; cle: string }): string {
@@ -188,6 +230,9 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
    */
   const { rows: lots } = await query<LotDB>(
     `SELECT lo.id::text, lo.wippimmo_id AS cle, lo.adresse, lo.commune, lo.type_bien,
+            lo.code_postal, lo.immeuble, lo.nature,
+            lo.gestion_debut::text AS gestion_debut, lo.gestion_fin::text AS gestion_fin,
+            lo.proprietaire_id::text AS proprietaire_id,
             pr.wippimmo_id AS proprietaire_cle, pr.nom_complet AS proprietaire_nom
        FROM gestion_annuaire_lot lo
        LEFT JOIN gestion_annuaire_proprietaire pr ON pr.id = lo.proprietaire_id
@@ -243,24 +288,74 @@ export async function contexteClassement(messageId: number): Promise<ContexteCla
     }
   }
 
-  // ── ⑥ LES PARTIES DE CHAQUE BIEN, À LA DATE DU MAIL ──────────────────────────────────────────────────────────
+  /**
+   * ── ⑥ LES PARTIES DE CHAQUE BIEN, À LA DATE DU MAIL, ET LEURS MOYENS DE CONTACT ─────────────────────────────
+   * DEUX TEMPS, ET C'EST VOULU : on lit d'abord les occupations de chaque bien retenu (ils sont peu nombreux),
+   * puis TOUS les contacts en UNE requête. L'inverse — un aller-retour par personne — se verrait à l'écran.
+   */
+  const occupations = new Map<string, { locataireId: string; cle: string; nom: string;
+    depuis: string | null; jusqua: string | null }[]>();
+  for (const cle of aMontrer.keys()) {
+    const l = parCle.get(cle);
+    if (l === undefined) continue;
+    const { rows: loc } = await query<{
+      locataire_id: string; cle: string; nom: string; depuis: string | null; jusqua: string | null;
+    }>(SQL_PARTIES, [l.id, dateMail]);
+    occupations.set(cle, loc.map((x) => ({
+      locataireId: x.locataire_id, cle: x.cle, nom: x.nom, depuis: x.depuis, jusqua: x.jusqua,
+    })));
+  }
+
+  const idsProprios = [...new Set([...aMontrer.keys()]
+    .map((c) => parCle.get(c)?.proprietaire_id ?? null)
+    .filter((x): x is string => x !== null))];
+  const idsLocataires = [...new Set([...occupations.values()].flat().map((x) => x.locataireId))];
+
+  const contacts: CarteContacts = new Map();
+  if (idsProprios.length > 0 || idsLocataires.length > 0) {
+    const { rows: cts } = await query<{ sujet: string; sujet_id: string; sorte: string; valeur: string }>(
+      SQL_CONTACTS, [idsProprios, idsLocataires]);
+    for (const c of cts) {
+      const k = cleContact(c.sujet, c.sujet_id);
+      const e = contacts.get(k) ?? { emails: [], telephones: [] };
+      if (c.sorte === 'email') e.emails.push(c.valeur);
+      else if (c.sorte === 'telephone') e.telephones.push(c.valeur);
+      contacts.set(k, e);
+    }
+  }
+  const contactsDe = (sujet: string, id: string | null): { emails: string[]; telephones: string[] } =>
+    (id === null ? undefined : contacts.get(cleContact(sujet, id))) ?? { emails: [], telephones: [] };
+
   const biens: BienProposable[] = [];
   for (const [cle, info] of aMontrer) {
     const l = parCle.get(cle);
     if (l === undefined) continue;
-    const { rows: loc } = await query<{ cle: string; nom: string; depuis: string | null; jusqua: string | null }>(
-      SQL_PARTIES, [l.id, dateMail]);
     const parties: PartieBien[] = [];
     if (l.proprietaire_cle !== null) {
-      parties.push({ role: 'proprietaire', cle: l.proprietaire_cle, nom: l.proprietaire_nom ?? '(sans nom)' });
+      const c = contactsDe('proprietaire', l.proprietaire_id);
+      parties.push({
+        role: 'proprietaire', cle: l.proprietaire_cle, nom: l.proprietaire_nom ?? '(sans nom)',
+        emails: c.emails, telephones: c.telephones,
+      });
     }
-    for (const x of loc) {
-      parties.push({ role: 'locataire', cle: x.cle, nom: x.nom, depuis: x.depuis, jusqua: x.jusqua });
+    for (const x of occupations.get(cle) ?? []) {
+      const c = contactsDe('locataire', x.locataireId);
+      parties.push({
+        role: 'locataire', cle: x.cle, nom: x.nom, depuis: x.depuis, jusqua: x.jusqua,
+        emails: c.emails, telephones: c.telephones,
+      });
     }
+    const fiche = {
+      cle: l.cle, adresse: l.adresse, codePostal: l.code_postal, commune: l.commune,
+      immeuble: l.immeuble, nature: l.nature, typeBien: l.type_bien,
+      gestionDebut: l.gestion_debut, gestionFin: l.gestion_fin,
+    };
     biens.push({
       cle: l.cle,
       libelle: libelleBien({ adresse: l.adresse, commune: l.commune, cle: l.cle }),
       adresse: l.adresse, commune: l.commune, typeBien: l.type_bien,
+      adresseComplete: adresseComplete(fiche),
+      caracteristiques: caracteristiquesDuLot(fiche),
       parties,
       recommande: info.preCoche,
       motif: info.motif,
