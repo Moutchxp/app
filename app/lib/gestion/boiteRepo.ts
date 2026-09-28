@@ -31,7 +31,7 @@ import { query } from '../db/client';
 import { autoImposeParEtiquette, type Etiquette } from './ecranUrl';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 import { nonRemisesDesFils, type MentionNonRemise } from './nonRemiseRepo';
-import { corbeilleDisponible, spamDisponible, rattachementsDisponibles} from './schema';
+import { corbeilleDisponible, spamDisponible, rattachementsDisponibles, horsGestionDisponible } from './schema';
 import { etoilesDesFils } from './etoileRepo';
 
 /** Combien d'échanges par page. Assez pour remplir un écran de téléphone sans faire attendre. */
@@ -95,6 +95,14 @@ export interface LigneBoite {
    * n'est rendue, plutôt qu'une capsule rouge qui accuserait à tort.
    */
   classement: { nbActifs: number; parUnHumain: boolean; detail: string | null } | null;
+  /**
+   * 🔴 LOT STATUT-HORS-GESTION — ce MAIL (celui que la ligne représente) a-t-il été marqué « hors gestion » à la
+   * main ? Jamais posé automatiquement, et jamais prioritaire sur un rattachement réel : c'est `capsuleStatut` qui
+   * tranche. `false` quand la migration 266 manque — on n'invente pas un état qu'on n'a pas lu.
+   */
+  horsGestion?: boolean;
+  /** `prospection` | `interne` | `autre`, ou `null` : le motif est facultatif. */
+  motifHorsGestion?: string | null;
   /** Référence `GES-…` de la carte si l'échange y est affecté, sinon `null`. */
   reference: string | null;
   /** L'échange a-t-il été classé sans suite ? L'écran le DIT : la boîte montre tout, elle n'efface rien. */
@@ -188,6 +196,9 @@ interface LigneDB {
   cl_n: number | null;
   cl_humain: boolean | null;
   cl_detail: string | null;
+  /** LOT STATUT-HORS-GESTION — `null` quand la migration 266 manque : aucune capsule grise n'est alors rendue. */
+  hg_marque: boolean | null;
+  hg_motif: string | null;
 }
 
 /**
@@ -334,6 +345,8 @@ export function sqlPageBoite(
   etoilesSeules = false,
   /** LOT CAPSULE-STATUT — la migration 257 est-elle là ? Sinon aucune capsule, et pas une table nommée. */
   rattachements = false,
+  /** LOT STATUT-HORS-GESTION — la migration 266 est-elle là ? Sinon aucune capsule grise, et pas une table nommée. */
+  horsGestion = false,
 ): string {
   // Le filtre s'applique AUX DEUX ÉTAGES du parcours (le message candidat, et le « y a-t-il plus récent ? ») : les
   //   dissocier ferait sortir un échange dont le dernier message est écarté, avec l'avant-dernier comme aperçu.
@@ -429,6 +442,24 @@ export function sqlPageBoite(
             AND r.cible_sorte IN ('lot', 'proprietaire')
        ) cl ON true`;
 
+  /**
+   * ══ 🔴 LOT STATUT-HORS-GESTION — « CE MAIL NE CONCERNE AUCUN BIEN » ══════════════════════════════════════════
+   * La marque est posée SUR UN MAIL, et la ligne de liste EST un mail (celui que `page` a retenu, lot
+   * MESSAGE-CLIQUÉ) : on la lit donc sur `p.message_id`, pas sur tout l'échange. Griser une conversation entière
+   * parce qu'un seul de ses douze mails est une prospection dirait le contraire de ce que quelqu'un a décidé.
+   *
+   * ⚠️ ELLE NE L'EMPORTE JAMAIS SUR UN RATTACHEMENT : c'est `capsuleStatut` (module PUR) qui tranche, et la
+   * priorité y est Classé > Auto > Hors gestion > À classer. Cette jointure ne fait que RAPPORTER le fait.
+   *
+   * ⚠️ Sans la migration 266, la table n'est NOMMÉE NULLE PART et la requête est mot pour mot celle d'avant.
+   */
+  const jointureHorsGestion = !horsGestion ? '' : `LEFT JOIN LATERAL (
+         SELECT h.motif
+           FROM gestion_hors_gestion h
+          WHERE h.message_id = p.message_id AND h.retire_le IS NULL
+          LIMIT 1
+       ) hg ON true`;
+
   const estSpam = spam && etiquette.sorte !== 'spam';
   const filtreSpamM = estSpam ? 'AND m.spam_le IS NULL' : '';
   const filtreSpamM2 = estSpam ? 'AND m2.spam_le IS NULL' : '';
@@ -472,9 +503,11 @@ export function sqlPageBoite(
             (SELECT e.reference FROM gestion_affectation a JOIN gestion_evenement e ON e.id = a.evenement_id
               WHERE a.fil_id = p.fil_id AND a.actif AND a.message_id IS NULL LIMIT 1) AS reference,
             (f.etat = 'sans_suite') AS sans_suite,
-            cl.n AS cl_n, cl.humain AS cl_humain, cl.detail AS cl_detail
+            cl.n AS cl_n, cl.humain AS cl_humain, cl.detail AS cl_detail,
+            ${horsGestion ? 'hg.motif IS NOT NULL AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'}
        FROM page p JOIN gestion_fil f ON f.id = p.fil_id
        ${jointureClassement}
+       ${jointureHorsGestion}
        -- La jointure latérale sert encore : aux autres étiquettes (où le message de la ligne peut être un envoi
        --   comme une réception) pour trouver le correspondant, et à Envoyés pour retrouver le NOM du destinataire.
        --   Elle ne sert plus à Réception, où le message de la ligne EST le dernier reçu : rien à chercher.
@@ -550,6 +583,8 @@ export async function lireBoiteMail(
   const spam = await spamDisponible();
   // LOT CAPSULE-STATUT — même patron que les autres sondes : mémoïsée, posée hors transaction.
   const rattachements = await rattachementsDisponibles();
+  // LOT STATUT-HORS-GESTION — même patron, même raison : sans la 266, la table n'est nommée nulle part.
+  const horsGestion = await horsGestionDisponible();
   // LOT ERGO-BOITE-3 — les fils retenus arrivent APRÈS les paramètres de l'étiquette : leur rang dépend donc de
   //   l'étiquette ouverte, et il est calculé ici plutôt que deviné. Poser un paramètre puis calculer son rang à
   //   partir de `params.length` est le décalage d'un cran qui s'est déjà produit dans ce dépôt.
@@ -557,7 +592,8 @@ export async function lireBoiteMail(
   const retenus = options.filsRetenus;
   const rangRetenus = retenus === undefined ? null : 4 + paramsEtiquette.length;
   const { rows } = await query<LigneDB>(
-    sqlPageBoite(tous, etiquette, corbeille, spam, rangRetenus, options.etoilesSeules === true, rattachements),
+    sqlPageBoite(tous, etiquette, corbeille, spam, rangRetenus, options.etoilesSeules === true, rattachements,
+      horsGestion),
     // `infinity` plutôt qu'une date arbitraire : il n'existe aucun message après, quelle que soit l'horloge.
     [curseur?.dernierLe ?? 'infinity', curseur?.filId ?? '9223372036854775807', aLire,
       ...paramsEtiquette, ...(retenus === undefined ? [] : [[...retenus]])],
@@ -610,6 +646,9 @@ export async function lireBoiteMail(
       classement: r.cl_n === null && r.cl_humain === null && r.cl_detail === null
         ? null
         : { nbActifs: r.cl_n ?? 0, parUnHumain: r.cl_humain === true, detail: r.cl_detail },
+      // LOT STATUT-HORS-GESTION — `false` quand la migration 266 manque : aucune capsule grise, jamais par défaut.
+      horsGestion: r.hg_marque === true,
+      motifHorsGestion: r.hg_motif,
     })),
     suivant: aSuite && dernier ? { dernierLe: dernier.dernier_le, filId: dernier.fil_id } : null,
     // Le total N'EST COMPTÉ QUE pour la boîte entière. Sous une étiquette, c'est la colonne de gauche qui porte le

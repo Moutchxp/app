@@ -583,11 +583,14 @@ export function PleinEcranBoite({
                 )}
               </h3>
               {/* CE QUE CETTE LISTE NE MONTRE PAS, dit en toutes lettres, avec la sortie — comme partout dans le
-                  module depuis le lot 4b. Le poste de tri n'a jamais montré le courrier automatique ; maintenant il
-                  DIT où le trouver, au lieu de le taire. */}
+                  module depuis le lot 4b. Elle n'a jamais montré le courrier automatique ; maintenant elle DIT où
+                  le trouver, au lieu de le taire.
+                  🔴 LOT STATUT-HORS-GESTION — la phrase ne dit plus « le poste de tri » : cette liste répond à la
+                  question de l'ÉVÉNEMENT, qui est FACULTATIF, et « poste de tri » la faisait lire comme un arriéré
+                  de travail. Le tri des MAILS, lui, se fait dans la boîte de réception, mail par mail. */}
               {comptesAutomatiques !== null && comptesAutomatiques > 0 && (
                 <p className="gst-tronc">
-                  Le poste de tri n’a jamais montré le courrier automatique : {comptesAutomatiques} échange
+                  Cette liste n’a jamais montré le courrier automatique : {comptesAutomatiques} échange
                   {comptesAutomatiques > 1 ? 's' : ''} rest{comptesAutomatiques > 1 ? 'ent' : 'e'} hors de cette liste.
                   Rien n’est supprimé.{' '}
                   <button type="button" className="gst-lien-bouton"

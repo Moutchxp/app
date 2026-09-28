@@ -1,5 +1,5 @@
 import { query } from '../db/client';
-import { rattachementsDisponibles } from './schema';
+import { rattachementsDisponibles, horsGestionDisponible } from './schema';
 import { capsuleDuMessage, type CapsuleStatut } from './statutClassement';
 import { libelleExpediteur, type PartenaireInterne } from './partenaires';
 
@@ -39,8 +39,14 @@ export interface CurseurReception {
   messageId: string;
 }
 
-/** Le filtre rapide de la colonne. `tous` = aucun filtre, et c'est le défaut. */
-export type FiltreReception = 'tous' | 'a_classer' | 'classes';
+/**
+ * Le filtre rapide de la colonne. `tous` = aucun filtre, et c'est le défaut.
+ *
+ * 🔴 LOT STATUT-HORS-GESTION — `hors_gestion` est un QUATRIÈME filtre, et pas un sous-cas de « à classer » : ces
+ * mails ont reçu une réponse (« aucun bien »), ils ne sont plus en attente. Les laisser dans « À classer » aurait
+ * gardé un compteur qui ne descend jamais, ce qui est exactement le défaut qu'Arno a signalé.
+ */
+export type FiltreReception = 'tous' | 'a_classer' | 'classes' | 'hors_gestion';
 
 export interface LigneReception {
   messageId: number;
@@ -59,6 +65,8 @@ export interface LigneReception {
   capsule: CapsuleStatut | null;
   /** Les biens auxquels ce mail est rattaché, pour l'info-bulle. Vide quand il ne l'est à aucun. */
   biens: string[];
+  /** LOT STATUT-HORS-GESTION — le motif de la marque (`prospection` | `interne` | `autre`), ou `null`. */
+  motifHorsGestion: string | null;
 }
 
 export interface PageReception {
@@ -83,6 +91,28 @@ interface LigneDB {
   /** Rendus par la jointure latérale ; `null` quand la migration 257 est absente. */
   r_biens: string[] | null;
   r_manuel: boolean | null;
+  /** LOT STATUT-HORS-GESTION — `null` quand la migration 266 est absente : aucune capsule grise, jamais. */
+  hg_marque: boolean | null;
+  hg_motif: string | null;
+}
+
+/**
+ * ══ 🔴 LA MARQUE « HORS GESTION » DU MAIL, dans la MÊME requête ══════════════════════════════════════════════════
+ *
+ * ⚠️ Sans la migration 266, la table n'est NOMMÉE NULLE PART et la requête est mot pour mot celle d'avant.
+ */
+function jointureHorsGestion(avec: boolean): string {
+  if (!avec) return '';
+  /**
+   * ⚠️ `true AS marque` ET NON `hg.* IS NOT NULL`. Une marque SANS MOTIF (il est facultatif) ne rendrait qu'une
+   * colonne nulle : la ligne existerait, et le test l'aurait manquée. Un marqueur non nul dit « la ligne est là »
+   * sans dépendre de ce qu'elle contient. Piège classé, attrapé avant livraison.
+   */
+  return `LEFT JOIN LATERAL (
+       SELECT true AS marque, h.motif FROM gestion_hors_gestion h
+        WHERE h.message_id = m.id AND h.retire_le IS NULL
+        LIMIT 1
+     ) hg ON true`;
 }
 
 /**
@@ -113,9 +143,20 @@ function jointureRattachements(avec: boolean): string {
  * ⚠️ SANS LA MIGRATION 257, LE FILTRE NE PEUT RIEN DIRE : on rend alors la liste entière plutôt qu'une liste vide.
  * Une liste vide se lirait « il n'y a rien à classer », ce qui serait faux.
  */
-function filtreSql(f: FiltreReception, avecRattachements: boolean): string {
-  if (!avecRattachements || f === 'tous') return '';
-  return f === 'a_classer' ? 'AND rb.biens IS NULL' : 'AND rb.biens IS NOT NULL';
+function filtreSql(f: FiltreReception, avecRattachements: boolean, avecHorsGestion = false): string {
+  if (f === 'tous') return '';
+  /**
+   * 🔴 « HORS GESTION » SANS SA MIGRATION NE FILTRE RIEN, ET LE FILTRE N'EST PAS PROPOSÉ À L'ÉCRAN. Rendre une
+   * liste vide se lirait « aucun mail n'est hors gestion », ce qui serait faux : on n'en sait rien.
+   */
+  if (f === 'hors_gestion') return avecHorsGestion ? 'AND hg.marque IS NOT NULL' : '';
+  if (!avecRattachements) return '';
+  if (f === 'classes') return 'AND rb.biens IS NOT NULL';
+  /**
+   * 🔴 « À CLASSER » EXCLUT LES MAILS HORS GESTION. C'est tout l'objet de la marque : ils ont reçu une réponse, ils
+   * ne sont plus en attente. Sans cette ligne, le compteur « à classer » ne descendrait jamais.
+   */
+  return avecHorsGestion ? 'AND rb.biens IS NULL AND hg.marque IS NULL' : 'AND rb.biens IS NULL';
 }
 
 /**
@@ -131,6 +172,8 @@ export async function lireMailsRecus(
   o: { filtre?: FiltreReception; limite?: number; partenaires?: readonly PartenaireInterne[] } = {},
 ): Promise<PageReception> {
   const avec = await rattachementsDisponibles();
+  // LOT STATUT-HORS-GESTION — même patron : sans la 266, la table n'est nommée nulle part et rien ne change.
+  const avecHg = await horsGestionDisponible();
   const filtre = o.filtre ?? 'tous';
   const aLire = Math.min(Math.max(1, o.limite ?? PAGE_RECEPTION), 100) + 1;
 
@@ -139,13 +182,15 @@ export async function lireMailsRecus(
             left(coalesce(m.corps_texte, ''), ${LONGUEUR_EXTRAIT}) AS extrait,
             to_char(m.recu_le AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS recu_le,
             (SELECT count(*) FROM gestion_piece p WHERE p.message_id = m.id)::int AS nb_pieces,
-            ${avec ? 'rb.biens AS r_biens, rb.manuel AS r_manuel' : 'NULL::text[] AS r_biens, NULL::boolean AS r_manuel'}
+            ${avec ? 'rb.biens AS r_biens, rb.manuel AS r_manuel' : 'NULL::text[] AS r_biens, NULL::boolean AS r_manuel'},
+            ${avecHg ? 'hg.marque AS hg_marque, hg.motif AS hg_motif' : 'NULL::boolean AS hg_marque, NULL::text AS hg_motif'}
        FROM gestion_message m
        ${jointureRattachements(avec)}
+       ${jointureHorsGestion(avecHg)}
       WHERE m.sens = 'recu'
         AND m.spam_le IS NULL
         AND (m.recu_le, m.id) < ($1::timestamptz, $2::bigint)
-        ${filtreSql(filtre, avec)}
+        ${filtreSql(filtre, avec, avecHg)}
       ORDER BY m.recu_le DESC, m.id DESC
       LIMIT $3`,
     [curseur?.recuLe ?? 'infinity', curseur?.messageId ?? '9223372036854775807', aLire]);
@@ -165,7 +210,9 @@ export async function lireMailsRecus(
       const capsule: CapsuleStatut | null = !avec ? null : capsuleDuMessage(
         biens.map(() => ({
           cible: { sorte: 'lot' }, statut: 'confirme', origine: r.r_manuel === true ? 'manuel' : 'automatique',
-        })));
+        })),
+        // 🔴 LA PRIORITÉ EST TENUE PAR LE MODULE PUR : un mail rattaché reste vert, même marqué hors gestion.
+        r.hg_marque === true);
       return {
         // ⚠️ `pg` rend les `bigint` en CHAÎNE : sans cette conversion, les clés React et les comparaisons mentiraient.
         messageId: Number(r.message_id),
@@ -179,10 +226,11 @@ export async function lireMailsRecus(
         nbPieces: r.nb_pieces,
         capsule,
         biens,
+        motifHorsGestion: r.hg_motif,
       };
     }),
     suivant: aSuite && dernier ? { recuLe: dernier.recu_le, messageId: dernier.message_id } : null,
-    total: curseur === null ? await compterMailsRecus(filtre, avec) : null,
+    total: curseur === null ? await compterMailsRecus(filtre, avec, avecHg) : null,
   };
 }
 
@@ -190,11 +238,14 @@ export async function lireMailsRecus(
  * COMBIEN DE MAILS REÇUS correspondent au filtre. Compté À PART, et seulement à la première page : c'est la seule
  * requête un peu chère de l'écran, et la redemander à chaque « voir plus » la paierait pour rien.
  */
-export async function compterMailsRecus(filtre: FiltreReception, avec: boolean): Promise<number> {
+export async function compterMailsRecus(
+  filtre: FiltreReception, avec: boolean, avecHg = false,
+): Promise<number> {
   const { rows } = await query<{ n: number }>(
     `SELECT count(*)::int AS n
        FROM gestion_message m
        ${jointureRattachements(avec)}
-      WHERE m.sens = 'recu' AND m.spam_le IS NULL ${filtreSql(filtre, avec)}`);
+       ${jointureHorsGestion(avecHg)}
+      WHERE m.sens = 'recu' AND m.spam_le IS NULL ${filtreSql(filtre, avec, avecHg)}`);
   return rows[0]?.n ?? 0;
 }

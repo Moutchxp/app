@@ -22,6 +22,8 @@
  */
 import { query, withTransaction, type RequeteTx } from '../db/client';
 import { rattachementsDisponibles, spamDisponible} from './schema';
+// LOT STATUT-HORS-GESTION — rattacher un bien lève la marque « hors gestion » du mail (réversibilité naturelle).
+import { leverHorsGestionApresRattachement } from './horsGestionRepo';
 import { nomBien, nomProprietaire } from './driveArbre';
 import {
   cibleCourte, examinerMessage, memeCible, type Cible, type Candidat, type Issue, type Statut,
@@ -644,7 +646,26 @@ export async function rattacher(o: {
   const pieceId = o.pieceId ?? null;
   const id = identite(o.messageId, pieceId, o.cible);
 
-  return withTransaction(async (q) => {
+  /**
+   * 🔴 LOT STATUT-HORS-GESTION — RATTACHER UN BIEN LÈVE LA MARQUE « HORS GESTION » DE CE MAIL.
+   *
+   * C'est la réversibilité par le geste naturel, demandée par Arno : on ne devrait pas avoir à annuler d'abord pour
+   * pouvoir classer ensuite. La priorité d'affichage suffirait à montrer la bonne capsule, mais la marque resterait
+   * vivante et invisible — et le jour où le rattachement serait retiré, le mail redeviendrait gris sans que
+   * personne ne l'ait décidé.
+   *
+   * ⚠️ JAMAIS POUR UN ÉVÉNEMENT (règle métier ③ : l'événement est facultatif et ne dit rien des biens). Poser une
+   * carte lèverait sinon une décision humaine sur la foi d'une information qui ne répond pas à la question.
+   *
+   * ⚠️ APRÈS LA TRANSACTION, ET SANS LA FAIRE ÉCHOUER : c'est un rattrapage d'état, pas le geste lui-même. La
+   * fonction appelée avale ses propres erreurs et sonde la migration 266 avant de nommer sa table.
+   */
+  const leverLaMarque = async (): Promise<void> => {
+    if (o.cible.sorte === 'evenement') return;
+    await leverHorsGestionApresRattachement([o.messageId], o.auteur);
+  };
+
+  const issue = await withTransaction<IssueGeste>(async (q) => {
     const { rows: deja } = await q<{ id: string }>(
       `SELECT id FROM gestion_rattachement WHERE ${OU_IDENTITE} AND statut IN ('propose', 'confirme')`, id);
     if (deja.length > 0) {
@@ -673,6 +694,9 @@ export async function rattacher(o: {
       null, 'confirme');
     return { ok: true, id: Number(rows[0].id) };
   });
+
+  if (issue.ok) await leverLaMarque();
+  return issue;
 }
 
 /** Le libellé d'UNE cible, sans charger tout l'annuaire : le geste manuel n'en touche qu'une. */

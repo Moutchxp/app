@@ -33,6 +33,8 @@ vi.mock('./schema', () => ({
   spamDisponible: async () => spamConnu,
   nonRemiseDisponible: async () => false,
   rattachementsDisponibles: async () => true,
+  // LOT STATUT-HORS-GESTION — la 266 n'est pas le sujet de ce fichier : absente, la boîte est celle d'avant.
+  horsGestionDisponible: async () => false,
   deplacementsDeMailsDisponibles: async () => false,
   destinatairesSeparesDisponibles: async () => false,
 }));

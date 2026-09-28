@@ -272,23 +272,31 @@ export function etatVeille(v: VeilleReleve, maintenant: Date): EtatVeille {
 }
 
 /**
- * Pourquoi la FILE est vide — quatre situations, quatre phrases. Aucune ne prétend que tout va bien tant qu'on n'en est
- * pas sûr : tant que la relève n'a pas tourné, l'écran dit qu'il est aveugle.
+ * Pourquoi la FILE DES ÉCHANGES SANS ÉVÉNEMENT est vide — quatre situations, quatre phrases. Aucune ne prétend que
+ * tout va bien tant qu'on n'en est pas sûr : tant que la relève n'a pas tourné, l'écran dit qu'il est aveugle.
+ *
+ * 🔴 AUCUNE NE DIT PLUS « RIEN À CLASSER » (lot STATUT-HORS-GESTION, règle métier ③). Cette file répond à la
+ * question de l'ÉVÉNEMENT, qui est FACULTATIF : un échange sans événement n'est pas « à classer », et le dire ici
+ * réclamait un travail qui n'existe pas. « À classer » est réservé au STATUT D'UN MAIL — son rattachement à un bien.
  */
 export function messageFileVide(r: ReperesEcran): string {
   if (r.derniereReleveLe === null) {
-    return 'Rien à classer : la relève du courrier n’a pas encore été lancée, aucun message n’est donc arrivé jusqu’ici.';
+    return 'Aucun échange sans événement : la relève du courrier n’a pas encore été lancée, aucun message n’est donc arrivé jusqu’ici.';
   }
-  if (r.messagesCaptures === 0) return 'Rien à classer : la dernière relève n’a capturé aucun message.';
+  if (r.messagesCaptures === 0) return 'Aucun échange sans événement : la dernière relève n’a capturé aucun message.';
   if (r.messagesExclus >= r.messagesCaptures) {
-    return `Rien à classer : les ${r.messagesCaptures} messages capturés sont tous tenus hors de la file par une règle. Ils ne sont pas supprimés — éteindre une règle les fait revenir.`;
+    return `Aucun échange sans événement : les ${r.messagesCaptures} messages capturés sont tous tenus hors de la file par une règle. Ils ne sont pas supprimés — éteindre une règle les fait revenir.`;
   }
-  return 'Rien à classer : tous les échanges reçus ont déjà été affectés à un événement ou classés sans suite.';
+  return 'Aucun échange sans événement : tous les échanges reçus ont déjà été posés sur un événement ou classés sans suite.';
 }
 
-/** Pourquoi la colonne des CARTES est vide. Formulé sans jargon : on décrit le geste, pas le numéro du lot qui l'apportera. */
+/**
+ * Pourquoi la colonne des CARTES est vide. Formulé sans jargon : on décrit le geste, pas le numéro du lot qui
+ * l'apportera. 🔴 ET ON DIT QUE C'EST NORMAL : l'événement est FACULTATIF, une colonne vide n'est pas un retard.
+ */
 export function messageEvenementsVide(): string {
-  return 'Aucun événement pour l’instant. Une carte s’ouvrira depuis un échange de la file.';
+  return 'Aucun événement pour l’instant — ils sont facultatifs. Une carte s’ouvre depuis un échange quand une '
+    + 'demande attend une réponse de notre part.';
 }
 
 /** « 50 affichés sur 213 » — et rien du tout quand tout est montré (une précision inutile est du bruit). */
@@ -435,8 +443,17 @@ export const LIBELLE_CLASSER = 'Classer dans une carte';
  * toujours celle qu'on lit le moins qui garde l'ancienne version.
  */
 export const INTRO_GESTION =
-  'Courrier de gestion locative : à gauche les échanges à classer, à droite les événements. Un événement est une '
-  + 'demande qui attend une réponse de notre part, quel qu’en soit l’auteur.';
+  /**
+   * 🔴 LOT STATUT-HORS-GESTION — TEXTE DICTÉ PAR ARNO, MOT POUR MOT (28/09/2026).
+   *
+   * L'ancienne phrase disait « à gauche les échanges À CLASSER » : elle assimilait « pas encore posé sur un
+   * événement » à « à classer », ce qui est précisément la confusion que ces deux lots suppriment. La colonne de
+   * gauche n'est d'ailleurs plus une file d'échanges mais la BOÎTE DE RÉCEPTION, et l'événement y est dit
+   * FACULTATIF en toutes lettres.
+   */
+  'Courrier de gestion locative : à gauche la boîte de réception de gestion@criterimmo.fr, où chaque mail est '
+  + 'rattaché à un ou plusieurs biens, ou marqué hors gestion ; à droite les événements (facultatifs), '
+  + 'c’est-à-dire les demandes qui attendent une réponse de notre part.';
 
 /**
  * LOT 5-FIDÈLE — L'HEURE D'UN MESSAGE, ÉCRITE COMME GMAIL L'ÉCRIT.

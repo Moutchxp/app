@@ -37,6 +37,11 @@ let messages: Record<string, unknown>[];
 /** LOT BARRE-STATUT — ce que les deux lectures de rattachements répondent. Pilotées par le test. */
 let liensParMessage: Record<string, unknown[]>;
 let rattachementsDuFil: Record<string, unknown>;
+/**
+ * 🔴 LOT STATUT-HORS-GESTION — ce que la route des marques répond. `null` = migration 266 absente (`sans_schema`),
+ * et l'écran doit alors griser l'option au lieu de la proposer.
+ */
+let marquesHorsGestion: Record<string, { motif: string | null }> | null;
 
 beforeEach(() => {
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container);
@@ -45,6 +50,7 @@ beforeEach(() => {
   messages = [MESSAGE()];
   liensParMessage = {};
   rattachementsDuFil = { etat: 'ok', data: [] };
+  marquesHorsGestion = {};
   global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
     const u = String(url);
     const methode = init?.method ?? 'GET';
@@ -55,6 +61,16 @@ beforeEach(() => {
     }
     if (u.includes('/affectation') && methode === 'GET') {
       return { ok: true, json: async () => ({ propositions: { objet: 'Fuite salle de bain', demandeurNom: null, demandeurEmail: null, adresseLibre: null } }) } as unknown as Response;
+    }
+    // LOT STATUT-HORS-GESTION — les marques « ce mail ne concerne aucun bien ». AVANT `/rattachements` : les deux
+    //   adresses se ressemblent, et l'ordre des tests décide ici laquelle répond.
+    if (u.includes('/hors-gestion')) {
+      return {
+        ok: true,
+        json: async () => (marquesHorsGestion === null
+          ? { etat: 'sans_schema', data: {} }
+          : { etat: 'ok', data: marquesHorsGestion }),
+      } as unknown as Response;
     }
     // LOT BARRE-STATUT — les rattachements du mail (bandeau) puis ceux de l'échange (fenêtre).
     if (u.includes('/rattachements?fil=')) return { ok: true, json: async () => rattachementsDuFil } as unknown as Response;
@@ -498,7 +514,12 @@ describe('🔴 LOT STATUT-PAR-MAIL — la capsule du mail', () => {
  * ═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 describe('🔴 LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail »', () => {
   const capsule = () => container.querySelector('.cnv-capsule') as HTMLElement | null;
-  const radios = () => [...container.querySelectorAll('input[type="radio"]')] as HTMLInputElement[];
+  /**
+   * ⚠️ LES RADIOS SE DÉSIGNENT PAR LEUR GROUPE, JAMAIS PAR LEUR RANG. La fenêtre en porte désormais deux groupes
+   * (« Que faire de ce mail ? » et « Portée ») : un `[1]` nu désignait la portée hier et la réponse aujourd'hui.
+   */
+  const radios = (groupe = 'clm-portee') =>
+    [...container.querySelectorAll(`input[type="radio"][name="${groupe}"]`)] as HTMLInputElement[];
   const cases = () => [...container.querySelectorAll('.clm-bien input[type="checkbox"]')] as HTMLInputElement[];
   const resume = () => container.querySelector('.clm-resume')?.textContent ?? '';
   const valider = () => boutonPar(/^Valider le classement$/);
@@ -633,5 +654,137 @@ describe('🔴 LOT STATUT-PAR-MAIL — la fenêtre « Classer ce mail »', () =>
     await ouvrir(CONTEXTE({ disponible: false, biens: [] }));
     expect(container.textContent).toContain('n’est pas encore installé');
     expect(cases()).toHaveLength(0);
+  });
+});
+
+/**
+ * ══ 🔴 LOT STATUT-HORS-GESTION — « CE MAIL NE CONCERNE AUCUN BIEN », À L'ÉCRAN ═══════════════════════════════════
+ * Demande d'Arno. Ce qui est protégé ici :
+ *   ① la capsule GRISE apparaît dans l'en-tête du mail, avec son MOT ;
+ *   ② l'option est proposée dans la fenêtre de classement, et GRISÉE quand la migration 266 manque ;
+ *   ③ elle n'est JAMAIS pré-cochée : « rattacher » reste le défaut ;
+ *   ④ la validation appelle la route des marques, jamais celle des rattachements ;
+ *   ⑤ elle est RÉVERSIBLE : « Annuler hors gestion », et aussi le simple fait de rattacher un bien.
+ */
+describe('🔴 LOT STATUT-HORS-GESTION — la capsule grise et son geste', () => {
+  const capsule = () => container.querySelector('.cnv-capsule') as HTMLElement | null;
+  const reponses = () => [...container.querySelectorAll('input[type="radio"][name="clm-reponse"]')] as HTMLInputElement[];
+  const valider = () => boutonPar(/^Valider le classement$/);
+  const ecritures = () => appels.filter((a) => a.methode !== 'GET' && !a.url.includes('/lecture'));
+
+  const CONTEXTE = {
+    messageId: 900, filId: 101, dateMail: '2026-08-10T09:00:00Z', nbMailsDuFil: 1,
+    proprietaire: null, biens: [], disponible: true,
+  };
+  /** Un rattachement confirmé vers un LOT, tel que la route le rend (le même que plus haut dans ce fichier). */
+  const lienBien = (o: Record<string, unknown> = {}) => ({
+    id: 1, messageId: 900, pieceId: null, cible: { sorte: 'lot', cle: '445', id: 445 },
+    libelle: 'Lot 445 — 127 rue Gerhard, Puteaux', origine: 'automatique', statut: 'confirme', confiance: null,
+    regle: 'adresse', motif: null, adresses: [], parUnHumain: false,
+    creeLe: null, creePar: null, statutLe: null, statutPar: null, ...o,
+  });
+
+  const monterAvecFenetre = async () => {
+    const avant = global.fetch as unknown as typeof fetch;
+    global.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const u = String(url);
+      if (u.includes('/classement?message=')) {
+        appels.push({ url: u, methode: init?.method ?? 'GET' });
+        return { ok: true, json: async () => ({ etat: 'ok', contexte: CONTEXTE }) } as unknown as Response;
+      }
+      if (u.includes('/classement?fil=')) {
+        appels.push({ url: u, methode: init?.method ?? 'GET' });
+        return { ok: true, json: async () => ({ etat: 'ok', mails: [900] }) } as unknown as Response;
+      }
+      return avant(url, init);
+    }) as unknown as typeof fetch;
+    await monter();
+    await cliquer(capsule());
+  };
+
+  it('① un mail marqué porte la capsule GRISE, et le MOT est écrit', async () => {
+    liensParMessage = { '900': [] };
+    marquesHorsGestion = { '900': { motif: 'prospection' } };
+    await monter();
+    expect(capsule()?.textContent).toBe('Hors gestion');
+    expect(capsule()?.className).toContain('cnv-capsule--hors_gestion');
+  });
+
+  it('l’info-bulle dit que c’est une décision humaine, son motif, et comment la défaire', async () => {
+    liensParMessage = { '900': [] };
+    marquesHorsGestion = { '900': { motif: 'prospection' } };
+    await monter();
+    const t = capsule()?.getAttribute('title') ?? '';
+    expect(t).toContain('à la main');
+    expect(t).toContain('prospection');
+    expect(t).toContain('Rattacher un bien lève cette marque');
+  });
+
+  it('🔴 ⑤ un mail marqué PUIS rattaché à un bien redevient VERT : la marque ne l’emporte jamais', async () => {
+    liensParMessage = { '900': [lienBien({ origine: 'manuel' })] };
+    marquesHorsGestion = { '900': { motif: null } };
+    await monter();
+    expect(capsule()?.textContent).toBe('Classé');
+  });
+
+  it('sans la migration 266, aucune capsule grise : le mail reste « À classer »', async () => {
+    liensParMessage = { '900': [] };
+    marquesHorsGestion = null;
+    await monter();
+    expect(capsule()?.textContent).toBe('À classer');
+  });
+
+  it('② ③ l’option existe dans la fenêtre, et « rattacher » reste le DÉFAUT', async () => {
+    liensParMessage = { '900': [] };
+    await monterAvecFenetre();
+    expect(container.textContent).toContain('Hors gestion — ce mail ne concerne aucun bien');
+    const [biens, hors] = reponses();
+    expect(biens.checked).toBe(true);
+    expect(hors.checked).toBe(false);
+    expect(hors.disabled).toBe(false);
+  });
+
+  it('② sans la migration 266, l’option est GRISÉE et dit pourquoi', async () => {
+    liensParMessage = { '900': [] };
+    marquesHorsGestion = null;
+    await monterAvecFenetre();
+    const [, hors] = reponses();
+    expect(hors.disabled).toBe(true);
+    expect(container.textContent).toContain('pas encore installé sur cette base');
+  });
+
+  it('④ la validation appelle la route des MARQUES, et pas celle des rattachements', async () => {
+    liensParMessage = { '900': [] };
+    await monterAvecFenetre();
+    await cliquer(reponses()[1]);
+    expect(container.querySelector('.clm-resume')?.textContent).toContain('marqué « hors gestion »');
+    await cliquer(valider());
+    const e = ecritures();
+    expect(e).toHaveLength(1);
+    expect(e[0].url).toContain('/api/admin/gestion/hors-gestion');
+    expect(e[0].methode).toBe('POST');
+  });
+
+  it('⑤ « Annuler hors gestion » est offert sur un mail marqué, et passe par un DELETE', async () => {
+    liensParMessage = { '900': [] };
+    marquesHorsGestion = { '900': { motif: null } };
+    await monterAvecFenetre();
+    await cliquer(boutonPar(/^Annuler hors gestion$/));
+    expect(container.querySelector('.clm-resume')?.textContent).toContain('plus « hors gestion »');
+    await cliquer(valider());
+    const e = ecritures();
+    expect(e).toHaveLength(1);
+    expect(e[0].methode).toBe('DELETE');
+    expect(e[0].url).toContain('/api/admin/gestion/hors-gestion');
+  });
+
+  it('🔴 RIEN n’est écrit avant la validation — ouvrir, choisir, changer d’avis : aucune écriture', async () => {
+    liensParMessage = { '900': [] };
+    marquesHorsGestion = { '900': { motif: null } };
+    await monterAvecFenetre();
+    await cliquer(reponses()[1]);
+    await cliquer(reponses()[0]);
+    await cliquer(boutonPar(/^Annuler hors gestion$/));
+    expect(ecritures()).toEqual([]);
   });
 });

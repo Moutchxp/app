@@ -1,7 +1,7 @@
 'use client';
 
 // LOT BARRE-STATUT — le statut de la capsule décide du dernier bouton. Module PUR : aucun import qui tire `pg`.
-import type { CapsuleStatut } from '../../../../lib/gestion/statutClassement';
+import { actionDeLaCapsule, type CapsuleStatut } from '../../../../lib/gestion/statutClassement';
 
 /**
  * LOT LISTE-GMAIL — LA BARRE D'ACTIONS D'UNE LIGNE, AU SURVOL.
@@ -140,22 +140,27 @@ export function BarreLigne({ etat, confirme, onConfirmer, onEtoile, onLecture, o
       {/* ══ 🔴 e. LE BOUTON DE FIN DE BARRE SUIT LA CAPSULE — lot BARRE-STATUT, demande d'Arno ═══════════════════
              · capsule ROUGE « À classer » → « Classer », en ROUGE : le MÊME module d'affectation que le mail
                ouvert, pour rattacher l'échange et ses pièces. C'est le comportement d'avant ce lot, inchangé ;
-             · capsule VERTE « Classé » ou « Auto » → « Visualiser / Modifier », dans le MÊME vert que la capsule.
+             · capsule VERTE « Classé » ou « Auto » → « Visualiser / Modifier », dans le MÊME vert que la capsule ;
+             · capsule GRISE « Hors gestion » → « Visualiser / Modifier » aussi, mais en GRIS : le mail a bien une
+               réponse (« aucun bien »), elle se consulte et se défait — proposer « Classer » nierait la décision.
                Proposer « Classer » sur un échange déjà rangé posait une question à laquelle la ligne répondait
                déjà deux centimètres plus à gauche ; ce qu'on veut alors, c'est VOIR où il est rangé.
              ⚠️ LE BOUTON NE DISPARAÎT JAMAIS : la barre garde exactement le même nombre de commandes, à la même
              place. Seuls le mot et le ton changent — la cible du clic ne se déplace pas sous le doigt.
              ⚠️ SANS CAPSULE (`statut` absent : Brouillons, Spam, réponse de serveur plus ancienne que le lot
              CAPSULE-STATUT), on garde « Classer ». On ne devine pas un état qu'on n'a pas lu. */}
-      {etat.statut === 'classe' || etat.statut === 'auto' ? (
-        <button type="button" className="brl-bouton brl-bouton--vert" onClick={geste(onVisualiser ?? onClasser)}>
-          Visualiser / Modifier
-        </button>
-      ) : (
-        <button type="button" className="brl-bouton brl-bouton--rouge" onClick={geste(onClasser)}>
-          Classer
-        </button>
-      )}
+      {/* 🔴 LOT STATUT-HORS-GESTION — un TROISIÈME ton, le GRIS, pour « Hors gestion ». Le mot et le ton viennent
+          d'`actionDeLaCapsule` (module PUR) et non d'un `if` écrit ici : la barre, l'en-tête du mail ouvert et la
+          boîte de réception doivent s'accorder, et trois copies de la même règle finissent par diverger. */}
+      {(() => {
+        const a = actionDeLaCapsule(etat.statut);
+        return (
+          <button type="button" className={`brl-bouton brl-bouton--${a.ton}`}
+            onClick={geste(a.ton === 'rouge' ? onClasser : (onVisualiser ?? onClasser))}>
+            {a.mot}
+          </button>
+        );
+      })()}
     </span>
   );
 }
@@ -230,6 +235,8 @@ export const CSS_BARRE_LIGNE = `
 .brl-bouton:hover{background:var(--color-svv-field)}
 .brl-bouton:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:1px}
 .brl-bouton--rouge{color:var(--color-svv-red)}
+/* LOT STATUT-HORS-GESTION — le MEME gris que la capsule « Hors gestion ». Le MOT est ecrit dans les trois cas. */
+.brl-bouton--gris{color:var(--color-svv-muted)}
 /* LOT BARRE-STATUT — le MEME vert que la capsule « Classé » / « Auto » (var(--color-svv-green-ink)), pour qu'on
    lise d'un coup que le bouton parle de la capsule qui est juste a cote. Le MOT change aussi, toujours : la
    couleur seule resterait muette en niveaux de gris et pour un daltonien. */

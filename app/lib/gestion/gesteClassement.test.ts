@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { mailsVises, planClassement, resumeClassement } from './gesteClassement';
+import { mailsVises, planClassement, resumeClassement, resumeHorsGestion } from './gesteClassement';
 
 /**
  * LOT STATUT-PAR-MAIL — CE QUE « VALIDER LE CLASSEMENT » FAIT. Module PUR : on rejoue ici la conversation d'Arno
@@ -131,5 +131,151 @@ describe('🔴 LOT STATUT-PAR-MAIL — la phrase du résumé', () => {
 
   it('cumule classement et retrait dans une seule phrase lisible', () => {
     expect(resumeClassement(2, 1, 2)).toBe('2 mails classés sur 1 bien, 2 rattachements retirés.');
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT STATUT-HORS-GESTION — MARQUER, ANNULER, ET LA PORTÉE DES DEUX
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe('🔴 LOT STATUT-HORS-GESTION — marquer « ce mail ne concerne aucun bien »', () => {
+  it('marque le seul mail ouvert (portée par défaut), et le dit', () => {
+    const p = planClassement({
+      messageId: 2896, portee: 'mail', mailsSansManuel: [2896, 2830, 1449],
+      selection: [], existants: [], horsGestion: { geste: 'marquer', motif: 'prospection' },
+    });
+    expect(p.aMarquerHorsGestion).toEqual([2896]);
+    expect(p.aPoser).toEqual([]);
+    expect(p.motifHorsGestion).toBe('prospection');
+    expect(p.resume).toBe('1 mail marqué « hors gestion » (prospection).');
+  });
+
+  it('portée conversation : marque les trois mails sans classement posé à la main', () => {
+    const p = planClassement({
+      messageId: 2896, portee: 'conversation', mailsSansManuel: [2896, 2830, 1449],
+      selection: [], existants: [], horsGestion: { geste: 'marquer' },
+    });
+    expect(p.aMarquerHorsGestion).toEqual([1449, 2830, 2896]);
+    expect(p.resume).toBe('3 mails marqués « hors gestion ».');
+  });
+
+  it('le motif est FACULTATIF : sans lui, la phrase ne l’invente pas', () => {
+    const p = planClassement({
+      messageId: 5, portee: 'mail', mailsSansManuel: [5], selection: [], existants: [],
+      horsGestion: { geste: 'marquer', motif: null },
+    });
+    expect(p.motifHorsGestion).toBeNull();
+    expect(p.resume).not.toContain('(');
+  });
+
+  it('🔴 les biens cochés sont IGNORÉS : « aucun bien » et « ce bien » ne peuvent pas être vrais ensemble', () => {
+    const p = planClassement({
+      messageId: 5, portee: 'mail', mailsSansManuel: [5], selection: ['445', '446'], existants: [],
+      horsGestion: { geste: 'marquer' },
+    });
+    expect(p.aPoser).toEqual([]);
+  });
+
+  it('🔴 les rattachements du mail ouvert passent au statut « retiré » — jamais supprimés', () => {
+    const p = planClassement({
+      messageId: 2896, portee: 'conversation', mailsSansManuel: [2896, 1449],
+      selection: [], existants: [
+        { id: 9001, messageId: 2896, cle: '445' },
+        // Celui d'un AUTRE mail ne bouge pas : la fenêtre ne l'a pas montré.
+        { id: 9002, messageId: 1449, cle: '445' },
+      ],
+      horsGestion: { geste: 'marquer' },
+    });
+    expect(p.aRetirer).toEqual([9001]);
+    expect(p.resume).toContain('1 rattachement retiré');
+  });
+
+  it('ne remarque PAS un mail déjà marqué : le compte ne doit pas annoncer un geste qui n’aura pas lieu', () => {
+    const p = planClassement({
+      messageId: 2896, portee: 'conversation', mailsSansManuel: [2896, 2830],
+      selection: [], existants: [], horsGestion: { geste: 'marquer' }, dejaHorsGestion: [2896],
+    });
+    expect(p.aMarquerHorsGestion).toEqual([2830]);
+    expect(p.resume).toBe('1 mail marqué « hors gestion ».');
+  });
+
+  it('tout est déjà marqué ⇒ on le DIT, plutôt que de laisser croire qu’on vient d’agir', () => {
+    const p = planClassement({
+      messageId: 2896, portee: 'mail', mailsSansManuel: [2896],
+      selection: [], existants: [], horsGestion: { geste: 'marquer' }, dejaHorsGestion: [2896],
+    });
+    expect(p.aMarquerHorsGestion).toEqual([]);
+    expect(p.resume).toContain('déjà marqués');
+  });
+});
+
+describe('🔴 LOT STATUT-HORS-GESTION — la marque est RÉVERSIBLE, de deux façons', () => {
+  it('① « Annuler hors gestion » la retire, et rien d’autre ne bouge', () => {
+    const p = planClassement({
+      messageId: 2896, portee: 'mail', mailsSansManuel: [2896],
+      selection: [], existants: [{ id: 9001, messageId: 2896, cle: '445' }],
+      horsGestion: { geste: 'annuler' }, dejaHorsGestion: [2896],
+    });
+    expect(p.aAnnulerHorsGestion).toEqual([2896]);
+    expect(p.aPoser).toEqual([]);
+    // 🔴 ON NE RETIRE RIEN EN ANNULANT : revenir dans la file ne doit pas défaire un rattachement.
+    expect(p.aRetirer).toEqual([]);
+    expect(p.resume).toContain('plus « hors gestion »');
+  });
+
+  it('l’annulation suit la portée : toute la conversation, mais seulement les mails RÉELLEMENT marqués', () => {
+    const p = planClassement({
+      messageId: 2896, portee: 'conversation', mailsSansManuel: [2896, 2830, 1449],
+      selection: [], existants: [], horsGestion: { geste: 'annuler' }, dejaHorsGestion: [2896, 1449],
+    });
+    expect(p.aAnnulerHorsGestion).toEqual([1449, 2896]);
+    expect(p.resume).toContain('2 mails');
+  });
+
+  it('annuler ce qui n’est pas marqué ne fait rien, et le dit', () => {
+    const p = planClassement({
+      messageId: 5, portee: 'mail', mailsSansManuel: [5], selection: [], existants: [],
+      horsGestion: { geste: 'annuler' }, dejaHorsGestion: [],
+    });
+    expect(p.aAnnulerHorsGestion).toEqual([]);
+    expect(p.resume).toContain('rien à annuler');
+  });
+
+  it('② RATTACHER UN BIEN lève la marque — la réversibilité par le geste naturel, annoncée avant', () => {
+    const p = planClassement({
+      messageId: 2896, portee: 'mail', mailsSansManuel: [2896],
+      selection: ['445'], existants: [], dejaHorsGestion: [2896],
+    });
+    expect(p.aPoser).toEqual([{ messageId: 2896, cle: '445' }]);
+    expect(p.aAnnulerHorsGestion).toEqual([2896]);
+    expect(p.resume).toContain('marque « hors gestion » levée');
+  });
+
+  it('…mais ne lève rien quand on ne coche AUCUN bien : décocher n’est pas rattacher', () => {
+    const p = planClassement({
+      messageId: 2896, portee: 'mail', mailsSansManuel: [2896],
+      selection: [], existants: [{ id: 9001, messageId: 2896, cle: '445' }], dejaHorsGestion: [2896],
+    });
+    expect(p.aAnnulerHorsGestion).toEqual([]);
+  });
+
+  it('la levée suit la portée, et ne compte que les mails réellement marqués', () => {
+    const p = planClassement({
+      messageId: 10, portee: 'conversation', mailsSansManuel: [10, 11, 12],
+      selection: ['A'], existants: [], dejaHorsGestion: [11],
+    });
+    expect(p.aAnnulerHorsGestion).toEqual([11]);
+    expect(p.resume).toContain('marque « hors gestion » levée');
+  });
+});
+
+describe('🔴 LOT STATUT-HORS-GESTION — la phrase du résumé', () => {
+  it('accorde le pluriel, et nomme le motif quand il y en a un', () => {
+    expect(resumeHorsGestion('marquer', 1, null)).toBe('1 mail marqué « hors gestion ».');
+    expect(resumeHorsGestion('marquer', 4, 'interne')).toBe('4 mails marqués « hors gestion » (interne).');
+  });
+
+  it('dit le retour dans la file avec le bon verbe', () => {
+    expect(resumeHorsGestion('annuler', 1, null)).toContain('il revient dans la file');
+    expect(resumeHorsGestion('annuler', 3, null)).toContain('ils reviennent dans la file');
   });
 });

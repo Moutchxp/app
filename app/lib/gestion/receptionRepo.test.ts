@@ -20,7 +20,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const queryMock = vi.fn();
 vi.mock('../db/client', () => ({ query: (...a: unknown[]) => queryMock(...a) }));
 const migration257 = vi.fn(async () => true);
-vi.mock('./schema', () => ({ rattachementsDisponibles: () => migration257() }));
+/** LOT STATUT-HORS-GESTION — la 266, pilotée séparément : les deux migrations n'arrivent pas ensemble. */
+const migration266 = vi.fn(async () => true);
+vi.mock('./schema', () => ({
+  rattachementsDisponibles: () => migration257(), horsGestionDisponible: () => migration266(),
+}));
 
 import { lireMailsRecus, compterMailsRecus, PAGE_RECEPTION } from './receptionRepo';
 
@@ -52,7 +56,7 @@ const appelPage = () => queryMock.mock.calls.find((c) => !String(c[0]).includes(
 const sqlPage = () => String(appelPage()?.[0] ?? '').replace(/\s+/g, ' ');
 const paramsPage = () => (appelPage()?.[1] ?? []) as unknown[];
 
-beforeEach(() => { migration257.mockResolvedValue(true); rendre([]); });
+beforeEach(() => { migration257.mockResolvedValue(true); migration266.mockResolvedValue(true); rendre([]); });
 
 describe('🔴 un MAIL par ligne, pas une conversation', () => {
   it('lit les messages, et ne regroupe rien par échange', async () => {
@@ -202,7 +206,9 @@ describe('🔴 sans la migration 257 : on le DIT, on n’accuse pas', () => {
     migration257.mockResolvedValue(false);
     await lireMailsRecus(null);
     expect(sqlPage()).not.toContain('gestion_rattachement');
-    expect(sqlPage()).not.toContain('LEFT JOIN LATERAL');
+    // ⚠️ ON NOMME LA TABLE, PAS LA FORME. Chercher « LEFT JOIN LATERAL » confondait avec la jointure « hors
+    //    gestion », qui est une AUTRE migration et peut parfaitement être là quand celle-ci manque.
+    expect(sqlPage()).not.toContain(') rb ON true');
   });
 
   it('le filtre rapide ne vide PAS la liste : « il n’y a rien à classer » serait faux', async () => {

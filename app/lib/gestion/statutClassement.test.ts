@@ -1,10 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import {
-  actionsDuStatut, libelleCartouche, lienVersCarte, precisionCartouche, statutDuMessage, tonCartouche,
-  type EtatFil, type StatutClassement, capsuleStatut, motCapsule, bulleCapsule,
-  bulleCapsuleMessage, capsuleDuMessage, regrouperParBien, SORTES_BIEN,
-  type LienPourStatut, type LienPourRegroupement,
+  SORTES_BIEN, actionDeLaCapsule, actionsDuStatut, bulleCapsule, bulleCapsuleMessage, capsuleDuMessage, capsuleStatut, libelleCartouche, lienVersCarte, motCapsule, motMotifHorsGestion, precisionCartouche, regrouperParBien, statutDuMessage, tonCapsule, tonCartouche, type EtatFil, type LienPourRegroupement, type LienPourStatut, type StatutClassement,
 } from './statutClassement';
 import { ecrireEtatUrl } from './ecranUrl';
 
@@ -384,5 +381,112 @@ describe('🔴 LOT STATUT-PAR-MAIL — regrouper par bien', () => {
 
   it('une liste vide ne jette pas', () => {
     expect(regrouperParBien([])).toEqual([]);
+  });
+});
+
+/* ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴 LOT STATUT-HORS-GESTION — LES QUATRE STATUTS D'UN MAIL, ET LEUR PRIORITÉ
+   ══════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+describe('🔴 LOT STATUT-HORS-GESTION — quatre statuts, une seule priorité', () => {
+  const lien = (o: Record<string, unknown> = {}) => ({
+    cible: { sorte: 'lot' }, statut: 'confirme', origine: 'automatique', ...o,
+  } as Parameters<typeof capsuleDuMessage>[0][number]);
+
+  it('les quatre mots sont écrits, et aucun n’est porté par la seule couleur', () => {
+    expect(motCapsule('classe')).toBe('Classé');
+    expect(motCapsule('auto')).toBe('Auto');
+    expect(motCapsule('hors_gestion')).toBe('Hors gestion');
+    expect(motCapsule('a_classer')).toBe('À classer');
+  });
+
+  it('les trois tons : vert pour les deux verts, GRIS pour hors gestion, rouge pour à classer', () => {
+    expect(tonCapsule('classe')).toBe('vert');
+    expect(tonCapsule('auto')).toBe('vert');
+    expect(tonCapsule('hors_gestion')).toBe('gris');
+    expect(tonCapsule('a_classer')).toBe('rouge');
+  });
+
+  /** 🔴 LA PRIORITÉ DEMANDÉE PAR ARNO : Classé > Auto > Hors gestion > À classer. */
+  it('aucun rattachement + aucune marque ⇒ « À classer »', () => {
+    expect(capsuleDuMessage([], false)).toBe('a_classer');
+  });
+
+  it('aucun rattachement + une marque ⇒ « Hors gestion » (et non plus le rouge éternel)', () => {
+    expect(capsuleDuMessage([], true)).toBe('hors_gestion');
+  });
+
+  it('🔴 un rattachement AUTOMATIQUE l’emporte sur la marque : le mail est « Auto », pas gris', () => {
+    expect(capsuleDuMessage([lien()], true)).toBe('auto');
+  });
+
+  it('🔴 un rattachement POSÉ À LA MAIN l’emporte aussi : « Classé »', () => {
+    expect(capsuleDuMessage([lien({ origine: 'manuel' })], true)).toBe('classe');
+  });
+
+  it('🔴 c’est CE QUI REND LA MARQUE RÉVERSIBLE par le geste naturel : rattacher un bien la neutralise', () => {
+    // Même mail, même marque : seul le rattachement change, et la capsule repasse au vert d'elle-même.
+    expect(capsuleDuMessage([], true)).toBe('hors_gestion');
+    expect(capsuleDuMessage([lien({ origine: 'manuel' })], true)).toBe('classe');
+  });
+
+  it('un rattachement vers un ÉVÉNEMENT ne compte toujours pas — l’événement est FACULTATIF', () => {
+    expect(capsuleDuMessage([lien({ cible: { sorte: 'evenement' } })], true)).toBe('hors_gestion');
+    expect(capsuleDuMessage([lien({ cible: { sorte: 'evenement' } })], false)).toBe('a_classer');
+  });
+
+  it('une PROPOSITION non confirmée ne l’emporte pas sur la marque', () => {
+    expect(capsuleDuMessage([lien({ statut: 'propose' })], true)).toBe('hors_gestion');
+  });
+
+  it('la capsule d’un ÉCHANGE suit la même priorité, sur les mêmes mots', () => {
+    expect(capsuleStatut({ nbActifs: 0, parUnHumain: false })).toBe('a_classer');
+    expect(capsuleStatut({ nbActifs: 0, parUnHumain: false, horsGestion: true })).toBe('hors_gestion');
+    expect(capsuleStatut({ nbActifs: 2, parUnHumain: false, horsGestion: true })).toBe('auto');
+    expect(capsuleStatut({ nbActifs: 2, parUnHumain: true, horsGestion: true })).toBe('classe');
+  });
+
+  it('le bouton de fin de barre : « Visualiser / Modifier » en GRIS pour un mail hors gestion', () => {
+    expect(actionDeLaCapsule('hors_gestion')).toEqual({ mot: 'Visualiser / Modifier', ton: 'gris' });
+    expect(actionDeLaCapsule('classe')).toEqual({ mot: 'Visualiser / Modifier', ton: 'vert' });
+    expect(actionDeLaCapsule('auto')).toEqual({ mot: 'Visualiser / Modifier', ton: 'vert' });
+    expect(actionDeLaCapsule('a_classer')).toEqual({ mot: 'Classer', ton: 'rouge' });
+    // Sans capsule (Brouillons, Spam, réponse de serveur d'hier) : on garde « Classer », on ne devine pas.
+    expect(actionDeLaCapsule(null).mot).toBe('Classer');
+    expect(actionDeLaCapsule(undefined).mot).toBe('Classer');
+  });
+
+  it('l’info-bulle DIT que c’est une décision humaine, et qu’elle se défait', () => {
+    const b = bulleCapsuleMessage('hors_gestion', [], 'prospection');
+    expect(b).toContain('à la main');
+    expect(b).toContain('prospection');
+    expect(b).toContain('Rattacher un bien lève cette marque');
+  });
+
+  it('…et sans motif, elle ne l’invente pas', () => {
+    const b = bulleCapsuleMessage('hors_gestion', [], null);
+    expect(b).toContain('à la main');
+    expect(b).not.toContain('(');
+  });
+
+  it('le motif se dit en toutes lettres, et une valeur inconnue ne rend rien', () => {
+    expect(motMotifHorsGestion('prospection')).toBe('Prospection');
+    expect(motMotifHorsGestion('interne')).toBe('Interne (collègue)');
+    expect(motMotifHorsGestion('autre')).toBe('Autre');
+    expect(motMotifHorsGestion(null)).toBeNull();
+    expect(motMotifHorsGestion('n’importe quoi')).toBeNull();
+  });
+
+  /**
+   * 🔴 RÈGLE MÉTIER ③ — AUCUN TEXTE DE CE MODULE N'ASSIMILE « SANS ÉVÉNEMENT » À « À CLASSER ». C'est la
+   * vérification demandée par Arno, faite sur la source plutôt que sur une liste de phrases qu'on oublierait
+   * d'allonger.
+   */
+  it('🔴 aucune bulle ni aucun mot de statut ne parle d’événement', () => {
+    const tous = ['classe', 'auto', 'hors_gestion', 'a_classer'] as const;
+    for (const s of tous) {
+      expect(motCapsule(s).toLowerCase()).not.toContain('événement');
+      expect(bulleCapsuleMessage(s, ['Lot 445']).toLowerCase()).not.toContain('événement');
+      expect(bulleCapsule(s, 'Lot 445').toLowerCase()).not.toContain('événement');
+    }
   });
 });

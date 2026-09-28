@@ -111,7 +111,9 @@ describe('file vide — quatre situations, quatre phrases', () => {
 
   it('④ tout a été classé → c’est le seul cas où la file vide est une bonne nouvelle', () => {
     expect(messageFileVide({ derniereReleveLe: '2026-09-23T11:00:00Z', messagesCaptures: 40, messagesExclus: 3 }))
-      .toContain('déjà été affectés');
+      // 🔴 LOT STATUT-HORS-GESTION — la phrase ne dit plus « rien à classer » : cette file répond à la question de
+      //    l'ÉVÉNEMENT, qui est FACULTATIF. Réclamer un classement pour une carte absente était le défaut.
+      .toContain('déjà été posés sur un événement');
   });
 
   it('les quatre phrases sont DISTINCTES (sinon la distinction ne servirait à rien)', () => {

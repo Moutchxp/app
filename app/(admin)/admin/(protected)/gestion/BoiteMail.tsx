@@ -15,7 +15,26 @@ import {
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import { corpsLisible } from '../../../../lib/gestion/lisibilite';
 import { nettoyerObjet } from '../../../../lib/gestion/objet';
-import { bulleCapsule, capsuleStatut, motCapsule } from '../../../../lib/gestion/statutClassement';
+import {
+  bulleCapsule, capsuleStatut, motCapsule, motMotifHorsGestion, type CapsuleStatut,
+} from '../../../../lib/gestion/statutClassement';
+
+/**
+ * 🔴 LOT STATUT-HORS-GESTION — LE STATUT D'UNE LIGNE DE LISTE, calculé EN UN SEUL ENDROIT.
+ *
+ * La capsule affichée et le bouton de fin de barre doivent dire la MÊME chose : les calculer séparément, c'est
+ * garantir qu'un jour l'un des deux oubliera le gris. `capsuleStatut` (module PUR) tient la priorité —
+ * Classé > Auto > Hors gestion > À classer.
+ */
+function capsuleDeLaLigne(l: {
+  classement: { nbActifs: number; parUnHumain: boolean } | null; horsGestion?: boolean;
+}): CapsuleStatut {
+  return capsuleStatut({
+    nbActifs: l.classement?.nbActifs ?? 0,
+    parUnHumain: l.classement?.parUnHumain === true,
+    horsGestion: l.horsGestion === true,
+  });
+}
 // LOT BARRE-STATUT — la fenêtre « Visualiser / Modifier », ouverte par-dessus la liste.
 import { RattachementsDuFil } from './RattachementsDuFil';
 import { CSS_MENU_LIGNE, MenuLigne } from './MenuLigne';
@@ -996,10 +1015,16 @@ export function BoiteMail({
                         « Cannot read properties of undefined ». Un écran ne doit jamais s'écrouler parce qu'un
                         serveur lui parle un langage d'hier — c'est la règle qui vaut déjà pour `nonLus` et
                         `pleinTexte`. Attrapé par la suite de tests avant livraison. */}
+                    {/* 🔴 LOT STATUT-HORS-GESTION — la capsule GRISE apparaît ici comme les trois autres. La
+                        priorité est tenue par `capsuleStatut` (module PUR) : Classé > Auto > Hors gestion >
+                        À classer. Un mail marqué hors gestion PUIS rattaché à un bien reste donc vert. */}
                     {l.classement && etiquette.sorte !== 'spam' && etiquette.sorte !== 'brouillons' && (
-                      <span className={`bte-capsule bte-capsule--${capsuleStatut(l.classement)}`}
-                        title={bulleCapsule(capsuleStatut(l.classement), l.classement.detail)}>
-                        {motCapsule(capsuleStatut(l.classement))}
+                      <span className={`bte-capsule bte-capsule--${capsuleDeLaLigne(l)}`}
+                        title={bulleCapsule(capsuleDeLaLigne(l),
+                          capsuleDeLaLigne(l) === 'hors_gestion'
+                            ? motMotifHorsGestion(l.motifHorsGestion)
+                            : l.classement.detail)}>
+                        {motCapsule(capsuleDeLaLigne(l))}
                       </span>
                     )}
                   </span>
@@ -1023,7 +1048,7 @@ export function BoiteMail({
                          n'est rattaché, « Visualiser / Modifier » en vert sinon. Pas de capsule (Brouillons, Spam,
                          réponse de serveur d'hier) ⇒ `undefined`, et la barre garde « Classer ». */
                       statut: l.classement && etiquette.sorte !== 'spam' && etiquette.sorte !== 'brouillons'
-                        ? capsuleStatut(l.classement) : undefined,
+                        ? capsuleDeLaLigne(l) : undefined,
                     }}
                     confirme={confirmeSur === l.filId}
                     onConfirmer={(ouvrir) => setConfirmeSur(ouvrir ? l.filId : null)}
@@ -1172,6 +1197,8 @@ const CSS_BOITE = `
 /* « Auto » est vert lui aussi — c'est rangé — mais en aplat plus discret : le geste humain doit rester le plus
    visible des deux, sans pour autant faire passer l'automatique pour un problème. */
 .bte-capsule--auto{color:var(--color-svv-green-ink);border-color:transparent;background:var(--color-svv-green-soft)}
+/* LOT STATUT-HORS-GESTION — le GRIS : une decision prise, pas un travail en attente. Le MOT est ecrit. */
+.bte-capsule--hors_gestion{color:var(--color-svv-muted);border-color:var(--color-svv-line-strong)}
 .bte-filtre-etoile--actif{color:var(--color-svv-red)}
 .bte-tait{margin-left:auto;text-align:right;font-size:.72rem;font-weight:400;line-height:1.35;
   color:var(--color-svv-muted);flex:0 1 auto;min-width:0}

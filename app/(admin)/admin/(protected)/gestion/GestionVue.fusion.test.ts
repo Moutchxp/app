@@ -84,9 +84,14 @@ describe('🔴 les deux onglets sont partis, et rien d’autre', () => {
     expect(html.indexOf('gst-titre-file')).toBeLessThan(html.indexOf('gst-titre-ev'));
   });
 
-  it('CHAQUE colonne a son bouton « Plein écran » — un pour la boîte, un pour les événements', async () => {
+  /**
+   * 🔴 LOT STATUT-HORS-GESTION — TROIS BOUTONS, et le premier est celui qui manquait. Arno avait constaté que la
+   * colonne de gauche avait PERDU son « Plein écran » quand elle est devenue la boîte de réception : il revient à
+   * la même place que celui des événements. La file des échanges sans événement, repliée en dessous, garde le sien.
+   */
+  it('CHAQUE colonne a son bouton « Plein écran » — réception, échanges sans événement, événements', async () => {
     await monter();
-    expect(boutons().filter((b) => /^Plein écran$/.test(b.textContent ?? ''))).toHaveLength(2);
+    expect(boutons().filter((b) => /^Plein écran$/.test(b.textContent ?? ''))).toHaveLength(3);
   });
 });
 
@@ -103,9 +108,13 @@ describe('🔴 ① l’adresse suit l’écran, et l’écran suit l’adresse',
   it('entrer en plein écran l’écrit dans l’adresse, et « Précédent » ramène à l’écran partagé', async () => {
     await monter();
     await cliquer(boutons().filter((b) => /^Plein écran$/.test(b.textContent ?? ''))[0]);
-    // LOT ERGO-BOITE — la boîte étant le défaut, entrer en plein écran depuis « À classer » écrit l'ÉTIQUETTE et
-    //   non l'écran : c'est elle qui s'écarte du défaut, pas lui.
-    expect(url()).toBe('/admin/gestion?etiquette=a_classer');
+    /**
+     * 🔴 LOT STATUT-HORS-GESTION — LE PREMIER « Plein écran » EST CELUI DE LA BOÎTE DE RÉCEPTION, et il ouvre
+     * TOUJOURS « Réception » (demande d'Arno). La boîte sur Réception étant le défaut du module, l'adresse nue la
+     * désigne : il n'y a donc rien à écrire. Avant ce lot, ce bouton ouvrait « À classer » — la file des échanges
+     * sans événement, qui garde le sien, plus bas dans la colonne.
+     */
+    expect(url()).toBe('/admin/gestion');
 
     // ⚠️ On ne se sert PAS de `history.back()` : jsdom le traite de façon asynchrone, hors des tours de `act`, et la
     //   navigation retomberait au milieu d'un AUTRE test. Ce qui est éprouvé ici est exactement ce que le lot ajoute :
@@ -132,12 +141,31 @@ describe('🔴 ① l’adresse suit l’écran, et l’écran suit l’adresse',
   });
 });
 
-describe('🔴 ② on entre en plein écran sur « À classer », pas dans la réserve', () => {
-  it('le bouton de la colonne de gauche arrive sur le travail du jour', async () => {
+describe('🔴 ② le plein écran de la colonne de gauche ouvre la RÉCEPTION', () => {
+  /**
+   * 🔴 LOT STATUT-HORS-GESTION — DEMANDE D'ARNO, MOT POUR MOT : « la boîte mail s'ouvre en plein écran
+   * OBLIGATOIREMENT sur la liste "Réception" (entrée sélectionnée à gauche), quel que soit l'état précédent ».
+   * La file des échanges sans événement garde son propre bouton, plus bas dans la même colonne.
+   */
+  it('le bouton de la colonne de gauche arrive sur « Réception », entrée sélectionnée', async () => {
     await monter();
     await cliquer(boutons().filter((b) => /^Plein écran$/.test(b.textContent ?? ''))[0]);
     const active = container.querySelector('.cm-entree--active');
-    expect(active?.textContent).toContain('Sans événement');
+    expect(active?.textContent).toContain('Réception');
+  });
+
+  it('…et il y arrive MÊME si l’on regardait une autre étiquette juste avant', async () => {
+    window.history.replaceState(null, '', '/admin/gestion?ecran=partage&etiquette=envoyes');
+    await monter();
+    await cliquer(boutons().filter((b) => /^Plein écran$/.test(b.textContent ?? ''))[0]);
+    expect(container.querySelector('.cm-entree--active')?.textContent).toContain('Réception');
+  });
+
+  it('la file des échanges sans événement garde SON bouton, qui ouvre « Sans événement »', async () => {
+    await monter();
+    const pleins = boutons().filter((b) => /^Plein écran$/.test(b.textContent ?? ''));
+    await cliquer(pleins[1]);
+    expect(container.querySelector('.cm-entree--active')?.textContent).toContain('Sans événement');
   });
 
   /**
@@ -303,7 +331,7 @@ describe('CE QUI DOIT SURVIVRE — l’inventaire, vérifié à l’écran', () 
     // LOT ERGO-BOITE — cette phrase appartient au POSTE DE TRI, donc à l'étiquette « À classer », qu'on désigne.
     window.history.replaceState(null, '', '/admin/gestion?etiquette=a_classer');
     await monter();
-    expect(texte()).toContain('Le poste de tri n’a jamais montré le courrier automatique');
+    expect(texte()).toContain('Cette liste n’a jamais montré le courrier automatique');
     expect(boutonPar(/Voir l’étiquette « Courrier automatique »/)).toBeDefined();
     // …et la sortie mène bien à l'étiquette qui les rassemble, sans rien masquer au passage.
     await cliquer(boutonPar(/Voir l’étiquette « Courrier automatique »/));

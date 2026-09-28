@@ -39,26 +39,47 @@ interface LigneMail {
   nbPieces: number;
   capsule: CapsuleStatut | null;
   biens: string[];
+  /** LOT STATUT-HORS-GESTION — `prospection` | `interne` | `autre`, ou `null` : le motif est facultatif. */
+  motifHorsGestion?: string | null;
 }
 
-type Filtre = 'tous' | 'a_classer' | 'classes';
+type Filtre = 'tous' | 'a_classer' | 'classes' | 'hors_gestion';
 
 type Etat =
   | { v: 'charge' }
-  | { v: 'ok'; lignes: LigneMail[]; suivant: { recuLe: string; messageId: string } | null; total: number | null }
+  | {
+      v: 'ok'; lignes: LigneMail[]; suivant: { recuLe: string; messageId: string } | null; total: number | null;
+      /** La migration 266 est-elle appliquée ? Sinon le filtre « Hors gestion » n'est pas proposé. */
+      horsGestion: boolean;
+    }
   | { v: 'erreur'; message: string };
 
-/** Les trois filtres rapides, avec leur MOT. Écrits une fois : deux listes finiraient par diverger. */
-const FILTRES: readonly { cle: Filtre; mot: string; aide: string }[] = [
+/**
+ * Les filtres rapides, avec leur MOT. Écrits une fois : deux listes finiraient par diverger.
+ *
+ * ⚠️ AUCUN NE PARLE D'ÉVÉNEMENT, et c'est la règle métier ③ : un mail sans événement n'est pas « à classer ».
+ * « À classer » veut dire « rattaché à aucun bien, et pas marqué hors gestion » — rien d'autre.
+ */
+const FILTRES: readonly { cle: Filtre; mot: string; aide: string; exigeHorsGestion?: boolean }[] = [
   { cle: 'tous', mot: 'Tous', aide: 'Tous les mails reçus' },
-  { cle: 'a_classer', mot: 'À classer', aide: 'Mails rattachés à aucun bien' },
+  { cle: 'a_classer', mot: 'À classer', aide: 'Mails rattachés à aucun bien, et non marqués « hors gestion »' },
   { cle: 'classes', mot: 'Classés', aide: 'Mails rattachés à au moins un bien' },
+  {
+    cle: 'hors_gestion', mot: 'Hors gestion', exigeHorsGestion: true,
+    aide: 'Mails marqués à la main comme ne concernant aucun bien (prospection, interne, divers)',
+  },
 ];
 
-export function BoiteReception({ maintenant, onOuvrir, onFileEchanges, compteEchanges }: {
+export function BoiteReception({ maintenant, onOuvrir, onPleinEcran, onFileEchanges, compteEchanges }: {
   maintenant: Date;
   /** Ouvre le mail — déplié dans sa conversation, par la règle du lot MESSAGE-CLIQUÉ. */
   onOuvrir: (filId: number, messageId: number) => void;
+  /**
+   * 🔴 OUVRE LA BOÎTE MAIL EN PLEIN ÉCRAN, SUR « RÉCEPTION ». Demande d'Arno : le bouton avait disparu de cette
+   * colonne alors que celle des événements avait gardé le sien. Il revient à la MÊME place, et ouvre TOUJOURS la
+   * liste « Réception » — quel que soit l'écran qu'on regardait avant.
+   */
+  onPleinEcran: () => void;
   /** Mène à la file des échanges sans événement : rien n'est supprimé, elle reste à un clic. */
   onFileEchanges: () => void;
   /** Le compteur de cette file, pour que le lien dise ce qu'il contient. */
@@ -74,7 +95,10 @@ export function BoiteReception({ maintenant, onOuvrir, onFileEchanges, compteEch
       const res = await fetch(`/api/admin/gestion/reception?filtre=${f}`, { cache: 'no-store' });
       const d = (await res.json()) as { etat?: string; message?: string } & Omit<Etat & { v: 'ok' }, 'v'>;
       if (d.etat !== 'ok') { setEtat({ v: 'erreur', message: d.message ?? 'Lecture impossible.' }); return; }
-      setEtat({ v: 'ok', lignes: d.lignes ?? [], suivant: d.suivant ?? null, total: d.total ?? null });
+      setEtat({
+        v: 'ok', lignes: d.lignes ?? [], suivant: d.suivant ?? null, total: d.total ?? null,
+        horsGestion: d.horsGestion === true,
+      });
     } catch {
       setEtat({ v: 'erreur', message: 'La boîte n’a pas répondu.' });
     }
@@ -91,7 +115,10 @@ export function BoiteReception({ maintenant, onOuvrir, onFileEchanges, compteEch
       const res = await fetch(`/api/admin/gestion/reception?${p}`, { cache: 'no-store' });
       const d = (await res.json()) as { etat?: string } & Omit<Etat & { v: 'ok' }, 'v'>;
       if (d.etat === 'ok') {
-        setEtat({ v: 'ok', lignes: [...etat.lignes, ...(d.lignes ?? [])], suivant: d.suivant ?? null, total: etat.total });
+        setEtat({
+          v: 'ok', lignes: [...etat.lignes, ...(d.lignes ?? [])], suivant: d.suivant ?? null, total: etat.total,
+          horsGestion: etat.horsGestion,
+        });
       }
     } catch { /* on garde ce qui est déjà affiché : une page de plus qui manque ne doit pas vider la liste */ }
     finally { setSuite(false); }
@@ -101,16 +128,22 @@ export function BoiteReception({ maintenant, onOuvrir, onFileEchanges, compteEch
     <div className="brc">
       <style>{CSS_BOITE_RECEPTION}</style>
 
+      {/* L'EN-TÊTE DE COLONNE, exactement comme celui des événements : le titre, et « Plein écran » au bout. */}
       <div className="gst-entete-col">
         <h2 className="gst-titre" id="gst-titre-reception">
           Boîte de réception <span className="brc-adresse">gestion@criterimmo.fr</span>
           {etat.v === 'ok' && etat.total !== null && <span className="gst-compte">{etat.total}</span>}
         </h2>
+        <button type="button" className="svv-btn svv-btn-outline gst-btn" onClick={onPleinEcran}>
+          Plein écran
+        </button>
       </div>
 
       {/* LES FILTRES RAPIDES — le MOT, jamais une icône seule ; `aria-pressed` dit lequel est actif. */}
       <div className="brc-filtres" role="group" aria-label="Filtrer les mails reçus">
-        {FILTRES.map((f) => (
+        {/* ⚠️ « Hors gestion » n'apparaît QUE si la migration 266 est appliquée : sans elle, il ne filtrerait
+            rien, et une liste vide se lirait « aucun mail hors gestion » — ce qui serait autre chose. */}
+        {FILTRES.filter((f) => !f.exigeHorsGestion || (etat.v === 'ok' && etat.horsGestion)).map((f) => (
           <button key={f.cle} type="button"
             className={`brc-filtre${filtre === f.cle ? ' brc-filtre--actif' : ''}`}
             aria-pressed={filtre === f.cle} title={f.aide}
@@ -126,7 +159,8 @@ export function BoiteReception({ maintenant, onOuvrir, onFileEchanges, compteEch
         <p className="gst-tronc">
           {filtre === 'a_classer' ? 'Aucun mail reçu n’attend d’être classé.'
             : filtre === 'classes' ? 'Aucun mail reçu n’est encore classé.'
-              : 'Aucun mail reçu.'}
+              : filtre === 'hors_gestion' ? 'Aucun mail n’est marqué « hors gestion ».'
+                : 'Aucun mail reçu.'}
         </p>
       )}
 
@@ -155,7 +189,7 @@ export function BoiteReception({ maintenant, onOuvrir, onFileEchanges, compteEch
                       qui accuserait tous les mails alors qu'on n'en sait rien. */}
                   {l.capsule !== null && (
                     <span className={`brc-capsule brc-capsule--${l.capsule}`}
-                      title={bulleCapsuleMessage(l.capsule, l.biens)}>
+                      title={bulleCapsuleMessage(l.capsule, l.biens, l.motifHorsGestion ?? null)}>
                       {motCapsule(l.capsule)}
                     </span>
                   )}
@@ -215,6 +249,8 @@ export const CSS_BOITE_RECEPTION = `
 .brc-capsule--a_classer{color:var(--color-svv-red);border-color:var(--color-svv-red)}
 .brc-capsule--classe{color:var(--color-svv-green-ink);border-color:var(--color-svv-green-ink)}
 .brc-capsule--auto{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
+/* LOT STATUT-HORS-GESTION — le GRIS : une decision prise, pas un travail en attente. Le MOT est ecrit. */
+.brc-capsule--hors_gestion{color:var(--color-svv-muted);border-color:var(--color-svv-line-strong)}
 .brc-plus{align-self:flex-start}
 .brc-ailleurs{margin:4px 0 0;font-size:.8rem;color:var(--color-svv-muted)}
 `;

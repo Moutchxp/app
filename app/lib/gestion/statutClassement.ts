@@ -188,7 +188,55 @@ export function lienVersCarte(s: StatutClassement): string | null {
  * « cet échange est-il posé sur un ÉVÉNEMENT ? ». Mesuré le 27/09/2026 : 474 échanges sans événement, 9 631 sans
  * rattachement. Deux questions, deux nombres, et aucun des deux ne remplace l'autre.
  */
-export type CapsuleStatut = 'classe' | 'auto' | 'a_classer';
+/* ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+   🔴🔴 LA RÈGLE MÉTIER DU CLASSEMENT D'UN MAIL — écrite ici parce que TOUT le module s'y réfère (demande d'Arno)
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════
+
+   ① UN MAIL DE GESTION DOIT ÊTRE RATTACHÉ À UN BIEN PRÉCIS — ou à PLUSIEURS. Un propriétaire possède souvent six
+      appartements, et un même mail peut parler de deux d'entre eux : rien ne limite un mail à un seul bien.
+
+   ② CERTAINS MAILS NE CONCERNENT AUCUN BIEN : une prospection, un mot d'un collègue, un divers. Ils reçoivent le
+      statut « HORS GESTION », posé À LA MAIN. Sans lui, ces mails restaient rouges pour toujours — un reproche
+      permanent pour du courrier parfaitement traité, et un compteur « à classer » qui ne descendait jamais.
+
+   ③ 🔴 LE RATTACHEMENT À UN ÉVÉNEMENT EST FACULTATIF. Un mail sans événement n'est JAMAIS « à classer » pour cette
+      seule raison — ni dans une capsule, ni dans un compteur, ni dans un texte d'aide, ni dans une info-bulle.
+      L'ÉVÉNEMENT et le BIEN sont deux questions distinctes, mesurées le 27/09/2026 à deux échelles sans rapport :
+      474 échanges sans événement contre 9 631 mails sans rattachement. Les avoir mêlées donnait le badge
+      « À classer » sur trois mails parfaitement rattachés au lot 445 (fil 803, vu par Arno le 28/09).
+
+   ④ « HORS GESTION » N'EST JAMAIS POSÉ AUTOMATIQUEMENT. C'est une DÉCISION, pas une déduction : un moteur qui
+      déciderait qu'un mail ne concerne aucun bien retirerait du travail de la file de quelqu'un sans que personne
+      ne sache lequel. La base elle-même le refuse, par une contrainte posée avec la migration 266.
+   ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * ══ 🔴 LES QUATRE STATUTS D'UN MAIL, DANS L'ORDRE DE PRIORITÉ ════════════════════════════════════════════════════
+ *
+ *   Classé (vert) > Auto (vert) > Hors gestion (GRIS) > À classer (rouge)
+ *
+ * L'ordre n'est pas décoratif, il tranche les conflits :
+ *   · CLASSÉ AVANT AUTO — « le geste humain l'emporte » : quelqu'un a tranché, c'est l'information qui compte ;
+ *   · UN RATTACHEMENT AVANT « HORS GESTION » — un mail marqué hors gestion puis rattaché à un bien est rattaché,
+ *     point. C'est aussi ce qui rend la marque RÉVERSIBLE par le geste naturel : rattacher la lève.
+ *   · « HORS GESTION » AVANT « À CLASSER » — c'est précisément ce que la marque sert à dire.
+ */
+export type CapsuleStatut = 'classe' | 'auto' | 'hors_gestion' | 'a_classer';
+
+/**
+ * LES MOTIFS d'un « hors gestion ». FACULTATIFS : `null` = non précisé. Exiger une justification ferait cocher
+ * n'importe laquelle, et le motif ne voudrait plus rien dire. Les mêmes mots qu'en base (migration 266).
+ */
+export const MOTIFS_HORS_GESTION: readonly { cle: string; mot: string }[] = [
+  { cle: 'prospection', mot: 'Prospection' },
+  { cle: 'interne', mot: 'Interne (collègue)' },
+  { cle: 'autre', mot: 'Autre' },
+];
+
+/** Le MOT d'un motif, ou `null` quand il n'y en a pas. PUR. */
+export function motMotifHorsGestion(cle: string | null | undefined): string | null {
+  return MOTIFS_HORS_GESTION.find((m) => m.cle === cle)?.mot ?? null;
+}
 
 /**
  * LE STATUT D'UN ÉCHANGE, à partir de ce que la requête a compté. PUR.
@@ -201,9 +249,11 @@ export type CapsuleStatut = 'classe' | 'auto' | 'a_classer';
  * rattachements `confirme`) : un candidat que personne n'a validé laisse l'échange « à classer », ce qui est
  * exactement ce qu'il est.
  */
-export function capsuleStatut(o: { nbActifs: number; parUnHumain: boolean }): CapsuleStatut {
+export function capsuleStatut(o: { nbActifs: number; parUnHumain: boolean; horsGestion?: boolean }): CapsuleStatut {
   if (o.nbActifs > 0 && o.parUnHumain) return 'classe';
   if (o.nbActifs > 0) return 'auto';
+  // 🔴 APRÈS les deux verts, AVANT le rouge : un échange rattaché est rattaché, même s'il a été marqué hors gestion.
+  if (o.horsGestion === true) return 'hors_gestion';
   return 'a_classer';
 }
 
@@ -211,7 +261,33 @@ export function capsuleStatut(o: { nbActifs: number; parUnHumain: boolean }): Ca
 export function motCapsule(s: CapsuleStatut): string {
   if (s === 'classe') return 'Classé';
   if (s === 'auto') return 'Auto';
+  if (s === 'hors_gestion') return 'Hors gestion';
   return 'À classer';
+}
+
+/**
+ * LE TON d'une capsule — vert, gris ou rouge. PUR.
+ *
+ * ⚠️ IL EXISTE POUR QUE LE TON NE SE REDEVINE PAS À CHAQUE ÉCRAN. La barre de survol d'une ligne, l'en-tête d'un
+ * mail ouvert et la boîte de réception doivent s'accorder : un « Hors gestion » gris dans la liste et vert dans la
+ * conversation serait lu comme deux états différents. Le MOT reste écrit partout ; le ton ne fait que l'appuyer.
+ */
+export function tonCapsule(s: CapsuleStatut): 'vert' | 'gris' | 'rouge' {
+  if (s === 'classe' || s === 'auto') return 'vert';
+  return s === 'hors_gestion' ? 'gris' : 'rouge';
+}
+
+/**
+ * LE MOT DU BOUTON DE FIN DE BARRE, et son ton. PUR.
+ *
+ * Une capsule VERTE ou GRISE a déjà une réponse : ce qu'on veut alors, c'est la VOIR et pouvoir la changer. Une
+ * capsule rouge n'en a pas : on propose de classer. Le bouton ne disparaît jamais — seuls le mot et le ton changent,
+ * pour que la cible du clic ne se déplace pas sous le doigt.
+ */
+export function actionDeLaCapsule(s: CapsuleStatut | null | undefined): { mot: string; ton: 'vert' | 'gris' | 'rouge' } {
+  if (s === 'classe' || s === 'auto') return { mot: 'Visualiser / Modifier', ton: 'vert' };
+  if (s === 'hors_gestion') return { mot: 'Visualiser / Modifier', ton: 'gris' };
+  return { mot: 'Classer', ton: 'rouge' };
 }
 
 /**
@@ -222,6 +298,12 @@ export function bulleCapsule(s: CapsuleStatut, detail: string | null): string {
   if (s === 'a_classer') {
     return 'Aucun rattachement confirmé à un logement ou à un propriétaire '
       + '(une proposition non confirmée ne compte pas).';
+  }
+  // 🔴 ON DIT QUE C'EST UNE DÉCISION, ET QU'ELLE SE DÉFAIT : un gris muet se lirait comme un oubli.
+  if (s === 'hors_gestion') {
+    return detail && detail.trim() !== ''
+      ? `Marqué hors gestion à la main : ${detail}. Rattacher un bien lève cette marque.`
+      : 'Marqué hors gestion à la main : ce courrier ne concerne aucun bien. Rattacher un bien lève cette marque.';
   }
   return detail && detail.trim() !== '' ? detail : 'Rattaché.';
 }
@@ -266,9 +348,16 @@ export interface LienPourStatut {
  * 474 échanges sans événement contre 9 631 sans rattachement — deux questions, deux nombres, et aucun ne remplace
  * l'autre. Les mêler donnait le badge « À classer » sur trois mails parfaitement rattachés au lot 445 (fil 803).
  */
-export function capsuleDuMessage(liens: readonly LienPourStatut[]): CapsuleStatut {
+export function capsuleDuMessage(
+  liens: readonly LienPourStatut[],
+  /**
+   * 🔴 LA MARQUE « HORS GESTION » DE CE MAIL, quand il en porte une VIVANTE. Elle ne l'emporte JAMAIS sur un
+   * rattachement réel : c'est ce qui la rend réversible par le geste naturel — rattacher un bien la lève.
+   */
+  horsGestion = false,
+): CapsuleStatut {
   const biens = liens.filter((l) => SORTES_BIEN.includes(l.cible.sorte) && l.statut === 'confirme');
-  if (biens.length === 0) return 'a_classer';
+  if (biens.length === 0) return horsGestion ? 'hors_gestion' : 'a_classer';
   return biens.some((l) => l.origine === 'manuel' || l.parUnHumain === true) ? 'classe' : 'auto';
 }
 
@@ -278,10 +367,21 @@ export function capsuleDuMessage(liens: readonly LienPourStatut[]): CapsuleStatu
  * ⚠️ QUAND C'EST ROUGE, ON DIT POURQUOI — et on rappelle qu'une proposition ne compte pas. Sans cela, on cherche
  * un rattachement qui est bien là, mais que personne n'a confirmé.
  */
-export function bulleCapsuleMessage(s: CapsuleStatut, libelles: readonly string[]): string {
+export function bulleCapsuleMessage(
+  s: CapsuleStatut, libelles: readonly string[], motifHorsGestion: string | null = null,
+): string {
   if (s === 'a_classer') {
+    /**
+     * ⚠️ PAS UN MOT SUR L'ÉVÉNEMENT ICI. Un mail sans événement n'est pas « à classer » pour cette raison (règle
+     * métier ③) : le dire dans cette bulle ferait chercher une carte alors qu'il manque un BIEN.
+     */
     return 'Ce mail n’est rattaché à aucun bien (logement, propriétaire ou locataire). '
       + 'Une proposition automatique non confirmée ne compte pas.';
+  }
+  if (s === 'hors_gestion') {
+    const mot = motMotifHorsGestion(motifHorsGestion);
+    return `Marqué « hors gestion » à la main${mot === null ? '' : ` (${mot.toLowerCase()})`} : ce mail ne concerne `
+      + 'aucun bien. Rattacher un bien lève cette marque, et « Annuler hors gestion » aussi.';
   }
   const dit = libelles.filter((l) => l.trim() !== '');
   const debut = s === 'classe' ? 'Rattaché à la main' : 'Rattaché automatiquement';

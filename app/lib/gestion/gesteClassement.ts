@@ -31,6 +31,14 @@ export interface LienExistant {
   cle: string;
 }
 
+/**
+ * 🔴 LOT STATUT-HORS-GESTION — LE GESTE DEMANDÉ SUR LA MARQUE « hors gestion ».
+ *
+ * `marquer` = ce mail ne concerne aucun bien ; `annuler` = il revient dans la file. Les deux sont des décisions
+ * HUMAINES : ce module ne les déduit jamais de l'état, il ne fait qu'exécuter ce que l'écran a demandé.
+ */
+export type GesteHorsGestion = { geste: 'marquer'; motif?: string | null } | { geste: 'annuler' };
+
 export interface PlanClassement {
   /** Les mails que la validation va toucher, dans l'ordre, sans doublon. */
   messages: number[];
@@ -38,6 +46,12 @@ export interface PlanClassement {
   aPoser: { messageId: number; cle: string }[];
   /** Les liens à faire passer au statut « retiré » (`PATCH`). JAMAIS une suppression. */
   aRetirer: number[];
+  /** Les mails à MARQUER hors gestion (`POST`). Vide quand ce n'est pas le geste demandé. */
+  aMarquerHorsGestion: number[];
+  /** Les mails dont la marque est à ANNULER (`DELETE`, qui écrit `retire_le` — la ligne reste). */
+  aAnnulerHorsGestion: number[];
+  /** Le motif retenu pour le marquage, ou `null` : il est FACULTATIF. */
+  motifHorsGestion: string | null;
   /** Ce que l'écran annonce AVANT de valider, et confirme après. Phrase complète, jamais un chiffre nu. */
   resume: string;
 }
@@ -66,8 +80,44 @@ export function planClassement(o: {
   selection: readonly string[];
   /** Les liens confirmés vers un bien, sur les mails concernés, tels que lus avant la validation. */
   existants: readonly LienExistant[];
+  /**
+   * 🔴 LE GESTE « HORS GESTION » DEMANDÉ, quand c'en est un. `marquer` IGNORE la sélection de biens : les deux
+   * réponses s'excluent — un mail qui concerne un bien n'est pas hors gestion, et réciproquement.
+   */
+  horsGestion?: GesteHorsGestion | null;
+  /** Les mails qui portent DÉJÀ une marque vivante. Sert à ne compter que ce qui change réellement. */
+  dejaHorsGestion?: readonly number[];
 }): PlanClassement {
   const messages = mailsVises(o.messageId, o.portee, o.mailsSansManuel);
+  const deja = new Set(o.dejaHorsGestion ?? []);
+  const hg = o.horsGestion ?? null;
+
+  /**
+   * ══ 🔴 CAS « MARQUER HORS GESTION » ══════════════════════════════════════════════════════════════════════════
+   * La sélection de biens n'est pas lue : dire « ce mail ne concerne aucun bien » ET cocher un bien serait une
+   * contradiction que l'écran ne doit pas pouvoir enregistrer. Les rattachements du mail ouvert sont donc RETIRÉS
+   * (statut « retiré », jamais supprimés) — et, là encore, seulement ceux du mail qu'on a sous les yeux.
+   */
+  if (hg?.geste === 'marquer') {
+    const aRetirer = o.existants.filter((l) => l.messageId === o.messageId).map((l) => l.id);
+    const aMarquer = messages.filter((m) => !deja.has(m));
+    return {
+      messages, aPoser: [], aRetirer, aMarquerHorsGestion: aMarquer, aAnnulerHorsGestion: [],
+      motifHorsGestion: hg.motif ?? null,
+      resume: resumeHorsGestion('marquer', aMarquer.length, hg.motif ?? null, aRetirer.length),
+    };
+  }
+
+  /** ══ CAS « ANNULER HORS GESTION » — le mail revient dans la file, rien d'autre ne bouge. ═══════════════════ */
+  if (hg?.geste === 'annuler') {
+    const aAnnuler = messages.filter((m) => deja.has(m));
+    return {
+      messages, aPoser: [], aRetirer: [], aMarquerHorsGestion: [], aAnnulerHorsGestion: aAnnuler,
+      motifHorsGestion: null,
+      resume: resumeHorsGestion('annuler', aAnnuler.length, null, 0),
+    };
+  }
+
   const voulues = [...new Set(o.selection.map((c) => c.trim()).filter((c) => c !== ''))];
 
   const dejaLa = new Set(o.existants.map((l) => `${l.messageId}|${l.cle}`));
@@ -84,7 +134,18 @@ export function planClassement(o: {
     .filter((l) => l.messageId === o.messageId && !voulues.includes(l.cle))
     .map((l) => l.id);
 
-  return { messages, aPoser, aRetirer, resume: resumeClassement(messages.length, voulues.length, aRetirer.length) };
+  /**
+   * 🔴 RATTACHER UN BIEN LÈVE LA MARQUE « HORS GESTION » — la réversibilité par le geste naturel : on ne doit pas
+   * avoir à annuler d'abord pour pouvoir classer ensuite. Le serveur la lève aussi de son côté (`rattacher`) ; on
+   * la demande ici pour que la phrase du résumé le DISE avant de valider, et pour les mails que le serveur ne voit
+   * pas passer (un bien déjà posé sur l'un d'eux).
+   */
+  const aAnnulerHorsGestion = voulues.length === 0 ? [] : messages.filter((m) => deja.has(m));
+
+  return {
+    messages, aPoser, aRetirer, aMarquerHorsGestion: [], aAnnulerHorsGestion, motifHorsGestion: null,
+    resume: resumeClassement(messages.length, voulues.length, aRetirer.length, aAnnulerHorsGestion.length),
+  };
 }
 
 /**
@@ -94,12 +155,47 @@ export function planClassement(o: {
  * ne dit pas ce qui a été compté, et « 1 mails » se lit comme un bogue — donc on ne fait confiance à personne pour
  * accorder à la main.
  */
-export function resumeClassement(nbMails: number, nbBiens: number, nbRetraits: number): string {
+export function resumeClassement(
+  nbMails: number, nbBiens: number, nbRetraits: number, nbMarquesLevees = 0,
+): string {
   if (nbBiens === 0 && nbRetraits === 0) return 'Aucun bien sélectionné : rien ne sera classé.';
   const morceaux: string[] = [];
   if (nbBiens > 0) {
     morceaux.push(`${nbMails} mail${nbMails > 1 ? 's' : ''} classé${nbMails > 1 ? 's' : ''}`
       + ` sur ${nbBiens} bien${nbBiens > 1 ? 's' : ''}`);
+  }
+  if (nbRetraits > 0) {
+    morceaux.push(`${nbRetraits} rattachement${nbRetraits > 1 ? 's' : ''} retiré${nbRetraits > 1 ? 's' : ''}`);
+  }
+  // 🔴 ON LE DIT AVANT DE LE FAIRE : la marque grise disparaît, et c'est une conséquence, pas un effet de bord muet.
+  if (nbMarquesLevees === 1) morceaux.push('marque « hors gestion » levée');
+  else if (nbMarquesLevees > 1) morceaux.push(`${nbMarquesLevees} marques « hors gestion » levées`);
+  return `${morceaux.join(', ')}.`;
+}
+
+/**
+ * 🔴 LA PHRASE D'UN GESTE « HORS GESTION ». PUR.
+ *
+ * ⚠️ LE MOTIF EST DIT QUAND IL Y EN A UN, et jamais inventé quand il n'y en a pas. Il reste FACULTATIF : exiger une
+ * justification ferait cocher n'importe laquelle, et le motif ne voudrait plus rien dire.
+ *
+ * ⚠️ LE CAS « RIEN À FAIRE » EST ÉCRIT, JAMAIS LAISSÉ VIDE. Marquer hors gestion trois mails qui le sont déjà ne
+ * change rien : le dire évite de croire qu'on vient d'agir.
+ */
+export function resumeHorsGestion(
+  geste: 'marquer' | 'annuler', nbMails: number, motif: string | null, nbRetraits = 0,
+): string {
+  if (geste === 'annuler') {
+    return nbMails === 0
+      ? 'Aucun de ces mails n’est marqué « hors gestion » : rien à annuler.'
+      : `${nbMails} mail${nbMails > 1 ? 's' : ''} ne ${nbMails > 1 ? 'sont' : 'sera'} plus « hors gestion »`
+        + ` : ${nbMails > 1 ? 'ils reviennent' : 'il revient'} dans la file.`;
+  }
+  if (nbMails === 0 && nbRetraits === 0) return 'Ces mails sont déjà marqués « hors gestion » : rien à faire.';
+  const morceaux: string[] = [];
+  if (nbMails > 0) {
+    morceaux.push(`${nbMails} mail${nbMails > 1 ? 's' : ''} marqué${nbMails > 1 ? 's' : ''} « hors gestion »`
+      + (motif === null ? '' : ` (${motif})`));
   }
   if (nbRetraits > 0) {
     morceaux.push(`${nbRetraits} rattachement${nbRetraits > 1 ? 's' : ''} retiré${nbRetraits > 1 ? 's' : ''}`);

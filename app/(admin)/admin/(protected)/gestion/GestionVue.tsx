@@ -858,6 +858,13 @@ export function GestionVue({ intro }: {
             onOuvrir={(filId, messageId) => aller({
               ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: filId, messageOuvert: messageId,
             })}
+            /* 🔴 LE PLEIN ÉCRAN DE CETTE COLONNE OUVRE TOUJOURS « RÉCEPTION » — demande d'Arno. L'étiquette est
+               ÉCRITE, jamais héritée de `etiquette` : sinon le bouton rouvrirait la dernière liste consultée
+               (Envoyés, Spam, une carte…), et on ne saurait pas pourquoi la boîte s'ouvre ailleurs. */
+            onPleinEcran={() => {
+              setPanneau(null);
+              aller({ ecran: 'boite', etiquette: ETIQUETTE_RECEPTION, filOuvert: null, messageOuvert: null });
+            }}
             onFileEchanges={() => { setPanneau(null); aller({ ecran: 'boite', etiquette: ETIQUETTE_ARRIVEE, filOuvert: null }); }}
             compteEchanges={d.filsTotal} />
 

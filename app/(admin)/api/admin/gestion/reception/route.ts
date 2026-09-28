@@ -2,6 +2,7 @@ import 'server-only';
 import { exigerCompteActif } from '../../../../../lib/admin/garde';
 import { lireMailsRecus, PAGE_RECEPTION, type FiltreReception } from '../../../../../lib/gestion/receptionRepo';
 import { lirePartenairesInternes } from '../../../../../lib/gestion/partenaires';
+import { horsGestionDisponible } from '../../../../../lib/gestion/schema';
 
 /**
  * /api/admin/gestion/reception — LOT STATUT-PAR-MAIL : LA BOÎTE DE RÉCEPTION, UN MAIL PAR LIGNE.
@@ -18,7 +19,7 @@ import { lirePartenairesInternes } from '../../../../../lib/gestion/partenaires'
  * 🔒 LECTURE SEULE : un seul verbe exporté, `GET`.
  *
  * LES QUESTIONS :
- *   · `?filtre=tous|a_classer|classes`  le filtre rapide de la colonne (défaut : `tous`)
+ *   · `?filtre=tous|a_classer|classes|hors_gestion`  le filtre rapide de la colonne (défaut : `tous`)
  *   · `?avant=<ISO>&apres=<id>`         le curseur de pagination, rendu par la page précédente
  * ═════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
  */
@@ -28,7 +29,7 @@ const SANS_CACHE = 'private, no-store';
 
 /** Un filtre lu dans une adresse. Toute valeur inconnue vaut « tous » : une liste abîmée doit montrer TOUT. */
 export function lireFiltre(brut: string | null): FiltreReception {
-  return brut === 'a_classer' || brut === 'classes' ? brut : 'tous';
+  return brut === 'a_classer' || brut === 'classes' || brut === 'hors_gestion' ? brut : 'tous';
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -52,7 +53,13 @@ export async function GET(request: Request): Promise<Response> {
       // Le libellé d'un partenaire interne prime sur le nom porté par le mail, ici comme partout dans le module.
       partenaires: await lirePartenairesInternes().catch(() => []),
     });
-    return Response.json({ etat: 'ok', ...page }, { headers: { 'Cache-Control': SANS_CACHE } });
+    /**
+     * 🔴 ON DIT À L'ÉCRAN SI « HORS GESTION » EST INSTALLÉ. Sans la migration 266, le filtre ne doit pas être
+     * proposé (il ne filtrerait rien) et l'option de la fenêtre de classement est grisée. Laisser l'écran deviner
+     * à l'absence de capsules grises lui ferait conclure « aucun mail hors gestion », ce qui est autre chose.
+     */
+    return Response.json({ etat: 'ok', horsGestion: await horsGestionDisponible(), ...page },
+      { headers: { 'Cache-Control': SANS_CACHE } });
   } catch (e) {
     // Pas de catch muet : une liste vide se lirait « aucun mail reçu », ce qui serait un mensonge.
     console.error('[api/admin/gestion/reception] lecture impossible', e);

@@ -246,6 +246,12 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * la conversation est exactement celui d'avant ce lot.
    */
   const [rattachements, setRattachements] = useState<Map<number, LienAffiche[]> | null>(null);
+  /**
+   * 🔴 LOT STATUT-HORS-GESTION — les mails de l'échange marqués « ne concerne aucun bien ».
+   * `null` = on ne sait rien (migration 266 absente, ou lecture en échec) : aucune capsule grise n'est alors
+   * rendue, plutôt qu'une capsule inventée.
+   */
+  const [horsGestion, setHorsGestion] = useState<Map<number, { motif: string | null }> | null>(null);
 
   const recharger = useCallback(async () => {
     setVue({ v: 'charge' });
@@ -306,7 +312,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
    * mail ferait croire que le mail lui-même a un problème. Le bandeau disparaît, et rien d'autre ne change.
    */
   const chargerRattachements = useCallback(async (ids: readonly number[]) => {
-    if (ids.length === 0) { setRattachements(new Map()); return; }
+    if (ids.length === 0) { setRattachements(new Map()); setHorsGestion(new Map()); return; }
     try {
       const res = await fetch(`/api/admin/gestion/rattachements?messages=${ids.join(',')}`, { cache: 'no-store' });
       const d = (await res.json()) as { etat?: string; data?: Record<string, LienAffiche[]> };
@@ -314,6 +320,19 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
       setRattachements(new Map(Object.entries(d.data ?? {}).map(([k, v]) => [Number(k), v])));
     } catch {
       setRattachements(null);
+    }
+    /**
+     * 🔴 LES MARQUES « HORS GESTION », DANS UNE LECTURE À PART ET SILENCIEUSE. À part, parce qu'elles vivent dans
+     * une table dont la migration peut manquer ; silencieuse, parce qu'un échec ne doit retirer QUE la capsule
+     * grise — le reste de la conversation n'a aucune raison d'en souffrir.
+     */
+    try {
+      const res = await fetch(`/api/admin/gestion/hors-gestion?messages=${ids.join(',')}`, { cache: 'no-store' });
+      const d = (await res.json()) as { etat?: string; data?: Record<string, { motif: string | null }> };
+      setHorsGestion(d.etat !== 'ok' ? null
+        : new Map(Object.entries(d.data ?? {}).map(([k, v]) => [Number(k), { motif: v.motif ?? null }])));
+    } catch {
+      setHorsGestion(null);
     }
   }, []);
 
@@ -649,6 +668,7 @@ export function Conversation({ filId, maintenant, onGeste, onFerme, avecBandeau 
             onRemettre={() => void agirSurLeMail(m.messageId, null, onGeste)}
             /* LOT RATTACHEMENT-1 — « Rattaché à … », dans le mail OUVERT. `null` = 257 absente : aucun bandeau. */
             rattachements={rattachements === null ? null : (rattachements.get(m.messageId) ?? [])}
+            horsGestion={horsGestion === null ? null : (horsGestion.get(m.messageId) ?? false)}
             onRattachement={() => chargerRattachements(idsMessages)}
             onGesteRattachement={(t) => onGeste(t)}
             onHistorique={onHistorique}
@@ -802,7 +822,7 @@ function ouvrirRedaction(
 export function MessageConversation({
   message, maintenant, ouvert, corpsCharge, onBasculer, onDeplacer, onRemettre, panneau, statut, onActionStatut,
   gmail, onEtoile, onRepondre, onActionMessage, filId = null, piedMessage = null,
-  rattachements = null, onRattachement, onGesteRattachement, onHistorique,
+  rattachements = null, horsGestion = null, onRattachement, onGesteRattachement, onHistorique,
 }: {
   message: MessageDeFil; maintenant: Date; ouvert: boolean;
   /**
@@ -840,6 +860,11 @@ export function MessageConversation({
    * c'est le cas des écrans qui n'ont pas besoin des rattachements, et celui d'une migration 257 non appliquée.
    */
   rattachements?: readonly LienAffiche[] | null;
+  /**
+   * 🔴 LOT STATUT-HORS-GESTION — la marque de CE mail : `{motif}` s'il en porte une, `false` s'il n'en porte pas,
+   * `null` si on ne sait pas (migration 266 absente, ou lecture en échec). `null` ⇒ aucune capsule grise possible.
+   */
+  horsGestion?: { motif: string | null } | false | null;
   /** Recharge les liens de l'échange après un geste. Absent = le bandeau reste en lecture. */
   onRattachement?: () => void | Promise<void>;
   onGesteRattachement?: (message: string) => void;
@@ -878,7 +903,13 @@ export function MessageConversation({
    * ⚠️ `rattachements === null` = on ne sait rien (migration 257 absente, ou écran qui ne les charge pas) : on
    * n'affiche AUCUNE capsule plutôt qu'une rouge qui accuserait à tort.
    */
-  const capsule = rattachements === null ? null : capsuleDuMessage(rattachements);
+  /**
+   * 🔴 LOT STATUT-HORS-GESTION — LA MARQUE ENTRE DANS LE CALCUL, AVEC SA PRIORITÉ. Classé > Auto > Hors gestion >
+   * À classer, tenue par `capsuleDuMessage` (module PUR) : un mail marqué hors gestion PUIS rattaché à un bien
+   * redevient vert tout seul, ce qui est exactement la réversibilité demandée.
+   */
+  const marque = horsGestion === null || horsGestion === false ? null : horsGestion;
+  const capsule = rattachements === null ? null : capsuleDuMessage(rattachements, marque !== null);
   const biensDuMail = (rattachements ?? [])
     .filter((l) => SORTES_BIEN.includes(l.cible.sorte) && l.statut === 'confirme')
     .map((l) => l.libelle);
@@ -1005,8 +1036,11 @@ export function MessageConversation({
         {capsule !== null && (
           <button type="button"
             className={`cnv-capsule cnv-capsule--${capsule}`}
-            title={bulleCapsuleMessage(capsule, biensDuMail)}
-            onClick={() => (capsule === 'a_classer'
+            title={bulleCapsuleMessage(capsule, biensDuMail, marque?.motif ?? null)}
+            /* 🔴 LE CLIC SUIT LE STATUT — et « Hors gestion » mène À LA FENÊTRE DE CLASSEMENT, parce que c'est là
+               qu'on annule la marque ou qu'on rattache un bien. La fenêtre de CONSULTATION des rattachements, elle,
+               n'aurait rien à montrer : un mail hors gestion n'en a aucun. */
+            onClick={() => (capsule === 'a_classer' || capsule === 'hors_gestion'
               ? setClasserCeMail(true)
               : filId !== null ? setVoirRattachements(true) : undefined)}>
             {motCapsule(capsule)}
@@ -1293,6 +1327,8 @@ const CSS_CONVERSATION = `
 /* « Auto » est vert lui aussi — c'est range — mais en aplat plus discret : le geste humain reste le plus visible
    des deux, sans pour autant faire passer l'automatique pour un probleme. */
 .cnv-capsule--auto{color:var(--color-svv-green-ink);background:var(--color-svv-green-soft)}
+/* LOT STATUT-HORS-GESTION — le GRIS : une decision prise, pas un travail en attente. Le MOT est ecrit. */
+.cnv-capsule--hors_gestion{color:var(--color-svv-muted);border-color:var(--color-svv-line-strong)}
 .cnv-capsule:hover{filter:brightness(.94)}
 .cnv-capsule:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
 /* ══ 🔴 LOT AVIS-LISIBLE — LE PASSAGE LISIBLE D'UN AVIS DE NON-REMISE ════════════════════════════════════════════

@@ -474,3 +474,16 @@ export function brouillonHtmlDisponible(): Promise<boolean> {
 export function brouillonCibleDisponible(): Promise<boolean> {
   return memoiser('table.gestion_brouillon_cible', () => tableExiste('gestion_brouillon_cible'));
 }
+
+/**
+ * 🔴 LOT STATUT-HORS-GESTION — la migration 266 est-elle appliquée ? Elle seule porte le marquage « Hors gestion » :
+ * ce mail ne concerne AUCUN bien (prospection, collègue, divers), décidé À LA MAIN par un collaborateur.
+ *
+ * 🔴 TANT QU'ELLE MANQUE, LE MODULE EST EXACTEMENT CELUI D'AVANT : aucune capsule grise nulle part, le filtre
+ * « Hors gestion » de l'écran partagé ne s'affiche pas, l'option de la fenêtre de classement est GRISÉE avec une
+ * info-bulle qui dit pourquoi — et AUCUNE requête ne nomme la table absente, ce qui ferait échouer tout l'écran et
+ * pas seulement la nouveauté (incident du 24/09/2026).
+ */
+export function horsGestionDisponible(): Promise<boolean> {
+  return memoiser('table.gestion_hors_gestion', () => tableExiste('gestion_hors_gestion'));
+}

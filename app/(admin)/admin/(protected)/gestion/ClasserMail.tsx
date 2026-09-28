@@ -3,7 +3,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CSS_MODIFIER_RATTACHEMENT } from './ModifierRattachement';
 // LOT STATUT-PAR-MAIL — le plan de la validation est un module PUR, éprouvé sans écran ni base.
-import { planClassement, type LienExistant, type PorteeClassement } from '../../../../lib/gestion/gesteClassement';
+import {
+  planClassement, type GesteHorsGestion, type LienExistant, type PorteeClassement,
+} from '../../../../lib/gestion/gesteClassement';
+import { MOTIFS_HORS_GESTION } from '../../../../lib/gestion/statutClassement';
 import type { ContexteClassement } from '../../../../lib/gestion/classementBien';
 import type { LienAffiche } from '../../../../lib/gestion/rattachementRepo';
 
@@ -45,11 +48,23 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
 }) {
   const [etat, setEtat] = useState<
     | { v: 'charge' }
-    | { v: 'ok'; contexte: ContexteClassement; mailsSansManuel: number[]; existants: LienExistant[] }
+    | {
+        v: 'ok'; contexte: ContexteClassement; mailsSansManuel: number[]; existants: LienExistant[];
+        /** 🔴 Les mails de la portée qui portent DÉJÀ une marque « hors gestion » vivante. */
+        dejaHorsGestion: number[];
+        /** La migration 266 est-elle appliquée ? Sinon l'option est GRISÉE, avec une info-bulle qui dit pourquoi. */
+        horsGestionInstalle: boolean;
+      }
     | { v: 'erreur'; message: string }
   >({ v: 'charge' });
   const [portee, setPortee] = useState<PorteeClassement>('mail');
   const [coches, setCoches] = useState<string[] | null>(null);
+  /**
+   * 🔴 LA RÉPONSE CHOISIE. `biens` est le DÉFAUT : la règle métier dit qu'un mail de gestion concerne un bien, et
+   * « hors gestion » est l'exception qu'on déclare — jamais celle qu'on trouve pré-cochée.
+   */
+  const [reponse, setReponse] = useState<'biens' | 'hors_gestion'>('biens');
+  const [motifHg, setMotifHg] = useState<string>('');
   const [envoi, setEnvoi] = useState<{ en_cours: boolean; message: string | null }>({ en_cours: false, message: null });
 
   const charger = useCallback(async () => {
@@ -91,7 +106,25 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
         .filter((l) => l.statut === 'confirme' && l.cible.sorte === 'lot' && typeof l.cible.cle === 'string')
         .map((l) => ({ id: l.id, messageId: l.messageId, cle: String(l.cible.cle) }));
 
-      setEtat({ v: 'ok', contexte: dc.contexte, mailsSansManuel: dp?.mails ?? [messageId], existants });
+      /**
+       * 🔴 LA QUATRIÈME LECTURE : les marques « hors gestion » de la portée. Elle vient APRÈS les trois autres
+       * parce qu'elle a besoin de la liste des mails de l'échange, que la deuxième vient de rendre. Une table dont
+       * la migration peut manquer : `sans_schema` n'est pas une erreur, c'est l'état qui grise l'option.
+       */
+      const mails = dp?.mails ?? [messageId];
+      let dejaHorsGestion: number[] = [];
+      let horsGestionInstalle = false;
+      try {
+        const ids = [...new Set([messageId, ...mails])];
+        const rh = await fetch(`/api/admin/gestion/hors-gestion?messages=${ids.join(',')}`, { cache: 'no-store' });
+        const dh = (await rh.json()) as { etat?: string; data?: Record<string, unknown> };
+        horsGestionInstalle = dh.etat === 'ok';
+        dejaHorsGestion = Object.keys(dh.data ?? {}).map(Number).filter((n) => Number.isSafeInteger(n));
+      } catch { /* l'option reste grisée : on ne propose pas un geste dont on ne sait pas s'il aboutira */ }
+
+      setEtat({
+        v: 'ok', contexte: dc.contexte, mailsSansManuel: mails, existants, dejaHorsGestion, horsGestionInstalle,
+      });
       /**
        * 🔴 LA PRÉ-COCHE : le bien recommandé par l'automatisation, et ceux déjà rattachés. Elle n'est posée QU'UNE
        * FOIS, au chargement — si on la recalculait, décocher le bien recommandé le recocherait aussitôt.
@@ -105,10 +138,23 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
   useEffect(() => { void charger(); }, [charger]);
 
   const selection = coches ?? [];
+  /** Ce mail porte-t-il DÉJÀ une marque ? C'est ce qui fait apparaître « Annuler hors gestion ». */
+  const dejaMarque = etat.v === 'ok' && etat.dejaHorsGestion.includes(messageId);
+  const installe = etat.v === 'ok' && etat.horsGestionInstalle;
+  /** Le geste demandé, quand c'en est un. `annuler` est porté par son propre bouton, pas par la validation. */
+  const [annulation, setAnnulation] = useState(false);
+  const gesteHg: GesteHorsGestion | null = annulation ? { geste: 'annuler' }
+    : reponse === 'hors_gestion' ? { geste: 'marquer', motif: motifHg === '' ? null : motifHg } : null;
+
   /** Le plan, recalculé à chaque coche : c'est LUI qui écrit la phrase du bas, jamais un compte fait à la main. */
   const plan = useMemo(() => etat.v !== 'ok' ? null : planClassement({
     messageId, portee, mailsSansManuel: etat.mailsSansManuel, selection, existants: etat.existants,
-  }), [etat, messageId, portee, selection]);
+    horsGestion: gesteHg, dejaHorsGestion: etat.dejaHorsGestion,
+  }), [etat, messageId, portee, selection, gesteHg]);
+
+  /** Y a-t-il quelque chose à faire ? La validation est INACTIVE tant que non — et la phrase du bas le DIT. */
+  const aFaire = plan !== null && (plan.aPoser.length > 0 || plan.aRetirer.length > 0
+    || plan.aMarquerHorsGestion.length > 0 || plan.aAnnulerHorsGestion.length > 0);
 
   const basculer = (cle: string) => setCoches((c) => {
     const l = c ?? [];
@@ -126,7 +172,7 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
    * dire ; on fait donc tout ce qui peut l'être et on annonce exactement ce qui a manqué.
    */
   const valider = async () => {
-    if (plan === null || (plan.aPoser.length === 0 && plan.aRetirer.length === 0)) return;
+    if (plan === null || !aFaire) return;
     setEnvoi({ en_cours: true, message: null });
     let faits = 0;
     const ratés: string[] = [];
@@ -153,6 +199,35 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
         if (res.ok) faits += 1;
         else ratés.push(`retrait nº ${id}`);
       } catch { ratés.push(`retrait nº ${id}`); }
+    }
+
+    /**
+     * ══ 🔴 LES GESTES « HORS GESTION » — APRÈS les rattachements, et jamais à leur place ═══════════════════════
+     * Après, parce que poser un bien LÈVE la marque côté serveur : annuler d'abord puis rattacher donnerait deux
+     * écritures pour le même fait. Un seul appel pour toute la liste de mails : la route les prend en lot.
+     */
+    if (plan.aMarquerHorsGestion.length > 0) {
+      try {
+        const res = await fetch('/api/admin/gestion/hors-gestion', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ messageIds: plan.aMarquerHorsGestion, motif: plan.motifHorsGestion }),
+        });
+        if (res.ok) faits += 1;
+        else ratés.push('marquage hors gestion');
+      } catch { ratés.push('marquage hors gestion'); }
+    }
+    if (plan.aAnnulerHorsGestion.length > 0) {
+      try {
+        const res = await fetch('/api/admin/gestion/hors-gestion', {
+          method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            messageIds: plan.aAnnulerHorsGestion,
+            motif: annulation ? 'annulé à la main' : 'levé : un bien a été rattaché à ce mail',
+          }),
+        });
+        if (res.ok) faits += 1;
+        else ratés.push('annulation hors gestion');
+      } catch { ratés.push('annulation hors gestion'); }
     }
 
     setEnvoi({ en_cours: false, message: null });
@@ -182,6 +257,22 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
         <h2 className="mrt-titre" id="clm-titre">Classer ce mail</h2>
         {objet && <p className="clm-objet">{objet}</p>}
 
+        {/* ══ 🔴 CE MAIL EST DÉJÀ MARQUÉ — on le DIT, et on offre le geste inverse tout de suite ════════════════
+            Le bouton est ici, en haut, et non caché au fond d'une option : annuler une marque est le geste qu'on
+            vient faire quand on rouvre cette fenêtre sur un mail gris. */}
+        {dejaMarque && (
+          <p className="clm-marque-vive">
+            <span className="clm-capsule-gris">Hors gestion</span>
+            {' '}Ce mail est marqué comme ne concernant aucun bien.
+            {' '}
+            <button type="button" className="gst-lien-bouton" disabled={envoi.en_cours}
+              onClick={() => { setAnnulation(true); setReponse('biens'); }}>
+              Annuler hors gestion
+            </button>
+            {annulation && <span className="clm-note"> — sera annulé à la validation.</span>}
+          </p>
+        )}
+
         {etat.v === 'charge' && <p className="gst-info" role="status">Lecture des biens possibles…</p>}
         {etat.v === 'erreur' && <p className="gst-tronc" role="alert">{etat.message}</p>}
 
@@ -201,6 +292,42 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
                   — les parties affichées sont celles de <strong>cette date</strong>.</>
                 : 'Date du mail inconnue : les parties affichées sont celles d’aujourd’hui.'}
             </p>
+
+            {/* ══ 🔴 QUE FAIRE DE CE MAIL — DEUX RÉPONSES QUI S'EXCLUENT ═══════════════════════════════════════
+                Un mail concerne un ou plusieurs BIENS, ou il n'en concerne AUCUN. Les deux ne peuvent pas être
+                vraies à la fois : cocher un bien ET « hors gestion » enregistrerait une contradiction.
+                🔴 « Rattacher » EST LE DÉFAUT. « Hors gestion » est l'exception qu'on déclare, jamais celle qu'on
+                trouve pré-cochée — et elle n'est JAMAIS posée automatiquement (règle métier ④). */}
+            <fieldset className="clm-bloc">
+              <legend className="clm-legende">Que faire de ce mail ?</legend>
+              <label className="clm-choix">
+                <input type="radio" name="clm-reponse" checked={reponse === 'biens'}
+                  onChange={() => { setReponse('biens'); setAnnulation(false); }} />
+                <span>Le rattacher à un ou plusieurs biens</span>
+              </label>
+              <label className={`clm-choix${installe ? '' : ' clm-choix--inactif'}`}
+                title={installe ? undefined
+                  : 'Mise à jour de la base à appliquer (migration 266) : le marquage « hors gestion » n’est pas '
+                    + 'encore installé sur cette base.'}>
+                <input type="radio" name="clm-reponse" checked={reponse === 'hors_gestion'} disabled={!installe}
+                  onChange={() => { setReponse('hors_gestion'); setAnnulation(false); setCoches([]); }} />
+                <span>
+                  Hors gestion — ce mail ne concerne aucun bien
+                  {!installe && ' (pas encore installé sur cette base)'}
+                </span>
+              </label>
+              {/* LE MOTIF EST FACULTATIF : exiger une justification ferait cocher n'importe laquelle. */}
+              {reponse === 'hors_gestion' && (
+                <p className="clm-motif">
+                  <label htmlFor="clm-motif-select">Motif (facultatif)</label>{' '}
+                  <select id="clm-motif-select" className="clm-select" value={motifHg}
+                    onChange={(e) => setMotifHg(e.target.value)}>
+                    <option value="">non précisé</option>
+                    {MOTIFS_HORS_GESTION.map((m) => <option key={m.cle} value={m.cle}>{m.mot}</option>)}
+                  </select>
+                </p>
+              )}
+            </fieldset>
 
             {/* ══ 🔴 LA PORTÉE — UN CHOIX EXPLICITE, « ce mail » PAR DÉFAUT ═══════════════════════════════════════ */}
             <fieldset className="clm-bloc">
@@ -243,8 +370,11 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
               <ul className="clm-biens">
                 {contexte.biens.map((b) => (
                   <li key={b.cle} className="clm-bien">
-                    <label className="clm-choix">
-                      <input type="checkbox" checked={selection.includes(b.cle)} onChange={() => basculer(b.cle)} />
+                    <label className={`clm-choix${reponse === 'hors_gestion' ? ' clm-choix--inactif' : ''}`}>
+                      {/* ⚠️ DÉSACTIVÉES, PAS CACHÉES, quand « hors gestion » est choisi : on doit voir ce à quoi
+                          on renonce, et rebasculer d'un clic sans que la liste ait bougé sous les yeux. */}
+                      <input type="checkbox" checked={selection.includes(b.cle)} disabled={reponse === 'hors_gestion'}
+                        onChange={() => basculer(b.cle)} />
                       <span className="clm-bien-nom">{b.libelle}</span>
                     </label>
                     {/* 🔴 LE MOT EST ÉCRIT : on doit savoir POURQUOI une case est cochée. */}
@@ -269,6 +399,14 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
               </ul>
             </fieldset>
 
+            {reponse === 'hors_gestion' && (
+              <p className="clm-note clm-note--large">
+                « Hors gestion » et un rattachement à un bien s’excluent : les biens ci-dessus sont donc
+                inactifs, et les rattachements déjà posés sur ce mail passeront au statut « retiré » (jamais
+                supprimés). Rattacher un bien plus tard lèvera la marque.
+              </p>
+            )}
+
             {/* ══ CE QUE LA VALIDATION VA FAIRE, DIT AVANT DE LA FAIRE ══════════════════════════════════════════ */}
             {plan && <p className="clm-resume" role="status">{plan.resume}</p>}
           </>
@@ -281,7 +419,7 @@ export function ClasserMail({ messageId, filId, objet, onFerme, onFait, onGeste 
             Annuler
           </button>
           <button type="button" className="svv-btn gst-btn" onClick={() => void valider()}
-            disabled={envoi.en_cours || plan === null || (plan.aPoser.length === 0 && plan.aRetirer.length === 0)}>
+            disabled={envoi.en_cours || !aFaire}>
             {envoi.en_cours ? 'Enregistrement…' : 'Valider le classement'}
           </button>
         </div>
@@ -315,6 +453,17 @@ export const CSS_CLASSER_MAIL = `
 .clm-role{font-size:.72rem;font-weight:700;letter-spacing:.03em;color:var(--color-svv-muted)}
 .clm-role::after{content:' :'}
 .clm-periode{color:var(--color-svv-muted)}
+.clm-marque-vive{display:flex;flex-wrap:wrap;align-items:baseline;gap:.4rem;margin:0 0 10px;padding:8px 10px;
+  border:1px solid var(--color-svv-line);border-radius:8px;background:var(--color-svv-field);font-size:.84rem;
+  color:var(--color-svv-ink)}
+.clm-capsule-gris{padding:.05rem .4rem;border-radius:999px;font-size:.7rem;font-weight:700;line-height:1.5;
+  color:var(--color-svv-muted);border:1px solid var(--color-svv-line-strong)}
+.clm-motif{display:flex;flex-wrap:wrap;align-items:center;gap:.5rem;margin:.4rem 0 0 1.6rem;font-size:.82rem;
+  color:var(--color-svv-muted)}
+.clm-select{min-height:36px;padding:.2rem .4rem;font:inherit;font-size:.82rem;color:var(--color-svv-ink);
+  background:var(--color-svv-surface);border:1px solid var(--color-svv-line);border-radius:.4rem}
+.clm-select:focus-visible{outline:2px solid var(--color-svv-red);outline-offset:2px}
+.clm-note--large{margin:0 0 12px}
 .clm-resume{margin:0 0 12px;padding:8px 10px;border-radius:8px;border:1px solid var(--color-svv-line);
   background:var(--color-svv-field);font-size:.85rem;font-weight:600;color:var(--color-svv-ink)}
 `;
