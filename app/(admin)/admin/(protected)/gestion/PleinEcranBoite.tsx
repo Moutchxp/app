@@ -9,6 +9,8 @@ import { Redaction, type BrouillonEcran, type ContexteRedactionEcran } from './R
 // LOT REDACTION-GMAIL — les fenêtres flottantes qui encadrent CE MÊME éditeur (jamais un second).
 import { FenetresRedaction, useFenetresRedaction } from './FenetresRedaction';
 import { preparerBrouillon, type VoieRedaction } from '../../../../lib/gestion/redaction';
+// La traduction « brouillon en base → brouillon d'éditeur », PURE et éprouvée sans écran.
+import { cleFenetreBrouillon, reprendreBrouillon } from '../../../../lib/gestion/brouillonReprise';
 // `ecran` est un module PUR (aucun import) : le faire venir dans un composant client ne tire pas `pg`.
 import { titreARattacher } from '../../../../lib/gestion/ecran';
 import type { ActionLigne } from '../../../../lib/gestion/menuLigne';
@@ -358,9 +360,11 @@ export function PleinEcranBoite({
           fenetres={fen.fenetres}
           brouillons={fen.brouillons}
           contexte={redaction}
+          fermetures={fen.fermetures}
           onChange={fen.majBrouillon}
           onEtat={fen.changerLEtat}
           onFermer={fen.fermerLa}
+          onDemanderFermeture={fen.demanderFermeture}
           onEnvoye={(cle) => { fen.fermerLa(cle); }}
           onGeste={onGeste} />
       )}
@@ -564,6 +568,14 @@ export function PleinEcranBoite({
           {etiquette.sorte === 'brouillons' ? (
             <Brouillons maintenant={maintenant}
               onOuvrir={(f) => onOuvrir(f)}
+              /**
+               * 🔴🔴 UN CLIC SUR UN BROUILLON L'OUVRE DANS L'ÉDITEUR — il ne s'ouvrait pas du tout (constat d'Arno).
+               * On réutilise la fenêtre de rédaction ORDINAIRE : mêmes destinataires, même objet, même corps mis en
+               * forme, mêmes pièces jointes (la zone des pièces les relit à partir de l'identifiant du brouillon).
+               * La clé tient à cet identifiant : recliquer RÉTABLIT la fenêtre au lieu d'en ouvrir une seconde sur
+               * le même travail — deux fenêtres sur une seule ligne, et le dernier enregistrement mangerait l'autre.
+               */
+              onReprendre={(b) => ouvrirRedaction(cleFenetreBrouillon(b.id), reprendreBrouillon(b))}
               onChange={() => onEtiquette(etiquette)} />
           ) : aClasser ? (
             <>

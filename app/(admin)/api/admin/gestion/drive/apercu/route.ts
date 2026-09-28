@@ -3,8 +3,9 @@ import { exigerCompteActif } from '../../../../../../lib/admin/garde';
 import { ouvrirFluxExportPdf, ouvrirFluxFichier, ouvrirFluxVignette } from '../../../../../../lib/gestion/drive';
 import { verdictJoindreFichier } from '../../../../../../lib/gestion/driveVerdict';
 import {
-  APERCU_TAILLE_MAX, messageSansApercu, motifTropGros, passeParExport, sorteApercu, typeServi,
+  APERCU_TAILLE_MAX, lireIntervalle, messageSansApercu, motifTropGros, passeParExport, sorteApercu, typeServi,
 } from '../../../../../../lib/gestion/apercuDrive';
+import { cleOctets, memoriserOctets, octetsMemo } from '../../../../../../lib/gestion/driveMemoire';
 import { jetonPourRequete } from '../../../../../../lib/gestion/jetonCollaborateur';
 
 /**
@@ -68,11 +69,23 @@ function json(corps: unknown, status = 200): Response {
  *   · la visionneuse PDF de Chrome s'exécute dans son propre bac à sable, pas dans notre origine.
  * Les IMAGES et le TEXTE, eux, gardent la politique stricte : rien n'a besoin d'être chargé pour les afficher.
  */
-function entetesContenu(type: string, longueur?: number): Record<string, string> {
+function entetesContenu(
+  type: string, longueur?: number,
+  /**
+   * 🔴 LOT APERCU-PAGE1 — CE QUI DIT AU NAVIGATEUR QU'IL PEUT DEMANDER DES TRANCHES.
+   *
+   * `tranches: false` pour un export Google, qui est CALCULÉ à la volée et n'accepte aucun `Range` : l'annoncer
+   * ferait demander à PDF.js des morceaux que Google refuserait, et l'aperçu échouerait au lieu d'être lent.
+   * `intervalle` porte le `Content-Range` d'une réponse 206, retransmis tel quel.
+   */
+  o: { tranches?: boolean; intervalle?: string | null } = {},
+): Record<string, string> {
   const estPdf = type.startsWith('application/pdf');
   return {
     'Content-Type': type,
     ...(longueur === undefined ? {} : { 'Content-Length': String(longueur) }),
+    'Accept-Ranges': o.tranches === false ? 'none' : 'bytes',
+    ...(o.intervalle ? { 'Content-Range': o.intervalle } : {}),
     /**
      * ⚠️ `inline` SANS NOM DE FICHIER. Le nom d'un document de client (« Bail DUPONT.pdf ») n'a pas à voyager dans
      * un en-tête que le navigateur peut consigner : l'écran l'affiche déjà, il le connaît.
@@ -85,6 +98,30 @@ function entetesContenu(type: string, longueur?: number): Record<string, string>
       ? "frame-ancestors 'self'"
       : "default-src 'none'; img-src data: blob: 'self'; frame-ancestors 'self'",
   };
+}
+
+/**
+ * LIT UN FLUX EN ENTIER, pour en garder une copie. `null` dès qu'il dépasse ce que la mémoire accepte : on cesse
+ * alors d'accumuler au lieu de charger douze mégaoctets pour les jeter ensuite.
+ */
+async function accumuler(flux: ReadableStream<Uint8Array>): Promise<Uint8Array | null> {
+  const lecteur = flux.getReader();
+  const morceaux: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await lecteur.read();
+      if (done) break;
+      if (value === undefined) continue;
+      total += value.byteLength;
+      if (total > APERCU_TAILLE_MAX) { await lecteur.cancel().catch(() => {}); return null; }
+      morceaux.push(value);
+    }
+  } catch { return null; } finally { lecteur.releaseLock(); }
+  const tout = new Uint8Array(total);
+  let i = 0;
+  for (const m of morceaux) { tout.set(m, i); i += m.byteLength; }
+  return tout;
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -173,16 +210,87 @@ export async function GET(request: Request): Promise<Response> {
      * ⚠️ `Content-Length` N'EST POSÉ QUE POUR UN FICHIER ORDINAIRE. Un document Google exporté n'a pas de taille
      * connue d'avance — annoncer un chiffre faux couperait le flux au mauvais endroit.
      */
-    const flux = passeParExport(meta.valeur.typeMime)
+    const estExport = passeParExport(meta.valeur.typeMime);
+    /**
+     * 🔴🔴 LA TRANCHE DEMANDÉE PAR LE NAVIGATEUR, TRANSMISE TELLE QUELLE À GOOGLE.
+     *
+     * C'est ce qui permet à PDF.js de n'aller chercher que les quelques dizaines de kilo-octets nécessaires à la
+     * page 1 au lieu des 3,2 Mo du document. On ne réinterprète rien : Drive sait découper, et refabriquer la
+     * tranche chez nous obligerait à lire tout le fichier pour en couper un morceau — exactement ce qu'on évite.
+     *
+     * ⚠️ JAMAIS POUR UN EXPORT : un document Google est calculé à la volée, sans taille connue d'avance.
+     */
+    const demande = estExport ? null : request.headers.get('range');
+
+    /**
+     * ══ 🔴🔴 LA MÉMOIRE COURTE DES OCTETS — LE VRAI GAIN DE CE LOT ═════════════════════════════════════════════
+     *
+     * MESURÉ LE 29/09/2026, depuis la page, sur le vrai Drive : la page 1 se TRAME en 46 à 155 ms ; l'ouverture du
+     * document en coûte 1 050 à 1 400, quelle que soit la taille du fichier. C'est de la LATENCE Google, pas du
+     * débit — et on la repayait en entier à chaque réouverture et à chaque retour par « Précédent ».
+     *
+     * 🔴 LE VERDICT A DÉJÀ ÉTÉ PRONONCÉ, dix lignes plus haut, et il ne passe jamais par la mémoire : celle-ci ne
+     * rend des octets qu'à quelqu'un qui vient d'obtenir le droit de les lire. Elle épargne le TRANSPORT, jamais
+     * la règle. Un fichier déplacé sous « Documents clients scannés » est refusé à la requête suivante, mémoire
+     * pleine ou non.
+     *
+     * ⚠️ ET C'EST AUSSI CE QUI REND LES TRANCHES UTILES. Servies depuis le Drive, elles coûtaient chacune un
+     * aller-retour : vingt tranches de 128 Kio mettaient 13,6 SECONDES à ouvrir l'acte de 3,3 Mo, contre 1,1 s en
+     * une seule lecture. Servies depuis la mémoire, elles ne coûtent plus rien.
+     */
+    const cle = cleOctets(jeton.compteGoogle, fichier, meta.valeur.tailleOctets ?? null);
+    const retenus = estExport ? null : octetsMemo(cle);
+    if (retenus !== null) {
+      const tranche = lireIntervalle(demande, retenus.byteLength);
+      if (tranche === null) {
+        return new Response(new Uint8Array(retenus), {
+          status: 200,
+          headers: entetesContenu(type, retenus.byteLength, { tranches: true }),
+        });
+      }
+      const morceau = retenus.subarray(tranche.debut, tranche.fin + 1);
+      return new Response(new Uint8Array(morceau), {
+        status: 206,
+        headers: entetesContenu(type, morceau.byteLength, {
+          tranches: true,
+          intervalle: `bytes ${tranche.debut}-${tranche.fin}/${retenus.byteLength}`,
+        }),
+      });
+    }
+
+    const flux = estExport
       ? await ouvrirFluxExportPdf(jeton.jeton, fichier, { fetch })
-      : await ouvrirFluxFichier(jeton.jeton, fichier, { fetch });
+      : await ouvrirFluxFichier(jeton.jeton, fichier, { fetch }, demande);
     if (!flux.ok) return json({ etat: 'sans_apercu', message: flux.motif }, 415);
     if (flux.valeur.corps === null) {
       return json({ etat: 'sans_apercu', message: 'Ce fichier est vide.' }, 415);
     }
-    return new Response(flux.valeur.corps, {
-      status: 200,
-      headers: entetesContenu(type, sorte === 'export_pdf' ? undefined : (meta.valeur.tailleOctets ?? undefined)),
+    const partielle = flux.valeur.statut === 206 && flux.valeur.intervalle !== null;
+
+    /**
+     * 🔴 ON GARDE UNE COPIE AU PASSAGE, et SEULEMENT d'une lecture ENTIÈRE : une tranche ne dit rien du reste du
+     * fichier, et l'assembler à partir de morceaux demanderait de savoir lesquels manquent. `tee()` double le flux
+     * sans rien retarder pour le navigateur — la copie se remplit derrière, à son rythme.
+     *
+     * ⚠️ AU MIEUX-EFFORT, TOUJOURS : si la copie échoue (flux coupé, fichier trop gros), l'aperçu n'en sait rien et
+     * ne s'en porte pas plus mal. La mémoire est une commodité, jamais une dépendance.
+     */
+    let corpsPourClient = flux.valeur.corps;
+    if (!estExport && !partielle) {
+      const [pourClient, pourMemoire] = flux.valeur.corps.tee();
+      corpsPourClient = pourClient;
+      void accumuler(pourMemoire).then((o) => { if (o !== null) memoriserOctets(cle, o); }).catch(() => {});
+    }
+
+    return new Response(corpsPourClient, {
+      status: partielle ? 206 : 200,
+      headers: entetesContenu(
+        type,
+        // La longueur de CE morceau quand c'est une tranche ; celle du fichier entier sinon.
+        partielle ? (flux.valeur.longueur ?? undefined)
+          : estExport ? undefined : (meta.valeur.tailleOctets ?? undefined),
+        { tranches: !estExport, intervalle: partielle ? flux.valeur.intervalle : null },
+      ),
     });
   } catch (e) {
     console.error('[api/admin/gestion/drive/apercu] lecture impossible', e);

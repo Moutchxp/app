@@ -5,6 +5,8 @@ import {
   messageSansApercu, motCompteur, positionDans, sorteApercu, voisinVers, voisinsVisualisables,
   type VoisinPossible,
 } from '../../../../lib/gestion/apercuDrive';
+// LOT APERCU-PAGE1 — le PDF se lit chez nous, page par page : le lecteur natif attendait le fichier entier.
+import { LecteurPdf, CSS_LECTEUR_PDF } from './LecteurPdf';
 
 /**
  * LOT DRIVE-VISUALISER-ET-DOSSIERS — « VISUALISER » : VOIR UN FICHIER DU DRIVE SANS LE JOINDRE.
@@ -82,6 +84,12 @@ type Etat =
 /** Les paliers de zoom de l'image. Le PDF, lui, a le zoom du navigateur, qui est meilleur que tout ce qu'on écrirait. */
 const ZOOMS = [0.5, 0.75, 1, 1.5, 2, 3] as const;
 
+/**
+ * 🔴 LA TAILLE AU-DELÀ DE LAQUELLE ON N'AMORCE PLUS LE VOISIN. Deux voisins de douze mégaoctets chasseraient de la
+ * mémoire du serveur le document qu'on est précisément en train de lire — l'amorçage se retournerait contre lui.
+ */
+const AMORCE_TAILLE_MAX = 8 * 1024 * 1024;
+
 export function ApercuFichierDrive({
   fichier, voisinage = [], joindreAutorise, estDeja, onJoindre, onFermer,
 }: {
@@ -103,6 +111,21 @@ export function ApercuFichierDrive({
   const [vu, setVu] = useState<FichierAVoir>(fichier);
   const [etat, setEtat] = useState<Etat>({ e: 'charge', vignette: false });
   const [zoom, setZoom] = useState(1);
+  /**
+   * 🔴 LOT APERCU-PAGE1 — LA PAGE 1 EST-ELLE PEINTE ?
+   *
+   * C'est ce drapeau, et LUI SEUL, qui retire la vignette Drive. Le défaut du lot précédent était là : le cadre du
+   * PDF recouvrait la vignette dès qu'il était POSÉ, c'est-à-dire alors qu'il était encore vide — on remplaçait
+   * une image juste par un rectangle noir, pendant deux à cinq secondes.
+   */
+  const [page1Peinte, setPage1Peinte] = useState(false);
+  /**
+   * ⚠️ LE RAPPEL DOIT GARDER LA MÊME IDENTITÉ D'UN RENDU À L'AUTRE. Écrit sur place (`() => setPage1Peinte(true)`),
+   * il changeait d'identité à chaque rendu de cet écran, et le lecteur PDF repartait de zéro à chaque fois — la
+   * page 1 n'arrivait jamais au bout de son rendu (mesuré le 29/09/2026 : plus de trente secondes, toile blanche).
+   * Le lecteur s'en protège aussi de son côté, mais la faute était ICI : on la corrige ici aussi.
+   */
+  const direPage1Peinte = useCallback(() => setPage1Peinte(true), []);
   const croix = useRef<HTMLButtonElement | null>(null);
 
   // Rouvrir l'aperçu sur un autre fichier depuis la liste doit repartir de celui-là.
@@ -120,6 +143,7 @@ export function ApercuFichierDrive({
     const v = voisinage.find((x) => x.id === id);
     if (v === undefined) return;
     setZoom(1);
+    setPage1Peinte(false);
     setVu({ id: v.id, nom: v.nom, typeMime: v.typeMime, lien: null, parentId: v.parentId });
   }, [voisinage]);
 
@@ -140,6 +164,7 @@ export function ApercuFichierDrive({
       return undefined;
     }
     let annule = false;
+    setPage1Peinte(false);
     setEtat({ e: 'charge', vignette: false });
     void (async () => {
       try {
@@ -187,14 +212,47 @@ export function ApercuFichierDrive({
    * dossier. Aucun préchargement ne peut donc atteindre « Documents clients scannés » depuis un autre dossier.
    */
   useEffect(() => {
-    if (etat.e !== 'pret') return undefined;
-    const amorcer = new AbortController();
+    /**
+     * 🔴 ON N'AMORCE QU'APRÈS LA PAGE 1 : le document qu'on est venu voir passe en premier, toujours. Amorcer
+     * pendant son chargement lui disputerait la connexion, pour une page que personne ne regarde encore.
+     */
+    if (etat.e !== 'pret' || !page1Peinte) return undefined;
+    let annule = false;
     for (const id of [idSuivant, idPrecedent]) {
       if (id === null) continue;
-      void fetch(adresseApercu(id, 'info'), { cache: 'no-store', signal: amorcer.signal }).catch(() => {});
+      void (async () => {
+        try {
+          const res = await fetch(adresseApercu(id, 'info'), { cache: 'no-store' });
+          const d = (await res.json()) as { etat?: string; sorte?: string; tailleOctets?: number | null };
+          if (annule || d.etat !== 'ok') return;
+          /**
+           * ══ 🔴🔴 ON TIRE AUSSI LES OCTETS DU VOISIN, ET C'EST CE QUI REND « SUIVANT » INSTANTANÉ ═══════════
+           *
+           * Mesuré le 29/09/2026 : passer à un document JAMAIS VU coûtait 1,9 à 2,9 s ; revenir sur un document
+           * déjà vu, 407 ms. Toute la différence est le trajet des octets depuis Google. On le fait donc AVANT
+           * qu'on appuie, pendant qu'on lit la page 1 — le serveur garde le fichier une minute, et le pas suivant
+           * ne paie plus que le tramage.
+           *
+           * ⚠️ ON LES JETTE AUSSITÔT LUS. Ce qu'on réchauffe est la mémoire du SERVEUR, pas celle de la page :
+           * la route répond `no-store`, et garder trois documents dans le navigateur ne servirait à rien.
+           *
+           * ⚠️ PAS POUR UN DOCUMENT GOOGLE EXPORTÉ (`export_pdf`) : son PDF est CALCULÉ à chaque demande, jamais
+           * mémorisé — l'amorcer ferait travailler Google pour rien. Ni au-delà de 8 Mo : deux voisins de douze
+           * mégaoctets chasseraient de la mémoire le document qu'on est en train de lire.
+           */
+          if (d.sorte === 'export_pdf') return;
+          if ((d.tailleOctets ?? 0) > AMORCE_TAILLE_MAX) return;
+          const octets = await fetch(adresseApercu(id, 'octets'), { cache: 'no-store' });
+          await octets.arrayBuffer();
+        } catch { /* un amorçage raté n'est pas une panne : le pas suivant sera simplement moins rapide */ }
+      })();
     }
-    return () => amorcer.abort();
-  }, [etat.e, idSuivant, idPrecedent]);
+    /**
+     * ⚠️ ON N'INTERROMPT PAS L'AMORÇAGE EN COURS, et c'est voulu : l'interrompre ferait perdre au serveur les
+     * octets à moitié lus, donc le bénéfice entier. Il se termine seul, `annule` empêchant seulement d'enchaîner.
+     */
+    return () => { annule = true; };
+  }, [etat.e, page1Peinte, idSuivant, idPrecedent]);
 
   /**
    * ÉCHAP FERME, LES FLÈCHES NAVIGUENT — même quand le focus est DANS le cadre de l'aperçu.
@@ -228,12 +286,14 @@ export function ApercuFichierDrive({
     <div className="apd-voile" role="presentation"
       onClick={(e) => { if (e.target === e.currentTarget) onFermer(); }}>
       <style>{CSS_APERCU}</style>
+      <style>{CSS_LECTEUR_PDF}</style>
       <div className="apd" role="dialog" aria-modal="true" aria-label={`Aperçu de ${vu.nom}`}>
         <header className="apd-tete">
           <span className="apd-nom" title={vu.nom}>
             <span aria-hidden="true">👁</span> {vu.nom}
           </span>
-          {/* Le ZOOM n'existe que pour l'image : le cadre du PDF a le sien, et du texte se lit à sa taille. */}
+          {/* Le ZOOM de l'en-tête n'existe que pour l'IMAGE : le PDF a le sien dans SA barre (page, zoom, largeur),
+              et du texte se lit à sa taille. */}
           {etat.e === 'pret' && etat.sorte === 'image' && (
             <span className="apd-zoom">
               <button type="button" className="gst-lien-bouton" disabled={iZoom <= 0}
@@ -253,22 +313,32 @@ export function ApercuFichierDrive({
               même case de la grille. */}
           {etat.e !== 'sans' && (
             <div className="apd-pile">
-              {(etat.e === 'charge' || etat.vignette) && (
+              {/* 🔴 LA VIGNETTE RESTE JUSQU'À CE QUE LA PAGE 1 SOIT PEINTE — jamais jusqu'à ce que le lecteur soit
+                  POSÉ. C'est tout le défaut du lot précédent, corrigé : `page1Peinte` est levé par le lecteur
+                  lui-même, quand il a vraiment quelque chose à montrer. */}
+              {(etat.e === 'charge' || (etat.vignette && !page1Peinte)) && (
                 <img className="apd-vignette" src={adresseApercu(vu.id, 'vignette')} alt=""
                   aria-hidden="true" />
               )}
-              {etat.e === 'charge' && <p className="apd-attente" role="status">Lecture du fichier…</p>}
+              {(etat.e === 'charge' || (etat.e === 'pret' && etat.sorte === 'pdf' && !page1Peinte)) && (
+                <p className="apd-attente" role="status">Lecture du fichier…</p>
+              )}
               {etat.e === 'pret' && etat.sorte === 'image' && (
                 <img className="apd-image" src={adresseApercu(vu.id, 'octets')} alt={vu.nom}
                   style={{ width: `${zoom * 100}%` }} />
               )}
-              {etat.e === 'pret' && etat.sorte !== 'image' && (
-                /**
-                 * 🔴 LE CADRE POINTE SUR LA ROUTE, PAS SUR UN `blob:`. C'est ce qui rend l'affichage progressif :
-                 * le lecteur PDF du navigateur montre les premières pages pendant que le reste arrive, au lieu
-                 * d'attendre le fichier entier. `key` force un cadre NEUF à chaque document — sans elle, le
-                 * lecteur PDF garde parfois la page du précédent.
-                 */
+              {/*
+                🔴🔴 LE PDF EST LU CHEZ NOUS, PAGE PAR PAGE. Le lecteur natif de Chrome attendait le fichier entier
+                puis décodait toutes les pages avant d'en peindre une (2 à 5 s mesurées sur un acte de 29 pages).
+                PDF.js ne demande que les octets de la page 1, par requêtes partielles que notre route sert.
+                `key` force un lecteur NEUF à chaque document : sans elle, on garderait le rendu du précédent.
+              */}
+              {etat.e === 'pret' && etat.sorte === 'pdf' && (
+                <LecteurPdf key={vu.id} url={adresseApercu(vu.id, 'octets')} nom={vu.nom}
+                  onPremierePage={direPage1Peinte} />
+              )}
+              {/* Le TEXTE BRUT garde le cadre : il n'y a rien à décoder, le navigateur l'affiche tel quel. */}
+              {etat.e === 'pret' && etat.sorte === 'texte' && (
                 <iframe key={vu.id} className="apd-cadre" src={adresseApercu(vu.id, 'octets')}
                   title={`Aperçu de ${vu.nom}`} />
               )}

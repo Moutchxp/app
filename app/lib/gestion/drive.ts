@@ -638,18 +638,60 @@ export async function exporterEnPdf(
    simultanés.
    ════════════════════════════════════════════════════════════════════════════════════════════════════════════════ */
 
-/** Un flux ouvert chez Google, prêt à être relayé. `corps` est `null` si Google n'a rien renvoyé. */
-export interface FluxDrive { corps: ReadableStream<Uint8Array> | null; typeMime: string | null }
+/**
+ * Un flux ouvert chez Google, prêt à être relayé. `corps` est `null` si Google n'a rien renvoyé.
+ *
+ * 🔴 LOT APERCU-PAGE1 — `statut` et `intervalle` portent la réponse PARTIELLE. Drive rend 206 quand on lui demande
+ * une tranche ; il faut transmettre les deux au navigateur, sans quoi PDF.js croit avoir reçu tout le fichier et
+ * recommence en entier.
+ */
+export interface FluxDrive {
+  corps: ReadableStream<Uint8Array> | null;
+  typeMime: string | null;
+  /** 200 (tout) ou 206 (une tranche). */
+  statut: number;
+  /** La valeur exacte de `Content-Range` rendue par Google, à retransmettre telle quelle. `null` si complète. */
+  intervalle: string | null;
+  /** La longueur de CE morceau, telle que Google l'annonce. `null` quand il ne l'annonce pas. */
+  longueur: number | null;
+}
 
-/** OUVRE le flux des octets d'un fichier (`alt=media`). LECTURE SEULE. Ne lit RIEN : rend le robinet. */
+/**
+ * OUVRE le flux des octets d'un fichier (`alt=media`). LECTURE SEULE. Ne lit RIEN : rend le robinet.
+ *
+ * ══ 🔴🔴 LOT APERCU-PAGE1 — LES REQUÊTES PARTIELLES, ET POURQUOI ELLES CHANGENT TOUT ═════════════════════════════
+ *
+ * MESURÉ le 29/09/2026 : le réseau n'était PAS le coupable — 755 à 993 ms pour télécharger ENTIÈREMENT chacun des
+ * quatre PDF d'essai, 3,2 Mo compris. Ce qui prenait 2 à 5 secondes, c'était le lecteur PDF de Chrome, qui attend
+ * le fichier complet puis décode 29 pages avant d'en peindre une.
+ *
+ * On lit désormais le PDF avec PDF.js, page par page — et PDF.js ne demande que les quelques dizaines de kilo-octets
+ * dont il a besoin pour la page 1, À CONDITION que la route sache répondre à un `Range`. Sans cela il retombe sur
+ * le téléchargement complet, et l'on n'a rien gagné.
+ *
+ * ⚠️ `Range` EST TRANSMIS TEL QUEL À GOOGLE, jamais réinterprété : Drive sait le faire, et refabriquer la tranche
+ * chez nous obligerait à lire tout le fichier pour en couper un morceau — exactement ce qu'on cherche à éviter.
+ */
 export async function ouvrirFluxFichier(
-  accessToken: string, id: string, deps: DepsGoogle,
+  accessToken: string, id: string, deps: DepsGoogle, intervalle?: string | null,
 ): Promise<Resultat<FluxDrive>> {
   const p = new URLSearchParams({ alt: 'media', ...PARTAGES });
-  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } });
+  const entetes: Record<string, string> = { Authorization: `Bearer ${accessToken}` };
+  const demande = (intervalle ?? '').trim();
+  if (demande !== '') entetes.Range = demande;
+  const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}?${p}`, { headers: entetes });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'le téléchargement du fichier') };
-  return { ok: true, valeur: { corps: res.body, typeMime: res.headers.get('content-type') } };
+  const longueur = Number(res.headers.get('content-length') ?? '');
+  return {
+    ok: true,
+    valeur: {
+      corps: res.body,
+      typeMime: res.headers.get('content-type'),
+      statut: res.status,
+      intervalle: res.headers.get('content-range'),
+      longueur: Number.isFinite(longueur) && longueur >= 0 ? longueur : null,
+    },
+  };
 }
 
 /**
@@ -667,7 +709,13 @@ export async function ouvrirFluxExportPdf(
   const res = await deps.fetch(`${API_FICHIERS}/${encodeURIComponent(id)}/export?${p}`,
     { headers: { Authorization: `Bearer ${accessToken}` } });
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture de ce document Google') };
-  return { ok: true, valeur: { corps: res.body, typeMime: 'application/pdf' } };
+  /**
+   * ⚠️ AUCUNE TRANCHE POSSIBLE ICI, et il faut le dire. Un export est CALCULÉ à la volée : Google n'en connaît pas
+   * la taille d'avance et n'accepte pas de `Range`. L'appelant annoncera donc `Accept-Ranges: none`, et PDF.js
+   * téléchargera l'export en entier — ce qui est la seule chose possible, et reste bien plus rapide que le lecteur
+   * natif puisque le rendu, lui, se fait page par page.
+   */
+  return { ok: true, valeur: { corps: res.body, typeMime: 'application/pdf', statut: 200, intervalle: null, longueur: null } };
 }
 
 /**
@@ -690,7 +738,13 @@ export async function ouvrirFluxVignette(
   const adresse = lienVignette.replace(/=s\d+(-c)?$/, `=s${largeur}`);
   const res = await deps.fetch(adresse);
   if (!res.ok) return { ok: false, motif: motifHttp(res.status, 'la lecture de la vignette') };
-  return { ok: true, valeur: { corps: res.body, typeMime: res.headers.get('content-type') ?? 'image/jpeg' } };
+  return {
+    ok: true,
+    valeur: {
+      corps: res.body, typeMime: res.headers.get('content-type') ?? 'image/jpeg',
+      statut: 200, intervalle: null, longueur: null,
+    },
+  };
 }
 
 /**

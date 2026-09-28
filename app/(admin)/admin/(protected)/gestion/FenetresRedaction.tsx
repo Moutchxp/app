@@ -43,13 +43,21 @@ export interface FenetreAvecBrouillon {
 }
 
 export function FenetresRedaction({
-  fenetres, brouillons, contexte, onChange, onFermer, onGeste, onEnvoye, onEtat,
+  fenetres, brouillons, contexte, fermetures, onChange, onFermer, onDemanderFermeture, onGeste, onEnvoye, onEtat,
 }: {
   fenetres: readonly FenetreRedaction[];
   brouillons: ReadonlyMap<string, BrouillonEcran>;
   contexte: ContexteRedactionEcran;
+  /** Combien de fois la croix de chaque fenêtre a été pressée. C'est ce compteur qui atteint l'éditeur. */
+  fermetures: ReadonlyMap<string, number>;
   onChange: (cle: string, b: BrouillonEcran) => void;
   onFermer: (cle: string) => void;
+  /**
+   * 🔴🔴 LA CROIX DEMANDE, ELLE NE FERME PAS. Elle appelait `onFermer` directement : la fenêtre disparaissait sans
+   * que l'éditeur ait son mot à dire, donc sans que la règle « un brouillon resté vide est abandonné » s'applique.
+   * C'est de là que venaient les brouillons vides. Elle prévient désormais l'éditeur, qui ferme par sa propre porte.
+   */
+  onDemanderFermeture: (cle: string) => void;
   onGeste: Rapport;
   onEnvoye: (cle: string) => void;
   /** Réduire, agrandir, rétablir. La RÈGLE (une seule en plein écran) vit dans le module pur. */
@@ -100,9 +108,11 @@ export function FenetresRedaction({
                 </button>
                 {/* ⚠️ FERMER NE SUPPRIME PAS : le brouillon est conservé s'il contient quelque chose — c'est la
                     règle du lot BROUILLON-SILENCIEUX, et `Redaction` la tient déjà. Supprimer se demande
-                    expressément, par la corbeille de la barre du bas. */}
+                    expressément, par la corbeille de la barre du bas.
+                    🔴🔴 ET C'EST L'ÉDITEUR QUI FERME, pas cette croix : elle fermait la fenêtre elle-même, ce qui
+                    court-circuitait justement cette règle et laissait la ligne vide en base. */}
                 <button type="button" className="fre-bouton" aria-label="Fermer la fenêtre" title="Fermer"
-                  onClick={() => onFermer(f.cle)}>
+                  onClick={() => onDemanderFermeture(f.cle)}>
                   <span aria-hidden="true">✕</span>
                 </button>
               </span>
@@ -112,6 +122,7 @@ export function FenetresRedaction({
             <div className="fre-corps" hidden={f.etat === 'reduite'}>
               <Redaction
                 dansFenetre
+                fermetureDemandee={fermetures.get(f.cle) ?? 0}
                 brouillon={b}
                 contexte={contexte}
                 onChange={(maj) => onChange(f.cle, maj)}
@@ -178,6 +189,11 @@ export const CSS_FENETRES = `
 export function useFenetresRedaction() {
   const [fenetres, setFenetres] = useState<FenetreRedaction[]>([]);
   const [brouillons, setBrouillons] = useState<Map<string, BrouillonEcran>>(new Map());
+  /**
+   * 🔴 LES DEMANDES DE FERMETURE, COMPTÉES PAR FENÊTRE. Un compteur et non un booléen : on peut recliquer la croix,
+   * et un booléen déjà posé ne redéclencherait rien. C'est l'ÉDITEUR qui ferme pour de bon, par `onFerme`.
+   */
+  const [fermetures, setFermetures] = useState<Map<string, number>>(new Map());
 
   /**
    * OUVRIR une fenêtre. Rend le MOTIF du refus quand il y en a déjà deux — jamais `false` muet : un clic sans
@@ -198,11 +214,17 @@ export function useFenetresRedaction() {
   const fermerLa = (cle: string): void => {
     setFenetres((f) => fermerFenetre(f, cle));
     setBrouillons((m) => { const n = new Map(m); n.delete(cle); return n; });
+    setFermetures((m) => { const n = new Map(m); n.delete(cle); return n; });
+  };
+
+  /** La croix a été pressée : on le DIT à l'éditeur, qui fermera par sa propre porte (et abandonnera s'il faut). */
+  const demanderFermeture = (cle: string): void => {
+    setFermetures((m) => new Map(m).set(cle, (m.get(cle) ?? 0) + 1));
   };
 
   const changerLEtat = (cle: string, etat: EtatFenetre): void => {
     setFenetres((f) => changerEtat(f, cle, etat));
   };
 
-  return { fenetres, brouillons, ouvrirFenetre, majBrouillon, fermerLa, changerLEtat };
+  return { fenetres, brouillons, fermetures, ouvrirFenetre, majBrouillon, fermerLa, demanderFermeture, changerLEtat };
 }

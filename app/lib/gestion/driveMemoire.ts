@@ -45,15 +45,82 @@ interface Entree<T> { valeur: T; expireA: number }
 const metadonnees = new Map<string, Entree<Resultat<MetaFichier>>>();
 const chaines = new Map<string, Entree<{ id: string; nom: string; parentId: string | null }[]>>();
 
+/**
+ * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ * 🔴🔴 LOT APERCU-PAGE1 — UNE MÉMOIRE DES OCTETS, ET LÀ IL S'AGIT BIEN DU CONTENU D'UN DOCUMENT CLIENT.
+ *
+ * CE QUI L'A RENDUE NÉCESSAIRE, mesuré le 29/09/2026 depuis la page elle-même, sur le vrai Drive :
+ *
+ *     document                         ouverture par PDF.js   tramage de la page 1   TOTAL
+ *     Acte de propriété.pdf (3,3 Mo)        1 117 ms                  46 ms        1 163 ms
+ *     Charges 2025.2026.pdf (1,4 Mo)        1 407 ms                 105 ms        1 512 ms
+ *     Carte identite.pdf (410 ko)           1 095 ms                 155 ms        1 250 ms
+ *     Avis d’impôt 2019 (99 ko)             1 049 ms                  57 ms        1 106 ms
+ *
+ * 🔴 LA PAGE 1 SE TRAME EN 46 À 155 MILLISECONDES. Tout le reste est le trajet des octets depuis Google — environ
+ * une seconde, QUELLE QUE SOIT LA TAILLE : c'est de la latence, pas du débit. Et on la repayait ENTIÈREMENT à
+ * chaque réouverture du même document, et à chaque retour par « Précédent ».
+ *
+ * ⚠️ LA MÉMOIRE NE DISPENSE JAMAIS DU VERDICT. La route prononce l'interdit de « Documents clients scannés » AVANT
+ * de regarder ici : la mémoire ne rend des octets qu'à quelqu'un qui vient d'obtenir le droit de les lire. Elle
+ * épargne le TRANSPORT, jamais la règle.
+ *
+ * ⚠️ LA CLÉ PORTE LE SUJET, comme pour les métadonnées : Google applique les droits de la personne au nom de qui
+ * l'on agit, et deux collaborateurs ne voient pas le même Drive. Elle porte aussi la TAILLE du fichier : un
+ * document réécrit entre-temps change presque toujours de taille, et la durée de vie borne le reste à une minute.
+ *
+ * 🔒 EN MÉMOIRE DU PROCESSUS, ET NULLE PART AILLEURS : rien sur le disque, rien dans le Drive, tout meurt avec le
+ * processus. Le plafond total est volontairement petit — c'est un tampon de parcours, pas un stockage.
+ * ══════════════════════════════════════════════════════════════════════════════════════════════════════════════
+ */
+/** Au-delà, on ne retient pas : un seul gros document chasserait tout le reste pour un gain d'une seule ouverture. */
+export const OCTETS_MAX_FICHIER = 12 * 1024 * 1024;
+/** Le plafond de l'ensemble. Atteint, on oublie les plus anciennement posés jusqu'à repasser dessous. */
+export const OCTETS_MAX_TOTAL = 32 * 1024 * 1024;
+
+const octets = new Map<string, Entree<Uint8Array>>();
+
 /** Pour les tests, et pour une passe qui voudrait repartir à neuf. Sans effet sur le Drive. */
 export function oublierLeDrive(): void {
   metadonnees.clear();
   chaines.clear();
+  octets.clear();
 }
 
 /** Combien d'entrées sont retenues. Sert aux mesures et aux tests — jamais à l'écran. */
-export function tailleMemoire(): { metadonnees: number; chaines: number } {
-  return { metadonnees: metadonnees.size, chaines: chaines.size };
+export function tailleMemoire(): { metadonnees: number; chaines: number; octets: number; octetsTotal: number } {
+  let total = 0;
+  for (const e of octets.values()) total += e.valeur.byteLength;
+  return { metadonnees: metadonnees.size, chaines: chaines.size, octets: octets.size, octetsTotal: total };
+}
+
+/** La clé d'un contenu. Le sujet ferme la fuite entre collaborateurs, la taille borne le risque de péremption. */
+export function cleOctets(sujet: string, fichierId: string, taille: number | null): string {
+  return `${sujet}|${fichierId}|${taille ?? '?'}`;
+}
+
+/** Les octets retenus pour ce fichier, ou `null`. Le verdict a DÉJÀ été prononcé par l'appelant. */
+export function octetsMemo(cle: string, maintenant = Date.now()): Uint8Array | null {
+  return lire(octets, cle, maintenant);
+}
+
+/**
+ * RETIENT les octets d'un document, si la place le permet.
+ *
+ * ⚠️ ON N'ÉVINCE QUE POUR FAIRE DE LA PLACE, et dans l'ordre où les entrées ont été posées : la carte de
+ * JavaScript conserve cet ordre, ce qui suffit ici et évite d'inventer un compteur d'usage.
+ */
+export function memoriserOctets(cle: string, valeur: Uint8Array, maintenant = Date.now()): void {
+  if (valeur.byteLength === 0 || valeur.byteLength > OCTETS_MAX_FICHIER) return;
+  octets.delete(cle);
+  let total = valeur.byteLength;
+  for (const e of octets.values()) total += e.valeur.byteLength;
+  for (const [k] of octets) {
+    if (total <= OCTETS_MAX_TOTAL) break;
+    total -= octets.get(k)?.valeur.byteLength ?? 0;
+    octets.delete(k);
+  }
+  octets.set(cle, { valeur, expireA: maintenant + MEMOIRE_MS });
 }
 
 function lire<T>(carte: Map<string, Entree<T>>, cle: string, maintenant: number): T | null {

@@ -557,10 +557,14 @@ describe('🔴🔴 ① « Visualiser » n’interrompt jamais la navigation', ()
     await monter();
     await cliquer(visualiserDe('bail.pdf'));
     expect(urlsCreees).toBe(0);
-    // Le cadre pointe sur NOTRE route — jamais sur Google, jamais sur une URL d'objet.
-    const cadre = container.querySelector('.apd-cadre') as HTMLIFrameElement | null;
-    expect(cadre?.getAttribute('src')).toContain('/api/admin/gestion/drive/apercu?fichier=f1');
-    expect(cadre?.getAttribute('src')).not.toContain('blob:');
+    /**
+     * ⚠️ LOT APERCU-PAGE1 — LE PDF N'EST PLUS DANS UN CADRE : il est lu par NOTRE lecteur, page par page. Le
+     * cadre natif attendait le fichier entier puis décodait toutes les pages avant d'en peindre une (2 à 5 s
+     * mesurées). La propriété protégée ici est la même, et elle vaut pour les deux : rien du document ne
+     * s'accumule en mémoire de l'onglet, et aucune URL d'objet n'est fabriquée.
+     */
+    expect(container.querySelector('.lpd')).not.toBeNull();
+    expect(container.querySelector('.apd-cadre')).toBeNull();
     await cliquer(container.querySelector('.apd-croix'));
     expect(urlsRevoquees).toBe(0);
   });

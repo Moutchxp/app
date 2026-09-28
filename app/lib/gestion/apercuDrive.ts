@@ -213,3 +213,37 @@ export function voisinVers(
   const j = i + pas;
   return j >= 0 && j < voisins.length ? voisins[j].id : null;
 }
+
+/**
+ * ══ 🔴 LOT APERCU-PAGE1 — LIRE UN EN-TÊTE `Range`, POUR SERVIR UNE TRANCHE DEPUIS LA MÉMOIRE. PUR. ═════════════
+ *
+ * ⚠️ ON NE TRAITE QU'UNE SEULE PLAGE, et c'est délibéré : c'est la seule forme qu'un navigateur ou PDF.js émettent
+ * pour un document, et répondre à des plages multiples imposerait un corps `multipart/byteranges` que personne ne
+ * demande ici. Toute autre forme rend `null`, et l'appelant sert alors le fichier entier — jamais une erreur.
+ *
+ * Les trois formes reconnues, telles que la RFC les définit :
+ *   · `bytes=0-65535`  un début et une fin (la fin est INCLUSE) ;
+ *   · `bytes=65536-`   depuis un point, jusqu'au bout ;
+ *   · `bytes=-2048`    les N DERNIERS octets — c'est ainsi que PDF.js va chercher la table d'index, qui est à la
+ *     fin d'un PDF. L'oublier ferait retomber sur le fichier entier à chaque ouverture.
+ */
+export function lireIntervalle(
+  entete: string | null, taille: number,
+): { debut: number; fin: number } | null {
+  if (entete === null || taille <= 0) return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(entete.trim());
+  if (m === null) return null;
+  const [, a, b] = m;
+  if (a === '' && b === '') return null;
+  // `bytes=-N` : les N derniers octets. N plus grand que le fichier vaut le fichier entier, comme le veut la RFC.
+  if (a === '') {
+    const n = Number(b);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return { debut: Math.max(0, taille - n), fin: taille - 1 };
+  }
+  const debut = Number(a);
+  if (!Number.isFinite(debut) || debut >= taille) return null;
+  const fin = b === '' ? taille - 1 : Math.min(Number(b), taille - 1);
+  if (!Number.isFinite(fin) || fin < debut) return null;
+  return { debut, fin };
+}

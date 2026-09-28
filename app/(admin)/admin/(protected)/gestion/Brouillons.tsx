@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { dateHeureComplete, dateHeureCourte } from '../../../../lib/gestion/ecran';
 import type { VoieRedaction } from '../../../../lib/gestion/redaction';
+import { ordonnerBrouillons, type BrouillonEnregistre } from '../../../../lib/gestion/brouillonReprise';
 
 /**
  * LOT 5e — LA LISTE DES BROUILLONS, sous son étiquette.
@@ -15,14 +16,13 @@ import type { VoieRedaction } from '../../../../lib/gestion/redaction';
  * message. Une ligne « (sans objet) · (aucun destinataire) » ne permettrait pas de reconnaître le sien.
  */
 
-export interface BrouillonListe {
-  id: number;
-  filId: number | null;
+/**
+ * 🔴 LA LIGNE PORTE DÉSORMAIS TOUT LE BROUILLON. Elle n'en nommait qu'un résumé (objet, corps, destinataires « À »),
+ * parce qu'elle ne servait qu'à l'AFFICHER. Depuis qu'un clic le ROUVRE, il lui faut aussi les copies, la mise en
+ * forme et la citation : la route les rendait déjà, l'écran les jetait.
+ */
+export interface BrouillonListe extends BrouillonEnregistre {
   voie: VoieRedaction;
-  a: string[];
-  objet: string;
-  corps: string;
-  majLe: string;
 }
 
 const LIBELLE_VOIE: Record<VoieRedaction, string> = {
@@ -40,10 +40,17 @@ export function resumerBrouillon(b: Pick<BrouillonListe, 'objet' | 'corps' | 'a'
   return b.a.length > 0 ? `à ${b.a.join(', ')}` : '(message vide)';
 }
 
-export function Brouillons({ maintenant, onOuvrir, onChange }: {
+export function Brouillons({ maintenant, onOuvrir, onReprendre, onChange }: {
   maintenant: Date;
   /** Ouvrir l'échange du brouillon. `null` = brouillon hors fil : il n'y a pas de conversation à rouvrir. */
   onOuvrir: (filId: number) => void;
+  /**
+   * 🔴🔴 ROUVRIR LE BROUILLON LUI-MÊME, DANS L'ÉDITEUR — ce que la liste ne savait pas faire.
+   *
+   * Elle n'offrait qu'un retour vers la CONVERSATION, et seulement quand il y en avait une : un message neuf,
+   * c'est-à-dire la moitié des brouillons, n'était pas même cliquable. Le travail était enregistré et irrécupérable.
+   */
+  onReprendre: (b: BrouillonListe) => void;
   /** Un brouillon abandonné change le compteur de l'étiquette : l'écran parent le relit. */
   onChange: () => void;
 }) {
@@ -55,7 +62,8 @@ export function Brouillons({ maintenant, onOuvrir, onChange }: {
       const res = await fetch('/api/admin/gestion/brouillons', { cache: 'no-store' });
       if (!res.ok) return { v: 'erreur' };
       const d = (await res.json()) as { brouillons?: BrouillonListe[] };
-      return { v: 'ok', liste: d.brouillons ?? [] };
+      // DU PLUS RÉCEMMENT MODIFIÉ AU PLUS ANCIEN. La base rend déjà cet ordre ; l'écran ne s'en remet pas à elle.
+      return { v: 'ok', liste: ordonnerBrouillons(d.brouillons ?? []) };
     } catch { return { v: 'erreur' }; }
   };
   const lire = async () => { setEtat(await chercher()); };
@@ -94,10 +102,11 @@ export function Brouillons({ maintenant, onOuvrir, onChange }: {
         {etat.liste.map((b) => (
           <li key={b.id} className="gst-item">
             <div className="gst-item-haut">
-              {/* Un brouillon rattaché à un échange s'ouvre DANS son échange : c'est là qu'on le reprendra. */}
-              {b.filId !== null
-                ? <button type="button" className="gst-objet gst-objet-bouton" onClick={() => onOuvrir(b.filId as number)}>{resumerBrouillon(b)}</button>
-                : <span className="gst-objet">{resumerBrouillon(b)}</span>}
+              {/* 🔴🔴 LE CLIC ROUVRE LE BROUILLON, TOUJOURS. Il ne rouvrait que la CONVERSATION, et seulement quand
+                  il y en avait une — un message neuf n'était pas cliquable du tout. On revient sur son texte, ses
+                  destinataires, sa mise en forme et ses pièces, dans l'éditeur ordinaire. */}
+              <button type="button" className="gst-objet gst-objet-bouton"
+                onClick={() => onReprendre(b)}>{resumerBrouillon(b)}</button>
             </div>
             <div className="gst-item-bas">
               <span>{LIBELLE_VOIE[b.voie]}</span>
@@ -107,6 +116,13 @@ export function Brouillons({ maintenant, onOuvrir, onChange }: {
               {b.filId === null && <><span className="gst-sep" aria-hidden="true">·</span><span>hors échange</span></>}
             </div>
             <div className="gst-actions">
+              {/* ⚠️ RIEN N'EST RETIRÉ : le retour vers la CONVERSATION — ce que faisait le clic sur l'objet — garde
+                  sa place, sous son propre mot. Il ne pouvait pas rester sur l'objet, qui rouvre maintenant le
+                  brouillon ; le supprimer aurait fait perdre un chemin qui existait. */}
+              {b.filId !== null && (
+                <button type="button" className="svv-btn svv-btn-outline gst-btn"
+                  onClick={() => onOuvrir(b.filId as number)}>Voir la conversation</button>
+              )}
               {/* « Abandonner », et non « Supprimer » : le mot dit ce qui se passe vraiment — le brouillon est daté,
                   il quitte la liste, il reste en base. Appeler cela « supprimer » serait un mensonge. */}
               <button type="button" className="svv-btn svv-btn-outline gst-btn"

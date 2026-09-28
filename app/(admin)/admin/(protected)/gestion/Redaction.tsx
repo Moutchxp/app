@@ -74,7 +74,15 @@ type Etat =
   | { v: 'echec'; motif: string };
 
 /** Ce que l'écran garde du brouillon, plus son identifiant en base une fois enregistré. */
-export interface BrouillonEcran extends Brouillon { id: number | null }
+/**
+ * 🔴 `repris` — CE BROUILLON VIENT DE LA BASE, L'ÉDITEUR NE L'A PAS CRÉÉ.
+ *
+ * L'éditeur abandonne, à la fermeture, un brouillon que personne n'a touché (règle du lot BROUILLON-SILENCIEUX :
+ * c'est elle qui empêche de semer des lignes vides). Un brouillon ROUVERT part exactement de ce qu'il contient :
+ * l'écart avec « ce que l'éditeur a pré-rempli » est nul, et la règle, prise au mot, l'abandonnerait pour l'avoir
+ * seulement REGARDÉ. Absent ou faux ⇒ comportement d'avant, mot pour mot.
+ */
+export interface BrouillonEcran extends Brouillon { id: number | null; repris?: boolean }
 
 /**
  * UN CHAMP DE DESTINATAIRES. Autant d'adresses que voulu, chacune en PASTILLE retirable — et le « × » est visible en
@@ -219,7 +227,9 @@ export function ChampDestinataires({ libelle, valeurs, onChange, suggestions, on
   );
 }
 
-export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, onGeste, dansFenetre = false }: {
+export function Redaction({
+  brouillon, contexte, onChange, onFerme, onEnvoye, onGeste, dansFenetre = false, fermetureDemandee = 0,
+}: {
   brouillon: BrouillonEcran;
   contexte: ContexteRedactionEcran;
   onChange: (b: BrouillonEcran) => void;
@@ -232,6 +242,12 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
    * exactement comme avant ce lot.
    */
   dansFenetre?: boolean;
+  /**
+   * 🔴 LA CROIX DE LA FENÊTRE, COMPTÉE. Chaque incrément est une demande de fermeture venue du CADRE (la barre de
+   * titre d'une fenêtre flottante). L'éditeur la traite par `fermer` — la même porte que « Garder en brouillon » —
+   * pour qu'un brouillon resté vide soit abandonné quelle que soit la croix employée. `0` = aucune demande.
+   */
+  fermetureDemandee?: number;
 }) {
   const [etat, setEtat] = useState<Etat>({ v: 'ecriture' });
   const [copies, setCopies] = useState(brouillon.cc.length > 0 || brouillon.cci.length > 0);
@@ -394,8 +410,22 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
   const cleOrigine = useRef(cleBrouillon);
   if (cleOrigine.current !== cleBrouillon) { cleOrigine.current = cleBrouillon; origine.current = brouillon; }
 
-  /** A-t-on saisi quelque chose ? La seule question qui décide qu'un brouillon mérite d'exister. */
-  const touche = brouillonTouche(origine.current, brouillon, piecesJointes > 0);
+  /**
+   * A-t-on saisi quelque chose ? La seule question qui décide qu'un brouillon mérite d'exister.
+   *
+   * ══ 🔴 LES PIÈCES D'UN BROUILLON ROUVERT NE SONT PAS UNE SAISIE ═══════════════════════════════════════════════
+   *
+   * DÉFAUT VU À L'ÉCRAN LE 29/09/2026, une minute après avoir livré la réouverture : rouvrir un brouillon qui
+   * portait quatorze pièces suffisait à le FAIRE REMONTER EN TÊTE DE LISTE. « Joindre est une saisie » (lot
+   * EDITEUR-PJ) est vrai quand on vient de joindre ; appliqué à des pièces DÉJÀ LÀ, il déclarait « touché » un
+   * brouillon qu'on avait seulement ouvert, l'enregistrement automatique repartait, et `maj_le` était réécrite.
+   * On changeait la date de dernière modification d'un travail qu'on venait de regarder.
+   *
+   * ⚠️ RIEN N'EST PERDU POUR AUTANT : une pièce ajoutée à un brouillon rouvert est écrite par SA propre route
+   * (`POST …/pieces`), qui n'attend pas l'enregistrement du texte. Et modifier le texte, l'objet ou un
+   * destinataire rend bien « touché » — c'est la comparaison au contenu rouvert qui le dit.
+   */
+  const touche = brouillonTouche(origine.current, brouillon, brouillon.repris !== true && piecesJointes > 0);
 
   const aEnregistrer = useRef<BrouillonEcran>(brouillon);
   // Le ref suit le brouillon DANS UN EFFET, jamais pendant le rendu : React interdit d'écrire un ref au rendu, et
@@ -550,14 +580,52 @@ export function Redaction({ brouillon, contexte, onChange, onFerme, onEnvoye, on
     onFerme();
   };
 
+  /**
+   * ══ 🔴🔴 FERMER : UN BROUILLON RESTÉ VIDE EST ABANDONNÉ, PAR QUELQUE CROIX QU'ON PASSE ════════════════════════
+   *
+   * DEUX CORRECTIONS ICI, le 29/09/2026, et chacune répare une façon différente de laisser une ligne vide en base.
+   *
+   * ① L'IDENTIFIANT EST LU DANS LA RÉFÉRENCE D'ABORD. Il était lu dans la propriété `brouillon.id`, qui n'arrive
+   *    qu'au rendu SUIVANT la création (elle remonte par `onChange`). Fermer juste après avoir joint une pièce puis
+   *    l'avoir retirée trouvait donc `null`, et n'abandonnait rien. `supprimerBrouillon`, deux fonctions plus haut,
+   *    lisait déjà la référence : les deux gestes lisent désormais la même chose.
+   *
+   * ② UN BROUILLON ROUVERT N'EST JAMAIS ABANDONNÉ. Il part de ce qu'il contient, donc « rien n'a été touché » est
+   *    vrai dès la première seconde. Sans cette garde, ouvrir un brouillon pour le RELIRE l'effacerait de la liste.
+   *
+   * 🔴 ET UN BROUILLON AVEC DU CONTENU N'EST JAMAIS PERDU : on n'abandonne QUE si rien n'a été saisi. En cas de
+   * doute — l'appel échoue, le réseau tombe — on ferme quand même et on ne touche à rien. Perdre un brouillon écrit
+   * serait bien pire que d'en laisser un vide.
+   */
   const fermer = async () => {
-    if (!touche && brouillon.id !== null) {
+    const id = aEnregistrer.current.id ?? brouillon.id;
+    if (!touche && brouillon.repris !== true && id !== null) {
       try {
-        await fetch(`/api/admin/gestion/brouillons?id=${brouillon.id}`, { method: 'DELETE' });
+        await fetch(`/api/admin/gestion/brouillons?id=${id}`, { method: 'DELETE' });
       } catch { /* silence : on ferme de toute façon, et la ligne restera simplement en base */ }
     }
     onFerme();
   };
+
+  /**
+   * ══ 🔴🔴 LA CROIX DE LA FENÊTRE PASSE PAR LA MÊME PORTE ═══════════════════════════════════════════════════════
+   *
+   * LE DÉFAUT, trouvé en cherchant d'où venaient les brouillons vides du 28/09 : dans une fenêtre flottante, la
+   * croix de la barre de titre fermait la fenêtre DIRECTEMENT, sans passer par `fermer`. Tout le raisonnement
+   * ci-dessus était donc contourné par le geste le plus naturel — celui qu'on fait sans réfléchir. « Garder en
+   * brouillon » l'appliquait ; la croix, non. Deux façons de fermer, deux comportements, et un seul des deux dit.
+   *
+   * ⚠️ UN COMPTEUR, PAS UN BOOLÉEN : la fenêtre peut demander la fermeture plusieurs fois (on reclique), et un
+   * booléen déjà à `vrai` ne redéclencherait rien. Zéro = personne n'a rien demandé, et c'est le cas ordinaire.
+   */
+  const fermetureVue = useRef(fermetureDemandee);
+  useEffect(() => {
+    if (fermetureDemandee === fermetureVue.current) return;
+    fermetureVue.current = fermetureDemandee;
+    void fermer();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- volontaire : SEULE une nouvelle demande agit. Suivre
+    //   `fermer` (qui change d'identité à chaque frappe) fermerait la fenêtre pendant qu'on écrit.
+  }, [fermetureDemandee]);
 
   const chercherCorrespondants = useCallback((q: string) => {
     if (q.trim().length < 2) { setSuggestions([]); return; }

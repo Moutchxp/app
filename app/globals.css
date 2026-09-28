@@ -28,6 +28,11 @@
   /* LOT 37 — tokens de SURFACE + sens ajoutés pour le thème sombre. Valeurs CLAIRES ici = état actuel exact (aucun changement en
      clair) ; le bloc `[data-theme='dark']` plus bas (scopé à .svv-adm-root) les bascule. */
   --color-svv-surface: #ffffff;              /* fond des cartes/panneaux/boutons clairs (ex-#fff en dur) */
+  /* LOT APERCU-PAGE1 — le PAPIER d'un document affiché (page de PDF).
+     ⚠️ IL NE SUIT PAS LE THÈME, et c'est exprès : la page d'un acte notarié est blanche en mode sombre comme en
+     mode clair. La teinter reviendrait à teinter le document lui-même — on montre le document, pas notre décor.
+     Il n'est donc PAS redéfini dans les blocs sombres, volontairement. */
+  --color-svv-page: #ffffff;
   --color-svv-surface-raised: #ffffff;       /* surface « surélevée » : sous-lignes détachées de leur conteneur (Analyse) — BLANC en clair ; en sombre, un cran PLUS CLAIR que le conteneur (field) */
   --color-svv-bg: #ffffff;                   /* fond de page de l'admin */
   --color-svv-line-strong: #d7dbe1;          /* bordure de .svv-btn-outline (ex-#d7dbe1) */
